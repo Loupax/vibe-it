@@ -31,7 +31,7 @@ use selectors::{Element as SelectorsElement, OpaqueElement};
 use softbuffer::{Context, Surface};
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
-use winit::event::WindowEvent;
+use winit::event::{MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop};
 use winit::window::{Window, WindowId};
 
@@ -1065,6 +1065,7 @@ struct App {
     surface: Option<Surface<Rc<Window>, Rc<Window>>>,
     font_system: FontSystem,
     swash_cache: SwashCache,
+    scroll_offset: f32,
 }
 
 impl App {
@@ -1076,6 +1077,7 @@ impl App {
             surface: None,
             font_system: FontSystem::new(),
             swash_cache: SwashCache::new(),
+            scroll_offset: 0.0,
         }
     }
 
@@ -1089,6 +1091,7 @@ impl App {
             surface: None,
             font_system: FontSystem::new(),
             swash_cache: SwashCache::new(),
+            scroll_offset: 0.0,
         }
     }
 
@@ -1107,6 +1110,9 @@ impl App {
         let tree = build_layout_tree(&self.document);
         let mut laid = measure(&tree, &mut self.font_system, 0.0, 0.0, width as f32);
 
+        let max_scroll = (laid.h - height as f32).max(0.0);
+        self.scroll_offset = self.scroll_offset.clamp(0.0, max_scroll);
+
         let mut pixels = surface.buffer_mut().unwrap();
         for pixel in pixels.iter_mut() {
             *pixel = 0x00FFFFFF;
@@ -1119,7 +1125,7 @@ impl App {
             &mut pixels,
             width,
             height,
-            0.0,
+            self.scroll_offset,
         );
 
         pixels.present().unwrap();
@@ -1167,6 +1173,19 @@ impl ApplicationHandler<AppEvent> for App {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::RedrawRequested => self.redraw(),
             WindowEvent::Resized(_) => {
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
+            }
+            WindowEvent::MouseWheel { delta, .. } => {
+                let dy = match delta {
+                    MouseScrollDelta::LineDelta(_, y) => y * 40.0,
+                    MouseScrollDelta::PixelDelta(pos) => pos.y as f32,
+                };
+                self.scroll_offset -= dy;
+                if self.scroll_offset < 0.0 {
+                    self.scroll_offset = 0.0;
+                }
                 if let Some(window) = &self.window {
                     window.request_redraw();
                 }
