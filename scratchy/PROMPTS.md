@@ -137,3 +137,83 @@ deferred in v1.
 
 **Deliverable:** modifications to `scratchy`'s existing `main.rs`/
 `Cargo.toml` implementing exactly the above.
+
+---
+
+## v4 — box model & block/inline layout
+
+**Reference material:**
+- CSS Box Model Module Level 3 (https://www.w3.org/TR/css-box-3/)
+- CSS Display Module Level 3 — block/inline box generation, anonymous
+  boxes (https://www.w3.org/TR/css-display-3/)
+- CSS 2.1 Visual Formatting Model / normal flow
+  (https://www.w3.org/TR/CSS2/visuren.html,
+  https://www.w3.org/TR/CSS2/box.html)
+- Structural reference (approach only, not copied): Servo's layout crate
+
+**Requirements:**
+1. **Extend the existing cascade** (from v3) to also resolve, per element:
+   `display` (`block` | `inline` | `none`), `background-color`, `margin`,
+   `padding`, `border-width`, `border-color`. Reuse the same
+   selector-matching/specificity/source-order machinery already built —
+   don't build a parallel system.
+2. **These new properties do not inherit** (unlike `color`): each
+   element's value is either explicitly set or its initial/default, never
+   taken from its parent.
+3. **Default `display` per tag**, since there's no full user-agent
+   stylesheet — a small hardcoded table: `html, body, div, p, h1–h6, ul,
+   ol, li, blockquote, pre, header, footer, section, article, nav, aside,
+   figure, figcaption, table, form, hr` default to `block`; everything
+   else defaults to `inline`. Author CSS can override this via the
+   `display` property.
+4. **`display: none`** means no box at all — the element and its whole
+   subtree are skipped in layout and painting, not just invisible.
+5. **Lengths:** only `px` and unitless `0` are supported for
+   margin/padding/border-width. Percentages, `em`, `rem`, and other units
+   are out of scope.
+6. **No explicit sizing:** `width`/`height` properties are out of scope —
+   every block box takes the full available content width of its
+   containing block (normal `width: auto` behavior).
+7. **Layout tree:** build a tree of boxes from the DOM. A block-level
+   child starts a new box; consecutive inline-level children (including
+   text) directly inside a box are grouped into one anonymous inline run,
+   laid out as wrapped colored text (reusing the existing cosmic-text
+   rich-text path from v3).
+8. **Block layout (normal flow only):** child boxes stack vertically,
+   each full container width. No margin collapsing — margins are summed
+   naively, not collapsed per spec. No floats, no positioning
+   (`relative`/`absolute`/`fixed`), no flexbox/grid.
+9. **Painting:** for each box, paint `background-color` (if set) across
+   its border box, then its border (if `border-width` > 0 — uniform
+   solid rectangle strokes on all four sides, no per-side styling, no
+   border-radius), then its content (text, or recurse into block
+   children).
+10. **Streaming is preserved:** re-run layout and repaint from scratch on
+    each stdin chunk, same "simplicity over incremental diffing" policy
+    as v2/v3.
+11. **No scrolling yet** — content taller than the window is still
+    clipped; that's v5.
+
+**Deliverable:** modifications to `scratchy`'s existing `main.rs`/
+`Cargo.toml` implementing exactly the above.
+
+---
+
+## v5 — scrolling
+
+**Requirements:**
+1. Track a vertical scroll offset in pixels, clamped to
+   `[0, max(0, total_content_height - window_height)]`.
+2. **Input:** mouse wheel only (`WindowEvent::MouseWheel`, handling both
+   winit's pixel-delta and line-delta variants). Keyboard scrolling
+   (arrows/Page Up/Down/Home/End) is out of scope — a separate future
+   feature.
+3. **Painting:** shift every box's painted Y position by `-offset`;
+   content above/below the viewport is clipped exactly as before.
+4. **Re-clamp the offset** whenever the window resizes or content changes
+   (new stdin chunks can change total content height).
+5. **No scrollbar UI** — no visual indicator of scroll position. That's
+   chrome, out of scope like the rest of the browser shell.
+
+**Deliverable:** modifications to `scratchy`'s existing `main.rs`/
+`Cargo.toml` implementing exactly the above.

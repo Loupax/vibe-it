@@ -8,7 +8,7 @@ use std::thread;
 use cosmic_text::{Attrs, Buffer, Color as TextColor, FontSystem, Metrics, Shaping, SwashCache};
 use cssparser::{
     AtRuleParser, CowRcStr, DeclarationParser, ParseError, Parser as CssParser, ParserState,
-    QualifiedRuleParser, RuleBodyItemParser, RuleBodyParser, StyleSheetParser,
+    QualifiedRuleParser, RuleBodyItemParser, RuleBodyParser, StyleSheetParser, Token,
 };
 use cssparser_color::Color as CssColor;
 use html5ever::driver::{parse_document, ParseOpts, Parser};
@@ -356,13 +356,39 @@ impl SelectorsElement for El {
 
 // ---------- CSS parsing ----------
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Display {
+    Block,
+    Inline,
+    None,
+}
+
+#[derive(Clone, Copy, Default)]
+struct Declarations {
+    color: Option<CssColor>,
+    background_color: Option<CssColor>,
+    display: Option<Display>,
+    margin: Option<f32>,
+    padding: Option<f32>,
+    border_width: Option<f32>,
+    border_color: Option<CssColor>,
+}
+
 struct StyleRule {
     selectors: SelectorList<OurSelectorImpl>,
-    color: Option<CssColor>,
+    decls: Declarations,
+}
+
+fn parse_px_length(input: &mut CssParser) -> Result<f32, ()> {
+    match input.next().map_err(|_| ())? {
+        Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("px") => Ok(*value),
+        Token::Number { value, .. } if *value == 0.0 => Ok(0.0),
+        _ => Err(()),
+    }
 }
 
 struct DeclParser<'a> {
-    color: &'a mut Option<CssColor>,
+    decls: &'a mut Declarations,
 }
 
 impl<'i> DeclarationParser<'i> for DeclParser<'_> {
@@ -376,8 +402,40 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
         _declaration_start: &ParserState,
     ) -> Result<Self::Declaration, ParseError<Self::Error>> {
         if name.eq_ignore_ascii_case("color") {
-            if let Ok(color) = CssColor::parse(input) {
-                *self.color = Some(color);
+            if let Ok(c) = CssColor::parse(input) {
+                self.decls.color = Some(c);
+            }
+        } else if name.eq_ignore_ascii_case("background-color") {
+            if let Ok(c) = CssColor::parse(input) {
+                self.decls.background_color = Some(c);
+            }
+        } else if name.eq_ignore_ascii_case("border-color") {
+            if let Ok(c) = CssColor::parse(input) {
+                self.decls.border_color = Some(c);
+            }
+        } else if name.eq_ignore_ascii_case("display") {
+            if let Ok(ident) = input.expect_ident() {
+                self.decls.display = if ident.eq_ignore_ascii_case("block") {
+                    Some(Display::Block)
+                } else if ident.eq_ignore_ascii_case("inline") {
+                    Some(Display::Inline)
+                } else if ident.eq_ignore_ascii_case("none") {
+                    Some(Display::None)
+                } else {
+                    None
+                };
+            }
+        } else if name.eq_ignore_ascii_case("margin") {
+            if let Ok(v) = parse_px_length(input) {
+                self.decls.margin = Some(v);
+            }
+        } else if name.eq_ignore_ascii_case("padding") {
+            if let Ok(v) = parse_px_length(input) {
+                self.decls.padding = Some(v);
+            }
+        } else if name.eq_ignore_ascii_case("border-width") {
+            if let Ok(v) = parse_px_length(input) {
+                self.decls.border_width = Some(v);
             }
         }
         Ok(())
@@ -405,15 +463,15 @@ impl<'i> RuleBodyItemParser<'i, (), CssError> for DeclParser<'_> {
     }
 }
 
-fn parse_declarations(source: &str) -> Option<CssColor> {
-    let mut color = None;
+fn parse_declarations(source: &str) -> Declarations {
+    let mut decls = Declarations::default();
     {
         let mut input = CssParser::new(source);
-        let mut decl_parser = DeclParser { color: &mut color };
+        let mut decl_parser = DeclParser { decls: &mut decls };
         let mut iter = RuleBodyParser::new(&mut input, &mut decl_parser);
         while iter.next().is_some() {}
     }
-    color
+    decls
 }
 
 struct TopLevelParser;
@@ -444,15 +502,15 @@ impl<'i> QualifiedRuleParser<'i> for TopLevelParser {
         _start: &ParserState,
         input: &mut CssParser<'i>,
     ) -> Result<Self::QualifiedRule, ParseError<Self::Error>> {
-        let mut color = None;
+        let mut decls = Declarations::default();
         {
-            let mut decl_parser = DeclParser { color: &mut color };
+            let mut decl_parser = DeclParser { decls: &mut decls };
             let mut iter = RuleBodyParser::new(input, &mut decl_parser);
             while iter.next().is_some() {}
         }
         Ok(StyleRule {
             selectors: prelude,
-            color,
+            decls,
         })
     }
 }
@@ -482,7 +540,295 @@ fn to_text_color(color: &CssColor) -> Option<TextColor> {
     }
 }
 
-// ---------- cascade + text extraction ----------
+// ---------- cascade ----------
+
+#[derive(Clone, Copy)]
+struct ComputedStyle {
+    color: TextColor,
+    background_color: Option<TextColor>,
+    display: Display,
+    margin: f32,
+    padding: f32,
+    border_width: f32,
+    border_color: Option<TextColor>,
+}
+
+const BLOCK_TAGS: &[&str] = &[
+    "html",
+    "body",
+    "div",
+    "p",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "ul",
+    "ol",
+    "li",
+    "blockquote",
+    "pre",
+    "header",
+    "footer",
+    "section",
+    "article",
+    "nav",
+    "aside",
+    "figure",
+    "figcaption",
+    "table",
+    "form",
+    "hr",
+];
+
+fn default_display(tag: &str) -> Display {
+    if BLOCK_TAGS.contains(&tag) {
+        Display::Block
+    } else {
+        Display::Inline
+    }
+}
+
+fn cascade_property<T: Clone>(
+    matches: &[(u32, &Declarations)],
+    inline: Option<T>,
+    get: impl Fn(&Declarations) -> Option<T>,
+) -> Option<T> {
+    if inline.is_some() {
+        return inline;
+    }
+    let mut best: Option<(u32, T)> = None;
+    for &(specificity, decls) in matches {
+        if let Some(v) = get(decls) {
+            if best.as_ref().map_or(true, |(s, _)| specificity >= *s) {
+                best = Some((specificity, v));
+            }
+        }
+    }
+    best.map(|(_, v)| v)
+}
+
+fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited_color: TextColor) -> ComputedStyle {
+    let tag = match &handle.data {
+        NodeData::Element { name, .. } => name.local.as_ref(),
+        _ => "",
+    };
+
+    let element = El(handle.clone());
+    let mut caches = SelectorCaches::default();
+    let mut matches: Vec<(u32, &Declarations)> = Vec::new();
+    for rule in rules {
+        let mut ctx = MatchingContext::new(
+            MatchingMode::Normal,
+            None,
+            &mut caches,
+            QuirksMode::NoQuirks,
+            NeedsSelectorFlags::No,
+            MatchingForInvalidation::No,
+        );
+        if matches_selector_list(&rule.selectors, &element, &mut ctx) {
+            let specificity = rule
+                .selectors
+                .slice()
+                .iter()
+                .map(|s| s.specificity())
+                .max()
+                .unwrap_or(0);
+            matches.push((specificity, &rule.decls));
+        }
+    }
+
+    let inline_decls = element_attr(handle, "style").map(|s| parse_declarations(&s));
+
+    let color = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.color), |d| d.color)
+        .and_then(|c| to_text_color(&c))
+        .unwrap_or(inherited_color);
+    let background_color = cascade_property(
+        &matches,
+        inline_decls.as_ref().and_then(|d| d.background_color),
+        |d| d.background_color,
+    )
+    .and_then(|c| to_text_color(&c));
+    let display = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.display), |d| d.display)
+        .unwrap_or_else(|| default_display(tag));
+    let margin = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.margin), |d| d.margin)
+        .unwrap_or(0.0);
+    let padding = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.padding), |d| d.padding)
+        .unwrap_or(0.0);
+    let border_width = cascade_property(
+        &matches,
+        inline_decls.as_ref().and_then(|d| d.border_width),
+        |d| d.border_width,
+    )
+    .unwrap_or(0.0);
+    let border_color = cascade_property(
+        &matches,
+        inline_decls.as_ref().and_then(|d| d.border_color),
+        |d| d.border_color,
+    )
+    .and_then(|c| to_text_color(&c));
+
+    ComputedStyle {
+        color,
+        background_color,
+        display,
+        margin,
+        padding,
+        border_width,
+        border_color,
+    }
+}
+
+fn anonymous_style(color: TextColor) -> ComputedStyle {
+    ComputedStyle {
+        color,
+        background_color: None,
+        display: Display::Block,
+        margin: 0.0,
+        padding: 0.0,
+        border_width: 0.0,
+        border_color: None,
+    }
+}
+
+fn normalize_whitespace(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+// ---------- layout tree ----------
+
+enum BoxContent {
+    Blocks(Vec<LayoutBox>),
+    Inline(Vec<(String, TextColor)>),
+}
+
+struct LayoutBox {
+    style: ComputedStyle,
+    content: BoxContent,
+}
+
+/// Flattens an inline-level subtree (text + nested inline elements) into
+/// colored runs. Any block-level descendant is treated as inline too —
+/// "block inside inline" is out of scope for normal-flow-only layout.
+fn flatten_inline(
+    handle: &Handle,
+    rules: &[StyleRule],
+    inherited_color: TextColor,
+    out: &mut Vec<(String, TextColor)>,
+) {
+    match &handle.data {
+        NodeData::Text { contents } => {
+            let mut text = normalize_whitespace(&contents.borrow());
+            text.push(' ');
+            out.push((text, inherited_color));
+        }
+        NodeData::Element { name, .. } => {
+            let tag = name.local.as_ref();
+            if tag == "script" || tag == "style" {
+                return;
+            }
+            let style = resolve_style(handle, rules, inherited_color);
+            if style.display == Display::None {
+                return;
+            }
+            for child in handle.children.borrow().iter() {
+                flatten_inline(child, rules, style.color, out);
+            }
+        }
+        _ => {
+            for child in handle.children.borrow().iter() {
+                flatten_inline(child, rules, inherited_color, out);
+            }
+        }
+    }
+}
+
+fn build_box_for_element(handle: &Handle, rules: &[StyleRule], inherited_color: TextColor) -> LayoutBox {
+    let style = resolve_style(handle, rules, inherited_color);
+    let children: Vec<Handle> = handle.children.borrow().iter().cloned().collect();
+    let has_block_child = children.iter().any(|c| match &c.data {
+        NodeData::Element { name, .. } => {
+            let tag = name.local.as_ref();
+            if tag == "script" || tag == "style" {
+                false
+            } else {
+                resolve_style(c, rules, style.color).display == Display::Block
+            }
+        }
+        _ => false,
+    });
+
+    let content = if has_block_child {
+        BoxContent::Blocks(build_children(handle, rules, style.color))
+    } else {
+        let mut runs = Vec::new();
+        for child in &children {
+            flatten_inline(child, rules, style.color, &mut runs);
+        }
+        BoxContent::Inline(runs)
+    };
+
+    LayoutBox { style, content }
+}
+
+/// Walks the direct children of `handle`, starting a new box for each
+/// block-level child and grouping consecutive inline-level children
+/// (including text) into one anonymous inline-run box.
+fn build_children(handle: &Handle, rules: &[StyleRule], inherited_color: TextColor) -> Vec<LayoutBox> {
+    let mut result = Vec::new();
+    let mut pending: Vec<(String, TextColor)> = Vec::new();
+
+    for child in handle.children.borrow().iter() {
+        match &child.data {
+            NodeData::Text { contents } => {
+                let mut text = normalize_whitespace(&contents.borrow());
+                text.push(' ');
+                pending.push((text, inherited_color));
+            }
+            NodeData::Element { name, .. } => {
+                let tag = name.local.as_ref();
+                if tag == "script" || tag == "style" {
+                    continue;
+                }
+                let style = resolve_style(child, rules, inherited_color);
+                if style.display == Display::None {
+                    continue;
+                }
+                if style.display == Display::Block {
+                    if !pending.is_empty() {
+                        result.push(LayoutBox {
+                            style: anonymous_style(inherited_color),
+                            content: BoxContent::Inline(std::mem::take(&mut pending)),
+                        });
+                    }
+                    result.push(build_box_for_element(child, rules, inherited_color));
+                } else {
+                    flatten_inline(child, rules, style.color, &mut pending);
+                }
+            }
+            _ => {}
+        }
+    }
+    if !pending.is_empty() {
+        result.push(LayoutBox {
+            style: anonymous_style(inherited_color),
+            content: BoxContent::Inline(pending),
+        });
+    }
+    result
+}
+
+fn build_layout_tree(document: &Handle) -> LayoutBox {
+    let mut css_source = String::new();
+    collect_style_css(document, &mut css_source);
+    let rules = parse_stylesheet(&css_source);
+    let root_color = TextColor::rgb(0, 0, 0);
+    LayoutBox {
+        style: anonymous_style(root_color),
+        content: BoxContent::Blocks(build_children(document, &rules, root_color)),
+    }
+}
 
 fn collect_text_only(handle: &Handle, out: &mut String) {
     if let NodeData::Text { contents } = &handle.data {
@@ -506,93 +852,206 @@ fn collect_style_css(handle: &Handle, out: &mut String) {
     }
 }
 
-fn resolve_color(handle: &Handle, rules: &[StyleRule], inherited: TextColor) -> TextColor {
-    if let Some(style_attr) = element_attr(handle, "style") {
-        if let Some(color) = parse_declarations(&style_attr) {
-            if let Some(tc) = to_text_color(&color) {
-                return tc;
+// ---------- measure + paint ----------
+
+/// A laid-out box: resolved border-box rect (absolute document coordinates,
+/// not yet scroll-adjusted) plus either its laid-out children or its
+/// already-shaped text buffer.
+struct Laid {
+    style: ComputedStyle,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    content: LaidContent,
+}
+
+enum LaidContent {
+    Blocks(Vec<Laid>),
+    Text(Buffer),
+}
+
+fn shape_spans(font_system: &mut FontSystem, spans: &[(String, TextColor)], width: f32) -> (Buffer, f32) {
+    let metrics = Metrics::new(16.0, 20.0);
+    let mut buffer = Buffer::new(font_system, metrics);
+    buffer.set_size(Some(width.max(0.0)), None);
+    let rich: Vec<(&str, Attrs)> = spans
+        .iter()
+        .map(|(text, color)| {
+            let mut attrs = Attrs::new();
+            attrs.color_opt = Some(*color);
+            (text.as_str(), attrs)
+        })
+        .collect();
+    buffer.set_rich_text(rich, &Attrs::new(), Shaping::Advanced, None);
+    buffer.shape_until_scroll(font_system, false);
+    let mut height = 0.0f32;
+    for run in buffer.layout_runs() {
+        height = height.max(run.line_top + run.line_height);
+    }
+    (buffer, height)
+}
+
+fn measure(b: &LayoutBox, font_system: &mut FontSystem, x: f32, y: f32, width: f32) -> Laid {
+    let s = b.style;
+    let border_x = x + s.margin;
+    let border_y = y + s.margin;
+    let border_w = (width - 2.0 * s.margin).max(0.0);
+    let content_x = border_x + s.border_width + s.padding;
+    let content_y = border_y + s.border_width + s.padding;
+    let content_w = (border_w - 2.0 * (s.border_width + s.padding)).max(0.0);
+
+    match &b.content {
+        BoxContent::Inline(spans) => {
+            let (buffer, content_h) = if spans.is_empty() {
+                (Buffer::new_empty(Metrics::new(16.0, 20.0)), 0.0)
+            } else {
+                shape_spans(font_system, spans, content_w)
+            };
+            let border_h = 2.0 * (s.border_width + s.padding) + content_h;
+            Laid {
+                style: s,
+                x: border_x,
+                y: border_y,
+                w: border_w,
+                h: border_h,
+                content: LaidContent::Text(buffer),
+            }
+        }
+        BoxContent::Blocks(children) => {
+            let mut cursor_y = content_y;
+            let mut laid_children = Vec::with_capacity(children.len());
+            for child in children {
+                let lc = measure(child, font_system, content_x, cursor_y, content_w);
+                cursor_y += 2.0 * lc.style.margin + lc.h;
+                laid_children.push(lc);
+            }
+            let content_h = cursor_y - content_y;
+            let border_h = 2.0 * (s.border_width + s.padding) + content_h;
+            Laid {
+                style: s,
+                x: border_x,
+                y: border_y,
+                w: border_w,
+                h: border_h,
+                content: LaidContent::Blocks(laid_children),
             }
         }
     }
+}
 
-    let element = El(handle.clone());
-    let mut caches = SelectorCaches::default();
-    let mut best: Option<(u32, TextColor)> = None;
-    for rule in rules {
-        let Some(tc) = rule.color.as_ref().and_then(to_text_color) else {
-            continue;
-        };
-        let mut ctx = MatchingContext::new(
-            MatchingMode::Normal,
-            None,
-            &mut caches,
-            QuirksMode::NoQuirks,
-            NeedsSelectorFlags::No,
-            MatchingForInvalidation::No,
-        );
-        if matches_selector_list(&rule.selectors, &element, &mut ctx) {
-            let specificity = rule
-                .selectors
-                .slice()
-                .iter()
-                .map(|s| s.specificity())
-                .max()
-                .unwrap_or(0);
-            if best.map_or(true, |(s, _)| specificity >= s) {
-                best = Some((specificity, tc));
-            }
+fn blend(existing: u32, color: TextColor) -> u32 {
+    let a = color.a() as u32;
+    if a == 255 {
+        return (color.r() as u32) << 16 | (color.g() as u32) << 8 | (color.b() as u32);
+    }
+    let er = (existing >> 16) & 0xFF;
+    let eg = (existing >> 8) & 0xFF;
+    let eb = existing & 0xFF;
+    let inv = 255 - a;
+    let r = (color.r() as u32 * a + er * inv) / 255;
+    let g = (color.g() as u32 * a + eg * inv) / 255;
+    let b = (color.b() as u32 * a + eb * inv) / 255;
+    (r << 16) | (g << 8) | b
+}
+
+fn fill_rect(pixels: &mut [u32], win_w: u32, win_h: u32, x: f32, y: f32, w: f32, h: f32, color: TextColor) {
+    if color.a() == 0 {
+        return;
+    }
+    let x0 = x.max(0.0) as i64;
+    let y0 = y.max(0.0) as i64;
+    let x1 = ((x + w).min(win_w as f32)) as i64;
+    let y1 = ((y + h).min(win_h as f32)) as i64;
+    if x1 <= x0 || y1 <= y0 {
+        return;
+    }
+    for py in y0..y1 {
+        for px in x0..x1 {
+            let idx = (py as u32 * win_w + px as u32) as usize;
+            pixels[idx] = blend(pixels[idx], color);
         }
     }
-    best.map(|(_, c)| c).unwrap_or(inherited)
 }
 
-fn normalize_whitespace(s: &str) -> String {
-    s.split_whitespace().collect::<Vec<_>>().join(" ")
+fn paint_box_decoration(s: &ComputedStyle, pixels: &mut [u32], win_w: u32, win_h: u32, x: f32, y: f32, w: f32, h: f32) {
+    if let Some(bg) = s.background_color {
+        fill_rect(pixels, win_w, win_h, x, y, w, h, bg);
+    }
+    if s.border_width > 0.0 {
+        if let Some(bc) = s.border_color {
+            let bw = s.border_width;
+            fill_rect(pixels, win_w, win_h, x, y, w, bw, bc);
+            fill_rect(pixels, win_w, win_h, x, y + h - bw, w, bw, bc);
+            fill_rect(pixels, win_w, win_h, x, y, bw, h, bc);
+            fill_rect(pixels, win_w, win_h, x + w - bw, y, bw, h, bc);
+        }
+    }
 }
 
-fn extract_runs(
-    handle: &Handle,
-    rules: &[StyleRule],
-    inherited: TextColor,
-    out: &mut Vec<(String, TextColor)>,
+fn paint_buffer(
+    buffer: &mut Buffer,
+    font_system: &mut FontSystem,
+    swash_cache: &mut SwashCache,
+    pixels: &mut [u32],
+    win_w: u32,
+    win_h: u32,
+    offset_x: f32,
+    offset_y: f32,
 ) {
-    match &handle.data {
-        NodeData::Text { contents } => {
-            let mut text = normalize_whitespace(&contents.borrow());
-            text.push(' ');
-            out.push((text, inherited));
-            return;
-        }
-        NodeData::Element { name, .. } => {
-            let tag = name.local.as_ref();
-            if tag == "script" || tag == "style" {
+    let ox = offset_x.round() as i32;
+    let oy = offset_y.round() as i32;
+    buffer.draw(
+        font_system,
+        swash_cache,
+        TextColor::rgb(0, 0, 0),
+        |x, y, w, h, color| {
+            if color.a() == 0 {
                 return;
             }
+            for dy in 0..h as i32 {
+                for dx in 0..w as i32 {
+                    let px = x + dx + ox;
+                    let py = y + dy + oy;
+                    if px < 0 || py < 0 || px as u32 >= win_w || py as u32 >= win_h {
+                        continue;
+                    }
+                    let idx = (py as u32 * win_w + px as u32) as usize;
+                    pixels[idx] = blend(pixels[idx], color);
+                }
+            }
+        },
+    );
+}
+
+fn paint(
+    laid: &mut Laid,
+    font_system: &mut FontSystem,
+    swash_cache: &mut SwashCache,
+    pixels: &mut [u32],
+    win_w: u32,
+    win_h: u32,
+    scroll_offset: f32,
+) {
+    let s = laid.style;
+    let draw_y = laid.y - scroll_offset;
+    paint_box_decoration(&s, pixels, win_w, win_h, laid.x, draw_y, laid.w, laid.h);
+
+    match &mut laid.content {
+        LaidContent::Blocks(children) => {
+            for child in children {
+                paint(child, font_system, swash_cache, pixels, win_w, win_h, scroll_offset);
+            }
         }
-        _ => {}
-    }
-
-    let color = if matches!(handle.data, NodeData::Element { .. }) {
-        resolve_color(handle, rules, inherited)
-    } else {
-        inherited
-    };
-
-    for child in handle.children.borrow().iter() {
-        extract_runs(child, rules, color, out);
+        LaidContent::Text(buffer) => {
+            let content_x = laid.x + s.border_width + s.padding;
+            let content_y = draw_y + s.border_width + s.padding;
+            paint_buffer(buffer, font_system, swash_cache, pixels, win_w, win_h, content_x, content_y);
+        }
     }
 }
 
-fn build_runs(document: &Handle) -> Vec<(String, TextColor)> {
-    let mut css_source = String::new();
-    collect_style_css(document, &mut css_source);
-    let rules = parse_stylesheet(&css_source);
-    let mut runs = Vec::new();
-    extract_runs(document, &rules, TextColor::rgb(0, 0, 0), &mut runs);
-    runs
-}
-
-// ---------- windowing / painting ----------
+// ---------- windowing ----------
 
 enum AppEvent {
     Chunk(Vec<u8>),
@@ -600,7 +1059,7 @@ enum AppEvent {
 }
 
 struct App {
-    runs: Vec<(String, TextColor)>,
+    document: Handle,
     decoder: Option<Utf8LossyDecoder<Parser<RcDom>>>,
     window: Option<Rc<Window>>,
     surface: Option<Surface<Rc<Window>, Rc<Window>>>,
@@ -609,9 +1068,9 @@ struct App {
 }
 
 impl App {
-    fn new_static(runs: Vec<(String, TextColor)>) -> Self {
+    fn new_static(document: Handle) -> Self {
         Self {
-            runs,
+            document,
             decoder: None,
             window: None,
             surface: None,
@@ -621,19 +1080,16 @@ impl App {
     }
 
     fn new_streaming() -> Self {
+        let decoder = new_parser();
+        let document = decoder.inner_sink.tokenizer.sink.sink.document.clone();
         Self {
-            runs: Vec::new(),
-            decoder: Some(new_parser()),
+            document,
+            decoder: Some(decoder),
             window: None,
             surface: None,
             font_system: FontSystem::new(),
             swash_cache: SwashCache::new(),
         }
-    }
-
-    fn refresh_from_decoder(&mut self) {
-        let Some(decoder) = &self.decoder else { return };
-        self.runs = build_runs(&decoder.inner_sink.tokenizer.sink.sink.document);
     }
 
     fn redraw(&mut self) {
@@ -645,58 +1101,25 @@ impl App {
         let height = size.height.max(1);
 
         surface
-            .resize(
-                NonZeroU32::new(width).unwrap(),
-                NonZeroU32::new(height).unwrap(),
-            )
+            .resize(NonZeroU32::new(width).unwrap(), NonZeroU32::new(height).unwrap())
             .unwrap();
 
-        let metrics = Metrics::new(16.0, 20.0);
-        let mut buffer = Buffer::new(&mut self.font_system, metrics);
-        buffer.set_size(Some(width as f32), Some(height as f32));
-
-        let spans: Vec<(&str, Attrs)> = self
-            .runs
-            .iter()
-            .map(|(text, color)| {
-                let mut attrs = Attrs::new();
-                attrs.color_opt = Some(*color);
-                (text.as_str(), attrs)
-            })
-            .collect();
-        buffer.set_rich_text(spans, &Attrs::new(), Shaping::Advanced, None);
+        let tree = build_layout_tree(&self.document);
+        let mut laid = measure(&tree, &mut self.font_system, 0.0, 0.0, width as f32);
 
         let mut pixels = surface.buffer_mut().unwrap();
         for pixel in pixels.iter_mut() {
             *pixel = 0x00FFFFFF;
         }
 
-        buffer.draw(
+        paint(
+            &mut laid,
             &mut self.font_system,
             &mut self.swash_cache,
-            TextColor::rgb(0, 0, 0),
-            |x, y, w, h, color| {
-                if color.a() == 0 {
-                    return;
-                }
-                for dy in 0..h as i32 {
-                    for dx in 0..w as i32 {
-                        let px = x + dx;
-                        let py = y + dy;
-                        if px < 0 || py < 0 || px as u32 >= width || py as u32 >= height {
-                            continue;
-                        }
-                        let idx = (py as u32 * width + px as u32) as usize;
-                        let a = color.a() as u32;
-                        let inv = 255 - a;
-                        let bg = 255u32;
-                        let r = (color.r() as u32 * a + bg * inv) / 255;
-                        let g = (color.g() as u32 * a + bg * inv) / 255;
-                        let b = (color.b() as u32 * a + bg * inv) / 255;
-                        pixels[idx] = (r << 16) | (g << 8) | b;
-                    }
-                }
-            },
+            &mut pixels,
+            width,
+            height,
+            0.0,
         );
 
         pixels.present().unwrap();
@@ -724,13 +1147,13 @@ impl ApplicationHandler<AppEvent> for App {
             AppEvent::Chunk(bytes) => {
                 if let Some(decoder) = &mut self.decoder {
                     decoder.process(ByteTendril::from_slice(&bytes));
+                    self.document = decoder.inner_sink.tokenizer.sink.sink.document.clone();
                 }
-                self.refresh_from_decoder();
             }
             AppEvent::Eof => {
                 if let Some(decoder) = self.decoder.take() {
                     let dom = decoder.finish();
-                    self.runs = build_runs(&dom.document);
+                    self.document = dom.document;
                 }
             }
         }
@@ -765,7 +1188,7 @@ fn main() {
                 std::process::exit(1);
             });
             let dom = new_parser().read_from(&mut html.as_bytes()).unwrap();
-            App::new_static(build_runs(&dom.document))
+            App::new_static(dom.document)
         }
         Input::Stdin => {
             let proxy = event_loop.create_proxy();
