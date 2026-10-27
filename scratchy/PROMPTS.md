@@ -43,3 +43,40 @@ networking, no links, no scrolling, no incremental/streaming rendering.
 10. No automated tests for v1 — behavior is directly observable.
 
 **Deliverable:** `main.rs` + `Cargo.toml` implementing exactly the above.
+
+---
+
+## v2 — stream stdin
+
+Rather than reading stdin to completion before any parsing happens, read it
+incrementally and repaint as content arrives — the behavior deliberately
+deferred in v1.
+
+**Requirements:**
+1. **File input is unchanged** — still read fully upfront, same as v1 (no
+   streaming benefit for a local file that's already entirely present).
+2. **Stdin input becomes incremental:** read stdin in fixed-size byte chunks
+   (not line-based — HTML isn't guaranteed to be newline-delimited) on a
+   background thread, rather than blocking the whole program on a single
+   `read_to_end`.
+3. **Incremental parsing:** feed each chunk into html5ever's parser as it
+   arrives, using its lower-level incremental API (`process()` per chunk,
+   `finish()` at EOF) instead of v1's one-shot `read_from()`.
+4. **Wake the event loop on new data:** the background thread reading stdin
+   must notify the `winit` event loop when a new chunk has been parsed,
+   using an `EventLoopProxy`/user event — the event loop must not block
+   waiting on stdin itself, since it also has to keep handling window
+   events (resize, close).
+5. **Redraw on each chunk:** after each chunk is parsed, re-extract text
+   from the (partially-built) DOM from scratch and re-run layout — no
+   incremental diffing of only the new nodes. Simplicity over premature
+   optimization, same as v1's approach.
+6. **No loading indicator, no progress UI** — that's chrome, out of scope.
+7. **EOF just means no more updates arrive** — no special "done" state or
+   signal to the user.
+8. Everything still out of scope per v1 (CSS, links, scrolling, networking)
+   stays out of scope here too — this feature is only about *when*
+   parsing/painting happens, not *what* gets parsed or painted.
+
+**Deliverable:** modifications to `scratchy`'s existing `main.rs`/
+`Cargo.toml` implementing exactly the above.
