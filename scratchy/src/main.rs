@@ -650,72 +650,6 @@ impl ComputedStyle {
     }
 }
 
-const BLOCK_TAGS: &[&str] = &[
-    "html",
-    "body",
-    "div",
-    "p",
-    "h1",
-    "h2",
-    "h3",
-    "h4",
-    "h5",
-    "h6",
-    "ul",
-    "ol",
-    "li",
-    "blockquote",
-    "pre",
-    "header",
-    "footer",
-    "section",
-    "article",
-    "nav",
-    "aside",
-    "figure",
-    "figcaption",
-    "table",
-    "form",
-    "hr",
-];
-
-fn default_display(tag: &str) -> Display {
-    if BLOCK_TAGS.contains(&tag) {
-        Display::Block
-    } else {
-        Display::Inline
-    }
-}
-
-/// Default (`font-size`, `font-weight`) per heading tag, standing in for
-/// the sizing a full user-agent stylesheet would otherwise supply (there
-/// isn't one — same reasoning as `default_display` above). Only consulted
-/// as the cascade's fallback, so any author CSS still overrides it.
-fn default_heading_font(tag: &str) -> Option<(f32, FontWeight)> {
-    match tag {
-        "h1" => Some((32.0, FontWeight::BOLD)),
-        "h2" => Some((24.0, FontWeight::BOLD)),
-        "h3" => Some((19.0, FontWeight::BOLD)),
-        "h4" => Some((16.0, FontWeight::BOLD)),
-        "h5" => Some((13.0, FontWeight::BOLD)),
-        "h6" => Some((11.0, FontWeight::BOLD)),
-        _ => None,
-    }
-}
-
-/// Default (`margin`, `padding`) for `ul`/`ol`, standing in for the
-/// `margin-block: 1em; padding-inline-start: 40px` a full user-agent
-/// stylesheet would otherwise supply (there isn't one — same reasoning as
-/// `default_display`/`default_heading_font` above), folded into scratchy's
-/// existing single-scalar, all-sides margin/padding model rather than a
-/// new per-side one. Only consulted as the cascade's fallback, so any
-/// author CSS still overrides it.
-fn default_list_spacing(tag: &str) -> Option<(f32, f32)> {
-    match tag {
-        "ul" | "ol" => Some((16.0, 40.0)),
-        _ => None,
-    }
-}
 
 fn cascade_property<T: Clone>(
     matches: &[(u32, &Declarations)],
@@ -737,11 +671,6 @@ fn cascade_property<T: Clone>(
 }
 
 fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle) -> ComputedStyle {
-    let tag = match &handle.data {
-        NodeData::Element { name, .. } => name.local.as_ref(),
-        _ => "",
-    };
-
     let element = El(handle.clone());
     let mut caches = SelectorCaches::default();
     let mut matches: Vec<(u32, &Declarations)> = Vec::new();
@@ -778,13 +707,10 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
     )
     .and_then(|c| to_text_color(&c));
     let display = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.display), |d| d.display)
-        .unwrap_or_else(|| default_display(tag));
-    let list_spacing = default_list_spacing(tag);
+        .unwrap_or(Display::Inline);
     let margin = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.margin), |d| d.margin)
-        .or_else(|| list_spacing.map(|(margin, _)| margin))
         .unwrap_or(0.0);
     let padding = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.padding), |d| d.padding)
-        .or_else(|| list_spacing.map(|(_, padding)| padding))
         .unwrap_or(0.0);
     let border_width = cascade_property(
         &matches,
@@ -798,16 +724,13 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         |d| d.border_color,
     )
     .and_then(|c| to_text_color(&c));
-    let heading_default = default_heading_font(tag);
     let font_size = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.font_size), |d| d.font_size)
-        .or_else(|| heading_default.map(|(size, _)| size))
         .unwrap_or(inherited.font_size);
     let font_weight = cascade_property(
         &matches,
         inline_decls.as_ref().and_then(|d| d.font_weight),
         |d| d.font_weight,
     )
-    .or_else(|| heading_default.map(|(_, weight)| weight))
     .unwrap_or(inherited.font_weight);
     let font_style = cascade_property(
         &matches,
@@ -975,10 +898,17 @@ fn collect_children(
     }
 }
 
+/// scratchy's built-in default stylesheet (see `src/default.css`) — stands
+/// in for the user-agent stylesheet a real browser would otherwise supply.
+/// Embedded at compile time rather than read from disk, so there's no
+/// install-path/XDG-discovery problem for a single-binary tool.
+const DEFAULT_CSS: &str = include_str!("default.css");
+
 fn build_layout_tree(document: &Handle) -> LayoutBox {
     let mut css_source = String::new();
     collect_style_css(document, &mut css_source);
-    let rules = parse_stylesheet(&css_source);
+    let mut rules = parse_stylesheet(DEFAULT_CSS);
+    rules.extend(parse_stylesheet(&css_source));
     LayoutBox {
         style: anonymous_style(ROOT_STYLE),
         content: BoxContent::Blocks(build_children(document, &rules, ROOT_STYLE)),

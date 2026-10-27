@@ -45,6 +45,35 @@ Net result on a real, large Arabic Wikipedia article: 30s hard freeze
 → a few seconds, fully responsive and progressively rendering the
 whole time.
 
+v6 through v10 then built out more of the rendering side itself:
+font-size/weight/style (v6), default heading sizing (v7), list
+markers (v8), default list margin/padding (v9), and — since v4/v7/v9
+each added their own hardcoded per-tag Rust table — v10 collapsed all
+three into one `default.css` (embedded via `include_str!`, parsed
+through the same v3 cascade, prepended before the document's own
+rules). Also fixed a latent bug found while testing v6: cosmic-text's
+`FontSystem::new()` hardcodes generic font families ("Open Sans" etc.)
+that may not be installed, silently falling back per-glyph to
+whatever font merely contains that glyph (measured: emoji font for
+digits). Fixed by building our own `fontdb::Database` and asking
+`fc-match` for the system's real installed default instead.
+
+**Known compromise, deliberately left as-is:** `ul`/`ol`'s default
+spacing in `default.css` (`margin: 16px; padding: 24px`) doesn't match
+Firefox — real browsers give lists `margin-block: 1em` (vertical-only,
+~16px) and `padding-inline-start: 40px` (horizontal-only, for the
+marker indent) via their UA stylesheet, but scratchy's box model only
+has one scalar margin/padding applied to all four sides, so any
+padding value that indents enough horizontally also adds that much
+unwanted vertical space (and vice versa) — 24px was tuned as a
+compromise, not a fix. The real fix is a per-side margin/padding model
+(declined twice in this session in favor of other priorities: once
+over font-size/weight/style for v6, once over a list-only indent
+hack). Agreed with the user: next PR(s) that touch `default.css`
+should rework it against the actual WHATWG rendering spec (§15.3.7
+"Lists" has the exact UA rules) properly, which likely means building
+real per-side support rather than tuning more constants.
+
 ## Priority going forward: rendering, not networking
 
 Explicit decision: the next phase of work is about how scratchy

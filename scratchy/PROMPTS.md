@@ -375,3 +375,51 @@ hardcoded per-tag table. This closes it for list indentation.
 
 **Deliverable:** modifications to `scratchy`'s existing `main.rs`
 implementing exactly the above.
+
+---
+
+## v10 — default stylesheet as an embedded CSS file
+
+v4, v7, and v9 each added a hardcoded Rust table standing in for a
+piece of what a browser's user-agent stylesheet would otherwise
+supply (`default_display`, `default_heading_font`,
+`default_list_spacing`). This replaces all three with one actual CSS
+file, parsed through the same cascade already built in v3, instead of
+growing a fourth bespoke Rust table for the next one.
+
+**Requirements:**
+1. **A new `default.css`** (next to `src/main.rs`) containing exactly
+   the rules the three tables it replaces already expressed:
+   - `display: block` for the v4 `BLOCK_TAGS` list (one selector list,
+     comma-separated).
+   - `h1`–`h6` font-size/font-weight, same px values as v7.
+   - `ul, ol` margin/padding, same px values as v9.
+2. **Embedded at compile time** via `include_str!`, not read from the
+   filesystem at runtime — no install-path/XDG-discovery problem for
+   a single-binary tool, same reasoning discussed before building
+   this. A missing/relocated file is a compile error, not a runtime
+   one.
+3. **Parsed once (`parse_stylesheet`, already built in v3) and
+   prepended** to the document's own parsed rules — i.e. earlier in
+   the same `Vec<StyleRule>` `resolve_style` already matches against,
+   not a separate pass. The existing specificity/source-order cascade
+   (v3) then does the override work for free: every rule in
+   `default.css` is a plain element-type selector (the lowest possible
+   specificity), so any author rule of equal or higher specificity
+   already wins exactly as it does today; later-in-source-order ties
+   favor whichever came later, which is always the document's own
+   rule since it's appended after.
+4. **`default_display`, `default_heading_font`, and
+   `default_list_spacing` are deleted**, along with `BLOCK_TAGS` —
+   their fallbacks become the properties' true CSS initial values
+   (`display: inline`, `margin: 0`, `padding: 0`), matching today's
+   behavior for every element `default.css` doesn't mention.
+5. **No behavior change** — this is a pure refactor. The same pages
+   that render correctly today (including the heading-size and list-
+   indentation fixes from v7/v9) must render pixel-identically after.
+6. **Marker text (v8) stays in Rust** — it's structural content
+   injection, not a style property this cascade resolves, so there's
+   nothing to move for it.
+
+**Deliverable:** a new `scratchy/default.css` plus modifications to
+`scratchy`'s existing `main.rs` implementing exactly the above.

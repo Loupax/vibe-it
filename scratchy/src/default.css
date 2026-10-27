@@ -1,0 +1,31 @@
+/* scratchy's built-in default stylesheet. Stands in for the browser
+   user-agent stylesheet scratchy doesn't have — embedded into the binary
+   at compile time (see `include_str!` in main.rs) and parsed through the
+   same cascade as any document's own CSS. Every selector here is a bare
+   element type, the lowest possible specificity, so any author rule for
+   the same property on the same element always wins. */
+
+html, body, div, p, h1, h2, h3, h4, h5, h6, ul, ol, li, blockquote, pre,
+header, footer, section, article, nav, aside, figure, figcaption, table,
+form, hr {
+  display: block;
+}
+
+h1 { font-size: 32px; font-weight: bold; }
+h2 { font-size: 24px; font-weight: bold; }
+h3 { font-size: 19px; font-weight: bold; }
+h4 { font-size: 16px; font-weight: bold; }
+h5 { font-size: 13px; font-weight: bold; }
+h6 { font-size: 11px; font-weight: bold; }
+
+/* The real default is margin-block: 1em (vertical-only) and
+   padding-inline-start: 40px (horizontal-only). scratchy's box model
+   only has one scalar margin/padding applied to all four sides, so
+   padding's real 40px would also add 40px of unwanted vertical space
+   above/below the list, stacked on top of the margin. 24px is a tuned
+   compromise: still a visible indent, without that much vertical
+   bloat. */
+ul, ol {
+  margin: 16px;
+  padding: 24px;
+}
