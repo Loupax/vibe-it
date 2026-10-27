@@ -174,6 +174,36 @@ fn parent_handle(node: &Handle) -> Option<Handle> {
     result
 }
 
+fn element_tag(handle: &Handle) -> &str {
+    match &handle.data {
+        NodeData::Element { name, .. } => name.local.as_ref(),
+        _ => "",
+    }
+}
+
+/// The marker text for a `<li>`: `"<n>. "` when its parent is an `<ol>`,
+/// where `<n>` is this element's 1-based position among the parent's
+/// direct `<li>` children (document order, non-`<li>` children skipped
+/// when counting) — otherwise (`<ul>`, or malformed/missing-parent
+/// markup) a plain bullet. Only ever looks at the immediate parent, so
+/// a nested list numbers independently of any list it's nested inside.
+fn list_marker(handle: &Handle) -> String {
+    let Some(parent) = parent_handle(handle) else {
+        return "\u{2022} ".to_string();
+    };
+    if element_tag(&parent) != "ol" {
+        return "\u{2022} ".to_string();
+    }
+    let children = parent.children.borrow();
+    let index = children
+        .iter()
+        .filter(|c| element_tag(c) == "li")
+        .position(|c| Rc::ptr_eq(c, handle))
+        .map(|i| i + 1)
+        .unwrap_or(1);
+    format!("{index}. ")
+}
+
 fn element_attr<'a>(handle: &'a Handle, name: &str) -> Option<std::cell::Ref<'a, str>> {
     if let NodeData::Element { attrs, .. } = &handle.data {
         let attrs_ref = attrs.borrow();
@@ -673,6 +703,20 @@ fn default_heading_font(tag: &str) -> Option<(f32, FontWeight)> {
     }
 }
 
+/// Default (`margin`, `padding`) for `ul`/`ol`, standing in for the
+/// `margin-block: 1em; padding-inline-start: 40px` a full user-agent
+/// stylesheet would otherwise supply (there isn't one — same reasoning as
+/// `default_display`/`default_heading_font` above), folded into scratchy's
+/// existing single-scalar, all-sides margin/padding model rather than a
+/// new per-side one. Only consulted as the cascade's fallback, so any
+/// author CSS still overrides it.
+fn default_list_spacing(tag: &str) -> Option<(f32, f32)> {
+    match tag {
+        "ul" | "ol" => Some((16.0, 40.0)),
+        _ => None,
+    }
+}
+
 fn cascade_property<T: Clone>(
     matches: &[(u32, &Declarations)],
     inline: Option<T>,
@@ -735,9 +779,12 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
     .and_then(|c| to_text_color(&c));
     let display = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.display), |d| d.display)
         .unwrap_or_else(|| default_display(tag));
+    let list_spacing = default_list_spacing(tag);
     let margin = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.margin), |d| d.margin)
+        .or_else(|| list_spacing.map(|(margin, _)| margin))
         .unwrap_or(0.0);
     let padding = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.padding), |d| d.padding)
+        .or_else(|| list_spacing.map(|(_, padding)| padding))
         .unwrap_or(0.0);
     let border_width = cascade_property(
         &matches,
@@ -840,9 +887,14 @@ struct LayoutBox {
 
 fn build_box_for_element(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle) -> LayoutBox {
     let style = resolve_style(handle, rules, inherited);
+    let prefix = if element_tag(handle) == "li" {
+        Some((list_marker(handle), style.inherited().into()))
+    } else {
+        None
+    };
     LayoutBox {
         style,
-        content: BoxContent::Blocks(build_children(handle, rules, style.inherited())),
+        content: BoxContent::Blocks(build_children_with_prefix(handle, rules, style.inherited(), prefix)),
     }
 }
 
@@ -857,8 +909,22 @@ fn build_box_for_element(handle: &Handle, rules: &[StyleRule], inherited: Inheri
 /// on a real Wikipedia page that merged the entire navigation chrome into a
 /// single ~17,000-character run, which took 7+ seconds to shape by itself.)
 fn build_children(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle) -> Vec<LayoutBox> {
+    build_children_with_prefix(handle, rules, inherited, None)
+}
+
+/// Same as `build_children`, but seeds the first inline run with `prefix`
+/// (used for a `<li>`'s marker) before any of `handle`'s own children.
+fn build_children_with_prefix(
+    handle: &Handle,
+    rules: &[StyleRule],
+    inherited: InheritedStyle,
+    prefix: Option<(String, SpanStyle)>,
+) -> Vec<LayoutBox> {
     let mut result = Vec::new();
     let mut pending: Vec<(String, SpanStyle)> = Vec::new();
+    if let Some(p) = prefix {
+        pending.push(p);
+    }
     collect_children(handle, rules, inherited, &mut pending, &mut result);
     if !pending.is_empty() {
         result.push(LayoutBox {

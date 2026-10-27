@@ -300,3 +300,78 @@ stylesheet") — this does the same for heading size/weight.
 
 **Deliverable:** modifications to `scratchy`'s existing `main.rs`
 implementing exactly the above.
+
+---
+
+## v8 — list markers
+
+`ul`/`ol`/`li` already lay out as blocks (v4's `BLOCK_TAGS`), but with
+no marker — a list reads as an unindented stack of paragraphs. This
+adds the bullet/number itself.
+
+**Requirements:**
+1. **Each `<li>` gets a marker prefixed directly into its own text
+   content**, as the first span of its first inline run: `"• "` (U+2022
+   plus a space) when the `<li>`'s parent is anything other than `<ol>`
+   (covers `<ul>` and malformed/missing-parent markup alike), or
+   `"<n>. "` when the parent is `<ol>`.
+2. **Numbering (`<ol>` only):** `<n>` is this `<li>`'s 1-based position
+   among its parent's *direct* `<li>` children in document order — any
+   non-`<li>` children of the `<ol>`/`<ul>` are skipped when counting,
+   matching how browsers only number actual list items. No `<ol
+   start>` or `<li value>` support — out of scope.
+3. **Nested lists get independent counters for free:** since numbering
+   only ever looks at one `<li>`'s immediate parent and that parent's
+   direct `<li>` children, a nested `<ol>` inside a `<li>` counts from
+   1 on its own regardless of depth — no explicit counter-stack needed.
+4. **The marker uses the `<li>`'s own computed style** (color, and
+   from v6/v7, size/weight/style) — same as any other text directly
+   inside it, not a separately styleable pseudo-element.
+5. **Explicitly out of scope:** indentation/hanging-indent (wrapped
+   second lines of a long item do *not* align under the first line's
+   text, only under the left edge like today — a separate future
+   layout feature), `list-style-type`/`list-style-position`/`::marker`
+   CSS, and default `ul`/`ol` margin/padding (still whatever v4's
+   cascade already resolves them to, i.e. none unless authored).
+
+**Deliverable:** modifications to `scratchy`'s existing `main.rs`
+implementing exactly the above.
+
+---
+
+## v9 — default list margin/padding
+
+v8 left default `ul`/`ol` margin/padding explicitly out of scope; the
+WHATWG HTML Standard's suggested rendering (§15.3.7, "Lists") gives
+`ol, ul { margin-block: 1em; padding-inline-start: 40px; }` as the
+default UA styling real browsers use — same kind of gap v4
+(`display`) and v7 (heading size/weight) already closed with a small
+hardcoded per-tag table. This closes it for list indentation.
+
+**Requirements:**
+1. **A hardcoded default (`margin`, `padding`) for `ul`/`ol`**,
+   consulted exactly where v7's `default_heading_font(tag)` is
+   consulted — fallback underneath the cascade; author CSS (including
+   an inherited `margin`/`padding` — though those don't inherit, per
+   v4 — this only matters for an explicit author declaration on the
+   element itself) still overrides it exactly as it already overrides
+   `default_display`.
+2. **Values:** `margin: 16px` (1em at the 16px root default) and
+   `padding: 40px`, applied via scratchy's existing *single-scalar,
+   all-sides* margin/padding model from v4 — not a new per-side box
+   model (`margin-block`/`padding-inline-start` are each one-axis in
+   the real spec; here they become a uniform margin/padding on all
+   four sides, the same simplification v4's model already makes for
+   every other element). No nested-list `margin-block: 0` override —
+   out of scope, a nested list also gets the full 16px.
+3. **`li` itself gets no default margin/padding** — matches the real
+   spec (quoted above) exactly; only its `display: list-item` behavior
+   (already `Display::Block` since v4's `BLOCK_TAGS`) and v8's marker
+   are heading-table-free.
+4. **Explicitly out of scope:** per-side margin/padding, `em`/`%`
+   units (still `px`-only per v4/v6), nested-list margin collapsing,
+   and `list-style-type`-driven marker shape by nesting depth (v8's
+   bullet stays a plain disc at every depth).
+
+**Deliverable:** modifications to `scratchy`'s existing `main.rs`
+implementing exactly the above.
