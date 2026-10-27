@@ -1112,6 +1112,15 @@ struct App {
     /// The size `surface.resize()` was last called with — skip the call
     /// when nothing changed instead of re-issuing it on every redraw.
     surface_size: (u32, u32),
+    /// The width seen on the previous redraw, tracked unconditionally
+    /// (whether or not a rebuild is needed). Tiling window managers
+    /// commonly resize a window immediately after creating it (request
+    /// size, then retile to the actual tile size) — committing to a
+    /// rebuild as soon as one looks needed meant the very first layout
+    /// session routinely started at a width that was already obsolete a
+    /// tick later, throwing that work away. A rebuild only commits once
+    /// the width has been the same for two ticks in a row.
+    pending_width: Option<u32>,
 }
 
 impl App {
@@ -1131,6 +1140,7 @@ impl App {
             shape_cache: ShapeCache::new(),
             layout_incomplete: false,
             surface_size: (0, 0),
+            pending_width: None,
         }
     }
 
@@ -1152,6 +1162,7 @@ impl App {
             shape_cache: ShapeCache::new(),
             layout_incomplete: false,
             surface_size: (0, 0),
+            pending_width: None,
         }
     }
 
@@ -1170,19 +1181,29 @@ impl App {
             self.surface_size = (width, height);
         }
 
-        if self.layout_dirty || self.cached_width != width {
-            // Document or width changed: the old box tree and shaped
-            // paragraphs are for a different layout now. Rebuild the tree
-            // once here — not per tick, see `tree`'s doc comment — and
-            // start a fresh shaping session.
+        // Track the width seen on consecutive ticks unconditionally — not
+        // just while a rebuild is pending — so even the very first rebuild
+        // (layout_dirty from construction) waits for it to settle. The
+        // first redraw after window creation routinely still reports the
+        // requested size, not the tiling window manager's actual tile size
+        // a tick later; building at the wrong one and then immediately
+        // discarding it when the real size arrives was wasting real time
+        // (measured: ~600ms of duplicate shaping on a small page).
+        let width_matches_pending = self.pending_width == Some(width);
+        self.pending_width = Some(width);
+        let need_rebuild = self.layout_dirty || self.cached_width != width;
+
+        if need_rebuild && width_matches_pending {
             self.tree = Some(build_layout_tree(&self.document));
             self.shape_cache.clear();
             self.cached_width = width;
             self.layout_dirty = false;
             self.layout_incomplete = true;
+        } else if need_rebuild {
+            window.request_redraw();
         }
 
-        if self.cached.is_none() || self.layout_incomplete {
+        if self.tree.is_some() && (self.cached.is_none() || self.layout_incomplete) {
             // Each tick repaints the whole accumulated page regardless of
             // how much new shaping it did, and that fixed per-tick overhead
             // (paint+present+compositor wait) measures at ~50-60ms — so a
@@ -1213,26 +1234,29 @@ impl App {
             ));
             self.layout_incomplete = incomplete;
         }
-        let laid = self.cached.as_ref().unwrap();
-
-        let max_scroll = (laid.h - height as f32).max(0.0);
-        self.scroll_offset = self.scroll_offset.clamp(0.0, max_scroll);
-
         let mut pixels = surface.buffer_mut().unwrap();
         for pixel in pixels.iter_mut() {
             *pixel = 0x00FFFFFF;
         }
 
-        paint(
-            laid,
-            &mut self.font_system,
-            &mut self.swash_cache,
-            &mut self.shape_cache,
-            &mut pixels,
-            width,
-            height,
-            self.scroll_offset,
-        );
+        // `None` only on the very first tick or two, while we're still
+        // waiting to see whether the width is about to change again (see
+        // `pending_width`) — paint a blank frame rather than stall on it.
+        if let Some(laid) = self.cached.as_ref() {
+            let max_scroll = (laid.h - height as f32).max(0.0);
+            self.scroll_offset = self.scroll_offset.clamp(0.0, max_scroll);
+
+            paint(
+                laid,
+                &mut self.font_system,
+                &mut self.swash_cache,
+                &mut self.shape_cache,
+                &mut pixels,
+                width,
+                height,
+                self.scroll_offset,
+            );
+        }
 
         window.pre_present_notify();
         pixels.present().unwrap();
