@@ -80,3 +80,60 @@ deferred in v1.
 
 **Deliverable:** modifications to `scratchy`'s existing `main.rs`/
 `Cargo.toml` implementing exactly the above.
+
+---
+
+## v3 — CSS parsing/cascade (color only)
+
+**Reference material for this stage:**
+- Selector syntax & specificity: CSS Selectors Level 4
+  (https://www.w3.org/TR/selectors-4/)
+- Cascade algorithm & inheritance: CSS Cascading and Inheritance Level 4
+  (https://www.w3.org/TR/css-cascade-4/)
+- Structural reference (read for approach, not copied): Servo's `style`
+  crate, which solves this exact problem using the same
+  `cssparser`/`selectors` crates this stage uses.
+
+**Requirements:**
+1. **Collect CSS source:** concatenate the text content of all `<style>`
+   elements, in document order, into one stylesheet source. External
+   stylesheets (`<link rel=stylesheet>`) stay out of scope — scratchy
+   still never performs networking.
+2. **Parse with `cssparser`** into simple qualified rules
+   (`selector-list { declarations }`). Skip any at-rules encountered
+   (`@media`, `@import`, `@font-face`, etc.) and any nested rules — out of
+   scope.
+3. From each declaration block, parse only the `color` property; every
+   other declared property is parsed-and-discarded, not erred on.
+4. **Implement `selectors`' `Element` trait** for our DOM node type:
+   type/tag selectors, `#id`, `.class`, attribute selectors,
+   descendant/child/sibling combinators. Interactive pseudo-classes
+   (`:hover`, `:focus`, `:visited`) are out of scope — nothing is
+   interactive yet.
+5. Also parse each element's inline `style="..."` attribute for a `color`
+   declaration, same parsing path.
+6. **Resolve the cascade per element:** match all rules against it, sort
+   by specificity then source order (later wins ties), apply the winner,
+   then let an inline `style` attribute's `color` override that if present
+   (inline always wins — no `!important` support needed since we don't
+   implement `!important` at all).
+7. **`color` inherits:** an element with no winning declaration takes its
+   parent's computed color; the root default stays black, as in v1/v2.
+8. **Rendering:** split the on-screen text into colored runs following
+   each node's computed color, and paint each run with `cosmic-text`'s
+   per-span attributes (`set_rich_text` or equivalent) instead of v1/v2's
+   single uniform `set_text` call.
+9. **Explicitly out of scope:** box model (margin/padding/border/
+   background), `display`/layout, fonts/sizes/weights beyond color,
+   `@media`/`@import`/`@font-face`, `!important`, multiple cascade
+   origins, external stylesheets — all separate, later, logged features.
+10. **Streaming is preserved:** as more stdin content and more `<style>`
+    rules arrive, re-run cascade and repaint per chunk, same as v2
+    already does.
+11. **Project setup:** confirm current `cssparser`/`selectors` APIs
+    against the installed crate source rather than assuming from
+    memory — these two are lower-level and less stable than the v1/v2
+    crates were.
+
+**Deliverable:** modifications to `scratchy`'s existing `main.rs`/
+`Cargo.toml` implementing exactly the above.
