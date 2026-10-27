@@ -1183,7 +1183,15 @@ impl App {
         }
 
         if self.cached.is_none() || self.layout_incomplete {
-            let deadline = std::time::Instant::now() + std::time::Duration::from_millis(16);
+            // 80ms, not something tighter like 16ms: each tick repaints the
+            // whole accumulated page regardless of how much new shaping it
+            // did, so a smaller budget just means more ticks paying that
+            // same fixed per-tick overhead. Measured on a real, large page:
+            // 16ms budget -> 306 ticks, 17.0s total; 80ms -> 90 ticks,
+            // 13.0s total; 150ms -> 53 ticks, 12.6s (diminishing returns
+            // past ~80ms). Each tick is still well under the ~100ms where
+            // a pause starts reading as a freeze.
+            let deadline = std::time::Instant::now() + std::time::Duration::from_millis(80);
             let mut incomplete = false;
             let mut next_id = 0usize;
             self.cached = Some(measure(
