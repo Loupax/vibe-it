@@ -423,3 +423,64 @@ growing a fourth bespoke Rust table for the next one.
 
 **Deliverable:** a new `scratchy/default.css` plus modifications to
 `scratchy`'s existing `main.rs` implementing exactly the above.
+
+---
+
+## v11 — default.css rewritten against the real spec
+
+v10 embedded `default.css` but only carried forward the handful of
+values v4/v7/v9's old Rust tables already had. This replaces its
+*content* with a proper pass against the actual UA-default rules:
+fetch the WHATWG HTML Standard's "Rendering" chapter in full, cross-
+check against Firefox's real `html.css` (reference only, not copied
+in — MPL-2.0, full of `-moz-*` syntax and forms/media/ruby/frameset
+rules scratchy has no use for), and hand-curate the overlap that's
+actually relevant.
+
+**Requirements:**
+1. **Use the real property/selector names even where currently
+   inert** (logical properties — `margin-block`, `margin-inline`,
+   `padding-inline-start`, `margin-inline-start` — plus `display:
+   table`/`table-cell`/etc., `text-decoration`, `font-family`,
+   `list-style-type`), rather than inventing scalar workarounds for
+   properties scratchy's box model can't yet express correctly. An
+   unrecognized property name is already safely parsed-and-discarded
+   (v3) and a selector that fails to parse already safely drops just
+   that one rule (verified by hand, not assumed) — so this sits inert
+   until a future feature implements it, then activates for free with
+   no `default.css` changes needed.
+2. **Three deliberate departures from the literal spec/Firefox text**,
+   where following it verbatim would do nothing useful or actively
+   break something that already works:
+   - `font-size` stays `px` (the only unit scratchy parses) on
+     headings, not the real `em`-relative values.
+   - `li` stays `display: block`, not the real `list-item` (which
+     would be inert today and break the block layout `li` currently
+     gets, paired with v8's own marker-text injection).
+   - `b`/`strong` get `font-weight: bold`, not the real relative
+     `bolder` (a keyword scratchy's parser doesn't accept, which would
+     leave `<strong>` not bold at all today).
+3. **Covers, at minimum:** `body` margin; the full block-level tag
+   list; headings' font-size/weight/margin; `p`/`blockquote`/`figure`/
+   `pre`-family margins; lists (`ul`/`ol`/`dl`/`dd`/`li`) display,
+   margin, padding, and nested-list margin/marker-shape overrides;
+   `hr`; common inline semantics (`b`/`strong`/`i`/`em`/`cite`/`dfn`/
+   `var`/`u`/`ins`/`s`/`del`/`strike`/`big`/`small`/`sub`/`sup`/`mark`/
+   `abbr[title]`); `a` (styled directly on the element, not via
+   `:link`/`:visited` — scratchy has no navigation at all, so there's
+   no visited-state to distinguish); and `table`/`caption`/`col`/
+   `colgroup`/`thead`/`tbody`/`tfoot`/`tr`/`td`/`th`.
+4. **Known, accepted consequence:** replacing `ul`/`ol`'s v9/v10
+   scalar `margin: 16px; padding: 24px` compromise with the real
+   (inert) logical properties means lists go back to *zero* visible
+   spacing today, until per-side margin/padding exists. This is the
+   intended tradeoff, not a regression to chase — see `TODO.txt`.
+5. **A new `TODO.txt`** tracking gaps surfaced along the way (inline
+   `background-color` not reaching text spans — found via `mark`
+   doing nothing; the single-scalar box model; missing units/
+   properties) as a running, append-as-you-go checklist, separate from
+   `PROMPTS.md` (append-only prompt log) and `NOTES.md` (free-form
+   narrative).
+
+**Deliverable:** a rewritten `scratchy/default.css` plus a new
+`scratchy/TODO.txt`.

@@ -2,30 +2,141 @@
    user-agent stylesheet scratchy doesn't have — embedded into the binary
    at compile time (see `include_str!` in main.rs) and parsed through the
    same cascade as any document's own CSS. Every selector here is a bare
-   element type, the lowest possible specificity, so any author rule for
-   the same property on the same element always wins. */
+   element type/attribute selector (or :is(), which the `selectors` crate
+   parses natively), the lowest possible specificity, so any author rule
+   for the same property on the same element always wins.
 
-html, body, div, p, h1, h2, h3, h4, h5, h6, ul, ol, li, blockquote, pre,
-header, footer, section, article, nav, aside, figure, figcaption, table,
-form, hr {
+   Hand-curated from two real sources, not guessed:
+     - the WHATWG HTML Standard's "Rendering" chapter
+       (https://html.spec.whatwg.org/multipage/rendering.html)
+     - Firefox's actual html.css, used only as a cross-check/reference
+       (not copied in — it's MPL-2.0-licensed, full of Firefox-internal
+       `-moz-*` syntax our CSS engine can't parse, and ~90% forms/media/
+       ruby/frameset/dialog/marquee machinery scratchy has no use for)
+
+   Several declarations below use properties or selector forms scratchy's
+   CSS engine doesn't parse yet (logical properties like margin-block/
+   padding-inline-start, display: table/table-cell/list-item,
+   text-decoration, font-family, :link/:visited). These are safely
+   parsed-and-discarded (v3: unknown properties never error, and a
+   selector that fails to parse just drops that one rule — verified by
+   hand, not assumed) and sit inert until a future feature implements
+   them, at which point they take effect with no changes needed here.
+
+   Three deliberate departures from the literal spec/Firefox text, where
+   following it verbatim would do nothing useful or actively break
+   something that already works:
+     - `font-size` stays in `px` (only unit scratchy's parser accepts),
+       not the real `em`-relative values, on headings.
+     - `li` stays `display: block`, not the real `list-item` (which
+       would be inert today and break the block layout it currently
+       gets, paired with v8's own marker-text injection).
+     - `b`/`strong` get `font-weight: bold`, not the real `bolder`
+       (a relative keyword our parser doesn't accept — bold at least
+       makes <strong> render bold today, like on the
+       motherfuckingwebsite.com test page). */
+
+/* ---- blocks ---- */
+
+html, body,
+address, article, aside, blockquote, center, dialog, div, dt,
+figcaption, figure, footer, form, header, hgroup, hr, legend, listing,
+main, nav, p, plaintext, pre, search, section, summary, xmp {
   display: block;
 }
 
-h1 { font-size: 32px; font-weight: bold; }
-h2 { font-size: 24px; font-weight: bold; }
-h3 { font-size: 19px; font-weight: bold; }
-h4 { font-size: 16px; font-weight: bold; }
-h5 { font-size: 13px; font-weight: bold; }
-h6 { font-size: 11px; font-weight: bold; }
+body { margin: 8px; }
 
-/* The real default is margin-block: 1em (vertical-only) and
-   padding-inline-start: 40px (horizontal-only). scratchy's box model
-   only has one scalar margin/padding applied to all four sides, so
-   padding's real 40px would also add 40px of unwanted vertical space
-   above/below the list, stacked on top of the margin. 24px is a tuned
-   compromise: still a visible indent, without that much vertical
-   bloat. */
-ul, ol {
-  margin: 16px;
-  padding: 24px;
+address { font-style: italic; }
+
+/* ---- headings ---- */
+
+h1, h2, h3, h4, h5, h6 { display: block; font-weight: bold; }
+h1 { font-size: 32px; margin-block: .67em; }
+h2 { font-size: 24px; margin-block: .83em; }
+h3 { font-size: 19px; margin-block: 1em; }
+h4 { font-size: 16px; margin-block: 1.33em; }
+h5 { font-size: 13px; margin-block: 1.67em; }
+h6 { font-size: 11px; margin-block: 2.33em; }
+
+/* ---- paragraphs / blockquote / figure / pre ---- */
+
+p, dl { margin-block: 1em; }
+
+blockquote, figure {
+  margin-block: 1em;
+  margin-inline: 40px;
 }
+
+listing, xmp, pre, plaintext {
+  font-family: monospace;
+  white-space: pre;
+  margin-block: 1em;
+}
+
+/* ---- lists ---- */
+
+dir, dd, dl, dt, menu, ol, ul { display: block; }
+li { display: block; }
+
+dir, dl, menu, ol, ul { margin-block: 1em; }
+dir, menu, ol, ul { padding-inline-start: 40px; }
+dd { margin-inline-start: 40px; }
+
+ul, menu, dir { list-style-type: disc; }
+ol { list-style-type: decimal; }
+
+/* nested lists have no top/bottom margin */
+:is(ul, ol, dir, menu, dl) :is(ul, ol, dir, menu, dl) {
+  margin-block: 0;
+}
+/* 2-deep unordered lists use a circle, 3-deep (or more) a square */
+:is(ol, ul, menu, dir) :is(ul, menu, dir) {
+  list-style-type: circle;
+}
+:is(ol, ul, menu, dir) :is(ol, ul, menu, dir) :is(ul, menu, dir) {
+  list-style-type: square;
+}
+
+/* ---- leafs ---- */
+
+hr {
+  border-width: 1px;
+  border-style: inset;
+  border-color: gray;
+  margin-block: .5em;
+  margin-inline: auto;
+}
+
+/* ---- inlines ---- */
+
+b, strong { font-weight: bold; }
+i, cite, em, var, dfn { font-style: italic; }
+tt, code, kbd, samp { font-family: monospace; }
+u, ins { text-decoration: underline; }
+s, strike, del { text-decoration: line-through; }
+big { font-size: larger; }
+small { font-size: smaller; }
+sub { vertical-align: sub; font-size: smaller; }
+sup { vertical-align: super; font-size: smaller; }
+mark { background-color: yellow; color: black; }
+abbr[title], acronym[title] { text-decoration: dotted underline; }
+
+a {
+  color: #0000EE;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* ---- tables ---- */
+
+table { display: table; }
+caption { display: table-caption; text-align: center; }
+colgroup { display: table-column-group; }
+col { display: table-column; }
+thead { display: table-header-group; }
+tbody { display: table-row-group; }
+tfoot { display: table-footer-group; }
+tr { display: table-row; vertical-align: inherit; }
+td, th { display: table-cell; vertical-align: inherit; padding: 1px; }
+th { font-weight: bold; }

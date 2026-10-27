@@ -58,21 +58,23 @@ whatever font merely contains that glyph (measured: emoji font for
 digits). Fixed by building our own `fontdb::Database` and asking
 `fc-match` for the system's real installed default instead.
 
-**Known compromise, deliberately left as-is:** `ul`/`ol`'s default
-spacing in `default.css` (`margin: 16px; padding: 24px`) doesn't match
-Firefox — real browsers give lists `margin-block: 1em` (vertical-only,
-~16px) and `padding-inline-start: 40px` (horizontal-only, for the
-marker indent) via their UA stylesheet, but scratchy's box model only
-has one scalar margin/padding applied to all four sides, so any
-padding value that indents enough horizontally also adds that much
-unwanted vertical space (and vice versa) — 24px was tuned as a
-compromise, not a fix. The real fix is a per-side margin/padding model
-(declined twice in this session in favor of other priorities: once
-over font-size/weight/style for v6, once over a list-only indent
-hack). Agreed with the user: next PR(s) that touch `default.css`
-should rework it against the actual WHATWG rendering spec (§15.3.7
-"Lists" has the exact UA rules) properly, which likely means building
-real per-side support rather than tuning more constants.
+`default.css` was then rewritten properly against the real spec: fetched
+the WHATWG rendering chapter in full, cross-checked against Firefox's
+actual `html.css` (used only as a reference, not copied in — it's
+MPL-2.0 and full of `-moz-*` syntax/forms/media rules scratchy has no
+use for), and hand-curated the result. Most of it uses the real
+property/selector names (logical properties, `display: table`, etc.)
+even where currently inert, so it activates for free once that support
+exists, rather than inventing scalar workarounds to revert later —
+confirmed safe by hand (an unparseable rule just drops, doesn't poison
+the rest of the sheet). Net effect: `ul`/`ol` lost the tuned-but-wrong
+24px compromise and now have *zero* visible spacing again until
+per-side margin/padding exists, which is the intended tradeoff, not a
+regression to chase.
+
+See `TODO.txt` for the running list of gaps this surfaced (inline
+background-color, per-side box model, missing units/properties, etc.)
+— that file is now the place to check/add to, not this prose.
 
 ## Priority going forward: rendering, not networking
 

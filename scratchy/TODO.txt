@@ -1,0 +1,71 @@
+scratchy — known gaps / deferred work
+
+Plain checklist of things found-and-deliberately-deferred during work on
+this project, so they don't get forgotten between sessions. Not a
+feature backlog of things nobody asked for — only things we actually
+hit and chose not to fix immediately. See NOTES.md for the fuller story
+behind any item; a commit hash in parens points at the commit it came
+up during (`git show <hash>`) — more precise than a PROMPTS.md version
+number, since several versions can share one commit and a hash is
+directly actionable. PROMPTS.md is append-only and never edited for
+these.
+
+- [ ] Inline elements can't have a background-color. SpanStyle (text
+      runs) only carries color/font_size/font_weight/font_style — no
+      background. resolve_style() computes background_color for every
+      element but it's discarded when recursing into inline content.
+      Found via default.css's `mark { background-color: yellow; }`
+      doing nothing. Real fix needs: SpanStyle to carry a background
+      color, and the paint path to draw a rect behind each span's
+      actual glyph positions per wrapped line (a span can break across
+      multiple lines, each needing its own rect).
+
+- [ ] Box model (margin/padding/border-width) is one scalar applied to
+      all four sides — no per-side (margin-top/right/bottom/left etc.)
+      or logical (margin-block/margin-inline) properties (865ba44,
+      d16e491). This is why ul/ol, blockquote/figure, dd, and hr's real
+      default spacing (vertical-only margin-block, horizontal-only
+      padding-inline-start/margin-inline) currently can't be expressed
+      without either picking one axis and being wrong on the other, or
+      (current choice, as of d16e491) leaving those specific
+      declarations as the real spec/logical-property names, inert,
+      with zero visible spacing today. Properly fixing list/blockquote/
+      hr spacing needs this built first — don't just tune default.css's
+      constants again.
+
+- [ ] Only `px` is a supported length unit (margin/padding/border-width/
+      font-size). No `em`, `rem`, `%`, or unitless (besides literal 0).
+      Most of default.css's margin-block/padding-inline-start/etc.
+      values are written using the spec's real `em` values for when
+      logical-property parsing lands — but em-unit parsing is a
+      separate prerequisite on top of that, needed before those values
+      do anything even once the property names are recognized.
+
+- [ ] `display: table` / `table-cell` / `table-row` / etc. have no real
+      layout behind them — table elements currently just render as
+      plain inline/block boxes (via the CSS initial value), no grid,
+      no column sizing, no borders-between-cells.
+
+- [ ] `font-family` is not parsed at all — every element renders in
+      whatever `new_font_system()`'s sans-serif generic resolves to
+      (see the fc-match fix in 5e4684e), regardless of `font-family:
+      monospace` on `pre`/`code`/etc. in default.css.
+
+- [ ] `text-decoration` is not parsed/painted — underline (`u`, `ins`,
+      links) and line-through (`s`, `del`, `strike`) are declared in
+      default.css but invisible.
+
+- [ ] `white-space: pre` is not honored — text extraction always
+      collapses whitespace (`normalize_whitespace`), so `<pre>`/
+      `<listing>`/`<xmp>` content loses its original line breaks and
+      spacing regardless of the CSS.
+
+- [ ] `list-style-type` is not parsed — default.css declares
+      disc/decimal/circle/square per nesting depth, but the marker text
+      (`list_marker()`, added in 865ba44) is a hardcoded Rust function
+      that always produces a plain bullet or decimal number, never
+      consulting CSS.
+
+- [ ] No `criterion`/`cargo bench` setup yet for performance work —
+      still hand-editing `main.rs` with temporary `eprintln!`/`Instant`
+      timing per NOTES.md. Agreed worth doing, not yet done.
