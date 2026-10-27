@@ -708,77 +708,44 @@ struct LayoutBox {
     content: BoxContent,
 }
 
-/// Flattens an inline-level subtree (text + nested inline elements) into
-/// colored runs. Any block-level descendant is treated as inline too —
-/// "block inside inline" is out of scope for normal-flow-only layout.
-fn flatten_inline(
-    handle: &Handle,
-    rules: &[StyleRule],
-    inherited_color: TextColor,
-    out: &mut Vec<(String, TextColor)>,
-) {
-    match &handle.data {
-        NodeData::Text { contents } => {
-            let mut text = normalize_whitespace(&contents.borrow());
-            text.push(' ');
-            out.push((text, inherited_color));
-        }
-        NodeData::Element { name, .. } => {
-            let tag = name.local.as_ref();
-            if tag == "script" || tag == "style" {
-                return;
-            }
-            let style = resolve_style(handle, rules, inherited_color);
-            if style.display == Display::None {
-                return;
-            }
-            for child in handle.children.borrow().iter() {
-                flatten_inline(child, rules, style.color, out);
-            }
-        }
-        _ => {
-            for child in handle.children.borrow().iter() {
-                flatten_inline(child, rules, inherited_color, out);
-            }
-        }
+fn build_box_for_element(handle: &Handle, rules: &[StyleRule], inherited_color: TextColor) -> LayoutBox {
+    let style = resolve_style(handle, rules, inherited_color);
+    LayoutBox {
+        style,
+        content: BoxContent::Blocks(build_children(handle, rules, style.color)),
     }
 }
 
-fn build_box_for_element(handle: &Handle, rules: &[StyleRule], inherited_color: TextColor) -> LayoutBox {
-    let style = resolve_style(handle, rules, inherited_color);
-    let children: Vec<Handle> = handle.children.borrow().iter().cloned().collect();
-    let has_block_child = children.iter().any(|c| match &c.data {
-        NodeData::Element { name, .. } => {
-            let tag = name.local.as_ref();
-            if tag == "script" || tag == "style" {
-                false
-            } else {
-                resolve_style(c, rules, style.color).display == Display::Block
-            }
-        }
-        _ => false,
-    });
-
-    let content = if has_block_child {
-        BoxContent::Blocks(build_children(handle, rules, style.color))
-    } else {
-        let mut runs = Vec::new();
-        for child in &children {
-            flatten_inline(child, rules, style.color, &mut runs);
-        }
-        BoxContent::Inline(runs)
-    };
-
-    LayoutBox { style, content }
-}
-
-/// Walks the direct children of `handle`, starting a new box for each
-/// block-level child and grouping consecutive inline-level children
-/// (including text) into one anonymous inline-run box.
+/// Walks the children of `handle`, starting a new box for each block-level
+/// one and grouping consecutive inline-level content (including text) into
+/// anonymous inline-run boxes. Recurses *through* inline wrapper elements
+/// (carrying their resolved color forward) rather than flattening them
+/// outright — a block element nested inside something that looks inline at
+/// first glance (routine in real-world markup, e.g. a `<div>` wrapping a
+/// nav `<ul>`) still gets its own box this way, instead of being absorbed
+/// into one giant text run. (An earlier version flattened unconditionally;
+/// on a real Wikipedia page that merged the entire navigation chrome into a
+/// single ~17,000-character run, which took 7+ seconds to shape by itself.)
 fn build_children(handle: &Handle, rules: &[StyleRule], inherited_color: TextColor) -> Vec<LayoutBox> {
     let mut result = Vec::new();
     let mut pending: Vec<(String, TextColor)> = Vec::new();
+    collect_children(handle, rules, inherited_color, &mut pending, &mut result);
+    if !pending.is_empty() {
+        result.push(LayoutBox {
+            style: anonymous_style(inherited_color),
+            content: BoxContent::Inline(pending),
+        });
+    }
+    result
+}
 
+fn collect_children(
+    handle: &Handle,
+    rules: &[StyleRule],
+    inherited_color: TextColor,
+    pending: &mut Vec<(String, TextColor)>,
+    result: &mut Vec<LayoutBox>,
+) {
     for child in handle.children.borrow().iter() {
         match &child.data {
             NodeData::Text { contents } => {
@@ -799,24 +766,17 @@ fn build_children(handle: &Handle, rules: &[StyleRule], inherited_color: TextCol
                     if !pending.is_empty() {
                         result.push(LayoutBox {
                             style: anonymous_style(inherited_color),
-                            content: BoxContent::Inline(std::mem::take(&mut pending)),
+                            content: BoxContent::Inline(std::mem::take(pending)),
                         });
                     }
                     result.push(build_box_for_element(child, rules, inherited_color));
                 } else {
-                    flatten_inline(child, rules, style.color, &mut pending);
+                    collect_children(child, rules, style.color, pending, result);
                 }
             }
             _ => {}
         }
     }
-    if !pending.is_empty() {
-        result.push(LayoutBox {
-            style: anonymous_style(inherited_color),
-            content: BoxContent::Inline(pending),
-        });
-    }
-    result
 }
 
 fn build_layout_tree(document: &Handle) -> LayoutBox {
@@ -855,8 +815,8 @@ fn collect_style_css(handle: &Handle, out: &mut String) {
 // ---------- measure + paint ----------
 
 /// A laid-out box: resolved border-box rect (absolute document coordinates,
-/// not yet scroll-adjusted) plus either its laid-out children or its
-/// already-shaped text buffer.
+/// not yet scroll-adjusted) plus either its laid-out children or a stable id
+/// identifying its shaped text in the shape cache (see `measure`).
 struct Laid {
     style: ComputedStyle,
     x: f32,
@@ -868,8 +828,18 @@ struct Laid {
 
 enum LaidContent {
     Blocks(Vec<Laid>),
-    Text(Buffer),
+    Text(usize),
 }
+
+/// A paragraph's shaped text, keyed by a stable id assigned during `measure`
+/// in deterministic document order. Buffers live here — not inside `Laid` —
+/// and persist across frames, so shaping a paragraph once is never repeated
+/// (see `measure`'s budget/incomplete mechanism).
+type ShapeCache = std::collections::HashMap<usize, (Buffer, f32)>;
+
+/// Height assumed for a paragraph that hasn't been shaped yet, so content
+/// below it has somewhere reasonable to sit until the real height arrives.
+const PLACEHOLDER_LINE_HEIGHT: f32 = 20.0;
 
 fn shape_spans(font_system: &mut FontSystem, spans: &[(String, TextColor)], width: f32) -> (Buffer, f32) {
     let metrics = Metrics::new(16.0, 20.0);
@@ -892,7 +862,26 @@ fn shape_spans(font_system: &mut FontSystem, spans: &[(String, TextColor)], widt
     (buffer, height)
 }
 
-fn measure(b: &LayoutBox, font_system: &mut FontSystem, x: f32, y: f32, width: f32) -> Laid {
+/// Lays out `b`, shaping text as it goes — but only until `deadline` passes.
+/// Each paragraph gets a stable id (assigned in document order, so it's the
+/// same id across repeated calls on the same tree) and its shaped result is
+/// cached in `cache`, keyed by that id, so a paragraph already shaped on an
+/// earlier call is never re-shaped. Once the deadline passes, not-yet-shaped
+/// paragraphs get a placeholder height and `*incomplete` is set — the caller
+/// is expected to call `measure` again (another frame, same `cache`) to pick
+/// up where this call left off, until a full pass needs no new shaping at
+/// all.
+fn measure(
+    b: &LayoutBox,
+    font_system: &mut FontSystem,
+    x: f32,
+    y: f32,
+    width: f32,
+    next_id: &mut usize,
+    cache: &mut ShapeCache,
+    deadline: std::time::Instant,
+    incomplete: &mut bool,
+) -> Laid {
     let s = b.style;
     let border_x = x + s.margin;
     let border_y = y + s.margin;
@@ -903,11 +892,23 @@ fn measure(b: &LayoutBox, font_system: &mut FontSystem, x: f32, y: f32, width: f
 
     match &b.content {
         BoxContent::Inline(spans) => {
-            let (buffer, content_h) = if spans.is_empty() {
-                (Buffer::new_empty(Metrics::new(16.0, 20.0)), 0.0)
+            let id = *next_id;
+            *next_id += 1;
+
+            let content_h = if let Some((_, h)) = cache.get(&id) {
+                *h
+            } else if spans.is_empty() {
+                cache.insert(id, (Buffer::new_empty(Metrics::new(16.0, 20.0)), 0.0));
+                0.0
+            } else if std::time::Instant::now() < deadline {
+                let (buffer, h) = shape_spans(font_system, spans, content_w);
+                cache.insert(id, (buffer, h));
+                h
             } else {
-                shape_spans(font_system, spans, content_w)
+                *incomplete = true;
+                PLACEHOLDER_LINE_HEIGHT
             };
+
             let border_h = 2.0 * (s.border_width + s.padding) + content_h;
             Laid {
                 style: s,
@@ -915,14 +916,17 @@ fn measure(b: &LayoutBox, font_system: &mut FontSystem, x: f32, y: f32, width: f
                 y: border_y,
                 w: border_w,
                 h: border_h,
-                content: LaidContent::Text(buffer),
+                content: LaidContent::Text(id),
             }
         }
         BoxContent::Blocks(children) => {
             let mut cursor_y = content_y;
             let mut laid_children = Vec::with_capacity(children.len());
             for child in children {
-                let lc = measure(child, font_system, content_x, cursor_y, content_w);
+                let lc = measure(
+                    child, font_system, content_x, cursor_y, content_w, next_id, cache, deadline,
+                    incomplete,
+                );
                 cursor_y += 2.0 * lc.style.margin + lc.h;
                 laid_children.push(lc);
             }
@@ -1025,9 +1029,10 @@ fn paint_buffer(
 }
 
 fn paint(
-    laid: &mut Laid,
+    laid: &Laid,
     font_system: &mut FontSystem,
     swash_cache: &mut SwashCache,
+    cache: &mut ShapeCache,
     pixels: &mut [u32],
     win_w: u32,
     win_h: u32,
@@ -1035,18 +1040,31 @@ fn paint(
 ) {
     let s = laid.style;
     let draw_y = laid.y - scroll_offset;
+    if draw_y + laid.h < 0.0 || draw_y > win_h as f32 {
+        // Entirely outside the viewport. Every descendant's y-range is
+        // contained within this box's, so none of them can be visible
+        // either — skip the whole subtree instead of just clipping
+        // per-pixel, since that's what was making every redraw cost
+        // O(whole document) instead of O(visible content).
+        return;
+    }
     paint_box_decoration(&s, pixels, win_w, win_h, laid.x, draw_y, laid.w, laid.h);
 
-    match &mut laid.content {
+    match &laid.content {
         LaidContent::Blocks(children) => {
             for child in children {
-                paint(child, font_system, swash_cache, pixels, win_w, win_h, scroll_offset);
+                paint(child, font_system, swash_cache, cache, pixels, win_w, win_h, scroll_offset);
             }
         }
-        LaidContent::Text(buffer) => {
-            let content_x = laid.x + s.border_width + s.padding;
-            let content_y = draw_y + s.border_width + s.padding;
-            paint_buffer(buffer, font_system, swash_cache, pixels, win_w, win_h, content_x, content_y);
+        LaidContent::Text(id) => {
+            // Not yet shaped (still mid-way through a budgeted measure pass)
+            // just means nothing to paint here yet — it'll appear once a
+            // later frame finishes shaping it.
+            if let Some((buffer, _)) = cache.get_mut(id) {
+                let content_x = laid.x + s.border_width + s.padding;
+                let content_y = draw_y + s.border_width + s.padding;
+                paint_buffer(buffer, font_system, swash_cache, pixels, win_w, win_h, content_x, content_y);
+            }
         }
     }
 }
@@ -1066,6 +1084,34 @@ struct App {
     font_system: FontSystem,
     swash_cache: SwashCache,
     scroll_offset: f32,
+    /// Cached layout from the last `document`/width combination. Scrolling
+    /// alone never invalidates this — relaying out and reshaping the whole
+    /// page (expensive: real measurements showed full-document shaping can
+    /// take seconds under full bidi/complex-script shaping, worse on large
+    /// or RTL-heavy pages) on every mouse-wheel tick is what made scrolling
+    /// feel laggy.
+    cached: Option<Laid>,
+    cached_width: u32,
+    layout_dirty: bool,
+    /// The box tree for the current layout session (built once from
+    /// `document`+CSS, reused across every incremental `measure` tick until
+    /// the document or width changes). Rebuilding this per tick — a full DOM
+    /// walk plus cascade matching for every element — was itself costing
+    /// hundreds of ms on large pages, swamping the shaping time budget
+    /// before a single new paragraph even got shaped.
+    tree: Option<LayoutBox>,
+    /// Shaped paragraphs, keyed by the stable id `measure` assigns them.
+    /// Outlives any single `measure` call — this is what lets layout be
+    /// resumed across frames instead of reshaping the whole document in one
+    /// blocking call (see `measure`'s deadline/incomplete mechanism).
+    shape_cache: ShapeCache,
+    /// Set when the last `measure` pass ran out of its time budget before
+    /// shaping every paragraph. `redraw` keeps re-triggering itself while
+    /// this is true, making progress a bit further each frame.
+    layout_incomplete: bool,
+    /// The size `surface.resize()` was last called with — skip the call
+    /// when nothing changed instead of re-issuing it on every redraw.
+    surface_size: (u32, u32),
 }
 
 impl App {
@@ -1078,6 +1124,13 @@ impl App {
             font_system: FontSystem::new(),
             swash_cache: SwashCache::new(),
             scroll_offset: 0.0,
+            cached: None,
+            cached_width: 0,
+            layout_dirty: true,
+            tree: None,
+            shape_cache: ShapeCache::new(),
+            layout_incomplete: false,
+            surface_size: (0, 0),
         }
     }
 
@@ -1092,6 +1145,13 @@ impl App {
             font_system: FontSystem::new(),
             swash_cache: SwashCache::new(),
             scroll_offset: 0.0,
+            cached: None,
+            cached_width: 0,
+            layout_dirty: true,
+            tree: None,
+            shape_cache: ShapeCache::new(),
+            layout_incomplete: false,
+            surface_size: (0, 0),
         }
     }
 
@@ -1103,12 +1163,43 @@ impl App {
         let width = size.width.max(1);
         let height = size.height.max(1);
 
-        surface
-            .resize(NonZeroU32::new(width).unwrap(), NonZeroU32::new(height).unwrap())
-            .unwrap();
+        if self.surface_size != (width, height) {
+            surface
+                .resize(NonZeroU32::new(width).unwrap(), NonZeroU32::new(height).unwrap())
+                .unwrap();
+            self.surface_size = (width, height);
+        }
 
-        let tree = build_layout_tree(&self.document);
-        let mut laid = measure(&tree, &mut self.font_system, 0.0, 0.0, width as f32);
+        if self.layout_dirty || self.cached_width != width {
+            // Document or width changed: the old box tree and shaped
+            // paragraphs are for a different layout now. Rebuild the tree
+            // once here — not per tick, see `tree`'s doc comment — and
+            // start a fresh shaping session.
+            self.tree = Some(build_layout_tree(&self.document));
+            self.shape_cache.clear();
+            self.cached_width = width;
+            self.layout_dirty = false;
+            self.layout_incomplete = true;
+        }
+
+        if self.cached.is_none() || self.layout_incomplete {
+            let deadline = std::time::Instant::now() + std::time::Duration::from_millis(16);
+            let mut incomplete = false;
+            let mut next_id = 0usize;
+            self.cached = Some(measure(
+                self.tree.as_ref().unwrap(),
+                &mut self.font_system,
+                0.0,
+                0.0,
+                width as f32,
+                &mut next_id,
+                &mut self.shape_cache,
+                deadline,
+                &mut incomplete,
+            ));
+            self.layout_incomplete = incomplete;
+        }
+        let laid = self.cached.as_ref().unwrap();
 
         let max_scroll = (laid.h - height as f32).max(0.0);
         self.scroll_offset = self.scroll_offset.clamp(0.0, max_scroll);
@@ -1119,16 +1210,22 @@ impl App {
         }
 
         paint(
-            &mut laid,
+            laid,
             &mut self.font_system,
             &mut self.swash_cache,
+            &mut self.shape_cache,
             &mut pixels,
             width,
             height,
             self.scroll_offset,
         );
 
+        window.pre_present_notify();
         pixels.present().unwrap();
+
+        if self.layout_incomplete {
+            window.request_redraw();
+        }
     }
 }
 
@@ -1139,7 +1236,8 @@ impl ApplicationHandler<AppEvent> for App {
         }
         let window_attrs = Window::default_attributes()
             .with_title("scratchy")
-            .with_inner_size(LogicalSize::new(1024.0, 768.0));
+            .with_inner_size(LogicalSize::new(1024.0, 768.0))
+            .with_decorations(false);
         let window = Rc::new(event_loop.create_window(window_attrs).unwrap());
         let context = Context::new(window.clone()).unwrap();
         let surface = Surface::new(&context, window.clone()).unwrap();
@@ -1154,12 +1252,14 @@ impl ApplicationHandler<AppEvent> for App {
                 if let Some(decoder) = &mut self.decoder {
                     decoder.process(ByteTendril::from_slice(&bytes));
                     self.document = decoder.inner_sink.tokenizer.sink.sink.document.clone();
+                    self.layout_dirty = true;
                 }
             }
             AppEvent::Eof => {
                 if let Some(decoder) = self.decoder.take() {
                     let dom = decoder.finish();
                     self.document = dom.document;
+                    self.layout_dirty = true;
                 }
             }
         }
