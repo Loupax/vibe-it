@@ -1553,11 +1553,13 @@ dependencies = [
  "cosmic-text",
  "cssparser",
  "cssparser-color",
+ "fontdb",
  "html5ever",
  "markup5ever_rcdom",
  "precomputed-hash",
  "selectors",
  "softbuffer",
+ "sys-locale",
  "winit",
 ]
 

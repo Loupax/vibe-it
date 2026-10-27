@@ -5,7 +5,10 @@ use std::num::NonZeroU32;
 use std::rc::{Rc, Weak};
 use std::thread;
 
-use cosmic_text::{Attrs, Buffer, Color as TextColor, FontSystem, Metrics, Shaping, SwashCache};
+use cosmic_text::{
+    Attrs, Buffer, Color as TextColor, FontSystem, Metrics, Shaping, Style as FontStyle,
+    SwashCache, Weight as FontWeight,
+};
 use cssparser::{
     AtRuleParser, CowRcStr, DeclarationParser, ParseError, Parser as CssParser, ParserState,
     QualifiedRuleParser, RuleBodyItemParser, RuleBodyParser, StyleSheetParser, Token,
@@ -372,6 +375,9 @@ struct Declarations {
     padding: Option<f32>,
     border_width: Option<f32>,
     border_color: Option<CssColor>,
+    font_size: Option<f32>,
+    font_weight: Option<FontWeight>,
+    font_style: Option<FontStyle>,
 }
 
 struct StyleRule {
@@ -383,6 +389,15 @@ fn parse_px_length(input: &mut CssParser) -> Result<f32, ()> {
     match input.next().map_err(|_| ())? {
         Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("px") => Ok(*value),
         Token::Number { value, .. } if *value == 0.0 => Ok(0.0),
+        _ => Err(()),
+    }
+}
+
+fn parse_font_weight(input: &mut CssParser) -> Result<FontWeight, ()> {
+    match input.next().map_err(|_| ())? {
+        Token::Ident(ident) if ident.eq_ignore_ascii_case("normal") => Ok(FontWeight::NORMAL),
+        Token::Ident(ident) if ident.eq_ignore_ascii_case("bold") => Ok(FontWeight::BOLD),
+        Token::Number { value, .. } => Ok(FontWeight(value.round() as u16)),
         _ => Err(()),
     }
 }
@@ -436,6 +451,26 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
         } else if name.eq_ignore_ascii_case("border-width") {
             if let Ok(v) = parse_px_length(input) {
                 self.decls.border_width = Some(v);
+            }
+        } else if name.eq_ignore_ascii_case("font-size") {
+            if let Ok(v) = parse_px_length(input) {
+                self.decls.font_size = Some(v);
+            }
+        } else if name.eq_ignore_ascii_case("font-weight") {
+            if let Ok(w) = parse_font_weight(input) {
+                self.decls.font_weight = Some(w);
+            }
+        } else if name.eq_ignore_ascii_case("font-style") {
+            if let Ok(ident) = input.expect_ident() {
+                self.decls.font_style = if ident.eq_ignore_ascii_case("normal") {
+                    Some(FontStyle::Normal)
+                } else if ident.eq_ignore_ascii_case("italic") {
+                    Some(FontStyle::Italic)
+                } else if ident.eq_ignore_ascii_case("oblique") {
+                    Some(FontStyle::Oblique)
+                } else {
+                    None
+                };
             }
         }
         Ok(())
@@ -542,6 +577,24 @@ fn to_text_color(color: &CssColor) -> Option<TextColor> {
 
 // ---------- cascade ----------
 
+/// The subset of computed style that inherits from parent to child
+/// (`color`, and — from v6 — `font-size`/`font-weight`/`font-style`),
+/// threaded through tree-building instead of re-deriving from scratch.
+#[derive(Clone, Copy)]
+struct InheritedStyle {
+    color: TextColor,
+    font_size: f32,
+    font_weight: FontWeight,
+    font_style: FontStyle,
+}
+
+const ROOT_STYLE: InheritedStyle = InheritedStyle {
+    color: TextColor::rgb(0, 0, 0),
+    font_size: 16.0,
+    font_weight: FontWeight::NORMAL,
+    font_style: FontStyle::Normal,
+};
+
 #[derive(Clone, Copy)]
 struct ComputedStyle {
     color: TextColor,
@@ -551,6 +604,20 @@ struct ComputedStyle {
     padding: f32,
     border_width: f32,
     border_color: Option<TextColor>,
+    font_size: f32,
+    font_weight: FontWeight,
+    font_style: FontStyle,
+}
+
+impl ComputedStyle {
+    fn inherited(&self) -> InheritedStyle {
+        InheritedStyle {
+            color: self.color,
+            font_size: self.font_size,
+            font_weight: self.font_weight,
+            font_style: self.font_style,
+        }
+    }
 }
 
 const BLOCK_TAGS: &[&str] = &[
@@ -590,6 +657,22 @@ fn default_display(tag: &str) -> Display {
     }
 }
 
+/// Default (`font-size`, `font-weight`) per heading tag, standing in for
+/// the sizing a full user-agent stylesheet would otherwise supply (there
+/// isn't one — same reasoning as `default_display` above). Only consulted
+/// as the cascade's fallback, so any author CSS still overrides it.
+fn default_heading_font(tag: &str) -> Option<(f32, FontWeight)> {
+    match tag {
+        "h1" => Some((32.0, FontWeight::BOLD)),
+        "h2" => Some((24.0, FontWeight::BOLD)),
+        "h3" => Some((19.0, FontWeight::BOLD)),
+        "h4" => Some((16.0, FontWeight::BOLD)),
+        "h5" => Some((13.0, FontWeight::BOLD)),
+        "h6" => Some((11.0, FontWeight::BOLD)),
+        _ => None,
+    }
+}
+
 fn cascade_property<T: Clone>(
     matches: &[(u32, &Declarations)],
     inline: Option<T>,
@@ -609,7 +692,7 @@ fn cascade_property<T: Clone>(
     best.map(|(_, v)| v)
 }
 
-fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited_color: TextColor) -> ComputedStyle {
+fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle) -> ComputedStyle {
     let tag = match &handle.data {
         NodeData::Element { name, .. } => name.local.as_ref(),
         _ => "",
@@ -643,7 +726,7 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited_color: TextColo
 
     let color = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.color), |d| d.color)
         .and_then(|c| to_text_color(&c))
-        .unwrap_or(inherited_color);
+        .unwrap_or(inherited.color);
     let background_color = cascade_property(
         &matches,
         inline_decls.as_ref().and_then(|d| d.background_color),
@@ -668,6 +751,23 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited_color: TextColo
         |d| d.border_color,
     )
     .and_then(|c| to_text_color(&c));
+    let heading_default = default_heading_font(tag);
+    let font_size = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.font_size), |d| d.font_size)
+        .or_else(|| heading_default.map(|(size, _)| size))
+        .unwrap_or(inherited.font_size);
+    let font_weight = cascade_property(
+        &matches,
+        inline_decls.as_ref().and_then(|d| d.font_weight),
+        |d| d.font_weight,
+    )
+    .or_else(|| heading_default.map(|(_, weight)| weight))
+    .unwrap_or(inherited.font_weight);
+    let font_style = cascade_property(
+        &matches,
+        inline_decls.as_ref().and_then(|d| d.font_style),
+        |d| d.font_style,
+    )
+    .unwrap_or(inherited.font_style);
 
     ComputedStyle {
         color,
@@ -677,18 +777,24 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited_color: TextColo
         padding,
         border_width,
         border_color,
+        font_size,
+        font_weight,
+        font_style,
     }
 }
 
-fn anonymous_style(color: TextColor) -> ComputedStyle {
+fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
     ComputedStyle {
-        color,
+        color: inherited.color,
         background_color: None,
         display: Display::Block,
         margin: 0.0,
         padding: 0.0,
         border_width: 0.0,
         border_color: None,
+        font_size: inherited.font_size,
+        font_weight: inherited.font_weight,
+        font_style: inherited.font_style,
     }
 }
 
@@ -698,9 +804,33 @@ fn normalize_whitespace(s: &str) -> String {
 
 // ---------- layout tree ----------
 
+/// Per-span style for one piece of inline text — everything a text run
+/// needs from its nearest ancestor's computed style to be shaped
+/// correctly, carried independently of the anonymous inline box's own
+/// style since a single run can mix spans from different elements
+/// (e.g. plain text next to a `<b>`).
+#[derive(Clone, Copy)]
+struct SpanStyle {
+    color: TextColor,
+    font_size: f32,
+    font_weight: FontWeight,
+    font_style: FontStyle,
+}
+
+impl From<InheritedStyle> for SpanStyle {
+    fn from(s: InheritedStyle) -> Self {
+        SpanStyle {
+            color: s.color,
+            font_size: s.font_size,
+            font_weight: s.font_weight,
+            font_style: s.font_style,
+        }
+    }
+}
+
 enum BoxContent {
     Blocks(Vec<LayoutBox>),
-    Inline(Vec<(String, TextColor)>),
+    Inline(Vec<(String, SpanStyle)>),
 }
 
 struct LayoutBox {
@@ -708,11 +838,11 @@ struct LayoutBox {
     content: BoxContent,
 }
 
-fn build_box_for_element(handle: &Handle, rules: &[StyleRule], inherited_color: TextColor) -> LayoutBox {
-    let style = resolve_style(handle, rules, inherited_color);
+fn build_box_for_element(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle) -> LayoutBox {
+    let style = resolve_style(handle, rules, inherited);
     LayoutBox {
         style,
-        content: BoxContent::Blocks(build_children(handle, rules, style.color)),
+        content: BoxContent::Blocks(build_children(handle, rules, style.inherited())),
     }
 }
 
@@ -726,13 +856,13 @@ fn build_box_for_element(handle: &Handle, rules: &[StyleRule], inherited_color: 
 /// into one giant text run. (An earlier version flattened unconditionally;
 /// on a real Wikipedia page that merged the entire navigation chrome into a
 /// single ~17,000-character run, which took 7+ seconds to shape by itself.)
-fn build_children(handle: &Handle, rules: &[StyleRule], inherited_color: TextColor) -> Vec<LayoutBox> {
+fn build_children(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle) -> Vec<LayoutBox> {
     let mut result = Vec::new();
-    let mut pending: Vec<(String, TextColor)> = Vec::new();
-    collect_children(handle, rules, inherited_color, &mut pending, &mut result);
+    let mut pending: Vec<(String, SpanStyle)> = Vec::new();
+    collect_children(handle, rules, inherited, &mut pending, &mut result);
     if !pending.is_empty() {
         result.push(LayoutBox {
-            style: anonymous_style(inherited_color),
+            style: anonymous_style(inherited),
             content: BoxContent::Inline(pending),
         });
     }
@@ -742,8 +872,8 @@ fn build_children(handle: &Handle, rules: &[StyleRule], inherited_color: TextCol
 fn collect_children(
     handle: &Handle,
     rules: &[StyleRule],
-    inherited_color: TextColor,
-    pending: &mut Vec<(String, TextColor)>,
+    inherited: InheritedStyle,
+    pending: &mut Vec<(String, SpanStyle)>,
     result: &mut Vec<LayoutBox>,
 ) {
     for child in handle.children.borrow().iter() {
@@ -751,27 +881,27 @@ fn collect_children(
             NodeData::Text { contents } => {
                 let mut text = normalize_whitespace(&contents.borrow());
                 text.push(' ');
-                pending.push((text, inherited_color));
+                pending.push((text, inherited.into()));
             }
             NodeData::Element { name, .. } => {
                 let tag = name.local.as_ref();
                 if tag == "script" || tag == "style" {
                     continue;
                 }
-                let style = resolve_style(child, rules, inherited_color);
+                let style = resolve_style(child, rules, inherited);
                 if style.display == Display::None {
                     continue;
                 }
                 if style.display == Display::Block {
                     if !pending.is_empty() {
                         result.push(LayoutBox {
-                            style: anonymous_style(inherited_color),
+                            style: anonymous_style(inherited),
                             content: BoxContent::Inline(std::mem::take(pending)),
                         });
                     }
-                    result.push(build_box_for_element(child, rules, inherited_color));
+                    result.push(build_box_for_element(child, rules, inherited));
                 } else {
-                    collect_children(child, rules, style.color, pending, result);
+                    collect_children(child, rules, style.inherited(), pending, result);
                 }
             }
             _ => {}
@@ -783,10 +913,9 @@ fn build_layout_tree(document: &Handle) -> LayoutBox {
     let mut css_source = String::new();
     collect_style_css(document, &mut css_source);
     let rules = parse_stylesheet(&css_source);
-    let root_color = TextColor::rgb(0, 0, 0);
     LayoutBox {
-        style: anonymous_style(root_color),
-        content: BoxContent::Blocks(build_children(document, &rules, root_color)),
+        style: anonymous_style(ROOT_STYLE),
+        content: BoxContent::Blocks(build_children(document, &rules, ROOT_STYLE)),
     }
 }
 
@@ -841,15 +970,67 @@ type ShapeCache = std::collections::HashMap<usize, (Buffer, f32)>;
 /// below it has somewhere reasonable to sit until the real height arrives.
 const PLACEHOLDER_LINE_HEIGHT: f32 = 20.0;
 
-fn shape_spans(font_system: &mut FontSystem, spans: &[(String, TextColor)], width: f32) -> (Buffer, f32) {
+/// Asks the system's real fontconfig (via `fc-match`, the same resolution
+/// path Firefox and other fontconfig-aware apps use) which actually-
+/// installed family a generic name like "sans-serif" currently resolves
+/// to. Returns `None` on any failure (command missing, non-zero exit,
+/// empty output) rather than guessing.
+fn fc_match_family(generic: &str) -> Option<String> {
+    let output = std::process::Command::new("fc-match")
+        .args(["-f", "%{family}", generic])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let name = String::from_utf8(output.stdout).ok()?.trim().to_string();
+    if name.is_empty() {
+        None
+    } else {
+        Some(name)
+    }
+}
+
+/// Builds a `FontSystem` whose generic family mapping (what `sans-serif`
+/// etc. actually resolve to) comes from the system's real, installed
+/// fonts, instead of `FontSystem::new()`'s hardcoded "Open Sans"/"Noto
+/// Sans Mono"/"DejaVu Serif" — fonts that may not be installed at all, in
+/// which case every glyph silently falls back to an arbitrary font that
+/// merely happens to contain it (e.g. an emoji font for digits), rather
+/// than the system's actual default. `fontdb::Database::load_system_fonts`
+/// does its own naive parse of fontconfig's `<alias>` config and can
+/// still land on an uninstalled family (measured on this machine: it
+/// picks "FreeSans", which isn't installed either) — `fc-match` instead
+/// resolves against the fonts that are actually present, so it's used to
+/// override the three generic families explicitly when available.
+fn new_font_system() -> FontSystem {
+    let mut db = fontdb::Database::new();
+    db.load_system_fonts();
+    if let Some(name) = fc_match_family("sans-serif") {
+        db.set_sans_serif_family(name);
+    }
+    if let Some(name) = fc_match_family("monospace") {
+        db.set_monospace_family(name);
+    }
+    if let Some(name) = fc_match_family("serif") {
+        db.set_serif_family(name);
+    }
+    let locale = sys_locale::get_locale().unwrap_or_else(|| String::from("en-US"));
+    FontSystem::new_with_locale_and_db(locale, db)
+}
+
+fn shape_spans(font_system: &mut FontSystem, spans: &[(String, SpanStyle)], width: f32) -> (Buffer, f32) {
     let metrics = Metrics::new(16.0, 20.0);
     let mut buffer = Buffer::new(font_system, metrics);
     buffer.set_size(Some(width.max(0.0)), None);
     let rich: Vec<(&str, Attrs)> = spans
         .iter()
-        .map(|(text, color)| {
+        .map(|(text, span)| {
             let mut attrs = Attrs::new();
-            attrs.color_opt = Some(*color);
+            attrs.color_opt = Some(span.color);
+            attrs.weight = span.font_weight;
+            attrs.style = span.font_style;
+            attrs = attrs.metrics(Metrics::new(span.font_size, span.font_size * 1.25));
             (text.as_str(), attrs)
         })
         .collect();
@@ -1130,7 +1311,7 @@ impl App {
             decoder: None,
             window: None,
             surface: None,
-            font_system: FontSystem::new(),
+            font_system: new_font_system(),
             swash_cache: SwashCache::new(),
             scroll_offset: 0.0,
             cached: None,
@@ -1152,7 +1333,7 @@ impl App {
             decoder: Some(decoder),
             window: None,
             surface: None,
-            font_system: FontSystem::new(),
+            font_system: new_font_system(),
             swash_cache: SwashCache::new(),
             scroll_offset: 0.0,
             cached: None,

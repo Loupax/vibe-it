@@ -217,3 +217,86 @@ deferred in v1.
 
 **Deliverable:** modifications to `scratchy`'s existing `main.rs`/
 `Cargo.toml` implementing exactly the above.
+
+---
+
+## v6 — font-size, font-weight, font-style
+
+Everything rendered so far uses one fixed font at one fixed size
+(`cosmic-text`'s default sans-serif, 16px). This stage lets CSS vary
+size, weight, and slant per element.
+
+**Requirements:**
+1. **Extend the existing cascade** (reuse the same selector-matching/
+   specificity/source-order machinery from v3/v4 — no parallel system)
+   to also resolve: `font-size`, `font-weight`, `font-style`.
+2. **These three properties inherit**, unlike v4's box properties
+   (`display`/`margin`/`padding`/`border-*`/`background-color`): an
+   element with no winning declaration takes its parent's computed
+   value, same inheritance model as `color` from v3. Root default:
+   `font-size: 16px`, `font-weight: normal`, `font-style: normal` —
+   matching today's hardcoded values, so a page with no font CSS at
+   all renders identically to before.
+3. **`font-size`:** only `px` is supported, same restriction as
+   margin/padding/border-width in v4. `em`/`rem`/`%`/unitless are out
+   of scope (separate future unit-support feature).
+4. **`font-weight`:** keywords `normal` (400) and `bold` (700), plus
+   raw numeric values (`100`–`900`) passed straight through to
+   `fontdb::Weight`. No `bolder`/`lighter` relative keywords.
+5. **`font-style`:** keywords `normal`, `italic`, `oblique`. No italic
+   angle parameter for `oblique`.
+6. **`font-family` is explicitly out of scope** for this stage — every
+   element keeps rendering in `cosmic-text`'s default sans-serif
+   regardless of weight/style/size. Family selection is a separate
+   later feature.
+7. **Line height follows font size per span:** each inline run's text
+   already carries per-span color (v3); extend the same per-span
+   `Attrs` to also carry size/weight/style via `Attrs::metrics` with a
+   line height of `1.25 x font-size` (matching today's fixed 16px/20px
+   ratio), so a line mixing sizes lays out with each run shaped at its
+   own size rather than the whole paragraph at one size. Box/paragraph
+   height derives from the shaped buffer's actual line heights, same
+   mechanism already in place from v4/v5 — no separate calculation
+   needed.
+8. **Streaming is preserved:** re-run cascade/layout/repaint from
+   scratch on each stdin chunk, same policy as every prior stage.
+
+**Deliverable:** modifications to `scratchy`'s existing `main.rs`
+implementing exactly the above.
+
+---
+
+## v7 — default heading size/weight
+
+Found testing v6 against a real page
+(`motherfuckingwebsite.com`, via `curl`): a page with zero CSS at all —
+no `<style>`, no inline `style=`, nothing — renders every `h1`–`h3` at
+the same 16px/normal weight as body text, because v6 only taught the
+cascade *that* `font-size`/`font-weight`/`font-style` exist; it didn't
+give headings any default. Real browsers do this via their user-agent
+stylesheet; v4 already took the same approach for `display` (a small
+hardcoded per-tag table, "since there's no full user-agent
+stylesheet") — this does the same for heading size/weight.
+
+**Requirements:**
+1. **A hardcoded default (`font-size`, `font-weight`) per heading tag**,
+   consulted exactly where v4's `default_display(tag)` is consulted —
+   as the fallback *underneath* the cascade, not a special case above
+   it: author CSS (including inherited `font-size` from a non-heading
+   ancestor) still wins over this default the same way it already wins
+   over `default_display`.
+2. **Values** (matching typical browser UA defaults at a 16px root,
+   since only `px` is supported — see v6 point 3): `h1` 32px/bold,
+   `h2` 24px/bold, `h3` 19px/bold, `h4` 16px/bold, `h5` 13px/bold,
+   `h6` 11px/bold.
+3. **Every other tag is unaffected** — no default font-size/weight
+   beyond the v6 root default (16px/normal), same as today.
+4. **Does not inherit as a UA default** — a heading's *children* still
+   inherit the heading's own *computed* size/weight normally (v6's
+   existing inheritance), same as a `<b>` inside an `<h1>` today
+   inherits the h1's resolved size. This table only supplies the
+   heading element's own fallback value, exactly parallel to how
+   `default_display` supplies one tag's own fallback `display`.
+
+**Deliverable:** modifications to `scratchy`'s existing `main.rs`
+implementing exactly the above.
