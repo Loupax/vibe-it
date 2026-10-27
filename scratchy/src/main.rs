@@ -1183,15 +1183,21 @@ impl App {
         }
 
         if self.cached.is_none() || self.layout_incomplete {
-            // 80ms, not something tighter like 16ms: each tick repaints the
-            // whole accumulated page regardless of how much new shaping it
-            // did, so a smaller budget just means more ticks paying that
-            // same fixed per-tick overhead. Measured on a real, large page:
-            // 16ms budget -> 306 ticks, 17.0s total; 80ms -> 90 ticks,
-            // 13.0s total; 150ms -> 53 ticks, 12.6s (diminishing returns
-            // past ~80ms). Each tick is still well under the ~100ms where
-            // a pause starts reading as a freeze.
-            let deadline = std::time::Instant::now() + std::time::Duration::from_millis(80);
+            // Each tick repaints the whole accumulated page regardless of
+            // how much new shaping it did, and that fixed per-tick overhead
+            // (paint+present+compositor wait) measures at ~50-60ms — so a
+            // small budget mostly pays overhead rather than shaping. On a
+            // 151-paragraph page: 80ms budget -> ~6-8 paragraphs/tick, 58
+            // ticks, 7.1s total; 500ms -> ~30-34 paragraphs/tick, ~12
+            // ticks, 6.2s total. On a much larger, RTL page: 16ms -> 306
+            // ticks/17.0s; 80ms -> 90 ticks/13.0s; 150ms -> 53 ticks/12.6s
+            // (diminishing returns past ~80ms there, since individual
+            // complex-script paragraphs can themselves take hundreds of ms,
+            // capping how much a larger budget can batch together). 500ms
+            // trades a more noticeable per-tick pause for meaningfully less
+            // total overhead; still far below the few-second range where a
+            // pause starts reading as a freeze.
+            let deadline = std::time::Instant::now() + std::time::Duration::from_millis(500);
             let mut incomplete = false;
             let mut next_id = 0usize;
             self.cached = Some(measure(
