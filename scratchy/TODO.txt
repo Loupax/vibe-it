@@ -60,13 +60,14 @@ session can pick a coherent slice rather than one property at a time.
 
 - [ ] A cluster of CSS properties are either unrecognized (dropped) or
       recognized-but-inert, none needed by `default.css` yet:
-      `cursor`, `line-height`, `letter-spacing`/`word-spacing`,
-      `opacity`, `box-shadow`, `border-radius`, `outline`, `visibility`,
+      `cursor`, `letter-spacing`/`word-spacing`, `opacity`,
+      `box-shadow`, `border-radius`, `outline`, `visibility`,
       `overflow`/clipping, `border-style` (border is always drawn as a
       plain solid stroke regardless of declared style — `hr`'s
       `border-style: inset` in default.css is inert), relative/keyword
       font sizes (`font-size: larger`/`smaller`) and `font-weight:
       bolder` (only the literal `bold` keyword is recognized).
+      (`line-height` landed — PROMPTS.md v24.)
 
 - [ ] No CSS custom properties (`--foo: ...` / `var(--foo)`).
 

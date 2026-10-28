@@ -1147,3 +1147,57 @@ meaningfully inherit anyway).
 `paint_buffer`'s manual glyph-rendering loop replacing `buffer.draw()`).
 Resolves the last item from the text-align/vertical-align `TODO.txt`
 pair — nothing of the original pairing left.
+
+---
+
+## v24 — `line-height`
+
+TODO.txt (post-v20 feature-gap survey, continued): `line-height` was
+in the "misc CSS properties" cluster item. Picked out on its own since
+it's a well-scoped, meaningful property with a single clear-cut
+subtlety worth getting right, unlike several of its cluster-mates.
+
+**Requirements:**
+1. **`LineHeight` enum** (`Normal`/`Multiplier(f32)`/`Len(Length)`),
+   parsed from `line-height`'s actual grammar — a bare `<number>`
+   (unlike every other length-ish property here, not restricted to
+   literal `0`; this is the property's single most common real-world
+   form), `normal`, or a `px`/`em` length.
+2. **Kept symbolic through `InheritedStyle`/`ComputedStyle`**, not
+   resolved to a pixel value at cascade time like every other
+   length-ish property here — this is the one property where that
+   distinction is observable: a `<number>` (or `normal`) re-resolves
+   against *each descendant's own* font-size, not the declaring
+   element's. Caught by writing the test for it: `body { line-height:
+   1.5 }` must give `h1` (default.css: `font-size: 32px`) a line-height
+   of `48px` (`1.5 × 32`), not `24px` (`1.5 × 16`, body's own
+   font-size) naively flattened down through inheritance — the latter
+   would visibly squish every heading. An absolute `px`/`em` length,
+   by contrast, genuinely is a flat inherited pixel value once
+   resolved (against the *declaring* element's font-size, same timing
+   as `margin`/`padding`/`border-width`'s own `em` resolution) and
+   correctly does *not* rescale for a differently-sized descendant —
+   both behaviors verified directly.
+3. **Resolved to an actual `f32` only in `SpanStyle::from`**
+   (`s.line_height.resolve(s.font_size)`), the one place a concrete
+   number is needed — `cosmic_text::Metrics`'s second field, replacing
+   the previously-hardcoded `font_size * 1.25` (which `LineHeight::
+   Normal` — the default — still resolves to exactly, so a page that
+   never declares `line-height` renders identically to before this
+   feature).
+4. **Verified headlessly**: the `Normal` default matches the old
+   hardcoded `font_size * 1.25` exactly (no-declaration regression
+   check), the multiplier-rescales-per-descendant case above, the
+   absolute-length-doesn't-rescale case, and that `shape_spans`'s
+   reported buffer height actually reflects a per-span `line_height`
+   (100.0 in, 100.0 out) rather than the old constant. Spot-checked
+   visually too: a `line-height: 2.5` paragraph next to a default one,
+   wrapped to several lines each — the generous paragraph's line
+   spacing is unmistakably wider.
+
+**Deliverable:** `src/lib.rs` (`LineHeight` enum + `resolve()`,
+`parse_line_height`, `Declarations`/`InheritedStyle`/`ComputedStyle`/
+`ROOT_STYLE`/`anonymous_style`/`SpanStyle` field + cascade,
+`line-height` branch in `DeclParser::parse_value`, `shape_spans`'s
+`Metrics::new` now uses `span.line_height`). Narrows the misc-CSS-
+properties `TODO.txt` item by one.

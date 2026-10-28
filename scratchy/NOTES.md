@@ -291,6 +291,28 @@ decisions worth flagging rather than guessing (e.g. what `@media`
 breakpoints should even mean for a window-resizable renderer with no
 "device" concept, or how deep a flexbox subset is worth implementing).
 
+**v24 picked `line-height` out of the misc-CSS-properties cluster** —
+well-scoped on its own, with one real subtlety worth getting exactly
+right: `line-height`'s inherited value must stay *symbolic* (a bare
+number or `normal`, not a flattened pixel number) all the way down the
+tree, because unlike every other length-ish property here, a
+`<number>`/`normal` line-height re-resolves against each *descendant's
+own* font-size, not the declaring element's. Got this wrong on the
+first pass of reasoning (almost flattened it to a pixel value in
+`InheritedStyle` like `font_size` itself does) before realizing that
+would visibly squish every `h1`-`h6` the moment someone wrote `body {
+line-height: 1.5 }` — a near-ubiquitous real-world CSS pattern, not a
+contrived edge case. Caught before shipping by writing the test first
+and thinking through what it should assert, not after. Worth
+remembering: before resolving ANY inherited property to a concrete
+value at cascade time, check whether the CSS spec's inheritance model
+for that specific property is "inherit the computed pixel value"
+(most properties) or "inherit the specified/symbolic value,
+re-computed per descendant" (line-height's `<number>` case is the
+textbook example of the latter, and the kind of thing that's easy to
+get wrong by pattern-matching on how `font-size`/`margin`/etc. already
+work in this codebase).
+
 ## Priority going forward: rendering, not networking
 
 Explicit decision: the next phase of work is about how scratchy

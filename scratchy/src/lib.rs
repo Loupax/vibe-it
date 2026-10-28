@@ -470,6 +470,39 @@ impl Length {
     }
 }
 
+/// `line-height`'s three value forms. Kept symbolic (not resolved to a
+/// pixel value) all the way through `InheritedStyle`/`ComputedStyle` —
+/// unlike every other length-ish property here, `line-height`'s inherited
+/// value is the *declared* form, not a flattened pixel number: a bare
+/// `<number>` (`Multiplier`) or `normal` re-resolves against each
+/// descendant's own font-size, not the declaring element's (the one real
+/// CSS property where this distinction is observable — e.g. `body {
+/// line-height: 1.5 }` should still give `h1` a line-height scaled to
+/// `h1`'s own, larger font-size, not `body`'s). Only resolved to an
+/// actual pixel value at the point something needs one
+/// (`SpanStyle::from`, for `cosmic_text::Metrics`).
+#[derive(Clone, Copy, Default)]
+enum LineHeight {
+    #[default]
+    Normal,
+    Multiplier(f32),
+    Len(Length),
+}
+
+impl LineHeight {
+    /// `1.25` for `Normal` matches cosmic-text's own prior hardcoded
+    /// default (`Metrics::new(font_size, font_size * 1.25)`), so a page
+    /// that never declares `line-height` renders exactly as before this
+    /// feature existed.
+    fn resolve(self, font_size: f32) -> f32 {
+        match self {
+            LineHeight::Normal => font_size * 1.25,
+            LineHeight::Multiplier(m) => font_size * m,
+            LineHeight::Len(l) => l.resolve(font_size),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Default)]
 struct Declarations {
     color: Option<CssColor>,
@@ -494,6 +527,7 @@ struct Declarations {
     list_style_type: Option<ListStyleType>,
     text_align: Option<TextAlign>,
     vertical_align: Option<VerticalAlign>,
+    line_height: Option<LineHeight>,
 }
 
 /// Just `normal` (the default — current behavior, collapse+wrap) and `pre`
@@ -635,6 +669,24 @@ fn parse_length(input: &mut CssParser) -> Result<Length, ()> {
 fn set_length(input: &mut CssParser, target: &mut Option<Length>) {
     if let Ok(v) = parse_length(input) {
         *target = Some(v);
+    }
+}
+
+/// `line-height`'s own grammar — a bare `<number>` (any value, not just
+/// `0` — unlike `parse_length`'s unitless-zero special case, this is the
+/// property's single most common real-world form) alongside `normal` and
+/// the usual `px`/`em` lengths.
+fn parse_line_height(input: &mut CssParser) -> Result<LineHeight, ()> {
+    match input.next().map_err(|_| ())? {
+        Token::Ident(ident) if ident.eq_ignore_ascii_case("normal") => Ok(LineHeight::Normal),
+        Token::Number { value, .. } => Ok(LineHeight::Multiplier(*value)),
+        Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("px") => {
+            Ok(LineHeight::Len(Length::Px(*value)))
+        }
+        Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("em") => {
+            Ok(LineHeight::Len(Length::Em(*value)))
+        }
+        _ => Err(()),
     }
 }
 
@@ -971,6 +1023,10 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
                     None
                 };
             }
+        } else if name.eq_ignore_ascii_case("line-height") {
+            if let Ok(v) = parse_line_height(input) {
+                self.decls.line_height = Some(v);
+            }
         }
         Ok(())
     }
@@ -1089,6 +1145,7 @@ struct InheritedStyle {
     white_space: WhiteSpace,
     list_style_type: ListStyleType,
     text_align: TextAlign,
+    line_height: LineHeight,
 }
 
 const ROOT_STYLE: InheritedStyle = InheritedStyle {
@@ -1100,6 +1157,7 @@ const ROOT_STYLE: InheritedStyle = InheritedStyle {
     white_space: WhiteSpace::Normal,
     list_style_type: ListStyleType::Disc,
     text_align: TextAlign::Left,
+    line_height: LineHeight::Normal,
 };
 
 /// Per-side box-model values. Physical (top/right/bottom/left), not logical
@@ -1145,6 +1203,10 @@ struct ComputedStyle {
     /// same ambient way `text_decoration` does, via `collect_children`'s
     /// `valign` parameter, not through `inherited()`/`InheritedStyle`.
     vertical_align: VerticalAlign,
+    /// Still symbolic (see `LineHeight`'s own docs) — only resolved to a
+    /// pixel value in `SpanStyle::from`, where a concrete number is
+    /// finally needed.
+    line_height: LineHeight,
 }
 
 impl ComputedStyle {
@@ -1158,6 +1220,7 @@ impl ComputedStyle {
             white_space: self.white_space,
             list_style_type: self.list_style_type,
             text_align: self.text_align,
+            line_height: self.line_height,
         }
     }
 }
@@ -1324,6 +1387,12 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         |d| d.vertical_align,
     )
     .unwrap_or_default();
+    let line_height = cascade_property(
+        &matches,
+        inline_decls.as_ref().and_then(|d| d.line_height),
+        |d| d.line_height,
+    )
+    .unwrap_or(inherited.line_height);
 
     ComputedStyle {
         color,
@@ -1342,6 +1411,7 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         list_style_type,
         text_align,
         vertical_align,
+        line_height,
     }
 }
 
@@ -1363,6 +1433,7 @@ fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         list_style_type: inherited.list_style_type,
         text_align: inherited.text_align,
         vertical_align: VerticalAlign::default(),
+        line_height: inherited.line_height,
     }
 }
 
@@ -1387,6 +1458,7 @@ struct SpanStyle {
     font_family: FontFamily,
     text_decoration: TextDecoration,
     vertical_align: VerticalAlign,
+    line_height: f32,
 }
 
 impl From<InheritedStyle> for SpanStyle {
@@ -1400,6 +1472,7 @@ impl From<InheritedStyle> for SpanStyle {
             font_family: s.font_family,
             text_decoration: TextDecoration::new(),
             vertical_align: VerticalAlign::default(),
+            line_height: s.line_height.resolve(s.font_size),
         }
     }
 }
@@ -1768,7 +1841,7 @@ fn shape_spans(
             attrs.family = span.font_family.to_cosmic();
             attrs.text_decoration = span.text_decoration;
             attrs.metadata = i;
-            attrs = attrs.metrics(Metrics::new(span.font_size, span.font_size * 1.25));
+            attrs = attrs.metrics(Metrics::new(span.font_size, span.line_height));
             (text.as_str(), attrs)
         })
         .collect();
