@@ -420,6 +420,19 @@ to repaint over whatever's beneath it; the moment a layer can be
 legitimately absent (no background declared), the trick needs real
 boundary-membership math instead.
 
+**v29 resolved `font-size: larger`/`smaller`.** Worth flagging this
+one specifically: it's the first item this run that wasn't just
+closing a `TODO.txt` line — `default.css` has declared `big {
+font-size: larger }`/`small { font-size: smaller }` and `sub`/`sup`'s
+own `font-size: smaller` since v6/v7, all silently inert this whole
+time because the keyword forms were never parsed (same category of
+bug as v19's `:is()` discovery, just lower-stakes — these are faithful
+to the HTML spec, not a scratchy-specific override, so nobody had
+reason to suspect them). Worth periodically grepping `default.css` for
+other declarations that might still be silently inert, the way this
+one and v19's were — `git grep` for property names against `TODO.txt`
+items would surface candidates directly.
+
 ## Priority going forward: rendering, not networking
 
 Explicit decision: the next phase of work is about how scratchy

@@ -455,10 +455,24 @@ enum Display {
 /// `resolve_style`). `rem` and `%` remain unsupported, same as any other
 /// unparseable value: no real use for either in `default.css` today (see
 /// TODO.txt), so not adding them until something needs them.
+///
+/// `Larger`/`Smaller` are `font-size`'s own two relative keywords —
+/// deliberately not reachable through the general `parse_length`/
+/// `set_length` used by every other length-ish property (`margin:
+/// larger` isn't meaningful), only through `font-size`'s own dedicated
+/// parse branch — but resolve through the exact same `resolve_style`
+/// code path as `Em` already does for `font-size` (against the
+/// *parent's* computed font-size), so no change needed there. `1.2`
+/// isn't a spec'd exact value (the real spec steps through an
+/// absolute-size keyword table) — just the common approximation
+/// browsers converge on, and the same ratio `default.css`'s own
+/// heading sizes roughly follow.
 #[derive(Clone, Copy)]
 enum Length {
     Px(f32),
     Em(f32),
+    Larger,
+    Smaller,
 }
 
 impl Length {
@@ -466,6 +480,8 @@ impl Length {
         match self {
             Length::Px(v) => v,
             Length::Em(v) => v * font_size,
+            Length::Larger => font_size * 1.2,
+            Length::Smaller => font_size / 1.2,
         }
     }
 }
@@ -1062,8 +1078,19 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
         } else if name.eq_ignore_ascii_case("border-radius") {
             set_length(input, &mut self.decls.border_radius);
         } else if name.eq_ignore_ascii_case("font-size") {
-            if let Ok(v) = parse_length(input) {
+            let state = input.state();
+            let keyword = input.next().ok().and_then(|t| match t {
+                Token::Ident(ident) if ident.eq_ignore_ascii_case("larger") => Some(Length::Larger),
+                Token::Ident(ident) if ident.eq_ignore_ascii_case("smaller") => Some(Length::Smaller),
+                _ => None,
+            });
+            if let Some(v) = keyword {
                 self.decls.font_size = Some(v);
+            } else {
+                input.reset(&state);
+                if let Ok(v) = parse_length(input) {
+                    self.decls.font_size = Some(v);
+                }
             }
         } else if name.eq_ignore_ascii_case("font-weight") {
             if let Ok(w) = parse_font_weight(input) {

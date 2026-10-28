@@ -1411,3 +1411,44 @@ branch in `DeclParser::parse_value`, `paint_box_decoration`'s
 background-fill branch). Removes `border-radius` from the
 misc-CSS-properties `TODO.txt` cluster, replaced with its own
 narrower-scope item.
+
+---
+
+## v29 — `font-size: larger`/`smaller`
+
+TODO.txt (post-v20 feature-gap survey, continued). Unlike most of this
+run's picks, this one wasn't just a TODO.txt line item — it fixes two
+currently-*inert* `default.css` rules: `big { font-size: larger }`/
+`small { font-size: smaller }` (declared since v6/v7) and `sub`/`sup`'s
+own `font-size: smaller` (also since early on) have silently done
+nothing this whole time, since `larger`/`smaller` were never parsed.
+
+**Requirements:**
+1. **`Length` gains `Larger`/`Smaller` variants**, resolving through
+   the exact same `resolve_style` code path `Em` already uses for
+   `font-size` (against the *parent's* computed font-size — correct
+   for `font-size`'s relative keywords, which is why reusing `Length`
+   made sense here rather than a separate type). `1.2` isn't a spec
+   exact value (the real spec steps through an absolute-size keyword
+   table) — the common approximation browsers converge on, and
+   roughly the ratio `default.css`'s own heading sizes already follow.
+2. **Deliberately *not* reachable from `parse_length`/`set_length`**
+   (used by every other length-ish property) — `margin: larger` isn't
+   meaningful, so only `font-size`'s own `DeclParser` branch checks
+   for the two keywords first, falling back to `parse_length` for
+   everything else.
+3. **Verified headlessly**: `larger`/`smaller` resolve correctly
+   against the parent's font-size in isolation, `default.css`'s real
+   `sub`/`sup`/`big`/`small` rules now actually produce a different
+   (smaller/smaller/larger/smaller respectively) font-size than their
+   surrounding text, and — a safety check — the keyword genuinely
+   isn't reachable through `margin-top` or any other length property.
+   Spot-checked visually too: all four now visibly differently sized
+   inline in one paragraph.
+
+**Deliverable:** `src/lib.rs` (`Length::Larger`/`Smaller` + `resolve()`
+arms, `font-size`'s `DeclParser` branch tries the two keywords before
+falling back to `parse_length`). Narrows the misc-CSS-properties
+`TODO.txt` item by one more; `font-weight: bolder`/`lighter` stays,
+explicitly noted as lower priority since nothing in `default.css`
+declares it.

@@ -63,14 +63,18 @@ session can pick a coherent slice rather than one property at a time.
       `cursor`, `word-spacing`,
       `overflow`/clipping, `border-style` (border is always drawn as a
       plain solid stroke regardless of declared style — `hr`'s
-      `border-style: inset` in default.css is inert), relative/keyword
-      font sizes (`font-size: larger`/`smaller`) and `font-weight:
-      bolder` (only the literal `bold` keyword is recognized).
+      `border-style: inset` in default.css is inert), and
+      `font-weight: bolder`/`lighter` (only the literal `bold`/
+      `normal` keywords are recognized — unlike `font-size: larger`/
+      `smaller`, v29, nothing in `default.css` actually declares
+      `bolder`/`lighter`, so there's no currently-inert rule this
+      would newly activate; lower priority).
       (`line-height` landed in v24, `visibility` in v25, `outline` in
-      v26, `box-shadow` in v27, `border-radius` in v28 — all below
-      now, not in this cluster. `letter-spacing` was attempted and
-      reverted, `opacity` was scoped out — see their own items below,
-      neither is a cluster member anymore.)
+      v26, `box-shadow` in v27, `border-radius` in v28, relative
+      `font-size` keywords in v29 — all below now, not in this
+      cluster. `letter-spacing` was attempted and reverted, `opacity`
+      was scoped out — see their own items below, neither is a
+      cluster member anymore.)
 
 - [ ] `border-radius` (PROMPTS.md v28) only rounds a plain background
       fill — combined with a visible border (`border-width > 0`),
