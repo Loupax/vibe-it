@@ -550,6 +550,7 @@ struct Declarations {
     outline_color: Option<CssColor>,
     box_shadow: Option<BoxShadow>,
     border_radius: Option<Length>,
+    overflow: Option<Overflow>,
 }
 
 /// Just `normal` (the default — current behavior, collapse+wrap) and `pre`
@@ -654,6 +655,22 @@ impl VerticalAlign {
 /// overrides included, with no extra propagation parameter needed).
 #[derive(Clone, Copy, PartialEq, Default)]
 pub enum Visibility {
+    #[default]
+    Visible,
+    Hidden,
+}
+
+/// Just `visible`/`hidden` — no `scroll`/`auto` (no scrollbar UI, no
+/// scroll-region interactivity, just clipping). Not inherited. `Hidden`
+/// clips descendant *text* (`paint`'s `clip` parameter, read by
+/// `paint_buffer`/`paint_span_backgrounds`) — a nested block box's own
+/// background/border isn't clipped by it, a deliberately narrower scope
+/// than real `overflow` (see TODO.txt and `paint_buffer`'s own docs for
+/// why: text painting funnels through one shared per-pixel callback,
+/// while box decoration is many separate `fill_rect` call sites that
+/// would each need their own clip check).
+#[derive(Clone, Copy, PartialEq, Default)]
+enum Overflow {
     #[default]
     Visible,
     Hidden,
@@ -1128,6 +1145,16 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
             }
         } else if name.eq_ignore_ascii_case("border-radius") {
             set_length(input, &mut self.decls.border_radius);
+        } else if name.eq_ignore_ascii_case("overflow") {
+            if let Ok(ident) = input.expect_ident() {
+                self.decls.overflow = if ident.eq_ignore_ascii_case("visible") {
+                    Some(Overflow::Visible)
+                } else if ident.eq_ignore_ascii_case("hidden") {
+                    Some(Overflow::Hidden)
+                } else {
+                    None
+                };
+            }
         } else if name.eq_ignore_ascii_case("font-size") {
             let state = input.state();
             let keyword = input.next().ok().and_then(|t| match t {
@@ -1453,6 +1480,9 @@ struct ComputedStyle {
     /// a hollow center) — not worth building without `default.css` or a
     /// real page combining the two (see TODO.txt). Not inherited.
     border_radius: f32,
+    /// Not inherited. See `Overflow`'s own docs for the clip's scope
+    /// (text only, not nested block boxes' own decoration).
+    overflow: Overflow,
 }
 
 /// `BoxShadow` with its lengths resolved to pixels (against the
@@ -1697,6 +1727,8 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
     )
     .map(|l| l.resolve(font_size))
     .unwrap_or(0.0);
+    let overflow = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.overflow), |d| d.overflow)
+        .unwrap_or_default();
 
     ComputedStyle {
         color,
@@ -1722,6 +1754,7 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         outline_color,
         box_shadow,
         border_radius,
+        overflow,
     }
 }
 
@@ -1750,6 +1783,7 @@ fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         outline_color: None,
         box_shadow: None,
         border_radius: 0.0,
+        overflow: Overflow::default(),
     }
 }
 
@@ -2318,6 +2352,22 @@ fn blend(existing: u32, color: TextColor) -> u32 {
     (r << 16) | (g << 8) | b
 }
 
+/// Intersects `(x, y, w, h)` against `clip` (`None` = unclipped, passed
+/// through unchanged) — `w`/`h` can come back `<= 0.0` for a rect
+/// entirely outside the clip, which `fill_rect`'s own existing bounds
+/// checks already treat as "paint nothing" (same as a rect entirely
+/// outside the window).
+fn intersect_clip(x: f32, y: f32, w: f32, h: f32, clip: Option<(f32, f32, f32, f32)>) -> (f32, f32, f32, f32) {
+    let Some((cx, cy, cw, ch)) = clip else {
+        return (x, y, w, h);
+    };
+    let x0 = x.max(cx);
+    let y0 = y.max(cy);
+    let x1 = (x + w).min(cx + cw);
+    let y1 = (y + h).min(cy + ch);
+    (x0, y0, (x1 - x0).max(0.0), (y1 - y0).max(0.0))
+}
+
 fn fill_rect(pixels: &mut [u32], win_w: u32, win_h: u32, x: f32, y: f32, w: f32, h: f32, color: TextColor) {
     if color.a() == 0 {
         return;
@@ -2491,6 +2541,7 @@ fn paint_span_backgrounds(
     win_h: u32,
     ox: i32,
     oy: i32,
+    clip: Option<(f32, f32, f32, f32)>,
 ) {
     buffer.shape_until_scroll(font_system, false);
     for run in buffer.layout_runs() {
@@ -2507,16 +2558,14 @@ fn paint_span_backgrounds(
                 j += 1;
             }
             if let Some(color) = bg {
-                fill_rect(
-                    pixels,
-                    win_w,
-                    win_h,
+                let (cx, cy, cw, ch) = intersect_clip(
                     start_x + ox as f32,
                     run.line_top + oy as f32,
                     end_x - start_x,
                     run.line_height,
-                    color,
+                    clip,
                 );
+                fill_rect(pixels, win_w, win_h, cx, cy, cw, ch, color);
             }
             i = j;
         }
@@ -2543,10 +2592,21 @@ fn paint_buffer(
     win_h: u32,
     offset_x: f32,
     offset_y: f32,
+    // The nearest ancestor's `overflow: hidden` content-box bounds (screen
+    // space, post-scroll), or `None` if nothing above this clips. Only
+    // text (here) and per-span backgrounds (`paint_span_backgrounds`) are
+    // clipped this way — a nested block box's own background/border isn't
+    // (see `TODO.txt`): every other paint call this file makes goes
+    // through many separate `fill_rect` call sites, not the one shared
+    // per-pixel callback text painting funnels through here, so clipping
+    // those too would mean threading and checking a clip rect at each of
+    // them individually — real, but meaningfully more invasive than
+    // clipping the one choke point text already has.
+    clip: Option<(f32, f32, f32, f32)>,
 ) {
     let ox = offset_x.round() as i32;
     let oy = offset_y.round() as i32;
-    paint_span_backgrounds(buffer, font_system, backgrounds, hidden, pixels, win_w, win_h, ox, oy);
+    paint_span_backgrounds(buffer, font_system, backgrounds, hidden, pixels, win_w, win_h, ox, oy, clip);
     let default_color = TextColor::rgb(0, 0, 0);
     // `buffer.draw()`'s own internals, copied out by hand (both public:
     // `LegacyRenderer`, `render_decoration`) instead of called directly —
@@ -2568,6 +2628,12 @@ fn paint_buffer(
                     let py = y + dy + oy;
                     if px < 0 || py < 0 || px as u32 >= win_w || py as u32 >= win_h {
                         continue;
+                    }
+                    if let Some((cx, cy, cw, ch)) = clip {
+                        let (pxf, pyf) = (px as f32, py as f32);
+                        if pxf < cx || pyf < cy || pxf >= cx + cw || pyf >= cy + ch {
+                            continue;
+                        }
                     }
                     let idx = (py as u32 * win_w + px as u32) as usize;
                     pixels[idx] = blend(pixels[idx], color);
@@ -2602,6 +2668,12 @@ fn paint(
     win_w: u32,
     win_h: u32,
     scroll_offset: f32,
+    // The nearest ancestor's `overflow: hidden` bounds (screen space,
+    // post-scroll), if any — `None` means nothing above this clips.
+    // Only threaded into text/span-background painting (see
+    // `paint_buffer`'s own docs on why box decoration isn't clipped
+    // this way too).
+    clip: Option<(f32, f32, f32, f32)>,
 ) {
     let s = laid.style;
     let draw_y = laid.y - scroll_offset;
@@ -2622,10 +2694,20 @@ fn paint(
         paint_box_decoration(&s, pixels, win_w, win_h, laid.x, draw_y, laid.w, laid.h);
     }
 
+    // This box's own `overflow: hidden` (if any) only starts clipping
+    // its *descendants* — its own background/border above isn't clipped
+    // by it, same as an ancestor's `clip` never reached that call either.
+    let child_clip = if s.overflow == Overflow::Hidden {
+        let (cx, cy, cw, ch) = intersect_clip(laid.x, draw_y, laid.w, laid.h, clip);
+        Some((cx, cy, cw, ch))
+    } else {
+        clip
+    };
+
     match &laid.content {
         LaidContent::Blocks(children) | LaidContent::TableRow(children) => {
             for child in children {
-                paint(child, font_system, swash_cache, cache, pixels, win_w, win_h, scroll_offset);
+                paint(child, font_system, swash_cache, cache, pixels, win_w, win_h, scroll_offset, child_clip);
             }
         }
         LaidContent::Text(id) => {
@@ -2637,7 +2719,7 @@ fn paint(
                 let content_y = draw_y + s.border_width + s.padding.top;
                 paint_buffer(
                     buffer, font_system, swash_cache, backgrounds, valigns, hidden, pixels, win_w, win_h,
-                    content_x, content_y,
+                    content_x, content_y, child_clip,
                 );
             }
         }
@@ -2830,6 +2912,7 @@ impl App {
                 width,
                 height,
                 self.scroll_offset,
+                None,
             );
         }
 

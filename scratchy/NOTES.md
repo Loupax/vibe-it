@@ -448,6 +448,28 @@ worth remembering as a pattern: a property "recognized but discarded"
 for one feature is often cheap to wire up for real once a later
 feature needs it, since the parsing/recognition work is already done.
 
+**v31 resolved `overflow`, scoped to text-only clipping** — the real
+property would need a clip rect checked at every one of this file's
+18+ separate `fill_rect`/`fill_rounded_rect` call sites (background,
+border×4, outline×4, shadow, rounded-rect fills), which would have
+meant touching the paint path of nearly every feature landed this
+session this late in a long run — a real regression risk, not a
+hypothetical one, given how many of those exact call sites were
+written or changed in v21/v26/v27/v28/v30. Recognized that text
+painting already funnels through exactly one shared per-pixel
+callback (`paint_buffer`'s `LegacyRenderer`) plus one `fill_rect` call
+(`paint_span_backgrounds`), so clipping there covers the single most
+common real use (truncating overflowing text) at a fraction of the
+risk. Worth the general lesson alongside border-radius's (v28): before
+building a feature that needs to touch "every paint call site," check
+whether the actual common use case can be served by a narrower
+choke point instead — here, text happened to have exactly one.
+Verified with a real end-to-end pipeline test (not just unit-level
+math) specifically because clipping is the kind of bug that's easy to
+get subtly wrong (off-by-one edges, wrong coordinate space, double-
+counting an offset) in ways isolated unit tests on `intersect_clip`
+alone wouldn't catch.
+
 ## Priority going forward: rendering, not networking
 
 Explicit decision: the next phase of work is about how scratchy

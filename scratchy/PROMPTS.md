@@ -1508,3 +1508,63 @@ return type, `Declarations`/`ComputedStyle` fields + cascade,
 `paint_border_edge`, `paint_box_decoration`'s border section rewired
 to use it). Removes `border-style` from the misc-CSS-properties
 `TODO.txt` cluster, replaced with its own narrower-scope item.
+
+---
+
+## v31 — `overflow` (text clipping only)
+
+TODO.txt (post-v20 feature-gap survey, continued). `overflow` was
+entirely unparsed. Scoped deliberately narrower than the real property
+after evaluating the full-scope version's blast radius: real
+`overflow` clipping needs a clip rect honored at every `fill_rect`/
+`fill_rounded_rect` call site this file has (box backgrounds, all 4
+border edges, outline, shadow — 18+ individual calls across 4-5
+functions), which would have meant touching the paint path of nearly
+every feature landed this session, a real regression risk against all
+of them this late in a long run. Text painting, by contrast, already
+funnels through exactly one shared per-pixel callback
+(`paint_buffer`'s `LegacyRenderer`) plus one `fill_rect` call
+(`paint_span_backgrounds`) — a single, low-risk choke point to clip at
+instead, covering the single most common real `overflow: hidden` use
+(truncating text that would otherwise spill out of a fixed-size
+container).
+
+**Requirements:**
+1. **`Overflow` enum** (`Visible`/`Hidden` only — no `scroll`/`auto`,
+   no scrollbar UI or interactive scroll region), not inherited, not
+   `pub` (unlike `VerticalAlign`, it never needs to appear in a public
+   signature — `ShapeCache`'s `Vec<bool>` `hidden` field is reused for
+   `visibility`, not a new `Vec<Overflow>`).
+2. **`intersect_clip`**: a small reusable helper intersecting an
+   `(x, y, w, h)` rect against an `Option<(f32, f32, f32, f32)>` clip
+   (`None` = unclipped, passed through), returning a possibly
+   zero-size rect for something entirely outside it — `fill_rect`'s
+   own existing bounds checks already treat that as "paint nothing."
+3. **`paint` gains a `clip` parameter**, threaded through its
+   recursion: an element's own `overflow: hidden` only starts clipping
+   its *descendants* (`child_clip`, computed by intersecting the
+   incoming `clip` with this box's own bounds) — its own background/
+   border isn't clipped by its own overflow, same as it isn't by an
+   ancestor's `clip` either (`paint_box_decoration` never receives
+   `clip` at all, deliberately, keeping that whole call path
+   untouched). Only the two text-painting call sites
+   (`paint_buffer`/`paint_span_backgrounds`) receive and act on it.
+4. **Verified headlessly**: cascade correctness (not inherited),
+   `intersect_clip`'s math directly (basic intersection, unclipped
+   passthrough, fully-outside case), and — the one that actually
+   matters — a full real pipeline test (`parse_html` → `build_children`
+   → `measure` → `paint`, real pixel buffer) using a `<pre>` (wrap
+   disabled) with a line far wider than the window, inside an
+   `overflow: hidden` div: confirmed nothing paints near the window's
+   right edge (correctly clipped) while the start of the line still
+   paints near the left (correctly not over-clipped). Spot-checked
+   visually too: a long unwrapped `<pre>` line cut off cleanly at its
+   container's border, no spillover into the rest of the page.
+
+**Deliverable:** `src/lib.rs` (`Overflow` enum, `intersect_clip`,
+`Declarations`/`ComputedStyle` fields + cascade, `overflow` branch in
+`DeclParser::parse_value`, `paint`'s new `clip` parameter and
+`child_clip` computation, `paint_buffer`/`paint_span_backgrounds`'s
+new `clip` parameter and the glyph-callback/background-fill clip
+checks). Narrows the misc-CSS-properties `TODO.txt` cluster, replaced
+with its own narrower-scope item documenting the text-only limitation.
