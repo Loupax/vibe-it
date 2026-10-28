@@ -36,10 +36,14 @@ not a speculative feature backlog. See NOTES.md for the fuller story.
       (see NOTES.md's own design-choices section for why), not a real
       CSS tokenizer — a comment or string literal containing the
       literal text `url(` or `@import` could be misdetected. Not hit on
-      real-world CSS tested so far (including Wikipedia's own). Still
-      buffers one stylesheet's text at a time (not the whole document —
-      see PROMPTS.md v5) to do this rewriting, since finding a matching
-      `)`/`;` inherently needs some lookahead.
+      real-world CSS tested so far (including Wikipedia's own). Each
+      stylesheet's own *text* is still read in full before being scanned
+      (needed to look ahead for a matching `)`/`;`) — PROMPTS.md v6
+      removed the deeper buffering this used to have (every `url()`'s
+      *referenced resource* used to be fully built as a base64 string,
+      then the *entire* rewritten stylesheet written out in one piece;
+      now each resource streams straight to stdout the moment it's
+      resolved, same as `<img src>` always did).
 
 - [ ] `@font-face` `src: url(...)` references get inlined as data URIs
       like any other CSS url, but scratchy has no `@font-face` support

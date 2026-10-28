@@ -218,11 +218,12 @@ to resolve against.
 `<img src>` got the biggest win from the rewrite: `base64::write::
 EncoderWriter` wraps stdout directly and `io::copy` streams the HTTP
 response body straight through it, so an image's bytes are never held
-in memory as a whole — not even the large ones. (CSS-internal `url()`s
-inside a stylesheet's text still buffer each referenced resource fully,
-since splicing a rewritten reference into an in-memory CSS string has
-no equivalent "stream directly into output" position — a narrower,
-clearly-scoped exception, not a loophole.)
+in memory as a whole — not even the large ones. CSS-internal `url()`s
+inside a stylesheet's text still buffered each referenced resource
+fully at this point (splicing a rewritten reference into an in-memory
+CSS string had no equivalent "stream directly into output" position) —
+flagged as a narrower, clearly-scoped exception at the time, not a
+loophole, but it didn't stay that way long (see v6, next).
 
 Verified the headline claim directly: `curl -s example.com | snag`
 produces output *byte-for-byte identical* to the source (checked with
@@ -234,6 +235,37 @@ containing `>`) round-tripped correctly on every count. Re-verified the
 real Wikipedia pipeline end to end — same correct render as before, but
 `scratchy`'s window now appears within a few seconds rather than after
 the entire resource fetch completes, which was the actual point.
+
+## v6: the CSS-url() buffering v5 left behind turned out to matter
+
+Flagged in v5 as a deliberately narrow, accepted exception — then caught
+almost immediately after, by the user actually watching the new
+`"inlined N resources so far..."` progress counter and noticing the
+resources it counted weren't showing up on stdout as it went. They
+were right: on the Wikipedia test page, 227 of ~240 resources are CSS
+`url()` references (mostly icons embedded as stylesheet
+background-images), and v5's `<img src>` path streamed genuinely, but
+the CSS path didn't — `fetch_as_data_uri` fully built each one as a
+base64 `String`, spliced it into an in-memory CSS string across two
+full-text passes (`inline_imports` then `rewrite_urls`), and only once
+an *entire stylesheet* was done did its whole rewritten text get written
+to stdout in one piece. So the vast majority of what the progress
+counter was counting wasn't actually reaching stdout incrementally at
+all — exactly the gap the user's question caught.
+
+Fixed by merging the two full-text passes into one single-pass scanner
+that writes directly to `out` as it scans (plain CSS text between
+constructs written immediately, `@import` recursing into the same
+streaming `process_css` rather than building a separate string to
+splice in) and routing every CSS `url()`'s resource through
+`stream_data_uri` — the exact same zero-buffer encoder `<img src>`
+already used — instead of the old buffering `fetch_as_data_uri`, which
+is now gone entirely. A fetched resource's bytes now reach stdout the
+same way everywhere in the program, image tag or stylesheet reference,
+with nothing in between holding a whole one in memory. Re-verified the
+Wikipedia pipeline produced the identical byte count and resource count
+as before, and spot-checked that CSS-embedded icons are still valid,
+correctly-encoded images, not just that the numbers matched.
 
 ## Known limitations / explicitly out of scope
 

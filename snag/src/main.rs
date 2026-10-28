@@ -3,7 +3,6 @@ use std::io::{BufRead, BufReader, Read, Write};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
-use base64::Engine as _;
 use base64::write::EncoderWriter;
 use url::Url;
 
@@ -253,8 +252,7 @@ fn stream_body(
                 progress_line(&format!("inlining stylesheet {target}"));
                 out.write_all(b"<style>")?;
                 if let Ok(text) = fetch_text(agent, &target) {
-                    let processed = process_css(&text, &target, agent, visited_css);
-                    out.write_all(processed.as_bytes())?;
+                    process_css(&text, &target, agent, visited_css, out)?;
                 }
                 out.write_all(b"</style>")?;
                 out.flush()?;
@@ -266,8 +264,7 @@ fn stream_body(
                 match base {
                     Some(base) => {
                         let text = String::from_utf8_lossy(&content.text);
-                        let processed = process_css(&text, base, agent, visited_css);
-                        out.write_all(processed.as_bytes())?;
+                        process_css(&text, base, agent, visited_css, out)?;
                     }
                     // No base to resolve this stylesheet's own url()s
                     // against — pass its content through unprocessed
@@ -324,21 +321,6 @@ fn fetch_text(agent: &ureq::Agent, url: &Url) -> Result<String, String> {
 /// there's nothing to stream *into*. The much more common, much higher-
 /// volume case (`<img src>`, handled by `stream_data_uri` below) never
 /// buffers the image at all.
-fn fetch_as_data_uri(agent: &ureq::Agent, url: &Url) -> Option<String> {
-    let resp = agent.get(url.as_str()).call().ok()?;
-    let content_type = resp.content_type().to_string();
-    let mut bytes = Vec::new();
-    resp.into_reader().read_to_end(&mut bytes).ok()?;
-    let mime = if content_type.is_empty() || content_type == "text/plain" {
-        guess_mime(url.path())
-    } else {
-        content_type
-    };
-    let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
-    note_resource_fetched();
-    Some(format!("data:{mime};base64,{encoded}"))
-}
-
 /// Fetches `url` and writes `data:<mime>;base64,<encoded>` straight to
 /// `out` — the response body is streamed through a `base64` encoding
 /// `Write` adapter one chunk at a time via `io::copy`, so the image
@@ -392,53 +374,91 @@ fn guess_mime(path: &str) -> String {
     .to_string()
 }
 
-// ---------- CSS text rewriting (unchanged from v1 — see its own docs) ----------
+// ---------- CSS text rewriting ----------
 //
-// Still a hand-rolled text scanner, still buffers one stylesheet's text
-// at a time rather than the whole document: `@import`/`url(...)`
-// rewriting inherently needs to look ahead for a matching terminator
-// (`;`, `)`), so *some* bounded, per-resource buffering is unavoidable
-// here the same way it is for `<head>`-scanning above — the thing that's
-// gone is buffering the *entire multi-megabyte document* before writing
-// anything, not buffering one stylesheet's text (typically tens of KB).
+// Still a hand-rolled text scanner over one stylesheet's text at a time,
+// not the whole document (see `<head>`-scanning above for the same
+// reasoning): `@import`/`url(...)` rewriting inherently needs to look
+// ahead for a matching terminator (`;`, `)`), and the stylesheet's own
+// text has to be read in full to scan it — but that text, typically tens
+// of KB, is a different scale of thing from the *images it references*,
+// which used to each be fully buffered (`fetch_as_data_uri`, building a
+// `String`) before the whole stylesheet was written out in one piece.
+// `@import` and `url(...)` are now handled in a single pass that writes
+// straight to `out` as it scans — plain CSS text between them goes
+// through immediately, and each `url(...)`'s referenced resource streams
+// through `stream_data_uri` (the same zero-buffer base64 encoder
+// `<img src>` uses) directly into the output, rather than ever
+// existing as a whole base64 string in memory first.
 
-/// Fetches and fully resolves one stylesheet's text: inlines `@import`s
-/// (recursively, each resolved relative to *its own* URL, not the
-/// original page's) and rewrites every remaining `url(...)` reference to
-/// a `data:` URI. `visited` guards against re-inlining the same
-/// stylesheet twice (duplicate `@import`s, or an import cycle).
-fn process_css(css: &str, css_url: &Url, agent: &ureq::Agent, visited: &mut HashSet<String>) -> String {
-    let after_imports = inline_imports(css, css_url, agent, visited);
-    rewrite_urls(&after_imports, css_url, agent)
-}
-
-fn inline_imports(css: &str, base: &Url, agent: &ureq::Agent, visited: &mut HashSet<String>) -> String {
+/// Fetches and fully resolves one stylesheet's text, writing it straight
+/// to `out`: inlines `@import`s (recursively, each resolved relative to
+/// *its own* URL, not the original page's) and streams every remaining
+/// `url(...)` reference's resource directly into place. `visited` guards
+/// against re-inlining the same stylesheet twice (duplicate `@import`s,
+/// or an import cycle).
+fn process_css(
+    css: &str,
+    base: &Url,
+    agent: &ureq::Agent,
+    visited: &mut HashSet<String>,
+    out: &mut impl Write,
+) -> std::io::Result<()> {
     let lower = css.to_ascii_lowercase();
-    let mut out = String::with_capacity(css.len());
     let mut i = 0;
     loop {
-        let Some(rel) = lower[i..].find("@import") else {
-            out.push_str(&css[i..]);
-            break;
+        let next_import = lower[i..].find("@import").map(|p| i + p);
+        let next_url = lower[i..].find("url(").map(|p| i + p);
+        let Some(pos) = min_some(next_import, next_url) else {
+            out.write_all(&css.as_bytes()[i..])?;
+            return Ok(());
         };
-        let start = i + rel;
-        out.push_str(&css[i..start]);
-        let Some(semi_rel) = css[start..].find(';') else {
-            out.push_str(&css[start..]);
-            break;
-        };
-        let stmt = &css[start + "@import".len()..start + semi_rel];
-        i = start + semi_rel + 1;
-        let Some(raw_url) = extract_import_url(stmt) else { continue };
-        let Ok(target) = base.join(&raw_url) else { continue };
-        if !visited.insert(target.to_string()) {
-            continue;
-        }
-        if let Ok(text) = fetch_text(agent, &target) {
-            out.push_str(&process_css(&text, &target, agent, visited));
+        out.write_all(&css.as_bytes()[i..pos])?;
+
+        if Some(pos) == next_import {
+            let Some(semi_rel) = css[pos..].find(';') else {
+                out.write_all(&css.as_bytes()[pos..])?;
+                return Ok(());
+            };
+            let stmt = &css[pos + "@import".len()..pos + semi_rel];
+            i = pos + semi_rel + 1;
+            let Some(raw_url) = extract_import_url(stmt) else { continue };
+            let Ok(target) = base.join(&raw_url) else { continue };
+            if !visited.insert(target.to_string()) {
+                continue; // duplicate import/cycle — skip silently
+            }
+            if let Ok(text) = fetch_text(agent, &target) {
+                process_css(&text, &target, agent, visited, out)?;
+            }
+        } else {
+            let args_start = pos + "url(".len();
+            let Some(close_rel) = find_url_close_paren(&css[args_start..]) else {
+                out.write_all(&css.as_bytes()[pos..])?;
+                return Ok(());
+            };
+            let inner = unquote(css[args_start..args_start + close_rel].trim());
+            i = args_start + close_rel + 1;
+            out.write_all(b"url(\"")?;
+            if inner.starts_with("data:") || inner.is_empty() {
+                out.write_all(inner.as_bytes())?;
+            } else {
+                match base.join(&inner) {
+                    Ok(target) if stream_data_uri(agent, &target, out)? => {}
+                    _ => out.write_all(inner.as_bytes())?,
+                }
+            }
+            out.write_all(b"\")")?;
         }
     }
-    out
+}
+
+fn min_some(a: Option<usize>, b: Option<usize>) -> Option<usize> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (Some(a), None) => Some(a),
+        (None, Some(b)) => Some(b),
+        (None, None) => None,
+    }
 }
 
 fn extract_import_url(stmt: &str) -> Option<String> {
@@ -466,39 +486,6 @@ fn unquote(s: &str) -> String {
     } else {
         s.to_string()
     }
-}
-
-fn rewrite_urls(css: &str, base: &Url, agent: &ureq::Agent) -> String {
-    let lower = css.to_ascii_lowercase();
-    let mut out = String::with_capacity(css.len());
-    let mut i = 0;
-    loop {
-        let Some(rel) = lower[i..].find("url(") else {
-            out.push_str(&css[i..]);
-            break;
-        };
-        let start = i + rel;
-        out.push_str(&css[i..start]);
-        let args_start = start + "url(".len();
-        let Some(close_rel) = find_url_close_paren(&css[args_start..]) else {
-            out.push_str(&css[start..]);
-            break;
-        };
-        let inner = unquote(css[args_start..args_start + close_rel].trim());
-        i = args_start + close_rel + 1;
-        let resolved = if inner.starts_with("data:") || inner.is_empty() {
-            inner
-        } else {
-            match base.join(&inner) {
-                Ok(target) => fetch_as_data_uri(agent, &target).unwrap_or(inner),
-                Err(_) => inner,
-            }
-        };
-        out.push_str("url(\"");
-        out.push_str(&resolved);
-        out.push_str("\")");
-    }
-    out
 }
 
 fn find_url_close_paren(s: &str) -> Option<usize> {

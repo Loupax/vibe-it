@@ -284,3 +284,50 @@ base64 encoder; `process_css`/`inline_imports`/`rewrite_urls`/
 unchanged, since CSS-text-level and `fetch_as_data_uri`'s own buffering
 were already correctly scoped and didn't need to change). `Cargo.toml`
 drops `html5ever`/`markup5ever_rcdom`.
+
+---
+
+## v6 — stream CSS-embedded resources too, not just `<img src>`
+
+User noticed, after watching the live `"inlined N resources so far..."`
+progress output: the resources being counted weren't actually appearing
+on stdout as they were inlined — expected per v5's whole premise
+("shouldn't buffer anything"). Found the gap directly: v5's `<img src>`
+handling genuinely streamed (`stream_data_uri`, `base64::write::
+EncoderWriter` wrapping stdout), but CSS `url()` handling (the majority
+of resources on a real page — 227 of ~240 on the Wikipedia test, mostly
+icons embedded as stylesheet background-images) still went through
+`fetch_as_data_uri`, which fully built each resource as a base64
+`String`, spliced it into an in-memory CSS string via two full
+`inline_imports`/`rewrite_urls` passes, and only then had the *entire*
+rewritten stylesheet written to stdout in one `write_all` — the deeper
+buffering layer `TODO.txt` had already flagged as a known, accepted
+exception, now actually removed rather than left as a documented
+tradeoff.
+
+**Requirements:**
+1. **Merge `inline_imports`+`rewrite_urls`'s two sequential full-text
+   passes into one single-pass scanner** that writes straight to an
+   `out: &mut impl Write` as it goes, instead of building and returning
+   a `String`. Plain CSS text between constructs is written immediately;
+   `@import` recurses into `process_css` itself, now also writing
+   directly to the same `out` rather than building a separate string to
+   splice in; each `url(...)`'s resource routes through `stream_data_uri`
+   (the same zero-buffer encoder `<img src>` already used) instead of
+   the old `fetch_as_data_uri`, which is now unused and deleted entirely.
+2. **A real resource is never built as a whole base64 string anywhere
+   in the program anymore** — `stream_data_uri` is now the *only* path
+   a fetched resource's bytes take to reach stdout, for both `<img src>`
+   and every CSS `url()`, image or otherwise.
+3. **Verified**: `curl -s example.com | snag` still produces
+   byte-for-byte identical output (nothing regressed for the
+   nothing-to-fetch case). Re-ran the real Wikipedia pipeline — same
+   output size (1,455,084 bytes), same resource count (240), same
+   correct render through `scratchy`; spot-checked that CSS-embedded
+   icons (227 of them, confirmed via `grep -c 'url("data:...;base64,'`)
+   are still valid, correctly-encoded images, not just that the count
+   matched.
+
+**Deliverable:** `src/main.rs` (`process_css` rewritten to the merged
+single-pass streaming scanner; `inline_imports`/`rewrite_urls`/
+`fetch_as_data_uri` all deleted, fully superseded).
