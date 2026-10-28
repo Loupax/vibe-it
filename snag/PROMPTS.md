@@ -115,3 +115,28 @@ snag needed the matching other end.
 **Deliverable:** `src/main.rs` (`main`'s argument handling reworked
 around stdin/stdout, `find_base_href` replaced by `determine_base`/
 `find_tag_href`/`find_canonical`).
+
+---
+
+## v3 — exit quietly on a closed downstream pipe
+
+Found while confirming `snag` and `scratchy` are both installed on
+`$PATH` (`cargo install --path .`, matching how `scratchy` was already
+installed in an earlier session) and spot-checking the installed
+pipeline with `| head` to preview output: `snag ... | head -c 200`
+panicked with a `BrokenPipe` backtrace instead of exiting cleanly —
+Rust doesn't restore the default `SIGPIPE` behavior, so a downstream
+reader closing early surfaces as a normal `io::Error` on the next
+write, and the final `serialize(...).expect(...)` turned that into a
+panic.
+
+**Requirements:**
+1. Treat `ErrorKind::BrokenPipe` from the final stdout write as a quiet,
+   successful exit (the standard Unix shape for `| head`/`| less`
+   closing a pipe early) — any other write error still reports and
+   exits 1, same as before.
+2. **Verified**: `snag ... | head -c 200` now exits 0 with no panic/
+   backtrace; the full, untruncated pipeline (`curl | snag | scratchy`)
+   still works unchanged.
+
+**Deliverable:** `src/main.rs` (final `serialize` call's error handling).

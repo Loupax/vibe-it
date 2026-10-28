@@ -86,8 +86,16 @@ fn main() {
 
     let stdout = std::io::stdout();
     let serializable: SerializableHandle = dom.document.clone().into();
-    html5ever::serialize::serialize(stdout.lock(), &serializable, Default::default())
-        .expect("writing to stdout shouldn't fail");
+    // A downstream reader closing early (`snag ... | head`) makes this
+    // write fail with `BrokenPipe` — not a real error, just the normal
+    // shape of a Unix pipeline, so it exits quietly rather than panicking
+    // with a scary backtrace. Anything else genuinely is unexpected.
+    if let Err(e) = html5ever::serialize::serialize(stdout.lock(), &serializable, Default::default())
+        && e.kind() != std::io::ErrorKind::BrokenPipe
+    {
+        eprintln!("snag: failed writing output: {e}");
+        std::process::exit(1);
+    }
 }
 
 // ---------- fetching ----------
