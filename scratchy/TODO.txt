@@ -11,7 +11,7 @@ directly actionable. PROMPTS.md is append-only and never edited for
 these.
 
 - [ ] `%` and unitless (besides literal `0`) are still not supported
-      length forms (`px`/`em` landed in v14, `rem` in v33). Not adding
+      length forms (`px`/`em` landed in v14, `rem` in v34). Not adding
       them until `default.css` or a real test page actually needs one —
       it currently doesn't use either anywhere. (`rem`'s own narrower
       scope — it's pinned to a fixed `16.0` document-root font-size
@@ -59,22 +59,24 @@ session can pick a coherent slice rather than one property at a time.
       `default.css` doesn't need either today, but most real-world pages
       do for their outer page chrome.
 
-- [ ] A cluster of CSS properties are either unrecognized (dropped) or
-      recognized-but-inert, none needed by `default.css` yet:
-      `word-spacing`,
-      and `font-weight: bolder`/`lighter` (only
-      the literal `bold`/`normal` keywords are recognized — unlike
-      `font-size: larger`/`smaller`, v29, nothing in `default.css`
-      actually declares `bolder`/`lighter`, so there's no currently-
-      inert rule this would newly activate; lower priority).
-      (`line-height` landed in v24, `visibility` in v25, `outline` in
-      v26, `box-shadow` in v27, `border-radius` in v28, relative
-      `font-size` keywords in v29, `border-style` in v30, `overflow`
-      in v31, `cursor` in v32 — all below now, not in this cluster.
-      `letter-spacing` was attempted and reverted, `opacity` was
-      scoped out — see their own items below, neither is a cluster
-      member anymore. `text-decoration-style`/`-color` landed in v33,
-      also no longer a cluster member.)
+- [ ] Last member of what was once a cluster of CSS properties: `word-
+      spacing` is still entirely unrecognized (dropped). Not just
+      unimplemented but genuinely harder than `letter-spacing` was:
+      cosmic-text 0.19's `Attrs` has no `word_spacing`/`word-spacing`
+      API to hook into at all (confirmed by grepping its vendored
+      source — `letter_spacing_opt` is the only tracking-style knob it
+      exposes), so a correct implementation would mean hand-rolling
+      word-boundary detection and extra spacing entirely outside
+      cosmic-text's own shaping/wrapping — a worse-case version of the
+      exact risk that already broke the `letter-spacing` attempt (the
+      wrap width cosmic-text computes internally wouldn't know about
+      space scratchy added after the fact). Nothing in `default.css`
+      needs it. (`line-height` landed in v24, `visibility` in v25,
+      `outline` in v26, `box-shadow` in v27, `border-radius` in v28,
+      relative `font-size` keywords in v29, `border-style` in v30,
+      `overflow` in v31, `cursor` in v32, `text-decoration-style`/
+      `-color` in v33, `rem` in v34, `font-weight: bolder`/`lighter` in
+      v35 — all previous cluster members, now resolved.)
 
 - [ ] `text-decoration-style`/`-color` (PROMPTS.md v33) support
       `dashed`/`dotted` (hand-painted, since cosmic-text 0.19's own

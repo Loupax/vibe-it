@@ -570,6 +570,27 @@ headless assertion and a real `grim` screenshot where the nested box
 is visibly smaller than its parent, not the much-larger `80px` an
 `em`-confused implementation would have produced.
 
+**v35 resolved `font-weight: bolder`/`lighter`** — the last member of
+the original misc-CSS-properties cluster worth picking up now;
+`word-spacing`, the only one left, got its own narrower-scope
+`TODO.txt` item instead, since grepping cosmic-text's vendored source
+confirmed it has no `word_spacing` API at all (not even a buggy one —
+`letter_spacing_opt` is genuinely the only tracking-style knob `Attrs`
+exposes), meaning a correct implementation would mean hand-rolling
+word-boundary spacing entirely outside cosmic-text's own shaping and
+line-breaking, a worse-case version of exactly the risk that broke the
+`letter-spacing` attempt. `font-weight: bolder`/`lighter`, by contrast,
+mapped directly onto the same "resolve against the parent, not a fixed
+value" shape `font-size`'s `larger`/`smaller` (v29) already established
+— the only real new piece was the CSS spec's actual step table (not a
+ratio) for how `bolder`/`lighter` land relative to an inherited weight.
+Verified the one thing worth actually proving — that it's relative to
+the *parent*, not a fixed absolute bump — with a cascade test showing
+the identical `bolder` declaration resolves to `700` starting from a
+normal root but `900` starting from an already-bold parent, and
+visually confirmed a doubly-`bolder` nested span renders heavier than
+a plain bold sibling.
+
 ## Priority going forward: rendering, not networking
 
 Explicit decision: the next phase of work is about how scratchy

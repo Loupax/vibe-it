@@ -546,7 +546,7 @@ struct Declarations {
     border_color: Option<CssColor>,
     border_style: Option<BorderStyle>,
     font_size: Option<Length>,
-    font_weight: Option<FontWeight>,
+    font_weight: Option<FontWeightValue>,
     font_style: Option<FontStyle>,
     font_family: Option<FontFamily>,
     text_decoration: Option<DecorationValue>,
@@ -787,11 +787,59 @@ fn parse_line_height(input: &mut CssParser) -> Result<LineHeight, ()> {
     }
 }
 
-fn parse_font_weight(input: &mut CssParser) -> Result<FontWeight, ()> {
+/// `font-weight`'s value as declared — `bolder`/`lighter` are relative to
+/// whatever weight this element would otherwise *inherit*, not a fixed
+/// number, so (like `font-size`'s `Length::Larger`/`Smaller`, v29) they
+/// can't resolve to a concrete `FontWeight` until `resolve_style` has
+/// `inherited.font_weight` in hand. Unlike `LineHeight`, nothing further
+/// needs to stay symbolic once resolved — the result becomes an ordinary
+/// `FontWeight` in `ComputedStyle`/`InheritedStyle`, inherited normally
+/// from there, since `bolder`/`lighter` only ever look at the *immediate*
+/// parent's weight, not some original declaring ancestor's.
+#[derive(Clone, Copy)]
+enum FontWeightValue {
+    Absolute(FontWeight),
+    Bolder,
+    Lighter,
+}
+
+impl FontWeightValue {
+    /// The CSS Fonts step table for relative weights (CSS Fonts Level 4
+    /// §font-weight-prop) — not a simple ratio the way `font-size`'s
+    /// `larger`/`smaller` use, since real browsers converge on these
+    /// specific breakpoints rather than a multiply.
+    fn resolve(self, inherited: FontWeight) -> FontWeight {
+        match self {
+            FontWeightValue::Absolute(w) => w,
+            FontWeightValue::Bolder => FontWeight(if inherited.0 < 350 {
+                400
+            } else if inherited.0 < 550 {
+                700
+            } else {
+                900
+            }),
+            FontWeightValue::Lighter => FontWeight(if inherited.0 < 550 {
+                100
+            } else if inherited.0 < 750 {
+                400
+            } else {
+                700
+            }),
+        }
+    }
+}
+
+fn parse_font_weight(input: &mut CssParser) -> Result<FontWeightValue, ()> {
     match input.next().map_err(|_| ())? {
-        Token::Ident(ident) if ident.eq_ignore_ascii_case("normal") => Ok(FontWeight::NORMAL),
-        Token::Ident(ident) if ident.eq_ignore_ascii_case("bold") => Ok(FontWeight::BOLD),
-        Token::Number { value, .. } => Ok(FontWeight(value.round() as u16)),
+        Token::Ident(ident) if ident.eq_ignore_ascii_case("normal") => {
+            Ok(FontWeightValue::Absolute(FontWeight::NORMAL))
+        }
+        Token::Ident(ident) if ident.eq_ignore_ascii_case("bold") => {
+            Ok(FontWeightValue::Absolute(FontWeight::BOLD))
+        }
+        Token::Ident(ident) if ident.eq_ignore_ascii_case("bolder") => Ok(FontWeightValue::Bolder),
+        Token::Ident(ident) if ident.eq_ignore_ascii_case("lighter") => Ok(FontWeightValue::Lighter),
+        Token::Number { value, .. } => Ok(FontWeightValue::Absolute(FontWeight(value.round() as u16))),
         _ => Err(()),
     }
 }
@@ -1795,6 +1843,7 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         inline_decls.as_ref().and_then(|d| d.font_weight),
         |d| d.font_weight,
     )
+    .map(|v| v.resolve(inherited.font_weight))
     .unwrap_or(inherited.font_weight);
     let font_style = cascade_property(
         &matches,
@@ -3421,5 +3470,6 @@ pub fn run() {
 
     event_loop.run_app(&mut app).unwrap();
 }
+
 
 

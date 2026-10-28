@@ -1783,3 +1783,51 @@ inherited/default.
 `root_font_size` through). Narrows the original pre-survey `rem`/`%`/
 unitless `TODO.txt` item to just `%`/unitless, replaced with a new
 narrower-scope item noting the fixed-constant-root-font-size caveat.
+
+---
+
+## v35 — `font-weight: bolder`/`lighter`
+
+TODO.txt (misc-CSS-properties cluster). Only the literal `bold`/`normal`
+keywords and raw numbers were recognized — `bolder`/`lighter` dropped
+the whole declaration. Lower priority than the rest of the cluster
+(nothing in `default.css` declares either), picked over the cluster's
+other remaining member (`word-spacing`) specifically because it fit
+the existing architecture cleanly while `word-spacing` doesn't (see its
+own narrowed `TODO.txt` item — no cosmic-text 0.19 API to hook into at
+all, a worse version of the risk that already broke `letter-spacing`).
+
+**Requirements:**
+1. **`FontWeightValue` enum** (`Absolute(FontWeight)`/`Bolder`/
+   `Lighter`) — same shape as `font-size`'s own `Length::Larger`/
+   `Smaller` (v29): `bolder`/`lighter` are relative to whatever weight
+   this element would otherwise *inherit*, not a fixed number, so they
+   can't resolve until `resolve_style` has `inherited.font_weight` in
+   hand. Unlike `LineHeight`, nothing further needs to stay symbolic
+   once resolved (`bolder`/`lighter` only ever look at the *immediate*
+   parent's weight) — the result becomes an ordinary `FontWeight` from
+   there, inherited normally.
+2. **`FontWeightValue::resolve`** implements the real CSS Fonts Level 4
+   step table (not a simple ratio the way `larger`/`smaller` use):
+   `bolder` maps `<350 → 400`, `350–549 → 700`, `≥550 → 900`; `lighter`
+   maps `<550 → 100`, `550–749 → 400`, `≥750 → 700`.
+3. **Verified headlessly**: the step table at its boundaries
+   (300→400, 400→700, 549→700, 600→900 for `bolder`; 400→100, 600→400,
+   800→700 for `lighter`), `Absolute` ignoring the inherited weight
+   entirely, parsing all three keyword forms, and — the one that
+   actually matters — a real cascade test proving `bolder` is relative
+   to its *parent*, not absolute: the same `.strong-ish { font-weight:
+   bolder }` rule resolves to `700` under a normal (400) root but `900`
+   under an already-bold (700) parent. **Verified visually** (`grim`):
+   bolder text renders visibly bold, nesting `bolder` again inside an
+   already-`<b>` parent renders visibly heavier still (900), and
+   `lighter` inside a `<b>` parent renders back down to normal weight.
+
+**Deliverable:** `src/lib.rs` (`FontWeightValue` enum + `resolve`,
+`parse_font_weight`'s new `bolder`/`lighter` branches,
+`Declarations.font_weight`'s type change, `resolve_style`'s font-weight
+cascade now calling `.resolve(inherited.font_weight)`). Resolves the
+last-but-one member of the misc-CSS-properties `TODO.txt` cluster,
+leaving only `word-spacing` — now also given its own narrower-scope
+item explaining why it's harder than `letter-spacing` was, not just
+lower priority.
