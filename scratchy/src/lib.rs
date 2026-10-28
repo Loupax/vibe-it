@@ -534,6 +534,7 @@ struct Declarations {
     padding_left: Option<Length>,
     border_width: Option<Length>,
     border_color: Option<CssColor>,
+    border_style: Option<BorderStyle>,
     font_size: Option<Length>,
     font_weight: Option<FontWeight>,
     font_style: Option<FontStyle>,
@@ -778,49 +779,91 @@ fn parse_text_decoration(input: &mut CssParser) -> Result<TextDecoration, ()> {
     }
 }
 
+/// Just the 4 keywords that paint visibly differently from a plain
+/// solid stroke with this file's existing pixel-fill primitives —
+/// `groove`/`ridge`/`inset`/`outset` would need real two-tone bevel
+/// shading to look like anything but `solid` (see
+/// `border_style_from_keyword`, which folds all four into `Solid`
+/// rather than giving them their own inert variants).
+#[derive(Clone, Copy, PartialEq, Default)]
+enum BorderStyle {
+    #[default]
+    Solid,
+    Dashed,
+    Dotted,
+    Double,
+    /// Same outcome as `hidden` — no border renders regardless of
+    /// `border-width`/`border-color` — scratchy has no `display: table`
+    /// border-conflict-resolution rules that would ever need to tell
+    /// `none` and `hidden` apart.
+    None,
+}
+
+fn border_style_from_keyword(kw: &str) -> BorderStyle {
+    if kw.eq_ignore_ascii_case("dashed") {
+        BorderStyle::Dashed
+    } else if kw.eq_ignore_ascii_case("dotted") {
+        BorderStyle::Dotted
+    } else if kw.eq_ignore_ascii_case("double") {
+        BorderStyle::Double
+    } else if kw.eq_ignore_ascii_case("none") || kw.eq_ignore_ascii_case("hidden") {
+        BorderStyle::None
+    } else {
+        // solid, groove, ridge, inset, outset — see `BorderStyle`'s docs.
+        BorderStyle::Solid
+    }
+}
+
 /// The `border` shorthand: `<border-width> || <border-style> ||
-/// <border-color>`, each 0-1 times, any order. `border-style` isn't
-/// tracked anywhere `border-width`/`border-color` are read (every border
-/// paints as a plain solid stroke regardless of declared style — see
-/// TODO.txt), so a recognized style keyword is consumed and discarded
-/// rather than stored; it's still recognized here (not just left to fall
-/// through to the unrecognized-token case) so `border: 1px solid gray`
-/// doesn't need the style keyword to coincidentally also fail to parse as
-/// a color for the width/color to come through. Same lenient philosophy
+/// <border-color>`, each 0-1 times, any order. Same lenient philosophy
 /// as `parse_text_decoration`: an unrecognized token is skipped rather
 /// than failing the whole value, so one bad component doesn't throw away
 /// a width/color that did parse.
-fn parse_border_shorthand(input: &mut CssParser) -> Result<(Option<Length>, Option<CssColor>), ()> {
+/// `(width, style, color)` — what `border`'s own shorthand grammar
+/// parses into, each component optional.
+type BorderShorthand = (Option<Length>, Option<BorderStyle>, Option<CssColor>);
+
+fn parse_border_shorthand(input: &mut CssParser) -> Result<BorderShorthand, ()> {
     const STYLE_KEYWORDS: &[&str] = &[
         "none", "hidden", "dotted", "dashed", "solid", "double", "groove", "ridge", "inset", "outset",
     ];
-    parse_border_like_shorthand(input, STYLE_KEYWORDS)
+    let (width, style_kw, color) = parse_border_like_shorthand(input, STYLE_KEYWORDS)?;
+    Ok((width, style_kw.map(border_style_from_keyword), color))
 }
 
 /// `outline`'s own grammar — same `<width> || <style> || <color>` shape
 /// as `border`, but `outline-style` additionally allows `auto` (the
 /// browser-native focus ring, not a real style keyword) and has no
-/// `hidden` (that's `border-style`-only). Not tracked here either, same
-/// as `border-style` — consumed and discarded.
+/// `hidden` (that's `border-style`-only). Not tracked here either,
+/// unlike `border-style` (v30) — outlines always paint as a plain solid
+/// stroke regardless of declared style; consumed and discarded.
 fn parse_outline_shorthand(input: &mut CssParser) -> Result<(Option<Length>, Option<CssColor>), ()> {
     const STYLE_KEYWORDS: &[&str] = &[
         "none", "auto", "dotted", "dashed", "solid", "double", "groove", "ridge", "inset", "outset",
     ];
-    parse_border_like_shorthand(input, STYLE_KEYWORDS)
+    let (width, _style_kw, color) = parse_border_like_shorthand(input, STYLE_KEYWORDS)?;
+    Ok((width, color))
 }
 
 /// Shared implementation behind `parse_border_shorthand`/
 /// `parse_outline_shorthand` — identical grammar shape
 /// (`<width> || <style> || <color>`, any order, each 0-1 times), only the
-/// recognized style keywords differ. An unrecognized token is skipped
-/// rather than failing the whole value (same lenient philosophy as
-/// `parse_text_decoration` — one bad component shouldn't throw away a
+/// recognized style keywords differ. Returns whichever keyword string
+/// (borrowed from `style_keywords`) actually matched, if any — callers
+/// decide whether/how to interpret it (`border`'s wrapper maps it to a
+/// `BorderStyle`; `outline`'s just discards it). An unrecognized token is
+/// skipped rather than failing the whole value (same lenient philosophy
+/// as `parse_text_decoration` — one bad component shouldn't throw away a
 /// width/color that did parse).
-fn parse_border_like_shorthand(
+/// `(width, matched style keyword, color)` — see `parse_border_like_shorthand`'s own docs.
+type BorderLikeShorthand<'k> = (Option<Length>, Option<&'k str>, Option<CssColor>);
+
+fn parse_border_like_shorthand<'k>(
     input: &mut CssParser,
-    style_keywords: &[&str],
-) -> Result<(Option<Length>, Option<CssColor>), ()> {
+    style_keywords: &[&'k str],
+) -> Result<BorderLikeShorthand<'k>, ()> {
     let mut width = None;
+    let mut style = None;
     let mut color = None;
     let mut found = false;
     loop {
@@ -832,7 +875,8 @@ fn parse_border_like_shorthand(
         }
         input.reset(&state);
         if let Ok(Token::Ident(ident)) = input.next() {
-            if style_keywords.iter().any(|k| ident.eq_ignore_ascii_case(k)) {
+            if let Some(&kw) = style_keywords.iter().find(|k| ident.eq_ignore_ascii_case(k)) {
+                style = Some(kw);
                 found = true;
                 continue;
             }
@@ -850,7 +894,7 @@ fn parse_border_like_shorthand(
         }
     }
     if found {
-        Ok((width, color))
+        Ok((width, style, color))
     } else {
         Err(())
     }
@@ -945,10 +989,17 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
             if let Ok(c) = CssColor::parse(input) {
                 self.decls.border_color = Some(c);
             }
+        } else if name.eq_ignore_ascii_case("border-style") {
+            if let Ok(ident) = input.expect_ident() {
+                self.decls.border_style = Some(border_style_from_keyword(ident));
+            }
         } else if name.eq_ignore_ascii_case("border") {
-            if let Ok((w, c)) = parse_border_shorthand(input) {
+            if let Ok((w, st, c)) = parse_border_shorthand(input) {
                 if let Some(w) = w {
                     self.decls.border_width = Some(w);
+                }
+                if let Some(st) = st {
+                    self.decls.border_style = Some(st);
                 }
                 if let Some(c) = c {
                     self.decls.border_color = Some(c);
@@ -1357,6 +1408,7 @@ struct ComputedStyle {
     padding: Sides,
     border_width: f32,
     border_color: Option<TextColor>,
+    border_style: BorderStyle,
     font_size: f32,
     font_weight: FontWeight,
     font_style: FontStyle,
@@ -1544,6 +1596,12 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         |d| d.border_color,
     )
     .and_then(|c| to_text_color(&c));
+    let border_style = cascade_property(
+        &matches,
+        inline_decls.as_ref().and_then(|d| d.border_style),
+        |d| d.border_style,
+    )
+    .unwrap_or_default();
     let font_weight = cascade_property(
         &matches,
         inline_decls.as_ref().and_then(|d| d.font_weight),
@@ -1648,6 +1706,7 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         padding,
         border_width,
         border_color,
+        border_style,
         font_size,
         font_weight,
         font_style,
@@ -1675,6 +1734,7 @@ fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         padding: Sides::default(),
         border_width: 0.0,
         border_color: None,
+        border_style: BorderStyle::default(),
         font_size: inherited.font_size,
         font_weight: inherited.font_weight,
         font_style: inherited.font_style,
@@ -2302,6 +2362,70 @@ fn fill_rounded_rect(pixels: &mut [u32], win_w: u32, win_h: u32, x: f32, y: f32,
     }
 }
 
+/// Paints one border edge's rect — same `(x, y, w, h)` rectangle
+/// `fill_rect` itself takes (whichever of `w`/`h` is larger is the edge's
+/// length *along* the box side; the smaller is its thickness *across*,
+/// i.e. `border_width` — true for all 4 edges a `paint_box_decoration`
+/// border call ever makes, so no separate orientation flag is needed).
+/// `Solid` is one plain `fill_rect`, same as before this property
+/// existed; `Dashed`/`Dotted`/`Double` instead tile smaller fills along
+/// the edge's length. `None` never reaches here (`paint_box_decoration`
+/// skips the whole border when it sees `BorderStyle::None`).
+fn paint_border_edge(
+    pixels: &mut [u32],
+    win_w: u32,
+    win_h: u32,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    style: BorderStyle,
+    color: TextColor,
+) {
+    let horizontal = w >= h;
+    let (along, across) = if horizontal { (w, h) } else { (h, w) };
+    match style {
+        BorderStyle::None => {}
+        BorderStyle::Solid => fill_rect(pixels, win_w, win_h, x, y, w, h, color),
+        BorderStyle::Dashed => {
+            let dash = (across * 3.0).max(2.0);
+            let mut pos = 0.0;
+            while pos < along {
+                let seg = dash.min(along - pos);
+                if horizontal {
+                    fill_rect(pixels, win_w, win_h, x + pos, y, seg, across, color);
+                } else {
+                    fill_rect(pixels, win_w, win_h, x, y + pos, across, seg, color);
+                }
+                pos += dash * 2.0;
+            }
+        }
+        BorderStyle::Dotted => {
+            let dot = across.max(1.0);
+            let mut pos = 0.0;
+            while pos < along {
+                let seg = dot.min(along - pos);
+                if horizontal {
+                    fill_rect(pixels, win_w, win_h, x + pos, y, seg, across, color);
+                } else {
+                    fill_rect(pixels, win_w, win_h, x, y + pos, across, seg, color);
+                }
+                pos += dot * 2.0;
+            }
+        }
+        BorderStyle::Double => {
+            let stripe = (across / 3.0).max(1.0);
+            if horizontal {
+                fill_rect(pixels, win_w, win_h, x, y, w, stripe, color);
+                fill_rect(pixels, win_w, win_h, x, y + h - stripe, w, stripe, color);
+            } else {
+                fill_rect(pixels, win_w, win_h, x, y, stripe, h, color);
+                fill_rect(pixels, win_w, win_h, x + w - stripe, y, stripe, h, color);
+            }
+        }
+    }
+}
+
 fn paint_box_decoration(s: &ComputedStyle, pixels: &mut [u32], win_w: u32, win_h: u32, x: f32, y: f32, w: f32, h: f32) {
     // Painted first — behind this box's own background/border, same
     // stacking a real (non-inset) box-shadow has. A hard-edged solid
@@ -2327,13 +2451,13 @@ fn paint_box_decoration(s: &ComputedStyle, pixels: &mut [u32], win_w: u32, win_h
             fill_rect(pixels, win_w, win_h, x, y, w, h, bg);
         }
     }
-    if s.border_width > 0.0 {
+    if s.border_width > 0.0 && s.border_style != BorderStyle::None {
         if let Some(bc) = s.border_color {
             let bw = s.border_width;
-            fill_rect(pixels, win_w, win_h, x, y, w, bw, bc);
-            fill_rect(pixels, win_w, win_h, x, y + h - bw, w, bw, bc);
-            fill_rect(pixels, win_w, win_h, x, y, bw, h, bc);
-            fill_rect(pixels, win_w, win_h, x + w - bw, y, bw, h, bc);
+            paint_border_edge(pixels, win_w, win_h, x, y, w, bw, s.border_style, bc);
+            paint_border_edge(pixels, win_w, win_h, x, y + h - bw, w, bw, s.border_style, bc);
+            paint_border_edge(pixels, win_w, win_h, x, y, bw, h, s.border_style, bc);
+            paint_border_edge(pixels, win_w, win_h, x + w - bw, y, bw, h, s.border_style, bc);
         }
     }
     // Outside the border box (not part of the box model — doesn't affect

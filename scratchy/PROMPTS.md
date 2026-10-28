@@ -1452,3 +1452,59 @@ falling back to `parse_length`). Narrows the misc-CSS-properties
 `TODO.txt` item by one more; `font-weight: bolder`/`lighter` stays,
 explicitly noted as lower priority since nothing in `default.css`
 declares it.
+
+---
+
+## v30 — `border-style`
+
+TODO.txt (post-v20 feature-gap survey, continued). `border-style` was
+parsed-and-discarded wherever it appeared (the `border` shorthand,
+v21) or entirely unparsed as its own longhand — every border painted
+as a plain solid stroke regardless.
+
+**Requirements:**
+1. **`BorderStyle` enum**: `Solid`/`Dashed`/`Dotted`/`Double`/`None`
+   only — `groove`/`ridge`/`inset`/`outset` all fold into `Solid` at
+   the keyword-mapping stage (`border_style_from_keyword`) rather than
+   getting their own inert variants, since a real bevel effect needs
+   two-tone shading this file's flat-fill primitives don't have.
+   `hidden` folds into `None` (no border-conflict-resolution rules
+   here that would ever need to tell them apart).
+2. **The `border`/`parse_border_shorthand` style keyword, previously
+   consumed-and-discarded (v21), is now actually captured and mapped**
+   — required factoring `parse_border_like_shorthand`'s return type to
+   hand back which keyword matched (`Option<&str>`, borrowed from the
+   caller's own keyword list), so `border`'s wrapper can map it to a
+   `BorderStyle` while `outline`'s wrapper (which still doesn't track
+   style at all) just discards it, unchanged. Two small type aliases
+   (`BorderShorthand`, `BorderLikeShorthand`) added alongside this to
+   keep the 3-element return tuples from tripping clippy's
+   type-complexity lint.
+3. **`paint_border_edge`**: one new function painting a single edge's
+   rect (`Solid` is one plain `fill_rect`, unchanged; `Dashed`/
+   `Dotted` tile smaller fills along the edge's length; `Double` draws
+   two thinner parallel stripes with a gap between), called 4 times
+   from `paint_box_decoration` in place of the 4 inline `fill_rect`
+   calls border used to make directly. `paint_box_decoration` also now
+   skips the whole border when `border_style == BorderStyle::None`,
+   even if `border-width`/`border-color` are set.
+4. **Verified headlessly**: longhand/shorthand cascade, `none`/
+   `hidden` both resolve to `BorderStyle::None` while
+   `groove`/`ridge`/`inset`/`outset`/`solid` all resolve to `Solid`,
+   `default.css`'s real `hr` rule (`border-style: inset`) resolves to
+   `Solid` with no change from before this property existed (not a
+   regression), `border-style: none` suppresses the whole border even
+   with width/color set, and — painting real edges into pixel buffers
+   — `Dashed`/`Dotted` genuinely paint fewer pixels than `Solid` (real
+   gaps, not just a different color) while `Double` leaves its middle
+   row unpainted (the gap between its two stripes). Spot-checked
+   visually too: dashed/dotted/double borders all render distinctly,
+   `hr`'s solid border unaffected.
+
+**Deliverable:** `src/lib.rs` (`BorderStyle` enum +
+`border_style_from_keyword`, `parse_border_like_shorthand`'s reworked
+return type, `Declarations`/`ComputedStyle` fields + cascade,
+`border-style` branch in `DeclParser::parse_value`,
+`paint_border_edge`, `paint_box_decoration`'s border section rewired
+to use it). Removes `border-style` from the misc-CSS-properties
+`TODO.txt` cluster, replaced with its own narrower-scope item.

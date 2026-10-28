@@ -433,6 +433,21 @@ other declarations that might still be silently inert, the way this
 one and v19's were — `git grep` for property names against `TODO.txt`
 items would surface candidates directly.
 
+**v30 resolved `border-style`** (`dashed`/`dotted`/`double`/`none`/
+`hidden`, falling back to `solid` for `groove`/`ridge`/`inset`/
+`outset` — no bevel shading). Specifically checked `default.css`'s own
+`hr { border-style: inset }` rule (already noted as inert-not-a-
+regression in TODO.txt's wording before this landed) resolved to
+`Solid` and produced identical pixels to before the property existed
+— same "verify the fix doesn't silently break the one real-world rule
+that already references it" habit v29 should have reinforced. Also
+had to go back and actually capture the `border` shorthand's style
+keyword instead of discarding it (v21 only ever recognized-and-
+dropped it, to keep width/color parsing from tripping over it) —
+worth remembering as a pattern: a property "recognized but discarded"
+for one feature is often cheap to wire up for real once a later
+feature needs it, since the parsing/recognition work is already done.
+
 ## Priority going forward: rendering, not networking
 
 Explicit decision: the next phase of work is about how scratchy
