@@ -47,13 +47,13 @@ the items above — see the conversation that asked "what features are
 missing in regards to rendering html?" Grouped by area so a future
 session can pick a coherent slice rather than one property at a time.
 
-- [ ] `vertical-align` and `text-align` are both parsed (so declaring
-      them doesn't drop the rule) but entirely inert — nothing reads
-      either field during layout/paint. `default.css` already declares
-      both (`caption { text-align: center }`, `sub`/`sup`/`td`/`th`
-      `{ vertical-align: ... }`), so captions never center and sub/sup
-      never shift baseline; they currently just render like normal
-      inline text in place.
+- [ ] `vertical-align` is parsed (so declaring it doesn't drop the
+      rule) but entirely inert — nothing reads it during layout/paint.
+      `default.css` already declares it (`sub`/`sup`/`td`/`th`), so
+      `sub`/`sup` never shift baseline; they currently just render
+      like normal inline text in place. (`text-align` landed in v22 —
+      real CSS inheritance, cosmic-text's own `Align`/`set_rich_text`
+      alignment param does the actual line positioning.)
 
 - [ ] No positioning model at all: `float`/`clear`, `position`
       (relative/absolute/fixed/sticky), and `z-index`/stacking contexts

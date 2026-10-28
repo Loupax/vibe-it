@@ -6,8 +6,9 @@ use std::rc::{Rc, Weak};
 use std::thread;
 
 use cosmic_text::{
-    Attrs, Buffer, Color as TextColor, Family as CosmicFamily, FontSystem, Metrics, Shaping,
-    Style as FontStyle, SwashCache, TextDecoration, UnderlineStyle, Weight as FontWeight, Wrap,
+    Align as CosmicAlign, Attrs, Buffer, Color as TextColor, Family as CosmicFamily, FontSystem,
+    Metrics, Shaping, Style as FontStyle, SwashCache, TextDecoration, UnderlineStyle,
+    Weight as FontWeight, Wrap,
 };
 use cssparser::{
     AtRuleParser, CowRcStr, DeclarationParser, ParseError, Parser as CssParser, ParserState,
@@ -491,6 +492,7 @@ struct Declarations {
     text_decoration: Option<TextDecoration>,
     white_space: Option<WhiteSpace>,
     list_style_type: Option<ListStyleType>,
+    text_align: Option<TextAlign>,
 }
 
 /// Just `normal` (the default — current behavior, collapse+wrap) and `pre`
@@ -514,6 +516,34 @@ enum ListStyleType {
     Circle,
     Square,
     Decimal,
+}
+
+/// The 4 keywords `text-align` actually has (no `start`/`end` — nothing
+/// declares them, and they're writing-mode-relative, which scratchy has
+/// no notion of). `Left` as `#[default]` matches the real CSS initial
+/// value (for left-to-right content, which is all scratchy renders).
+#[derive(Clone, Copy, PartialEq, Default)]
+enum TextAlign {
+    #[default]
+    Left,
+    Right,
+    Center,
+    Justify,
+}
+
+impl TextAlign {
+    /// `None` for `Left` rather than `Some(CosmicAlign::Left)` — avoids
+    /// relying on cosmic-text's own default matching ours, and `None` is
+    /// what `shape_spans` always passed before this property existed, so
+    /// the common case takes the exact code path it always has.
+    fn to_cosmic(self) -> Option<CosmicAlign> {
+        match self {
+            TextAlign::Left => None,
+            TextAlign::Right => Some(CosmicAlign::Right),
+            TextAlign::Center => Some(CosmicAlign::Center),
+            TextAlign::Justify => Some(CosmicAlign::Justified),
+        }
+    }
 }
 
 /// Only the five CSS generic family keywords — no named families
@@ -875,6 +905,20 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
                     None
                 };
             }
+        } else if name.eq_ignore_ascii_case("text-align") {
+            if let Ok(ident) = input.expect_ident() {
+                self.decls.text_align = if ident.eq_ignore_ascii_case("left") {
+                    Some(TextAlign::Left)
+                } else if ident.eq_ignore_ascii_case("right") {
+                    Some(TextAlign::Right)
+                } else if ident.eq_ignore_ascii_case("center") {
+                    Some(TextAlign::Center)
+                } else if ident.eq_ignore_ascii_case("justify") {
+                    Some(TextAlign::Justify)
+                } else {
+                    None
+                };
+            }
         }
         Ok(())
     }
@@ -992,6 +1036,7 @@ struct InheritedStyle {
     font_family: FontFamily,
     white_space: WhiteSpace,
     list_style_type: ListStyleType,
+    text_align: TextAlign,
 }
 
 const ROOT_STYLE: InheritedStyle = InheritedStyle {
@@ -1002,6 +1047,7 @@ const ROOT_STYLE: InheritedStyle = InheritedStyle {
     font_family: FontFamily::SansSerif,
     white_space: WhiteSpace::Normal,
     list_style_type: ListStyleType::Disc,
+    text_align: TextAlign::Left,
 };
 
 /// Per-side box-model values. Physical (top/right/bottom/left), not logical
@@ -1042,6 +1088,7 @@ struct ComputedStyle {
     text_decoration: Option<TextDecoration>,
     white_space: WhiteSpace,
     list_style_type: ListStyleType,
+    text_align: TextAlign,
 }
 
 impl ComputedStyle {
@@ -1054,6 +1101,7 @@ impl ComputedStyle {
             font_family: self.font_family,
             white_space: self.white_space,
             list_style_type: self.list_style_type,
+            text_align: self.text_align,
         }
     }
 }
@@ -1205,6 +1253,12 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         |d| d.list_style_type,
     )
     .unwrap_or(inherited.list_style_type);
+    let text_align = cascade_property(
+        &matches,
+        inline_decls.as_ref().and_then(|d| d.text_align),
+        |d| d.text_align,
+    )
+    .unwrap_or(inherited.text_align);
 
     ComputedStyle {
         color,
@@ -1221,6 +1275,7 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         text_decoration,
         white_space,
         list_style_type,
+        text_align,
     }
 }
 
@@ -1240,6 +1295,7 @@ fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         text_decoration: None,
         white_space: inherited.white_space,
         list_style_type: inherited.list_style_type,
+        text_align: inherited.text_align,
     }
 }
 
@@ -1594,6 +1650,7 @@ fn shape_spans(
     spans: &[(String, SpanStyle)],
     width: f32,
     pre: bool,
+    align: Option<CosmicAlign>,
 ) -> (Buffer, f32, Vec<Option<TextColor>>) {
     let metrics = Metrics::new(16.0, 20.0);
     let mut buffer = Buffer::new(font_system, metrics);
@@ -1620,7 +1677,7 @@ fn shape_spans(
             (text.as_str(), attrs)
         })
         .collect();
-    buffer.set_rich_text(rich, &Attrs::new(), Shaping::Advanced, None);
+    buffer.set_rich_text(rich, &Attrs::new(), Shaping::Advanced, align);
     buffer.shape_until_scroll(font_system, false);
     let mut height = 0.0f32;
     for run in buffer.layout_runs() {
@@ -1669,8 +1726,13 @@ pub fn measure(
                 cache.insert(id, (Buffer::new_empty(Metrics::new(16.0, 20.0)), 0.0, Vec::new()));
                 0.0
             } else if std::time::Instant::now() < deadline {
-                let (buffer, h, backgrounds) =
-                    shape_spans(font_system, spans, content_w, s.white_space == WhiteSpace::Pre);
+                let (buffer, h, backgrounds) = shape_spans(
+                    font_system,
+                    spans,
+                    content_w,
+                    s.white_space == WhiteSpace::Pre,
+                    s.text_align.to_cosmic(),
+                );
                 cache.insert(id, (buffer, h, backgrounds));
                 h
             } else {

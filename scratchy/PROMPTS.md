@@ -1032,3 +1032,49 @@ skipping and noting anything that needs clarification.
 **Deliverable:** `src/lib.rs` (`parse_border_shorthand` + one new
 branch in `DeclParser::parse_value`); removes the resolved item from
 `TODO.txt`.
+
+---
+
+## v22 — `text-align`
+
+TODO.txt (post-v20 feature-gap survey, continued from v21): `caption {
+text-align: center }` in `default.css` has always parsed but done
+nothing — nothing read `text-align` anywhere.
+
+**Requirements:**
+1. **`TextAlign` enum** (`Left`/`Right`/`Center`/`Justify`, `Left`
+   `#[default]` — matches the real CSS initial value for left-to-right
+   content), parsed from the 4 keywords `text-align` accepts (no
+   `start`/`end` — those are writing-mode-relative and scratchy has no
+   notion of writing mode).
+2. **Real CSS inheritance**, not the ambient-propagation pattern
+   `background-color`/`text-decoration` use — `text-align` genuinely
+   is a spec-inherited property, so it's threaded through
+   `InheritedStyle`/`ComputedStyle`/`ROOT_STYLE`/`anonymous_style`
+   exactly like `white-space`/`list-style-type` already are.
+3. **No hand-rolled line-positioning logic** — cosmic-text already has
+   this: `Buffer::set_rich_text`'s last parameter is
+   `Option<cosmic_text::Align>`, previously always passed as `None`.
+   `TextAlign::to_cosmic()` maps to it (`Left` stays `None` rather than
+   `Some(Align::Left)`, so the common case takes the exact code path
+   it always has); `shape_spans` gains an `align` parameter threaded
+   straight through from the box's own `ComputedStyle.text_align`.
+   Per-span background rects (v12) need no change — they're derived
+   from each glyph's actual laid-out `x`/`w` after shaping, which
+   already reflects whatever alignment shift cosmic-text applied.
+4. **Verified headlessly**: cascade + inheritance (a `div` with
+   `text-align: center` resolves to `Center`; a plain child `span`
+   resolves to `Center` too, inherited, when resolved against the
+   div's `.inherited()`), and — more load-bearing — that the alignment
+   parameter actually moves glyphs: shaped `"hi"` in a 500px-wide
+   buffer with `None`/`Some(Center)`/`Some(Right)` landed the first
+   glyph at x=0/243.8/487.5 respectively, confirming the wiring (not
+   just the cascade) works end to end.
+
+**Deliverable:** `src/lib.rs` (`TextAlign` enum + `to_cosmic()`,
+`Declarations`/`InheritedStyle`/`ComputedStyle`/`ROOT_STYLE`/
+`anonymous_style` field + cascade, `text-align` branch in
+`DeclParser::parse_value`, `shape_spans`'s new `align` parameter);
+`default.css`'s existing `caption { text-align: center }` now actually
+takes effect, no `default.css` change needed. Narrows the `TODO.txt`
+vertical-align/text-align item down to just `vertical-align`.

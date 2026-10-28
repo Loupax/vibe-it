@@ -249,6 +249,20 @@ clarification. **v21 resolved the `border` shorthand** (see
 lenient "unparseable component skipped, not whole-value-dropped"
 philosophy as `parse_text_decoration`.
 
+**v22 resolved `text-align`.** Worth remembering for next time a
+layout-affecting property comes up: check whether cosmic-text already
+has it before hand-rolling geometry — it did here (`Buffer::
+set_rich_text`'s `Option<Align>` parameter), the same way
+`text-decoration` (v17) turned out to already be built in. Also
+correctly categorized this one as real CSS inheritance (`InheritedStyle`,
+like `white-space`/`list-style-type`), not the ambient-propagation
+pattern `background-color`/`text-decoration` use — worth checking the
+actual CSS spec's inherited-properties list before wiring a new
+property through either path, since getting it backwards would be an
+easy, quiet bug (e.g. inheriting something that shouldn't, or letting
+a nested element silently lose a text-align it should've kept).
+`vertical-align` is now the only property left in that TODO.txt item.
+
 ## Priority going forward: rendering, not networking
 
 Explicit decision: the next phase of work is about how scratchy
