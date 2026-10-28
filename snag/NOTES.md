@@ -14,11 +14,14 @@ one self-contained HTML file scratchy can be pointed at directly.
 
 ## Design choices
 
-- **Single self-contained output file**, not a directory of HTML +
+- **A single self-contained HTML stream**, not a directory of HTML +
   sibling assets. Matches the "single self-contained local HTML file"
   plan already written down in `scratchy/NOTES.md` before this tool
-  existed, and keeps the whole point (`scratchy bundled.html`, one
-  argument) simple.
+  existed. As of v2, "file" is really "stream" — `snag` writes to
+  stdout, not a path, so the natural shape is a Unix filter
+  (`curl url | snag | scratchy`, or `snag url > bundle.html` whenever a
+  real file is wanted) rather than a tool that owns its own output
+  location.
 - **CSS inlined as plain text** (`<style>` elements), not data URIs —
   no reason to base64-bloat text content when it can just be pasted in
   directly. **Images inlined as base64 `data:` URIs** instead, since
@@ -89,7 +92,39 @@ tool available here (`ydotool`/`wtype`/`wlrctl` all absent) to synthesize
 a scroll event, same limitation noted for cursor-icon testing in
 `scratchy/NOTES.md`.
 
-## Known limitations / explicitly out of scope for v1
+## v2: real pipelines (`curl | snag | scratchy`)
+
+v1 took `snag <url> <output-file>` — functional, but it couldn't do the
+thing that actually motivated building this tool: compose with `curl`
+and `scratchy` as a plain Unix pipeline, with nothing touching disk.
+Fixed by making `snag` a proper filter — `snag [url]`, always writing to
+stdout; with no `url` argument, it reads the top-level page's HTML from
+stdin instead of fetching it itself (sub-resource fetching — the actual
+networking this tool exists for — is unaffected either way).
+
+The one real design question this raised: without a URL argument,
+*something* still has to anchor every relative link in the page (a
+stylesheet `href="/w/load.php?..."`, an image `src="/thumb/..."`) to an
+absolute URL. `<base href>` is the obvious first choice when present,
+but most pages (including Wikipedia) don't declare one. The fallback
+that made this actually work: `<link rel="canonical">`, which MediaWiki
+(and most real sites generally) always emits with an absolute `href` —
+confirmed on both the English and German Wikipedia test pages. A page
+with neither is a hard error rather than a silent no-op bundle, since
+producing a "bundle" that can't actually resolve any of its links isn't
+meaningfully better than the raw unprocessed page `curl` alone would've
+given.
+
+Verified against the literal pipeline this was built for: `curl -vs
+https://de.wikipedia.org/wiki/Arabischsprachige_Wikipedia | snag |
+scratchy`. Worked end to end on the first attempt after the rewrite —
+curl's 146KB of HTML piped straight into `snag`, which found the page's
+canonical link, fetched and inlined everything, piped the 1.4MB bundle
+straight into `scratchy`, which rendered real, correctly-styled German
+Wikipedia navigation/search/article chrome. No file ever touched disk in
+the full three-stage pipeline.
+
+## Known limitations / explicitly out of scope
 
 See `TODO.txt` for the fuller list. Headline ones: no `srcset`/responsive
 image handling (stripped, not processed), no handling of CSS inside a

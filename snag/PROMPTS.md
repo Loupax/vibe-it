@@ -69,3 +69,49 @@ not yet built before now.
 own `PROMPTS.md`/`NOTES.md`/`TODO.txt` following the same per-project
 conventions scratchy already established. Root `README.md` gains a `snag`
 entry.
+
+---
+
+## v2 — stdin/stdout, for real Unix pipelines
+
+v1 required a URL argument (to fetch the page itself) and an output-file
+argument, which ruled out the exact kind of pipeline the whole tool
+exists to enable: `curl -vs <url> | snag | scratchy`. scratchy already
+reads HTML from stdin when given no arguments (v1 of scratchy itself);
+snag needed the matching other end.
+
+**Requirements:**
+1. **`snag [url]`, always writing the bundled result to stdout** — no
+   more output-file argument. `snag <url>` still fetches `<url>` itself,
+   same as v1; `snag` with no argument reads HTML from stdin instead
+   (the top-level page is assumed already-fetched by whatever's piping
+   into it — `curl`, `cat`, anything). Sub-resources (stylesheets,
+   images) are still always fetched over the network in both modes —
+   only the *top-level* page's own fetch is what stdin mode skips.
+2. **Resolving relative links without a URL argument**: stdin mode has
+   no URL to resolve against, so one has to come from the document
+   itself. `determine_base` tries, in order: `<base href>` (resolved
+   against the explicit URL if one was given and the `href` is itself
+   relative), then the explicit URL itself if `snag <url>` was used,
+   then `<link rel="canonical" href>` — real sites (confirmed on both
+   English and German Wikipedia) always emit this as an absolute URL,
+   so no further fallback is attempted past it. No usable base at all
+   (no URL, no `<base>`, no canonical link) is a hard error rather than
+   silently leaving every relative link broken — a "bundle" that
+   couldn't resolve anything wouldn't be worth producing.
+3. **Verified against the exact target pipeline**: `curl -vs
+   https://de.wikipedia.org/wiki/Arabischsprachige_Wikipedia | snag |
+   scratchy` end to end — curl's HTML (146KB) piped into snag (which
+   found the page's `<link rel="canonical">` and used it to resolve
+   every relative stylesheet/image reference, producing a 1.4MB bundle)
+   piped straight into scratchy, which rendered real, correctly-styled
+   German Wikipedia content (navigation, search box, article chrome)
+   with no intermediate file ever touching disk. Also re-verified `snag
+   <url>` (single-arg, no stdin) still works unchanged against
+   `example.com`, and both error paths (bad arg count; stdin input with
+   no resolvable base) print a clear message and exit 1 rather than
+   panicking or silently producing garbage.
+
+**Deliverable:** `src/main.rs` (`main`'s argument handling reworked
+around stdin/stdout, `find_base_href` replaced by `determine_base`/
+`find_tag_href`/`find_canonical`).

@@ -41,3 +41,11 @@ not a speculative feature backlog. See NOTES.md for the fuller story.
       like any other CSS url, but scratchy has no `@font-face` support
       to ever use one — harmless dead weight in the bundle today, not
       worth skipping specially until scratchy can load a declared font.
+
+- [ ] Stdin mode (`snag` with no URL argument, PROMPTS.md v2) has no way
+      to force a base URL when a page has neither `<base href>` nor
+      `<link rel="canonical">` — `determine_base` just fails outright
+      (see its own docs). No `--base <url>` override flag exists yet.
+      Every real page tested so far (English and German Wikipedia) has
+      emitted a canonical link, so this hasn't actually blocked
+      anything; revisit if a real page without either shows up.

@@ -12,54 +12,82 @@ use url::Url;
 
 const XHTML_NS: &str = "http://www.w3.org/1999/xhtml";
 
+/// Two modes, both writing the bundled result to stdout (classic Unix
+/// filter behavior — compose with `>`/`|` rather than an output-path
+/// argument):
+///   `snag <url>`  — fetches `<url>` itself and bundles it.
+///   `snag`        — reads HTML from stdin instead of fetching the top
+///                   page (e.g. `curl -s <url> | snag | scratchy`).
+///                   Sub-resources (stylesheets/images) are still fetched
+///                   over the network either way — only the *top-level*
+///                   page's own fetch is skipped in this mode. Since
+///                   there's no URL argument to resolve relative links
+///                   against, one has to come from the document itself:
+///                   `<base href>` if present, else `<link
+///                   rel="canonical">` (which real sites, including
+///                   MediaWiki, always emit as an absolute URL). No usable
+///                   base at all → hard error, since silently leaving
+///                   every relative link unresolved would produce a
+///                   "bundle" that's barely different from the raw page.
 fn main() {
     let args: Vec<String> = std::env::args().collect();
-    if args.len() != 3 {
-        eprintln!("usage: snag <url> <output.html>");
+    if args.len() > 2 {
+        eprintln!("usage: snag [url]");
+        eprintln!("  snag <url>   fetch <url>, bundle it, write to stdout");
+        eprintln!("  snag         bundle HTML read from stdin instead of fetching it");
+        eprintln!("               (relative links resolve against <base href> or");
+        eprintln!("               <link rel=canonical>); e.g. curl -s <url> | snag");
         std::process::exit(1);
     }
-    let start_url = match Url::parse(&args[1]) {
-        Ok(u) => u,
-        Err(e) => {
-            eprintln!("snag: invalid URL {:?}: {e}", args[1]);
-            std::process::exit(1);
-        }
-    };
 
     let agent = ureq::AgentBuilder::new()
         .timeout(Duration::from_secs(20))
         .user_agent("snag/0.1 (+https://github.com/Loupax/vibe-it) scratchy test fixture bundler")
         .build();
 
-    let html = match fetch_text(&agent, &start_url) {
-        Ok(h) => h,
-        Err(e) => {
-            eprintln!("snag: failed to fetch {start_url}: {e}");
+    let (explicit_url, html_bytes) = if let Some(arg) = args.get(1) {
+        let url = match Url::parse(arg) {
+            Ok(u) => u,
+            Err(e) => {
+                eprintln!("snag: invalid URL {arg:?}: {e}");
+                std::process::exit(1);
+            }
+        };
+        let text = match fetch_text(&agent, &url) {
+            Ok(t) => t,
+            Err(e) => {
+                eprintln!("snag: failed to fetch {url}: {e}");
+                std::process::exit(1);
+            }
+        };
+        (Some(url), text.into_bytes())
+    } else {
+        let mut bytes = Vec::new();
+        if let Err(e) = std::io::stdin().read_to_end(&mut bytes) {
+            eprintln!("snag: failed to read stdin: {e}");
             std::process::exit(1);
         }
+        (None, bytes)
     };
 
     let dom = parse_document(RcDom::default(), ParseOpts::default())
         .from_utf8()
-        .read_from(&mut html.as_bytes())
-        .expect("parsing a string can't fail with an I/O error");
+        .read_from(&mut html_bytes.as_slice())
+        .expect("parsing a byte stream can't fail with an I/O error");
 
-    let base = find_base_href(&dom.document, &start_url).unwrap_or_else(|| start_url.clone());
+    let Some(base) = determine_base(&dom.document, explicit_url.as_ref()) else {
+        eprintln!("snag: no URL given and the page has neither <base href> nor");
+        eprintln!("      <link rel=canonical> — can't resolve its relative links");
+        std::process::exit(1);
+    };
 
     let mut visited_css = HashSet::new();
     walk(&dom.document, &base, &agent, &mut visited_css);
 
-    let mut out = match std::fs::File::create(&args[2]) {
-        Ok(f) => f,
-        Err(e) => {
-            eprintln!("snag: failed to create {:?}: {e}", args[2]);
-            std::process::exit(1);
-        }
-    };
+    let stdout = std::io::stdout();
     let serializable: SerializableHandle = dom.document.clone().into();
-    html5ever::serialize::serialize(&mut out, &serializable, Default::default())
-        .expect("writing to a just-created file shouldn't fail");
-    eprintln!("snag: wrote {}", args[2]);
+    html5ever::serialize::serialize(stdout.lock(), &serializable, Default::default())
+        .expect("writing to stdout shouldn't fail");
 }
 
 // ---------- fetching ----------
@@ -321,10 +349,11 @@ fn process_node(handle: &Handle, base: &Url, agent: &ureq::Agent, visited_css: &
         "img" => {
             if let Some(src) = get_attr(attrs, "src")
                 && !src.starts_with("data:")
-                    && let Ok(target) = base.join(&src)
-                        && let Some(data_uri) = fetch_as_data_uri(agent, &target) {
-                            set_attr(attrs, "src", &data_uri);
-                        }
+                && let Ok(target) = base.join(&src)
+                && let Some(data_uri) = fetch_as_data_uri(agent, &target)
+            {
+                set_attr(attrs, "src", &data_uri);
+            }
             // Unused until scratchy has a notion of responsive image
             // candidates — left in would just be clutter full of
             // relative URLs nothing will ever resolve.
@@ -333,9 +362,10 @@ fn process_node(handle: &Handle, base: &Url, agent: &ureq::Agent, visited_css: &
         }
         "a" => {
             if let Some(href) = get_attr(attrs, "href")
-                && let Ok(target) = base.join(&href) {
-                    set_attr(attrs, "href", target.as_str());
-                }
+                && let Ok(target) = base.join(&href)
+            {
+                set_attr(attrs, "href", target.as_str());
+            }
             NodeAction::Keep
         }
         _ => NodeAction::Keep,
@@ -385,18 +415,61 @@ fn make_style_node(css_text: &str) -> Handle {
     node
 }
 
-/// A `<base href>`, if the document has one — resolved against the
-/// page's own URL in case it's itself relative (unusual, but valid).
-/// First match wins (document order), matching the HTML spec.
-fn find_base_href(handle: &Handle, page_url: &Url) -> Option<Url> {
-    if let NodeData::Element { name, attrs, .. } = &handle.data
-        && name.local.as_ref() == "base"
-            && let Some(href) = get_attr(attrs, "href") {
-                return Url::parse(&href).ok().or_else(|| page_url.join(&href).ok());
-            }
-    for child in handle.children.borrow().iter() {
-        if let Some(u) = find_base_href(child, page_url) {
+/// The base URL every relative link in the document resolves against.
+/// `<base href>` always wins when present (resolved against
+/// `explicit_url`, if there is one, in case the `<base href>` is itself
+/// relative — unusual but valid); otherwise `explicit_url` itself (the
+/// `snag <url>` case); otherwise `<link rel="canonical">` — the only
+/// option left once there's neither an explicit URL nor a `<base>` tag
+/// (the `snag` *-reading-stdin* case), and real sites emit it as an
+/// absolute URL, so no further fallback is attempted against it.
+fn determine_base(dom_root: &Handle, explicit_url: Option<&Url>) -> Option<Url> {
+    if let Some(href) = find_tag_href(dom_root, "base") {
+        if let Ok(u) = Url::parse(&href) {
             return Some(u);
+        }
+        if let Some(p) = explicit_url
+            && let Ok(u) = p.join(&href)
+        {
+            return Some(u);
+        }
+    }
+    if let Some(p) = explicit_url {
+        return Some(p.clone());
+    }
+    let href = find_canonical(dom_root)?;
+    Url::parse(&href).ok()
+}
+
+/// First `<TAG href="...">`'s `href`, in document order.
+fn find_tag_href(handle: &Handle, tag: &str) -> Option<String> {
+    if let NodeData::Element { name, attrs, .. } = &handle.data
+        && name.local.as_ref() == tag
+        && let Some(href) = get_attr(attrs, "href")
+    {
+        return Some(href);
+    }
+    for child in handle.children.borrow().iter() {
+        if let Some(h) = find_tag_href(child, tag) {
+            return Some(h);
+        }
+    }
+    None
+}
+
+/// First `<link rel="canonical" href="...">`'s `href`, in document order.
+fn find_canonical(handle: &Handle) -> Option<String> {
+    if let NodeData::Element { name, attrs, .. } = &handle.data
+        && name.local.as_ref() == "link"
+        && get_attr(attrs, "rel")
+            .is_some_and(|r| r.split_ascii_whitespace().any(|t| t.eq_ignore_ascii_case("canonical")))
+        && let Some(href) = get_attr(attrs, "href")
+    {
+        return Some(href);
+    }
+    for child in handle.children.borrow().iter() {
+        if let Some(h) = find_canonical(child) {
+            return Some(h);
         }
     }
     None
