@@ -124,6 +124,36 @@ straight into `scratchy`, which rendered real, correctly-styled German
 Wikipedia navigation/search/article chrome. No file ever touched disk in
 the full three-stage pipeline.
 
+## v3/v4: installing it, and the "this does nothing" scare
+
+Installed both `snag` and `scratchy` to `$PATH` (`cargo install --path
+.`) so the pipeline reads as plain commands, not `./target/debug/...`
+paths. Found and fixed one rough edge immediately: piping `snag`'s
+output into something that closes early (`| head`) panicked with a
+`BrokenPipe` backtrace instead of exiting quietly — Rust doesn't
+restore default `SIGPIPE` handling, so a closed downstream pipe shows
+up as a normal `io::Error` on the next write. Fixed by treating
+`BrokenPipe` specifically as a quiet success exit (v3).
+
+Then: running the literal target pipeline — `curl -vs
+<german-wikipedia-url> | snag | cargo run` — appeared to do nothing at
+all. No window, no output, no error, nothing. Investigated directly
+rather than guessing: `ps aux` (not `pgrep`, which kept missing it —
+worth remembering, `pgrep -f` can be surprisingly flaky about catching
+a process in the narrow window right after it's spawned) showed the
+process genuinely *was* running, and a screenshot a bit later showed it
+had, in fact, rendered the correct page perfectly. The pipeline was
+never broken — it just takes a real, noticeable amount of wall-clock
+time (German Wikipedia's test page needed on the order of 240
+sub-resource fetches) with `snag` printing *nothing* the entire time,
+making a slow-but-working run indistinguishable from a hung one. This
+is exactly the "no progress reporting" gap `TODO.txt` had already
+flagged as deliberately deferred, now with concrete evidence it
+mattered — fixed in v4 with a line per stylesheet inlined plus a
+single `\r`-updating counter for every other fetched resource (not a
+line per image — a real page can have 200+, which would be its own
+kind of unreadable).
+
 ## Known limitations / explicitly out of scope
 
 See `TODO.txt` for the fuller list. Headline ones: no `srcset`/responsive

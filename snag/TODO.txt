@@ -24,12 +24,13 @@ not a speculative feature backlog. See NOTES.md for the fuller story.
       practice yet (the Wikipedia test run showed 0 real stylesheet
       links left un-inlined).
 
-- [ ] No size cap, concurrency, or progress reporting — every
-      sub-resource is fetched serially, one at a time, with no limit on
-      how many. Fine for a single Wikipedia article (~7s end to end);
-      could get slow on a page with hundreds of distinct images. No
-      evidence yet that this actually matters for scratchy's current
-      test needs.
+- [ ] No size cap or concurrency — every sub-resource is still fetched
+      serially, one at a time, with no limit on how many (progress
+      *reporting* landed, PROMPTS.md v4 — see its own entry). Fine for a
+      single Wikipedia article (~7s end to end); could get slow on a
+      page with hundreds of distinct images. No evidence yet that
+      fetching them concurrently actually matters for scratchy's
+      current test needs, versus just knowing it's not hung.
 
 - [ ] The CSS `url()`/`@import` rewriter is a hand-rolled text scanner
       (see NOTES.md's own design-choices section for why), not a real

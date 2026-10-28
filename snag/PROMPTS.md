@@ -140,3 +140,53 @@ panic.
    still works unchanged.
 
 **Deliverable:** `src/main.rs` (final `serialize` call's error handling).
+
+---
+
+## v4 — progress reporting, so a slow run doesn't look hung
+
+Both `snag` and `scratchy` got installed to `$PATH` (`cargo install
+--path .`) for real `curl | snag | scratchy`-style use. Running the
+exact target pipeline (`curl -vs <wikipedia-url> | snag | cargo run`)
+looked like it did nothing — no visible window, no output, no error.
+Direct investigation found it actually *was* working the whole time:
+the fetch+bundle step genuinely takes several seconds to tens of
+seconds (German Wikipedia's test page alone needed ~240 sub-resource
+fetches — the bulk of the wall-clock cost), and `snag` printed nothing
+at all while that happened, so a slow-but-working run was
+indistinguishable from a hung one. `TODO.txt` had already flagged "no
+progress reporting" as a known, deliberately-deferred gap before this —
+this is the first real evidence it actually mattered.
+
+**Requirements:**
+1. **A line to stderr for each stylesheet being inlined**, and for the
+   top-level page fetch in `snag <url>` mode — few enough of these in
+   practice (~15 stylesheets on the Wikipedia test) that one line each
+   is readable signal, not noise.
+2. **A single, `\r`-updating counter for every other fetched
+   sub-resource** (images, and anything pulled in via a CSS `url()`) —
+   a real page can reference 200+ of these, so a line per fetch would
+   scroll past unreadably fast; a single self-overwriting "inlined N
+   resources so far..." line gives the same "it's still working"
+   signal without the noise. Implemented as a plain `AtomicU32` counter
+   (`fetch_as_data_uri` increments it and reprints) — the program is
+   single-threaded, so this is really just a simple global counter, not
+   a serious concurrency primitive.
+3. **The two don't visually collide**: a stylesheet message can land
+   mid-way through the previous stylesheet's own `url()` fetches (while
+   the counter's `\r`-line is still active), so `progress_line` drops
+   to a fresh line first whenever the counter is non-zero, rather than
+   running the message text into whatever digit the counter last
+   showed.
+4. **Verified**: stderr captured and inspected with `cat -A` to confirm
+   the `\r` structure is correct (each counter update genuinely
+   overwrites in place on one terminal line — `^M` between each segment
+   — while each stylesheet message starts its own clean line); stdout
+   re-confirmed to stay pure HTML throughout (`head -c 60` on the
+   output still starts with `<!DOCTYPE html>`, nothing from the
+   progress output leaking into the bundle); full pipeline re-verified
+   working end to end afterward.
+
+**Deliverable:** `src/main.rs` (`RESOURCE_COUNT` static counter,
+`progress_line` helper, call sites in `main` and `process_node`'s `link`
+branch, the counter increment+print in `fetch_as_data_uri`).

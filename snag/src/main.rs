@@ -1,6 +1,7 @@
 use std::cell::RefCell;
 use std::collections::HashSet;
-use std::io::Read as _;
+use std::io::{Read as _, Write as _};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 use base64::Engine as _;
@@ -11,6 +12,29 @@ use markup5ever_rcdom::{Handle, Node, NodeData, RcDom, SerializableHandle};
 use url::Url;
 
 const XHTML_NS: &str = "http://www.w3.org/1999/xhtml";
+
+/// A real Wikipedia article can embed 200+ images — fetching each one is
+/// genuinely where almost all of this tool's wall-clock time goes (the
+/// top-level page and stylesheets are a handful of requests; images are
+/// the bulk), but printing one stderr line per image would scroll past
+/// faster than it's readable. A single `\r`-updating counter (see
+/// `fetch_as_data_uri`) gives a visible "it's still working, not hung"
+/// signal instead — the exact confusion that prompted adding this at
+/// all (`curl | snag | cargo run` looks identical to a hung pipeline for
+/// the several seconds snag is silently fetching sub-resources).
+static RESOURCE_COUNT: AtomicU32 = AtomicU32::new(0);
+
+/// Prints one stderr status line, first dropping to a fresh line if the
+/// `\r`-updating resource counter (`fetch_as_data_uri`) has left the
+/// cursor mid-line — otherwise a message printed partway through a
+/// stylesheet's own `url()` fetches would run straight into whatever
+/// digit the counter was last showing.
+fn progress_line(msg: &str) {
+    if RESOURCE_COUNT.load(Ordering::Relaxed) > 0 {
+        eprintln!();
+    }
+    eprintln!("snag: {msg}");
+}
 
 /// Two modes, both writing the bundled result to stdout (classic Unix
 /// filter behavior — compose with `>`/`|` rather than an output-path
@@ -53,6 +77,7 @@ fn main() {
                 std::process::exit(1);
             }
         };
+        progress_line(&format!("fetching {url}"));
         let text = match fetch_text(&agent, &url) {
             Ok(t) => t,
             Err(e) => {
@@ -83,6 +108,9 @@ fn main() {
 
     let mut visited_css = HashSet::new();
     walk(&dom.document, &base, &agent, &mut visited_css);
+    if RESOURCE_COUNT.load(Ordering::Relaxed) > 0 {
+        eprintln!(); // terminate the `\r`-updating progress line
+    }
 
     let stdout = std::io::stdout();
     let serializable: SerializableHandle = dom.document.clone().into();
@@ -120,6 +148,9 @@ fn fetch_as_data_uri(agent: &ureq::Agent, url: &Url) -> Option<String> {
         content_type
     };
     let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    let n = RESOURCE_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
+    eprint!("\rsnag: inlined {n} resources so far...");
+    let _ = std::io::stderr().flush();
     Some(format!("data:{mime};base64,{encoded}"))
 }
 
@@ -340,6 +371,7 @@ fn process_node(handle: &Handle, base: &Url, agent: &ureq::Agent, visited_css: &
             if !visited_css.insert(target.to_string()) {
                 return NodeAction::Remove; // duplicate stylesheet, already inlined once
             }
+            progress_line(&format!("inlining stylesheet {target}"));
             match fetch_text(agent, &target) {
                 Ok(text) => {
                     let processed = process_css(&text, &target, agent, visited_css);
