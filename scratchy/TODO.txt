@@ -41,3 +41,77 @@ these.
       text-decoration: dotted underline }` in default.css currently
       renders as a plain solid underline, not dotted.
 
+The rest of this file is a full html-rendering feature-gap survey done
+after v20 (commit 7950fc2), not individual things hit mid-feature like
+the items above — see the conversation that asked "what features are
+missing in regards to rendering html?" Grouped by area so a future
+session can pick a coherent slice rather than one property at a time.
+
+- [ ] `border` shorthand isn't parsed — only the `border-width`/
+      `border-color` longhands are (box model, PROMPTS.md v13). A rule
+      like `.box { border: 2px solid #884400; }` silently drops the
+      whole declaration (same "unparseable drops safely" behavior as
+      elsewhere), so the element renders with no border at all. Caught
+      live: a manual test page using the shorthand showed no border,
+      confirmed via a headless test that the longhand form works fine.
+
+- [ ] `vertical-align` and `text-align` are both parsed (so declaring
+      them doesn't drop the rule) but entirely inert — nothing reads
+      either field during layout/paint. `default.css` already declares
+      both (`caption { text-align: center }`, `sub`/`sup`/`td`/`th`
+      `{ vertical-align: ... }`), so captions never center and sub/sup
+      never shift baseline; they currently just render like normal
+      inline text in place.
+
+- [ ] No positioning model at all: `float`/`clear`, `position`
+      (relative/absolute/fixed/sticky), and `z-index`/stacking contexts
+      are unparsed and unimplemented. Everything lays out in plain
+      in-flow block/inline order; nothing can be taken out of flow or
+      overlap deliberately.
+
+- [ ] No flexbox (`display: flex`) or grid (`display: grid`) — `Display`
+      only has Block/Inline/None/Table/TableRow/TableCell/TableGroup.
+      `default.css` doesn't need either today, but most real-world pages
+      do for their outer page chrome.
+
+- [ ] A cluster of CSS properties are either unrecognized (dropped) or
+      recognized-but-inert, none needed by `default.css` yet:
+      `cursor`, `line-height`, `letter-spacing`/`word-spacing`,
+      `opacity`, `box-shadow`, `border-radius`, `outline`, `visibility`,
+      `overflow`/clipping, `border-style` (border is always drawn as a
+      plain solid stroke regardless of declared style — `hr`'s
+      `border-style: inset` in default.css is inert), relative/keyword
+      font sizes (`font-size: larger`/`smaller`) and `font-weight:
+      bolder` (only the literal `bold` keyword is recognized).
+
+- [ ] No CSS custom properties (`--foo: ...` / `var(--foo)`).
+
+- [ ] No at-rules at all — `@media`, `@import`, `@font-face`,
+      `@keyframes`, and transitions/animations are all skipped outright
+      at the stylesheet-parsing stage (`TopLevelParser`'s `AtRule`
+      parsing is a deliberate no-op). No responsive breakpoints, no
+      animation of any kind.
+
+- [ ] `OurSelectorImpl`'s `NonTSPseudoClass` is a stub empty enum, so
+      any pseudo-class needing element *state* can't even parse:
+      `:hover`, `:focus`, `:active`, `:link`/`:visited`. (There's no
+      interactivity driving most of these yet anyway — see the next
+      item — but `:link`/`:visited` could matter for `a` styling even
+      without hover/focus.) Structural pseudo-classes built into the
+      `selectors` crate itself (`:not()`, `:nth-child()`,
+      `:first-child`, etc.) are a separate question nobody has actually
+      verified either way yet.
+
+- [ ] No forms/interactive widgets (`input`/`button`/`select`/
+      `textarea` render as plain unstyled DOM nodes, not widgets), no
+      replaced/embedded elements (`img`/`svg`/`canvas`/`video`/`audio`/
+      `iframe`/`object`/`embed` have no special handling or box model —
+      nothing to draw anyway with no networking), and no JavaScript
+      (html5ever only parses the DOM; `<script>` contents are read and
+      discarded, never executed). The only interactivity scratchy has
+      at all is mouse-wheel scroll and window resize — no link
+      navigation, no keyboard input, no text selection. Networking
+      itself (fetching the page, images, fonts, external stylesheets)
+      remains a deliberately separate, not-yet-started concern from
+      rendering — see NOTES.md.
+
