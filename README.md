@@ -12,3 +12,7 @@ verbatim in that project's `PROMPTS.md`, in order.
 - [`scratchy/`](scratchy/) — a web browser built from composed, focused Rust
   crates (own HTML/CSS parsing, layout, and rendering) rather than an existing
   browser engine.
+- [`snag/`](snag/) — fetches a page and inlines everything it links to
+  (stylesheets, `@import`s, images) into one self-contained HTML file, so
+  `scratchy` (which never does networking itself) has something real to
+  render.
