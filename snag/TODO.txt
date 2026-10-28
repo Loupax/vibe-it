@@ -25,12 +25,17 @@ not a speculative feature backlog. See NOTES.md for the fuller story.
       would've recovered. Hasn't mattered in practice yet.
 
 - [ ] No size cap or concurrency — every sub-resource is still fetched
-      serially, one at a time, with no limit on how many. Fine for a
-      single Wikipedia article (~5-9s end to end, network-dependent);
-      could get slow on a page with hundreds of distinct images. No
-      evidence yet that fetching them concurrently actually matters for
-      scratchy's current test needs, versus just knowing it's not hung
-      (PROMPTS.md v4's progress reporting).
+      serially, one at a time, with no limit on how many. Measured
+      directly (PROMPTS.md v7, `SNAG_TIMING=1`) on the Wikipedia test
+      page: 244 requests, ~21ms average, no individual outlier —
+      sequential latency alone accounts for ~89% of total wall time (5.2
+      of 5.9s). Concurrent fetching is the obvious next lever if a
+      slower network makes this feel like a stall rather than just
+      "takes a few seconds" (every request measured here was fast; a
+      network with meaningfully higher per-request latency would turn
+      that same serial pattern into something that reads as actually
+      hung) — not attempted yet, since it hasn't been needed on the
+      networks this has actually been tested from.
 
 - [ ] The CSS `url()`/`@import` rewriter is a hand-rolled text scanner
       (see NOTES.md's own design-choices section for why), not a real

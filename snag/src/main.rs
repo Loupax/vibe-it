@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::io::{BufRead, BufReader, Read, Write};
-use std::sync::atomic::{AtomicU32, Ordering};
-use std::time::Duration;
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 
 use base64::write::EncoderWriter;
 use url::Url;
@@ -12,6 +12,71 @@ use url::Url;
 /// readable, so a single `\r`-updating counter gives a visible "it's
 /// still working, not hung" signal instead.
 static RESOURCE_COUNT: AtomicU32 = AtomicU32::new(0);
+
+/// Every HTTP request this run has made and their summed latency —
+/// cheap to maintain unconditionally (a couple of atomic adds per
+/// request), so it's always available for `print_timing_summary` at
+/// exit rather than needing a separate code path to turn on.
+static REQUEST_COUNT: AtomicU32 = AtomicU32::new(0);
+static REQUEST_NANOS: AtomicU64 = AtomicU64::new(0);
+
+/// `SNAG_TIMING=1 snag ...` prints one line per HTTP request (method,
+/// URL, latency) as it happens, plus a final summary (request count,
+/// total time spent waiting on the network vs. total wall time) — added
+/// specifically to answer "is this actually hung, or just slow, and if
+/// slow, where's the time going" with real numbers instead of a guess,
+/// the same measure-don't-guess habit `scratchy/NOTES.md` already
+/// documents for this project's performance questions generally. Off by
+/// default: every request's timing is cheap to accumulate (see
+/// `REQUEST_COUNT`/`REQUEST_NANOS`) and always feeds the end-of-run
+/// summary, but the noisy per-request line is opt-in.
+fn timing_enabled() -> bool {
+    std::env::var_os("SNAG_TIMING").is_some()
+}
+
+/// Times one `agent.get(url).call()`, always accrues it into the
+/// request-count/latency totals, and — only when `SNAG_TIMING` is set —
+/// prints it immediately (via `progress_line`, so it doesn't collide
+/// with the `\r`-updating resource counter). The one function every
+/// actual network request in this file goes through, so nothing can be
+/// measured inconsistently or missed.
+// `ureq::Error` is a large enum (carries a full `Response` in one of its
+// variants) — the same type every direct `.call()` already returned
+// before this wrapper existed, just not previously named in a function
+// signature clippy could see and flag. Not worth boxing just to quiet
+// the lint on a function called a few hundred times per run at most.
+#[allow(clippy::result_large_err)]
+fn timed_get(agent: &ureq::Agent, url: &Url) -> Result<ureq::Response, ureq::Error> {
+    let start = Instant::now();
+    let result = agent.get(url.as_str()).call();
+    let elapsed = start.elapsed();
+    REQUEST_COUNT.fetch_add(1, Ordering::Relaxed);
+    REQUEST_NANOS.fetch_add(elapsed.as_nanos() as u64, Ordering::Relaxed);
+    if timing_enabled() {
+        let status = match &result {
+            Ok(r) => r.status().to_string(),
+            Err(e) => format!("ERR {e}"),
+        };
+        progress_line(&format!("TIMING {:>6.1}ms {status} {url}", elapsed.as_secs_f64() * 1000.0));
+    }
+    result
+}
+
+/// Printed at the very end of `main`, after all output is written —
+/// `wall_start` is captured at the top of `main`, before anything else.
+fn print_timing_summary(wall_start: Instant) {
+    if !timing_enabled() {
+        return;
+    }
+    let requests = REQUEST_COUNT.load(Ordering::Relaxed);
+    let http_ms = REQUEST_NANOS.load(Ordering::Relaxed) as f64 / 1_000_000.0;
+    let wall_ms = wall_start.elapsed().as_secs_f64() * 1000.0;
+    progress_line(&format!(
+        "TIMING summary: {requests} requests, {http_ms:.0}ms total in HTTP calls \
+         ({:.0}ms avg), {wall_ms:.0}ms wall clock",
+        if requests > 0 { http_ms / requests as f64 } else { 0.0 }
+    ));
+}
 
 /// A true streaming tag-and-resource-inlining filter, not a parse/mutate/
 /// serialize batch tool (that was v1-v4's design; rewritten here because
@@ -35,6 +100,7 @@ static RESOURCE_COUNT: AtomicU32 = AtomicU32::new(0);
 /// output starts flowing before the fetch (or stdin read) even
 /// finishes.
 fn main() {
+    let wall_start = Instant::now();
     let args: Vec<String> = std::env::args().collect();
     if args.len() > 2 {
         eprintln!("usage: snag [url]");
@@ -63,7 +129,7 @@ fn main() {
             }
         };
         progress_line(&format!("fetching {url}"));
-        let resp = match agent.get(url.as_str()).call() {
+        let resp = match timed_get(&agent, &url) {
             Ok(r) => r,
             Err(e) => {
                 eprintln!("snag: failed to fetch {url}: {e}");
@@ -100,6 +166,7 @@ fn main() {
             Err(e) => finish_with_io_error(e),
         }
     }
+    print_timing_summary(wall_start);
 }
 
 fn finish_with_io_error(e: std::io::Error) {
@@ -311,24 +378,20 @@ fn stream_body(
 // ---------- fetching ----------
 
 fn fetch_text(agent: &ureq::Agent, url: &Url) -> Result<String, String> {
-    let resp = agent.get(url.as_str()).call().map_err(|e| e.to_string())?;
+    let resp = timed_get(agent, url).map_err(|e| e.to_string())?;
     resp.into_string().map_err(|e| e.to_string())
 }
 
-/// Buffers one sub-resource fully and returns it as a `data:` URI string
-/// — used only from CSS `url()` rewriting (`rewrite_urls`), where the
-/// result has to be spliced into an in-memory CSS string anyway, so
-/// there's nothing to stream *into*. The much more common, much higher-
-/// volume case (`<img src>`, handled by `stream_data_uri` below) never
-/// buffers the image at all.
 /// Fetches `url` and writes `data:<mime>;base64,<encoded>` straight to
 /// `out` — the response body is streamed through a `base64` encoding
-/// `Write` adapter one chunk at a time via `io::copy`, so the image
-/// bytes are never held in memory as a whole, however large. Returns
-/// `false` (writes nothing) on any failure, leaving it to the caller to
-/// fall back to the original `src`.
+/// `Write` adapter one chunk at a time via `io::copy`, so the resource's
+/// bytes are never held in memory as a whole, however large (the one
+/// path every fetched resource takes to reach stdout, image tag or CSS
+/// `url()` alike — see `process_css`). Returns `false` (writes nothing)
+/// on any failure, leaving it to the caller to fall back to the
+/// original, now-probably-broken reference.
 fn stream_data_uri(agent: &ureq::Agent, url: &Url, out: &mut impl Write) -> std::io::Result<bool> {
-    let Ok(resp) = agent.get(url.as_str()).call() else { return Ok(false) };
+    let Ok(resp) = timed_get(agent, url) else { return Ok(false) };
     let content_type = resp.content_type().to_string();
     let mime = if content_type.is_empty() || content_type == "text/plain" {
         guess_mime(url.path())

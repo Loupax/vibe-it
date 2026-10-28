@@ -331,3 +331,51 @@ tradeoff.
 **Deliverable:** `src/main.rs` (`process_css` rewritten to the merged
 single-pass streaming scanner; `inline_imports`/`rewrite_urls`/
 `fetch_as_data_uri` all deleted, fully superseded).
+
+---
+
+## v7 — `SNAG_TIMING=1`: real numbers instead of guessing at a "hangup"
+
+User report: "an obvious hungup even when I call snag directly with a
+URL" (i.e. `snag <url>`, not piped through `curl`/`scratchy` — the
+simplest possible invocation, nothing else in the loop). Rather than
+guess at a cause, added real instrumentation first and measured —
+`scratchy/NOTES.md` already documents this same measure-don't-guess
+habit for that project's own performance questions, applied here to a
+new one.
+
+**Requirements:**
+1. **`timed_get`**, one function every actual HTTP request in the
+   program now goes through (replacing direct `agent.get(url).call()`
+   at all 3 call sites: the top-level `snag <url>` fetch, `fetch_text`,
+   `stream_data_uri`) — times each request, always accrues it into a
+   running total (`REQUEST_COUNT`/`REQUEST_NANOS`, a couple of atomic
+   adds, cheap enough to leave on unconditionally), and — only when the
+   `SNAG_TIMING` environment variable is set — prints each request's
+   method/status/latency/URL immediately via `progress_line` (so it
+   can't visually collide with the `\r`-updating resource counter).
+2. **A one-line summary at the very end of a run** (also gated on
+   `SNAG_TIMING`): total requests, total time spent in HTTP calls,
+   average per request, and total wall-clock time — letting a slow run
+   be read as either "many fast requests, serially, add up" or "one
+   request is actually stuck," which are very different problems.
+3. **Measured the actual report directly**: `SNAG_TIMING=1 snag
+   <wikipedia-url>` — 244 requests, 5235ms total in HTTP calls (21ms
+   average), 5893ms wall clock. No individual request stood out (max
+   117ms); sequential HTTP latency alone accounts for ~89% of the total
+   time. Not a hang, not a stuck request, not a regression from the v5/
+   v6 streaming rewrite — just 244 round trips, one at a time, each
+   individually fast but adding up (the serial-fetching limitation
+   `TODO.txt` already flagged, now with real numbers instead of a
+   guess). A network with meaningfully higher per-request latency than
+   this environment's would turn the identical pattern into something
+   that genuinely reads as hung — concurrency is the next lever if that
+   turns out to be the case, not attempted here.
+4. **Verified no regression to default behavior**: `curl -s example.com
+   | snag` (no `SNAG_TIMING` set) still produces byte-for-byte identical
+   output — the per-request accounting is free enough to run always, but
+   only prints anything when explicitly asked for.
+
+**Deliverable:** `src/main.rs` (`timing_enabled`, `timed_get`,
+`print_timing_summary`, `REQUEST_COUNT`/`REQUEST_NANOS` statics, all 3
+`agent.get(...).call()` call sites switched to `timed_get`).

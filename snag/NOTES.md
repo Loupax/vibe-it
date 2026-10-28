@@ -267,6 +267,34 @@ Wikipedia pipeline produced the identical byte count and resource count
 as before, and spot-checked that CSS-embedded icons are still valid,
 correctly-encoded images, not just that the numbers matched.
 
+## v7: measuring a reported "hangup" instead of guessing at it
+
+User report: an obvious hang-up even running `snag <url>` directly —
+no `curl`, no `scratchy`, nothing else in the loop that could be at
+fault. Rather than theorize (serial fetching already being a known,
+documented limitation made it tempting to just assume that was the
+whole story), added real instrumentation first: `SNAG_TIMING=1`, which
+times every HTTP request through one shared `timed_get` function (the
+only place any request in the program is actually made), always
+accruing the total/count cheaply, and — only when asked for — printing
+each request's latency plus a final summary.
+
+Ran it against the exact case reported: `SNAG_TIMING=1 snag
+<wikipedia-url>`. Result: 244 requests, 5235ms total time spent in HTTP
+calls (21ms average), 5893ms wall clock — so ~89% of total time is
+accounted for by request latency, and no single request stood out (the
+slowest was 117ms, nothing close to "hung"). In this environment, at
+least, this isn't a hang or a stuck request or a regression from the
+v5/v6 streaming rewrite — it's genuinely just 244 sequential round
+trips, individually fast, adding up because nothing fetches
+concurrently yet (already flagged in `TODO.txt` before this, now
+measured rather than assumed). A network with meaningfully higher
+per-request latency than this one would turn the exact same pattern
+into something that reads as actually hung, which is the most likely
+explanation for what was reported — the tool now exists to confirm that
+on whatever network it's actually run from, rather than guessing from
+here.
+
 ## Known limitations / explicitly out of scope
 
 See `TODO.txt` for the fuller list. Headline ones: no `srcset`/responsive
