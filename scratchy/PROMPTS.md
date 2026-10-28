@@ -484,3 +484,513 @@ actually relevant.
 
 **Deliverable:** a rewritten `scratchy/default.css` plus a new
 `scratchy/TODO.txt`.
+
+---
+
+## v12 — inline background-color
+
+`TODO.txt`'s top item: `default.css`'s `mark { background-color:
+yellow; }` did nothing — `resolve_style()` computes
+`background_color` for every element, but it's discarded once
+recursion enters inline content, since `SpanStyle` (what a text run
+actually carries into shaping) never had a background field at all.
+
+**Requirements:**
+1. **`SpanStyle` gains `background_color: Option<TextColor>`**,
+   alongside its existing color/font_size/font_weight/font_style
+   fields.
+2. **Not CSS-inherited, but threaded like it is for painting
+   purposes:** background-color doesn't inherit per spec (each
+   element paints only its own box), but for an inline element split
+   across a text run there's no separate "box" to paint it onto, so
+   the nearest enclosing inline element's background is carried
+   down to its descendant text/spans — overridden by a nested
+   element's own background-color if it sets one, falling through
+   unchanged otherwise (e.g. `<mark>outer <b>bold</b></mark>`: `b`
+   has no background of its own, so it keeps showing `mark`'s). This
+   is threaded as its own parameter through `collect_children`,
+   separate from `InheritedStyle` (which stays true CSS inheritance),
+   updated to the child's own `background_color` (if set) or else the
+   value passed in, whenever recursing into an inline child.
+3. **Per-span backgrounds painted as rects behind the glyphs**, not
+   folded into a single box-model rect — a span can wrap across
+   multiple lines, each needing its own rect clipped to that line.
+   Implemented via cosmic-text's per-`Attrs` `metadata: usize` field
+   (set to the span's index during `shape_spans`), read back per
+   glyph from `buffer.layout_runs()` to merge each line's run of
+   consecutive same-span glyphs into one rect (`glyph.x`/`glyph.w`
+   give the span's pixel extent on that line, `run.line_top`/
+   `run.line_height` the vertical extent), painted before the glyphs
+   themselves so text stays legible on top.
+4. **Shape cache carries the per-span background table alongside the
+   buffer** (`ShapeCache`'s value becomes `(Buffer, f32,
+   Vec<Option<TextColor>>)`), so paint can look backgrounds up by the
+   same span index baked into each glyph's metadata without
+   re-deriving them from the (already-consumed) `LayoutBox` tree.
+
+**Deliverable:** modifications to `scratchy`'s existing `main.rs`
+implementing exactly the above; removes the now-resolved item from
+`TODO.txt`.
+
+---
+
+## v13 — per-side box model
+
+`TODO.txt`'s next item, picked without further prompting as part of
+working the list top-to-bottom: the box model's known architectural
+limit (865ba44, d16e491) — `margin`/`padding`/`border-width` were each
+a single scalar applied to all four sides, so none of `default.css`'s
+real per-side/logical declarations (`margin-block`, `padding-inline-
+start`, `margin-inline-start`, etc.) could do anything.
+
+**Requirements:**
+1. **A `Sides { top, right, bottom, left }` struct**, physical not
+   logical — scratchy only ever lays out horizontal-tb/LTR, so block-
+   start/end and inline-start/end collapse onto top/bottom and left/
+   right with no separate representation needed. `ComputedStyle`'s
+   `margin`/`padding` fields become `Sides`; `border_width` stays a
+   single scalar (nothing in `default.css` sets a per-side border, so
+   there's no real use for per-side border yet — not adding it until
+   something needs it).
+2. **Logical and shorthand property names expand to physical sides at
+   parse time**, in `DeclParser`: `margin-top/right/bottom/left` and
+   `padding-top/right/bottom/left` (physical longhands, net-new),
+   `margin`/`padding` (existing shorthands, now writing all four
+   physical fields instead of one scalar), `margin-block-start/end`
+   and `margin-inline-start/end` (→ top/bottom and left/right
+   respectively), `margin-block`/`margin-inline` (single-value
+   shorthand form → both sides of that axis), and the same four
+   logical forms for `padding`. Each cascades independently per
+   physical side through the existing `cascade_property` machinery —
+   so a more specific `margin-left` can still win over a less specific
+   `margin` on the same element, same as real CSS.
+3. **`auto` (e.g. `hr`'s `margin-inline: auto`) is not special-cased**
+   — `parse_px_length` already rejects anything that isn't a px
+   dimension or literal `0`, so `auto` simply drops the same way `em`
+   does today: inert, not a crash, not a bogus value. True auto-margin
+   centering (computing the box's own width against its container) is
+   separate future work, not part of this.
+4. **Layout (`measure`) and paint use the per-side values**: content
+   box offsets use `margin.left`/`margin.top` and `padding.left`/
+   `padding.top` on the leading edge, `border_w`/`content_w`/
+   `border_h` subtract left+right or top+bottom independently instead
+   of doubling one scalar, and sibling stacking in the block-children
+   case adds the child's own `margin.top + margin.bottom` (not a
+   doubled single value).
+5. **Verified headlessly, not visually** — the sandbox's Wayland
+   compositor stopped accepting screenshot requests partway through
+   this session (`grim` fails with "failed to copy output eDP-1" even
+   with no scratchy process involved at all, and scratchy's own
+   `Resumed` winit event never fires either), so a `#[cfg(test)]`
+   module was added temporarily, calling `resolve_style` directly on
+   DOM nodes parsed from a small fixture and asserting the resulting
+   `Sides` values land on the correct side with no cross-axis leakage
+   (`ul`'s `padding-inline-start: 40px` only sets `padding.left`, not
+   `.right` or `.top`; an inline `style="margin-left: 60px; margin-
+   top: 4px"` only moves those two sides) — then removed before
+   finishing, per this project's "every feature is preceded by the
+   exact prompt that generated it" rule: a scratch verification harness
+   isn't a feature of scratchy itself, nothing it adds persists.
+
+**Deliverable:** modifications to `scratchy`'s existing `main.rs`
+implementing exactly the above; updates `TODO.txt` (removes the
+resolved item, updates the units item's wording now that per-side
+property names parse and several of `default.css`'s px-based per-side
+values are active).
+
+---
+
+## v14 — `em` length units
+
+`TODO.txt`'s next item: v13 made per-side property *names* parse, but
+left their *values* inert wherever `default.css` wrote them in `em`
+(almost everywhere outside `body`/`hr`/`dd`/list `padding-inline-
+start`, which happen to already be `px`). `font-size` itself was the
+same story. Checked `default.css` directly before scoping this: it
+uses only `px` and `em`, never `rem` or `%` anywhere — so only those
+two are implemented, per this project's per-use-basis rule; `rem`/`%`
+stay future work, same as before, just narrower.
+
+**Requirements:**
+1. **A `Length` enum (`Px(f32)` / `Em(f32)`)** replaces the raw `f32`
+   in `Declarations` for every length-valued property (margin/padding
+   per-side fields, `border-width`, `font-size`). Parsed once in
+   `DeclParser` (`parse_length`, replacing `parse_px_length`); not yet
+   resolved to a pixel value, since that requires knowing a font-size
+   the parser doesn't have access to.
+2. **Resolved at cascade time in `resolve_style`**, after the winning
+   `Length` is already picked (so cascade/specificity logic is
+   unchanged — `cascade_property` stays generic over `Length` the same
+   way it was over `f32`): `Length::resolve(font_size)` multiplies an
+   `Em` by the given `font_size`, passes a `Px` through unchanged.
+3. **`font-size` resolves first, against the *parent's* font-size**
+   (`inherited.font_size`) — moved up in `resolve_style` ahead of
+   margin/padding/border-width, which resolve *second*, against this
+   element's own just-resolved `font_size`. This matches real CSS: an
+   element's `em` for box-model properties means "my own font-size,"
+   but `font-size: Nem` on the element itself can only sensibly mean
+   relative to what it's inheriting — there's no other value defined
+   yet to be relative to.
+4. **`rem`/`%`/unitless-non-zero stay unparsed**, same inert/drop
+   behavior as before (and as `auto` already gets) — `parse_length`
+   only recognizes `px`, `em`, and literal `0`.
+5. **Verified headlessly** (`grim`/winit are still stalled in this
+   sandbox — see v13, unrelated to this change, confirmed still
+   failing standalone): a temporary `#[cfg(test)]` asserting `h1`'s
+   `margin-block: .67em` resolves against `h1`'s own 32px font-size
+   (not the inherited 16px root default), `p`'s `margin-block: 1em`
+   resolves against the inherited 16px (not `h1`'s 32px), and `hr`'s
+   plain-`px` `border-width`/still-inert `margin-inline: auto` are
+   unaffected — then removed before finishing, same as v13.
+
+**Deliverable:** modifications to `scratchy`'s existing `main.rs`
+implementing exactly the above; updates `TODO.txt` (narrows the units
+item to just `rem`/`%`/unitless, now that `px`/`em` are both done).
+
+---
+
+## v15 — table layout
+
+`TODO.txt`'s next item, the largest/most speculative one on the list
+(no real page had driven the need yet, unlike every prior item) — real
+`display: table` layout. `default.css` already declares the full real
+set of table-part `display` values (v11), all inert since none of
+those keywords parsed and every table element fell back to the CSS
+initial value (inline), silently flattening table markup into plain
+text flow.
+
+**Scoped deliberately smaller than full CSS auto table layout**, which
+sizes each column from its cells' min/max content width — a
+genuinely separate two-pass algorithm (shape once to find natural
+width, size columns, reshape at final width). Implemented instead:
+**equal-width columns** (closer to CSS's `table-layout: fixed`
+behavior), no colspan/rowspan, no border-collapse/cell borders, no
+caption-side placement — none of which `default.css` or any table
+markup exercised so far actually need. Documented as a known
+simplification in `TODO.txt`, not silently passed off as full table
+support.
+
+**Requirements:**
+1. **New `Display` variants**: `Table`, `TableRow`, `TableCell`, and
+   one `TableGroup` covering `table-row-group`/`table-header-group`/
+   `table-footer-group`/`table-column-group`/`table-column` (`tbody`/
+   `thead`/`tfoot`/`colgroup`/`col`) — all purely structural wrappers
+   with no box of their own. `table-caption` maps to plain `Block`
+   (renders in source position — no special placement logic, no
+   `text-align` support to honor `caption`'s centering anyway).
+2. **`display: table` is block-level** in the outer flow (extends the
+   existing `Display::Block` check in `collect_children` to also
+   match `Table`) but builds its content differently: `build_box_for_
+   element` special-cases `Table` to call a new `build_table_children`
+   instead of the normal block/inline flow builder.
+3. **`build_table_children` walks a table's descendants for its rows**,
+   transparently recursing through `TableGroup` wrappers (so `tr`s
+   inside `thead`/`tbody`/`tfoot` are found the same as direct
+   children), collecting plain `Block` content (e.g. `caption`) in
+   place, and skipping anything else (stray cells/inline content
+   outside a row isn't real-world markup). Does **not** recurse into
+   a nested `Table` — that falls to the `Block` arm and gets its own
+   independent box via the normal `build_box_for_element` call, which
+   naturally re-enters table-building for its own rows.
+4. **A new `BoxContent::TableRow(Vec<LayoutBox>)`** holds one row's
+   cells. Rows themselves need no new box-content variant — they're
+   ordinary `Blocks` children of the table (stacking vertically like
+   any other block), only their *own* content (the cells) lays out
+   horizontally instead.
+5. **`measure` gains a `TableRow` arm**: splits the row's content
+   width evenly across its cells, measures each cell at that width
+   (reusing the ordinary block/inline measure path — a cell's own
+   interior content works completely unchanged), and the row's height
+   is the max over its cells' own margin+height. `paint` treats
+   `TableRow` the same as `Blocks` (just walk and paint each child) —
+   factored as one shared match arm via an `|` pattern, not a
+   duplicated paint call.
+6. **Verified headlessly** (`grim`/winit still stalled — see v13/v14,
+   confirmed still failing standalone, unrelated to this change): a
+   temporary `#[cfg(test)]` running a fixture through the *full*
+   pipeline (`build_layout_tree` + `measure`, not just `resolve_style`
+   this time) with a `caption`/`thead`/`tbody` table and a second,
+   deliberately pathological table-nested-inside-a-cell-of-another-
+   table — asserting rows stack vertically, cells split their row's
+   width evenly, `thead`/`tbody` grouping doesn't change the row count
+   found, and the nested table's row isn't incorrectly flattened into
+   the outer table's row list — then removed before finishing, same
+   as v13/v14.
+
+**Deliverable:** modifications to `scratchy`'s existing `main.rs`
+implementing exactly the above; updates `TODO.txt` (replaces the
+general "no layout at all" item with the narrower equal-width-columns/
+no-colspan/no-border-collapse simplifications actually shipped).
+
+---
+
+## v16 — `font-family`
+
+`TODO.txt`'s next item: every element rendered in whatever generic
+sans-serif `new_font_system()` resolved to (v6's `fc-match` fix),
+regardless of `default.css`'s `tt, code, kbd, samp, pre { font-family:
+monospace; }`. Checked `default.css` first, same as v14: it only ever
+uses the bare `monospace` keyword, never a named family or a
+comma-separated fallback list, so only the 5 CSS generic keywords are
+implemented — no named-family/fallback-list parsing, a scope boundary
+recorded in `TODO.txt` rather than silently implied as full support.
+
+**Requirements:**
+1. **A `FontFamily` enum** (`SansSerif`/`Serif`/`Monospace`/`Cursive`/
+   `Fantasy`, `SansSerif` as `#[default]`) mirroring the 5 CSS generic
+   keywords — matches cosmic-text's own `Attrs::new()` default, so
+   every element without a `font-family` rule renders exactly as
+   before. `to_cosmic()` maps it onto cosmic-text's own `Family` enum
+   (re-imported as `CosmicFamily` to avoid clashing with ours).
+2. **`font-family` is CSS-inherited** (same family as `color`/
+   `font-size`/`font-weight`/`font-style`), so it's threaded through
+   `InheritedStyle`/`ROOT_STYLE` the same way those are — simpler than
+   v13's background-color, which genuinely isn't inherited and needed
+   its own separate threading.
+3. **Parsed as a single bare ident only** — a quoted family name's
+   string token fails `expect_ident`, so e.g. `"Georgia", serif` drops
+   the *whole* declaration (no fallback to `serif`), same inert-on-
+   unsupported-value behavior as every other not-yet-supported CSS
+   value in this codebase.
+4. **Threaded through to `shape_spans`**: `SpanStyle` gains
+   `font_family`, set on each span's `Attrs::family` right alongside
+   the existing color/weight/style attrs.
+5. **Verified past just the cascade** — same diligence as the v6
+   `fc-match` bug (a field can cascade correctly and still not affect
+   anything if the shaping path never reads it): a temporary
+   `#[cfg(test)]` asserted `code`'s `font_family` resolves to
+   `Monospace` via `resolve_style` *and* that shaping a sans-serif
+   span and a monospace span side by side actually resolves to two
+   different `fontdb::ID`s on this system, not just two different
+   enum values that happen to render identically. `grim`/winit are
+   still stalled in this sandbox (v13–v15), unrelated to this change
+   — removed before finishing, same as every prior item this session.
+
+**Deliverable:** modifications to `scratchy`'s existing `main.rs`
+implementing exactly the above; updates `TODO.txt` (narrows the
+font-family item to the named-family/fallback-list gap that remains).
+
+---
+
+## v17 — `text-decoration`
+
+`TODO.txt`'s next item: `u`/`ins` (underline), `s`/`strike`/`del`
+(line-through), and `a` (underline) declared `text-decoration` in
+`default.css` since v11, all invisible. Turned out to need almost no
+new code: cosmic-text's own `Attrs` already carries a `text_decoration:
+TextDecoration` field (`underline`/`strikethrough`/`overline`, each
+with an optional color override), and `Buffer::draw` — already called
+by `paint_buffer` — already calls `render_decoration` internally using
+real font underline/strikethrough metrics and falling back to each
+glyph's own color. The only real work was parsing the CSS value and
+propagating it the same way v12's background-color does.
+
+**Requirements:**
+1. **Parse `text-decoration` down to cosmic-text's own `TextDecoration`
+   type directly** — no separate enum of this project's own, unlike
+   `FontFamily` (v16): cosmic-text's type already *is* the right
+   representation, re-exported from the crate root. `parse_text_
+   decoration` loops the value's tokens (the shorthand can carry
+   multiple, e.g. `default.css`'s `abbr[title] { text-decoration:
+   dotted underline }`), recognizing `underline`/`line-through`/
+   `overline`/`none`; anything else (a style keyword like `dotted`, or
+   a color) is accepted without erroring but not tracked — every line
+   drawn is solid, in the text's own color. Only fails (and drops,
+   same convention as every other unsupported value) if *no* line
+   keyword was found at all.
+2. **Threaded as ambient propagation, same mechanism as v12's
+   background-color** — `text-decoration-line` isn't a CSS-inherited
+   property, but a UA draws an ancestor's decoration through
+   descendant inline boxes that don't override it (e.g. `<a>link
+   <b>bold</b></a>` — the `<b>` has no rule of its own but should still
+   underline). `ComputedStyle.text_decoration` stays `Option
+   <TextDecoration>` (cascaded, `None` = nothing declared on *this*
+   element) and `collect_children` grows a `decoration: TextDecoration`
+   parameter (concrete, not `Option` — a `TextDecoration` with
+   everything off already represents "no decoration," which is exactly
+   what a descendant needs to explicitly turn an ancestor's decoration
+   back off via `text-decoration: none`).
+3. **`shape_spans` sets `attrs.text_decoration = span.text_decoration`**
+   per span — that's the entire painting side; `paint_buffer`'s
+   existing `buffer.draw` call needed no changes at all.
+4. **Verified past the cascade, through to cosmic-text's own shaped
+   output** (same diligence as v6/v16 — confirming a field actually
+   affects rendering, not just that it cascades correctly): a
+   temporary `#[cfg(test)]` ran the full pipeline on an `<a>link
+   <b>bold inside link</b> <span style="text-decoration: none">opted
+   out</span></a>` fixture and inspected the shaped `Buffer`'s own
+   `LayoutRun::decorations` (cosmic-text's computed decoration spans,
+   not scratchy's own data) — confirming at least one span exists
+   (propagation reached the `<b>`) and that none of them cover the
+   "opted out" text's glyph range. `grim`/winit remain stalled in this
+   sandbox (v13-v16) — removed before finishing, same as every prior
+   item.
+
+**Deliverable:** modifications to `scratchy`'s existing `main.rs`
+implementing exactly the above; updates `TODO.txt` (replaces the
+"not parsed/painted at all" item with the narrower style-keyword/
+color gap that remains).
+
+---
+
+## v18 — `white-space: pre`
+
+`TODO.txt`'s next item: text extraction (`normalize_whitespace`)
+always collapsed whitespace, so `pre`/`listing`/`xmp`/`plaintext`
+(`default.css`'s only `white-space: pre` rule) lost their literal line
+breaks and spacing regardless of the CSS. Only `normal` (the existing
+default) and `pre` are implemented — `default.css` never declares
+`pre-wrap`/`pre-line`/`nowrap`, so neither is this item's job to add.
+
+**Requirements:**
+1. **`white_space` is genuinely CSS-inherited**, threaded through
+   `InheritedStyle`/`ROOT_STYLE`/`ComputedStyle` the same simple way
+   `font-family` (v16) is — no ambient-propagation complexity like
+   background-color/text-decoration needed, since this one really does
+   inherit normally.
+2. **Text extraction branches on `inherited.white_space`** in
+   `collect_children`'s text-node case: `Pre` pushes the node's raw
+   text unchanged (no `normalize_whitespace`, no fabricated trailing
+   space — byte-exact, newlines and multi-space runs intact); `Normal`
+   keeps the existing collapse-and-append-a-trailing-space behavior
+   unchanged.
+3. **Wrapping is also disabled for `pre` content** — real CSS
+   `white-space: pre` means both "don't collapse" and "don't wrap"; a
+   `pre: bool` parameter on `shape_spans` calls `buffer.set_wrap(Wrap
+   ::None)` when true, decided by `measure`'s `BoxContent::Inline` arm
+   from the box's own `ComputedStyle.white_space` (not per-span — a
+   `<pre>`'s content is always its own anonymous inline box, so
+   box-level is the right granularity, and avoided adding yet another
+   field to `SpanStyle` for it). Literal `\n`s in the text still start
+   new lines either way — that's cosmic-text's own buffer-line
+   splitting, unrelated to wrap mode.
+4. **Verified through the full pipeline**: a temporary `#[cfg(test)]`
+   fed a `<pre>` with mixed indentation/multi-space runs/newlines
+   through `build_layout_tree` + `measure` at a narrow (80px) width,
+   inspecting the shaped `Buffer`'s own `lines` (cosmic-text's actual
+   `BufferLine`s, not scratchy's intermediate text) to confirm exact
+   text survived and that `layout_runs()` still reported exactly 3 runs
+   (one per source line) despite the narrow width — confirming wrap
+   was genuinely disabled, not just coincidentally not triggered.
+   `grim`/winit remain stalled in this sandbox (v13-v17) — removed
+   before finishing, same as every prior item.
+
+**Deliverable:** modifications to `scratchy`'s existing `main.rs`
+implementing exactly the above; removes the now-resolved item from
+`TODO.txt`.
+
+---
+
+## v19 — `list-style-type`
+
+`TODO.txt`'s next item: `list_marker()` (v8) was a hardcoded Rust
+function — plain bullet unless the parent tag was literally `ol`,
+never consulting CSS at all, despite `default.css` declaring real
+disc/decimal/circle/square rules (including nesting-depth-based
+circle/square overrides) since v11.
+
+**Requirements:**
+1. **A `ListStyleType` enum** (`Disc`/`Circle`/`Square`/`Decimal`,
+   `Disc` as `#[default]`, matching the real CSS initial value) — just
+   the 4 keywords `default.css` actually declares, no `none` and none
+   of the many other counter styles (roman numerals, alpha, ...).
+   Genuinely CSS-inherited, threaded through `InheritedStyle` the
+   simple way (same as v16/v18).
+2. **`list_marker` takes the `<li>`'s own cascaded `list_style_type`**
+   instead of re-deriving anything from the parent tag — `Decimal`
+   counts among `li` siblings (the existing counting logic, now
+   triggered by the *resolved style*, not a hardcoded `tag == "ol"`
+   check); `Disc`/`Circle`/`Square` return the matching marker
+   character (`•`/`◦`/`▪`). This is a real behavior improvement, not
+   just a refactor: a `<ul>` with an explicit `list-style-type:
+   decimal` now actually counts, which the old tag-based check could
+   never do.
+3. **Found and fixed a real, separate, previously-invisible bug while
+   verifying this**: `default.css`'s nesting-depth circle/square rules
+   use `:is(ol, ul, menu, dir) :is(ul, menu, dir) { ... }` — and
+   `:is()` was never actually matching anything, because `selectors`
+   crate's `Parser::parse_is_and_where()` defaults to `false` and
+   `OurSelectorParser` never overrode it, so every `:is(...)` selector
+   in `default.css` silently failed to *parse*, dropping the whole
+   rule (same as any other unparseable selector) — including v9's
+   "nested lists have no top/bottom margin" rule, which uses the same
+   mechanism and has *also* been silently inert this whole time (only
+   becoming a real, visible bug once v14 made `em` margins active).
+   One-line fix: override `parse_is_and_where` to return `true`.
+4. **Verified through the full pipeline, ancestor chain and all**: a
+   temporary `#[cfg(test)]` fixture nested an `ol` inside a `ul` inside
+   a `ul`, resolving each `<li>` by threading `.inherited()` down the
+   *real* ancestor chain from the document root (not a shortcut
+   `resolve_style(li, rules, ROOT_STYLE)`, which was tried first and
+   wrongly skipped every ancestor's own cascaded values — a bug in the
+   test itself, not the code, caught by the test failing in a way that
+   didn't match the code's own logic). Confirmed: `ol` counts
+   correctly, top-level `ul` is disc, 2-deep-nested `ul` is circle
+   (only once the `:is()` fix landed), a nested `ol` inside a `ul`
+   stays decimal (its own rule's specificity should still win over the
+   depth selector), and — as a direct consequence of the same fix —
+   the nested-list zero-margin rule is now also actually active.
+   `grim`/winit remain stalled (v13-v18) — removed before finishing.
+
+**Deliverable:** modifications to `scratchy`'s existing `main.rs`
+implementing exactly the above; removes the now-resolved item from
+`TODO.txt`. No `TODO.txt` entry added for the `:is()`/nested-margin
+fix — it's a bug fix restoring already-declared, already-intended
+`default.css` behavior, not a new deferred gap.
+
+---
+
+## v20 — `criterion`/`cargo bench`
+
+`TODO.txt`'s last remaining item: every past performance
+investigation (scroll lag, the redraw-storm bug, the shaping-budget
+freeze) was settled by hand-editing `main.rs` with temporary
+`eprintln!`/`Instant` timing, then removing it before committing — a
+real `cargo bench` setup was agreed worth doing (NOTES.md) but never
+done.
+
+**Requirements:**
+1. **Split `src/main.rs` into `src/lib.rs` (the engine) + a thin
+   `src/main.rs`** (`fn main() { scratchy::run(); }`) — unavoidable,
+   not a style choice: a `benches/*.rs` file is its own compilation
+   unit and cannot reach into a binary crate's `main.rs` at all, only
+   into a library crate it depends on. `fn main()`'s former body
+   became `pub fn run()` in `lib.rs`, verbatim.
+2. **Minimal `pub` surface**, not a blanket sweep — only what
+   `benches/layout.rs` actually calls: `parse_html` (a new small
+   helper wrapping the existing `new_parser()`/`TendrilSink` plumbing,
+   so the bench doesn't need those low-level imports itself),
+   `build_layout_tree`, `measure`, `new_font_system`, plus the
+   `LayoutBox`/`Laid`/`ShapeCache` types those return or take (their
+   *fields* stay private — a bench only ever holds these opaquely and
+   feeds them to `black_box`, never reads into them, so Rust's
+   "private type in public interface" rule doesn't force their fields
+   open too).
+3. **`benches/layout.rs` benchmarks two separable cost centers**
+   against the same synthetic-but-realistic fixture (200 paragraphs of
+   mixed inline content + a 20-item list + a 10x5 table — scratchy has
+   no network access and no bundler tool yet to pull in a real page,
+   so this is generated in the bench file itself, not fetched):
+   `build_layout_tree` alone (DOM → CSS cascade → box tree, no
+   shaping — the cost center behind the v1-v5 box-tree-flattening bug)
+   and `measure` with a **fresh, empty `ShapeCache` every iteration**
+   (real usage caches shaped paragraphs across frames — reusing one
+   cache across bench iterations would measure almost nothing after
+   the first) at a generous 60s deadline (always a complete pass, not
+   a partial budgeted one — the cost center behind the resumable-
+   shaping fix).
+4. **Verified the bench actually runs and produces real numbers**, not
+   just that it compiles: `cargo bench --bench layout -- --quick` —
+   ~2.9ms for `build_layout_tree`, ~24.5ms for `measure` on this
+   fixture.
+5. **Confirmed the lib/bin split didn't regress the normal binary**:
+   `cargo build` + launching `scratchy` against a small test file and
+   checking its process state (sleeping, not crashed) — the same
+   degree of verification available given `grim`/winit remain stalled
+   in this sandbox (v13-v19).
+
+**Deliverable:** `src/lib.rs` (new, the former `src/main.rs`'s
+content, `pub fn run()` plus the minimal `pub` surface above),
+`src/main.rs` (now a 3-line wrapper), `benches/layout.rs` (new),
+`Cargo.toml` (`criterion` dev-dependency + `[[bench]]` entry); removes
+the now-resolved item from `TODO.txt` — nothing left on it.

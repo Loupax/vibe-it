@@ -72,9 +72,148 @@ the rest of the sheet). Net effect: `ul`/`ol` lost the tuned-but-wrong
 per-side margin/padding exists, which is the intended tradeoff, not a
 regression to chase.
 
-See `TODO.txt` for the running list of gaps this surfaced (inline
-background-color, per-side box model, missing units/properties, etc.)
-— that file is now the place to check/add to, not this prose.
+See `TODO.txt` for the running list of gaps this surfaced (per-side
+box model, missing units/properties, etc.) — that file is now the
+place to check/add to, not this prose.
+
+v12 picked off `TODO.txt`'s first item: inline `background-color`
+(`SpanStyle` gained a `background_color` field, threaded down
+alongside — but separately from — `InheritedStyle` since background
+doesn't truly inherit; painted as per-line rects behind each span's
+glyphs via cosmic-text's `Attrs::metadata` tagging). Verified visually
+against a test page with wrapped/nested `<mark>` spans via `grim`
+screenshot — merges correctly across line wraps, nested elements
+without their own background keep showing the ancestor's.
+
+v13 picked off the next item: the per-side box model (`Sides { top,
+right, bottom, left }` replacing the old single-scalar margin/padding,
+logical property names expanding to physical sides at parse time).
+Partway through this session `grim` started failing
+(`failed to copy output eDP-1`) even run standalone with no scratchy
+involved, and scratchy's own window stopped reaching winit's `Resumed`
+event — a sandbox/compositor issue, not something this change caused
+(confirmed: `grim` alone fails identically; `measure`'s per-side math
+is pure arithmetic with no window dependency). Verified instead with a
+temporary `#[cfg(test)]` module calling `resolve_style` on parsed DOM
+nodes directly and asserting per-side values land correctly with no
+cross-axis leakage — removed before finishing, same discipline as any
+other scratch instrumentation in this project (see `set_px`/
+eprintln-timing precedent below). If a future session hits the same
+`grim`/winit stall, that's the repro to know about.
+
+v14 added `em` length units (checked `default.css` first — it never
+uses `rem` or `%`, so only `px`/`em` were implemented, not all three
+TODO'd unit gaps). `Declarations`' length fields became a `Length`
+enum (`Px`/`Em`), resolved in `resolve_style` once the cascade winner
+is picked — `font-size` resolves first (against the *parent's*
+font-size), then margin/padding/border-width resolve their own `em`
+against that element's *own* just-computed font-size. This activates
+most of `default.css`'s heading/paragraph/list margin-block values
+that v13 left inert. Verified the same headless way as v13 (`grim`
+still stalled) — temporary test asserting `h1`'s `.67em` resolves
+against its own 32px, not the inherited 16px root default.
+
+v15 picked off the next item: table layout. Deliberately scoped below
+full CSS auto table layout — equal-width columns (no per-column
+content-based sizing), no colspan/rowspan, no border-collapse — since
+nothing exercised those yet; see `TODO.txt` for the honest list of
+what's simplified. Structurally: `thead`/`tbody`/`tfoot`/`colgroup`/
+`col` are transparent wrappers walked through to find `tr`s, each row
+is an ordinary block-stacked child of the table whose own content
+(`BoxContent::TableRow`) lays its cells out horizontally, and a nested
+`<table>` correctly gets its own independent table-building pass
+rather than having its row flattened into the outer table's. Verified
+headlessly, this time running the *full* `build_layout_tree` +
+`measure` pipeline (not just `resolve_style` like v13/v14) against a
+fixture with a nested table-in-a-cell case — `grim`/winit are still
+stalled in this sandbox.
+
+v16 picked off `font-family`: only the 5 CSS generic keywords (checked
+`default.css` first, same as v14 — it only ever uses bare
+`monospace`, never a named family/fallback list, so that's all that's
+implemented). Genuinely CSS-inherited, unlike v13's background-color,
+so it threads through `InheritedStyle` the same simple way color/
+font-size/weight/style already do. Verified past just the cascade,
+matching the diligence the v6 `fc-match` bug called for: confirmed a
+sans-serif span and a monospace span actually resolve to two
+different `fontdb::ID`s when shaped side by side, not just two
+different enum values. `grim`/winit remain stalled in this sandbox
+(v13-v16 now) — worth checking fresh at the start of a future session
+in case it's since recovered, but not spending more time on it this
+session; headless `resolve_style`/`measure`/`shape_spans` tests have
+caught everything they needed to so far.
+
+v17 picked off `text-decoration` — turned out cosmic-text already has
+full underline/strikethrough/overline support built into `Attrs`
+(`Buffer::draw`, already called by `paint_buffer`, already calls its
+own `render_decoration` internally using real font metrics), so this
+was almost entirely CSS parsing + propagation, no new paint code.
+Threaded the same ambient-propagation way as v12's background-color
+(not CSS-inherited, but a UA still draws an ancestor's decoration
+through descendants that don't override it) — same `collect_children`
+mechanism, now carrying two propagated values instead of one.
+Verified past the cascade into cosmic-text's own computed decoration
+spans (not just scratchy's own `ComputedStyle` fields), confirming
+propagation into a nested `<b>` and an explicit `text-decoration:
+none` opt-out both actually affected what cosmic-text drew. `grim`/
+winit remain stalled (v13-v17).
+
+v18 picked off `white-space: pre`. Genuinely CSS-inherited (unlike
+v12/v17's ambient-propagation pattern), so it threads through
+`InheritedStyle` the simple way, same as v16's font-family. Two
+effects, both gated on the same field: text extraction skips
+`normalize_whitespace` entirely for `pre` content (byte-exact, no
+fabricated trailing space), and `shape_spans` calls cosmic-text's own
+`buffer.set_wrap(Wrap::None)` — decided at the box level (from the
+anonymous inline box's own `ComputedStyle`), not per-span, since a
+`<pre>`'s content is always its own box anyway. Verified through the
+full pipeline at a deliberately narrow width, confirming cosmic-text's
+own shaped `Buffer` kept exactly one layout run per source line
+instead of wrapping. `grim`/winit remain stalled (v13-v18 now).
+
+v19 picked off `list-style-type`, and along the way found a real,
+previously-invisible bug worth flagging prominently: `default.css`'s
+`:is(...)` selectors (the nesting-depth circle/square rules, *and*
+v9's "nested lists have no top/bottom margin" rule) had never actually
+matched anything, ever — `selectors` crate's `parse_is_and_where()`
+defaults to `false` and `OurSelectorParser` never overrode it, so
+every `:is(...)` selector silently failed to parse and the whole rule
+dropped, same as any other unparseable selector. One-line fix
+(`fn parse_is_and_where(&self) -> bool { true }`). The nested-margin
+rule's breakage had been invisible since v9 because em-unit support
+(v14) was the first thing that would have made its `margin-block: 0`
+override visually distinguishable from "rule didn't match" at all —
+worth remembering if something *else* written with real-spec selector
+syntax ever seems to silently not apply. Also worth remembering: a
+test that fails isn't always the code's bug — my first version of this
+session's verification test called `resolve_style(li, rules,
+ROOT_STYLE)` directly on a deeply-nested element, which skips every
+real ancestor's cascaded values; had to fix the test (thread
+`.inherited()` down the actual ancestor chain) before trusting what it
+reported.
+
+v20 closed out `TODO.txt`'s last item: `criterion`/`cargo bench`.
+Required splitting `src/main.rs` into `src/lib.rs` (the engine, `pub
+fn run()` plus a small, deliberately minimal `pub` surface — not a
+blanket sweep) + a 3-line `src/main.rs` wrapper, since a `benches/`
+crate can't reach into a binary's `main.rs` at all. `benches/
+layout.rs` benchmarks `build_layout_tree` and `measure` separately
+against a synthetic 200-paragraph+list+table fixture (no real-page
+fixture available — still no bundler tool, see "Priority going
+forward" below); confirmed it actually runs and produces real numbers
+(~2.9ms / ~24.5ms), not just that it compiles. `cargo bench --bench
+layout` (full run) or `cargo bench --bench layout -- --quick` (fast
+sanity check) going forward, instead of hand-editing `main.rs` with
+temporary `eprintln!`/`Instant` timing for every performance question.
+
+**`TODO.txt` is now empty** (every item from the start of this
+session resolved: inline background-color, the per-side box model,
+`em` units, table layout, `font-family`, `text-decoration`,
+`white-space: pre`, `list-style-type`, and now this) — next session
+should treat the three narrower residual gaps noted inline in v14/
+v15/v16/v17's `TODO.txt` wording (rem/%/unitless, table auto-layout/
+colspan/border-collapse, named font families) as the closest thing to
+a backlog, plus whatever a real test page surfaces fresh.
 
 ## Priority going forward: rendering, not networking
 

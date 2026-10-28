@@ -15,3 +15,10 @@ selectors = "0.41.0"
 softbuffer = "0.4.8"
 sys-locale = "0.3.2"
 winit = "0.30.13"
+
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "layout"
+harness = false
