@@ -362,6 +362,34 @@ instead of rendering it using the machinery built for the common case
 nothing is honestly "not supported" while wrong-but-plausible invites
 trusting output that's actually incorrect.
 
+**`letter-spacing` was attempted next and reverted (no commit) — a
+real cosmic-text bug, not a scratchy one.** Full implementation
+(parsing, real-CSS-inheritance cascade, `SpanStyle`/`shape_spans`
+threading via cosmic-text's own documented `Attrs::letter_spacing()`)
+passed every headless test written for it, including one that
+measured shaped glyph x-advance directly. Only caught by the
+established "spot-check visually, don't just trust unit tests"
+habit (see the v12-v20-era `grim` note above): a real two-paragraph
+test page showed `letter-spacing: 8px` shattering a short paragraph
+into nearly one line per word. Isolated and measured precisely in a
+headless test afterward (not scratchy's layout code at fault — this
+reproduces with `shape_spans` called directly): cosmic-text 0.19.0's
+word-wrap line-breaking starts firing far too early once
+`letter-spacing` crosses roughly 2-3px, worsening smoothly with
+larger values, while the actual rendered glyph positions are correct.
+This is inside cosmic-text's own shaping/layout internals, not
+reachable from scratchy's call site. Reverted cleanly (`git checkout
+--`, nothing had been committed) rather than ship something that
+visibly breaks paragraph wrapping — a regression far worse than "not
+implemented." Documented in detail in `TODO.txt` (including the exact
+reproduction numbers) for whoever picks this up: options are checking
+a newer cosmic-text release (no network access this session, not
+checked), finding an upstream fix/workaround, or accepting a lossy
+scoped-down version (small-values-only, or disabling wrap whenever
+letter-spacing is set) — all three need a judgment call this session
+didn't have standing to make alone, hence skip-and-note per the user's
+own instruction for this run rather than silently picking one.
+
 ## Priority going forward: rendering, not networking
 
 Explicit decision: the next phase of work is about how scratchy

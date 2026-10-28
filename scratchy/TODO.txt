@@ -60,7 +60,7 @@ session can pick a coherent slice rather than one property at a time.
 
 - [ ] A cluster of CSS properties are either unrecognized (dropped) or
       recognized-but-inert, none needed by `default.css` yet:
-      `cursor`, `letter-spacing`/`word-spacing`, `opacity`,
+      `cursor`, `word-spacing`, `opacity`,
       `border-radius`,
       `overflow`/clipping, `border-style` (border is always drawn as a
       plain solid stroke regardless of declared style — `hr`'s
@@ -68,7 +68,39 @@ session can pick a coherent slice rather than one property at a time.
       font sizes (`font-size: larger`/`smaller`) and `font-weight:
       bolder` (only the literal `bold` keyword is recognized).
       (`line-height` landed in v24, `visibility` in v25, `outline` in
-      v26, `box-shadow` in v27 — all below now, not in this cluster.)
+      v26, `box-shadow` in v27 — all below now, not in this cluster.
+      `letter-spacing` was attempted and reverted — see the item
+      below, not a cluster member either.)
+
+- [ ] **`letter-spacing` was attempted and reverted (no commit) after
+      finding what looks like a real cosmic-text 0.19.0 bug**, not a
+      scratchy bug: `Attrs::letter_spacing()` is a real, documented
+      API and wiring it in was mechanically straightforward (parsing,
+      cascade, inheritance, `SpanStyle`/`shape_spans` threading — all
+      implemented and headlessly verified correct in isolation, single
+      span, no wrapping). The problem only showed up visually, on a
+      real multi-word paragraph: cosmic-text's word-wrap line-breaking
+      starts firing *far* too early once `letter-spacing` crosses a
+      small threshold, shattering a paragraph that should easily fit
+      on one line into one-word-per-line (worse: close to one-
+      character-per-line at larger spacing values). Reproduced and
+      measured in isolation (not an artifact of scratchy's own layout
+      code): `"Wide letter spacing "` at 900px available width wraps
+      to 1 line up to ~2px of spacing, 2 lines at 3-4px, 3 lines at
+      5-7px, 4 lines at 8px — clearly the line-breaking pass is
+      computing available width or word width wrong once
+      `letter_spacing_opt` is set, even though the *final* rendered
+      glyph x-advance (confirmed separately) correctly includes the
+      spacing. This is squarely inside cosmic-text's shaping/layout
+      internals (`src/shape.rs`/`src/layout.rs` in the vendored
+      0.19.0 source), not something fixable from scratchy's call
+      site. Needs either: confirming this against a newer cosmic-text
+      release (not checked — no network access this session), finding
+      an upstream issue/workaround, or accepting a documented
+      limitation (e.g. only support small letter-spacing values, or
+      disable wrapping whenever letter-spacing is set — both would be
+      lossy enough to want explicit sign-off before shipping, which is
+      why this was skipped rather than guessed at).
 
 - [ ] `box-shadow` (PROMPTS.md v27) is deliberately narrower than the
       real property: no `inset` (rejected outright, not misrendered as
