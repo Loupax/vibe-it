@@ -1568,3 +1568,67 @@ container).
 new `clip` parameter and the glyph-callback/background-fill clip
 checks). Narrows the misc-CSS-properties `TODO.txt` cluster, replaced
 with its own narrower-scope item documenting the text-only limitation.
+
+---
+
+## v32 — `cursor` (`auto`/`pointer`), scratchy's first real interactivity
+
+TODO.txt (post-v20 feature-gap survey, continued). `a { cursor:
+pointer }` has been declared in `default.css` since early on, entirely
+inert — `cursor` was never parsed, and scratchy had no interactivity
+beyond mouse-wheel scroll to act on it with anyway.
+
+**Requirements:**
+1. **`CursorStyle` enum** (`Auto`/`Pointer` — only what `default.css`
+   needs), real CSS inheritance (`Auto` is the real spec initial
+   value) threaded through `InheritedStyle` like `text-align`. Also
+   threaded per-span (`SpanStyle`/`shape_spans`'s new `Vec<CursorStyle>`
+   in `ShapedParagraph` — `ShapeCache`'s per-paragraph tuple finally
+   got its own type alias, 6 elements deep now) — the common real use
+   (`<a>`) is inline content inside a block, not a block-level box of
+   its own, so hit-testing needs *glyph*-level precision, not just
+   block-level.
+2. **`hit_test_cursor`**: walks the `Laid` tree the same way `paint`
+   does, descending into whichever child's bounds contain the point;
+   for `LaidContent::Text`, looks up the exact glyph at that point in
+   the cached `Buffer` (same per-row/per-glyph bounding-box check
+   `paint_span_backgrounds` already does) and reads its span's cursor
+   via `glyph.metadata`. Falls back to a box's own (already-inherited)
+   `style.cursor` wherever no more specific glyph match exists —
+   same "ambient" layering `paint`'s box-vs-descendant painting
+   already relies on.
+3. **`WindowEvent::CursorMoved`** (new — scratchy's first mouse-
+   position-aware event; previously only `MouseWheel`): converts the
+   window-space mouse position into document space (`+ scroll_offset`,
+   the inverse of what `paint` subtracts), calls `hit_test_cursor`
+   against the cached layout, maps the result through
+   `CursorStyle::to_winit()`, and calls `window.set_cursor` only when
+   the icon actually changed (`App` gained a `last_cursor: CursorIcon`
+   field to track this) — avoids a redundant OS call on every
+   mouse-move tick. Uses `Window::set_cursor`, not the deprecated
+   `set_cursor_icon` (caught by a compiler warning, fixed before
+   shipping).
+4. **Verified headlessly**: cascade + inheritance (`default.css`'s `a`
+   rule resolves to `Pointer`; a `<span>` nested inside inherits it
+   with no `cursor` of its own), the `CursorStyle`→`CursorIcon`
+   mapping directly, and — the one that actually matters — a full real
+   pipeline test (parse → build → `measure`, real shaped glyphs) that
+   locates an actual link glyph and an actual plain-text glyph in a
+   real paragraph and confirms `hit_test_cursor` reports `Pointer` for
+   the former and `Auto` for the latter, not a block-level
+   approximation. **Not verified visually**: the OS cursor icon is
+   compositor-rendered, outside scratchy's own pixel buffer, so `grim`
+   can't show it, and this environment can't synthesize a real
+   mouse-move event — only a crash/render smoke-test (launched with a
+   link on the page, confirmed stable, no panic) covers the live
+   event-handling glue beyond the headless tests. Flagged in
+   `TODO.txt` for a real interactive check later.
+
+**Deliverable:** `src/lib.rs` (`CursorStyle` enum + `to_winit()`,
+`ShapedParagraph` type alias, `Declarations`/`InheritedStyle`/
+`ComputedStyle`/`ROOT_STYLE`/`anonymous_style`/`SpanStyle` field +
+cascade, `cursor` branch in `DeclParser::parse_value`, `shape_spans`'s
+new `Vec<CursorStyle>`, `hit_test_cursor`, `App`'s new `last_cursor`
+field, the new `WindowEvent::CursorMoved` handler). Narrows the
+misc-CSS-properties `TODO.txt` cluster, replaced with its own
+narrower-scope item noting the un-verified-live caveat.

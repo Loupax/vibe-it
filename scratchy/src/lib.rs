@@ -37,7 +37,7 @@ use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
 use winit::event::{MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop};
-use winit::window::{Window, WindowId};
+use winit::window::{CursorIcon, Window, WindowId};
 
 // ---------- CLI input ----------
 
@@ -551,6 +551,7 @@ struct Declarations {
     box_shadow: Option<BoxShadow>,
     border_radius: Option<Length>,
     overflow: Option<Overflow>,
+    cursor: Option<CursorStyle>,
 }
 
 /// Just `normal` (the default — current behavior, collapse+wrap) and `pre`
@@ -674,6 +675,32 @@ enum Overflow {
     #[default]
     Visible,
     Hidden,
+}
+
+/// Just `auto`/`pointer` — the only two keywords `default.css` needs
+/// (`a { cursor: pointer }`; everything else defaults to `auto`). Real
+/// CSS inheritance (`Auto` is the real spec initial value too), unlike
+/// `vertical-align` — a `<span>` nested inside an `<a>` should show the
+/// pointer cursor too without re-declaring it, which real inheritance
+/// gives for free. Threaded per-span (`SpanStyle`/`shape_spans`'s
+/// `Vec<CursorStyle>`, same pattern as `vertical_align`/`visibility`),
+/// since the common real use (`<a>`) is inline content inside a block,
+/// not a block-level box of its own — hit-testing needs to know which
+/// *glyph* the mouse is over, not just which block.
+#[derive(Clone, Copy, PartialEq, Default)]
+pub enum CursorStyle {
+    #[default]
+    Auto,
+    Pointer,
+}
+
+impl CursorStyle {
+    fn to_winit(self) -> CursorIcon {
+        match self {
+            CursorStyle::Auto => CursorIcon::Default,
+            CursorStyle::Pointer => CursorIcon::Pointer,
+        }
+    }
 }
 
 /// Only the five CSS generic family keywords — no named families
@@ -1155,6 +1182,16 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
                     None
                 };
             }
+        } else if name.eq_ignore_ascii_case("cursor") {
+            if let Ok(ident) = input.expect_ident() {
+                self.decls.cursor = if ident.eq_ignore_ascii_case("auto") {
+                    Some(CursorStyle::Auto)
+                } else if ident.eq_ignore_ascii_case("pointer") {
+                    Some(CursorStyle::Pointer)
+                } else {
+                    None
+                };
+            }
         } else if name.eq_ignore_ascii_case("font-size") {
             let state = input.state();
             let keyword = input.next().ok().and_then(|t| match t {
@@ -1396,6 +1433,7 @@ struct InheritedStyle {
     text_align: TextAlign,
     line_height: LineHeight,
     visibility: Visibility,
+    cursor: CursorStyle,
 }
 
 const ROOT_STYLE: InheritedStyle = InheritedStyle {
@@ -1409,6 +1447,7 @@ const ROOT_STYLE: InheritedStyle = InheritedStyle {
     text_align: TextAlign::Left,
     line_height: LineHeight::Normal,
     visibility: Visibility::Visible,
+    cursor: CursorStyle::Auto,
 };
 
 /// Per-side box-model values. Physical (top/right/bottom/left), not logical
@@ -1483,6 +1522,7 @@ struct ComputedStyle {
     /// Not inherited. See `Overflow`'s own docs for the clip's scope
     /// (text only, not nested block boxes' own decoration).
     overflow: Overflow,
+    cursor: CursorStyle,
 }
 
 /// `BoxShadow` with its lengths resolved to pixels (against the
@@ -1510,6 +1550,7 @@ impl ComputedStyle {
             text_align: self.text_align,
             line_height: self.line_height,
             visibility: self.visibility,
+            cursor: self.cursor,
         }
     }
 }
@@ -1729,6 +1770,8 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
     .unwrap_or(0.0);
     let overflow = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.overflow), |d| d.overflow)
         .unwrap_or_default();
+    let cursor = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.cursor), |d| d.cursor)
+        .unwrap_or(inherited.cursor);
 
     ComputedStyle {
         color,
@@ -1755,6 +1798,7 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         box_shadow,
         border_radius,
         overflow,
+        cursor,
     }
 }
 
@@ -1784,6 +1828,7 @@ fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         box_shadow: None,
         border_radius: 0.0,
         overflow: Overflow::default(),
+        cursor: inherited.cursor,
     }
 }
 
@@ -1814,6 +1859,7 @@ struct SpanStyle {
     /// value for wherever this span's text node actually sits, descendant
     /// overrides included — not a separate ambient-propagation parameter.
     visibility: Visibility,
+    cursor: CursorStyle,
 }
 
 impl From<InheritedStyle> for SpanStyle {
@@ -1829,6 +1875,7 @@ impl From<InheritedStyle> for SpanStyle {
             vertical_align: VerticalAlign::default(),
             line_height: s.line_height.resolve(s.font_size),
             visibility: s.visibility,
+            cursor: s.cursor,
         }
     }
 }
@@ -2113,10 +2160,14 @@ enum LaidContent {
 /// in deterministic document order. Buffers live here — not inside `Laid` —
 /// and persist across frames, so shaping a paragraph once is never repeated
 /// (see `measure`'s budget/incomplete mechanism).
-pub type ShapeCache = std::collections::HashMap<
-    usize,
-    (Buffer, f32, Vec<Option<TextColor>>, Vec<VerticalAlign>, Vec<bool>),
->;
+/// A paragraph's shaped `Buffer` plus every per-span vector something later
+/// needs to paint or hit-test it correctly, parallel to each other and to
+/// the original `spans` list by index (via cosmic-text's own per-glyph
+/// `metadata` field, set in `shape_spans`): `(height, backgrounds, vertical
+/// aligns, per-span "visibility: hidden", per-span cursor style)`.
+pub type ShapedParagraph = (Buffer, f32, Vec<Option<TextColor>>, Vec<VerticalAlign>, Vec<bool>, Vec<CursorStyle>);
+
+pub type ShapeCache = std::collections::HashMap<usize, ShapedParagraph>;
 
 /// Height assumed for a paragraph that hasn't been shaped yet, so content
 /// below it has somewhere reasonable to sit until the real height arrives.
@@ -2177,7 +2228,7 @@ fn shape_spans(
     width: f32,
     pre: bool,
     align: Option<CosmicAlign>,
-) -> (Buffer, f32, Vec<Option<TextColor>>, Vec<VerticalAlign>, Vec<bool>) {
+) -> ShapedParagraph {
     let metrics = Metrics::new(16.0, 20.0);
     let mut buffer = Buffer::new(font_system, metrics);
     buffer.set_size(Some(width.max(0.0)), None);
@@ -2212,7 +2263,8 @@ fn shape_spans(
     let backgrounds = spans.iter().map(|(_, span)| span.background_color).collect();
     let valigns = spans.iter().map(|(_, span)| span.vertical_align).collect();
     let hidden = spans.iter().map(|(_, span)| span.visibility == Visibility::Hidden).collect();
-    (buffer, height, backgrounds, valigns, hidden)
+    let cursors = spans.iter().map(|(_, span)| span.cursor).collect();
+    (buffer, height, backgrounds, valigns, hidden, cursors)
 }
 
 /// Lays out `b`, shaping text as it goes — but only until `deadline` passes.
@@ -2248,7 +2300,7 @@ pub fn measure(
             let id = *next_id;
             *next_id += 1;
 
-            let content_h = if let Some((_, h, _, _, _)) = cache.get(&id) {
+            let content_h = if let Some((_, h, _, _, _, _)) = cache.get(&id) {
                 *h
             } else if spans.is_empty() {
                 cache.insert(
@@ -2259,18 +2311,19 @@ pub fn measure(
                         Vec::new(),
                         Vec::new(),
                         Vec::new(),
+                        Vec::new(),
                     ),
                 );
                 0.0
             } else if std::time::Instant::now() < deadline {
-                let (buffer, h, backgrounds, valigns, hidden) = shape_spans(
+                let (buffer, h, backgrounds, valigns, hidden, cursors) = shape_spans(
                     font_system,
                     spans,
                     content_w,
                     s.white_space == WhiteSpace::Pre,
                     s.text_align.to_cosmic(),
                 );
-                cache.insert(id, (buffer, h, backgrounds, valigns, hidden));
+                cache.insert(id, (buffer, h, backgrounds, valigns, hidden, cursors));
                 h
             } else {
                 *incomplete = true;
@@ -2714,7 +2767,7 @@ fn paint(
             // Not yet shaped (still mid-way through a budgeted measure pass)
             // just means nothing to paint here yet — it'll appear once a
             // later frame finishes shaping it.
-            if let Some((buffer, _, backgrounds, valigns, hidden)) = cache.get_mut(id) {
+            if let Some((buffer, _, backgrounds, valigns, hidden, _)) = cache.get_mut(id) {
                 let content_x = laid.x + s.border_width + s.padding.left;
                 let content_y = draw_y + s.border_width + s.padding.top;
                 paint_buffer(
@@ -2722,6 +2775,52 @@ fn paint(
                     content_x, content_y, child_clip,
                 );
             }
+        }
+    }
+}
+
+/// Finds the `CursorStyle` that should show at document-space `(x, y)` —
+/// `y` already has any scroll offset added in (document space, same
+/// space `Laid.x`/`.y` themselves are in, *not* the screen space mouse
+/// events arrive in — see the `CursorMoved` handler). Falls back to a
+/// box's own (already-inherited) `style.cursor` wherever no more
+/// specific glyph match is found underneath it, same "ambient" layering
+/// `paint`'s own box-vs-descendant painting already relies on. `cursor`
+/// is real CSS inheritance (see `CursorStyle`'s own docs), so the
+/// per-glyph `cursors` vector already reflects the correctly-cascaded
+/// value for whichever span that glyph came from — no separate
+/// propagation logic needed here either.
+fn hit_test_cursor(laid: &Laid, x: f32, y: f32, cache: &ShapeCache) -> CursorStyle {
+    if x < laid.x || x >= laid.x + laid.w || y < laid.y || y >= laid.y + laid.h {
+        return CursorStyle::Auto;
+    }
+    match &laid.content {
+        LaidContent::Blocks(children) | LaidContent::TableRow(children) => {
+            for child in children {
+                if child.x <= x && x < child.x + child.w && child.y <= y && y < child.y + child.h {
+                    return hit_test_cursor(child, x, y, cache);
+                }
+            }
+            laid.style.cursor
+        }
+        LaidContent::Text(id) => {
+            if let Some((buffer, _, _, _, _, cursors)) = cache.get(id) {
+                let content_x = laid.x + laid.style.border_width + laid.style.padding.left;
+                let content_y = laid.y + laid.style.border_width + laid.style.padding.top;
+                let local_x = x - content_x;
+                let local_y = y - content_y;
+                for run in buffer.layout_runs() {
+                    if local_y < run.line_top || local_y >= run.line_top + run.line_height {
+                        continue;
+                    }
+                    for glyph in run.glyphs {
+                        if local_x >= glyph.x && local_x < glyph.x + glyph.w {
+                            return cursors.get(glyph.metadata).copied().unwrap_or(laid.style.cursor);
+                        }
+                    }
+                }
+            }
+            laid.style.cursor
         }
     }
 }
@@ -2778,6 +2877,10 @@ struct App {
     /// tick later, throwing that work away. A rebuild only commits once
     /// the width has been the same for two ticks in a row.
     pending_width: Option<u32>,
+    /// The OS cursor icon last actually set, so `CursorMoved` only calls
+    /// `window.set_cursor_icon` when the hit-tested style actually
+    /// changes, not on every mouse-move tick.
+    last_cursor: CursorIcon,
 }
 
 impl App {
@@ -2798,6 +2901,7 @@ impl App {
             layout_incomplete: false,
             surface_size: (0, 0),
             pending_width: None,
+            last_cursor: CursorIcon::Default,
         }
     }
 
@@ -2820,6 +2924,7 @@ impl App {
             layout_incomplete: false,
             surface_size: (0, 0),
             pending_width: None,
+            last_cursor: CursorIcon::Default,
         }
     }
 
@@ -2971,6 +3076,21 @@ impl ApplicationHandler<AppEvent> for App {
             WindowEvent::Resized(_) => {
                 if let Some(window) = &self.window {
                     window.request_redraw();
+                }
+            }
+            WindowEvent::CursorMoved { position, .. } => {
+                // `position` is window/screen space; `Laid.x`/`.y` are
+                // document space (scroll isn't applied until paint time),
+                // so the same `+ scroll_offset` adjustment `paint` itself
+                // makes (in reverse) is needed here too.
+                if let (Some(laid), Some(window)) = (&self.cached, &self.window) {
+                    let doc_x = position.x as f32;
+                    let doc_y = position.y as f32 + self.scroll_offset;
+                    let icon = hit_test_cursor(laid, doc_x, doc_y, &self.shape_cache).to_winit();
+                    if icon != self.last_cursor {
+                        window.set_cursor(icon);
+                        self.last_cursor = icon;
+                    }
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {

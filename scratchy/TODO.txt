@@ -60,7 +60,7 @@ session can pick a coherent slice rather than one property at a time.
 
 - [ ] A cluster of CSS properties are either unrecognized (dropped) or
       recognized-but-inert, none needed by `default.css` yet:
-      `cursor`, `word-spacing`,
+      `word-spacing`,
       and `font-weight: bolder`/`lighter` (only
       the literal `bold`/`normal` keywords are recognized — unlike
       `font-size: larger`/`smaller`, v29, nothing in `default.css`
@@ -69,9 +69,27 @@ session can pick a coherent slice rather than one property at a time.
       (`line-height` landed in v24, `visibility` in v25, `outline` in
       v26, `box-shadow` in v27, `border-radius` in v28, relative
       `font-size` keywords in v29, `border-style` in v30, `overflow`
-      in v31 — all below now, not in this cluster. `letter-spacing`
-      was attempted and reverted, `opacity` was scoped out — see their
-      own items below, neither is a cluster member anymore.)
+      in v31, `cursor` in v32 — all below now, not in this cluster.
+      `letter-spacing` was attempted and reverted, `opacity` was
+      scoped out — see their own items below, neither is a cluster
+      member anymore.)
+
+- [ ] `cursor` (PROMPTS.md v32) only tracks `auto`/`pointer` — the one
+      keyword `default.css` actually declares (`a { cursor: pointer }`).
+      No `text`/`wait`/`crosshair`/`move`/`grab`/etc. (easy to add the
+      same way if something needs one). **Not visually verified beyond
+      headless tests + a crash/render smoke-test**: the OS cursor icon
+      is rendered by the compositor, not scratchy's own pixel buffer,
+      so `grim` screenshots can't show it, and this environment has no
+      way to synthesize a real mouse-move event to drive it
+      end-to-end. The hit-testing logic itself (glyph-precision —
+      confirmed a link's own glyphs report `Pointer` while adjacent
+      plain text reports `Auto`) and the `CursorStyle`→`CursorIcon`
+      mapping are both verified directly; only the final
+      `window.set_cursor` call and `WindowEvent::CursorMoved` wiring
+      (thin, mechanical glue around already-tested logic) went
+      untested live. Worth a real interactive check next time a human
+      is at the keyboard.
 
 - [ ] `overflow` (PROMPTS.md v31) only clips descendant *text* content
       (and per-span text backgrounds) — a nested block-level box's own

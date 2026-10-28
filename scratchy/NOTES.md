@@ -470,6 +470,35 @@ get subtly wrong (off-by-one edges, wrong coordinate space, double-
 counting an offset) in ways isolated unit tests on `intersect_clip`
 alone wouldn't catch.
 
+**v32 resolved `cursor` (`auto`/`pointer`)** — scratchy's first real
+interactivity beyond mouse-wheel scroll (`WindowEvent::CursorMoved`,
+previously unhandled). Fixes another currently-inert `default.css`
+rule (`a { cursor: pointer }`, declared since early on, same category
+as v29's `font-size: larger`/`smaller` discovery). The real design
+decision here was recognizing that `<a>` is *inline* content — no
+block-level `Laid` box of its own — so correct hit-testing needs
+glyph-level precision (which exact glyph the mouse is over, via the
+cached shaped `Buffer`'s `metadata`), not just block-level, the same
+insight v23 (`vertical-align`) and v25 (`visibility`) already
+established for per-span properties. Verified that precision directly
+in a real pipeline test (an actual link glyph reports `Pointer`,
+adjacent plain-text glyphs report `Auto`) rather than trusting it by
+construction.
+
+**Important limitation, explicitly flagged, not glossed over**: the
+live `window.set_cursor` / `WindowEvent::CursorMoved` wiring itself
+could only be smoke-tested (launched, confirmed no crash), not
+visually verified — the OS cursor icon is compositor-rendered, never
+touches scratchy's own pixel buffer, so `grim` is blind to it, and
+this sandbox has no tool to synthesize a real mouse-move event. Every
+other piece (hit-testing precision, the style→icon mapping) is
+verified directly; only this last, thin, mechanical layer isn't. Noted
+in `TODO.txt` for a real interactive check next time a human's at the
+keyboard — worth remembering as a category: **any feature whose
+correctness ultimately depends on OS/compositor-level state outside
+scratchy's own framebuffer** (cursor icons, window titles, taskbar
+state, etc.) hits this same verification ceiling in this environment.
+
 ## Priority going forward: rendering, not networking
 
 Explicit decision: the next phase of work is about how scratchy
