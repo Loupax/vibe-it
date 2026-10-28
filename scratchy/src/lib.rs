@@ -528,6 +528,7 @@ struct Declarations {
     text_align: Option<TextAlign>,
     vertical_align: Option<VerticalAlign>,
     line_height: Option<LineHeight>,
+    visibility: Option<Visibility>,
 }
 
 /// Just `normal` (the default — current behavior, collapse+wrap) and `pre`
@@ -618,6 +619,23 @@ impl VerticalAlign {
             VerticalAlign::Super => font_size * -0.35,
         }
     }
+}
+
+/// Just `visible`/`hidden` — no `collapse` (table row/column-specific,
+/// and `default.css` never uses it). Unlike `display: none`, `visibility:
+/// hidden` still reserves layout space and — the whole reason it's a
+/// distinct property — a descendant can set `visibility: visible` to
+/// become visible again despite a hidden ancestor, so this genuinely is
+/// CSS-inherited (threaded through `InheritedStyle`, like `text-align`,
+/// not the ambient-propagation pattern `vertical-align` uses — an
+/// element's own `inherited.visibility` at the point a text node or box
+/// is built already reflects the correctly-cascaded value, descendant
+/// overrides included, with no extra propagation parameter needed).
+#[derive(Clone, Copy, PartialEq, Default)]
+pub enum Visibility {
+    #[default]
+    Visible,
+    Hidden,
 }
 
 /// Only the five CSS generic family keywords — no named families
@@ -1027,6 +1045,16 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
             if let Ok(v) = parse_line_height(input) {
                 self.decls.line_height = Some(v);
             }
+        } else if name.eq_ignore_ascii_case("visibility") {
+            if let Ok(ident) = input.expect_ident() {
+                self.decls.visibility = if ident.eq_ignore_ascii_case("visible") {
+                    Some(Visibility::Visible)
+                } else if ident.eq_ignore_ascii_case("hidden") {
+                    Some(Visibility::Hidden)
+                } else {
+                    None
+                };
+            }
         }
         Ok(())
     }
@@ -1146,6 +1174,7 @@ struct InheritedStyle {
     list_style_type: ListStyleType,
     text_align: TextAlign,
     line_height: LineHeight,
+    visibility: Visibility,
 }
 
 const ROOT_STYLE: InheritedStyle = InheritedStyle {
@@ -1158,6 +1187,7 @@ const ROOT_STYLE: InheritedStyle = InheritedStyle {
     list_style_type: ListStyleType::Disc,
     text_align: TextAlign::Left,
     line_height: LineHeight::Normal,
+    visibility: Visibility::Visible,
 };
 
 /// Per-side box-model values. Physical (top/right/bottom/left), not logical
@@ -1207,6 +1237,7 @@ struct ComputedStyle {
     /// pixel value in `SpanStyle::from`, where a concrete number is
     /// finally needed.
     line_height: LineHeight,
+    visibility: Visibility,
 }
 
 impl ComputedStyle {
@@ -1221,6 +1252,7 @@ impl ComputedStyle {
             list_style_type: self.list_style_type,
             text_align: self.text_align,
             line_height: self.line_height,
+            visibility: self.visibility,
         }
     }
 }
@@ -1393,6 +1425,12 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         |d| d.line_height,
     )
     .unwrap_or(inherited.line_height);
+    let visibility = cascade_property(
+        &matches,
+        inline_decls.as_ref().and_then(|d| d.visibility),
+        |d| d.visibility,
+    )
+    .unwrap_or(inherited.visibility);
 
     ComputedStyle {
         color,
@@ -1412,6 +1450,7 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         text_align,
         vertical_align,
         line_height,
+        visibility,
     }
 }
 
@@ -1434,6 +1473,7 @@ fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         text_align: inherited.text_align,
         vertical_align: VerticalAlign::default(),
         line_height: inherited.line_height,
+        visibility: inherited.visibility,
     }
 }
 
@@ -1459,6 +1499,11 @@ struct SpanStyle {
     text_decoration: TextDecoration,
     vertical_align: VerticalAlign,
     line_height: f32,
+    /// Real CSS inheritance (see `Visibility`'s own docs), so this is
+    /// read straight off `s.visibility` — already the correctly-cascaded
+    /// value for wherever this span's text node actually sits, descendant
+    /// overrides included — not a separate ambient-propagation parameter.
+    visibility: Visibility,
 }
 
 impl From<InheritedStyle> for SpanStyle {
@@ -1473,6 +1518,7 @@ impl From<InheritedStyle> for SpanStyle {
             text_decoration: TextDecoration::new(),
             vertical_align: VerticalAlign::default(),
             line_height: s.line_height.resolve(s.font_size),
+            visibility: s.visibility,
         }
     }
 }
@@ -1757,8 +1803,10 @@ enum LaidContent {
 /// in deterministic document order. Buffers live here — not inside `Laid` —
 /// and persist across frames, so shaping a paragraph once is never repeated
 /// (see `measure`'s budget/incomplete mechanism).
-pub type ShapeCache =
-    std::collections::HashMap<usize, (Buffer, f32, Vec<Option<TextColor>>, Vec<VerticalAlign>)>;
+pub type ShapeCache = std::collections::HashMap<
+    usize,
+    (Buffer, f32, Vec<Option<TextColor>>, Vec<VerticalAlign>, Vec<bool>),
+>;
 
 /// Height assumed for a paragraph that hasn't been shaped yet, so content
 /// below it has somewhere reasonable to sit until the real height arrives.
@@ -1819,7 +1867,7 @@ fn shape_spans(
     width: f32,
     pre: bool,
     align: Option<CosmicAlign>,
-) -> (Buffer, f32, Vec<Option<TextColor>>, Vec<VerticalAlign>) {
+) -> (Buffer, f32, Vec<Option<TextColor>>, Vec<VerticalAlign>, Vec<bool>) {
     let metrics = Metrics::new(16.0, 20.0);
     let mut buffer = Buffer::new(font_system, metrics);
     buffer.set_size(Some(width.max(0.0)), None);
@@ -1853,7 +1901,8 @@ fn shape_spans(
     }
     let backgrounds = spans.iter().map(|(_, span)| span.background_color).collect();
     let valigns = spans.iter().map(|(_, span)| span.vertical_align).collect();
-    (buffer, height, backgrounds, valigns)
+    let hidden = spans.iter().map(|(_, span)| span.visibility == Visibility::Hidden).collect();
+    (buffer, height, backgrounds, valigns, hidden)
 }
 
 /// Lays out `b`, shaping text as it goes — but only until `deadline` passes.
@@ -1889,23 +1938,29 @@ pub fn measure(
             let id = *next_id;
             *next_id += 1;
 
-            let content_h = if let Some((_, h, _, _)) = cache.get(&id) {
+            let content_h = if let Some((_, h, _, _, _)) = cache.get(&id) {
                 *h
             } else if spans.is_empty() {
                 cache.insert(
                     id,
-                    (Buffer::new_empty(Metrics::new(16.0, 20.0)), 0.0, Vec::new(), Vec::new()),
+                    (
+                        Buffer::new_empty(Metrics::new(16.0, 20.0)),
+                        0.0,
+                        Vec::new(),
+                        Vec::new(),
+                        Vec::new(),
+                    ),
                 );
                 0.0
             } else if std::time::Instant::now() < deadline {
-                let (buffer, h, backgrounds, valigns) = shape_spans(
+                let (buffer, h, backgrounds, valigns, hidden) = shape_spans(
                     font_system,
                     spans,
                     content_w,
                     s.white_space == WhiteSpace::Pre,
                     s.text_align.to_cosmic(),
                 );
-                cache.insert(id, (buffer, h, backgrounds, valigns));
+                cache.insert(id, (buffer, h, backgrounds, valigns, hidden));
                 h
             } else {
                 *incomplete = true;
@@ -2031,6 +2086,7 @@ fn paint_span_backgrounds(
     buffer: &mut Buffer,
     font_system: &mut FontSystem,
     backgrounds: &[Option<TextColor>],
+    hidden: &[bool],
     pixels: &mut [u32],
     win_w: u32,
     win_h: u32,
@@ -2042,7 +2098,8 @@ fn paint_span_backgrounds(
         let mut i = 0;
         while i < run.glyphs.len() {
             let glyph = &run.glyphs[i];
-            let bg = backgrounds.get(glyph.metadata).copied().flatten();
+            let is_hidden = hidden.get(glyph.metadata).copied().unwrap_or(false);
+            let bg = if is_hidden { None } else { backgrounds.get(glyph.metadata).copied().flatten() };
             let start_x = glyph.x;
             let mut end_x = glyph.x + glyph.w;
             let mut j = i + 1;
@@ -2073,6 +2130,15 @@ fn paint_buffer(
     swash_cache: &mut SwashCache,
     backgrounds: &[Option<TextColor>],
     valigns: &[VerticalAlign],
+    // `visibility: hidden` per span (by the same `glyph.metadata` index as
+    // `backgrounds`/`valigns`) — skips painting that span's background and
+    // glyphs while its layout space (already reserved by `measure`, which
+    // never looks at visibility) stays exactly as if it had painted.
+    // Decoration lines (underline/strikethrough) aren't filtered by this —
+    // `render_decoration` draws per-run, not per-span — a known, narrow
+    // simplification: nothing in `default.css` pairs `text-decoration`
+    // with `visibility: hidden` today.
+    hidden: &[bool],
     pixels: &mut [u32],
     win_w: u32,
     win_h: u32,
@@ -2081,7 +2147,7 @@ fn paint_buffer(
 ) {
     let ox = offset_x.round() as i32;
     let oy = offset_y.round() as i32;
-    paint_span_backgrounds(buffer, font_system, backgrounds, pixels, win_w, win_h, ox, oy);
+    paint_span_backgrounds(buffer, font_system, backgrounds, hidden, pixels, win_w, win_h, ox, oy);
     let default_color = TextColor::rgb(0, 0, 0);
     // `buffer.draw()`'s own internals, copied out by hand (both public:
     // `LegacyRenderer`, `render_decoration`) instead of called directly —
@@ -2112,6 +2178,9 @@ fn paint_buffer(
     };
     for run in buffer.layout_runs() {
         for glyph in run.glyphs {
+            if hidden.get(glyph.metadata).copied().unwrap_or(false) {
+                continue;
+            }
             let y_shift = valigns
                 .get(glyph.metadata)
                 .copied()
@@ -2145,7 +2214,14 @@ fn paint(
         // O(whole document) instead of O(visible content).
         return;
     }
-    paint_box_decoration(&s, pixels, win_w, win_h, laid.x, draw_y, laid.w, laid.h);
+    // `visibility: hidden` still reserves this box's layout space (laid
+    // out exactly as normal above) but skips its own background/border —
+    // a descendant box with its own `visibility: visible` is a separate
+    // `Laid` with its own independently-resolved `style.visibility` via
+    // real CSS inheritance, so it still recurses and paints normally.
+    if s.visibility == Visibility::Visible {
+        paint_box_decoration(&s, pixels, win_w, win_h, laid.x, draw_y, laid.w, laid.h);
+    }
 
     match &laid.content {
         LaidContent::Blocks(children) | LaidContent::TableRow(children) => {
@@ -2157,12 +2233,12 @@ fn paint(
             // Not yet shaped (still mid-way through a budgeted measure pass)
             // just means nothing to paint here yet — it'll appear once a
             // later frame finishes shaping it.
-            if let Some((buffer, _, backgrounds, valigns)) = cache.get_mut(id) {
+            if let Some((buffer, _, backgrounds, valigns, hidden)) = cache.get_mut(id) {
                 let content_x = laid.x + s.border_width + s.padding.left;
                 let content_y = draw_y + s.border_width + s.padding.top;
                 paint_buffer(
-                    buffer, font_system, swash_cache, backgrounds, valigns, pixels, win_w, win_h, content_x,
-                    content_y,
+                    buffer, font_system, swash_cache, backgrounds, valigns, hidden, pixels, win_w, win_h,
+                    content_x, content_y,
                 );
             }
         }

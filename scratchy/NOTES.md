@@ -313,6 +313,25 @@ textbook example of the latter, and the kind of thing that's easy to
 get wrong by pattern-matching on how `font-size`/`margin`/etc. already
 work in this codebase).
 
+**v25 resolved `visibility: hidden`.** Correctly categorized as real
+CSS inheritance (not ambient propagation, unlike `vertical-align`) —
+the entire point of `visibility` as a distinct property from `display:
+none` is that a descendant can un-hide itself by declaring `visibility:
+visible`, and real inheritance already gives that for free with zero
+extra wiring (unlike the ambient-propagation properties, which need
+their own explicit "did this element override it" parameter threaded
+through `collect_children`). Worth remembering as the general rule
+this and v22/v24 all reinforce: **check whether a descendant can
+override a property back to something other than what an ancestor
+declared** — if yes, it's real inheritance; if the only way to change
+it is to re-declare it on every element that needs a different value
+(like `background-color`), it's ambient propagation. `text-decoration`
+is the one property here that's genuinely neither by spec (not
+inherited at all) but still gets the ambient treatment, because a UA
+visually draws an ancestor's decoration through un-opted-out
+descendants — that one was a deliberate, documented exception, not a
+default to copy for new properties.
+
 ## Priority going forward: rendering, not networking
 
 Explicit decision: the next phase of work is about how scratchy

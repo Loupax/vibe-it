@@ -1201,3 +1201,61 @@ subtlety worth getting right, unlike several of its cluster-mates.
 `line-height` branch in `DeclParser::parse_value`, `shape_spans`'s
 `Metrics::new` now uses `span.line_height`). Narrows the misc-CSS-
 properties `TODO.txt` item by one.
+
+---
+
+## v25 — `visibility: hidden`
+
+TODO.txt (post-v20 feature-gap survey, continued): another pick from
+the misc-CSS-properties cluster — `visibility` was entirely unparsed.
+Only `visible`/`hidden` — no `collapse` (table row/column-specific,
+`default.css` never uses it).
+
+**Requirements:**
+1. **`Visibility` enum** (`Visible`/`Hidden`, `Visible` `#[default]`).
+   Real CSS inheritance (threaded through `InheritedStyle`, like
+   `text-align`/`line-height`), *not* the ambient-propagation pattern
+   `vertical-align` uses — the defining trait of `visibility` (unlike
+   `display: none`) is that a descendant can set `visibility: visible`
+   to become visible again despite a hidden ancestor, which real
+   inheritance already gives for free: each text node's `inherited:
+   InheritedStyle` parameter in `collect_children` already reflects
+   the correctly-cascaded value at that exact point in the tree, no
+   extra propagation parameter needed (verified directly — a `<span
+   style="visibility: visible">` nested inside a `visibility: hidden`
+   `<div>` resolves to `Visible`, and the full tree's actual span
+   carries that correctly).
+2. **Reserves layout space, paints nothing** — `measure` is untouched
+   (never reads `visibility` at all, so hidden content occupies
+   exactly the same space it would visible), only `paint`/
+   `paint_buffer`/`paint_span_backgrounds` change. A box's own
+   background/border (`paint_box_decoration`) is skipped when `s.
+   visibility == Hidden`, but child boxes still recurse normally (each
+   carries its own independently-resolved `visibility`). Per-span text
+   and backgrounds are skipped via a new `Vec<bool>` parallel to the
+   existing `backgrounds`/`valigns` vectors (same `glyph.metadata`
+   per-span-index lookup established in v12/v23), threaded through
+   `shape_spans`/`ShapeCache`/`paint_buffer`/`paint_span_backgrounds`.
+3. **One accepted narrow simplification, documented inline**: decoration
+   lines (underline/strikethrough) aren't filtered by the new hidden
+   check — `render_decoration` draws per *run*, not per-span, and
+   nothing in `default.css` pairs `text-decoration` with `visibility:
+   hidden` today, so a hidden span with an ancestor's decoration
+   showing through could theoretically still draw its underline. Not
+   worth the extra plumbing until something actually exercises it.
+4. **Verified headlessly**: cascade correctness including the
+   descendant-overrides-back-to-visible case (both at the
+   `resolve_style` level and the full-tree real-span level), and —
+   painting a real glyph into pixel buffers — that hidden text paints
+   literally nothing while reporting the *same* shaped height as the
+   same text visible (confirms layout is untouched, only paint is).
+   Spot-checked visually too: hidden inline text leaves its space
+   reserved (visible gap) while being completely invisible.
+
+**Deliverable:** `src/lib.rs` (`Visibility` enum,
+`Declarations`/`InheritedStyle`/`ComputedStyle`/`ROOT_STYLE`/
+`anonymous_style`/`SpanStyle` field + cascade, `visibility` branch in
+`DeclParser::parse_value`, new `Vec<bool>` threaded through
+`shape_spans`/`ShapeCache`/`paint`/`paint_buffer`/
+`paint_span_backgrounds`, `paint`'s box-decoration skip). Narrows the
+misc-CSS-properties `TODO.txt` item by one more.
