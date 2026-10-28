@@ -32,14 +32,12 @@ these.
       fallback lists. `default.css` only ever uses the bare `monospace`
       keyword, so nothing needs more than this yet.
 
-- [ ] `text-decoration` (PROMPTS.md v17) only tracks the line keywords
-      (underline/line-through/overline/none) — `text-decoration-style`
-      keywords (`dotted`/`dashed`/`wavy`/`double`) and an explicit
-      `text-decoration-color` are accepted in the value (so they don't
-      make the whole declaration drop) but not tracked: every line
-      scratchy draws is solid, in the text's own color. `abbr[title] {
-      text-decoration: dotted underline }` in default.css currently
-      renders as a plain solid underline, not dotted.
+- [ ] `text-decoration` (PROMPTS.md v17) originally only tracked the line
+      keywords (underline/line-through/overline/none) — `dashed`/`dotted`/
+      `double`/`color` now paint correctly too (PROMPTS.md v33, see the
+      narrower-scope item below for exactly what's still missing).
+      `abbr[title] { text-decoration: dotted underline }` in default.css
+      now actually renders dotted, not a plain solid underline.
 
 The rest of this file is a full html-rendering feature-gap survey done
 after v20 (commit 7950fc2), not individual things hit mid-feature like
@@ -72,7 +70,50 @@ session can pick a coherent slice rather than one property at a time.
       in v31, `cursor` in v32 — all below now, not in this cluster.
       `letter-spacing` was attempted and reverted, `opacity` was
       scoped out — see their own items below, neither is a cluster
-      member anymore.)
+      member anymore. `text-decoration-style`/`-color` landed in v33,
+      also no longer a cluster member.)
+
+- [ ] `text-decoration-style`/`-color` (PROMPTS.md v33) support
+      `dashed`/`dotted` (hand-painted, since cosmic-text 0.19's own
+      decoration renderer only knows a plain solid stroke) and an
+      explicit color (native cosmic-text support, no hand-rolling
+      needed) — plus `double`, which was already silently accepted
+      before this but is now visually distinct (cosmic-text's own
+      `UnderlineStyle::Double`, underline only). `wavy` has no custom
+      painting path and falls back to `Solid` — an actual sine-wave
+      stroke needs real curve rasterization this file doesn't have
+      anywhere else. `double` only visibly differs for *underline* —
+      cosmic-text 0.19 has no double variant for strikethrough/overline,
+      so `text-decoration: line-through double` still paints one plain
+      line, not two (undeclared in `default.css`, so not a regression
+      for anything real). There's still no separate
+      `text-decoration-style`/`-color` *longhand* support — only via the
+      `text-decoration` shorthand, which is the only form `default.css`
+      or any test page used.
+
+- [ ] **Found while testing v33, not introduced by it**: `text-decoration`
+      declared directly on a *block*-level element only reaches that
+      element's own direct text content and nested block descendants
+      when something *inline* re-threads it — `collect_children`'s
+      ambient `decoration` parameter (see its own docs) is seeded fresh
+      (`DecorationValue::default()`) every time `build_children`/
+      `build_children_with_prefix` starts a new block's children, rather
+      than from that block's own resolved `style.text_decoration`.
+      Concretely: `<p style="text-decoration: underline">text</p>`
+      renders `text` with no underline at all, while
+      `<p>plain <span style="text-decoration: underline">text</span></p>`
+      works fine, because the `<span>` is inline and goes through
+      `collect_children`'s other branch (`style.text_decoration.unwrap_or(decoration)`),
+      which *does* pick up its own declared value regardless of the
+      ambient parameter. Every real page and `default.css` rule so far
+      only ever declares `text-decoration` on inline elements
+      (`u`/`s`/`abbr`/`a`/...), so this never surfaced before. A correct
+      fix needs the same ambient `decoration` value threaded through
+      `build_box_for_element`/`build_table_children`/
+      `build_table_row_cells`/`build_children`/`build_children_with_prefix`
+      that `opacity`'s own skipped item below already identified as a
+      materially bigger plumbing change than a single property's own
+      scope — not attempted here for the same reason.
 
 - [ ] `cursor` (PROMPTS.md v32) only tracks `auto`/`pointer` — the one
       keyword `default.css` actually declares (`a { cursor: pointer }`).

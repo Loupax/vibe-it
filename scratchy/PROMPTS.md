@@ -1632,3 +1632,103 @@ new `Vec<CursorStyle>`, `hit_test_cursor`, `App`'s new `last_cursor`
 field, the new `WindowEvent::CursorMoved` handler). Narrows the
 misc-CSS-properties `TODO.txt` cluster, replaced with its own
 narrower-scope item noting the un-verified-live caveat.
+
+---
+
+## v33 — `text-decoration-style`/`text-decoration-color`
+
+TODO.txt (post-v20 feature-gap survey, continued, plus the pre-survey
+`text-decoration` item at the top of the file). `text-decoration`
+already tracked line keywords (underline/line-through/overline/none,
+v17) but parsed-and-discarded any style keyword (`dotted`/`dashed`/
+`wavy`/`double`) and explicit color — `abbr[title] { text-decoration:
+dotted underline }` in `default.css` rendered as a plain solid
+underline.
+
+**Requirements:**
+1. **`DecorationStyle` enum** (`Solid`/`Dashed`/`Dotted` only —
+   `double` isn't a variant here since cosmic-text 0.19 already
+   natively supports a double *underline* via its own
+   `UnderlineStyle::Double`, so `parse_text_decoration` folds a
+   `double` keyword straight into `deco.underline` instead; `wavy` has
+   no custom painting path and falls back to `Solid`, same "accepted
+   but not visually distinct" narrowing as `border-style`'s `groove`/
+   `ridge`/`inset`/`outset`).
+2. **`parse_text_decoration` reworked** to also capture a style keyword
+   and an explicit color, order-independently (tracked in locals during
+   the token loop, applied once after it ends, so `dotted underline`
+   and `underline dotted` both work) — same lenient "skip an
+   unrecognized token" philosophy as `parse_border_like_shorthand`. An
+   explicit color resolves immediately via the existing `to_text_color`
+   (pure, no cascade context needed) and sets whichever of cosmic-text's
+   own `underline_color_opt`/`strikethrough_color_opt`/
+   `overline_color_opt` fields correspond to the lines actually active,
+   so `text-decoration: line-through red` doesn't leave a stray
+   (invisible, since underline isn't on) `underline_color_opt`.
+3. **`DecorationValue` struct** (`{ deco: TextDecoration, style:
+   DecorationStyle }`) replaces the bare `TextDecoration` everywhere it
+   was threaded as an `Option` (`Declarations`/`ComputedStyle`'s
+   `text_decoration` field, `collect_children`'s ambient `decoration`
+   parameter) — bundled as one struct rather than two independently-
+   cascaded fields, since both only ever come from the one shorthand at
+   the same time, propagated ambiently together exactly like plain
+   `text_decoration` already was.
+4. **`paint_decorations`/`paint_decoration_line`**: a hand-written
+   reimplementation of cosmic-text's own `render_decoration`/
+   `draw_decoration_span` (`src/render.rs` in the vendored 0.19.0
+   source — the inner per-span function isn't `pub`, so it can't be
+   called directly), using only `DecorationSpan`'s/
+   `GlyphDecorationData`'s public fields. Mirrors the exact offset/
+   thickness/color formulas so `Solid` (including native double-
+   underline) paints pixel-identical to calling `render_decoration`
+   directly; `Dashed`/`Dotted` instead break one rectangle into several
+   short ones spaced across the same extent. Each span's style is
+   looked up via `decoration_styles[glyph.metadata]` off its first
+   glyph — the same per-span index every other per-span property
+   (backgrounds, valigns, cursors, ...) already uses, threaded as a new
+   7th element of the `ShapedParagraph` tuple.
+5. **Verified headlessly**: `parse_text_decoration` order-independence
+   (`dotted underline` / `underline dotted` parse identically), `double`
+   mapping to cosmic-text's native `UnderlineStyle::Double` rather than
+   this file's own `DecorationStyle`, color attaching only to active
+   lines (`line-through red` doesn't set `underline_color_opt`), `wavy`
+   falling back to `Solid`, `abbr[title]` cascading through the real
+   `default.css` to a `Dotted` style (not falling back to `Solid`), and
+   `paint_decoration_line` painting one full-width rectangle for
+   `Solid` vs. several short ones (each shorter than the line, dots
+   denser/narrower than dashes) for `Dashed`/`Dotted`, via a
+   `CollectingRenderer` test double. **Verified visually** (`grim`,
+   monitor now on): `abbr[title]`'s dotted underline renders as
+   distinct dots (not solid), a `<span>` with `text-decoration:
+   line-through dashed blue` renders a blue dashed strikethrough, and
+   `text-decoration: underline double red` renders two parallel red
+   underlines.
+6. **Found while testing, not introduced by this feature, documented
+   in `TODO.txt` rather than fixed**: `text-decoration` declared
+   directly on a *block*-level element (e.g. `<p style="text-decoration:
+   underline">text</p>`) doesn't reach that element's own direct text
+   content at all — `collect_children`'s ambient `decoration` parameter
+   is seeded fresh every time a block starts its children
+   (`build_children`/`build_children_with_prefix`), not from that
+   block's own resolved `style.text_decoration`. Only inline-level
+   descendants (which pick up their own declared value independently of
+   the ambient parameter) work correctly — exactly the shape every real
+   `default.css` rule and prior test page already used
+   (`u`/`s`/`abbr`/`a`), so this never surfaced before. A correct fix
+   needs the same ambient-value threading through
+   `build_box_for_element`/`build_table_children`/
+   `build_table_row_cells`/`build_children`/`build_children_with_prefix`
+   that `opacity`'s own skipped item (v28) already identified as a
+   bigger plumbing change than a single property's scope — not
+   attempted here either, for the same reason.
+
+**Deliverable:** `src/lib.rs` (`DecorationStyle` enum, `DecorationValue`
+struct, `parse_text_decoration` reworked, `Declarations`/
+`ComputedStyle`/`SpanStyle` fields, `collect_children`'s ambient
+parameter type, `ShapedParagraph`'s new 7th element, `paint_decorations`/
+`paint_decoration_line`, `paint_buffer`'s new parameter and all its call
+sites). Updates the pre-survey `text-decoration` item in `TODO.txt` to
+reflect what now works, replaced with a narrower-scope item (and
+removed from the misc-CSS-properties cluster's own parenthetical, which
+had already listed it as landed-elsewhere) plus a new item documenting
+the block-level ambient-seeding gap found along the way.

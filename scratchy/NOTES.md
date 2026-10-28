@@ -499,6 +499,51 @@ correctness ultimately depends on OS/compositor-level state outside
 scratchy's own framebuffer** (cursor icons, window titles, taskbar
 state, etc.) hits this same verification ceiling in this environment.
 
+**v33 resolved `text-decoration-style`/`-color`** — `dotted`/`dashed`/
+`double`/an explicit color were already accepted in the `text-decoration`
+shorthand's grammar since v17 but silently discarded; every decoration
+painted as a plain solid line in the text's own color regardless. Fixed
+`abbr[title] { text-decoration: dotted underline }` — another
+currently-inert `default.css` rule, same category as v29/v32's
+discoveries. The key constraint: cosmic-text 0.19's own
+`render_decoration` function is `pub`, but the per-span function it
+calls internally (`draw_decoration_span`) isn't, and the public
+function offers no hook to vary painting style per span. Rather than
+work around that, reimplemented the whole thing by hand using
+`DecorationSpan`'s/`GlyphDecorationData`'s public fields (all public,
+confirmed by reading cosmic-text's vendored source directly) —
+mirroring cosmic-text's own offset/thickness/color formulas exactly so
+`Solid` stays pixel-identical, and only branching to a hand-rolled
+dash/dot tiling pattern for `Dashed`/`Dotted`. Same per-span
+`glyph.metadata` lookup pattern used for every other per-span property
+this session (backgrounds, valigns, hidden, cursors) — now a 7th
+`ShapedParagraph` element.
+
+**A real adjacent bug was found while visually verifying this, not
+introduced by it**: the very first test (`text-decoration` declared
+directly on a `<p>`) silently rendered with no decoration at all, while
+the identical declaration on a nested `<span>` worked. Traced to
+`collect_children`'s ambient `decoration` parameter being reseeded to
+`DecorationValue::default()` every time a block starts its own
+children (`build_children`/`build_children_with_prefix`), rather than
+from that block's own resolved `style.text_decoration` — so a block's
+*own direct text* never sees its *own* `text-decoration`, only inline
+descendants do (since those re-check their own resolved style
+independently of the ambient parameter). This has existed since v17;
+it just never surfaced because every real `default.css` rule and prior
+test page only ever declared `text-decoration` on inline elements
+(`u`/`s`/`abbr`/`a`). A correct fix needs the same ambient-value
+threading through `build_box_for_element`/`build_table_children`/
+`build_table_row_cells`/`build_children`/`build_children_with_prefix`
+that `opacity` (v28) was scoped out for already — recognized as the
+same shape of invasive plumbing change, not attempted here either, and
+documented in `TODO.txt` instead of guessed at. Re-tested with the
+decoration moved onto a nested `<span>` (the realistic, default.css-
+matching shape) to confirm the *new* style/color logic itself was
+correct, independent of this pre-existing gap — it was: dotted,
+dashed-blue, and double-red all rendered correctly in a real `grim`
+screenshot.
+
 ## Priority going forward: rendering, not networking
 
 Explicit decision: the next phase of work is about how scratchy

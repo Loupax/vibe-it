@@ -7,8 +7,8 @@ use std::thread;
 
 use cosmic_text::{
     Align as CosmicAlign, Attrs, Buffer, Color as TextColor, Family as CosmicFamily, FontSystem,
-    LegacyRenderer, Metrics, Renderer as _, Shaping, Style as FontStyle, SwashCache,
-    TextDecoration, UnderlineStyle, Weight as FontWeight, Wrap, render_decoration,
+    LegacyRenderer, Metrics, Renderer, Shaping, Style as FontStyle, SwashCache,
+    TextDecoration, UnderlineStyle, Weight as FontWeight, Wrap,
 };
 use cssparser::{
     AtRuleParser, CowRcStr, DeclarationParser, ParseError, Parser as CssParser, ParserState,
@@ -539,7 +539,7 @@ struct Declarations {
     font_weight: Option<FontWeight>,
     font_style: Option<FontStyle>,
     font_family: Option<FontFamily>,
-    text_decoration: Option<TextDecoration>,
+    text_decoration: Option<DecorationValue>,
     white_space: Option<WhiteSpace>,
     list_style_type: Option<ListStyleType>,
     text_align: Option<TextAlign>,
@@ -782,42 +782,126 @@ fn parse_font_weight(input: &mut CssParser) -> Result<FontWeight, ()> {
     }
 }
 
-/// Parses the `text-decoration` shorthand down to just its line keywords
-/// (`underline`/`line-through`/`overline`/`none`) — cosmic-text already
-/// knows how to paint each (`buffer.draw` draws them automatically once
-/// `Attrs::text_decoration` is set, using real font underline/strikethrough
-/// metrics), so there's no geometry to hand-roll here, only parsing. Style
-/// keywords (`dotted`/`dashed`/`wavy`/`double`/`solid`, e.g. `abbr[title]`'s
-/// `text-decoration: dotted underline`) and an explicit color are accepted
-/// in the value but not tracked — every decoration this draws is a plain
-/// single line in the text's own color, never dotted/wavy/a different
-/// color. Returns `Err` only if no line keyword was found at all, so a
-/// value that's pure noise still drops like any other unsupported value.
-fn parse_text_decoration(input: &mut CssParser) -> Result<TextDecoration, ()> {
+/// `text-decoration-style`'s value, so far as this file can actually
+/// paint it differently from a plain solid stroke. `double` isn't a
+/// variant here — cosmic-text already natively supports a double
+/// *underline* (`UnderlineStyle::Double`), so `parse_text_decoration`
+/// folds a `double` keyword straight into `deco.underline` instead of
+/// going through this enum (it only ever affects underline this way —
+/// strikethrough/overline have no double variant in cosmic-text 0.19,
+/// a narrower scope worth documenting but not worth hand-rolling a
+/// second rectangle for). `wavy` has no custom painting path either —
+/// an actual sine-wave stroke needs real curve rasterization this file
+/// doesn't have anywhere else — and falls back to `Solid`, same
+/// "accepted but not visually distinct" narrowing as `border-style`'s
+/// `groove`/`ridge`/`inset`/`outset` (see `border_style_from_keyword`).
+/// `pub` — appears in the public `ShapedParagraph`/`ShapeCache` type
+/// aliases, same reason `VerticalAlign`/`CursorStyle` are `pub` too.
+#[derive(Clone, Copy, PartialEq, Default)]
+pub enum DecorationStyle {
+    #[default]
+    Solid,
+    Dashed,
+    Dotted,
+}
+
+/// What the `text-decoration` shorthand resolves to for one declaration —
+/// `deco` (cosmic-text's own struct: which lines, double-underline, and
+/// per-line color, the last two set directly inside
+/// `parse_text_decoration` since resolving a color token needs no cascade
+/// context) plus `style` (solid/dashed/dotted, painted by hand in
+/// `paint_decorations` instead of cosmic-text's own renderer). Bundled as
+/// one struct rather than two independently-cascaded fields because both
+/// only ever come from the same one shorthand at the same time — there's
+/// no `text-decoration-style`/`-color` longhand support, so there's never
+/// a case where one half is set without the other.
+#[derive(Clone, Copy, Default)]
+struct DecorationValue {
+    deco: TextDecoration,
+    style: DecorationStyle,
+}
+
+/// Parses the `text-decoration` shorthand: line keywords
+/// (`underline`/`line-through`/`overline`/`none`), a style keyword
+/// (`solid`/`dashed`/`dotted`/`double`/`wavy` — see `DecorationStyle`'s
+/// own docs for which of these actually paint differently), and an
+/// explicit color, in any order (e.g. `abbr[title]`'s `text-decoration:
+/// dotted underline`). An unrecognized token is skipped rather than
+/// failing the whole value, same lenient philosophy as
+/// `parse_border_like_shorthand`. Color and style are collected locally
+/// and applied only after the loop ends, so token order doesn't matter —
+/// `dotted underline` and `underline dotted` both work. Returns `Err`
+/// only if no line keyword was found at all, so a value that's pure noise
+/// still drops like any other unsupported value.
+fn parse_text_decoration(input: &mut CssParser) -> Result<(TextDecoration, DecorationStyle), ()> {
     let mut deco = TextDecoration::new();
+    let mut style = DecorationStyle::Solid;
+    let mut is_double = false;
+    let mut color = None;
     let mut found = false;
     loop {
-        match input.next() {
-            Ok(Token::Ident(ident)) => {
-                if ident.eq_ignore_ascii_case("underline") {
-                    deco.underline = UnderlineStyle::Single;
-                    found = true;
-                } else if ident.eq_ignore_ascii_case("line-through") {
-                    deco.strikethrough = true;
-                    found = true;
-                } else if ident.eq_ignore_ascii_case("overline") {
-                    deco.overline = true;
-                    found = true;
-                } else if ident.eq_ignore_ascii_case("none") {
-                    found = true;
-                }
+        let state = input.state();
+        if let Ok(Token::Ident(ident)) = input.next() {
+            if ident.eq_ignore_ascii_case("underline") {
+                deco.underline = UnderlineStyle::Single;
+                found = true;
+                continue;
+            } else if ident.eq_ignore_ascii_case("line-through") {
+                deco.strikethrough = true;
+                found = true;
+                continue;
+            } else if ident.eq_ignore_ascii_case("overline") {
+                deco.overline = true;
+                found = true;
+                continue;
+            } else if ident.eq_ignore_ascii_case("none") {
+                found = true;
+                continue;
+            } else if ident.eq_ignore_ascii_case("dashed") {
+                style = DecorationStyle::Dashed;
+                continue;
+            } else if ident.eq_ignore_ascii_case("dotted") {
+                style = DecorationStyle::Dotted;
+                continue;
+            } else if ident.eq_ignore_ascii_case("solid") {
+                style = DecorationStyle::Solid;
+                continue;
+            } else if ident.eq_ignore_ascii_case("double") {
+                is_double = true;
+                continue;
+            } else if ident.eq_ignore_ascii_case("wavy") {
+                // Not supported — falls back to `Solid` (see
+                // `DecorationStyle`'s own docs).
+                continue;
             }
+        }
+        input.reset(&state);
+        if let Ok(c) = CssColor::parse(input) {
+            color = to_text_color(&c);
+            continue;
+        }
+        input.reset(&state);
+        match input.next() {
             Ok(_) => {}
             Err(_) => break,
         }
     }
+    if is_double && deco.underline == UnderlineStyle::Single {
+        deco.underline = UnderlineStyle::Double;
+    }
+    if let Some(c) = color {
+        if deco.underline != UnderlineStyle::None {
+            deco.underline_color_opt = Some(c);
+        }
+        if deco.strikethrough {
+            deco.strikethrough_color_opt = Some(c);
+        }
+        if deco.overline {
+            deco.overline_color_opt = Some(c);
+        }
+    }
     if found {
-        Ok(deco)
+        Ok((deco, style))
     } else {
         Err(())
     }
@@ -1246,8 +1330,8 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
                 };
             }
         } else if name.eq_ignore_ascii_case("text-decoration") {
-            if let Ok(deco) = parse_text_decoration(input) {
-                self.decls.text_decoration = Some(deco);
+            if let Ok((deco, style)) = parse_text_decoration(input) {
+                self.decls.text_decoration = Some(DecorationValue { deco, style });
             }
         } else if name.eq_ignore_ascii_case("white-space") {
             if let Ok(ident) = input.expect_ident() {
@@ -1485,8 +1569,11 @@ struct ComputedStyle {
     /// CSS inheritance" threading as `background_color` uses (see
     /// `collect_children`) — text-decoration isn't a spec-inherited
     /// property either, but a UA still draws an ancestor's decoration
-    /// through descendant inline boxes that don't override it.
-    text_decoration: Option<TextDecoration>,
+    /// through descendant inline boxes that don't override it. Bundles
+    /// line flags, style (solid/dashed/dotted), and color together (see
+    /// `DecorationValue`'s own docs) since all three only ever come from
+    /// the one `text-decoration` shorthand.
+    text_decoration: Option<DecorationValue>,
     white_space: WhiteSpace,
     list_style_type: ListStyleType,
     text_align: TextAlign,
@@ -1852,6 +1939,9 @@ struct SpanStyle {
     font_style: FontStyle,
     font_family: FontFamily,
     text_decoration: TextDecoration,
+    /// Ambient, same as `text_decoration` (see `DecorationValue`'s docs)
+    /// — always set together with it, never independently.
+    decoration_style: DecorationStyle,
     vertical_align: VerticalAlign,
     line_height: f32,
     /// Real CSS inheritance (see `Visibility`'s own docs), so this is
@@ -1872,6 +1962,7 @@ impl From<InheritedStyle> for SpanStyle {
             font_style: s.font_style,
             font_family: s.font_family,
             text_decoration: TextDecoration::new(),
+            decoration_style: DecorationStyle::default(),
             vertical_align: VerticalAlign::default(),
             line_height: s.line_height.resolve(s.font_size),
             visibility: s.visibility,
@@ -2001,7 +2092,7 @@ fn build_children_with_prefix(
         rules,
         inherited,
         None,
-        TextDecoration::new(),
+        DecorationValue::default(),
         VerticalAlign::default(),
         &mut pending,
         &mut result,
@@ -2023,16 +2114,16 @@ fn build_children_with_prefix(
 /// element's value is still the right thing to carry onto its descendants'
 /// glyphs unless a nested element sets its own — so both are threaded
 /// alongside `inherited` rather than folded into it. `decoration` is a
-/// concrete `TextDecoration` (not `Option`), since "no decoration" already
-/// has a representable off state within the type itself — an element can
-/// use that to explicitly turn off an ancestor's decoration by declaring
-/// `text-decoration: none`.
+/// concrete `DecorationValue` (not `Option`), since "no decoration"
+/// already has a representable off state within the type itself — an
+/// element can use that to explicitly turn off an ancestor's decoration by
+/// declaring `text-decoration: none`.
 fn collect_children(
     handle: &Handle,
     rules: &[StyleRule],
     inherited: InheritedStyle,
     bg: Option<TextColor>,
-    decoration: TextDecoration,
+    decoration: DecorationValue,
     valign: VerticalAlign,
     pending: &mut Vec<(String, SpanStyle)>,
     result: &mut Vec<LayoutBox>,
@@ -2042,7 +2133,8 @@ fn collect_children(
             NodeData::Text { contents } => {
                 let mut span: SpanStyle = inherited.into();
                 span.background_color = bg;
-                span.text_decoration = decoration;
+                span.text_decoration = decoration.deco;
+                span.decoration_style = decoration.style;
                 span.vertical_align = valign;
                 // `white-space: pre` preserves the text byte-for-byte
                 // (literal newlines, runs of spaces, no fabricated
@@ -2164,8 +2256,17 @@ enum LaidContent {
 /// needs to paint or hit-test it correctly, parallel to each other and to
 /// the original `spans` list by index (via cosmic-text's own per-glyph
 /// `metadata` field, set in `shape_spans`): `(height, backgrounds, vertical
-/// aligns, per-span "visibility: hidden", per-span cursor style)`.
-pub type ShapedParagraph = (Buffer, f32, Vec<Option<TextColor>>, Vec<VerticalAlign>, Vec<bool>, Vec<CursorStyle>);
+/// aligns, per-span "visibility: hidden", per-span cursor style, per-span
+/// text-decoration style)`.
+pub type ShapedParagraph = (
+    Buffer,
+    f32,
+    Vec<Option<TextColor>>,
+    Vec<VerticalAlign>,
+    Vec<bool>,
+    Vec<CursorStyle>,
+    Vec<DecorationStyle>,
+);
 
 pub type ShapeCache = std::collections::HashMap<usize, ShapedParagraph>;
 
@@ -2264,7 +2365,8 @@ fn shape_spans(
     let valigns = spans.iter().map(|(_, span)| span.vertical_align).collect();
     let hidden = spans.iter().map(|(_, span)| span.visibility == Visibility::Hidden).collect();
     let cursors = spans.iter().map(|(_, span)| span.cursor).collect();
-    (buffer, height, backgrounds, valigns, hidden, cursors)
+    let decoration_styles = spans.iter().map(|(_, span)| span.decoration_style).collect();
+    (buffer, height, backgrounds, valigns, hidden, cursors, decoration_styles)
 }
 
 /// Lays out `b`, shaping text as it goes — but only until `deadline` passes.
@@ -2300,7 +2402,7 @@ pub fn measure(
             let id = *next_id;
             *next_id += 1;
 
-            let content_h = if let Some((_, h, _, _, _, _)) = cache.get(&id) {
+            let content_h = if let Some((_, h, _, _, _, _, _)) = cache.get(&id) {
                 *h
             } else if spans.is_empty() {
                 cache.insert(
@@ -2312,18 +2414,19 @@ pub fn measure(
                         Vec::new(),
                         Vec::new(),
                         Vec::new(),
+                        Vec::new(),
                     ),
                 );
                 0.0
             } else if std::time::Instant::now() < deadline {
-                let (buffer, h, backgrounds, valigns, hidden, cursors) = shape_spans(
+                let (buffer, h, backgrounds, valigns, hidden, cursors, decoration_styles) = shape_spans(
                     font_system,
                     spans,
                     content_w,
                     s.white_space == WhiteSpace::Pre,
                     s.text_align.to_cosmic(),
                 );
-                cache.insert(id, (buffer, h, backgrounds, valigns, hidden, cursors));
+                cache.insert(id, (buffer, h, backgrounds, valigns, hidden, cursors, decoration_styles));
                 h
             } else {
                 *incomplete = true;
@@ -2636,10 +2739,13 @@ fn paint_buffer(
     // glyphs while its layout space (already reserved by `measure`, which
     // never looks at visibility) stays exactly as if it had painted.
     // Decoration lines (underline/strikethrough) aren't filtered by this —
-    // `render_decoration` draws per-run, not per-span — a known, narrow
+    // `paint_decorations` draws per-run, not per-span — a known, narrow
     // simplification: nothing in `default.css` pairs `text-decoration`
     // with `visibility: hidden` today.
     hidden: &[bool],
+    // Per-span `text-decoration-style` (by the same `glyph.metadata` index
+    // as `backgrounds`/`valigns`/`hidden`) — see `paint_decorations`.
+    decoration_styles: &[DecorationStyle],
     pixels: &mut [u32],
     win_w: u32,
     win_h: u32,
@@ -2661,10 +2767,13 @@ fn paint_buffer(
     let oy = offset_y.round() as i32;
     paint_span_backgrounds(buffer, font_system, backgrounds, hidden, pixels, win_w, win_h, ox, oy, clip);
     let default_color = TextColor::rgb(0, 0, 0);
-    // `buffer.draw()`'s own internals, copied out by hand (both public:
-    // `LegacyRenderer`, `render_decoration`) instead of called directly —
-    // it offers no hook to nudge an individual glyph's y position, which
-    // `vertical-align: sub`/`super` needs per span (looked up by
+    // `buffer.draw()`'s own internals, copied out by hand (public:
+    // `LegacyRenderer`; decoration lines via this file's own
+    // `paint_decorations` instead of cosmic-text's `render_decoration`)
+    // instead of called directly — neither offers a hook to nudge an
+    // individual glyph's y position (`vertical-align: sub`/`super`) or
+    // paint a dashed/dotted line instead of a solid one
+    // (`text-decoration-style`), both needed per span (looked up by
     // `glyph.metadata`, the same per-span index `paint_span_backgrounds`
     // already reads it by).
     buffer.shape_until_scroll(font_system, false);
@@ -2708,7 +2817,125 @@ fn paint_buffer(
             let glyph_color = glyph.color_opt.unwrap_or(default_color);
             renderer.glyph(physical_glyph, glyph_color);
         }
-        render_decoration(&mut renderer, &run, default_color);
+        paint_decorations(&mut renderer, &run, default_color, decoration_styles);
+    }
+}
+
+/// Reimplements cosmic-text's own `render_decoration`/`draw_decoration_span`
+/// (`src/render.rs` in the vendored 0.19.0 source — not `pub`, so it can't
+/// be called directly) by hand, using only `DecorationSpan`'s/
+/// `GlyphDecorationData`'s public fields, so a `DecorationStyle` other than
+/// `Solid` can paint a dashed/dotted line instead of a plain solid stroke
+/// across the same extent — a hook the public `render_decoration` doesn't
+/// offer. Mirrors its exact offset/thickness/color formulas, so
+/// `DecorationStyle::Solid` (including double-underline, which is cosmic's
+/// own native `UnderlineStyle::Double`) still looks pixel-identical to
+/// calling `render_decoration` directly; only `Dashed`/`Dotted` diverge.
+/// Each span's style is looked up by `decoration_styles[glyph.metadata]`
+/// off its first glyph — the same per-span index every other per-span
+/// property (backgrounds, valigns, ...) already uses.
+fn paint_decorations<R: Renderer>(
+    renderer: &mut R,
+    run: &cosmic_text::LayoutRun,
+    default_color: TextColor,
+    decoration_styles: &[DecorationStyle],
+) {
+    for span in run.decorations {
+        let glyphs = &run.glyphs[span.glyph_range.clone()];
+        if glyphs.is_empty() {
+            continue;
+        }
+        let style = decoration_styles.get(glyphs[0].metadata).copied().unwrap_or_default();
+        let deco = &span.data;
+        let td = &deco.text_decoration;
+        let font_size = span.font_size;
+
+        // Min/max over all glyphs, not first/last — RTL paragraphs store
+        // glyphs in right-to-left order (same reasoning as cosmic-text's
+        // own `draw_decoration_span`).
+        let mut x_min = f32::INFINITY;
+        let mut x_max = f32::NEG_INFINITY;
+        for g in glyphs {
+            x_min = x_min.min(g.x);
+            x_max = x_max.max(g.x + g.w);
+        }
+        let width = x_max - x_min;
+        if width <= 0.0 {
+            continue;
+        }
+        let x_start = x_min;
+
+        match td.underline {
+            UnderlineStyle::None => {}
+            UnderlineStyle::Single => {
+                let color = td.underline_color_opt.or(span.color_opt).unwrap_or(default_color);
+                let thickness = (deco.underline_metrics.thickness * font_size).max(1.0).ceil();
+                let y = run.line_y - deco.underline_metrics.offset * font_size;
+                paint_decoration_line(renderer, x_start, y, width, thickness, color, style);
+            }
+            UnderlineStyle::Double => {
+                let color = td.underline_color_opt.or(span.color_opt).unwrap_or(default_color);
+                let thickness = (deco.underline_metrics.thickness * font_size).max(1.0).ceil();
+                let gap = thickness;
+                let y = run.line_y - deco.underline_metrics.offset * font_size;
+                paint_decoration_line(renderer, x_start, y, width, thickness, color, style);
+                paint_decoration_line(renderer, x_start, y + thickness + gap, width, thickness, color, style);
+            }
+        }
+        if td.strikethrough {
+            let color = td.strikethrough_color_opt.or(span.color_opt).unwrap_or(default_color);
+            let thickness = (deco.strikethrough_metrics.thickness * font_size).max(1.0).ceil();
+            let y = run.line_y - deco.strikethrough_metrics.offset * font_size;
+            paint_decoration_line(renderer, x_start, y, width, thickness, color, style);
+        }
+        if td.overline {
+            let color = td.overline_color_opt.or(span.color_opt).unwrap_or(default_color);
+            // Reuse underline thickness for overline, same as cosmic-text's
+            // own `draw_decoration_span`.
+            let thickness = (deco.underline_metrics.thickness * font_size).max(1.0).ceil();
+            let y = (run.line_y - deco.ascent * font_size).max(run.line_top);
+            paint_decoration_line(renderer, x_start, y, width, thickness, color, style);
+        }
+    }
+}
+
+/// Paints one decoration line's rectangle — the whole span width in one
+/// call for `Solid`, or several short ones spaced across the same extent
+/// for `Dashed`/`Dotted`. `x_start`/`y` are in the same float coordinate
+/// space `render_decoration` itself uses (rounded to pixels by `Renderer`
+/// implementors, same as any other rectangle it draws).
+fn paint_decoration_line<R: Renderer>(
+    renderer: &mut R,
+    x_start: f32,
+    y: f32,
+    width: f32,
+    thickness: f32,
+    color: TextColor,
+    style: DecorationStyle,
+) {
+    match style {
+        DecorationStyle::Solid => {
+            let w = width as u32;
+            if w > 0 {
+                renderer.rectangle(x_start as i32, y as i32, w, thickness as u32, color);
+            }
+        }
+        DecorationStyle::Dashed | DecorationStyle::Dotted => {
+            let (mark, gap) = if style == DecorationStyle::Dotted {
+                (thickness.max(1.0), thickness.max(1.0) * 2.0)
+            } else {
+                (thickness.max(1.0) * 3.0, thickness.max(1.0) * 2.0)
+            };
+            let step = mark + gap;
+            let mut offset = 0.0f32;
+            while offset < width {
+                let seg_w = mark.min(width - offset) as u32;
+                if seg_w > 0 {
+                    renderer.rectangle((x_start + offset) as i32, y as i32, seg_w, thickness as u32, color);
+                }
+                offset += step;
+            }
+        }
     }
 }
 
@@ -2767,12 +2994,12 @@ fn paint(
             // Not yet shaped (still mid-way through a budgeted measure pass)
             // just means nothing to paint here yet — it'll appear once a
             // later frame finishes shaping it.
-            if let Some((buffer, _, backgrounds, valigns, hidden, _)) = cache.get_mut(id) {
+            if let Some((buffer, _, backgrounds, valigns, hidden, _, decoration_styles)) = cache.get_mut(id) {
                 let content_x = laid.x + s.border_width + s.padding.left;
                 let content_y = draw_y + s.border_width + s.padding.top;
                 paint_buffer(
-                    buffer, font_system, swash_cache, backgrounds, valigns, hidden, pixels, win_w, win_h,
-                    content_x, content_y, child_clip,
+                    buffer, font_system, swash_cache, backgrounds, valigns, hidden, decoration_styles, pixels,
+                    win_w, win_h, content_x, content_y, child_clip,
                 );
             }
         }
@@ -2804,7 +3031,7 @@ fn hit_test_cursor(laid: &Laid, x: f32, y: f32, cache: &ShapeCache) -> CursorSty
             laid.style.cursor
         }
         LaidContent::Text(id) => {
-            if let Some((buffer, _, _, _, _, cursors)) = cache.get(id) {
+            if let Some((buffer, _, _, _, _, cursors, _)) = cache.get(id) {
                 let content_x = laid.x + laid.style.border_width + laid.style.padding.left;
                 let content_y = laid.y + laid.style.border_width + laid.style.padding.top;
                 let local_x = x - content_x;
@@ -3162,3 +3389,4 @@ pub fn run() {
 
     event_loop.run_app(&mut app).unwrap();
 }
+
