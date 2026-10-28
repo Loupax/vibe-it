@@ -1,66 +1,49 @@
-use std::cell::RefCell;
 use std::collections::HashSet;
-use std::io::{Read as _, Write as _};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 use base64::Engine as _;
-use html5ever::driver::{parse_document, ParseOpts};
-use html5ever::tendril::TendrilSink;
-use html5ever::{Attribute, LocalName, Namespace, QualName};
-use markup5ever_rcdom::{Handle, Node, NodeData, RcDom, SerializableHandle};
+use base64::write::EncoderWriter;
 use url::Url;
 
-const XHTML_NS: &str = "http://www.w3.org/1999/xhtml";
-
 /// A real Wikipedia article can embed 200+ images — fetching each one is
-/// genuinely where almost all of this tool's wall-clock time goes (the
-/// top-level page and stylesheets are a handful of requests; images are
-/// the bulk), but printing one stderr line per image would scroll past
-/// faster than it's readable. A single `\r`-updating counter (see
-/// `fetch_as_data_uri`) gives a visible "it's still working, not hung"
-/// signal instead — the exact confusion that prompted adding this at
-/// all (`curl | snag | cargo run` looks identical to a hung pipeline for
-/// the several seconds snag is silently fetching sub-resources).
+/// genuinely where almost all of this tool's wall-clock time goes.
+/// Printing one stderr line per image would scroll past faster than it's
+/// readable, so a single `\r`-updating counter gives a visible "it's
+/// still working, not hung" signal instead.
 static RESOURCE_COUNT: AtomicU32 = AtomicU32::new(0);
 
-/// Prints one stderr status line, first dropping to a fresh line if the
-/// `\r`-updating resource counter (`fetch_as_data_uri`) has left the
-/// cursor mid-line — otherwise a message printed partway through a
-/// stylesheet's own `url()` fetches would run straight into whatever
-/// digit the counter was last showing.
-fn progress_line(msg: &str) {
-    if RESOURCE_COUNT.load(Ordering::Relaxed) > 0 {
-        eprintln!();
-    }
-    eprintln!("snag: {msg}");
-}
-
-/// Two modes, both writing the bundled result to stdout (classic Unix
-/// filter behavior — compose with `>`/`|` rather than an output-path
-/// argument):
-///   `snag <url>`  — fetches `<url>` itself and bundles it.
-///   `snag`        — reads HTML from stdin instead of fetching the top
-///                   page (e.g. `curl -s <url> | snag | scratchy`).
-///                   Sub-resources (stylesheets/images) are still fetched
-///                   over the network either way — only the *top-level*
-///                   page's own fetch is skipped in this mode. Since
-///                   there's no URL argument to resolve relative links
-///                   against, one has to come from the document itself:
-///                   `<base href>` if present, else `<link
-///                   rel="canonical">` (which real sites, including
-///                   MediaWiki, always emit as an absolute URL). No usable
-///                   base at all → hard error, since silently leaving
-///                   every relative link unresolved would produce a
-///                   "bundle" that's barely different from the raw page.
+/// A true streaming tag-and-resource-inlining filter, not a parse/mutate/
+/// serialize batch tool (that was v1-v4's design; rewritten here because
+/// it meant buffering the *entire* document, fetching *every* resource,
+/// and holding the whole tree in memory before writing a single byte of
+/// output — scratchy, piped straight after this, renders incrementally
+/// as bytes arrive, so none of that buffering was earning its keep).
+///
+/// The model, exactly as asked for: every tag that doesn't fetch a
+/// resource is copied to stdout byte-for-byte, unexamined, the instant
+/// it's read. A `<link rel=stylesheet>` or `<img src=...>`/`<style>`
+/// with `url(...)` references fetches synchronously and writes the
+/// fetched content in its place; everything else (including `<script>`,
+/// explicitly left untouched) passes straight through, exactly as
+/// found — no re-serialization, no normalized quoting, no added or
+/// dropped closing tags beyond what the source itself had.
+///
+/// `snag [url]`: `snag <url>` fetches `<url>` itself and streams its
+/// *response body* straight into the tag scanner (never buffered as a
+/// whole string). `snag` alone streams stdin the same way. Either way,
+/// output starts flowing before the fetch (or stdin read) even
+/// finishes.
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     if args.len() > 2 {
         eprintln!("usage: snag [url]");
-        eprintln!("  snag <url>   fetch <url>, bundle it, write to stdout");
-        eprintln!("  snag         bundle HTML read from stdin instead of fetching it");
+        eprintln!("  snag <url>   fetch <url>, stream the bundled result to stdout");
+        eprintln!("  snag         bundle HTML streamed from stdin instead of fetching it");
         eprintln!("               (relative links resolve against <base href> or");
-        eprintln!("               <link rel=canonical>); e.g. curl -s <url> | snag");
+        eprintln!("               <link rel=canonical>, found by scanning ahead no");
+        eprintln!("               further than the end of <head>); e.g. curl -s <url> | snag");
         std::process::exit(1);
     }
 
@@ -69,7 +52,10 @@ fn main() {
         .user_agent("snag/0.1 (+https://github.com/Loupax/vibe-it) scratchy test fixture bundler")
         .build();
 
-    let (explicit_url, html_bytes) = if let Some(arg) = args.get(1) {
+    let stdout = std::io::stdout();
+    let mut out = stdout.lock();
+
+    if let Some(arg) = args.get(1) {
         let url = match Url::parse(arg) {
             Ok(u) => u,
             Err(e) => {
@@ -78,51 +64,250 @@ fn main() {
             }
         };
         progress_line(&format!("fetching {url}"));
-        let text = match fetch_text(&agent, &url) {
-            Ok(t) => t,
+        let resp = match agent.get(url.as_str()).call() {
+            Ok(r) => r,
             Err(e) => {
                 eprintln!("snag: failed to fetch {url}: {e}");
                 std::process::exit(1);
             }
         };
-        (Some(url), text.into_bytes())
-    } else {
-        let mut bytes = Vec::new();
-        if let Err(e) = std::io::stdin().read_to_end(&mut bytes) {
-            eprintln!("snag: failed to read stdin: {e}");
-            std::process::exit(1);
+        let mut reader = BufReader::new(resp.into_reader());
+        let mut visited_css = HashSet::new();
+        if let Err(e) = stream_body(&mut reader, &mut out, Some(&url), &agent, &mut visited_css) {
+            finish_with_io_error(e);
         }
-        (None, bytes)
-    };
-
-    let dom = parse_document(RcDom::default(), ParseOpts::default())
-        .from_utf8()
-        .read_from(&mut html_bytes.as_slice())
-        .expect("parsing a byte stream can't fail with an I/O error");
-
-    let Some(base) = determine_base(&dom.document, explicit_url.as_ref()) else {
-        eprintln!("snag: no URL given and the page has neither <base href> nor");
-        eprintln!("      <link rel=canonical> — can't resolve its relative links");
-        std::process::exit(1);
-    };
-
-    let mut visited_css = HashSet::new();
-    walk(&dom.document, &base, &agent, &mut visited_css);
-    if RESOURCE_COUNT.load(Ordering::Relaxed) > 0 {
-        eprintln!(); // terminate the `\r`-updating progress line
+    } else {
+        let stdin = std::io::stdin();
+        let mut reader = BufReader::new(stdin.lock());
+        match discover_base(&mut reader) {
+            Ok(DiscoveredBase { base, head }) => {
+                if base.is_none() {
+                    // Not fatal — a page with nothing to fetch (no
+                    // relative stylesheet/image references at all) is
+                    // perfectly fine without one. Only an actual
+                    // resolution attempt with no base to resolve
+                    // against falls back to passthrough (see
+                    // `stream_body`); this is just advance notice of
+                    // why that might happen.
+                    eprintln!("snag: no <base href> or <link rel=canonical> found in <head> —");
+                    eprintln!("      relative stylesheet/image references won't be inlined");
+                }
+                let mut chained = std::io::Cursor::new(head).chain(reader);
+                let mut visited_css = HashSet::new();
+                if let Err(e) = stream_body(&mut chained, &mut out, base.as_ref(), &agent, &mut visited_css) {
+                    finish_with_io_error(e);
+                }
+            }
+            Err(e) => finish_with_io_error(e),
+        }
     }
+}
 
-    let stdout = std::io::stdout();
-    let serializable: SerializableHandle = dom.document.clone().into();
-    // A downstream reader closing early (`snag ... | head`) makes this
-    // write fail with `BrokenPipe` — not a real error, just the normal
-    // shape of a Unix pipeline, so it exits quietly rather than panicking
-    // with a scary backtrace. Anything else genuinely is unexpected.
-    if let Err(e) = html5ever::serialize::serialize(stdout.lock(), &serializable, Default::default())
-        && e.kind() != std::io::ErrorKind::BrokenPipe
-    {
-        eprintln!("snag: failed writing output: {e}");
-        std::process::exit(1);
+fn finish_with_io_error(e: std::io::Error) {
+    if e.kind() == std::io::ErrorKind::BrokenPipe {
+        // A downstream reader closing early (`snag ... | head`) — the
+        // normal shape of a Unix pipeline, not a real error.
+        return;
+    }
+    eprintln!("snag: {e}");
+    std::process::exit(1);
+}
+
+fn progress_line(msg: &str) {
+    if RESOURCE_COUNT.load(Ordering::Relaxed) > 0 {
+        eprintln!();
+    }
+    eprintln!("snag: {msg}");
+}
+
+// ---------- base URL discovery (stdin mode only) ----------
+//
+// `snag <url>` already knows its base the instant it starts — no lookahead
+// needed, full streaming from byte one. Reading from stdin has no such
+// URL, and *something* has to anchor every relative link in the page to
+// an absolute one. The obvious candidates — `<base href>` or `<link
+// rel=canonical>` — don't reliably come first: real pages (confirmed on
+// Wikipedia) put `<link rel=stylesheet>` tags *before* `<link
+// rel=canonical>` in `<head>`, so there's no way to resolve the first
+// stylesheet's `href` without having already looked further ahead in the
+// document than that tag itself. This is the one deliberate exception to
+// "don't buffer anything": the `<head>` section (small — a few KB on a
+// real page, nowhere near the size of the full document or its
+// resources) is buffered just long enough to find a base, then replayed
+// through the exact same streaming processor used for everything after
+// it (via `Read::chain`) — so the buffering is bounded and one-time, not
+// a growing in-memory document.
+
+struct DiscoveredBase {
+    base: Option<Url>,
+    /// Every byte consumed while searching — handed back so the caller
+    /// can replay it through `stream_body` instead of losing it.
+    head: Vec<u8>,
+}
+
+/// Capped so a pathological page without a `</head>` (or any head tag
+/// recognized by name) can't make this buffer grow unboundedly — treated
+/// the same as "no base found" once hit.
+const HEAD_SCAN_CAP: usize = 1 << 20; // 1 MiB
+
+fn discover_base(reader: &mut impl BufRead) -> std::io::Result<DiscoveredBase> {
+    let mut head = Vec::new();
+    loop {
+        let n = reader.read_until(b'<', &mut head)?;
+        if n == 0 {
+            return Ok(DiscoveredBase { base: None, head });
+        }
+        let Some(tag) = read_tag(reader, &mut head)? else {
+            return Ok(DiscoveredBase { base: None, head });
+        };
+        if !tag.closing {
+            let is_base_source = tag.name == "base" || (tag.name == "link" && tag.rel_has("canonical"));
+            if is_base_source {
+                if let Some(href) = tag.attr("href")
+                    && let Ok(u) = Url::parse(href)
+                {
+                    return Ok(DiscoveredBase { base: Some(u), head });
+                }
+            } else if tag.is_raw_text_element() {
+                // Don't let a <style>/<script> in the head confuse the
+                // scan — skip its content the same way the main loop
+                // would, without acting on it (nothing fetchable can
+                // establish a base anyway).
+                skip_raw_text_content(reader, &mut head, &tag.name)?;
+            }
+        } else if tag.name == "head" {
+            return Ok(DiscoveredBase { base: None, head });
+        }
+        if head.len() > HEAD_SCAN_CAP {
+            return Ok(DiscoveredBase { base: None, head });
+        }
+    }
+}
+
+// ---------- the streaming processor ----------
+
+/// Reads tags and text from `reader`, writing to `out` as it goes.
+/// Recognized resource-fetching tags are replaced with their fetched
+/// content (flushed immediately after); everything else — every other
+/// tag, every text run, comments, the doctype, `<script>` included — is
+/// copied through exactly as found, the moment it's read.
+fn stream_body(
+    reader: &mut impl BufRead,
+    out: &mut impl Write,
+    base: Option<&Url>,
+    agent: &ureq::Agent,
+    visited_css: &mut HashSet<String>,
+) -> std::io::Result<()> {
+    loop {
+        let mut chunk = Vec::new();
+        reader.read_until(b'<', &mut chunk)?;
+        // `read_until`'s return value alone can't tell "found the
+        // delimiter" apart from "hit EOF without one" — both read a
+        // positive byte count whenever there's trailing text before the
+        // end of input. Checking the last byte can: it's only `<` when
+        // the delimiter genuinely terminated the read, not when EOF cut
+        // it off first (the empty-input case also falls out of this
+        // correctly, since `chunk.last()` is `None` either way).
+        if chunk.last() != Some(&b'<') {
+            out.write_all(&chunk)?;
+            out.flush()?;
+            return Ok(());
+        }
+        // Everything up to (but not including) the '<' is plain text —
+        // write it now, before even looking at the tag that follows.
+        out.write_all(&chunk[..chunk.len() - 1])?;
+
+        let mut tag_bytes = vec![b'<'];
+        let Some(tag) = read_tag(reader, &mut tag_bytes)? else {
+            // EOF mid-tag (truncated input) — write whatever was read
+            // and stop, same as any other unexpected-EOF case.
+            out.write_all(&tag_bytes)?;
+            out.flush()?;
+            return Ok(());
+        };
+
+        if tag.closing || tag.name != "link" && tag.name != "style" && tag.name != "img" {
+            // Not a tag this file does anything special with — copied
+            // through byte-for-byte, including <script> (left alone on
+            // purpose) and any closing tag.
+            out.write_all(&tag.raw)?;
+            if tag.is_raw_text_element() {
+                stream_raw_text_passthrough(reader, out, &tag.name)?;
+            }
+            continue;
+        }
+
+        match tag.name.as_str() {
+            "link" if tag.rel_has("stylesheet") => {
+                let Some(href) = tag.attr("href") else {
+                    out.write_all(&tag.raw)?;
+                    continue;
+                };
+                let Some(target) = base.and_then(|b| b.join(href).ok()) else {
+                    out.write_all(&tag.raw)?;
+                    continue;
+                };
+                if !visited_css.insert(target.to_string()) {
+                    continue; // duplicate stylesheet, already inlined once — drop silently
+                }
+                progress_line(&format!("inlining stylesheet {target}"));
+                out.write_all(b"<style>")?;
+                if let Ok(text) = fetch_text(agent, &target) {
+                    let processed = process_css(&text, &target, agent, visited_css);
+                    out.write_all(processed.as_bytes())?;
+                }
+                out.write_all(b"</style>")?;
+                out.flush()?;
+            }
+            "link" => out.write_all(&tag.raw)?,
+            "style" => {
+                out.write_all(&tag.raw)?;
+                let content = read_raw_text_content(reader, "style")?;
+                match base {
+                    Some(base) => {
+                        let text = String::from_utf8_lossy(&content.text);
+                        let processed = process_css(&text, base, agent, visited_css);
+                        out.write_all(processed.as_bytes())?;
+                    }
+                    // No base to resolve this stylesheet's own url()s
+                    // against — pass its content through unprocessed
+                    // rather than guessing.
+                    None => out.write_all(&content.text)?,
+                }
+                out.write_all(&content.closing_tag)?;
+                out.flush()?;
+            }
+            "img" => {
+                let Some(src) = tag.attr("src") else {
+                    out.write_all(&tag.raw)?;
+                    continue;
+                };
+                if src.starts_with("data:") {
+                    out.write_all(&tag.raw)?;
+                    continue;
+                }
+                let Some(target) = base.and_then(|b| b.join(src).ok()) else {
+                    out.write_all(&tag.raw)?;
+                    continue;
+                };
+                let before = replace_src_with_placeholder(&tag.raw);
+                match before {
+                    Some((prefix, suffix)) => {
+                        out.write_all(&prefix)?;
+                        if !stream_data_uri(agent, &target, out)? {
+                            // Unreachable — fall back to the original
+                            // (now-broken, but harmless) src rather than
+                            // leaving a dangling data: prefix.
+                            out.write_all(src.as_bytes())?;
+                        }
+                        out.write_all(&suffix)?;
+                    }
+                    None => out.write_all(&tag.raw)?,
+                }
+                out.flush()?;
+            }
+            _ => unreachable!("filtered above"),
+        }
     }
 }
 
@@ -133,10 +318,12 @@ fn fetch_text(agent: &ureq::Agent, url: &Url) -> Result<String, String> {
     resp.into_string().map_err(|e| e.to_string())
 }
 
-/// Fetches `url` and returns it as a `data:` URI (base64-encoded), or
-/// `None` on any failure (unreachable, non-2xx, I/O error) — a missing
-/// sub-resource shouldn't abort the whole bundle, it should just stay as
-/// whatever the caller falls back to.
+/// Buffers one sub-resource fully and returns it as a `data:` URI string
+/// — used only from CSS `url()` rewriting (`rewrite_urls`), where the
+/// result has to be spliced into an in-memory CSS string anyway, so
+/// there's nothing to stream *into*. The much more common, much higher-
+/// volume case (`<img src>`, handled by `stream_data_uri` below) never
+/// buffers the image at all.
 fn fetch_as_data_uri(agent: &ureq::Agent, url: &Url) -> Option<String> {
     let resp = agent.get(url.as_str()).call().ok()?;
     let content_type = resp.content_type().to_string();
@@ -148,10 +335,42 @@ fn fetch_as_data_uri(agent: &ureq::Agent, url: &Url) -> Option<String> {
         content_type
     };
     let encoded = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    note_resource_fetched();
+    Some(format!("data:{mime};base64,{encoded}"))
+}
+
+/// Fetches `url` and writes `data:<mime>;base64,<encoded>` straight to
+/// `out` — the response body is streamed through a `base64` encoding
+/// `Write` adapter one chunk at a time via `io::copy`, so the image
+/// bytes are never held in memory as a whole, however large. Returns
+/// `false` (writes nothing) on any failure, leaving it to the caller to
+/// fall back to the original `src`.
+fn stream_data_uri(agent: &ureq::Agent, url: &Url, out: &mut impl Write) -> std::io::Result<bool> {
+    let Ok(resp) = agent.get(url.as_str()).call() else { return Ok(false) };
+    let content_type = resp.content_type().to_string();
+    let mime = if content_type.is_empty() || content_type == "text/plain" {
+        guess_mime(url.path())
+    } else {
+        content_type
+    };
+    write!(out, "data:{mime};base64,")?;
+    let engine = base64::engine::general_purpose::STANDARD;
+    let mut encoder = EncoderWriter::new(&mut *out, &engine);
+    let mut body = resp.into_reader();
+    if std::io::copy(&mut body, &mut encoder).is_err() {
+        return Ok(false);
+    }
+    if encoder.finish().is_err() {
+        return Ok(false);
+    }
+    note_resource_fetched();
+    Ok(true)
+}
+
+fn note_resource_fetched() {
     let n = RESOURCE_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
     eprint!("\rsnag: inlined {n} resources so far...");
     let _ = std::io::stderr().flush();
-    Some(format!("data:{mime};base64,{encoded}"))
 }
 
 fn guess_mime(path: &str) -> String {
@@ -173,20 +392,15 @@ fn guess_mime(path: &str) -> String {
     .to_string()
 }
 
-// ---------- CSS text rewriting ----------
+// ---------- CSS text rewriting (unchanged from v1 — see its own docs) ----------
 //
-// Deliberately a hand-rolled text scanner, not a round-trip CSS parser —
-// `cssparser` (already a dependency, reused from the html5ever/rcdom
-// stack scratchy itself uses) is a parser-consumer, not a source-
-// preserving rewriter, so reconstructing exact CSS text token-by-token
-// would need its own serializer. A plain scan for `@import` and `url(`
-// is simpler, and correct for the overwhelming majority of real-world
-// CSS (including Wikipedia's, which is machine-generated/minified, not
-// hand-crafted to break a scanner). Known, accepted gap: a comment or
-// string literal that happens to *contain* the literal text `url(` or
-// `@import` could be misdetected — not handled, since it's rare in
-// practice and full comment/string-aware tokenizing is a lot of extra
-// machinery for an edge case that hasn't actually come up.
+// Still a hand-rolled text scanner, still buffers one stylesheet's text
+// at a time rather than the whole document: `@import`/`url(...)`
+// rewriting inherently needs to look ahead for a matching terminator
+// (`;`, `)`), so *some* bounded, per-resource buffering is unavoidable
+// here the same way it is for `<head>`-scanning above — the thing that's
+// gone is buffering the *entire multi-megabyte document* before writing
+// anything, not buffering one stylesheet's text (typically tens of KB).
 
 /// Fetches and fully resolves one stylesheet's text: inlines `@import`s
 /// (recursively, each resolved relative to *its own* URL, not the
@@ -210,7 +424,6 @@ fn inline_imports(css: &str, base: &Url, agent: &ureq::Agent, visited: &mut Hash
         let start = i + rel;
         out.push_str(&css[i..start]);
         let Some(semi_rel) = css[start..].find(';') else {
-            // Malformed (no terminator) — keep the rest verbatim and stop.
             out.push_str(&css[start..]);
             break;
         };
@@ -219,22 +432,15 @@ fn inline_imports(css: &str, base: &Url, agent: &ureq::Agent, visited: &mut Hash
         let Some(raw_url) = extract_import_url(stmt) else { continue };
         let Ok(target) = base.join(&raw_url) else { continue };
         if !visited.insert(target.to_string()) {
-            continue; // already inlined this exact stylesheet — skip the dupe/cycle
+            continue;
         }
         if let Ok(text) = fetch_text(agent, &target) {
             out.push_str(&process_css(&text, &target, agent, visited));
         }
-        // Fetch failure: drop the import silently, same as any other
-        // unreachable sub-resource.
     }
     out
 }
 
-/// Pulls the URL out of an `@import` statement's body (everything after
-/// `@import`, before the terminating `;`) — `url(X)`, `"X"`, or `'X'`,
-/// optionally followed by a media-query condition that's just ignored
-/// (scratchy doesn't support `@media` either, so there's nothing for it
-/// to select between).
 fn extract_import_url(stmt: &str) -> Option<String> {
     let rest = stmt.trim_start();
     if let Some(r) = rest.strip_prefix("url(").or_else(|| rest.strip_prefix("URL(")) {
@@ -262,11 +468,6 @@ fn unquote(s: &str) -> String {
     }
 }
 
-/// Rewrites every `url(...)` in `css` (background images, `@font-face`
-/// `src`, ...) to a `data:` URI fetched relative to `base`. Leaves an
-/// already-`data:` URI alone, and leaves a reference this file couldn't
-/// fetch as its original (now probably-broken, but harmless — scratchy
-/// just won't find anything to paint there) URL rather than dropping it.
 fn rewrite_urls(css: &str, base: &Url, agent: &ureq::Agent) -> String {
     let lower = css.to_ascii_lowercase();
     let mut out = String::with_capacity(css.len());
@@ -300,11 +501,6 @@ fn rewrite_urls(css: &str, base: &Url, agent: &ureq::Agent) -> String {
     out
 }
 
-/// Finds the index of the `)` that closes a `url(...)` call, skipping
-/// over a quoted argument's contents first (which could itself contain a
-/// `)`, e.g. `url("a)b.png")`) — doesn't handle a backslash-escaped quote
-/// inside the string, a narrow gap accepted for the same reason as the
-/// module-level scanning limitations above.
 fn find_url_close_paren(s: &str) -> Option<usize> {
     let bytes = s.as_bytes();
     let mut i = 0;
@@ -321,196 +517,343 @@ fn find_url_close_paren(s: &str) -> Option<usize> {
     s[i..].find(')').map(|p| i + p)
 }
 
-// ---------- DOM walking ----------
+// ---------- tag scanning ----------
+//
+// Deliberately hand-rolled rather than driven through html5ever's own
+// tokenizer/tree builder: this file needs byte-exact pass-through of
+// everything it doesn't specifically act on (original attribute
+// quoting, self-closing slashes, whether a void element happened to
+// have a stray closing tag in the source or not, ...), and a real
+// parser's job is the opposite of that — normalizing input into a
+// canonical structure, which is exactly what v1-v4 used it for and
+// exactly what this rewrite moved away from.
 
-enum NodeAction {
-    Keep,
-    Remove,
-    Replace(Handle),
+struct RawTag {
+    /// The exact bytes as found in the source, `<` through `>` inclusive.
+    raw: Vec<u8>,
+    name: String,
+    closing: bool,
+    attrs: Vec<(String, String)>,
 }
 
-/// Walks `handle`'s children, replacing/removing/mutating nodes as
-/// `process_node` decides, then recurses into whatever's kept. Builds a
-/// fresh children `Vec` and swaps it in at the end rather than mutating
-/// mid-iteration, so replacing a `<link>` with a `<style>` (or dropping a
-/// `<script>`) at the same position can't conflict with the `RefCell`
-/// borrow still iterating over the old list.
-fn walk(handle: &Handle, base: &Url, agent: &ureq::Agent, visited_css: &mut HashSet<String>) {
-    let children = handle.children.borrow().clone();
-    let mut new_children = Vec::with_capacity(children.len());
-    for child in children {
-        match process_node(&child, base, agent, visited_css) {
-            NodeAction::Remove => {}
-            NodeAction::Replace(replacement) => new_children.push(replacement),
-            NodeAction::Keep => {
-                walk(&child, base, agent, visited_css);
-                new_children.push(child);
-            }
-        }
+impl RawTag {
+    fn attr(&self, name: &str) -> Option<&str> {
+        self.attrs.iter().find(|(k, _)| k == name).map(|(_, v)| v.as_str())
     }
-    *handle.children.borrow_mut() = new_children;
+
+    fn rel_has(&self, value: &str) -> bool {
+        self.attr("rel")
+            .map(|r| r.split_ascii_whitespace().any(|t| t.eq_ignore_ascii_case(value)))
+            .unwrap_or(false)
+    }
+
+    /// `<style>`/`<script>` are HTML "raw text" elements — their content
+    /// isn't parsed for nested tags at all, only the literal closing tag
+    /// text ends them. Anything that scans tag-by-tag has to know this,
+    /// or `if (a < b)` inside a `<script>` would be misread as a tag.
+    fn is_raw_text_element(&self) -> bool {
+        !self.closing && (self.name == "style" || self.name == "script")
+    }
 }
 
-fn process_node(handle: &Handle, base: &Url, agent: &ureq::Agent, visited_css: &mut HashSet<String>) -> NodeAction {
-    let NodeData::Element { name, attrs, .. } = &handle.data else {
-        return NodeAction::Keep;
-    };
-    match name.local.as_ref() {
-        // Never executed by scratchy (no JS engine) — stripped outright
-        // rather than left as unused dead weight in the bundle.
-        "script" => NodeAction::Remove,
-        "link" => {
-            let is_stylesheet = get_attr(attrs, "rel")
-                .map(|r| r.split_ascii_whitespace().any(|t| t.eq_ignore_ascii_case("stylesheet")))
-                .unwrap_or(false);
-            if !is_stylesheet {
-                return NodeAction::Keep;
-            }
-            let Some(href) = get_attr(attrs, "href") else { return NodeAction::Keep };
-            let Ok(target) = base.join(&href) else { return NodeAction::Keep };
-            if !visited_css.insert(target.to_string()) {
-                return NodeAction::Remove; // duplicate stylesheet, already inlined once
-            }
-            progress_line(&format!("inlining stylesheet {target}"));
-            match fetch_text(agent, &target) {
-                Ok(text) => {
-                    let processed = process_css(&text, &target, agent, visited_css);
-                    NodeAction::Replace(make_style_node(&processed))
+/// Reads one tag's bytes, starting right after the `<` already pushed
+/// onto `buf` by the caller, through and including the matching `>`
+/// (comment- and quote-aware: a `>` inside a `"..."`/`'...'` attribute
+/// value or a `<!-- ... -->` comment doesn't end the tag/comment early).
+/// Appends every byte read to `buf` either way. Returns `None` on EOF
+/// before a terminating `>` was found — the caller treats that as "pass
+/// through whatever was read" (truncated input), not an error.
+fn read_tag(reader: &mut impl BufRead, buf: &mut Vec<u8>) -> std::io::Result<Option<RawTag>> {
+    let start = buf.len() - 1; // index of the '<' already in buf
+
+    // `<!--` is the one construct allowed to contain an unquoted `>` —
+    // scan for the literal `-->` terminator instead of a bare `>`.
+    let mut peek = [0u8; 3];
+    if peek_bytes(reader, &mut peek)? == 3 && &peek == b"!--" {
+        buf.extend_from_slice(&peek);
+        reader.consume(3);
+        read_until_sequence(reader, buf, b"-->")?;
+        return Ok(Some(finish_tag(buf, start, false)));
+    }
+
+    let mut quote: Option<u8> = None;
+    loop {
+        let mut byte = [0u8; 1];
+        if reader.read(&mut byte)? == 0 {
+            return Ok(None);
+        }
+        let b = byte[0];
+        buf.push(b);
+        match quote {
+            Some(q) => {
+                if b == q {
+                    quote = None;
                 }
-                Err(_) => NodeAction::Remove, // unreachable — drop rather than leave a dead <link>
             }
+            None => match b {
+                b'"' | b'\'' => quote = Some(b),
+                b'>' => return Ok(Some(parse_tag(buf, start))),
+                _ => {}
+            },
         }
-        "style" => {
-            let text = collect_text(handle);
-            let processed = process_css(&text, base, agent, visited_css);
-            replace_text_children(handle, &processed);
-            NodeAction::Keep
-        }
-        "img" => {
-            if let Some(src) = get_attr(attrs, "src")
-                && !src.starts_with("data:")
-                && let Ok(target) = base.join(&src)
-                && let Some(data_uri) = fetch_as_data_uri(agent, &target)
-            {
-                set_attr(attrs, "src", &data_uri);
-            }
-            // Unused until scratchy has a notion of responsive image
-            // candidates — left in would just be clutter full of
-            // relative URLs nothing will ever resolve.
-            remove_attr(attrs, "srcset");
-            NodeAction::Keep
-        }
-        "a" => {
-            if let Some(href) = get_attr(attrs, "href")
-                && let Ok(target) = base.join(&href)
-            {
-                set_attr(attrs, "href", target.as_str());
-            }
-            NodeAction::Keep
-        }
-        _ => NodeAction::Keep,
     }
 }
 
-fn get_attr(attrs: &RefCell<Vec<Attribute>>, name: &str) -> Option<String> {
-    attrs.borrow().iter().find(|a| a.name.local.as_ref() == name).map(|a| a.value.to_string())
+fn peek_bytes(reader: &mut impl BufRead, out: &mut [u8]) -> std::io::Result<usize> {
+    let avail = reader.fill_buf()?;
+    let n = avail.len().min(out.len());
+    out[..n].copy_from_slice(&avail[..n]);
+    Ok(n)
 }
 
-fn set_attr(attrs: &RefCell<Vec<Attribute>>, name: &str, value: &str) {
-    let mut attrs = attrs.borrow_mut();
-    if let Some(a) = attrs.iter_mut().find(|a| a.name.local.as_ref() == name) {
-        a.value = value.into();
+/// Reads (and appends to `buf`) until `needle` has been fully matched,
+/// inclusive, or EOF.
+fn read_until_sequence(reader: &mut impl BufRead, buf: &mut Vec<u8>, needle: &[u8]) -> std::io::Result<bool> {
+    let mut matched = 0usize;
+    loop {
+        let mut byte = [0u8; 1];
+        if reader.read(&mut byte)? == 0 {
+            return Ok(false);
+        }
+        buf.push(byte[0]);
+        if byte[0] == needle[matched] {
+            matched += 1;
+            if matched == needle.len() {
+                return Ok(true);
+            }
+        } else {
+            matched = if byte[0] == needle[0] { 1 } else { 0 };
+        }
     }
 }
 
-fn remove_attr(attrs: &RefCell<Vec<Attribute>>, name: &str) {
-    attrs.borrow_mut().retain(|a| a.name.local.as_ref() != name);
+fn finish_tag(buf: &[u8], start: usize, closing: bool) -> RawTag {
+    RawTag { raw: buf[start..].to_vec(), name: String::new(), closing, attrs: Vec::new() }
 }
 
-fn collect_text(handle: &Handle) -> String {
-    let mut out = String::new();
-    for child in handle.children.borrow().iter() {
-        if let NodeData::Text { contents } = &child.data {
-            out.push_str(&contents.borrow());
+fn parse_tag(buf: &[u8], start: usize) -> RawTag {
+    let raw = buf[start..].to_vec();
+    let Ok(s) = std::str::from_utf8(&raw) else {
+        return RawTag { raw, name: String::new(), closing: false, attrs: Vec::new() };
+    };
+    let inner = s.trim_start_matches('<').trim_end_matches('>');
+    let (closing, inner) = match inner.strip_prefix('/') {
+        Some(rest) => (true, rest),
+        None => (false, inner),
+    };
+    let inner = inner.strip_suffix('/').unwrap_or(inner); // self-closing slash, if any
+    let name_end = inner.find(|c: char| c.is_ascii_whitespace()).unwrap_or(inner.len());
+    let name = inner[..name_end].to_ascii_lowercase();
+    let attrs = if closing { Vec::new() } else { parse_attrs(&inner[name_end..]) };
+    RawTag { raw, name, closing, attrs }
+}
+
+fn parse_attrs(s: &str) -> Vec<(String, String)> {
+    let mut attrs = Vec::new();
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+            i += 1;
         }
+        if i >= bytes.len() {
+            break;
+        }
+        let name_start = i;
+        while i < bytes.len() && !bytes[i].is_ascii_whitespace() && bytes[i] != b'=' {
+            i += 1;
+        }
+        if i == name_start {
+            i += 1;
+            continue;
+        }
+        let name = s[name_start..i].to_ascii_lowercase();
+        while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+            i += 1;
+        }
+        if i < bytes.len() && bytes[i] == b'=' {
+            i += 1;
+            while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+                i += 1;
+            }
+            if i < bytes.len() && (bytes[i] == b'"' || bytes[i] == b'\'') {
+                let quote = bytes[i];
+                i += 1;
+                let val_start = i;
+                while i < bytes.len() && bytes[i] != quote {
+                    i += 1;
+                }
+                attrs.push((name, decode_entities(&s[val_start..i])));
+                if i < bytes.len() {
+                    i += 1;
+                }
+            } else {
+                let val_start = i;
+                while i < bytes.len() && !bytes[i].is_ascii_whitespace() {
+                    i += 1;
+                }
+                attrs.push((name, decode_entities(&s[val_start..i])));
+            }
+        } else {
+            attrs.push((name, String::new()));
+        }
+    }
+    attrs
+}
+
+/// A minimal entity decoder — just the 5 predefined XML entities plus
+/// numeric character references (`&#NN;`/`&#xHH;`), not the full HTML5
+/// named-entity table (`&nbsp;` and friends). The only place decoded
+/// values are actually *used* for is resolving a URL to fetch
+/// (`href`/`src`), and `&amp;` in a query string (seen constantly in
+/// real `href`s, e.g. MediaWiki's `?lang=de&amp;modules=...`) is by far
+/// the dominant real-world case — anything else passes through
+/// literally rather than failing to decode.
+fn decode_entities(s: &str) -> String {
+    if !s.contains('&') {
+        return s.to_string();
+    }
+    let mut out = String::with_capacity(s.len());
+    let bytes = s.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'&'
+            && let Some(semi) = s[i..].find(';')
+        {
+            let entity = &s[i + 1..i + semi];
+            let decoded = match entity {
+                "amp" => Some('&'),
+                "lt" => Some('<'),
+                "gt" => Some('>'),
+                "quot" => Some('"'),
+                "apos" => Some('\''),
+                _ if entity.starts_with(['#', 'x', 'X']) => decode_numeric_entity(entity),
+                _ => None,
+            };
+            if let Some(c) = decoded {
+                out.push(c);
+                i += semi + 1;
+                continue;
+            }
+        }
+        let ch_len = s[i..].chars().next().map(char::len_utf8).unwrap_or(1);
+        out.push_str(&s[i..i + ch_len]);
+        i += ch_len;
     }
     out
 }
 
-fn replace_text_children(handle: &Handle, text: &str) {
-    let text_node = Node::new(NodeData::Text { contents: RefCell::new(text.into()) });
-    *handle.children.borrow_mut() = vec![text_node];
+fn decode_numeric_entity(entity: &str) -> Option<char> {
+    let num = entity.strip_prefix('#')?;
+    let code = if let Some(hex) = num.strip_prefix('x').or_else(|| num.strip_prefix('X')) {
+        u32::from_str_radix(hex, 16).ok()
+    } else {
+        num.parse::<u32>().ok()
+    };
+    code.and_then(char::from_u32)
 }
 
-fn make_style_node(css_text: &str) -> Handle {
-    let name = QualName::new(None, Namespace::from(XHTML_NS), LocalName::from("style"));
-    let node = Node::new(NodeData::Element {
-        name,
-        attrs: RefCell::new(Vec::new()),
-        template_contents: RefCell::new(None),
-        mathml_annotation_xml_integration_point: false,
-    });
-    let text_node = Node::new(NodeData::Text { contents: RefCell::new(css_text.into()) });
-    node.children.borrow_mut().push(text_node);
-    node
-}
-
-/// The base URL every relative link in the document resolves against.
-/// `<base href>` always wins when present (resolved against
-/// `explicit_url`, if there is one, in case the `<base href>` is itself
-/// relative — unusual but valid); otherwise `explicit_url` itself (the
-/// `snag <url>` case); otherwise `<link rel="canonical">` — the only
-/// option left once there's neither an explicit URL nor a `<base>` tag
-/// (the `snag` *-reading-stdin* case), and real sites emit it as an
-/// absolute URL, so no further fallback is attempted against it.
-fn determine_base(dom_root: &Handle, explicit_url: Option<&Url>) -> Option<Url> {
-    if let Some(href) = find_tag_href(dom_root, "base") {
-        if let Ok(u) = Url::parse(&href) {
-            return Some(u);
+/// Replaces `<img ...>`'s `src="..."` value with a placeholder split
+/// point: returns `(bytes before the value, bytes from the closing
+/// quote onward)`, so the caller can stream the replacement value
+/// directly between them without ever holding the whole tag — or the
+/// image — assembled in memory. `None` if `src` isn't a quoted attribute
+/// (unquoted `src=foo.png` is accepted when *reading* it, matching
+/// `parse_attrs`, but not when *rewriting* it in place — a narrow,
+/// documented gap: real/machine-generated markup, including
+/// Wikipedia's, always quotes its attributes).
+fn replace_src_with_placeholder(tag_raw: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
+    let s = std::str::from_utf8(tag_raw).ok()?;
+    let lower = s.to_ascii_lowercase();
+    let mut search_from = 0;
+    while let Some(rel) = lower[search_from..].find("src=") {
+        let pos = search_from + rel;
+        let preceded_ok = pos == 0 || s.as_bytes()[pos - 1].is_ascii_whitespace();
+        if preceded_ok {
+            let after_eq = pos + "src=".len();
+            if after_eq < s.len() && (s.as_bytes()[after_eq] == b'"' || s.as_bytes()[after_eq] == b'\'') {
+                let quote = s.as_bytes()[after_eq];
+                let val_start = after_eq + 1;
+                if let Some(end_rel) = s[val_start..].find(quote as char) {
+                    let val_end = val_start + end_rel;
+                    return Some((s.as_bytes()[..val_start].to_vec(), s.as_bytes()[val_end..].to_vec()));
+                }
+            }
         }
-        if let Some(p) = explicit_url
-            && let Ok(u) = p.join(&href)
-        {
-            return Some(u);
-        }
-    }
-    if let Some(p) = explicit_url {
-        return Some(p.clone());
-    }
-    let href = find_canonical(dom_root)?;
-    Url::parse(&href).ok()
-}
-
-/// First `<TAG href="...">`'s `href`, in document order.
-fn find_tag_href(handle: &Handle, tag: &str) -> Option<String> {
-    if let NodeData::Element { name, attrs, .. } = &handle.data
-        && name.local.as_ref() == tag
-        && let Some(href) = get_attr(attrs, "href")
-    {
-        return Some(href);
-    }
-    for child in handle.children.borrow().iter() {
-        if let Some(h) = find_tag_href(child, tag) {
-            return Some(h);
-        }
+        search_from = pos + "src=".len();
     }
     None
 }
 
-/// First `<link rel="canonical" href="...">`'s `href`, in document order.
-fn find_canonical(handle: &Handle) -> Option<String> {
-    if let NodeData::Element { name, attrs, .. } = &handle.data
-        && name.local.as_ref() == "link"
-        && get_attr(attrs, "rel")
-            .is_some_and(|r| r.split_ascii_whitespace().any(|t| t.eq_ignore_ascii_case("canonical")))
-        && let Some(href) = get_attr(attrs, "href")
-    {
-        return Some(href);
-    }
-    for child in handle.children.borrow().iter() {
-        if let Some(h) = find_canonical(child) {
-            return Some(h);
+/// The non-fetching-tag path for `<style>`/`<script>`'s raw-text content
+/// — copies it straight through unexamined (used for `<script>`, left
+/// alone entirely, and for `<style>`'s own *opening* tag handling, where
+/// the content itself still needs separate processing — see
+/// `stream_body`'s `"style"` arm, which reads the content itself rather
+/// than calling this).
+fn stream_raw_text_passthrough(reader: &mut impl BufRead, out: &mut impl Write, tag_name: &str) -> std::io::Result<()> {
+    let content = read_raw_text_content(reader, tag_name)?;
+    out.write_all(&content.text)?;
+    out.write_all(&content.closing_tag)?;
+    Ok(())
+}
+
+struct RawTextContent {
+    text: Vec<u8>,
+    /// The exact closing tag bytes found (`</style   >`, whatever casing/
+    /// spacing the source had) — empty if EOF was hit first.
+    closing_tag: Vec<u8>,
+}
+
+/// Reads a raw-text element's content up to (not including) its closing
+/// tag, then the closing tag itself — case-insensitive match on
+/// `</NAME`, since that's genuinely how the HTML5 spec defines where
+/// these elements end (not a generic "next `<`"; a literal `<` inside
+/// `<script>`/`<style>` content, e.g. `if (a < b)`, doesn't end anything).
+fn read_raw_text_content(reader: &mut impl BufRead, tag_name: &str) -> std::io::Result<RawTextContent> {
+    let closer = format!("</{tag_name}");
+    let closer_lower = closer.to_ascii_lowercase();
+    let mut text = Vec::new();
+    loop {
+        let n = reader.read_until(b'<', &mut text)?;
+        if n == 0 {
+            return Ok(RawTextContent { text, closing_tag: Vec::new() });
+        }
+        // Peek ahead far enough to test for the closing tag name without
+        // consuming it yet (so a false match — `<strong>` inside
+        // <script> — can still be scanned as ordinary content).
+        let mut peek = vec![0u8; closer_lower.len() - 1];
+        let got = peek_bytes(reader, &mut peek)?;
+        if got == peek.len() && peek.to_ascii_lowercase() == closer_lower.as_bytes()[1..] {
+            text.pop(); // drop the trailing '<' — it belongs to the closing tag
+            let mut closing_tag = vec![b'<'];
+            reader.consume(got);
+            closing_tag.extend_from_slice(&peek);
+            // consume through the closing '>' (quote-awareness doesn't
+            // matter for a closing tag with no attributes).
+            loop {
+                let mut byte = [0u8; 1];
+                if reader.read(&mut byte)? == 0 {
+                    break;
+                }
+                closing_tag.push(byte[0]);
+                if byte[0] == b'>' {
+                    break;
+                }
+            }
+            return Ok(RawTextContent { text, closing_tag });
         }
     }
-    None
+}
+
+/// `discover_base`'s own use of raw-text skipping — same reasoning as
+/// `read_raw_text_content`, just discarding the content instead of
+/// returning it (the head-scan only cares about finding a base, not
+/// preserving what it skips past for replay — the whole buffer it's
+/// building *is* the replay source already).
+fn skip_raw_text_content(reader: &mut impl BufRead, buf: &mut Vec<u8>, tag_name: &str) -> std::io::Result<()> {
+    let content = read_raw_text_content(reader, tag_name)?;
+    buf.extend_from_slice(&content.text);
+    buf.extend_from_slice(&content.closing_tag);
+    Ok(())
 }

@@ -49,10 +49,13 @@ one self-contained HTML file scratchy can be pointed at directly.
   comments. Known gap, accepted rather than engineered around: a comment
   or string literal containing the literal text `url(` or `@import`
   could be misdetected.
-- **`<script>` stripped outright**, not just left unfetched. scratchy has
-  no JS engine and already discards script contents wherever they came
-  from, so carrying the bytes into the bundle is pure file-size waste for
-  zero benefit (real pages can ship megabytes of JS).
+- **`<script>` passes through completely unchanged** (reversed from an
+  earlier "strip it outright" decision — see v5: the user explicitly
+  asked for scripts to stay, not be stripped). scratchy still has no JS
+  engine and still never does anything with script content either way,
+  so this is purely about matching the requested "every non-fetching
+  tag is untouched" model, not about scratchy needing the bytes for
+  anything.
 
 ## First real test: Wikipedia
 
@@ -153,6 +156,84 @@ mattered — fixed in v4 with a line per stylesheet inlined plus a
 single `\r`-updating counter for every other fetched resource (not a
 line per image — a real page can have 200+, which would be its own
 kind of unreadable).
+
+## v5: rearchitected as a true streaming filter
+
+Direct user feedback on v1-v4's whole design, not a bug report: "For
+every tag that doesn't fetch resources output it as is. For every tag
+that fetch resources, fetch the resources and push the incoming body to
+stdout. When done send the closing tag." Then, specifically on images
+(which have no text "body" to stream and no closing tag to speak of):
+base64 them, but don't invent structure that wasn't in the source —
+mirror whatever the original tag's closing-tag situation actually was.
+Then, mid-build: "ideally snag shouldn't buffer anything."
+
+This landed as a full rewrite, not a patch. v1-v4's whole design was
+batch: parse the *entire* document into an `html5ever`/`RcDom` tree,
+walk it to fetch and mutate every single resource, *then* serialize the
+*whole* tree to stdout in one `html5ever::serialize` call. That meant
+zero bytes of output until literally everything — a real page's 200+
+sub-resources — had already been fetched, with the complete in-memory
+tree held the whole time. It also meant output was never byte-identical
+to input even where nothing changed: `html5ever::serialize` normalizes
+as it writes (canonical attribute quoting, `<!DOCTYPE html>` casing,
+etc.) — directly in tension with "mirror the source structure, don't
+invent or drop a closing tag."
+
+Replaced the whole `html5ever`/`markup5ever_rcdom`-based tree approach
+with a hand-rolled streaming tag scanner (dropped both as dependencies
+entirely) that reads one tag at a time and either copies it to stdout
+immediately, byte-for-byte, or — for the three tags that actually fetch
+something (`<link rel=stylesheet>`, `<style>`, `<img src>`) — fetches
+and substitutes in place, flushing right after. `<style>`/`<script>`
+needed their own care: HTML5 defines them as "raw text" elements whose
+content isn't tag-scanned at all (only a literal `</style`/`</script`
+ends them), which matters a lot for `<script>` specifically — real JS
+routinely contains `<`/`>` (`if (a < b)`) that would otherwise be
+misread as a tag open by a naive scanner.
+
+The one piece that couldn't be made fully zero-buffer, for a real
+structural reason rather than convenience: resolving any relative
+`href`/`src` needs an absolute base URL to resolve *against*, and in
+stdin mode (no URL argument) that has to come from the document itself
+— `<base href>` or `<link rel=canonical>`. Checked where `<link
+rel=canonical>` actually sits in a real page's `<head>`
+(`curl -s <wikipedia-url> | grep -o '<link[^>]*>'`) and confirmed the
+worst case directly: Wikipedia's own `<link rel=canonical>` comes
+*after* its `<link rel=stylesheet>` tags, so there is no way to resolve
+the first stylesheet without having looked further ahead in the
+document than that tag itself — a genuine causality problem, not a
+design shortcut. Solved with one small, bounded, explicitly-justified
+exception: buffer just the `<head>` section (a few KB on a real page,
+nothing like whole-document size) long enough to find a base, then
+replay those exact bytes through the same streaming processor via
+`Read::chain` before continuing live with zero further buffering. Also
+caught and fixed along the way: a first version treated "no base found"
+as fatal for the *whole run*, which broke `example.com` (fetches
+nothing at all, so it never needed a base in the first place) — fixed
+to warn and continue, only falling back to passing a tag through
+unresolved at the exact point a resolution attempt actually has nowhere
+to resolve against.
+
+`<img src>` got the biggest win from the rewrite: `base64::write::
+EncoderWriter` wraps stdout directly and `io::copy` streams the HTTP
+response body straight through it, so an image's bytes are never held
+in memory as a whole — not even the large ones. (CSS-internal `url()`s
+inside a stylesheet's text still buffer each referenced resource fully,
+since splicing a rewritten reference into an in-memory CSS string has
+no equivalent "stream directly into output" position — a narrower,
+clearly-scoped exception, not a loophole.)
+
+Verified the headline claim directly: `curl -s example.com | snag`
+produces output *byte-for-byte identical* to the source (checked with
+`diff`) — nothing to fetch, nothing touched, not even re-quoted. A
+hand-written stress-test page (a `<script>` with literal `<`/`>` and a
+fake-looking tag inside a JS string, a void `<img>` with deliberately no
+closing tag, a quoted attribute value containing `>`, an HTML comment
+containing `>`) round-tripped correctly on every count. Re-verified the
+real Wikipedia pipeline end to end — same correct render as before, but
+`scratchy`'s window now appears within a few seconds rather than after
+the entire resource fetch completes, which was the actual point.
 
 ## Known limitations / explicitly out of scope
 

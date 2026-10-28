@@ -190,3 +190,97 @@ this is the first real evidence it actually mattered.
 **Deliverable:** `src/main.rs` (`RESOURCE_COUNT` static counter,
 `progress_line` helper, call sites in `main` and `process_node`'s `link`
 branch, the counter increment+print in `fetch_as_data_uri`).
+
+---
+
+## v5 — true streaming: no DOM, no buffering, byte-exact pass-through
+
+User feedback on v1-v4's design: "I want it to do the following: For
+every tag that doesn't fetch resources output it as is. For every tag
+that fetch resources, fetch the resources and push the incoming body to
+stdout. When done send the closing tag." Followed by: images should be
+base64'd but "don't make assumptions or take action to enforce a
+format — if the incoming html has a closing tag, you send it, if it
+doesn't you don't" (i.e. mirror the source's own tag structure, don't
+normalize it); `<script>` passes through unchanged now, not stripped;
+and, mid-build: "ideally snag shouldn't buffer anything."
+
+This is a different architecture from v1-v4, not a tweak: that version
+parsed the *entire* document into an `html5ever`/`RcDom` tree, walked it
+to fetch and mutate every resource, and only then serialized the *whole*
+tree to stdout in one shot — meaning zero output until literally
+everything (a real page's 200+ sub-resources) had already been fetched,
+and a full in-memory tree held the whole time. `html5ever::serialize`
+also normalizes structure as it writes (canonical quoting, `<!DOCTYPE
+html>` casing, etc.), which is the opposite of the byte-exact
+pass-through now being asked for.
+
+**Requirements:**
+1. **A hand-rolled streaming tag scanner replaces `html5ever`/
+   `markup5ever_rcdom` entirely** (both dependencies dropped). Reads one
+   tag at a time (quote-aware — a `>` inside a `"..."`/`'...'` attribute
+   value doesn't end the tag; comment-aware — `<!-- ... -->` scans for
+   the literal `-->` instead) and either copies it to stdout immediately
+   byte-for-byte, or — for `<link rel=stylesheet>`, `<style>`, `<img
+   src>` — fetches and substitutes, flushing right after. Every other
+   tag, all plain text, the doctype, comments, and (per the explicit
+   answer) `<script>` in full (src included, never fetched) pass through
+   completely untouched — exact original quoting, self-closing slashes,
+   attribute order, and whether a tag the spec calls void happened to
+   have a stray closing tag in the source or not (mirrored, never
+   fabricated or dropped).
+2. **`<style>`/`<script>` are HTML5 "raw text" elements** — content
+   isn't scanned as tags at all, only a literal `</style`/`</script`
+   (case-insensitive) ends them, so `if (a < b)` inside a `<script>`
+   can't be misread as a tag open.
+3. **`<img src>` streams its replacement, never buffers the image**:
+   `base64::write::EncoderWriter` wraps stdout directly, and
+   `io::copy` pipes the HTTP response body straight through it — the
+   image's bytes exist in memory only as whatever chunk is in flight,
+   never as a whole file. (CSS-internal `url()`s, rewritten while
+   splicing an in-memory CSS string, still buffer each referenced
+   resource fully — there's no "stream into" target there the way an
+   HTML attribute's output position gives one.)
+4. **Base URL discovery for stdin mode, done honestly**: a relative
+   `href`/`src` needs *something* absolute to resolve against, and
+   `<link rel=canonical>` — confirmed on real Wikipedia output — comes
+   *after* the page's own `<link rel=stylesheet>` tags in `<head>`, so
+   there's no way to resolve the first stylesheet without having looked
+   further ahead than that tag itself. `discover_base` is the one
+   deliberate, bounded exception to "don't buffer anything": it reads
+   (and holds) only the `<head>` section — a few KB on a real page,
+   nowhere near whole-document size — scanning for `<base href>` first,
+   `<link rel=canonical>` second, stopping at `</head>` or a 1 MiB
+   safety cap either way. Once found (or not), the held bytes are
+   replayed through the exact same streaming processor via
+   `Read::chain`, so nothing already read is lost, and everything after
+   `<head>` streams with no further buffering at all. A page with no
+   base source isn't fatal (fixed after an initial build hit this:
+   `example.com`, which fetches nothing, used to hard-fail for no
+   reason) — it's a warning, and only an actual relative-URL resolution
+   attempt with nowhere to resolve against falls back to passing that
+   one tag through unresolved.
+5. **Verified**: `curl -s example.com | snag` now produces byte-for-byte
+   *identical* output to the source (confirmed with `diff` — nothing to
+   fetch, nothing touched) where v1-v4 would have reformatted it through
+   `html5ever`'s own serializer. A hand-written test page exercising a
+   `<script>` containing literal `<`/`>` and a fake-looking tag inside a
+   string, a void `<img>` with no closing tag, quoted attribute values
+   containing `>`, and an HTML comment containing `>` all round-tripped
+   correctly. A CSS/image streaming test (`httpbin.org`, self-closing
+   `<img .../>`) confirmed attribute order and quoting around a rewritten
+   `src` stays untouched, and that the piped-in image bytes decode to a
+   valid image. The real Wikipedia pipeline re-verified end to end
+   (`curl | snag | scratchy`) — same correct render as v1-v4, but
+   `scratchy`'s window now appears within a few seconds instead of
+   waiting for the entire ~240-resource fetch to finish first, since
+   output starts flowing as soon as the first processed tag is ready.
+   `BrokenPipe` handling (v3) re-verified unaffected by the rewrite.
+
+**Deliverable:** `src/main.rs`, rewritten (the `RawTag`/tag-scanning
+machinery, `discover_base`, `stream_body`, `stream_data_uri`'s streaming
+base64 encoder; `process_css`/`inline_imports`/`rewrite_urls`/
+`fetch_text`/`fetch_as_data_uri`/progress reporting carried over
+unchanged, since CSS-text-level and `fetch_as_data_uri`'s own buffering
+were already correctly scoped and didn't need to change). `Cargo.toml`
+drops `html5ever`/`markup5ever_rcdom`.
