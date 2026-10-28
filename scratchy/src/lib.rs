@@ -471,15 +471,25 @@ enum Display {
 enum Length {
     Px(f32),
     Em(f32),
+    /// Relative to the *document root's* computed font-size, not the
+    /// declaring element's own — unlike every other variant here,
+    /// resolving it needs a second font-size figure distinct from the
+    /// `font_size: f32` every other `resolve` call already threads
+    /// through `resolve_style`. Carried as `InheritedStyle::
+    /// root_font_size`, set once at `ROOT_STYLE` and copied unchanged by
+    /// every other element's `inherited()`/`anonymous_style` (it's a
+    /// document-wide constant, not something that cascades per element).
+    Rem(f32),
     Larger,
     Smaller,
 }
 
 impl Length {
-    fn resolve(self, font_size: f32) -> f32 {
+    fn resolve(self, font_size: f32, root_font_size: f32) -> f32 {
         match self {
             Length::Px(v) => v,
             Length::Em(v) => v * font_size,
+            Length::Rem(v) => v * root_font_size,
             Length::Larger => font_size * 1.2,
             Length::Smaller => font_size / 1.2,
         }
@@ -510,11 +520,11 @@ impl LineHeight {
     /// default (`Metrics::new(font_size, font_size * 1.25)`), so a page
     /// that never declares `line-height` renders exactly as before this
     /// feature existed.
-    fn resolve(self, font_size: f32) -> f32 {
+    fn resolve(self, font_size: f32, root_font_size: f32) -> f32 {
         match self {
             LineHeight::Normal => font_size * 1.25,
             LineHeight::Multiplier(m) => font_size * m,
-            LineHeight::Len(l) => l.resolve(font_size),
+            LineHeight::Len(l) => l.resolve(font_size, root_font_size),
         }
     }
 }
@@ -740,6 +750,7 @@ fn parse_length(input: &mut CssParser) -> Result<Length, ()> {
     match input.next().map_err(|_| ())? {
         Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("px") => Ok(Length::Px(*value)),
         Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("em") => Ok(Length::Em(*value)),
+        Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("rem") => Ok(Length::Rem(*value)),
         Token::Number { value, .. } if *value == 0.0 => Ok(Length::Px(0.0)),
         _ => Err(()),
     }
@@ -747,8 +758,8 @@ fn parse_length(input: &mut CssParser) -> Result<Length, ()> {
 
 /// Parses a length into `*target`, leaving it untouched (so an earlier
 /// declaration in the cascade isn't clobbered) on anything unparseable —
-/// `rem`/`%`/`auto`/etc. all fall through this way today, same as any other
-/// not-yet-supported value.
+/// `%`/`auto`/etc. still fall through this way (`px`/`em`/`rem` are the
+/// only supported units), same as any other not-yet-supported value.
 fn set_length(input: &mut CssParser, target: &mut Option<Length>) {
     if let Ok(v) = parse_length(input) {
         *target = Some(v);
@@ -758,7 +769,7 @@ fn set_length(input: &mut CssParser, target: &mut Option<Length>) {
 /// `line-height`'s own grammar — a bare `<number>` (any value, not just
 /// `0` — unlike `parse_length`'s unitless-zero special case, this is the
 /// property's single most common real-world form) alongside `normal` and
-/// the usual `px`/`em` lengths.
+/// the usual `px`/`em`/`rem` lengths.
 fn parse_line_height(input: &mut CssParser) -> Result<LineHeight, ()> {
     match input.next().map_err(|_| ())? {
         Token::Ident(ident) if ident.eq_ignore_ascii_case("normal") => Ok(LineHeight::Normal),
@@ -768,6 +779,9 @@ fn parse_line_height(input: &mut CssParser) -> Result<LineHeight, ()> {
         }
         Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("em") => {
             Ok(LineHeight::Len(Length::Em(*value)))
+        }
+        Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("rem") => {
+            Ok(LineHeight::Len(Length::Rem(*value)))
         }
         _ => Err(()),
     }
@@ -1509,6 +1523,16 @@ fn to_text_color(color: &CssColor) -> Option<TextColor> {
 struct InheritedStyle {
     color: TextColor,
     font_size: f32,
+    /// For `rem` lengths (`Length::Rem`) — always `ROOT_STYLE.font_size`
+    /// (`16.0`), copied unchanged through every element's `inherited()`/
+    /// `anonymous_style` rather than re-derived from each element's own
+    /// `font_size` the way real inheritance works for every other field
+    /// here. Scoped deliberately narrow: a real `html { font-size: ... }`
+    /// override would need this seeded from the actual root element's
+    /// own resolved font-size instead of this fixed constant — nothing
+    /// in `default.css` or a real test page declares one, so it's not
+    /// implemented (see `Length::Rem`'s own docs).
+    root_font_size: f32,
     font_weight: FontWeight,
     font_style: FontStyle,
     font_family: FontFamily,
@@ -1523,6 +1547,7 @@ struct InheritedStyle {
 const ROOT_STYLE: InheritedStyle = InheritedStyle {
     color: TextColor::rgb(0, 0, 0),
     font_size: 16.0,
+    root_font_size: 16.0,
     font_weight: FontWeight::NORMAL,
     font_style: FontStyle::Normal,
     font_family: FontFamily::SansSerif,
@@ -1560,6 +1585,10 @@ struct ComputedStyle {
     border_color: Option<TextColor>,
     border_style: BorderStyle,
     font_size: f32,
+    /// Passed straight through from `inherited.root_font_size`, not
+    /// derived from this element's own `font_size` — see
+    /// `InheritedStyle::root_font_size`'s own docs.
+    root_font_size: f32,
     font_weight: FontWeight,
     font_style: FontStyle,
     font_family: FontFamily,
@@ -1629,6 +1658,7 @@ impl ComputedStyle {
         InheritedStyle {
             color: self.color,
             font_size: self.font_size,
+            root_font_size: self.root_font_size,
             font_weight: self.font_weight,
             font_style: self.font_style,
             font_family: self.font_family,
@@ -1707,38 +1737,38 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
     // — there's no self-reference, since font-size can only ever be `em`
     // relative to the value it's inheriting from, never its own result.
     let font_size = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.font_size), |d| d.font_size)
-        .map(|l| l.resolve(inherited.font_size))
+        .map(|l| l.resolve(inherited.font_size, inherited.root_font_size))
         .unwrap_or(inherited.font_size);
     let margin = Sides {
         top: cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.margin_top), |d| d.margin_top)
-            .map(|l| l.resolve(font_size))
+            .map(|l| l.resolve(font_size, inherited.root_font_size))
             .unwrap_or(0.0),
         right: cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.margin_right), |d| d.margin_right)
-            .map(|l| l.resolve(font_size))
+            .map(|l| l.resolve(font_size, inherited.root_font_size))
             .unwrap_or(0.0),
         bottom: cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.margin_bottom), |d| d.margin_bottom)
-            .map(|l| l.resolve(font_size))
+            .map(|l| l.resolve(font_size, inherited.root_font_size))
             .unwrap_or(0.0),
         left: cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.margin_left), |d| d.margin_left)
-            .map(|l| l.resolve(font_size))
+            .map(|l| l.resolve(font_size, inherited.root_font_size))
             .unwrap_or(0.0),
     };
     let padding = Sides {
         top: cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.padding_top), |d| d.padding_top)
-            .map(|l| l.resolve(font_size))
+            .map(|l| l.resolve(font_size, inherited.root_font_size))
             .unwrap_or(0.0),
         right: cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.padding_right), |d| d.padding_right)
-            .map(|l| l.resolve(font_size))
+            .map(|l| l.resolve(font_size, inherited.root_font_size))
             .unwrap_or(0.0),
         bottom: cascade_property(
             &matches,
             inline_decls.as_ref().and_then(|d| d.padding_bottom),
             |d| d.padding_bottom,
         )
-        .map(|l| l.resolve(font_size))
+        .map(|l| l.resolve(font_size, inherited.root_font_size))
         .unwrap_or(0.0),
         left: cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.padding_left), |d| d.padding_left)
-            .map(|l| l.resolve(font_size))
+            .map(|l| l.resolve(font_size, inherited.root_font_size))
             .unwrap_or(0.0),
     };
     let border_width = cascade_property(
@@ -1746,7 +1776,7 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         inline_decls.as_ref().and_then(|d| d.border_width),
         |d| d.border_width,
     )
-    .map(|l| l.resolve(font_size))
+    .map(|l| l.resolve(font_size, inherited.root_font_size))
     .unwrap_or(0.0);
     let border_color = cascade_property(
         &matches,
@@ -1827,7 +1857,7 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         inline_decls.as_ref().and_then(|d| d.outline_width),
         |d| d.outline_width,
     )
-    .map(|l| l.resolve(font_size))
+    .map(|l| l.resolve(font_size, inherited.root_font_size))
     .unwrap_or(0.0);
     let outline_color = cascade_property(
         &matches,
@@ -1842,9 +1872,9 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
     )
     .and_then(|bs| {
         to_text_color(&bs.color).map(|color| ResolvedBoxShadow {
-            offset_x: bs.offset_x.resolve(font_size),
-            offset_y: bs.offset_y.resolve(font_size),
-            spread: bs.spread.resolve(font_size),
+            offset_x: bs.offset_x.resolve(font_size, inherited.root_font_size),
+            offset_y: bs.offset_y.resolve(font_size, inherited.root_font_size),
+            spread: bs.spread.resolve(font_size, inherited.root_font_size),
             color,
         })
     });
@@ -1853,7 +1883,7 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         inline_decls.as_ref().and_then(|d| d.border_radius),
         |d| d.border_radius,
     )
-    .map(|l| l.resolve(font_size))
+    .map(|l| l.resolve(font_size, inherited.root_font_size))
     .unwrap_or(0.0);
     let overflow = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.overflow), |d| d.overflow)
         .unwrap_or_default();
@@ -1870,6 +1900,7 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         border_color,
         border_style,
         font_size,
+        root_font_size: inherited.root_font_size,
         font_weight,
         font_style,
         font_family,
@@ -1900,6 +1931,7 @@ fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         border_color: None,
         border_style: BorderStyle::default(),
         font_size: inherited.font_size,
+        root_font_size: inherited.root_font_size,
         font_weight: inherited.font_weight,
         font_style: inherited.font_style,
         font_family: inherited.font_family,
@@ -1964,7 +1996,7 @@ impl From<InheritedStyle> for SpanStyle {
             text_decoration: TextDecoration::new(),
             decoration_style: DecorationStyle::default(),
             vertical_align: VerticalAlign::default(),
-            line_height: s.line_height.resolve(s.font_size),
+            line_height: s.line_height.resolve(s.font_size, s.root_font_size),
             visibility: s.visibility,
             cursor: s.cursor,
         }
@@ -3389,4 +3421,5 @@ pub fn run() {
 
     event_loop.run_app(&mut app).unwrap();
 }
+
 

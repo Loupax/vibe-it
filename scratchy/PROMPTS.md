@@ -1732,3 +1732,54 @@ reflect what now works, replaced with a narrower-scope item (and
 removed from the misc-CSS-properties cluster's own parenthetical, which
 had already listed it as landed-elsewhere) plus a new item documenting
 the block-level ambient-seeding gap found along the way.
+
+---
+
+## v34 — `rem` lengths
+
+TODO.txt (pre-survey item, present since v14 landed `px`/`em`). `rem`
+was entirely unparsed — any declaration using it (`font-size: 1.5rem`,
+`margin: 2rem`, ...) silently dropped, falling back to whatever was
+inherited/default.
+
+**Requirements:**
+1. **`Length::Rem(f32)`** — resolves against the document root's
+   font-size, not the declaring element's own the way `Em` does.
+   Needed a second figure alongside every `resolve()` call's existing
+   `font_size: f32` parameter, so `Length::resolve`/`LineHeight::resolve`
+   both gained a `root_font_size: f32` parameter (used only by `Rem`,
+   threaded through regardless for a consistent signature).
+2. **`InheritedStyle`/`ComputedStyle` gain `root_font_size: f32`** — set
+   once at `ROOT_STYLE` (`16.0`) and copied *unchanged* through every
+   element's `inherited()`/`anonymous_style`, unlike every other
+   inherited field here (which re-derives per element). Deliberately
+   scoped to a fixed constant rather than the real document root
+   element's own cascaded font-size — a real `html { font-size: ... }`
+   override isn't respected (own `TODO.txt` item, not attempted: nothing
+   in `default.css` or a test page declares one).
+3. **`parse_length`/`parse_line_height`** both gained a `rem` dimension
+   match alongside their existing `px`/`em` ones.
+4. All ~14 `.resolve(font_size)` call sites inside `resolve_style`
+   (margin/padding/border-width/font-size itself/outline-width/
+   box-shadow's three lengths/border-radius) updated to pass
+   `inherited.root_font_size` through; `SpanStyle::from`'s
+   `line_height.resolve` call similarly updated to pass `s.root_font_size`.
+5. **Verified headlessly**: `2rem` resolves to the same `32px` whether
+   nested under a parent at `40px` font-size or not (proving it ignores
+   the parent, unlike `em`, which would've given `80px`), `Length::Rem`
+   and `parse_length("1.5rem")` resolve directly, `line-height: 2rem`
+   resolves through `LineHeight`'s own grammar too. **Verified
+   visually** (`grim`): a `.inner` div at `font-size: 2rem` nested
+   inside a `40px` `.outer` renders visibly smaller than its parent
+   (not the much-larger `80px` an `em`-based bug would produce), with
+   `0.5rem` padding/border sized consistently, and a plain `1rem`
+   paragraph matching the default body text size.
+
+**Deliverable:** `src/lib.rs` (`Length::Rem` variant +
+`resolve`/`LineHeight::resolve` signature changes, `InheritedStyle`/
+`ComputedStyle`'s new `root_font_size` field + `ROOT_STYLE`/
+`inherited()`/`anonymous_style` wiring, `parse_length`/
+`parse_line_height`'s new `rem` branches, all call sites threading
+`root_font_size` through). Narrows the original pre-survey `rem`/`%`/
+unitless `TODO.txt` item to just `%`/unitless, replaced with a new
+narrower-scope item noting the fixed-constant-root-font-size caveat.

@@ -10,10 +10,13 @@ number, since several versions can share one commit and a hash is
 directly actionable. PROMPTS.md is append-only and never edited for
 these.
 
-- [ ] `rem`, `%`, and unitless (besides literal `0`) are still not
-      supported length forms (`px` and `em` landed — see PROMPTS.md
-      v14). Not adding them until `default.css` or a real test page
-      actually needs one — it currently doesn't use either anywhere.
+- [ ] `%` and unitless (besides literal `0`) are still not supported
+      length forms (`px`/`em` landed in v14, `rem` in v33). Not adding
+      them until `default.css` or a real test page actually needs one —
+      it currently doesn't use either anywhere. (`rem`'s own narrower
+      scope — it's pinned to a fixed `16.0` document-root font-size
+      rather than a real root element's own cascaded one — has its own
+      item below.)
 
 - [ ] Table layout (PROMPTS.md v15) uses equal-width columns, not real
       CSS auto table layout (which sizes each column from the min/max
@@ -114,6 +117,20 @@ session can pick a coherent slice rather than one property at a time.
       that `opacity`'s own skipped item below already identified as a
       materially bigger plumbing change than a single property's own
       scope — not attempted here for the same reason.
+
+- [ ] `rem` (PROMPTS.md v33, both `parse_length` and `line-height`'s own
+      grammar) always resolves against a fixed `16.0` constant
+      (`InheritedStyle::root_font_size`, set once at `ROOT_STYLE`), not
+      a real document root element's own cascaded font-size — a page
+      with `html { font-size: ... }` would get `rem` lengths resolved
+      against the wrong base. Nothing in `default.css` styles `html`'s
+      font-size, so this hasn't mattered yet. A correct fix means
+      resolving `<html>`'s own style first and seeding every other
+      element's `root_font_size` from that specific result, not from a
+      compile-time constant — doable without `opacity`'s scale of
+      plumbing change (just `resolve_style`/`build_layout_tree` need to
+      special-case the root element), but not attempted since there's
+      no real page to verify it against yet.
 
 - [ ] `cursor` (PROMPTS.md v32) only tracks `auto`/`pointer` — the one
       keyword `default.css` actually declares (`a { cursor: pointer }`).

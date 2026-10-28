@@ -544,6 +544,32 @@ correct, independent of this pre-existing gap — it was: dotted,
 dashed-blue, and double-red all rendered correctly in a real `grim`
 screenshot.
 
+**v34 resolved `rem` lengths** — the smaller, safer pick after v33,
+deliberately avoiding the other two live `TODO.txt` candidates: named
+`font-family` fallback lists would need an owned/leaked string living
+inside `ComputedStyle`/`InheritedStyle`/`SpanStyle`, which are all
+`#[derive(Clone, Copy)]` by design and threaded by value through every
+recursive tree-building call — a real architecture question (Copy vs.
+a `Box::leak` trick vs. a bigger refactor) worth more than a unilateral
+pick; `word-spacing` has no cosmic-text 0.19 API at all to hook into
+(confirmed by grepping its vendored source), a worse version of the
+same risk that already burned v25's `letter-spacing` attempt. `rem`, by
+contrast, fit the existing architecture cleanly: `Length` already had
+an `Em` variant and a `resolve(font_size)` pattern threaded through
+~14 call sites inside one function (`resolve_style`), so adding `Rem`
+only needed a second, always-constant figure (`root_font_size`)
+threaded alongside the existing one, not a new kind of plumbing.
+Scoped `root_font_size` to a fixed `16.0` constant rather than a real
+document root's own cascaded font-size (an `html { font-size: ... }`
+override isn't respected) — flagged as its own `TODO.txt` item, since
+nothing yet needs it and getting it right means resolving `<html>`
+before everything else, not just copying a value down. Verified the
+property's whole point directly: a `2rem` child nested inside a `40px`
+parent resolves to `32px` (ignoring the parent), confirmed both by a
+headless assertion and a real `grim` screenshot where the nested box
+is visibly smaller than its parent, not the much-larger `80px` an
+`em`-confused implementation would have produced.
+
 ## Priority going forward: rendering, not networking
 
 Explicit decision: the next phase of work is about how scratchy
