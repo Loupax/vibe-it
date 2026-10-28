@@ -7,8 +7,8 @@ use std::thread;
 
 use cosmic_text::{
     Align as CosmicAlign, Attrs, Buffer, Color as TextColor, Family as CosmicFamily, FontSystem,
-    Metrics, Shaping, Style as FontStyle, SwashCache, TextDecoration, UnderlineStyle,
-    Weight as FontWeight, Wrap,
+    LegacyRenderer, Metrics, Renderer as _, Shaping, Style as FontStyle, SwashCache,
+    TextDecoration, UnderlineStyle, Weight as FontWeight, Wrap, render_decoration,
 };
 use cssparser::{
     AtRuleParser, CowRcStr, DeclarationParser, ParseError, Parser as CssParser, ParserState,
@@ -493,6 +493,7 @@ struct Declarations {
     white_space: Option<WhiteSpace>,
     list_style_type: Option<ListStyleType>,
     text_align: Option<TextAlign>,
+    vertical_align: Option<VerticalAlign>,
 }
 
 /// Just `normal` (the default — current behavior, collapse+wrap) and `pre`
@@ -542,6 +543,45 @@ impl TextAlign {
             TextAlign::Right => Some(CosmicAlign::Right),
             TextAlign::Center => Some(CosmicAlign::Center),
             TextAlign::Justify => Some(CosmicAlign::Justified),
+        }
+    }
+}
+
+/// Just the 2 non-default keywords `default.css` declares (`sub`/`sup`'s
+/// own `vertical-align: sub`/`super`) — no `top`/`middle`/`bottom`/
+/// `text-top`/`text-bottom`/length/percentage, nothing needs them.
+/// `Baseline` (`#[default]`, the real CSS initial value) is also what
+/// `vertical-align: inherit` on `default.css`'s `tr`/`td`/`th` resolves
+/// to in practice: `inherit` isn't a keyword any property here parses
+/// (see TODO.txt-adjacent note in `collect_children`), so those
+/// declarations just drop — fine, since nothing above them in the
+/// cascade ever sets a non-Baseline value for `inherit` to meaningfully
+/// carry anyway. Unlike `text-align`, this is *not* threaded through
+/// `InheritedStyle` — `vertical-align` genuinely isn't a spec-inherited
+/// property; see `collect_children`'s `valign` parameter for how it
+/// actually propagates (ambient, like `background-color`/
+/// `text-decoration`, not real inheritance).
+#[derive(Clone, Copy, PartialEq, Default)]
+pub enum VerticalAlign {
+    #[default]
+    Baseline,
+    Sub,
+    Super,
+}
+
+impl VerticalAlign {
+    /// Pixels to shift a glyph's baseline by (positive = down), scaled to
+    /// that glyph's own font size so it still looks right if `font-size`
+    /// ever varies within a sub/sup span. Not real font-metric
+    /// `subscriptYOffset`/`superscriptYOffset` values (most fonts don't
+    /// expose those through `fontdb`/`cosmic-text` at all) — just the
+    /// same rough fractions browsers fall back to when a font doesn't
+    /// supply its own.
+    fn y_shift(self, font_size: f32) -> f32 {
+        match self {
+            VerticalAlign::Baseline => 0.0,
+            VerticalAlign::Sub => font_size * 0.2,
+            VerticalAlign::Super => font_size * -0.35,
         }
     }
 }
@@ -919,6 +959,18 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
                     None
                 };
             }
+        } else if name.eq_ignore_ascii_case("vertical-align") {
+            if let Ok(ident) = input.expect_ident() {
+                self.decls.vertical_align = if ident.eq_ignore_ascii_case("baseline") {
+                    Some(VerticalAlign::Baseline)
+                } else if ident.eq_ignore_ascii_case("sub") {
+                    Some(VerticalAlign::Sub)
+                } else if ident.eq_ignore_ascii_case("super") {
+                    Some(VerticalAlign::Super)
+                } else {
+                    None
+                };
+            }
         }
         Ok(())
     }
@@ -1089,6 +1141,10 @@ struct ComputedStyle {
     white_space: WhiteSpace,
     list_style_type: ListStyleType,
     text_align: TextAlign,
+    /// Not inherited (see `VerticalAlign`'s own docs) — propagates the
+    /// same ambient way `text_decoration` does, via `collect_children`'s
+    /// `valign` parameter, not through `inherited()`/`InheritedStyle`.
+    vertical_align: VerticalAlign,
 }
 
 impl ComputedStyle {
@@ -1259,6 +1315,15 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         |d| d.text_align,
     )
     .unwrap_or(inherited.text_align);
+    // Not inherited — no `inherited.vertical_align` to fall back to;
+    // the initial value (`Baseline`, also `VerticalAlign::default()`)
+    // applies to any element that doesn't declare it itself.
+    let vertical_align = cascade_property(
+        &matches,
+        inline_decls.as_ref().and_then(|d| d.vertical_align),
+        |d| d.vertical_align,
+    )
+    .unwrap_or_default();
 
     ComputedStyle {
         color,
@@ -1276,6 +1341,7 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         white_space,
         list_style_type,
         text_align,
+        vertical_align,
     }
 }
 
@@ -1296,6 +1362,7 @@ fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         white_space: inherited.white_space,
         list_style_type: inherited.list_style_type,
         text_align: inherited.text_align,
+        vertical_align: VerticalAlign::default(),
     }
 }
 
@@ -1319,6 +1386,7 @@ struct SpanStyle {
     font_style: FontStyle,
     font_family: FontFamily,
     text_decoration: TextDecoration,
+    vertical_align: VerticalAlign,
 }
 
 impl From<InheritedStyle> for SpanStyle {
@@ -1331,6 +1399,7 @@ impl From<InheritedStyle> for SpanStyle {
             font_style: s.font_style,
             font_family: s.font_family,
             text_decoration: TextDecoration::new(),
+            vertical_align: VerticalAlign::default(),
         }
     }
 }
@@ -1451,7 +1520,16 @@ fn build_children_with_prefix(
     if let Some(p) = prefix {
         pending.push(p);
     }
-    collect_children(handle, rules, inherited, None, TextDecoration::new(), &mut pending, &mut result);
+    collect_children(
+        handle,
+        rules,
+        inherited,
+        None,
+        TextDecoration::new(),
+        VerticalAlign::default(),
+        &mut pending,
+        &mut result,
+    );
     if !pending.is_empty() {
         result.push(LayoutBox {
             style: anonymous_style(inherited),
@@ -1479,6 +1557,7 @@ fn collect_children(
     inherited: InheritedStyle,
     bg: Option<TextColor>,
     decoration: TextDecoration,
+    valign: VerticalAlign,
     pending: &mut Vec<(String, SpanStyle)>,
     result: &mut Vec<LayoutBox>,
 ) {
@@ -1488,6 +1567,7 @@ fn collect_children(
                 let mut span: SpanStyle = inherited.into();
                 span.background_color = bg;
                 span.text_decoration = decoration;
+                span.vertical_align = valign;
                 // `white-space: pre` preserves the text byte-for-byte
                 // (literal newlines, runs of spaces, no fabricated
                 // trailing space) instead of collapsing it.
@@ -1519,7 +1599,21 @@ fn collect_children(
                 } else {
                     let child_bg = style.background_color.or(bg);
                     let child_decoration = style.text_decoration.unwrap_or(decoration);
-                    collect_children(child, rules, style.inherited(), child_bg, child_decoration, pending, result);
+                    let child_valign = if style.vertical_align == VerticalAlign::Baseline {
+                        valign
+                    } else {
+                        style.vertical_align
+                    };
+                    collect_children(
+                        child,
+                        rules,
+                        style.inherited(),
+                        child_bg,
+                        child_decoration,
+                        child_valign,
+                        pending,
+                        result,
+                    );
                 }
             }
             _ => {}
@@ -1590,7 +1684,8 @@ enum LaidContent {
 /// in deterministic document order. Buffers live here — not inside `Laid` —
 /// and persist across frames, so shaping a paragraph once is never repeated
 /// (see `measure`'s budget/incomplete mechanism).
-pub type ShapeCache = std::collections::HashMap<usize, (Buffer, f32, Vec<Option<TextColor>>)>;
+pub type ShapeCache =
+    std::collections::HashMap<usize, (Buffer, f32, Vec<Option<TextColor>>, Vec<VerticalAlign>)>;
 
 /// Height assumed for a paragraph that hasn't been shaped yet, so content
 /// below it has somewhere reasonable to sit until the real height arrives.
@@ -1651,7 +1746,7 @@ fn shape_spans(
     width: f32,
     pre: bool,
     align: Option<CosmicAlign>,
-) -> (Buffer, f32, Vec<Option<TextColor>>) {
+) -> (Buffer, f32, Vec<Option<TextColor>>, Vec<VerticalAlign>) {
     let metrics = Metrics::new(16.0, 20.0);
     let mut buffer = Buffer::new(font_system, metrics);
     buffer.set_size(Some(width.max(0.0)), None);
@@ -1684,7 +1779,8 @@ fn shape_spans(
         height = height.max(run.line_top + run.line_height);
     }
     let backgrounds = spans.iter().map(|(_, span)| span.background_color).collect();
-    (buffer, height, backgrounds)
+    let valigns = spans.iter().map(|(_, span)| span.vertical_align).collect();
+    (buffer, height, backgrounds, valigns)
 }
 
 /// Lays out `b`, shaping text as it goes — but only until `deadline` passes.
@@ -1720,20 +1816,23 @@ pub fn measure(
             let id = *next_id;
             *next_id += 1;
 
-            let content_h = if let Some((_, h, _)) = cache.get(&id) {
+            let content_h = if let Some((_, h, _, _)) = cache.get(&id) {
                 *h
             } else if spans.is_empty() {
-                cache.insert(id, (Buffer::new_empty(Metrics::new(16.0, 20.0)), 0.0, Vec::new()));
+                cache.insert(
+                    id,
+                    (Buffer::new_empty(Metrics::new(16.0, 20.0)), 0.0, Vec::new(), Vec::new()),
+                );
                 0.0
             } else if std::time::Instant::now() < deadline {
-                let (buffer, h, backgrounds) = shape_spans(
+                let (buffer, h, backgrounds, valigns) = shape_spans(
                     font_system,
                     spans,
                     content_w,
                     s.white_space == WhiteSpace::Pre,
                     s.text_align.to_cosmic(),
                 );
-                cache.insert(id, (buffer, h, backgrounds));
+                cache.insert(id, (buffer, h, backgrounds, valigns));
                 h
             } else {
                 *incomplete = true;
@@ -1900,6 +1999,7 @@ fn paint_buffer(
     font_system: &mut FontSystem,
     swash_cache: &mut SwashCache,
     backgrounds: &[Option<TextColor>],
+    valigns: &[VerticalAlign],
     pixels: &mut [u32],
     win_w: u32,
     win_h: u32,
@@ -1909,11 +2009,18 @@ fn paint_buffer(
     let ox = offset_x.round() as i32;
     let oy = offset_y.round() as i32;
     paint_span_backgrounds(buffer, font_system, backgrounds, pixels, win_w, win_h, ox, oy);
-    buffer.draw(
+    let default_color = TextColor::rgb(0, 0, 0);
+    // `buffer.draw()`'s own internals, copied out by hand (both public:
+    // `LegacyRenderer`, `render_decoration`) instead of called directly —
+    // it offers no hook to nudge an individual glyph's y position, which
+    // `vertical-align: sub`/`super` needs per span (looked up by
+    // `glyph.metadata`, the same per-span index `paint_span_backgrounds`
+    // already reads it by).
+    buffer.shape_until_scroll(font_system, false);
+    let mut renderer = LegacyRenderer {
         font_system,
-        swash_cache,
-        TextColor::rgb(0, 0, 0),
-        |x, y, w, h, color| {
+        cache: swash_cache,
+        callback: |x: i32, y: i32, w: u32, h: u32, color: TextColor| {
             if color.a() == 0 {
                 return;
             }
@@ -1929,7 +2036,20 @@ fn paint_buffer(
                 }
             }
         },
-    );
+    };
+    for run in buffer.layout_runs() {
+        for glyph in run.glyphs {
+            let y_shift = valigns
+                .get(glyph.metadata)
+                .copied()
+                .unwrap_or_default()
+                .y_shift(glyph.font_size);
+            let physical_glyph = glyph.physical((0., run.line_y + y_shift), 1.0);
+            let glyph_color = glyph.color_opt.unwrap_or(default_color);
+            renderer.glyph(physical_glyph, glyph_color);
+        }
+        render_decoration(&mut renderer, &run, default_color);
+    }
 }
 
 fn paint(
@@ -1964,11 +2084,12 @@ fn paint(
             // Not yet shaped (still mid-way through a budgeted measure pass)
             // just means nothing to paint here yet — it'll appear once a
             // later frame finishes shaping it.
-            if let Some((buffer, _, backgrounds)) = cache.get_mut(id) {
+            if let Some((buffer, _, backgrounds, valigns)) = cache.get_mut(id) {
                 let content_x = laid.x + s.border_width + s.padding.left;
                 let content_y = draw_y + s.border_width + s.padding.top;
                 paint_buffer(
-                    buffer, font_system, swash_cache, backgrounds, pixels, win_w, win_h, content_x, content_y,
+                    buffer, font_system, swash_cache, backgrounds, valigns, pixels, win_w, win_h, content_x,
+                    content_y,
                 );
             }
         }

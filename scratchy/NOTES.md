@@ -263,6 +263,34 @@ easy, quiet bug (e.g. inheriting something that shouldn't, or letting
 a nested element silently lose a text-align it should've kept).
 `vertical-align` is now the only property left in that TODO.txt item.
 
+**v23 resolved `vertical-align` (`sub`/`super` only)**. Unlike v22,
+cosmic-text has no built-in API for baseline shifting, and
+`Buffer::draw()`'s convenience closure gives no per-glyph hook — had
+to replace it in `paint_buffer` with a hand-copy of its own internals
+(`LegacyRenderer`/`render_decoration`/`LayoutGlyph::physical` are all
+public in cosmic-text, so this is "assembling the same pipeline by
+hand," not reaching into private internals), adding a y-shift looked
+up per glyph via `glyph.metadata` — the same mechanism
+`paint_span_backgrounds` (v12) already uses to recover per-span data
+after shaping flattens everything into one `Buffer`. Correctly
+categorized this one as *not* inherited (unlike `text-align`) but
+still needing the *ambient* propagation `background-color`/
+`text-decoration` use, so a `<b>` nested inside `<sub>` still renders
+shifted without needing its own `vertical-align` declaration. Verified
+down to actual rasterized pixels (not just layout math) — rendered the
+same glyph via `paint_buffer` at `Baseline` vs `Sub` into real pixel
+buffers and diffed the topmost ink row.
+
+With v23, every item from the original post-v20 feature-gap survey's
+first two entries (`border` shorthand, vertical-align/text-align) is
+resolved. The remaining survey items (positioning model, flexbox/grid,
+the misc CSS property cluster, custom properties, at-rules, stateful
+pseudo-classes, forms/replaced-elements/JS) are each considerably
+bigger — next session should expect some of them to hit genuine design
+decisions worth flagging rather than guessing (e.g. what `@media`
+breakpoints should even mean for a window-resizable renderer with no
+"device" concept, or how deep a flexbox subset is worth implementing).
+
 ## Priority going forward: rendering, not networking
 
 Explicit decision: the next phase of work is about how scratchy

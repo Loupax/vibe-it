@@ -1078,3 +1078,72 @@ nothing — nothing read `text-align` anywhere.
 `default.css`'s existing `caption { text-align: center }` now actually
 takes effect, no `default.css` change needed. Narrows the `TODO.txt`
 vertical-align/text-align item down to just `vertical-align`.
+
+---
+
+## v23 — `vertical-align` (`sub`/`super`)
+
+TODO.txt (post-v20 feature-gap survey, continued from v21/v22):
+`default.css`'s `sub { vertical-align: sub }`/`sup { vertical-align:
+super }` had always parsed but done nothing. Only `sub`/`super` are
+implemented — the 2 keywords `default.css` actually declares — not
+`top`/`middle`/`bottom`/`text-top`/`text-bottom`/length/percentage,
+and not real per-table-cell vertical content positioning (`tr`/`td`/
+`th`'s `vertical-align: inherit` has no `inherit` keyword to parse
+anywhere in this codebase, so it just drops — harmless here, since
+nothing above a `td` ever sets a non-`Baseline` value for it to
+meaningfully inherit anyway).
+
+**Requirements:**
+1. **`VerticalAlign` enum** (`Baseline`/`Sub`/`Super`, `Baseline`
+   `#[default]` — the real CSS initial value), *not* threaded through
+   `InheritedStyle` — `vertical-align` genuinely isn't a spec-inherited
+   property (unlike `text-align`, v22). Propagates the same **ambient**
+   way `background-color`/`text-decoration` already do: a new `valign`
+   parameter through `collect_children`, carrying an element's own
+   non-`Baseline` value down to descendant spans that don't override
+   it (`<sub>text <b>bold</b></sub>` — the `b` has no vertical-align of
+   its own, but its span should still render shifted).
+2. **No API in cosmic-text for this** (unlike `text-align`'s
+   `Buffer::set_rich_text` alignment parameter — checked first, same
+   as v22, but nothing analogous exists for baseline shifting).
+   `Buffer::draw()`'s convenience wrapper offers no hook to nudge an
+   individual glyph's y position either. Replaced it in `paint_buffer`
+   with `buffer.draw()`'s own internals, copied out by hand from
+   cosmic-text's public API (`LegacyRenderer`, `render_decoration`,
+   `LayoutGlyph::physical`, all `pub`) — manually looping
+   `buffer.layout_runs()`, looking up each glyph's per-span
+   `VerticalAlign` by `glyph.metadata` (same per-span index
+   `paint_span_backgrounds`, v12, already reads by), and adding a
+   `y_shift` (±a fraction of that glyph's own font size — not real
+   font-metric `subscriptYOffset`/`superscriptYOffset` values, which
+   `fontdb`/cosmic-text don't expose; the same rough-fraction fallback
+   browsers themselves use when a font doesn't supply its own) to
+   `run.line_y` before computing the glyph's physical position.
+3. **`shape_spans`/`ShapeCache`/`paint`/`paint_buffer` all gain a
+   parallel `Vec<VerticalAlign>` alongside the existing `backgrounds`
+   vector** (same per-span-index shape), threaded the same way.
+   `VerticalAlign` had to become `pub` (was going to stay private) —
+   `ShapeCache` is already `pub` (v20) and a public type alias can't
+   reference a private one; variants come along as `pub` too, same
+   unavoidable consequence `LayoutBox`/`Laid` already accepted in v20.
+4. **Verified headlessly**: cascade resolves `sub { vertical-align:
+   sub }` correctly *without* a sibling picking it up (confirms it's
+   genuinely not CSS-inherited), a full tree build shows a nested `<b>`
+   inside `<sub>` still carries `Sub` on its span (confirms the ambient
+   propagation), `y_shift`'s sign (down for `Sub`, up for `Super`), and
+   — the one that actually matters — rendering the same glyph through
+   `paint_buffer` at `Baseline` vs. `Sub` into real pixel buffers and
+   confirming the rasterized glyph's topmost ink row really is lower
+   for `Sub` (not just that the layout math says it should be).
+   Spot-checked visually too: `E = mc<sup>2</sup>` and `H<sub>2</sub>O`
+   both render with the digit visibly raised/lowered.
+
+**Deliverable:** `src/lib.rs` (`VerticalAlign` enum + `y_shift()`,
+`Declarations`/`ComputedStyle`/`SpanStyle` field + cascade,
+`vertical-align` branch in `DeclParser::parse_value`,
+`collect_children`'s new `valign` parameter, `shape_spans`/
+`ShapeCache`/`paint_buffer`'s new `Vec<VerticalAlign>` plumbing,
+`paint_buffer`'s manual glyph-rendering loop replacing `buffer.draw()`).
+Resolves the last item from the text-align/vertical-align `TODO.txt`
+pair — nothing of the original pairing left.
