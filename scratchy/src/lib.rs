@@ -618,6 +618,58 @@ fn parse_text_decoration(input: &mut CssParser) -> Result<TextDecoration, ()> {
     }
 }
 
+/// The `border` shorthand: `<border-width> || <border-style> ||
+/// <border-color>`, each 0-1 times, any order. `border-style` isn't
+/// tracked anywhere `border-width`/`border-color` are read (every border
+/// paints as a plain solid stroke regardless of declared style — see
+/// TODO.txt), so a recognized style keyword is consumed and discarded
+/// rather than stored; it's still recognized here (not just left to fall
+/// through to the unrecognized-token case) so `border: 1px solid gray`
+/// doesn't need the style keyword to coincidentally also fail to parse as
+/// a color for the width/color to come through. Same lenient philosophy
+/// as `parse_text_decoration`: an unrecognized token is skipped rather
+/// than failing the whole value, so one bad component doesn't throw away
+/// a width/color that did parse.
+fn parse_border_shorthand(input: &mut CssParser) -> Result<(Option<Length>, Option<CssColor>), ()> {
+    const STYLE_KEYWORDS: &[&str] = &[
+        "none", "hidden", "dotted", "dashed", "solid", "double", "groove", "ridge", "inset", "outset",
+    ];
+    let mut width = None;
+    let mut color = None;
+    let mut found = false;
+    loop {
+        let state = input.state();
+        if let Ok(v) = parse_length(input) {
+            width = Some(v);
+            found = true;
+            continue;
+        }
+        input.reset(&state);
+        if let Ok(Token::Ident(ident)) = input.next() {
+            if STYLE_KEYWORDS.iter().any(|k| ident.eq_ignore_ascii_case(k)) {
+                found = true;
+                continue;
+            }
+        }
+        input.reset(&state);
+        if let Ok(c) = CssColor::parse(input) {
+            color = Some(c);
+            found = true;
+            continue;
+        }
+        input.reset(&state);
+        match input.next() {
+            Ok(_) => {}
+            Err(_) => break,
+        }
+    }
+    if found {
+        Ok((width, color))
+    } else {
+        Err(())
+    }
+}
+
 struct DeclParser<'a> {
     decls: &'a mut Declarations,
 }
@@ -643,6 +695,15 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
         } else if name.eq_ignore_ascii_case("border-color") {
             if let Ok(c) = CssColor::parse(input) {
                 self.decls.border_color = Some(c);
+            }
+        } else if name.eq_ignore_ascii_case("border") {
+            if let Ok((w, c)) = parse_border_shorthand(input) {
+                if let Some(w) = w {
+                    self.decls.border_width = Some(w);
+                }
+                if let Some(c) = c {
+                    self.decls.border_color = Some(c);
+                }
             }
         } else if name.eq_ignore_ascii_case("display") {
             if let Ok(ident) = input.expect_ident() {

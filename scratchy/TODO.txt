@@ -47,14 +47,6 @@ the items above — see the conversation that asked "what features are
 missing in regards to rendering html?" Grouped by area so a future
 session can pick a coherent slice rather than one property at a time.
 
-- [ ] `border` shorthand isn't parsed — only the `border-width`/
-      `border-color` longhands are (box model, PROMPTS.md v13). A rule
-      like `.box { border: 2px solid #884400; }` silently drops the
-      whole declaration (same "unparseable drops safely" behavior as
-      elsewhere), so the element renders with no border at all. Caught
-      live: a manual test page using the shorthand showed no border,
-      confirmed via a headless test that the longhand form works fine.
-
 - [ ] `vertical-align` and `text-align` are both parsed (so declaring
       them doesn't drop the rule) but entirely inert — nothing reads
       either field during layout/paint. `default.css` already declares

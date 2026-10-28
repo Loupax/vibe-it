@@ -215,6 +215,40 @@ v15/v16/v17's `TODO.txt` wording (rem/%/unitless, table auto-layout/
 colspan/border-collapse, named font families) as the closest thing to
 a backlog, plus whatever a real test page surfaces fresh.
 
+**`grim`/screenshot verification works again** — it turned out to be
+the sandbox's monitor being powered off, not a real compositor/winit
+bug (user's own diagnosis). Confirmed by re-running the v12-v20 test
+page and screenshotting it for real: everything rendered as the
+headless tests had already said it would, *except* one thing the
+headless tests hadn't covered — `border: 2px solid #884400` (the
+shorthand) rendered with no visible border at all, because only the
+`border-width`/`border-color` longhands were ever parsed. Caught by
+eye, confirmed with a quick headless test, filed as a `TODO.txt` item
+(resolved in v21, below). Worth remembering: headless unit tests only
+catch what they're written to check — a real rendered page can still
+surface a gap nobody thought to assert on.
+
+Also did a full HTML-rendering feature-gap survey (user asked "what
+features are missing in regards to rendering html?") and wrote the
+whole answer into `TODO.txt` as grouped, actionable items: `border`
+shorthand, inert `vertical-align`/`text-align`, no positioning model
+(float/position/z-index), no flexbox/grid, a cluster of unimplemented-
+but-parsed-or-dropped CSS properties (cursor/line-height/letter-
+spacing/opacity/box-shadow/border-radius/outline/visibility/overflow/
+border-style/relative font sizes), no CSS custom properties, no
+at-rules at all (`@media`/`@font-face`/`@keyframes`/...), stubbed-out
+stateful pseudo-classes (`NonTSPseudoClass` is an empty enum), and no
+forms/replaced-elements/JavaScript (consistent with "rendering, not
+networking" below — most of these need either networking or a design
+decision nobody's made yet).
+
+User then asked to pick items off that survey autonomously, one
+commit+push per feature, skip-and-note anything needing
+clarification. **v21 resolved the `border` shorthand** (see
+`PROMPTS.md`) — straightforward, no clarification needed, same
+lenient "unparseable component skipped, not whole-value-dropped"
+philosophy as `parse_text_decoration`.
+
 ## Priority going forward: rendering, not networking
 
 Explicit decision: the next phase of work is about how scratchy
@@ -258,6 +292,13 @@ In the meantime, ad hoc testing against real pages this session used:
   `cargo build` takes several seconds (more after larger changes) —
   use `check` while iterating, `build` before actually running.
 - The repo has a GitHub remote (`origin` →
-  `https://github.com/Loupax/vibe-it.git`) but nothing has been pushed
-  since v3 — local `main` is several commits ahead. Pushing hasn't
-  been requested; don't push without asking.
+  `https://github.com/Loupax/vibe-it.git`). Pushed v4-v20 (everything
+  that had accumulated unpushed) plus the TODO.txt gap-survey commit
+  in this session, after the user explicitly asked for it. User then
+  authorized ongoing autonomous work: pick items off `TODO.txt`,
+  **one commit and one push per feature**, and — since they won't be
+  available to answer questions — skip anything that needs
+  clarification and leave a note instead of guessing. This replaces
+  the earlier "don't push without asking" caution for this specific,
+  explicitly-authorized workflow; it isn't a standing license to push
+  in general outside it.

@@ -994,3 +994,41 @@ content, `pub fn run()` plus the minimal `pub` surface above),
 `src/main.rs` (now a 3-line wrapper), `benches/layout.rs` (new),
 `Cargo.toml` (`criterion` dev-dependency + `[[bench]]` entry); removes
 the now-resolved item from `TODO.txt` — nothing left on it.
+
+---
+
+## v21 — `border` shorthand
+
+TODO.txt (post-v20 feature-gap survey): `border: 2px solid #884400`
+silently dropped the whole declaration — only the `border-width`/
+`border-color` longhands were parsed (v13). User asked to start
+picking features off that survey one at a time, one commit+push each,
+skipping and noting anything that needs clarification.
+
+**Requirements:**
+1. **`parse_border_shorthand`**: loops tokens trying, at each position,
+   a length (`border-width`), a recognized `border-style` keyword
+   (`none`/`hidden`/`dotted`/`dashed`/`solid`/`double`/`groove`/
+   `ridge`/`inset`/`outset` — consumed and discarded, since nothing
+   reads border-style anywhere border-width/border-color are used:
+   every border always paints as a plain solid stroke), or a color —
+   in any order, each 0-1 times, same `<border-width> || <border-style>
+   || <border-color>` grammar as the real shorthand. An unrecognized
+   token is skipped rather than failing the whole value (same lenient
+   philosophy as `parse_text_decoration` — one bad component shouldn't
+   throw away a width/color that did parse).
+2. **Wired into `DeclParser`** under the `"border"` property name,
+   setting `border_width`/`border_color` in `Declarations` exactly
+   like the longhand properties do — so a later longhand declaration
+   in the cascade still overrides it, same as real CSS shorthand/
+   longhand interaction.
+3. **Verified headlessly**: width+color in either order, color-only
+   (doesn't invent a 0 width... it already defaults to 0, more
+   precisely: doesn't set a nonzero width), width-only, width+unknown-
+   style-keyword (style keyword doesn't block the width from still
+   parsing), and a later explicit `border-width` longhand overriding
+   an earlier `border` shorthand.
+
+**Deliverable:** `src/lib.rs` (`parse_border_shorthand` + one new
+branch in `DeclParser::parse_value`); removes the resolved item from
+`TODO.txt`.
