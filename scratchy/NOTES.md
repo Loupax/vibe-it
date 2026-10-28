@@ -390,6 +390,36 @@ letter-spacing is set) — all three need a judgment call this session
 didn't have standing to make alone, hence skip-and-note per the user's
 own instruction for this run rather than silently picking one.
 
+**`opacity` was scoped out next without attempting it** — unlike
+every other paint-only property landed this run, it can't be resolved
+within `resolve_style`/`paint` alone: real `opacity` dims an entire
+subtree as one group, which would need threading a new accumulated-
+opacity parameter through all 6 of the mutually-recursive box-building
+functions (`build_box_for_element`/`build_table_children`/
+`build_table_row_cells`/`build_children`/`build_children_with_prefix`/
+`collect_children`), not just `collect_children` the way every other
+ambient property here has. And a simplified "multiply each
+descendant's alpha ambiently" wouldn't actually match real group-
+compositing semantics for overlapping semi-transparent content —
+a correctness trade-off worth surfacing rather than picking silently.
+Logged as its own `TODO.txt` item laying out the three real options
+(full correct plumbing, a non-propagating simplified version, or the
+lossy ambient-multiply version) for whoever decides.
+
+**v28 resolved `border-radius`**, scoped to the background fill only.
+Tried the same "paint a bigger solid rounded shape, then a smaller one
+on top" nesting trick that made `outline`/`box-shadow` cheap, and it
+genuinely doesn't work for a rounded *border ring* once the interior
+might be hollow (no background): there's nothing to safely "restore"
+in the no-bg case after a big solid fill overpaints it, unlike
+outline/shadow where the thing underneath (background/border) is
+always re-painted afterward regardless. Recognized this before writing
+any ring code, not after — worth the general lesson: the nested-solid-
+fill trick only works when every layer in the stack is *guaranteed*
+to repaint over whatever's beneath it; the moment a layer can be
+legitimately absent (no background declared), the trick needs real
+boundary-membership math instead.
+
 ## Priority going forward: rendering, not networking
 
 Explicit decision: the next phase of work is about how scratchy

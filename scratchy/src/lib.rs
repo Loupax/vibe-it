@@ -532,6 +532,7 @@ struct Declarations {
     outline_width: Option<Length>,
     outline_color: Option<CssColor>,
     box_shadow: Option<BoxShadow>,
+    border_radius: Option<Length>,
 }
 
 /// Just `normal` (the default — current behavior, collapse+wrap) and `pre`
@@ -1058,6 +1059,8 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
             if let Ok(v) = parse_box_shadow(input) {
                 self.decls.box_shadow = Some(v);
             }
+        } else if name.eq_ignore_ascii_case("border-radius") {
+            set_length(input, &mut self.decls.border_radius);
         } else if name.eq_ignore_ascii_case("font-size") {
             if let Ok(v) = parse_length(input) {
                 self.decls.font_size = Some(v);
@@ -1361,6 +1364,16 @@ struct ComputedStyle {
     /// `None` means no `box-shadow` declared (or an unsupported form —
     /// see `BoxShadow`'s own docs). Not inherited.
     box_shadow: Option<ResolvedBoxShadow>,
+    /// Only rounds the plain background fill (`paint_box_decoration`) —
+    /// combined with a visible border (`border_width > 0`), it's ignored
+    /// and both fall back to square corners. A correctly-rounded *ring*
+    /// needs real per-pixel inner/outer-boundary testing (the "paint a
+    /// bigger solid shape, then a smaller one on top" trick this file
+    /// otherwise favors doesn't work once the interior isn't guaranteed
+    /// opaque — nothing to safely "restore" where the ring should leave
+    /// a hollow center) — not worth building without `default.css` or a
+    /// real page combining the two (see TODO.txt). Not inherited.
+    border_radius: f32,
 }
 
 /// `BoxShadow` with its lengths resolved to pixels (against the
@@ -1592,6 +1605,13 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
             color,
         })
     });
+    let border_radius = cascade_property(
+        &matches,
+        inline_decls.as_ref().and_then(|d| d.border_radius),
+        |d| d.border_radius,
+    )
+    .map(|l| l.resolve(font_size))
+    .unwrap_or(0.0);
 
     ComputedStyle {
         color,
@@ -1615,6 +1635,7 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         outline_width,
         outline_color,
         box_shadow,
+        border_radius,
     }
 }
 
@@ -1641,6 +1662,7 @@ fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         outline_width: 0.0,
         outline_color: None,
         box_shadow: None,
+        border_radius: 0.0,
     }
 }
 
@@ -2228,6 +2250,31 @@ fn fill_rect(pixels: &mut [u32], win_w: u32, win_h: u32, x: f32, y: f32, w: f32,
     }
 }
 
+/// Fills a rect with its 4 corners rounded by `radius`, hard-edged (no
+/// anti-aliasing — matches `fill_rect`'s own fidelity level, so this
+/// isn't a visual downgrade from how every other shape here already
+/// paints). Row by row: each row is one horizontal span, its full width
+/// except within `radius` of the top/bottom edge, where it's inset by
+/// how far that row sits from the nearest corner's circular boundary.
+fn fill_rounded_rect(pixels: &mut [u32], win_w: u32, win_h: u32, x: f32, y: f32, w: f32, h: f32, radius: f32, color: TextColor) {
+    let r = radius.min(w / 2.0).min(h / 2.0).max(0.0);
+    if r <= 0.0 {
+        fill_rect(pixels, win_w, win_h, x, y, w, h, color);
+        return;
+    }
+    let y0 = y.round() as i32;
+    let y1 = (y + h).round() as i32;
+    for row in y0..y1 {
+        let dy = (row as f32 - y).min((y + h) - row as f32 - 1.0);
+        let inset = if dy < r {
+            r - (r * r - (r - dy).max(0.0).powi(2)).max(0.0).sqrt()
+        } else {
+            0.0
+        };
+        fill_rect(pixels, win_w, win_h, x + inset, row as f32, (w - 2.0 * inset).max(0.0), 1.0, color);
+    }
+}
+
 fn paint_box_decoration(s: &ComputedStyle, pixels: &mut [u32], win_w: u32, win_h: u32, x: f32, y: f32, w: f32, h: f32) {
     // Painted first — behind this box's own background/border, same
     // stacking a real (non-inset) box-shadow has. A hard-edged solid
@@ -2245,7 +2292,13 @@ fn paint_box_decoration(s: &ComputedStyle, pixels: &mut [u32], win_w: u32, win_h
         );
     }
     if let Some(bg) = s.background_color {
-        fill_rect(pixels, win_w, win_h, x, y, w, h, bg);
+        // Rounded only when there's no border to also round — see
+        // `ComputedStyle::border_radius`'s own docs.
+        if s.border_radius > 0.0 && s.border_width <= 0.0 {
+            fill_rounded_rect(pixels, win_w, win_h, x, y, w, h, s.border_radius, bg);
+        } else {
+            fill_rect(pixels, win_w, win_h, x, y, w, h, bg);
+        }
     }
     if s.border_width > 0.0 {
         if let Some(bc) = s.border_color {

@@ -60,17 +60,51 @@ session can pick a coherent slice rather than one property at a time.
 
 - [ ] A cluster of CSS properties are either unrecognized (dropped) or
       recognized-but-inert, none needed by `default.css` yet:
-      `cursor`, `word-spacing`, `opacity`,
-      `border-radius`,
+      `cursor`, `word-spacing`,
       `overflow`/clipping, `border-style` (border is always drawn as a
       plain solid stroke regardless of declared style — `hr`'s
       `border-style: inset` in default.css is inert), relative/keyword
       font sizes (`font-size: larger`/`smaller`) and `font-weight:
       bolder` (only the literal `bold` keyword is recognized).
       (`line-height` landed in v24, `visibility` in v25, `outline` in
-      v26, `box-shadow` in v27 — all below now, not in this cluster.
-      `letter-spacing` was attempted and reverted — see the item
-      below, not a cluster member either.)
+      v26, `box-shadow` in v27, `border-radius` in v28 — all below
+      now, not in this cluster. `letter-spacing` was attempted and
+      reverted, `opacity` was scoped out — see their own items below,
+      neither is a cluster member anymore.)
+
+- [ ] `border-radius` (PROMPTS.md v28) only rounds a plain background
+      fill — combined with a visible border (`border-width > 0`),
+      it's ignored entirely and both fall back to square corners. A
+      correctly-rounded ring needs real per-pixel inner/outer-boundary
+      testing; nothing in `default.css` or a real test page combines
+      the two yet. Revisit if one does.
+
+- [ ] **`opacity` was deliberately skipped, not attempted** — scoping
+      it out surfaced a real design decision, not just an
+      implementation task. Unlike every other paint-only property
+      landed this session (`outline`/`box-shadow`/v12's
+      `background-color`), `opacity` can't be resolved and applied
+      purely within `resolve_style`/`paint`: real CSS opacity dims an
+      element's *entire subtree* as one group (so a `<div
+      style="opacity: 0.5">` with text inside dims the text too, not
+      just the div's own background/border), which would mean
+      threading a new accumulated-opacity parameter through all of
+      `build_box_for_element`/`build_table_children`/
+      `build_table_row_cells`/`build_children`/
+      `build_children_with_prefix`/`collect_children` — a materially
+      bigger, more invasive plumbing change than anything else done
+      this run (every other ambient property so far only needed
+      `collect_children` itself). Worse, a simplified "multiply each
+      descendant's own alpha by an ambient accumulated opacity" isn't
+      actually equivalent to real CSS opacity's group-compositing
+      semantics — it'd visibly diverge for overlapping semi-transparent
+      content (double-blending vs. single-group-composite), a
+      correctness trade-off worth the user's input rather than a
+      unilateral pick between that, a non-propagating
+      own-element-only version (simpler but misleading — wouldn't dim
+      a `<div opacity:0.5>`'s own text/children at all, surprising for
+      the property's most common real use), or the invasive
+      fully-correct plumbing.
 
 - [ ] **`letter-spacing` was attempted and reverted (no commit) after
       finding what looks like a real cosmic-text 0.19.0 bug**, not a

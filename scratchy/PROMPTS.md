@@ -1363,3 +1363,51 @@ just not completely.
 `paint_box_decoration`'s new shadow rect). Removes `box-shadow` from
 the misc-CSS-properties `TODO.txt` cluster, replaced with its own
 narrower-scope item.
+
+---
+
+## v28 — `border-radius` (background-only)
+
+TODO.txt (post-v20 feature-gap survey, continued — after letter-
+spacing was attempted and reverted, and opacity was scoped out as
+needing more design input than this run could resolve alone).
+`border-radius` was entirely unparsed.
+
+**Requirements:**
+1. **`fill_rounded_rect`**: a new row-by-row rounded-rect fill
+   primitive alongside the existing `fill_rect`, same hard-edged (no
+   anti-aliasing) fidelity level as every other shape this file
+   paints — not a visual downgrade. Each row is a single horizontal
+   span, inset within `radius` of the top/bottom edge by how far that
+   row sits from the nearest corner's circular boundary.
+2. **Deliberately scoped to the background fill only** — combined
+   with a visible border (`border_width > 0`), `border-radius` is
+   ignored entirely and both fall back to the existing square-corner
+   code path, unchanged. A correctly-rounded *ring* needs real
+   per-pixel inner/outer-boundary membership testing: the "paint a
+   bigger solid shape, then a smaller one on top" trick this file
+   otherwise favors (and that would have made a rounded border trivial
+   to express as two nested `fill_rounded_rect` calls) doesn't work
+   once the interior isn't guaranteed opaque — there's nothing to
+   safely "restore" where a hollow (no-background) ring should show
+   through. Not worth building the real ring-math without a page that
+   actually needs it.
+3. **Not inherited** (`ComputedStyle`-only field, same shape as
+   `outline_width`/`box_shadow` — not threaded through
+   `InheritedStyle`).
+4. **Verified headlessly**: cascade resolves correctly and doesn't
+   inherit to a child, `fill_rounded_rect` itself actually clips a
+   corner pixel that a plain `fill_rect` would paint (while still
+   painting dead center, confirming it's a real shape change, not a
+   no-op), `paint_box_decoration` rounds the background when there's
+   no border, and falls back to painting the corner square when a
+   border is present. Spot-checked visually too: a background-only box
+   with visibly rounded corners next to a background+border box that
+   correctly stays square.
+
+**Deliverable:** `src/lib.rs` (`fill_rounded_rect`,
+`Declarations`/`ComputedStyle` fields + cascade, `border-radius`
+branch in `DeclParser::parse_value`, `paint_box_decoration`'s
+background-fill branch). Removes `border-radius` from the
+misc-CSS-properties `TODO.txt` cluster, replaced with its own
+narrower-scope item.
