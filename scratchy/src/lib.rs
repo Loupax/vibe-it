@@ -529,6 +529,8 @@ struct Declarations {
     vertical_align: Option<VerticalAlign>,
     line_height: Option<LineHeight>,
     visibility: Option<Visibility>,
+    outline_width: Option<Length>,
+    outline_color: Option<CssColor>,
 }
 
 /// Just `normal` (the default — current behavior, collapse+wrap) and `pre`
@@ -774,6 +776,32 @@ fn parse_border_shorthand(input: &mut CssParser) -> Result<(Option<Length>, Opti
     const STYLE_KEYWORDS: &[&str] = &[
         "none", "hidden", "dotted", "dashed", "solid", "double", "groove", "ridge", "inset", "outset",
     ];
+    parse_border_like_shorthand(input, STYLE_KEYWORDS)
+}
+
+/// `outline`'s own grammar — same `<width> || <style> || <color>` shape
+/// as `border`, but `outline-style` additionally allows `auto` (the
+/// browser-native focus ring, not a real style keyword) and has no
+/// `hidden` (that's `border-style`-only). Not tracked here either, same
+/// as `border-style` — consumed and discarded.
+fn parse_outline_shorthand(input: &mut CssParser) -> Result<(Option<Length>, Option<CssColor>), ()> {
+    const STYLE_KEYWORDS: &[&str] = &[
+        "none", "auto", "dotted", "dashed", "solid", "double", "groove", "ridge", "inset", "outset",
+    ];
+    parse_border_like_shorthand(input, STYLE_KEYWORDS)
+}
+
+/// Shared implementation behind `parse_border_shorthand`/
+/// `parse_outline_shorthand` — identical grammar shape
+/// (`<width> || <style> || <color>`, any order, each 0-1 times), only the
+/// recognized style keywords differ. An unrecognized token is skipped
+/// rather than failing the whole value (same lenient philosophy as
+/// `parse_text_decoration` — one bad component shouldn't throw away a
+/// width/color that did parse).
+fn parse_border_like_shorthand(
+    input: &mut CssParser,
+    style_keywords: &[&str],
+) -> Result<(Option<Length>, Option<CssColor>), ()> {
     let mut width = None;
     let mut color = None;
     let mut found = false;
@@ -786,7 +814,7 @@ fn parse_border_shorthand(input: &mut CssParser) -> Result<(Option<Length>, Opti
         }
         input.reset(&state);
         if let Ok(Token::Ident(ident)) = input.next() {
-            if STYLE_KEYWORDS.iter().any(|k| ident.eq_ignore_ascii_case(k)) {
+            if style_keywords.iter().any(|k| ident.eq_ignore_ascii_case(k)) {
                 found = true;
                 continue;
             }
@@ -944,6 +972,23 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
         } else if name.eq_ignore_ascii_case("border-width") {
             if let Ok(v) = parse_length(input) {
                 self.decls.border_width = Some(v);
+            }
+        } else if name.eq_ignore_ascii_case("outline-width") {
+            if let Ok(v) = parse_length(input) {
+                self.decls.outline_width = Some(v);
+            }
+        } else if name.eq_ignore_ascii_case("outline-color") {
+            if let Ok(c) = CssColor::parse(input) {
+                self.decls.outline_color = Some(c);
+            }
+        } else if name.eq_ignore_ascii_case("outline") {
+            if let Ok((w, c)) = parse_outline_shorthand(input) {
+                if let Some(w) = w {
+                    self.decls.outline_width = Some(w);
+                }
+                if let Some(c) = c {
+                    self.decls.outline_color = Some(c);
+                }
             }
         } else if name.eq_ignore_ascii_case("font-size") {
             if let Ok(v) = parse_length(input) {
@@ -1238,6 +1283,13 @@ struct ComputedStyle {
     /// finally needed.
     line_height: LineHeight,
     visibility: Visibility,
+    /// Not inherited (same as `border_width`/`border_color`) and doesn't
+    /// affect layout at all (unlike `border`, which is part of the box
+    /// model) — drawn one `outline_width` ring *outside* the border box,
+    /// in `paint_box_decoration`, with no `outline-offset` gap (nothing
+    /// needs one yet).
+    outline_width: f32,
+    outline_color: Option<TextColor>,
 }
 
 impl ComputedStyle {
@@ -1431,6 +1483,19 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         |d| d.visibility,
     )
     .unwrap_or(inherited.visibility);
+    let outline_width = cascade_property(
+        &matches,
+        inline_decls.as_ref().and_then(|d| d.outline_width),
+        |d| d.outline_width,
+    )
+    .map(|l| l.resolve(font_size))
+    .unwrap_or(0.0);
+    let outline_color = cascade_property(
+        &matches,
+        inline_decls.as_ref().and_then(|d| d.outline_color),
+        |d| d.outline_color,
+    )
+    .and_then(|c| to_text_color(&c));
 
     ComputedStyle {
         color,
@@ -1451,6 +1516,8 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         vertical_align,
         line_height,
         visibility,
+        outline_width,
+        outline_color,
     }
 }
 
@@ -1474,6 +1541,8 @@ fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         vertical_align: VerticalAlign::default(),
         line_height: inherited.line_height,
         visibility: inherited.visibility,
+        outline_width: 0.0,
+        outline_color: None,
     }
 }
 
@@ -2072,6 +2141,19 @@ fn paint_box_decoration(s: &ComputedStyle, pixels: &mut [u32], win_w: u32, win_h
             fill_rect(pixels, win_w, win_h, x, y + h - bw, w, bw, bc);
             fill_rect(pixels, win_w, win_h, x, y, bw, h, bc);
             fill_rect(pixels, win_w, win_h, x + w - bw, y, bw, h, bc);
+        }
+    }
+    // Outside the border box (not part of the box model — doesn't affect
+    // `w`/`h` the way `border_width` does), same 4-rect ring shape as
+    // border, just offset outward by its own width instead of inward.
+    if s.outline_width > 0.0 {
+        if let Some(oc) = s.outline_color {
+            let ow = s.outline_width;
+            let (ox, oy, ow_total, oh_total) = (x - ow, y - ow, w + 2.0 * ow, h + 2.0 * ow);
+            fill_rect(pixels, win_w, win_h, ox, oy, ow_total, ow, oc);
+            fill_rect(pixels, win_w, win_h, ox, oy + oh_total - ow, ow_total, ow, oc);
+            fill_rect(pixels, win_w, win_h, ox, oy, ow, oh_total, oc);
+            fill_rect(pixels, win_w, win_h, ox + ow_total - ow, oy, ow, oh_total, oc);
         }
     }
 }

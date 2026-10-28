@@ -61,14 +61,14 @@ session can pick a coherent slice rather than one property at a time.
 - [ ] A cluster of CSS properties are either unrecognized (dropped) or
       recognized-but-inert, none needed by `default.css` yet:
       `cursor`, `letter-spacing`/`word-spacing`, `opacity`,
-      `box-shadow`, `border-radius`, `outline`,
+      `box-shadow`, `border-radius`,
       `overflow`/clipping, `border-style` (border is always drawn as a
       plain solid stroke regardless of declared style — `hr`'s
       `border-style: inset` in default.css is inert), relative/keyword
       font sizes (`font-size: larger`/`smaller`) and `font-weight:
       bolder` (only the literal `bold` keyword is recognized).
-      (`line-height` landed in v24, `visibility` in v25 — both below
-      now, not in this cluster.)
+      (`line-height` landed in v24, `visibility` in v25, `outline` in
+      v26 — all below now, not in this cluster.)
 
 - [ ] No CSS custom properties (`--foo: ...` / `var(--foo)`).
 

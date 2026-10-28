@@ -1259,3 +1259,49 @@ Only `visible`/`hidden` — no `collapse` (table row/column-specific,
 `shape_spans`/`ShapeCache`/`paint`/`paint_buffer`/
 `paint_span_backgrounds`, `paint`'s box-decoration skip). Narrows the
 misc-CSS-properties `TODO.txt` item by one more.
+
+---
+
+## v26 — `outline`
+
+TODO.txt (post-v20 feature-gap survey, continued): another pick from
+the misc-CSS-properties cluster. `outline-width`/`outline-color`/the
+`outline` shorthand were entirely unparsed.
+
+**Requirements:**
+1. **Mirrors `border-width`/`border-color` exactly** (same `Option
+   <Length>`/`Option<CssColor>` `Declarations` fields, same
+   `cascade_property` call shape, same `f32`/`Option<TextColor>`
+   `ComputedStyle` fields, not inherited) — `outline` really is
+   structurally identical to `border` as a CSS property, just painted
+   in a different place with no box-model effect.
+2. **Shorthand parsing shares its implementation with `border`'s**
+   (v21): factored `parse_border_shorthand`'s loop out into
+   `parse_border_like_shorthand(input, style_keywords)`, with
+   `parse_border_shorthand`/`parse_outline_shorthand` as thin wrappers
+   supplying their own (slightly different — `outline-style` allows
+   `auto`, has no `hidden`) style-keyword lists. `outline-style` itself
+   still isn't tracked, same as `border-style`.
+3. **Drawn outside the border box, not part of the box model** — doesn't
+   affect `w`/`h` the way `border_width` does (unlike border, which
+   `resolve_style` folds into the content-box math). `paint_box_decoration`
+   gained a second 4-rect ring, identical in shape to the border ring,
+   offset *outward* by `outline_width` instead of inward. No
+   `outline-offset` gap support (nothing needs one).
+4. **Verified headlessly**: shorthand and longhand cascade correctly, a
+   style-only `outline: dashed` doesn't invent a width, and — the two
+   properties that actually matter for a "doesn't affect layout, does
+   affect paint" feature — a real `measure()` call confirms an
+   outlined box has the exact same width/height/position as the same
+   box without an outline, while `paint_box_decoration` confirms pixels
+   actually land in the ring strictly outside the border box (and
+   nothing paints there without an outline declared). Spot-checked
+   visually too: background + border + a thick outline together, outline
+   cleanly outside the border with no layout shift.
+
+**Deliverable:** `src/lib.rs` (`parse_border_like_shorthand` (factored
+out of `parse_border_shorthand`) + `parse_outline_shorthand`,
+`Declarations`/`ComputedStyle` fields + cascade, `outline-width`/
+`outline-color`/`outline` branches in `DeclParser::parse_value`,
+`paint_box_decoration`'s new outline ring). Narrows the
+misc-CSS-properties `TODO.txt` item by one more.

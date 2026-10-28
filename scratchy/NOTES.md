@@ -332,6 +332,20 @@ visually draws an ancestor's decoration through un-opted-out
 descendants — that one was a deliberate, documented exception, not a
 default to copy for new properties.
 
+**v26 resolved `outline`.** The straightforward one of this run —
+structurally identical to `border` (same non-inherited width/color
+shape, same shorthand grammar modulo which style keywords are valid),
+just painted outside the border box instead of as part of it, with no
+box-model effect at all. Factored the border shorthand's parsing loop
+out into a shared `parse_border_like_shorthand` rather than
+duplicating it, since `outline`'s only real difference from `border`
+is its style-keyword list (`auto` instead of `hidden`). Worth noting
+for next time a "clearly outside the box model" paint-only property
+comes up (`box-shadow` is the obvious next candidate already on
+TODO.txt): verify it with an *actual* `measure()` call proving
+box geometry is unaffected, not just that painting looks right — easy
+to accidentally regress layout while only intending to change paint.
+
 ## Priority going forward: rendering, not networking
 
 Explicit decision: the next phase of work is about how scratchy
