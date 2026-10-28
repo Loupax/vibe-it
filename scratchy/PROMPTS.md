@@ -1305,3 +1305,61 @@ out of `parse_border_shorthand`) + `parse_outline_shorthand`,
 `outline-color`/`outline` branches in `DeclParser::parse_value`,
 `paint_box_decoration`'s new outline ring). Narrows the
 misc-CSS-properties `TODO.txt` item by one more.
+
+---
+
+## v27 — `box-shadow`
+
+TODO.txt (post-v20 feature-gap survey, continued, following v26's own
+note that this was the obvious next candidate): `box-shadow` was
+entirely unparsed. Deliberately narrower than the real property —
+each simplification is its own `TODO.txt` sub-item now, not folded
+back into the misc-cluster one, since `box-shadow` is now implemented,
+just not completely.
+
+**Requirements:**
+1. **`BoxShadow`/`ResolvedBoxShadow`**: `<offset-x> <offset-y>
+   <blur-radius>? <spread-radius>? <color>` parsed via a dedicated
+   token-loop parser (`parse_box_shadow`) — a `<color>` is accepted at
+   any position (real CSS allows it first or last), but unlike the
+   shorthand parsers (v21/v26), an unrecognized token drops the whole
+   declaration rather than being skipped — safer than guessing at
+   which length means what with noise mixed in.
+2. **`inset` is actively rejected, not silently misrendered**: an
+   inner shadow needs an entirely different paint (clipped to the
+   box's own content area, not drawn outside it) — rendering it as an
+   outer shadow would look wrong, not just incomplete, so
+   `parse_box_shadow` returns `Err` the moment it sees the `inset`
+   keyword, same "drop the whole declaration" outcome as any other
+   unparseable value.
+3. **No blur, no `currentColor` fallback, single shadow only** — all
+   three documented inline and in `TODO.txt` as their own narrower
+   items, not blanket "not implemented": `blur-radius` is still parsed
+   (so its presence doesn't trip the reject-on-unrecognized-token
+   path) but discarded; a missing `color` fails the whole parse rather
+   than falling back to the element's own text color.
+4. **Resolved like `outline`** — `Declarations.box_shadow: Option
+   <BoxShadow>` (unresolved lengths/color) cascades to `ComputedStyle.
+   box_shadow: Option<ResolvedBoxShadow>` (resolved pixels + paintable
+   `TextColor`) in `resolve_style`, not inherited.
+5. **Painted first in `paint_box_decoration`**, behind this box's own
+   background/border — the correct stacking for a non-inset shadow —
+   as a single filled rect at `(x + offset_x - spread, y + offset_y -
+   spread)`, sized `(w + 2·spread, h + 2·spread)`.
+6. **Verified headlessly**: basic offset+color parsing, blur-radius
+   discarded while spread-radius is still captured, color-first
+   ordering, `inset` correctly rejects the whole declaration (not
+   misrendered), a missing color correctly rejects too, a real
+   `measure()` call confirms a shadowed box has identical
+   width/height to the same box without one (shadow is paint-only,
+   same proof style as v26's outline test), and that the shadow
+   actually paints a rect at its offset position behind the box.
+   Spot-checked visually too: a hard-edged dark offset shadow at the
+   bottom-right of a background+padding box.
+
+**Deliverable:** `src/lib.rs` (`BoxShadow`/`ResolvedBoxShadow` structs,
+`parse_box_shadow`, `Declarations`/`ComputedStyle` fields + cascade,
+`box-shadow` branch in `DeclParser::parse_value`,
+`paint_box_decoration`'s new shadow rect). Removes `box-shadow` from
+the misc-CSS-properties `TODO.txt` cluster, replaced with its own
+narrower-scope item.

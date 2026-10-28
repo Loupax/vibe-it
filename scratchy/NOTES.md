@@ -346,6 +346,22 @@ TODO.txt): verify it with an *actual* `measure()` call proving
 box geometry is unaffected, not just that painting looks right — easy
 to accidentally regress layout while only intending to change paint.
 
+**v27 resolved `box-shadow`** — did take that `measure()`-proves-
+layout-is-untouched advice from v26, same test shape reused. The
+interesting decision here was scope, not mechanism: real `box-shadow`
+has `inset`, blur, spread, `currentColor` fallback, and comma-
+separated multiple shadows — implemented only offset+spread+solid
+color, explicitly *rejecting* `inset` (parse failure, so it drops like
+any unsupported value) rather than rendering it wrong as an outer
+shadow. That distinction matters and is worth repeating as a pattern:
+when a property has a variant that would require a fundamentally
+different implementation to render *correctly* (inset shadows clip to
+the content area; outer ones don't), reject that variant outright
+instead of rendering it using the machinery built for the common case
+— a wrong-but-plausible-looking render is worse than nothing, because
+nothing is honestly "not supported" while wrong-but-plausible invites
+trusting output that's actually incorrect.
+
 ## Priority going forward: rendering, not networking
 
 Explicit decision: the next phase of work is about how scratchy

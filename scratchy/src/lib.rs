@@ -531,6 +531,7 @@ struct Declarations {
     visibility: Option<Visibility>,
     outline_width: Option<Length>,
     outline_color: Option<CssColor>,
+    box_shadow: Option<BoxShadow>,
 }
 
 /// Just `normal` (the default — current behavior, collapse+wrap) and `pre`
@@ -838,6 +839,69 @@ fn parse_border_like_shorthand(
     }
 }
 
+/// A parsed (not-yet-resolved) `box-shadow` value. Deliberately narrower
+/// than the real property: no `inset` (an inner shadow would need an
+/// entirely different paint — clipped to the box's own content area,
+/// not drawn outside it — so `parse_box_shadow` rejects the whole
+/// declaration rather than render it as an outer shadow, which would
+/// look wrong, not just incomplete), no blur (`blur-radius` is parsed,
+/// so it doesn't make the declaration drop, but intentionally discarded
+/// — every shadow paints as a hard-edged solid rect), no comma-separated
+/// multiple shadows (just the first/only one), and `color` is required
+/// (real CSS defaults a missing color to `currentColor`; nothing in
+/// `default.css` or a real test page has needed that yet, so it isn't
+/// implemented — see TODO.txt).
+#[derive(Clone, Copy)]
+struct BoxShadow {
+    offset_x: Length,
+    offset_y: Length,
+    spread: Length,
+    color: CssColor,
+}
+
+/// `<offset-x> <offset-y> <blur-radius>? <spread-radius>? <color>` — a
+/// `<color>` is accepted at any position in the token stream (real CSS
+/// allows it first or last), same token-loop style as the shorthand
+/// parsers above, but *not* lenient about unrecognized tokens: an
+/// unexpected token (most likely `inset`, or two colors) drops the whole
+/// declaration rather than guessing at which length is which.
+fn parse_box_shadow(input: &mut CssParser) -> Result<BoxShadow, ()> {
+    let mut lengths: Vec<Length> = Vec::new();
+    let mut color: Option<CssColor> = None;
+    loop {
+        let state = input.state();
+        if let Ok(v) = parse_length(input) {
+            lengths.push(v);
+            continue;
+        }
+        input.reset(&state);
+        if color.is_none() {
+            if let Ok(c) = CssColor::parse(input) {
+                color = Some(c);
+                continue;
+            }
+            input.reset(&state);
+        }
+        match input.next() {
+            Ok(_) => return Err(()),
+            Err(_) => break,
+        }
+    }
+    if lengths.len() < 2 {
+        return Err(());
+    }
+    let color = color.ok_or(())?;
+    Ok(BoxShadow {
+        offset_x: lengths[0],
+        offset_y: lengths[1],
+        // lengths[2] (blur-radius), if present, is read past above (so it
+        // doesn't fall through to the reject-unrecognized-token branch)
+        // but never stored — no blur rendering.
+        spread: lengths.get(3).copied().unwrap_or(Length::Px(0.0)),
+        color,
+    })
+}
+
 struct DeclParser<'a> {
     decls: &'a mut Declarations,
 }
@@ -989,6 +1053,10 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
                 if let Some(c) = c {
                     self.decls.outline_color = Some(c);
                 }
+            }
+        } else if name.eq_ignore_ascii_case("box-shadow") {
+            if let Ok(v) = parse_box_shadow(input) {
+                self.decls.box_shadow = Some(v);
             }
         } else if name.eq_ignore_ascii_case("font-size") {
             if let Ok(v) = parse_length(input) {
@@ -1290,6 +1358,21 @@ struct ComputedStyle {
     /// needs one yet).
     outline_width: f32,
     outline_color: Option<TextColor>,
+    /// `None` means no `box-shadow` declared (or an unsupported form —
+    /// see `BoxShadow`'s own docs). Not inherited.
+    box_shadow: Option<ResolvedBoxShadow>,
+}
+
+/// `BoxShadow` with its lengths resolved to pixels (against the
+/// element's own font-size, same timing as `border-width`/`padding`'s
+/// own `em` resolution) and its color converted to a paintable
+/// `TextColor` — the form `paint_box_decoration` actually draws.
+#[derive(Clone, Copy)]
+struct ResolvedBoxShadow {
+    offset_x: f32,
+    offset_y: f32,
+    spread: f32,
+    color: TextColor,
 }
 
 impl ComputedStyle {
@@ -1496,6 +1579,19 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         |d| d.outline_color,
     )
     .and_then(|c| to_text_color(&c));
+    let box_shadow = cascade_property(
+        &matches,
+        inline_decls.as_ref().and_then(|d| d.box_shadow),
+        |d| d.box_shadow,
+    )
+    .and_then(|bs| {
+        to_text_color(&bs.color).map(|color| ResolvedBoxShadow {
+            offset_x: bs.offset_x.resolve(font_size),
+            offset_y: bs.offset_y.resolve(font_size),
+            spread: bs.spread.resolve(font_size),
+            color,
+        })
+    });
 
     ComputedStyle {
         color,
@@ -1518,6 +1614,7 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         visibility,
         outline_width,
         outline_color,
+        box_shadow,
     }
 }
 
@@ -1543,6 +1640,7 @@ fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         visibility: inherited.visibility,
         outline_width: 0.0,
         outline_color: None,
+        box_shadow: None,
     }
 }
 
@@ -2131,6 +2229,21 @@ fn fill_rect(pixels: &mut [u32], win_w: u32, win_h: u32, x: f32, y: f32, w: f32,
 }
 
 fn paint_box_decoration(s: &ComputedStyle, pixels: &mut [u32], win_w: u32, win_h: u32, x: f32, y: f32, w: f32, h: f32) {
+    // Painted first — behind this box's own background/border, same
+    // stacking a real (non-inset) box-shadow has. A hard-edged solid
+    // rect, not a blurred one (see `BoxShadow`'s own docs).
+    if let Some(shadow) = s.box_shadow {
+        fill_rect(
+            pixels,
+            win_w,
+            win_h,
+            x + shadow.offset_x - shadow.spread,
+            y + shadow.offset_y - shadow.spread,
+            w + 2.0 * shadow.spread,
+            h + 2.0 * shadow.spread,
+            shadow.color,
+        );
+    }
     if let Some(bg) = s.background_color {
         fill_rect(pixels, win_w, win_h, x, y, w, h, bg);
     }
