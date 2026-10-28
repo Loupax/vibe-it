@@ -138,7 +138,8 @@ fn main() {
         };
         let mut reader = BufReader::new(resp.into_reader());
         let mut visited_css = HashSet::new();
-        if let Err(e) = stream_body(&mut reader, &mut out, Some(&url), &agent, &mut visited_css) {
+        let mut deferred = Vec::new();
+        if let Err(e) = stream_body(&mut reader, &mut out, Some(&url), &agent, &mut visited_css, &mut deferred) {
             finish_with_io_error(e);
         }
     } else {
@@ -159,7 +160,10 @@ fn main() {
                 }
                 let mut chained = std::io::Cursor::new(head).chain(reader);
                 let mut visited_css = HashSet::new();
-                if let Err(e) = stream_body(&mut chained, &mut out, base.as_ref(), &agent, &mut visited_css) {
+                let mut deferred = Vec::new();
+                if let Err(e) =
+                    stream_body(&mut chained, &mut out, base.as_ref(), &agent, &mut visited_css, &mut deferred)
+                {
                     finish_with_io_error(e);
                 }
             }
@@ -263,6 +267,7 @@ fn stream_body(
     base: Option<&Url>,
     agent: &ureq::Agent,
     visited_css: &mut HashSet<String>,
+    deferred: &mut Vec<Vec<u8>>,
 ) -> std::io::Result<()> {
     loop {
         let mut chunk = Vec::new();
@@ -276,6 +281,7 @@ fn stream_body(
         // correctly, since `chunk.last()` is `None` either way).
         if chunk.last() != Some(&b'<') {
             out.write_all(&chunk)?;
+            flush_deferred(deferred, out)?; // no </body> ever showed up — tack them on at true EOF
             out.flush()?;
             return Ok(());
         }
@@ -288,14 +294,41 @@ fn stream_body(
             // EOF mid-tag (truncated input) — write whatever was read
             // and stop, same as any other unexpected-EOF case.
             out.write_all(&tag_bytes)?;
+            flush_deferred(deferred, out)?;
             out.flush()?;
             return Ok(());
         };
 
+        if tag.is_deferred_script() {
+            // Held back, not written here — a bounded, targeted
+            // exception to "don't buffer anything" (same shape as
+            // `discover_base`'s own `<head>` buffering): only the
+            // specific tags this applies to are ever held, not the
+            // document as a whole, and `defer`'s own real-browser
+            // semantics already guarantee this doesn't change observed
+            // behavior anywhere this bundle might end up (see
+            // `is_deferred_script`'s own docs). Moving it out of the
+            // way means scratchy's streaming renderer reaches real
+            // visible content sooner instead of first having to read
+            // past however much inert script sits ahead of it.
+            let content = read_raw_text_content(reader, "script")?;
+            let mut buf = tag.raw.clone();
+            buf.extend_from_slice(&content.text);
+            buf.extend_from_slice(&content.closing_tag);
+            deferred.push(buf);
+            continue;
+        }
+
+        if tag.closing && tag.name == "body" {
+            flush_deferred(deferred, out)?;
+            out.write_all(&tag.raw)?;
+            continue;
+        }
+
         if tag.closing || tag.name != "link" && tag.name != "style" && tag.name != "img" {
             // Not a tag this file does anything special with — copied
-            // through byte-for-byte, including <script> (left alone on
-            // purpose) and any closing tag.
+            // through byte-for-byte, including <script> without `defer`
+            // (left alone on purpose) and any other closing tag.
             out.write_all(&tag.raw)?;
             if tag.is_raw_text_element() {
                 stream_raw_text_passthrough(reader, out, &tag.name)?;
@@ -604,6 +637,17 @@ impl RawTag {
     fn is_raw_text_element(&self) -> bool {
         !self.closing && (self.name == "style" || self.name == "script")
     }
+
+    /// `<script defer>` — a real browser already defers this script's
+    /// *execution* until after parsing finishes, in document order among
+    /// other deferred scripts, so moving its *position* to just before
+    /// `</body>` changes nothing about real-browser behavior. `async`
+    /// takes priority over `defer` per spec when both are present (and
+    /// carries no ordering guarantee of its own), so a script with both
+    /// isn't treated as deferred here.
+    fn is_deferred_script(&self) -> bool {
+        !self.closing && self.name == "script" && self.attr("defer").is_some() && self.attr("async").is_none()
+    }
 }
 
 /// Reads one tag's bytes, starting right after the `<` already pushed
@@ -833,6 +877,17 @@ fn replace_src_with_placeholder(tag_raw: &[u8]) -> Option<(Vec<u8>, Vec<u8>)> {
         search_from = pos + "src=".len();
     }
     None
+}
+
+/// Writes out every `<script defer>` held back by `stream_body`, in the
+/// order they were originally encountered, then empties the list —
+/// called right before `</body>` (the normal case) or at true end of
+/// input if `</body>` never showed up at all.
+fn flush_deferred(deferred: &mut Vec<Vec<u8>>, out: &mut impl Write) -> std::io::Result<()> {
+    for buf in deferred.drain(..) {
+        out.write_all(&buf)?;
+    }
+    Ok(())
 }
 
 /// The non-fetching-tag path for `<style>`/`<script>`'s raw-text content

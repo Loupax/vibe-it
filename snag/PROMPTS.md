@@ -379,3 +379,63 @@ new one.
 **Deliverable:** `src/main.rs` (`timing_enabled`, `timed_get`,
 `print_timing_summary`, `REQUEST_COUNT`/`REQUEST_NANOS` statics, all 3
 `agent.get(...).call()` call sites switched to `timed_get`).
+
+---
+
+## v8 — push `<script defer>` to the end of the page
+
+User question, explicitly framed as "not for now": would it make sense
+to push `defer` scripts to the end of the page before inlining? Pointed
+out it's a valid exception to "don't buffer anything" — not buffering
+the document, just holding a few specific tags' bytes in memory until
+later. Confirmed worth doing and asked for it directly: "do it now and
+I think we are done with snag."
+
+The reasoning that makes this sound rather than just a convenient
+reordering: `defer` already means a real browser defers that script's
+*execution* until after parsing finishes, in document order relative to
+other deferred scripts — so moving its *position* to just before
+`</body>` changes nothing about real-browser behavior anywhere this
+bundle might end up. For `scratchy` specifically (no JS engine — a
+script's content is dead weight either way) the only thing that
+actually matters is *where in the byte stream* that dead weight sits:
+moving it out of the way means scratchy's streaming renderer reaches
+real visible content sooner instead of reading through however much
+inert script came first in the source.
+
+**Requirements:**
+1. **`RawTag::is_deferred_script`**: `<script>` (opening, not closing)
+   with `defer` present and `async` absent — `async` takes priority over
+   `defer` per spec when both are set, and carries no ordering guarantee
+   of its own, so a script with both isn't moved.
+2. **Held back in a `deferred: Vec<Vec<u8>>`** (tag + raw-text content +
+   closing tag, one entry per deferred script, in the order
+   encountered) instead of being written at its original position —
+   passed through `stream_body`'s signature, not a global, so each
+   invocation starts clean.
+3. **Flushed (in original relative order — real browsers run deferred
+   scripts in document order, so this has to be preserved) right before
+   `</body>`**, or at true end of input if `</body>` never shows up at
+   all (handles a truncated/body-less document the same defensive way
+   every other EOF case in this file already does).
+4. **Verified**: a hand-written test page with four script shapes (plain
+   blocking, `defer` with external `src`, inline `defer`, `defer="defer"`
+   with external `src`, and `async` alongside a separate non-deferred
+   script) — only the three real `defer` cases moved, in their original
+   relative order, landing right before `</body>`; the blocking and
+   `async` scripts stayed exactly where they were; content that
+   originally came *after* a deferred script in the source correctly
+   ended up *before* the deferred scripts in the output. The no-`</body>`
+   fallback verified separately with a truncated document. Re-verified
+   zero regression on both `example.com` (still byte-identical output)
+   and `motherfuckingwebsite.com` (still byte-identical — neither page
+   uses `defer`), and re-ran the real Wikipedia pipeline (which also has
+   no `defer` scripts) to confirm an identical byte count to the
+   pre-change baseline.
+
+**Deliverable:** `src/main.rs` (`RawTag::is_deferred_script`,
+`stream_body`'s new `deferred` parameter and its dispatch branch,
+`flush_deferred`, both call sites in `main`).
+
+This was flagged as likely the last `snag` feature for now — see
+`NOTES.md` for where things stand.

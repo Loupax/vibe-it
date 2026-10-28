@@ -96,3 +96,11 @@ not a speculative feature backlog. See NOTES.md for the fuller story.
       real HTML) have no special handling the way `<!-- comments -->`
       do — a literal `>` inside one would end the "tag" early. Not hit
       on any real page tested.
+
+- [ ] `<script defer>` reordering (PROMPTS.md v8) holds each deferred
+      script's full raw bytes (tag + content + closing tag) in memory
+      until `</body>` — bounded per script (not the whole document, see
+      NOTES.md), but a page with an unusually large *inline* `<script
+      defer>` block would still hold that one block's bytes the whole
+      time. Not hit on any real page tested (every `defer` script seen
+      so far has an external `src`, nothing inline of any real size).

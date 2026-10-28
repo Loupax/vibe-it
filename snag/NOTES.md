@@ -295,6 +295,48 @@ explanation for what was reported — the tool now exists to confirm that
 on whatever network it's actually run from, rather than guessing from
 here.
 
+## v8: `<script defer>` reordering, and probably the last snag feature
+
+A genuinely good idea the user raised unprompted, explicitly flagged as
+"not for now" at first — asked whether it'd make sense to push `defer`
+scripts to the end of the page before inlining. The reasoning holds up:
+`defer` already tells a real browser to run that script after parsing
+finishes, in document order among other deferred scripts, so relocating
+it to just before `</body>` is a complete no-op for real-browser
+behavior. For `scratchy`, which has no JS engine at all, a script's
+*content* was always dead weight regardless of position — the only
+thing that actually mattered was where in the byte stream that dead
+weight sat, potentially in front of real visible content the streaming
+renderer wants to reach as soon as possible.
+
+The user pre-empted the obvious objection before it was even raised:
+this isn't "buffering" in the sense `snag`'s whole v5 rewrite moved away
+from — it's holding onto a handful of specific tags' bytes, not the
+document as a whole, the same bounded-exception shape as `discover_base`
+already uses for `<head>` scanning. Implemented exactly that way: a
+`deferred: Vec<Vec<u8>>` threaded through `stream_body`, one entry per
+`<script defer>` (not `async` — takes priority over `defer` per spec and
+has no ordering guarantee of its own to preserve), flushed in original
+relative order right before `</body>` (or at true EOF if the document
+never has one, same defensive shape as every other truncated-input case
+in this file).
+
+Verified with a hand-written page exercising all four real shapes
+(blocking, external-src `defer`, inline `defer`, `defer="defer"`, plus
+an `async` script to confirm it's correctly left alone) — order
+preserved, non-deferred content correctly ended up ahead of the
+relocated scripts in the output, and the no-`</body>` fallback checked
+separately. Re-confirmed zero regression on both prior real-world test
+pages (still byte-identical) and the Wikipedia pipeline (identical byte
+count — it happens to have no `defer` scripts at all, so this change is
+invisible on that specific page, but the mechanism is now proven on a
+page that actually exercises it).
+
+The user's own words closing this out: "I think we are done with snag."
+Nothing currently blocks `scratchy`'s own next steps (`float`, image
+painting) on anything further here — see `scratchy/TODO.txt` for where
+that work picks back up.
+
 ## Known limitations / explicitly out of scope
 
 See `TODO.txt` for the fuller list. Headline ones: no `srcset`/responsive
