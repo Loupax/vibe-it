@@ -120,10 +120,14 @@ these.
       element/redraw count — see PROMPTS.md v51 for why this was judged
       an acceptable, not a new-category, cost).
 
-- [ ] `text-decoration` (PROMPTS.md v17) originally only tracked the line
+- [x] `text-decoration` (PROMPTS.md v17) originally only tracked the line
       keywords (underline/line-through/overline/none) — `dashed`/`dotted`/
-      `double`/`color` now paint correctly too (PROMPTS.md v33, see the
-      narrower-scope item below for exactly what's still missing).
+      `double`/`color` now paint correctly too (PROMPTS.md v33, confirmed
+      still true by grepping `parse_text_decoration`/`DecorationStyle` in
+      `src/lib.rs` during the 2026-10-29 autonomous TODO.txt pass — this
+      item was already fully resolved, just never checked off). See the
+      `text-decoration-style`/`-color` item below for what's still open
+      (that's a narrower, separate gap, not this one).
       `abbr[title] { text-decoration: dotted underline }` in default.css
       now actually renders dotted, not a plain solid underline.
 
