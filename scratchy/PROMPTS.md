@@ -2419,3 +2419,104 @@ Root`/`:root` parsing+matching, `collect_root_custom_props`/
 permanent `mod tests`). Resolves the CSS-custom-properties `TODO.txt`
 item, replaced with a narrower one describing exactly the root-only-
 scoping/no-cross-var-substitution limits above.
+
+## v46 — `<img>` rendering
+
+> Let's plan the implementation of the <img> tag from scratchies backlog
+
+The next `TODO.txt` pick after v45, picked directly by the user rather
+than the usual autonomous top-of-TODO selection — already flagged as a
+real near-term target in the item v45's own session split out (see
+NOTES.md). Planned before any code: read the box-model/inline-layout/
+measure/paint architecture and the existing `<img>` TODO.txt item, then
+worked through three real design decisions with the user via
+`AskUserQuestion` rather than guessing:
+
+1. **Inline placement.** Real CSS lays a replaced `inline` element out
+   as an atomic inline-level box sharing the line with surrounding
+   text — confirmed this is exactly what Firefox's `nsLineLayout` does
+   too, not a shortcut hiding in some real implementation, after the
+   user asked "how does firefox handle this?" directly. This engine's
+   inline runs are one cosmic-text `Buffer` of text spans with no way
+   to embed a non-text box mid-line, so true inline flow would mean
+   hand-rolling line-breaking — a materially bigger lift. The user also
+   asked how tied scratchy is to cosmic-text and whether extending it
+   upstream was worth it; answered no (cosmic-text is a UI text-shaping
+   library, not a document-layout engine with embedded-object support,
+   and this project already treats it as a black box to work around —
+   see the `letter-spacing` TODO.txt item, a real cosmic-text bug
+   documented and deferred rather than patched). Decided: `<img>`
+   always gets its own box, breaking surrounding inline text into
+   separate runs before/after it — a documented spec divergence, not
+   silently dropped.
+2. **Image formats:** PNG/JPEG/GIF/WebP via the `image` crate, explicit
+   features only (not the crate's default feature set) — covers
+   real-world web images without pulling in BMP/TIFF/ICO/etc. nothing
+   needs.
+3. **Broken image fallback:** render `alt` as plain text, matching a
+   real browser's replaced-element fallback-content behavior, rather
+   than collapsing to a blank box.
+
+One more scope cut the user made directly, after the plan already
+proposed resolving a relative `src` against the HTML file's own
+directory: "I'd rather drop this" — then, after the inline-placement
+question was answered, clarified further to "drop file processing in
+general... treat files the same way as we treat network until further
+notice." So `<img src>` only decodes a `data:` URI; a local file path
+isn't read at all, same bucket as the engine's existing no-networking
+stance, not a separate near-term item.
+
+**What/why:** `BoxContent` gained an `Image(Rc<DecodedImage>)` variant
+(`DecodedImage` already in this file's own packed-`u32`-`TextColor`
+pixel form, not `image`'s own types, so nothing downstream needs to
+know the crate exists). `decode_data_uri` (base64 payload only — the
+form `snag` emits) feeds `decode_image_bytes` (`image::load_from_memory`
++ `to_rgba8`). `build_img_box` builds `<img>`'s box directly in
+`build_box_for_element` (a void element — no children walk), applying
+HTML `width`/`height` attributes (`img_size_attr`) as a fallback only
+when CSS left the matching property `auto` — lowest-priority
+presentational hint, same as a real UA, via `resolve_style`'s already-
+cascaded `ComputedStyle.width`/`.height`. `collect_children` special-
+cases `tag == "img"` the same way `Display::Block` already is, flushing
+`pending` and giving it its own box regardless of its resolved
+`display` — the actual "breaks the line" mechanism.
+
+`measure` gained a `BoxContent::Image` arm: real CSS replaced-element
+sizing — both axes `auto` uses the intrinsic decoded size; one axis set
+scales the other via the intrinsic aspect ratio (computed from whichever
+axis resolves first, so it works symmetrically in both directions); both
+set stretches independently, which the existing `clamp_box_dim` already
+does for free (default `object-fit: fill`). Doesn't re-derive the aspect
+ratio after `min`/`max-width/height` clamp the other axis — a further
+edge case nothing needs yet (noted in `TODO.txt`). Painting: a new
+`blit_image` primitive (nearest-neighbor scaled, composited through the
+same `blend` every other paint primitive uses, so PNG alpha shows
+whatever `paint_box_decoration` already painted underneath), wired into
+`paint`'s `LaidContent::Image` arm after the box's own background/
+border, and a trivial `hit_test_cursor` arm (no finer-than-the-whole-box
+hit test, same as any other replaced content).
+
+8 new permanent tests (39 total): intrinsic sizing with no CSS/attrs,
+width-only and height-only aspect-ratio scaling (both directions,
+confirming the symmetric computation), HTML attribute sizing, CSS
+overriding HTML attributes, the inline-text-breaks-into-separate-runs
+placement behavior (`<p>` splits into exactly 3 sibling boxes around the
+`<img>`), and alt-text fallback for both a missing `src` and an
+undecodable one. Test images are generated in-memory via the `image`
+crate itself and base64-encoded into a `data:` URI at test time, not
+hardcoded blobs. Visually confirmed with a real `grim` screenshot: a
+red-blue gradient PNG rendered at its intrinsic size, scaled
+proportionally from a CSS `width` alone, stretched independently from
+HTML `width`/`height` attributes, wrapped correctly by a `border`+
+`padding` box, breaking surrounding paragraph text onto separate lines
+on either side, and a corrupt `data:` payload falling back to its `alt`
+text.
+
+**Deliverable:** `src/lib.rs` (`BoxContent::Image`, `DecodedImage`,
+`decode_data_uri`, `decode_image_bytes`, `img_size_attr`,
+`build_img_box`, the `img`-tag hooks in `build_box_for_element` and
+`collect_children`, the `measure`/`paint`/`hit_test_cursor` `Image`
+arms, `blit_image`, 8 new tests in the permanent `mod tests`),
+`Cargo.toml` (`image`, `base64`). Resolves the `<img>` `TODO.txt` item,
+replaced with a narrower one describing exactly the no-local-file/no-
+true-inline-flow/no-`object-fit`/nearest-neighbor-only limits above.

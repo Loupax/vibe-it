@@ -4,11 +4,13 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+base64 = "0.22"
 cosmic-text = "0.19.0"
 cssparser = "0.38.0"
 cssparser-color = "0.6.0"
 fontdb = "0.23.0"
 html5ever = "0.39"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 markup5ever_rcdom = "0.39.0"
 precomputed-hash = "0.1.1"
 selectors = "0.41.0"

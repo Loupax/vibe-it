@@ -2400,11 +2400,96 @@ enum BoxContent {
     /// `Display::TableRow` — rows themselves are ordinary `Blocks`
     /// children of the table, stacking vertically like any other block.
     TableRow(Vec<LayoutBox>),
+    /// A decoded `<img>` — see `build_img_box`. Wrapped in `Rc` so
+    /// `measure` can hand `Laid` its own cheap reference (`LaidContent::
+    /// Image`) without re-decoding or copying the pixel buffer on every
+    /// layout pass.
+    Image(Rc<DecodedImage>),
+}
+
+/// A fully decoded `<img>`, in the same packed-`u32`-pixel form `blend`/
+/// `fill_rect` already paint everything else in (so `blit_image` is a
+/// direct composite, no per-pixel format conversion at paint time).
+/// `width`/`height` are the *intrinsic* pixel dimensions straight off the
+/// decoded image — `measure`'s own `Image` arm is what applies any CSS/
+/// HTML `width`/`height` override on top.
+struct DecodedImage {
+    width: u32,
+    height: u32,
+    pixels: Vec<TextColor>,
 }
 
 pub struct LayoutBox {
     style: ComputedStyle,
     content: BoxContent,
+}
+
+// ---------- images ----------
+
+/// Decodes a `data:` URI's base64 payload into raw bytes — the only
+/// `<img src>` form this engine understands (see TODO.txt: no
+/// networking, and no local file reads either, until that's revisited
+/// — `snag` already rewrites real pages' `<img src>`s into exactly this
+/// form). Returns `None` for anything else: a non-`data:` scheme, a
+/// non-base64 payload (the alternate, URL-encoded `data:` text form —
+/// not what `snag` emits), or a malformed one.
+fn decode_data_uri(src: &str) -> Option<Vec<u8>> {
+    let rest = src.strip_prefix("data:")?;
+    let (meta, payload) = rest.split_once(',')?;
+    if !meta.split(';').any(|p| p.eq_ignore_ascii_case("base64")) {
+        return None;
+    }
+    use base64::Engine;
+    base64::engine::general_purpose::STANDARD.decode(payload.trim()).ok()
+}
+
+/// Decodes raw image bytes (already extracted from a `data:` URI) via
+/// the `image` crate, converting straight to this file's own packed-
+/// `u32` pixel form so nothing downstream needs to know `image`'s types
+/// exist at all. `None` for anything `image` can't decode — an
+/// unsupported format (only PNG/JPEG/GIF/WebP are compiled in, see
+/// `Cargo.toml`), or truncated/corrupt data.
+fn decode_image_bytes(bytes: &[u8]) -> Option<DecodedImage> {
+    let decoded = image::load_from_memory(bytes).ok()?;
+    let rgba = decoded.to_rgba8();
+    let (width, height) = rgba.dimensions();
+    let pixels = rgba.pixels().map(|p| TextColor::rgba(p[0], p[1], p[2], p[3])).collect();
+    Some(DecodedImage { width, height, pixels })
+}
+
+/// An `<img width>`/`<img height>` HTML attribute, as a plain unitless
+/// pixel integer (the only form the HTML spec gives these attributes —
+/// no `em`/`%`/other CSS length syntax). Only consulted as a fallback
+/// when the CSS cascade left the matching property `auto` (see
+/// `build_img_box`) — a real UA attaches these as the lowest-priority
+/// presentational hint, exactly as if `img { width: Npx }` were in the
+/// UA stylesheet, so CSS always wins once any is declared.
+fn img_size_attr(handle: &Handle, name: &str) -> Option<f32> {
+    element_attr(handle, name)?.trim().parse::<f32>().ok().filter(|v| *v > 0.0)
+}
+
+/// Builds `<img>`'s own box directly, bypassing the normal children walk
+/// (it's a void element — nothing to recurse into). Only a `data:` URI
+/// `src` decodes; anything else — missing, unsupported format, a local
+/// file path (not yet supported, see TODO.txt), or corrupt data — falls
+/// back to rendering `alt` as plain text in the image's place, same as a
+/// real browser's "fallback content" for a replaced element that failed
+/// to load, rather than collapsing to a blank 0×0 box.
+fn build_img_box(handle: &Handle, mut style: ComputedStyle) -> LayoutBox {
+    if style.width.is_none() {
+        style.width = img_size_attr(handle, "width");
+    }
+    if style.height.is_none() {
+        style.height = img_size_attr(handle, "height");
+    }
+    let decoded = element_attr(handle, "src").and_then(|src| decode_data_uri(&src)).and_then(|b| decode_image_bytes(&b));
+    match decoded {
+        Some(image) => LayoutBox { style, content: BoxContent::Image(Rc::new(image)) },
+        None => {
+            let alt = element_attr(handle, "alt").map(|a| a.to_string()).unwrap_or_default();
+            LayoutBox { style, content: BoxContent::Inline(vec![(alt, style.inherited().into())]) }
+        }
+    }
 }
 
 /// `decoration` is the *ambient* text-decoration this element inherited
@@ -2418,6 +2503,15 @@ pub struct LayoutBox {
 /// inline branch already uses, just applied once per block too.
 fn build_box_for_element(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle, decoration: DecorationValue) -> LayoutBox {
     let style = resolve_style(handle, rules, inherited);
+    // `<img>` is a void element (no real children to walk) and a
+    // replaced element (its own box, built directly from the decoded
+    // image rather than `BoxContent::Blocks`/`Inline`) — handled before
+    // anything else here, same early-return shape `Display::Table`'s
+    // own branch just below uses for the same reason (it builds its
+    // `LayoutBox` directly too, rather than delegating further down).
+    if element_tag(handle) == "img" {
+        return build_img_box(handle, style);
+    }
     let own_decoration = style.text_decoration.unwrap_or(decoration);
     if style.display == Display::Table {
         return LayoutBox {
@@ -2595,7 +2689,18 @@ fn collect_children(
                 if style.display == Display::None {
                     continue;
                 }
-                if matches!(style.display, Display::Block | Display::Table) {
+                // `<img>` always gets its own box here, regardless of its
+                // resolved `display` (normally `inline`) — a deliberate
+                // divergence from the real standard, which lays a
+                // replaced `inline` element out as an atomic inline-level
+                // box sharing the line with surrounding text. This
+                // engine's inline runs are one cosmic-text `Buffer` of
+                // text spans with no way to embed a non-text box mid-line
+                // (and no cheap way to add one — see TODO.txt), so an
+                // `<img>` instead breaks the surrounding text into
+                // separate runs before/after it, the same treatment a
+                // block element gets.
+                if tag == "img" || matches!(style.display, Display::Block | Display::Table) {
                     if !pending.is_empty() {
                         result.push(LayoutBox {
                             style: anonymous_style(inherited),
@@ -2743,6 +2848,7 @@ enum LaidContent {
     Blocks(Vec<Laid>),
     Text(usize),
     TableRow(Vec<Laid>),
+    Image(Rc<DecodedImage>),
 }
 
 /// A paragraph's shaped text, keyed by a stable id assigned during `measure`
@@ -3069,6 +3175,46 @@ pub fn measure(
                 w: border_w,
                 h: border_h,
                 content: LaidContent::TableRow(laid_cells),
+            }
+        }
+        BoxContent::Image(image) => {
+            // A replaced element's auto size is its own *intrinsic*
+            // size, not "fill the container" (the pre-match `border_w`/
+            // `content_w` above are the wrong auto default here, so
+            // this shadows them with its own) — real CSS replaced-
+            // element sizing: `width`/`height` both `auto` uses the
+            // intrinsic size directly; only one `auto` scales it from
+            // the other via the intrinsic aspect ratio; both set
+            // stretches independently (default `object-fit: fill`,
+            // needs no extra work since that's just what `clamp_box_dim`
+            // already does for every other box). Doesn't re-derive the
+            // aspect ratio after `min`/`max-width/height` clamp the
+            // other axis — a further edge case nothing has needed yet.
+            let intrinsic_w = (image.width.max(1)) as f32;
+            let intrinsic_h = (image.height.max(1)) as f32;
+            let aspect = intrinsic_h / intrinsic_w;
+            let extra_w = 2.0 * s.border_width + s.padding.left + s.padding.right;
+            let extra_h = 2.0 * s.border_width + s.padding.top + s.padding.bottom;
+            let (border_w, border_h) = if s.width.is_none() && s.height.is_some() {
+                let border_h = clamp_box_dim(s.height, s.min_height, s.max_height, extra_h + intrinsic_h, s.box_sizing, extra_h);
+                let content_h = (border_h - extra_h).max(0.0);
+                let auto_border_w = extra_w + content_h / aspect;
+                let border_w = clamp_box_dim(s.width, s.min_width, s.max_width, auto_border_w, s.box_sizing, extra_w);
+                (border_w, border_h)
+            } else {
+                let border_w = clamp_box_dim(s.width, s.min_width, s.max_width, extra_w + intrinsic_w, s.box_sizing, extra_w);
+                let content_w = (border_w - extra_w).max(0.0);
+                let auto_border_h = if s.height.is_none() { extra_h + content_w * aspect } else { extra_h + intrinsic_h };
+                let border_h = clamp_box_dim(s.height, s.min_height, s.max_height, auto_border_h, s.box_sizing, extra_h);
+                (border_w, border_h)
+            };
+            Laid {
+                style: s,
+                x: border_x,
+                y: border_y,
+                w: border_w,
+                h: border_h,
+                content: LaidContent::Image(Rc::clone(image)),
             }
         }
     }
@@ -3646,6 +3792,43 @@ fn paint_decoration_line<R: Renderer>(
     }
 }
 
+/// Blits a decoded image into `(x, y, w, h)` — the laid content-box rect,
+/// same positioning `paint`'s `Text` arm already uses for its own content
+/// (padding/border already excluded by the caller). Nearest-neighbor
+/// scaled from the image's intrinsic size to `w`/`h` when they differ —
+/// no bilinear/smoothing, matching this file's existing hard-edged
+/// painting fidelity everywhere else (see TODO.txt). Composited through
+/// the same `blend` every other paint primitive uses, so a partially
+/// transparent pixel (a PNG with alpha) shows whatever `paint_box_
+/// decoration` already painted underneath (this box's own background,
+/// if any — called first, same stacking a real browser uses).
+#[allow(clippy::too_many_arguments)]
+fn blit_image(image: &DecodedImage, pixels: &mut [u32], win_w: u32, win_h: u32, x: f32, y: f32, w: f32, h: f32, clip: Option<(f32, f32, f32, f32)>) {
+    if image.width == 0 || image.height == 0 || w <= 0.0 || h <= 0.0 {
+        return;
+    }
+    let (cx, cy, cw, ch) = intersect_clip(x, y, w, h, clip);
+    let x0 = cx.max(0.0) as i64;
+    let y0 = cy.max(0.0) as i64;
+    let x1 = ((cx + cw).min(win_w as f32)) as i64;
+    let y1 = ((cy + ch).min(win_h as f32)) as i64;
+    if x1 <= x0 || y1 <= y0 {
+        return;
+    }
+    for py in y0..y1 {
+        // Maps this destination row back to a source row via the
+        // *unclipped* box bounds (`x`/`y`/`w`/`h`, not `cx`/`cy`), so
+        // clipping never shifts which part of the image is sampled.
+        let sy = (((py as f32 + 0.5 - y) / h * image.height as f32) as i64).clamp(0, image.height as i64 - 1) as u32;
+        for px in x0..x1 {
+            let sx = (((px as f32 + 0.5 - x) / w * image.width as f32) as i64).clamp(0, image.width as i64 - 1) as u32;
+            let color = image.pixels[(sy * image.width + sx) as usize];
+            let idx = (py as u32 * win_w + px as u32) as usize;
+            pixels[idx] = blend(pixels[idx], color);
+        }
+    }
+}
+
 fn paint(
     laid: &Laid,
     font_system: &mut FontSystem,
@@ -3716,6 +3899,13 @@ fn paint(
                 );
             }
         }
+        LaidContent::Image(image) => {
+            let content_x = laid.x + s.border_width + s.padding.left;
+            let content_y = draw_y + s.border_width + s.padding.top;
+            let content_w = (laid.w - 2.0 * s.border_width - s.padding.left - s.padding.right).max(0.0);
+            let content_h = (laid.h - 2.0 * s.border_width - s.padding.top - s.padding.bottom).max(0.0);
+            blit_image(image, pixels, win_w, win_h, content_x, content_y, content_w, content_h, child_clip);
+        }
     }
 }
 
@@ -3762,6 +3952,10 @@ fn hit_test_cursor(laid: &Laid, x: f32, y: f32, cache: &ShapeCache) -> CursorSty
             }
             laid.style.cursor
         }
+        // No finer-grained hit test within an image — just this box's
+        // own (already-cascaded) cursor, same fallback the other arms
+        // use once nothing more specific matches underneath.
+        LaidContent::Image(_) => laid.style.cursor,
     }
 }
 
@@ -4615,5 +4809,139 @@ mod tests {
             TextColor::rgb(0, 0xff, 0),
             "a custom property declared on a non-root-matching selector shouldn't be visible to var() (documented scope limit)"
         );
+    }
+
+    // ---------- v46: `<img>` rendering ----------
+
+    /// Builds a solid-color PNG in memory and returns it as a `data:` URI
+    /// — avoids hardcoding a base64 blob in test source; exercises the
+    /// real `image`-crate decode path the same way a real `<img src>`
+    /// would, just generated instead of fetched.
+    fn tiny_png_data_uri(width: u32, height: u32) -> String {
+        use base64::Engine;
+        let img = image::DynamicImage::ImageRgba8(image::ImageBuffer::from_fn(width, height, |_, _| {
+            image::Rgba([255u8, 0, 0, 255])
+        }));
+        let mut bytes = Vec::new();
+        img.write_to(&mut std::io::Cursor::new(&mut bytes), image::ImageFormat::Png).unwrap();
+        format!("data:image/png;base64,{}", base64::engine::general_purpose::STANDARD.encode(&bytes))
+    }
+
+    fn find_image_laid(laid: &Laid) -> Option<&Laid> {
+        if matches!(laid.content, LaidContent::Image(_)) {
+            return Some(laid);
+        }
+        if let LaidContent::Blocks(children) | LaidContent::TableRow(children) = &laid.content {
+            for c in children {
+                if let Some(found) = find_image_laid(c) {
+                    return Some(found);
+                }
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn img_with_no_css_or_attrs_uses_intrinsic_size() {
+        let src = tiny_png_data_uri(40, 20);
+        let html = format!(r#"<html><body><img src="{src}"></body></html>"#);
+        let laid = measure_fixture(&html, 500.0);
+        let img = find_image_laid(&laid).expect("img box not found");
+        assert_eq!((img.w, img.h), (40.0, 20.0), "auto width/height should fall back to the decoded intrinsic size");
+    }
+
+    #[test]
+    fn img_css_width_only_scales_height_by_intrinsic_aspect_ratio() {
+        let src = tiny_png_data_uri(40, 20); // 2:1
+        let html = format!(r#"<html><body><img src="{src}" style="width: 100px"></body></html>"#);
+        let laid = measure_fixture(&html, 500.0);
+        let img = find_image_laid(&laid).expect("img box not found");
+        assert_eq!((img.w, img.h), (100.0, 50.0), "height: auto should scale proportionally from the explicit width");
+    }
+
+    #[test]
+    fn img_css_height_only_scales_width_by_intrinsic_aspect_ratio() {
+        let src = tiny_png_data_uri(40, 20); // 2:1
+        let html = format!(r#"<html><body><img src="{src}" style="height: 50px"></body></html>"#);
+        let laid = measure_fixture(&html, 500.0);
+        let img = find_image_laid(&laid).expect("img box not found");
+        assert_eq!((img.w, img.h), (100.0, 50.0), "width: auto should scale proportionally from the explicit height");
+    }
+
+    #[test]
+    fn img_html_width_height_attrs_used_when_css_leaves_both_auto() {
+        let src = tiny_png_data_uri(40, 20);
+        let html = format!(r#"<html><body><img src="{src}" width="80" height="90"></body></html>"#);
+        let laid = measure_fixture(&html, 500.0);
+        let img = find_image_laid(&laid).expect("img box not found");
+        assert_eq!((img.w, img.h), (80.0, 90.0), "HTML width/height attributes should size the image when no CSS size is declared");
+    }
+
+    #[test]
+    fn img_css_size_overrides_html_attrs() {
+        let src = tiny_png_data_uri(40, 20);
+        let html = format!(r#"<html><body><img src="{src}" width="80" height="90" style="width: 10px; height: 10px"></body></html>"#);
+        let laid = measure_fixture(&html, 500.0);
+        let img = find_image_laid(&laid).expect("img box not found");
+        assert_eq!((img.w, img.h), (10.0, 10.0), "a declared CSS size should win over the HTML width/height attributes");
+    }
+
+    fn find_blocks_containing_image(b: &LayoutBox) -> Option<&[LayoutBox]> {
+        if let BoxContent::Blocks(children) = &b.content {
+            if children.iter().any(|c| matches!(c.content, BoxContent::Image(_))) {
+                return Some(children);
+            }
+            for c in children {
+                if let Some(found) = find_blocks_containing_image(c) {
+                    return Some(found);
+                }
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn img_breaks_surrounding_inline_text_into_separate_runs() {
+        let src = tiny_png_data_uri(2, 2);
+        let html = format!(r#"<html><body><p>before <img src="{src}"> after</p></body></html>"#);
+        let doc = parse_html(&html);
+        let tree = build_layout_tree(&doc);
+        let children = find_blocks_containing_image(&tree).expect("<p> should split into sibling boxes around the <img>");
+        assert_eq!(children.len(), 3, "text before/after an <img> should become separate inline runs, not share a line with it");
+        let BoxContent::Inline(before) = &children[0].content else { panic!("expected an inline run before the image") };
+        assert!(before[0].0.trim_start().starts_with("before"), "unexpected text before the image: {:?}", before[0].0);
+        assert!(matches!(children[1].content, BoxContent::Image(_)));
+        let BoxContent::Inline(after) = &children[2].content else { panic!("expected an inline run after the image") };
+        assert!(after[0].0.trim_start().starts_with("after"), "unexpected text after the image: {:?}", after[0].0);
+    }
+
+    fn find_inline_text(b: &LayoutBox) -> Option<&str> {
+        if let BoxContent::Inline(spans) = &b.content {
+            return spans.first().map(|(text, _)| text.as_str());
+        }
+        if let BoxContent::Blocks(children) = &b.content {
+            for c in children {
+                if let Some(found) = find_inline_text(c) {
+                    return Some(found);
+                }
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn img_with_missing_src_falls_back_to_alt_text() {
+        let doc = parse_html(r#"<html><body><img alt="a fallback"></body></html>"#);
+        let tree = build_layout_tree(&doc);
+        let text = find_inline_text(&tree).expect("no text found");
+        assert!(text.contains("a fallback"), "a missing src should fall back to rendering alt text: {text:?}");
+    }
+
+    #[test]
+    fn img_with_undecodable_src_falls_back_to_alt_text() {
+        let doc = parse_html(r#"<html><body><img src="data:image/png;base64,not-valid-base64!!" alt="broken img"></body></html>"#);
+        let tree = build_layout_tree(&doc);
+        let text = find_inline_text(&tree).expect("no text found");
+        assert!(text.contains("broken img"), "undecodable image data should fall back to rendering alt text: {text:?}");
     }
 }

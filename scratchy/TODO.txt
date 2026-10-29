@@ -231,21 +231,42 @@ session can pick a coherent slice rather than one property at a time.
       `cursor` property, not selector re-matching/repaint-on-state-
       change).
 
-- [ ] `<img>` doesn't render at all yet — no box model, no decoding, no
-      painting; it falls through as a plain unstyled inline DOM node
-      like any other unrecognized element (see the broader replaced-
-      elements item below). Split out as its own item since it's a real
-      near-term target, unlike most of the rest of that item: it doesn't
-      need scratchy to do any networking of its own — a `src` that's
-      already a local file path or a `data:` URI needs no fetch, and
-      `snag` (the external bundling tool from `NOTES.md`, now built)
-      already rewrites a real page's `<img src>`s into inlined `data:`
-      URIs before scratchy ever sees the file. Needs: an image decoder
-      crate (not chosen yet), a replaced-element box (intrinsic size
-      from the decoded image, `width`/`height` CSS override it the same
-      way they already do for any other box), and a paint path that
-      blits decoded pixels instead of (or alongside) `paint_box_decoration`'s
-      background/border painting.
+- [ ] `<img>` (v46) only decodes a `data:` URI `src` (base64 form) —
+      PNG/JPEG/GIF/WebP via the `image` crate. A local file path `src`
+      is deliberately *not* read, even though nothing stops it
+      technically the way real networking does — treated the same as
+      the "no networking" stance until that's revisited, not a
+      near-term gap. Sizing (intrinsic from the decoded image, CSS/HTML
+      `width`/`height` overriding it, aspect-ratio-preserving when only
+      one axis is set) and a missing/corrupt/unsupported `src` falling
+      back to rendering `alt` text are both done. Two real simplifications
+      left: no `object-fit`/`object-position` (an explicit `width` *and*
+      `height` always stretches independently, real CSS's default
+      `object-fit: fill` — nothing needs a different fit yet), and
+      `blit_image` only nearest-neighbor scales (no bilinear/smoothing —
+      a heavily downscaled photo will look aliased; revisit if a real
+      page's scaled image looks visibly bad).
+
+      **Bigger, deliberate scope cut:** `<img>` always gets its own box
+      in `collect_children`, flushing surrounding inline text into
+      separate runs before/after it — even though its real CSS
+      `display` is `inline` and the standard (confirmed against how
+      Firefox's `nsLineLayout` actually behaves, not just the spec
+      text) lays a replaced `inline` element out as an atomic
+      inline-level box sharing the line with surrounding text. This
+      engine's inline runs are one cosmic-text `Buffer` of text spans
+      with no concept of an embedded non-text box mid-line, so true
+      inline flow would mean hand-rolling line-breaking around the
+      image's width instead of leaving it to cosmic-text — a
+      materially bigger lift, closer in scope to the positioning/
+      flexbox items below than a single-feature slice, and not
+      something worth extending cosmic-text itself for either (see
+      NOTES.md: it's a UI text-shaping library, not a document-layout
+      engine with embedded-object support — the `letter-spacing` item
+      below is this same project already treating it as a black box to
+      work around, not patch). Revisit only if a real page's images
+      rendering on their own line (instead of beside adjacent text)
+      turns out to matter in practice.
 
 - [ ] No forms/interactive widgets (`input`/`button`/`select`/
       `textarea` render as plain unstyled DOM nodes, not widgets), no
