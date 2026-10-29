@@ -2692,3 +2692,133 @@ the `paint`/`hit_test_cursor` `MixedInline` arms, 9 new/rewritten tests
 in the permanent `mod tests`). Resolves the "bigger, deliberate scope
 cut" half of the `<img>` `TODO.txt` item from v46, replaced with the
 simplification list above.
+
+---
+
+## v49 — `%` (percentage) lengths
+
+> set up a loop where you pick the next TODO item, and once completed,
+> clear your context and do that again until the list is done
+
+Item 1 of that autonomous TODO.txt loop. First `TODO.txt` item, top to
+bottom: `%` and unitless-non-zero were the last gap left in `px`/`em`/
+`rem` length support (v14/v34), deliberately deferred three times
+already ("not adding them until `default.css` or a real test page
+actually needs one") — the user's standing loop instruction means that
+deferral reasoning no longer applies, so this landed the real thing
+instead of deferring a fourth time.
+
+**Unitless first, since it was quick to settle**: grepped the existing
+grammar and confirmed the TODO note's premise — every length-ish
+property parsed through `parse_length`/`set_length` already only
+accepts a bare unitless `0`, and `line-height` already accepts a bare
+non-zero number through its own separate, pre-existing grammar
+(`parse_line_height`, untouched by this change beyond adding its own
+`%` arm — see below). Real CSS only allows a unitless non-zero number
+for a small set of properties scratchy mostly doesn't implement
+(`z-index`, `flex`, ...) plus `line-height`, which already had it — so
+there was nothing to actually change here, just to confirm and pin
+with a permanent test (`unitless_nonzero_number_is_still_rejected_for_
+margin`), not quietly skip.
+
+**`%` was the real work**, and the one genuine design question: *what*
+does each property's percentage resolve against. Went through the real
+spec property by property rather than assuming one basis fits all:
+`width`/`min-width`/`max-width` and `margin`/`padding` (all four
+physical sides — CSS2.1 is explicit that even `margin-top`/`padding-top`
+resolve against the containing block's *width*, not height, a detail
+easy to get backwards) resolve against the containing block's width;
+`height`/`min-height`/`max-height` resolve against the containing
+block's own *height*, which is only sometimes definite; `font-size`
+resolves against the parent's font-size (same basis `em` already uses
+there); `line-height`'s own `%` resolves against the *declaring*
+element's own font-size (same timing its `em`/`px` forms already use,
+confirmed distinct from its bare-`<number>` form, which stays symbolic
+and re-resolves per descendant — see v24); `border-radius` resolves
+against this box's *own* border-box width, not a containing block's;
+and `border-width`/`outline-width`/`box-shadow`'s offsets/blur/spread
+deliberately *still* reject `%` entirely — the real CSS grammar for
+every one of them is `<length>`, not `<length-percentage>`, so adding
+a percentage there wouldn't be closing a gap, it'd be accepting
+something the spec itself doesn't.
+
+**The real architectural piece**: `width`/`height`/`margin`/`padding`/
+`border-radius` were previously resolved straight to a final pixel
+`f32` inside `resolve_style`, which runs once per element *before*
+layout — fine for `px`/`em`/`rem`, which only ever need a font-size
+(already known at cascade time), but a containing-block dimension
+genuinely isn't known until `measure` actually lays a box out. A new
+`BoxLength` type (`Px(f32)` / `Percent(f32)`) replaces the plain `f32`
+these fields carried in `ComputedStyle`, staying symbolic through the
+cascade exactly the way `LineHeight` already does (v24) for the same
+reason, and only resolving to a concrete pixel value where a real basis
+finally exists: `finalize_box_lengths`, called once at the top of
+`measure` (basis: the box's own incoming `width` parameter, for every
+width-basis field) and once per inline `<img>` inside `measure_mixed_
+inline` (basis: that run's own `content_w`), with `border-radius`
+resolved separately, directly in `paint_box_decoration` against its own
+final `w` — the simplest correct basis for a property whose percentage
+is self-referential, not containing-block-relative. After `measure`
+finalizes a box's own `ComputedStyle`, every `BoxLength` field is
+guaranteed `Px` — `.px()` reads it with a debug-assert guarding that
+invariant, used everywhere paint/hit-testing/children-stacking code
+reads a value `measure` already resolved for them.
+
+**Height's own wrinkle, worth spelling out**: real CSS says a `%`
+height against an indefinite containing block (an ordinary `height:
+auto` ancestor — the common case) computes to `auto`, i.e. has no
+effect, not some value resolved against a bogus implicit basis. Modeled
+this with a `containing_height: Option<f32>` parameter threaded through
+`measure`'s own recursion — `None` when indefinite, `Some` only when
+the immediate containing box's own `height` is itself definite (an
+explicit length, or a `%` that itself resolved against *its* own
+incoming `containing_height` — the same rule, recursively, matching the
+real spec exactly). Verified both directions: a `%` height against an
+explicit 300px ancestor resolves correctly, and the identical markup
+with vs. without a `%` height against an *indefinite* ancestor reports
+byte-identical box heights (confirming the percentage genuinely had
+zero effect, not a wrong-but-plausible one).
+
+**Attempted and reverted, not shipped**: wiring the window's own inner
+height through as the *top-level* call's `containing_height`, so the
+classic `html, body { height: 100% }` full-page pattern would chain
+down from a real viewport-height concept. Caught before committing,
+not after: this engine's document root (a synthetic wrapper box
+`build_layout_tree` puts `<html>` *inside*, not literally the tree's
+own root) has no height of its own for that value to chain through
+without also giving the wrapper an explicit height — and that same
+root `Laid`'s own `h` is *also* what `redraw`'s scroll-clamping reads
+directly as "total scrollable content height." Pinning it to the
+window's own height would have silently capped every real page at
+exactly one viewport's worth of scrollable content — a real regression
+to actual scrolling, worse than the gap it would have closed. Reverted
+cleanly, documented as its own narrower `TODO.txt` sub-item (needs the
+root box's two conflated roles — containing-block-height vs.
+total-scroll-height — separated first, not a one-line fix) rather than
+shipped half-working or guessed into something worse.
+
+9 new permanent tests (63 total): `%` width against a containing
+block's width; `%` margin (top *and* left, on the same declaration)
+against a containing block's width, not the margined box's own
+unrelated width; `%` padding-top specifically against width, not the
+box's own height (the easiest of these to get backwards); `%` height
+against a definite ancestor height; `%` height computing to auto
+against an indefinite one (the before/after-identical-heights check);
+unitless `margin-top: 5` still dropping, not treated as `5px`; `%`
+line-height against the declaring element's own font-size; and `%`
+border-radius against the box's own border-box width. Visually
+confirmed too: a real test page with `%` width, `%` width + `%`
+margin-left, and a `%`-height box nested inside an explicit-height
+ancestor, screenshotted via `grim` — all three resolve exactly where
+the numbers say they should.
+
+**Deliverable:** `src/lib.rs` (`Length::Percent`, `BoxLength` type +
+`from_length`/`resolve`/`px`, `parse_length_percent` (new, alongside
+the unchanged `<length>`-only `parse_length`), `Sides`'/`ComputedStyle`'s
+box-dimension fields retyped to `BoxLength`, `finalize_box_lengths`,
+`measure`'s new `containing_height` parameter and `child_containing_
+height` derivation, `clamp_box_dim`'s `BoxLength`-aware signature,
+`paint_box_decoration`'s own `border_radius` resolution, 9 new tests in
+the permanent `mod tests`); updates `TODO.txt` (closes the `%`/unitless
+item, replaced with a narrower `TODO.txt` sub-item on the viewport-
+height gap found and deliberately not fixed along the way).

@@ -901,3 +901,47 @@ spec) alternative of adding it as a UA-level default anyway; the user
 explicitly chose to keep matching real browser behavior instead. See
 the `<img>` `TODO.txt` entry for the durable pointer — worth checking
 before ever "fixing" this overflow unprompted.
+
+## v49 — `%` lengths, and a new standing autonomous-loop convention
+
+First item processed under a new standing instruction: pick the next
+`TODO.txt` item, implement it fully (including writing/keeping
+permanent tests, updating `TODO.txt`/`PROMPTS.md`/`NOTES.md`,
+committing), then clear context and repeat until the list is empty —
+distinct from the earlier "one commit+push per feature, skip anything
+needing clarification" loop (still the standing policy for *pushing*;
+this session didn't push, see the user's own instructions for why not
+assumed here). Landed `%` lengths — the item that had been deferred
+three times running ("not adding until something needs it") — since
+the loop's whole premise is that deferral no longer applies once
+something's sitting at the top of the list.
+
+**Worth remembering architecturally**: `width`/`height`/`margin`/
+`padding`/`border-radius` used to resolve straight to a final pixel
+`f32` inside `resolve_style` (cascade time, before layout) — fine for
+every length form that only needs a font-size, but wrong for `%`,
+whose real basis is a containing-block dimension that `resolve_style`
+genuinely cannot know yet. Rather than inventing a new deferred-value
+pattern from scratch, this reused the one `LineHeight` already
+established back in v24 (stay symbolic through `ComputedStyle`, resolve
+only once a real basis exists) — now generalized into its own
+`BoxLength` type, with a `.px()` accessor whose debug-assert pins the
+"only ever read post-`measure`" invariant everywhere paint/hit-testing
+code touches these fields. Worth checking this pattern first before
+reaching for a parallel/shadow representation next time a CSS value's
+real resolution timing doesn't line up with when this codebase
+currently computes it.
+
+**A real, caught-before-shipping footgun worth flagging for next
+time**: `build_layout_tree`'s document root is a *synthetic* wrapper
+box — `<html>` is laid out *inside* it, not literally the layout tree's
+own root — and that same root `Laid`'s `h` doubles as "total scrollable
+content height" in `redraw`'s own scroll-clamping. Wiring the window's
+real inner height through as a viewport-height concept (so `html, body
+{ height: 100% }` could resolve) looked like an easy, obviously-correct
+addition and would have silently broken scrolling on every page taller
+than one window — caught by actually tracing where `laid.h` gets read
+elsewhere before shipping, not by the type system or a test. Flagged as
+its own `TODO.txt` item (the root box's two roles need separating
+first) rather than either shipping it broken or silently dropping the
+idea with no trace.

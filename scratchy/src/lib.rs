@@ -499,21 +499,37 @@ enum Display {
 /// relative to a font-size that isn't known until cascade time (an
 /// element's own computed font-size, for margin/padding/border-width; its
 /// *parent's* computed font-size, for font-size itself — see
-/// `resolve_style`). `rem` and `%` remain unsupported, same as any other
-/// unparseable value: no real use for either in `default.css` today (see
-/// TODO.txt), so not adding them until something needs them.
+/// `resolve_style`), `rem` is relative to the document root's font-size
+/// (see `root_font_size`'s own docs below).
+///
+/// `Percent` is the newest, and the odd one out: unlike every other
+/// variant, *which* basis it resolves against isn't fixed by `Length`
+/// itself — it depends on which property declared it. For `font-size`
+/// and `line-height` (whose real CSS percentage basis is a font-size,
+/// just like `Em`), `resolve`'s own `Percent` arm below handles it
+/// directly, same timing as `Em`. For every box-dimension property
+/// (`width`/`height` and their `min-`/`max-` forms, `margin`/`padding`,
+/// `border-radius`) the basis is a *containing-block dimension* —
+/// something `resolve_style`'s cascade can't know yet (it runs before
+/// layout) — so those properties never call `Length::resolve` on a
+/// `Percent` at all: `BoxLength::from_length` (below) diverts it,
+/// unresolved, into `ComputedStyle`, where it's finally resolved against
+/// the real basis once one exists — see `BoxLength`'s and `measure`'s own
+/// docs. Stored as the raw fraction (`0.5` for `50%`, matching
+/// `cssparser`'s own `Token::Percentage::unit_value`), not a `0..100`
+/// percentage number.
 ///
 /// `Larger`/`Smaller` are `font-size`'s own two relative keywords —
 /// deliberately not reachable through the general `parse_length`/
-/// `set_length` used by every other length-ish property (`margin:
-/// larger` isn't meaningful), only through `font-size`'s own dedicated
-/// parse branch — but resolve through the exact same `resolve_style`
-/// code path as `Em` already does for `font-size` (against the
-/// *parent's* computed font-size), so no change needed there. `1.2`
-/// isn't a spec'd exact value (the real spec steps through an
-/// absolute-size keyword table) — just the common approximation
-/// browsers converge on, and the same ratio `default.css`'s own
-/// heading sizes roughly follow.
+/// `parse_length_percent`/`set_length` used by every other length-ish
+/// property (`margin: larger` isn't meaningful), only through
+/// `font-size`'s own dedicated parse branch — but resolve through the
+/// exact same `resolve_style` code path as `Em` already does for
+/// `font-size` (against the *parent's* computed font-size), so no change
+/// needed there. `1.2` isn't a spec'd exact value (the real spec steps
+/// through an absolute-size keyword table) — just the common
+/// approximation browsers converge on, and the same ratio `default.css`'s
+/// own heading sizes roughly follow.
 #[derive(Clone, Copy)]
 enum Length {
     Px(f32),
@@ -527,18 +543,110 @@ enum Length {
     /// every other element's `inherited()`/`anonymous_style` (it's a
     /// document-wide constant, not something that cascades per element).
     Rem(f32),
+    /// The raw fraction (see this enum's own doc comment above for why
+    /// `Length::resolve` only sometimes handles this variant itself).
+    Percent(f32),
     Larger,
     Smaller,
 }
 
 impl Length {
+    /// Only a valid call for `Percent` when `font_size` really is this
+    /// value's intended basis (`font-size`'s own percentage, relative to
+    /// the *parent's* font-size — the same `font_size` parameter `Em`
+    /// already uses there — or `line-height`'s, relative to the
+    /// *element's own* font-size, same timing `Em` already uses there
+    /// too). Every box-dimension property instead calls
+    /// `BoxLength::from_length`, which diverts `Percent` away before it
+    /// ever reaches here — see this enum's own docs.
     fn resolve(self, font_size: f32, root_font_size: f32) -> f32 {
         match self {
             Length::Px(v) => v,
             Length::Em(v) => v * font_size,
             Length::Rem(v) => v * root_font_size,
+            Length::Percent(p) => font_size * p,
             Length::Larger => font_size * 1.2,
             Length::Smaller => font_size / 1.2,
+        }
+    }
+}
+
+/// `width`/`height` (and their `min-`/`max-` forms), `margin`/`padding`
+/// (all four physical sides), and `border-radius` all share this
+/// representation in `ComputedStyle` instead of a plain `f32`, because
+/// real CSS `%` on any of them resolves against a *containing-block*
+/// dimension — something that isn't known at cascade time
+/// (`resolve_style` runs once per element, independent of layout) and is
+/// only known once layout actually reaches that box (`measure`, which
+/// already receives the available width, and — since v49 — the
+/// containing block's own definite height, as plain parameters). `Px`
+/// covers every other length form (`px`/`em`/`rem`, all resolved eagerly
+/// in `resolve_style`, since none of them need a layout-time basis) —
+/// the name is about *when* this is finalized, not literally "pixels
+/// from a `px` token." `Percent` is the raw fraction (`0.5` for `50%`,
+/// matching `Length::Percent`), deferred until `measure` (via
+/// `finalize_box_lengths`) has a real basis to resolve it against.
+///
+/// By the time a `ComputedStyle` is stored in a `Laid` (i.e. anywhere
+/// `measure` has already run on it), every field of this type is
+/// guaranteed `Px` — `measure` always finalizes a box's own lengths
+/// before returning — which is what makes `px()` (below) safe to call
+/// from `paint`/`hit_test_cursor`/the children-stacking code in `measure`
+/// itself, none of which have a containing-block basis of their own to
+/// resolve a `Percent` against.
+#[derive(Clone, Copy)]
+enum BoxLength {
+    Px(f32),
+    Percent(f32),
+}
+
+impl Default for BoxLength {
+    fn default() -> Self {
+        BoxLength::Px(0.0)
+    }
+}
+
+impl BoxLength {
+    /// Converts a cascade-winning `Length` into a `BoxLength`: `Percent`
+    /// is carried through unresolved (its real basis is a containing-
+    /// block dimension, not available yet — see this type's own docs);
+    /// every other variant resolves immediately via `Length::resolve`,
+    /// exactly as it always has (the `font_size`/`root_font_size` basis
+    /// those need *is* available at cascade time).
+    fn from_length(l: Length, font_size: f32, root_font_size: f32) -> Self {
+        match l {
+            Length::Percent(p) => BoxLength::Percent(p),
+            other => BoxLength::Px(other.resolve(font_size, root_font_size)),
+        }
+    }
+
+    /// Resolves against `basis` — the containing block's width, for
+    /// every property except `height`/`min-height`/`max-height` (whose
+    /// basis is the containing block's own definite *height*, when it
+    /// has one — see `measure`'s `containing_height` parameter) and
+    /// `border-radius` (whose basis is this box's *own* border-box
+    /// width, per real CSS — see `paint_box_decoration`). `Px` ignores
+    /// `basis` entirely, already final.
+    fn resolve(self, basis: f32) -> f32 {
+        match self {
+            BoxLength::Px(v) => v,
+            BoxLength::Percent(p) => basis * p,
+        }
+    }
+
+    /// Reads an already-finalized value with no basis needed — see this
+    /// type's own docs for the invariant that makes this safe wherever
+    /// it's called. Debug-asserts (rather than silently resolving
+    /// against a bogus implicit basis of `0.0`) if that invariant is
+    /// ever violated, which would otherwise be a confusing, silent
+    /// wrong-number-not-a-crash bug.
+    fn px(self) -> f32 {
+        match self {
+            BoxLength::Px(v) => v,
+            BoxLength::Percent(p) => {
+                debug_assert!(false, "BoxLength::px() called on an unresolved {p} (fraction) percent");
+                0.0
+            }
         }
     }
 }
@@ -786,13 +894,16 @@ enum MaxLen {
 
 impl MaxLen {
     /// `None` here means "no constraint" (both the real initial value
-    /// and an explicit `none`) — the same `Option<f32>` shape
+    /// and an explicit `none`) — the same `Option<BoxLength>` shape
     /// `ComputedStyle::max_width`/`max_height` carry, so this is the
-    /// only place that needs to know `MaxLen` exists at all.
-    fn resolve(self, font_size: f32, root_font_size: f32) -> Option<f32> {
+    /// only place that needs to know `MaxLen` exists at all. `Len`'s
+    /// `Length` goes through `BoxLength::from_length`, same as every
+    /// other box-dimension property — a `%` stays unresolved here too,
+    /// finalized later in `measure`.
+    fn resolve(self, font_size: f32, root_font_size: f32) -> Option<BoxLength> {
         match self {
             MaxLen::None => None,
-            MaxLen::Len(l) => Some(l.resolve(font_size, root_font_size)),
+            MaxLen::Len(l) => Some(BoxLength::from_length(l, font_size, root_font_size)),
         }
     }
 }
@@ -856,6 +967,16 @@ struct StyleRule {
     decls: Declarations,
 }
 
+/// `<length>` only — no `<percentage>` — the real CSS grammar for
+/// `border-width`/`outline-width`/`box-shadow`'s offsets and radii, none
+/// of which the spec allows a percentage on at all (unlike
+/// `parse_length_percent`, below, used by every property whose real
+/// grammar is `<length-percentage>`). A bare unitless number is only
+/// ever valid here as the literal `0` — real CSS doesn't allow an
+/// unparenthesized unitless non-zero number for any length-only
+/// property like these (unlike `line-height`'s own dedicated grammar in
+/// `parse_line_height`, where a bare number is the property's single
+/// most common real-world form).
 fn parse_length(input: &mut CssParser) -> Result<Length, ()> {
     match input.next().map_err(|_| ())? {
         Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("px") => Ok(Length::Px(*value)),
@@ -866,18 +987,42 @@ fn parse_length(input: &mut CssParser) -> Result<Length, ()> {
     }
 }
 
+/// Same grammar as `parse_length` plus a `<percentage>` token — used by
+/// every property whose real CSS grammar is `<length-percentage>`
+/// rather than a plain `<length>`: `width`/`height` and their `min-`/
+/// `max-` forms, `margin`/`padding` (and all their shorthand/logical
+/// forms), `border-radius`, and `font-size` (`parse_length_percent`
+/// itself has no font-size-vs-box-dimension opinion — that distinction
+/// is `BoxLength::from_length`'s/`Length::resolve`'s job, at the point
+/// each property's winning value is actually resolved). `unit_value` is
+/// already the raw fraction (`cssparser`'s own convention — `0.5` for
+/// `50%`), matching `Length::Percent`'s own documented representation.
+fn parse_length_percent(input: &mut CssParser) -> Result<Length, ()> {
+    match input.next().map_err(|_| ())? {
+        Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("px") => Ok(Length::Px(*value)),
+        Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("em") => Ok(Length::Em(*value)),
+        Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("rem") => Ok(Length::Rem(*value)),
+        Token::Percentage { unit_value, .. } => Ok(Length::Percent(*unit_value)),
+        Token::Number { value, .. } if *value == 0.0 => Ok(Length::Px(0.0)),
+        _ => Err(()),
+    }
+}
+
 /// Parses a length into `*target`, leaving it untouched (so an earlier
 /// declaration in the cascade isn't clobbered) on anything unparseable —
-/// `%`/`auto`/etc. still fall through this way (`px`/`em`/`rem` are the
-/// only supported units), same as any other not-yet-supported value.
+/// `auto`/etc. still fall through this way, same as any other
+/// not-yet-supported value. Used only by properties whose real grammar
+/// is `<length-percentage>` (see `parse_length_percent`'s own docs) —
+/// `border-width`/`outline-width` parse `parse_length` directly instead,
+/// since real CSS doesn't allow a percentage on either.
 fn set_length(input: &mut CssParser, target: &mut Option<Length>) {
-    if let Ok(v) = parse_length(input) {
+    if let Ok(v) = parse_length_percent(input) {
         *target = Some(v);
     }
 }
 
 /// `max-width`/`max-height`'s own grammar: `none` (the real initial
-/// value) alongside the usual `px`/`em`/`rem`/unitless-zero lengths —
+/// value) alongside the usual `px`/`em`/`rem`/`%`/unitless-zero lengths —
 /// same unparseable-leaves-target-untouched philosophy as `set_length`.
 fn set_max_length(input: &mut CssParser, target: &mut Option<MaxLen>) {
     let state = input.state();
@@ -890,7 +1035,7 @@ fn set_max_length(input: &mut CssParser, target: &mut Option<MaxLen>) {
         return;
     }
     input.reset(&state);
-    if let Ok(v) = parse_length(input) {
+    if let Ok(v) = parse_length_percent(input) {
         *target = Some(MaxLen::Len(v));
     }
 }
@@ -898,7 +1043,13 @@ fn set_max_length(input: &mut CssParser, target: &mut Option<MaxLen>) {
 /// `line-height`'s own grammar — a bare `<number>` (any value, not just
 /// `0` — unlike `parse_length`'s unitless-zero special case, this is the
 /// property's single most common real-world form) alongside `normal` and
-/// the usual `px`/`em`/`rem` lengths.
+/// the usual `px`/`em`/`rem`/`%` lengths. A `%` here resolves against the
+/// *element's own* font-size (`Length::resolve`'s `Percent` arm, same
+/// timing `Em` already uses for `line-height` — see `LineHeight`'s own
+/// docs for why that's `Len`, not `Multiplier`: unlike a bare number, a
+/// percentage computes to a fixed absolute value at the declaring
+/// element, not something each descendant re-resolves against its own
+/// font-size).
 fn parse_line_height(input: &mut CssParser) -> Result<LineHeight, ()> {
     match input.next().map_err(|_| ())? {
         Token::Ident(ident) if ident.eq_ignore_ascii_case("normal") => Ok(LineHeight::Normal),
@@ -912,6 +1063,7 @@ fn parse_line_height(input: &mut CssParser) -> Result<LineHeight, ()> {
         Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("rem") => {
             Ok(LineHeight::Len(Length::Rem(*value)))
         }
+        Token::Percentage { unit_value, .. } => Ok(LineHeight::Len(Length::Percent(*unit_value))),
         _ => Err(()),
     }
 }
@@ -1390,7 +1542,7 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
                 };
             }
         } else if name.eq_ignore_ascii_case("margin") {
-            if let Ok(v) = parse_length(input) {
+            if let Ok(v) = parse_length_percent(input) {
                 self.decls.margin_top = Some(v);
                 self.decls.margin_right = Some(v);
                 self.decls.margin_bottom = Some(v);
@@ -1413,17 +1565,17 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
         } else if name.eq_ignore_ascii_case("margin-inline-end") {
             set_length(input, &mut self.decls.margin_right);
         } else if name.eq_ignore_ascii_case("margin-block") {
-            if let Ok(v) = parse_length(input) {
+            if let Ok(v) = parse_length_percent(input) {
                 self.decls.margin_top = Some(v);
                 self.decls.margin_bottom = Some(v);
             }
         } else if name.eq_ignore_ascii_case("margin-inline") {
-            if let Ok(v) = parse_length(input) {
+            if let Ok(v) = parse_length_percent(input) {
                 self.decls.margin_left = Some(v);
                 self.decls.margin_right = Some(v);
             }
         } else if name.eq_ignore_ascii_case("padding") {
-            if let Ok(v) = parse_length(input) {
+            if let Ok(v) = parse_length_percent(input) {
                 self.decls.padding_top = Some(v);
                 self.decls.padding_right = Some(v);
                 self.decls.padding_bottom = Some(v);
@@ -1446,12 +1598,12 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
         } else if name.eq_ignore_ascii_case("padding-inline-end") {
             set_length(input, &mut self.decls.padding_right);
         } else if name.eq_ignore_ascii_case("padding-block") {
-            if let Ok(v) = parse_length(input) {
+            if let Ok(v) = parse_length_percent(input) {
                 self.decls.padding_top = Some(v);
                 self.decls.padding_bottom = Some(v);
             }
         } else if name.eq_ignore_ascii_case("padding-inline") {
-            if let Ok(v) = parse_length(input) {
+            if let Ok(v) = parse_length_percent(input) {
                 self.decls.padding_left = Some(v);
                 self.decls.padding_right = Some(v);
             }
@@ -1513,7 +1665,7 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
                 self.decls.font_size = Some(v);
             } else {
                 input.reset(&state);
-                if let Ok(v) = parse_length(input) {
+                if let Ok(v) = parse_length_percent(input) {
                     self.decls.font_size = Some(v);
                 }
             }
@@ -1918,12 +2070,19 @@ const ROOT_STYLE: InheritedStyle = InheritedStyle {
 /// time (`DeclParser::parse_value`), same as `margin`/`padding` shorthands
 /// are. `border_width` stays a single uniform scalar — nothing in
 /// `default.css` sets a per-side border, so there's no real use for it yet.
+///
+/// Fields are `BoxLength`, not a plain `f32` — real CSS resolves a `%`
+/// margin/padding (on *every* side, even top/bottom — see
+/// `finalize_box_lengths`) against the containing block's width, which
+/// `margin`/`padding` on `ComputedStyle` can't know at cascade time. See
+/// `BoxLength`'s own docs for exactly when/how that final resolution
+/// happens.
 #[derive(Clone, Copy, Default)]
 struct Sides {
-    top: f32,
-    right: f32,
-    bottom: f32,
-    left: f32,
+    top: BoxLength,
+    right: BoxLength,
+    bottom: BoxLength,
+    left: BoxLength,
 }
 
 #[derive(Clone, Copy)]
@@ -1950,12 +2109,19 @@ struct ComputedStyle {
     /// side (`min`'s real initial value, `0`, needs no explicit
     /// constraint since every box is already floored at `0`; `max`'s
     /// real initial value is literally `none`).
-    width: Option<f32>,
-    height: Option<f32>,
-    min_width: Option<f32>,
-    max_width: Option<f32>,
-    min_height: Option<f32>,
-    max_height: Option<f32>,
+    ///
+    /// `BoxLength`, not a plain `f32`: a `%` here resolves against the
+    /// containing block's width (`width`/`min_width`/`max_width`) or its
+    /// own definite height (`height`/`min_height`/`max_height`, which
+    /// may not exist — see `measure`'s `containing_height` parameter and
+    /// `finalize_box_lengths`), neither of which `resolve_style` knows at
+    /// cascade time.
+    width: Option<BoxLength>,
+    height: Option<BoxLength>,
+    min_width: Option<BoxLength>,
+    max_width: Option<BoxLength>,
+    min_height: Option<BoxLength>,
+    max_height: Option<BoxLength>,
     /// Not inherited (same as `overflow`/`border_width`). See
     /// `BoxSizing`'s own docs.
     box_sizing: BoxSizing,
@@ -2007,8 +2173,14 @@ struct ComputedStyle {
     box_shadow: Option<ResolvedBoxShadow>,
     /// Rounds both the background fill and (for `BorderStyle::Solid`
     /// only — see `fill_rounded_ring`'s own docs) the border itself, via
-    /// `paint_box_decoration`. Not inherited.
-    border_radius: f32,
+    /// `paint_box_decoration`. Not inherited. `BoxLength`, not a plain
+    /// `f32`: real CSS resolves a `%` border-radius against the box's
+    /// *own* border-box width (unlike `width`/`margin`/`padding`, whose
+    /// basis is the *containing block's* width) — `paint_box_decoration`
+    /// resolves it directly against its own `w` parameter, since that's
+    /// already the exact value needed and it's never used anywhere
+    /// `measure` would otherwise have to finalize it early.
+    border_radius: BoxLength,
     /// Not inherited. See `Overflow`'s own docs for the clip's scope.
     overflow: Overflow,
     cursor: CursorStyle,
@@ -2144,13 +2316,13 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         .map(|l| l.resolve(inherited.font_size, inherited.root_font_size))
         .unwrap_or(inherited.font_size);
     let width = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.width), |d| d.width)
-        .map(|l| l.resolve(font_size, inherited.root_font_size));
+        .map(|l| BoxLength::from_length(l, font_size, inherited.root_font_size));
     let height = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.height), |d| d.height)
-        .map(|l| l.resolve(font_size, inherited.root_font_size));
+        .map(|l| BoxLength::from_length(l, font_size, inherited.root_font_size));
     let min_width = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.min_width), |d| d.min_width)
-        .map(|l| l.resolve(font_size, inherited.root_font_size));
+        .map(|l| BoxLength::from_length(l, font_size, inherited.root_font_size));
     let min_height = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.min_height), |d| d.min_height)
-        .map(|l| l.resolve(font_size, inherited.root_font_size));
+        .map(|l| BoxLength::from_length(l, font_size, inherited.root_font_size));
     let max_width = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.max_width), |d| d.max_width)
         .and_then(|l| l.resolve(font_size, inherited.root_font_size));
     let max_height = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.max_height), |d| d.max_height)
@@ -2159,35 +2331,35 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         .unwrap_or_default();
     let margin = Sides {
         top: cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.margin_top), |d| d.margin_top)
-            .map(|l| l.resolve(font_size, inherited.root_font_size))
-            .unwrap_or(0.0),
+            .map(|l| BoxLength::from_length(l, font_size, inherited.root_font_size))
+            .unwrap_or_default(),
         right: cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.margin_right), |d| d.margin_right)
-            .map(|l| l.resolve(font_size, inherited.root_font_size))
-            .unwrap_or(0.0),
+            .map(|l| BoxLength::from_length(l, font_size, inherited.root_font_size))
+            .unwrap_or_default(),
         bottom: cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.margin_bottom), |d| d.margin_bottom)
-            .map(|l| l.resolve(font_size, inherited.root_font_size))
-            .unwrap_or(0.0),
+            .map(|l| BoxLength::from_length(l, font_size, inherited.root_font_size))
+            .unwrap_or_default(),
         left: cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.margin_left), |d| d.margin_left)
-            .map(|l| l.resolve(font_size, inherited.root_font_size))
-            .unwrap_or(0.0),
+            .map(|l| BoxLength::from_length(l, font_size, inherited.root_font_size))
+            .unwrap_or_default(),
     };
     let padding = Sides {
         top: cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.padding_top), |d| d.padding_top)
-            .map(|l| l.resolve(font_size, inherited.root_font_size))
-            .unwrap_or(0.0),
+            .map(|l| BoxLength::from_length(l, font_size, inherited.root_font_size))
+            .unwrap_or_default(),
         right: cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.padding_right), |d| d.padding_right)
-            .map(|l| l.resolve(font_size, inherited.root_font_size))
-            .unwrap_or(0.0),
+            .map(|l| BoxLength::from_length(l, font_size, inherited.root_font_size))
+            .unwrap_or_default(),
         bottom: cascade_property(
             &matches,
             inline_decls.as_ref().and_then(|d| d.padding_bottom),
             |d| d.padding_bottom,
         )
-        .map(|l| l.resolve(font_size, inherited.root_font_size))
-        .unwrap_or(0.0),
+        .map(|l| BoxLength::from_length(l, font_size, inherited.root_font_size))
+        .unwrap_or_default(),
         left: cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.padding_left), |d| d.padding_left)
-            .map(|l| l.resolve(font_size, inherited.root_font_size))
-            .unwrap_or(0.0),
+            .map(|l| BoxLength::from_length(l, font_size, inherited.root_font_size))
+            .unwrap_or_default(),
     };
     let border_width = cascade_property(
         &matches,
@@ -2302,8 +2474,8 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         inline_decls.as_ref().and_then(|d| d.border_radius),
         |d| d.border_radius,
     )
-    .map(|l| l.resolve(font_size, inherited.root_font_size))
-    .unwrap_or(0.0);
+    .map(|l| BoxLength::from_length(l, font_size, inherited.root_font_size))
+    .unwrap_or_default();
     let overflow = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.overflow), |d| d.overflow)
         .unwrap_or_default();
     let cursor = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.cursor), |d| d.cursor)
@@ -2378,7 +2550,7 @@ fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         outline_width: 0.0,
         outline_color: None,
         box_shadow: None,
-        border_radius: 0.0,
+        border_radius: BoxLength::default(),
         overflow: Overflow::default(),
         cursor: inherited.cursor,
     }
@@ -2549,10 +2721,10 @@ fn img_size_attr(handle: &Handle, name: &str) -> Option<f32> {
 /// yet supported, see TODO.txt), or corrupt data — returns `None`.
 fn resolve_img(handle: &Handle, mut style: ComputedStyle) -> (ComputedStyle, Option<Rc<DecodedImage>>) {
     if style.width.is_none() {
-        style.width = img_size_attr(handle, "width");
+        style.width = img_size_attr(handle, "width").map(BoxLength::Px);
     }
     if style.height.is_none() {
-        style.height = img_size_attr(handle, "height");
+        style.height = img_size_attr(handle, "height").map(BoxLength::Px);
     }
     let decoded = element_attr(handle, "src").and_then(|src| decode_data_uri(&src)).and_then(|b| decode_image_bytes(&b));
     (style, decoded.map(Rc::new))
@@ -3138,10 +3310,14 @@ fn shape_spans(
 /// (`auto`): the container-derived width, or `extra + content_h` for
 /// height — still subject to `min`/`max` either way, same as real CSS
 /// (a `min-width` wider than the container forces overflow).
+/// `specified`/`min`/`max` are `BoxLength`, not a plain `Option<f32>` —
+/// callers are expected to have already finalized them (via
+/// `finalize_box_lengths`) before reaching here, so `.px()` is always
+/// safe (see `BoxLength`'s own docs on that invariant).
 fn clamp_box_dim(
-    specified: Option<f32>,
-    min: Option<f32>,
-    max: Option<f32>,
+    specified: Option<BoxLength>,
+    min: Option<BoxLength>,
+    max: Option<BoxLength>,
     auto_box: f32,
     box_sizing: BoxSizing,
     extra: f32,
@@ -3150,14 +3326,62 @@ fn clamp_box_dim(
         BoxSizing::ContentBox => raw.max(0.0) + extra,
         BoxSizing::BorderBox => raw.max(0.0),
     };
-    let mut box_dim = specified.map(to_box).unwrap_or(auto_box);
+    let mut box_dim = specified.map(|v| to_box(v.px())).unwrap_or(auto_box);
     if let Some(mx) = max {
-        box_dim = box_dim.min(to_box(mx));
+        box_dim = box_dim.min(to_box(mx.px()));
     }
     if let Some(mn) = min {
-        box_dim = box_dim.max(to_box(mn));
+        box_dim = box_dim.max(to_box(mn.px()));
     }
     box_dim.max(0.0)
+}
+
+/// Resolves every `BoxLength`-typed field of `s` (margin/padding on all
+/// four sides, `width`/`min-width`/`max-width`, `height`/`min-height`/
+/// `max-height`) in place, against its real CSS percentage basis — see
+/// `BoxLength`'s own docs for why this can't happen any earlier than
+/// `measure`. `width`/margin/padding (all four sides, even top/bottom —
+/// real CSS always resolves a margin/padding `%` against the containing
+/// block's *width*) resolve against `width`: the containing block's
+/// width, which every box always has a definite value for. `height`/
+/// `min-height`/`max-height` resolve against `containing_height`
+/// instead — the containing block's own *content* height, which is only
+/// `Some` when that's itself definite. When it's `None` (the containing
+/// block's height depends on its own content — the common case for an
+/// ordinary block with no explicit `height`), a `%` height/min-height/
+/// max-height resolves to `None` too: real CSS Level 2's documented rule
+/// for exactly this case ("if the height of the containing block is not
+/// specified explicitly... the [percentage] value computes to 'auto'"
+/// for `height`; equivalent to no constraint at all for `min-`/`max-
+/// height`, since this engine already floors every box at `0` and
+/// treats an absent `max` as unconstrained regardless). After this call,
+/// every one of these fields is `BoxLength::Px` — the invariant `.px()`
+/// (and every paint/hit-test call site that relies on it) depends on.
+fn finalize_box_lengths(s: &mut ComputedStyle, width: f32, containing_height: Option<f32>) {
+    let resolve_h = |v: Option<BoxLength>| -> Option<f32> {
+        v.and_then(|bl| match bl {
+            BoxLength::Px(px) => Some(px),
+            BoxLength::Percent(p) => containing_height.map(|ch| ch * p),
+        })
+    };
+    s.margin = Sides {
+        top: BoxLength::Px(s.margin.top.resolve(width)),
+        right: BoxLength::Px(s.margin.right.resolve(width)),
+        bottom: BoxLength::Px(s.margin.bottom.resolve(width)),
+        left: BoxLength::Px(s.margin.left.resolve(width)),
+    };
+    s.padding = Sides {
+        top: BoxLength::Px(s.padding.top.resolve(width)),
+        right: BoxLength::Px(s.padding.right.resolve(width)),
+        bottom: BoxLength::Px(s.padding.bottom.resolve(width)),
+        left: BoxLength::Px(s.padding.left.resolve(width)),
+    };
+    s.width = s.width.map(|l| BoxLength::Px(l.resolve(width)));
+    s.min_width = s.min_width.map(|l| BoxLength::Px(l.resolve(width)));
+    s.max_width = s.max_width.map(|l| BoxLength::Px(l.resolve(width)));
+    s.height = resolve_h(s.height).map(BoxLength::Px);
+    s.min_height = resolve_h(s.min_height).map(BoxLength::Px);
+    s.max_height = resolve_h(s.max_height).map(BoxLength::Px);
 }
 
 /// Lays out `b`, shaping text as it goes — but only until `deadline` passes.
@@ -3169,20 +3393,41 @@ fn clamp_box_dim(
 /// is expected to call `measure` again (another frame, same `cache`) to pick
 /// up where this call left off, until a full pass needs no new shaping at
 /// all.
+///
+/// `containing_height` is this box's own containing block's *content*
+/// height, when that's definite (`None` otherwise — e.g. an ordinary
+/// `height: auto` ancestor) — the basis `finalize_box_lengths` resolves
+/// a `%` `height`/`min-height`/`max-height` against. There's no real
+/// viewport/initial-containing-block concept here (unlike a real UA,
+/// whose initial containing block always has the window's own definite
+/// height) — this crate's own top-level caller passes `None`, see its
+/// own docs for why. A `%` height resolves correctly against any
+/// *explicit* ancestor height further down the tree regardless — this
+/// parameter only ever starts `None` at the very top.
+#[allow(clippy::too_many_arguments)]
 pub fn measure(
     b: &LayoutBox,
     font_system: &mut FontSystem,
     x: f32,
     y: f32,
     width: f32,
+    containing_height: Option<f32>,
     next_id: &mut usize,
     cache: &mut ShapeCache,
     deadline: std::time::Instant,
     incomplete: &mut bool,
 ) -> Laid {
-    let s = b.style;
-    let border_x = x + s.margin.left;
-    let border_y = y + s.margin.top;
+    let mut s = b.style;
+    finalize_box_lengths(&mut s, width, containing_height);
+    let margin_top = s.margin.top.px();
+    let margin_right = s.margin.right.px();
+    let margin_left = s.margin.left.px();
+    let padding_top = s.padding.top.px();
+    let padding_right = s.padding.right.px();
+    let padding_bottom = s.padding.bottom.px();
+    let padding_left = s.padding.left.px();
+    let border_x = x + margin_left;
+    let border_y = y + margin_top;
     // An explicit `width` (in `s.box_sizing`'s reference box — see
     // `ComputedStyle::width`'s own docs) replaces the container-derived
     // available width outright — including when it's *wider* than
@@ -3191,12 +3436,25 @@ pub fn measure(
     // as unconstrained content already could. `min-width`/`max-width`
     // (see `clamp_box_dim`) apply regardless of whether `width` itself
     // was explicit.
-    let extra_w = 2.0 * s.border_width + s.padding.left + s.padding.right;
-    let auto_border_w = (width - s.margin.left - s.margin.right).max(0.0);
+    let extra_w = 2.0 * s.border_width + padding_left + padding_right;
+    let auto_border_w = (width - margin_left - margin_right).max(0.0);
     let border_w = clamp_box_dim(s.width, s.min_width, s.max_width, auto_border_w, s.box_sizing, extra_w);
-    let content_x = border_x + s.border_width + s.padding.left;
-    let content_y = border_y + s.border_width + s.padding.top;
+    let content_x = border_x + s.border_width + padding_left;
+    let content_y = border_y + s.border_width + padding_top;
     let content_w = (border_w - extra_w).max(0.0);
+    let extra_h = 2.0 * s.border_width + padding_top + padding_bottom;
+    // The containing-block height *this* box hands down to its own
+    // children (`Blocks`/`TableRow` only — see `finalize_box_lengths`'s
+    // own docs for the real-CSS rule this mirrors): definite only when
+    // this box's own `height` is itself definite (an explicit length,
+    // already resolved above, or a `%` that resolved against *this*
+    // box's own incoming `containing_height`) — converted from the
+    // specified/`box-sizing` reference box down to a *content* height,
+    // same `to_box`-inverse math `clamp_box_dim` itself uses.
+    let child_containing_height = s.height.map(|h| match s.box_sizing {
+        BoxSizing::ContentBox => h.px().max(0.0),
+        BoxSizing::BorderBox => (h.px() - extra_h).max(0.0),
+    });
 
     match &b.content {
         BoxContent::Inline(items) if items.iter().any(|i| matches!(i, InlineItem::Image { .. })) => {
@@ -3206,9 +3464,9 @@ pub fn measure(
             // so only taken when actually needed; see `measure_mixed_
             // inline`'s own docs.
             let (content_h, positioned) = measure_mixed_inline(
-                items, &s, font_system, content_x, content_y, content_w, next_id, cache, deadline, incomplete,
+                items, &s, font_system, content_x, content_y, content_w, containing_height, next_id, cache, deadline,
+                incomplete,
             );
-            let extra_h = 2.0 * s.border_width + s.padding.top + s.padding.bottom;
             let border_h = clamp_box_dim(
                 s.height,
                 s.min_height,
@@ -3272,7 +3530,6 @@ pub fn measure(
             // result (real CSS `overflow: visible` default;
             // `overflow: hidden` on this element clips it correctly
             // already, see v40).
-            let extra_h = 2.0 * s.border_width + s.padding.top + s.padding.bottom;
             let border_h = clamp_box_dim(
                 s.height,
                 s.min_height,
@@ -3296,17 +3553,16 @@ pub fn measure(
             let mut laid_children = Vec::with_capacity(children.len());
             for child in children {
                 let lc = measure(
-                    child, font_system, content_x, cursor_y, content_w, next_id, cache, deadline,
-                    incomplete,
+                    child, font_system, content_x, cursor_y, content_w, child_containing_height, next_id, cache,
+                    deadline, incomplete,
                 );
-                cursor_y += lc.style.margin.top + lc.style.margin.bottom + lc.h;
+                cursor_y += lc.style.margin.top.px() + lc.style.margin.bottom.px() + lc.h;
                 laid_children.push(lc);
             }
             let content_h = cursor_y - content_y;
             // See the `Inline` branch's own comment just above — same
             // "override only the reported size, children already laid
             // out in full regardless" behavior.
-            let extra_h = 2.0 * s.border_width + s.padding.top + s.padding.bottom;
             let border_h = clamp_box_dim(
                 s.height,
                 s.min_height,
@@ -3335,14 +3591,16 @@ pub fn measure(
             let mut row_h = 0.0f32;
             let mut laid_cells = Vec::with_capacity(cells.len());
             for cell in cells {
-                let lc = measure(cell, font_system, cursor_x, content_y, cell_w, next_id, cache, deadline, incomplete);
-                row_h = row_h.max(lc.style.margin.top + lc.style.margin.bottom + lc.h);
+                let lc = measure(
+                    cell, font_system, cursor_x, content_y, cell_w, child_containing_height, next_id, cache, deadline,
+                    incomplete,
+                );
+                row_h = row_h.max(lc.style.margin.top.px() + lc.style.margin.bottom.px() + lc.h);
                 cursor_x += cell_w;
                 laid_cells.push(lc);
             }
             // Same explicit-`height`-overrides-only-the-reported-size
             // behavior as the `Inline`/`Blocks` branches above.
-            let extra_h = 2.0 * s.border_width + s.padding.top + s.padding.bottom;
             let border_h = clamp_box_dim(
                 s.height,
                 s.min_height,
@@ -3362,6 +3620,10 @@ pub fn measure(
             }
         }
         BoxContent::Image(image) => {
+            // `s` is already finalized (against this very box's own
+            // incoming `width`/`containing_height`, exactly the right
+            // basis for a replaced element's own box) — `image_box_size`
+            // just reads it, no further resolution needed.
             let (border_w, border_h) = image_box_size(image, &s);
             Laid {
                 style: s,
@@ -3387,12 +3649,16 @@ pub fn measure(
 /// already does for every other box). Doesn't re-derive the aspect
 /// ratio after `min`/`max-width/height` clamp the other axis — a
 /// further edge case nothing has needed yet.
+/// Assumes `s` is already finalized (see `BoxLength`'s own docs) —
+/// every caller either just finalized it itself (`measure`'s own `s`)
+/// or finalized a fresh copy right before calling this
+/// (`measure_mixed_inline`, for an inline `<img>`'s own `style`).
 fn image_box_size(image: &DecodedImage, s: &ComputedStyle) -> (f32, f32) {
     let intrinsic_w = (image.width.max(1)) as f32;
     let intrinsic_h = (image.height.max(1)) as f32;
     let aspect = intrinsic_h / intrinsic_w;
-    let extra_w = 2.0 * s.border_width + s.padding.left + s.padding.right;
-    let extra_h = 2.0 * s.border_width + s.padding.top + s.padding.bottom;
+    let extra_w = 2.0 * s.border_width + s.padding.left.px() + s.padding.right.px();
+    let extra_h = 2.0 * s.border_width + s.padding.top.px() + s.padding.bottom.px();
     if s.width.is_none() && s.height.is_some() {
         let border_h = clamp_box_dim(s.height, s.min_height, s.max_height, extra_h + intrinsic_h, s.box_sizing, extra_h);
         let content_h = (border_h - extra_h).max(0.0);
@@ -3449,6 +3715,7 @@ fn image_box_size(image: &DecodedImage, s: &ComputedStyle) -> (f32, f32) {
 /// alignment purposes, unlike a real UA which hangs trailing whitespace
 /// past the edge.
 #[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments)]
 fn measure_mixed_inline(
     items: &[InlineItem],
     s: &ComputedStyle,
@@ -3456,6 +3723,13 @@ fn measure_mixed_inline(
     content_x: f32,
     content_y: f32,
     content_w: f32,
+    // This paragraph box's own containing-block content height (see
+    // `measure`'s own docs) — an inline `<img>` lives directly inside
+    // this box's content, sharing the *same* containing block as the
+    // box itself (there's no intermediate box of its own the way a
+    // `Blocks`/`TableRow` child has), so a `%` on its own `height` needs
+    // this exact value, unmodified, not a derived "child" one.
+    containing_height: Option<f32>,
     next_id: &mut usize,
     cache: &mut ShapeCache,
     deadline: std::time::Instant,
@@ -3500,12 +3774,21 @@ fn measure_mixed_inline(
                 }
             }
             InlineItem::Image { image, style, background_image } => {
-                let (img_w, img_h) = image_box_size(image, style);
+                // `style` hasn't been through `measure`'s own
+                // `finalize_box_lengths` call (that's the *paragraph*
+                // box's `s`, not this image's own style) — finalize a
+                // copy against this run's own width (`content_w`, the
+                // image's containing block width) and the paragraph's
+                // own `containing_height` (see this function's own
+                // docs) before reading anything out of it.
+                let mut finalized_style = *style;
+                finalize_box_lengths(&mut finalized_style, content_w, containing_height);
+                let (img_w, img_h) = image_box_size(image, &finalized_style);
                 measured.push(Measured::Image {
-                    laid_style: *style,
+                    laid_style: finalized_style,
                     background_image: background_image.clone(),
                     image: Rc::clone(image),
-                    advance_w: style.margin.left + img_w + style.margin.right,
+                    advance_w: finalized_style.margin.left.px() + img_w + finalized_style.margin.right.px(),
                     img_w,
                     img_h,
                 });
@@ -3569,7 +3852,7 @@ fn measure_mixed_inline(
                 Measured::Image { laid_style, background_image, image, img_w, img_h, .. } => {
                     positioned.push(MixedPositioned::Image(Box::new(Laid {
                         style: *laid_style,
-                        x: final_x + laid_style.margin.left,
+                        x: final_x + laid_style.margin.left.px(),
                         y: content_y + cursor_y + (line_height - img_h),
                         w: *img_w,
                         h: *img_h,
@@ -3867,10 +4150,19 @@ fn paint_box_decoration(
     // back to the existing square-corner rendering rather than a
     // half-rounded, honestly-wrong mix of a rounded background behind
     // a square border.
-    let round = s.border_radius > 0.0 && (s.border_width <= 0.0 || s.border_style == BorderStyle::Solid);
+    //
+    // `border_radius` resolves its own `%` right here, against `w` —
+    // this box's own border-box width, the real CSS basis for a
+    // percentage `border-radius` (unlike `width`/`margin`/`padding`,
+    // which resolve against the *containing block's* width — see
+    // `BoxLength`'s own docs) — rather than in `measure`, since `w` is
+    // already exactly the value needed and nothing else ever reads
+    // this field before paint.
+    let border_radius = s.border_radius.resolve(w);
+    let round = border_radius > 0.0 && (s.border_width <= 0.0 || s.border_style == BorderStyle::Solid);
     if let Some(bg) = s.background_color {
         if round {
-            fill_rounded_rect(pixels, win_w, win_h, x, y, w, h, s.border_radius, bg, clip);
+            fill_rounded_rect(pixels, win_w, win_h, x, y, w, h, border_radius, bg, clip);
         } else {
             fill_rect(pixels, win_w, win_h, x, y, w, h, bg, clip);
         }
@@ -3889,7 +4181,7 @@ fn paint_box_decoration(
         if let Some(bc) = s.border_color {
             let bw = s.border_width;
             if round {
-                fill_rounded_ring(pixels, win_w, win_h, x, y, w, h, s.border_radius, bw, bc, clip);
+                fill_rounded_ring(pixels, win_w, win_h, x, y, w, h, border_radius, bw, bc, clip);
             } else {
                 paint_border_edge(pixels, win_w, win_h, x, y, w, bw, s.border_style, bc, clip);
                 paint_border_edge(pixels, win_w, win_h, x, y + h - bw, w, bw, s.border_style, bc, clip);
@@ -4305,8 +4597,8 @@ fn paint(
             // just means nothing to paint here yet — it'll appear once a
             // later frame finishes shaping it.
             if let Some((buffer, _, backgrounds, valigns, hidden, _, decoration_styles)) = cache.get_mut(id) {
-                let content_x = laid.x + s.border_width + s.padding.left;
-                let content_y = draw_y + s.border_width + s.padding.top;
+                let content_x = laid.x + s.border_width + s.padding.left.px();
+                let content_y = draw_y + s.border_width + s.padding.top.px();
                 paint_buffer(
                     buffer, font_system, swash_cache, backgrounds, valigns, hidden, decoration_styles, pixels,
                     win_w, win_h, content_x, content_y, child_clip,
@@ -4314,10 +4606,10 @@ fn paint(
             }
         }
         LaidContent::Image(image) => {
-            let content_x = laid.x + s.border_width + s.padding.left;
-            let content_y = draw_y + s.border_width + s.padding.top;
-            let content_w = (laid.w - 2.0 * s.border_width - s.padding.left - s.padding.right).max(0.0);
-            let content_h = (laid.h - 2.0 * s.border_width - s.padding.top - s.padding.bottom).max(0.0);
+            let content_x = laid.x + s.border_width + s.padding.left.px();
+            let content_y = draw_y + s.border_width + s.padding.top.px();
+            let content_w = (laid.w - 2.0 * s.border_width - s.padding.left.px() - s.padding.right.px()).max(0.0);
+            let content_h = (laid.h - 2.0 * s.border_width - s.padding.top.px() - s.padding.bottom.px()).max(0.0);
             blit_image(image, pixels, win_w, win_h, content_x, content_y, content_w, content_h, child_clip);
         }
         LaidContent::MixedInline(positioned) => {
@@ -4370,8 +4662,8 @@ fn hit_test_cursor(laid: &Laid, x: f32, y: f32, cache: &ShapeCache) -> CursorSty
         }
         LaidContent::Text(id) => {
             if let Some((buffer, _, _, _, _, cursors, _)) = cache.get(id) {
-                let content_x = laid.x + laid.style.border_width + laid.style.padding.left;
-                let content_y = laid.y + laid.style.border_width + laid.style.padding.top;
+                let content_x = laid.x + laid.style.border_width + laid.style.padding.left.px();
+                let content_y = laid.y + laid.style.border_width + laid.style.padding.top.px();
                 let local_x = x - content_x;
                 let local_y = y - content_y;
                 for run in buffer.layout_runs() {
@@ -4589,6 +4881,29 @@ impl App {
                 0.0,
                 0.0,
                 width as f32,
+                // No viewport/initial-containing-block height concept
+                // exists here — unlike a real UA, whose initial
+                // containing block always has the viewport's definite
+                // height, `build_layout_tree`'s own synthetic document-
+                // wrapper box (which `html` is laid out *inside*, not
+                // as literally the tree's root) has no height of its
+                // own to chain one through even if `None` were replaced
+                // with `Some(height as f32)` here, and deliberately
+                // isn't given one: this value also doubles as the
+                // scroll-clamping "total content height" above
+                // (`laid.h`), so pinning it to the window's own height
+                // would silently cap every page at exactly one
+                // viewport-worth of scrollable content. A `%` height
+                // declared on `<html>`/`<body>` (the common real-world
+                // `height: 100%` pattern) is real CSS-correct but
+                // doesn't resolve to anything here — same as not
+                // declaring it — until a future session gives the
+                // layout tree a real viewport-height concept separate
+                // from this one, see TODO.txt. An ordinary nested `%`
+                // height — a child resolving against an *explicit*
+                // ancestor height, the common non-viewport case — works
+                // correctly regardless (see `measure`'s own docs).
+                None,
                 &mut next_id,
                 &mut self.shape_cache,
                 deadline,
@@ -4781,7 +5096,7 @@ mod tests {
                 }
             }
         }
-        if b.style.margin.top != 0.0 {
+        if b.style.margin.top.px() != 0.0 {
             return Some(b);
         }
         None
@@ -4794,7 +5109,7 @@ mod tests {
         );
         let tree = build_layout_tree(&doc);
         let div = find_deepest_nonzero_margin_top(&tree).expect("div not found");
-        assert_eq!(div.style.margin.top, 80.0, "2rem should resolve against html's 40px, giving 80px");
+        assert_eq!(div.style.margin.top.px(), 80.0, "2rem should resolve against html's 40px, giving 80px");
     }
 
     #[test]
@@ -4802,7 +5117,7 @@ mod tests {
         let doc = parse_html(r#"<html><body><div style="margin-top: 2rem">x</div></body></html>"#);
         let tree = build_layout_tree(&doc);
         let div = find_deepest_nonzero_margin_top(&tree).expect("div not found");
-        assert_eq!(div.style.margin.top, 32.0);
+        assert_eq!(div.style.margin.top.px(), 32.0);
     }
 
     // ---------- v37: `:link`/`:visited` pseudo-classes ----------
@@ -4961,7 +5276,7 @@ mod tests {
         let mut next_id = 0usize;
         let mut incomplete = false;
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        let laid = measure(&tree, &mut font_system, 0.0, 0.0, 200.0, &mut next_id, &mut cache, deadline, &mut incomplete);
+        let laid = measure(&tree, &mut font_system, 0.0, 0.0, 200.0, None, &mut next_id, &mut cache, deadline, &mut incomplete);
         let mut swash_cache = SwashCache::new();
         let win_w = 800u32;
         let win_h = 200u32;
@@ -4977,6 +5292,16 @@ mod tests {
     // ---------- v42: `width`/`height` CSS properties ----------
 
     fn measure_fixture(html: &str, available_width: f32) -> Laid {
+        measure_fixture_h(html, available_width, None)
+    }
+
+    /// Same as `measure_fixture`, but also lets a test supply a definite
+    /// containing-block height for the document root (see `measure`'s
+    /// own `containing_height` docs) — needed to exercise a `%` `height`/
+    /// `min-height`/`max-height` declared on a top-level element, which
+    /// `measure_fixture`'s plain `None` (indefinite) deliberately can't
+    /// resolve, matching a real UA only ever having one via its viewport.
+    fn measure_fixture_h(html: &str, available_width: f32, containing_height: Option<f32>) -> Laid {
         let doc = parse_html(html);
         let tree = build_layout_tree(&doc);
         let mut font_system = new_font_system();
@@ -4984,7 +5309,10 @@ mod tests {
         let mut next_id = 0usize;
         let mut incomplete = false;
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        measure(&tree, &mut font_system, 0.0, 0.0, available_width, &mut next_id, &mut cache, deadline, &mut incomplete)
+        measure(
+            &tree, &mut font_system, 0.0, 0.0, available_width, containing_height, &mut next_id, &mut cache, deadline,
+            &mut incomplete,
+        )
     }
 
     #[test]
@@ -5005,7 +5333,7 @@ mod tests {
     }
 
     fn find_laid_by_margin_top(laid: &Laid, target: f32) -> Option<&Laid> {
-        if laid.style.margin.top == target {
+        if laid.style.margin.top.px() == target {
             return Some(laid);
         }
         if let LaidContent::Blocks(children) = &laid.content {
@@ -5032,7 +5360,7 @@ mod tests {
     }
 
     fn find_by_height(laid: &Laid, target_h: f32) -> Option<&Laid> {
-        if laid.style.height == Some(target_h) {
+        if laid.style.height.map(BoxLength::px) == Some(target_h) {
             return Some(laid);
         }
         if let LaidContent::Blocks(children) = &laid.content {
@@ -5046,7 +5374,7 @@ mod tests {
     }
 
     fn find_by_width(laid: &Laid, target_w: f32) -> Option<&Laid> {
-        if laid.style.width == Some(target_w) {
+        if laid.style.width.map(BoxLength::px) == Some(target_w) {
             return Some(laid);
         }
         if let LaidContent::Blocks(children) = &laid.content {
@@ -5501,7 +5829,7 @@ mod tests {
         let mut next_id = 0usize;
         let mut incomplete = false;
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        let laid = measure(&tree, &mut font_system, 0.0, 0.0, 200.0, &mut next_id, &mut cache, deadline, &mut incomplete);
+        let laid = measure(&tree, &mut font_system, 0.0, 0.0, 200.0, None, &mut next_id, &mut cache, deadline, &mut incomplete);
         let mut swash_cache = SwashCache::new();
         let (win_w, win_h) = (100u32, 100u32);
         let mut pixels = vec![0u32; (win_w * win_h) as usize];
@@ -5604,5 +5932,150 @@ mod tests {
         let (left_x, _) = mixed_item_xy(&mixed_items(find_mixed_inline(&left_laid).unwrap())[0]);
         let (center_x, _) = mixed_item_xy(&mixed_items(find_mixed_inline(&center_laid).unwrap())[0]);
         assert!(center_x > left_x, "text-align: center should shift a mixed line's content rightward compared to default left alignment");
+    }
+
+    // ---------- v49: `%` lengths, and confirming unitless-non-zero stays rejected ----------
+
+    #[test]
+    fn percent_width_resolves_against_containing_block_width() {
+        // `body { margin: 8px }` (default.css) eats 16px total, so a
+        // 416px window gives body a 400px content width — the div's own
+        // containing block.
+        let laid = measure_fixture(r#"<html><body><div style="width: 50%;">x</div></body></html>"#, 416.0);
+        let div = find_by_width(&laid, 200.0).expect("div's width: 50% should resolve to 200px");
+        assert_eq!(div.w, 200.0);
+    }
+
+    #[test]
+    fn percent_margin_resolves_against_containing_block_width_on_every_side() {
+        // Real CSS resolves a margin percentage against the containing
+        // block's *width* on every side, even top/bottom — not against
+        // the margined box's own (much narrower, unrelated) width. The
+        // outer div pins the containing block's content width at
+        // exactly 1000px so there's an unambiguous basis to check
+        // against.
+        let laid = measure_fixture(
+            r#"<html><body><div style="width: 1000px;"><div style="width: 20px; margin-top: 10%; margin-left: 10%;">inner</div></div></body></html>"#,
+            2000.0,
+        );
+        let inner = find_by_width(&laid, 20.0).expect("inner div not found");
+        assert_eq!(
+            inner.style.margin.top.px(),
+            100.0,
+            "margin-top: 10% should resolve against the containing block's 1000px width, not inner's own 20px"
+        );
+        assert_eq!(inner.style.margin.left.px(), 100.0);
+    }
+
+    #[test]
+    fn percent_padding_top_resolves_against_containing_block_width_not_height() {
+        // Same point as the margin test above, isolated for `padding`
+        // specifically (a separate `Declarations`/cascade path) and
+        // against a box whose own *height* could plausibly be
+        // (wrongly) used as the basis instead, if padding-top's real
+        // CSS basis (width, same as every other side) weren't followed.
+        let laid = measure_fixture(
+            r#"<html><body><div style="width: 1000px;"><div style="height: 10px; padding-top: 10%;">inner</div></div></body></html>"#,
+            2000.0,
+        );
+        let inner = find_by_height(&laid, 10.0).expect("inner div not found");
+        assert_eq!(
+            inner.style.padding.top.px(),
+            100.0,
+            "padding-top: 10% must resolve against the containing block's 1000px width, not inner's own 10px height"
+        );
+    }
+
+    #[test]
+    fn percent_height_resolves_against_definite_containing_block_height() {
+        let laid = measure_fixture(
+            r#"<html><body><div style="height: 300px;"><div style="height: 50%;">inner</div></div></body></html>"#,
+            500.0,
+        );
+        let inner = find_by_height(&laid, 150.0)
+            .expect("inner div's height: 50% should resolve to 150px against its 300px containing block");
+        assert_eq!(inner.h, 150.0);
+    }
+
+    #[test]
+    fn percent_height_computes_to_auto_when_containing_block_height_is_indefinite() {
+        // Neither `html` nor `body` declares an explicit height in
+        // `default.css`, so the div's containing block height is
+        // indefinite (content-driven) here — real CSS Level 2's
+        // documented rule for exactly this case: the percentage
+        // computes to `auto`, i.e. exactly as if `height` weren't
+        // declared at all, not some value resolved against a bogus
+        // implicit basis. Checked by comparing against the identical
+        // markup with the declaration removed entirely — if `%` were
+        // wrongly resolving against something (e.g. `0`, or this box's
+        // own width), the two reported heights would differ.
+        let with_percent = measure_fixture(
+            r#"<html><body><div style="height: 50%; padding: 5px;">hello</div></body></html>"#,
+            500.0,
+        );
+        let without = measure_fixture(r#"<html><body><div style="padding: 5px;">hello</div></body></html>"#, 500.0);
+        assert_eq!(
+            with_percent.h, without.h,
+            "height: 50% against an indefinite containing block should have no effect at all, same as auto"
+        );
+    }
+
+    #[test]
+    fn unitless_nonzero_number_is_still_rejected_for_margin() {
+        // This TODO item's other half: confirming a plain `<length>`
+        // property (unlike `line-height`, which legitimately accepts a
+        // bare number) still only accepts unitless *zero*, not a
+        // general unitless number — `margin-top: 5` (no unit) must drop
+        // the whole declaration, falling back to the real initial value
+        // `0`, not be (wrongly) treated as `5px`.
+        let laid =
+            measure_fixture(r#"<html><body><div style="width: 123px; margin-top: 5;">x</div></body></html>"#, 500.0);
+        let div = find_by_width(&laid, 123.0).expect("div not found");
+        assert_eq!(div.style.margin.top.px(), 0.0, "a unitless non-zero margin-top must be dropped, not treated as 5px");
+    }
+
+    #[test]
+    fn line_height_percent_resolves_against_own_font_size() {
+        // `line-height`'s `%` form resolves against the *declaring*
+        // element's own font-size (same timing as its `em` form, and
+        // unlike its bare-`<number>` form, which stays symbolic and
+        // re-resolves per descendant — see `LineHeight`'s own docs).
+        let laid = measure_fixture(
+            r#"<html><body><div style="font-size: 20px; line-height: 150%;">x</div></body></html>"#,
+            500.0,
+        );
+        let div = find_by_laid_font_size(&laid, 20.0).expect("div with font-size: 20px not found");
+        match div.style.line_height {
+            LineHeight::Len(l) => assert_eq!(l.resolve(div.style.font_size, div.style.root_font_size), 30.0),
+            _ => panic!("line-height: 150% should parse as LineHeight::Len(Length::Percent), not Normal/Multiplier"),
+        }
+    }
+
+    fn find_by_laid_font_size(laid: &Laid, target: f32) -> Option<&Laid> {
+        if laid.style.font_size == target {
+            return Some(laid);
+        }
+        if let LaidContent::Blocks(children) = &laid.content {
+            for c in children {
+                if let Some(found) = find_by_laid_font_size(c, target) {
+                    return Some(found);
+                }
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn border_radius_percent_resolves_against_own_border_box_width() {
+        // `border-radius`'s `%` basis is this box's own border-box
+        // width (unlike `width`/`margin`/`padding`, whose basis is the
+        // *containing block's* width) — resolved directly in
+        // `paint_box_decoration` against its own `w`, not in `measure`.
+        let laid = measure_fixture(
+            r#"<html><body><div style="width: 200px; height: 50px; border-radius: 25%;">x</div></body></html>"#,
+            500.0,
+        );
+        let div = find_by_width(&laid, 200.0).expect("div not found");
+        assert_eq!(div.style.border_radius.resolve(div.w), 50.0, "border-radius: 25% of a 200px-wide box should resolve to 50px");
     }
 }

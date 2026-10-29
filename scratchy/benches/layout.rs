@@ -68,6 +68,7 @@ fn bench_measure(c: &mut Criterion) {
                 0.0,
                 0.0,
                 1024.0,
+                None,
                 &mut next_id,
                 &mut cache,
                 deadline,
