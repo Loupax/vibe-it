@@ -611,7 +611,7 @@ session can pick a coherent slice rather than one property at a time.
       v35 — all previous cluster members, now resolved.)
 
 - [x] `text-decoration-style`/`-color` (PROMPTS.md v33, remaining gaps
-      closed PENDING_COMMIT_HASH, v60): `wavy` now paints a real
+      closed cc7f49f, v60): `wavy` now paints a real
       hand-rolled sine-wave stroke (`DecorationStyle::Wavy`, a sequence of
       small rectangles tracing `sin` along the line, since cosmic-text's
       `Renderer` trait offers no curve primitive) instead of falling back
