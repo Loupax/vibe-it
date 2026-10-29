@@ -1138,21 +1138,32 @@ pub enum Visibility {
     Hidden,
 }
 
-/// Just `visible`/`hidden` — no `scroll`/`auto` (no scrollbar UI, no
-/// scroll-region interactivity, just clipping). Not inherited. `Hidden`
-/// clips all of a descendant's painting — text (`paint`'s `clip`
-/// parameter, read by `paint_buffer`/`paint_span_backgrounds`) *and*
-/// box decoration (background/border/outline/shadow, via `fill_rect`
-/// itself applying `clip`, so every caller gets it for free) — but
-/// never a box's *own* decoration against its *own* `overflow`, only a
-/// descendant's (see `paint`'s own docs on `child_clip` vs. the ambient
-/// `clip` it passes to `paint_box_decoration`), same as real CSS: an
-/// element's `overflow` clips its content, not itself.
+/// `visible`/`hidden`/`scroll`/`auto`. Not inherited. `Hidden`/`Scroll`/
+/// `Auto` all clip a descendant's painting the same way — text (`paint`'s
+/// `clip` parameter, read by `paint_buffer`/`paint_span_backgrounds`)
+/// *and* box decoration (background/border/outline/shadow, via
+/// `fill_rect` itself applying `clip`, so every caller gets it for free)
+/// — but never a box's *own* decoration against its *own* `overflow`,
+/// only a descendant's (see `paint`'s own docs on `child_clip` vs. the
+/// ambient `clip` it passes to `paint_box_decoration`), same as real
+/// CSS: an element's `overflow` clips its content, not itself.
+///
+/// `Scroll`/`Auto` (v62) additionally make this box its own
+/// independently-scrollable region — see `ScrollInfo`'s own docs for the
+/// layout-time/paint-time split this needs, same shape `position:
+/// sticky` (v55) already established for a different property. The real
+/// distinction between the two is *only* scrollbar visibility, not
+/// clipping/scrollability — both clip and scroll identically whenever
+/// content actually overflows (`ScrollInfo::max_scroll() > 0.0`);
+/// `Scroll` always paints a scrollbar indicator even when nothing
+/// overflows yet, `Auto` only when it does (see `paint_scrollbar`).
 #[derive(Clone, Copy, PartialEq, Default)]
 enum Overflow {
     #[default]
     Visible,
     Hidden,
+    Scroll,
+    Auto,
 }
 
 /// `width`/`height`/`min-width`/`min-height` all resolve against the same
@@ -2681,6 +2692,10 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
                     Some(Overflow::Visible)
                 } else if ident.eq_ignore_ascii_case("hidden") {
                     Some(Overflow::Hidden)
+                } else if ident.eq_ignore_ascii_case("scroll") {
+                    Some(Overflow::Scroll)
+                } else if ident.eq_ignore_ascii_case("auto") {
+                    Some(Overflow::Auto)
                 } else {
                     None
                 };
@@ -4743,6 +4758,17 @@ pub struct Laid {
     /// permanently into `x`/`y` by `apply_relative_offset`, since it
     /// doesn't need to react to scroll at all).
     sticky: Option<StickyInfo>,
+    /// `Some` only for an `overflow: scroll`/`auto` box (v62) — the
+    /// bounds a *live* per-element scroll offset (kept outside `Laid`
+    /// entirely — see `ScrollInfo`'s own docs) gets clamped against,
+    /// resolved once here at layout time same as `sticky` just above.
+    /// `None` for every other box, including a `scroll`/`auto` box whose
+    /// content doesn't actually overflow — it's still tracked as a
+    /// `ScrollInfo` (`max_scroll()` just comes out `0.0`), not treated
+    /// as if it weren't scrollable at all, so `Auto`'s own "only show a
+    /// scrollbar when it actually overflows" check has a real number to
+    /// compare against.
+    scroll: Option<ScrollInfo>,
 }
 
 /// `position: sticky`'s own layout-time-resolved, scroll-independent
@@ -4880,6 +4906,57 @@ fn patch_sticky_containing_block(children: &mut [Laid], cb_top: f32, cb_bottom: 
             info.cb_top = cb_top;
             info.cb_bottom = cb_bottom;
         }
+    }
+}
+
+/// `overflow: scroll`/`auto`'s own layout-time-resolved state (v62) —
+/// same split `StickyInfo` (v55) already established for a different
+/// property: resolve the *bounds* once, at layout time, from values
+/// `measure` already has lying around; never store the *live* scroll
+/// amount here at all (that would let a mouse-wheel tick invalidate
+/// `Laid`, exactly the "scrolling never touches layout" invariant this
+/// whole split exists to protect — see NOTES.md's v4/v5 writeup). The
+/// live amount instead lives in `App::scroll_offsets`, a
+/// `HashMap<usize, f32>` keyed by `id`, read fresh by `paint`/
+/// `hit_test_cursor`/`hit_test_scroll_region` every call — a box's own
+/// current scroll is just that map's value for its `id` (defaulting to
+/// `0.0` and re-clamped against `max_scroll()` at every read site,
+/// rather than trusted to already be in range — cheap, and self-healing
+/// if a relayout ever shrinks `content_h` out from under a stale,
+/// larger stored offset).
+#[derive(Clone, Copy)]
+struct ScrollInfo {
+    /// Assigned from the same shared `next_id` counter `measure`'s own
+    /// paragraph ids already use (`ShapeCache`'s key namespace) — a
+    /// different, unrelated-by-value id space, since `App::
+    /// scroll_offsets` is its own separate `HashMap`, so there's no
+    /// collision risk despite sharing a counter. Reusing it avoids
+    /// threading yet another `&mut usize` through every recursive
+    /// `measure` call just for this.
+    id: usize,
+    /// This box's own full in-flow content height — before any
+    /// `overflow` clipping, exactly the same quantity `measure`'s
+    /// `BoxContent::Blocks` arm already computes as `content_h` for its
+    /// own auto-height calculation.
+    content_h: f32,
+    /// This box's own final, clamped content-box height (`border_h`
+    /// minus the border/padding `extra_h` `measure` already subtracts)
+    /// — the visible window into `content_h`. Can be *smaller* than an
+    /// `auto`-height box's own natural content height whenever an
+    /// explicit `height`/`max-height` clamps it, which is exactly the
+    /// case that makes this box scrollable at all (real CSS `overflow:
+    /// visible` would let the extra content spill out instead — see
+    /// v42's own height-overflow note).
+    client_h: f32,
+}
+
+impl ScrollInfo {
+    /// How far this box's own live scroll offset can go before it runs
+    /// out of content to reveal — `0.0` whenever `content_h <= client_h`
+    /// (nothing actually overflows, the `Auto`-vs-`Scroll` distinction
+    /// this whole property hinges on).
+    fn max_scroll(&self) -> f32 {
+        (self.content_h - self.client_h).max(0.0)
     }
 }
 
@@ -5782,6 +5859,7 @@ pub fn measure<'a>(
                 positioned: Vec::new(),
                 fixed: false,
                 sticky: None,
+                scroll: None,
             }
         }
         BoxContent::Inline(items) => {
@@ -5848,6 +5926,7 @@ pub fn measure<'a>(
                 positioned: Vec::new(),
                 fixed: false,
                 sticky: None,
+                scroll: None,
             }
         }
         BoxContent::Blocks(children) => {
@@ -6015,6 +6094,24 @@ pub fn measure<'a>(
                 s.box_sizing,
                 extra_h,
             );
+            // `overflow: scroll`/`auto` (v62): this box becomes its own
+            // independently-scrollable region — see `ScrollInfo`'s own
+            // docs. Deliberately scoped to this ordinary `Blocks` arm
+            // only, not `measure_table`/`measure_flex`/`measure_grid`'s
+            // own, separate tails below (see TODO.txt) — the single
+            // most common real case (a plain block container whose
+            // content overflows its own box), same "narrow choke point
+            // over the general case" latitude `overflow: hidden`'s own
+            // v31/v40 scoping already used. `client_h` is this box's own
+            // just-computed `border_h` minus the same `extra_h` (border
+            // + padding) already subtracted everywhere else in this
+            // function — the content-box height `content_h` is actually
+            // visible through, before any scrolling moves it.
+            let scroll = matches!(s.overflow, Overflow::Scroll | Overflow::Auto).then(|| {
+                let id = *next_id;
+                *next_id += 1;
+                ScrollInfo { id, content_h: content_h.max(0.0), client_h: (border_h - extra_h).max(0.0) }
+            });
             // Only now — `border_h` just above is the first point this
             // box's own final size is known — can `own_pending` (this
             // box's *own* direct out-of-flow children, plus anything
@@ -6048,6 +6145,7 @@ pub fn measure<'a>(
                 positioned: positioned_children,
                 fixed: false,
                 sticky: None,
+                scroll,
             }
         }
         BoxContent::TableRow(cells) => {
@@ -6087,6 +6185,7 @@ pub fn measure<'a>(
                 positioned: Vec::new(),
                 fixed: false,
                 sticky: None,
+                scroll: None,
             }
         }
         BoxContent::Image(image) => {
@@ -6106,6 +6205,7 @@ pub fn measure<'a>(
                 positioned: Vec::new(),
                 fixed: false,
                 sticky: None,
+                scroll: None,
             }
         }
     };
@@ -6444,6 +6544,7 @@ fn measure_mixed_inline(
                         positioned: Vec::new(),
                         fixed: false,
                         sticky: None,
+                        scroll: None,
                     })));
                 }
             }
@@ -6755,6 +6856,7 @@ fn measure_row_with_widths<'a>(
         positioned: Vec::new(),
         fixed: false,
         sticky: None,
+        scroll: None,
     }
 }
 
@@ -6874,6 +6976,7 @@ fn measure_table<'a>(
         positioned: positioned_children,
         fixed: false,
         sticky: None,
+        scroll: None,
     };
     apply_relative_offset(&mut laid, &s, width, containing_height);
     capture_sticky_info(&mut laid, &s, containing_height);
@@ -7074,6 +7177,7 @@ fn measure_flex<'a>(
         positioned: positioned_children,
         fixed: false,
         sticky: None,
+        scroll: None,
     };
     apply_relative_offset(&mut laid, &s, width, containing_height);
     capture_sticky_info(&mut laid, &s, containing_height);
@@ -7681,6 +7785,7 @@ fn measure_grid<'a>(
         positioned: positioned_children,
         fixed: false,
         sticky: None,
+        scroll: None,
     };
     apply_relative_offset(&mut laid, &s, width, containing_height);
     capture_sticky_info(&mut laid, &s, containing_height);
@@ -8462,6 +8567,58 @@ fn tile_image(image: &DecodedImage, pixels: &mut [u32], win_w: u32, win_h: u32, 
     }
 }
 
+/// `overflow: scroll`/`auto`'s own minimal scrollbar indicator (v62) —
+/// a flat, simple painting primitive in the same spirit as this file's
+/// other decorations (box-shadow/border): a translucent track plus a
+/// translucent thumb, both hard-edged `fill_rect`s, no rounded ends, no
+/// hover states. Deliberately an *overlay*, not a reserved-space
+/// classic scrollbar — painted inside this box's own border box without
+/// narrowing `content_w` for it at layout time at all (same "scrolling
+/// never touches layout" reasoning `ScrollInfo`'s own docs already
+/// give, extended to this box's own width too — an overlay-scrollbar OS
+/// convention this matches, not just a shortcut). `Scroll` always
+/// paints the track+thumb, even with nothing to scroll yet (thumb fills
+/// the whole track); `Auto` only paints anything once `max_scroll() >
+/// 0.0` — the one real, documented difference between the two keywords
+/// (see `Overflow`'s own docs). Clipped by the *ambient* `clip`, not
+/// `child_clip` — this is this box's own chrome, not descendant
+/// content, same treatment `paint_box_decoration` already gets.
+/// **Interactive drag-to-scroll on the thumb itself is explicitly out
+/// of scope** (see TODO.txt) — wheel-scroll is this feature's own
+/// interactive core; dragging the indicator is a documented cut.
+#[allow(clippy::too_many_arguments)]
+fn paint_scrollbar(
+    info: &ScrollInfo,
+    own_scroll: f32,
+    show_when_not_overflowing: bool,
+    pixels: &mut [u32],
+    win_w: u32,
+    win_h: u32,
+    box_x: f32,
+    draw_y: f32,
+    box_w: f32,
+    box_h: f32,
+    clip: Option<(f32, f32, f32, f32)>,
+) {
+    let max_scroll = info.max_scroll();
+    if max_scroll <= 0.0 && !show_when_not_overflowing {
+        return;
+    }
+    const TRACK_W: f32 = 8.0;
+    const MIN_THUMB_H: f32 = 16.0;
+    if box_w < TRACK_W || box_h <= 0.0 {
+        return;
+    }
+    let track_x = box_x + box_w - TRACK_W;
+    let track_y = draw_y;
+    let track_h = box_h;
+    let ratio = if info.content_h > 0.0 { (info.client_h / info.content_h).clamp(0.0, 1.0) } else { 1.0 };
+    let thumb_h = (track_h * ratio).clamp(MIN_THUMB_H.min(track_h), track_h);
+    let thumb_y = if max_scroll > 0.0 { track_y + (own_scroll / max_scroll) * (track_h - thumb_h) } else { track_y };
+    fill_rect(pixels, win_w, win_h, track_x, track_y, TRACK_W, track_h, TextColor::rgba(0, 0, 0, 28), clip);
+    fill_rect(pixels, win_w, win_h, track_x, thumb_y, TRACK_W, thumb_h, TextColor::rgba(0, 0, 0, 120), clip);
+}
+
 /// Real CSS2 §9.9.1: `position: relative`/`sticky` establishes its own
 /// descendant stacking context only when it also has an *explicit*
 /// `z-index` (`z-index: auto` — by far the common case — does not; such
@@ -8504,6 +8661,15 @@ fn paint_z_layer(
     font_system: &mut FontSystem,
     swash_cache: &mut SwashCache,
     cache: &mut ShapeCache,
+    // `v62`: passed straight through to every recursive `paint` call
+    // below unmodified — a positioned/explicit-stacking entry is NOT
+    // itself shifted by this box's own `overflow: scroll`/`auto` (see
+    // TODO.txt: a documented, narrower cut from the general case, same
+    // shape as several other out-of-flow-content limitations already
+    // accepted elsewhere in this file) — but each entry may still
+    // independently be (or contain) its own scrollable region, which is
+    // why this still needs forwarding rather than dropping entirely.
+    scroll_offsets: &HashMap<usize, f32>,
     pixels: &mut [u32],
     win_w: u32,
     win_h: u32,
@@ -8524,20 +8690,30 @@ fn paint_z_layer(
                 Some(info) => scroll_offset - sticky_shift(info, item.h, scroll_offset, win_h as f32),
                 None => scroll_offset,
             };
-            paint(item, font_system, swash_cache, cache, pixels, win_w, win_h, child_scroll, clip);
+            paint(item, font_system, swash_cache, cache, scroll_offsets, pixels, win_w, win_h, child_scroll, clip);
         } else {
             // An out-of-flow `positioned` entry — same `fixed` handling
             // `paint`'s own old positioned-list loop always used.
-            paint(item, font_system, swash_cache, cache, pixels, win_w, win_h, if item.fixed { 0.0 } else { scroll_offset }, clip);
+            paint(
+                item, font_system, swash_cache, cache, scroll_offsets, pixels, win_w, win_h,
+                if item.fixed { 0.0 } else { scroll_offset }, clip,
+            );
         }
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn paint(
     laid: &Laid,
     font_system: &mut FontSystem,
     swash_cache: &mut SwashCache,
     cache: &mut ShapeCache,
+    // `overflow: scroll`/`auto`'s own *live* per-element scroll amounts
+    // (v62), keyed by `ScrollInfo::id` — see that type's own docs for
+    // why this lives outside `Laid` entirely. Read fresh here (via
+    // `own_scroll`, just below), never written — `App`'s own event
+    // handling is the only thing that ever updates it.
+    scroll_offsets: &HashMap<usize, f32>,
     pixels: &mut [u32],
     win_w: u32,
     win_h: u32,
@@ -8579,12 +8755,37 @@ fn paint(
     // moving it ahead of the negative-z-index layer, which now needs to
     // paint *before* this box's own background, doesn't change what it
     // computes).
-    let child_clip = if s.overflow == Overflow::Hidden {
+    let child_clip = if matches!(s.overflow, Overflow::Hidden | Overflow::Scroll | Overflow::Auto) {
         let (cx, cy, cw, ch) = intersect_clip(laid.x, draw_y, laid.w, laid.h, clip);
         Some((cx, cy, cw, ch))
     } else {
         clip
     };
+
+    // `overflow: scroll`/`auto`'s own live scroll amount (v62), looked
+    // up fresh every call and re-clamped against `max_scroll()` at the
+    // read site (self-healing if a relayout ever shrinks `content_h`
+    // out from under a stale, larger stored offset, rather than
+    // trusting the stored value is already in range). `0.0` for every
+    // other box, including a `scroll`/`auto` box with nothing stored
+    // for its id yet (the common "never scrolled" starting state).
+    let own_scroll = laid
+        .scroll
+        .map_or(0.0, |info| scroll_offsets.get(&info.id).copied().unwrap_or(0.0).clamp(0.0, info.max_scroll()));
+    // Only this box's own *descendants* see the extra shift — this
+    // box's own painted position (`draw_y` above) deliberately still
+    // uses the un-adjusted `scroll_offset`, since scrolling a box moves
+    // its *content*, never the box itself (unlike `sticky`/`fixed`,
+    // which shift the whole subtree including the box). Composes
+    // naturally with nested scrolling and with a nested `position:
+    // sticky`'s own `sticky_shift` basis (both read whatever ambient
+    // `scroll_offset` is lexically in scope at their own recursion
+    // depth) the same way `fixed` forcing it to `0.0` already composes
+    // — no special-casing needed for either. **Deliberately not
+    // threaded into the `paint_z_layer` calls below** (layers 2/6+7 —
+    // this box's own out-of-flow/explicitly-stacked descendants): see
+    // TODO.txt, a documented, narrower cut.
+    let content_scroll_offset = scroll_offset + own_scroll;
 
     // Real CSS2.1 Appendix E stacking order, split at the zero boundary.
     // **Layer 2 (negative stack levels) paints *above* this box's own
@@ -8640,8 +8841,8 @@ fn paint(
     // final layer (each entry's own recursive `paint` call checks *its
     // own* `style.visibility`).
     paint_z_layer(
-        neg_positioned, &neg_stacking_children, font_system, swash_cache, cache, pixels, win_w, win_h, scroll_offset,
-        child_clip,
+        neg_positioned, &neg_stacking_children, font_system, swash_cache, cache, scroll_offsets, pixels, win_w,
+        win_h, scroll_offset, child_clip,
     );
 
     match &laid.content {
@@ -8669,10 +8870,15 @@ fn paint(
                 // the adjusted value and shifts correctly with no extra
                 // per-node check needed anywhere inside it.
                 let child_scroll = match &child.sticky {
-                    Some(info) => scroll_offset - sticky_shift(info, child.h, scroll_offset, win_h as f32),
-                    None => scroll_offset,
+                    Some(info) => {
+                        content_scroll_offset - sticky_shift(info, child.h, content_scroll_offset, win_h as f32)
+                    }
+                    None => content_scroll_offset,
                 };
-                paint(child, font_system, swash_cache, cache, pixels, win_w, win_h, child_scroll, child_clip);
+                paint(
+                    child, font_system, swash_cache, cache, scroll_offsets, pixels, win_w, win_h, child_scroll,
+                    child_clip,
+                );
             }
         }
         LaidContent::Text(id) => {
@@ -8703,7 +8909,10 @@ fn paint(
                     // so it gets box-decoration/clipping/culling for
                     // free (see `MixedPositioned`'s own docs).
                     MixedPositioned::Image(img_laid) => {
-                        paint(img_laid, font_system, swash_cache, cache, pixels, win_w, win_h, scroll_offset, child_clip);
+                        paint(
+                            img_laid, font_system, swash_cache, cache, scroll_offsets, pixels, win_w, win_h,
+                            scroll_offset, child_clip,
+                        );
                     }
                     MixedPositioned::Word { id, x, y, .. } => {
                         if let Some((buffer, _, backgrounds, valigns, hidden, _, decoration_styles)) = cache.get_mut(id) {
@@ -8716,6 +8925,21 @@ fn paint(
                 }
             }
         }
+    }
+
+    // `overflow: scroll`/`auto`'s own minimal scrollbar indicator
+    // (v62) — this box's own chrome, painted in screen space (`draw_y`,
+    // never shifted by `own_scroll` — the indicator itself doesn't
+    // scroll, only the content behind it does) and clipped by the
+    // *ambient* `clip`, not `child_clip`, same treatment the background/
+    // border decoration above gets. `Scroll` always shows it; `Auto`
+    // only once content actually overflows (see `paint_scrollbar`'s own
+    // docs for the real difference between the two keywords).
+    if let Some(info) = &laid.scroll {
+        paint_scrollbar(
+            info, own_scroll, s.overflow == Overflow::Scroll, pixels, win_w, win_h, laid.x, draw_y, laid.w, laid.h,
+            clip,
+        );
     }
 
     // Layers 6+7: this box's own out-of-flow `position: absolute`/
@@ -8734,8 +8958,8 @@ fn paint(
     // positioned descendant whenever that ancestor is at or inside its
     // containing block, which is always true here by construction).
     paint_z_layer(
-        nonneg_positioned, &nonneg_stacking_children, font_system, swash_cache, cache, pixels, win_w, win_h,
-        scroll_offset, child_clip,
+        nonneg_positioned, &nonneg_stacking_children, font_system, swash_cache, cache, scroll_offsets, pixels, win_w,
+        win_h, scroll_offset, child_clip,
     );
 }
 
@@ -8760,8 +8984,21 @@ fn paint(
 /// and to compute a `position: sticky` child's own live, current
 /// position (`sticky_shift` — see the `Blocks`/`TableRow` arm below).
 /// `viewport_h` is only needed for *that*: `sticky_shift`'s own
-/// `bottom`-offset math.
-fn hit_test_cursor(laid: &Laid, x: f32, y: f32, cache: &ShapeCache, scroll_offset: f32, viewport_h: f32) -> CursorStyle {
+/// `bottom`-offset math. `scroll_offsets` (v62) is the live per-element
+/// `overflow: scroll`/`auto` state — see `ScrollInfo`'s own docs —
+/// consulted only in the ordinary `Blocks`/`TableRow` loop below (the
+/// "above" stacking/positioned-descendant loop deliberately isn't, same
+/// documented cut `paint`'s own `paint_z_layer` calls just took).
+#[allow(clippy::too_many_arguments)]
+fn hit_test_cursor(
+    laid: &Laid,
+    x: f32,
+    y: f32,
+    cache: &ShapeCache,
+    scroll_offsets: &HashMap<usize, f32>,
+    scroll_offset: f32,
+    viewport_h: f32,
+) -> CursorStyle {
     if x < laid.x || x >= laid.x + laid.w || y < laid.y || y >= laid.y + laid.h {
         return CursorStyle::Auto;
     }
@@ -8802,17 +9039,28 @@ fn hit_test_cursor(laid: &Laid, x: f32, y: f32, cache: &ShapeCache, scroll_offse
             let dy = item.sticky.as_ref().map_or(0.0, |info| sticky_shift(info, item.h, scroll_offset, viewport_h));
             let (ix, iy) = (item.x, item.y + dy);
             if ix <= x && x < ix + item.w && iy <= y && y < iy + item.h {
-                return hit_test_cursor(item, x, y - dy, cache, scroll_offset, viewport_h);
+                return hit_test_cursor(item, x, y - dy, cache, scroll_offsets, scroll_offset, viewport_h);
             }
         } else {
             let (ix, iy, inner_scroll) = if item.fixed { (x, y - scroll_offset, 0.0) } else { (x, y, scroll_offset) };
             if ix >= item.x && ix < item.x + item.w && iy >= item.y && iy < item.y + item.h {
-                return hit_test_cursor(item, ix, iy, cache, inner_scroll, viewport_h);
+                return hit_test_cursor(item, ix, iy, cache, scroll_offsets, inner_scroll, viewport_h);
             }
         }
     }
     match &laid.content {
         LaidContent::Blocks(children) | LaidContent::TableRow(children) => {
+            // `overflow: scroll`/`auto` (v62): this box's own live
+            // scroll amount shifts every *ordinary* descendant's own
+            // effective position the same way `paint`'s own
+            // `content_scroll_offset` does — see that computation's own
+            // docs for the full derivation. Composes with a nested
+            // sticky/scrollable descendant for free, same mechanism.
+            let own_scroll = laid.scroll.map_or(0.0, |info| {
+                scroll_offsets.get(&info.id).copied().unwrap_or(0.0).clamp(0.0, info.max_scroll())
+            });
+            let y = y + own_scroll;
+            let scroll_offset = scroll_offset + own_scroll;
             for child in children.iter().filter(|c| !is_explicit_stacking_child(c)) {
                 // Mirror image of `paint`'s own trick: a sticky child's
                 // own *document-space* rect, for hit-testing purposes, is
@@ -8825,12 +9073,12 @@ fn hit_test_cursor(laid: &Laid, x: f32, y: f32, cache: &ShapeCache, scroll_offse
                     let dy = sticky_shift(info, child.h, scroll_offset, viewport_h);
                     let (cx, cy) = (child.x, child.y + dy);
                     if cx <= x && x < cx + child.w && cy <= y && y < cy + child.h {
-                        return hit_test_cursor(child, x, y - dy, cache, scroll_offset, viewport_h);
+                        return hit_test_cursor(child, x, y - dy, cache, scroll_offsets, scroll_offset, viewport_h);
                     }
                     continue;
                 }
                 if child.x <= x && x < child.x + child.w && child.y <= y && y < child.y + child.h {
-                    return hit_test_cursor(child, x, y, cache, scroll_offset, viewport_h);
+                    return hit_test_cursor(child, x, y, cache, scroll_offsets, scroll_offset, viewport_h);
                 }
             }
             laid.style.cursor
@@ -8863,7 +9111,7 @@ fn hit_test_cursor(laid: &Laid, x: f32, y: f32, cache: &ShapeCache, scroll_offse
                 match item {
                     MixedPositioned::Image(img_laid) => {
                         if img_laid.x <= x && x < img_laid.x + img_laid.w && img_laid.y <= y && y < img_laid.y + img_laid.h {
-                            return hit_test_cursor(img_laid, x, y, cache, scroll_offset, viewport_h);
+                            return hit_test_cursor(img_laid, x, y, cache, scroll_offsets, scroll_offset, viewport_h);
                         }
                     }
                     MixedPositioned::Word { id, x: wx, y: wy, w, h } => {
@@ -8890,6 +9138,79 @@ fn hit_test_cursor(laid: &Laid, x: f32, y: f32, cache: &ShapeCache, scroll_offse
             laid.style.cursor
         }
     }
+}
+
+/// Finds the deepest `overflow: scroll`/`auto` box whose own border box
+/// contains document-space point `(x, y)` — what `WindowEvent::
+/// MouseWheel` (v62) needs to route a wheel tick to the right scroll
+/// region instead of always the page's own top-level scroll. Same
+/// coordinate conventions as `hit_test_cursor` (`y` already has the
+/// live ambient scroll added in, same as the `CursorMoved` handler
+/// already does for that function).
+///
+/// Deliberately narrower than `hit_test_cursor`'s own walk: only
+/// ordinary `Blocks`/`TableRow` children are descended into (including
+/// the same `position: sticky` translation `hit_test_cursor` needs,
+/// since a sticky child with no explicit `z-index` still appears in
+/// that ordinary list) — a `position: relative`/`sticky` child that
+/// *does* establish its own explicit stacking context, or any
+/// `position: absolute`/`fixed` descendant, is not walked into at all
+/// (see TODO.txt: such content inside a scroll region doesn't actually
+/// scroll with it either, the same documented cut `paint`'s own
+/// `paint_z_layer` calls took, so there's nothing additional to find by
+/// walking into it here).
+///
+/// Bubbles the innermost match up via `Option::or` — if a deeper call
+/// finds no scrollable box at all, falls back to whichever scrollable
+/// *ancestor* (if any) contains the point, exactly real "wheel bubbles
+/// to the nearest scrollable ancestor" behavior; `None` all the way up
+/// means "nothing scrollable under the cursor at all," the caller's own
+/// cue to fall back to the page's own top-level scroll.
+fn hit_test_scroll_region(
+    laid: &Laid,
+    x: f32,
+    y: f32,
+    scroll_offsets: &HashMap<usize, f32>,
+    scroll_offset: f32,
+    viewport_h: f32,
+) -> Option<ScrollInfo> {
+    if x < laid.x || x >= laid.x + laid.w || y < laid.y || y >= laid.y + laid.h {
+        return None;
+    }
+    let self_info = laid.scroll;
+    let (LaidContent::Blocks(children) | LaidContent::TableRow(children)) = &laid.content else {
+        return self_info;
+    };
+    // Same `own_scroll` shift `hit_test_cursor`'s own `Blocks`/
+    // `TableRow` arm applies, for the same reason — see that
+    // computation's own docs.
+    let own_scroll =
+        self_info.map_or(0.0, |info| scroll_offsets.get(&info.id).copied().unwrap_or(0.0).clamp(0.0, info.max_scroll()));
+    let child_y = y + own_scroll;
+    let child_scroll_offset = scroll_offset + own_scroll;
+    for child in children.iter().filter(|c| !is_explicit_stacking_child(c)) {
+        if matches!(child.style.position, Position::Absolute | Position::Fixed) {
+            // Never actually appears here (see `measure`'s own `Blocks`
+            // arm — diverted to `own_pending`/`positioned` instead),
+            // defensive only.
+            continue;
+        }
+        if let Some(info) = &child.sticky {
+            let dy = sticky_shift(info, child.h, child_scroll_offset, viewport_h);
+            let (cx, cy) = (child.x, child.y + dy);
+            if cx <= x && x < cx + child.w && cy <= child_y && child_y < cy + child.h {
+                let sub =
+                    hit_test_scroll_region(child, x, child_y - dy, scroll_offsets, child_scroll_offset, viewport_h);
+                return sub.or(self_info);
+            }
+            continue;
+        }
+        if child.x <= x && x < child.x + child.w && child.y <= child_y && child_y < child.y + child.h {
+            let sub = hit_test_scroll_region(child, x, child_y, scroll_offsets, child_scroll_offset, viewport_h);
+            return sub.or(self_info);
+        }
+    }
+    self_info
 }
 
 // ---------- windowing ----------
@@ -8951,6 +9272,25 @@ struct App {
     /// the one `CursorStyle` with no `CursorIcon` of its own — see
     /// `CursorStyle::to_winit`'s own docs).
     last_cursor: Option<CursorIcon>,
+    /// `overflow: scroll`/`auto`'s own live per-element scroll amounts
+    /// (v62), keyed by `ScrollInfo::id` — the one piece of this
+    /// feature's state that genuinely persists across frames and is
+    /// deliberately *not* part of `Laid` (see `ScrollInfo`'s own docs).
+    /// Cleared alongside `shape_cache` whenever the layout tree is
+    /// rebuilt (`redraw`'s own `need_rebuild` branch) — stale ids from a
+    /// since-replaced tree are harmless either way (just unused map
+    /// entries), but clearing keeps this from growing unboundedly across
+    /// many stdin chunks in streaming mode.
+    scroll_offsets: HashMap<usize, f32>,
+    /// The last `CursorMoved` position, window/screen space — `winit`'s
+    /// own `MouseWheel` event carries no position at all, so routing a
+    /// wheel tick to the right scroll region (`hit_test_scroll_region`)
+    /// needs this remembered from whatever `CursorMoved` last reported.
+    /// `None` until the first `CursorMoved` ever arrives (e.g. a wheel
+    /// tick before the mouse has moved over the window at all) — falls
+    /// back to the page's own top-level scroll in that case, same as
+    /// "cursor not over any scroll region."
+    last_mouse_pos: Option<(f32, f32)>,
 }
 
 impl App {
@@ -8972,6 +9312,8 @@ impl App {
             surface_size: (0, 0),
             pending_width: None,
             last_cursor: Some(CursorIcon::Default),
+            scroll_offsets: HashMap::new(),
+            last_mouse_pos: None,
         }
     }
 
@@ -8995,6 +9337,8 @@ impl App {
             surface_size: (0, 0),
             pending_width: None,
             last_cursor: Some(CursorIcon::Default),
+            scroll_offsets: HashMap::new(),
+            last_mouse_pos: None,
         }
     }
 
@@ -9028,6 +9372,13 @@ impl App {
         if need_rebuild && width_matches_pending {
             self.tree = Some(build_layout_tree(&self.document));
             self.shape_cache.clear();
+            // New ids are assigned from the same shared counter a fresh
+            // `measure_document` pass restarts at `0` just below (see
+            // `ScrollInfo`'s own docs) — stale entries keyed by an old
+            // tree's ids would just be harmless dead weight otherwise,
+            // but clearing keeps this from growing unboundedly across
+            // many stdin chunks in streaming mode.
+            self.scroll_offsets.clear();
             self.cached_width = width;
             self.layout_dirty = false;
             self.layout_incomplete = true;
@@ -9095,6 +9446,7 @@ impl App {
                 &mut self.font_system,
                 &mut self.swash_cache,
                 &mut self.shape_cache,
+                &self.scroll_offsets,
                 &mut pixels,
                 width,
                 height,
@@ -9161,6 +9513,11 @@ impl ApplicationHandler<AppEvent> for App {
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
+                // Remembered in window/screen space, same form this event
+                // itself reports — `MouseWheel` (just below) needs it to
+                // pick the right scroll region, since that event carries
+                // no position of its own at all.
+                self.last_mouse_pos = Some((position.x as f32, position.y as f32));
                 // `position` is window/screen space; `Laid.x`/`.y` are
                 // document space (scroll isn't applied until paint time),
                 // so the same `+ scroll_offset` adjustment `paint` itself
@@ -9169,7 +9526,8 @@ impl ApplicationHandler<AppEvent> for App {
                     let doc_x = position.x as f32;
                     let doc_y = position.y as f32 + self.scroll_offset;
                     let icon = hit_test_cursor(
-                        laid, doc_x, doc_y, &self.shape_cache, self.scroll_offset, self.surface_size.1 as f32,
+                        laid, doc_x, doc_y, &self.shape_cache, &self.scroll_offsets, self.scroll_offset,
+                        self.surface_size.1 as f32,
                     )
                     .to_winit();
                     if icon != self.last_cursor {
@@ -9195,9 +9553,30 @@ impl ApplicationHandler<AppEvent> for App {
                     MouseScrollDelta::LineDelta(_, y) => y * 40.0,
                     MouseScrollDelta::PixelDelta(pos) => pos.y as f32,
                 };
-                self.scroll_offset -= dy;
-                if self.scroll_offset < 0.0 {
-                    self.scroll_offset = 0.0;
+                // Routes to the deepest `overflow: scroll`/`auto` region
+                // under the last known mouse position, if any — falls
+                // through to the page's own top-level scroll (the
+                // pre-v62 behavior, unchanged) whenever the cursor isn't
+                // over one, or hasn't moved over the window at all yet.
+                let region = self.last_mouse_pos.zip(self.cached.as_ref()).and_then(|((mx, my), laid)| {
+                    let doc_x = mx;
+                    let doc_y = my + self.scroll_offset;
+                    hit_test_scroll_region(
+                        laid, doc_x, doc_y, &self.scroll_offsets, self.scroll_offset, self.surface_size.1 as f32,
+                    )
+                });
+                match region {
+                    Some(info) => {
+                        let current = self.scroll_offsets.get(&info.id).copied().unwrap_or(0.0);
+                        let next = (current - dy).clamp(0.0, info.max_scroll());
+                        self.scroll_offsets.insert(info.id, next);
+                    }
+                    None => {
+                        self.scroll_offset -= dy;
+                        if self.scroll_offset < 0.0 {
+                            self.scroll_offset = 0.0;
+                        }
+                    }
                 }
                 if let Some(window) = &self.window {
                     window.request_redraw();
@@ -9466,7 +9845,7 @@ mod tests {
         let win_w = 800u32;
         let win_h = 200u32;
         let mut pixels = vec![0u32; (win_w * win_h) as usize];
-        paint(&laid, &mut font_system, &mut swash_cache, &mut cache, &mut pixels, win_w, win_h, 0.0, None);
+        paint(&laid, &mut font_system, &mut swash_cache, &mut cache, &HashMap::new(), &mut pixels, win_w, win_h, 0.0, None);
 
         let has_red = pixels.iter().any(|&p| (p & 0x00FF0000) >> 16 == 0xFF && (p & 0xFF) == 0x00 && ((p >> 8) & 0xFF) == 0x00);
         assert!(!has_red, "inner div's red background should be fully clipped by ancestor overflow:hidden");
@@ -10021,7 +10400,7 @@ mod tests {
         let mut swash_cache = SwashCache::new();
         let (win_w, win_h) = (100u32, 100u32);
         let mut pixels = vec![0u32; (win_w * win_h) as usize];
-        paint(&laid, &mut font_system, &mut swash_cache, &mut cache, &mut pixels, win_w, win_h, 0.0, None);
+        paint(&laid, &mut font_system, &mut swash_cache, &mut cache, &HashMap::new(), &mut pixels, win_w, win_h, 0.0, None);
 
         // `body { margin: 8px }` (default.css) offsets everything by 8px —
         // border-box spans roughly x/y 8..56 (4px border + 40px content +
@@ -10721,7 +11100,7 @@ mod tests {
         let mut swash_cache = SwashCache::new();
         let (win_w, win_h) = (200u32, 200u32);
         let mut pixels = vec![0u32; (win_w * win_h) as usize];
-        paint(&laid, &mut font_system, &mut swash_cache, &mut cache, &mut pixels, win_w, win_h, 0.0, None);
+        paint(&laid, &mut font_system, &mut swash_cache, &mut cache, &HashMap::new(), &mut pixels, win_w, win_h, 0.0, None);
         let px = pixels[20 * win_w as usize + 20];
         assert_eq!(
             px & 0x00FF_FFFF,
@@ -10860,7 +11239,7 @@ mod tests {
         let mut swash_cache = SwashCache::new();
         let (win_w, win_h) = (400u32, 400u32);
         let mut pixels = vec![0u32; (win_w * win_h) as usize];
-        paint(&laid, &mut font_system, &mut swash_cache, &mut cache, &mut pixels, win_w, win_h, 0.0, None);
+        paint(&laid, &mut font_system, &mut swash_cache, &mut cache, &HashMap::new(), &mut pixels, win_w, win_h, 0.0, None);
         // `body { margin: 8px }` (default.css) offsets everything by
         // 8px — (50, 50) is well inside both the float's 150x150 area
         // and the green sibling's full-width/100px-tall area, which
@@ -11016,7 +11395,7 @@ mod tests {
         let mut cache = ShapeCache::new();
         let (win_w, win_h) = (400u32, (static_top + box_h + 50.0) as u32);
         let mut pixels = vec![0u32; (win_w * win_h) as usize];
-        paint(&laid, &mut font_system, &mut swash_cache, &mut cache, &mut pixels, win_w, win_h, 0.0, None);
+        paint(&laid, &mut font_system, &mut swash_cache, &mut cache, &HashMap::new(), &mut pixels, win_w, win_h, 0.0, None);
         let probe_y = (static_top + box_h / 2.0) as usize;
         let px = pixels[probe_y * win_w as usize + 10];
         assert_eq!(
@@ -11049,7 +11428,7 @@ mod tests {
         let mut cache = ShapeCache::new();
         let (win_w, win_h) = (400u32, 100u32);
         let mut pixels = vec![0u32; (win_w * win_h) as usize];
-        paint(&laid, &mut font_system, &mut swash_cache, &mut cache, &mut pixels, win_w, win_h, scroll_offset, None);
+        paint(&laid, &mut font_system, &mut swash_cache, &mut cache, &HashMap::new(), &mut pixels, win_w, win_h, scroll_offset, None);
         // Screen-space row = document y (`scroll_offset + 10`) minus
         // `scroll_offset` = exactly `10` — the box should now sit flush
         // `top`'s own 10px from the window's own top edge, nowhere near
@@ -11116,10 +11495,10 @@ mod tests {
         let mut cache = ShapeCache::new();
         let (win_w, win_h) = (400u32, 300u32);
         let mut pixels_a = vec![0u32; (win_w * win_h) as usize];
-        paint(&laid, &mut font_system, &mut swash_cache, &mut cache, &mut pixels_a, win_w, win_h, 0.0, None);
+        paint(&laid, &mut font_system, &mut swash_cache, &mut cache, &HashMap::new(), &mut pixels_a, win_w, win_h, 0.0, None);
         let mut pixels_b = vec![0u32; (win_w * win_h) as usize];
         paint(
-            &laid, &mut font_system, &mut swash_cache, &mut cache, &mut pixels_b, win_w, win_h, static_top + 200.0,
+            &laid, &mut font_system, &mut swash_cache, &mut cache, &HashMap::new(), &mut pixels_b, win_w, win_h, static_top + 200.0,
             None,
         );
 
@@ -11168,7 +11547,7 @@ mod tests {
         let mut swash_cache = SwashCache::new();
         let (win_w, win_h) = (200u32, 200u32);
         let mut pixels = vec![0u32; (win_w * win_h) as usize];
-        paint(&laid, &mut font_system, &mut swash_cache, &mut cache, &mut pixels, win_w, win_h, 0.0, None);
+        paint(&laid, &mut font_system, &mut swash_cache, &mut cache, &HashMap::new(), &mut pixels, win_w, win_h, 0.0, None);
         (pixels, win_w, win_h)
     }
 
@@ -12149,7 +12528,317 @@ mod tests {
         );
         let (gx, gy) = find_glyph_center(&laid, &cache, CursorStyle::Grab).expect("no grab-styled glyph found");
         let (ax, ay) = find_glyph_center(&laid, &cache, CursorStyle::Auto).expect("no plain-text glyph found");
-        assert_eq!(hit_test_cursor(&laid, gx, gy, &cache, 0.0, 600.0), CursorStyle::Grab, "a glyph inside the styled span should report Grab");
-        assert_eq!(hit_test_cursor(&laid, ax, ay, &cache, 0.0, 600.0), CursorStyle::Auto, "an adjacent plain-text glyph should still report Auto");
+        let scroll_offsets = HashMap::new();
+        assert_eq!(
+            hit_test_cursor(&laid, gx, gy, &cache, &scroll_offsets, 0.0, 600.0),
+            CursorStyle::Grab,
+            "a glyph inside the styled span should report Grab"
+        );
+        assert_eq!(
+            hit_test_cursor(&laid, ax, ay, &cache, &scroll_offsets, 0.0, 600.0),
+            CursorStyle::Auto,
+            "an adjacent plain-text glyph should still report Auto"
+        );
+    }
+
+    // ---------- v62: `overflow: scroll`/`auto` ----------
+
+    /// Depth-first search for the first box with its own `ScrollInfo`
+    /// (an `overflow: scroll`/`auto` box) — the scroll analogue of
+    /// `find_laid_by_position`, just above.
+    fn find_laid_with_scroll(laid: &Laid) -> Option<&Laid> {
+        if laid.scroll.is_some() {
+            return Some(laid);
+        }
+        if let LaidContent::Blocks(children) | LaidContent::TableRow(children) = &laid.content {
+            for c in children {
+                if let Some(found) = find_laid_with_scroll(c) {
+                    return Some(found);
+                }
+            }
+        }
+        None
+    }
+
+    /// Finds a box by its own exact laid-out height — used instead of
+    /// `find_laid_by_margin_top` wherever a fixture's boxes all happen to
+    /// share the real CSS initial margin (`0`, e.g. every plain `<div>`
+    /// here), which would make that finder match the very first box in
+    /// the whole tree (even the synthetic document-root wrapper) instead
+    /// of the one a test actually means.
+    fn find_laid_by_height(laid: &Laid, target: f32) -> Option<&Laid> {
+        if laid.h == target {
+            return Some(laid);
+        }
+        if let LaidContent::Blocks(children) | LaidContent::TableRow(children) = &laid.content {
+            for c in children {
+                if let Some(found) = find_laid_by_height(c, target) {
+                    return Some(found);
+                }
+            }
+        }
+        None
+    }
+
+    /// Same as `find_laid_with_scroll`, but collects every match instead
+    /// of stopping at the first — needed by tests with more than one
+    /// scrollable region on the same page (e.g. the wheel-routing test),
+    /// to tell them apart by their own distinct `x`/`y`/`id`.
+    fn find_all_laid_with_scroll<'a>(laid: &'a Laid, out: &mut Vec<&'a Laid>) {
+        if laid.scroll.is_some() {
+            out.push(laid);
+        }
+        if let LaidContent::Blocks(children) | LaidContent::TableRow(children) = &laid.content {
+            for c in children {
+                find_all_laid_with_scroll(c, out);
+            }
+        }
+    }
+
+    #[test]
+    fn overflow_scroll_assigns_a_scroll_id_and_computes_content_vs_client_height() {
+        let laid = measure_fixture(
+            r#"<html><body><div style="overflow: scroll; height: 50px;">
+                <p style="margin: 0;">one</p>
+                <p style="margin: 0;">two</p>
+                <p style="margin: 0;">three</p>
+                <p style="margin: 0;">four</p>
+            </div></body></html>"#,
+            400.0,
+        );
+        let scroll_box = find_laid_with_scroll(&laid).expect("overflow: scroll box should get its own ScrollInfo");
+        let info = scroll_box.scroll.expect("already found via find_laid_with_scroll");
+        assert_eq!(info.client_h, 50.0, "client_h should be this box's own clamped content-box height");
+        assert!(
+            info.content_h > info.client_h,
+            "four 20px-tall paragraphs (80px) should overflow a 50px client height: content_h={}, client_h={}",
+            info.content_h,
+            info.client_h
+        );
+        assert_eq!(
+            info.max_scroll(),
+            info.content_h - info.client_h,
+            "max_scroll should be exactly the overflowing amount"
+        );
+    }
+
+    #[test]
+    fn overflow_auto_only_scrollable_when_content_actually_overflows() {
+        let fits = measure_fixture(
+            r#"<html><body><div style="overflow: auto; height: 200px;"><p style="margin: 0;">one short line</p></div></body></html>"#,
+            400.0,
+        );
+        let fits_box = find_laid_with_scroll(&fits).expect("overflow: auto box should still get a ScrollInfo");
+        assert_eq!(
+            fits_box.scroll.unwrap().max_scroll(),
+            0.0,
+            "content shorter than the box's own height shouldn't be scrollable at all"
+        );
+
+        let overflows = measure_fixture(
+            r#"<html><body><div style="overflow: auto; height: 20px;">
+                <p style="margin: 0;">one</p>
+                <p style="margin: 0;">two</p>
+                <p style="margin: 0;">three</p>
+            </div></body></html>"#,
+            400.0,
+        );
+        let overflow_box = find_laid_with_scroll(&overflows).expect("overflow: auto box should get a ScrollInfo");
+        assert!(
+            overflow_box.scroll.unwrap().max_scroll() > 0.0,
+            "three 20px paragraphs inside a 20px-tall box should actually overflow and be scrollable"
+        );
+    }
+
+    #[test]
+    fn scroll_offset_clips_and_translates_painted_content() {
+        // No inter-tag whitespace — same reason every other exact-pixel
+        // test in this file avoids it (a stray text node between tags
+        // would become its own anonymous inline box and shift things).
+        let laid = measure_fixture(
+            concat!(
+                r#"<html><body><div style="overflow: scroll; height: 50px; width: 100px; background-color: blue;">"#,
+                r#"<div style="background-color: red; height: 20px; margin-top: 100px;"></div>"#,
+                "</div></body></html>",
+            ),
+            400.0,
+        );
+        let scroll_box = find_laid_with_scroll(&laid).expect("overflow: scroll box not found");
+        let info = scroll_box.scroll.expect("already confirmed Some above");
+        let max_scroll = info.max_scroll();
+        assert!(max_scroll > 0.0, "the red child (100px margin-top + 20px height) should overflow the 50px box");
+
+        let mut font_system = new_font_system();
+        let mut swash_cache = SwashCache::new();
+        let mut cache = ShapeCache::new();
+        let (win_w, win_h) = (200u32, 200u32);
+
+        // At the default (no entry at all, i.e. `0.0`) scroll offset, the
+        // red child sits far below the 50px-tall visible window — fully
+        // clipped. The outer box's own blue background is unaffected by
+        // its *own* overflow (an element's `overflow` clips its content,
+        // never itself — same rule v31/v40 already established).
+        let mut pixels_unscrolled = vec![0u32; (win_w * win_h) as usize];
+        paint(
+            &laid, &mut font_system, &mut swash_cache, &mut cache, &HashMap::new(), &mut pixels_unscrolled, win_w,
+            win_h, 0.0, None,
+        );
+        assert!(!pixels_unscrolled.contains(&0xFF0000), "the red child should be clipped away before any scrolling");
+        assert!(pixels_unscrolled.contains(&0x0000FF), "the blue outer box should still paint regardless of its own scroll");
+
+        // Scrolled all the way to `max_scroll`, the red child's bottom
+        // edge lines up with the box's own bottom edge — now visible.
+        let mut scroll_offsets = HashMap::new();
+        scroll_offsets.insert(info.id, max_scroll);
+        let mut pixels_scrolled = vec![0u32; (win_w * win_h) as usize];
+        paint(
+            &laid, &mut font_system, &mut swash_cache, &mut cache, &scroll_offsets, &mut pixels_scrolled, win_w,
+            win_h, 0.0, None,
+        );
+        assert!(
+            pixels_scrolled.contains(&0xFF0000),
+            "scrolling to max_scroll should bring the red child into the clipped view"
+        );
+        assert!(pixels_scrolled.contains(&0x0000FF), "the blue outer box should still paint after scrolling too");
+    }
+
+    #[test]
+    fn wheel_routing_picks_the_scroll_region_under_the_cursor_not_the_page() {
+        // Two independent (sibling, not nested) `overflow` regions plus
+        // one plain, non-scrollable paragraph — enough to confirm
+        // `hit_test_scroll_region` tells the two scrollable regions
+        // apart by position and correctly falls through to `None`
+        // (→ the page's own top-level scroll) outside both.
+        let laid = measure_fixture(
+            concat!(
+                r#"<html><body>"#,
+                r#"<div style="overflow: scroll; height: 50px; width: 100px;">first region text</div>"#,
+                r#"<div style="overflow: auto; height: 50px; width: 100px;">second region needs more text than fits so it overflows its own fifty pixel height for real this time yes</div>"#,
+                r#"<p style="height: 30px; margin: 0;">not scrollable at all</p>"#,
+                "</body></html>",
+            ),
+            400.0,
+        );
+        let mut regions = Vec::new();
+        find_all_laid_with_scroll(&laid, &mut regions);
+        assert_eq!(regions.len(), 2, "both overflow regions should each get their own ScrollInfo");
+        let (first, second) = (regions[0], regions[1]);
+        assert_ne!(first.scroll.unwrap().id, second.scroll.unwrap().id, "each region should get a distinct id");
+
+        let scroll_offsets = HashMap::new();
+        let viewport_h = 600.0;
+
+        // A point inside the first region routes to it, not the second.
+        let (fx, fy) = (first.x + 5.0, first.y + 5.0);
+        let hit_first = hit_test_scroll_region(&laid, fx, fy, &scroll_offsets, 0.0, viewport_h);
+        assert_eq!(
+            hit_first.map(|i| i.id),
+            Some(first.scroll.unwrap().id),
+            "a point inside the first scrollable region should route to it"
+        );
+
+        // A point inside the second region routes to *that* one instead.
+        let (sx, sy) = (second.x + 5.0, second.y + 5.0);
+        let hit_second = hit_test_scroll_region(&laid, sx, sy, &scroll_offsets, 0.0, viewport_h);
+        assert_eq!(
+            hit_second.map(|i| i.id),
+            Some(second.scroll.unwrap().id),
+            "a point inside the second scrollable region should route to it, not the first"
+        );
+
+        // A point over the plain, non-scrollable `<p>` falls through to
+        // `None` — the caller's own cue to fall back to the page's own
+        // top-level scroll instead. Found by its own distinctive 30px
+        // height (chosen to not collide with either 50px scroll region,
+        // or with the root/html/body wrapper boxes' own, much taller,
+        // whole-document heights).
+        let p = find_laid_by_height(&laid, 30.0).expect("the plain, non-scrollable <p> should be findable by its own height");
+        let (px, py) = (p.x + 5.0, p.y + 5.0);
+        assert!(
+            px != fx || py != fy,
+            "sanity: the <p>'s own point shouldn't accidentally coincide with the first region's"
+        );
+        let hit_none = hit_test_scroll_region(&laid, px, py, &scroll_offsets, 0.0, viewport_h);
+        assert!(
+            hit_none.is_none(),
+            "a point over plain, non-scrollable content should fall through to the page's own scroll"
+        );
+    }
+
+    #[test]
+    fn scrollbar_paints_for_scroll_even_when_not_overflowing_but_auto_only_paints_when_it_does() {
+        let mut font_system = new_font_system();
+        let mut swash_cache = SwashCache::new();
+        let mut cache = ShapeCache::new();
+        // Taller than any one fixture's own box (body's 8px margin +
+        // up to 200px box height) so the scan below never runs past the
+        // buffer's own bounds.
+        let (win_w, win_h) = (200u32, 260u32);
+        // A translucent black-on-white pixel near the box's own right
+        // edge (within `TRACK_W` of it) is the scrollbar's own track or
+        // thumb — nothing else in this fixture paints anything but white
+        // background and (deliberately) no text color near that edge,
+        // so any non-white pixel there is unambiguously the indicator.
+        let has_scrollbar_pixel = |pixels: &[u32], box_right: f32, box_top: f32, box_bottom: f32, win_w: u32| {
+            let x = (box_right - 4.0) as u32;
+            (box_top as u32..box_bottom as u32).any(|y| pixels[(y * win_w + x) as usize] != 0x00FFFFFF)
+        };
+
+        // `overflow: scroll` with content that fits entirely — real CSS
+        // `scroll` always shows a scrollbar regardless.
+        let scroll_fits = measure_fixture(
+            r#"<html><body><div style="overflow: scroll; height: 200px; width: 100px;">short</div></body></html>"#,
+            400.0,
+        );
+        let scroll_box = find_laid_with_scroll(&scroll_fits).expect("overflow: scroll box not found");
+        let mut pixels = vec![0x00FFFFFFu32; (win_w * win_h) as usize];
+        paint(
+            &scroll_fits, &mut font_system, &mut swash_cache, &mut cache, &HashMap::new(), &mut pixels, win_w,
+            win_h, 0.0, None,
+        );
+        assert!(
+            has_scrollbar_pixel(&pixels, scroll_box.x + scroll_box.w, scroll_box.y, scroll_box.y + scroll_box.h, win_w),
+            "overflow: scroll should always paint a scrollbar indicator, even when nothing overflows"
+        );
+
+        // `overflow: auto` with content that fits — no scrollbar at all.
+        let auto_fits = measure_fixture(
+            r#"<html><body><div style="overflow: auto; height: 200px; width: 100px;">short</div></body></html>"#,
+            400.0,
+        );
+        let auto_fits_box = find_laid_with_scroll(&auto_fits).expect("overflow: auto box not found");
+        let mut pixels = vec![0x00FFFFFFu32; (win_w * win_h) as usize];
+        paint(
+            &auto_fits, &mut font_system, &mut swash_cache, &mut cache, &HashMap::new(), &mut pixels, win_w, win_h,
+            0.0, None,
+        );
+        assert!(
+            !has_scrollbar_pixel(&pixels, auto_fits_box.x + auto_fits_box.w, auto_fits_box.y, auto_fits_box.y + auto_fits_box.h, win_w),
+            "overflow: auto shouldn't paint a scrollbar at all when nothing overflows"
+        );
+
+        // `overflow: auto` with content that genuinely overflows — now a
+        // scrollbar should appear, same as `scroll`.
+        let auto_overflows = measure_fixture(
+            concat!(
+                r#"<html><body><div style="overflow: auto; height: 20px; width: 100px;">"#,
+                r#"<p style="margin: 0;">one</p><p style="margin: 0;">two</p><p style="margin: 0;">three</p>"#,
+                "</div></body></html>",
+            ),
+            400.0,
+        );
+        let auto_overflow_box = find_laid_with_scroll(&auto_overflows).expect("overflow: auto box not found");
+        let mut pixels = vec![0x00FFFFFFu32; (win_w * win_h) as usize];
+        paint(
+            &auto_overflows, &mut font_system, &mut swash_cache, &mut cache, &HashMap::new(), &mut pixels, win_w,
+            win_h, 0.0, None,
+        );
+        assert!(
+            has_scrollbar_pixel(
+                &pixels, auto_overflow_box.x + auto_overflow_box.w, auto_overflow_box.y,
+                auto_overflow_box.y + auto_overflow_box.h, win_w
+            ),
+            "overflow: auto should paint a scrollbar once its content actually overflows"
+        );
     }
 }

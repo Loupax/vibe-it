@@ -662,9 +662,91 @@ session can pick a coherent slice rather than one property at a time.
       real interactive check next time a human is at the keyboard — now
       covering the full keyword set, not just `auto`/`pointer`.
 
-- [ ] `overflow` (v31, extended to box decoration in v40) still only
-      supports `visible`/`hidden` — no `scroll`/`auto` (no scrollbar UI,
-      no interactive scroll region, just clipping).
+- [x] `overflow` (v31, extended to box decoration in v40; `scroll`/
+      `auto` landed PENDING_HASH, v62): an `overflow: scroll`/`auto`
+      box is now a genuinely independent, interactively-scrollable
+      region, not just a `hidden`-equivalent clip. Landed: a per-element
+      live scroll offset (`App::scroll_offsets: HashMap<usize, f32>`,
+      keyed by a stable id `measure`'s own `BoxContent::Blocks` arm
+      assigns from the same shared counter its paragraph ids already
+      use — a different, unrelated-by-value id space, no collision
+      risk) — resolved the same "bounds at layout time, live value read
+      fresh at paint time" split `position: sticky` (v55) already
+      established, so a mouse-wheel tick still can't trigger a
+      relayout; real mouse-wheel routing to the deepest `overflow:
+      scroll`/`auto` ancestor under the cursor (`hit_test_scroll_
+      region`, reusing `hit_test_cursor`'s own recursive-walk shape),
+      falling back to the page's own top-level scroll when the cursor
+      isn't over any such region; clipping to the box's own border box
+      (the same bounds `hidden` already clips to) plus a real paint-time
+      translation of its content by its own live scroll offset, nesting
+      correctly with `position: sticky`/`fixed`'s own ambient-offset
+      tricks (and, architecturally, with a nested scroll region too,
+      though that specific case isn't covered by a dedicated test — see
+      below); `auto` only actually scrolls/shows a scrollbar once its
+      content genuinely overflows (`ScrollInfo::max_scroll() > 0.0`),
+      `scroll` always shows the indicator; a minimal flat overlay
+      scrollbar (`paint_scrollbar` — a translucent track + thumb,
+      doesn't reserve any box-model space, matching modern overlay-
+      scrollbar OS convention, not a 90s classic-scrollbar reservation).
+      5 new permanent tests.
+
+      Deliberately scoped out, each precise rather than silently folded
+      into "done":
+
+      - [ ] **Scrollbar drag-to-scroll isn't implemented** — only mouse-
+            wheel scrolling is interactive; the painted indicator is
+            display-only (per this item's own explicit latitude to scope
+            this out as a nice-to-have).
+      - [ ] **Only an ordinary `measure`'s `BoxContent::Blocks` arm
+            assigns a `ScrollInfo`** — a `display: table`/`flex`/`grid`
+            container's own box (`measure_table`/`measure_flex`/
+            `measure_grid`, each a separate tail from the ordinary
+            `Blocks` arm) never does, so `overflow: scroll`/`auto` on a
+            table/flex/grid container itself has no effect at all (its
+            own content still just overflows per `overflow: visible`,
+            or clips-but-doesn't-scroll if it's `hidden`, unaffected by
+            this item). Scoped the same way `overflow: hidden`'s own
+            v31/v40 "narrowest real choke point over the general case"
+            precedent was — the single most common real case (a plain
+            block container) is what's covered.
+      - [ ] **Explicitly-stacked (`position: relative`/`sticky` with its
+            own `z-index`) and out-of-flow (`position: absolute`/
+            `fixed`) content *inside* a scroll region doesn't scroll
+            with it at all** — `paint`'s own `paint_z_layer` calls
+            (layers 2 and 6+7) and `hit_test_cursor`'s/`hit_test_scroll_
+            region`'s own "above" stacking-children loops deliberately
+            keep using the *un*-adjusted ambient scroll offset/query
+            point, never threading in the scrollable box's own live
+            `own_scroll` the way the ordinary in-flow `Blocks`/
+            `TableRow` loops do. A `position: absolute` child anchored
+            inside an `overflow: scroll` ancestor (a real, if uncommon,
+            pattern) will sit frozen in place while the rest of the
+            region's content scrolls underneath it, rather than
+            scrolling along with its containing block.
+      - [ ] **A scroll region nested inside another scroll region is
+            architecturally supported (the same ambient-offset-
+            composition trick `position: fixed`/`sticky` already use
+            for their own nesting generalizes for free — see `paint`'s
+            own `content_scroll_offset` docs) but has no dedicated
+            test** — the permanent test suite for this item covers only
+            independent, sibling scroll regions (confirming `hit_test_
+            scroll_region` tells two side-by-side regions apart and
+            falls through to `None` outside both), not a genuinely
+            nested pair. Worth a real test before trusting the nested
+            case in production, even though the mechanism should
+            already be correct by construction.
+      - [ ] **Not live-verified interactively, same category as v32's
+            `cursor`/v55's `position: sticky` gaps**: this sandbox still
+            has no tool to synthesize a real mouse-wheel event, so the
+            actual "wheel over a scroll region scrolls just that region,
+            not the page" behavior was only confirmed via the permanent
+            headless tests (which call the real `paint`/`hit_test_
+            scroll_region` code paths with a synthetic scroll offset,
+            not a live wheel event) plus a static `grim` screenshot
+            confirming correct clipping and scrollbar-indicator
+            rendering at the pre-scroll (zero-offset) position. Worth a
+            real interactive check next time a human's at the keyboard.
 
 - [ ] `border-style` (PROMPTS.md v30) only distinguishes `dashed`/
       `dotted`/`double`/`none`/`hidden` from a plain solid stroke —

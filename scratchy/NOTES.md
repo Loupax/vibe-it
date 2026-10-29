@@ -2175,3 +2175,162 @@ mechanical, thin layer this sandbox has no tool to exercise end-to-end
 (no synthetic mouse-move event, and `grim` can't see a compositor-drawn
 cursor icon regardless) — not because nobody checked, but because
 nothing in this environment *can* check it.
+
+## v62 — `overflow: scroll`/`auto`: a per-element scroll offset, the same two-stage split `position: sticky` already established
+
+Picked off `TODO.txt`'s next item: `overflow` (v31/v40) only ever
+supported `visible`/`hidden` — this adds real `scroll`/`auto`, where an
+overflowing element becomes its *own* independently-scrollable region
+with a live, mouse-wheel-interactive scroll offset, not just a visual
+clip.
+
+**Why this didn't need an `AskUserQuestion` the way `position: sticky`
+(v55) did.** v55's own writeup flagged a direct conflict with this
+engine's oldest performance invariant — "scrolling never touches
+layout" (see the v4/v5 writeup at the top of this file) — because a
+naive sticky implementation needs to re-evaluate position on every
+scroll tick. This item looked like it might hit the exact same wall
+(a per-element scroll offset sounds like it obviously needs layout
+involved), but it doesn't: `position: sticky`'s own split — resolve
+*bounds* once at layout time (`StickyInfo`, stored in `Laid`), read a
+*live* value fresh every `paint`/`hit_test_cursor` call (never stored
+in `Laid`, so `measure` genuinely never touches it, a compile-time
+guarantee since `paint`/`hit_test_cursor` take `&Laid` not `&mut Laid`)
+— generalizes directly to a per-element scroll offset. The only real
+difference: sticky's own "live value" is the page's single existing
+`scroll_offset`, already a field that persists across frames; a
+per-element scroll needs its *own* per-id persisted value instead,
+which is the one genuinely new piece of state this item adds
+(`App::scroll_offsets: HashMap<usize, f32>`). No design conflict
+surfaced, so this proceeded without asking — a size/scope question
+(same latitude `position`/`float`/flexbox/grid got), not a flagged
+tradeoff.
+
+**`ScrollInfo { id, content_h, client_h }`** is the `StickyInfo`
+analogue, stored as `Laid::scroll: Option<ScrollInfo>`. `id` comes from
+the *same shared `next_id` counter* `measure`'s own paragraph ids
+already use for keying `ShapeCache` — a different, unrelated-by-value
+namespace (scroll offsets live in their own separate `HashMap`), so no
+new `&mut usize` parameter had to be threaded through every recursive
+`measure` call just for this; reusing an existing thread was simpler
+than inventing a parallel one. `content_h`/`client_h` are values
+`measure`'s own `BoxContent::Blocks` arm already computes for its
+ordinary height logic (`client_h` is literally that arm's own
+`border_h - extra_h`) — `max_scroll()` is just `(content_h -
+client_h).max(0.0)`, `0.0` exactly when nothing actually overflows
+(the real distinction `auto` needs to know whether to show a
+scrollbar at all).
+
+**Scoped to one arm only, deliberately**: `measure`'s plain
+`BoxContent::Blocks` arm assigns `ScrollInfo`; `measure_table`/
+`measure_flex`/`measure_grid` (each their own separate tail, not this
+arm) don't — so `overflow: scroll`/`auto` on a table/flex/grid
+container's own box does nothing yet. Same "narrowest real choke point
+over the general case" precedent `overflow: hidden`'s own v31/v40
+scoping already set, not a new kind of cut.
+
+**The live value lives in `App`, never in `Laid`.** `App::
+scroll_offsets: HashMap<usize, f32>`, read fresh (and re-clamped
+against `max_scroll()` at the read site — self-healing if a relayout
+ever shrinks `content_h` out from under a stale, larger stored value,
+rather than trusted blindly) by `paint`, `hit_test_cursor`, and the new
+`hit_test_scroll_region`. Cleared alongside `shape_cache` whenever the
+layout tree rebuilds (ids are only stable within one tree's lifetime,
+same as `ShapeCache`'s own paragraph ids already were) — stale entries
+after a rebuild would just be harmless dead weight otherwise, but
+clearing avoids unbounded growth across many stdin chunks in streaming
+mode.
+
+**Composing with `fixed`/`sticky`'s own "ambient offset shifts a
+subtree" trick, extended rather than reinvented.** `paint` computes
+`own_scroll` (this box's own live, clamped amount) and folds it into
+`content_scroll_offset = scroll_offset + own_scroll`, passed down
+*only* into this box's own ordinary `Blocks`/`TableRow` children loop
+— not into its own `draw_y`, since scrolling moves a box's *content*,
+never the box itself (the one real structural difference from `sticky`/
+`fixed`, which shift the *whole* subtree including the box). This is
+exactly the same shape `fixed` (forcing the ambient to `0.0`) and
+`sticky` (`scroll_offset - sticky_shift(...)`) already established —
+just a different adjustment, applied once per scrollable box instead
+of once per sticky child. A nested `position: sticky` descendant's own
+`sticky_shift` call automatically picks up the adjusted ambient (it
+just reads whatever `scroll_offset` is lexically in scope at its own
+recursion depth) with zero special-casing needed — and, by the same
+mechanism, a scroll region nested inside *another* scroll region
+should compose correctly too, architecturally, though (see `TODO.txt`)
+that specific case has no dedicated test yet.
+
+**Clipping reuses `overflow: hidden`'s existing machinery completely
+unchanged** — `Scroll`/`Auto` just join `Hidden` in the one `matches!`
+check `paint`'s own `child_clip` computation already does. v31/v40's
+"an element's own `overflow` clips its descendants, never itself" rule,
+and the border-box (not strictly padding-box) clip bounds, both carry
+over exactly as before — no new clip logic, just a wider match arm.
+
+**Wheel-event routing (`hit_test_scroll_region`)** walks the `Laid`
+tree the same shape `hit_test_cursor` (v32/v61) already does — same
+coordinate conventions, same `position: sticky` child-rect translation
+reused verbatim — but returns `Option<ScrollInfo>` (the deepest
+scrollable *ancestor* under the point) instead of resolving by
+inheritance the way `cursor` does. There's no "inherited scroll
+region," so a miss at one level has to explicitly bubble to its own
+caller via `Option::or` rather than falling back to an ambient value —
+the real "wheel bubbles to the nearest scrollable ancestor, then to the
+page" behavior. `App::last_mouse_pos` is new state: `winit`'s own
+`WindowEvent::MouseWheel` carries no cursor position at all, so routing
+needs whatever `WindowEvent::CursorMoved` last reported, remembered
+separately — `None` (never moved over the window, or not over any
+scrollable region) falls back to the pre-existing page-level
+`scroll_offset` logic unchanged.
+
+**Deliberately narrower than the general case, each cut precise, not
+silently folded into "done"**: an explicitly-stacked (`position:
+relative`/`sticky` with its own `z-index`) or out-of-flow (`position:
+absolute`/`fixed`) descendant *inside* a scroll region doesn't scroll
+along with it — `paint`'s own `paint_z_layer` calls and `hit_test_
+cursor`'s/`hit_test_scroll_region`'s own "above" stacking-children
+loops deliberately keep using the un-adjusted ambient, the same
+documented cut shape several other features here already accepted for
+similar out-of-flow edge cases.
+
+**`auto`'s only real difference from `scroll`**: scrollbar visibility,
+not clipping or scrollability — both clip+scroll identically whenever
+content overflows (confirmed against the task's own framing before
+writing any code, not assumed). `paint_scrollbar`'s own
+`show_when_not_overflowing` flag (`s.overflow == Overflow::Scroll`)
+is the entire difference: `scroll` always paints a track+thumb,
+`auto` only once `max_scroll() > 0.0`. The indicator itself is a flat,
+simple `fill_rect`-based primitive (same spirit as box-shadow/border/
+outline), painted as an *overlay* — it doesn't narrow `content_w` at
+layout time at all, matching the modern OS overlay-scrollbar
+convention rather than a classic reserved-space one, and keeping
+"scrolling never touches layout" extended to this box's own width too.
+Drag-to-scroll on the thumb itself is explicitly out of scope — wheel
+scrolling is this item's own interactive core.
+
+Verified with 5 new permanent tests (the real pipeline, not just
+`ScrollInfo`'s own arithmetic in isolation) plus a real `grim`
+screenshot (clipping, and both the always-shown `scroll` scrollbar and
+the correctly-absent `auto` one, at the pre-scroll/zero-offset
+position). Two real bugs caught while writing the tests, not by luck:
+`background: blue` (the shorthand — this engine only ever implemented
+`background-color`, never the shorthand) silently dropped instead of
+erroring, caught only because the test's own assertion failed for a
+reason that didn't match the code path being tested; and this test
+harness's own fresh `vec![0u32; ...]` pixel buffers default to *black*,
+not white (`App::redraw`'s own render loop fills white explicitly
+before painting — a from-scratch test buffer doesn't get that for
+free), which made a naive `!= 0x00FFFFFF` "still unpainted" check
+report false positives everywhere until the actual pixel values were
+printed and inspected directly rather than trusted from the first
+failure's own assertion message.
+
+**Not live-verified interactively, same category as v32's `cursor`,
+v55's `position: sticky`, and v61's extended cursor keywords**: this
+sandbox still has no tool to synthesize a real mouse-wheel event, so
+the actual "wheel over a region scrolls just that region, then the
+page" behavior was only exercised by the permanent headless tests
+(the real `paint`/`hit_test_scroll_region` code paths, just with a
+synthetic scroll offset standing in for a live wheel event) — worth a
+real interactive check next time a human's at the keyboard, same
+standing note every prior scroll/cursor-adjacent item here has left.
