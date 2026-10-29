@@ -784,3 +784,28 @@ than re-duplicating the clamp logic per branch again.
 `%` is still the next real gap on anything width/height-shaped —
 explicitly deferred again here, same as v42, since nothing in
 `default.css` or a real test page has needed it yet.
+
+## v44 — structural pseudo-classes already worked
+
+Picked off `TODO.txt` autonomously (standing workflow, see above).
+`:not()`/`:nth-child()`/`:first-child` turned out to already work —
+they're generic `selectors`-crate matching, not something scratchy
+hand-implements like `:link`/`:visited`, and the `SelectorsElement`
+methods they need (`prev_sibling_element`, `next_sibling_element`,
+`is_root`, `is_empty`) were already there. Added 3 tests to confirm
+rather than assume, per the standing "measure, don't guess" habit.
+Only real snag: writing `<style>` inside `<body>` in a test (matching
+every older pseudo-class test's style) makes `<style>` itself count as
+the first child, which looked like a `:nth-child`/`:first-child` bug
+until traced back to the test's own HTML structure — `<style>` belongs
+in `<head>` for a child-index test like this one specifically.
+
+Next up from the remaining `TODO.txt`: CSS custom properties
+(`--foo`/`var()`) — fully spec'd, no design decision needed, and
+common on real pages, unlike most of the other deliberately-deferred
+items. `:hover`/`:active` state tracking is the other bounded
+candidate after that (mouse position is already tracked for `cursor`;
+needs mouse-button state + repaint-on-match-change wiring added).
+Positioning (`float`/`position`) and flexbox/grid are the biggest real
+wins for rendering actual pages but are large, invasive undertakings —
+worth tackling after these smaller items, not before.

@@ -214,9 +214,7 @@ session can pick a coherent slice rather than one property at a time.
       state scratchy has no concept of tracking yet (only
       `WindowEvent::CursorMoved` position exists, and only for the
       `cursor` property, not selector re-matching/repaint-on-state-
-      change). Structural pseudo-classes built into the `selectors`
-      crate itself (`:not()`, `:nth-child()`, `:first-child`, etc.) are
-      a separate question nobody has actually verified either way yet.
+      change).
 
 - [ ] No forms/interactive widgets (`input`/`button`/`select`/
       `textarea` render as plain unstyled DOM nodes, not widgets), no

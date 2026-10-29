@@ -4304,4 +4304,63 @@ mod tests {
             assert!(p.h > 0.0, "each paragraph should still be fully laid out with its own real height, not clipped away");
         }
     }
+
+    // ---------- v44: structural pseudo-classes (`:not()`, `:nth-child()`, `:first-child`) ----------
+    // These aren't `OurPseudoClass` variants at all — `:link`/`:visited` need custom
+    // state scratchy tracks itself, but `:not()`/`:nth-child()`/`:first-child` are
+    // built into the `selectors` crate's own matching, driven purely by the
+    // `SelectorsElement` methods (`prev_sibling_element`, `next_sibling_element`,
+    // `is_root`, ...) already implemented for `El`. Never actually verified before.
+
+    fn find_all_span_colors(b: &LayoutBox, out: &mut Vec<TextColor>) {
+        if let BoxContent::Inline(spans) = &b.content {
+            for (_, s) in spans {
+                out.push(s.color);
+            }
+        } else if let BoxContent::Blocks(children) = &b.content {
+            for c in children {
+                find_all_span_colors(c, out);
+            }
+        }
+    }
+
+    #[test]
+    fn not_pseudo_excludes_matching_element() {
+        let doc = parse_html(
+            r#"<html><head><style>p:not(.skip) { color: #ff0000; }</style></head><body><p>one</p><p class="skip">two</p></body></html>"#,
+        );
+        let tree = build_layout_tree(&doc);
+        let mut colors = Vec::new();
+        find_all_span_colors(&tree, &mut colors);
+        assert_eq!(colors.len(), 2, "expected two paragraphs' worth of spans");
+        assert_eq!(colors[0], TextColor::rgb(0xff, 0, 0), ":not(.skip) should match the first <p>");
+        assert_ne!(colors[1], TextColor::rgb(0xff, 0, 0), ":not(.skip) should not match the second <p>");
+    }
+
+    #[test]
+    fn nth_child_matches_correct_position() {
+        let doc = parse_html(
+            r#"<html><head><style>p:nth-child(2) { color: #00ff00; }</style></head><body><p>one</p><p>two</p><p>three</p></body></html>"#,
+        );
+        let tree = build_layout_tree(&doc);
+        let mut colors = Vec::new();
+        find_all_span_colors(&tree, &mut colors);
+        assert_eq!(colors.len(), 3);
+        assert_ne!(colors[0], TextColor::rgb(0, 0xff, 0), ":nth-child(2) should not match the 1st <p>");
+        assert_eq!(colors[1], TextColor::rgb(0, 0xff, 0), ":nth-child(2) should match the 2nd <p>");
+        assert_ne!(colors[2], TextColor::rgb(0, 0xff, 0), ":nth-child(2) should not match the 3rd <p>");
+    }
+
+    #[test]
+    fn first_child_matches_only_first() {
+        let doc = parse_html(
+            r#"<html><head><style>p:first-child { color: #0000ff; }</style></head><body><p>one</p><p>two</p></body></html>"#,
+        );
+        let tree = build_layout_tree(&doc);
+        let mut colors = Vec::new();
+        find_all_span_colors(&tree, &mut colors);
+        assert_eq!(colors.len(), 2);
+        assert_eq!(colors[0], TextColor::rgb(0, 0, 0xff), ":first-child should match the 1st <p>");
+        assert_ne!(colors[1], TextColor::rgb(0, 0, 0xff), ":first-child should not match the 2nd <p>");
+    }
 }

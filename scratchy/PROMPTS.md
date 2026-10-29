@@ -2291,3 +2291,46 @@ resolution in `resolve_style`, the new `clamp_box_dim` helper replacing
 `measure`'s inline width/height formulas, 6 new tests in the permanent
 `mod tests`). Resolves the `box-sizing`/`min-*`/`max-*` `TODO.txt` item
 left open by v42; `%` remains its own separate, still-open item.
+
+## v44 — verify structural pseudo-classes (`:not()`, `:nth-child()`, `:first-child`)
+
+> check the TODO for scratchy browser. Lets prioritize things and get
+> to work
+
+First pick under the standing autonomous `TODO.txt` workflow. Priority
+call: most open items are deliberately deferred ("nothing needs this
+yet" — `%`, table auto-layout, named `font-family`, `word-spacing`,
+border bevels, box-shadow blur) or need the user's sign-off on a real
+design tradeoff (`opacity`'s invasive plumbing, `letter-spacing`'s
+cosmic-text bug) — both skipped again, untouched. This item stood out
+as the cheapest real one: `TODO.txt` itself said structural
+pseudo-classes were "a separate question nobody has actually verified
+either way yet," and unlike `:link`/`:visited` (`OurPseudoClass`,
+custom state scratchy tracks itself), `:not()`/`:nth-child()`/
+`:first-child` are generic `selectors`-crate matching, driven entirely
+by `SelectorsElement` methods (`prev_sibling_element`,
+`next_sibling_element`, `is_root`, `is_empty`, ...) that `El` already
+implements for other reasons — a real chance this was already working
+for free, confirmed rather than assumed.
+
+Wrote 3 new permanent tests. First attempt at the `:nth-child(2)`/
+`:first-child` tests actually failed — not a scratchy bug, a test bug:
+putting `<style>` directly inside `<body>` (as every prior pseudo-class
+test in this file does) makes the `<style>` element itself the real
+first child, shifting every `<p>`'s child index by one. Moving
+`<style>` into `<head>` (where it semantically belongs anyway) fixed
+it; all three tests then passed first try with no production code
+changes. Visually confirmed with a real `grim` screenshot against a
+3-`<p>` page combining all three selectors at once (`:nth-child(2)`,
+`:first-child`, `:not(.skip)` via `text-decoration: underline`): 1st
+`<p>` blue, 2nd green, both underlined, 3rd plain black with no
+underline — exactly the expected combination. All 26 tests (23
+pre-existing + 3 new) pass.
+
+**Deliverable:** `src/lib.rs` (3 new tests in the permanent
+`mod tests`: `not_pseudo_excludes_matching_element`,
+`nth_child_matches_correct_position`, `first_child_matches_only_first`
+— no production code changes, since the feature already worked).
+Resolves the structural-pseudo-class open question in the `:hover`/
+`:focus`/`:active` `TODO.txt` item, which now only covers the
+genuinely-missing interaction-state pseudo-classes.
