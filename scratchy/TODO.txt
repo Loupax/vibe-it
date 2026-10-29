@@ -663,7 +663,7 @@ session can pick a coherent slice rather than one property at a time.
       covering the full keyword set, not just `auto`/`pointer`.
 
 - [x] `overflow` (v31, extended to box decoration in v40; `scroll`/
-      `auto` landed PENDING_HASH, v62): an `overflow: scroll`/`auto`
+      `auto` landed 701a334, v62): an `overflow: scroll`/`auto`
       box is now a genuinely independent, interactively-scrollable
       region, not just a `hidden`-equivalent clip. Landed: a per-element
       live scroll offset (`App::scroll_offsets: HashMap<usize, f32>`,
