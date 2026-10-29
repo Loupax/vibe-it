@@ -2046,3 +2046,67 @@ root call updated, `collect_children`'s block-dispatch call site passes
 its own ambient `decoration` through instead of discarding it). Closes
 the block-level `text-decoration` item `TODO.txt` had carried since
 `v33`.
+
+---
+
+## v40 — extend `overflow: hidden` to clip a descendant's own box decoration
+
+> check the TODO for scratchy browser. Lets prioritize things and get
+> to work
+
+Fifth and last item from this prioritization pass (v36-v39): `overflow:
+hidden` previously clipped descendant *text* only (`paint`'s `clip`
+parameter, read by `paint_buffer`/`paint_span_backgrounds`) — a nested
+block box's own background/border/outline/shadow painted wherever it
+would regardless of an ancestor's clip, since those paint through ~20
+separate `fill_rect`/`fill_rounded_rect` call sites rather than the one
+shared per-pixel callback text funnels through.
+
+Rather than add an `intersect_clip` call at each of those ~20 sites by
+hand (the real regression risk `TODO.txt` flagged — most of those exact
+call sites were touched across v21/v26/v27/v28/v30/v38), pushed clip-
+awareness down into the single lowest-level primitive instead:
+`fill_rect` itself now takes a `clip: Option<(f32,f32,f32,f32)>` and
+applies `intersect_clip` once, internally. `fill_rounded_rect`/
+`fill_rounded_ring`/`paint_border_edge`/`paint_box_decoration` each
+gained the same `clip` parameter, threaded straight through to every
+`fill_rect` call they make (no change to any of their own geometry
+math) — so every caller gets correct clipping for free, impossible to
+miss a call site since they all bottom out at the one primitive.
+`paint`'s existing `clip` parameter (already correct for text) now also
+reaches `paint_box_decoration`, using the *ambient* clip (not
+`child_clip`) — a box's own `overflow` only clips its descendants,
+never its own decoration, same as real CSS. `paint_span_backgrounds`'s
+own call site got simpler too: it used to manually call
+`intersect_clip` before `fill_rect`; now it just passes `clip` straight
+through like every other caller.
+
+Verified three ways: a pixel-level test confirming `fill_rect` itself
+honors `clip` precisely; a full-pipeline test (`build_layout_tree` →
+`measure` → `paint` into a real pixel buffer) confirming a nested div's
+background painted outside a narrow ancestor's bounds is fully clipped
+while the ancestor's own background still shows; and a `grim`
+screenshot against a real page using a `box-shadow` offset -300px off a
+`overflow: hidden` ancestor — the shadow is clipped almost entirely
+away, with only the small sliver legitimately inside the ancestor's own
+padding/border area still visible, matching real CSS clipping exactly.
+(A first attempt at the live visual check used a *negative margin* to
+push a child outside its parent instead of `box-shadow` — looked like a
+clipping bug at first, but turned out to be correct CSS box-model
+behavior instead: a negative `margin-left` on a `width: auto` block
+also *grows* its computed width by the same amount, so most of the box
+legitimately overlapped back into the parent's visible bounds. Caught
+by checking the actual geometry headlessly before concluding anything
+was broken — not a `TODO.txt`-worthy finding, just a reminder that
+`width: auto` + negative margins isn't "shift left," it's "shift left
+and grow," per spec.) Also re-ran the v38 border-radius/dashed-fallback
+page and the v12-v32-era inline-decoration/links/lists/tables page —
+both pixel-identical to before this change.
+
+**Deliverable:** `src/lib.rs` (`clip` parameter added to `fill_rect`,
+`fill_rounded_rect`, `fill_rounded_ring`, `paint_border_edge`,
+`paint_box_decoration`; `paint`'s existing `clip` now also passed to
+`paint_box_decoration`; stale doc comments on `Overflow`,
+`ComputedStyle::overflow`, `paint`, and `paint_buffer` updated to
+describe the new scope instead of the old text-only one). Narrows the
+`overflow` `TODO.txt` item to just the missing `scroll`/`auto` modes.

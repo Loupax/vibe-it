@@ -649,6 +649,30 @@ opacity" isn't the same claim as "has the same blocker as opacity"** —
 check whether the semantics are actually ambiguous before assuming a
 plumbing-heavy fix needs a design decision too.
 
+**v40 extended `overflow: hidden` to clip a descendant's own box
+decoration** (background/border/outline/shadow), not just text — the
+last item from this session's prioritization pass. Rather than add
+clip checks at each of the ~20 separate `fill_rect`/`fill_rounded_rect`
+call sites (the real regression risk `TODO.txt` had flagged), pushed
+clip-awareness into `fill_rect` itself and threaded a `clip` parameter
+through every function that calls it, so nothing can miss it. Verified
+with a pixel test, a full-pipeline test, and a `grim` screenshot (a
+`box-shadow` offset -300px off a clipped ancestor, correctly clipped to
+a small sliver). One false alarm along the way, caught before it went
+anywhere: a live visual check using negative margin to push a child
+outside its parent *looked* unclipped at first, but was actually
+correct CSS — negative `margin-left` on a `width: auto` box also grows
+its computed width, so most of it legitimately overlapped back into
+the parent. Checked the real geometry headlessly before concluding
+anything was wrong.
+
+With v40, every item from this session's prioritization pass is
+closed: `rem` root font-size (v36), `:link`/`:visited` (v37),
+`border-radius` + border (v38), the block-level `text-decoration` bug
+(v39), `overflow` box-decoration clipping (v40). The `width`/`height`
+gap found while verifying v38 remains open, flagged for its own
+dedicated future session — see its own `TODO.txt` entry.
+
 ## Priority going forward: rendering, not networking
 
 Explicit decision: the next phase of work is about how scratchy

@@ -134,18 +134,9 @@ session can pick a coherent slice rather than one property at a time.
       untested live. Worth a real interactive check next time a human
       is at the keyboard.
 
-- [ ] `overflow` (PROMPTS.md v31) only clips descendant *text* content
-      (and per-span text backgrounds) — a nested block-level box's own
-      background/border/outline/shadow isn't clipped by an ancestor's
-      `overflow: hidden` at all, it just paints wherever it would
-      without the clip. Real `overflow` would need a clip rect checked
-      at every one of this file's many separate `fill_rect`/
-      `fill_rounded_rect` call sites (box backgrounds, borders,
-      outlines, shadows), not just the one shared per-pixel callback
-      text painting already funnels through. Only `visible`/`hidden`
-      — no `scroll`/`auto` (no scrollbar UI, no interactive scroll
-      region). Revisit if a real page's clipped block content (not
-      just overflowing text) needs to actually clip.
+- [ ] `overflow` (v31, extended to box decoration in v40) still only
+      supports `visible`/`hidden` — no `scroll`/`auto` (no scrollbar UI,
+      no interactive scroll region, just clipping).
 
 - [ ] `border-style` (PROMPTS.md v30) only distinguishes `dashed`/
       `dotted`/`double`/`none`/`hidden` from a plain solid stroke —

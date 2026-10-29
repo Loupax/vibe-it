@@ -709,13 +709,14 @@ pub enum Visibility {
 
 /// Just `visible`/`hidden` — no `scroll`/`auto` (no scrollbar UI, no
 /// scroll-region interactivity, just clipping). Not inherited. `Hidden`
-/// clips descendant *text* (`paint`'s `clip` parameter, read by
-/// `paint_buffer`/`paint_span_backgrounds`) — a nested block box's own
-/// background/border isn't clipped by it, a deliberately narrower scope
-/// than real `overflow` (see TODO.txt and `paint_buffer`'s own docs for
-/// why: text painting funnels through one shared per-pixel callback,
-/// while box decoration is many separate `fill_rect` call sites that
-/// would each need their own clip check).
+/// clips all of a descendant's painting — text (`paint`'s `clip`
+/// parameter, read by `paint_buffer`/`paint_span_backgrounds`) *and*
+/// box decoration (background/border/outline/shadow, via `fill_rect`
+/// itself applying `clip`, so every caller gets it for free) — but
+/// never a box's *own* decoration against its *own* `overflow`, only a
+/// descendant's (see `paint`'s own docs on `child_clip` vs. the ambient
+/// `clip` it passes to `paint_box_decoration`), same as real CSS: an
+/// element's `overflow` clips its content, not itself.
 #[derive(Clone, Copy, PartialEq, Default)]
 enum Overflow {
     #[default]
@@ -1710,8 +1711,7 @@ struct ComputedStyle {
     /// only — see `fill_rounded_ring`'s own docs) the border itself, via
     /// `paint_box_decoration`. Not inherited.
     border_radius: f32,
-    /// Not inherited. See `Overflow`'s own docs for the clip's scope
-    /// (text only, not nested block boxes' own decoration).
+    /// Not inherited. See `Overflow`'s own docs for the clip's scope.
     overflow: Overflow,
     cursor: CursorStyle,
 }
@@ -2683,10 +2683,28 @@ fn intersect_clip(x: f32, y: f32, w: f32, h: f32, clip: Option<(f32, f32, f32, f
     (x0, y0, (x1 - x0).max(0.0), (y1 - y0).max(0.0))
 }
 
-fn fill_rect(pixels: &mut [u32], win_w: u32, win_h: u32, x: f32, y: f32, w: f32, h: f32, color: TextColor) {
+/// `clip` is the nearest ancestor's `overflow: hidden` content-box bounds
+/// (screen space, post-scroll), same as `paint_buffer`'s own — applied
+/// once here via `intersect_clip`, so every caller (directly, or through
+/// `fill_rounded_rect`/`fill_rounded_ring`/`paint_border_edge`, all the
+/// way up to `paint_box_decoration`) gets clipping for free without
+/// needing its own `intersect_clip` call. `None` behaves exactly as
+/// before this parameter existed (unclipped, window bounds only).
+fn fill_rect(
+    pixels: &mut [u32],
+    win_w: u32,
+    win_h: u32,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    color: TextColor,
+    clip: Option<(f32, f32, f32, f32)>,
+) {
     if color.a() == 0 {
         return;
     }
+    let (x, y, w, h) = intersect_clip(x, y, w, h, clip);
     let x0 = x.max(0.0) as i64;
     let y0 = y.max(0.0) as i64;
     let x1 = ((x + w).min(win_w as f32)) as i64;
@@ -2724,10 +2742,22 @@ fn corner_inset(dy: f32, r: f32) -> f32 {
     }
 }
 
-fn fill_rounded_rect(pixels: &mut [u32], win_w: u32, win_h: u32, x: f32, y: f32, w: f32, h: f32, radius: f32, color: TextColor) {
+#[allow(clippy::too_many_arguments)]
+fn fill_rounded_rect(
+    pixels: &mut [u32],
+    win_w: u32,
+    win_h: u32,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    radius: f32,
+    color: TextColor,
+    clip: Option<(f32, f32, f32, f32)>,
+) {
     let r = radius.min(w / 2.0).min(h / 2.0).max(0.0);
     if r <= 0.0 {
-        fill_rect(pixels, win_w, win_h, x, y, w, h, color);
+        fill_rect(pixels, win_w, win_h, x, y, w, h, color, clip);
         return;
     }
     let y0 = y.round() as i32;
@@ -2735,7 +2765,7 @@ fn fill_rounded_rect(pixels: &mut [u32], win_w: u32, win_h: u32, x: f32, y: f32,
     for row in y0..y1 {
         let dy = (row as f32 - y).min((y + h) - row as f32 - 1.0);
         let inset = corner_inset(dy, r);
-        fill_rect(pixels, win_w, win_h, x + inset, row as f32, (w - 2.0 * inset).max(0.0), 1.0, color);
+        fill_rect(pixels, win_w, win_h, x + inset, row as f32, (w - 2.0 * inset).max(0.0), 1.0, color, clip);
     }
 }
 
@@ -2764,6 +2794,7 @@ fn fill_rounded_ring(
     radius: f32,
     border_width: f32,
     color: TextColor,
+    clip: Option<(f32, f32, f32, f32)>,
 ) {
     let r_outer = radius.min(w / 2.0).min(h / 2.0).max(0.0);
     let (inner_x, inner_y) = (x + border_width, y + border_width);
@@ -2781,14 +2812,14 @@ fn fill_rounded_ring(
         let row_f = row as f32;
         let within_inner_rows = has_hole && row_f >= inner_y && row_f < inner_y + inner_h;
         if !within_inner_rows {
-            fill_rect(pixels, win_w, win_h, outer_left, row_f, (outer_right - outer_left).max(0.0), 1.0, color);
+            fill_rect(pixels, win_w, win_h, outer_left, row_f, (outer_right - outer_left).max(0.0), 1.0, color, clip);
             continue;
         }
         let dy_inner = (row_f - inner_y).min((inner_y + inner_h) - row_f - 1.0);
         let inner_inset = corner_inset(dy_inner, r_inner);
         let (inner_left, inner_right) = (inner_x + inner_inset, inner_x + inner_w - inner_inset);
-        fill_rect(pixels, win_w, win_h, outer_left, row_f, (inner_left - outer_left).max(0.0), 1.0, color);
-        fill_rect(pixels, win_w, win_h, inner_right, row_f, (outer_right - inner_right).max(0.0), 1.0, color);
+        fill_rect(pixels, win_w, win_h, outer_left, row_f, (inner_left - outer_left).max(0.0), 1.0, color, clip);
+        fill_rect(pixels, win_w, win_h, inner_right, row_f, (outer_right - inner_right).max(0.0), 1.0, color, clip);
     }
 }
 
@@ -2801,6 +2832,7 @@ fn fill_rounded_ring(
 /// existed; `Dashed`/`Dotted`/`Double` instead tile smaller fills along
 /// the edge's length. `None` never reaches here (`paint_box_decoration`
 /// skips the whole border when it sees `BorderStyle::None`).
+#[allow(clippy::too_many_arguments)]
 fn paint_border_edge(
     pixels: &mut [u32],
     win_w: u32,
@@ -2811,21 +2843,22 @@ fn paint_border_edge(
     h: f32,
     style: BorderStyle,
     color: TextColor,
+    clip: Option<(f32, f32, f32, f32)>,
 ) {
     let horizontal = w >= h;
     let (along, across) = if horizontal { (w, h) } else { (h, w) };
     match style {
         BorderStyle::None => {}
-        BorderStyle::Solid => fill_rect(pixels, win_w, win_h, x, y, w, h, color),
+        BorderStyle::Solid => fill_rect(pixels, win_w, win_h, x, y, w, h, color, clip),
         BorderStyle::Dashed => {
             let dash = (across * 3.0).max(2.0);
             let mut pos = 0.0;
             while pos < along {
                 let seg = dash.min(along - pos);
                 if horizontal {
-                    fill_rect(pixels, win_w, win_h, x + pos, y, seg, across, color);
+                    fill_rect(pixels, win_w, win_h, x + pos, y, seg, across, color, clip);
                 } else {
-                    fill_rect(pixels, win_w, win_h, x, y + pos, across, seg, color);
+                    fill_rect(pixels, win_w, win_h, x, y + pos, across, seg, color, clip);
                 }
                 pos += dash * 2.0;
             }
@@ -2836,9 +2869,9 @@ fn paint_border_edge(
             while pos < along {
                 let seg = dot.min(along - pos);
                 if horizontal {
-                    fill_rect(pixels, win_w, win_h, x + pos, y, seg, across, color);
+                    fill_rect(pixels, win_w, win_h, x + pos, y, seg, across, color, clip);
                 } else {
-                    fill_rect(pixels, win_w, win_h, x, y + pos, across, seg, color);
+                    fill_rect(pixels, win_w, win_h, x, y + pos, across, seg, color, clip);
                 }
                 pos += dot * 2.0;
             }
@@ -2846,17 +2879,33 @@ fn paint_border_edge(
         BorderStyle::Double => {
             let stripe = (across / 3.0).max(1.0);
             if horizontal {
-                fill_rect(pixels, win_w, win_h, x, y, w, stripe, color);
-                fill_rect(pixels, win_w, win_h, x, y + h - stripe, w, stripe, color);
+                fill_rect(pixels, win_w, win_h, x, y, w, stripe, color, clip);
+                fill_rect(pixels, win_w, win_h, x, y + h - stripe, w, stripe, color, clip);
             } else {
-                fill_rect(pixels, win_w, win_h, x, y, stripe, h, color);
-                fill_rect(pixels, win_w, win_h, x + w - stripe, y, stripe, h, color);
+                fill_rect(pixels, win_w, win_h, x, y, stripe, h, color, clip);
+                fill_rect(pixels, win_w, win_h, x + w - stripe, y, stripe, h, color, clip);
             }
         }
     }
 }
 
-fn paint_box_decoration(s: &ComputedStyle, pixels: &mut [u32], win_w: u32, win_h: u32, x: f32, y: f32, w: f32, h: f32) {
+/// `clip` is the nearest ancestor's `overflow: hidden` bounds (screen
+/// space, post-scroll) — deliberately the *ambient* clip from `paint`'s
+/// own caller, not this box's own `overflow` (which only starts clipping
+/// its *descendants*, same as before this parameter existed — see
+/// `paint`'s own `child_clip` vs. this call's docs).
+#[allow(clippy::too_many_arguments)]
+fn paint_box_decoration(
+    s: &ComputedStyle,
+    pixels: &mut [u32],
+    win_w: u32,
+    win_h: u32,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    clip: Option<(f32, f32, f32, f32)>,
+) {
     // Painted first — behind this box's own background/border, same
     // stacking a real (non-inset) box-shadow has. A hard-edged solid
     // rect, not a blurred one (see `BoxShadow`'s own docs).
@@ -2870,6 +2919,7 @@ fn paint_box_decoration(s: &ComputedStyle, pixels: &mut [u32], win_w: u32, win_h
             w + 2.0 * shadow.spread,
             h + 2.0 * shadow.spread,
             shadow.color,
+            clip,
         );
     }
     // Rounds both background and border together, matching a real
@@ -2886,21 +2936,21 @@ fn paint_box_decoration(s: &ComputedStyle, pixels: &mut [u32], win_w: u32, win_h
     let round = s.border_radius > 0.0 && (s.border_width <= 0.0 || s.border_style == BorderStyle::Solid);
     if let Some(bg) = s.background_color {
         if round {
-            fill_rounded_rect(pixels, win_w, win_h, x, y, w, h, s.border_radius, bg);
+            fill_rounded_rect(pixels, win_w, win_h, x, y, w, h, s.border_radius, bg, clip);
         } else {
-            fill_rect(pixels, win_w, win_h, x, y, w, h, bg);
+            fill_rect(pixels, win_w, win_h, x, y, w, h, bg, clip);
         }
     }
     if s.border_width > 0.0 && s.border_style != BorderStyle::None {
         if let Some(bc) = s.border_color {
             let bw = s.border_width;
             if round {
-                fill_rounded_ring(pixels, win_w, win_h, x, y, w, h, s.border_radius, bw, bc);
+                fill_rounded_ring(pixels, win_w, win_h, x, y, w, h, s.border_radius, bw, bc, clip);
             } else {
-                paint_border_edge(pixels, win_w, win_h, x, y, w, bw, s.border_style, bc);
-                paint_border_edge(pixels, win_w, win_h, x, y + h - bw, w, bw, s.border_style, bc);
-                paint_border_edge(pixels, win_w, win_h, x, y, bw, h, s.border_style, bc);
-                paint_border_edge(pixels, win_w, win_h, x + w - bw, y, bw, h, s.border_style, bc);
+                paint_border_edge(pixels, win_w, win_h, x, y, w, bw, s.border_style, bc, clip);
+                paint_border_edge(pixels, win_w, win_h, x, y + h - bw, w, bw, s.border_style, bc, clip);
+                paint_border_edge(pixels, win_w, win_h, x, y, bw, h, s.border_style, bc, clip);
+                paint_border_edge(pixels, win_w, win_h, x + w - bw, y, bw, h, s.border_style, bc, clip);
             }
         }
     }
@@ -2911,10 +2961,10 @@ fn paint_box_decoration(s: &ComputedStyle, pixels: &mut [u32], win_w: u32, win_h
         if let Some(oc) = s.outline_color {
             let ow = s.outline_width;
             let (ox, oy, ow_total, oh_total) = (x - ow, y - ow, w + 2.0 * ow, h + 2.0 * ow);
-            fill_rect(pixels, win_w, win_h, ox, oy, ow_total, ow, oc);
-            fill_rect(pixels, win_w, win_h, ox, oy + oh_total - ow, ow_total, ow, oc);
-            fill_rect(pixels, win_w, win_h, ox, oy, ow, oh_total, oc);
-            fill_rect(pixels, win_w, win_h, ox + ow_total - ow, oy, ow, oh_total, oc);
+            fill_rect(pixels, win_w, win_h, ox, oy, ow_total, ow, oc, clip);
+            fill_rect(pixels, win_w, win_h, ox, oy + oh_total - ow, ow_total, ow, oc, clip);
+            fill_rect(pixels, win_w, win_h, ox, oy, ow, oh_total, oc, clip);
+            fill_rect(pixels, win_w, win_h, ox + ow_total - ow, oy, ow, oh_total, oc, clip);
         }
     }
 }
@@ -2952,14 +3002,17 @@ fn paint_span_backgrounds(
                 j += 1;
             }
             if let Some(color) = bg {
-                let (cx, cy, cw, ch) = intersect_clip(
+                fill_rect(
+                    pixels,
+                    win_w,
+                    win_h,
                     start_x + ox as f32,
                     run.line_top + oy as f32,
                     end_x - start_x,
                     run.line_height,
+                    color,
                     clip,
                 );
-                fill_rect(pixels, win_w, win_h, cx, cy, cw, ch, color);
             }
             i = j;
         }
@@ -2990,15 +3043,9 @@ fn paint_buffer(
     offset_x: f32,
     offset_y: f32,
     // The nearest ancestor's `overflow: hidden` content-box bounds (screen
-    // space, post-scroll), or `None` if nothing above this clips. Only
-    // text (here) and per-span backgrounds (`paint_span_backgrounds`) are
-    // clipped this way — a nested block box's own background/border isn't
-    // (see `TODO.txt`): every other paint call this file makes goes
-    // through many separate `fill_rect` call sites, not the one shared
-    // per-pixel callback text painting funnels through here, so clipping
-    // those too would mean threading and checking a clip rect at each of
-    // them individually — real, but meaningfully more invasive than
-    // clipping the one choke point text already has.
+    // space, post-scroll), or `None` if nothing above this clips. Checked
+    // per-pixel here (text has no shared `fill_rect` choke point to push
+    // this into, unlike box decoration — see `fill_rect`'s own docs).
     clip: Option<(f32, f32, f32, f32)>,
 ) {
     let ox = offset_x.round() as i32;
@@ -3188,9 +3235,10 @@ fn paint(
     scroll_offset: f32,
     // The nearest ancestor's `overflow: hidden` bounds (screen space,
     // post-scroll), if any — `None` means nothing above this clips.
-    // Only threaded into text/span-background painting (see
-    // `paint_buffer`'s own docs on why box decoration isn't clipped
-    // this way too).
+    // Reaches every paint call this box makes: text/span-backgrounds
+    // (`paint_buffer`) *and*, since v40, this box's own background/
+    // border/outline/shadow (`paint_box_decoration`) — both funnel
+    // through the one shared `fill_rect` primitive, which applies it.
     clip: Option<(f32, f32, f32, f32)>,
 ) {
     let s = laid.style;
@@ -3209,7 +3257,12 @@ fn paint(
     // `Laid` with its own independently-resolved `style.visibility` via
     // real CSS inheritance, so it still recurses and paints normally.
     if s.visibility == Visibility::Visible {
-        paint_box_decoration(&s, pixels, win_w, win_h, laid.x, draw_y, laid.w, laid.h);
+        // Clipped by the *ambient* `clip` from an ancestor's `overflow:
+        // hidden` — deliberately not `child_clip` below, since a box's
+        // own `overflow` only clips its descendants' overflowing
+        // content, never its own background/border/outline/shadow,
+        // same as real CSS.
+        paint_box_decoration(&s, pixels, win_w, win_h, laid.x, draw_y, laid.w, laid.h, clip);
     }
 
     // This box's own `overflow: hidden` (if any) only starts clipping
