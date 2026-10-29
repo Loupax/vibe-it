@@ -7756,4 +7756,36 @@ mod tests {
             "the higher z-index box (red) should paint on top in the overlap region"
         );
     }
+
+    // ---------- v53: `<head>`/`<title>`/`<meta>`/`<link>`/`<base>` are hidden by default ----------
+
+    fn collect_all_text(b: &LayoutBox, out: &mut String) {
+        match &b.content {
+            BoxContent::Blocks(children) | BoxContent::TableRow(children) => {
+                for c in children {
+                    collect_all_text(c, out);
+                }
+            }
+            BoxContent::Inline(items) => {
+                for item in items {
+                    if let InlineItem::Text(t, _) = item {
+                        out.push_str(t);
+                    }
+                }
+            }
+            BoxContent::Image(_) => {}
+        }
+    }
+
+    #[test]
+    fn title_text_does_not_render() {
+        let doc = parse_html(
+            r#"<html><head><title>Secret Page Title</title><meta charset="utf-8"><link rel="stylesheet" href="x.css"></head><body>Visible Body Text</body></html>"#,
+        );
+        let tree = build_layout_tree(&doc);
+        let mut text = String::new();
+        collect_all_text(&tree, &mut text);
+        assert!(!text.contains("Secret Page Title"), "title text must not render in the document body: {text:?}");
+        assert!(text.contains("Visible Body Text"), "body text should still render normally: {text:?}");
+    }
 }

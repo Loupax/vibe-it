@@ -131,16 +131,14 @@ these.
       `abbr[title] { text-decoration: dotted underline }` in default.css
       now actually renders dotted, not a plain solid underline.
 
-- [ ] `<title>` has no `display: none` in `default.css` — confirmed by
-      grep, there's no `head`/`title`/`meta`/`link`/`base` rule at all
-      right now. Every real UA's default stylesheet hides the whole
-      `<head>` subtree (and `title` specifically, since it's metadata
-      content, not meant to render in the document body) via
-      `display: none`. Right now scratchy likely renders the page
-      `<title>`'s text visibly inline at the top of the document,
-      which is wrong. Add it (and check whether `head`/`meta`/`link`/
-      `base` need the same rule, or whether `head` already doesn't
-      render for some other reason — verify before assuming).
+- [x] `<title>`/`<head>` now hidden (PROMPTS.md v53): `head, title, meta,
+      link, base, noscript { display: none; }` added to `default.css`,
+      narrowed from the WHATWG spec's full hidden-elements list to the
+      tags scratchy actually parses. `head` resolving to `display: none`
+      alone is enough for its children too (`collect_children` never
+      recurses into a `Display::None` element), but the other tags are
+      listed explicitly to match the real spec and stay correct even if
+      one ends up outside `<head>` in a given document.
 
 The rest of this file is a full html-rendering feature-gap survey done
 after v20 (commit 7950fc2), not individual things hit mid-feature like

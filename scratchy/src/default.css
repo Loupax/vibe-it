@@ -36,6 +36,21 @@
        makes <strong> render bold today, like on the
        motherfuckingwebsite.com test page). */
 
+/* ---- hidden (metadata/non-rendered) content ---- */
+
+/* WHATWG HTML spec's "Hidden elements" list
+   (https://html.spec.whatwg.org/multipage/rendering.html#hidden-elements),
+   narrowed to the tags scratchy actually parses into the DOM today
+   (area/datalist/param/rp/template/track aren't relevant yet). `script`/
+   `style` are also hardcoded skipped directly in `collect_children`/
+   `build_table_children` (their *content* must never render even as
+   plain text, which `display: none` alone wouldn't guarantee for a
+   malformed/unclosed tag) — this rule is still correct and harmless for
+   them, and is what actually keeps `head`'s other children (`title`/
+   `meta`/`link`/`base`) from rendering: once `head` itself resolves to
+   `display: none`, nothing underneath it is ever visited at all. */
+head, title, meta, link, base, noscript { display: none; }
+
 /* ---- blocks ---- */
 
 html, body,

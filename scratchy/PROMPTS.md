@@ -3238,3 +3238,50 @@ permanent headless test (`position_fixed_anchors_to_viewport_not_wherever_it_sit
 — only the live "does it actually stay visually still while scrolling"
 behavior is unverified. Worth a real interactive check next time a
 human's at the keyboard, same as `cursor`'s own still-open item.
+
+## v53 — `<head>`/`<title>`/`<meta>`/`<link>`/`<base>` hidden by default
+
+> set up a loop where you pick the next TODO item, and once completed,
+> clear your context and do that again until the list is done
+
+A tiny, user-flagged item (not picked off the standing survey order
+directly — the user noticed `default.css` had no `display: none` rule
+for `<head>`'s contents at all, asked for it to be logged as its own
+`TODO.txt` item, and this session then picked it as the next thing to
+do off that same list). Confirmed by grep before touching anything:
+`script`/`style` are hardcoded skipped in `collect_children`/
+`build_table_children` (so their content never renders even as plain
+text), but `head`/`title`/`meta`/`link`/`base` had no handling
+whatsoever — a real page's `<title>` text would render visibly at the
+top of the document, which every real UA explicitly prevents via its
+default stylesheet's "Hidden elements" rule
+(https://html.spec.whatwg.org/multipage/rendering.html#hidden-elements).
+
+**What/why:** one new `default.css` rule — `head, title, meta, link,
+base, noscript { display: none; }` — narrowed from the spec's full
+hidden-elements list to the tags scratchy actually parses into its DOM
+today (`area`/`datalist`/`param`/`rp`/`template`/`track` aren't
+relevant yet, same "only what's needed" curation policy this
+stylesheet already follows). No code change needed beyond the CSS
+itself: `head` resolving to `display: none` is sufficient on its own —
+`collect_children`'s existing `if style.display == Display::None {
+continue; }` already means a `Display::None` element's children are
+never visited at all, so `title`/`meta`/`link`/`base` nested under
+`head` are covered for free once `head` itself is hidden. The rule
+still explicitly lists `title`/`meta`/`link`/`base` (not just `head`)
+to match the real spec and stay correct even for a document where one
+of these appears somewhere unexpected outside `<head>` (html5ever's own
+tree-construction algorithm is quite permissive about relocating
+stray tags).
+
+One new permanent test, `title_text_does_not_render` (71 total): parses
+a document with `<title>Secret Page Title</title>` plus a visible body
+paragraph, walks the full `LayoutBox` tree collecting every rendered
+text run, and asserts the title text never appears while the body text
+does. Visually confirmed with a real `grim` screenshot: a page with a
+`<title>` and a body paragraph renders only the paragraph, nothing from
+`<head>` at all.
+
+**Deliverable:** `src/default.css` (new hidden-elements rule), one new
+permanent test in `src/lib.rs`'s `mod tests`. `TODO.txt`'s corresponding
+item checked off.
