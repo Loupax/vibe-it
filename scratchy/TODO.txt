@@ -563,7 +563,7 @@ session can pick a coherent slice rather than one property at a time.
             wording, as grid's single most load-bearing primitive).
 
 - [x] Last member of what was once a cluster of CSS properties:
-      `word-spacing` (PENDING_COMMIT_HASH, v59) now parses (`normal` or a
+      `word-spacing` (4a4f57d, v59) now parses (`normal` or a
       plain `px`/`em`/`rem` `<length>`, real CSS inheritance, same
       grammar/cascade shape the reverted `letter-spacing` attempt would
       have used) and genuinely widens the gap between words — but,
