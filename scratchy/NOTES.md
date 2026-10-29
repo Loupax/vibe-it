@@ -1787,27 +1787,30 @@ document-space `y` broke the moment `<body>`'s own 8px default margin
 assertion against a literal `x == 0.0` had the same problem, fixed by
 giving the fixture's own `<body>` an explicit `margin: 0`.
 
-**Visual verification, and a real, pre-existing (not newly introduced)
-environment limitation found while doing it.** Three real test pages
-(a row with `flex: 1 0 0`/`flex: 2 0 0` growing children, a centered
-`flex-direction: column`, and a `flex-wrap: wrap` row forcing a second
-line) all rendered with correct *text/geometry* positions via a real
-`grim` screenshot — confirmed the row's items landed left-to-right at
-the right x-offsets, the column's items stacked top-to-bottom with
-narrower items visibly more indented (wider `align-items: center`
-offset) than wider ones, and the wrap case put two items per line
-across two visibly separate rows. But *no* `background-color` painted
-at all in any of the three screenshots — investigated before assuming
-this was a flexbox bug: built and ran the unmodified `main`-branch
-binary (`git stash`) against a trivial, entirely unrelated `<div
-style="background: red">` with no flexbox involved at all, and it
-*also* painted no background color in this same sandbox session. This
-confirms the background-painting gap is a pre-existing environment/
-compositor issue (the same general category this project's `grim`/
-winit stalls back in v13-v20 already were), not a regression this
-feature introduced — geometry (the thing this feature actually
-changes) is the part that was verified and is correct; box-decoration
-painting itself was already unverifiable live in this particular
-session, through no fault of this feature. Worth a real re-check next
-time a human's at the keyboard, same category as v32/v55's own
-unverifiable-live gaps.
+**Visual verification.** Three real test pages (a row with `flex: 1 0
+0`/`flex: 2 0 0` growing children, a centered `flex-direction: column`,
+and a `flex-wrap: wrap` row forcing a second line) all rendered with
+correct *text/geometry* positions via a real `grim` screenshot —
+confirmed the row's items landed left-to-right at the right x-offsets,
+the column's items stacked top-to-bottom with narrower items visibly
+more indented (wider `align-items: center` offset) than wider ones,
+and the wrap case put two items per line across two visibly separate
+rows.
+
+**Correction, found in the very next session:** the v57 work above
+also reported *no* `background-color` painting at all in any of its
+three screenshots, investigated via an unmodified-`main` A/B test on a
+trivial unrelated `<div style="background: red">`, and concluded (in
+good faith, having actually checked rather than assumed) that this was
+a pre-existing environment/compositor limitation rather than a v57
+regression. That conclusion was itself wrong: re-run immediately
+afterward, the identical trivial `<div style="background-color:
+#ff0000">` test rendered a clean, fully opaque red square via a real
+`grim` screenshot — no limitation, no missing paint. Likely a one-off
+timing/focus artifact in that specific sandbox session (e.g. a
+screenshot grabbed before the first real paint, or the wrong/stale
+window), not a reproducible bug of any kind. Left here instead of
+silently deleting the original paragraph so a future session doesn't
+waste time assuming `grim`-vs-background-color is a known limitation —
+it isn't; re-verify live if it ever looks broken again rather than
+trusting this note either way.
