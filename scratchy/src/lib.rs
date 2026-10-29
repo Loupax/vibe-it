@@ -3680,3 +3680,213 @@ pub fn run() {
 
     event_loop.run_app(&mut app).unwrap();
 }
+
+/// Persistent regression tests, kept from here on (not removed before
+/// committing like `NOTES.md`'s earlier versions describe) — see the
+/// `PROMPTS.md` entry explaining the switch. Organized by the feature
+/// each test guards, roughly in the order those features landed.
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ---------- v36: `rem` resolves against `<html>`'s real font-size ----------
+
+    fn find_deepest_nonzero_margin_top(b: &LayoutBox) -> Option<&LayoutBox> {
+        if let BoxContent::Blocks(children) = &b.content {
+            for c in children {
+                if let Some(found) = find_deepest_nonzero_margin_top(c) {
+                    return Some(found);
+                }
+            }
+        }
+        if b.style.margin.top != 0.0 {
+            return Some(b);
+        }
+        None
+    }
+
+    #[test]
+    fn rem_resolves_against_html_font_size() {
+        let doc = parse_html(
+            r#"<html style="font-size: 40px"><body><div style="margin-top: 2rem">x</div></body></html>"#,
+        );
+        let tree = build_layout_tree(&doc);
+        let div = find_deepest_nonzero_margin_top(&tree).expect("div not found");
+        assert_eq!(div.style.margin.top, 80.0, "2rem should resolve against html's 40px, giving 80px");
+    }
+
+    #[test]
+    fn rem_defaults_to_16_without_html_override() {
+        let doc = parse_html(r#"<html><body><div style="margin-top: 2rem">x</div></body></html>"#);
+        let tree = build_layout_tree(&doc);
+        let div = find_deepest_nonzero_margin_top(&tree).expect("div not found");
+        assert_eq!(div.style.margin.top, 32.0);
+    }
+
+    // ---------- v37: `:link`/`:visited` pseudo-classes ----------
+
+    fn find_first_span_color(b: &LayoutBox) -> Option<TextColor> {
+        if let BoxContent::Inline(spans) = &b.content {
+            if let Some((_, s)) = spans.first() {
+                return Some(s.color);
+            }
+        } else if let BoxContent::Blocks(children) = &b.content {
+            for c in children {
+                if let Some(found) = find_first_span_color(c) {
+                    return Some(found);
+                }
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn link_pseudo_matches_anchor_with_href() {
+        let doc = parse_html(
+            r#"<html><body><style>a:link { color: #ff0000; } a:visited { color: #00ff00; }</style><a href="x">hi</a></body></html>"#,
+        );
+        let tree = build_layout_tree(&doc);
+        let color = find_first_span_color(&tree).expect("no span found");
+        assert_eq!(color, TextColor::rgb(0xff, 0, 0), ":link should match an <a href> and apply red");
+    }
+
+    #[test]
+    fn link_pseudo_does_not_match_anchor_without_href() {
+        let doc = parse_html(r#"<html><body><style>a:link { color: #ff0000; }</style><a>hi</a></body></html>"#);
+        let tree = build_layout_tree(&doc);
+        let color = find_first_span_color(&tree).expect("no span found");
+        assert_ne!(color, TextColor::rgb(0xff, 0, 0), ":link should not match an <a> without href");
+    }
+
+    #[test]
+    fn visited_never_matches() {
+        let doc = parse_html(
+            r#"<html><body><style>a:visited { color: #00ff00; }</style><a href="x">hi</a></body></html>"#,
+        );
+        let tree = build_layout_tree(&doc);
+        let color = find_first_span_color(&tree).expect("no span found");
+        assert_ne!(color, TextColor::rgb(0, 0xff, 0), ":visited should never match");
+    }
+
+    // ---------- v38: `border-radius` + a visible border (rounded ring) ----------
+
+    #[test]
+    fn rounded_bg_then_ring_combo() {
+        const W: u32 = 40;
+        const H: u32 = 40;
+        let mut pixels = vec![0u32; (W * H) as usize];
+        let bg = TextColor::rgb(0, 0, 255);
+        let border = TextColor::rgb(255, 0, 0);
+        fill_rounded_rect(&mut pixels, W, H, 0.0, 0.0, 40.0, 40.0, 10.0, bg, None);
+        fill_rounded_ring(&mut pixels, W, H, 0.0, 0.0, 40.0, 40.0, 10.0, 5.0, border, None);
+        let px = |x: u32, y: u32| pixels[(y * W + x) as usize];
+
+        assert_eq!(px(0, 0), 0x000000, "corner should be untouched (cut by rounding)");
+        assert_eq!(px(20, 2), 0x_FF0000, "top edge within border thickness should be red");
+        assert_eq!(px(20, 20), 0x_0000FF, "center should show background through the ring's hole");
+        assert_eq!(px(2, 20), 0x_FF0000, "left edge within border thickness should be red");
+    }
+
+    // ---------- v39: text-decoration reaching a block's own text ----------
+
+    fn collect_decorations(b: &LayoutBox, out: &mut Vec<TextDecoration>) {
+        if let BoxContent::Inline(spans) = &b.content {
+            for (_, s) in spans {
+                out.push(s.text_decoration);
+            }
+        }
+        if let BoxContent::Blocks(children) = &b.content {
+            for c in children {
+                collect_decorations(c, out);
+            }
+        }
+    }
+
+    #[test]
+    fn block_own_direct_text_gets_its_own_decoration() {
+        let doc = parse_html(r#"<html><body><p style="text-decoration: underline">text</p></body></html>"#);
+        let tree = build_layout_tree(&doc);
+        let mut decos = Vec::new();
+        collect_decorations(&tree, &mut decos);
+        assert!(decos.iter().any(|d| *d != TextDecoration::new()), "p's own direct text should be underlined: {:?}", decos);
+    }
+
+    #[test]
+    fn decoration_propagates_through_nested_block_descendant() {
+        let doc = parse_html(
+            r#"<html><body><div style="text-decoration: underline"><div>nested</div></div></body></html>"#,
+        );
+        let tree = build_layout_tree(&doc);
+        let mut decos = Vec::new();
+        collect_decorations(&tree, &mut decos);
+        assert!(decos.iter().any(|d| *d != TextDecoration::new()), "nested block descendant should inherit ambient decoration: {:?}", decos);
+    }
+
+    #[test]
+    fn nested_block_can_opt_out_of_decoration_with_none() {
+        let doc = parse_html(
+            r#"<html><body><div style="text-decoration: underline"><div style="text-decoration: none">nested</div></div></body></html>"#,
+        );
+        let tree = build_layout_tree(&doc);
+        let mut decos = Vec::new();
+        collect_decorations(&tree, &mut decos);
+        assert!(decos.iter().all(|d| *d == TextDecoration::new()), "explicit none should opt out: {:?}", decos);
+    }
+
+    #[test]
+    fn sibling_block_does_not_leak_decoration() {
+        let doc = parse_html(
+            r#"<html><body><div style="text-decoration: underline">a</div><div>b</div></body></html>"#,
+        );
+        let tree = build_layout_tree(&doc);
+        let mut decos = Vec::new();
+        collect_decorations(&tree, &mut decos);
+        assert_eq!(decos.len(), 2, "expected exactly 2 spans: {:?}", decos);
+        assert_ne!(decos[0], TextDecoration::new(), "first div should be underlined: {:?}", decos);
+        assert_eq!(decos[1], TextDecoration::new(), "second (sibling) div should NOT inherit the first's decoration: {:?}", decos);
+    }
+
+    // ---------- v40: `overflow: hidden` clips box decoration ----------
+
+    #[test]
+    fn fill_rect_respects_clip() {
+        let mut pixels = vec![0u32; 20 * 20];
+        let color = TextColor::rgb(255, 0, 0);
+        fill_rect(&mut pixels, 20, 20, 0.0, 0.0, 20.0, 20.0, color, Some((5.0, 5.0, 5.0, 5.0)));
+        for y in 0..20u32 {
+            for x in 0..20u32 {
+                let painted = pixels[(y * 20 + x) as usize] != 0;
+                let in_clip = (5..10).contains(&x) && (5..10).contains(&y);
+                assert_eq!(painted, in_clip, "pixel ({x},{y}) painted={painted} in_clip={in_clip}");
+            }
+        }
+    }
+
+    #[test]
+    fn nested_block_decoration_clipped_by_ancestor_overflow_hidden() {
+        let doc = parse_html(
+            r#"<html><body>
+<div style="overflow: hidden; padding: 10px; background-color: #0000ff;">
+  <div style="margin-left: 500px; background-color: #ff0000; padding: 5px;">inner</div>
+</div>
+</body></html>"#,
+        );
+        let tree = build_layout_tree(&doc);
+        let mut font_system = new_font_system();
+        let mut cache = ShapeCache::new();
+        let mut next_id = 0usize;
+        let mut incomplete = false;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let laid = measure(&tree, &mut font_system, 0.0, 0.0, 200.0, &mut next_id, &mut cache, deadline, &mut incomplete);
+        let mut swash_cache = SwashCache::new();
+        let win_w = 800u32;
+        let win_h = 200u32;
+        let mut pixels = vec![0u32; (win_w * win_h) as usize];
+        paint(&laid, &mut font_system, &mut swash_cache, &mut cache, &mut pixels, win_w, win_h, 0.0, None);
+
+        let has_red = pixels.iter().any(|&p| (p & 0x00FF0000) >> 16 == 0xFF && (p & 0xFF) == 0x00 && ((p >> 8) & 0xFF) == 0x00);
+        assert!(!has_red, "inner div's red background should be fully clipped by ancestor overflow:hidden");
+        let has_blue = pixels.contains(&0x0000FF);
+        assert!(has_blue, "outer div's own background should still paint");
+    }
+}

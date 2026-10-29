@@ -2110,3 +2110,47 @@ both pixel-identical to before this change.
 `ComputedStyle::overflow`, `paint`, and `paint_buffer` updated to
 describe the new scope instead of the old text-only one). Narrows the
 `overflow` `TODO.txt` item to just the missing `scroll`/`auto` modes.
+
+---
+
+## v41 — keep verification tests permanently instead of deleting them
+
+> curious, when did we agree to not keep tests?
+
+Asked after v36-v40 each followed the established "write a temporary
+`#[cfg(test)]`, verify, remove before committing" pattern. Checked for
+an actual explicit decision backing that pattern and found none — it
+traces to v13's own `PROMPTS.md` entry, which justified deleting its
+first verification test as "per this project's 'every feature is
+preceded by the exact prompt that generated it' rule: a scratch
+verification harness isn't a feature of scratchy itself, nothing it
+adds persists." That's a self-justification a prior session wrote, by
+analogy to the (unrelated) temporary `eprintln!`/`Instant` perf-
+instrumentation discipline — not something the user asked for, and
+never revisited across v14-v40 despite the perf precedent it leaned on
+getting a proper permanent home of its own (`criterion`/`cargo bench`,
+v20) while correctness tests never did.
+
+Asked the user directly: keep tests going forward (recommended),
+keep deleting them, or decide case by case. Chose to keep them going
+forward. Added a permanent `#[cfg(test)] mod tests` at the end of
+`src/lib.rs` and restored the five verification tests written (then
+deleted) across v36-v40 as its first entries — `rem`/html font-size,
+`:link`/`:visited` matching (+ no-href / :visited-never-matches),
+`border-radius`+border ring (pixel-level), the block-level
+`text-decoration` propagation bug (4 tests: own text, nested-block
+propagation, explicit `none` opt-out, no sibling leak), and
+`overflow: hidden` clipping box decoration (`fill_rect`'s own clip
+behavior + a full `build_layout_tree`→`measure`→`paint` pipeline test).
+All 12 pass; `cargo clippy` stayed at the same 16-warning baseline
+(fixed two trivial lints — `manual_contains`/`manual_range_contains` —
+in the newly-permanent test code so it doesn't start baseline drift).
+
+**Going forward**: a feature's verification test is written, run, and
+kept as part of this suite — not deleted — unless the user says
+otherwise for a specific case. `cargo test` alongside `cargo check`/
+`cargo clippy`/`cargo install --path .` is now part of the standard
+per-feature loop.
+
+**Deliverable:** `src/lib.rs` (`mod tests` with 12 tests). No behavior
+change — test-only.

@@ -696,6 +696,17 @@ In the meantime, ad hoc testing against real pages this session used:
 
 ## Working notes for next session
 
+- **Verification tests are now kept permanently**, in `src/lib.rs`'s
+  `#[cfg(test)] mod tests` — reversed as of v41. Every version from
+  v13 through v40 wrote a temporary `#[cfg(test)]` module, verified,
+  then deleted it before committing, on a self-justification v13 wrote
+  into `PROMPTS.md` that was never actually something the user asked
+  for (see v41's own `PROMPTS.md` entry for the full story — they
+  asked directly when this was decided, and it turned out it wasn't).
+  Going forward: write the test, run it, **keep it** in `mod tests`
+  rather than deleting it, unless told otherwise for a specific case.
+  `cargo test` is now part of the standard per-feature loop alongside
+  `cargo check`/`cargo clippy`/`cargo install --path .`.
 - **Never use a broad `pkill -f "target/debug/scratchy"`** if there's
   any chance a persistent test instance is running (the user often
   keeps one open to interact with directly) — it matches and kills
