@@ -809,3 +809,41 @@ needs mouse-button state + repaint-on-match-change wiring added).
 Positioning (`float`/`position`) and flexbox/grid are the biggest real
 wins for rendering actual pages but are large, invasive undertakings —
 worth tackling after these smaller items, not before.
+
+## v45 — CSS custom properties, `:root`-scoped only
+
+Landed `--name`/`var()` without touching `resolve_style`'s per-element
+cascade at all — real spec behavior inherits/cascades custom properties
+per element, which would be a materially bigger plumbing job (on
+`opacity`'s order, from the TODO.txt item it's still parked under).
+Instead: one flat table of `--name` values harvested from whatever
+rules match the real `<html>` element (`:root`, `html`, ...), then
+`var()` substituted as a single whole-stylesheet text pass before the
+normal parser ever runs. Good enough for the dominant real-world
+pattern (design tokens declared once at the top) — not for per-subtree
+variable overrides, which is now its own documented TODO.txt item
+instead of the old flat "not implemented" one.
+
+Added `:root` as a real pseudo-class along the way (free — just
+delegates to the `is_root()` structural method already there for
+other reasons), same kind of "turned out cheap once actually checked"
+outcome as v44's structural pseudo-classes.
+
+Real bug caught by the tests, not assumed away: gating the whole
+substitution pass on "did we find any custom properties at all" is
+wrong — `var(--undeclared, red)` needs its fallback resolved even when
+*zero* `--name`s exist anywhere in the stylesheet. Gate on "does the
+CSS text mention `var(` at all" instead.
+
+Also, mid-session, the user asked directly to add `<img>` rendering to
+`TODO.txt`. Split out from the old blanket "no replaced elements" item,
+since unlike most of that item it doesn't actually need networking — a
+local/`data:` URI `src` works today, and `snag` already rewrites real
+pages into exactly that form. Not implemented, just tracked as its own
+prioritized item now.
+
+Next real candidates from `TODO.txt`: `:hover`/`:active` state tracking
+(bounded — mouse position already tracked for `cursor`, needs mouse-
+button state + repaint-on-match-change wiring), or `<img>` rendering
+(needs an image-decoder crate decision — not chosen yet). Positioning
+and flexbox/grid remain the biggest real wins but the biggest lifts.

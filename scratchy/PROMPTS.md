@@ -2334,3 +2334,88 @@ pre-existing + 3 new) pass.
 Resolves the structural-pseudo-class open question in the `:hover`/
 `:focus`/`:active` `TODO.txt` item, which now only covers the
 genuinely-missing interaction-state pseudo-classes.
+
+## v45 — CSS custom properties (`--name`/`var()`, `:root`-scoped)
+
+> add to the todo rendering img tags
+
+(sent mid-session, alongside the `<img>` item added to `TODO.txt` — see
+its own entry there; this version's actual feature is custom
+properties, picked right after v44 under the same standing autonomous
+workflow, no new prompt for that part.)
+
+Next `TODO.txt` pick after v44: CSS custom properties, the other item
+flagged as fully spec'd with no design decision needed (unlike
+`opacity`/`letter-spacing`, still untouched). Scoped down deliberately
+to keep this one `resolve_style`-free: real CSS custom properties
+inherit and cascade per-element like any other inherited property,
+which would mean threading a resolved-custom-props map through
+`resolve_style`'s cascade plus a second per-element substitution pass —
+invasive plumbing on `opacity`'s order, not attempted. Instead:
+`var()` resolves against one flat, whole-document table, built once
+from whatever rules match the real `<html>` element (`:root`, `html`,
+`html.foo`, ...) via the same real selector matching `resolve_style`
+uses — not a hardcoded string check — then substituted as a single
+text-level pass over the whole stylesheet before the normal parser
+ever sees it. Added `:root` as a real `OurPseudoClass` variant along
+the way (trivial — delegates straight to `Element::is_root()`, already
+implemented), both because it's the natural place pages declare custom
+properties and because it's a real, independently useful pseudo-class
+on its own.
+
+`Declarations` gained `custom_props: Vec<(String, String)>` (name kept
+exactly as written — custom property names are case-*sensitive*,
+unlike every other property here), populated by a new first branch in
+`DeclParser::parse_value` that treats any `--`-prefixed name as "no
+typed grammar, just capture the raw source text of the value" via
+`ParserState`/`slice_from`. Three new free functions:
+`collect_root_custom_props` (matches rules against `<html>`, merges
+matched rules' `custom_props`), `substitute_css_vars` (balanced-paren-
+aware text scan — correctly finds the matching `)` through a nested
+function call in a fallback, so `var(--a, var(--b, red))` resolves
+right), and its two small helpers (`matching_close_paren`,
+`resolve_var_call`). `build_layout_tree` now harvests `root_vars` from
+the first-pass `rules`, then — gated on the stylesheet text actually
+containing `var(` at all, not on whether any custom property was
+found; a `var(--undeclared, red)` with nothing declaring `--undeclared`
+still needs the fallback substituted — re-parses both `DEFAULT_CSS` and
+the page's own `<style>` text with vars substituted, replacing `rules`
+entirely before any element resolution happens.
+
+First test run caught a real bug in my own initial design, not a
+production bug: gating the whole substitution pass on `!root_vars.
+is_empty()` meant a `var(--undeclared, green)` with zero actual
+`--name` declarations anywhere skipped substitution entirely, so the
+literal `var(...)` text reached the normal color parser, failed, and
+silently fell back to default black instead of resolving the fallback
+— caught by `var_fallback_used_when_prop_undeclared` and
+`nested_var_fallback_resolves` both failing with "black instead of the
+expected color." Fixed by gating on whether the CSS *text* mentions
+`var(` at all (a cheap substring check) instead of whether anything was
+actually found — fallback resolution has to run even with an empty
+vars table. `non_root_custom_prop_is_not_picked_up` (a `--c` declared
+on `.scope`, not `:root`/`html`) exercised the same bug for a different
+reason and is now the test that pins the deliberate "root-scoped only"
+narrowing itself, not just the gating bug.
+
+5 new permanent tests (31 total): `:root`-declared var resolves; a
+plain `html` selector scopes a var too (not just `:root` specifically);
+an undeclared var falls back to its fallback; a fallback containing its
+own nested `var()` resolves correctly; and a non-root-scoped `--c`
+isn't visible to `var()` (pins the documented scope limit, not a bug).
+Visually confirmed with a real `grim` screenshot combining all of it at
+once: `:root`-declared `--bg`/`--brand` painting the body background
+and an `<h1>`'s color; a `<p>` falling back to magenta for an
+undeclared var; and a `.box` whose background uses `var(--brand,
+black)` (brand found, fallback unused) and whose border-color uses
+`var(--undeclared-2, var(--brand))` — nested fallback correctly
+resolving through to the same brand blue.
+
+**Deliverable:** `src/lib.rs` (`Declarations.custom_props`, the
+`--`-prefixed branch in `DeclParser::parse_value`, `OurPseudoClass::
+Root`/`:root` parsing+matching, `collect_root_custom_props`/
+`substitute_css_vars`/`matching_close_paren`/`resolve_var_call`, the
+`build_layout_tree` reparse-with-substitution step, 5 new tests in the
+permanent `mod tests`). Resolves the CSS-custom-properties `TODO.txt`
+item, replaced with a narrower one describing exactly the root-only-
+scoping/no-cross-var-substitution limits above.

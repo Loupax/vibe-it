@@ -200,7 +200,22 @@ session can pick a coherent slice rather than one property at a time.
       page's shadow looks visibly wrong without blur, or needs
       `currentColor`/multiple layered shadows.
 
-- [ ] No CSS custom properties (`--foo: ...` / `var(--foo)`).
+- [ ] CSS custom properties (v45) only resolve `var()` against `:root`/
+      `html`-scoped declarations — a flat, whole-document table, not
+      real per-element cascade/inheritance. A `--name` declared on any
+      other selector (scoping a variable to one subtree, e.g. `.dark-
+      mode { --bg: ... }`) is invisible to `var()`. Doing this properly
+      would mean threading a resolved-custom-props map through
+      `resolve_style`'s per-element cascade plus a second, per-element
+      substitution pass (an element's inherited custom props aren't
+      known until its ancestors are resolved) — real, invasive plumbing
+      on the order of the `opacity` item below, not attempted since
+      nothing needs it yet. Also: one custom property's raw value is
+      never itself substituted against another (`--b: var(--a)` inside
+      a `:root` block won't resolve to `--a`'s value — only a `var()`
+      *fallback* gets recursive substitution), and substitution is a
+      text-level scan with no CSS string/comment awareness (`content:
+      "var(--x)"` would still get substituted inside the quotes).
 
 - [ ] No at-rules at all — `@media`, `@import`, `@font-face`,
       `@keyframes`, and transitions/animations are all skipped outright
@@ -215,6 +230,22 @@ session can pick a coherent slice rather than one property at a time.
       `WindowEvent::CursorMoved` position exists, and only for the
       `cursor` property, not selector re-matching/repaint-on-state-
       change).
+
+- [ ] `<img>` doesn't render at all yet — no box model, no decoding, no
+      painting; it falls through as a plain unstyled inline DOM node
+      like any other unrecognized element (see the broader replaced-
+      elements item below). Split out as its own item since it's a real
+      near-term target, unlike most of the rest of that item: it doesn't
+      need scratchy to do any networking of its own — a `src` that's
+      already a local file path or a `data:` URI needs no fetch, and
+      `snag` (the external bundling tool from `NOTES.md`, now built)
+      already rewrites a real page's `<img src>`s into inlined `data:`
+      URIs before scratchy ever sees the file. Needs: an image decoder
+      crate (not chosen yet), a replaced-element box (intrinsic size
+      from the decoded image, `width`/`height` CSS override it the same
+      way they already do for any other box), and a paint path that
+      blits decoded pixels instead of (or alongside) `paint_box_decoration`'s
+      background/border painting.
 
 - [ ] No forms/interactive widgets (`input`/`button`/`select`/
       `textarea` render as plain unstyled DOM nodes, not widgets), no

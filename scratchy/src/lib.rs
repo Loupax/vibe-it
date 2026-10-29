@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::env;
 use std::fs;
 use std::io::{self, Read};
@@ -117,10 +118,17 @@ impl cssparser::ToCss for Atom {
 /// no history), so `:link` can match structurally (any `a`/`area` with an
 /// `href`) and `:visited` can just always decline to match, same as a real
 /// browser would render a link it has no visit record for.
+/// `:root` (v45) just delegates to the `selectors` crate's own
+/// `Element::is_root()` (already implemented for `El` for structural
+/// matching generally) — same element `html` matches, but with `:root`'s
+/// higher specificity. Doubles as the natural place real-world pages
+/// declare CSS custom properties (`:root { --accent: ... }`), which is
+/// exactly what `substitute_css_vars` looks for.
 #[derive(Clone, Debug, Eq, PartialEq)]
 enum OurPseudoClass {
     Link,
     Visited,
+    Root,
 }
 
 impl cssparser::ToCss for OurPseudoClass {
@@ -128,6 +136,7 @@ impl cssparser::ToCss for OurPseudoClass {
         dest.write_str(match self {
             OurPseudoClass::Link => ":link",
             OurPseudoClass::Visited => ":visited",
+            OurPseudoClass::Root => ":root",
         })
     }
 }
@@ -203,6 +212,7 @@ impl<'i> SelectorsParser<'i> for OurSelectorParser {
         match_ignore_ascii_case! { &name,
             "link" => return Ok(OurPseudoClass::Link),
             "visited" => return Ok(OurPseudoClass::Visited),
+            "root" => return Ok(OurPseudoClass::Root),
             _ => {}
         }
         Err(ParseError::custom(SelectorParseErrorKind::UnsupportedPseudoClassOrElement))
@@ -383,6 +393,7 @@ impl SelectorsElement for El {
             // see `OurPseudoClass`'s own docs.
             OurPseudoClass::Link => self.is_link(),
             OurPseudoClass::Visited => false,
+            OurPseudoClass::Root => self.is_root(),
         }
     }
 
@@ -565,8 +576,17 @@ impl LineHeight {
     }
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Default)]
 struct Declarations {
+    /// `--name: <raw text>` custom-property declarations on this rule,
+    /// in source order, name kept exactly as written (custom property
+    /// names are case-*sensitive*, unlike every other property this file
+    /// matches via `eq_ignore_ascii_case`). The raw value text is kept
+    /// unparsed/unresolved here — `var()` substitution happens as a
+    /// whole-stylesheet text pass in `substitute_css_vars`, not here; see
+    /// its own docs for why and for the "`:root`/`html`-scoped only, no
+    /// per-element override chain" simplification this implies.
+    custom_props: Vec<(String, String)>,
     color: Option<CssColor>,
     background_color: Option<CssColor>,
     display: Option<Display>,
@@ -1267,7 +1287,16 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
         input: &mut CssParser<'i>,
         _declaration_start: &ParserState,
     ) -> Result<Self::Declaration, ParseError<Self::Error>> {
-        if name.eq_ignore_ascii_case("color") {
+        if name.starts_with("--") {
+            // Custom property: grammar is "anything", so there's no typed
+            // value to parse — just capture the raw source text of the
+            // whole value (consuming every token so `parse_entirely`,
+            // which wraps this call, doesn't see it as a parse error).
+            let start = input.state();
+            while input.next().is_ok() {}
+            let raw = input.slice_from(start.position()).trim().to_string();
+            self.decls.custom_props.push((name.to_string(), raw));
+        } else if name.eq_ignore_ascii_case("color") {
             if let Ok(c) = CssColor::parse(input) {
                 self.decls.color = Some(c);
             }
@@ -1670,6 +1699,149 @@ fn parse_stylesheet(css: &str) -> Vec<StyleRule> {
         }
     }
     rules
+}
+
+/// Collects every `--name` custom-property declaration from whichever
+/// `rules` match the document's real `<html>` element — i.e. `:root`,
+/// `html`, `html.foo`, or anything else whose selector happens to match
+/// it, via the exact same real selector matching `resolve_style` uses,
+/// not a hardcoded string check. This is the dominant real-world pattern
+/// for custom properties (design tokens declared once at the top,
+/// referenced everywhere via `var()`) and is deliberately the *only*
+/// pattern supported: a `--name` declared on some other, non-root-
+/// matching selector (e.g. `.dark-mode { --bg: ... }`, scoping a
+/// variable to one subtree) isn't picked up here and plays no part in
+/// `var()` substitution. Real CSS custom properties inherit per-element
+/// like any other inherited property, with descendants able to override
+/// them — that would mean threading a resolved-custom-props map through
+/// `resolve_style`'s per-element cascade (plus a second, per-element
+/// `var()` substitution pass, since an element's inherited custom props
+/// aren't known until its ancestors are resolved) instead of this one
+/// flat, whole-document table built once up front. Nothing in a real
+/// test page needs anything but root-scoped tokens yet, so that more
+/// invasive version is deferred, not attempted. Later same-name
+/// declarations (by rule order, not specificity) win on a tie, matching
+/// `cascade_property`'s own `>=` tie-break elsewhere in this file.
+fn collect_root_custom_props(rules: &[StyleRule], html: &Handle) -> HashMap<String, String> {
+    let element = El(html.clone());
+    let mut caches = SelectorCaches::default();
+    let mut props = HashMap::new();
+    for rule in rules {
+        let mut ctx = MatchingContext::new(
+            MatchingMode::Normal,
+            None,
+            &mut caches,
+            QuirksMode::NoQuirks,
+            NeedsSelectorFlags::No,
+            MatchingForInvalidation::No,
+        );
+        if matches_selector_list(&rule.selectors, &element, &mut ctx) {
+            for (name, value) in &rule.decls.custom_props {
+                props.insert(name.clone(), value.clone());
+            }
+        }
+    }
+    props
+}
+
+/// Replaces every `var(--name)` / `var(--name, <fallback>)` call
+/// anywhere in `css` with the matching entry from `vars` — or, if
+/// `--name` isn't in `vars`, the fallback text (itself recursively
+/// substituted, so `var(--a, var(--b, red))` resolves correctly) — or,
+/// with no fallback either, an empty string (same as everywhere else in
+/// this file: an unresolvable value just makes that one declaration
+/// silently fail to parse, not a hard error for the whole rule/block).
+///
+/// A plain balanced-paren-aware text scan, not a real CSS tokenizer:
+/// correctly finds the *matching* close-paren even through a nested
+/// function call in the fallback, but has no notion of CSS string or
+/// comment context, so (unlike real `var()` substitution) it would still
+/// fire inside a quoted string, e.g. `content: "var(--x)"`. Nothing in
+/// `default.css` or a real test page does that, so not handled. Also:
+/// `vars`' own values are used verbatim, never substituted against each
+/// other — a `:root { --a: blue; --b: var(--a); }` won't resolve `--b`'s
+/// `var(--a)` to `blue`, only a *fallback* ever gets this recursive
+/// treatment. A real page defining one custom property in terms of
+/// another would need that; nothing exercises it yet, and avoiding it
+/// here sidesteps needing a cycle guard for a theoretical `--a: var(--a)`.
+fn substitute_css_vars(css: &str, vars: &HashMap<String, String>) -> String {
+    let bytes = css.as_bytes();
+    let mut out = String::with_capacity(css.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if css[i..].starts_with("var(") && is_var_call_boundary(bytes, i) {
+            let call_start = i + "var(".len();
+            if let Some(call_end) = matching_close_paren(bytes, call_start) {
+                out.push_str(&resolve_var_call(&css[call_start..call_end], vars));
+                i = call_end + 1;
+                continue;
+            }
+        }
+        let ch_len = css[i..].chars().next().map(|c| c.len_utf8()).unwrap_or(1);
+        out.push_str(&css[i..i + ch_len]);
+        i += ch_len;
+    }
+    out
+}
+
+/// `var(` shouldn't match as a trailing slice of a longer identifier
+/// (`-var(`, `myvar(`) — require the preceding byte, if any, to not be
+/// an identifier character.
+fn is_var_call_boundary(bytes: &[u8], i: usize) -> bool {
+    i == 0 || !(bytes[i - 1].is_ascii_alphanumeric() || bytes[i - 1] == b'-' || bytes[i - 1] == b'_')
+}
+
+/// `start` is the index of the first byte *after* an already-consumed
+/// `(` — returns the index of its matching `)`, accounting for any
+/// nested parens in between.
+fn matching_close_paren(bytes: &[u8], start: usize) -> Option<usize> {
+    let mut depth = 1u32;
+    for (offset, &b) in bytes[start..].iter().enumerate() {
+        match b {
+            b'(' => depth += 1,
+            b')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(start + offset);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// `inner` is a `var(...)` call's contents (everything between its outer
+/// parens) — splits on the first *top-level* comma (not one nested
+/// inside a fallback's own function call) into name/fallback, resolves
+/// `name` against `vars`, or recursively substitutes and returns the
+/// fallback if `name` isn't declared.
+fn resolve_var_call(inner: &str, vars: &HashMap<String, String>) -> String {
+    let bytes = inner.as_bytes();
+    let mut depth = 0u32;
+    let mut comma_at = None;
+    for (idx, &b) in bytes.iter().enumerate() {
+        match b {
+            b'(' => depth += 1,
+            b')' => depth = depth.saturating_sub(1),
+            b',' if depth == 0 => {
+                comma_at = Some(idx);
+                break;
+            }
+            _ => {}
+        }
+    }
+    let (name, fallback) = match comma_at {
+        Some(idx) => (inner[..idx].trim(), Some(inner[idx + 1..].trim())),
+        None => (inner.trim(), None),
+    };
+    if let Some(v) = vars.get(name) {
+        return v.clone();
+    }
+    match fallback {
+        Some(f) => substitute_css_vars(f, vars),
+        None => String::new(),
+    }
 }
 
 fn to_text_color(color: &CssColor) -> Option<TextColor> {
@@ -2486,15 +2658,40 @@ fn find_html_element(handle: &Handle) -> Option<Handle> {
 pub fn build_layout_tree(document: &Handle) -> LayoutBox {
     let mut css_source = String::new();
     collect_style_css(document, &mut css_source);
+    let html_handle = find_html_element(document);
     let mut rules = parse_stylesheet(DEFAULT_CSS);
     rules.extend(parse_stylesheet(&css_source));
+    // CSS custom properties (v45): harvest `--name` values from whatever
+    // rules in this first pass match the real `<html>` element (`:root`,
+    // `html`, `html.foo`, ...) — see `collect_root_custom_props`'s own
+    // docs for why only root-matching rules count — then re-parse both
+    // stylesheets with every `var()` call textually substituted
+    // (`substitute_css_vars`) so the normal per-property parsers above
+    // see a plain value, never a `var()` they'd otherwise just silently
+    // fail to recognize and drop. Gated on whether either stylesheet's
+    // *text* mentions `var(` at all, not on whether `root_vars` actually
+    // found anything — a `var(--undeclared, red)` with no matching
+    // `--undeclared` anywhere still needs this pass to fall back to its
+    // literal `red`, so an empty `root_vars` map doesn't mean nothing to
+    // do. Skipped only for the common case of a page that never uses
+    // `var()` at all, to avoid the extra reparse cost.
+    if DEFAULT_CSS.contains("var(") || css_source.contains("var(") {
+        let root_vars = html_handle
+            .as_ref()
+            .map(|html| collect_root_custom_props(&rules, html))
+            .unwrap_or_default();
+        let mut substituted = parse_stylesheet(&substitute_css_vars(DEFAULT_CSS, &root_vars));
+        substituted.extend(parse_stylesheet(&substitute_css_vars(&css_source, &root_vars)));
+        rules = substituted;
+    }
     // `rem` lengths resolve against `<html>`'s own cascaded font-size, not
     // necessarily `ROOT_STYLE.font_size` — resolve it once up front (pure,
     // side-effect-free) so `root_font_size` carries the real value into
     // every other element's `resolve_style` call, including `<html>`'s own
     // second (otherwise-identical) resolution inside `build_children`.
-    let root_font_size = find_html_element(document)
-        .map(|html| resolve_style(&html, &rules, ROOT_STYLE).font_size)
+    let root_font_size = html_handle
+        .as_ref()
+        .map(|html| resolve_style(html, &rules, ROOT_STYLE).font_size)
         .unwrap_or(ROOT_STYLE.font_size);
     let root_inherited = InheritedStyle {
         root_font_size,
@@ -4362,5 +4559,61 @@ mod tests {
         assert_eq!(colors.len(), 2);
         assert_eq!(colors[0], TextColor::rgb(0, 0, 0xff), ":first-child should match the 1st <p>");
         assert_ne!(colors[1], TextColor::rgb(0, 0, 0xff), ":first-child should not match the 2nd <p>");
+    }
+
+    // ---------- v45: CSS custom properties (`:root`/`html`-scoped) + `var()` ----------
+
+    #[test]
+    fn root_custom_prop_resolves_via_var() {
+        let doc = parse_html(
+            r#"<html><head><style>:root { --c: #ff0000; } p { color: var(--c); }</style></head><body><p>hi</p></body></html>"#,
+        );
+        let tree = build_layout_tree(&doc);
+        let color = find_first_span_color(&tree).expect("no span found");
+        assert_eq!(color, TextColor::rgb(0xff, 0, 0), "var(--c) should resolve to the :root-declared value");
+    }
+
+    #[test]
+    fn html_selector_also_scopes_a_custom_prop() {
+        let doc = parse_html(
+            r#"<html><head><style>html { --c: #0000ff; } p { color: var(--c); }</style></head><body><p>hi</p></body></html>"#,
+        );
+        let tree = build_layout_tree(&doc);
+        let color = find_first_span_color(&tree).expect("no span found");
+        assert_eq!(color, TextColor::rgb(0, 0, 0xff), "var(--c) should resolve via a plain `html` selector too");
+    }
+
+    #[test]
+    fn var_fallback_used_when_prop_undeclared() {
+        let doc = parse_html(
+            r#"<html><head><style>p { color: var(--undefined, #00ff00); }</style></head><body><p>hi</p></body></html>"#,
+        );
+        let tree = build_layout_tree(&doc);
+        let color = find_first_span_color(&tree).expect("no span found");
+        assert_eq!(color, TextColor::rgb(0, 0xff, 0), "an undeclared custom property should fall back to the fallback value");
+    }
+
+    #[test]
+    fn nested_var_fallback_resolves() {
+        let doc = parse_html(
+            r#"<html><head><style>p { color: var(--a, var(--b, #112233)); }</style></head><body><p>hi</p></body></html>"#,
+        );
+        let tree = build_layout_tree(&doc);
+        let color = find_first_span_color(&tree).expect("no span found");
+        assert_eq!(color, TextColor::rgb(0x11, 0x22, 0x33), "a nested var() inside a fallback should itself resolve");
+    }
+
+    #[test]
+    fn non_root_custom_prop_is_not_picked_up() {
+        let doc = parse_html(
+            r#"<html><head><style>.scope { --c: #ff0000; } p { color: var(--c, #00ff00); }</style></head><body><p class="scope">hi</p></body></html>"#,
+        );
+        let tree = build_layout_tree(&doc);
+        let color = find_first_span_color(&tree).expect("no span found");
+        assert_eq!(
+            color,
+            TextColor::rgb(0, 0xff, 0),
+            "a custom property declared on a non-root-matching selector shouldn't be visible to var() (documented scope limit)"
+        );
     }
 }
