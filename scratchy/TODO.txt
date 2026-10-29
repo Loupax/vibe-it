@@ -634,22 +634,33 @@ session can pick a coherent slice rather than one property at a time.
       originally-identified gaps landed in full — no narrower follow-up
       item needed.
 
-- [ ] `cursor` (PROMPTS.md v32) only tracks `auto`/`pointer` — the one
-      keyword `default.css` actually declares (`a { cursor: pointer }`).
-      No `text`/`wait`/`crosshair`/`move`/`grab`/etc. (easy to add the
-      same way if something needs one). **Not visually verified beyond
-      headless tests + a crash/render smoke-test**: the OS cursor icon
-      is rendered by the compositor, not scratchy's own pixel buffer,
-      so `grim` screenshots can't show it, and this environment has no
-      way to synthesize a real mouse-move event to drive it
-      end-to-end. The hit-testing logic itself (glyph-precision —
-      confirmed a link's own glyphs report `Pointer` while adjacent
-      plain text reports `Auto`) and the `CursorStyle`→`CursorIcon`
-      mapping are both verified directly; only the final
-      `window.set_cursor` call and `WindowEvent::CursorMoved` wiring
-      (thin, mechanical glue around already-tested logic) went
-      untested live. Worth a real interactive check next time a human
-      is at the keyboard.
+- [x] `cursor` (PROMPTS.md v32, extended to the full real keyword set
+      PENDING_HASH, v61): now also parses/maps `default`, `none` (hides
+      the OS cursor via `set_cursor_visible(false)`, not a `CursorIcon`),
+      `context-menu`, `help`, `progress`, `wait`, `cell`, `crosshair`,
+      `text`, `vertical-text`, `alias`, `copy`, `move`, `no-drop`,
+      `not-allowed`, `grab`, `grabbing`, the full resize family
+      (`e`/`n`/`ne`/`nw`/`s`/`se`/`sw`/`w`/`ew`/`ns`/`nesw`/`nwse`/
+      `col`/`row`-`resize`), `all-scroll`, `zoom-in`, `zoom-out` — every
+      real CSS `cursor` keyword winit's own `CursorIcon` (`cursor_icon`
+      1.2.0) can represent, confirmed by reading its vendored enum
+      directly; none were skipped for lacking an equivalent.
+      `hit_test_cursor` itself needed zero changes — it was already
+      keyed on "which `CursorStyle` does this element/glyph resolve to,"
+      never hardcoded to `Pointer`.
+
+      **Still not visually verified beyond headless tests + a
+      crash/render smoke-test, for the exact same reason as before**:
+      the OS cursor icon is rendered by the compositor, not scratchy's
+      own pixel buffer, so `grim` screenshots can't show it, and this
+      environment has no way to synthesize a real mouse-move event to
+      drive it end-to-end. The hit-testing logic (glyph-precision,
+      re-confirmed generalizes to a new keyword, not just `Pointer`) and
+      the `CursorStyle`→`CursorIcon` mapping are both verified directly;
+      only the `window.set_cursor`/`set_cursor_visible` calls and
+      `WindowEvent::CursorMoved` wiring remain untested live. Worth a
+      real interactive check next time a human is at the keyboard — now
+      covering the full keyword set, not just `auto`/`pointer`.
 
 - [ ] `overflow` (v31, extended to box decoration in v40) still only
       supports `visible`/`hidden` — no `scroll`/`auto` (no scrollbar UI,

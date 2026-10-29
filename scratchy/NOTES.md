@@ -2130,3 +2130,48 @@ longhand, nothing ambient) correctly stays invisible — same "don't leave
 a stray color on an inactive line" rule `parse_text_decoration` already
 enforced for the shorthand's own inline color token, now also holding
 across the three longhands combined.
+
+**v61 extended `cursor` (v32) from `auto`/`pointer` to the full real CSS
+keyword set** — the next item in the same autonomous `TODO.txt` loop,
+right after v60. Worth recording the one fact that made this cheap: real
+CSS's `cursor` keyword grammar and winit's own `CursorIcon` (the
+`cursor_icon` crate, checked at its vendored 1.2.0 source) line up
+almost name-for-name — every real keyword this item added had an exact
+winit equivalent, so there was no mapping judgment call to make for any
+of them. The one keyword that genuinely doesn't fit the "pick a
+`CursorIcon`" model is `none` — real CSS defines it as "hide the cursor
+entirely," which isn't an icon at all. Modeled that as `to_winit()`
+returning `Option<CursorIcon>` (`None` = hide) rather than inventing a
+placeholder icon or quietly dropping the keyword; the live handler
+(`WindowEvent::CursorMoved`) now branches on this to call `window.
+set_cursor_visible(false)`/`(true)` instead of `window.set_cursor(..)`
+at exactly the hide/show transitions, keeping the existing "only touch
+the OS cursor state when it actually changed" discipline `last_cursor`
+was already there for (now `Option<CursorIcon>`, to carry the
+hidden state too).
+
+**No change needed anywhere in the hit-testing/propagation path** —
+`hit_test_cursor`, the per-glyph `cursors: Vec<CursorStyle>` threading
+through `shape_spans`, and `cursor`'s real CSS inheritance through
+`InheritedStyle` were all already written generically against
+"whichever `CursorStyle` this span/element resolves to," per v32's own
+original design. Confirmed this rather than assumed it still held after
+tripling the enum's size: a new full-pipeline test uses `cursor: grab`
+(a keyword that didn't exist before this item) and checks `hit_test_
+cursor` still reports it correctly at real glyph precision, alongside an
+adjacent plain-text glyph still reporting `Auto` — same diligence v32's
+own `Pointer`-vs-`Auto` test used, just against a keyword picked
+specifically because nothing in the original implementation could have
+been coincidentally tuned for it.
+
+Also worth noting for whoever eventually tries to live-verify this (or
+`position: sticky`'s own analogous gap, v55): every piece of `cursor`
+that doesn't ultimately bottom out in an OS/compositor call is now
+headlessly verified in as much depth as this codebase's testing
+conventions go — parsing, cascade/inheritance, the `CursorStyle`→
+`CursorIcon` mapping (including the `none` special case), and glyph-
+precision hit-testing. The only thing still unverified live is the
+mechanical, thin layer this sandbox has no tool to exercise end-to-end
+(no synthetic mouse-move event, and `grim` can't see a compositor-drawn
+cursor icon regardless) — not because nobody checked, but because
+nothing in this environment *can* check it.

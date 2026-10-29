@@ -1195,30 +1195,201 @@ impl MaxLen {
     }
 }
 
-/// Just `auto`/`pointer` — the only two keywords `default.css` needs
-/// (`a { cursor: pointer }`; everything else defaults to `auto`). Real
-/// CSS inheritance (`Auto` is the real spec initial value too), unlike
-/// `vertical-align` — a `<span>` nested inside an `<a>` should show the
-/// pointer cursor too without re-declaring it, which real inheritance
-/// gives for free. Threaded per-span (`SpanStyle`/`shape_spans`'s
-/// `Vec<CursorStyle>`, same pattern as `vertical_align`/`visibility`),
-/// since the common real use (`<a>`) is inline content inside a block,
-/// not a block-level box of its own — hit-testing needs to know which
-/// *glyph* the mouse is over, not just which block.
-#[derive(Clone, Copy, PartialEq, Default)]
+/// Originally just `auto`/`pointer` — the only two keywords
+/// `default.css` itself needs (`a { cursor: pointer }`). Extended
+/// (TODO.txt, autonomous pass) to the rest of the real CSS `cursor`
+/// keyword set that winit's own `CursorIcon` can actually represent —
+/// every one of them maps cleanly (confirmed against `cursor_icon`
+/// 1.2.0's vendored source, the crate winit's own `CursorIcon` re-
+/// exports), so nothing here is an invented/approximate mapping; `none`
+/// is real CSS too (hide the cursor entirely), which winit supports via
+/// `Window::set_cursor_visible` — not a `CursorIcon` at all, so
+/// `to_winit()` returns `Option<CursorIcon>` with `None` meaning "hide,
+/// don't set an icon" (see its own docs). Real CSS inheritance (`Auto`
+/// is the real spec initial value too), unlike `vertical-align` — a
+/// `<span>` nested inside an `<a>` should show the pointer cursor too
+/// without re-declaring it, which real inheritance gives for free.
+/// Threaded per-span (`SpanStyle`/`shape_spans`'s `Vec<CursorStyle>`,
+/// same pattern as `vertical_align`/`visibility`), since the common
+/// real use (`<a>`) is inline content inside a block, not a block-level
+/// box of its own — hit-testing needs to know which *glyph* the mouse
+/// is over, not just which block. `hit_test_cursor` itself needed no
+/// changes at all for this extension — it's already keyed on "which
+/// `CursorStyle` does this element/glyph resolve to," never on
+/// `Pointer` specifically.
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub enum CursorStyle {
     #[default]
     Auto,
+    Default,
+    None,
+    ContextMenu,
+    Help,
     Pointer,
+    Progress,
+    Wait,
+    Cell,
+    Crosshair,
+    Text,
+    VerticalText,
+    Alias,
+    Copy,
+    Move,
+    NoDrop,
+    NotAllowed,
+    Grab,
+    Grabbing,
+    EResize,
+    NResize,
+    NeResize,
+    NwResize,
+    SResize,
+    SeResize,
+    SwResize,
+    WResize,
+    EwResize,
+    NsResize,
+    NeswResize,
+    NwseResize,
+    ColResize,
+    RowResize,
+    AllScroll,
+    ZoomIn,
+    ZoomOut,
 }
 
 impl CursorStyle {
-    fn to_winit(self) -> CursorIcon {
-        match self {
-            CursorStyle::Auto => CursorIcon::Default,
+    /// Maps to winit's own `CursorIcon`, or `None` for the one real CSS
+    /// `cursor` keyword that isn't an icon at all: `none` itself, which
+    /// means "hide the OS cursor," not "show some particular icon" —
+    /// the caller is expected to call `Window::set_cursor_visible(false)`
+    /// instead of `Window::set_cursor` whenever this returns `None`.
+    /// Every other keyword maps onto a real `CursorIcon` variant with no
+    /// approximation needed (checked against `cursor_icon` 1.2.0's own
+    /// enum directly).
+    fn to_winit(self) -> Option<CursorIcon> {
+        Some(match self {
+            CursorStyle::Auto | CursorStyle::Default => CursorIcon::Default,
+            CursorStyle::None => return None,
+            CursorStyle::ContextMenu => CursorIcon::ContextMenu,
+            CursorStyle::Help => CursorIcon::Help,
             CursorStyle::Pointer => CursorIcon::Pointer,
-        }
+            CursorStyle::Progress => CursorIcon::Progress,
+            CursorStyle::Wait => CursorIcon::Wait,
+            CursorStyle::Cell => CursorIcon::Cell,
+            CursorStyle::Crosshair => CursorIcon::Crosshair,
+            CursorStyle::Text => CursorIcon::Text,
+            CursorStyle::VerticalText => CursorIcon::VerticalText,
+            CursorStyle::Alias => CursorIcon::Alias,
+            CursorStyle::Copy => CursorIcon::Copy,
+            CursorStyle::Move => CursorIcon::Move,
+            CursorStyle::NoDrop => CursorIcon::NoDrop,
+            CursorStyle::NotAllowed => CursorIcon::NotAllowed,
+            CursorStyle::Grab => CursorIcon::Grab,
+            CursorStyle::Grabbing => CursorIcon::Grabbing,
+            CursorStyle::EResize => CursorIcon::EResize,
+            CursorStyle::NResize => CursorIcon::NResize,
+            CursorStyle::NeResize => CursorIcon::NeResize,
+            CursorStyle::NwResize => CursorIcon::NwResize,
+            CursorStyle::SResize => CursorIcon::SResize,
+            CursorStyle::SeResize => CursorIcon::SeResize,
+            CursorStyle::SwResize => CursorIcon::SwResize,
+            CursorStyle::WResize => CursorIcon::WResize,
+            CursorStyle::EwResize => CursorIcon::EwResize,
+            CursorStyle::NsResize => CursorIcon::NsResize,
+            CursorStyle::NeswResize => CursorIcon::NeswResize,
+            CursorStyle::NwseResize => CursorIcon::NwseResize,
+            CursorStyle::ColResize => CursorIcon::ColResize,
+            CursorStyle::RowResize => CursorIcon::RowResize,
+            CursorStyle::AllScroll => CursorIcon::AllScroll,
+            CursorStyle::ZoomIn => CursorIcon::ZoomIn,
+            CursorStyle::ZoomOut => CursorIcon::ZoomOut,
+        })
     }
+}
+
+/// Parses a `cursor` keyword into `CursorStyle` — every real CSS
+/// `cursor` keyword winit's `CursorIcon` can represent (see
+/// `CursorStyle`'s own docs for why none needed to be skipped), same
+/// `eq_ignore_ascii_case` ladder shape `decoration_style_from_keyword`
+/// already uses for a similar keyword-to-enum property.
+fn cursor_style_from_keyword(kw: &str) -> Option<CursorStyle> {
+    let kw_match = |target: &str| kw.eq_ignore_ascii_case(target);
+    Some(if kw_match("auto") {
+        CursorStyle::Auto
+    } else if kw_match("default") {
+        CursorStyle::Default
+    } else if kw_match("none") {
+        CursorStyle::None
+    } else if kw_match("context-menu") {
+        CursorStyle::ContextMenu
+    } else if kw_match("help") {
+        CursorStyle::Help
+    } else if kw_match("pointer") {
+        CursorStyle::Pointer
+    } else if kw_match("progress") {
+        CursorStyle::Progress
+    } else if kw_match("wait") {
+        CursorStyle::Wait
+    } else if kw_match("cell") {
+        CursorStyle::Cell
+    } else if kw_match("crosshair") {
+        CursorStyle::Crosshair
+    } else if kw_match("text") {
+        CursorStyle::Text
+    } else if kw_match("vertical-text") {
+        CursorStyle::VerticalText
+    } else if kw_match("alias") {
+        CursorStyle::Alias
+    } else if kw_match("copy") {
+        CursorStyle::Copy
+    } else if kw_match("move") {
+        CursorStyle::Move
+    } else if kw_match("no-drop") {
+        CursorStyle::NoDrop
+    } else if kw_match("not-allowed") {
+        CursorStyle::NotAllowed
+    } else if kw_match("grab") {
+        CursorStyle::Grab
+    } else if kw_match("grabbing") {
+        CursorStyle::Grabbing
+    } else if kw_match("e-resize") {
+        CursorStyle::EResize
+    } else if kw_match("n-resize") {
+        CursorStyle::NResize
+    } else if kw_match("ne-resize") {
+        CursorStyle::NeResize
+    } else if kw_match("nw-resize") {
+        CursorStyle::NwResize
+    } else if kw_match("s-resize") {
+        CursorStyle::SResize
+    } else if kw_match("se-resize") {
+        CursorStyle::SeResize
+    } else if kw_match("sw-resize") {
+        CursorStyle::SwResize
+    } else if kw_match("w-resize") {
+        CursorStyle::WResize
+    } else if kw_match("ew-resize") {
+        CursorStyle::EwResize
+    } else if kw_match("ns-resize") {
+        CursorStyle::NsResize
+    } else if kw_match("nesw-resize") {
+        CursorStyle::NeswResize
+    } else if kw_match("nwse-resize") {
+        CursorStyle::NwseResize
+    } else if kw_match("col-resize") {
+        CursorStyle::ColResize
+    } else if kw_match("row-resize") {
+        CursorStyle::RowResize
+    } else if kw_match("all-scroll") {
+        CursorStyle::AllScroll
+    } else if kw_match("zoom-in") {
+        CursorStyle::ZoomIn
+    } else if kw_match("zoom-out") {
+        CursorStyle::ZoomOut
+    } else {
+        return None;
+    })
 }
 
 /// One entry in a `font-family` fallback list — either a specific named
@@ -2516,13 +2687,7 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
             }
         } else if name.eq_ignore_ascii_case("cursor") {
             if let Ok(ident) = input.expect_ident() {
-                self.decls.cursor = if ident.eq_ignore_ascii_case("auto") {
-                    Some(CursorStyle::Auto)
-                } else if ident.eq_ignore_ascii_case("pointer") {
-                    Some(CursorStyle::Pointer)
-                } else {
-                    None
-                };
+                self.decls.cursor = cursor_style_from_keyword(ident);
             }
         } else if name.eq_ignore_ascii_case("flex-direction") {
             if let Ok(ident) = input.expect_ident() {
@@ -8779,10 +8944,13 @@ struct App {
     /// tick later, throwing that work away. A rebuild only commits once
     /// the width has been the same for two ticks in a row.
     pending_width: Option<u32>,
-    /// The OS cursor icon last actually set, so `CursorMoved` only calls
-    /// `window.set_cursor_icon` when the hit-tested style actually
-    /// changes, not on every mouse-move tick.
-    last_cursor: CursorIcon,
+    /// The OS cursor state last actually set, so `CursorMoved` only calls
+    /// `window.set_cursor`/`set_cursor_visible` when the hit-tested style
+    /// actually changes, not on every mouse-move tick. `Some(icon)` means
+    /// visible showing that icon; `None` means hidden (`cursor: none`,
+    /// the one `CursorStyle` with no `CursorIcon` of its own — see
+    /// `CursorStyle::to_winit`'s own docs).
+    last_cursor: Option<CursorIcon>,
 }
 
 impl App {
@@ -8803,7 +8971,7 @@ impl App {
             layout_incomplete: false,
             surface_size: (0, 0),
             pending_width: None,
-            last_cursor: CursorIcon::Default,
+            last_cursor: Some(CursorIcon::Default),
         }
     }
 
@@ -8826,7 +8994,7 @@ impl App {
             layout_incomplete: false,
             surface_size: (0, 0),
             pending_width: None,
-            last_cursor: CursorIcon::Default,
+            last_cursor: Some(CursorIcon::Default),
         }
     }
 
@@ -9005,7 +9173,19 @@ impl ApplicationHandler<AppEvent> for App {
                     )
                     .to_winit();
                     if icon != self.last_cursor {
-                        window.set_cursor(icon);
+                        match icon {
+                            // Restore visibility too, in case the cursor
+                            // was hidden (`cursor: none`) immediately
+                            // beforehand — only when actually transitioning
+                            // out of that state, not on every tick.
+                            Some(ic) => {
+                                window.set_cursor(ic);
+                                if self.last_cursor.is_none() {
+                                    window.set_cursor_visible(true);
+                                }
+                            }
+                            None => window.set_cursor_visible(false),
+                        }
                         self.last_cursor = icon;
                     }
                 }
@@ -11788,5 +11968,188 @@ mod tests {
         );
         let bands = color_bands_in_column(&pixels, win_w, win_h, 10, 0x00FF_0000);
         assert_eq!(bands, 2, "a double underline should still paint two distinct red strokes, same as before this item's refactor");
+    }
+
+    // ---------- v61: extended `cursor` keyword set (TODO.txt autonomous pass) ----------
+
+    fn find_first_span_cursor(b: &LayoutBox) -> Option<CursorStyle> {
+        if let BoxContent::Inline(items) = &b.content {
+            if let Some(InlineItem::Text(_, s)) = items.first() {
+                return Some(s.cursor);
+            }
+        } else if let BoxContent::Blocks(children) = &b.content {
+            for c in children {
+                if let Some(found) = find_first_span_cursor(c) {
+                    return Some(found);
+                }
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn every_cursor_keyword_parses_and_cascades_to_the_right_style() {
+        // Covers the original two keywords (v32, re-added here since v32
+        // predates v41's "keep tests permanently" policy and its own were
+        // written-then-deleted) plus every keyword this item added — one
+        // table-driven test through the real `style="cursor: ..."`
+        // parsing path (`DeclParser`/`cursor_style_from_keyword`), not
+        // just the keyword-mapping helper in isolation.
+        let cases: &[(&str, CursorStyle)] = &[
+            ("auto", CursorStyle::Auto),
+            ("pointer", CursorStyle::Pointer),
+            ("default", CursorStyle::Default),
+            ("none", CursorStyle::None),
+            ("context-menu", CursorStyle::ContextMenu),
+            ("help", CursorStyle::Help),
+            ("progress", CursorStyle::Progress),
+            ("wait", CursorStyle::Wait),
+            ("cell", CursorStyle::Cell),
+            ("crosshair", CursorStyle::Crosshair),
+            ("text", CursorStyle::Text),
+            ("vertical-text", CursorStyle::VerticalText),
+            ("alias", CursorStyle::Alias),
+            ("copy", CursorStyle::Copy),
+            ("move", CursorStyle::Move),
+            ("no-drop", CursorStyle::NoDrop),
+            ("not-allowed", CursorStyle::NotAllowed),
+            ("grab", CursorStyle::Grab),
+            ("grabbing", CursorStyle::Grabbing),
+            ("e-resize", CursorStyle::EResize),
+            ("n-resize", CursorStyle::NResize),
+            ("ne-resize", CursorStyle::NeResize),
+            ("nw-resize", CursorStyle::NwResize),
+            ("s-resize", CursorStyle::SResize),
+            ("se-resize", CursorStyle::SeResize),
+            ("sw-resize", CursorStyle::SwResize),
+            ("w-resize", CursorStyle::WResize),
+            ("ew-resize", CursorStyle::EwResize),
+            ("ns-resize", CursorStyle::NsResize),
+            ("nesw-resize", CursorStyle::NeswResize),
+            ("nwse-resize", CursorStyle::NwseResize),
+            ("col-resize", CursorStyle::ColResize),
+            ("row-resize", CursorStyle::RowResize),
+            ("all-scroll", CursorStyle::AllScroll),
+            ("zoom-in", CursorStyle::ZoomIn),
+            ("zoom-out", CursorStyle::ZoomOut),
+        ];
+        for (keyword, expected) in cases {
+            let html = format!(r#"<html><body><span style="cursor: {keyword}">x</span></body></html>"#);
+            let doc = parse_html(&html);
+            let tree = build_layout_tree(&doc);
+            let cursor = find_first_span_cursor(&tree).unwrap_or_else(|| panic!("no span found for cursor: {keyword}"));
+            assert_eq!(cursor, *expected, "cursor: {keyword} should cascade to {expected:?}, got {cursor:?}");
+        }
+    }
+
+    #[test]
+    fn unrecognized_cursor_keyword_is_dropped_not_guessed() {
+        assert!(cursor_style_from_keyword("bogus-keyword-xyz").is_none());
+    }
+
+    #[test]
+    fn cursor_inherits_through_a_nested_span_for_a_new_keyword() {
+        // Same real-CSS-inheritance shape v32's own doc comment described
+        // for `pointer`/`<a>` — exercised here with one of this item's new
+        // keywords to confirm inheritance wasn't special-cased to just the
+        // two original variants.
+        let doc = parse_html(r#"<html><body><div style="cursor: wait"><span>inherited</span></div></body></html>"#);
+        let tree = build_layout_tree(&doc);
+        let cursor = find_first_span_cursor(&tree).expect("no span found");
+        assert_eq!(cursor, CursorStyle::Wait, "a nested span with no cursor of its own should inherit the ancestor's wait");
+    }
+
+    #[test]
+    fn to_winit_maps_new_keywords_onto_matching_cursor_icons() {
+        // Direct `CursorStyle` -> `CursorIcon` mapping tests for a
+        // representative spread of the new variants (every arm is a
+        // literal 1:1 rename, so this isn't exhaustive over all 30+, just
+        // enough to prove the match arms aren't transposed/miswired).
+        assert_eq!(CursorStyle::Default.to_winit(), Some(CursorIcon::Default));
+        assert_eq!(CursorStyle::Text.to_winit(), Some(CursorIcon::Text));
+        assert_eq!(CursorStyle::Wait.to_winit(), Some(CursorIcon::Wait));
+        assert_eq!(CursorStyle::Progress.to_winit(), Some(CursorIcon::Progress));
+        assert_eq!(CursorStyle::Crosshair.to_winit(), Some(CursorIcon::Crosshair));
+        assert_eq!(CursorStyle::Move.to_winit(), Some(CursorIcon::Move));
+        assert_eq!(CursorStyle::Grab.to_winit(), Some(CursorIcon::Grab));
+        assert_eq!(CursorStyle::Grabbing.to_winit(), Some(CursorIcon::Grabbing));
+        assert_eq!(CursorStyle::NotAllowed.to_winit(), Some(CursorIcon::NotAllowed));
+        assert_eq!(CursorStyle::Help.to_winit(), Some(CursorIcon::Help));
+        assert_eq!(CursorStyle::ZoomIn.to_winit(), Some(CursorIcon::ZoomIn));
+        assert_eq!(CursorStyle::ZoomOut.to_winit(), Some(CursorIcon::ZoomOut));
+        assert_eq!(CursorStyle::NResize.to_winit(), Some(CursorIcon::NResize));
+        assert_eq!(CursorStyle::EwResize.to_winit(), Some(CursorIcon::EwResize));
+        assert_eq!(CursorStyle::ColResize.to_winit(), Some(CursorIcon::ColResize));
+        assert_eq!(CursorStyle::RowResize.to_winit(), Some(CursorIcon::RowResize));
+        assert_eq!(CursorStyle::AllScroll.to_winit(), Some(CursorIcon::AllScroll));
+    }
+
+    #[test]
+    fn cursor_none_maps_to_hide_not_to_any_icon() {
+        // The one real keyword with no `CursorIcon` equivalent at all —
+        // `to_winit()` signals "hide the cursor" via `None`, which the
+        // live `CursorMoved` handler turns into `window.set_cursor_
+        // visible(false)` instead of `window.set_cursor(..)`.
+        assert_eq!(CursorStyle::None.to_winit(), None, "cursor: none should signal \"hide,\" not any particular icon");
+    }
+
+    fn measure_fixture_with_cache(html: &str, available_width: f32) -> (Laid, ShapeCache) {
+        let doc = parse_html(html);
+        let tree = build_layout_tree(&doc);
+        let mut font_system = new_font_system();
+        let mut cache = ShapeCache::new();
+        let mut next_id = 0usize;
+        let mut incomplete = false;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let laid = measure(
+            &tree, &mut font_system, 0.0, 0.0, available_width, None, &mut next_id, &mut cache, deadline,
+            &mut incomplete, &mut Vec::new(), &Floats::default(), None,
+        );
+        (laid, cache)
+    }
+
+    /// Finds the pixel-space center of the first glyph whose own per-span
+    /// cursor (via `glyph.metadata`, the same lookup `hit_test_cursor`
+    /// itself does) matches `want` — lets a test drive `hit_test_cursor`
+    /// at a real, specific coordinate instead of guessing one.
+    fn find_glyph_center(laid: &Laid, cache: &ShapeCache, want: CursorStyle) -> Option<(f32, f32)> {
+        match &laid.content {
+            LaidContent::Blocks(children) | LaidContent::TableRow(children) => {
+                children.iter().find_map(|c| find_glyph_center(c, cache, want))
+            }
+            LaidContent::Text(id) => {
+                let (buffer, _, _, _, _, cursors, _) = cache.get(id)?;
+                let content_x = laid.x + laid.style.border_width + laid.style.padding.left.px();
+                let content_y = laid.y + laid.style.border_width + laid.style.padding.top.px();
+                for run in buffer.layout_runs() {
+                    for glyph in run.glyphs {
+                        if cursors.get(glyph.metadata).copied() == Some(want) {
+                            return Some((content_x + glyph.x + glyph.w / 2.0, content_y + run.line_top + run.line_height / 2.0));
+                        }
+                    }
+                }
+                None
+            }
+            LaidContent::Image(_) | LaidContent::MixedInline(_) => None,
+        }
+    }
+
+    #[test]
+    fn hit_test_cursor_generalizes_to_a_new_keyword_at_glyph_precision() {
+        // The requirement this item's task explicitly called out: v32's
+        // `hit_test_cursor` is keyed on "which `CursorStyle` does this
+        // glyph's span resolve to," not hardcoded to `Pointer` — so a
+        // brand-new keyword (`grab`, picked arbitrarily, not special) needs
+        // zero changes to `hit_test_cursor` itself to hit-test correctly at
+        // real glyph precision, same diligence v32's own pipeline test used
+        // for `Pointer` vs. `Auto`.
+        let (laid, cache) = measure_fixture_with_cache(
+            r#"<html><body><p><span style="cursor: grab">drag me</span> plain text</p></body></html>"#,
+            400.0,
+        );
+        let (gx, gy) = find_glyph_center(&laid, &cache, CursorStyle::Grab).expect("no grab-styled glyph found");
+        let (ax, ay) = find_glyph_center(&laid, &cache, CursorStyle::Auto).expect("no plain-text glyph found");
+        assert_eq!(hit_test_cursor(&laid, gx, gy, &cache, 0.0, 600.0), CursorStyle::Grab, "a glyph inside the styled span should report Grab");
+        assert_eq!(hit_test_cursor(&laid, ax, ay, &cache, 0.0, 600.0), CursorStyle::Auto, "an adjacent plain-text glyph should still report Auto");
     }
 }

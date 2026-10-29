@@ -4193,3 +4193,109 @@ sites; `paint_decorations`/`paint_decoration_line` reworked for uniform
 checked off, no narrower follow-up item needed — all three stated gaps
 landed in full); `NOTES.md` (architecture note on the sine-wave
 approximation and the `Double` unification).
+
+---
+
+## v61 — extended `cursor` keyword set
+
+> set up a loop where you pick the next TODO item, and once completed,
+> clear your context and do that again until the list is done
+
+Next item of that same autonomous `TODO.txt` loop, right after v60's
+`text-decoration` longhands — the last remaining `cursor` gap v32 left
+open: only `auto`/`pointer` were ever parsed, the one keyword
+`default.css` itself declares (`a { cursor: pointer }`). Nothing about
+this needed a design call: winit's own `CursorIcon` (re-exported from
+the `cursor_icon` crate, checked at 1.2.0's vendored source directly)
+turns out to have a clean 1:1 equivalent for every real CSS `cursor`
+keyword — including the full resize family and the less common ones
+(`context-menu`, `cell`, `alias`, `all-scroll`, ...) — so this is a
+mechanical extension through and through, no keyword had to be skipped
+or approximated.
+
+**What landed.** `CursorStyle` grew from 2 variants to the full real
+CSS set: `default`, `none`, `context-menu`, `help`, `progress`, `wait`,
+`cell`, `crosshair`, `text`, `vertical-text`, `alias`, `copy`, `move`,
+`no-drop`, `not-allowed`, `grab`, `grabbing`, the entire resize family
+(`e`/`n`/`ne`/`nw`/`s`/`se`/`sw`/`w`/`ew`/`ns`/`nesw`/`nwse`/`col`/
+`row`-`resize`), `all-scroll`, `zoom-in`, `zoom-out` — alongside the
+original `auto`/`pointer`. A new `cursor_style_from_keyword` helper
+(same `eq_ignore_ascii_case` ladder shape `decoration_style_from_
+keyword` already established for a similarly-shaped keyword property)
+replaces the old 2-armed if/else directly inside `DeclParser`'s
+`cursor` branch.
+
+**The one real design point, called out rather than guessed past:**
+`none` is real CSS (hide the cursor entirely) but has no `CursorIcon`
+equivalent at all — it isn't an icon, it's the absence of one. Rather
+than inventing a fake icon or silently dropping the keyword,
+`CursorStyle::to_winit()` changed signature from `-> CursorIcon` to
+`-> Option<CursorIcon>`, with `None` meaning "hide the cursor" — the
+caller (`WindowEvent::CursorMoved`'s handler) now matches on this and
+calls `window.set_cursor_visible(false)` instead of `window.
+set_cursor(..)` whenever it sees `None`, and restores visibility
+(`set_cursor_visible(true)`) only on the transition back out of that
+state — not on every mouse-move tick, same "only call the OS when the
+state actually changed" discipline `last_cursor` already existed for.
+`App::last_cursor` itself became `Option<CursorIcon>` to track this
+third state (visible-with-icon vs. hidden) correctly.
+
+**Zero changes needed to `hit_test_cursor` or the per-glyph propagation
+machinery** — exactly as v32's own doc comments predicted: that
+function is keyed on "which `CursorStyle` does this element/glyph
+resolve to," never on `Pointer` specifically, and real CSS inheritance
+for `cursor` (threaded through `InheritedStyle`/`SpanStyle` since v32)
+already generalizes to any variant with no extra wiring. Verified this
+claim directly rather than assuming it still held after the enum grew:
+a new full-pipeline test locates an actual `cursor: grab`-styled glyph
+and an adjacent plain-text glyph in a real shaped paragraph and
+confirms `hit_test_cursor` reports `Grab`/`Auto` respectively — the
+same glyph-precision diligence v32's own `Pointer`-vs-`Auto` test used,
+just picked a keyword that didn't exist before this item to prove the
+mechanism is genuinely generic, not coincidentally still working for
+the two cases it was originally written against.
+
+**Verified:** a table-driven test parses and cascades every keyword
+(including re-covering `auto`/`pointer`, whose own v32-era tests had
+been written-then-deleted under the project's pre-v41 test policy) via
+real `style="cursor: ..."` CSS text through the actual `DeclParser`
+path, not just the keyword-mapping helper in isolation; a cascade/
+inheritance test confirms a nested `<span>` with no `cursor` of its own
+inherits a new (not just the original `Pointer`) keyword from an
+ancestor; direct `CursorStyle`→`CursorIcon` mapping tests for a
+representative spread of new variants; a dedicated test confirms
+`CursorStyle::None.to_winit()` is `None`, not some icon; and the
+glyph-precision hit-test test described above. 6 new permanent tests,
+all kept in `mod tests` (nothing written-then-deleted, per the v41
+policy). `cargo check`/`cargo clippy` clean on every touched line (the
+full-crate clippy run still reports the same pre-existing warnings as
+before this change, confirmed by line number — none on anything this
+item touched). All 124 tests pass (118 pre-existing + 6 new). `cargo
+install --path .` run so `~/.cargo/bin/scratchy` isn't left stale. A
+quick headless smoke-test (launch against a page exercising several of
+the new keywords including `none`, confirm it stays up for several
+seconds with no panic/stderr output) — not a live interactive check.
+
+**Still not live-verified, for the exact same reason v32 already
+documented and nothing here changes**: the OS cursor icon is rendered
+by the compositor, outside scratchy's own pixel buffer, so `grim`
+screenshots can't show it, and this sandbox still has no tool to
+synthesize a real mouse-move event to drive `WindowEvent::CursorMoved`
+end-to-end. Every piece verified headlessly above is real verification
+of the logic that *would* drive the live behavior; only the final,
+thin `window.set_cursor`/`set_cursor_visible` OS calls themselves stay
+unverified live, same category this project has flagged before for
+anything whose correctness ultimately depends on OS/compositor-level
+state (v32's own `cursor`, v55's `position: sticky`) — worth a real
+interactive check next time a human's at the keyboard, now covering
+every keyword, not just `pointer`.
+
+**Deliverable:** `src/lib.rs` (`CursorStyle` enum extended from 2 to 33
+variants; `cursor_style_from_keyword` helper; `CursorStyle::to_winit()`
+signature changed to `Option<CursorIcon>`; `App::last_cursor` changed
+to `Option<CursorIcon>`; `WindowEvent::CursorMoved`'s handler updated
+for the hide/show transition; 6 new tests); `TODO.txt` (item checked
+off, caveat about live interactive verification kept, now scoped to the
+full keyword set); `NOTES.md` (no architecturally new note needed
+beyond what's already in this entry and TODO.txt — this was a clean
+mechanical extension with no new category of gap).
