@@ -2220,3 +2220,74 @@ resolution in `resolve_style`, `measure`'s `border_w`/`content_w`/
 `border_h` logic in all three `BoxContent` branches, 6 new tests in the
 permanent `mod tests`). Resolves the biggest item in `TODO.txt`,
 replaced by a narrower `box-sizing`/`min-*`/`max-*`/`%` scope note.
+
+---
+
+## v43 — `box-sizing`, `min-width`/`max-width`/`min-height`/`max-height`
+
+> what's the next item we have in the scratchy todo?
+>
+> yes. do you need any clarifications before you start? I plan to go
+> away after you begin implementing
+
+Next `TODO.txt` item after v42's `width`/`height`: the narrowed
+"content-box only" gap it left behind. No real design decision here —
+`box-sizing`'s two keywords and the min/max clamp order are both
+exactly spec'd — so this went ahead without stopping, same bundling as
+one commit per `TODO.txt` bullet (`box-sizing` and `min-*`/`max-*` were
+one bullet, not two). `%` stays out, per the adjacent, still-open
+`TODO.txt` item — nothing needs it yet, same `px`/`em`/`rem`/
+unitless-`0` forms as everywhere else.
+
+`BoxSizing` (`ContentBox`/`BorderBox`, not inherited, default
+`ContentBox`) and `MaxLen` (`None`/`Len(Length)` — `max-width`/
+`max-height`'s own grammar needs a value distinct from "not declared"
+to let an explicit `none` win over an earlier, more specific rule's
+real length; `min-width`/`min-height` need no such keyword, since their
+initial value, `0`, is already what an absent declaration resolves to)
+are new. `measure`'s separate `border_w`/`content_w`/(three copies of)
+`border_h` formulas collapsed into one `clamp_box_dim` helper, called
+once for width and once per `BoxContent` branch for height: converts
+whichever of `width`/`min-width`/`max-width` (or the height
+equivalents) are set into the box `box_sizing` names via one `extra`
+(2×border-width + the relevant padding pair), takes the `auto` value
+when nothing's specified (container-derived for width, `extra +
+content_h` for height — still subject to `min`/`max` either way, same
+as real CSS: a `min-width` wider than the container forces overflow),
+then clamps `max` before `min` (spec order — an author's `min > max`
+mistake resolves to `min`, never something smaller). All three
+`BoxContent` branches (`Inline`/`Blocks`/`TableRow`) needed the height
+version of this, since each computes its own natural content height
+(`content_h`/`content_h`/`row_h`) independently. `width`'s active role
+(it actually constrains children's layout/text-wrapping width, not
+just the reported size) and `height`'s passive one (overrides only the
+*reported* size — v42's real CSS `overflow: visible` default,
+untouched here) both still hold; `min`/`max-width` share `width`'s
+active role, `min`/`max-height` share `height`'s passive one.
+
+Verified with 6 new permanent tests (23 total): `box-sizing: border-box`
+shrinks the box to the *specified* total instead of adding padding/
+border on top, for both width and height; `min-width` forces a box
+wider than its own container; `max-width` clamps a box narrower than
+its own explicit `width`; `min-width > max-width` resolves to
+`min-width`, never smaller; and `max-height` clamps the reported box
+size while children (two full `<p>`s) are still completely laid out,
+not truncated — same "spill past, don't silently drop" check v42's
+own height test made. All pre-existing tests (23 total incl. these)
+still pass unchanged, confirming the `border_w`/`border_h` refactor is
+behavior-preserving for the default content-box, no-min/max case.
+Visually confirmed with a real `grim` screenshot: a `border-box` box
+rendered visibly smaller overall than an equivalent `content-box` one
+with the same declared `width`; a `width: 500px; max-width: 220px` box
+wrapped its text tightly into a ~220px box instead of 500px; and a
+`max-height: 30px` box combined with `overflow: hidden` clipped
+multi-line text to a short box, consistent with v40's existing
+clipping.
+
+**Deliverable:** `src/lib.rs` (`box-sizing`/`min-width`/`max-width`/
+`min-height`/`max-height` parsing in `DeclarationParser`, `BoxSizing`/
+`MaxLen` types, `Declarations`/`ComputedStyle` fields, cascade
+resolution in `resolve_style`, the new `clamp_box_dim` helper replacing
+`measure`'s inline width/height formulas, 6 new tests in the permanent
+`mod tests`). Resolves the `box-sizing`/`min-*`/`max-*` `TODO.txt` item
+left open by v42; `%` remains its own separate, still-open item.

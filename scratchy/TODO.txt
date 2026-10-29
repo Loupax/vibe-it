@@ -10,13 +10,6 @@ number, since several versions can share one commit and a hash is
 directly actionable. PROMPTS.md is append-only and never edited for
 these.
 
-- [ ] `width`/`height` (v42) are content-box only — no `box-sizing`
-      property (`border-box` would need the width/height to account for
-      padding/border instead of excluding them), no `min-width`/
-      `max-width`/`min-height`/`max-height`, no `%` (same gap as every
-      other length property). Nothing in `default.css` or a real test
-      page needs any of these yet.
-
 - [ ] `%` and unitless (besides literal `0`) are still not supported
       length forms (`px`/`em` landed in v14, `rem` in v34). Not adding
       them until `default.css` or a real test page actually needs one —

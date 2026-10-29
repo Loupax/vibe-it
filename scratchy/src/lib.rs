@@ -572,6 +572,11 @@ struct Declarations {
     display: Option<Display>,
     width: Option<Length>,
     height: Option<Length>,
+    min_width: Option<Length>,
+    max_width: Option<MaxLen>,
+    min_height: Option<Length>,
+    max_height: Option<MaxLen>,
+    box_sizing: Option<BoxSizing>,
     margin_top: Option<Length>,
     margin_right: Option<Length>,
     margin_bottom: Option<Length>,
@@ -726,6 +731,43 @@ enum Overflow {
     Hidden,
 }
 
+/// `width`/`height`/`min-width`/`min-height` all resolve against the same
+/// reference box `box-sizing` names — `ContentBox` (the default) excludes
+/// padding/border, `BorderBox` includes them. Only these two real
+/// keywords; `padding-box` isn't a valid CSS value. Not inherited (same
+/// as `border_width`/`overflow`).
+#[derive(Clone, Copy, PartialEq, Default)]
+enum BoxSizing {
+    #[default]
+    ContentBox,
+    BorderBox,
+}
+
+/// `max-width`/`max-height`'s own grammar needs a value distinct from
+/// "not declared" to represent `none` (the property's real initial
+/// value — unconstrained) winning over an earlier, more specific rule's
+/// actual length — unlike `min-width`/`min-height`, which have no such
+/// keyword and reuse `Length` directly (their initial value, `0`, is
+/// already what an absent declaration resolves to).
+#[derive(Clone, Copy)]
+enum MaxLen {
+    None,
+    Len(Length),
+}
+
+impl MaxLen {
+    /// `None` here means "no constraint" (both the real initial value
+    /// and an explicit `none`) — the same `Option<f32>` shape
+    /// `ComputedStyle::max_width`/`max_height` carry, so this is the
+    /// only place that needs to know `MaxLen` exists at all.
+    fn resolve(self, font_size: f32, root_font_size: f32) -> Option<f32> {
+        match self {
+            MaxLen::None => None,
+            MaxLen::Len(l) => Some(l.resolve(font_size, root_font_size)),
+        }
+    }
+}
+
 /// Just `auto`/`pointer` — the only two keywords `default.css` needs
 /// (`a { cursor: pointer }`; everything else defaults to `auto`). Real
 /// CSS inheritance (`Auto` is the real spec initial value too), unlike
@@ -802,6 +844,25 @@ fn parse_length(input: &mut CssParser) -> Result<Length, ()> {
 fn set_length(input: &mut CssParser, target: &mut Option<Length>) {
     if let Ok(v) = parse_length(input) {
         *target = Some(v);
+    }
+}
+
+/// `max-width`/`max-height`'s own grammar: `none` (the real initial
+/// value) alongside the usual `px`/`em`/`rem`/unitless-zero lengths —
+/// same unparseable-leaves-target-untouched philosophy as `set_length`.
+fn set_max_length(input: &mut CssParser, target: &mut Option<MaxLen>) {
+    let state = input.state();
+    let none_keyword = input.next().ok().and_then(|t| match t {
+        Token::Ident(ident) if ident.eq_ignore_ascii_case("none") => Some(()),
+        _ => None,
+    });
+    if none_keyword.is_some() {
+        *target = Some(MaxLen::None);
+        return;
+    }
+    input.reset(&state);
+    if let Ok(v) = parse_length(input) {
+        *target = Some(MaxLen::Len(v));
     }
 }
 
@@ -1268,6 +1329,24 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
             set_length(input, &mut self.decls.width);
         } else if name.eq_ignore_ascii_case("height") {
             set_length(input, &mut self.decls.height);
+        } else if name.eq_ignore_ascii_case("min-width") {
+            set_length(input, &mut self.decls.min_width);
+        } else if name.eq_ignore_ascii_case("min-height") {
+            set_length(input, &mut self.decls.min_height);
+        } else if name.eq_ignore_ascii_case("max-width") {
+            set_max_length(input, &mut self.decls.max_width);
+        } else if name.eq_ignore_ascii_case("max-height") {
+            set_max_length(input, &mut self.decls.max_height);
+        } else if name.eq_ignore_ascii_case("box-sizing") {
+            if let Ok(ident) = input.expect_ident() {
+                self.decls.box_sizing = if ident.eq_ignore_ascii_case("content-box") {
+                    Some(BoxSizing::ContentBox)
+                } else if ident.eq_ignore_ascii_case("border-box") {
+                    Some(BoxSizing::BorderBox)
+                } else {
+                    None
+                };
+            }
         } else if name.eq_ignore_ascii_case("margin") {
             if let Ok(v) = parse_length(input) {
                 self.decls.margin_top = Some(v);
@@ -1668,10 +1747,11 @@ struct ComputedStyle {
     background_color: Option<TextColor>,
     display: Display,
     /// `None` means `auto` (the default — content-driven sizing, same
-    /// as before this property existed). `Some` is the resolved content
-    /// box's width/height in pixels — content-box semantics (CSS's own
-    /// default `box-sizing`): padding/border still add outward on top
-    /// of this, same as every other box-model field here. See
+    /// as before this property existed). `Some` is the specified
+    /// width/height in pixels, in `box_sizing`'s reference box (content
+    /// box by default, so unchanged from before `box_sizing` existed —
+    /// padding/border still add outward on top of this for
+    /// `ContentBox`, but are *carved out* of it for `BorderBox`): see
     /// `measure`'s own docs for how each is actually applied — they
     /// differ: `width` constrains the content box directly (and
     /// children's own available width), while `height` only overrides
@@ -1680,8 +1760,20 @@ struct ComputedStyle {
     /// paints in full, spilling past this box (real CSS `overflow:
     /// visible` default), clipped only if `overflow: hidden` is also
     /// set (already correct since v40, no extra plumbing needed here).
+    /// `min_width`/`max_width`/`min_height`/`max_height` clamp this same
+    /// box (see `clamp_box_dim`) — `None` means unconstrained on that
+    /// side (`min`'s real initial value, `0`, needs no explicit
+    /// constraint since every box is already floored at `0`; `max`'s
+    /// real initial value is literally `none`).
     width: Option<f32>,
     height: Option<f32>,
+    min_width: Option<f32>,
+    max_width: Option<f32>,
+    min_height: Option<f32>,
+    max_height: Option<f32>,
+    /// Not inherited (same as `overflow`/`border_width`). See
+    /// `BoxSizing`'s own docs.
+    box_sizing: BoxSizing,
     margin: Sides,
     padding: Sides,
     border_width: f32,
@@ -1839,6 +1931,16 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         .map(|l| l.resolve(font_size, inherited.root_font_size));
     let height = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.height), |d| d.height)
         .map(|l| l.resolve(font_size, inherited.root_font_size));
+    let min_width = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.min_width), |d| d.min_width)
+        .map(|l| l.resolve(font_size, inherited.root_font_size));
+    let min_height = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.min_height), |d| d.min_height)
+        .map(|l| l.resolve(font_size, inherited.root_font_size));
+    let max_width = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.max_width), |d| d.max_width)
+        .and_then(|l| l.resolve(font_size, inherited.root_font_size));
+    let max_height = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.max_height), |d| d.max_height)
+        .and_then(|l| l.resolve(font_size, inherited.root_font_size));
+    let box_sizing = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.box_sizing), |d| d.box_sizing)
+        .unwrap_or_default();
     let margin = Sides {
         top: cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.margin_top), |d| d.margin_top)
             .map(|l| l.resolve(font_size, inherited.root_font_size))
@@ -1997,6 +2099,11 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         display,
         width,
         height,
+        min_width,
+        max_width,
+        min_height,
+        max_height,
+        box_sizing,
         margin,
         padding,
         border_width,
@@ -2030,6 +2137,11 @@ fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         display: Display::Block,
         width: None,
         height: None,
+        min_width: None,
+        max_width: None,
+        min_height: None,
+        max_height: None,
+        box_sizing: BoxSizing::default(),
         margin: Sides::default(),
         padding: Sides::default(),
         border_width: 0.0,
@@ -2557,6 +2669,41 @@ fn shape_spans(
     (buffer, height, backgrounds, valigns, hidden, cursors, decoration_styles)
 }
 
+/// Clamps a box-model dimension (`measure`'s own `border_w`/`border_h` —
+/// what margins/siblings stack against) to `min`/`max`, honoring
+/// `box_sizing`'s choice of reference box: per spec, `width`/`min-width`/
+/// `max-width` (and the height equivalents) all resolve against the
+/// *same* box `box-sizing` names, so a single `extra` (2× border-width
+/// plus the relevant padding pair) converts every one of them into
+/// border-box terms uniformly via `to_box`. `max` is applied before
+/// `min` — real CSS clamp order — so an author's `min > max` mistake
+/// resolves to `min`, never something smaller than it. `auto_box` is
+/// the border-box dimension to start from when `specified` is `None`
+/// (`auto`): the container-derived width, or `extra + content_h` for
+/// height — still subject to `min`/`max` either way, same as real CSS
+/// (a `min-width` wider than the container forces overflow).
+fn clamp_box_dim(
+    specified: Option<f32>,
+    min: Option<f32>,
+    max: Option<f32>,
+    auto_box: f32,
+    box_sizing: BoxSizing,
+    extra: f32,
+) -> f32 {
+    let to_box = |raw: f32| match box_sizing {
+        BoxSizing::ContentBox => raw.max(0.0) + extra,
+        BoxSizing::BorderBox => raw.max(0.0),
+    };
+    let mut box_dim = specified.map(to_box).unwrap_or(auto_box);
+    if let Some(mx) = max {
+        box_dim = box_dim.min(to_box(mx));
+    }
+    if let Some(mn) = min {
+        box_dim = box_dim.max(to_box(mn));
+    }
+    box_dim.max(0.0)
+}
+
 /// Lays out `b`, shaping text as it goes — but only until `deadline` passes.
 /// Each paragraph gets a stable id (assigned in document order, so it's the
 /// same id across repeated calls on the same tree) and its shaped result is
@@ -2580,23 +2727,20 @@ pub fn measure(
     let s = b.style;
     let border_x = x + s.margin.left;
     let border_y = y + s.margin.top;
-    // An explicit `width` (content-box: see `ComputedStyle::width`'s own
-    // docs) replaces the container-derived available width outright —
-    // including when it's *wider* than `width` (the incoming available
-    // space): a real CSS box isn't clamped to its container either, it
-    // just extends past it, same as unconstrained content already could.
-    let border_w = if let Some(w) = s.width {
-        w.max(0.0) + 2.0 * s.border_width + s.padding.left + s.padding.right
-    } else {
-        (width - s.margin.left - s.margin.right).max(0.0)
-    };
+    // An explicit `width` (in `s.box_sizing`'s reference box — see
+    // `ComputedStyle::width`'s own docs) replaces the container-derived
+    // available width outright — including when it's *wider* than
+    // `width` (the incoming available space): a real CSS box isn't
+    // clamped to its container either, it just extends past it, same
+    // as unconstrained content already could. `min-width`/`max-width`
+    // (see `clamp_box_dim`) apply regardless of whether `width` itself
+    // was explicit.
+    let extra_w = 2.0 * s.border_width + s.padding.left + s.padding.right;
+    let auto_border_w = (width - s.margin.left - s.margin.right).max(0.0);
+    let border_w = clamp_box_dim(s.width, s.min_width, s.max_width, auto_border_w, s.box_sizing, extra_w);
     let content_x = border_x + s.border_width + s.padding.left;
     let content_y = border_y + s.border_width + s.padding.top;
-    let content_w = if let Some(w) = s.width {
-        w.max(0.0)
-    } else {
-        (border_w - 2.0 * s.border_width - s.padding.left - s.padding.right).max(0.0)
-    };
+    let content_w = (border_w - extra_w).max(0.0);
 
     match &b.content {
         BoxContent::Inline(spans) => {
@@ -2634,15 +2778,25 @@ pub fn measure(
                 PLACEHOLDER_LINE_HEIGHT
             };
 
-            // An explicit `height` overrides only this box's own reported
-            // size (what its *parent* stacks against) — the content above
-            // was already shaped in full against `content_w` regardless,
-            // so it still paints completely, just potentially spilling
-            // past this box if `content_h` (the real content height) is
-            // taller than the explicit `height` (real CSS `overflow:
-            // visible` default; `overflow: hidden` on this element clips
-            // it correctly already, see v40).
-            let border_h = 2.0 * s.border_width + s.padding.top + s.padding.bottom + s.height.unwrap_or(content_h).max(0.0);
+            // An explicit `height` (and `min-height`/`max-height` —
+            // see `clamp_box_dim`) overrides only this box's own
+            // reported size (what its *parent* stacks against) — the
+            // content above was already shaped in full against
+            // `content_w` regardless, so it still paints completely,
+            // just potentially spilling past this box if `content_h`
+            // (the real content height) is taller than the clamped
+            // result (real CSS `overflow: visible` default;
+            // `overflow: hidden` on this element clips it correctly
+            // already, see v40).
+            let extra_h = 2.0 * s.border_width + s.padding.top + s.padding.bottom;
+            let border_h = clamp_box_dim(
+                s.height,
+                s.min_height,
+                s.max_height,
+                extra_h + content_h.max(0.0),
+                s.box_sizing,
+                extra_h,
+            );
             Laid {
                 style: s,
                 x: border_x,
@@ -2667,7 +2821,15 @@ pub fn measure(
             // See the `Inline` branch's own comment just above — same
             // "override only the reported size, children already laid
             // out in full regardless" behavior.
-            let border_h = 2.0 * s.border_width + s.padding.top + s.padding.bottom + s.height.unwrap_or(content_h).max(0.0);
+            let extra_h = 2.0 * s.border_width + s.padding.top + s.padding.bottom;
+            let border_h = clamp_box_dim(
+                s.height,
+                s.min_height,
+                s.max_height,
+                extra_h + content_h.max(0.0),
+                s.box_sizing,
+                extra_h,
+            );
             Laid {
                 style: s,
                 x: border_x,
@@ -2694,7 +2856,15 @@ pub fn measure(
             }
             // Same explicit-`height`-overrides-only-the-reported-size
             // behavior as the `Inline`/`Blocks` branches above.
-            let border_h = 2.0 * s.border_width + s.padding.top + s.padding.bottom + s.height.unwrap_or(row_h).max(0.0);
+            let extra_h = 2.0 * s.border_width + s.padding.top + s.padding.bottom;
+            let border_h = clamp_box_dim(
+                s.height,
+                s.min_height,
+                s.max_height,
+                extra_h + row_h.max(0.0),
+                s.box_sizing,
+                extra_h,
+            );
             Laid {
                 style: s,
                 x: border_x,
@@ -4052,5 +4222,86 @@ mod tests {
         let laid = measure_fixture(r#"<html><body><div style="height: 300px;">x</div></body></html>"#, 400.0);
         let div = find_by_height(&laid, 300.0).expect("div with explicit height not found");
         assert_eq!(div.h, 300.0, "explicit height should win over the much-shorter natural content height");
+    }
+
+    // ---------- v43: box-sizing + min/max-width/height ----------
+
+    #[test]
+    fn box_sizing_border_box_shrinks_content_to_fit_padding_and_border() {
+        let laid = measure_fixture(
+            r#"<html><body><div style="box-sizing: border-box; width: 100px; padding: 10px; border: 5px solid black;">x</div></body></html>"#,
+            500.0,
+        );
+        let div = find_by_width(&laid, 100.0).expect("div with explicit width not found");
+        assert_eq!(
+            div.w, 100.0,
+            "border-box: the specified width is the box's total width, with padding/border carved out of it rather than added on top"
+        );
+    }
+
+    #[test]
+    fn box_sizing_border_box_applies_to_height_too() {
+        let laid = measure_fixture(
+            r#"<html><body><div style="box-sizing: border-box; height: 50px; padding: 10px;">x</div></body></html>"#,
+            400.0,
+        );
+        let div = find_by_height(&laid, 50.0).expect("div with explicit height not found");
+        assert_eq!(
+            div.h, 50.0,
+            "border-box: the specified height is the box's total height, not the content height with padding added on top"
+        );
+    }
+
+    #[test]
+    fn min_width_can_force_the_box_wider_than_its_container() {
+        let laid = measure_fixture(
+            r#"<html><body><div style="min-width: 300px; margin-top: 1px;">x</div></body></html>"#,
+            100.0,
+        );
+        let div = find_laid_by_margin_top(&laid, 1.0).expect("div not found");
+        assert_eq!(
+            div.w, 300.0,
+            "min-width should win even past the container's own available width, same as real CSS"
+        );
+    }
+
+    #[test]
+    fn max_width_clamps_the_box_narrower_than_an_explicit_width() {
+        let laid = measure_fixture(
+            r#"<html><body><div style="width: 500px; max-width: 200px;">x</div></body></html>"#,
+            900.0,
+        );
+        let div = find_by_width(&laid, 500.0).expect("div with explicit width not found");
+        assert_eq!(div.w, 200.0, "max-width should clamp the box below its own explicit width, same as real CSS");
+    }
+
+    #[test]
+    fn min_width_wins_when_author_declares_min_greater_than_max() {
+        let laid = measure_fixture(
+            r#"<html><body><div style="width: 50px; min-width: 400px; max-width: 200px;">x</div></body></html>"#,
+            900.0,
+        );
+        let div = find_by_width(&laid, 50.0).expect("div with explicit width not found");
+        assert_eq!(
+            div.w, 400.0,
+            "when min-width exceeds max-width, the used value is min-width, never something smaller (real CSS clamp order: max first, then min overrides)"
+        );
+    }
+
+    #[test]
+    fn max_height_clamps_reported_height_but_children_still_fully_laid_out() {
+        let laid = measure_fixture(
+            r#"<html><body><div style="max-height: 10px; margin-top: 1px;"><p>line one</p><p>line two</p></div></body></html>"#,
+            400.0,
+        );
+        let outer = find_laid_by_margin_top(&laid, 1.0).expect("div not found");
+        assert_eq!(outer.h, 10.0, "max-height should clamp the box's own reported height even though height itself is auto");
+        let LaidContent::Blocks(children) = &outer.content else {
+            panic!("expected the div's content to be Blocks (two <p> children)");
+        };
+        assert_eq!(children.len(), 2, "both paragraphs should still be present, not truncated");
+        for p in children {
+            assert!(p.h > 0.0, "each paragraph should still be fully laid out with its own real height, not clipped away");
+        }
     }
 }

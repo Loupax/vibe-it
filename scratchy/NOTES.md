@@ -766,3 +766,21 @@ In the meantime, ad hoc testing against real pages this session used:
   the earlier "don't push without asking" caution for this specific,
   explicitly-authorized workflow; it isn't a standing license to push
   in general outside it.
+
+## v43 — `box-sizing`/`min-*`/`max-*`-width/height
+
+Resolved the narrower `box-sizing`/`min-width`/`max-width`/
+`min-height`/`max-height` gap v42 left open (see PROMPTS.md for the
+full design/implementation writeup) — no real design decision
+surfaced this time, unlike v42's own height-overflow question, since
+both `box-sizing`'s two keywords and the min/max clamp precedence are
+exactly spec'd. Collapsed what used to be three separate inline
+`border_h` formulas (one per `BoxContent` branch) plus the `border_w`/
+`content_w` pair into a single `clamp_box_dim` helper — worth
+remembering as the place to extend if a future `%`/`min-content`/
+`max-content` value ever needs the same width/height machinery, rather
+than re-duplicating the clamp logic per branch again.
+
+`%` is still the next real gap on anything width/height-shaped —
+explicitly deferred again here, same as v42, since nothing in
+`default.css` or a real test page has needed it yet.
