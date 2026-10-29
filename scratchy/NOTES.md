@@ -603,6 +603,16 @@ that *do* need an architecture decision or user sign-off (named
 grid, custom properties, at-rules, forms/JS) are explicitly still
 deferred, not forgotten.
 
+**v37 resolved `:link`/`:visited`** — same prioritization pass as v36.
+`NonTSPseudoClass` was a stub uninhabited enum (`OurPseudoClass` now),
+so these silently failed to *parse* at all before, same bug shape as
+v19's `:is()` discovery. `:link` needed no interactivity, just a
+structural check (`a`/`area` with `href`) that also happens to back
+`selectors`' own `:any-link`; `:visited` always declines to match,
+honestly reflecting that scratchy has no navigation/history.
+`:hover`/`:focus`/`:active` still can't parse — they need real
+interaction state, left as a narrower `TODO.txt` item.
+
 ## Priority going forward: rendering, not networking
 
 Explicit decision: the next phase of work is about how scratchy

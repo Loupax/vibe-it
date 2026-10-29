@@ -1872,3 +1872,42 @@ directly, doc comments on `InheritedStyle::root_font_size`/
 `ComputedStyle::root_font_size` updated to describe the real
 resolution instead of the old fixed-constant caveat). Closes the
 narrower-scope `rem` item v34 left in `TODO.txt`.
+
+---
+
+## v37 — `:link`/`:visited` pseudo-classes
+
+> check the TODO for scratchy browser. Lets prioritize things and get
+> to work
+
+Second item off the same prioritization pass as v36. `OurSelectorImpl`'s
+`NonTSPseudoClass` was a stub uninhabited enum, so *any* pseudo-class
+needing element state — `:hover`/`:focus`/`:active`/`:link`/`:visited`
+— failed to parse at all, silently dropping the whole rule (same
+category of bug as v19's `:is()` discovery). `:hover`/`:focus`/
+`:active` genuinely need interactivity state scratchy doesn't track
+yet (left in `TODO.txt`); `:link`/`:visited` need none at all, since
+scratchy has no navigation or history — every hyperlink it ever
+renders is honestly "unvisited."
+
+Replaced the uninhabited `NoPseudoClass` with a real `OurPseudoClass {
+Link, Visited }`, wired `OurSelectorParser::parse_non_ts_pseudo_class`
+to recognize the two keywords, and implemented matching: `:link`
+delegates to a new `El::is_link()` (`a`/`area` with an `href` — an
+anchor with no `href` is a fragment target, not a link, same as a real
+browser) which also backs `selectors`' own built-in `:any-link`
+machinery for free; `:visited` always returns `false`.
+
+Verified both the parse-then-match path (temporary test, removed
+before committing: `a:link { color: red }` applies to `<a href>` but
+not a bare `<a>`, `a:visited` never applies) and visually via `grim`
+against a real page with both rules — the `href`'d link rendered red
+and bold as declared, the `href`-less anchor fell through to
+`default.css`'s unconditional `a` rule (plain blue), confirming the
+`href` gate actually works end-to-end, not just in isolation.
+
+**Deliverable:** `src/lib.rs` (`OurPseudoClass` replacing
+`NoPseudoClass`, `OurSelectorParser::parse_non_ts_pseudo_class`,
+`El::match_non_ts_pseudo_class`, `El::is_link` given a real body).
+Narrows the stateful-pseudo-class `TODO.txt` item to just
+`:hover`/`:focus`/`:active`.

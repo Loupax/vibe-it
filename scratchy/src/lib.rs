@@ -11,8 +11,9 @@ use cosmic_text::{
     TextDecoration, UnderlineStyle, Weight as FontWeight, Wrap,
 };
 use cssparser::{
-    AtRuleParser, CowRcStr, DeclarationParser, ParseError, Parser as CssParser, ParserState,
-    QualifiedRuleParser, RuleBodyItemParser, RuleBodyParser, StyleSheetParser, Token,
+    match_ignore_ascii_case, AtRuleParser, CowRcStr, DeclarationParser, ParseError,
+    Parser as CssParser, ParserState, QualifiedRuleParser, RuleBodyItemParser, RuleBodyParser,
+    StyleSheetParser, Token,
 };
 use cssparser_color::Color as CssColor;
 use html5ever::driver::{parse_document, ParseOpts, Parser};
@@ -108,22 +109,35 @@ impl cssparser::ToCss for Atom {
     }
 }
 
-/// Uninhabited: we support neither interactive pseudo-classes nor pseudo-elements.
+/// `:hover`/`:focus`/`:active` still can't parse (there's no mouse-button
+/// or keyboard-focus state to drive them — only `CursorMoved` exists, and
+/// only for the `cursor` property, not selector matching) — only the two
+/// link-state pseudo-classes, which need no interactivity at all: every
+/// hyperlink scratchy ever renders is honestly "unvisited" (no navigation,
+/// no history), so `:link` can match structurally (any `a`/`area` with an
+/// `href`) and `:visited` can just always decline to match, same as a real
+/// browser would render a link it has no visit record for.
 #[derive(Clone, Debug, Eq, PartialEq)]
-enum NoPseudoClass {}
+enum OurPseudoClass {
+    Link,
+    Visited,
+}
 
-impl cssparser::ToCss for NoPseudoClass {
-    fn to_css<W: std::fmt::Write>(&self, _dest: &mut W) -> std::fmt::Result {
-        match *self {}
+impl cssparser::ToCss for OurPseudoClass {
+    fn to_css<W: std::fmt::Write>(&self, dest: &mut W) -> std::fmt::Result {
+        dest.write_str(match self {
+            OurPseudoClass::Link => ":link",
+            OurPseudoClass::Visited => ":visited",
+        })
     }
 }
 
-impl NonTSPseudoClass for NoPseudoClass {
+impl NonTSPseudoClass for OurPseudoClass {
     fn is_active_or_hover(&self) -> bool {
-        match *self {}
+        false
     }
     fn is_user_action_state(&self) -> bool {
-        match *self {}
+        false
     }
 }
 
@@ -150,7 +164,7 @@ impl SelectorImpl for OurSelectorImpl {
     type NamespacePrefix = Atom;
     type BorrowedLocalName = str;
     type BorrowedNamespaceUrl = str;
-    type NonTSPseudoClass = NoPseudoClass;
+    type NonTSPseudoClass = OurPseudoClass;
     type PseudoElement = NoPseudoElement;
 }
 
@@ -180,6 +194,18 @@ impl<'i> SelectorsParser<'i> for OurSelectorParser {
     /// either, now a real visible bug since v14 made `em` margins active.
     fn parse_is_and_where(&self) -> bool {
         true
+    }
+
+    fn parse_non_ts_pseudo_class(
+        &self,
+        name: CowRcStr<'i>,
+    ) -> Result<OurPseudoClass, ParseError<CssError>> {
+        match_ignore_ascii_case! { &name,
+            "link" => return Ok(OurPseudoClass::Link),
+            "visited" => return Ok(OurPseudoClass::Visited),
+            _ => {}
+        }
+        Err(ParseError::custom(SelectorParseErrorKind::UnsupportedPseudoClassOrElement))
     }
 }
 
@@ -349,10 +375,15 @@ impl SelectorsElement for El {
 
     fn match_non_ts_pseudo_class(
         &self,
-        pc: &NoPseudoClass,
+        pc: &OurPseudoClass,
         _context: &mut MatchingContext<Self::Impl>,
     ) -> bool {
-        match *pc {}
+        match pc {
+            // Every hyperlink scratchy renders is honestly "unvisited" —
+            // see `OurPseudoClass`'s own docs.
+            OurPseudoClass::Link => self.is_link(),
+            OurPseudoClass::Visited => false,
+        }
     }
 
     fn match_pseudo_element(
@@ -365,8 +396,13 @@ impl SelectorsElement for El {
 
     fn apply_selector_flags(&self, _flags: ElementSelectorFlags) {}
 
+    /// A hyperlink *source anchor*, in the CSS selectors sense (drives
+    /// `:any-link` and, via `match_non_ts_pseudo_class`, `:link`) — an
+    /// `a`/`area` with an `href`, not just any `<a>` (an anchor with no
+    /// `href` is a plain fragment target, not a link, same as real
+    /// browsers treat it).
     fn is_link(&self) -> bool {
-        false
+        matches!(element_tag(&self.0), "a" | "area") && element_attr(&self.0, "href").is_some()
     }
 
     fn is_html_slot_element(&self) -> bool {
@@ -3500,3 +3536,4 @@ pub fn run() {
 
     event_loop.run_app(&mut app).unwrap();
 }
+
