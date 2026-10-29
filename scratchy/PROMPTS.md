@@ -2154,3 +2154,69 @@ per-feature loop.
 
 **Deliverable:** `src/lib.rs` (`mod tests` with 12 tests). No behavior
 change — test-only.
+
+---
+
+## v42 — `width`/`height` CSS properties
+
+> cool. what's our next todo item?
+>
+> [followed by a design question: when content is taller than an
+> explicit `height`, spill past the box (real CSS default) or always
+> clip — chose spill-past, "always try to follow the spec to the best
+> of our ability"]
+
+The big gap found while verifying v38: `width`/`height` weren't parsed
+or resolved at all, confirmed by TODO.txt's own grep. Content-box
+semantics (CSS's own default `box-sizing`) — `width`/`height` set the
+*content* box directly; padding/border still add outward on top, same
+as every other box-model field here. Only `px`/`em`/`rem` (same units
+as everything else; `%`/`box-sizing`/`min-*`/`max-*` left as their own
+narrower `TODO.txt` item).
+
+`Declarations`/`ComputedStyle` each gained `width`/`height: Option<f32
+(resolved) / Length (declared)>`, parsed and cascaded the same way as
+every other length property (`em` resolves against this element's own
+font-size, same ordering `margin`/`padding`/`border-width` already
+follow). In `measure`: an explicit `width` replaces the
+container-derived `content_w`/`border_w` outright, including when it's
+*wider* than the available space passed down — not clamped, same as
+real CSS (a box isn't clipped to its container just because it declares
+a width; it extends past it, and `overflow: hidden` on an ancestor, if
+set, already handles clipping that correctly since v40). An explicit
+`height` only overrides this box's own *reported* size — what its
+parent stacks the next sibling against — never the actual child-layout
+process: children are always measured in full against `content_w`
+regardless of `height`, so content taller than an explicit `height`
+still gets fully laid out and painted, spilling past this box (real
+CSS `overflow: visible` default) rather than being silently dropped or
+unconditionally clipped. Confirmed directly with the user which of
+those two `height`-overflow behaviors to build before writing any code,
+since TODO.txt had flagged it as a real design question, not a
+unilateral pick: spec-accurate spill-past, not always-clip.
+
+Verified with 6 permanent tests (first real use of v41's new kept-not-
+deleted test suite) — explicit `width` sets the content-box width
+correctly (padding added outward), an explicit `width` wider than the
+container extends past it rather than clamping, a child with no width
+of its own gets laid out against its *parent's* explicit width (not the
+original container width), an explicit `height` overrides only the
+box's own reported size while its children (two full `<p>`s) are still
+completely present and individually measured — not truncated — and an
+explicit `height` larger than the natural content extends the box.
+Visually confirmed with two `grim` screenshots: a `width: 200px` box
+correctly wraps long text to that width; a `height: 30px` box with no
+`overflow` set visibly lets much-taller content spill past its own
+border/background, with the next sibling paragraph positioned based on
+the declared 30px (not the taller visual content) — overlapping the
+spilled text exactly as a real browser would render it; and (separately)
+a `height: 40px` box with `overflow: hidden` correctly clips the same
+kind of overflow instead, confirming v40's clipping and v42's sizing
+compose correctly together with no extra glue needed.
+
+**Deliverable:** `src/lib.rs` (`width`/`height` parsing in
+`DeclarationParser`, `Declarations`/`ComputedStyle` fields, cascade
+resolution in `resolve_style`, `measure`'s `border_w`/`content_w`/
+`border_h` logic in all three `BoxContent` branches, 6 new tests in the
+permanent `mod tests`). Resolves the biggest item in `TODO.txt`,
+replaced by a narrower `box-sizing`/`min-*`/`max-*`/`%` scope note.

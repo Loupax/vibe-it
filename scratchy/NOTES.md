@@ -673,6 +673,35 @@ closed: `rem` root font-size (v36), `:link`/`:visited` (v37),
 gap found while verifying v38 remains open, flagged for its own
 dedicated future session — see its own `TODO.txt` entry.
 
+**v42 resolved `width`/`height`** — the biggest gap found while
+verifying v38, now closed. Content-box semantics throughout: an
+explicit `width` replaces the container-derived width in `measure`
+outright (including extending past the container when wider — not
+clamped, same as real CSS); an explicit `height` overrides only the
+box's own *reported* size for its parent's stacking, never skips
+actually laying out children in full, so taller content spills past
+the box (confirmed with the user as the deliberate choice — real CSS
+`overflow: visible` default — rather than an always-clip simplification)
+unless that element also sets `overflow: hidden`, which v40's existing
+clipping already handles correctly with no new glue needed. First real
+use of v41's permanent test suite: 6 tests added and kept, not written-
+then-deleted.
+
+With v42, every item flagged in this session (started by "check the
+TODO... prioritize and get to work") is closed: `rem` root font-size
+(v36), `:link`/`:visited` (v37), `border-radius` + border (v38), the
+block-level `text-decoration` bug (v39), `overflow` box-decoration
+clipping (v40), the test-suite policy reversal (v41), and `width`/
+`height` (v42) — the one item v38 surfaced that didn't exist on the
+list at session start. `TODO.txt` is left with only narrower-scope
+residual items (named `font-family`, `%`/unitless lengths,
+`box-sizing`/`min-*`/`max-*`, table auto-layout, `:hover`/`:focus`/
+`:active`, dashed/dotted `border-radius`, `word-spacing`,
+`letter-spacing`, `opacity`) plus the big, still-untouched survey items
+(positioning, flexbox/grid, custom properties, at-rules, forms/
+replaced-elements/JS) — see `TODO.txt` itself for the current list,
+since this prose will drift out of date as more gets picked off.
+
 ## Priority going forward: rendering, not networking
 
 Explicit decision: the next phase of work is about how scratchy

@@ -570,6 +570,8 @@ struct Declarations {
     color: Option<CssColor>,
     background_color: Option<CssColor>,
     display: Option<Display>,
+    width: Option<Length>,
+    height: Option<Length>,
     margin_top: Option<Length>,
     margin_right: Option<Length>,
     margin_bottom: Option<Length>,
@@ -1262,6 +1264,10 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
                     None
                 };
             }
+        } else if name.eq_ignore_ascii_case("width") {
+            set_length(input, &mut self.decls.width);
+        } else if name.eq_ignore_ascii_case("height") {
+            set_length(input, &mut self.decls.height);
         } else if name.eq_ignore_ascii_case("margin") {
             if let Ok(v) = parse_length(input) {
                 self.decls.margin_top = Some(v);
@@ -1661,6 +1667,21 @@ struct ComputedStyle {
     color: TextColor,
     background_color: Option<TextColor>,
     display: Display,
+    /// `None` means `auto` (the default — content-driven sizing, same
+    /// as before this property existed). `Some` is the resolved content
+    /// box's width/height in pixels — content-box semantics (CSS's own
+    /// default `box-sizing`): padding/border still add outward on top
+    /// of this, same as every other box-model field here. See
+    /// `measure`'s own docs for how each is actually applied — they
+    /// differ: `width` constrains the content box directly (and
+    /// children's own available width), while `height` only overrides
+    /// this box's own reported height for its *parent*'s stacking —
+    /// content taller than an explicit `height` still lays out and
+    /// paints in full, spilling past this box (real CSS `overflow:
+    /// visible` default), clipped only if `overflow: hidden` is also
+    /// set (already correct since v40, no extra plumbing needed here).
+    width: Option<f32>,
+    height: Option<f32>,
     margin: Sides,
     padding: Sides,
     border_width: f32,
@@ -1814,6 +1835,10 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
     let font_size = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.font_size), |d| d.font_size)
         .map(|l| l.resolve(inherited.font_size, inherited.root_font_size))
         .unwrap_or(inherited.font_size);
+    let width = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.width), |d| d.width)
+        .map(|l| l.resolve(font_size, inherited.root_font_size));
+    let height = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.height), |d| d.height)
+        .map(|l| l.resolve(font_size, inherited.root_font_size));
     let margin = Sides {
         top: cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.margin_top), |d| d.margin_top)
             .map(|l| l.resolve(font_size, inherited.root_font_size))
@@ -1970,6 +1995,8 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         color,
         background_color,
         display,
+        width,
+        height,
         margin,
         padding,
         border_width,
@@ -2001,6 +2028,8 @@ fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         color: inherited.color,
         background_color: None,
         display: Display::Block,
+        width: None,
+        height: None,
         margin: Sides::default(),
         padding: Sides::default(),
         border_width: 0.0,
@@ -2551,10 +2580,23 @@ pub fn measure(
     let s = b.style;
     let border_x = x + s.margin.left;
     let border_y = y + s.margin.top;
-    let border_w = (width - s.margin.left - s.margin.right).max(0.0);
+    // An explicit `width` (content-box: see `ComputedStyle::width`'s own
+    // docs) replaces the container-derived available width outright —
+    // including when it's *wider* than `width` (the incoming available
+    // space): a real CSS box isn't clamped to its container either, it
+    // just extends past it, same as unconstrained content already could.
+    let border_w = if let Some(w) = s.width {
+        w.max(0.0) + 2.0 * s.border_width + s.padding.left + s.padding.right
+    } else {
+        (width - s.margin.left - s.margin.right).max(0.0)
+    };
     let content_x = border_x + s.border_width + s.padding.left;
     let content_y = border_y + s.border_width + s.padding.top;
-    let content_w = (border_w - 2.0 * s.border_width - s.padding.left - s.padding.right).max(0.0);
+    let content_w = if let Some(w) = s.width {
+        w.max(0.0)
+    } else {
+        (border_w - 2.0 * s.border_width - s.padding.left - s.padding.right).max(0.0)
+    };
 
     match &b.content {
         BoxContent::Inline(spans) => {
@@ -2592,7 +2634,15 @@ pub fn measure(
                 PLACEHOLDER_LINE_HEIGHT
             };
 
-            let border_h = 2.0 * s.border_width + s.padding.top + s.padding.bottom + content_h;
+            // An explicit `height` overrides only this box's own reported
+            // size (what its *parent* stacks against) — the content above
+            // was already shaped in full against `content_w` regardless,
+            // so it still paints completely, just potentially spilling
+            // past this box if `content_h` (the real content height) is
+            // taller than the explicit `height` (real CSS `overflow:
+            // visible` default; `overflow: hidden` on this element clips
+            // it correctly already, see v40).
+            let border_h = 2.0 * s.border_width + s.padding.top + s.padding.bottom + s.height.unwrap_or(content_h).max(0.0);
             Laid {
                 style: s,
                 x: border_x,
@@ -2614,7 +2664,10 @@ pub fn measure(
                 laid_children.push(lc);
             }
             let content_h = cursor_y - content_y;
-            let border_h = 2.0 * s.border_width + s.padding.top + s.padding.bottom + content_h;
+            // See the `Inline` branch's own comment just above — same
+            // "override only the reported size, children already laid
+            // out in full regardless" behavior.
+            let border_h = 2.0 * s.border_width + s.padding.top + s.padding.bottom + s.height.unwrap_or(content_h).max(0.0);
             Laid {
                 style: s,
                 x: border_x,
@@ -2639,7 +2692,9 @@ pub fn measure(
                 cursor_x += cell_w;
                 laid_cells.push(lc);
             }
-            let border_h = 2.0 * s.border_width + s.padding.top + s.padding.bottom + row_h;
+            // Same explicit-`height`-overrides-only-the-reported-size
+            // behavior as the `Inline`/`Blocks` branches above.
+            let border_h = 2.0 * s.border_width + s.padding.top + s.padding.bottom + s.height.unwrap_or(row_h).max(0.0);
             Laid {
                 style: s,
                 x: border_x,
@@ -3888,5 +3943,114 @@ mod tests {
         assert!(!has_red, "inner div's red background should be fully clipped by ancestor overflow:hidden");
         let has_blue = pixels.contains(&0x0000FF);
         assert!(has_blue, "outer div's own background should still paint");
+    }
+
+    // ---------- v42: `width`/`height` CSS properties ----------
+
+    fn measure_fixture(html: &str, available_width: f32) -> Laid {
+        let doc = parse_html(html);
+        let tree = build_layout_tree(&doc);
+        let mut font_system = new_font_system();
+        let mut cache = ShapeCache::new();
+        let mut next_id = 0usize;
+        let mut incomplete = false;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        measure(&tree, &mut font_system, 0.0, 0.0, available_width, &mut next_id, &mut cache, deadline, &mut incomplete)
+    }
+
+    #[test]
+    fn explicit_width_sets_content_box_width() {
+        let laid = measure_fixture(
+            r#"<html><body><div style="width: 100px; padding: 10px;">x</div></body></html>"#,
+            500.0,
+        );
+        let div = find_by_width(&laid, 100.0).expect("div with explicit width not found");
+        assert_eq!(div.w, 120.0, "content-box: 100px content + 10px padding on each side");
+    }
+
+    #[test]
+    fn explicit_width_can_exceed_available_width() {
+        let laid = measure_fixture(r#"<html><body><div style="width: 900px;">x</div></body></html>"#, 200.0);
+        let div = find_by_width(&laid, 900.0).expect("div with explicit width not found");
+        assert_eq!(div.w, 900.0, "an explicit width isn't clamped to the container, same as real CSS");
+    }
+
+    fn find_laid_by_margin_top(laid: &Laid, target: f32) -> Option<&Laid> {
+        if laid.style.margin.top == target {
+            return Some(laid);
+        }
+        if let LaidContent::Blocks(children) = &laid.content {
+            for c in children {
+                if let Some(found) = find_laid_by_margin_top(c, target) {
+                    return Some(found);
+                }
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn explicit_width_constrains_children() {
+        // The inner div has no `width` of its own to search by — marked
+        // with a distinguishing `margin-top` instead (the only nonzero
+        // margin anywhere in this fixture).
+        let laid = measure_fixture(
+            r#"<html><body><div style="width: 150px;"><div style="margin-top: 1px;">inner</div></div></body></html>"#,
+            900.0,
+        );
+        let inner = find_laid_by_margin_top(&laid, 1.0).expect("inner div not found");
+        assert_eq!(inner.w, 150.0, "a child with no width of its own should be laid out against its parent's explicit width");
+    }
+
+    fn find_by_height(laid: &Laid, target_h: f32) -> Option<&Laid> {
+        if laid.style.height == Some(target_h) {
+            return Some(laid);
+        }
+        if let LaidContent::Blocks(children) = &laid.content {
+            for c in children {
+                if let Some(found) = find_by_height(c, target_h) {
+                    return Some(found);
+                }
+            }
+        }
+        None
+    }
+
+    fn find_by_width(laid: &Laid, target_w: f32) -> Option<&Laid> {
+        if laid.style.width == Some(target_w) {
+            return Some(laid);
+        }
+        if let LaidContent::Blocks(children) = &laid.content {
+            for c in children {
+                if let Some(found) = find_by_width(c, target_w) {
+                    return Some(found);
+                }
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn explicit_height_overrides_reported_size_but_children_still_fully_laid_out() {
+        let laid = measure_fixture(
+            r#"<html><body><div style="height: 10px;"><p>line one</p><p>line two</p></div></body></html>"#,
+            400.0,
+        );
+        let outer = find_by_height(&laid, 10.0).expect("div with explicit height not found");
+        assert_eq!(outer.h, 10.0, "the div's own reported height should be exactly the explicit value");
+        let LaidContent::Blocks(children) = &outer.content else {
+            panic!("expected the div's content to be Blocks (two <p> children)");
+        };
+        assert_eq!(children.len(), 2, "both paragraphs should still be present, not truncated");
+        for p in children {
+            assert!(p.h > 0.0, "each paragraph should still be fully laid out with its own real height, not clipped away");
+        }
+    }
+
+    #[test]
+    fn explicit_height_larger_than_content_extends_the_box() {
+        let laid = measure_fixture(r#"<html><body><div style="height: 300px;">x</div></body></html>"#, 400.0);
+        let div = find_by_height(&laid, 300.0).expect("div with explicit height not found");
+        assert_eq!(div.h, 300.0, "explicit height should win over the much-shorter natural content height");
     }
 }
