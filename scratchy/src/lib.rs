@@ -589,6 +589,15 @@ struct Declarations {
     custom_props: Vec<(String, String)>,
     color: Option<CssColor>,
     background_color: Option<CssColor>,
+    /// The raw `url(...)` argument, unresolved — decoding (a `data:`
+    /// URI only, same `<img src>` policy) happens once per matching
+    /// element in `resolve_background_image`, not here, since a
+    /// decoded image can't live in `ComputedStyle` (it's `Copy`; see
+    /// `resolve_background_image`'s own docs). `background-image: none`
+    /// isn't recognized as its own value (parsing simply fails and
+    /// leaves this `None`, same end state) — not a real gap today since
+    /// nothing declares it, but see TODO.txt.
+    background_image: Option<String>,
     display: Option<Display>,
     width: Option<Length>,
     height: Option<Length>,
@@ -1303,6 +1312,10 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
         } else if name.eq_ignore_ascii_case("background-color") {
             if let Ok(c) = CssColor::parse(input) {
                 self.decls.background_color = Some(c);
+            }
+        } else if name.eq_ignore_ascii_case("background-image") {
+            if let Ok(url) = input.expect_url() {
+                self.decls.background_image = Some(url.to_string());
             }
         } else if name.eq_ignore_ascii_case("border-color") {
             if let Ok(c) = CssColor::parse(input) {
@@ -2052,7 +2065,14 @@ fn cascade_property<T: Clone>(
     best.map(|(_, v)| v)
 }
 
-fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle) -> ComputedStyle {
+/// Every rule in `rules` whose selector matches `handle`, paired with its
+/// specificity — the real selector-matching work `resolve_style` itself
+/// needs, factored out so `resolve_background_image` can reuse it
+/// (instead of re-running `matches_selector_list` over every rule a
+/// second time) rather than folding background-image into
+/// `ComputedStyle` itself — see `resolve_background_image`'s own docs
+/// for why it's resolved separately at all.
+fn matching_declarations<'a>(handle: &Handle, rules: &'a [StyleRule]) -> Vec<(u32, &'a Declarations)> {
     let element = El(handle.clone());
     let mut caches = SelectorCaches::default();
     let mut matches: Vec<(u32, &Declarations)> = Vec::new();
@@ -2076,7 +2096,31 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
             matches.push((specificity, &rule.decls));
         }
     }
+    matches
+}
 
+/// Resolves and decodes this element's `background-image`, if any, as
+/// its own small cascade — not folded into `ComputedStyle` the way
+/// `background-color` is, because `ComputedStyle` is `#[derive(Copy)]`
+/// (cheaply duplicated everywhere a box's style is read: `let s = b.
+/// style;` throughout `measure`/`paint`) and a decoded image's pixel
+/// buffer can't be `Copy`. Threaded alongside a box instead, in its own
+/// `Rc` — same reasoning, and the same `Rc<DecodedImage>` type, as
+/// `BoxContent::Image` (see its own docs). Only a `data:` URI `url(...)`
+/// decodes — same `<img src>` policy, see `decode_data_uri`'s own docs.
+fn resolve_background_image(handle: &Handle, rules: &[StyleRule]) -> Option<Rc<DecodedImage>> {
+    let matches = matching_declarations(handle, rules);
+    let inline_decls = element_attr(handle, "style").map(|s| parse_declarations(&s));
+    let url = cascade_property(
+        &matches,
+        inline_decls.as_ref().and_then(|d| d.background_image.clone()),
+        |d| d.background_image.clone(),
+    )?;
+    decode_data_uri(&url).and_then(|b| decode_image_bytes(&b)).map(Rc::new)
+}
+
+fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle) -> ComputedStyle {
+    let matches = matching_declarations(handle, rules);
     let inline_decls = element_attr(handle, "style").map(|s| parse_declarations(&s));
 
     let color = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.color), |d| d.color)
@@ -2421,6 +2465,11 @@ struct DecodedImage {
 
 pub struct LayoutBox {
     style: ComputedStyle,
+    /// `None` for an anonymous box (not a real element — nothing to
+    /// resolve `background-image` against) or a real element that
+    /// didn't declare one. See `resolve_background_image`'s own docs
+    /// for why this lives here instead of on `style` itself.
+    background_image: Option<Rc<DecodedImage>>,
     content: BoxContent,
 }
 
@@ -2475,7 +2524,7 @@ fn img_size_attr(handle: &Handle, name: &str) -> Option<f32> {
 /// back to rendering `alt` as plain text in the image's place, same as a
 /// real browser's "fallback content" for a replaced element that failed
 /// to load, rather than collapsing to a blank 0×0 box.
-fn build_img_box(handle: &Handle, mut style: ComputedStyle) -> LayoutBox {
+fn build_img_box(handle: &Handle, mut style: ComputedStyle, background_image: Option<Rc<DecodedImage>>) -> LayoutBox {
     if style.width.is_none() {
         style.width = img_size_attr(handle, "width");
     }
@@ -2484,10 +2533,10 @@ fn build_img_box(handle: &Handle, mut style: ComputedStyle) -> LayoutBox {
     }
     let decoded = element_attr(handle, "src").and_then(|src| decode_data_uri(&src)).and_then(|b| decode_image_bytes(&b));
     match decoded {
-        Some(image) => LayoutBox { style, content: BoxContent::Image(Rc::new(image)) },
+        Some(image) => LayoutBox { style, background_image, content: BoxContent::Image(Rc::new(image)) },
         None => {
             let alt = element_attr(handle, "alt").map(|a| a.to_string()).unwrap_or_default();
-            LayoutBox { style, content: BoxContent::Inline(vec![(alt, style.inherited().into())]) }
+            LayoutBox { style, background_image, content: BoxContent::Inline(vec![(alt, style.inherited().into())]) }
         }
     }
 }
@@ -2503,6 +2552,10 @@ fn build_img_box(handle: &Handle, mut style: ComputedStyle) -> LayoutBox {
 /// inline branch already uses, just applied once per block too.
 fn build_box_for_element(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle, decoration: DecorationValue) -> LayoutBox {
     let style = resolve_style(handle, rules, inherited);
+    // Resolved once here (cheap to carry further — just an `Rc` clone —
+    // vs. re-running `resolve_background_image`'s own selector-matching
+    // pass again in every branch below).
+    let background_image = resolve_background_image(handle, rules);
     // `<img>` is a void element (no real children to walk) and a
     // replaced element (its own box, built directly from the decoded
     // image rather than `BoxContent::Blocks`/`Inline`) — handled before
@@ -2510,12 +2563,13 @@ fn build_box_for_element(handle: &Handle, rules: &[StyleRule], inherited: Inheri
     // own branch just below uses for the same reason (it builds its
     // `LayoutBox` directly too, rather than delegating further down).
     if element_tag(handle) == "img" {
-        return build_img_box(handle, style);
+        return build_img_box(handle, style, background_image);
     }
     let own_decoration = style.text_decoration.unwrap_or(decoration);
     if style.display == Display::Table {
         return LayoutBox {
             style,
+            background_image,
             content: BoxContent::Blocks(build_table_children(handle, rules, style.inherited(), own_decoration)),
         };
     }
@@ -2526,6 +2580,7 @@ fn build_box_for_element(handle: &Handle, rules: &[StyleRule], inherited: Inheri
     };
     LayoutBox {
         style,
+        background_image,
         content: BoxContent::Blocks(build_children_with_prefix(handle, rules, style.inherited(), prefix, own_decoration)),
     }
 }
@@ -2558,7 +2613,8 @@ fn build_table_children(handle: &Handle, rules: &[StyleRule], inherited: Inherit
             Display::None => {}
             Display::TableRow => {
                 let cells = build_table_row_cells(child, rules, style.inherited(), child_decoration);
-                result.push(LayoutBox { style, content: BoxContent::TableRow(cells) });
+                let background_image = resolve_background_image(child, rules);
+                result.push(LayoutBox { style, background_image, content: BoxContent::TableRow(cells) });
             }
             Display::TableGroup => {
                 result.extend(build_table_children(child, rules, style.inherited(), child_decoration));
@@ -2633,6 +2689,7 @@ fn build_children_with_prefix(
     if !pending.is_empty() {
         result.push(LayoutBox {
             style: anonymous_style(inherited),
+            background_image: None,
             content: BoxContent::Inline(pending),
         });
     }
@@ -2704,6 +2761,7 @@ fn collect_children(
                     if !pending.is_empty() {
                         result.push(LayoutBox {
                             style: anonymous_style(inherited),
+                            background_image: None,
                             content: BoxContent::Inline(std::mem::take(pending)),
                         });
                     }
@@ -2804,6 +2862,7 @@ pub fn build_layout_tree(document: &Handle) -> LayoutBox {
     };
     LayoutBox {
         style: anonymous_style(root_inherited),
+        background_image: None,
         content: BoxContent::Blocks(build_children(document, &rules, root_inherited, DecorationValue::default())),
     }
 }
@@ -2841,6 +2900,10 @@ pub struct Laid {
     y: f32,
     w: f32,
     h: f32,
+    /// Carried straight over from the `LayoutBox` this was measured
+    /// from (an `Rc` clone — see its own docs for why it isn't on
+    /// `style`), for `paint` to tile behind this box's own content.
+    background_image: Option<Rc<DecodedImage>>,
     content: LaidContent,
 }
 
@@ -3106,6 +3169,7 @@ pub fn measure(
                 y: border_y,
                 w: border_w,
                 h: border_h,
+                background_image: b.background_image.clone(),
                 content: LaidContent::Text(id),
             }
         }
@@ -3139,6 +3203,7 @@ pub fn measure(
                 y: border_y,
                 w: border_w,
                 h: border_h,
+                background_image: b.background_image.clone(),
                 content: LaidContent::Blocks(laid_children),
             }
         }
@@ -3174,6 +3239,7 @@ pub fn measure(
                 y: border_y,
                 w: border_w,
                 h: border_h,
+                background_image: b.background_image.clone(),
                 content: LaidContent::TableRow(laid_cells),
             }
         }
@@ -3214,6 +3280,7 @@ pub fn measure(
                 y: border_y,
                 w: border_w,
                 h: border_h,
+                background_image: b.background_image.clone(),
                 content: LaidContent::Image(Rc::clone(image)),
             }
         }
@@ -3465,6 +3532,7 @@ fn paint_border_edge(
 #[allow(clippy::too_many_arguments)]
 fn paint_box_decoration(
     s: &ComputedStyle,
+    background_image: Option<&DecodedImage>,
     pixels: &mut [u32],
     win_w: u32,
     win_h: u32,
@@ -3508,6 +3576,16 @@ fn paint_box_decoration(
         } else {
             fill_rect(pixels, win_w, win_h, x, y, w, h, bg, clip);
         }
+    }
+    // Layers on top of `background-color`, same real-CSS stacking —
+    // tiled at its own intrinsic size (`background-repeat: repeat`/
+    // `background-position: 0 0`, the unqualified default — no
+    // `background-size`/`-position`/`-repeat` longhand control yet, see
+    // TODO.txt). Not clipped to `border-radius`'s rounded corners even
+    // when `round` is true — same square-tile painting regardless, a
+    // further simplification nothing has needed yet.
+    if let Some(image) = background_image {
+        tile_image(image, pixels, win_w, win_h, x, y, w, h, clip);
     }
     if s.border_width > 0.0 && s.border_style != BorderStyle::None {
         if let Some(bc) = s.border_color {
@@ -3829,6 +3907,44 @@ fn blit_image(image: &DecodedImage, pixels: &mut [u32], win_w: u32, win_h: u32, 
     }
 }
 
+/// Tiles a decoded image across `(x, y, w, h)` at its own intrinsic
+/// size — real CSS's unqualified `background-image: url(...)` default
+/// (`background-repeat: repeat`, `background-position: 0 0` — no
+/// longhand control over either yet, see TODO.txt). Composited the same
+/// `blend` way every other paint primitive is, tile by tile, so a
+/// partially transparent tile shows whatever painted underneath it
+/// (this box's own `background-color`, if any — `paint_box_decoration`
+/// fills that first).
+#[allow(clippy::too_many_arguments)]
+fn tile_image(image: &DecodedImage, pixels: &mut [u32], win_w: u32, win_h: u32, x: f32, y: f32, w: f32, h: f32, clip: Option<(f32, f32, f32, f32)>) {
+    if image.width == 0 || image.height == 0 || w <= 0.0 || h <= 0.0 {
+        return;
+    }
+    let (cx, cy, cw, ch) = intersect_clip(x, y, w, h, clip);
+    let x0 = cx.max(0.0) as i64;
+    let y0 = cy.max(0.0) as i64;
+    let x1 = ((cx + cw).min(win_w as f32)) as i64;
+    let y1 = ((cy + ch).min(win_h as f32)) as i64;
+    if x1 <= x0 || y1 <= y0 {
+        return;
+    }
+    let (iw, ih) = (image.width as i64, image.height as i64);
+    for py in y0..y1 {
+        // `rem_euclid` (not `%`) so the tile pattern still lines up
+        // correctly when the box's own origin (`x`/`y`) sits at a
+        // fractional or negative offset from the pixel grid — a plain
+        // `%` would give a negative remainder there and sample out of
+        // bounds.
+        let sy = ((py as f32 - y) as i64).rem_euclid(ih) as u32;
+        for px in x0..x1 {
+            let sx = ((px as f32 - x) as i64).rem_euclid(iw) as u32;
+            let color = image.pixels[(sy * image.width + sx) as usize];
+            let idx = (py as u32 * win_w + px as u32) as usize;
+            pixels[idx] = blend(pixels[idx], color);
+        }
+    }
+}
+
 fn paint(
     laid: &Laid,
     font_system: &mut FontSystem,
@@ -3867,7 +3983,7 @@ fn paint(
         // own `overflow` only clips its descendants' overflowing
         // content, never its own background/border/outline/shadow,
         // same as real CSS.
-        paint_box_decoration(&s, pixels, win_w, win_h, laid.x, draw_y, laid.w, laid.h, clip);
+        paint_box_decoration(&s, laid.background_image.as_deref(), pixels, win_w, win_h, laid.x, draw_y, laid.w, laid.h, clip);
     }
 
     // This box's own `overflow: hidden` (if any) only starts clipping
@@ -4943,5 +5059,60 @@ mod tests {
         let tree = build_layout_tree(&doc);
         let text = find_inline_text(&tree).expect("no text found");
         assert!(text.contains("broken img"), "undecodable image data should fall back to rendering alt text: {text:?}");
+    }
+
+    // ---------- v47: `background-image` ----------
+
+    #[test]
+    fn tile_image_repeats_the_source_image_across_a_larger_box() {
+        const W: u32 = 8;
+        const H: u32 = 2;
+        let mut pixels = vec![0u32; (W * H) as usize];
+        let red = TextColor::rgb(255, 0, 0);
+        let blue = TextColor::rgb(0, 0, 255);
+        let image = DecodedImage { width: 2, height: 1, pixels: vec![red, blue] };
+        tile_image(&image, &mut pixels, W, H, 0.0, 0.0, 8.0, 1.0, None);
+        let px = |x: u32| pixels[x as usize] & 0x00FFFFFF;
+        assert_eq!(px(0), 0xFF0000);
+        assert_eq!(px(1), 0x0000FF);
+        assert_eq!(px(2), 0xFF0000, "a 2px-wide image should repeat, not stretch, across a wider box");
+        assert_eq!(px(3), 0x0000FF);
+        assert_eq!(px(6), 0xFF0000);
+        assert_eq!(px(7), 0x0000FF);
+    }
+
+    #[test]
+    fn background_image_css_property_paints_behind_border() {
+        let src = tiny_png_data_uri(4, 4); // solid red, see `tiny_png_data_uri`
+        let html = format!(
+            r#"<html><body><div style="width: 40px; height: 40px; border: 4px solid blue; background-image: url('{src}')"></div></body></html>"#
+        );
+        let doc = parse_html(&html);
+        let tree = build_layout_tree(&doc);
+        let mut font_system = new_font_system();
+        let mut cache = ShapeCache::new();
+        let mut next_id = 0usize;
+        let mut incomplete = false;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let laid = measure(&tree, &mut font_system, 0.0, 0.0, 200.0, &mut next_id, &mut cache, deadline, &mut incomplete);
+        let mut swash_cache = SwashCache::new();
+        let (win_w, win_h) = (100u32, 100u32);
+        let mut pixels = vec![0u32; (win_w * win_h) as usize];
+        paint(&laid, &mut font_system, &mut swash_cache, &mut cache, &mut pixels, win_w, win_h, 0.0, None);
+
+        // `body { margin: 8px }` (default.css) offsets everything by 8px —
+        // border-box spans roughly x/y 8..56 (4px border + 40px content +
+        // 4px border), content (background-image) area roughly 12..52.
+        let px = |x: u32, y: u32| pixels[(y * win_w + x) as usize] & 0x00FFFFFF;
+        assert_eq!(px(30, 30), 0xFF0000, "background-image should paint inside the border");
+        assert_eq!(px(9, 30), 0x0000FF, "border itself should still paint on top of/around the background-image");
+    }
+
+    #[test]
+    fn no_background_image_declared_resolves_to_none() {
+        let laid = measure_fixture(r#"<html><body><div style="width: 13px; height: 13px; background-color: #00ff00;"></div></body></html>"#, 200.0);
+        let div = find_by_width(&laid, 13.0).expect("div not found");
+        assert!(div.background_image.is_none(), "a div with no background-image declared shouldn't resolve one, even with a background-color set");
+        assert!(div.style.background_color.is_some(), "sanity: background-color itself should still resolve normally");
     }
 }

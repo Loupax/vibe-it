@@ -268,6 +268,24 @@ session can pick a coherent slice rather than one property at a time.
       rendering on their own line (instead of beside adjacent text)
       turns out to matter in practice.
 
+- [ ] `background-image` (v47) only decodes a `data:` URI `url(...)` —
+      same policy as `<img src>` (see `decode_data_uri`'s own docs and
+      the `<img>` item above) — and only the unqualified default
+      rendering: tiled at the image's own intrinsic size
+      (`background-repeat: repeat`, `background-position: 0 0`). No
+      `background-size`/`background-position`/`background-repeat`
+      longhand control at all (so no `cover`/`contain`/`no-repeat`/
+      centering/offset positioning), no comma-separated multiple
+      background-images, and `background-image: none` isn't recognized
+      as its own value (parsing it just fails, which happens to leave
+      the property unset — the right end state today, but would be
+      wrong if a lower-specificity rule *also* declared an image, since
+      cascading wouldn't see `none` as a real override). The tiled image
+      also isn't clipped to `border-radius`'s rounded corners — square
+      tile edges regardless. Revisit any of this once a real page's
+      background-image needs `cover`/`no-repeat`/positioning to look
+      right, rather than guessing at scope now.
+
 - [ ] No forms/interactive widgets (`input`/`button`/`select`/
       `textarea` render as plain unstyled DOM nodes, not widgets), no
       replaced/embedded elements (`img`/`svg`/`canvas`/`video`/`audio`/
