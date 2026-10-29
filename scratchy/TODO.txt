@@ -148,7 +148,7 @@ the items above — see the conversation that asked "what features are
 missing in regards to rendering html?" Grouped by area so a future
 session can pick a coherent slice rather than one property at a time.
 
-- [x] `position: relative`/`absolute`/`fixed` (PENDING_COMMIT_HASH) now
+- [x] `position: relative`/`absolute`/`fixed` (bb97e60) now
       work: `relative` offsets a box's painted position (`top`/`right`/
       `bottom`/`left`, px/`%`/`em`/`rem`) without affecting normal flow
       at all (siblings land exactly where they would if it had no
