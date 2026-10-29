@@ -2584,3 +2584,111 @@ screenshot: a 16×16 checkerboard pattern tiling correctly across a
 permanent `mod tests`). New `TODO.txt` item for `background-image`
 (no `background-size`/`-position`/`-repeat` longhand, no `none`
 keyword, no multiple images, not clipped to `border-radius`).
+
+## v48 — real inline-level `<img>` flow
+
+> next two items: enable background image on CSS. Make <img> tags inline by default. Update the todo
+
+This version is the second of that same message's two items — the one
+v47 deliberately held back as its own scope conversation, since it's
+exactly the "bigger, deliberate scope cut" v46's own `TODO.txt` entry
+already flagged: text truly sharing a line with an inline `<img>` and
+wrapping around it, not just breaking onto separate blocks. Before
+writing any code, worked through the real scope question with the user
+via `AskUserQuestion`: a cheap "flush gap tightened, still not real
+sharing" approximation, or the full spec-correct hand-rolled inline
+layout. The user asked two follow-ups first — "what does the standard
+say?" (atomic inline-level replaced box, confirmed) and "how does
+firefox handle this?" (exactly the standard, `nsLineLayout` natively
+mixes text runs and atomic inline frames — no shortcut hiding in a real
+implementation, see v46's own entry) — then picked the full rewrite.
+
+**What/why:** `BoxContent::Inline(Vec<(String, SpanStyle)>)` became
+`BoxContent::Inline(Vec<InlineItem>)`, where `InlineItem` is `Text`
+(the old tuple, now a variant) or `Image { image, style,
+background_image }` (an inline `<img>` is still a full element — own
+size/margin/border/background, not just foreground pixels, same as the
+block-level case). Every push site (`collect_children`'s text branch,
+the `<li>` marker prefix, `build_img_box`'s alt-text fallback, every
+anonymous-box flush) updated to match. `shape_spans` now takes `&[
+InlineItem]` directly and filters to `Text` entries internally, so the
+same function serves both its original whole-paragraph call and (new)
+a single-word call, with no separate adapter.
+
+`collect_children`'s `<img>` handling split in two: a `display: block`/
+`table` override still gets its own box exactly as v46 left it
+(`build_img_box`, now behind a new shared `resolve_img` helper); the
+*default* `display: inline` case instead decodes right there (same
+`resolve_img`) and pushes an `InlineItem::Image` straight into the
+surrounding `pending` run, with no flush.
+
+The actual new layout engine is `measure_mixed_inline`, called from a
+new first arm on `measure`'s `BoxContent::Inline` match (guarded on
+`items.iter().any(|i| matches!(i, InlineItem::Image { .. }))`, so a
+plain-text run is completely untouched — same single-`Buffer` fast path
+as always, zero regression risk/cost for the overwhelmingly common
+case). For a mixed run: splits every text item into words
+(`split_inclusive(' ')`), shapes each as its own tiny one-span
+paragraph via the *existing* `shape_spans`/`ShapeCache`/`paint_buffer`
+machinery (one `ShapeCache` id per word, same `deadline`/`incomplete`
+incremental-shaping budget a whole paragraph would use — a shaped word
+is just a smaller unit of the same thing, not a special case), sizes
+each image via a new shared `image_box_size` (extracted from the old
+`BoxContent::Image` arm — same replaced-element algorithm for both a
+block-level and an inline image), then runs a plain greedy line-
+breaker (wrap when a token doesn't fit; `text-align: left/right/center`
+applied per line afterward) and emits absolute document-space
+positions. `LaidContent` gained `MixedInline(Vec<MixedPositioned>)`,
+where a `Word` is `{id, x, y, w, h}` (paints via the *existing*
+`paint_buffer`, called once per word instead of once per paragraph —
+full color/background/decoration/cursor fidelity for free) and an
+`Image` is a *complete nested `Laid`* (`Box<Laid>`, absolute-positioned)
+— `paint`/`hit_test_cursor` just recurse into it exactly like any
+other child `Laid`, so it gets box-decoration/clipping/culling for free
+instead of a second parallel painting path. An image is bottom-aligned
+within its line (approximating real baseline alignment without
+threading real font-metrics baseline offsets out of cosmic-text).
+
+**Explicitly not attempted, documented in the new TODO.txt text**
+(all judgment calls made to keep this a tractable single-session
+rewrite rather than a second flexbox-scale project): no cross-word
+kerning/ligatures; no bidi reordering across words in a mixed run;
+`white-space: pre` not honored in a mixed run; an inline image's
+*vertical* margin is ignored (horizontal margin correctly reserves
+line space); `justify` falls back to `left`; a line's trailing space
+counts toward alignment width (a real UA hangs it past the edge).
+
+9 new/rewritten permanent tests (46 total): the pre-v48
+`img_breaks_surrounding_inline_text_into_separate_runs` test, which
+pinned the *old* behavior this version deliberately reverses, was
+rewritten (not deleted — the old behavior it pinned is gone, not an
+untouched feature) into `img_with_default_display_shares_the_inline_
+run_with_surrounding_text`, plus a new sibling test pinning that an
+explicit `display: block` override still gets its own box (the one
+case that needed to keep working exactly as before). Three genuinely
+new tests exercise `measure_mixed_inline` itself: word+image fit on one
+~20px line (checked via the run's own reported height, not exact `y`
+equality — the word is top-aligned and the image bottom-aligned
+*within* the same line, so their `y` values legitimately differ even
+when correctly sharing a line); two 50px-wide images in a 60px
+container are forced to wrap deterministically (no dependency on real
+font metrics); and `text-align: center` shifts a mixed line's content
+rightward versus the default. `find_image_laid` (v46) and
+`find_blocks_containing_image` (v46) both updated/reused to account for
+the new `MixedInline` shape. Visually confirmed with a real `grim`
+screenshot: a short sentence with an icon genuinely flowing mid-line
+between words (wrapping naturally to a second line afterward); a
+narrow column forcing the icon into the middle of a multi-line wrap,
+with text correctly continuing after it; and a `display: block`
+`<span>` with `text-align: center` correctly centering a word+image+
+word mixed line.
+
+**Deliverable:** `src/lib.rs` (`InlineItem`, `resolve_img` (extracted
+from `build_img_box`), the `<img>` display split in
+`collect_children`, `shape_spans`'s new `&[InlineItem]` signature,
+`image_box_size` (extracted from `BoxContent::Image`'s `measure` arm),
+`measure_mixed_inline`, `LaidContent::MixedInline`/`MixedPositioned`,
+the `paint`/`hit_test_cursor` `MixedInline` arms, 9 new/rewritten tests
+in the permanent `mod tests`). Resolves the "bigger, deliberate scope
+cut" half of the `<img>` `TODO.txt` item from v46, replaced with the
+simplification list above.

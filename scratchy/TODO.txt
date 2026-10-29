@@ -247,26 +247,42 @@ session can pick a coherent slice rather than one property at a time.
       a heavily downscaled photo will look aliased; revisit if a real
       page's scaled image looks visibly bad).
 
-      **Bigger, deliberate scope cut:** `<img>` always gets its own box
-      in `collect_children`, flushing surrounding inline text into
-      separate runs before/after it — even though its real CSS
-      `display` is `inline` and the standard (confirmed against how
-      Firefox's `nsLineLayout` actually behaves, not just the spec
-      text) lays a replaced `inline` element out as an atomic
-      inline-level box sharing the line with surrounding text. This
-      engine's inline runs are one cosmic-text `Buffer` of text spans
-      with no concept of an embedded non-text box mid-line, so true
-      inline flow would mean hand-rolling line-breaking around the
-      image's width instead of leaving it to cosmic-text — a
-      materially bigger lift, closer in scope to the positioning/
-      flexbox items below than a single-feature slice, and not
-      something worth extending cosmic-text itself for either (see
-      NOTES.md: it's a UI text-shaping library, not a document-layout
-      engine with embedded-object support — the `letter-spacing` item
-      below is this same project already treating it as a black box to
-      work around, not patch). Revisit only if a real page's images
-      rendering on their own line (instead of beside adjacent text)
-      turns out to matter in practice.
+      **Real inline-level flow, resolved (v48):** a default-`display:
+      inline` `<img>` now genuinely shares a line with surrounding text
+      and wraps correctly — `collect_children` pushes it straight into
+      the inline run as an `InlineItem::Image` instead of always
+      flushing/breaking the line (an explicit `display: block`/`table`
+      override still gets its own box, same as any other block
+      element). Since cosmic-text's `Buffer` has no concept of an
+      embedded non-text box mid-paragraph, `measure_mixed_inline` hand-
+      rolls its own greedy line-breaker whenever a run contains an
+      image: splits text into words, shapes each word as its own tiny
+      one-span paragraph via the existing `shape_spans`/`ShapeCache`
+      machinery (full per-word fidelity — color/background/decoration/
+      cursor all still work, participates in the same incremental
+      shaping budget as a whole paragraph would), and positions words +
+      image(s) left-to-right with wrapping. A plain-text-only run is
+      entirely unaffected — same single-`Buffer`-per-paragraph fast path
+      as before, only a run that actually contains an image takes this
+      new, more expensive route.
+
+      Known simplifications in `measure_mixed_inline` specifically (see
+      its own doc comment for the full list): no cross-word kerning/
+      ligatures (each word shaped independently); no real bidi
+      reordering across words in a mixed run (cosmic-text's own bidi
+      only operates within one `Buffer`, and this shapes one per word —
+      RTL text spanning multiple words next to an image would appear in
+      the wrong visual order); `white-space: pre` isn't honored in a
+      mixed run (words always split on plain spaces, no embedded-`\n`
+      awareness); an inline `<img>`'s vertical margin is ignored
+      (horizontal margin correctly reserves line space); an image is
+      bottom-aligned within its line as an approximation of real CSS
+      baseline alignment (the actual font-metrics baseline offset isn't
+      threaded out of cosmic-text here); only `text-align: left/right/
+      center` apply to a mixed line (`justify` falls back to `left` —
+      no inter-word space stretching); a line's trailing space counts
+      toward its width for alignment purposes, unlike a real UA which
+      hangs trailing whitespace past the edge.
 
 - [ ] `background-image` (v47) only decodes a `data:` URI `url(...)` —
       same policy as `<img src>` (see `decode_data_uri`'s own docs and

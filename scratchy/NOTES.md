@@ -855,7 +855,7 @@ only — see below), replaced-element sizing (intrinsic/CSS/HTML-attr,
 aspect-ratio-preserving), painting (`blit_image`, nearest-neighbor), alt-
 text fallback for a missing/broken `src`.
 
-Two scope cuts worth remembering if a real page's images don't look
+One scope cut worth remembering if a real page's images don't look
 right:
 
 1. **No local file `src`, only `data:` URIs.** The user explicitly
@@ -867,21 +867,25 @@ right:
    in the same bucket as the rest of the no-networking stance. Revisit
    only if asked to.
 
-2. **`<img>` always gets its own box, breaking surrounding inline text
-   onto separate lines/runs** — not true inline flow (text sharing a
-   line with the image, like a real browser's atomic inline-level
-   replaced box). This was a real architectural question, not a
-   shortcut: confirmed directly against how Firefox actually behaves
-   (its `nsLineLayout` natively mixes text runs and atomic inline
-   frames within one line — not a spec technicality scratchy could
-   route around), and confirmed that extending cosmic-text itself to
-   support an embedded inline object isn't a promising path either
-   (it's a UI text-shaping library, not a document-layout engine — see
-   the `letter-spacing` TODO.txt item for this project's established
-   precedent of treating cosmic-text as a black box to document-and-
-   work-around, not to patch). If true inline flow is ever wanted, the
-   realistic path is scratchy hand-rolling its own line-breaking above
-   cosmic-text (shaping fixed-width segments per line itself instead of
-   one whole-paragraph `Buffer`) — a bigger rewrite of the inline-layout
-   model than this feature, in the same league as flexbox/positioning,
-   not a quick follow-up.
+**Update, v48: real inline-level flow was built after all.** The v46
+entry below used to say `<img>` always gets its own box, breaking
+surrounding inline text — the user came back in the very next session
+and asked for exactly that to be reversed ("Make `<img>` tags inline by
+default"). The architectural reasoning from v46 was still right at the
+time (true inline flow needs hand-rolled line-breaking since cosmic-
+text has no embedded-object concept, and extending cosmic-text itself
+isn't a promising path — it's a UI text-shaping library, not a
+document-layout engine, same precedent as the `letter-spacing`
+TODO.txt item treating it as a black box to work around, not patch) —
+what changed was the user's call on whether that cost was worth paying
+now, not the facts themselves. Confirmed again directly with the user
+before starting: a cheap "tighter gap, still not real sharing"
+approximation was offered as an alternative and declined in favor of
+the full rewrite. `measure_mixed_inline` is the result — see TODO.txt's
+`<img>` entry and PROMPTS.md's v48 write-up for exactly what it does
+and its own (much narrower) list of simplifications. **Lesson for next
+time:** a `TODO.txt` entry that says "revisit only if X turns out to
+matter" is a note about *today's* priority call, not a permanent
+architectural verdict — don't assume a past session's scope decision
+is still the user's preference without checking, even when the
+reasoning behind it still holds up.

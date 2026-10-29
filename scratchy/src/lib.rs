@@ -2436,9 +2436,30 @@ impl From<InheritedStyle> for SpanStyle {
     }
 }
 
+/// One piece of an inline run — either a text span (the only kind that
+/// existed before v48) or an inline-level `<img>` (`display: inline`,
+/// the default — a `display: block` `<img>` instead gets its own
+/// `BoxContent::Image` box entirely, same as any other block element;
+/// see `collect_children`'s own docs for that split). An inline image
+/// carries its own `ComputedStyle` (for size/margin/border/background —
+/// same fields a block-level replaced element uses, via the shared
+/// `image_box_size`) and its own resolved `background_image`, since
+/// both live outside `ComputedStyle` itself for the same reason
+/// `LayoutBox.background_image` does (see its own docs) — an inline
+/// `<img>` is still a full element that can have its own CSS
+/// background-image/border/etc., not just its foreground pixels.
+enum InlineItem {
+    Text(String, SpanStyle),
+    Image {
+        image: Rc<DecodedImage>,
+        style: ComputedStyle,
+        background_image: Option<Rc<DecodedImage>>,
+    },
+}
+
 enum BoxContent {
     Blocks(Vec<LayoutBox>),
-    Inline(Vec<(String, SpanStyle)>),
+    Inline(Vec<InlineItem>),
     /// A table row's cells, laid out horizontally instead of stacked.
     /// Only ever appears on a box whose own `style.display` is
     /// `Display::TableRow` — rows themselves are ordinary `Blocks`
@@ -2517,14 +2538,16 @@ fn img_size_attr(handle: &Handle, name: &str) -> Option<f32> {
     element_attr(handle, name)?.trim().parse::<f32>().ok().filter(|v| *v > 0.0)
 }
 
-/// Builds `<img>`'s own box directly, bypassing the normal children walk
-/// (it's a void element — nothing to recurse into). Only a `data:` URI
-/// `src` decodes; anything else — missing, unsupported format, a local
-/// file path (not yet supported, see TODO.txt), or corrupt data — falls
-/// back to rendering `alt` as plain text in the image's place, same as a
-/// real browser's "fallback content" for a replaced element that failed
-/// to load, rather than collapsing to a blank 0×0 box.
-fn build_img_box(handle: &Handle, mut style: ComputedStyle, background_image: Option<Rc<DecodedImage>>) -> LayoutBox {
+/// Resolves `<img>`'s own box-model style (CSS `width`/`height`, falling
+/// back to the HTML attributes — see `img_size_attr`'s own docs) and
+/// decodes its `src`, shared by both places `<img>` can end up:
+/// `build_img_box` (a `display: block` `<img>`, its own box) and
+/// `collect_children`'s inline branch (the default `display: inline` —
+/// pushed straight into the surrounding text run as an `InlineItem::
+/// Image` instead, see its own docs). Only a `data:` URI `src` decodes;
+/// anything else — missing, unsupported format, a local file path (not
+/// yet supported, see TODO.txt), or corrupt data — returns `None`.
+fn resolve_img(handle: &Handle, mut style: ComputedStyle) -> (ComputedStyle, Option<Rc<DecodedImage>>) {
     if style.width.is_none() {
         style.width = img_size_attr(handle, "width");
     }
@@ -2532,11 +2555,24 @@ fn build_img_box(handle: &Handle, mut style: ComputedStyle, background_image: Op
         style.height = img_size_attr(handle, "height");
     }
     let decoded = element_attr(handle, "src").and_then(|src| decode_data_uri(&src)).and_then(|b| decode_image_bytes(&b));
+    (style, decoded.map(Rc::new))
+}
+
+/// Builds `<img>`'s own box directly, bypassing the normal children walk
+/// (it's a void element — nothing to recurse into) — only reached for a
+/// `display: block`/`table` `<img>` (see `collect_children`'s own docs);
+/// the default `display: inline` case never calls this. A `src` that
+/// fails to decode falls back to rendering `alt` as plain text in the
+/// image's place, same as a real browser's "fallback content" for a
+/// replaced element that failed to load, rather than collapsing to a
+/// blank 0×0 box.
+fn build_img_box(handle: &Handle, style: ComputedStyle, background_image: Option<Rc<DecodedImage>>) -> LayoutBox {
+    let (style, decoded) = resolve_img(handle, style);
     match decoded {
-        Some(image) => LayoutBox { style, background_image, content: BoxContent::Image(Rc::new(image)) },
+        Some(image) => LayoutBox { style, background_image, content: BoxContent::Image(image) },
         None => {
             let alt = element_attr(handle, "alt").map(|a| a.to_string()).unwrap_or_default();
-            LayoutBox { style, background_image, content: BoxContent::Inline(vec![(alt, style.inherited().into())]) }
+            LayoutBox { style, background_image, content: BoxContent::Inline(vec![InlineItem::Text(alt, style.inherited().into())]) }
         }
     }
 }
@@ -2556,6 +2592,10 @@ fn build_box_for_element(handle: &Handle, rules: &[StyleRule], inherited: Inheri
     // vs. re-running `resolve_background_image`'s own selector-matching
     // pass again in every branch below).
     let background_image = resolve_background_image(handle, rules);
+    // Only reached for a `display: block`/`table` `<img>` — the default
+    // `display: inline` case is handled entirely inside `collect_children`
+    // instead (pushed into the surrounding text run, never given its own
+    // box via this function at all; see its own docs). A block-level
     // `<img>` is a void element (no real children to walk) and a
     // replaced element (its own box, built directly from the decoded
     // image rather than `BoxContent::Blocks`/`Inline`) — handled before
@@ -2672,9 +2712,9 @@ fn build_children_with_prefix(
     decoration: DecorationValue,
 ) -> Vec<LayoutBox> {
     let mut result = Vec::new();
-    let mut pending: Vec<(String, SpanStyle)> = Vec::new();
-    if let Some(p) = prefix {
-        pending.push(p);
+    let mut pending: Vec<InlineItem> = Vec::new();
+    if let Some((text, span)) = prefix {
+        pending.push(InlineItem::Text(text, span));
     }
     collect_children(
         handle,
@@ -2715,7 +2755,7 @@ fn collect_children(
     bg: Option<TextColor>,
     decoration: DecorationValue,
     valign: VerticalAlign,
-    pending: &mut Vec<(String, SpanStyle)>,
+    pending: &mut Vec<InlineItem>,
     result: &mut Vec<LayoutBox>,
 ) {
     for child in handle.children.borrow().iter() {
@@ -2730,11 +2770,11 @@ fn collect_children(
                 // (literal newlines, runs of spaces, no fabricated
                 // trailing space) instead of collapsing it.
                 if inherited.white_space == WhiteSpace::Pre {
-                    pending.push((contents.borrow().to_string(), span));
+                    pending.push(InlineItem::Text(contents.borrow().to_string(), span));
                 } else {
                     let mut text = normalize_whitespace(&contents.borrow());
                     text.push(' ');
-                    pending.push((text, span));
+                    pending.push(InlineItem::Text(text, span));
                 }
             }
             NodeData::Element { name, .. } => {
@@ -2746,18 +2786,32 @@ fn collect_children(
                 if style.display == Display::None {
                     continue;
                 }
-                // `<img>` always gets its own box here, regardless of its
-                // resolved `display` (normally `inline`) — a deliberate
-                // divergence from the real standard, which lays a
-                // replaced `inline` element out as an atomic inline-level
-                // box sharing the line with surrounding text. This
-                // engine's inline runs are one cosmic-text `Buffer` of
-                // text spans with no way to embed a non-text box mid-line
-                // (and no cheap way to add one — see TODO.txt), so an
-                // `<img>` instead breaks the surrounding text into
-                // separate runs before/after it, the same treatment a
-                // block element gets.
-                if tag == "img" || matches!(style.display, Display::Block | Display::Table) {
+                // `<img>`'s own box-vs-inline-item split: a `display:
+                // block`/`table` `<img>` (an explicit author override —
+                // not the default) gets its own box, same as any other
+                // block element. The *default* `display: inline` case
+                // (v48 on) instead decodes right here and pushes an
+                // `InlineItem::Image` straight into the surrounding text
+                // run, with no flush — real inline-level flow, sharing
+                // lines with adjacent text via `measure_mixed_inline`.
+                // Before v48 this always flushed and broke the line
+                // regardless of `display`, a deliberate (now reverted)
+                // simplification — see TODO.txt/NOTES.md for why that
+                // was the original call and what changed.
+                if tag == "img" && !matches!(style.display, Display::Block | Display::Table) {
+                    let background_image = resolve_background_image(child, rules);
+                    let (img_style, decoded) = resolve_img(child, style);
+                    match decoded {
+                        Some(image) => pending.push(InlineItem::Image { image, style: img_style, background_image }),
+                        None => {
+                            let alt = element_attr(child, "alt").map(|a| a.to_string()).unwrap_or_default();
+                            let mut span: SpanStyle = inherited.into();
+                            span.background_color = bg;
+                            span.vertical_align = valign;
+                            pending.push(InlineItem::Text(alt, span));
+                        }
+                    }
+                } else if matches!(style.display, Display::Block | Display::Table) {
                     if !pending.is_empty() {
                         result.push(LayoutBox {
                             style: anonymous_style(inherited),
@@ -2912,6 +2966,28 @@ enum LaidContent {
     Text(usize),
     TableRow(Vec<Laid>),
     Image(Rc<DecodedImage>),
+    /// A `BoxContent::Inline` run that contains at least one inline
+    /// `<img>` — real inline-level flow, laid out by `measure_mixed_
+    /// inline` instead of the single-`Buffer`-per-paragraph path
+    /// `Text(usize)` uses for plain text (see its own docs for why
+    /// these need an entirely different approach).
+    MixedInline(Vec<MixedPositioned>),
+}
+
+/// One already-positioned item within a laid-out `MixedInline` run —
+/// absolute document-space coordinates, same convention every other
+/// `Laid`/position in this file uses (scroll is applied once, at paint
+/// time). A `Word` is one shaped word, rendered via the same `cache`/
+/// `paint_buffer` machinery `LaidContent::Text` uses — just one word
+/// per cache entry instead of one whole paragraph (see `measure_mixed_
+/// inline`'s own docs for why). An `Image` is a complete, ordinary
+/// `Laid` (its `BoxContent::Image` shape, `x`/`y` already absolute) —
+/// `paint`/`hit_test_cursor` just recurse into it exactly like any
+/// other child `Laid`, getting full box-decoration/clipping fidelity
+/// for free instead of a second, parallel painting path.
+enum MixedPositioned {
+    Word { id: usize, x: f32, y: f32, w: f32, h: f32 },
+    Image(Box<Laid>),
 }
 
 /// A paragraph's shaped text, keyed by a stable id assigned during `measure`
@@ -2989,13 +3065,27 @@ pub fn new_font_system() -> FontSystem {
     FontSystem::new_with_locale_and_db(locale, db)
 }
 
+/// Shapes `items`' text spans as one cosmic-text paragraph — any
+/// `InlineItem::Image` entries are silently skipped (never actually
+/// happens: every caller already guarantees an all-`Text` slice, either
+/// the whole run in `measure`'s plain-text fast path, or a single
+/// synthesized one-word slice in `measure_mixed_inline`'s per-word
+/// shaping — see its own docs for why that path shapes word-by-word
+/// instead of calling this once over the whole mixed run).
 fn shape_spans(
     font_system: &mut FontSystem,
-    spans: &[(String, SpanStyle)],
+    items: &[InlineItem],
     width: f32,
     pre: bool,
     align: Option<CosmicAlign>,
 ) -> ShapedParagraph {
+    let spans: Vec<(&str, &SpanStyle)> = items
+        .iter()
+        .filter_map(|item| match item {
+            InlineItem::Text(text, span) => Some((text.as_str(), span)),
+            InlineItem::Image { .. } => None,
+        })
+        .collect();
     let metrics = Metrics::new(16.0, 20.0);
     let mut buffer = Buffer::new(font_system, metrics);
     buffer.set_size(Some(width.max(0.0)), None);
@@ -3018,7 +3108,7 @@ fn shape_spans(
             attrs.text_decoration = span.text_decoration;
             attrs.metadata = i;
             attrs = attrs.metrics(Metrics::new(span.font_size, span.line_height));
-            (text.as_str(), attrs)
+            (*text, attrs)
         })
         .collect();
     buffer.set_rich_text(rich, &Attrs::new(), Shaping::Advanced, align);
@@ -3109,13 +3199,41 @@ pub fn measure(
     let content_w = (border_w - extra_w).max(0.0);
 
     match &b.content {
-        BoxContent::Inline(spans) => {
+        BoxContent::Inline(items) if items.iter().any(|i| matches!(i, InlineItem::Image { .. })) => {
+            // Real inline-level flow for a run that mixes text with at
+            // least one inline `<img>` — a materially different (and
+            // much more expensive) path than the plain-text case below,
+            // so only taken when actually needed; see `measure_mixed_
+            // inline`'s own docs.
+            let (content_h, positioned) = measure_mixed_inline(
+                items, &s, font_system, content_x, content_y, content_w, next_id, cache, deadline, incomplete,
+            );
+            let extra_h = 2.0 * s.border_width + s.padding.top + s.padding.bottom;
+            let border_h = clamp_box_dim(
+                s.height,
+                s.min_height,
+                s.max_height,
+                extra_h + content_h.max(0.0),
+                s.box_sizing,
+                extra_h,
+            );
+            Laid {
+                style: s,
+                x: border_x,
+                y: border_y,
+                w: border_w,
+                h: border_h,
+                background_image: b.background_image.clone(),
+                content: LaidContent::MixedInline(positioned),
+            }
+        }
+        BoxContent::Inline(items) => {
             let id = *next_id;
             *next_id += 1;
 
             let content_h = if let Some((_, h, _, _, _, _, _)) = cache.get(&id) {
                 *h
-            } else if spans.is_empty() {
+            } else if items.is_empty() {
                 cache.insert(
                     id,
                     (
@@ -3132,7 +3250,7 @@ pub fn measure(
             } else if std::time::Instant::now() < deadline {
                 let (buffer, h, backgrounds, valigns, hidden, cursors, decoration_styles) = shape_spans(
                     font_system,
-                    spans,
+                    items,
                     content_w,
                     s.white_space == WhiteSpace::Pre,
                     s.text_align.to_cosmic(),
@@ -3244,36 +3362,7 @@ pub fn measure(
             }
         }
         BoxContent::Image(image) => {
-            // A replaced element's auto size is its own *intrinsic*
-            // size, not "fill the container" (the pre-match `border_w`/
-            // `content_w` above are the wrong auto default here, so
-            // this shadows them with its own) — real CSS replaced-
-            // element sizing: `width`/`height` both `auto` uses the
-            // intrinsic size directly; only one `auto` scales it from
-            // the other via the intrinsic aspect ratio; both set
-            // stretches independently (default `object-fit: fill`,
-            // needs no extra work since that's just what `clamp_box_dim`
-            // already does for every other box). Doesn't re-derive the
-            // aspect ratio after `min`/`max-width/height` clamp the
-            // other axis — a further edge case nothing has needed yet.
-            let intrinsic_w = (image.width.max(1)) as f32;
-            let intrinsic_h = (image.height.max(1)) as f32;
-            let aspect = intrinsic_h / intrinsic_w;
-            let extra_w = 2.0 * s.border_width + s.padding.left + s.padding.right;
-            let extra_h = 2.0 * s.border_width + s.padding.top + s.padding.bottom;
-            let (border_w, border_h) = if s.width.is_none() && s.height.is_some() {
-                let border_h = clamp_box_dim(s.height, s.min_height, s.max_height, extra_h + intrinsic_h, s.box_sizing, extra_h);
-                let content_h = (border_h - extra_h).max(0.0);
-                let auto_border_w = extra_w + content_h / aspect;
-                let border_w = clamp_box_dim(s.width, s.min_width, s.max_width, auto_border_w, s.box_sizing, extra_w);
-                (border_w, border_h)
-            } else {
-                let border_w = clamp_box_dim(s.width, s.min_width, s.max_width, extra_w + intrinsic_w, s.box_sizing, extra_w);
-                let content_w = (border_w - extra_w).max(0.0);
-                let auto_border_h = if s.height.is_none() { extra_h + content_w * aspect } else { extra_h + intrinsic_h };
-                let border_h = clamp_box_dim(s.height, s.min_height, s.max_height, auto_border_h, s.box_sizing, extra_h);
-                (border_w, border_h)
-            };
+            let (border_w, border_h) = image_box_size(image, &s);
             Laid {
                 style: s,
                 x: border_x,
@@ -3285,6 +3374,215 @@ pub fn measure(
             }
         }
     }
+}
+
+/// A replaced element's border-box size from its intrinsic decoded size
+/// and its own `ComputedStyle` — shared by a block-level `<img>`
+/// (`BoxContent::Image`, above) and an inline one mixed into a text run
+/// (`measure_mixed_inline`), same CSS replaced-element sizing algorithm
+/// either way: `width`/`height` both `auto` uses the intrinsic size
+/// directly; only one `auto` scales it from the other via the intrinsic
+/// aspect ratio; both set stretches independently (default `object-fit:
+/// fill`, needs no extra work since that's just what `clamp_box_dim`
+/// already does for every other box). Doesn't re-derive the aspect
+/// ratio after `min`/`max-width/height` clamp the other axis — a
+/// further edge case nothing has needed yet.
+fn image_box_size(image: &DecodedImage, s: &ComputedStyle) -> (f32, f32) {
+    let intrinsic_w = (image.width.max(1)) as f32;
+    let intrinsic_h = (image.height.max(1)) as f32;
+    let aspect = intrinsic_h / intrinsic_w;
+    let extra_w = 2.0 * s.border_width + s.padding.left + s.padding.right;
+    let extra_h = 2.0 * s.border_width + s.padding.top + s.padding.bottom;
+    if s.width.is_none() && s.height.is_some() {
+        let border_h = clamp_box_dim(s.height, s.min_height, s.max_height, extra_h + intrinsic_h, s.box_sizing, extra_h);
+        let content_h = (border_h - extra_h).max(0.0);
+        let auto_border_w = extra_w + content_h / aspect;
+        let border_w = clamp_box_dim(s.width, s.min_width, s.max_width, auto_border_w, s.box_sizing, extra_w);
+        (border_w, border_h)
+    } else {
+        let border_w = clamp_box_dim(s.width, s.min_width, s.max_width, extra_w + intrinsic_w, s.box_sizing, extra_w);
+        let content_w = (border_w - extra_w).max(0.0);
+        let auto_border_h = if s.height.is_none() { extra_h + content_w * aspect } else { extra_h + intrinsic_h };
+        let border_h = clamp_box_dim(s.height, s.min_height, s.max_height, auto_border_h, s.box_sizing, extra_h);
+        (border_w, border_h)
+    }
+}
+
+/// Real inline-level flow for a `BoxContent::Inline` run that mixes text
+/// with at least one inline `<img>` — text genuinely shares a line with
+/// the image and wraps around it, unlike a plain-text run (which hands
+/// the whole paragraph to cosmic-text's own `Buffer`/`Wrap` in one call
+/// and lets it decide line breaks). cosmic-text has no concept of an
+/// embedded non-text box mid-paragraph (confirmed against how Firefox's
+/// `nsLineLayout` actually handles this — see NOTES.md), so this hand-
+/// rolls a simple greedy line-breaker instead: splits every text item
+/// into words (`split_inclusive(' ')`, each word keeping its own
+/// trailing space for wrapping purposes — text is already whitespace-
+/// normalized by the time it reaches here, see `collect_children`'s own
+/// docs), shapes each word as its own tiny one-span paragraph via the
+/// existing `shape_spans`/`ShapeCache` machinery (full fidelity for
+/// color/background/decoration/cursor per word, for free — see
+/// `MixedPositioned`'s own docs for why), and treats an image as one
+/// atomic token sized via the shared `image_box_size`. Each token gets
+/// a stable `ShapeCache` id exactly like a whole paragraph would,
+/// participating in the same `deadline`/`incomplete` incremental-
+/// shaping budget — not a special case, a *shaped word* is just a
+/// smaller unit of the same thing.
+///
+/// **Known simplifications, not attempted here** (see TODO.txt): no
+/// cross-word kerning/ligatures (each word shaped in isolation); no
+/// real bidi reordering across words (each word's own internal shaping
+/// is correct, but RTL text spanning multiple words next to an image
+/// would appear in the wrong visual order — cosmic-text's own bidi only
+/// operates within one `Buffer`, and this path shapes one `Buffer` per
+/// word); `white-space: pre` isn't honored in a mixed run (no special
+/// handling of embedded `\n`/multiple spaces — words are always split
+/// on plain spaces); an inline `<img>`'s vertical margin is ignored
+/// (horizontal margin reserves line space correctly, matching real
+/// inline-level box behavior, but doesn't affect line height); an
+/// image is bottom-aligned within its line (an approximation of real
+/// CSS's baseline alignment — the actual font-metrics baseline offset
+/// isn't threaded out here); only `text-align: left/right/center` are
+/// applied per line (`justify` falls back to `left` — no inter-word
+/// space stretching); a line's trailing space (every word's measured
+/// width includes its own trailing space) counts toward line width for
+/// alignment purposes, unlike a real UA which hangs trailing whitespace
+/// past the edge.
+#[allow(clippy::too_many_arguments)]
+fn measure_mixed_inline(
+    items: &[InlineItem],
+    s: &ComputedStyle,
+    font_system: &mut FontSystem,
+    content_x: f32,
+    content_y: f32,
+    content_w: f32,
+    next_id: &mut usize,
+    cache: &mut ShapeCache,
+    deadline: std::time::Instant,
+    incomplete: &mut bool,
+) -> (f32, Vec<MixedPositioned>) {
+    // Effectively unconstrained — combined with `pre: true` below (which
+    // also forces `Wrap::None`), a word is never wrapped/truncated
+    // internally by cosmic-text regardless of this value; only used as
+    // the buffer's nominal width.
+    const WORD_MEASURE_WIDTH: f32 = 1_000_000.0;
+
+    #[allow(clippy::large_enum_variant)]
+    enum Measured {
+        Word { id: usize, width: f32, height: f32 },
+        Image { laid_style: ComputedStyle, background_image: Option<Rc<DecodedImage>>, image: Rc<DecodedImage>, advance_w: f32, img_w: f32, img_h: f32 },
+    }
+
+    let mut measured: Vec<Measured> = Vec::new();
+    for item in items {
+        match item {
+            InlineItem::Text(text, span) => {
+                for word in text.split_inclusive(' ') {
+                    if word.is_empty() {
+                        continue;
+                    }
+                    let id = *next_id;
+                    *next_id += 1;
+                    let (width, height) = if let Some((buffer, h, _, _, _, _, _)) = cache.get(&id) {
+                        (buffer.layout_runs().next().map(|r| r.line_w).unwrap_or(0.0), *h)
+                    } else if std::time::Instant::now() < deadline {
+                        let synth = [InlineItem::Text(word.to_string(), *span)];
+                        let (buffer, h, backgrounds, valigns, hidden, cursors, decoration_styles) =
+                            shape_spans(font_system, &synth, WORD_MEASURE_WIDTH, true, None);
+                        let w = buffer.layout_runs().next().map(|r| r.line_w).unwrap_or(0.0);
+                        cache.insert(id, (buffer, h, backgrounds, valigns, hidden, cursors, decoration_styles));
+                        (w, h)
+                    } else {
+                        *incomplete = true;
+                        (0.0, PLACEHOLDER_LINE_HEIGHT)
+                    };
+                    measured.push(Measured::Word { id, width, height });
+                }
+            }
+            InlineItem::Image { image, style, background_image } => {
+                let (img_w, img_h) = image_box_size(image, style);
+                measured.push(Measured::Image {
+                    laid_style: *style,
+                    background_image: background_image.clone(),
+                    image: Rc::clone(image),
+                    advance_w: style.margin.left + img_w + style.margin.right,
+                    img_w,
+                    img_h,
+                });
+            }
+        }
+    }
+
+    // Pass 1: greedy-wrap into lines — each entry is (index into
+    // `measured`, x offset within its line, before `text-align`).
+    let mut lines: Vec<Vec<(usize, f32)>> = Vec::new();
+    let mut current: Vec<(usize, f32)> = Vec::new();
+    let mut cursor_x = 0.0f32;
+    for (i, m) in measured.iter().enumerate() {
+        let w = match m {
+            Measured::Word { width, .. } => *width,
+            Measured::Image { advance_w, .. } => *advance_w,
+        };
+        if !current.is_empty() && cursor_x + w > content_w {
+            lines.push(std::mem::take(&mut current));
+            cursor_x = 0.0;
+        }
+        current.push((i, cursor_x));
+        cursor_x += w;
+    }
+    if !current.is_empty() {
+        lines.push(current);
+    }
+
+    // Pass 2: resolve each line's height/`text-align` offset, emit
+    // final absolute (document-space) positions.
+    let mut positioned: Vec<MixedPositioned> = Vec::with_capacity(measured.len());
+    let mut cursor_y = 0.0f32;
+    for line in &lines {
+        let line_height = line
+            .iter()
+            .map(|&(i, _)| match &measured[i] {
+                Measured::Word { height, .. } => *height,
+                Measured::Image { img_h, .. } => *img_h,
+            })
+            .fold(0.0f32, f32::max);
+        let line_w = line
+            .last()
+            .map(|&(i, x)| {
+                x + match &measured[i] {
+                    Measured::Word { width, .. } => *width,
+                    Measured::Image { advance_w, .. } => *advance_w,
+                }
+            })
+            .unwrap_or(0.0);
+        let align_offset = match s.text_align {
+            TextAlign::Right => (content_w - line_w).max(0.0),
+            TextAlign::Center => (content_w - line_w).max(0.0) / 2.0,
+            TextAlign::Left | TextAlign::Justify => 0.0,
+        };
+        for &(i, x) in line {
+            let final_x = content_x + x + align_offset;
+            match &measured[i] {
+                Measured::Word { id, width, height } => {
+                    positioned.push(MixedPositioned::Word { id: *id, x: final_x, y: content_y + cursor_y, w: *width, h: *height });
+                }
+                Measured::Image { laid_style, background_image, image, img_w, img_h, .. } => {
+                    positioned.push(MixedPositioned::Image(Box::new(Laid {
+                        style: *laid_style,
+                        x: final_x + laid_style.margin.left,
+                        y: content_y + cursor_y + (line_height - img_h),
+                        w: *img_w,
+                        h: *img_h,
+                        background_image: background_image.clone(),
+                        content: LaidContent::Image(Rc::clone(image)),
+                    })));
+                }
+            }
+        }
+        cursor_y += line_height;
+    }
+
+    (cursor_y, positioned)
 }
 
 fn blend(existing: u32, color: TextColor) -> u32 {
@@ -4022,6 +4320,27 @@ fn paint(
             let content_h = (laid.h - 2.0 * s.border_width - s.padding.top - s.padding.bottom).max(0.0);
             blit_image(image, pixels, win_w, win_h, content_x, content_y, content_w, content_h, child_clip);
         }
+        LaidContent::MixedInline(positioned) => {
+            for item in positioned {
+                match item {
+                    // A full, ordinary `Laid` — recurses through the
+                    // exact same path a `Blocks`/`TableRow` child does,
+                    // so it gets box-decoration/clipping/culling for
+                    // free (see `MixedPositioned`'s own docs).
+                    MixedPositioned::Image(img_laid) => {
+                        paint(img_laid, font_system, swash_cache, cache, pixels, win_w, win_h, scroll_offset, child_clip);
+                    }
+                    MixedPositioned::Word { id, x, y, .. } => {
+                        if let Some((buffer, _, backgrounds, valigns, hidden, _, decoration_styles)) = cache.get_mut(id) {
+                            paint_buffer(
+                                buffer, font_system, swash_cache, backgrounds, valigns, hidden, decoration_styles,
+                                pixels, win_w, win_h, *x, *y - scroll_offset, child_clip,
+                            );
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -4072,6 +4391,37 @@ fn hit_test_cursor(laid: &Laid, x: f32, y: f32, cache: &ShapeCache) -> CursorSty
         // own (already-cascaded) cursor, same fallback the other arms
         // use once nothing more specific matches underneath.
         LaidContent::Image(_) => laid.style.cursor,
+        LaidContent::MixedInline(positioned) => {
+            for item in positioned {
+                match item {
+                    MixedPositioned::Image(img_laid) => {
+                        if img_laid.x <= x && x < img_laid.x + img_laid.w && img_laid.y <= y && y < img_laid.y + img_laid.h {
+                            return hit_test_cursor(img_laid, x, y, cache);
+                        }
+                    }
+                    MixedPositioned::Word { id, x: wx, y: wy, w, h } => {
+                        if x < *wx || x >= *wx + *w || y < *wy || y >= *wy + *h {
+                            continue;
+                        }
+                        if let Some((buffer, _, _, _, _, cursors, _)) = cache.get(id) {
+                            let local_x = x - wx;
+                            let local_y = y - wy;
+                            for run in buffer.layout_runs() {
+                                if local_y < run.line_top || local_y >= run.line_top + run.line_height {
+                                    continue;
+                                }
+                                for glyph in run.glyphs {
+                                    if local_x >= glyph.x && local_x < glyph.x + glyph.w {
+                                        return cursors.get(glyph.metadata).copied().unwrap_or(laid.style.cursor);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            laid.style.cursor
+        }
     }
 }
 
@@ -4458,8 +4808,8 @@ mod tests {
     // ---------- v37: `:link`/`:visited` pseudo-classes ----------
 
     fn find_first_span_color(b: &LayoutBox) -> Option<TextColor> {
-        if let BoxContent::Inline(spans) = &b.content {
-            if let Some((_, s)) = spans.first() {
+        if let BoxContent::Inline(items) = &b.content {
+            if let Some(InlineItem::Text(_, s)) = items.first() {
                 return Some(s.color);
             }
         } else if let BoxContent::Blocks(children) = &b.content {
@@ -4522,9 +4872,11 @@ mod tests {
     // ---------- v39: text-decoration reaching a block's own text ----------
 
     fn collect_decorations(b: &LayoutBox, out: &mut Vec<TextDecoration>) {
-        if let BoxContent::Inline(spans) = &b.content {
-            for (_, s) in spans {
-                out.push(s.text_decoration);
+        if let BoxContent::Inline(items) = &b.content {
+            for item in items {
+                if let InlineItem::Text(_, s) = item {
+                    out.push(s.text_decoration);
+                }
             }
         }
         if let BoxContent::Blocks(children) = &b.content {
@@ -4820,9 +5172,11 @@ mod tests {
     // `is_root`, ...) already implemented for `El`. Never actually verified before.
 
     fn find_all_span_colors(b: &LayoutBox, out: &mut Vec<TextColor>) {
-        if let BoxContent::Inline(spans) = &b.content {
-            for (_, s) in spans {
-                out.push(s.color);
+        if let BoxContent::Inline(items) = &b.content {
+            for item in items {
+                if let InlineItem::Text(_, s) = item {
+                    out.push(s.color);
+                }
             }
         } else if let BoxContent::Blocks(children) = &b.content {
             for c in children {
@@ -4954,6 +5308,17 @@ mod tests {
                 }
             }
         }
+        // A default-`display: inline` `<img>` (the common case since
+        // v48) lands inside a `MixedInline` run instead of its own
+        // top-level `LaidContent::Image` — see `MixedPositioned`'s own
+        // docs.
+        if let LaidContent::MixedInline(items) = &laid.content {
+            for item in items {
+                if let MixedPositioned::Image(img_laid) = item {
+                    return Some(img_laid);
+                }
+            }
+        }
         None
     }
 
@@ -5016,24 +5381,66 @@ mod tests {
         None
     }
 
+    fn find_inline_run_with_image(b: &LayoutBox) -> Option<&[InlineItem]> {
+        if let BoxContent::Inline(items) = &b.content {
+            if items.iter().any(|i| matches!(i, InlineItem::Image { .. })) {
+                return Some(items);
+            }
+        }
+        if let BoxContent::Blocks(children) = &b.content {
+            for c in children {
+                if let Some(found) = find_inline_run_with_image(c) {
+                    return Some(found);
+                }
+            }
+        }
+        None
+    }
+
     #[test]
-    fn img_breaks_surrounding_inline_text_into_separate_runs() {
+    fn img_with_default_display_shares_the_inline_run_with_surrounding_text() {
+        // Pre-v48 behavior: a default-`display: inline` `<img>` always
+        // broke surrounding text into separate sibling boxes. v48
+        // reverses this — see TODO.txt/NOTES.md — so this now pins the
+        // *opposite*: one `BoxContent::Inline` run holding text before,
+        // the image, and text after, in source order, ready for real
+        // inline-level flow in `measure_mixed_inline`.
         let src = tiny_png_data_uri(2, 2);
         let html = format!(r#"<html><body><p>before <img src="{src}"> after</p></body></html>"#);
         let doc = parse_html(&html);
         let tree = build_layout_tree(&doc);
-        let children = find_blocks_containing_image(&tree).expect("<p> should split into sibling boxes around the <img>");
-        assert_eq!(children.len(), 3, "text before/after an <img> should become separate inline runs, not share a line with it");
-        let BoxContent::Inline(before) = &children[0].content else { panic!("expected an inline run before the image") };
-        assert!(before[0].0.trim_start().starts_with("before"), "unexpected text before the image: {:?}", before[0].0);
+        let items = find_inline_run_with_image(&tree).expect("<p> should be one inline run containing the image");
+        assert_eq!(items.len(), 3, "text before/the image/text after should be 3 items in the SAME inline run");
+        let InlineItem::Text(before, _) = &items[0] else { panic!("expected text before the image") };
+        assert!(before.trim_start().starts_with("before"), "unexpected text before the image: {before:?}");
+        assert!(matches!(items[1], InlineItem::Image { .. }));
+        let InlineItem::Text(after, _) = &items[2] else { panic!("expected text after the image") };
+        assert!(after.trim_start().starts_with("after"), "unexpected text after the image: {after:?}");
+    }
+
+    #[test]
+    fn img_with_explicit_display_block_still_gets_its_own_box() {
+        // The one case that should still behave like pre-v48: an author
+        // explicitly overriding `<img>`'s default `display: inline` to
+        // `block` is real block-level markup, not inline flow — same
+        // treatment as any other block element, not folded into the
+        // surrounding text run.
+        let src = tiny_png_data_uri(2, 2);
+        let html = format!(r#"<html><body><p>before <img src="{src}" style="display: block"> after</p></body></html>"#);
+        let doc = parse_html(&html);
+        let tree = build_layout_tree(&doc);
+        let children = find_blocks_containing_image(&tree).expect("display:block <img> should still split into sibling boxes");
+        assert_eq!(children.len(), 3);
         assert!(matches!(children[1].content, BoxContent::Image(_)));
-        let BoxContent::Inline(after) = &children[2].content else { panic!("expected an inline run after the image") };
-        assert!(after[0].0.trim_start().starts_with("after"), "unexpected text after the image: {:?}", after[0].0);
     }
 
     fn find_inline_text(b: &LayoutBox) -> Option<&str> {
-        if let BoxContent::Inline(spans) = &b.content {
-            return spans.first().map(|(text, _)| text.as_str());
+        if let BoxContent::Inline(items) = &b.content {
+            for item in items {
+                if let InlineItem::Text(text, _) = item {
+                    return Some(text.as_str());
+                }
+            }
         }
         if let BoxContent::Blocks(children) = &b.content {
             for c in children {
@@ -5114,5 +5521,88 @@ mod tests {
         let div = find_by_width(&laid, 13.0).expect("div not found");
         assert!(div.background_image.is_none(), "a div with no background-image declared shouldn't resolve one, even with a background-color set");
         assert!(div.style.background_color.is_some(), "sanity: background-color itself should still resolve normally");
+    }
+
+    // ---------- v48: real inline-level `<img>` flow ----------
+
+    fn find_mixed_inline(laid: &Laid) -> Option<&Laid> {
+        if matches!(laid.content, LaidContent::MixedInline(_)) {
+            return Some(laid);
+        }
+        if let LaidContent::Blocks(children) | LaidContent::TableRow(children) = &laid.content {
+            for c in children {
+                if let Some(found) = find_mixed_inline(c) {
+                    return Some(found);
+                }
+            }
+        }
+        None
+    }
+
+    fn mixed_items(laid: &Laid) -> &Vec<MixedPositioned> {
+        let LaidContent::MixedInline(items) = &laid.content else { panic!("not a MixedInline Laid") };
+        items
+    }
+
+    fn mixed_item_xy(item: &MixedPositioned) -> (f32, f32) {
+        match item {
+            MixedPositioned::Image(img) => (img.x, img.y),
+            MixedPositioned::Word { x, y, .. } => (*x, *y),
+        }
+    }
+
+    #[test]
+    fn mixed_inline_keeps_items_on_one_line_when_they_fit() {
+        let src = tiny_png_data_uri(4, 4);
+        let html = format!(r#"<html><body><p>x <img src="{src}" style="width: 10px; height: 10px"> y</p></body></html>"#);
+        let laid = measure_fixture(&html, 500.0);
+        let run = find_mixed_inline(&laid).expect("mixed inline run not found");
+        let items = mixed_items(run);
+        assert_eq!(items.len(), 3, "word, image, word");
+        // One line's height is `max(word line-height, image height)` —
+        // the word's own `Metrics::new(16.0, 20.0)` line-height (20px)
+        // dominates a 10px-tall image, so the whole run's box should be
+        // ~20px tall. Two separate lines would instead be ~40px+ (each
+        // line at least 20px, image bottom-aligned within whichever is
+        // taller) — a far coarser, implementation-detail-free way to
+        // confirm "on one line" than comparing exact `y` offsets (the
+        // word is top-aligned and the image bottom-aligned *within* a
+        // shared line, see `measure_mixed_inline`'s own docs, so their
+        // `y` values legitimately differ even on the same line).
+        assert!(run.h < 25.0, "word+image should fit on one ~20px line, got height {}", run.h);
+        let positions: Vec<(f32, f32)> = items.iter().map(mixed_item_xy).collect();
+        assert!(positions[0].0 < positions[1].0, "image should sit after the first word, not stacked below it");
+        assert!(positions[1].0 < positions[2].0, "trailing word should sit after the image");
+    }
+
+    #[test]
+    fn mixed_inline_wraps_when_content_does_not_fit_on_one_line() {
+        // Two 50px-wide images in a 60px container can't possibly share
+        // a line (50 + 50 > 60) regardless of font metrics, so this
+        // pins real wrapping deterministically without depending on how
+        // wide any shaped word measures.
+        let src = tiny_png_data_uri(4, 4);
+        let html = format!(
+            r#"<html><body><div style="width: 60px"><p><img src="{src}" style="width: 50px; height: 10px"><img src="{src}" style="width: 50px; height: 10px"></p></div></body></html>"#
+        );
+        let laid = measure_fixture(&html, 500.0);
+        let run = find_mixed_inline(&laid).expect("mixed inline run not found");
+        let items = mixed_items(run);
+        assert_eq!(items.len(), 2);
+        let positions: Vec<(f32, f32)> = items.iter().map(mixed_item_xy).collect();
+        assert_ne!(positions[0].1, positions[1].1, "two 50px images in a 60px container should wrap onto separate lines");
+        assert!(run.h >= 20.0 - 0.01, "two wrapped 10px-tall image lines should report roughly 20px total, got {}", run.h);
+    }
+
+    #[test]
+    fn mixed_inline_respects_text_align_center() {
+        let src = tiny_png_data_uri(4, 4);
+        let left_html = format!(r#"<html><body><p><img src="{src}" style="width: 10px; height: 10px"></p></body></html>"#);
+        let center_html = format!(r#"<html><body><p style="text-align: center"><img src="{src}" style="width: 10px; height: 10px"></p></body></html>"#);
+        let left_laid = measure_fixture(&left_html, 500.0);
+        let center_laid = measure_fixture(&center_html, 500.0);
+        let (left_x, _) = mixed_item_xy(&mixed_items(find_mixed_inline(&left_laid).unwrap())[0]);
+        let (center_x, _) = mixed_item_xy(&mixed_items(find_mixed_inline(&center_laid).unwrap())[0]);
+        assert!(center_x > left_x, "text-align: center should shift a mixed line's content rightward compared to default left alignment");
     }
 }
