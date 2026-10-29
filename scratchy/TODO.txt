@@ -562,21 +562,50 @@ session can pick a coherent slice rather than one property at a time.
             there (deliberately prioritized, per this item's own task
             wording, as grid's single most load-bearing primitive).
 
-- [ ] Last member of what was once a cluster of CSS properties: `word-
-      spacing` is still entirely unrecognized (dropped). Not just
-      unimplemented but genuinely harder than `letter-spacing` was:
-      cosmic-text 0.19's `Attrs` has no `word_spacing`/`word-spacing`
-      API to hook into at all (confirmed by grepping its vendored
-      source — `letter_spacing_opt` is the only tracking-style knob it
-      exposes), so a correct implementation would mean hand-rolling
-      word-boundary detection and extra spacing entirely outside
-      cosmic-text's own shaping/wrapping — a worse-case version of the
-      exact risk that already broke the `letter-spacing` attempt (the
-      wrap width cosmic-text computes internally wouldn't know about
-      space scratchy added after the fact). Nothing in `default.css`
-      needs it. (`line-height` landed in v24, `visibility` in v25,
-      `outline` in v26, `box-shadow` in v27, `border-radius` in v28,
-      relative `font-size` keywords in v29, `border-style` in v30,
+- [x] Last member of what was once a cluster of CSS properties:
+      `word-spacing` (PENDING_COMMIT_HASH, v59) now parses (`normal` or a
+      plain `px`/`em`/`rem` `<length>`, real CSS inheritance, same
+      grammar/cascade shape the reverted `letter-spacing` attempt would
+      have used) and genuinely widens the gap between words — but,
+      unlike that attempt, by routing a run through `measure_mixed_
+      inline` (v48's hand-rolled per-word greedy line-breaker, already
+      extended in v54 to cover a plain-text run sharing a BFC with a
+      float) instead of wiring anything into cosmic-text's own `Attrs`.
+      cosmic-text 0.19's `Attrs` still has no `word_spacing` API at all
+      (confirmed again by grepping its vendored source — unchanged from
+      when this was first noted), so that was never actually an option
+      here the way it looked like one for `letter-spacing`; the real
+      question was whether a hand-rolled approach could sidestep
+      `letter-spacing`'s actual failure (cosmic-text's own *internal*
+      wrap-width computation getting a word's width wrong once spacing
+      was added to its shaping). It does: the extra spacing is baked
+      directly into a word's own measured advance in scratchy's own
+      position math, after cosmic-text has already shaped that word at
+      its natural width — cosmic-text's shaping/wrap internals never see
+      a word-spacing-adjusted width at all, so they have nothing new to
+      get wrong. Verified directly against `letter-spacing`'s own
+      reported reproduction numbers (TODO.txt's own now-historical
+      record): the same `900px`-wide short-paragraph scenario that
+      shattered into 2 lines at 3-4px and 4 lines at 8px of
+      `letter-spacing` still fits on exactly 1 line at 2px *and* 8px of
+      `word-spacing` here (`word_spacing_does_not_shatter_a_short_
+      paragraph_the_way_letter_spacing_did`), plus a longer, realistic
+      multi-line paragraph confirmed to keep averaging well over 3 words
+      per line rather than degrading toward one-word-per-line
+      (`word_spacing_does_not_break_realistic_multi_word_wrapping`). 5
+      new permanent tests total, also covering: `word-spacing: normal`
+      staying on the fast single-`Buffer` cosmic-text path (zero
+      regression cost for the common case); a nonzero value routing
+      through the slow path with *no* image or float present at all (the
+      actual routing extension this item needed, mirroring v54's own
+      float-routing addition); and the gap between two words growing by
+      exactly the declared pixel difference between two `word-spacing`
+      values. Visually confirmed with a real `grim` screenshot: three
+      paragraphs (normal/20px/2px `word-spacing`) all wrapping naturally
+      across several lines with no shattering, visibly wider gaps at
+      larger declared values. (`line-height` landed in v24, `visibility`
+      in v25, `outline` in v26, `box-shadow` in v27, `border-radius` in
+      v28, relative `font-size` keywords in v29, `border-style` in v30,
       `overflow` in v31, `cursor` in v32, `text-decoration-style`/
       `-color` in v33, `rem` in v34, `font-weight: bolder`/`lighter` in
       v35 — all previous cluster members, now resolved.)

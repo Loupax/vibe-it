@@ -984,6 +984,16 @@ struct Declarations {
     text_align: Option<TextAlign>,
     vertical_align: Option<VerticalAlign>,
     line_height: Option<LineHeight>,
+    /// `normal` (parsed as `Length::Px(0.0)`, same "no extra spacing"
+    /// representation as an explicit `0`) or a plain `<length>` — no
+    /// `<percentage>` (same grammar `parse_length`, not `parse_length_
+    /// percent`, already gives `border-width`/`outline-width`; real CSS
+    /// doesn't allow one here either, at least not before Level 3, which
+    /// nothing here targets). See `ComputedStyle::word_spacing`'s own
+    /// docs for where this is actually applied — deliberately *not* fed
+    /// into cosmic-text's own `Attrs`, unlike what `letter-spacing`
+    /// (still reverted, see TODO.txt) tried.
+    word_spacing: Option<Length>,
     visibility: Option<Visibility>,
     outline_width: Option<Length>,
     outline_color: Option<CssColor>,
@@ -2602,6 +2612,27 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
                     None
                 };
             }
+        } else if name.eq_ignore_ascii_case("word-spacing") {
+            // `normal | <length>` — same `larger`/`smaller`-style
+            // "try a keyword first, fall back to a length" shape
+            // `font-size` already uses above, not `set_length`'s
+            // leave-untouched-on-failure convention, since `normal` is a
+            // real, explicitly-representable value here (zero extra
+            // spacing), not just "unparsed."
+            let state = input.state();
+            let is_normal = input
+                .next()
+                .ok()
+                .map(|t| matches!(t, Token::Ident(ident) if ident.eq_ignore_ascii_case("normal")))
+                .unwrap_or(false);
+            if is_normal {
+                self.decls.word_spacing = Some(Length::Px(0.0));
+            } else {
+                input.reset(&state);
+                if let Ok(v) = parse_length(input) {
+                    self.decls.word_spacing = Some(v);
+                }
+            }
         }
         Ok(())
     }
@@ -2873,6 +2904,13 @@ struct InheritedStyle {
     line_height: LineHeight,
     visibility: Visibility,
     cursor: CursorStyle,
+    /// Real CSS inheritance (CSS2.1 §16.4 lists `word-spacing` as
+    /// inherited, same as `letter-spacing`) — already resolved to a
+    /// pixel value (like `border_width`/`outline_width`, not kept
+    /// symbolic the way `line_height`'s bare-`<number>` form is), since
+    /// `word-spacing`'s own grammar has no per-descendant-reinterpreted
+    /// form the way `line-height: <number>` does.
+    word_spacing: f32,
 }
 
 const ROOT_STYLE: InheritedStyle = InheritedStyle {
@@ -2888,6 +2926,7 @@ const ROOT_STYLE: InheritedStyle = InheritedStyle {
     line_height: LineHeight::Normal,
     visibility: Visibility::Visible,
     cursor: CursorStyle::Auto,
+    word_spacing: 0.0,
 };
 
 /// Per-side box-model values. Physical (top/right/bottom/left), not logical
@@ -3023,6 +3062,28 @@ struct ComputedStyle {
     /// finally needed.
     line_height: LineHeight,
     visibility: Visibility,
+    /// Real CSS inheritance (see `InheritedStyle::word_spacing`'s own
+    /// docs), already resolved to pixels. **Deliberately never read by
+    /// `shape_spans`/cosmic-text's own `Attrs`** — unlike the reverted
+    /// `letter-spacing` attempt (see TODO.txt), which wired extra
+    /// spacing straight into cosmic-text's own per-glyph shaping and hit
+    /// a real cosmic-text 0.19 bug where its *internal* wrap-width math
+    /// started misbehaving once that spacing crossed a small threshold.
+    /// cosmic-text 0.19's `Attrs` has no `word_spacing` knob to hook into
+    /// at all anyway (confirmed by grepping its vendored source —
+    /// `letter_spacing_opt` is the only tracking-style field it exposes),
+    /// so this never had that option in the first place. Instead, only
+    /// `measure`'s routing check (just below `BoxContent::Inline`'s
+    /// match arm) and `measure_mixed_inline` itself ever read this field
+    /// — a nonzero value routes the run through that hand-rolled,
+    /// word-by-word greedy line-breaker (built for inline `<img>` in v48,
+    /// already extended to float-affected plain text in v54) instead of
+    /// cosmic-text's own whole-paragraph `Buffer`/`Wrap` path, and the
+    /// extra spacing is added directly to a word's own measured advance
+    /// there — a pure position/advance change in scratchy's own code,
+    /// never something cosmic-text's own internal wrap computation has
+    /// to account for.
+    word_spacing: f32,
     /// Not inherited (same as `border_width`/`border_color`) and doesn't
     /// affect layout at all (unlike `border`, which is part of the box
     /// model) — drawn one `outline_width` ring *outside* the border box,
@@ -3124,6 +3185,7 @@ impl ComputedStyle {
             line_height: self.line_height,
             visibility: self.visibility,
             cursor: self.cursor,
+            word_spacing: self.word_spacing,
         }
     }
 }
@@ -3396,6 +3458,17 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         |d| d.visibility,
     )
     .unwrap_or(inherited.visibility);
+    // Eagerly resolved to pixels, like `border_width`/`outline_width`
+    // just below (real CSS grammar is a plain `<length>`, no `%`, so
+    // there's no layout-time basis to defer this against the way
+    // `width`/`margin`/etc. need `BoxLength` for).
+    let word_spacing = cascade_property(
+        &matches,
+        inline_decls.as_ref().and_then(|d| d.word_spacing),
+        |d| d.word_spacing,
+    )
+    .map(|l| l.resolve(font_size, inherited.root_font_size))
+    .unwrap_or(inherited.word_spacing);
     let outline_width = cascade_property(
         &matches,
         inline_decls.as_ref().and_then(|d| d.outline_width),
@@ -3531,6 +3604,7 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         vertical_align,
         line_height,
         visibility,
+        word_spacing,
         outline_width,
         outline_color,
         box_shadow,
@@ -3586,6 +3660,7 @@ fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         vertical_align: VerticalAlign::default(),
         line_height: inherited.line_height,
         visibility: inherited.visibility,
+        word_spacing: inherited.word_spacing,
         outline_width: 0.0,
         outline_color: None,
         box_shadow: None,
@@ -3638,6 +3713,13 @@ struct SpanStyle {
     /// overrides included — not a separate ambient-propagation parameter.
     visibility: Visibility,
     cursor: CursorStyle,
+    /// Real CSS inheritance too (see `ComputedStyle::word_spacing`'s own
+    /// docs) — carried per-span, same as `font_size`/`font_family` above,
+    /// so a nested element overriding `word-spacing` only affects its own
+    /// words, not its siblings'. Only ever read by `measure_mixed_
+    /// inline`, which applies it directly to a word's own measured
+    /// advance (see its own docs) — never by `shape_spans`/cosmic-text.
+    word_spacing: f32,
 }
 
 impl From<InheritedStyle> for SpanStyle {
@@ -3655,6 +3737,7 @@ impl From<InheritedStyle> for SpanStyle {
             line_height: s.line_height.resolve(s.font_size, s.root_font_size),
             visibility: s.visibility,
             cursor: s.cursor,
+            word_spacing: s.word_spacing,
         }
     }
 }
@@ -5272,24 +5355,48 @@ pub fn measure<'a>(
     let mut laid = match &b.content {
         BoxContent::Inline(items)
             if items.iter().any(|i| matches!(i, InlineItem::Image { .. }))
-                || (!floats.is_empty() && content_y < floats.max_bottom()) =>
+                || (!floats.is_empty() && content_y < floats.max_bottom())
+                || items.iter().any(|i| matches!(i, InlineItem::Text(_, span) if span.word_spacing != 0.0)) =>
         {
             // Real inline-level flow for a run that mixes text with at
             // least one inline `<img>` — a materially different (and
             // much more expensive) path than the plain-text case below,
             // so only taken when actually needed; see `measure_mixed_
-            // inline`'s own docs. Also taken (new — the `float`/`clear`
-            // item) for a *plain-text* run that starts before every
-            // float in this BFC has already ended, since only this
-            // hand-rolled per-word breaker can narrow/shift individual
-            // lines around a float — cosmic-text's own whole-buffer
-            // `Buffer`/`Wrap` path below has one fixed width for the
-            // entire paragraph. Known cost, not attempted away: once
-            // *any* float exists anywhere earlier in this BFC, every
-            // paragraph that starts before the *lowest* float's bottom
-            // edge pays this slower per-word path, even one that turns
-            // out not to actually overlap any specific float once its
-            // own line positions are known — see TODO.txt.
+            // inline`'s own docs. Also taken (the `float`/`clear` item,
+            // v54) for a *plain-text* run that starts before every float
+            // in this BFC has already ended, since only this hand-rolled
+            // per-word breaker can narrow/shift individual lines around
+            // a float — cosmic-text's own whole-buffer `Buffer`/`Wrap`
+            // path below has one fixed width for the entire paragraph.
+            // Known cost, not attempted away: once *any* float exists
+            // anywhere earlier in this BFC, every paragraph that starts
+            // before the *lowest* float's bottom edge pays this slower
+            // per-word path, even one that turns out not to actually
+            // overlap any specific float once its own line positions are
+            // known — see TODO.txt.
+            //
+            // Also taken (new — `word-spacing`) whenever any span in
+            // this run actually declares a nonzero `word-spacing`, with
+            // no image or float involved at all — the same "route
+            // through the hand-rolled per-word path instead of cosmic-
+            // text's own whole-buffer one" move v54 already made for
+            // floats, now for the same underlying reason: this is the
+            // only path with per-word advances scratchy can adjust
+            // itself, without asking cosmic-text's own shaping/wrap-
+            // width math to account for extra spacing it never sees
+            // (exactly the risk that broke the reverted `letter-spacing`
+            // attempt — see TODO.txt and `ComputedStyle::word_spacing`'s
+            // own docs). A plain-text run with `word-spacing: normal`
+            // (the overwhelming common case) is completely unaffected —
+            // still the fast single-`Buffer` path below, zero regression
+            // risk/cost.
+            //
+            // Not gated on `s.word_spacing` (this box's own anonymous-
+            // inline-run style) because a run can mix spans from
+            // different elements with different `word-spacing` values
+            // (e.g. plain text next to a `<span>` that overrides it) —
+            // checking every span individually catches that case too,
+            // not just a value declared on the run's own synthetic box.
             let (content_h, positioned) = measure_mixed_inline(
                 items, &s, font_system, content_x, content_y, content_w, containing_height, next_id, cache, deadline,
                 incomplete, floats,
@@ -5747,6 +5854,24 @@ fn image_natural_width(image: &DecodedImage, s: &ComputedStyle) -> f32 {
 /// shaping budget — not a special case, a *shaped word* is just a
 /// smaller unit of the same thing.
 ///
+/// Also where `word-spacing` (v59) is actually applied, now that any run
+/// with a nonzero value is routed here (see `measure`'s own routing
+/// check): baked directly into a word's own measured `width` whenever
+/// its token carries the trailing space that marks a real word boundary
+/// (`word.ends_with(' ')`) — not a separate field threaded through every
+/// downstream use, since every consumer of a word's width here (the
+/// wrap-check/cursor-advance just below, the final line-width/`text-
+/// align` math, and the hit-test bounding box in `MixedPositioned::
+/// Word`) already wants the bigger number for free. cosmic-text's own
+/// shaping of that one word is completely untouched — its `Buffer` is
+/// shaped at the word's own natural width, with no spacing concept fed
+/// into `Attrs` at all; only the *position* of the next word on the line
+/// moves. This is the deliberate reason this item routes through here at
+/// all instead of cosmic-text's own `Attrs`/`Buffer` (like the reverted
+/// `letter-spacing` attempt did, see TODO.txt): cosmic-text's own
+/// internal wrap-width computation never sees word-spacing-adjusted
+/// widths, so it has nothing new to get wrong.
+///
 /// **Known simplifications, not attempted here** (see TODO.txt): no
 /// cross-word kerning/ligatures (each word shaped in isolation); no
 /// real bidi reordering across words (each word's own internal shaping
@@ -5828,7 +5953,15 @@ fn measure_mixed_inline(
                         *incomplete = true;
                         (0.0, PLACEHOLDER_LINE_HEIGHT)
                     };
-                    measured.push(Measured::Word { id, width, height });
+                    // `word-spacing`: real CSS adds extra space after
+                    // each word-separator space character, so only a
+                    // token that actually carries its own trailing space
+                    // (a real boundary — not the very last word in the
+                    // whole run, which never got one) gets any. Baked
+                    // straight into `width` rather than a new field — see
+                    // this function's own docs for why that's enough.
+                    let extra = if word.ends_with(' ') { span.word_spacing } else { 0.0 };
+                    measured.push(Measured::Word { id, width: width + extra, height });
                 }
             }
             InlineItem::Image { image, style, background_image } => {
@@ -11017,5 +11150,140 @@ mod tests {
         assert_eq!(children.len(), 1, "the absolutely-positioned child should be pulled out of the grid item list entirely");
         assert_eq!(children[0].x, container.x, "the one real grid item should occupy the grid's first cell (its own left content edge), not pushed aside by the out-of-flow child");
         assert_eq!(container.positioned.len(), 1, "the absolutely-positioned child should instead land in the container's own `positioned` list");
+    }
+
+    // ---------- v59: `word-spacing` ----------
+
+    /// Every distinct `y` among a `MixedInline` run's own positioned
+    /// items, rounded to avoid float-equality flakiness — the number of
+    /// *lines* a `measure_mixed_inline` call actually produced, used by
+    /// this section's wrap-regression tests the same way `line_height`-
+    /// based line counting would, but without depending on real font
+    /// metrics for line height itself.
+    fn mixed_inline_line_count(laid: &Laid) -> usize {
+        let items = mixed_items(laid);
+        let ys: std::collections::BTreeSet<i64> =
+            items.iter().map(|it| (mixed_item_xy(it).1 * 100.0).round() as i64).collect();
+        ys.len()
+    }
+
+    #[test]
+    fn word_spacing_normal_keeps_the_fast_cosmic_text_path() {
+        // The overwhelming common case (`word-spacing` never declared,
+        // or explicitly `normal`) must stay on the existing single-
+        // `Buffer`-per-paragraph path — zero regression risk/cost for
+        // every page that doesn't use this property, same guarantee
+        // v48/v54 already give for a run with no image and no active
+        // float.
+        let laid = measure_fixture(r#"<html><body><p style="word-spacing: normal">several plain words here</p></body></html>"#, 500.0);
+        assert!(
+            find_mixed_inline(&laid).is_none(),
+            "`word-spacing: normal` should not route a plain-text run through the slower per-word path"
+        );
+        let mut ids = Vec::new();
+        collect_text_shape_ids(&laid, &mut ids);
+        assert!(!ids.is_empty(), "sanity: the paragraph should still have shaped via the ordinary whole-buffer `LaidContent::Text` path");
+    }
+
+    #[test]
+    fn nonzero_word_spacing_routes_through_the_per_word_path_with_no_image_or_float() {
+        // The core routing change this item adds: unlike v48 (image
+        // present) and v54 (an active float), a plain-text run with a
+        // declared `word-spacing` has neither — it still has to take
+        // `measure_mixed_inline`'s hand-rolled path, since that's the
+        // only place this property is actually applied (see
+        // `ComputedStyle::word_spacing`'s own docs).
+        let laid = measure_fixture(r#"<html><body><p style="word-spacing: 10px">foo bar</p></body></html>"#, 500.0);
+        let run = find_mixed_inline(&laid)
+            .expect("a run with nonzero word-spacing and no image/float should still route through measure_mixed_inline");
+        assert_eq!(mixed_items(run).len(), 2, "two words, each its own MixedPositioned::Word");
+    }
+
+    #[test]
+    fn word_spacing_increases_the_gap_between_two_words() {
+        // The real geometry proof, not just "doesn't crash": the second
+        // word's own starting `x` should shift further right as the
+        // declared `word-spacing` grows, by exactly the difference
+        // between the two declared values — proving this is a real,
+        // precisely-sized per-word position change, not a no-op that
+        // merely avoids a crash/mis-wrap.
+        //
+        // Deliberately *not* computed as "word 1's right edge to word
+        // 2's left edge": the extra spacing is baked directly into word
+        // 1's own stored `w` (see `measure_mixed_inline`'s own docs) —
+        // the same "a trailing space counts toward this word's own
+        // width" treatment this file already gives the word's ordinary
+        // trailing space, just extended uniformly to cover the extra
+        // word-spacing too — so that naive gap would always measure ~0
+        // regardless of the declared value. The second word's absolute
+        // `x` is where the extra space actually becomes observable.
+        let second_word_x = |spacing_px: f32| -> f32 {
+            let html = format!(r#"<html><body><p style="margin: 0; word-spacing: {spacing_px}px">foo bar</p></body></html>"#);
+            let laid = measure_fixture(&html, 500.0);
+            let run = find_mixed_inline(&laid).expect("nonzero word-spacing should route through the per-word path");
+            let items = mixed_items(run);
+            assert_eq!(items.len(), 2);
+            match &items[1] {
+                MixedPositioned::Word { x, .. } => *x,
+                MixedPositioned::Image(_) => panic!("expected a word"),
+            }
+        };
+        let x1_10 = second_word_x(10.0);
+        let x1_30 = second_word_x(30.0);
+        assert!(
+            (x1_30 - x1_10 - 20.0).abs() < 0.5,
+            "raising word-spacing from 10px to 30px should shift the second word exactly 20px further right (only the extra spacing differs between these two calls — the words themselves shape identically); got {x1_10} then {x1_30} (delta {})",
+            x1_30 - x1_10
+        );
+    }
+
+    #[test]
+    fn word_spacing_does_not_shatter_a_short_paragraph_the_way_letter_spacing_did() {
+        // Direct regression test against the exact failure shape that
+        // broke the reverted `letter-spacing` attempt (see TODO.txt):
+        // a short paragraph that trivially fits on one line at a wide
+        // (900px) container shattered into one line per word (worse at
+        // larger values) once that attempt's spacing crossed roughly
+        // 2-3px, because it wired spacing into cosmic-text's own
+        // `Attrs`/shaping and cosmic-text's *internal* wrap-width
+        // computation got the word width wrong. `word-spacing` never
+        // touches `Attrs` at all — only this hand-rolled path's own
+        // position math changes — so the exact same scenario, at the
+        // exact value (8px) that broke letter-spacing into 4 lines,
+        // should still fit on one line here.
+        for spacing_px in [2.0, 8.0] {
+            let html = format!(
+                r#"<html><body><p style="margin: 0; word-spacing: {spacing_px}px">Wide word spacing</p></body></html>"#
+            );
+            let laid = measure_fixture(&html, 900.0);
+            let run = find_mixed_inline(&laid).expect("nonzero word-spacing should route through the per-word path");
+            let lines = mixed_inline_line_count(run);
+            assert_eq!(
+                lines, 1,
+                "a short 3-word paragraph at a 900px container should still fit on one line with {spacing_px}px word-spacing, not shatter into {lines} lines the way letter-spacing's own attempt did at comparable values"
+            );
+        }
+    }
+
+    #[test]
+    fn word_spacing_does_not_break_realistic_multi_word_wrapping() {
+        // The other half of the same reproduction: a longer, realistic
+        // paragraph that genuinely needs to wrap across several lines at
+        // a normal article width should still group multiple words per
+        // line with a typical `word-spacing` value — not degrade toward
+        // one word (or worse) per line the way letter-spacing's own bug
+        // did at a real paragraph width.
+        let paragraph = "The quick brown fox jumps over the lazy dog while the sun sets \
+             behind the distant mountains slowly and quietly each evening";
+        let word_count = paragraph.split_whitespace().count();
+        let html = format!(r#"<html><body><p style="margin: 0; word-spacing: 3px">{paragraph}</p></body></html>"#);
+        let laid = measure_fixture(&html, 600.0);
+        let run = find_mixed_inline(&laid).expect("nonzero word-spacing should route through the per-word path");
+        let lines = mixed_inline_line_count(run);
+        assert!(lines >= 1, "sanity: should produce at least one line");
+        assert!(
+            lines * 3 < word_count,
+            "a {word_count}-word paragraph wrapping into {lines} lines at a realistic 600px width should still average well over 3 words per line, not shatter down toward one word per line the way letter-spacing's own bug did"
+        );
     }
 }

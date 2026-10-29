@@ -3927,3 +3927,145 @@ areas/lines, `justify-items`/`align-items` within a cell, content-based
 track sizing, `repeat(auto-fill/auto-fit, ...)`, and row-track `fr`/`%`
 sizing against an indefinite container height); `NOTES.md`
 (architecture write-up).
+
+---
+
+## v59 — `word-spacing`, via the hand-rolled path that sidesteps letter-spacing's failure
+
+> set up a loop where you pick the next TODO item, and once completed,
+> clear your context and do that again until the list is done
+
+Next item of that same autonomous `TODO.txt` loop (v49 did `%` lengths,
+v50 table layout, v51 named `font-family` fallback lists, v52 the
+`position`/`z-index` positioning model, v53 `<head>` hiding, v54
+`float`/`clear`, v55 `position: sticky`, v56 real stacking-context
+semantics, v57 flexbox, v58 grid) — the last member of the old misc-
+CSS-properties cluster, `word-spacing`, left on the list specifically
+because it looked harder than the reverted `letter-spacing` attempt:
+cosmic-text 0.19's `Attrs` has no `word_spacing` knob to hook into at
+all (confirmed again by grepping its vendored source), so a correct
+implementation would mean hand-rolling word-boundary detection and
+spacing entirely outside cosmic-text's own shaping/wrapping — on its
+face, a worse version of the exact risk that broke `letter-spacing`
+(wiring spacing into cosmic-text's own `Attrs`/shaping led its
+*internal* wrap-width computation to get a word's width wrong once
+spacing crossed a small threshold, shattering a short paragraph into
+one line per word).
+
+**The framing that made this tractable rather than a repeat of that
+failure: `letter-spacing`'s wording predates two things that changed the
+shape of this problem entirely.** v48 built `measure_mixed_inline` — a
+hand-rolled, word-by-word greedy line-breaker (originally for inline
+`<img>`), which shapes each *word* independently via `shape_spans` at
+tiny-single-word granularity and positions words left-to-right itself,
+entirely outside cosmic-text's own paragraph-level line-breaking. v54
+then generalized it further: a plain-text-only run already routes
+through this slower path whenever a float could still be active, not
+just when an image is present. Since this path already knows word
+boundaries (it splits text into words itself to shape each one
+separately) and already positions each word's own x-offset by hand,
+adding extra horizontal space between words there is a *position-
+calculation change in scratchy's own code* — not something that asks
+cosmic-text to account for extra spacing inside its own wrap-width math.
+The strategy: wire `word-spacing` into this same hand-rolled path, the
+same way v54 made float-affected runs route there, except now *any* run
+with a nonzero `word-spacing` routes there, with no image or float
+needed at all.
+
+**What/why:** `word-spacing` parses `normal` (represented as
+`Length::Px(0.0)`, same "no extra spacing" value an explicit `0` already
+gets) or a plain `px`/`em`/`rem` `<length>` — no `%`, matching the real
+spec's own Level 1/2 grammar and the same `parse_length` (not
+`parse_length_percent`) grammar `border-width`/`outline-width` already
+use. Threaded as a genuine CSS-inherited property (CSS2.1 §16.4 lists
+both `letter-spacing` and `word-spacing` as inherited) through
+`InheritedStyle`/`ComputedStyle` exactly the way `font-family`/
+`white-space`/`text-align` already are — resolved eagerly to a pixel
+value in `resolve_style` (like `border_width`/`outline_width`, not kept
+symbolic the way `line-height`'s bare-`<number>` form has to be, since
+`word-spacing` has no per-descendant-reinterpreted form). Also added to
+`SpanStyle` (and its `From<InheritedStyle>` impl) so each word in a
+mixed run carries the `word-spacing` of the specific span it came from —
+a nested element overriding `word-spacing` only affects its own words,
+not its siblings', matching real per-element cascade.
+
+**The routing change**, mirroring v54's own float-routing addition
+almost exactly: `measure`'s `BoxContent::Inline` match arm gained a
+third disjunct — `items.iter().any(|i| matches!(i, InlineItem::Text(_,
+span) if span.word_spacing != 0.0))` — alongside the existing "any
+image" and "an active float" conditions. Checked per-span, not against
+the run's own anonymous-box style, since a run can mix spans from
+different elements with different `word-spacing` values. `word-spacing:
+normal` (the overwhelming common case) leaves every span's value at
+`0.0`, so an ordinary paragraph is completely unaffected — still the
+fast single-`Buffer` cosmic-text path, zero regression risk/cost,
+pinned by a permanent test (`word_spacing_normal_keeps_the_fast_cosmic_
+text_path`).
+
+**Where the actual spacing gets applied**, inside `measure_mixed_
+inline`'s own word-measurement loop: a word's shaped (cosmic-text-
+measured) width gets its span's `word_spacing` added directly onto it
+*whenever that word's own token carries the trailing space that marks a
+real word boundary* (`word.ends_with(' ')` — the last word in a run,
+with no trailing space, correctly gets no extra). This is baked straight
+into the `Measured::Word`'s own `width` field, rather than threaded as a
+separate field through every downstream consumer — the wrap-check/
+cursor-advance in the greedy line-breaker's first pass, the final
+`text-align` math, and the hit-test bounding box in `MixedPositioned::
+Word` all already treat a word's own `width` as "how much horizontal
+space this word needs before the next one," so inflating that one number
+is enough everywhere, for free. This is also the exact same treatment
+this function's own docs already gave the word's *ordinary* trailing
+space before this item (a known, documented simplification — "a line's
+trailing space counts toward width... unlike a real UA which hangs it
+past the edge") — `word-spacing` just extends that same convention
+uniformly rather than inventing a second one. Crucially, cosmic-text's
+own per-word `shape_spans` call (which measures a word's *natural*
+width, with no knowledge of the spacing) runs completely untouched —
+`Attrs` never sees a word-spacing value at all, so there's no
+cosmic-text-internal wrap-width computation left for this to confuse,
+the way there was for `letter-spacing`.
+
+**A real test-writing snag worth flagging, caught before it shipped**: the
+first version of the core geometry test measured "gap from word 1's own
+right edge to word 2's left edge" (`x1 - (x0 + w0)`) and got `0`,
+looking like a bug — but it's actually a predictable consequence of
+baking the extra spacing into `width` as described above: the space is
+now *inside* word 1's own reported width, not a separate gap after it.
+Fixed by measuring word 2's own absolute `x` position across two
+different declared `word-spacing` values instead (`10px` vs `30px`) and
+asserting the difference is exactly `20px` — a more direct and more
+robust proof that the position math scales exactly with the declared
+value, not an artifact of how the "gap" happened to be computed.
+
+**Verification, deliberately modeled on `letter-spacing`'s own documented
+reproduction** (the honest, specific style this project's own history
+praises that TODO.txt entry for): 5 new permanent tests. Besides the
+routing/fast-path tests above and the exact-pixel gap test:
+`word_spacing_does_not_shatter_a_short_paragraph_the_way_letter_spacing_
+did` reproduces the *exact* scenario and spacing values from
+`letter-spacing`'s own TODO.txt entry (a short paragraph at a 900px
+container, 2px and 8px of spacing — the precise value that shattered
+`letter-spacing` into 4 lines) and confirms this still fits on 1 line at
+both; `word_spacing_does_not_break_realistic_multi_word_wrapping` uses a
+longer, realistic multi-sentence paragraph at a typical 600px article
+width with 3px `word-spacing` and asserts the resulting line count still
+averages well over 3 words per line, not degrading toward one-word-per-
+line. All 108 tests pass (103 pre-existing + 5 new), `cargo clippy`
+clean (no new warnings — the pre-existing baseline's warning count and
+specific locations were diffed against a stash of this change to confirm
+nothing new was introduced). Visually confirmed with a real `grim`
+screenshot: three paragraphs (`word-spacing: normal`/`20px`/`2px`) all
+wrapping naturally across multiple lines with no shattering, visibly
+wider gaps between words at larger declared values, word-spacing-only
+wrapping differences (more lines at 20px than at 2px) exactly as real
+CSS word-spacing would produce.
+
+**Deliverable:** `src/lib.rs` (`Declarations::word_spacing` + its
+`DeclParser` arm, `InheritedStyle`/`ComputedStyle`/`SpanStyle`'s new
+`word_spacing` fields and their cascade/inheritance/`From` wiring,
+`measure`'s new routing disjunct, `measure_mixed_inline`'s word-
+measurement change, 5 new tests in the permanent `mod tests`);
+`TODO.txt` (item checked off); `NOTES.md` (architecture write-up,
+explicitly contrasting this approach with `letter-spacing`'s failed
+one).

@@ -1934,3 +1934,128 @@ explicit instruction to check first: `ComputedStyle`'s `row_gap`/
 from v57 with no flexbox-specific framing, so `measure_grid` just reads
 `s.row_gap`/`s.column_gap` directly, the same fields `measure_flex`
 reads.
+
+## v59 — `word-spacing`, and why it succeeded where `letter-spacing` didn't
+
+Last item of the old misc-CSS-properties cluster. `TODO.txt`'s own
+wording for this item (written back when `letter-spacing` was reverted)
+assumed it would be *harder* than `letter-spacing`, since cosmic-text
+0.19's `Attrs` has no `word_spacing` knob at all — `letter_spacing_opt`
+is genuinely the only tracking-style field it exposes (confirmed again
+by grepping its vendored source; unchanged since that was first noted).
+That's true, but it turned out to be the wrong axis to worry about: the
+actual blocker for `letter-spacing` was never "cosmic-text has no API
+for this" (`Attrs::letter_spacing()` is a real, documented API, and
+wiring it in worked fine in isolation) — it was that feeding spacing
+into cosmic-text's own shaping made its *internal* wrap-width
+computation get a word's width wrong, shattering a short paragraph into
+one line per word. `word-spacing` never had the option to make that
+specific mistake, since there's no `Attrs` knob to feed it into in the
+first place — the real question was whether an entirely different,
+hand-rolled approach could land the same visible effect without routing
+through cosmic-text's shaping/wrap internals at all.
+
+**It can, because v48/v54 already built the exact machinery needed,
+for an unrelated reason.** `measure_mixed_inline` (v48, for inline
+`<img>`) is a hand-rolled, word-by-word greedy line-breaker that shapes
+each word independently (via `shape_spans`, one tiny one-word paragraph
+at a time) and positions each word's own x-offset itself, entirely
+outside cosmic-text's own paragraph-level `Buffer`/`Wrap` logic. v54
+extended routing into this path to cover any plain-text run sharing a
+BFC with an active float, not just an image. Since this path already
+splits text into words and already does its own position arithmetic,
+adding extra horizontal space between words there is **a position-
+calculation change in scratchy's own code** — the same category of
+change `float`'s own per-line corridor narrowing (v54) already is, not
+a shaping change. cosmic-text's per-word `shape_spans` call still
+measures each word at its own natural width, with zero knowledge that
+`word-spacing` exists; only the number scratchy adds to that word's own
+advance afterward changes. There's no cosmic-text-internal wrap-width
+computation left in this path for that extra number to confuse, because
+cosmic-text isn't doing any wrapping in this path at all — scratchy's
+own greedy line-breaker is.
+
+**The routing extension** needed to make this reachable mirrors v54's
+own float-routing change almost exactly: `measure`'s `BoxContent::
+Inline` match arm already had two disjuncts gating entry into
+`measure_mixed_inline` ("contains an image," "an active float overlaps
+this run's own starting `y`") — this added a third, "any span in this
+run has a nonzero `word_spacing`," checked per-span (not against the
+run's own anonymous-box style) since a run can mix spans from different
+elements with different `word-spacing` values. `word-spacing: normal`
+(represented as `0.0`, same as an unset value) never triggers this, so
+an ordinary paragraph stays on the fast single-`Buffer` path with zero
+added cost — the same "only pay for what you use" guarantee v48/v54
+already established for images/floats.
+
+**Where the spacing is actually added**, inside `measure_mixed_
+inline`'s own word-measurement loop: a word's shaped width gets its
+originating span's `word_spacing` added directly onto it, whenever that
+word's own split token ends in the trailing space that marks a real
+word boundary (the last word in a run — no trailing space — correctly
+gets none). This is baked straight into the `Measured::Word`'s own
+`width` rather than carried as a separate field threaded through every
+downstream site: the wrap-check/cursor-advance in the line-breaker's
+first pass, the final `text-align` offset math, and
+`MixedPositioned::Word`'s own hit-test bounding box all already treat a
+word's `width` as "how much horizontal room this word needs before the
+next one starts," so one inflated number covers all three for free.
+This is also, deliberately, the exact same treatment this function's
+own docs already gave a word's *ordinary* trailing space before this
+item existed (a documented, pre-existing simplification: "a line's
+trailing space counts toward width... unlike a real UA which hangs it
+past the edge") — extended uniformly rather than invented fresh.
+
+**A real test-design trap, caught before shipping**: the first version
+of the core geometry test tried to measure "the gap from word 1's own
+right edge to word 2's left edge" and got exactly `0` — which looks like
+a bug, but is the predictable consequence of baking the extra spacing
+into word 1's own `width` (as above): the space is now *inside* that
+word's own reported extent, not a separate quantity sitting after it.
+Fixed by comparing word 2's absolute `x` position across two different
+declared `word-spacing` values (`10px` vs `30px`) instead, and asserting
+the delta is exactly `20px` — a cleaner, more direct proof that the
+position math scales exactly with the declared value. Worth remembering
+as a general lesson for this file's own "bake the extra into an existing
+width field, don't add a new one" pattern (used again here after
+`float`/`measure_mixed_inline` style precedent): a test that assumes the
+extra quantity is still measurable as a separate "gap" after the fact
+will quietly measure `0` and look like a regression, not a test bug,
+unless you trace through where the number actually ended up.
+
+**Verification deliberately modeled on `letter-spacing`'s own TODO.txt
+entry** — reproducing its exact numbers, not just writing generic
+tests, to make the comparison as direct as possible: the same 900px-wide
+short-paragraph scenario that shattered `letter-spacing` into 2 lines at
+3-4px and 4 lines at 8px still fits on exactly 1 line at both 2px and
+8px of `word-spacing` here. A second test uses a longer, realistic
+multi-sentence paragraph at a typical 600px width with a typical 3px
+`word-spacing` value and confirms the resulting wrap still averages well
+over 3 words per line, rather than degrading toward one-word-per-line.
+5 new permanent tests total; all 108 (103 prior + 5 new) pass; `cargo
+clippy` stayed clean (diffed its exact warning locations against a
+stash of this change to confirm nothing new was introduced — the
+pre-existing warning count shifted only by line-number offsets).
+Visually confirmed with a real `grim` screenshot: three paragraphs
+(`word-spacing: normal`/`20px`/`2px`) all wrap naturally across several
+lines with no shattering, with visibly wider word gaps and correspondingly
+more wrapped lines at the larger declared value — exactly the shape real
+CSS `word-spacing` produces, not a flat/no-op rendering.
+
+**Why this is the right place to note the contrast with `letter-
+spacing` for future reference**: both properties are genuinely CSS-
+inherited, length-only, no-cosmic-text-API-for-either properties — on
+paper, close cousins. The difference that mattered wasn't the property
+itself, it was *where* the extra spacing got applied: `letter-spacing`
+fed it into cosmic-text's own per-glyph shaping (`Attrs::
+letter_spacing()`), inside the exact subsystem responsible for its own
+internal wrap-width math, and that's where the bug lived. `word-spacing`
+never touches `Attrs`/`shape_spans`'s *shaping* at all — only the
+position scratchy's own hand-rolled line-breaker already computes by
+hand. The general lesson for a future length-ish text property: if
+cosmic-text has a real, working API for it (`letter-spacing` did), that
+doesn't automatically make it the safer implementation path — check
+whether applying it earlier, in scratchy's own already-hand-rolled
+position math (where one exists), avoids feeding cosmic-text's internal
+layout algorithms something new to get wrong, even if that means a
+slower code path for runs that use the property.
