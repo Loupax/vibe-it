@@ -591,6 +591,18 @@ normal root but `900` starting from an already-bold parent, and
 visually confirmed a doubly-`bolder` nested span renders heavier than
 a plain bold sibling.
 
+**v36 resolved `rem`'s own narrower-scope gap**: it now resolves
+against `<html>`'s real cascaded `font-size` (`build_layout_tree`
+resolves it once up front via a new `find_html_element`, seeds
+`root_font_size` from the result) instead of a fixed `16.0` constant.
+Picked first off a short post-session prioritization pass (user asked
+to check `TODO.txt` and prioritize) — the three items from this pass
+that *do* need an architecture decision or user sign-off (named
+`font-family` fallback lists, `opacity`, `letter-spacing`/
+`word-spacing`) and the bigger survey items (positioning, flexbox/
+grid, custom properties, at-rules, forms/JS) are explicitly still
+deferred, not forgotten.
+
 ## Priority going forward: rendering, not networking
 
 Explicit decision: the next phase of work is about how scratchy

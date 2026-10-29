@@ -1831,3 +1831,44 @@ last-but-one member of the misc-CSS-properties `TODO.txt` cluster,
 leaving only `word-spacing` — now also given its own narrower-scope
 item explaining why it's harder than `letter-spacing` was, not just
 lower priority.
+
+## v36 — `rem` resolves against `<html>`'s real cascaded font-size
+
+> check the TODO for scratchy browser. Lets prioritize things and get
+> to work
+
+Prioritized a short slice of well-scoped `TODO.txt` gaps that don't
+need an architecture decision or user sign-off (unlike named
+`font-family`, `opacity`, `letter-spacing`/`word-spacing`) or a bigger
+design call (positioning, flexbox/grid, custom properties, at-rules,
+forms/JS). This is the first: `rem`'s own narrower-scope item left by
+v34, which always resolved against a fixed `16.0` constant instead of
+a real `<html>` element's own cascaded `font-size`.
+
+`build_layout_tree` now resolves `<html>`'s style once up front (a new
+`find_html_element` walks the parsed DOM for it — a plain recursive
+search, not just a one-level peek at `document`'s children, so a
+malformed/fragment document without `<html>` as the immediate child
+still finds it rather than silently falling back) and seeds
+`root_font_size` from its resolved `font_size`, before that same
+`InheritedStyle` is threaded through the normal `build_children`
+recursion. `<html>` itself gets resolved twice (once here, once again
+normally inside `build_children`) — harmless, since `resolve_style` is
+pure. Falls back to `ROOT_STYLE.font_size` (`16.0`) when there's no
+`<html>` element at all, same as before.
+
+Verified with a temporary test (removed before committing, same
+discipline as prior sessions): `<html style="font-size: 40px">` with a
+nested `margin-top: 2rem` resolves to `80px`, not the `32px` the old
+fixed constant would give; without the override it still resolves to
+`32px` as before. Also visually confirmed end-to-end with a real
+`grim` screenshot against a `font-size: 32px` `<html>`, `margin-top:
+2rem`/`padding: 1rem` div — margin/padding scaled to the 32px root,
+not 16px.
+
+**Deliverable:** `src/lib.rs` (`find_html_element`, `build_layout_tree`
+resolving `root_font_size` from it instead of using `ROOT_STYLE`
+directly, doc comments on `InheritedStyle::root_font_size`/
+`ComputedStyle::root_font_size` updated to describe the real
+resolution instead of the old fixed-constant caveat). Closes the
+narrower-scope `rem` item v34 left in `TODO.txt`.

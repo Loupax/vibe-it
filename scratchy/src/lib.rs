@@ -1571,15 +1571,12 @@ fn to_text_color(color: &CssColor) -> Option<TextColor> {
 struct InheritedStyle {
     color: TextColor,
     font_size: f32,
-    /// For `rem` lengths (`Length::Rem`) — always `ROOT_STYLE.font_size`
-    /// (`16.0`), copied unchanged through every element's `inherited()`/
-    /// `anonymous_style` rather than re-derived from each element's own
-    /// `font_size` the way real inheritance works for every other field
-    /// here. Scoped deliberately narrow: a real `html { font-size: ... }`
-    /// override would need this seeded from the actual root element's
-    /// own resolved font-size instead of this fixed constant — nothing
-    /// in `default.css` or a real test page declares one, so it's not
-    /// implemented (see `Length::Rem`'s own docs).
+    /// For `rem` lengths (`Length::Rem`) — resolved once from the real
+    /// `<html>` element's own cascaded `font-size` (`build_layout_tree`),
+    /// then copied unchanged through every other element's `inherited()`/
+    /// `anonymous_style` rather than re-derived per element the way real
+    /// inheritance works for every other field here, since `rem` is
+    /// document-root-relative, not parent-relative.
     root_font_size: f32,
     font_weight: FontWeight,
     font_style: FontStyle,
@@ -2276,14 +2273,47 @@ fn collect_children(
 /// install-path/XDG-discovery problem for a single-binary tool.
 const DEFAULT_CSS: &str = include_str!("default.css");
 
+/// Finds the document's `<html>` element, if present — needed up front so
+/// `rem` lengths can resolve against its real cascaded `font-size` (an
+/// `html { font-size: ... }` override) instead of a fixed constant. A
+/// shallow search would be enough for any well-formed document (html5ever's
+/// `Document` node's only element child is `<html>`), but this walks the
+/// whole tree so a malformed/fragment document still finds it if it's
+/// nested unexpectedly, rather than silently falling back to the default.
+fn find_html_element(handle: &Handle) -> Option<Handle> {
+    if let NodeData::Element { name, .. } = &handle.data {
+        if name.local.as_ref() == "html" {
+            return Some(handle.clone());
+        }
+    }
+    for child in handle.children.borrow().iter() {
+        if let Some(found) = find_html_element(child) {
+            return Some(found);
+        }
+    }
+    None
+}
+
 pub fn build_layout_tree(document: &Handle) -> LayoutBox {
     let mut css_source = String::new();
     collect_style_css(document, &mut css_source);
     let mut rules = parse_stylesheet(DEFAULT_CSS);
     rules.extend(parse_stylesheet(&css_source));
+    // `rem` lengths resolve against `<html>`'s own cascaded font-size, not
+    // necessarily `ROOT_STYLE.font_size` — resolve it once up front (pure,
+    // side-effect-free) so `root_font_size` carries the real value into
+    // every other element's `resolve_style` call, including `<html>`'s own
+    // second (otherwise-identical) resolution inside `build_children`.
+    let root_font_size = find_html_element(document)
+        .map(|html| resolve_style(&html, &rules, ROOT_STYLE).font_size)
+        .unwrap_or(ROOT_STYLE.font_size);
+    let root_inherited = InheritedStyle {
+        root_font_size,
+        ..ROOT_STYLE
+    };
     LayoutBox {
-        style: anonymous_style(ROOT_STYLE),
-        content: BoxContent::Blocks(build_children(document, &rules, ROOT_STYLE)),
+        style: anonymous_style(root_inherited),
+        content: BoxContent::Blocks(build_children(document, &rules, root_inherited)),
     }
 }
 
@@ -3470,6 +3500,3 @@ pub fn run() {
 
     event_loop.run_app(&mut app).unwrap();
 }
-
-
-
