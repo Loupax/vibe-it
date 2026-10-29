@@ -1978,3 +1978,71 @@ background/border rounding logic, `ComputedStyle::border_radius`'s doc
 comment updated). Closes the `border-radius` item in `TODO.txt`,
 replaced by a narrower dashed/dotted/double scope note and a new,
 much bigger `width`/`height` item.
+
+---
+
+## v39 — fix `text-decoration` not reaching a block's own direct text / nested block descendants
+
+> check the TODO for scratchy browser. Lets prioritize things and get
+> to work
+
+Fourth item off the same prioritization pass (v36-v38), continued after
+a mid-session check-in: pushed v36-v38, confirmed scope with the user
+to continue with this item and `overflow`'s block-box clipping next,
+leaving the newly-discovered `width`/`height` gap (found while
+verifying v38) for its own dedicated future session.
+
+Fixed the real bug `v33` found-but-didn't-fix: `<p style="text-decoration:
+underline">text</p>` rendered `text` with no underline at all, because
+`collect_children`'s ambient `decoration` parameter was reseeded to
+`DecorationValue::default()` every time a block started its own
+children, rather than threaded from that block's own resolved
+`style.text_decoration` — so a block's *own direct text* (and any
+nested block descendant that doesn't re-declare its own decoration)
+never saw the block's own `text-decoration`, even though an inline
+descendant handling the identical declaration already worked fine
+(`collect_children`'s other branch already did
+`style.text_decoration.unwrap_or(decoration)` correctly).
+
+Despite `TODO.txt` grouping this with `opacity`'s "materially bigger
+plumbing" caveat, it didn't share `opacity`'s actual blocker: `opacity`
+was skipped because *correct semantics* needed the user's input (group-
+compositing vs. a simplified ambient-multiply, two genuinely different
+results); this one had one unambiguous correct behavior the whole time
+— the exact `unwrap_or` propagation already proven correct for the
+inline case, just not yet threaded across block boundaries too. Added a
+`decoration: DecorationValue` parameter to `build_box_for_element`,
+`build_table_children`, `build_table_row_cells`, `build_children`, and
+`build_children_with_prefix`; `build_box_for_element` resolves its own
+`style.text_decoration.unwrap_or(decoration)` once up front and passes
+that down every path that builds its own children, mirroring the
+inline branch exactly. `build_table_children`/`build_table_row_cells`
+pass their raw incoming `decoration` straight through to
+`build_box_for_element` for `Block`/`TableCell` children (trusting it
+to redo the `unwrap_or` itself, since it re-resolves that child's style
+from the same `inherited` anyway — same "resolve_style is pure, a
+second call is harmless" precedent `v36` used), but pre-resolve their
+own `child_decoration` for `TableRow`/`TableGroup`, since those build
+their `LayoutBox` directly rather than delegating. The true root call
+(`build_layout_tree`) still starts at `DecorationValue::default()` —
+there's no ambient context above the document.
+
+Verified with 4 temporary tests (removed before committing): a block's
+own direct text now gets its own declared decoration; a nested block
+descendant with no decoration of its own inherits the ambient one from
+a block ancestor (not just from an inline ancestor, which already
+worked); a nested block can still opt out with an explicit
+`text-decoration: none`; and — to make sure the fix doesn't
+over-propagate — a sibling block after a decorated one does *not* leak
+the decoration sideways. Then visually confirmed all four shapes with a
+real `grim` screenshot, plus a regression check against a page
+exercising inline decoration/links/lists/tables (v12-v32-era rendering
+unchanged).
+
+**Deliverable:** `src/lib.rs` (`decoration` parameter threaded through
+`build_box_for_element`/`build_table_children`/`build_table_row_cells`/
+`build_children`/`build_children_with_prefix`, `build_layout_tree`'s
+root call updated, `collect_children`'s block-dispatch call site passes
+its own ambient `decoration` through instead of discarding it). Closes
+the block-level `text-decoration` item `TODO.txt` had carried since
+`v33`.

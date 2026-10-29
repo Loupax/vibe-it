@@ -117,30 +117,6 @@ session can pick a coherent slice rather than one property at a time.
       `text-decoration` shorthand, which is the only form `default.css`
       or any test page used.
 
-- [ ] **Found while testing v33, not introduced by it**: `text-decoration`
-      declared directly on a *block*-level element only reaches that
-      element's own direct text content and nested block descendants
-      when something *inline* re-threads it — `collect_children`'s
-      ambient `decoration` parameter (see its own docs) is seeded fresh
-      (`DecorationValue::default()`) every time `build_children`/
-      `build_children_with_prefix` starts a new block's children, rather
-      than from that block's own resolved `style.text_decoration`.
-      Concretely: `<p style="text-decoration: underline">text</p>`
-      renders `text` with no underline at all, while
-      `<p>plain <span style="text-decoration: underline">text</span></p>`
-      works fine, because the `<span>` is inline and goes through
-      `collect_children`'s other branch (`style.text_decoration.unwrap_or(decoration)`),
-      which *does* pick up its own declared value regardless of the
-      ambient parameter. Every real page and `default.css` rule so far
-      only ever declares `text-decoration` on inline elements
-      (`u`/`s`/`abbr`/`a`/...), so this never surfaced before. A correct
-      fix needs the same ambient `decoration` value threaded through
-      `build_box_for_element`/`build_table_children`/
-      `build_table_row_cells`/`build_children`/`build_children_with_prefix`
-      that `opacity`'s own skipped item below already identified as a
-      materially bigger plumbing change than a single property's own
-      scope — not attempted here for the same reason.
-
 - [ ] `cursor` (PROMPTS.md v32) only tracks `auto`/`pointer` — the one
       keyword `default.css` actually declares (`a { cursor: pointer }`).
       No `text`/`wait`/`crosshair`/`move`/`grab`/etc. (easy to add the

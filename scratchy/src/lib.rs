@@ -2094,12 +2094,22 @@ pub struct LayoutBox {
     content: BoxContent,
 }
 
-fn build_box_for_element(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle) -> LayoutBox {
+/// `decoration` is the *ambient* text-decoration this element inherited
+/// from whatever called it — a block boundary alone doesn't interrupt
+/// propagation (see `collect_children`'s own docs on why it's ambient,
+/// not real CSS inheritance), so this can't just reset to
+/// `DecorationValue::default()` the way it used to. Resolved against
+/// this element's *own* declared value (`style.text_decoration`, if
+/// any) right away, then threaded into every path that builds this
+/// element's own children — same `unwrap_or` shape `collect_children`'s
+/// inline branch already uses, just applied once per block too.
+fn build_box_for_element(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle, decoration: DecorationValue) -> LayoutBox {
     let style = resolve_style(handle, rules, inherited);
+    let own_decoration = style.text_decoration.unwrap_or(decoration);
     if style.display == Display::Table {
         return LayoutBox {
             style,
-            content: BoxContent::Blocks(build_table_children(handle, rules, style.inherited())),
+            content: BoxContent::Blocks(build_table_children(handle, rules, style.inherited(), own_decoration)),
         };
     }
     let prefix = if element_tag(handle) == "li" {
@@ -2109,7 +2119,7 @@ fn build_box_for_element(handle: &Handle, rules: &[StyleRule], inherited: Inheri
     };
     LayoutBox {
         style,
-        content: BoxContent::Blocks(build_children_with_prefix(handle, rules, style.inherited(), prefix)),
+        content: BoxContent::Blocks(build_children_with_prefix(handle, rules, style.inherited(), prefix, own_decoration)),
     }
 }
 
@@ -2121,7 +2131,7 @@ fn build_box_for_element(handle: &Handle, rules: &[StyleRule], inherited: Inheri
 /// display, so it falls to the `Block` arm and gets its own box via the
 /// normal `build_box_for_element` call, which re-enters this same
 /// table-building path independently for its own rows.
-fn build_table_children(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle) -> Vec<LayoutBox> {
+fn build_table_children(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle, decoration: DecorationValue) -> Vec<LayoutBox> {
     let mut result = Vec::new();
     for child in handle.children.borrow().iter() {
         let NodeData::Element { .. } = &child.data else { continue };
@@ -2130,19 +2140,26 @@ fn build_table_children(handle: &Handle, rules: &[StyleRule], inherited: Inherit
             continue;
         }
         let style = resolve_style(child, rules, inherited);
+        // Resolved once here (not left to `build_box_for_element`, since
+        // the `TableRow`/`TableGroup` arms build their `LayoutBox`
+        // directly rather than delegating to it) — the `Block` arm below
+        // passes the un-resolved `decoration` straight through instead,
+        // since `build_box_for_element` already redoes this same
+        // `unwrap_or` itself once it has the child's own `style`.
+        let child_decoration = style.text_decoration.unwrap_or(decoration);
         match style.display {
             Display::None => {}
             Display::TableRow => {
-                let cells = build_table_row_cells(child, rules, style.inherited());
+                let cells = build_table_row_cells(child, rules, style.inherited(), child_decoration);
                 result.push(LayoutBox { style, content: BoxContent::TableRow(cells) });
             }
             Display::TableGroup => {
-                result.extend(build_table_children(child, rules, style.inherited()));
+                result.extend(build_table_children(child, rules, style.inherited(), child_decoration));
             }
             Display::Block => {
                 // e.g. `caption`, or any other block-level content placed
                 // directly under `<table>`.
-                result.push(build_box_for_element(child, rules, inherited));
+                result.push(build_box_for_element(child, rules, inherited, decoration));
             }
             // A stray `table-cell`/inline/`table` outside a row isn't
             // real-world table markup — skip rather than guess at it.
@@ -2156,13 +2173,13 @@ fn build_table_children(handle: &Handle, rules: &[StyleRule], inherited: Inherit
 /// interior content — text, inline elements, nested blocks — all work
 /// unchanged via the ordinary `build_box_for_element` path; only how its
 /// *parent* lays it out, horizontally instead of vertically, differs).
-fn build_table_row_cells(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle) -> Vec<LayoutBox> {
+fn build_table_row_cells(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle, decoration: DecorationValue) -> Vec<LayoutBox> {
     let mut cells = Vec::new();
     for child in handle.children.borrow().iter() {
         let NodeData::Element { .. } = &child.data else { continue };
         let style = resolve_style(child, rules, inherited);
         if style.display == Display::TableCell {
-            cells.push(build_box_for_element(child, rules, inherited));
+            cells.push(build_box_for_element(child, rules, inherited, decoration));
         }
     }
     cells
@@ -2178,8 +2195,8 @@ fn build_table_row_cells(handle: &Handle, rules: &[StyleRule], inherited: Inheri
 /// into one giant text run. (An earlier version flattened unconditionally;
 /// on a real Wikipedia page that merged the entire navigation chrome into a
 /// single ~17,000-character run, which took 7+ seconds to shape by itself.)
-fn build_children(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle) -> Vec<LayoutBox> {
-    build_children_with_prefix(handle, rules, inherited, None)
+fn build_children(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle, decoration: DecorationValue) -> Vec<LayoutBox> {
+    build_children_with_prefix(handle, rules, inherited, None, decoration)
 }
 
 /// Same as `build_children`, but seeds the first inline run with `prefix`
@@ -2189,6 +2206,7 @@ fn build_children_with_prefix(
     rules: &[StyleRule],
     inherited: InheritedStyle,
     prefix: Option<(String, SpanStyle)>,
+    decoration: DecorationValue,
 ) -> Vec<LayoutBox> {
     let mut result = Vec::new();
     let mut pending: Vec<(String, SpanStyle)> = Vec::new();
@@ -2200,7 +2218,7 @@ fn build_children_with_prefix(
         rules,
         inherited,
         None,
-        DecorationValue::default(),
+        decoration,
         VerticalAlign::default(),
         &mut pending,
         &mut result,
@@ -2271,7 +2289,7 @@ fn collect_children(
                             content: BoxContent::Inline(std::mem::take(pending)),
                         });
                     }
-                    result.push(build_box_for_element(child, rules, inherited));
+                    result.push(build_box_for_element(child, rules, inherited, decoration));
                 } else {
                     let child_bg = style.background_color.or(bg);
                     let child_decoration = style.text_decoration.unwrap_or(decoration);
@@ -2343,7 +2361,7 @@ pub fn build_layout_tree(document: &Handle) -> LayoutBox {
     };
     LayoutBox {
         style: anonymous_style(root_inherited),
-        content: BoxContent::Blocks(build_children(document, &rules, root_inherited)),
+        content: BoxContent::Blocks(build_children(document, &rules, root_inherited, DecorationValue::default())),
     }
 }
 

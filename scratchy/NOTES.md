@@ -630,6 +630,25 @@ interacts with `measure`'s content-driven sizing) — logged as its own
 `TODO.txt` item, worth a dedicated future slice rather than guessing at
 now.
 
+**v39 fixed the real `text-decoration` bug `v33` found but didn't fix**
+— a block's own direct text (and nested block descendants) never saw
+its own `text-decoration` declaration, only inline descendants did.
+Turned out *not* to share `opacity`'s actual blocker despite
+`TODO.txt` grouping them together: `opacity` needed a semantics
+decision from the user; this one had one unambiguous correct behavior
+the whole time (the same `unwrap_or` propagation already proven
+correct for the inline case), just not yet threaded across block
+boundaries. Threaded a `decoration: DecorationValue` parameter through
+`build_box_for_element`/`build_table_children`/`build_table_row_cells`/
+`build_children`/`build_children_with_prefix`. Verified with 4 temp
+tests (own direct text, nested-block propagation, explicit `none`
+opt-out, no sibling leak) plus a `grim` screenshot and a regression
+check against inline decoration/links/lists/tables. Worth remembering
+alongside `opacity`'s own entry: **"needs the same plumbing shape as
+opacity" isn't the same claim as "has the same blocker as opacity"** —
+check whether the semantics are actually ambiguous before assuming a
+plumbing-heavy fix needs a design decision too.
+
 ## Priority going forward: rendering, not networking
 
 Explicit decision: the next phase of work is about how scratchy
