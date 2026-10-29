@@ -489,9 +489,11 @@ enum Display {
     /// (`colgroup`/`col`) — purely structural wrappers with no box of
     /// their own; `thead`/`tbody`/`tfoot` are transparently walked
     /// through for the `tr`s inside, `colgroup`/`col` carry no visual
-    /// content in this simplified (equal-width-column) table layout, so
-    /// walking through them finds nothing and they contribute no box
-    /// either way.
+    /// content at all — real per-column sizing (`measure_table`) still
+    /// derives every column's width from its cells' own content, not
+    /// from a `<col width>`/CSS `width` hint on a `col` element, which
+    /// isn't read — so walking through them finds nothing and they
+    /// contribute no box either way.
     TableGroup,
 }
 
@@ -3384,6 +3386,53 @@ fn finalize_box_lengths(s: &mut ComputedStyle, width: f32, containing_height: Op
     s.max_height = resolve_h(s.max_height).map(BoxLength::Px);
 }
 
+/// The box-model quantities every `measure` content arm needs in common
+/// (and, since real auto table layout landed, that a table row also needs
+/// when it's laid out directly by `measure_table`/`measure_row_with_
+/// widths` instead of through `measure`'s own generic dispatch) — margin/
+/// padding/border resolution, this box's own border-box width (`clamp_
+/// box_dim` against the explicit/min/max width), and the content-box
+/// origin/width/height-basis it hands down to its own content. Factored
+/// out of `measure`'s own preamble (unchanged otherwise) so it can be
+/// called a second, independent time for a table row without duplicating
+/// this math — rows measured via `measure_table` never go through
+/// `measure` itself at all (see its own docs for why).
+struct BoxModelEntry {
+    border_x: f32,
+    border_y: f32,
+    border_w: f32,
+    content_x: f32,
+    content_y: f32,
+    content_w: f32,
+    extra_h: f32,
+    child_containing_height: Option<f32>,
+}
+
+fn box_model_entry(s: &mut ComputedStyle, x: f32, y: f32, width: f32, containing_height: Option<f32>) -> BoxModelEntry {
+    finalize_box_lengths(s, width, containing_height);
+    let margin_top = s.margin.top.px();
+    let margin_right = s.margin.right.px();
+    let margin_left = s.margin.left.px();
+    let padding_top = s.padding.top.px();
+    let padding_right = s.padding.right.px();
+    let padding_bottom = s.padding.bottom.px();
+    let padding_left = s.padding.left.px();
+    let border_x = x + margin_left;
+    let border_y = y + margin_top;
+    let extra_w = 2.0 * s.border_width + padding_left + padding_right;
+    let auto_border_w = (width - margin_left - margin_right).max(0.0);
+    let border_w = clamp_box_dim(s.width, s.min_width, s.max_width, auto_border_w, s.box_sizing, extra_w);
+    let content_x = border_x + s.border_width + padding_left;
+    let content_y = border_y + s.border_width + padding_top;
+    let content_w = (border_w - extra_w).max(0.0);
+    let extra_h = 2.0 * s.border_width + padding_top + padding_bottom;
+    let child_containing_height = s.height.map(|h| match s.box_sizing {
+        BoxSizing::ContentBox => h.px().max(0.0),
+        BoxSizing::BorderBox => (h.px() - extra_h).max(0.0),
+    });
+    BoxModelEntry { border_x, border_y, border_w, content_x, content_y, content_w, extra_h, child_containing_height }
+}
+
 /// Lays out `b`, shaping text as it goes — but only until `deadline` passes.
 /// Each paragraph gets a stable id (assigned in document order, so it's the
 /// same id across repeated calls on the same tree) and its shaped result is
@@ -3417,44 +3466,33 @@ pub fn measure(
     deadline: std::time::Instant,
     incomplete: &mut bool,
 ) -> Laid {
+    // `display: table` builds its own box model exactly the same way as
+    // any other box (`box_model_entry`, just below — reused, not
+    // special-cased) but lays its *content* out completely differently:
+    // real per-column sizing from its cells' own min/max content width,
+    // not the generic `Blocks` dispatch every other block-level box
+    // falls into. Its `BoxContent` is still plain `Blocks` (unchanged
+    // from `build_box_for_element`'s own docs — there's no dedicated
+    // `BoxContent::Table` variant, since the `Blocks` shape — a table
+    // row stacked among any other direct block child like a `caption` —
+    // is already exactly right), so this has to be checked before the
+    // `match` below, not as one more arm inside it. See `measure_table`'s
+    // own docs for the real algorithm.
+    if b.style.display == Display::Table
+        && let BoxContent::Blocks(children) = &b.content
+    {
+        return measure_table(b, children, font_system, x, y, width, containing_height, next_id, cache, deadline, incomplete);
+    }
     let mut s = b.style;
-    finalize_box_lengths(&mut s, width, containing_height);
-    let margin_top = s.margin.top.px();
-    let margin_right = s.margin.right.px();
-    let margin_left = s.margin.left.px();
-    let padding_top = s.padding.top.px();
-    let padding_right = s.padding.right.px();
-    let padding_bottom = s.padding.bottom.px();
-    let padding_left = s.padding.left.px();
-    let border_x = x + margin_left;
-    let border_y = y + margin_top;
-    // An explicit `width` (in `s.box_sizing`'s reference box — see
-    // `ComputedStyle::width`'s own docs) replaces the container-derived
-    // available width outright — including when it's *wider* than
-    // `width` (the incoming available space): a real CSS box isn't
-    // clamped to its container either, it just extends past it, same
-    // as unconstrained content already could. `min-width`/`max-width`
-    // (see `clamp_box_dim`) apply regardless of whether `width` itself
-    // was explicit.
-    let extra_w = 2.0 * s.border_width + padding_left + padding_right;
-    let auto_border_w = (width - margin_left - margin_right).max(0.0);
-    let border_w = clamp_box_dim(s.width, s.min_width, s.max_width, auto_border_w, s.box_sizing, extra_w);
-    let content_x = border_x + s.border_width + padding_left;
-    let content_y = border_y + s.border_width + padding_top;
-    let content_w = (border_w - extra_w).max(0.0);
-    let extra_h = 2.0 * s.border_width + padding_top + padding_bottom;
-    // The containing-block height *this* box hands down to its own
-    // children (`Blocks`/`TableRow` only — see `finalize_box_lengths`'s
-    // own docs for the real-CSS rule this mirrors): definite only when
-    // this box's own `height` is itself definite (an explicit length,
-    // already resolved above, or a `%` that resolved against *this*
-    // box's own incoming `containing_height`) — converted from the
-    // specified/`box-sizing` reference box down to a *content* height,
-    // same `to_box`-inverse math `clamp_box_dim` itself uses.
-    let child_containing_height = s.height.map(|h| match s.box_sizing {
-        BoxSizing::ContentBox => h.px().max(0.0),
-        BoxSizing::BorderBox => (h.px() - extra_h).max(0.0),
-    });
+    let entry = box_model_entry(&mut s, x, y, width, containing_height);
+    let border_x = entry.border_x;
+    let border_y = entry.border_y;
+    let border_w = entry.border_w;
+    let content_x = entry.content_x;
+    let content_y = entry.content_y;
+    let content_w = entry.content_w;
+    let extra_h = entry.extra_h;
+    let child_containing_height = entry.child_containing_height;
 
     match &b.content {
         BoxContent::Inline(items) if items.iter().any(|i| matches!(i, InlineItem::Image { .. })) => {
@@ -3582,23 +3620,21 @@ pub fn measure(
             }
         }
         BoxContent::TableRow(cells) => {
-            // Equal-width columns rather than real CSS auto table layout
-            // (which sizes each column from its cells' min/max content
-            // width) — a deliberate simplification, see TODO.txt.
+            // Defensive-only fallback: equal-width columns, same as this
+            // file's table layout used everywhere before real per-column
+            // sizing (`measure_table`/`table_column_widths`) landed. Only
+            // reached if a `TableRow` box somehow gets measured outside
+            // its own `Table` parent's `measure_table` dispatch —
+            // `build_table_children` never actually produces one that
+            // way, so this isn't real-world markup, same "stray markup,
+            // best-effort" philosophy `build_table_children` itself
+            // already documents.
             let n = cells.len().max(1) as f32;
-            let cell_w = content_w / n;
-            let mut cursor_x = content_x;
-            let mut row_h = 0.0f32;
-            let mut laid_cells = Vec::with_capacity(cells.len());
-            for cell in cells {
-                let lc = measure(
-                    cell, font_system, cursor_x, content_y, cell_w, child_containing_height, next_id, cache, deadline,
-                    incomplete,
-                );
-                row_h = row_h.max(lc.style.margin.top.px() + lc.style.margin.bottom.px() + lc.h);
-                cursor_x += cell_w;
-                laid_cells.push(lc);
-            }
+            let col_widths = vec![content_w / n; cells.len()];
+            let (row_h, laid_cells) = lay_out_row_cells(
+                cells, &col_widths, font_system, content_x, content_y, child_containing_height, next_id, cache,
+                deadline, incomplete,
+            );
             // Same explicit-`height`-overrides-only-the-reported-size
             // behavior as the `Inline`/`Blocks` branches above.
             let border_h = clamp_box_dim(
@@ -3671,6 +3707,34 @@ fn image_box_size(image: &DecodedImage, s: &ComputedStyle) -> (f32, f32) {
         let auto_border_h = if s.height.is_none() { extra_h + content_w * aspect } else { extra_h + intrinsic_h };
         let border_h = clamp_box_dim(s.height, s.min_height, s.max_height, auto_border_h, s.box_sizing, extra_h);
         (border_w, border_h)
+    }
+}
+
+/// An image's own natural (intrinsic) content width, for `cell_natural_
+/// width`'s real-auto-table-layout column sizing — deliberately simpler
+/// than `image_box_size`: an explicit fixed `width` (`BoxLength::Px`,
+/// e.g. from an HTML `width=` attribute or `img { width: 200px }`)
+/// overrides the intrinsic size, same as `image_box_size`'s own normal
+/// case; a `%` width is left alone and treated as if unset, since there's
+/// no containing-block width yet to resolve it against while this image
+/// is itself *being used* to size one (the real spec's own rule for a
+/// replaced element's intrinsic-size contribution: a percentage that
+/// can't yet be resolved just doesn't contribute one). Doesn't honor an
+/// explicit `height` driving the width via aspect ratio the way `image_
+/// box_size` does — a narrower simplification than that function's own,
+/// worth revisiting only if a real page's table column sizing ever looks
+/// wrong because of it (see TODO.txt).
+///
+/// `s` must be the *un*-finalized `ComputedStyle` (straight off the
+/// `LayoutBox`, before any `finalize_box_lengths` call) — finalizing
+/// first would already have resolved a `%` width down to a plain `Px`
+/// against whatever basis was used, indistinguishable from a real fixed
+/// `Px` by the time it got here, defeating the whole point of this
+/// function's `Px`-vs-anything-else check.
+fn image_natural_width(image: &DecodedImage, s: &ComputedStyle) -> f32 {
+    match s.width {
+        Some(BoxLength::Px(v)) => v.max(1.0),
+        _ => image.width.max(1) as f32,
     }
 }
 
@@ -3866,6 +3930,365 @@ fn measure_mixed_inline(
     }
 
     (cursor_y, positioned)
+}
+
+/// The furthest right edge any item in a trial `measure_mixed_inline`
+/// call reached — i.e. the actual content width that run needed, as
+/// opposed to the `content_w` it was *given* (which `measure_mixed_
+/// inline` itself never reports back directly, since its normal callers
+/// already know their own box's width and only need line positions).
+/// Used only by `cell_natural_width`'s own trial calls, both of which
+/// pass `content_x: 0.0`, so an item's absolute `x` is already relative
+/// to the run's own start.
+fn mixed_inline_extent(positioned: &[MixedPositioned]) -> f32 {
+    positioned
+        .iter()
+        .map(|p| match p {
+            MixedPositioned::Word { x, w, .. } => x + w,
+            MixedPositioned::Image(laid) => laid.x + laid.w,
+        })
+        .fold(0.0f32, f32::max)
+}
+
+/// This cell's own natural (intrinsic) content width range — the `(min,
+/// max)` pair CSS2.1 §17.5.2.2's automatic table layout bases column
+/// sizing on (see `table_column_widths`). `max` is this cell's content
+/// laid out with no wrapping at all (its width if it had unlimited
+/// space); `min` is the width of its single widest unbreakable token
+/// (the narrowest it could ever be wrapped to without breaking a word or
+/// shrinking an image). Both figures are border-box, including this
+/// cell's own margin/border/padding, not just its content — the real
+/// horizontal space it needs in its row.
+///
+/// Reuses `measure_mixed_inline`'s existing greedy word-wrapper for
+/// *both* figures, run at its two extremes, rather than a separate
+/// whole-buffer `shape_spans` call for `max` and a hand-rolled "longest
+/// word" scan for `min`: calling it at an effectively unconstrained
+/// width (`max`) leaves every word/image on one line, so the furthest
+/// item's own right edge *is* the unwrapped width; calling it at `0`
+/// width (`min`) forces every word/image onto its own line (the
+/// wrapper's own `cursor_x + w > content_w` check is always true for a
+/// second item on an empty-budget line), so the widest single resulting
+/// line *is* the widest unbreakable token. This also means a cell whose
+/// content mixes text and an inline `<img>` gets the same, consistent
+/// treatment as a plain-text one, with no separate code path — see
+/// `measure_mixed_inline`'s own docs for why one hand-rolled wrapper
+/// already has to serve both shapes.
+///
+/// Participates in the same `deadline`/`cache`/`next_id` incremental-
+/// shaping budget as everything else `measure` shapes (each trial call
+/// shapes real words, just mapped into different lines) — a huge table
+/// degrades the same resumable way a huge paragraph already does, not a
+/// separate, unbounded pass.
+fn cell_natural_width(
+    cell: &LayoutBox,
+    font_system: &mut FontSystem,
+    next_id: &mut usize,
+    cache: &mut ShapeCache,
+    deadline: std::time::Instant,
+    incomplete: &mut bool,
+) -> (f32, f32) {
+    // Effectively unconstrained, same constant/reasoning as `measure_
+    // mixed_inline`'s own `WORD_MEASURE_WIDTH`.
+    const UNBOUNDED: f32 = 1_000_000.0;
+    let raw_width = cell.style.width;
+    let mut s = cell.style;
+    // There's no real containing-block width yet — the whole point of
+    // this pass is to find out how much width this cell *wants*, before
+    // any column width exists to resolve a `%` margin/padding/border
+    // against. `0.0` is CSS2.1's own fallback basis for exactly this
+    // situation (a percentage that can't yet be resolved against a real
+    // basis computes as if the basis were `0`), same treatment `image_
+    // natural_width` gives a `%` width for the same underlying reason.
+    finalize_box_lengths(&mut s, 0.0, None);
+    let extra_w =
+        s.margin.left.px() + s.margin.right.px() + 2.0 * s.border_width + s.padding.left.px() + s.padding.right.px();
+    // Intrinsic sizing cares about the content only, never the author's
+    // chosen alignment — force `Left` so a trial call's own `text-align:
+    // center`/`right` offset (computed against *this trial's* `content_w`,
+    // not any real one) can't inflate the measured extent.
+    let mut trial_style = s;
+    trial_style.text_align = TextAlign::Left;
+    let (content_min, content_max) = match &cell.content {
+        BoxContent::Inline(items) => {
+            let (_, min_items) =
+                measure_mixed_inline(items, &trial_style, font_system, 0.0, 0.0, 0.0, None, next_id, cache, deadline, incomplete);
+            let (_, max_items) = measure_mixed_inline(
+                items, &trial_style, font_system, 0.0, 0.0, UNBOUNDED, None, next_id, cache, deadline, incomplete,
+            );
+            (mixed_inline_extent(&min_items), mixed_inline_extent(&max_items))
+        }
+        // A nested block stacks its children vertically — its own
+        // natural width is the *widest* child, not their sum.
+        BoxContent::Blocks(children) => children.iter().fold((0.0f32, 0.0f32), |(mn, mx), child| {
+            let (cmn, cmx) = cell_natural_width(child, font_system, next_id, cache, deadline, incomplete);
+            (mn.max(cmn), mx.max(cmx))
+        }),
+        // Only reached for a nested `<table>`'s own rows (never a real
+        // table cell's direct content — see `build_table_row_cells`): a
+        // row lays its own cells out horizontally, so its natural width
+        // is their *sum* — composes correctly with the `Blocks` arm
+        // above (a nested table's own natural width ends up as the max
+        // over its rows of each row's own cells' summed width, a
+        // reasonable approximation of running this same algorithm
+        // recursively without actually doing so).
+        BoxContent::TableRow(cells) => cells.iter().fold((0.0f32, 0.0f32), |(mn, mx), c| {
+            let (cmn, cmx) = cell_natural_width(c, font_system, next_id, cache, deadline, incomplete);
+            (mn + cmn, mx + cmx)
+        }),
+        BoxContent::Image(image) => {
+            let w = image_natural_width(image, &ComputedStyle { width: raw_width, ..s });
+            (w, w)
+        }
+    };
+    (content_min + extra_w, content_max + extra_w)
+}
+
+/// The real per-column widths `measure_table` distributes a table's own
+/// `content_w` into — CSS2.1 §17.5.2.2's automatic table layout, scoped
+/// to what matters without colspan/rowspan (a row's `n`th cell always
+/// maps to column `n`; a row with fewer cells than the table's column
+/// count just leaves its later columns unfilled, handled already by
+/// `lay_out_row_cells`'s own fallback). Each column's own `min`/`max` is
+/// the largest of its cells' own `cell_natural_width` across every row —
+/// a column has to be wide enough for its widest cell, in either
+/// direction. Then:
+///
+/// - if every column's `max` fits in `content_w`, each grows
+///   proportionally to its own share of the total `max` to fill the rest
+///   (an auto-width table still fills its own box-model width exactly as
+///   it always has — see `measure_table`'s own docs — so the extra space
+///   has to go *somewhere*, and growing by `max`-share is what a real
+///   `table-layout: auto` table does once content fits);
+/// - else if even every column's `min` doesn't fit, each shrinks
+///   proportionally to its own share of the total `min` instead, letting
+///   the real content overflow rather than clamping to something
+///   smaller still (no different from a `min-width` wider than its own
+///   container elsewhere in this engine);
+/// - otherwise (the ordinary case: `content_w` sits between the table's
+///   total `min` and total `max`) each column interpolates between its
+///   own `min` and `max`, in proportion to how much of the table's total
+///   `max - min` "slack" it represents — the real spec's own rule for
+///   this case.
+fn table_column_widths(
+    children: &[LayoutBox],
+    content_w: f32,
+    font_system: &mut FontSystem,
+    next_id: &mut usize,
+    cache: &mut ShapeCache,
+    deadline: std::time::Instant,
+    incomplete: &mut bool,
+) -> Vec<f32> {
+    let num_cols = children
+        .iter()
+        .filter_map(|c| match &c.content {
+            BoxContent::TableRow(cells) => Some(cells.len()),
+            _ => None,
+        })
+        .max()
+        .unwrap_or(0);
+    if num_cols == 0 {
+        return Vec::new();
+    }
+    let mut col_min = vec![0.0f32; num_cols];
+    let mut col_max = vec![0.0f32; num_cols];
+    for child in children {
+        if let BoxContent::TableRow(cells) = &child.content {
+            for (i, cell) in cells.iter().enumerate() {
+                let (min_w, max_w) = cell_natural_width(cell, font_system, next_id, cache, deadline, incomplete);
+                col_min[i] = col_min[i].max(min_w);
+                // A column's `max` is never smaller than its own `min`
+                // (can happen per-cell if a trial measurement landed on
+                // an incomplete/placeholder shape under the deadline
+                // budget — see `cell_natural_width`'s own docs) so the
+                // distribution math below never has to handle `max <
+                // min` for a single column.
+                col_max[i] = col_max[i].max(max_w).max(col_min[i]);
+            }
+        }
+    }
+    let total_min: f32 = col_min.iter().sum();
+    let total_max: f32 = col_max.iter().sum();
+
+    if total_max <= content_w {
+        if total_max <= 0.0 {
+            return vec![content_w / num_cols as f32; num_cols];
+        }
+        let extra = content_w - total_max;
+        col_max.iter().map(|&m| m + extra * (m / total_max)).collect()
+    } else if total_min >= content_w {
+        if total_min <= 0.0 {
+            return vec![content_w / num_cols as f32; num_cols];
+        }
+        col_min.iter().map(|&m| content_w * (m / total_min)).collect()
+    } else {
+        let total_slack = total_max - total_min;
+        (0..num_cols)
+            .map(|i| {
+                let slack = col_max[i] - col_min[i];
+                col_min[i] + (content_w - total_min) * (slack / total_slack)
+            })
+            .collect()
+    }
+}
+
+/// Lays a table row's cells out left-to-right at exactly `col_widths`
+/// (one entry per cell — an equal share of the total if there are more
+/// cells than entries, a defensive fallback that shouldn't come up in
+/// practice since `table_column_widths`'s own `num_cols` is already the
+/// *widest* row's cell count). Shared by `measure`'s own defensive
+/// stray-`TableRow` fallback (equal-width `col_widths`) and `measure_row_
+/// with_widths`'s real, column-sized case, so the two don't duplicate
+/// the cell loop/row-height bookkeeping.
+#[allow(clippy::too_many_arguments)]
+fn lay_out_row_cells(
+    cells: &[LayoutBox],
+    col_widths: &[f32],
+    font_system: &mut FontSystem,
+    content_x: f32,
+    content_y: f32,
+    child_containing_height: Option<f32>,
+    next_id: &mut usize,
+    cache: &mut ShapeCache,
+    deadline: std::time::Instant,
+    incomplete: &mut bool,
+) -> (f32, Vec<Laid>) {
+    let fallback_w = if col_widths.is_empty() { 0.0 } else { col_widths.iter().sum::<f32>() / col_widths.len() as f32 };
+    let mut cursor_x = content_x;
+    let mut row_h = 0.0f32;
+    let mut laid_cells = Vec::with_capacity(cells.len());
+    for (i, cell) in cells.iter().enumerate() {
+        let cell_w = col_widths.get(i).copied().unwrap_or(fallback_w);
+        let lc = measure(
+            cell, font_system, cursor_x, content_y, cell_w, child_containing_height, next_id, cache, deadline,
+            incomplete,
+        );
+        row_h = row_h.max(lc.style.margin.top.px() + lc.style.margin.bottom.px() + lc.h);
+        cursor_x += cell_w;
+        laid_cells.push(lc);
+    }
+    (row_h, laid_cells)
+}
+
+/// A `TableRow` box's own box model (`box_model_entry`, exactly like any
+/// other box) plus its cells, laid out at `col_widths` instead of an
+/// equal split — called directly by `measure_table` instead of through
+/// `measure`'s own generic dispatch, since a row measured this way needs
+/// the table's real per-column widths, which only `measure_table` (its
+/// own `Table` parent) has computed.
+#[allow(clippy::too_many_arguments)]
+fn measure_row_with_widths(
+    row: &LayoutBox,
+    col_widths: &[f32],
+    font_system: &mut FontSystem,
+    x: f32,
+    y: f32,
+    width: f32,
+    containing_height: Option<f32>,
+    next_id: &mut usize,
+    cache: &mut ShapeCache,
+    deadline: std::time::Instant,
+    incomplete: &mut bool,
+) -> Laid {
+    let BoxContent::TableRow(cells) = &row.content else {
+        unreachable!("measure_row_with_widths is only ever called on a BoxContent::TableRow box, from measure_table");
+    };
+    let mut s = row.style;
+    let entry = box_model_entry(&mut s, x, y, width, containing_height);
+    let (row_h, laid_cells) = lay_out_row_cells(
+        cells, col_widths, font_system, entry.content_x, entry.content_y, entry.child_containing_height, next_id,
+        cache, deadline, incomplete,
+    );
+    let border_h =
+        clamp_box_dim(s.height, s.min_height, s.max_height, entry.extra_h + row_h.max(0.0), s.box_sizing, entry.extra_h);
+    Laid {
+        style: s,
+        x: entry.border_x,
+        y: entry.border_y,
+        w: entry.border_w,
+        h: border_h,
+        background_image: row.background_image.clone(),
+        content: LaidContent::TableRow(laid_cells),
+    }
+}
+
+/// A `display: table` element's own box model (`box_model_entry`, same
+/// as any other box) plus its content: real CSS2.1 §17.5.2.2 automatic
+/// table layout (`table_column_widths`), not the old equal-width-column
+/// simplification (see `TODO.txt`'s previous wording for this item).
+/// `children` is the table's own direct `Blocks` children — `TableRow`s
+/// plus any plain-`Block` content like a `caption` — exactly what
+/// `build_table_children` already produces; this table's own box-model
+/// `width` (and therefore its `content_w`, what `table_column_widths`
+/// distributes) is still derived the ordinary `clamp_box_dim` way, same
+/// as before this feature existed — real CSS auto-width tables actually
+/// shrink-to-fit their own content rather than filling their container,
+/// but changing *that* is a separate, bigger scope than "size the
+/// columns from their content" (this item's actual ask — see TODO.txt),
+/// so an auto-width table still fills its container exactly as it did
+/// with equal-width columns, just divided unevenly among them now.
+///
+/// Stacks `children` vertically exactly like `BoxContent::Blocks`
+/// always has — a plain-`Block` child (e.g. a `caption`) via the
+/// ordinary `measure`, a `TableRow` child via `measure_row_with_widths`
+/// instead, passing the real per-column widths rather than an equal
+/// split.
+///
+/// No colspan/rowspan, no border-collapse/cell borders, no
+/// `caption-side` — all still explicitly out of scope, see `TODO.txt`.
+#[allow(clippy::too_many_arguments)]
+fn measure_table(
+    b: &LayoutBox,
+    children: &[LayoutBox],
+    font_system: &mut FontSystem,
+    x: f32,
+    y: f32,
+    width: f32,
+    containing_height: Option<f32>,
+    next_id: &mut usize,
+    cache: &mut ShapeCache,
+    deadline: std::time::Instant,
+    incomplete: &mut bool,
+) -> Laid {
+    let mut s = b.style;
+    let entry = box_model_entry(&mut s, x, y, width, containing_height);
+    let col_widths = table_column_widths(children, entry.content_w, font_system, next_id, cache, deadline, incomplete);
+
+    let mut cursor_y = entry.content_y;
+    let mut laid_children = Vec::with_capacity(children.len());
+    for child in children {
+        let lc = if matches!(child.content, BoxContent::TableRow(_)) {
+            measure_row_with_widths(
+                child, &col_widths, font_system, entry.content_x, cursor_y, entry.content_w,
+                entry.child_containing_height, next_id, cache, deadline, incomplete,
+            )
+        } else {
+            measure(
+                child, font_system, entry.content_x, cursor_y, entry.content_w, entry.child_containing_height,
+                next_id, cache, deadline, incomplete,
+            )
+        };
+        cursor_y += lc.style.margin.top.px() + lc.style.margin.bottom.px() + lc.h;
+        laid_children.push(lc);
+    }
+    let content_h = cursor_y - entry.content_y;
+    let border_h = clamp_box_dim(
+        s.height,
+        s.min_height,
+        s.max_height,
+        entry.extra_h + content_h.max(0.0),
+        s.box_sizing,
+        entry.extra_h,
+    );
+    Laid {
+        style: s,
+        x: entry.border_x,
+        y: entry.border_y,
+        w: entry.border_w,
+        h: border_h,
+        background_image: b.background_image.clone(),
+        content: LaidContent::Blocks(laid_children),
+    }
 }
 
 fn blend(existing: u32, color: TextColor) -> u32 {
@@ -6077,5 +6500,116 @@ mod tests {
         );
         let div = find_by_width(&laid, 200.0).expect("div not found");
         assert_eq!(div.style.border_radius.resolve(div.w), 50.0, "border-radius: 25% of a 200px-wide box should resolve to 50px");
+    }
+
+    // ---------- table layout: real CSS auto table layout (min/max content width per column) ----------
+
+    /// The first `LaidContent::TableRow`'s own cells, found by walking
+    /// through any number of wrapping `Blocks` boxes (a `<table>`'s own
+    /// content, or `<body>`/`<html>` above it) — same recursive-search
+    /// shape as this file's other `find_*` test helpers.
+    fn find_table_row_cells(laid: &Laid) -> Option<&[Laid]> {
+        if let LaidContent::TableRow(cells) = &laid.content {
+            return Some(cells);
+        }
+        if let LaidContent::Blocks(children) = &laid.content {
+            for c in children {
+                if let Some(found) = find_table_row_cells(c) {
+                    return Some(found);
+                }
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn table_columns_size_from_their_own_cell_content_not_an_equal_split() {
+        // Two columns, deliberately very uneven content: the old equal-
+        // width-column layout would give both exactly half of the
+        // table's content width regardless. Real auto table layout
+        // should size each column from its own cells' content instead.
+        let laid = measure_fixture(
+            r#"<table><tr><td>Hi</td><td>This is a much longer piece of cell text that genuinely needs a lot more horizontal room than the first column does</td></tr></table>"#,
+            900.0,
+        );
+        let cells = find_table_row_cells(&laid).expect("table row not found");
+        assert_eq!(cells.len(), 2, "two <td>s");
+        assert!(
+            cells[1].w > cells[0].w * 3.0,
+            "the long-text column ({}) should end up substantially wider than the short one ({}), not an equal 450/450 split",
+            cells[1].w,
+            cells[0].w
+        );
+    }
+
+    #[test]
+    fn table_column_widths_still_fill_the_tables_own_content_width() {
+        // Real per-column sizing changes how `content_w` is *divided*,
+        // not the table's own box-model width — an auto-width table
+        // still fills its container exactly as it did with equal-width
+        // columns (see `measure_table`'s own docs on why changing that
+        // is a separate, bigger scope). `body { margin: 8px }` (default.
+        // css) eats 16px total, so a 900px window gives the table a
+        // 884px content width.
+        let laid = measure_fixture(
+            r#"<table><tr><td>a</td><td>a much much longer second column of text here</td></tr></table>"#,
+            900.0,
+        );
+        let cells = find_table_row_cells(&laid).expect("table row not found");
+        let total: f32 = cells.iter().map(|c| c.w).sum();
+        assert!((total - 884.0).abs() < 1.0, "columns should sum to the table's own 884px content width, got {total}");
+    }
+
+    #[test]
+    fn table_narrow_container_shrinks_columns_proportionally_to_min_content_not_below_their_longest_word() {
+        // A container too narrow for either column's own natural
+        // (unwrapped) width forces both to shrink below their `max` —
+        // but a column still shouldn't collapse to less than its own
+        // widest unbreakable word (`min`-content): real CSS lets content
+        // overflow rather than breaking a word, the same `min-width`-
+        // wider-than-container behavior this engine already has
+        // elsewhere (see `clamp_box_dim`). Both columns here are a
+        // single long word each (own `min` == own `max`, so this
+        // exercises the "even every column's `min` doesn't fit" shrink
+        // branch, not the ordinary interpolate-between-min-and-max one).
+        let laid = measure_fixture(
+            r#"<table><tr><td>Supercalifragilisticexpialidocious</td><td>Pneumonoultramicroscopicsilicovolcanoconiosis</td></tr></table>"#,
+            60.0,
+        );
+        let cells = find_table_row_cells(&laid).expect("table row not found");
+        // The second word is longer than the first, so even shrunk
+        // proportionally to each column's own min-content share, it
+        // should still end up wider than the first column, not clamped
+        // to some shared minimum.
+        assert!(
+            cells[1].w > cells[0].w,
+            "the longer single-word column ({}) should still end up wider than the shorter one ({}) even once both are shrunk",
+            cells[1].w,
+            cells[0].w
+        );
+    }
+
+    #[test]
+    fn nested_table_in_a_cell_gets_its_own_independent_column_sizing() {
+        // v15's own "deliberately pathological" case, still true after
+        // real per-column sizing: a `<table>` nested inside a cell of an
+        // outer table isn't flattened into the outer table's own row —
+        // `cell_natural_width`'s `Blocks`/`TableRow` recursion has to
+        // walk down into it without mistaking its rows for the outer
+        // table's own columns.
+        let laid = measure_fixture(
+            r#"<table><tr><td>outer cell</td><td><table><tr><td>inner a</td><td>inner cell with much longer text in it</td></tr></table></td></tr></table>"#,
+            900.0,
+        );
+        let outer_cells = find_table_row_cells(&laid).expect("outer table row not found");
+        assert_eq!(outer_cells.len(), 2, "outer table still has exactly 2 columns, not the inner table's 2 flattened in");
+        let inner_cells = find_table_row_cells(&outer_cells[1]).expect("nested table's own row not found inside the second outer cell");
+        assert_eq!(inner_cells.len(), 2, "inner table's own row has its own 2 cells");
+        assert!(
+            inner_cells[1].w > inner_cells[0].w,
+            "the inner table's own uneven columns ({}, {}) should still size from their own content",
+            inner_cells[0].w,
+            inner_cells[1].w
+        );
     }
 }

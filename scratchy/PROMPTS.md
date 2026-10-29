@@ -2822,3 +2822,121 @@ height` derivation, `clamp_box_dim`'s `BoxLength`-aware signature,
 the permanent `mod tests`); updates `TODO.txt` (closes the `%`/unitless
 item, replaced with a narrower `TODO.txt` sub-item on the viewport-
 height gap found and deliberately not fixed along the way).
+
+---
+
+## v50 — real CSS auto table layout (per-column min/max content width)
+
+> set up a loop where you pick the next TODO item, and once completed,
+> clear your context and do that again until the list is done
+
+Item 2 of that same autonomous `TODO.txt` loop (v49 did item 1, `%`
+lengths). Next `TODO.txt` item, top to bottom: table layout's own
+equal-width-column simplification from v15, explicitly scoped smaller
+at the time ("a genuinely separate two-pass algorithm... [sizing] each
+column from its cells' min/max content width") pending a real page that
+needed it. Same as v49, the loop's standing premise is that this
+deferral no longer applies on its own — real CSS2.1 §17.5.2.2 automatic
+table layout landed instead of deferring a fourth version in a row.
+
+**The real algorithm, scoped to what matters without colspan/rowspan**
+(still out of scope, unchanged — a row's `n`th cell always maps to
+column `n`): each column's own `(min, max)` content width is the
+largest of its cells' own natural width across every row — `cell_
+natural_width`, a new recursive function covering every `BoxContent`
+shape a cell's content can take (`Inline` text/images, nested `Blocks`,
+and a nested `<table>`'s own rows). Column widths are then distributed
+across the table's own `content_w` via the spec's real three-case rule:
+if every column's `max` fits, each grows proportionally to its own
+share of `max` to fill the rest; if even every column's `min` doesn't
+fit, each shrinks proportionally to its own share of `min` instead
+(letting real content overflow, same as a `min-width` wider than its
+container does elsewhere in this engine); otherwise each interpolates
+between its own `min` and `max` in proportion to its share of the
+table's total `max - min` slack — the ordinary case for most real
+tables. One deliberate, documented divergence from the literal spec:
+real CSS auto-width tables actually shrink-to-fit their own content
+rather than filling their container — changing *that* is a separate,
+bigger scope than "size the columns from their content" (this item's
+actual ask), so the table's own box-model width is untouched; only how
+`content_w` gets divided among columns changed.
+
+**Computing a cell's natural width turned out to be exactly what `measure_
+mixed_inline` (v48) already does, just run at its two extremes.** That
+function's own greedy word-wrapper, called at an effectively unconstrained
+width, leaves every word/image on one line — the furthest item's own right
+edge *is* the unwrapped (`max`) content width. Called at `0` width, its
+own `cursor_x + w > content_w` check is always true for a second item on
+an empty-budget line, forcing every word/image onto its own line — the
+widest resulting line *is* the widest unbreakable token (`min`). This
+means a cell mixing text and an inline `<img>` gets the exact same
+treatment as a plain-text one, with no separate code path, and — since
+`measure_mixed_inline`'s own word-shaping already participates in the
+`deadline`/`cache`/`next_id` incremental-shaping budget — the natural-
+width pass inherits that budget for free: a huge table degrades the same
+resumable way a huge paragraph already does, not a separate, unbounded
+pass. The real, expected cost: a table cell now gets shaped up to three
+times (once at each width extreme to find its natural size, once more at
+its real assigned column width) instead of once — the "shape once to find
+natural width, size columns, reshape at final width" two-pass cost v15's
+own entry already anticipated as what the real algorithm would require.
+
+**The real architectural piece, smaller than v49's own but same shape**:
+a table row measured with real per-column widths can't go through
+`measure`'s own generic recursive dispatch at all — the equal-width case
+could, since each `BoxContent::TableRow` arm derived its own split purely
+from its own `content_w`, but real column widths are a property of the
+whole *table*, computed once before any of its rows are measured, and
+have to be handed to each row from outside. Rather than thread a new
+column-widths parameter through `measure`'s own signature (touching every
+recursive call site, including ones with nothing to do with tables),
+`display: table` is special-cased at the very top of `measure`, before
+any of its normal box-model/content-dispatch logic runs: `measure_table`
+owns the whole table (and, via `measure_row_with_widths`, each of its
+rows) as a self-contained alternate path, never re-entering `measure`'s
+own `BoxContent::TableRow` arm at all for a well-formed table. That arm
+stays, now explicitly documented as a defensive-only equal-width
+fallback for a `TableRow` box that somehow ends up outside `measure_
+table`'s own dispatch (shouldn't happen — `build_table_children` never
+produces one that way). Extracted `measure`'s own box-model preamble
+(margin/padding/border/`clamp_box_dim` math) into a shared `box_model_
+entry` helper during this, used both by `measure` itself (unchanged
+behavior, confirmed by the full pre-existing suite passing unmodified)
+and by `measure_row_with_widths`, which needs the identical math without
+going through `measure`'s own dispatch.
+
+**No existing permanent test pinned the old equal-width behavior** — v15's
+own verification was a temporary test, deleted before that version's
+commit (this project's testing policy only reversed to "keep tests
+permanently" in v41, well after v15), so there was nothing to rewrite,
+only new tests to add. 4 new permanent tests: two uneven columns end up
+substantially different widths, not an equal split; column widths still
+sum to the table's own content width (confirming the "fill the container,
+don't shrink-to-fit" divergence above is intentional, not a bug); a
+container too narrow for either column's own natural width still gives
+the longer single-word column more room than the shorter one, instead of
+clamping both to some shared minimum (exercises the "even `min` doesn't
+fit" shrink branch specifically); and v15's own "deliberately pathological"
+nested-table-in-a-cell case still gets its own independent column sizing,
+not flattened into the outer table's columns. Visually confirmed with a
+real `grim` screenshot: a 3-column table with one much-longer-text column
+rendered with that column genuinely wide and the other two tight around
+their short content, not three equal thirds.
+
+**Still explicitly out of scope, unchanged from v15's own item** (none of
+this needed touching any of them): no colspan/rowspan, no border-collapse/
+cell borders, no `caption-side` placement. One narrower gap newly
+documented: an explicit `width`/`min-width`/`max-width` set directly on a
+`<td>`/`<th>` (or a `<col width>`/CSS `width` on a `col`/`colgroup`) isn't
+honored as a column-sizing hint — only a cell's own *content* drives its
+column's width, same as `<col>` already carried no visual weight under
+the old equal-width layout.
+
+**Deliverable:** `src/lib.rs` (`BoxModelEntry`/`box_model_entry` (factored
+out of `measure`'s own preamble), the `Display::Table` dispatch at the
+top of `measure`, `measure_table`, `table_column_widths`, `cell_natural_
+width`, `mixed_inline_extent`, `image_natural_width`, `lay_out_row_cells`,
+`measure_row_with_widths`, the `measure`-internal `BoxContent::TableRow`
+arm rewritten as an explicit defensive fallback, 4 new tests in the
+permanent `mod tests`); updates `TODO.txt` (rewrites the table-layout item
+to describe real per-column sizing plus its own narrower remaining gaps).

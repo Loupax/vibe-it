@@ -945,3 +945,45 @@ elsewhere before shipping, not by the type system or a test. Flagged as
 its own `TODO.txt` item (the root box's two roles need separating
 first) rather than either shipping it broken or silently dropping the
 idea with no trace.
+
+## v50 — real auto table layout
+
+Item 2 of the autonomous `TODO.txt` loop (v49 did `%` lengths). Replaced
+v15's equal-width-column table layout with real CSS2.1 §17.5.2.2
+automatic table layout — see `PROMPTS.md` for the full write-up. Two
+things worth remembering architecturally:
+
+**A table's own box-model entry can't go through `measure`'s normal
+content dispatch, because real column sizing needs every row's cells up
+front, before any one row is laid out.** The equal-width case got away
+with letting each `TableRow` compute its own split purely from its own
+`content_w` — a purely local decision. Real column widths are a
+*table-wide* decision (the max across every row, for each column), so
+`display: table` is special-cased at the very top of `measure`, before
+the normal box-model preamble even runs, and owns its own rows directly
+via `measure_table`/`measure_row_with_widths` rather than recursing back
+through `measure`'s own `BoxContent::TableRow` arm. That arm is now an
+explicitly-documented defensive fallback, not live code for any
+well-formed table. Extracted `measure`'s own preamble into a shared
+`box_model_entry` helper to support this without duplicating the margin/
+padding/border/`clamp_box_dim` math a second time — worth reusing again
+if a future feature needs a box's own box-model math computed somewhere
+other than `measure`'s normal call path (the same shape of problem this
+row-measuring case ran into).
+
+**Computing a cell's natural (min/max) content width reuses `measure_
+mixed_inline` (v48) at its two width extremes**, rather than a new,
+separate measurement path: called at an effectively unconstrained width,
+its existing greedy wrapper leaves everything on one line (the furthest
+item's right edge is the max-content width); called at `0` width, its
+own wrap condition forces every word/image onto its own line (the widest
+resulting line is the min-content width — the widest unbreakable token).
+Worth remembering as a general pattern: a hand-rolled greedy line-
+breaker already written for one purpose (real inline flow) can often
+answer "what's the natural width of this content" for free at its own
+extremes, without a second bespoke measurement codepath. The real cost:
+a table cell now gets shaped up to 3x (once at each extreme to find its
+natural size, once more at its real column width) instead of once — the
+two-pass cost v15's own original entry already anticipated real auto
+layout would require, and not something worth optimizing away given it
+only affects table cells, not ordinary paragraphs.

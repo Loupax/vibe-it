@@ -61,16 +61,31 @@ these.
             height for scrolling" role separated before this can be
             revisited, not a one-line fix.
 
-- [ ] Table layout (PROMPTS.md v15) uses equal-width columns, not real
-      CSS auto table layout (which sizes each column from the min/max
-      content width of its cells). No colspan/rowspan (default.css/
-      real-world markup don't need them for anything scratchy renders
-      yet), no border-collapse/borders-between-cells (default.css
-      doesn't declare any table/cell borders), no `caption-side`
-      placement (caption always renders in source position, which is
-      first — same as the default anyway). Revisit if a real page
-      shows up with genuinely uneven column content that looks wrong
-      under equal-width.
+- [x] Table layout (53bab7a) now does real CSS2.1 §17.5.2.2
+      automatic table layout: each column's width is sized from the
+      min/max content width of its own cells (`cell_natural_width`,
+      distributed across the table's own content width by the real
+      spec three-case rule — grow to fill if every column's max-content
+      width fits, shrink proportionally if even every column's
+      min-content width doesn't, interpolate between min and max
+      otherwise), not the old equal-width-column split. One deliberate
+      divergence from the literal spec, kept from before this item
+      landed: a real auto-width table shrink-wraps to its own content;
+      this one still stretches to fill its container (an auto `Blocks`
+      box's existing behavior) — changing that is a separate, bigger
+      scope than "size the columns from their content."
+
+      Still out of scope, unchanged from before this item: no
+      colspan/rowspan (default.css/real-world markup don't need them
+      for anything scratchy renders yet), no border-collapse/borders-
+      between-cells (default.css doesn't declare any table/cell
+      borders), no `caption-side` placement (caption always renders in
+      source position, which is first — same as the default anyway).
+      One narrower gap newly surfaced by real column sizing: an
+      explicit `width`/`min-width`/`max-width` set directly on a
+      `<td>`/`<th>`, or a `<col width>`/CSS `width` on a `col`/
+      `colgroup`, isn't honored as a column-sizing hint — only a cell's
+      own *content* drives its column's width.
 
 - [ ] `font-family` (PROMPTS.md v16) only recognizes the 5 CSS generic
       keywords (serif/sans-serif/monospace/cursive/fantasy) — no named
