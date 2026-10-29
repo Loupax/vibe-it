@@ -292,7 +292,7 @@ session can pick a coherent slice rather than one property at a time.
       `Laid` tree, not just asserting the math in isolation). Worth a
       real interactive check next time a human's at the keyboard.
 
-- [x] Real CSS2.1 Appendix E stacking-context semantics (v56, TBD): the
+- [x] Real CSS2.1 Appendix E stacking-context semantics (v56, bc3b696): the
       seven-layer bottom-to-top paint order
       (https://www.w3.org/TR/CSS21/zindex.html) is now genuinely modeled
       per stacking context — (1) this box's own background/border, (2)
