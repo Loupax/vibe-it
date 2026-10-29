@@ -979,6 +979,14 @@ struct Declarations {
     font_style: Option<FontStyle>,
     font_family: Option<FontFamily>,
     text_decoration: Option<DecorationValue>,
+    /// `text-decoration-line`/`-style`/`-color`, declared independently of
+    /// the `text-decoration` shorthand (v60) — see `DecorationLine`'s own
+    /// docs and `resolve_own_decoration` for how these three combine with
+    /// each other and with whatever the shorthand (or an ambient
+    /// propagated value) already set, at used-value time.
+    text_decoration_line: Option<DecorationLine>,
+    text_decoration_style: Option<DecorationStyle>,
+    text_decoration_color: Option<CssColor>,
     white_space: Option<WhiteSpace>,
     list_style_type: Option<ListStyleType>,
     text_align: Option<TextAlign>,
@@ -1500,43 +1508,131 @@ fn parse_font_weight(input: &mut CssParser) -> Result<FontWeightValue, ()> {
     }
 }
 
-/// `text-decoration-style`'s value, so far as this file can actually
-/// paint it differently from a plain solid stroke. `double` isn't a
-/// variant here — cosmic-text already natively supports a double
-/// *underline* (`UnderlineStyle::Double`), so `parse_text_decoration`
-/// folds a `double` keyword straight into `deco.underline` instead of
-/// going through this enum (it only ever affects underline this way —
-/// strikethrough/overline have no double variant in cosmic-text 0.19,
-/// a narrower scope worth documenting but not worth hand-rolling a
-/// second rectangle for). `wavy` has no custom painting path either —
-/// an actual sine-wave stroke needs real curve rasterization this file
-/// doesn't have anywhere else — and falls back to `Solid`, same
-/// "accepted but not visually distinct" narrowing as `border-style`'s
-/// `groove`/`ridge`/`inset`/`outset` (see `border_style_from_keyword`).
-/// `pub` — appears in the public `ShapedParagraph`/`ShapeCache` type
-/// aliases, same reason `VerticalAlign`/`CursorStyle` are `pub` too.
-#[derive(Clone, Copy, PartialEq, Default)]
+/// `text-decoration-style`'s value. `double` and `wavy` (v60) are now real
+/// variants, hand-painted the same way `Dashed`/`Dotted` already were
+/// (v33) — see `paint_decoration_line`'s own docs for exactly how each
+/// paints. Before v60, `double` wasn't a variant here at all: cosmic-text
+/// natively supports a double *underline* (`UnderlineStyle::Double`), so
+/// the old `parse_text_decoration` folded a `double` keyword straight into
+/// `deco.underline` instead of going through this enum — but that only
+/// ever reached underline (strikethrough/overline have no double variant
+/// in cosmic-text 0.19's own `TextDecoration`), so `text-decoration:
+/// line-through double` silently painted one plain line. `Double` is now
+/// handled entirely by this file's own `paint_decoration_line` (doubling
+/// applies uniformly to whichever line(s) are active — underline,
+/// strikethrough, *and* overline — since `paint_decorations` never relied
+/// on cosmic's native renderer at runtime to begin with, only mirrored its
+/// formulas; see `paint_decorations`'s own docs). `pub` — appears in the
+/// public `ShapedParagraph`/`ShapeCache` type aliases, same reason
+/// `VerticalAlign`/`CursorStyle` are `pub` too.
+#[derive(Clone, Copy, PartialEq, Default, Debug)]
 pub enum DecorationStyle {
     #[default]
     Solid,
     Dashed,
     Dotted,
+    /// Two parallel solid strokes, offset by one stroke's own thickness
+    /// plus an equal gap — the exact formula cosmic-text's own
+    /// `render_decoration` already uses for native double-underline,
+    /// generalized here to strikethrough/overline too (real CSS applies
+    /// `text-decoration-style: double` uniformly to every active line,
+    /// not underline only).
+    Double,
+    /// A real sine-wave stroke, approximated as a sequence of short
+    /// `Renderer::rectangle` segments tracing `sin` along the line's own
+    /// extent — see `paint_decoration_line`'s own docs for the exact
+    /// construction. Before v60 this kept falling back to `Solid` (no
+    /// curve-rasterization primitive existed in this file at all); the
+    /// `Renderer` trait still only offers axis-aligned rectangles, so this
+    /// is a piecewise-linear approximation, not a true analytic curve —
+    /// visually indistinguishable from one at the segment width used here.
+    Wavy,
+}
+
+/// Just `text-decoration-line`'s value in isolation — only the
+/// independent longhand (v60) needs this; the `text-decoration` shorthand
+/// still parses straight into cosmic-text's own `TextDecoration` (`deco`)
+/// since it always sets line+style+color together. `double`-underline
+/// isn't representable here — that's a `-style` keyword, not a line
+/// keyword — only which of the three lines are switched on. `none` (or no
+/// keyword at all) is simply every field `false`, the same representable
+/// "explicitly off" state `TextDecoration::new()` already gives the
+/// shorthand.
+#[derive(Clone, Copy, PartialEq, Default, Debug)]
+struct DecorationLine {
+    underline: bool,
+    strikethrough: bool,
+    overline: bool,
 }
 
 /// What the `text-decoration` shorthand resolves to for one declaration —
-/// `deco` (cosmic-text's own struct: which lines, double-underline, and
-/// per-line color, the last two set directly inside
-/// `parse_text_decoration` since resolving a color token needs no cascade
-/// context) plus `style` (solid/dashed/dotted, painted by hand in
-/// `paint_decorations` instead of cosmic-text's own renderer). Bundled as
-/// one struct rather than two independently-cascaded fields because both
-/// only ever come from the same one shorthand at the same time — there's
-/// no `text-decoration-style`/`-color` longhand support, so there's never
-/// a case where one half is set without the other.
+/// `deco` (cosmic-text's own struct: which lines, and per-line color,
+/// resolved directly inside `parse_text_decoration` since resolving a
+/// color token needs no cascade context) plus `style` (solid/dashed/
+/// dotted/double/wavy, painted by hand in `paint_decorations` instead of
+/// cosmic-text's own renderer). Bundled as one struct because both always
+/// come from the same shorthand *when the shorthand is what set them* —
+/// but since v60, `text-decoration-line`/`-style`/`-color` can also each
+/// be declared independently and combined with whatever this struct
+/// already holds (ambient-propagated or shorthand-set) at used-value
+/// time — see `resolve_own_decoration`, which every call site that used
+/// to write `style.text_decoration.unwrap_or(decoration)` now goes through
+/// instead.
 #[derive(Clone, Copy, Default)]
 struct DecorationValue {
     deco: TextDecoration,
     style: DecorationStyle,
+}
+
+/// Combines an element's own cascaded `text-decoration` shorthand and
+/// `text-decoration-line`/`-style`/`-color` longhands (each independently
+/// `Option`-cascaded — `None` means "not declared on this element") with
+/// `ambient`, the effective `DecorationValue` propagated down from
+/// whatever ancestor last set one (see `collect_children`'s own docs for
+/// why this is ambient propagation, not real CSS inheritance). Mirrors
+/// real CSS's own "combine at used-value time" semantics for these
+/// properties: the shorthand (if declared here) replaces the ambient
+/// value outright, exactly as before v60; each longhand then overrides
+/// only its own one component on top of whatever's left (ambient, or the
+/// shorthand's own result) — so `text-decoration-line: underline;
+/// text-decoration-style: dashed; text-decoration-color: red;` as three
+/// separate declarations combines into the same `DecorationValue` a
+/// single `text-decoration: underline dashed red` shorthand would. A
+/// `-color` override applies to whichever line(s) are active *after* the
+/// `-line` override is applied (so `text-decoration-color` alone, with no
+/// line declared anywhere, correctly has no visible effect — same "don't
+/// leave a stray color on an inactive line" rule `parse_text_decoration`
+/// already enforces for the shorthand). The *combined result* (not the
+/// three raw longhands separately) is what gets threaded on as the new
+/// ambient value for this element's own children — same propagation
+/// shape the shorthand's own override already had, so a descendant that
+/// declares none of these four properties still sees its nearest
+/// ancestor's fully-combined effective decoration, longhands included.
+fn resolve_own_decoration(style: &ComputedStyle, ambient: DecorationValue) -> DecorationValue {
+    let mut result = style.text_decoration.unwrap_or(ambient);
+    if let Some(line) = style.text_decoration_line {
+        result.deco = TextDecoration::new();
+        if line.underline {
+            result.deco.underline = UnderlineStyle::Single;
+        }
+        result.deco.strikethrough = line.strikethrough;
+        result.deco.overline = line.overline;
+    }
+    if let Some(s) = style.text_decoration_style {
+        result.style = s;
+    }
+    if let Some(color) = style.text_decoration_color {
+        if result.deco.underline != UnderlineStyle::None {
+            result.deco.underline_color_opt = Some(color);
+        }
+        if result.deco.strikethrough {
+            result.deco.strikethrough_color_opt = Some(color);
+        }
+        if result.deco.overline {
+            result.deco.overline_color_opt = Some(color);
+        }
+    }
+    result
 }
 
 /// Parses the `text-decoration` shorthand: line keywords
@@ -1623,10 +1719,28 @@ fn parse_font_family(input: &mut CssParser) -> Result<Vec<FontFamilyItem>, ()> {
     }
 }
 
+/// The 5 `text-decoration-style`/shorthand style keywords this file
+/// recognizes, shared between `parse_text_decoration` (the shorthand) and
+/// `parse_text_decoration_style` (the v60 longhand) so the two can't drift.
+fn decoration_style_from_keyword(kw: &str) -> Option<DecorationStyle> {
+    if kw.eq_ignore_ascii_case("solid") {
+        Some(DecorationStyle::Solid)
+    } else if kw.eq_ignore_ascii_case("dashed") {
+        Some(DecorationStyle::Dashed)
+    } else if kw.eq_ignore_ascii_case("dotted") {
+        Some(DecorationStyle::Dotted)
+    } else if kw.eq_ignore_ascii_case("double") {
+        Some(DecorationStyle::Double)
+    } else if kw.eq_ignore_ascii_case("wavy") {
+        Some(DecorationStyle::Wavy)
+    } else {
+        None
+    }
+}
+
 fn parse_text_decoration(input: &mut CssParser) -> Result<(TextDecoration, DecorationStyle), ()> {
     let mut deco = TextDecoration::new();
     let mut style = DecorationStyle::Solid;
-    let mut is_double = false;
     let mut color = None;
     let mut found = false;
     loop {
@@ -1647,21 +1761,8 @@ fn parse_text_decoration(input: &mut CssParser) -> Result<(TextDecoration, Decor
             } else if ident.eq_ignore_ascii_case("none") {
                 found = true;
                 continue;
-            } else if ident.eq_ignore_ascii_case("dashed") {
-                style = DecorationStyle::Dashed;
-                continue;
-            } else if ident.eq_ignore_ascii_case("dotted") {
-                style = DecorationStyle::Dotted;
-                continue;
-            } else if ident.eq_ignore_ascii_case("solid") {
-                style = DecorationStyle::Solid;
-                continue;
-            } else if ident.eq_ignore_ascii_case("double") {
-                is_double = true;
-                continue;
-            } else if ident.eq_ignore_ascii_case("wavy") {
-                // Not supported — falls back to `Solid` (see
-                // `DecorationStyle`'s own docs).
+            } else if let Some(s) = decoration_style_from_keyword(ident) {
+                style = s;
                 continue;
             }
         }
@@ -1676,9 +1777,6 @@ fn parse_text_decoration(input: &mut CssParser) -> Result<(TextDecoration, Decor
             Err(_) => break,
         }
     }
-    if is_double && deco.underline == UnderlineStyle::Single {
-        deco.underline = UnderlineStyle::Double;
-    }
     if let Some(c) = color {
         if deco.underline != UnderlineStyle::None {
             deco.underline_color_opt = Some(c);
@@ -1692,6 +1790,57 @@ fn parse_text_decoration(input: &mut CssParser) -> Result<(TextDecoration, Decor
     }
     if found {
         Ok((deco, style))
+    } else {
+        Err(())
+    }
+}
+
+/// `text-decoration-style`'s own standalone longhand (v60) — exactly one
+/// of the 5 keywords `decoration_style_from_keyword` recognizes; anything
+/// else (including a trailing second token) fails the whole declaration,
+/// same as any other single-keyword longhand in this file (e.g.
+/// `font-style`).
+fn parse_text_decoration_style(input: &mut CssParser) -> Result<DecorationStyle, ()> {
+    let ident = input.expect_ident().map_err(|_| ())?;
+    decoration_style_from_keyword(ident).ok_or(())
+}
+
+/// `text-decoration-line`'s own standalone longhand (v60): `none`, or any
+/// of `underline`/`overline`/`line-through` in any combination/order (real
+/// CSS grammar: `none | [ underline || overline || line-through ]`). Same
+/// lenient "collect order-independently, decide at the end" shape
+/// `parse_text_decoration` already uses for the shorthand — just without
+/// a style/color half, since those are this file's two *other* longhands
+/// now. Fails only if no recognized keyword was found at all.
+fn parse_text_decoration_line(input: &mut CssParser) -> Result<DecorationLine, ()> {
+    let mut line = DecorationLine::default();
+    let mut found = false;
+    loop {
+        let state = input.state();
+        match input.next() {
+            Ok(Token::Ident(ident)) if ident.eq_ignore_ascii_case("underline") => {
+                line.underline = true;
+                found = true;
+            }
+            Ok(Token::Ident(ident)) if ident.eq_ignore_ascii_case("line-through") => {
+                line.strikethrough = true;
+                found = true;
+            }
+            Ok(Token::Ident(ident)) if ident.eq_ignore_ascii_case("overline") => {
+                line.overline = true;
+                found = true;
+            }
+            Ok(Token::Ident(ident)) if ident.eq_ignore_ascii_case("none") => {
+                found = true;
+            }
+            _ => {
+                input.reset(&state);
+                break;
+            }
+        }
+    }
+    if found {
+        Ok(line)
     } else {
         Err(())
     }
@@ -2548,6 +2697,20 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
             if let Ok((deco, style)) = parse_text_decoration(input) {
                 self.decls.text_decoration = Some(DecorationValue { deco, style });
             }
+        } else if name.eq_ignore_ascii_case("text-decoration-line") {
+            // Independent longhand (v60) — see `resolve_own_decoration`
+            // for how this combines with the shorthand/ambient value.
+            if let Ok(line) = parse_text_decoration_line(input) {
+                self.decls.text_decoration_line = Some(line);
+            }
+        } else if name.eq_ignore_ascii_case("text-decoration-style") {
+            if let Ok(s) = parse_text_decoration_style(input) {
+                self.decls.text_decoration_style = Some(s);
+            }
+        } else if name.eq_ignore_ascii_case("text-decoration-color") {
+            if let Ok(c) = CssColor::parse(input) {
+                self.decls.text_decoration_color = Some(c);
+            }
         } else if name.eq_ignore_ascii_case("white-space") {
             if let Ok(ident) = input.expect_ident() {
                 self.decls.white_space = if ident.eq_ignore_ascii_case("normal") {
@@ -3050,6 +3213,18 @@ struct ComputedStyle {
     /// `DecorationValue`'s own docs) since all three only ever come from
     /// the one `text-decoration` shorthand.
     text_decoration: Option<DecorationValue>,
+    /// `text-decoration-line`/`-style`/`-color` (v60), each cascaded
+    /// completely independently of `text_decoration` (and of each other)
+    /// — `None` means not declared on *this* element, same convention as
+    /// every other cascaded-but-not-inherited field here. Combined with
+    /// `text_decoration` and the ambient propagated value together only
+    /// at used-value time, by `resolve_own_decoration` — never folded
+    /// into `text_decoration` itself during cascade, so a rule that
+    /// declares only `text-decoration-color` genuinely doesn't clobber
+    /// whatever line/style an ancestor or the shorthand already set.
+    text_decoration_line: Option<DecorationLine>,
+    text_decoration_style: Option<DecorationStyle>,
+    text_decoration_color: Option<TextColor>,
     white_space: WhiteSpace,
     list_style_type: ListStyleType,
     text_align: TextAlign,
@@ -3419,6 +3594,22 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         inline_decls.as_ref().and_then(|d| d.text_decoration),
         |d| d.text_decoration,
     );
+    let text_decoration_line = cascade_property(
+        &matches,
+        inline_decls.as_ref().and_then(|d| d.text_decoration_line),
+        |d| d.text_decoration_line,
+    );
+    let text_decoration_style = cascade_property(
+        &matches,
+        inline_decls.as_ref().and_then(|d| d.text_decoration_style),
+        |d| d.text_decoration_style,
+    );
+    let text_decoration_color = cascade_property(
+        &matches,
+        inline_decls.as_ref().and_then(|d| d.text_decoration_color),
+        |d| d.text_decoration_color,
+    )
+    .and_then(|c| to_text_color(&c));
     let white_space = cascade_property(
         &matches,
         inline_decls.as_ref().and_then(|d| d.white_space),
@@ -3598,6 +3789,9 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         font_style,
         font_family,
         text_decoration,
+        text_decoration_line,
+        text_decoration_style,
+        text_decoration_color,
         white_space,
         list_style_type,
         text_align,
@@ -3654,6 +3848,9 @@ fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         font_style: inherited.font_style,
         font_family: inherited.font_family,
         text_decoration: None,
+        text_decoration_line: None,
+        text_decoration_style: None,
+        text_decoration_color: None,
         white_space: inherited.white_space,
         list_style_type: inherited.list_style_type,
         text_align: inherited.text_align,
@@ -3911,7 +4108,7 @@ fn build_box_for_element(handle: &Handle, rules: &[StyleRule], inherited: Inheri
     if element_tag(handle) == "img" {
         return build_img_box(handle, style, background_image);
     }
-    let own_decoration = style.text_decoration.unwrap_or(decoration);
+    let own_decoration = resolve_own_decoration(&style, decoration);
     if style.display == Display::Table {
         return LayoutBox {
             style,
@@ -3979,8 +4176,8 @@ fn build_table_children(handle: &Handle, rules: &[StyleRule], inherited: Inherit
         // directly rather than delegating to it) — the `Block` arm below
         // passes the un-resolved `decoration` straight through instead,
         // since `build_box_for_element` already redoes this same
-        // `unwrap_or` itself once it has the child's own `style`.
-        let child_decoration = style.text_decoration.unwrap_or(decoration);
+        // combine itself once it has the child's own `style`.
+        let child_decoration = resolve_own_decoration(&style, decoration);
         match style.display {
             Display::None => {}
             Display::TableRow => {
@@ -4208,7 +4405,7 @@ fn collect_children(
                     result.push(build_box_for_element(child, rules, inherited, decoration));
                 } else {
                     let child_bg = style.background_color.or(bg);
-                    let child_decoration = style.text_decoration.unwrap_or(decoration);
+                    let child_decoration = resolve_own_decoration(&style, decoration);
                     let child_valign = if style.vertical_align == VerticalAlign::Baseline {
                         valign
                     } else {
@@ -7856,15 +8053,30 @@ fn paint_buffer(
 /// (`src/render.rs` in the vendored 0.19.0 source — not `pub`, so it can't
 /// be called directly) by hand, using only `DecorationSpan`'s/
 /// `GlyphDecorationData`'s public fields, so a `DecorationStyle` other than
-/// `Solid` can paint a dashed/dotted line instead of a plain solid stroke
-/// across the same extent — a hook the public `render_decoration` doesn't
-/// offer. Mirrors its exact offset/thickness/color formulas, so
-/// `DecorationStyle::Solid` (including double-underline, which is cosmic's
-/// own native `UnderlineStyle::Double`) still looks pixel-identical to
-/// calling `render_decoration` directly; only `Dashed`/`Dotted` diverge.
-/// Each span's style is looked up by `decoration_styles[glyph.metadata]`
-/// off its first glyph — the same per-span index every other per-span
-/// property (backgrounds, valigns, ...) already uses.
+/// `Solid` can paint a dashed/dotted/double/wavy line instead of a plain
+/// solid stroke across the same extent — a hook the public `render_
+/// decoration` doesn't offer. Mirrors its exact offset/thickness/color
+/// formulas, so `DecorationStyle::Solid` still looks pixel-identical to
+/// calling `render_decoration` directly; `Dashed`/`Dotted`/`Double`/`Wavy`
+/// diverge (see `paint_decoration_line`'s own docs for each). Each span's
+/// style is looked up by `decoration_styles[glyph.metadata]` off its first
+/// glyph — the same per-span index every other per-span property
+/// (backgrounds, valigns, ...) already uses, and applies uniformly to
+/// whichever of underline/strikethrough/overline this span has active —
+/// real CSS `text-decoration-style` is one value shared by every line a
+/// `text-decoration-line` turns on, not set per-line.
+///
+/// Doubling (v60) no longer depends on cosmic-text's own native
+/// `UnderlineStyle::Double` at all — this function never called cosmic's
+/// own runtime renderer to begin with (only mirrored its formulas), so
+/// there was never a real reason to special-case *only* underline the way
+/// pre-v60 `parse_text_decoration` did. `UnderlineStyle::Double` is still
+/// matched defensively (treated exactly like `Single` plus a forced
+/// `Double` style) in case some other code path ever sets it independently
+/// of this file's own `DecorationStyle`, but neither `parse_text_
+/// decoration` nor the v60 longhands produce it anymore — `double` always
+/// goes through `DecorationStyle::Double` now, which this function applies
+/// the same way to strikethrough/overline too.
 fn paint_decorations<R: Renderer>(
     renderer: &mut R,
     run: &cosmic_text::LayoutRun,
@@ -7898,19 +8110,18 @@ fn paint_decorations<R: Renderer>(
 
         match td.underline {
             UnderlineStyle::None => {}
-            UnderlineStyle::Single => {
+            UnderlineStyle::Single | UnderlineStyle::Double => {
                 let color = td.underline_color_opt.or(span.color_opt).unwrap_or(default_color);
                 let thickness = (deco.underline_metrics.thickness * font_size).max(1.0).ceil();
                 let y = run.line_y - deco.underline_metrics.offset * font_size;
+                // See this function's own docs — native `Double` forces
+                // doubling even if `style` itself isn't `Double`.
+                let style = if td.underline == UnderlineStyle::Double {
+                    DecorationStyle::Double
+                } else {
+                    style
+                };
                 paint_decoration_line(renderer, x_start, y, width, thickness, color, style);
-            }
-            UnderlineStyle::Double => {
-                let color = td.underline_color_opt.or(span.color_opt).unwrap_or(default_color);
-                let thickness = (deco.underline_metrics.thickness * font_size).max(1.0).ceil();
-                let gap = thickness;
-                let y = run.line_y - deco.underline_metrics.offset * font_size;
-                paint_decoration_line(renderer, x_start, y, width, thickness, color, style);
-                paint_decoration_line(renderer, x_start, y + thickness + gap, width, thickness, color, style);
             }
         }
         if td.strikethrough {
@@ -7930,11 +8141,16 @@ fn paint_decorations<R: Renderer>(
     }
 }
 
-/// Paints one decoration line's rectangle — the whole span width in one
-/// call for `Solid`, or several short ones spaced across the same extent
-/// for `Dashed`/`Dotted`. `x_start`/`y` are in the same float coordinate
-/// space `render_decoration` itself uses (rounded to pixels by `Renderer`
-/// implementors, same as any other rectangle it draws).
+/// Paints one decoration line across `(x_start, y)..(x_start + width, y +
+/// thickness)` — the whole span width in one `Renderer::rectangle` call
+/// for `Solid`, several short ones spaced across the same extent for
+/// `Dashed`/`Dotted`, two parallel `Solid` strokes (offset by `thickness`
+/// plus an equal gap, same formula cosmic-text's own native double-
+/// underline already used) for `Double`, and a piecewise sine-wave trace
+/// for `Wavy` (v60) — see each arm's own comment. `x_start`/`y` are in the
+/// same float coordinate space `render_decoration` itself uses (rounded to
+/// pixels by `Renderer` implementors, same as any other rectangle it
+/// draws).
 fn paint_decoration_line<R: Renderer>(
     renderer: &mut R,
     x_start: f32,
@@ -7965,6 +8181,42 @@ fn paint_decoration_line<R: Renderer>(
                     renderer.rectangle((x_start + offset) as i32, y as i32, seg_w, thickness as u32, color);
                 }
                 offset += step;
+            }
+        }
+        DecorationStyle::Double => {
+            let gap = thickness;
+            paint_decoration_line(renderer, x_start, y, width, thickness, color, DecorationStyle::Solid);
+            paint_decoration_line(renderer, x_start, y + thickness + gap, width, thickness, color, DecorationStyle::Solid);
+        }
+        DecorationStyle::Wavy => {
+            // `Renderer` offers only axis-aligned rectangles (confirmed by
+            // reading cosmic-text's own `Renderer` trait — just
+            // `rectangle`/`glyph`, no path/curve primitive at all), so a
+            // real sine curve is approximated as a sequence of narrow
+            // rectangles, each centered on the curve's own `sin` value at
+            // that x — the same "break one long line into several small
+            // `rectangle` calls" trick `Dashed`/`Dotted` already use, just
+            // with a continuously-varying y instead of a gap pattern.
+            // Amplitude/wavelength are both derived from `thickness` (the
+            // stroke's own line weight) so the wave scales with font size
+            // the same way dash/dot spacing already does, rather than
+            // using fixed pixel constants that would look disproportionate
+            // at very small or very large text.
+            let amplitude = (thickness * 1.5).max(2.0);
+            let wavelength = (thickness * 8.0).max(8.0);
+            let step = (thickness * 0.5).max(1.0);
+            let seg_h = thickness.max(1.0);
+            let mut x = 0.0f32;
+            while x < width {
+                let seg_w = step.min(width - x);
+                let center = x + seg_w / 2.0;
+                let phase = (center / wavelength) * std::f32::consts::TAU;
+                let y_off = amplitude * phase.sin();
+                let seg_w_px = seg_w.max(1.0) as u32;
+                if seg_w_px > 0 {
+                    renderer.rectangle((x_start + x) as i32, (y + y_off) as i32, seg_w_px, seg_h as u32, color);
+                }
+                x += step;
             }
         }
     }
@@ -11285,5 +11537,256 @@ mod tests {
             lines * 3 < word_count,
             "a {word_count}-word paragraph wrapping into {lines} lines at a realistic 600px width should still average well over 3 words per line, not shatter down toward one word per line the way letter-spacing's own bug did"
         );
+    }
+
+    // ---------- v60: `text-decoration-line`/`-style`/`-color` longhands, `wavy`, `double` for line-through/overline ----------
+
+    /// Same shape as v39's own `collect_decorations`, but also captures
+    /// `decoration_style` alongside `text_decoration` — needed by this
+    /// section's tests, which care about the *style* (solid/dashed/
+    /// double/wavy) a span resolved to, not just which lines are on.
+    fn collect_decoration_values(b: &LayoutBox, out: &mut Vec<(TextDecoration, DecorationStyle)>) {
+        if let BoxContent::Inline(items) = &b.content {
+            for item in items {
+                if let InlineItem::Text(_, s) = item {
+                    out.push((s.text_decoration, s.decoration_style));
+                }
+            }
+        }
+        if let BoxContent::Blocks(children) = &b.content {
+            for c in children {
+                collect_decoration_values(c, out);
+            }
+        }
+    }
+
+    #[test]
+    fn text_decoration_longhands_combine_like_the_shorthand() {
+        // The core claim of this item's gap #1: `text-decoration-line`/
+        // `-style`/`-color`, declared as three *separate* properties with
+        // no `text-decoration` shorthand anywhere, should combine into
+        // exactly the same effective decoration a single `text-decoration:
+        // underline dashed #ff0000` shorthand declaration would produce.
+        let longhand_doc = parse_html(
+            r#"<html><body><span style="text-decoration-line: underline; text-decoration-style: dashed; text-decoration-color: #ff0000">x</span></body></html>"#,
+        );
+        let shorthand_doc = parse_html(
+            r#"<html><body><span style="text-decoration: underline dashed #ff0000">x</span></body></html>"#,
+        );
+        let mut longhand_values = Vec::new();
+        collect_decoration_values(&build_layout_tree(&longhand_doc), &mut longhand_values);
+        let mut shorthand_values = Vec::new();
+        collect_decoration_values(&build_layout_tree(&shorthand_doc), &mut shorthand_values);
+        assert_eq!(longhand_values.len(), 1, "expected exactly one span: {:?}", longhand_values);
+        assert_eq!(shorthand_values.len(), 1, "expected exactly one span: {:?}", shorthand_values);
+        let (ld, ls) = longhand_values[0];
+        let (sd, ss) = shorthand_values[0];
+        assert_eq!(ls, ss, "the three longhands together should resolve to the same DecorationStyle as the shorthand");
+        assert_eq!(ld.underline, sd.underline, "both should turn underline on");
+        assert_eq!(ld.underline_color_opt, sd.underline_color_opt, "both should attach the same color to it");
+        assert_eq!(ld.underline_color_opt, Some(TextColor::rgb(0xff, 0, 0)), "sanity: the color should actually be red, not just equal-to-each-other-and-wrong");
+    }
+
+    #[test]
+    fn text_decoration_style_longhand_overrides_shorthands_style_on_the_same_element() {
+        // A longhand declared *alongside* the shorthand on the very same
+        // element should override just its own one component — real
+        // CSS's "combine at used-value time" semantics, not an
+        // all-or-nothing replace the way the shorthand's own cascade
+        // already works against an *ambient* value.
+        let doc = parse_html(
+            r#"<html><body><span style="text-decoration: underline red; text-decoration-style: dashed">x</span></body></html>"#,
+        );
+        let tree = build_layout_tree(&doc);
+        let mut values = Vec::new();
+        collect_decoration_values(&tree, &mut values);
+        assert_eq!(values.len(), 1);
+        let (deco, style) = values[0];
+        assert_eq!(deco.underline, UnderlineStyle::Single, "the shorthand's own line should still apply");
+        assert_eq!(deco.underline_color_opt, Some(TextColor::rgb(0xff, 0, 0)), "the shorthand's own color should still apply");
+        assert_eq!(style, DecorationStyle::Dashed, "the longhand text-decoration-style should override the shorthand's own implicit `solid`");
+    }
+
+    #[test]
+    fn text_decoration_color_longhand_alone_has_no_effect_without_any_line() {
+        // `text-decoration-color` (or `-style`) declared with no line
+        // active anywhere (no shorthand, no `-line` longhand, no ambient
+        // decoration from an ancestor) must stay a no-op — same "don't
+        // leave a stray color/style on an inactive line" rule
+        // `parse_text_decoration` already enforces for the shorthand
+        // itself, now also true across the three longhands combined.
+        let doc = parse_html(r#"<html><body><span style="text-decoration-color: red; text-decoration-style: dashed">x</span></body></html>"#);
+        let tree = build_layout_tree(&doc);
+        let mut values = Vec::new();
+        collect_decoration_values(&tree, &mut values);
+        assert_eq!(values.len(), 1);
+        let (deco, _style) = values[0];
+        assert_eq!(deco, TextDecoration::new(), "no line was ever turned on, so color/style alone should paint nothing: {:?}", deco);
+    }
+
+    #[test]
+    fn text_decoration_line_longhand_propagates_ambiently_like_the_shorthand() {
+        // The combined *result* (not the raw longhand) is what threads on
+        // as the new ambient value for children — a descendant that
+        // declares none of these four properties should still see its
+        // ancestor's longhand-only decoration, same ambient-propagation
+        // shape the shorthand already had since v17/v33.
+        let doc = parse_html(
+            r#"<html><body><div style="text-decoration-line: underline"><div>nested</div></div></body></html>"#,
+        );
+        let tree = build_layout_tree(&doc);
+        let mut values = Vec::new();
+        collect_decoration_values(&tree, &mut values);
+        assert!(
+            values.iter().any(|(d, _)| d.underline == UnderlineStyle::Single),
+            "a nested block descendant should inherit the ambient `text-decoration-line: underline`: {:?}",
+            values
+        );
+    }
+
+    /// A minimal `Renderer` test double that just records every
+    /// `rectangle` call verbatim — lets `paint_decoration_line` be
+    /// exercised directly, with no real `cosmic_text::Buffer`/font
+    /// shaping needed, the same way v33's own (since-deleted, per the
+    /// since-reverted pre-v41 policy) test double worked.
+    #[derive(Default)]
+    struct CollectingRenderer {
+        rects: Vec<(i32, i32, u32, u32, TextColor)>,
+    }
+
+    impl Renderer for CollectingRenderer {
+        fn rectangle(&mut self, x: i32, y: i32, w: u32, h: u32, color: TextColor) {
+            self.rects.push((x, y, w, h, color));
+        }
+        fn glyph(&mut self, _physical_glyph: cosmic_text::PhysicalGlyph, _color: TextColor) {}
+    }
+
+    #[test]
+    fn wavy_decoration_produces_a_real_sine_wave_not_a_straight_line() {
+        // The core claim of this item's gap #2: `Wavy` must paint a
+        // genuine sine-wave pattern — not just "doesn't crash" and not
+        // just "paints something" — verified by checking the painted
+        // segments' own `y` actually rises *and* falls across the
+        // stroke's width (a monotonic ramp would also vary, but isn't a
+        // wave), unlike `Solid`, which paints one single flat rectangle.
+        let mut renderer = CollectingRenderer::default();
+        paint_decoration_line(&mut renderer, 0.0, 100.0, 60.0, 2.0, TextColor::rgb(0, 0, 0), DecorationStyle::Wavy);
+        assert!(
+            renderer.rects.len() > 4,
+            "a wavy stroke across 60px should paint several small segments tracing the curve, not one rectangle: {:?}",
+            renderer.rects
+        );
+        let ys: Vec<i32> = renderer.rects.iter().map(|r| r.1).collect();
+        let min_y = *ys.iter().min().unwrap();
+        let max_y = *ys.iter().max().unwrap();
+        assert!(
+            max_y - min_y >= 2,
+            "a real sine-wave stroke should vary its y position across its width, not stay flat the way a Solid line's single rectangle does: observed y range {min_y}..{max_y}"
+        );
+        let mut rose = false;
+        let mut fell = false;
+        for i in 1..ys.len() {
+            if ys[i] > ys[i - 1] {
+                rose = true;
+            }
+            if ys[i] < ys[i - 1] {
+                fell = true;
+            }
+        }
+        assert!(rose && fell, "a sine wave should both rise and fall across its own extent, not move monotonically like a diagonal line: {:?}", ys);
+    }
+
+    #[test]
+    fn solid_decoration_stays_perfectly_flat_unlike_wavy() {
+        // The control case for the test just above — confirms the flat-
+        // line assertion wavy is contrasted against is actually true of
+        // `Solid`, not an assumption.
+        let mut renderer = CollectingRenderer::default();
+        paint_decoration_line(&mut renderer, 0.0, 100.0, 60.0, 2.0, TextColor::rgb(0, 0, 0), DecorationStyle::Solid);
+        assert_eq!(renderer.rects.len(), 1, "Solid should paint exactly one rectangle spanning the whole width");
+        assert_eq!(renderer.rects[0].1, 100, "Solid's one rectangle should sit at exactly the requested y, with no wave offset");
+    }
+
+    #[test]
+    fn double_style_paints_two_parallel_solid_strokes_via_the_shared_primitive() {
+        // `paint_decoration_line` is the one shared primitive `paint_
+        // decorations` calls identically for underline/strikethrough/
+        // overline (see its own docs) — proving `Double` paints two
+        // separate `Solid` rectangles here, once, covers all three line
+        // types at once; the two pixel tests below additionally confirm
+        // it end-to-end through real text shaping for line-through/
+        // overline specifically (this item's own gap #3).
+        let mut renderer = CollectingRenderer::default();
+        paint_decoration_line(&mut renderer, 0.0, 100.0, 60.0, 2.0, TextColor::rgb(255, 0, 0), DecorationStyle::Double);
+        assert_eq!(renderer.rects.len(), 2, "Double should paint exactly two rectangles: {:?}", renderer.rects);
+        assert_eq!(renderer.rects[0].1, 100, "first stroke at the requested y");
+        assert_eq!(renderer.rects[1].1, 104, "second stroke offset by thickness (2) + an equal gap (2) = 4px below the first");
+        for r in &renderer.rects {
+            assert_eq!(r.4, TextColor::rgb(255, 0, 0));
+            assert_eq!(r.2, 60, "each stroke should span the full requested width");
+        }
+    }
+
+    /// Finds every contiguous run ("band") of exactly `color` pixels down
+    /// column `x` of a painted `(pixels, win_w, win_h)` fixture — used by
+    /// this section's end-to-end double-line-through/overline tests to
+    /// confirm *two* separate bands paint, not one, proving `Double`
+    /// reaches real text rendering (not just the primitive tested above
+    /// in isolation).
+    fn color_bands_in_column(pixels: &[u32], win_w: u32, win_h: u32, x: u32, color: u32) -> usize {
+        let mut bands = 0;
+        let mut in_band = false;
+        for y in 0..win_h {
+            let matches = pixels[(y * win_w + x) as usize] & 0x00FF_FFFF == color;
+            if matches && !in_band {
+                bands += 1;
+            }
+            in_band = matches;
+        }
+        bands
+    }
+
+    #[test]
+    fn double_line_through_paints_two_distinct_strokes_end_to_end() {
+        // This item's own gap #3: cosmic-text 0.19 has no double variant
+        // for strikethrough at all (only underline) — before this item,
+        // `text-decoration: line-through double` silently painted one
+        // plain line. Verified with real text shaping/painting (`paint_
+        // fixture`), not just the primitive-level test above, so this
+        // actually proves the full pipeline (span style → `paint_
+        // decorations` → `paint_decoration_line`) wires `Double` through
+        // for strikethrough, not only underline.
+        let (pixels, win_w, win_h) = paint_fixture(
+            r#"<html><body style="margin:0"><p style="margin:0; font-size: 48px; text-decoration: line-through double red">HELLO</p></body></html>"#,
+        );
+        let bands = color_bands_in_column(&pixels, win_w, win_h, 10, 0x00FF_0000);
+        assert_eq!(bands, 2, "a double line-through should paint two distinct red strokes down this column, not one");
+    }
+
+    #[test]
+    fn double_overline_paints_two_distinct_strokes_end_to_end() {
+        // Same gap, the other previously-unreachable line: cosmic-text
+        // 0.19 has no double variant for overline either.
+        let (pixels, win_w, win_h) = paint_fixture(
+            r#"<html><body style="margin:0"><p style="margin:0; font-size: 48px; text-decoration: overline double red">HELLO</p></body></html>"#,
+        );
+        let bands = color_bands_in_column(&pixels, win_w, win_h, 10, 0x00FF_0000);
+        assert_eq!(bands, 2, "a double overline should paint two distinct red strokes down this column, not one");
+    }
+
+    #[test]
+    fn double_underline_still_paints_two_distinct_strokes_after_the_double_refactor() {
+        // Regression guard for this item's refactor: doubling used to be
+        // driven by cosmic-text's own native `UnderlineStyle::Double`
+        // (set directly by the old `parse_text_decoration`), now it's
+        // driven uniformly by `DecorationStyle::Double` for all three
+        // lines instead (see `paint_decorations`'s own docs on why that's
+        // safe) — confirms underline's own pre-existing v33 behavior
+        // wasn't lost in that switch.
+        let (pixels, win_w, win_h) = paint_fixture(
+            r#"<html><body style="margin:0"><p style="margin:0; font-size: 48px; text-decoration: underline double red">HELLO</p></body></html>"#,
+        );
+        let bands = color_bands_in_column(&pixels, win_w, win_h, 10, 0x00FF_0000);
+        assert_eq!(bands, 2, "a double underline should still paint two distinct red strokes, same as before this item's refactor");
     }
 }

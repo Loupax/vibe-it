@@ -2059,3 +2059,74 @@ whether applying it earlier, in scratchy's own already-hand-rolled
 position math (where one exists), avoids feeding cosmic-text's internal
 layout algorithms something new to get wrong, even if that means a
 slower code path for runs that use the property.
+
+**v60 closed the remaining `text-decoration-style`/`-color` gaps left
+over from v33** — `wavy`, `double` for strikethrough/overline, and
+independent `text-decoration-line`/`-style`/`-color` longhands.
+
+The wavy stroke is the one piece worth a real architecture note:
+cosmic-text's `Renderer` trait (`src/render.rs` in the vendored 0.19.0
+source) is genuinely minimal — `rectangle(x, y, w, h, color)` and
+`glyph(...)`, nothing else. No path, no bezier, no polyline. So a sine
+wave is built the same way `Dashed`/`Dotted` already turn one long line
+into several small rectangles (v33) — except instead of a fixed gap
+pattern, each narrow segment's own `y` is offset by `amplitude *
+sin(2π · center_x / wavelength)`, where `center_x` is that segment's
+own midpoint along the stroke. Segment width is `thickness * 0.5`
+(floored at 1px) — narrow enough that the piecewise-rectangle
+approximation reads as a smooth curve at normal font sizes, without
+being so narrow it meaningfully hurts paint performance (a typical
+decoration span is at most a few hundred pixels wide, so a few hundred
+tiny `rectangle` calls per span is the realistic worst case, same order
+of magnitude `Dotted` at small font sizes already produces). Both
+amplitude and wavelength scale off `thickness` (the stroke's own line
+weight, already derived from font size) rather than fixed pixel
+constants — the same reasoning `Dashed`/`Dotted`'s own mark/gap sizing
+already used, so the wave doesn't look disproportionately large or
+cramped at very small or very large text.
+
+**The `double` fix turned out to be a simplification, not new
+complexity, once traced through carefully.** The pre-v60 code had
+`double` bypass `DecorationStyle` entirely for underline — `parse_text_
+decoration` set cosmic-text's own `deco.underline = UnderlineStyle::
+Double` directly, relying on `paint_decorations`'s existing `match
+td.underline { ... UnderlineStyle::Double => { two rectangles } }` arm.
+That arm's own two-rectangle formula already does the real work; the
+only reason it was underline-only is that cosmic-text's `TextDecoration`
+type has no `Double` concept for strikethrough/overline, and the old
+code piggybacked on cosmic's own enum instead of using this file's own
+`DecorationStyle` (which *can* apply uniformly, since `paint_decoration_
+line` is called identically for all three line types already). Re-
+reading `paint_decorations`'s own v33 doc comment made this obvious: it
+never actually calls cosmic-text's runtime renderer at all — it's a
+complete hand-written reimplementation that only *mirrors* cosmic's
+offset/thickness/color formulas for pixel-identical `Solid` output. So
+there was no real dependency on cosmic's own `UnderlineStyle::Double` to
+preserve — moving the "two rectangles, thickness + gap apart" logic into
+`DecorationStyle::Double` (handled once, inside `paint_decoration_line`
+itself, via a recursive call with `Solid`) and having `paint_decorations`
+apply it the same way to underline/strikethrough/overline cost nothing
+and removed a special case, rather than adding one. `UnderlineStyle::
+Double` is still matched defensively in `paint_decorations` (treated as
+"force `Double`, even if `style` itself isn't"), purely so nothing breaks
+if some future code path ever sets it independently — but neither the
+shorthand nor the new longhands produce it anymore.
+
+**The independent longhands needed one real design decision: how to
+combine three separately-cascaded components with the shorthand's own
+single bundled value and the ambient-propagated decoration an element
+inherits.** Resolved with `resolve_own_decoration(style, ambient)`,
+which replaces the three `style.text_decoration.unwrap_or(decoration)`
+call sites `build_box_for_element`/`build_table_children`/`collect_
+children` already had: start from `ambient` or the shorthand's own full
+replacement (unchanged from before), then let any declared `-line`/
+`-style`/`-color` longhand override just its own one piece on top of
+that. The combined *result* threads on as the new ambient value for that
+element's children, exactly the way the shorthand's own combined value
+already did — so no new parameter had to be threaded anywhere; only the
+one combine step at each existing `unwrap_or` site changed. A `-color`
+longhand with no line active anywhere (no shorthand, no `-line`
+longhand, nothing ambient) correctly stays invisible — same "don't leave
+a stray color on an inactive line" rule `parse_text_decoration` already
+enforced for the shorthand's own inline color token, now also holding
+across the three longhands combined.

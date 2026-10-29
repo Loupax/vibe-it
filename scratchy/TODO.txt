@@ -610,23 +610,29 @@ session can pick a coherent slice rather than one property at a time.
       `-color` in v33, `rem` in v34, `font-weight: bolder`/`lighter` in
       v35 — all previous cluster members, now resolved.)
 
-- [ ] `text-decoration-style`/`-color` (PROMPTS.md v33) support
-      `dashed`/`dotted` (hand-painted, since cosmic-text 0.19's own
-      decoration renderer only knows a plain solid stroke) and an
-      explicit color (native cosmic-text support, no hand-rolling
-      needed) — plus `double`, which was already silently accepted
-      before this but is now visually distinct (cosmic-text's own
-      `UnderlineStyle::Double`, underline only). `wavy` has no custom
-      painting path and falls back to `Solid` — an actual sine-wave
-      stroke needs real curve rasterization this file doesn't have
-      anywhere else. `double` only visibly differs for *underline* —
-      cosmic-text 0.19 has no double variant for strikethrough/overline,
-      so `text-decoration: line-through double` still paints one plain
-      line, not two (undeclared in `default.css`, so not a regression
-      for anything real). There's still no separate
-      `text-decoration-style`/`-color` *longhand* support — only via the
-      `text-decoration` shorthand, which is the only form `default.css`
-      or any test page used.
+- [x] `text-decoration-style`/`-color` (PROMPTS.md v33, remaining gaps
+      closed PENDING_COMMIT_HASH, v60): `wavy` now paints a real
+      hand-rolled sine-wave stroke (`DecorationStyle::Wavy`, a sequence of
+      small rectangles tracing `sin` along the line, since cosmic-text's
+      `Renderer` trait offers no curve primitive) instead of falling back
+      to `Solid`. `double` is now a real `DecorationStyle::Double`
+      variant too, hand-painted uniformly for *all three* lines (two
+      parallel `Solid` strokes via the shared `paint_decoration_line`
+      primitive) — `text-decoration: line-through double`/`overline
+      double` now genuinely paint two strokes, not cosmic-text's
+      underline-only native double anymore (that native path is still
+      matched defensively but no longer produced by this file's own
+      parsing). `text-decoration-line`/`-style`/`-color` now also parse
+      and cascade as real independent longhands (`Declarations`/
+      `ComputedStyle` fields, each its own `cascade_property` call) —
+      `text-decoration-line: underline; text-decoration-style: dashed;
+      text-decoration-color: red;` as three separate declarations now
+      combines, at used-value time (`resolve_own_decoration`), into
+      exactly what the equivalent `text-decoration` shorthand would
+      produce, and a longhand declared alongside the shorthand on the
+      same element overrides just its own one component. All three
+      originally-identified gaps landed in full — no narrower follow-up
+      item needed.
 
 - [ ] `cursor` (PROMPTS.md v32) only tracks `auto`/`pointer` — the one
       keyword `default.css` actually declares (`a { cursor: pointer }`).

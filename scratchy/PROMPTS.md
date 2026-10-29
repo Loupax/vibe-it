@@ -4069,3 +4069,127 @@ measurement change, 5 new tests in the permanent `mod tests`);
 `TODO.txt` (item checked off); `NOTES.md` (architecture write-up,
 explicitly contrasting this approach with `letter-spacing`'s failed
 one).
+
+---
+
+## v60 — `text-decoration-line`/`-style`/`-color` longhands, real `wavy`, `double` for line-through/overline
+
+> set up a loop where you pick the next TODO item, and once completed,
+> clear your context and do that again until the list is done
+
+Next item of that same autonomous `TODO.txt` loop, right after v59's
+`word-spacing` — the remaining `text-decoration-style`/`-color` gap
+left over from v33: `wavy` fell back to `Solid` (no curve-rasterization
+primitive existed anywhere in this file), `double` only ever visibly
+differed for *underline* (cosmic-text 0.19's own native double-underline
+support, with no strikethrough/overline equivalent), and there was no
+way to declare `text-decoration-line`/`-style`/`-color` as independent
+longhands — only via the `text-decoration` shorthand, which bundles all
+three into one `Option`-cascaded `DecorationValue`. Three distinct gaps,
+all tractable, all landed in one pass — none turned out to need a real
+design call that would've justified cutting it.
+
+**Gap 1 — independent longhands.** Added `text-decoration-line`/
+`-style`/`-color` as their own `Declarations`/`ComputedStyle` fields,
+each cascaded completely independently (`cascade_property`, same
+pattern every other longhand in this file already uses) rather than
+folded into `DecorationValue` during cascade. The real design question
+was how to *combine* three independently-cascaded components with the
+shorthand's own single bundled value and the ambient-propagated value
+an element inherits from its nearest decorated ancestor (see v33/v39 for
+why this is ambient propagation, not real CSS inheritance) — resolved by
+a new `resolve_own_decoration(style, ambient) -> DecorationValue`, which
+every call site that used to write the one-line `style.text_decoration.
+unwrap_or(decoration)` (in `build_box_for_element`, `build_table_
+children`, `collect_children`) now calls instead. It starts from
+`ambient` or the shorthand's own full replacement (identical to the old
+behavior), then applies any declared `-line`/`-style`/`-color` longhand
+as an override of just that one component — so `text-decoration-line:
+underline; text-decoration-style: dashed; text-decoration-color: red;`
+as three separate declarations combines into the exact same effective
+`DecorationValue` a single `text-decoration: underline dashed red`
+shorthand would (verified directly, by comparing the two against each
+other, not just against a hand-computed expectation). The *combined*
+result, not the three raw longhands, is what threads on as the new
+ambient value for that element's own children — same propagation shape
+the shorthand's own override already had, so this needed no new
+threading parameter, just a different combine step at the same point
+the old `unwrap_or` sat.
+
+**Gap 2 — `wavy`.** `DecorationStyle` gained a real `Wavy` variant,
+hand-painted in `paint_decoration_line` the same way `Dashed`/`Dotted`
+already are (v33): cosmic-text's `Renderer` trait (confirmed by reading
+its vendored source directly, not assumed) offers only `rectangle`/
+`glyph` — no path or curve primitive at all — so a genuine sine wave is
+approximated as a sequence of narrow rectangles, each centered on
+`amplitude * sin(2π · x / wavelength)` at its own x, with amplitude/
+wavelength both derived from the stroke's own `thickness` so the wave
+scales with font size instead of using fixed pixel constants. Verified
+with a real pixel test (`wavy_decoration_produces_a_real_sine_wave_not_
+a_straight_line`) that doesn't just check "something painted" — it
+asserts the painted segments' own y both *rises and falls* across the
+stroke's width (ruling out a monotonic ramp, which would also vary but
+isn't a wave), contrasted against a control test proving `Solid` stays
+perfectly flat. Visually confirmed with `grim`: a genuine zigzag/wave
+pattern under `wavy` underline text, clearly distinct from a straight
+line.
+
+**Gap 3 — `double` for line-through/overline.** Turned out simpler than
+it looked once traced through: `paint_decorations` never actually called
+cosmic-text's own runtime renderer — it's a complete hand-written
+reimplementation (v33) that only *mirrors* cosmic's offset/thickness/
+color formulas. So the old `UnderlineStyle::Double`-only doubling (set
+by `parse_text_decoration` folding a `double` keyword straight into
+`deco.underline`, bypassing `DecorationStyle` entirely) was never load-
+bearing for anything except underline — there was no real reason
+doubling couldn't apply uniformly to all three lines once represented in
+the one place that's actually shared across them. Redesigned: `double`
+now always sets `DecorationStyle::Double`, handled once inside `paint_
+decoration_line` (two parallel `Solid` strokes, offset by thickness plus
+an equal gap — the exact formula cosmic's own native double-underline
+already used), and `paint_decorations` calls this same primitive
+identically for underline/strikethrough/overline — so a style that was
+previously underline-only now works for all three with no special-casing
+per line type. `UnderlineStyle::Double` (cosmic's own enum) is still
+matched defensively in `paint_decorations`, in case something else ever
+sets it independently, but neither the shorthand nor the longhands
+produce it anymore. Verified end-to-end (not just at the primitive
+level) with real pixel tests that shape actual text and count distinct
+painted stroke bands down a column — one each for line-through, overline,
+and a regression check that underline still doubles correctly after the
+refactor — plus a primitive-level test on `paint_decoration_line` itself
+confirming the exact two-rectangle/offset/color output. Visually
+confirmed with `grim`: double overline and double underline both show
+two clearly separated parallel lines in the screenshot; double line-
+through, zoomed into a word gap in a cropped screenshot (strikethrough
+sits through glyph ink, which hides the gap less obviously than the two
+clear-whitespace line types), also shows two distinct parallel red
+strokes.
+
+**Verified overall:** 10 new permanent tests (including a primitive-
+level `double_style_paints_two_parallel_solid_strokes_via_the_shared_
+primitive` test alongside the end-to-end ones), all in the existing
+`mod tests` block (nothing written-then-deleted). All 118 tests pass
+(108 pre-existing + 10 new), `cargo check`/`cargo clippy` clean on every
+file touched (one
+`clippy::needless_borrow` on this item's own new code, fixed; every
+other clippy warning in the full-crate run is pre-existing, confirmed by
+diffing warning locations against the file before this change).
+`cargo install --path .` run so `~/.cargo/bin/scratchy` isn't left
+stale. Visually confirmed with a real `grim` screenshot covering all
+three gaps at once on one test page: dashed magenta underline via three
+separate longhand declarations with no shorthand anywhere, a genuine
+wavy blue underline, double red line-through, double green overline, and
+(regression check) double orange underline.
+
+**Deliverable:** `src/lib.rs` (`DecorationStyle` gains `Double`/`Wavy`
+variants; new `DecorationLine` struct and `parse_text_decoration_line`/
+`parse_text_decoration_style`/`decoration_style_from_keyword`; new
+`Declarations`/`ComputedStyle` fields and their `DeclParser`/
+`cascade_property` wiring; new `resolve_own_decoration` combine function
+replacing the three `style.text_decoration.unwrap_or(decoration)` call
+sites; `paint_decorations`/`paint_decoration_line` reworked for uniform
+`Double` handling and a new `Wavy` arm; 10 new tests); `TODO.txt` (item
+checked off, no narrower follow-up item needed — all three stated gaps
+landed in full); `NOTES.md` (architecture note on the sine-wave
+approximation and the `Double` unification).
