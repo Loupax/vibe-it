@@ -1601,3 +1601,213 @@ this: a negative-`z-index` box correctly showing through below an
 in-flow sibling that only covers *part* of its area, and a `relative`+
 explicit-`z-index` box correctly winning an overlap against a later
 static sibling.
+
+## v57 — flexbox (`display: flex`), grid deferred
+
+Picked off `TODO.txt`'s `display: flex`/`display: grid` item, scoped
+deliberately to flexbox only — grid (track sizing, template areas,
+implicit/explicit grids, `fr` units, grid placement) is a materially
+larger, separate algorithm and was split into its own, entirely
+deferred `TODO.txt` item rather than risk landing neither well, the
+same latitude the `position`/`float` items already used for their own
+oversized original TODO wording.
+
+**Architecture: a third `box_model_entry`/`display`-dispatch special
+case, parallel to `Table`'s.** `Display` gained a `Flex` variant;
+`build_box_for_element` special-cases it (right next to its existing
+`Table` special case) to call a new `build_flex_children` instead of
+`build_children_with_prefix`; `measure`'s own top-of-function dispatch
+special-cases it the same way `Table` already is, calling a new
+`measure_flex` before the generic per-`BoxContent` match even runs
+(exactly `measure_table`'s own reason: real flex sizing is a container-
+wide decision made before any one item can be measured, not a per-child
+decision the generic `BoxContent::Blocks` loop could make locally).
+`collect_children`'s existing block-vs-inline split (`matches!(style.
+display, Display::Block | Display::Table)`) grew a third arm,
+`Display::Flex`, so a flex container nested inside otherwise-inline
+content still gets its own box — same treatment `Table` already has.
+
+**`build_flex_children` needs almost no code of its own**, because real
+CSS "blockifies" every flex item (spec §4 — a flex item's outer display
+type is always block-level, regardless of its own `display`) *for
+free* here: `build_box_for_element` already builds a full `Blocks`-
+content box for whatever handle it's given, regardless of that
+element's own `style.display` — it only ever branches on `display` to
+special-case `img`/`Table`/`Flex` themselves, never to decide "does
+this get its own box at all." Only `collect_children`'s inline-run
+grouping makes that decision, and `build_flex_children` bypasses it
+entirely by calling `build_box_for_element` on every child directly
+(skipping `script`/`style`/`display: none`, same as `build_table_
+children`). So a bare `<span>` (default `display: inline`) placed
+directly inside a flex container still gets its own real box, exactly
+like a `<div>` would, with zero extra "force block" logic needed. The
+one real, documented gap this bypass leaves: a *bare text node*
+directly inside a flex container (no wrapping element at all) doesn't
+become its own anonymous flex item the way real CSS's §4 would — only
+real elements are collected, an explicit scope-narrowing choice (see
+`TODO.txt`).
+
+**`measure_flex` splits into `measure_flex_row`/`measure_flex_column`**
+— the two directions turned out to have a meaningfully different shape,
+not just "swap width and height," so sharing one body would have meant
+more branching than two focused functions. Both share two small, pure
+helpers: `resolve_flex_main_sizes` (CSS Flexbox §9.7's resolving-
+flexible-lengths step — proportional `flex-grow` distribution of
+positive free space, proportional *scaled-shrink-factor* distribution
+of a negative deficit, single-pass, not the real spec's iterative
+freeze-and-retry algorithm — see `TODO.txt`) and `distribute_justify_
+content` (the `justify-content` keyword → `(start_offset, extra_
+between)` math, identical regardless of which physical axis is "main").
+
+**The one insight that made cross-axis stretch/grow/shrink nearly free,
+on *either* axis:** this engine's own `height` property already doesn't
+affect how a box's *children* are laid out — only the box's own
+*reported* size to its parent (v42: an explicit `height` overrides only
+`Laid::h`, content still lays out in full against the ordinary content-
+driven height and may spill past it). That means wherever a flexed/
+stretched *final* size lands on whichever axis is physically *height*
+for a given direction — row's own cross axis (stretch), or column's
+own main axis (`flex-grow`/`flex-shrink`) — it's a pure post-hoc
+`Laid::h` overwrite after the one real `measure()` call that already
+happened, never a second, more expensive re-layout pass. *Width*, by
+contrast, genuinely does affect children (text reflows at a different
+width), so wherever a flexed size lands on the *width* axis — row's own
+main axis, column's own cross axis — the decided size has to be chosen
+*before* the one real `measure()` call, not patched after.
+
+This asymmetry shapes each direction's own two-step structure:
+
+- **Row** (the common case, and the one with no provisional pass
+  needed at all for its own main axis): each item's hypothetical main
+  size (its *basis*) is computed up front from `flex-basis`/`width`/
+  natural content size — the last case reusing `cell_natural_width`
+  (v50's min/max-content measurement, built for table-column sizing,
+  already reused once for `float`'s own shrink-to-fit basis — now a
+  third, unrelated use of the exact same helper) — *without* a full
+  `measure()` call, since width is already definite for a row container
+  (`entry.content_w`). `resolve_flex_main_sizes` turns those bases into
+  final per-item widths; *then* each item gets its one real `measure()`
+  call at that decided width. Only *after* that call (now knowing each
+  item's natural height) does `align-items: stretch` kick in — a
+  post-hoc `Laid::h` overwrite to the line's own cross size (the max
+  natural height among that line's items), exactly the free-overwrite
+  case above.
+- **Column**: the opposite order. Cross-axis (width) sizing is decided
+  *before* the one real `measure()` call (stretch/explicit-width items
+  measure at the full `content_w`, letting `box_model_entry`'s own
+  explicit-wins-else-auto-fills logic do the right thing for free;
+  non-stretch `width: auto` items get an explicit shrink-to-fit width
+  from `cell_natural_width` instead — reused a *fourth* time). Main-axis
+  (height) sizing is the mirror image of row's own cross axis: there's
+  no "natural content *height*" helper analogous to `cell_natural_
+  width` (height is already the axis a normal block measures for free),
+  so each item's one real `measure()` call *is* how its hypothetical
+  main size is learned (`lc.h`, already correct for both the auto-
+  content and explicit-CSS-`height` cases, since `measure` resolves
+  `height` the ordinary way regardless) — then the *final*, flexed size
+  is a post-hoc `lc.h` overwrite, same free case as row's stretch.
+
+**`flex-wrap` is genuinely real, but only for `row`/`row-reverse`.**
+Items are greedily packed into lines (CSS Flexbox §9.3 — a line never
+starts empty, so one item wider than the whole container still gets a
+line to itself rather than being dropped), each line's own main-axis
+sizing resolved completely independently via the same `resolve_flex_
+main_sizes`/`distribute_justify_content` pair a single-line (`nowrap`)
+container uses, then lines stack top-to-bottom by their own cross size
+with `row-gap` between them — `wrap-reverse` just reverses the *list of
+lines*, not the items within one. A `column`/`column-reverse` container
+always lays out as a single column regardless of the declared `flex-
+wrap` — real column wrapping would mean wrapping across the *width*
+into side-by-side columns, judged a separate, rarer shape not worth
+this session's remaining budget (see `TODO.txt`).
+
+**`row-reverse`/`column-reverse` are a pure post-placement mirror, not
+a reordering.** Every item is positioned exactly as the normal
+direction would, then — once every item's final `x`/`y` (row) or `y`
+(column) is known — mirrored within the container's own main-axis
+extent via `shift_laid_tree` (the same helper `resolve_positioned`'s
+own `right`/`bottom`-solving and `float: right`'s own placement already
+use for an identical "measured at a provisional position, shift once
+the real extent is known" reason). Items stay in plain document order
+in the returned `Vec<Laid>` throughout — `order` isn't implemented, so
+there's never a reason to reorder the underlying list itself, only to
+mirror where each item visually lands.
+
+**`position: absolute`/`fixed` children are filtered out of the flex
+item list before any of the above runs** — exactly the same split
+`measure`'s own `BoxContent::Blocks` arm already makes for an ordinary
+block's out-of-flow children (collected into `own_pending`, resolved or
+bubbled via the same `resolve_or_bubble_positioned` every other
+container already uses), since real CSS §4 says they're not flex items
+at all. A flex container is its own fresh BFC (`Floats::default()`
+passed into every item's own `measure()` call), same category as a
+table or a table cell's own interior.
+
+**One real, deliberate narrowing worth flagging precisely**, found
+while writing the permanent tests, not guessed at in advance: on a
+`row`/`row-reverse` container, an item's final flexed width is passed
+as `measure`'s own ordinary `width` parameter (the same convention
+`lay_out_row_cells` already uses for a table cell's column-decided
+width) — correct whenever the item's own CSS `width` is `auto` (the
+common case for a flex item relying on content/`flex-grow`/`flex-
+shrink`, since `box_model_entry`'s auto-fill then naturally lands on
+exactly the passed-in value), but an item that *also* declares an
+explicit, conflicting CSS `width` keeps that literal value instead —
+`clamp_box_dim` ignores the passed-in basis entirely once `s.width` is
+`Some`. This is the exact same accepted simplification `measure_
+table`'s own per-cell-`width`-vs-column-width gap already has (`TODO.
+txt`), not a new category of cut — confirmed only while writing the
+`flex-shrink` test (the first draft declared explicit `width: 100px` on
+each item and the shrink math silently did nothing at all, since the
+items' own *basis* came from that explicit width, not their flex-basis
+— fixed by switching the test to `flex-basis: 100px`, which doesn't set
+`item_style.width` at all and so isn't subject to this gap). Column's
+own equivalent (its main axis is *height*, which — per the asymmetry
+above — is always a post-hoc `Laid::h` overwrite) has no such gap; the
+override always applies there regardless of an explicit CSS `height`.
+
+**Testing**: 10 new permanent tests covering exactly what this session's
+own task called for — row vs. column direction (item ordering and
+cross-axis alignment), `justify-content: space-between` pushing items
+to opposite edges, `align-items: stretch` growing a shorter sibling to
+match the tallest, `align-items: center` positioning without resizing,
+`flex-grow`/`flex-shrink` genuinely proportional distribution (not just
+"fits content" — verified with asymmetric 1:2 and 1:3 ratios producing
+exactly the expected split, not merely "grew/shrank at all"), `flex-
+wrap` starting a second line once items overflow, `gap` adding fixed
+spacing on top of `justify-content`, and `position: absolute` correctly
+pulling a child out of the flex item list into the container's own
+`positioned` list instead. A few early drafts of these tests had real
+bugs of their own, not just typos — worth recording as this session's
+own version of the "test the test" lesson v19/v51/v56 already
+established: an `align-items: center` assertion against an *absolute*
+document-space `y` broke the moment `<body>`'s own 8px default margin
+(`default.css`) shifted everything uniformly, fixed by asserting a
+*relative* offset between siblings instead; a `justify-content`
+assertion against a literal `x == 0.0` had the same problem, fixed by
+giving the fixture's own `<body>` an explicit `margin: 0`.
+
+**Visual verification, and a real, pre-existing (not newly introduced)
+environment limitation found while doing it.** Three real test pages
+(a row with `flex: 1 0 0`/`flex: 2 0 0` growing children, a centered
+`flex-direction: column`, and a `flex-wrap: wrap` row forcing a second
+line) all rendered with correct *text/geometry* positions via a real
+`grim` screenshot — confirmed the row's items landed left-to-right at
+the right x-offsets, the column's items stacked top-to-bottom with
+narrower items visibly more indented (wider `align-items: center`
+offset) than wider ones, and the wrap case put two items per line
+across two visibly separate rows. But *no* `background-color` painted
+at all in any of the three screenshots — investigated before assuming
+this was a flexbox bug: built and ran the unmodified `main`-branch
+binary (`git stash`) against a trivial, entirely unrelated `<div
+style="background: red">` with no flexbox involved at all, and it
+*also* painted no background color in this same sandbox session. This
+confirms the background-painting gap is a pre-existing environment/
+compositor issue (the same general category this project's `grim`/
+winit stalls back in v13-v20 already were), not a regression this
+feature introduced — geometry (the thing this feature actually
+changes) is the part that was verified and is correct; box-decoration
+painting itself was already unverifiable live in this particular
+session, through no fault of this feature. Worth a real re-check next
+time a human's at the keyboard, same category as v32/v55's own
+unverifiable-live gaps.

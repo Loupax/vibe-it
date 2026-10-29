@@ -495,6 +495,12 @@ enum Display {
     /// isn't read — so walking through them finds nothing and they
     /// contribute no box either way.
     TableGroup,
+    /// `display: flex` — a block-level container (in the outer flow,
+    /// same as `Table`) whose direct children each become flex items,
+    /// laid out per CSS Flexible Box Layout (`measure_flex`) instead of
+    /// normal block/inline flow. `inline-flex` is not implemented (see
+    /// TODO.txt) — a flex container is always block-level here.
+    Flex,
 }
 
 /// `position`'s 5 implemented keywords. Not inherited (same category as
@@ -577,6 +583,98 @@ enum Clear {
     Left,
     Right,
     Both,
+}
+
+/// `flex-direction`'s 4 keywords. `Row`/`RowReverse` make the *main*
+/// axis horizontal (width) and the *cross* axis vertical (height);
+/// `Column`/`ColumnReverse` swap them. The `*Reverse` variants don't
+/// change document/paint order (`order` isn't implemented anyway — see
+/// TODO.txt) — only *where* each item lands along the main axis
+/// (`measure_flex` lays items out normally, then mirrors their main-axis
+/// position within the container's main-axis extent for the reverse
+/// variants, rather than reordering anything).
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+enum FlexDirection {
+    #[default]
+    Row,
+    RowReverse,
+    Column,
+    ColumnReverse,
+}
+
+impl FlexDirection {
+    fn is_row(self) -> bool {
+        matches!(self, FlexDirection::Row | FlexDirection::RowReverse)
+    }
+
+    fn is_reverse(self) -> bool {
+        matches!(self, FlexDirection::RowReverse | FlexDirection::ColumnReverse)
+    }
+}
+
+/// `flex-wrap`'s 3 keywords. Only genuinely implemented for `flex-
+/// direction: row`/`row-reverse` (see `measure_flex`'s own docs) — a
+/// `column`/`column-reverse` flex container always lays its items out
+/// as a single column regardless of this value, a documented scope cut
+/// (TODO.txt), since wrapping a *column* means wrapping across the
+/// *width* into multiple side-by-side columns, a materially different
+/// (and much rarer in real pages) shape than the classic "wrapped
+/// multi-line row" this item prioritizes.
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+enum FlexWrap {
+    #[default]
+    NoWrap,
+    Wrap,
+    WrapReverse,
+}
+
+/// `justify-content`'s keywords, main-axis distribution. `SpaceEvenly`
+/// is CSS Box Alignment's newer addition (not in the original Flexbox
+/// spec) — implemented anyway since it fell out of the same `leftover`/
+/// `n` arithmetic as `SpaceBetween`/`SpaceAround` for free, despite the
+/// task's own wording treating it as optional.
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+enum JustifyContent {
+    #[default]
+    FlexStart,
+    FlexEnd,
+    Center,
+    SpaceBetween,
+    SpaceAround,
+    SpaceEvenly,
+}
+
+/// `align-items`/`align-self`'s keywords, cross-axis alignment.
+/// `Baseline` is accepted but resolves identically to `FlexStart` — real
+/// baseline alignment needs each item's own font ascent threaded out of
+/// `measure`'s box-model math (nothing here tracks a box's baseline
+/// today, only cosmic-text's per-glyph shaping does, several layers
+/// below `measure`), a disproportionate amount of new plumbing for a
+/// value most real "flex row of items" pages don't actually rely on —
+/// explicitly permitted as an approximation and documented (TODO.txt),
+/// not silently dropped.
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+enum AlignItems {
+    #[default]
+    Stretch,
+    FlexStart,
+    FlexEnd,
+    Center,
+    Baseline,
+}
+
+/// `flex-basis`'s value: either `auto` (the real initial value — fall
+/// back to the item's own `width`/`height` on the main axis, or its
+/// content size if that's also auto) or an explicit length/percentage.
+/// Deferred the same way `width`/`margin`/etc. are (`Length`, not a
+/// resolved `BoxLength`) — resolved against the flex container's own
+/// main-axis content size, which `resolve_style` can't know at cascade
+/// time; see `measure_flex`'s own docs for where that happens.
+#[derive(Clone, Copy, Default)]
+enum FlexBasis {
+    #[default]
+    Auto,
+    Len(Length),
 }
 
 /// `top`/`right`/`bottom`/`left` ("inset" is this file's own shorthand
@@ -859,6 +957,21 @@ struct Declarations {
     border_radius: Option<Length>,
     overflow: Option<Overflow>,
     cursor: Option<CursorStyle>,
+    flex_direction: Option<FlexDirection>,
+    flex_wrap: Option<FlexWrap>,
+    justify_content: Option<JustifyContent>,
+    align_items: Option<AlignItems>,
+    /// `None` here means "not declared" *and* the real `auto` keyword
+    /// (an item's `align-self: auto` falls back to its container's own
+    /// `align-items` — see `ComputedStyle::align_self`'s own docs) —
+    /// same "both collapse to the same thing" simplification `z_index`/
+    /// `top`/etc. already use for their own `auto` keyword.
+    align_self: Option<AlignItems>,
+    flex_grow: Option<f32>,
+    flex_shrink: Option<f32>,
+    flex_basis: Option<FlexBasis>,
+    row_gap: Option<Length>,
+    column_gap: Option<Length>,
 }
 
 /// Just `normal` (the default — current behavior, collapse+wrap) and `pre`
@@ -1719,6 +1832,143 @@ fn parse_box_shadow(input: &mut CssParser) -> Result<BoxShadow, ()> {
     })
 }
 
+fn flex_direction_from_keyword(ident: &str) -> Option<FlexDirection> {
+    if ident.eq_ignore_ascii_case("row") {
+        Some(FlexDirection::Row)
+    } else if ident.eq_ignore_ascii_case("row-reverse") {
+        Some(FlexDirection::RowReverse)
+    } else if ident.eq_ignore_ascii_case("column") {
+        Some(FlexDirection::Column)
+    } else if ident.eq_ignore_ascii_case("column-reverse") {
+        Some(FlexDirection::ColumnReverse)
+    } else {
+        None
+    }
+}
+
+fn flex_wrap_from_keyword(ident: &str) -> Option<FlexWrap> {
+    if ident.eq_ignore_ascii_case("nowrap") {
+        Some(FlexWrap::NoWrap)
+    } else if ident.eq_ignore_ascii_case("wrap") {
+        Some(FlexWrap::Wrap)
+    } else if ident.eq_ignore_ascii_case("wrap-reverse") {
+        Some(FlexWrap::WrapReverse)
+    } else {
+        None
+    }
+}
+
+fn parse_flex_wrap(input: &mut CssParser) -> Result<FlexWrap, ()> {
+    let ident = input.expect_ident().map_err(|_| ())?;
+    flex_wrap_from_keyword(ident).ok_or(())
+}
+
+/// `align-items`/`align-self`'s 5 keywords (minus `align-self`'s own
+/// extra `auto`, handled separately — see its own `DeclParser` branch).
+fn parse_align_keyword(input: &mut CssParser) -> Result<AlignItems, ()> {
+    let ident = input.expect_ident().map_err(|_| ())?;
+    if ident.eq_ignore_ascii_case("stretch") {
+        Ok(AlignItems::Stretch)
+    } else if ident.eq_ignore_ascii_case("flex-start") {
+        Ok(AlignItems::FlexStart)
+    } else if ident.eq_ignore_ascii_case("flex-end") {
+        Ok(AlignItems::FlexEnd)
+    } else if ident.eq_ignore_ascii_case("center") {
+        Ok(AlignItems::Center)
+    } else if ident.eq_ignore_ascii_case("baseline") {
+        Ok(AlignItems::Baseline)
+    } else {
+        Err(())
+    }
+}
+
+/// `flex-grow`/`flex-shrink`'s own grammar: a plain non-negative
+/// `<number>` — real CSS actually clamps a negative value to `0` rather
+/// than rejecting the whole declaration; matched here for the same
+/// reason (`.max(0.0)`), not just convenience.
+fn parse_nonneg_number(input: &mut CssParser) -> Result<f32, ()> {
+    match input.next().map_err(|_| ())? {
+        Token::Number { value, .. } => Ok(value.max(0.0)),
+        _ => Err(()),
+    }
+}
+
+/// `flex-basis`'s own grammar: `auto` (real initial value, falls back to
+/// the item's own `width`/`height`/content size — see `FlexBasis`'s own
+/// docs) alongside the usual `<length-percentage>` forms. `content` (a
+/// newer keyword, forcing content-based sizing even if `width`/`height`
+/// is set) isn't recognized — not what `auto`'s own fallback-to-`width`
+/// behavior already covers for the common case, and nothing exercises
+/// the distinction.
+fn parse_flex_basis(input: &mut CssParser) -> Result<FlexBasis, ()> {
+    let state = input.state();
+    if let Ok(ident) = input.expect_ident()
+        && ident.eq_ignore_ascii_case("auto")
+    {
+        return Ok(FlexBasis::Auto);
+    }
+    input.reset(&state);
+    parse_length_percent(input).map(FlexBasis::Len)
+}
+
+/// The `flex` shorthand: `none` (`flex-grow: 0; flex-shrink: 0; flex-
+/// basis: auto` — real spec value for "never grow or shrink, size from
+/// content/width"), `auto` (`1 1 auto` — grow and shrink freely from
+/// content/width), or `<'flex-grow'> <'flex-shrink'>? || <'flex-
+/// basis'>` in either order (`flex: 1`, `flex: 1 0`, `flex: 1 200px`,
+/// `flex: 200px 1` all valid). Unlike `border`/`outline`'s own lenient
+/// shorthand loops, an unrecognized token here drops the whole
+/// declaration (same as `box-shadow`) — flex-grow/flex-shrink are both
+/// plain numbers, genuinely ambiguous to guess past if something odd
+/// shows up, unlike width-vs-style-vs-color's more distinguishable
+/// token shapes.
+fn parse_flex_shorthand(input: &mut CssParser) -> Result<(f32, f32, FlexBasis), ()> {
+    let state = input.state();
+    if let Ok(ident) = input.expect_ident() {
+        if ident.eq_ignore_ascii_case("none") {
+            return Ok((0.0, 0.0, FlexBasis::Auto));
+        }
+        if ident.eq_ignore_ascii_case("auto") {
+            return Ok((1.0, 1.0, FlexBasis::Auto));
+        }
+    }
+    input.reset(&state);
+    let mut numbers: Vec<f32> = Vec::new();
+    let mut basis: Option<FlexBasis> = None;
+    loop {
+        let state = input.state();
+        // Capped at 2 (`flex-grow`/`flex-shrink`) — otherwise a bare
+        // unitless `0` meant as `flex-basis` (`parse_length_percent`'s
+        // own literal-zero rule, same as any other length property)
+        // would be mistaken for a third number instead, since a bare
+        // number and a bare `0` length are lexically identical tokens.
+        if numbers.len() < 2 {
+            if let Ok(v) = parse_nonneg_number(input) {
+                numbers.push(v);
+                continue;
+            }
+            input.reset(&state);
+        }
+        if basis.is_none() {
+            if let Ok(b) = parse_flex_basis(input) {
+                basis = Some(b);
+                continue;
+            }
+            input.reset(&state);
+        }
+        match input.next() {
+            Ok(_) => return Err(()),
+            Err(_) => break,
+        }
+    }
+    if numbers.is_empty() && basis.is_none() {
+        return Err(());
+    }
+    let grow = numbers.first().copied().unwrap_or(1.0);
+    let shrink = numbers.get(1).copied().unwrap_or(1.0);
+    Ok((grow, shrink, basis.unwrap_or(FlexBasis::Auto)))
+}
+
 struct DeclParser<'a> {
     decls: &'a mut Declarations,
 }
@@ -1800,6 +2050,8 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
                     // the right simplification: it still renders, in its
                     // source position, just without special placement.
                     Some(Display::Block)
+                } else if ident.eq_ignore_ascii_case("flex") {
+                    Some(Display::Flex)
                 } else {
                     None
                 };
@@ -1992,6 +2244,123 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
                 } else {
                     None
                 };
+            }
+        } else if name.eq_ignore_ascii_case("flex-direction") {
+            if let Ok(ident) = input.expect_ident() {
+                self.decls.flex_direction = if ident.eq_ignore_ascii_case("row") {
+                    Some(FlexDirection::Row)
+                } else if ident.eq_ignore_ascii_case("row-reverse") {
+                    Some(FlexDirection::RowReverse)
+                } else if ident.eq_ignore_ascii_case("column") {
+                    Some(FlexDirection::Column)
+                } else if ident.eq_ignore_ascii_case("column-reverse") {
+                    Some(FlexDirection::ColumnReverse)
+                } else {
+                    None
+                };
+            }
+        } else if name.eq_ignore_ascii_case("flex-wrap") {
+            if let Ok(w) = parse_flex_wrap(input) {
+                self.decls.flex_wrap = Some(w);
+            }
+        } else if name.eq_ignore_ascii_case("flex-flow") {
+            // `<'flex-direction'> || <'flex-wrap'>`, either order, each
+            // 0-1 times — same lenient component-loop shape as `border`/
+            // `outline`'s own shorthands (`parse_border_like_shorthand`),
+            // just with this property's own two keyword sets instead.
+            let mut direction = None;
+            let mut wrap = None;
+            loop {
+                let state = input.state();
+                let Ok(ident) = input.expect_ident_cloned() else { break };
+                if direction.is_none()
+                    && let Some(d) = flex_direction_from_keyword(&ident)
+                {
+                    direction = Some(d);
+                    continue;
+                }
+                if wrap.is_none()
+                    && let Some(w) = flex_wrap_from_keyword(&ident)
+                {
+                    wrap = Some(w);
+                    continue;
+                }
+                input.reset(&state);
+                break;
+            }
+            if let Some(d) = direction {
+                self.decls.flex_direction = Some(d);
+            }
+            if let Some(w) = wrap {
+                self.decls.flex_wrap = Some(w);
+            }
+        } else if name.eq_ignore_ascii_case("justify-content") {
+            if let Ok(ident) = input.expect_ident() {
+                self.decls.justify_content = if ident.eq_ignore_ascii_case("flex-start") {
+                    Some(JustifyContent::FlexStart)
+                } else if ident.eq_ignore_ascii_case("flex-end") {
+                    Some(JustifyContent::FlexEnd)
+                } else if ident.eq_ignore_ascii_case("center") {
+                    Some(JustifyContent::Center)
+                } else if ident.eq_ignore_ascii_case("space-between") {
+                    Some(JustifyContent::SpaceBetween)
+                } else if ident.eq_ignore_ascii_case("space-around") {
+                    Some(JustifyContent::SpaceAround)
+                } else if ident.eq_ignore_ascii_case("space-evenly") {
+                    Some(JustifyContent::SpaceEvenly)
+                } else {
+                    None
+                };
+            }
+        } else if name.eq_ignore_ascii_case("align-items") {
+            if let Ok(a) = parse_align_keyword(input) {
+                self.decls.align_items = Some(a);
+            }
+        } else if name.eq_ignore_ascii_case("align-self") {
+            // `auto` (the real initial value) is deliberately *not*
+            // matched here, same `set_length`/`parse_z_index`-wide
+            // "unparseable leaves the cascade's existing value
+            // untouched" convention — `self.decls.align_self: Option
+            // <AlignItems>`'s `None` already covers both "never
+            // declared" and "declared `auto`" identically (see
+            // `ComputedStyle::align_self`'s own docs), so there's
+            // nothing a matched `auto` arm would do differently from
+            // just failing to parse.
+            if let Ok(a) = parse_align_keyword(input) {
+                self.decls.align_self = Some(a);
+            }
+        } else if name.eq_ignore_ascii_case("flex-grow") {
+            if let Ok(g) = parse_nonneg_number(input) {
+                self.decls.flex_grow = Some(g);
+            }
+        } else if name.eq_ignore_ascii_case("flex-shrink") {
+            if let Ok(s) = parse_nonneg_number(input) {
+                self.decls.flex_shrink = Some(s);
+            }
+        } else if name.eq_ignore_ascii_case("flex-basis") {
+            if let Ok(b) = parse_flex_basis(input) {
+                self.decls.flex_basis = Some(b);
+            }
+        } else if name.eq_ignore_ascii_case("flex") {
+            if let Ok((grow, shrink, basis)) = parse_flex_shorthand(input) {
+                self.decls.flex_grow = Some(grow);
+                self.decls.flex_shrink = Some(shrink);
+                self.decls.flex_basis = Some(basis);
+            }
+        } else if name.eq_ignore_ascii_case("gap") {
+            // `gap: <row-gap> <column-gap>?` — one value sets both.
+            if let Ok(row) = parse_length(input) {
+                let col = parse_length(input).unwrap_or(row);
+                self.decls.row_gap = Some(row);
+                self.decls.column_gap = Some(col);
+            }
+        } else if name.eq_ignore_ascii_case("row-gap") {
+            if let Ok(v) = parse_length(input) {
+                self.decls.row_gap = Some(v);
+            }
+        } else if name.eq_ignore_ascii_case("column-gap") {
+            if let Ok(v) = parse_length(input) {
+                self.decls.column_gap = Some(v);
             }
         } else if name.eq_ignore_ascii_case("font-size") {
             let state = input.state();
@@ -2544,6 +2913,41 @@ struct ComputedStyle {
     /// Not inherited. See `Overflow`'s own docs for the clip's scope.
     overflow: Overflow,
     cursor: CursorStyle,
+    /// The following flexbox fields are all not inherited (same category
+    /// as `border_width`/`overflow`) — a flex container's own `display:
+    /// flex` establishes a *new* flex formatting context for its direct
+    /// children only; none of these properties reach past it to a
+    /// grandchild (real CSS: `flex-direction` etc. simply aren't
+    /// inherited properties at all). `flex_direction`/`flex_wrap`/
+    /// `justify_content`/`align_items`/the two `*_gap` fields are only
+    /// ever consulted on a `display: flex` box itself (`measure_flex`);
+    /// `flex_grow`/`flex_shrink`/`flex_basis`/`align_self` are only ever
+    /// consulted on that box's own *direct children* (a flex item reads
+    /// its own cascaded value for these, regardless of what its own
+    /// `display` is).
+    flex_direction: FlexDirection,
+    flex_wrap: FlexWrap,
+    justify_content: JustifyContent,
+    align_items: AlignItems,
+    /// `None` means `auto` (the real initial value) — resolved against
+    /// the *containing* flex container's own `align_items` only at
+    /// layout time (`measure_flex`), not here, since `resolve_style`
+    /// doesn't know whether this element's parent is even a flex
+    /// container at all.
+    align_self: Option<AlignItems>,
+    flex_grow: f32,
+    flex_shrink: f32,
+    flex_basis: FlexBasis,
+    /// Resolved eagerly (like `border_width`/`outline_width`) rather
+    /// than deferred as a `BoxLength` — real CSS allows a `%` `row-gap`/
+    /// `column-gap` (resolving against the flex container's own cross/
+    /// main size respectively), but that's deliberately not supported
+    /// here (see `TODO.txt`): only `px`/`em`/`rem` parse at all
+    /// (`parse_length`, not `parse_length_percent`), so there's no
+    /// deferred-percent case to carry through to `measure_flex` the way
+    /// `width`/`margin` do.
+    row_gap: f32,
+    column_gap: f32,
 }
 
 /// `BoxShadow` with its lengths resolved to pixels (against the
@@ -2882,6 +3286,60 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         .unwrap_or_default();
     let cursor = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.cursor), |d| d.cursor)
         .unwrap_or(inherited.cursor);
+    let flex_direction = cascade_property(
+        &matches,
+        inline_decls.as_ref().and_then(|d| d.flex_direction),
+        |d| d.flex_direction,
+    )
+    .unwrap_or_default();
+    let flex_wrap = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.flex_wrap), |d| d.flex_wrap)
+        .unwrap_or_default();
+    let justify_content = cascade_property(
+        &matches,
+        inline_decls.as_ref().and_then(|d| d.justify_content),
+        |d| d.justify_content,
+    )
+    .unwrap_or_default();
+    let align_items = cascade_property(
+        &matches,
+        inline_decls.as_ref().and_then(|d| d.align_items),
+        |d| d.align_items,
+    )
+    .unwrap_or_default();
+    // Not inherited, and `None` here really does mean `auto` (see this
+    // field's own docs) — unlike `align_items` above, there's no
+    // `.unwrap_or_default()`, since `measure_flex` has to tell "not
+    // declared/auto" apart from an explicit value to fall back to the
+    // *container's* own `align_items` instead of a fixed default.
+    let align_self = cascade_property(
+        &matches,
+        inline_decls.as_ref().and_then(|d| d.align_self),
+        |d| d.align_self,
+    );
+    let flex_grow = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.flex_grow), |d| d.flex_grow)
+        .unwrap_or(0.0);
+    let flex_shrink = cascade_property(
+        &matches,
+        inline_decls.as_ref().and_then(|d| d.flex_shrink),
+        |d| d.flex_shrink,
+    )
+    .unwrap_or(1.0);
+    let flex_basis = cascade_property(
+        &matches,
+        inline_decls.as_ref().and_then(|d| d.flex_basis),
+        |d| d.flex_basis,
+    )
+    .unwrap_or_default();
+    let row_gap = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.row_gap), |d| d.row_gap)
+        .map(|l| l.resolve(font_size, inherited.root_font_size))
+        .unwrap_or(0.0);
+    let column_gap = cascade_property(
+        &matches,
+        inline_decls.as_ref().and_then(|d| d.column_gap),
+        |d| d.column_gap,
+    )
+    .map(|l| l.resolve(font_size, inherited.root_font_size))
+    .unwrap_or(0.0);
 
     ComputedStyle {
         color,
@@ -2922,6 +3380,16 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         border_radius,
         overflow,
         cursor,
+        flex_direction,
+        flex_wrap,
+        justify_content,
+        align_items,
+        align_self,
+        flex_grow,
+        flex_shrink,
+        flex_basis,
+        row_gap,
+        column_gap,
     }
 }
 
@@ -2965,6 +3433,16 @@ fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         border_radius: BoxLength::default(),
         overflow: Overflow::default(),
         cursor: inherited.cursor,
+        flex_direction: FlexDirection::default(),
+        flex_wrap: FlexWrap::default(),
+        justify_content: JustifyContent::default(),
+        align_items: AlignItems::default(),
+        align_self: None,
+        flex_grow: 0.0,
+        flex_shrink: 1.0,
+        flex_basis: FlexBasis::default(),
+        row_gap: 0.0,
+        column_gap: 0.0,
     }
 }
 
@@ -3197,6 +3675,17 @@ fn build_box_for_element(handle: &Handle, rules: &[StyleRule], inherited: Inheri
             content: BoxContent::Blocks(build_table_children(handle, rules, style.inherited(), own_decoration)),
         };
     }
+    // `display: flex` is block-level in the outer flow (same as `Table`,
+    // just above) but lays its *content* out completely differently —
+    // each direct child becomes a flex item (`build_flex_children`),
+    // measured per `measure_flex` instead of normal block/inline flow.
+    if style.display == Display::Flex {
+        return LayoutBox {
+            style,
+            background_image,
+            content: BoxContent::Blocks(build_flex_children(handle, rules, style.inherited(), own_decoration)),
+        };
+    }
     let prefix = if element_tag(handle) == "li" {
         Some((list_marker(handle, style.list_style_type), style.inherited().into()))
     } else {
@@ -3243,9 +3732,12 @@ fn build_table_children(handle: &Handle, rules: &[StyleRule], inherited: Inherit
             Display::TableGroup => {
                 result.extend(build_table_children(child, rules, style.inherited(), child_decoration));
             }
-            Display::Block => {
+            Display::Block | Display::Flex => {
                 // e.g. `caption`, or any other block-level content placed
-                // directly under `<table>`.
+                // directly under `<table>` — a stray `display: flex`
+                // element here is the same kind of edge case, handled
+                // the same way (its own box via the normal dispatch,
+                // which re-enters `build_flex_children` for it).
                 result.push(build_box_for_element(child, rules, inherited, decoration));
             }
             // A stray `table-cell`/inline/`table` outside a row isn't
@@ -3270,6 +3762,52 @@ fn build_table_row_cells(handle: &Handle, rules: &[StyleRule], inherited: Inheri
         }
     }
     cells
+}
+
+/// A `display: flex` element's direct children, each becoming its own
+/// flex item — real CSS "blockifies" every flex item (spec §4: a flex
+/// item's outer display type is always block-level, regardless of its
+/// own `display`), which falls out *for free* here: `build_box_for_
+/// element` already builds a full `Blocks`-content box for whatever it's
+/// given regardless of that element's own `style.display` (it only ever
+/// branches on `display` to special-case `img`/`Table`/`Flex`
+/// themselves, never to decide "does this get its own box at all" — only
+/// `collect_children`'s inline-run grouping makes that decision, which
+/// this function bypasses entirely by calling `build_box_for_element` on
+/// every child directly). So a `<span>` (default `display: inline`)
+/// placed directly inside a flex container still gets its own real box
+/// here, exactly like a `<div>` would — nothing extra needed to force
+/// block-level behavior.
+///
+/// **Deliberately not attempted** (see `TODO.txt`): a bare text node
+/// directly inside the flex container (no wrapping element) doesn't
+/// become its own anonymous flex item the way real CSS would — only
+/// element children are collected here, matching the task's own
+/// explicitly-permitted scope-narrowing latitude; non-whitespace text
+/// placed directly in a flex container (uncommon in real page chrome,
+/// which almost always wraps flex items in an element) is silently
+/// dropped rather than rendered. `position: absolute`/`fixed` children
+/// are *not* filtered out here (unlike `build_table_children`'s own
+/// `Display::None` skip) — they're still real children of this returned
+/// list, but `measure_flex` itself (not this function) is what actually
+/// takes them out of the flex algorithm, the same split `measure`'s own
+/// `BoxContent::Blocks` arm already uses for an ordinary block's
+/// absolutely/fixed positioned children.
+fn build_flex_children(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle, decoration: DecorationValue) -> Vec<LayoutBox> {
+    let mut result = Vec::new();
+    for child in handle.children.borrow().iter() {
+        let NodeData::Element { .. } = &child.data else { continue };
+        let tag = element_tag(child);
+        if tag == "script" || tag == "style" {
+            continue;
+        }
+        let style = resolve_style(child, rules, inherited);
+        if style.display == Display::None {
+            continue;
+        }
+        result.push(build_box_for_element(child, rules, inherited, decoration));
+    }
+    result
 }
 
 /// Walks the children of `handle`, starting a new box for each block-level
@@ -3382,7 +3920,7 @@ fn collect_children(
                 // regardless of `display`, a deliberate (now reverted)
                 // simplification — see TODO.txt/NOTES.md for why that
                 // was the original call and what changed.
-                if tag == "img" && !matches!(style.display, Display::Block | Display::Table) {
+                if tag == "img" && !matches!(style.display, Display::Block | Display::Table | Display::Flex) {
                     let background_image = resolve_background_image(child, rules);
                     let (img_style, decoded) = resolve_img(child, style);
                     match decoded {
@@ -3395,7 +3933,7 @@ fn collect_children(
                             pending.push(InlineItem::Text(alt, span));
                         }
                     }
-                } else if matches!(style.display, Display::Block | Display::Table) {
+                } else if matches!(style.display, Display::Block | Display::Table | Display::Flex) {
                     if !pending.is_empty() {
                         result.push(LayoutBox {
                             style: anonymous_style(inherited),
@@ -4503,6 +5041,24 @@ pub fn measure<'a>(
         && let BoxContent::Blocks(children) = &b.content
     {
         return measure_table(
+            b, children, font_system, x, y, width, containing_height, next_id, cache, deadline, incomplete, pending,
+        );
+    }
+    // `display: flex` — same shape of special-case as `Table` just
+    // above, and for the same reason: its direct children (flex items)
+    // need a table-wide/container-wide decision (each item's final
+    // main-axis size depends on every sibling's own basis and the
+    // container's own free space) before any one item can be measured,
+    // which doesn't fit `measure`'s own generic per-child `Blocks`
+    // dispatch below. See `measure_flex`'s own docs for the real
+    // algorithm. A flex container establishes its own fresh BFC (same
+    // category as a table — see `lay_out_row_cells`'s own docs), so
+    // `floats`/`auto_margin_box_override` have nothing to do with it
+    // either way; `measure_flex` doesn't take either.
+    if b.style.display == Display::Flex
+        && let BoxContent::Blocks(children) = &b.content
+    {
+        return measure_flex(
             b, children, font_system, x, y, width, containing_height, next_id, cache, deadline, incomplete, pending,
         );
     }
@@ -5631,6 +6187,554 @@ fn measure_table<'a>(
     apply_relative_offset(&mut laid, &s, width, containing_height);
     capture_sticky_info(&mut laid, &s, containing_height);
     laid
+}
+
+/// One flex item's resolved sizing inputs for `resolve_flex_main_sizes`
+/// — border-box, margin excluded (same convention `measure`'s own
+/// `cursor_y`/`Laid::h` bookkeeping already uses throughout this file:
+/// margin is always a separate figure, added on top, never folded into
+/// a box's own reported size).
+struct FlexBasisInfo {
+    basis: f32,
+    grow: f32,
+    shrink: f32,
+    min: f32,
+    max: f32,
+}
+
+/// CSS Flexible Box Layout's "resolving flexible lengths" step (CSS
+/// Flexbox Level 1 §9.7), scoped to a single distribution pass — not
+/// the real spec's iterative algorithm, which freezes any item whose
+/// flexed size would violate its own `min`/`max` and re-distributes the
+/// remaining free space again among the rest. `items[i].basis` (not
+/// `main_size`) is the proportional weight for *shrinking*
+/// (`flex_shrink * basis`, the real spec's own "scaled shrink factor"
+/// formula — a larger item shrinks by more of the deficit, not an equal
+/// share), and a straight `grow`-weighted share of the surplus for
+/// *growing*. Each result is clamped to its own `[min, max]` — but,
+/// since this is a single pass, a clamped item's own under/overshoot
+/// isn't redistributed a second time among its unclamped siblings (see
+/// `TODO.txt`) — fine for the common case (no unusually tight `min-`/
+/// `max-width`/`height` relative to an item's own basis); a real
+/// divergence only once several siblings' constraints interact.
+fn resolve_flex_main_sizes(main_size: f32, gap: f32, items: &[FlexBasisInfo]) -> Vec<f32> {
+    let n = items.len();
+    if n == 0 {
+        return Vec::new();
+    }
+    let sum_basis: f32 = items.iter().map(|i| i.basis).sum();
+    let free = main_size - sum_basis - gap * (n - 1) as f32;
+    let mut sizes: Vec<f32> = if free > 0.0 {
+        let sum_grow: f32 = items.iter().map(|i| i.grow).sum();
+        if sum_grow > 0.0 {
+            items.iter().map(|i| i.basis + free * (i.grow / sum_grow)).collect()
+        } else {
+            items.iter().map(|i| i.basis).collect()
+        }
+    } else if free < 0.0 {
+        let sum_scaled: f32 = items.iter().map(|i| i.shrink * i.basis).sum();
+        if sum_scaled > 0.0 {
+            items
+                .iter()
+                .map(|i| (i.basis - free.abs() * (i.shrink * i.basis / sum_scaled)).max(0.0))
+                .collect()
+        } else {
+            items.iter().map(|i| i.basis).collect()
+        }
+    } else {
+        items.iter().map(|i| i.basis).collect()
+    };
+    for (size, item) in sizes.iter_mut().zip(items) {
+        *size = size.clamp(item.min, item.max.max(item.min));
+    }
+    sizes
+}
+
+/// `justify-content`'s main-axis distribution — shared by `measure_
+/// flex_row`/`measure_flex_column`, since the formula is identical
+/// regardless of which physical axis is "main." Returns `(start_offset,
+/// extra_between)`: `start_offset` is added once, before the first
+/// item's own margin edge; `extra_between` is added once between each
+/// consecutive pair, *on top of* the caller's own declared `gap` — this
+/// function never sees `gap` at all (the caller already subtracted it
+/// out of `leftover` before calling), so it only ever computes the
+/// *additional* space `justify-content` itself contributes.
+fn distribute_justify_content(leftover: f32, n: usize, justify: JustifyContent) -> (f32, f32) {
+    if n == 0 || leftover <= 0.0 {
+        return (0.0, 0.0);
+    }
+    match justify {
+        JustifyContent::FlexStart => (0.0, 0.0),
+        JustifyContent::FlexEnd => (leftover, 0.0),
+        JustifyContent::Center => (leftover / 2.0, 0.0),
+        JustifyContent::SpaceBetween if n > 1 => (0.0, leftover / (n - 1) as f32),
+        JustifyContent::SpaceBetween => (0.0, 0.0),
+        JustifyContent::SpaceAround => {
+            let extra = leftover / n as f32;
+            (extra / 2.0, extra)
+        }
+        JustifyContent::SpaceEvenly => {
+            let extra = leftover / (n + 1) as f32;
+            (extra, extra)
+        }
+    }
+}
+
+/// A `display: flex` element's own box model (`box_model_entry`, same
+/// as any other box) plus its content: real CSS Flexible Box Layout
+/// (https://www.w3.org/TR/css-flexbox-1/), scoped to the common "flex
+/// row/column of items, growing/shrinking/justified/aligned" case — see
+/// `measure_flex_row`/`measure_flex_column`'s own docs for exactly what
+/// each direction implements, and `TODO.txt` for what's deliberately
+/// cut (no `align-content`, no `order`, real baseline alignment
+/// approximated as `flex-start`, `flex-wrap` only real for `row`/
+/// `row-reverse`, no automatic-minimum-size/iterative constraint
+/// resolution, and an item's own explicit `width`/`flex-basis` on a
+/// *row* container can win over a flex-grown/shrunk size in one narrow
+/// case — see `measure_flex_row`'s own docs — the same accepted
+/// simplification `measure_table`'s own column-width-vs-cell-width gap
+/// already has).
+///
+/// `position: absolute`/`fixed` children are taken out of the flex
+/// algorithm entirely (real CSS §4: they're not flex items at all) —
+/// the same split `measure`'s own `BoxContent::Blocks` arm already
+/// makes for an ordinary block's out-of-flow children, anchored against
+/// this box's own padding box exactly the same way. A flex container is
+/// its own fresh BFC (same category as a table — see `lay_out_row_
+/// cells`'s own docs): floats never escape into or out of it.
+#[allow(clippy::too_many_arguments)]
+fn measure_flex<'a>(
+    b: &'a LayoutBox,
+    children: &'a [LayoutBox],
+    font_system: &mut FontSystem,
+    x: f32,
+    y: f32,
+    width: f32,
+    containing_height: Option<f32>,
+    next_id: &mut usize,
+    cache: &mut ShapeCache,
+    deadline: std::time::Instant,
+    incomplete: &mut bool,
+    pending: &mut Vec<PendingPositioned<'a>>,
+) -> Laid {
+    let mut s = b.style;
+    let entry = box_model_entry(&mut s, x, y, width, containing_height, None);
+    let no_floats = Floats::default();
+    let mut own_pending: Vec<PendingPositioned<'a>> = Vec::new();
+    let mut items: Vec<&'a LayoutBox> = Vec::with_capacity(children.len());
+    for child in children {
+        if matches!(child.style.position, Position::Absolute | Position::Fixed) {
+            own_pending.push(PendingPositioned {
+                b: child,
+                fixed: child.style.position == Position::Fixed,
+                static_x: entry.content_x,
+                static_y: entry.content_y,
+            });
+            continue;
+        }
+        items.push(child);
+    }
+    let is_row = s.flex_direction.is_row();
+    let main_gap = if is_row { s.column_gap } else { s.row_gap };
+    let cross_gap = if is_row { s.row_gap } else { s.column_gap };
+    let reverse = s.flex_direction.is_reverse();
+    let mut laid_children = if is_row {
+        measure_flex_row(
+            &items, &s, &entry, font_system, next_id, cache, deadline, incomplete, &mut own_pending, &no_floats,
+            reverse, s.flex_wrap, main_gap, cross_gap,
+        )
+    } else {
+        measure_flex_column(
+            &items, &s, &entry, font_system, next_id, cache, deadline, incomplete, &mut own_pending, &no_floats,
+            reverse, main_gap,
+        )
+    };
+    let bottom_extent = laid_children
+        .iter()
+        .map(|lc| lc.y + lc.style.margin.bottom.px() + lc.h)
+        .fold(entry.content_y, f32::max);
+    patch_sticky_containing_block(&mut laid_children, entry.content_y, bottom_extent);
+    let content_h = bottom_extent - entry.content_y;
+    let border_h = clamp_box_dim(
+        s.height, s.min_height, s.max_height, entry.extra_h + content_h.max(0.0), s.box_sizing, entry.extra_h,
+    );
+    let positioned_children = resolve_or_bubble_positioned(
+        own_pending,
+        s.position,
+        entry.border_x + s.border_width,
+        entry.border_y + s.border_width,
+        (entry.border_w - 2.0 * s.border_width).max(0.0),
+        (border_h - 2.0 * s.border_width).max(0.0),
+        font_system,
+        next_id,
+        cache,
+        deadline,
+        incomplete,
+        pending,
+    );
+    let mut laid = Laid {
+        style: s,
+        x: entry.border_x,
+        y: entry.border_y,
+        w: entry.border_w,
+        h: border_h,
+        background_image: b.background_image.clone(),
+        content: LaidContent::Blocks(laid_children),
+        positioned: positioned_children,
+        fixed: false,
+        sticky: None,
+    };
+    apply_relative_offset(&mut laid, &s, width, containing_height);
+    capture_sticky_info(&mut laid, &s, containing_height);
+    laid
+}
+
+/// `flex-direction: row`/`row-reverse` — the primary case this item
+/// prioritizes. The main axis (width) is always definite already
+/// (`entry.content_w`, the flex container's own content-box width), so
+/// every item's final main size is decided *before* its one real
+/// `measure()` call — unlike the cross axis (height), which needs that
+/// call to learn an item's natural size first.
+///
+/// `flex-wrap` is genuinely implemented here: items are greedily packed
+/// into lines (CSS Flexbox §9.3 — a line never starts empty; an item
+/// wider than the container alone still gets its own line rather than
+/// being dropped or forced to share), each line's main-axis sizing
+/// resolved independently (`resolve_flex_main_sizes`/`distribute_
+/// justify_content`), then lines are stacked top-to-bottom by their own
+/// cross size, `row-gap` between them. `wrap-reverse` only stacks the
+/// *lines* in the opposite order — not the items within a line, and not
+/// `order` (unimplemented — see `TODO.txt`).
+///
+/// Cross-axis (height) alignment/stretch is a pure post-hoc `Laid::h`/
+/// position adjustment, never a second `measure()` call: this engine's
+/// own `height` property already doesn't affect how a box's *children*
+/// are laid out (v42 — only the box's own reported size to its parent),
+/// so once an item's natural height is known from its one real
+/// `measure` call, stretching it to the line's cross size is just
+/// overwriting `laid.h` directly — safe specifically *because* of that
+/// pre-existing engine property, not a flexbox-specific trick.
+///
+/// **The one narrow, documented gap**: an item's final main size is
+/// passed as `measure`'s own ordinary `width` parameter (same
+/// convention `lay_out_row_cells` already uses for a table cell's
+/// column-sized width) — if the item's own CSS `width` is `auto`
+/// (the common case for a flex item relying on content/`flex-grow`/
+/// `flex-shrink`), `box_model_entry`'s own auto-fill logic naturally
+/// lands on exactly this value, so growing/shrinking fully works. But
+/// if the item *also* declares an explicit, conflicting CSS `width`,
+/// `clamp_box_dim` uses that explicit value instead of the distributed
+/// one regardless of what's passed in — same accepted simplification
+/// `measure_table`'s own per-cell `width` gap already has (`TODO.txt`).
+#[allow(clippy::too_many_arguments)]
+fn measure_flex_row<'a>(
+    items: &[&'a LayoutBox],
+    s: &ComputedStyle,
+    entry: &BoxModelEntry,
+    font_system: &mut FontSystem,
+    next_id: &mut usize,
+    cache: &mut ShapeCache,
+    deadline: std::time::Instant,
+    incomplete: &mut bool,
+    pending: &mut Vec<PendingPositioned<'a>>,
+    no_floats: &Floats,
+    reverse: bool,
+    wrap: FlexWrap,
+    main_gap: f32,
+    cross_gap: f32,
+) -> Vec<Laid> {
+    if items.is_empty() {
+        return Vec::new();
+    }
+    struct Prep {
+        basis: f32,
+        margin_left: f32,
+        margin_right: f32,
+        min: f32,
+        max: f32,
+        grow: f32,
+        shrink: f32,
+    }
+    let preps: Vec<Prep> = items
+        .iter()
+        .map(|item| {
+            // A throwaway finalized copy, purely to read this item's own
+            // margin/width/min/max against the *real* containing-block
+            // width (`entry.content_w`, already definite for a row
+            // container — unlike `cell_natural_width`'s own `0.0`-basis
+            // trick, which only exists because a table's real column
+            // width genuinely isn't known yet at that point).
+            let mut item_style = item.style;
+            finalize_box_lengths(&mut item_style, entry.content_w, entry.child_containing_height);
+            let margin_left = item_style.margin.left.px();
+            let margin_right = item_style.margin.right.px();
+            let extra_w = 2.0 * item_style.border_width + item_style.padding.left.px() + item_style.padding.right.px();
+            let to_box = |raw: f32| match item_style.box_sizing {
+                BoxSizing::ContentBox => raw.max(0.0) + extra_w,
+                BoxSizing::BorderBox => raw.max(0.0),
+            };
+            // `flex-basis`'s own real fallback chain (CSS Flexbox §9.2):
+            // an explicit length/percentage first, else this item's own
+            // `width` (if set), else its natural content size.
+            let basis_from_decl = match item_style.flex_basis {
+                FlexBasis::Len(Length::Percent(p)) => Some(entry.content_w * p),
+                FlexBasis::Len(l) => Some(l.resolve(item_style.font_size, item_style.root_font_size)),
+                FlexBasis::Auto => None,
+            };
+            let basis = basis_from_decl.unwrap_or_else(|| {
+                if item_style.width.is_some() {
+                    // Not clamped by `min`/`max` here — real CSS doesn't
+                    // clamp the *basis* itself, only the final resolved
+                    // size (`resolve_flex_main_sizes`, below).
+                    clamp_box_dim(item_style.width, None, None, 0.0, item_style.box_sizing, extra_w)
+                } else {
+                    // Natural (max-content) width, reused from the exact
+                    // min/max-content machinery real auto table-column
+                    // sizing already uses (`cell_natural_width` — margin-
+                    // box, hence the margin subtraction to get border-box).
+                    let (_, max_mb) = cell_natural_width(item, font_system, next_id, cache, deadline, incomplete);
+                    (max_mb - margin_left - margin_right).max(0.0)
+                }
+            });
+            Prep {
+                basis,
+                margin_left,
+                margin_right,
+                min: item_style.min_width.map(|v| to_box(v.px())).unwrap_or(0.0),
+                max: item_style.max_width.map(|v| to_box(v.px())).unwrap_or(f32::INFINITY),
+                grow: item.style.flex_grow,
+                shrink: item.style.flex_shrink,
+            }
+        })
+        .collect();
+
+    let mut lines: Vec<Vec<usize>> = Vec::new();
+    if wrap == FlexWrap::NoWrap {
+        lines.push((0..items.len()).collect());
+    } else {
+        let mut current: Vec<usize> = Vec::new();
+        let mut current_extent = 0.0f32;
+        for (i, prep) in preps.iter().enumerate() {
+            let item_extent = prep.basis + prep.margin_left + prep.margin_right;
+            let needed = if current.is_empty() { item_extent } else { current_extent + main_gap + item_extent };
+            if !current.is_empty() && needed > entry.content_w {
+                lines.push(std::mem::take(&mut current));
+                current_extent = item_extent;
+                current.push(i);
+            } else {
+                current_extent = needed;
+                current.push(i);
+            }
+        }
+        if !current.is_empty() {
+            lines.push(current);
+        }
+        if wrap == FlexWrap::WrapReverse {
+            lines.reverse();
+        }
+    }
+
+    let mut laid: Vec<Option<Laid>> = (0..items.len()).map(|_| None).collect();
+    let mut line_top = entry.content_y;
+    for line in &lines {
+        let line_infos: Vec<FlexBasisInfo> = line
+            .iter()
+            .map(|&i| FlexBasisInfo {
+                basis: preps[i].basis,
+                grow: preps[i].grow,
+                shrink: preps[i].shrink,
+                min: preps[i].min,
+                max: preps[i].max,
+            })
+            .collect();
+        let final_sizes = resolve_flex_main_sizes(entry.content_w, main_gap, &line_infos);
+        let n = line.len();
+        let used: f32 = line.iter().enumerate().map(|(k, &i)| final_sizes[k] + preps[i].margin_left + preps[i].margin_right).sum::<f32>()
+            + main_gap * (n.saturating_sub(1)) as f32;
+        let leftover = (entry.content_w - used).max(0.0);
+        let (start_offset, extra_between) = distribute_justify_content(leftover, n, s.justify_content);
+
+        let mut cursor_x = entry.content_x + start_offset;
+        let mut line_cross = 0.0f32;
+        for (k, &i) in line.iter().enumerate() {
+            let item = items[i];
+            let main_w = final_sizes[k];
+            let x = cursor_x + preps[i].margin_left;
+            let lc = measure(
+                item, font_system, x, line_top, main_w, entry.child_containing_height, next_id, cache, deadline,
+                incomplete, pending, no_floats, None,
+            );
+            line_cross = line_cross.max(lc.style.margin.top.px() + lc.h + lc.style.margin.bottom.px());
+            cursor_x += preps[i].margin_left + main_w + preps[i].margin_right + main_gap + extra_between;
+            laid[i] = Some(lc);
+        }
+        for &i in line {
+            let lc = laid[i].as_mut().expect("just measured above");
+            let align = items[i].style.align_self.unwrap_or(s.align_items);
+            let margin_top = lc.style.margin.top.px();
+            let margin_bottom = lc.style.margin.bottom.px();
+            if align == AlignItems::Stretch && items[i].style.height.is_none() {
+                lc.h = (line_cross - margin_top - margin_bottom).max(0.0);
+            }
+            let target_y = match align {
+                AlignItems::Stretch | AlignItems::FlexStart | AlignItems::Baseline => line_top + margin_top,
+                AlignItems::FlexEnd => line_top + (line_cross - lc.h - margin_bottom),
+                AlignItems::Center => line_top + (line_cross - lc.h - margin_top - margin_bottom) / 2.0 + margin_top,
+            };
+            shift_laid_tree(lc, 0.0, target_y - lc.y);
+        }
+        line_top += line_cross + cross_gap;
+    }
+
+    let mut result: Vec<Laid> = laid.into_iter().map(|l| l.expect("every item measured exactly once")).collect();
+    if reverse {
+        for lc in &mut result {
+            let new_x = 2.0 * entry.content_x + entry.content_w - lc.x - lc.w;
+            shift_laid_tree(lc, new_x - lc.x, 0.0);
+        }
+    }
+    result
+}
+
+/// `flex-direction: column`/`column-reverse`. The cross axis (width) is
+/// always definite (`entry.content_w`, the same value an ordinary block
+/// child already gets), so stretch-vs-shrink-to-fit is decided *before*
+/// each item's one real `measure()` call — the opposite order from the
+/// row case's own cross axis (height), which needs that call to learn
+/// an item's natural size first. There's no "natural content width"
+/// counterpart for *height* in this engine (width is the one axis
+/// `cell_natural_width` can measure without a real layout pass), so
+/// each item's own real `measure()` call *is* how its natural/
+/// hypothetical main size is learned (`lc.h`, already correct for both
+/// "auto, content-driven" and "explicit CSS `height`" for free, since
+/// `measure` already resolves `height` the ordinary way) — then, like
+/// row's cross-axis stretch, the *final* (grown/shrunk) main size is a
+/// pure post-hoc `lc.h` overwrite, safe for the same reason (`height`
+/// doesn't affect a box's own children here). Unlike row's own width
+/// gap, this means column's `flex-grow`/`flex-shrink` has no equivalent
+/// "loses to an explicit CSS value" narrowing — the override always
+/// applies.
+///
+/// **`flex-wrap` is not implemented for a column container** (see
+/// `FlexWrap`'s own docs) — always exactly one column, regardless of
+/// the declared value; `cross_gap`/multi-column distribution never
+/// comes up.
+#[allow(clippy::too_many_arguments)]
+fn measure_flex_column<'a>(
+    items: &[&'a LayoutBox],
+    s: &ComputedStyle,
+    entry: &BoxModelEntry,
+    font_system: &mut FontSystem,
+    next_id: &mut usize,
+    cache: &mut ShapeCache,
+    deadline: std::time::Instant,
+    incomplete: &mut bool,
+    pending: &mut Vec<PendingPositioned<'a>>,
+    no_floats: &Floats,
+    reverse: bool,
+    main_gap: f32,
+) -> Vec<Laid> {
+    if items.is_empty() {
+        return Vec::new();
+    }
+    struct ColItem {
+        lc: Laid,
+        basis: f32,
+        min: f32,
+        max: f32,
+        grow: f32,
+        shrink: f32,
+        margin_top: f32,
+        margin_bottom: f32,
+    }
+    let mut prepped: Vec<ColItem> = items
+        .iter()
+        .map(|item| {
+            let align = item.style.align_self.unwrap_or(s.align_items);
+            // Stretch (the default) or an explicit `width` both measure
+            // at the full cross width — `box_model_entry`'s own
+            // explicit-width-wins-else-auto-fills logic already does
+            // the right thing for both for free. Only a non-stretch,
+            // `width: auto` item needs an actual shrink-to-fit width
+            // computed up front.
+            let width_param = if align != AlignItems::Stretch && item.style.width.is_none() {
+                let mut item_style = item.style;
+                finalize_box_lengths(&mut item_style, entry.content_w, entry.child_containing_height);
+                let margin_lr = item_style.margin.left.px() + item_style.margin.right.px();
+                let (_, max_mb) = cell_natural_width(item, font_system, next_id, cache, deadline, incomplete);
+                (max_mb - margin_lr).max(0.0).min(entry.content_w)
+            } else {
+                entry.content_w
+            };
+            let lc = measure(
+                item, font_system, entry.content_x, entry.content_y, width_param, entry.child_containing_height,
+                next_id, cache, deadline, incomplete, pending, no_floats, None,
+            );
+            let margin_top = lc.style.margin.top.px();
+            let margin_bottom = lc.style.margin.bottom.px();
+            let basis = match lc.style.flex_basis {
+                FlexBasis::Len(Length::Percent(p)) => entry.child_containing_height.map(|h| h * p).unwrap_or(lc.h),
+                FlexBasis::Len(l) => l.resolve(lc.style.font_size, lc.style.root_font_size),
+                FlexBasis::Auto => lc.h,
+            };
+            let min = lc.style.min_height.map(|v| v.px()).unwrap_or(0.0);
+            let max = lc.style.max_height.map(|v| v.px()).unwrap_or(f32::INFINITY);
+            ColItem {
+                lc,
+                basis,
+                min,
+                max,
+                grow: item.style.flex_grow,
+                shrink: item.style.flex_shrink,
+                margin_top,
+                margin_bottom,
+            }
+        })
+        .collect();
+
+    let n = prepped.len();
+    let sum_natural: f32 =
+        prepped.iter().map(|p| p.basis + p.margin_top + p.margin_bottom).sum::<f32>() + main_gap * (n.saturating_sub(1)) as f32;
+    // Real CSS: an auto-height (indefinite main size) flex container has
+    // no free space to grow into at all — same "no extra space to
+    // distribute" outcome an ordinary `height: auto` block already has
+    // today (matches `entry.child_containing_height`'s own `None` case,
+    // see `box_model_entry`'s own docs).
+    let main_size = entry.child_containing_height.unwrap_or(sum_natural);
+    let infos: Vec<FlexBasisInfo> = prepped
+        .iter()
+        .map(|p| FlexBasisInfo { basis: p.basis, grow: p.grow, shrink: p.shrink, min: p.min, max: p.max })
+        .collect();
+    let final_sizes = resolve_flex_main_sizes(main_size, main_gap, &infos);
+    let used: f32 = prepped.iter().zip(&final_sizes).map(|(p, &f)| f + p.margin_top + p.margin_bottom).sum::<f32>()
+        + main_gap * (n.saturating_sub(1)) as f32;
+    let leftover = (main_size - used).max(0.0);
+    let (start_offset, extra_between) = distribute_justify_content(leftover, n, s.justify_content);
+
+    let mut cursor_y = entry.content_y + start_offset;
+    for (item, (p, &final_h)) in items.iter().zip(prepped.iter_mut().zip(&final_sizes)) {
+        p.lc.h = final_h;
+        let align = item.style.align_self.unwrap_or(s.align_items);
+        let target_x = match align {
+            AlignItems::Stretch | AlignItems::FlexStart | AlignItems::Baseline => entry.content_x,
+            AlignItems::FlexEnd => entry.content_x + entry.content_w - p.lc.w,
+            AlignItems::Center => entry.content_x + (entry.content_w - p.lc.w) / 2.0,
+        };
+        let target_y = cursor_y + p.margin_top;
+        let dx = target_x - p.lc.x;
+        let dy = target_y - p.lc.y;
+        shift_laid_tree(&mut p.lc, dx, dy);
+        cursor_y += p.margin_top + final_h + p.margin_bottom + main_gap + extra_between;
+    }
+
+    let mut result: Vec<Laid> = prepped.into_iter().map(|p| p.lc).collect();
+    if reverse {
+        for lc in &mut result {
+            let new_y = 2.0 * entry.content_y + main_size - lc.y - lc.h;
+            shift_laid_tree(lc, 0.0, new_y - lc.y);
+        }
+    }
+    result
 }
 
 /// The real top-level entry point for laying out a whole document —
@@ -9163,5 +10267,167 @@ mod tests {
             0x0000_00FF,
             "z-index:auto should not establish a stacking context — the later sibling keeps winning the overlap by plain document/paint order"
         );
+    }
+
+    // ---------- v57: flexbox (`display: flex`) ----------
+
+    /// The flex container's own direct `LaidContent::Blocks` children,
+    /// in document order — exactly the flex items `measure_flex`
+    /// positioned, found by locating the container itself (via its own
+    /// distinctive `width`, same `find_by_width` helper every other
+    /// section already uses) rather than a bespoke lookup.
+    fn flex_items(laid: &Laid, container_w: f32) -> Vec<&Laid> {
+        let container = find_by_width(laid, container_w).expect("flex container not found");
+        let LaidContent::Blocks(children) = &container.content else {
+            panic!("expected the flex container's content to be Blocks (its own flex items)");
+        };
+        children.iter().collect()
+    }
+
+    #[test]
+    fn row_direction_lays_items_out_left_to_right() {
+        let laid = measure_fixture(
+            r#"<html><body><div style="display: flex; width: 300px;"><div style="width: 50px;">a</div><div style="width: 80px;">b</div></div></body></html>"#,
+            500.0,
+        );
+        let items = flex_items(&laid, 300.0);
+        assert_eq!(items.len(), 2, "both children should become flex items");
+        assert!(items[0].x < items[1].x, "row direction: items should lay out left to right");
+        assert_eq!(items[1].x, items[0].x + items[0].w, "second item should start exactly where the first ends (no gap/grow)");
+        assert_eq!(items[0].y, items[1].y, "both items should start at the same cross-axis (y) position");
+    }
+
+    #[test]
+    fn column_direction_lays_items_out_top_to_bottom() {
+        let laid = measure_fixture(
+            r#"<html><body><div style="display: flex; flex-direction: column; width: 300px;"><div style="height: 40px;">a</div><div style="height: 60px;">b</div></div></body></html>"#,
+            500.0,
+        );
+        let items = flex_items(&laid, 300.0);
+        assert_eq!(items.len(), 2);
+        assert!(items[0].y < items[1].y, "column direction: items should lay out top to bottom");
+        assert_eq!(items[1].y, items[0].y + items[0].h, "second item should start exactly where the first ends");
+        assert_eq!(items[0].x, items[1].x, "both items should share the same cross-axis (x) position");
+    }
+
+    #[test]
+    fn justify_content_space_between_pushes_items_to_opposite_edges() {
+        let laid = measure_fixture(
+            r#"<html><body style="margin: 0"><div style="display: flex; justify-content: space-between; width: 300px;"><div style="width: 50px;">a</div><div style="width: 50px;">b</div></div></body></html>"#,
+            500.0,
+        );
+        let items = flex_items(&laid, 300.0);
+        assert_eq!(items[0].x, 0.0, "first item should sit at the container's own left edge");
+        assert_eq!(items[1].x, 250.0, "second item's right edge (250+50) should sit exactly at the container's right edge (300)");
+    }
+
+    #[test]
+    fn align_items_stretch_grows_the_shorter_sibling_to_match_the_tallest() {
+        let laid = measure_fixture(
+            r#"<html><body><div style="display: flex; width: 300px;"><div style="width: 50px; height: 100px;">a</div><div style="width: 50px;">b</div></div></body></html>"#,
+            500.0,
+        );
+        let items = flex_items(&laid, 300.0);
+        assert_eq!(items[0].h, 100.0, "the explicitly-tall item keeps its own height");
+        assert_eq!(items[1].h, 100.0, "align-items: stretch (the default) should grow the shorter, auto-height sibling to match the line's cross size");
+    }
+
+    #[test]
+    fn align_items_center_positions_without_resizing() {
+        let laid = measure_fixture(
+            r#"<html><body><div style="display: flex; align-items: center; width: 300px;"><div style="width: 50px; height: 100px;">a</div><div style="width: 50px; height: 20px;">b</div></div></body></html>"#,
+            500.0,
+        );
+        let items = flex_items(&laid, 300.0);
+        assert_eq!(items[1].h, 20.0, "align-items: center should not stretch the shorter item's own height");
+        // Compared *relative* to the taller sibling (which, at the
+        // line's own full 100px cross size, centers to no offset at
+        // all) rather than against an absolute `y`, so this doesn't
+        // depend on `body`'s own default margin shifting everything's
+        // absolute document-space position uniformly.
+        assert_eq!(
+            items[1].y - items[0].y,
+            (100.0 - 20.0) / 2.0,
+            "the shorter item should be vertically centered within the line's cross size (100px)"
+        );
+    }
+
+    #[test]
+    fn flex_grow_distributes_free_space_proportionally() {
+        let laid = measure_fixture(
+            r#"<html><body><div style="display: flex; width: 300px;"><div style="flex: 1 0 0;">a</div><div style="flex: 2 0 0;">b</div></div></body></html>"#,
+            500.0,
+        );
+        let items = flex_items(&laid, 300.0);
+        assert_eq!(items[0].w, 100.0, "flex-grow 1 of (1+2) should claim 1/3 of the 300px free space");
+        assert_eq!(items[1].w, 200.0, "flex-grow 2 of (1+2) should claim 2/3 of the 300px free space — not just 'fit content'");
+    }
+
+    #[test]
+    fn flex_shrink_distributes_deficit_proportionally_to_scaled_factor() {
+        // Uses `flex-basis`, not `width`, for each item's own 100px basis
+        // — an item's own explicit CSS `width` wins over a flex-shrunk
+        // size in this engine (a documented, accepted simplification,
+        // same category `measure_table`'s own column-width-vs-cell-width
+        // gap already has — see `measure_flex_row`'s own docs), so using
+        // `width` here would make every item keep its own literal width
+        // regardless of `flex-shrink`, defeating the point of this test.
+        let laid = measure_fixture(
+            r#"<html><body><div style="display: flex; width: 100px;"><div style="flex-basis: 100px; flex-shrink: 1;">a</div><div style="flex-basis: 100px; flex-shrink: 3;">b</div></div></body></html>"#,
+            500.0,
+        );
+        let items = flex_items(&laid, 100.0);
+        // Total natural width 200px into a 100px container: a 100px
+        // deficit, split by *scaled* shrink factor (`flex_shrink * basis`,
+        // CSS Flexbox §9.7) — both items share the same 100px basis, so
+        // the split is exactly proportional to their shrink factors alone
+        // (1:3): item a loses 25px (100 * 1/4), item b loses 75px (100 * 3/4).
+        assert_eq!(items[0].w, 75.0, "flex-shrink 1 (of a 1:3 scaled ratio) should lose proportionally less width");
+        assert_eq!(items[1].w, 25.0, "flex-shrink 3 (of a 1:3 scaled ratio) should lose proportionally more width — not shrink equally");
+    }
+
+    #[test]
+    fn flex_wrap_starts_a_second_line_once_items_no_longer_fit() {
+        let laid = measure_fixture(
+            r#"<html><body><div style="display: flex; flex-wrap: wrap; width: 100px;"><div style="width: 60px; height: 20px;">a</div><div style="width: 60px; height: 20px;">b</div></div></body></html>"#,
+            500.0,
+        );
+        let items = flex_items(&laid, 100.0);
+        assert_eq!(items[0].x, items[1].x, "both items should be left-aligned on their own line (each is alone on its own line)");
+        assert!(items[1].y > items[0].y, "the second item (60+60 > 100px container) should wrap onto a new, lower line");
+        assert_eq!(items[1].y, items[0].y + items[0].h, "the second line should start exactly where the first line's cross size ends (no row-gap declared)");
+    }
+
+    #[test]
+    fn gap_adds_fixed_spacing_between_items_on_top_of_justify_content() {
+        let laid = measure_fixture(
+            r#"<html><body><div style="display: flex; gap: 20px; width: 300px;"><div style="width: 50px;">a</div><div style="width: 50px;">b</div></div></body></html>"#,
+            500.0,
+        );
+        let items = flex_items(&laid, 300.0);
+        assert_eq!(items[1].x, items[0].x + items[0].w + 20.0, "column-gap (from the `gap` shorthand) should add exactly 20px between items, beyond their own widths");
+    }
+
+    #[test]
+    fn position_absolute_child_of_a_flex_container_is_not_treated_as_a_flex_item() {
+        let laid = measure_fixture(
+            // `position: relative` on the container itself so it's a
+            // real "positioned ancestor" and actually catches its own
+            // `absolute` child locally (`resolve_or_bubble_positioned`)
+            // — otherwise (a plain `static` flex container, like every
+            // other test in this section) it would correctly keep
+            // bubbling past it, same as any other `Blocks` box; this
+            // test is about the flex *item-list* split, not about
+            // `position`'s own containing-block search.
+            r#"<html><body style="margin: 0"><div style="display: flex; position: relative; width: 300px;"><div style="position: absolute; top: 5px; left: 5px; width: 20px; height: 20px;">p</div><div style="width: 50px;">a</div></div></body></html>"#,
+            500.0,
+        );
+        let container = find_by_width(&laid, 300.0).expect("flex container not found");
+        let LaidContent::Blocks(children) = &container.content else {
+            panic!("expected Blocks content");
+        };
+        assert_eq!(children.len(), 1, "the absolutely-positioned child should be pulled out of the flex item list entirely");
+        assert_eq!(children[0].x, 0.0, "the one real flex item should start at the container's left edge, not pushed aside by the out-of-flow child");
+        assert_eq!(container.positioned.len(), 1, "the absolutely-positioned child should instead land in the container's own `positioned` list");
     }
 }

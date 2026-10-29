@@ -365,10 +365,140 @@ session can pick a coherent slice rather than one property at a time.
             when a negative stacking entry and normal content genuinely
             overlap at the exact same screen pixel.
 
-- [ ] No flexbox (`display: flex`) or grid (`display: grid`) — `Display`
-      only has Block/Inline/None/Table/TableRow/TableCell/TableGroup.
-      `default.css` doesn't need either today, but most real-world pages
-      do for their outer page chrome.
+- [x] `display: flex` (v57, commit TBD) now does real CSS Flexible Box
+      Layout (https://www.w3.org/TR/css-flexbox-1/), scoped to the common
+      "flex row/column of items, growing/shrinking/justified/aligned"
+      case — grid explicitly deferred, see its own item just below (same
+      "bundling both would risk landing neither well" latitude the
+      `position`/`float` items already used). Landed: `flex-direction`
+      (`row`/`row-reverse`/`column`/`column-reverse`), `flex-wrap`
+      (`nowrap`/`wrap`/`wrap-reverse` — real for `row`/`row-reverse`
+      only, see its own item below), `flex-flow` shorthand,
+      `justify-content` (all 6 keywords, including `space-evenly`, which
+      the original task wording treated as optional — it fell out of the
+      same arithmetic as `space-between`/`space-around` for free),
+      `align-items`/`align-self` (`flex-start`/`flex-end`/`center`/
+      `stretch`/`baseline` — `baseline` approximates to `flex-start`, see
+      its own item below), `flex-grow`/`flex-shrink`/`flex-basis` and the
+      `flex` shorthand (real proportional space distribution — verified
+      with permanent tests that growth/shrink is genuinely proportional
+      to the declared factors, not just "fits content"), and
+      `gap`/`row-gap`/`column-gap` (new — nothing in this codebase had
+      `gap` before). `order` was deliberately not attempted (see its own
+      item below). `inline-flex` was not attempted either — a flex
+      container is always block-level in the outer flow here (same as
+      `display: table`); real `inline-flex` would need the same hand-
+      rolled inline-level embedding `measure_mixed_inline` (v48) built
+      for `<img>`, not attempted for this item.
+
+      Architecturally: a new `BoxContent::Blocks`-shaped build path
+      (`build_flex_children`, parallel to `build_table_children`) plus
+      `measure_flex`/`measure_flex_row`/`measure_flex_column` (parallel
+      to `measure_table`/`measure_row_with_widths`), reusing `box_model_
+      entry` for the container's own box model and `cell_natural_width`
+      (v50's min/max-content measurement, originally built for table
+      columns, already reused once for `float`'s shrink-to-fit sizing —
+      now a third use) for a `width`-axis item's content-based basis. See
+      NOTES.md for the full architecture writeup, including the one
+      real insight that made cross-axis stretch/grow/shrink cheap: this
+      engine's own `height` property already doesn't affect how a box's
+      children are laid out (v42), so a flexed/stretched final size on
+      whichever axis is *height* is a pure post-hoc `Laid::h` overwrite,
+      never a second `measure()` call.
+
+      **Deliberately cut within flexbox itself, each precise and
+      documented, not silently dropped:**
+
+      - [ ] `order` is not implemented — every flex item lays out (and
+            paints/hit-tests) in plain document order, `row-reverse`/
+            `column-reverse` only mirror *position* along the main axis,
+            not reordering anything. Nothing in `default.css` or a real
+            test page needs it yet; same shape of cut `z-index`'s own
+            stacking-context work (v56) left for an analogous "not
+            reachable by anything real yet" reason.
+      - [ ] `align-content` (multi-line cross-axis distribution — e.g.
+            spreading several wrapped lines apart when a `flex-wrap`
+            container's own cross size is larger than its lines' summed
+            cross size) isn't implemented — lines always stack with no
+            extra distribution (`align-content: flex-start`'s behavior
+            unconditionally). Not in this item's own requirements list;
+            flagged here for completeness since `flex-wrap` is real.
+      - [ ] `flex-wrap` is only genuinely real for `flex-direction: row`/
+            `row-reverse` — a `column`/`column-reverse` flex container
+            always lays its items out as a single column regardless of
+            the declared `flex-wrap` value. Wrapping a *column* means
+            wrapping across the *width* into multiple side-by-side
+            columns, a materially different (and much rarer in real page
+            chrome) shape than the classic wrapped-multi-line-row case
+            this item prioritized — see `measure_flex_column`'s own docs.
+      - [ ] `align-items`/`align-self: baseline` resolves identically to
+            `flex-start` — real baseline alignment needs each item's own
+            font ascent threaded out of `measure`'s box-model math (no
+            box here tracks its own baseline today, only cosmic-text's
+            per-glyph shaping does, several layers below `measure`) — a
+            disproportionate amount of new plumbing for a value most
+            real "flex row of items" pages don't rely on. Explicitly
+            permitted as an approximation by this item's own task
+            wording, not silently dropped.
+      - [ ] No CSS Flexbox §9.7 iterative constraint resolution — `flex-
+            grow`/`flex-shrink` distribution (`resolve_flex_main_sizes`)
+            is a single pass: an item whose flexed size gets clamped by
+            its own `min-width`/`max-width`/`min-height`/`max-height`
+            doesn't have its own under/overshoot redistributed a second
+            time among its unclamped siblings, the way the real spec's
+            freeze-and-retry algorithm would. Fine for the common case
+            (no unusually tight min/max relative to an item's own
+            basis); a real divergence only once several siblings'
+            constraints interact non-trivially.
+      - [ ] No CSS Flexbox "automatic minimum size" — an item's own
+            `min-width`/`min-height` only clamps if explicitly declared;
+            there's no implicit min-content floor preventing `flex-
+            shrink` from shrinking an item's content below its own
+            natural min-content width/height the way real Flexbox does
+            by default (`overflow: visible`'s own automatic-minimum-size
+            rule, CSS Flexbox §4.5) — an item can shrink to (or past)
+            zero, clipping/overflowing its own content, if nothing else
+            stops it.
+      - [ ] On a `flex-direction: row`/`row-reverse` container, an
+            item's own explicit, conflicting CSS `width` wins over a
+            flex-grown/shrunk main size (the distributed size is still
+            passed as `measure`'s ordinary `width` parameter — correct
+            whenever the item's own CSS `width` is `auto`, the common
+            case — but `clamp_box_dim` uses an explicit `width` instead
+            whenever one's declared, ignoring what's passed in). Same
+            accepted simplification `measure_table`'s own per-cell
+            `width`-vs-column-width gap already has (see its own
+            `TODO.txt` item) — not reachable this way on a `column`
+            container, where the equivalent override is a pure post-hoc
+            `Laid::h` write that always applies regardless (see
+            `measure_flex_column`'s own docs for exactly why the two
+            axes differ here).
+      - [ ] A bare, non-whitespace text node placed directly inside a
+            flex container (no wrapping element) doesn't become its own
+            anonymous flex item the way real CSS would (CSS Flexbox §4:
+            "runs of text... are treated as anonymous flex items") —
+            `build_flex_children` only collects real element children,
+            matching this item's own explicitly-permitted scope-
+            narrowing latitude. Uncommon in real page chrome (which
+            almost always wraps each flex item in an element) — silently
+            dropped rather than rendered, worth fixing if a real page's
+            flex container loses visible text because of it.
+      - [ ] `gap`/`row-gap`/`column-gap` only accept `px`/`em`/`rem` —
+            real CSS also allows a `%` (resolving against the flex
+            container's own cross/main size respectively), parsed with
+            `parse_length`, not `parse_length_percent`, so a `%` simply
+            fails to parse and the property drops, same as any other
+            not-yet-supported value. Nothing in `default.css` or a real
+            test page has needed one yet.
+
+- [ ] No grid (`display: grid`) — explicitly deferred, not attempted,
+      out of this flexbox item's own scope (see its entry just above for
+      why: grid's track sizing, template areas, implicit/explicit grids,
+      `fr` units, and grid placement are a materially larger, separate
+      algorithm from flexbox, and bundling both in one session would
+      have risked landing neither well). `Display` has no `Grid` variant
+      at all yet — a real future session's own slice, not a narrowing of
+      anything already landed.
 
 - [ ] Last member of what was once a cluster of CSS properties: `word-
       spacing` is still entirely unrecognized (dropped). Not just

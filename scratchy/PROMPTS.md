@@ -3718,3 +3718,95 @@ overlap against a later static sibling.
 cursor`'s matching reordering, 4 new tests in the permanent `mod
 tests`); `TODO.txt` (item checked off, two new narrower deferred items
 added); `NOTES.md` (architecture write-up).
+
+---
+
+## v57 — flexbox (`display: flex`)
+
+> set up a loop where you pick the next TODO item, and once completed,
+> clear your context and do that again until the list is done
+
+Next item of that same autonomous `TODO.txt` loop (v49 did `%` lengths,
+v50 table layout, v51 named `font-family` fallback lists, v52 the
+`position`/`z-index` positioning model, v53 `<head>` hiding, v54
+`float`/`clear`, v55 `position: sticky`, v56 real stacking-context
+semantics) — `TODO.txt`'s "No flexbox (`display: flex`) or grid
+(`display: grid`)" item. Explicitly scoped to flexbox only, with grid
+split out into its own, entirely deferred `TODO.txt` item — the task's
+own framing granted the same latitude the `position`/`float` items
+already used for narrowing an originally-oversized TODO entry, and grid
+(track sizing, template areas, implicit/explicit grids, `fr` units,
+grid placement) is a materially larger, separate algorithm from
+flexbox; bundling both into one session risked landing neither well.
+
+**What landed**: `display: flex` establishing a flex formatting
+context for its direct children (each "blockified" per real CSS §4,
+turning out to need almost no new code at all — see below);
+`flex-direction` (all 4 keywords) and `flex-wrap` (all 3, though
+`wrap`/`wrap-reverse` are only genuinely real for `row`/`row-reverse` —
+see its own `TODO.txt` item) plus the `flex-flow` shorthand;
+`justify-content` (all 6 keywords, including `space-evenly`, which this
+item's own wording treated as optional/deferrable but turned out to
+fall out of the exact same arithmetic as `space-between`/`space-around`
+for free); `align-items`/`align-self` (`flex-start`/`flex-end`/
+`center`/`stretch`, plus `baseline` approximated as `flex-start` — this
+item's own wording explicitly permitted that approximation given the
+disproportionate plumbing real baseline alignment would need);
+`flex-grow`/`flex-shrink`/`flex-basis` and the `flex` shorthand, with
+real proportional space distribution (not just "fits content" —
+verified with permanent tests using asymmetric ratios); and
+`gap`/`row-gap`/`column-gap`, new properties this codebase didn't have
+at all before (confirmed by grep, per this item's own instruction to
+check first). `inline-flex` and `order` were each deliberately not
+attempted — precisely documented in `TODO.txt`, not silently dropped.
+
+**Architecture, in brief** (full write-up in `NOTES.md`): a third
+`display`-dispatch special case parallel to `Table`'s own, both in
+`build_box_for_element` (a new `build_flex_children`) and in `measure`
+(a new `measure_flex`, further split into `measure_flex_row`/`measure_
+flex_column` once the two directions turned out to have a meaningfully
+different shape, not just "swap width and height"). Reuses `box_model_
+entry` for the container's own box model (same helper `measure_table`
+already factored out for exactly this kind of reuse) and `cell_natural_
+width` (v50's min/max-content measurement machinery, originally built
+for table-column sizing, already reused once for `float`'s shrink-to-
+fit basis) for a flex item's content-based sizing on whichever axis is
+*width* for a given direction. The one real insight that made cross-
+axis stretch and main-axis grow/shrink cheap on *either* direction:
+this engine's own `height` property already doesn't affect how a box's
+children are laid out (v42), so wherever a flexed/stretched final size
+lands on whichever axis is physically *height*, it's a pure post-hoc
+`Laid::h` overwrite after one real `measure()` call — never a second,
+more expensive layout pass.
+
+**10 new permanent tests** in `mod tests`, covering exactly what this
+item's own requirements named: row vs. column direction, `justify-
+content: space-between`, `align-items: stretch`/`center`, `flex-grow`/
+`flex-shrink` genuinely proportional distribution (asymmetric 1:2 and
+1:3 ratios, not just "grew/shrank at all"), `flex-wrap` starting a
+second line, `gap` spacing, and `position: absolute` correctly removed
+from the flex item list. All 95 tests (85 pre-existing + 10 new) pass;
+`cargo clippy` shows the same 17 pre-existing warnings as unmodified
+`main`, zero new ones from this feature's own code.
+
+**Visually verified** with 3 real test pages via `grim` — a growing
+flex row, a centered flex column, and a wrapped multi-line row — all
+confirmed correct *geometry* (text/item positions matched the expected
+layout exactly). No `background-color` painted in any of the three
+screenshots; investigated rather than assumed to be this feature's own
+bug: the unmodified `main` branch (`git stash`), run against a trivial
+unrelated `<div style="background: red">` with no flexbox at all, *also*
+painted no background color in this same sandbox session — a pre-
+existing environment/compositor limitation (same category as the
+v13-v20-era `grim`/winit stalls), not something this feature introduced
+or could fix.
+
+**Deliverable:** `src/lib.rs` (`Display::Flex` plus `FlexDirection`/
+`FlexWrap`/`JustifyContent`/`AlignItems`/`FlexBasis`, the matching
+`Declarations`/`ComputedStyle` fields and cascade/parsing, `build_flex_
+children`, `measure_flex`/`measure_flex_row`/`measure_flex_column`,
+`resolve_flex_main_sizes`/`distribute_justify_content`, 10 new tests in
+the permanent `mod tests`); `TODO.txt` (item checked off with exactly
+what landed, grid split into its own new deferred item, plus 8 further
+narrower deferred items for what was cut within flexbox itself);
+`NOTES.md` (architecture write-up).
