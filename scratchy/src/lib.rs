@@ -497,15 +497,11 @@ enum Display {
     TableGroup,
 }
 
-/// `position`'s 4 implemented keywords — `sticky` is deliberately not
-/// one of them (see `parse_position`'s own docs: it fails to parse at
-/// all, same "reject rather than render wrong" philosophy `box-shadow`
-/// v27's `inset` rejection established — not attempted this session,
-/// see TODO.txt). Not inherited (same category as `border_width`/
-/// `overflow`/`cursor` — every element defaults to `Static` regardless
-/// of what an ancestor declared).
+/// `position`'s 5 implemented keywords. Not inherited (same category as
+/// `border_width`/`overflow`/`cursor` — every element defaults to
+/// `Static` regardless of what an ancestor declared).
 ///
-/// `Static` is the only in-flow value: `Relative`/`Absolute`/`Fixed`
+/// `Static` is one of two in-flow values: `Relative`/`Absolute`/`Fixed`
 /// all establish this box as a CSS "positioned element" — the real
 /// spec term for the one thing all three share (an `Absolute`/`Fixed`
 /// *descendant*'s containing block is the nearest *positioned*
@@ -513,6 +509,27 @@ enum Display {
 /// docs on `PendingPositioned`/`catch_or_bubble_positioned`). `Relative`
 /// is also the only one that stays in normal flow — see `measure`'s own
 /// `apply_relative_offset`.
+///
+/// `Sticky` is the other in-flow value, and deliberately resolved in two
+/// separate stages, unlike every other variant here: `Relative`/
+/// `Absolute`/`Fixed` all resolve fully at layout time and stay fixed
+/// until the next relayout, but a sticky box's real final position
+/// depends on the *live* scroll offset, which doesn't exist yet when
+/// `measure` runs and changes every scroll tick — and scrolling in this
+/// engine is deliberately cheap precisely because it never triggers a
+/// relayout (see NOTES.md's v4/v5 writeup). So `measure` only resolves
+/// what *doesn't* change per frame — this box's own would-be-static
+/// position (exactly like `Relative`, it never leaves flow) and its own
+/// containing block's bounds (`capture_sticky_info`/`patch_sticky_
+/// containing_block`, stored in `Laid::sticky`) — and the actual
+/// *painted* position is computed fresh every frame, from the ambient
+/// scroll offset, in `paint`/`hit_test_cursor` (`sticky_shift`) — no
+/// relayout, ever, from a scroll-offset change alone. Doesn't force
+/// computed `display: block` the way `Absolute`/`Fixed` do (real CSS
+/// §9.7 only names those two) — an inline `position: sticky` element
+/// stays flattened into its surrounding run with no box of its own to
+/// stick, the same pre-existing gap `Relative` already has on inline
+/// content (not attempted here either, see TODO.txt).
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
 enum Position {
     #[default]
@@ -520,6 +537,7 @@ enum Position {
     Relative,
     Absolute,
     Fixed,
+    Sticky,
 }
 
 /// `float`'s 2 implemented keywords (plus `none`, the default — not a
@@ -1796,12 +1814,9 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
                     Some(Position::Absolute)
                 } else if ident.eq_ignore_ascii_case("fixed") {
                     Some(Position::Fixed)
+                } else if ident.eq_ignore_ascii_case("sticky") {
+                    Some(Position::Sticky)
                 } else {
-                    // `sticky` deliberately included here (falls through
-                    // to `None`, same as any other unrecognized ident) —
-                    // see `Position`'s own docs for why it's rejected
-                    // outright rather than approximated as `static`/
-                    // `relative`, and TODO.txt for the deferred item.
                     None
                 };
             }
@@ -3555,6 +3570,153 @@ pub struct Laid {
     /// itself (`resolve_positioned` already placed this box against
     /// the viewport, scroll-independent, before this flag is even set).
     fixed: bool,
+    /// `Some` only for a `position: sticky` box — everything `sticky_
+    /// shift` needs to compute this frame's painted position from the
+    /// live scroll offset, resolved once here at layout time (never
+    /// touched again by a scroll-offset change alone — see `Position::
+    /// Sticky`'s own docs). `None` for every other box, including every
+    /// other `position` value (`relative`'s own offset is instead baked
+    /// permanently into `x`/`y` by `apply_relative_offset`, since it
+    /// doesn't need to react to scroll at all).
+    sticky: Option<StickyInfo>,
+}
+
+/// `position: sticky`'s own layout-time-resolved, scroll-independent
+/// state — see `Position::Sticky`'s own docs for why this is split from
+/// the actual per-frame position math (`sticky_shift`). Only `top`/
+/// `bottom` are resolved — scratchy has no horizontal scrolling at all
+/// (see NOTES.md's own scrolling writeup), so a `left`/`right` sticky
+/// offset would have no live horizontal scroll position to clamp
+/// against; deliberately not attempted, same "reject the part that
+/// would need fundamentally different machinery" category `Position`'s
+/// own former `sticky`-rejection doc comment already established for
+/// this property as a whole. `top` wins over `bottom` when both are
+/// set, same precedence `resolve_positioned` already gives `left`/`top`
+/// over `right`/`bottom`.
+#[derive(Clone, Copy)]
+struct StickyInfo {
+    /// This box's own would-be-static in-flow position, document-space
+    /// — identical to `relative`'s own basis, and (unlike every other
+    /// field here) already exactly `laid.y` by the time `capture_
+    /// sticky_info` runs, since sticky never leaves flow and nothing
+    /// has shifted it yet.
+    static_top: f32,
+    /// Resolved against this box's own containing block's height
+    /// (`Insets`'s usual basis), same timing/basis `apply_relative_
+    /// offset` already uses for `relative`'s own `top`/`bottom`. `None`
+    /// means not declared (real CSS `auto`) — this box only sticks if
+    /// at least one of `top`/`bottom` is set.
+    top: Option<f32>,
+    bottom: Option<f32>,
+    /// This box's own containing block's content-box vertical extent,
+    /// document-space — the real CSS containing block for anything
+    /// that stays in normal flow (sticky included, same as `relative`),
+    /// *not* the padding box `absolute`/`fixed` anchor against. Can't
+    /// be known until the parent's own `Blocks`/table loop that placed
+    /// this child finishes stacking every sibling (`patch_sticky_
+    /// containing_block`, called right after that loop ends) — seeded
+    /// with a permissive placeholder by `capture_sticky_info` in the
+    /// meantime, which in practice is never actually read before being
+    /// patched (every `Sticky` `Laid` is placed by exactly one such
+    /// loop).
+    cb_top: f32,
+    cb_bottom: f32,
+}
+
+/// Computes this frame's sticky vertical offset — the `dy` to add to
+/// `info.static_top` to get this box's real, current painted document-
+/// space `y` — from the live, ambient `scroll_offset` (and the window's
+/// own `viewport_h`, only needed for `bottom`'s own viewport-relative
+/// math). Called fresh every `paint`/`hit_test_cursor` call, never
+/// cached anywhere in `Laid` itself — the whole architectural point of
+/// `Position::Sticky` being split the way it is: this can run every
+/// single frame for free, with no relayout, because it's pure
+/// arithmetic over values `measure` already resolved once.
+///
+/// Real sticky semantics, informally (CSS Position L3 §6.5): `top`
+/// tries to keep this box's own top edge `top` px below the current
+/// viewport's top edge (document space: `scroll_offset + top`) — but
+/// never pulls it *above* its own static position (hasn't scrolled far
+/// enough yet — stays in normal flow, `dy == 0`), and never pushes it
+/// past its own containing block's bottom edge minus its own height
+/// (would escape its own parent — "stops sticking" once that edge
+/// scrolls past). `(scroll_offset + top).clamp(static_top, max_top)`
+/// captures exactly this: below `static_top`, clamps up to it (not
+/// stuck yet); between the two, tracks the viewport exactly (stuck);
+/// above `max_top`, clamps down to it (stopped sticking — and since
+/// `max_top` is a fixed document-space coordinate, the box then simply
+/// scrolls away with the rest of its container past that point, same
+/// as an ordinary static box would). `bottom` is the mirror image,
+/// clamped the other way (`cb_top` is the edge it can't escape past).
+/// Both `max_top`/`min_top` are additionally clamped against `static_
+/// top` itself (`.max`/`.min`) as a pure defensive measure against
+/// `f32::clamp`'s own `min <= max` requirement — real layout always
+/// keeps a box within its own containing block, so this should never
+/// actually change the result, just guarantee it can't panic if some
+/// future caller's `cb_top`/`cb_bottom` ever disagreed with that
+/// invariant.
+fn sticky_shift(info: &StickyInfo, box_h: f32, scroll_offset: f32, viewport_h: f32) -> f32 {
+    if let Some(top) = info.top {
+        let want = scroll_offset + top;
+        let max_top = (info.cb_bottom - box_h).max(info.static_top);
+        return want.clamp(info.static_top, max_top) - info.static_top;
+    }
+    if let Some(bottom) = info.bottom {
+        let want = scroll_offset + viewport_h - bottom - box_h;
+        let min_top = info.cb_top.min(info.static_top);
+        return want.clamp(min_top, info.static_top) - info.static_top;
+    }
+    0.0
+}
+
+/// `position: sticky`'s own layout-time half of the two-stage split
+/// `Position::Sticky`'s own docs describe — called alongside `apply_
+/// relative_offset` (same call sites, same `basis_h` parameter — only
+/// `top`/`bottom`, whose basis is a containing-block *height*, are
+/// resolved here; see `StickyInfo`'s own docs for why `left`/`right`
+/// aren't). `laid.y` is still exactly this box's own static position at
+/// this point — `apply_relative_offset` is a no-op for anything but
+/// `Relative`, so nothing has shifted it. `cb_top`/`cb_bottom` are
+/// seeded with a permissive placeholder here (this box's real
+/// containing block — its *parent* — hasn't finished stacking every
+/// sibling yet, so its final content-box extent isn't known); `patch_
+/// sticky_containing_block`, called by that parent's own loop right
+/// after it finishes, fills in the real values.
+fn capture_sticky_info(laid: &mut Laid, s: &ComputedStyle, basis_h: Option<f32>) {
+    if s.position != Position::Sticky {
+        return;
+    }
+    let resolve_v = |bl: BoxLength| match bl {
+        BoxLength::Px(v) => v,
+        BoxLength::Percent(p) => basis_h.map(|h| h * p).unwrap_or(0.0),
+    };
+    laid.sticky = Some(StickyInfo {
+        static_top: laid.y,
+        top: s.inset.top.map(resolve_v),
+        bottom: s.inset.bottom.map(resolve_v),
+        cb_top: f32::MIN,
+        cb_bottom: f32::MAX,
+    });
+}
+
+/// Fills in the real `cb_top`/`cb_bottom` on every `position: sticky`
+/// child a `Blocks`-like loop just finished stacking — the one thing
+/// `capture_sticky_info` couldn't know yet (see its own docs). `cb_top`/
+/// `cb_bottom` is this loop's own box's content-box vertical extent,
+/// document-space — the real CSS containing block for anything that
+/// stays in normal flow (sticky included, same as `relative`'s own
+/// basis), now finally known (`content_y`/the loop's own final `cursor_
+/// y`). Only ever touches a `Laid` this exact loop just placed
+/// (`children`, by mutable reference) — never recurses: a sticky box
+/// several levels deeper was already patched by whichever closer
+/// ancestor's own loop placed *it*.
+fn patch_sticky_containing_block(children: &mut [Laid], cb_top: f32, cb_bottom: f32) {
+    for child in children {
+        if let Some(info) = &mut child.sticky {
+            info.cb_top = cb_top;
+            info.cb_bottom = cb_bottom;
+        }
+    }
 }
 
 /// One already-placed float's margin-box extent, in absolute
@@ -3720,12 +3882,27 @@ pub struct PendingPositioned<'a> {
 /// is never itself the subject of a `relative`-offset shift, since the
 /// synthetic document root is always `Position::Static`), but checked
 /// explicitly anyway rather than relying on that invariant silently.
+///
+/// Also shifts `laid.sticky`'s own document-space fields (`static_top`/
+/// `cb_top`/`cb_bottom`), if any — needed because a `position: sticky`
+/// descendant can itself be shifted from above (e.g. a `position:
+/// relative` ancestor's own offset, or `resolve_positioned`'s right/
+/// bottom-solving), and `capture_sticky_info`/`patch_sticky_containing_
+/// block` already ran for it by the time that could ever happen (see
+/// `StickyInfo`'s own docs) — without this, a sticky box nested inside
+/// a shifted ancestor would keep stale pre-shift bounds, sticking (or
+/// failing to) relative to the wrong document-space position.
 fn shift_laid_tree(laid: &mut Laid, dx: f32, dy: f32) {
     if dx == 0.0 && dy == 0.0 {
         return;
     }
     laid.x += dx;
     laid.y += dy;
+    if let Some(info) = &mut laid.sticky {
+        info.static_top += dy;
+        info.cb_top += dy;
+        info.cb_bottom += dy;
+    }
     match &mut laid.content {
         LaidContent::Blocks(children) | LaidContent::TableRow(children) => {
             for child in children {
@@ -4383,6 +4560,7 @@ pub fn measure<'a>(
                 content: LaidContent::MixedInline(positioned),
                 positioned: Vec::new(),
                 fixed: false,
+                sticky: None,
             }
         }
         BoxContent::Inline(items) => {
@@ -4448,6 +4626,7 @@ pub fn measure<'a>(
                 content: LaidContent::Text(id),
                 positioned: Vec::new(),
                 fixed: false,
+                sticky: None,
             }
         }
         BoxContent::Blocks(children) => {
@@ -4590,6 +4769,13 @@ pub fn measure<'a>(
             // `float_children`'s own docs just above for why paint
             // order (not just `cursor_y`/flow) needs this.
             laid_children.extend(float_children);
+            // This loop's own content box is the real CSS containing
+            // block for a `position: sticky` direct child (same basis
+            // `relative`'s own `%` offsets already resolve against —
+            // see `patch_sticky_containing_block`'s own docs) — only
+            // knowable now that every sibling has been stacked
+            // (`cursor_y`'s final value for this loop).
+            patch_sticky_containing_block(&mut laid_children, content_y, cursor_y);
             // Real CSS: an ordinary block box's own auto height is
             // computed from its in-flow content only — a float does
             // *not* grow its containing block's height (the classic
@@ -4640,6 +4826,7 @@ pub fn measure<'a>(
                 content: LaidContent::Blocks(laid_children),
                 positioned: positioned_children,
                 fixed: false,
+                sticky: None,
             }
         }
         BoxContent::TableRow(cells) => {
@@ -4678,6 +4865,7 @@ pub fn measure<'a>(
                 content: LaidContent::TableRow(laid_cells),
                 positioned: Vec::new(),
                 fixed: false,
+                sticky: None,
             }
         }
         BoxContent::Image(image) => {
@@ -4696,6 +4884,7 @@ pub fn measure<'a>(
                 content: LaidContent::Image(Rc::clone(image)),
                 positioned: Vec::new(),
                 fixed: false,
+                sticky: None,
             }
         }
     };
@@ -4710,6 +4899,14 @@ pub fn measure<'a>(
     // its own `top`/`right`/`bottom`/`left` percentages, same as `box_
     // model_entry` already uses for `margin`/`width`/`height`'s.
     apply_relative_offset(&mut laid, &s, width, containing_height);
+    // `position: sticky` is the other kind that stays in normal flow —
+    // captures this box's own (still-static, since the call above is a
+    // no-op for anything but `Relative`) position plus its `top`/
+    // `bottom` insets against the same containing-block basis; see
+    // `capture_sticky_info`'s own docs for why its containing-block
+    // *bounds* aren't resolved here too (the caller's own loop patches
+    // those in immediately after, via `patch_sticky_containing_block`).
+    capture_sticky_info(&mut laid, &s, containing_height);
     laid
 }
 
@@ -4999,6 +5196,7 @@ fn measure_mixed_inline(
                         content: LaidContent::Image(Rc::clone(image)),
                         positioned: Vec::new(),
                         fixed: false,
+                        sticky: None,
                     })));
                 }
             }
@@ -5309,6 +5507,7 @@ fn measure_row_with_widths<'a>(
         content: LaidContent::TableRow(laid_cells),
         positioned: Vec::new(),
         fixed: false,
+        sticky: None,
     }
 }
 
@@ -5388,6 +5587,12 @@ fn measure_table<'a>(
         cursor_y += lc.style.margin.top.px() + lc.style.margin.bottom.px() + lc.h;
         laid_children.push(lc);
     }
+    // Same patch `measure`'s own `Blocks` arm does, for a direct
+    // `<table>` child (e.g. a `caption`) that's itself `position:
+    // sticky` — a `<tr>`/`<td>` itself declaring `position` still isn't
+    // supported at all (same pre-existing scope cut this function's own
+    // docs already note for `absolute`/`fixed`).
+    patch_sticky_containing_block(&mut laid_children, entry.content_y, cursor_y);
     let content_h = cursor_y - entry.content_y;
     let border_h = clamp_box_dim(
         s.height,
@@ -5421,8 +5626,10 @@ fn measure_table<'a>(
         content: LaidContent::Blocks(laid_children),
         positioned: positioned_children,
         fixed: false,
+        sticky: None,
     };
     apply_relative_offset(&mut laid, &s, width, containing_height);
+    capture_sticky_info(&mut laid, &s, containing_height);
     laid
 }
 
@@ -6211,7 +6418,25 @@ fn paint(
     match &laid.content {
         LaidContent::Blocks(children) | LaidContent::TableRow(children) => {
             for child in children {
-                paint(child, font_system, swash_cache, cache, pixels, win_w, win_h, scroll_offset, child_clip);
+                // A `position: sticky` child's own `Laid::x`/`.y` are
+                // still exactly its static in-flow position (never
+                // permanently shifted, unlike `relative` — see `Position::
+                // Sticky`'s own docs) — so its real, current painted
+                // position is computed fresh, right here, from the live
+                // `scroll_offset`, via `sticky_shift`. Folding that `dy`
+                // into the *ambient* scroll offset passed down into this
+                // one recursive call (rather than mutating `child` or
+                // threading a separate offset parameter) reuses the exact
+                // trick `fixed` already established: every descendant
+                // inside this subtree (`draw_y = y - scroll_offset`, and
+                // any nested `positioned`/`sticky` box of its own) sees
+                // the adjusted value and shifts correctly with no extra
+                // per-node check needed anywhere inside it.
+                let child_scroll = match &child.sticky {
+                    Some(info) => scroll_offset - sticky_shift(info, child.h, scroll_offset, win_h as f32),
+                    None => scroll_offset,
+                };
+                paint(child, font_system, swash_cache, cache, pixels, win_w, win_h, child_scroll, child_clip);
             }
         }
         LaidContent::Text(id) => {
@@ -6296,8 +6521,12 @@ fn paint(
 /// descendant's own viewport-space coordinates (see `Laid::fixed`'s own
 /// docs — same translation `paint` does by passing `0.0` down instead,
 /// but `hit_test_cursor` isn't recursive the same uniform way, since a
-/// `fixed` descendant can appear at any depth's own `positioned` list).
-fn hit_test_cursor(laid: &Laid, x: f32, y: f32, cache: &ShapeCache, scroll_offset: f32) -> CursorStyle {
+/// `fixed` descendant can appear at any depth's own `positioned` list),
+/// and to compute a `position: sticky` child's own live, current
+/// position (`sticky_shift` — see the `Blocks`/`TableRow` arm below).
+/// `viewport_h` is only needed for *that*: `sticky_shift`'s own
+/// `bottom`-offset math.
+fn hit_test_cursor(laid: &Laid, x: f32, y: f32, cache: &ShapeCache, scroll_offset: f32, viewport_h: f32) -> CursorStyle {
     if x < laid.x || x >= laid.x + laid.w || y < laid.y || y >= laid.y + laid.h {
         return CursorStyle::Auto;
     }
@@ -6309,14 +6538,29 @@ fn hit_test_cursor(laid: &Laid, x: f32, y: f32, cache: &ShapeCache, scroll_offse
     for item in laid.positioned.iter().rev() {
         let (ix, iy, inner_scroll) = if item.fixed { (x, y - scroll_offset, 0.0) } else { (x, y, scroll_offset) };
         if ix >= item.x && ix < item.x + item.w && iy >= item.y && iy < item.y + item.h {
-            return hit_test_cursor(item, ix, iy, cache, inner_scroll);
+            return hit_test_cursor(item, ix, iy, cache, inner_scroll, viewport_h);
         }
     }
     match &laid.content {
         LaidContent::Blocks(children) | LaidContent::TableRow(children) => {
             for child in children {
+                // Mirror image of `paint`'s own trick: a sticky child's
+                // own *document-space* rect, for hit-testing purposes, is
+                // shifted by `dy` from its stored (static) `x`/`y` — so
+                // test against that shifted rect, but recurse with `y`
+                // translated *back* (`y - dy`), since every descendant
+                // position inside `child` is still stored relative to
+                // its own static, unshifted position.
+                if let Some(info) = &child.sticky {
+                    let dy = sticky_shift(info, child.h, scroll_offset, viewport_h);
+                    let (cx, cy) = (child.x, child.y + dy);
+                    if cx <= x && x < cx + child.w && cy <= y && y < cy + child.h {
+                        return hit_test_cursor(child, x, y - dy, cache, scroll_offset, viewport_h);
+                    }
+                    continue;
+                }
                 if child.x <= x && x < child.x + child.w && child.y <= y && y < child.y + child.h {
-                    return hit_test_cursor(child, x, y, cache, scroll_offset);
+                    return hit_test_cursor(child, x, y, cache, scroll_offset, viewport_h);
                 }
             }
             laid.style.cursor
@@ -6349,7 +6593,7 @@ fn hit_test_cursor(laid: &Laid, x: f32, y: f32, cache: &ShapeCache, scroll_offse
                 match item {
                     MixedPositioned::Image(img_laid) => {
                         if img_laid.x <= x && x < img_laid.x + img_laid.w && img_laid.y <= y && y < img_laid.y + img_laid.h {
-                            return hit_test_cursor(img_laid, x, y, cache, scroll_offset);
+                            return hit_test_cursor(img_laid, x, y, cache, scroll_offset, viewport_h);
                         }
                     }
                     MixedPositioned::Word { id, x: wx, y: wy, w, h } => {
@@ -6651,7 +6895,10 @@ impl ApplicationHandler<AppEvent> for App {
                 if let (Some(laid), Some(window)) = (&self.cached, &self.window) {
                     let doc_x = position.x as f32;
                     let doc_y = position.y as f32 + self.scroll_offset;
-                    let icon = hit_test_cursor(laid, doc_x, doc_y, &self.shape_cache, self.scroll_offset).to_winit();
+                    let icon = hit_test_cursor(
+                        laid, doc_x, doc_y, &self.shape_cache, self.scroll_offset, self.surface_size.1 as f32,
+                    )
+                    .to_winit();
                     if icon != self.last_cursor {
                         window.set_cursor(icon);
                         self.last_cursor = icon;
@@ -8379,6 +8626,234 @@ mod tests {
             (x_below - container.x).abs() < 0.01,
             "a line entirely below the float's bottom should resume the container's own full width, starting back at its own left edge ({}); got x={x_below}",
             container.x
+        );
+    }
+
+    // ---------- v55: `position: sticky` ----------
+
+    /// Searches a laid-out `Laid` tree (not the pre-measure `LayoutBox`
+    /// tree `find_box_by_position` searches) for a box whose own
+    /// `position` is `pos` — used by this item's own tests, which all
+    /// need the real, measured `Laid` (its `.sticky` field, its exact
+    /// `x`/`y`/`h`), not just whether a box with this position exists.
+    fn find_laid_by_position(laid: &Laid, pos: Position) -> Option<&Laid> {
+        if laid.style.position == pos {
+            return Some(laid);
+        }
+        if let LaidContent::Blocks(children) | LaidContent::TableRow(children) = &laid.content {
+            for c in children {
+                if let Some(found) = find_laid_by_position(c, pos) {
+                    return Some(found);
+                }
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn sticky_box_stays_in_normal_flow_and_contributes_to_its_containers_size() {
+        // No inter-tag whitespace — same reason every other exact-pixel
+        // flow test in this file avoids it (a whitespace-only text node
+        // would otherwise become its own `Blocks` child).
+        let laid = measure_fixture(
+            r#"<html><body><div style="width: 100px;"><div style="height: 20px;"></div><div style="position: sticky; top: 50px; height: 21px;"></div><div style="height: 22px;"></div></div></body></html>"#,
+            400.0,
+        );
+        let container = find_by_width(&laid, 100.0).expect("container not found");
+        let LaidContent::Blocks(children) = &container.content else { panic!("expected Blocks content") };
+        assert_eq!(
+            children.len(),
+            3,
+            "a sticky box still occupies a real slot in its parent's normal flow, unlike `absolute`/`fixed` (which drop their slot entirely)"
+        );
+        let (first, sticky_box, third) = (&children[0], &children[1], &children[2]);
+        assert_eq!(sticky_box.style.position, Position::Sticky);
+        assert_eq!(
+            sticky_box.y,
+            first.y + first.h,
+            "a sticky box's own layout-time position is exactly its ordinary static position — unlike `relative`, its `top`/`bottom` offset is never baked into `Laid::y` at all, only applied at paint time"
+        );
+        assert_eq!(
+            third.y,
+            sticky_box.y + sticky_box.h,
+            "the sibling after a sticky box must land exactly where it would if the sticky box had no offset at all — `position: sticky` never affects normal flow, same as `relative`"
+        );
+        assert_eq!(
+            container.h,
+            first.h + sticky_box.h + third.h,
+            "the sticky box's own height is fully counted toward its container's auto height, unlike an out-of-flow `absolute`/`fixed` box"
+        );
+
+        let info = sticky_box.sticky.expect("position: sticky should capture a StickyInfo at layout time");
+        assert_eq!(info.static_top, sticky_box.y);
+        assert_eq!(info.top, Some(50.0), "top: 50px should resolve against the containing block's own height basis, same timing `relative`'s own offsets use");
+        assert_eq!(info.bottom, None);
+    }
+
+    /// Shared fixture for the scroll-dependent tests below: a 100px-wide
+    /// column with a 200px spacer, the sticky box itself (30px tall,
+    /// `top: 10px`, painted red so a pixel-level check can confirm it),
+    /// and a 1000px spacer after it — enough room for the box to clear
+    /// its sticking threshold long before its containing block's own far
+    /// edge would catch up to it, so each test below can pick a scroll
+    /// offset that isolates exactly one of the three states (`static`,
+    /// `stuck`, `stopped sticking`) without the others interfering.
+    fn sticky_scroll_fixture() -> Laid {
+        let html = r#"<html><body><div style="width: 100px;"><div style="height: 200px;"></div><div style="position: sticky; top: 10px; height: 30px; background-color: #ff0000;"></div><div style="height: 1000px;"></div></div></body></html>"#;
+        let doc = parse_html(html);
+        let tree = build_layout_tree(&doc);
+        let mut font_system = new_font_system();
+        let mut cache = ShapeCache::new();
+        let mut next_id = 0usize;
+        let mut incomplete = false;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        measure(
+            &tree, &mut font_system, 0.0, 0.0, 400.0, None, &mut next_id, &mut cache, deadline, &mut incomplete,
+            &mut Vec::new(), &Floats::default(), None,
+        )
+    }
+
+    #[test]
+    fn sticky_box_paints_at_its_static_position_before_scroll_reaches_the_threshold() {
+        let laid = sticky_scroll_fixture();
+        let sticky_box = find_laid_by_position(&laid, Position::Sticky).expect("sticky box not found");
+        let (static_top, box_h) = (sticky_box.y, sticky_box.h);
+        let info = sticky_box.sticky.expect("sticky info not captured");
+
+        assert_eq!(
+            sticky_shift(&info, box_h, 0.0, 600.0),
+            0.0,
+            "with no scroll at all, the box hasn't reached its sticking threshold yet, so it should paint with zero offset from its own static position"
+        );
+
+        let mut font_system = new_font_system();
+        let mut swash_cache = SwashCache::new();
+        let mut cache = ShapeCache::new();
+        let (win_w, win_h) = (400u32, (static_top + box_h + 50.0) as u32);
+        let mut pixels = vec![0u32; (win_w * win_h) as usize];
+        paint(&laid, &mut font_system, &mut swash_cache, &mut cache, &mut pixels, win_w, win_h, 0.0, None);
+        let probe_y = (static_top + box_h / 2.0) as usize;
+        let px = pixels[probe_y * win_w as usize + 10];
+        assert_eq!(
+            px & 0x00FF_FFFF,
+            0x00FF_0000,
+            "with no scroll yet, the sticky box should paint at its own static document-space position, exactly like an ordinary (or `relative`) box would"
+        );
+    }
+
+    #[test]
+    fn sticky_box_clamps_to_its_top_offset_once_scroll_passes_the_threshold() {
+        let laid = sticky_scroll_fixture();
+        let sticky_box = find_laid_by_position(&laid, Position::Sticky).expect("sticky box not found");
+        let (static_top, box_h) = (sticky_box.y, sticky_box.h);
+        let info = sticky_box.sticky.expect("sticky info not captured");
+
+        // Scrolled well past the point `top: 10px` should have kicked
+        // in, but nowhere near the container's own far edge (1000px of
+        // slack below) — squarely in the "stuck" range.
+        let scroll_offset = static_top + 200.0;
+        let dy = sticky_shift(&info, box_h, scroll_offset, 600.0);
+        assert_eq!(
+            dy,
+            scroll_offset + 10.0 - static_top,
+            "once stuck, the box should track the live scroll offset exactly: its document-space position is always `scroll_offset + top`"
+        );
+
+        let mut font_system = new_font_system();
+        let mut swash_cache = SwashCache::new();
+        let mut cache = ShapeCache::new();
+        let (win_w, win_h) = (400u32, 100u32);
+        let mut pixels = vec![0u32; (win_w * win_h) as usize];
+        paint(&laid, &mut font_system, &mut swash_cache, &mut cache, &mut pixels, win_w, win_h, scroll_offset, None);
+        // Screen-space row = document y (`scroll_offset + 10`) minus
+        // `scroll_offset` = exactly `10` — the box should now sit flush
+        // `top`'s own 10px from the window's own top edge, nowhere near
+        // the (off-screen, were it not stuck) row its static position
+        // alone would have put it at.
+        let probe_y = (10.0 + box_h / 2.0) as usize;
+        let px = pixels[probe_y * win_w as usize + 10];
+        assert_eq!(
+            px & 0x00FF_FFFF,
+            0x00FF_0000,
+            "once stuck, the box should paint `top`'s own 10px from the window's top edge, not wherever its static position would otherwise have scrolled to"
+        );
+    }
+
+    #[test]
+    fn sticky_box_stops_sticking_once_its_containing_blocks_far_edge_would_scroll_past() {
+        let laid = sticky_scroll_fixture();
+        let sticky_box = find_laid_by_position(&laid, Position::Sticky).expect("sticky box not found");
+        let (static_top, box_h) = (sticky_box.y, sticky_box.h);
+        let info = sticky_box.sticky.expect("sticky info not captured");
+        let max_top = info.cb_bottom - box_h;
+        assert!(
+            max_top > static_top,
+            "the fixture's own 1000px trailing spacer should leave real slack between the box's static position and its containing block's far edge"
+        );
+
+        // Exactly at the boundary (`scroll_offset + top == max_top`) and
+        // far past it — both should land the box at the *same* final
+        // offset, never escaping further past its own containing
+        // block's bottom edge no matter how much further the page
+        // scrolls.
+        let dy_at_boundary = sticky_shift(&info, box_h, max_top - 10.0, 600.0);
+        let dy_way_past = sticky_shift(&info, box_h, max_top + 5000.0, 600.0);
+        let expected = max_top - static_top;
+        assert_eq!(dy_at_boundary, expected, "right at the containing block's far edge, the box should already be clamped there");
+        assert_eq!(
+            dy_way_past, expected,
+            "scrolling far past that point must not push the box any further — it stops sticking and scrolls away with the rest of its container instead of escaping past its own parent"
+        );
+    }
+
+    #[test]
+    fn scrolling_only_changes_the_painted_position_never_the_laid_tree() {
+        // `paint` takes `&Laid`, never `&mut Laid` — so calling it twice
+        // against the very same tree with two very different scroll
+        // offsets already *cannot* mutate layout, a compile-time
+        // guarantee, not just a runtime one (this is the whole
+        // architectural point of resolving `position: sticky` the way
+        // this file does — see NOTES.md's v4/v5 writeup on why
+        // scrolling is deliberately cheap). This test pins that down
+        // concretely: snapshot the sticky box's own layout-time fields,
+        // paint twice at very different scroll offsets, and confirm (a)
+        // those fields are still exactly what they were (no relayout
+        // happened — the same `Laid` tree, not a rebuilt one) while (b)
+        // the two painted results genuinely differ (the box visibly
+        // moved) — scroll changes the picture, never the layout.
+        let laid = sticky_scroll_fixture();
+        let sticky_box = find_laid_by_position(&laid, Position::Sticky).expect("sticky box not found");
+        let (static_top, static_x, box_h, box_w) = (sticky_box.y, sticky_box.x, sticky_box.h, sticky_box.w);
+        let info_before = sticky_box.sticky.expect("sticky info not captured");
+
+        let mut font_system = new_font_system();
+        let mut swash_cache = SwashCache::new();
+        let mut cache = ShapeCache::new();
+        let (win_w, win_h) = (400u32, 300u32);
+        let mut pixels_a = vec![0u32; (win_w * win_h) as usize];
+        paint(&laid, &mut font_system, &mut swash_cache, &mut cache, &mut pixels_a, win_w, win_h, 0.0, None);
+        let mut pixels_b = vec![0u32; (win_w * win_h) as usize];
+        paint(
+            &laid, &mut font_system, &mut swash_cache, &mut cache, &mut pixels_b, win_w, win_h, static_top + 200.0,
+            None,
+        );
+
+        let sticky_box_after = find_laid_by_position(&laid, Position::Sticky).expect("sticky box not found after painting");
+        assert_eq!(
+            (sticky_box_after.x, sticky_box_after.y, sticky_box_after.w, sticky_box_after.h),
+            (static_x, static_top, box_w, box_h),
+            "the sticky box's own layout-time geometry must be byte-identical after painting at two different scroll offsets"
+        );
+        let info_after = sticky_box_after.sticky.expect("sticky info missing after painting");
+        assert_eq!(
+            (info_after.static_top, info_after.top, info_after.bottom, info_after.cb_top, info_after.cb_bottom),
+            (info_before.static_top, info_before.top, info_before.bottom, info_before.cb_top, info_before.cb_bottom),
+            "StickyInfo itself must also be untouched by painting — nothing about scroll ever re-resolves it"
+        );
+
+        assert_ne!(
+            pixels_a, pixels_b,
+            "the two different scroll offsets should visibly move the sticky box on screen, even though the underlying Laid tree never changed at all"
         );
     }
 }

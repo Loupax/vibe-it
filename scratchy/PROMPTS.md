@@ -3459,3 +3459,148 @@ arm's float-placement/`clear`/paint-order logic, `measure_mixed_
 inline`'s per-line corridor narrowing, 5 new tests in the permanent
 `mod tests`); `TODO.txt` (item checked off, one new narrower deferred
 item added); `NOTES.md` (architecture write-up).
+
+---
+
+## v55 — `position: sticky`
+
+> set up a loop where you pick the next TODO item, and once completed,
+> clear your context and do that again until the list is done
+
+Next item of that same autonomous `TODO.txt` loop (v49 did `%` lengths,
+v50 table layout, v51 named `font-family` fallback lists, v52 the
+`position`/`z-index` positioning model, v53 `<head>` hiding, v54
+`float`/`clear`) — but unlike every item since v49, this one's own
+`TODO.txt` text flagged it as needing a real decision before any code,
+not just scope-narrowing: a naive `position: sticky` needs to
+re-evaluate every box's own position on every scroll tick, which
+conflicts directly with this engine's own deliberate "scrolling never
+touches layout" performance invariant (see NOTES.md's v4/v5 writeup —
+the whole reason scrolling here is cheap at all). Per the standing
+workflow, an item that surfaces a real design question gets asked, not
+guessed at. Asked via `AskUserQuestion`: "How should `position: sticky`
+be handled, given it conflicts with scratchy's 'scrolling never touches
+layout' performance design?", with three options — a cheap paint-time-
+only approximation (resolve the static position/containing block once
+at layout time, same as `relative`/`absolute`/`fixed` already do, then
+clamp the *painted* position against the live scroll offset every frame,
+entirely at paint time, no relayout), skip the item entirely, or a
+fully spec-correct version that re-measures on scroll. The user chose
+the first — cheap, paint-time-only sticky — the same kind of real,
+load-bearing design conversation v48's own inline-`<img>`-flow
+`AskUserQuestion` decision documents (see that entry's own tone): a
+call about *how* to build the thing, made once, up front, not
+re-litigated mid-implementation.
+
+**What/why, architecture.** A sticky box stays in normal flow exactly
+like `relative` (contributes to its container's auto height, never
+displaces a sibling, no out-of-flow plumbing like `absolute`/`fixed`
+need) — the only new work is capturing, once at layout time, the two
+things a *correct* painted position needs that `relative` doesn't:
+this box's own would-be-static position (trivially already `laid.y` by
+the time this runs, since nothing has shifted it) and its real
+containing block's vertical extent (the *parent's* content box — same
+basis `relative`'s own `%` offsets already resolve against, not the
+*padding* box `absolute`/`fixed` anchor against). `capture_sticky_info`
+(called alongside `apply_relative_offset`, same call sites) resolves
+the box's own `top`/`bottom` insets and seeds a new `Laid::sticky:
+Option<StickyInfo>` field with a permissive placeholder for the
+containing-block bounds, since *this* box's own containing block — its
+parent — hasn't finished stacking every sibling yet at this point, so
+its final content-box extent isn't known. `patch_sticky_containing_
+block`, called immediately after `measure`'s own `BoxContent::Blocks`
+loop (and `measure_table`'s own child-stacking loop) finishes, fills in
+the real values from that loop's own final `cursor_y`. `shift_laid_
+tree` — the existing helper `relative`'s offset and `resolve_
+positioned`'s right/bottom-solving already use to move an
+already-measured subtree without re-measuring — also had to learn to
+shift a nested sticky descendant's own `StickyInfo` fields by the same
+`dy`, so a sticky box nested inside, say, a `position: relative`
+ancestor that itself gets shifted doesn't end up with stale,
+pre-shift containing-block bounds.
+
+The actual per-frame position math (`sticky_shift`) is pure arithmetic
+over values `measure` already resolved — no shaping, no re-layout, just
+`(scroll_offset + top).clamp(static_top, max_top) - static_top` (and
+the mirror-image formula for `bottom`), where `max_top` is the
+containing block's bottom edge minus this box's own height (the "don't
+escape your own parent" clamp). Wired into `paint`'s existing `Blocks`/
+`TableRow` child loop by folding the computed shift into the *ambient*
+scroll offset passed down into that one recursive call — reusing,
+rather than reinventing, the exact mechanism `position: fixed` (v52)
+already established for making a subtree scroll-independent (there,
+the ambient offset is forced to `0.0`; here, it's `scroll_offset - dy`
+instead — same trick, different adjustment), so every descendant inside
+a sticky box (including any `position: absolute` child anchored to it)
+shifts correctly with zero further per-node plumbing. `hit_test_cursor`
+needed the mirror-image version by hand (not uniformly recursive the
+same way `paint` is, same reason `fixed`'s own translation there
+already isn't — see v52's own writeup), gaining a new `viewport_h`
+parameter threaded through for `sticky_shift`'s own `bottom`-offset
+math.
+
+**Scope, per the user's own sign-off.** Only `top`/`bottom` resolve —
+scratchy has no horizontal scrolling at all (confirmed against NOTES.md's
+own scrolling writeup before writing any code), so a `left`/`right`
+sticky offset would have no live horizontal scroll position to clamp
+against; not attempted, `top` wins over `bottom` when both are set
+(same precedence `resolve_positioned` already gives `left`/`top` over
+`right`/`bottom` for `absolute`/`fixed`). "Nearest scrolling ancestor"
+is simplified to exactly one thing — the whole document/viewport —
+since this engine has no concept of a nested `overflow: scroll`/`auto`
+region at all (confirmed by grep: `Overflow` only ever clips, never
+scrolls), the scope cut the task's own framing explicitly sanctioned
+up front. Real CSS §9.7's computed-`display` rule, which `absolute`/
+`fixed` both force to `block`, deliberately does *not* apply to
+`sticky` (real spec only names those two) — an inline `position:
+sticky` element stays flattened into its surrounding run with no box
+of its own to stick, same pre-existing gap `relative` already has on
+inline content, not a new one. A `<tr>`/`<td>` itself declaring
+`position: sticky` isn't supported either (the classic "sticky table
+header row" pattern) — same pre-existing scope cut `absolute`/`fixed`
+already have for table rows/cells (v52), inherited rather than
+revisited here.
+
+**Testing.** 5 new permanent tests in `mod tests`:
+`sticky_box_stays_in_normal_flow_and_contributes_to_its_containers_size`
+(flow/size, no paint — a sticky box occupies a real slot, its own
+`Laid::y` is never shifted at layout time at all, and the next sibling
+lands exactly where it would with no offset declared); `sticky_box_
+paints_at_its_static_position_before_scroll_reaches_the_threshold` and
+`sticky_box_clamps_to_its_top_offset_once_scroll_passes_the_threshold`
+(both call the real `paint` pipeline into a real pixel buffer and check
+actual painted pixels, not just the math, at two different scroll
+offsets against the one `Laid` tree built once); `sticky_box_stops_
+sticking_once_its_containing_blocks_far_edge_would_scroll_past` (the
+"don't escape your own parent" clamp, checked at and far past the exact
+boundary); and `scrolling_only_changes_the_painted_position_never_the_
+laid_tree`, which paints the same `&Laid` twice at very different
+scroll offsets and confirms both that specific `Laid`/`StickyInfo`
+fields are byte-identical afterward *and* that the two painted results
+genuinely differ — the concrete, permanent pin for this item's whole
+architectural point (and `paint` taking `&Laid`, never `&mut Laid`, is
+already a compile-time guarantee of the first half, not just a
+runtime one).
+
+**Visually confirmed, with an honestly-flagged gap.** A real test page
+(gray spacer, a red `position: sticky; top: 0` header, 3000px of
+trailing content) rendered correctly at its pre-scroll, static position
+via a real `grim` screenshot. **Live scroll-while-stuck verification
+wasn't possible**, same category as v32's own `cursor` gap and v52's
+own `fixed`-while-scrolling gap: this sandbox has no tool to synthesize
+a real mouse-wheel event (checked directly — no `wtype`/`ydotool`/
+`wlrctl` installed, and the running compositor exposes no scripting
+IPC for it either), so the actual "visibly sticks, then releases, while
+a human scrolls" behavior couldn't be driven end-to-end interactively.
+Documented in `TODO.txt` as a real, open gap rather than silently
+skipped — the headless pixel-level tests above exercise the identical
+`paint`/`sticky_shift` code path a live scroll would, just with a
+synthetic `scroll_offset` instead of a real wheel event.
+
+**Deliverable:** `src/lib.rs` (`Position::Sticky` + its parsing,
+`Laid::sticky`/`StickyInfo`, `sticky_shift`, `capture_sticky_info`,
+`patch_sticky_containing_block`, `shift_laid_tree`'s new sticky-aware
+shifting, `paint`'s and `hit_test_cursor`'s sticky-aware child
+recursion — the latter gaining a new `viewport_h` parameter — 5 new
+tests in the permanent `mod tests`); `TODO.txt` (item checked off);
+`NOTES.md` (architecture write-up).
