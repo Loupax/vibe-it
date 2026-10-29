@@ -73,6 +73,7 @@ fn bench_measure(c: &mut Criterion) {
                 &mut cache,
                 deadline,
                 &mut incomplete,
+                &mut Vec::new(),
             )
         });
     });

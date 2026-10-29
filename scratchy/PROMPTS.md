@@ -3074,3 +3074,167 @@ matching within whichever family wins, so this isn't a gap — just
 noting it wasn't separately verified here, since nothing in
 `default.css` or any test page pairs an unusual `font-weight` with a
 named family yet).
+
+## v52 — a first positioning model: `position: relative`/`absolute`/`fixed`, `z-index`
+
+> set up a loop where you pick the next TODO item, and once completed,
+> clear your context and do that again until the list is done
+
+This is the next item of that same autonomous `TODO.txt` loop (v49 did
+`%` lengths, v50 real table layout, v51 named `font-family` fallback
+lists) — the first of the big, originally-deferred post-v20 survey
+items rather than a narrow residual gap: "No positioning model at all:
+`float`/`clear`, `position` (relative/absolute/fixed/sticky), and
+`z-index`/stacking contexts are unparsed and unimplemented." Explicitly
+scoped down, per standing instructions for an item this size: landed
+`position: relative`/`absolute`/`fixed` and a real (if intentionally
+non-exhaustive) `z-index` paint-order mechanism; deferred `float`/
+`clear` (a genuinely separate layout algorithm — inline content
+actually wrapping around a floated box, not an extension of anything
+built here), `position: sticky` (needs real scroll-position awareness,
+a different kind of input than anything else here resolves), and full
+CSS2.1 Appendix E stacking-context ordering (what landed handles the
+common "overlay/dropdown sits above normal content" case correctly,
+not negative `z-index` or a `relative` box's own separate stacking
+context) — each is now its own precise `TODO.txt` item, not folded back
+into one vague leftover line.
+
+**The core design question, settled first:** everything in this file's
+layout pipeline works in one coordinate space — every `Laid`'s `x`/`y`
+is already absolute, document-space pixels (scroll is applied once, at
+paint time, by subtracting `scroll_offset`) — not a nested local/
+relative space the way a lot of layout engines model it. That one fact
+is what makes `relative`'s own implementation genuinely simple: since a
+box's *reported size* (what its parent's `cursor_y` stacks the next
+sibling against) is completely decoupled from its *position*, visually
+offsetting a box after it's already been measured can't disturb
+anything else in the flow — nothing extra needs to be taught "ignore
+this box's offset." `apply_relative_offset` runs once, at the very end
+of `measure`'s own dispatch (after everything else, including any
+resolved `absolute` descendants — see below), computing `top`/`right`/
+`bottom`/`left`'s net `dx`/`dy` against the box's own real containing
+block (`measure`'s own `width`/`containing_height` parameters — the
+same basis `margin`/`width`/`height`'s own `%` already resolve against,
+not some new concept) and shifting the box's entire already-built
+subtree with a new `shift_laid_tree` helper (pure geometry, no
+re-measuring).
+
+**`absolute`/`fixed` needed real new plumbing, not just a shift.** Two
+things make them harder than `relative`: a box has to be genuinely
+*removed* from its parent's normal flow (no space reserved for it at
+all — not just visually moved), and its real containing block is the
+*nearest positioned ancestor*, which might be several levels up the
+tree from wherever it's actually declared, not knowable until (or
+unless) that ancestor is actually reached. Solved with a `PendingPositioned<'a>`
+value (carrying a borrowed reference to the box, whether it's `fixed`,
+and its own "static position" fallback — exactly the `x`/`y` its
+parent's flow loop would have fed an ordinary `measure` call, used
+whenever an offset is `auto`) that `measure`'s own `BoxContent::Blocks`
+arm collects instead of measuring in place, and bubbles upward through
+a new `pending: &mut Vec<PendingPositioned>` out-parameter threaded
+through every one of `measure`'s own recursive call sites (plus
+`measure_table`/`measure_row_with_widths`/`lay_out_row_cells`, so
+content *inside* a table cell still participates correctly — though a
+`<tr>`/`<td>`/`<caption>` itself declaring `position` doesn't, a
+narrow, documented scope cut, same category as the table item's own
+existing colspan/rowspan cut). Each level's own `resolve_or_bubble_positioned`
+either resolves an entry locally (if *this* box's own `position` isn't
+`static` — the real "nearest positioned ancestor" rule) or keeps
+forwarding it to its own caller; `fixed` always keeps bubbling
+regardless (its containing block is always the viewport, never an
+intervening `relative`/`absolute` ancestor — the real spec behavior
+without CSS transforms, the only case this engine has any notion of).
+Whatever bubbles all the way past the document root (every `fixed` box,
+plus an `absolute` box with no positioned ancestor anywhere above it)
+is resolved by a new top-level entry point, `measure_document`, against
+the window's own real viewport dimensions — approximating the real CSS
+initial containing block, since this engine has no literal
+viewport-sized box of its own (see NOTES.md's own architecture
+writeup for exactly what that approximates away). `redraw` now calls
+`measure_document` instead of `measure` directly.
+
+**Solving `right`/`bottom` needed its own small trick.** An offset pair
+like `right: 10px` with `width: auto` needs this box's own just-measured
+width to resolve ("containing block's right edge minus my own width")
+— but measuring needs a starting *position* first. `resolve_positioned`
+measures once at a provisional position (`left`/`top` if set, else the
+static-position fallback), then — only if `right`/`bottom` is actually
+the side that matters — reuses `shift_laid_tree` again to move the
+now-fully-measured subtree to its real final position, no re-measuring
+needed. Same function also applies real CSS §9.7's "computed `display`"
+rule: `resolve_style` forces `display: block` for anything `absolute`/
+`fixed` (unless it's already `none`), right after both are cascaded —
+without this, a `<span style="position: absolute">` would never even
+get its own `LayoutBox` at all (`collect_children`'s inline branch
+would flatten its text into the surrounding run, silently losing the
+whole element), the same kind of invisible gap v19/v29/v32's own
+`default.css`-rule discoveries were.
+
+**`z-index` and a real, if deliberately narrow, "paint in the right
+order" mechanism.** The task's own framing was explicit that *some*
+stacking/paint-order handling is needed as soon as anything can
+overlap, even without full CSS2.1 Appendix E stacking-context
+semantics — so `Laid` gained a `positioned: Vec<Laid>` field (the
+out-of-flow descendants a box is the resolved containing block for)
+and a `fixed: bool` flag, and `paint` grew one new step: after a box's
+own normal content, paint everything in its own `positioned` list,
+already sorted ascending by `z-index` (`auto`/unset as `0`, ties in
+document order — `Vec::sort_by_key` is a stable sort, so this needed no
+separate tie-break logic). `hit_test_cursor` mirrors this (checked
+first, in reverse order, so a click lands on whatever's actually on
+top). The one real wrinkle: a `fixed` box's own `Laid::x`/`y` are
+resolved in *viewport* space, not document space, so `paint` passes
+`0.0` instead of the ambient `scroll_offset` for that one subtree
+(everything inside it inherits `0.0` for free, since every recursive
+`paint` call just forwards whatever `scroll_offset` it was given) —
+`hit_test_cursor` needed the mirror-image translation (document space
+→ viewport space) threaded through instead, since it isn't recursive
+in the same uniform top-down way `paint` is.
+
+**Testing.** 7 new permanent tests in `mod tests`: `absolute_position_computes_display_to_block`
+(the §9.7 computed-display rule, checked the way described above — the
+box's mere *existence* in the tree is the assertion); `position_relative_offsets_paint_position_not_sibling_flow`
+(a three-sibling fixture proving the middle one's offset moves *it*
+but leaves the third sibling exactly where it'd land with no offset at
+all); `position_relative_percent_offset_resolves_against_containing_block`;
+`position_absolute_removed_from_flow_and_anchored_to_positioned_ancestor`
+(checks both halves: the container's own normal-flow children list
+drops to exactly one, and the absolute child's own resolved position);
+`position_absolute_right_bottom_solve_from_box_own_size`;
+`position_absolute_with_no_positioned_ancestor_and_fixed_both_bubble_to_document_root`
+(same containing-block rect, different `fixed` flag); `position_fixed_anchors_to_viewport_not_wherever_it_sits_in_a_tall_document`
+(a 3000px-tall preceding sibling has zero effect on where it lands);
+and `z_index_controls_paint_order_for_overlapping_absolute_boxes`, a
+real painted-pixel check (not just geometry) that a higher-`z-index`
+box wins an overlapping region despite appearing *first* in document
+order, which would paint *underneath* without z-index support. One
+real snag along the way, same lesson v51's own font-family test
+already taught: the first draft of the `relative`/`absolute` flow
+tests put each `<div>` on its own line in the fixture HTML, and the
+literal whitespace between block-level tags became its own anonymous
+inline box consuming real flow height, breaking the exact-pixel deltas
+these tests check — fixed by writing the fixture HTML with no
+inter-tag whitespace, same as v51's own fix.
+
+Also visually confirmed with real `grim` screenshots against four
+small test pages: a relatively-offset box (visibly shifted, with the
+following sibling correctly *not* leaving a gap where the offset box
+would have displaced it); an absolutely-positioned box breaking out of
+its parent's flow (a sibling after it sits flush at the parent's top,
+not pushed down); two overlapping `position: absolute` boxes with
+different `z-index` (the higher one visibly on top in the overlap
+region, matching the pixel-level test); and a `position: fixed` box
+pinned to the top-right corner, not participating in its own normal
+flow either. **One piece not live-verified, flagged rather than
+glossed over, same category v32's own `cursor` writeup already
+established**: actually scrolling the page and confirming a `fixed`
+box visibly stays put on screen while content scrolls underneath it
+couldn't be checked interactively — this sandbox has no tool to
+synthesize a mouse-wheel/scroll event (same gap v32 hit trying to
+synthesize a mouse-move for `cursor`). The underlying mechanism
+(`Laid::fixed` plus `paint`'s `scroll_offset` passthrough) is simple,
+directly-inspectable code, and its *positioning* math is proven by a
+permanent headless test (`position_fixed_anchors_to_viewport_not_wherever_it_sits_in_a_tall_document`)
+— only the live "does it actually stay visually still while scrolling"
+behavior is unverified. Worth a real interactive check next time a
+human's at the keyboard, same as `cursor`'s own still-open item.

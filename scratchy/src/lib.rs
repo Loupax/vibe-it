@@ -497,6 +497,56 @@ enum Display {
     TableGroup,
 }
 
+/// `position`'s 4 implemented keywords — `sticky` is deliberately not
+/// one of them (see `parse_position`'s own docs: it fails to parse at
+/// all, same "reject rather than render wrong" philosophy `box-shadow`
+/// v27's `inset` rejection established — not attempted this session,
+/// see TODO.txt). Not inherited (same category as `border_width`/
+/// `overflow`/`cursor` — every element defaults to `Static` regardless
+/// of what an ancestor declared).
+///
+/// `Static` is the only in-flow value: `Relative`/`Absolute`/`Fixed`
+/// all establish this box as a CSS "positioned element" — the real
+/// spec term for the one thing all three share (an `Absolute`/`Fixed`
+/// *descendant*'s containing block is the nearest *positioned*
+/// ancestor, i.e. any of these three, not `Static`; see `measure`'s own
+/// docs on `PendingPositioned`/`catch_or_bubble_positioned`). `Relative`
+/// is also the only one that stays in normal flow — see `measure`'s own
+/// `apply_relative_offset`.
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+enum Position {
+    #[default]
+    Static,
+    Relative,
+    Absolute,
+    Fixed,
+}
+
+/// `top`/`right`/`bottom`/`left` ("inset" is this file's own shorthand
+/// name for the group, following the real CSS logical-properties spec
+/// term — there's no actual `inset` shorthand *property* parsed here,
+/// same scope as `margin`'s four longhands before a shorthand existed).
+/// `None` means `auto` (the initial value *and* "not declared" collapse
+/// to the same thing, same simplification `width`/`height`'s own
+/// `Option<BoxLength>` already accepts — see `set_length`'s own docs:
+/// an explicit `top: auto` declaration can't currently re-override a
+/// lower-specificity `top: 10px` rule back to auto, a pre-existing
+/// limitation of this file's `set_length` convention, not a new one
+/// introduced for this property). `BoxLength`, not a plain `f32`: `top`/
+/// `bottom`'s `%` resolves against the containing block's *height*,
+/// `left`/`right`'s against its *width* — both only known once a real
+/// positioned ancestor (or the viewport, for `Fixed`/an orphaned
+/// `Absolute`) is actually found, in `resolve_positioned`, same
+/// deferred-until-a-real-basis-exists timing `BoxLength` already uses
+/// for `width`/`margin`/etc.
+#[derive(Clone, Copy, Default)]
+struct Insets {
+    top: Option<BoxLength>,
+    right: Option<BoxLength>,
+    bottom: Option<BoxLength>,
+    left: Option<BoxLength>,
+}
+
 /// A parsed-but-not-yet-resolved length: `px` is an absolute value, `em` is
 /// relative to a font-size that isn't known until cascade time (an
 /// element's own computed font-size, for margin/padding/border-width; its
@@ -709,6 +759,12 @@ struct Declarations {
     /// nothing declares it, but see TODO.txt.
     background_image: Option<String>,
     display: Option<Display>,
+    position: Option<Position>,
+    top: Option<Length>,
+    right: Option<Length>,
+    bottom: Option<Length>,
+    left: Option<Length>,
+    z_index: Option<i32>,
     width: Option<Length>,
     height: Option<Length>,
     min_width: Option<Length>,
@@ -1119,6 +1175,22 @@ fn set_max_length(input: &mut CssParser, target: &mut Option<MaxLen>) {
     input.reset(&state);
     if let Ok(v) = parse_length_percent(input) {
         *target = Some(MaxLen::Len(v));
+    }
+}
+
+/// `z-index`'s own grammar: a plain `<integer>` — no `<length>`/`%`
+/// forms at all, unlike every other property this file parses with
+/// `set_length`. `auto` (the real initial value) is deliberately *not*
+/// matched here — same `set_length`-wide "unparseable leaves the
+/// cascade's existing value untouched" convention (see its own docs);
+/// `ComputedStyle::z_index`'s `None` already covers both "never
+/// declared" and "declared `auto`" identically, so there's nothing a
+/// matched `auto` arm would do differently from just failing to parse.
+fn parse_z_index(input: &mut CssParser) -> Result<i32, ()> {
+    match input.next().map_err(|_| ())? {
+        Token::Number { int_value: Some(v), .. } => Ok(*v),
+        Token::Number { value, .. } => Ok(*value as i32),
+        _ => Err(()),
     }
 }
 
@@ -1672,6 +1744,37 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
                 } else {
                     None
                 };
+            }
+        } else if name.eq_ignore_ascii_case("position") {
+            if let Ok(ident) = input.expect_ident() {
+                self.decls.position = if ident.eq_ignore_ascii_case("static") {
+                    Some(Position::Static)
+                } else if ident.eq_ignore_ascii_case("relative") {
+                    Some(Position::Relative)
+                } else if ident.eq_ignore_ascii_case("absolute") {
+                    Some(Position::Absolute)
+                } else if ident.eq_ignore_ascii_case("fixed") {
+                    Some(Position::Fixed)
+                } else {
+                    // `sticky` deliberately included here (falls through
+                    // to `None`, same as any other unrecognized ident) —
+                    // see `Position`'s own docs for why it's rejected
+                    // outright rather than approximated as `static`/
+                    // `relative`, and TODO.txt for the deferred item.
+                    None
+                };
+            }
+        } else if name.eq_ignore_ascii_case("top") {
+            set_length(input, &mut self.decls.top);
+        } else if name.eq_ignore_ascii_case("right") {
+            set_length(input, &mut self.decls.right);
+        } else if name.eq_ignore_ascii_case("bottom") {
+            set_length(input, &mut self.decls.bottom);
+        } else if name.eq_ignore_ascii_case("left") {
+            set_length(input, &mut self.decls.left);
+        } else if name.eq_ignore_ascii_case("z-index") {
+            if let Ok(z) = parse_z_index(input) {
+                self.decls.z_index = Some(z);
             }
         } else if name.eq_ignore_ascii_case("width") {
             set_length(input, &mut self.decls.width);
@@ -2230,6 +2333,28 @@ struct ComputedStyle {
     color: TextColor,
     background_color: Option<TextColor>,
     display: Display,
+    /// Not inherited (see `Position`'s own docs). Forces `display` to
+    /// `Block` when `Absolute`/`Fixed` — real CSS's own "computed
+    /// `display`" rule (spec §9.7) — applied once, in `resolve_style`,
+    /// right after both are cascaded; everywhere else in this file
+    /// (`collect_children`'s block-vs-inline split, `measure`) can keep
+    /// branching on `display` alone with no separate `position` check,
+    /// since an absolutely/fixed positioned element is *always*
+    /// block-level by the time either of them sees it.
+    position: Position,
+    /// `top`/`right`/`bottom`/`left` — only meaningful (resolved against
+    /// a real containing block) once `position` isn't `Static`; see
+    /// `Insets`'s own docs. Not inherited.
+    inset: Insets,
+    /// `None` means `auto` (`z-index`'s real initial value) — paints no
+    /// differently from an explicit `0` (see `catch_or_bubble_
+    /// positioned`'s sort key), the one simplification this file's
+    /// stacking-order support makes vs. the real spec (where `auto`
+    /// additionally means "don't start a new stacking context" — a
+    /// distinction this file doesn't model at all; see TODO.txt). Not
+    /// inherited, and only ever consulted for a `position`-ed box (an
+    /// in-flow box's own `z_index` is simply never read).
+    z_index: Option<i32>,
     /// `None` means `auto` (the default — content-driven sizing, same
     /// as before this property existed). `Some` is the specified
     /// width/height in pixels, in `box_sizing`'s reference box (content
@@ -2446,6 +2571,22 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
     .and_then(|c| to_text_color(&c));
     let display = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.display), |d| d.display)
         .unwrap_or(Display::Inline);
+    // Not inherited (see `Position`'s own docs) — every element starts
+    // from `Static` regardless of an ancestor's own `position`.
+    let position = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.position), |d| d.position)
+        .unwrap_or_default();
+    // Real CSS's own "computed `display`" rule (spec §9.7): an
+    // `absolute`/`fixed` element is always block-level, overriding
+    // whatever `display` the cascade otherwise picked — *except*
+    // `display: none`, which still wins (there's no box to be
+    // block-level about). Applied here, once, so every later piece of
+    // this file that branches on `display` (`collect_children`,
+    // `measure`) needs no separate `position` check of its own.
+    let display = if matches!(position, Position::Absolute | Position::Fixed) && display != Display::None {
+        Display::Block
+    } else {
+        display
+    };
     // Resolved before margin/padding/border-width: an `em` on any of those
     // is relative to *this* element's own font-size (not its parent's),
     // so font-size has to be cascaded and resolved first. An `em` on
@@ -2469,6 +2610,24 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         .and_then(|l| l.resolve(font_size, inherited.root_font_size));
     let box_sizing = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.box_sizing), |d| d.box_sizing)
         .unwrap_or_default();
+    // Only ever actually resolved (`.resolve(basis)`) once a real
+    // containing block is found for a `position`-ed box (`resolve_
+    // positioned`) — see `Insets`'s own docs for why these stay
+    // `BoxLength`, deferred the same way `width`/`margin`/etc. already
+    // are, rather than resolved here against anything.
+    let inset = Insets {
+        top: cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.top), |d| d.top)
+            .map(|l| BoxLength::from_length(l, font_size, inherited.root_font_size)),
+        right: cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.right), |d| d.right)
+            .map(|l| BoxLength::from_length(l, font_size, inherited.root_font_size)),
+        bottom: cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.bottom), |d| d.bottom)
+            .map(|l| BoxLength::from_length(l, font_size, inherited.root_font_size)),
+        left: cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.left), |d| d.left)
+            .map(|l| BoxLength::from_length(l, font_size, inherited.root_font_size)),
+    };
+    // Not inherited; `None` ("auto") is only ever actually consulted
+    // for a `position`-ed box — see `ComputedStyle::z_index`'s own docs.
+    let z_index = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.z_index), |d| d.z_index);
     let margin = Sides {
         top: cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.margin_top), |d| d.margin_top)
             .map(|l| BoxLength::from_length(l, font_size, inherited.root_font_size))
@@ -2625,6 +2784,9 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         color,
         background_color,
         display,
+        position,
+        inset,
+        z_index,
         width,
         height,
         min_width,
@@ -2663,6 +2825,9 @@ fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         color: inherited.color,
         background_color: None,
         display: Display::Block,
+        position: Position::Static,
+        inset: Insets::default(),
+        z_index: None,
         width: None,
         height: None,
         min_width: None,
@@ -3271,6 +3436,287 @@ pub struct Laid {
     /// `style`), for `paint` to tile behind this box's own content.
     background_image: Option<Rc<DecodedImage>>,
     content: LaidContent,
+    /// `position: absolute`/`fixed` descendants whose containing block
+    /// is *this* box — empty for the overwhelming majority of boxes
+    /// (no out-of-flow descendants at all). Resolved once, by
+    /// `catch_or_bubble_positioned`, after this box's own normal
+    /// (in-flow) content and final size are known; painted/hit-tested
+    /// *after* that normal content (`paint`/`hit_test_cursor`), so they
+    /// can legitimately overlap it — sorted ascending by `z-index`
+    /// (`auto`/unset treated as `0`; see `ComputedStyle::z_index`'s own
+    /// docs for the one real-spec distinction this drops), ties broken
+    /// by document order, which is the closest this file gets to real
+    /// CSS2.1 Appendix E stacking-context paint order without actually
+    /// modeling stacking contexts themselves (see TODO.txt).
+    positioned: Vec<Laid>,
+    /// `true` only for a `position: fixed` box resolved at the very
+    /// document root (`measure_document`) — never for anything inside
+    /// some other box's own `positioned` list (a `fixed` descendant
+    /// always bubbles all the way to the root; see `catch_or_bubble_
+    /// positioned`'s own docs), and never for anything in `content`
+    /// (an ordinary in-flow/`relative` descendant of a `fixed` box is
+    /// just that — `fixed` is not itself ambiently inherited). Read
+    /// only by `paint`, to skip subtracting the ambient scroll offset
+    /// for this one subtree — the one thing that actually makes
+    /// `fixed` stay put on screen while the page scrolls underneath it
+    /// (see `paint`'s own docs). Does *not* affect positioning math
+    /// itself (`resolve_positioned` already placed this box against
+    /// the viewport, scroll-independent, before this flag is even set).
+    fixed: bool,
+}
+
+/// A `position: absolute`/`fixed` descendant collected while its
+/// immediate containing `Blocks`/table structure is being measured —
+/// deliberately *not* measured there and then (see `measure`'s own
+/// `BoxContent::Blocks` arm): real CSS takes it out of normal flow
+/// entirely (no box reserved for it, no effect on where any sibling
+/// ends up — `static_x`/`static_y` below exist only as its own
+/// position's *fallback*, not something any sibling ever reads), and
+/// its real containing block is the nearest *positioned* ancestor
+/// (`Position::Relative`/`Absolute`/`Fixed`, i.e. anything but
+/// `Static`) — which might be several levels further up the tree than
+/// its immediate parent, not knowable until that ancestor (if any) is
+/// actually reached. So this just carries everything `resolve_
+/// positioned` will eventually need, and bubbles up through each
+/// `measure`/`measure_table` call's own `pending` out-parameter
+/// (`catch_or_bubble_positioned`) until something catches it.
+pub struct PendingPositioned<'a> {
+    /// The box itself — measured for real only once `resolve_
+    /// positioned` has a real containing block to measure it against.
+    b: &'a LayoutBox,
+    /// `true` for `position: fixed`. Unlike `absolute`, a `fixed` box's
+    /// containing block is always the viewport (not whatever positioned
+    /// ancestor happens to be nearest) — real CSS spec behavior pre-
+    /// transforms, the only case this engine has any notion of at all —
+    /// so a `fixed` entry is never caught by `catch_or_bubble_
+    /// positioned` at an intermediate box regardless of that box's own
+    /// `position`; it always keeps bubbling until `measure_document`'s
+    /// own root-level resolution.
+    fixed: bool,
+    /// Absolute document-space coordinates (same convention every
+    /// other position in this file uses) of where this box would have
+    /// been placed had it stayed in normal flow — i.e. exactly the
+    /// `x`/`y` its parent's own `Blocks` loop would have fed an
+    /// ordinary `measure` call for it. Used as-is whenever the
+    /// corresponding `top`/`right`/`bottom`/`left` pair is entirely
+    /// `auto` (real CSS's own "static position" fallback — see
+    /// `resolve_positioned`), needing no translation into any
+    /// containing block's coordinate space, since every `Laid` position
+    /// in this file already lives in the same absolute document space
+    /// regardless of which box is whose containing block.
+    static_x: f32,
+    static_y: f32,
+}
+
+/// Shifts `laid`'s own position, and every absolute document-space
+/// coordinate anywhere inside its subtree (recursing into normal
+/// `Blocks`/`TableRow` children, a `MixedInline` run's own per-word/
+/// per-image positions, and this box's own `positioned` out-of-flow
+/// descendants too), by `(dx, dy)` — the one operation both `position:
+/// relative`'s own offset (`apply_relative_offset`) and `resolve_
+/// positioned`'s own left/top-vs-right/bottom solving need: moving an
+/// already-fully-laid-out subtree without re-measuring any of it (pure
+/// geometry, no shaping/box-model work to redo). Never recurses into a
+/// `positioned` entry that's `fixed` — impossible to reach from here
+/// regardless (see `Laid::fixed`'s own docs: a `fixed` box's `Laid`
+/// only ever exists in the document root's own `positioned` list, which
+/// is never itself the subject of a `relative`-offset shift, since the
+/// synthetic document root is always `Position::Static`), but checked
+/// explicitly anyway rather than relying on that invariant silently.
+fn shift_laid_tree(laid: &mut Laid, dx: f32, dy: f32) {
+    if dx == 0.0 && dy == 0.0 {
+        return;
+    }
+    laid.x += dx;
+    laid.y += dy;
+    match &mut laid.content {
+        LaidContent::Blocks(children) | LaidContent::TableRow(children) => {
+            for child in children {
+                shift_laid_tree(child, dx, dy);
+            }
+        }
+        LaidContent::MixedInline(items) => {
+            for item in items {
+                match item {
+                    MixedPositioned::Word { x, y, .. } => {
+                        *x += dx;
+                        *y += dy;
+                    }
+                    MixedPositioned::Image(img) => shift_laid_tree(img, dx, dy),
+                }
+            }
+        }
+        LaidContent::Text(_) | LaidContent::Image(_) => {}
+    }
+    for item in &mut laid.positioned {
+        if !item.fixed {
+            shift_laid_tree(item, dx, dy);
+        }
+    }
+}
+
+/// `position: relative`'s own, much simpler effect vs. `absolute`/
+/// `fixed`: stays in normal flow (already measured as if `Static` by
+/// the time this is called — the caller's own `cursor_y` advance
+/// already happened against this box's *unshifted* `h`/margins, so
+/// flow is genuinely unaffected), just visually offset from where it
+/// would otherwise have painted — and, since any `position`-ed box
+/// (this one included) is a valid containing block for a nested
+/// `absolute` descendant, this has to shift *everything* already
+/// resolved against this box's own (pre-shift) padding box too
+/// (`laid.positioned`, populated by `catch_or_bubble_positioned` before
+/// this ever runs) — not just `laid`'s own normal content — so a
+/// `position: absolute` child anchored to a `position: relative;
+/// top: 20px` parent ends up anchored to the parent's real, shifted
+/// position, not its pre-offset one. `top`/`left`/`right`/`bottom` all
+/// apply (unlike `absolute`/`fixed`, where only one of each pair ever
+/// matters — see `resolve_positioned`): real CSS lets `relative` use
+/// both of an axis's offsets, with `top`+`bottom` (or `left`+`right`)
+/// together simply summing with opposite sign when both are set,
+/// unlike `absolute`'s left/top-wins precedence (there's no box edge
+/// being solved for here, just an offset).
+/// `basis_w` is this box's own containing block's content *width* —
+/// exactly `measure`'s own `width` parameter, the same basis `box_
+/// model_entry` already resolves this box's own `margin`/`width`
+/// percentages against. `basis_h` is that containing block's content
+/// *height*, only when that's definite — exactly `measure`'s own
+/// `containing_height` parameter, same basis (and same `None`-means-
+/// "percentage computes to auto" rule — see `finalize_box_lengths`'s
+/// own docs) `height`'s own `%` already uses.
+fn apply_relative_offset(laid: &mut Laid, s: &ComputedStyle, basis_w: f32, basis_h: Option<f32>) {
+    if s.position != Position::Relative {
+        return;
+    }
+    let resolve_v = |bl: BoxLength| match bl {
+        BoxLength::Px(v) => v,
+        BoxLength::Percent(p) => basis_h.map(|h| h * p).unwrap_or(0.0),
+    };
+    let dx = s.inset.left.map(|v| v.resolve(basis_w)).unwrap_or(0.0) - s.inset.right.map(|v| v.resolve(basis_w)).unwrap_or(0.0);
+    let dy = s.inset.top.map(resolve_v).unwrap_or(0.0) - s.inset.bottom.map(resolve_v).unwrap_or(0.0);
+    shift_laid_tree(laid, dx, dy);
+}
+
+/// Splits `own_pending` (gathered while measuring `box_for`'s own
+/// normal, in-flow content — see `measure`'s `BoxContent::Blocks` arm)
+/// into the entries this box becomes the real, resolved containing
+/// block for (returned, ready to attach as this box's own `Laid::
+/// positioned`) vs. ones that still need to keep bubbling further up
+/// (pushed onto `bubble_out` — the caller's own `pending` parameter,
+/// continuing the same search one level further out): a `fixed` entry
+/// *always* keeps bubbling, regardless of `position` (its containing
+/// block is always the viewport, only ever resolved at the document
+/// root — see `PendingPositioned::fixed`'s own docs); an `absolute`
+/// entry stops the moment it reaches a box whose own `position` isn't
+/// `Static` — the real CSS "nearest positioned ancestor" rule. `pad_x`/
+/// `pad_y`/`pad_w`/`pad_h` is this box's own *padding* box (border box
+/// minus its own border width on each side) — the real spec containing
+/// block for an absolutely positioned descendant.
+#[allow(clippy::too_many_arguments)]
+fn resolve_or_bubble_positioned<'a>(
+    own_pending: Vec<PendingPositioned<'a>>,
+    position: Position,
+    pad_x: f32,
+    pad_y: f32,
+    pad_w: f32,
+    pad_h: f32,
+    font_system: &mut FontSystem,
+    next_id: &mut usize,
+    cache: &mut ShapeCache,
+    deadline: std::time::Instant,
+    incomplete: &mut bool,
+    bubble_out: &mut Vec<PendingPositioned<'a>>,
+) -> Vec<Laid> {
+    let mut resolved = Vec::new();
+    for item in own_pending {
+        if item.fixed || position == Position::Static {
+            bubble_out.push(item);
+        } else {
+            resolved.push(resolve_positioned(
+                item, pad_x, pad_y, pad_w, pad_h, font_system, next_id, cache, deadline, incomplete,
+            ));
+        }
+    }
+    // Ascending `z-index` (`auto`/unset as `0`), ties in document order
+    // (the order `own_pending` was built in, since `Vec::sort_by_key` is
+    // a stable sort) — see `Laid::positioned`'s own docs for why this is
+    // the paint/hit-test order, not a real stacking-context ordering.
+    resolved.sort_by_key(|l| l.style.z_index.unwrap_or(0));
+    resolved
+}
+
+/// Measures `item.b` for real against a now-known, concrete containing
+/// block (`cb_x`/`cb_y`/`cb_w`/`cb_h`, absolute document-space, always
+/// *definite* — unlike `measure`'s own `containing_height`, which can
+/// be `None` for an ordinary in-flow box, this is only ever called once
+/// a real positioned ancestor or the viewport has been found, so there
+/// is always a concrete basis) and positions it against that block's
+/// `top`/`right`/`bottom`/`left`.
+///
+/// **Solving left/top-vs-right/bottom, and the one real scope cut
+/// here**: real CSS lets an author set both `left`+`right` (or `top`+
+/// `bottom`) with `width`/`height` left `auto`, deriving the missing
+/// dimension from the gap between them — not implemented; `left`/`top`
+/// always wins when both are set (same precedence this file already
+/// gives a cascade's `width` over a derived one elsewhere), and this
+/// box's own width/height is always computed the ordinary content-
+/// driven way against `cb_w`/`cb_h`, exactly like any in-flow box would
+/// be (see TODO.txt). Measured once at a *provisional* position (`left`/
+/// `top` if set, else its own `static_x`/`static_y` fallback) and then,
+/// since only *now* is its real size known, shifted (`shift_laid_tree`,
+/// no re-measuring) to its real final position if `right`/`bottom` ends
+/// up being the side that actually matters (needs this box's own just-
+/// measured `w`/`h` to resolve "right edge minus my own width").
+///
+/// `item.b`'s own nested `absolute`/`fixed` descendants (if `item.b`'s
+/// `BoxContent` is `Blocks`) are resolved entirely within this one
+/// `measure` call — `item.b` is itself non-`Static` by construction
+/// (only ever `Absolute`/`Fixed`), so nothing can bubble past it; the
+/// disposable, always-empty-on-return `Vec` handed to `measure` here
+/// reflects exactly that.
+#[allow(clippy::too_many_arguments)]
+fn resolve_positioned(
+    item: PendingPositioned,
+    cb_x: f32,
+    cb_y: f32,
+    cb_w: f32,
+    cb_h: f32,
+    font_system: &mut FontSystem,
+    next_id: &mut usize,
+    cache: &mut ShapeCache,
+    deadline: std::time::Instant,
+    incomplete: &mut bool,
+) -> Laid {
+    let s = item.b.style;
+    let left = s.inset.left.map(|v| v.resolve(cb_w));
+    let right = s.inset.right.map(|v| v.resolve(cb_w));
+    let top = s.inset.top.map(|v| v.resolve(cb_h));
+    let bottom = s.inset.bottom.map(|v| v.resolve(cb_h));
+    let provisional_x = left.map(|l| cb_x + l).unwrap_or(item.static_x);
+    let provisional_y = top.map(|t| cb_y + t).unwrap_or(item.static_y);
+    let mut nested_pending = Vec::new();
+    let mut laid = measure(
+        item.b, font_system, provisional_x, provisional_y, cb_w, Some(cb_h), next_id, cache, deadline, incomplete,
+        &mut nested_pending,
+    );
+    debug_assert!(nested_pending.is_empty(), "an absolute/fixed box is itself always a positioned ancestor");
+    let final_x = if left.is_some() {
+        provisional_x
+    } else if let Some(r) = right {
+        cb_x + cb_w - r - laid.w
+    } else {
+        item.static_x
+    };
+    let final_y = if top.is_some() {
+        provisional_y
+    } else if let Some(b) = bottom {
+        cb_y + cb_h - b - laid.h
+    } else {
+        item.static_y
+    };
+    let (dx, dy) = (final_x - laid.x, final_y - laid.y);
+    shift_laid_tree(&mut laid, dx, dy);
+    laid.fixed = item.fixed;
+    laid
 }
 
 enum LaidContent {
@@ -3592,8 +4038,8 @@ fn box_model_entry(s: &mut ComputedStyle, x: f32, y: f32, width: f32, containing
 /// *explicit* ancestor height further down the tree regardless — this
 /// parameter only ever starts `None` at the very top.
 #[allow(clippy::too_many_arguments)]
-pub fn measure(
-    b: &LayoutBox,
+pub fn measure<'a>(
+    b: &'a LayoutBox,
     font_system: &mut FontSystem,
     x: f32,
     y: f32,
@@ -3603,6 +4049,14 @@ pub fn measure(
     cache: &mut ShapeCache,
     deadline: std::time::Instant,
     incomplete: &mut bool,
+    // `position: absolute`/`fixed` descendants that bubbled all the way
+    // up out of this box's own subtree without finding a positioned
+    // ancestor to resolve against (see `PendingPositioned`'s own docs) —
+    // appended to, never read; the caller (another `measure` call one
+    // level up, or `measure_document` at the very top) is the one that
+    // either catches them (if *it's* positioned) or keeps bubbling them
+    // further still.
+    pending: &mut Vec<PendingPositioned<'a>>,
 ) -> Laid {
     // `display: table` builds its own box model exactly the same way as
     // any other box (`box_model_entry`, just below — reused, not
@@ -3619,7 +4073,9 @@ pub fn measure(
     if b.style.display == Display::Table
         && let BoxContent::Blocks(children) = &b.content
     {
-        return measure_table(b, children, font_system, x, y, width, containing_height, next_id, cache, deadline, incomplete);
+        return measure_table(
+            b, children, font_system, x, y, width, containing_height, next_id, cache, deadline, incomplete, pending,
+        );
     }
     let mut s = b.style;
     let entry = box_model_entry(&mut s, x, y, width, containing_height);
@@ -3632,7 +4088,7 @@ pub fn measure(
     let extra_h = entry.extra_h;
     let child_containing_height = entry.child_containing_height;
 
-    match &b.content {
+    let mut laid = match &b.content {
         BoxContent::Inline(items) if items.iter().any(|i| matches!(i, InlineItem::Image { .. })) => {
             // Real inline-level flow for a run that mixes text with at
             // least one inline `<img>` — a materially different (and
@@ -3659,6 +4115,8 @@ pub fn measure(
                 h: border_h,
                 background_image: b.background_image.clone(),
                 content: LaidContent::MixedInline(positioned),
+                positioned: Vec::new(),
+                fixed: false,
             }
         }
         BoxContent::Inline(items) => {
@@ -3722,15 +4180,34 @@ pub fn measure(
                 h: border_h,
                 background_image: b.background_image.clone(),
                 content: LaidContent::Text(id),
+                positioned: Vec::new(),
+                fixed: false,
             }
         }
         BoxContent::Blocks(children) => {
             let mut cursor_y = content_y;
             let mut laid_children = Vec::with_capacity(children.len());
+            // Collected here, not measured here: a `position: absolute`/
+            // `fixed` child is taken out of normal flow entirely — no
+            // `measure` call (its real containing block isn't this
+            // box's content box at all — see `PendingPositioned`'s own
+            // docs), no `cursor_y` advance (the whole point of "out of
+            // flow": every other sibling lands exactly where it would
+            // if this child didn't exist).
+            let mut own_pending: Vec<PendingPositioned<'a>> = Vec::new();
             for child in children {
+                if matches!(child.style.position, Position::Absolute | Position::Fixed) {
+                    own_pending.push(PendingPositioned {
+                        b: child,
+                        fixed: child.style.position == Position::Fixed,
+                        static_x: content_x,
+                        static_y: cursor_y,
+                    });
+                    continue;
+                }
                 let lc = measure(
                     child, font_system, content_x, cursor_y, content_w, child_containing_height, next_id, cache,
-                    deadline, incomplete,
+                    deadline, incomplete, &mut own_pending,
                 );
                 cursor_y += lc.style.margin.top.px() + lc.style.margin.bottom.px() + lc.h;
                 laid_children.push(lc);
@@ -3747,6 +4224,28 @@ pub fn measure(
                 s.box_sizing,
                 extra_h,
             );
+            // Only now — `border_h` just above is the first point this
+            // box's own final size is known — can `own_pending` (this
+            // box's *own* direct out-of-flow children, plus anything
+            // that bubbled up from a `Static` descendant's `measure`
+            // call above) be resolved against this box's padding box,
+            // if it's eligible to be one (`s.position != Static`) —
+            // otherwise every one of them keeps bubbling to `pending`,
+            // this call's own out-parameter from its caller.
+            let positioned_children = resolve_or_bubble_positioned(
+                own_pending,
+                s.position,
+                border_x + s.border_width,
+                border_y + s.border_width,
+                (border_w - 2.0 * s.border_width).max(0.0),
+                (border_h - 2.0 * s.border_width).max(0.0),
+                font_system,
+                next_id,
+                cache,
+                deadline,
+                incomplete,
+                pending,
+            );
             Laid {
                 style: s,
                 x: border_x,
@@ -3755,6 +4254,8 @@ pub fn measure(
                 h: border_h,
                 background_image: b.background_image.clone(),
                 content: LaidContent::Blocks(laid_children),
+                positioned: positioned_children,
+                fixed: false,
             }
         }
         BoxContent::TableRow(cells) => {
@@ -3771,7 +4272,7 @@ pub fn measure(
             let col_widths = vec![content_w / n; cells.len()];
             let (row_h, laid_cells) = lay_out_row_cells(
                 cells, &col_widths, font_system, content_x, content_y, child_containing_height, next_id, cache,
-                deadline, incomplete,
+                deadline, incomplete, pending,
             );
             // Same explicit-`height`-overrides-only-the-reported-size
             // behavior as the `Inline`/`Blocks` branches above.
@@ -3791,6 +4292,8 @@ pub fn measure(
                 h: border_h,
                 background_image: b.background_image.clone(),
                 content: LaidContent::TableRow(laid_cells),
+                positioned: Vec::new(),
+                fixed: false,
             }
         }
         BoxContent::Image(image) => {
@@ -3807,9 +4310,23 @@ pub fn measure(
                 h: border_h,
                 background_image: b.background_image.clone(),
                 content: LaidContent::Image(Rc::clone(image)),
+                positioned: Vec::new(),
+                fixed: false,
             }
         }
-    }
+    };
+    // `position: relative` is the only kind that stays in normal flow
+    // (see `apply_relative_offset`'s own docs) — applied once here,
+    // after everything above (including any `positioned` out-of-flow
+    // descendants just resolved against this box's own pre-shift
+    // padding box), so a nested `absolute` descendant ends up anchored
+    // to this box's real, shifted position. `width`/`containing_height`
+    // (this call's own incoming parameters, not any `content_`-prefixed
+    // local) are this box's own containing block — the right basis for
+    // its own `top`/`right`/`bottom`/`left` percentages, same as `box_
+    // model_entry` already uses for `margin`/`width`/`height`'s.
+    apply_relative_offset(&mut laid, &s, width, containing_height);
+    laid
 }
 
 /// A replaced element's border-box size from its intrinsic decoded size
@@ -4060,6 +4577,8 @@ fn measure_mixed_inline(
                         h: *img_h,
                         background_image: background_image.clone(),
                         content: LaidContent::Image(Rc::clone(image)),
+                        positioned: Vec::new(),
+                        fixed: false,
                     })));
                 }
             }
@@ -4278,9 +4797,16 @@ fn table_column_widths(
 /// stray-`TableRow` fallback (equal-width `col_widths`) and `measure_row_
 /// with_widths`'s real, column-sized case, so the two don't duplicate
 /// the cell loop/row-height bookkeeping.
+/// `pending` is simply forwarded to each cell's own `measure` call,
+/// never caught here: per `TODO.txt`, a `<tr>`/`<td>` can't itself be a
+/// "nearest positioned ancestor" in this engine, regardless of what
+/// `position` it might declare — any `position: absolute`/`fixed` box
+/// bubbling up from inside a cell's own content keeps bubbling straight
+/// through the row/table structure to whatever real positioned
+/// ancestor (if any) lies *outside* the table entirely.
 #[allow(clippy::too_many_arguments)]
-fn lay_out_row_cells(
-    cells: &[LayoutBox],
+fn lay_out_row_cells<'a>(
+    cells: &'a [LayoutBox],
     col_widths: &[f32],
     font_system: &mut FontSystem,
     content_x: f32,
@@ -4290,6 +4816,7 @@ fn lay_out_row_cells(
     cache: &mut ShapeCache,
     deadline: std::time::Instant,
     incomplete: &mut bool,
+    pending: &mut Vec<PendingPositioned<'a>>,
 ) -> (f32, Vec<Laid>) {
     let fallback_w = if col_widths.is_empty() { 0.0 } else { col_widths.iter().sum::<f32>() / col_widths.len() as f32 };
     let mut cursor_x = content_x;
@@ -4299,7 +4826,7 @@ fn lay_out_row_cells(
         let cell_w = col_widths.get(i).copied().unwrap_or(fallback_w);
         let lc = measure(
             cell, font_system, cursor_x, content_y, cell_w, child_containing_height, next_id, cache, deadline,
-            incomplete,
+            incomplete, pending,
         );
         row_h = row_h.max(lc.style.margin.top.px() + lc.style.margin.bottom.px() + lc.h);
         cursor_x += cell_w;
@@ -4315,8 +4842,8 @@ fn lay_out_row_cells(
 /// the table's real per-column widths, which only `measure_table` (its
 /// own `Table` parent) has computed.
 #[allow(clippy::too_many_arguments)]
-fn measure_row_with_widths(
-    row: &LayoutBox,
+fn measure_row_with_widths<'a>(
+    row: &'a LayoutBox,
     col_widths: &[f32],
     font_system: &mut FontSystem,
     x: f32,
@@ -4327,6 +4854,7 @@ fn measure_row_with_widths(
     cache: &mut ShapeCache,
     deadline: std::time::Instant,
     incomplete: &mut bool,
+    pending: &mut Vec<PendingPositioned<'a>>,
 ) -> Laid {
     let BoxContent::TableRow(cells) = &row.content else {
         unreachable!("measure_row_with_widths is only ever called on a BoxContent::TableRow box, from measure_table");
@@ -4335,7 +4863,7 @@ fn measure_row_with_widths(
     let entry = box_model_entry(&mut s, x, y, width, containing_height);
     let (row_h, laid_cells) = lay_out_row_cells(
         cells, col_widths, font_system, entry.content_x, entry.content_y, entry.child_containing_height, next_id,
-        cache, deadline, incomplete,
+        cache, deadline, incomplete, pending,
     );
     let border_h =
         clamp_box_dim(s.height, s.min_height, s.max_height, entry.extra_h + row_h.max(0.0), s.box_sizing, entry.extra_h);
@@ -4347,6 +4875,8 @@ fn measure_row_with_widths(
         h: border_h,
         background_image: row.background_image.clone(),
         content: LaidContent::TableRow(laid_cells),
+        positioned: Vec::new(),
+        fixed: false,
     }
 }
 
@@ -4375,9 +4905,9 @@ fn measure_row_with_widths(
 /// No colspan/rowspan, no border-collapse/cell borders, no
 /// `caption-side` — all still explicitly out of scope, see `TODO.txt`.
 #[allow(clippy::too_many_arguments)]
-fn measure_table(
-    b: &LayoutBox,
-    children: &[LayoutBox],
+fn measure_table<'a>(
+    b: &'a LayoutBox,
+    children: &'a [LayoutBox],
     font_system: &mut FontSystem,
     x: f32,
     y: f32,
@@ -4387,6 +4917,7 @@ fn measure_table(
     cache: &mut ShapeCache,
     deadline: std::time::Instant,
     incomplete: &mut bool,
+    pending: &mut Vec<PendingPositioned<'a>>,
 ) -> Laid {
     let mut s = b.style;
     let entry = box_model_entry(&mut s, x, y, width, containing_height);
@@ -4394,16 +4925,28 @@ fn measure_table(
 
     let mut cursor_y = entry.content_y;
     let mut laid_children = Vec::with_capacity(children.len());
+    // A direct `<table>` child (a row, or a plain-`Block` child like a
+    // `caption`) being itself `position: absolute`/`fixed` isn't
+    // supported — same narrow, documented scope cut as a `<tr>`/`<td>`
+    // itself declaring `position` (see `lay_out_row_cells`'s own docs)
+    // — so, unlike the generic `Blocks` arm, nothing here checks `child.
+    // style.position` before measuring it in place. Content *inside* a
+    // row's cells is unaffected (see `lay_out_row_cells`): this table
+    // still becomes the real containing block for an `absolute`
+    // descendant buried inside a cell, exactly like any other
+    // `position`-ed ancestor — only `own_pending` catches that here,
+    // just like the generic `Blocks` arm.
+    let mut own_pending: Vec<PendingPositioned<'a>> = Vec::new();
     for child in children {
         let lc = if matches!(child.content, BoxContent::TableRow(_)) {
             measure_row_with_widths(
                 child, &col_widths, font_system, entry.content_x, cursor_y, entry.content_w,
-                entry.child_containing_height, next_id, cache, deadline, incomplete,
+                entry.child_containing_height, next_id, cache, deadline, incomplete, &mut own_pending,
             )
         } else {
             measure(
                 child, font_system, entry.content_x, cursor_y, entry.content_w, entry.child_containing_height,
-                next_id, cache, deadline, incomplete,
+                next_id, cache, deadline, incomplete, &mut own_pending,
             )
         };
         cursor_y += lc.style.margin.top.px() + lc.style.margin.bottom.px() + lc.h;
@@ -4418,7 +4961,21 @@ fn measure_table(
         s.box_sizing,
         entry.extra_h,
     );
-    Laid {
+    let positioned_children = resolve_or_bubble_positioned(
+        own_pending,
+        s.position,
+        entry.border_x + s.border_width,
+        entry.border_y + s.border_width,
+        (entry.border_w - 2.0 * s.border_width).max(0.0),
+        (border_h - 2.0 * s.border_width).max(0.0),
+        font_system,
+        next_id,
+        cache,
+        deadline,
+        incomplete,
+        pending,
+    );
+    let mut laid = Laid {
         style: s,
         x: entry.border_x,
         y: entry.border_y,
@@ -4426,7 +4983,59 @@ fn measure_table(
         h: border_h,
         background_image: b.background_image.clone(),
         content: LaidContent::Blocks(laid_children),
+        positioned: positioned_children,
+        fixed: false,
+    };
+    apply_relative_offset(&mut laid, &s, width, containing_height);
+    laid
+}
+
+/// The real top-level entry point for laying out a whole document —
+/// `measure` itself, plus resolving whatever `position: absolute`/
+/// `fixed` box bubbled all the way up without ever finding a real
+/// positioned ancestor (see `PendingPositioned`'s own docs): a `fixed`
+/// box always ends up here (its containing block is always the
+/// viewport, never an intermediate ancestor), and so does an `absolute`
+/// box with no positioned ancestor anywhere above it in the tree —
+/// both resolved against the same `viewport_w`×`viewport_h` rect,
+/// approximating the real CSS "initial containing block" (this engine
+/// has no literal viewport-sized box of its own to use instead — see
+/// NOTES.md's own write-up of this feature's architecture for exactly
+/// what that approximates away, and TODO.txt for the one visible
+/// consequence: an orphaned `absolute` box's containing block doesn't
+/// grow/shrink with the document's real scrollable height the way the
+/// actual initial containing block would). The two cases still end up
+/// painted differently despite sharing this containing-block rect — see
+/// `Laid::fixed`'s and `paint`'s own docs for how a `fixed` box stays
+/// put on screen while scrolling, independent of this positioning math.
+#[allow(clippy::too_many_arguments)]
+pub fn measure_document(
+    b: &LayoutBox,
+    font_system: &mut FontSystem,
+    width: f32,
+    viewport_h: f32,
+    next_id: &mut usize,
+    cache: &mut ShapeCache,
+    deadline: std::time::Instant,
+    incomplete: &mut bool,
+) -> Laid {
+    let mut pending = Vec::new();
+    let mut laid = measure(b, font_system, 0.0, 0.0, width, None, next_id, cache, deadline, incomplete, &mut pending);
+    if !pending.is_empty() {
+        let mut resolved: Vec<Laid> = pending
+            .into_iter()
+            .map(|item| resolve_positioned(item, 0.0, 0.0, width, viewport_h, font_system, next_id, cache, deadline, incomplete))
+            .collect();
+        laid.positioned.append(&mut resolved);
+        // Re-sort the combined list — the document root is always
+        // `Position::Static` in practice (see `build_layout_tree`), so
+        // `laid.positioned` is normally empty before this, but sorting
+        // again regardless keeps the invariant "a `Laid`'s own
+        // `positioned` is always in ascending `z-index` order" true
+        // even if that ever changes.
+        laid.positioned.sort_by_key(|l| l.style.z_index.unwrap_or(0));
     }
+    laid
 }
 
 fn blend(existing: u32, color: TextColor) -> u32 {
@@ -5104,6 +5713,17 @@ fn paint(
     pixels: &mut [u32],
     win_w: u32,
     win_h: u32,
+    // The *ambient* scroll offset — `0.0` for a `position: fixed`
+    // subtree (see the `laid.positioned` loop below and `Laid::fixed`'s
+    // own docs), the real page scroll offset for everything else. Not
+    // read directly off `laid` itself: a `fixed` box's own descendants
+    // (normal content *inside* it) need to keep seeing whatever value
+    // this call was given, which is exactly what naturally happens —
+    // every recursive `paint` call below just forwards this same
+    // parameter unchanged, so passing `0.0` once, at the top of a
+    // `fixed` subtree, is all it takes for the whole subtree to render
+    // scroll-independent; nothing *inside* that subtree needs its own
+    // `fixed` check.
     scroll_offset: f32,
     // The nearest ancestor's `overflow: hidden` bounds (screen space,
     // post-scroll), if any — `None` means nothing above this clips.
@@ -5195,6 +5815,27 @@ fn paint(
             }
         }
     }
+
+    // Out-of-flow `position: absolute`/`fixed` descendants whose
+    // containing block is *this* box — painted *after* its own normal
+    // content above, in ascending `z-index` order (already sorted when
+    // `laid.positioned` was built — see its own docs), so they
+    // legitimately paint on top of it and of each other. Unconditional
+    // (not gated on `s.visibility`, unlike this box's own decoration
+    // above): visibility is independent per element, and each entry's
+    // own recursive `paint` call below already checks *its own*
+    // `item.style.visibility`. Reuses `child_clip` — the same bounds a
+    // normal descendant would be clipped to — since each entry's
+    // containing block genuinely *is* this exact box (real CSS: an
+    // `overflow: hidden` ancestor clips an absolutely positioned
+    // descendant whenever that ancestor is at or inside its containing
+    // block, which is always true here by construction).
+    for item in &laid.positioned {
+        paint(
+            item, font_system, swash_cache, cache, pixels, win_w, win_h, if item.fixed { 0.0 } else { scroll_offset },
+            child_clip,
+        );
+    }
 }
 
 /// Finds the `CursorStyle` that should show at document-space `(x, y)` —
@@ -5208,15 +5849,33 @@ fn paint(
 /// per-glyph `cursors` vector already reflects the correctly-cascaded
 /// value for whichever span that glyph came from — no separate
 /// propagation logic needed here either.
-fn hit_test_cursor(laid: &Laid, x: f32, y: f32, cache: &ShapeCache) -> CursorStyle {
+/// `scroll_offset` is the real, ambient page scroll offset — needed
+/// here (unlike most of this function, which works in plain document
+/// space throughout) only to translate into/out of a `position: fixed`
+/// descendant's own viewport-space coordinates (see `Laid::fixed`'s own
+/// docs — same translation `paint` does by passing `0.0` down instead,
+/// but `hit_test_cursor` isn't recursive the same uniform way, since a
+/// `fixed` descendant can appear at any depth's own `positioned` list).
+fn hit_test_cursor(laid: &Laid, x: f32, y: f32, cache: &ShapeCache, scroll_offset: f32) -> CursorStyle {
     if x < laid.x || x >= laid.x + laid.w || y < laid.y || y >= laid.y + laid.h {
         return CursorStyle::Auto;
+    }
+    // Out-of-flow descendants sit visually above this box's own normal
+    // content (same order `paint` uses) — check them first, in reverse
+    // (highest `z-index`/last-painted first), so a hit lands on
+    // whatever's actually on top. `.rev()` over an ascending-`z-index`
+    // list, not a second sort.
+    for item in laid.positioned.iter().rev() {
+        let (ix, iy, inner_scroll) = if item.fixed { (x, y - scroll_offset, 0.0) } else { (x, y, scroll_offset) };
+        if ix >= item.x && ix < item.x + item.w && iy >= item.y && iy < item.y + item.h {
+            return hit_test_cursor(item, ix, iy, cache, inner_scroll);
+        }
     }
     match &laid.content {
         LaidContent::Blocks(children) | LaidContent::TableRow(children) => {
             for child in children {
                 if child.x <= x && x < child.x + child.w && child.y <= y && y < child.y + child.h {
-                    return hit_test_cursor(child, x, y, cache);
+                    return hit_test_cursor(child, x, y, cache, scroll_offset);
                 }
             }
             laid.style.cursor
@@ -5249,7 +5908,7 @@ fn hit_test_cursor(laid: &Laid, x: f32, y: f32, cache: &ShapeCache) -> CursorSty
                 match item {
                     MixedPositioned::Image(img_laid) => {
                         if img_laid.x <= x && x < img_laid.x + img_laid.w && img_laid.y <= y && y < img_laid.y + img_laid.h {
-                            return hit_test_cursor(img_laid, x, y, cache);
+                            return hit_test_cursor(img_laid, x, y, cache, scroll_offset);
                         }
                     }
                     MixedPositioned::Word { id, x: wx, y: wy, w, h } => {
@@ -5436,35 +6095,24 @@ impl App {
             let deadline = std::time::Instant::now() + std::time::Duration::from_millis(500);
             let mut incomplete = false;
             let mut next_id = 0usize;
-            self.cached = Some(measure(
+            self.cached = Some(measure_document(
                 self.tree.as_ref().unwrap(),
                 &mut self.font_system,
-                0.0,
-                0.0,
                 width as f32,
-                // No viewport/initial-containing-block height concept
-                // exists here — unlike a real UA, whose initial
-                // containing block always has the viewport's definite
-                // height, `build_layout_tree`'s own synthetic document-
-                // wrapper box (which `html` is laid out *inside*, not
-                // as literally the tree's root) has no height of its
-                // own to chain one through even if `None` were replaced
-                // with `Some(height as f32)` here, and deliberately
-                // isn't given one: this value also doubles as the
-                // scroll-clamping "total content height" above
-                // (`laid.h`), so pinning it to the window's own height
-                // would silently cap every page at exactly one
-                // viewport-worth of scrollable content. A `%` height
-                // declared on `<html>`/`<body>` (the common real-world
-                // `height: 100%` pattern) is real CSS-correct but
-                // doesn't resolve to anything here — same as not
-                // declaring it — until a future session gives the
-                // layout tree a real viewport-height concept separate
-                // from this one, see TODO.txt. An ordinary nested `%`
-                // height — a child resolving against an *explicit*
-                // ancestor height, the common non-viewport case — works
-                // correctly regardless (see `measure`'s own docs).
-                None,
+                // This is the one place `measure_document`'s own
+                // `viewport_h` parameter is a real, definite window
+                // dimension — used *only* for `position: fixed` (and an
+                // orphaned `position: absolute`)'s own containing block
+                // (see its own docs), never reused as the root box's
+                // own `%`-height-resolution basis the way NOTES.md's v49
+                // entry warned against: that's still a *completely
+                // separate* `None` passed one level down, inside
+                // `measure_document` itself, to the root box's own
+                // `measure` call — this engine still has no viewport/
+                // initial-containing-block *height* concept for an
+                // ordinary `html, body { height: 100% }` pattern (see
+                // TODO.txt), only for this one new, narrower role.
+                height as f32,
                 &mut next_id,
                 &mut self.shape_cache,
                 deadline,
@@ -5562,7 +6210,7 @@ impl ApplicationHandler<AppEvent> for App {
                 if let (Some(laid), Some(window)) = (&self.cached, &self.window) {
                     let doc_x = position.x as f32;
                     let doc_y = position.y as f32 + self.scroll_offset;
-                    let icon = hit_test_cursor(laid, doc_x, doc_y, &self.shape_cache).to_winit();
+                    let icon = hit_test_cursor(laid, doc_x, doc_y, &self.shape_cache, self.scroll_offset).to_winit();
                     if icon != self.last_cursor {
                         window.set_cursor(icon);
                         self.last_cursor = icon;
@@ -5837,7 +6485,10 @@ mod tests {
         let mut next_id = 0usize;
         let mut incomplete = false;
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        let laid = measure(&tree, &mut font_system, 0.0, 0.0, 200.0, None, &mut next_id, &mut cache, deadline, &mut incomplete);
+        let laid = measure(
+            &tree, &mut font_system, 0.0, 0.0, 200.0, None, &mut next_id, &mut cache, deadline, &mut incomplete,
+            &mut Vec::new(),
+        );
         let mut swash_cache = SwashCache::new();
         let win_w = 800u32;
         let win_h = 200u32;
@@ -5872,7 +6523,7 @@ mod tests {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         measure(
             &tree, &mut font_system, 0.0, 0.0, available_width, containing_height, &mut next_id, &mut cache, deadline,
-            &mut incomplete,
+            &mut incomplete, &mut Vec::new(),
         )
     }
 
@@ -6390,7 +7041,10 @@ mod tests {
         let mut next_id = 0usize;
         let mut incomplete = false;
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        let laid = measure(&tree, &mut font_system, 0.0, 0.0, 200.0, None, &mut next_id, &mut cache, deadline, &mut incomplete);
+        let laid = measure(
+            &tree, &mut font_system, 0.0, 0.0, 200.0, None, &mut next_id, &mut cache, deadline, &mut incomplete,
+            &mut Vec::new(),
+        );
         let mut swash_cache = SwashCache::new();
         let (win_w, win_h) = (100u32, 100u32);
         let mut pixels = vec![0u32; (win_w * win_h) as usize];
@@ -6857,6 +7511,7 @@ mod tests {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         let laid = measure(
             &tree, &mut font_system, 0.0, 0.0, 800.0, None, &mut next_id, &mut cache, deadline, &mut incomplete,
+            &mut Vec::new(),
         );
 
         let mut ids = Vec::new();
@@ -6881,6 +7536,224 @@ mod tests {
         assert_eq!(
             fallback_id, mono_id,
             "an unavailable named family should fall through to the next entry in the list (monospace), not silently stay on cosmic-text's default sans-serif"
+        );
+    }
+
+    // ---------- v52: positioning model (`position`/`z-index`) ----------
+
+    /// Like `measure_fixture`, but through `measure_document` — the real
+    /// top-level entry point, needed for anything that exercises `fixed`
+    /// or an orphaned `absolute` (both only ever resolved at the document
+    /// root; see `measure_document`'s own docs). Plain `measure_fixture`
+    /// calls `measure` directly, which would silently *drop* either case
+    /// (whatever bubbles out of its own disposable `pending` `Vec` is
+    /// simply never resolved) — the right behavior for `measure` itself
+    /// (it has no viewport to resolve them against), wrong for a test
+    /// that wants to see the fully-resolved tree.
+    fn measure_document_fixture(html: &str, width: f32, viewport_h: f32) -> Laid {
+        let doc = parse_html(html);
+        let tree = build_layout_tree(&doc);
+        let mut font_system = new_font_system();
+        let mut cache = ShapeCache::new();
+        let mut next_id = 0usize;
+        let mut incomplete = false;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        measure_document(&tree, &mut font_system, width, viewport_h, &mut next_id, &mut cache, deadline, &mut incomplete)
+    }
+
+    /// Searches the *pre-measure* `LayoutBox` tree (not a `Laid`) for a
+    /// box whose own `position` is `pos` — used only by `absolute_
+    /// position_computes_display_to_block`, where what's actually being
+    /// tested is whether a box exists for it at all (see that test's own
+    /// docs for why that's the right thing to check).
+    fn find_box_by_position(b: &LayoutBox, pos: Position) -> Option<&LayoutBox> {
+        if b.style.position == pos {
+            return Some(b);
+        }
+        match &b.content {
+            BoxContent::Blocks(children) | BoxContent::TableRow(children) => {
+                for c in children {
+                    if let Some(found) = find_box_by_position(c, pos) {
+                        return Some(found);
+                    }
+                }
+            }
+            _ => {}
+        }
+        None
+    }
+
+    #[test]
+    fn absolute_position_computes_display_to_block() {
+        // A default-`display: inline` `<span>` with no block content of
+        // its own is never given its own `LayoutBox` at all —
+        // `collect_children` recurses straight into it, merging its text
+        // into the surrounding run, so there would be *no* box anywhere
+        // in the tree carrying its `position: absolute`, if the real
+        // CSS "computed `display`" rule (spec §9.7) weren't applied. Its
+        // mere existence here is the test.
+        let doc = parse_html(r#"<html><body><span style="position: absolute; top: 0; left: 0;">text</span></body></html>"#);
+        let tree = build_layout_tree(&doc);
+        let span = find_box_by_position(&tree, Position::Absolute).expect(
+            "an absolutely positioned <span> should still get its own box (real CSS computes its display to block, instead of being flattened into the surrounding inline run the way a default `display: inline` span would be)",
+        );
+        assert_eq!(span.style.display, Display::Block, "position: absolute should force computed display to block");
+    }
+
+    #[test]
+    fn position_relative_offsets_paint_position_not_sibling_flow() {
+        // Deliberately no whitespace between the `<div>`s — a literal
+        // newline/indentation between block-level tags becomes its own
+        // whitespace-only anonymous inline box, consuming real flow
+        // height and defeating the exact-pixel deltas this test checks
+        // (same lesson v51's own font-family test already hit).
+        let laid = measure_fixture(
+            r#"<html><body><div style="height: 20px;">first</div><div style="position: relative; top: 10px; left: 5px; height: 21px;">second</div><div style="height: 22px;">third</div></body></html>"#,
+            400.0,
+        );
+        let first = find_by_height(&laid, 20.0).expect("first div not found");
+        let second = find_by_height(&laid, 21.0).expect("second (relative) div not found");
+        let third = find_by_height(&laid, 22.0).expect("third div not found");
+        let first_x = first.x;
+        let first_bottom = first.y + first.h;
+        assert_eq!(second.y, first_bottom + 10.0, "a relative `top` offset should shift paint position");
+        assert_eq!(second.x, first_x + 5.0, "a relative `left` offset should shift paint position");
+        assert_eq!(
+            third.y,
+            first_bottom + second.h,
+            "a later sibling's flow position must be exactly where it would land if the relative box had no offset at all — `position: relative` never affects normal flow"
+        );
+    }
+
+    #[test]
+    fn position_relative_percent_offset_resolves_against_containing_block() {
+        let laid = measure_fixture(
+            r#"<html><body><div style="width: 200px; height: 100px;"><div style="position: relative; top: 10%; left: 50%; height: 20px;">x</div></div></body></html>"#,
+            400.0,
+        );
+        let outer = find_by_width(&laid, 200.0).expect("outer div not found");
+        let (outer_x, outer_y) = (outer.x, outer.y);
+        let inner = find_by_height(&laid, 20.0).expect("inner (relative) div not found");
+        assert_eq!(inner.x, outer_x + 100.0, "left: 50% should resolve against the containing block's own 200px width");
+        assert_eq!(inner.y, outer_y + 10.0, "top: 10% should resolve against the containing block's own 100px height");
+    }
+
+    #[test]
+    fn position_absolute_removed_from_flow_and_anchored_to_positioned_ancestor() {
+        // No inter-tag whitespace — same reason as the `relative` test
+        // above (a whitespace-only text node would otherwise show up as
+        // an extra `Blocks` child, breaking the exact `children.len()`
+        // check below).
+        let laid = measure_fixture(
+            r#"<html><body><div style="position: relative; width: 300px; height: 100px; padding: 10px;"><div style="position: absolute; top: 5px; left: 5px; width: 50px; height: 50px;">abs</div><div style="height: 20px;">normal</div></div></body></html>"#,
+            400.0,
+        );
+        let container = find_by_width(&laid, 300.0).expect("positioned container not found");
+        let LaidContent::Blocks(children) = &container.content else { panic!("expected Blocks content") };
+        assert_eq!(
+            children.len(),
+            1,
+            "an absolutely positioned child must not occupy a slot in its container's normal flow"
+        );
+        let normal = &children[0];
+        let content_y = container.y + container.style.padding.top.px();
+        assert_eq!(
+            normal.y, content_y,
+            "the sibling after an absolutely positioned box should land exactly where it would if that box didn't exist"
+        );
+
+        assert_eq!(container.positioned.len(), 1, "the absolute child should resolve against its nearest positioned ancestor");
+        let abs = &container.positioned[0];
+        assert_eq!(abs.x, container.x + 5.0, "left resolves against the containing block's own padding edge");
+        assert_eq!(abs.y, container.y + 5.0, "top resolves against the containing block's own padding edge");
+        assert_eq!((abs.w, abs.h), (50.0, 50.0));
+    }
+
+    #[test]
+    fn position_absolute_right_bottom_solve_from_box_own_size() {
+        // No `left`/`top` at all — only `right`/`bottom`, which need
+        // this box's own (just-measured) width/height to solve for its
+        // final position (see `resolve_positioned`'s own docs).
+        let laid = measure_fixture(
+            r#"<html><body><div style="position: relative; width: 300px; height: 100px;">
+<div style="position: absolute; right: 10px; bottom: 5px; width: 40px; height: 20px;"></div>
+</div></body></html>"#,
+            400.0,
+        );
+        let container = find_by_width(&laid, 300.0).expect("positioned container not found");
+        let abs = container.positioned.first().expect("absolute child not resolved");
+        assert_eq!(abs.x, container.x + 300.0 - 10.0 - 40.0, "right: 10px should solve against this box's own 40px width");
+        assert_eq!(abs.y, container.y + 100.0 - 5.0 - 20.0, "bottom: 5px should solve against this box's own 20px height");
+    }
+
+    #[test]
+    fn position_absolute_with_no_positioned_ancestor_and_fixed_both_bubble_to_document_root() {
+        let laid = measure_document_fixture(
+            r#"<html><body>
+<div style="height: 3000px;"></div>
+<div style="position: absolute; top: 5px; left: 5px; width: 10px; height: 10px;"></div>
+<div style="position: fixed; top: 5px; left: 5px; width: 10px; height: 10px;"></div>
+</body></html>"#,
+            400.0,
+            600.0,
+        );
+        assert_eq!(laid.positioned.len(), 2, "both an orphaned absolute and a fixed box should bubble all the way to the document root");
+        let fixed_count = laid.positioned.iter().filter(|l| l.fixed).count();
+        assert_eq!(fixed_count, 1, "exactly one of the two (the `position: fixed` one) should be flagged for scroll-independent painting");
+        for item in &laid.positioned {
+            assert_eq!(
+                (item.x, item.y),
+                (5.0, 5.0),
+                "both resolve against the same viewport-sized containing block, regardless of the preceding 3000px-tall sibling"
+            );
+        }
+    }
+
+    #[test]
+    fn position_fixed_anchors_to_viewport_not_wherever_it_sits_in_a_tall_document() {
+        let laid = measure_document_fixture(
+            r#"<html><body>
+<div style="height: 3000px;"></div>
+<div style="position: fixed; top: 10px; right: 20px; width: 50px; height: 30px;"></div>
+</body></html>"#,
+            400.0,
+            600.0,
+        );
+        let fixed = laid.positioned.first().expect("fixed box not resolved");
+        assert!(fixed.fixed);
+        assert_eq!(fixed.y, 10.0, "top anchors against the 600px viewport, not the 3000px document");
+        assert_eq!(fixed.x, 400.0 - 20.0 - 50.0, "right anchors against the 400px viewport width");
+    }
+
+    #[test]
+    fn z_index_controls_paint_order_for_overlapping_absolute_boxes() {
+        // The higher-`z-index` box (red) appears *first* in document
+        // order but should still paint on top of the lower one (blue,
+        // later in markup) wherever they overlap — document order alone
+        // would give the opposite (wrong) answer here if `z-index`
+        // weren't honored at all (blue painting last/on top).
+        let html = r#"<html><body>
+<div style="position: absolute; top: 0px; left: 0px; width: 40px; height: 40px; background-color: #ff0000; z-index: 1;"></div>
+<div style="position: absolute; top: 10px; left: 10px; width: 40px; height: 40px; background-color: #0000ff; z-index: 0;"></div>
+</body></html>"#;
+        let doc = parse_html(html);
+        let tree = build_layout_tree(&doc);
+        let mut font_system = new_font_system();
+        let mut cache = ShapeCache::new();
+        let mut next_id = 0usize;
+        let mut incomplete = false;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let laid =
+            measure_document(&tree, &mut font_system, 200.0, 200.0, &mut next_id, &mut cache, deadline, &mut incomplete);
+        let mut swash_cache = SwashCache::new();
+        let (win_w, win_h) = (200u32, 200u32);
+        let mut pixels = vec![0u32; (win_w * win_h) as usize];
+        paint(&laid, &mut font_system, &mut swash_cache, &mut cache, &mut pixels, win_w, win_h, 0.0, None);
+        let px = pixels[20 * win_w as usize + 20];
+        assert_eq!(
+            px & 0x00FF_FFFF,
+            0x00FF_0000,
+            "the higher z-index box (red) should paint on top in the overlap region"
         );
     }
 }

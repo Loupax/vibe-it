@@ -148,11 +148,91 @@ the items above — see the conversation that asked "what features are
 missing in regards to rendering html?" Grouped by area so a future
 session can pick a coherent slice rather than one property at a time.
 
-- [ ] No positioning model at all: `float`/`clear`, `position`
-      (relative/absolute/fixed/sticky), and `z-index`/stacking contexts
-      are unparsed and unimplemented. Everything lays out in plain
-      in-flow block/inline order; nothing can be taken out of flow or
-      overlap deliberately.
+- [x] `position: relative`/`absolute`/`fixed` (PENDING_COMMIT_HASH) now
+      work: `relative` offsets a box's painted position (`top`/`right`/
+      `bottom`/`left`, px/`%`/`em`/`rem`) without affecting normal flow
+      at all (siblings land exactly where they would if it had no
+      offset); `absolute`/`fixed` are genuinely taken out of flow (no
+      space reserved for them by their own parent) and positioned
+      against the padding box of the nearest ancestor whose own
+      `position` isn't `static` (`absolute`) or the viewport
+      (`fixed`, immune to scroll — an orphaned `absolute` with no
+      positioned ancestor anywhere above it uses the same viewport-
+      sized rect, approximating the real CSS initial containing block).
+      `z-index` (plain integer, `auto`/unset treated as `0`) controls
+      paint/hit-test order *among boxes that share the same containing
+      block* — out-of-flow descendants always paint after their
+      containing block's own normal content, ascending by `z-index`,
+      ties in document order. Real CSS §9.7's "computed `display`"
+      rule is applied too: an `absolute`/`fixed` element's `display`
+      always computes to `block` (unless it's `none`), so e.g. a
+      `<span style="position: absolute">` gets its own box instead of
+      being flattened into the surrounding inline run. 7 new permanent
+      tests cover: relative offset leaving sibling flow untouched;
+      relative `%` offset resolving against the containing block;
+      absolute removed from flow + anchored to a positioned ancestor's
+      padding box; absolute solving `right`/`bottom` from its own
+      measured size; an orphaned absolute and a `fixed` box both
+      bubbling to the document root (same containing-block rect,
+      different scroll behavior); fixed staying anchored to the
+      viewport regardless of a 3000px-tall preceding sibling; and a
+      real painted-pixel check that a higher-`z-index` box wins an
+      overlap despite appearing earlier in document order.
+
+      **Deliberately deferred, not attempted this session** (see the
+      new, narrower items just below): `float`/`clear` (a genuinely
+      different, separate layout algorithm — text wrapping around a
+      floated box — not just an extension of this positioning work);
+      `position: sticky`; full CSS2.1 Appendix E stacking-context
+      ordering (this session's `z-index` support is real but
+      intentionally minimal — see its own item).
+
+- [ ] `float`/`clear` are still entirely unparsed/unimplemented — a
+      floated box needs to be taken out of normal flow *and* have
+      surrounding inline content actually wrap around it (not just
+      skip reserving space for it, which is all `position: absolute`
+      needed): real extra complexity this session's positioning work
+      doesn't cover at all. `clear` depends on knowing where any
+      preceding float(s) in the same block formatting context actually
+      ended up, so it can't be implemented independently of `float`
+      itself.
+
+- [ ] `position: sticky` isn't parsed — it falls through to `static`
+      (same "reject a variant that needs fundamentally different
+      machinery rather than approximate it" choice `box-shadow`'s
+      `inset` rejection (v27) established — see `Position`'s own docs).
+      Needs real scroll-position awareness (does this box's own
+      would-be-static position fall outside the current scroll
+      viewport in the "stuck" direction?) that re-evaluates every
+      frame as `scroll_offset` changes — a materially different kind of
+      input than anything `relative`/`absolute`/`fixed` need (all three
+      resolve once, at layout time, and stay fixed until the next
+      relayout). Scrolling in this engine is deliberately cheap
+      precisely because it never touches layout at all (see NOTES.md's
+      v4/v5 writeup) — making `sticky` work without reintroducing a
+      per-scroll-tick relayout cost is a real design question of its
+      own, not a drop-in extension of this session's work.
+
+- [ ] This session's `z-index`/stacking-order support is real but
+      narrower than the full CSS2.1 Appendix E model: every out-of-flow
+      (`absolute`/`fixed`) box anchored to the same containing block
+      paints in one ascending-`z-index` group, after that containing
+      block's own normal content — correct for the common case (an
+      overlay/dropdown/tooltip stacked above normal page content) but
+      not real stacking-context semantics. Not modeled at all: negative
+      `z-index` painting *below* its own containing block's background
+      (every out-of-flow box here always paints on top of its own
+      containing block, regardless of sign); a `position: relative`
+      box (in normal flow, never taken out of it) establishing its own
+      *separate* stacking context that would reorder its own in-flow
+      descendants against unrelated content elsewhere on the page —
+      `relative` here only ever gets *paint-position* treatment, never
+      stacking-order treatment, since nothing yet makes two unrelated
+      in-flow subtrees overlap in the first place; and `z-index` on
+      anything other than a `position`-ed box (meaningless in real CSS
+      too, so not a gap, just worth stating). Revisit once `float` (or
+      anything else that can make ordinary in-flow content overlap)
+      actually lands and this narrower model stops being sufficient.
 
 - [ ] No flexbox (`display: flex`) or grid (`display: grid`) — `Display`
       only has Block/Inline/None/Table/TableRow/TableCell/TableGroup.
