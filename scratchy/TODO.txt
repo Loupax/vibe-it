@@ -231,7 +231,7 @@ session can pick a coherent slice rather than one property at a time.
             these affect the common single-float case this item's own
             tests/screenshots cover.
 
-- [x] `position: sticky` (pending commit hash) now parses and works —
+- [x] `position: sticky` (636f369) now parses and works —
       per the user's own explicit design decision (asked via
       `AskUserQuestion`, see PROMPTS.md's v55 entry), resolved with
       *no* relayout cost from scrolling: a sticky box's own would-be-
