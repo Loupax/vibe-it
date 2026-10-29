@@ -635,7 +635,7 @@ session can pick a coherent slice rather than one property at a time.
       item needed.
 
 - [x] `cursor` (PROMPTS.md v32, extended to the full real keyword set
-      PENDING_HASH, v61): now also parses/maps `default`, `none` (hides
+      694bdf7, v61): now also parses/maps `default`, `none` (hides
       the OS cursor via `set_cursor_visible(false)`, not a `CursorIcon`),
       `context-menu`, `help`, `progress`, `wait`, `cell`, `crosshair`,
       `text`, `vertical-text`, `alias`, `copy`, `move`, `no-drop`,
