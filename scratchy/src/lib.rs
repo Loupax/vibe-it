@@ -6353,6 +6353,77 @@ fn tile_image(image: &DecodedImage, pixels: &mut [u32], win_w: u32, win_h: u32, 
     }
 }
 
+/// Real CSS2 §9.9.1: `position: relative`/`sticky` establishes its own
+/// descendant stacking context only when it also has an *explicit*
+/// `z-index` (`z-index: auto` — by far the common case — does not; such
+/// a box keeps today's plain paint-position-only treatment, painted in
+/// ordinary document order alongside its non-positioned siblings, same
+/// as before this feature existed). `absolute`/`fixed` are deliberately
+/// excluded here even though they always *do* establish a stacking
+/// context in real CSS: they're already out of flow and already have
+/// their own, separate, correctly-ordered home (`Laid::positioned`) —
+/// this predicate exists only to find the *in-flow* boxes that need
+/// pulling out of `paint`'s/`hit_test_cursor`'s ordinary per-child loop
+/// to be merged into that same z-ordered presentation instead.
+fn is_explicit_stacking_child(l: &Laid) -> bool {
+    matches!(l.style.position, Position::Relative | Position::Sticky) && l.style.z_index.is_some()
+}
+
+/// Paints one CSS2.1 Appendix E z-ordered layer for a box: either the
+/// negative-stack-level slice (layer 2 — "child stacking contexts with
+/// negative stack levels", painted *before* this box's own background/
+/// border) or the zero-and-positive slice (layers 6+7 combined — see
+/// `Laid::positioned`'s own docs for why merging those two is harmless
+/// here), painted at the very end, same spot this box's out-of-flow
+/// descendants have always painted at. Merges two different kinds of
+/// descendant stacking context that both need to compete by the same
+/// `z-index` ordering: `positioned` (this box's own out-of-flow
+/// `absolute`/`fixed` catches, already resolved elsewhere) and
+/// `stacking_children` (direct `Blocks`/`TableRow` children pulled out
+/// by `is_explicit_stacking_child` — still genuinely in normal flow,
+/// contributing to this box's size, just reordered for *paint* purposes
+/// only). Ties (same explicit `z-index`, or both `auto`/unset as `0`)
+/// keep `stacking_children` before `positioned` — an arbitrary but
+/// stable, documented tie-break for a narrow case (two things anchored
+/// to the very same box, at the very same explicit level) rather than a
+/// claim about real document order across two differently-sourced
+/// lists.
+#[allow(clippy::too_many_arguments)]
+fn paint_z_layer(
+    positioned: &[Laid],
+    stacking_children: &[&Laid],
+    font_system: &mut FontSystem,
+    swash_cache: &mut SwashCache,
+    cache: &mut ShapeCache,
+    pixels: &mut [u32],
+    win_w: u32,
+    win_h: u32,
+    scroll_offset: f32,
+    clip: Option<(f32, f32, f32, f32)>,
+) {
+    let mut entries: Vec<&Laid> = stacking_children.to_vec();
+    entries.extend(positioned.iter());
+    entries.sort_by_key(|l| l.style.z_index.unwrap_or(0));
+    for item in entries {
+        if matches!(item.style.position, Position::Relative | Position::Sticky) {
+            // Same sticky-vs-relative scroll-offset trick `paint`'s own
+            // ordinary `Blocks`/`TableRow` loop uses — a plain `relative`
+            // box's offset is already permanently baked into its own
+            // `x`/`y` (no `sticky` field), so this is a no-op shift (`dy
+            // == 0`) for it, and the real per-frame shift for `sticky`.
+            let child_scroll = match &item.sticky {
+                Some(info) => scroll_offset - sticky_shift(info, item.h, scroll_offset, win_h as f32),
+                None => scroll_offset,
+            };
+            paint(item, font_system, swash_cache, cache, pixels, win_w, win_h, child_scroll, clip);
+        } else {
+            // An out-of-flow `positioned` entry — same `fixed` handling
+            // `paint`'s own old positioned-list loop always used.
+            paint(item, font_system, swash_cache, cache, pixels, win_w, win_h, if item.fixed { 0.0 } else { scroll_offset }, clip);
+        }
+    }
+}
+
 fn paint(
     laid: &Laid,
     font_system: &mut FontSystem,
@@ -6391,6 +6462,54 @@ fn paint(
         // O(whole document) instead of O(visible content).
         return;
     }
+
+    // This box's own `overflow: hidden` (if any) only starts clipping
+    // its *descendants* — its own background/border below isn't clipped
+    // by it, same as an ancestor's `clip` never reaches that call either.
+    // Computed before any painting happens below (it's pure geometry —
+    // moving it ahead of the negative-z-index layer, which now needs to
+    // paint *before* this box's own background, doesn't change what it
+    // computes).
+    let child_clip = if s.overflow == Overflow::Hidden {
+        let (cx, cy, cw, ch) = intersect_clip(laid.x, draw_y, laid.w, laid.h, clip);
+        Some((cx, cy, cw, ch))
+    } else {
+        clip
+    };
+
+    // Real CSS2.1 Appendix E stacking order, split at the zero boundary.
+    // **Layer 2 (negative stack levels) paints *above* this box's own
+    // background/border (layer 1), not below it** — the spec's own
+    // bottommost-first list is 1 (background), 2 (negative), 3-5 (normal
+    // content), 6-7 (zero/positive) — so a negative-`z-index` descendant
+    // is only ever hidden *behind this box's own normal (layer 3+)
+    // content*, never behind this box's own background fill. (Checked
+    // directly against https://www.w3.org/TR/CSS21/zindex.html, which
+    // lists background before negative contexts in its "bottommost
+    // first" order — i.e. negative paints on top of it. This also
+    // matches the well-known real-world experience of `z-index: -1`:
+    // it only visibly disappears "behind everything" when the element
+    // it's negative *relative to* has no background of its own to begin
+    // with, not because negative z-index literally paints beneath any
+    // box's own background.) `laid.positioned` is already sorted
+    // ascending by `z-index`, so `partition_point` finds the zero
+    // boundary with no extra sort. Direct `Blocks`/`TableRow` children
+    // that establish their own stacking context (`is_explicit_stacking_
+    // child` — `position: relative`/`sticky` with an explicit `z-index`)
+    // are pulled out the same way, from whichever list this box's own
+    // content actually is (empty for every other `LaidContent` variant —
+    // nothing but `Blocks`/`TableRow` has a child list to pull from).
+    let neg_split = laid.positioned.partition_point(|l| l.style.z_index.unwrap_or(0) < 0);
+    let (neg_positioned, nonneg_positioned) = laid.positioned.split_at(neg_split);
+    let (neg_stacking_children, nonneg_stacking_children): (Vec<&Laid>, Vec<&Laid>) = match &laid.content {
+        LaidContent::Blocks(children) | LaidContent::TableRow(children) => children
+            .iter()
+            .filter(|c| is_explicit_stacking_child(c))
+            .partition(|c| c.style.z_index.unwrap_or(0) < 0),
+        _ => (Vec::new(), Vec::new()),
+    };
+
+    // Layer 1: this box's own background/border.
     // `visibility: hidden` still reserves this box's layout space (laid
     // out exactly as normal above) but skips its own background/border —
     // a descendant box with its own `visibility: visible` is a separate
@@ -6405,19 +6524,27 @@ fn paint(
         paint_box_decoration(&s, laid.background_image.as_deref(), pixels, win_w, win_h, laid.x, draw_y, laid.w, laid.h, clip);
     }
 
-    // This box's own `overflow: hidden` (if any) only starts clipping
-    // its *descendants* — its own background/border above isn't clipped
-    // by it, same as an ancestor's `clip` never reached that call either.
-    let child_clip = if s.overflow == Overflow::Hidden {
-        let (cx, cy, cw, ch) = intersect_clip(laid.x, draw_y, laid.w, laid.h, clip);
-        Some((cx, cy, cw, ch))
-    } else {
-        clip
-    };
+    // Layer 2: negative stacking contexts — above this box's own
+    // background/border (just painted), below everything else (the
+    // normal-content `match` below, and the zero/positive layer at the
+    // end of this function) — unconditional, same reasoning as that
+    // final layer (each entry's own recursive `paint` call checks *its
+    // own* `style.visibility`).
+    paint_z_layer(
+        neg_positioned, &neg_stacking_children, font_system, swash_cache, cache, pixels, win_w, win_h, scroll_offset,
+        child_clip,
+    );
 
     match &laid.content {
         LaidContent::Blocks(children) | LaidContent::TableRow(children) => {
-            for child in children {
+            // Layers 3/4/5: ordinary in-flow content, in document order
+            // (floats already sorted to the end of this same list by
+            // `measure`'s own `BoxContent::Blocks` arm — see v54). Any
+            // child pulled out above (`is_explicit_stacking_child`) is
+            // skipped here — it's painted by one of the two `paint_z_
+            // layer` calls instead, never both (every child is painted
+            // exactly once).
+            for child in children.iter().filter(|c| !is_explicit_stacking_child(c)) {
                 // A `position: sticky` child's own `Laid::x`/`.y` are
                 // still exactly its static in-flow position (never
                 // permanently shifted, unlike `relative` — see `Position::
@@ -6482,26 +6609,25 @@ fn paint(
         }
     }
 
-    // Out-of-flow `position: absolute`/`fixed` descendants whose
-    // containing block is *this* box — painted *after* its own normal
-    // content above, in ascending `z-index` order (already sorted when
-    // `laid.positioned` was built — see its own docs), so they
-    // legitimately paint on top of it and of each other. Unconditional
-    // (not gated on `s.visibility`, unlike this box's own decoration
-    // above): visibility is independent per element, and each entry's
-    // own recursive `paint` call below already checks *its own*
-    // `item.style.visibility`. Reuses `child_clip` — the same bounds a
-    // normal descendant would be clipped to — since each entry's
-    // containing block genuinely *is* this exact box (real CSS: an
-    // `overflow: hidden` ancestor clips an absolutely positioned
-    // descendant whenever that ancestor is at or inside its containing
-    // block, which is always true here by construction).
-    for item in &laid.positioned {
-        paint(
-            item, font_system, swash_cache, cache, pixels, win_w, win_h, if item.fixed { 0.0 } else { scroll_offset },
-            child_clip,
-        );
-    }
+    // Layers 6+7: this box's own out-of-flow `position: absolute`/
+    // `fixed` descendants (`laid.positioned`, already sorted ascending
+    // by `z-index` when it was built), merged with any direct `Blocks`/
+    // `TableRow` child establishing its own non-negative-`z-index`
+    // stacking context (`nonneg_stacking_children` above) — painted
+    // *after* this box's own normal content, so they legitimately paint
+    // on top of it and of each other. Unconditional (not gated on `s.
+    // visibility`, unlike this box's own decoration above): visibility
+    // is independent per element, and each entry's own recursive `paint`
+    // call already checks *its own* `style.visibility`. Reuses `child_
+    // clip` — the same bounds a normal descendant would be clipped to —
+    // since each entry's containing block genuinely *is* this exact box
+    // (real CSS: an `overflow: hidden` ancestor clips an absolutely
+    // positioned descendant whenever that ancestor is at or inside its
+    // containing block, which is always true here by construction).
+    paint_z_layer(
+        nonneg_positioned, &nonneg_stacking_children, font_system, swash_cache, cache, pixels, win_w, win_h,
+        scroll_offset, child_clip,
+    );
 }
 
 /// Finds the `CursorStyle` that should show at document-space `(x, y)` —
@@ -6530,20 +6656,55 @@ fn hit_test_cursor(laid: &Laid, x: f32, y: f32, cache: &ShapeCache, scroll_offse
     if x < laid.x || x >= laid.x + laid.w || y < laid.y || y >= laid.y + laid.h {
         return CursorStyle::Auto;
     }
-    // Out-of-flow descendants sit visually above this box's own normal
-    // content (same order `paint` uses) — check them first, in reverse
-    // (highest `z-index`/last-painted first), so a hit lands on
-    // whatever's actually on top. `.rev()` over an ascending-`z-index`
-    // list, not a second sort.
-    for item in laid.positioned.iter().rev() {
-        let (ix, iy, inner_scroll) = if item.fixed { (x, y - scroll_offset, 0.0) } else { (x, y, scroll_offset) };
-        if ix >= item.x && ix < item.x + item.w && iy >= item.y && iy < item.y + item.h {
-            return hit_test_cursor(item, ix, iy, cache, inner_scroll, viewport_h);
+    // Same `is_explicit_stacking_child` pull-out `paint` uses, merged
+    // with `laid.positioned` for one combined reversed-priority check
+    // below — a direct `Blocks`/`TableRow` child establishing its own
+    // stacking context visually paints outside the plain document-order
+    // loop (same as an out-of-flow descendant), so it must win a hit
+    // test the same way. **Deliberately not split by sign the way
+    // `paint`'s own layering now is** — `paint`'s negative layer sits
+    // *below* normal content (see its own docs), but a negative entry is
+    // still checked here at the *same* (first/highest) priority as a
+    // non-negative one: a narrow, documented approximation (see
+    // TODO.txt) rather than a full mirror of that split, since a
+    // negative stacking context's hit-test priority is rarely
+    // observable in practice (it only wins a hit at all when nothing in
+    // the normal-content layer happens to cover the same pixel).
+    let stacking_children: Vec<&Laid> = match &laid.content {
+        LaidContent::Blocks(children) | LaidContent::TableRow(children) => {
+            children.iter().filter(|c| is_explicit_stacking_child(c)).collect()
+        }
+        _ => Vec::new(),
+    };
+    let mut above: Vec<&Laid> = stacking_children.clone();
+    above.extend(laid.positioned.iter());
+    above.sort_by_key(|l| l.style.z_index.unwrap_or(0));
+    // Checked first, in reverse (highest `z-index`/last-painted first),
+    // so a hit lands on whatever's actually on top. `.rev()` over an
+    // ascending-`z-index` list, not a second sort.
+    for item in above.iter().rev() {
+        if matches!(item.style.position, Position::Relative | Position::Sticky) {
+            // Mirror image of `paint`'s own trick (see the `Blocks`/
+            // `TableRow` loop below): a sticky item's document-space
+            // rect is shifted by `dy` from its stored (static) `x`/`y`;
+            // a plain `relative` item has no `sticky` field at all, so
+            // `dy` is always `0` for it (its offset is already baked
+            // into `x`/`y` permanently).
+            let dy = item.sticky.as_ref().map_or(0.0, |info| sticky_shift(info, item.h, scroll_offset, viewport_h));
+            let (ix, iy) = (item.x, item.y + dy);
+            if ix <= x && x < ix + item.w && iy <= y && y < iy + item.h {
+                return hit_test_cursor(item, x, y - dy, cache, scroll_offset, viewport_h);
+            }
+        } else {
+            let (ix, iy, inner_scroll) = if item.fixed { (x, y - scroll_offset, 0.0) } else { (x, y, scroll_offset) };
+            if ix >= item.x && ix < item.x + item.w && iy >= item.y && iy < item.y + item.h {
+                return hit_test_cursor(item, ix, iy, cache, inner_scroll, viewport_h);
+            }
         }
     }
     match &laid.content {
         LaidContent::Blocks(children) | LaidContent::TableRow(children) => {
-            for child in children {
+            for child in children.iter().filter(|c| !is_explicit_stacking_child(c)) {
                 // Mirror image of `paint`'s own trick: a sticky child's
                 // own *document-space* rect, for hit-testing purposes, is
                 // shifted by `dy` from its stored (static) `x`/`y` — so
@@ -8854,6 +9015,153 @@ mod tests {
         assert_ne!(
             pixels_a, pixels_b,
             "the two different scroll offsets should visibly move the sticky box on screen, even though the underlying Laid tree never changed at all"
+        );
+    }
+
+    // ---------- v56: real CSS2.1 Appendix E stacking-context semantics ----------
+
+    /// Shared plumbing for this section's tests: parse, build, measure at
+    /// a 200x200 viewport (`measure_document`, so `position: absolute`/
+    /// `fixed` resolve the same way they would in the real app), paint
+    /// into a real pixel buffer, and hand back just the buffer plus the
+    /// window size needed to index it. `<body style="margin:0">` in every
+    /// fixture below sidesteps `default.css`'s own `body { margin: 8px }`
+    /// — these tests sample hand-computed pixel coordinates against
+    /// in-flow boxes (unlike the pre-existing `z_index_controls_paint_
+    /// order_for_overlapping_absolute_boxes` test above, whose `position:
+    /// absolute; top/left: 0` boxes anchor to the *viewport*, immune to
+    /// body's own margin either way).
+    fn paint_fixture(html: &str) -> (Vec<u32>, u32, u32) {
+        let doc = parse_html(html);
+        let tree = build_layout_tree(&doc);
+        let mut font_system = new_font_system();
+        let mut cache = ShapeCache::new();
+        let mut next_id = 0usize;
+        let mut incomplete = false;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let laid =
+            measure_document(&tree, &mut font_system, 200.0, 200.0, &mut next_id, &mut cache, deadline, &mut incomplete);
+        let mut swash_cache = SwashCache::new();
+        let (win_w, win_h) = (200u32, 200u32);
+        let mut pixels = vec![0u32; (win_w * win_h) as usize];
+        paint(&laid, &mut font_system, &mut swash_cache, &mut cache, &mut pixels, win_w, win_h, 0.0, None);
+        (pixels, win_w, win_h)
+    }
+
+    fn px_at(pixels: &[u32], win_w: u32, x: u32, y: u32) -> u32 {
+        pixels[(y * win_w + x) as usize] & 0x00FF_FFFF
+    }
+
+    #[test]
+    fn negative_z_index_paints_above_its_containing_boxs_background_but_below_normal_content() {
+        // CSS2.1 Appendix E's own bottommost-first order
+        // (https://www.w3.org/TR/CSS21/zindex.html) is: 1 (this box's own
+        // background/border), 2 (negative-`z-index` descendant stacking
+        // contexts), 3-5 (normal in-flow content) — i.e. negative
+        // `z-index` paints *above* this box's own background (it is only
+        // ever hidden behind *normal content*, layers 3+, never behind
+        // the background fill of the box that establishes its stacking
+        // context). Confirmed against the spec directly — the intuitive-
+        // sounding "negative z-index hides behind its own box's
+        // background" is a common but *inaccurate* paraphrase of the
+        // real rule (it only looks that way when the relevant box has no
+        // background of its own, so there's nothing *else* for the
+        // negative descendant to appear in front of). Two assertions:
+        // red (the `z-index: -1` child) must beat green (the container's
+        // own background) where only those two overlap, and lose to blue
+        // (an ordinary static sibling, layer 3) wherever blue also
+        // covers the same pixel.
+        //
+        // No inter-tag whitespace — a literal newline/indentation between
+        // these block-level tags would become its own whitespace-only
+        // anonymous inline box, consuming real flow height and silently
+        // shifting every box below it (the exact v51/v52-documented
+        // pitfall; caught here by a debug dump during development, not
+        // assumed away).
+        let html = r#"<html><body style="margin:0"><div style="position: relative; width: 100px; height: 100px; background-color: #00ff00;"><div style="position: absolute; top: 0px; left: 0px; width: 100px; height: 100px; background-color: #ff0000; z-index: -1;"></div><div style="width: 100px; height: 50px; background-color: #0000ff;"></div></div></body></html>"#;
+        let (pixels, win_w, _) = paint_fixture(html);
+        assert_eq!(
+            px_at(&pixels, win_w, 50, 80),
+            0x00FF_0000,
+            "the z-index:-1 child should paint above the container's own green background"
+        );
+        assert_eq!(
+            px_at(&pixels, win_w, 50, 20),
+            0x0000_00FF,
+            "the z-index:-1 child should still paint below an ordinary (layer 3) static sibling"
+        );
+    }
+
+    #[test]
+    fn seven_layer_stacking_order_within_one_containing_block() {
+        // One `position: relative` container with three children spanning
+        // four of CSS2.1 Appendix E's seven layers: its own background
+        // (layer 1, green, full 100x100), a `z-index: -1` absolute child
+        // (layer 2, red, full 100x100 — above the background, below
+        // everything else), an ordinary static in-flow child (layer 3,
+        // blue, top 100x50 half — above the negative-z-index child, same
+        // as any other non-positioned in-flow content), and a `z-index: 5`
+        // absolute child (layer 7, yellow, top-left 30x30 — above
+        // everything, including the static child). Document order is
+        // deliberately *not* the paint order here (red is declared first,
+        // yellow last, but neither is topmost solely from parsing order) —
+        // z-index/layer membership alone must decide it.
+        // No inter-tag whitespace — see the test above's own note.
+        let html = r#"<html><body style="margin:0"><div style="position: relative; width: 100px; height: 100px; background-color: #00ff00;"><div style="position: absolute; top: 0px; left: 0px; width: 100px; height: 100px; background-color: #ff0000; z-index: -1;"></div><div style="width: 100px; height: 50px; background-color: #0000ff;"></div><div style="position: absolute; top: 0px; left: 0px; width: 30px; height: 30px; background-color: #ffff00; z-index: 5;"></div></div></body></html>"#;
+        let (pixels, win_w, _) = paint_fixture(html);
+        // Outside the static child's 0-50 range and the small yellow
+        // child's 0-30 range: only green (layer 1) and red (layer 2)
+        // cover this pixel — red must win (layer 2 above layer 1).
+        assert_eq!(px_at(&pixels, win_w, 80, 80), 0x00FF_0000, "layer 2 (negative z-index) should paint above layer 1 (this box's own background)");
+        // Inside both the static child's range and the small yellow
+        // child's range: yellow (layer 7) must win over everything,
+        // including the in-flow static child (layer 3).
+        assert_eq!(px_at(&pixels, win_w, 10, 10), 0x00FF_FF00, "layer 7 (positive z-index) should paint above layer 3 (ordinary in-flow content)");
+        // Inside the static child's range but outside the small yellow
+        // child's range: blue (layer 3) must win over red (layer 2).
+        assert_eq!(px_at(&pixels, win_w, 10, 40), 0x0000_00FF, "layer 3 (ordinary in-flow content) should paint above layer 2 (negative z-index)");
+    }
+
+    #[test]
+    fn relative_box_with_explicit_z_index_establishes_its_own_stacking_context() {
+        // A `position: relative; z-index: 1` box stays in normal flow
+        // (contributes to its container's size, never displaces a
+        // sibling — unchanged from `relative`'s own pre-existing
+        // behavior) but, with an *explicit* z-index, now establishes its
+        // own stacking context: real CSS2 §9.9.1. Shifted down by `top:
+        // 30px` to genuinely overlap a later, ordinary static sibling
+        // (declared *after* it, and which would win a plain document-
+        // order paint) — the explicit z-index must still win.
+        // No inter-tag whitespace — see the first test above's own note.
+        let html = r#"<html><body style="margin:0"><div style="position: relative; top: 30px; left: 0px; width: 50px; height: 50px; background-color: #ff0000; z-index: 1;"></div><div style="width: 50px; height: 50px; background-color: #0000ff;"></div></body></html>"#;
+        let (pixels, win_w, _) = paint_fixture(html);
+        // Overlap region: the shifted red box covers screen y 30-80; the
+        // ordinary blue sibling (document order: right after red's own
+        // *unshifted* 0-50 flow slot) covers y 50-100. Sampled at y=60,
+        // inside both.
+        assert_eq!(
+            px_at(&pixels, win_w, 10, 60),
+            0x00FF_0000,
+            "the relative box's own explicit z-index should establish a stacking context above its later static sibling"
+        );
+    }
+
+    #[test]
+    fn relative_box_with_auto_z_index_does_not_establish_a_stacking_context() {
+        // Exact same fixture as the test above, minus the explicit
+        // `z-index` on the shifted relative box — real CSS: `z-index:
+        // auto` does *not* establish a new stacking context, so this
+        // box keeps today's plain paint-position-only treatment and the
+        // later static sibling (document order) still wins the overlap,
+        // same as before this session's feature existed at all. This is
+        // the regression pin for that "same as before" claim.
+        // No inter-tag whitespace — see the first test in this section.
+        let html = r#"<html><body style="margin:0"><div style="position: relative; top: 30px; left: 0px; width: 50px; height: 50px; background-color: #ff0000;"></div><div style="width: 50px; height: 50px; background-color: #0000ff;"></div></body></html>"#;
+        let (pixels, win_w, _) = paint_fixture(html);
+        assert_eq!(
+            px_at(&pixels, win_w, 10, 60),
+            0x0000_00FF,
+            "z-index:auto should not establish a stacking context — the later sibling keeps winning the overlap by plain document/paint order"
         );
     }
 }

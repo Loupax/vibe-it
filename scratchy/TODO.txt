@@ -292,26 +292,78 @@ session can pick a coherent slice rather than one property at a time.
       `Laid` tree, not just asserting the math in isolation). Worth a
       real interactive check next time a human's at the keyboard.
 
-- [ ] This session's `z-index`/stacking-order support is real but
-      narrower than the full CSS2.1 Appendix E model: every out-of-flow
-      (`absolute`/`fixed`) box anchored to the same containing block
-      paints in one ascending-`z-index` group, after that containing
-      block's own normal content — correct for the common case (an
-      overlay/dropdown/tooltip stacked above normal page content) but
-      not real stacking-context semantics. Not modeled at all: negative
-      `z-index` painting *below* its own containing block's background
-      (every out-of-flow box here always paints on top of its own
-      containing block, regardless of sign); a `position: relative`
-      box (in normal flow, never taken out of it) establishing its own
-      *separate* stacking context that would reorder its own in-flow
-      descendants against unrelated content elsewhere on the page —
-      `relative` here only ever gets *paint-position* treatment, never
-      stacking-order treatment, since nothing yet makes two unrelated
-      in-flow subtrees overlap in the first place; and `z-index` on
-      anything other than a `position`-ed box (meaningless in real CSS
-      too, so not a gap, just worth stating). Revisit once `float` (or
-      anything else that can make ordinary in-flow content overlap)
-      actually lands and this narrower model stops being sufficient.
+- [x] Real CSS2.1 Appendix E stacking-context semantics (v56, TBD): the
+      seven-layer bottom-to-top paint order
+      (https://www.w3.org/TR/CSS21/zindex.html) is now genuinely modeled
+      per stacking context — (1) this box's own background/border, (2)
+      negative-`z-index` descendant stacking contexts, (3) in-flow
+      non-positioned non-floated block descendants, (4) floats, (5)
+      in-flow inline descendants, (6) `z-index: 0`/`auto` positioned
+      descendants, (7) positive-`z-index` descendant stacking contexts —
+      verified layer-by-layer with a permanent pixel test, not assumed.
+      Two concrete fixes over the old, narrower model (every out-of-flow
+      box used to paint in one flat ascending-`z-index` group, always
+      *after* its containing block's own content, regardless of sign):
+
+      Negative `z-index` now paints *above* its own containing/stacking-
+      context box's own background/border but *below* that box's normal
+      content (layer 2 sits between layers 1 and 3). Checked directly
+      against the spec rather than assumed: the intuitive "negative
+      z-index hides behind its own box's background" is a common but
+      *inaccurate* paraphrase of the real rule — Appendix E lists
+      background (layer 1) *before* negative stacking contexts (layer 2)
+      in its bottommost-first order, meaning negative paints on top of
+      it; it only looks "hidden behind everything" when the relevant box
+      happens to have no background of its own, leaving nothing else for
+      it to appear in front of.
+
+      `position: relative`/`sticky` with an *explicit* `z-index` now
+      establishes its own descendant stacking context (real CSS2
+      §9.9.1) — pulled out of plain document-order painting to compete
+      by `z-index` with its containing block's other out-of-flow
+      descendants instead, the same way `absolute`/`fixed` already did.
+      `z-index: auto` on `relative`/`sticky` is unaffected (still
+      today's plain paint-position-only treatment — real CSS: `auto`
+      does not establish a stacking context).
+
+      The "two unrelated in-flow subtrees overlapping" generality the
+      original item worried about turned out to be reachable, just not
+      in the unbounded way the old wording implied: a `position:
+      relative` box's own offset can already overlap a *sibling* in the
+      same parent's `Blocks` list (float/clear, v54, only narrows
+      content *around* a float — it doesn't let two unrelated block
+      subtrees overlap arbitrarily anywhere on the page). Scoped to
+      exactly that reachable case — sibling-level, same immediate parent
+      — rather than building a fully general cross-subtree stacking
+      search for a case that doesn't occur in this layout model.
+
+      Deliberately scoped out, each documented precisely rather than
+      silently dropped:
+      - [ ] A `relative`/`sticky` box's own explicit-`z-index` stacking
+            context is always anchored at its *immediate* containing
+            block (the same box that already catches its own
+            `absolute`/`fixed` descendants), never bubbled past an
+            intervening ancestor that is itself positioned but has
+            `z-index: auto` — real CSS would let such an ancestor's own
+            descendants' `z-index` comparisons bubble further up past it
+            (an auto-`z-index` positioned box doesn't establish its own
+            context), which this doesn't model. Not reachable by
+            anything `default.css` or a real test page needs yet (deep
+            nested positioned-with-auto-`z-index` ancestors containing
+            an explicitly-`z-index`ed descendant are uncommon), but a
+            real, narrower gap than the general case this item used to
+            describe.
+      - [ ] `hit_test_cursor`'s negative-`z-index` priority doesn't fully
+            mirror `paint`'s now-corrected order: a negative stacking
+            entry (an out-of-flow box or an explicit-`z-index`
+            `relative`/`sticky` child) is still checked at the same
+            (highest) hit-test priority as a non-negative one, rather
+            than only after normal content the way it now actually
+            paints — same category of approximation `float`'s own
+            cursor-hit-test priority already has (v54): correct for the
+            common case (nothing else covers the same pixel), wrong only
+            when a negative stacking entry and normal content genuinely
+            overlap at the exact same screen pixel.
 
 - [ ] No flexbox (`display: flex`) or grid (`display: grid`) — `Display`
       only has Block/Inline/None/Table/TableRow/TableCell/TableGroup.

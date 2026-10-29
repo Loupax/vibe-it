@@ -1467,3 +1467,137 @@ scrolling" behavior is exercised only by the permanent headless tests
 (which do call the real `paint`/`sticky_shift` code path, just with a
 synthetic `scroll_offset` standing in for a real wheel event) — worth a
 real interactive check next time a human's at the keyboard.
+
+## v56 — real CSS2.1 Appendix E stacking-context semantics
+
+Picked off `TODO.txt`'s `z-index`/stacking-order item — the one v52
+explicitly left narrower than the full Appendix E model ("every
+out-of-flow box anchored to the same containing block paints in one
+ascending-`z-index` group, after that containing block's own normal
+content"). Two real fixes, both paint-time-only (no change to `measure`
+or `Laid`'s own layout fields beyond nothing at all — this entire
+feature lives in `paint`/`hit_test_cursor`).
+
+**Negative `z-index` paints between layers 1 and 3, not below layer 1.**
+Found a genuine inconsistency in this session's own task wording while
+implementing it: one part said negative `z-index` should paint "below
+its own containing box's own background," another part gave the exact
+Appendix E seven-layer list, which puts background at layer 1 and
+negative-`z-index` contexts at layer 2 — i.e. *above* layer 1, not
+below it. Resolved by trusting the cited authoritative source
+(https://www.w3.org/TR/CSS21/zindex.html) over the paraphrase, not by
+asking the user — this wasn't a design ambiguity, it was a factual
+question the task's own more precise wording (and the spec itself)
+already answered unambiguously. Caught by a failing test, not by
+re-reading the prose carefully enough the first time: implemented
+negative-paints-first literally, wrote a test pinning "negative loses
+to the box's own background," watched it contradict the *other* test
+(seven-layer order, built straight from the spec's own layer list)
+that already correctly expected negative to beat background — the two
+tests couldn't both be right, which is what surfaced the inconsistency
+concretely rather than in the abstract. The real rule, confirmed: a
+`z-index: -1` descendant only looks "hidden behind everything" when the
+box it's negative *relative to* happens to have no background of its
+own — colloquial CSS folklore conflates that common case with the
+actual rule.
+
+**`paint`'s per-box order is now**: (1) this box's own background/
+border: `paint_box_decoration`, unchanged in content, just reordered
+relative to the next step; (2) `paint_z_layer` for the *negative* half
+of this box's combined z-ordered descendants; (3) the ordinary
+`Blocks`/`TableRow` child loop (floats already sorted to the end of
+that same list by `measure`'s own v54 logic — layers 3/4 for free, with
+no new code); (4) `paint_z_layer` again, for the *non-negative* half —
+same call this box's own out-of-flow `positioned` list has always
+painted via, just now also carrying the new in-flow stacking children
+(see below). `laid.positioned` is already sorted ascending by
+`z-index` from where it's built (v52) — `partition_point` finds the
+zero boundary with no extra sort; `paint_z_layer` is one new helper
+function, not duplicated at each of the two call sites.
+
+**`position: relative`/`sticky` + an explicit `z-index` establishes its
+own descendant stacking context (CSS2 §9.9.1) — `z-index: auto` does
+not, unaffected.** The key realization: such a box is *already* 95% in
+the right place architecturally, the same way v55 found sticky was 95%
+`relative` — it already catches its own `absolute`/`fixed` descendants
+as their containing block (any `position != static` box does, since
+v52, regardless of its own `z-index`), so a nested descendant's own
+explicit `z-index` was already correctly scoped to compete only within
+that same local group. The only missing piece was the box *itself*:
+with an explicit `z-index`, it needs to compete by that value against
+its *own* siblings and its parent's other out-of-flow descendants,
+instead of painting at its plain document-order position in the
+`Blocks`/`TableRow` array the way `z-index: auto` still does (and did,
+unconditionally, before this session). A new predicate,
+`is_explicit_stacking_child` (`position: relative`/`sticky` *and*
+`z_index.is_some()`), finds these in a `Blocks`/`TableRow` child list;
+`paint`'s normal loop filters them out (so nothing is ever painted
+twice), and `paint_z_layer` merges them with this box's own `laid.
+positioned` entries into one combined, sorted presentation — `paint_z_
+layer` distinguishes the two kinds of entry by `item.style.position`
+alone (an out-of-flow `positioned` entry is always `absolute`/`fixed`;
+an in-flow stacking child is always `relative`/`sticky` — the two sets
+never overlap, so no wrapper enum was needed), applying the right
+scroll-offset trick for each (`sticky_shift` for a sticky child, the
+`fixed`-immune-to-scroll check for an out-of-flow entry). The in-flow
+stacking child is **not** taken out of flow — it still contributes to
+its parent's size and never displaces a sibling, exactly like a plain
+`relative` box always has; only its *paint-order slot* moves.
+
+**Is "two unrelated in-flow subtrees overlapping" actually reachable in
+scratchy today? Yes, but only at sibling granularity, not generally.**
+This session's task explicitly asked this be checked before building
+any generality for it. Float/clear (v54) only narrows content *around*
+a float within one inline formatting context — it doesn't let two
+unrelated block-level subtrees occupy the same screen region. But a
+`position: relative` box's own offset (`top`/`left`, resolved since
+v52) *can* move a box into visual overlap with a plain sibling in the
+same parent's `Blocks` list, entirely independent of float — proven
+directly by this session's own `relative_box_with_explicit_z_index_
+establishes_its_own_stacking_context` test (a `top: 30px` shift makes
+an earlier box overlap a later, ordinary static sibling). That's the
+concrete, reachable shape of "two things overlapping that document
+order alone would get wrong" — scoped to exactly that (same immediate
+parent, one box's offset reaching into a sibling's natural rectangle),
+not a general "any two subtrees anywhere on the page" search, which
+genuinely doesn't arise from anything scratchy's layout model can
+produce today.
+
+**What's deliberately still scoped out, each its own `TODO.txt` item**:
+a `relative`/`sticky` box's own stacking context is anchored at its
+*immediate* containing block only — it doesn't bubble past an
+intervening `position`-ed-but-`z-index:auto` ancestor the way real
+nested stacking contexts would (that ancestor, per spec, shouldn't
+establish its own context at all, so a descendant's `z-index` should
+really compete one level further up); not reachable by anything real
+yet, so not built. `hit_test_cursor`'s own negative-`z-index` priority
+doesn't fully mirror `paint`'s corrected order either — a negative
+entry is still checked at the same first-priority pass as a
+non-negative one (restructuring the whole function to return `Option`
+throughout, so a "found nothing more specific" fallback could be told
+apart from "found this box's own ambient cursor," was judged a
+disproportionate risk for a narrow, rarely-observable case — same
+"pick the narrower, lower-risk option and document the gap precisely"
+call v31's own `overflow` scoping and v54's own float-hit-test gap
+already made).
+
+**Testing**: 4 new permanent tests in `mod tests` — `negative_z_index_
+paints_above_its_containing_boxs_background_but_below_normal_content`;
+`seven_layer_stacking_order_within_one_containing_block` (layers 1, 2,
+3, and 7 pinned directly via 3 sampled pixels in one fixture, document
+order deliberately not matching paint order so the test can't pass by
+accident); `relative_box_with_explicit_z_index_establishes_its_own_
+stacking_context`; and `relative_box_with_auto_z_index_does_not_
+establish_a_stacking_context` (the explicit regression pin for the
+"auto is unaffected" half of the feature). One real snag while writing
+them, same lesson v51/v52 already taught and worth restating since it
+bit again here: the first draft of every fixture had a literal newline
+between tags, each becoming its own whitespace-only anonymous inline
+box that silently shifted every box below it — caught by dumping the
+actual `Laid` tree with a throwaway debug test rather than assuming the
+fixture HTML was fine because it had "worked before." Also visually
+confirmed with a real `grim` screenshot against a page combining all of
+this: a negative-`z-index` box correctly showing through below an
+in-flow sibling that only covers *part* of its area, and a `relative`+
+explicit-`z-index` box correctly winning an overlap against a later
+static sibling.

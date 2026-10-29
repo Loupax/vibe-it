@@ -3604,3 +3604,117 @@ shifting, `paint`'s and `hit_test_cursor`'s sticky-aware child
 recursion — the latter gaining a new `viewport_h` parameter — 5 new
 tests in the permanent `mod tests`); `TODO.txt` (item checked off);
 `NOTES.md` (architecture write-up).
+
+---
+
+## v56 — real CSS2.1 Appendix E stacking-context semantics
+
+> set up a loop where you pick the next TODO item, and once completed,
+> clear your context and do that again until the list is done
+
+Next item of that same autonomous `TODO.txt` loop (v49 did `%` lengths,
+v50 table layout, v51 named `font-family` fallback lists, v52 the
+`position`/`z-index` positioning model, v53 `<head>` hiding, v54
+`float`/`clear`, v55 `position: sticky`) — the `z-index`/stacking-order
+item v52 explicitly left narrower than the full Appendix E model, and
+which this session's own task framing (unlike v55's sticky) said didn't
+need a design decision: CSS2.1 Appendix E's stacking/painting order is
+precisely spec'd, just a bigger, more involved correctness item than
+most of what's been picked off this run.
+
+**What landed, in order of how the implementation actually unfolded.**
+Negative `z-index` now paints between layers 1 and 3 — above this box's
+own background/border, below its normal content — instead of the old
+model's flat "every out-of-flow box, any sign, paints after everything."
+`position: relative`/`sticky` with an *explicit* `z-index` now
+establishes its own descendant stacking context (real CSS2 §9.9.1),
+competing by `z-index` with its containing block's other out-of-flow
+descendants instead of painting at its plain document-order position —
+`z-index: auto` (the overwhelming common case) is completely unaffected,
+confirmed by its own dedicated regression test. Both fixes live entirely
+in `paint`/`hit_test_cursor`; nothing about `measure`/`Laid`'s own
+fields changed — this is a paint-order feature, not a layout one.
+
+**A genuine inconsistency inside this session's own task text, resolved
+by checking the authoritative source, not by asking the user.** One part
+of the instructions said negative `z-index` paints "below its own
+containing box's own background." A different part of the same
+instructions gave the literal Appendix E seven-layer list, which puts
+background at layer 1 and negative-`z-index` contexts at layer 2 —
+*above* layer 1, not below it. These two statements can't both be true.
+Caught concretely, not just by close reading: the first implementation
+attempt followed the "below the background" wording literally, and its
+own dedicated test immediately contradicted the *second* test (the
+seven-layer one, built straight from the numbered list), which already
+correctly expected negative to beat the background. Resolved by
+checking https://www.w3.org/TR/CSS21/zindex.html directly — background-
+before-negative-in-a-bottommost-first list means negative paints on top
+of the background, confirming the seven-layer list's reading was right
+and the prose paraphrase was the imprecise one (a very common piece of
+CSS folklore: "negative z-index hides behind everything" is only true
+when the relevant box has no background of its own to appear in front
+of). This wasn't treated as a stop-and-ask design ambiguity — it was a
+factual question the task's own more precise wording, and the cited
+spec, already answered unambiguously; asking would have meant asking
+the user to re-derive something already fully specified in two other
+places.
+
+**Is the "two unrelated in-flow subtrees overlapping" generality the
+original `TODO.txt` wording worried about actually reachable in
+scratchy today?** Checked directly, as this session's task asked, rather
+than assumed either way. Answer: yes, but only at sibling granularity,
+not in the fully general sense. Float/clear (v54) only narrows content
+*around* a float within one inline formatting context — it can't make
+two unrelated block-level subtrees occupy the same screen region. But a
+`position: relative` box's own `top`/`left` offset (resolved since v52)
+genuinely can shift a box into visual overlap with an ordinary sibling
+in the *same parent's* `Blocks` list — proven directly by this session's
+own `relative_box_with_explicit_z_index_establishes_its_own_stacking_
+context` test. That's the concrete, reachable shape this feature
+actually needed to handle — scoped to exactly that (same immediate
+parent, one box's offset reaching into a sibling's rectangle), not a
+general "any two subtrees anywhere on the page" search, which doesn't
+arise from anything scratchy's current layout model can produce.
+
+**Deliberately scoped out, each its own precise `TODO.txt` item rather
+than silently dropped**: a `relative`/`sticky` box's own stacking
+context is anchored at its *immediate* containing block only — it
+doesn't bubble past an intervening positioned-but-`z-index:auto`
+ancestor the way real nested stacking contexts would (not reachable by
+anything real yet). `hit_test_cursor`'s own negative-`z-index` priority
+doesn't fully mirror `paint`'s corrected order (a negative entry is
+still checked at the same first-priority pass as a non-negative one) —
+restructuring the whole function to tell "found nothing" apart from
+"found this box's own ambient cursor" throughout was judged a
+disproportionate risk for a narrow, rarely-observable case, the same
+kind of scoped-narrower call v31's `overflow` and v54's own float-hit-
+test gap already made.
+
+**Testing.** 4 new permanent tests in `mod tests`: `negative_z_index_
+paints_above_its_containing_boxs_background_but_below_normal_content`;
+`seven_layer_stacking_order_within_one_containing_block` (layers 1, 2,
+3, and 7 pinned via 3 sampled pixels in one fixture, with document order
+deliberately not matching paint order so the test can't pass by
+accident); `relative_box_with_explicit_z_index_establishes_its_own_
+stacking_context`; and `relative_box_with_auto_z_index_does_not_
+establish_a_stacking_context`, the explicit regression pin for the
+"`auto` is unaffected" half of the feature. All pre-existing tests
+(including v52's own `z_index_controls_paint_order_for_overlapping_
+absolute_boxes`) still pass unchanged. One real snag while writing the
+new fixtures, the same lesson v51/v52 already documented and worth
+restating since it bit again here: the first draft of every fixture had
+a literal newline between tags, each becoming its own whitespace-only
+anonymous inline box that silently shifted every box below it — caught
+by dumping the actual `Laid` tree with a throwaway debug test rather
+than assuming the fixture HTML was fine because similar ones had worked
+before. Also visually confirmed with a real `grim` screenshot against a
+page combining all of this at once: a negative-`z-index` box correctly
+showing through below an in-flow sibling that only covers part of its
+area, and a `relative`+explicit-`z-index` box correctly winning an
+overlap against a later static sibling.
+
+**Deliverable:** `src/lib.rs` (`is_explicit_stacking_child`, the new
+`paint_z_layer` helper, `paint`'s reordered per-box layering, `hit_test_
+cursor`'s matching reordering, 4 new tests in the permanent `mod
+tests`); `TODO.txt` (item checked off, two new narrower deferred items
+added); `NOTES.md` (architecture write-up).
