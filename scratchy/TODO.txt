@@ -491,7 +491,7 @@ session can pick a coherent slice rather than one property at a time.
             not-yet-supported value. Nothing in `default.css` or a real
             test page has needed one yet.
 
-- [x] `display: grid` (PENDING_COMMIT_HASH, v58) now does a real but
+- [x] `display: grid` (2f593a1, v58) now does a real but
       deliberately scoped subset of CSS Grid Layout
       (https://www.w3.org/TR/css-grid-1/) — explicit `grid-template-
       columns`/`-rows` track lists (fixed `px`/`%`/`em`/`rem` lengths and
