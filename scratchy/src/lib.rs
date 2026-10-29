@@ -501,6 +501,17 @@ enum Display {
     /// normal block/inline flow. `inline-flex` is not implemented (see
     /// TODO.txt) — a flex container is always block-level here.
     Flex,
+    /// `display: grid` — a block-level container (in the outer flow,
+    /// same as `Table`/`Flex`) whose direct children each become grid
+    /// items, placed into a 2D grid (`measure_grid`) per CSS Grid
+    /// Layout (https://www.w3.org/TR/css-grid-1/), scoped to a real but
+    /// deliberately narrower subset than flexbox's own — explicit
+    /// `grid-template-columns`/`-rows` track lists (fixed lengths, `%`,
+    /// `fr`, `repeat()`) plus implicit row-by-row auto-placement, no
+    /// explicit per-item placement — see `measure_grid`'s own docs and
+    /// `TODO.txt` for exactly what's cut. `inline-grid` is not
+    /// implemented either, same as `inline-flex`.
+    Grid,
 }
 
 /// `position`'s 5 implemented keywords. Not inherited (same category as
@@ -675,6 +686,29 @@ enum FlexBasis {
     #[default]
     Auto,
     Len(Length),
+}
+
+/// One grid track's declared size — `grid-template-columns`/`-rows`'
+/// own `<track-size>` grammar, scoped to the two forms this item
+/// implements (see `parse_grid_track_size`'s own docs for what's cut:
+/// no `minmax()`, no content-based keywords). `Len`, not yet resolved
+/// to a pixel/`BoxLength` value — unlike every other length-ish
+/// property in this file, a track's real basis (`resolve_grid_tracks`'s
+/// own `available` parameter: the grid container's own content *width*
+/// for a column track, its content *height* — not always definite, see
+/// `measure_grid`'s own docs — for a row track) isn't known at cascade
+/// time, so resolution happens in `measure_grid` instead, mirroring
+/// `FlexBasis`'s/`LineHeight`'s own "stay symbolic until a real basis
+/// exists" pattern rather than `BoxLength`'s (which only ever needs
+/// *one* of two possible bases per property, always the same one for
+/// that property — a track's basis genuinely differs by axis, which
+/// `BoxLength` has no slot for). `Fr` is the raw flex factor (`2.0` for
+/// `2fr`) — grid's own flexible-length primitive, directly analogous to
+/// flexbox's `flex-grow`.
+#[derive(Clone, Copy)]
+enum GridTrackSpec {
+    Len(Length),
+    Fr(f32),
 }
 
 /// `top`/`right`/`bottom`/`left` ("inset" is this file's own shorthand
@@ -972,6 +1006,11 @@ struct Declarations {
     flex_basis: Option<FlexBasis>,
     row_gap: Option<Length>,
     column_gap: Option<Length>,
+    /// Leaked (`Box::leak`, once per distinct parsed declaration) into
+    /// a `&'static` slice — see `grid-template-columns`'s own
+    /// `DeclParser` branch and `GridTrackSpec`'s own docs.
+    grid_template_columns: Option<&'static [GridTrackSpec]>,
+    grid_template_rows: Option<&'static [GridTrackSpec]>,
 }
 
 /// Just `normal` (the default — current behavior, collapse+wrap) and `pre`
@@ -1969,6 +2008,85 @@ fn parse_flex_shorthand(input: &mut CssParser) -> Result<(f32, f32, FlexBasis), 
     Ok((grow, shrink, basis.unwrap_or(FlexBasis::Auto)))
 }
 
+/// One `<track-size>`: a `<length-percentage>` (reusing `parse_length_
+/// percent`, the same px/%/em/rem grammar `width`/`margin`/etc. already
+/// accept) or `<flex>` — the `fr` unit, which tokenizes as an ordinary
+/// `<dimension-token>` with unit `fr` (same as `px`/`em`/`rem` already
+/// do — no special-case lexing needed, same `state`/`reset` trial
+/// pattern `parse_flex_basis`/`set_max_length` already use to try one
+/// grammar before falling back to another). Content-based sizing
+/// keywords (`auto`/`min-content`/`max-content`) and `minmax()` aren't
+/// recognized — deferred, see `TODO.txt`.
+fn parse_grid_track_size(input: &mut CssParser) -> Result<GridTrackSpec, ()> {
+    let state = input.state();
+    let fr = match input.next() {
+        Ok(Token::Dimension { value, unit, .. }) if unit.eq_ignore_ascii_case("fr") => Some(*value),
+        _ => None,
+    };
+    if let Some(v) = fr {
+        return Ok(GridTrackSpec::Fr(v));
+    }
+    input.reset(&state);
+    parse_length_percent(input).map(GridTrackSpec::Len)
+}
+
+/// `repeat(<integer>, <track-list>)` — the `N > 0` fixed-count form
+/// only; `repeat(auto-fill, ...)`/`repeat(auto-fit, ...)` need real
+/// available-space-driven track-count resolution (the number of tracks
+/// depends on how many fit, not a literal count) — a materially
+/// different algorithm, deferred (see `TODO.txt`). An `auto-fill`/
+/// `auto-fit` first argument simply fails `expect_integer` here, same
+/// "drop the whole declaration" outcome as any other unsupported form.
+fn parse_grid_repeat(input: &mut CssParser) -> Result<Vec<GridTrackSpec>, ()> {
+    let (count, one): (i32, Vec<GridTrackSpec>) = input
+        .parse_nested_block(|input| {
+            let count = input.expect_integer()?;
+            input.expect_comma()?;
+            let mut one = Vec::new();
+            while !input.is_exhausted() {
+                one.push(parse_grid_track_size(input).map_err(|_| input.new_error_for_next_token::<()>())?);
+            }
+            Ok((count, one))
+        })
+        .map_err(|_: ParseError<()>| ())?;
+    if count <= 0 || one.is_empty() {
+        return Err(());
+    }
+    let mut tracks = Vec::with_capacity(one.len() * count as usize);
+    for _ in 0..count {
+        tracks.extend_from_slice(&one);
+    }
+    Ok(tracks)
+}
+
+/// `grid-template-columns`/`grid-template-rows`'s own grammar, scoped
+/// to what this item actually implements: a flat, space-separated list
+/// of `<track-size>` entries (`parse_grid_track_size`) and `repeat(
+/// <integer>, <track-list>)` (`parse_grid_repeat`) expanded eagerly
+/// into that same flat list — no `minmax()`, no named lines/areas. The
+/// real `none` keyword isn't matched explicitly — same "unparseable
+/// leaves this property unset" convention as every other not-yet-
+/// supported value in this file; an absent declaration and an explicit
+/// `none` already mean the same thing to `measure_grid` (no explicit
+/// tracks on this axis).
+fn parse_grid_template(input: &mut CssParser) -> Result<Vec<GridTrackSpec>, ()> {
+    let mut tracks = Vec::new();
+    while !input.is_exhausted() {
+        let state = input.state();
+        if input.expect_function_matching("repeat").is_ok() {
+            tracks.extend(parse_grid_repeat(input)?);
+            continue;
+        }
+        input.reset(&state);
+        tracks.push(parse_grid_track_size(input)?);
+    }
+    if tracks.is_empty() {
+        Err(())
+    } else {
+        Ok(tracks)
+    }
+}
+
 struct DeclParser<'a> {
     decls: &'a mut Declarations,
 }
@@ -2052,6 +2170,8 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
                     Some(Display::Block)
                 } else if ident.eq_ignore_ascii_case("flex") {
                     Some(Display::Flex)
+                } else if ident.eq_ignore_ascii_case("grid") {
+                    Some(Display::Grid)
                 } else {
                     None
                 };
@@ -2361,6 +2481,19 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
         } else if name.eq_ignore_ascii_case("column-gap") {
             if let Ok(v) = parse_length(input) {
                 self.decls.column_gap = Some(v);
+            }
+        } else if name.eq_ignore_ascii_case("grid-template-columns") {
+            // Leaked once per distinct parsed declaration, same `Box::
+            // leak` pattern `font-family`'s own fallback list already
+            // uses (v51) to carry a variable-length value through
+            // `ComputedStyle`/`Declarations` without losing their
+            // `#[derive(Copy)]`.
+            if let Ok(tracks) = parse_grid_template(input) {
+                self.decls.grid_template_columns = Some(Box::leak(tracks.into_boxed_slice()));
+            }
+        } else if name.eq_ignore_ascii_case("grid-template-rows") {
+            if let Ok(tracks) = parse_grid_template(input) {
+                self.decls.grid_template_rows = Some(Box::leak(tracks.into_boxed_slice()));
             }
         } else if name.eq_ignore_ascii_case("font-size") {
             let state = input.state();
@@ -2924,7 +3057,11 @@ struct ComputedStyle {
     /// `flex_grow`/`flex_shrink`/`flex_basis`/`align_self` are only ever
     /// consulted on that box's own *direct children* (a flex item reads
     /// its own cascaded value for these, regardless of what its own
-    /// `display` is).
+    /// `display` is). The two `*_gap` fields are genuinely shared, not
+    /// flexbox-specific — `measure_grid` reads them too (real CSS `gap`
+    /// is a generic Box Alignment property, not a flexbox one; this
+    /// file's implementation happened to land on a flex container
+    /// first, but nothing about the fields themselves is flex-only).
     flex_direction: FlexDirection,
     flex_wrap: FlexWrap,
     justify_content: JustifyContent,
@@ -2948,6 +3085,16 @@ struct ComputedStyle {
     /// `width`/`margin` do.
     row_gap: f32,
     column_gap: f32,
+    /// Not inherited, same category as the flexbox-only fields above —
+    /// a `display: grid` container's own explicit column/row tracks
+    /// never reach past it to a grandchild. `None` means no `grid-
+    /// template-columns`/`-rows` declared at all — `measure_grid` falls
+    /// back to a single full-width implicit column for `grid_template_
+    /// columns` and purely content-sized implicit rows for `grid_
+    /// template_rows` either way (see its own docs), so `None` and
+    /// "every row/column is auto" are already the right default.
+    grid_template_columns: Option<&'static [GridTrackSpec]>,
+    grid_template_rows: Option<&'static [GridTrackSpec]>,
 }
 
 /// `BoxShadow` with its lengths resolved to pixels (against the
@@ -3340,6 +3487,16 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
     )
     .map(|l| l.resolve(font_size, inherited.root_font_size))
     .unwrap_or(0.0);
+    let grid_template_columns = cascade_property(
+        &matches,
+        inline_decls.as_ref().and_then(|d| d.grid_template_columns),
+        |d| d.grid_template_columns,
+    );
+    let grid_template_rows = cascade_property(
+        &matches,
+        inline_decls.as_ref().and_then(|d| d.grid_template_rows),
+        |d| d.grid_template_rows,
+    );
 
     ComputedStyle {
         color,
@@ -3390,6 +3547,8 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         flex_basis,
         row_gap,
         column_gap,
+        grid_template_columns,
+        grid_template_rows,
     }
 }
 
@@ -3443,6 +3602,8 @@ fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         flex_basis: FlexBasis::default(),
         row_gap: 0.0,
         column_gap: 0.0,
+        grid_template_columns: None,
+        grid_template_rows: None,
     }
 }
 
@@ -3686,6 +3847,21 @@ fn build_box_for_element(handle: &Handle, rules: &[StyleRule], inherited: Inheri
             content: BoxContent::Blocks(build_flex_children(handle, rules, style.inherited(), own_decoration)),
         };
     }
+    // `display: grid` is block-level in the outer flow (same as `Table`/
+    // `Flex`, just above) but lays its content out as a 2D grid instead —
+    // each direct child becomes a grid item, placed per `measure_grid`.
+    // Reuses `build_flex_children` outright rather than a near-duplicate
+    // function: both container types "blockify" every direct child
+    // identically (see that function's own docs) — there's no grid-
+    // specific difference at the box-*building* stage, only at the
+    // measuring stage (`measure_grid`, not this function).
+    if style.display == Display::Grid {
+        return LayoutBox {
+            style,
+            background_image,
+            content: BoxContent::Blocks(build_flex_children(handle, rules, style.inherited(), own_decoration)),
+        };
+    }
     let prefix = if element_tag(handle) == "li" {
         Some((list_marker(handle, style.list_style_type), style.inherited().into()))
     } else {
@@ -3732,12 +3908,13 @@ fn build_table_children(handle: &Handle, rules: &[StyleRule], inherited: Inherit
             Display::TableGroup => {
                 result.extend(build_table_children(child, rules, style.inherited(), child_decoration));
             }
-            Display::Block | Display::Flex => {
+            Display::Block | Display::Flex | Display::Grid => {
                 // e.g. `caption`, or any other block-level content placed
-                // directly under `<table>` — a stray `display: flex`
-                // element here is the same kind of edge case, handled
-                // the same way (its own box via the normal dispatch,
-                // which re-enters `build_flex_children` for it).
+                // directly under `<table>` — a stray `display: flex`/
+                // `grid` element here is the same kind of edge case,
+                // handled the same way (its own box via the normal
+                // dispatch, which re-enters `build_flex_children`/
+                // `measure_flex`/`measure_grid` for it).
                 result.push(build_box_for_element(child, rules, inherited, decoration));
             }
             // A stray `table-cell`/inline/`table` outside a row isn't
@@ -3764,35 +3941,39 @@ fn build_table_row_cells(handle: &Handle, rules: &[StyleRule], inherited: Inheri
     cells
 }
 
-/// A `display: flex` element's direct children, each becoming its own
-/// flex item — real CSS "blockifies" every flex item (spec §4: a flex
-/// item's outer display type is always block-level, regardless of its
-/// own `display`), which falls out *for free* here: `build_box_for_
-/// element` already builds a full `Blocks`-content box for whatever it's
-/// given regardless of that element's own `style.display` (it only ever
-/// branches on `display` to special-case `img`/`Table`/`Flex`
-/// themselves, never to decide "does this get its own box at all" — only
-/// `collect_children`'s inline-run grouping makes that decision, which
-/// this function bypasses entirely by calling `build_box_for_element` on
-/// every child directly). So a `<span>` (default `display: inline`)
-/// placed directly inside a flex container still gets its own real box
-/// here, exactly like a `<div>` would — nothing extra needed to force
-/// block-level behavior.
+/// A `display: flex` **or `display: grid`** element's direct children,
+/// each becoming its own flex/grid item — shared by both container
+/// types (see `build_box_for_element`'s own `Grid` branch), since real
+/// CSS "blockifies" every flex/grid item identically (spec §4/§3: a
+/// flex or grid item's outer display type is always block-level,
+/// regardless of its own `display`), which falls out *for free* here:
+/// `build_box_for_element` already builds a full `Blocks`-content box
+/// for whatever it's given regardless of that element's own `style.
+/// display` (it only ever branches on `display` to special-case
+/// `img`/`Table`/`Flex`/`Grid` themselves, never to decide "does this
+/// get its own box at all" — only `collect_children`'s inline-run
+/// grouping makes that decision, which this function bypasses entirely
+/// by calling `build_box_for_element` on every child directly). So a
+/// `<span>` (default `display: inline`) placed directly inside a
+/// flex/grid container still gets its own real box here, exactly like
+/// a `<div>` would — nothing extra needed to force block-level
+/// behavior.
 ///
 /// **Deliberately not attempted** (see `TODO.txt`): a bare text node
-/// directly inside the flex container (no wrapping element) doesn't
-/// become its own anonymous flex item the way real CSS would — only
+/// directly inside the container (no wrapping element) doesn't become
+/// its own anonymous flex/grid item the way real CSS would — only
 /// element children are collected here, matching the task's own
 /// explicitly-permitted scope-narrowing latitude; non-whitespace text
-/// placed directly in a flex container (uncommon in real page chrome,
-/// which almost always wraps flex items in an element) is silently
-/// dropped rather than rendered. `position: absolute`/`fixed` children
-/// are *not* filtered out here (unlike `build_table_children`'s own
-/// `Display::None` skip) — they're still real children of this returned
-/// list, but `measure_flex` itself (not this function) is what actually
-/// takes them out of the flex algorithm, the same split `measure`'s own
-/// `BoxContent::Blocks` arm already uses for an ordinary block's
-/// absolutely/fixed positioned children.
+/// placed directly in a flex/grid container (uncommon in real page
+/// chrome, which almost always wraps each item in an element) is
+/// silently dropped rather than rendered. `position: absolute`/`fixed`
+/// children are *not* filtered out here (unlike `build_table_
+/// children`'s own `Display::None` skip) — they're still real children
+/// of this returned list, but `measure_flex`/`measure_grid` themselves
+/// (not this function) are what actually take them out of their own
+/// respective algorithm, the same split `measure`'s own `BoxContent::
+/// Blocks` arm already uses for an ordinary block's absolutely/fixed
+/// positioned children.
 fn build_flex_children(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle, decoration: DecorationValue) -> Vec<LayoutBox> {
     let mut result = Vec::new();
     for child in handle.children.borrow().iter() {
@@ -3920,7 +4101,7 @@ fn collect_children(
                 // regardless of `display`, a deliberate (now reverted)
                 // simplification — see TODO.txt/NOTES.md for why that
                 // was the original call and what changed.
-                if tag == "img" && !matches!(style.display, Display::Block | Display::Table | Display::Flex) {
+                if tag == "img" && !matches!(style.display, Display::Block | Display::Table | Display::Flex | Display::Grid) {
                     let background_image = resolve_background_image(child, rules);
                     let (img_style, decoded) = resolve_img(child, style);
                     match decoded {
@@ -3933,7 +4114,7 @@ fn collect_children(
                             pending.push(InlineItem::Text(alt, span));
                         }
                     }
-                } else if matches!(style.display, Display::Block | Display::Table | Display::Flex) {
+                } else if matches!(style.display, Display::Block | Display::Table | Display::Flex | Display::Grid) {
                     if !pending.is_empty() {
                         result.push(LayoutBox {
                             style: anonymous_style(inherited),
@@ -5059,6 +5240,21 @@ pub fn measure<'a>(
         && let BoxContent::Blocks(children) = &b.content
     {
         return measure_flex(
+            b, children, font_system, x, y, width, containing_height, next_id, cache, deadline, incomplete, pending,
+        );
+    }
+    // `display: grid` — same shape of special-case as `Table`/`Flex`
+    // just above, and for the same reason: a grid's own column (and,
+    // where explicit, row) track sizes are a container-wide decision
+    // made before any one item can be measured. See `measure_grid`'s
+    // own docs for the real algorithm. A grid container establishes its
+    // own fresh BFC (same category as a table/flex container), so
+    // `floats`/`auto_margin_box_override` have nothing to do with it
+    // either way; `measure_grid` doesn't take either.
+    if b.style.display == Display::Grid
+        && let BoxContent::Blocks(children) = &b.content
+    {
+        return measure_grid(
             b, children, font_system, x, y, width, containing_height, next_id, cache, deadline, incomplete, pending,
         );
     }
@@ -6735,6 +6931,265 @@ fn measure_flex_column<'a>(
         }
     }
     result
+}
+
+/// CSS Grid's own flexible-length distribution for one axis's track
+/// list, sized against `available` — a real, independent-of-content,
+/// definite extent (the grid container's own content *width*, for
+/// `grid-template-columns`, always definite; see `measure_grid`'s own
+/// docs for why the same isn't attempted for row tracks). Every
+/// non-`fr` track takes its own fixed/`%` size first (`%` against
+/// `available`, the same containing-block-width basis `width`/`margin`
+/// already resolve a box's own `%` against); whatever's left over
+/// (never negative — an overcommitted explicit grid simply doesn't
+/// leave `fr` tracks any extra space, same "no free space to grow
+/// into" outcome `resolve_flex_main_sizes` already gives an
+/// overcommitted flex line) is divided among the `fr` tracks in
+/// proportion to their own factor (CSS Grid §11.7's "flexible sizing"
+/// step, scoped to a single pass — no real content-based minimum per
+/// track, since every track here is already a plain `<length-
+/// percentage>` or `fr`, never `auto`/`min-content`/`minmax()`; see
+/// `GridTrackSpec`'s own docs).
+fn resolve_grid_tracks(tracks: &[GridTrackSpec], available: f32, gap: f32, font_size: f32, root_font_size: f32) -> Vec<f32> {
+    let n = tracks.len();
+    if n == 0 {
+        return Vec::new();
+    }
+    let fixed: Vec<Option<f32>> = tracks
+        .iter()
+        .map(|t| match *t {
+            GridTrackSpec::Fr(_) => None,
+            GridTrackSpec::Len(Length::Percent(p)) => Some(available * p),
+            GridTrackSpec::Len(l) => Some(l.resolve(font_size, root_font_size)),
+        })
+        .collect();
+    let sum_fixed: f32 = fixed.iter().filter_map(|f| *f).sum();
+    let sum_fr: f32 = tracks
+        .iter()
+        .filter_map(|t| match *t {
+            GridTrackSpec::Fr(f) => Some(f),
+            _ => None,
+        })
+        .sum();
+    let free = (available - sum_fixed - gap * (n.saturating_sub(1)) as f32).max(0.0);
+    tracks
+        .iter()
+        .zip(&fixed)
+        .map(|(t, f)| match (*t, f) {
+            (GridTrackSpec::Fr(factor), _) if sum_fr > 0.0 => free * (factor / sum_fr),
+            (GridTrackSpec::Fr(_), _) => 0.0,
+            (_, Some(px)) => *px,
+            _ => 0.0,
+        })
+        .collect()
+}
+
+/// A `display: grid` element's own box model (`box_model_entry`, same
+/// as any other box) plus its content: a real but deliberately
+/// narrower subset of CSS Grid Layout
+/// (https://www.w3.org/TR/css-grid-1/) than the full spec — explicit
+/// `grid-template-columns`/`-rows` track lists (fixed lengths, `%`,
+/// and the real `fr`-unit flexible-length algorithm,
+/// `resolve_grid_tracks`), `repeat(<integer>, ...)`, `gap`/`row-gap`/
+/// `column-gap` (the same `ComputedStyle` fields `measure_flex` already
+/// reads — never flexbox-specific), and implicit auto-placement in
+/// document order, row by row (`grid-auto-flow: row`, the real spec's
+/// own default and the only flow this implements).
+///
+/// **Deliberately cut, each documented precisely, not silently folded
+/// into "done" (see `TODO.txt` for the authoritative list)**: no
+/// explicit item placement (`grid-column`/`grid-row`/their `-start`/
+/// `-end` longhands) — every item occupies exactly one cell, in
+/// document order; this function's own auto-placement cursor decides
+/// entirely. No `repeat(auto-fill/auto-fit, ...)`. No `grid-template-
+/// areas`/named lines. No `justify-items`/`align-items`/`-self` within
+/// a cell — an item always measures at its column's own full width
+/// (the same "stretch" an ordinary table cell already gets) and sits
+/// at its row's own top edge. No content-based track-sizing keywords
+/// (`auto`/`min-content`/`max-content`/`minmax()`) — every column/row
+/// track is a plain fixed/`%`/`fr` length (`GridTrackSpec`'s own
+/// grammar) or, for an *implicit* row (one beyond `grid-template-
+/// rows`'s own list, or when no `grid-template-rows` is declared at
+/// all), sized from the max natural height of whatever items landed in
+/// it — the same "row height follows its own content" rule a table's
+/// own rows already use (`measure_table`).
+///
+/// **`fr` row tracks always fall back to the same auto/content sizing
+/// an implicit row already gets, even when an *explicit* `grid-
+/// template-rows` names one** (so does a `%` row track, when this
+/// grid's own content height is indefinite — the overwhelmingly common
+/// case for a `height: auto` grid container, i.e. almost every real
+/// one). Real CSS Grid distributes a flexible row track's own share of
+/// the grid container's *own* definite height — but that height is
+/// itself almost never known up front here (same "no free space to
+/// distribute" story flexbox's own `main_size` already tells for an
+/// auto-height column container — see `measure_flex_column`'s own
+/// docs), and *guessing* at a basis for the rare case it is known would
+/// be inventing semantics rather than narrowing scope — so this
+/// deliberately never attempts it, the same "percentage against an
+/// indefinite basis computes as if it weren't declared" policy v49
+/// already established for `height`'s own `%`, extended here to `fr`
+/// too. A **fixed** (`px`/`em`/`rem`) `grid-template-rows` entry is
+/// unaffected by any of this — it needs no basis at all and is sized
+/// exactly as declared, content overflowing past it if too short (the
+/// same `overflow: visible`-by-default consequence an explicit CSS
+/// `height` already has on any other box since v42).
+///
+/// Column tracks have no such gap: a grid container's own content
+/// *width* is always definite (`entry.content_w`, same value `measure_
+/// flex_row`'s own main axis already relies on being known up front),
+/// so `fr` is fully real there — deliberately prioritized over row
+/// `fr` for exactly that reason: `grid-template-columns: 1fr 2fr 1fr`
+/// is this feature's single most load-bearing primitive, and it works
+/// correctly.
+///
+/// **No `grid-template-columns` declared at all** falls back to a
+/// single full-width implicit column (every item on its own row) —
+/// not real CSS's own implicit-column auto-creation for an empty
+/// explicit grid (each item would instead get its own *column* in a
+/// single row) — a deliberately simplified, documented substitute for
+/// an edge case outside this item's own explicit scope (`grid-
+/// template-columns`/`-rows` is the thing being implemented; "what
+/// happens with neither declared at all" is a corner of the spec this
+/// narrowing doesn't need to chase).
+#[allow(clippy::too_many_arguments)]
+fn measure_grid<'a>(
+    b: &'a LayoutBox,
+    children: &'a [LayoutBox],
+    font_system: &mut FontSystem,
+    x: f32,
+    y: f32,
+    width: f32,
+    containing_height: Option<f32>,
+    next_id: &mut usize,
+    cache: &mut ShapeCache,
+    deadline: std::time::Instant,
+    incomplete: &mut bool,
+    pending: &mut Vec<PendingPositioned<'a>>,
+) -> Laid {
+    let mut s = b.style;
+    let entry = box_model_entry(&mut s, x, y, width, containing_height, None);
+    let no_floats = Floats::default();
+    let mut own_pending: Vec<PendingPositioned<'a>> = Vec::new();
+    let mut items: Vec<&'a LayoutBox> = Vec::with_capacity(children.len());
+    for child in children {
+        if matches!(child.style.position, Position::Absolute | Position::Fixed) {
+            own_pending.push(PendingPositioned {
+                b: child,
+                fixed: child.style.position == Position::Fixed,
+                static_x: entry.content_x,
+                static_y: entry.content_y,
+            });
+            continue;
+        }
+        items.push(child);
+    }
+
+    // No `grid-template-columns` at all → a single full-width implicit
+    // column (see this function's own docs for why, rather than real
+    // CSS's own implicit-column-per-item fallback).
+    const SINGLE_COLUMN: [GridTrackSpec; 1] = [GridTrackSpec::Fr(1.0)];
+    let col_tracks = s.grid_template_columns.unwrap_or(&SINGLE_COLUMN);
+    let num_cols = col_tracks.len().max(1);
+    let col_widths = resolve_grid_tracks(col_tracks, entry.content_w, s.column_gap, s.font_size, s.root_font_size);
+    let mut col_x = Vec::with_capacity(num_cols);
+    let mut cx = entry.content_x;
+    for w in &col_widths {
+        col_x.push(cx);
+        cx += w + s.column_gap;
+    }
+
+    // Auto-placement, document order, row by row (`grid-auto-flow:
+    // row`, the only flow this implements — see this function's own
+    // docs).
+    let mut rows: Vec<Vec<&'a LayoutBox>> = Vec::new();
+    for &item in &items {
+        let need_new_row = match rows.last() {
+            Some(r) => r.len() >= num_cols,
+            None => true,
+        };
+        if need_new_row {
+            rows.push(Vec::new());
+        }
+        rows.last_mut().expect("just ensured a row exists above").push(item);
+    }
+
+    let mut laid_children: Vec<Laid> = Vec::new();
+    let mut cursor_y = entry.content_y;
+    // The real bottom edge of the *last* row placed — tracked
+    // separately from `cursor_y` (which always includes a trailing
+    // `row_gap` after whichever row was placed most recently) so the
+    // container's own final content height never counts a gap past its
+    // last row. Deliberately *not* derived from the laid items' own
+    // `y + h` extents the way `measure_flex` derives its own content
+    // height (which works there because a line's cross size is always
+    // exactly its tallest item) — an *explicit* `grid-template-rows`
+    // entry can set a row taller than every item placed in it, and that
+    // extra space has to come from `row_h` itself, not from any one
+    // item's own measured position.
+    let mut content_bottom = entry.content_y;
+    for (r, row_items) in rows.iter().enumerate() {
+        // An explicit row track's own fixed size always applies;
+        // `%`/`fr` only when there's a real basis to resolve against —
+        // see this function's own docs for why that's the deliberate
+        // cut, not a guess.
+        let explicit_h = s.grid_template_rows.and_then(|tracks| tracks.get(r)).and_then(|t| match *t {
+            GridTrackSpec::Len(Length::Percent(p)) => containing_height.map(|h| h * p),
+            GridTrackSpec::Len(l) => Some(l.resolve(s.font_size, s.root_font_size)),
+            GridTrackSpec::Fr(_) => None,
+        });
+        let mut row_h = explicit_h.unwrap_or(0.0);
+        let mut row_laid = Vec::with_capacity(row_items.len());
+        for (c, item) in row_items.iter().enumerate() {
+            let cw = col_widths.get(c).copied().unwrap_or(0.0);
+            let lc = measure(
+                item, font_system, col_x[c], cursor_y, cw, entry.child_containing_height, next_id, cache, deadline,
+                incomplete, &mut own_pending, &no_floats, None,
+            );
+            if explicit_h.is_none() {
+                row_h = row_h.max(lc.style.margin.top.px() + lc.style.margin.bottom.px() + lc.h);
+            }
+            row_laid.push(lc);
+        }
+        laid_children.extend(row_laid);
+        content_bottom = cursor_y + row_h;
+        cursor_y = content_bottom + s.row_gap;
+    }
+
+    patch_sticky_containing_block(&mut laid_children, entry.content_y, content_bottom);
+    let content_h = content_bottom - entry.content_y;
+    let border_h = clamp_box_dim(
+        s.height, s.min_height, s.max_height, entry.extra_h + content_h.max(0.0), s.box_sizing, entry.extra_h,
+    );
+    let positioned_children = resolve_or_bubble_positioned(
+        own_pending,
+        s.position,
+        entry.border_x + s.border_width,
+        entry.border_y + s.border_width,
+        (entry.border_w - 2.0 * s.border_width).max(0.0),
+        (border_h - 2.0 * s.border_width).max(0.0),
+        font_system,
+        next_id,
+        cache,
+        deadline,
+        incomplete,
+        pending,
+    );
+    let mut laid = Laid {
+        style: s,
+        x: entry.border_x,
+        y: entry.border_y,
+        w: entry.border_w,
+        h: border_h,
+        background_image: b.background_image.clone(),
+        content: LaidContent::Blocks(laid_children),
+        positioned: positioned_children,
+        fixed: false,
+        sticky: None,
+    };
+    apply_relative_offset(&mut laid, &s, width, containing_height);
+    capture_sticky_info(&mut laid, &s, containing_height);
+    laid
 }
 
 /// The real top-level entry point for laying out a whole document —
@@ -10428,6 +10883,139 @@ mod tests {
         };
         assert_eq!(children.len(), 1, "the absolutely-positioned child should be pulled out of the flex item list entirely");
         assert_eq!(children[0].x, 0.0, "the one real flex item should start at the container's left edge, not pushed aside by the out-of-flow child");
+        assert_eq!(container.positioned.len(), 1, "the absolutely-positioned child should instead land in the container's own `positioned` list");
+    }
+
+    // ---------- v58: `display: grid` ----------
+
+    /// The grid container's own direct `LaidContent::Blocks` children,
+    /// in document order — exactly the grid items `measure_grid`
+    /// placed, found by locating the container itself (via its own
+    /// distinctive `width`, same `find_by_width` helper every other
+    /// section already uses), mirroring `flex_items` above.
+    fn grid_items(laid: &Laid, container_w: f32) -> Vec<&Laid> {
+        let container = find_by_width(laid, container_w).expect("grid container not found");
+        let LaidContent::Blocks(children) = &container.content else {
+            panic!("expected the grid container's content to be Blocks (its own grid items)");
+        };
+        children.iter().collect()
+    }
+
+    #[test]
+    fn grid_fixed_track_widths_place_items_at_the_right_x_offsets() {
+        let laid = measure_fixture(
+            r#"<html><body style="margin: 0"><div style="display: grid; grid-template-columns: 50px 100px 150px; width: 300px;"><div>a</div><div>b</div><div>c</div></div></body></html>"#,
+            500.0,
+        );
+        let items = grid_items(&laid, 300.0);
+        assert_eq!(items.len(), 3, "all three children should become grid items");
+        assert_eq!(items[0].x, 0.0, "the first column should start at the grid's own content edge");
+        assert_eq!(items[0].w, 50.0, "the first item should fill its own 50px column, not shrink to its own content");
+        assert_eq!(items[1].x, 50.0, "the second column should start exactly where the first ends");
+        assert_eq!(items[1].w, 100.0);
+        assert_eq!(items[2].x, 150.0, "the third column should start exactly where the second ends");
+        assert_eq!(items[2].w, 150.0);
+        assert_eq!(items[0].y, items[1].y, "fixed-width columns should all share one row");
+        assert_eq!(items[1].y, items[2].y);
+    }
+
+    #[test]
+    fn grid_fr_tracks_distribute_proportionally_with_asymmetric_ratios() {
+        let laid = measure_fixture(
+            r#"<html><body style="margin: 0"><div style="display: grid; grid-template-columns: 1fr 3fr; width: 400px;"><div>a</div><div>b</div></div></body></html>"#,
+            500.0,
+        );
+        let items = grid_items(&laid, 400.0);
+        assert_eq!(items[0].w, 100.0, "1fr of (1+3) should claim 1/4 of the 400px content width");
+        assert_eq!(items[1].w, 300.0, "3fr of (1+3) should claim 3/4 — not an equal 50/50 split");
+        assert_eq!(items[1].x, items[0].x + items[0].w, "the second column should start exactly where the first, proportionally-sized one ends");
+    }
+
+    #[test]
+    fn grid_fr_and_fixed_tracks_mix_correctly() {
+        // A fixed 100px track plus a 1fr/3fr pair sharing whatever's
+        // left (400 - 100 = 300, split 1:3 → 75/225) — pins that `fr`
+        // distribution happens against the *leftover* space, not the
+        // container's full width, once a fixed track is also present.
+        let laid = measure_fixture(
+            r#"<html><body style="margin: 0"><div style="display: grid; grid-template-columns: 100px 1fr 3fr; width: 400px;"><div>a</div><div>b</div><div>c</div></div></body></html>"#,
+            500.0,
+        );
+        let items = grid_items(&laid, 400.0);
+        assert_eq!(items[0].w, 100.0, "the fixed track keeps its own declared width regardless of its fr siblings");
+        assert_eq!(items[1].w, 75.0, "1fr of the remaining 300px (1+3 share) is 75px");
+        assert_eq!(items[2].w, 225.0, "3fr of the remaining 300px (1+3 share) is 225px");
+    }
+
+    #[test]
+    fn grid_auto_placement_wraps_to_a_new_row_once_a_row_fills() {
+        let laid = measure_fixture(
+            r#"<html><body style="margin: 0"><div style="display: grid; grid-template-columns: 100px 100px; width: 200px;"><div style="height: 30px;">a</div><div style="height: 30px;">b</div><div style="height: 40px;">c</div></div></body></html>"#,
+            500.0,
+        );
+        let items = grid_items(&laid, 200.0);
+        assert_eq!(items.len(), 3, "all three children should become grid items despite the wrap");
+        assert_eq!(items[0].y, items[1].y, "the first two items (filling the 2-column row) should share the first row");
+        assert_eq!(items[0].x, 0.0, "the first item should sit in the first column");
+        assert_eq!(items[1].x, 100.0, "the second item should sit in the second column, not stacked on the first");
+        assert_eq!(items[2].x, 0.0, "a third item, once the 2-column row is full, should wrap back to the first column of a new row");
+        assert_eq!(
+            items[2].y,
+            items[0].y + 30.0,
+            "the new row should start exactly where the first row's own height (the taller of its two 30px items) ends"
+        );
+    }
+
+    #[test]
+    fn grid_gap_adds_spacing_between_both_columns_and_rows() {
+        let laid = measure_fixture(
+            r#"<html><body style="margin: 0"><div style="display: grid; grid-template-columns: 50px 50px; gap: 10px; width: 110px;"><div style="height: 20px;">a</div><div style="height: 20px;">b</div><div style="height: 20px;">c</div><div style="height: 20px;">d</div></div></body></html>"#,
+            500.0,
+        );
+        let items = grid_items(&laid, 110.0);
+        assert_eq!(items.len(), 4, "a 2x2 grid of 4 items, wrapping once the 2-column row fills");
+        assert_eq!(items[1].x, items[0].x + items[0].w + 10.0, "column-gap (from the `gap` shorthand) should add exactly 10px between the two columns");
+        assert_eq!(items[2].y, items[0].y + items[0].h + 10.0, "row-gap (from the same `gap` shorthand) should add exactly 10px between the two rows");
+    }
+
+    #[test]
+    fn grid_explicit_row_track_sizes_the_row_regardless_of_content() {
+        let laid = measure_fixture(
+            r#"<html><body style="margin: 0"><div style="display: grid; grid-template-columns: 100px; grid-template-rows: 80px; width: 100px;"><div style="height: 10px;">a</div></div></body></html>"#,
+            500.0,
+        );
+        let items = grid_items(&laid, 100.0);
+        assert_eq!(items.len(), 1);
+        let container = find_by_width(&laid, 100.0).expect("grid container not found");
+        assert_eq!(container.h, 80.0, "an explicit grid-template-rows size should set the row's (and so the container's) height regardless of its shorter content");
+        assert_eq!(items[0].h, 10.0, "the item itself still reports its own natural content height — only the row's track, not the item, is forced to 80px");
+    }
+
+    #[test]
+    fn grid_repeat_expands_to_the_same_track_list_as_writing_it_out() {
+        let laid = measure_fixture(
+            r#"<html><body style="margin: 0"><div style="display: grid; grid-template-columns: repeat(3, 50px); width: 150px;"><div>a</div><div>b</div><div>c</div></div></body></html>"#,
+            500.0,
+        );
+        let items = grid_items(&laid, 150.0);
+        assert_eq!(items.len(), 3);
+        assert_eq!(items[0].w, 50.0);
+        assert_eq!(items[1].x, 50.0);
+        assert_eq!(items[2].x, 100.0);
+    }
+
+    #[test]
+    fn grid_position_absolute_child_is_not_treated_as_a_grid_item() {
+        let laid = measure_fixture(
+            r#"<html><body style="margin: 0"><div style="display: grid; position: relative; grid-template-columns: 100px; width: 100px;"><div style="position: absolute; top: 5px; left: 5px; width: 20px; height: 20px;">p</div><div>a</div></div></body></html>"#,
+            500.0,
+        );
+        let container = find_by_width(&laid, 100.0).expect("grid container not found");
+        let LaidContent::Blocks(children) = &container.content else {
+            panic!("expected Blocks content");
+        };
+        assert_eq!(children.len(), 1, "the absolutely-positioned child should be pulled out of the grid item list entirely");
+        assert_eq!(children[0].x, container.x, "the one real grid item should occupy the grid's first cell (its own left content edge), not pushed aside by the out-of-flow child");
         assert_eq!(container.positioned.len(), 1, "the absolutely-positioned child should instead land in the container's own `positioned` list");
     }
 }

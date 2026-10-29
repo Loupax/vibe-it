@@ -491,14 +491,76 @@ session can pick a coherent slice rather than one property at a time.
             not-yet-supported value. Nothing in `default.css` or a real
             test page has needed one yet.
 
-- [ ] No grid (`display: grid`) — explicitly deferred, not attempted,
-      out of this flexbox item's own scope (see its entry just above for
-      why: grid's track sizing, template areas, implicit/explicit grids,
-      `fr` units, and grid placement are a materially larger, separate
-      algorithm from flexbox, and bundling both in one session would
-      have risked landing neither well). `Display` has no `Grid` variant
-      at all yet — a real future session's own slice, not a narrowing of
-      anything already landed.
+- [x] `display: grid` (PENDING_COMMIT_HASH, v58) now does a real but
+      deliberately scoped subset of CSS Grid Layout
+      (https://www.w3.org/TR/css-grid-1/) — explicit `grid-template-
+      columns`/`-rows` track lists (fixed `px`/`%`/`em`/`rem` lengths and
+      the real `fr`-unit flexible-length distribution algorithm, CSS
+      Grid §11.7, single-pass — not the real spec's iterative freeze-
+      and-retry, same documented simplification flexbox's own
+      `resolve_flex_main_sizes` already has), `repeat(<integer>,
+      <track-list>)`, `gap`/`row-gap`/`column-gap` (confirmed already
+      generic — not flexbox-specific — so `measure_grid` reuses the
+      same `ComputedStyle` fields with no new parsing/cascading needed),
+      and implicit auto-placement in document order, row by row
+      (`grid-auto-flow: row`, the only flow implemented, wrapping to a
+      new row once the explicit column count fills). `inline-grid` is
+      not implemented, same as `inline-flex`.
+
+      Deliberately cut, each its own narrower item below rather than
+      folded into "done": explicit per-item placement, named lines/
+      areas, `justify-items`/`align-items`/`-self` within a cell,
+      content-based track sizing keywords, `repeat(auto-fill/
+      auto-fit, ...)`, and row-track `fr`/`%` sizing against an
+      indefinite container height.
+
+      - [ ] No explicit grid item placement — `grid-column`/`grid-row`
+            and their `-start`/`-end` longhands aren't parsed at all;
+            every item occupies exactly one cell, decided entirely by
+            auto-placement in document order. The single most
+            defensible cut of this whole item (per its own task
+            wording) — auto-placement alone already covers "just make a
+            grid of N columns and drop items in," the dominant real-
+            world grid use case, without needing this.
+      - [ ] No `grid-template-areas`/named lines — a grid's tracks are
+            only ever addressed positionally (by auto-placement), never
+            by name.
+      - [ ] No `justify-items`/`align-items`/`justify-self`/`align-self`
+            within a grid cell — an item always stretches to its own
+            column's full width (the same "stretch" a table cell
+            already gets) and sits at its row's own top edge, with no
+            alternative alignment/sizing-within-the-cell behavior.
+      - [ ] No content-based track-sizing keywords (`auto`/`min-
+            content`/`max-content`) and no `minmax()` — every column/row
+            track `grid-template-columns`/`-rows` declares must be a
+            plain fixed `<length-percentage>` or `fr`; an `auto`/
+            `minmax(...)` track simply fails to parse (the whole
+            declaration drops, same as any other unsupported value).
+      - [ ] `repeat(auto-fill, ...)`/`repeat(auto-fit, ...)` aren't
+            recognized — only `repeat(<integer>, ...)` — real available-
+            space-driven track-count resolution (how many tracks fit)
+            is a different, bigger problem than this item's own
+            fixed-count expansion; the `auto-fill`/`auto-fit` keyword
+            simply fails `expect_integer`, dropping the whole
+            declaration.
+      - [ ] An explicit `grid-template-rows` entry only gets a *real*
+            track size when it's a fixed `px`/`em`/`rem` length — a `%`
+            or `fr` row track always falls back to the same content-
+            based auto sizing an *implicit* row already gets, even when
+            the author declared one explicitly. This mirrors v49's own
+            established policy ("a percentage against an indefinite
+            basis computes as if it weren't declared") rather than
+            guessing at a basis: real CSS Grid distributes a flexible
+            row track's own share of the grid container's *own*
+            definite height, but that height is itself almost never
+            known up front for an ordinary `height: auto` grid
+            container (the common real-world case) — the same "no free
+            space to distribute" story flexbox's own `measure_flex_
+            column` already tells for an auto-height column container.
+            Column tracks have no such gap — a grid container's own
+            content *width* is always definite, so `fr` is fully real
+            there (deliberately prioritized, per this item's own task
+            wording, as grid's single most load-bearing primitive).
 
 - [ ] Last member of what was once a cluster of CSS properties: `word-
       spacing` is still entirely unrecognized (dropped). Not just

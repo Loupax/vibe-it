@@ -1814,3 +1814,123 @@ silently deleting the original paragraph so a future session doesn't
 waste time assuming `grim`-vs-background-color is a known limitation —
 it isn't; re-verify live if it ever looks broken again rather than
 trusting this note either way.
+
+## v58 — `display: grid`
+
+Picked off `TODO.txt`'s `display: grid` item — the one v57 explicitly
+split out of flexbox's own scope. Architecturally this is a close
+sibling of both `measure_table` (v50) and `measure_flex` (v57), reusing
+pieces of each rather than growing fresh machinery:
+
+**Same three-way special-case shape `Table`/`Flex` already
+established.** `Display::Grid` is block-level in the outer flow
+(`collect_children`'s existing `Display::Block | Display::Table |
+Display::Flex` check grew a fourth arm), and both `build_box_for_
+element` and `measure` special-case it *before* their generic
+dispatch, exactly the way `Table`/`Flex` already do — real grid track
+sizing is a container-wide decision (every column's width depends on
+the whole track list and the container's own content width) that can't
+be made per-child inside the generic `BoxContent::Blocks` loop.
+
+**`build_grid_children` needed no code of its own at all** — it's
+`build_flex_children`, called directly from the `Grid` branch. Real CSS
+"blockifies" every flex *and* grid item identically (spec §4/§3: a flex
+or grid item's outer display type is always block-level, regardless of
+its own `display`), and `build_flex_children`'s own logic was already
+generic enough ("call `build_box_for_element` on every direct element
+child, skip `script`/`style`/`display: none`") that it needed no
+flex-specific behavior to begin with — only its name and doc comment
+needed updating to reflect the second caller. Worth remembering as the
+general lesson here: before writing a near-duplicate "building" function
+for a new container type, check whether the existing one's logic is
+actually container-specific or just happened to be named after the
+first container that needed it.
+
+**Column tracks are a simpler problem than table columns ever were —
+no content measurement needed at all.** `measure_table`'s whole reason
+for `cell_natural_width`'s two-pass min/max-content measurement is that
+real CSS auto table layout sizes columns *from their cells' own
+content*. Grid's `grid-template-columns`, by contrast, only supports
+plain fixed/`%`/`fr` tracks in this implementation (no `auto`/`min-
+content`/`max-content` keywords — see `TODO.txt`) — so a column's width
+is decided purely from the declared track list and the container's own
+`content_w`, with zero shaping/measurement needed before any item can
+be placed. This is the one piece of this feature that's *simpler* than
+its table/flex prior art, not harder.
+
+**`resolve_grid_tracks` is grid's own version of `resolve_flex_main_
+sizes`** (v57) — same shape of problem (distribute a definite extent
+across a list of fixed-and-flexible entries), same single-pass
+simplification (no real spec iterative constraint resolution — nothing
+here has a `min`/`max` to clamp against in the first place, since a
+plain fixed/`fr` track has no such concept, so this one's actually
+*simpler* than flexbox's own version): every non-`fr` track takes its
+own resolved size first (`%` against `available`, the real containing-
+block-width basis), then whatever's left over (floored at zero) splits
+across the `fr` tracks in proportion to their own factor.
+
+**Implicit auto-placement is a flat two-pass walk, not a real CSS Grid
+Level-1 placement algorithm** (which also has to account for explicitly
+placed items occupying cells out of order, named lines, spanning
+items, etc. — all deliberately out of scope here, see `TODO.txt`):
+collect every non-positioned child in document order, then bucket them
+into rows of at most `num_cols` each via a single linear pass (`rows:
+Vec<Vec<&LayoutBox>>`, a new row started whenever the current one has
+filled). No cell-occupancy grid/bitmap of any kind exists — nothing
+needs one yet, since every item is exactly 1×1 and placement is purely
+sequential.
+
+**The one real architectural subtlety, caught by a failing test before
+anything was committed**: `measure_flex`'s own trick for computing a
+container's final content height — derive it from the *laid items'*
+own `y + h` extents, rather than tracking an accumulated cursor
+directly, which conveniently also sidesteps a trailing-gap-after-the-
+last-line bug — does **not** carry over to grid. It works for flexbox
+because a line's cross size is always defined as exactly its tallest
+item's own extent, so deriving from items is equivalent to deriving
+from the line's own cross size. Grid breaks that equivalence: an
+*explicit* `grid-template-rows` entry can declare a row taller than
+every item placed in it (real CSS: the item still just sits at the
+row's own top edge, same "stretch is default, but nothing forces an
+item to actually fill the extra space" story items 6's own cut already
+documents), and that extra space never appears in any item's own
+measured `y + h` — only in the row's own `row_h`, which the items
+themselves know nothing about. `measure_grid` instead tracks each row's
+real bottom edge directly (`content_bottom`, updated once per row, set
+*before* `row_gap` is added so the final value never includes a
+trailing gap after the last row) rather than deriving it after the
+fact. Caught immediately by `grid_explicit_row_track_sizes_the_row_
+regardless_of_content` (first run: container height 10px instead of
+the expected 80px) before this was committed — worth remembering
+alongside v19/v51/v56's own "test the test" lessons: a pattern that's
+correct for one container type isn't automatically correct for a
+structurally similar one just because the shapes look alike on the
+surface.
+
+**Row-track `fr`/`%` sizing deliberately falls back to content-based
+auto sizing, even when `grid-template-rows` explicitly names one** —
+not a guess, a direct application of v49's own already-established
+policy ("a percentage against an indefinite basis computes as if it
+weren't declared") extended to `fr`: real CSS Grid distributes a
+flexible row track's own share of the grid container's *own* definite
+height, but for an ordinary `height: auto` grid container (the
+overwhelmingly common real case) that height is itself almost never
+known before layout — the identical "no free space to distribute"
+situation flexbox's own `measure_flex_column` already has for an
+auto-height column container's main axis. A **fixed** (`px`/`em`/
+`rem`) row track needs no such basis and is sized exactly as declared
+regardless, content overflowing past it if too short (the same
+`overflow: visible`-by-default consequence an explicit CSS `height`
+already has on any other box, since v42) — only `%`/`fr` row tracks
+hit this gap. Column tracks never do, since a grid container's own
+content *width* is always definite — which is exactly why `fr` was
+prioritized there as this item's single most load-bearing primitive,
+per the task's own wording, and landed fully real.
+
+`gap`/`row-gap`/`column-gap` needed zero new code — confirmed generic
+(not flexbox-specific) before writing anything, per this item's own
+explicit instruction to check first: `ComputedStyle`'s `row_gap`/
+`column_gap` fields and their `DeclParser` branches already existed
+from v57 with no flexbox-specific framing, so `measure_grid` just reads
+`s.row_gap`/`s.column_gap` directly, the same fields `measure_flex`
+reads.

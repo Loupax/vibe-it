@@ -3810,3 +3810,120 @@ the permanent `mod tests`); `TODO.txt` (item checked off with exactly
 what landed, grid split into its own new deferred item, plus 8 further
 narrower deferred items for what was cut within flexbox itself);
 `NOTES.md` (architecture write-up).
+
+---
+
+## v58 — `display: grid`, scoped to fixed/`fr` tracks + auto-placement
+
+> set up a loop where you pick the next TODO item, and once completed,
+> clear your context and do that again until the list is done
+
+The next item of that same autonomous loop (after v57's flexbox) —
+`TODO.txt`'s `display: grid` item, deliberately deferred by v57 itself
+("grid's track sizing, template areas, implicit/explicit grids, `fr`
+units, and grid placement are a materially larger, separate algorithm
+from flexbox, and bundling both in one session would have risked
+landing neither well"). CSS Grid Layout
+(https://www.w3.org/TR/css-grid-1/) is a genuinely large spec; this
+session used the same latitude the `position`/`float`/flexbox items
+already had to scope it to a coherent, well-tested core subset rather
+than something broad and half-right.
+
+**What landed:**
+
+1. `display: grid` establishes a grid container — a block-level box in
+   the outer flow (same as `Table`/`Flex`) whose direct children each
+   become grid items.
+2. `grid-template-columns`/`grid-template-rows` with a space-separated
+   track list: fixed lengths (`px`, plus `%`/`em`/`rem` — whatever
+   length units this engine already resolves, per v49), the real `fr`
+   flexible-length distribution algorithm (CSS Grid §11.7, scoped to a
+   single pass — no iterative freeze-and-retry, same documented
+   simplification flexbox's own `resolve_flex_main_sizes` already has),
+   and `repeat(<integer>, <track-list>)` (`repeat(auto-fill/auto-fit,
+   ...)` deferred — real available-space-driven track-count resolution
+   is a different, bigger problem).
+3. `gap`/`row-gap`/`column-gap` — confirmed these were already generic,
+   not flexbox-specific (`ComputedStyle`'s own `row_gap`/`column_gap`
+   fields, set by the same `DeclParser` branches flexbox already uses),
+   so `measure_grid` just reads the same two fields directly — no new
+   gap parsing/cascading needed at all, exactly the reuse this task
+   asked to check for.
+4. Implicit auto-placement: items place into the explicit column
+   count in document order, row by row (`grid-auto-flow: row`, the
+   real spec default and the only flow implemented) — wrapping to a
+   new row once a row fills, with no explicit placement properties
+   needed at all.
+
+**What was deliberately cut**, each documented precisely in `TODO.txt`
+rather than silently folded into "done": explicit per-item placement
+(`grid-column`/`grid-row`/their `-start`/`-end` longhands — every item
+occupies exactly one cell, in auto-placement order); `grid-template-
+areas`/named lines; `justify-items`/`align-items`/`-self` within a
+cell (an item always stretches to its column's full width, like a
+table cell, and sits at its row's own top edge); content-based track
+sizing (`auto`/`min-content`/`max-content`/`minmax()`) — every track is
+a plain fixed/`%`/`fr` length; `repeat(auto-fill/auto-fit, ...)`; and
+one deliberate, precedent-backed narrowing specific to rows (see
+below).
+
+**Architecture**: a third `box_model_entry`/`display`-dispatch special
+case, parallel to `Table`'s and `Flex`'s — `Display::Grid`, a
+`build_grid_children` (reusing `build_flex_children` outright, since
+both container types "blockify" every direct child identically with no
+grid-specific difference at the box-*building* stage), and
+`measure_grid` (`resolve_grid_tracks` for the real `fr` distribution,
+shared `box_model_entry` for the container's own box model). See
+`NOTES.md` for the full write-up, including why row-track `fr`/`%`
+sizing deliberately falls back to content-based auto sizing rather than
+guessing at a basis most real grid containers don't have.
+
+**One real bug caught by the permanent tests, not assumed away**: the
+first version of `measure_grid` derived the container's own content
+height from the laid-out items' own `y + h` extents (the same trick
+`measure_flex` uses, which works there because a flex line's cross
+size is always exactly its tallest item). That's wrong for grid once a
+row has an *explicit* `grid-template-rows` size taller than its own
+content — the extra space never shows up in any item's own measured
+position, so the container silently reported too short a height. Found
+immediately by `grid_explicit_row_track_sizes_the_row_regardless_of_
+content` (container height 10px instead of the expected 80px) before
+anything was committed — fixed by tracking each row's own real bottom
+edge directly (`content_bottom`), separately from the laid items'
+positions, rather than deriving it after the fact.
+
+**Testing**: 8 new permanent tests in `mod tests` — fixed-track-width
+columns at the right x-offsets, `fr`-unit distribution with an
+asymmetric 1:3 ratio, a fixed track mixed with `fr` tracks sharing only
+the *leftover* space, auto-placement wrapping to a second row once a
+2-column row fills, `gap` spacing both columns and rows, an explicit
+`grid-template-rows` track sizing its row regardless of shorter
+content (the test that caught the bug above), `repeat(3, 50px)`
+expanding to the same layout as writing the three tracks out by hand,
+and a `position: absolute` child correctly pulled out of the grid item
+list into the container's own `positioned` list (mirroring flexbox's
+identical test).
+
+**Visual verification** (`grim`, two real test pages): a `100px 1fr
+2fr` mixed-track row with a 10px gap — three visibly different-width
+columns with 10px gaps, the `100px` column narrow enough to wrap its
+own label text, `2fr` clearly about twice `1fr`'s width; and a
+`repeat(3, 120px)` grid of 5 items with an 8px gap — items 1-3 on the
+first row, items 4-5 wrapping to a second row directly under columns 1
+and 2, the second row starting exactly below the first row's tallest
+(70px) item. Both rendered exactly as the headless tests already said
+they would.
+
+**Deliverable:** `src/lib.rs` (`Display::Grid`, `GridTrackSpec`,
+`parse_grid_track_size`/`parse_grid_repeat`/`parse_grid_template`,
+`Declarations`/`ComputedStyle`'s `grid_template_columns`/`_rows`
+fields + cascade, `grid-template-columns`/`-rows` branches in
+`DeclParser::parse_value`, `resolve_grid_tracks`, `measure_grid`, the
+new `Display::Grid` dispatch points in `measure`/`build_box_for_
+element`/`build_table_children`/`collect_children`, 8 new tests in the
+permanent `mod tests`); `TODO.txt` (item checked off with exactly what
+landed, plus new narrower deferred items for explicit placement, named
+areas/lines, `justify-items`/`align-items` within a cell, content-based
+track sizing, `repeat(auto-fill/auto-fit, ...)`, and row-track `fr`/`%`
+sizing against an indefinite container height); `NOTES.md`
+(architecture write-up).
