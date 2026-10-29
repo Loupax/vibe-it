@@ -1,5 +1,5 @@
 use criterion::{criterion_group, criterion_main, Criterion};
-use scratchy::{build_layout_tree, measure, new_font_system, parse_html, ShapeCache};
+use scratchy::{build_layout_tree, measure, new_font_system, parse_html, Floats, ShapeCache};
 use std::hint::black_box;
 
 /// A synthetic-but-realistic fixture (scratchy has no network access, no
@@ -74,6 +74,8 @@ fn bench_measure(c: &mut Criterion) {
                 deadline,
                 &mut incomplete,
                 &mut Vec::new(),
+                &Floats::default(),
+                None,
             )
         });
     });

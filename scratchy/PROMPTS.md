@@ -3285,3 +3285,177 @@ does. Visually confirmed with a real `grim` screenshot: a page with a
 **Deliverable:** `src/default.css` (new hidden-elements rule), one new
 permanent test in `src/lib.rs`'s `mod tests`. `TODO.txt`'s corresponding
 item checked off.
+
+## v54 — `float`/`clear`
+
+> set up a loop where you pick the next TODO item, and once completed,
+> clear your context and do that again until the list is done
+
+Next item of that same autonomous `TODO.txt` loop (v49 did `%` lengths,
+v50 table layout, v51 named `font-family` fallback lists, v52 the
+`position`/`z-index` positioning model, v53 `<head>` hiding) — the
+`float`/`clear` item v52 explicitly split out as "a genuinely different,
+separate layout algorithm... not just an extension of this positioning
+work." That framing held up: unlike `position`, which only ever needed
+one box to move itself (and anything out-of-flow anchored to it),
+`float` needs a box to stay in *block* flow enough to still stack
+against its siblings' positions, while *removing* itself from the part
+of flow that reserves vertical space, and then making *other* boxes'
+own line layout react to where it landed — three different pieces of
+machinery (`measure`'s `BoxContent::Blocks` arm, `measure`'s own
+box-sizing preamble, and `measure_mixed_inline`'s line-breaker) all
+needed to learn about it, not just one.
+
+**Scope landed: real block-level float positioning, `clear`, and real
+inline-text wrap-around — not scaled back to block-only.** The task's
+own framing called inline wrap-around "the hard, valuable part" and
+worth attempting rather than deferring by default; it turned out
+tractable within the session by reusing machinery already in the file
+rather than inventing new line-layout code: `measure_mixed_inline`
+(v48's hand-rolled per-word greedy line-breaker, built for inline
+`<img>`) already produces one line at a time with its own cursor
+position, so giving each line its own horizontal corridor (instead of
+one fixed width for the whole run) was a local change to that loop, not
+a new algorithm. The one thing *not* extended this session: cosmic-
+text's own single-`Buffer` whole-paragraph path (`measure`'s plain
+`BoxContent::Inline` arm) still can't vary width per line at all — a
+paragraph that starts before every float in its BFC has ended is now
+routed through `measure_mixed_inline` instead (even when it's pure
+text, no image), the same way a text+image mix already was.
+
+**The core new type, `Floats`, is deliberately *not* modeled after
+`PendingPositioned`'s bubble-up-to-an-ancestor search.** A float's
+containing block is always just "whichever block box's own `Blocks`
+loop placed it" — there's no equivalent of `position`'s "nearest
+positioned ancestor" search, so nothing needs to *bubble*. Instead
+`Floats` (`left`/`right`: `Vec<FloatEntry { top, bottom, edge }>`) is
+threaded through `measure`'s recursion as a plain `&Floats` — a
+`BoxContent::Blocks` arm clones whatever it's handed, grows the clone
+locally as it places its own direct float children (so a later sibling,
+*and anything nested inside an earlier non-floated sibling*, sees them
+too — real floats affect every descendant inline formatting context in
+the same block formatting context, not just immediate siblings), and
+hands a *fresh*, empty `Floats` into anything that starts its own new
+BFC instead: the document root, a float's own content, `position:
+absolute`/`fixed` content, and a table cell's interior. `measure` grew
+this as a new parameter (not a return value or a mutable out-parameter
+like `pending`) precisely because nothing needs it back — a sibling
+only ever needs to *read* the float state as of its own turn in the
+loop.
+
+**Placing a float**, inside `measure`'s `BoxContent::Blocks` arm: at the
+child's `clear`-adjusted `cursor_y`, `Floats::avail_bounds` finds the
+horizontal corridor left after any earlier same-BFC float(s) whose own
+`top..bottom` range contains that exact `y` (a single probe, not a
+check across the float's own real height range — see its own docs for
+why, same category of real-but-approximate simplification `measure_
+mixed_inline`'s per-line version below also makes). A `width: auto`
+float doesn't fill that corridor (ordinary block behavior) — real CSS
+computes it via shrink-to-fit (CSS2.1 §10.3.5), reusing `cell_natural_
+width` (v50's per-cell min/max-content sizing, despite its table-
+specific name — it works on any box) at the float's own full containing-
+block width, not the narrowed corridor: a float's size is never narrowed
+by other floats, only its *position* is. `box_model_entry` grew one new
+parameter, `auto_margin_box_override: Option<f32>`, to let this result
+override the ordinary "auto width fills the container" computation
+without disturbing `%`-margin/padding resolution's own (unrelated,
+un-narrowed) containing-block basis. `Float::Right` is measured at the
+corridor's left edge like `Left` and then shifted into its real final
+position with `shift_laid_tree` once its real width is known — the same
+provisional-measure-then-shift trick `resolve_positioned` already uses
+for `right`/`bottom` (v52). The float never advances `cursor_y` (the
+whole point of "out of flow") but its `Laid` still gets pushed into its
+parent's own `Blocks` children — unlike `position: absolute`, which
+removes its slot from the list entirely, a float still paints in the
+ordinary way, just without reserving flow space.
+
+**A real bug found by looking at a screenshot, not predicted up
+front**: a later, non-cleared, full-width sibling's own *box* is never
+narrowed to avoid a float (only its *inline content* is — matching real
+CSS, where only line boxes react to floats, not a block box's own
+border/background) — so its own background can legitimately overlap a
+float's area. The first version of this feature pushed a float's `Laid`
+into its parent's children list at its own point in document order,
+same as any other child, which meant a later opaque-background sibling
+painted *over* most of the float in that overlap — confirmed with a
+`grim` screenshot (a 150x150 red float mostly swallowed by a green
+sibling's own background) before it was ever written up as expected
+behavior. Real CSS floats are their own paint/stacking level (CSS2.1
+Appendix E), above ordinary in-flow non-positioned block boxes — fixed
+by collecting a `Blocks` loop's own float children into a side list and
+appending it to the normal children list only *after* every normal
+sibling has been added, so every float paints after (visually on top
+of) every normal sibling in the same list, with no new field on `Laid`
+needed. Pinned with a real painted-pixel test, same shape as v52's own
+`z_index` test.
+
+**`clear`**: `Floats::clear_y` returns the lowest bottom edge among
+floats on the side(s) a `clear` value names (`f32::MIN` — never wins a
+`max` — when there's nothing to clear), and `measure`'s `Blocks` arm
+applies it to *every* non-positioned child (float or not) before that
+child is placed, the one line CSS2.1 §9.5.2 actually requires.
+
+**Real CSS's own "computed `display`" rule (spec §9.7) extended to
+cover `float` too** (previously only `position: absolute`/`fixed`) —
+`resolve_style` now forces `display: block` whenever `float` isn't
+`none`, same as it already does for `position`, so e.g. a `<span
+style="float: left">` gets its own box instead of being flattened into
+the surrounding inline run, the same invisible-gap shape v19/v29/v32/
+v52 each already hit once for a different property.
+
+**Deliberately not attempted, each documented precisely in `TODO.txt`
+rather than silently absorbed into "float/clear done"**: a float whose
+own shrink-to-fit (or explicit) width doesn't actually fit in the
+narrowed corridor left by earlier same-side floats is placed there
+anyway rather than retried lower down — it may visually overlap a
+competing float (real CSS2.1 §9.5.1's full placement algorithm handles
+this; this session's scope note explicitly didn't require it: "multiple
+floats stacking against the same side... don't need bespoke handling").
+A real block box's own auto *height* still never grows to contain an
+uncleared float (the classic "needs a clearfix" behavior) — this is
+actually real CSS spec behavior, not a cut, but worth stating since it
+can look surprising in a naive test page with no later cleared sibling.
+Once *any* float exists anywhere earlier in a BFC, every paragraph that
+starts before the *lowest* float's own bottom edge takes the slower
+per-word `measure_mixed_inline` path — including one that turns out not
+to overlap any specific float once its own lines are actually
+positioned — a known, undocumented-until-now performance cost, not a
+correctness one. A float's own cursor-hit-test priority still follows
+plain document order (first match wins) like any other `Blocks`
+sibling, unlike `paint`'s now-corrected "floats on top" order — so in
+the narrow case of a float visually overlapping a later sibling, a
+click there may resolve against whichever one happens to come first in
+the markup, not whichever one is actually on top.
+
+5 new permanent tests in `mod tests` (76 total):
+`float_left_is_removed_from_normal_flow_and_positioned_at_the_
+containing_blocks_edge` (both halves at once — the float still gets a
+real `Laid` in its parent's children, unlike `position: absolute`'s
+missing slot, but the next sibling lands exactly where it would if the
+float didn't exist, and that sibling's own *box* position is unaffected
+— only its inline content narrows); `float_right_is_positioned_
+against_the_containing_blocks_right_edge`; `clear_moves_a_box_below_
+an_earlier_float`; `float_paints_above_a_later_full_width_siblings_
+own_background` (the real painted-pixel regression test for the bug
+above); and `inline_text_narrows_beside_a_left_float_and_resumes_full_
+width_below_it` — a real geometry test using many repeated short words
+in a corridor only slightly wider than the float (so wrapping across at
+least two lines is guaranteed regardless of real font metrics on
+whatever system runs the test, same discipline v48's own image-wrap
+tests established), confirming a line overlapping the float starts at
+its right edge and a line entirely below it resumes the container's own
+left edge. Also visually confirmed with three real `grim` screenshots:
+a left float with wrapping paragraph text (narrower lines beside it,
+full width once past it); a right float doing the mirror image; and a
+`clear: left` box sitting cleanly below an earlier float instead of
+beside it.
+
+**Deliverable:** `src/lib.rs` (`Float`/`Clear` enums, `ComputedStyle`/
+`Declarations` fields and their `DeclParser` parsing, the computed-
+display rule extension, `Floats`/`FloatEntry`, `box_model_entry`'s new
+`auto_margin_box_override` parameter, `measure`'s new `floats`/
+`auto_margin_box_override` parameters and its `BoxContent::Blocks`
+arm's float-placement/`clear`/paint-order logic, `measure_mixed_
+inline`'s per-line corridor narrowing, 5 new tests in the permanent
+`mod tests`); `TODO.txt` (item checked off, one new narrower deferred
+item added); `NOTES.md` (architecture write-up).

@@ -185,15 +185,51 @@ session can pick a coherent slice rather than one property at a time.
       ordering (this session's `z-index` support is real but
       intentionally minimal — see its own item).
 
-- [ ] `float`/`clear` are still entirely unparsed/unimplemented — a
-      floated box needs to be taken out of normal flow *and* have
-      surrounding inline content actually wrap around it (not just
-      skip reserving space for it, which is all `position: absolute`
-      needed): real extra complexity this session's positioning work
-      doesn't cover at all. `clear` depends on knowing where any
-      preceding float(s) in the same block formatting context actually
-      ended up, so it can't be implemented independently of `float`
-      itself.
+- [x] `float: left`/`right` (PENDING_COMMIT_HASH) now takes a box out
+      of normal block-level flow (no vertical space reserved for it by
+      its own parent, same as `position: absolute`) but, unlike
+      `absolute`, still participates in the surrounding *inline*
+      formatting context: a later sibling's own text genuinely wraps
+      around it — narrower lines while they overlap its vertical range,
+      full width again once past it — not just a block-level
+      skip-reserving-space approximation. `clear: left`/`right`/`both`
+      moves a box down past the bottom of any earlier same-BFC float on
+      the named side(s) (CSS2.1 §9.5.2). A `width: auto` float uses real
+      shrink-to-fit sizing (§10.3.5), not "fill the container" the way
+      an ordinary auto-width block does. Real CSS's own "computed
+      `display`" rule (§9.7) applies to `float` too, same as `position`
+      already got in v52. A float now also paints *above* a later,
+      non-cleared, full-width sibling's own background where they
+      legitimately overlap (real CSS2.1 Appendix E stacking order for
+      floats vs. ordinary in-flow block boxes) — found as a real,
+      visible bug via a screenshot mid-session, not a hypothetical edge
+      case.
+
+      A few narrower things deliberately not attempted, scoped out
+      rather than silently folded into "done":
+
+      - [ ] Multiple floats competing for the same side at the same
+            flow position don't get CSS2.1 §9.5.1's full placement
+            algorithm — a float whose own (shrink-to-fit or explicit)
+            width doesn't actually fit in the corridor earlier same-side
+            floats leave at that exact `y` is placed there anyway rather
+            than retried further down, and may visually overlap a
+            competing float. Also in this same narrower bucket: once
+            *any* float exists anywhere earlier in a block formatting
+            context, every paragraph that starts before the *lowest*
+            float's own bottom edge takes the slower per-word line-
+            breaking path (`measure_mixed_inline`, reused from v48's
+            inline-image flow) rather than cosmic-text's fast whole-
+            buffer shape — including a paragraph that turns out not to
+            overlap any specific float once its own lines are actually
+            positioned. And a float's own cursor-hit-test priority still
+            follows plain document order (first match wins, like any
+            other `Blocks` sibling) rather than the paint order fixed
+            above, so a click in a float/later-sibling overlap region
+            may resolve against whichever one happens to come first in
+            the markup, not whichever one is actually on top. None of
+            these affect the common single-float case this item's own
+            tests/screenshots cover.
 
 - [ ] `position: sticky` isn't parsed — it falls through to `static`
       (same "reject a variant that needs fundamentally different

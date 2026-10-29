@@ -1169,3 +1169,142 @@ call site, not re-derived at every level the way `paint`'s `scroll_
 offset` parameter is), so it needed the mirror-image translation
 (document space → viewport space, and back) threaded through its own
 recursive calls explicitly instead of getting it for free.
+
+## v54 — `float`/`clear`: how a float interacts with the existing block/inline passes
+
+Picked off `TODO.txt`'s `float`/`clear` item — the one v52 explicitly
+split out of the positioning-model work as "a genuinely different,
+separate layout algorithm... not just an extension of this positioning
+work." That turned out right in one way (three different pieces of
+`measure` needed to learn about floats, not one) and wrong in another
+(the actual *mechanism* ended up much closer to `position`'s own
+machinery than v52's writeup guessed, once `Floats` was modeled as
+"read-only ambient state threaded through recursion," the same shape
+`InheritedStyle` already uses, rather than anything resembling
+`PendingPositioned`'s bubble-up search).
+
+**Why a float needs no bubble-up search, unlike `absolute`/`fixed`.**
+`position: absolute`'s containing block can be arbitrarily far up the
+tree (the *nearest positioned ancestor*, found only by bubbling a
+`PendingPositioned` value outward until something catches it — see
+v52's own writeup). A float's containing block is never a search at
+all: it's always just whichever `BoxContent::Blocks` loop happens to be
+iterating over it, exactly the same box that would have contained it in
+normal flow anyway. This single fact is why `float` needed a
+*different*-shaped piece of new state than `position` did: a new
+`Floats` type (`left`/`right`: `Vec<FloatEntry { top, bottom, edge }>`,
+document-space coordinates, same convention every other position in
+this file uses), passed into `measure` as a new `floats: &Floats`
+parameter — read-only from any call's own point of view, grown only by
+cloning it locally inside a `BoxContent::Blocks` arm as that specific
+loop places its own direct float children. A normal (non-floated) child
+recursing further down gets `&local_floats` (the up-to-date clone, so
+floats placed earlier in *this* loop are visible to it); anything that
+starts a new block formatting context — the document root
+(`measure_document`), a float's own content, `position: absolute`/
+`fixed` content (`resolve_positioned`), and a table cell's interior
+(`lay_out_row_cells`) — gets a fresh, empty `Floats::default()` instead,
+matching the real CSS rule that floats never escape into or out of one
+of those.
+
+**Placing a float, and the one real "chicken-and-egg" problem it has in
+common with `absolute`'s own `right`/`bottom` solving.** A `width: auto`
+float doesn't fill its available space the way an ordinary auto-width
+block does — real CSS computes it via shrink-to-fit (CSS2.1 §10.3.5):
+clamp the content's own natural (min/max) width against the *real*
+containing block's width (not the narrower corridor other floats leave
+— a float's *size* is never affected by other floats, only its
+*position* is). This reuses `cell_natural_width` (v50's per-cell
+min/max-content sizing for table columns) completely unchanged — it
+was never actually table-specific, despite the name, just never called
+from anywhere else before. The result has to *override* `measure`'s
+ordinary "auto width = fill the available width passed in" computation
+without disturbing that same call's `%`-margin/padding resolution,
+which still needs the *real*, un-narrowed containing-block width as its
+own basis — so `box_model_entry` (and `measure` itself) grew one new
+parameter, `auto_margin_box_override: Option<f32>`, consulted only at
+the exact one spot (`auto_border_w`'s computation) where "auto width
+fills the container" would otherwise happen, leaving every other use of
+`width`/`containing_height` in that same call untouched. `Float::Right`
+has its own small version of the same "need this box's own just-
+measured size before its final position is known" problem `resolve_
+positioned`'s `right`/`bottom` solving already has (v52) — solved the
+identical way: measured once at a provisional position, then shifted
+into its real final position with `shift_laid_tree` (no re-measuring)
+once its real width is known.
+
+**The float never advances `cursor_y`, but its `Laid` still goes into
+its parent's ordinary children list** — unlike `position: absolute`,
+which removes its slot from that list entirely (its containing block
+genuinely isn't this box's content box at all), a float's containing
+block *is* this box's content box; it's only removed from the part of
+flow that reserves *vertical stacking space*, so it still belongs in
+the same `LaidContent::Blocks(Vec<Laid>)` every other child lives in —
+just inserted (originally) at its own point in that list rather than
+appended to the end, with no `cursor_y` bump before or after it.
+
+**A real bug, found by looking at a screenshot rather than predicted
+in advance**: a later, non-cleared, full-width sibling's own *box* is
+never narrowed to avoid a float (only its *inline content* is — real
+CSS floats only ever affect line-box geometry, never a block box's own
+border/background position) — so that sibling's own opaque background
+can legitimately overlap the float's area. Pushing the float's `Laid`
+into the children list at its own document-order position meant the
+later sibling, painted after it in that same order, painted *over*
+most of it. Confirmed and fixed, not left as a hypothetical: `paint`
+walks `LaidContent::Blocks` children in array order with no separate
+z-ordering concept at all (unlike the `positioned` list, which v52
+built real z-index sorting for) — so the fix is entirely in *list
+order*, not a new paint-time concept: a `BoxContent::Blocks` loop now
+collects its own float children into a side `Vec` and appends that
+`Vec` to the normal children list only after every normal sibling has
+already been pushed, so every float paints after (visually on top of)
+every normal sibling sharing its list, matching CSS2.1 Appendix E's
+real float-vs.-in-flow-block stacking order with no new field on `Laid`
+and no change to `paint` itself at all.
+
+**Inline text actually wrapping around a float — the part of this
+feature with no real precedent to reuse directly, and also the part
+that turned out cheapest once the right abstraction was found.**
+cosmic-text's own single-`Buffer`-per-paragraph path (`measure`'s plain
+`BoxContent::Inline` arm) hands the *whole* paragraph one fixed width
+and lets cosmic-text pick every line break internally — there's no
+hook to give it a *different* width per line, so a float-adjacent
+paragraph can't go through that path at all once it needs lines next to
+a float to be a different width than lines below it. `measure_mixed_
+inline` (v48's hand-rolled greedy line-breaker, originally built only
+for a run mixing text with an inline `<img>`) already produces output
+one line at a time, with its own running `cursor_y` — turning its one
+fixed `content_w` into a per-line `(left_bound, avail_w)` pair, resolved
+once per line via a new `Floats::avail_bounds(y, outer_left,
+outer_right)` call at that line's own starting `y`, was a local change
+to an already-line-oriented loop, not a new line-layout algorithm.
+`measure`'s own dispatch (which `BoxContent::Inline` arm to take) grew
+one more trigger condition alongside "contains an image": now also
+"this run starts before every float in its own BFC has ended"
+(`!floats.is_empty() && content_y < floats.max_bottom()`), routing a
+*pure-text* run through the per-word path too whenever it might need
+per-line narrowing — the same function now genuinely serves three
+different reasons to need it (an image present, a float present, or
+both), not two.
+
+**The one deliberate approximation this shares with `measure_mixed_
+inline`'s own pre-existing scope**: both `Floats::avail_bounds` (one
+`y` probe per line) and the per-float placement check in `measure`'s
+`Blocks` arm use a *single point* in `y`, not the real height range a
+line/float actually occupies, to decide what's "currently active" —
+real but approximate, same category of simplification this file already
+accepts elsewhere (e.g. `measure_mixed_inline`'s own per-word shaping
+ignoring cross-word kerning). Checked against the common cases this
+session's tests/screenshots cover and found to produce correct results
+there; not proven correct for every possible float-height/line-height
+combination.
+
+**What's still open, see `TODO.txt` for the precise list**: CSS2.1
+§9.5.1's full float-placement algorithm (retry lower down when a float
+doesn't fit beside an earlier same-side one); the performance cost of
+routing every pre-float-bottom paragraph through the slower per-word
+path even once it's structurally past the one float that mattered;
+and cursor-hit-test priority for a float/later-sibling overlap, which
+still follows plain document order rather than the paint order this
+session's own bugfix established.

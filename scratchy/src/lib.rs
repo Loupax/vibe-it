@@ -522,6 +522,45 @@ enum Position {
     Fixed,
 }
 
+/// `float`'s 2 implemented keywords (plus `none`, the default — not a
+/// variant here, same shape as `Position`'s own `Static`). Not inherited
+/// (same category as `position` — every element defaults to `None`
+/// regardless of what an ancestor declared). A floated box is taken out
+/// of normal block-level flow (it doesn't advance its parent's own
+/// `cursor_y` the way a normal sibling does — see `measure`'s own
+/// `BoxContent::Blocks` arm) but, unlike `position: absolute`/`fixed`,
+/// it still participates in the surrounding *inline* formatting context:
+/// text in a later sibling genuinely wraps around it rather than
+/// ignoring it entirely (see `Floats`'s own docs). Real CSS's own
+/// "computed `display`" rule (spec §9.7) applies here too, same as
+/// `position: absolute`/`fixed` — `resolve_style` forces `display:
+/// block` whenever `float` isn't `None` (unless `display` is already
+/// `none`), so e.g. a `<span style="float: left">` gets its own box
+/// instead of being flattened into the surrounding inline run.
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+enum Float {
+    #[default]
+    None,
+    Left,
+    Right,
+}
+
+/// `clear`'s 4 implemented keywords. Not inherited. Only ever consulted
+/// for an ordinary in-flow block-level child (`measure`'s `BoxContent::
+/// Blocks` arm checks it once per child, before that child is measured,
+/// including a child that's itself floated — real CSS lets a float also
+/// clear) — pushes the flow position down past the bottom of any
+/// earlier float(s) *on the given side(s)* in the same block formatting
+/// context (CSS2.1 §9.5.2), via `Floats::clear_y`.
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+enum Clear {
+    #[default]
+    None,
+    Left,
+    Right,
+    Both,
+}
+
 /// `top`/`right`/`bottom`/`left` ("inset" is this file's own shorthand
 /// name for the group, following the real CSS logical-properties spec
 /// term — there's no actual `inset` shorthand *property* parsed here,
@@ -760,6 +799,8 @@ struct Declarations {
     background_image: Option<String>,
     display: Option<Display>,
     position: Option<Position>,
+    float: Option<Float>,
+    clear: Option<Clear>,
     top: Option<Length>,
     right: Option<Length>,
     bottom: Option<Length>,
@@ -1764,6 +1805,32 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
                     None
                 };
             }
+        } else if name.eq_ignore_ascii_case("float") {
+            if let Ok(ident) = input.expect_ident() {
+                self.decls.float = if ident.eq_ignore_ascii_case("none") {
+                    Some(Float::None)
+                } else if ident.eq_ignore_ascii_case("left") {
+                    Some(Float::Left)
+                } else if ident.eq_ignore_ascii_case("right") {
+                    Some(Float::Right)
+                } else {
+                    None
+                };
+            }
+        } else if name.eq_ignore_ascii_case("clear") {
+            if let Ok(ident) = input.expect_ident() {
+                self.decls.clear = if ident.eq_ignore_ascii_case("none") {
+                    Some(Clear::None)
+                } else if ident.eq_ignore_ascii_case("left") {
+                    Some(Clear::Left)
+                } else if ident.eq_ignore_ascii_case("right") {
+                    Some(Clear::Right)
+                } else if ident.eq_ignore_ascii_case("both") {
+                    Some(Clear::Both)
+                } else {
+                    None
+                };
+            }
         } else if name.eq_ignore_ascii_case("top") {
             set_length(input, &mut self.decls.top);
         } else if name.eq_ignore_ascii_case("right") {
@@ -2355,6 +2422,19 @@ struct ComputedStyle {
     /// inherited, and only ever consulted for a `position`-ed box (an
     /// in-flow box's own `z_index` is simply never read).
     z_index: Option<i32>,
+    /// Not inherited (see `Float`'s own docs). Forces `display` to
+    /// `Block` the same way `position: absolute`/`fixed` does — applied
+    /// in `resolve_style` right alongside that existing rule, so nothing
+    /// downstream needs its own separate `float` check for that part.
+    /// Only ever consulted for an ordinary in-flow child in `measure`'s
+    /// `BoxContent::Blocks` arm (an `absolute`/`fixed` box's own `float`
+    /// is never read — real CSS says `position` wins and `float`
+    /// computes to `none` in that case, but since that box is already
+    /// routed through the entirely separate `PendingPositioned` path,
+    /// there's nothing here that would read `float` for it anyway).
+    float: Float,
+    /// Not inherited. See `Clear`'s own docs.
+    clear: Clear,
     /// `None` means `auto` (the default — content-driven sizing, same
     /// as before this property existed). `Some` is the specified
     /// width/height in pixels, in `box_sizing`'s reference box (content
@@ -2575,14 +2655,22 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
     // from `Static` regardless of an ancestor's own `position`.
     let position = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.position), |d| d.position)
         .unwrap_or_default();
+    // Not inherited (see `Float`'s own docs) — every element starts from
+    // `None` regardless of an ancestor's own `float`.
+    let float = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.float), |d| d.float)
+        .unwrap_or_default();
+    let clear = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.clear), |d| d.clear)
+        .unwrap_or_default();
     // Real CSS's own "computed `display`" rule (spec §9.7): an
-    // `absolute`/`fixed` element is always block-level, overriding
-    // whatever `display` the cascade otherwise picked — *except*
-    // `display: none`, which still wins (there's no box to be
-    // block-level about). Applied here, once, so every later piece of
-    // this file that branches on `display` (`collect_children`,
-    // `measure`) needs no separate `position` check of its own.
-    let display = if matches!(position, Position::Absolute | Position::Fixed) && display != Display::None {
+    // `absolute`/`fixed` element, *or* a floated one, is always
+    // block-level, overriding whatever `display` the cascade otherwise
+    // picked — *except* `display: none`, which still wins (there's no
+    // box to be block-level about). Applied here, once, so every later
+    // piece of this file that branches on `display` (`collect_children`,
+    // `measure`) needs no separate `position`/`float` check of its own.
+    let display = if (matches!(position, Position::Absolute | Position::Fixed) || float != Float::None)
+        && display != Display::None
+    {
         Display::Block
     } else {
         display
@@ -2787,6 +2875,8 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         position,
         inset,
         z_index,
+        float,
+        clear,
         width,
         height,
         min_width,
@@ -2828,6 +2918,8 @@ fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         position: Position::Static,
         inset: Insets::default(),
         z_index: None,
+        float: Float::default(),
+        clear: Clear::default(),
         width: None,
         height: None,
         min_width: None,
@@ -3465,6 +3557,111 @@ pub struct Laid {
     fixed: bool,
 }
 
+/// One already-placed float's margin-box extent, in absolute
+/// document-space coordinates — the real spec term for this is a
+/// float's "margin box" (CSS2.1 §9.5.1). `top`/`bottom` are the vertical
+/// range it occupies (same convention `measure`'s own `cursor_y`
+/// bookkeeping already uses: the position a normal sibling's flow would
+/// have used, not shifted by this box's own margin). `edge` is the one
+/// horizontal coordinate anything avoiding this float actually needs:
+/// for a `Left` float, its own right margin edge (nothing else may start
+/// left of this x); for a `Right` float, its own left margin edge
+/// (nothing else may extend past this x) — see `Floats::avail_bounds`.
+#[derive(Clone, Copy)]
+struct FloatEntry {
+    top: f32,
+    bottom: f32,
+    edge: f32,
+}
+
+/// Every float placed so far within one block formatting context (BFC) —
+/// threaded through `measure`'s own recursion as a plain, read-only
+/// `&Floats` (see `measure`'s own docs for exactly when a fresh, empty
+/// one is started vs. an ancestor's forwarded unchanged), separately
+/// from `pending: &mut Vec<PendingPositioned>`: a float's containing
+/// block is always just "whichever block box's own `Blocks` loop placed
+/// it" — unlike `absolute`/`fixed`, there's no search for some other
+/// ancestor, so nothing here ever needs to *bubble* the way `Pending
+/// Positioned` does. A `BoxContent::Blocks` arm clones whatever `Floats`
+/// it was handed, grows the clone locally as it places its own direct
+/// float children (so a later sibling, and anything nested inside an
+/// earlier non-floated sibling, sees them too — real floats affect every
+/// descendant inline formatting context in the same BFC, not just
+/// immediate siblings), and passes a *fresh*, empty `Floats` into a
+/// float's own content (and into any other box that starts a new BFC in
+/// this file — `position: absolute`/`fixed` content, and a table cell's
+/// own interior) — floats don't escape into, or leak in from outside,
+/// one of those.
+///
+/// `pub` (fields stay private) purely so `measure`'s own public
+/// signature can name this type — same reason `PendingPositioned` is
+/// `pub` already: a bench/test caller outside this crate needs to
+/// construct `Floats::default()` (the only thing it ever needs to do
+/// with one) to call `measure` at all.
+#[derive(Clone, Default)]
+pub struct Floats {
+    left: Vec<FloatEntry>,
+    right: Vec<FloatEntry>,
+}
+
+impl Floats {
+    fn is_empty(&self) -> bool {
+        self.left.is_empty() && self.right.is_empty()
+    }
+
+    /// The lowest bottom edge among every float placed so far (on either
+    /// side) — used as a cheap, conservative check (`measure`'s own
+    /// `BoxContent::Inline` dispatch) for "has every float in this BFC
+    /// already ended by the time this content starts," so a paragraph
+    /// safely below every float can keep taking the fast, whole-buffer
+    /// shaping path instead of the slower per-word one `avail_bounds`
+    /// needs. `f32::MIN` (never `>=` any real `content_y`) when there
+    /// are no floats at all.
+    fn max_bottom(&self) -> f32 {
+        self.left.iter().chain(self.right.iter()).map(|f| f.bottom).fold(f32::MIN, f32::max)
+    }
+
+    /// The horizontal range available for content at document-space `y`
+    /// (a single probe at this exact `y`, not a check across a whole
+    /// line's/box's real height range — the same real-but-approximate
+    /// simplification a line's own height isn't known until every item
+    /// on it is chosen; see `measure_mixed_inline`'s own docs), clamped
+    /// within `[outer_left, outer_right]`. Only a float whose own
+    /// `top..bottom` range actually contains `y` can narrow it — an
+    /// already-finished (or not-yet-started) float has no effect.
+    fn avail_bounds(&self, y: f32, outer_left: f32, outer_right: f32) -> (f32, f32) {
+        let left_bound = self
+            .left
+            .iter()
+            .filter(|f| f.top <= y && y < f.bottom)
+            .map(|f| f.edge)
+            .fold(outer_left, f32::max);
+        let right_bound = self
+            .right
+            .iter()
+            .filter(|f| f.top <= y && y < f.bottom)
+            .map(|f| f.edge)
+            .fold(outer_right, f32::min);
+        (left_bound, right_bound.max(left_bound))
+    }
+
+    /// The flow position a `clear`-ing box must not start above: the
+    /// lowest bottom edge among the floats `clear` actually names
+    /// (`Left`/`Right`/`Both`), or `f32::MIN` if `clear` is `None` or
+    /// there's nothing to clear — safe to `cursor_y.max(...)` against
+    /// unconditionally, since `f32::MIN` never wins that `max`.
+    fn clear_y(&self, clear: Clear) -> f32 {
+        let mut y = f32::MIN;
+        if matches!(clear, Clear::Left | Clear::Both) {
+            y = self.left.iter().map(|f| f.bottom).fold(y, f32::max);
+        }
+        if matches!(clear, Clear::Right | Clear::Both) {
+            y = self.right.iter().map(|f| f.bottom).fold(y, f32::max);
+        }
+        y
+    }
+}
+
 /// A `position: absolute`/`fixed` descendant collected while its
 /// immediate containing `Blocks`/table structure is being measured —
 /// deliberately *not* measured there and then (see `measure`'s own
@@ -3694,9 +3891,16 @@ fn resolve_positioned(
     let provisional_x = left.map(|l| cb_x + l).unwrap_or(item.static_x);
     let provisional_y = top.map(|t| cb_y + t).unwrap_or(item.static_y);
     let mut nested_pending = Vec::new();
+    // Positioned content establishes its own fresh BFC (same category
+    // as a float's own content/a table cell's interior — see `Floats`'s
+    // own docs): outer floats don't narrow an absolutely/fixed
+    // positioned box's own content, and it can't itself be a `width:
+    // auto` float (the two are mutually exclusive — real CSS computes
+    // `float` to `none` whenever `position` is `absolute`/`fixed`).
+    let no_floats = Floats::default();
     let mut laid = measure(
         item.b, font_system, provisional_x, provisional_y, cb_w, Some(cb_h), next_id, cache, deadline, incomplete,
-        &mut nested_pending,
+        &mut nested_pending, &no_floats, None,
     );
     debug_assert!(nested_pending.is_empty(), "an absolute/fixed box is itself always a positioned ancestor");
     let final_x = if left.is_some() {
@@ -3992,7 +4196,28 @@ struct BoxModelEntry {
     child_containing_height: Option<f32>,
 }
 
-fn box_model_entry(s: &mut ComputedStyle, x: f32, y: f32, width: f32, containing_height: Option<f32>) -> BoxModelEntry {
+/// `auto_margin_box_override`, when `Some`, replaces `width` as the
+/// basis for this box's own *auto*-width result only (`width`/margin/
+/// padding's real `%` basis — resolved just above, via `finalize_box_
+/// lengths` — is untouched, still `width`, the real containing block;
+/// an *explicit* `s.width` is untouched too, since `clamp_box_dim`
+/// already ignores `auto_border_w` whenever `specified` is `Some`). The
+/// one caller that passes `Some` is `measure`'s own `BoxContent::Blocks`
+/// arm, placing a `width: auto` float: real CSS computes a float's
+/// width via shrink-to-fit (CSS2.1 §10.3.5), not "fill the containing
+/// block" — the value passed in is that shrink-to-fit result, in
+/// margin-box terms (see `measure`'s own docs for how it's computed),
+/// converted to border-box terms here using the margins this call just
+/// resolved, the same way `width`'s own ordinary margin-box-to-border-
+/// box conversion works one line below.
+fn box_model_entry(
+    s: &mut ComputedStyle,
+    x: f32,
+    y: f32,
+    width: f32,
+    containing_height: Option<f32>,
+    auto_margin_box_override: Option<f32>,
+) -> BoxModelEntry {
     finalize_box_lengths(s, width, containing_height);
     let margin_top = s.margin.top.px();
     let margin_right = s.margin.right.px();
@@ -4004,7 +4229,10 @@ fn box_model_entry(s: &mut ComputedStyle, x: f32, y: f32, width: f32, containing
     let border_x = x + margin_left;
     let border_y = y + margin_top;
     let extra_w = 2.0 * s.border_width + padding_left + padding_right;
-    let auto_border_w = (width - margin_left - margin_right).max(0.0);
+    let auto_border_w = match auto_margin_box_override {
+        Some(mb) => (mb - margin_left - margin_right).max(0.0),
+        None => (width - margin_left - margin_right).max(0.0),
+    };
     let border_w = clamp_box_dim(s.width, s.min_width, s.max_width, auto_border_w, s.box_sizing, extra_w);
     let content_x = border_x + s.border_width + padding_left;
     let content_y = border_y + s.border_width + padding_top;
@@ -4057,6 +4285,27 @@ pub fn measure<'a>(
     // either catches them (if *it's* positioned) or keeps bubbling them
     // further still.
     pending: &mut Vec<PendingPositioned<'a>>,
+    // Every float already placed in this box's own block formatting
+    // context (BFC) — read-only here (grown into a local clone only by
+    // the `BoxContent::Blocks` arm below, which is the only place that
+    // can ever place a *new* float) — see `Floats`'s own docs for
+    // exactly what counts as "this box's own BFC": the document root
+    // (`measure_document`), a float's own content, `position: absolute`/
+    // `fixed` content (`resolve_positioned`), and a table cell's own
+    // interior (`lay_out_row_cells`) all start a *fresh*, empty `Floats`
+    // here rather than forwarding an ancestor's; an ordinary recursive
+    // `BoxContent::Blocks` child instead gets the current, already-grown
+    // local clone, so floats are visible to every descendant inline
+    // formatting context in the same BFC, not just immediate siblings.
+    floats: &Floats,
+    // `Some` only when this call is placing a `float: left`/`right`
+    // child whose own `width` is `auto` — the shrink-to-fit margin-box
+    // width `measure`'s own `BoxContent::Blocks` arm already computed
+    // for it via `cell_natural_width` — see `box_model_entry`'s own
+    // docs for exactly how this overrides the ordinary "auto width
+    // fills the container" result. `None` for every other call
+    // (everything that isn't itself a `width: auto` float).
+    auto_margin_box_override: Option<f32>,
 ) -> Laid {
     // `display: table` builds its own box model exactly the same way as
     // any other box (`box_model_entry`, just below — reused, not
@@ -4069,7 +4318,10 @@ pub fn measure<'a>(
     // row stacked among any other direct block child like a `caption` —
     // is already exactly right), so this has to be checked before the
     // `match` below, not as one more arm inside it. See `measure_table`'s
-    // own docs for the real algorithm.
+    // own docs for the real algorithm. A table establishes its own BFC
+    // (same category as a table cell — see `lay_out_row_cells`'s own
+    // docs), so `floats`/`auto_margin_box_override` have nothing to do
+    // with it either way; `measure_table` doesn't take either.
     if b.style.display == Display::Table
         && let BoxContent::Blocks(children) = &b.content
     {
@@ -4078,7 +4330,7 @@ pub fn measure<'a>(
         );
     }
     let mut s = b.style;
-    let entry = box_model_entry(&mut s, x, y, width, containing_height);
+    let entry = box_model_entry(&mut s, x, y, width, containing_height, auto_margin_box_override);
     let border_x = entry.border_x;
     let border_y = entry.border_y;
     let border_w = entry.border_w;
@@ -4089,15 +4341,29 @@ pub fn measure<'a>(
     let child_containing_height = entry.child_containing_height;
 
     let mut laid = match &b.content {
-        BoxContent::Inline(items) if items.iter().any(|i| matches!(i, InlineItem::Image { .. })) => {
+        BoxContent::Inline(items)
+            if items.iter().any(|i| matches!(i, InlineItem::Image { .. }))
+                || (!floats.is_empty() && content_y < floats.max_bottom()) =>
+        {
             // Real inline-level flow for a run that mixes text with at
             // least one inline `<img>` — a materially different (and
             // much more expensive) path than the plain-text case below,
             // so only taken when actually needed; see `measure_mixed_
-            // inline`'s own docs.
+            // inline`'s own docs. Also taken (new — the `float`/`clear`
+            // item) for a *plain-text* run that starts before every
+            // float in this BFC has already ended, since only this
+            // hand-rolled per-word breaker can narrow/shift individual
+            // lines around a float — cosmic-text's own whole-buffer
+            // `Buffer`/`Wrap` path below has one fixed width for the
+            // entire paragraph. Known cost, not attempted away: once
+            // *any* float exists anywhere earlier in this BFC, every
+            // paragraph that starts before the *lowest* float's bottom
+            // edge pays this slower per-word path, even one that turns
+            // out not to actually overlap any specific float once its
+            // own line positions are known — see TODO.txt.
             let (content_h, positioned) = measure_mixed_inline(
                 items, &s, font_system, content_x, content_y, content_w, containing_height, next_id, cache, deadline,
-                incomplete,
+                incomplete, floats,
             );
             let border_h = clamp_box_dim(
                 s.height,
@@ -4195,6 +4461,28 @@ pub fn measure<'a>(
             // flow": every other sibling lands exactly where it would
             // if this child didn't exist).
             let mut own_pending: Vec<PendingPositioned<'a>> = Vec::new();
+            // Grown locally as this loop places its own direct float
+            // children, so a later sibling (and anything nested inside
+            // an earlier non-floated sibling) sees them too — see
+            // `Floats`'s own docs for why this is a clone of the
+            // inherited set, not a fresh one.
+            let mut local_floats = floats.clone();
+            // A float's own `Laid` is collected here, not pushed
+            // straight into `laid_children` at its own point in the
+            // loop, and appended only once every normal sibling has
+            // been — real CSS paints a float *above* every later
+            // in-flow, non-positioned sibling's own background/border in
+            // the same block formatting context (CSS2.1 Appendix E:
+            // floats are their own stacking level, above ordinary
+            // in-flow block-level boxes), which matters here because a
+            // later normal sibling's own box is never narrowed to avoid
+            // a float — only its *inline* content is (see this arm's own
+            // docs) — so its full-width background can legitimately
+            // overlap a float's own area, and must not visually bury it.
+            // Confirmed with a real `grim` screenshot before adding this:
+            // without it, a later opaque-background sibling painted
+            // straight over most of an unrelated, non-cleared float.
+            let mut float_children: Vec<Laid> = Vec::new();
             for child in children {
                 if matches!(child.style.position, Position::Absolute | Position::Fixed) {
                     own_pending.push(PendingPositioned {
@@ -4205,13 +4493,109 @@ pub fn measure<'a>(
                     });
                     continue;
                 }
+                // `clear` (CSS2.1 §9.5.2): pushes the flow position down
+                // past the bottom of any earlier float(s) on the named
+                // side(s) in this same BFC, *before* this child (float
+                // or not) is measured. `clear_y` returns `f32::MIN`
+                // (never wins the `max`) when there's nothing to clear.
+                if child.style.clear != Clear::None {
+                    cursor_y = cursor_y.max(local_floats.clear_y(child.style.clear));
+                }
+                if child.style.float != Float::None {
+                    // Real CSS takes a float out of normal block-level
+                    // flow entirely (no `cursor_y` advance — the next
+                    // sibling lands exactly where it would if this
+                    // child didn't exist) but still places it at the
+                    // *current* flow position, narrowed to whatever
+                    // horizontal room earlier same-BFC floats leave at
+                    // that exact `y` (`avail_bounds`'s own "single
+                    // probe, not a height range" simplification — see
+                    // its own docs). Not attempted here, a documented
+                    // scope cut (see TODO.txt): if this float's own
+                    // width doesn't actually fit in that narrowed
+                    // corridor (competing same-side floats too wide for
+                    // the container), it's placed here anyway rather
+                    // than dropped down to retry below the obstruction
+                    // — it may visually overlap a competing float.
+                    let (left_bound, right_bound) =
+                        local_floats.avail_bounds(cursor_y, content_x, content_x + content_w);
+                    // A `width: auto` float uses shrink-to-fit sizing
+                    // (CSS2.1 §10.3.5), not "fill the container" the
+                    // way an ordinary `width: auto` block does — reused
+                    // from the exact min/max-content machinery real
+                    // auto table-column sizing already uses (`cell_
+                    // natural_width`, despite its table-specific name,
+                    // works on any box). Clamped against this box's own
+                    // real containing-block width (`content_w`), *not*
+                    // the narrowed avail corridor just computed above —
+                    // a float's shrink-to-fit basis is the ordinary
+                    // containing block, same as any other box; only its
+                    // final *position* (below), never its size, adjusts
+                    // to avoid other floats.
+                    let auto_override = if child.style.width.is_none() {
+                        let (min_mb, max_mb) =
+                            cell_natural_width(child, font_system, next_id, cache, deadline, incomplete);
+                        Some(content_w.min(max_mb).max(min_mb.min(content_w)))
+                    } else {
+                        None
+                    };
+                    // A float establishes its own, fresh BFC for its
+                    // own content (see `Floats`'s own docs) — outer
+                    // floats don't affect text wrapping *inside* it, and
+                    // it can have floats of its own that don't escape
+                    // back out either.
+                    let empty_floats = Floats::default();
+                    // Measured at `left_bound` first regardless of
+                    // side — for `Right`, shifted into its real final
+                    // position below (`shift_laid_tree`, no
+                    // re-measuring) once its real width is known, the
+                    // same provisional-then-shift trick `resolve_
+                    // positioned` already uses for `right`/`bottom`.
+                    let mut lc = measure(
+                        child, font_system, left_bound, cursor_y, content_w, child_containing_height, next_id,
+                        cache, deadline, incomplete, &mut own_pending, &empty_floats, auto_override,
+                    );
+                    let margin_top = lc.style.margin.top.px();
+                    let margin_bottom = lc.style.margin.bottom.px();
+                    let margin_right = lc.style.margin.right.px();
+                    let margin_left = lc.style.margin.left.px();
+                    if child.style.float == Float::Right {
+                        let dx = right_bound - margin_right - (lc.x + lc.w);
+                        shift_laid_tree(&mut lc, dx, 0.0);
+                    }
+                    let top = cursor_y;
+                    let bottom = cursor_y + margin_top + lc.h + margin_bottom;
+                    match child.style.float {
+                        Float::Left => {
+                            let edge = lc.x + lc.w + margin_right;
+                            local_floats.left.push(FloatEntry { top, bottom, edge });
+                        }
+                        Float::Right => {
+                            let edge = lc.x - margin_left;
+                            local_floats.right.push(FloatEntry { top, bottom, edge });
+                        }
+                        Float::None => unreachable!(),
+                    }
+                    float_children.push(lc);
+                    continue;
+                }
                 let lc = measure(
                     child, font_system, content_x, cursor_y, content_w, child_containing_height, next_id, cache,
-                    deadline, incomplete, &mut own_pending,
+                    deadline, incomplete, &mut own_pending, &local_floats, None,
                 );
                 cursor_y += lc.style.margin.top.px() + lc.style.margin.bottom.px() + lc.h;
                 laid_children.push(lc);
             }
+            // Appended last, after every normal sibling — see
+            // `float_children`'s own docs just above for why paint
+            // order (not just `cursor_y`/flow) needs this.
+            laid_children.extend(float_children);
+            // Real CSS: an ordinary block box's own auto height is
+            // computed from its in-flow content only — a float does
+            // *not* grow its containing block's height (the classic
+            // "needs a clearfix" behavior; see TODO.txt) — so this is
+            // still purely `cursor_y`, never adjusted by anything in
+            // `local_floats`, exactly as before this feature existed.
             let content_h = cursor_y - content_y;
             // See the `Inline` branch's own comment just above — same
             // "override only the reported size, children already laid
@@ -4434,7 +4818,6 @@ fn image_natural_width(image: &DecodedImage, s: &ComputedStyle) -> f32 {
 /// alignment purposes, unlike a real UA which hangs trailing whitespace
 /// past the edge.
 #[allow(clippy::too_many_arguments)]
-#[allow(clippy::too_many_arguments)]
 fn measure_mixed_inline(
     items: &[InlineItem],
     s: &ComputedStyle,
@@ -4453,6 +4836,13 @@ fn measure_mixed_inline(
     cache: &mut ShapeCache,
     deadline: std::time::Instant,
     incomplete: &mut bool,
+    // Floats active in this run's own block formatting context — the
+    // `float`/`clear` item's real target: each *line* this greedy
+    // breaker produces gets its own horizontal corridor, narrowed/
+    // shifted by whatever float(s) overlap that line's own starting
+    // `y` (`Floats::avail_bounds`), instead of the one fixed `content_x`
+    // .. `content_x + content_w` every line used before this existed.
+    floats: &Floats,
 ) -> (f32, Vec<MixedPositioned>) {
     // Effectively unconstrained — combined with `pre: true` below (which
     // also forces `Wrap::None`), a word is never wrapped/truncated
@@ -4515,32 +4905,62 @@ fn measure_mixed_inline(
         }
     }
 
+    // Resolves the horizontal corridor available to a line that starts
+    // at document-space `content_y + y_rel` — `content_w` (the full
+    // run's own containing-block-derived width) when `floats` is empty
+    // or nothing overlaps, narrowed/shifted otherwise. A single probe at
+    // the line's own *top* `y` (not checked across its real height
+    // range, which isn't known until every item on it is chosen) — a
+    // real but approximate simplification, same category as every other
+    // scope cut this function's own docs already list.
+    let line_bounds = |y_rel: f32| -> (f32, f32) {
+        let (left_bound, right_bound) = floats.avail_bounds(content_y + y_rel, content_x, content_x + content_w);
+        (left_bound, (right_bound - left_bound).max(0.0))
+    };
+
     // Pass 1: greedy-wrap into lines — each entry is (index into
-    // `measured`, x offset within its line, before `text-align`).
-    let mut lines: Vec<Vec<(usize, f32)>> = Vec::new();
+    // `measured`, x offset within its line, before `text-align`). Each
+    // line also carries its own `(left_bound, avail_w)`, resolved once
+    // when the line starts (via `line_bounds`, above) rather than
+    // assuming the whole run's fixed `content_x`/`content_w` the way
+    // this looked before floats existed.
+    let mut lines: Vec<(f32, f32, Vec<(usize, f32)>)> = Vec::new();
     let mut current: Vec<(usize, f32)> = Vec::new();
     let mut cursor_x = 0.0f32;
+    let mut cursor_y = 0.0f32;
+    let (mut left_bound, mut avail_w) = line_bounds(cursor_y);
     for (i, m) in measured.iter().enumerate() {
         let w = match m {
             Measured::Word { width, .. } => *width,
             Measured::Image { advance_w, .. } => *advance_w,
         };
-        if !current.is_empty() && cursor_x + w > content_w {
-            lines.push(std::mem::take(&mut current));
+        if !current.is_empty() && cursor_x + w > avail_w {
+            let line_height = current
+                .iter()
+                .map(|&(i, _)| match &measured[i] {
+                    Measured::Word { height, .. } => *height,
+                    Measured::Image { img_h, .. } => *img_h,
+                })
+                .fold(0.0f32, f32::max);
+            lines.push((left_bound, avail_w, std::mem::take(&mut current)));
+            cursor_y += line_height;
             cursor_x = 0.0;
+            let bounds = line_bounds(cursor_y);
+            left_bound = bounds.0;
+            avail_w = bounds.1;
         }
         current.push((i, cursor_x));
         cursor_x += w;
     }
     if !current.is_empty() {
-        lines.push(current);
+        lines.push((left_bound, avail_w, current));
     }
 
     // Pass 2: resolve each line's height/`text-align` offset, emit
     // final absolute (document-space) positions.
     let mut positioned: Vec<MixedPositioned> = Vec::with_capacity(measured.len());
     let mut cursor_y = 0.0f32;
-    for line in &lines {
+    for (left_bound, avail_w, line) in &lines {
         let line_height = line
             .iter()
             .map(|&(i, _)| match &measured[i] {
@@ -4558,12 +4978,12 @@ fn measure_mixed_inline(
             })
             .unwrap_or(0.0);
         let align_offset = match s.text_align {
-            TextAlign::Right => (content_w - line_w).max(0.0),
-            TextAlign::Center => (content_w - line_w).max(0.0) / 2.0,
+            TextAlign::Right => (avail_w - line_w).max(0.0),
+            TextAlign::Center => (avail_w - line_w).max(0.0) / 2.0,
             TextAlign::Left | TextAlign::Justify => 0.0,
         };
         for &(i, x) in line {
-            let final_x = content_x + x + align_offset;
+            let final_x = left_bound + x + align_offset;
             match &measured[i] {
                 Measured::Word { id, width, height } => {
                     positioned.push(MixedPositioned::Word { id: *id, x: final_x, y: content_y + cursor_y, w: *width, h: *height });
@@ -4668,10 +5088,18 @@ fn cell_natural_width(
     trial_style.text_align = TextAlign::Left;
     let (content_min, content_max) = match &cell.content {
         BoxContent::Inline(items) => {
-            let (_, min_items) =
-                measure_mixed_inline(items, &trial_style, font_system, 0.0, 0.0, 0.0, None, next_id, cache, deadline, incomplete);
+            // No real containing block exists yet for this trial (see
+            // this function's own docs) — same reasoning extends to
+            // floats: there's no real BFC to inherit from either, so
+            // both trials use a fresh, empty one.
+            let no_floats = Floats::default();
+            let (_, min_items) = measure_mixed_inline(
+                items, &trial_style, font_system, 0.0, 0.0, 0.0, None, next_id, cache, deadline, incomplete,
+                &no_floats,
+            );
             let (_, max_items) = measure_mixed_inline(
                 items, &trial_style, font_system, 0.0, 0.0, UNBOUNDED, None, next_id, cache, deadline, incomplete,
+                &no_floats,
             );
             (mixed_inline_extent(&min_items), mixed_inline_extent(&max_items))
         }
@@ -4822,11 +5250,15 @@ fn lay_out_row_cells<'a>(
     let mut cursor_x = content_x;
     let mut row_h = 0.0f32;
     let mut laid_cells = Vec::with_capacity(cells.len());
+    // A table cell's own interior is its own fresh BFC (same category
+    // as a float's own content/positioned content — see `Floats`'s own
+    // docs): floats don't escape a cell's own box, in either direction.
+    let no_floats = Floats::default();
     for (i, cell) in cells.iter().enumerate() {
         let cell_w = col_widths.get(i).copied().unwrap_or(fallback_w);
         let lc = measure(
             cell, font_system, cursor_x, content_y, cell_w, child_containing_height, next_id, cache, deadline,
-            incomplete, pending,
+            incomplete, pending, &no_floats, None,
         );
         row_h = row_h.max(lc.style.margin.top.px() + lc.style.margin.bottom.px() + lc.h);
         cursor_x += cell_w;
@@ -4860,7 +5292,7 @@ fn measure_row_with_widths<'a>(
         unreachable!("measure_row_with_widths is only ever called on a BoxContent::TableRow box, from measure_table");
     };
     let mut s = row.style;
-    let entry = box_model_entry(&mut s, x, y, width, containing_height);
+    let entry = box_model_entry(&mut s, x, y, width, containing_height, None);
     let (row_h, laid_cells) = lay_out_row_cells(
         cells, col_widths, font_system, entry.content_x, entry.content_y, entry.child_containing_height, next_id,
         cache, deadline, incomplete, pending,
@@ -4920,7 +5352,7 @@ fn measure_table<'a>(
     pending: &mut Vec<PendingPositioned<'a>>,
 ) -> Laid {
     let mut s = b.style;
-    let entry = box_model_entry(&mut s, x, y, width, containing_height);
+    let entry = box_model_entry(&mut s, x, y, width, containing_height, None);
     let col_widths = table_column_widths(children, entry.content_w, font_system, next_id, cache, deadline, incomplete);
 
     let mut cursor_y = entry.content_y;
@@ -4937,6 +5369,10 @@ fn measure_table<'a>(
     // `position`-ed ancestor — only `own_pending` catches that here,
     // just like the generic `Blocks` arm.
     let mut own_pending: Vec<PendingPositioned<'a>> = Vec::new();
+    // A table is its own fresh BFC (see `Floats`'s own docs) — a direct
+    // `<table>` child (a row, or a plain-`Block` child like a
+    // `caption`) never needs to see floats from outside the table.
+    let no_floats = Floats::default();
     for child in children {
         let lc = if matches!(child.content, BoxContent::TableRow(_)) {
             measure_row_with_widths(
@@ -4946,7 +5382,7 @@ fn measure_table<'a>(
         } else {
             measure(
                 child, font_system, entry.content_x, cursor_y, entry.content_w, entry.child_containing_height,
-                next_id, cache, deadline, incomplete, &mut own_pending,
+                next_id, cache, deadline, incomplete, &mut own_pending, &no_floats, None,
             )
         };
         cursor_y += lc.style.margin.top.px() + lc.style.margin.bottom.px() + lc.h;
@@ -5020,7 +5456,12 @@ pub fn measure_document(
     incomplete: &mut bool,
 ) -> Laid {
     let mut pending = Vec::new();
-    let mut laid = measure(b, font_system, 0.0, 0.0, width, None, next_id, cache, deadline, incomplete, &mut pending);
+    // The document root starts a fresh BFC — the real initial
+    // containing block has no floats of its own yet either.
+    let root_floats = Floats::default();
+    let mut laid = measure(
+        b, font_system, 0.0, 0.0, width, None, next_id, cache, deadline, incomplete, &mut pending, &root_floats, None,
+    );
     if !pending.is_empty() {
         let mut resolved: Vec<Laid> = pending
             .into_iter()
@@ -6487,7 +6928,7 @@ mod tests {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         let laid = measure(
             &tree, &mut font_system, 0.0, 0.0, 200.0, None, &mut next_id, &mut cache, deadline, &mut incomplete,
-            &mut Vec::new(),
+            &mut Vec::new(), &Floats::default(), None,
         );
         let mut swash_cache = SwashCache::new();
         let win_w = 800u32;
@@ -6523,7 +6964,7 @@ mod tests {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         measure(
             &tree, &mut font_system, 0.0, 0.0, available_width, containing_height, &mut next_id, &mut cache, deadline,
-            &mut incomplete, &mut Vec::new(),
+            &mut incomplete, &mut Vec::new(), &Floats::default(), None,
         )
     }
 
@@ -7043,7 +7484,7 @@ mod tests {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         let laid = measure(
             &tree, &mut font_system, 0.0, 0.0, 200.0, None, &mut next_id, &mut cache, deadline, &mut incomplete,
-            &mut Vec::new(),
+            &mut Vec::new(), &Floats::default(), None,
         );
         let mut swash_cache = SwashCache::new();
         let (win_w, win_h) = (100u32, 100u32);
@@ -7511,7 +7952,7 @@ mod tests {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
         let laid = measure(
             &tree, &mut font_system, 0.0, 0.0, 800.0, None, &mut next_id, &mut cache, deadline, &mut incomplete,
-            &mut Vec::new(),
+            &mut Vec::new(), &Floats::default(), None,
         );
 
         let mut ids = Vec::new();
@@ -7787,5 +8228,157 @@ mod tests {
         collect_all_text(&tree, &mut text);
         assert!(!text.contains("Secret Page Title"), "title text must not render in the document body: {text:?}");
         assert!(text.contains("Visible Body Text"), "body text should still render normally: {text:?}");
+    }
+
+    // ---------- v54: `float`/`clear` ----------
+
+    #[test]
+    fn float_left_is_removed_from_normal_flow_and_positioned_at_the_containing_blocks_edge() {
+        // No inter-tag whitespace — same reason every other exact-pixel
+        // flow test in this file avoids it (a whitespace-only text node
+        // would otherwise become its own `Blocks` child).
+        let laid = measure_fixture(
+            r#"<html><body><div style="width: 300px;"><div style="float: left; width: 50px; height: 80px;"></div><div style="height: 20px;">normal</div></div></body></html>"#,
+            400.0,
+        );
+        let container = find_by_width(&laid, 300.0).expect("container not found");
+        let LaidContent::Blocks(children) = &container.content else { panic!("expected Blocks content") };
+        assert_eq!(
+            children.len(),
+            2,
+            "a float still produces a real Laid box in its parent's children (unlike `position: absolute`, which removes its slot entirely) — it just doesn't advance the flow cursor"
+        );
+        let float_box = children.iter().find(|c| c.h == 80.0).expect("float box not found");
+        let normal = children.iter().find(|c| c.h == 20.0).expect("normal sibling not found");
+        assert_eq!(
+            (float_box.x, float_box.y),
+            (container.x, container.y),
+            "an unobstructed `float: left` should sit at the containing block's own content-box left/top edge"
+        );
+        assert_eq!(float_box.w, 50.0, "an explicit float width should be honored exactly, same as any other box");
+        assert_eq!(
+            normal.y, container.y,
+            "the sibling after a float should land exactly where it would if the float didn't exist at all — a float doesn't advance the flow cursor"
+        );
+        assert_eq!(
+            normal.x, container.x,
+            "an ordinary (non-floated) block's own border-box position is unaffected by a float — only its *inline* content narrows around one, not its own box geometry"
+        );
+    }
+
+    #[test]
+    fn float_right_is_positioned_against_the_containing_blocks_right_edge() {
+        let laid = measure_fixture(
+            r#"<html><body><div style="width: 300px;"><div style="float: right; width: 50px; height: 30px;"></div></div></body></html>"#,
+            400.0,
+        );
+        let container = find_by_width(&laid, 300.0).expect("container not found");
+        let LaidContent::Blocks(children) = &container.content else { panic!("expected Blocks content") };
+        let float_box = children.iter().find(|c| c.h == 30.0).expect("float box not found");
+        assert_eq!(
+            float_box.x,
+            container.x + 300.0 - 50.0,
+            "an unobstructed `float: right` should sit flush with the containing block's own right edge"
+        );
+        assert_eq!(float_box.y, container.y);
+    }
+
+    #[test]
+    fn clear_moves_a_box_below_an_earlier_float() {
+        let laid = measure_fixture(
+            r#"<html><body><div style="width: 300px;"><div style="float: left; width: 50px; height: 80px;"></div><div style="clear: left; height: 20px;">cleared</div></div></body></html>"#,
+            400.0,
+        );
+        let container = find_by_width(&laid, 300.0).expect("container not found");
+        let LaidContent::Blocks(children) = &container.content else { panic!("expected Blocks content") };
+        assert_eq!(children.len(), 2);
+        let float_box = children.iter().find(|c| c.h == 80.0).expect("float box not found");
+        let cleared = children.iter().find(|c| c.h == 20.0).expect("cleared sibling not found");
+        assert_eq!(
+            cleared.y,
+            float_box.y + float_box.h,
+            "clear: left should push this box down to exactly the bottom of the earlier left float, instead of landing beside/under it like the uncleared sibling in the test above"
+        );
+    }
+
+    #[test]
+    fn float_paints_above_a_later_full_width_siblings_own_background() {
+        // A later, non-cleared, full-width sibling's own box is never
+        // narrowed to avoid an earlier float (only its *inline* content
+        // is — see the geometry tests above), so its own background can
+        // legitimately overlap the float's area. Real CSS still paints
+        // the float on top in that overlap (CSS2.1 Appendix E: floats
+        // are their own stacking level, above ordinary in-flow,
+        // non-positioned block-level boxes) — found as a real, visible
+        // bug via a `grim` screenshot before this test existed: without
+        // special-casing paint order, the float (collected into its
+        // parent's `Blocks` children at its own point in document order,
+        // same as any other child) painted *underneath* the later green
+        // sibling's own opaque background instead.
+        let html = r#"<html><body><div style="width: 400px;"><div style="float: left; width: 150px; height: 150px; background-color: #ff0000;"></div><div style="background-color: #00ff00; height: 100px;"></div></div></body></html>"#;
+        let doc = parse_html(html);
+        let tree = build_layout_tree(&doc);
+        let mut font_system = new_font_system();
+        let mut cache = ShapeCache::new();
+        let mut next_id = 0usize;
+        let mut incomplete = false;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let laid =
+            measure_document(&tree, &mut font_system, 400.0, 400.0, &mut next_id, &mut cache, deadline, &mut incomplete);
+        let mut swash_cache = SwashCache::new();
+        let (win_w, win_h) = (400u32, 400u32);
+        let mut pixels = vec![0u32; (win_w * win_h) as usize];
+        paint(&laid, &mut font_system, &mut swash_cache, &mut cache, &mut pixels, win_w, win_h, 0.0, None);
+        // `body { margin: 8px }` (default.css) offsets everything by
+        // 8px — (50, 50) is well inside both the float's 150x150 area
+        // and the green sibling's full-width/100px-tall area, which
+        // start at the same (8, 8) origin since the float never
+        // advances the flow cursor.
+        let px = pixels[50 * win_w as usize + 50];
+        assert_eq!(px & 0x00FF_FFFF, 0x00FF_0000, "the float (red) should paint on top of the later sibling's own background (green) in their overlap region");
+    }
+
+    #[test]
+    fn inline_text_narrows_beside_a_left_float_and_resumes_full_width_below_it() {
+        // Many repeated short words in a container only 40px wider than
+        // the float, so wrapping to at least two lines is guaranteed
+        // regardless of real font metrics on whatever system runs this
+        // test (same "don't depend on exact glyph widths" discipline
+        // `mixed_inline_wraps_when_content_does_not_fit_on_one_line`
+        // already established with images) — the float itself is
+        // exactly one default line-height (20px) tall, so only the
+        // line(s) starting at `y == 0` overlap it; anything starting at
+        // `y >= 20` is entirely below it and should see the container's
+        // full, unnarrowed width again. `margin: 0` on the `<p>` so its
+        // own inline content starts exactly at the container's content
+        // box, not shifted down by `default.css`'s own paragraph margin.
+        let word_text = "hi ".repeat(40);
+        let html = format!(
+            r#"<html><body><div style="width: 120px;"><div style="float: left; width: 80px; height: 20px;"></div><p style="margin: 0">{word_text}</p></div></body></html>"#
+        );
+        let laid = measure_fixture(&html, 400.0);
+        let container = find_by_width(&laid, 120.0).expect("container not found");
+        let run = find_mixed_inline(&laid)
+            .expect("a plain-text paragraph sharing a BFC with an earlier float should take the floats-aware per-word path, not the plain whole-buffer one");
+        let positions: Vec<(f32, f32)> = mixed_items(run).iter().map(mixed_item_xy).collect();
+        let float_right_edge = container.x + 80.0;
+        let float_bottom = container.y + 20.0;
+
+        let first_line_y = positions.iter().map(|&(_, y)| y).fold(f32::MAX, f32::min);
+        let (first_x, _) = *positions.iter().find(|&&(_, y)| y == first_line_y).unwrap();
+        assert!(
+            first_x >= float_right_edge - 0.01,
+            "a line overlapping the float's own y range should start at/after its right edge ({float_right_edge}), not the container's own left edge ({}); got x={first_x}",
+            container.x
+        );
+
+        let below_float = positions.iter().find(|&&(_, y)| y >= float_bottom - 0.01);
+        let (x_below, _) = *below_float
+            .expect("with 40 words wrapping through a 40px-narrow corridor, at least one line should end up entirely below the float");
+        assert!(
+            (x_below - container.x).abs() < 0.01,
+            "a line entirely below the float's bottom should resume the container's own full width, starting back at its own left edge ({}); got x={x_below}",
+            container.x
+        );
     }
 }
