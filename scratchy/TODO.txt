@@ -247,6 +247,23 @@ session can pick a coherent slice rather than one property at a time.
       a heavily downscaled photo will look aliased; revisit if a real
       page's scaled image looks visibly bad).
 
+      **Not a bug — confirmed with the user:** an `<img>` with no
+      sizing CSS and no `max-width` from the page's own stylesheet
+      renders at full intrinsic size and can overflow the viewport
+      (worse here than on a real browser since scratchy has no
+      horizontal scrolling at all — the overflow is just clipped off-
+      window with no way to reach it). This is genuinely spec-accurate:
+      real browsers don't implicitly cap `<img>` width either — the
+      "images never overflow" behavior people expect from the web
+      almost always comes from a page's *own* author CSS (`img {
+      max-width: 100% }`, often via a reset), not a UA default.
+      `default.css` deliberately does *not* add that rule itself — the
+      user was offered it as a pragmatic (non-spec) UA-level default
+      and explicitly chose to keep matching real browser behavior
+      instead. Don't "fix" the overflow by adding `img { max-width:
+      100% }` to `default.css` without checking this decision still
+      holds.
+
       **Real inline-level flow, resolved (v48):** a default-`display:
       inline` `<img>` now genuinely shares a line with surrounding text
       and wraps correctly — `collect_children` pushes it straight into

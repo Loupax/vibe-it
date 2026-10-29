@@ -889,3 +889,15 @@ matter" is a note about *today's* priority call, not a permanent
 architectural verdict — don't assume a past session's scope decision
 is still the user's preference without checking, even when the
 reasoning behind it still holds up.
+
+**Confirmed, no code change: big unstyled `<img>`s overflowing the
+viewport is correct, not a bug.** The user noticed this testing real
+pages after v48 and asked directly. Real browsers don't implicitly cap
+`<img>` width either — "images never overflow" on the real web almost
+always comes from a page's own author CSS (`img { max-width: 100% }`
+or a reset), not a UA default — so scratchy matches real behavior by
+*not* adding that rule to `default.css`. Offered the pragmatic (non-
+spec) alternative of adding it as a UA-level default anyway; the user
+explicitly chose to keep matching real browser behavior instead. See
+the `<img>` `TODO.txt` entry for the durable pointer — worth checking
+before ever "fixing" this overflow unprompted.
