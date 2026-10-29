@@ -936,15 +936,13 @@ impl CursorStyle {
     }
 }
 
-/// Only the five CSS generic family keywords — no named families
-/// (`"Georgia"`, `Helvetica`, ...) and no comma-separated fallback lists,
-/// since nothing in `default.css` or any test page so far has needed
-/// either (see TODO.txt). `SansSerif` is the default so every element
-/// without a `font-family` rule renders exactly as before this feature —
-/// matches cosmic-text's own `Attrs::new()` default.
-#[derive(Clone, Copy, PartialEq, Default)]
-enum FontFamily {
-    #[default]
+/// One entry in a `font-family` fallback list — either a specific named
+/// family (`"Georgia"`, `Helvetica Neue`) or one of the 5 CSS generic
+/// keywords. `Name` holds a leaked `&'static str` — see `FontFamily`'s
+/// own docs for why.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum FontFamilyItem {
+    Name(&'static str),
     SansSerif,
     Serif,
     Monospace,
@@ -952,15 +950,97 @@ enum FontFamily {
     Fantasy,
 }
 
-impl FontFamily {
+impl FontFamilyItem {
     fn to_cosmic(self) -> CosmicFamily<'static> {
         match self {
-            FontFamily::SansSerif => CosmicFamily::SansSerif,
-            FontFamily::Serif => CosmicFamily::Serif,
-            FontFamily::Monospace => CosmicFamily::Monospace,
-            FontFamily::Cursive => CosmicFamily::Cursive,
-            FontFamily::Fantasy => CosmicFamily::Fantasy,
+            FontFamilyItem::Name(name) => CosmicFamily::Name(name),
+            FontFamilyItem::SansSerif => CosmicFamily::SansSerif,
+            FontFamilyItem::Serif => CosmicFamily::Serif,
+            FontFamilyItem::Monospace => CosmicFamily::Monospace,
+            FontFamilyItem::Cursive => CosmicFamily::Cursive,
+            FontFamilyItem::Fantasy => CosmicFamily::Fantasy,
         }
+    }
+}
+
+/// A full `font-family` value: an ordered fallback list of one or more
+/// `FontFamilyItem`s — a real CSS comma-separated family list, e.g.
+/// `"Georgia", Helvetica Neue, serif`, not just PROMPTS.md v16's original
+/// bare-generic-keyword-only scope.
+///
+/// `&'static [FontFamilyItem]`, not an owned `Vec`/`Box<[_]>`:
+/// `ComputedStyle`/`InheritedStyle`/`SpanStyle` are all
+/// `#[derive(Clone, Copy)]` by design, threaded *by value* through every
+/// recursive tree-building function (see NOTES.md v34's note on this
+/// exact tradeoff, flagged there and deliberately deferred until now) —
+/// a `Vec` field would force dropping `Copy` from all three, touching a
+/// large fraction of this file for a property most pages never declare
+/// at all. Each distinct parsed list (and each of its `Name` items'
+/// strings) is instead leaked once, in `DeclParser`'s `font-family`
+/// handling (`Box::leak`), into a `&'static` slice/str — itself
+/// trivially `Copy` regardless of what it points to, so every struct
+/// that already carried a plain `FontFamily` field keeps working
+/// unchanged. The cost: memory for every *distinct* `font-family`
+/// declaration's parsed list is never freed for the life of the
+/// process. Accepted the same way this project already accepts
+/// re-parsing the entire stylesheet from scratch on every relayout (no
+/// cross-redraw caching at all yet) — bounded by how many distinct
+/// `font-family` declarations exist in a document's CSS source
+/// (typically a handful), not by how many elements reference them or
+/// how many redraws happen, and dwarfed by the full-document reparse
+/// work already redone on every one of those redraws. Worth revisiting
+/// only if a page with many distinct `font-family` values redrawn many
+/// times is ever shown to matter in practice.
+#[derive(Clone, Copy, PartialEq)]
+struct FontFamily(&'static [FontFamilyItem]);
+
+impl Default for FontFamily {
+    fn default() -> Self {
+        // A plain array-literal reference to `Copy`, `Drop`-free data is
+        // eligible for `'static` promotion — no leak needed for this,
+        // the single most common case (no `font-family` declared at
+        // all), matching cosmic-text's own `Attrs::new()` default.
+        FontFamily(&[FontFamilyItem::SansSerif])
+    }
+}
+
+impl FontFamily {
+    /// Resolves this fallback list against the real font system,
+    /// returning the single `cosmic_text::Family` to actually shape
+    /// with. cosmic-text's own `Attrs` has no fallback-list concept —
+    /// `Attrs::family` is one `Family`, not a slice — so a list can't be
+    /// handed to it directly.
+    ///
+    /// Confirmed by reading `fontdb::Database::query`'s own source
+    /// (vendored, `fontdb-0.23.0/src/lib.rs`): it already loops a
+    /// `Query`'s `families` slice in order and returns the first one
+    /// with any installed face, i.e. real fallback-list semantics live
+    /// in `fontdb` already — it does **not** error or silently pick an
+    /// arbitrary font for an unavailable name. The catch is that it
+    /// reports back a matched font *ID*, not which *family name* in the
+    /// list produced it — information `Attrs::family` itself needs. So
+    /// rather than one `Query` naming every candidate at once, this
+    /// queries one candidate at a time (via `std::slice::from_ref`) and
+    /// stops at the first that resolves: observably the same in-order
+    /// fallback behavior, while letting each step hand back its own
+    /// `Family` directly. If nothing in the list resolves at all (every
+    /// named family missing *and* even the trailing generic has no
+    /// installed font), falls back to cosmic-text's own built-in
+    /// default rather than shaping with an unmatched `Family`.
+    fn resolve(self, db: &fontdb::Database, weight: FontWeight, style: FontStyle) -> CosmicFamily<'static> {
+        for item in self.0.iter().copied() {
+            let family = item.to_cosmic();
+            let query = fontdb::Query {
+                families: std::slice::from_ref(&family),
+                weight,
+                style,
+                ..Default::default()
+            };
+            if db.query(&query).is_some() {
+                return family;
+            }
+        }
+        CosmicFamily::SansSerif
     }
 }
 
@@ -1178,6 +1258,78 @@ struct DecorationValue {
 /// `dotted underline` and `underline dotted` both work. Returns `Err`
 /// only if no line keyword was found at all, so a value that's pure noise
 /// still drops like any other unsupported value.
+/// Parses a full `font-family` value: a comma-separated fallback list,
+/// each entry either a specific family name — a quoted string
+/// (`"Georgia"`) or one-or-more bare idents joined with spaces, per the
+/// real CSS grammar (`Helvetica Neue`) — or one of the 5 bare generic
+/// keywords (only recognized when the *entire* entry is a single ident
+/// matching one exactly; `Helvetica Neue` can never collide with a
+/// generic since no generic keyword is two words). Fails (dropping the
+/// whole declaration, same convention as every other unsupported value
+/// in this file) only if the value is empty or a comma has no entry on
+/// one side of it — unlike v16's single-keyword grammar, an individual
+/// *entry* is never dropped on its own and the rest kept, because a
+/// fallback list's entire point is that a later entry is only tried if
+/// an earlier one fails to resolve against the real font system at
+/// paint time (see `FontFamily::resolve`), not at parse time.
+fn parse_font_family(input: &mut CssParser) -> Result<Vec<FontFamilyItem>, ()> {
+    let mut items = Vec::new();
+    loop {
+        if let Ok(s) = input.try_parse(|input| input.expect_string().map(|s| s.as_ref().to_string())) {
+            items.push(FontFamilyItem::Name(Box::leak(s.into_boxed_str())));
+        } else {
+            let mut words: Vec<String> = Vec::new();
+            loop {
+                let state = input.state();
+                match input.next() {
+                    Ok(Token::Ident(ident)) => words.push(ident.as_ref().to_string()),
+                    _ => {
+                        input.reset(&state);
+                        break;
+                    }
+                }
+            }
+            if words.is_empty() {
+                return Err(());
+            }
+            let generic = if words.len() == 1 {
+                let w = &words[0];
+                if w.eq_ignore_ascii_case("sans-serif") {
+                    Some(FontFamilyItem::SansSerif)
+                } else if w.eq_ignore_ascii_case("serif") {
+                    Some(FontFamilyItem::Serif)
+                } else if w.eq_ignore_ascii_case("monospace") {
+                    Some(FontFamilyItem::Monospace)
+                } else if w.eq_ignore_ascii_case("cursive") {
+                    Some(FontFamilyItem::Cursive)
+                } else if w.eq_ignore_ascii_case("fantasy") {
+                    Some(FontFamilyItem::Fantasy)
+                } else {
+                    None
+                }
+            } else {
+                None
+            };
+            items.push(
+                generic.unwrap_or_else(|| FontFamilyItem::Name(Box::leak(words.join(" ").into_boxed_str()))),
+            );
+        }
+        let state = input.state();
+        match input.next() {
+            Ok(Token::Comma) => continue,
+            _ => {
+                input.reset(&state);
+                break;
+            }
+        }
+    }
+    if items.is_empty() {
+        Err(())
+    } else {
+        Ok(items)
+    }
+}
+
 fn parse_text_decoration(input: &mut CssParser) -> Result<(TextDecoration, DecorationStyle), ()> {
     let mut deco = TextDecoration::new();
     let mut style = DecorationStyle::Solid;
@@ -1688,26 +1840,12 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
                 };
             }
         } else if name.eq_ignore_ascii_case("font-family") {
-            // Only a single bare generic keyword, no comma-separated
-            // fallback list and no quoted/named families — see
-            // `FontFamily`'s doc comment. A quoted family name's string
-            // token fails `expect_ident` here, so e.g. `"Georgia", serif`
-            // drops the whole declaration rather than falling back to
-            // `serif`, same as any other unsupported value.
-            if let Ok(ident) = input.expect_ident() {
-                self.decls.font_family = if ident.eq_ignore_ascii_case("sans-serif") {
-                    Some(FontFamily::SansSerif)
-                } else if ident.eq_ignore_ascii_case("serif") {
-                    Some(FontFamily::Serif)
-                } else if ident.eq_ignore_ascii_case("monospace") {
-                    Some(FontFamily::Monospace)
-                } else if ident.eq_ignore_ascii_case("cursive") {
-                    Some(FontFamily::Cursive)
-                } else if ident.eq_ignore_ascii_case("fantasy") {
-                    Some(FontFamily::Fantasy)
-                } else {
-                    None
-                };
+            // A real comma-separated fallback list — see `parse_font_
+            // family`'s own docs for the grammar and `FontFamily`'s for
+            // why the parsed `Vec` gets leaked into a `&'static` slice
+            // here rather than stored by value.
+            if let Ok(items) = parse_font_family(input) {
+                self.decls.font_family = Some(FontFamily(Box::leak(items.into_boxed_slice())));
             }
         } else if name.eq_ignore_ascii_case("text-decoration") {
             if let Ok((deco, style)) = parse_text_decoration(input) {
@@ -2056,7 +2194,7 @@ const ROOT_STYLE: InheritedStyle = InheritedStyle {
     root_font_size: 16.0,
     font_weight: FontWeight::NORMAL,
     font_style: FontStyle::Normal,
-    font_family: FontFamily::SansSerif,
+    font_family: FontFamily(&[FontFamilyItem::SansSerif]),
     white_space: WhiteSpace::Normal,
     list_style_type: ListStyleType::Disc,
     text_align: TextAlign::Left,
@@ -3278,7 +3416,7 @@ fn shape_spans(
             attrs.color_opt = Some(span.color);
             attrs.weight = span.font_weight;
             attrs.style = span.font_style;
-            attrs.family = span.font_family.to_cosmic();
+            attrs.family = span.font_family.resolve(font_system.db_mut(), attrs.weight, attrs.style);
             attrs.text_decoration = span.text_decoration;
             attrs.metadata = i;
             attrs = attrs.metrics(Metrics::new(span.font_size, span.line_height));
@@ -6610,6 +6748,139 @@ mod tests {
             "the inner table's own uneven columns ({}, {}) should still size from their own content",
             inner_cells[0].w,
             inner_cells[1].w
+        );
+    }
+
+    // ---------- v51: named `font-family` fallback lists ----------
+
+    fn find_first_span_font_family(b: &LayoutBox) -> Option<FontFamily> {
+        if let BoxContent::Inline(items) = &b.content {
+            if let Some(InlineItem::Text(_, s)) = items.first() {
+                return Some(s.font_family);
+            }
+        } else if let BoxContent::Blocks(children) = &b.content {
+            for c in children {
+                if let Some(found) = find_first_span_font_family(c) {
+                    return Some(found);
+                }
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn font_family_parses_quoted_multiword_and_generic_fallback_list() {
+        // A quoted name (`'Georgia'`), an unquoted multi-word name
+        // (`Helvetica Neue` — real CSS grammar joins bare idents with
+        // spaces into one family name), and a trailing bare generic
+        // keyword, all in one comma-separated list.
+        let doc = parse_html(
+            r#"<html><body><p style="font-family: 'Georgia', Helvetica Neue, monospace">x</p></body></html>"#,
+        );
+        let tree = build_layout_tree(&doc);
+        let family = find_first_span_font_family(&tree).expect("no span found");
+        assert_eq!(
+            family.0,
+            [
+                FontFamilyItem::Name("Georgia"),
+                FontFamilyItem::Name("Helvetica Neue"),
+                FontFamilyItem::Monospace,
+            ]
+            .as_slice(),
+            "expected the quoted name, the joined multi-word name, and the trailing generic, in order"
+        );
+    }
+
+    #[test]
+    fn font_family_single_generic_keyword_still_works() {
+        // v16's original scope (a single bare generic, no list at all)
+        // must still parse to exactly one item — no regression from
+        // generalizing the grammar to a full list.
+        let doc = parse_html(r#"<html><body><code>x</code></body></html>"#);
+        let tree = build_layout_tree(&doc);
+        let family = find_first_span_font_family(&tree).expect("no span found");
+        assert_eq!(family.0, [FontFamilyItem::Monospace].as_slice());
+    }
+
+    #[test]
+    fn font_family_inherits_through_the_cascade() {
+        // Real CSS inheritance (same family as color/font-size/etc.,
+        // per PROMPTS.md v16) — a descendant with no `font-family` rule
+        // of its own takes its ancestor's resolved fallback list, not
+        // the default.
+        let doc = parse_html(
+            r#"<html><body><div style="font-family: 'Georgia', serif"><span>x</span></div></body></html>"#,
+        );
+        let tree = build_layout_tree(&doc);
+        let family = find_first_span_font_family(&tree).expect("no span found");
+        assert_eq!(family.0, [FontFamilyItem::Name("Georgia"), FontFamilyItem::Serif].as_slice());
+    }
+
+    fn collect_text_shape_ids(laid: &Laid, ids: &mut Vec<usize>) {
+        match &laid.content {
+            LaidContent::Text(id) => ids.push(*id),
+            LaidContent::Blocks(children) | LaidContent::TableRow(children) => {
+                for c in children {
+                    collect_text_shape_ids(c, ids);
+                }
+            }
+            LaidContent::Image(_) | LaidContent::MixedInline(_) => {}
+        }
+    }
+
+    #[test]
+    fn font_family_fallback_resolves_through_the_real_font_system() {
+        // Verified past the cascade, through to what actually gets
+        // shaped — same diligence v16's own (since-removed, pre-v41)
+        // test used: a field can cascade to the right enum value and
+        // still not affect a single rendered glyph if the shaping path
+        // never reads it correctly. This runs the full pipeline
+        // (`build_layout_tree` + `measure`) on three paragraphs —
+        // `monospace`, `sans-serif`, and a fallback list naming a family
+        // that can't possibly be installed before a real `monospace`
+        // keyword — and inspects the actually-shaped `cosmic_text::
+        // Buffer`'s own `fontdb::ID` per paragraph (not scratchy's own
+        // `FontFamily` value, which would only prove the enum carries
+        // the right data, not that it reached a real font).
+        // Deliberately no whitespace between the `<p>`s — each gets its
+        // own anonymous inline box/shaped paragraph, but a newline
+        // between them would be its own (4th, 5th, ...) whitespace-only
+        // inline run with its own shape id too, breaking the assumption
+        // that `collect_text_shape_ids` finds exactly one id per `<p>`.
+        let html = r#"<html><body><p style="font-family: monospace">A</p><p style="font-family: sans-serif">A</p><p style="font-family: 'NoSuchFontXYZ123', monospace">A</p></body></html>"#;
+        let doc = parse_html(html);
+        let tree = build_layout_tree(&doc);
+        let mut font_system = new_font_system();
+        let mut cache = ShapeCache::new();
+        let mut next_id = 0usize;
+        let mut incomplete = false;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let laid = measure(
+            &tree, &mut font_system, 0.0, 0.0, 800.0, None, &mut next_id, &mut cache, deadline, &mut incomplete,
+        );
+
+        let mut ids = Vec::new();
+        collect_text_shape_ids(&laid, &mut ids);
+        assert_eq!(ids.len(), 3, "expected one shaped paragraph per <p>");
+
+        let font_id_of = |id: usize| -> fontdb::ID {
+            let (buffer, ..) = cache.get(&id).expect("missing shaped paragraph");
+            buffer
+                .layout_runs()
+                .next()
+                .and_then(|r| r.glyphs.first())
+                .map(|g| g.font_id)
+                .expect("no glyph was shaped")
+        };
+
+        let mono_id = font_id_of(ids[0]);
+        let sans_id = font_id_of(ids[1]);
+        let fallback_id = font_id_of(ids[2]);
+
+        assert_ne!(mono_id, sans_id, "monospace and sans-serif should resolve to different fonts on this system");
+        assert_eq!(
+            fallback_id, mono_id,
+            "an unavailable named family should fall through to the next entry in the list (monospace), not silently stay on cosmic-text's default sans-serif"
         );
     }
 }

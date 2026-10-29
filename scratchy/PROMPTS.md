@@ -2940,3 +2940,137 @@ width`, `mixed_inline_extent`, `image_natural_width`, `lay_out_row_cells`,
 arm rewritten as an explicit defensive fallback, 4 new tests in the
 permanent `mod tests`); updates `TODO.txt` (rewrites the table-layout item
 to describe real per-column sizing plus its own narrower remaining gaps).
+
+---
+
+## v51 — named `font-family` fallback lists
+
+> set up a loop where you pick the next TODO item, and once completed,
+> clear your context and do that again until the list is done
+
+This is the next item of that autonomous `TODO.txt` loop — font-family,
+picked up after v50's real auto table layout. `TODO.txt`'s item: v16's
+`font-family` only ever recognized the 5 bare CSS generic keywords
+(`serif`/`sans-serif`/`monospace`/`cursive`/`fantasy`); a quoted name
+(`"Georgia"`), an unquoted multi-word name (`Helvetica Neue`), and a
+real comma-separated fallback list all silently dropped the whole
+declaration. Deliberately scoped out at the time — v16's own writeup
+said `default.css` only ever used bare `monospace`, so nothing needed
+more — but the autonomous loop's whole premise is that this deferral no
+longer applies once the item is at the top of the list, same reasoning
+v49 (`%` lengths) used after three earlier rounds of "not adding until
+something needs it."
+
+**Parsing.** `parse_font_family` replaces the old single-`expect_ident`
+grammar with a real comma-separated loop: each entry is either a quoted
+string (`input.expect_string()`, taken verbatim as a specific family
+name) or one-or-more bare idents collected and joined with a space —
+real CSS grammar for an unquoted name like `Helvetica Neue` — unless
+the entry is a *single* ident that case-insensitively matches one of
+the 5 generic keywords, which is recognized as generic instead of a
+literal one-word family name (a multi-word unquoted entry can never
+collide with a generic, since none of the 5 keywords are two words).
+Fails only if the value is empty or a comma has nothing on one side —
+unlike v16's "one bad token drops the whole declaration," an
+individual *entry*'s own resolution (whether its named family actually
+exists on this system) is never a parse-time concern at all; that's
+the whole point of a fallback list, resolved at shape time instead (see
+below).
+
+**The `Copy` question NOTES.md v34 flagged, resolved.** v34 explicitly
+parked this item rather than pick unilaterally between three options
+for storing an owned, variable-length family list inside
+`ComputedStyle`/`InheritedStyle`/`SpanStyle` — all three
+`#[derive(Clone, Copy)]` by design, threaded by value through every
+recursive tree-building function. Went with the `Box::leak` option:
+`FontFamily` is now `struct FontFamily(&'static [FontFamilyItem])`, a
+`&'static` slice (itself trivially `Copy` regardless of what it points
+to) rather than an owned `Vec`. Each distinct parsed list — and each of
+its `Name` items' strings — is leaked once in `DeclParser`'s
+`font-family` handling. This keeps every struct that already carried a
+plain `FontFamily` field working completely unchanged — no cascading
+`Copy`-to-`Clone` refactor touching a large fraction of this file for a
+property most pages never even declare. The accepted cost: that memory
+is never freed for the life of the process. Not a new category of
+problem for this codebase — it already re-parses the entire stylesheet
+from scratch on every relayout (no cross-redraw CSS caching at all),
+so this is bounded by how many *distinct* `font-family` declarations
+exist in a document's source (typically a handful) and dwarfed by the
+full-document reparse work already redone on every one of those
+redraws, not by element count or redraw count. `FontFamily::default()`
+needs no leak at all for the overwhelmingly common case (no
+`font-family` declared) — `&[FontFamilyItem::SansSerif]` is a plain
+array-literal reference to `Copy`, `Drop`-free data, eligible for
+`'static` promotion by the compiler itself.
+
+**Fallback resolution — reading cosmic-text's own source, not
+guessing.** `cosmic_text::Attrs` has no fallback-list concept of its
+own: `Attrs::family` is a single `Family<'a>`, not a slice, so a parsed
+list can't be handed to it directly no matter how it's stored.
+Confirmed by reading `fontdb::Query`/`Database::query`'s actual
+vendored source (`fontdb-0.23.0/src/lib.rs`) rather than assuming:
+`query()` already loops a `Query`'s `families` slice in order and
+returns the first one with any installed face — real in-order fallback
+semantics already live inside `fontdb`, and it neither errors nor
+silently substitutes an arbitrary font for an unavailable name. The
+catch: `query()` hands back a matched font *ID*, not which *family
+name* in the list produced it — information `Attrs::family` itself
+needs for cosmic-text's own later shaping/caching to work correctly.
+So `FontFamily::resolve` queries one candidate at a time (`fontdb::
+Query { families: std::slice::from_ref(&family), weight, style,
+..Default::default() }`), stopping at the first that resolves —
+observably the same in-order fallback behavior as asking `fontdb` to
+walk the whole list at once, while letting each step report back its
+own `Family` directly. Called from `shape_spans`, where `attrs.weight`/
+`attrs.style` are already set (needed so the query matches the actual
+weight/style being shaped, not just the family name) and
+`font_system.db_mut()` is available (there's no immutable `db()`
+getter on `FontSystem`, only `db_mut()` — confirmed by reading its
+public API, not assumed; `&mut Database` coerces to `&Database` at the
+call site with no extra ceremony).
+
+**Verified past the cascade, same diligence v16's own now-removed test
+used.** Four permanent tests (`#[cfg(test)] mod tests`, kept per the
+v41 policy reversal, not written-then-deleted): one parses `'Georgia',
+Helvetica Neue, monospace` and asserts the exact 3-item structure
+(quoted name, joined multi-word name, trailing generic, in order); one
+confirms the old v16 single-bare-generic case still parses to exactly
+one item (no regression from generalizing the grammar); one confirms
+real CSS inheritance still threads the resolved list down to a
+child with no `font-family` of its own; and one runs the *full*
+pipeline (`build_layout_tree` + `measure`) on three real paragraphs —
+plain `monospace`, plain `sans-serif`, and a fallback list naming an
+impossible family before a real `monospace` keyword — then inspects
+the actually-shaped `cosmic_text::Buffer`'s own `fontdb::ID` per
+paragraph (not scratchy's own `FontFamily` enum value, which would
+only prove the data cascades correctly, not that it reached a real
+font). Confirms monospace and sans-serif resolve to two different
+fonts on this system, and that the fallback-list paragraph lands on
+*exactly* monospace's own font ID — not cosmic-text's default
+sans-serif, and not some other font a bad implementation might
+silently substitute. One snag along the way: the first version of this
+test put the three `<p>`s on separate lines in the test's HTML source,
+producing 4 extra whitespace-only inline runs (before/between/after
+each paragraph) with their own shape ids — 7 total instead of the
+expected 3. Not a bug in the feature; fixed by writing the fixture
+HTML on one line with no inter-tag whitespace, same category of "test
+structure, not code" lesson v19's `resolve_style(li, ROOT_STYLE)`
+shortcut already taught.
+
+**Visually confirmed with a real `grim` screenshot**, not just headless
+tests: a 4-paragraph page — a default sans-serif baseline, `'Liberation
+Serif', serif` (installed on this system, confirmed via `fc-list`),
+`NoSuchFontXYZ123, Liberation Mono, sans-serif` (first name missing,
+should fall through to the second, installed one), and `'Totally Fake
+Family', monospace` (falls through to the trailing generic) — rendered
+exactly as expected: the named-and-installed line visibly has real
+serifs distinct from the sans-serif baseline, and both fallback lines
+render in a visibly monospaced font, not sans-serif.
+
+**Deferred, not attempted**: resolving a family by *weight-matched*
+face only when the declared weight is actually available for that
+family (fontdb's own `find_best_match` already does real nearest-weight
+matching within whichever family wins, so this isn't a gap — just
+noting it wasn't separately verified here, since nothing in
+`default.css` or any test page pairs an unusual `font-weight` with a
+named family yet).

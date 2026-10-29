@@ -987,3 +987,46 @@ natural size, once more at its real column width) instead of once — the
 two-pass cost v15's own original entry already anticipated real auto
 layout would require, and not something worth optimizing away given it
 only affects table cells, not ordinary paragraphs.
+
+## v51 — named `font-family` fallback lists
+
+Item 3 of the autonomous `TODO.txt` loop (v49 did `%` lengths, v50 did
+table layout). Resolved the `Copy`-vs-`Vec` architecture question v34
+explicitly parked rather than pick unilaterally: `FontFamily` is now a
+leaked `&'static [FontFamilyItem]` (`Box::leak`, once per distinct
+parsed `font-family` declaration, in `DeclParser`) instead of an owned
+`Vec` — keeps `ComputedStyle`/`InheritedStyle`/`SpanStyle` exactly as
+`Copy` as they were, at the cost of that memory never being freed for
+the process's life. Judged acceptable, not a new category of problem:
+the whole stylesheet is already reparsed from scratch on every relayout
+with zero cross-redraw caching, so this is bounded by how many
+*distinct* `font-family` declarations a document's CSS has (typically a
+handful), not by element or redraw count, and dwarfed by the rest of
+that reparse work. Worth remembering as the template next time a
+variable-length/owned value needs to live in one of these three
+`Copy`-by-design structs: leak-into-`'static` is a legitimate choice
+when the alternative is a cascading `Copy`-to-`Clone` refactor across a
+large fraction of the file for a property most pages don't even use —
+not every non-`Copy` value needs `background-image`'s separate-ambient-
+parameter treatment (that pattern only fits a property that *isn't*
+really CSS-inherited; `font-family` genuinely is).
+
+**How cosmic-text actually resolves (or fails to resolve) a named font,
+confirmed by reading its vendored source, not assumed**: `cosmic_text::
+Attrs` has no fallback-list concept at all — `Attrs::family` is a single
+`Family<'a>`, never a slice — so a parsed list can never be handed to it
+directly, regardless of how scratchy stores it. The real in-order
+fallback logic ("try this name, fall through to the next if it's not
+installed") lives one layer down, in `fontdb::Database::query`, which
+already loops a `Query`'s `families` slice and returns the first one
+with any installed face — it does not error on a missing name and does
+not silently substitute an unrelated font. The only reason scratchy
+can't just hand `fontdb` the whole list in one `Query` and be done: that
+returns a matched font *ID*, not *which family in the list* produced
+it, and `Attrs::family` needs the latter. So `FontFamily::resolve`
+queries fontdb one candidate at a time, stopping at the first hit —
+same observable fallback behavior, recovered one family at a time
+instead of all at once. Also worth noting: `FontSystem` only exposes
+`db_mut()`, no immutable `db()` getter — confirmed by reading its public
+API rather than guessing a method name; `&mut Database` coerces to
+`&Database` at the call site with no extra ceremony needed.

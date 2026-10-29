@@ -87,11 +87,38 @@ these.
       `colgroup`, isn't honored as a column-sizing hint — only a cell's
       own *content* drives its column's width.
 
-- [ ] `font-family` (PROMPTS.md v16) only recognizes the 5 CSS generic
-      keywords (serif/sans-serif/monospace/cursive/fantasy) — no named
-      families (`"Georgia"`, `Helvetica`, ...) and no comma-separated
-      fallback lists. `default.css` only ever uses the bare `monospace`
-      keyword, so nothing needs more than this yet.
+- [x] `font-family` (PROMPTS.md v16, named families/fallback lists:
+      v51) now parses a real comma-separated fallback list — a quoted
+      string (`"Georgia"`), an unquoted multi-word name joined with
+      spaces (`Helvetica Neue`), and any of the 5 bare generic keywords,
+      in any mix and order. Resolution against the real font system
+      (not just the cascade) tries each named family in order and falls
+      back to the next — or the trailing generic — exactly the way real
+      CSS `font-family` fallback works: `fontdb::Database::query`
+      already implements this in-order "first family with any installed
+      face wins" search internally (confirmed by reading its vendored
+      source, not assumed), queried one candidate at a time since
+      `cosmic_text::Attrs::family` itself can only ever hold one
+      resolved `Family`, not a list. Verified past the cascade: a
+      permanent test shapes a list naming an impossible family before a
+      real `monospace` keyword and confirms the shaped `cosmic_text::
+      Buffer` actually lands on monospace's own `fontdb::ID`, not
+      cosmic-text's default sans-serif. Also visually confirmed with a
+      real `grim` screenshot against an installed named family
+      (`Liberation Serif`) and both fallback cases.
+
+      One architectural note worth flagging for a similar future
+      property: `FontFamily` had to become a leaked `&'static` slice
+      (`Box::leak`, once per distinct parsed declaration) rather than an
+      owned `Vec`, specifically so `ComputedStyle`/`InheritedStyle`/
+      `SpanStyle` could keep their existing `#[derive(Clone, Copy)]` —
+      see PROMPTS.md v51 and NOTES.md v34's own note on this exact
+      tradeoff for the full reasoning. Not a correctness gap, just a
+      memory-reclamation one: a distinct `font-family` declaration's
+      parsed list is never freed for the life of the process (bounded by
+      how many distinct declarations a document's CSS has, not by
+      element/redraw count — see PROMPTS.md v51 for why this was judged
+      an acceptable, not a new-category, cost).
 
 - [ ] `text-decoration` (PROMPTS.md v17) originally only tracked the line
       keywords (underline/line-through/overline/none) — `dashed`/`dotted`/
