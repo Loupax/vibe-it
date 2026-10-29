@@ -365,7 +365,7 @@ session can pick a coherent slice rather than one property at a time.
             when a negative stacking entry and normal content genuinely
             overlap at the exact same screen pixel.
 
-- [x] `display: flex` (v57, commit TBD) now does real CSS Flexible Box
+- [x] `display: flex` (440e03b) now does real CSS Flexible Box
       Layout (https://www.w3.org/TR/css-flexbox-1/), scoped to the common
       "flex row/column of items, growing/shrinking/justified/aligned"
       case — grid explicitly deferred, see its own item just below (same
