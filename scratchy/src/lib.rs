@@ -1706,15 +1706,9 @@ struct ComputedStyle {
     /// `None` means no `box-shadow` declared (or an unsupported form —
     /// see `BoxShadow`'s own docs). Not inherited.
     box_shadow: Option<ResolvedBoxShadow>,
-    /// Only rounds the plain background fill (`paint_box_decoration`) —
-    /// combined with a visible border (`border_width > 0`), it's ignored
-    /// and both fall back to square corners. A correctly-rounded *ring*
-    /// needs real per-pixel inner/outer-boundary testing (the "paint a
-    /// bigger solid shape, then a smaller one on top" trick this file
-    /// otherwise favors doesn't work once the interior isn't guaranteed
-    /// opaque — nothing to safely "restore" where the ring should leave
-    /// a hollow center) — not worth building without `default.css` or a
-    /// real page combining the two (see TODO.txt). Not inherited.
+    /// Rounds both the background fill and (for `BorderStyle::Solid`
+    /// only — see `fill_rounded_ring`'s own docs) the border itself, via
+    /// `paint_box_decoration`. Not inherited.
     border_radius: f32,
     /// Not inherited. See `Overflow`'s own docs for the clip's scope
     /// (text only, not nested block boxes' own decoration).
@@ -2696,6 +2690,22 @@ fn fill_rect(pixels: &mut [u32], win_w: u32, win_h: u32, x: f32, y: f32, w: f32,
 /// paints). Row by row: each row is one horizontal span, its full width
 /// except within `radius` of the top/bottom edge, where it's inset by
 /// how far that row sits from the nearest corner's circular boundary.
+/// How far a row at vertical distance `dy` from its nearest top/bottom
+/// edge should be inset from each side, for a rect corner-rounded by
+/// `r` — shared by `fill_rounded_rect` and `fill_rounded_ring` (the
+/// ring needs this computed twice per row, once for its outer boundary
+/// and once for its inner one, each with its own radius). `r <= 0`
+/// (including a clamped-to-zero inner radius when the border is wider
+/// than the corner radius itself) naturally degrades to `0.0` for every
+/// `dy`, i.e. a plain square edge — no separate no-rounding case needed.
+fn corner_inset(dy: f32, r: f32) -> f32 {
+    if dy < r {
+        r - (r * r - (r - dy).max(0.0).powi(2)).max(0.0).sqrt()
+    } else {
+        0.0
+    }
+}
+
 fn fill_rounded_rect(pixels: &mut [u32], win_w: u32, win_h: u32, x: f32, y: f32, w: f32, h: f32, radius: f32, color: TextColor) {
     let r = radius.min(w / 2.0).min(h / 2.0).max(0.0);
     if r <= 0.0 {
@@ -2706,12 +2716,61 @@ fn fill_rounded_rect(pixels: &mut [u32], win_w: u32, win_h: u32, x: f32, y: f32,
     let y1 = (y + h).round() as i32;
     for row in y0..y1 {
         let dy = (row as f32 - y).min((y + h) - row as f32 - 1.0);
-        let inset = if dy < r {
-            r - (r * r - (r - dy).max(0.0).powi(2)).max(0.0).sqrt()
-        } else {
-            0.0
-        };
+        let inset = corner_inset(dy, r);
         fill_rect(pixels, win_w, win_h, x + inset, row as f32, (w - 2.0 * inset).max(0.0), 1.0, color);
+    }
+}
+
+/// Paints a rounded *border ring* — the area between an outer rounded
+/// rect (`x, y, w, h, radius`) and an inner one inset by `border_width`
+/// on every side (inner radius `(radius - border_width).max(0.0)`, same
+/// "ring narrows along with the border" real CSS shape). Unlike the
+/// "paint a bigger solid shape, then a smaller one on top" trick
+/// `outline`/`box-shadow` get away with, that doesn't work here: nothing
+/// guarantees the interior is opaque to safely paint over (no
+/// `background-color`), so this tests each row's outer *and* inner
+/// boundary directly instead (see `ComputedStyle::border_radius`'s own
+/// former caveat, now resolved by this function). Each row is at most
+/// two horizontal spans (left and right edge strips) once it's within
+/// the inner rect's own vertical extent, or one full-width span (a
+/// plain top/bottom edge strip) outside it.
+#[allow(clippy::too_many_arguments)]
+fn fill_rounded_ring(
+    pixels: &mut [u32],
+    win_w: u32,
+    win_h: u32,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    radius: f32,
+    border_width: f32,
+    color: TextColor,
+) {
+    let r_outer = radius.min(w / 2.0).min(h / 2.0).max(0.0);
+    let (inner_x, inner_y) = (x + border_width, y + border_width);
+    let (inner_w, inner_h) = (w - 2.0 * border_width, h - 2.0 * border_width);
+    let r_inner = (radius - border_width).max(0.0).min(inner_w / 2.0).min(inner_h / 2.0).max(0.0);
+    let has_hole = inner_w > 0.0 && inner_h > 0.0;
+
+    let y0 = y.round() as i32;
+    let y1 = (y + h).round() as i32;
+    for row in y0..y1 {
+        let dy_outer = (row as f32 - y).min((y + h) - row as f32 - 1.0);
+        let outer_inset = corner_inset(dy_outer, r_outer);
+        let (outer_left, outer_right) = (x + outer_inset, x + w - outer_inset);
+
+        let row_f = row as f32;
+        let within_inner_rows = has_hole && row_f >= inner_y && row_f < inner_y + inner_h;
+        if !within_inner_rows {
+            fill_rect(pixels, win_w, win_h, outer_left, row_f, (outer_right - outer_left).max(0.0), 1.0, color);
+            continue;
+        }
+        let dy_inner = (row_f - inner_y).min((inner_y + inner_h) - row_f - 1.0);
+        let inner_inset = corner_inset(dy_inner, r_inner);
+        let (inner_left, inner_right) = (inner_x + inner_inset, inner_x + inner_w - inner_inset);
+        fill_rect(pixels, win_w, win_h, outer_left, row_f, (inner_left - outer_left).max(0.0), 1.0, color);
+        fill_rect(pixels, win_w, win_h, inner_right, row_f, (outer_right - inner_right).max(0.0), 1.0, color);
     }
 }
 
@@ -2795,10 +2854,20 @@ fn paint_box_decoration(s: &ComputedStyle, pixels: &mut [u32], win_w: u32, win_h
             shadow.color,
         );
     }
+    // Rounds both background and border together, matching a real
+    // rounded box's background-under-border stacking — see
+    // `fill_rounded_ring`'s own docs for why the border ring needs its
+    // own dedicated painting instead of reusing `fill_rounded_rect`
+    // twice. Scoped to `BorderStyle::Solid`: a dashed/dotted/double
+    // ring would need the same curved-path tracing a solid ring does,
+    // just repeated per dash/dot/stripe — a real `TODO.txt` gap, not
+    // attempted here — so those combined with `border-radius` fall
+    // back to the existing square-corner rendering rather than a
+    // half-rounded, honestly-wrong mix of a rounded background behind
+    // a square border.
+    let round = s.border_radius > 0.0 && (s.border_width <= 0.0 || s.border_style == BorderStyle::Solid);
     if let Some(bg) = s.background_color {
-        // Rounded only when there's no border to also round — see
-        // `ComputedStyle::border_radius`'s own docs.
-        if s.border_radius > 0.0 && s.border_width <= 0.0 {
+        if round {
             fill_rounded_rect(pixels, win_w, win_h, x, y, w, h, s.border_radius, bg);
         } else {
             fill_rect(pixels, win_w, win_h, x, y, w, h, bg);
@@ -2807,10 +2876,14 @@ fn paint_box_decoration(s: &ComputedStyle, pixels: &mut [u32], win_w: u32, win_h
     if s.border_width > 0.0 && s.border_style != BorderStyle::None {
         if let Some(bc) = s.border_color {
             let bw = s.border_width;
-            paint_border_edge(pixels, win_w, win_h, x, y, w, bw, s.border_style, bc);
-            paint_border_edge(pixels, win_w, win_h, x, y + h - bw, w, bw, s.border_style, bc);
-            paint_border_edge(pixels, win_w, win_h, x, y, bw, h, s.border_style, bc);
-            paint_border_edge(pixels, win_w, win_h, x + w - bw, y, bw, h, s.border_style, bc);
+            if round {
+                fill_rounded_ring(pixels, win_w, win_h, x, y, w, h, s.border_radius, bw, bc);
+            } else {
+                paint_border_edge(pixels, win_w, win_h, x, y, w, bw, s.border_style, bc);
+                paint_border_edge(pixels, win_w, win_h, x, y + h - bw, w, bw, s.border_style, bc);
+                paint_border_edge(pixels, win_w, win_h, x, y, bw, h, s.border_style, bc);
+                paint_border_edge(pixels, win_w, win_h, x + w - bw, y, bw, h, s.border_style, bc);
+            }
         }
     }
     // Outside the border box (not part of the box model — doesn't affect
@@ -3536,4 +3609,3 @@ pub fn run() {
 
     event_loop.run_app(&mut app).unwrap();
 }
-

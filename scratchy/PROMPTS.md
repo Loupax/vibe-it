@@ -1911,3 +1911,70 @@ and bold as declared, the `href`-less anchor fell through to
 `El::match_non_ts_pseudo_class`, `El::is_link` given a real body).
 Narrows the stateful-pseudo-class `TODO.txt` item to just
 `:hover`/`:focus`/`:active`.
+
+---
+
+## v38 — `border-radius` + a visible border (rounded ring)
+
+> check the TODO for scratchy browser. Lets prioritize things and get
+> to work
+
+Third item off the same prioritization pass as v36/v37. `border-radius`
+(v28) only ever rounded a plain background fill — combined with a
+visible border, both fell back to square corners, since the "paint a
+bigger solid shape, then a smaller one on top" trick `outline`/
+`box-shadow` get away with doesn't work once the interior isn't
+guaranteed opaque (nothing to safely "restore" where a hollow ring
+should leave a hole).
+
+Added `fill_rounded_ring`, which tests each row's outer *and* inner
+rounded boundary directly instead (at most two horizontal spans per
+row — the ring's left/right edge strips — once a row is within the
+inner rect's own vertical extent, or one full-width span outside it).
+Extracted the shared per-row corner-inset math (`corner_inset`) out of
+`fill_rounded_rect` so both functions use the same formula for their
+outer and (for the ring) inner boundaries — a `border_width` wider
+than the corner radius naturally clamps the inner radius to `0.0`,
+degrading to a square inner hole with no separate case needed.
+`paint_box_decoration` now rounds the background to the *outer*
+rounded rect unconditionally when `border_radius > 0` (not just when
+there's no border, like before) — same background-under-border
+stacking a real rounded box has — and paints the ring on top, but only
+for `BorderStyle::Solid`; `dashed`/`dotted`/`double` still fall back to
+the old square-corner rendering rather than a half-rounded mix (a
+correctly-rounded dashed/dotted ring needs the same curved-path tracing
+repeated per dash/dot, left as its own narrower `TODO.txt` item, same
+"reject the unsupported variant outright" precedent `box-shadow`'s
+`inset` already set).
+
+Verified with a pixel-level test (removed before committing): a 40×40
+rounded box with `radius=10`, `border_width=5` — the outer corner
+pixel is untouched (cut by rounding), a top-edge pixel within border
+thickness is the border color, dead center shows the background
+through the ring's hole, a left-edge pixel within border thickness is
+the border color. Then visually confirmed end-to-end with `grim`
+against three real boxes: solid rounded border + background (clean
+ring, yellow hole visible), rounded background alone (unchanged from
+v28), and dashed border + radius (correctly falls back to square
+corners, not a broken partial render).
+
+**Found while verifying, not introduced by this feature, and flagged
+as its own much bigger `TODO.txt` item rather than guessed at**: the
+`width`/`height` CSS properties aren't implemented at all — confirmed
+by grep, no `Declarations`/`ComputedStyle` field exists for either.
+Every box in scratchy today is purely content-sized; an explicit
+`width`/`height` silently drops like any other unsupported
+declaration. Surfaced because the first version of this session's
+visual test used `width: 200px; height: 100px` and rendered nothing
+like what was declared — switched to `padding` for a reliably-sized
+test box instead once this was confirmed. Real design questions here
+(how an explicit size should interact with `measure`'s existing
+content-driven sizing) make this worth its own prioritized slice, not
+a quick follow-on.
+
+**Deliverable:** `src/lib.rs` (`corner_inset` extracted from
+`fill_rounded_rect`, new `fill_rounded_ring`, `paint_box_decoration`'s
+background/border rounding logic, `ComputedStyle::border_radius`'s doc
+comment updated). Closes the `border-radius` item in `TODO.txt`,
+replaced by a narrower dashed/dotted/double scope note and a new,
+much bigger `width`/`height` item.

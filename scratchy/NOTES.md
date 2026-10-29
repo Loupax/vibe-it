@@ -613,6 +613,23 @@ honestly reflecting that scratchy has no navigation/history.
 `:hover`/`:focus`/`:active` still can't parse — they need real
 interaction state, left as a narrower `TODO.txt` item.
 
+**v38 resolved `border-radius` + a visible border** (`solid` only —
+`dashed`/`dotted`/`double` still fall back to square corners, its own
+narrower `TODO.txt` item now) — third and last item from this session's
+prioritization pass. New `fill_rounded_ring` tests each row's outer and
+inner rounded boundary directly, since the nested-solid-fill trick
+other paint-only properties use doesn't work once the interior isn't
+guaranteed opaque. Verified pixel-level (temp test) and visually.
+
+**Significant finding while verifying v38, not previously in
+`TODO.txt` at all**: `width`/`height` CSS properties aren't implemented
+— confirmed by grep, no field for either anywhere. Every box is purely
+content-sized today. This is a much bigger gap than anything else
+closed this session (real design questions about how an explicit size
+interacts with `measure`'s content-driven sizing) — logged as its own
+`TODO.txt` item, worth a dedicated future slice rather than guessing at
+now.
+
 ## Priority going forward: rendering, not networking
 
 Explicit decision: the next phase of work is about how scratchy

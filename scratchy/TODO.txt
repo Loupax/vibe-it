@@ -10,6 +10,30 @@ number, since several versions can share one commit and a hash is
 directly actionable. PROMPTS.md is append-only and never edited for
 these.
 
+- [ ] **Found while visually verifying v38, not introduced by it, and
+      bigger than anything else on this list**: the `width`/`height`
+      CSS properties aren't parsed or resolved *at all* — a confirmed
+      grep (`"width"`/`"height"`/`d.width`/`d.height` across `src/
+      lib.rs`) turns up nothing. Every box is sized by its in-flow
+      content alone (block boxes stretch to the available width, block
+      height is whatever its content/padding/border need) — an explicit
+      `width: 200px`/`height: 100px` declaration silently drops (same
+      "unparseable declaration, not unparseable rule" leniency as any
+      other unsupported property), not just un-honored but invisible
+      that it was ever declared. This is a real, substantial gap for
+      any real-world page that explicitly sizes boxes (most do) — much
+      bigger in scope than any single CSS property landed so far: it'd
+      need `Declarations`/`ComputedStyle` fields, cascade/`em`/`rem`
+      resolution (straightforward, same shape as margin/padding), *and*
+      a design decision on how it interacts with `measure`'s existing
+      content-driven sizing (does an explicit `width` override the
+      available-width constraint passed down, do children overflow or
+      get clipped if content doesn't fit, does `height` cut off
+      overflowing content or let it spill — real layout-model questions
+      this file hasn't needed to answer yet, since every box so far has
+      been purely content-sized). Worth its own prioritized slice, not
+      a quick add-on to whatever else is in flight.
+
 - [ ] `%` and unitless (besides literal `0`) are still not supported
       length forms (`px`/`em` landed in v14, `rem` in v34). Not adding
       them until `default.css` or a real test page actually needs one —
@@ -157,12 +181,14 @@ session can pick a coherent slice rather than one property at a time.
       not a regression). Revisit if a real page's bevel border looks
       visibly wrong as flat solid instead.
 
-- [ ] `border-radius` (PROMPTS.md v28) only rounds a plain background
-      fill — combined with a visible border (`border-width > 0`),
-      it's ignored entirely and both fall back to square corners. A
-      correctly-rounded ring needs real per-pixel inner/outer-boundary
-      testing; nothing in `default.css` or a real test page combines
-      the two yet. Revisit if one does.
+- [ ] `border-radius` (v38) combined with a non-`solid` `border-style`
+      (`dashed`/`dotted`/`double`) falls back to the old square-corner
+      rendering for both background and border — a rounded ring works
+      for `solid` only (`fill_rounded_ring`). A correctly-rounded
+      dashed/dotted ring needs the same curved-path tracing a solid
+      ring does, just repeated per dash/dot/stripe along that curve
+      instead of a straight edge — real extra work, not attempted here
+      since nothing in `default.css` or a real test page needs it yet.
 
 - [ ] **`opacity` was deliberately skipped, not attempted** — scoping
       it out surfaced a real design decision, not just an
