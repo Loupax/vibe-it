@@ -185,7 +185,7 @@ session can pick a coherent slice rather than one property at a time.
       ordering (this session's `z-index` support is real but
       intentionally minimal — see its own item).
 
-- [x] `float: left`/`right` (PENDING_COMMIT_HASH) now takes a box out
+- [x] `float: left`/`right` (5fc83ce) now takes a box out
       of normal block-level flow (no vertical space reserved for it by
       its own parent, same as `position: absolute`) but, unlike
       `absolute`, still participates in the surrounding *inline*
