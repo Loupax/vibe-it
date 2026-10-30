@@ -1,8 +1,10 @@
 use std::collections::HashMap;
 use std::env;
 use std::fs;
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 use std::num::NonZeroU32;
+use std::os::unix::net::UnixStream;
+use std::path::PathBuf;
 use std::rc::{Rc, Weak};
 use std::thread;
 
@@ -35,10 +37,11 @@ use selectors::parser::{
 };
 use selectors::{Element as SelectorsElement, OpaqueElement};
 use softbuffer::{Context, Surface};
+use url::Url;
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
-use winit::event::{MouseScrollDelta, WindowEvent};
-use winit::event_loop::{ActiveEventLoop, EventLoop};
+use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
+use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
 use winit::window::{CursorIcon, Window, WindowId};
 
 // ---------- CLI input ----------
@@ -285,6 +288,18 @@ fn element_attr<'a>(handle: &'a Handle, name: &str) -> Option<std::cell::Ref<'a,
         }
     }
     None
+}
+
+/// Leaks an owned copy of `s` into a `&'static str` — the same tradeoff
+/// `font-family`'s own named fallback lists already made (see
+/// `FontFamily`'s own docs/`TODO.txt`): bounded by how many distinct
+/// values are walked per layout rebuild (here, how many distinct
+/// `a`/`area href`s a document has), not by click/redraw count, kept
+/// only so the value can live inside a `#[derive(Copy)]` type
+/// (`SpanStyle::href`) the same cheap way every other per-span field
+/// does.
+fn leak_str(s: &str) -> &'static str {
+    Box::leak(s.to_string().into_boxed_str())
 }
 
 impl SelectorsElement for El {
@@ -4476,6 +4491,22 @@ struct SpanStyle {
     /// inline`, which applies it directly to a word's own measured
     /// advance (see its own docs) — never by `shape_spans`/cosmic-text.
     word_spacing: f32,
+    /// The absolute-or-relative `href` text of the nearest enclosing
+    /// `a`/`area` with an `href` attribute, if any — not a CSS property
+    /// at all, so it's carried the same *ambient* way `background_color`/
+    /// `text_decoration` are (ancestor's value flows down to any
+    /// descendant text that doesn't come from its own, more specific,
+    /// `a href`), computed once per element in `collect_children` rather
+    /// than resolved through the cascade. Leaked (`Box::leak`, same
+    /// tradeoff `FontFamily`'s own named lists already made, see
+    /// TODO.txt) into a `&'static str` so `SpanStyle` can stay
+    /// `#[derive(Copy)]` — bounded by how many distinct `a href` values
+    /// are walked per layout rebuild, not by click/redraw count.
+    /// `hit_test_cursor` reads this back out per-glyph (via `glyph.
+    /// metadata`, the same mechanism it already uses for `cursor`) to
+    /// answer "is this exact point a link, and to what" for
+    /// `WindowEvent::MouseInput`'s click handler.
+    href: Option<&'static str>,
 }
 
 impl From<InheritedStyle> for SpanStyle {
@@ -4494,6 +4525,7 @@ impl From<InheritedStyle> for SpanStyle {
             visibility: s.visibility,
             cursor: s.cursor,
             word_spacing: s.word_spacing,
+            href: None,
         }
     }
 }
@@ -4648,7 +4680,7 @@ fn build_img_box(handle: &Handle, style: ComputedStyle, background_image: Option
 /// any) right away, then threaded into every path that builds this
 /// element's own children — same `unwrap_or` shape `collect_children`'s
 /// inline branch already uses, just applied once per block too.
-fn build_box_for_element(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle, decoration: DecorationValue, viewport_width: f32) -> LayoutBox {
+fn build_box_for_element(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle, decoration: DecorationValue, href: Option<&'static str>, viewport_width: f32) -> LayoutBox {
     let style = resolve_style(handle, rules, inherited, viewport_width);
     // Resolved once here (cheap to carry further — just an `Rc` clone —
     // vs. re-running `resolve_background_image`'s own selector-matching
@@ -4672,7 +4704,7 @@ fn build_box_for_element(handle: &Handle, rules: &[StyleRule], inherited: Inheri
         return LayoutBox {
             style,
             background_image,
-            content: BoxContent::Blocks(build_table_children(handle, rules, style.inherited(), own_decoration, viewport_width)),
+            content: BoxContent::Blocks(build_table_children(handle, rules, style.inherited(), own_decoration, href, viewport_width)),
         };
     }
     // `display: flex` is block-level in the outer flow (same as `Table`,
@@ -4683,7 +4715,7 @@ fn build_box_for_element(handle: &Handle, rules: &[StyleRule], inherited: Inheri
         return LayoutBox {
             style,
             background_image,
-            content: BoxContent::Blocks(build_flex_children(handle, rules, style.inherited(), own_decoration, viewport_width)),
+            content: BoxContent::Blocks(build_flex_children(handle, rules, style.inherited(), own_decoration, href, viewport_width)),
         };
     }
     // `display: grid` is block-level in the outer flow (same as `Table`/
@@ -4698,7 +4730,7 @@ fn build_box_for_element(handle: &Handle, rules: &[StyleRule], inherited: Inheri
         return LayoutBox {
             style,
             background_image,
-            content: BoxContent::Blocks(build_flex_children(handle, rules, style.inherited(), own_decoration, viewport_width)),
+            content: BoxContent::Blocks(build_flex_children(handle, rules, style.inherited(), own_decoration, href, viewport_width)),
         };
     }
     let prefix = if element_tag(handle) == "li" {
@@ -4709,7 +4741,7 @@ fn build_box_for_element(handle: &Handle, rules: &[StyleRule], inherited: Inheri
     LayoutBox {
         style,
         background_image,
-        content: BoxContent::Blocks(build_children_with_prefix(handle, rules, style.inherited(), prefix, own_decoration, viewport_width)),
+        content: BoxContent::Blocks(build_children_with_prefix(handle, rules, style.inherited(), prefix, own_decoration, href, viewport_width)),
     }
 }
 
@@ -4721,7 +4753,7 @@ fn build_box_for_element(handle: &Handle, rules: &[StyleRule], inherited: Inheri
 /// display, so it falls to the `Block` arm and gets its own box via the
 /// normal `build_box_for_element` call, which re-enters this same
 /// table-building path independently for its own rows.
-fn build_table_children(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle, decoration: DecorationValue, viewport_width: f32) -> Vec<LayoutBox> {
+fn build_table_children(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle, decoration: DecorationValue, href: Option<&'static str>, viewport_width: f32) -> Vec<LayoutBox> {
     let mut result = Vec::new();
     for child in handle.children.borrow().iter() {
         let NodeData::Element { .. } = &child.data else { continue };
@@ -4740,12 +4772,12 @@ fn build_table_children(handle: &Handle, rules: &[StyleRule], inherited: Inherit
         match style.display {
             Display::None => {}
             Display::TableRow => {
-                let cells = build_table_row_cells(child, rules, style.inherited(), child_decoration, viewport_width);
+                let cells = build_table_row_cells(child, rules, style.inherited(), child_decoration, href, viewport_width);
                 let background_image = resolve_background_image(child, rules, viewport_width);
                 result.push(LayoutBox { style, background_image, content: BoxContent::TableRow(cells) });
             }
             Display::TableGroup => {
-                result.extend(build_table_children(child, rules, style.inherited(), child_decoration, viewport_width));
+                result.extend(build_table_children(child, rules, style.inherited(), child_decoration, href, viewport_width));
             }
             Display::Block | Display::Flex | Display::Grid => {
                 // e.g. `caption`, or any other block-level content placed
@@ -4754,7 +4786,7 @@ fn build_table_children(handle: &Handle, rules: &[StyleRule], inherited: Inherit
                 // handled the same way (its own box via the normal
                 // dispatch, which re-enters `build_flex_children`/
                 // `measure_flex`/`measure_grid` for it).
-                result.push(build_box_for_element(child, rules, inherited, decoration, viewport_width));
+                result.push(build_box_for_element(child, rules, inherited, decoration, href, viewport_width));
             }
             // A stray `table-cell`/inline/`table` outside a row isn't
             // real-world table markup — skip rather than guess at it.
@@ -4768,13 +4800,13 @@ fn build_table_children(handle: &Handle, rules: &[StyleRule], inherited: Inherit
 /// interior content — text, inline elements, nested blocks — all work
 /// unchanged via the ordinary `build_box_for_element` path; only how its
 /// *parent* lays it out, horizontally instead of vertically, differs).
-fn build_table_row_cells(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle, decoration: DecorationValue, viewport_width: f32) -> Vec<LayoutBox> {
+fn build_table_row_cells(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle, decoration: DecorationValue, href: Option<&'static str>, viewport_width: f32) -> Vec<LayoutBox> {
     let mut cells = Vec::new();
     for child in handle.children.borrow().iter() {
         let NodeData::Element { .. } = &child.data else { continue };
         let style = resolve_style(child, rules, inherited, viewport_width);
         if style.display == Display::TableCell {
-            cells.push(build_box_for_element(child, rules, inherited, decoration, viewport_width));
+            cells.push(build_box_for_element(child, rules, inherited, decoration, href, viewport_width));
         }
     }
     cells
@@ -4813,7 +4845,7 @@ fn build_table_row_cells(handle: &Handle, rules: &[StyleRule], inherited: Inheri
 /// respective algorithm, the same split `measure`'s own `BoxContent::
 /// Blocks` arm already uses for an ordinary block's absolutely/fixed
 /// positioned children.
-fn build_flex_children(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle, decoration: DecorationValue, viewport_width: f32) -> Vec<LayoutBox> {
+fn build_flex_children(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle, decoration: DecorationValue, href: Option<&'static str>, viewport_width: f32) -> Vec<LayoutBox> {
     let mut result = Vec::new();
     for child in handle.children.borrow().iter() {
         let NodeData::Element { .. } = &child.data else { continue };
@@ -4825,7 +4857,7 @@ fn build_flex_children(handle: &Handle, rules: &[StyleRule], inherited: Inherite
         if style.display == Display::None {
             continue;
         }
-        result.push(build_box_for_element(child, rules, inherited, decoration, viewport_width));
+        result.push(build_box_for_element(child, rules, inherited, decoration, href, viewport_width));
     }
     result
 }
@@ -4840,8 +4872,8 @@ fn build_flex_children(handle: &Handle, rules: &[StyleRule], inherited: Inherite
 /// into one giant text run. (An earlier version flattened unconditionally;
 /// on a real Wikipedia page that merged the entire navigation chrome into a
 /// single ~17,000-character run, which took 7+ seconds to shape by itself.)
-fn build_children(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle, decoration: DecorationValue, viewport_width: f32) -> Vec<LayoutBox> {
-    build_children_with_prefix(handle, rules, inherited, None, decoration, viewport_width)
+fn build_children(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle, decoration: DecorationValue, href: Option<&'static str>, viewport_width: f32) -> Vec<LayoutBox> {
+    build_children_with_prefix(handle, rules, inherited, None, decoration, href, viewport_width)
 }
 
 /// Same as `build_children`, but seeds the first inline run with `prefix`
@@ -4852,6 +4884,7 @@ fn build_children_with_prefix(
     inherited: InheritedStyle,
     prefix: Option<(String, SpanStyle)>,
     decoration: DecorationValue,
+    href: Option<&'static str>,
     viewport_width: f32,
 ) -> Vec<LayoutBox> {
     let mut result = Vec::new();
@@ -4865,6 +4898,7 @@ fn build_children_with_prefix(
         inherited,
         None,
         decoration,
+        href,
         VerticalAlign::default(),
         &mut pending,
         &mut result,
@@ -4898,6 +4932,7 @@ fn collect_children(
     inherited: InheritedStyle,
     bg: Option<TextColor>,
     decoration: DecorationValue,
+    href: Option<&'static str>,
     valign: VerticalAlign,
     pending: &mut Vec<InlineItem>,
     result: &mut Vec<LayoutBox>,
@@ -4911,6 +4946,7 @@ fn collect_children(
                 span.text_decoration = decoration.deco;
                 span.decoration_style = decoration.style;
                 span.vertical_align = valign;
+                span.href = href;
                 // `white-space: pre` preserves the text byte-for-byte
                 // (literal newlines, runs of spaces, no fabricated
                 // trailing space) instead of collapsing it.
@@ -4931,6 +4967,21 @@ fn collect_children(
                 if style.display == Display::None {
                     continue;
                 }
+                // Not a CSS property at all — a plain HTML-attribute
+                // lookup, same ambient-propagation shape `bg`/`decoration`
+                // above already use (see `SpanStyle::href`'s own docs).
+                // An `a`/`area` with its own `href` always wins for its
+                // own subtree; anything else (including an `a`/`area`
+                // with *no* `href`, a plain fragment target rather than a
+                // real link — see `OurPseudoClass::Link`'s own docs for
+                // why that distinction matters) just keeps carrying
+                // whatever ancestor link, if any, it's already nested
+                // inside.
+                let child_href = if matches!(tag, "a" | "area") {
+                    element_attr(child, "href").map(|h| leak_str(&h)).or(href)
+                } else {
+                    href
+                };
                 // `<img>`'s own box-vs-inline-item split: a `display:
                 // block`/`table` `<img>` (an explicit author override —
                 // not the default) gets its own box, same as any other
@@ -4953,6 +5004,7 @@ fn collect_children(
                             let mut span: SpanStyle = inherited.into();
                             span.background_color = bg;
                             span.vertical_align = valign;
+                            span.href = child_href;
                             pending.push(InlineItem::Text(alt, span));
                         }
                     }
@@ -4964,7 +5016,7 @@ fn collect_children(
                             content: BoxContent::Inline(std::mem::take(pending)),
                         });
                     }
-                    result.push(build_box_for_element(child, rules, inherited, decoration, viewport_width));
+                    result.push(build_box_for_element(child, rules, inherited, decoration, child_href, viewport_width));
                 } else {
                     let child_bg = style.background_color.or(bg);
                     let child_decoration = resolve_own_decoration(&style, decoration);
@@ -4979,6 +5031,7 @@ fn collect_children(
                         style.inherited(),
                         child_bg,
                         child_decoration,
+                        child_href,
                         child_valign,
                         pending,
                         result,
@@ -5072,7 +5125,7 @@ pub fn build_layout_tree(document: &Handle, viewport_width: f32) -> LayoutBox {
     LayoutBox {
         style: anonymous_style(root_inherited),
         background_image: None,
-        content: BoxContent::Blocks(build_children(document, &rules, root_inherited, DecorationValue::default(), viewport_width)),
+        content: BoxContent::Blocks(build_children(document, &rules, root_inherited, DecorationValue::default(), None, viewport_width)),
     }
 }
 
@@ -5771,7 +5824,7 @@ enum MixedPositioned {
 /// the original `spans` list by index (via cosmic-text's own per-glyph
 /// `metadata` field, set in `shape_spans`): `(height, backgrounds, vertical
 /// aligns, per-span "visibility: hidden", per-span cursor style, per-span
-/// text-decoration style)`.
+/// text-decoration style, per-span link href)`.
 pub type ShapedParagraph = (
     Buffer,
     f32,
@@ -5780,6 +5833,7 @@ pub type ShapedParagraph = (
     Vec<bool>,
     Vec<CursorStyle>,
     Vec<DecorationStyle>,
+    Vec<Option<&'static str>>,
 );
 
 pub type ShapeCache = std::collections::HashMap<usize, ShapedParagraph>;
@@ -5894,7 +5948,8 @@ fn shape_spans(
     let hidden = spans.iter().map(|(_, span)| span.visibility == Visibility::Hidden).collect();
     let cursors = spans.iter().map(|(_, span)| span.cursor).collect();
     let decoration_styles = spans.iter().map(|(_, span)| span.decoration_style).collect();
-    (buffer, height, backgrounds, valigns, hidden, cursors, decoration_styles)
+    let hrefs = spans.iter().map(|(_, span)| span.href).collect();
+    (buffer, height, backgrounds, valigns, hidden, cursors, decoration_styles, hrefs)
 }
 
 /// Clamps a box-model dimension (`measure`'s own `border_w`/`border_h` —
@@ -6258,7 +6313,7 @@ pub fn measure<'a>(
             let id = *next_id;
             *next_id += 1;
 
-            let content_h = if let Some((_, h, _, _, _, _, _)) = cache.get(&id) {
+            let content_h = if let Some((_, h, _, _, _, _, _, _)) = cache.get(&id) {
                 *h
             } else if items.is_empty() {
                 cache.insert(
@@ -6271,18 +6326,19 @@ pub fn measure<'a>(
                         Vec::new(),
                         Vec::new(),
                         Vec::new(),
+                        Vec::new(),
                     ),
                 );
                 0.0
             } else if std::time::Instant::now() < deadline {
-                let (buffer, h, backgrounds, valigns, hidden, cursors, decoration_styles) = shape_spans(
+                let (buffer, h, backgrounds, valigns, hidden, cursors, decoration_styles, hrefs) = shape_spans(
                     font_system,
                     items,
                     content_w,
                     s.white_space == WhiteSpace::Pre,
                     s.text_align.to_cosmic(),
                 );
-                cache.insert(id, (buffer, h, backgrounds, valigns, hidden, cursors, decoration_styles));
+                cache.insert(id, (buffer, h, backgrounds, valigns, hidden, cursors, decoration_styles, hrefs));
                 h
             } else {
                 *incomplete = true;
@@ -6794,14 +6850,14 @@ fn measure_mixed_inline(
                     }
                     let id = *next_id;
                     *next_id += 1;
-                    let (width, height) = if let Some((buffer, h, _, _, _, _, _)) = cache.get(&id) {
+                    let (width, height) = if let Some((buffer, h, _, _, _, _, _, _)) = cache.get(&id) {
                         (buffer.layout_runs().next().map(|r| r.line_w).unwrap_or(0.0), *h)
                     } else if std::time::Instant::now() < deadline {
                         let synth = [InlineItem::Text(word.to_string(), *span)];
-                        let (buffer, h, backgrounds, valigns, hidden, cursors, decoration_styles) =
+                        let (buffer, h, backgrounds, valigns, hidden, cursors, decoration_styles, hrefs) =
                             shape_spans(font_system, &synth, WORD_MEASURE_WIDTH, true, None);
                         let w = buffer.layout_runs().next().map(|r| r.line_w).unwrap_or(0.0);
-                        cache.insert(id, (buffer, h, backgrounds, valigns, hidden, cursors, decoration_styles));
+                        cache.insert(id, (buffer, h, backgrounds, valigns, hidden, cursors, decoration_styles, hrefs));
                         (w, h)
                     } else {
                         *incomplete = true;
@@ -9403,7 +9459,7 @@ fn paint(
             // Not yet shaped (still mid-way through a budgeted measure pass)
             // just means nothing to paint here yet — it'll appear once a
             // later frame finishes shaping it.
-            if let Some((buffer, _, backgrounds, valigns, hidden, _, decoration_styles)) = cache.get_mut(id) {
+            if let Some((buffer, _, backgrounds, valigns, hidden, _, decoration_styles, _)) = cache.get_mut(id) {
                 let content_x = laid.x + s.border_width + s.padding.left.px();
                 let content_y = draw_y + s.border_width + s.padding.top.px();
                 paint_buffer(
@@ -9433,7 +9489,7 @@ fn paint(
                         );
                     }
                     MixedPositioned::Word { id, x, y, .. } => {
-                        if let Some((buffer, _, backgrounds, valigns, hidden, _, decoration_styles)) = cache.get_mut(id) {
+                        if let Some((buffer, _, backgrounds, valigns, hidden, _, decoration_styles, _)) = cache.get_mut(id) {
                             paint_buffer(
                                 buffer, font_system, swash_cache, backgrounds, valigns, hidden, decoration_styles,
                                 pixels, win_w, win_h, *x, *y - scroll_offset, child_clip,
@@ -9507,6 +9563,20 @@ fn paint(
 /// consulted only in the ordinary `Blocks`/`TableRow` loop below (the
 /// "above" stacking/positioned-descendant loop deliberately isn't, same
 /// documented cut `paint`'s own `paint_z_layer` calls just took).
+///
+/// Returns both the `CursorStyle` to show (what this function originally
+/// returned, pre-link-navigation) and the `href` of whatever link, if
+/// any, is under this exact point — link navigation (v65) reuses this
+/// exact glyph-precision walk rather than a second, parallel one, since
+/// it's answering the same underlying question ("which glyph is under
+/// this point, and what span does it belong to") for a different event
+/// (`WindowEvent::MouseInput`'s click handler instead of `CursorMoved`'s
+/// hover). `href` has no box-level fallback the way `cursor` does
+/// (`laid.style.cursor` always has *some* real cascaded value; there's
+/// no equivalent "ambient box href" — only a per-glyph `SpanStyle::href`
+/// exists at all, see its own docs), so every arm that falls back to
+/// `laid.style.cursor` for the cursor half pairs it with a plain `None`
+/// for the href half.
 #[allow(clippy::too_many_arguments)]
 fn hit_test_cursor(
     laid: &Laid,
@@ -9516,9 +9586,9 @@ fn hit_test_cursor(
     scroll_offsets: &HashMap<usize, f32>,
     scroll_offset: f32,
     viewport_h: f32,
-) -> CursorStyle {
+) -> (CursorStyle, Option<&'static str>) {
     if x < laid.x || x >= laid.x + laid.w || y < laid.y || y >= laid.y + laid.h {
-        return CursorStyle::Auto;
+        return (CursorStyle::Auto, None);
     }
     // Same `is_explicit_stacking_child` pull-out `paint` uses, merged
     // with `laid.positioned` for one combined reversed-priority check
@@ -9599,10 +9669,10 @@ fn hit_test_cursor(
                     return hit_test_cursor(child, x, y, cache, scroll_offsets, scroll_offset, viewport_h);
                 }
             }
-            laid.style.cursor
+            (laid.style.cursor, None)
         }
         LaidContent::Text(id) => {
-            if let Some((buffer, _, _, _, _, cursors, _)) = cache.get(id) {
+            if let Some((buffer, _, _, _, _, cursors, _, hrefs)) = cache.get(id) {
                 let content_x = laid.x + laid.style.border_width + laid.style.padding.left.px();
                 let content_y = laid.y + laid.style.border_width + laid.style.padding.top.px();
                 let local_x = x - content_x;
@@ -9613,17 +9683,25 @@ fn hit_test_cursor(
                     }
                     for glyph in run.glyphs {
                         if local_x >= glyph.x && local_x < glyph.x + glyph.w {
-                            return cursors.get(glyph.metadata).copied().unwrap_or(laid.style.cursor);
+                            return (
+                                cursors.get(glyph.metadata).copied().unwrap_or(laid.style.cursor),
+                                hrefs.get(glyph.metadata).copied().flatten(),
+                            );
                         }
                     }
                 }
             }
-            laid.style.cursor
+            (laid.style.cursor, None)
         }
         // No finer-grained hit test within an image — just this box's
         // own (already-cascaded) cursor, same fallback the other arms
-        // use once nothing more specific matches underneath.
-        LaidContent::Image(_) => laid.style.cursor,
+        // use once nothing more specific matches underneath. (An
+        // `<img>` directly inside an `<a>` isn't itself clickable this
+        // way — `href` only ever reaches a `SpanStyle`, never an image's
+        // own box — see `SpanStyle::href`'s own docs; a deliberate,
+        // narrow scope cut, same spirit as other "images don't carry
+        // the per-span machinery text does" gaps already in TODO.txt.)
+        LaidContent::Image(_) => (laid.style.cursor, None),
         LaidContent::MixedInline(positioned) => {
             for item in positioned {
                 match item {
@@ -9636,7 +9714,7 @@ fn hit_test_cursor(
                         if x < *wx || x >= *wx + *w || y < *wy || y >= *wy + *h {
                             continue;
                         }
-                        if let Some((buffer, _, _, _, _, cursors, _)) = cache.get(id) {
+                        if let Some((buffer, _, _, _, _, cursors, _, hrefs)) = cache.get(id) {
                             let local_x = x - wx;
                             let local_y = y - wy;
                             for run in buffer.layout_runs() {
@@ -9645,7 +9723,10 @@ fn hit_test_cursor(
                                 }
                                 for glyph in run.glyphs {
                                     if local_x >= glyph.x && local_x < glyph.x + glyph.w {
-                                        return cursors.get(glyph.metadata).copied().unwrap_or(laid.style.cursor);
+                                        return (
+                                            cursors.get(glyph.metadata).copied().unwrap_or(laid.style.cursor),
+                                            hrefs.get(glyph.metadata).copied().flatten(),
+                                        );
                                     }
                                 }
                             }
@@ -9653,7 +9734,7 @@ fn hit_test_cursor(
                     }
                 }
             }
-            laid.style.cursor
+            (laid.style.cursor, None)
         }
     }
 }
@@ -9731,11 +9812,186 @@ fn hit_test_scroll_region(
     self_info
 }
 
+// ---------- link navigation (v65) ----------
+//
+// scratchy still performs zero networking itself (see NOTES.md's
+// "rendering, not networking" priority, in force since v1) — clicking a
+// link hands the resolved absolute URL to `snag --serve`'s Unix socket
+// (see `snag/NOTES.md`'s v9 entry for the exact protocol this mirrors)
+// and swaps whatever bundled HTML comes back into the live `App`, same
+// as `run()`'s own `Input::File` case builds the *initial* document.
+// Everything in this section is plain, `App`-free logic so it can be
+// unit tested without a real window/event loop, matching this file's
+// existing "headless function-level testing" convention (see NOTES.md's
+// "Working notes for next session" — no other feature here constructs
+// a real winit `EventLoop`/`Window` inside `#[cfg(test)]` either).
+
+/// A real click (mouse-down then mouse-up close to the same point) vs. a
+/// drag (mouse-down, move, mouse-up elsewhere) — scratchy has no text
+/// selection yet, so there's nothing a drag would otherwise *do*, but
+/// binding navigation to "mouse released over a link" without this
+/// check would still misfire the moment a drag just happens to start
+/// and end over one (and the instant text selection exists, it would
+/// also fire navigation mid-selection-drag, which is squarely wrong).
+/// `threshold` is in document pixels — `down`/`up` are both whatever
+/// consistent coordinate space the caller uses for both (document space
+/// in `App`'s own use, see `WindowEvent::MouseInput`'s handler).
+fn is_click(down: (f32, f32), up: (f32, f32), threshold: f32) -> bool {
+    let dx = up.0 - down.0;
+    let dy = up.1 - down.1;
+    dx * dx + dy * dy <= threshold * threshold
+}
+
+/// Half a cosmic-text glyph's worth of slack — small enough that an
+/// actual drag (even a short one) is never mistaken for a click, large
+/// enough that ordinary human hand tremor between a real mouse-down and
+/// mouse-up over the same link doesn't miss.
+const CLICK_DRAG_THRESHOLD_PX: f32 = 5.0;
+
+/// Resolves a clicked `<a href>` into an absolute URL against the
+/// page's own `<base href>` — ordinary URL-join logic via the `url`
+/// crate (already a dependency of `snag`, not previously one of
+/// scratchy's own — see `Cargo.toml`), not hand-rolled relative-path
+/// math. `Url::join`'s real behavior already does the right thing for
+/// an `href` that's already absolute (resolves to itself, `base`
+/// ignored, same as a real browser) and for one that isn't (resolves
+/// against `base`) — so the only genuinely different case this
+/// function itself has to handle is `base` being `None` at all (no
+/// `<base href>` anywhere in the current page — see `find_base_url`'s
+/// own docs for when that happens), where a relative `href` has nothing
+/// to resolve against and reports a clear error rather than guessing.
+fn resolve_href(base: Option<&Url>, href: &str) -> Result<Url, String> {
+    match base {
+        Some(base) => base.join(href).map_err(|e| format!("cannot resolve link {href:?}: {e}")),
+        None => Url::parse(href)
+            .map_err(|_| format!("cannot resolve link {href:?}: no <base href> on this page to resolve it against")),
+    }
+}
+
+/// Finds the document's own `<base href="...">`, if any, and parses it
+/// — the resolution basis `resolve_href` needs. `snag` (v9) always
+/// emits a real one reflecting the page's actual URL, in both its
+/// one-shot CLI and `--serve` modes (see `snag/NOTES.md`'s own v9
+/// entry); a hand-written local test fixture with no `<base>` at all
+/// just means a *relative* link on it can't be resolved — reported as
+/// an inline error by `resolve_href`, not guessed at — while an
+/// already-absolute one still resolves fine regardless.
+fn find_base_url(document: &Handle) -> Option<Url> {
+    find_base_href(document).and_then(|h| Url::parse(&h).ok())
+}
+
+/// Same recursive shape as `find_html_element` — walks the whole tree
+/// (not just `<head>`) so a malformed/fragment document still finds a
+/// `<base>` wherever it actually ended up, rather than silently falling
+/// back to "none found" the moment it's outside where it belongs.
+fn find_base_href(handle: &Handle) -> Option<String> {
+    if let NodeData::Element { name, .. } = &handle.data {
+        if name.local.as_ref() == "base" {
+            if let Some(href) = element_attr(handle, "href") {
+                return Some(href.to_string());
+            }
+        }
+    }
+    for child in handle.children.borrow().iter() {
+        if let Some(found) = find_base_href(child) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+/// Minimal HTML-escaping for `App::show_message`'s synthetic `<p>...
+/// </p>` wrapper — `text` can carry a clicked `href` or an OS/`io::
+/// Error` message, neither of which scratchy controls the contents of,
+/// so a stray `<`/`&`/`>` needs to display literally rather than
+/// corrupt the synthetic markup it's being spliced into.
+fn escape_html(s: &str) -> String {
+    s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
+}
+
+/// `$XDG_RUNTIME_DIR/snag.sock`, falling back to `/tmp/snag-$UID.sock` —
+/// exactly `snag`'s own `socket_path()` (see `snag/src/main.rs`, v9),
+/// reproduced here rather than shared (scratchy and `snag` are separate
+/// binaries/crates with no shared library between them) since a client
+/// connecting to the *wrong* path just silently fails to find the
+/// server, so this has to compute the literal same path `snag --serve`
+/// itself binds.
+fn snag_socket_path() -> PathBuf {
+    if let Some(dir) = std::env::var_os("XDG_RUNTIME_DIR") {
+        return PathBuf::from(dir).join("snag.sock");
+    }
+    PathBuf::from(format!("/tmp/snag-{}.sock", current_uid()))
+}
+
+/// Same bare-FFI trick `snag` itself uses (see its own `current_uid`)
+/// instead of pulling in the `libc` crate for one syscall every Rust
+/// binary on Linux already links against.
+fn current_uid() -> u32 {
+    unsafe extern "C" {
+        fn getuid() -> u32;
+    }
+    unsafe { getuid() }
+}
+
+/// The real socket round trip: connect, write the absolute URL plus a
+/// newline, read the whole response until the server closes the
+/// connection (`snag --serve`'s entire "done" signal — no length
+/// prefix, no explicit end marker, see `snag/NOTES.md`'s v9 entry).
+/// Three distinct outcomes, each reported as a human-readable `Err`
+/// `App::show_message` can display directly rather than scratchy
+/// guessing at wording on `snag`'s behalf:
+/// - **Connection refused / socket file missing** (`snag --serve` was
+///   never started): the one case with an unambiguous, specific
+///   message telling the user exactly what to run.
+/// - **A clean connection that closes with zero bytes**: per `snag`'s
+///   own documented behavior, a bad URL or a failed top-level fetch is
+///   logged to *its* stderr and the connection just closes, possibly
+///   having written nothing at all — so an empty response is `snag`'s
+///   real, spec'd way of signaling "that fetch failed," not a
+///   degenerate success.
+/// - **Any other I/O error** (connection reset mid-read, etc.): reported
+///   with the underlying `io::Error`'s own message.
+///
+/// Split from `fetch_from_snag` (which always targets the real `snag`
+/// socket path) purely so a test can point this at a throwaway mock
+/// listener instead — see `mod tests`' own `tests::navigation` module.
+fn fetch_from_snag_at(path: &std::path::Path, url: &Url) -> Result<Vec<u8>, String> {
+    let mut stream = UnixStream::connect(path)
+        .map_err(|_| "snag server not running — start it with `snag --serve`".to_string())?;
+    writeln!(stream, "{url}").map_err(|e| format!("failed to send request to snag: {e}"))?;
+    let mut buf = Vec::new();
+    stream.read_to_end(&mut buf).map_err(|e| format!("failed to read response from snag: {e}"))?;
+    if buf.is_empty() {
+        return Err(format!("snag failed to fetch {url} (see snag's own stderr for details)"));
+    }
+    Ok(buf)
+}
+
+fn fetch_from_snag(url: &Url) -> Result<Vec<u8>, String> {
+    fetch_from_snag_at(&snag_socket_path(), url)
+}
+
 // ---------- windowing ----------
 
 enum AppEvent {
     Chunk(Vec<u8>),
     Eof,
+    /// The result of a background navigation fetch (`App::start_
+    /// navigation`'s spawned thread) — `Ok` carries the raw bundled-HTML
+    /// bytes `snag --serve` sent back (same bytes `Input::File`'s own
+    /// `fs::read_to_string` would have read from a saved bundle), `Err`
+    /// a human-readable message to show in place of the page (socket
+    /// unreachable, or a clean-but-empty response — see `fetch_from_
+    /// snag_at`'s own docs for exactly which). The `u64` is `App::nav_
+    /// generation` at the moment this navigation started — compared
+    /// against the *current* generation when this event arrives so a
+    /// stale result from a since-superseded navigation (the user
+    /// clicked a second link before the first one's fetch finished) is
+    /// silently dropped instead of clobbering newer, already-displayed
+    /// content. No back/forward history is built on top of this (see
+    /// TODO.txt's own link-navigation item) — this is just the one hook
+    /// a future history stack would need to land next to.
+    NavResult(u64, Result<Vec<u8>, String>),
 }
 
 struct App {
@@ -9809,10 +10065,48 @@ struct App {
     /// back to the page's own top-level scroll in that case, same as
     /// "cursor not over any scroll region."
     last_mouse_pos: Option<(f32, f32)>,
+    /// Document-space position at the most recent `MouseInput`
+    /// `Pressed(Left)`, if any — compared against `last_mouse_pos` at
+    /// the matching `Released(Left)` to tell a real click (navigates)
+    /// apart from a drag (scratchy has no text selection yet, but a
+    /// careless same-event binding would still misfire once it exists —
+    /// see `is_click`'s own docs). Cleared back to `None` on release
+    /// regardless of outcome.
+    mouse_down_pos: Option<(f32, f32)>,
+    /// Lets a background navigation thread (`start_navigation`) get its
+    /// result back onto this (the event-loop) thread — the exact same
+    /// `thread::spawn` + `event_loop.create_proxy().send_event(..)`
+    /// pattern `run()`'s own `Input::Stdin` case already uses for
+    /// reading stdin off the main thread, reused here for the socket
+    /// I/O a real page's `snag --serve` fetch can take 10-30+ seconds
+    /// to finish (confirmed directly against real Wikipedia in this
+    /// session). Created once in `run()` (an `ActiveEventLoop`, unlike
+    /// the top-level `EventLoop`, has no `create_proxy` of its own —
+    /// confirmed by reading winit's vendored source — so this has to be
+    /// threaded in at construction time instead of fetched lazily from
+    /// `resumed`'s own `&ActiveEventLoop`).
+    proxy: EventLoopProxy<AppEvent>,
+    /// The current page's own `<base href>` (recomputed from the real
+    /// document every time it's replaced — initial load included, not
+    /// just navigation — see `replace_document`), used to resolve a
+    /// clicked `<a href>` into an absolute URL (`resolve_href`). `None`
+    /// means a relative `href` can't be resolved at all (no base to
+    /// join against) — reported as an inline error rather than guessed
+    /// at; an already-absolute `href` still resolves fine either way,
+    /// same as a real browser.
+    base_url: Option<Url>,
+    /// Incremented every time `start_navigation` fires — tags the
+    /// `AppEvent::NavResult` its spawned thread will eventually send
+    /// back, so a result from a navigation the user has since moved on
+    /// from (clicked a second link before the first one's fetch
+    /// finished) is recognized as stale and dropped instead of
+    /// clobbering newer content. See `AppEvent::NavResult`'s own docs.
+    nav_generation: u64,
 }
 
 impl App {
-    fn new_static(document: Handle) -> Self {
+    fn new_static(document: Handle, proxy: EventLoopProxy<AppEvent>) -> Self {
+        let base_url = find_base_url(&document);
         Self {
             document,
             decoder: None,
@@ -9832,10 +10126,14 @@ impl App {
             last_cursor: Some(CursorIcon::Default),
             scroll_offsets: HashMap::new(),
             last_mouse_pos: None,
+            mouse_down_pos: None,
+            proxy,
+            base_url,
+            nav_generation: 0,
         }
     }
 
-    fn new_streaming() -> Self {
+    fn new_streaming(proxy: EventLoopProxy<AppEvent>) -> Self {
         let decoder = new_parser();
         let document = decoder.inner_sink.tokenizer.sink.sink.document.clone();
         Self {
@@ -9857,6 +10155,10 @@ impl App {
             last_cursor: Some(CursorIcon::Default),
             scroll_offsets: HashMap::new(),
             last_mouse_pos: None,
+            mouse_down_pos: None,
+            proxy,
+            base_url: None,
+            nav_generation: 0,
         }
     }
 
@@ -9980,6 +10282,77 @@ impl App {
             window.request_redraw();
         }
     }
+
+    /// Swaps in a brand-new document — the one place both link
+    /// navigation and the "Loading…"/error placeholders it shows while
+    /// waiting (`show_message`) go through. Reuses `run()`'s own
+    /// initial `App::new_static(dom.document)` path's *shape* (build a
+    /// fresh DOM, hand it to the engine) but mid-session instead of only
+    /// at startup — everything downstream (`redraw`'s own layout-dirty
+    /// rebuild) already works unmodified, since from its point of view
+    /// this looks exactly like the document simply having changed, the
+    /// same thing `AppEvent::Chunk`/`Eof` already do for streaming mode.
+    /// Does *not* touch `base_url` — callers that are loading a real new
+    /// page (not just a transient status message) update that
+    /// separately, since a synthetic "Loading…" page has no `<base>` of
+    /// its own and clobbering `base_url` from it would make a page's
+    /// own links briefly unresolvable while its replacement is loading.
+    fn replace_document(&mut self, document: Handle) {
+        self.document = document;
+        self.layout_dirty = true;
+        self.tree = None;
+        self.cached = None;
+        self.shape_cache.clear();
+        self.scroll_offsets.clear();
+        self.scroll_offset = 0.0;
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
+
+    /// Replaces the page with a plain one-paragraph status message —
+    /// used for both the "Loading…" indicator `start_navigation` shows
+    /// immediately (a real page can take 10-30+ seconds to fetch through
+    /// `snag --serve`, confirmed directly against Wikipedia earlier in
+    /// this session — freezing with no feedback would look broken) and
+    /// a failed navigation's inline error (socket unreachable, or
+    /// `snag` itself erroring on that URL — see `fetch_from_snag_at`'s
+    /// own docs for the two cases this can report). `escape_html` is
+    /// needed since `text` can echo back arbitrary attacker^Wpage-
+    /// controlled content (a clicked `href`, or an OS error string) —
+    /// without it, a stray `<`/`&` in either would corrupt the
+    /// synthetic markup instead of just displaying literally.
+    fn show_message(&mut self, text: &str) {
+        let html = format!("<html><body><p>{}</p></body></html>", escape_html(text));
+        self.replace_document(parse_html(&html));
+    }
+
+    /// Entry point for `WindowEvent::MouseInput`'s click handler:
+    /// resolves `href` against the current page's own `<base href>`
+    /// (`resolve_href` — ordinary URL-join logic via the `url` crate,
+    /// not hand-rolled), then, if that succeeds, shows "Loading…" and
+    /// fetches the resolved page on a background thread (`fetch_from_
+    /// snag`), exactly the `thread::spawn` + proxy pattern `run()`'s own
+    /// `Input::Stdin` case already established — see `AppEvent::
+    /// NavResult`'s own docs for how the result gets back onto this
+    /// thread and `nav_generation`'s own docs for why it's tagged.
+    fn start_navigation(&mut self, href: &str) {
+        let url = match resolve_href(self.base_url.as_ref(), href) {
+            Ok(url) => url,
+            Err(message) => {
+                self.show_message(&message);
+                return;
+            }
+        };
+        self.nav_generation += 1;
+        let generation = self.nav_generation;
+        self.show_message("Loading…");
+        let proxy = self.proxy.clone();
+        thread::spawn(move || {
+            let result = fetch_from_snag(&url);
+            let _ = proxy.send_event(AppEvent::NavResult(generation, result));
+        });
+    }
 }
 
 impl ApplicationHandler<AppEvent> for App {
@@ -10013,6 +10386,33 @@ impl ApplicationHandler<AppEvent> for App {
                     let dom = decoder.finish();
                     self.document = dom.document;
                     self.layout_dirty = true;
+                    // Streaming mode (`snag url | scratchy`) never had a
+                    // `<base href>` to read before now — the whole
+                    // document, `<head>` included, only exists once EOF
+                    // has been seen. Picking it up here (rather than
+                    // leaving `base_url` permanently `None` for a piped
+                    // page) is what makes clicking a link actually work
+                    // after `snag url | scratchy`, not just after
+                    // `scratchy saved-bundle.html`.
+                    self.base_url = find_base_url(&self.document);
+                }
+            }
+            AppEvent::NavResult(generation, result) => {
+                // A result from a navigation the user has since clicked
+                // past (a second link, before the first one's fetch
+                // finished) — drop it silently rather than clobbering
+                // whatever's already newer on screen. See `AppEvent::
+                // NavResult`'s own docs.
+                if generation != self.nav_generation {
+                    return;
+                }
+                match result {
+                    Ok(bytes) => {
+                        let dom = new_parser().read_from(&mut bytes.as_slice()).unwrap();
+                        self.base_url = find_base_url(&dom.document);
+                        self.replace_document(dom.document);
+                    }
+                    Err(message) => self.show_message(&message),
                 }
             }
         }
@@ -10043,11 +10443,11 @@ impl ApplicationHandler<AppEvent> for App {
                 if let (Some(laid), Some(window)) = (&self.cached, &self.window) {
                     let doc_x = position.x as f32;
                     let doc_y = position.y as f32 + self.scroll_offset;
-                    let icon = hit_test_cursor(
+                    let (style, _href) = hit_test_cursor(
                         laid, doc_x, doc_y, &self.shape_cache, &self.scroll_offsets, self.scroll_offset,
                         self.surface_size.1 as f32,
-                    )
-                    .to_winit();
+                    );
+                    let icon = style.to_winit();
                     if icon != self.last_cursor {
                         match icon {
                             // Restore visibility too, in case the cursor
@@ -10063,6 +10463,47 @@ impl ApplicationHandler<AppEvent> for App {
                             None => window.set_cursor_visible(false),
                         }
                         self.last_cursor = icon;
+                    }
+                }
+            }
+            WindowEvent::MouseInput { state, button, .. } => {
+                // Scratchy has no text selection yet (see `is_click`'s
+                // own docs), but binding navigation to mouse-down alone
+                // would still be wrong on its own terms — a drag that
+                // happens to start and end over a link shouldn't
+                // navigate either. `winit`'s own `MouseInput` carries no
+                // position of its own (same gap `MouseWheel` already
+                // has) — `last_mouse_pos`, kept live by `CursorMoved`
+                // just above, stands in for both the press and release
+                // point.
+                if button != MouseButton::Left {
+                    return;
+                }
+                match state {
+                    ElementState::Pressed => self.mouse_down_pos = self.last_mouse_pos,
+                    ElementState::Released => {
+                        // Computed into a plain, owned `Option<&'static
+                        // str>` (not borrowed from `self`) *before*
+                        // calling `start_navigation` below, which needs
+                        // `&mut self` — `laid`/`shape_cache`/
+                        // `scroll_offsets` are only borrowed for this
+                        // one `match`, not held across that call.
+                        let href = match (self.mouse_down_pos.take(), self.last_mouse_pos, &self.cached) {
+                            (Some(down), Some(up), Some(laid)) if is_click(down, up, CLICK_DRAG_THRESHOLD_PX) => {
+                                let doc_x = up.0;
+                                let doc_y = up.1 + self.scroll_offset;
+                                hit_test_cursor(
+                                    laid, doc_x, doc_y, &self.shape_cache, &self.scroll_offsets,
+                                    self.scroll_offset, self.surface_size.1 as f32,
+                                )
+                                .1
+                            }
+                            _ => None,
+                        };
+                        self.mouse_down_pos = None;
+                        if let Some(href) = href {
+                            self.start_navigation(href);
+                        }
                     }
                 }
             }
@@ -10116,6 +10557,13 @@ pub fn run() {
     let input = parse_args();
 
     let event_loop = EventLoop::<AppEvent>::with_user_event().build().unwrap();
+    // Needed unconditionally now, not just for `Input::Stdin`'s own
+    // background thread — `App::start_navigation`'s link-navigation
+    // fetch (v65) needs a clone too, and `ActiveEventLoop` (unlike the
+    // top-level `EventLoop` itself) has no `create_proxy` of its own
+    // (confirmed by reading winit's vendored source), so this has to be
+    // created here and threaded into `App` at construction time.
+    let proxy = event_loop.create_proxy();
 
     let mut app = match input {
         Input::File(path) => {
@@ -10124,11 +10572,12 @@ pub fn run() {
                 std::process::exit(1);
             });
             let dom = new_parser().read_from(&mut html.as_bytes()).unwrap();
-            App::new_static(dom.document)
+            App::new_static(dom.document, proxy)
         }
         Input::Stdin => {
-            let proxy = event_loop.create_proxy();
+            let stdin_proxy = proxy.clone();
             thread::spawn(move || {
+                let proxy = stdin_proxy;
                 let mut stdin = io::stdin();
                 let mut buf = [0u8; 8192];
                 loop {
@@ -10150,7 +10599,7 @@ pub fn run() {
                     }
                 }
             });
-            App::new_streaming()
+            App::new_streaming(proxy)
         }
     };
 
@@ -13183,7 +13632,7 @@ mod tests {
                 children.iter().find_map(|c| find_glyph_center(c, cache, want))
             }
             LaidContent::Text(id) => {
-                let (buffer, _, _, _, _, cursors, _) = cache.get(id)?;
+                let (buffer, _, _, _, _, cursors, _, _) = cache.get(id)?;
                 let content_x = laid.x + laid.style.border_width + laid.style.padding.left.px();
                 let content_y = laid.y + laid.style.border_width + laid.style.padding.top.px();
                 for run in buffer.layout_runs() {
@@ -13216,12 +13665,12 @@ mod tests {
         let (ax, ay) = find_glyph_center(&laid, &cache, CursorStyle::Auto).expect("no plain-text glyph found");
         let scroll_offsets = HashMap::new();
         assert_eq!(
-            hit_test_cursor(&laid, gx, gy, &cache, &scroll_offsets, 0.0, 600.0),
+            hit_test_cursor(&laid, gx, gy, &cache, &scroll_offsets, 0.0, 600.0).0,
             CursorStyle::Grab,
             "a glyph inside the styled span should report Grab"
         );
         assert_eq!(
-            hit_test_cursor(&laid, ax, ay, &cache, &scroll_offsets, 0.0, 600.0),
+            hit_test_cursor(&laid, ax, ay, &cache, &scroll_offsets, 0.0, 600.0).0,
             CursorStyle::Auto,
             "an adjacent plain-text glyph should still report Auto"
         );
@@ -13728,5 +14177,226 @@ mod tests {
             Some(TextColor::rgb(0, 0xff, 0xff)),
             "prefers-color-scheme: light should match (the only color found should be .box's cyan, not .other's red)"
         );
+    }
+
+    // ---------- v65: link navigation ----------
+
+    // -- href resolution against the page's own <base href> --
+
+    #[test]
+    fn resolve_href_relative_joins_against_base() {
+        let base = Url::parse("https://example.com/articles/foo").unwrap();
+        let resolved = resolve_href(Some(&base), "bar").unwrap();
+        assert_eq!(resolved.as_str(), "https://example.com/articles/bar");
+    }
+
+    #[test]
+    fn resolve_href_absolute_ignores_base_entirely() {
+        // Real `Url::join` behavior, same as a real browser: an already-
+        // absolute href resolves to itself regardless of what base the
+        // page declares.
+        let base = Url::parse("https://example.com/articles/foo").unwrap();
+        let resolved = resolve_href(Some(&base), "https://other.example/bar").unwrap();
+        assert_eq!(resolved.as_str(), "https://other.example/bar");
+    }
+
+    #[test]
+    fn resolve_href_relative_with_no_base_is_a_clear_error() {
+        let err = resolve_href(None, "relative/path").unwrap_err();
+        assert!(
+            err.contains("no <base href>"),
+            "error should explain there's nothing to resolve a relative link against: {err}"
+        );
+    }
+
+    #[test]
+    fn resolve_href_absolute_with_no_base_still_resolves() {
+        // No `<base>` on the page at all doesn't block an *already*-
+        // absolute href — only a relative one has nothing to join
+        // against.
+        let resolved = resolve_href(None, "https://example.com/standalone").unwrap();
+        assert_eq!(resolved.as_str(), "https://example.com/standalone");
+    }
+
+    #[test]
+    fn find_base_href_finds_a_real_base_tag() {
+        let doc = parse_html(
+            r#"<html><head><base href="https://example.com/articles/"></head><body>hi</body></html>"#,
+        );
+        assert_eq!(find_base_href(&doc), Some("https://example.com/articles/".to_string()));
+    }
+
+    #[test]
+    fn find_base_href_is_none_when_the_page_has_no_base_tag() {
+        let doc = parse_html("<html><head></head><body>hi</body></html>");
+        assert_eq!(find_base_href(&doc), None);
+    }
+
+    // -- click-vs-drag distinction --
+
+    #[test]
+    fn is_click_accepts_a_tiny_move_between_down_and_up() {
+        // Ordinary hand tremor between a real mouse-down and mouse-up
+        // over the same link shouldn't be mistaken for a drag.
+        assert!(is_click((100.0, 100.0), (102.0, 101.0), CLICK_DRAG_THRESHOLD_PX));
+    }
+
+    #[test]
+    fn is_click_rejects_a_real_drag() {
+        assert!(!is_click((100.0, 100.0), (260.0, 100.0), CLICK_DRAG_THRESHOLD_PX));
+    }
+
+    #[test]
+    fn is_click_boundary_is_inclusive() {
+        // Exactly at the threshold distance still counts as a click, not
+        // a drag — consistent with this file's other boundary-inclusive
+        // conventions (see e.g. `@media`'s own min-width tests).
+        assert!(is_click((0.0, 0.0), (CLICK_DRAG_THRESHOLD_PX, 0.0), CLICK_DRAG_THRESHOLD_PX));
+    }
+
+    // -- href recovered at glyph precision (reuses `cursor`'s own v32/
+    // v61 hit-testing machinery — same `hit_test_cursor` function, now
+    // returning the href half of its result too) --
+
+    #[test]
+    fn hit_test_cursor_recovers_the_real_href_of_a_clicked_link() {
+        // `default.css` already declares `a { cursor: pointer }` (v32),
+        // so `find_glyph_center`'s existing `CursorStyle::Pointer` lookup
+        // doubles as "find the link's own glyph" here with no new test
+        // helper needed.
+        let (laid, cache) = measure_fixture_with_cache(
+            r#"<html><body><p><a href="/page">link text</a> plain text</p></body></html>"#,
+            400.0,
+        );
+        let (lx, ly) = find_glyph_center(&laid, &cache, CursorStyle::Pointer).expect("no link glyph found");
+        let (px, py) = find_glyph_center(&laid, &cache, CursorStyle::Auto).expect("no plain-text glyph found");
+        let scroll_offsets = HashMap::new();
+        assert_eq!(
+            hit_test_cursor(&laid, lx, ly, &cache, &scroll_offsets, 0.0, 600.0).1,
+            Some("/page"),
+            "a glyph inside the link should report its real href"
+        );
+        assert_eq!(
+            hit_test_cursor(&laid, px, py, &cache, &scroll_offsets, 0.0, 600.0).1,
+            None,
+            "an adjacent plain-text glyph should report no href at all"
+        );
+    }
+
+    #[test]
+    fn href_ambiently_propagates_into_a_nested_element_with_no_href_of_its_own() {
+        // Not a CSS property (see `SpanStyle::href`'s own docs), so this
+        // isn't real CSS inheritance — but a `<b>` nested inside a real
+        // `<a href>`, with no `href` of its own, still needs to report
+        // the ancestor link's href, the same ambient-propagation shape
+        // `background-color`/`text-decoration` already use.
+        let (laid, cache) = measure_fixture_with_cache(
+            r#"<html><body><p><a href="/x"><b>bold link</b></a></p></body></html>"#,
+            400.0,
+        );
+        let (bx, by) = find_glyph_center(&laid, &cache, CursorStyle::Pointer).expect("no link glyph found");
+        let scroll_offsets = HashMap::new();
+        assert_eq!(hit_test_cursor(&laid, bx, by, &cache, &scroll_offsets, 0.0, 600.0).1, Some("/x"));
+    }
+
+    #[test]
+    fn an_anchor_with_no_href_is_not_a_link() {
+        // A fragment-target `<a name="...">`/`<a>` with no `href` at all
+        // is real HTML, not a link — same distinction `OurPseudoClass::
+        // Link`'s own `:link` matching already makes (v37). Note this
+        // doesn't mean no cursor: `default.css`'s `a { cursor: pointer
+        // }` rule is a plain tag selector, not `:link`-scoped, so it
+        // still applies here — `find_glyph_center` has to look for
+        // `Pointer`, same as a real link, even though `href` itself must
+        // come back `None`. This is exactly why `href` needs its own
+        // tracking rather than piggybacking on `cursor`.
+        let (laid, cache) = measure_fixture_with_cache(
+            r#"<html><body><p><a>not a link</a></p></body></html>"#,
+            400.0,
+        );
+        let (x, y) = find_glyph_center(&laid, &cache, CursorStyle::Pointer).expect("no glyph found");
+        let scroll_offsets = HashMap::new();
+        assert_eq!(hit_test_cursor(&laid, x, y, &cache, &scroll_offsets, 0.0, 600.0).1, None);
+    }
+
+    // -- the real snag socket protocol, against a tiny in-process mock
+    // listener (same spirit as `snag`'s own v9 test, which used a tiny
+    // in-process loopback HTTP fixture rather than touching the real
+    // internet — this mirrors that for the Unix-socket side instead) --
+
+    fn unique_test_socket_path(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!(
+            "scratchy-test-{name}-{}-{:?}.sock",
+            std::process::id(),
+            std::thread::current().id()
+        ))
+    }
+
+    #[test]
+    fn fetch_from_snag_at_round_trips_real_bytes_over_a_real_unix_socket() {
+        use std::os::unix::net::UnixListener;
+        let path = unique_test_socket_path("roundtrip");
+        let _ = std::fs::remove_file(&path);
+        let listener = UnixListener::bind(&path).expect("bind mock snag socket");
+        let server = thread::spawn(move || {
+            use std::io::BufRead;
+            let (mut stream, _) = listener.accept().expect("accept");
+            let mut reader = std::io::BufReader::new(stream.try_clone().expect("clone"));
+            let mut line = String::new();
+            reader.read_line(&mut line).expect("read url line");
+            assert_eq!(line.trim_end(), "https://example.com/page", "scratchy must send the resolved absolute URL plus a newline");
+            stream.write_all(b"<html><body>mock bundle</body></html>").expect("write response");
+            // Dropping `stream` here closes the connection — the
+            // protocol's own "done" signal (see `fetch_from_snag_at`'s
+            // own docs).
+        });
+        let url = Url::parse("https://example.com/page").unwrap();
+        let result = fetch_from_snag_at(&path, &url);
+        server.join().expect("mock server thread panicked");
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(result, Ok(b"<html><body>mock bundle</body></html>".to_vec()));
+    }
+
+    #[test]
+    fn fetch_from_snag_at_reports_a_clear_message_when_the_socket_is_missing() {
+        // No `snag --serve` running at all (or crashed, or never
+        // started) — the one case this function gives a specific,
+        // actionable message for.
+        let path = unique_test_socket_path("missing");
+        let _ = std::fs::remove_file(&path);
+        let url = Url::parse("https://example.com/").unwrap();
+        let err = fetch_from_snag_at(&path, &url).unwrap_err();
+        assert!(err.contains("snag --serve"), "error should point at starting the server: {err}");
+    }
+
+    #[test]
+    fn fetch_from_snag_at_treats_a_clean_empty_response_as_a_fetch_error() {
+        // Per `snag`'s own documented `--serve` behavior (v9): a bad URL
+        // or a failed top-level fetch is logged to *its* stderr and the
+        // connection just closes, possibly having written nothing at
+        // all — this has to be treated as a real failure, not a
+        // degenerate empty-but-successful page.
+        use std::os::unix::net::UnixListener;
+        let path = unique_test_socket_path("empty");
+        let _ = std::fs::remove_file(&path);
+        let listener = UnixListener::bind(&path).expect("bind mock snag socket");
+        let server = thread::spawn(move || {
+            let (_stream, _) = listener.accept().expect("accept");
+            // Dropped immediately with zero bytes written.
+        });
+        let url = Url::parse("https://example.com/missing-page").unwrap();
+        let result = fetch_from_snag_at(&path, &url);
+        server.join().expect("mock server thread panicked");
+        let _ = std::fs::remove_file(&path);
+        assert!(result.is_err(), "an empty response must be treated as a fetch failure, not an empty success");
+    }
+
+    // -- `App::show_message`'s HTML-escaping, since it echoes back
+    // arbitrary page/OS-controlled text (a clicked href, an io::Error)
+    // into synthetic markup --
+
+    #[test]
+    fn escape_html_escapes_the_characters_that_would_corrupt_the_synthetic_markup() {
+        assert_eq!(escape_html("a < b & c > d"), "a &lt; b &amp; c &gt; d");
     }
 }

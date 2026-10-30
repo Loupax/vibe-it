@@ -4794,3 +4794,213 @@ that reprioritized this work ("we should allow clicking links at some
 point 😅 Let's plan this now") — out of scope for this item itself (an
 implementation task, not a planning one) and not acted on here; left
 for its own dedicated planning session.
+
+---
+
+## v65 — link navigation (scratchy side): real click detection, href resolution, and a live DOM swap
+
+> ok, let's do this next. I really want to test it so pause once you are
+> done with the links
+
+This is the scratchy-side half of the link-navigation feature planned at
+the end of v64 (`TODO.txt`'s "Link navigation" item, recorded
+2026-10-30). The other half — `snag --serve`, a long-lived Unix-socket
+daemon, plus `snag` emitting a real `<base href>` in both its one-shot
+CLI and `--serve` output — already landed as `snag`'s own v9, in a
+separate session; this item does not touch `snag/` at all. The user
+explicitly wants to test this interactively themselves once it's done,
+which shapes a lot of what's below: everything that *can* be verified
+headlessly or via a real (non-interactive) process was, and everything
+that genuinely needs a live mouse click is called out as such, not
+glossed over.
+
+**What landed, mechanism by mechanism:**
+
+1. **Real click detection** — scratchy's first `WindowEvent::MouseInput`
+   handler ever (previously only `CursorMoved`, for `cursor`'s hover
+   icon since v32/v61, and `MouseWheel` existed). `ElementState::Pressed`
+   on the left button records `self.last_mouse_pos` (already kept live
+   by `CursorMoved`, since `MouseInput` itself carries no position of
+   its own — same gap `MouseWheel` already has) into a new `mouse_down_
+   pos` field; `Released` compares that against the *current* `last_
+   mouse_pos` via a new, pure, unit-tested `is_click(down, up,
+   threshold)` — a drag (scratchy has no text selection yet, but a
+   careless same-event binding would misfire the moment it exists) moves
+   past a 5px `CLICK_DRAG_THRESHOLD_PX`, a real click doesn't.
+2. **Finding the href at that point** reuses `cursor`'s own v32/v61
+   glyph-precision hit-testing machinery directly, not a second parallel
+   walk — `hit_test_cursor` now returns `(CursorStyle, Option<&'static
+   str>)` instead of just `CursorStyle`, with the href half threaded
+   through the exact same per-glyph `metadata`-indexed vectors the
+   cursor half already used (`SpanStyle` gained an `href: Option<&'static
+   str>` field, the same `Box::leak`-into-`&'static` tradeoff named
+   `font-family` fallback lists already made, needed to keep `SpanStyle`
+   `#[derive(Copy)]`). `href` isn't a CSS property, so it's threaded as
+   *ambient* propagation (same shape as `background-color`/`text-
+   decoration`, not real CSS inheritance) through `collect_children` and
+   the five `build_*` functions that already carry `decoration` the same
+   way — computed once per `a`/`area` element from its own `href`
+   attribute, falling back to whatever ancestor link (if any) is already
+   in scope, so e.g. `<a href="/x"><b>bold link</b></a>`'s nested `<b>`
+   correctly reports `/x` too. An anchor with no `href` at all (a
+   fragment target, not a real link — same distinction `:link`'s own
+   matching already makes, v37) correctly reports no href, even though
+   `default.css`'s `a { cursor: pointer }` is a bare tag selector and
+   still applies a pointer cursor to it regardless.
+3. **Resolving the href to an absolute URL** uses the `url` crate (new
+   dependency — `snag` already had it, scratchy didn't; `Cargo.toml`
+   updated) via a small pure `resolve_href(base: Option<&Url>, href: &str)
+   -> Result<Url, String>`: an already-absolute `href` resolves to itself
+   regardless of `base` (real `Url::join` behavior, matching a real
+   browser), a relative one joins against `base`, and a relative `href`
+   with no `base` at all (no `<base href>` anywhere on the current page)
+   is a clear, reported error rather than a guess. `App::base_url` is
+   recomputed from the live document's own `<base href>` (`find_base_
+   url`/`find_base_href`, the same recursive-walk shape `find_html_
+   element` already established) every time the document is replaced —
+   initial load included (`App::new_static`), and after `AppEvent::Eof`
+   in streaming mode too (`snag url | scratchy` now picks up a usable
+   base the moment the piped page finishes arriving, not just a saved
+   bundle opened by path).
+4. **The socket round trip** (`fetch_from_snag`/`fetch_from_snag_at`) is
+   exactly the protocol `snag`'s own v9 entry documents: `std::os::unix::
+   net::UnixStream::connect` to `$XDG_RUNTIME_DIR/snag.sock` (falling
+   back to `/tmp/snag-$UID.sock`, computed by `snag_socket_path`/
+   `current_uid` — the literal same formula `snag`'s own `socket_path`/
+   `current_uid` use, reproduced rather than shared since the two are
+   separate crates with nothing to link against), write the resolved
+   URL plus a newline, read to EOF. Three outcomes, each a distinct
+   human-readable `Err` rather than scratchy guessing at `snag`'s own
+   wording: connection refused (socket missing — `snag --serve` was
+   never started) gets a specific "start it with `snag --serve`"
+   message; a clean connection that closes with zero bytes is `snag`'s
+   own documented behavior for a failed top-level fetch (bad URL,
+   network failure on its end — logged to *its* stderr, connection just
+   closes), reported as a fetch error, not treated as a degenerate empty
+   success; any other I/O error is reported with its own message.
+5. **Loading indicator and the DOM swap itself** reuse `run()`'s own
+   `Input::Stdin` background-thread pattern directly: `App::start_
+   navigation` shows a synthetic "Loading…" one-paragraph page
+   immediately (`App::show_message`, HTML-escaped via a new `escape_html`
+   since the text it echoes — a clicked href, an OS error string — isn't
+   scratchy's own content), then spawns a thread that calls `fetch_from_
+   snag` and sends the result back via `event_loop.create_proxy().
+   send_event(AppEvent::NavResult(generation, result))` — the *same*
+   `EventLoopProxy` pattern, just needed at construction time now instead
+   of only inside the `Input::Stdin` branch, since `ActiveEventLoop`
+   (unlike the top-level `EventLoop`) has no `create_proxy` of its own
+   (confirmed by reading winit's vendored source before assuming
+   otherwise). `AppEvent::NavResult`'s `Ok` branch parses the returned
+   bytes through the exact same one-shot `new_parser().read_from(...)`
+   path `run()`'s own `Input::File` case already uses to build the
+   *initial* document, then hands the result to a new `App::replace_
+   document` — document, layout tree, shape cache, scroll offsets and
+   position all reset, window redraw requested — which `start_
+   navigation`'s "Loading…" step and a failed-fetch's error message both
+   also go through, so there's exactly one swap mechanism, not three. A
+   `u64` `nav_generation`, bumped on every `start_navigation` call and
+   compared on arrival, drops a stale result from a navigation the user
+   has since clicked past (started a second fetch before the first one
+   finished) instead of letting it clobber newer content — the one place
+   a future back/forward history stack would hook in, left as a comment,
+   not built (explicitly out of scope, per the user's own prior
+   decision recorded in `TODO.txt`).
+6. **Scope, exactly as pre-agreed**: no back/forward history, no
+   keybindings, no tabs/windows — click a link, it navigates forward,
+   that's it. `<img>`-wrapped links (`<a href><img></a>`) aren't
+   clickable — `href` only ever reaches a `SpanStyle`, never an image's
+   own box, the same "images don't carry the per-span machinery text
+   does" category of cut other per-span properties already have; noted
+   inline at `hit_test_cursor`'s `LaidContent::Image` arm, not silently
+   dropped.
+
+**16 new permanent tests** (`mod tests`, "v65: link navigation" section,
+kept per the v41 policy, nothing written-then-deleted): `resolve_href`
+against an absolute href, a relative one, a relative one with no base,
+and an absolute one with no base; `find_base_href` present/absent;
+`is_click` accepting a tiny move, rejecting a real drag, and the
+boundary case; `hit_test_cursor` recovering a real link's href at glyph
+precision and reporting `None` for adjacent plain text; href ambiently
+propagating into a nested element with no href of its own; an anchor
+with no `href` correctly reporting no link (while still correctly
+reporting a pointer cursor, since that part of `default.css` isn't
+`:link`-scoped — worth the explicit test, since it's exactly the kind of
+thing that's easy to get backwards by assuming cursor and href always
+travel together); the real snag socket protocol against a tiny
+in-process mock `UnixListener` (round-trip, connection-refused, and
+clean-empty-response-is-an-error — same spirit as `snag`'s own v9 test,
+which used a tiny in-process loopback HTTP fixture for the same reason:
+real round-trip coverage without touching the real network); and
+`escape_html`. All 160 tests pass (144 pre-existing + 16 kept from this
+item, after fixing one test's own wrong assumption mid-session — see
+below). `cargo check`/`cargo clippy` clean on every touched line (the
+full-crate clippy run reports the exact same pre-existing warnings as
+before this change, one count incremented from 9→10 arguments on
+`collect_children`, which already had the warning before `href` was its
+10th parameter — not a new category introduced here). `cargo install
+--path .` run so `~/.cargo/bin/scratchy` isn't left stale.
+
+**A real test-authoring mistake caught before trusting the suite, worth
+recording**: the first version of `an_anchor_with_no_href_is_not_a_link`
+searched for a `CursorStyle::Auto` glyph to test against, assuming "no
+href" would mean "no special cursor either" — wrong, since `default.css`'s
+`a { cursor: pointer }` is a plain tag selector, not `:link`-scoped, so
+an `<a>` with no `href` still gets a pointer cursor. The test failed
+immediately (no glyph found, since the whole fixture's text sat inside
+the `<a>`), which is exactly the "fix the test, not assume the code's
+wrong" discipline v19's own `PROMPTS.md` entry flagged — and a good
+illustration of precisely why `href` needed its own tracking rather than
+reusing `cursor` as a proxy signal, not just an incidental test bug.
+
+**Live verification — exactly what was and wasn't checked against a
+real process, stated plainly:**
+
+- **Real socket round trip**: verified directly against a real, already-
+  running `snag --serve` (a throwaway Python Unix-socket client, same
+  tool `snag`'s own v9 verification used, since this sandbox still has
+  no `nc`/`socat`) — fetched both `https://example.com` and
+  `https://example.org` for real, each coming back with its own correct
+  `<base href>`.
+- **Rendering a page with a real link**: a real `scratchy` process,
+  launched on a local fixture containing a real `<base href>` and a real
+  `<a href="https://example.org/">`, screenshotted via `grim` — the link
+  renders as expected (visible, styled, in place).
+- **The DOM-build-from-fetched-bytes path**: the *exact* bytes `snag
+  --serve` returned for `https://example.org` (saved to a file, not
+  hand-written) were handed to a second, independent `scratchy` process
+  — the same `new_parser().read_from(...)` call `AppEvent::NavResult`'s
+  `Ok` branch uses — and rendered correctly, confirmed via another
+  `grim` screenshot. This is the strongest live proof available that a
+  real navigation's fetched content would display correctly once swapped
+  in.
+- **What was *not* verified live, stated honestly rather than
+  overclaimed**: triggering `start_navigation`/`replace_document` via an
+  actual mouse click inside one continuously-running `scratchy` process.
+  This sandbox has no tool to synthesize a real mouse click (checked
+  fresh this session, per the task's own instruction not to assume
+  v32/v55/v62's old finding still holds — `ydotool`, `wtype`, `dotool`,
+  `wlrctl`, and `ydotoold` are all still absent), so the literal
+  same-window "click → Loading… → swapped-in new page" transition rests
+  on code review and the strong indirect evidence above, not a directly
+  observed in-process event. `App::replace_document`'s own reset logic
+  is a strict superset of what `AppEvent::Chunk`/`Eof` (streaming mode,
+  live and exercised since v2) already does on every incoming chunk, so
+  the underlying "swap `self.document`, mark the layout dirty, let
+  `redraw` rebuild" mechanism itself is not new or unproven — only the
+  specific trigger (a `MouseInput` click firing `start_navigation`) is
+  unverified live. Worth a real interactive check next time a human's at
+  the keyboard — now the item this whole session was building toward,
+  not just another entry in the ongoing cursor/sticky/wheel list of
+  compositor-dependent gaps.
+
+Also worth recording: a stray multi-window `grim` screenshot taken
+mid-session, right after opening a second concurrent `scratchy`
+instance, briefly showed what looked like one window's content bleeding
+into another's tile position — re-tested with one `scratchy` instance
+at a time afterward and it was consistently correct, so this reads as a
+transient `dwl` tiling/compositor artifact from two windows opening in
+quick succession (the same category of sandbox display quirk NOTES.md
+already has precedent for, e.g. v13's `grim`/winit stall), not a real
+bug in this item's own code — flagged here rather than silently
+smoothed over, since it's exactly the kind of thing worth a second look
+if it ever recurs.

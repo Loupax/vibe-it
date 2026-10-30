@@ -2483,3 +2483,135 @@ for synthesizing mouse events in v32/v55/v62). The headless test suite
 above is the real authority for the narrow/boundary/inverse cases,
 since it exercises the actual matching code path directly rather than
 relying on the WM to cooperate.
+
+## v65 — link navigation: click detection, href resolution, the socket thread, and the live DOM swap
+
+scratchy's own half of the two-part link-navigation plan `@media`'s own
+v64 entry ended on. `snag`'s half (`--serve`'s Unix-socket daemon, plus
+both of `snag`'s modes emitting a real `<base href>`) already landed
+separately as `snag`'s own v9 — this item treats that as a finished,
+unmodified dependency (`snag/` isn't touched at all) and reads its
+protocol straight off `snag/NOTES.md` rather than re-deriving it.
+
+**Click detection reuses `cursor`'s hit-testing, not a parallel walk.**
+`hit_test_cursor` (v32, extended v61) already answers "which glyph is
+under this document-space point, and what `CursorStyle` does its span
+resolve to" by walking the `Laid` tree down to per-glyph `metadata`
+lookups into the shape cache. Rather than write a second recursive walk
+for "...and what `href`, if any," the function's return type changed
+from `CursorStyle` to `(CursorStyle, Option<&'static str>)` — every
+existing early-return/fallback site got a second, usually-`None`,
+`href` slot; only the two per-glyph lookup sites (`LaidContent::Text`,
+`MixedPositioned::Word`) actually populate it, from a new 8th element
+appended to the `ShapedParagraph` tuple (`Vec<Option<&'static str>>`,
+parallel to the existing `cursors: Vec<CursorStyle>` vector, populated
+by `shape_spans` from each span's own `SpanStyle::href`). `WindowEvent::
+MouseInput`'s `Released(Left)` arm calls the exact same function
+`CursorMoved`'s hover handler already calls, just reading the `.1` half
+instead of `.0`, at a point established by a new, pure, directly
+testable `is_click(down, up, threshold)` (5px `CLICK_DRAG_THRESHOLD_PX`)
+comparing `Pressed`'s recorded position (`App::mouse_down_pos`, seeded
+from `last_mouse_pos`, the same CursorMoved-maintained field `MouseWheel`
+already relies on for its own position-less event) against `Released`'s.
+
+**`href` threading is ambient propagation, not CSS inheritance** — same
+category as `background-color`/`text-decoration`, not `cursor`/`text-
+align`: it isn't a CSS property at all, just an HTML attribute that
+needs to reach any descendant text with no more specific override of its
+own. `SpanStyle` gained an `href: Option<&'static str>` field (leaked via
+a new small `leak_str` helper, same `Box::leak`-to-stay-`Copy` tradeoff
+`font-family`'s own named fallback lists already accepted — see that
+item's own NOTES.md/TODO.txt entries for the full reasoning), threaded
+as a new parameter alongside `decoration` through the same six functions
+`text-decoration`'s own v39 block-level fix had to thread through:
+`collect_children`, `build_children`/`build_children_with_prefix`,
+`build_box_for_element`, `build_table_children`, `build_table_row_
+cells`, `build_flex_children`. `collect_children` is the only one that
+*computes* a new value (`child_href`, from an `a`/`area` element's own
+`href` attribute, falling back to whatever ambient `href` is already in
+scope via `.or(href)` so a nested element with no `href` of its own
+keeps reporting its ancestor link's) — every other function just passes
+the value straight through unchanged, the same shape `decoration`
+already established.
+
+**The socket fetch runs on a background thread, the same pattern
+`run()`'s `Input::Stdin` case already uses.** `fetch_from_snag_at(path,
+url)` (split from `fetch_from_snag`, which always targets the real
+`snag_socket_path()`, purely so a test can point it at a mock listener
+instead) does the whole round trip: `UnixStream::connect`, `writeln!`
+the resolved URL, `read_to_end` until the server closes the connection —
+`snag --serve`'s entire "done" signal, no length prefix (see `snag/
+NOTES.md`'s v9 entry). Three outcomes become three distinct `Err`
+strings (connection refused → "start it with `snag --serve`"; a clean
+connection that closes with zero bytes → a fetch-failed message, since
+that's `snag`'s own documented behavior for a failed top-level fetch,
+not a degenerate success; any other I/O error → its own message) rather
+than one generic "something went wrong." `App::start_navigation` spawns
+exactly the `thread::spawn` + `event_loop.create_proxy().send_event(..)`
+shape `Input::Stdin`'s stdin-reader thread already established — the one
+real wrinkle is that `ActiveEventLoop` (unlike the top-level `EventLoop`
+`run()` already has) has no `create_proxy` of its own (confirmed by
+reading winit's vendored source, not assumed), so the proxy now has to
+be created once in `run()` and threaded into `App` at construction time
+(`App::new_static`/`new_streaming` both gained a `proxy: EventLoopProxy
+<AppEvent>` parameter) instead of only existing inside the `Input::
+Stdin` branch.
+
+**The DOM swap reuses `run()`'s own initial-document-building path, not
+a new one.** `AppEvent::NavResult(generation, result)`'s `Ok` branch
+calls the identical `new_parser().read_from(&mut bytes.as_slice())`
+`Input::File` already uses to build the very first `App::new_static`
+document — link navigation's bundled bytes go through the same one-shot
+HTML parse, not a second parser configuration. The actual swap — `self.
+document = ..`, `layout_dirty = true`, clearing `tree`/`cached`/`shape_
+cache`/`scroll_offsets`, resetting `scroll_offset`, requesting a redraw
+— is factored into a new `App::replace_document`, used for three cases
+alike: a successful navigation, the "Loading…" placeholder `start_
+navigation` shows immediately (`App::show_message`, HTML-escaped via a
+new `escape_html` since the text can be a clicked href or an `io::Error`
+message — content scratchy doesn't control), and a failed navigation's
+inline error. `base_url` (the page's own `<base href>`, parsed via a new
+`find_base_url`/`find_base_href` — the latter the same recursive-search
+shape `find_html_element` already established) is deliberately *not*
+touched by `replace_document` itself, only by its callers that are
+loading a real new page — a transient status message has no `<base>` of
+its own, and clobbering `base_url` from it would make the real page's
+own links briefly unresolvable while its replacement is loading.
+`resolve_href(base: Option<&Url>, href: &str) -> Result<Url, String>`
+does the actual join, via the `url` crate's real `Url::join` (a new
+scratchy dependency — `snag` already depended on it, scratchy didn't) —
+an already-absolute `href` resolves to itself regardless of `base`
+(real browser behavior), a relative one joins against it, and a
+relative one with no `base` at all reports a clear error rather than
+guessing at a basis.
+
+**Reentrancy**: a `u64` `App::nav_generation`, incremented on every
+`start_navigation` call and carried on the `AppEvent::NavResult` its
+thread eventually sends back, is checked against the *current*
+generation on arrival — a result from a navigation the user has since
+clicked past (started a second fetch before the first one's finished)
+is silently dropped instead of overwriting newer, already-displayed
+content. Not part of the originally-scoped feature, but a small, cheap
+correctness fix for a real race the background-thread design
+introduces on its own, not scope creep into history/back-forward (no
+stack is built on top of it — just the one field a future one would
+need).
+
+**Testing convention note**: every other feature in this file's history
+that touches `App`/the winit event loop at all has stayed entirely
+unverified by `cargo test` (window/compositor state is inherently
+outside what a headless unit test can observe — see v32/v55/v62's own
+entries) — this item follows the same precedent rather than attempting
+to construct a real `winit::event_loop::EventLoop` inside `#[cfg(test)]`
+(technically possible via `EventLoopBuilderExtWayland::with_any_thread`,
+since `cargo test` doesn't run on the main thread, but untried here: no
+prior feature in this codebase has needed it, and doing so for the
+first time wasn't judged worth the risk of a flaky permanent test over
+what pure-function + live-process verification already covers well).
+Every piece of this item that *can* be isolated into a plain function —
+href resolution, click-vs-drag, the real socket protocol against a mock
+listener, `<base>` discovery, HTML-escaping, and href recovery at glyph
+precision through the real `hit_test_cursor` — is a permanent headless
+test; only the thin `WindowEvent::MouseInput` → `start_navigation` wiring
+itself rests on code review plus the live-process checks described in
+`TODO.txt`'s own entry for this item.

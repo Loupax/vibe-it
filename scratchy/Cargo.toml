@@ -16,6 +16,7 @@ precomputed-hash = "0.1.1"
 selectors = "0.41.0"
 softbuffer = "0.4.8"
 sys-locale = "0.3.2"
+url = "2"
 winit = "0.30.13"
 
 [dev-dependencies]

@@ -1032,63 +1032,72 @@ session can pick a coherent slice rather than one property at a time.
       input, no text selection. Networking itself (fetching the page,
       images, fonts, external stylesheets) remains a deliberately
       separate, not-yet-started concern from rendering — see NOTES.md.
-      (Link navigation specifically is carved out as its own planned
-      item just below, no longer folded into this one.)
+      (Link navigation specifically was carved out of this item and is
+      now resolved — see its own entry below.)
 
-- [ ] **Link navigation (click an `<a href>` to load a new page) —
-      planned (2026-10-30), not yet implemented.** scratchy has *zero*
-      click handling today (`WindowEvent::MouseInput` isn't wired up
-      anywhere — only hover, for the `cursor` property, and
-      mouse-wheel scroll exist). The real blocker, discussed and
-      resolved with the user before touching any code: scratchy's
-      zero-networking design is deliberate and stays that way, so
-      "click a link" can't mean "scratchy fetches the new page
-      itself." Plan, agreed with the user:
+- [x] **Link navigation (click an `<a href>` to load a new page)**
+      (PROMPTS.md v65, hash pending — see the follow-up commit that
+      fills it in). scratchy's own half of the two-part plan recorded
+      here on 2026-10-30; `snag`'s own half (`--serve` + real `<base
+      href>` output) already landed as `snag`'s own v9, in a separate
+      session — see `snag/NOTES.md`/`snag/TODO.txt`.
 
-      1. **`snag` gets a `--serve` mode** (see `snag/TODO.txt`'s own
-         new item) — a long-lived local daemon on a Unix socket
-         (`$XDG_RUNTIME_DIR/snag.sock`), reusing `snag`'s existing
-         per-URL fetch+inline logic verbatim (just a new entry point,
-         not new fetch logic). The user starts it manually
-         (`snag --serve`) — scratchy does NOT auto-spawn it. No
-         caching across requests in v1 (every request does the same
-         full fetch+inline work the one-shot CLI already does) —
-         revisit only if repeated-navigation latency on the same site
-         turns out to actually matter in practice.
-      2. **`snag` also starts emitting a real `<base href="...">` tag**
-         in its output `<head>` (both `--serve` and the existing
-         one-shot CLI, for consistency) — it already computes this
-         internally via `discover_base` for its own resource-inlining,
-         just needs to actually write it out so scratchy can resolve
-         relative `<a href>` targets with ordinary URL-join logic,
-         without `snag` needing to rewrite every anchor tag itself
-         (confirmed by reading `snag/src/main.rs`: `<a>` tags are
-         currently copied through completely untouched, unlike
-         `link`/`style`/`img`).
-      3. **scratchy adds real click detection** — a `WindowEvent::
-         MouseInput` handler, reusing the exact glyph-precision
-         hit-testing `cursor` (v32/v61) already has for "which glyph
-         is under this point, and is it a link" (same machinery,
-         different event).
-      4. On a link click: resolve the href to an absolute URL via the
-         page's own `<base href>`, connect to the snag socket, send
-         the URL, read the bundled HTML stream back, re-parse the DOM,
-         and swap it into the *same live window* — no process
-         restart, no flicker. Show a lightweight "Loading…" indicator
-         while waiting (`snag` took 10-30s fetching/inlining ~286
-         resources for a real Wikipedia article in this session's own
-         testing — silently freezing with no feedback would look
-         broken). If the socket isn't reachable (server not started),
-         show an inline status message telling the user to run
-         `snag --serve`, rather than failing silently or crashing. A
-         fetch error (bad URL, snag itself errors) renders a minimal
-         error message in place of the page instead of crashing.
-      5. **Deliberately scoped out of this first pass, per explicit
-         user decision (not an oversight):** back/forward history —
-         land plain forward navigation (click → load) first, well-
-         tested, before adding an in-memory URL history stack and a
-         back/forward keybinding as a clean follow-up on top of it.
+      Landed: a real `WindowEvent::MouseInput` click handler (press/
+      release close together, via a 5px `is_click` threshold, distinct
+      from a drag); href recovery at exact glyph precision by reusing
+      `cursor`'s own v32/v61 hit-testing (`hit_test_cursor` now returns
+      `(CursorStyle, Option<&'static str>)`, href threaded as *ambient*
+      propagation through `SpanStyle`/`collect_children`, same shape as
+      `background-color`/`text-decoration`); href resolution against the
+      page's own `<base href>` via the `url` crate's real `Url::join`
+      (new dependency — `snag` already had it, scratchy didn't); the
+      real `snag --serve` socket protocol (`$XDG_RUNTIME_DIR/snag.sock`,
+      falling back to `/tmp/snag-$UID.sock` — the literal same formula
+      `snag`'s own `socket_path` uses) on a background thread, the same
+      `thread::spawn` + `event_loop.create_proxy().send_event(..)`
+      pattern `run()`'s own `Input::Stdin` case already established; a
+      "Loading…" placeholder shown immediately, swapped for the real
+      page (or a clear inline error — "snag server not running" for a
+      refused connection, a fetch-failed message for a clean empty
+      response, which is `snag`'s own documented behavior for a failed
+      fetch) once the background fetch resolves; the DOM swap itself
+      reuses the *same* one-shot `new_parser().read_from(...)` path
+      `run()`'s own `Input::File` case already uses to build the
+      *initial* document, now also triggered mid-session via a new
+      `App::replace_document`. A `nav_generation` counter drops a stale
+      result from a navigation the user has since clicked past instead
+      of letting it clobber newer content — the one hook a future
+      back/forward history stack would need, left as a comment only, not
+      built (see the scope cut below).
 
-      Not started — this is a plan to pick up later, recorded here so
-      it isn't lost, not an in-progress item.
+      Real scope cuts beyond what was already pre-approved: an
+      `<img>`-wrapped link (`<a href><img></a>`) isn't clickable — only
+      a `SpanStyle` (text) carries `href`, never an image's own box,
+      same "images don't get the per-span machinery text does" shape as
+      other per-span properties here.
+
+      **Deliberately scoped out of this first pass, per the user's own
+      explicit, prior decision (not an oversight) — unchanged from the
+      original plan recorded here**: back/forward history, any
+      navigation keybinding, multiple tabs/windows.
+
+      **Live verification, stated exactly, not overclaimed**: the real
+      `snag --serve` socket round trip was verified directly against a
+      real, already-running server (two real URLs, each returning
+      correct bundled HTML with its own correct `<base href>`); a real
+      `scratchy` process rendering a page with a real `<a href>` link
+      was confirmed via `grim`; the exact bytes `snag --serve` returned
+      for a second real URL were confirmed to render correctly through
+      the identical DOM-build code path `AppEvent::NavResult`'s success
+      branch uses, via a second independent `scratchy` process. **Not
+      verified live**: triggering the click → "Loading…" → swapped-page
+      transition via an actual mouse click inside one continuously
+      running `scratchy` process — this sandbox still has no tool to
+      synthesize a mouse click (`ydotool`/`wtype`/`dotool`/`wlrctl`/
+      `ydotoold` all still absent, checked fresh this session), the same
+      category of gap already flagged for `cursor` (v32/v61), `position:
+      sticky` (v55), and `overflow: scroll`/`auto` (v62) wheel events.
+      Worth a real interactive check next — this is the item this
+      session was building toward, not another entry in that list to
+      defer again.
 
