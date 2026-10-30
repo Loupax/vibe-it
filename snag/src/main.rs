@@ -1,5 +1,7 @@
 use std::collections::HashSet;
 use std::io::{BufRead, BufReader, Read, Write};
+use std::os::unix::net::{UnixListener, UnixStream};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
@@ -99,23 +101,43 @@ fn print_timing_summary(wall_start: Instant) {
 /// whole string). `snag` alone streams stdin the same way. Either way,
 /// output starts flowing before the fetch (or stdin read) even
 /// finishes.
+fn print_usage() {
+    eprintln!("usage: snag [url | --serve]");
+    eprintln!("  snag <url>    fetch <url>, stream the bundled result to stdout");
+    eprintln!("  snag          bundle HTML streamed from stdin instead of fetching it");
+    eprintln!("                (relative links resolve against <base href> or");
+    eprintln!("                <link rel=canonical>, found by scanning ahead no");
+    eprintln!("                further than the end of <head>); e.g. curl -s <url> | snag");
+    eprintln!("  snag --serve  long-lived daemon mode: listen on a Unix domain socket");
+    eprintln!("                ($XDG_RUNTIME_DIR/snag.sock, falling back to");
+    eprintln!("                /tmp/snag-$UID.sock) instead of exiting after one bundle.");
+    eprintln!("                A client connects, writes one absolute URL + newline, and");
+    eprintln!("                reads back exactly the bytes the one-shot `snag <url>` CLI");
+    eprintln!("                would have printed to stdout for that URL; the server then");
+    eprintln!("                closes the connection (close = EOF = done). One connection");
+    eprintln!("                at a time, no caching across requests. Meant for `scratchy`");
+    eprintln!("                to request bundles for link navigation without spawning a");
+    eprintln!("                new process per click. Must be started manually.");
+}
+
 fn main() {
     let wall_start = Instant::now();
     let args: Vec<String> = std::env::args().collect();
     if args.len() > 2 {
-        eprintln!("usage: snag [url]");
-        eprintln!("  snag <url>   fetch <url>, stream the bundled result to stdout");
-        eprintln!("  snag         bundle HTML streamed from stdin instead of fetching it");
-        eprintln!("               (relative links resolve against <base href> or");
-        eprintln!("               <link rel=canonical>, found by scanning ahead no");
-        eprintln!("               further than the end of <head>); e.g. curl -s <url> | snag");
+        print_usage();
         std::process::exit(1);
     }
+    if matches!(args.get(1).map(String::as_str), Some("--help" | "-h")) {
+        print_usage();
+        return;
+    }
 
-    let agent = ureq::AgentBuilder::new()
-        .timeout(Duration::from_secs(20))
-        .user_agent("snag/0.1 (+https://github.com/Loupax/vibe-it) scratchy test fixture bundler")
-        .build();
+    let agent = build_agent();
+
+    if args.get(1).map(String::as_str) == Some("--serve") {
+        run_server(&agent);
+        return;
+    }
 
     let stdout = std::io::stdout();
     let mut out = stdout.lock();
@@ -128,25 +150,19 @@ fn main() {
                 std::process::exit(1);
             }
         };
-        progress_line(&format!("fetching {url}"));
-        let resp = match timed_get(&agent, &url) {
-            Ok(r) => r,
-            Err(e) => {
+        match bundle_url(&url, &agent, &mut out) {
+            Ok(()) => {}
+            Err(BundleError::Fetch(e)) => {
                 eprintln!("snag: failed to fetch {url}: {e}");
                 std::process::exit(1);
             }
-        };
-        let mut reader = BufReader::new(resp.into_reader());
-        let mut visited_css = HashSet::new();
-        let mut deferred = Vec::new();
-        if let Err(e) = stream_body(&mut reader, &mut out, Some(&url), &agent, &mut visited_css, &mut deferred) {
-            finish_with_io_error(e);
+            Err(BundleError::Io(e)) => finish_with_io_error(e),
         }
     } else {
         let stdin = std::io::stdin();
         let mut reader = BufReader::new(stdin.lock());
         match discover_base(&mut reader) {
-            Ok(DiscoveredBase { base, head }) => {
+            Ok(DiscoveredBase { base, has_own_base_tag, head }) => {
                 if base.is_none() {
                     // Not fatal — a page with nothing to fetch (no
                     // relative stylesheet/image references at all) is
@@ -161,9 +177,15 @@ fn main() {
                 let mut chained = std::io::Cursor::new(head).chain(reader);
                 let mut visited_css = HashSet::new();
                 let mut deferred = Vec::new();
-                if let Err(e) =
-                    stream_body(&mut chained, &mut out, base.as_ref(), &agent, &mut visited_css, &mut deferred)
-                {
+                if let Err(e) = stream_body(
+                    &mut chained,
+                    &mut out,
+                    base.as_ref(),
+                    has_own_base_tag,
+                    &agent,
+                    &mut visited_css,
+                    &mut deferred,
+                ) {
                     finish_with_io_error(e);
                 }
             }
@@ -171,6 +193,170 @@ fn main() {
         }
     }
     print_timing_summary(wall_start);
+}
+
+fn build_agent() -> ureq::Agent {
+    ureq::AgentBuilder::new()
+        .timeout(Duration::from_secs(20))
+        .user_agent("snag/0.1 (+https://github.com/Loupax/vibe-it) scratchy test fixture bundler")
+        .build()
+}
+
+/// What can go wrong fetching+bundling one URL — split from a plain
+/// `io::Error` so callers can tell "the top-level fetch itself failed"
+/// (`--serve` just logs this and closes the connection with no output;
+/// the one-shot CLI exits 1) apart from "writing the result failed"
+/// (e.g. `BrokenPipe`, handled identically to before by both callers via
+/// `finish_with_io_error`).
+enum BundleError {
+    Fetch(String),
+    Io(std::io::Error),
+}
+
+/// The one per-URL "fetch the page, discover its base, stream the fully
+/// inlined bundle to `out`" pipeline — shared, verbatim, by both the
+/// one-shot `snag <url>` CLI mode and `--serve`'s per-connection handler,
+/// so neither can drift from the other. Exactly what `main`'s own
+/// `snag <url>` branch did directly before `--serve` existed, just named
+/// and made reusable.
+fn bundle_url(url: &Url, agent: &ureq::Agent, out: &mut impl Write) -> Result<(), BundleError> {
+    progress_line(&format!("fetching {url}"));
+    let resp = timed_get(agent, url).map_err(|e| BundleError::Fetch(e.to_string()))?;
+    let mut reader = BufReader::new(resp.into_reader());
+    // Same bounded, one-time `<head>` buffering `discover_base` already
+    // does for stdin mode — needed here too now, only to answer "does
+    // this page already declare its own <base href>" (so one isn't
+    // injected on top of it); the base used to resolve *resources* stays
+    // exactly what it's always been for this mode: `url` itself, not
+    // whatever `discover_base` would have picked.
+    let discovered = discover_base(&mut reader).map_err(BundleError::Io)?;
+    let mut chained = std::io::Cursor::new(discovered.head).chain(reader);
+    let mut visited_css = HashSet::new();
+    let mut deferred = Vec::new();
+    stream_body(
+        &mut chained,
+        out,
+        Some(url),
+        discovered.has_own_base_tag,
+        agent,
+        &mut visited_css,
+        &mut deferred,
+    )
+    .map_err(BundleError::Io)
+}
+
+// ---------- --serve: a long-lived daemon over a Unix domain socket ----------
+//
+// Plan recorded in TODO.txt (2026-10-30): scratchy wants to support
+// clicking an `<a href>` to navigate, but deliberately has zero networking
+// code of its own. Spawning/re-exec'ing a fresh `snag <url>` subprocess per
+// click would work but means paying full process-startup cost on every
+// navigation; a long-lived daemon `scratchy` can just write a URL to and
+// read a bundle back from amortizes that. Started manually (`snag
+// --serve &`) — scratchy does not and should not auto-spawn it.
+
+/// `$XDG_RUNTIME_DIR` is the conventional place for a per-user, per-login-
+/// session Unix socket on Linux (systemd sets it to a tmpfs directory
+/// private to the user, auto-cleaned on logout — the same place tools like
+/// `ssh-agent`/`gpg-agent`/`pipewire` put their sockets). Falls back to
+/// `/tmp/snag-$UID.sock` when it's unset (e.g. no systemd user session) —
+/// still scoped per-user via the uid in the filename, just without the
+/// auto-cleanup-on-logout property a real `XDG_RUNTIME_DIR` gives.
+fn socket_path() -> PathBuf {
+    if let Some(dir) = std::env::var_os("XDG_RUNTIME_DIR") {
+        return PathBuf::from(dir).join("snag.sock");
+    }
+    PathBuf::from(format!("/tmp/snag-{}.sock", current_uid()))
+}
+
+/// No `libc` crate dependency needed for one syscall — `getuid()` is part
+/// of the C library every Rust binary on Linux already links against, so a
+/// bare `extern "C"` declaration is enough.
+fn current_uid() -> u32 {
+    unsafe extern "C" {
+        fn getuid() -> u32;
+    }
+    unsafe { getuid() }
+}
+
+/// Binds the socket and serves connections one at a time, forever (until
+/// killed) — no concurrency needed for v1, matching this file's existing
+/// serial per-resource fetch model. Each connection gets the exact same
+/// fetch+inline work `bundle_url` already does for the one-shot CLI; the
+/// only thing novel here is the socket plumbing around it.
+fn run_server(agent: &ureq::Agent) {
+    let path = socket_path();
+    if path.exists() {
+        // A previous `--serve` that didn't exit cleanly (crash, kill -9)
+        // leaves its socket file behind, which would otherwise make
+        // `bind` fail with "address in use" forever — safe to remove
+        // since a Unix socket file left on disk with nothing listening
+        // behind it is useless anyway.
+        if let Err(e) = std::fs::remove_file(&path) {
+            eprintln!("snag: --serve: failed to remove stale socket {}: {e}", path.display());
+            std::process::exit(1);
+        }
+    }
+    let listener = match UnixListener::bind(&path) {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!("snag: --serve: failed to bind {}: {e}", path.display());
+            std::process::exit(1);
+        }
+    };
+    eprintln!("snag: --serve listening on {}", path.display());
+    for conn in listener.incoming() {
+        match conn {
+            Ok(mut stream) => handle_connection(&mut stream, agent),
+            Err(e) => eprintln!("snag: --serve: accept error: {e}"),
+        }
+    }
+}
+
+/// One client connection's full lifecycle: read one line (an absolute
+/// URL), bundle it via the exact same `bundle_url` the one-shot CLI uses,
+/// stream the result back, then return (which drops `stream`, closing the
+/// connection — the protocol's "done" signal, matching the CLI's own
+/// process-exit-is-EOF semantics today). A bad URL or a failed fetch isn't
+/// fatal to the server — logged to stderr, connection just closes with
+/// whatever (possibly zero) bytes were written before the failure, same
+/// lenient-skip-and-continue spirit this file already applies to a single
+/// missing sub-resource, now applied to the whole top-level fetch too
+/// since a daemon can't just `process::exit` out from under other clients.
+fn handle_connection(stream: &mut UnixStream, agent: &ureq::Agent) {
+    let mut reader = match stream.try_clone() {
+        Ok(s) => BufReader::new(s),
+        Err(e) => {
+            eprintln!("snag: --serve: failed to clone connection: {e}");
+            return;
+        }
+    };
+    let mut line = String::new();
+    match reader.read_line(&mut line) {
+        Ok(0) => return, // client closed without sending anything
+        Ok(_) => {}
+        Err(e) => {
+            eprintln!("snag: --serve: failed to read request: {e}");
+            return;
+        }
+    }
+    let line = line.trim_end_matches(['\r', '\n']);
+    let url = match Url::parse(line) {
+        Ok(u) => u,
+        Err(e) => {
+            eprintln!("snag: --serve: invalid URL {line:?}: {e}");
+            return;
+        }
+    };
+    match bundle_url(&url, agent, stream) {
+        Ok(()) => {}
+        Err(BundleError::Fetch(e)) => eprintln!("snag: --serve: failed to fetch {url}: {e}"),
+        Err(BundleError::Io(e)) if e.kind() == std::io::ErrorKind::BrokenPipe => {
+            // The client hung up early — same non-error shape the CLI's
+            // own `finish_with_io_error` already treats as quiet.
+        }
+        Err(BundleError::Io(e)) => eprintln!("snag: --serve: {e}"),
+    }
 }
 
 fn finish_with_io_error(e: std::io::Error) {
@@ -210,6 +396,14 @@ fn progress_line(msg: &str) {
 
 struct DiscoveredBase {
     base: Option<Url>,
+    /// Whether the document itself already declares a `<base href>` in
+    /// `<head>` (regardless of whether that `href` happened to parse as
+    /// an absolute URL) — `stream_body` uses this to decide whether to
+    /// inject its own `<base href>` or leave the page's own alone, same
+    /// "prefer the real page's own" spirit this function already applies
+    /// when picking `base` itself (an explicit `<base href>` over a
+    /// `<link rel=canonical>` fallback).
+    has_own_base_tag: bool,
     /// Every byte consumed while searching — handed back so the caller
     /// can replay it through `stream_body` instead of losing it.
     head: Vec<u8>,
@@ -220,23 +414,43 @@ struct DiscoveredBase {
 /// the same as "no base found" once hit.
 const HEAD_SCAN_CAP: usize = 1 << 20; // 1 MiB
 
+/// Scans `<head>` for a usable base URL — `<base href>` takes priority
+/// over `<link rel=canonical>` when both are present (matching the real
+/// browser rule for `<base>`), keeping whichever is found *first* in
+/// document order as the fallback if a same-priority tag never shows up
+/// before the other does. Unlike the first version of this function, it
+/// always scans through to `</head>` (or the cap) rather than stopping at
+/// the first match — needed so a `<base>` tag appearing *after* a
+/// `<link rel=canonical>` in the source still gets noticed for
+/// `has_own_base_tag`, even though the canonical link already won the
+/// race for `base` itself.
 fn discover_base(reader: &mut impl BufRead) -> std::io::Result<DiscoveredBase> {
     let mut head = Vec::new();
+    let mut base: Option<Url> = None;
+    let mut has_own_base_tag = false;
     loop {
         let n = reader.read_until(b'<', &mut head)?;
         if n == 0 {
-            return Ok(DiscoveredBase { base: None, head });
+            return Ok(DiscoveredBase { base, has_own_base_tag, head });
         }
         let Some(tag) = read_tag(reader, &mut head)? else {
-            return Ok(DiscoveredBase { base: None, head });
+            return Ok(DiscoveredBase { base, has_own_base_tag, head });
         };
         if !tag.closing {
-            let is_base_source = tag.name == "base" || (tag.name == "link" && tag.rel_has("canonical"));
-            if is_base_source {
-                if let Some(href) = tag.attr("href")
+            if tag.name == "base" {
+                has_own_base_tag |= tag.attr("href").is_some();
+                if base.is_none()
+                    && let Some(href) = tag.attr("href")
                     && let Ok(u) = Url::parse(href)
                 {
-                    return Ok(DiscoveredBase { base: Some(u), head });
+                    base = Some(u);
+                }
+            } else if tag.name == "link" && tag.rel_has("canonical") {
+                if base.is_none()
+                    && let Some(href) = tag.attr("href")
+                    && let Ok(u) = Url::parse(href)
+                {
+                    base = Some(u);
                 }
             } else if tag.is_raw_text_element() {
                 // Don't let a <style>/<script> in the head confuse the
@@ -246,10 +460,10 @@ fn discover_base(reader: &mut impl BufRead) -> std::io::Result<DiscoveredBase> {
                 skip_raw_text_content(reader, &mut head, &tag.name)?;
             }
         } else if tag.name == "head" {
-            return Ok(DiscoveredBase { base: None, head });
+            return Ok(DiscoveredBase { base, has_own_base_tag, head });
         }
         if head.len() > HEAD_SCAN_CAP {
-            return Ok(DiscoveredBase { base: None, head });
+            return Ok(DiscoveredBase { base, has_own_base_tag, head });
         }
     }
 }
@@ -265,6 +479,7 @@ fn stream_body(
     reader: &mut impl BufRead,
     out: &mut impl Write,
     base: Option<&Url>,
+    has_own_base_tag: bool,
     agent: &ureq::Agent,
     visited_css: &mut HashSet<String>,
     deferred: &mut Vec<Vec<u8>>,
@@ -322,6 +537,25 @@ fn stream_body(
         if tag.closing && tag.name == "body" {
             flush_deferred(deferred, out)?;
             out.write_all(&tag.raw)?;
+            continue;
+        }
+
+        if !tag.closing && tag.name == "head" {
+            // Emit the resolved base right after <head> opens, so every
+            // `<a href>` downstream (left untouched by this file today,
+            // same as every other non-fetching tag) has *something*
+            // absolute to resolve against once something downstream
+            // (scratchy) actually reads a `<base href>`. Skipped when the
+            // page already declares its own — matching it, not fighting
+            // it, same priority `discover_base` itself already gives an
+            // explicit `<base href>` over a `<link rel=canonical>`
+            // fallback.
+            out.write_all(&tag.raw)?;
+            if !has_own_base_tag
+                && let Some(b) = base
+            {
+                write!(out, "<base href=\"{}\">", escape_attr(b.as_str()))?;
+            }
             continue;
         }
 
@@ -449,6 +683,16 @@ fn note_resource_fetched() {
     let n = RESOURCE_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
     eprint!("\rsnag: inlined {n} resources so far...");
     let _ = std::io::stderr().flush();
+}
+
+/// Minimal HTML-attribute-value escaping for the `<base href="...">` this
+/// file now writes itself (everything else in this file only ever copies
+/// *existing* markup through — this is the one place it generates a new
+/// attribute value from a `Url`, which could itself legally contain `&`
+/// in a query string). Only `&`/`"` matter inside a double-quoted
+/// attribute value.
+fn escape_attr(s: &str) -> String {
+    s.replace('&', "&amp;").replace('"', "&quot;")
 }
 
 fn guess_mime(path: &str) -> String {
@@ -961,4 +1205,187 @@ fn skip_raw_text_content(reader: &mut impl BufRead, buf: &mut Vec<u8>, tag_name:
     buf.extend_from_slice(&content.text);
     buf.extend_from_slice(&content.closing_tag);
     Ok(())
+}
+
+// ---------- tests ----------
+//
+// `snag` had no automated test infrastructure before this (every prior
+// feature was verified by hand against real pages — see PROMPTS.md/
+// NOTES.md). Its sibling `scratchy` already has an established in-file
+// `#[cfg(test)] mod tests` convention (`scratchy/src/lib.rs`); following
+// that here rather than hand-verification alone, since `--serve` and
+// `<base href>` emission are both genuinely regression-prone (a socket
+// protocol, and an injection point that must *not* fire on every page).
+// No real network or real sockets outside this process: the `--serve`
+// test spins up its own tiny loopback HTTP fixture (no internet access
+// assumed) and its own throwaway Unix socket in the OS temp dir.
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::net::TcpListener;
+    use std::sync::atomic::AtomicU32;
+    use std::thread;
+
+    /// Runs the exact stdin-mode pipeline (`discover_base` then
+    /// `stream_body`) over an in-memory HTML document, with no network
+    /// access — only valid for documents with nothing to fetch (no
+    /// relative stylesheet/image references), which is all the
+    /// `<base href>`-emission tests below need.
+    fn bundle_from_html_no_fetch(html: &[u8]) -> String {
+        let agent = build_agent();
+        let mut reader = BufReader::new(html);
+        let discovered = discover_base(&mut reader).expect("discover_base");
+        let mut chained = std::io::Cursor::new(discovered.head).chain(reader);
+        let mut visited_css = HashSet::new();
+        let mut deferred = Vec::new();
+        let mut out = Vec::new();
+        stream_body(
+            &mut chained,
+            &mut out,
+            discovered.base.as_ref(),
+            discovered.has_own_base_tag,
+            &agent,
+            &mut visited_css,
+            &mut deferred,
+        )
+        .expect("stream_body");
+        String::from_utf8(out).expect("utf8 output")
+    }
+
+    #[test]
+    fn base_href_emitted_from_discovered_canonical_link() {
+        let html = b"<html><head><link rel=\"canonical\" href=\"https://example.com/page\"><title>t</title></head><body>hi</body></html>";
+        let out = bundle_from_html_no_fetch(html);
+        assert!(
+            out.contains("<base href=\"https://example.com/page\">"),
+            "expected an injected <base href> reflecting the discovered canonical link, got: {out}"
+        );
+        assert_eq!(out.matches("<base").count(), 1, "expected exactly one <base> tag, got: {out}");
+        // Everything else about the page must still pass through
+        // untouched — this is additive, not a rewrite.
+        assert!(out.contains("<title>t</title>"));
+        assert!(out.contains("<body>hi</body>"));
+    }
+
+    #[test]
+    fn base_href_not_duplicated_when_page_already_has_one() {
+        let html = b"<html><head><base href=\"https://example.com/real/\"><link rel=\"canonical\" href=\"https://example.com/other\"><title>t</title></head><body>hi</body></html>";
+        let out = bundle_from_html_no_fetch(html);
+        assert_eq!(
+            out.matches("<base").count(),
+            1,
+            "page already declares its own <base href> — must not get a second one injected, got: {out}"
+        );
+        assert!(
+            out.contains("<base href=\"https://example.com/real/\">"),
+            "the page's own <base href> must be preserved byte-for-byte, got: {out}"
+        );
+        assert!(
+            !out.contains("<base href=\"https://example.com/other\">"),
+            "the canonical link's URL must not leak into an injected <base> (the link tag \
+             itself passing through unchanged, still containing that URL, is correct), got: {out}"
+        );
+    }
+
+    #[test]
+    fn base_href_omitted_when_no_base_source_at_all() {
+        // No <base>, no <link rel=canonical> — nothing to inject, and
+        // this must not be treated as fatal (matches `discover_base`'s
+        // existing "warn, don't fail" behavior for this case).
+        let html = b"<html><head><title>t</title></head><body>hi</body></html>";
+        let out = bundle_from_html_no_fetch(html);
+        assert!(!out.contains("<base"), "expected no <base> tag at all, got: {out}");
+    }
+
+    /// A unique path per test run, in the OS temp dir — several tests
+    /// could run concurrently (`cargo test` runs test fns in parallel
+    /// threads within one process by default), so a fixed path would
+    /// let them collide.
+    fn unique_temp_socket_path() -> PathBuf {
+        static COUNTER: AtomicU32 = AtomicU32::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        std::env::temp_dir().join(format!("snag-test-{}-{n}.sock", std::process::id()))
+    }
+
+    /// A minimal loopback HTTP/1.1 fixture: accepts connections forever
+    /// (in a detached thread — killed for free when the test process
+    /// exits) and answers every single one with the same fixed
+    /// `Content-Type: text/html` response body, `Connection: close` so
+    /// `ureq` doesn't wait for more. Standing in for a real page's server
+    /// so this test needs no actual internet access.
+    fn spawn_html_fixture(body: &'static str) -> std::net::SocketAddr {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind fixture listener");
+        let addr = listener.local_addr().expect("local_addr");
+        thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { continue };
+                // Don't bother parsing the request — this fixture only
+                // ever serves one canned response regardless of path.
+                let mut discard = [0u8; 1024];
+                let _ = std::io::Read::read(&mut stream, &mut discard);
+                let response = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+                let _ = stream.write_all(response.as_bytes());
+            }
+        });
+        addr
+    }
+
+    #[test]
+    fn serve_mode_matches_one_shot_bundle_and_adds_base_href() {
+        let page = "<html><head><title>serve test</title></head><body>hello from the fixture</body></html>";
+        let addr = spawn_html_fixture(page);
+        let url = Url::parse(&format!("http://{addr}/some/page")).expect("fixture URL");
+        let agent = build_agent();
+
+        // What the one-shot CLI path (`bundle_url`, the exact function
+        // `--serve` reuses) produces for this URL — the baseline `--serve`
+        // must match byte-for-byte.
+        let mut direct = Vec::new();
+        bundle_url(&url, &agent, &mut direct).map_err(|_| ()).expect("direct bundle_url");
+        let direct = String::from_utf8(direct).expect("utf8");
+
+        // Now the same URL, through an actual Unix socket, the same way
+        // `scratchy` would talk to a running `snag --serve`.
+        let socket_path = unique_temp_socket_path();
+        let listener = UnixListener::bind(&socket_path).expect("bind unix socket");
+        let server_agent = build_agent();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            handle_connection(&mut stream, &server_agent);
+        });
+
+        let mut client = UnixStream::connect(&socket_path).expect("connect unix socket");
+        writeln!(client, "{url}").expect("write request line");
+        let mut response = String::new();
+        client.read_to_string(&mut response).expect("read response");
+        server.join().expect("server thread");
+        let _ = std::fs::remove_file(&socket_path);
+
+        assert_eq!(response, direct, "--serve's output must match the one-shot CLI's bundle_url output exactly");
+        assert!(
+            response.contains(&format!("<base href=\"{url}\">")),
+            "expected a <base href> reflecting the fetched URL, got: {response}"
+        );
+    }
+
+    #[test]
+    fn one_shot_cli_mode_also_gets_base_href() {
+        // Requirement 5 applies to BOTH modes — confirm the plain
+        // `bundle_url` path (what `snag <url>` itself calls) emits it
+        // too, independent of the --serve-specific test above.
+        let page = "<html><head><title>one-shot test</title></head><body>hi</body></html>";
+        let addr = spawn_html_fixture(page);
+        let url = Url::parse(&format!("http://{addr}/")).expect("fixture URL");
+        let agent = build_agent();
+        let mut out = Vec::new();
+        bundle_url(&url, &agent, &mut out).map_err(|_| ()).expect("bundle_url");
+        let out = String::from_utf8(out).expect("utf8");
+        assert!(
+            out.contains(&format!("<base href=\"{url}\">")),
+            "expected a <base href> in one-shot mode's own output, got: {out}"
+        );
+    }
 }

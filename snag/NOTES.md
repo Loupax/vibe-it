@@ -337,6 +337,150 @@ Nothing currently blocks `scratchy`'s own next steps (`float`, image
 painting) on anything further here — see `scratchy/TODO.txt` for where
 that work picks back up.
 
+## v9: `--serve`, a long-lived daemon for scratchy's link navigation
+
+`scratchy` wants to support clicking an `<a href>` to navigate, but it
+has zero networking code of its own by design (see `scratchy/NOTES.md`
+— fetching is always the caller's job). Spawning a fresh `snag <url>`
+subprocess per click would work, but pays full process startup every
+time; a daemon `scratchy` can keep writing URLs to and reading bundles
+back from amortizes that. This is the `snag`-side half of a two-part
+plan worked out directly with the user — `scratchy`'s own click-handling
+is a separate task.
+
+**Architecture**: the one-shot `snag <url>` CLI branch used to inline
+its fetch-then-stream logic directly in `main`. That logic is now
+`bundle_url(url, agent, out)` — fetches `url`, runs `discover_base` on
+the response body (the same bounded, one-time `<head>`-buffering trick
+already used for stdin mode, just now also used here — see the
+`<base href>` section below for why), replays the buffered head through
+`Read::chain`, then calls `stream_body` exactly as before. Both the
+plain CLI (`main`'s own `args.get(1)` branch) and `--serve`'s
+per-connection handler call this one function — neither has its own copy
+of the fetch/inline logic, so they can't drift apart.
+
+**`--serve`'s own plumbing** (`run_server`/`handle_connection`,
+std-only, no new crate dependency — `std::os::unix::net::{UnixListener,
+UnixStream}` is sufficient): binds a Unix domain socket at
+`socket_path()` — `$XDG_RUNTIME_DIR/snag.sock` when set (the
+conventional per-user, per-login-session socket location on Linux;
+systemd gives every login session a private tmpfs directory here,
+auto-cleaned on logout, the same place `ssh-agent`/`gpg-agent`/
+`pipewire` put their own sockets), falling back to `/tmp/snag-$UID.sock`
+otherwise (still scoped per-user via the uid in the filename, just
+without the logout auto-cleanup a real `XDG_RUNTIME_DIR` gives — the uid
+itself comes from a bare `extern "C" { fn getuid() -> u32; }` FFI
+declaration rather than pulling in the `libc` crate for one syscall,
+since every Rust binary on Linux already links against the C library
+that provides it). A stale socket file left behind by a crashed/killed
+previous `--serve` is removed before binding (otherwise `bind` would
+fail with "address in use" forever, for no good reason — a socket file
+with nothing listening behind it is inert).
+
+Then `listener.incoming()` is served one connection at a time, forever,
+with no concurrency (matching this file's already-serial per-resource
+fetch model; no reason to add a second kind of concurrency just for the
+socket layer when the thing each connection does — `bundle_url` — is
+itself entirely sequential already). Each connection: read one line (an
+absolute URL) via `BufReader` over a `try_clone`'d handle (so reading
+and writing can happen through two independent handles on the same
+underlying socket without fighting over a single buffered reader/
+writer), call `bundle_url` with the *original* `stream` as the output
+`Write`, then return — dropping `stream` closes the connection, which is
+the protocol's entire "done" signal (deliberately as simple as possible:
+no length-prefixing, no explicit end marker, just "read until EOF," the
+same semantics the one-shot CLI's own process exit already has today).
+A bad URL or a failed top-level fetch is logged to stderr and the
+connection just closes (possibly with zero bytes already written) —
+*not* a `process::exit`, since that would be fatal to a daemon serving
+other clients; this mirrors the lenient "skip the broken piece, keep
+going" philosophy this file already applies to a single missing
+sub-resource, now applied one level up, to the whole top-level fetch, 
+specifically for the long-lived mode where a single process-wide exit
+isn't an option. No caching across requests (explicitly out of scope
+for v1, see `TODO.txt`) — every request still does the full independent
+fetch+inline work.
+
+**`<base href>` emission** (the other half of this item, independent of
+`--serve` itself, done in both modes): `discover_base` already computed
+a usable base URL for resolving resource references internally; the gap
+was that it never got written back into the emitted HTML, so a relative
+`<a href>` — passed through completely untouched, unlike `link`/
+`style`/`img` — had nothing to resolve against downstream. Fixed by
+having `stream_body` write `<base href="...">` immediately after the
+`<head>` tag it already passes through, computed from whatever `base`
+value it was given (the discovered one in stdin mode, or the fetched
+URL itself in `snag <url>`/`--serve` mode — unchanged from what already
+resolved resources in each mode, so this is purely additive to the
+*output*, not a change to *resolution* behavior) — unless the real page
+already declares its own `<base href>` in `<head>`, tracked via a new
+`has_own_base_tag` field on `discover_base`'s result.
+
+That required one change to `discover_base` itself: it used to return
+as soon as it found *any* usable base source (`<base href>` or
+`<link rel=canonical>`, whichever came first in document order) and
+never looked further. That's fine for picking the resolution value, but
+wrong for answering "does this page have its own `<base href>`" — a
+`<base>` tag appearing *after* a `<link rel=canonical>` in the markup
+would never even be seen. `discover_base` now always scans through to
+`</head>` (or the existing 1 MiB cap) regardless, tracking the
+resolution `base` (first-found-of-either-type still wins, unchanged
+priority) and `has_own_base_tag` (true the moment any `<base>` tag with
+an `href` attribute is seen, anywhere in the head, independent of
+whether that `href` happened to win the resolution race) separately.
+Still a small, bounded, one-time buffer — the same shape as before, just
+scanned a little further on the pages where the first version would
+have stopped early.
+
+The other consequence: `bundle_url` (the `snag <url>`/`--serve` path)
+now calls `discover_base` too, which it never did before this change —
+v5's own design note ("`snag <url>` already knows its base the instant
+it starts — no lookahead needed, full streaming from byte one") was true
+at the time, but answering "does this page already have its own
+`<base href>`" inherently needs a look at `<head>` regardless of mode.
+The buffer is the same small, bounded, one-time `<head>`-sized one
+`discover_base` already used for stdin mode — not a return to v1-v4's
+whole-document buffering — but it does mean `snag <url>` now holds a few
+KB before the very first byte streams out, where it previously streamed
+from byte one. Judged an acceptable, deliberate tradeoff for this
+feature, not an oversight.
+
+**Tests**: `snag` had no automated tests before this — every prior
+feature was verified by hand against real pages. Added `#[cfg(test)]
+mod tests` at the bottom of `main.rs` (the first one), matching the
+in-file convention `scratchy/src/lib.rs` already established, rather
+than inventing a different test setup for this project. Five tests:
+`<base href>` correctly reflecting a discovered canonical link; a page
+with its own `<base href>` not getting a second one injected (and
+specifically not leaking the canonical link's own URL into an injected
+one); a page with no base source at all getting no `<base>` tag and not
+treating that as fatal; `--serve`'s output over a real Unix socket
+confirmed byte-for-byte identical to calling `bundle_url` directly for
+the same URL, using a tiny in-process loopback HTTP fixture
+(`std::net::TcpListener` on `127.0.0.1:0`, one thread, same canned
+response for every connection) rather than touching the real internet;
+and the plain one-shot `bundle_url` path confirmed to emit `<base href>`
+on its own. All run through `cargo test`, no manual steps needed for
+these checks on future changes.
+
+**Verified for real, by hand, beyond the automated tests**: installed
+(`cargo install --path .`), ran `snag --serve &`, confirmed the socket
+appeared at `$XDG_RUNTIME_DIR/snag.sock`. No `socat`/`nc`/`ncat`
+available in this environment, so wrote a throwaway Python Unix-socket
+client to connect, send a URL, and collect the response. Requested
+`https://example.com` through it and diffed the result against a plain
+`snag https://example.com` run moments later — byte-for-byte identical,
+both carrying `<base href="https://example.com/">`. Sent a second
+request for a different URL over the same still-running server to
+confirm sequential-but-persistent serving (not exit-after-one-request).
+Re-ran the real German Wikipedia pipeline through the plain one-shot CLI
+to confirm it's unaffected beyond now also carrying a `<base href>`
+reflecting the article's own URL. Also fed a hand-written page with its
+own `<base href>` through stdin mode directly to confirm it passes
+through unmodified with no second `<base>` injected and no spurious "no
+base found" warning. Killed the test server afterward and confirmed its
+socket file was gone.
+
 ## Known limitations / explicitly out of scope
 
 See `TODO.txt` for the fuller list. Headline ones: no `srcset`/responsive

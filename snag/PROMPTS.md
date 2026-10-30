@@ -439,3 +439,105 @@ inert script came first in the source.
 
 This was flagged as likely the last `snag` feature for now — see
 `NOTES.md` for where things stand.
+
+---
+
+## v9 — `--serve`: a long-lived daemon, plus `<base href>` emission
+
+`scratchy` wants to support clicking an `<a href>` to navigate, but it
+deliberately has zero networking code of its own — a firm, repeatedly-
+confirmed project boundary (it renders, it doesn't fetch). The plan,
+worked out with the user directly rather than invented here: `snag`
+grows a second, long-lived mode scratchy can talk to over a socket
+instead of spawning/re-exec'ing a fresh subprocess per click. This is
+the `snag`-side half of that plan; `scratchy`'s own click-handling is a
+separate, later task. The user's own words on starting this:
+
+> ok, let's do this next. I really want to test it so pause once you are
+> done with the links
+
+Taken at face value: this isn't done until it's actually been run and
+checked, not just read as plausible — the user explicitly wants to test
+the finished two-part feature interactively once both halves (this one,
+and `scratchy`'s) land, so getting the protocol and the `<base href>`
+behavior genuinely right mattered more than getting to a commit fast.
+
+**Requirements** (full plan recorded in `TODO.txt` on 2026-10-30, not
+invented fresh here):
+1. **`snag --serve`** listens on a Unix domain socket
+   (`$XDG_RUNTIME_DIR/snag.sock`, falling back to `/tmp/snag-$UID.sock`
+   when unset) instead of reading one URL and exiting. A client writes
+   an absolute URL + newline; the server streams back exactly the bytes
+   the one-shot CLI already produces for that URL, then closes the
+   connection — connection-close as "done" mirrors the CLI's own
+   process-exit-is-EOF today. One connection at a time (sequential,
+   matching this file's already-serial per-resource fetch model); no
+   caching across requests (every request does the same independent
+   fetch+inline work the CLI already does).
+2. **Reuses the existing per-URL fetch+inline logic directly** —
+   `bundle_url` is the one-shot `snag <url>` branch's old inline code,
+   pulled out into its own function so `--serve`'s per-connection
+   handler and the plain CLI path call the exact same thing. Not new
+   fetching logic, just a new entry point around it.
+3. **The existing one-shot `snag <url>`/stdin CLI modes are unchanged
+   in shape** — `--serve` is additive, started manually
+   (`snag --serve &`); scratchy does not and should not auto-spawn it.
+   `snag`'s usage text (`--help`/bad-arg-count) now documents the new
+   mode.
+4. **`<base href>` emission, independent of `--serve` itself, in BOTH
+   modes**: `discover_base` already computed a usable base URL
+   internally (for resolving resource references), it just never wrote
+   it back into the output. Confirmed by reading this file's own
+   `<a>`-tag handling first: unlike `link`/`style`/`img`, an `<a>` tag
+   passes straight through byte-for-byte untouched — without a
+   `<base href>` in the bundle, a relative `<a href="/wiki/Dog">` has no
+   way to be resolved by anything downstream, which is exactly what
+   scratchy's future click-navigation depends on. Injected right after
+   `<head>` opens, *unless* the real page already declares its own
+   `<base href>` — same "prefer the real page's own" priority
+   `discover_base` already gives an explicit `<base>` over a
+   `<link rel=canonical>` fallback, just extended to this new decision
+   too. `discover_base` itself changed to always scan through to
+   `</head>` (not stop at the first candidate) so a `<base>` tag
+   appearing *after* a `<link rel=canonical>` in the source still gets
+   noticed for "does this page have its own" even though the canonical
+   link already won the race for the resolution value itself.
+
+**Verified, not just plausible-looking** (the user's own bar for this
+one): wrote `snag`'s first automated tests ever — this project had none
+before now, but its sibling `scratchy` already has an established
+in-file `#[cfg(test)] mod tests` convention, followed here rather than
+hand-verification alone, since a socket protocol and a conditional
+injection point are both genuinely regression-prone. Five tests: a
+`<base href>` correctly reflecting a discovered `<link rel=canonical>`;
+a page with its own `<base href>` *not* getting a second one injected
+(and the canonical link's own URL confirmed not leaking into one
+either); a page with neither source emitting no `<base>` at all and not
+treating that as fatal; `--serve`'s output against a tiny in-process
+loopback HTTP fixture confirmed byte-for-byte identical to calling
+`bundle_url` directly for the same URL (no real internet access needed
+for the automated suite); and the one-shot `bundle_url` path confirmed
+to emit `<base href>` on its own. `cargo check`/`cargo clippy --all-
+targets -- -D warnings`/`cargo test` all clean.
+
+Then verified for real, by hand: installed (`cargo install --path .`),
+started `snag --serve &` (bound `$XDG_RUNTIME_DIR/snag.sock`, confirmed
+via `ls`), wrote a throwaway Python Unix-socket client (no
+`socat`/`nc`/`ncat` available in this environment) to connect and
+request `https://example.com`, diffed the result against plain
+`snag https://example.com` run moments later — byte-for-byte identical,
+`<base href="https://example.com/">` present in both. Sent a second
+request over the same running server for a different URL
+(`https://example.org`) to confirm it keeps serving sequentially rather
+than exiting after one. Re-ran the real `curl`-free
+`snag <german-wikipedia-url>` pipeline end to end to confirm the
+one-shot path still works and now also carries a `<base href>`
+reflecting the article's own URL. Killed the test server and confirmed
+its socket file was gone afterward.
+
+**Deliverable:** `src/main.rs` (`bundle_url`, `run_server`,
+`handle_connection`, `socket_path`, `current_uid`, `BundleError`;
+`discover_base` extended with `has_own_base_tag` and full-head
+scanning; `stream_body` gained the `<head>`-tag injection branch and a
+new `has_own_base_tag` parameter; `escape_attr`; a `#[cfg(test)] mod
+tests` with 5 tests — this file's first).

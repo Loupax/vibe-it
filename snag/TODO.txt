@@ -105,47 +105,56 @@ not a speculative feature backlog. See NOTES.md for the fuller story.
       time. Not hit on any real page tested (every `defer` script seen
       so far has an external `src`, nothing inline of any real size).
 
-- [ ] **`snag --serve`: a long-lived local daemon mode, to support
-      scratchy link navigation — planned (2026-10-30), not yet
-      implemented.** Full plan lives in `scratchy/TODO.txt`'s own
-      "Link navigation" item (this is the snag half of it); summary
-      here for anyone reading this file in isolation:
+- [x] **`snag --serve`: a long-lived local daemon mode, to support
+      scratchy link navigation (v9, commit 1d660be).** `snag --serve`
+      binds a Unix domain socket at `$XDG_RUNTIME_DIR/snag.sock`
+      (falling back to `/tmp/snag-$UID.sock` when `$XDG_RUNTIME_DIR`
+      is unset) and serves connections one at a time, forever. Protocol:
+      a client writes one absolute URL + a newline, the server streams
+      back exactly the bytes the one-shot `snag <url>` CLI would have
+      printed for that URL, then closes the connection (close = EOF =
+      done, mirroring the CLI's own process-exit today). Reuses the
+      one-shot mode's exact fetch+inline logic via a new shared
+      `bundle_url` function — not a second copy of it. No caching across
+      requests (every request still does the full independent work the
+      CLI already does — see the new deferred item below for what this
+      explicitly leaves out). No concurrency — sequential, matching this
+      file's already-serial per-resource fetch model. Started manually
+      (`snag --serve &`); scratchy does not auto-spawn it. The existing
+      one-shot `snag <url>`/stdin CLI modes are unchanged in shape;
+      `--serve` is additive. Usage text updated to document it.
 
-      1. A new `--serve` CLI mode listens on a Unix domain socket
-         (`$XDG_RUNTIME_DIR/snag.sock`) instead of reading one URL
-         from argv/stdin and writing to stdout. Per-connection
-         behavior reuses the *exact* existing per-URL fetch+inline
-         logic this file already has — this is a new entry point, not
-         new fetching logic: a client writes an absolute URL + newline,
-         the server streams back exactly the bytes the one-shot CLI
-         already produces for that URL today, then closes the
-         connection. The existing one-shot `snag <url>` CLI mode stays
-         exactly as it is — `--serve` is additive, not a replacement.
-      2. Started manually by the user (`snag --serve`) — scratchy does
-         not and should not auto-spawn it. No caching of fetched
-         resources across requests in v1 (every request does the same
-         full independent fetch+inline work the CLI already does) —
-         explicitly deferred, not an oversight; revisit only if
-         repeated-navigation latency on the same site turns out to
-         matter.
-      3. No new concurrency needed — handling one connection at a time
-         is fine for v1, matching this file's already-serial
-         per-resource fetch model (see the separate, unrelated
-         "no size cap or concurrency" item above, which is about
-         per-page sub-resource fetching, not this).
+      Also landed in the same change, independent of `--serve` itself:
+      `snag` now emits a real `<base href="...">` tag right after
+      `<head>` opens, in BOTH `--serve` and the one-shot CLI mode —
+      using whatever base value already resolved that page's own
+      resource references (the fetched URL itself in `snag <url>`/
+      `--serve` mode, or `discover_base`'s discovered value in stdin
+      mode) — *unless* the real page already declares its own
+      `<base href>`, in which case that one is left alone and nothing
+      is injected. `discover_base` changed to always scan through to
+      `</head>` (not stop at the first match) so a `<base>` tag
+      appearing after a `<link rel=canonical>` in the source is still
+      noticed for this check. First automated tests this project has
+      ever had (`#[cfg(test)] mod tests` in `main.rs`, matching
+      `scratchy/src/lib.rs`'s established in-file convention): 5 tests
+      covering `<base href>` emission/non-duplication/omission and a
+      real `--serve` round-trip over an actual Unix socket against a
+      local HTTP fixture, diffed against calling `bundle_url` directly.
+      Verified by hand too: installed, ran `snag --serve &`, hit it with
+      a throwaway Python Unix-socket client (no `socat`/`nc`/`ncat`
+      available here) for `https://example.com`, diffed against a plain
+      `snag https://example.com` run — byte-for-byte identical, both
+      carrying the new `<base href>`; served a second request on the
+      same running process to confirm persistence; re-ran the real
+      German Wikipedia pipeline through the plain CLI to confirm it's
+      unaffected beyond the new tag.
 
-      **Also needed, smaller and independent of `--serve` itself:**
-      `snag` should start emitting a real `<base href="...">` tag in
-      its output `<head>` — in BOTH `--serve` and the existing one-shot
-      CLI mode, for consistency — so a consumer (scratchy) can resolve
-      a page's relative `<a href>` targets to absolute URLs itself.
-      `discover_base` already computes this value internally today for
-      resource-inlining purposes; it just isn't written back out
-      anywhere. Confirmed by reading this file's own `<a>`-tag
-      handling: unlike `link`/`style`/`img`, an `<a>` tag is currently
-      copied straight through byte-for-byte, untouched — so without a
-      `<base href>`, a relative `<a href="/wiki/Dog">` has no way to be
-      resolved by anything downstream.
-
-      Not started — this is a plan to pick up later, recorded here so
-      it isn't lost, not an in-progress item.
+- [ ] No caching across `--serve` requests (v9, explicitly deferred, not
+      an oversight) — every request does the same independent full
+      fetch+inline work the one-shot CLI already does, even for a URL
+      requested moments ago through the same connection to the same
+      site. Only worth adding if repeated-navigation latency on the same
+      site (once scratchy's own click-navigation lands and this actually
+      gets exercised interactively) turns out to matter in practice —
+      not attempted speculatively.
