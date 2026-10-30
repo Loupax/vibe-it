@@ -1036,11 +1036,10 @@ session can pick a coherent slice rather than one property at a time.
       now resolved — see its own entry below.)
 
 - [x] **Link navigation (click an `<a href>` to load a new page)**
-      (PROMPTS.md v65, hash pending — see the follow-up commit that
-      fills it in). scratchy's own half of the two-part plan recorded
-      here on 2026-10-30; `snag`'s own half (`--serve` + real `<base
-      href>` output) already landed as `snag`'s own v9, in a separate
-      session — see `snag/NOTES.md`/`snag/TODO.txt`.
+      (PROMPTS.md v65, 3baf01e). scratchy's own half of the two-part
+      plan recorded here on 2026-10-30; `snag`'s own half (`--serve` +
+      real `<base href>` output) already landed as `snag`'s own v9, in
+      a separate session — see `snag/NOTES.md`/`snag/TODO.txt`.
 
       Landed: a real `WindowEvent::MouseInput` click handler (press/
       release close together, via a 5px `is_click` threshold, distinct
