@@ -859,7 +859,7 @@ session can pick a coherent slice rather than one property at a time.
       text-level scan with no CSS string/comment awareness (`content:
       "var(--x)"` would still get substituted inside the quotes).
 
-- [x] `@media` (PENDING_HASH, v64) now parses real `<media-query-list>`
+- [x] `@media` (1282285, v64) now parses real `<media-query-list>`
       grammar at the stylesheet-parsing stage — `TopLevelParser`'s
       `AtRuleParser` impl recognizes `@media` by name (any other
       at-rule still falls through to the same no-op drop as before, see
