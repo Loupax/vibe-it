@@ -751,7 +751,7 @@ session can pick a coherent slice rather than one property at a time.
 - [x] `border-style` (PROMPTS.md v30) originally only distinguished
       `dashed`/`dotted`/`double`/`none`/`hidden` from a plain solid
       stroke — `groove`/`ridge`/`inset`/`outset` now get a real CSS2.1
-      §8.5.3 two-tone bevel rendering too (PENDING_HASH, v63), computed
+      §8.5.3 two-tone bevel rendering too (e8cb371, v63), computed
       from lighter/darker variants of the declared `border-color` (new
       `lighten`/`darken` helpers, blending 50% toward white/black — no
       exact ratio is spec-mandated). `Inset`/`Outset` paint each whole
