@@ -106,7 +106,7 @@ not a speculative feature backlog. See NOTES.md for the fuller story.
       so far has an external `src`, nothing inline of any real size).
 
 - [x] **`snag --serve`: a long-lived local daemon mode, to support
-      scratchy link navigation (v9, commit 1d660be).** `snag --serve`
+      scratchy link navigation (v9, commit 186ef77).** `snag --serve`
       binds a Unix domain socket at `$XDG_RUNTIME_DIR/snag.sock`
       (falling back to `/tmp/snag-$UID.sock` when `$XDG_RUNTIME_DIR`
       is unset) and serves connections one at a time, forever. Protocol:
