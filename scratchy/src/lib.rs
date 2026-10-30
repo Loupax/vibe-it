@@ -2028,19 +2028,36 @@ fn parse_text_decoration_line(input: &mut CssParser) -> Result<DecorationLine, (
     }
 }
 
-/// Just the 4 keywords that paint visibly differently from a plain
-/// solid stroke with this file's existing pixel-fill primitives —
-/// `groove`/`ridge`/`inset`/`outset` would need real two-tone bevel
-/// shading to look like anything but `solid` (see
-/// `border_style_from_keyword`, which folds all four into `Solid`
-/// rather than giving them their own inert variants).
-#[derive(Clone, Copy, PartialEq, Default)]
+/// The 8 keywords that paint visibly differently from a plain solid
+/// stroke. `Groove`/`Ridge`/`Inset`/`Outset` (PROMPTS.md v63) are real
+/// two-tone bevel styles — CSS2.1 §8.5.3 — painted from lighter/darker
+/// computed variants of the declared `border-color` (see `lighten`/
+/// `darken`, `bevel_colors`): `Inset`/`Outset` paint each whole edge a
+/// single light-or-dark variant (top/left vs. bottom/right); `Groove`/
+/// `Ridge` additionally split each edge's own stroke width into two
+/// sub-stripes (an "outer" half, farther from the box's own content,
+/// and an "inner" half, closer to it) so a single edge shows a visible
+/// crease, not just a flat shade — see `paint_border` for exactly how.
+#[derive(Clone, Copy, PartialEq, Default, Debug)]
 enum BorderStyle {
     #[default]
     Solid,
     Dashed,
     Dotted,
     Double,
+    /// Carved-into-the-page bevel: top/left edges' outer half dark,
+    /// inner half light; bottom/right edges the reverse.
+    Groove,
+    /// The opposite of `Groove`: top/left edges' outer half light,
+    /// inner half dark; bottom/right edges the reverse.
+    Ridge,
+    /// Pressed-into-the-page bevel: top/left edges uniformly dark,
+    /// bottom/right edges uniformly light — same light-direction logic
+    /// as `Groove` but applied once per whole edge, no inner split.
+    Inset,
+    /// The opposite of `Inset`: top/left edges uniformly light,
+    /// bottom/right edges uniformly dark.
+    Outset,
     /// Same outcome as `hidden` — no border renders regardless of
     /// `border-width`/`border-color` — scratchy has no `display: table`
     /// border-conflict-resolution rules that would ever need to tell
@@ -2057,8 +2074,16 @@ fn border_style_from_keyword(kw: &str) -> BorderStyle {
         BorderStyle::Double
     } else if kw.eq_ignore_ascii_case("none") || kw.eq_ignore_ascii_case("hidden") {
         BorderStyle::None
+    } else if kw.eq_ignore_ascii_case("groove") {
+        BorderStyle::Groove
+    } else if kw.eq_ignore_ascii_case("ridge") {
+        BorderStyle::Ridge
+    } else if kw.eq_ignore_ascii_case("inset") {
+        BorderStyle::Inset
+    } else if kw.eq_ignore_ascii_case("outset") {
+        BorderStyle::Outset
     } else {
-        // solid, groove, ridge, inset, outset — see `BorderStyle`'s docs.
+        // solid, and anything unrecognized.
         BorderStyle::Solid
     }
 }
@@ -7860,6 +7885,30 @@ fn blend(existing: u32, color: TextColor) -> u32 {
     (r << 16) | (g << 8) | b
 }
 
+/// How far `lighten`/`darken` blend toward white/black — CSS2.1 §8.5.3
+/// doesn't mandate one exact ratio for a bevel border's two-tone
+/// shading, so this picks a single reasonable, clearly-visible value
+/// and applies it consistently both directions (`Groove`/`Ridge`/
+/// `Inset`/`Outset` — see `bevel_colors`).
+const BEVEL_RATIO: f32 = 0.5;
+
+/// Blends `c` `ratio` of the way toward white, per channel, keeping its
+/// own alpha unchanged. No existing color-lightening helper was found
+/// anywhere in this file or in cosmic-text's own `Color`/`Attrs` API
+/// (checked before writing this) — `blend` above is a src-over alpha
+/// compositor, a different operation entirely.
+fn lighten(c: TextColor, ratio: f32) -> TextColor {
+    let mix = |ch: u8| -> u8 { (ch as f32 + (255.0 - ch as f32) * ratio).round().clamp(0.0, 255.0) as u8 };
+    TextColor::rgba(mix(c.r()), mix(c.g()), mix(c.b()), c.a())
+}
+
+/// Blends `c` `ratio` of the way toward black, per channel, keeping its
+/// own alpha unchanged — the darkening counterpart to `lighten`.
+fn darken(c: TextColor, ratio: f32) -> TextColor {
+    let mix = |ch: u8| -> u8 { (ch as f32 * (1.0 - ratio)).round().clamp(0.0, 255.0) as u8 };
+    TextColor::rgba(mix(c.r()), mix(c.g()), mix(c.b()), c.a())
+}
+
 /// Intersects `(x, y, w, h)` against `clip` (`None` = unclipped, passed
 /// through unchanged) — `w`/`h` can come back `<= 0.0` for a rect
 /// entirely outside the clip, which `fill_rect`'s own existing bounds
@@ -8079,6 +8128,110 @@ fn paint_border_edge(
                 fill_rect(pixels, win_w, win_h, x + w - stripe, y, stripe, h, color, clip);
             }
         }
+        BorderStyle::Groove | BorderStyle::Ridge | BorderStyle::Inset | BorderStyle::Outset => {
+            // Never actually reached: `paint_box_decoration` always
+            // routes these 4 bevel styles through `paint_border`
+            // instead, which calls this function once per already-
+            // light/dark-shaded sub-stripe/edge with `BorderStyle::Solid`
+            // — see its own docs. Kept as a defensive plain-solid
+            // fallback (not folded into a `_ =>` catch-all) so adding a
+            // future real `BorderStyle` variant still gets a compile
+            // error here, not a silently-wrong paint.
+            fill_rect(pixels, win_w, win_h, x, y, w, h, color, clip)
+        }
+    }
+}
+
+/// Lighter/darker variants of a bevel border's own declared color — see
+/// `lighten`/`darken` and `BEVEL_RATIO`. `None` for every non-bevel
+/// `BorderStyle` (nothing to compute; `paint_border` falls back to a
+/// plain flat-colored edge for those).
+fn bevel_colors(style: BorderStyle, base: TextColor) -> Option<(TextColor, TextColor)> {
+    match style {
+        BorderStyle::Groove | BorderStyle::Ridge | BorderStyle::Inset | BorderStyle::Outset => {
+            Some((lighten(base, BEVEL_RATIO), darken(base, BEVEL_RATIO)))
+        }
+        _ => None,
+    }
+}
+
+/// Paints all 4 edges of a border rect `(x, y, w, h)` with thickness
+/// `bw`. Every style but the 4 bevel ones (`Groove`/`Ridge`/`Inset`/
+/// `Outset`) just delegates to `paint_border_edge` 4 times with one flat
+/// `color`, unchanged from before this function existed.
+///
+/// The bevel styles need per-edge (and, for `Groove`/`Ridge`, per-half-
+/// edge) color, computed from `bevel_colors`: for every edge, "outer"
+/// names the half/whole farther from this box's own content (the top of
+/// the top edge, left of the left edge, bottom of the bottom edge, right
+/// of the right edge) and "inner" the half closer to it.
+/// - `Inset`/`Outset` paint each *whole* edge one color: `Inset`'s
+///   top/left are uniformly dark and bottom/right uniformly light (the
+///   box reads as pressed in, lit from the top-left); `Outset` is the
+///   reverse.
+/// - `Groove`/`Ridge` additionally split *each* edge's own thickness
+///   into an outer and inner half (`half`, clamped to at least `0.5px`
+///   so a 1px bevel border still shows two distinct rows/columns), so a
+///   single edge itself shows a crease: `Groove`'s top/left edges are
+///   outer-dark/inner-light and bottom/right outer-light/inner-dark
+///   (the same "carved in" light direction as `Inset`, just applied
+///   within each edge rather than across the whole edge); `Ridge` is
+///   the reverse of `Groove`, edge-for-edge.
+#[allow(clippy::too_many_arguments)]
+fn paint_border(
+    pixels: &mut [u32],
+    win_w: u32,
+    win_h: u32,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    bw: f32,
+    style: BorderStyle,
+    color: TextColor,
+    clip: Option<(f32, f32, f32, f32)>,
+) {
+    let Some((light, dark)) = bevel_colors(style, color) else {
+        paint_border_edge(pixels, win_w, win_h, x, y, w, bw, style, color, clip);
+        paint_border_edge(pixels, win_w, win_h, x, y + h - bw, w, bw, style, color, clip);
+        paint_border_edge(pixels, win_w, win_h, x, y, bw, h, style, color, clip);
+        paint_border_edge(pixels, win_w, win_h, x + w - bw, y, bw, h, style, color, clip);
+        return;
+    };
+    match style {
+        BorderStyle::Inset | BorderStyle::Outset => {
+            let (top, left, bottom, right) = if style == BorderStyle::Inset {
+                (dark, dark, light, light)
+            } else {
+                (light, light, dark, dark)
+            };
+            paint_border_edge(pixels, win_w, win_h, x, y, w, bw, BorderStyle::Solid, top, clip);
+            paint_border_edge(pixels, win_w, win_h, x, y + h - bw, w, bw, BorderStyle::Solid, bottom, clip);
+            paint_border_edge(pixels, win_w, win_h, x, y, bw, h, BorderStyle::Solid, left, clip);
+            paint_border_edge(pixels, win_w, win_h, x + w - bw, y, bw, h, BorderStyle::Solid, right, clip);
+        }
+        BorderStyle::Groove | BorderStyle::Ridge => {
+            // top/left outer/inner, bottom/right outer/inner.
+            let (outer_tl, inner_tl, outer_br, inner_br) = if style == BorderStyle::Groove {
+                (dark, light, light, dark)
+            } else {
+                (light, dark, dark, light)
+            };
+            let half = (bw / 2.0).max(0.5);
+            // Top edge: outer = upper stripe, inner = lower stripe.
+            paint_border_edge(pixels, win_w, win_h, x, y, w, half, BorderStyle::Solid, outer_tl, clip);
+            paint_border_edge(pixels, win_w, win_h, x, y + half, w, bw - half, BorderStyle::Solid, inner_tl, clip);
+            // Left edge: outer = left stripe, inner = right stripe.
+            paint_border_edge(pixels, win_w, win_h, x, y, half, h, BorderStyle::Solid, outer_tl, clip);
+            paint_border_edge(pixels, win_w, win_h, x + half, y, bw - half, h, BorderStyle::Solid, inner_tl, clip);
+            // Bottom edge: inner = upper stripe, outer = lower stripe.
+            paint_border_edge(pixels, win_w, win_h, x, y + h - bw, w, bw - half, BorderStyle::Solid, inner_br, clip);
+            paint_border_edge(pixels, win_w, win_h, x, y + h - half, w, half, BorderStyle::Solid, outer_br, clip);
+            // Right edge: inner = left stripe, outer = right stripe.
+            paint_border_edge(pixels, win_w, win_h, x + w - bw, y, bw - half, h, BorderStyle::Solid, inner_br, clip);
+            paint_border_edge(pixels, win_w, win_h, x + w - half, y, half, h, BorderStyle::Solid, outer_br, clip);
+        }
+        _ => unreachable!("bevel_colors only returns Some for the 4 bevel styles"),
     }
 }
 
@@ -8121,10 +8274,11 @@ fn paint_box_decoration(
     // `fill_rounded_ring`'s own docs for why the border ring needs its
     // own dedicated painting instead of reusing `fill_rounded_rect`
     // twice. Scoped to `BorderStyle::Solid`: a dashed/dotted/double
-    // ring would need the same curved-path tracing a solid ring does,
-    // just repeated per dash/dot/stripe — a real `TODO.txt` gap, not
-    // attempted here — so those combined with `border-radius` fall
-    // back to the existing square-corner rendering rather than a
+    // (or, since v63, bevel — `Groove`/`Ridge`/`Inset`/`Outset`) ring
+    // would need the same curved-path tracing a solid ring does, just
+    // repeated per dash/dot/stripe/shaded-half — a real `TODO.txt` gap,
+    // not attempted here — so any of those combined with `border-radius`
+    // fall back to the existing square-corner rendering rather than a
     // half-rounded, honestly-wrong mix of a rounded background behind
     // a square border.
     //
@@ -8160,10 +8314,7 @@ fn paint_box_decoration(
             if round {
                 fill_rounded_ring(pixels, win_w, win_h, x, y, w, h, border_radius, bw, bc, clip);
             } else {
-                paint_border_edge(pixels, win_w, win_h, x, y, w, bw, s.border_style, bc, clip);
-                paint_border_edge(pixels, win_w, win_h, x, y + h - bw, w, bw, s.border_style, bc, clip);
-                paint_border_edge(pixels, win_w, win_h, x, y, bw, h, s.border_style, bc, clip);
-                paint_border_edge(pixels, win_w, win_h, x + w - bw, y, bw, h, s.border_style, bc, clip);
+                paint_border(pixels, win_w, win_h, x, y, w, h, bw, s.border_style, bc, clip);
             }
         }
     }
@@ -10644,6 +10795,174 @@ mod tests {
         );
         let div = find_by_width(&laid, 200.0).expect("div not found");
         assert_eq!(div.style.border_radius.resolve(div.w), 50.0, "border-radius: 25% of a 200px-wide box should resolve to 50px");
+    }
+
+    // ---------- border-style bevel variants: groove/ridge/inset/outset (v63) ----------
+
+    /// Reads back the plain `0x00RRGGBB` pixel at `(x, y)` out of a
+    /// `paint_border`-painted buffer — same masking `px_at` uses, kept
+    /// local to this section since these tests paint directly into a
+    /// hand-rolled buffer rather than through `paint_fixture`.
+    fn bevel_px(pixels: &[u32], win_w: u32, x: f32, y: f32) -> u32 {
+        pixels[(y as u32 * win_w + x as u32) as usize] & 0x00FF_FFFF
+    }
+
+    #[test]
+    fn inset_border_paints_top_left_edges_darker_than_bottom_right() {
+        // Mid-gray so `lighten`/`darken` produce two values that are
+        // both clearly different from the base and from each other.
+        let base = TextColor::rgb(128, 128, 128);
+        let (win_w, win_h) = (100u32, 100u32);
+        let mut pixels = vec![0x00FF_FFFFu32; (win_w * win_h) as usize];
+        let (x, y, w, h, bw) = (10.0, 10.0, 80.0, 80.0, 10.0);
+        paint_border(&mut pixels, win_w, win_h, x, y, w, h, bw, BorderStyle::Inset, base, None);
+
+        let top = bevel_px(&pixels, win_w, x + w / 2.0, y + bw / 2.0);
+        let left = bevel_px(&pixels, win_w, x + bw / 2.0, y + h / 2.0);
+        let bottom = bevel_px(&pixels, win_w, x + w / 2.0, y + h - bw / 2.0);
+        let right = bevel_px(&pixels, win_w, x + w - bw / 2.0, y + h / 2.0);
+
+        let dark = darken(base, BEVEL_RATIO).0 & 0x00FF_FFFF;
+        let light = lighten(base, BEVEL_RATIO).0 & 0x00FF_FFFF;
+        assert_eq!(top, dark, "inset's top edge should be the darkened variant");
+        assert_eq!(left, dark, "inset's left edge should be the darkened variant");
+        assert_eq!(bottom, light, "inset's bottom edge should be the lightened variant");
+        assert_eq!(right, light, "inset's right edge should be the lightened variant");
+        assert_ne!(dark, light, "the two computed variants must actually differ for this test to mean anything");
+    }
+
+    #[test]
+    fn outset_border_is_the_reverse_of_inset() {
+        let base = TextColor::rgb(128, 128, 128);
+        let (win_w, win_h) = (100u32, 100u32);
+        let mut pixels = vec![0x00FF_FFFFu32; (win_w * win_h) as usize];
+        let (x, y, w, h, bw) = (10.0, 10.0, 80.0, 80.0, 10.0);
+        paint_border(&mut pixels, win_w, win_h, x, y, w, h, bw, BorderStyle::Outset, base, None);
+
+        let top = bevel_px(&pixels, win_w, x + w / 2.0, y + bw / 2.0);
+        let left = bevel_px(&pixels, win_w, x + bw / 2.0, y + h / 2.0);
+        let bottom = bevel_px(&pixels, win_w, x + w / 2.0, y + h - bw / 2.0);
+        let right = bevel_px(&pixels, win_w, x + w - bw / 2.0, y + h / 2.0);
+
+        let dark = darken(base, BEVEL_RATIO).0 & 0x00FF_FFFF;
+        let light = lighten(base, BEVEL_RATIO).0 & 0x00FF_FFFF;
+        assert_eq!(top, light, "outset's top edge should be the lightened variant (opposite of inset)");
+        assert_eq!(left, light, "outset's left edge should be the lightened variant");
+        assert_eq!(bottom, dark, "outset's bottom edge should be the darkened variant");
+        assert_eq!(right, dark, "outset's right edge should be the darkened variant");
+    }
+
+    #[test]
+    fn groove_border_splits_each_edge_into_an_outer_dark_and_inner_light_half() {
+        // `Groove`'s own "carved in" crease: unlike `Inset`, each single
+        // edge shows *two* shades, not one — the half farther from this
+        // box's own content ("outer") dark, the half closer to it
+        // ("inner") light, for the top/left edges; reversed for
+        // bottom/right. `bw = 10` → `half = 5`, so the outer/inner
+        // sample points below (2px/8px into a 10px-thick edge) land
+        // solidly inside their own half with no rounding ambiguity.
+        let base = TextColor::rgb(128, 128, 128);
+        let (win_w, win_h) = (100u32, 100u32);
+        let mut pixels = vec![0x00FF_FFFFu32; (win_w * win_h) as usize];
+        let (x, y, w, h, bw) = (10.0, 10.0, 80.0, 80.0, 10.0);
+        paint_border(&mut pixels, win_w, win_h, x, y, w, h, bw, BorderStyle::Groove, base, None);
+
+        let dark = darken(base, BEVEL_RATIO).0 & 0x00FF_FFFF;
+        let light = lighten(base, BEVEL_RATIO).0 & 0x00FF_FFFF;
+
+        // Top edge: outer (upper, y=12) dark, inner (lower, y=18) light.
+        assert_eq!(bevel_px(&pixels, win_w, x + w / 2.0, y + 2.0), dark, "groove top edge's outer half should be dark");
+        assert_eq!(bevel_px(&pixels, win_w, x + w / 2.0, y + 8.0), light, "groove top edge's inner half should be light");
+        // Left edge: outer (left, x=12) dark, inner (right, x=18) light.
+        assert_eq!(bevel_px(&pixels, win_w, x + 2.0, y + h / 2.0), dark, "groove left edge's outer half should be dark");
+        assert_eq!(bevel_px(&pixels, win_w, x + 8.0, y + h / 2.0), light, "groove left edge's inner half should be light");
+        // Bottom edge: inner (upper, closer to content) dark, outer (lower) light.
+        assert_eq!(
+            bevel_px(&pixels, win_w, x + w / 2.0, y + h - 8.0),
+            dark,
+            "groove bottom edge's inner half should be dark"
+        );
+        assert_eq!(
+            bevel_px(&pixels, win_w, x + w / 2.0, y + h - 2.0),
+            light,
+            "groove bottom edge's outer half should be light"
+        );
+        // Right edge: inner (left, closer to content) dark, outer (right) light.
+        assert_eq!(
+            bevel_px(&pixels, win_w, x + w - 8.0, y + h / 2.0),
+            dark,
+            "groove right edge's inner half should be dark"
+        );
+        assert_eq!(
+            bevel_px(&pixels, win_w, x + w - 2.0, y + h / 2.0),
+            light,
+            "groove right edge's outer half should be light"
+        );
+    }
+
+    #[test]
+    fn ridge_border_is_the_reverse_of_groove_at_every_sampled_point() {
+        let base = TextColor::rgb(128, 128, 128);
+        let (win_w, win_h) = (100u32, 100u32);
+        let mut groove_pixels = vec![0x00FF_FFFFu32; (win_w * win_h) as usize];
+        let mut ridge_pixels = vec![0x00FF_FFFFu32; (win_w * win_h) as usize];
+        let (x, y, w, h, bw) = (10.0, 10.0, 80.0, 80.0, 10.0);
+        paint_border(&mut groove_pixels, win_w, win_h, x, y, w, h, bw, BorderStyle::Groove, base, None);
+        paint_border(&mut ridge_pixels, win_w, win_h, x, y, w, h, bw, BorderStyle::Ridge, base, None);
+
+        let dark = darken(base, BEVEL_RATIO).0 & 0x00FF_FFFF;
+        let light = lighten(base, BEVEL_RATIO).0 & 0x00FF_FFFF;
+        let sample_points = [
+            (x + w / 2.0, y + 2.0),       // top, outer
+            (x + w / 2.0, y + 8.0),       // top, inner
+            (x + 2.0, y + h / 2.0),       // left, outer
+            (x + 8.0, y + h / 2.0),       // left, inner
+            (x + w / 2.0, y + h - 8.0),   // bottom, inner
+            (x + w / 2.0, y + h - 2.0),   // bottom, outer
+            (x + w - 8.0, y + h / 2.0),   // right, inner
+            (x + w - 2.0, y + h / 2.0),   // right, outer
+        ];
+        for (sx, sy) in sample_points {
+            let g = bevel_px(&groove_pixels, win_w, sx, sy);
+            let r = bevel_px(&ridge_pixels, win_w, sx, sy);
+            assert_ne!(g, r, "groove and ridge should disagree at every sampled point ({sx}, {sy})");
+            assert!(g == dark || g == light, "groove's own sample should be one of the two bevel shades");
+            assert!(r == dark || r == light, "ridge's own sample should be one of the two bevel shades");
+            assert_eq!(g, if r == dark { light } else { dark }, "ridge should be exactly groove's opposite shade at this point");
+        }
+    }
+
+    #[test]
+    fn border_style_longhand_parses_all_four_bevel_keywords() {
+        for (keyword, width, expected) in [
+            ("groove", 201.0, BorderStyle::Groove),
+            ("ridge", 202.0, BorderStyle::Ridge),
+            ("inset", 203.0, BorderStyle::Inset),
+            ("outset", 204.0, BorderStyle::Outset),
+        ] {
+            let html = format!(r#"<html><body><div style="width: {width}px; border-style: {keyword};">x</div></body></html>"#);
+            let laid = measure_fixture(&html, 500.0);
+            let div = find_by_width(&laid, width).unwrap_or_else(|| panic!("div with border-style: {keyword} not found"));
+            assert_eq!(
+                div.style.border_style, expected,
+                "border-style: {keyword} should resolve to BorderStyle::{expected:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn border_style_inset_paints_visibly_different_shades_through_the_real_pipeline() {
+        // End-to-end through `paint_box_decoration`'s own real
+        // `paint_border` call (not the primitive tested directly above)
+        // — confirms the new bevel branch is actually reached from a
+        // real laid-out, painted document, not just callable in
+        // isolation.
+        let (pixels, win_w, _win_h) = paint_fixture(
+            r#"<html><body style="margin:0"><div style="box-sizing: border-box; width: 100px; height: 100px; border: 10px solid gray; border-style: inset;"></div></body></html>"#,
+        );
+        let top = px_at(&pixels, win_w, 50, 5);
+        let bottom = px_at(&pixels, win_w, 50, 95);
+        assert_ne!(top, bottom, "an inset border's top and bottom edges should paint visibly different shades");
     }
 
     // ---------- table layout: real CSS auto table layout (min/max content width per column) ----------

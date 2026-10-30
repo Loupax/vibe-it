@@ -4492,3 +4492,102 @@ region`'s own-scroll-aware `Blocks`/`TableRow` recursion, `App::
 scroll_offsets`/`last_mouse_pos` + `WindowEvent::MouseWheel`'s new
 routing — 5 new permanent tests); `TODO.txt` (item checked off, 4 new
 narrower cut items); `NOTES.md` (architecture write-up).
+
+---
+
+## v63 — `border-style`'s bevel variants: `groove`/`ridge`/`inset`/`outset`
+
+> set up a loop where you pick the next TODO item, and once completed,
+> clear your context and do that again until the list is done
+
+Next item of that same autonomous `TODO.txt` loop, right after v62's
+`overflow: scroll`/`auto`. `border-style` (v30) folded all four bevel
+keywords into plain `Solid` at the keyword-mapping stage, since a real
+bevel effect needs two-tone shading this file's flat-fill painting
+primitives didn't have — this gives all four their own real rendering,
+per CSS2.1 §8.5.3 (https://www.w3.org/TR/CSS2/box.html#border-style-properties).
+
+**The color math.** No lighten/darken helper existed anywhere in this
+file or in cosmic-text's own `Color`/`Attrs` API (checked before writing
+one — `blend` is a src-over alpha compositor, a different operation
+entirely). Added `lighten`/`darken` (blend each RGB channel toward
+white/black by a ratio, alpha untouched) plus a single `BEVEL_RATIO =
+0.5` constant — the spec names no exact ratio, so this picks one
+reasonable, clearly-visible value and applies it consistently in both
+directions, rather than inventing a different ratio per style.
+`bevel_colors(style, base)` computes the `(light, dark)` pair for any of
+the 4 new styles, `None` for every other one (so `paint_border`'s own
+non-bevel path — `Solid`/`Dashed`/`Dotted`/`Double`/`None` — is
+byte-for-byte what `paint_box_decoration` used to call directly, zero
+behavior change there).
+
+**The per-edge/per-half-edge logic**, all in a new `paint_border`
+(replacing the 4 direct `paint_border_edge` calls `paint_box_decoration`
+used to make): `Inset`/`Outset` paint each *whole* edge a single
+light-or-dark variant — `Inset`'s top/left edges uniformly dark,
+bottom/right uniformly light (reads as pressed into the page, lit from
+the top-left); `Outset` is the reverse. `Groove`/`Ridge` got the full
+inner-split treatment, not the scoped-down uniform approximation the
+task gave explicit latitude to fall back to — splitting each edge's own
+stroke width into an "outer" half (farther from this box's own content:
+the top of the top edge, left of the left edge, bottom of the bottom
+edge, right of the right edge) and an "inner" half (closer to it) turned
+out to be a direct, un-disproportionate extension of `paint_border_edge`
+already being called once per edge — 2 calls instead of 1 per edge, each
+with its own already-computed shade, no new primitive needed. `Groove`:
+top/left edges outer-dark/inner-light, bottom/right outer-light/
+inner-dark (the same light-direction logic `Inset` uses, just applied
+within each edge instead of across the whole edge, producing a visible
+crease down the middle); `Ridge` is `Groove`'s exact reverse, edge for
+edge. `half = (bw / 2.0).max(0.5)` keeps even a 1px bevel border showing
+two distinct rows/columns rather than one degenerating to zero width.
+
+**Verified headlessly, 6 new permanent tests** (`mod tests`, a new
+"border-style bevel variants" section): `inset_border_paints_top_left_
+edges_darker_than_bottom_right` and `outset_border_is_the_reverse_of_
+inset` call the real `paint_border` directly into a hand-rolled pixel
+buffer and sample all 4 edges, confirming exactly the darkened/
+lightened variant lands where expected; `groove_border_splits_each_
+edge_into_an_outer_dark_and_inner_light_half` samples both halves of
+all 4 edges to confirm the crease; `ridge_border_is_the_reverse_of_
+groove_at_every_sampled_point` paints both styles with the same inputs
+and asserts every one of the 8 sampled points disagrees, pairwise; a
+parsing test (`border_style_longhand_parses_all_four_bevel_keywords`)
+confirms the `border-style` longhand resolves each of the 4 new
+keywords to its own `BorderStyle` variant through the real cascade (not
+folded into `Solid` anymore); and one end-to-end test through the real
+`paint_fixture` HTML→layout→paint pipeline (not just the primitive)
+confirms `border-style: inset` actually reaches `paint_box_decoration`'s
+new `paint_border` call from a real document. `BorderStyle` needed
+`#[derive(Debug)]` added (for the parsing test's own `assert_eq!`
+failure message) — the only non-additive change to the type itself.
+
+**Visually confirmed with a real `grim` screenshot**: 5 boxes
+(`solid`/`groove`/`ridge`/`inset`/`outset`, all the same declared
+border-color/width) side by side — `solid` uniform, `groove` showing a
+visible dark-then-light crease down the top/left edges and light-then-
+dark down bottom/right, `ridge` the exact mirror of `groove`, `inset`
+uniformly dark top/left and light bottom/right with no crease, `outset`
+the exact mirror of `inset` — all 4 new styles visually distinct from
+each other and from plain `solid`, matching the design intent exactly.
+
+**Not scoped down**: the task gave explicit latitude to approximate
+`groove`/`ridge` as a uniform per-edge shade (the `Inset`/`Outset`
+technique) if the inner-split turned out disproportionately complex —
+it didn't, so both landed with the full two-stripe-per-edge split. No
+narrower follow-up `TODO.txt` item was needed for this one.
+
+Combined with `border-radius` is still out of scope, unchanged from
+before this item (same pre-existing gap `dashed`/`dotted`/`double`
+already had, v38): a bevel style's own `TODO.txt` note was folded into
+the existing `border-radius` item's wording rather than duplicated.
+
+**Deliverable:** `src/lib.rs` (`BorderStyle` enum: 4 new variants +
+`Debug` derive, `border_style_from_keyword` no longer folds them into
+`Solid`, `lighten`/`darken`/`BEVEL_RATIO`, `bevel_colors`, new
+`paint_border` + `paint_border_edge`'s now-exhaustive match,
+`paint_box_decoration`'s border call site simplified to one `paint_
+border` call — 6 new permanent tests); `TODO.txt` (item checked off,
+`border-radius`'s existing combo item's wording touched up);
+`NOTES.md` (the lighten/darken color math, reusable for anything else
+that needs a light/dark variant of a `TextColor` later).

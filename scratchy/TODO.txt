@@ -748,24 +748,32 @@ session can pick a coherent slice rather than one property at a time.
             rendering at the pre-scroll (zero-offset) position. Worth a
             real interactive check next time a human's at the keyboard.
 
-- [ ] `border-style` (PROMPTS.md v30) only distinguishes `dashed`/
-      `dotted`/`double`/`none`/`hidden` from a plain solid stroke —
-      `groove`/`ridge`/`inset`/`outset` all fall back to rendering as
-      `solid`, since a real bevel effect needs two-tone shading this
-      file's flat-fill painting primitives don't have (`hr`'s
-      `border-style: inset` in `default.css` already rendered solid
-      before this property existed at all, so this is a no-op for it,
-      not a regression). Revisit if a real page's bevel border looks
-      visibly wrong as flat solid instead.
+- [x] `border-style` (PROMPTS.md v30) originally only distinguished
+      `dashed`/`dotted`/`double`/`none`/`hidden` from a plain solid
+      stroke — `groove`/`ridge`/`inset`/`outset` now get a real CSS2.1
+      §8.5.3 two-tone bevel rendering too (PENDING_HASH, v63), computed
+      from lighter/darker variants of the declared `border-color` (new
+      `lighten`/`darken` helpers, blending 50% toward white/black — no
+      exact ratio is spec-mandated). `Inset`/`Outset` paint each whole
+      edge a single light-or-dark variant (top/left vs. bottom/right);
+      `Groove`/`Ridge` got the full inner-split treatment (not the
+      scoped-down uniform approximation that was explicitly permitted as
+      a fallback) — each edge's own stroke width splits into an outer
+      and inner half, so a single edge shows a visible crease, not just
+      a flat shade. `hr`'s `border-style: inset` in `default.css` now
+      actually renders a real bevel instead of the flat solid it's had
+      since before this property existed at all. 6 new permanent tests.
 
 - [ ] `border-radius` (v38) combined with a non-`solid` `border-style`
-      (`dashed`/`dotted`/`double`) falls back to the old square-corner
-      rendering for both background and border — a rounded ring works
-      for `solid` only (`fill_rounded_ring`). A correctly-rounded
-      dashed/dotted ring needs the same curved-path tracing a solid
-      ring does, just repeated per dash/dot/stripe along that curve
-      instead of a straight edge — real extra work, not attempted here
-      since nothing in `default.css` or a real test page needs it yet.
+      (`dashed`/`dotted`/`double`, or, since v63, a bevel style —
+      `groove`/`ridge`/`inset`/`outset`) falls back to the old
+      square-corner rendering for both background and border — a
+      rounded ring works for `solid` only (`fill_rounded_ring`). A
+      correctly-rounded dashed/dotted/bevel ring needs the same
+      curved-path tracing a solid ring does, just repeated per
+      dash/dot/stripe/shaded-half along that curve instead of a
+      straight edge — real extra work, not attempted here since nothing
+      in `default.css` or a real test page needs it yet.
 
 - [ ] **`opacity` was deliberately skipped, not attempted** — scoping
       it out surfaced a real design decision, not just an
