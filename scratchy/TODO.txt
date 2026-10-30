@@ -968,9 +968,67 @@ session can pick a coherent slice rather than one property at a time.
       nothing to draw anyway with no networking), and no JavaScript
       (html5ever only parses the DOM; `<script>` contents are read and
       discarded, never executed). The only interactivity scratchy has
-      at all is mouse-wheel scroll and window resize — no link
-      navigation, no keyboard input, no text selection. Networking
-      itself (fetching the page, images, fonts, external stylesheets)
-      remains a deliberately separate, not-yet-started concern from
-      rendering — see NOTES.md.
+      at all is mouse-wheel scroll and window resize — no keyboard
+      input, no text selection. Networking itself (fetching the page,
+      images, fonts, external stylesheets) remains a deliberately
+      separate, not-yet-started concern from rendering — see NOTES.md.
+      (Link navigation specifically is carved out as its own planned
+      item just below, no longer folded into this one.)
+
+- [ ] **Link navigation (click an `<a href>` to load a new page) —
+      planned (2026-10-30), not yet implemented.** scratchy has *zero*
+      click handling today (`WindowEvent::MouseInput` isn't wired up
+      anywhere — only hover, for the `cursor` property, and
+      mouse-wheel scroll exist). The real blocker, discussed and
+      resolved with the user before touching any code: scratchy's
+      zero-networking design is deliberate and stays that way, so
+      "click a link" can't mean "scratchy fetches the new page
+      itself." Plan, agreed with the user:
+
+      1. **`snag` gets a `--serve` mode** (see `snag/TODO.txt`'s own
+         new item) — a long-lived local daemon on a Unix socket
+         (`$XDG_RUNTIME_DIR/snag.sock`), reusing `snag`'s existing
+         per-URL fetch+inline logic verbatim (just a new entry point,
+         not new fetch logic). The user starts it manually
+         (`snag --serve`) — scratchy does NOT auto-spawn it. No
+         caching across requests in v1 (every request does the same
+         full fetch+inline work the one-shot CLI already does) —
+         revisit only if repeated-navigation latency on the same site
+         turns out to actually matter in practice.
+      2. **`snag` also starts emitting a real `<base href="...">` tag**
+         in its output `<head>` (both `--serve` and the existing
+         one-shot CLI, for consistency) — it already computes this
+         internally via `discover_base` for its own resource-inlining,
+         just needs to actually write it out so scratchy can resolve
+         relative `<a href>` targets with ordinary URL-join logic,
+         without `snag` needing to rewrite every anchor tag itself
+         (confirmed by reading `snag/src/main.rs`: `<a>` tags are
+         currently copied through completely untouched, unlike
+         `link`/`style`/`img`).
+      3. **scratchy adds real click detection** — a `WindowEvent::
+         MouseInput` handler, reusing the exact glyph-precision
+         hit-testing `cursor` (v32/v61) already has for "which glyph
+         is under this point, and is it a link" (same machinery,
+         different event).
+      4. On a link click: resolve the href to an absolute URL via the
+         page's own `<base href>`, connect to the snag socket, send
+         the URL, read the bundled HTML stream back, re-parse the DOM,
+         and swap it into the *same live window* — no process
+         restart, no flicker. Show a lightweight "Loading…" indicator
+         while waiting (`snag` took 10-30s fetching/inlining ~286
+         resources for a real Wikipedia article in this session's own
+         testing — silently freezing with no feedback would look
+         broken). If the socket isn't reachable (server not started),
+         show an inline status message telling the user to run
+         `snag --serve`, rather than failing silently or crashing. A
+         fetch error (bad URL, snag itself errors) renders a minimal
+         error message in place of the page instead of crashing.
+      5. **Deliberately scoped out of this first pass, per explicit
+         user decision (not an oversight):** back/forward history —
+         land plain forward navigation (click → load) first, well-
+         tested, before adding an in-memory URL history stack and a
+         back/forward keybinding as a clean follow-up on top of it.
+
+      Not started — this is a plan to pick up later, recorded here so
+      it isn't lost, not an in-progress item.
 

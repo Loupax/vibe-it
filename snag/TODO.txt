@@ -104,3 +104,48 @@ not a speculative feature backlog. See NOTES.md for the fuller story.
       defer>` block would still hold that one block's bytes the whole
       time. Not hit on any real page tested (every `defer` script seen
       so far has an external `src`, nothing inline of any real size).
+
+- [ ] **`snag --serve`: a long-lived local daemon mode, to support
+      scratchy link navigation — planned (2026-10-30), not yet
+      implemented.** Full plan lives in `scratchy/TODO.txt`'s own
+      "Link navigation" item (this is the snag half of it); summary
+      here for anyone reading this file in isolation:
+
+      1. A new `--serve` CLI mode listens on a Unix domain socket
+         (`$XDG_RUNTIME_DIR/snag.sock`) instead of reading one URL
+         from argv/stdin and writing to stdout. Per-connection
+         behavior reuses the *exact* existing per-URL fetch+inline
+         logic this file already has — this is a new entry point, not
+         new fetching logic: a client writes an absolute URL + newline,
+         the server streams back exactly the bytes the one-shot CLI
+         already produces for that URL today, then closes the
+         connection. The existing one-shot `snag <url>` CLI mode stays
+         exactly as it is — `--serve` is additive, not a replacement.
+      2. Started manually by the user (`snag --serve`) — scratchy does
+         not and should not auto-spawn it. No caching of fetched
+         resources across requests in v1 (every request does the same
+         full independent fetch+inline work the CLI already does) —
+         explicitly deferred, not an oversight; revisit only if
+         repeated-navigation latency on the same site turns out to
+         matter.
+      3. No new concurrency needed — handling one connection at a time
+         is fine for v1, matching this file's already-serial
+         per-resource fetch model (see the separate, unrelated
+         "no size cap or concurrency" item above, which is about
+         per-page sub-resource fetching, not this).
+
+      **Also needed, smaller and independent of `--serve` itself:**
+      `snag` should start emitting a real `<base href="...">` tag in
+      its output `<head>` — in BOTH `--serve` and the existing one-shot
+      CLI mode, for consistency — so a consumer (scratchy) can resolve
+      a page's relative `<a href>` targets to absolute URLs itself.
+      `discover_base` already computes this value internally today for
+      resource-inlining purposes; it just isn't written back out
+      anywhere. Confirmed by reading this file's own `<a>`-tag
+      handling: unlike `link`/`style`/`img`, an `<a>` tag is currently
+      copied straight through byte-for-byte, untouched — so without a
+      `<base href>`, a relative `<a href="/wiki/Dog">` has no way to be
+      resolved by anything downstream.
+
+      Not started — this is a plan to pick up later, recorded here so
+      it isn't lost, not an in-progress item.
