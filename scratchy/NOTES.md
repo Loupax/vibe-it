@@ -2334,3 +2334,152 @@ page" behavior was only exercised by the permanent headless tests
 synthetic scroll offset standing in for a live wheel event) — worth a
 real interactive check next time a human's at the keyboard, same
 standing note every prior scroll/cursor-adjacent item here has left.
+
+## v64 — `@media`, scoped to viewport-width breakpoints
+
+Reprioritized ahead of the ordinary autonomous `TODO.txt` loop because
+of a real investigation: rendering actual `en.wikipedia.org` through
+`snag | scratchy` and grepping the real fetched CSS found that the
+page's entire desktop two-column skeleton comes from one `@media
+screen and (min-width:1120px) { .mw-page-container-inner { display:
+grid; grid-template-areas: ... } }` rule that never fired — `@media`
+was dropped outright at parse time, and `grid-template-areas`/
+`grid-area` placement was already out of scope from v58. Both got
+user sign-off to jump the queue; this item is `@media` only (see
+PROMPTS.md's v64 entry for the full story and TODO.txt for exactly
+what's still deferred).
+
+**Representation: a rule carries its own condition, not a separate
+side table.** `StyleRule` gained `media: Vec<MediaQuery>` — empty (the
+default for anything outside `@media`, unchanged from before this
+item existed) always applies; non-empty applies if *any* entry matches
+(`media_list_matches`, comma-separated = OR). Each `MediaQuery` is one
+`and`-joined item: a `MediaType` (`All`/`Screen`/`Print`) plus optional
+`min_width`/`max_width: Option<f32>` (resolved to a plain px number
+*at parse time* — a media feature has no element/cascade context to
+defer an `em`/`rem` resolution to the way `BoxLength` does elsewhere in
+this file, so `media_feature_length_px` resolves immediately against
+the same `16.0` UA-default root font-size `ROOT_STYLE` uses) and
+optional `prefers_color_scheme`/`prefers_reduced_motion`. A `never:
+bool` flag, once set, makes the whole entry permanently non-matching —
+the single mechanism behind every "safely drop, don't crash or guess"
+outcome in this item: an unrecognized media type, an unsupported
+feature, an uncomputable value (`calc()`, this project has no
+arithmetic evaluator anywhere — confirmed by grep before writing any
+parsing code, not built for this item), or `not` (negation,
+recognized syntactically but not actually evaluated) all just set
+`never = true` and let the rest of parsing continue rather than
+aborting. This mirrors real CSS Media Queries syntax directly, not
+just an engineering convenience: the spec itself defines an individual
+query that fails to parse as evaluating to "not all," so "safely never
+matches" is the spec-accurate outcome, not a lossy approximation.
+
+**Parsing: `TopLevelParser`'s `AtRuleParser` impl, previously relying
+entirely on the default (reject-everything) trait methods, now has
+real ones for `@media`.** `parse_prelude` recognizes the name
+case-insensitively and hands off to `parse_media_query_list`, a
+hand-written, deliberately permissive scanner over the already-
+delimited prelude tokens (`and`/`only`/`not`/a known media type keyword
+update `MediaQuery`'s fields in place; a `(` opens a `parse_nested_
+block` call into `parse_media_feature`, which reuses `parse_length`
+outright — checked first that it already accepts the needed unit forms
+— for the `min-width`/`max-width` value grammar). Any single
+unrecognized token at the top level is just skipped rather than
+aborting the whole list, so a real, mostly-standard media query isn't
+thrown away wholesale over one clause this engine doesn't understand.
+`cssparser`'s own `parse_nested_block`/`parse_until_before` already
+self-heal past a partially-consumed inner block (confirmed by reading
+`cssparser` 0.38's vendored source before relying on it) — e.g. when
+`parse_length` bails out on a `calc(` function token without
+descending into it, the outer block-skip logic still consumes through
+to the matching close-paren on its own, so there's no leftover-token
+risk from an early `Err` return anywhere in this new code.
+
+**One at-rule, several real rules — the one place the existing
+single-`StyleRule`-per-item shape had to change.** `StyleSheetParser`
+requires `AtRuleParser::AtRule` and `QualifiedRuleParser::QualifiedRule`
+to be the *same* type (confirmed by reading its own trait bounds) —
+previously both were plain `StyleRule`. An `@media` block can expand
+into any number of real rules, so both became `Vec<StyleRule>` (an
+ordinary qualified rule now just returns a one-element `Vec`), and
+`parse_block` for the at-rule recurses with a fresh `TopLevelParser`
+over the same block-delimited `input` — reusing the exact top-level
+rule-list grammar instead of a second, parallel implementation — then
+tags every rule to come out of that recursion with the block's own
+condition (only if a *deeper*-nested `@media` hasn't already set one;
+real CSS would AND nested conditions together, which this deliberately
+doesn't attempt — rare enough in practice, and documented rather than
+silently wrong). `parse_stylesheet` just flattens with `rules.extend`.
+
+**Viewport-width-aware matching: one new parameter at the real choke
+point, threaded out through everything already calling it.**
+`matching_declarations` — already the single place every cascade call
+in this file ran real selector matching through (`resolve_style`,
+`resolve_background_image`, previously `collect_root_custom_props` had
+its own separate, un-shared copy of the same loop, which also now
+checks `media_list_matches`) — gained `viewport_width: f32` and skips
+a rule outright (before the more expensive real selector match) when
+its own condition doesn't currently hold. Every function already in
+that cascade's call chain widened by this one parameter: `resolve_
+style`, `resolve_background_image`, `build_box_for_element`, `build_
+table_children`, `build_table_row_cells`, `build_flex_children`,
+`build_children`/`build_children_with_prefix`, `collect_children`, and
+`build_layout_tree` itself (now `pub fn build_layout_tree(document:
+&Handle, viewport_width: f32)`). Mechanical, not clever — every one of
+these functions already threaded `rules`/`inherited` the same way; this
+is the identical shape of plumbing, one more value wide.
+
+**No new resize-reaction mechanism — reused the one that already
+existed for exactly this reason.** `App::redraw` already rebuilds
+`build_layout_tree` from scratch every time the live window width
+changes (`self.cached_width != width`), a mechanism that's existed
+since before this item for `%`/`em`/`rem`/table/flex/grid measurement's
+own sake (see v49/v50/flexbox/grid's own writeups). The only change at
+that call site is passing `width as f32` through as the new second
+argument — a resize now makes the *rule-matching* pick up a changed
+media condition for free, through the exact same rebuild path that was
+already making layout numbers change on resize. This was the task's
+own explicit instruction (reuse the existing path, don't invent a new
+one), and it held up cleanly: zero new state, zero new event handling.
+
+**Testing**: 9 new permanent tests via the full `parse_html` + `<style>`
++ `build_layout_tree(&doc, width)` pipeline (not a lower-level unit
+test of `MediaQuery::matches` in isolation) — a `find_box_with_
+background` helper walks the box tree for the first resolved
+`background-color`, the simplest reliable "did this rule actually
+apply" signal. Covers: `min-width` matching at/above (inclusive at the
+exact boundary) and not below; `max-width` as the precise inverse;
+`and` genuinely requiring both conditions (not silently dropping the
+width check when the type alone would already match); comma as real
+OR (either branch sufficient, neither matching when neither holds);
+`print` never matching even when paired with a `min-width:0px` that
+would trivially hold on its own, isolating that it's the type
+rejecting it; the Wikipedia-literal `calc()` case never matching at
+any width tried, including one a correct evaluation would have
+satisfied; an ordinary non-`@media` rule staying completely width-
+insensitive (the cheapest possible regression check that this item's
+new width-gating in `matching_declarations` didn't leak into the
+unconditioned case); a same-document two-different-widths call
+standing in for a real resize; and the `prefers-color-scheme: light`
+default. All 135 pre-existing tests (plus the two `benches/layout.rs`
+call sites) needed only a mechanical second argument added to their
+existing `build_layout_tree(&doc)` calls (a wide `1920.0`, changing
+nothing for any of them since none declare `@media`-scoped CSS).
+
+**Live verification hit a real sandbox limitation, named rather than
+worked around at length**: a real `@media (min-width:600px)`/
+`(max-width:400px)` test page rendered correctly red through a live
+`scratchy` process and `grim` screenshot, at this sandbox's actual dwl-
+assigned window width (~1050px — past the 600px breakpoint, confirming
+real end-to-end behavior, not just headless-test behavior). Getting a
+genuinely narrow live window to see the inverse visually wasn't
+possible here: dwl's tile layout keeps its master column at a fixed
+width fraction regardless of client count (tried up to 5 simultaneous
+scratchy windows — only the stack column's height shrinks per client,
+confirmed by screenshot, not the master's width), and there's no wlr-
+randr/swaymsg/wtype-equivalent in this sandbox to request or force a
+specific size the WM would honor (same category of gap already noted
+for synthesizing mouse events in v32/v55/v62). The headless test suite
+above is the real authority for the narrow/boundary/inverse cases,
+since it exercises the actual matching code path directly rather than
+relying on the WM to cooperate.

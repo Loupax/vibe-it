@@ -39,7 +39,7 @@ fn bench_build_layout_tree(c: &mut Criterion) {
     let html = synthetic_html(200);
     let document = parse_html(&html);
     c.bench_function("build_layout_tree, 200 paragraphs + list + table", |b| {
-        b.iter(|| build_layout_tree(black_box(&document)));
+        b.iter(|| build_layout_tree(black_box(&document), 1920.0));
     });
 }
 
@@ -54,7 +54,7 @@ fn bench_build_layout_tree(c: &mut Criterion) {
 fn bench_measure(c: &mut Criterion) {
     let html = synthetic_html(200);
     let document = parse_html(&html);
-    let tree = build_layout_tree(&document);
+    let tree = build_layout_tree(&document, 1920.0);
     let mut font_system = new_font_system();
     c.bench_function("measure, cold shape cache, 200 paragraphs + list + table", |b| {
         b.iter(|| {

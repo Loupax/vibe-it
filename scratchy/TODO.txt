@@ -859,11 +859,71 @@ session can pick a coherent slice rather than one property at a time.
       text-level scan with no CSS string/comment awareness (`content:
       "var(--x)"` would still get substituted inside the quotes).
 
-- [ ] No at-rules at all — `@media`, `@import`, `@font-face`,
-      `@keyframes`, and transitions/animations are all skipped outright
-      at the stylesheet-parsing stage (`TopLevelParser`'s `AtRule`
-      parsing is a deliberate no-op). No responsive breakpoints, no
-      animation of any kind.
+- [x] `@media` (PENDING_HASH, v64) now parses real `<media-query-list>`
+      grammar at the stylesheet-parsing stage — `TopLevelParser`'s
+      `AtRuleParser` impl recognizes `@media` by name (any other
+      at-rule still falls through to the same no-op drop as before, see
+      the narrower item just below) and tags every rule inside with its
+      own parsed condition (`StyleRule::media: Vec<MediaQuery>`).
+      Landed: `min-width`/`max-width` (the dominant real-world case by
+      far — confirmed by grepping a real Wikipedia page's CSS, which
+      motivated this item jumping the autonomous loop's own ordering,
+      see PROMPTS.md's v64 writeup), `screen`/`all` matching and `print`
+      never matching (scratchy has no print concept — correct,
+      documented behavior, not a gap), an implicit-type condition
+      defaulting to `all`, real comma(=OR)/`and`(=AND) media-query-list
+      combination, and `prefers-color-scheme`/`prefers-reduced-motion`
+      resolved to a fixed default (`light`/`no-preference` always match,
+      `dark`/`reduce` never do — scratchy has no OS preference
+      detection to report anything else from). `calc()` inside a media
+      feature value (`(max-width:calc(1120px - 1px))`, Wikipedia's own
+      literal form) safely never matches rather than crashing or
+      guessing — this project has no `calc()` arithmetic evaluator
+      anywhere (confirmed by grep, not built for this), and an
+      individual media query that fails to parse is real spec behavior
+      for "not all," not just a convenient fallback. `not` (negation)
+      gets the same safe-never-matches treatment — recognized, not
+      actually evaluated as a real inversion.
+
+      Viewport-width-aware matching threads a `viewport_width: f32`
+      through the one real cascade choke point (`matching_declarations`)
+      and every function in `build_layout_tree`'s own call chain down to
+      it, so a media-conditioned rule is only a cascade candidate when
+      its condition currently holds. No new resize-reaction mechanism
+      was added: `App::redraw` already rebuilds `build_layout_tree`
+      fresh on every live window-width change (pre-existing, for `%`/
+      `em`/`rem`/table/flex/grid measurement's own sake) — passing that
+      same width through makes a rebuild media-aware for free. 9 new
+      permanent tests cover min-width/max-width (including the
+      inclusive boundary), `and`, comma-OR, `print`-never, the `calc()`
+      case, an ordinary rule staying unaffected, a simulated resize
+      picking up a newly-applicable rule, and the prefers-color-scheme
+      default. Live-verified with a real `grim` screenshot against a
+      real `scratchy` process (confirmed matching at this sandbox's
+      actual ~1050px dwl-assigned window width); a genuinely narrow live
+      window wasn't reachable in this sandbox (dwl's tile layout keeps a
+      fixed-width master column regardless of client count, and no
+      wlr-randr/swaymsg/wtype-equivalent exists here to force one) — the
+      narrow/boundary/inverse cases are covered by the headless suite
+      instead, which exercises the real matching code directly.
+      Sanity-checked against real `en.wikipedia.org` (`snag | scratchy`)
+      with no crash across ~100 real `@media` blocks; the page still
+      renders single-column as predicted, since `grid-template-areas`/
+      `grid-area` (the other half of the real fix, see `display: grid`'s
+      own item above) is deliberately not part of this item.
+
+- [ ] `@import`/`@font-face`/`@keyframes`, and transitions/animations
+      are still skipped outright at the stylesheet-parsing stage (any
+      at-rule name other than `media` still falls through to the same
+      "invalid, drop it" outcome `TopLevelParser`'s old blanket no-op
+      gave every at-rule) — split off from the old combined "no at-rules
+      at all" item now that `@media` (just above) has its own real
+      implementation. `@import` is a fetch-time concept this
+      no-networking renderer doesn't need yet (see NOTES.md's "rendering,
+      not networking" priority); `@font-face`/`@keyframes`/transitions/
+      animations are unrelated to responsive layout, which was what was
+      actually blocking real pages from looking right. No responsive-
+      breakpoint gap remains — that's `@media`'s own item, now resolved.
 
 - [ ] `OurSelectorImpl`'s `NonTSPseudoClass` (now `OurPseudoClass`,
       v37) still can't parse `:hover`/`:focus`/`:active` — unlike

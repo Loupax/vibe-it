@@ -1514,6 +1514,287 @@ impl FontFamily {
 struct StyleRule {
     selectors: SelectorList<OurSelectorImpl>,
     decls: Declarations,
+    /// Zero or more comma-separated `@media` conditions this rule is
+    /// wrapped in (comma = OR between entries; `and` is folded into one
+    /// entry's own fields, real Media Queries list grammar). An empty
+    /// `Vec` means "not inside any `@media` at all" — always applies,
+    /// independent of viewport width, exactly as before this existed.
+    /// See `media_list_matches`.
+    media: Vec<MediaQuery>,
+}
+
+/// A real media type keyword this engine can evaluate. `screen` and
+/// `all` both match (scratchy only ever renders to a screen); `print`
+/// never matches — scratchy has no print/paged-media concept at all,
+/// so `@media print { ... }` rules are intentionally always inert, the
+/// correct behavior for a screen-only renderer, not a gap to close.
+/// Any other/unrecognized media type keyword (`speech`, a future CSS
+/// keyword, a typo) is represented by simply marking the owning
+/// `MediaQuery::never` instead of adding a third "unknown" variant
+/// here — real Media Queries syntax already treats an unrecognized
+/// media type as making that one query "not all" (never matches), the
+/// same place this engine's own general "unsupported feature → never
+/// matches" fallback (see `MediaQuery::never`) already lives.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MediaType {
+    All,
+    Screen,
+    Print,
+}
+
+/// scratchy has no OS dark/light theme detection at all — there's no
+/// real answer to "what does `prefers-color-scheme` resolve to" the
+/// way there would be in a real browser reading an actual OS setting.
+/// Fixed, documented default: always `light` (`dark` never matches).
+/// An arbitrary but harmless choice — light is the conventional default
+/// `prefers-color-scheme` itself defines when no preference is known.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PrefersColorScheme {
+    Light,
+    Dark,
+}
+
+/// Same story as `PrefersColorScheme`: scratchy has no OS reduced-
+/// motion setting to read, and (per this item's own scope) no
+/// animations to reduce in the first place, making this largely moot
+/// either way. Fixed, documented default: always `no-preference`
+/// (`reduce` never matches).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PrefersReducedMotion {
+    NoPreference,
+    Reduce,
+}
+
+/// One item of a comma-separated `@media` query list — a media type
+/// plus zero or more `and`-joined features, matching real CSS Media
+/// Queries Level 4 grammar for exactly the subset this engine
+/// evaluates (`min-width`/`max-width`, `prefers-color-scheme`,
+/// `prefers-reduced-motion`). `never`, once set, makes this item
+/// permanently non-matching regardless of anything else in it — set
+/// whenever parsing hits something this engine can't evaluate at all
+/// (an unrecognized media type/feature, a `not` negation — not
+/// implemented, see `parse_media_query_list`'s own docs — or a feature
+/// value this engine can't compute, most notably `calc()`, which this
+/// project has no arithmetic-expression evaluator for anywhere). This
+/// mirrors real Media Queries syntax directly, not just an engineering
+/// convenience: an individual query in a comma-separated list that
+/// fails to parse is defined by the spec itself to evaluate as
+/// "not all" (never matches) rather than invalidating the whole list
+/// or the whole `@media` rule — so "safely never matches" here is
+/// spec-accurate behavior, not a lossy fallback.
+#[derive(Clone, Debug, PartialEq)]
+struct MediaQuery {
+    media_type: MediaType,
+    min_width: Option<f32>,
+    max_width: Option<f32>,
+    prefers_color_scheme: Option<PrefersColorScheme>,
+    prefers_reduced_motion: Option<PrefersReducedMotion>,
+    never: bool,
+}
+
+impl Default for MediaQuery {
+    /// An unqualified condition with no explicit media type at all
+    /// (e.g. `@media (min-width:640px)`) implicitly means `all`, per
+    /// real CSS Media Queries grammar — `all` is this type's own
+    /// default, not a separate special case elsewhere.
+    fn default() -> Self {
+        MediaQuery {
+            media_type: MediaType::All,
+            min_width: None,
+            max_width: None,
+            prefers_color_scheme: None,
+            prefers_reduced_motion: None,
+            never: false,
+        }
+    }
+}
+
+impl MediaQuery {
+    /// Whether this one query currently holds, given the live viewport
+    /// width (in CSS px) — re-evaluated fresh every time this is
+    /// called, never cached, since the whole point is that the answer
+    /// can change across a resize (see `build_layout_tree`'s own docs).
+    fn matches(&self, viewport_width: f32) -> bool {
+        if self.never {
+            return false;
+        }
+        match self.media_type {
+            MediaType::All | MediaType::Screen => {}
+            MediaType::Print => return false,
+        }
+        if let Some(min) = self.min_width
+            && viewport_width < min
+        {
+            return false;
+        }
+        if let Some(max) = self.max_width
+            && viewport_width > max
+        {
+            return false;
+        }
+        if let Some(pcs) = self.prefers_color_scheme
+            && pcs != PrefersColorScheme::Light
+        {
+            return false;
+        }
+        if let Some(prm) = self.prefers_reduced_motion
+            && prm != PrefersReducedMotion::NoPreference
+        {
+            return false;
+        }
+        true
+    }
+}
+
+/// Whether a rule's own `media` list currently applies: an empty list
+/// (not wrapped in any `@media`) always applies, independent of
+/// `viewport_width`; a non-empty list applies if *any* one entry
+/// matches (comma-separated = OR, real Media Queries list grammar).
+fn media_list_matches(queries: &[MediaQuery], viewport_width: f32) -> bool {
+    queries.is_empty() || queries.iter().any(|q| q.matches(viewport_width))
+}
+
+/// Parses one `(feature: value)` media feature, already positioned
+/// right after the opening `(` has been consumed (i.e. called from
+/// inside `input.parse_nested_block`, so `input` is scoped to exactly
+/// this one parenthesized feature). Only `min-width`/`max-width`/
+/// `prefers-color-scheme`/`prefers-reduced-motion` are recognized —
+/// anything else (including a feature name this engine doesn't know,
+/// or a value it can't parse, most notably `calc()` — `parse_length`
+/// has no arithmetic-expression support at all, confirmed by grep
+/// before writing this, so a `calc(...)` value simply fails here, the
+/// same way any other unsupported value fails elsewhere in this file)
+/// returns `Err(())`, which the caller turns into `MediaQuery::never`
+/// — this one query item safely never matches rather than crashing or
+/// guessing. Real CSS also allows a boolean (valueless) or range
+/// (`<`/`>`/`<=`/`>=`) feature syntax — neither is attempted here,
+/// same `Err(())` fallback.
+fn parse_media_feature(input: &mut CssParser, q: &mut MediaQuery) -> Result<(), ()> {
+    let name = input.expect_ident().map_err(|_| ())?.clone();
+    input.expect_colon().map_err(|_| ())?;
+    if name.eq_ignore_ascii_case("min-width") {
+        q.min_width = Some(media_feature_length_px(input)?);
+    } else if name.eq_ignore_ascii_case("max-width") {
+        q.max_width = Some(media_feature_length_px(input)?);
+    } else if name.eq_ignore_ascii_case("prefers-color-scheme") {
+        let v = input.expect_ident().map_err(|_| ())?;
+        q.prefers_color_scheme = Some(if v.eq_ignore_ascii_case("dark") {
+            PrefersColorScheme::Dark
+        } else if v.eq_ignore_ascii_case("light") {
+            PrefersColorScheme::Light
+        } else {
+            return Err(());
+        });
+    } else if name.eq_ignore_ascii_case("prefers-reduced-motion") {
+        let v = input.expect_ident().map_err(|_| ())?;
+        q.prefers_reduced_motion = Some(if v.eq_ignore_ascii_case("reduce") {
+            PrefersReducedMotion::Reduce
+        } else if v.eq_ignore_ascii_case("no-preference") {
+            PrefersReducedMotion::NoPreference
+        } else {
+            return Err(());
+        });
+    } else {
+        return Err(());
+    }
+    Ok(())
+}
+
+/// A media feature's own length value, resolved all the way to a plain
+/// px number at *parse* time (unlike `BoxLength`'s deferred-resolution
+/// pattern elsewhere in this file) — a media feature has no element/
+/// cascade context at all to resolve an `em`/`rem` against later, so
+/// there's nothing to defer to. Reuses `parse_length` exactly as-is
+/// (checked first: it already accepts `px`/`em`/`rem`, the task's own
+/// "check what unit forms your length parser already accepts" guidance)
+/// rather than writing a second length grammar — `calc()` fails here
+/// for the same reason it fails in `parse_length` itself (no
+/// `Function` arm matches any of its token patterns). `em`/`rem`
+/// resolve against the same `16.0` UA-default root font-size
+/// `ROOT_STYLE` uses, since a media feature is evaluated with no
+/// cascaded font-size of any element in scope at all — the real spec
+/// basis for either unit used in a media query is the initial
+/// (UA-default) font-size, not some element's computed one.
+fn media_feature_length_px(input: &mut CssParser) -> Result<f32, ()> {
+    match parse_length(input)? {
+        Length::Px(v) => Ok(v),
+        Length::Em(v) | Length::Rem(v) => Ok(v * 16.0),
+        // `parse_length` itself never actually produces any of these
+        // (confirmed by its own match arms) — only reachable if that
+        // changes later, in which case failing safely here is right
+        // regardless of which new variant showed up.
+        Length::Percent(_) | Length::Larger | Length::Smaller => Err(()),
+    }
+}
+
+/// Parses a full `@media <media-query-list>` prelude (the part between
+/// `@media` and the `{`) into one `MediaQuery` per comma-separated
+/// item. Deliberately permissive/never hard-fails: an unrecognized
+/// token at the top level (not `and`/`not`/`only`/a known media type/a
+/// `(feature)` block) is just skipped rather than aborting the whole
+/// list, and a `(feature)` block that fails to parse marks only its
+/// own query item `never` (see `parse_media_feature`'s own docs) — so
+/// a real, mostly-valid media query list is never thrown away wholesale
+/// just because one clause in it uses something this engine doesn't
+/// understand. `not` is recognized (so it doesn't fall through to the
+/// "unrecognized media type" branch) but not actually evaluated as a
+/// real negation — real CSS `not screen` / `not (min-width: ...)`
+/// would need this engine to invert everything that follows it, which
+/// isn't implemented; treated instead as "this query uses something
+/// unsupported" and marked `never`, the same safe-fallback shape as any
+/// other unsupported feature here, not a silent wrong-match. `only` is
+/// recognized and skipped with no effect (legacy compatibility syntax
+/// with no real bearing on evaluation either way).
+fn parse_media_query_list(input: &mut CssParser) -> Vec<MediaQuery> {
+    let mut queries = Vec::new();
+    loop {
+        let mut q = MediaQuery::default();
+        loop {
+            match input.next() {
+                Ok(Token::Comma) => break,
+                Ok(Token::Ident(id)) => {
+                    if id.eq_ignore_ascii_case("and") || id.eq_ignore_ascii_case("only") {
+                        // Combinator / legacy no-op keyword — nothing to
+                        // record, keep scanning this same query item.
+                    } else if id.eq_ignore_ascii_case("not") {
+                        q.never = true;
+                    } else if id.eq_ignore_ascii_case("screen") {
+                        q.media_type = MediaType::Screen;
+                    } else if id.eq_ignore_ascii_case("all") {
+                        q.media_type = MediaType::All;
+                    } else if id.eq_ignore_ascii_case("print") {
+                        q.media_type = MediaType::Print;
+                    } else {
+                        // Unrecognized media type keyword — real spec:
+                        // an unknown media type makes the whole query
+                        // "not all", i.e. never matches.
+                        q.never = true;
+                    }
+                }
+                Ok(Token::ParenthesisBlock) => {
+                    let result = input.parse_nested_block(|input| {
+                        parse_media_feature(input, &mut q)
+                            .map_err(|_| input.new_error_for_next_token::<()>())
+                    });
+                    if result.is_err() {
+                        q.never = true;
+                    }
+                }
+                Ok(_) => {
+                    // Anything else this grammar doesn't expect — skip
+                    // just this one token and keep scanning rather than
+                    // abandoning the rest of the list.
+                }
+                Err(_) => {
+                    // Ran out of input — end of the (already delimited)
+                    // prelude.
+                    queries.push(q);
+                    return queries;
+                }
+            }
+        }
+        queries.push(q);
+    }
 }
 
 /// `<length>` only — no `<percentage>` — the real CSS grammar for
@@ -3041,16 +3322,75 @@ fn parse_declarations(source: &str) -> Declarations {
 struct TopLevelParser;
 
 impl<'i> AtRuleParser<'i> for TopLevelParser {
-    type Prelude = ();
-    type AtRule = StyleRule;
+    // Only `@media`'s own query-list grammar is parsed here — every
+    // other at-rule name falls through to `parse_prelude`'s `Err` arm
+    // below, which is exactly "skip @import/@font-face/@keyframes/etc."
+    // for this stage, same as the old blanket no-op (see TODO.txt's own
+    // narrower item for exactly what's still deferred and why).
+    type Prelude = Vec<MediaQuery>;
+    // One at-rule can expand into several real rules (every rule inside
+    // an `@media` block), so this can't stay a single `StyleRule` the
+    // way a plain qualified rule's `QualifiedRule` output can — see
+    // `QualifiedRuleParser`'s own matching `Vec<StyleRule>` just below
+    // (`StyleSheetParser` requires `AtRule` and `QualifiedRule` to be
+    // the same type) and `parse_stylesheet`'s `rules.extend(..)`.
+    type AtRule = Vec<StyleRule>;
     type Error = CssError;
-    // Default implementation rejects every at-rule, which is exactly
-    // "skip @media/@import/@font-face/etc." for this stage.
+
+    fn parse_prelude(
+        &mut self,
+        name: CowRcStr<'i>,
+        input: &mut CssParser<'i>,
+    ) -> Result<Self::Prelude, ParseError<Self::Error>> {
+        if name.eq_ignore_ascii_case("media") {
+            Ok(parse_media_query_list(input))
+        } else {
+            Err(input.new_error_for_next_token())
+        }
+    }
+
+    fn parse_block(
+        &mut self,
+        prelude: Self::Prelude,
+        _start: &ParserState,
+        input: &mut CssParser<'i>,
+    ) -> Result<Self::AtRule, ParseError<Self::Error>> {
+        // The block's own content is an ordinary rule list (selectors +
+        // declarations, same grammar as the top level) — recursing with
+        // a fresh `TopLevelParser` over this already block-delimited
+        // `input` reuses the exact same rule-list parsing rather than a
+        // second, parallel implementation.
+        let mut nested = TopLevelParser;
+        let mut rules = Vec::new();
+        let iter = StyleSheetParser::new(input, &mut nested);
+        for inner_rules in iter.flatten() {
+            for mut rule in inner_rules {
+                // A rule nested directly inside this `@media` block
+                // inherits this block's own condition. A rule that's
+                // itself inside a *further*-nested `@media` (legal,
+                // if rare, real CSS) already has its own, deeper
+                // `media` list set by that recursive call — real CSS
+                // would AND the two conditions together; this
+                // deliberately doesn't (see this fn's own module
+                // docs / TODO.txt), so the outer condition here is
+                // simply left off whenever an inner one already won.
+                if rule.media.is_empty() {
+                    rule.media = prelude.clone();
+                }
+                rules.push(rule);
+            }
+        }
+        Ok(rules)
+    }
 }
 
 impl<'i> QualifiedRuleParser<'i> for TopLevelParser {
     type Prelude = SelectorList<OurSelectorImpl>;
-    type QualifiedRule = StyleRule;
+    // Wrapped in a one-element `Vec` so this matches `AtRuleParser::
+    // AtRule`'s own type exactly (`StyleSheetParser` requires both to
+    // agree) — see that impl's own docs for why an at-rule needs more
+    // than one slot.
+    type QualifiedRule = Vec<StyleRule>;
     type Error = CssError;
 
     fn parse_prelude(
@@ -3072,10 +3412,11 @@ impl<'i> QualifiedRuleParser<'i> for TopLevelParser {
             let mut iter = RuleBodyParser::new(input, &mut decl_parser);
             while iter.next().is_some() {}
         }
-        Ok(StyleRule {
+        Ok(vec![StyleRule {
             selectors: prelude,
             decls,
-        })
+            media: Vec::new(),
+        }])
     }
 }
 
@@ -3085,8 +3426,8 @@ fn parse_stylesheet(css: &str) -> Vec<StyleRule> {
     let mut rules = Vec::new();
     let mut stylesheet = StyleSheetParser::new(&mut input, &mut top);
     while let Some(result) = stylesheet.next() {
-        if let Ok(rule) = result {
-            rules.push(rule);
+        if let Ok(rule_list) = result {
+            rules.extend(rule_list);
         }
     }
     rules
@@ -3113,11 +3454,14 @@ fn parse_stylesheet(css: &str) -> Vec<StyleRule> {
 /// invasive version is deferred, not attempted. Later same-name
 /// declarations (by rule order, not specificity) win on a tie, matching
 /// `cascade_property`'s own `>=` tie-break elsewhere in this file.
-fn collect_root_custom_props(rules: &[StyleRule], html: &Handle) -> HashMap<String, String> {
+fn collect_root_custom_props(rules: &[StyleRule], html: &Handle, viewport_width: f32) -> HashMap<String, String> {
     let element = El(html.clone());
     let mut caches = SelectorCaches::default();
     let mut props = HashMap::new();
     for rule in rules {
+        if !media_list_matches(&rule.media, viewport_width) {
+            continue;
+        }
         let mut ctx = MatchingContext::new(
             MatchingMode::Normal,
             None,
@@ -3597,11 +3941,21 @@ fn cascade_property<T: Clone>(
 /// second time) rather than folding background-image into
 /// `ComputedStyle` itself — see `resolve_background_image`'s own docs
 /// for why it's resolved separately at all.
-fn matching_declarations<'a>(handle: &Handle, rules: &'a [StyleRule]) -> Vec<(u32, &'a Declarations)> {
+fn matching_declarations<'a>(handle: &Handle, rules: &'a [StyleRule], viewport_width: f32) -> Vec<(u32, &'a Declarations)> {
     let element = El(handle.clone());
     let mut caches = SelectorCaches::default();
     let mut matches: Vec<(u32, &Declarations)> = Vec::new();
     for rule in rules {
+        // The one choke point every cascade/matching call in this file
+        // goes through — a media-conditioned rule is only ever a
+        // cascade candidate when its own condition currently holds for
+        // `viewport_width`. See `MediaQuery`'s own docs for exactly
+        // what's evaluated. Checked before the (more expensive) real
+        // selector match, same short-circuit order `collect_root_
+        // custom_props` also uses.
+        if !media_list_matches(&rule.media, viewport_width) {
+            continue;
+        }
         let mut ctx = MatchingContext::new(
             MatchingMode::Normal,
             None,
@@ -3633,8 +3987,8 @@ fn matching_declarations<'a>(handle: &Handle, rules: &'a [StyleRule]) -> Vec<(u3
 /// `Rc` — same reasoning, and the same `Rc<DecodedImage>` type, as
 /// `BoxContent::Image` (see its own docs). Only a `data:` URI `url(...)`
 /// decodes — same `<img src>` policy, see `decode_data_uri`'s own docs.
-fn resolve_background_image(handle: &Handle, rules: &[StyleRule]) -> Option<Rc<DecodedImage>> {
-    let matches = matching_declarations(handle, rules);
+fn resolve_background_image(handle: &Handle, rules: &[StyleRule], viewport_width: f32) -> Option<Rc<DecodedImage>> {
+    let matches = matching_declarations(handle, rules, viewport_width);
     let inline_decls = element_attr(handle, "style").map(|s| parse_declarations(&s));
     let url = cascade_property(
         &matches,
@@ -3644,8 +3998,8 @@ fn resolve_background_image(handle: &Handle, rules: &[StyleRule]) -> Option<Rc<D
     decode_data_uri(&url).and_then(|b| decode_image_bytes(&b)).map(Rc::new)
 }
 
-fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle) -> ComputedStyle {
-    let matches = matching_declarations(handle, rules);
+fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle, viewport_width: f32) -> ComputedStyle {
+    let matches = matching_declarations(handle, rules, viewport_width);
     let inline_decls = element_attr(handle, "style").map(|s| parse_declarations(&s));
 
     let color = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.color), |d| d.color)
@@ -4294,12 +4648,12 @@ fn build_img_box(handle: &Handle, style: ComputedStyle, background_image: Option
 /// any) right away, then threaded into every path that builds this
 /// element's own children — same `unwrap_or` shape `collect_children`'s
 /// inline branch already uses, just applied once per block too.
-fn build_box_for_element(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle, decoration: DecorationValue) -> LayoutBox {
-    let style = resolve_style(handle, rules, inherited);
+fn build_box_for_element(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle, decoration: DecorationValue, viewport_width: f32) -> LayoutBox {
+    let style = resolve_style(handle, rules, inherited, viewport_width);
     // Resolved once here (cheap to carry further — just an `Rc` clone —
     // vs. re-running `resolve_background_image`'s own selector-matching
     // pass again in every branch below).
-    let background_image = resolve_background_image(handle, rules);
+    let background_image = resolve_background_image(handle, rules, viewport_width);
     // Only reached for a `display: block`/`table` `<img>` — the default
     // `display: inline` case is handled entirely inside `collect_children`
     // instead (pushed into the surrounding text run, never given its own
@@ -4318,7 +4672,7 @@ fn build_box_for_element(handle: &Handle, rules: &[StyleRule], inherited: Inheri
         return LayoutBox {
             style,
             background_image,
-            content: BoxContent::Blocks(build_table_children(handle, rules, style.inherited(), own_decoration)),
+            content: BoxContent::Blocks(build_table_children(handle, rules, style.inherited(), own_decoration, viewport_width)),
         };
     }
     // `display: flex` is block-level in the outer flow (same as `Table`,
@@ -4329,7 +4683,7 @@ fn build_box_for_element(handle: &Handle, rules: &[StyleRule], inherited: Inheri
         return LayoutBox {
             style,
             background_image,
-            content: BoxContent::Blocks(build_flex_children(handle, rules, style.inherited(), own_decoration)),
+            content: BoxContent::Blocks(build_flex_children(handle, rules, style.inherited(), own_decoration, viewport_width)),
         };
     }
     // `display: grid` is block-level in the outer flow (same as `Table`/
@@ -4344,7 +4698,7 @@ fn build_box_for_element(handle: &Handle, rules: &[StyleRule], inherited: Inheri
         return LayoutBox {
             style,
             background_image,
-            content: BoxContent::Blocks(build_flex_children(handle, rules, style.inherited(), own_decoration)),
+            content: BoxContent::Blocks(build_flex_children(handle, rules, style.inherited(), own_decoration, viewport_width)),
         };
     }
     let prefix = if element_tag(handle) == "li" {
@@ -4355,7 +4709,7 @@ fn build_box_for_element(handle: &Handle, rules: &[StyleRule], inherited: Inheri
     LayoutBox {
         style,
         background_image,
-        content: BoxContent::Blocks(build_children_with_prefix(handle, rules, style.inherited(), prefix, own_decoration)),
+        content: BoxContent::Blocks(build_children_with_prefix(handle, rules, style.inherited(), prefix, own_decoration, viewport_width)),
     }
 }
 
@@ -4367,7 +4721,7 @@ fn build_box_for_element(handle: &Handle, rules: &[StyleRule], inherited: Inheri
 /// display, so it falls to the `Block` arm and gets its own box via the
 /// normal `build_box_for_element` call, which re-enters this same
 /// table-building path independently for its own rows.
-fn build_table_children(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle, decoration: DecorationValue) -> Vec<LayoutBox> {
+fn build_table_children(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle, decoration: DecorationValue, viewport_width: f32) -> Vec<LayoutBox> {
     let mut result = Vec::new();
     for child in handle.children.borrow().iter() {
         let NodeData::Element { .. } = &child.data else { continue };
@@ -4375,7 +4729,7 @@ fn build_table_children(handle: &Handle, rules: &[StyleRule], inherited: Inherit
         if tag == "script" || tag == "style" {
             continue;
         }
-        let style = resolve_style(child, rules, inherited);
+        let style = resolve_style(child, rules, inherited, viewport_width);
         // Resolved once here (not left to `build_box_for_element`, since
         // the `TableRow`/`TableGroup` arms build their `LayoutBox`
         // directly rather than delegating to it) — the `Block` arm below
@@ -4386,12 +4740,12 @@ fn build_table_children(handle: &Handle, rules: &[StyleRule], inherited: Inherit
         match style.display {
             Display::None => {}
             Display::TableRow => {
-                let cells = build_table_row_cells(child, rules, style.inherited(), child_decoration);
-                let background_image = resolve_background_image(child, rules);
+                let cells = build_table_row_cells(child, rules, style.inherited(), child_decoration, viewport_width);
+                let background_image = resolve_background_image(child, rules, viewport_width);
                 result.push(LayoutBox { style, background_image, content: BoxContent::TableRow(cells) });
             }
             Display::TableGroup => {
-                result.extend(build_table_children(child, rules, style.inherited(), child_decoration));
+                result.extend(build_table_children(child, rules, style.inherited(), child_decoration, viewport_width));
             }
             Display::Block | Display::Flex | Display::Grid => {
                 // e.g. `caption`, or any other block-level content placed
@@ -4400,7 +4754,7 @@ fn build_table_children(handle: &Handle, rules: &[StyleRule], inherited: Inherit
                 // handled the same way (its own box via the normal
                 // dispatch, which re-enters `build_flex_children`/
                 // `measure_flex`/`measure_grid` for it).
-                result.push(build_box_for_element(child, rules, inherited, decoration));
+                result.push(build_box_for_element(child, rules, inherited, decoration, viewport_width));
             }
             // A stray `table-cell`/inline/`table` outside a row isn't
             // real-world table markup — skip rather than guess at it.
@@ -4414,13 +4768,13 @@ fn build_table_children(handle: &Handle, rules: &[StyleRule], inherited: Inherit
 /// interior content — text, inline elements, nested blocks — all work
 /// unchanged via the ordinary `build_box_for_element` path; only how its
 /// *parent* lays it out, horizontally instead of vertically, differs).
-fn build_table_row_cells(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle, decoration: DecorationValue) -> Vec<LayoutBox> {
+fn build_table_row_cells(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle, decoration: DecorationValue, viewport_width: f32) -> Vec<LayoutBox> {
     let mut cells = Vec::new();
     for child in handle.children.borrow().iter() {
         let NodeData::Element { .. } = &child.data else { continue };
-        let style = resolve_style(child, rules, inherited);
+        let style = resolve_style(child, rules, inherited, viewport_width);
         if style.display == Display::TableCell {
-            cells.push(build_box_for_element(child, rules, inherited, decoration));
+            cells.push(build_box_for_element(child, rules, inherited, decoration, viewport_width));
         }
     }
     cells
@@ -4459,7 +4813,7 @@ fn build_table_row_cells(handle: &Handle, rules: &[StyleRule], inherited: Inheri
 /// respective algorithm, the same split `measure`'s own `BoxContent::
 /// Blocks` arm already uses for an ordinary block's absolutely/fixed
 /// positioned children.
-fn build_flex_children(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle, decoration: DecorationValue) -> Vec<LayoutBox> {
+fn build_flex_children(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle, decoration: DecorationValue, viewport_width: f32) -> Vec<LayoutBox> {
     let mut result = Vec::new();
     for child in handle.children.borrow().iter() {
         let NodeData::Element { .. } = &child.data else { continue };
@@ -4467,11 +4821,11 @@ fn build_flex_children(handle: &Handle, rules: &[StyleRule], inherited: Inherite
         if tag == "script" || tag == "style" {
             continue;
         }
-        let style = resolve_style(child, rules, inherited);
+        let style = resolve_style(child, rules, inherited, viewport_width);
         if style.display == Display::None {
             continue;
         }
-        result.push(build_box_for_element(child, rules, inherited, decoration));
+        result.push(build_box_for_element(child, rules, inherited, decoration, viewport_width));
     }
     result
 }
@@ -4486,8 +4840,8 @@ fn build_flex_children(handle: &Handle, rules: &[StyleRule], inherited: Inherite
 /// into one giant text run. (An earlier version flattened unconditionally;
 /// on a real Wikipedia page that merged the entire navigation chrome into a
 /// single ~17,000-character run, which took 7+ seconds to shape by itself.)
-fn build_children(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle, decoration: DecorationValue) -> Vec<LayoutBox> {
-    build_children_with_prefix(handle, rules, inherited, None, decoration)
+fn build_children(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle, decoration: DecorationValue, viewport_width: f32) -> Vec<LayoutBox> {
+    build_children_with_prefix(handle, rules, inherited, None, decoration, viewport_width)
 }
 
 /// Same as `build_children`, but seeds the first inline run with `prefix`
@@ -4498,6 +4852,7 @@ fn build_children_with_prefix(
     inherited: InheritedStyle,
     prefix: Option<(String, SpanStyle)>,
     decoration: DecorationValue,
+    viewport_width: f32,
 ) -> Vec<LayoutBox> {
     let mut result = Vec::new();
     let mut pending: Vec<InlineItem> = Vec::new();
@@ -4513,6 +4868,7 @@ fn build_children_with_prefix(
         VerticalAlign::default(),
         &mut pending,
         &mut result,
+        viewport_width,
     );
     if !pending.is_empty() {
         result.push(LayoutBox {
@@ -4545,6 +4901,7 @@ fn collect_children(
     valign: VerticalAlign,
     pending: &mut Vec<InlineItem>,
     result: &mut Vec<LayoutBox>,
+    viewport_width: f32,
 ) {
     for child in handle.children.borrow().iter() {
         match &child.data {
@@ -4570,7 +4927,7 @@ fn collect_children(
                 if tag == "script" || tag == "style" {
                     continue;
                 }
-                let style = resolve_style(child, rules, inherited);
+                let style = resolve_style(child, rules, inherited, viewport_width);
                 if style.display == Display::None {
                     continue;
                 }
@@ -4587,7 +4944,7 @@ fn collect_children(
                 // simplification — see TODO.txt/NOTES.md for why that
                 // was the original call and what changed.
                 if tag == "img" && !matches!(style.display, Display::Block | Display::Table | Display::Flex | Display::Grid) {
-                    let background_image = resolve_background_image(child, rules);
+                    let background_image = resolve_background_image(child, rules, viewport_width);
                     let (img_style, decoded) = resolve_img(child, style);
                     match decoded {
                         Some(image) => pending.push(InlineItem::Image { image, style: img_style, background_image }),
@@ -4607,7 +4964,7 @@ fn collect_children(
                             content: BoxContent::Inline(std::mem::take(pending)),
                         });
                     }
-                    result.push(build_box_for_element(child, rules, inherited, decoration));
+                    result.push(build_box_for_element(child, rules, inherited, decoration, viewport_width));
                 } else {
                     let child_bg = style.background_color.or(bg);
                     let child_decoration = resolve_own_decoration(&style, decoration);
@@ -4625,6 +4982,7 @@ fn collect_children(
                         child_valign,
                         pending,
                         result,
+                        viewport_width,
                     );
                 }
             }
@@ -4660,7 +5018,16 @@ fn find_html_element(handle: &Handle) -> Option<Handle> {
     None
 }
 
-pub fn build_layout_tree(document: &Handle) -> LayoutBox {
+/// `viewport_width` (CSS px) is the live window width at the moment this
+/// is called — the one new input a `@media` `min-width`/`max-width`
+/// rule's own applicability depends on (see `MediaQuery`/`matching_
+/// declarations`). No new resize-reaction mechanism was added for this:
+/// `App::redraw` already calls `build_layout_tree` fresh every time the
+/// window's width changes (`self.cached_width != width`, to begin with
+/// for `%`/`em`/`rem`/table/flex/grid measurement's own sake) — passing
+/// that same live width through here just makes the rules a rebuild
+/// picks up media-aware too, with zero new plumbing on the resize side.
+pub fn build_layout_tree(document: &Handle, viewport_width: f32) -> LayoutBox {
     let mut css_source = String::new();
     collect_style_css(document, &mut css_source);
     let html_handle = find_html_element(document);
@@ -4683,7 +5050,7 @@ pub fn build_layout_tree(document: &Handle) -> LayoutBox {
     if DEFAULT_CSS.contains("var(") || css_source.contains("var(") {
         let root_vars = html_handle
             .as_ref()
-            .map(|html| collect_root_custom_props(&rules, html))
+            .map(|html| collect_root_custom_props(&rules, html, viewport_width))
             .unwrap_or_default();
         let mut substituted = parse_stylesheet(&substitute_css_vars(DEFAULT_CSS, &root_vars));
         substituted.extend(parse_stylesheet(&substitute_css_vars(&css_source, &root_vars)));
@@ -4696,7 +5063,7 @@ pub fn build_layout_tree(document: &Handle) -> LayoutBox {
     // second (otherwise-identical) resolution inside `build_children`.
     let root_font_size = html_handle
         .as_ref()
-        .map(|html| resolve_style(html, &rules, ROOT_STYLE).font_size)
+        .map(|html| resolve_style(html, &rules, ROOT_STYLE, viewport_width).font_size)
         .unwrap_or(ROOT_STYLE.font_size);
     let root_inherited = InheritedStyle {
         root_font_size,
@@ -4705,7 +5072,7 @@ pub fn build_layout_tree(document: &Handle) -> LayoutBox {
     LayoutBox {
         style: anonymous_style(root_inherited),
         background_image: None,
-        content: BoxContent::Blocks(build_children(document, &rules, root_inherited, DecorationValue::default())),
+        content: BoxContent::Blocks(build_children(document, &rules, root_inherited, DecorationValue::default(), viewport_width)),
     }
 }
 
@@ -9521,7 +9888,7 @@ impl App {
         let need_rebuild = self.layout_dirty || self.cached_width != width;
 
         if need_rebuild && width_matches_pending {
-            self.tree = Some(build_layout_tree(&self.document));
+            self.tree = Some(build_layout_tree(&self.document, width as f32));
             self.shape_cache.clear();
             // New ids are assigned from the same shared counter a fresh
             // `measure_document` pass restarts at `0` just below (see
@@ -9819,7 +10186,7 @@ mod tests {
         let doc = parse_html(
             r#"<html style="font-size: 40px"><body><div style="margin-top: 2rem">x</div></body></html>"#,
         );
-        let tree = build_layout_tree(&doc);
+        let tree = build_layout_tree(&doc, 1920.0);
         let div = find_deepest_nonzero_margin_top(&tree).expect("div not found");
         assert_eq!(div.style.margin.top.px(), 80.0, "2rem should resolve against html's 40px, giving 80px");
     }
@@ -9827,7 +10194,7 @@ mod tests {
     #[test]
     fn rem_defaults_to_16_without_html_override() {
         let doc = parse_html(r#"<html><body><div style="margin-top: 2rem">x</div></body></html>"#);
-        let tree = build_layout_tree(&doc);
+        let tree = build_layout_tree(&doc, 1920.0);
         let div = find_deepest_nonzero_margin_top(&tree).expect("div not found");
         assert_eq!(div.style.margin.top.px(), 32.0);
     }
@@ -9854,7 +10221,7 @@ mod tests {
         let doc = parse_html(
             r#"<html><body><style>a:link { color: #ff0000; } a:visited { color: #00ff00; }</style><a href="x">hi</a></body></html>"#,
         );
-        let tree = build_layout_tree(&doc);
+        let tree = build_layout_tree(&doc, 1920.0);
         let color = find_first_span_color(&tree).expect("no span found");
         assert_eq!(color, TextColor::rgb(0xff, 0, 0), ":link should match an <a href> and apply red");
     }
@@ -9862,7 +10229,7 @@ mod tests {
     #[test]
     fn link_pseudo_does_not_match_anchor_without_href() {
         let doc = parse_html(r#"<html><body><style>a:link { color: #ff0000; }</style><a>hi</a></body></html>"#);
-        let tree = build_layout_tree(&doc);
+        let tree = build_layout_tree(&doc, 1920.0);
         let color = find_first_span_color(&tree).expect("no span found");
         assert_ne!(color, TextColor::rgb(0xff, 0, 0), ":link should not match an <a> without href");
     }
@@ -9872,7 +10239,7 @@ mod tests {
         let doc = parse_html(
             r#"<html><body><style>a:visited { color: #00ff00; }</style><a href="x">hi</a></body></html>"#,
         );
-        let tree = build_layout_tree(&doc);
+        let tree = build_layout_tree(&doc, 1920.0);
         let color = find_first_span_color(&tree).expect("no span found");
         assert_ne!(color, TextColor::rgb(0, 0xff, 0), ":visited should never match");
     }
@@ -9916,7 +10283,7 @@ mod tests {
     #[test]
     fn block_own_direct_text_gets_its_own_decoration() {
         let doc = parse_html(r#"<html><body><p style="text-decoration: underline">text</p></body></html>"#);
-        let tree = build_layout_tree(&doc);
+        let tree = build_layout_tree(&doc, 1920.0);
         let mut decos = Vec::new();
         collect_decorations(&tree, &mut decos);
         assert!(decos.iter().any(|d| *d != TextDecoration::new()), "p's own direct text should be underlined: {:?}", decos);
@@ -9927,7 +10294,7 @@ mod tests {
         let doc = parse_html(
             r#"<html><body><div style="text-decoration: underline"><div>nested</div></div></body></html>"#,
         );
-        let tree = build_layout_tree(&doc);
+        let tree = build_layout_tree(&doc, 1920.0);
         let mut decos = Vec::new();
         collect_decorations(&tree, &mut decos);
         assert!(decos.iter().any(|d| *d != TextDecoration::new()), "nested block descendant should inherit ambient decoration: {:?}", decos);
@@ -9938,7 +10305,7 @@ mod tests {
         let doc = parse_html(
             r#"<html><body><div style="text-decoration: underline"><div style="text-decoration: none">nested</div></div></body></html>"#,
         );
-        let tree = build_layout_tree(&doc);
+        let tree = build_layout_tree(&doc, 1920.0);
         let mut decos = Vec::new();
         collect_decorations(&tree, &mut decos);
         assert!(decos.iter().all(|d| *d == TextDecoration::new()), "explicit none should opt out: {:?}", decos);
@@ -9949,7 +10316,7 @@ mod tests {
         let doc = parse_html(
             r#"<html><body><div style="text-decoration: underline">a</div><div>b</div></body></html>"#,
         );
-        let tree = build_layout_tree(&doc);
+        let tree = build_layout_tree(&doc, 1920.0);
         let mut decos = Vec::new();
         collect_decorations(&tree, &mut decos);
         assert_eq!(decos.len(), 2, "expected exactly 2 spans: {:?}", decos);
@@ -9982,7 +10349,7 @@ mod tests {
 </div>
 </body></html>"#,
         );
-        let tree = build_layout_tree(&doc);
+        let tree = build_layout_tree(&doc, 1920.0);
         let mut font_system = new_font_system();
         let mut cache = ShapeCache::new();
         let mut next_id = 0usize;
@@ -10018,7 +10385,7 @@ mod tests {
     /// resolve, matching a real UA only ever having one via its viewport.
     fn measure_fixture_h(html: &str, available_width: f32, containing_height: Option<f32>) -> Laid {
         let doc = parse_html(html);
-        let tree = build_layout_tree(&doc);
+        let tree = build_layout_tree(&doc, 1920.0);
         let mut font_system = new_font_system();
         let mut cache = ShapeCache::new();
         let mut next_id = 0usize;
@@ -10233,7 +10600,7 @@ mod tests {
         let doc = parse_html(
             r#"<html><head><style>p:not(.skip) { color: #ff0000; }</style></head><body><p>one</p><p class="skip">two</p></body></html>"#,
         );
-        let tree = build_layout_tree(&doc);
+        let tree = build_layout_tree(&doc, 1920.0);
         let mut colors = Vec::new();
         find_all_span_colors(&tree, &mut colors);
         assert_eq!(colors.len(), 2, "expected two paragraphs' worth of spans");
@@ -10246,7 +10613,7 @@ mod tests {
         let doc = parse_html(
             r#"<html><head><style>p:nth-child(2) { color: #00ff00; }</style></head><body><p>one</p><p>two</p><p>three</p></body></html>"#,
         );
-        let tree = build_layout_tree(&doc);
+        let tree = build_layout_tree(&doc, 1920.0);
         let mut colors = Vec::new();
         find_all_span_colors(&tree, &mut colors);
         assert_eq!(colors.len(), 3);
@@ -10260,7 +10627,7 @@ mod tests {
         let doc = parse_html(
             r#"<html><head><style>p:first-child { color: #0000ff; }</style></head><body><p>one</p><p>two</p></body></html>"#,
         );
-        let tree = build_layout_tree(&doc);
+        let tree = build_layout_tree(&doc, 1920.0);
         let mut colors = Vec::new();
         find_all_span_colors(&tree, &mut colors);
         assert_eq!(colors.len(), 2);
@@ -10275,7 +10642,7 @@ mod tests {
         let doc = parse_html(
             r#"<html><head><style>:root { --c: #ff0000; } p { color: var(--c); }</style></head><body><p>hi</p></body></html>"#,
         );
-        let tree = build_layout_tree(&doc);
+        let tree = build_layout_tree(&doc, 1920.0);
         let color = find_first_span_color(&tree).expect("no span found");
         assert_eq!(color, TextColor::rgb(0xff, 0, 0), "var(--c) should resolve to the :root-declared value");
     }
@@ -10285,7 +10652,7 @@ mod tests {
         let doc = parse_html(
             r#"<html><head><style>html { --c: #0000ff; } p { color: var(--c); }</style></head><body><p>hi</p></body></html>"#,
         );
-        let tree = build_layout_tree(&doc);
+        let tree = build_layout_tree(&doc, 1920.0);
         let color = find_first_span_color(&tree).expect("no span found");
         assert_eq!(color, TextColor::rgb(0, 0, 0xff), "var(--c) should resolve via a plain `html` selector too");
     }
@@ -10295,7 +10662,7 @@ mod tests {
         let doc = parse_html(
             r#"<html><head><style>p { color: var(--undefined, #00ff00); }</style></head><body><p>hi</p></body></html>"#,
         );
-        let tree = build_layout_tree(&doc);
+        let tree = build_layout_tree(&doc, 1920.0);
         let color = find_first_span_color(&tree).expect("no span found");
         assert_eq!(color, TextColor::rgb(0, 0xff, 0), "an undeclared custom property should fall back to the fallback value");
     }
@@ -10305,7 +10672,7 @@ mod tests {
         let doc = parse_html(
             r#"<html><head><style>p { color: var(--a, var(--b, #112233)); }</style></head><body><p>hi</p></body></html>"#,
         );
-        let tree = build_layout_tree(&doc);
+        let tree = build_layout_tree(&doc, 1920.0);
         let color = find_first_span_color(&tree).expect("no span found");
         assert_eq!(color, TextColor::rgb(0x11, 0x22, 0x33), "a nested var() inside a fallback should itself resolve");
     }
@@ -10315,7 +10682,7 @@ mod tests {
         let doc = parse_html(
             r#"<html><head><style>.scope { --c: #ff0000; } p { color: var(--c, #00ff00); }</style></head><body><p class="scope">hi</p></body></html>"#,
         );
-        let tree = build_layout_tree(&doc);
+        let tree = build_layout_tree(&doc, 1920.0);
         let color = find_first_span_color(&tree).expect("no span found");
         assert_eq!(
             color,
@@ -10451,7 +10818,7 @@ mod tests {
         let src = tiny_png_data_uri(2, 2);
         let html = format!(r#"<html><body><p>before <img src="{src}"> after</p></body></html>"#);
         let doc = parse_html(&html);
-        let tree = build_layout_tree(&doc);
+        let tree = build_layout_tree(&doc, 1920.0);
         let items = find_inline_run_with_image(&tree).expect("<p> should be one inline run containing the image");
         assert_eq!(items.len(), 3, "text before/the image/text after should be 3 items in the SAME inline run");
         let InlineItem::Text(before, _) = &items[0] else { panic!("expected text before the image") };
@@ -10471,7 +10838,7 @@ mod tests {
         let src = tiny_png_data_uri(2, 2);
         let html = format!(r#"<html><body><p>before <img src="{src}" style="display: block"> after</p></body></html>"#);
         let doc = parse_html(&html);
-        let tree = build_layout_tree(&doc);
+        let tree = build_layout_tree(&doc, 1920.0);
         let children = find_blocks_containing_image(&tree).expect("display:block <img> should still split into sibling boxes");
         assert_eq!(children.len(), 3);
         assert!(matches!(children[1].content, BoxContent::Image(_)));
@@ -10498,7 +10865,7 @@ mod tests {
     #[test]
     fn img_with_missing_src_falls_back_to_alt_text() {
         let doc = parse_html(r#"<html><body><img alt="a fallback"></body></html>"#);
-        let tree = build_layout_tree(&doc);
+        let tree = build_layout_tree(&doc, 1920.0);
         let text = find_inline_text(&tree).expect("no text found");
         assert!(text.contains("a fallback"), "a missing src should fall back to rendering alt text: {text:?}");
     }
@@ -10506,7 +10873,7 @@ mod tests {
     #[test]
     fn img_with_undecodable_src_falls_back_to_alt_text() {
         let doc = parse_html(r#"<html><body><img src="data:image/png;base64,not-valid-base64!!" alt="broken img"></body></html>"#);
-        let tree = build_layout_tree(&doc);
+        let tree = build_layout_tree(&doc, 1920.0);
         let text = find_inline_text(&tree).expect("no text found");
         assert!(text.contains("broken img"), "undecodable image data should fall back to rendering alt text: {text:?}");
     }
@@ -10538,7 +10905,7 @@ mod tests {
             r#"<html><body><div style="width: 40px; height: 40px; border: 4px solid blue; background-image: url('{src}')"></div></body></html>"#
         );
         let doc = parse_html(&html);
-        let tree = build_layout_tree(&doc);
+        let tree = build_layout_tree(&doc, 1920.0);
         let mut font_system = new_font_system();
         let mut cache = ShapeCache::new();
         let mut next_id = 0usize;
@@ -11102,7 +11469,7 @@ mod tests {
         let doc = parse_html(
             r#"<html><body><p style="font-family: 'Georgia', Helvetica Neue, monospace">x</p></body></html>"#,
         );
-        let tree = build_layout_tree(&doc);
+        let tree = build_layout_tree(&doc, 1920.0);
         let family = find_first_span_font_family(&tree).expect("no span found");
         assert_eq!(
             family.0,
@@ -11122,7 +11489,7 @@ mod tests {
         // must still parse to exactly one item — no regression from
         // generalizing the grammar to a full list.
         let doc = parse_html(r#"<html><body><code>x</code></body></html>"#);
-        let tree = build_layout_tree(&doc);
+        let tree = build_layout_tree(&doc, 1920.0);
         let family = find_first_span_font_family(&tree).expect("no span found");
         assert_eq!(family.0, [FontFamilyItem::Monospace].as_slice());
     }
@@ -11136,7 +11503,7 @@ mod tests {
         let doc = parse_html(
             r#"<html><body><div style="font-family: 'Georgia', serif"><span>x</span></div></body></html>"#,
         );
-        let tree = build_layout_tree(&doc);
+        let tree = build_layout_tree(&doc, 1920.0);
         let family = find_first_span_font_family(&tree).expect("no span found");
         assert_eq!(family.0, [FontFamilyItem::Name("Georgia"), FontFamilyItem::Serif].as_slice());
     }
@@ -11174,7 +11541,7 @@ mod tests {
         // that `collect_text_shape_ids` finds exactly one id per `<p>`.
         let html = r#"<html><body><p style="font-family: monospace">A</p><p style="font-family: sans-serif">A</p><p style="font-family: 'NoSuchFontXYZ123', monospace">A</p></body></html>"#;
         let doc = parse_html(html);
-        let tree = build_layout_tree(&doc);
+        let tree = build_layout_tree(&doc, 1920.0);
         let mut font_system = new_font_system();
         let mut cache = ShapeCache::new();
         let mut next_id = 0usize;
@@ -11223,7 +11590,7 @@ mod tests {
     /// that wants to see the fully-resolved tree.
     fn measure_document_fixture(html: &str, width: f32, viewport_h: f32) -> Laid {
         let doc = parse_html(html);
-        let tree = build_layout_tree(&doc);
+        let tree = build_layout_tree(&doc, 1920.0);
         let mut font_system = new_font_system();
         let mut cache = ShapeCache::new();
         let mut next_id = 0usize;
@@ -11264,7 +11631,7 @@ mod tests {
         // CSS "computed `display`" rule (spec §9.7) weren't applied. Its
         // mere existence here is the test.
         let doc = parse_html(r#"<html><body><span style="position: absolute; top: 0; left: 0;">text</span></body></html>"#);
-        let tree = build_layout_tree(&doc);
+        let tree = build_layout_tree(&doc, 1920.0);
         let span = find_box_by_position(&tree, Position::Absolute).expect(
             "an absolutely positioned <span> should still get its own box (real CSS computes its display to block, instead of being flattened into the surrounding inline run the way a default `display: inline` span would be)",
         );
@@ -11408,7 +11775,7 @@ mod tests {
 <div style="position: absolute; top: 10px; left: 10px; width: 40px; height: 40px; background-color: #0000ff; z-index: 0;"></div>
 </body></html>"#;
         let doc = parse_html(html);
-        let tree = build_layout_tree(&doc);
+        let tree = build_layout_tree(&doc, 1920.0);
         let mut font_system = new_font_system();
         let mut cache = ShapeCache::new();
         let mut next_id = 0usize;
@@ -11453,7 +11820,7 @@ mod tests {
         let doc = parse_html(
             r#"<html><head><title>Secret Page Title</title><meta charset="utf-8"><link rel="stylesheet" href="x.css"></head><body>Visible Body Text</body></html>"#,
         );
-        let tree = build_layout_tree(&doc);
+        let tree = build_layout_tree(&doc, 1920.0);
         let mut text = String::new();
         collect_all_text(&tree, &mut text);
         assert!(!text.contains("Secret Page Title"), "title text must not render in the document body: {text:?}");
@@ -11547,7 +11914,7 @@ mod tests {
         // sibling's own opaque background instead.
         let html = r#"<html><body><div style="width: 400px;"><div style="float: left; width: 150px; height: 150px; background-color: #ff0000;"></div><div style="background-color: #00ff00; height: 100px;"></div></div></body></html>"#;
         let doc = parse_html(html);
-        let tree = build_layout_tree(&doc);
+        let tree = build_layout_tree(&doc, 1920.0);
         let mut font_system = new_font_system();
         let mut cache = ShapeCache::new();
         let mut next_id = 0usize;
@@ -11684,7 +12051,7 @@ mod tests {
     fn sticky_scroll_fixture() -> Laid {
         let html = r#"<html><body><div style="width: 100px;"><div style="height: 200px;"></div><div style="position: sticky; top: 10px; height: 30px; background-color: #ff0000;"></div><div style="height: 1000px;"></div></div></body></html>"#;
         let doc = parse_html(html);
-        let tree = build_layout_tree(&doc);
+        let tree = build_layout_tree(&doc, 1920.0);
         let mut font_system = new_font_system();
         let mut cache = ShapeCache::new();
         let mut next_id = 0usize;
@@ -11855,7 +12222,7 @@ mod tests {
     /// body's own margin either way).
     fn paint_fixture(html: &str) -> (Vec<u32>, u32, u32) {
         let doc = parse_html(html);
-        let tree = build_layout_tree(&doc);
+        let tree = build_layout_tree(&doc, 1920.0);
         let mut font_system = new_font_system();
         let mut cache = ShapeCache::new();
         let mut next_id = 0usize;
@@ -12452,9 +12819,9 @@ mod tests {
             r#"<html><body><span style="text-decoration: underline dashed #ff0000">x</span></body></html>"#,
         );
         let mut longhand_values = Vec::new();
-        collect_decoration_values(&build_layout_tree(&longhand_doc), &mut longhand_values);
+        collect_decoration_values(&build_layout_tree(&longhand_doc, 1920.0), &mut longhand_values);
         let mut shorthand_values = Vec::new();
-        collect_decoration_values(&build_layout_tree(&shorthand_doc), &mut shorthand_values);
+        collect_decoration_values(&build_layout_tree(&shorthand_doc, 1920.0), &mut shorthand_values);
         assert_eq!(longhand_values.len(), 1, "expected exactly one span: {:?}", longhand_values);
         assert_eq!(shorthand_values.len(), 1, "expected exactly one span: {:?}", shorthand_values);
         let (ld, ls) = longhand_values[0];
@@ -12475,7 +12842,7 @@ mod tests {
         let doc = parse_html(
             r#"<html><body><span style="text-decoration: underline red; text-decoration-style: dashed">x</span></body></html>"#,
         );
-        let tree = build_layout_tree(&doc);
+        let tree = build_layout_tree(&doc, 1920.0);
         let mut values = Vec::new();
         collect_decoration_values(&tree, &mut values);
         assert_eq!(values.len(), 1);
@@ -12494,7 +12861,7 @@ mod tests {
         // `parse_text_decoration` already enforces for the shorthand
         // itself, now also true across the three longhands combined.
         let doc = parse_html(r#"<html><body><span style="text-decoration-color: red; text-decoration-style: dashed">x</span></body></html>"#);
-        let tree = build_layout_tree(&doc);
+        let tree = build_layout_tree(&doc, 1920.0);
         let mut values = Vec::new();
         collect_decoration_values(&tree, &mut values);
         assert_eq!(values.len(), 1);
@@ -12512,7 +12879,7 @@ mod tests {
         let doc = parse_html(
             r#"<html><body><div style="text-decoration-line: underline"><div>nested</div></div></body></html>"#,
         );
-        let tree = build_layout_tree(&doc);
+        let tree = build_layout_tree(&doc, 1920.0);
         let mut values = Vec::new();
         collect_decoration_values(&tree, &mut values);
         assert!(
@@ -12734,7 +13101,7 @@ mod tests {
         for (keyword, expected) in cases {
             let html = format!(r#"<html><body><span style="cursor: {keyword}">x</span></body></html>"#);
             let doc = parse_html(&html);
-            let tree = build_layout_tree(&doc);
+            let tree = build_layout_tree(&doc, 1920.0);
             let cursor = find_first_span_cursor(&tree).unwrap_or_else(|| panic!("no span found for cursor: {keyword}"));
             assert_eq!(cursor, *expected, "cursor: {keyword} should cascade to {expected:?}, got {cursor:?}");
         }
@@ -12752,7 +13119,7 @@ mod tests {
         // keywords to confirm inheritance wasn't special-cased to just the
         // two original variants.
         let doc = parse_html(r#"<html><body><div style="cursor: wait"><span>inherited</span></div></body></html>"#);
-        let tree = build_layout_tree(&doc);
+        let tree = build_layout_tree(&doc, 1920.0);
         let cursor = find_first_span_cursor(&tree).expect("no span found");
         assert_eq!(cursor, CursorStyle::Wait, "a nested span with no cursor of its own should inherit the ancestor's wait");
     }
@@ -12793,7 +13160,7 @@ mod tests {
 
     fn measure_fixture_with_cache(html: &str, available_width: f32) -> (Laid, ShapeCache) {
         let doc = parse_html(html);
-        let tree = build_layout_tree(&doc);
+        let tree = build_layout_tree(&doc, 1920.0);
         let mut font_system = new_font_system();
         let mut cache = ShapeCache::new();
         let mut next_id = 0usize;
@@ -13158,6 +13525,208 @@ mod tests {
                 auto_overflow_box.y + auto_overflow_box.h, win_w
             ),
             "overflow: auto should paint a scrollbar once its content actually overflows"
+        );
+    }
+
+    // ---------- v64: `@media` (min-width/max-width, and/comma lists, print, viewport resize) ----------
+
+    /// Walks the tree for the first box whose own resolved style declares
+    /// a `background-color` — the simplest single signal to check whether
+    /// a `@media`-wrapped rule actually applied or not, reused by every
+    /// test below instead of a bespoke finder per test.
+    fn find_box_with_background(b: &LayoutBox) -> Option<TextColor> {
+        if b.style.background_color.is_some() {
+            return b.style.background_color;
+        }
+        if let BoxContent::Blocks(children) = &b.content {
+            for c in children {
+                if let Some(found) = find_box_with_background(c) {
+                    return Some(found);
+                }
+            }
+        }
+        None
+    }
+
+    #[test]
+    fn media_min_width_applies_only_at_or_above_the_breakpoint() {
+        let doc = parse_html(
+            r#"<html><body><style>@media (min-width: 600px) { .box { background-color: #ff0000; } }</style><div class="box">x</div></body></html>"#,
+        );
+        let wide = build_layout_tree(&doc, 800.0);
+        assert_eq!(
+            find_box_with_background(&wide),
+            Some(TextColor::rgb(0xff, 0, 0)),
+            "a min-width: 600px rule should apply at an 800px viewport"
+        );
+        let narrow = build_layout_tree(&doc, 400.0);
+        assert_eq!(
+            find_box_with_background(&narrow),
+            None,
+            "a min-width: 600px rule should NOT apply at a 400px viewport"
+        );
+        // Exactly at the breakpoint counts as matching (min-width is
+        // inclusive, real CSS `>=` semantics).
+        let exact = build_layout_tree(&doc, 600.0);
+        assert_eq!(
+            find_box_with_background(&exact),
+            Some(TextColor::rgb(0xff, 0, 0)),
+            "min-width: 600px should match exactly at 600px (inclusive)"
+        );
+    }
+
+    #[test]
+    fn media_max_width_applies_only_at_or_below_the_breakpoint() {
+        let doc = parse_html(
+            r#"<html><body><style>@media (max-width: 600px) { .box { background-color: #00ff00; } }</style><div class="box">x</div></body></html>"#,
+        );
+        let narrow = build_layout_tree(&doc, 400.0);
+        assert_eq!(
+            find_box_with_background(&narrow),
+            Some(TextColor::rgb(0, 0xff, 0)),
+            "a max-width: 600px rule should apply at a 400px viewport"
+        );
+        let wide = build_layout_tree(&doc, 800.0);
+        assert_eq!(
+            find_box_with_background(&wide),
+            None,
+            "a max-width: 600px rule should NOT apply at an 800px viewport — this is the exact inverse of min-width, confirming the comparison direction isn't flipped"
+        );
+    }
+
+    #[test]
+    fn media_and_requires_every_feature_to_hold() {
+        // `screen and (min-width: 600px)` — both the type and the width
+        // feature must hold; screen always matches here, so this is
+        // really exercising that `and` doesn't silently drop the width
+        // condition (a bug that would make this behave like a bare
+        // `screen` query with no width gating at all).
+        let doc = parse_html(
+            r#"<html><body><style>@media screen and (min-width: 600px) { .box { background-color: #0000ff; } }</style><div class="box">x</div></body></html>"#,
+        );
+        let wide = build_layout_tree(&doc, 800.0);
+        assert_eq!(find_box_with_background(&wide), Some(TextColor::rgb(0, 0, 0xff)));
+        let narrow = build_layout_tree(&doc, 400.0);
+        assert_eq!(
+            find_box_with_background(&narrow),
+            None,
+            "`screen and (min-width: 600px)` must fail at 400px even though `screen` alone would match"
+        );
+    }
+
+    #[test]
+    fn media_comma_list_is_or_either_branch_matching_is_enough() {
+        // `(min-width: 900px), (max-width: 300px)` — two mutually
+        // exclusive branches at any viewport between them; a width of
+        // 500px should match NEITHER, confirming comma is OR (not
+        // silently treated as AND, which would make this never match at
+        // any width, or silently treated as the same branch twice).
+        let doc = parse_html(
+            r#"<html><body><style>@media (min-width: 900px), (max-width: 300px) { .box { background-color: #ff00ff; } }</style><div class="box">x</div></body></html>"#,
+        );
+        let neither = build_layout_tree(&doc, 500.0);
+        assert_eq!(find_box_with_background(&neither), None, "500px matches neither comma branch");
+        let first_branch = build_layout_tree(&doc, 1000.0);
+        assert_eq!(
+            find_box_with_background(&first_branch),
+            Some(TextColor::rgb(0xff, 0, 0xff)),
+            "1000px should match the first (min-width: 900px) branch"
+        );
+        let second_branch = build_layout_tree(&doc, 200.0);
+        assert_eq!(
+            find_box_with_background(&second_branch),
+            Some(TextColor::rgb(0xff, 0, 0xff)),
+            "200px should match the second (max-width: 300px) branch"
+        );
+    }
+
+    #[test]
+    fn media_print_never_matches_regardless_of_width() {
+        // scratchy has no print/paged-media concept at all — `@media
+        // print` is intentionally always inert, a documented design
+        // choice (see TODO.txt), not a gap. Checked at a width that
+        // would satisfy the rule's own min-width if the type weren't
+        // print, to make sure `print` itself is what's rejecting it,
+        // not the width condition.
+        let doc = parse_html(
+            r#"<html><body><style>@media print and (min-width: 0px) { .box { background-color: #123456; } }</style><div class="box">x</div></body></html>"#,
+        );
+        let tree = build_layout_tree(&doc, 1920.0);
+        assert_eq!(find_box_with_background(&tree), None, "@media print should never match — scratchy has no print concept");
+    }
+
+    #[test]
+    fn media_unsupported_calc_feature_never_applies_without_crashing() {
+        // This project has no `calc()` arithmetic evaluator anywhere
+        // (confirmed by grep before implementing this) — a media
+        // feature using it must fail to parse into a real constraint and
+        // safely never match, the same "unsupported value drops" policy
+        // used throughout this file, rather than crashing the parser or
+        // (the dangerous alternative) silently matching unconditionally.
+        let doc = parse_html(
+            r#"<html><body><style>@media (max-width: calc(1120px - 1px)) { .box { background-color: #abcdef; } }</style><div class="box">x</div></body></html>"#,
+        );
+        let narrow = build_layout_tree(&doc, 50.0);
+        assert_eq!(
+            find_box_with_background(&narrow),
+            None,
+            "an unparseable calc() feature must never match, even at a width a correct calc() evaluation would have satisfied"
+        );
+        let wide = build_layout_tree(&doc, 5000.0);
+        assert_eq!(find_box_with_background(&wide), None, "and must still never match at a width nothing would satisfy either — not a crash");
+    }
+
+    #[test]
+    fn media_rule_safely_coexists_with_an_unconditioned_rule() {
+        // A plain, non-`@media` rule (empty `media` list) must keep
+        // applying regardless of viewport width, unaffected by this
+        // item's own changes — the lowest-risk possible regression
+        // check for "did wiring viewport width into matching_
+        // declarations somehow make ordinary rules width-sensitive too."
+        let doc = parse_html(
+            r#"<html><body><style>.always { background-color: #111111; }</style><div class="always">x</div></body></html>"#,
+        );
+        let narrow = build_layout_tree(&doc, 10.0);
+        assert_eq!(find_box_with_background(&narrow), Some(TextColor::rgb(0x11, 0x11, 0x11)));
+        let wide = build_layout_tree(&doc, 10000.0);
+        assert_eq!(find_box_with_background(&wide), Some(TextColor::rgb(0x11, 0x11, 0x11)));
+    }
+
+    #[test]
+    fn media_rematches_on_simulated_resize_with_no_new_mechanism() {
+        // `build_layout_tree` is the exact function `App::redraw` already
+        // reruns whenever the live window width changes — calling it
+        // twice with two different widths from the same parsed document
+        // is a faithful simulation of that real resize path, not just a
+        // unit-level check of `MediaQuery::matches` in isolation.
+        let doc = parse_html(
+            r#"<html><body><style>@media (min-width: 500px) { .box { background-color: #fedcba; } }</style><div class="box">x</div></body></html>"#,
+        );
+        let before_resize = build_layout_tree(&doc, 300.0);
+        assert_eq!(find_box_with_background(&before_resize), None);
+        let after_resize = build_layout_tree(&doc, 700.0);
+        assert_eq!(
+            find_box_with_background(&after_resize),
+            Some(TextColor::rgb(0xfe, 0xdc, 0xba)),
+            "the same document, rebuilt at a wider width, must pick up a min-width rule it didn't before"
+        );
+    }
+
+    #[test]
+    fn prefers_color_scheme_defaults_to_light_never_dark() {
+        // scratchy has no OS theme detection — documented fixed default:
+        // `light` always matches, `dark` never does.
+        let doc = parse_html(
+            r#"<html><body><style>
+                @media (prefers-color-scheme: light) { .box { background-color: #00ffff; } }
+                @media (prefers-color-scheme: dark) { .other { background-color: #ff0000; } }
+            </style><div class="box">x</div><div class="other">y</div></body></html>"#,
+        );
+        let tree = build_layout_tree(&doc, 1920.0);
+        assert_eq!(
+            find_box_with_background(&tree),
+            Some(TextColor::rgb(0, 0xff, 0xff)),
+            "prefers-color-scheme: light should match (the only color found should be .box's cyan, not .other's red)"
         );
     }
 }
