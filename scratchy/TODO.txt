@@ -1201,7 +1201,7 @@ last, per the user's own call.
         revisit a `vibe-`-prefixed naming convention across all three
         tools only if this project ever picks up a second user).
 
-        **The daemon itself is now built (`wire/`, v1 — see its own
+        **The daemon itself is built (`wire/`, v1 — see its own
         `PROMPTS.md`/`NOTES.md`/`TODO.txt`)**: request parsing
         (absolute-form request line, headers, `Content-Length` body),
         real execution via `ureq` (TLS/redirects/gzip decompression),
@@ -1214,17 +1214,34 @@ last, per the user's own call.
         `--socket`-overridable default-path/stale-socket-cleanup/
         concurrent-connections-via-one-thread-per-connection plumbing,
         all covered by 10 permanent tests (including one real Unix-
-        socket round trip). What this does *not* yet cover, still fully
-        open: `scratchy`'s own side of this — `fetch_from_snag`/
-        `fetch_from_snag_at`/`snag_socket_path` (v65) still talk
-        directly to `snag --serve`, `<button>`/form-element support
-        doesn't exist yet (see the sequencing-plan item above), and
+        socket round trip).
+
+        **`scratchy`'s own side — the GET/link-click half — is also
+        built now (v66)**: `fetch_from_snag`/`fetch_from_snag_at`/
+        `snag_socket_path` are gone, replaced by `build_get_request_
+        text`/`fetch_via_wire_at`/`parse_wire_response`/`dispatch_wire_
+        response` (a real absolute-form request, real response-framing
+        dispatch by `Content-Type`, a fetched image wrapped into a
+        synthetic `<img src="data:...">` document rather than a second
+        rendering mode), a new strict-opt-in `--socket <path>` CLI flag
+        (no auto-discovered default), and the stdout-request-print
+        fallback for "no socket configured or configured one
+        unreachable." 8 new permanent tests. Live-verified further than
+        any prior navigation work in this project: a real synthesized
+        `xdotool` click, inside a real running `scratchy` process,
+        against a real on-screen link, triggered real navigation through
+        a real running `wire` daemon to a real local HTTP fixture — for
+        both a fetched HTML page and a fetched image — confirmed via
+        before/after screenshots (see `PROMPTS.md`'s own v66 entry).
+
+        **Still fully open**: `<button>`/form-element support doesn't
+        exist at all yet (no box, no focus tracking, no keyboard
+        handling — see the sequencing-plan item above), so form
+        submission can't be wired to `wire` until that lands first; and
         `snag` itself hasn't been narrowed yet (`--serve` is still
-        there, unremoved). Nothing in `wire/`'s own first version
-        needed any of that to be real and independently testable, so it
-        went first; wiring `scratchy` to actually dial `wire` instead of
-        `snag --serve` is the next slice of this same item, not a
-        separate one.
+        there, unremoved, even though nothing calls it anymore — removing
+        it is `snag`'s own change to make, not scratchy's, and is safe to
+        do independently whenever `snag`'s own session picks it up).
       - **Request framing**: a real HTTP/1.1 request, using the
         standard proxy "absolute-form" request line (`GET https://
         example.com/path HTTP/1.1`, RFC 7230 §5.3.2) rather than the
