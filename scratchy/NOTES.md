@@ -2615,3 +2615,77 @@ precision through the real `hit_test_cursor` — is a permanent headless
 test; only the thin `WindowEvent::MouseInput` → `start_navigation` wiring
 itself rests on code review plus the live-process checks described in
 `TODO.txt`'s own entry for this item.
+
+## v66 — re-platformed link navigation onto `wire`
+
+Scratchy's own half of the `wire` migration `scratchy/TODO.txt`'s "TOP
+PRIORITY" entry described — `wire` itself (a separate crate, built in a
+prior session: see `wire/NOTES.md`) already landed as a finished,
+unmodified dependency; this item is purely scratchy's client side of
+that new protocol, replacing v65's `snag --serve` client wholesale.
+
+**Why a whole new transport instead of just pointing the old code at a
+different socket**: the old protocol (`fetch_from_snag_at`: write an
+absolute URL plus a newline, read until close) was deliberately
+GET-only and bundle-shaped — it couldn't express a form's method or
+body even in principle, and conflated "fetch a resource" with "bundle a
+whole page," which is specifically `snag`'s job, not a general
+networking daemon's. `wire` speaks real HTTP/1.1 instead (absolute-form
+request line, real headers, a real body when there is one) specifically
+so the *same* request-building path can someday cover both a link click
+and a form submission — see `scratchy/TODO.txt`'s own "forms and
+link-clicks become the exact same code path" decision. This item only
+exercises the GET/link half of that; the form half still needs a
+`<button>` box and focus/keyboard handling that don't exist yet.
+
+**The response-dispatch design worth calling out**: rather than giving
+scratchy a second "the whole document is just an image" rendering mode
+for a navigated-to image, a fetched `image/*` response gets wrapped into
+a one-element synthetic HTML document (`wrap_image_as_html`) and pushed
+through the *exact same* `AppEvent::NavResult` → `new_parser().read_
+from(...)` → `replace_document` path every other fetched page already
+takes. This means `<img src="data:...">` decoding (`decode_data_uri`/
+`decode_image_bytes`, built for v46's `<img>` support) is reused
+verbatim with zero new rendering code — confirmed for real, not just
+plausible-looking, by a live click-through test that rendered a real
+generated PNG fetched over a real socket as a correctly-sized, correctly-
+colored block (see `PROMPTS.md`'s own v66 entry for the exact steps).
+
+**`WireFetchOutcome` exists specifically to keep two genuinely different
+failure shapes from blurring into one `Result<_, String>`.** "Never
+reached `wire` at all" (no socket configured, connection refused, or any
+I/O failure before a complete response was read) is the one case
+`scratchy/TODO.txt` says should *also* print the raw request to stdout —
+there's something useful to hand the user for manual replay. "Reached
+`wire`, got a real response back, but it's a content type scratchy can't
+render" has nothing new to print — the response already arrived, the
+user already knows what they clicked, so it's just an inline error. A
+naive single `Result` would make this distinction easy to blur (e.g. a
+careless `Err(_) => print_and_show_error(...)` catch-all) — keeping them
+as genuinely different enum variants makes that collapse a compile error
+instead of a silent behavior bug.
+
+**Live verification went further than any previous session's sandbox
+allowed — worth recording precisely, since it closes a gap v65's own
+entry explicitly left open.** v65 could not synthesize a real mouse
+click at all (no `ydotool`/`wtype`/`wlrctl` in that sandbox) and said so
+plainly rather than overclaiming. This session's sandbox turned out to
+have `xdotool` available via `apt`, plus `Xvfb` and ImageMagick's
+`import` for a screenshot path once `libxkbcommon-x11-0` was installed
+(winit's X11 backend needs it, confirmed by reading the actual panic:
+`xkbcommon_dl::x11::xkbcommon_x11_handle` failing to `dlopen` it). That
+combination made a *real*, full-stack, nothing-faked verification
+possible for the first time: a real `wire` daemon, a real loopback HTTP
+server standing in for a remote site, a real `scratchy` process, and a
+real synthesized `X11` click on a real on-screen link — confirmed via
+before/after screenshots that the page genuinely swapped in-process to
+freshly-fetched remote content, for both the HTML case and the
+image-wrapping case. Not reusable unattended (needs the sandbox to keep
+offering these tools, and each piece — `wire`, the fixture server, the
+target `scratchy` process — has to be started in a careful, verified
+order; an earlier, messier attempt at this exact sequence hit a
+transient "wire daemon not reachable" result from restarting processes
+out of order across several `run_in_background` calls with their own
+independent timeouts, not a real bug), but a genuine high-water mark for
+this project's own "verify, don't assume" discipline, worth repeating
+deliberately rather than treating as a one-off lucky sandbox.

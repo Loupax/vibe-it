@@ -5004,3 +5004,138 @@ already has precedent for, e.g. v13's `grim`/winit stall), not a real
 bug in this item's own code — flagged here rather than silently
 smoothed over, since it's exactly the kind of thing worth a second look
 if it ever recurs.
+
+## v66 — re-platformed link navigation onto `wire`, off `snag --serve`
+
+> Merged. Now in a new branch do scratchy
+
+The "Merged" refers to `wire` v1 (a separate, prior session — see
+`wire/PROMPTS.md`'s own v1 entry): a new daemon that owns real
+networking, built to satisfy `scratchy/TODO.txt`'s own "TOP PRIORITY"
+planning entry (`32ee24c`). That entry already settled every design
+question (request/response framing, the response-normalization
+contract, `--socket` as a strict opt-in, concurrent connections) in a
+prior conversation; this session's job, as `TODO.txt`'s own wire item
+said in advance, was "wiring `scratchy` to actually dial `wire` instead
+of `snag --serve`" — the next slice of that same item, not a separate
+one. Scoped deliberately to exactly that slice: v65's existing GET-only
+link-click navigation, re-platformed onto the new transport. Form
+submission stays out of scope (per `TODO.txt`'s own "Form elements —
+sequencing plan" item — `<button>` has no box, scratchy has no focus or
+keyboard handling at all yet, so there's nothing a form's `submit` could
+even target).
+
+**What changed.** `fetch_from_snag`/`fetch_from_snag_at`/`snag_socket_
+path` (v65's GET-a-URL-plus-newline line protocol against `snag
+--serve`'s fixed auto-discovered socket path) are gone, replaced
+outright — not extended, not kept as a fallback, exactly as `TODO.txt`
+specified. In their place:
+
+1. **`--socket <path>`**, a real CLI flag (`parse_args` now returns an
+   `Args { input, socket }` instead of a bare `Input`) — strict opt-in,
+   no auto-discovered default of any kind. Threaded through both `App`
+   constructors into a new `socket_path: Option<PathBuf>` field.
+2. **`build_get_request_text`**: a real HTTP/1.1 request in the proxy
+   absolute-form shape `wire` itself parses — the exact framing
+   `wire/src/main.rs`'s own `parse_request` expects, confirmed against
+   its real source rather than assumed.
+3. **`parse_wire_response`/`dispatch_wire_response`**: the response side
+   of the contract `TODO.txt` settled — read `Content-Type` and nothing
+   else; `text/html` passes straight through; a real decoded image
+   (`image/png`/`jpeg`/`gif`/`webp` — `wire` always hands these back
+   already-decompressed, confirmed by reading its own `normalize_
+   response`) gets wrapped into a synthetic `<html><body><img
+   src="data:...">` document (`wrap_image_as_html`) so it reaches
+   scratchy through the *same* one rendering path as any other page,
+   reusing `decode_data_uri`/`decode_image_bytes` rather than inventing
+   a second "the document is just an image" mode; anything else is a
+   named, inline "can't render this content type" error.
+4. **`fetch_via_wire_at`/`WireFetchOutcome`**: connects, sends, reads to
+   EOF (the real `wire` protocol's own "done" signal — no length
+   prefix), then parses+dispatches. Collapses every failure before a
+   complete response was read (`connect` refused, write failed, read
+   failed) into one `Unreachable` outcome, kept distinct from "reached
+   the daemon, got a response, but it's not one scratchy can render" —
+   only the first case also triggers `print_fallback_request`.
+5. **`print_fallback_request`**: `start_navigation`'s own stdout
+   fallback, exactly as `TODO.txt` specified — the literal HTTP/1.1
+   request text, printed whenever `--socket` was never given at all or
+   the configured one couldn't be reached, directly replayable by
+   `nc`/a raw socket/a manually-run `wire`.
+
+`start_navigation` itself keeps its v65 shape (resolve `href`, bump
+`nav_generation`, show "Loading…", fetch on a background thread, send
+`AppEvent::NavResult` back through the existing `proxy`) — only what
+happens *inside* that background thread changed.
+
+**8 new permanent tests** replacing the 3 old `fetch_from_snag_at`
+ones (168 total now, up from 160): `build_get_request_text` against a
+plain URL and one with an explicit port; `parse_wire_response` extracting
+`Content-Type`+body, confirming case-insensitive header lookup plus
+other headers being ignored, and erroring on a missing header
+terminator; `dispatch_wire_response` passing HTML through untouched,
+wrapping a real generated PNG into a synthetic document whose `data:`
+URI is then decoded back via the real `decode_data_uri` and confirmed
+byte-identical to the original (not just a string-shape check), erroring
+on an unsupported content type, and erroring when there's no
+`Content-Type` at all; and a real end-to-end `fetch_via_wire_at` round
+trip against a tiny in-process mock Unix-socket listener (confirming
+the exact absolute-form request bytes sent) plus the unreachable-socket
+case. `cargo test`: 168/168 passing. `cargo clippy --all-targets`:
+confirmed the exact same 20 pre-existing warnings as a clean checkout of
+`main` before this session (diffed directly, not assumed) — zero new
+ones from any touched line.
+
+**Live-verified further than any prior `PROMPTS.md` entry in this
+project — including the one thing v65's own entry explicitly flagged as
+*not* checked: an actual mouse click, inside a real running `scratchy`
+process, triggering real navigation.** This sandbox turned out to have
+`Xvfb` + ImageMagick's `import` (an X11 screenshot path, once
+`libxkbcommon-x11-0` was installed so winit's X11 backend would even
+start) and, unlike every prior session's sandbox, `xdotool` — enough to
+synthesize a real `X11` mouse click for the first time in this project's
+history. Full real pipeline exercised, nothing simulated or hand-fed:
+
+- A real `wire` binary (release build) run as a real daemon on a real
+  Unix socket.
+- A real Python `http.server` loopback fixture standing in for a remote
+  site (serving both a real HTML page and a real generated PNG).
+- A real `scratchy` release binary, launched with `--socket` pointing at
+  the real `wire` daemon, loading a real start page with a real
+  `<a href="http://127.0.0.1:.../">`.
+- `xdotool mousemove --sync`+`click 1` at the link's real screen
+  position, confirmed first against a `before`-click screenshot.
+- An `after`-click screenshot confirming the page genuinely swapped
+  in-process to the fetched remote content — text-case: the start page
+  replaced by the real fetched page's own heading/paragraph text,
+  byte-identical to what the fixture served; image-case: a second real
+  click, against a link to the generated PNG, rendered as a solid
+  80×80 blue square matching the generated fixture image exactly (color
+  and dimensions), proving `wrap_image_as_html`'s synthetic-document
+  path renders correctly end to end, not just that it produces
+  plausible-looking HTML in a unit test.
+
+One hiccup during this, recorded rather than smoothed over: an earlier
+attempt (before settling into the clean sequence above) showed the
+real `print_fallback_request`/"wire daemon not reachable" error message
+after a click, despite `ps` confirming a `wire` process alive at that
+exact path moments before — most likely a stale-socket-file race from
+restarting `wire` (`rm` + rebind) while an *older* `scratchy` process
+(constructed against the path before that restart) was still running
+and mid-background-thread-dispatch from a previous attempt, across
+several overlapping `run_in_background` tool calls whose own 30-minute
+timeouts killed processes out from under the test more than once. Not
+chased further as a code bug (a clean restart of all three processes in
+strict order, confirmed one by one before ever touching `scratchy`,
+reproduced success twice in a row, including the image case) — but
+worth noting `fetch_via_wire_at`'s `Unreachable` branch is itself
+exactly what made that failure *visible* and diagnosable instead of a
+silent hang, which is the behavior this item asked for either way.
+
+**Deliverable**: `scratchy/src/lib.rs` (`Args`/`parse_args`, `App::
+socket_path`+both constructors, `build_get_request_text`, `parse_wire_
+response`, `wrap_image_as_html`, `dispatch_wire_response`,
+`WireFetchOutcome`, `fetch_via_wire_at`, `print_fallback_request`,
+`start_navigation` rewritten, `run()` threading `socket` through, 8 new
+tests replacing 3 removed ones, doc comments updated throughout
+wherever they referenced `snag --serve`/`fetch_from_snag`).

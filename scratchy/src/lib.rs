@@ -51,16 +51,45 @@ enum Input {
     Stdin,
 }
 
-fn parse_args() -> Input {
-    let args: Vec<String> = env::args().skip(1).collect();
-    match args.len() {
-        0 => Input::Stdin,
-        1 => Input::File(args[0].clone()),
-        _ => {
-            eprintln!("usage: scratchy [file]");
-            std::process::exit(1);
+/// `--socket <path>`, alongside the pre-existing `[file]` argument — an
+/// explicit opt-in flag, not an auto-discovered default (see `wire/
+/// TODO.txt`'s own "TOP PRIORITY" item for why): scratchy never guesses
+/// where a `wire` daemon might be listening, and never starts one
+/// itself. With no `--socket` at all, link navigation always falls
+/// straight to `start_navigation`'s own print-the-request-to-stdout
+/// fallback — see its own docs.
+struct Args {
+    input: Input,
+    socket: Option<PathBuf>,
+}
+
+fn parse_args() -> Args {
+    let raw: Vec<String> = env::args().skip(1).collect();
+    let mut socket = None;
+    let mut rest = Vec::new();
+    let mut i = 0;
+    while i < raw.len() {
+        if raw[i] == "--socket" {
+            let Some(path) = raw.get(i + 1) else {
+                eprintln!("scratchy: --socket needs a path argument");
+                std::process::exit(1);
+            };
+            socket = Some(PathBuf::from(path));
+            i += 2;
+        } else {
+            rest.push(raw[i].clone());
+            i += 1;
         }
     }
+    let input = match rest.len() {
+        0 => Input::Stdin,
+        1 => Input::File(rest[0].clone()),
+        _ => {
+            eprintln!("usage: scratchy [--socket <path>] [file]");
+            std::process::exit(1);
+        }
+    };
+    Args { input, socket }
 }
 
 fn new_parser() -> Utf8LossyDecoder<Parser<RcDom>> {
@@ -9812,14 +9841,22 @@ fn hit_test_scroll_region(
     self_info
 }
 
-// ---------- link navigation (v65) ----------
+// ---------- link navigation (v65, re-platformed onto `wire` in v66) ----------
 //
 // scratchy still performs zero networking itself (see NOTES.md's
 // "rendering, not networking" priority, in force since v1) — clicking a
-// link hands the resolved absolute URL to `snag --serve`'s Unix socket
-// (see `snag/NOTES.md`'s v9 entry for the exact protocol this mirrors)
-// and swaps whatever bundled HTML comes back into the live `App`, same
-// as `run()`'s own `Input::File` case builds the *initial* document.
+// link builds a real HTTP/1.1 request (absolute-form request line, see
+// `build_get_request_text`) and hands it to a `wire` daemon over a Unix
+// socket (see `wire/NOTES.md` for that daemon's own design — a separate
+// crate in this same repo, not a dependency of this one), then swaps
+// whatever normalized response comes back into the live `App`, same as
+// `run()`'s own `Input::File` case builds the *initial* document. v65
+// originally talked to `snag --serve` directly (a GET-only, bundle-
+// shaped line protocol); that's gone now, replaced outright per
+// `scratchy/TODO.txt`'s own "TOP PRIORITY" planning entry, which also
+// covers *why*: `snag`'s own job is bundling a page to one file, not
+// being scratchy's live HTTP client, and the two were already showing
+// seams (no way for the old protocol to express a form's method/body).
 // Everything in this section is plain, `App`-free logic so it can be
 // unit tested without a real window/event loop, matching this file's
 // existing "headless function-level testing" convention (see NOTES.md's
@@ -9909,66 +9946,126 @@ fn escape_html(s: &str) -> String {
     s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;")
 }
 
-/// `$XDG_RUNTIME_DIR/snag.sock`, falling back to `/tmp/snag-$UID.sock` —
-/// exactly `snag`'s own `socket_path()` (see `snag/src/main.rs`, v9),
-/// reproduced here rather than shared (scratchy and `snag` are separate
-/// binaries/crates with no shared library between them) since a client
-/// connecting to the *wrong* path just silently fails to find the
-/// server, so this has to compute the literal same path `snag --serve`
-/// itself binds.
-fn snag_socket_path() -> PathBuf {
-    if let Some(dir) = std::env::var_os("XDG_RUNTIME_DIR") {
-        return PathBuf::from(dir).join("snag.sock");
-    }
-    PathBuf::from(format!("/tmp/snag-{}.sock", current_uid()))
+/// Builds a real HTTP/1.1 request, in the standard proxy absolute-form
+/// shape (RFC 7230 §5.3.2) `wire` itself parses (see `wire/src/main.rs`'s
+/// own `parse_request`) — the request line carries the *whole* URL, not
+/// just a path, since `wire` sits behind a bare Unix socket with no
+/// DNS/TLS-SNI of its own to infer a destination from. GET-only for now
+/// (no body, no method parameter) — form submission needs a real
+/// `<button>`/focus/keyboard subsystem scratchy doesn't have yet (see
+/// `scratchy/TODO.txt`'s own "Form elements — sequencing plan" item);
+/// this is purely what a clicked `<a href>` needs.
+fn build_get_request_text(url: &Url) -> String {
+    let host = url.host_str().unwrap_or("");
+    let host_header = match url.port() {
+        Some(port) => format!("{host}:{port}"),
+        None => host.to_string(),
+    };
+    format!("GET {url} HTTP/1.1\r\nHost: {host_header}\r\n\r\n")
 }
 
-/// Same bare-FFI trick `snag` itself uses (see its own `current_uid`)
-/// instead of pulling in the `libc` crate for one syscall every Rust
-/// binary on Linux already links against.
-fn current_uid() -> u32 {
-    unsafe extern "C" {
-        fn getuid() -> u32;
-    }
-    unsafe { getuid() }
+/// Splits a raw response buffer into its `Content-Type` (if any) and
+/// body — `wire` always frames its responses with a real `Content-
+/// Length` and never `Transfer-Encoding: chunked` (see `wire/NOTES.md`),
+/// so there's no chunked-response decoding to do here; this just finds
+/// the blank-line header terminator and reads one header out of the
+/// block before it, per the contract `scratchy/TODO.txt`'s own "TOP
+/// PRIORITY" item settled: scratchy reads `Content-Type` and nothing
+/// else — every other header (`Cache-Control`, `Server`, cookies, ...)
+/// is deliberately left unparsed.
+fn parse_wire_response(bytes: &[u8]) -> Result<(Option<String>, Vec<u8>), String> {
+    let header_end = bytes
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .ok_or_else(|| "malformed response from wire: no header terminator found".to_string())?;
+    let header_text = std::str::from_utf8(&bytes[..header_end])
+        .map_err(|_| "malformed response from wire: headers are not valid UTF-8".to_string())?;
+    let content_type = header_text.split("\r\n").skip(1 /* status line */).find_map(|line| {
+        let (name, value) = line.split_once(':')?;
+        name.trim().eq_ignore_ascii_case("content-type").then(|| value.trim().to_string())
+    });
+    let body = bytes[header_end + 4..].to_vec();
+    Ok((content_type, body))
 }
 
-/// The real socket round trip: connect, write the absolute URL plus a
-/// newline, read the whole response until the server closes the
-/// connection (`snag --serve`'s entire "done" signal — no length
-/// prefix, no explicit end marker, see `snag/NOTES.md`'s v9 entry).
-/// Three distinct outcomes, each reported as a human-readable `Err`
-/// `App::show_message` can display directly rather than scratchy
-/// guessing at wording on `snag`'s behalf:
-/// - **Connection refused / socket file missing** (`snag --serve` was
-///   never started): the one case with an unambiguous, specific
-///   message telling the user exactly what to run.
-/// - **A clean connection that closes with zero bytes**: per `snag`'s
-///   own documented behavior, a bad URL or a failed top-level fetch is
-///   logged to *its* stderr and the connection just closes, possibly
-///   having written nothing at all — so an empty response is `snag`'s
-///   real, spec'd way of signaling "that fetch failed," not a
-///   degenerate success.
-/// - **Any other I/O error** (connection reset mid-read, etc.): reported
-///   with the underlying `io::Error`'s own message.
-///
-/// Split from `fetch_from_snag` (which always targets the real `snag`
-/// socket path) purely so a test can point this at a throwaway mock
-/// listener instead — see `mod tests`' own `tests::navigation` module.
-fn fetch_from_snag_at(path: &std::path::Path, url: &Url) -> Result<Vec<u8>, String> {
-    let mut stream = UnixStream::connect(path)
-        .map_err(|_| "snag server not running — start it with `snag --serve`".to_string())?;
-    writeln!(stream, "{url}").map_err(|e| format!("failed to send request to snag: {e}"))?;
+/// Wraps already-decoded image bytes (`wire` never forwards a
+/// `Content-Encoding`, so these are the real final bytes) in a minimal
+/// synthetic HTML document, reusing the `<img src="data:...">` decoding
+/// path `decode_data_uri`/`decode_image_bytes` already implement for
+/// `<img>` tags — rather than inventing a second, parallel "the whole
+/// document is just an image" rendering mode. `mime` is expected to
+/// already be one `dispatch_wire_response` has recognized (`image/png`/
+/// `jpeg`/`gif`/`webp`).
+fn wrap_image_as_html(mime: &str, bytes: &[u8]) -> Vec<u8> {
+    use base64::Engine;
+    let encoded = base64::engine::general_purpose::STANDARD.encode(bytes);
+    format!(r#"<html><body><img src="data:{mime};base64,{encoded}"></body></html>"#).into_bytes()
+}
+
+/// The response-framing contract `scratchy/TODO.txt`'s own "TOP
+/// PRIORITY" item settled on: `text/html` goes straight into the
+/// existing HTML-parse path untouched; a real decoded image gets
+/// wrapped (`wrap_image_as_html`) so it still reaches scratchy through
+/// that same one path, never a second rendering mode; anything else is a
+/// clear, named "can't render this" error — never a guess at forcing
+/// unknown bytes through either path. The `;charset=...`/`; boundary=...`
+/// parameter half of a real `Content-Type`, if any, is dropped before
+/// matching — only the MIME type itself decides.
+fn dispatch_wire_response(content_type: Option<String>, body: Vec<u8>) -> Result<Vec<u8>, String> {
+    let content_type = content_type.unwrap_or_default();
+    let mime = content_type.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+    match mime.as_str() {
+        "text/html" => Ok(body),
+        "image/png" | "image/jpeg" | "image/gif" | "image/webp" => Ok(wrap_image_as_html(&mime, &body)),
+        _ => Err(format!("can't render this content type: {mime:?}")),
+    }
+}
+
+/// What a single navigation attempt against a configured `wire` socket
+/// came back with — kept distinct from a plain `Result` so `start_
+/// navigation` can tell "never reached the daemon at all" (the one case
+/// that also prints the request to stdout for manual replay, per
+/// `scratchy/TODO.txt`'s own fallback design) apart from "reached it,
+/// got a real response, but it wasn't one scratchy can render" (just an
+/// inline error — a response *was* received, so there's nothing useful
+/// to print for manual replay that the user doesn't already know).
+#[derive(Debug)]
+enum WireFetchOutcome {
+    Responded(Result<Vec<u8>, String>),
+    Unreachable,
+}
+
+/// Connects to `path`, sends `request_text` verbatim, reads the whole
+/// response until `wire` closes the connection (its own protocol's
+/// "done" signal — no length prefix, no explicit end marker, same shape
+/// `snag --serve`'s older line protocol already used), then parses and
+/// dispatches it. Any failure before a complete response was read back
+/// (connect refused, write failed, connection reset mid-read) collapses
+/// to `Unreachable` — from scratchy's point of view those are all
+/// exactly the same outcome: no usable response came back, for whatever
+/// reason, and the caller's only real recourse is the same stdout-
+/// fallback print either way.
+fn fetch_via_wire_at(path: &std::path::Path, request_text: &str) -> WireFetchOutcome {
+    let Ok(mut stream) = UnixStream::connect(path) else { return WireFetchOutcome::Unreachable };
+    if stream.write_all(request_text.as_bytes()).is_err() {
+        return WireFetchOutcome::Unreachable;
+    }
     let mut buf = Vec::new();
-    stream.read_to_end(&mut buf).map_err(|e| format!("failed to read response from snag: {e}"))?;
-    if buf.is_empty() {
-        return Err(format!("snag failed to fetch {url} (see snag's own stderr for details)"));
+    if stream.read_to_end(&mut buf).is_err() {
+        return WireFetchOutcome::Unreachable;
     }
-    Ok(buf)
+    WireFetchOutcome::Responded(parse_wire_response(&buf).and_then(|(ct, body)| dispatch_wire_response(ct, body)))
 }
 
-fn fetch_from_snag(url: &Url) -> Result<Vec<u8>, String> {
-    fetch_from_snag_at(&snag_socket_path(), url)
+/// `start_navigation`'s own stdout fallback — per `scratchy/TODO.txt`'s
+/// own design, printed verbatim as the literal HTTP/1.1 wire text
+/// (request line, `Host`, blank line) specifically so it's directly
+/// replayable by `nc`/a raw socket/a manually-run `wire` instance, with
+/// zero translation, whenever no `--socket` was given at all or the
+/// configured one couldn't be reached.
+fn print_fallback_request(request_text: &str) {
+    print!("{request_text}");
+    let _ = io::stdout().flush();
 }
 
 // ---------- windowing ----------
@@ -9977,13 +10074,16 @@ enum AppEvent {
     Chunk(Vec<u8>),
     Eof,
     /// The result of a background navigation fetch (`App::start_
-    /// navigation`'s spawned thread) — `Ok` carries the raw bundled-HTML
-    /// bytes `snag --serve` sent back (same bytes `Input::File`'s own
-    /// `fs::read_to_string` would have read from a saved bundle), `Err`
-    /// a human-readable message to show in place of the page (socket
-    /// unreachable, or a clean-but-empty response — see `fetch_from_
-    /// snag_at`'s own docs for exactly which). The `u64` is `App::nav_
-    /// generation` at the moment this navigation started — compared
+    /// navigation`'s spawned thread) — `Ok` carries ready-to-parse HTML
+    /// bytes (same bytes `Input::File`'s own `fs::read_to_string` would
+    /// have read from a saved page — already dispatched through
+    /// `dispatch_wire_response`, so a fetched image has already been
+    /// wrapped into a synthetic HTML document by this point too), `Err`
+    /// a human-readable message to show in place of the page (no
+    /// `--socket` configured, the daemon unreachable, or a response
+    /// `wire` sent back in a content type scratchy can't render — see
+    /// `fetch_via_wire_at`'s own docs for exactly which). The `u64` is
+    /// `App::nav_generation` at the moment this navigation started — compared
     /// against the *current* generation when this event arrives so a
     /// stale result from a since-superseded navigation (the user
     /// clicked a second link before the first one's fetch finished) is
@@ -10078,9 +10178,10 @@ struct App {
     /// `thread::spawn` + `event_loop.create_proxy().send_event(..)`
     /// pattern `run()`'s own `Input::Stdin` case already uses for
     /// reading stdin off the main thread, reused here for the socket
-    /// I/O a real page's `snag --serve` fetch can take 10-30+ seconds
-    /// to finish (confirmed directly against real Wikipedia in this
-    /// session). Created once in `run()` (an `ActiveEventLoop`, unlike
+    /// I/O a real page's fetch (through `wire`, formerly `snag --serve`)
+    /// can take 10-30+ seconds to finish (confirmed directly against
+    /// real Wikipedia in an earlier session). Created once in `run()`
+    /// (an `ActiveEventLoop`, unlike
     /// the top-level `EventLoop`, has no `create_proxy` of its own —
     /// confirmed by reading winit's vendored source — so this has to be
     /// threaded in at construction time instead of fetched lazily from
@@ -10102,10 +10203,16 @@ struct App {
     /// finished) is recognized as stale and dropped instead of
     /// clobbering newer content. See `AppEvent::NavResult`'s own docs.
     nav_generation: u64,
+    /// The `--socket <path>` CLI flag, if given — where a `wire` daemon
+    /// is expected to be listening. `None` means the user never opted
+    /// in at all; `start_navigation` treats that identically to "gave a
+    /// path but nothing's listening there" (see its own docs), just
+    /// without even attempting a connection first.
+    socket_path: Option<PathBuf>,
 }
 
 impl App {
-    fn new_static(document: Handle, proxy: EventLoopProxy<AppEvent>) -> Self {
+    fn new_static(document: Handle, proxy: EventLoopProxy<AppEvent>, socket_path: Option<PathBuf>) -> Self {
         let base_url = find_base_url(&document);
         Self {
             document,
@@ -10130,10 +10237,11 @@ impl App {
             proxy,
             base_url,
             nav_generation: 0,
+            socket_path,
         }
     }
 
-    fn new_streaming(proxy: EventLoopProxy<AppEvent>) -> Self {
+    fn new_streaming(proxy: EventLoopProxy<AppEvent>, socket_path: Option<PathBuf>) -> Self {
         let decoder = new_parser();
         let document = decoder.inner_sink.tokenizer.sink.sink.document.clone();
         Self {
@@ -10159,6 +10267,7 @@ impl App {
             proxy,
             base_url: None,
             nav_generation: 0,
+            socket_path,
         }
     }
 
@@ -10313,14 +10422,15 @@ impl App {
     /// Replaces the page with a plain one-paragraph status message —
     /// used for both the "Loading…" indicator `start_navigation` shows
     /// immediately (a real page can take 10-30+ seconds to fetch through
-    /// `snag --serve`, confirmed directly against Wikipedia earlier in
-    /// this session — freezing with no feedback would look broken) and
-    /// a failed navigation's inline error (socket unreachable, or
-    /// `snag` itself erroring on that URL — see `fetch_from_snag_at`'s
-    /// own docs for the two cases this can report). `escape_html` is
-    /// needed since `text` can echo back arbitrary attacker^Wpage-
-    /// controlled content (a clicked `href`, or an OS error string) —
-    /// without it, a stray `<`/`&` in either would corrupt the
+    /// a real `wire` daemon, confirmed directly against Wikipedia in an
+    /// earlier session, back when this fetched through `snag --serve`
+    /// instead — freezing with no feedback would look broken) and a
+    /// failed navigation's inline error (no `--socket` configured, the
+    /// daemon unreachable, or a response in a content type scratchy
+    /// can't render — see `fetch_via_wire_at`'s own docs for which).
+    /// `escape_html` is needed since `text` can echo back arbitrary
+    /// attacker^Wpage-controlled content (a clicked `href`, or an error
+    /// string) — without it, a stray `<`/`&` in either would corrupt the
     /// synthetic markup instead of just displaying literally.
     fn show_message(&mut self, text: &str) {
         let html = format!("<html><body><p>{}</p></body></html>", escape_html(text));
@@ -10331,11 +10441,20 @@ impl App {
     /// resolves `href` against the current page's own `<base href>`
     /// (`resolve_href` — ordinary URL-join logic via the `url` crate,
     /// not hand-rolled), then, if that succeeds, shows "Loading…" and
-    /// fetches the resolved page on a background thread (`fetch_from_
-    /// snag`), exactly the `thread::spawn` + proxy pattern `run()`'s own
-    /// `Input::Stdin` case already established — see `AppEvent::
-    /// NavResult`'s own docs for how the result gets back onto this
-    /// thread and `nav_generation`'s own docs for why it's tagged.
+    /// fetches the resolved page on a background thread, exactly the
+    /// `thread::spawn` + proxy pattern `run()`'s own `Input::Stdin` case
+    /// already established — see `AppEvent::NavResult`'s own docs for
+    /// how the result gets back onto this thread and `nav_generation`'s
+    /// own docs for why it's tagged.
+    ///
+    /// Per `scratchy/TODO.txt`'s own settled design, `--socket` is a
+    /// strict opt-in: with none configured, or the configured one
+    /// unreachable, this never silently does nothing — it prints the
+    /// literal HTTP/1.1 request text to stdout (`print_fallback_
+    /// request`, directly replayable by `nc`/a raw socket/a manually-run
+    /// `wire`) and shows a clear inline error, rather than either
+    /// guessing at a default daemon location or leaving the user
+    /// wondering whether the click even registered.
     fn start_navigation(&mut self, href: &str) {
         let url = match resolve_href(self.base_url.as_ref(), href) {
             Ok(url) => url,
@@ -10348,8 +10467,30 @@ impl App {
         let generation = self.nav_generation;
         self.show_message("Loading…");
         let proxy = self.proxy.clone();
+        let socket_path = self.socket_path.clone();
         thread::spawn(move || {
-            let result = fetch_from_snag(&url);
+            let request_text = build_get_request_text(&url);
+            let result = match &socket_path {
+                Some(path) => match fetch_via_wire_at(path, &request_text) {
+                    WireFetchOutcome::Responded(result) => result,
+                    WireFetchOutcome::Unreachable => {
+                        print_fallback_request(&request_text);
+                        Err(format!(
+                            "wire daemon not reachable at {} — printed the request to stdout; \
+                             start it there (e.g. `wire --socket {}`) and click again, or replay \
+                             the printed request manually",
+                            path.display(),
+                            path.display()
+                        ))
+                    }
+                },
+                None => {
+                    print_fallback_request(&request_text);
+                    Err("no --socket given — scratchy never fetches a page on its own without \
+                         one; printed the request to stdout for manual replay"
+                        .to_string())
+                }
+            };
             let _ = proxy.send_event(AppEvent::NavResult(generation, result));
         });
     }
@@ -10554,7 +10695,7 @@ impl ApplicationHandler<AppEvent> for App {
 /// `eprintln!`/`Instant` timing for every performance question (see
 /// NOTES.md/TODO.txt — long agreed worth doing, not done until now).
 pub fn run() {
-    let input = parse_args();
+    let Args { input, socket } = parse_args();
 
     let event_loop = EventLoop::<AppEvent>::with_user_event().build().unwrap();
     // Needed unconditionally now, not just for `Input::Stdin`'s own
@@ -10572,7 +10713,7 @@ pub fn run() {
                 std::process::exit(1);
             });
             let dom = new_parser().read_from(&mut html.as_bytes()).unwrap();
-            App::new_static(dom.document, proxy)
+            App::new_static(dom.document, proxy, socket)
         }
         Input::Stdin => {
             let stdin_proxy = proxy.clone();
@@ -10599,7 +10740,7 @@ pub fn run() {
                     }
                 }
             });
-            App::new_streaming(proxy)
+            App::new_streaming(proxy, socket)
         }
     };
 
@@ -14319,10 +14460,90 @@ mod tests {
         assert_eq!(hit_test_cursor(&laid, x, y, &cache, &scroll_offsets, 0.0, 600.0).1, None);
     }
 
-    // -- the real snag socket protocol, against a tiny in-process mock
-    // listener (same spirit as `snag`'s own v9 test, which used a tiny
-    // in-process loopback HTTP fixture rather than touching the real
-    // internet — this mirrors that for the Unix-socket side instead) --
+    // -- building the absolute-form request `wire` itself parses --
+
+    #[test]
+    fn build_get_request_text_uses_absolute_form_and_a_bare_host_header() {
+        let url = Url::parse("https://example.com/path?q=1").unwrap();
+        assert_eq!(
+            build_get_request_text(&url),
+            "GET https://example.com/path?q=1 HTTP/1.1\r\nHost: example.com\r\n\r\n"
+        );
+    }
+
+    #[test]
+    fn build_get_request_text_includes_an_explicit_port_in_the_host_header() {
+        let url = Url::parse("http://example.com:8080/x").unwrap();
+        assert_eq!(build_get_request_text(&url), "GET http://example.com:8080/x HTTP/1.1\r\nHost: example.com:8080\r\n\r\n");
+    }
+
+    // -- parsing wire's own normalized response shape --
+
+    #[test]
+    fn parse_wire_response_extracts_content_type_and_body() {
+        let raw = b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 5\r\n\r\nhello";
+        let (content_type, body) = parse_wire_response(raw).expect("parse");
+        assert_eq!(content_type, Some("text/html".to_string()));
+        assert_eq!(body, b"hello");
+    }
+
+    #[test]
+    fn parse_wire_response_content_type_lookup_is_case_insensitive_and_ignores_other_headers() {
+        let raw = b"HTTP/1.1 200 OK\r\ncontent-type: image/png\r\nServer: wire\r\n\r\n\x89PNG";
+        let (content_type, body) = parse_wire_response(raw).expect("parse");
+        assert_eq!(content_type, Some("image/png".to_string()));
+        assert_eq!(body, b"\x89PNG");
+    }
+
+    #[test]
+    fn parse_wire_response_errors_on_a_missing_header_terminator() {
+        assert!(parse_wire_response(b"not a real response at all").is_err());
+    }
+
+    // -- dispatching by Content-Type, per `scratchy/TODO.txt`'s own
+    // settled response-framing contract --
+
+    #[test]
+    fn dispatch_wire_response_passes_html_through_untouched() {
+        let body = b"<html><body>hi</body></html>".to_vec();
+        assert_eq!(dispatch_wire_response(Some("text/html; charset=utf-8".to_string()), body.clone()), Ok(body));
+    }
+
+    #[test]
+    fn dispatch_wire_response_wraps_a_real_image_in_a_synthetic_html_document() {
+        // A real tiny PNG, built the same way `tiny_png_data_uri` builds
+        // one for the pre-existing `<img>`-rendering tests just above —
+        // decoded back out of its own data: URI purely to get the raw
+        // bytes a real `wire` response body would carry. Round-tripped
+        // through the *real* `decode_data_uri` this produces an
+        // `<img src>` for — not just a string-shape check — to confirm
+        // the wrapped document is actually renderable, not merely
+        // well-formed-looking HTML.
+        let png_bytes = decode_data_uri(&tiny_png_data_uri(1, 1)).expect("decode the fixture's own data: URI");
+        let html = dispatch_wire_response(Some("image/png".to_string()), png_bytes.clone()).expect("dispatch");
+        let html = String::from_utf8(html).expect("utf8 html");
+        assert!(html.starts_with("<html><body><img src=\"data:image/png;base64,"), "got: {html}");
+        let data_uri_start = html.find("src=\"").unwrap() + "src=\"".len();
+        let data_uri_end = html[data_uri_start..].find('"').unwrap() + data_uri_start;
+        let decoded = decode_data_uri(&html[data_uri_start..data_uri_end]).expect("decode_data_uri");
+        assert_eq!(decoded, png_bytes, "the wrapped data: URI must decode back to the exact original bytes");
+    }
+
+    #[test]
+    fn dispatch_wire_response_errors_on_an_unsupported_content_type() {
+        let err = dispatch_wire_response(Some("application/pdf".to_string()), vec![1, 2, 3]).unwrap_err();
+        assert!(err.contains("application/pdf"), "error should name the unsupported content type: {err}");
+    }
+
+    #[test]
+    fn dispatch_wire_response_errors_clearly_when_there_is_no_content_type_at_all() {
+        assert!(dispatch_wire_response(None, vec![1, 2, 3]).is_err());
+    }
+
+    // -- the real wire-socket protocol end to end, against a tiny
+    // in-process mock listener (same spirit as `wire`'s own test module,
+    // which does the mirror image of this: a real client against a real
+    // listener, rather than touching the real internet) --
 
     fn unique_test_socket_path(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!(
@@ -14333,62 +14554,60 @@ mod tests {
     }
 
     #[test]
-    fn fetch_from_snag_at_round_trips_real_bytes_over_a_real_unix_socket() {
+    fn fetch_via_wire_at_round_trips_a_real_response_over_a_real_unix_socket() {
         use std::os::unix::net::UnixListener;
         let path = unique_test_socket_path("roundtrip");
         let _ = std::fs::remove_file(&path);
-        let listener = UnixListener::bind(&path).expect("bind mock snag socket");
+        let listener = UnixListener::bind(&path).expect("bind mock wire socket");
         let server = thread::spawn(move || {
-            use std::io::BufRead;
             let (mut stream, _) = listener.accept().expect("accept");
-            let mut reader = std::io::BufReader::new(stream.try_clone().expect("clone"));
-            let mut line = String::new();
-            reader.read_line(&mut line).expect("read url line");
-            assert_eq!(line.trim_end(), "https://example.com/page", "scratchy must send the resolved absolute URL plus a newline");
-            stream.write_all(b"<html><body>mock bundle</body></html>").expect("write response");
-            // Dropping `stream` here closes the connection — the
-            // protocol's own "done" signal (see `fetch_from_snag_at`'s
-            // own docs).
+            let mut received = Vec::new();
+            // The client always closes its write side (or just drops
+            // the connection after reading) once it has what it wants —
+            // reading to EOF here mirrors exactly what the real `wire`
+            // daemon's own `handle_connection` does on its side of this
+            // same protocol.
+            let mut buf = [0u8; 4096];
+            loop {
+                match Read::read(&mut stream, &mut buf) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => {
+                        received.extend_from_slice(&buf[..n]);
+                        if received.ends_with(b"\r\n\r\n") {
+                            break; // a GET request has no body to wait for
+                        }
+                    }
+                }
+            }
+            assert_eq!(
+                received,
+                build_get_request_text(&Url::parse("https://example.com/page").unwrap()).into_bytes(),
+                "scratchy must send the real absolute-form request wire itself parses"
+            );
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 29\r\n\r\n<html><body>hi</body></html>")
+                .expect("write response");
+            // Dropping `stream` here closes the connection — the real
+            // `wire` protocol's own "done" signal (see `wire/src/
+            // main.rs`'s own `handle_connection`).
         });
         let url = Url::parse("https://example.com/page").unwrap();
-        let result = fetch_from_snag_at(&path, &url);
+        let request_text = build_get_request_text(&url);
+        let result = fetch_via_wire_at(&path, &request_text);
         server.join().expect("mock server thread panicked");
         let _ = std::fs::remove_file(&path);
-        assert_eq!(result, Ok(b"<html><body>mock bundle</body></html>".to_vec()));
+        match result {
+            WireFetchOutcome::Responded(Ok(body)) => assert_eq!(body, b"<html><body>hi</body></html>"),
+            other => panic!("expected a successful HTML response, got something else entirely: {other:?}"),
+        }
     }
 
     #[test]
-    fn fetch_from_snag_at_reports_a_clear_message_when_the_socket_is_missing() {
-        // No `snag --serve` running at all (or crashed, or never
-        // started) — the one case this function gives a specific,
-        // actionable message for.
+    fn fetch_via_wire_at_reports_unreachable_when_nothing_is_listening() {
         let path = unique_test_socket_path("missing");
         let _ = std::fs::remove_file(&path);
-        let url = Url::parse("https://example.com/").unwrap();
-        let err = fetch_from_snag_at(&path, &url).unwrap_err();
-        assert!(err.contains("snag --serve"), "error should point at starting the server: {err}");
-    }
-
-    #[test]
-    fn fetch_from_snag_at_treats_a_clean_empty_response_as_a_fetch_error() {
-        // Per `snag`'s own documented `--serve` behavior (v9): a bad URL
-        // or a failed top-level fetch is logged to *its* stderr and the
-        // connection just closes, possibly having written nothing at
-        // all — this has to be treated as a real failure, not a
-        // degenerate empty-but-successful page.
-        use std::os::unix::net::UnixListener;
-        let path = unique_test_socket_path("empty");
-        let _ = std::fs::remove_file(&path);
-        let listener = UnixListener::bind(&path).expect("bind mock snag socket");
-        let server = thread::spawn(move || {
-            let (_stream, _) = listener.accept().expect("accept");
-            // Dropped immediately with zero bytes written.
-        });
-        let url = Url::parse("https://example.com/missing-page").unwrap();
-        let result = fetch_from_snag_at(&path, &url);
-        server.join().expect("mock server thread panicked");
-        let _ = std::fs::remove_file(&path);
-        assert!(result.is_err(), "an empty response must be treated as a fetch failure, not an empty success");
+        let request_text = build_get_request_text(&Url::parse("https://example.com/").unwrap());
+        assert!(matches!(fetch_via_wire_at(&path, &request_text), WireFetchOutcome::Unreachable));
     }
 
     // -- `App::show_message`'s HTML-escaping, since it echoes back
