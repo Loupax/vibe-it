@@ -16,3 +16,8 @@ verbatim in that project's `PROMPTS.md`, in order.
   (stylesheets, `@import`s, images) into one self-contained HTML file, so
   `scratchy` (which never does networking itself) has something real to
   render.
+- [`wire/`](wire/) — a small daemon that owns real networking for
+  `scratchy`'s live interactivity (link clicks, form submissions):
+  reads one HTTP request per connection off a Unix socket, executes it
+  for real (TLS, redirects, decompression), and hands back one
+  normalized HTTP/1.1 response.

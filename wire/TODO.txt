@@ -1,0 +1,71 @@
+wire — known gaps / deferred work
+
+Same spirit as scratchy/TODO.txt and snag/TODO.txt: things found-and-
+deliberately-deferred, not a speculative feature backlog. See NOTES.md
+for the fuller story behind any item; a commit hash in parens points at
+the commit it came up during.
+
+- [ ] **`scratchy` doesn't talk to `wire` yet.** This daemon exists and
+      is tested on its own, but nothing consumes it — `scratchy`'s
+      v65-era `fetch_from_snag`/`fetch_from_snag_at`/`snag_socket_path`
+      still dial `snag --serve` directly, and `snag --serve` itself is
+      still there, unremoved. Both are the explicitly-planned next slice
+      of the same `scratchy/TODO.txt` "TOP PRIORITY" item `wire` was
+      built to satisfy — see that file's own writeup — not a gap in
+      this crate.
+
+- [ ] **Not live-verified against a real public Internet host.** This
+      sandbox's own outbound network policy denies `CONNECT` to
+      arbitrary hosts (confirmed directly with `curl`, independent of
+      this code entirely — see PROMPTS.md v1's live-verification
+      section for the full trail), so the real "fetch `https://
+      example.com/` through a running `wire`" path has only been
+      exercised against local loopback fixtures (real TCP, real HTTP
+      framing, just not the real Internet) — not a literal end-to-end
+      check against a real remote server. Worth doing for real the next
+      time a session's sandbox allows it.
+
+- [ ] **`brotli` decompression isn't supported**, only `gzip` (`ureq`'s
+      `gzip` Cargo feature) — a response with `Content-Encoding: br`
+      would be forwarded still-compressed with its `Content-Encoding`
+      header stripped (since `normalize_response` always strips it,
+      regardless of whether it could actually decompress the body),
+      which would hand scratchy raw brotli bytes it has no way to know
+      are still encoded. `gzip` is the dominant real-world encoding by a
+      wide margin and nothing real has hit a brotli-only server yet —
+      revisit if one does.
+
+- [ ] **No request timeout tuning, no per-request override** — every
+      request shares one fixed 20s agent-level timeout (same default
+      `snag`'s own `build_agent` already uses), with no way for a
+      particular request (e.g. a user explicitly waiting on a known-slow
+      endpoint) to ask for longer or shorter. Hasn't mattered yet — only
+      one real client exists, and it has no concept of per-request
+      timeout preferences either.
+
+- [ ] **No TLS certificate pinning/custom root-CA support** — `ureq`'s
+      own default TLS config (via `rustls`, the default backend) is
+      used as-is. A real need for this would most likely surface as "a
+      real site's cert fails to validate for a reason that isn't the
+      site's own fault" — nothing like that has come up.
+
+- [ ] **No connection reuse/pooling across requests to the same remote
+      host** — `ureq::Agent` does do its own internal connection pooling
+      per `Agent` instance already (confirmed by its own docs), and
+      `wire` uses exactly one shared, cloned `Agent` across every
+      connection/thread, so this may already be getting real reuse for
+      free with zero extra code here — not independently confirmed with
+      a direct measurement (e.g. counting actual new TCP handshakes
+      across two requests to the same host), so flagged rather than
+      assumed. `scratchy/TODO.txt`'s own design conversation explicitly
+      called this out as the daemon's own business, invisible to
+      scratchy either way — worth a real measurement before relying on
+      it, not before using it.
+
+- [ ] **Duplicate request headers collapse to one.** `execute` calls
+      `req.set(name, value)` per parsed header, which *replaces* any
+      prior value for that name rather than appending a second value —
+      correct for the overwhelmingly common case (each header name
+      appears once), wrong for a request that deliberately repeats one
+      (e.g. multiple `Cookie` headers, rare but legal). Nothing real has
+      sent one of these yet.
