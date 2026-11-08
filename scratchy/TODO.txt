@@ -1100,3 +1100,260 @@ session can pick a coherent slice rather than one property at a time.
       session was building toward, not another entry in that list to
       defer again.
 
+The items below are a forward-looking plan, written up for the user to
+review and prioritize before any of it is built — not yet-attempted
+gaps found mid-feature like everything above. Nothing in this block has
+a commit hash because nothing in it has landed. Recorded here instead
+of only in conversation so the plan survives between sessions; see
+PROMPTS.md's entry for the conversation that produced it for the full
+reasoning trail.
+
+Three pillars identified for scratchy's remaining scope: **styling**
+(the bulk of TODO.txt above — never going to hit 100%, see its own long
+tail of deliberately-scoped-out cuts), **form elements** (zero special
+handling today), and **JavaScript** (none at all today). Decided: stop
+trying to fully exhaust one pillar before starting the next (styling's
+own tail proves that trap — every landed feature keeps growing a list
+of "nothing real needs this yet" cuts); interleave based on "does a
+real page need this," not "is this pillar done." JS explicitly ordered
+last, per the user's own call.
+
+- [ ] **Form elements — sequencing plan.** Two things scratchy has never
+      had at all, confirmed by grep: any concept of a focused element
+      (nothing in `App` or `ComputedStyle`/`Laid`), and any keyboard
+      input handling whatsoever (zero `WindowEvent::KeyboardInput`/`Ime`
+      usage anywhere — the `:hover`/`:focus`/`:active` comment at
+      lib.rs:116-117 already flags the missing state half of this).
+      Painting needs *no* new primitive — a checkbox square, button
+      face, or text caret is just another `fill_rect`/`paint_border`
+      call, the same primitives `paint_box_decoration`/`paint_buffer`
+      already use. `default.css` currently has zero rules for `input`/
+      `button`/`select`/`option`/`textarea` (confirmed by grep) — each
+      falls through `build_box_for_element`/`collect_children` as a
+      plain CSS-initial `display: inline` element with no visual
+      distinction at all (`<input>`, being childless, renders as an
+      empty zero-content inline box).
+
+      Proposed order, by how much *new* machinery each needs rather than
+      HTML spec order:
+
+      1. `<button>` / `input[type=submit]` — click-only, no keyboard, no
+         focus. Needs a real box (new `default.css` rule + a dedicated
+         box-building path paralleling `build_img_box`'s own precedent —
+         see the HTTP-request item just below, which needs this exact
+         box first) and nothing else new.
+      2. `checkbox`/`radio` — click-only toggle. One new `HashMap<id,
+         bool>` (the same shape `App::scroll_offsets` already
+         established for per-element live state keyed by a stable id),
+         flipped on click, no keyboard.
+      3. A `focused_id: Option<usize>` field on `App` — set on click
+         (reusing the same stable-id scheme), cleared on click-elsewhere.
+         Nothing user-visible on its own; exists purely so (4) has
+         somewhere to route keys.
+      4. `input type=text` (+ `email`/`password`/etc., same visual minus
+         masking) and `textarea` — the one genuinely new subsystem: a
+         per-element text buffer, real `WindowEvent::KeyboardInput`
+         wiring (first time ever), a caret (one `fill_rect`),
+         backspace/arrow-key handling. Everything else in this plan
+         either reuses this or doesn't need it.
+      5. `<select>`/`<option>` — last, regardless of how useful it'd be,
+         because it's the one control that needs a floating open/closed
+         list painted above surrounding content on click, closer in
+         shape to the v56 z-index stacking-context work than to anything
+         else forms-specific, not just "click" or "click + keyboard."
+
+      `method=post` form submission needs a real request to actually go
+      out somewhere — see the item just below (now scratchy's top
+      priority, superseding this paragraph's original premise): `snag`
+      is no longer scratchy's live-navigation transport at all, replaced
+      by a new unix-socket protocol scratchy speaks directly, with
+      `snag` narrowed to its one remaining job (bundling a page to a
+      single file, feature-complete). GET forms, POST forms, and link
+      clicks all end up going through that one same new mechanism —
+      not bundled into *this* item, but no longer a separate, deferred
+      cross-project change either.
+
+- [ ] **TOP PRIORITY (user's own explicit call): scratchy speaks HTTP
+      over a unix socket — replaces talking to `snag --serve` directly,
+      unifies link-click navigation and form submission under one
+      transport.** Supersedes the old link-nav-specific socket protocol
+      (v65) and the narrower, forms-only "just print the request"
+      sketch this item previously held — both collapse into one
+      mechanism now. Decided in conversation (see PROMPTS.md's own
+      entry for the full reasoning trail, not repeated here):
+
+      - **`snag`'s scope narrows to exactly one job, and it's done
+        there**: bundle a page to a single self-contained file. It is
+        *no longer* scratchy's live-navigation transport at all — v65's
+        `fetch_from_snag`/`fetch_from_snag_at`/`snag_socket_path`
+        (talking to `snag --serve`'s own `$XDG_RUNTIME_DIR/snag.sock`/
+        `/tmp/snag-$UID.sock` auto-discovered line protocol) are
+        replaced outright, not extended or kept as a fallback.
+      - **A new, separate third tool, named `wire`** (not `snag`, not
+        started yet) owns real networking from now on: it accepts a
+        request over a unix socket, actually executes it (TLS,
+        redirect-following, decompression — reusing `ureq`, the exact
+        crate `snag` already trusts for this), and returns a normalized
+        HTTP/1.1 response. No bundling/inlining logic of its own — that
+        stays `snag`'s exclusive job; this tool is much smaller than
+        `snag`. Lives in this same repo, alongside `scratchy`/`snag`,
+        as its own crate — no shared-prefix naming scheme for now (the
+        user's own call: revisit a `vibe-`-prefixed naming convention
+        across all three tools only if this project ever picks up a
+        second user).
+      - **Request framing**: a real HTTP/1.1 request, using the
+        standard proxy "absolute-form" request line (`GET https://
+        example.com/path HTTP/1.1`, RFC 7230 §5.3.2) rather than the
+        origin-relative form a direct browser connection would send —
+        this is what lets a daemon behind a bare unix socket (no DNS/
+        TLS-SNI of its own to infer a destination from) know exactly
+        where to actually connect, using only standard HTTP syntax, no
+        invented command/framing layer on top.
+      - **Response framing — the one point actually debated and
+        resolved in conversation**: the daemon does *not* relay raw
+        bytes 1:1 (that would leave chunked-decoding/redirect-looping/
+        gzip-decoding as new HTTP-client logic inside scratchy, which
+        contradicts "scratchy still doesn't do its own networking").
+        It also doesn't try to collapse different content kinds into
+        one shape — a fetched `index.html` and a fetched `photo.jpg`
+        are genuinely different things scratchy must handle
+        differently. The resolved contract: the daemon returns a clean,
+        already-decoded HTTP/1.1 response — real headers, redirects
+        already followed, body already decompressed, `Content-Length`
+        never `Transfer-Encoding: chunked` — and scratchy reads exactly
+        one header out of it to decide what the body *is*:
+        `Content-Type`. `text/html` → the existing HTML-parse path
+        (`new_parser().read_from(...)`, same as v65's `AppEvent::
+        NavResult` success branch already uses). `image/png`/`jpeg`/
+        `gif`/`webp` → the existing `decode_image_bytes` path (already
+        built and tested for `data:` URI images — reusable verbatim on
+        real fetched bytes, no new image-decoding code). Anything else,
+        for now: a clear "can't render this content type" inline
+        message, never an attempt to force unknown bytes through either
+        path. Every other header (`Cache-Control`, `Server`, cookies,
+        etc.) is read by nobody and simply discarded — confirmed with
+        the user directly: normalizing the *transport* mess is the
+        daemon's job, but deciding what the bytes mean stays scratchy's.
+      - **One connection per request on the scratchy↔daemon leg, no
+        multiplexing there — but concurrent *separate* connections are
+        expected, not excluded.** Same dead-simple shape `snag --serve`'s
+        own protocol already has: connect, write the request, read
+        until the daemon closes, done, no request IDs or shared-
+        connection framing. Discussed and settled in conversation: real
+        multiplexing (interleaving several requests' bytes over one
+        shared connection) would need both sides to agree on framing —
+        it can't be hidden in the daemon alone, since scratchy is the
+        other half of that exchange and would need new ID-tagging/demux
+        code regardless of how smart the daemon is — and it would buy
+        nothing here anyway, since a unix socket is local IPC with no
+        handshake; opening several concurrent one-shot connections
+        (future per-resource fetches firing off N background threads,
+        the same shape `start_navigation`'s background thread already
+        uses, just invoked more than once at a time) costs about as much
+        as opening one. The real place for connection pooling/reuse is
+        the *daemon's own upstream leg*, talking to real remote servers
+        over actual TCP/TLS — the daemon is free to reuse/pool its own
+        connections to the same remote host across multiple client
+        requests however it likes, entirely invisible to scratchy, with
+        zero protocol impact on the scratchy-facing socket. That's where
+        the real performance cost (handshakes, round trips to a real
+        server) actually lives, and it's already implied by "the daemon
+        owns networking" — nothing new to design there, just a reminder
+        not to conflate the two legs.
+      - **`--socket <path>` becomes an explicit opt-in CLI flag**,
+        replacing today's fixed-path auto-discovery entirely. No flag
+        given, or any connection failure against the given path: falls
+        all the way through to printing the raw request text to stdout
+        (the literal HTTP/1.1 wire text — request line, `Host`, other
+        headers, blank line, body — chosen specifically so it's directly
+        replayable by `nc`/a raw socket/this same new daemon run
+        manually, with zero translation) plus the existing inline
+        "not available" status-message precedent (v65's connection-
+        refused handling) — scratchy never gets a response back in this
+        branch, by design; that's the whole point of the fallback.
+      - **Forms and link-clicks become the exact same code path**: both
+        reduce to "build a request (GET for a link or a `method=get`
+        form, GET/POST for a form depending on its own `method`
+        attribute), try the socket, else print" — resolving the
+        asymmetry this conversation flagged earlier (link-nav always
+        navigated live, forms always only printed; now both depend
+        purely on whether `--socket` is active and reachable, not on
+        which kind of control was clicked). Form value-collection itself
+        (walk to the nearest ancestor `form` via the existing
+        `parent_handle`/`El` machinery, lib.rs:229-238; read `value`/
+        `checked`/selected-`<option>`/textarea-text from the live DOM
+        per control type; encode via `url::form_urlencoded`, already a
+        dependency; resolve `action` against `base_url` via the existing
+        `resolve_href`, lib.rs:9863) is unchanged from this item's
+        earlier draft — only the transport underneath it changed.
+      - **Click-side rewrite this item actually requires**:
+        `build_box_for_element` (lib.rs:4683) needs the same early-
+        return shape it already gives `img` (line 4699, via
+        `build_img_box`, 4663) for `<button>`/`input[type=submit]`, with
+        a new `submit_handle: Option<Handle>` field on `LayoutBox`
+        (lib.rs:4581, `None` at its ~9 other construction sites) so
+        `hit_test_cursor` (lib.rs:9581, already a 2-tuple with `href` —
+        widens to a 3-tuple, same shape v65's own `href` addition used)
+        can report back *which* element was clicked. `start_navigation`
+        (lib.rs:10339) and the `WindowEvent::MouseInput` handler
+        (lib.rs:10469) both get rebuilt around the new socket protocol
+        and request-building rather than the old bare-URL-line one.
+      - **Still just a transport, not a solution to async resource
+        loading**: this unblocks future `<img src="https://…">` fetches
+        (same daemon, same request/response shape, same Content-Type
+        dispatch) but doesn't by itself implement them — that still
+        needs the separate, not-yet-built per-resource cache/placeholder/
+        redraw mechanism this conversation discussed (a `HashMap<url,
+        Rc<DecodedImage>>` on `App`, same shape `scroll_offsets`
+        established, populated by a background fetch, same "fire a
+        background thread + send an `AppEvent` back into the winit
+        loop" shape `start_navigation` already uses for whole-document
+        navigation).
+      - The request-building and response-dispatch logic is pure-
+        function testable with no `App`/winit involved (parse a fixture
+        document/response, call the functions directly, assert on exact
+        bytes) — same "isolate what can be isolated" precedent v65's own
+        testing-convention note already established. Only the actual
+        socket I/O and `WindowEvent::MouseInput` wiring land in the
+        unverified-live-in-this-sandbox bucket v32/v55/v62/v65 already
+        flagged (no synthetic mouse/keyboard event tool here).
+
+- [ ] **JavaScript — engine choice, investigated, not started; last
+      pillar per the user's own explicit ordering.** Recommendation:
+      `boa_engine` (crates.io) — the only realistic option that keeps
+      scratchy's current all-Rust build with zero new C toolchain
+      dependency. Compared against `rquickjs` (QuickJS C FFI bindings)
+      and `rusty_v8`/`deno_core` (real V8): neither alternative ships
+      any DOM/web API surface either (confirmed — both are explicit
+      about scope: "bring your own bindings"), so engine choice doesn't
+      reduce the real work here at all, which is writing scratchy's own
+      `getElementById`/`querySelector`/`textContent`/`classList`/
+      `setAttribute`/`addEventListener`/`console.log` surface as native
+      Rust closures over the real `Handle`/`NodeData` tree regardless of
+      which engine sits underneath. `boa_engine`'s embedding API
+      (`NativeFunction`/`JsData`/`NativeObject`) registers a Rust closure
+      as a JS-callable global with no code-generation step, the same
+      shape `boa_runtime`'s own `console` example already uses — a
+      direct match for a minimal DOM surface. ~96% Test262 conformance
+      per one third-party benchmark (closures/classes/template literals/
+      basic Promises all covered — what a typical `<script>` block
+      needs), slowest of the three on raw JS throughput, which doesn't
+      matter here since top-tier perf was never a stated requirement.
+      `rquickjs` is the fallback if `boa`'s completeness turns out
+      insufficient later, at the cost of a first-ever C build step for
+      this project; V8/`deno_core` was ruled out outright — its speed/
+      conformance edge solves a problem scratchy doesn't have, at far
+      higher embedding and build complexity.
+
+      `App::document` is already a live, persistent `Handle` (`Rc<Node>`
+      from `markup5ever_rcdom`) that gets rebuilt into a fresh layout
+      tree on every live change already (resize, `@media`, link-nav —
+      `App::redraw` already does a full `build_layout_tree` rebuild, not
+      an incremental diff) — so a JS engine mutating that same real DOM
+      and marking layout dirty can reuse that existing rebuild pipeline
+      outright, no new "virtual DOM" or diffing layer needed. The real
+      gap: `markup5ever_rcdom` is purely html5ever's *parse*-target
+      structure, with no `createElement`/`appendChild`/`setAttribute`
+      API of its own — DOM-mutation methods are new Rust code no matter
+      which engine is chosen.
+
