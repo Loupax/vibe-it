@@ -1189,18 +1189,42 @@ last, per the user's own call.
         (talking to `snag --serve`'s own `$XDG_RUNTIME_DIR/snag.sock`/
         `/tmp/snag-$UID.sock` auto-discovered line protocol) are
         replaced outright, not extended or kept as a fallback.
-      - **A new, separate third tool, named `wire`** (not `snag`, not
-        started yet) owns real networking from now on: it accepts a
-        request over a unix socket, actually executes it (TLS,
-        redirect-following, decompression — reusing `ureq`, the exact
-        crate `snag` already trusts for this), and returns a normalized
-        HTTP/1.1 response. No bundling/inlining logic of its own — that
-        stays `snag`'s exclusive job; this tool is much smaller than
-        `snag`. Lives in this same repo, alongside `scratchy`/`snag`,
-        as its own crate — no shared-prefix naming scheme for now (the
-        user's own call: revisit a `vibe-`-prefixed naming convention
-        across all three tools only if this project ever picks up a
-        second user).
+      - **A new, separate third tool, named `wire`** owns real
+        networking from now on: it accepts a request over a unix
+        socket, actually executes it (TLS, redirect-following,
+        decompression — reusing `ureq`, the exact crate `snag` already
+        trusts for this), and returns a normalized HTTP/1.1 response. No
+        bundling/inlining logic of its own — that stays `snag`'s
+        exclusive job; this tool is much smaller than `snag`. Lives in
+        this same repo, alongside `scratchy`/`snag`, as its own crate —
+        no shared-prefix naming scheme for now (the user's own call:
+        revisit a `vibe-`-prefixed naming convention across all three
+        tools only if this project ever picks up a second user).
+
+        **The daemon itself is now built (`wire/`, v1 — see its own
+        `PROMPTS.md`/`NOTES.md`/`TODO.txt`)**: request parsing
+        (absolute-form request line, headers, `Content-Length` body),
+        real execution via `ureq` (TLS/redirects/gzip decompression),
+        response normalization (a real 4xx/5xx from upstream forwards
+        as itself, not a transport error; `Transfer-Encoding`/
+        `Content-Encoding` are stripped and a fresh `Content-Length`
+        is computed over the already-decoded body; a genuine transport
+        failure — DNS/connect/TLS — synthesizes a `502` rather than
+        hanging or crashing the connection), and the daemon's own
+        `--socket`-overridable default-path/stale-socket-cleanup/
+        concurrent-connections-via-one-thread-per-connection plumbing,
+        all covered by 10 permanent tests (including one real Unix-
+        socket round trip). What this does *not* yet cover, still fully
+        open: `scratchy`'s own side of this — `fetch_from_snag`/
+        `fetch_from_snag_at`/`snag_socket_path` (v65) still talk
+        directly to `snag --serve`, `<button>`/form-element support
+        doesn't exist yet (see the sequencing-plan item above), and
+        `snag` itself hasn't been narrowed yet (`--serve` is still
+        there, unremoved). Nothing in `wire/`'s own first version
+        needed any of that to be real and independently testable, so it
+        went first; wiring `scratchy` to actually dial `wire` instead of
+        `snag --serve` is the next slice of this same item, not a
+        separate one.
       - **Request framing**: a real HTTP/1.1 request, using the
         standard proxy "absolute-form" request line (`GET https://
         example.com/path HTTP/1.1`, RFC 7230 §5.3.2) rather than the

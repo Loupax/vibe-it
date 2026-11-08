@@ -1,0 +1,8 @@
+[package]
+name = "wire"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+ureq = { version = "2", features = ["gzip"] }
+url = "2"
