@@ -6,7 +6,7 @@ use std::num::NonZeroU32;
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::rc::{Rc, Weak};
-use std::sync::Arc;
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 
 use cosmic_text::{
@@ -6002,7 +6002,18 @@ pub type ShapedParagraph = (
     Vec<Option<&'static str>>,
 );
 
-pub type ShapeCache = std::collections::HashMap<usize, ShapedParagraph>;
+/// Each entry wrapped in `Arc<Mutex<_>>` — not for real concurrent
+/// mutation (only `paint`/`paint_buffer`, main-thread-only, ever takes
+/// `&mut` through the lock; `App::spawn_shaping_worker`'s own thread
+/// only ever reads an existing entry via `.get`, never writes one a
+/// second time) but so the *whole map* is cheaply `Clone` — plain
+/// refcount bumps, no `cosmic_text::Buffer` ever actually copied —
+/// letting a background shaping pass hand the main thread a snapshot
+/// of everything shaped *so far* every tick while it keeps shaping
+/// into its own, same, continuing map. See `spawn_shaping_worker`'s own
+/// docs for why that's what makes a page fill in progressively again
+/// now that shaping runs off the main thread.
+pub type ShapeCache = std::collections::HashMap<usize, Arc<Mutex<ShapedParagraph>>>;
 
 /// Height assumed for a paragraph that hasn't been shaped yet, so content
 /// below it has somewhere reasonable to sit until the real height arrives.
@@ -6479,12 +6490,12 @@ pub fn measure<'a>(
             let id = *next_id;
             *next_id += 1;
 
-            let content_h = if let Some((_, h, _, _, _, _, _, _)) = cache.get(&id) {
-                *h
+            let content_h = if let Some(entry) = cache.get(&id) {
+                entry.lock().unwrap().1
             } else if items.is_empty() {
                 cache.insert(
                     id,
-                    (
+                    Arc::new(Mutex::new((
                         Buffer::new_empty(Metrics::new(16.0, 20.0)),
                         0.0,
                         Vec::new(),
@@ -6493,7 +6504,7 @@ pub fn measure<'a>(
                         Vec::new(),
                         Vec::new(),
                         Vec::new(),
-                    ),
+                    ))),
                 );
                 0.0
             } else if std::time::Instant::now() < deadline {
@@ -6504,7 +6515,7 @@ pub fn measure<'a>(
                     s.white_space == WhiteSpace::Pre,
                     s.text_align.to_cosmic(),
                 );
-                cache.insert(id, (buffer, h, backgrounds, valigns, hidden, cursors, decoration_styles, hrefs));
+                cache.insert(id, Arc::new(Mutex::new((buffer, h, backgrounds, valigns, hidden, cursors, decoration_styles, hrefs))));
                 h
             } else {
                 *incomplete = true;
@@ -7016,14 +7027,15 @@ fn measure_mixed_inline(
                     }
                     let id = *next_id;
                     *next_id += 1;
-                    let (width, height) = if let Some((buffer, h, _, _, _, _, _, _)) = cache.get(&id) {
-                        (buffer.layout_runs().next().map(|r| r.line_w).unwrap_or(0.0), *h)
+                    let (width, height) = if let Some(entry) = cache.get(&id) {
+                        let guard = entry.lock().unwrap();
+                        (guard.0.layout_runs().next().map(|r| r.line_w).unwrap_or(0.0), guard.1)
                     } else if std::time::Instant::now() < deadline {
                         let synth = [InlineItem::Text(word.to_string(), *span)];
                         let (buffer, h, backgrounds, valigns, hidden, cursors, decoration_styles, hrefs) =
                             shape_spans(font_system, &synth, WORD_MEASURE_WIDTH, true, None);
                         let w = buffer.layout_runs().next().map(|r| r.line_w).unwrap_or(0.0);
-                        cache.insert(id, (buffer, h, backgrounds, valigns, hidden, cursors, decoration_styles, hrefs));
+                        cache.insert(id, Arc::new(Mutex::new((buffer, h, backgrounds, valigns, hidden, cursors, decoration_styles, hrefs))));
                         (w, h)
                     } else {
                         *incomplete = true;
@@ -9687,7 +9699,9 @@ fn paint(
             // Not yet shaped (still mid-way through a budgeted measure pass)
             // just means nothing to paint here yet — it'll appear once a
             // later frame finishes shaping it.
-            if let Some((buffer, _, backgrounds, valigns, hidden, _, decoration_styles, _)) = cache.get_mut(id) {
+            if let Some(entry) = cache.get(id) {
+                let mut guard = entry.lock().unwrap();
+                let (buffer, _, backgrounds, valigns, hidden, _, decoration_styles, _) = &mut *guard;
                 let content_x = laid.x + s.border_width + s.padding.left.px();
                 let content_y = draw_y + s.border_width + s.padding.top.px();
                 paint_buffer(
@@ -9717,7 +9731,9 @@ fn paint(
                         );
                     }
                     MixedPositioned::Word { id, x, y, .. } => {
-                        if let Some((buffer, _, backgrounds, valigns, hidden, _, decoration_styles, _)) = cache.get_mut(id) {
+                        if let Some(entry) = cache.get(id) {
+                            let mut guard = entry.lock().unwrap();
+                            let (buffer, _, backgrounds, valigns, hidden, _, decoration_styles, _) = &mut *guard;
                             paint_buffer(
                                 buffer, font_system, swash_cache, backgrounds, valigns, hidden, decoration_styles,
                                 pixels, win_w, win_h, *x, *y - scroll_offset, child_clip,
@@ -9900,7 +9916,9 @@ fn hit_test_cursor(
             (laid.style.cursor, None)
         }
         LaidContent::Text(id) => {
-            if let Some((buffer, _, _, _, _, cursors, _, hrefs)) = cache.get(id) {
+            if let Some(entry) = cache.get(id) {
+                let guard = entry.lock().unwrap();
+                let (buffer, _, _, _, _, cursors, _, hrefs) = &*guard;
                 let content_x = laid.x + laid.style.border_width + laid.style.padding.left.px();
                 let content_y = laid.y + laid.style.border_width + laid.style.padding.top.px();
                 let local_x = x - content_x;
@@ -9942,7 +9960,9 @@ fn hit_test_cursor(
                         if x < *wx || x >= *wx + *w || y < *wy || y >= *wy + *h {
                             continue;
                         }
-                        if let Some((buffer, _, _, _, _, cursors, _, hrefs)) = cache.get(id) {
+                        if let Some(entry) = cache.get(id) {
+                            let guard = entry.lock().unwrap();
+                            let (buffer, _, _, _, _, cursors, _, hrefs) = &*guard;
                             let local_x = x - wx;
                             let local_y = y - wy;
                             for run in buffer.layout_runs() {
@@ -10084,48 +10104,32 @@ fn is_click(down: (f32, f32), up: (f32, f32), threshold: f32) -> bool {
 /// mouse-up over the same link doesn't miss.
 const CLICK_DRAG_THRESHOLD_PX: f32 = 5.0;
 
-/// How long `App::redraw`'s own progressive-layout branch *used to*
-/// let `measure_document` run before yielding — winit is single-
-/// threaded, so every other input event (keyboard
-/// included, now that vim mode exists — see TODO.txt) sits unhandled
-/// for the entire budget if it arrives mid-tick. Was `500ms`, picked
-/// purely to minimize *total* load time (measured: on a 151-paragraph
-/// page, 80ms budget -> ~6-8 paragraphs/tick, 58 ticks, 7.1s total;
-/// 500ms -> ~30-34 paragraphs/tick, ~12 ticks, 6.2s total; on a much
-/// larger, RTL page, 16ms -> 306 ticks/17.0s, 80ms -> 90 ticks/13.0s,
-/// 150ms -> 53 ticks/12.6s — diminishing returns past ~80ms there
-/// already, since individual complex-script paragraphs can themselves
-/// take hundreds of ms, capping how much a larger budget can batch
-/// together regardless of this value). That framing only weighed a
-/// longer tick as a *visual* pause; it never weighed it as input
-/// sitting unhandled for up to half a second, which is exactly the
-/// "laggy while loading, fine once loaded" symptom vim-mode typing
-/// surfaced. Lowered to `80ms` — the same point the measurements above
-/// already identified as roughly where a bigger budget stops buying
-/// meaningfully less total overhead anyway, so bounding worst-case
-/// input latency to it costs little (+15% total load time on the
-/// measured 151-paragraph page; within noise on the large/RTL one).
-/// Was a stopgap, not the real fix — TODO.txt's own plan for moving
-/// `measure_document` to a background thread entirely (`spawn_shaping_
-/// thread`) has now landed, and with it this constant's own reason to
-/// exist: nothing on the main thread can be blocked by shaping at all
-/// any more, so there's no input-latency budget left to bound. Kept
-/// (unused) rather than deleted in the same change that made it so —
-/// TODO.txt's own recommended sequencing calls that its own later,
-/// separately-landed step, since the background thread could, in
-/// principle, still want *some* notion of a tick (periodic partial
-/// snapshots) even though it ended up not using this one — see
-/// `spawn_shaping_thread`'s own docs for why that was left out too.
-#[allow(dead_code)]
+/// How long each tick of `App::spawn_shaping_worker`'s own background
+/// loop lets `measure_document` run before yielding and reporting
+/// whatever it has so far — originally bounded `App::redraw`'s own
+/// progressive-layout branch directly, back when shaping ran inline on
+/// the single-threaded main loop (winit) and every input event sat
+/// unhandled for the entire budget if it arrived mid-tick; measured
+/// then (on a 151-paragraph page, 80ms budget -> ~6-8 paragraphs/tick,
+/// 58 ticks, 7.1s total; 500ms -> ~30-34 paragraphs/tick, ~12 ticks,
+/// 6.2s total; on a much larger, RTL page, 16ms -> 306 ticks/17.0s,
+/// 80ms -> 90 ticks/13.0s, 150ms -> 53 ticks/12.6s — diminishing
+/// returns past ~80ms there already, since individual complex-script
+/// paragraphs can themselves take hundreds of ms, capping how much a
+/// larger budget can batch together regardless of this value). Once
+/// `measure_document` moved to its own background thread, the reason
+/// to keep this *small* (bounding input latency) went away — but
+/// ticking at all turned out to still matter, just for a different
+/// reason: it's what lets a big page fill in progressively again
+/// (`App::shape_cache`'s own docs) instead of showing nothing until
+/// the entire page is shaped, which running to completion in one call
+/// (tried first, see TODO.txt and this constant's own git history)
+/// made painfully visible on a real, large page (confirmed: real
+/// Wikipedia went from progressively filling in to a blank page for
+/// most of a minute). Still `80ms` — nothing about *this* value's own
+/// tradeoff changed, only who's bound by it (a background thread's own
+/// progress-reporting cadence now, not main-thread input latency).
 const PROGRESSIVE_LAYOUT_TICK_BUDGET: std::time::Duration = std::time::Duration::from_millis(80);
-
-/// The deadline `App::spawn_shaping_thread` passes to `measure_document`
-/// — not a real budget at all, just far enough out that the deadline
-/// check built into `measure`/`measure_document` never actually fires
-/// in practice, so a background shaping pass always runs to completion
-/// in the one call that thread makes. See `spawn_shaping_thread`'s own
-/// docs for why that parameter wasn't instead made optional throughout.
-const BACKGROUND_SHAPING_DEADLINE: std::time::Duration = std::time::Duration::from_secs(60 * 60);
 
 /// Resolves a clicked `<a href>` into an absolute URL against the
 /// page's own `<base href>` — ordinary URL-join logic via the `url`
@@ -10566,30 +10570,37 @@ enum AppEvent {
     /// reason: a since-superseded page's late-arriving image must never
     /// populate the *new* page's cache.
     ImageFetched(u64, String, Option<DecodedImage>),
-    /// A background shaping thread (`spawn_shaping_thread`) finishing a
-    /// full `measure_document` pass — the "move page shaping off the
-    /// main thread" plan in TODO.txt, landed. Tagged with `App::layout_
-    /// generation` at the moment the spawn that produced this started,
-    /// same `NavResult`/`ImageFetched` convention: compared against the
-    /// *current* generation on arrival, a mismatch (a resize, a new
-    /// chunk, a newly-arrived image, a navigation — anything that
-    /// bumped `layout_generation` again before this landed) means the
-    /// reshape this was computing is since-superseded, dropped silently
-    /// instead of clobbering newer content. The `ShapeCache` crosses
-    /// back too, since the background thread shapes with its own
-    /// independent one (see `spawn_shaping_thread`'s own docs) —
+    /// One tick of the persistent background shaping worker's own
+    /// progress (`App::spawn_shaping_worker`) — the "move page shaping
+    /// off the main thread" plan in TODO.txt, landed, fires *once per
+    /// tick*, not once per page: a big page arrives as a short burst of
+    /// these, each one a little further along, which is what lets it
+    /// fill in progressively again on the main thread despite shaping
+    /// happening on a different thread entirely (see `spawn_shaping_
+    /// worker`'s own docs for why that took a second attempt). Tagged
+    /// with `App::layout_generation` at the moment the request that
+    /// produced this was queued, same `NavResult`/`ImageFetched`
+    /// convention: compared against the *current* generation on
+    /// arrival, a mismatch (a resize, a new chunk, a newly-arrived
+    /// image, a navigation — anything that bumped `layout_generation`
+    /// again before this landed) means the reshape this was computing
+    /// is since-superseded, dropped silently instead of clobbering
+    /// newer content. The `ShapeCache` crosses back too, growing a
+    /// little with each successive delivery for the same generation —
     /// `paint` needs the *matching* cache for whatever ids this exact
     /// `Laid` references, so `App::shape_cache` is replaced wholesale
-    /// on arrival, never merged with whatever was there before. Always
-    /// a *complete* layout (see `spawn_shaping_thread`'s own docs for
-    /// why this plan's own still-open "tick budget or run to
-    /// completion" question was resolved as the latter here) — no
-    /// `incomplete` flag, unlike `measure`'s own parameter of that name.
-    /// `Laid` itself is boxed — otherwise this variant alone (`Laid`
-    /// plus a whole `ShapeCache`) would dwarf every other `AppEvent`
-    /// variant's size and every one of them pays for that on the stack
-    /// (`clippy::large_enum_variant`); `self.cached: Option<Laid>` on
-    /// the receiving end stays unboxed, same as before this plan.
+    /// on arrival, never merged with whatever was there before (always
+    /// safe here: each delivery's cache is a strict superset of the
+    /// last one's, same tree, same worker, nothing removed between
+    /// ticks). No `incomplete` flag, unlike `measure`'s own parameter
+    /// of that name — nothing downstream needs to tell a mid-page
+    /// delivery apart from the final one; both just replace `cached`/
+    /// `shape_cache` the same way. `Laid` itself is boxed — otherwise
+    /// this variant alone (`Laid` plus a whole `ShapeCache`) would
+    /// dwarf every other `AppEvent` variant's size and every one of
+    /// them pays for that on the stack (`clippy::large_enum_variant`);
+    /// `self.cached: Option<Laid>` on the receiving end stays unboxed,
+    /// same as before this plan.
     ShapeResult(u64, Box<Laid>, ShapeCache),
     /// `SIGUSR1`'s own background thread (`run()`) waking the event
     /// loop — the out-of-band bootstrap the vim-mode plan in TODO.txt
@@ -10728,6 +10739,19 @@ impl TextEditBuffer {
     }
 }
 
+/// One rebuild's worth of work for `App::spawn_shaping_worker`'s own
+/// persistent background thread — everything `measure_document` needs
+/// that `App` itself held inline before this plan started. `tree` is
+/// `LayoutBox`, built synchronously on the main thread (the DOM walk +
+/// cascade match can't leave it — see `App::redraw`'s own comment)
+/// just before this is queued.
+struct ShapingRequest {
+    tree: LayoutBox,
+    width: f32,
+    height: f32,
+    generation: u64,
+}
+
 struct App {
     document: Handle,
     decoder: Option<Utf8LossyDecoder<Parser<RcDom>>>,
@@ -10748,12 +10772,16 @@ struct App {
     /// Shaped paragraphs matching whatever `Laid` tree is currently in
     /// `cached`, keyed by the stable id `measure` assigned them when it
     /// was built — `paint` looks a `LaidContent::Text(id)` up in here.
-    /// Replaced wholesale, never merged, whenever a background shaping
-    /// pass (`spawn_shaping_thread`) finishes and its `AppEvent::
-    /// ShapeResult` lands (see that type's own docs) — not touched in
-    /// between, so `cached`/`shape_cache` stay a consistent pair for
-    /// `paint` to read throughout the (now potentially long) gap while
-    /// a new reshape runs in the background.
+    /// Replaced wholesale, never merged, every time an `AppEvent::
+    /// ShapeResult` lands from the background shaping worker (see that
+    /// type's own docs) — not touched in between arrivals, so `cached`/
+    /// `shape_cache` stay a consistent pair for `paint` to read at any
+    /// point. Since the worker reports progress one tick at a time
+    /// (`App::spawn_shaping_worker`), this normally updates every
+    /// `PROGRESSIVE_LAYOUT_TICK_BUDGET` or so while a page is still
+    /// shaping, each delivery a little more complete than the last —
+    /// what makes a big page fill in progressively again despite
+    /// shaping happening off the main thread entirely.
     shape_cache: ShapeCache,
     /// The size `surface.resize()` was last called with — skip the call
     /// when nothing changed instead of re-issuing it on every redraw.
@@ -10815,6 +10843,12 @@ struct App {
     /// threaded in at construction time instead of fetched lazily from
     /// `resumed`'s own `&ActiveEventLoop`).
     proxy: EventLoopProxy<AppEvent>,
+    /// The persistent background shaping worker's inbox — see `spawn_
+    /// shaping_worker`'s own docs. `redraw`'s rebuild branch sends a
+    /// fresh `ShapingRequest` here (`queue_shaping_request`) instead of
+    /// spawning a new thread (and paying for a new `FontSystem`) every
+    /// time a page needs reshaping.
+    shaping_requests: mpsc::Sender<ShapingRequest>,
     /// The current page's own `<base href>` (recomputed from the real
     /// document every time it's replaced — initial load included, not
     /// just navigation — see `replace_document`), used to resolve a
@@ -10909,6 +10943,7 @@ struct App {
 impl App {
     fn new_static(document: Handle, proxy: EventLoopProxy<AppEvent>, socket_path: Option<PathBuf>) -> Self {
         let base_url = find_base_url(&document);
+        let shaping_requests = Self::spawn_shaping_worker(proxy.clone());
         Self {
             document,
             decoder: None,
@@ -10928,6 +10963,7 @@ impl App {
             last_mouse_pos: None,
             mouse_down_pos: None,
             proxy,
+            shaping_requests,
             base_url,
             nav_generation: 0,
             layout_generation: 0,
@@ -10944,6 +10980,7 @@ impl App {
     fn new_streaming(proxy: EventLoopProxy<AppEvent>, socket_path: Option<PathBuf>) -> Self {
         let decoder = new_parser();
         let document = decoder.inner_sink.tokenizer.sink.sink.document.clone();
+        let shaping_requests = Self::spawn_shaping_worker(proxy.clone());
         Self {
             document,
             decoder: Some(decoder),
@@ -10963,6 +11000,7 @@ impl App {
             last_mouse_pos: None,
             mouse_down_pos: None,
             proxy,
+            shaping_requests,
             base_url: None,
             nav_generation: 0,
             layout_generation: 0,
@@ -11007,14 +11045,21 @@ impl App {
             // The DOM walk + cascade match itself stays synchronous,
             // right here, on the main thread — `Handle` (`self.document`)
             // is `Rc`-based, so it can never cross a thread boundary (see
-            // `spawn_shaping_thread`'s own docs). Only the `LayoutBox`
+            // `spawn_shaping_worker`'s own docs). Only the `LayoutBox`
             // tree this produces — plain owned data, no `Handle` left
             // inside it — gets handed off below.
             let tree = build_layout_tree_with_resources(&self.document, width as f32, &self.extra_css, &self.image_cache);
+            // Ids the worker is about to assign restart at `0` for this
+            // new tree (see `spawn_shaping_worker`'s own docs) — stale
+            // entries keyed by an old tree's ids would just be harmless
+            // dead weight otherwise, but clearing keeps this from
+            // growing unboundedly across many stdin chunks in
+            // streaming mode.
+            self.scroll_offsets.clear();
             self.cached_width = width;
             self.layout_dirty = false;
             self.layout_generation += 1;
-            Self::spawn_shaping_thread(tree, width as f32, height as f32, self.layout_generation, self.proxy.clone());
+            Self::queue_shaping_request(&self.shaping_requests, tree, width as f32, height as f32, self.layout_generation);
         } else if need_rebuild {
             window.request_redraw();
         }
@@ -11025,12 +11070,13 @@ impl App {
         }
 
         // `None` on the very first tick or two, while we're still
-        // waiting to see whether the width is about to change again (see
-        // `pending_width`); also `None` for as long as the very first
-        // background shaping pass (`spawn_shaping_thread`) takes to
-        // land, now that nothing synchronously fills this in before the
-        // first paint the way `redraw`'s own old inline call used to —
-        // either way, paint a blank frame rather than stall on it.
+        // waiting to see whether the width is about to change again
+        // (see `pending_width`); also `None` until the background
+        // shaping worker's own *first* tick for this page lands
+        // (`AppEvent::ShapeResult`) — normally one `PROGRESSIVE_LAYOUT_
+        // TICK_BUDGET` or so, same order of magnitude as the old inline
+        // call's own first partial result used to take. Either way,
+        // paint a blank frame rather than stall on it.
         if let Some(laid) = self.cached.as_ref() {
             let max_scroll = (laid.h - height as f32).max(0.0);
             self.scroll_offset = self.scroll_offset.clamp(0.0, max_scroll);
@@ -11057,90 +11103,145 @@ impl App {
         pixels.present().unwrap();
     }
 
-    /// Spawns the background thread that does `measure_document`'s own
-    /// real work — step 3 of the "move page shaping off the main
-    /// thread" plan in TODO.txt, landed. Called from `redraw`'s own
-    /// rebuild branch exactly where that call used to happen inline;
-    /// takes `tree` *by value* since nothing on the main thread reads
-    /// it again afterward (confirmed — `App` no longer even has a
-    /// `tree` field of its own) and `LayoutBox` isn't `Clone` anyway.
-    /// A free function, not an `&self` method: `redraw`'s own caller
-    /// already holds `self.window`/`self.surface` borrowed apart from
-    /// the rest of `self` (see its own destructuring `let`), which an
-    /// `&self` method call can't see past — `generation`/`proxy` are
-    /// threaded in as plain parameters instead, each already copied
-    /// out of `self` by the caller before that borrow starts mattering.
+    /// Queues a fresh `LayoutBox` tree for the persistent background
+    /// shaping worker (`spawn_shaping_worker`, started once in `new_
+    /// static`/`new_streaming`) instead of spawning a brand-new thread
+    /// per rebuild — step 3 of the "move page shaping off the main
+    /// thread" plan in TODO.txt, landed, then revised once real-world
+    /// testing (a real Wikipedia page, through a merged PR) surfaced
+    /// two problems the one-shot-thread-per-rebuild version had: (1)
+    /// paying `new_font_system()`'s own system-font-database scan again
+    /// on *every* navigation/resize, not once ever the way `self.font_
+    /// system` already was; (2) running `measure_document` to
+    /// completion in one call, with no progressive fill-in at all,
+    /// which turned "laggy while loading" into "blank for most of a
+    /// minute" on a big real page — worse than the problem this whole
+    /// plan set out to fix, even though input itself stayed responsive
+    /// throughout. A free function, not an `&self` method: `redraw`'s
+    /// own caller already holds `self.window`/`self.surface` borrowed
+    /// apart from the rest of `self` (see its own destructuring `let`),
+    /// which an `&self` method call can't see past.
+    fn queue_shaping_request(requests: &mpsc::Sender<ShapingRequest>, tree: LayoutBox, width: f32, height: f32, generation: u64) {
+        let _ = requests.send(ShapingRequest { tree, width, height, generation });
+    }
+
+    /// Starts the persistent background shaping worker — called once,
+    /// from `new_static`/`new_streaming`, not per rebuild. Returns the
+    /// `Sender` half; `redraw`'s own rebuild branch queues a `Shaping
+    /// Request` through it (`queue_shaping_request`) instead of
+    /// spawning a new thread each time.
+    ///
+    /// **Started eagerly at construction, not lazily on first use** —
+    /// so its own one-time cost (building a `FontSystem`, scanning the
+    /// system's font database — the same call `self.font_system` itself
+    /// already pays once at startup) overlaps with whatever `App`
+    /// construction/the very first document parse is doing anyway,
+    /// instead of sitting serially in front of the very first page's
+    /// own first shape, which is exactly when a user is already
+    /// waiting on it.
     ///
     /// **A second, independently-owned `FontSystem`/`SwashCache` pair,
-    /// not `self`'s own.** Confirmed by reading cosmic-text's own
-    /// vendored source: `FontSystem`/`Buffer`/`SwashCache` hold no
-    /// `Rc`/`RefCell` internally, so sharing one *instance* across
-    /// threads would at least compile (behind a `Mutex`, say) — but
-    /// would just reintroduce the exact stall this plan exists to
-    /// remove: the main thread blocking on the lock while this thread
-    /// holds it mid-shape. So this thread loads its own independent
-    /// copy instead, a second in-memory font database, paid once when
-    /// it starts. `self.font_system`/`self.swash_cache` stay exactly
-    /// what `paint`/`paint_command_bar` already use to paint a
-    /// finished `Laid` tree on the main thread; nothing about painting
-    /// itself changes.
+    /// not `self`'s own, but paid for only once, here, not per
+    /// request.** Confirmed by reading cosmic-text's own vendored
+    /// source: `FontSystem`/`Buffer`/`SwashCache` hold no `Rc`/`RefCell`
+    /// internally, so sharing one *instance* with the main thread would
+    /// at least compile (behind a `Mutex`, say) — but would just
+    /// reintroduce the exact stall this plan exists to remove: the
+    /// main thread blocking on the lock while this thread holds it
+    /// mid-shape. So this thread keeps its own independent copy for its
+    /// entire lifetime instead. `self.font_system`/`self.swash_cache`
+    /// stay exactly what `paint`/`paint_command_bar` already use to
+    /// paint a finished `Laid` tree on the main thread; nothing about
+    /// painting itself changes.
     ///
-    /// **Runs `measure_document` to completion in one call, not
-    /// ticked.** The old `PROGRESSIVE_LAYOUT_TICK_BUDGET` budget
-    /// existed purely to bound how long input sat unhandled on the
-    /// single-threaded main loop (see its own docs) — that reason is
-    /// gone once nothing on the main thread blocks on this at all, so
-    /// `BACKGROUND_SHAPING_DEADLINE` is simply far enough out that
-    /// `measure_document`'s own `deadline` parameter never actually
-    /// triggers in practice (changing that parameter to `Option<Instant>`
-    /// across every recursive caller, just for this one case, wasn't
-    /// judged worth it here). The plan in TODO.txt named periodic
-    /// partial snapshots instead as the alternative, explicitly left
-    /// open — not taken here: `ShapeCache` (`cosmic_text::Buffer`
-    /// inside it) isn't `Clone`, so a mid-shape snapshot could only be
-    /// sent by *moving* the cache out, which would hand this thread an
-    /// empty one to resume with — losing exactly the already-shaped-
-    /// paragraph reuse the cache exists for. The real, acknowledged
-    /// cost: a big page's very first paint after a rebuild is now a
-    /// longer wait (no progressive fill-in while this runs) than
-    /// before backgrounding existed at all. Revisiting that tradeoff —
-    /// and `PROGRESSIVE_LAYOUT_TICK_BUDGET`'s own fate — is TODO.txt's
-    /// own next, separately-landed step, not folded in here.
+    /// **Ticks internally, same `PROGRESSIVE_LAYOUT_TICK_BUDGET` this
+    /// plan's own first version removed** — but keeps its own
+    /// `ShapeCache` growing across ticks *locally*, the same continuity
+    /// `App::redraw`'s old inline loop used to get for free by staying
+    /// on one thread the whole time, now reproduced across a real
+    /// thread boundary: every tick, the whole map — cheap to clone now
+    /// that each entry is `Arc<Mutex<_>>` (see `ShapeCache`'s own docs)
+    /// — goes out as one `AppEvent::ShapeResult`, so the page fills in
+    /// progressively on the main thread exactly as it did before this
+    /// plan started, while this thread keeps shaping the rest into the
+    /// *same* cache underneath, never losing already-shaped work the
+    /// way sending the cache away by value would.
     ///
-    /// **No true cancellation** — same tradeoff `start_navigation`'s
-    /// own fetch thread already accepts: a resize/chunk/navigation
-    /// arriving mid-shape just bumps `layout_generation` and calls this
-    /// again for the new state, leaving this call's own thread to keep
-    /// running to completion on its own and have its now-stale result
-    /// dropped on arrival (see `AppEvent::ShapeResult`'s own docs).
-    /// Wasted CPU on an abandoned pass, but bounded — every pass does
-    /// eventually finish.
-    fn spawn_shaping_thread(tree: LayoutBox, width: f32, height: f32, generation: u64, proxy: EventLoopProxy<AppEvent>) {
+    /// **Checks for a newer, superseding request between ticks, not
+    /// just at the very start** — a real improvement over the no-
+    /// cancellation tradeoff the single-spawn-per-rebuild version
+    /// (and `start_navigation`'s own fetch thread) still accept:
+    /// since this thread is already idle between ticks anyway, a
+    /// cheap non-blocking check (`try_recv`) can switch straight to a
+    /// resize/navigation/chunk that arrived mid-shape instead of
+    /// finishing the now-stale request first, bounding the wasted work
+    /// to at most one tick instead of an entire shape pass.
+    fn spawn_shaping_worker(proxy: EventLoopProxy<AppEvent>) -> mpsc::Sender<ShapingRequest> {
+        let (tx, rx) = mpsc::channel::<ShapingRequest>();
         thread::spawn(move || {
             let mut font_system = new_font_system();
-            let mut shape_cache = ShapeCache::new();
-            let mut next_id = 0usize;
-            let mut incomplete = false;
-            let deadline = std::time::Instant::now() + BACKGROUND_SHAPING_DEADLINE;
-            let laid = measure_document(
-                &tree,
-                &mut font_system,
-                width,
-                // Same real, definite window dimension `redraw`'s own
-                // synchronous call used to pass here — see `measure_
-                // document`'s own docs for why `viewport_h` specifically
-                // (only `position: fixed`/an orphaned `position:
-                // absolute`'s own containing block) is the one place
-                // that's true.
-                height,
-                &mut next_id,
-                &mut shape_cache,
-                deadline,
-                &mut incomplete,
-            );
-            debug_assert!(!incomplete, "BACKGROUND_SHAPING_DEADLINE should never actually be hit");
-            let _ = proxy.send_event(AppEvent::ShapeResult(generation, Box::new(laid), shape_cache));
+            // `rx.recv()` blocks here whenever there's no page waiting
+            // to be shaped — this thread is otherwise entirely idle,
+            // not spinning. `next` carries a request straight into the
+            // next iteration when the inner loop below was interrupted
+            // by one arriving mid-shape (see its own comment), instead
+            // of going back through `rx.recv()` and losing it.
+            let mut next = rx.recv();
+            while let Ok(mut request) = next {
+                // Jump straight to the newest already-queued request,
+                // if more than one piled up while this thread was busy
+                // with something else (e.g. several resizes in a row) —
+                // see this function's own docs.
+                while let Ok(newer) = rx.try_recv() {
+                    request = newer;
+                }
+                let ShapingRequest { tree, width, height, generation } = request;
+                let mut shape_cache = ShapeCache::new();
+                let mut superseded_by = None;
+                loop {
+                    let deadline = std::time::Instant::now() + PROGRESSIVE_LAYOUT_TICK_BUDGET;
+                    let mut incomplete = false;
+                    let mut next_id = 0usize;
+                    let laid = measure_document(
+                        &tree,
+                        &mut font_system,
+                        width,
+                        // Same real, definite window dimension `redraw`'s
+                        // own synchronous call used to pass here before
+                        // this plan started — see `measure_document`'s
+                        // own docs for why `viewport_h` specifically
+                        // (only `position: fixed`/an orphaned `position:
+                        // absolute`'s own containing block) is the one
+                        // place that's true.
+                        height,
+                        &mut next_id,
+                        &mut shape_cache,
+                        deadline,
+                        &mut incomplete,
+                    );
+                    if proxy.send_event(AppEvent::ShapeResult(generation, Box::new(laid), shape_cache.clone())).is_err() {
+                        return; // the event loop (and App) is gone
+                    }
+                    if !incomplete {
+                        break;
+                    }
+                    // Mid-shape staleness check — see this function's
+                    // own docs. A fresh request replaces this one
+                    // outright; its own first tick starts from a brand
+                    // new, empty `shape_cache`, same as any other new
+                    // generation's first tick.
+                    if let Ok(newer) = rx.try_recv() {
+                        superseded_by = Some(newer);
+                        break;
+                    }
+                }
+                next = match superseded_by {
+                    Some(newer) => Ok(newer),
+                    None => rx.recv(),
+                };
+            }
         });
+        tx
     }
 
     /// Swaps in a brand-new document — the one place both link
@@ -11495,13 +11596,11 @@ impl ApplicationHandler<AppEvent> for App {
                 if generation != self.layout_generation {
                     return;
                 }
-                // Deferred from `redraw`'s own rebuild branch (see its
-                // own comment there) specifically so the *previous*
-                // `cached`/`shape_cache`/`scroll_offsets` stay a
-                // consistent triple, paintable as-is, for however long
-                // this background pass took — only swapped out now,
-                // all together, the instant a fresh one actually lands.
-                self.scroll_offsets.clear();
+                // Replaced wholesale on every tick this generation's
+                // worker reports, not merged — see `App::shape_cache`'s
+                // own docs for why that's always safe (every entry here
+                // is a strict superset of the last delivery's, same
+                // generation, same underlying tree).
                 self.shape_cache = shape_cache;
                 self.cached = Some(*laid);
             }
@@ -13139,8 +13238,10 @@ mod tests {
         assert_eq!(ids.len(), 3, "expected one shaped paragraph per <p>");
 
         let font_id_of = |id: usize| -> fontdb::ID {
-            let (buffer, ..) = cache.get(&id).expect("missing shaped paragraph");
-            buffer
+            let entry = cache.get(&id).expect("missing shaped paragraph");
+            let guard = entry.lock().unwrap();
+            guard
+                .0
                 .layout_runs()
                 .next()
                 .and_then(|r| r.glyphs.first())
@@ -14765,7 +14866,9 @@ mod tests {
                 children.iter().find_map(|c| find_glyph_center(c, cache, want))
             }
             LaidContent::Text(id) => {
-                let (buffer, _, _, _, _, cursors, _, _) = cache.get(id)?;
+                let entry = cache.get(id)?;
+                let guard = entry.lock().unwrap();
+                let (buffer, _, _, _, _, cursors, _, _) = &*guard;
                 let content_x = laid.x + laid.style.border_width + laid.style.padding.left.px();
                 let content_y = laid.y + laid.style.border_width + laid.style.padding.top.px();
                 for run in buffer.layout_runs() {
