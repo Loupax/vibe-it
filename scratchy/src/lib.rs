@@ -6,6 +6,7 @@ use std::num::NonZeroU32;
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::rc::{Rc, Weak};
+use std::sync::Arc;
 use std::thread;
 
 use cosmic_text::{
@@ -4031,10 +4032,10 @@ fn matching_declarations<'a>(handle: &Handle, rules: &'a [StyleRule], viewport_w
 /// (cheaply duplicated everywhere a box's style is read: `let s = b.
 /// style;` throughout `measure`/`paint`) and a decoded image's pixel
 /// buffer can't be `Copy`. Threaded alongside a box instead, in its own
-/// `Rc` — same reasoning, and the same `Rc<DecodedImage>` type, as
+/// `Arc` — same reasoning, and the same `Arc<DecodedImage>` type, as
 /// `BoxContent::Image` (see its own docs). Only a `data:` URI `url(...)`
 /// decodes — same `<img src>` policy, see `decode_data_uri`'s own docs.
-fn resolve_background_image(handle: &Handle, rules: &[StyleRule], viewport_width: f32) -> Option<Rc<DecodedImage>> {
+fn resolve_background_image(handle: &Handle, rules: &[StyleRule], viewport_width: f32) -> Option<Arc<DecodedImage>> {
     let matches = matching_declarations(handle, rules, viewport_width);
     let inline_decls = element_attr(handle, "style").map(|s| parse_declarations(&s));
     let url = cascade_property(
@@ -4042,7 +4043,7 @@ fn resolve_background_image(handle: &Handle, rules: &[StyleRule], viewport_width
         inline_decls.as_ref().and_then(|d| d.background_image.clone()),
         |d| d.background_image.clone(),
     )?;
-    decode_data_uri(&url).and_then(|b| decode_image_bytes(&b)).map(Rc::new)
+    decode_data_uri(&url).and_then(|b| decode_image_bytes(&b)).map(Arc::new)
 }
 
 fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle, viewport_width: f32) -> ComputedStyle {
@@ -4577,9 +4578,9 @@ impl From<InheritedStyle> for SpanStyle {
 enum InlineItem {
     Text(String, SpanStyle),
     Image {
-        image: Rc<DecodedImage>,
+        image: Arc<DecodedImage>,
         style: ComputedStyle,
-        background_image: Option<Rc<DecodedImage>>,
+        background_image: Option<Arc<DecodedImage>>,
     },
 }
 
@@ -4591,11 +4592,11 @@ enum BoxContent {
     /// `Display::TableRow` — rows themselves are ordinary `Blocks`
     /// children of the table, stacking vertically like any other block.
     TableRow(Vec<LayoutBox>),
-    /// A decoded `<img>` — see `build_img_box`. Wrapped in `Rc` so
+    /// A decoded `<img>` — see `build_img_box`. Wrapped in `Arc` so
     /// `measure` can hand `Laid` its own cheap reference (`LaidContent::
     /// Image`) without re-decoding or copying the pixel buffer on every
     /// layout pass.
-    Image(Rc<DecodedImage>),
+    Image(Arc<DecodedImage>),
 }
 
 /// A fully decoded `<img>`, in the same packed-`u32`-pixel form `blend`/
@@ -4616,7 +4617,7 @@ pub struct LayoutBox {
     /// resolve `background-image` against) or a real element that
     /// didn't declare one. See `resolve_background_image`'s own docs
     /// for why this lives here instead of on `style` itself.
-    background_image: Option<Rc<DecodedImage>>,
+    background_image: Option<Arc<DecodedImage>>,
     content: BoxContent,
 }
 
@@ -4680,7 +4681,7 @@ fn img_size_attr(handle: &Handle, name: &str) -> Option<f32> {
 /// fetch that failed/decoded to nothing — missing, unsupported format, a
 /// local file path (not supported, see TODO.txt), or corrupt data —
 /// both fall out of a plain cache miss, `None` either way.
-fn resolve_img(handle: &Handle, mut style: ComputedStyle, image_cache: &HashMap<String, Rc<DecodedImage>>) -> (ComputedStyle, Option<Rc<DecodedImage>>) {
+fn resolve_img(handle: &Handle, mut style: ComputedStyle, image_cache: &HashMap<String, Arc<DecodedImage>>) -> (ComputedStyle, Option<Arc<DecodedImage>>) {
     if style.width.is_none() {
         style.width = img_size_attr(handle, "width").map(BoxLength::Px);
     }
@@ -4688,7 +4689,7 @@ fn resolve_img(handle: &Handle, mut style: ComputedStyle, image_cache: &HashMap<
         style.height = img_size_attr(handle, "height").map(BoxLength::Px);
     }
     let decoded = element_attr(handle, "src").and_then(|src| match decode_data_uri(&src) {
-        Some(bytes) => decode_image_bytes(&bytes).map(Rc::new),
+        Some(bytes) => decode_image_bytes(&bytes).map(Arc::new),
         None => image_cache.get(&*src).cloned(),
     });
     (style, decoded)
@@ -4705,8 +4706,8 @@ fn resolve_img(handle: &Handle, mut style: ComputedStyle, image_cache: &HashMap<
 fn build_img_box(
     handle: &Handle,
     style: ComputedStyle,
-    background_image: Option<Rc<DecodedImage>>,
-    image_cache: &HashMap<String, Rc<DecodedImage>>,
+    background_image: Option<Arc<DecodedImage>>,
+    image_cache: &HashMap<String, Arc<DecodedImage>>,
 ) -> LayoutBox {
     let (style, decoded) = resolve_img(handle, style, image_cache);
     match decoded {
@@ -4734,10 +4735,10 @@ fn build_box_for_element(
     decoration: DecorationValue,
     href: Option<&'static str>,
     viewport_width: f32,
-    image_cache: &HashMap<String, Rc<DecodedImage>>,
+    image_cache: &HashMap<String, Arc<DecodedImage>>,
 ) -> LayoutBox {
     let style = resolve_style(handle, rules, inherited, viewport_width);
-    // Resolved once here (cheap to carry further — just an `Rc` clone —
+    // Resolved once here (cheap to carry further — just an `Arc` clone —
     // vs. re-running `resolve_background_image`'s own selector-matching
     // pass again in every branch below).
     let background_image = resolve_background_image(handle, rules, viewport_width);
@@ -4848,7 +4849,7 @@ fn build_table_children(
     decoration: DecorationValue,
     href: Option<&'static str>,
     viewport_width: f32,
-    image_cache: &HashMap<String, Rc<DecodedImage>>,
+    image_cache: &HashMap<String, Arc<DecodedImage>>,
 ) -> Vec<LayoutBox> {
     let mut result = Vec::new();
     for child in handle.children.borrow().iter() {
@@ -4912,7 +4913,7 @@ fn build_table_row_cells(
     decoration: DecorationValue,
     href: Option<&'static str>,
     viewport_width: f32,
-    image_cache: &HashMap<String, Rc<DecodedImage>>,
+    image_cache: &HashMap<String, Arc<DecodedImage>>,
 ) -> Vec<LayoutBox> {
     let mut cells = Vec::new();
     for child in handle.children.borrow().iter() {
@@ -4965,7 +4966,7 @@ fn build_flex_children(
     decoration: DecorationValue,
     href: Option<&'static str>,
     viewport_width: f32,
-    image_cache: &HashMap<String, Rc<DecodedImage>>,
+    image_cache: &HashMap<String, Arc<DecodedImage>>,
 ) -> Vec<LayoutBox> {
     let mut result = Vec::new();
     for child in handle.children.borrow().iter() {
@@ -5000,7 +5001,7 @@ fn build_children(
     decoration: DecorationValue,
     href: Option<&'static str>,
     viewport_width: f32,
-    image_cache: &HashMap<String, Rc<DecodedImage>>,
+    image_cache: &HashMap<String, Arc<DecodedImage>>,
 ) -> Vec<LayoutBox> {
     build_children_with_prefix(handle, rules, inherited, None, decoration, href, viewport_width, image_cache)
 }
@@ -5015,7 +5016,7 @@ fn build_children_with_prefix(
     decoration: DecorationValue,
     href: Option<&'static str>,
     viewport_width: f32,
-    image_cache: &HashMap<String, Rc<DecodedImage>>,
+    image_cache: &HashMap<String, Arc<DecodedImage>>,
 ) -> Vec<LayoutBox> {
     let mut result = Vec::new();
     let mut pending: Vec<InlineItem> = Vec::new();
@@ -5068,7 +5069,7 @@ fn collect_children(
     pending: &mut Vec<InlineItem>,
     result: &mut Vec<LayoutBox>,
     viewport_width: f32,
-    image_cache: &HashMap<String, Rc<DecodedImage>>,
+    image_cache: &HashMap<String, Arc<DecodedImage>>,
 ) {
     for child in handle.children.borrow().iter() {
         match &child.data {
@@ -5234,7 +5235,7 @@ fn build_layout_tree_with_resources(
     document: &Handle,
     viewport_width: f32,
     extra_css: &str,
-    image_cache: &HashMap<String, Rc<DecodedImage>>,
+    image_cache: &HashMap<String, Arc<DecodedImage>>,
 ) -> LayoutBox {
     let mut css_source = String::new();
     collect_style_css(document, &mut css_source);
@@ -5328,9 +5329,9 @@ pub struct Laid {
     w: f32,
     h: f32,
     /// Carried straight over from the `LayoutBox` this was measured
-    /// from (an `Rc` clone — see its own docs for why it isn't on
+    /// from (an `Arc` clone — see its own docs for why it isn't on
     /// `style`), for `paint` to tile behind this box's own content.
-    background_image: Option<Rc<DecodedImage>>,
+    background_image: Option<Arc<DecodedImage>>,
     content: LaidContent,
     /// `position: absolute`/`fixed` descendants whose containing block
     /// is *this* box — empty for the overwhelming majority of boxes
@@ -5955,7 +5956,7 @@ enum LaidContent {
     Blocks(Vec<Laid>),
     Text(usize),
     TableRow(Vec<Laid>),
-    Image(Rc<DecodedImage>),
+    Image(Arc<DecodedImage>),
     /// A `BoxContent::Inline` run that contains at least one inline
     /// `<img>` — real inline-level flow, laid out by `measure_mixed_
     /// inline` instead of the single-`Buffer`-per-paragraph path
@@ -6814,7 +6815,7 @@ pub fn measure<'a>(
                 w: border_w,
                 h: border_h,
                 background_image: b.background_image.clone(),
-                content: LaidContent::Image(Rc::clone(image)),
+                content: LaidContent::Image(Arc::clone(image)),
                 positioned: Vec::new(),
                 fixed: false,
                 sticky: None,
@@ -7002,7 +7003,7 @@ fn measure_mixed_inline(
     #[allow(clippy::large_enum_variant)]
     enum Measured {
         Word { id: usize, width: f32, height: f32 },
-        Image { laid_style: ComputedStyle, background_image: Option<Rc<DecodedImage>>, image: Rc<DecodedImage>, advance_w: f32, img_w: f32, img_h: f32 },
+        Image { laid_style: ComputedStyle, background_image: Option<Arc<DecodedImage>>, image: Arc<DecodedImage>, advance_w: f32, img_w: f32, img_h: f32 },
     }
 
     let mut measured: Vec<Measured> = Vec::new();
@@ -7053,7 +7054,7 @@ fn measure_mixed_inline(
                 measured.push(Measured::Image {
                     laid_style: finalized_style,
                     background_image: background_image.clone(),
-                    image: Rc::clone(image),
+                    image: Arc::clone(image),
                     advance_w: finalized_style.margin.left.px() + img_w + finalized_style.margin.right.px(),
                     img_w,
                     img_h,
@@ -7153,7 +7154,7 @@ fn measure_mixed_inline(
                         w: *img_w,
                         h: *img_h,
                         background_image: background_image.clone(),
-                        content: LaidContent::Image(Rc::clone(image)),
+                        content: LaidContent::Image(Arc::clone(image)),
                         positioned: Vec::new(),
                         fixed: false,
                         sticky: None,
@@ -10820,7 +10821,7 @@ struct App {
     /// layout dirty, so images materialize one at a time as their own
     /// fetches finish rather than blocking the page on all of them.
     /// Cleared on every navigation/`show_message`, same as `extra_css`.
-    image_cache: HashMap<String, Rc<DecodedImage>>,
+    image_cache: HashMap<String, Arc<DecodedImage>>,
     /// Whether vim-mode key interception is on at all — `:set vim`/
     /// `:set novim`'s own stored state (plus `AppEvent::ToggleVimMode`'s
     /// own flip). `false` means `resolve_binding` is never even reached
@@ -11366,7 +11367,7 @@ impl ApplicationHandler<AppEvent> for App {
                     return;
                 }
                 let Some(image) = image else { return };
-                self.image_cache.insert(src, Rc::new(image));
+                self.image_cache.insert(src, Arc::new(image));
                 // A newly-arrived image can change this element's own
                 // intrinsic size (no explicit CSS/HTML width/height —
                 // see `resolve_img`), so the whole tree needs a real
@@ -15614,7 +15615,7 @@ mod tests {
         let img_handle = find_element_by_tag(&doc, "img").expect("no <img> found in fixture");
         let decoded = DecodedImage { width: 4, height: 4, pixels: vec![TextColor::rgb(1, 2, 3); 16] };
         let mut image_cache = HashMap::new();
-        image_cache.insert("https://example.com/photo.jpg".to_string(), Rc::new(decoded));
+        image_cache.insert("https://example.com/photo.jpg".to_string(), Arc::new(decoded));
         let (_, found) = resolve_img(&img_handle, resolve_style(&img_handle, &[], ROOT_STYLE, 1920.0), &image_cache);
         assert!(found.is_some(), "a src present in image_cache must be used, not fall back to alt text");
         let found = found.unwrap();
@@ -15647,7 +15648,7 @@ mod tests {
         let mut image_cache = HashMap::new();
         image_cache.insert(
             "https://example.com/photo.jpg".to_string(),
-            Rc::new(DecodedImage { width: 2, height: 2, pixels: vec![TextColor::rgb(9, 9, 9); 4] }),
+            Arc::new(DecodedImage { width: 2, height: 2, pixels: vec![TextColor::rgb(9, 9, 9); 4] }),
         );
         let tree = build_layout_tree_with_resources(&doc, 1920.0, "", &image_cache);
         fn find_image_box(b: &LayoutBox) -> Option<&LayoutBox> {
