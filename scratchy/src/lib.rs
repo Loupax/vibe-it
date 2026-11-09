@@ -10628,6 +10628,24 @@ fn print_fallback_request(request_text: &str) {
     let _ = io::stdout().flush();
 }
 
+/// `SCRATCHY_TIMING=1 scratchy ...` prints one line per navigation's
+/// own page fetch and, separately, its external-stylesheet fetches —
+/// same measure-don't-guess habit (and the same env-var-gated, zero-
+/// cost-when-off shape) `snag`'s own `SNAG_TIMING`/`wire`'s own `WIRE_
+/// TIMING` already established, added here to see how much of the
+/// "Loading…" wait is the page fetch itself (`start_navigation`'s own
+/// `fetch_raw_via_wire` call — real network time, now that `wire`
+/// streams rather than buffers, plus whatever's left of DNS/connect/TLS
+/// on a cold host) versus its own stylesheets, fetched synchronously
+/// one at a time before the very first layout can happen at all (see
+/// `process_external_resources`'s own docs). Shaping itself isn't
+/// measured here — it already has its own background-worker
+/// architecture and diagnostics (`measure_mixed_inline`'s own, in
+/// `mod tests`).
+fn timing_enabled() -> bool {
+    std::env::var_os("SCRATCHY_TIMING").is_some()
+}
+
 // ---------- sub-resources: external stylesheets and images (v67) ----------
 //
 // The same `wire` daemon the top-level page fetch already talks to is
@@ -11621,34 +11639,52 @@ impl App {
         let socket_path = self.socket_path.clone();
         thread::spawn(move || {
             let request_text = build_get_request_text(&url);
+            let url_for_log = url.clone();
             let outcome: Result<FetchedPage, String> = match &socket_path {
-                Some(path) => match fetch_raw_via_wire(path, &request_text) {
-                    WireFetchRaw::Responded { content_type, body } => match dispatch_wire_response(content_type, body) {
-                        Ok(html) => {
-                            // Sub-resources (v67): fetched from *this*
-                            // background thread, not the event-loop one —
-                            // stylesheets synchronously, since CSS must be
-                            // fully in hand before the very first layout
-                            // (see `process_external_resources`'s own
-                            // docs); images only kicked off here, each
-                            // resolving independently and later, via its
-                            // own `AppEvent::ImageFetched`.
-                            let extra_css = process_external_resources(&proxy, path, &url, &html, generation);
-                            Ok(FetchedPage { html, extra_css, url })
-                        }
-                        Err(e) => Err(e),
-                    },
-                    WireFetchRaw::Unreachable => {
-                        print_fallback_request(&request_text);
-                        Err(format!(
-                            "wire daemon not reachable at {} — printed the request to stdout; \
-                             start it there (e.g. `wire --socket {}`) and click again, or replay \
-                             the printed request manually",
-                            path.display(),
-                            path.display()
-                        ))
+                Some(path) => {
+                    let fetch_start = std::time::Instant::now();
+                    let wire_result = fetch_raw_via_wire(path, &request_text);
+                    if timing_enabled() {
+                        eprintln!(
+                            "scratchy: TIMING page_fetch={:>7.1}ms {url_for_log}",
+                            fetch_start.elapsed().as_secs_f64() * 1000.0
+                        );
                     }
-                },
+                    match wire_result {
+                        WireFetchRaw::Responded { content_type, body } => match dispatch_wire_response(content_type, body) {
+                            Ok(html) => {
+                                // Sub-resources (v67): fetched from *this*
+                                // background thread, not the event-loop one —
+                                // stylesheets synchronously, since CSS must be
+                                // fully in hand before the very first layout
+                                // (see `process_external_resources`'s own
+                                // docs); images only kicked off here, each
+                                // resolving independently and later, via its
+                                // own `AppEvent::ImageFetched`.
+                                let css_start = std::time::Instant::now();
+                                let extra_css = process_external_resources(&proxy, path, &url, &html, generation);
+                                if timing_enabled() {
+                                    eprintln!(
+                                        "scratchy: TIMING stylesheets={:>7.1}ms {url_for_log}",
+                                        css_start.elapsed().as_secs_f64() * 1000.0
+                                    );
+                                }
+                                Ok(FetchedPage { html, extra_css, url })
+                            }
+                            Err(e) => Err(e),
+                        },
+                        WireFetchRaw::Unreachable => {
+                            print_fallback_request(&request_text);
+                            Err(format!(
+                                "wire daemon not reachable at {} — printed the request to stdout; \
+                                 start it there (e.g. `wire --socket {}`) and click again, or replay \
+                                 the printed request manually",
+                                path.display(),
+                                path.display()
+                            ))
+                        }
+                    }
+                }
                 None => {
                     print_fallback_request(&request_text);
                     Err("no --socket given — scratchy never fetches a page on its own without \
