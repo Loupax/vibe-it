@@ -10796,6 +10796,22 @@ struct App {
     /// finished) is recognized as stale and dropped instead of
     /// clobbering newer content. See `AppEvent::NavResult`'s own docs.
     nav_generation: u64,
+    /// Bumped every time this *page*'s own layout would need reshaping
+    /// from scratch — every site that sets `layout_dirty = true` today
+    /// (a new/changed `document`: `replace_document`, `AppEvent::Chunk`/
+    /// `Eof`, `AppEvent::ImageFetched`), plus the one place `cached_
+    /// width` itself changes (`redraw`'s rebuild commit, the purely-
+    /// resize-driven case that never touches `layout_dirty` at all).
+    /// Unlike `nav_generation` — which answers "which navigated-to
+    /// *page*" — this answers "which *reshape* of the current page";
+    /// see TODO.txt's "Move page shaping off the main thread" plan for
+    /// why that's a different question, not yet reusable as-is. Not
+    /// read anywhere yet — this field only exists so a future
+    /// background-shaping thread has something correct to tag its
+    /// spawn with and check on arrival; landed on its own, ahead of
+    /// that thread, so the bookkeeping itself is proven not to regress
+    /// anything before anything depends on it.
+    layout_generation: u64,
     /// The `--socket <path>` CLI flag, if given — where a `wire` daemon
     /// is expected to be listening. `None` means the user never opted
     /// in at all; `start_navigation` treats that identically to "gave a
@@ -10881,6 +10897,7 @@ impl App {
             proxy,
             base_url,
             nav_generation: 0,
+            layout_generation: 0,
             socket_path,
             extra_css: String::new(),
             image_cache: HashMap::new(),
@@ -10917,6 +10934,7 @@ impl App {
             proxy,
             base_url: None,
             nav_generation: 0,
+            layout_generation: 0,
             socket_path,
             extra_css: String::new(),
             image_cache: HashMap::new(),
@@ -10967,6 +10985,7 @@ impl App {
             self.cached_width = width;
             self.layout_dirty = false;
             self.layout_incomplete = true;
+            self.layout_generation += 1;
         } else if need_rebuild {
             window.request_redraw();
         }
@@ -11067,6 +11086,7 @@ impl App {
         self.extra_css = extra_css;
         self.image_cache.clear();
         self.layout_dirty = true;
+        self.layout_generation += 1;
         self.tree = None;
         self.cached = None;
         self.shape_cache.clear();
@@ -11320,6 +11340,7 @@ impl ApplicationHandler<AppEvent> for App {
                     decoder.process(ByteTendril::from_slice(&bytes));
                     self.document = decoder.inner_sink.tokenizer.sink.sink.document.clone();
                     self.layout_dirty = true;
+                    self.layout_generation += 1;
                 }
             }
             AppEvent::Eof => {
@@ -11327,6 +11348,7 @@ impl ApplicationHandler<AppEvent> for App {
                     let dom = decoder.finish();
                     self.document = dom.document;
                     self.layout_dirty = true;
+                    self.layout_generation += 1;
                     // Streaming mode (`snag url | scratchy`) never had a
                     // `<base href>` to read before now — the whole
                     // document, `<head>` included, only exists once EOF
@@ -11375,6 +11397,7 @@ impl ApplicationHandler<AppEvent> for App {
                 // flag `redraw` already checks before deciding whether to
                 // call `build_layout_tree_with_resources` again.
                 self.layout_dirty = true;
+                self.layout_generation += 1;
             }
             AppEvent::ToggleVimMode => {
                 self.vim_enabled = !self.vim_enabled;
