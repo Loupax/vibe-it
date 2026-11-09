@@ -1,3 +1,4 @@
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
@@ -1455,7 +1456,7 @@ fn cursor_style_from_keyword(kw: &str) -> Option<CursorStyle> {
 /// family (`"Georgia"`, `Helvetica Neue`) or one of the 5 CSS generic
 /// keywords. `Name` holds a leaked `&'static str` — see `FontFamily`'s
 /// own docs for why.
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 enum FontFamilyItem {
     Name(&'static str),
     SansSerif,
@@ -1506,7 +1507,7 @@ impl FontFamilyItem {
 /// work already redone on every one of those redraws. Worth revisiting
 /// only if a page with many distinct `font-family` values redrawn many
 /// times is ever shown to matter in practice.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 struct FontFamily(&'static [FontFamilyItem]);
 
 impl Default for FontFamily {
@@ -1542,7 +1543,41 @@ impl FontFamily {
     /// named family missing *and* even the trailing generic has no
     /// installed font), falls back to cosmic-text's own built-in
     /// default rather than shaping with an unmatched `Family`.
+    ///
+    /// **Memoized, thread-local** — added once real-world testing traced
+    /// a measured 17x slowdown (a synthetic diagnostic: 300 paragraphs
+    /// of plain text vs. the same text with one inline image dropped
+    /// into each paragraph) to this call. `fontdb::Database::query`
+    /// (confirmed by reading its vendored source) does a full linear
+    /// scan over *every* installed font face, allocating a `Vec` of
+    /// candidates, on every call — fine when paid once or twice per
+    /// paragraph (the ordinary whole-paragraph shaping path), but
+    /// `measure_mixed_inline`'s own word-by-word shaping (needed for any
+    /// paragraph with an inline `<img>` mixed into its text — see its
+    /// own docs) re-resolves the *same* `SpanStyle`'s font on every
+    /// single word instead of once per paragraph, the dominant cost
+    /// behind that 17x. Thread-local rather than a cache threaded
+    /// through every caller as a new parameter: each thread in this
+    /// process builds exactly one `FontSystem`/`Database` for its own
+    /// lifetime (`App::font_system` on the main thread, a second
+    /// independent one on `spawn_shaping_worker`'s own thread — see its
+    /// own docs) and never swaps it for a different one, so nothing
+    /// cached here can go stale within a run. Keyed without the
+    /// `Database` itself: correct as long as the set of fonts actually
+    /// installed on the system doesn't change mid-process — an
+    /// assumption every `new_font_system()` call already makes, reading
+    /// the same system font directories regardless of which thread or
+    /// instance asks.
     fn resolve(self, db: &fontdb::Database, weight: FontWeight, style: FontStyle) -> CosmicFamily<'static> {
+        thread_local! {
+            static CACHE: RefCell<HashMap<(FontFamily, FontWeight, FontStyle), CosmicFamily<'static>>> =
+                RefCell::new(HashMap::new());
+        }
+        let key = (self, weight, style);
+        if let Some(cached) = CACHE.with(|c| c.borrow().get(&key).copied()) {
+            return cached;
+        }
+        let mut resolved = CosmicFamily::SansSerif;
         for item in self.0.iter().copied() {
             let family = item.to_cosmic();
             let query = fontdb::Query {
@@ -1552,10 +1587,12 @@ impl FontFamily {
                 ..Default::default()
             };
             if db.query(&query).is_some() {
-                return family;
+                resolved = family;
+                break;
             }
         }
-        CosmicFamily::SansSerif
+        CACHE.with(|c| c.borrow_mut().insert(key, resolved));
+        resolved
     }
 }
 
@@ -6920,6 +6957,101 @@ fn image_natural_width(image: &DecodedImage, s: &ComputedStyle) -> f32 {
     }
 }
 
+/// Splits `text` into words the same way `measure_mixed_inline`'s own
+/// line-breaker always has (`split_inclusive(' ')`, each word keeping
+/// its own trailing space), but returns byte ranges instead of the
+/// substrings themselves — what `word_widths_from_buffer` needs to
+/// match words back up against a shaped `Buffer`'s own glyph clusters.
+fn word_byte_ranges(text: &str) -> Vec<std::ops::Range<usize>> {
+    let mut ranges = Vec::new();
+    let mut offset = 0usize;
+    for word in text.split_inclusive(' ') {
+        if !word.is_empty() {
+            ranges.push(offset..offset + word.len());
+        }
+        offset += word.len();
+    }
+    ranges
+}
+
+/// Reads per-word pixel widths back out of a `Buffer` already shaped
+/// for its *whole* containing text in one `shape_spans` call — the
+/// measurement half of `measure_mixed_inline`'s own whole-chunk
+/// shaping (see its own docs for why shaping one `Buffer` per word was
+/// a measured 135x slower than one `Buffer` for many words at once).
+/// `ranges` must be sorted, non-overlapping, and cover (contiguously)
+/// the same text this buffer was shaped from — exactly what `word_byte_
+/// ranges` produces on that same text.
+///
+/// Matches each range against the glyphs whose own `start`/`end` (byte
+/// offsets into the line, per cosmic-text's own `LayoutGlyph` docs)
+/// overlap it, width = the rightmost glyph edge minus the leftmost —
+/// correct for left-to-right runs (both `ranges` and `run.glyphs` are
+/// walked forward together, one pass, no backtracking). Not attempted
+/// for mixed bidi within one chunk: no worse than before this existed
+/// (each word was shaped in total isolation, so cross-word bidi could
+/// never be correct either way — see `measure_mixed_inline`'s own
+/// docs), and often better now (one real shaping pass over multiple
+/// words can get bidi *within* a chunk right, where two separate
+/// single-word passes architecturally couldn't).
+fn word_widths_from_buffer(buffer: &Buffer, ranges: &[std::ops::Range<usize>]) -> Vec<f32> {
+    let mut widths = vec![0.0f32; ranges.len()];
+    let Some(run) = buffer.layout_runs().next() else { return widths };
+    let mut glyphs = run.glyphs.iter().peekable();
+    for (i, range) in ranges.iter().enumerate() {
+        let mut min_x: Option<f32> = None;
+        let mut max_edge = 0.0f32;
+        while let Some(g) = glyphs.peek() {
+            if g.end <= range.start {
+                glyphs.next();
+                continue;
+            }
+            if g.start >= range.end {
+                break;
+            }
+            min_x = Some(min_x.map_or(g.x, |m| m.min(g.x)));
+            max_edge = max_edge.max(g.x + g.w);
+            glyphs.next();
+        }
+        widths[i] = min_x.map(|m| max_edge - m).unwrap_or(0.0);
+    }
+    widths
+}
+
+/// Shapes (or resumes, from a previous tick's cache entry) exactly one
+/// word on its own, inserting/reading it under `id` in `cache` —
+/// `measure_mixed_inline`'s own per-word fallback path, reached only
+/// for `word-spacing != 0` (can't reuse a shared multi-word buffer: see
+/// its own docs) or a whole-chunk shape that ends up split across more
+/// than one wrapped line (rare). Exactly the logic every word in a
+/// mixed-inline run used before this function existed.
+#[allow(clippy::too_many_arguments)]
+fn shape_or_resume_word(
+    font_system: &mut FontSystem,
+    cache: &mut ShapeCache,
+    id: usize,
+    word: &str,
+    span: SpanStyle,
+    width: f32,
+    deadline: std::time::Instant,
+    incomplete: &mut bool,
+) -> (f32, f32) {
+    if let Some(entry) = cache.get(&id) {
+        let guard = entry.lock().unwrap();
+        (guard.0.layout_runs().next().map(|r| r.line_w).unwrap_or(0.0), guard.1)
+    } else if std::time::Instant::now() < deadline {
+        let synth = [InlineItem::Text(word.to_string(), span)];
+        let (buffer, h, backgrounds, valigns, hidden, cursors, decoration_styles, hrefs) =
+            shape_spans(font_system, &synth, width, true, None);
+        let w = buffer.layout_runs().next().map(|r| r.line_w).unwrap_or(0.0);
+        cache.insert(id, Arc::new(Mutex::new((buffer, h, backgrounds, valigns, hidden, cursors, decoration_styles, hrefs))));
+        (w, h)
+    } else {
+        *incomplete = true;
+        (0.0, PLACEHOLDER_LINE_HEIGHT)
+    }
+}
+
 /// Real inline-level flow for a `BoxContent::Inline` run that mixes text
 /// with at least one inline `<img>` — text genuinely shares a line with
 /// the image and wraps around it, unlike a plain-text run (which hands
@@ -6927,19 +7059,35 @@ fn image_natural_width(image: &DecodedImage, s: &ComputedStyle) -> f32 {
 /// and lets it decide line breaks). cosmic-text has no concept of an
 /// embedded non-text box mid-paragraph (confirmed against how Firefox's
 /// `nsLineLayout` actually handles this — see NOTES.md), so this hand-
-/// rolls a simple greedy line-breaker instead: splits every text item
-/// into words (`split_inclusive(' ')`, each word keeping its own
-/// trailing space for wrapping purposes — text is already whitespace-
-/// normalized by the time it reaches here, see `collect_children`'s own
-/// docs), shapes each word as its own tiny one-span paragraph via the
-/// existing `shape_spans`/`ShapeCache` machinery (full fidelity for
-/// color/background/decoration/cursor per word, for free — see
-/// `MixedPositioned`'s own docs for why), and treats an image as one
-/// atomic token sized via the shared `image_box_size`. Each token gets
-/// a stable `ShapeCache` id exactly like a whole paragraph would,
-/// participating in the same `deadline`/`incomplete` incremental-
-/// shaping budget — not a special case, a *shaped word* is just a
-/// smaller unit of the same thing.
+/// rolls a simple greedy line-breaker instead, needing each *word*'s own
+/// width to decide where lines break around an image.
+///
+/// **Shapes each `InlineItem::Text` as one whole-item `Buffer`, not one
+/// per word** — the second version of this, after real-world testing (a
+/// real Wikipedia page, through a merged PR) found the first version's
+/// one-`shape_spans`-call-per-word measuring/painting cost a *measured*
+/// 135x more than shaping the same words in one call (isolated directly:
+/// `shape_spans_per_call_overhead_diagnostic`), the dominant cost behind
+/// an even bigger end-to-end slowdown (`mixed_inline_overhead_
+/// diagnostic`) — cosmic-text's own per-call setup (a new `Buffer`, its
+/// shaping-engine init) dominates completely once called thousands of
+/// times for only a word or two of text each. Per-word *widths* are
+/// still needed for the wrap decision, so each chunk is shaped once
+/// (`word_byte_ranges`/`word_widths_from_buffer` read them back out of
+/// that one `Buffer`'s own glyphs) — then, in pass 2, every chunk whose
+/// words all land on the *same* wrapped line (the common case for a
+/// sparse inline icon in flowing prose — confirmed by this function's
+/// own `WordSource::Chunk`/`chunk_fits_one_line` bookkeeping) reuses
+/// that same `Buffer` directly for painting too, one `MixedPositioned::
+/// Word` for the whole chunk instead of one per word. A chunk that
+/// itself ends up split across more than one wrapped line (rare: the
+/// chunk alone is wide enough to wrap even before an image's own width
+/// is counted) falls back to shaping just its own words individually —
+/// same as `word-spacing != 0` already must (see below), since neither
+/// can reuse one shared, already-positioned buffer. A pleasant side
+/// effect: shaping multiple words together, where it applies, now gets
+/// real cross-word kerning/ligatures and bidi *within* one chunk, which
+/// shaping one `Buffer` per word architecturally never could.
 ///
 /// Also where `word-spacing` (v59) is actually applied, now that any run
 /// with a nonzero value is routed here (see `measure`'s own routing
@@ -6949,35 +7097,37 @@ fn image_natural_width(image: &DecodedImage, s: &ComputedStyle) -> f32 {
 /// downstream use, since every consumer of a word's width here (the
 /// wrap-check/cursor-advance just below, the final line-width/`text-
 /// align` math, and the hit-test bounding box in `MixedPositioned::
-/// Word`) already wants the bigger number for free. cosmic-text's own
-/// shaping of that one word is completely untouched — its `Buffer` is
-/// shaped at the word's own natural width, with no spacing concept fed
-/// into `Attrs` at all; only the *position* of the next word on the line
-/// moves. This is the deliberate reason this item routes through here at
-/// all instead of cosmic-text's own `Attrs`/`Buffer` (like the reverted
-/// `letter-spacing` attempt did, see TODO.txt): cosmic-text's own
-/// internal wrap-width computation never sees word-spacing-adjusted
-/// widths, so it has nothing new to get wrong.
+/// Word`) already wants the bigger number for free. Shaped word-by-word
+/// (the per-word fallback path, not the whole-chunk one above) precisely
+/// because the extra space it inserts after *each* word has to move
+/// every word after it independently — only separately-positioned
+/// buffers allow that, a shared chunk buffer's own internal layout
+/// can't. cosmic-text's own shaping of a word is completely untouched
+/// either way — its `Buffer` is shaped at the word's own natural width,
+/// with no spacing concept fed into `Attrs` at all; only the *position*
+/// of the next word on the line moves. This is the deliberate reason
+/// this item routes through the per-word path at all instead of
+/// cosmic-text's own `Attrs`/`Buffer` (like the reverted `letter-
+/// spacing` attempt did, see TODO.txt): cosmic-text's own internal
+/// wrap-width computation never sees word-spacing-adjusted widths, so it
+/// has nothing new to get wrong.
 ///
 /// **Known simplifications, not attempted here** (see TODO.txt): no
-/// cross-word kerning/ligatures (each word shaped in isolation); no
-/// real bidi reordering across words (each word's own internal shaping
-/// is correct, but RTL text spanning multiple words next to an image
-/// would appear in the wrong visual order — cosmic-text's own bidi only
-/// operates within one `Buffer`, and this path shapes one `Buffer` per
-/// word); `white-space: pre` isn't honored in a mixed run (no special
-/// handling of embedded `\n`/multiple spaces — words are always split
-/// on plain spaces); an inline `<img>`'s vertical margin is ignored
-/// (horizontal margin reserves line space correctly, matching real
-/// inline-level box behavior, but doesn't affect line height); an
-/// image is bottom-aligned within its line (an approximation of real
-/// CSS's baseline alignment — the actual font-metrics baseline offset
-/// isn't threaded out here); only `text-align: left/right/center` are
-/// applied per line (`justify` falls back to `left` — no inter-word
-/// space stretching); a line's trailing space (every word's measured
-/// width includes its own trailing space) counts toward line width for
-/// alignment purposes, unlike a real UA which hangs trailing whitespace
-/// past the edge.
+/// cross-word kerning/ligatures/bidi *across* a chunk boundary (an
+/// image, or a `word-spacing` run) — only ever a sub-problem of the
+/// same gap any real UA has at a genuinely replaced inline element;
+/// `white-space: pre` isn't honored in a mixed run (no special handling
+/// of embedded `\n`/multiple spaces — words are always split on plain
+/// spaces); an inline `<img>`'s vertical margin is ignored (horizontal
+/// margin reserves line space correctly, matching real inline-level box
+/// behavior, but doesn't affect line height); an image is bottom-
+/// aligned within its line (an approximation of real CSS's baseline
+/// alignment — the actual font-metrics baseline offset isn't threaded
+/// out here); only `text-align: left/right/center` are applied per line
+/// (`justify` falls back to `left` — no inter-word space stretching); a
+/// line's trailing space (every word's measured width includes its own
+/// trailing space) counts toward line width for alignment purposes,
+/// unlike a real UA which hangs trailing whitespace past the edge.
 #[allow(clippy::too_many_arguments)]
 fn measure_mixed_inline(
     items: &[InlineItem],
@@ -7011,45 +7161,90 @@ fn measure_mixed_inline(
     // the buffer's nominal width.
     const WORD_MEASURE_WIDTH: f32 = 1_000_000.0;
 
+    /// Where a word's measured width/height came from — see this
+    /// function's own docs for why most words share one buffer per
+    /// text item (`Chunk`) instead of getting their own.
+    enum WordSource {
+        /// `cache[chunk_id]`'s own shared buffer, shaped once for this
+        /// whole `InlineItem::Text` — `range` is this word's own byte
+        /// range within that item's text, used only if pass 2 ends up
+        /// falling back to a per-word re-shape (this chunk split across
+        /// more than one wrapped line — rare).
+        Chunk { chunk_id: usize, range: std::ops::Range<usize> },
+        /// Already fully shaped and cached under this id on its own —
+        /// `word-spacing != 0` (can't reuse a shared multi-word buffer:
+        /// the extra space it inserts after *this* word has to move
+        /// every word after it independently, which only each having
+        /// its own separately-positioned buffer allows).
+        Cached(usize),
+    }
+
     #[allow(clippy::large_enum_variant)]
     enum Measured {
-        Word { id: usize, width: f32, height: f32 },
+        Word { source: WordSource, width: f32, height: f32 },
         Image { laid_style: ComputedStyle, background_image: Option<Arc<DecodedImage>>, image: Arc<DecodedImage>, advance_w: f32, img_w: f32, img_h: f32 },
     }
 
     let mut measured: Vec<Measured> = Vec::new();
+    // Keyed by `chunk_id`, needed only if pass 2 falls back to shaping
+    // one of a chunk's words on its own (see `WordSource::Chunk`'s own
+    // docs) — every other word's chunk buffer is read straight out of
+    // `cache` by id, same as any other `ShapeCache` entry.
+    let mut chunk_text: HashMap<usize, (&str, SpanStyle)> = HashMap::new();
     for item in items {
         match item {
             InlineItem::Text(text, span) => {
-                for word in text.split_inclusive(' ') {
-                    if word.is_empty() {
-                        continue;
+                if span.word_spacing != 0.0 {
+                    for word in text.split_inclusive(' ') {
+                        if word.is_empty() {
+                            continue;
+                        }
+                        let id = *next_id;
+                        *next_id += 1;
+                        let (width, height) = shape_or_resume_word(font_system, cache, id, word, *span, WORD_MEASURE_WIDTH, deadline, incomplete);
+                        // Real CSS adds extra space after each word-
+                        // separator space character, so only a token
+                        // that actually carries its own trailing space
+                        // (a real boundary — not the very last word in
+                        // the whole run, which never got one) gets any.
+                        // Baked straight into `width` rather than a new
+                        // field — every consumer of a word's width here
+                        // already wants the bigger number for free.
+                        let extra = if word.ends_with(' ') { span.word_spacing } else { 0.0 };
+                        measured.push(Measured::Word { source: WordSource::Cached(id), width: width + extra, height });
                     }
-                    let id = *next_id;
-                    *next_id += 1;
-                    let (width, height) = if let Some(entry) = cache.get(&id) {
-                        let guard = entry.lock().unwrap();
-                        (guard.0.layout_runs().next().map(|r| r.line_w).unwrap_or(0.0), guard.1)
-                    } else if std::time::Instant::now() < deadline {
-                        let synth = [InlineItem::Text(word.to_string(), *span)];
-                        let (buffer, h, backgrounds, valigns, hidden, cursors, decoration_styles, hrefs) =
-                            shape_spans(font_system, &synth, WORD_MEASURE_WIDTH, true, None);
-                        let w = buffer.layout_runs().next().map(|r| r.line_w).unwrap_or(0.0);
-                        cache.insert(id, Arc::new(Mutex::new((buffer, h, backgrounds, valigns, hidden, cursors, decoration_styles, hrefs))));
-                        (w, h)
-                    } else {
-                        *incomplete = true;
-                        (0.0, PLACEHOLDER_LINE_HEIGHT)
-                    };
-                    // `word-spacing`: real CSS adds extra space after
-                    // each word-separator space character, so only a
-                    // token that actually carries its own trailing space
-                    // (a real boundary — not the very last word in the
-                    // whole run, which never got one) gets any. Baked
-                    // straight into `width` rather than a new field — see
-                    // this function's own docs for why that's enough.
-                    let extra = if word.ends_with(' ') { span.word_spacing } else { 0.0 };
-                    measured.push(Measured::Word { id, width: width + extra, height });
+                    continue;
+                }
+                // The common case: shape this whole text item as one
+                // `Buffer` — see this function's own docs for why that's
+                // ~135x cheaper in practice than one `Buffer` per word —
+                // then read each word's own width back out of it
+                // (`word_widths_from_buffer`). `word-spacing` is zero
+                // here (checked above), so nothing needs repositioning
+                // relative to this buffer's own natural spacing.
+                let ranges = word_byte_ranges(text);
+                if ranges.is_empty() {
+                    continue;
+                }
+                let chunk_id = *next_id;
+                *next_id += 1;
+                let (widths, height) = if let Some(entry) = cache.get(&chunk_id) {
+                    let guard = entry.lock().unwrap();
+                    (word_widths_from_buffer(&guard.0, &ranges), guard.1)
+                } else if std::time::Instant::now() < deadline {
+                    let synth = [InlineItem::Text(text.clone(), *span)];
+                    let (buffer, height, backgrounds, valigns, hidden, cursors, decoration_styles, hrefs) =
+                        shape_spans(font_system, &synth, WORD_MEASURE_WIDTH, true, None);
+                    let widths = word_widths_from_buffer(&buffer, &ranges);
+                    cache.insert(chunk_id, Arc::new(Mutex::new((buffer, height, backgrounds, valigns, hidden, cursors, decoration_styles, hrefs))));
+                    (widths, height)
+                } else {
+                    *incomplete = true;
+                    (vec![0.0; ranges.len()], PLACEHOLDER_LINE_HEIGHT)
+                };
+                chunk_text.insert(chunk_id, (text.as_str(), *span));
+                for (range, width) in ranges.into_iter().zip(widths) {
+                    measured.push(Measured::Word { source: WordSource::Chunk { chunk_id, range }, width, height });
                 }
             }
             InlineItem::Image { image, style, background_image } => {
@@ -7126,6 +7321,27 @@ fn measure_mixed_inline(
         lines.push((left_bound, avail_w, current));
     }
 
+    // Which line (index into `lines`) each `measured` entry landed on —
+    // needed next to decide, per chunk, whether every one of its words
+    // stayed together on one line (cheap: reuse that chunk's own shared
+    // buffer directly) or got split across more than one by the wrap
+    // above (rare: fall back to shaping just that chunk's words on
+    // their own, same as `word-spacing != 0` already does).
+    let mut line_of = vec![0usize; measured.len()];
+    for (line_idx, (_, _, line_items)) in lines.iter().enumerate() {
+        for &(i, _) in line_items {
+            line_of[i] = line_idx;
+        }
+    }
+    let mut chunk_bounds: HashMap<usize, (usize, usize)> = HashMap::new();
+    for (i, m) in measured.iter().enumerate() {
+        if let Measured::Word { source: WordSource::Chunk { chunk_id, .. }, .. } = m {
+            chunk_bounds.entry(*chunk_id).and_modify(|(_, last)| *last = i).or_insert((i, i));
+        }
+    }
+    let chunk_fits_one_line: HashMap<usize, bool> =
+        chunk_bounds.iter().map(|(&id, &(first, last))| (id, line_of[first] == line_of[last])).collect();
+
     // Pass 2: resolve each line's height/`text-align` offset, emit
     // final absolute (document-space) positions.
     let mut positioned: Vec<MixedPositioned> = Vec::with_capacity(measured.len());
@@ -7152,11 +7368,56 @@ fn measure_mixed_inline(
             TextAlign::Center => (avail_w - line_w).max(0.0) / 2.0,
             TextAlign::Left | TextAlign::Justify => 0.0,
         };
-        for &(i, x) in line {
+        let mut idx = 0;
+        while idx < line.len() {
+            let (i, x) = line[idx];
             let final_x = left_bound + x + align_offset;
             match &measured[i] {
-                Measured::Word { id, width, height } => {
+                Measured::Word { source: WordSource::Chunk { chunk_id, .. }, width, height } if chunk_fits_one_line[chunk_id] => {
+                    // This word's whole chunk stayed on one line —
+                    // merge it with every immediately-following word on
+                    // this same line from the same chunk (contiguous:
+                    // a chunk's own word order is preserved end to end)
+                    // into one `MixedPositioned::Word`, reusing that
+                    // chunk's shared buffer directly instead of
+                    // shaping any of them again. See this function's
+                    // own docs.
+                    let mut end = idx;
+                    let mut total_w = 0.0f32;
+                    let mut max_h = *height;
+                    while end < line.len() {
+                        let (j, _) = line[end];
+                        match &measured[j] {
+                            Measured::Word { source: WordSource::Chunk { chunk_id: other, .. }, width: w2, height: h2 } if other == chunk_id => {
+                                total_w += w2;
+                                max_h = max_h.max(*h2);
+                                end += 1;
+                            }
+                            _ => break,
+                        }
+                    }
+                    positioned.push(MixedPositioned::Word { id: *chunk_id, x: final_x, y: content_y + cursor_y, w: total_w, h: max_h });
+                    idx = end;
+                    continue;
+                }
+                Measured::Word { source: WordSource::Chunk { chunk_id, range }, .. } => {
+                    // Rare fallback: this chunk ended up split across
+                    // more than one wrapped line, so its shared buffer
+                    // (shaped as one unwrapped line) can't be reused
+                    // for painting here — shape just this one word on
+                    // its own instead, same as `word-spacing != 0`
+                    // already does.
+                    let &(text, span) = chunk_text.get(chunk_id).expect("chunk_text missing an entry its own chunk_id was inserted under");
+                    let word = &text[range.clone()];
+                    let id = *next_id;
+                    *next_id += 1;
+                    let (w, h) = shape_or_resume_word(font_system, cache, id, word, span, WORD_MEASURE_WIDTH, deadline, incomplete);
+                    positioned.push(MixedPositioned::Word { id, x: final_x, y: content_y + cursor_y, w, h });
+                    idx += 1;
+                }
+                Measured::Word { source: WordSource::Cached(id), width, height } => {
                     positioned.push(MixedPositioned::Word { id: *id, x: final_x, y: content_y + cursor_y, w: *width, h: *height });
+                    idx += 1;
                 }
                 Measured::Image { laid_style, background_image, image, img_w, img_h, .. } => {
                     positioned.push(MixedPositioned::Image(Box::new(Laid {
@@ -7172,6 +7433,7 @@ fn measure_mixed_inline(
                         sticky: None,
                         scroll: None,
                     })));
+                    idx += 1;
                 }
             }
         }
@@ -16103,5 +16365,108 @@ mod tests {
         assert_eq!(buf.cursor, 0);
         buf.backspace(); // no-op at start, must not panic on a mid-codepoint byte index
         assert_eq!(buf.text, "é");
+    }
+
+    /// DIAGNOSTIC, not a real regression test (no behavior assertion
+    /// beyond "didn't run out of the deadline") — kept permanently,
+    /// `#[ignore]`d, as the measured evidence `measure_mixed_inline`'s
+    /// own docs cite for why it shapes a whole text item at once rather
+    /// than one `Buffer` per word. Compares the *same total text* shaped
+    /// two ways: as plain paragraphs, and as the same paragraphs each
+    /// with one small inline image dropped in the middle (real-world
+    /// trigger: Wikipedia's own inline icons). Run with `cargo test
+    /// --release mixed_inline_overhead_diagnostic -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn mixed_inline_overhead_diagnostic() {
+        let src = tiny_png_data_uri(4, 4);
+        let words_per_paragraph = 40;
+        let paragraph_count = 300;
+        let word = "lorem ";
+
+        let mut plain_html = String::from("<!doctype html><html><body>\n");
+        let mut mixed_html = String::from("<!doctype html><html><body>\n");
+        for _ in 0..paragraph_count {
+            plain_html.push_str("<p>");
+            mixed_html.push_str("<p>");
+            for w in 0..words_per_paragraph {
+                plain_html.push_str(word);
+                mixed_html.push_str(word);
+                if w == words_per_paragraph / 2 {
+                    mixed_html.push_str(&format!(r#"<img src="{src}" style="width: 12px; height: 12px">"#));
+                }
+            }
+            plain_html.push_str("</p>\n");
+            mixed_html.push_str("</p>\n");
+        }
+        plain_html.push_str("</body></html>");
+        mixed_html.push_str("</body></html>");
+
+        let time_it = |html: &str| -> std::time::Duration {
+            let doc = parse_html(html);
+            // Wide enough that a 20-word chunk (half of each paragraph,
+            // split by the image at the midpoint) comfortably fits on
+            // one line regardless of font metrics — isolating the
+            // common "sparse icon in flowing prose" case from the rare
+            // "chunk itself wraps" fallback this function's own docs
+            // also handle.
+            let tree = build_layout_tree(&doc, 5000.0);
+            let mut font_system = new_font_system();
+            let mut cache = ShapeCache::new();
+            let mut next_id = 0usize;
+            let mut incomplete = false;
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(120);
+            let start = std::time::Instant::now();
+            measure_document(&tree, &mut font_system, 5000.0, 5000.0, &mut next_id, &mut cache, deadline, &mut incomplete);
+            let elapsed = start.elapsed();
+            assert!(!incomplete, "diagnostic deadline too short");
+            elapsed
+        };
+
+        let plain_time = time_it(&plain_html);
+        let mixed_time = time_it(&mixed_html);
+        eprintln!(
+            "plain: {:?} ({} paragraphs, {} words each, no inline images)",
+            plain_time, paragraph_count, words_per_paragraph
+        );
+        eprintln!(
+            "mixed: {:?} ({} paragraphs, {} words each, one inline image per paragraph)",
+            mixed_time, paragraph_count, words_per_paragraph
+        );
+        eprintln!("ratio (mixed / plain): {:.2}x", mixed_time.as_secs_f64() / plain_time.as_secs_f64());
+    }
+
+    /// DIAGNOSTIC, not a real regression test — kept permanently,
+    /// `#[ignore]`d, alongside `mixed_inline_overhead_diagnostic` as the
+    /// measured evidence for the same doc comment. Isolates `shape_
+    /// spans`'s own per-call overhead directly: N calls, one word each
+    /// (the shape of `measure_mixed_inline`'s old per-word path), versus
+    /// 1 call with all N words as a single span (its current whole-
+    /// chunk path) — same font system, same total text, same function.
+    /// Run with `cargo test --release
+    /// shape_spans_per_call_overhead_diagnostic -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn shape_spans_per_call_overhead_diagnostic() {
+        let word_count = 12_000; // matches 300 paragraphs * 40 words in the other diagnostic
+        let span = SpanStyle::from(ROOT_STYLE);
+        let mut font_system = new_font_system();
+
+        let start = std::time::Instant::now();
+        for _ in 0..word_count {
+            let items = [InlineItem::Text("lorem ".to_string(), span)];
+            shape_spans(&mut font_system, &items, 1_000_000.0, true, None);
+        }
+        let per_word_time = start.elapsed();
+
+        let one_big_text = "lorem ".repeat(word_count);
+        let start = std::time::Instant::now();
+        let items = [InlineItem::Text(one_big_text, span)];
+        shape_spans(&mut font_system, &items, 1_000_000.0, true, None);
+        let one_call_time = start.elapsed();
+
+        eprintln!("{word_count} separate 1-word shape_spans calls: {per_word_time:?}");
+        eprintln!("1 shape_spans call with all {word_count} words: {one_call_time:?}");
+        eprintln!("ratio: {:.2}x", per_word_time.as_secs_f64() / one_call_time.as_secs_f64());
     }
 }
