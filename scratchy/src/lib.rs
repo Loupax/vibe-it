@@ -10151,15 +10151,7 @@ const CLICK_DRAG_THRESHOLD_PX: f32 = 5.0;
 /// most of a minute). Still `80ms` — nothing about *this* value's own
 /// tradeoff changed, only who's bound by it (a background thread's own
 /// progress-reporting cadence now, not main-thread input latency).
-///
-/// TEMPORARY, for a local A/B timing test only — do not merge: bumped
-/// to effectively disable ticking (the first tick's own deadline never
-/// trips, so `spawn_shaping_worker` reports once, the whole page at
-/// once, same as the pre-progressive-fill-in version) to compare total
-/// wall-clock time against progressive reveal, now that a real page
-/// (snag-bundled, images/CSS inlined, real text volume) is in hand.
-/// Revert to `80ms` before merging.
-const PROGRESSIVE_LAYOUT_TICK_BUDGET: std::time::Duration = std::time::Duration::from_secs(3600);
+const PROGRESSIVE_LAYOUT_TICK_BUDGET: std::time::Duration = std::time::Duration::from_millis(80);
 
 /// Resolves a clicked `<a href>` into an absolute URL against the
 /// page's own `<base href>` — ordinary URL-join logic via the `url`
