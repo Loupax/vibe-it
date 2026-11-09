@@ -933,10 +933,15 @@ session can pick a coherent slice rather than one property at a time.
       `cursor` property, not selector re-matching/repaint-on-state-
       change).
 
-- [ ] `<img>` (v46) only decodes a `data:` URI `src` (base64 form) —
-      PNG/JPEG/GIF/WebP via the `image` crate. A local file path `src`
-      is deliberately *not* read, even though nothing stops it
-      technically the way real networking does — treated the same as
+- [ ] `<img>` (v46) only decodes a `data:` URI `src` directly (base64
+      form) — PNG/JPEG/GIF/WebP via the `image` crate. **A real
+      `http(s)://` `src` is now also handled, but only for a page
+      reached by live link navigation with `--socket` configured** (v67
+      — see its own `[x]` item below): `App::image_cache`, populated by
+      a background `wire` fetch, `resolve_img` consulted as a fallback
+      whenever `decode_data_uri` itself returns nothing. A local file
+      path `src` is still *not* read at all, even though nothing stops
+      it technically the way real networking does — treated the same as
       the "no networking" stance until that's revisited, not a
       near-term gap. Sizing (intrinsic from the decoded image, CSS/HTML
       `width`/`height` overriding it, aspect-ratio-preserving when only
@@ -1023,17 +1028,19 @@ session can pick a coherent slice rather than one property at a time.
 
 - [ ] No forms/interactive widgets (`input`/`button`/`select`/
       `textarea` render as plain unstyled DOM nodes, not widgets), no
-      replaced/embedded elements (`img`/`svg`/`canvas`/`video`/`audio`/
+      replaced/embedded elements (`svg`/`canvas`/`video`/`audio`/
       `iframe`/`object`/`embed` have no special handling or box model —
-      nothing to draw anyway with no networking), and no JavaScript
-      (html5ever only parses the DOM; `<script>` contents are read and
-      discarded, never executed). The only interactivity scratchy has
-      at all is mouse-wheel scroll and window resize — no keyboard
-      input, no text selection. Networking itself (fetching the page,
-      images, fonts, external stylesheets) remains a deliberately
-      separate, not-yet-started concern from rendering — see NOTES.md.
-      (Link navigation specifically was carved out of this item and is
-      now resolved — see its own entry below.)
+      `img` is its own, separately-tracked item, see above), and no
+      JavaScript (html5ever only parses the DOM; `<script>` contents are
+      read and discarded, never executed). The only interactivity
+      scratchy has at all is mouse-wheel scroll and window resize — no
+      keyboard input, no text selection. Fonts specifically are still
+      entirely un-networked (`@font-face` itself isn't even parsed yet —
+      see its own, separate `@import`/`@font-face`/`@keyframes` item
+      just above). (Link navigation, and — for a
+      live-navigated page specifically — fetching its own non-inlined
+      images/external stylesheets through `wire`, were both carved out
+      of this item and are now resolved; see their own entries below.)
 
 - [x] **Link navigation (click an `<a href>` to load a new page)**
       (PROMPTS.md v65, 3baf01e). scratchy's own half of the two-part
@@ -1234,14 +1241,57 @@ last, per the user's own call.
         both a fetched HTML page and a fetched image — confirmed via
         before/after screenshots (see `PROMPTS.md`'s own v66 entry).
 
+        **A live-navigated page's own non-inlined sub-resources are
+        also fetched now (v67)** — the gap `snag`'s own inlining always
+        covered for a bundled page, but nothing did for one reached by
+        clicking a link, since that path never goes through `snag` at
+        all. `process_external_resources` (`start_navigation`'s own
+        background thread, after the top-level page itself comes back)
+        parses the fetched HTML into a throwaway DOM just long enough to
+        find every `<link rel=stylesheet href>`/non-`data:` `<img src>`,
+        resolved against the page's own `<base href>` (or its URL, if it
+        has none). Stylesheets are fetched over `wire` *synchronously*,
+        right there, and concatenated into `App::extra_css` — present
+        for the page's very first layout, no flash of unstyled content.
+        Images are fetched asynchronously instead — each its own
+        `thread::spawn`, reported back via a new `AppEvent::
+        ImageFetched` and cached in `App::image_cache` (keyed by the
+        raw, unresolved `src` text — safe only because `replace_
+        document` clears it on every navigation) — so the page renders
+        immediately and each image materializes as its own fetch lands,
+        never blocking the rest of the page. `resolve_img` falls back to
+        this cache for any `src` `decode_data_uri` doesn't recognize. 9
+        new permanent tests (177 total, up from 168 — fetch/content-
+        type-dispatch/DOM-scan/cache-lookup/cascade-merge functions each
+        covered individually; the thin orchestration
+        between them rests on code review + live verification, same
+        category as `start_navigation`'s own click wiring already is).
+        Live-verified past even v66's own bar: a real click through a
+        real `wire` daemon to a real local HTTP server picked up a real
+        external stylesheet (applied before first paint) and a real
+        fetched image; a deliberately slow image route confirmed the
+        page rendered and was usable *before* the image arrived, then
+        the image appeared on its own with no further click — see
+        `PROMPTS.md`'s own v67 entry for the full screenshot trail.
+
         **Still fully open**: `<button>`/form-element support doesn't
         exist at all yet (no box, no focus tracking, no keyboard
         handling — see the sequencing-plan item above), so form
-        submission can't be wired to `wire` until that lands first; and
+        submission can't be wired to `wire` until that lands first;
         `snag` itself hasn't been narrowed yet (`--serve` is still
-        there, unremoved, even though nothing calls it anymore — removing
-        it is `snag`'s own change to make, not scratchy's, and is safe to
-        do independently whenever `snag`'s own session picks it up).
+        there, unremoved, even though nothing calls it anymore —
+        removing it is `snag`'s own change to make, not scratchy's, and
+        is safe to do independently whenever `snag`'s own session picks
+        it up); and sub-resource fetching only happens for a *live-
+        navigated* page — `scratchy --socket <path> some-static-file.html`
+        and `snag url | scratchy --socket <path>` never call `process_
+        external_resources` at all, even with a socket configured, so a
+        static/streamed page's own un-inlined references (if any — a
+        `snag`-bundled one never has any to begin with) still won't
+        resolve. Not attempted: nothing has needed it, and `App::new_
+        static`/`new_streaming` would need their own trigger point for
+        it, a genuinely separate piece of plumbing from `start_
+        navigation`'s.
       - **Request framing**: a real HTTP/1.1 request, using the
         standard proxy "absolute-form" request line (`GET https://
         example.com/path HTTP/1.1`, RFC 7230 §5.3.2) rather than the

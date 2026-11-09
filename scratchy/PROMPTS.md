@@ -5139,3 +5139,165 @@ response`, `wrap_image_as_html`, `dispatch_wire_response`,
 `start_navigation` rewritten, `run()` threading `socket` through, 8 new
 tests replacing 3 removed ones, doc comments updated throughout
 wherever they referenced `snag --serve`/`fetch_from_snag`).
+
+## v67 — live-fetched images and external stylesheets, for a wire-navigated page
+
+> Yes. Also do the same thing for css where relevant. Use the existing
+> PR, it's ok
+
+Direct follow-up to a question asked right after v66 landed: "I see no
+images right now. I guess scratchy can't deal with not inlined images
+yet?" — confirmed by reading `resolve_img`/`decode_data_uri` directly:
+correct, only a `data:` URI `src` ever decoded; a real `<img src="https://…">`
+fell straight through to the `alt`-text fallback, silently, every time.
+Root cause: a page `snag` bundles ahead of time has every image/
+stylesheet already inlined by `snag` itself, but a page reached by
+*clicking a live link* (v66) never goes through `snag` at all — nothing
+inlines anything for it. This session builds the missing piece:
+scratchy fetching its own sub-resources, via the same `wire` daemon, for
+exactly that path.
+
+**Design, worked out before writing any code**: CSS and images need
+genuinely different timing, not one shared mechanism. A stylesheet has
+to be fully resolved *before* the very first layout — nothing in this
+codebase supports a second, incremental re-style pass, and rendering
+once unstyled then snapping to styled would be a visible flash. An
+image's intrinsic size, by contrast, only matters locally (one box), so
+it can load lazily, same as a real browser: show the page immediately,
+let each image materialize as its own fetch lands. So: external
+stylesheets are fetched **synchronously**, inside `start_navigation`'s
+own background thread, *before* `AppEvent::NavResult` is even sent;
+images are fetched **asynchronously**, each its own `thread::spawn`
+fired from that same point but never waited on, reporting back through
+a new `AppEvent::ImageFetched` whenever it individually finishes.
+
+**The `!Send` constraint that shaped the whole implementation**:
+`markup5ever_rcdom::Handle` is `Rc`-based, hence `!Send` — it can never
+cross the `thread::spawn`/`EventLoopProxy::send_event` boundary this
+codebase already uses for every other background result. So finding a
+page's `<link rel=stylesheet>`/`<img src>` references has to happen by
+parsing the fetched HTML bytes into a *throwaway* DOM entirely within
+the background thread (`process_external_resources`), walking it there,
+and only ever sending plain owned data back across — a fetched
+stylesheet's `String`, an image's raw `src` key `String`, and a plain
+`DecodedImage` struct (not `Rc<DecodedImage>` — `Rc::new` only happens
+once an image lands back on the main/event-loop thread, inside
+`AppEvent::ImageFetched`'s own handler). The throwaway DOM itself is
+dropped at the end of that function, having never left the thread it
+was built on.
+
+**What landed, by layer**:
+
+1. **Fetch layer**: `fetch_via_wire_at`/`WireFetchOutcome` (v66) split
+   into a lower-level `fetch_raw_via_wire`/`WireFetchRaw` (connects,
+   sends, reads to EOF, parses just `Content-Type`+body — no longer
+   dispatches by itself) plus the original top-level dispatch logic
+   moved into `start_navigation`'s own match arm. `fetch_sub_resource_
+   via_wire` (mime-checked, lenient — `None` on anything from
+   unreachable to a wrong content type, never an error that could sink
+   the rest of the page) backs both `fetch_stylesheet_via_wire`
+   (`text/css` only) and `fetch_image_via_wire` (reuses `decode_image_
+   bytes` verbatim — the exact decoder a `data:` URI `src` already
+   used, so a live-fetched image and an inlined one decode identically).
+2. **Discovery layer**: `ExternalResources`/`find_external_resources` —
+   a plain recursive DOM walk (same shape `find_base_href` already
+   uses) collecting every `<link rel=stylesheet href>` (real `rel`
+   token-list matching — `rel="alternate stylesheet"` still counts) and
+   non-`data:` `<img src>`, unresolved, in document order.
+3. **Orchestration**: `process_external_resources` — resolves each
+   reference against the fetched page's own `<base href>` (or its URL,
+   falling back the same way `resolve_href`'s every other caller
+   already does), fetches every stylesheet synchronously and
+   concatenates them into the `extra_css: String` it returns, and fires
+   one deduplicated background thread per distinct image URL.
+4. **Rendering layer**: `App` gained `extra_css: String` (merged into
+   `collect_style_css`'s own output by a new `build_layout_tree_with_
+   resources` — `build_layout_tree` itself stays a 2-argument wrapper
+   over it with empty/no-op defaults, so none of this file's ~60
+   existing `build_layout_tree` test/benchmark call sites needed to
+   change at all) and `image_cache: HashMap<String, Rc<DecodedImage>>`,
+   threaded through the same 8-function `build_children`→
+   `collect_children`→…→`resolve_img` chain `href`/`viewport_width`
+   already travel (same accepted "too many arguments" cost `href`'s own
+   v65 addition already took on `collect_children`; diffed directly
+   against a clean pre-session `main` checkout to confirm exactly one
+   *new* clippy warning total, `build_children_with_prefix` crossing the
+   7→8-argument threshold — nothing else moved). `resolve_img` now
+   falls back to `image_cache` (keyed by the *raw, unresolved* `src`
+   text — deliberately not a resolved absolute URL, which would need
+   threading `base_url` through that same 8-function chain for no real
+   benefit: `App::replace_document` already clears `image_cache` on
+   every navigation, so the same relative string can never carry over
+   from a different page's own base URL) whenever `decode_data_uri`
+   itself finds nothing. `AppEvent::ImageFetched`'s handler inserts one
+   cache entry and sets `layout_dirty = true` — a newly-known intrinsic
+   size can change this element's own box, so a real rebuild is needed,
+   not just a repaint.
+
+**9 new permanent tests** (177 total, up from 168): the two existing
+`fetch_via_wire_at` tests renamed/adapted onto `fetch_raw_via_wire`'s
+narrower return type; `find_external_resources` against a fixture
+mixing stylesheet/icon/alternate-stylesheet `<link>`s and `data:`/real
+`<img src>`s; `fetch_stylesheet_via_wire`/`fetch_image_via_wire` each
+against a real mock Unix-socket listener, both the accept- and reject-
+content-type cases; `resolve_img` against a populated vs. empty
+`image_cache` directly; `build_layout_tree_with_resources` confirmed to
+actually apply `extra_css` to the real cascade (a `.box` background
+color, same assertion shape `@media`'s own tests already use) and to
+render a cached image as a real `BoxContent::Image` box, not just
+plausible-looking data. `process_external_resources` itself is
+deliberately *not* unit-tested directly — it takes a real
+`EventLoopProxy<AppEvent>`, and this file's own established precedent
+(NOTES.md's v32/v55/v62/v65 entries) is to never construct a real winit
+`EventLoop` inside `#[cfg(test)]` just to get one; its own thin
+wiring rests on code review plus the live verification below, same
+category `start_navigation`'s own click-handling already is. `cargo
+test`: 177/177. `cargo clippy --all-targets`: exactly one new warning
+beyond a clean pre-session `main` checkout (see above), diffed directly,
+not assumed.
+
+**Live verification — further than v66's own bar, which was already the
+project's high-water mark**: built real release binaries of both
+`scratchy` and `wire`. A real Python `http.server` fixture served three
+routes — an HTML page linking an external stylesheet and a real `<img
+src>`, the stylesheet itself, and a real generated PNG. A real `xdotool`
+click (same `Xvfb`/`import`/`libxkbcommon-x11-0` setup v66's entry
+describes) on a real on-screen link, inside a real running `scratchy
+--socket`, against a real running `wire`:
+
+- **External CSS applied before first paint**: the clicked-to page's
+  `.box` rendered at the fetched stylesheet's own declared size and
+  color (a 120×60px magenta rectangle) — confirmed by screenshot, not
+  assumed from the fetch succeeding.
+- **A real fetched image rendered correctly**: a real generated 64×64
+  solid-green PNG, fetched from the live server (never inlined, never
+  touching a `data:` URI anywhere in this path), appeared as a correctly
+  sized, correctly colored block alongside the styled text.
+- **The async/non-blocking design, proven, not just argued**: re-ran the
+  same click against a fixture with an artificial 1.5s delay on the
+  image route specifically. A screenshot taken 0.5s after the click
+  (well before the image could possibly have arrived) already showed
+  the fully-navigated page with the external stylesheet applied — the
+  image slot simply not there yet, not a blocked/frozen page. A second
+  screenshot after the delay showed the exact same page, now with the
+  image present too, with no further click or user action — direct,
+  visual proof that `process_external_resources`'s sync-CSS/async-image
+  split behaves exactly as designed under real timing, not just in the
+  no-latency common case a fast loopback fetch would otherwise mask.
+
+Three real PNG screenshots from this session (before/mid-flight/after)
+back this account; not reproduced here, but the steps above are exact
+enough to redo.
+
+**Deliverable**: `scratchy/src/lib.rs` (`WireFetchRaw`/`fetch_raw_via_
+wire` replacing `WireFetchOutcome`/`fetch_via_wire_at`; `fetch_sub_
+resource_via_wire`/`fetch_stylesheet_via_wire`/`fetch_image_via_wire`;
+`ExternalResources`/`find_external_resources`/`process_external_
+resources`; `FetchedPage` struct; `AppEvent::ImageFetched`; `App::
+extra_css`/`image_cache` fields; `build_layout_tree_with_resources`;
+`image_cache` threaded through `build_children`/`build_children_with_
+prefix`/`collect_children`/`build_box_for_element`/`build_table_
+children`/`build_table_row_cells`/`build_flex_children`/`build_img_
+box`/`resolve_img`; `replace_document` gained an `extra_css` parameter;
+`start_navigation` rewritten around the new fetch/dispatch split; 9 new
+tests). `scratchy/NOTES.md`, `scratchy/TODO.txt` both updated.

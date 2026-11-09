@@ -2689,3 +2689,103 @@ out of order across several `run_in_background` calls with their own
 independent timeouts, not a real bug), but a genuine high-water mark for
 this project's own "verify, don't assume" discipline, worth repeating
 deliberately rather than treating as a one-off lucky sandbox.
+
+## v67 — sub-resources for a live-navigated page: external CSS and non-inlined images
+
+The gap this closes: `snag` has always inlined every stylesheet/image a
+*bundled* page references, so scratchy's own rendering code never had
+to fetch anything itself. v66's live link navigation broke that
+assumption without anyone noticing at first — a page reached by
+clicking never goes through `snag` at all, so its external references
+just sat there, unresolved, with `resolve_img` quietly falling back to
+`alt` text and `collect_style_css` never looking at `<link>` in the
+first place. Found the same way most real gaps in this project get
+found: by actually using the feature and noticing something missing,
+not by reading the code first.
+
+## Why CSS and images needed two different mechanisms, not one
+
+The instinct going in was "treat both as 'fetch extra stuff for this
+page,' one mechanism." That doesn't survive contact with how this
+codebase's rendering pipeline actually works: `build_layout_tree` is a
+single synchronous pass with no concept of "re-style once more data
+shows up" — every property cascades once, from whatever rules exist at
+call time. A stylesheet fetched *after* that first pass would need an
+entirely new incremental-restyle capability this codebase doesn't have
+and wasn't worth building just for this. An image is different: its
+absence only ever affects one box's own intrinsic size (and only when
+no explicit CSS/HTML width/height already pins it), so showing the page
+without it and then re-laying-out once it arrives is both correct and
+cheap — exactly what a real browser does. So: CSS blocks (fetched
+synchronously, before the page is ever shown), images don't (fetched in
+the background, the page updates incrementally as they land). Worth
+recording because the two-mechanism design isn't obvious from the
+feature description alone ("fetch a page's sub-resources") — it falls
+directly out of a real constraint in how this specific engine lays
+things out, not a general web-platform truth applied blindly.
+
+## The `Rc`/`!Send` wall, and why it shaped `process_external_resources`'s shape
+
+`markup5ever_rcdom::Handle` is `Rc<Node>` — not `Send`, by design (no
+reason for it to be, since nothing before this item ever needed a DOM
+to cross a thread boundary: every background fetch up to v66 only ever
+carried raw bytes/strings back to the event-loop thread, which then did
+its own, separate, main-thread parse). Finding a page's `<link>`/`<img>`
+references, though, really does want a real DOM walk, not a hand-rolled
+text scanner (`snag`'s own approach, chosen there for streaming reasons
+that don't apply here — scratchy already has the whole response
+buffered). The fix: parse a *second*, throwaway DOM, entirely inside the
+background thread, walk it there, extract only plain owned `String`s
+(and, for images, nothing synchronous at all — see below) and let that
+DOM drop before the function returns. `AppEvent::ImageFetched` carries a
+plain `DecodedImage` struct, not an `Rc<DecodedImage>`, for the exact
+same reason one level down — `Rc::new` only happens once a fetched
+image is back on the main thread, inside the event handler, never
+before. Getting this backwards (e.g., trying to send the throwaway DOM
+itself across the channel, or wrapping a fetched image in `Rc` before
+sending it) would have been a compile error, not a runtime bug — Rust's
+own `Send` bound caught it before it was ever a real mistake to debug.
+
+## Why `image_cache` is keyed by the raw, unresolved `src` string
+
+The alternative — resolving every `<img src>` to its real absolute URL
+before caching, the "obviously more correct"-looking choice — would
+have meant threading `base_url` through the exact same 8-function
+`build_children`→…→`resolve_img` chain `image_cache` itself already
+needed to join (`href`'s own v65 addition already did this once, for a
+different reason: ambient href propagation into nested elements with no
+href of their own). That's real, avoidable plumbing cost for a safety
+property this codebase already gets for free a different way:
+`App::replace_document` already clears every piece of per-page state on
+every navigation (`scroll_offsets`, `shape_cache`, now `image_cache`
+too) specifically *because* nothing from one page should ever leak into
+the next — which means the same raw relative `src` string appearing on
+two different pages can never collide in `image_cache`, since the first
+page's cache is gone by the time the second page's own entries could
+exist. Worth stating plainly since it's the kind of shortcut that looks
+subtly wrong at a glance ("but what if two pages use the same relative
+path for different images?") until the actual lifetime guarantee is
+spelled out.
+
+## Live verification: proving the async/sync split, not just asserting it
+
+The easy trap here would have been: click a link, take one screenshot
+once everything's visibly settled, call it done — which on a fast
+loopback fixture (sub-millisecond fetches) would have looked identical
+whether images were genuinely async or secretly blocking the page. The
+session caught this by deliberately slowing one fixture route down
+(`time.sleep(1.5)` on the image response only) and taking a screenshot
+*mid-flight* — 0.5s after the click, well before the artificially-
+delayed image could have arrived. That screenshot is the actual
+evidence the design works as intended: the page had already fully
+navigated and the external stylesheet had already applied, with the
+image slot simply empty, not the whole page frozen waiting on it. A
+second screenshot after the delay showed the image appear on its own,
+with zero further interaction — confirming the full `AppEvent::
+ImageFetched` → cache-insert → `layout_dirty` → redraw loop actually
+fires correctly from a real background thread into a real running event
+loop, not just in a headless unit test calling the same functions
+directly. Worth establishing as a pattern for any future async-UI
+feature in this codebase: when a design's whole point is "doesn't block
+on X," prove it by making X slow on purpose and watching for the block,
+not by watching a fast path that could hide one either way.
