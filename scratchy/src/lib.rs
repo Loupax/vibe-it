@@ -9718,6 +9718,25 @@ fn paint(
             blit_image(image, pixels, win_w, win_h, content_x, content_y, content_w, content_h, child_clip);
         }
         LaidContent::MixedInline(positioned) => {
+            // Don't reveal this run's text word by word as each one
+            // happens to finish shaping (`measure_mixed_inline` shapes
+            // one `Buffer` per word, not per run — needed so its own
+            // manual wrap pass has each word's real width to wrap
+            // around the image with, but it means a tick's own
+            // `AppEvent::ShapeResult` can land with only *some* of a
+            // run's words shaped). On a real page with many short
+            // inline-image-mixed runs (Wikipedia's own inline icons —
+            // flags, lock/edit badges — are a common real case), that
+            // showed up as text visibly trickling in a few characters
+            // at a time each tick, instead of appearing in whole
+            // paragraph-sized chunks the way ordinary text already
+            // does. Gate painting on the *whole* run having finished —
+            // images still paint immediately regardless, since those
+            // never go through `cache` at all.
+            let text_ready = positioned.iter().all(|item| match item {
+                MixedPositioned::Image(_) => true,
+                MixedPositioned::Word { id, .. } => cache.contains_key(id),
+            });
             for item in positioned {
                 match item {
                     // A full, ordinary `Laid` — recurses through the
@@ -9731,6 +9750,9 @@ fn paint(
                         );
                     }
                     MixedPositioned::Word { id, x, y, .. } => {
+                        if !text_ready {
+                            continue;
+                        }
                         if let Some(entry) = cache.get(id) {
                             let mut guard = entry.lock().unwrap();
                             let (buffer, _, backgrounds, valigns, hidden, _, decoration_styles, _) = &mut *guard;
@@ -12698,6 +12720,64 @@ mod tests {
         let (left_x, _) = mixed_item_xy(&mixed_items(find_mixed_inline(&left_laid).unwrap())[0]);
         let (center_x, _) = mixed_item_xy(&mixed_items(find_mixed_inline(&center_laid).unwrap())[0]);
         assert!(center_x > left_x, "text-align: center should shift a mixed line's content rightward compared to default left alignment");
+    }
+
+    #[test]
+    fn mixed_inline_text_only_paints_once_the_whole_runs_shaped() {
+        // Regression for the "text trickles in a few characters at a
+        // time" symptom real-world testing (a real page, through a
+        // merged PR) surfaced: `measure_mixed_inline` shapes one
+        // `Buffer` per *word*, each its own `ShapeCache` id — needed so
+        // its own manual wrap pass has each word's real width to wrap
+        // around the image with — so a background shaping tick can
+        // land with only *some* of a run's words shaped. `paint` must
+        // not reveal the ones that happen to be ready yet; otherwise a
+        // run's words pop in individually instead of as one chunk, the
+        // way an ordinary paragraph already does.
+        let src = tiny_png_data_uri(4, 4);
+        let html = format!(r#"<html><body><p>x <img src="{src}" style="width: 10px; height: 10px"> y</p></body></html>"#);
+        let (laid, mut cache) = measure_fixture_with_cache(&html, 500.0);
+        let run = find_mixed_inline(&laid).expect("mixed inline run not found");
+        let word_ids: Vec<usize> = mixed_items(run)
+            .iter()
+            .filter_map(|item| match item {
+                MixedPositioned::Word { id, .. } => Some(*id),
+                MixedPositioned::Image(_) => None,
+            })
+            .collect();
+        assert_eq!(word_ids.len(), 2, "expected the two words (\"x \", \"y\") to each get their own id");
+
+        let mut font_system = new_font_system();
+        let mut swash_cache = SwashCache::new();
+        let (win_w, win_h) = (200u32, 200u32);
+        const BLANK: u32 = 0x00FF_FFFF;
+
+        // Baseline: nothing in this run shaped at all (the very first
+        // tick, before any word has been shaped) — only the image
+        // should paint.
+        let mut empty_cache = ShapeCache::new();
+        let mut image_only_pixels = vec![BLANK; (win_w * win_h) as usize];
+        paint(
+            &laid, &mut font_system, &mut swash_cache, &mut empty_cache, &HashMap::new(), &mut image_only_pixels,
+            win_w, win_h, 0.0, None,
+        );
+        assert!(image_only_pixels.iter().any(|&p| p != BLANK), "the image itself should still paint with no words shaped at all");
+
+        // Only the *first* word shaped (the second removed, as if a
+        // background tick hadn't reached it yet) — before this fix,
+        // the first word's own text would have painted on its own;
+        // now the whole run should still wait, producing pixels
+        // identical to the "nothing shaped yet" baseline above.
+        cache.remove(&word_ids[1]);
+        let mut partial_pixels = vec![BLANK; (win_w * win_h) as usize];
+        paint(
+            &laid, &mut font_system, &mut swash_cache, &mut cache, &HashMap::new(), &mut partial_pixels, win_w,
+            win_h, 0.0, None,
+        );
+        assert_eq!(
+            partial_pixels, image_only_pixels,
+            "no text should paint while any word in the run is still unshaped, even an already-shaped one"
+        );
     }
 
     // ---------- v49: `%` lengths, and confirming unitless-non-zero stays rejected ----------
