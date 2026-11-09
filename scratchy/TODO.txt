@@ -1448,3 +1448,223 @@ last, per the user's own call.
       API of its own — DOM-mutation methods are new Rust code no matter
       which engine is chosen.
 
+
+- [ ] **Vim-inspired keybindings + a `:` command bar — forward-looking
+      plan, written up for review, nothing built yet.** Recorded here
+      (no commit hash — nothing in this block has landed) instead of
+      only in conversation, same as the `wire` planning entry above did
+      for its own feature, so the plan survives between sessions. The
+      goal: real vim-flavored navigation (`j`/`k` to scroll, etc.) plus
+      a `:`-prefixed command line for things like `:visit <url>`,
+      `:history-back`, `:history-forward`. Several real design
+      questions got worked through in conversation before any of this
+      was agreed on; recorded here in the order they were actually
+      resolved, including the dead ends, since the reasoning for ruling
+      each one out matters as much as the shape that was kept.
+
+      **Not a separate crate.** First question raised: should the
+      command bar/keybinding UI live in its own package, the way
+      `wire`/`snag` do? Decided no, for now — `wire`/`snag` are separate
+      *processes* with a real IPC boundary (a Unix socket) justifying
+      the crate split; a command bar is chrome painted into the same
+      window, driven by the same event loop, needing tight two-way
+      access to `App`'s own state (`document`, `base_url`, a future
+      history stack, `socket_path`) and painted on top of the same
+      pixel buffer. Splitting it out now would mean committing to a
+      wide `pub` surface on the engine before the feature has been
+      built once — exactly the "speculative abstraction" this repo's
+      own README rules out. Keep it as a clearly-delimited module/
+      section within `scratchy`, same precedent flexbox/grid/position
+      each already set (big, self-contained sections in one file);
+      revisit the crate split only if a second real consumer shows up.
+
+      **Not embedding JS for config either, yet — but designed so it
+      can be added later without a rewrite.** A JS-scriptable bindings
+      layer (a user's own config calling something like `bind("j",
+      "scroll-down")`) is a real, well-precedented pattern (qutebrowser,
+      Tridactyl), genuinely separate from the already-planned "JS
+      pillar" below (full `<script>` execution/DOM mutation — unrelated
+      use of a JS engine). Decided to defer specifically so `boa_engine`
+      only ever gets embedded once, for both purposes, rather than once
+      now for config and again later for pages. What this *does* mean
+      for the hardcoded version built now: keybinding resolution and
+      command dispatch should each go through one narrow, named
+      function — `resolve_binding(key, mods, mode) -> Option<Action>`
+      and `dispatch_command(name: &str, args: &[&str])` — hardcoded
+      `match` arms today (dwm `config.h` style, explicitly fine per the
+      user's own call), but the exact chokepoint a future JS config
+      layer would call into or override, so swapping the hardcoded
+      dispatch for a scriptable one is a contained change later, not a
+      redesign now.
+
+      **New infrastructure this genuinely requires, confirmed not to
+      exist yet by grep, same as noted when this was first discussed**:
+      real keyboard input (zero `WindowEvent::KeyboardInput` usage
+      anywhere in this codebase today), a modal state enum on `App`, a
+      text-editing buffer (insert/backspace/cursor move) for the
+      command line itself, and a navigation history stack — doesn't
+      exist at all (`AppEvent::NavResult`'s own docs already flag this:
+      "No back/forward history is built on top of this ... this is just
+      the one hook a future history stack would need to land next to").
+      `:history-back`/`:history-forward` need a real `Vec<Url>` +
+      index, hooked into `start_navigation` (push on a real
+      click/`:visit`, move-not-push on back/forward itself).
+
+      **Real overlap with the Form elements sequencing plan above,
+      worth building with in mind even though forms aren't being built
+      now**: that item's own step 4 needs the *exact* same thing — a
+      per-element text buffer, real keyboard wiring, a caret, backspace/
+      arrow-key handling, for `<input type=text>`. If the command bar's
+      text-editing core is written as its own small, chrome-vs-page-
+      agnostic piece, it's plausibly the same code a future focused
+      `<input>` reuses — one shared editor, two call sites (`App`'s own
+      command mode now, a focused form element's own mode later). Worth
+      designing for that reuse without actually building the form half
+      now.
+
+      **Keybinding model — three shapes considered, in the order they
+      were actually proposed and why each one changed**:
+
+      1. *Pure vim modal* (bare-key Normal mode, `:` for command mode,
+         the obvious first idea) — real risk once the JS pillar lands:
+         a page can `addEventListener('keydown', ...)` and claim any
+         bare key, and real sites already do (Gmail/Reddit/YouTube all
+         bind `j`/`k` themselves). Vim gets away with bare keys because
+         a terminal app can't silently steal keys out from under the
+         shell; a web page can, once scratchy can run one's JS.
+      2. *tmux-style prefix for every command* (e.g. `leader-j` instead
+         of bare `j`) — solves the collision problem outright (scratchy
+         only ever claims sequences starting with the prefix), but
+         loses vim's actual feel: holding `j` to scroll becomes
+         `leader-j leader-j leader-j...`. tmux's own fix for the same
+         tension on its *own* prefixed bindings — `repeat-time`, a short
+         rolling window after a prefixed command where the same-family
+         bare key keeps working without re-pressing the prefix — was
+         noted as the mitigation if this shape were kept, but wasn't
+         needed once shape 3 was settled on instead.
+      3. **Settled on: an explicit, user-toggleable vim mode**, not
+         per-keystroke disambiguation. `:set vim`/`:set novim` (real
+         vim's own boolean-option-negation idiom, e.g. `:set wrap`/
+         `:set nowrap` — not a different, invented verb). Off means
+         zero interception, full pass-through to the page — the
+         explicit, stated use case: turning the whole thing off to
+         play a browser-rendered game that wants raw WASD/arrow keys.
+         On means real bare-key vim Normal mode, same as shape 1,
+         *without* needing shape 2's prefix-everywhere cost — the
+         toggle itself is the safety valve, not per-keystroke
+         disambiguation. This is also exactly how real vim-browser
+         extensions already behave in practice (Vimium/Tridactyl pair
+         an automatic trigger — focus a text field, enter insert mode —
+         with a manual global toggle for everything automatic detection
+         can't catch, e.g. games/canvas apps with nothing to focus).
+         Scratchy has no forms/focus yet, so only the manual half is
+         buildable now; the automatic half (auto-suspend vim mode on a
+         focused `<input>`, mirroring Vimium's insert-mode) slots in
+         for free later once forms exist, not required for v1.
+
+      **The bootstrapping problem shape 3 creates, and how it's being
+      solved for now**: if "off" means scratchy intercepts nothing,
+      nothing can type `:set vim` to turn it back on — `:` would go
+      straight to the page. Turning vim mode *off* has no such problem
+      (`:set novim`, typed normally, while still in vim mode). Turning
+      it back *on* needs a path that doesn't depend on scratchy owning
+      any keyboard event at all.
+
+      - *First idea*: one single, always-reserved keyboard chord
+        (discussed as `Super`+`:`, checked before any mode dispatch,
+        forwarded to the page under no circumstances), as the one
+        narrow survivor of shape 2's prefix idea — not guarding every
+        command, just this one bootstrap. Mechanically this is a real
+        3-key chord (Super+Shift+Semicolon on a standard layout, since
+        `:` is Shift+`;`) — unremarkable on its own, winit reports it
+        as ordinary modifier state plus one key event, nothing exotic.
+      - *Why it was dropped, not just refined*: two independent,
+        unresolvable-without-testing risks surfaced. (1) Super is the
+        single most commonly claimed modifier for a window manager's
+        *own* global shortcuts — the user's own dev environment runs
+        `dwl`, a suckless WM, where Super/Mod4 is conventionally the
+        primary modifier for everything the WM itself binds; a WM-level
+        claim on Super intercepts the chord before scratchy's window
+        would ever see it, entirely outside scratchy's control, one
+        layer further out than the original page-stealing-keys problem
+        this whole plan started from. (2) The user's own keyboard is a
+        custom Corne with a tweaked QMK/ZMK layout. A custom layer
+        producing `;`/`:` normally still emits a completely ordinary
+        HID Semicolon/Shift+Semicolon chord indistinguishable from a
+        stock keyboard (QMK/ZMK speak standard USB HID regardless of
+        how the physical layout is remapped) — but *if* the firmware
+        produces symbols via a Unicode-input escape sequence instead of
+        a real Shift+key chord (some QMK Unicode modes do this), there
+        may be no moment where Shift and the key are genuinely held
+        simultaneously, and Super might not survive the sequence
+        either. Not knowable without testing on the actual hardware.
+      - **Settled on instead: an out-of-band external channel, not a
+        keystroke at all** — sidesteps both risks completely, since
+        neither a WM keybinding nor keyboard firmware quirks can
+        intercept a signal sent to a process. Framed as the first
+        concrete use of a more general "allow sending commands to a
+        running scratchy instance from the CLI" capability (not
+        committed to building the fuller version now — just noted as
+        the natural direction this already points in, e.g. a future
+        `scratchy-ctl :visit <url>` reusing an already-running window).
+        For now: a plain POSIX signal. `SIGUSR1` specifically (one of
+        the two signals POSIX reserves with no predefined meaning,
+        exactly for this), leaving `SIGUSR2` free if the fuller command
+        channel ever gets built. The user's own call on scope: "I doubt
+        it will happen often enough to be cumbersome, and if it does,
+        I'll have a better solution by then" — deliberately not over-
+        building this for a need that may never materialize.
+      - **Implementation note for whenever this is actually built, not
+        optional**: a raw signal handler cannot safely touch `App`
+        state directly — signal handlers interrupt the main thread at
+        an arbitrary point and only a handful of operations are async-
+        signal-safe; mutating a field or touching the layout tree from
+        inside one is a real UB risk, not a style concern. The correct
+        shape maps directly onto a pattern this codebase already has
+        twice over (`start_navigation`'s fetch thread, the stdin-reader
+        thread in streaming mode): a background thread blocking on the
+        signal via the `signal-hook` crate's `Signals` iterator (safe,
+        ordinary blocking Rust, no raw handler needed), which on
+        wakeup does `proxy.send_event(...)` through the same
+        `EventLoopProxy<AppEvent>` channel those two already use. Not
+        new architecture — one more thread following the established
+        shape, a new `AppEvent` variant.
+      - *Minor, optional ergonomic note*: signaling a process needs its
+        PID; a `pidof`/`pgrep scratchy` dance is the baseline, but
+        scratchy could drop a PID file in `$XDG_RUNTIME_DIR` at startup
+        — same discovery convention `wire`/`snag` already use for their
+        own socket paths — if that friction ever actually bites. Not
+        required for v1.
+
+      **One naming/consistency decision made explicitly, not left
+      implicit**: whether `:` itself (entering command mode) should
+      also require some guard, for the same "scratchy never claims a
+      bare key" reasoning the rest of this plan is built on. Decided to
+      leave `:` as an ordinary bare key within vim mode — the collision
+      risk is low (few if any real pages bind bare `:`) and it's the
+      one thing most worth having fast, single-key access to. Stated
+      here as a deliberate call, not an oversight someone should "fix"
+      later.
+
+      **Explicitly out of scope for this item, named for shape only —
+      not being built now**: link hints (Vimium/qutebrowser's own
+      signature feature — press a key, every link gets a label, type
+      the label to follow it) is the feature that would actually make
+      this feel vim-native rather than just "a `:` prompt bolted on."
+      Not proposed for v1, but the mode enum and binding-resolution
+      chokepoint above should be able to grow a third mode for it
+      without a redesign when it's eventually taken on.
+
+      **Still fully open, deliberately not decided yet**: the exact set
+      of Normal-mode bindings beyond `j`/`k` scroll (vim's own `gg`/`G`/
+      counts/etc. — how much of real vim's motion vocabulary is worth
+      reproducing vs. inventing scratchy-specific ones); the full list
+      of `:` commands beyond `:visit`/`:history-back`/`:history-
+      forward`/`:set vim`/`:set novim`; where exactly the command bar
+      paints (top vs. bottom of the window — the scrollbar overlay,
+      `paint_scrollbar`, is the existing precedent for chrome painted
+      on top of the laid-out page outside the DOM/layout tree, but
+      placement itself wasn't discussed); and the full shape of
+      `AppEvent`'s own extension for this (a `ToggleVimMode` variant at
+      minimum, a `CommandSubmitted(String)` or similar for `:`-entered
+      commands, however those end up threaded through `user_event`).
