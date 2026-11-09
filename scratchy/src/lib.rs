@@ -10591,6 +10591,29 @@ fn resolve_binding(key: &Key, mods: ModifiersState, mode: VimMode) -> Option<Act
     }
 }
 
+/// What a key event should insert into a text-editing buffer, if
+/// anything at all — the one chokepoint `Key::Named` vs. `Key::
+/// Character` gets resolved into actual insertable text through,
+/// instead of leaving every text-editing call site (today: the command
+/// line; later: a focused `<input>`, per `TextEditBuffer`'s own docs)
+/// to independently remember the one surprising case: `winit` reports
+/// the space bar as `Key::Named(NamedKey::Space)`, *not* `Key::
+/// Character(" ")` — confirmed the hard way, post-merge (`:visit
+/// https://...` landed as `:visithttp...`, the space silently dropped
+/// by a bare `_ => {}` catch-all that only matched `Key::Character`).
+/// Kept pure and separate from `resolve_binding` (same reasoning that
+/// one's own docs give for staying a plain `key -> Option<Action>` map)
+/// so this exact class of bug — a `Key::Named` variant quietly falling
+/// through a wildcard arm — has a real unit test instead of only
+/// surfacing by hand-testing every key on a real keyboard.
+fn key_insertion_text(key: &Key) -> Option<&str> {
+    match key {
+        Key::Named(NamedKey::Space) => Some(" "),
+        Key::Character(s) => Some(s.as_str()),
+        _ => None,
+    }
+}
+
 /// A single-line text-editing buffer — insert, backspace, cursor move,
 /// nothing else — written standalone (knows nothing about `App`,
 /// chrome, or the page it might eventually sit over) on purpose: the
@@ -11211,12 +11234,13 @@ impl App {
             Key::Named(NamedKey::Backspace) => self.command_line.backspace(),
             Key::Named(NamedKey::ArrowLeft) => self.command_line.move_left(),
             Key::Named(NamedKey::ArrowRight) => self.command_line.move_right(),
-            Key::Character(s) => {
-                for c in s.chars() {
-                    self.command_line.insert(c);
+            key => {
+                if let Some(text) = key_insertion_text(key) {
+                    for c in text.chars() {
+                        self.command_line.insert(c);
+                    }
                 }
             }
-            _ => {}
         }
         if let Some(window) = &self.window {
             window.request_redraw();
@@ -15692,6 +15716,17 @@ mod tests {
     fn resolve_binding_ignores_unbound_keys() {
         let key = Key::Character("x".into());
         assert_eq!(resolve_binding(&key, ModifiersState::empty(), VimMode::Normal), None);
+    }
+
+    #[test]
+    fn key_insertion_text_handles_the_named_space_key_not_just_character_keys() {
+        // The exact regression reported post-merge: `winit` reports
+        // space as `Key::Named(NamedKey::Space)`, so a match arm that
+        // only handles `Key::Character` silently drops it.
+        assert_eq!(key_insertion_text(&Key::Named(NamedKey::Space)), Some(" "));
+        assert_eq!(key_insertion_text(&Key::Character("a".into())), Some("a"));
+        assert_eq!(key_insertion_text(&Key::Named(NamedKey::Enter)), None);
+        assert_eq!(key_insertion_text(&Key::Named(NamedKey::Escape)), None);
     }
 
     #[test]
