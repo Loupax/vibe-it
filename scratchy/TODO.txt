@@ -1668,3 +1668,175 @@ last, per the user's own call.
       `AppEvent`'s own extension for this (a `ToggleVimMode` variant at
       minimum, a `CommandSubmitted(String)` or similar for `:`-entered
       commands, however those end up threaded through `user_event`).
+
+
+- [ ] **Move page shaping off the main thread, so page rendering and
+      vim mode's own chrome genuinely can't block each other —
+      forward-looking plan, written up for review, nothing built yet.**
+      Recorded here instead of only in conversation, same as the
+      vim-mode item above did for its own feature. Prompted by testing
+      vim mode locally: everything (not just the command bar) felt
+      laggy specifically while a page was still loading, traced to
+      `App::redraw`'s progressive-layout branch running `measure_
+      document` with a synchronous per-tick budget on the one
+      single-threaded winit event loop — any input arriving mid-tick,
+      keyboard or mouse, sits unhandled until that tick returns. The
+      budget was just lowered (500ms -> 80ms, see `PROGRESSIVE_LAYOUT_
+      TICK_BUDGET`'s own docs) as an immediate, narrowly-scoped fix, but
+      that only shrinks the blocking window — it doesn't remove it. The
+      real ask: page rendering and the command bar/input shouldn't share
+      a thread at all.
+
+      **What can actually move to a background thread, and what can't
+      — confirmed by reading the vendored source, not assumed.**
+      `markup5ever_rcdom`'s own `Handle = Rc<Node>`, with `Cell`/
+      `RefCell` fields on `Node` itself — categorically `!Send`. So
+      `build_layout_tree_with_resources(&Handle, ...)` (the DOM walk +
+      cascade match — its own comment in `redraw()` already separately
+      flags this as costing "hundreds of ms on large pages," a fully
+      *unbudgeted* stall today, not just an under-budgeted one) can
+      never leave the main thread without rewriting the DOM
+      representation itself — out of scope, not proposed here. See the
+      explicitly-not-fixed note below.
+
+      `measure_document` is different: its own signature (`b: &LayoutBox,
+      font_system: &mut FontSystem, ..., cache: &mut ShapeCache, ...`)
+      takes no `Handle` at all — it only ever walks the already-built
+      `LayoutBox` tree. That tree is a real candidate for backgrounding,
+      provided one thing gets fixed first.
+
+      **Prerequisite: `Rc<DecodedImage>` -> `Arc<DecodedImage>`,
+      everywhere it appears.** `BoxContent::Image`, `InlineItem::Image`,
+      `LayoutBox::background_image`, and the `Laid` tree `measure_
+      document` itself produces (`LaidContent::Image`) all embed `Rc<
+      DecodedImage>` — confirmed by reading each definition. `Rc` is
+      `!Send`/`!Sync`; sending a `LayoutBox`/`Laid` across a channel
+      (`EventLoopProxy<AppEvent>::send_event`, which needs its payload
+      to be `Send` the same way `thread::spawn`'s own closure does —
+      every existing `AppEvent` variant already happens to comply,
+      since `FetchedPage`/`DecodedImage` are plain owned data) simply
+      isn't possible while that `Rc` is in there. `DecodedImage`'s own
+      fields (`width: u32, height: u32, pixels: Vec<TextColor>`) are
+      already ordinary `Send`+`Sync` data, so swapping `Rc` for `Arc`
+      everywhere it wraps one — `BoxContent::Image`, `InlineItem::
+      Image`, `LayoutBox::background_image`, `LaidContent::Image`,
+      `App::image_cache: HashMap<String, Rc<DecodedImage>>` — is
+      mechanical, same API surface for this read-mostly use (clone,
+      deref); the only real cost is an atomic refcount instead of a
+      plain one, on clones that already only happen once per image
+      reference during a layout pass, never per paint frame. A clean,
+      small, independently-landable first step.
+
+      **A second, independently-owned `FontSystem`/`SwashCache` pair
+      for the background thread — not sharing `App`'s own.** Confirmed
+      by reading cosmic-text's own vendored source: `FontSystem`
+      (`locale: String, db: fontdb::Database, font_cache: HashMap<_,
+      Option<Arc<Font>>>, ...`) and `Buffer`/`SwashCache` hold no `Rc`/
+      `RefCell` internally — genuinely `Send`. But sharing one
+      *instance* between threads (behind a `Mutex`, say) would just
+      reintroduce the exact stall this plan exists to remove: the main
+      thread blocking on the lock while the background thread holds it
+      mid-shape. So the background shaping thread loads its own
+      independent copy — the same `new_font_system()`/`SwashCache::
+      new()` calls `App::new_static`/`new_streaming` already make at
+      startup — a second in-memory font database, paid once when that
+      thread starts. `App`'s existing `font_system`/`swash_cache` stay
+      exactly what `paint`/`paint_command_bar` already use to paint a
+      finished `Laid` tree on the main thread; nothing about painting
+      itself changes.
+
+      **What crosses the channel, and the staleness problem — same
+      `NavResult`/`ImageFetched` shape, a new generation counter.** Each
+      background tick would send back `(generation, Laid, ShapeCache,
+      incomplete: bool)` via `proxy.send_event`, reusing exactly the
+      pattern those two `AppEvent` variants already established: a tag
+      compared against a *current* value on arrival, mismatch means
+      silently drop. `nav_generation` itself isn't the right tag to
+      reuse as-is — it answers "which navigated-to page," not "which
+      *reshape* of the current page," the way a resize (`cached_width`
+      changing) or a streaming `AppEvent::Chunk`/`Eof` (`layout_dirty`)
+      each restart measurement *within* the same page today. **Open
+      design decision, not yet made**: add a `layout_generation: u64`
+      field alongside `nav_generation`, bumped everywhere `self.layout_
+      dirty = true` or `self.cached_width` changes today, threaded into
+      every background-shaping spawn and checked against on every
+      result's arrival.
+
+      **No true cancellation — same tradeoff `start_navigation`'s own
+      fetch thread already accepts.** A plain `thread::spawn`'d thread
+      can't be killed from outside; a resize/chunk/navigation arriving
+      mid-shape just bumps `layout_generation` and spawns a *new*
+      thread for the new state, leaving the old one to finish on its
+      own and have its now-stale result dropped on arrival via the
+      generation check. Wasted CPU on an abandoned pass, but bounded
+      (every pass does eventually finish) — not a new risk this plan
+      introduces, the exact same one already accepted for a superseded
+      page fetch.
+
+      **The actual behavior change, and one open question it raises.**
+      Today, `redraw()` calls `measure_document` directly, in-line, for
+      up to `PROGRESSIVE_LAYOUT_TICK_BUDGET` before returning control —
+      that ticking exists *specifically* to bound how long input sits
+      unhandled (see that constant's own docs). Backgrounded, the whole
+      reason for a *small* budget evaporates: the background thread no
+      longer blocks input by running long, so it could just run
+      `measure_document` to completion in one call and send a single
+      final result — or keep sending periodic partial snapshots purely
+      so a big page still visibly fills in progressively, which becomes
+      a UX choice rather than a responsiveness necessity. **Left open
+      here, deliberately**: whether to keep any ticking at all once
+      this lands, and if so, whether its budget should grow back toward
+      something like the original pre-fix 500ms (or higher — total load
+      time is what matters again, not input latency, once nothing is
+      actually blocked); and whether `App` still needs a "nothing
+      shaped yet, paint blank" fallback for the gap between navigating
+      and the *first* background result landing, same as `redraw`'s
+      own current first-tick-or-two gap, probably a longer one now that
+      nothing forces an early partial result.
+
+      **Explicitly NOT fixed by this plan — named so it isn't mistaken
+      for solved.** `build_layout_tree_with_resources`'s own DOM-walk-
+      and-cascade-match cost stays a fully synchronous, unbudgeted,
+      main-thread-blocking call regardless of anything here, since
+      `Handle` can never leave the main thread (see above). A big
+      page's *very first* load could still show the same "laggy while
+      loading" symptom from that step alone, even once `measure_
+      document` is fully backgrounded. A real fix there would need
+      either giving that walk its own ticked budget (unclear whether
+      cascade-matching has a natural per-element pause point the way
+      per-paragraph shaping already does) or a from-scratch, thread-
+      safe DOM representation (out of scope, not proposed) — named here
+      as its own future item, not sequenced into this one.
+
+      **One more honest ceiling, not a reason to not do this.** A
+      shaping thread is genuinely CPU-bound the entire time it runs —
+      unlike the stdin-reader/nav-fetch threads this same `thread::
+      spawn` + `proxy.send_event` idiom already covers, which are I/O-
+      bound (mostly idle, waiting) the whole time. On a single-core or
+      otherwise fully-loaded machine, the OS scheduler can still make it
+      compete with the main thread for CPU time, indirectly costing
+      input responsiveness even though the main thread's event loop is
+      no longer architecturally *blocked* waiting on it. This plan
+      removes the blocking stall; it doesn't guarantee zero contention
+      under real CPU pressure.
+
+      **Recommended sequencing — several small, separately-landable,
+      separately-testable steps, not one large patch**:
+      1. `Rc<DecodedImage>` -> `Arc<DecodedImage>` everywhere — purely
+         mechanical, no behavior change, a clean first PR on its own;
+         every existing test should pass completely unchanged.
+      2. Add `layout_generation` and audit it into every current
+         `layout_dirty`/`cached_width`-changing site — still no
+         behavior change yet, just the bookkeeping the backgrounded
+         version will need, independently testable before any thread
+         exists.
+      3. The actual background-thread `measure_document` move, plus the
+         new `AppEvent` variant it needs — the real architectural
+         change, landed last, once 1 and 2 are already in place and
+         proven not to regress anything.
+      4. Revisit `PROGRESSIVE_LAYOUT_TICK_BUDGET` once 3 has landed —
+         its whole reason to be small (bounding input latency on a
+         blocking call) goes away once nothing is actually blocked.
+      (`build_layout_tree_with_resources`'s own stall stays a separate,
+      not-yet-planned future item, deliberately not folded into this
+      sequence — see above.)

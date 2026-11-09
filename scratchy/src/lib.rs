@@ -10083,6 +10083,33 @@ fn is_click(down: (f32, f32), up: (f32, f32), threshold: f32) -> bool {
 /// mouse-up over the same link doesn't miss.
 const CLICK_DRAG_THRESHOLD_PX: f32 = 5.0;
 
+/// How long `App::redraw`'s own progressive-layout branch (`self.
+/// layout_incomplete`) lets `measure_document` run before yielding —
+/// winit is single-threaded, so every other input event (keyboard
+/// included, now that vim mode exists — see TODO.txt) sits unhandled
+/// for the entire budget if it arrives mid-tick. Was `500ms`, picked
+/// purely to minimize *total* load time (measured: on a 151-paragraph
+/// page, 80ms budget -> ~6-8 paragraphs/tick, 58 ticks, 7.1s total;
+/// 500ms -> ~30-34 paragraphs/tick, ~12 ticks, 6.2s total; on a much
+/// larger, RTL page, 16ms -> 306 ticks/17.0s, 80ms -> 90 ticks/13.0s,
+/// 150ms -> 53 ticks/12.6s — diminishing returns past ~80ms there
+/// already, since individual complex-script paragraphs can themselves
+/// take hundreds of ms, capping how much a larger budget can batch
+/// together regardless of this value). That framing only weighed a
+/// longer tick as a *visual* pause; it never weighed it as input
+/// sitting unhandled for up to half a second, which is exactly the
+/// "laggy while loading, fine once loaded" symptom vim-mode typing
+/// surfaced. Lowered to `80ms` — the same point the measurements above
+/// already identified as roughly where a bigger budget stops buying
+/// meaningfully less total overhead anyway, so bounding worst-case
+/// input latency to it costs little (+15% total load time on the
+/// measured 151-paragraph page; within noise on the large/RTL one).
+/// A stopgap, not the real fix — see TODO.txt's own plan for moving
+/// `measure_document` to a background thread entirely, which would
+/// let this budget (or ticking at all) stop existing for input-latency
+/// reasons once nothing on the main thread can be blocked by it.
+const PROGRESSIVE_LAYOUT_TICK_BUDGET: std::time::Duration = std::time::Duration::from_millis(80);
+
 /// Resolves a clicked `<a href>` into an absolute URL against the
 /// page's own `<base href>` — ordinary URL-join logic via the `url`
 /// crate (already a dependency of `snag`, not previously one of
@@ -10944,21 +10971,7 @@ impl App {
         }
 
         if self.tree.is_some() && (self.cached.is_none() || self.layout_incomplete) {
-            // Each tick repaints the whole accumulated page regardless of
-            // how much new shaping it did, and that fixed per-tick overhead
-            // (paint+present+compositor wait) measures at ~50-60ms — so a
-            // small budget mostly pays overhead rather than shaping. On a
-            // 151-paragraph page: 80ms budget -> ~6-8 paragraphs/tick, 58
-            // ticks, 7.1s total; 500ms -> ~30-34 paragraphs/tick, ~12
-            // ticks, 6.2s total. On a much larger, RTL page: 16ms -> 306
-            // ticks/17.0s; 80ms -> 90 ticks/13.0s; 150ms -> 53 ticks/12.6s
-            // (diminishing returns past ~80ms there, since individual
-            // complex-script paragraphs can themselves take hundreds of ms,
-            // capping how much a larger budget can batch together). 500ms
-            // trades a more noticeable per-tick pause for meaningfully less
-            // total overhead; still far below the few-second range where a
-            // pause starts reading as a freeze.
-            let deadline = std::time::Instant::now() + std::time::Duration::from_millis(500);
+            let deadline = std::time::Instant::now() + PROGRESSIVE_LAYOUT_TICK_BUDGET;
             let mut incomplete = false;
             let mut next_id = 0usize;
             self.cached = Some(measure_document(
