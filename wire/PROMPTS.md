@@ -146,3 +146,49 @@ an arbitrary host.
 **Deliverable**: `wire/Cargo.toml`, `wire/src/main.rs` (everything
 above), `wire/PROMPTS.md` (this file), `wire/NOTES.md`, `wire/TODO.txt`
 — `wire`'s first four files, all new.
+
+## v2 — `--print-socket`
+
+> Add a command in wire that just outputs the active socket so we can
+> use that as an argument to scratchy. Update documentation accordingly.
+
+scratchy's own `--socket <path>` flag is a strict opt-in with no
+auto-discovery of its own (per `scratchy/TODO.txt`'s own settled
+design — see its "TOP PRIORITY" item) — it never guesses where a `wire`
+daemon might be listening, so something has to supply that path. Before
+this, the only options were hardcoding `wire`'s own `$XDG_RUNTIME_DIR/
+wire.sock`-or-`/tmp/wire-$UID.sock` fallback logic a second time in
+every script that starts both tools, or passing an explicit `--socket`
+to `wire` itself and remembering to reuse the exact same literal path
+for `scratchy`. Neither is good: the first duplicates real logic
+(wrong the moment `wire`'s own default ever changes), the second is
+just manual bookkeeping.
+
+`--print-socket`: resolves the socket path exactly the same way the
+real serving path does (same `socket_path.unwrap_or_else(default_
+socket_path)` call — not a second, parallel computation that could
+silently drift from it), prints it to stdout, and exits immediately —
+no bind, no listen, no real work done. Honors an explicit `--socket
+<path>` if also given (in either argument order), so it always answers
+"what path would this exact invocation use," not just "what's the
+default." Lets a script do:
+
+```sh
+wire &
+scratchy --socket "$(wire --print-socket)" page.html
+```
+
+without ever hardcoding `wire`'s own path logic.
+
+Smoke-tested by hand (no automated CLI-argument-parsing test, matching
+this file's own existing convention — `main`'s own argument loop was
+never unit-tested either, only its pure helpers are): the bare default,
+an explicit `--socket` before `--print-socket`, the same after it (flag
+order doesn't matter), and confirmed the pre-existing `--socket` with no
+path argument still errors the same way as before (this change touches
+nothing about that path).
+
+**Deliverable**: `wire/src/main.rs` (`print_socket` flag in `main`'s own
+argument loop, `print_usage` updated), `wire/PROMPTS.md` (this entry),
+`wire/NOTES.md`, and `README.md`'s own "How they fit together" example
+updated to use it instead of hand-expanding `$XDG_RUNTIME_DIR` directly.

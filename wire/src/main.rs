@@ -30,18 +30,24 @@ use url::Url;
 // serially.
 
 fn print_usage() {
-    eprintln!("usage: wire [--socket <path>]");
+    eprintln!("usage: wire [--socket <path>] [--print-socket]");
     eprintln!("  wire                 listen on $XDG_RUNTIME_DIR/wire.sock (falling back to");
     eprintln!("                       /tmp/wire-$UID.sock), serving real HTTP requests read");
     eprintln!("                       off that socket in the absolute-form proxy shape");
     eprintln!("                       (`GET https://example.com/path HTTP/1.1`), one request");
     eprintln!("                       per connection, concurrently. Must be started manually.");
     eprintln!("  wire --socket <path> listen on <path> instead of the default location.");
+    eprintln!("  wire --print-socket  print the socket path wire would bind (honoring --socket,");
+    eprintln!("                       if also given) to stdout and exit immediately — doesn't");
+    eprintln!("                       bind or listen at all. Meant for scripting, so a caller");
+    eprintln!("                       never has to duplicate wire's own default-path logic,");
+    eprintln!("                       e.g.: scratchy --socket \"$(wire --print-socket)\" page.html");
 }
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let mut socket_path = None;
+    let mut print_socket = false;
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
@@ -57,6 +63,10 @@ fn main() {
                 socket_path = Some(PathBuf::from(path));
                 i += 2;
             }
+            "--print-socket" => {
+                print_socket = true;
+                i += 1;
+            }
             other => {
                 eprintln!("wire: unrecognized argument {other:?}");
                 print_usage();
@@ -66,6 +76,18 @@ fn main() {
     }
 
     let path = socket_path.unwrap_or_else(default_socket_path);
+
+    // Deliberately reuses the exact same `path` value the real serving
+    // path below would bind — never a second, parallel computation of
+    // "what socket would wire use," which could silently drift from the
+    // real answer. Exits before `run_server`/`build_agent` do any real
+    // work: this is a pure path-resolution query, not a lighter-weight
+    // way to start the daemon.
+    if print_socket {
+        println!("{}", path.display());
+        return;
+    }
+
     let agent = build_agent();
     run_server(&path, agent);
 }

@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
 use std::io::{self, Read, Write};
@@ -4667,18 +4667,28 @@ fn img_size_attr(handle: &Handle, name: &str) -> Option<f32> {
 /// `build_img_box` (a `display: block` `<img>`, its own box) and
 /// `collect_children`'s inline branch (the default `display: inline` —
 /// pushed straight into the surrounding text run as an `InlineItem::
-/// Image` instead, see its own docs). Only a `data:` URI `src` decodes;
-/// anything else — missing, unsupported format, a local file path (not
-/// yet supported, see TODO.txt), or corrupt data — returns `None`.
-fn resolve_img(handle: &Handle, mut style: ComputedStyle) -> (ComputedStyle, Option<Rc<DecodedImage>>) {
+/// Image` instead, see its own docs). A `data:` URI `src` decodes
+/// immediately, same as always; anything else — a real `http(s)://` URL
+/// — is looked up in `image_cache` instead (keyed by the exact,
+/// unresolved `src` attribute text — safe only because `App::replace_
+/// document` clears this cache on every navigation, so the same raw
+/// relative string can never carry over from a *different* page's own
+/// base URL; see `App::image_cache`'s own docs). Not yet fetched, or a
+/// fetch that failed/decoded to nothing — missing, unsupported format, a
+/// local file path (not supported, see TODO.txt), or corrupt data —
+/// both fall out of a plain cache miss, `None` either way.
+fn resolve_img(handle: &Handle, mut style: ComputedStyle, image_cache: &HashMap<String, Rc<DecodedImage>>) -> (ComputedStyle, Option<Rc<DecodedImage>>) {
     if style.width.is_none() {
         style.width = img_size_attr(handle, "width").map(BoxLength::Px);
     }
     if style.height.is_none() {
         style.height = img_size_attr(handle, "height").map(BoxLength::Px);
     }
-    let decoded = element_attr(handle, "src").and_then(|src| decode_data_uri(&src)).and_then(|b| decode_image_bytes(&b));
-    (style, decoded.map(Rc::new))
+    let decoded = element_attr(handle, "src").and_then(|src| match decode_data_uri(&src) {
+        Some(bytes) => decode_image_bytes(&bytes).map(Rc::new),
+        None => image_cache.get(&*src).cloned(),
+    });
+    (style, decoded)
 }
 
 /// Builds `<img>`'s own box directly, bypassing the normal children walk
@@ -4689,8 +4699,13 @@ fn resolve_img(handle: &Handle, mut style: ComputedStyle) -> (ComputedStyle, Opt
 /// image's place, same as a real browser's "fallback content" for a
 /// replaced element that failed to load, rather than collapsing to a
 /// blank 0×0 box.
-fn build_img_box(handle: &Handle, style: ComputedStyle, background_image: Option<Rc<DecodedImage>>) -> LayoutBox {
-    let (style, decoded) = resolve_img(handle, style);
+fn build_img_box(
+    handle: &Handle,
+    style: ComputedStyle,
+    background_image: Option<Rc<DecodedImage>>,
+    image_cache: &HashMap<String, Rc<DecodedImage>>,
+) -> LayoutBox {
+    let (style, decoded) = resolve_img(handle, style, image_cache);
     match decoded {
         Some(image) => LayoutBox { style, background_image, content: BoxContent::Image(image) },
         None => {
@@ -4709,7 +4724,15 @@ fn build_img_box(handle: &Handle, style: ComputedStyle, background_image: Option
 /// any) right away, then threaded into every path that builds this
 /// element's own children — same `unwrap_or` shape `collect_children`'s
 /// inline branch already uses, just applied once per block too.
-fn build_box_for_element(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle, decoration: DecorationValue, href: Option<&'static str>, viewport_width: f32) -> LayoutBox {
+fn build_box_for_element(
+    handle: &Handle,
+    rules: &[StyleRule],
+    inherited: InheritedStyle,
+    decoration: DecorationValue,
+    href: Option<&'static str>,
+    viewport_width: f32,
+    image_cache: &HashMap<String, Rc<DecodedImage>>,
+) -> LayoutBox {
     let style = resolve_style(handle, rules, inherited, viewport_width);
     // Resolved once here (cheap to carry further — just an `Rc` clone —
     // vs. re-running `resolve_background_image`'s own selector-matching
@@ -4726,14 +4749,22 @@ fn build_box_for_element(handle: &Handle, rules: &[StyleRule], inherited: Inheri
     // own branch just below uses for the same reason (it builds its
     // `LayoutBox` directly too, rather than delegating further down).
     if element_tag(handle) == "img" {
-        return build_img_box(handle, style, background_image);
+        return build_img_box(handle, style, background_image, image_cache);
     }
     let own_decoration = resolve_own_decoration(&style, decoration);
     if style.display == Display::Table {
         return LayoutBox {
             style,
             background_image,
-            content: BoxContent::Blocks(build_table_children(handle, rules, style.inherited(), own_decoration, href, viewport_width)),
+            content: BoxContent::Blocks(build_table_children(
+                handle,
+                rules,
+                style.inherited(),
+                own_decoration,
+                href,
+                viewport_width,
+                image_cache,
+            )),
         };
     }
     // `display: flex` is block-level in the outer flow (same as `Table`,
@@ -4744,7 +4775,15 @@ fn build_box_for_element(handle: &Handle, rules: &[StyleRule], inherited: Inheri
         return LayoutBox {
             style,
             background_image,
-            content: BoxContent::Blocks(build_flex_children(handle, rules, style.inherited(), own_decoration, href, viewport_width)),
+            content: BoxContent::Blocks(build_flex_children(
+                handle,
+                rules,
+                style.inherited(),
+                own_decoration,
+                href,
+                viewport_width,
+                image_cache,
+            )),
         };
     }
     // `display: grid` is block-level in the outer flow (same as `Table`/
@@ -4759,7 +4798,15 @@ fn build_box_for_element(handle: &Handle, rules: &[StyleRule], inherited: Inheri
         return LayoutBox {
             style,
             background_image,
-            content: BoxContent::Blocks(build_flex_children(handle, rules, style.inherited(), own_decoration, href, viewport_width)),
+            content: BoxContent::Blocks(build_flex_children(
+                handle,
+                rules,
+                style.inherited(),
+                own_decoration,
+                href,
+                viewport_width,
+                image_cache,
+            )),
         };
     }
     let prefix = if element_tag(handle) == "li" {
@@ -4770,7 +4817,16 @@ fn build_box_for_element(handle: &Handle, rules: &[StyleRule], inherited: Inheri
     LayoutBox {
         style,
         background_image,
-        content: BoxContent::Blocks(build_children_with_prefix(handle, rules, style.inherited(), prefix, own_decoration, href, viewport_width)),
+        content: BoxContent::Blocks(build_children_with_prefix(
+            handle,
+            rules,
+            style.inherited(),
+            prefix,
+            own_decoration,
+            href,
+            viewport_width,
+            image_cache,
+        )),
     }
 }
 
@@ -4782,7 +4838,15 @@ fn build_box_for_element(handle: &Handle, rules: &[StyleRule], inherited: Inheri
 /// display, so it falls to the `Block` arm and gets its own box via the
 /// normal `build_box_for_element` call, which re-enters this same
 /// table-building path independently for its own rows.
-fn build_table_children(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle, decoration: DecorationValue, href: Option<&'static str>, viewport_width: f32) -> Vec<LayoutBox> {
+fn build_table_children(
+    handle: &Handle,
+    rules: &[StyleRule],
+    inherited: InheritedStyle,
+    decoration: DecorationValue,
+    href: Option<&'static str>,
+    viewport_width: f32,
+    image_cache: &HashMap<String, Rc<DecodedImage>>,
+) -> Vec<LayoutBox> {
     let mut result = Vec::new();
     for child in handle.children.borrow().iter() {
         let NodeData::Element { .. } = &child.data else { continue };
@@ -4801,12 +4865,21 @@ fn build_table_children(handle: &Handle, rules: &[StyleRule], inherited: Inherit
         match style.display {
             Display::None => {}
             Display::TableRow => {
-                let cells = build_table_row_cells(child, rules, style.inherited(), child_decoration, href, viewport_width);
+                let cells =
+                    build_table_row_cells(child, rules, style.inherited(), child_decoration, href, viewport_width, image_cache);
                 let background_image = resolve_background_image(child, rules, viewport_width);
                 result.push(LayoutBox { style, background_image, content: BoxContent::TableRow(cells) });
             }
             Display::TableGroup => {
-                result.extend(build_table_children(child, rules, style.inherited(), child_decoration, href, viewport_width));
+                result.extend(build_table_children(
+                    child,
+                    rules,
+                    style.inherited(),
+                    child_decoration,
+                    href,
+                    viewport_width,
+                    image_cache,
+                ));
             }
             Display::Block | Display::Flex | Display::Grid => {
                 // e.g. `caption`, or any other block-level content placed
@@ -4815,7 +4888,7 @@ fn build_table_children(handle: &Handle, rules: &[StyleRule], inherited: Inherit
                 // handled the same way (its own box via the normal
                 // dispatch, which re-enters `build_flex_children`/
                 // `measure_flex`/`measure_grid` for it).
-                result.push(build_box_for_element(child, rules, inherited, decoration, href, viewport_width));
+                result.push(build_box_for_element(child, rules, inherited, decoration, href, viewport_width, image_cache));
             }
             // A stray `table-cell`/inline/`table` outside a row isn't
             // real-world table markup — skip rather than guess at it.
@@ -4829,13 +4902,21 @@ fn build_table_children(handle: &Handle, rules: &[StyleRule], inherited: Inherit
 /// interior content — text, inline elements, nested blocks — all work
 /// unchanged via the ordinary `build_box_for_element` path; only how its
 /// *parent* lays it out, horizontally instead of vertically, differs).
-fn build_table_row_cells(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle, decoration: DecorationValue, href: Option<&'static str>, viewport_width: f32) -> Vec<LayoutBox> {
+fn build_table_row_cells(
+    handle: &Handle,
+    rules: &[StyleRule],
+    inherited: InheritedStyle,
+    decoration: DecorationValue,
+    href: Option<&'static str>,
+    viewport_width: f32,
+    image_cache: &HashMap<String, Rc<DecodedImage>>,
+) -> Vec<LayoutBox> {
     let mut cells = Vec::new();
     for child in handle.children.borrow().iter() {
         let NodeData::Element { .. } = &child.data else { continue };
         let style = resolve_style(child, rules, inherited, viewport_width);
         if style.display == Display::TableCell {
-            cells.push(build_box_for_element(child, rules, inherited, decoration, href, viewport_width));
+            cells.push(build_box_for_element(child, rules, inherited, decoration, href, viewport_width, image_cache));
         }
     }
     cells
@@ -4874,7 +4955,15 @@ fn build_table_row_cells(handle: &Handle, rules: &[StyleRule], inherited: Inheri
 /// respective algorithm, the same split `measure`'s own `BoxContent::
 /// Blocks` arm already uses for an ordinary block's absolutely/fixed
 /// positioned children.
-fn build_flex_children(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle, decoration: DecorationValue, href: Option<&'static str>, viewport_width: f32) -> Vec<LayoutBox> {
+fn build_flex_children(
+    handle: &Handle,
+    rules: &[StyleRule],
+    inherited: InheritedStyle,
+    decoration: DecorationValue,
+    href: Option<&'static str>,
+    viewport_width: f32,
+    image_cache: &HashMap<String, Rc<DecodedImage>>,
+) -> Vec<LayoutBox> {
     let mut result = Vec::new();
     for child in handle.children.borrow().iter() {
         let NodeData::Element { .. } = &child.data else { continue };
@@ -4886,7 +4975,7 @@ fn build_flex_children(handle: &Handle, rules: &[StyleRule], inherited: Inherite
         if style.display == Display::None {
             continue;
         }
-        result.push(build_box_for_element(child, rules, inherited, decoration, href, viewport_width));
+        result.push(build_box_for_element(child, rules, inherited, decoration, href, viewport_width, image_cache));
     }
     result
 }
@@ -4901,8 +4990,16 @@ fn build_flex_children(handle: &Handle, rules: &[StyleRule], inherited: Inherite
 /// into one giant text run. (An earlier version flattened unconditionally;
 /// on a real Wikipedia page that merged the entire navigation chrome into a
 /// single ~17,000-character run, which took 7+ seconds to shape by itself.)
-fn build_children(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle, decoration: DecorationValue, href: Option<&'static str>, viewport_width: f32) -> Vec<LayoutBox> {
-    build_children_with_prefix(handle, rules, inherited, None, decoration, href, viewport_width)
+fn build_children(
+    handle: &Handle,
+    rules: &[StyleRule],
+    inherited: InheritedStyle,
+    decoration: DecorationValue,
+    href: Option<&'static str>,
+    viewport_width: f32,
+    image_cache: &HashMap<String, Rc<DecodedImage>>,
+) -> Vec<LayoutBox> {
+    build_children_with_prefix(handle, rules, inherited, None, decoration, href, viewport_width, image_cache)
 }
 
 /// Same as `build_children`, but seeds the first inline run with `prefix`
@@ -4915,6 +5012,7 @@ fn build_children_with_prefix(
     decoration: DecorationValue,
     href: Option<&'static str>,
     viewport_width: f32,
+    image_cache: &HashMap<String, Rc<DecodedImage>>,
 ) -> Vec<LayoutBox> {
     let mut result = Vec::new();
     let mut pending: Vec<InlineItem> = Vec::new();
@@ -4932,6 +5030,7 @@ fn build_children_with_prefix(
         &mut pending,
         &mut result,
         viewport_width,
+        image_cache,
     );
     if !pending.is_empty() {
         result.push(LayoutBox {
@@ -4966,6 +5065,7 @@ fn collect_children(
     pending: &mut Vec<InlineItem>,
     result: &mut Vec<LayoutBox>,
     viewport_width: f32,
+    image_cache: &HashMap<String, Rc<DecodedImage>>,
 ) {
     for child in handle.children.borrow().iter() {
         match &child.data {
@@ -5025,7 +5125,7 @@ fn collect_children(
                 // was the original call and what changed.
                 if tag == "img" && !matches!(style.display, Display::Block | Display::Table | Display::Flex | Display::Grid) {
                     let background_image = resolve_background_image(child, rules, viewport_width);
-                    let (img_style, decoded) = resolve_img(child, style);
+                    let (img_style, decoded) = resolve_img(child, style, image_cache);
                     match decoded {
                         Some(image) => pending.push(InlineItem::Image { image, style: img_style, background_image }),
                         None => {
@@ -5045,7 +5145,7 @@ fn collect_children(
                             content: BoxContent::Inline(std::mem::take(pending)),
                         });
                     }
-                    result.push(build_box_for_element(child, rules, inherited, decoration, child_href, viewport_width));
+                    result.push(build_box_for_element(child, rules, inherited, decoration, child_href, viewport_width, image_cache));
                 } else {
                     let child_bg = style.background_color.or(bg);
                     let child_decoration = resolve_own_decoration(&style, decoration);
@@ -5065,6 +5165,7 @@ fn collect_children(
                         pending,
                         result,
                         viewport_width,
+                        image_cache,
                     );
                 }
             }
@@ -5109,9 +5210,33 @@ fn find_html_element(handle: &Handle) -> Option<Handle> {
 /// for `%`/`em`/`rem`/table/flex/grid measurement's own sake) — passing
 /// that same live width through here just makes the rules a rebuild
 /// picks up media-aware too, with zero new plumbing on the resize side.
+///
+/// A thin wrapper over `build_layout_tree_with_resources` supplying no
+/// live-fetched CSS and an empty image cache — every test/benchmark call
+/// site (there are dozens) keeps using this simpler signature unchanged;
+/// only `App::redraw`'s one real call site needs the richer one.
 pub fn build_layout_tree(document: &Handle, viewport_width: f32) -> LayoutBox {
+    build_layout_tree_with_resources(document, viewport_width, "", &HashMap::new())
+}
+
+/// Same as `build_layout_tree`, but also takes CSS fetched (via `wire`)
+/// from this page's own `<link rel=stylesheet href>` references
+/// (`extra_css` — concatenated into the same stylesheet source
+/// `collect_style_css`'s own inline `<style>` text already feeds into,
+/// so it cascades identically; see `App::extra_css`'s own docs for how
+/// it gets populated) and a cache of already-decoded images fetched for
+/// non-`data:` `<img src>` references (`image_cache`, consulted by
+/// `resolve_img` — see `App::image_cache`'s own docs).
+fn build_layout_tree_with_resources(
+    document: &Handle,
+    viewport_width: f32,
+    extra_css: &str,
+    image_cache: &HashMap<String, Rc<DecodedImage>>,
+) -> LayoutBox {
     let mut css_source = String::new();
     collect_style_css(document, &mut css_source);
+    css_source.push('\n');
+    css_source.push_str(extra_css);
     let html_handle = find_html_element(document);
     let mut rules = parse_stylesheet(DEFAULT_CSS);
     rules.extend(parse_stylesheet(&css_source));
@@ -5154,7 +5279,15 @@ pub fn build_layout_tree(document: &Handle, viewport_width: f32) -> LayoutBox {
     LayoutBox {
         style: anonymous_style(root_inherited),
         background_image: None,
-        content: BoxContent::Blocks(build_children(document, &rules, root_inherited, DecorationValue::default(), None, viewport_width)),
+        content: BoxContent::Blocks(build_children(
+            document,
+            &rules,
+            root_inherited,
+            DecorationValue::default(),
+            None,
+            viewport_width,
+            image_cache,
+        )),
     }
 }
 
@@ -10021,40 +10154,50 @@ fn dispatch_wire_response(content_type: Option<String>, body: Vec<u8>) -> Result
     }
 }
 
-/// What a single navigation attempt against a configured `wire` socket
-/// came back with — kept distinct from a plain `Result` so `start_
-/// navigation` can tell "never reached the daemon at all" (the one case
-/// that also prints the request to stdout for manual replay, per
-/// `scratchy/TODO.txt`'s own fallback design) apart from "reached it,
-/// got a real response, but it wasn't one scratchy can render" (just an
-/// inline error — a response *was* received, so there's nothing useful
-/// to print for manual replay that the user doesn't already know).
-#[derive(Debug)]
-enum WireFetchOutcome {
-    Responded(Result<Vec<u8>, String>),
+/// What connecting to `wire` and reading one full response back came out
+/// to — the lowest-level outcome, shared by the top-level page fetch
+/// (`start_navigation`) and every sub-resource fetch (v67's `fetch_
+/// stylesheet_via_wire`/`fetch_image_via_wire`): either a real response
+/// genuinely came back (status is deliberately not kept at all — see
+/// `parse_wire_response`'s own docs on why only `Content-Type` ever
+/// mattered), or nothing did. Kept distinct from a plain `Result` for
+/// the same reason `start_navigation` itself needs it for the top-level
+/// page: "never reached the daemon at all" is the one case with
+/// something useful to do about it (the stdout-fallback print, for the
+/// top-level page only — a sub-resource fetch has nothing worth printing
+/// since the user never directly asked for *it*).
+enum WireFetchRaw {
+    Responded { content_type: Option<String>, body: Vec<u8> },
     Unreachable,
 }
 
 /// Connects to `path`, sends `request_text` verbatim, reads the whole
 /// response until `wire` closes the connection (its own protocol's
 /// "done" signal — no length prefix, no explicit end marker, same shape
-/// `snag --serve`'s older line protocol already used), then parses and
-/// dispatches it. Any failure before a complete response was read back
-/// (connect refused, write failed, connection reset mid-read) collapses
-/// to `Unreachable` — from scratchy's point of view those are all
-/// exactly the same outcome: no usable response came back, for whatever
-/// reason, and the caller's only real recourse is the same stdout-
-/// fallback print either way.
-fn fetch_via_wire_at(path: &std::path::Path, request_text: &str) -> WireFetchOutcome {
-    let Ok(mut stream) = UnixStream::connect(path) else { return WireFetchOutcome::Unreachable };
+/// `snag --serve`'s older line protocol already used), then parses just
+/// far enough to hand the caller `Content-Type` and the raw body —
+/// dispatching *what that means* (HTML? an image to wrap? CSS? an
+/// unsupported type?) is each caller's own job, since the top-level page
+/// and a sub-resource fetch each need a different answer to that
+/// question (see `dispatch_wire_response`/`fetch_stylesheet_via_wire`/
+/// `fetch_image_via_wire`). Any failure before a complete response was
+/// read back (connect refused, write failed, connection reset mid-read)
+/// collapses to `Unreachable` — from scratchy's point of view those are
+/// all exactly the same outcome: no usable response came back, for
+/// whatever reason.
+fn fetch_raw_via_wire(path: &std::path::Path, request_text: &str) -> WireFetchRaw {
+    let Ok(mut stream) = UnixStream::connect(path) else { return WireFetchRaw::Unreachable };
     if stream.write_all(request_text.as_bytes()).is_err() {
-        return WireFetchOutcome::Unreachable;
+        return WireFetchRaw::Unreachable;
     }
     let mut buf = Vec::new();
     if stream.read_to_end(&mut buf).is_err() {
-        return WireFetchOutcome::Unreachable;
+        return WireFetchRaw::Unreachable;
     }
-    WireFetchOutcome::Responded(parse_wire_response(&buf).and_then(|(ct, body)| dispatch_wire_response(ct, body)))
+    match parse_wire_response(&buf) {
+        Ok((content_type, body)) => WireFetchRaw::Responded { content_type, body },
+        Err(_) => WireFetchRaw::Unreachable,
+    }
 }
 
 /// `start_navigation`'s own stdout fallback — per `scratchy/TODO.txt`'s
@@ -10068,30 +10211,225 @@ fn print_fallback_request(request_text: &str) {
     let _ = io::stdout().flush();
 }
 
+// ---------- sub-resources: external stylesheets and images (v67) ----------
+//
+// The same `wire` daemon the top-level page fetch already talks to is
+// reused for a page's own `<link rel=stylesheet href>`/non-`data:`
+// `<img src>` references — scratchy still performs zero networking of
+// its own beyond that one daemon. Nothing here is `snag`'s job to
+// duplicate: `snag`'s own inlining only ever applies to a page bundled
+// *ahead of time* via its CLI; a page reached by clicking a live link
+// never goes through `snag` at all (see `scratchy/TODO.txt`'s own "TOP
+// PRIORITY" item), so scratchy has to do this inlining-equivalent work
+// itself for exactly that path.
+
+/// Mime-checked low-level fetch shared by `fetch_stylesheet_via_wire`/
+/// `fetch_image_via_wire`: runs `fetch_raw_via_wire`, then accepts the
+/// body only if `Content-Type` (ignoring any `;charset=...`/`;
+/// boundary=...` parameter, same as `dispatch_wire_response`) is one of
+/// `accept`. Any other outcome — unreachable, no/mismatched `Content-
+/// Type` — is a silent `None`, not an error: a single sub-resource
+/// failing to fetch is never allowed to sink the whole page, the same
+/// lenient "one bad image/stylesheet doesn't stop the rest" precedent
+/// `snag`'s own sub-resource fetching already established (see `snag/
+/// TODO.txt`'s "no retry/backoff" item for the same spirit applied to a
+/// different failure mode).
+fn fetch_sub_resource_via_wire(path: &std::path::Path, url: &Url, accept: &[&str]) -> Option<Vec<u8>> {
+    let request_text = build_get_request_text(url);
+    let WireFetchRaw::Responded { content_type, body } = fetch_raw_via_wire(path, &request_text) else { return None };
+    let content_type = content_type.unwrap_or_default();
+    let mime = content_type.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+    if !accept.contains(&mime.as_str()) {
+        return None;
+    }
+    Some(body)
+}
+
+/// Fetches one external stylesheet — `None` on any failure (unreachable,
+/// not real CSS, or not valid UTF-8 — a real stylesheet declaring some
+/// other encoding is a narrower gap than this function alone, not
+/// attempted here; nothing has needed it yet).
+fn fetch_stylesheet_via_wire(path: &std::path::Path, url: &Url) -> Option<String> {
+    let body = fetch_sub_resource_via_wire(path, url, &["text/css"])?;
+    String::from_utf8(body).ok()
+}
+
+/// Fetches and decodes one external image — `None` on any failure
+/// (unreachable, not a supported image content type, or bytes `image`
+/// itself can't decode). Reuses `decode_image_bytes` verbatim — the
+/// exact same decoder `resolve_img` already uses for a `data:` URI
+/// `src`, so a live-fetched image and an inlined one decode identically.
+fn fetch_image_via_wire(path: &std::path::Path, url: &Url) -> Option<DecodedImage> {
+    let body = fetch_sub_resource_via_wire(path, url, &["image/png", "image/jpeg", "image/gif", "image/webp"])?;
+    decode_image_bytes(&body)
+}
+
+/// Every external stylesheet/image reference a page's own markup names,
+/// exactly as written (unresolved — resolving against the page's base
+/// URL is each caller's own job, done once both lists are complete, not
+/// per-element here).
+#[derive(Default)]
+struct ExternalResources {
+    /// Each `<link rel=stylesheet href="...">`'s own `href`, in document
+    /// order.
+    stylesheets: Vec<String>,
+    /// Each non-`data:` `<img src="...">`'s own `src` — a `data:` URI is
+    /// already fully inlined, so it's deliberately excluded here (it
+    /// needs no fetch, and `resolve_img` never consults `image_cache`
+    /// for one anyway).
+    images: Vec<String>,
+}
+
+/// Walks the whole tree (not just `<head>`, same "a malformed document
+/// might put it anywhere" latitude `find_base_href` already takes)
+/// collecting every stylesheet `<link>`/non-`data:` `<img>` reference.
+/// `rel` is matched the same space-separated, case-insensitive way a
+/// real `rel` attribute's token list always is (a `<link>` can legally
+/// carry more than one keyword, e.g. `rel="stylesheet alternate"`).
+fn find_external_resources(handle: &Handle, out: &mut ExternalResources) {
+    if let NodeData::Element { name, .. } = &handle.data {
+        match name.local.as_ref() {
+            "link" => {
+                let is_stylesheet = element_attr(handle, "rel")
+                    .map(|r| r.split_ascii_whitespace().any(|t| t.eq_ignore_ascii_case("stylesheet")))
+                    .unwrap_or(false);
+                if is_stylesheet
+                    && let Some(href) = element_attr(handle, "href")
+                {
+                    out.stylesheets.push(href.to_string());
+                }
+            }
+            "img" => {
+                if let Some(src) = element_attr(handle, "src")
+                    && !src.starts_with("data:")
+                {
+                    out.images.push(src.to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+    for child in handle.children.borrow().iter() {
+        find_external_resources(child, out);
+    }
+}
+
+/// The one function that turns a freshly-fetched page's raw HTML bytes
+/// into both halves of v67's sub-resource support: every external
+/// stylesheet, fetched synchronously (right here, on `start_navigation`'s
+/// own background thread) and concatenated into the returned `String`
+/// (`App::extra_css` — CSS has to be fully in hand *before* the page's
+/// very first layout, so this can't be deferred the way images can);
+/// and every non-`data:` image, each fired off as its own independent
+/// background thread (`thread::spawn`, mirroring `wire`'s own explicit
+/// "concurrent *separate* connections are expected" design) reporting
+/// back through `AppEvent::ImageFetched` whenever it finishes — this
+/// function itself returns immediately after *starting* those, long
+/// before any of them resolve.
+///
+/// Parses `html` into its own throwaway `Handle` purely to walk it with
+/// `find_external_resources` and `find_base_url` — that DOM is never
+/// touched again once this function returns and, critically, never
+/// crosses a thread boundary itself (a `Handle` is `Rc`-based, so it
+/// can't: `Rc<T>` is `!Send`). Only plain owned `String`s (a stylesheet's
+/// fetched text, an image's own raw `src` key) and a plain `DecodedImage`
+/// struct (no `Rc` of its own — see `AppEvent::ImageFetched`'s own docs)
+/// ever actually travel back across the channel.
+fn process_external_resources(
+    proxy: &EventLoopProxy<AppEvent>,
+    path: &std::path::Path,
+    page_url: &Url,
+    html: &[u8],
+    generation: u64,
+) -> String {
+    let Ok(dom) = new_parser().read_from(&mut &html[..]) else { return String::new() };
+    // The fetched page's own `<base href>`, if it declares one, wins —
+    // same priority `resolve_href`'s every other caller already gives
+    // an explicit `<base>` over the document's own URL.
+    let base = find_base_url(&dom.document).unwrap_or_else(|| page_url.clone());
+    let mut resources = ExternalResources::default();
+    find_external_resources(&dom.document, &mut resources);
+
+    let mut extra_css = String::new();
+    for href in resources.stylesheets {
+        let Ok(url) = resolve_href(Some(&base), &href) else { continue };
+        if let Some(css) = fetch_stylesheet_via_wire(path, &url) {
+            extra_css.push_str(&css);
+            extra_css.push('\n');
+        }
+    }
+
+    // Deduplicated — a real page commonly repeats the exact same icon/
+    // logo URL many times; one fetch (and one `image_cache` entry, keyed
+    // by this shared raw `src` string) already covers every occurrence.
+    let mut seen = HashSet::new();
+    for src in resources.images {
+        if !seen.insert(src.clone()) {
+            continue;
+        }
+        let Ok(url) = resolve_href(Some(&base), &src) else { continue };
+        let path = path.to_path_buf();
+        let proxy = proxy.clone();
+        thread::spawn(move || {
+            let image = fetch_image_via_wire(&path, &url);
+            let _ = proxy.send_event(AppEvent::ImageFetched(generation, src, image));
+        });
+    }
+
+    extra_css
+}
+
 // ---------- windowing ----------
+
+/// A fully-fetched, ready-to-display page — the `Ok` payload of
+/// `AppEvent::NavResult` (v67). `html` is ready-to-parse bytes (same
+/// bytes `Input::File`'s own `fs::read_to_string` would have read from a
+/// saved page — already dispatched through `dispatch_wire_response`, so
+/// a fetched image has already been wrapped into a synthetic HTML
+/// document by this point too); `extra_css` is every external
+/// stylesheet `process_external_resources` found and fetched for this
+/// page, concatenated — see `App::extra_css`'s own docs. Both are plain
+/// owned data (`Vec<u8>`/`String`, both `Send`), deliberately never a
+/// parsed `Handle` (an `Rc`-based type — `!Send` — see `process_
+/// external_resources`'s own docs for why its own DOM walk never
+/// crosses this same thread boundary).
+struct FetchedPage {
+    html: Vec<u8>,
+    extra_css: String,
+}
 
 enum AppEvent {
     Chunk(Vec<u8>),
     Eof,
     /// The result of a background navigation fetch (`App::start_
-    /// navigation`'s spawned thread) — `Ok` carries ready-to-parse HTML
-    /// bytes (same bytes `Input::File`'s own `fs::read_to_string` would
-    /// have read from a saved page — already dispatched through
-    /// `dispatch_wire_response`, so a fetched image has already been
-    /// wrapped into a synthetic HTML document by this point too), `Err`
-    /// a human-readable message to show in place of the page (no
-    /// `--socket` configured, the daemon unreachable, or a response
-    /// `wire` sent back in a content type scratchy can't render — see
-    /// `fetch_via_wire_at`'s own docs for exactly which). The `u64` is
-    /// `App::nav_generation` at the moment this navigation started — compared
-    /// against the *current* generation when this event arrives so a
-    /// stale result from a since-superseded navigation (the user
-    /// clicked a second link before the first one's fetch finished) is
-    /// silently dropped instead of clobbering newer, already-displayed
-    /// content. No back/forward history is built on top of this (see
-    /// TODO.txt's own link-navigation item) — this is just the one hook
-    /// a future history stack would need to land next to.
-    NavResult(u64, Result<Vec<u8>, String>),
+    /// navigation`'s spawned thread) — `Err` is a human-readable message
+    /// to show in place of the page (no `--socket` configured, the
+    /// daemon unreachable, or a response `wire` sent back in a content
+    /// type scratchy can't render — see `fetch_raw_via_wire`'s own docs
+    /// for exactly which). The `u64` is `App::nav_generation` at the
+    /// moment this navigation started — compared against the *current*
+    /// generation when this event arrives so a stale result from a
+    /// since-superseded navigation (the user clicked a second link
+    /// before the first one's fetch finished) is silently dropped
+    /// instead of clobbering newer, already-displayed content. No
+    /// back/forward history is built on top of this (see TODO.txt's own
+    /// link-navigation item) — this is just the one hook a future
+    /// history stack would need to land next to.
+    NavResult(u64, Result<FetchedPage, String>),
+    /// One non-`data:` `<img src>` reference's own fetch finishing (v67)
+    /// — `String` is the exact, unresolved `src` attribute text
+    /// `process_external_resources` found it under (see `App::image_
+    /// cache`'s own docs for why that's the right cache key), `None` for
+    /// any failure (unreachable daemon, non-image content type, corrupt/
+    /// unsupported image data — `fetch_image_via_wire`'s own docs). Each
+    /// arrival inserts (or, on failure, simply doesn't) one cache entry
+    /// and marks layout dirty — images materialize one at a time as
+    /// their own fetches land, the page never blocks on all of them the
+    /// way `extra_css` necessarily does. Tagged with the same `nav_
+    /// generation` convention `NavResult` already uses, for the same
+    /// reason: a since-superseded page's late-arriving image must never
+    /// populate the *new* page's cache.
+    ImageFetched(u64, String, Option<DecodedImage>),
 }
 
 struct App {
@@ -10209,6 +10547,26 @@ struct App {
     /// path but nothing's listening there" (see its own docs), just
     /// without even attempting a connection first.
     socket_path: Option<PathBuf>,
+    /// CSS fetched via `wire` from the current page's own `<link
+    /// rel=stylesheet href>` references (v67) — concatenated once, by
+    /// `start_navigation`'s own background thread (`process_external_
+    /// resources`), *before* `AppEvent::NavResult` is even sent, so it's
+    /// fully present for the very first `build_layout_tree_with_
+    /// resources` call rather than arriving after an initial unstyled
+    /// flash. Set by `replace_document`, same lifetime as `document`
+    /// itself — cleared (to empty) on every navigation/`show_message`,
+    /// never merged across pages.
+    extra_css: String,
+    /// Already-decoded images fetched via `wire` for the current page's
+    /// own non-`data:` `<img src>` references (v67), keyed by the exact,
+    /// unresolved `src` attribute text — see `resolve_img`'s own docs
+    /// for why that raw-string key is safe here. Unlike `extra_css`,
+    /// populated gradually, *after* the page is already showing: each
+    /// `AppEvent::ImageFetched` that arrives inserts one entry and marks
+    /// layout dirty, so images materialize one at a time as their own
+    /// fetches finish rather than blocking the page on all of them.
+    /// Cleared on every navigation/`show_message`, same as `extra_css`.
+    image_cache: HashMap<String, Rc<DecodedImage>>,
 }
 
 impl App {
@@ -10238,6 +10596,8 @@ impl App {
             base_url,
             nav_generation: 0,
             socket_path,
+            extra_css: String::new(),
+            image_cache: HashMap::new(),
         }
     }
 
@@ -10268,6 +10628,8 @@ impl App {
             base_url: None,
             nav_generation: 0,
             socket_path,
+            extra_css: String::new(),
+            image_cache: HashMap::new(),
         }
     }
 
@@ -10299,7 +10661,7 @@ impl App {
         let need_rebuild = self.layout_dirty || self.cached_width != width;
 
         if need_rebuild && width_matches_pending {
-            self.tree = Some(build_layout_tree(&self.document, width as f32));
+            self.tree = Some(build_layout_tree_with_resources(&self.document, width as f32, &self.extra_css, &self.image_cache));
             self.shape_cache.clear();
             // New ids are assigned from the same shared counter a fresh
             // `measure_document` pass restarts at `0` just below (see
@@ -10406,8 +10768,20 @@ impl App {
     /// separately, since a synthetic "Loading…" page has no `<base>` of
     /// its own and clobbering `base_url` from it would make a page's
     /// own links briefly unresolvable while its replacement is loading.
-    fn replace_document(&mut self, document: Handle) {
+    ///
+    /// `extra_css` (v67) replaces `self.extra_css` wholesale — a page's
+    /// own externally-fetched stylesheets never carry over to whatever
+    /// replaces it, same "nothing leaks across a document swap" rule
+    /// `scroll_offsets`/`shape_cache` already follow just below.
+    /// `image_cache` is cleared unconditionally for the same reason: a
+    /// new document starts owing nothing to the previous one's fetched
+    /// images (any background fetch still in flight for the *old* page
+    /// is harmless — `AppEvent::ImageFetched`'s own `nav_generation`
+    /// check drops it before it could repopulate this cache anyway).
+    fn replace_document(&mut self, document: Handle, extra_css: String) {
         self.document = document;
+        self.extra_css = extra_css;
+        self.image_cache.clear();
         self.layout_dirty = true;
         self.tree = None;
         self.cached = None;
@@ -10427,14 +10801,17 @@ impl App {
     /// instead — freezing with no feedback would look broken) and a
     /// failed navigation's inline error (no `--socket` configured, the
     /// daemon unreachable, or a response in a content type scratchy
-    /// can't render — see `fetch_via_wire_at`'s own docs for which).
+    /// can't render — see `fetch_raw_via_wire`'s own docs for which).
     /// `escape_html` is needed since `text` can echo back arbitrary
     /// attacker^Wpage-controlled content (a clicked `href`, or an error
     /// string) — without it, a stray `<`/`&` in either would corrupt the
-    /// synthetic markup instead of just displaying literally.
+    /// synthetic markup instead of just displaying literally. Never has
+    /// any externally-fetched CSS of its own — a synthetic status page
+    /// is never real content, so `replace_document` always clears
+    /// `extra_css` for it.
     fn show_message(&mut self, text: &str) {
         let html = format!("<html><body><p>{}</p></body></html>", escape_html(text));
-        self.replace_document(parse_html(&html));
+        self.replace_document(parse_html(&html), String::new());
     }
 
     /// Entry point for `WindowEvent::MouseInput`'s click handler:
@@ -10470,10 +10847,24 @@ impl App {
         let socket_path = self.socket_path.clone();
         thread::spawn(move || {
             let request_text = build_get_request_text(&url);
-            let result = match &socket_path {
-                Some(path) => match fetch_via_wire_at(path, &request_text) {
-                    WireFetchOutcome::Responded(result) => result,
-                    WireFetchOutcome::Unreachable => {
+            let outcome: Result<FetchedPage, String> = match &socket_path {
+                Some(path) => match fetch_raw_via_wire(path, &request_text) {
+                    WireFetchRaw::Responded { content_type, body } => match dispatch_wire_response(content_type, body) {
+                        Ok(html) => {
+                            // Sub-resources (v67): fetched from *this*
+                            // background thread, not the event-loop one —
+                            // stylesheets synchronously, since CSS must be
+                            // fully in hand before the very first layout
+                            // (see `process_external_resources`'s own
+                            // docs); images only kicked off here, each
+                            // resolving independently and later, via its
+                            // own `AppEvent::ImageFetched`.
+                            let extra_css = process_external_resources(&proxy, path, &url, &html, generation);
+                            Ok(FetchedPage { html, extra_css })
+                        }
+                        Err(e) => Err(e),
+                    },
+                    WireFetchRaw::Unreachable => {
                         print_fallback_request(&request_text);
                         Err(format!(
                             "wire daemon not reachable at {} — printed the request to stdout; \
@@ -10491,7 +10882,7 @@ impl App {
                         .to_string())
                 }
             };
-            let _ = proxy.send_event(AppEvent::NavResult(generation, result));
+            let _ = proxy.send_event(AppEvent::NavResult(generation, outcome));
         });
     }
 }
@@ -10548,13 +10939,33 @@ impl ApplicationHandler<AppEvent> for App {
                     return;
                 }
                 match result {
-                    Ok(bytes) => {
-                        let dom = new_parser().read_from(&mut bytes.as_slice()).unwrap();
+                    Ok(FetchedPage { html, extra_css }) => {
+                        let dom = new_parser().read_from(&mut html.as_slice()).unwrap();
                         self.base_url = find_base_url(&dom.document);
-                        self.replace_document(dom.document);
+                        self.replace_document(dom.document, extra_css);
                     }
                     Err(message) => self.show_message(&message),
                 }
+            }
+            AppEvent::ImageFetched(generation, src, image) => {
+                // Same staleness guard `NavResult` already uses — a slow
+                // image fetch that only finishes after the user has since
+                // navigated elsewhere must never populate the *new*
+                // page's `image_cache` just because it happens to share
+                // the same raw `src` string. See `AppEvent::ImageFetched`'s
+                // own docs.
+                if generation != self.nav_generation {
+                    return;
+                }
+                let Some(image) = image else { return };
+                self.image_cache.insert(src, Rc::new(image));
+                // A newly-arrived image can change this element's own
+                // intrinsic size (no explicit CSS/HTML width/height —
+                // see `resolve_img`), so the whole tree needs a real
+                // rebuild, not just a repaint — the same `layout_dirty`
+                // flag `redraw` already checks before deciding whether to
+                // call `build_layout_tree_with_resources` again.
+                self.layout_dirty = true;
             }
         }
         if let Some(window) = &self.window {
@@ -14554,7 +14965,7 @@ mod tests {
     }
 
     #[test]
-    fn fetch_via_wire_at_round_trips_a_real_response_over_a_real_unix_socket() {
+    fn fetch_raw_via_wire_round_trips_a_real_response_over_a_real_unix_socket() {
         use std::os::unix::net::UnixListener;
         let path = unique_test_socket_path("roundtrip");
         let _ = std::fs::remove_file(&path);
@@ -14593,22 +15004,199 @@ mod tests {
         });
         let url = Url::parse("https://example.com/page").unwrap();
         let request_text = build_get_request_text(&url);
-        let result = fetch_via_wire_at(&path, &request_text);
+        let result = fetch_raw_via_wire(&path, &request_text);
         server.join().expect("mock server thread panicked");
         let _ = std::fs::remove_file(&path);
         match result {
-            WireFetchOutcome::Responded(Ok(body)) => assert_eq!(body, b"<html><body>hi</body></html>"),
-            other => panic!("expected a successful HTML response, got something else entirely: {other:?}"),
+            WireFetchRaw::Responded { content_type, body } => {
+                assert_eq!(content_type, Some("text/html".to_string()));
+                assert_eq!(body, b"<html><body>hi</body></html>");
+            }
+            WireFetchRaw::Unreachable => panic!("expected a successful response, got Unreachable"),
         }
     }
 
     #[test]
-    fn fetch_via_wire_at_reports_unreachable_when_nothing_is_listening() {
+    fn fetch_raw_via_wire_reports_unreachable_when_nothing_is_listening() {
         let path = unique_test_socket_path("missing");
         let _ = std::fs::remove_file(&path);
         let request_text = build_get_request_text(&Url::parse("https://example.com/").unwrap());
-        assert!(matches!(fetch_via_wire_at(&path, &request_text), WireFetchOutcome::Unreachable));
+        assert!(matches!(fetch_raw_via_wire(&path, &request_text), WireFetchRaw::Unreachable));
     }
+
+    // -- sub-resource fetching (v67): external stylesheets and images --
+
+    #[test]
+    fn find_external_resources_collects_stylesheet_links_and_non_data_img_srcs() {
+        let doc = parse_html(
+            r#"<html><head>
+                <link rel="stylesheet" href="a.css">
+                <link rel="icon" href="favicon.ico">
+                <link rel="alternate stylesheet" href="b.css">
+            </head><body>
+                <img src="photo.jpg">
+                <img src="data:image/png;base64,iVBORw0KGgo=">
+            </body></html>"#,
+        );
+        let mut resources = ExternalResources::default();
+        find_external_resources(&doc, &mut resources);
+        assert_eq!(resources.stylesheets, vec!["a.css".to_string(), "b.css".to_string()]);
+        assert_eq!(resources.images, vec!["photo.jpg".to_string()]);
+    }
+
+    /// A tiny single-shot mock `wire` listener: binds `path`, accepts
+    /// exactly one connection, writes `response` verbatim, then returns
+    /// (dropping the stream, closing the connection — the real `wire`
+    /// protocol's own "done" signal, same shape every other mock server
+    /// in this file already uses). Doesn't bother reading/validating the
+    /// request at all — unlike `fetch_raw_via_wire`'s own round-trip
+    /// test, these tests are about what `fetch_stylesheet_via_wire`/
+    /// `fetch_image_via_wire` do with a *response*, not about re-proving
+    /// the request framing that's already covered elsewhere.
+    fn spawn_mock_wire_once(path: &std::path::Path, response: &'static [u8]) {
+        use std::os::unix::net::UnixListener;
+        let listener = UnixListener::bind(path).expect("bind mock wire socket");
+        thread::spawn(move || {
+            let Ok((mut stream, _)) = listener.accept() else { return };
+            let mut discard = [0u8; 4096];
+            let _ = Read::read(&mut stream, &mut discard);
+            let _ = stream.write_all(response);
+        });
+    }
+
+    #[test]
+    fn fetch_stylesheet_via_wire_only_accepts_real_css() {
+        let path = unique_test_socket_path("css-ok");
+        let _ = std::fs::remove_file(&path);
+        spawn_mock_wire_once(&path, b"HTTP/1.1 200 OK\r\nContent-Type: text/css\r\nContent-Length: 15\r\n\r\nbody{color:red}");
+        let url = Url::parse("https://example.com/style.css").unwrap();
+        // A real connection, over a real socket — not a direct call into
+        // `fetch_sub_resource_via_wire`'s own internals — the same
+        // "real I/O, not just the pure logic" bar `fetch_raw_via_wire`'s
+        // own test already holds to.
+        assert_eq!(fetch_stylesheet_via_wire(&path, &url), Some("body{color:red}".to_string()));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn fetch_stylesheet_via_wire_rejects_a_non_css_content_type() {
+        let path = unique_test_socket_path("css-wrong-type");
+        let _ = std::fs::remove_file(&path);
+        spawn_mock_wire_once(&path, b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 4\r\n\r\n<p/>");
+        let url = Url::parse("https://example.com/not-css").unwrap();
+        assert_eq!(fetch_stylesheet_via_wire(&path, &url), None);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn fetch_image_via_wire_decodes_a_real_fetched_png() {
+        use base64::Engine;
+        let data_uri = tiny_png_data_uri(2, 2);
+        let payload = data_uri.strip_prefix("data:image/png;base64,").unwrap();
+        let png_bytes = base64::engine::general_purpose::STANDARD.decode(payload).unwrap();
+        let mut raw = format!("HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: {}\r\n\r\n", png_bytes.len()).into_bytes();
+        raw.extend_from_slice(&png_bytes);
+        let path = unique_test_socket_path("image-ok");
+        let _ = std::fs::remove_file(&path);
+        spawn_mock_wire_once(&path, raw.leak());
+        let url = Url::parse("https://example.com/pixel.png").unwrap();
+        let decoded = fetch_image_via_wire(&path, &url).expect("decode");
+        assert_eq!((decoded.width, decoded.height), (2, 2));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn fetch_image_via_wire_rejects_a_non_image_content_type() {
+        let path = unique_test_socket_path("image-wrong-type");
+        let _ = std::fs::remove_file(&path);
+        spawn_mock_wire_once(&path, b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 5\r\n\r\nhello");
+        let url = Url::parse("https://example.com/not-an-image").unwrap();
+        assert!(fetch_image_via_wire(&path, &url).is_none());
+        let _ = std::fs::remove_file(&path);
+    }
+
+    // -- the rendering side: does a cached live-fetched resource
+    // actually reach the page, not just the fetch functions above --
+
+    fn find_element_by_tag(handle: &Handle, tag: &str) -> Option<Handle> {
+        if element_tag(handle) == tag {
+            return Some(handle.clone());
+        }
+        handle.children.borrow().iter().find_map(|c| find_element_by_tag(c, tag))
+    }
+
+    #[test]
+    fn resolve_img_renders_a_cached_live_fetched_image_for_a_non_data_uri_src() {
+        let doc = parse_html(r#"<html><body><img src="https://example.com/photo.jpg" style="display:block"></body></html>"#);
+        let img_handle = find_element_by_tag(&doc, "img").expect("no <img> found in fixture");
+        let decoded = DecodedImage { width: 4, height: 4, pixels: vec![TextColor::rgb(1, 2, 3); 16] };
+        let mut image_cache = HashMap::new();
+        image_cache.insert("https://example.com/photo.jpg".to_string(), Rc::new(decoded));
+        let (_, found) = resolve_img(&img_handle, resolve_style(&img_handle, &[], ROOT_STYLE, 1920.0), &image_cache);
+        assert!(found.is_some(), "a src present in image_cache must be used, not fall back to alt text");
+        let found = found.unwrap();
+        assert_eq!((found.width, found.height), (4, 4));
+    }
+
+    #[test]
+    fn resolve_img_is_a_cache_miss_for_a_non_data_uri_src_not_yet_fetched() {
+        let doc = parse_html(r#"<html><body><img src="https://example.com/not-fetched-yet.jpg"></body></html>"#);
+        let img_handle = find_element_by_tag(&doc, "img").expect("no <img> found in fixture");
+        let (_, found) = resolve_img(&img_handle, resolve_style(&img_handle, &[], ROOT_STYLE, 1920.0), &HashMap::new());
+        assert!(found.is_none(), "an empty image_cache must be a clean miss, not a panic or a guess");
+    }
+
+    #[test]
+    fn build_layout_tree_with_resources_applies_extra_css_to_the_real_cascade() {
+        let doc = parse_html(r#"<html><body><div class="box">x</div></body></html>"#);
+        let extra_css = ".box { background-color: #00ff00; }";
+        let tree = build_layout_tree_with_resources(&doc, 1920.0, extra_css, &HashMap::new());
+        assert_eq!(
+            find_box_with_background(&tree),
+            Some(TextColor::rgb(0, 0xff, 0)),
+            "CSS fetched from an external stylesheet must cascade exactly like an inline <style> block's own rules"
+        );
+    }
+
+    #[test]
+    fn build_layout_tree_with_resources_renders_a_cached_image_as_a_real_image_box() {
+        let doc = parse_html(r#"<html><body><img src="https://example.com/photo.jpg" style="display:block"></body></html>"#);
+        let mut image_cache = HashMap::new();
+        image_cache.insert(
+            "https://example.com/photo.jpg".to_string(),
+            Rc::new(DecodedImage { width: 2, height: 2, pixels: vec![TextColor::rgb(9, 9, 9); 4] }),
+        );
+        let tree = build_layout_tree_with_resources(&doc, 1920.0, "", &image_cache);
+        fn find_image_box(b: &LayoutBox) -> Option<&LayoutBox> {
+            if matches!(b.content, BoxContent::Image(_)) {
+                return Some(b);
+            }
+            if let BoxContent::Blocks(children) = &b.content {
+                for c in children {
+                    if let Some(found) = find_image_box(c) {
+                        return Some(found);
+                    }
+                }
+            }
+            None
+        }
+        assert!(
+            find_image_box(&tree).is_some(),
+            "a non-data: <img> with its src already in image_cache must render as a real image box, not fall back to alt text"
+        );
+    }
+
+    // `process_external_resources` itself isn't unit-tested directly —
+    // it takes a real `EventLoopProxy<AppEvent>`, and this file's own
+    // established precedent (see NOTES.md's v65/v62/v55/v32 entries) is
+    // to never construct a real winit `EventLoop` inside `#[cfg(test)]`
+    // just to get one; its two real pieces (`find_external_resources`,
+    // `fetch_stylesheet_via_wire`, `fetch_image_via_wire`, all above)
+    // are each independently covered, and the thin orchestration between
+    // them (resolve each href, fetch/spawn) rests on code review plus
+    // the live interactive verification `PROMPTS.md`'s own v67 entry
+    // describes, same category as `start_navigation`'s own click-side
+    // wiring already is.
 
     // -- `App::show_message`'s HTML-escaping, since it echoes back
     // arbitrary page/OS-controlled text (a clicked href, an io::Error)

@@ -116,13 +116,30 @@ server gets opened.
   headers here beyond the three transport-framing ones above would be
   `wire` quietly making a product decision on scratchy's behalf.
 
+- **`--print-socket` resolves and prints, never a second computation.**
+  scratchy's own `--socket` is a strict opt-in with zero auto-discovery
+  (see `scratchy/TODO.txt`'s own settled design) — something has to
+  hand it a real path. Rather than document `wire`'s own `$XDG_RUNTIME_
+  DIR`-or-`/tmp` fallback logic as a recipe for scripts to re-derive
+  (wrong the instant that logic ever changes), `--print-socket` reuses
+  the *exact* `path` value the real serving path would bind — same
+  `unwrap_or_else(default_socket_path)` call, same explicit-`--socket`
+  override honored in either argument order — and just prints it,
+  exiting before any real work (bind, listen, build an HTTP client).
+  The one thing this still can't answer is whether a `wire` is actually
+  *running* at that path right now — it resolves the path, not the
+  daemon's liveness; connecting (or not) is `scratchy`'s own job, with
+  its own already-established fallback (`fetch_raw_via_wire`'s
+  `Unreachable` case) for exactly that.
+
 ## What's deliberately not here yet
 
 See `wire/TODO.txt` for the precise, maintained list — this section is
-just the short version. The daemon itself (parse → execute → normalize
-→ write) is complete and tested for what it's scoped to do; what's
-missing is entirely on the *consuming* side: `scratchy` doesn't dial
-`wire` yet (still talks to `snag --serve`), and `snag --serve` itself
-hasn't been removed now that `wire` supersedes it for live navigation.
-Both are explicitly the next slice of the same `scratchy/TODO.txt` item
-this tool was built to satisfy, not a gap in `wire` itself.
+just the short version. `scratchy` now dials `wire` for its own live
+link navigation and sub-resource fetching (v66/v67, both in a separate
+session — see `scratchy/PROMPTS.md`), closing what used to be this
+file's main open item. What's left, entirely on the *consuming* side:
+form submission has no transport of its own yet (scratchy has no
+`<button>`/focus/keyboard subsystem at all to drive one with), and
+`snag --serve` itself hasn't been removed now that `wire` supersedes it
+for live navigation — `snag`'s own, independent change to make.

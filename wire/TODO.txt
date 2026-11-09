@@ -5,14 +5,21 @@ deliberately-deferred, not a speculative feature backlog. See NOTES.md
 for the fuller story behind any item; a commit hash in parens points at
 the commit it came up during.
 
-- [ ] **`scratchy` doesn't talk to `wire` yet.** This daemon exists and
-      is tested on its own, but nothing consumes it — `scratchy`'s
-      v65-era `fetch_from_snag`/`fetch_from_snag_at`/`snag_socket_path`
-      still dial `snag --serve` directly, and `snag --serve` itself is
-      still there, unremoved. Both are the explicitly-planned next slice
-      of the same `scratchy/TODO.txt` "TOP PRIORITY" item `wire` was
-      built to satisfy — see that file's own writeup — not a gap in
-      this crate.
+- [x] **`scratchy` talks to `wire` now** (`scratchy` v66/v67, a separate
+      session — see `scratchy/PROMPTS.md`). Link-click navigation and
+      a live-navigated page's own sub-resources (external stylesheets,
+      non-inlined images) both go through `wire`; `fetch_from_snag`/
+      `fetch_from_snag_at`/`snag_socket_path` are gone from `scratchy`
+      entirely. Still open, on `snag`'s own side: `snag --serve` itself
+      hasn't been removed, even though nothing calls it anymore —
+      `snag`'s own change to make, not this crate's.
+
+- [ ] **Form submission has no transport yet.** `scratchy` has no
+      `<button>`/focus/keyboard subsystem at all (see its own
+      `TODO.txt`'s "Form elements — sequencing plan" item), so nothing
+      can drive a POST through `wire` yet even though the daemon itself
+      already supports a request body. Not a gap in `wire` — blocked
+      entirely on `scratchy`'s own, unrelated, not-yet-started work.
 
 - [ ] **Not live-verified against a real public Internet host.** This
       sandbox's own outbound network policy denies `CONNECT` to
