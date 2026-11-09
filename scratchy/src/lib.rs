@@ -10084,9 +10084,9 @@ fn is_click(down: (f32, f32), up: (f32, f32), threshold: f32) -> bool {
 /// mouse-up over the same link doesn't miss.
 const CLICK_DRAG_THRESHOLD_PX: f32 = 5.0;
 
-/// How long `App::redraw`'s own progressive-layout branch (`self.
-/// layout_incomplete`) lets `measure_document` run before yielding —
-/// winit is single-threaded, so every other input event (keyboard
+/// How long `App::redraw`'s own progressive-layout branch *used to*
+/// let `measure_document` run before yielding — winit is single-
+/// threaded, so every other input event (keyboard
 /// included, now that vim mode exists — see TODO.txt) sits unhandled
 /// for the entire budget if it arrives mid-tick. Was `500ms`, picked
 /// purely to minimize *total* load time (measured: on a 151-paragraph
@@ -10105,11 +10105,27 @@ const CLICK_DRAG_THRESHOLD_PX: f32 = 5.0;
 /// meaningfully less total overhead anyway, so bounding worst-case
 /// input latency to it costs little (+15% total load time on the
 /// measured 151-paragraph page; within noise on the large/RTL one).
-/// A stopgap, not the real fix — see TODO.txt's own plan for moving
-/// `measure_document` to a background thread entirely, which would
-/// let this budget (or ticking at all) stop existing for input-latency
-/// reasons once nothing on the main thread can be blocked by it.
+/// Was a stopgap, not the real fix — TODO.txt's own plan for moving
+/// `measure_document` to a background thread entirely (`spawn_shaping_
+/// thread`) has now landed, and with it this constant's own reason to
+/// exist: nothing on the main thread can be blocked by shaping at all
+/// any more, so there's no input-latency budget left to bound. Kept
+/// (unused) rather than deleted in the same change that made it so —
+/// TODO.txt's own recommended sequencing calls that its own later,
+/// separately-landed step, since the background thread could, in
+/// principle, still want *some* notion of a tick (periodic partial
+/// snapshots) even though it ended up not using this one — see
+/// `spawn_shaping_thread`'s own docs for why that was left out too.
+#[allow(dead_code)]
 const PROGRESSIVE_LAYOUT_TICK_BUDGET: std::time::Duration = std::time::Duration::from_millis(80);
+
+/// The deadline `App::spawn_shaping_thread` passes to `measure_document`
+/// — not a real budget at all, just far enough out that the deadline
+/// check built into `measure`/`measure_document` never actually fires
+/// in practice, so a background shaping pass always runs to completion
+/// in the one call that thread makes. See `spawn_shaping_thread`'s own
+/// docs for why that parameter wasn't instead made optional throughout.
+const BACKGROUND_SHAPING_DEADLINE: std::time::Duration = std::time::Duration::from_secs(60 * 60);
 
 /// Resolves a clicked `<a href>` into an absolute URL against the
 /// page's own `<base href>` — ordinary URL-join logic via the `url`
@@ -10550,6 +10566,31 @@ enum AppEvent {
     /// reason: a since-superseded page's late-arriving image must never
     /// populate the *new* page's cache.
     ImageFetched(u64, String, Option<DecodedImage>),
+    /// A background shaping thread (`spawn_shaping_thread`) finishing a
+    /// full `measure_document` pass — the "move page shaping off the
+    /// main thread" plan in TODO.txt, landed. Tagged with `App::layout_
+    /// generation` at the moment the spawn that produced this started,
+    /// same `NavResult`/`ImageFetched` convention: compared against the
+    /// *current* generation on arrival, a mismatch (a resize, a new
+    /// chunk, a newly-arrived image, a navigation — anything that
+    /// bumped `layout_generation` again before this landed) means the
+    /// reshape this was computing is since-superseded, dropped silently
+    /// instead of clobbering newer content. The `ShapeCache` crosses
+    /// back too, since the background thread shapes with its own
+    /// independent one (see `spawn_shaping_thread`'s own docs) —
+    /// `paint` needs the *matching* cache for whatever ids this exact
+    /// `Laid` references, so `App::shape_cache` is replaced wholesale
+    /// on arrival, never merged with whatever was there before. Always
+    /// a *complete* layout (see `spawn_shaping_thread`'s own docs for
+    /// why this plan's own still-open "tick budget or run to
+    /// completion" question was resolved as the latter here) — no
+    /// `incomplete` flag, unlike `measure`'s own parameter of that name.
+    /// `Laid` itself is boxed — otherwise this variant alone (`Laid`
+    /// plus a whole `ShapeCache`) would dwarf every other `AppEvent`
+    /// variant's size and every one of them pays for that on the stack
+    /// (`clippy::large_enum_variant`); `self.cached: Option<Laid>` on
+    /// the receiving end stays unboxed, same as before this plan.
+    ShapeResult(u64, Box<Laid>, ShapeCache),
     /// `SIGUSR1`'s own background thread (`run()`) waking the event
     /// loop — the out-of-band bootstrap the vim-mode plan in TODO.txt
     /// settled on for turning vim mode back *on* once it's off: with
@@ -10704,22 +10745,16 @@ struct App {
     cached: Option<Laid>,
     cached_width: u32,
     layout_dirty: bool,
-    /// The box tree for the current layout session (built once from
-    /// `document`+CSS, reused across every incremental `measure` tick until
-    /// the document or width changes). Rebuilding this per tick — a full DOM
-    /// walk plus cascade matching for every element — was itself costing
-    /// hundreds of ms on large pages, swamping the shaping time budget
-    /// before a single new paragraph even got shaped.
-    tree: Option<LayoutBox>,
-    /// Shaped paragraphs, keyed by the stable id `measure` assigns them.
-    /// Outlives any single `measure` call — this is what lets layout be
-    /// resumed across frames instead of reshaping the whole document in one
-    /// blocking call (see `measure`'s deadline/incomplete mechanism).
+    /// Shaped paragraphs matching whatever `Laid` tree is currently in
+    /// `cached`, keyed by the stable id `measure` assigned them when it
+    /// was built — `paint` looks a `LaidContent::Text(id)` up in here.
+    /// Replaced wholesale, never merged, whenever a background shaping
+    /// pass (`spawn_shaping_thread`) finishes and its `AppEvent::
+    /// ShapeResult` lands (see that type's own docs) — not touched in
+    /// between, so `cached`/`shape_cache` stay a consistent pair for
+    /// `paint` to read throughout the (now potentially long) gap while
+    /// a new reshape runs in the background.
     shape_cache: ShapeCache,
-    /// Set when the last `measure` pass ran out of its time budget before
-    /// shaping every paragraph. `redraw` keeps re-triggering itself while
-    /// this is true, making progress a bit further each frame.
-    layout_incomplete: bool,
     /// The size `surface.resize()` was last called with — skip the call
     /// when nothing changed instead of re-issuing it on every redraw.
     surface_size: (u32, u32),
@@ -10885,9 +10920,7 @@ impl App {
             cached: None,
             cached_width: 0,
             layout_dirty: true,
-            tree: None,
             shape_cache: ShapeCache::new(),
-            layout_incomplete: false,
             surface_size: (0, 0),
             pending_width: None,
             last_cursor: Some(CursorIcon::Default),
@@ -10922,9 +10955,7 @@ impl App {
             cached: None,
             cached_width: 0,
             layout_dirty: true,
-            tree: None,
             shape_cache: ShapeCache::new(),
-            layout_incomplete: false,
             surface_size: (0, 0),
             pending_width: None,
             last_cursor: Some(CursorIcon::Default),
@@ -10973,60 +11004,33 @@ impl App {
         let need_rebuild = self.layout_dirty || self.cached_width != width;
 
         if need_rebuild && width_matches_pending {
-            self.tree = Some(build_layout_tree_with_resources(&self.document, width as f32, &self.extra_css, &self.image_cache));
-            self.shape_cache.clear();
-            // New ids are assigned from the same shared counter a fresh
-            // `measure_document` pass restarts at `0` just below (see
-            // `ScrollInfo`'s own docs) — stale entries keyed by an old
-            // tree's ids would just be harmless dead weight otherwise,
-            // but clearing keeps this from growing unboundedly across
-            // many stdin chunks in streaming mode.
-            self.scroll_offsets.clear();
+            // The DOM walk + cascade match itself stays synchronous,
+            // right here, on the main thread — `Handle` (`self.document`)
+            // is `Rc`-based, so it can never cross a thread boundary (see
+            // `spawn_shaping_thread`'s own docs). Only the `LayoutBox`
+            // tree this produces — plain owned data, no `Handle` left
+            // inside it — gets handed off below.
+            let tree = build_layout_tree_with_resources(&self.document, width as f32, &self.extra_css, &self.image_cache);
             self.cached_width = width;
             self.layout_dirty = false;
-            self.layout_incomplete = true;
             self.layout_generation += 1;
+            Self::spawn_shaping_thread(tree, width as f32, height as f32, self.layout_generation, self.proxy.clone());
         } else if need_rebuild {
             window.request_redraw();
         }
 
-        if self.tree.is_some() && (self.cached.is_none() || self.layout_incomplete) {
-            let deadline = std::time::Instant::now() + PROGRESSIVE_LAYOUT_TICK_BUDGET;
-            let mut incomplete = false;
-            let mut next_id = 0usize;
-            self.cached = Some(measure_document(
-                self.tree.as_ref().unwrap(),
-                &mut self.font_system,
-                width as f32,
-                // This is the one place `measure_document`'s own
-                // `viewport_h` parameter is a real, definite window
-                // dimension — used *only* for `position: fixed` (and an
-                // orphaned `position: absolute`)'s own containing block
-                // (see its own docs), never reused as the root box's
-                // own `%`-height-resolution basis the way NOTES.md's v49
-                // entry warned against: that's still a *completely
-                // separate* `None` passed one level down, inside
-                // `measure_document` itself, to the root box's own
-                // `measure` call — this engine still has no viewport/
-                // initial-containing-block *height* concept for an
-                // ordinary `html, body { height: 100% }` pattern (see
-                // TODO.txt), only for this one new, narrower role.
-                height as f32,
-                &mut next_id,
-                &mut self.shape_cache,
-                deadline,
-                &mut incomplete,
-            ));
-            self.layout_incomplete = incomplete;
-        }
         let mut pixels = surface.buffer_mut().unwrap();
         for pixel in pixels.iter_mut() {
             *pixel = 0x00FFFFFF;
         }
 
-        // `None` only on the very first tick or two, while we're still
+        // `None` on the very first tick or two, while we're still
         // waiting to see whether the width is about to change again (see
-        // `pending_width`) — paint a blank frame rather than stall on it.
+        // `pending_width`); also `None` for as long as the very first
+        // background shaping pass (`spawn_shaping_thread`) takes to
+        // land, now that nothing synchronously fills this in before the
+        // first paint the way `redraw`'s own old inline call used to —
+        // either way, paint a blank frame rather than stall on it.
         if let Some(laid) = self.cached.as_ref() {
             let max_scroll = (laid.h - height as f32).max(0.0);
             self.scroll_offset = self.scroll_offset.clamp(0.0, max_scroll);
@@ -11051,10 +11055,92 @@ impl App {
 
         window.pre_present_notify();
         pixels.present().unwrap();
+    }
 
-        if self.layout_incomplete {
-            window.request_redraw();
-        }
+    /// Spawns the background thread that does `measure_document`'s own
+    /// real work — step 3 of the "move page shaping off the main
+    /// thread" plan in TODO.txt, landed. Called from `redraw`'s own
+    /// rebuild branch exactly where that call used to happen inline;
+    /// takes `tree` *by value* since nothing on the main thread reads
+    /// it again afterward (confirmed — `App` no longer even has a
+    /// `tree` field of its own) and `LayoutBox` isn't `Clone` anyway.
+    /// A free function, not an `&self` method: `redraw`'s own caller
+    /// already holds `self.window`/`self.surface` borrowed apart from
+    /// the rest of `self` (see its own destructuring `let`), which an
+    /// `&self` method call can't see past — `generation`/`proxy` are
+    /// threaded in as plain parameters instead, each already copied
+    /// out of `self` by the caller before that borrow starts mattering.
+    ///
+    /// **A second, independently-owned `FontSystem`/`SwashCache` pair,
+    /// not `self`'s own.** Confirmed by reading cosmic-text's own
+    /// vendored source: `FontSystem`/`Buffer`/`SwashCache` hold no
+    /// `Rc`/`RefCell` internally, so sharing one *instance* across
+    /// threads would at least compile (behind a `Mutex`, say) — but
+    /// would just reintroduce the exact stall this plan exists to
+    /// remove: the main thread blocking on the lock while this thread
+    /// holds it mid-shape. So this thread loads its own independent
+    /// copy instead, a second in-memory font database, paid once when
+    /// it starts. `self.font_system`/`self.swash_cache` stay exactly
+    /// what `paint`/`paint_command_bar` already use to paint a
+    /// finished `Laid` tree on the main thread; nothing about painting
+    /// itself changes.
+    ///
+    /// **Runs `measure_document` to completion in one call, not
+    /// ticked.** The old `PROGRESSIVE_LAYOUT_TICK_BUDGET` budget
+    /// existed purely to bound how long input sat unhandled on the
+    /// single-threaded main loop (see its own docs) — that reason is
+    /// gone once nothing on the main thread blocks on this at all, so
+    /// `BACKGROUND_SHAPING_DEADLINE` is simply far enough out that
+    /// `measure_document`'s own `deadline` parameter never actually
+    /// triggers in practice (changing that parameter to `Option<Instant>`
+    /// across every recursive caller, just for this one case, wasn't
+    /// judged worth it here). The plan in TODO.txt named periodic
+    /// partial snapshots instead as the alternative, explicitly left
+    /// open — not taken here: `ShapeCache` (`cosmic_text::Buffer`
+    /// inside it) isn't `Clone`, so a mid-shape snapshot could only be
+    /// sent by *moving* the cache out, which would hand this thread an
+    /// empty one to resume with — losing exactly the already-shaped-
+    /// paragraph reuse the cache exists for. The real, acknowledged
+    /// cost: a big page's very first paint after a rebuild is now a
+    /// longer wait (no progressive fill-in while this runs) than
+    /// before backgrounding existed at all. Revisiting that tradeoff —
+    /// and `PROGRESSIVE_LAYOUT_TICK_BUDGET`'s own fate — is TODO.txt's
+    /// own next, separately-landed step, not folded in here.
+    ///
+    /// **No true cancellation** — same tradeoff `start_navigation`'s
+    /// own fetch thread already accepts: a resize/chunk/navigation
+    /// arriving mid-shape just bumps `layout_generation` and calls this
+    /// again for the new state, leaving this call's own thread to keep
+    /// running to completion on its own and have its now-stale result
+    /// dropped on arrival (see `AppEvent::ShapeResult`'s own docs).
+    /// Wasted CPU on an abandoned pass, but bounded — every pass does
+    /// eventually finish.
+    fn spawn_shaping_thread(tree: LayoutBox, width: f32, height: f32, generation: u64, proxy: EventLoopProxy<AppEvent>) {
+        thread::spawn(move || {
+            let mut font_system = new_font_system();
+            let mut shape_cache = ShapeCache::new();
+            let mut next_id = 0usize;
+            let mut incomplete = false;
+            let deadline = std::time::Instant::now() + BACKGROUND_SHAPING_DEADLINE;
+            let laid = measure_document(
+                &tree,
+                &mut font_system,
+                width,
+                // Same real, definite window dimension `redraw`'s own
+                // synchronous call used to pass here — see `measure_
+                // document`'s own docs for why `viewport_h` specifically
+                // (only `position: fixed`/an orphaned `position:
+                // absolute`'s own containing block) is the one place
+                // that's true.
+                height,
+                &mut next_id,
+                &mut shape_cache,
+                deadline,
+                &mut incomplete,
+            );
+            debug_assert!(!incomplete, "BACKGROUND_SHAPING_DEADLINE should never actually be hit");
+            let _ = proxy.send_event(AppEvent::ShapeResult(generation, Box::new(laid), shape_cache));
+        });
     }
 
     /// Swaps in a brand-new document — the one place both link
@@ -11087,7 +11173,6 @@ impl App {
         self.image_cache.clear();
         self.layout_dirty = true;
         self.layout_generation += 1;
-        self.tree = None;
         self.cached = None;
         self.shape_cache.clear();
         self.scroll_offsets.clear();
@@ -11398,6 +11483,27 @@ impl ApplicationHandler<AppEvent> for App {
                 // call `build_layout_tree_with_resources` again.
                 self.layout_dirty = true;
                 self.layout_generation += 1;
+            }
+            AppEvent::ShapeResult(generation, laid, shape_cache) => {
+                // Same staleness guard `NavResult`/`ImageFetched` already
+                // use, tagged with `layout_generation` instead of `nav_
+                // generation` — a background shaping pass that only
+                // finishes after a resize/chunk/navigation/image already
+                // started a newer one must never clobber content that's
+                // already further along. See `AppEvent::ShapeResult`'s
+                // own docs.
+                if generation != self.layout_generation {
+                    return;
+                }
+                // Deferred from `redraw`'s own rebuild branch (see its
+                // own comment there) specifically so the *previous*
+                // `cached`/`shape_cache`/`scroll_offsets` stay a
+                // consistent triple, paintable as-is, for however long
+                // this background pass took — only swapped out now,
+                // all together, the instant a fresh one actually lands.
+                self.scroll_offsets.clear();
+                self.shape_cache = shape_cache;
+                self.cached = Some(*laid);
             }
             AppEvent::ToggleVimMode => {
                 self.vim_enabled = !self.vim_enabled;
