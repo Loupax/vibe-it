@@ -5301,3 +5301,64 @@ children`/`build_table_row_cells`/`build_flex_children`/`build_img_
 box`/`resolve_img`; `replace_document` gained an `extra_css` parameter;
 `start_navigation` rewritten around the new fetch/dispatch split; 9 new
 tests). `scratchy/NOTES.md`, `scratchy/TODO.txt` both updated.
+
+## v68 — a fetched page with no `<base>` of its own no longer breaks every relative link
+
+> Fix it now. Make new PR
+
+Direct fix for a real bug found live, mid-testing, reported with a
+screenshot: clicking `#bodyContent` (MediaWiki's own "Jump to content"
+skip-link) on a real, live-navigated page failed with `cannot resolve
+link "#bodyContent": no <base href> on this page to resolve it against`.
+
+**Root cause, confirmed by reading the code, not guessed at**:
+`AppEvent::NavResult`'s `Ok` handler only ever set `self.base_url =
+find_base_url(&dom.document)` — a fetched page's own `<base href>`, if
+it declares one. Most real pages don't (a real browser's own "document
+base URL" already defaults to the page's own fetched address when
+there's no `<base>` element at all — declaring one is the exception, not
+the rule). `snag`'s own bundled pages never hit this because `snag`
+itself always synthesizes a `<base href>` reflecting the real fetched
+URL when the page doesn't declare its own (v9); `wire`-navigated pages
+(v66/v67) never got the equivalent — `FetchedPage` didn't even carry the
+URL that was fetched, so `NavResult` had nothing to fall back to.
+`base_url` landing at `None` doesn't just break the one link that
+happened to be clicked — every relative href on that page breaks the
+same way, fragment links included, until the next full navigation.
+
+**Fix**: `FetchedPage` gained a third field, `url: Url` (the real
+address `start_navigation` resolved and fetched — already computed,
+just not threaded through before). A new, small, directly-testable
+`resolve_page_base_url(document, fetched_url) -> Url` — `find_base_url`
+if the page declares one, else `fetched_url` — replaces the old bare
+`find_base_url(...)` call in `NavResult`'s handler. Mirrors `snag`'s own
+v9 behavior exactly, just computed in scratchy itself instead of
+pre-baked into the bundle.
+
+**2 new permanent tests** (179 total, up from 177): `resolve_page_base_
+url` still prefers a page's own real `<base>` tag when present; and the
+exact failure shape itself — a page with no `<base>` and a `<a
+href="#bodyContent">` — confirmed to both produce the fetched URL as the
+fallback base *and* that `resolve_href` against that base actually
+succeeds now (`.../wiki/Example#bodyContent`), not just that the
+fallback value looks plausible in isolation. `cargo test`: 179/179.
+`cargo clippy --all-targets`: unchanged warning count (21, same as
+after v67 — `resolve_page_base_url` is a plain 2-argument function, no
+new threading-cost warnings).
+
+**Live-verified by reproducing the exact bug, then confirming the fix,
+both as real clicks** — not just trusting the unit tests: a real local
+HTTP fixture served a page with no `<base>` tag at all, containing both
+a `#bodyContent` fragment link and a genuine root-relative link
+(`/relative-page`). A real `xdotool` click through a real running
+`wire` daemon onto the fragment link, previously guaranteed to fail,
+now re-fetches and re-renders the same page with no error at all
+(scratchy has no anchor-scroll feature, so a fragment link is simply a
+same-page re-navigation — the point being it *resolves*, not that it
+scrolls). A second real click on the genuine relative link correctly
+navigated to and rendered the distinct target page. Both confirmed via
+screenshot.
+
+**Deliverable**: `scratchy/src/lib.rs` (`FetchedPage::url`,
+`resolve_page_base_url`, `start_navigation`'s `FetchedPage` construction
+site, `NavResult`'s handler simplified to one line, 2 new tests).

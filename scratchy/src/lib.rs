@@ -10050,6 +10050,26 @@ fn find_base_url(document: &Handle) -> Option<Url> {
     find_base_href(document).and_then(|h| Url::parse(&h).ok())
 }
 
+/// The base URL `AppEvent::NavResult`'s handler resolves a freshly-
+/// fetched page against (v68): the page's own `<base href>`, if it
+/// declares one, else `fetched_url` — the real address `wire` fetched
+/// it from. Mirrors a real browser's own "document base URL" rule
+/// (defaults to the document's own address when there's no `<base>`
+/// element at all) and the equivalent `snag` already gives a bundled
+/// page via a synthesized `<base href>` (v9) — `wire`-navigated pages
+/// never had that until now. Before this fix, a fetched page with no
+/// `<base>` of its own left `base_url` at `None`, which broke *every*
+/// relative link on that page, including a same-page fragment link
+/// (found live: MediaWiki's own `#bodyContent` "jump to content" skip-
+/// link, on an otherwise ordinary page with no explicit `<base>` tag —
+/// the overwhelmingly common real-world case, not an edge case). Pulled
+/// out as its own pure function specifically so this exact regression
+/// has a permanent test, not just a one-line inline fix nobody can
+/// re-verify later.
+fn resolve_page_base_url(document: &Handle, fetched_url: Url) -> Url {
+    find_base_url(document).unwrap_or(fetched_url)
+}
+
 /// Same recursive shape as `find_html_element` — walks the whole tree
 /// (not just `<head>`) so a malformed/fragment document still finds a
 /// `<base>` wherever it actually ended up, rather than silently falling
@@ -10388,14 +10408,21 @@ fn process_external_resources(
 /// a fetched image has already been wrapped into a synthetic HTML
 /// document by this point too); `extra_css` is every external
 /// stylesheet `process_external_resources` found and fetched for this
-/// page, concatenated — see `App::extra_css`'s own docs. Both are plain
-/// owned data (`Vec<u8>`/`String`, both `Send`), deliberately never a
-/// parsed `Handle` (an `Rc`-based type — `!Send` — see `process_
-/// external_resources`'s own docs for why its own DOM walk never
-/// crosses this same thread boundary).
+/// page, concatenated — see `App::extra_css`'s own docs. `url` is the
+/// real address this page was fetched from — needed as `NavResult`'s
+/// own fallback base URL (v68) for a fetched page that declares no
+/// `<base href>` of its own, the overwhelmingly common real-world case
+/// (a real browser's own "document base URL" already defaults to
+/// exactly this, same as `snag`'s own bundled pages already get via a
+/// synthesized `<base href>` — see `find_base_url`'s own docs). All
+/// three are plain owned data (`Vec<u8>`/`String`/`Url`, all `Send`),
+/// deliberately never a parsed `Handle` (an `Rc`-based type — `!Send` —
+/// see `process_external_resources`'s own docs for why its own DOM walk
+/// never crosses this same thread boundary).
 struct FetchedPage {
     html: Vec<u8>,
     extra_css: String,
+    url: Url,
 }
 
 enum AppEvent {
@@ -10860,7 +10887,7 @@ impl App {
                             // resolving independently and later, via its
                             // own `AppEvent::ImageFetched`.
                             let extra_css = process_external_resources(&proxy, path, &url, &html, generation);
-                            Ok(FetchedPage { html, extra_css })
+                            Ok(FetchedPage { html, extra_css, url })
                         }
                         Err(e) => Err(e),
                     },
@@ -10939,9 +10966,9 @@ impl ApplicationHandler<AppEvent> for App {
                     return;
                 }
                 match result {
-                    Ok(FetchedPage { html, extra_css }) => {
+                    Ok(FetchedPage { html, extra_css, url }) => {
                         let dom = new_parser().read_from(&mut html.as_slice()).unwrap();
-                        self.base_url = find_base_url(&dom.document);
+                        self.base_url = Some(resolve_page_base_url(&dom.document, url));
                         self.replace_document(dom.document, extra_css);
                     }
                     Err(message) => self.show_message(&message),
@@ -14782,6 +14809,38 @@ mod tests {
     fn find_base_href_is_none_when_the_page_has_no_base_tag() {
         let doc = parse_html("<html><head></head><body>hi</body></html>");
         assert_eq!(find_base_href(&doc), None);
+    }
+
+    // -- v68: a fetched page with no <base> of its own falls back to the
+    // real URL it was fetched from, instead of leaving base_url at None
+    // and breaking every relative link on that page (found live — see
+    // PROMPTS.md's own v68 entry) --
+
+    #[test]
+    fn resolve_page_base_url_prefers_the_pages_own_base_tag_when_present() {
+        let doc = parse_html(r#"<html><head><base href="https://example.com/real/"></head><body>hi</body></html>"#);
+        let fetched_url = Url::parse("https://example.com/different-url").unwrap();
+        assert_eq!(resolve_page_base_url(&doc, fetched_url).as_str(), "https://example.com/real/");
+    }
+
+    #[test]
+    fn resolve_page_base_url_falls_back_to_the_fetched_url_when_the_page_has_no_base_tag() {
+        // The exact real-world shape that broke live: a page with no
+        // <base> at all (the common case) must still let a relative —
+        // including a same-page fragment, e.g. MediaWiki's own
+        // "#bodyContent" skip-link — link resolve, by falling back to
+        // wherever the page was actually fetched from.
+        let doc = parse_html("<html><head></head><body><a href=\"#bodyContent\">skip</a></body></html>");
+        let fetched_url = Url::parse("https://en.wikipedia.org/wiki/Example").unwrap();
+        let base = resolve_page_base_url(&doc, fetched_url.clone());
+        assert_eq!(base, fetched_url);
+        // And confirms the actual downstream effect: a relative href on
+        // this page now resolves at all, instead of erroring with "no
+        // <base href> on this page to resolve it against".
+        assert_eq!(
+            resolve_href(Some(&base), "#bodyContent").unwrap().as_str(),
+            "https://en.wikipedia.org/wiki/Example#bodyContent"
+        );
     }
 
     // -- click-vs-drag distinction --
