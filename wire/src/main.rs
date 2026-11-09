@@ -426,14 +426,22 @@ fn copy_body(mut reader: impl Read, w: &mut impl Write) -> std::io::Result<()> {
         let n = match reader.read(&mut buf) {
             Ok(0) => return Ok(()),
             Ok(n) => n,
-            // A transport error reading the body (connection dropped
-            // mid-stream) isn't fatal here either — whatever bytes were
-            // already streamed through stay sent, same lenient spirit
-            // `execute_and_stream`'s own transport-error handling
-            // already has for a failure before any bytes arrived at
-            // all. Only a failure *writing to the client* (`w`, below)
-            // propagates — `handle_connection`'s own `BrokenPipe`
-            // handling already expects exactly that.
+            // `Interrupted` means try the exact same read again, not
+            // "the stream is done" — a signal landed mid-syscall, the
+            // data this read was waiting for is still coming. `std::io::
+            // Read::read_to_end`'s own default implementation (what
+            // this file used before streaming existed) already retries
+            // on exactly this, transparently; a hand-rolled loop doesn't
+            // get that for free and has to do it explicitly.
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            // Any other transport error reading the body (connection
+            // dropped mid-stream) isn't fatal here either — whatever
+            // bytes were already streamed through stay sent, same
+            // lenient spirit `execute_and_stream`'s own transport-error
+            // handling already has for a failure before any bytes
+            // arrived at all. Only a failure *writing to the client*
+            // (`w`, below) propagates — `handle_connection`'s own
+            // `BrokenPipe` handling already expects exactly that.
             Err(_) => return Ok(()),
         };
         w.write_all(&buf[..n])?;
