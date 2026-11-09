@@ -11504,23 +11504,64 @@ impl App {
                     let deadline = std::time::Instant::now() + PROGRESSIVE_LAYOUT_TICK_BUDGET;
                     let mut incomplete = false;
                     let mut next_id = 0usize;
-                    let laid = measure_document(
-                        &tree,
-                        &mut font_system,
-                        width,
-                        // Same real, definite window dimension `redraw`'s
-                        // own synchronous call used to pass here before
-                        // this plan started — see `measure_document`'s
-                        // own docs for why `viewport_h` specifically
-                        // (only `position: fixed`/an orphaned `position:
-                        // absolute`'s own containing block) is the one
-                        // place that's true.
-                        height,
-                        &mut next_id,
-                        &mut shape_cache,
-                        deadline,
-                        &mut incomplete,
-                    );
+                    // Isolated behind `catch_unwind` — this is the one
+                    // persistent worker shaping *every* future page, for
+                    // the life of the process (see this function's own
+                    // docs); a panic on some one pathological page (a
+                    // real bug, not an expected outcome — see TODO.txt
+                    // for any specific one found this way) must not take
+                    // the whole worker down with it, permanently
+                    // breaking every navigation after it with no visible
+                    // error at all (`App::queue_shaping_request`'s own
+                    // `let _ = requests.send(..)` already discards a
+                    // disconnected-channel error silently, by design,
+                    // for the ordinary "event loop gone at shutdown"
+                    // case — which is exactly why a dead worker must
+                    // never happen from an ordinary bad page). Abandons
+                    // *only* this one request on a panic (falls through
+                    // to `rx.recv()` for the next one, `superseded_by`
+                    // left `None`) — `font_system` keeps being reused
+                    // across the panic rather than rebuilt, a calculated
+                    // risk (its own internal cache could in principle be
+                    // left mid-update) accepted because the alternative,
+                    // tearing down and restarting this whole thread, is
+                    // far more disruptive for what should be a rare
+                    // event; `shape_cache` is this request's own local
+                    // value regardless, already discarded either way.
+                    let measured = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        measure_document(
+                            &tree,
+                            &mut font_system,
+                            width,
+                            // Same real, definite window dimension
+                            // `redraw`'s own synchronous call used to
+                            // pass here before this plan started — see
+                            // `measure_document`'s own docs for why
+                            // `viewport_h` specifically (only `position:
+                            // fixed`/an orphaned `position: absolute`'s
+                            // own containing block) is the one place
+                            // that's true.
+                            height,
+                            &mut next_id,
+                            &mut shape_cache,
+                            deadline,
+                            &mut incomplete,
+                        )
+                    }));
+                    let laid = match measured {
+                        Ok(laid) => laid,
+                        Err(payload) => {
+                            let message = payload
+                                .downcast_ref::<&str>()
+                                .map(|s| s.to_string())
+                                .or_else(|| payload.downcast_ref::<String>().cloned())
+                                .unwrap_or_else(|| "non-string panic payload".to_string());
+                            eprintln!(
+                                "scratchy: shaping worker: measure_document panicked on generation {generation} ({message}) — abandoning this page, worker still running"
+                            );
+                            break;
+                        }
+                    };
                     if proxy.send_event(AppEvent::ShapeResult(generation, Box::new(laid), shape_cache.clone())).is_err() {
                         return; // the event loop (and App) is gone
                     }
