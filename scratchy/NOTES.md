@@ -2789,3 +2789,25 @@ directly. Worth establishing as a pattern for any future async-UI
 feature in this codebase: when a design's whole point is "doesn't block
 on X," prove it by making X slow on purpose and watching for the block,
 not by watching a fast path that could hide one either way.
+
+## v68 — a wire-navigated page's own missing `<base>` tag
+
+Found the same way most real gaps in this project surface: by actually
+using the thing and hitting it, not by auditing the code first. Worth
+recording precisely *why* v66/v67 missed this, since it's a useful
+pattern to watch for again: both of those items were tested against
+fixtures built for this project, which (consciously or not) always
+either declared their own `<base>` or only ever used absolute hrefs —
+exactly the two cases that were already correct. A page with neither —
+no `<base>`, but a real relative href — is the actual majority case on
+the real web, and nothing in either prior session's test suite or live
+verification exercised it. `snag`'s own v9 already solved the same
+problem for bundled pages (synthesize a `<base href>` from the real
+fetched URL whenever the page doesn't declare one) specifically because
+someone hit the identical gap there first — the fix here is the same
+idea, just computed by scratchy itself instead of pre-baked by `snag`
+into the bundle, since a `wire`-navigated page never passes through
+`snag` at all. Worth remembering next time a similar "parity with a
+`snag`-bundled page" gap gets fixed for the `wire` path: check `snag`'s
+own `NOTES.md`/`PROMPTS.md` first for whether it already solved the
+exact same class of problem once.
