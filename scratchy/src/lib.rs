@@ -36,12 +36,15 @@ use selectors::parser::{
     SelectorList, SelectorParseErrorKind,
 };
 use selectors::{Element as SelectorsElement, OpaqueElement};
+use signal_hook::consts::SIGUSR1;
+use signal_hook::iterator::Signals;
 use softbuffer::{Context, Surface};
 use url::Url;
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
-use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
+use winit::event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, EventLoop, EventLoopProxy};
+use winit::keyboard::{Key, ModifiersState, NamedKey};
 use winit::window::{CursorIcon, Window, WindowId};
 
 // ---------- CLI input ----------
@@ -9355,6 +9358,68 @@ fn paint_scrollbar(
     fill_rect(pixels, win_w, win_h, track_x, thumb_y, TRACK_W, thumb_h, TextColor::rgba(0, 0, 0, 120), clip);
 }
 
+/// Paints vim mode's `:`-command bar — chrome drawn on top of the
+/// already-laid-out page, outside the DOM/layout tree entirely, same
+/// role `paint_scrollbar` already plays for the scrollbar overlay
+/// (that's the existing precedent TODO.txt's own vim-mode plan points
+/// at for "where chrome gets painted"). Bottom of the window, not top —
+/// matches real vim's own command line, and Vimium/qutebrowser's bars,
+/// rather than reading as a browser address bar (a placement TODO.txt
+/// explicitly left open; settled here as bottom).
+fn paint_command_bar(
+    command_line: &TextEditBuffer,
+    font_system: &mut FontSystem,
+    swash_cache: &mut SwashCache,
+    pixels: &mut [u32],
+    win_w: u32,
+    win_h: u32,
+) {
+    const BAR_H: f32 = 24.0;
+    const PAD_X: f32 = 4.0;
+    let bar_y = (win_h as f32 - BAR_H).max(0.0);
+    fill_rect(pixels, win_w, win_h, 0.0, bar_y, win_w as f32, BAR_H, TextColor::rgba(24, 24, 24, 255), None);
+
+    // The leading `:` is purely this bar's own display convention
+    // (vim's own prompt character) — `command_line.text` itself never
+    // stores it, so every real cursor byte offset into `text` needs a
+    // `+1` shift to land on the matching glyph in `display`.
+    let display = format!(":{}", command_line.text);
+    let metrics = Metrics::new(14.0, BAR_H);
+    let mut buffer = Buffer::new(font_system, metrics);
+    buffer.set_size(Some((win_w as f32 - PAD_X).max(0.0)), Some(BAR_H));
+    buffer.set_wrap(Wrap::None);
+    let mut attrs = Attrs::new();
+    attrs.color_opt = Some(TextColor::rgb(225, 225, 225));
+    buffer.set_text(&display, &attrs, Shaping::Advanced, None);
+    buffer.shape_until_scroll(font_system, false);
+
+    let target = command_line.cursor + 1;
+    let caret_x = buffer
+        .layout_runs()
+        .next()
+        .map(|run| {
+            run.glyphs
+                .iter()
+                .find(|g| g.start >= target)
+                .map(|g| g.x)
+                .unwrap_or_else(|| run.glyphs.last().map(|g| g.x + g.w).unwrap_or(0.0))
+        })
+        .unwrap_or(0.0);
+
+    // One span (`Attrs::new()`'s own default `metadata: 0`), so every
+    // per-span array `paint_buffer` expects just needs that one entry.
+    let backgrounds = [None];
+    let valigns = [VerticalAlign::default()];
+    let hidden = [false];
+    let decoration_styles = [DecorationStyle::default()];
+    paint_buffer(
+        &mut buffer, font_system, swash_cache, &backgrounds, &valigns, &hidden, &decoration_styles, pixels, win_w,
+        win_h, PAD_X, bar_y + (BAR_H - 20.0) / 2.0, None,
+    );
+
+    fill_rect(pixels, win_w, win_h, PAD_X + caret_x, bar_y + 3.0, 1.5, BAR_H - 6.0, TextColor::rgb(225, 225, 225), None);
+}
+
 /// Real CSS2 §9.9.1: `position: relative`/`sticky` establishes its own
 /// descendant stacking context only when it also has an *explicit*
 /// `z-index` (`z-index: auto` — by far the common case — does not; such
@@ -10457,6 +10522,118 @@ enum AppEvent {
     /// reason: a since-superseded page's late-arriving image must never
     /// populate the *new* page's cache.
     ImageFetched(u64, String, Option<DecodedImage>),
+    /// `SIGUSR1`'s own background thread (`run()`) waking the event
+    /// loop — the out-of-band bootstrap the vim-mode plan in TODO.txt
+    /// settled on for turning vim mode back *on* once it's off: with
+    /// `vim_enabled == false`, scratchy intercepts zero keys, so
+    /// nothing in-band (no keystroke, however it's bound) could ever
+    /// type `:set vim` again. A signal sent to the process sidesteps
+    /// that entirely, immune to both a WM claiming a reserved chord and
+    /// unusual keyboard-firmware Unicode-input quirks (the two reasons
+    /// a dedicated keyboard chord was considered and dropped — see
+    /// TODO.txt). Toggles rather than only turning vim mode on, so the
+    /// same external signal also works as an off switch.
+    ToggleVimMode,
+}
+
+/// `Normal` resolves bare keys into an `Action` via `resolve_binding`;
+/// `Command` is the `:`-entered command line itself, editing `App::
+/// command_line` directly rather than going through any binding at
+/// all. Meaningless while `App::vim_enabled` is `false` — vim mode off
+/// always means `Normal` with every key ignored by `resolve_binding`
+/// (`mode` is checked there too, not just by the caller), not a third
+/// state of its own (see `App::handle_key_event`'s own docs).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum VimMode {
+    Normal,
+    Command,
+}
+
+/// The effect a resolved Normal-mode binding actually has — kept as its
+/// own small enum, not performed inline inside `resolve_binding` itself,
+/// so that function can stay pure (no `&mut App`) and unit-testable on
+/// its own, same reasoning `resolve_href`'s own split from `start_
+/// navigation` already follows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Action {
+    ScrollDown,
+    ScrollUp,
+    HalfPageDown,
+    HalfPageUp,
+    EnterCommandMode,
+}
+
+/// The one chokepoint a real key event gets resolved into an `Action`
+/// through — hardcoded `match` arms today (dwm `config.h` style,
+/// explicitly fine per the user's own call in TODO.txt), but the exact
+/// spot a future JS-scriptable `bind()` config layer would call into or
+/// override instead of a redesign. `mode` gates this to `VimMode::
+/// Normal` even though every caller today only ever calls this from
+/// that branch already — kept as a real parameter (not dropped) so a
+/// future third mode (link hints — see TODO.txt's own "explicitly out
+/// of scope for now" note) extends this one `match`'s arm list instead
+/// of requiring a new chokepoint. `mods` is checked, not `logical_key`
+/// alone, only for the one binding that needs it (`Ctrl`+`d`/`u`) —
+/// `winit`'s own `logical_key` is already shift-aware (`Key::
+/// Character(":")` for `Shift`+`;`), so bare `j`/`k`/`:` need no
+/// modifier check at all.
+fn resolve_binding(key: &Key, mods: ModifiersState, mode: VimMode) -> Option<Action> {
+    if mode != VimMode::Normal {
+        return None;
+    }
+    match key {
+        Key::Character(s) if s.as_str() == "j" => Some(Action::ScrollDown),
+        Key::Character(s) if s.as_str() == "k" => Some(Action::ScrollUp),
+        Key::Character(s) if s.as_str() == "d" && mods.control_key() => Some(Action::HalfPageDown),
+        Key::Character(s) if s.as_str() == "u" && mods.control_key() => Some(Action::HalfPageUp),
+        Key::Character(s) if s.as_str() == ":" => Some(Action::EnterCommandMode),
+        _ => None,
+    }
+}
+
+/// A single-line text-editing buffer — insert, backspace, cursor move,
+/// nothing else — written standalone (knows nothing about `App`,
+/// chrome, or the page it might eventually sit over) on purpose: the
+/// Form elements plan's own step 4 (TODO.txt) needs the *exact* same
+/// primitive for a focused `<input type=text>`'s own editing later, and
+/// the command line below is meant to be its first caller, not its
+/// only one. `cursor` is always a byte offset on a `char` boundary
+/// within `text` — every method below moves it by exactly one `char`'s
+/// `len_utf8()`, never a raw byte, so it can't land mid-codepoint.
+#[derive(Default)]
+struct TextEditBuffer {
+    text: String,
+    cursor: usize,
+}
+
+impl TextEditBuffer {
+    fn clear(&mut self) {
+        self.text.clear();
+        self.cursor = 0;
+    }
+
+    fn insert(&mut self, c: char) {
+        self.text.insert(self.cursor, c);
+        self.cursor += c.len_utf8();
+    }
+
+    fn backspace(&mut self) {
+        let Some(prev) = self.text[..self.cursor].chars().next_back() else { return };
+        self.cursor -= prev.len_utf8();
+        self.text.remove(self.cursor);
+    }
+
+    fn move_left(&mut self) {
+        if let Some(prev) = self.text[..self.cursor].chars().next_back() {
+            self.cursor -= prev.len_utf8();
+        }
+    }
+
+    fn move_right(&mut self) {
+        if let Some(next) = self.text[self.cursor..].chars().next() {
+            self.cursor += next.len_utf8();
+        }
+    }
 }
 
 struct App {
@@ -10594,6 +10771,37 @@ struct App {
     /// fetches finish rather than blocking the page on all of them.
     /// Cleared on every navigation/`show_message`, same as `extra_css`.
     image_cache: HashMap<String, Rc<DecodedImage>>,
+    /// Whether vim-mode key interception is on at all — `:set vim`/
+    /// `:set novim`'s own stored state (plus `AppEvent::ToggleVimMode`'s
+    /// own flip). `false` means `resolve_binding` is never even reached
+    /// from `handle_key_event` for an ordinary keystroke: the explicit,
+    /// stated use case (TODO.txt) is turning this fully off to play a
+    /// browser-rendered game that wants raw keys, so "off" has to mean
+    /// zero claimed keys, not "off except for the keys scratchy still
+    /// wants." Starts `true` — real bare-key Normal-mode bindings work
+    /// immediately, no setup step required, same as real vim's own
+    /// default.
+    vim_enabled: bool,
+    /// `Normal` vs. the `:`-entered command line itself — see `VimMode`'s
+    /// own docs. Only ever meaningfully `Command` while `vim_enabled` is
+    /// `true` (there is no key left to reach `Action::EnterCommandMode`
+    /// through otherwise), but not reset to `Normal` on `vim_enabled`
+    /// flipping false — `dispatch_command`'s own `:set novim` handler
+    /// already runs from inside a `Command`-mode keystroke and resets
+    /// this itself right after, same as every other command-line
+    /// submission does.
+    vim_mode: VimMode,
+    /// The `:`-command line's own live text, editable only while `vim_
+    /// mode` is `Command` — see `TextEditBuffer`'s own docs for why this
+    /// is a standalone type rather than a plain `String` field.
+    command_line: TextEditBuffer,
+    /// Live modifier-key state, kept current by `WindowEvent::
+    /// ModifiersChanged` — `winit`'s own `KeyEvent` carries no
+    /// modifiers of its own (`logical_key` is already shift-adjusted,
+    /// but `Ctrl` specifically is excluded from that — see `KeyEvent::
+    /// logical_key`'s own docs), so this is the only way `resolve_
+    /// binding` can tell a bare `d`/`u` apart from `Ctrl`+`d`/`u`.
+    modifiers: ModifiersState,
 }
 
 impl App {
@@ -10625,6 +10833,10 @@ impl App {
             socket_path,
             extra_css: String::new(),
             image_cache: HashMap::new(),
+            vim_enabled: true,
+            vim_mode: VimMode::Normal,
+            command_line: TextEditBuffer::default(),
+            modifiers: ModifiersState::empty(),
         }
     }
 
@@ -10657,6 +10869,10 @@ impl App {
             socket_path,
             extra_css: String::new(),
             image_cache: HashMap::new(),
+            vim_enabled: true,
+            vim_mode: VimMode::Normal,
+            command_line: TextEditBuffer::default(),
+            modifiers: ModifiersState::empty(),
         }
     }
 
@@ -10771,6 +10987,10 @@ impl App {
                 self.scroll_offset,
                 None,
             );
+        }
+
+        if self.vim_mode == VimMode::Command {
+            paint_command_bar(&self.command_line, &mut self.font_system, &mut self.swash_cache, &mut pixels, width, height);
         }
 
         window.pre_present_notify();
@@ -10912,6 +11132,130 @@ impl App {
             let _ = proxy.send_event(AppEvent::NavResult(generation, outcome));
         });
     }
+
+    /// The one real entry point a pressed key reaches `App` through —
+    /// see its own call site (`WindowEvent::KeyboardInput`, filtered to
+    /// `ElementState::Pressed` there, release events never reach here
+    /// at all). `vim_mode == Command` always goes to the command-line
+    /// editor regardless of `vim_enabled`: once `:` has been pressed
+    /// (only possible while vim mode was already on), backing out with
+    /// `Escape` — or finishing a `:set novim` typed from *inside* the
+    /// bar — must still work even the instant after `vim_enabled` would
+    /// otherwise gate everything else out. Otherwise, vim mode off is
+    /// real pass-through: this function does nothing at all, the "zero
+    /// claimed keys" guarantee the whole toggle exists for (TODO.txt).
+    fn handle_key_event(&mut self, event: &KeyEvent) {
+        if self.vim_mode == VimMode::Command {
+            self.handle_command_line_key(event);
+            return;
+        }
+        if !self.vim_enabled {
+            return;
+        }
+        if let Some(action) = resolve_binding(&event.logical_key, self.modifiers, self.vim_mode) {
+            self.perform_action(action);
+        }
+    }
+
+    /// Carries out an already-resolved `Action` — kept separate from
+    /// `resolve_binding` itself so that function can stay a pure,
+    /// unit-testable `key -> Option<Action>` mapping with no `&mut App`
+    /// at all.
+    fn perform_action(&mut self, action: Action) {
+        const SCROLL_LINE_PX: f32 = 40.0; // matches `MouseWheel`'s own `LineDelta` step
+        match action {
+            Action::ScrollDown => self.scroll_by(SCROLL_LINE_PX),
+            Action::ScrollUp => self.scroll_by(-SCROLL_LINE_PX),
+            Action::HalfPageDown => self.scroll_by(self.surface_size.1 as f32 / 2.0),
+            Action::HalfPageUp => self.scroll_by(-(self.surface_size.1 as f32 / 2.0)),
+            Action::EnterCommandMode => {
+                self.vim_mode = VimMode::Command;
+                self.command_line.clear();
+            }
+        }
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
+
+    /// Only clamps the lower bound (`0.0`) — same split `WindowEvent::
+    /// MouseWheel`'s own top-level-scroll branch already relies on:
+    /// `redraw`'s own per-frame `self.scroll_offset.clamp(0.0, max_
+    /// scroll)` is what enforces the upper bound, since `max_scroll`
+    /// depends on `self.cached.h`, which this method has no reason to
+    /// duplicate.
+    fn scroll_by(&mut self, dy: f32) {
+        self.scroll_offset = (self.scroll_offset + dy).max(0.0);
+    }
+
+    /// `vim_mode == Command`'s own key handling — direct text-buffer
+    /// editing (`TextEditBuffer`'s methods), not a `resolve_binding`
+    /// lookup: there's no sensible "binding" for "the character the
+    /// user just typed," and command-mode text input needs to see the
+    /// actual OS-composed logical key output (dead keys, non-Latin
+    /// layouts via `logical_key`'s own IME-adjacent handling), which is
+    /// exactly what the ordinary page a browser would otherwise send
+    /// key events to gets too.
+    fn handle_command_line_key(&mut self, event: &KeyEvent) {
+        match &event.logical_key {
+            Key::Named(NamedKey::Escape) => {
+                self.vim_mode = VimMode::Normal;
+                self.command_line.clear();
+            }
+            Key::Named(NamedKey::Enter) => {
+                let input = std::mem::take(&mut self.command_line.text);
+                self.command_line.cursor = 0;
+                self.vim_mode = VimMode::Normal;
+                self.run_command_line(&input);
+            }
+            Key::Named(NamedKey::Backspace) => self.command_line.backspace(),
+            Key::Named(NamedKey::ArrowLeft) => self.command_line.move_left(),
+            Key::Named(NamedKey::ArrowRight) => self.command_line.move_right(),
+            Key::Character(s) => {
+                for c in s.chars() {
+                    self.command_line.insert(c);
+                }
+            }
+            _ => {}
+        }
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
+
+    /// Splits a submitted command line into its name and whitespace-
+    /// separated args and hands it to `dispatch_command` — kept as its
+    /// own step so `dispatch_command` itself only ever deals with
+    /// already-tokenized input, same shape a future `:`-command with
+    /// quoted args could still slot into later without reworking the
+    /// split-and-dispatch boundary.
+    fn run_command_line(&mut self, input: &str) {
+        let mut parts = input.split_whitespace();
+        let Some(name) = parts.next() else { return };
+        let args: Vec<&str> = parts.collect();
+        self.dispatch_command(name, &args);
+    }
+
+    /// The one chokepoint a submitted `:`-command's name+args get
+    /// resolved into its actual effect through — hardcoded `match` arms
+    /// today, same "named override point for a future JS-scriptable
+    /// config layer" shape `resolve_binding` already follows for
+    /// keybindings (TODO.txt). `:visit` reuses `start_navigation`
+    /// outright — exactly the same href-resolve-then-fetch path a real
+    /// `<a>` click already goes through, so an already-absolute URL
+    /// (the common case typed here) or one relative to the current
+    /// page's own `<base href>` both just work.
+    fn dispatch_command(&mut self, name: &str, args: &[&str]) {
+        match (name, args) {
+            ("visit", [url]) => self.start_navigation(url),
+            ("set", ["vim"]) => self.vim_enabled = true,
+            ("set", ["novim"]) => self.vim_enabled = false,
+            _ => {
+                let rest = args.join(" ");
+                self.show_message(&format!("scratchy: unknown command: :{name}{}{rest}", if rest.is_empty() { "" } else { " " }));
+            }
+        }
+    }
 }
 
 impl ApplicationHandler<AppEvent> for App {
@@ -10994,6 +11338,11 @@ impl ApplicationHandler<AppEvent> for App {
                 // call `build_layout_tree_with_resources` again.
                 self.layout_dirty = true;
             }
+            AppEvent::ToggleVimMode => {
+                self.vim_enabled = !self.vim_enabled;
+                self.vim_mode = VimMode::Normal;
+                self.command_line.clear();
+            }
         }
         if let Some(window) = &self.window {
             window.request_redraw();
@@ -11007,6 +11356,19 @@ impl ApplicationHandler<AppEvent> for App {
             WindowEvent::Resized(_) => {
                 if let Some(window) = &self.window {
                     window.request_redraw();
+                }
+            }
+            WindowEvent::ModifiersChanged(mods) => {
+                self.modifiers = mods.state();
+            }
+            WindowEvent::KeyboardInput { event, .. } => {
+                // Release events never reach `handle_key_event` at all —
+                // every binding today is a one-shot action (scroll a
+                // fixed step, enter command mode, edit the command
+                // line), nothing holds a key down for continuous effect
+                // yet, so there's nothing a release would need to do.
+                if event.state == ElementState::Pressed {
+                    self.handle_key_event(&event);
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
@@ -11143,6 +11505,31 @@ pub fn run() {
     // (confirmed by reading winit's vendored source), so this has to be
     // created here and threaded into `App` at construction time.
     let proxy = event_loop.create_proxy();
+
+    // `SIGUSR1` bootstrap (TODO.txt's own vim-mode plan): the only way
+    // to turn vim mode back *on* once `:set novim` has turned it off,
+    // since nothing in-band could reach `:set vim` again at that point
+    // — see `AppEvent::ToggleVimMode`'s own docs. Registered
+    // unconditionally, same as the proxy above, not gated behind vim
+    // mode ever having been used — a signal handler can't safely touch
+    // `App` state directly (signal-safety: a raw handler interrupts the
+    // main thread at an arbitrary point), so this follows the exact
+    // `thread::spawn` + `proxy.send_event` shape `Input::Stdin`'s own
+    // reader thread and `App::start_navigation`'s fetch thread already
+    // use below — not new architecture, one more thread of the same
+    // shape, blocking on `Signals::forever()` instead of a socket/stdin
+    // read.
+    let mut signals = Signals::new([SIGUSR1]).expect("failed to register SIGUSR1 handler");
+    {
+        let proxy = proxy.clone();
+        thread::spawn(move || {
+            for _ in signals.forever() {
+                if proxy.send_event(AppEvent::ToggleVimMode).is_err() {
+                    break;
+                }
+            }
+        });
+    }
 
     let mut app = match input {
         Input::File(path) => {
@@ -15264,5 +15651,96 @@ mod tests {
     #[test]
     fn escape_html_escapes_the_characters_that_would_corrupt_the_synthetic_markup() {
         assert_eq!(escape_html("a < b & c > d"), "a &lt; b &amp; c &gt; d");
+    }
+
+    // ---------- vim mode: `resolve_binding`/`TextEditBuffer` ----------
+    // (TODO.txt's own plan — the mode enum, real keyboard wiring, the
+    // `:` command bar, `:set vim`/`:set novim`, `:visit`, and the
+    // `SIGUSR1` bootstrap for turning vim mode back on once off.)
+
+    #[test]
+    fn resolve_binding_maps_bare_jk_to_scroll_in_normal_mode() {
+        let key = Key::Character("j".into());
+        assert_eq!(resolve_binding(&key, ModifiersState::empty(), VimMode::Normal), Some(Action::ScrollDown));
+        let key = Key::Character("k".into());
+        assert_eq!(resolve_binding(&key, ModifiersState::empty(), VimMode::Normal), Some(Action::ScrollUp));
+    }
+
+    #[test]
+    fn resolve_binding_requires_control_for_half_page_scroll() {
+        let key = Key::Character("d".into());
+        assert_eq!(resolve_binding(&key, ModifiersState::empty(), VimMode::Normal), None);
+        assert_eq!(
+            resolve_binding(&key, ModifiersState::CONTROL, VimMode::Normal),
+            Some(Action::HalfPageDown)
+        );
+    }
+
+    #[test]
+    fn resolve_binding_colon_enters_command_mode() {
+        let key = Key::Character(":".into());
+        assert_eq!(resolve_binding(&key, ModifiersState::empty(), VimMode::Normal), Some(Action::EnterCommandMode));
+    }
+
+    #[test]
+    fn resolve_binding_never_fires_outside_normal_mode() {
+        let key = Key::Character("j".into());
+        assert_eq!(resolve_binding(&key, ModifiersState::empty(), VimMode::Command), None);
+    }
+
+    #[test]
+    fn resolve_binding_ignores_unbound_keys() {
+        let key = Key::Character("x".into());
+        assert_eq!(resolve_binding(&key, ModifiersState::empty(), VimMode::Normal), None);
+    }
+
+    #[test]
+    fn text_edit_buffer_insert_backspace_and_move_track_a_real_cursor() {
+        let mut buf = TextEditBuffer::default();
+        buf.insert('v');
+        buf.insert('i');
+        buf.insert('m');
+        assert_eq!(buf.text, "vim");
+        assert_eq!(buf.cursor, 3);
+
+        buf.move_left();
+        buf.move_left();
+        assert_eq!(buf.cursor, 1);
+
+        buf.insert('!');
+        assert_eq!(buf.text, "v!im");
+        assert_eq!(buf.cursor, 2);
+
+        buf.backspace();
+        assert_eq!(buf.text, "vim");
+        assert_eq!(buf.cursor, 1);
+    }
+
+    #[test]
+    fn text_edit_buffer_backspace_and_move_left_at_start_are_no_ops() {
+        let mut buf = TextEditBuffer::default();
+        buf.backspace();
+        buf.move_left();
+        assert_eq!(buf.text, "");
+        assert_eq!(buf.cursor, 0);
+    }
+
+    #[test]
+    fn text_edit_buffer_move_right_at_end_is_a_no_op() {
+        let mut buf = TextEditBuffer::default();
+        buf.insert('x');
+        buf.move_right();
+        assert_eq!(buf.cursor, 1);
+    }
+
+    #[test]
+    fn text_edit_buffer_moves_by_whole_codepoints_not_raw_bytes() {
+        let mut buf = TextEditBuffer::default();
+        buf.insert('é'); // 2 UTF-8 bytes, one char
+        assert_eq!(buf.cursor, 2);
+        buf.move_left();
+        assert_eq!(buf.cursor, 0);
+        buf.backspace(); // no-op at start, must not panic on a mid-codepoint byte index
+        assert_eq!(buf.text, "é");
     }
 }
