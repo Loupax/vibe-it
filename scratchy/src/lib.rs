@@ -10104,6 +10104,10 @@ const CLICK_DRAG_THRESHOLD_PX: f32 = 5.0;
 /// meaningfully less total overhead anyway, so bounding worst-case
 /// input latency to it costs little (+15% total load time on the
 /// measured 151-paragraph page; within noise on the large/RTL one).
+/// A stopgap, not the real fix — see TODO.txt's own plan for moving
+/// `measure_document` to a background thread entirely, which would
+/// let this budget (or ticking at all) stop existing for input-latency
+/// reasons once nothing on the main thread can be blocked by it.
 const PROGRESSIVE_LAYOUT_TICK_BUDGET: std::time::Duration = std::time::Duration::from_millis(80);
 
 /// Resolves a clicked `<a href>` into an absolute URL against the
