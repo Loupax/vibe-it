@@ -1613,7 +1613,7 @@ last, per the user's own call.
       report's own effort estimate for `display: inline-block`/`inline-
       flex` was also wrong — see the new item just below.
 
-- [x] `display: flow-root` now maps to `Display::Block` — same scoped
+- [x] `display: flow-root` (a4852af) now maps to `Display::Block` — same scoped
       simplification `table-caption` already uses (no real "establishes
       its own block formatting context" behavior, the one thing that
       actually distinguishes it from plain `block`, mainly used to
