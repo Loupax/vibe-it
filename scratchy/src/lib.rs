@@ -10,6 +10,7 @@ use std::rc::{Rc, Weak};
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 
+use arboard::Clipboard;
 use cosmic_text::{
     Align as CosmicAlign, Attrs, Buffer, Color as TextColor, Family as CosmicFamily, FontSystem,
     LegacyRenderer, Metrics, Renderer, Shaping, Style as FontStyle, SwashCache,
@@ -5220,6 +5221,12 @@ fn collect_children(
 /// Embedded at compile time rather than read from disk, so there's no
 /// install-path/XDG-discovery problem for a single-binary tool.
 const DEFAULT_CSS: &str = include_str!("default.css");
+
+/// `:help`'s own page (see `src/help.html`, `App::show_help`) — embedded
+/// the same way `DEFAULT_CSS` is, for the same reason: a single-binary
+/// tool with no install-path/XDG-discovery problem for an asset that
+/// ships with it.
+const HELP_PAGE_HTML: &str = include_str!("help.html");
 
 /// Finds the document's `<html>` element, if present — needed up front so
 /// `rem` lengths can resolve against its real cascaded `font-size` (an
@@ -10988,9 +10995,10 @@ fn resolve_binding(key: &Key, mods: ModifiersState, mode: VimMode) -> Option<Act
 /// line; later: a focused `<input>`, per `TextEditBuffer`'s own docs)
 /// to independently remember the one surprising case: `winit` reports
 /// the space bar as `Key::Named(NamedKey::Space)`, *not* `Key::
-/// Character(" ")` — confirmed the hard way, post-merge (`:visit
-/// https://...` landed as `:visithttp...`, the space silently dropped
-/// by a bare `_ => {}` catch-all that only matched `Key::Character`).
+/// Character(" ")` — confirmed the hard way, post-merge (what was then
+/// `:visit https://...` landed as `:visithttp...`, the space silently
+/// dropped by a bare `_ => {}` catch-all that only matched `Key::
+/// Character`; the command itself is `:go` now, same bug either way).
 /// Kept pure and separate from `resolve_binding` (same reasoning that
 /// one's own docs give for staying a plain `key -> Option<Action>` map)
 /// so this exact class of bug — a `Key::Named` variant quietly falling
@@ -11002,6 +11010,67 @@ fn key_insertion_text(key: &Key) -> Option<&str> {
         Key::Character(s) => Some(s.as_str()),
         _ => None,
     }
+}
+
+/// Every name `dispatch_command` recognizes as the *first* word of a
+/// command line — the candidate pool `Tab` completion offers there. A
+/// flat list purely for completion purposes, kept next to (not inside)
+/// `dispatch_command`'s own `match`, which stays the one real source of
+/// truth for what a command actually does: a name landing here with no
+/// matching `dispatch_command` arm would complete to something that
+/// then reports itself unknown, not silently do nothing.
+const COMMAND_NAMES: &[&str] = &["go", "help", "q", "quit", "set"];
+
+/// `:set`'s own one valid argument, completed the same way `COMMAND_
+/// NAMES` completes a command name itself — see `command_completions`.
+const SET_ARGS: &[&str] = &["novim", "vim"];
+
+/// Candidate completions for the token the command line's cursor is
+/// currently positioned at the end of (`token_start..cursor`, from
+/// `token_start_before`) — the command name itself if `token_start` is
+/// the very first token, `SET_ARGS` if it's the second token of a
+/// `set` command, or nothing at all anywhere else (an arbitrary `:go`
+/// URL has no finite set of "correct" values to complete against, so
+/// there's deliberately no candidate pool for it). Plain-prefix
+/// (`starts_with`) matching only, sorted alphabetically (`COMMAND_
+/// NAMES`/`SET_ARGS` are both already stored in that order) — no fuzzy
+/// or substring matching, the smallest thing that actually satisfies
+/// "complete the command name," not a speculative ranking algorithm
+/// nobody asked for.
+fn command_completions(text: &str, token_start: usize, cursor: usize) -> Vec<&'static str> {
+    let prefix = &text[token_start..cursor];
+    let before = text[..token_start].trim_end();
+    let pool: &[&str] = if before.is_empty() {
+        COMMAND_NAMES
+    } else if before == "set" {
+        SET_ARGS
+    } else {
+        return Vec::new();
+    };
+    pool.iter().copied().filter(|candidate| candidate.starts_with(prefix)).collect()
+}
+
+/// The byte offset the token ending at `cursor` starts at — the last
+/// whitespace position before `cursor`, plus one, or `0` if there isn't
+/// one. `rfind` (not a manual byte scan) so this can't land `token_
+/// start` mid-codepoint: `str::rfind` only ever returns a char-boundary
+/// index, same guarantee `TextEditBuffer`'s own methods rely on `char`-
+/// at-a-time movement for.
+fn token_start_before(text: &str, cursor: usize) -> usize {
+    text[..cursor].rfind(char::is_whitespace).map(|i| i + 1).unwrap_or(0)
+}
+
+/// `Tab`'s own live cycling state inside the command bar — `App::
+/// completion` is `None` whenever no completion is in progress. Reset
+/// on every command-line keystroke except a repeated `Tab` itself (see
+/// `App::handle_command_line_key`), so cycling only continues across
+/// *consecutive* `Tab` presses: any other edit starts over from a
+/// fresh match list next time, rather than cycling through candidates
+/// that no longer correspond to what's actually typed.
+struct CommandCompletion {
+    token_start: usize,
+    candidates: Vec<&'static str>,
+    index: usize,
 }
 
 /// A single-line text-editing buffer — insert, backspace, cursor move,
@@ -11028,6 +11097,20 @@ impl TextEditBuffer {
     fn insert(&mut self, c: char) {
         self.text.insert(self.cursor, c);
         self.cursor += c.len_utf8();
+    }
+
+    /// Multi-char insert at the cursor, one `insert` per char — the
+    /// command line's own paste path (`App::paste_into_command_line`).
+    /// Control characters (a trailing newline off the clipboard being
+    /// the real-world case) are dropped rather than inserted literally:
+    /// this buffer is always single-line, and a bare `\n` landing in
+    /// `text` would silently desync `paint_command_bar`'s own single-
+    /// `Buffer`/`Wrap::None` rendering from what `run_command_line` later
+    /// splits on submit.
+    fn insert_str(&mut self, s: &str) {
+        for c in s.chars().filter(|c| !c.is_control()) {
+            self.insert(c);
+        }
     }
 
     fn backspace(&mut self) {
@@ -11248,6 +11331,65 @@ struct App {
     /// logical_key`'s own docs), so this is the only way `resolve_
     /// binding` can tell a bare `d`/`u` apart from `Ctrl`+`d`/`u`.
     modifiers: ModifiersState,
+    /// Live `Tab`-cycling state for the command bar — see `Command
+    /// Completion`'s own docs. `None` outside of an in-progress
+    /// completion, which is most of the time (every non-`Tab` command-
+    /// line keystroke resets it, including `Enter`/`Escape` leaving
+    /// command mode entirely).
+    completion: Option<CommandCompletion>,
+    /// Set by `dispatch_command`'s own `:q`/`:quit` handler — only when
+    /// `pre_help_page` is `None`, i.e. there's no page to fall back to
+    /// (see that field's own docs for the vim-"closing the last buffer
+    /// quits" half of this). Checked right after `handle_key_event`
+    /// returns from `WindowEvent::KeyboardInput` (`window_event`'s own
+    /// match arm) to actually call `ActiveEventLoop::exit()` —
+    /// `dispatch_command` has no `&ActiveEventLoop` of its own to call
+    /// that with directly (same reason `AppEvent::ToggleVimMode`'s own
+    /// SIGUSR1 bootstrap docs give for why `resumed`'s `&ActiveEventLoop`
+    /// can't just be stashed on `App` once and reused later — it's
+    /// instead synthesized fresh at the one real call site each time,
+    /// `window_event`'s own parameter, which this flag just has to
+    /// survive one event handler call to reach). Checked, never read
+    /// back down to `false` anywhere: once set, the event loop really is
+    /// exiting, so there's no later point where un-setting it would mean
+    /// anything.
+    should_quit: bool,
+    /// The page that was showing right before `:help` opened, if any —
+    /// `App::show_help`'s own snapshot, popped by `:q`/`:quit`
+    /// (`App::restore_saved_page`) instead of quitting, the same way
+    /// real vim's `:q` closes the current buffer/window and falls back
+    /// to whatever was open before it, only actually exiting once
+    /// there's nothing left to fall back to. `None` means either
+    /// there's no overlay open at all (the common case), or `:help`
+    /// itself was already open when this was captured (`show_help` only
+    /// snapshots once — re-running `:help` while already viewing it
+    /// must not overwrite the *real* saved page with the help page
+    /// itself). Cleared — without restoring anything — by a real
+    /// navigation (`start_navigation`'s own first line): clicking a
+    /// link or running `:go` while `:help` is open means the *current*
+    /// page is now genuinely new, not just an overlay on top of the old
+    /// one, so a later `:q` has nothing sensible left to pop back to and
+    /// should quit instead, not resurrect a page from before `:help`
+    /// was ever opened.
+    pre_help_page: Option<SavedPage>,
+}
+
+/// `App::pre_help_page`'s own snapshot — every piece of per-page state
+/// `App::replace_document` either changes or clears, captured so
+/// `App::restore_saved_page` can put it back exactly, scroll position
+/// included (unlike an ordinary navigation, which always starts a new
+/// page at the top — see `replace_document`'s own docs for why that's
+/// right there and wrong here: closing `:help` is not supposed to look
+/// like navigating to a new page at all). `base_url` deliberately isn't
+/// part of this: `show_help`'s own `replace_document` call never
+/// touches `App::base_url`, so it's already untouched and needs no
+/// restoring.
+struct SavedPage {
+    document: Handle,
+    extra_css: String,
+    image_cache: HashMap<String, Arc<DecodedImage>>,
+    scroll_offset: f32,
+    scroll_offsets: HashMap<usize, f32>,
 }
 
 impl App {
@@ -11284,6 +11426,9 @@ impl App {
             vim_mode: VimMode::Normal,
             command_line: TextEditBuffer::default(),
             modifiers: ModifiersState::empty(),
+            completion: None,
+            should_quit: false,
+            pre_help_page: None,
         }
     }
 
@@ -11321,6 +11466,9 @@ impl App {
             vim_mode: VimMode::Normal,
             command_line: TextEditBuffer::default(),
             modifiers: ModifiersState::empty(),
+            completion: None,
+            should_quit: false,
+            pre_help_page: None,
         }
     }
 
@@ -11655,6 +11803,50 @@ impl App {
         self.replace_document(parse_html(&html), String::new());
     }
 
+    /// `:help` — built the same way `show_message` builds its own
+    /// synthetic pages (`parse_html` + `replace_document`), just with
+    /// real, static content (`HELP_PAGE_HTML`) instead of one escaped
+    /// paragraph. Deliberately not wired through any external fetch or
+    /// file read — scratchy still does neither on its own (TODO.txt) —
+    /// so a reference page is always there, with nothing that can fail
+    /// to load. Snapshots the current page into `pre_help_page` first —
+    /// but only if nothing's snapshotted already: re-running `:help`
+    /// while already viewing it (its own text, read back from `self.
+    /// document`, would otherwise get captured as "the page to go back
+    /// to") must leave the real saved page alone, same "once, not
+    /// every open" rule a real vim buffer-switch follows.
+    fn show_help(&mut self) {
+        if self.pre_help_page.is_none() {
+            self.pre_help_page = Some(SavedPage {
+                document: self.document.clone(),
+                extra_css: self.extra_css.clone(),
+                image_cache: self.image_cache.clone(),
+                scroll_offset: self.scroll_offset,
+                scroll_offsets: self.scroll_offsets.clone(),
+            });
+        }
+        self.replace_document(parse_html(HELP_PAGE_HTML), String::new());
+    }
+
+    /// `:q`/`:quit`'s own "close the buffer" half (`dispatch_command`) —
+    /// pops `pre_help_page` back onto `App` via the same fields `replace_
+    /// document` itself sets, then restores the three it always clears/
+    /// resets (`image_cache`, `scroll_offsets`, `scroll_offset`) to the
+    /// saved page's own real values instead of empty/zero. Does nothing
+    /// if `pre_help_page` is `None` — `dispatch_command`'s own caller is
+    /// expected to have already checked that and fallen back to `should_
+    /// quit` instead, but this stays a safe no-op either way rather than
+    /// a `panic!`/`unwrap`, same defensive shape `TextEditBuffer`'s own
+    /// start-of-buffer no-ops follow for a call that technically
+    /// shouldn't happen rather than one that's actually expected to.
+    fn restore_saved_page(&mut self) {
+        let Some(saved) = self.pre_help_page.take() else { return };
+        self.replace_document(saved.document, saved.extra_css);
+        self.image_cache = saved.image_cache;
+        self.scroll_offsets = saved.scroll_offsets;
+        self.scroll_offset = saved.scroll_offset;
+    }
+
     /// Entry point for `WindowEvent::MouseInput`'s click handler:
     /// resolves `href` against the current page's own `<base href>`
     /// (`resolve_href` — ordinary URL-join logic via the `url` crate,
@@ -11673,7 +11865,17 @@ impl App {
     /// `wire`) and shows a clear inline error, rather than either
     /// guessing at a default daemon location or leaving the user
     /// wondering whether the click even registered.
+    ///
+    /// Also drops `pre_help_page`, if any was set — a real navigation
+    /// (a real click, or `:go`) while `:help` happens to be open means
+    /// the page *about* to show is genuinely new, not an overlay on top
+    /// of whatever `:help` saved; a later `:q` should quit from there,
+    /// not resurrect a page from before `:help` was ever opened. Cleared
+    /// unconditionally, even on `resolve_href`'s own error path just
+    /// below — an error message shown over `:help` is still "no longer
+    /// showing `:help`."
     fn start_navigation(&mut self, href: &str) {
+        self.pre_help_page = None;
         let url = match resolve_href(self.base_url.as_ref(), href) {
             Ok(url) => url,
             Err(message) => {
@@ -11783,6 +11985,15 @@ impl App {
             Action::EnterCommandMode => {
                 self.vim_mode = VimMode::Command;
                 self.command_line.clear();
+                // Doesn't go through `handle_command_line_key`'s own
+                // "any non-`Tab` key resets `completion`" rule at all
+                // (that function isn't even reachable yet — `vim_mode`
+                // is still `Normal` here) — reset directly, or a stale
+                // completion left over from a previous command-line
+                // session (Tab-cycled, then `Escape`d without typing
+                // anything else) would wrongly survive into this new,
+                // now-empty one.
+                self.completion = None;
             }
         }
         if let Some(window) = &self.window {
@@ -11809,6 +12020,14 @@ impl App {
     /// exactly what the ordinary page a browser would otherwise send
     /// key events to gets too.
     fn handle_command_line_key(&mut self, event: &KeyEvent) {
+        // Any key other than `Tab` itself ends a `Tab`-cycling run in
+        // progress — see `CommandCompletion`'s own docs. Checked before
+        // the `match` below (not folded into each of its non-`Tab` arms
+        // individually) so a future arm can't accidentally skip it the
+        // way a one-off `_ =>` branch addition easily could.
+        if !matches!(event.logical_key, Key::Named(NamedKey::Tab)) {
+            self.completion = None;
+        }
         match &event.logical_key {
             Key::Named(NamedKey::Escape) => {
                 self.vim_mode = VimMode::Normal;
@@ -11823,6 +12042,16 @@ impl App {
             Key::Named(NamedKey::Backspace) => self.command_line.backspace(),
             Key::Named(NamedKey::ArrowLeft) => self.command_line.move_left(),
             Key::Named(NamedKey::ArrowRight) => self.command_line.move_right(),
+            Key::Named(NamedKey::Tab) => self.cycle_command_completion(),
+            // Same `mods`-checked-alongside-`logical_key` shape `resolve_
+            // binding`'s own `Ctrl`+`d`/`u` arms use, for the same reason:
+            // `Ctrl` is excluded from `logical_key`'s own shift-adjustment,
+            // so a bare `v` has to be told apart from `Ctrl`+`v` here, not
+            // left to `key_insertion_text`'s catch-all below (which would
+            // otherwise insert a literal "v" on every paste attempt).
+            Key::Character(s) if s.as_str() == "v" && self.modifiers.control_key() => {
+                self.paste_into_command_line();
+            }
             key => {
                 if let Some(text) = key_insertion_text(key) {
                     for c in text.chars() {
@@ -11833,6 +12062,67 @@ impl App {
         }
         if let Some(window) = &self.window {
             window.request_redraw();
+        }
+    }
+
+    /// `Tab`'s own handler inside the command bar. The first `Tab` in a
+    /// fresh run computes the candidate list for whatever token the
+    /// cursor is at (`command_completions`) and completes to its first
+    /// match, alphabetically; every *immediately following* `Tab` (no
+    /// other key in between — enforced by `handle_command_line_key`'s
+    /// own reset, not here) instead advances `self.completion`'s own
+    /// index, wrapping back to the first candidate after the last. A
+    /// token with no candidates at all (anything beyond `:go`'s own
+    /// URL argument, today) leaves `self.completion` untouched — `Tab`
+    /// is simply a no-op there, same as a real shell's completion when
+    /// there's nothing to offer.
+    fn cycle_command_completion(&mut self) {
+        match &mut self.completion {
+            Some(state) => state.index = (state.index + 1) % state.candidates.len(),
+            None => {
+                let cursor = self.command_line.cursor;
+                let token_start = token_start_before(&self.command_line.text, cursor);
+                let candidates = command_completions(&self.command_line.text, token_start, cursor);
+                if candidates.is_empty() {
+                    return;
+                }
+                self.completion = Some(CommandCompletion { token_start, candidates, index: 0 });
+            }
+        }
+        let state = self.completion.as_ref().expect("just set or matched Some above");
+        let candidate = state.candidates[state.index];
+        let token_start = state.token_start;
+        // `token_start..cursor` is exactly the text to replace, both on
+        // a fresh completion (cursor is the end of whatever prefix was
+        // actually typed) and on every cycle after (the previous call
+        // left `cursor` at `token_start + candidate.len()`, i.e. right
+        // after the *previous* candidate it inserted) — no separate
+        // bookkeeping needed for "how much to remove" beyond `cursor`
+        // itself.
+        self.command_line.text.replace_range(token_start..self.command_line.cursor, candidate);
+        self.command_line.cursor = token_start + candidate.len();
+    }
+
+    /// `Ctrl`+`v` inside the command bar: reads the system clipboard
+    /// and inserts whatever text it holds at the cursor — the one way
+    /// to get a URL copied from somewhere else (another app, a
+    /// terminal) into `:go` without retyping it by hand. Opens a fresh
+    /// `Clipboard` connection on every call rather than keeping one on
+    /// `App` permanently: pasting is a rare, explicitly user-initiated
+    /// action, not a hot path, so there's no real cost to paying `arboard`'s
+    /// connection setup each time, versus a permanent connection that
+    /// would need its own lifecycle (reconnect-on-failure, `Send`
+    /// across `App`'s otherwise plain, non-threaded fields) for a
+    /// feature that doesn't need one. Either the connection or the read
+    /// failing (no clipboard server reachable, or genuinely empty) is a
+    /// silent no-op, not an error message — same as a real terminal or
+    /// browser's own paste behavior when there's simply nothing to
+    /// paste.
+    fn paste_into_command_line(&mut self) {
+        if let Ok(mut clipboard) = Clipboard::new()
+            && let Ok(text) = clipboard.get_text()
+        {
+            self.command_line.insert_str(&text);
         }
     }
 
@@ -11853,16 +12143,37 @@ impl App {
     /// resolved into its actual effect through — hardcoded `match` arms
     /// today, same "named override point for a future JS-scriptable
     /// config layer" shape `resolve_binding` already follows for
-    /// keybindings (TODO.txt). `:visit` reuses `start_navigation`
-    /// outright — exactly the same href-resolve-then-fetch path a real
-    /// `<a>` click already goes through, so an already-absolute URL
-    /// (the common case typed here) or one relative to the current
-    /// page's own `<base href>` both just work.
+    /// keybindings (TODO.txt). `COMMAND_NAMES` is this `match`'s own
+    /// completion-candidate shadow, not the other way around — adding a
+    /// name to one without the other either completes to something
+    /// that reports itself unknown (missing here) or leaves a working
+    /// command un-completable (missing there), so the two have to be
+    /// kept in step by hand. `:go` reuses `start_navigation` outright —
+    /// exactly the same href-resolve-then-fetch path a real `<a>` click
+    /// already goes through, so an already-absolute URL (the common
+    /// case typed here) or one relative to the current page's own
+    /// `<base href>` both just work. `:q`/`:quit` (real vim's own two
+    /// spellings for the same command) are real-vim-flavored too in a
+    /// second way: with `:help` open, they close it and fall back to
+    /// whatever was showing before (`restore_saved_page`), same as vim
+    /// closing a buffer and dropping back to the previous one — only
+    /// actually quitting (`should_quit`, not `ActiveEventLoop::exit()`
+    /// directly — see that field's own docs for why `dispatch_command`
+    /// has no event loop handle to call it with) once there's nothing
+    /// left to fall back to.
     fn dispatch_command(&mut self, name: &str, args: &[&str]) {
         match (name, args) {
-            ("visit", [url]) => self.start_navigation(url),
+            ("go", [url]) => self.start_navigation(url),
             ("set", ["vim"]) => self.vim_enabled = true,
             ("set", ["novim"]) => self.vim_enabled = false,
+            ("help", []) => self.show_help(),
+            ("q", []) | ("quit", []) => {
+                if self.pre_help_page.is_some() {
+                    self.restore_saved_page();
+                } else {
+                    self.should_quit = true;
+                }
+            }
             _ => {
                 let rest = args.join(" ");
                 self.show_message(&format!("scratchy: unknown command: :{name}{}{rest}", if rest.is_empty() { "" } else { " " }));
@@ -12004,6 +12315,14 @@ impl ApplicationHandler<AppEvent> for App {
                 // yet, so there's nothing a release would need to do.
                 if event.state == ElementState::Pressed {
                     self.handle_key_event(&event);
+                    // `:q`/`:quit` (`dispatch_command`) only set this
+                    // flag — `event_loop.exit()` itself has to happen
+                    // here, the one place this whole call chain actually
+                    // has an `&ActiveEventLoop` to call it on (see `App::
+                    // should_quit`'s own docs).
+                    if self.should_quit {
+                        event_loop.exit();
+                    }
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
@@ -16352,8 +16671,11 @@ mod tests {
 
     // ---------- vim mode: `resolve_binding`/`TextEditBuffer` ----------
     // (TODO.txt's own plan — the mode enum, real keyboard wiring, the
-    // `:` command bar, `:set vim`/`:set novim`, `:visit`, and the
-    // `SIGUSR1` bootstrap for turning vim mode back on once off.)
+    // `:` command bar, `:set vim`/`:set novim`, `:go`, `:help`, `:q`/
+    // `:quit`, Tab completion, and the `SIGUSR1` bootstrap for turning
+    // vim mode back on once off.)
+
+    // ---------- command bar: Tab completion, `:q`/`:quit`/`:help`/`:go` ----------
 
     #[test]
     fn resolve_binding_maps_bare_jk_to_scroll_in_normal_mode() {
@@ -16450,6 +16772,60 @@ mod tests {
         assert_eq!(buf.cursor, 0);
         buf.backspace(); // no-op at start, must not panic on a mid-codepoint byte index
         assert_eq!(buf.text, "é");
+    }
+
+    #[test]
+    fn text_edit_buffer_insert_str_drops_control_characters() {
+        // The exact real-world shape this guards against: a clipboard
+        // paste ending in a trailing newline, which `App::
+        // paste_into_command_line` hands straight to `insert_str`.
+        let mut buf = TextEditBuffer::default();
+        buf.insert_str("https://example.com/\n");
+        assert_eq!(buf.text, "https://example.com/");
+        assert_eq!(buf.cursor, buf.text.len());
+    }
+
+    #[test]
+    fn text_edit_buffer_insert_str_inserts_at_the_cursor_not_just_the_end() {
+        let mut buf = TextEditBuffer::default();
+        buf.insert_str("go https://b/");
+        buf.cursor = 3; // right after "go "
+        buf.insert_str("https://a/ ");
+        assert_eq!(buf.text, "go https://a/ https://b/");
+    }
+
+    #[test]
+    fn token_start_before_finds_the_last_whitespace_boundary() {
+        assert_eq!(token_start_before("go", 2), 0, "single token: starts at 0");
+        assert_eq!(token_start_before("set vi", 6), 4, "second token starts right after the space");
+        assert_eq!(token_start_before("set ", 4), 4, "cursor right after a trailing space: empty token there");
+        assert_eq!(token_start_before("", 0), 0);
+    }
+
+    #[test]
+    fn command_completions_offers_command_names_for_the_first_token() {
+        let candidates = command_completions("g", 0, 1);
+        assert_eq!(candidates, vec!["go"]);
+    }
+
+    #[test]
+    fn command_completions_offers_set_args_only_for_sets_own_second_token() {
+        let candidates = command_completions("set v", 4, 5);
+        assert_eq!(candidates, vec!["vim"]);
+    }
+
+    #[test]
+    fn command_completions_has_nothing_to_offer_for_an_arbitrary_argument() {
+        // `:go`'s own URL argument — no finite candidate pool exists for
+        // it, by design (see `command_completions`'s own docs).
+        assert_eq!(command_completions("go ht", 3, 5), Vec::<&str>::new());
+    }
+
+    #[test]
+    fn command_completions_prefix_matches_only_not_substrings() {
+        // "o" is a substring of "go" but not a prefix of it — must not
+        // match.
+        assert_eq!(command_completions("o", 0, 1), Vec::<&str>::new());
     }
 
     /// DIAGNOSTIC, not a real regression test (no behavior assertion

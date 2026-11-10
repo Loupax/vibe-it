@@ -1659,8 +1659,11 @@ last, per the user's own call.
       of Normal-mode bindings beyond `j`/`k` scroll (vim's own `gg`/`G`/
       counts/etc. — how much of real vim's motion vocabulary is worth
       reproducing vs. inventing scratchy-specific ones); the full list
-      of `:` commands beyond `:visit`/`:history-back`/`:history-
-      forward`/`:set vim`/`:set novim`; where exactly the command bar
+      of `:` commands beyond `:go` (renamed from `:visit`, v69)/
+      `:history-back`/`:history-forward`/`:set vim`/`:set novim`/`:help`/
+      `:q`/`:quit` (the last three, and Tab completion/cycling over this
+      list, v69) — `:history-back`/`:history-forward` specifically are
+      still not implemented; where exactly the command bar
       paints (top vs. bottom of the window — the scrollbar overlay,
       `paint_scrollbar`, is the existing precedent for chrome painted
       on top of the laid-out page outside the DOM/layout tree, but

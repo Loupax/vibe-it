@@ -2811,3 +2811,44 @@ into the bundle, since a `wire`-navigated page never passes through
 `snag`-bundled page" gap gets fixed for the `wire` path: check `snag`'s
 own `NOTES.md`/`PROMPTS.md` first for whether it already solved the
 exact same class of problem once.
+
+## v69 — why `cycle_command_completion` needs no separate "how much to
+remove" bookkeeping
+
+The one real subtlety in the Tab-completion work: cycling has to
+replace a *different* amount of text on the first `Tab` (whatever
+prefix the user actually typed) than on every `Tab` after it (the
+previous candidate's own, usually-longer text), and the obvious-looking
+fix — store the replaced range's end alongside `token_start` in
+`CommandCompletion` — turns out to be unnecessary. `self.command_line.
+cursor` already *is* that end, on both calls, for the same reason
+either way: `apply_completion`'s own last line always leaves it at
+`token_start + candidate.len()` right after inserting a candidate, so
+the next call (whether that's "the first real completion" reading the
+cursor the user's own typing left it at, or "cycle to the next match"
+reading the cursor the *previous* completion left it at) can use
+`token_start..cursor` as the replace range unconditionally. Spotted only
+after writing a first draft that threaded a separate `replace_end`
+computation through `CommandCompletion` — worth the few minutes it took
+to notice `cursor` already carried the information, since the simpler
+version is also the version with nothing to keep in sync (a hand-
+computed `replace_end` that silently drifted from the real cursor would
+have been a live bug no test here is shaped to catch, since every test
+exercises `token_start_before`/`command_completions` in isolation, not
+`cycle_command_completion`'s own stateful replace step — that one's
+covered by code review and the live `xdotool` cycling screenshots in
+`PROMPTS.md`'s v69 entry instead, not a unit test).
+
+## v69 — `arboard` reads the `CLIPBOARD` selection, not `PRIMARY`
+
+Worth stating plainly since X11 has two selections and it's easy to
+test the wrong one by hand: `Ctrl`+`v` paste, same as every other
+`Ctrl`+`v` on Linux, reads `CLIPBOARD` (an explicit copy — `Ctrl`+`c`,
+or here, `xclip -selection clipboard`), not `PRIMARY` (whatever's
+currently text-selected, pasted with a middle click). Live-verifying
+this live caught nothing wrong — `arboard::Clipboard::get_text()`
+already defaults to `CLIPBOARD` — but it's the kind of thing that looks
+right from reading the code alone and is worth having actually run
+once, with `xclip -selection clipboard` specifically (not a bare
+`xclip`, which would have set `PRIMARY` and proven nothing about the
+selection `paste_into_command_line` actually reads).

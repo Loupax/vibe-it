@@ -5362,3 +5362,180 @@ screenshot.
 **Deliverable**: `scratchy/src/lib.rs` (`FetchedPage::url`,
 `resolve_page_base_url`, `start_navigation`'s `FetchedPage` construction
 site, `NavResult`'s handler simplified to one line, 2 new tests).
+
+## v69 — command bar QoL: `:visit` renamed to `:go`, Tab completion/cycling, `:help`, `:q`/`:quit`, clipboard paste
+
+> I want to make some qol improvements in the command bar before we
+> move to other things, because it's annoying to use right now. First
+> rename :view to :go, feels better. Second, I want tab completion and
+> cycling in command mode. FInally I want a help page demonstrating all
+> the features of the browser. It can get updated as we add more. :q
+> should close the browser.
+
+> something I forgot. I should also be able to paste text there (for
+> example a URL I got from somwhere else). This is not available by
+> default.
+
+Five small, independent requests against the existing `:`-command bar
+(itself already landed in the codebase by the time this session started,
+but with no `PROMPTS.md` entry of its own — a pre-existing gap this
+entry doesn't attempt to backfill, only to build on). The user said
+`:view`; the command that actually exists is `:visit` — treated as the
+same ask (there's no `:view` today, and "feels better" reads as a
+rename, not a request for a second command), confirmed working end to
+end before/after, not just assumed.
+
+**`:visit` → `:go`:** one `dispatch_command` match arm renamed, plus
+its own and `key_insertion_text`'s doc comments (the latter cited the
+old name in a historical bug example — updated to match, since it's
+living documentation, not a changelog entry).
+
+**Tab completion/cycling:** two new pure, unit-tested functions —
+`token_start_before` (the byte offset of the whitespace-delimited token
+ending at the cursor) and `command_completions` (the candidate pool for
+that token: `COMMAND_NAMES` for the first token, `SET_ARGS` for `set`'s
+own second token, nothing for anything else — deliberately no
+completion for `:go`'s own URL argument, which has no finite "correct"
+answer to offer). A new `App::completion: Option<CommandCompletion>`
+field holds the live cycling state; `App::cycle_command_completion`
+completes on the first `Tab` and advances (wrapping) on every
+*consecutive* one, reset on any other command-line keystroke
+(`handle_command_line_key`'s own top-of-function check) and on
+re-entering command mode fresh (`perform_action`'s `EnterCommandMode`
+arm) so a stale completion from a previous `:` session can't leak into
+a new, empty one.
+
+**`:help`:** a new static page, `src/help.html`, embedded via
+`include_str!` the same way `default.css` already is (`HELP_PAGE_HTML`,
+next to `DEFAULT_CSS`), shown through `App::show_help` (`parse_html` +
+`replace_document`, same shape `show_message` already uses for its own
+synthetic pages). Plain semantic HTML — headings, two tables, a list,
+`<b>`/`<i>`/`<code>`, an `<hr>`, and a small embedded `data:` PNG — with
+no `<style>` of its own, styled entirely by `default.css`, so the page
+doubles as a live demo of the default stylesheet rather than a text
+dump. Lists every Normal-mode key and command-bar command, including
+the ones landing in this same change; expected to be kept current by
+whoever changes the command bar next, the same turn they change it.
+
+**`:q`/`:quit`:** `dispatch_command` sets a new `App::should_quit: bool`
+— it has no `&ActiveEventLoop` of its own to call `exit()` on directly.
+`window_event`'s `WindowEvent::KeyboardInput` arm (the one real call
+site with an `ActiveEventLoop` in scope) checks the flag right after
+`handle_key_event` returns and calls `event_loop.exit()` there.
+
+**Clipboard paste:** `Ctrl`+`v` inside the command bar, via a new
+`arboard = "3.4"` dependency (winit has no clipboard API of its own).
+Detected the same way `resolve_binding`'s own `Ctrl`+`d`/`u` arms are —
+`Key::Character("v")` guarded on `self.modifiers.control_key()`, ahead
+of the plain-insertion catch-all. `TextEditBuffer` gained `insert_str`
+(one `insert` per char, control characters — a trailing clipboard
+newline being the real case — dropped, since this buffer is always
+single-line). A fresh `Clipboard` connection is opened per paste rather
+than held on `App` permanently: paste is a rare, user-initiated action,
+not a hot path, so there's no real cost to the setup, versus a
+permanent connection that would need its own reconnect/`Send` lifecycle
+for a feature that doesn't need one. A failed connection or an empty/
+unreadable clipboard is a silent no-op, same as a real terminal or
+browser's own paste.
+
+**7 new permanent tests** (198 total, up from 191): `token_start_before`
+and `command_completions` (prefix-only matching, first-token vs. `set`'s
+own second-token candidate pools, no candidates for an arbitrary
+argument), and `TextEditBuffer::insert_str` (control characters dropped,
+inserts at the cursor rather than always at the end). `App`-level wiring
+(`cycle_command_completion`/`apply_completion` replace-range logic,
+`paste_into_command_line`, `show_help`, `should_quit`'s path to
+`event_loop.exit()`) has no unit test of its own, same "thin
+orchestration rests on code review + live verification" category
+`start_navigation`'s own click wiring and v67's fetch dispatch already
+sit in — verified live instead, below. `cargo test`: 198/198. `cargo
+clippy --all-targets`: unchanged warning count (20) — one new
+`collapsible_if` in `paste_into_command_line` was fixed with a let-chain
+rather than left as a 21st.
+
+**Live-verified against a real running `scratchy` window**, not just
+argued: Xvfb (`:99`) plus `xdotool`/`import` (neither was in this
+container; installed for this session) stood in for a real X server and
+a real keyboard/screenshot, since this environment has no GPU display of
+its own. `:help` rendered correctly (headings, both tables, the
+embedded image decoded — a real checkered square, not a broken-image
+box) and scrolled with `Ctrl`+`d` same as any other page. `Tab` on `:h`
+completed to `:help`; a bare `:` cycled `go → help → q → quit → set →
+go` across six consecutive `Tab` presses, confirming both the
+alphabetical order and the wraparound; `:set ` cycled `novim → vim`.
+`Ctrl`+`v` after setting the real X `CLIPBOARD` selection (`xclip
+-selection clipboard`) to a URL pasted that exact URL into the command
+line. `:go https://example.com/` printed the real resolved HTTP request
+to stdout (no `--socket` given), exactly `start_navigation`'s own
+documented no-socket behavior — proving the rename routes through the
+real navigation path, not just a renamed no-op. `:q` closed the window
+and exited the process (confirmed by polling the PID; takes up to ~1.5s
+to actually exit under Xvfb, not instant, but it does exit).
+
+**Deliverable**: `scratchy/src/lib.rs` (`COMMAND_NAMES`/`SET_ARGS`,
+`CommandCompletion`, `token_start_before`, `command_completions`,
+`App::completion`/`should_quit` fields, `App::cycle_command_completion`/
+`apply_completion`/`paste_into_command_line`/`show_help`,
+`TextEditBuffer::insert_str`, `dispatch_command`'s `:go`/`:help`/`:q`/
+`:quit` arms, `window_event`'s `should_quit` check, 7 new tests);
+`scratchy/src/help.html` (new); `scratchy/Cargo.toml`/`Cargo.lock`
+(`arboard` dependency added).
+
+## v70 — `:q` from `:help` goes back, instead of quitting
+
+> :q from the help page should bring the user back to their previous
+> page, similar to how vim closes the buffer in those cases
+
+A follow-up on v69's `:help`, filed the same session right after seeing
+it work: `:q` previously quit scratchy outright no matter what was on
+screen, which made `:help` a dead end — closing it meant closing the
+whole browser. Real vim's own `:q` doesn't work that way: it closes the
+current buffer/window and falls back to whatever was open before it,
+only actually quitting once there's nothing left to fall back to. That's
+the exact shape asked for and the exact shape built.
+
+**What/why:** a new `App::pre_help_page: Option<SavedPage>`, where
+`SavedPage` snapshots every piece of per-page state `replace_document`
+either changes or clears (`document`, `extra_css`, `image_cache`,
+`scroll_offset`, `scroll_offsets` — not `base_url`, since `show_help`'s
+own `replace_document` call never touches it in the first place).
+`show_help` snapshots into it, but only when it's already `None` —
+re-running `:help` while already viewing it must not let the help page
+itself get captured as "the page to go back to." `dispatch_command`'s
+`:q`/`:quit` arm now branches on `pre_help_page`: `Some` pops it
+(`App::restore_saved_page`, the mirror image of the snapshot — restores
+the three fields `replace_document` always zeroes instead of leaving
+them zeroed, scroll position included, since closing `:help` isn't
+supposed to look like navigating to a new page); `None` falls back to
+the previous behavior (`should_quit`). `start_navigation`'s own first
+line unconditionally drops `pre_help_page`: a real navigation (a real
+click, or `:go`) while `:help` happens to be open means the page about
+to show is genuinely new, not an overlay on top of whatever `:help`
+saved — a later `:q` from there should quit, not resurrect a page from
+before `:help` was ever opened. `src/help.html`'s own `:q`/`:quit` row
+updated to describe both halves.
+
+No new unit tests — same "thin App-level orchestration rests on code
+review + live verification" category v69's own `cycle_command_
+completion`/`paste_into_command_line` already sit in, not a gap: there's
+no new pure, stateless function here to unit-test, just `SavedPage`
+plumbing through existing `App` methods. `cargo test`: still 198/198
+(unchanged). `cargo clippy --all-targets`: unchanged warning count (20).
+
+**Live-verified against a real running window** (same Xvfb/`xdotool`/
+`import` setup v69 used), four scenarios, not just the one asked for:
+(1) scrolled a real page down, opened `:help`, scrolled *that* down to a
+different position, ran `:q` — landed back on the original page at the
+exact same scroll offset (pixel-identical screenshot to before `:help`
+was opened), process still running. (2) `:q` with no `:help` open still
+quits for real (polled the PID: exits a couple seconds later, same as
+v69). (3) Opened `:help`, opened `:help` *again*, then `:q` — landed on
+the real original page, not stuck on the help page itself (confirms the
+"snapshot only once" guard). (4) Opened `:help`, then ran a real `:go`
+to navigate away, then `:q` — this time it quit instead of popping back,
+confirming `start_navigation`'s own clear takes effect.
+
+**Deliverable**: `scratchy/src/lib.rs` (`SavedPage`, `App::
+pre_help_page`, `App::restore_saved_page`, `show_help`'s snapshot guard,
+`dispatch_command`'s `:q`/`:quit` arm, `start_navigation`'s clear);
+`scratchy/src/help.html` (`:q`/`:quit` row updated).
