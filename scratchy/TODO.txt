@@ -1592,6 +1592,69 @@ last, per the user's own call.
       CSS_DEBUG=1 scratchy <page-with-known-gaps>` check next time a
       human's at the keyboard with the screen actually on.
 
+- [x] **A real CSS-gap report, built from `SCRATCHY_CSS_DEBUG=1` against
+      a real page (the Wikipedia Main Page), used to prioritize what's
+      below** — and two real corrections the report itself needed before
+      anything got built off of it, worth recording precisely rather than
+      quietly fixed: an `!important` suffix does **not** actually block
+      value parsing today (verified directly: `color: red !important`
+      parses and applies correctly, since `CssColor::parse` stops cleanly
+      before the trailing `!important` tokens and `parse_value` already
+      tolerates whatever's left over) — every sample the report first
+      attributed to `!important` was independently broken by an unrelated,
+      already-known gap (an unsupported keyword, a missing shorthand, a
+      missing property), confirmed by re-checking each one with the
+      `!important` suffix removed. What *is* still real and still
+      unimplemented: the cascade (`cascade_property`) has no concept of
+      importance at all — purely resolves by specificity — so an
+      `!important` declaration still can't out-rank a more specific
+      competing rule; a real, narrow correctness gap, not a parsing one,
+      and not counted in any number this report produced. Second: the
+      report's own effort estimate for `display: inline-block`/`inline-
+      flex` was also wrong — see the new item just below.
+
+- [x] `display: flow-root` now maps to `Display::Block` — same scoped
+      simplification `table-caption` already uses (no real "establishes
+      its own block formatting context" behavior, the one thing that
+      actually distinguishes it from plain `block`, mainly used to
+      contain floats without the old `overflow: hidden` hack) — a real
+      block-level box, in its source position, just without the
+      float-containment behavior. 1 new permanent test, using a `<span>`
+      (not a `<div>`, which already defaults to `display: block` via
+      `default.css` and so would report identical layout whether this
+      worked or not) to confirm `flow-root` actually gets its own block
+      box rather than being flattened into the surrounding inline run.
+      Only 4 of the CSS-gap report's 128 `display` failures on the
+      Wikipedia Main Page were `flow-root` — the bulk (112) is `inline-
+      block`/`inline-flex`, deliberately *not* attempted here, see the
+      next item.
+
+- [ ] **`display: inline-block`/`inline-flex` — real numbers now in
+      hand, not yet attempted.** The CSS-gap report's single biggest
+      corrected finding: `inline-block` (72 occurrences) and `inline-flex`
+      (40) are the dominant real-world `display` values scratchy still
+      can't do anything with — together more than the rest of that
+      report's entire `display` breakdown combined. The report first
+      called this "small effort, same enum, just new keyword arms,"
+      which is wrong: confirmed directly by reading `collect_children`,
+      an element whose own `display` isn't `Block`/`Table`/`Flex`/`Grid`
+      is never given its own box at all — it's flattened, recursing
+      straight into the *same* shared `pending: Vec<InlineItem>` run as
+      its siblings, with only its background/decoration/href/valign
+      surviving as ambient state. `InlineItem` itself only has two
+      variants, `Text` and `Image` — there's nowhere for an arbitrary
+      boxed element with its own real box model and children to go.
+      Real `inline-block`/`inline-flex` needs a new `InlineItem` variant
+      holding a full nested box, plus extending `measure_mixed_inline`
+      to measure/position/paint it inline — architecturally the same
+      scale of work v48's `<img>` inline-flow feature already was, not a
+      trivial addition. (`inline-flex` specifically was already flagged
+      as needing exactly this, in the flexbox item's own text, before
+      this report existed — this item's new contribution is real-world
+      counts and confirming `inline-block` needs the identical
+      foundation, not just `inline-flex`.) `inline-grid` would need the
+      same foundation too, same as `inline-flex` already notes.
+
 - [ ] **JavaScript — engine choice, investigated, not started; last
       pillar per the user's own explicit ordering.** Recommendation:
       `boa_engine` (crates.io) — the only realistic option that keeps

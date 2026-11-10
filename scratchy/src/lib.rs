@@ -3123,6 +3123,18 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
                     Some(Display::Flex)
                 } else if ident.eq_ignore_ascii_case("grid") {
                     Some(Display::Grid)
+                } else if ident.eq_ignore_ascii_case("flow-root") {
+                    // No real "establishes its own block formatting
+                    // context" behavior implemented (the one thing that
+                    // actually distinguishes `flow-root` from plain
+                    // `block` — mainly used to contain floats without
+                    // the old `overflow: hidden` hack) — same scoped
+                    // simplification `table-caption` just above already
+                    // uses: still a real block-level box, in its source
+                    // position, just without the float-containment
+                    // behavior real CSS gives this specific keyword. See
+                    // TODO.txt for the float-containment gap itself.
+                    Some(Display::Block)
                 } else {
                     None
                 };
@@ -17761,5 +17773,28 @@ mod tests {
             rules[0].decls.grid_area.is_none(),
             "the unsupported numeric grid-area form should leave the field unset, not guess at a value"
         );
+    }
+
+    // ---------- `display: flow-root` ----------
+
+    /// `<span>` (default `display: inline`) is the right element to prove
+    /// this with, not a `<div>` — a `<div>` already defaults to `display:
+    /// block` via `default.css`, so it would report exactly the same
+    /// layout whether `flow-root` parsed correctly or silently failed and
+    /// left the property unset. `find_by_height` only ever matches a
+    /// real `Laid` node's own box (never flattened inline content, which
+    /// produces no `Laid` of its own at all — see its own docs), so
+    /// finding one here already proves the span got a real block box,
+    /// not just a plain-text run.
+    #[test]
+    fn display_flow_root_gets_its_own_block_box_not_flattened_into_the_inline_run() {
+        let laid = measure_fixture(
+            r#"<html><body style="margin: 0"><span style="display: flow-root; height: 40px;">a</span><div style="height: 20px;">b</div></body></html>"#,
+            500.0,
+        );
+        let flow_root = find_by_height(&laid, 40.0).expect("flow-root span should get its own block box, not be flattened into an inline run");
+        assert_eq!(flow_root.w, 500.0, "the flow-root box should stretch to the full container width like an ordinary auto-width block box");
+        let sibling = find_by_height(&laid, 20.0).expect("sibling div not found");
+        assert_eq!(sibling.y, flow_root.y + flow_root.h, "the sibling div should stack below the flow-root box, not share a line with it");
     }
 }
