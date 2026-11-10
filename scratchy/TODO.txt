@@ -516,7 +516,7 @@ session can pick a coherent slice rather than one property at a time.
       both landed since, see the item just below.)
 
 - [x] `grid-template-areas` + `grid-area` named placement, and
-      `minmax()` track sizing — the two gaps the `@media` item below
+      `minmax()` track sizing (4e7a27d) — the two gaps the `@media` item below
       flagged as the reason a real Wikipedia page "still renders single-
       column as predicted" even with `display: grid` otherwise working;
       prompted by live-testing scratchy against a real Wikipedia article
