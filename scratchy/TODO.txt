@@ -508,34 +508,144 @@ session can pick a coherent slice rather than one property at a time.
       not implemented, same as `inline-flex`.
 
       Deliberately cut, each its own narrower item below rather than
-      folded into "done": explicit per-item placement, named lines/
-      areas, `justify-items`/`align-items`/`-self` within a cell,
-      content-based track sizing keywords, `repeat(auto-fill/
-      auto-fit, ...)`, and row-track `fr`/`%` sizing against an
-      indefinite container height.
+      folded into "done": explicit numeric per-item placement,
+      `justify-items`/`align-items`/`-self` within a cell, content-based
+      track sizing keywords, `repeat(auto-fill/auto-fit, ...)`, and
+      row-track `fr`/`%` sizing against an indefinite container height.
+      (Named placement and `minmax()` were also cut here originally —
+      both landed since, see the item just below.)
 
-      - [ ] No explicit grid item placement — `grid-column`/`grid-row`
-            and their `-start`/`-end` longhands aren't parsed at all;
-            every item occupies exactly one cell, decided entirely by
-            auto-placement in document order. The single most
-            defensible cut of this whole item (per its own task
-            wording) — auto-placement alone already covers "just make a
-            grid of N columns and drop items in," the dominant real-
-            world grid use case, without needing this.
-      - [ ] No `grid-template-areas`/named lines — a grid's tracks are
-            only ever addressed positionally (by auto-placement), never
-            by name.
+- [x] `grid-template-areas` + `grid-area` named placement, and
+      `minmax()` track sizing (4e7a27d) — the two gaps the `@media` item below
+      flagged as the reason a real Wikipedia page "still renders single-
+      column as predicted" even with `display: grid` otherwise working;
+      prompted by live-testing scratchy against a real Wikipedia article
+      and finding its page-shell layout (logo/user-links header, left
+      TOC rail, title+body) collapsing to one stacked column where
+      Firefox shows a real two-column shell, then confirming the actual
+      cause by pulling Wikipedia's real CSS directly (`curl`) rather
+      than guessing: every page-shell grid container declares its
+      layout via `grid-template-areas` with `minmax()`-sized tracks,
+      neither of which scratchy parsed at all — both declarations were
+      silently dropped, leaving every one of those containers with no
+      explicit tracks and falling back to a single full-width column.
+
+      `minmax(<min>, <max>)` (`GridTrackSpec::MinMax`, a new `TrackBreadth`
+      grammar for each argument — a plain length/`%`/`fr`, no content-
+      based keywords inside `minmax()` either, still the same separate,
+      not-yet-attempted cut named below) now resolves via a real,
+      single-pass floor-then-distribute algorithm in `resolve_grid_
+      tracks` — a flexible track's own floor is reserved before the
+      remaining free space is distributed by `fr` factor, then added
+      back on top (exactly correct whenever every floor is `0`, which is
+      every real `minmax()` call found in Wikipedia's own CSS — confirmed
+      by grep, not assumed; a real but bounded approximation otherwise,
+      same "single-pass, not the spec's iterative freeze-and-retry"
+      simplification `resolve_flex_main_sizes` already carries for
+      flexbox). `grid-template-areas` (`parse_grid_template_areas`,
+      storing each template row's raw string, leaked the same way
+      `font-family`'s fallback list already is) plus `grid-area: <name>`
+      on an item (`parse_grid_area_name`, bare-identifier form only) now
+      place an item into its named area's own bounding rectangle —
+      computed from the template by `grid_area_rect`, real multi-column
+      spans included (confirmed against real Wikipedia CSS, e.g.
+      `grid-template-areas:'siteNotice siteNotice'`) — ahead of, and
+      taking priority over, the pre-existing auto-placement cursor,
+      which still places everything else (no `grid-area` at all, or one
+      naming nothing in the template) exactly as before, skipping
+      whatever a named item already claimed. `grid-template-columns`
+      absent entirely but `grid-template-areas` present now falls back
+      to one equal-`fr` implicit column per template column (narrower
+      than real CSS, which treats that combination as an author error)
+      rather than collapsing to one full-width column — the one honest
+      single-pass answer when a container's *real* explicit column
+      sizes are themselves unparseable (exactly Wikipedia's own shape,
+      see below). 7 new permanent tests (named placement overriding
+      document order, a two-column span getting both columns' widths
+      combined, the no-explicit-columns equal-fr fallback, an unnamed
+      item auto-placing around a named one, and three `minmax()` shapes
+      — a `0` floor, a nonzero floor, and a fixed ceiling). Live-verified
+      with a real `grim` screenshot against a
+      synthetic local page exercising both features together (named
+      placement reordering the visual layout away from document order,
+      a `minmax()` column claiming its real proportional share, a
+      third area spanning both columns) — see `NOTES.md` for the full
+      writeup.
+
+      **Does not, on its own, fix the real Wikipedia page this was built
+      against, and that's a real, confirmed finding, not a bug in this
+      landing**: Wikipedia's own page-shell `grid-template-areas` for
+      the *logo/TOC/content* split (`.mw-page-container-inner`) is
+      itself only declared inside `@media screen and (min-width:
+      1120px)` — narrower than this, there's no special layout rule for
+      that container in Wikipedia's own CSS at all (confirmed by reading
+      the actual stylesheet, not assumed), so a scratchy window tiled
+      narrower than 1120px stacks that specific container exactly as
+      correctly as real Firefox resized to the same width would. The
+      header row (`.mw-header`, logo left / user-links right) *is*
+      ungated and did pick up real named placement from this landing —
+      but still not its own real 15.5rem/`1fr` column *proportions*,
+      since those are declared via the `grid-template` shorthand
+      (`grid-template: auto / 15.5rem minmax(0,1fr)`), which this item
+      doesn't parse (see below) — it falls back to this item's own
+      equal-`fr` default instead.
+
+      - [ ] `grid-template` (the `<rows> / <columns>` shorthand,
+            optionally combined with area strings) isn't parsed at
+            all — only the two longhands (`grid-template-columns`/
+            `-rows`) and the standalone `grid-template-areas` are.
+            Real Wikipedia CSS uses this shorthand for every page-shell
+            container's own row sizing (`grid-template: auto / 15.5rem
+            minmax(0,1fr)` for the header) — unlocking its *column*
+            half doesn't strictly need the row half to parse too, but
+            doing one without the other wasn't attempted this session;
+            the bigger blocker in practice is that most of these rows
+            use `min-content` (a content-based keyword, see below), not
+            just `auto`, so parsing the shorthand's syntax alone
+            wouldn't be enough to make most of these specific
+            declarations resolve anyway.
+      - [ ] `@supports` isn't parsed at all (falls through to the same
+            "any at-rule but `media` is dropped" policy named below) —
+            found as a *second*, independent reason part of Wikipedia's
+            own left rail (`.vector-pinned-container`, which the TOC and
+            main menu both live inside) stays invisible even once its
+            own column is real: its default `display: none` is only
+            overridden back to `display: block` by a rule wrapped in
+            `@supports (display: grid){...}`, which scratchy drops
+            entirely regardless of whether it actually supports
+            `display: grid` by then. Not attempted as part of this item
+            — a real, separate at-rule feature, same shape `@media`
+            itself was before v64, not a grid gap.
+      - [ ] No numeric explicit item placement — `grid-column`/`grid-
+            row`/their `-start`/`-end` longhands, and `grid-area`'s own
+            fuller `<grid-line> / <grid-line> / <grid-line> / <grid-
+            line>` numeric form, still aren't parsed; only a bare
+            `grid-area: <name>` naming a `grid-template-areas` area is
+            recognized. Narrowed by this item, not closed — auto-
+            placement (or now, named-area placement) still covers "just
+            make a grid and drop items in," the dominant real-world
+            case, without this.
+      - [ ] A named area spanning multiple *rows* has its own height
+            attributed entirely to its first row, not distributed across
+            every row it spans the way real CSS Grid would (the same
+            shape a table's own missing rowspan support already has,
+            see this file's own table-layout entry) — not reachable by
+            the real CSS this was built against, which only ever spans
+            columns, never rows, but a real, narrower gap worth naming
+            precisely rather than leaving unstated.
       - [ ] No `justify-items`/`align-items`/`justify-self`/`align-self`
             within a grid cell — an item always stretches to its own
-            column's full width (the same "stretch" a table cell
-            already gets) and sits at its row's own top edge, with no
+            cell's full width (the same "stretch" a table cell already
+            gets) and sits at its row's own top edge, with no
             alternative alignment/sizing-within-the-cell behavior.
       - [ ] No content-based track-sizing keywords (`auto`/`min-
-            content`/`max-content`) and no `minmax()` — every column/row
-            track `grid-template-columns`/`-rows` declares must be a
-            plain fixed `<length-percentage>` or `fr`; an `auto`/
-            `minmax(...)` track simply fails to parse (the whole
-            declaration drops, same as any other unsupported value).
+            content`/`max-content`) — every column/row track `grid-
+            template-columns`/`-rows` declares must still be a plain
+            fixed `<length-percentage>`, `fr`, or `minmax()` of either
+            (`GridTrackSpec`'s own grammar, now including `minmax()` —
+            see the item just above); a bare `auto`/`min-content`/
+            `max-content`, inside `minmax()` or not, still simply fails
+            to parse, dropping the whole declaration.
       - [ ] `repeat(auto-fill, ...)`/`repeat(auto-fit, ...)` aren't
             recognized — only `repeat(<integer>, ...)` — real available-
             space-driven track-count resolution (how many tracks fit)
@@ -912,18 +1022,31 @@ session can pick a coherent slice rather than one property at a time.
       `grid-area` (the other half of the real fix, see `display: grid`'s
       own item above) is deliberately not part of this item.
 
-- [ ] `@import`/`@font-face`/`@keyframes`, and transitions/animations
-      are still skipped outright at the stylesheet-parsing stage (any
-      at-rule name other than `media` still falls through to the same
-      "invalid, drop it" outcome `TopLevelParser`'s old blanket no-op
-      gave every at-rule) — split off from the old combined "no at-rules
-      at all" item now that `@media` (just above) has its own real
-      implementation. `@import` is a fetch-time concept this
+- [ ] `@import`/`@font-face`/`@keyframes`/`@supports`, and transitions/
+      animations are still skipped outright at the stylesheet-parsing
+      stage (any at-rule name other than `media` still falls through to
+      the same "invalid, drop it" outcome `TopLevelParser`'s old blanket
+      no-op gave every at-rule) — split off from the old combined "no
+      at-rules at all" item now that `@media` (just above) has its own
+      real implementation. `@import` is a fetch-time concept this
       no-networking renderer doesn't need yet (see NOTES.md's "rendering,
       not networking" priority); `@font-face`/`@keyframes`/transitions/
       animations are unrelated to responsive layout, which was what was
       actually blocking real pages from looking right. No responsive-
       breakpoint gap remains — that's `@media`'s own item, now resolved.
+      `@supports` is the one addition to this list no longer purely
+      theoretical: confirmed, via the `grid-template-areas`/`minmax()`
+      item above, to be the real reason part of a real Wikipedia page
+      (its left rail's own `display: none` default, meant to be
+      overridden back to `block` by a rule wrapped in `@supports
+      (display: grid){...}`) stays invisible even once the column
+      layout around it is real — dropping the whole `@supports` block
+      means that override never applies, regardless of whether scratchy
+      actually supports the feature being queried by then. Not attempted
+      as part of that item; real CSS feature queries (`@supports (prop:
+      value)`, `and`/`or`/`not` combination, `selector(...)`) are their
+      own parsing surface, same shape `@media`'s own query-list grammar
+      was before v64 — a real future item, not a trivial follow-on.
 
 - [ ] `OurSelectorImpl`'s `NonTSPseudoClass` (now `OurPseudoClass`,
       v37) still can't parse `:hover`/`:focus`/`:active` — unlike
@@ -1083,9 +1206,11 @@ session can pick a coherent slice rather than one property at a time.
       other per-span properties here.
 
       **Deliberately scoped out of this first pass, per the user's own
-      explicit, prior decision (not an oversight) — unchanged from the
-      original plan recorded here**: back/forward history, any
-      navigation keybinding, multiple tabs/windows.
+      explicit, prior decision (not an oversight)**: multiple tabs/
+      windows, still true. Back/forward history and a navigation
+      keybinding — also scoped out of this first pass originally — have
+      since landed (`h`/`l` bound to `:historyBack`/`:historyFront`); see
+      the vim-keybindings item below.
 
       **Live verification, stated exactly, not overclaimed**: the real
       `snag --serve` socket round trip was verified directly against a
@@ -1409,6 +1534,41 @@ last, per the user's own call.
         unverified-live-in-this-sandbox bucket v32/v55/v62/v65 already
         flagged (no synthetic mouse/keyboard event tool here).
 
+- [ ] **Debug tools: a way to see which CSS declarations scratchy
+      couldn't process — forward-looking plan, written up for review,
+      nothing built yet.** The user's own request, recorded here to
+      plan properly "when the time comes" rather than build on the
+      spot. Motivated by this exact session's own workaround: diagnosing
+      why a real Wikipedia page's page-shell layout (the `grid-template-
+      areas`/`minmax()` gap, see `display: grid`'s own item above) was
+      broken meant manually `curl`-ing Wikipedia's real CSS out-of-band
+      and grepping it by hand for `grid-template`/`minmax` to even find
+      which declarations scratchy was silently dropping — scratchy
+      itself gave no signal that anything had failed to parse at all.
+      Every one of this file's own "the whole declaration drops" parse
+      failures (and there are many, by design — `TODO.txt`'s own
+      standing convention for an unsupported value) are exactly the
+      cases this would surface.
+
+      The shape the user described: a flag that, when set, prints every
+      CSS declaration scratchy's cascade couldn't process to stderr —
+      not just silently continuing the way it does today. Still open,
+      not decided yet: where exactly in the pipeline to hook this (the
+      declaration-parsing `match`/`if` chains in `StyleRule::parse_
+      declaration` land throughout this file already funnel every
+      unrecognized/unparseable value through the same "just don't set
+      the field" path — hooking a print there needs each one to also
+      report *what* it couldn't parse, which most of today's call sites
+      discard via `if let Ok(v) = ...` with no `Err` branch at all, so
+      this isn't a free hook, it's a real change to a lot of call
+      sites); what counts as "couldn't process" (a genuinely unknown
+      property name vs. a known property with a value shape it doesn't
+      support vs. a known-and-dropped at-rule like `@font-face`); and
+      whether this reports at the raw-declaration level (closest to
+      "what's in the stylesheet") or already resolved to "which TODO.txt
+      item this maps to" (more useful, much more work, probably not
+      v1). Nothing decided on exact flag name/output format either.
+
 - [ ] **JavaScript — engine choice, investigated, not started; last
       pillar per the user's own explicit ordering.** Recommendation:
       `boa_engine` (crates.io) — the only realistic option that keeps
@@ -1449,397 +1609,95 @@ last, per the user's own call.
       which engine is chosen.
 
 
-- [ ] **Vim-inspired keybindings + a `:` command bar — forward-looking
-      plan, written up for review, nothing built yet.** Recorded here
-      (no commit hash — nothing in this block has landed) instead of
-      only in conversation, same as the `wire` planning entry above did
-      for its own feature, so the plan survives between sessions. The
-      goal: real vim-flavored navigation (`j`/`k` to scroll, etc.) plus
-      a `:`-prefixed command line for things like `:visit <url>`,
-      `:history-back`, `:history-forward`. Several real design
-      questions got worked through in conversation before any of this
-      was agreed on; recorded here in the order they were actually
-      resolved, including the dead ends, since the reasoning for ruling
-      each one out matters as much as the shape that was kept.
+- [x] **Vim-inspired keybindings + a `:` command bar** (the plan recorded
+      here, now built — `d762dbc`, `5c085bd` (v69), `cf35f56` (v70),
+      `73ee636`/`7be36af`/`ad175f6`/`051cb28`,
+      `scratchy/history-nav-refresh`). The design questions this plan
+      worked through before anything was built — not a separate crate,
+      JS config deferred until the JS pillar lands, the explicit
+      `:set vim`/`:set novim` toggle over bare-key-always-on or a
+      tmux-style prefix, the `SIGUSR1` out-of-band bootstrap for turning
+      vim mode back on once it's off, `:` left as an unguarded bare key —
+      were each resolved exactly as decided here, not revisited.
 
-      **Not a separate crate.** First question raised: should the
-      command bar/keybinding UI live in its own package, the way
-      `wire`/`snag` do? Decided no, for now — `wire`/`snag` are separate
-      *processes* with a real IPC boundary (a Unix socket) justifying
-      the crate split; a command bar is chrome painted into the same
-      window, driven by the same event loop, needing tight two-way
-      access to `App`'s own state (`document`, `base_url`, a future
-      history stack, `socket_path`) and painted on top of the same
-      pixel buffer. Splitting it out now would mean committing to a
-      wide `pub` surface on the engine before the feature has been
-      built once — exactly the "speculative abstraction" this repo's
-      own README rules out. Keep it as a clearly-delimited module/
-      section within `scratchy`, same precedent flexbox/grid/position
-      each already set (big, self-contained sections in one file);
-      revisit the crate split only if a second real consumer shows up.
+      Landed: `VimMode`/`Action` enums and `resolve_binding(key, mods,
+      mode) -> Option<Action>` as the one hardcoded chokepoint a future
+      scriptable `bind()` would call into instead of requiring a
+      redesign; `j`/`k` scroll, `Ctrl-d`/`Ctrl-u` half-page, `:` enters
+      command mode (all pre-existing); a real navigation history stack
+      (`App::history`, seeded with the opening page) with `h`/`l` bound
+      to `Action::HistoryBack`/`HistoryFront` (a silent no-op at either
+      end of the stack, key-repeat ignored so holding the key doesn't
+      blow through several entries before one fetch lands); the `:`
+      command bar itself, painted as a bottom chrome strip
+      (`paint_command_bar`, settling the "where does it paint" question
+      this plan left open) with real text editing, Tab completion/
+      cycling over `COMMAND_NAMES`, and clipboard paste; `:go <url>`
+      (renamed from `:visit`), `:historyBack`/`:historyFront`/`:refresh`
+      (falling back to `base_url` when history is empty, so refreshing
+      the very first page works too), `:set vim`/`:set novim`, `:help`
+      (`:q` from the help page goes back to the page you were on, not a
+      full quit), `:q`/`:quit`; the real `SIGUSR1` bootstrap
+      (`signal-hook`'s `Signals` iterator on its own background thread,
+      `AppEvent::ToggleVimMode` into the existing `EventLoopProxy`
+      channel — not a raw signal handler touching `App` state directly).
+      Also landed in the same pass, not originally part of this plan but
+      the same PRs: `scratchy <url>` (or `--socket <path> <url>`) now
+      fetches a page live through `wire` directly — `classify_input`
+      disambiguates an absolute `http`/`https` URL from a local path —
+      so `snag url | scratchy` is no longer the only way to open a live
+      page (`snag` is still the only thing that bundles a page to a
+      single self-contained file up front).
 
-      **Not embedding JS for config either, yet — but designed so it
-      can be added later without a rewrite.** A JS-scriptable bindings
-      layer (a user's own config calling something like `bind("j",
-      "scroll-down")`) is a real, well-precedented pattern (qutebrowser,
-      Tridactyl), genuinely separate from the already-planned "JS
-      pillar" below (full `<script>` execution/DOM mutation — unrelated
-      use of a JS engine). Decided to defer specifically so `boa_engine`
-      only ever gets embedded once, for both purposes, rather than once
-      now for config and again later for pages. What this *does* mean
-      for the hardcoded version built now: keybinding resolution and
-      command dispatch should each go through one narrow, named
-      function — `resolve_binding(key, mods, mode) -> Option<Action>`
-      and `dispatch_command(name: &str, args: &[&str])` — hardcoded
-      `match` arms today (dwm `config.h` style, explicitly fine per the
-      user's own call), but the exact chokepoint a future JS config
-      layer would call into or override, so swapping the hardcoded
-      dispatch for a scriptable one is a contained change later, not a
-      redesign now.
+      **Still fully open, as originally scoped**: link hints (Vimium/
+      qutebrowser's label-and-type-to-follow) — not proposed for v1,
+      `resolve_binding`'s own `mode` parameter is already shaped to grow
+      a third mode for it without a redesign; the rest of real vim's
+      motion vocabulary beyond `j`/`k`/`Ctrl-d`/`Ctrl-u` (`gg`/`G`/
+      counts/etc.); a JS-scriptable `bind()` config layer (deferred
+      until the JS pillar lands, specifically so `boa_engine` is only
+      ever embedded once); the automatic half of Vimium-style vim-mode
+      suspension (auto-suspend on a focused `<input>` — scratchy has no
+      forms/focus yet, so only the manual `:set novim` toggle is
+      buildable today).
 
-      **New infrastructure this genuinely requires, confirmed not to
-      exist yet by grep, same as noted when this was first discussed**:
-      real keyboard input (zero `WindowEvent::KeyboardInput` usage
-      anywhere in this codebase today), a modal state enum on `App`, a
-      text-editing buffer (insert/backspace/cursor move) for the
-      command line itself, and a navigation history stack — doesn't
-      exist at all (`AppEvent::NavResult`'s own docs already flag this:
-      "No back/forward history is built on top of this ... this is just
-      the one hook a future history stack would need to land next to").
-      `:history-back`/`:history-forward` need a real `Vec<Url>` +
-      index, hooked into `start_navigation` (push on a real
-      click/`:visit`, move-not-push on back/forward itself).
+- [x] **Move page shaping off the main thread** (the 4-step sequencing
+      plan recorded here, now built — `968df78`, `81fb1cc`, `b5184e4`,
+      `a58e2b0`). Steps 1–3 landed as planned: `Rc<DecodedImage>` ->
+      `Arc<DecodedImage>` everywhere; `layout_generation` bumped on every
+      resize/`@media`/navigation/streaming-chunk, threaded into every
+      background-shaping request and checked against on arrival so a
+      stale result from a since-superseded reshape is silently dropped;
+      `measure_document` now runs on its own background thread with its
+      own independent `FontSystem`/`SwashCache` pair, isolated behind
+      `catch_unwind` so a panic on one pathological page can't
+      permanently break every navigation after it.
 
-      **Real overlap with the Form elements sequencing plan above,
-      worth building with in mind even though forms aren't being built
-      now**: that item's own step 4 needs the *exact* same thing — a
-      per-element text buffer, real keyboard wiring, a caret, backspace/
-      arrow-key handling, for `<input type=text>`. If the command bar's
-      text-editing core is written as its own small, chrome-vs-page-
-      agnostic piece, it's plausibly the same code a future focused
-      `<input>` reuses — one shared editor, two call sites (`App`'s own
-      command mode now, a focused form element's own mode later). Worth
-      designing for that reuse without actually building the form half
-      now.
+      Step 4 (revisit `PROGRESSIVE_LAYOUT_TICK_BUDGET` once step 3
+      landed) surfaced a real problem real-world testing against a live
+      Wikipedia page found in the first one-shot-thread-per-rebuild
+      version of step 3, and both of this plan's own open questions got
+      resolved in the fix, not left open: a *persistent* background
+      worker (`spawn_shaping_worker`, started once at construction, not
+      spawned fresh per rebuild — avoids re-paying `new_font_system()`'s
+      system-font-database scan on every navigation) that still ticks
+      internally at roughly the same budget and still delivers progress
+      per tick (`AppEvent::ShapeResult`), so a big page keeps filling in
+      progressively on the main thread exactly as before this plan
+      started, despite shaping now happening on a different thread
+      entirely — chosen over one unticked call to completion, which
+      turned "laggy while loading" into "blank for most of a minute" on
+      a big real page when tried.
 
-      **Keybinding model — three shapes considered, in the order they
-      were actually proposed and why each one changed**:
+      **Explicitly NOT fixed by this plan, exactly as flagged when it
+      was written**:
 
-      1. *Pure vim modal* (bare-key Normal mode, `:` for command mode,
-         the obvious first idea) — real risk once the JS pillar lands:
-         a page can `addEventListener('keydown', ...)` and claim any
-         bare key, and real sites already do (Gmail/Reddit/YouTube all
-         bind `j`/`k` themselves). Vim gets away with bare keys because
-         a terminal app can't silently steal keys out from under the
-         shell; a web page can, once scratchy can run one's JS.
-      2. *tmux-style prefix for every command* (e.g. `leader-j` instead
-         of bare `j`) — solves the collision problem outright (scratchy
-         only ever claims sequences starting with the prefix), but
-         loses vim's actual feel: holding `j` to scroll becomes
-         `leader-j leader-j leader-j...`. tmux's own fix for the same
-         tension on its *own* prefixed bindings — `repeat-time`, a short
-         rolling window after a prefixed command where the same-family
-         bare key keeps working without re-pressing the prefix — was
-         noted as the mitigation if this shape were kept, but wasn't
-         needed once shape 3 was settled on instead.
-      3. **Settled on: an explicit, user-toggleable vim mode**, not
-         per-keystroke disambiguation. `:set vim`/`:set novim` (real
-         vim's own boolean-option-negation idiom, e.g. `:set wrap`/
-         `:set nowrap` — not a different, invented verb). Off means
-         zero interception, full pass-through to the page — the
-         explicit, stated use case: turning the whole thing off to
-         play a browser-rendered game that wants raw WASD/arrow keys.
-         On means real bare-key vim Normal mode, same as shape 1,
-         *without* needing shape 2's prefix-everywhere cost — the
-         toggle itself is the safety valve, not per-keystroke
-         disambiguation. This is also exactly how real vim-browser
-         extensions already behave in practice (Vimium/Tridactyl pair
-         an automatic trigger — focus a text field, enter insert mode —
-         with a manual global toggle for everything automatic detection
-         can't catch, e.g. games/canvas apps with nothing to focus).
-         Scratchy has no forms/focus yet, so only the manual half is
-         buildable now; the automatic half (auto-suspend vim mode on a
-         focused `<input>`, mirroring Vimium's insert-mode) slots in
-         for free later once forms exist, not required for v1.
-
-      **The bootstrapping problem shape 3 creates, and how it's being
-      solved for now**: if "off" means scratchy intercepts nothing,
-      nothing can type `:set vim` to turn it back on — `:` would go
-      straight to the page. Turning vim mode *off* has no such problem
-      (`:set novim`, typed normally, while still in vim mode). Turning
-      it back *on* needs a path that doesn't depend on scratchy owning
-      any keyboard event at all.
-
-      - *First idea*: one single, always-reserved keyboard chord
-        (discussed as `Super`+`:`, checked before any mode dispatch,
-        forwarded to the page under no circumstances), as the one
-        narrow survivor of shape 2's prefix idea — not guarding every
-        command, just this one bootstrap. Mechanically this is a real
-        3-key chord (Super+Shift+Semicolon on a standard layout, since
-        `:` is Shift+`;`) — unremarkable on its own, winit reports it
-        as ordinary modifier state plus one key event, nothing exotic.
-      - *Why it was dropped, not just refined*: two independent,
-        unresolvable-without-testing risks surfaced. (1) Super is the
-        single most commonly claimed modifier for a window manager's
-        *own* global shortcuts — the user's own dev environment runs
-        `dwl`, a suckless WM, where Super/Mod4 is conventionally the
-        primary modifier for everything the WM itself binds; a WM-level
-        claim on Super intercepts the chord before scratchy's window
-        would ever see it, entirely outside scratchy's control, one
-        layer further out than the original page-stealing-keys problem
-        this whole plan started from. (2) The user's own keyboard is a
-        custom Corne with a tweaked QMK/ZMK layout. A custom layer
-        producing `;`/`:` normally still emits a completely ordinary
-        HID Semicolon/Shift+Semicolon chord indistinguishable from a
-        stock keyboard (QMK/ZMK speak standard USB HID regardless of
-        how the physical layout is remapped) — but *if* the firmware
-        produces symbols via a Unicode-input escape sequence instead of
-        a real Shift+key chord (some QMK Unicode modes do this), there
-        may be no moment where Shift and the key are genuinely held
-        simultaneously, and Super might not survive the sequence
-        either. Not knowable without testing on the actual hardware.
-      - **Settled on instead: an out-of-band external channel, not a
-        keystroke at all** — sidesteps both risks completely, since
-        neither a WM keybinding nor keyboard firmware quirks can
-        intercept a signal sent to a process. Framed as the first
-        concrete use of a more general "allow sending commands to a
-        running scratchy instance from the CLI" capability (not
-        committed to building the fuller version now — just noted as
-        the natural direction this already points in, e.g. a future
-        `scratchy-ctl :visit <url>` reusing an already-running window).
-        For now: a plain POSIX signal. `SIGUSR1` specifically (one of
-        the two signals POSIX reserves with no predefined meaning,
-        exactly for this), leaving `SIGUSR2` free if the fuller command
-        channel ever gets built. The user's own call on scope: "I doubt
-        it will happen often enough to be cumbersome, and if it does,
-        I'll have a better solution by then" — deliberately not over-
-        building this for a need that may never materialize.
-      - **Implementation note for whenever this is actually built, not
-        optional**: a raw signal handler cannot safely touch `App`
-        state directly — signal handlers interrupt the main thread at
-        an arbitrary point and only a handful of operations are async-
-        signal-safe; mutating a field or touching the layout tree from
-        inside one is a real UB risk, not a style concern. The correct
-        shape maps directly onto a pattern this codebase already has
-        twice over (`start_navigation`'s fetch thread, the stdin-reader
-        thread in streaming mode): a background thread blocking on the
-        signal via the `signal-hook` crate's `Signals` iterator (safe,
-        ordinary blocking Rust, no raw handler needed), which on
-        wakeup does `proxy.send_event(...)` through the same
-        `EventLoopProxy<AppEvent>` channel those two already use. Not
-        new architecture — one more thread following the established
-        shape, a new `AppEvent` variant.
-      - *Minor, optional ergonomic note*: signaling a process needs its
-        PID; a `pidof`/`pgrep scratchy` dance is the baseline, but
-        scratchy could drop a PID file in `$XDG_RUNTIME_DIR` at startup
-        — same discovery convention `wire`/`snag` already use for their
-        own socket paths — if that friction ever actually bites. Not
-        required for v1.
-
-      **One naming/consistency decision made explicitly, not left
-      implicit**: whether `:` itself (entering command mode) should
-      also require some guard, for the same "scratchy never claims a
-      bare key" reasoning the rest of this plan is built on. Decided to
-      leave `:` as an ordinary bare key within vim mode — the collision
-      risk is low (few if any real pages bind bare `:`) and it's the
-      one thing most worth having fast, single-key access to. Stated
-      here as a deliberate call, not an oversight someone should "fix"
-      later.
-
-      **Explicitly out of scope for this item, named for shape only —
-      not being built now**: link hints (Vimium/qutebrowser's own
-      signature feature — press a key, every link gets a label, type
-      the label to follow it) is the feature that would actually make
-      this feel vim-native rather than just "a `:` prompt bolted on."
-      Not proposed for v1, but the mode enum and binding-resolution
-      chokepoint above should be able to grow a third mode for it
-      without a redesign when it's eventually taken on.
-
-      **Still fully open, deliberately not decided yet**: the exact set
-      of Normal-mode bindings beyond `j`/`k` scroll (vim's own `gg`/`G`/
-      counts/etc. — how much of real vim's motion vocabulary is worth
-      reproducing vs. inventing scratchy-specific ones); the full list
-      of `:` commands beyond `:go` (renamed from `:visit`, v69)/
-      `:history-back`/`:history-forward`/`:set vim`/`:set novim`/`:help`/
-      `:q`/`:quit` (the last three, and Tab completion/cycling over this
-      list, v69) — `:history-back`/`:history-forward` specifically are
-      still not implemented; where exactly the command bar
-      paints (top vs. bottom of the window — the scrollbar overlay,
-      `paint_scrollbar`, is the existing precedent for chrome painted
-      on top of the laid-out page outside the DOM/layout tree, but
-      placement itself wasn't discussed); and the full shape of
-      `AppEvent`'s own extension for this (a `ToggleVimMode` variant at
-      minimum, a `CommandSubmitted(String)` or similar for `:`-entered
-      commands, however those end up threaded through `user_event`).
-
-
-- [ ] **Move page shaping off the main thread, so page rendering and
-      vim mode's own chrome genuinely can't block each other —
-      forward-looking plan, written up for review, nothing built yet.**
-      Recorded here instead of only in conversation, same as the
-      vim-mode item above did for its own feature. Prompted by testing
-      vim mode locally: everything (not just the command bar) felt
-      laggy specifically while a page was still loading, traced to
-      `App::redraw`'s progressive-layout branch running `measure_
-      document` with a synchronous per-tick budget on the one
-      single-threaded winit event loop — any input arriving mid-tick,
-      keyboard or mouse, sits unhandled until that tick returns. The
-      budget was just lowered (500ms -> 80ms, see `PROGRESSIVE_LAYOUT_
-      TICK_BUDGET`'s own docs) as an immediate, narrowly-scoped fix, but
-      that only shrinks the blocking window — it doesn't remove it. The
-      real ask: page rendering and the command bar/input shouldn't share
-      a thread at all.
-
-      **What can actually move to a background thread, and what can't
-      — confirmed by reading the vendored source, not assumed.**
-      `markup5ever_rcdom`'s own `Handle = Rc<Node>`, with `Cell`/
-      `RefCell` fields on `Node` itself — categorically `!Send`. So
-      `build_layout_tree_with_resources(&Handle, ...)` (the DOM walk +
-      cascade match — its own comment in `redraw()` already separately
-      flags this as costing "hundreds of ms on large pages," a fully
-      *unbudgeted* stall today, not just an under-budgeted one) can
-      never leave the main thread without rewriting the DOM
-      representation itself — out of scope, not proposed here. See the
-      explicitly-not-fixed note below.
-
-      `measure_document` is different: its own signature (`b: &LayoutBox,
-      font_system: &mut FontSystem, ..., cache: &mut ShapeCache, ...`)
-      takes no `Handle` at all — it only ever walks the already-built
-      `LayoutBox` tree. That tree is a real candidate for backgrounding,
-      provided one thing gets fixed first.
-
-      **Prerequisite: `Rc<DecodedImage>` -> `Arc<DecodedImage>`,
-      everywhere it appears.** `BoxContent::Image`, `InlineItem::Image`,
-      `LayoutBox::background_image`, and the `Laid` tree `measure_
-      document` itself produces (`LaidContent::Image`) all embed `Rc<
-      DecodedImage>` — confirmed by reading each definition. `Rc` is
-      `!Send`/`!Sync`; sending a `LayoutBox`/`Laid` across a channel
-      (`EventLoopProxy<AppEvent>::send_event`, which needs its payload
-      to be `Send` the same way `thread::spawn`'s own closure does —
-      every existing `AppEvent` variant already happens to comply,
-      since `FetchedPage`/`DecodedImage` are plain owned data) simply
-      isn't possible while that `Rc` is in there. `DecodedImage`'s own
-      fields (`width: u32, height: u32, pixels: Vec<TextColor>`) are
-      already ordinary `Send`+`Sync` data, so swapping `Rc` for `Arc`
-      everywhere it wraps one — `BoxContent::Image`, `InlineItem::
-      Image`, `LayoutBox::background_image`, `LaidContent::Image`,
-      `App::image_cache: HashMap<String, Rc<DecodedImage>>` — is
-      mechanical, same API surface for this read-mostly use (clone,
-      deref); the only real cost is an atomic refcount instead of a
-      plain one, on clones that already only happen once per image
-      reference during a layout pass, never per paint frame. A clean,
-      small, independently-landable first step.
-
-      **A second, independently-owned `FontSystem`/`SwashCache` pair
-      for the background thread — not sharing `App`'s own.** Confirmed
-      by reading cosmic-text's own vendored source: `FontSystem`
-      (`locale: String, db: fontdb::Database, font_cache: HashMap<_,
-      Option<Arc<Font>>>, ...`) and `Buffer`/`SwashCache` hold no `Rc`/
-      `RefCell` internally — genuinely `Send`. But sharing one
-      *instance* between threads (behind a `Mutex`, say) would just
-      reintroduce the exact stall this plan exists to remove: the main
-      thread blocking on the lock while the background thread holds it
-      mid-shape. So the background shaping thread loads its own
-      independent copy — the same `new_font_system()`/`SwashCache::
-      new()` calls `App::new_static`/`new_streaming` already make at
-      startup — a second in-memory font database, paid once when that
-      thread starts. `App`'s existing `font_system`/`swash_cache` stay
-      exactly what `paint`/`paint_command_bar` already use to paint a
-      finished `Laid` tree on the main thread; nothing about painting
-      itself changes.
-
-      **What crosses the channel, and the staleness problem — same
-      `NavResult`/`ImageFetched` shape, a new generation counter.** Each
-      background tick would send back `(generation, Laid, ShapeCache,
-      incomplete: bool)` via `proxy.send_event`, reusing exactly the
-      pattern those two `AppEvent` variants already established: a tag
-      compared against a *current* value on arrival, mismatch means
-      silently drop. `nav_generation` itself isn't the right tag to
-      reuse as-is — it answers "which navigated-to page," not "which
-      *reshape* of the current page," the way a resize (`cached_width`
-      changing) or a streaming `AppEvent::Chunk`/`Eof` (`layout_dirty`)
-      each restart measurement *within* the same page today. **Open
-      design decision, not yet made**: add a `layout_generation: u64`
-      field alongside `nav_generation`, bumped everywhere `self.layout_
-      dirty = true` or `self.cached_width` changes today, threaded into
-      every background-shaping spawn and checked against on every
-      result's arrival.
-
-      **No true cancellation — same tradeoff `start_navigation`'s own
-      fetch thread already accepts.** A plain `thread::spawn`'d thread
-      can't be killed from outside; a resize/chunk/navigation arriving
-      mid-shape just bumps `layout_generation` and spawns a *new*
-      thread for the new state, leaving the old one to finish on its
-      own and have its now-stale result dropped on arrival via the
-      generation check. Wasted CPU on an abandoned pass, but bounded
-      (every pass does eventually finish) — not a new risk this plan
-      introduces, the exact same one already accepted for a superseded
-      page fetch.
-
-      **The actual behavior change, and one open question it raises.**
-      Today, `redraw()` calls `measure_document` directly, in-line, for
-      up to `PROGRESSIVE_LAYOUT_TICK_BUDGET` before returning control —
-      that ticking exists *specifically* to bound how long input sits
-      unhandled (see that constant's own docs). Backgrounded, the whole
-      reason for a *small* budget evaporates: the background thread no
-      longer blocks input by running long, so it could just run
-      `measure_document` to completion in one call and send a single
-      final result — or keep sending periodic partial snapshots purely
-      so a big page still visibly fills in progressively, which becomes
-      a UX choice rather than a responsiveness necessity. **Left open
-      here, deliberately**: whether to keep any ticking at all once
-      this lands, and if so, whether its budget should grow back toward
-      something like the original pre-fix 500ms (or higher — total load
-      time is what matters again, not input latency, once nothing is
-      actually blocked); and whether `App` still needs a "nothing
-      shaped yet, paint blank" fallback for the gap between navigating
-      and the *first* background result landing, same as `redraw`'s
-      own current first-tick-or-two gap, probably a longer one now that
-      nothing forces an early partial result.
-
-      **Explicitly NOT fixed by this plan — named so it isn't mistaken
-      for solved.** `build_layout_tree_with_resources`'s own DOM-walk-
-      and-cascade-match cost stays a fully synchronous, unbudgeted,
-      main-thread-blocking call regardless of anything here, since
-      `Handle` can never leave the main thread (see above). A big
-      page's *very first* load could still show the same "laggy while
-      loading" symptom from that step alone, even once `measure_
-      document` is fully backgrounded. A real fix there would need
-      either giving that walk its own ticked budget (unclear whether
-      cascade-matching has a natural per-element pause point the way
-      per-paragraph shaping already does) or a from-scratch, thread-
-      safe DOM representation (out of scope, not proposed) — named here
-      as its own future item, not sequenced into this one.
-
-      **One more honest ceiling, not a reason to not do this.** A
-      shaping thread is genuinely CPU-bound the entire time it runs —
-      unlike the stdin-reader/nav-fetch threads this same `thread::
-      spawn` + `proxy.send_event` idiom already covers, which are I/O-
-      bound (mostly idle, waiting) the whole time. On a single-core or
-      otherwise fully-loaded machine, the OS scheduler can still make it
-      compete with the main thread for CPU time, indirectly costing
-      input responsiveness even though the main thread's event loop is
-      no longer architecturally *blocked* waiting on it. This plan
-      removes the blocking stall; it doesn't guarantee zero contention
-      under real CPU pressure.
-
-      **Recommended sequencing — several small, separately-landable,
-      separately-testable steps, not one large patch**:
-      1. `Rc<DecodedImage>` -> `Arc<DecodedImage>` everywhere — purely
-         mechanical, no behavior change, a clean first PR on its own;
-         every existing test should pass completely unchanged.
-      2. Add `layout_generation` and audit it into every current
-         `layout_dirty`/`cached_width`-changing site — still no
-         behavior change yet, just the bookkeeping the backgrounded
-         version will need, independently testable before any thread
-         exists.
-      3. The actual background-thread `measure_document` move, plus the
-         new `AppEvent` variant it needs — the real architectural
-         change, landed last, once 1 and 2 are already in place and
-         proven not to regress anything.
-      4. Revisit `PROGRESSIVE_LAYOUT_TICK_BUDGET` once 3 has landed —
-         its whole reason to be small (bounding input latency on a
-         blocking call) goes away once nothing is actually blocked.
-      (`build_layout_tree_with_resources`'s own stall stays a separate,
-      not-yet-planned future item, deliberately not folded into this
-      sequence — see above.)
+      - [ ] `build_layout_tree_with_resources`'s own DOM-walk-and-
+            cascade-match cost is still a fully synchronous, unbudgeted,
+            main-thread-blocking call — `markup5ever_rcdom`'s own
+            `Handle = Rc<Node>` is categorically `!Send`, so it can never
+            leave the main thread without a from-scratch, thread-safe DOM
+            representation (out of scope, not attempted). A big page's
+            very first load can still show the same "laggy while
+            loading" symptom from this one step alone, even though
+            `measure_document` itself is now fully backgrounded.

@@ -766,24 +766,62 @@ enum FlexBasis {
 }
 
 /// One grid track's declared size — `grid-template-columns`/`-rows`'
-/// own `<track-size>` grammar, scoped to the two forms this item
-/// implements (see `parse_grid_track_size`'s own docs for what's cut:
-/// no `minmax()`, no content-based keywords). `Len`, not yet resolved
-/// to a pixel/`BoxLength` value — unlike every other length-ish
-/// property in this file, a track's real basis (`resolve_grid_tracks`'s
-/// own `available` parameter: the grid container's own content *width*
-/// for a column track, its content *height* — not always definite, see
-/// `measure_grid`'s own docs — for a row track) isn't known at cascade
-/// time, so resolution happens in `measure_grid` instead, mirroring
-/// `FlexBasis`'s/`LineHeight`'s own "stay symbolic until a real basis
-/// exists" pattern rather than `BoxLength`'s (which only ever needs
-/// *one* of two possible bases per property, always the same one for
-/// that property — a track's basis genuinely differs by axis, which
-/// `BoxLength` has no slot for). `Fr` is the raw flex factor (`2.0` for
-/// `2fr`) — grid's own flexible-length primitive, directly analogous to
-/// flexbox's `flex-grow`.
+/// own `<track-size>` grammar, scoped to the forms this item
+/// implements (see `parse_grid_track_size`'s own docs for what's still
+/// cut: content-based keywords only, `auto`/`min-content`/`max-content`
+/// — `minmax()` itself landed, see `MinMax`'s own docs below). `Len`,
+/// not yet resolved to a pixel/`BoxLength` value — unlike every other
+/// length-ish property in this file, a track's real basis
+/// (`resolve_grid_tracks`'s own `available` parameter: the grid
+/// container's own content *width* for a column track, its content
+/// *height* — not always definite, see `measure_grid`'s own docs — for
+/// a row track) isn't known at cascade time, so resolution happens in
+/// `measure_grid` instead, mirroring `FlexBasis`'s/`LineHeight`'s own
+/// "stay symbolic until a real basis exists" pattern rather than
+/// `BoxLength`'s (which only ever needs *one* of two possible bases per
+/// property, always the same one for that property — a track's basis
+/// genuinely differs by axis, which `BoxLength` has no slot for). `Fr`
+/// is the raw flex factor (`2.0` for `2fr`) — grid's own flexible-length
+/// primitive, directly analogous to flexbox's `flex-grow`.
 #[derive(Clone, Copy)]
 enum GridTrackSpec {
+    Len(Length),
+    Fr(f32),
+    /// `minmax(<min>, <max>)` — real CSS Grid §7.2.3, scoped to the two
+    /// `TrackBreadth` forms this file's own `<track-size>` grammar
+    /// already allows outside of `minmax()` (a plain length/`%`/`fr`),
+    /// same cut the real spec's own grammar makes a reasonable subset
+    /// of (no `auto`/`min-content`/`max-content` inside `minmax()`
+    /// either — that's still the same, separate, not-yet-attempted
+    /// content-based-track-sizing item `TODO.txt` already names). Real
+    /// usage in the wild overwhelmingly looks like `minmax(0, 1fr)` —
+    /// a flexible track with a `0` floor, purely to stop it from ever
+    /// shrinking *past* zero under content pressure — confirmed by
+    /// pulling real Wikipedia CSS and grepping every `minmax(...)` call
+    /// in it (`scratchy/TODO.txt`'s own `display: grid` entry) — which
+    /// is exactly the shape `resolve_grid_tracks`'s own single-pass
+    /// floor-then-distribute algorithm resolves correctly, not just
+    /// approximately (a `0` floor adds no real constraint at all). A
+    /// nonzero floor against a flexible max is still real, single-pass
+    /// CSS Grid §11.7-shaped math (not the full iterative "freeze a
+    /// track whose floor violates its own distributed share and redo
+    /// the whole pass" algorithm — same documented simplification
+    /// flexbox's own `resolve_flex_main_sizes` already carries) — see
+    /// `resolve_grid_tracks`'s own docs for exactly what that trades
+    /// away.
+    MinMax(TrackBreadth, TrackBreadth),
+}
+
+/// One `minmax()` argument — deliberately a narrower type than
+/// `GridTrackSpec` itself (no nested `MinMax`, which the real grammar
+/// doesn't allow either): a plain length/`%` or an `fr` factor, the
+/// same two forms a bare (non-`minmax`) track already accepts. A real
+/// `minmax()` disallows `fr` as its *first* (minimum) argument — not
+/// enforced here; a `MinMax(Fr(_), _)` simply never arises from real
+/// CSS and `resolve_grid_tracks` treats a flexible minimum as an
+/// (accepted, harmless) `0` floor if it ever did.
+#[derive(Clone, Copy)]
+enum TrackBreadth {
     Len(Length),
     Fr(f32),
 }
@@ -1106,6 +1144,18 @@ struct Declarations {
     /// `DeclParser` branch and `GridTrackSpec`'s own docs.
     grid_template_columns: Option<&'static [GridTrackSpec]>,
     grid_template_rows: Option<&'static [GridTrackSpec]>,
+    /// One leaked `&'static str` per template row — see `parse_grid_
+    /// template_areas`'s own docs for why the raw strings, not an
+    /// already-split cell grid, are what gets stored and leaked.
+    grid_template_areas: Option<&'static [&'static str]>,
+    /// This *item's* own named placement — see `parse_grid_area_name`'s
+    /// own docs for the scoped-down grammar. Unlike every other field in
+    /// this group, which describes a `display: grid` *container*, this
+    /// one is read off a grid *item* (a container's own child) in
+    /// `measure_grid`, the same "a flex-item-only property, nothing to
+    /// do with the container declaring it" split `align-self`/`flex-
+    /// grow`/etc. already have.
+    grid_area: Option<&'static str>,
 }
 
 /// Just `normal` (the default — current behavior, collapse+wrap) and `pre`
@@ -2768,17 +2818,49 @@ fn parse_flex_shorthand(input: &mut CssParser) -> Result<(f32, f32, FlexBasis), 
     Ok((grow, shrink, basis.unwrap_or(FlexBasis::Auto)))
 }
 
+/// One `minmax()` argument's own narrower grammar — see
+/// `TrackBreadth`'s own docs for why it's not just `GridTrackSpec`
+/// again. Same `fr`-then-length trial order `parse_grid_track_size`
+/// itself uses, since this is exactly that function's grammar minus
+/// `minmax()` recursion.
+fn parse_track_breadth(input: &mut CssParser) -> Result<TrackBreadth, ()> {
+    let state = input.state();
+    let fr = match input.next() {
+        Ok(Token::Dimension { value, unit, .. }) if unit.eq_ignore_ascii_case("fr") => Some(*value),
+        _ => None,
+    };
+    if let Some(v) = fr {
+        return Ok(TrackBreadth::Fr(v));
+    }
+    input.reset(&state);
+    parse_length_percent(input).map(TrackBreadth::Len)
+}
+
 /// One `<track-size>`: a `<length-percentage>` (reusing `parse_length_
 /// percent`, the same px/%/em/rem grammar `width`/`margin`/etc. already
-/// accept) or `<flex>` — the `fr` unit, which tokenizes as an ordinary
+/// accept), `<flex>` — the `fr` unit, which tokenizes as an ordinary
 /// `<dimension-token>` with unit `fr` (same as `px`/`em`/`rem` already
 /// do — no special-case lexing needed, same `state`/`reset` trial
 /// pattern `parse_flex_basis`/`set_max_length` already use to try one
-/// grammar before falling back to another). Content-based sizing
-/// keywords (`auto`/`min-content`/`max-content`) and `minmax()` aren't
-/// recognized — deferred, see `TODO.txt`.
+/// grammar before falling back to another) — or `minmax(<track-
+/// breadth>, <track-breadth>)` (see `GridTrackSpec::MinMax`'s own
+/// docs). Content-based sizing keywords (`auto`/`min-content`/`max-
+/// content`), bare or inside `minmax()`, still aren't recognized —
+/// still deferred, see `TODO.txt`.
 fn parse_grid_track_size(input: &mut CssParser) -> Result<GridTrackSpec, ()> {
     let state = input.state();
+    if input.expect_function_matching("minmax").is_ok() {
+        let (min, max): (TrackBreadth, TrackBreadth) = input
+            .parse_nested_block(|input| {
+                let min = parse_track_breadth(input).map_err(|_| input.new_error_for_next_token::<()>())?;
+                input.expect_comma()?;
+                let max = parse_track_breadth(input).map_err(|_| input.new_error_for_next_token::<()>())?;
+                Ok((min, max))
+            })
+            .map_err(|_: ParseError<()>| ())?;
+        return Ok(GridTrackSpec::MinMax(min, max));
+    }
+    input.reset(&state);
     let fr = match input.next() {
         Ok(Token::Dimension { value, unit, .. }) if unit.eq_ignore_ascii_case("fr") => Some(*value),
         _ => None,
@@ -2821,14 +2903,16 @@ fn parse_grid_repeat(input: &mut CssParser) -> Result<Vec<GridTrackSpec>, ()> {
 
 /// `grid-template-columns`/`grid-template-rows`'s own grammar, scoped
 /// to what this item actually implements: a flat, space-separated list
-/// of `<track-size>` entries (`parse_grid_track_size`) and `repeat(
-/// <integer>, <track-list>)` (`parse_grid_repeat`) expanded eagerly
-/// into that same flat list — no `minmax()`, no named lines/areas. The
-/// real `none` keyword isn't matched explicitly — same "unparseable
-/// leaves this property unset" convention as every other not-yet-
-/// supported value in this file; an absent declaration and an explicit
-/// `none` already mean the same thing to `measure_grid` (no explicit
-/// tracks on this axis).
+/// of `<track-size>` entries (`parse_grid_track_size`, `minmax()`
+/// included) and `repeat(<integer>, <track-list>)` (`parse_grid_
+/// repeat`) expanded eagerly into that same flat list — no named
+/// lines interleaved into the track list itself (`grid-template-areas`
+/// is its own separate property instead, see `parse_grid_template_
+/// areas`). The real `none` keyword isn't matched explicitly — same
+/// "unparseable leaves this property unset" convention as every other
+/// not-yet-supported value in this file; an absent declaration and an
+/// explicit `none` already mean the same thing to `measure_grid` (no
+/// explicit tracks on this axis).
 fn parse_grid_template(input: &mut CssParser) -> Result<Vec<GridTrackSpec>, ()> {
     let mut tracks = Vec::new();
     while !input.is_exhausted() {
@@ -2845,6 +2929,55 @@ fn parse_grid_template(input: &mut CssParser) -> Result<Vec<GridTrackSpec>, ()> 
     } else {
         Ok(tracks)
     }
+}
+
+/// `grid-template-areas`'s own grammar: one or more `<string>` tokens in
+/// a row, each one a template row (`"a a" "b c"`), split into per-cell
+/// name tokens by `measure_grid`'s own `grid_area_rect` at measure time,
+/// not here — storing the raw per-row strings is enough to leak once
+/// (`DeclParser`'s own branch, the same `Box::leak`-per-distinct-value
+/// pattern `font-family`'s fallback list and `grid-template-columns`'s
+/// own track list already use) and re-split cheaply on each use, same
+/// as re-splitting a `class` attribute on every selector match already
+/// does elsewhere in this file. Real CSS requires every row to name the
+/// same number of columns and a name's own occurrences to form a single
+/// rectangle — neither is validated at parse time here; a malformed
+/// template is instead caught (and the item it would have placed simply
+/// falls through to ordinary auto-placement) in `grid_area_rect`, not
+/// rejected outright the way most other unsupported values in this file
+/// are — see its own docs for why that's the more useful failure mode
+/// for this specific property. The literal `.` token (an empty/null
+/// cell, real CSS's own escape hatch for "no name here") is preserved
+/// as an ordinary string, not special-cased — `grid_area_rect` simply
+/// never finds a real item whose `grid-area` is literally `.`.
+fn parse_grid_template_areas(input: &mut CssParser) -> Result<Vec<&'static str>, ()> {
+    let mut rows = Vec::new();
+    while let Ok(s) = input.try_parse(|input| input.expect_string().map(|s| s.as_ref().to_string())) {
+        rows.push(Box::leak(s.into_boxed_str()) as &'static str);
+    }
+    if rows.is_empty() || !input.is_exhausted() {
+        Err(())
+    } else {
+        Ok(rows)
+    }
+}
+
+/// `grid-area`'s own grammar, scoped to a single bare `<custom-ident>`
+/// naming one of `grid-template-areas`'s own areas (`grid-area:
+/// columnStart`) — the one form real Wikipedia CSS actually uses
+/// (confirmed by grep, see `scratchy/TODO.txt`'s own `display: grid`
+/// entry). The real property's fuller `<grid-line> / <grid-line> /
+/// <grid-line> / <grid-line>` numeric-placement grammar (and the bare
+/// `grid-row`/`grid-column`/their `-start`/`-end` longhands) still
+/// aren't parsed at all — same pre-existing "no explicit grid item
+/// placement" scope cut `TODO.txt` already names, narrowed but not
+/// closed by this.
+fn parse_grid_area_name(input: &mut CssParser) -> Result<&'static str, ()> {
+    let ident = input.expect_ident().map_err(|_| ())?.as_ref().to_string();
+    if !input.is_exhausted() {
+        return Err(());
+    }
+    Ok(Box::leak(ident.into_boxed_str()))
 }
 
 struct DeclParser<'a> {
@@ -3252,6 +3385,14 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
         } else if name.eq_ignore_ascii_case("grid-template-rows") {
             if let Ok(tracks) = parse_grid_template(input) {
                 self.decls.grid_template_rows = Some(Box::leak(tracks.into_boxed_slice()));
+            }
+        } else if name.eq_ignore_ascii_case("grid-template-areas") {
+            if let Ok(rows) = parse_grid_template_areas(input) {
+                self.decls.grid_template_areas = Some(Box::leak(rows.into_boxed_slice()));
+            }
+        } else if name.eq_ignore_ascii_case("grid-area") {
+            if let Ok(name) = parse_grid_area_name(input) {
+                self.decls.grid_area = Some(name);
             }
         } else if name.eq_ignore_ascii_case("font-size") {
             let state = input.state();
@@ -3993,6 +4134,16 @@ struct ComputedStyle {
     /// "every row/column is auto" are already the right default.
     grid_template_columns: Option<&'static [GridTrackSpec]>,
     grid_template_rows: Option<&'static [GridTrackSpec]>,
+    /// `None` means no `grid-template-areas` declared — `measure_grid`
+    /// falls back to plain auto-placement, same as today, when this is
+    /// unset. See `parse_grid_template_areas`'s own docs.
+    grid_template_areas: Option<&'static [&'static str]>,
+    /// This box's own `grid-area` — read by its *parent*, in
+    /// `measure_grid`, when laying this box out as one of its own grid
+    /// items (same "an item property read off the item itself, not
+    /// inherited, not meaningful on a container" shape `flex_grow`/
+    /// `align_self` already have).
+    grid_area: Option<&'static str>,
 }
 
 /// `BoxShadow` with its lengths resolved to pixels (against the
@@ -4433,6 +4584,12 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         inline_decls.as_ref().and_then(|d| d.grid_template_rows),
         |d| d.grid_template_rows,
     );
+    let grid_template_areas = cascade_property(
+        &matches,
+        inline_decls.as_ref().and_then(|d| d.grid_template_areas),
+        |d| d.grid_template_areas,
+    );
+    let grid_area = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.grid_area), |d| d.grid_area);
 
     ComputedStyle {
         color,
@@ -4489,6 +4646,8 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         column_gap,
         grid_template_columns,
         grid_template_rows,
+        grid_template_areas,
+        grid_area,
     }
 }
 
@@ -4548,6 +4707,8 @@ fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         column_gap: 0.0,
         grid_template_columns: None,
         grid_template_rows: None,
+        grid_template_areas: None,
+        grid_area: None,
     }
 }
 
@@ -8462,86 +8623,214 @@ fn measure_flex_column<'a>(
     result
 }
 
+/// One track's classification for `resolve_grid_tracks`'s own
+/// distribution pass — every `GridTrackSpec` variant (plain `Len`/`Fr`,
+/// or a `MinMax` of either) collapses to exactly one of these before
+/// any arithmetic happens, so the actual distribution loop below never
+/// has to re-examine which `GridTrackSpec` variant it came from.
+/// `floor` is `0.0` for every non-`MinMax` track — "no extra
+/// constraint" is the correct behavior there, not a special case.
+struct TrackCalc {
+    /// `Some(px)` for a track that takes a fixed size regardless of free
+    /// space (a plain `Len`, or a `MinMax` whose own max side is itself
+    /// a `Len` — real CSS Grid still lets that one grow/shrink between
+    /// its min and max against free space, but doing that without the
+    /// spec's own iterative resolution would mean guessing; clamping to
+    /// its own ceiling is the one single-pass answer that's never wrong
+    /// in the single most common real shape, a fully-overcommitted or
+    /// fully-slack grid — see this function's own docs). `None` for a
+    /// flexible (`fr`) track.
+    fixed: Option<f32>,
+    /// A flexible track's own floor (`minmax`'s first argument,
+    /// resolved) — `0.0` for a plain `Fr` track or a fixed one.
+    floor: f32,
+    /// A flexible track's own `fr` factor — `0.0` for a fixed track.
+    fr: f32,
+}
+
 /// CSS Grid's own flexible-length distribution for one axis's track
 /// list, sized against `available` — a real, independent-of-content,
 /// definite extent (the grid container's own content *width*, for
 /// `grid-template-columns`, always definite; see `measure_grid`'s own
 /// docs for why the same isn't attempted for row tracks). Every
-/// non-`fr` track takes its own fixed/`%` size first (`%` against
+/// non-flexible track takes its own fixed/`%` size first (`%` against
 /// `available`, the same containing-block-width basis `width`/`margin`
-/// already resolve a box's own `%` against); whatever's left over
-/// (never negative — an overcommitted explicit grid simply doesn't
-/// leave `fr` tracks any extra space, same "no free space to grow
-/// into" outcome `resolve_flex_main_sizes` already gives an
-/// overcommitted flex line) is divided among the `fr` tracks in
-/// proportion to their own factor (CSS Grid §11.7's "flexible sizing"
-/// step, scoped to a single pass — no real content-based minimum per
-/// track, since every track here is already a plain `<length-
-/// percentage>` or `fr`, never `auto`/`min-content`/`minmax()`; see
-/// `GridTrackSpec`'s own docs).
+/// already resolve a box's own `%` against); each flexible track's own
+/// floor (`0.0` for a plain `Fr`, `minmax()`'s own first argument
+/// otherwise) is reserved right alongside the fixed tracks, and
+/// whatever's left over after *that* (never negative — an overcommitted
+/// explicit grid simply doesn't leave `fr` tracks any extra space above
+/// their own floor, same "no free space to grow into" outcome `resolve_
+/// flex_main_sizes` already gives an overcommitted flex line) is divided
+/// among the flexible tracks in proportion to their own factor (CSS
+/// Grid §11.7's "flexible sizing" step), then added back on top of each
+/// one's own floor.
+///
+/// Deliberately single-pass, same simplification `resolve_flex_main_
+/// sizes` already carries for flexbox: the real spec's own iterative
+/// algorithm re-checks whether *this* pass's result actually respects
+/// every track's floor/ceiling and, if not, freezes the violating track
+/// at its own floor/ceiling and redistributes the rest from scratch —
+/// not attempted here. This matches the real spec exactly whenever every
+/// flexible track's floor is `0` (confirmed against real Wikipedia CSS,
+/// which never uses anything else — see `GridTrackSpec::MinMax`'s own
+/// docs) and is a reasonable, bounded approximation otherwise (a nonzero
+/// floor is still reserved and still never violated by this function's
+/// own output — just without the redistribution a second flexible
+/// track's own slack could otherwise have absorbed).
 fn resolve_grid_tracks(tracks: &[GridTrackSpec], available: f32, gap: f32, font_size: f32, root_font_size: f32) -> Vec<f32> {
     let n = tracks.len();
     if n == 0 {
         return Vec::new();
     }
-    let fixed: Vec<Option<f32>> = tracks
+    let resolve_breadth = |b: TrackBreadth| -> f32 {
+        match b {
+            TrackBreadth::Len(Length::Percent(p)) => available * p,
+            TrackBreadth::Len(l) => l.resolve(font_size, root_font_size),
+            // A flexible minimum isn't real CSS (`minmax()`'s own grammar
+            // disallows `fr` as its first argument) and never arises from
+            // real CSS either — see `TrackBreadth`'s own docs. Treated as
+            // "no floor" rather than rejecting the whole track, the same
+            // forgiving spirit `GridTrackSpec::MinMax`'s own docs already
+            // take toward a theoretical, not-really-reachable shape.
+            TrackBreadth::Fr(_) => 0.0,
+        }
+    };
+    let calcs: Vec<TrackCalc> = tracks
         .iter()
         .map(|t| match *t {
-            GridTrackSpec::Fr(_) => None,
-            GridTrackSpec::Len(Length::Percent(p)) => Some(available * p),
-            GridTrackSpec::Len(l) => Some(l.resolve(font_size, root_font_size)),
+            GridTrackSpec::Fr(f) => TrackCalc { fixed: None, floor: 0.0, fr: f },
+            GridTrackSpec::Len(Length::Percent(p)) => TrackCalc { fixed: Some(available * p), floor: 0.0, fr: 0.0 },
+            GridTrackSpec::Len(l) => TrackCalc { fixed: Some(l.resolve(font_size, root_font_size)), floor: 0.0, fr: 0.0 },
+            GridTrackSpec::MinMax(min, max) => {
+                let floor = resolve_breadth(min);
+                match max {
+                    TrackBreadth::Fr(f) => TrackCalc { fixed: None, floor, fr: f },
+                    TrackBreadth::Len(_) => TrackCalc { fixed: Some(resolve_breadth(max).max(floor)), floor: 0.0, fr: 0.0 },
+                }
+            }
         })
         .collect();
-    let sum_fixed: f32 = fixed.iter().filter_map(|f| *f).sum();
-    let sum_fr: f32 = tracks
+    let sum_fixed: f32 = calcs.iter().filter_map(|c| c.fixed).sum();
+    let sum_floor: f32 = calcs.iter().filter(|c| c.fixed.is_none()).map(|c| c.floor).sum();
+    let sum_fr: f32 = calcs.iter().filter(|c| c.fixed.is_none()).map(|c| c.fr).sum();
+    let free = (available - sum_fixed - sum_floor - gap * (n.saturating_sub(1)) as f32).max(0.0);
+    calcs
         .iter()
-        .filter_map(|t| match *t {
-            GridTrackSpec::Fr(f) => Some(f),
-            _ => None,
-        })
-        .sum();
-    let free = (available - sum_fixed - gap * (n.saturating_sub(1)) as f32).max(0.0);
-    tracks
-        .iter()
-        .zip(&fixed)
-        .map(|(t, f)| match (*t, f) {
-            (GridTrackSpec::Fr(factor), _) if sum_fr > 0.0 => free * (factor / sum_fr),
-            (GridTrackSpec::Fr(_), _) => 0.0,
-            (_, Some(px)) => *px,
-            _ => 0.0,
+        .map(|c| match c.fixed {
+            Some(px) => px,
+            None if sum_fr > 0.0 => c.floor + free * (c.fr / sum_fr),
+            None => c.floor,
         })
         .collect()
+}
+
+/// One grid item's own resolved placement — a single cell for an
+/// auto-placed item, or a real multi-column span for one placed by a
+/// `grid-area` name that `grid-template-areas` gives more than one
+/// column to (e.g. the real Wikipedia CSS this feature was built
+/// against: `grid-template-areas:'siteNotice siteNotice'` spans two
+/// columns in one row). `col_end` is exclusive, the same convention a
+/// Rust range already uses. No `row_end` field: a multi-*row* span's
+/// own occupied cells are still marked (see this function's own call
+/// site), but nothing past that is tracked per placement, since its own
+/// height is attributed entirely to `row_start` — see `measure_grid`'s
+/// own docs for why that's a real, narrow, documented cut rather than
+/// an oversight.
+struct GridPlacement<'a> {
+    item: &'a LayoutBox,
+    row_start: usize,
+    col_start: usize,
+    col_end: usize,
+}
+
+/// One `grid-template-areas` row string's own per-column name tokens —
+/// plain whitespace splitting, the real spec's own grammar for a single
+/// template-area string.
+fn grid_area_row_tokens(row: &str) -> impl Iterator<Item = &str> {
+    row.split_whitespace()
+}
+
+/// The number of columns a `grid-template-areas` value implies — the
+/// first row's own token count. Real CSS requires every row to agree;
+/// a ragged template isn't validated here (see `parse_grid_template_
+/// areas`'s own docs for why a malformed value is allowed to fall
+/// through to a best-effort placement rather than being rejected
+/// outright the way most other unsupported values in this file are).
+fn grid_areas_num_cols(areas: &[&str]) -> usize {
+    areas.first().map(|row| grid_area_row_tokens(row).count()).unwrap_or(0)
+}
+
+/// One named area's own bounding rectangle (`row_start..row_end`,
+/// `col_start..col_end`, both exclusive) — the min/max bounds of every
+/// cell naming `name` across the whole template. Real CSS requires a
+/// name's every occurrence to already form a single rectangle; this
+/// doesn't re-validate that, it just takes the bounding box, which is
+/// the right rectangle whenever the template *is* well-formed and a
+/// harmless (if slightly too generous) guess on a malformed one. The
+/// literal `.` token (a real CSS "no name here" placeholder) never
+/// matches — no real item would ever declare `grid-area: .`.
+fn grid_area_rect(areas: &[&str], name: &str) -> Option<(usize, usize, usize, usize)> {
+    let mut rect: Option<(usize, usize, usize, usize)> = None;
+    for (r, row) in areas.iter().enumerate() {
+        for (c, tok) in grid_area_row_tokens(row).enumerate() {
+            if tok != name || tok == "." {
+                continue;
+            }
+            rect = Some(match rect {
+                Some((rs, re, cs, ce)) => (rs.min(r), re.max(r + 1), cs.min(c), ce.max(c + 1)),
+                None => (r, r + 1, c, c + 1),
+            });
+        }
+    }
+    rect
 }
 
 /// A `display: grid` element's own box model (`box_model_entry`, same
 /// as any other box) plus its content: a real but deliberately
 /// narrower subset of CSS Grid Layout
 /// (https://www.w3.org/TR/css-grid-1/) than the full spec — explicit
-/// `grid-template-columns`/`-rows` track lists (fixed lengths, `%`,
-/// and the real `fr`-unit flexible-length algorithm,
+/// `grid-template-columns`/`-rows` track lists (fixed lengths, `%`, the
+/// real `fr`-unit flexible-length algorithm, and `minmax()`, all in
 /// `resolve_grid_tracks`), `repeat(<integer>, ...)`, `gap`/`row-gap`/
 /// `column-gap` (the same `ComputedStyle` fields `measure_flex` already
-/// reads — never flexbox-specific), and implicit auto-placement in
-/// document order, row by row (`grid-auto-flow: row`, the real spec's
-/// own default and the only flow this implements).
+/// reads — never flexbox-specific), `grid-template-areas` + `grid-area`
+/// named placement (`grid_area_rect`), and implicit auto-placement in
+/// document order, row by row, for everything a name doesn't place
+/// (`grid-auto-flow: row`, the real spec's own default and the only
+/// flow this implements).
 ///
 /// **Deliberately cut, each documented precisely, not silently folded
 /// into "done" (see `TODO.txt` for the authoritative list)**: no
-/// explicit item placement (`grid-column`/`grid-row`/their `-start`/
-/// `-end` longhands) — every item occupies exactly one cell, in
-/// document order; this function's own auto-placement cursor decides
-/// entirely. No `repeat(auto-fill/auto-fit, ...)`. No `grid-template-
-/// areas`/named lines. No `justify-items`/`align-items`/`-self` within
-/// a cell — an item always measures at its column's own full width
-/// (the same "stretch" an ordinary table cell already gets) and sits
-/// at its row's own top edge. No content-based track-sizing keywords
-/// (`auto`/`min-content`/`max-content`/`minmax()`) — every column/row
-/// track is a plain fixed/`%`/`fr` length (`GridTrackSpec`'s own
-/// grammar) or, for an *implicit* row (one beyond `grid-template-
-/// rows`'s own list, or when no `grid-template-rows` is declared at
-/// all), sized from the max natural height of whatever items landed in
-/// it — the same "row height follows its own content" rule a table's
-/// own rows already use (`measure_table`).
+/// numeric explicit item placement (`grid-column`/`grid-row`/their
+/// `-start`/`-end` longhands, or `grid-area`'s own fuller `<grid-line>
+/// / <grid-line> / <grid-line> / <grid-line>` numeric form) — only a
+/// bare `grid-area: <name>` naming one of `grid-template-areas`'s own
+/// areas is recognized; everything else still falls through to plain
+/// auto-placement. No `repeat(auto-fill/auto-fit, ...)`. No `justify-
+/// items`/`align-items`/`-self` within a cell — an item always measures
+/// at its own cell's full width (the same "stretch" an ordinary table
+/// cell already gets) and sits at its row's own top edge. No content-
+/// based track-sizing keywords (`auto`/`min-content`/`max-content`) —
+/// every column/row track is a plain fixed/`%`/`fr`/`minmax()` length
+/// (`GridTrackSpec`'s own grammar) or, for an *implicit* row (one
+/// beyond `grid-template-rows`'s own list, or when no `grid-template-
+/// rows` is declared at all), sized from the max natural height of
+/// whatever items landed in it — the same "row height follows its own
+/// content" rule a table's own rows already use (`measure_table`).
+///
+/// **A multi-row-spanning named area's own height is attributed
+/// entirely to its *first* row** (`by_row` below buckets a placement
+/// under its own `row_start` only) rather than distributed across every
+/// row it spans the way real CSS Grid would — the same kind of
+/// single-row-attribution simplification a table's own rowspan would
+/// need and doesn't have at all (`TODO.txt`'s own table-layout entry).
+/// Not reachable by the real CSS this feature was built against (every
+/// named area there spans multiple *columns*, never multiple rows,
+/// confirmed by reading the actual fetched Wikipedia stylesheet) — a
+/// real, narrower gap than silently pretending row-spanning works in
+/// general, not a blocker for the columns-spanning case that's actually
+/// used.
 ///
 /// **`fr` row tracks always fall back to the same auto/content sizing
 /// an implicit row already gets, even when an *explicit* `grid-
@@ -8572,15 +8861,20 @@ fn resolve_grid_tracks(tracks: &[GridTrackSpec], available: f32, gap: f32, font_
 /// is this feature's single most load-bearing primitive, and it works
 /// correctly.
 ///
-/// **No `grid-template-columns` declared at all** falls back to a
-/// single full-width implicit column (every item on its own row) —
-/// not real CSS's own implicit-column auto-creation for an empty
-/// explicit grid (each item would instead get its own *column* in a
-/// single row) — a deliberately simplified, documented substitute for
-/// an edge case outside this item's own explicit scope (`grid-
-/// template-columns`/`-rows` is the thing being implemented; "what
-/// happens with neither declared at all" is a corner of the spec this
-/// narrowing doesn't need to chase).
+/// **No `grid-template-columns` declared at all** falls back to one
+/// equal-`fr` implicit column per `grid-template-areas` column, when
+/// one's declared (real CSS has no such fallback at all — named areas
+/// without a matching explicit track list is formally an author error —
+/// but it's the one honest single-pass answer when the *real* explicit
+/// column sizes are themselves unresolvable, e.g. a `minmax()`/`fr`
+/// mixed in with a content-based keyword this file still doesn't parse,
+/// which is exactly the shape real Wikipedia CSS hits — see `TODO.txt`'s
+/// own `display: grid` entry), or, with neither declared, a single
+/// full-width implicit column (every item on its own row) — not real
+/// CSS's own implicit-column auto-creation for an empty explicit grid
+/// (each item would instead get its own *column* in a single row) — a
+/// deliberately simplified, documented substitute for an edge case
+/// outside this item's own explicit scope.
 #[allow(clippy::too_many_arguments)]
 fn measure_grid<'a>(
     b: &'a LayoutBox,
@@ -8614,11 +8908,22 @@ fn measure_grid<'a>(
         items.push(child);
     }
 
-    // No `grid-template-columns` at all → a single full-width implicit
-    // column (see this function's own docs for why, rather than real
-    // CSS's own implicit-column-per-item fallback).
-    const SINGLE_COLUMN: [GridTrackSpec; 1] = [GridTrackSpec::Fr(1.0)];
-    let col_tracks = s.grid_template_columns.unwrap_or(&SINGLE_COLUMN);
+    let area_template = s.grid_template_areas;
+    let areas_num_cols = area_template.map(grid_areas_num_cols).unwrap_or(0);
+
+    // No `grid-template-columns` at all → one equal-`fr` implicit column
+    // per `grid-template-areas` column when one's declared, else a
+    // single full-width implicit column (see this function's own docs
+    // for why, rather than real CSS's own implicit-column-per-item
+    // fallback).
+    let synthetic_cols: Vec<GridTrackSpec>;
+    let col_tracks: &[GridTrackSpec] = match s.grid_template_columns {
+        Some(cols) => cols,
+        None => {
+            synthetic_cols = vec![GridTrackSpec::Fr(1.0); areas_num_cols.max(1)];
+            &synthetic_cols
+        }
+    };
     let num_cols = col_tracks.len().max(1);
     let col_widths = resolve_grid_tracks(col_tracks, entry.content_w, s.column_gap, s.font_size, s.root_font_size);
     let mut col_x = Vec::with_capacity(num_cols);
@@ -8628,19 +8933,67 @@ fn measure_grid<'a>(
         cx += w + s.column_gap;
     }
 
-    // Auto-placement, document order, row by row (`grid-auto-flow:
-    // row`, the only flow this implements — see this function's own
-    // docs).
-    let mut rows: Vec<Vec<&'a LayoutBox>> = Vec::new();
+    // Placement: an item whose own `grid-area` names one of `grid-
+    // template-areas`'s own areas goes exactly there (`occupied` marks
+    // every cell it covers so auto-placement, just below, never reuses
+    // one); everything else — no `grid-area` at all, or one that names
+    // nothing in the template — falls through to the same auto-
+    // placement cursor this function always had (`grid-auto-flow: row`,
+    // document order, skipping any cell a named placement already
+    // claimed).
+    let template_rows = area_template.map(|a| a.len()).unwrap_or(0);
+    let mut occupied: Vec<Vec<bool>> = vec![vec![false; num_cols]; template_rows];
+    let mut placements: Vec<GridPlacement<'a>> = Vec::with_capacity(items.len());
+    let mut unplaced: Vec<&'a LayoutBox> = Vec::new();
     for &item in &items {
-        let need_new_row = match rows.last() {
-            Some(r) => r.len() >= num_cols,
-            None => true,
-        };
-        if need_new_row {
-            rows.push(Vec::new());
+        let rect = item.style.grid_area.zip(area_template).and_then(|(name, areas)| grid_area_rect(areas, name));
+        match rect {
+            Some((row_start, row_end, col_start, col_end)) => {
+                let col_end = col_end.min(num_cols).max(col_start + 1);
+                while occupied.len() < row_end {
+                    occupied.push(vec![false; num_cols]);
+                }
+                for row in occupied.iter_mut().take(row_end).skip(row_start) {
+                    for cell in row.iter_mut().take(col_end).skip(col_start) {
+                        *cell = true;
+                    }
+                }
+                placements.push(GridPlacement { item, row_start, col_start, col_end });
+            }
+            None => unplaced.push(item),
         }
-        rows.last_mut().expect("just ensured a row exists above").push(item);
+    }
+    let mut cursor = (0usize, 0usize);
+    for item in unplaced {
+        loop {
+            let (r, c) = cursor;
+            if r >= occupied.len() {
+                occupied.push(vec![false; num_cols]);
+            }
+            if occupied[r][c] {
+                cursor = if c + 1 < num_cols { (r, c + 1) } else { (r + 1, 0) };
+                continue;
+            }
+            occupied[r][c] = true;
+            cursor = if c + 1 < num_cols { (r, c + 1) } else { (r + 1, 0) };
+            placements.push(GridPlacement { item, row_start: r, col_start: c, col_end: c + 1 });
+            break;
+        }
+    }
+    let num_rows = occupied.len();
+
+    // Bucketed by `row_start` (see `GridPlacement`'s own docs for why a
+    // multi-row span's own height only ever counts toward this one row)
+    // and sorted by `col_start` within a row — document order alone
+    // doesn't already give left-to-right order once named placement can
+    // reorder items relative to their source position, unlike the
+    // simpler pre-`grid-template-areas` auto-placement this generalizes.
+    let mut by_row: Vec<Vec<&GridPlacement<'a>>> = vec![Vec::new(); num_rows];
+    for p in &placements {
+        by_row[p.row_start].push(p);
+    }
+    for row in &mut by_row {
+        row.sort_by_key(|p| p.col_start);
     }
 
     let mut laid_children: Vec<Laid> = Vec::new();
@@ -8657,23 +9010,30 @@ fn measure_grid<'a>(
     // extra space has to come from `row_h` itself, not from any one
     // item's own measured position.
     let mut content_bottom = entry.content_y;
-    for (r, row_items) in rows.iter().enumerate() {
+    for (r, row_placements) in by_row.iter().enumerate() {
         // An explicit row track's own fixed size always applies;
         // `%`/`fr` only when there's a real basis to resolve against —
         // see this function's own docs for why that's the deliberate
-        // cut, not a guess.
+        // cut, not a guess. A `minmax()` row track's own `Fr` max gets
+        // the same no-basis treatment as a plain `Fr`; its `Len` max
+        // (`minmax`'s floor is never used for a row — see `resolve_
+        // grid_tracks`'s own docs for why the *column* axis is where
+        // that matters) resolves exactly like a plain fixed/`%` track.
         let explicit_h = s.grid_template_rows.and_then(|tracks| tracks.get(r)).and_then(|t| match *t {
             GridTrackSpec::Len(Length::Percent(p)) => containing_height.map(|h| h * p),
             GridTrackSpec::Len(l) => Some(l.resolve(s.font_size, s.root_font_size)),
-            GridTrackSpec::Fr(_) => None,
+            GridTrackSpec::Fr(_) | GridTrackSpec::MinMax(_, TrackBreadth::Fr(_)) => None,
+            GridTrackSpec::MinMax(_, TrackBreadth::Len(Length::Percent(p))) => containing_height.map(|h| h * p),
+            GridTrackSpec::MinMax(_, TrackBreadth::Len(l)) => Some(l.resolve(s.font_size, s.root_font_size)),
         });
         let mut row_h = explicit_h.unwrap_or(0.0);
-        let mut row_laid = Vec::with_capacity(row_items.len());
-        for (c, item) in row_items.iter().enumerate() {
-            let cw = col_widths.get(c).copied().unwrap_or(0.0);
+        let mut row_laid = Vec::with_capacity(row_placements.len());
+        for p in row_placements {
+            let cw: f32 =
+                col_widths[p.col_start..p.col_end].iter().sum::<f32>() + s.column_gap * (p.col_end - p.col_start - 1) as f32;
             let lc = measure(
-                item, font_system, col_x[c], cursor_y, cw, entry.child_containing_height, next_id, cache, deadline,
-                incomplete, &mut own_pending, &no_floats, None,
+                p.item, font_system, col_x[p.col_start], cursor_y, cw, entry.child_containing_height, next_id, cache,
+                deadline, incomplete, &mut own_pending, &no_floats, None,
             );
             if explicit_h.is_none() {
                 row_h = row_h.max(lc.style.margin.top.px() + lc.style.margin.bottom.px() + lc.h);
@@ -15270,6 +15630,111 @@ mod tests {
         assert_eq!(children.len(), 1, "the absolutely-positioned child should be pulled out of the grid item list entirely");
         assert_eq!(children[0].x, container.x, "the one real grid item should occupy the grid's first cell (its own left content edge), not pushed aside by the out-of-flow child");
         assert_eq!(container.positioned.len(), 1, "the absolutely-positioned child should instead land in the container's own `positioned` list");
+    }
+
+    #[test]
+    fn grid_minmax_zero_floor_behaves_exactly_like_plain_fr() {
+        // The one real-world shape confirmed by pulling actual Wikipedia
+        // CSS (see `TODO.txt`'s own `display: grid` entry): `minmax(0,
+        // 1fr)` is meant purely to stop a flexible track from growing
+        // past its own fair share, never to add a real floor — so it
+        // should distribute identically to a bare `1fr` in the same
+        // position.
+        let laid = measure_fixture(
+            r#"<html><body style="margin: 0"><div style="display: grid; grid-template-columns: 100px minmax(0, 1fr); width: 400px;"><div>a</div><div>b</div></div></body></html>"#,
+            500.0,
+        );
+        let items = grid_items(&laid, 400.0);
+        assert_eq!(items[0].w, 100.0);
+        assert_eq!(items[1].w, 300.0, "minmax(0, 1fr) should claim all remaining space, identically to a bare 1fr");
+    }
+
+    #[test]
+    fn grid_minmax_nonzero_floor_is_reserved_before_fr_distribution() {
+        let laid = measure_fixture(
+            r#"<html><body style="margin: 0"><div style="display: grid; grid-template-columns: minmax(150px, 1fr) minmax(150px, 1fr); width: 400px;"><div>a</div><div>b</div></div></body></html>"#,
+            500.0,
+        );
+        let items = grid_items(&laid, 400.0);
+        assert_eq!(items[0].w, 200.0, "each 150px floor plus an equal share of the 100px left over (400 - 150 - 150) should land at 200px");
+        assert_eq!(items[1].w, 200.0);
+    }
+
+    #[test]
+    fn grid_minmax_fixed_ceiling_clamps_below_free_space() {
+        let laid = measure_fixture(
+            r#"<html><body style="margin: 0"><div style="display: grid; grid-template-columns: minmax(0, 120px) 1fr; width: 400px;"><div>a</div><div>b</div></div></body></html>"#,
+            500.0,
+        );
+        let items = grid_items(&laid, 400.0);
+        assert_eq!(items[0].w, 120.0, "a minmax() whose own max is a fixed length should resolve to exactly that length, not grow to fill free space");
+        assert_eq!(items[1].w, 280.0, "the 1fr sibling should claim everything the fixed-ceiling track didn't");
+    }
+
+    #[test]
+    fn grid_template_areas_places_items_by_name_not_document_order() {
+        // Document order here is deliberately the *reverse* of the
+        // template's own left-to-right area order, so this can only
+        // pass if placement genuinely comes from `grid-area`, not from
+        // falling back to auto-placement.
+        let laid = measure_fixture(
+            r#"<html><body style="margin: 0"><div style="display: grid; grid-template-columns: 100px 100px; grid-template-areas: 'left right'; width: 200px;"><div style="grid-area: right;">b</div><div style="grid-area: left;">a</div></div></body></html>"#,
+            500.0,
+        );
+        let items = grid_items(&laid, 200.0);
+        assert_eq!(items.len(), 2);
+        let left = items.iter().find(|i| i.x == 0.0).expect("an item should land in the left area's own column");
+        let right = items.iter().find(|i| i.x == 100.0).expect("an item should land in the right area's own column");
+        assert_eq!(left.y, right.y, "both named areas are in the template's one row");
+        assert_eq!(left.w, 100.0);
+        assert_eq!(right.w, 100.0);
+    }
+
+    #[test]
+    fn grid_template_areas_name_spanning_two_columns_gets_their_combined_width() {
+        let laid = measure_fixture(
+            r#"<html><body style="margin: 0"><div style="display: grid; grid-template-columns: 50px 150px; grid-template-areas: 'wide wide' 'a b'; width: 200px;"><div style="grid-area: wide;">w</div><div style="grid-area: a;">a</div><div style="grid-area: b;">b</div></div></body></html>"#,
+            500.0,
+        );
+        let items = grid_items(&laid, 200.0);
+        assert_eq!(items.len(), 3);
+        // Row-major order (the spanning "wide" area is alone in row 0;
+        // "a"/"b" share row 1, sorted left-to-right) makes `items[0]`
+        // deterministically the spanning item.
+        assert_eq!(items[0].x, 0.0, "a two-column-spanning area should start at the grid's own left edge");
+        assert_eq!(items[0].w, 200.0, "a two-column-spanning area should claim both columns' widths combined (50 + 150), not just the first");
+        assert!(items[0].y < items[1].y, "the spanning area's own row should come before the row holding 'a'/'b'");
+    }
+
+    #[test]
+    fn grid_template_areas_with_no_explicit_columns_falls_back_to_equal_fr_per_area_column() {
+        // The real shape this item was built to fix: `grid-template-
+        // areas` declared with no (parseable) `grid-template-columns`
+        // at all — real Wikipedia CSS hits this because its own column
+        // sizes are declared via a `grid-template` shorthand or keyword
+        // this file still doesn't parse (see `TODO.txt`). Two named
+        // areas, two implied columns, should still split the container
+        // evenly rather than collapsing to one full-width column.
+        let laid = measure_fixture(
+            r#"<html><body style="margin: 0"><div style="display: grid; grid-template-areas: 'left right'; width: 200px;"><div style="grid-area: left;">a</div><div style="grid-area: right;">b</div></div></body></html>"#,
+            500.0,
+        );
+        let items = grid_items(&laid, 200.0);
+        assert_eq!(items.len(), 2);
+        assert!(items.iter().any(|i| i.x == 0.0 && i.w == 100.0), "the left area should get an equal half of the 200px container");
+        assert!(items.iter().any(|i| i.x == 100.0 && i.w == 100.0), "the right area should get the other equal half, not stack full-width under the first");
+    }
+
+    #[test]
+    fn grid_template_areas_item_with_no_matching_grid_area_auto_places_into_the_free_cell() {
+        let laid = measure_fixture(
+            r#"<html><body style="margin: 0"><div style="display: grid; grid-template-columns: 100px 100px; grid-template-areas: 'left right'; width: 200px;"><div style="grid-area: left;">a</div><div>b</div></div></body></html>"#,
+            500.0,
+        );
+        let items = grid_items(&laid, 200.0);
+        assert_eq!(items.len(), 2);
+        assert!(items.iter().any(|i| i.x == 0.0), "the named item should still claim the left area");
+        assert!(items.iter().any(|i| i.x == 100.0), "the plain item, with no grid-area of its own, should auto-place into the one remaining free cell, not overlap the named one");
     }
 
     // ---------- v59: `word-spacing` ----------
