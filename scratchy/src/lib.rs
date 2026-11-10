@@ -55,6 +55,33 @@ use winit::window::{CursorIcon, Window, WindowId};
 enum Input {
     File(String),
     Stdin,
+    /// The lone positional argument was an absolute `http`/`https` URL
+    /// (`classify_input`), not a local path — `run()` fetches it live
+    /// through `wire` the same way a clicked link or `:go` would,
+    /// instead of requiring `snag url | scratchy` first. `snag` is
+    /// still the only thing that can turn an arbitrary live page into a
+    /// single self-contained bundle up front (inlined images, a synced
+    /// stylesheet fetch before the very first paint — see its own
+    /// NOTES.md) — this doesn't replace that, it just means a bare
+    /// `scratchy https://example.com` (with `--socket` pointed at a
+    /// running `wire`) no longer needs `snag` in the loop at all for
+    /// the common case of just wanting to look at a page.
+    Url(Url),
+}
+
+/// Disambiguates `parse_args`'s lone positional argument. `Url::parse`
+/// alone isn't a strict enough test — it also happily parses things
+/// like `C:\path` lookalikes and schemes scratchy has no fetch path for
+/// at all (`file://`, `data:`, ...) — so the scheme is checked
+/// explicitly rather than trusting "parsed successfully" to mean "is a
+/// live URL scratchy can act on." Anything else, including a bare
+/// relative path and an absolute one, stays `Input::File`, parsed by
+/// `fs::read_to_string` exactly as before this existed.
+fn classify_input(arg: &str) -> Input {
+    match Url::parse(arg) {
+        Ok(url) if url.scheme() == "http" || url.scheme() == "https" => Input::Url(url),
+        _ => Input::File(arg.to_string()),
+    }
 }
 
 /// `--socket <path>`, alongside the pre-existing `[file]` argument — an
@@ -89,9 +116,9 @@ fn parse_args() -> Args {
     }
     let input = match rest.len() {
         0 => Input::Stdin,
-        1 => Input::File(rest[0].clone()),
+        1 => classify_input(&rest[0]),
         _ => {
-            eprintln!("usage: scratchy [--socket <path>] [file]");
+            eprintln!("usage: scratchy [--socket <path>] [file|url]");
             std::process::exit(1);
         }
     };
@@ -10868,10 +10895,12 @@ enum AppEvent {
     /// generation when this event arrives so a stale result from a
     /// since-superseded navigation (the user clicked a second link
     /// before the first one's fetch finished) is silently dropped
-    /// instead of clobbering newer, already-displayed content. No
-    /// back/forward history is built on top of this (see TODO.txt's own
-    /// link-navigation item) — this is just the one hook a future
-    /// history stack would need to land next to.
+    /// instead of clobbering newer, already-displayed content. `App::
+    /// history`'s own back/forward moves (`navigate_history`) are built
+    /// on top of exactly this same generation check, via the shared
+    /// `fetch_url` path — a back/forward move the user has since moved
+    /// on from gets dropped the same way a stale forward navigation
+    /// does.
     NavResult(u64, Result<FetchedPage, String>),
     /// One non-`data:` `<img src>` reference's own fetch finishing (v67)
     /// — `String` is the exact, unresolved `src` attribute text
@@ -10958,6 +10987,25 @@ enum Action {
     HalfPageDown,
     HalfPageUp,
     EnterCommandMode,
+    HistoryBack,
+    HistoryFront,
+}
+
+/// Whether `action` must ignore OS key-repeat rather than fire on every
+/// repeat tick while the key stays held. A continuous action (`Scroll*`/
+/// `HalfPage*`) is supposed to keep firing on repeat, same as any
+/// ordinary scrollable app — that's the whole point of holding the key
+/// down. `HistoryBack`/`HistoryFront` are the opposite: `navigate_
+/// history` only moves `history_index` and kicks off a fetch, with
+/// nothing gating it on that fetch actually completing, so an un-gated
+/// repeat fires many times before a single `NavResult` can land —
+/// decrementing straight through the whole stack in the time it takes
+/// to notice the key was held at all, not one page per press (the exact
+/// bug this function exists to close). `EnterCommandMode` is harmless
+/// either way — repeating it just re-clears an already-empty command
+/// line — but listed here too since repeating it serves no purpose.
+fn action_ignores_repeat(action: Action) -> bool {
+    matches!(action, Action::HistoryBack | Action::HistoryFront | Action::EnterCommandMode)
 }
 
 /// The one chokepoint a real key event gets resolved into an `Action`
@@ -10984,6 +11032,8 @@ fn resolve_binding(key: &Key, mods: ModifiersState, mode: VimMode) -> Option<Act
         Key::Character(s) if s.as_str() == "d" && mods.control_key() => Some(Action::HalfPageDown),
         Key::Character(s) if s.as_str() == "u" && mods.control_key() => Some(Action::HalfPageUp),
         Key::Character(s) if s.as_str() == ":" => Some(Action::EnterCommandMode),
+        Key::Character(s) if s.as_str() == "h" => Some(Action::HistoryBack),
+        Key::Character(s) if s.as_str() == "l" => Some(Action::HistoryFront),
         _ => None,
     }
 }
@@ -11019,7 +11069,7 @@ fn key_insertion_text(key: &Key) -> Option<&str> {
 /// truth for what a command actually does: a name landing here with no
 /// matching `dispatch_command` arm would complete to something that
 /// then reports itself unknown, not silently do nothing.
-const COMMAND_NAMES: &[&str] = &["go", "help", "q", "quit", "set"];
+const COMMAND_NAMES: &[&str] = &["go", "help", "historyBack", "historyFront", "q", "quit", "refresh", "set"];
 
 /// `:set`'s own one valid argument, completed the same way `COMMAND_
 /// NAMES` completes a command name itself — see `command_completions`.
@@ -11251,6 +11301,27 @@ struct App {
     /// at; an already-absolute `href` still resolves fine either way,
     /// same as a real browser.
     base_url: Option<Url>,
+    /// Every URL navigated to via a real click or `:go`, oldest
+    /// first — `:historyBack`/`:historyFront` (bound to `h`/`l` in vim
+    /// Normal mode) move `history_index` through this instead of
+    /// fetching anything new. Session-only by design: nothing here ever
+    /// touches disk, so it's gone the moment the process exits, same as
+    /// a plain `Vec` naturally is — there's no persistence layer to add,
+    /// only one to avoid adding. Navigating to a new page while sitting
+    /// behind the front of history drops everything ahead of the
+    /// current entry first (`push_history`), the same "going somewhere
+    /// new forks off the back half" rule a real browser's history
+    /// follows. The session's own opening page (loaded from a file,
+    /// stdin, etc. — never itself pushed, since nothing navigated *to*
+    /// it) gets backfilled as entry 0 on the very first real navigation
+    /// away from it, so `:historyBack` has somewhere to go on the very
+    /// first press — see `push_history`'s own docs.
+    history: Vec<Url>,
+    /// Index into `history` for the page currently on screen. Only
+    /// meaningful once `history` is non-empty (true as soon as any
+    /// navigation has happened); `push_history` and `navigate_history`
+    /// are the only two places that ever change it.
+    history_index: usize,
     /// Incremented every time `start_navigation` fires — tags the
     /// `AppEvent::NavResult` its spawned thread will eventually send
     /// back, so a result from a navigation the user has since moved on
@@ -11417,6 +11488,8 @@ impl App {
             proxy,
             shaping_requests,
             base_url,
+            history: Vec::new(),
+            history_index: 0,
             nav_generation: 0,
             layout_generation: 0,
             socket_path,
@@ -11457,6 +11530,8 @@ impl App {
             proxy,
             shaping_requests,
             base_url: None,
+            history: Vec::new(),
+            history_index: 0,
             nav_generation: 0,
             layout_generation: 0,
             socket_path,
@@ -11883,6 +11958,101 @@ impl App {
                 return;
             }
         };
+        self.push_history(url.clone());
+        self.fetch_url(url);
+    }
+
+    /// Records `url` as the page now on screen, for `:historyBack`/
+    /// `:historyFront` to move through later — called once per real
+    /// navigation (a click, `:go`), never for a back/forward move
+    /// itself (`navigate_history` only moves `history_index`, it never
+    /// calls this). Truncates anything ahead of the current entry first,
+    /// same as a real browser: navigating somewhere new while sitting
+    /// behind the front of history forks off the back half rather than
+    /// leaving an old "forward" branch dangling.
+    ///
+    /// The very first call is a special case: `history` starts empty
+    /// (the page the session opened on — loaded from a file, stdin, or
+    /// wherever — was never itself pushed, there having been no
+    /// navigation yet to push it *for*), so a *first* click with
+    /// nothing seeded would leave `history` holding only the page just
+    /// navigated *to*, with no earlier entry for `:historyBack` to ever
+    /// reach — "no more history" on the very first press despite a real
+    /// previous page having been on screen a moment before. `self.
+    /// base_url` at this point is still the *old* page's own address
+    /// (this runs from `start_navigation`, before `fetch_url`'s
+    /// eventual `NavResult` overwrites it — see `resolve_page_base_url`'s
+    /// own docs for why that's reliably the real page URL, not just a
+    /// link-resolution base) — exactly the one entry missing, so it's
+    /// seeded here, once, the first time there's nothing else in
+    /// `history` yet to truncate against.
+    fn push_history(&mut self, url: Url) {
+        if self.history.is_empty() {
+            if let Some(current) = self.base_url.clone().filter(|b| *b != url) {
+                self.history.push(current);
+            }
+        } else {
+            self.history.truncate(self.history_index + 1);
+        }
+        self.history.push(url);
+        self.history_index = self.history.len() - 1;
+    }
+
+    /// `:historyBack`/`:historyFront` (`delta` of `-1`/`1`, bound to
+    /// `h`/`l` in vim Normal mode via `Action::HistoryBack`/`
+    /// HistoryFront`) — moves `history_index` and re-fetches that entry
+    /// through the ordinary `fetch_url` path, but deliberately never
+    /// through `push_history`: moving through history must never itself
+    /// grow the stack, or going back then forward again would duplicate
+    /// entries instead of retracing them. Already at either end of
+    /// `history` is a silent no-op, not an error message: a real
+    /// browser's back/forward button simply does nothing once there's
+    /// nowhere further to go, rather than replacing the page on screen
+    /// with an error.
+    fn navigate_history(&mut self, delta: isize) {
+        let Some(new_index) = self.history_index.checked_add_signed(delta).filter(|&i| i < self.history.len()) else {
+            return;
+        };
+        self.history_index = new_index;
+        let url = self.history[new_index].clone();
+        self.fetch_url(url);
+    }
+
+    /// `:refresh` — re-fetches the page currently on screen in place,
+    /// through the same `fetch_url` path `navigate_history` uses, and
+    /// for the same reason: this must never call `push_history`, or
+    /// refreshing would grow the stack instead of just reloading what's
+    /// already there. Not yet bound to any key — command-line only for
+    /// now. Prefers the current `history` entry, but a page reached
+    /// without ever going through `push_history` (the initial file/
+    /// stdin/URL load, before any click or `:go` away from it) has
+    /// nothing there yet — `base_url` is the fallback for exactly that
+    /// case (reliably the real page URL by then — see `push_history`'s
+    /// own docs for why), so `scratchy <url>` followed immediately by
+    /// `:refresh`, with no navigation in between, still works. Only a
+    /// `base_url`-less page (a local file with no `<base href>` of its
+    /// own) has truly nothing to refresh.
+    fn refresh(&mut self) {
+        let url = match self.history.get(self.history_index).cloned() {
+            Some(url) => url,
+            None => match self.base_url.clone() {
+                Some(url) => url,
+                None => {
+                    self.show_message("scratchy: nothing to refresh");
+                    return;
+                }
+            },
+        };
+        self.fetch_url(url);
+    }
+
+    /// The actual fetch-and-swap logic shared by a fresh navigation
+    /// (`start_navigation`, after `push_history`), a back/forward move
+    /// (`navigate_history`), and `:refresh` (both of the latter two
+    /// deliberately never call `push_history`) — see `AppEvent::
+    /// NavResult`'s own docs for how the result gets back onto this
+    /// thread.
+    fn fetch_url(&mut self, url: Url) {
         self.nav_generation += 1;
         let generation = self.nav_generation;
         self.show_message("Loading…");
@@ -11967,6 +12137,9 @@ impl App {
             return;
         }
         if let Some(action) = resolve_binding(&event.logical_key, self.modifiers, self.vim_mode) {
+            if event.repeat && action_ignores_repeat(action) {
+                return;
+            }
             self.perform_action(action);
         }
     }
@@ -11995,6 +12168,8 @@ impl App {
                 // now-empty one.
                 self.completion = None;
             }
+            Action::HistoryBack => self.navigate_history(-1),
+            Action::HistoryFront => self.navigate_history(1),
         }
         if let Some(window) = &self.window {
             window.request_redraw();
@@ -12164,6 +12339,9 @@ impl App {
     fn dispatch_command(&mut self, name: &str, args: &[&str]) {
         match (name, args) {
             ("go", [url]) => self.start_navigation(url),
+            ("historyBack", []) => self.navigate_history(-1),
+            ("historyFront", []) => self.navigate_history(1),
+            ("refresh", []) => self.refresh(),
             ("set", ["vim"]) => self.vim_enabled = true,
             ("set", ["novim"]) => self.vim_enabled = false,
             ("help", []) => self.show_help(),
@@ -12309,10 +12487,15 @@ impl ApplicationHandler<AppEvent> for App {
             }
             WindowEvent::KeyboardInput { event, .. } => {
                 // Release events never reach `handle_key_event` at all —
-                // every binding today is a one-shot action (scroll a
-                // fixed step, enter command mode, edit the command
-                // line), nothing holds a key down for continuous effect
-                // yet, so there's nothing a release would need to do.
+                // nothing here is driven by a key actually being *held*
+                // (as opposed to repeatedly *pressed*, which winit's own
+                // OS-level key-repeat already reports as more `Pressed`
+                // events with `repeat: true`, no release in between), so
+                // there's nothing a release would need to do. Scroll
+                // relies on exactly that repeat to feel continuous while
+                // held; `action_ignores_repeat` is where a one-shot
+                // action like `HistoryBack`/`HistoryFront` opts back out
+                // of it instead.
                 if event.state == ElementState::Pressed {
                     self.handle_key_event(&event);
                     // `:q`/`:quit` (`dispatch_command`) only set this
@@ -12520,6 +12703,17 @@ pub fn run() {
                 }
             });
             App::new_streaming(proxy, socket)
+        }
+        Input::Url(url) => {
+            // `fetch_url` already shows its own "Loading…" placeholder
+            // and handles `socket` being `None` (prints the fallback
+            // request, shows a clear inline error — see its own and
+            // `start_navigation`'s docs) — the empty starting document
+            // here is just a blank slate for that first `show_message`
+            // call to immediately replace, never itself drawn.
+            let mut app = App::new_static(parse_html(""), proxy, socket);
+            app.fetch_url(url);
+            app
         }
     };
 
@@ -16201,6 +16395,23 @@ mod tests {
     }
 
     #[test]
+    fn classify_input_recognizes_http_and_https_urls() {
+        assert!(matches!(classify_input("http://example.com"), Input::Url(_)));
+        assert!(matches!(classify_input("https://example.com/wiki/Foo"), Input::Url(_)));
+    }
+
+    #[test]
+    fn classify_input_treats_everything_else_as_a_file_path() {
+        assert!(matches!(classify_input("page.html"), Input::File(_)));
+        assert!(matches!(classify_input("/home/user/page.html"), Input::File(_)));
+        // A scheme scratchy has no `wire`-backed fetch path for — same
+        // "parsed successfully isn't the same question as fetchable"
+        // reasoning `classify_input`'s own docs give.
+        assert!(matches!(classify_input("file:///etc/hosts"), Input::File(_)));
+        assert!(matches!(classify_input("data:text/plain,hi"), Input::File(_)));
+    }
+
+    #[test]
     fn find_base_href_finds_a_real_base_tag() {
         let doc = parse_html(
             r#"<html><head><base href="https://example.com/articles/"></head><body>hi</body></html>"#,
@@ -16699,6 +16910,29 @@ mod tests {
     fn resolve_binding_colon_enters_command_mode() {
         let key = Key::Character(":".into());
         assert_eq!(resolve_binding(&key, ModifiersState::empty(), VimMode::Normal), Some(Action::EnterCommandMode));
+    }
+
+    #[test]
+    fn resolve_binding_maps_bare_hl_to_history_back_and_front() {
+        let key = Key::Character("h".into());
+        assert_eq!(resolve_binding(&key, ModifiersState::empty(), VimMode::Normal), Some(Action::HistoryBack));
+        let key = Key::Character("l".into());
+        assert_eq!(resolve_binding(&key, ModifiersState::empty(), VimMode::Normal), Some(Action::HistoryFront));
+    }
+
+    #[test]
+    fn action_ignores_repeat_exempts_scroll_but_not_history_navigation() {
+        // The regression this closes: holding `h` fires `Action::
+        // HistoryBack` on every OS key-repeat tick, and `navigate_
+        // history` isn't gated on its own fetch completing, so an
+        // un-gated repeat would race straight through the whole
+        // history stack before a single page even loads.
+        assert!(action_ignores_repeat(Action::HistoryBack));
+        assert!(action_ignores_repeat(Action::HistoryFront));
+        assert!(!action_ignores_repeat(Action::ScrollDown));
+        assert!(!action_ignores_repeat(Action::ScrollUp));
+        assert!(!action_ignores_repeat(Action::HalfPageDown));
+        assert!(!action_ignores_repeat(Action::HalfPageUp));
     }
 
     #[test]
