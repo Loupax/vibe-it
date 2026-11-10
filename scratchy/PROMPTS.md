@@ -5480,3 +5480,62 @@ to actually exit under Xvfb, not instant, but it does exit).
 `:quit` arms, `window_event`'s `should_quit` check, 7 new tests);
 `scratchy/src/help.html` (new); `scratchy/Cargo.toml`/`Cargo.lock`
 (`arboard` dependency added).
+
+## v70 — `:q` from `:help` goes back, instead of quitting
+
+> :q from the help page should bring the user back to their previous
+> page, similar to how vim closes the buffer in those cases
+
+A follow-up on v69's `:help`, filed the same session right after seeing
+it work: `:q` previously quit scratchy outright no matter what was on
+screen, which made `:help` a dead end — closing it meant closing the
+whole browser. Real vim's own `:q` doesn't work that way: it closes the
+current buffer/window and falls back to whatever was open before it,
+only actually quitting once there's nothing left to fall back to. That's
+the exact shape asked for and the exact shape built.
+
+**What/why:** a new `App::pre_help_page: Option<SavedPage>`, where
+`SavedPage` snapshots every piece of per-page state `replace_document`
+either changes or clears (`document`, `extra_css`, `image_cache`,
+`scroll_offset`, `scroll_offsets` — not `base_url`, since `show_help`'s
+own `replace_document` call never touches it in the first place).
+`show_help` snapshots into it, but only when it's already `None` —
+re-running `:help` while already viewing it must not let the help page
+itself get captured as "the page to go back to." `dispatch_command`'s
+`:q`/`:quit` arm now branches on `pre_help_page`: `Some` pops it
+(`App::restore_saved_page`, the mirror image of the snapshot — restores
+the three fields `replace_document` always zeroes instead of leaving
+them zeroed, scroll position included, since closing `:help` isn't
+supposed to look like navigating to a new page); `None` falls back to
+the previous behavior (`should_quit`). `start_navigation`'s own first
+line unconditionally drops `pre_help_page`: a real navigation (a real
+click, or `:go`) while `:help` happens to be open means the page about
+to show is genuinely new, not an overlay on top of whatever `:help`
+saved — a later `:q` from there should quit, not resurrect a page from
+before `:help` was ever opened. `src/help.html`'s own `:q`/`:quit` row
+updated to describe both halves.
+
+No new unit tests — same "thin App-level orchestration rests on code
+review + live verification" category v69's own `cycle_command_
+completion`/`paste_into_command_line` already sit in, not a gap: there's
+no new pure, stateless function here to unit-test, just `SavedPage`
+plumbing through existing `App` methods. `cargo test`: still 198/198
+(unchanged). `cargo clippy --all-targets`: unchanged warning count (20).
+
+**Live-verified against a real running window** (same Xvfb/`xdotool`/
+`import` setup v69 used), four scenarios, not just the one asked for:
+(1) scrolled a real page down, opened `:help`, scrolled *that* down to a
+different position, ran `:q` — landed back on the original page at the
+exact same scroll offset (pixel-identical screenshot to before `:help`
+was opened), process still running. (2) `:q` with no `:help` open still
+quits for real (polled the PID: exits a couple seconds later, same as
+v69). (3) Opened `:help`, opened `:help` *again*, then `:q` — landed on
+the real original page, not stuck on the help page itself (confirms the
+"snapshot only once" guard). (4) Opened `:help`, then ran a real `:go`
+to navigate away, then `:q` — this time it quit instead of popping back,
+confirming `start_navigation`'s own clear takes effect.
+
+**Deliverable**: `scratchy/src/lib.rs` (`SavedPage`, `App::
+pre_help_page`, `App::restore_saved_page`, `show_help`'s snapshot guard,
+`dispatch_command`'s `:q`/`:quit` arm, `start_navigation`'s clear);
+`scratchy/src/help.html` (`:q`/`:quit` row updated).

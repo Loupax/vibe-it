@@ -11337,20 +11337,59 @@ struct App {
     /// line keystroke resets it, including `Enter`/`Escape` leaving
     /// command mode entirely).
     completion: Option<CommandCompletion>,
-    /// Set by `dispatch_command`'s own `:q`/`:quit` handler; checked
-    /// right after `handle_key_event` returns from `WindowEvent::
-    /// KeyboardInput` (`window_event`'s own match arm) to actually call
-    /// `ActiveEventLoop::exit()` — `dispatch_command` has no `&Active
-    /// EventLoop` of its own to call that with directly (same reason
-    /// `AppEvent::ToggleVimMode`'s own SIGUSR1 bootstrap docs give for
-    /// why `resumed`'s `&ActiveEventLoop` can't just be stashed on
-    /// `App` once and reused later — it's instead synthesized fresh at
-    /// the one real call site each time, `window_event`'s own
-    /// parameter, which this flag just has to survive one event handler
-    /// call to reach). Checked, never read back down to `false`
-    /// anywhere: once set, the event loop really is exiting, so there's
-    /// no later point where un-setting it would mean anything.
+    /// Set by `dispatch_command`'s own `:q`/`:quit` handler — only when
+    /// `pre_help_page` is `None`, i.e. there's no page to fall back to
+    /// (see that field's own docs for the vim-"closing the last buffer
+    /// quits" half of this). Checked right after `handle_key_event`
+    /// returns from `WindowEvent::KeyboardInput` (`window_event`'s own
+    /// match arm) to actually call `ActiveEventLoop::exit()` —
+    /// `dispatch_command` has no `&ActiveEventLoop` of its own to call
+    /// that with directly (same reason `AppEvent::ToggleVimMode`'s own
+    /// SIGUSR1 bootstrap docs give for why `resumed`'s `&ActiveEventLoop`
+    /// can't just be stashed on `App` once and reused later — it's
+    /// instead synthesized fresh at the one real call site each time,
+    /// `window_event`'s own parameter, which this flag just has to
+    /// survive one event handler call to reach). Checked, never read
+    /// back down to `false` anywhere: once set, the event loop really is
+    /// exiting, so there's no later point where un-setting it would mean
+    /// anything.
     should_quit: bool,
+    /// The page that was showing right before `:help` opened, if any —
+    /// `App::show_help`'s own snapshot, popped by `:q`/`:quit`
+    /// (`App::restore_saved_page`) instead of quitting, the same way
+    /// real vim's `:q` closes the current buffer/window and falls back
+    /// to whatever was open before it, only actually exiting once
+    /// there's nothing left to fall back to. `None` means either
+    /// there's no overlay open at all (the common case), or `:help`
+    /// itself was already open when this was captured (`show_help` only
+    /// snapshots once — re-running `:help` while already viewing it
+    /// must not overwrite the *real* saved page with the help page
+    /// itself). Cleared — without restoring anything — by a real
+    /// navigation (`start_navigation`'s own first line): clicking a
+    /// link or running `:go` while `:help` is open means the *current*
+    /// page is now genuinely new, not just an overlay on top of the old
+    /// one, so a later `:q` has nothing sensible left to pop back to and
+    /// should quit instead, not resurrect a page from before `:help`
+    /// was ever opened.
+    pre_help_page: Option<SavedPage>,
+}
+
+/// `App::pre_help_page`'s own snapshot — every piece of per-page state
+/// `App::replace_document` either changes or clears, captured so
+/// `App::restore_saved_page` can put it back exactly, scroll position
+/// included (unlike an ordinary navigation, which always starts a new
+/// page at the top — see `replace_document`'s own docs for why that's
+/// right there and wrong here: closing `:help` is not supposed to look
+/// like navigating to a new page at all). `base_url` deliberately isn't
+/// part of this: `show_help`'s own `replace_document` call never
+/// touches `App::base_url`, so it's already untouched and needs no
+/// restoring.
+struct SavedPage {
+    document: Handle,
+    extra_css: String,
+    image_cache: HashMap<String, Arc<DecodedImage>>,
+    scroll_offset: f32,
+    scroll_offsets: HashMap<usize, f32>,
 }
 
 impl App {
@@ -11389,6 +11428,7 @@ impl App {
             modifiers: ModifiersState::empty(),
             completion: None,
             should_quit: false,
+            pre_help_page: None,
         }
     }
 
@@ -11428,6 +11468,7 @@ impl App {
             modifiers: ModifiersState::empty(),
             completion: None,
             should_quit: false,
+            pre_help_page: None,
         }
     }
 
@@ -11768,9 +11809,42 @@ impl App {
     /// paragraph. Deliberately not wired through any external fetch or
     /// file read — scratchy still does neither on its own (TODO.txt) —
     /// so a reference page is always there, with nothing that can fail
-    /// to load.
+    /// to load. Snapshots the current page into `pre_help_page` first —
+    /// but only if nothing's snapshotted already: re-running `:help`
+    /// while already viewing it (its own text, read back from `self.
+    /// document`, would otherwise get captured as "the page to go back
+    /// to") must leave the real saved page alone, same "once, not
+    /// every open" rule a real vim buffer-switch follows.
     fn show_help(&mut self) {
+        if self.pre_help_page.is_none() {
+            self.pre_help_page = Some(SavedPage {
+                document: self.document.clone(),
+                extra_css: self.extra_css.clone(),
+                image_cache: self.image_cache.clone(),
+                scroll_offset: self.scroll_offset,
+                scroll_offsets: self.scroll_offsets.clone(),
+            });
+        }
         self.replace_document(parse_html(HELP_PAGE_HTML), String::new());
+    }
+
+    /// `:q`/`:quit`'s own "close the buffer" half (`dispatch_command`) —
+    /// pops `pre_help_page` back onto `App` via the same fields `replace_
+    /// document` itself sets, then restores the three it always clears/
+    /// resets (`image_cache`, `scroll_offsets`, `scroll_offset`) to the
+    /// saved page's own real values instead of empty/zero. Does nothing
+    /// if `pre_help_page` is `None` — `dispatch_command`'s own caller is
+    /// expected to have already checked that and fallen back to `should_
+    /// quit` instead, but this stays a safe no-op either way rather than
+    /// a `panic!`/`unwrap`, same defensive shape `TextEditBuffer`'s own
+    /// start-of-buffer no-ops follow for a call that technically
+    /// shouldn't happen rather than one that's actually expected to.
+    fn restore_saved_page(&mut self) {
+        let Some(saved) = self.pre_help_page.take() else { return };
+        self.replace_document(saved.document, saved.extra_css);
+        self.image_cache = saved.image_cache;
+        self.scroll_offsets = saved.scroll_offsets;
+        self.scroll_offset = saved.scroll_offset;
     }
 
     /// Entry point for `WindowEvent::MouseInput`'s click handler:
@@ -11791,7 +11865,17 @@ impl App {
     /// `wire`) and shows a clear inline error, rather than either
     /// guessing at a default daemon location or leaving the user
     /// wondering whether the click even registered.
+    ///
+    /// Also drops `pre_help_page`, if any was set — a real navigation
+    /// (a real click, or `:go`) while `:help` happens to be open means
+    /// the page *about* to show is genuinely new, not an overlay on top
+    /// of whatever `:help` saved; a later `:q` should quit from there,
+    /// not resurrect a page from before `:help` was ever opened. Cleared
+    /// unconditionally, even on `resolve_href`'s own error path just
+    /// below — an error message shown over `:help` is still "no longer
+    /// showing `:help`."
     fn start_navigation(&mut self, href: &str) {
+        self.pre_help_page = None;
         let url = match resolve_href(self.base_url.as_ref(), href) {
             Ok(url) => url,
             Err(message) => {
@@ -12069,17 +12153,27 @@ impl App {
     /// already goes through, so an already-absolute URL (the common
     /// case typed here) or one relative to the current page's own
     /// `<base href>` both just work. `:q`/`:quit` (real vim's own two
-    /// spellings for the same command) only set `should_quit`, not call
-    /// `ActiveEventLoop::exit()` directly — see that field's own docs
-    /// for why `dispatch_command` has no event loop handle to call it
-    /// with.
+    /// spellings for the same command) are real-vim-flavored too in a
+    /// second way: with `:help` open, they close it and fall back to
+    /// whatever was showing before (`restore_saved_page`), same as vim
+    /// closing a buffer and dropping back to the previous one — only
+    /// actually quitting (`should_quit`, not `ActiveEventLoop::exit()`
+    /// directly — see that field's own docs for why `dispatch_command`
+    /// has no event loop handle to call it with) once there's nothing
+    /// left to fall back to.
     fn dispatch_command(&mut self, name: &str, args: &[&str]) {
         match (name, args) {
             ("go", [url]) => self.start_navigation(url),
             ("set", ["vim"]) => self.vim_enabled = true,
             ("set", ["novim"]) => self.vim_enabled = false,
             ("help", []) => self.show_help(),
-            ("q", []) | ("quit", []) => self.should_quit = true,
+            ("q", []) | ("quit", []) => {
+                if self.pre_help_page.is_some() {
+                    self.restore_saved_page();
+                } else {
+                    self.should_quit = true;
+                }
+            }
             _ => {
                 let rest = args.join(" ");
                 self.show_message(&format!("scratchy: unknown command: :{name}{}{rest}", if rest.is_empty() { "" } else { " " }));
