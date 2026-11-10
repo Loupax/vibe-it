@@ -1,7 +1,8 @@
 use std::io::{BufRead, BufReader, Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
-use std::time::Duration;
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 
 use url::Url;
 
@@ -15,12 +16,16 @@ use url::Url;
 // protocol over a Unix domain socket — read one real HTTP/1.1 request
 // (proxy absolute-form request line, headers, optional body), execute
 // it for real (TLS, redirects, decompression — via `ureq`, same crate
-// `snag` already trusts for this), and write back one normalized
-// HTTP/1.1 response: real headers, redirects already followed, body
-// already decompressed, framed with a correct `Content-Length` and
-// never `Transfer-Encoding: chunked`. No bundling/inlining logic lives
-// here — that's `snag`'s exclusive job, which is why this file is so
-// much smaller than `snag/src/main.rs`.
+// `snag` already trusts for this), and stream back one normalized
+// HTTP/1.1 response as it arrives: real headers, redirects already
+// followed, body already decompressed, never `Transfer-Encoding:
+// chunked` and never `Content-Length` either (see `stream_response`'s
+// own docs for why — the body is never fully in this daemon's own
+// memory at once, however large it is, so there's no length to state
+// up front; the connection closing is the end-of-body signal instead,
+// same as the protocol's request/response framing already was). No
+// bundling/inlining logic lives here — that's `snag`'s exclusive job,
+// which is why this file is so much smaller than `snag/src/main.rs`.
 //
 // Unlike `snag --serve`'s one-connection-at-a-time loop, this daemon is
 // expected to field several *separate* connections concurrently (a page
@@ -173,8 +178,7 @@ fn handle_connection(stream: UnixStream, agent: &ureq::Agent) {
             return;
         }
     };
-    let response = execute(agent, &request);
-    if let Err(e) = write_response(&mut writer, &response)
+    if let Err(e) = execute_and_stream(agent, &request, &mut writer)
         && e.kind() != std::io::ErrorKind::BrokenPipe
     {
         eprintln!("wire: failed to write response: {e}");
@@ -250,18 +254,41 @@ fn malformed(msg: &str) -> std::io::Error {
 
 // ---------- executing the request for real ----------
 
-/// What `wire` actually sends back — a normalized shape, not a 1:1 byte
-/// relay. `headers` never contains `Content-Length`/`Transfer-Encoding`/
-/// `Content-Encoding` (see `normalize_headers`): the daemon has already
-/// read the real, possibly-chunked, possibly-compressed upstream
-/// response to completion, so `body`'s length is simply its own correct
-/// `Content-Length`, computed fresh, and there is nothing left to
-/// decompress downstream.
-struct NormalizedResponse {
-    status: u16,
-    reason: String,
-    headers: Vec<(String, String)>,
-    body: Vec<u8>,
+/// `WIRE_TIMING=1 wire` prints one line per request — method, URL,
+/// status, and two separate timings — plus keeps a running total in the
+/// atomics below. Same measure-don't-guess habit, and the same env-var-
+/// gated/zero-cost-when-off shape, `snag`'s own `SNAG_TIMING` already
+/// established (see its own docs) — split here into the two phases that
+/// actually matter for "why is this slow": `headers` is everything
+/// before a response's headers are even in hand (DNS, TCP connect, the
+/// TLS handshake, sending the request) — `ureq`'s own `.call()`/`.send_
+/// bytes()` already returns at exactly that point, with the body still
+/// a lazy, unread stream via `.into_reader()` — and `body` is how long
+/// it then took to stream that body through to the client. No end-of-
+/// run summary the way `snag`'s own one-shot CLI prints one at exit:
+/// this is a long-lived daemon serving many connections concurrently,
+/// with no one point "the run" ends. The atomics exist so a future
+/// stats surface (TODO.txt) has real numbers to read from, not for
+/// anything printed today.
+fn timing_enabled() -> bool {
+    std::env::var_os("WIRE_TIMING").is_some()
+}
+
+static REQUEST_COUNT: AtomicU32 = AtomicU32::new(0);
+static HEADERS_NANOS: AtomicU64 = AtomicU64::new(0);
+static BODY_NANOS: AtomicU64 = AtomicU64::new(0);
+
+fn log_timing(method: &str, url: &Url, status: u16, headers_elapsed: Duration, body_elapsed: Duration) {
+    REQUEST_COUNT.fetch_add(1, Ordering::Relaxed);
+    HEADERS_NANOS.fetch_add(headers_elapsed.as_nanos() as u64, Ordering::Relaxed);
+    BODY_NANOS.fetch_add(body_elapsed.as_nanos() as u64, Ordering::Relaxed);
+    if timing_enabled() {
+        eprintln!(
+            "wire: TIMING headers={:>7.1}ms body={:>7.1}ms status={status} {method} {url}",
+            headers_elapsed.as_secs_f64() * 1000.0,
+            body_elapsed.as_secs_f64() * 1000.0,
+        );
+    }
 }
 
 /// Request header names this file sets itself from `url`/`body`, or that
@@ -274,47 +301,78 @@ fn is_request_header_to_skip(name: &str) -> bool {
     matches!(name.to_ascii_lowercase().as_str(), "host" | "content-length" | "connection")
 }
 
-/// Response header names `normalize_headers` strips before forwarding —
-/// each one describes the *wire-to-real-server* transport leg, which no
-/// longer applies once the body has already been read, decompressed, and
-/// re-framed by this daemon.
+/// Response header names this file strips before forwarding — each one
+/// describes the *wire-to-real-server* transport leg (`transfer-
+/// encoding`/`content-encoding`: the body has already been de-chunked/
+/// decompressed by the time any of it reaches the client) or a length
+/// this daemon can no longer state up front now that the body streams
+/// through as it arrives rather than being fully in hand first
+/// (`content-length` — see `stream_response`'s own docs for why there's
+/// nothing to put there instead, not even a recomputed one).
 fn is_response_header_to_strip(name: &str) -> bool {
     matches!(name.to_ascii_lowercase().as_str(), "content-length" | "transfer-encoding" | "content-encoding")
 }
 
-/// Sends `request` for real via `agent` and always returns a response to
-/// forward — never an `Err`, since a connection/TLS/DNS failure is just
-/// as real an outcome to report back to scratchy as any HTTP status, and
-/// the socket protocol has exactly one shape (a normalized response) for
-/// every case, not a separate out-of-band error channel.
-fn execute(agent: &ureq::Agent, request: &ParsedRequest) -> NormalizedResponse {
+/// Sends `request` for real via `agent`, then streams a normalized
+/// response — status/reason/headers first, then the body, as it arrives
+/// — straight to `w`. Always produces *some* response (even a connection/
+/// TLS/DNS failure becomes a synthesized `502`, never a hang or a
+/// dropped connection with nothing explained): the one thing that can
+/// now fail is writing to `w` itself (the client side), propagated to
+/// the caller exactly as `write_response` used to.
+fn execute_and_stream(agent: &ureq::Agent, request: &ParsedRequest, w: &mut impl Write) -> std::io::Result<()> {
     let mut req = agent.request(&request.method, request.url.as_str());
     for (name, value) in &request.headers {
         if !is_request_header_to_skip(name) {
             req = req.set(name, value);
         }
     }
-    let result =
-        if request.body.is_empty() { req.call() } else { req.send_bytes(&request.body) };
+    let headers_start = Instant::now();
+    let result = if request.body.is_empty() { req.call() } else { req.send_bytes(&request.body) };
+    let headers_elapsed = headers_start.elapsed();
 
-    match result {
+    let body_start = Instant::now();
+    let status = match result {
         // `ureq` treats any non-2xx status as `Err(Error::Status(..))`,
         // but the wrapped `Response` is a perfectly real upstream
         // response (a 404, a 500, ...) — not a transport failure — so it
-        // goes through the exact same normalization path as `Ok`, just
-        // reached from the other match arm.
-        Ok(resp) | Err(ureq::Error::Status(_, resp)) => normalize_response(resp),
-        Err(ureq::Error::Transport(e)) => synthetic_error_response(&e.to_string()),
-    }
+        // streams through exactly like `Ok` does, just reached from the
+        // other match arm.
+        Ok(resp) | Err(ureq::Error::Status(_, resp)) => {
+            let status = resp.status();
+            stream_response(resp, w)?;
+            status
+        }
+        Err(ureq::Error::Transport(e)) => write_synthetic_error_response(w, &e.to_string())?,
+    };
+    log_timing(&request.method, &request.url, status, headers_elapsed, body_start.elapsed());
+    Ok(())
 }
 
-/// Reads a real upstream response to completion (decompressing
-/// transparently — `ureq`'s `gzip` feature wraps the reader whenever
-/// `Content-Encoding: gzip` was sent, the dominant real-world encoding;
-/// see this crate's own `Cargo.toml` for why `brotli` isn't enabled too —
-/// nothing has needed it yet) and re-frames it with a fresh,
-/// now-correct `Content-Length` and no leftover transport-layer headers.
-fn normalize_response(resp: ureq::Response) -> NormalizedResponse {
+/// Writes a real upstream response's status/headers, then streams its
+/// body straight through to `w` as it arrives — never buffered in this
+/// daemon's own memory first, regardless of how large it is. `ureq`'s
+/// own `gzip` feature already decompressed it transparently on the way
+/// in if `Content-Encoding: gzip` was sent (the dominant real-world
+/// encoding; see this crate's own `Cargo.toml` for why `brotli` isn't
+/// enabled too — nothing has needed it yet), so what streams through
+/// here is the real, final bytes.
+///
+/// **No `Content-Length`, ever — on purpose, not an oversight.** The
+/// whole point of streaming is to never need the body fully in hand
+/// before sending anything, and the real length simply isn't known
+/// until the last byte arrives; computing one would mean going back to
+/// buffering first, exactly what this exists to stop doing (a real
+/// video/large-file download sitting entirely in this daemon's memory
+/// before a single byte reached scratchy, for no reason). Instead this
+/// relies on the one framing signal the protocol already had either
+/// way: `handle_connection` closes the connection the instant this
+/// function returns, and scratchy's own receiving side (`fetch_raw_via_
+/// wire`) already reads until *that* EOF, never a length header — see
+/// its own docs. A real HTTP/1.1 response with neither `Content-Length`
+/// nor `Transfer-Encoding`, read until the connection closes, is exactly
+/// this same rule, not an invented shortcut.
+fn stream_response(resp: ureq::Response, w: &mut impl Write) -> std::io::Result<()> {
     let status = resp.status();
     let reason = resp.status_text().to_string();
     let mut headers = Vec::new();
@@ -326,15 +384,8 @@ fn normalize_response(resp: ureq::Response) -> NormalizedResponse {
             headers.push((name, value.to_string()));
         }
     }
-    let mut body = Vec::new();
-    // A transport error reading the body (connection dropped mid-
-    // stream) isn't fatal here either — whatever bytes were read
-    // successfully are still forwarded, same lenient spirit `execute`'s
-    // own transport-error handling already has for a failure before any
-    // bytes arrived at all.
-    let _ = resp.into_reader().read_to_end(&mut body);
-    headers.push(("Content-Length".to_string(), body.len().to_string()));
-    NormalizedResponse { status, reason, headers, body }
+    write_status_and_headers(w, status, &reason, &headers)?;
+    copy_body(resp.into_reader(), w)
 }
 
 /// What gets sent back when the upstream request never got far enough
@@ -342,28 +393,59 @@ fn normalize_response(resp: ureq::Response) -> NormalizedResponse {
 /// refused, TLS handshake failure, timeout) — a synthesized `502` so
 /// scratchy's own dispatch (which only ever reads `Content-Type`) still
 /// gets one consistent, well-formed response shape to work with, never
-/// a raw error string with no framing.
-fn synthetic_error_response(message: &str) -> NormalizedResponse {
-    let body = format!("wire: upstream request failed: {message}").into_bytes();
-    NormalizedResponse {
-        status: 502,
-        reason: "Bad Gateway".to_string(),
-        headers: vec![
-            ("Content-Type".to_string(), "text/plain".to_string()),
-            ("Content-Length".to_string(), body.len().to_string()),
-        ],
-        body,
-    }
+/// a raw error string with no framing. Small and already fully in
+/// memory as a plain `String`, so there's no streaming concern here —
+/// just reuses `write_status_and_headers`/a plain `write_all`, same as
+/// `stream_response`'s own shape minus the streaming. Returns the
+/// status written, purely so `execute_and_stream` has something to log.
+fn write_synthetic_error_response(w: &mut impl Write, message: &str) -> std::io::Result<u16> {
+    let body = format!("wire: upstream request failed: {message}");
+    write_status_and_headers(w, 502, "Bad Gateway", &[("Content-Type".to_string(), "text/plain".to_string())])?;
+    w.write_all(body.as_bytes())?;
+    w.flush()?;
+    Ok(502)
 }
 
-fn write_response(w: &mut impl Write, resp: &NormalizedResponse) -> std::io::Result<()> {
-    write!(w, "HTTP/1.1 {} {}\r\n", resp.status, resp.reason)?;
-    for (name, value) in &resp.headers {
+fn write_status_and_headers(w: &mut impl Write, status: u16, reason: &str, headers: &[(String, String)]) -> std::io::Result<()> {
+    write!(w, "HTTP/1.1 {status} {reason}\r\n")?;
+    for (name, value) in headers {
         write!(w, "{name}: {value}\r\n")?;
     }
-    write!(w, "\r\n")?;
-    w.write_all(&resp.body)?;
-    w.flush()
+    write!(w, "\r\n")
+}
+
+/// The actual streaming copy, in fixed-size chunks — never reading the
+/// whole of `reader` into memory first (`std::io::copy` would do exactly
+/// that same chunked copy, but can't distinguish *which* side an error
+/// came from, and the two sides need different handling here: see
+/// below). 8 KiB: the same chunk size `std::io::copy`'s own default
+/// buffer already uses, not a figure picked specifically for this.
+fn copy_body(mut reader: impl Read, w: &mut impl Write) -> std::io::Result<()> {
+    let mut buf = [0u8; 8192];
+    loop {
+        let n = match reader.read(&mut buf) {
+            Ok(0) => return Ok(()),
+            Ok(n) => n,
+            // `Interrupted` means try the exact same read again, not
+            // "the stream is done" — a signal landed mid-syscall, the
+            // data this read was waiting for is still coming. `std::io::
+            // Read::read_to_end`'s own default implementation (what
+            // this file used before streaming existed) already retries
+            // on exactly this, transparently; a hand-rolled loop doesn't
+            // get that for free and has to do it explicitly.
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            // Any other transport error reading the body (connection
+            // dropped mid-stream) isn't fatal here either — whatever
+            // bytes were already streamed through stay sent, same
+            // lenient spirit `execute_and_stream`'s own transport-error
+            // handling already has for a failure before any bytes
+            // arrived at all. Only a failure *writing to the client*
+            // (`w`, below) propagates — `handle_connection`'s own
+            // `BrokenPipe` handling already expects exactly that.
+            Err(_) => return Ok(()),
+        };
+        w.write_all(&buf[..n])?;
+    }
 }
 
 // ---------- tests ----------
@@ -450,8 +532,39 @@ mod tests {
         ParsedRequest { method: "GET".to_string(), url, headers: Vec::new(), body: Vec::new() }
     }
 
+    /// A parsed response, for tests only — `execute_and_stream` itself
+    /// only ever writes bytes, it has no return value to assert on
+    /// (that's the whole point: nothing it produces is ever fully
+    /// buffered as one value first). Runs it against an in-memory
+    /// `Vec<u8>` and parses the raw bytes back out, same as the real
+    /// Unix-socket round trip (`full_unix_socket_round_trip_matches_
+    /// execute_and_stream_directly`, below) already has to.
+    struct TestResponse {
+        status: u16,
+        headers: Vec<(String, String)>,
+        body: Vec<u8>,
+    }
+
+    fn execute_for_test(agent: &ureq::Agent, request: &ParsedRequest) -> TestResponse {
+        let mut raw = Vec::new();
+        execute_and_stream(agent, request, &mut raw).expect("execute_and_stream into a Vec<u8> can't fail");
+        let header_end = raw.windows(4).position(|w| w == b"\r\n\r\n").expect("header terminator");
+        let header_text = std::str::from_utf8(&raw[..header_end]).expect("utf8 headers");
+        let mut lines = header_text.split("\r\n");
+        let status_line = lines.next().expect("status line");
+        let status = status_line.split_whitespace().nth(1).expect("status code").parse().expect("status code parses");
+        let headers = lines
+            .filter_map(|line| {
+                let (name, value) = line.split_once(':')?;
+                Some((name.trim().to_string(), value.trim().to_string()))
+            })
+            .collect();
+        let body = raw[header_end + 4..].to_vec();
+        TestResponse { status, headers, body }
+    }
+
     #[test]
-    fn ordinary_response_round_trips_with_a_fresh_content_length() {
+    fn ordinary_response_streams_through_with_no_content_length() {
         let body = "hello from the fixture";
         let addr = spawn_fixture(
             format!("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len())
@@ -459,28 +572,34 @@ mod tests {
                 .leak(),
         );
         let agent = build_agent();
-        let resp = execute(&agent, &get_request(addr, "/"));
+        let resp = execute_for_test(&agent, &get_request(addr, "/"));
         assert_eq!(resp.status, 200);
         assert_eq!(resp.body, body.as_bytes());
-        assert!(resp.headers.iter().any(|(n, v)| n.eq_ignore_ascii_case("content-length") && v == &body.len().to_string()));
+        // No Content-Length — the body streamed through as it arrived,
+        // so there was never a complete size to state up front. See
+        // `stream_response`'s own docs for why that's deliberate.
+        assert!(
+            !resp.headers.iter().any(|(n, _)| n.eq_ignore_ascii_case("content-length")),
+            "a streamed response must never carry a Content-Length, got: {:?}",
+            resp.headers
+        );
     }
 
     #[test]
-    fn chunked_upstream_response_normalizes_to_content_length() {
+    fn chunked_upstream_response_normalizes_to_a_plain_streamed_body() {
         // Two chunks ("hello" + " world"), terminated by the 0-length
         // chunk — real `Transfer-Encoding: chunked` framing, exactly the
         // shape this daemon exists to never make scratchy decode itself.
         let raw = b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n5\r\nhello\r\n6\r\n world\r\n0\r\n\r\n";
         let addr = spawn_fixture(raw);
         let agent = build_agent();
-        let resp = execute(&agent, &get_request(addr, "/"));
+        let resp = execute_for_test(&agent, &get_request(addr, "/"));
         assert_eq!(resp.body, b"hello world");
         assert!(
             !resp.headers.iter().any(|(n, _)| n.eq_ignore_ascii_case("transfer-encoding")),
             "Transfer-Encoding must not leak through a normalized response, got: {:?}",
             resp.headers
         );
-        assert!(resp.headers.iter().any(|(n, v)| n.eq_ignore_ascii_case("content-length") && v == "11"));
     }
 
     #[test]
@@ -502,21 +621,20 @@ mod tests {
         raw.extend_from_slice(gz);
         let addr = spawn_fixture(raw.leak());
         let agent = build_agent();
-        let resp = execute(&agent, &get_request(addr, "/"));
+        let resp = execute_for_test(&agent, &get_request(addr, "/"));
         assert_eq!(resp.body, b"hello gzip");
         assert!(
             !resp.headers.iter().any(|(n, _)| n.eq_ignore_ascii_case("content-encoding")),
             "Content-Encoding must not leak through once the body is already decompressed, got: {:?}",
             resp.headers
         );
-        assert!(resp.headers.iter().any(|(n, v)| n.eq_ignore_ascii_case("content-length") && v == "10"));
     }
 
     #[test]
     fn a_real_4xx_from_upstream_forwards_as_itself_not_a_transport_error() {
         let addr = spawn_fixture(b"HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nContent-Length: 9\r\nConnection: close\r\n\r\nnot found");
         let agent = build_agent();
-        let resp = execute(&agent, &get_request(addr, "/missing"));
+        let resp = execute_for_test(&agent, &get_request(addr, "/missing"));
         assert_eq!(resp.status, 404);
         assert_eq!(resp.body, b"not found");
     }
@@ -527,13 +645,13 @@ mod tests {
         // attempt fails fast with a transport error.
         let agent = build_agent();
         let req = get_request("127.0.0.1:1".parse().expect("addr"), "/");
-        let resp = execute(&agent, &req);
+        let resp = execute_for_test(&agent, &req);
         assert_eq!(resp.status, 502);
         assert!(!resp.body.is_empty());
     }
 
     #[test]
-    fn full_unix_socket_round_trip_matches_execute_directly() {
+    fn full_unix_socket_round_trip_matches_execute_and_stream_directly() {
         let body = "hello from the fixture";
         let addr = spawn_fixture(
             format!("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len())
