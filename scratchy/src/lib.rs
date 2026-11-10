@@ -10964,6 +10964,23 @@ enum Action {
     HistoryFront,
 }
 
+/// Whether `action` must ignore OS key-repeat rather than fire on every
+/// repeat tick while the key stays held. A continuous action (`Scroll*`/
+/// `HalfPage*`) is supposed to keep firing on repeat, same as any
+/// ordinary scrollable app — that's the whole point of holding the key
+/// down. `HistoryBack`/`HistoryFront` are the opposite: `navigate_
+/// history` only moves `history_index` and kicks off a fetch, with
+/// nothing gating it on that fetch actually completing, so an un-gated
+/// repeat fires many times before a single `NavResult` can land —
+/// decrementing straight through the whole stack in the time it takes
+/// to notice the key was held at all, not one page per press (the exact
+/// bug this function exists to close). `EnterCommandMode` is harmless
+/// either way — repeating it just re-clears an already-empty command
+/// line — but listed here too since repeating it serves no purpose.
+fn action_ignores_repeat(action: Action) -> bool {
+    matches!(action, Action::HistoryBack | Action::HistoryFront | Action::EnterCommandMode)
+}
+
 /// The one chokepoint a real key event gets resolved into an `Action`
 /// through — hardcoded `match` arms today (dwm `config.h` style,
 /// explicitly fine per the user's own call in TODO.txt), but the exact
@@ -11267,7 +11284,11 @@ struct App {
     /// behind the front of history drops everything ahead of the
     /// current entry first (`push_history`), the same "going somewhere
     /// new forks off the back half" rule a real browser's history
-    /// follows.
+    /// follows. The session's own opening page (loaded from a file,
+    /// stdin, etc. — never itself pushed, since nothing navigated *to*
+    /// it) gets backfilled as entry 0 on the very first real navigation
+    /// away from it, so `:historyBack` has somewhere to go on the very
+    /// first press — see `push_history`'s own docs.
     history: Vec<Url>,
     /// Index into `history` for the page currently on screen. Only
     /// meaningful once `history` is non-empty (true as soon as any
@@ -11922,8 +11943,28 @@ impl App {
     /// same as a real browser: navigating somewhere new while sitting
     /// behind the front of history forks off the back half rather than
     /// leaving an old "forward" branch dangling.
+    ///
+    /// The very first call is a special case: `history` starts empty
+    /// (the page the session opened on — loaded from a file, stdin, or
+    /// wherever — was never itself pushed, there having been no
+    /// navigation yet to push it *for*), so a *first* click with
+    /// nothing seeded would leave `history` holding only the page just
+    /// navigated *to*, with no earlier entry for `:historyBack` to ever
+    /// reach — "no more history" on the very first press despite a real
+    /// previous page having been on screen a moment before. `self.
+    /// base_url` at this point is still the *old* page's own address
+    /// (this runs from `start_navigation`, before `fetch_url`'s
+    /// eventual `NavResult` overwrites it — see `resolve_page_base_url`'s
+    /// own docs for why that's reliably the real page URL, not just a
+    /// link-resolution base) — exactly the one entry missing, so it's
+    /// seeded here, once, the first time there's nothing else in
+    /// `history` yet to truncate against.
     fn push_history(&mut self, url: Url) {
-        if !self.history.is_empty() {
+        if self.history.is_empty() {
+            if let Some(current) = self.base_url.clone().filter(|b| *b != url) {
+                self.history.push(current);
+            }
+        } else {
             self.history.truncate(self.history_index + 1);
         }
         self.history.push(url);
@@ -12055,6 +12096,9 @@ impl App {
             return;
         }
         if let Some(action) = resolve_binding(&event.logical_key, self.modifiers, self.vim_mode) {
+            if event.repeat && action_ignores_repeat(action) {
+                return;
+            }
             self.perform_action(action);
         }
     }
@@ -12402,10 +12446,15 @@ impl ApplicationHandler<AppEvent> for App {
             }
             WindowEvent::KeyboardInput { event, .. } => {
                 // Release events never reach `handle_key_event` at all —
-                // every binding today is a one-shot action (scroll a
-                // fixed step, enter command mode, edit the command
-                // line), nothing holds a key down for continuous effect
-                // yet, so there's nothing a release would need to do.
+                // nothing here is driven by a key actually being *held*
+                // (as opposed to repeatedly *pressed*, which winit's own
+                // OS-level key-repeat already reports as more `Pressed`
+                // events with `repeat: true`, no release in between), so
+                // there's nothing a release would need to do. Scroll
+                // relies on exactly that repeat to feel continuous while
+                // held; `action_ignores_repeat` is where a one-shot
+                // action like `HistoryBack`/`HistoryFront` opts back out
+                // of it instead.
                 if event.state == ElementState::Pressed {
                     self.handle_key_event(&event);
                     // `:q`/`:quit` (`dispatch_command`) only set this
@@ -16800,6 +16849,21 @@ mod tests {
         assert_eq!(resolve_binding(&key, ModifiersState::empty(), VimMode::Normal), Some(Action::HistoryBack));
         let key = Key::Character("l".into());
         assert_eq!(resolve_binding(&key, ModifiersState::empty(), VimMode::Normal), Some(Action::HistoryFront));
+    }
+
+    #[test]
+    fn action_ignores_repeat_exempts_scroll_but_not_history_navigation() {
+        // The regression this closes: holding `h` fires `Action::
+        // HistoryBack` on every OS key-repeat tick, and `navigate_
+        // history` isn't gated on its own fetch completing, so an
+        // un-gated repeat would race straight through the whole
+        // history stack before a single page even loads.
+        assert!(action_ignores_repeat(Action::HistoryBack));
+        assert!(action_ignores_repeat(Action::HistoryFront));
+        assert!(!action_ignores_repeat(Action::ScrollDown));
+        assert!(!action_ignores_repeat(Action::ScrollUp));
+        assert!(!action_ignores_repeat(Action::HalfPageDown));
+        assert!(!action_ignores_repeat(Action::HalfPageUp));
     }
 
     #[test]
