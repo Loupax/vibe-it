@@ -508,34 +508,144 @@ session can pick a coherent slice rather than one property at a time.
       not implemented, same as `inline-flex`.
 
       Deliberately cut, each its own narrower item below rather than
-      folded into "done": explicit per-item placement, named lines/
-      areas, `justify-items`/`align-items`/`-self` within a cell,
-      content-based track sizing keywords, `repeat(auto-fill/
-      auto-fit, ...)`, and row-track `fr`/`%` sizing against an
-      indefinite container height.
+      folded into "done": explicit numeric per-item placement,
+      `justify-items`/`align-items`/`-self` within a cell, content-based
+      track sizing keywords, `repeat(auto-fill/auto-fit, ...)`, and
+      row-track `fr`/`%` sizing against an indefinite container height.
+      (Named placement and `minmax()` were also cut here originally —
+      both landed since, see the item just below.)
 
-      - [ ] No explicit grid item placement — `grid-column`/`grid-row`
-            and their `-start`/`-end` longhands aren't parsed at all;
-            every item occupies exactly one cell, decided entirely by
-            auto-placement in document order. The single most
-            defensible cut of this whole item (per its own task
-            wording) — auto-placement alone already covers "just make a
-            grid of N columns and drop items in," the dominant real-
-            world grid use case, without needing this.
-      - [ ] No `grid-template-areas`/named lines — a grid's tracks are
-            only ever addressed positionally (by auto-placement), never
-            by name.
+- [x] `grid-template-areas` + `grid-area` named placement, and
+      `minmax()` track sizing — the two gaps the `@media` item below
+      flagged as the reason a real Wikipedia page "still renders single-
+      column as predicted" even with `display: grid` otherwise working;
+      prompted by live-testing scratchy against a real Wikipedia article
+      and finding its page-shell layout (logo/user-links header, left
+      TOC rail, title+body) collapsing to one stacked column where
+      Firefox shows a real two-column shell, then confirming the actual
+      cause by pulling Wikipedia's real CSS directly (`curl`) rather
+      than guessing: every page-shell grid container declares its
+      layout via `grid-template-areas` with `minmax()`-sized tracks,
+      neither of which scratchy parsed at all — both declarations were
+      silently dropped, leaving every one of those containers with no
+      explicit tracks and falling back to a single full-width column.
+
+      `minmax(<min>, <max>)` (`GridTrackSpec::MinMax`, a new `TrackBreadth`
+      grammar for each argument — a plain length/`%`/`fr`, no content-
+      based keywords inside `minmax()` either, still the same separate,
+      not-yet-attempted cut named below) now resolves via a real,
+      single-pass floor-then-distribute algorithm in `resolve_grid_
+      tracks` — a flexible track's own floor is reserved before the
+      remaining free space is distributed by `fr` factor, then added
+      back on top (exactly correct whenever every floor is `0`, which is
+      every real `minmax()` call found in Wikipedia's own CSS — confirmed
+      by grep, not assumed; a real but bounded approximation otherwise,
+      same "single-pass, not the spec's iterative freeze-and-retry"
+      simplification `resolve_flex_main_sizes` already carries for
+      flexbox). `grid-template-areas` (`parse_grid_template_areas`,
+      storing each template row's raw string, leaked the same way
+      `font-family`'s fallback list already is) plus `grid-area: <name>`
+      on an item (`parse_grid_area_name`, bare-identifier form only) now
+      place an item into its named area's own bounding rectangle —
+      computed from the template by `grid_area_rect`, real multi-column
+      spans included (confirmed against real Wikipedia CSS, e.g.
+      `grid-template-areas:'siteNotice siteNotice'`) — ahead of, and
+      taking priority over, the pre-existing auto-placement cursor,
+      which still places everything else (no `grid-area` at all, or one
+      naming nothing in the template) exactly as before, skipping
+      whatever a named item already claimed. `grid-template-columns`
+      absent entirely but `grid-template-areas` present now falls back
+      to one equal-`fr` implicit column per template column (narrower
+      than real CSS, which treats that combination as an author error)
+      rather than collapsing to one full-width column — the one honest
+      single-pass answer when a container's *real* explicit column
+      sizes are themselves unparseable (exactly Wikipedia's own shape,
+      see below). 7 new permanent tests (named placement overriding
+      document order, a two-column span getting both columns' widths
+      combined, the no-explicit-columns equal-fr fallback, an unnamed
+      item auto-placing around a named one, and three `minmax()` shapes
+      — a `0` floor, a nonzero floor, and a fixed ceiling). Live-verified
+      with a real `grim` screenshot against a
+      synthetic local page exercising both features together (named
+      placement reordering the visual layout away from document order,
+      a `minmax()` column claiming its real proportional share, a
+      third area spanning both columns) — see `NOTES.md` for the full
+      writeup.
+
+      **Does not, on its own, fix the real Wikipedia page this was built
+      against, and that's a real, confirmed finding, not a bug in this
+      landing**: Wikipedia's own page-shell `grid-template-areas` for
+      the *logo/TOC/content* split (`.mw-page-container-inner`) is
+      itself only declared inside `@media screen and (min-width:
+      1120px)` — narrower than this, there's no special layout rule for
+      that container in Wikipedia's own CSS at all (confirmed by reading
+      the actual stylesheet, not assumed), so a scratchy window tiled
+      narrower than 1120px stacks that specific container exactly as
+      correctly as real Firefox resized to the same width would. The
+      header row (`.mw-header`, logo left / user-links right) *is*
+      ungated and did pick up real named placement from this landing —
+      but still not its own real 15.5rem/`1fr` column *proportions*,
+      since those are declared via the `grid-template` shorthand
+      (`grid-template: auto / 15.5rem minmax(0,1fr)`), which this item
+      doesn't parse (see below) — it falls back to this item's own
+      equal-`fr` default instead.
+
+      - [ ] `grid-template` (the `<rows> / <columns>` shorthand,
+            optionally combined with area strings) isn't parsed at
+            all — only the two longhands (`grid-template-columns`/
+            `-rows`) and the standalone `grid-template-areas` are.
+            Real Wikipedia CSS uses this shorthand for every page-shell
+            container's own row sizing (`grid-template: auto / 15.5rem
+            minmax(0,1fr)` for the header) — unlocking its *column*
+            half doesn't strictly need the row half to parse too, but
+            doing one without the other wasn't attempted this session;
+            the bigger blocker in practice is that most of these rows
+            use `min-content` (a content-based keyword, see below), not
+            just `auto`, so parsing the shorthand's syntax alone
+            wouldn't be enough to make most of these specific
+            declarations resolve anyway.
+      - [ ] `@supports` isn't parsed at all (falls through to the same
+            "any at-rule but `media` is dropped" policy named below) —
+            found as a *second*, independent reason part of Wikipedia's
+            own left rail (`.vector-pinned-container`, which the TOC and
+            main menu both live inside) stays invisible even once its
+            own column is real: its default `display: none` is only
+            overridden back to `display: block` by a rule wrapped in
+            `@supports (display: grid){...}`, which scratchy drops
+            entirely regardless of whether it actually supports
+            `display: grid` by then. Not attempted as part of this item
+            — a real, separate at-rule feature, same shape `@media`
+            itself was before v64, not a grid gap.
+      - [ ] No numeric explicit item placement — `grid-column`/`grid-
+            row`/their `-start`/`-end` longhands, and `grid-area`'s own
+            fuller `<grid-line> / <grid-line> / <grid-line> / <grid-
+            line>` numeric form, still aren't parsed; only a bare
+            `grid-area: <name>` naming a `grid-template-areas` area is
+            recognized. Narrowed by this item, not closed — auto-
+            placement (or now, named-area placement) still covers "just
+            make a grid and drop items in," the dominant real-world
+            case, without this.
+      - [ ] A named area spanning multiple *rows* has its own height
+            attributed entirely to its first row, not distributed across
+            every row it spans the way real CSS Grid would (the same
+            shape a table's own missing rowspan support already has,
+            see this file's own table-layout entry) — not reachable by
+            the real CSS this was built against, which only ever spans
+            columns, never rows, but a real, narrower gap worth naming
+            precisely rather than leaving unstated.
       - [ ] No `justify-items`/`align-items`/`justify-self`/`align-self`
             within a grid cell — an item always stretches to its own
-            column's full width (the same "stretch" a table cell
-            already gets) and sits at its row's own top edge, with no
+            cell's full width (the same "stretch" a table cell already
+            gets) and sits at its row's own top edge, with no
             alternative alignment/sizing-within-the-cell behavior.
       - [ ] No content-based track-sizing keywords (`auto`/`min-
-            content`/`max-content`) and no `minmax()` — every column/row
-            track `grid-template-columns`/`-rows` declares must be a
-            plain fixed `<length-percentage>` or `fr`; an `auto`/
-            `minmax(...)` track simply fails to parse (the whole
-            declaration drops, same as any other unsupported value).
+            content`/`max-content`) — every column/row track `grid-
+            template-columns`/`-rows` declares must still be a plain
+            fixed `<length-percentage>`, `fr`, or `minmax()` of either
+            (`GridTrackSpec`'s own grammar, now including `minmax()` —
+            see the item just above); a bare `auto`/`min-content`/
+            `max-content`, inside `minmax()` or not, still simply fails
+            to parse, dropping the whole declaration.
       - [ ] `repeat(auto-fill, ...)`/`repeat(auto-fit, ...)` aren't
             recognized — only `repeat(<integer>, ...)` — real available-
             space-driven track-count resolution (how many tracks fit)
@@ -912,18 +1022,31 @@ session can pick a coherent slice rather than one property at a time.
       `grid-area` (the other half of the real fix, see `display: grid`'s
       own item above) is deliberately not part of this item.
 
-- [ ] `@import`/`@font-face`/`@keyframes`, and transitions/animations
-      are still skipped outright at the stylesheet-parsing stage (any
-      at-rule name other than `media` still falls through to the same
-      "invalid, drop it" outcome `TopLevelParser`'s old blanket no-op
-      gave every at-rule) — split off from the old combined "no at-rules
-      at all" item now that `@media` (just above) has its own real
-      implementation. `@import` is a fetch-time concept this
+- [ ] `@import`/`@font-face`/`@keyframes`/`@supports`, and transitions/
+      animations are still skipped outright at the stylesheet-parsing
+      stage (any at-rule name other than `media` still falls through to
+      the same "invalid, drop it" outcome `TopLevelParser`'s old blanket
+      no-op gave every at-rule) — split off from the old combined "no
+      at-rules at all" item now that `@media` (just above) has its own
+      real implementation. `@import` is a fetch-time concept this
       no-networking renderer doesn't need yet (see NOTES.md's "rendering,
       not networking" priority); `@font-face`/`@keyframes`/transitions/
       animations are unrelated to responsive layout, which was what was
       actually blocking real pages from looking right. No responsive-
       breakpoint gap remains — that's `@media`'s own item, now resolved.
+      `@supports` is the one addition to this list no longer purely
+      theoretical: confirmed, via the `grid-template-areas`/`minmax()`
+      item above, to be the real reason part of a real Wikipedia page
+      (its left rail's own `display: none` default, meant to be
+      overridden back to `block` by a rule wrapped in `@supports
+      (display: grid){...}`) stays invisible even once the column
+      layout around it is real — dropping the whole `@supports` block
+      means that override never applies, regardless of whether scratchy
+      actually supports the feature being queried by then. Not attempted
+      as part of that item; real CSS feature queries (`@supports (prop:
+      value)`, `and`/`or`/`not` combination, `selector(...)`) are their
+      own parsing surface, same shape `@media`'s own query-list grammar
+      was before v64 — a real future item, not a trivial follow-on.
 
 - [ ] `OurSelectorImpl`'s `NonTSPseudoClass` (now `OurPseudoClass`,
       v37) still can't parse `:hover`/`:focus`/`:active` — unlike
@@ -1410,6 +1533,41 @@ last, per the user's own call.
         socket I/O and `WindowEvent::MouseInput` wiring land in the
         unverified-live-in-this-sandbox bucket v32/v55/v62/v65 already
         flagged (no synthetic mouse/keyboard event tool here).
+
+- [ ] **Debug tools: a way to see which CSS declarations scratchy
+      couldn't process — forward-looking plan, written up for review,
+      nothing built yet.** The user's own request, recorded here to
+      plan properly "when the time comes" rather than build on the
+      spot. Motivated by this exact session's own workaround: diagnosing
+      why a real Wikipedia page's page-shell layout (the `grid-template-
+      areas`/`minmax()` gap, see `display: grid`'s own item above) was
+      broken meant manually `curl`-ing Wikipedia's real CSS out-of-band
+      and grepping it by hand for `grid-template`/`minmax` to even find
+      which declarations scratchy was silently dropping — scratchy
+      itself gave no signal that anything had failed to parse at all.
+      Every one of this file's own "the whole declaration drops" parse
+      failures (and there are many, by design — `TODO.txt`'s own
+      standing convention for an unsupported value) are exactly the
+      cases this would surface.
+
+      The shape the user described: a flag that, when set, prints every
+      CSS declaration scratchy's cascade couldn't process to stderr —
+      not just silently continuing the way it does today. Still open,
+      not decided yet: where exactly in the pipeline to hook this (the
+      declaration-parsing `match`/`if` chains in `StyleRule::parse_
+      declaration` land throughout this file already funnel every
+      unrecognized/unparseable value through the same "just don't set
+      the field" path — hooking a print there needs each one to also
+      report *what* it couldn't parse, which most of today's call sites
+      discard via `if let Ok(v) = ...` with no `Err` branch at all, so
+      this isn't a free hook, it's a real change to a lot of call
+      sites); what counts as "couldn't process" (a genuinely unknown
+      property name vs. a known property with a value shape it doesn't
+      support vs. a known-and-dropped at-rule like `@font-face`); and
+      whether this reports at the raw-declaration level (closest to
+      "what's in the stylesheet") or already resolved to "which TODO.txt
+      item this maps to" (more useful, much more work, probably not
+      v1). Nothing decided on exact flag name/output format either.
 
 - [ ] **JavaScript — engine choice, investigated, not started; last
       pillar per the user's own explicit ordering.** Recommendation:
