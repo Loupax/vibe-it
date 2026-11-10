@@ -758,7 +758,7 @@ enum AlignItems {
 /// resolved `BoxLength`) — resolved against the flex container's own
 /// main-axis content size, which `resolve_style` can't know at cascade
 /// time; see `measure_flex`'s own docs for where that happens.
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, PartialEq)]
 enum FlexBasis {
     #[default]
     Auto,
@@ -783,7 +783,7 @@ enum FlexBasis {
 /// genuinely differs by axis, which `BoxLength` has no slot for). `Fr`
 /// is the raw flex factor (`2.0` for `2fr`) — grid's own flexible-length
 /// primitive, directly analogous to flexbox's `flex-grow`.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 enum GridTrackSpec {
     Len(Length),
     Fr(f32),
@@ -820,7 +820,7 @@ enum GridTrackSpec {
 /// enforced here; a `MinMax(Fr(_), _)` simply never arises from real
 /// CSS and `resolve_grid_tracks` treats a flexible minimum as an
 /// (accepted, harmless) `0` floor if it ever did.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 enum TrackBreadth {
     Len(Length),
     Fr(f32),
@@ -886,7 +886,7 @@ struct Insets {
 /// through an absolute-size keyword table) — just the common
 /// approximation browsers converge on, and the same ratio `default.css`'s
 /// own heading sizes roughly follow.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 enum Length {
     Px(f32),
     Em(f32),
@@ -1018,7 +1018,7 @@ impl BoxLength {
 /// `h1`'s own, larger font-size, not `body`'s). Only resolved to an
 /// actual pixel value at the point something needs one
 /// (`SpanStyle::from`, for `cosmic_text::Metrics`).
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, PartialEq)]
 enum LineHeight {
     #[default]
     Normal,
@@ -1040,7 +1040,7 @@ impl LineHeight {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq)]
 struct Declarations {
     /// `--name: <raw text>` custom-property declarations on this rule,
     /// in source order, name kept exactly as written (custom property
@@ -1311,7 +1311,7 @@ enum BoxSizing {
 /// actual length — unlike `min-width`/`min-height`, which have no such
 /// keyword and reuse `Length` directly (their initial value, `0`, is
 /// already what an absent declaration resolves to).
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 enum MaxLen {
     None,
     Len(Length),
@@ -2086,7 +2086,7 @@ fn parse_line_height(input: &mut CssParser) -> Result<LineHeight, ()> {
 /// `FontWeight` in `ComputedStyle`/`InheritedStyle`, inherited normally
 /// from there, since `bolder`/`lighter` only ever look at the *immediate*
 /// parent's weight, not some original declaring ancestor's.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 enum FontWeightValue {
     Absolute(FontWeight),
     Bolder,
@@ -2204,7 +2204,7 @@ struct DecorationLine {
 /// time — see `resolve_own_decoration`, which every call site that used
 /// to write `style.text_decoration.unwrap_or(decoration)` now goes through
 /// instead.
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, PartialEq)]
 struct DecorationValue {
     deco: TextDecoration,
     style: DecorationStyle,
@@ -2630,7 +2630,7 @@ fn parse_border_like_shorthand<'k>(
 /// (real CSS defaults a missing color to `currentColor`; nothing in
 /// `default.css` or a real test page has needed that yet, so it isn't
 /// implemented — see TODO.txt).
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 struct BoxShadow {
     offset_x: Length,
     offset_y: Length,
@@ -2980,6 +2980,45 @@ fn parse_grid_area_name(input: &mut CssParser) -> Result<&'static str, ()> {
     Ok(Box::leak(ident.into_boxed_str()))
 }
 
+/// `SCRATCHY_CSS_DEBUG=1 scratchy ...` prints every CSS declaration
+/// this file's own cascade couldn't act on — same env-var-gated,
+/// zero-cost-when-off shape `SCRATCHY_TIMING`/`snag`'s own `SNAG_
+/// TIMING`/`wire`'s own `WIRE_TIMING` already established (see
+/// `timing_enabled`'s own docs), chosen over a CLI flag for exactly
+/// that reason: it's the existing convention for an opt-in diagnostic
+/// in this project, not a new one invented for this feature.
+///
+/// The user's own request (see `TODO.txt`), motivated by this exact
+/// kind of gap: diagnosing why a real Wikipedia page's page-shell
+/// layout was broken (the `grid-template-areas`/`minmax()` item)
+/// meant manually `curl`-ing Wikipedia's real CSS out-of-band and
+/// grepping it by hand for the properties scratchy was silently
+/// dropping — scratchy itself gave no signal that anything had failed
+/// to parse at all. `parse_value`'s own before/after `Declarations`
+/// snapshot (see its own call site) reports at the raw-declaration
+/// level — `property: value`, exactly as the stylesheet wrote it —
+/// not resolved to "which `TODO.txt` item this maps to," the
+/// cheaper, more honest answer to that item's own open question: this
+/// file's own cascade can know a declaration had no effect without
+/// knowing *why* in any structured way (an unknown property name, a
+/// known one whose particular value shape isn't supported, or a
+/// value shape that's supported but happens to assign the exact same
+/// value a declaration already had — the one rare false-negative this
+/// approach accepts, same spirit as every other documented
+/// simplification in this file).
+///
+/// Not deduplicated by property/value — a page with a thousand
+/// elements all declaring the same unsupported `justify-items: center`
+/// prints a thousand identical lines. Deliberately not addressed here:
+/// summarizing/counting would need to buffer state across the whole
+/// parse rather than report inline per declaration, real but separate
+/// scope past "see that something's being dropped at all," which is
+/// this feature's one actual job.
+fn css_debug_enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED.get_or_init(|| std::env::var_os("SCRATCHY_CSS_DEBUG").is_some())
+}
+
 struct DeclParser<'a> {
     decls: &'a mut Declarations,
 }
@@ -2994,6 +3033,25 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
         input: &mut CssParser<'i>,
         _declaration_start: &ParserState,
     ) -> Result<Self::Declaration, ParseError<Self::Error>> {
+        // `SCRATCHY_CSS_DEBUG`'s own before/after snapshot (see `css_
+        // debug_enabled`'s own docs) — captured *before* any of the
+        // branches below touch `input`, then rewound, so the branch that
+        // actually matches `name` (if any) still sees the exact same
+        // untouched `input` it always has; this adds a read, never a
+        // behavior change. Skipped entirely when the flag is off, so
+        // the already-acknowledged "reparse the whole stylesheet every
+        // redraw" cost (see `NOTES.md`) never grows for the common case.
+        let debug = css_debug_enabled();
+        let (raw_value, before) = if debug {
+            let value_start = input.state();
+            while input.next().is_ok() {}
+            let raw = input.slice_from(value_start.position()).trim().to_string();
+            input.reset(&value_start);
+            (raw, Some(self.decls.clone()))
+        } else {
+            (String::new(), None)
+        };
+
         if name.starts_with("--") {
             // Custom property: grammar is "anything", so there's no typed
             // value to parse — just capture the raw source text of the
@@ -3535,6 +3593,18 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
                 if let Ok(v) = parse_length(input) {
                     self.decls.word_spacing = Some(v);
                 }
+            }
+        }
+        // `self.decls` unchanged from `before` means this declaration —
+        // whether `name` matched no branch above at all, or matched one
+        // whose own inner parse rejected `raw_value`'s particular shape
+        // — had no effect, the exact "silently drop the whole
+        // declaration" outcome this file's own `TODO.txt` documents
+        // throughout. Reported once per occurrence, not deduplicated —
+        // see `css_debug_enabled`'s own docs for why.
+        if let Some(before) = before {
+            if *self.decls == before {
+                eprintln!("scratchy: css: ignored `{name}: {raw_value}`");
             }
         }
         Ok(())
@@ -17652,5 +17722,44 @@ mod tests {
         });
         rx.recv_timeout(std::time::Duration::from_secs(5))
             .expect("shape_spans hung with line_height == 0.0");
+    }
+
+    // ---------- `SCRATCHY_CSS_DEBUG` ----------
+
+    /// `parse_value`'s own before/after `Declarations` comparison relies
+    /// on `PartialEq` genuinely detecting "a real property changed" vs.
+    /// "nothing changed at all" — the one directly testable piece of
+    /// this feature on stable Rust; the env-var-gated `eprintln!` side
+    /// effect itself isn't practically capturable in-process the same
+    /// way `timing_enabled`'s own env-var gate has no test either.
+    #[test]
+    fn declarations_partial_eq_detects_a_real_difference_and_matches_when_unchanged() {
+        let a = Declarations::default();
+        let b = Declarations::default();
+        assert!(a == b, "two freshly-defaulted Declarations should compare equal — the 'nothing changed' case `parse_value` reports on");
+        let mut c = Declarations::default();
+        c.display = Some(Display::Block);
+        assert!(a != c, "a real property difference should make them compare unequal — the 'this one actually applied' case that must stay silent");
+    }
+
+    /// The real, end-to-end premise the before/after comparison above
+    /// stands in for, exercised through the actual production parser
+    /// (`parse_stylesheet`), not a hand-built `Declarations` — a
+    /// recognized-but-unsupported value shape (`grid-area`'s own
+    /// fuller numeric `<line> / <line> / <line> / <line>` form, not
+    /// parsed — see `parse_grid_area_name`'s own docs) leaves its field
+    /// untouched, while a supported declaration in the very same rule
+    /// still applies normally, confirming a real declaration-level
+    /// failure genuinely produces no change for `SCRATCHY_CSS_DEBUG`'s
+    /// own comparison to catch, not just the synthetic structs above.
+    #[test]
+    fn parse_stylesheet_leaves_an_unsupported_declaration_with_no_effect() {
+        let rules = parse_stylesheet("div { color: red; grid-area: 1 / 2 / 3 / 4; }");
+        assert_eq!(rules.len(), 1);
+        assert!(rules[0].decls.color.is_some(), "the supported declaration in the same rule should still apply");
+        assert!(
+            rules[0].decls.grid_area.is_none(),
+            "the unsupported numeric grid-area form should leave the field unset, not guess at a value"
+        );
     }
 }
