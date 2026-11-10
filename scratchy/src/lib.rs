@@ -6147,7 +6147,15 @@ fn shape_spans(
             attrs.family = span.font_family.resolve(font_system.db_mut(), attrs.weight, attrs.style);
             attrs.text_decoration = span.text_decoration;
             attrs.metadata = i;
-            attrs = attrs.metrics(Metrics::new(span.font_size, span.line_height));
+            // cosmic-text's `shape_until_scroll` hangs forever (confirmed: a genuine
+            // infinite loop, not slowness) when a span's line height is exactly 0.0 —
+            // which real CSS legitimately produces via `line-height: 0` (e.g.
+            // Wikipedia's thumbnail-figure styling) and which the cascade then carries
+            // down into otherwise-ordinary text spans. Floor it just above zero; at
+            // this height the line is already visually collapsed, so the clamp isn't
+            // perceptible.
+            let line_height = if span.line_height <= 0.0 { 0.01 } else { span.line_height };
+            attrs = attrs.metrics(Metrics::new(span.font_size, line_height));
             (*text, attrs)
         })
         .collect();
@@ -16545,5 +16553,29 @@ mod tests {
         eprintln!("{word_count} separate 1-word shape_spans calls: {per_word_time:?}");
         eprintln!("1 shape_spans call with all {word_count} words: {one_call_time:?}");
         eprintln!("ratio: {:.2}x", per_word_time.as_secs_f64() / one_call_time.as_secs_f64());
+    }
+
+    /// Regression test for a real hang: a span with `line-height: 0`
+    /// (legitimate, real-world CSS — e.g. Wikipedia's own thumbnail-figure
+    /// styling) used to make `shape_spans`'s call to cosmic-text's
+    /// `Buffer::shape_until_scroll` loop forever, because cosmic-text
+    /// never returns for a zero line height. `shape_spans` now floors the
+    /// line height just above zero before handing it to cosmic-text. Runs
+    /// the call on a background thread with a watchdog so a regression
+    /// fails loudly (panic) instead of hanging the whole test suite.
+    #[test]
+    fn shape_spans_zero_line_height_does_not_hang() {
+        let mut span = SpanStyle::from(ROOT_STYLE);
+        span.line_height = 0.0;
+        let items = [InlineItem::Text("Map".to_string(), span)];
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let mut font_system = new_font_system();
+            shape_spans(&mut font_system, &items, 1_000_000.0, true, None);
+            let _ = tx.send(());
+        });
+        rx.recv_timeout(std::time::Duration::from_secs(5))
+            .expect("shape_spans hung with line_height == 0.0");
     }
 }
