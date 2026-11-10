@@ -12004,10 +12004,13 @@ impl App {
     /// through the ordinary `fetch_url` path, but deliberately never
     /// through `push_history`: moving through history must never itself
     /// grow the stack, or going back then forward again would duplicate
-    /// entries instead of retracing them.
+    /// entries instead of retracing them. Already at either end of
+    /// `history` is a silent no-op, not an error message: a real
+    /// browser's back/forward button simply does nothing once there's
+    /// nowhere further to go, rather than replacing the page on screen
+    /// with an error.
     fn navigate_history(&mut self, delta: isize) {
         let Some(new_index) = self.history_index.checked_add_signed(delta).filter(|&i| i < self.history.len()) else {
-            self.show_message("scratchy: no more history");
             return;
         };
         self.history_index = new_index;
