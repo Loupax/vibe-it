@@ -5362,3 +5362,121 @@ screenshot.
 **Deliverable**: `scratchy/src/lib.rs` (`FetchedPage::url`,
 `resolve_page_base_url`, `start_navigation`'s `FetchedPage` construction
 site, `NavResult`'s handler simplified to one line, 2 new tests).
+
+## v69 — command bar QoL: `:visit` renamed to `:go`, Tab completion/cycling, `:help`, `:q`/`:quit`, clipboard paste
+
+> I want to make some qol improvements in the command bar before we
+> move to other things, because it's annoying to use right now. First
+> rename :view to :go, feels better. Second, I want tab completion and
+> cycling in command mode. FInally I want a help page demonstrating all
+> the features of the browser. It can get updated as we add more. :q
+> should close the browser.
+
+> something I forgot. I should also be able to paste text there (for
+> example a URL I got from somwhere else). This is not available by
+> default.
+
+Five small, independent requests against the existing `:`-command bar
+(itself already landed in the codebase by the time this session started,
+but with no `PROMPTS.md` entry of its own — a pre-existing gap this
+entry doesn't attempt to backfill, only to build on). The user said
+`:view`; the command that actually exists is `:visit` — treated as the
+same ask (there's no `:view` today, and "feels better" reads as a
+rename, not a request for a second command), confirmed working end to
+end before/after, not just assumed.
+
+**`:visit` → `:go`:** one `dispatch_command` match arm renamed, plus
+its own and `key_insertion_text`'s doc comments (the latter cited the
+old name in a historical bug example — updated to match, since it's
+living documentation, not a changelog entry).
+
+**Tab completion/cycling:** two new pure, unit-tested functions —
+`token_start_before` (the byte offset of the whitespace-delimited token
+ending at the cursor) and `command_completions` (the candidate pool for
+that token: `COMMAND_NAMES` for the first token, `SET_ARGS` for `set`'s
+own second token, nothing for anything else — deliberately no
+completion for `:go`'s own URL argument, which has no finite "correct"
+answer to offer). A new `App::completion: Option<CommandCompletion>`
+field holds the live cycling state; `App::cycle_command_completion`
+completes on the first `Tab` and advances (wrapping) on every
+*consecutive* one, reset on any other command-line keystroke
+(`handle_command_line_key`'s own top-of-function check) and on
+re-entering command mode fresh (`perform_action`'s `EnterCommandMode`
+arm) so a stale completion from a previous `:` session can't leak into
+a new, empty one.
+
+**`:help`:** a new static page, `src/help.html`, embedded via
+`include_str!` the same way `default.css` already is (`HELP_PAGE_HTML`,
+next to `DEFAULT_CSS`), shown through `App::show_help` (`parse_html` +
+`replace_document`, same shape `show_message` already uses for its own
+synthetic pages). Plain semantic HTML — headings, two tables, a list,
+`<b>`/`<i>`/`<code>`, an `<hr>`, and a small embedded `data:` PNG — with
+no `<style>` of its own, styled entirely by `default.css`, so the page
+doubles as a live demo of the default stylesheet rather than a text
+dump. Lists every Normal-mode key and command-bar command, including
+the ones landing in this same change; expected to be kept current by
+whoever changes the command bar next, the same turn they change it.
+
+**`:q`/`:quit`:** `dispatch_command` sets a new `App::should_quit: bool`
+— it has no `&ActiveEventLoop` of its own to call `exit()` on directly.
+`window_event`'s `WindowEvent::KeyboardInput` arm (the one real call
+site with an `ActiveEventLoop` in scope) checks the flag right after
+`handle_key_event` returns and calls `event_loop.exit()` there.
+
+**Clipboard paste:** `Ctrl`+`v` inside the command bar, via a new
+`arboard = "3.4"` dependency (winit has no clipboard API of its own).
+Detected the same way `resolve_binding`'s own `Ctrl`+`d`/`u` arms are —
+`Key::Character("v")` guarded on `self.modifiers.control_key()`, ahead
+of the plain-insertion catch-all. `TextEditBuffer` gained `insert_str`
+(one `insert` per char, control characters — a trailing clipboard
+newline being the real case — dropped, since this buffer is always
+single-line). A fresh `Clipboard` connection is opened per paste rather
+than held on `App` permanently: paste is a rare, user-initiated action,
+not a hot path, so there's no real cost to the setup, versus a
+permanent connection that would need its own reconnect/`Send` lifecycle
+for a feature that doesn't need one. A failed connection or an empty/
+unreadable clipboard is a silent no-op, same as a real terminal or
+browser's own paste.
+
+**7 new permanent tests** (198 total, up from 191): `token_start_before`
+and `command_completions` (prefix-only matching, first-token vs. `set`'s
+own second-token candidate pools, no candidates for an arbitrary
+argument), and `TextEditBuffer::insert_str` (control characters dropped,
+inserts at the cursor rather than always at the end). `App`-level wiring
+(`cycle_command_completion`/`apply_completion` replace-range logic,
+`paste_into_command_line`, `show_help`, `should_quit`'s path to
+`event_loop.exit()`) has no unit test of its own, same "thin
+orchestration rests on code review + live verification" category
+`start_navigation`'s own click wiring and v67's fetch dispatch already
+sit in — verified live instead, below. `cargo test`: 198/198. `cargo
+clippy --all-targets`: unchanged warning count (20) — one new
+`collapsible_if` in `paste_into_command_line` was fixed with a let-chain
+rather than left as a 21st.
+
+**Live-verified against a real running `scratchy` window**, not just
+argued: Xvfb (`:99`) plus `xdotool`/`import` (neither was in this
+container; installed for this session) stood in for a real X server and
+a real keyboard/screenshot, since this environment has no GPU display of
+its own. `:help` rendered correctly (headings, both tables, the
+embedded image decoded — a real checkered square, not a broken-image
+box) and scrolled with `Ctrl`+`d` same as any other page. `Tab` on `:h`
+completed to `:help`; a bare `:` cycled `go → help → q → quit → set →
+go` across six consecutive `Tab` presses, confirming both the
+alphabetical order and the wraparound; `:set ` cycled `novim → vim`.
+`Ctrl`+`v` after setting the real X `CLIPBOARD` selection (`xclip
+-selection clipboard`) to a URL pasted that exact URL into the command
+line. `:go https://example.com/` printed the real resolved HTTP request
+to stdout (no `--socket` given), exactly `start_navigation`'s own
+documented no-socket behavior — proving the rename routes through the
+real navigation path, not just a renamed no-op. `:q` closed the window
+and exited the process (confirmed by polling the PID; takes up to ~1.5s
+to actually exit under Xvfb, not instant, but it does exit).
+
+**Deliverable**: `scratchy/src/lib.rs` (`COMMAND_NAMES`/`SET_ARGS`,
+`CommandCompletion`, `token_start_before`, `command_completions`,
+`App::completion`/`should_quit` fields, `App::cycle_command_completion`/
+`apply_completion`/`paste_into_command_line`/`show_help`,
+`TextEditBuffer::insert_str`, `dispatch_command`'s `:go`/`:help`/`:q`/
+`:quit` arms, `window_event`'s `should_quit` check, 7 new tests);
+`scratchy/src/help.html` (new); `scratchy/Cargo.toml`/`Cargo.lock`
+(`arboard` dependency added).

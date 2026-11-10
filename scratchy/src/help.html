@@ -1,0 +1,58 @@
+<!-- scratchy's built-in `:help` page (see `App::show_help`). Plain
+     semantic HTML with no `<style>` of its own on purpose — every
+     element here (h1/h2, p, ul/li, table/tr/td/th, code, b, i, hr, img)
+     is already styled by `default.css`, so this page doubles as a
+     live demo of that default stylesheet, not just a text dump.
+     Update this whenever a command or keybinding changes, the same
+     turn that changes it — a help page that drifts from what the
+     command bar actually does is worse than no help page at all. -->
+<html>
+<head><title>scratchy help</title></head>
+<body>
+
+<h1>scratchy</h1>
+<p>A quick reference for everything the command bar and keybindings do
+today. This page is rendered by scratchy's own layout engine, the same
+as any other page — and gets updated here as features are added.</p>
+
+<h2>Normal mode</h2>
+<table>
+<tr><th>Key</th><th>Effect</th></tr>
+<tr><td><code>j</code></td><td>Scroll down</td></tr>
+<tr><td><code>k</code></td><td>Scroll up</td></tr>
+<tr><td><code>Ctrl</code>+<code>d</code></td><td>Scroll down half a page</td></tr>
+<tr><td><code>Ctrl</code>+<code>u</code></td><td>Scroll up half a page</td></tr>
+<tr><td><code>:</code></td><td>Enter the command bar</td></tr>
+</table>
+
+<h2>Command bar</h2>
+<p>Press <code>:</code>, type a command, then <code>Enter</code> to run
+it. <code>Tab</code> completes the current word (a command name, or
+<code>set</code>'s own <code>vim</code>/<code>novim</code> argument) —
+press <code>Tab</code> again right after to cycle through any other
+matches. <code>Ctrl</code>+<code>v</code> pastes from the clipboard —
+useful for a URL copied from somewhere else. <code>Escape</code>
+cancels without running anything.</p>
+<table>
+<tr><th>Command</th><th>Effect</th></tr>
+<tr><td><code>:go &lt;url&gt;</code></td><td>Navigate to a URL</td></tr>
+<tr><td><code>:set vim</code></td><td>Turn vim-mode key handling on</td></tr>
+<tr><td><code>:set novim</code></td><td>Turn vim-mode key handling off (every key then passes straight through to the page)</td></tr>
+<tr><td><code>:help</code></td><td>Show this page</td></tr>
+<tr><td><code>:q</code> or <code>:quit</code></td><td>Close scratchy</td></tr>
+</table>
+
+<h2>Also demonstrated on this page</h2>
+<ul>
+<li>Headings, a bulleted list, and two tables, all styled only by
+scratchy's own default stylesheet — nothing here is hand-styled.</li>
+<li><b>Bold</b>, <i>italic</i>, and <code>monospace</code> inline text.</li>
+<li>A horizontal rule, just below.</li>
+<li>A real decoded image, not a placeholder box — the small checkered
+square to the right of this line:
+<img src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAHklEQVR42mN4USUnF5VHPMlAkmogyTBqw6gNQ8YGAHOaMxBqrNM+AAAAAElFTkSuQmCC"></li>
+</ul>
+<hr>
+
+</body>
+</html>
