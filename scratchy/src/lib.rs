@@ -55,6 +55,33 @@ use winit::window::{CursorIcon, Window, WindowId};
 enum Input {
     File(String),
     Stdin,
+    /// The lone positional argument was an absolute `http`/`https` URL
+    /// (`classify_input`), not a local path — `run()` fetches it live
+    /// through `wire` the same way a clicked link or `:go` would,
+    /// instead of requiring `snag url | scratchy` first. `snag` is
+    /// still the only thing that can turn an arbitrary live page into a
+    /// single self-contained bundle up front (inlined images, a synced
+    /// stylesheet fetch before the very first paint — see its own
+    /// NOTES.md) — this doesn't replace that, it just means a bare
+    /// `scratchy https://example.com` (with `--socket` pointed at a
+    /// running `wire`) no longer needs `snag` in the loop at all for
+    /// the common case of just wanting to look at a page.
+    Url(Url),
+}
+
+/// Disambiguates `parse_args`'s lone positional argument. `Url::parse`
+/// alone isn't a strict enough test — it also happily parses things
+/// like `C:\path` lookalikes and schemes scratchy has no fetch path for
+/// at all (`file://`, `data:`, ...) — so the scheme is checked
+/// explicitly rather than trusting "parsed successfully" to mean "is a
+/// live URL scratchy can act on." Anything else, including a bare
+/// relative path and an absolute one, stays `Input::File`, parsed by
+/// `fs::read_to_string` exactly as before this existed.
+fn classify_input(arg: &str) -> Input {
+    match Url::parse(arg) {
+        Ok(url) if url.scheme() == "http" || url.scheme() == "https" => Input::Url(url),
+        _ => Input::File(arg.to_string()),
+    }
 }
 
 /// `--socket <path>`, alongside the pre-existing `[file]` argument — an
@@ -89,9 +116,9 @@ fn parse_args() -> Args {
     }
     let input = match rest.len() {
         0 => Input::Stdin,
-        1 => Input::File(rest[0].clone()),
+        1 => classify_input(&rest[0]),
         _ => {
-            eprintln!("usage: scratchy [--socket <path>] [file]");
+            eprintln!("usage: scratchy [--socket <path>] [file|url]");
             std::process::exit(1);
         }
     };
@@ -11988,19 +12015,30 @@ impl App {
         self.fetch_url(url);
     }
 
-    /// `:refresh` — re-fetches the current `history` entry in place,
+    /// `:refresh` — re-fetches the page currently on screen in place,
     /// through the same `fetch_url` path `navigate_history` uses, and
     /// for the same reason: this must never call `push_history`, or
     /// refreshing would grow the stack instead of just reloading what's
     /// already there. Not yet bound to any key — command-line only for
-    /// now. A page reached without ever going through `push_history`
-    /// (e.g. the initial file/stdin load, before any click or `:go`)
-    /// has nothing in `history` to refresh, so this is a no-op with an
-    /// inline message rather than a panic on an empty `history`.
+    /// now. Prefers the current `history` entry, but a page reached
+    /// without ever going through `push_history` (the initial file/
+    /// stdin/URL load, before any click or `:go` away from it) has
+    /// nothing there yet — `base_url` is the fallback for exactly that
+    /// case (reliably the real page URL by then — see `push_history`'s
+    /// own docs for why), so `scratchy <url>` followed immediately by
+    /// `:refresh`, with no navigation in between, still works. Only a
+    /// `base_url`-less page (a local file with no `<base href>` of its
+    /// own) has truly nothing to refresh.
     fn refresh(&mut self) {
-        let Some(url) = self.history.get(self.history_index).cloned() else {
-            self.show_message("scratchy: nothing to refresh");
-            return;
+        let url = match self.history.get(self.history_index).cloned() {
+            Some(url) => url,
+            None => match self.base_url.clone() {
+                Some(url) => url,
+                None => {
+                    self.show_message("scratchy: nothing to refresh");
+                    return;
+                }
+            },
         };
         self.fetch_url(url);
     }
@@ -12662,6 +12700,17 @@ pub fn run() {
                 }
             });
             App::new_streaming(proxy, socket)
+        }
+        Input::Url(url) => {
+            // `fetch_url` already shows its own "Loading…" placeholder
+            // and handles `socket` being `None` (prints the fallback
+            // request, shows a clear inline error — see its own and
+            // `start_navigation`'s docs) — the empty starting document
+            // here is just a blank slate for that first `show_message`
+            // call to immediately replace, never itself drawn.
+            let mut app = App::new_static(parse_html(""), proxy, socket);
+            app.fetch_url(url);
+            app
         }
     };
 
@@ -16340,6 +16389,23 @@ mod tests {
         // against.
         let resolved = resolve_href(None, "https://example.com/standalone").unwrap();
         assert_eq!(resolved.as_str(), "https://example.com/standalone");
+    }
+
+    #[test]
+    fn classify_input_recognizes_http_and_https_urls() {
+        assert!(matches!(classify_input("http://example.com"), Input::Url(_)));
+        assert!(matches!(classify_input("https://example.com/wiki/Foo"), Input::Url(_)));
+    }
+
+    #[test]
+    fn classify_input_treats_everything_else_as_a_file_path() {
+        assert!(matches!(classify_input("page.html"), Input::File(_)));
+        assert!(matches!(classify_input("/home/user/page.html"), Input::File(_)));
+        // A scheme scratchy has no `wire`-backed fetch path for — same
+        // "parsed successfully isn't the same question as fetchable"
+        // reasoning `classify_input`'s own docs give.
+        assert!(matches!(classify_input("file:///etc/hosts"), Input::File(_)));
+        assert!(matches!(classify_input("data:text/plain,hi"), Input::File(_)));
     }
 
     #[test]
