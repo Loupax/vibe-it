@@ -1534,40 +1534,63 @@ last, per the user's own call.
         unverified-live-in-this-sandbox bucket v32/v55/v62/v65 already
         flagged (no synthetic mouse/keyboard event tool here).
 
-- [ ] **Debug tools: a way to see which CSS declarations scratchy
-      couldn't process — forward-looking plan, written up for review,
-      nothing built yet.** The user's own request, recorded here to
-      plan properly "when the time comes" rather than build on the
-      spot. Motivated by this exact session's own workaround: diagnosing
-      why a real Wikipedia page's page-shell layout (the `grid-template-
-      areas`/`minmax()` gap, see `display: grid`'s own item above) was
-      broken meant manually `curl`-ing Wikipedia's real CSS out-of-band
-      and grepping it by hand for `grid-template`/`minmax` to even find
-      which declarations scratchy was silently dropping — scratchy
-      itself gave no signal that anything had failed to parse at all.
-      Every one of this file's own "the whole declaration drops" parse
-      failures (and there are many, by design — `TODO.txt`'s own
-      standing convention for an unsupported value) are exactly the
-      cases this would surface.
+- [x] **Debug tools: `SCRATCHY_CSS_DEBUG=1` prints every CSS declaration
+      scratchy's cascade couldn't act on.** The user's own request,
+      picked up once the real motivating pain (diagnosing the `grid-
+      template-areas`/`minmax()` gap by manually `curl`-ing Wikipedia's
+      CSS and grepping it by hand) was already fresh. Resolves this
+      item's own open questions from when it was first recorded:
 
-      The shape the user described: a flag that, when set, prints every
-      CSS declaration scratchy's cascade couldn't process to stderr —
-      not just silently continuing the way it does today. Still open,
-      not decided yet: where exactly in the pipeline to hook this (the
-      declaration-parsing `match`/`if` chains in `StyleRule::parse_
-      declaration` land throughout this file already funnel every
-      unrecognized/unparseable value through the same "just don't set
-      the field" path — hooking a print there needs each one to also
-      report *what* it couldn't parse, which most of today's call sites
-      discard via `if let Ok(v) = ...` with no `Err` branch at all, so
-      this isn't a free hook, it's a real change to a lot of call
-      sites); what counts as "couldn't process" (a genuinely unknown
-      property name vs. a known property with a value shape it doesn't
-      support vs. a known-and-dropped at-rule like `@font-face`); and
-      whether this reports at the raw-declaration level (closest to
-      "what's in the stylesheet") or already resolved to "which TODO.txt
-      item this maps to" (more useful, much more work, probably not
-      v1). Nothing decided on exact flag name/output format either.
+      - **Env var, not a CLI flag** — `SCRATCHY_CSS_DEBUG`, the same
+        env-var-gated, zero-cost-when-off shape `SCRATCHY_TIMING`/
+        `snag`'s own `SNAG_TIMING`/`wire`'s own `WIRE_TIMING` already
+        established (`css_debug_enabled`), not a new convention invented
+        for this one feature.
+      - **Hooked with zero changes to any of the ~85 per-property
+        `if let Ok(v) = parse_x(input) { ... }` branches in `DeclParser::
+        parse_value`**, avoiding exactly the invasive rewrite this item
+        originally worried about: `Declarations` now derives `PartialEq`
+        (and the 9 field types that didn't already have it — `Length`,
+        `MaxLen`, `FontWeightValue`, `DecorationValue`, `LineHeight`,
+        `BoxShadow`, `FlexBasis`, `GridTrackSpec`, `TrackBreadth` — do
+        now too), so `parse_value` just clones `self.decls` before
+        running its own unchanged dispatch chain and compares after —
+        unchanged means this declaration had no effect, whether `name`
+        matched no branch at all or matched one whose own value shape
+        wasn't supported, without needing to know which case it was.
+      - **Reports at the raw-declaration level** (`property: value`,
+        exactly as the stylesheet wrote it), not resolved to "which
+        `TODO.txt` item this maps to" — the cheaper, honest answer this
+        item's own open question favored; the raw value text is
+        captured the same way the `--name` custom-property branch
+        already captures its own (consume to the end, slice, reset).
+      - **Not deduplicated** — a thousand elements declaring the same
+        unsupported value print a thousand identical lines; summarizing
+        would need to buffer state across the whole parse, real but
+        separate scope past "see that something's being dropped at
+        all."
+
+      2 new permanent tests: one confirming `Declarations`'s own
+      `PartialEq` genuinely distinguishes "something changed" from
+      "nothing changed," one exercising the real end-to-end premise
+      through `parse_stylesheet` itself (a known-unsupported `grid-area`
+      numeric form leaves its field unset while a supported sibling
+      declaration in the same rule still applies).
+
+      **Not live-verified this session, flagged rather than glossed
+      over, same category as v32/v55/v62/v65's own gaps**: this
+      sandbox's actual display was asleep (no DPMS/compositor frame
+      callbacks arriving) for the entire window this was built in —
+      confirmed, not assumed, by tracing `window_event`/`redraw` directly
+      and finding the real stall: `redraw`'s own two-tick "wait for the
+      tiling WM to settle" optimization (added for performance, see
+      `PROGRESSIVE_LAYOUT_TICK_BUDGET`'s neighborhood) never gets its
+      second, compositor-paced frame, so the very first CSS parse never
+      runs at all — not a bug in this feature, confirmed by the same
+      stall blocking `resumed()`'s already-landed window entirely, with
+      or without `SCRATCHY_CSS_DEBUG` involved. Worth a real `SCRATCHY_
+      CSS_DEBUG=1 scratchy <page-with-known-gaps>` check next time a
+      human's at the keyboard with the screen actually on.
 
 - [ ] **JavaScript — engine choice, investigated, not started; last
       pillar per the user's own explicit ordering.** Recommendation:
