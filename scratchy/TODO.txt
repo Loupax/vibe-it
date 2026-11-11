@@ -1807,27 +1807,64 @@ last, per the user's own call.
       way `pre` already is; the plain-text fast path's `shape_spans`
       (its `pre: bool` param, despite the name, now really means
       "disable wrapping" — both `Pre` and `Nowrap` pass `true` into
-      cosmic-text's `Wrap::None`) is the only place that needed to
-      change, since whitespace *collapsing* (vs. `pre`'s byte-for-byte
-      preservation) was already correct for anything that isn't
-      literally `Pre` — `Nowrap` falls into that same collapsing branch
-      for free. Scoped to plain text only: a mixed run (text next to an
-      inline `<img>`/inline-block) still doesn't look at `white_space`
-      at all, same pre-existing gap `pre` already has there (see the
-      `measure_mixed_inline` item above). 2 new permanent tests (nowrap
-      keeps a long run on one line in a box far narrower than the text;
-      sanity-checked against the same markup without nowrap, which
-      should still wrap onto several lines).
+      cosmic-text's `Wrap::None`) initially needed to change — later
+      extended to `measure_mixed_inline`'s own greedy wrapper too (the
+      path a run containing an inline `<img>`/inline-block takes
+      instead), see the "flex automatic minimum size" item below, since
+      that fix's own correctness depends on a `nowrap` item's min-
+      content matching its max-content exactly, which needs this too.
+      2 new permanent tests (nowrap keeps a long run on one line in a
+      box far narrower than the text; sanity-checked against the same
+      markup without nowrap, which should still wrap onto several
+      lines).
 
-      **Not fixed by this item, found during the same live-testing
-      pass**: with wrapping no longer silently absorbing the overflow,
-      these same nav tabs now visibly overlap each other instead of
-      wrapping — a separate, previously-masked sizing bug (something
-      about how an auto-width box's shrink-to-fit clamp interacts with
-      unwrappable nowrap text needs its own investigation) and the
-      small black-square placeholders next to the Wikipedia logo/
-      personal-tools dropdown are `mask-image` icons (see that item's
-      own entry — deliberately deprioritized, not a new finding).
+      **Found during the same live-testing pass, not fixed by this
+      item**: the small black-square placeholders next to the Wikipedia
+      logo/personal-tools dropdown are `mask-image` icons (see that
+      item's own entry — deliberately deprioritized, not a new finding).
+      (A second finding from this same pass — the nav tabs visibly
+      overlapping once wrapping stopped silently absorbing the overflow
+      — is now its own fixed item, just below.)
+
+- [x] **Flex items' "automatic minimum size" (CSS Flexbox §4.5) —
+      found live, same Wikipedia nav-tabs pass as `white-space: nowrap`
+      above.** With that fix landed, the tabs stopped wrapping — but
+      then visibly overlapped each other instead: each `<li>` (`Article`/
+      `Talk`, `Read`/`Edit`/`View history`) is an auto-width flex item
+      with no explicit `min-width`, competing for space with its
+      siblings in a row narrower than their combined natural width. This
+      engine defaulted every such item's shrink floor to a hardcoded
+      `0`, so the shrink phase squeezed each one's box narrower than its
+      own unbreakable `nowrap` text, overflowing it past the box's own
+      edge into the next item instead of the item simply not fully
+      fitting the row (real CSS's own behavior for content that can't
+      be made to fit) — real CSS's own automatic minimum size is the
+      item's content-based minimum (`cell_natural_width`'s own `min`
+      probe), not `0`, when `min-width` isn't declared. Fixed in both
+      `measure_flex_row`'s own `Prep.min` (clamped to the item's own
+      `basis`, so an explicit `width`/`flex-basis` narrower than its
+      min-content isn't forced wider) — `measure_flex_column`'s
+      `min_height` default is a separate, more involved question (the
+      block axis's own automatic minimum depends on the item's actual
+      layout result, not just `cell_natural_width`) and is left as its
+      own, not-yet-attempted gap, since it wasn't what broke here.
+
+      This also surfaced a second, smaller bug in the same investigation:
+      `cell_natural_width`'s own min/max-content probing always goes
+      through `measure_mixed_inline` (see that function's own docs), so
+      a `nowrap` item's *natural width* was wrong too before this item's
+      own `white-space: nowrap` fix was extended there (a multi-word
+      `nowrap` run's "min" probe would otherwise still wrap at every
+      space, understating its real, unbreakable minimum) — see that
+      item's own updated note.
+
+      2 new permanent tests: a flex row narrower than two auto-width
+      `nowrap` items' combined natural width keeps both at their full
+      width (overflowing the row, not overlapping each other); a mixed
+      run (text + inline `<img>`) with `white-space: nowrap` stays on
+      one line, the same guarantee the plain-text fast path already had
+      before this item, verifying the `measure_mixed_inline` part of the
+      fix directly.
 
 - [ ] **`mask-image`/`-webkit-mask-image` (icon alpha-masking) — real
       numbers in hand, deliberately sent to the bottom of the priority

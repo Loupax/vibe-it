@@ -7952,7 +7952,7 @@ fn measure_mixed_inline<'a>(
             Measured::Word { width, .. } => *width,
             Measured::Image { advance_w, .. } | Measured::Embedded { advance_w, .. } => *advance_w,
         };
-        if !current.is_empty() && cursor_x + w > avail_w {
+        if !current.is_empty() && s.white_space != WhiteSpace::Nowrap && cursor_x + w > avail_w {
             let line_height = current
                 .iter()
                 .map(|&(i, _)| match &measured[i] {
@@ -8904,6 +8904,17 @@ fn measure_flex_row<'a>(
                 FlexBasis::Len(l) => Some(l.resolve(item_style.font_size, item_style.root_font_size)),
                 FlexBasis::Auto => None,
             };
+            // `cell_natural_width` already computes (min, max) together in
+            // one call (it shares the same two `measure_mixed_inline`
+            // trials either figure would need) — called at most once per
+            // item, even though both `basis`'s own `width: auto` fallback
+            // below and `min`'s own automatic-minimum-size fallback
+            // (CSS Flexbox §4.5, see its own comment below) can each need
+            // it; an item with an explicit `flex-basis`/`width` *and* an
+            // explicit `min-width` never needs it at all.
+            let natural_mb = (basis_from_decl.is_none() && item_style.width.is_none()) || item_style.min_width.is_none();
+            let natural_mb =
+                natural_mb.then(|| cell_natural_width(item, font_system, next_id, cache, deadline, incomplete));
             let basis = basis_from_decl.unwrap_or_else(|| {
                 if item_style.width.is_some() {
                     // Not clamped by `min`/`max` here — real CSS doesn't
@@ -8915,15 +8926,36 @@ fn measure_flex_row<'a>(
                     // min/max-content machinery real auto table-column
                     // sizing already uses (`cell_natural_width` — margin-
                     // box, hence the margin subtraction to get border-box).
-                    let (_, max_mb) = cell_natural_width(item, font_system, next_id, cache, deadline, incomplete);
+                    let (_, max_mb) = natural_mb.expect("width.is_none() (and basis_from_decl.is_none(), this branch's own guard) guarantees natural_mb is Some");
                     (max_mb - margin_left - margin_right).max(0.0)
                 }
             });
+            let min = match item_style.min_width {
+                Some(v) => to_box(v.px()),
+                // CSS Flexbox's own "automatic minimum size" (§4.5): a
+                // flex item's real shrink floor, when `min-width` isn't
+                // declared, is its own content-based minimum — not `0`.
+                // Getting this wrong lets the shrink phase below squeeze
+                // an item's text narrower than its own unbreakable
+                // content, overflowing it into (and visually overlapping)
+                // its neighbor instead of this item just not fully
+                // fitting the row — found live on a real Wikipedia page's
+                // nav tabs (`Article`/`Talk`, `Read`/`Edit`/`View
+                // history`), each an auto-width, `white-space: nowrap`
+                // flex item competing for space with its siblings.
+                // Clamped to this item's own `basis` so an explicit
+                // `width`/`flex-basis` narrower than its min-content
+                // isn't forced wider by this fallback.
+                None => {
+                    let (min_mb, _) = natural_mb.expect("min_width.is_none() (this branch's own guard) guarantees natural_mb is Some");
+                    (min_mb - margin_left - margin_right).max(0.0).min(basis)
+                }
+            };
             Prep {
                 basis,
                 margin_left,
                 margin_right,
-                min: item_style.min_width.map(|v| to_box(v.px())).unwrap_or(0.0),
+                min,
                 max: item_style.max_width.map(|v| to_box(v.px())).unwrap_or(f32::INFINITY),
                 grow: item.style.flex_grow,
                 shrink: item.style.flex_shrink,
@@ -14520,6 +14552,34 @@ mod tests {
     }
 
     #[test]
+    fn white_space_nowrap_also_prevents_wrapping_in_a_mixed_run_with_an_inline_image() {
+        // `measure_mixed_inline` (the greedy wrapper a run containing an
+        // `<img>`/inline-block takes, instead of the plain-text fast
+        // path `shape_spans` uses) never looked at `white_space` at all
+        // before this — nowrap text sharing a line with an image would
+        // still wrap at the available width. This also matters beyond
+        // the mixed-run rendering path itself: `cell_natural_width`'s
+        // own min/max-content probing always goes through this same
+        // wrapper (see its own docs), so a `nowrap` flex/inline-block/
+        // table-cell item's *natural width* was wrong too, not just its
+        // real on-page wrapping — see the flex `automatic minimum size`
+        // test above, which depends on this fix for a multi-word nowrap
+        // item's min-content to be computed correctly.
+        let src = tiny_png_data_uri(4, 4);
+        let html = format!(
+            r#"<html><body><div style="width: 20px; white-space: nowrap;">a long run of many words <img src="{src}" width="4" height="4"> more words here too</div></body></html>"#
+        );
+        let laid = measure_fixture(&html, 400.0);
+        let div = find_by_width(&laid, 20.0).expect("div not found");
+        assert!(find_mixed_inline(&laid).is_some(), "sanity: an inline <img> should route this run through measure_mixed_inline, not the plain-text fast path");
+        assert!(
+            div.h < 25.0,
+            "white-space: nowrap should keep this mixed text+image run on one line even in a box far narrower than the content, not wrap across several lines (got height {})",
+            div.h
+        );
+    }
+
+    #[test]
     fn no_background_image_declared_resolves_to_none() {
         let laid = measure_fixture(r#"<html><body><div style="width: 13px; height: 13px; background-color: #00ff00;"></div></body></html>"#, 200.0);
         let div = find_by_width(&laid, 13.0).expect("div not found");
@@ -16146,6 +16206,34 @@ mod tests {
         // (1:3): item a loses 25px (100 * 1/4), item b loses 75px (100 * 3/4).
         assert_eq!(items[0].w, 75.0, "flex-shrink 1 (of a 1:3 scaled ratio) should lose proportionally less width");
         assert_eq!(items[1].w, 25.0, "flex-shrink 3 (of a 1:3 scaled ratio) should lose proportionally more width — not shrink equally");
+    }
+
+    #[test]
+    fn flex_item_with_nowrap_text_never_shrinks_below_its_own_unbreakable_content_width() {
+        // Two auto-width, nowrap-text flex items, together far wider
+        // than the 40px container. Real CSS Flexbox's own "automatic
+        // minimum size" (§4.5) means an auto-width item with no
+        // `min-width` still can't shrink past its own content-based
+        // minimum; getting this wrong (defaulting the automatic minimum
+        // to 0, as this engine used to) lets the shrink phase squeeze
+        // each item narrower than its own unbreakable nowrap text,
+        // overflowing it past the item's own box into its neighbor —
+        // found live on a real Wikipedia page's nav tabs (Article/Talk,
+        // Read/Edit/View history). If the fix works, both items keep
+        // their full natural width and overflow the container instead
+        // (real CSS behavior for content that can't be made to fit).
+        let laid = measure_fixture(
+            r#"<html><body><div style="display: flex; width: 40px;"><div style="white-space: nowrap;">Article</div><div style="white-space: nowrap;">Talk</div></div></body></html>"#,
+            500.0,
+        );
+        let items = flex_items(&laid, 40.0);
+        assert!(
+            items[0].w + items[1].w > 40.0,
+            "both nowrap items together should overflow the 40px container, not be squeezed down to fit it (got {} + {})",
+            items[0].w,
+            items[1].w
+        );
+        assert!(items[1].x >= items[0].x + items[0].w, "the second item should start no earlier than where the first item's own (unshrunk) box ends");
     }
 
     #[test]
