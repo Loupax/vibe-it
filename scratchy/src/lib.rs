@@ -1081,11 +1081,12 @@ struct Declarations {
     /// URI only, same `<img src>` policy) happens once per matching
     /// element in `resolve_background_image`, not here, since a
     /// decoded image can't live in `ComputedStyle` (it's `Copy`; see
-    /// `resolve_background_image`'s own docs). `background-image: none`
-    /// isn't recognized as its own value (parsing simply fails and
-    /// leaves this `None`, same end state) — not a real gap today since
-    /// nothing declares it, but see TODO.txt.
-    background_image: Option<String>,
+    /// `resolve_background_image`'s own docs). `Some(BackgroundImageDecl
+    /// ::None)` for an explicit `background-image: none` — see that
+    /// type's own docs for why a plain `Option<String>` couldn't
+    /// represent that distinctly from "not declared" (same shape
+    /// `box-shadow`'s own `ShadowDecl` already established).
+    background_image: Option<BackgroundImageDecl>,
     display: Option<Display>,
     position: Option<Position>,
     float: Option<Float>,
@@ -3094,8 +3095,10 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
                 self.decls.background_color = Some(c);
             }
         } else if name.eq_ignore_ascii_case("background-image") {
-            if let Ok(url) = input.expect_url() {
-                self.decls.background_image = Some(url.to_string());
+            if input.try_parse(|input| input.expect_ident_matching("none")).is_ok() {
+                self.decls.background_image = Some(BackgroundImageDecl::None);
+            } else if let Ok(url) = input.expect_url() {
+                self.decls.background_image = Some(BackgroundImageDecl::Url(url.to_string()));
             }
         } else if name.eq_ignore_ascii_case("border-color") {
             if let Ok(c) = CssColor::parse(input) {
@@ -4352,6 +4355,24 @@ fn matching_declarations<'a>(handle: &Handle, rules: &'a [StyleRule], viewport_w
     matches
 }
 
+/// `background-image`'s own declared value, as stored in `Declarations`
+/// — either a real `url(...)` or the literal `none` keyword, which real
+/// CSS needs to win the cascade at its own specificity (overriding a
+/// real image a *less*-specific rule declared) exactly like any other
+/// explicit value would. Plain `Option<String>` can't represent that:
+/// both "this rule said `none`" and "this rule never mentioned
+/// `background-image` at all" would collapse to the same `None`, so
+/// `cascade_property` (which skips a rule entirely when its own
+/// accessor returns `None`) could never let an explicit `none` override
+/// a less-specific real image — it would just fall through to that
+/// image as if `none` had never been declared. Same shape `box-shadow`'s
+/// own `ShadowDecl` already established for the identical problem.
+#[derive(Clone, PartialEq)]
+enum BackgroundImageDecl {
+    None,
+    Url(String),
+}
+
 /// Resolves and decodes this element's `background-image`, if any, as
 /// its own small cascade — not folded into `ComputedStyle` the way
 /// `background-color` is, because `ComputedStyle` is `#[derive(Copy)]`
@@ -4364,11 +4385,19 @@ fn matching_declarations<'a>(handle: &Handle, rules: &'a [StyleRule], viewport_w
 fn resolve_background_image(handle: &Handle, rules: &[StyleRule], viewport_width: f32) -> Option<Arc<DecodedImage>> {
     let matches = matching_declarations(handle, rules, viewport_width);
     let inline_decls = element_attr(handle, "style").map(|s| parse_declarations(&s));
-    let url = cascade_property(
+    let decl = cascade_property(
         &matches,
         inline_decls.as_ref().and_then(|d| d.background_image.clone()),
         |d| d.background_image.clone(),
     )?;
+    let url = match decl {
+        // The winning declaration at this specificity was a real `none`
+        // — not "nothing declared it," which `cascade_property` already
+        // tells apart from this (see `BackgroundImageDecl`'s own docs)
+        // — so this element genuinely has no background image.
+        BackgroundImageDecl::None => return None,
+        BackgroundImageDecl::Url(url) => url,
+    };
     decode_data_uri(&url).and_then(|b| decode_image_bytes(&b)).map(Arc::new)
 }
 
@@ -14213,6 +14242,32 @@ mod tests {
         let div = find_by_width(&laid, 13.0).expect("div not found");
         assert!(div.background_image.is_none(), "a div with no background-image declared shouldn't resolve one, even with a background-color set");
         assert!(div.style.background_color.is_some(), "sanity: background-color itself should still resolve normally");
+    }
+
+    #[test]
+    fn background_image_none_overrides_a_rule_level_image_not_just_fail_silently() {
+        let src = tiny_png_data_uri(4, 4);
+        let html = format!(
+            r#"<html><head><style>div {{ background-image: url('{src}'); }}</style></head>
+            <body><div style="width: 13px; height: 13px; background-image: none;"></div></body></html>"#
+        );
+        let laid = measure_fixture(&html, 200.0);
+        let div = find_by_width(&laid, 13.0).expect("div not found");
+        assert!(
+            div.background_image.is_none(),
+            "an inline `background-image: none` should win the cascade and suppress the less-specific rule's real image, not be silently skipped as if undeclared"
+        );
+    }
+
+    #[test]
+    fn background_image_without_none_still_resolves_normally() {
+        let src = tiny_png_data_uri(4, 4);
+        let html = format!(
+            r#"<html><body><div style="width: 13px; height: 13px; background-image: url('{src}');"></div></body></html>"#
+        );
+        let laid = measure_fixture(&html, 200.0);
+        let div = find_by_width(&laid, 13.0).expect("div not found");
+        assert!(div.background_image.is_some(), "a real url() background-image should still resolve normally");
     }
 
     // ---------- v48: real inline-level `<img>` flow ----------
