@@ -2022,7 +2022,7 @@ last, per the user's own call.
 - [x] **TOP PRIORITY (user-reported, investigated 2026-11-11, base
       `5f8ceed`): whitespace-only text between block-level siblings
       becomes its own full-height (~18-20px) anonymous line box.**
-      **Landed** (commit hash to be filled in): `discard_if_collapsible_
+      **Landed** (`f7dfda9`): `discard_if_collapsible_
       whitespace_only`, called at both flush points. It matches the
       exact `" "` shape non-`pre` whitespace-only text nodes produce, so
       `pre` whitespace and runs containing an image, inline-block or
