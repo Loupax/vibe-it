@@ -333,6 +333,7 @@ fn list_marker(handle: &Handle, style_type: ListStyleType) -> String {
                 .unwrap_or(1);
             format!("{index}. ")
         }
+        ListStyleType::None => String::new(),
     }
 }
 
@@ -1208,10 +1209,12 @@ enum WhiteSpace {
     Pre,
 }
 
-/// Just the 4 keywords `default.css` actually declares (`disc`/`decimal`
-/// directly on `ul`/`ol`, `circle`/`square` for nested lists by depth) — no
-/// `none`, no the-many-other-counter-styles (roman numerals, alpha, ...).
-/// `Disc` as `#[default]` matches the real CSS initial value.
+/// The 4 keywords `default.css` actually declares (`disc`/`decimal`
+/// directly on `ul`/`ol`, `circle`/`square` for nested lists by depth),
+/// plus `None` (no marker at all — CSS-gap report: 40 occurrences,
+/// almost always `list-style: none` on a nav/menu `<ul>`) — no the-many-
+/// other-counter-styles (roman numerals, alpha, ...). `Disc` as
+/// `#[default]` matches the real CSS initial value.
 #[derive(Clone, Copy, PartialEq, Default)]
 enum ListStyleType {
     #[default]
@@ -1219,6 +1222,7 @@ enum ListStyleType {
     Circle,
     Square,
     Decimal,
+    None,
 }
 
 /// The 4 keywords `text-align` actually has (no `start`/`end` — nothing
@@ -2663,6 +2667,40 @@ fn parse_border_like_shorthand<'k>(
     }
 }
 
+/// `list-style`'s own grammar: `<list-style-type> || <list-style-position>
+/// || <list-style-image>`, any order, each 0-1 times. Only the type
+/// component is tracked — `list-style-position`/`list-style-image` aren't
+/// implemented as their own longhands either (see TODO.txt), so a
+/// position keyword or a `url(...)` image is skipped rather than failing
+/// the whole value, same lenient philosophy as `parse_border_like_
+/// shorthand`. A bare `none` (far and away the real-world common case —
+/// hiding a nav/menu `<ul>`'s marker) resolves as `ListStyleType::None`.
+fn parse_list_style_shorthand(input: &mut CssParser) -> Result<ListStyleType, ()> {
+    const TYPE_KEYWORDS: &[(&str, ListStyleType)] = &[
+        ("disc", ListStyleType::Disc),
+        ("circle", ListStyleType::Circle),
+        ("square", ListStyleType::Square),
+        ("decimal", ListStyleType::Decimal),
+        ("none", ListStyleType::None),
+    ];
+    let mut style_type = None;
+    loop {
+        let state = input.state();
+        if let Ok(Token::Ident(ident)) = input.next() {
+            if let Some(&(_, ty)) = TYPE_KEYWORDS.iter().find(|(k, _)| ident.eq_ignore_ascii_case(k)) {
+                style_type = Some(ty);
+                continue;
+            }
+        }
+        input.reset(&state);
+        match input.next() {
+            Ok(_) => {}
+            Err(_) => break,
+        }
+    }
+    style_type.ok_or(())
+}
+
 /// `background`'s own grammar is far larger than this (layering,
 /// position, size, repeat, attachment, origin, clip) — this covers only
 /// the two longhands this file actually implements, `background-color`
@@ -3663,9 +3701,15 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
                     Some(ListStyleType::Square)
                 } else if ident.eq_ignore_ascii_case("decimal") {
                     Some(ListStyleType::Decimal)
+                } else if ident.eq_ignore_ascii_case("none") {
+                    Some(ListStyleType::None)
                 } else {
                     None
                 };
+            }
+        } else if name.eq_ignore_ascii_case("list-style") {
+            if let Ok(ty) = parse_list_style_shorthand(input) {
+                self.decls.list_style_type = Some(ty);
             }
         } else if name.eq_ignore_ascii_case("text-align") {
             if let Ok(ident) = input.expect_ident() {
@@ -5300,7 +5344,8 @@ fn build_box_for_element(
         };
     }
     let prefix = if element_tag(handle) == "li" {
-        Some((list_marker(handle, style.list_style_type), style.inherited().into()))
+        let marker = list_marker(handle, style.list_style_type);
+        if marker.is_empty() { None } else { Some((marker, style.inherited().into())) }
     } else {
         None
     };
@@ -14341,6 +14386,39 @@ mod tests {
         let px = |x: u32, y: u32| pixels[(y * win_w + x) as usize] & 0x00FFFFFF;
         assert_eq!(px(30, 30), 0xFF0000, "background-image should paint inside the border");
         assert_eq!(px(9, 30), 0x0000FF, "border itself should still paint on top of/around the background-image");
+    }
+
+    #[test]
+    fn list_style_none_shorthand_suppresses_the_marker() {
+        let laid = measure_fixture(
+            r#"<html><body><ul style="list-style: none;"><li style="width: 42px;">Item</li></ul></body></html>"#,
+            200.0,
+        );
+        let li = find_by_width(&laid, 42.0).expect("li not found");
+        assert!(
+            li.style.list_style_type == ListStyleType::None,
+            "list-style: none on the ul should cascade/inherit down to no marker on the li"
+        );
+    }
+
+    #[test]
+    fn list_style_type_none_longhand_also_suppresses_the_marker() {
+        let laid = measure_fixture(
+            r#"<html><body><ul><li style="width: 42px; list-style-type: none;">Item</li></ul></body></html>"#,
+            200.0,
+        );
+        let li = find_by_width(&laid, 42.0).expect("li not found");
+        assert!(li.style.list_style_type == ListStyleType::None);
+    }
+
+    #[test]
+    fn list_style_disc_is_still_the_default_without_none() {
+        let laid = measure_fixture(
+            r#"<html><body><ul><li style="width: 42px;">Item</li></ul></body></html>"#,
+            200.0,
+        );
+        let li = find_by_width(&laid, 42.0).expect("li not found");
+        assert!(li.style.list_style_type == ListStyleType::Disc, "sanity: an ordinary <li> should still default to a disc marker");
     }
 
     #[test]
