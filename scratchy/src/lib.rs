@@ -1199,14 +1199,25 @@ struct Declarations {
     grid_area: Option<&'static str>,
 }
 
-/// Just `normal` (the default — current behavior, collapse+wrap) and `pre`
-/// (`default.css`'s only real use, on `pre`/`listing`/`xmp`/`plaintext`) —
-/// no `pre-wrap`/`pre-line`/`nowrap`, nothing declares them.
+/// `normal` (the default — current behavior, collapse+wrap), `pre`
+/// (`default.css`'s only real use, on `pre`/`listing`/`xmp`/`plaintext`),
+/// and `nowrap` (collapses whitespace the same as `normal` — see
+/// `collect_children`'s own `white_space == Pre` check, deliberately
+/// left as an exact-match against `Pre` alone so `Nowrap` falls into
+/// the same collapsing branch `normal` already uses — but never wraps
+/// to a new line, same as `pre`). No `pre-wrap`/`pre-line`, nothing
+/// declares them. `nowrap` is only honored in the plain-text fast path
+/// (`shape_spans`'s own `pre: bool` parameter, despite its name, now
+/// really means "disable wrapping" — both `Pre` and `Nowrap` pass
+/// `true`) — a mixed run with an inline `<img>`/inline-block doesn't
+/// look at `white_space` at all yet, same pre-existing gap `white-space:
+/// pre` already has there (see TODO.txt).
 #[derive(Clone, Copy, PartialEq, Default)]
 enum WhiteSpace {
     #[default]
     Normal,
     Pre,
+    Nowrap,
 }
 
 /// The 4 keywords `default.css` actually declares (`disc`/`decimal`
@@ -3687,6 +3698,8 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
                     Some(WhiteSpace::Normal)
                 } else if ident.eq_ignore_ascii_case("pre") {
                     Some(WhiteSpace::Pre)
+                } else if ident.eq_ignore_ascii_case("nowrap") {
+                    Some(WhiteSpace::Nowrap)
                 } else {
                     None
                 };
@@ -6655,10 +6668,10 @@ fn shape_spans(
     let mut buffer = Buffer::new(font_system, metrics);
     buffer.set_size(Some(width.max(0.0)), None);
     if pre {
-        // `white-space: pre` also disables wrapping — content overflows
-        // its box rather than breaking mid-line; literal `\n`s in the
-        // text still start new lines regardless of wrap mode (cosmic-text
-        // splits buffer lines on them either way).
+        // `white-space: pre`/`nowrap` both disable wrapping — content
+        // overflows its box rather than breaking mid-line; literal `\n`s
+        // in the text still start new lines regardless of wrap mode
+        // (cosmic-text splits buffer lines on them either way).
         buffer.set_wrap(Wrap::None);
     }
     let rich: Vec<(&str, Attrs)> = spans
@@ -7082,7 +7095,7 @@ pub fn measure<'a>(
                     font_system,
                     items,
                     content_w,
-                    s.white_space == WhiteSpace::Pre,
+                    matches!(s.white_space, WhiteSpace::Pre | WhiteSpace::Nowrap),
                     s.text_align.to_cosmic(),
                 );
                 cache.insert(id, Arc::new(Mutex::new((buffer, h, backgrounds, valigns, hidden, cursors, decoration_styles, hrefs))));
@@ -14475,6 +14488,34 @@ mod tests {
             px & 0x00FF_FFFF,
             0x0000_00FF,
             "a repeat/position/size component this file doesn't implement shouldn't throw away the color that did parse"
+        );
+    }
+
+    #[test]
+    fn white_space_nowrap_keeps_a_single_line_height_even_in_a_narrow_box() {
+        let laid = measure_fixture(
+            r#"<html><body><div style="width: 30px; white-space: nowrap;">a long run of many words here</div></body></html>"#,
+            400.0,
+        );
+        let div = find_by_width(&laid, 30.0).expect("div not found");
+        assert!(
+            div.h < 25.0,
+            "white-space: nowrap should keep this text on one line even though the box is far narrower than the text, not wrap it onto several lines (got height {})",
+            div.h
+        );
+    }
+
+    #[test]
+    fn without_nowrap_the_same_narrow_box_wraps_onto_several_lines() {
+        let laid = measure_fixture(
+            r#"<html><body><div style="width: 30px;">a long run of many words here</div></body></html>"#,
+            400.0,
+        );
+        let div = find_by_width(&laid, 30.0).expect("div not found");
+        assert!(
+            div.h > 60.0,
+            "sanity: without nowrap, this long text in a narrow box should wrap onto several lines (got height {})",
+            div.h
         );
     }
 

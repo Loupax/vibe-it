@@ -1146,9 +1146,11 @@ session can pick a coherent slice rather than one property at a time.
       reordering across words in a mixed run (cosmic-text's own bidi
       only operates within one `Buffer`, and this shapes one per word —
       RTL text spanning multiple words next to an image would appear in
-      the wrong visual order); `white-space: pre` isn't honored in a
-      mixed run (words always split on plain spaces, no embedded-`\n`
-      awareness); an inline `<img>`'s vertical margin is ignored
+      the wrong visual order); `white-space: pre`/`nowrap` aren't
+      honored in a mixed run (words always split on plain spaces, no
+      embedded-`\n` awareness, and always wrap at the available width —
+      see the plain-text-only `white-space: nowrap` item below, which
+      doesn't touch this path at all); an inline `<img>`'s vertical margin is ignored
       (horizontal margin correctly reserves line space); an image is
       bottom-aligned within its line as an approximation of real CSS
       baseline alignment (the actual font-metrics baseline offset isn't
@@ -1794,6 +1796,38 @@ last, per the user's own call.
       matters. 3 new permanent tests (a box length, `font-size`, and
       `line-height`, each checked against the exact expected pixel
       value, not just "didn't fail to parse").
+
+- [x] `white-space: nowrap` (CSS-gap report: 42 occurrences — found via
+      live testing against a real Wikipedia page, not the gap report
+      directly: the Vector skin's own top-of-page tabs — `Article`/
+      `Talk`, `Read`/`Edit`/`View history` — were wrapping mid-word
+      ("Arti"/"cle" on separate lines) inside their own narrow nav
+      boxes, since nowrap was silently dropped and ordinary wrapping
+      kicked in instead). Added `WhiteSpace::Nowrap`, parsed the same
+      way `pre` already is; the plain-text fast path's `shape_spans`
+      (its `pre: bool` param, despite the name, now really means
+      "disable wrapping" — both `Pre` and `Nowrap` pass `true` into
+      cosmic-text's `Wrap::None`) is the only place that needed to
+      change, since whitespace *collapsing* (vs. `pre`'s byte-for-byte
+      preservation) was already correct for anything that isn't
+      literally `Pre` — `Nowrap` falls into that same collapsing branch
+      for free. Scoped to plain text only: a mixed run (text next to an
+      inline `<img>`/inline-block) still doesn't look at `white_space`
+      at all, same pre-existing gap `pre` already has there (see the
+      `measure_mixed_inline` item above). 2 new permanent tests (nowrap
+      keeps a long run on one line in a box far narrower than the text;
+      sanity-checked against the same markup without nowrap, which
+      should still wrap onto several lines).
+
+      **Not fixed by this item, found during the same live-testing
+      pass**: with wrapping no longer silently absorbing the overflow,
+      these same nav tabs now visibly overlap each other instead of
+      wrapping — a separate, previously-masked sizing bug (something
+      about how an auto-width box's shrink-to-fit clamp interacts with
+      unwrappable nowrap text needs its own investigation) and the
+      small black-square placeholders next to the Wikipedia logo/
+      personal-tools dropdown are `mask-image` icons (see that item's
+      own entry — deliberately deprioritized, not a new finding).
 
 - [ ] **`mask-image`/`-webkit-mask-image` (icon alpha-masking) — real
       numbers in hand, deliberately sent to the bottom of the priority
