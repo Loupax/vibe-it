@@ -1200,7 +1200,7 @@ session can pick a coherent slice rather than one property at a time.
       components that should still parse, not throw the whole value
       away).
 
-- [x] `list-style: none` (CSS-gap report: 40 occurrences, almost always
+- [x] `list-style: none` (fe7350c, CSS-gap report: 40 occurrences, almost always
       on a nav/menu `<ul>` that's really a link list in disguise) now
       suppresses the marker entirely — added a `None` variant to
       `ListStyleType` (previously just the 4 keywords `default.css`
