@@ -1149,6 +1149,21 @@ session can pick a coherent slice rather than one property at a time.
       background-image needs `cover`/`no-repeat`/positioning to look
       right, rather than guessing at scope now.
 
+- [x] `list-style: none` (CSS-gap report: 40 occurrences, almost always
+      on a nav/menu `<ul>` that's really a link list in disguise) now
+      suppresses the marker entirely — added a `None` variant to
+      `ListStyleType` (previously just the 4 keywords `default.css`
+      itself declares), and a lenient `list-style` shorthand parser
+      (same `<type> || <position> || <image>`-any-order grammar `border`/
+      `outline` already use for their own shorthands, skipping an
+      unrecognized `inside`/`outside`/`url(...)` component rather than
+      failing the whole value — `list-style-position`/`list-style-image`
+      aren't implemented as their own longhands either, so there's
+      nothing for those components to set yet). `list-style-type: none`
+      longhand works the same way. 3 new permanent tests (shorthand,
+      longhand, and a sanity check that an ordinary `<li>` still
+      defaults to `disc`).
+
 - [ ] No forms/interactive widgets (`input`/`button`/`select`/
       `textarea` render as plain unstyled DOM nodes, not widgets), no
       replaced/embedded elements (`svg`/`canvas`/`video`/`audio`/
