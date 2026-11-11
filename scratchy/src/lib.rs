@@ -3186,7 +3186,7 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
                     self.decls.background_color = Some(c);
                 }
                 if let Some(url) = image {
-                    self.decls.background_image = Some(url);
+                    self.decls.background_image = Some(BackgroundImageDecl::Url(url));
                 }
             }
         } else if name.eq_ignore_ascii_case("border-color") {
