@@ -910,6 +910,16 @@ struct Insets {
 /// through an absolute-size keyword table) — just the common
 /// approximation browsers converge on, and the same ratio `default.css`'s
 /// own heading sizes roughly follow.
+/// CSS's own fixed absolute-unit conversion (1in = 96px, 1pt = 1in/72,
+/// both exact per the spec, not an approximation) — `pt` tokenizes as
+/// an ordinary `<dimension-token>` with unit `pt`, same as `px`/`em`/
+/// `rem` already do, so every `pt` value is just converted to `Px` once,
+/// at parse time, rather than adding a whole new `Length` variant and
+/// teaching every consumer of this enum (`resolve`, `BoxLength`, the
+/// grid/flex track machinery, ...) a fourth absolute-unit case to
+/// handle identically to `Px` everywhere it matters.
+const PX_PER_PT: f32 = 96.0 / 72.0;
+
 #[derive(Clone, Copy, PartialEq)]
 enum Length {
     Px(f32),
@@ -1145,7 +1155,12 @@ struct Declarations {
     visibility: Option<Visibility>,
     outline_width: Option<Length>,
     outline_color: Option<CssColor>,
-    box_shadow: Option<BoxShadow>,
+    /// `Some(ShadowDecl::None)` for an explicit `box-shadow: none` — a
+    /// real, win-the-cascade-at-this-specificity declaration, distinct
+    /// from `None` here (property not declared by this rule at all).
+    /// See `ShadowDecl`'s own docs for why a plain `Option<BoxShadow>`
+    /// can't tell those two cases apart.
+    box_shadow: Option<ShadowDecl>,
     border_radius: Option<Length>,
     overflow: Option<Overflow>,
     cursor: Option<CursorStyle>,
@@ -2000,6 +2015,7 @@ fn parse_length(input: &mut CssParser) -> Result<Length, ()> {
         Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("px") => Ok(Length::Px(*value)),
         Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("em") => Ok(Length::Em(*value)),
         Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("rem") => Ok(Length::Rem(*value)),
+        Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("pt") => Ok(Length::Px(value * PX_PER_PT)),
         Token::Number { value, .. } if *value == 0.0 => Ok(Length::Px(0.0)),
         _ => Err(()),
     }
@@ -2020,6 +2036,7 @@ fn parse_length_percent(input: &mut CssParser) -> Result<Length, ()> {
         Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("px") => Ok(Length::Px(*value)),
         Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("em") => Ok(Length::Em(*value)),
         Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("rem") => Ok(Length::Rem(*value)),
+        Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("pt") => Ok(Length::Px(value * PX_PER_PT)),
         Token::Percentage { unit_value, .. } => Ok(Length::Percent(*unit_value)),
         Token::Number { value, .. } if *value == 0.0 => Ok(Length::Px(0.0)),
         _ => Err(()),
@@ -2096,6 +2113,9 @@ fn parse_line_height(input: &mut CssParser) -> Result<LineHeight, ()> {
         }
         Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("rem") => {
             Ok(LineHeight::Len(Length::Rem(*value)))
+        }
+        Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("pt") => {
+            Ok(LineHeight::Len(Length::Px(value * PX_PER_PT)))
         }
         Token::Percentage { unit_value, .. } => Ok(LineHeight::Len(Length::Percent(*unit_value))),
         _ => Err(()),
@@ -2643,6 +2663,49 @@ fn parse_border_like_shorthand<'k>(
     }
 }
 
+/// `background`'s own grammar is far larger than this (layering,
+/// position, size, repeat, attachment, origin, clip) — this covers only
+/// the two longhands this file actually implements, `background-color`
+/// and `background-image`, which is the dominant real-world case
+/// (CSS-gap report: 80 occurrences, nearly all a bare `background:
+/// <color>` or a single `url(...)` image). Any other component (a
+/// repeat/attachment/position/box/`none` keyword, a size dimension, the
+/// `/` separator) is skipped rather than failing the whole value, same
+/// lenient philosophy as `border`'s own shorthand parser above —
+/// `background-image: none` has exactly the same "parsing it just
+/// fails, which happens to leave the property unset" behavior as the
+/// `background-image` longhand itself (see its own TODO.txt note); this
+/// shorthand doesn't attempt to fix that distinctly.
+fn parse_background_shorthand(input: &mut CssParser) -> Result<(Option<CssColor>, Option<String>), ()> {
+    let mut color = None;
+    let mut image = None;
+    let mut found = false;
+    loop {
+        let state = input.state();
+        if let Ok(url) = input.expect_url() {
+            image = Some(url.to_string());
+            found = true;
+            continue;
+        }
+        input.reset(&state);
+        if let Ok(c) = CssColor::parse(input) {
+            color = Some(c);
+            found = true;
+            continue;
+        }
+        input.reset(&state);
+        match input.next() {
+            Ok(_) => {}
+            Err(_) => break,
+        }
+    }
+    if found {
+        Ok((color, image))
+    } else {
+        Err(())
+    }
+}
+
 /// A parsed (not-yet-resolved) `box-shadow` value. Deliberately narrower
 /// than the real property: no `inset` (an inner shadow would need an
 /// entirely different paint — clipped to the box's own content area,
@@ -2661,6 +2724,23 @@ struct BoxShadow {
     offset_y: Length,
     spread: Length,
     color: CssColor,
+}
+
+/// `box-shadow`'s own declared value, as stored in `Declarations` —
+/// either a real shadow or the literal `none` keyword, which real CSS
+/// needs to win the cascade at its own specificity (overriding a real
+/// shadow a *less*-specific rule declared) exactly like any other
+/// explicit value would. Plain `Option<BoxShadow>` can't represent
+/// that: both "this rule said `none`" and "this rule never mentioned
+/// `box-shadow` at all" would collapse to the same `None`, so `cascade_
+/// property` (which skips a rule entirely when its own accessor
+/// returns `None`) could never let an explicit `none` override a less-
+/// specific real shadow — it would just fall through to that shadow as
+/// if `none` had never been declared.
+#[derive(Clone, Copy, PartialEq)]
+enum ShadowDecl {
+    None,
+    Shadow(BoxShadow),
 }
 
 /// `<offset-x> <offset-y> <blur-radius>? <spread-radius>? <color>` — a
@@ -3100,6 +3180,15 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
             } else if let Ok(url) = input.expect_url() {
                 self.decls.background_image = Some(BackgroundImageDecl::Url(url.to_string()));
             }
+        } else if name.eq_ignore_ascii_case("background") {
+            if let Ok((color, image)) = parse_background_shorthand(input) {
+                if let Some(c) = color {
+                    self.decls.background_color = Some(c);
+                }
+                if let Some(url) = image {
+                    self.decls.background_image = Some(url);
+                }
+            }
         } else if name.eq_ignore_ascii_case("border-color") {
             if let Ok(c) = CssColor::parse(input) {
                 self.decls.border_color = Some(c);
@@ -3334,8 +3423,10 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
                 }
             }
         } else if name.eq_ignore_ascii_case("box-shadow") {
-            if let Ok(v) = parse_box_shadow(input) {
-                self.decls.box_shadow = Some(v);
+            if input.try_parse(|input| input.expect_ident_matching("none")).is_ok() {
+                self.decls.box_shadow = Some(ShadowDecl::None);
+            } else if let Ok(v) = parse_box_shadow(input) {
+                self.decls.box_shadow = Some(ShadowDecl::Shadow(v));
             }
         } else if name.eq_ignore_ascii_case("border-radius") {
             set_length(input, &mut self.decls.border_radius);
@@ -3586,6 +3677,16 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
                     Some(TextAlign::Center)
                 } else if ident.eq_ignore_ascii_case("justify") {
                     Some(TextAlign::Justify)
+                } else if ident.eq_ignore_ascii_case("start") {
+                    // Logical, writing-mode-relative keywords — this
+                    // engine has no notion of a writing mode other than
+                    // left-to-right (see `TextAlign`'s own docs, and
+                    // `margin-inline-start`/`-end`'s own already-landed
+                    // "always resolve against left/right" precedent), so
+                    // `start`/`end` always resolve to `left`/`right`.
+                    Some(TextAlign::Left)
+                } else if ident.eq_ignore_ascii_case("end") {
+                    Some(TextAlign::Right)
                 } else {
                     None
                 };
@@ -4640,13 +4741,19 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         inline_decls.as_ref().and_then(|d| d.box_shadow),
         |d| d.box_shadow,
     )
-    .and_then(|bs| {
-        to_text_color(&bs.color).map(|color| ResolvedBoxShadow {
+    .and_then(|decl| match decl {
+        // The winning declaration at this specificity was a real `none`
+        // — not "nothing declared it," which `cascade_property` already
+        // tells apart from this (see `ShadowDecl`'s own docs) — so this
+        // element genuinely has no shadow, regardless of what a less-
+        // specific rule elsewhere might have declared.
+        ShadowDecl::None => None,
+        ShadowDecl::Shadow(bs) => to_text_color(&bs.color).map(|color| ResolvedBoxShadow {
             offset_x: bs.offset_x.resolve(font_size, inherited.root_font_size),
             offset_y: bs.offset_y.resolve(font_size, inherited.root_font_size),
             spread: bs.spread.resolve(font_size, inherited.root_font_size),
             color,
-        })
+        }),
     });
     let border_radius = cascade_property(
         &matches,
@@ -14237,6 +14344,63 @@ mod tests {
     }
 
     #[test]
+    fn background_shorthand_color_only_sets_background_color() {
+        let html = r#"<html><body style="margin:0"><div style="width: 40px; height: 40px; background: #ff0000;"></div></body></html>"#;
+        let doc = parse_html(html);
+        let tree = build_layout_tree(&doc, 1920.0);
+        let mut font_system = new_font_system();
+        let mut cache = ShapeCache::new();
+        let mut next_id = 0usize;
+        let mut incomplete = false;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let laid = measure(
+            &tree, &mut font_system, 0.0, 0.0, 200.0, None, &mut next_id, &mut cache, deadline, &mut incomplete,
+            &mut Vec::new(), &Floats::default(), None,
+        );
+        let mut swash_cache = SwashCache::new();
+        let (win_w, win_h) = (100u32, 100u32);
+        let mut pixels = vec![0u32; (win_w * win_h) as usize];
+        paint(&laid, &mut font_system, &mut swash_cache, &mut cache, &HashMap::new(), &mut pixels, win_w, win_h, 0.0, None);
+        let px = pixels[20 * win_w as usize + 20];
+        assert_eq!(px & 0x00FF_FFFF, 0x00FF_0000, "`background: #ff0000` shorthand should paint the same red as `background-color` would");
+    }
+
+    #[test]
+    fn background_shorthand_url_sets_background_image() {
+        let src = tiny_png_data_uri(4, 4);
+        let html = format!(r#"<html><body><div style="width: 13px; height: 13px; background: url('{src}');"></div></body></html>"#);
+        let laid = measure_fixture(&html, 200.0);
+        let div = find_by_width(&laid, 13.0).expect("div not found");
+        assert!(div.background_image.is_some(), "`background: url(...)` shorthand should resolve a background-image the same as the longhand would");
+    }
+
+    #[test]
+    fn background_shorthand_ignores_unrecognized_components_but_still_sets_color() {
+        let html = r#"<html><body style="margin:0"><div style="width: 40px; height: 40px; background: #0000ff no-repeat center / cover;"></div></body></html>"#;
+        let doc = parse_html(html);
+        let tree = build_layout_tree(&doc, 1920.0);
+        let mut font_system = new_font_system();
+        let mut cache = ShapeCache::new();
+        let mut next_id = 0usize;
+        let mut incomplete = false;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let laid = measure(
+            &tree, &mut font_system, 0.0, 0.0, 200.0, None, &mut next_id, &mut cache, deadline, &mut incomplete,
+            &mut Vec::new(), &Floats::default(), None,
+        );
+        let mut swash_cache = SwashCache::new();
+        let (win_w, win_h) = (100u32, 100u32);
+        let mut pixels = vec![0u32; (win_w * win_h) as usize];
+        paint(&laid, &mut font_system, &mut swash_cache, &mut cache, &HashMap::new(), &mut pixels, win_w, win_h, 0.0, None);
+        let px = pixels[20 * win_w as usize + 20];
+        assert_eq!(
+            px & 0x00FF_FFFF,
+            0x0000_00FF,
+            "a repeat/position/size component this file doesn't implement shouldn't throw away the color that did parse"
+        );
+    }
+
+    #[test]
     fn no_background_image_declared_resolves_to_none() {
         let laid = measure_fixture(r#"<html><body><div style="width: 13px; height: 13px; background-color: #00ff00;"></div></body></html>"#, 200.0);
         let div = find_by_width(&laid, 13.0).expect("div not found");
@@ -18237,5 +18401,72 @@ mod tests {
         let embedded =
             find_embedded(mixed_items(run), |l| (l.w, l.h) == (30.0, 10.0)).expect("inline-block inside the cell should still get its own real, correctly-sized box");
         assert!(embedded.w > 0.0);
+    }
+
+    // ---------- `box-shadow: none` ----------
+
+    #[test]
+    fn box_shadow_none_overrides_a_rule_level_shadow_not_just_fail_silently() {
+        let laid = measure_fixture(
+            r#"<html><head><style>div { box-shadow: 2px 2px 0 #000000; }</style></head><body><div style="box-shadow: none; width: 123px;">x</div></body></html>"#,
+            400.0,
+        );
+        let div = find_by_width(&laid, 123.0).expect("div not found");
+        assert!(
+            div.style.box_shadow.is_none(),
+            "box-shadow: none should win the cascade and clear the rule-level shadow, not silently fail to parse and let the rule's shadow leak through"
+        );
+    }
+
+    #[test]
+    fn box_shadow_without_none_still_resolves_normally() {
+        let laid = measure_fixture(
+            r#"<html><body><div style="box-shadow: 2px 3px 0 #ff0000; width: 50px;">x</div></body></html>"#,
+            400.0,
+        );
+        let div = find_by_width(&laid, 50.0).expect("div not found");
+        let shadow = div.style.box_shadow.expect("a real box-shadow declaration should still resolve normally");
+        assert_eq!((shadow.offset_x, shadow.offset_y), (2.0, 3.0));
+    }
+
+    // ---------- `text-align: start`/`end` ----------
+
+    #[test]
+    fn text_align_start_and_end_resolve_to_left_and_right() {
+        let laid = measure_fixture(
+            r#"<html><body><div style="text-align: start; width: 10px;">a</div><div style="text-align: end; width: 20px;">b</div></body></html>"#,
+            400.0,
+        );
+        let start = find_by_width(&laid, 10.0).expect("start div not found");
+        assert!(start.style.text_align == TextAlign::Left, "text-align: start should resolve to left for this engine's always-left-to-right content");
+        let end = find_by_width(&laid, 20.0).expect("end div not found");
+        assert!(end.style.text_align == TextAlign::Right, "text-align: end should resolve to right for this engine's always-left-to-right content");
+    }
+
+    // ---------- `pt` unit ----------
+
+    #[test]
+    fn pt_unit_on_a_box_length_converts_at_the_exact_css_96_72_ratio() {
+        let doc = parse_html(r#"<html><body><div style="margin-top: 12pt">x</div></body></html>"#);
+        let tree = build_layout_tree(&doc, 1920.0);
+        let div = find_deepest_nonzero_margin_top(&tree).expect("div not found");
+        assert_eq!(div.style.margin.top.px(), 16.0, "12pt should convert to exactly 16px (CSS's own fixed 96px-per-inch, 72pt-per-inch ratio)");
+    }
+
+    #[test]
+    fn pt_unit_on_font_size() {
+        let laid = measure_fixture(r#"<html><body><div style="font-size: 12pt;">x</div></body></html>"#, 500.0);
+        let div = find_by_laid_font_size(&laid, 16.0).expect("font-size: 12pt should resolve to exactly 16px, not be dropped as unsupported");
+        let _ = div;
+    }
+
+    #[test]
+    fn pt_unit_on_line_height() {
+        let laid = measure_fixture(r#"<html><body><div style="font-size: 20px; line-height: 24pt;">x</div></body></html>"#, 500.0);
+        let div = find_by_laid_font_size(&laid, 20.0).expect("div not found");
+        match div.style.line_height {
+            LineHeight::Len(l) => assert_eq!(l.resolve(div.style.font_size, div.style.root_font_size), 32.0, "24pt should convert to exactly 32px"),
+            _ => panic!("line-height: 24pt should parse as LineHeight::Len, not be dropped as unsupported"),
+        }
     }
 }

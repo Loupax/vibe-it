@@ -952,6 +952,33 @@ session can pick a coherent slice rather than one property at a time.
       page's shadow looks visibly wrong without blur, or needs
       `currentColor`/multiple layered shadows.
 
+      `box-shadow: none` *is* now recognized (CSS-gap report: 10
+      occurrences on the Wikipedia Main Page) — a real cascade gap, not
+      a cosmetic one: a plain `Option<BoxShadow>` couldn't tell "this
+      rule declared `none`" from "this rule never mentioned `box-shadow`
+      at all," so an explicit `none` used to silently fail to parse and
+      let a *less*-specific rule's real shadow leak through instead of
+      being cleared. A new `ShadowDecl::{None, Shadow}` wrapper around
+      `Declarations.box_shadow` fixes this — `none` now wins the cascade
+      at its own specificity like any other explicit value. 2 new
+      permanent tests (an explicit `none` overriding a rule-level
+      shadow, and a real shadow still resolving normally alongside it).
+
+      Also landed in the same pass: `text-align: start`/`end` (CSS-gap
+      report: 12 occurrences) now resolve to `left`/`right` — the same
+      always-left-to-right simplification `margin-inline-start`/`-end`
+      already established for this engine, which has no writing-mode
+      concept beyond that. (`margin-inline-start`/`-end`/`margin-inline`
+      turned out to already be fully implemented, contrary to what the
+      gap report's own raw count suggested — every real occurrence on
+      the Wikipedia Main Page is a second, redundant declaration right
+      after an equal-valued `margin-left`/`-right`/`margin` in the same
+      rule, so the debug tool's own before/after comparison correctly,
+      if misleadingly, reports "no change": the field was already set
+      to that exact value by the physical property one declaration
+      earlier. A real, if narrow, false-negative of that tool's own
+      design — see its own TODO.txt entry — not a bug in this item.)
+
 - [ ] CSS custom properties (v45) only resolve `var()` against `:root`/
       `html`-scoped declarations — a flat, whole-document table, not
       real per-element cascade/inheritance. A `--name` declared on any
@@ -1156,6 +1183,22 @@ session can pick a coherent slice rather than one property at a time.
       `ShadowDecl` exactly. 2 new permanent tests (an explicit `none`
       overriding a rule-level image, and a real `url()` image still
       resolving normally alongside it).
+
+      The `background` shorthand (CSS-gap report: 80 occurrences) *is*
+      now recognized, covering only the two longhands above
+      (`background-color`/`background-image`) — the dominant real-world
+      case, nearly all a bare `background: <color>` or a single
+      `url(...)` image. A new lenient parser, same `border`/`list-style`
+      shorthand idiom (any component it doesn't recognize — repeat/
+      attachment/position/box/`none` keywords, a size dimension, the
+      `/` separator — is skipped rather than failing the whole value);
+      `background: none` has exactly the same "leaves the property
+      unset" behavior the `background-image` longhand's own `none`
+      already has, immediately above — this doesn't fix that
+      distinctly either. 3 new permanent tests (color-only, url-only,
+      and a color alongside unrecognized repeat/position/size
+      components that should still parse, not throw the whole value
+      away).
 
 - [ ] No forms/interactive widgets (`input`/`button`/`select`/
       `textarea` render as plain unstyled DOM nodes, not widgets), no
@@ -1721,6 +1764,41 @@ last, per the user's own call.
       just not optimized — one more real recursive `measure()` call per
       nesting level, same budget-participation every other nested box
       already gets, no new mechanism).
+
+- [x] `pt` unit (17dd346, CSS-gap report: 64 `font-size` + 20 `line-height`
+      occurrences on the Wikipedia Main Page) now parses wherever `px`/
+      `em`/`rem` already do — `parse_length`, `parse_length_percent`,
+      and `line-height`'s own dedicated `parse_line_height` grammar
+      (confirmed by grep to be the only 3 places that match a `px`
+      dimension token in this file, so this is the complete fix, not a
+      partial one). Converted straight to `Length::Px` at parse time,
+      using CSS's own exact fixed ratio (1in = 96px, 1pt = 1in/72), not
+      a new `Length` variant — avoids teaching every consumer of that
+      enum (`resolve`, `BoxLength`, the grid/flex track machinery, ...)
+      a fourth absolute-unit case identical to `Px` everywhere it
+      matters. 3 new permanent tests (a box length, `font-size`, and
+      `line-height`, each checked against the exact expected pixel
+      value, not just "didn't fail to parse").
+
+- [ ] **`mask-image`/`-webkit-mask-image` (icon alpha-masking) — real
+      numbers in hand, deliberately sent to the bottom of the priority
+      list, the user's own explicit call.** The CSS-gap report's single
+      largest raw count by far (436 occurrences on the Wikipedia Main
+      Page, every one declared twice — standard plus `-webkit-` prefix —
+      for the same underlying icons: edit pencil, star, bookmark,
+      hamburger menu). A wholly new rendering primitive, not a parsing
+      gap: real CSS `mask-image` clips a box's own painted output by
+      another image's alpha channel (here, almost always a small SVG/
+      data-URI glyph used as a stencil over a solid `background-color`
+      fill — Wikimedia's own icon system). Nothing in this codebase
+      decodes a mask and applies it as an alpha multiply over an
+      existing paint — would need its own decode path (reusing `decode_
+      data_uri`/`decode_image_bytes`, already built for `<img>`/
+      `background-image`) plus a new per-pixel composite step in `paint`.
+      Deliberately deprioritized despite the raw count: every real use
+      found here is a small UI icon glyph, not core content — missing
+      one leaves a blank space where an icon would be, not a broken
+      layout, unlike `vertical-align`/`background`/per-side borders/etc.
 
 - [ ] **JavaScript — engine choice, investigated, not started; last
       pillar per the user's own explicit ordering.** Recommendation:
