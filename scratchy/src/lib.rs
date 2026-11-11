@@ -575,8 +575,9 @@ enum Display {
     /// `display: flex` — a block-level container (in the outer flow,
     /// same as `Table`) whose direct children each become flex items,
     /// laid out per CSS Flexible Box Layout (`measure_flex`) instead of
-    /// normal block/inline flow. `inline-flex` is not implemented (see
-    /// TODO.txt) — a flex container is always block-level here.
+    /// normal block/inline flow. See `InlineFlex` for the inline-level
+    /// outer-placement twin of this — `measure_flex`'s own internals
+    /// don't care which of the two built this box.
     Flex,
     /// `display: grid` — a block-level container (in the outer flow,
     /// same as `Table`/`Flex`) whose direct children each become grid
@@ -587,8 +588,31 @@ enum Display {
     /// `fr`, `repeat()`) plus implicit row-by-row auto-placement, no
     /// explicit per-item placement — see `measure_grid`'s own docs and
     /// `TODO.txt` for exactly what's cut. `inline-grid` is not
-    /// implemented either, same as `inline-flex`.
+    /// implemented — would need the identical treatment `InlineFlex`
+    /// just below gets, applied to `Grid`'s own dispatch guards instead,
+    /// a trivial follow-on not bundled into this item.
     Grid,
+    /// `display: inline-block` — inline-level outer placement (shares a
+    /// line with surrounding text/images, wraps like any other inline
+    /// item — see `InlineItem::Embedded`) but keeps its own real box
+    /// model and lays its children out exactly like an ordinary block
+    /// box (normal flow, via the same generic `Blocks` path `Block`
+    /// already falls into — nothing inline-block-specific exists in
+    /// `measure`/`build_box_for_element` at all, since neither has any
+    /// special case keyed on `Block` that `InlineBlock` would also need
+    /// to match).
+    InlineBlock,
+    /// `display: inline-flex` — `InlineBlock`'s own inline-level outer
+    /// placement, but this box's *children* are laid out via the same
+    /// flex algorithm `Flex` already uses (`measure_flex`) instead of
+    /// normal block flow. Needs both dispatch guards that currently
+    /// check `style.display == Display::Flex` widened to also match
+    /// this variant (`build_box_for_element`, `measure`) — confirmed by
+    /// reading `measure_flex`/`measure_flex_row`/`measure_flex_column`
+    /// directly that nothing inside them reads `Display::Flex` at all,
+    /// so those two dispatch sites are the entire flex-specific
+    /// footprint this variant needs.
+    InlineFlex,
 }
 
 /// `position`'s 5 implemented keywords. Not inherited (same category as
@@ -3135,6 +3159,10 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
                     // behavior real CSS gives this specific keyword. See
                     // TODO.txt for the float-containment gap itself.
                     Some(Display::Block)
+                } else if ident.eq_ignore_ascii_case("inline-block") {
+                    Some(Display::InlineBlock)
+                } else if ident.eq_ignore_ascii_case("inline-flex") {
+                    Some(Display::InlineFlex)
                 } else {
                     None
                 };
@@ -4890,6 +4918,19 @@ enum InlineItem {
         style: ComputedStyle,
         background_image: Option<Arc<DecodedImage>>,
     },
+    /// `display: inline-block`/`inline-flex` — an *unmeasured* element
+    /// that keeps its own real box model and children (unlike `Image`,
+    /// which is a void/replaced element with no descendants at all),
+    /// flowing inline instead of flushing to the block-level list the
+    /// way an ordinary `display: block` child would — see
+    /// `collect_children`'s own docs for the dispatch. Measured for
+    /// real inside `measure_mixed_inline`, which is also where its
+    /// `width: auto` shrink-to-fit sizing happens (reusing `cell_
+    /// natural_width`, the same machinery `float`'s own `width: auto`
+    /// already uses). Boxed for the same reason `MixedPositioned::
+    /// Embedded`'s own `Laid` is: keeps this enum's own size small
+    /// regardless of how large `LayoutBox` gets.
+    Embedded(Box<LayoutBox>),
 }
 
 enum BoxContent {
@@ -5079,11 +5120,12 @@ fn build_box_for_element(
             )),
         };
     }
-    // `display: flex` is block-level in the outer flow (same as `Table`,
-    // just above) but lays its *content* out completely differently —
-    // each direct child becomes a flex item (`build_flex_children`),
-    // measured per `measure_flex` instead of normal block/inline flow.
-    if style.display == Display::Flex {
+    // `display: flex`/`inline-flex` lay their *content* out identically
+    // — each direct child becomes a flex item (`build_flex_children`),
+    // measured per `measure_flex` instead of normal block/inline flow —
+    // differing only in their own *outer* placement (block-level vs.
+    // inline-level, decided entirely by `collect_children`, not here).
+    if matches!(style.display, Display::Flex | Display::InlineFlex) {
         return LayoutBox {
             style,
             background_image,
@@ -5458,6 +5500,21 @@ fn collect_children(
                         });
                     }
                     result.push(build_box_for_element(child, rules, inherited, decoration, child_href, viewport_width, image_cache));
+                } else if matches!(style.display, Display::InlineBlock | Display::InlineFlex) {
+                    // Inline-level, but — unlike the plain-`Inline`
+                    // flatten-and-recurse arm just below — keeps its own
+                    // real box (background/border/padding/margin/width/
+                    // height, children laid out normally or via flex,
+                    // see `Display::InlineBlock`/`InlineFlex`'s own
+                    // docs), pushed straight into the surrounding run
+                    // with *no* flush of `pending` — unlike the block-
+                    // level arm just above, this item has to keep
+                    // sharing a line with whatever text/images/other
+                    // inline-blocks already came before it. Measured for
+                    // real inside `measure_mixed_inline`, not here.
+                    let embedded =
+                        build_box_for_element(child, rules, inherited, decoration, child_href, viewport_width, image_cache);
+                    pending.push(InlineItem::Embedded(Box::new(embedded)));
                 } else {
                     let child_bg = style.background_color.or(bg);
                     let child_decoration = resolve_own_decoration(&style, decoration);
@@ -6082,7 +6139,7 @@ fn shift_laid_tree(laid: &mut Laid, dx: f32, dy: f32) {
                         *x += dx;
                         *y += dy;
                     }
-                    MixedPositioned::Image(img) => shift_laid_tree(img, dx, dy),
+                    MixedPositioned::Embedded(laid) => shift_laid_tree(laid, dx, dy),
                 }
             }
         }
@@ -6285,14 +6342,20 @@ enum LaidContent {
 /// time). A `Word` is one shaped word, rendered via the same `cache`/
 /// `paint_buffer` machinery `LaidContent::Text` uses — just one word
 /// per cache entry instead of one whole paragraph (see `measure_mixed_
-/// inline`'s own docs for why). An `Image` is a complete, ordinary
-/// `Laid` (its `BoxContent::Image` shape, `x`/`y` already absolute) —
-/// `paint`/`hit_test_cursor` just recurse into it exactly like any
-/// other child `Laid`, getting full box-decoration/clipping fidelity
-/// for free instead of a second, parallel painting path.
+/// inline`'s own docs for why). `Embedded` is a complete, ordinary
+/// `Laid` (`x`/`y` already absolute) — holding either an inline `<img>`
+/// (`LaidContent::Image`) or a real `display: inline-block`/`inline-
+/// flex` element's own fully measured subtree (`LaidContent::Blocks`,
+/// built by `measure_mixed_inline`'s own `InlineItem::Embedded`
+/// handling). `paint`/`hit_test_cursor` just recurse into it exactly
+/// like any other child `Laid`, regardless of which of those two it
+/// actually holds, getting full box-decoration/clipping fidelity for
+/// free instead of a second, parallel painting path — this variant was
+/// named `Image` before `inline-block`/`inline-flex` existed, back when
+/// an inline `<img>` was the only thing it could ever hold.
 enum MixedPositioned {
     Word { id: usize, x: f32, y: f32, w: f32, h: f32 },
-    Image(Box<Laid>),
+    Embedded(Box<Laid>),
 }
 
 /// A paragraph's shaped text, keyed by a stable id assigned during `measure`
@@ -6400,7 +6463,11 @@ fn shape_spans(
         .iter()
         .filter_map(|item| match item {
             InlineItem::Text(text, span) => Some((text.as_str(), span)),
-            InlineItem::Image { .. } => None,
+            // Never actually reached — the fast-path guard in `measure`
+            // keeps any run containing one of these out of this
+            // function entirely, routing it to `measure_mixed_inline`
+            // instead (same reasoning the `Image` arm already has).
+            InlineItem::Image { .. } | InlineItem::Embedded(_) => None,
         })
         .collect();
     let metrics = Metrics::new(16.0, 20.0);
@@ -6704,7 +6771,7 @@ pub fn measure<'a>(
     // category as a table — see `lay_out_row_cells`'s own docs), so
     // `floats`/`auto_margin_box_override` have nothing to do with it
     // either way; `measure_flex` doesn't take either.
-    if b.style.display == Display::Flex
+    if matches!(b.style.display, Display::Flex | Display::InlineFlex)
         && let BoxContent::Blocks(children) = &b.content
     {
         return measure_flex(
@@ -6739,7 +6806,7 @@ pub fn measure<'a>(
 
     let mut laid = match &b.content {
         BoxContent::Inline(items)
-            if items.iter().any(|i| matches!(i, InlineItem::Image { .. }))
+            if items.iter().any(|i| matches!(i, InlineItem::Image { .. } | InlineItem::Embedded(_)))
                 || (!floats.is_empty() && content_y < floats.max_bottom())
                 || items.iter().any(|i| matches!(i, InlineItem::Text(_, span) if span.word_spacing != 0.0)) =>
         {
@@ -6784,7 +6851,7 @@ pub fn measure<'a>(
             // not just a value declared on the run's own synthetic box.
             let (content_h, positioned) = measure_mixed_inline(
                 items, &s, font_system, content_x, content_y, content_w, containing_height, next_id, cache, deadline,
-                incomplete, floats,
+                incomplete, floats, pending, false,
             );
             let border_h = clamp_box_dim(
                 s.height,
@@ -7414,8 +7481,9 @@ fn shape_or_resume_word(
 /// trailing space) counts toward line width for alignment purposes,
 /// unlike a real UA which hangs trailing whitespace past the edge.
 #[allow(clippy::too_many_arguments)]
-fn measure_mixed_inline(
-    items: &[InlineItem],
+#[allow(clippy::too_many_arguments)]
+fn measure_mixed_inline<'a>(
+    items: &'a [InlineItem],
     s: &ComputedStyle,
     font_system: &mut FontSystem,
     content_x: f32,
@@ -7439,6 +7507,22 @@ fn measure_mixed_inline(
     // `y` (`Floats::avail_bounds`), instead of the one fixed `content_x`
     // .. `content_x + content_w` every line used before this existed.
     floats: &Floats,
+    // Where a `position: absolute`/`fixed` descendant *inside* an
+    // `InlineItem::Embedded` box bubbles out to, exactly the same
+    // `own_pending`/`resolve_or_bubble_positioned` convention every
+    // other box shape already uses — this function never needed it
+    // before since its only prior non-text item, `Image`, is a void
+    // element with no descendants to bubble anything out of. Unused
+    // (and safe to pass a throwaway scratch `Vec` into) when `trial` is
+    // `true`, since a trial call never descends into a real `measure`.
+    pending: &mut Vec<PendingPositioned<'a>>,
+    // `true` only for `cell_natural_width`'s own two sizing-only probes
+    // (see its own docs) — an `Embedded` item resolves its own natural
+    // width there but is never actually measured for real (no `Laid`,
+    // no paint, no bubbled positioned descendants), keeping those two
+    // probes exactly as cheap as every other `cell_natural_width` arm
+    // already is. Every real call (from `measure` itself) passes `false`.
+    trial: bool,
 ) -> (f32, Vec<MixedPositioned>) {
     // Effectively unconstrained — combined with `pre: true` below (which
     // also forces `Wrap::None`), a word is never wrapped/truncated
@@ -7465,12 +7549,25 @@ fn measure_mixed_inline(
     }
 
     #[allow(clippy::large_enum_variant)]
-    enum Measured {
+    enum Measured<'a> {
         Word { source: WordSource, width: f32, height: f32 },
         Image { laid_style: ComputedStyle, background_image: Option<Arc<DecodedImage>>, image: Arc<DecodedImage>, advance_w: f32, img_w: f32, img_h: f32 },
+        /// `laid`/`own_pending` are `None`/empty in `trial` mode (see
+        /// this function's own `trial` parameter docs) — no real
+        /// `measure()` call happens there at all, only the width
+        /// resolution needed for `cell_natural_width`'s own min/max
+        /// probing. `h` is `0.0` in that case too (unused: `cell_
+        /// natural_width`'s own callers only ever read `mixed_inline_
+        /// extent`, which never inspects height). Deliberately *not* a
+        /// margin-box height — `h` is this item's own border-box height
+        /// alone (`laid.h`), the exact same "vertical margin ignored for
+        /// line-height purposes" simplification `Image`'s own `img_h`
+        /// already has (only horizontal margin reserves real line
+        /// space — see `advance_w`), not a new one introduced here.
+        Embedded { laid: Option<Laid>, own_pending: Vec<PendingPositioned<'a>>, advance_w: f32, h: f32, style: ComputedStyle },
     }
 
-    let mut measured: Vec<Measured> = Vec::new();
+    let mut measured: Vec<Measured<'a>> = Vec::new();
     // Keyed by `chunk_id`, needed only if pass 2 falls back to shaping
     // one of a chunk's words on its own (see `WordSource::Chunk`'s own
     // docs) — every other word's chunk buffer is read straight out of
@@ -7552,6 +7649,83 @@ fn measure_mixed_inline(
                     img_h,
                 });
             }
+            InlineItem::Embedded(embedded_box) => {
+                // `width: auto` shrink-to-fit — the exact same clamp
+                // `float`'s own `width: auto` sizing already uses
+                // (`content_w.min(max).max(min.min(content_w))`), reused
+                // verbatim in real mode. `box_model_entry`'s own docs
+                // confirm this is always safe to compute and pass
+                // through even when it turns out not to matter: an
+                // *explicit* `width` ignores `auto_margin_box_override`
+                // entirely, so skipping the (otherwise pointless) `cell_
+                // natural_width` call when `width` is already set is a
+                // pure optimization, not a correctness branch.
+                let auto_override = if embedded_box.style.width.is_none() {
+                    let (min_mb, max_mb) =
+                        cell_natural_width(embedded_box, font_system, next_id, cache, deadline, incomplete);
+                    Some(if trial {
+                        // The float formula above degenerates incorrectly
+                        // at exactly the `content_w == 0.0` extreme `cell_
+                        // natural_width`'s own min-content trial calls
+                        // with (verified by hand: `0.0.min(max).max(min.
+                        // min(0.0))` is always `0.0`, never `min`), which
+                        // would silently under-report this run's own
+                        // min-content width whenever it contains an auto-
+                        // width embedded box. The textbook CSS2.1 §10.3.5
+                        // shrink-to-fit form is correct at *both*
+                        // extremes `cell_natural_width` actually probes
+                        // with (`0.0` -> `min_mb`; unbounded -> `max_mb`),
+                        // so trial mode uses that instead — a deliberate,
+                        // narrow deviation from "mirror float exactly,"
+                        // scoped only to this sizing-only path.
+                        content_w.max(min_mb).min(max_mb)
+                    } else {
+                        content_w.min(max_mb).max(min_mb.min(content_w))
+                    })
+                } else {
+                    None
+                };
+                if trial {
+                    // `cell_natural_width`'s own two sizing-only probes
+                    // (see this function's own `trial` parameter docs) —
+                    // cheap width resolution only, no real recursive
+                    // `measure()` call, keeping this exactly as cheap as
+                    // every other `cell_natural_width` arm already is.
+                    let mut trial_style = embedded_box.style;
+                    let entry = box_model_entry(&mut trial_style, 0.0, 0.0, content_w, containing_height, auto_override);
+                    let advance_w = entry.border_w + trial_style.margin.left.px() + trial_style.margin.right.px();
+                    measured.push(Measured::Embedded { laid: None, own_pending: Vec::new(), advance_w, h: 0.0, style: trial_style });
+                } else {
+                    // The one real, recursive layout call this item
+                    // needs — placed at this run's own placeholder
+                    // `(content_x, content_y)` for now (position never
+                    // affects width/height resolution, only `box_model_
+                    // entry`'s own `width`/`containing_height`/`auto_
+                    // margin_box_override` params do), repositioned by
+                    // `shift_laid_tree` once pass 2 knows this item's
+                    // real final line position — the same provisional-
+                    // then-shift trick `float`'s own positioning already
+                    // uses. A fresh, empty `Floats` — inline-block/
+                    // inline-flex establishes its own BFC, same category
+                    // this file already gives a float's own interior, a
+                    // table cell's own interior, and absolute/fixed
+                    // content (see `Floats`'s own docs). Participates in
+                    // the existing incremental-shaping `deadline`/`cache`/
+                    // `next_id` budget automatically, with zero new
+                    // machinery — one more (possibly expensive) recursive
+                    // call, not a new mechanism.
+                    let mut own_pending: Vec<PendingPositioned<'a>> = Vec::new();
+                    let embedded_floats = Floats::default();
+                    let laid = measure(
+                        embedded_box, font_system, content_x, content_y, content_w, containing_height, next_id, cache,
+                        deadline, incomplete, &mut own_pending, &embedded_floats, auto_override,
+                    );
+                    let h = laid.h;
+                    let advance_w = laid.style.margin.left.px() + laid.w + laid.style.margin.right.px();
+                    let style = laid.style;
+                    measured.push(Measured::Embedded { laid: Some(laid), own_pending, advance_w, h, style });
+                }
+            }
         }
     }
 
@@ -7582,7 +7756,7 @@ fn measure_mixed_inline(
     for (i, m) in measured.iter().enumerate() {
         let w = match m {
             Measured::Word { width, .. } => *width,
-            Measured::Image { advance_w, .. } => *advance_w,
+            Measured::Image { advance_w, .. } | Measured::Embedded { advance_w, .. } => *advance_w,
         };
         if !current.is_empty() && cursor_x + w > avail_w {
             let line_height = current
@@ -7590,6 +7764,7 @@ fn measure_mixed_inline(
                 .map(|&(i, _)| match &measured[i] {
                     Measured::Word { height, .. } => *height,
                     Measured::Image { img_h, .. } => *img_h,
+                    Measured::Embedded { h, .. } => *h,
                 })
                 .fold(0.0f32, f32::max);
             lines.push((left_bound, avail_w, std::mem::take(&mut current)));
@@ -7637,6 +7812,7 @@ fn measure_mixed_inline(
             .map(|&(i, _)| match &measured[i] {
                 Measured::Word { height, .. } => *height,
                 Measured::Image { img_h, .. } => *img_h,
+                Measured::Embedded { h, .. } => *h,
             })
             .fold(0.0f32, f32::max);
         let line_w = line
@@ -7644,7 +7820,7 @@ fn measure_mixed_inline(
             .map(|&(i, x)| {
                 x + match &measured[i] {
                     Measured::Word { width, .. } => *width,
-                    Measured::Image { advance_w, .. } => *advance_w,
+                    Measured::Image { advance_w, .. } | Measured::Embedded { advance_w, .. } => *advance_w,
                 }
             })
             .unwrap_or(0.0);
@@ -7657,6 +7833,72 @@ fn measure_mixed_inline(
         while idx < line.len() {
             let (i, x) = line[idx];
             let final_x = left_bound + x + align_offset;
+            if matches!(&measured[i], Measured::Embedded { .. }) {
+                // Needs owned access to `laid`/`own_pending` (to move the
+                // `Laid` out for `shift_laid_tree` and drain the bubbled
+                // positioned descendants) — pulled out of the shared
+                // `match &measured[i]` below for exactly that reason;
+                // every other arm only ever needs to read its own fields.
+                // Safe to take ownership here: each `measured` index is
+                // visited exactly once across every line (pass 1 assigns
+                // every item to exactly one line, `chunk_fits_one_line`'s
+                // own multi-word merge aside, which never applies to this
+                // variant).
+                let Measured::Embedded { laid, own_pending, advance_w, style, .. } = &mut measured[i] else { unreachable!() };
+                match laid.take() {
+                    Some(mut laid) => {
+                        let own_pending = std::mem::take(own_pending);
+                        let target_x = final_x + laid.style.margin.left.px();
+                        let target_y = content_y + cursor_y + (line_height - laid.h);
+                        let dx = target_x - laid.x;
+                        let dy = target_y - laid.y;
+                        shift_laid_tree(&mut laid, dx, dy);
+                        for mut p in own_pending {
+                            // `shift_laid_tree` just moved everything
+                            // `laid` already *caught* (its own `Laid::
+                            // positioned` list) by exactly `(dx, dy)` —
+                            // these entries are still bubbling *past*
+                            // this box (`position: static`, no positioned
+                            // ancestor found inside it yet), so they need
+                            // the identical correction applied by hand,
+                            // one `f32` pair at a time, to their own
+                            // static-position fallback.
+                            p.static_x += dx;
+                            p.static_y += dy;
+                            pending.push(p);
+                        }
+                        positioned.push(MixedPositioned::Embedded(Box::new(laid)));
+                    }
+                    None => {
+                        // Trial mode (`cell_natural_width`'s own two
+                        // sizing-only probes) — no real `Laid` was ever
+                        // produced (see this function's own `trial`
+                        // parameter docs), so pass 2 still runs (this
+                        // function always runs both passes, trial or
+                        // not) but has nothing real to position. Emit a
+                        // minimal placeholder purely to keep `Mixed
+                        // Positioned`'s own shape — never painted,
+                        // `cell_natural_width`'s own callers only ever
+                        // read `mixed_inline_extent`, which only touches
+                        // `.x`/`.w`.
+                        positioned.push(MixedPositioned::Embedded(Box::new(Laid {
+                            style: *style,
+                            x: final_x,
+                            y: content_y + cursor_y,
+                            w: *advance_w,
+                            h: 0.0,
+                            background_image: None,
+                            content: LaidContent::Blocks(Vec::new()),
+                            positioned: Vec::new(),
+                            fixed: false,
+                            sticky: None,
+                            scroll: None,
+                        })));
+                    }
+                }
+                idx += 1;
+                continue;
+            }
             match &measured[i] {
                 Measured::Word { source: WordSource::Chunk { chunk_id, .. }, width, height } if chunk_fits_one_line[chunk_id] => {
                     // This word's whole chunk stayed on one line —
@@ -7705,7 +7947,7 @@ fn measure_mixed_inline(
                     idx += 1;
                 }
                 Measured::Image { laid_style, background_image, image, img_w, img_h, .. } => {
-                    positioned.push(MixedPositioned::Image(Box::new(Laid {
+                    positioned.push(MixedPositioned::Embedded(Box::new(Laid {
                         style: *laid_style,
                         x: final_x + laid_style.margin.left.px(),
                         y: content_y + cursor_y + (line_height - img_h),
@@ -7719,6 +7961,17 @@ fn measure_mixed_inline(
                         scroll: None,
                     })));
                     idx += 1;
+                }
+                Measured::Embedded { .. } => {
+                    // Needs owned access to `laid`/`own_pending` (to move
+                    // the `Laid` out for `shift_laid_tree` and drain the
+                    // bubbled positioned descendants) — not reachable
+                    // through the shared `&measured[i]` the rest of this
+                    // match borrows, so this one arm is pulled out into
+                    // its own mutable-borrow step just below instead of
+                    // living inline here (see directly below the `match`
+                    // this arm's own guard skips past).
+                    unreachable!("handled before this match — see the `if let Measured::Embedded` just above it")
                 }
             }
         }
@@ -7741,7 +7994,7 @@ fn mixed_inline_extent(positioned: &[MixedPositioned]) -> f32 {
         .iter()
         .map(|p| match p {
             MixedPositioned::Word { x, w, .. } => x + w,
-            MixedPositioned::Image(laid) => laid.x + laid.w,
+            MixedPositioned::Embedded(laid) => laid.x + laid.w,
         })
         .fold(0.0f32, f32::max)
 }
@@ -7812,13 +8065,21 @@ fn cell_natural_width(
             // floats: there's no real BFC to inherit from either, so
             // both trials use a fresh, empty one.
             let no_floats = Floats::default();
+            // Both trials' own `pending` is a throwaway scratch `Vec` —
+            // `trial: true` guarantees nothing is ever pushed into it
+            // (an `Embedded` item resolves only its own width here,
+            // never a real nested `measure()` call that could produce a
+            // positioned descendant to bubble out — see `measure_mixed_
+            // inline`'s own `trial` parameter docs), same spirit as the
+            // `no_floats` scratch value just above for the same "no
+            // real containing block/BFC exists yet" reason.
             let (_, min_items) = measure_mixed_inline(
                 items, &trial_style, font_system, 0.0, 0.0, 0.0, None, next_id, cache, deadline, incomplete,
-                &no_floats,
+                &no_floats, &mut Vec::new(), true,
             );
             let (_, max_items) = measure_mixed_inline(
                 items, &trial_style, font_system, 0.0, 0.0, UNBOUNDED, None, next_id, cache, deadline, incomplete,
-                &no_floats,
+                &no_floats, &mut Vec::new(), true,
             );
             (mixed_inline_extent(&min_items), mixed_inline_extent(&max_items))
         }
@@ -10480,7 +10741,13 @@ fn paint(
             // images still paint immediately regardless, since those
             // never go through `cache` at all.
             let text_ready = positioned.iter().all(|item| match item {
-                MixedPositioned::Image(_) => true,
+                // An embedded box's own nested text (if any) manages its
+                // own cache-readiness independently, the normal way any
+                // other recursively-painted `Laid` already does — this
+                // check is only about the *outer* run's own directly-
+                // owned word buffers, so `Embedded` is "ready" here
+                // unconditionally, same as `Image` always was.
+                MixedPositioned::Embedded(_) => true,
                 MixedPositioned::Word { id, .. } => cache.contains_key(id),
             });
             for item in positioned {
@@ -10489,7 +10756,7 @@ fn paint(
                     // exact same path a `Blocks`/`TableRow` child does,
                     // so it gets box-decoration/clipping/culling for
                     // free (see `MixedPositioned`'s own docs).
-                    MixedPositioned::Image(img_laid) => {
+                    MixedPositioned::Embedded(img_laid) => {
                         paint(
                             img_laid, font_system, swash_cache, cache, scroll_offsets, pixels, win_w, win_h,
                             scroll_offset, child_clip,
@@ -10719,7 +10986,7 @@ fn hit_test_cursor(
         LaidContent::MixedInline(positioned) => {
             for item in positioned {
                 match item {
-                    MixedPositioned::Image(img_laid) => {
+                    MixedPositioned::Embedded(img_laid) => {
                         if img_laid.x <= x && x < img_laid.x + img_laid.w && img_laid.y <= y && y < img_laid.y + img_laid.h {
                             return hit_test_cursor(img_laid, x, y, cache, scroll_offsets, scroll_offset, viewport_h);
                         }
@@ -13729,8 +13996,15 @@ mod tests {
         // docs.
         if let LaidContent::MixedInline(items) = &laid.content {
             for item in items {
-                if let MixedPositioned::Image(img_laid) = item {
-                    return Some(img_laid);
+                // `Embedded` can now also hold a `display: inline-block`/
+                // `inline-flex` element's own subtree, not just an
+                // inline `<img>` — check this entry's own `content` so a
+                // run mixing both kinds doesn't return whichever comes
+                // first regardless of which one a test actually wants.
+                if let MixedPositioned::Embedded(embedded_laid) = item
+                    && matches!(embedded_laid.content, LaidContent::Image(_))
+                {
+                    return Some(embedded_laid);
                 }
             }
         }
@@ -13964,7 +14238,7 @@ mod tests {
 
     fn mixed_item_xy(item: &MixedPositioned) -> (f32, f32) {
         match item {
-            MixedPositioned::Image(img) => (img.x, img.y),
+            MixedPositioned::Embedded(laid) => (laid.x, laid.y),
             MixedPositioned::Word { x, y, .. } => (*x, *y),
         }
     }
@@ -14044,7 +14318,7 @@ mod tests {
             .iter()
             .filter_map(|item| match item {
                 MixedPositioned::Word { id, .. } => Some(*id),
-                MixedPositioned::Image(_) => None,
+                MixedPositioned::Embedded(_) => None,
             })
             .collect();
         assert_eq!(word_ids.len(), 2, "expected the two words (\"x \", \"y\") to each get their own id");
@@ -15892,7 +16166,7 @@ mod tests {
             assert_eq!(items.len(), 2);
             match &items[1] {
                 MixedPositioned::Word { x, .. } => *x,
-                MixedPositioned::Image(_) => panic!("expected a word"),
+                MixedPositioned::Embedded(_) => panic!("expected a word"),
             }
         };
         let x1_10 = second_word_x(10.0);
@@ -17796,5 +18070,117 @@ mod tests {
         assert_eq!(flow_root.w, 500.0, "the flow-root box should stretch to the full container width like an ordinary auto-width block box");
         let sibling = find_by_height(&laid, 20.0).expect("sibling div not found");
         assert_eq!(sibling.y, flow_root.y + flow_root.h, "the sibling div should stack below the flow-root box, not share a line with it");
+    }
+
+    // ---------- `display: inline-block`/`inline-flex` ----------
+
+    fn find_embedded(items: &[MixedPositioned], predicate: impl Fn(&Laid) -> bool) -> Option<&Laid> {
+        items.iter().find_map(|item| match item {
+            MixedPositioned::Embedded(laid) if predicate(laid) => Some(laid.as_ref()),
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn inline_block_shares_a_line_with_text_and_keeps_its_own_explicit_size() {
+        let laid = measure_fixture(
+            r#"<html><body style="margin: 0"><p style="margin: 0">a <span style="display: inline-block; width: 50px; height: 20px;">b</span> c</p></body></html>"#,
+            500.0,
+        );
+        let run = find_mixed_inline(&laid).expect("paragraph should take the mixed-inline path, not the fast plain-text one");
+        let items = mixed_items(run);
+        assert!(
+            items.iter().any(|i| matches!(i, MixedPositioned::Word { .. })),
+            "the surrounding text ('a'/'c') should still be real words sharing this same run"
+        );
+        let embedded = find_embedded(items, |l| (l.w, l.h) == (50.0, 20.0))
+            .expect("inline-block span should get its own Embedded box with its explicit 50x20 size, not be flattened or ignored");
+        assert_eq!(embedded.y, items.iter().find_map(|i| match i { MixedPositioned::Word { y, .. } => Some(*y), _ => None }).unwrap(), "should share the same line (same y) as the surrounding words, not stack like a block");
+    }
+
+    #[test]
+    fn inline_flex_lays_its_children_out_side_by_side_not_stacked() {
+        // A plain `<div>` wrapper, not `<p>` — real HTML5 tree
+        // construction auto-closes an open `<p>` the instant a nested
+        // `<div>` start tag appears anywhere inside it (confirmed by
+        // dumping the parsed DOM directly: a `<p>` wrapper silently
+        // splits into two sibling `<p>`s with the flex `<div>`s
+        // orphaned onto `<body>` in between, nothing to do with this
+        // feature at all), the same real browser behavior `html5ever`
+        // is correctly implementing here, not a parsing bug to work
+        // around in the renderer.
+        let laid = measure_fixture(
+            r#"<html><body style="margin: 0"><div style="margin: 0">a <span style="display: inline-flex; width: 100px;"><div style="flex: 1;">x</div><div style="flex: 1;">y</div></span> b</div></body></html>"#,
+            500.0,
+        );
+        let run = find_mixed_inline(&laid).expect("paragraph should take the mixed-inline path");
+        let items = mixed_items(run);
+        let embedded =
+            find_embedded(items, |l| l.w == 100.0).expect("inline-flex span should get its own 100px-wide Embedded box");
+        let LaidContent::Blocks(children) = &embedded.content else {
+            panic!("expected the inline-flex box's own content to be Blocks (its two flex items), not normal block-stacked content")
+        };
+        assert_eq!(children.len(), 2);
+        assert_eq!(children[0].y, children[1].y, "two equally-flexed items should share one row, not stack vertically — proves this actually flexed, not just became an inline-block");
+        assert_eq!(children[0].w, 50.0, "flex: 1 on both items should split the 100px evenly");
+        assert_eq!(children[1].x, children[0].x + children[0].w, "the second flex item should start exactly where the first ends");
+    }
+
+    #[test]
+    fn inline_block_width_auto_shrinks_to_its_own_content_not_the_full_line() {
+        let laid = measure_fixture(
+            r#"<html><body style="margin: 0"><p style="margin: 0"><span style="display: inline-block;">hi</span></p></body></html>"#,
+            400.0,
+        );
+        let run = find_mixed_inline(&laid).expect("paragraph should take the mixed-inline path");
+        let items = mixed_items(run);
+        let embedded = find_embedded(items, |_| true).expect("inline-block span not found");
+        assert!(
+            embedded.w < 400.0 && embedded.w > 0.0,
+            "a width:auto inline-block should shrink-to-fit its own short content (CSS2.1 §10.3.5), not fill the whole 400px line the way an ordinary width:auto block would: got {}",
+            embedded.w
+        );
+    }
+
+    #[test]
+    fn position_absolute_inside_a_static_inline_block_bubbles_out_to_the_real_positioned_ancestor() {
+        let laid = measure_fixture(
+            r#"<html><body><div style="position: relative; width: 300px; height: 100px; padding: 10px;"><span style="display: inline-block;"><i style="position: absolute; top: 5px; left: 5px; width: 50px; height: 50px;">x</i></span></div></body></html>"#,
+            400.0,
+        );
+        let container = find_by_width(&laid, 300.0).expect("positioned container not found");
+        assert_eq!(
+            container.positioned.len(),
+            1,
+            "the absolute descendant should bubble all the way out past its own static-positioned inline-block parent to resolve against the real positioned ancestor"
+        );
+        let abs = &container.positioned[0];
+        assert_eq!(abs.x, container.x + 5.0, "left should resolve against the containing block's own padding edge, not the inline-block's");
+        assert_eq!(abs.y, container.y + 5.0, "top should resolve against the containing block's own padding edge, not the inline-block's");
+        assert_eq!((abs.w, abs.h), (50.0, 50.0));
+    }
+
+    /// Regression test for a real panic found via live testing (not by
+    /// any of the tests above): `measure_mixed_inline` always runs both
+    /// of its own passes, `trial` or not — `cell_natural_width`'s own
+    /// two sizing-only probes call the *whole* function, not just its
+    /// first pass, so an `InlineItem::Embedded`'s pass-2 handling must
+    /// cope with `laid` genuinely being `None` (trial mode never
+    /// produces a real one), not assume it can always be taken. A
+    /// `<table>` cell is the natural real-world trigger, since real CSS
+    /// auto table-layout column sizing is `cell_natural_width`'s own
+    /// original use. Asserting this doesn't panic *is* the test; the
+    /// column-width assertion just confirms the resulting layout is
+    /// sane, not only crash-free.
+    #[test]
+    fn inline_block_inside_a_table_cell_does_not_panic_during_column_sizing() {
+        let laid = measure_fixture(
+            r#"<html><body><table><tr><td><span style="display: inline-block; width: 30px; height: 10px;">x</span></td></tr></table></body></html>"#,
+            400.0,
+        );
+        let run = find_mixed_inline(&laid).expect("table cell's own mixed-inline run not found");
+        let embedded =
+            find_embedded(mixed_items(run), |l| (l.w, l.h) == (30.0, 10.0)).expect("inline-block inside the cell should still get its own real, correctly-sized box");
+        assert!(embedded.w > 0.0);
     }
 }

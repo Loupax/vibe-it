@@ -1629,31 +1629,90 @@ last, per the user's own call.
       block`/`inline-flex`, deliberately *not* attempted here, see the
       next item.
 
-- [ ] **`display: inline-block`/`inline-flex` — real numbers now in
-      hand, not yet attempted.** The CSS-gap report's single biggest
-      corrected finding: `inline-block` (72 occurrences) and `inline-flex`
-      (40) are the dominant real-world `display` values scratchy still
-      can't do anything with — together more than the rest of that
-      report's entire `display` breakdown combined. The report first
-      called this "small effort, same enum, just new keyword arms,"
-      which is wrong: confirmed directly by reading `collect_children`,
-      an element whose own `display` isn't `Block`/`Table`/`Flex`/`Grid`
-      is never given its own box at all — it's flattened, recursing
-      straight into the *same* shared `pending: Vec<InlineItem>` run as
-      its siblings, with only its background/decoration/href/valign
-      surviving as ambient state. `InlineItem` itself only has two
-      variants, `Text` and `Image` — there's nowhere for an arbitrary
-      boxed element with its own real box model and children to go.
-      Real `inline-block`/`inline-flex` needs a new `InlineItem` variant
-      holding a full nested box, plus extending `measure_mixed_inline`
-      to measure/position/paint it inline — architecturally the same
-      scale of work v48's `<img>` inline-flow feature already was, not a
-      trivial addition. (`inline-flex` specifically was already flagged
-      as needing exactly this, in the flexbox item's own text, before
-      this report existed — this item's new contribution is real-world
-      counts and confirming `inline-block` needs the identical
-      foundation, not just `inline-flex`.) `inline-grid` would need the
-      same foundation too, same as `inline-flex` already notes.
+- [x] **`display: inline-block`/`inline-flex`** — the CSS-gap report's
+      single biggest corrected finding (`inline-block`, 72 occurrences on
+      the Wikipedia Main Page, and `inline-flex`, 40, together more than
+      the rest of that report's entire `display` breakdown combined) now
+      really works, not just parses. Confirmed by reading `collect_
+      children` directly before starting: an element whose own `display`
+      wasn't `Block`/`Table`/`Flex`/`Grid` was never given its own box at
+      all — it was flattened into the shared inline run, and `InlineItem`
+      only had `Text`/`Image` variants, nowhere for an arbitrary boxed
+      element with its own children to go.
+
+      A new `InlineItem::Embedded(Box<LayoutBox>)` variant carries the
+      *unmeasured* element (built via the same `build_box_for_element`
+      the block-level path already calls) into the run with no flush of
+      pending content — `collect_children` gets one new dispatch arm for
+      `Display::InlineBlock`/`InlineFlex`, inserted between the existing
+      block-level and flatten-and-recurse arms. `inline-block`'s own
+      content-building needed no new code at all (it already falls
+      through every `Table`/`Flex`/`Grid` special case into the generic
+      `Blocks` path `Block` already uses); `inline-flex` needed exactly
+      two one-line `matches!` widenings (`build_box_for_element`,
+      `measure`) on what were previously exact `== Display::Flex`
+      checks — confirmed by grep that nothing inside `measure_flex`/
+      `measure_flex_row`/`measure_flex_column` itself reads `Display::
+      Flex` at all, so those two widenings are the entire flex-specific
+      footprint this needed.
+
+      `measure_mixed_inline` does the real work: resolves `width: auto`
+      via `cell_natural_width`'s own shrink-to-fit (reusing `float`'s
+      exact clamp formula in real mode; a textbook CSS2.1 §10.3.5 form
+      in `cell_natural_width`'s own sizing-only trial calls instead,
+      since the float formula degenerates incorrectly at the `content_w
+      == 0.0` extreme those probes actually use), then calls the real
+      `measure()` at a placeholder position, repositioning the result
+      with `shift_laid_tree` once pass 2 knows the item's real line
+      position — the same provisional-then-shift trick float's own
+      positioning already uses. A new `pending: &mut Vec<
+      PendingPositioned>` parameter lets a `position: absolute`
+      descendant *inside* a `position: static` embedded box keep
+      bubbling out to its real containing block, exactly like `measure`'s
+      own `Blocks` arm already does (this function never needed it
+      before since its only prior non-text item, `Image`, is a void
+      element with no descendants). `MixedPositioned::Image` was renamed
+      to `::Embedded` (a mechanical rename across every site that
+      matches it — paint, hit-test, the scroll-shift path, `mixed_
+      inline_extent`, a few test helpers — none of which actually needed
+      new logic, since all of them already recursed/dispatched generically
+      on the `Laid` they held, confirmed by their own existing doc
+      comments before this landed).
+
+      5 new permanent tests, including a real regression: live testing
+      against the Wikipedia Main Page (not any of the first 4 tests)
+      caught a genuine panic `cargo test` never would have — `measure_
+      mixed_inline` always runs *both* its passes regardless of `trial`,
+      so an `Embedded` item's pass-2 handling unconditionally assumed a
+      real `Laid` existed, which is false for `cell_natural_width`'s own
+      two sizing-only probes (real CSS auto table-layout column sizing,
+      confirmed as the actual real-world trigger). Fixed by storing each
+      item's own resolved style alongside `laid: Option<Laid>` and
+      branching on whether a real measurement happened, with a 5th test
+      (an inline-block inside a `<table>` cell) added specifically to
+      keep this one from regressing silently.
+
+      Live-verified against the real Wikipedia Main Page through a real
+      `wire` daemon: zero `display: inline-block`/`inline-flex` lines
+      remain in `SCRATCHY_CSS_DEBUG=1`'s own output (down from 112
+      combined), zero panics, confirmed via a real `grim` screenshot
+      that the page's own page-tools row (Article/Talk/Read/Edit/View
+      history) now renders as a coherent horizontal strip instead of
+      whatever document-order stacking it fell back to before.
+
+      Deliberately not attempted, named precisely rather than silently
+      folded in: `inline-grid` (would need the identical two-`matches!`-
+      widening treatment applied to the `Grid` guards instead of `Flex`,
+      a trivial separate follow-on); any `vertical-align` beyond the
+      same bottom-alignment approximation inline `<img>` already has (no
+      real baseline is threaded out of cosmic-text anywhere in this
+      file); `%` width/height on an embedded box against an indefinite
+      containing block (the same pre-existing gap every other property
+      already has); perf/recursion-depth tuning for inline-block nested
+      inside inline-block (works correctly today via plain recursion,
+      just not optimized — one more real recursive `measure()` call per
+      nesting level, same budget-participation every other nested box
+      already gets, no new mechanism).
 
 - [ ] **JavaScript — engine choice, investigated, not started; last
       pillar per the user's own explicit ordering.** Recommendation:
