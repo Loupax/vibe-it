@@ -2657,6 +2657,49 @@ fn parse_border_like_shorthand<'k>(
     }
 }
 
+/// `background`'s own grammar is far larger than this (layering,
+/// position, size, repeat, attachment, origin, clip) — this covers only
+/// the two longhands this file actually implements, `background-color`
+/// and `background-image`, which is the dominant real-world case
+/// (CSS-gap report: 80 occurrences, nearly all a bare `background:
+/// <color>` or a single `url(...)` image). Any other component (a
+/// repeat/attachment/position/box/`none` keyword, a size dimension, the
+/// `/` separator) is skipped rather than failing the whole value, same
+/// lenient philosophy as `border`'s own shorthand parser above —
+/// `background-image: none` has exactly the same "parsing it just
+/// fails, which happens to leave the property unset" behavior as the
+/// `background-image` longhand itself (see its own TODO.txt note); this
+/// shorthand doesn't attempt to fix that distinctly.
+fn parse_background_shorthand(input: &mut CssParser) -> Result<(Option<CssColor>, Option<String>), ()> {
+    let mut color = None;
+    let mut image = None;
+    let mut found = false;
+    loop {
+        let state = input.state();
+        if let Ok(url) = input.expect_url() {
+            image = Some(url.to_string());
+            found = true;
+            continue;
+        }
+        input.reset(&state);
+        if let Ok(c) = CssColor::parse(input) {
+            color = Some(c);
+            found = true;
+            continue;
+        }
+        input.reset(&state);
+        match input.next() {
+            Ok(_) => {}
+            Err(_) => break,
+        }
+    }
+    if found {
+        Ok((color, image))
+    } else {
+        Err(())
+    }
+}
+
 /// A parsed (not-yet-resolved) `box-shadow` value. Deliberately narrower
 /// than the real property: no `inset` (an inner shadow would need an
 /// entirely different paint — clipped to the box's own content area,
@@ -3111,6 +3154,15 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
         } else if name.eq_ignore_ascii_case("background-image") {
             if let Ok(url) = input.expect_url() {
                 self.decls.background_image = Some(url.to_string());
+            }
+        } else if name.eq_ignore_ascii_case("background") {
+            if let Ok((color, image)) = parse_background_shorthand(input) {
+                if let Some(c) = color {
+                    self.decls.background_color = Some(c);
+                }
+                if let Some(url) = image {
+                    self.decls.background_image = Some(url);
+                }
             }
         } else if name.eq_ignore_ascii_case("border-color") {
             if let Ok(c) = CssColor::parse(input) {
@@ -14220,6 +14272,63 @@ mod tests {
         let px = |x: u32, y: u32| pixels[(y * win_w + x) as usize] & 0x00FFFFFF;
         assert_eq!(px(30, 30), 0xFF0000, "background-image should paint inside the border");
         assert_eq!(px(9, 30), 0x0000FF, "border itself should still paint on top of/around the background-image");
+    }
+
+    #[test]
+    fn background_shorthand_color_only_sets_background_color() {
+        let html = r#"<html><body style="margin:0"><div style="width: 40px; height: 40px; background: #ff0000;"></div></body></html>"#;
+        let doc = parse_html(html);
+        let tree = build_layout_tree(&doc, 1920.0);
+        let mut font_system = new_font_system();
+        let mut cache = ShapeCache::new();
+        let mut next_id = 0usize;
+        let mut incomplete = false;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let laid = measure(
+            &tree, &mut font_system, 0.0, 0.0, 200.0, None, &mut next_id, &mut cache, deadline, &mut incomplete,
+            &mut Vec::new(), &Floats::default(), None,
+        );
+        let mut swash_cache = SwashCache::new();
+        let (win_w, win_h) = (100u32, 100u32);
+        let mut pixels = vec![0u32; (win_w * win_h) as usize];
+        paint(&laid, &mut font_system, &mut swash_cache, &mut cache, &HashMap::new(), &mut pixels, win_w, win_h, 0.0, None);
+        let px = pixels[20 * win_w as usize + 20];
+        assert_eq!(px & 0x00FF_FFFF, 0x00FF_0000, "`background: #ff0000` shorthand should paint the same red as `background-color` would");
+    }
+
+    #[test]
+    fn background_shorthand_url_sets_background_image() {
+        let src = tiny_png_data_uri(4, 4);
+        let html = format!(r#"<html><body><div style="width: 13px; height: 13px; background: url('{src}');"></div></body></html>"#);
+        let laid = measure_fixture(&html, 200.0);
+        let div = find_by_width(&laid, 13.0).expect("div not found");
+        assert!(div.background_image.is_some(), "`background: url(...)` shorthand should resolve a background-image the same as the longhand would");
+    }
+
+    #[test]
+    fn background_shorthand_ignores_unrecognized_components_but_still_sets_color() {
+        let html = r#"<html><body style="margin:0"><div style="width: 40px; height: 40px; background: #0000ff no-repeat center / cover;"></div></body></html>"#;
+        let doc = parse_html(html);
+        let tree = build_layout_tree(&doc, 1920.0);
+        let mut font_system = new_font_system();
+        let mut cache = ShapeCache::new();
+        let mut next_id = 0usize;
+        let mut incomplete = false;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let laid = measure(
+            &tree, &mut font_system, 0.0, 0.0, 200.0, None, &mut next_id, &mut cache, deadline, &mut incomplete,
+            &mut Vec::new(), &Floats::default(), None,
+        );
+        let mut swash_cache = SwashCache::new();
+        let (win_w, win_h) = (100u32, 100u32);
+        let mut pixels = vec![0u32; (win_w * win_h) as usize];
+        paint(&laid, &mut font_system, &mut swash_cache, &mut cache, &HashMap::new(), &mut pixels, win_w, win_h, 0.0, None);
+        let px = pixels[20 * win_w as usize + 20];
+        assert_eq!(
+            px & 0x00FF_FFFF,
+            0x0000_00FF,
+            "a repeat/position/size component this file doesn't implement shouldn't throw away the color that did parse"
+        );
     }
 
     #[test]
