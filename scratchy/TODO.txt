@@ -952,6 +952,33 @@ session can pick a coherent slice rather than one property at a time.
       page's shadow looks visibly wrong without blur, or needs
       `currentColor`/multiple layered shadows.
 
+      `box-shadow: none` *is* now recognized (CSS-gap report: 10
+      occurrences on the Wikipedia Main Page) — a real cascade gap, not
+      a cosmetic one: a plain `Option<BoxShadow>` couldn't tell "this
+      rule declared `none`" from "this rule never mentioned `box-shadow`
+      at all," so an explicit `none` used to silently fail to parse and
+      let a *less*-specific rule's real shadow leak through instead of
+      being cleared. A new `ShadowDecl::{None, Shadow}` wrapper around
+      `Declarations.box_shadow` fixes this — `none` now wins the cascade
+      at its own specificity like any other explicit value. 2 new
+      permanent tests (an explicit `none` overriding a rule-level
+      shadow, and a real shadow still resolving normally alongside it).
+
+      Also landed in the same pass: `text-align: start`/`end` (CSS-gap
+      report: 12 occurrences) now resolve to `left`/`right` — the same
+      always-left-to-right simplification `margin-inline-start`/`-end`
+      already established for this engine, which has no writing-mode
+      concept beyond that. (`margin-inline-start`/`-end`/`margin-inline`
+      turned out to already be fully implemented, contrary to what the
+      gap report's own raw count suggested — every real occurrence on
+      the Wikipedia Main Page is a second, redundant declaration right
+      after an equal-valued `margin-left`/`-right`/`margin` in the same
+      rule, so the debug tool's own before/after comparison correctly,
+      if misleadingly, reports "no change": the field was already set
+      to that exact value by the physical property one declaration
+      earlier. A real, if narrow, false-negative of that tool's own
+      design — see its own TODO.txt entry — not a bug in this item.)
+
 - [ ] CSS custom properties (v45) only resolve `var()` against `:root`/
       `html`-scoped declarations — a flat, whole-document table, not
       real per-element cascade/inheritance. A `--name` declared on any

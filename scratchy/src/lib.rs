@@ -1154,7 +1154,12 @@ struct Declarations {
     visibility: Option<Visibility>,
     outline_width: Option<Length>,
     outline_color: Option<CssColor>,
-    box_shadow: Option<BoxShadow>,
+    /// `Some(ShadowDecl::None)` for an explicit `box-shadow: none` — a
+    /// real, win-the-cascade-at-this-specificity declaration, distinct
+    /// from `None` here (property not declared by this rule at all).
+    /// See `ShadowDecl`'s own docs for why a plain `Option<BoxShadow>`
+    /// can't tell those two cases apart.
+    box_shadow: Option<ShadowDecl>,
     border_radius: Option<Length>,
     overflow: Option<Overflow>,
     cursor: Option<CursorStyle>,
@@ -2720,6 +2725,23 @@ struct BoxShadow {
     color: CssColor,
 }
 
+/// `box-shadow`'s own declared value, as stored in `Declarations` —
+/// either a real shadow or the literal `none` keyword, which real CSS
+/// needs to win the cascade at its own specificity (overriding a real
+/// shadow a *less*-specific rule declared) exactly like any other
+/// explicit value would. Plain `Option<BoxShadow>` can't represent
+/// that: both "this rule said `none`" and "this rule never mentioned
+/// `box-shadow` at all" would collapse to the same `None`, so `cascade_
+/// property` (which skips a rule entirely when its own accessor
+/// returns `None`) could never let an explicit `none` override a less-
+/// specific real shadow — it would just fall through to that shadow as
+/// if `none` had never been declared.
+#[derive(Clone, Copy, PartialEq)]
+enum ShadowDecl {
+    None,
+    Shadow(BoxShadow),
+}
+
 /// `<offset-x> <offset-y> <blur-radius>? <spread-radius>? <color>` — a
 /// `<color>` is accepted at any position in the token stream (real CSS
 /// allows it first or last), same token-loop style as the shorthand
@@ -3398,8 +3420,10 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
                 }
             }
         } else if name.eq_ignore_ascii_case("box-shadow") {
-            if let Ok(v) = parse_box_shadow(input) {
-                self.decls.box_shadow = Some(v);
+            if input.try_parse(|input| input.expect_ident_matching("none")).is_ok() {
+                self.decls.box_shadow = Some(ShadowDecl::None);
+            } else if let Ok(v) = parse_box_shadow(input) {
+                self.decls.box_shadow = Some(ShadowDecl::Shadow(v));
             }
         } else if name.eq_ignore_ascii_case("border-radius") {
             set_length(input, &mut self.decls.border_radius);
@@ -3650,6 +3674,16 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
                     Some(TextAlign::Center)
                 } else if ident.eq_ignore_ascii_case("justify") {
                     Some(TextAlign::Justify)
+                } else if ident.eq_ignore_ascii_case("start") {
+                    // Logical, writing-mode-relative keywords — this
+                    // engine has no notion of a writing mode other than
+                    // left-to-right (see `TextAlign`'s own docs, and
+                    // `margin-inline-start`/`-end`'s own already-landed
+                    // "always resolve against left/right" precedent), so
+                    // `start`/`end` always resolve to `left`/`right`.
+                    Some(TextAlign::Left)
+                } else if ident.eq_ignore_ascii_case("end") {
+                    Some(TextAlign::Right)
                 } else {
                     None
                 };
@@ -4678,13 +4712,19 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         inline_decls.as_ref().and_then(|d| d.box_shadow),
         |d| d.box_shadow,
     )
-    .and_then(|bs| {
-        to_text_color(&bs.color).map(|color| ResolvedBoxShadow {
+    .and_then(|decl| match decl {
+        // The winning declaration at this specificity was a real `none`
+        // — not "nothing declared it," which `cascade_property` already
+        // tells apart from this (see `ShadowDecl`'s own docs) — so this
+        // element genuinely has no shadow, regardless of what a less-
+        // specific rule elsewhere might have declared.
+        ShadowDecl::None => None,
+        ShadowDecl::Shadow(bs) => to_text_color(&bs.color).map(|color| ResolvedBoxShadow {
             offset_x: bs.offset_x.resolve(font_size, inherited.root_font_size),
             offset_y: bs.offset_y.resolve(font_size, inherited.root_font_size),
             spread: bs.spread.resolve(font_size, inherited.root_font_size),
             color,
-        })
+        }),
     });
     let border_radius = cascade_property(
         &matches,
@@ -18306,6 +18346,46 @@ mod tests {
         let embedded =
             find_embedded(mixed_items(run), |l| (l.w, l.h) == (30.0, 10.0)).expect("inline-block inside the cell should still get its own real, correctly-sized box");
         assert!(embedded.w > 0.0);
+    }
+
+    // ---------- `box-shadow: none` ----------
+
+    #[test]
+    fn box_shadow_none_overrides_a_rule_level_shadow_not_just_fail_silently() {
+        let laid = measure_fixture(
+            r#"<html><head><style>div { box-shadow: 2px 2px 0 #000000; }</style></head><body><div style="box-shadow: none; width: 123px;">x</div></body></html>"#,
+            400.0,
+        );
+        let div = find_by_width(&laid, 123.0).expect("div not found");
+        assert!(
+            div.style.box_shadow.is_none(),
+            "box-shadow: none should win the cascade and clear the rule-level shadow, not silently fail to parse and let the rule's shadow leak through"
+        );
+    }
+
+    #[test]
+    fn box_shadow_without_none_still_resolves_normally() {
+        let laid = measure_fixture(
+            r#"<html><body><div style="box-shadow: 2px 3px 0 #ff0000; width: 50px;">x</div></body></html>"#,
+            400.0,
+        );
+        let div = find_by_width(&laid, 50.0).expect("div not found");
+        let shadow = div.style.box_shadow.expect("a real box-shadow declaration should still resolve normally");
+        assert_eq!((shadow.offset_x, shadow.offset_y), (2.0, 3.0));
+    }
+
+    // ---------- `text-align: start`/`end` ----------
+
+    #[test]
+    fn text_align_start_and_end_resolve_to_left_and_right() {
+        let laid = measure_fixture(
+            r#"<html><body><div style="text-align: start; width: 10px;">a</div><div style="text-align: end; width: 20px;">b</div></body></html>"#,
+            400.0,
+        );
+        let start = find_by_width(&laid, 10.0).expect("start div not found");
+        assert!(start.style.text_align == TextAlign::Left, "text-align: start should resolve to left for this engine's always-left-to-right content");
+        let end = find_by_width(&laid, 20.0).expect("end div not found");
+        assert!(end.style.text_align == TextAlign::Right, "text-align: end should resolve to right for this engine's always-left-to-right content");
     }
 
     // ---------- `pt` unit ----------
