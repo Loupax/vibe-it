@@ -2018,3 +2018,119 @@ last, per the user's own call.
             very first load can still show the same "laggy while
             loading" symptom from this one step alone, even though
             `measure_document` itself is now fully backgrounded.
+
+- [x] **TOP PRIORITY (user-reported, investigated 2026-11-11, base
+      `5f8ceed`): whitespace-only text between block-level siblings
+      becomes its own full-height (~18-20px) anonymous line box.**
+      **Landed** (commit hash to be filled in): `discard_if_collapsible_
+      whitespace_only`, called at both flush points. It matches the
+      exact `" "` shape non-`pre` whitespace-only text nodes produce, so
+      `pre` whitespace and runs containing an image, inline-block or
+      list marker are kept. SoHo Weekly News page: title y=636 -> 156,
+      document 20336px -> 14227px, 0 whitespace-only text boxes left.
+      Tests: `whitespace_between_block_siblings_generates_no_line_box`
+      (fails without the fix) and `white_space_pre_keeps_whitespace_
+      only_lines_between_block_siblings`. Known miss, documented on
+      the function: a `pre` text node that is exactly one space is
+      dropped. Leading/trailing-space trimming within real lines (the
+      "nice-to-have" below) was not attempted.
+      Original investigation notes follow. This
+      is the cause of the huge blank band at the top of real Wikipedia
+      articles (repro: `scratchy https://en.wikipedia.org/wiki/
+      SoHo_Weekly_News --socket $(wire --print-socket)`, or `snag` that
+      URL to a file). Measured with a throwaway `Laid`-tree dump at
+      1050px viewport width: 85 whitespace-only `LaidContent::Text`
+      boxes (text `" "` or `"  "`) in the first 1200px alone. Every box
+      between the header (ends at y=228) and the article title (y=636)
+      is either one of these or an otherwise-empty container whose only
+      height comes from them (the empty-looking sticky-header/titlebar
+      wrappers are `Blocks(1)` around a single `"  "` line). The light-
+      grey bands above and below the header in the user's screenshot
+      are the same thing: whitespace lines outside the white page
+      container showing the `<html>` background through.
+
+      **Root cause**: `collect_children`'s `NodeData::Text` arm runs
+      `normalize_whitespace` (which turns `"\n    "` into `""`) and then
+      unconditionally does `text.push(' ')`, so every inter-tag
+      newline/indent becomes a `" "` `InlineItem::Text`. The two flush
+      points (before a block-level child in `collect_children`, and the
+      trailing flush at the end of `build_children_with_prefix`) then
+      wrap whatever is in `pending` in an anonymous `BoxContent::Inline`
+      box, even when it holds nothing but whitespace. `measure` shapes
+      that as one real line. This was already a known hazard: NOTES.md
+      (the v56 stacking-order writeup) and several tests (e.g. the
+      comments near the font-family test, "Deliberately no whitespace
+      between the `<p>`s") work around it by writing fixtures with no
+      inter-tag whitespace. It was never filed as a bug, though.
+
+      **Spec**: CSS 2.1 §9.2.2.1: "White space content that would
+      subsequently be collapsed away according to the 'white-space'
+      property does not generate any anonymous inline boxes." See also
+      §16.6.1, phase II: spaces at the start/end of a line are removed,
+      so a line that is only collapsible whitespace has no content. Per
+      §10.8, line boxes with no content are treated as zero-height.
+
+      **Verified fix direction** (throwaway patch, reverted, not
+      committed): at both flush points, if every item in `pending` is an
+      `InlineItem::Text` whose text `.trim().is_empty()`, discard
+      `pending` instead of emitting a box. On the SoHo page this alone
+      moved the article title from y=636 to y=156 and shrank the
+      document from 20336px to 14227px (~30% of the page's total height
+      was whitespace lines). It also removed both grey bands. Things to
+      get right in the real fix:
+      - Only discard when collapsible: `WhiteSpace::Pre` keeps its text
+        verbatim (that `NodeData::Text` arm already special-cases it),
+        so a whitespace-only `pre` run must still produce its line(s).
+        `Nowrap` collapses whitespace like `Normal`, so discard it
+        there too.
+      - Never discard a run that also contains an `InlineItem::Image`
+        or `InlineItem::Embedded`. Those are real content, and the
+        whitespace next to them is meaningful inter-word space.
+      - Consider the related flex/grid child-building paths
+        (`build_flex_children`/`build_table_children`/grid), which
+        should already skip text nodes. Confirm that with the dump, and
+        don't assume it.
+      - A list-marker `prefix` (`build_children_with_prefix`'s `<li>`
+        bullet) is real content. An `<li>` whose only text is whitespace
+        must keep its marker line.
+      - Nice-to-have, not required: leading whitespace at the start of a
+        real line and trailing whitespace at its end (§16.6.1 phase II;
+        e.g. `"Jump to content  "` currently carries two trailing
+        spaces). Only pursue it if it changes measured geometry.
+      - Add a **permanent** regression test that uses a fixture with
+        real newlines/indentation between block siblings (e.g.
+        `"<div>\n  <p>A</p>\n  <p>B</p>\n</div>"`) and asserts the
+        second `<p>`'s `y` equals the first's `y + h` (no 20px gap), plus
+        a `white-space: pre` counter-case that still produces a line.
+        Existing tests that deliberately strip inter-tag whitespace can
+        stay as they are. Don't rewrite them.
+      - Verify against the real SoHo Weekly News page: dump the `Laid`
+        tree (or grim-screenshot it) and confirm the title sits right
+        below the header with no grey bands.
+
+- [ ] **Parse `:focus`/`:hover`/`:active`/`:focus-visible`/`:focus-
+      within` as never-matching pseudo-classes, instead of rejecting
+      them** (investigated 2026-11-11 on the same SoHo Weekly News page,
+      base `5f8ceed`). This is a narrower, cheap first step toward the
+      older `:hover`/`:focus`/`:active` item above. Today
+      `OurPseudoClass` only knows `:link`/`:visited`/`:root`, so any
+      selector mentioning `:focus` fails to parse and **the whole rule
+      is dropped**, including `:not(:focus)` rules that should *match*
+      on a page with nothing focused. Real hit: Wikipedia's
+      `.mw-jump-link:not(:focus){display:block;position:absolute
+      !important;clip:rect(1px,1px,1px,1px);width:1px;height:1px;
+      margin:-1px;overflow:hidden;...}` is dropped, so "Jump to content"
+      renders as a visible in-flow line at the top of every Wikipedia
+      page instead of being taken out of flow as a 1x1 box. Fix: add
+      variants for these to `OurPseudoClass` (parse + `to_css`), and
+      have `match_non_ts_pseudo_class` return `false` for them. That is
+      exactly true for a browser with no focus/hover state, and it makes
+      `:not(:focus)` correctly match everything. Leave real state
+      tracking to the older item. Test: a `:not(:focus)` rule applies
+      and a plain `:hover` rule doesn't, and neither breaks parsing of
+      the other selectors in the same comma-separated list (check how
+      selector-list parse failure currently behaves first; a list with
+      one bad selector drops the whole rule per spec, which is another
+      reason to stop rejecting these). Note: `clip:` is not supported,
+      but `width/height:1px` + `overflow:hidden` + `position:absolute`
+      should already hide the text in practice. Verify by rendering.

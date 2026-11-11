@@ -5580,6 +5580,7 @@ fn build_children_with_prefix(
         viewport_width,
         image_cache,
     );
+    discard_if_collapsible_whitespace_only(&mut pending);
     if !pending.is_empty() {
         result.push(LayoutBox {
             style: anonymous_style(inherited),
@@ -5602,6 +5603,30 @@ fn build_children_with_prefix(
 /// already has a representable off state within the type itself — an
 /// element can use that to explicitly turn off an ancestor's decoration by
 /// declaring `text-decoration: none`.
+/// Empties `pending` when it holds nothing but collapsed inter-tag
+/// whitespace, so the caller's "flush `pending` into an anonymous inline
+/// box" step emits nothing. CSS 2.1 §9.2.2.1: "White space content that
+/// would subsequently be collapsed away according to the 'white-space'
+/// property does not generate any anonymous inline boxes." Without this,
+/// every newline/indent between two block-level siblings became its own
+/// full-height line. On a real Wikipedia article that was ~30% of the
+/// page's total height, and the whole blank band above the title.
+///
+/// "Collapsible" is recognized by shape: the non-`pre` text path in
+/// `collect_children` turns a whitespace-only text node into exactly
+/// `" "` (`normalize_whitespace` gives `""`, then the trailing space is
+/// appended). `white-space: pre` text is pushed verbatim (`"\n"`,
+/// `"  "`, ...), so it is never equal to `" "` and keeps its line, as it
+/// does in real CSS. The one miss is a `pre` text node that is exactly
+/// one space and nothing else, which renders as a blank line in a real
+/// browser and is dropped here. Any `Image`/`Embedded` item, or a list
+/// marker prefix (real text), keeps the whole run.
+fn discard_if_collapsible_whitespace_only(pending: &mut Vec<InlineItem>) {
+    if pending.iter().all(|item| matches!(item, InlineItem::Text(t, _) if t == " ")) {
+        pending.clear();
+    }
+}
+
 fn collect_children(
     handle: &Handle,
     rules: &[StyleRule],
@@ -5686,6 +5711,7 @@ fn collect_children(
                         }
                     }
                 } else if matches!(style.display, Display::Block | Display::Table | Display::Flex | Display::Grid) {
+                    discard_if_collapsible_whitespace_only(pending);
                     if !pending.is_empty() {
                         result.push(LayoutBox {
                             style: anonymous_style(inherited),
@@ -14520,6 +14546,41 @@ mod tests {
             px & 0x00FF_FFFF,
             0x0000_00FF,
             "a repeat/position/size component this file doesn't implement shouldn't throw away the color that did parse"
+        );
+    }
+
+    #[test]
+    fn whitespace_between_block_siblings_generates_no_line_box() {
+        // Real newlines/indentation between tags, the shape every real
+        // page has (and most other fixtures here deliberately avoid).
+        let laid = measure_document_fixture(
+            "<html><body style=\"margin: 0\">\n  <div style=\"width: 300px\">\n    <p style=\"width: 200px; margin: 0\">A</p>\n    <p style=\"width: 100px; margin: 0\">B</p>\n  </div>\n</body></html>",
+            400.0,
+            400.0,
+        );
+        let div = find_by_width(&laid, 300.0).expect("div not found");
+        let p1 = find_by_width(&laid, 200.0).expect("first p not found");
+        let p2 = find_by_width(&laid, 100.0).expect("second p not found");
+        assert_eq!(div.y, 0.0, "whitespace before the div shouldn't push it down");
+        assert_eq!(p1.y, div.y, "whitespace before the first p shouldn't push it down");
+        assert_eq!(p2.y, p1.y + p1.h, "whitespace between the two p's shouldn't take up a line");
+        assert_eq!(div.h, p1.h + p2.h, "whitespace after the last p shouldn't add height");
+    }
+
+    #[test]
+    fn white_space_pre_keeps_whitespace_only_lines_between_block_siblings() {
+        let laid = measure_document_fixture(
+            "<html><body style=\"margin: 0\"><div style=\"width: 300px; white-space: pre\"><p style=\"width: 200px; margin: 0\">A</p>\n\n<p style=\"width: 100px; margin: 0\">B</p></div></body></html>",
+            400.0,
+            400.0,
+        );
+        let p1 = find_by_width(&laid, 200.0).expect("first p not found");
+        let p2 = find_by_width(&laid, 100.0).expect("second p not found");
+        assert!(
+            p2.y > p1.y + p1.h,
+            "white-space: pre whitespace is preserved, so it must still produce its own line(s) (p1 bottom {}, p2 top {})",
+            p1.y + p1.h,
+            p2.y
         );
     }
 
