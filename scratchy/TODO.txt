@@ -1730,7 +1730,7 @@ last, per the user's own call.
       nesting level, same budget-participation every other nested box
       already gets, no new mechanism).
 
-- [x] `pt` unit (CSS-gap report: 64 `font-size` + 20 `line-height`
+- [x] `pt` unit (17dd346, CSS-gap report: 64 `font-size` + 20 `line-height`
       occurrences on the Wikipedia Main Page) now parses wherever `px`/
       `em`/`rem` already do — `parse_length`, `parse_length_percent`,
       and `line-height`'s own dedicated `parse_line_height` grammar
