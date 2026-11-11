@@ -910,6 +910,16 @@ struct Insets {
 /// through an absolute-size keyword table) — just the common
 /// approximation browsers converge on, and the same ratio `default.css`'s
 /// own heading sizes roughly follow.
+/// CSS's own fixed absolute-unit conversion (1in = 96px, 1pt = 1in/72,
+/// both exact per the spec, not an approximation) — `pt` tokenizes as
+/// an ordinary `<dimension-token>` with unit `pt`, same as `px`/`em`/
+/// `rem` already do, so every `pt` value is just converted to `Px` once,
+/// at parse time, rather than adding a whole new `Length` variant and
+/// teaching every consumer of this enum (`resolve`, `BoxLength`, the
+/// grid/flex track machinery, ...) a fourth absolute-unit case to
+/// handle identically to `Px` everywhere it matters.
+const PX_PER_PT: f32 = 96.0 / 72.0;
+
 #[derive(Clone, Copy, PartialEq)]
 enum Length {
     Px(f32),
@@ -1999,6 +2009,7 @@ fn parse_length(input: &mut CssParser) -> Result<Length, ()> {
         Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("px") => Ok(Length::Px(*value)),
         Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("em") => Ok(Length::Em(*value)),
         Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("rem") => Ok(Length::Rem(*value)),
+        Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("pt") => Ok(Length::Px(value * PX_PER_PT)),
         Token::Number { value, .. } if *value == 0.0 => Ok(Length::Px(0.0)),
         _ => Err(()),
     }
@@ -2019,6 +2030,7 @@ fn parse_length_percent(input: &mut CssParser) -> Result<Length, ()> {
         Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("px") => Ok(Length::Px(*value)),
         Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("em") => Ok(Length::Em(*value)),
         Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("rem") => Ok(Length::Rem(*value)),
+        Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("pt") => Ok(Length::Px(value * PX_PER_PT)),
         Token::Percentage { unit_value, .. } => Ok(Length::Percent(*unit_value)),
         Token::Number { value, .. } if *value == 0.0 => Ok(Length::Px(0.0)),
         _ => Err(()),
@@ -2095,6 +2107,9 @@ fn parse_line_height(input: &mut CssParser) -> Result<LineHeight, ()> {
         }
         Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("rem") => {
             Ok(LineHeight::Len(Length::Rem(*value)))
+        }
+        Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("pt") => {
+            Ok(LineHeight::Len(Length::Px(value * PX_PER_PT)))
         }
         Token::Percentage { unit_value, .. } => Ok(LineHeight::Len(Length::Percent(*unit_value))),
         _ => Err(()),
@@ -18182,5 +18197,32 @@ mod tests {
         let embedded =
             find_embedded(mixed_items(run), |l| (l.w, l.h) == (30.0, 10.0)).expect("inline-block inside the cell should still get its own real, correctly-sized box");
         assert!(embedded.w > 0.0);
+    }
+
+    // ---------- `pt` unit ----------
+
+    #[test]
+    fn pt_unit_on_a_box_length_converts_at_the_exact_css_96_72_ratio() {
+        let doc = parse_html(r#"<html><body><div style="margin-top: 12pt">x</div></body></html>"#);
+        let tree = build_layout_tree(&doc, 1920.0);
+        let div = find_deepest_nonzero_margin_top(&tree).expect("div not found");
+        assert_eq!(div.style.margin.top.px(), 16.0, "12pt should convert to exactly 16px (CSS's own fixed 96px-per-inch, 72pt-per-inch ratio)");
+    }
+
+    #[test]
+    fn pt_unit_on_font_size() {
+        let laid = measure_fixture(r#"<html><body><div style="font-size: 12pt;">x</div></body></html>"#, 500.0);
+        let div = find_by_laid_font_size(&laid, 16.0).expect("font-size: 12pt should resolve to exactly 16px, not be dropped as unsupported");
+        let _ = div;
+    }
+
+    #[test]
+    fn pt_unit_on_line_height() {
+        let laid = measure_fixture(r#"<html><body><div style="font-size: 20px; line-height: 24pt;">x</div></body></html>"#, 500.0);
+        let div = find_by_laid_font_size(&laid, 20.0).expect("div not found");
+        match div.style.line_height {
+            LineHeight::Len(l) => assert_eq!(l.resolve(div.style.font_size, div.style.root_font_size), 32.0, "24pt should convert to exactly 32px"),
+            _ => panic!("line-height: 24pt should parse as LineHeight::Len, not be dropped as unsupported"),
+        }
     }
 }
