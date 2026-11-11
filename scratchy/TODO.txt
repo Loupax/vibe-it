@@ -1176,6 +1176,22 @@ session can pick a coherent slice rather than one property at a time.
       background-image needs `cover`/`no-repeat`/positioning to look
       right, rather than guessing at scope now.
 
+      The `background` shorthand (CSS-gap report: 80 occurrences) *is*
+      now recognized, covering only the two longhands above
+      (`background-color`/`background-image`) — the dominant real-world
+      case, nearly all a bare `background: <color>` or a single
+      `url(...)` image. A new lenient parser, same `border`/`list-style`
+      shorthand idiom (any component it doesn't recognize — repeat/
+      attachment/position/box/`none` keywords, a size dimension, the
+      `/` separator — is skipped rather than failing the whole value);
+      `background: none` has exactly the same "leaves the property
+      unset" behavior the `background-image` longhand's own `none`
+      already has, immediately above — this doesn't fix that
+      distinctly either. 3 new permanent tests (color-only, url-only,
+      and a color alongside unrecognized repeat/position/size
+      components that should still parse, not throw the whole value
+      away).
+
 - [ ] No forms/interactive widgets (`input`/`button`/`select`/
       `textarea` render as plain unstyled DOM nodes, not widgets), no
       replaced/embedded elements (`svg`/`canvas`/`video`/`audio`/
@@ -1740,6 +1756,41 @@ last, per the user's own call.
       just not optimized — one more real recursive `measure()` call per
       nesting level, same budget-participation every other nested box
       already gets, no new mechanism).
+
+- [x] `pt` unit (17dd346, CSS-gap report: 64 `font-size` + 20 `line-height`
+      occurrences on the Wikipedia Main Page) now parses wherever `px`/
+      `em`/`rem` already do — `parse_length`, `parse_length_percent`,
+      and `line-height`'s own dedicated `parse_line_height` grammar
+      (confirmed by grep to be the only 3 places that match a `px`
+      dimension token in this file, so this is the complete fix, not a
+      partial one). Converted straight to `Length::Px` at parse time,
+      using CSS's own exact fixed ratio (1in = 96px, 1pt = 1in/72), not
+      a new `Length` variant — avoids teaching every consumer of that
+      enum (`resolve`, `BoxLength`, the grid/flex track machinery, ...)
+      a fourth absolute-unit case identical to `Px` everywhere it
+      matters. 3 new permanent tests (a box length, `font-size`, and
+      `line-height`, each checked against the exact expected pixel
+      value, not just "didn't fail to parse").
+
+- [ ] **`mask-image`/`-webkit-mask-image` (icon alpha-masking) — real
+      numbers in hand, deliberately sent to the bottom of the priority
+      list, the user's own explicit call.** The CSS-gap report's single
+      largest raw count by far (436 occurrences on the Wikipedia Main
+      Page, every one declared twice — standard plus `-webkit-` prefix —
+      for the same underlying icons: edit pencil, star, bookmark,
+      hamburger menu). A wholly new rendering primitive, not a parsing
+      gap: real CSS `mask-image` clips a box's own painted output by
+      another image's alpha channel (here, almost always a small SVG/
+      data-URI glyph used as a stencil over a solid `background-color`
+      fill — Wikimedia's own icon system). Nothing in this codebase
+      decodes a mask and applies it as an alpha multiply over an
+      existing paint — would need its own decode path (reusing `decode_
+      data_uri`/`decode_image_bytes`, already built for `<img>`/
+      `background-image`) plus a new per-pixel composite step in `paint`.
+      Deliberately deprioritized despite the raw count: every real use
+      found here is a small UI icon glyph, not core content — missing
+      one leaves a blank space where an icon would be, not a broken
+      layout, unlike `vertical-align`/`background`/per-side borders/etc.
 
 - [ ] **JavaScript — engine choice, investigated, not started; last
       pillar per the user's own explicit ordering.** Recommendation:
