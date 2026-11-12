@@ -234,16 +234,28 @@ impl NonTSPseudoClass for OurPseudoClass {
     }
 }
 
+/// A pseudo-element a selector may carry. Only parsed (so a rule like
+/// `a, a::after {..}` keeps its `a` part); no `::before`/`::after`
+/// boxes are generated yet (Q19), and selectors carrying one never match
+/// ordinary elements.
 #[derive(Clone, Debug, Eq, PartialEq)]
-enum NoPseudoElement {}
+enum OurPseudoElement {
+    /// A recognized standard name (`before`, `after`, `marker`, ...).
+    Named(&'static str),
+    /// Any `::-webkit-*` / `::-moz-*` vendor pseudo-element.
+    Vendor(String),
+}
 
-impl cssparser::ToCss for NoPseudoElement {
-    fn to_css<W: std::fmt::Write>(&self, _dest: &mut W) -> std::fmt::Result {
-        match *self {}
+impl cssparser::ToCss for OurPseudoElement {
+    fn to_css<W: std::fmt::Write>(&self, dest: &mut W) -> std::fmt::Result {
+        match self {
+            OurPseudoElement::Named(n) => write!(dest, "::{n}"),
+            OurPseudoElement::Vendor(n) => write!(dest, "::{n}"),
+        }
     }
 }
 
-impl PseudoElement for NoPseudoElement {}
+impl PseudoElement for OurPseudoElement {}
 
 #[derive(Clone, Debug, PartialEq)]
 struct OurSelectorImpl;
@@ -258,7 +270,7 @@ impl SelectorImpl for OurSelectorImpl {
     type BorrowedLocalName = str;
     type BorrowedNamespaceUrl = str;
     type NonTSPseudoClass = OurPseudoClass;
-    type PseudoElement = NoPseudoElement;
+    type PseudoElement = OurPseudoElement;
 }
 
 #[derive(Debug)]
@@ -307,6 +319,28 @@ impl<'i> SelectorsParser<'i> for OurSelectorParser {
             "disabled" => return Ok(OurPseudoClass::Disabled),
             "enabled" => return Ok(OurPseudoClass::Enabled),
             _ => {}
+        }
+        Err(ParseError::custom(SelectorParseErrorKind::UnsupportedPseudoClassOrElement))
+    }
+
+    fn parse_pseudo_element(
+        &self,
+        name: CowRcStr<'i>,
+    ) -> Result<OurPseudoElement, ParseError<CssError>> {
+        match_ignore_ascii_case! { &name,
+            "before" => return Ok(OurPseudoElement::Named("before")),
+            "after" => return Ok(OurPseudoElement::Named("after")),
+            "marker" => return Ok(OurPseudoElement::Named("marker")),
+            "placeholder" => return Ok(OurPseudoElement::Named("placeholder")),
+            "selection" => return Ok(OurPseudoElement::Named("selection")),
+            "first-line" => return Ok(OurPseudoElement::Named("first-line")),
+            "first-letter" => return Ok(OurPseudoElement::Named("first-letter")),
+            "backdrop" => return Ok(OurPseudoElement::Named("backdrop")),
+            "file-selector-button" => return Ok(OurPseudoElement::Named("file-selector-button")),
+            _ => {}
+        }
+        if name.starts_with("-webkit-") || name.starts_with("-moz-") || name.starts_with("-ms-") {
+            return Ok(OurPseudoElement::Vendor(name.to_ascii_lowercase()));
         }
         Err(ParseError::custom(SelectorParseErrorKind::UnsupportedPseudoClassOrElement))
     }
@@ -557,10 +591,10 @@ impl SelectorsElement for El {
 
     fn match_pseudo_element(
         &self,
-        pe: &NoPseudoElement,
+        _pe: &OurPseudoElement,
         _context: &mut MatchingContext<Self::Impl>,
     ) -> bool {
-        match *pe {}
+        false
     }
 
     fn apply_selector_flags(&self, _flags: ElementSelectorFlags) {}
@@ -4646,6 +4680,7 @@ fn matching_declarations<'a>(handle: &Handle, rules: &'a [StyleRule], viewport_w
                 .selectors
                 .slice()
                 .iter()
+                .filter(|s| !s.has_pseudo_element())
                 .map(|s| s.specificity())
                 .max()
                 .unwrap_or(0);
@@ -14348,6 +14383,29 @@ mod tests {
         assert!(!parse("a:dir(up)"));
     }
 
+    #[test]
+    fn q3_pseudo_elements_parse_but_never_match_elements() {
+        let parse = |sel: &str| {
+            let mut p = CssParser::new(sel);
+            SelectorList::parse(&OurSelectorParser, &mut p, ParseRelative::No).is_ok()
+        };
+        for s in [
+            "a::before", "a::after", "li::marker", "input::placeholder", "p::selection",
+            "a:hover::after", "div::-webkit-scrollbar", "a, a::after", "p::BEFORE",
+        ] {
+            assert!(parse(s), "{s} should parse");
+        }
+        assert!(!parse("a::bogus"));
+        let doc = parse_html(
+            r#"<html><head><style>a, a::after { color: #0000ff; } p::before { color: #ff0000; }</style></head><body><a href="x">l</a><p>t</p></body></html>"#,
+        );
+        let tree = build_layout_tree(&doc, 1920.0);
+        let mut colors = Vec::new();
+        find_all_span_colors(&tree, &mut colors);
+        assert!(colors.contains(&TextColor::rgb(0, 0, 0xff)), "`a` keeps its blue: {colors:?}");
+        assert!(!colors.contains(&TextColor::rgb(0xff, 0, 0)), "p::before must not color p: {colors:?}");
+    }
+
     // ---------- v45: CSS custom properties (`:root`/`html`-scoped) + `var()` ----------
 
     #[test]
@@ -18732,13 +18790,13 @@ mod tests {
         CSS_DEBUG_CAPTURE.with(|c| *c.borrow_mut() = Some(Vec::new()));
         parse_stylesheet(
             "p { color: red; color: red; frobnicate: 3; }\
-             p::before { color: blue; }\
+             p::bogus { color: blue; }\
              @supports (display: grid) { p { color: green; } }",
         );
         let lines = CSS_DEBUG_CAPTURE.with(|c| c.borrow_mut().take().unwrap());
         assert!(lines.iter().any(|l| l == "scratchy: css: ignored `frobnicate: 3`"), "{lines:?}");
         assert!(!lines.iter().any(|l| l.contains("ignored `color")), "{lines:?}");
-        assert!(lines.iter().any(|l| l == "scratchy: css: dropped selector `p::before`"), "{lines:?}");
+        assert!(lines.iter().any(|l| l == "scratchy: css: dropped selector `p::bogus`"), "{lines:?}");
         assert!(lines.iter().any(|l| l == "scratchy: css: dropped @supports"), "{lines:?}");
     }
 

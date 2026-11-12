@@ -5615,3 +5615,23 @@ Tests: `q2_state_pseudo_classes_parse_and_match`,
 `q2_checked_disabled_enabled_match_elements`. No grim screenshot:
 `grim` fails in this sandbox ("failed to copy output eDP-1"), so the
 Wikipedia "Jump to content" check is unverified by a real render.
+
+---
+
+## Q3 — pseudo-elements parse and are skipped (queue item)
+
+> Implement the first unchecked item (Q3) of the ranked QUEUE in
+> scratchy/TODO.txt.
+
+**What changed:** `NoPseudoElement` is replaced by `OurPseudoElement`
+(`Named(&'static str)` for `before`, `after`, `marker`, `placeholder`,
+`selection`, `first-line`, `first-letter`, `backdrop`,
+`file-selector-button`; `Vendor(String)` for `-webkit-*`/`-moz-*`/`-ms-*`).
+`OurSelectorParser::parse_pseudo_element` parses them, so
+`a, a::after{..}` keeps its `a` part. `match_pseudo_element` returns
+false, so a selector carrying one never matches an ordinary element.
+`matching_declarations` ignores pseudo-element selectors when computing a
+rule's specificity. The Q1 debug test now uses `p::bogus` as its dropped
+selector. Test: `q3_pseudo_elements_parse_but_never_match_elements`.
+`grim` worked this time; a simple page rendered normally (link and
+paragraph, nothing generated from pseudo-elements).
