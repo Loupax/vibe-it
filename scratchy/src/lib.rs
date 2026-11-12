@@ -1236,9 +1236,10 @@ struct Declarations {
     padding_right: Option<Length>,
     padding_bottom: Option<Length>,
     padding_left: Option<Length>,
-    border_width: Option<Length>,
-    border_color: Option<CssColor>,
-    border_style: Option<BorderStyle>,
+    /// Per-side (top, right, bottom, left), see `SIDE_NAMES`.
+    border_width: [Option<Length>; 4],
+    border_color: [Option<CssColor>; 4],
+    border_style: [Option<BorderStyle>; 4],
     font_size: Option<Length>,
     font_weight: Option<FontWeightValue>,
     font_style: Option<FontStyle>,
@@ -2683,6 +2684,124 @@ enum BorderStyle {
     None,
 }
 
+/// Side order for every per-side border array: top, right, bottom, left
+/// (CSS box-syntax order).
+const SIDE_NAMES: [&str; 4] = ["top", "right", "bottom", "left"];
+
+/// 1-to-4-value CSS box syntax (`a`, `a b`, `a b c`, `a b c d`) expanded to
+/// `[top, right, bottom, left]`. `one` parses a single value.
+fn parse_box4<T: Copy>(input: &mut CssParser, mut one: impl FnMut(&mut CssParser) -> Option<T>) -> Option<[T; 4]> {
+    let mut v: Vec<T> = vec![one(input)?];
+    while v.len() < 4 {
+        match one(input) {
+            Some(x) => v.push(x),
+            None => break,
+        }
+    }
+    Some(match v.len() {
+        1 => [v[0]; 4],
+        2 => [v[0], v[1], v[0], v[1]],
+        3 => [v[0], v[1], v[2], v[1]],
+        _ => [v[0], v[1], v[2], v[3]],
+    })
+}
+
+/// Handles `border`, `border-{width,color,style}` (box syntax),
+/// `border-{top,right,bottom,left}` shorthands and the 12 side longhands.
+/// Returns false for any other `border-*` name (e.g. `border-radius`).
+fn parse_border_property(decls: &mut Declarations, name: &str, input: &mut CssParser) -> bool {
+    let lname = name.to_ascii_lowercase();
+    let Some(rest) = lname.strip_prefix("border") else { return false };
+    let set_shorthand = |decls: &mut Declarations, sides: &[usize], parsed: BorderShorthand| {
+        let (w, st, c) = parsed;
+        for &i in sides {
+            if let Some(w) = w {
+                decls.border_width[i] = Some(w);
+            }
+            if let Some(st) = st {
+                decls.border_style[i] = Some(st);
+            }
+            if let Some(c) = c {
+                decls.border_color[i] = Some(c);
+            }
+        }
+    };
+    match rest {
+        "" => {
+            if let Ok(p) = parse_border_shorthand(input) {
+                set_shorthand(decls, &[0, 1, 2, 3], p);
+            }
+        }
+        "-width" => {
+            if let Some(v) = parse_box4(input, |i| parse_length(i).ok()) {
+                for (i, x) in v.into_iter().enumerate() {
+                    decls.border_width[i] = Some(x);
+                }
+            }
+        }
+        "-style" => {
+            if let Some(v) = parse_box4(input, |i| i.expect_ident().ok().map(|s| border_style_from_keyword(s))) {
+                for (i, x) in v.into_iter().enumerate() {
+                    decls.border_style[i] = Some(x);
+                }
+            }
+        }
+        "-color" => {
+            let mut colors: Vec<CssColor> = Vec::new();
+            while colors.len() < 4 {
+                match CssColor::parse(input) {
+                    Ok(c) => colors.push(c),
+                    Err(_) => break,
+                }
+            }
+            let n = colors.len();
+            if n > 0 {
+                let idx: [usize; 4] = match n {
+                    1 => [0, 0, 0, 0],
+                    2 => [0, 1, 0, 1],
+                    3 => [0, 1, 2, 1],
+                    _ => [0, 1, 2, 3],
+                };
+                for (i, k) in idx.into_iter().enumerate() {
+                    decls.border_color[i] = Some(colors[k]);
+                }
+            }
+        }
+        _ => {
+            let Some(rest) = rest.strip_prefix('-') else { return false };
+            let (side, prop) = match rest.split_once('-') {
+                Some((a, b)) => (a, Some(b)),
+                None => (rest, None),
+            };
+            let Some(i) = SIDE_NAMES.iter().position(|n| *n == side) else { return false };
+            match prop {
+                None => {
+                    if let Ok(p) = parse_border_shorthand(input) {
+                        set_shorthand(decls, &[i], p);
+                    }
+                }
+                Some("width") => {
+                    if let Ok(v) = parse_length(input) {
+                        decls.border_width[i] = Some(v);
+                    }
+                }
+                Some("style") => {
+                    if let Ok(id) = input.expect_ident() {
+                        decls.border_style[i] = Some(border_style_from_keyword(id));
+                    }
+                }
+                Some("color") => {
+                    if let Ok(c) = CssColor::parse(input) {
+                        decls.border_color[i] = Some(c);
+                    }
+                }
+                _ => return false,
+            }
+        }
+    }
+    true
+}
+
 fn border_style_from_keyword(kw: &str) -> BorderStyle {
     if kw.eq_ignore_ascii_case("dashed") {
         BorderStyle::Dashed
@@ -3369,26 +3488,7 @@ impl DeclParser<'_> {
                     self.decls.background_image = Some(BackgroundImageDecl::Url(url));
                 }
             }
-        } else if name.eq_ignore_ascii_case("border-color") {
-            if let Ok(c) = CssColor::parse(input) {
-                self.decls.border_color = Some(c);
-            }
-        } else if name.eq_ignore_ascii_case("border-style") {
-            if let Ok(ident) = input.expect_ident() {
-                self.decls.border_style = Some(border_style_from_keyword(ident));
-            }
-        } else if name.eq_ignore_ascii_case("border") {
-            if let Ok((w, st, c)) = parse_border_shorthand(input) {
-                if let Some(w) = w {
-                    self.decls.border_width = Some(w);
-                }
-                if let Some(st) = st {
-                    self.decls.border_style = Some(st);
-                }
-                if let Some(c) = c {
-                    self.decls.border_color = Some(c);
-                }
-            }
+        } else if parse_border_property(self.decls, name, input) {
         } else if name.eq_ignore_ascii_case("display") {
             if let Ok(ident) = input.expect_ident() {
                 self.decls.display = if ident.eq_ignore_ascii_case("block") {
@@ -3580,10 +3680,6 @@ impl DeclParser<'_> {
             if let Ok(v) = parse_length_percent(input) {
                 self.decls.padding_left = Some(v);
                 self.decls.padding_right = Some(v);
-            }
-        } else if name.eq_ignore_ascii_case("border-width") {
-            if let Ok(v) = parse_length(input) {
-                self.decls.border_width = Some(v);
             }
         } else if name.eq_ignore_ascii_case("outline-width") {
             if let Ok(v) = parse_length(input) {
@@ -4347,8 +4443,8 @@ const ROOT_STYLE: InheritedStyle = InheritedStyle {
 /// inline-start/end collapse onto top/bottom and left/right respectively;
 /// logical property names are expanded to these physical sides at parse
 /// time (`DeclParser::parse_value`), same as `margin`/`padding` shorthands
-/// are. `border_width` stays a single uniform scalar — nothing in
-/// `default.css` sets a per-side border, so there's no real use for it yet.
+/// are. `border_width` is a separate per-side `[f32; 4]` (top, right, bottom,
+/// left) on `ComputedStyle`, parsed by `parse_border_property` (Q4).
 ///
 /// Fields are `BoxLength`, not a plain `f32` — real CSS resolves a `%`
 /// margin/padding (on *every* side, even top/bottom — see
@@ -4441,9 +4537,11 @@ struct ComputedStyle {
     box_sizing: BoxSizing,
     margin: Sides,
     padding: Sides,
-    border_width: f32,
-    border_color: Option<TextColor>,
-    border_style: BorderStyle,
+    /// Per-side (top, right, bottom, left). Width is already 0 for a side
+    /// whose style is `none`/`hidden`.
+    border_width: [f32; 4],
+    border_color: [Option<TextColor>; 4],
+    border_style: [BorderStyle; 4],
     font_size: f32,
     /// Passed straight through from `inherited.root_font_size`, not
     /// derived from this element's own `font_size` — see
@@ -4606,6 +4704,21 @@ struct ResolvedBoxShadow {
 }
 
 impl ComputedStyle {
+    fn border_top(&self) -> f32 {
+        self.border_width[0]
+    }
+    fn border_left(&self) -> f32 {
+        self.border_width[3]
+    }
+    /// Left + right border width.
+    fn border_h(&self) -> f32 {
+        self.border_width[1] + self.border_width[3]
+    }
+    /// Top + bottom border width.
+    fn border_v(&self) -> f32 {
+        self.border_width[0] + self.border_width[2]
+    }
+
     fn inherited(&self) -> InheritedStyle {
         InheritedStyle {
             color: self.color,
@@ -4848,25 +4961,30 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
             .map(|l| BoxLength::from_length(l, font_size, inherited.root_font_size))
             .unwrap_or_default(),
     };
-    let border_width = cascade_property(
-        &matches,
-        inline_decls.as_ref().and_then(|d| d.border_width),
-        |d| d.border_width,
-    )
-    .map(|l| l.resolve(font_size, inherited.root_font_size))
-    .unwrap_or(0.0);
-    let border_color = cascade_property(
-        &matches,
-        inline_decls.as_ref().and_then(|d| d.border_color),
-        |d| d.border_color,
-    )
-    .and_then(|c| to_text_color(&c));
-    let border_style = cascade_property(
-        &matches,
-        inline_decls.as_ref().and_then(|d| d.border_style),
-        |d| d.border_style,
-    )
-    .unwrap_or_default();
+    let mut border_width = [0.0f32; 4];
+    let mut border_color = [None; 4];
+    let mut border_style = [BorderStyle::default(); 4];
+    for i in 0..4 {
+        border_style[i] = cascade_property(
+            &matches,
+            inline_decls.as_ref().and_then(|d| d.border_style[i]),
+            |d| d.border_style[i],
+        )
+        .unwrap_or_default();
+        border_width[i] = if border_style[i] == BorderStyle::None {
+            0.0
+        } else {
+            cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.border_width[i]), |d| d.border_width[i])
+                .map(|l| l.resolve(font_size, inherited.root_font_size))
+                .unwrap_or(0.0)
+        };
+        border_color[i] = cascade_property(
+            &matches,
+            inline_decls.as_ref().and_then(|d| d.border_color[i]),
+            |d| d.border_color[i],
+        )
+        .and_then(|c| to_text_color(&c));
+    }
     let font_weight = cascade_property(
         &matches,
         inline_decls.as_ref().and_then(|d| d.font_weight),
@@ -5150,9 +5268,9 @@ fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         box_sizing: BoxSizing::default(),
         margin: Sides::default(),
         padding: Sides::default(),
-        border_width: 0.0,
-        border_color: None,
-        border_style: BorderStyle::default(),
+        border_width: [0.0; 4],
+        border_color: [None; 4],
+        border_style: [BorderStyle::default(); 4],
         font_size: inherited.font_size,
         root_font_size: inherited.root_font_size,
         font_weight: inherited.font_weight,
@@ -7056,16 +7174,16 @@ fn box_model_entry(
     let padding_left = s.padding.left.px();
     let border_x = x + margin_left;
     let border_y = y + margin_top;
-    let extra_w = 2.0 * s.border_width + padding_left + padding_right;
+    let extra_w = s.border_h() + padding_left + padding_right;
     let auto_border_w = match auto_margin_box_override {
         Some(mb) => (mb - margin_left - margin_right).max(0.0),
         None => (width - margin_left - margin_right).max(0.0),
     };
     let border_w = clamp_box_dim(s.width, s.min_width, s.max_width, auto_border_w, s.box_sizing, extra_w);
-    let content_x = border_x + s.border_width + padding_left;
-    let content_y = border_y + s.border_width + padding_top;
+    let content_x = border_x + s.border_left() + padding_left;
+    let content_y = border_y + s.border_top() + padding_top;
     let content_w = (border_w - extra_w).max(0.0);
-    let extra_h = 2.0 * s.border_width + padding_top + padding_bottom;
+    let extra_h = s.border_v() + padding_top + padding_bottom;
     let child_containing_height = s.height.map(|h| match s.box_sizing {
         BoxSizing::ContentBox => h.px().max(0.0),
         BoxSizing::BorderBox => (h.px() - extra_h).max(0.0),
@@ -7534,10 +7652,10 @@ pub fn measure<'a>(
             let positioned_children = resolve_or_bubble_positioned(
                 own_pending,
                 s.position,
-                border_x + s.border_width,
-                border_y + s.border_width,
-                (border_w - 2.0 * s.border_width).max(0.0),
-                (border_h - 2.0 * s.border_width).max(0.0),
+                border_x + s.border_left(),
+                border_y + s.border_top(),
+                (border_w - s.border_h()).max(0.0),
+                (border_h - s.border_v()).max(0.0),
                 font_system,
                 next_id,
                 cache,
@@ -7661,8 +7779,8 @@ fn image_box_size(image: &DecodedImage, s: &ComputedStyle) -> (f32, f32) {
     let intrinsic_w = (image.width.max(1)) as f32;
     let intrinsic_h = (image.height.max(1)) as f32;
     let aspect = intrinsic_h / intrinsic_w;
-    let extra_w = 2.0 * s.border_width + s.padding.left.px() + s.padding.right.px();
-    let extra_h = 2.0 * s.border_width + s.padding.top.px() + s.padding.bottom.px();
+    let extra_w = s.border_h() + s.padding.left.px() + s.padding.right.px();
+    let extra_h = s.border_v() + s.padding.top.px() + s.padding.bottom.px();
     if s.width.is_none() && s.height.is_some() {
         let border_h = clamp_box_dim(s.height, s.min_height, s.max_height, extra_h + intrinsic_h, s.box_sizing, extra_h);
         let content_h = (border_h - extra_h).max(0.0);
@@ -8448,7 +8566,7 @@ fn cell_natural_width(
     // natural_width` gives a `%` width for the same underlying reason.
     finalize_box_lengths(&mut s, 0.0, None);
     let extra_w =
-        s.margin.left.px() + s.margin.right.px() + 2.0 * s.border_width + s.padding.left.px() + s.padding.right.px();
+        s.margin.left.px() + s.margin.right.px() + s.border_h() + s.padding.left.px() + s.padding.right.px();
     // Intrinsic sizing cares about the content only, never the author's
     // chosen alignment — force `Left` so a trial call's own `text-align:
     // center`/`right` offset (computed against *this trial's* `content_w`,
@@ -8785,10 +8903,10 @@ fn measure_table<'a>(
     let positioned_children = resolve_or_bubble_positioned(
         own_pending,
         s.position,
-        entry.border_x + s.border_width,
-        entry.border_y + s.border_width,
-        (entry.border_w - 2.0 * s.border_width).max(0.0),
-        (border_h - 2.0 * s.border_width).max(0.0),
+        entry.border_x + s.border_left(),
+        entry.border_y + s.border_top(),
+        (entry.border_w - s.border_h()).max(0.0),
+        (border_h - s.border_v()).max(0.0),
         font_system,
         next_id,
         cache,
@@ -8986,10 +9104,10 @@ fn measure_flex<'a>(
     let positioned_children = resolve_or_bubble_positioned(
         own_pending,
         s.position,
-        entry.border_x + s.border_width,
-        entry.border_y + s.border_width,
-        (entry.border_w - 2.0 * s.border_width).max(0.0),
-        (border_h - 2.0 * s.border_width).max(0.0),
+        entry.border_x + s.border_left(),
+        entry.border_y + s.border_top(),
+        (entry.border_w - s.border_h()).max(0.0),
+        (border_h - s.border_v()).max(0.0),
         font_system,
         next_id,
         cache,
@@ -9094,7 +9212,7 @@ fn measure_flex_row<'a>(
             finalize_box_lengths(&mut item_style, entry.content_w, entry.child_containing_height);
             let margin_left = item_style.margin.left.px();
             let margin_right = item_style.margin.right.px();
-            let extra_w = 2.0 * item_style.border_width + item_style.padding.left.px() + item_style.padding.right.px();
+            let extra_w = item_style.border_h() + item_style.padding.left.px() + item_style.padding.right.px();
             let to_box = |raw: f32| match item_style.box_sizing {
                 BoxSizing::ContentBox => raw.max(0.0) + extra_w,
                 BoxSizing::BorderBox => raw.max(0.0),
@@ -9825,10 +9943,10 @@ fn measure_grid<'a>(
     let positioned_children = resolve_or_bubble_positioned(
         own_pending,
         s.position,
-        entry.border_x + s.border_width,
-        entry.border_y + s.border_width,
-        (entry.border_w - 2.0 * s.border_width).max(0.0),
-        (border_h - 2.0 * s.border_width).max(0.0),
+        entry.border_x + s.border_left(),
+        entry.border_y + s.border_top(),
+        (entry.border_w - s.border_h()).max(0.0),
+        (border_h - s.border_v()).max(0.0),
         font_system,
         next_id,
         cache,
@@ -10327,7 +10445,13 @@ fn paint_box_decoration(
     // already exactly the value needed and nothing else ever reads
     // this field before paint.
     let border_radius = s.border_radius.resolve(w);
-    let round = border_radius > 0.0 && (s.border_width <= 0.0 || s.border_style == BorderStyle::Solid);
+    // Rounded corners only when all four sides are identical and solid (or
+    // there is no border at all); otherwise square corners.
+    let uniform = s.border_width.iter().all(|w| *w == s.border_width[0])
+        && s.border_style.iter().all(|t| *t == s.border_style[0])
+        && s.border_color.iter().all(|c| *c == s.border_color[0]);
+    let no_border = s.border_width.iter().all(|w| *w <= 0.0);
+    let round = border_radius > 0.0 && (no_border || (uniform && s.border_style[0] == BorderStyle::Solid));
     if let Some(bg) = s.background_color {
         if round {
             fill_rounded_rect(pixels, win_w, win_h, x, y, w, h, border_radius, bg, clip);
@@ -10345,13 +10469,40 @@ fn paint_box_decoration(
     if let Some(image) = background_image {
         tile_image(image, pixels, win_w, win_h, x, y, w, h, clip);
     }
-    if s.border_width > 0.0 && s.border_style != BorderStyle::None {
-        if let Some(bc) = s.border_color {
-            let bw = s.border_width;
-            if round {
-                fill_rounded_ring(pixels, win_w, win_h, x, y, w, h, border_radius, bw, bc, clip);
-            } else {
-                paint_border(pixels, win_w, win_h, x, y, w, h, bw, s.border_style, bc, clip);
+    if uniform {
+        if s.border_width[0] > 0.0 && s.border_style[0] != BorderStyle::None {
+            if let Some(bc) = s.border_color[0] {
+                let bw = s.border_width[0];
+                if round {
+                    fill_rounded_ring(pixels, win_w, win_h, x, y, w, h, border_radius, bw, bc, clip);
+                } else {
+                    paint_border(pixels, win_w, win_h, x, y, w, h, bw, s.border_style[0], bc, clip);
+                }
+            }
+        }
+    } else {
+        // Per-side: each side painted with its own width/style/color.
+        // Top and bottom span the full width; left and right fill the
+        // gap between them (square, un-mitered corners). Bevel styles
+        // degrade to solid here.
+        let flat = |st: BorderStyle| match st {
+            BorderStyle::Groove | BorderStyle::Ridge | BorderStyle::Inset | BorderStyle::Outset => BorderStyle::Solid,
+            other => other,
+        };
+        let [bt, br, bb, bl] = s.border_width;
+        let mid_h = (h - bt - bb).max(0.0);
+        let rects = [
+            (x, y, w, bt),
+            (x + w - br, y + bt, br, mid_h),
+            (x, y + h - bb, w, bb),
+            (x, y + bt, bl, mid_h),
+        ];
+        for (i, (rx, ry, rw, rh)) in rects.into_iter().enumerate() {
+            if s.border_width[i] <= 0.0 || s.border_style[i] == BorderStyle::None {
+                continue;
+            }
+            if let Some(bc) = s.border_color[i] {
+                paint_border_edge(pixels, win_w, win_h, rx, ry, rw, rh, flat(s.border_style[i]), bc, clip);
             }
         }
     }
@@ -11138,8 +11289,8 @@ fn paint(
             if let Some(entry) = cache.get(id) {
                 let mut guard = entry.lock().unwrap();
                 let (buffer, _, backgrounds, valigns, hidden, _, decoration_styles, _) = &mut *guard;
-                let content_x = laid.x + s.border_width + s.padding.left.px();
-                let content_y = draw_y + s.border_width + s.padding.top.px();
+                let content_x = laid.x + s.border_left() + s.padding.left.px();
+                let content_y = draw_y + s.border_top() + s.padding.top.px();
                 paint_buffer(
                     buffer, font_system, swash_cache, backgrounds, valigns, hidden, decoration_styles, pixels,
                     win_w, win_h, content_x, content_y, child_clip,
@@ -11147,10 +11298,10 @@ fn paint(
             }
         }
         LaidContent::Image(image) => {
-            let content_x = laid.x + s.border_width + s.padding.left.px();
-            let content_y = draw_y + s.border_width + s.padding.top.px();
-            let content_w = (laid.w - 2.0 * s.border_width - s.padding.left.px() - s.padding.right.px()).max(0.0);
-            let content_h = (laid.h - 2.0 * s.border_width - s.padding.top.px() - s.padding.bottom.px()).max(0.0);
+            let content_x = laid.x + s.border_left() + s.padding.left.px();
+            let content_y = draw_y + s.border_top() + s.padding.top.px();
+            let content_w = (laid.w - s.border_h() - s.padding.left.px() - s.padding.right.px()).max(0.0);
+            let content_h = (laid.h - s.border_v() - s.padding.top.px() - s.padding.bottom.px()).max(0.0);
             blit_image(image, pixels, win_w, win_h, content_x, content_y, content_w, content_h, child_clip);
         }
         LaidContent::MixedInline(positioned) => {
@@ -11383,8 +11534,8 @@ fn hit_test_cursor(
             if let Some(entry) = cache.get(id) {
                 let guard = entry.lock().unwrap();
                 let (buffer, _, _, _, _, cursors, _, hrefs) = &*guard;
-                let content_x = laid.x + laid.style.border_width + laid.style.padding.left.px();
-                let content_y = laid.y + laid.style.border_width + laid.style.padding.top.px();
+                let content_x = laid.x + laid.style.border_left() + laid.style.padding.left.px();
+                let content_y = laid.y + laid.style.border_top() + laid.style.padding.top.px();
                 let local_x = x - content_x;
                 let local_y = y - content_y;
                 for run in buffer.layout_runs() {
@@ -15343,6 +15494,28 @@ mod tests {
     }
 
     #[test]
+    fn q4_per_side_borders_parse_and_resolve() {
+        let div_of = |style: &str, width: f32| {
+            let html = format!(r#"<html><body><div style="width: {width}px; {style}">x</div></body></html>"#);
+            let laid = measure_fixture(&html, 500.0);
+            find_by_width(&laid, width).expect("div not found").style
+        };
+        let s = div_of("border-bottom: 2px solid red;", 301.0);
+        assert_eq!(s.border_width, [0.0, 0.0, 2.0, 0.0]);
+        assert!(s.border_color[2].is_some() && s.border_color[0].is_none());
+        let s = div_of("border-width: 1px 2px 3px 4px; border-style: solid;", 302.0);
+        assert_eq!(s.border_width, [1.0, 2.0, 3.0, 4.0]);
+        let s = div_of("border: 1px solid red; border-top: none;", 303.0);
+        assert_eq!(s.border_width, [0.0, 1.0, 1.0, 1.0]);
+        let s = div_of("border-left-width: 5px; border-left-style: dashed; border-left-color: blue;", 304.0);
+        assert_eq!(s.border_width, [0.0, 0.0, 0.0, 5.0]);
+        assert_eq!(s.border_style[3], BorderStyle::Dashed);
+        let s = div_of("border: 1px solid; border-color: red green;", 305.0);
+        assert_eq!(s.border_color[0], s.border_color[2]);
+        assert_ne!(s.border_color[0], s.border_color[1]);
+    }
+
+    #[test]
     fn border_style_longhand_parses_all_four_bevel_keywords() {
         for (keyword, width, expected) in [
             ("groove", 201.0, BorderStyle::Groove),
@@ -15354,7 +15527,7 @@ mod tests {
             let laid = measure_fixture(&html, 500.0);
             let div = find_by_width(&laid, width).unwrap_or_else(|| panic!("div with border-style: {keyword} not found"));
             assert_eq!(
-                div.style.border_style, expected,
+                div.style.border_style[0], expected,
                 "border-style: {keyword} should resolve to BorderStyle::{expected:?}"
             );
         }
@@ -17364,8 +17537,8 @@ mod tests {
                 let entry = cache.get(id)?;
                 let guard = entry.lock().unwrap();
                 let (buffer, _, _, _, _, cursors, _, _) = &*guard;
-                let content_x = laid.x + laid.style.border_width + laid.style.padding.left.px();
-                let content_y = laid.y + laid.style.border_width + laid.style.padding.top.px();
+                let content_x = laid.x + laid.style.border_left() + laid.style.padding.left.px();
+                let content_y = laid.y + laid.style.border_top() + laid.style.padding.top.px();
                 for run in buffer.layout_runs() {
                     for glyph in run.glyphs {
                         if cursors.get(glyph.metadata).copied() == Some(want) {

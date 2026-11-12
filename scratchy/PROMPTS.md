@@ -5635,3 +5635,26 @@ rule's specificity. The Q1 debug test now uses `p::bogus` as its dropped
 selector. Test: `q3_pseudo_elements_parse_but_never_match_elements`.
 `grim` worked this time; a simple page rendered normally (link and
 paragraph, nothing generated from pseudo-elements).
+
+---
+
+## Q4 — per-side borders (queue item)
+
+> Implement the first unchecked item (Q4) of the ranked QUEUE in
+> scratchy/TODO.txt.
+
+**What changed:** `Declarations` and `ComputedStyle` now hold
+`border_width`/`border_color`/`border_style` as `[_; 4]` arrays in
+top/right/bottom/left order (`SIDE_NAMES`). New `parse_border_property`
+(called from the declaration parser) handles `border`, the box-syntax
+`border-width/-color/-style` (1 to 4 values, via `parse_box4`), the 4 side
+shorthands and the 12 side longhands. `resolve_style` zeroes a side's width
+when its style is `none`/`hidden`. Layout reads `ComputedStyle::border_top/
+border_left/border_h/border_v` instead of `2.0 * border_width`.
+`paint_box_decoration` keeps the old `paint_border`/`fill_rounded_ring`
+path when all four sides are identical, and otherwise paints each side
+with its own width/style/color (bevel styles degrade to solid;
+`border-radius` falls back to square corners). Test:
+`q4_per_side_borders_parse_and_resolve`. `grim` worked: a div with
+`border-bottom: 4px solid red; border-left: 6px dashed blue` showed only
+those two sides.

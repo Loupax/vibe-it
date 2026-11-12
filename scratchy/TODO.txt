@@ -112,7 +112,7 @@ dropped selectors summed across those pages. Caveats:
       Generating `content:` boxes for `::before`/`::after` is NOT part
       of this item; that's Q19.
 
-- [ ] Q4 [M] Per-side borders (n=150+, the biggest real visual gap
+- [x] Q4 [M] (3e80aae) Per-side borders (n=150+, the biggest real visual gap
       after icons). `Declarations` and `ComputedStyle` hold one uniform
       `border_width`, `border_color` and `border_style`, and
       `border-top`, `border-right`, `border-bottom`, `border-left` and
@@ -136,6 +136,11 @@ dropped selectors summed across those pages. Caveats:
         width.
       - `border-width: 1px 2px 3px 4px` sets all four sides correctly.
       - `border: 1px solid; border-top: none` removes only the top.
+
+- [ ] Q4b [S] Per-side borders with `border-radius`: when the four
+      sides differ (width, color or style) corners fall back to square,
+      and unequal sides don't get mitered corner joins; bevel styles
+      (groove/ridge/inset/outset) degrade to solid in the per-side path.
 
 - [ ] Q5 [S] Anonymous flex items for bare text. Text placed directly
       inside a flex container is silently NOT RENDERED today, so content
