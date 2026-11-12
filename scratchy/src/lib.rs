@@ -524,20 +524,22 @@ fn list_marker(handle: &Handle, style_type: ListStyleType) -> String {
         ListStyleType::Disc => "\u{2022} ".to_string(),
         ListStyleType::Circle => "\u{25E6} ".to_string(),
         ListStyleType::Square => "\u{25AA} ".to_string(),
-        ListStyleType::Decimal => {
+        ListStyleType::None => String::new(),
+        numbered => {
+            let style = numbered.counter_style().unwrap_or("decimal");
             let Some(parent) = parent_handle(handle) else {
-                return "1. ".to_string();
+                return format!("{}. ", format_counter(1, style));
             };
             let children = parent.children.borrow();
+            let tag = element_tag(handle);
             let index = children
                 .iter()
-                .filter(|c| element_tag(c) == "li")
+                .filter(|c| element_tag(c) == tag)
                 .position(|c| Rc::ptr_eq(c, handle))
                 .map(|i| i + 1)
                 .unwrap_or(1);
-            format!("{index}. ")
+            format!("{}. ", format_counter(index as i32, style))
         }
-        ListStyleType::None => String::new(),
     }
 }
 
@@ -1205,6 +1207,18 @@ enum Length {
     /// `vw`/`vh`/`vmin`/`vmax` (Q14): resolved against the viewport
     /// recorded by `set_viewport` for the current style build.
     Vp(VpUnit, f32),
+    /// `min-content`/`max-content`/`fit-content` (Q20f); only `width` and
+    /// `min-width` accept it, and `resolve_style` turns it into
+    /// `ComputedStyle::width_kw`/`min_width_kw` (the plain length stays
+    /// unset), so it never reaches `resolve`.
+    Intrinsic(IntrinsicSize),
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum IntrinsicSize {
+    MinContent,
+    MaxContent,
+    FitContent,
 }
 
 /// Which viewport-relative unit a `Length::Vp`/`CalcNode::Vp` is in.
@@ -1477,6 +1491,7 @@ impl Length {
             Length::Smaller => font_size / 1.2,
             Length::Calc(c) => c.eval(font_size, root_font_size, font_size, current_viewport()),
             Length::Vp(u, v) => u.px(v, current_viewport()),
+            Length::Intrinsic(_) => 0.0,
         }
     }
 }
@@ -1844,7 +1859,11 @@ struct Declarations {
     text_decoration_style: Option<DecorationStyle>,
     text_decoration_color: Option<CssColor>,
     white_space: Option<WhiteSpace>,
+    word_break: Option<WordBreak>,
+    text_transform: Option<TextTransform>,
     list_style_type: Option<ListStyleType>,
+    /// `display: list-item` (true) or any other `display` (false).
+    list_item: Option<bool>,
     text_align: Option<TextAlign>,
     vertical_align: Option<VerticalAlign>,
     line_height: Option<LineHeight>,
@@ -1928,6 +1947,70 @@ enum WhiteSpace {
     Normal,
     Pre,
     Nowrap,
+    /// `pre-wrap` (Q20f): whitespace preserved like `pre`, lines still wrap.
+    PreWrap,
+    /// `pre-line` (Q20f): spaces collapse, newlines are kept, lines wrap.
+    PreLine,
+}
+
+/// `word-break`/`overflow-wrap` (Q20d), one inherited value. cosmic-text's
+/// default `Wrap::WordOrGlyph` already breaks a word that is too long for
+/// its line, i.e. what `overflow-wrap: break-word`/`anywhere` ask for, so
+/// `BreakWord` is the same as `Normal` here (a deliberate deviation from
+/// real CSS, where plain `normal` overflows); only `BreakAll` changes
+/// shaping (`Wrap::Glyph`).
+#[derive(Clone, Copy, PartialEq, Default)]
+enum WordBreak {
+    #[default]
+    Normal,
+    BreakWord,
+    BreakAll,
+}
+
+/// `text-transform` (Q20e), inherited; applied to the text when the
+/// inline items are collected, before shaping.
+#[derive(Clone, Copy, PartialEq, Default)]
+enum TextTransform {
+    #[default]
+    None,
+    Uppercase,
+    Lowercase,
+    Capitalize,
+}
+
+/// The text of one DOM text node as an inline item should carry it:
+/// whitespace per `white-space`, then `text-transform`.
+fn inline_text(raw: &str, ws: WhiteSpace, tt: TextTransform) -> String {
+    let mut text = match ws {
+        WhiteSpace::Pre | WhiteSpace::PreWrap => raw.to_string(),
+        WhiteSpace::PreLine => raw
+            .split('\n')
+            .map(|l| l.split_whitespace().collect::<Vec<_>>().join(" "))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        _ => {
+            let mut t = normalize_whitespace(raw);
+            t.push(' ');
+            t
+        }
+    };
+    match tt {
+        TextTransform::None => {}
+        TextTransform::Uppercase => text = text.to_uppercase(),
+        TextTransform::Lowercase => text = text.to_lowercase(),
+        TextTransform::Capitalize => {
+            let mut start = true;
+            text = text
+                .chars()
+                .flat_map(|c| {
+                    let up = start && c.is_alphanumeric();
+                    start = !c.is_alphanumeric() && c != '\'';
+                    if up { c.to_uppercase().collect::<Vec<_>>() } else { vec![c] }
+                })
+                .collect();
+        }
+    }
+    text
 }
 
 /// The 4 keywords `default.css` actually declares (`disc`/`decimal`
@@ -1943,7 +2026,44 @@ enum ListStyleType {
     Circle,
     Square,
     Decimal,
+    LowerAlpha,
+    UpperAlpha,
+    LowerRoman,
+    UpperRoman,
+    LowerGreek,
     None,
+}
+
+impl ListStyleType {
+    /// The `counter()` style name behind a numbered type (Q20c).
+    fn counter_style(self) -> Option<&'static str> {
+        Some(match self {
+            ListStyleType::Decimal => "decimal",
+            ListStyleType::LowerAlpha => "lower-alpha",
+            ListStyleType::UpperAlpha => "upper-alpha",
+            ListStyleType::LowerRoman => "lower-roman",
+            ListStyleType::UpperRoman => "upper-roman",
+            ListStyleType::LowerGreek => "lower-greek",
+            _ => return None,
+        })
+    }
+
+    /// Parses a `list-style-type` keyword.
+    fn from_keyword(id: &str) -> Option<ListStyleType> {
+        Some(match id.to_ascii_lowercase().as_str() {
+            "disc" => ListStyleType::Disc,
+            "circle" => ListStyleType::Circle,
+            "square" => ListStyleType::Square,
+            "decimal" => ListStyleType::Decimal,
+            "lower-alpha" | "lower-latin" => ListStyleType::LowerAlpha,
+            "upper-alpha" | "upper-latin" => ListStyleType::UpperAlpha,
+            "lower-roman" => ListStyleType::LowerRoman,
+            "upper-roman" => ListStyleType::UpperRoman,
+            "lower-greek" => ListStyleType::LowerGreek,
+            "none" => ListStyleType::None,
+            _ => return None,
+        })
+    }
 }
 
 /// The 4 keywords `text-align` actually has (no `start`/`end` — nothing
@@ -2679,7 +2799,7 @@ fn media_feature_length_px(input: &mut CssParser) -> Result<f32, ()> {
         // regardless of which new variant showed up.
         Length::Calc(c) => Ok(c.eval(16.0, 16.0, 0.0, current_viewport())),
         Length::Vp(..) => Err(()),
-        Length::Percent(_) | Length::Larger | Length::Smaller => Err(()),
+        Length::Percent(_) | Length::Larger | Length::Smaller | Length::Intrinsic(_) => Err(()),
     }
 }
 
@@ -2817,6 +2937,25 @@ fn parse_length_percent(input: &mut CssParser) -> Result<Length, ()> {
 /// is `<length-percentage>` (see `parse_length_percent`'s own docs) —
 /// `border-width`/`outline-width` parse `parse_length` directly instead,
 /// since real CSS doesn't allow a percentage on either.
+/// `width`/`min-width`: a length or an intrinsic-size keyword (Q20f).
+fn set_width_length(input: &mut CssParser, target: &mut Option<Length>) {
+    let kw = input
+        .try_parse(|i| {
+            let id = i.expect_ident().map_err(|_| ())?;
+            match id.to_ascii_lowercase().as_str() {
+                "min-content" => Ok(IntrinsicSize::MinContent),
+                "max-content" | "-webkit-max-content" | "-moz-max-content" => Ok(IntrinsicSize::MaxContent),
+                "fit-content" | "-webkit-fit-content" | "-moz-fit-content" => Ok(IntrinsicSize::FitContent),
+                _ => Err(()),
+            }
+        })
+        .ok();
+    match kw {
+        Some(k) => *target = Some(Length::Intrinsic(k)),
+        None => set_length(input, target),
+    }
+}
+
 fn set_length(input: &mut CssParser, target: &mut Option<Length>) {
     if let Ok(v) = parse_length_percent(input) {
         *target = Some(v);
@@ -2896,6 +3035,89 @@ fn parse_line_height(input: &mut CssParser) -> Result<LineHeight, ()> {
         Token::Percentage { unit_value, .. } => Ok(LineHeight::Len(Length::Percent(*unit_value))),
         _ => Err(()),
     }
+}
+
+/// Vendor-prefixed aliases (Q20b) that are plain synonyms of the standard
+/// property: `-webkit-box-sizing` is `box-sizing`, and so on. Legacy
+/// `-webkit-box` flexbox semantics are deliberately not implemented, and
+/// `-webkit-transform` stays ignored along with `transform`.
+fn unprefixed_property(name: &str) -> &str {
+    const ALIASED: &[&str] = &[
+        "box-sizing", "flex", "flex-direction", "flex-wrap", "flex-flow", "flex-grow",
+        "flex-shrink", "flex-basis", "box-shadow", "justify-content", "align-items",
+        "align-self", "border-radius", "opacity",
+    ];
+    let lower = name.to_ascii_lowercase();
+    for prefix in ["-webkit-", "-moz-"] {
+        if let Some(rest) = lower.strip_prefix(prefix)
+            && let Some(p) = ALIASED.iter().find(|p| **p == rest)
+        {
+            return p;
+        }
+    }
+    name
+}
+
+/// `font` shorthand (Q20a): `[style] [variant] [weight] [stretch] size
+/// [/ line-height] family`. The leading keywords may come in any order;
+/// style/weight/line-height reset to their initial values when omitted.
+/// System-font keywords (`caption`, `menu`, ...) fail to parse, so the
+/// declaration is dropped.
+fn parse_font_shorthand(
+    input: &mut CssParser,
+) -> Result<(FontStyle, FontWeightValue, Length, LineHeight, FontFamily), ()> {
+    let mut style = FontStyle::Normal;
+    let mut weight = FontWeightValue::Absolute(FontWeight::NORMAL);
+    let size = loop {
+        let state = input.state();
+        let tok = input.next().map_err(|_| ())?.clone();
+        match tok {
+            Token::Ident(ref id) => {
+                let id = id.to_ascii_lowercase();
+                match id.as_str() {
+                    "normal" | "small-caps" | "ultra-condensed" | "extra-condensed" | "condensed"
+                    | "semi-condensed" | "semi-expanded" | "expanded" | "extra-expanded"
+                    | "ultra-expanded" => {}
+                    "italic" => style = FontStyle::Italic,
+                    "oblique" => style = FontStyle::Oblique,
+                    "bold" | "bolder" | "lighter" => {
+                        input.reset(&state);
+                        weight = parse_font_weight(input)?;
+                    }
+                    _ => {
+                        let px = font_size_keyword(&id).ok_or(())?;
+                        break Length::Px(px);
+                    }
+                }
+            }
+            Token::Number { value, .. } => weight = FontWeightValue::Absolute(FontWeight(value.round() as u16)),
+            _ => {
+                input.reset(&state);
+                break parse_length_percent(input)?;
+            }
+        }
+    };
+    let line_height = if input.try_parse(|i| i.expect_delim('/')).is_ok() {
+        parse_line_height(input)?
+    } else {
+        LineHeight::Normal
+    };
+    let items = parse_font_family(input)?;
+    Ok((style, weight, size, line_height, FontFamily(Box::leak(items.into_boxed_slice()))))
+}
+
+/// The absolute `font-size` keywords, in px.
+fn font_size_keyword(id: &str) -> Option<f32> {
+    Some(match id {
+        "xx-small" => 9.0,
+        "x-small" => 10.0,
+        "small" => 13.0,
+        "medium" => 16.0,
+        "large" => 18.0,
+        "x-large" => 24.0,
+        "xx-large" => 32.0,
+        _ => return None,
+    })
 }
 
 /// `font-weight`'s value as declared — `bolder`/`lighter` are relative to
@@ -3566,18 +3788,11 @@ fn parse_border_like_shorthand<'k>(
 /// shorthand`. A bare `none` (far and away the real-world common case —
 /// hiding a nav/menu `<ul>`'s marker) resolves as `ListStyleType::None`.
 fn parse_list_style_shorthand(input: &mut CssParser) -> Result<ListStyleType, ()> {
-    const TYPE_KEYWORDS: &[(&str, ListStyleType)] = &[
-        ("disc", ListStyleType::Disc),
-        ("circle", ListStyleType::Circle),
-        ("square", ListStyleType::Square),
-        ("decimal", ListStyleType::Decimal),
-        ("none", ListStyleType::None),
-    ];
     let mut style_type = None;
     loop {
         let state = input.state();
         if let Ok(Token::Ident(ident)) = input.next() {
-            if let Some(&(_, ty)) = TYPE_KEYWORDS.iter().find(|(k, _)| ident.eq_ignore_ascii_case(k)) {
+            if let Some(ty) = ListStyleType::from_keyword(ident) {
                 style_type = Some(ty);
                 continue;
             }
@@ -4775,6 +4990,7 @@ impl DeclParser<'_> {
     /// The per-property dispatch, split out of `parse_value` so the
     /// debug path can re-run it against a scratch `Declarations`.
     fn apply<'i>(&mut self, name: &str, input: &mut CssParser<'i>) {
+        let name = unprefixed_property(name);
         if !name.starts_with("--") {
             let start = input.state();
             while input.next().is_ok() {}
@@ -4865,7 +5081,9 @@ impl DeclParser<'_> {
         } else if parse_border_property(self.decls, name, input) {
         } else if name.eq_ignore_ascii_case("display") {
             if let Ok(ident) = input.expect_ident() {
-                self.decls.display = if ident.eq_ignore_ascii_case("block") {
+                // `list-item` is a block that also generates a marker (Q20c).
+                let is_list_item = ident.eq_ignore_ascii_case("list-item");
+                self.decls.display = if ident.eq_ignore_ascii_case("block") || ident.eq_ignore_ascii_case("list-item") {
                     Some(Display::Block)
                 } else if ident.eq_ignore_ascii_case("inline") {
                     Some(Display::Inline)
@@ -4889,7 +5107,7 @@ impl DeclParser<'_> {
                     // the right simplification: it still renders, in its
                     // source position, just without special placement.
                     Some(Display::Block)
-                } else if ident.eq_ignore_ascii_case("flex") {
+                } else if ident.eq_ignore_ascii_case("flex") || ident.eq_ignore_ascii_case("-webkit-flex") {
                     Some(Display::Flex)
                 } else if ident.eq_ignore_ascii_case("grid") {
                     Some(Display::Grid)
@@ -4907,11 +5125,16 @@ impl DeclParser<'_> {
                     Some(Display::Block)
                 } else if ident.eq_ignore_ascii_case("inline-block") {
                     Some(Display::InlineBlock)
-                } else if ident.eq_ignore_ascii_case("inline-flex") {
+                } else if ident.eq_ignore_ascii_case("inline-flex")
+                    || ident.eq_ignore_ascii_case("-webkit-inline-flex")
+                {
                     Some(Display::InlineFlex)
                 } else {
                     None
                 };
+                if self.decls.display.is_some() {
+                    self.decls.list_item = Some(is_list_item);
+                }
             }
         } else if name.eq_ignore_ascii_case("position") {
             if let Ok(ident) = input.expect_ident() {
@@ -4992,11 +5215,11 @@ impl DeclParser<'_> {
                 self.decls.opacity = Some(o);
             }
         } else if name.eq_ignore_ascii_case("width") {
-            set_length(input, &mut self.decls.width);
+            set_width_length(input, &mut self.decls.width);
         } else if name.eq_ignore_ascii_case("height") {
             set_length(input, &mut self.decls.height);
         } else if name.eq_ignore_ascii_case("min-width") {
-            set_length(input, &mut self.decls.min_width);
+            set_width_length(input, &mut self.decls.min_width);
         } else if name.eq_ignore_ascii_case("min-height") {
             set_length(input, &mut self.decls.min_height);
         } else if name.eq_ignore_ascii_case("max-width") {
@@ -5298,6 +5521,7 @@ impl DeclParser<'_> {
             let keyword = input.next().ok().and_then(|t| match t {
                 Token::Ident(ident) if ident.eq_ignore_ascii_case("larger") => Some(Length::Larger),
                 Token::Ident(ident) if ident.eq_ignore_ascii_case("smaller") => Some(Length::Smaller),
+                Token::Ident(ident) => font_size_keyword(&ident.to_ascii_lowercase()).map(Length::Px),
                 _ => None,
             });
             if let Some(v) = keyword {
@@ -5307,6 +5531,14 @@ impl DeclParser<'_> {
                 if let Ok(v) = parse_length_percent(input) {
                     self.decls.font_size = Some(v);
                 }
+            }
+        } else if name.eq_ignore_ascii_case("font") {
+            if let Ok((style, weight, size, lh, family)) = parse_font_shorthand(input) {
+                self.decls.font_style = Some(style);
+                self.decls.font_weight = Some(weight);
+                self.decls.font_size = Some(size);
+                self.decls.line_height = Some(lh);
+                self.decls.font_family = Some(family);
             }
         } else if name.eq_ignore_ascii_case("font-weight") {
             if let Ok(w) = parse_font_weight(input) {
@@ -5358,25 +5590,44 @@ impl DeclParser<'_> {
                     Some(WhiteSpace::Pre)
                 } else if ident.eq_ignore_ascii_case("nowrap") {
                     Some(WhiteSpace::Nowrap)
+                } else if ident.eq_ignore_ascii_case("pre-wrap") || ident.eq_ignore_ascii_case("break-spaces") {
+                    Some(WhiteSpace::PreWrap)
+                } else if ident.eq_ignore_ascii_case("pre-line") {
+                    Some(WhiteSpace::PreLine)
                 } else {
                     None
                 };
             }
+        } else if name.eq_ignore_ascii_case("word-break") {
+            if let Ok(ident) = input.expect_ident() {
+                self.decls.word_break = match ident.to_ascii_lowercase().as_str() {
+                    "normal" | "keep-all" => Some(WordBreak::Normal),
+                    "break-all" => Some(WordBreak::BreakAll),
+                    "break-word" => Some(WordBreak::BreakWord),
+                    _ => None,
+                };
+            }
+        } else if name.eq_ignore_ascii_case("overflow-wrap") || name.eq_ignore_ascii_case("word-wrap") {
+            if let Ok(ident) = input.expect_ident() {
+                match ident.to_ascii_lowercase().as_str() {
+                    "normal" => self.decls.word_break = Some(WordBreak::Normal),
+                    "break-word" | "anywhere" => self.decls.word_break = Some(WordBreak::BreakWord),
+                    _ => {}
+                }
+            }
+        } else if name.eq_ignore_ascii_case("text-transform") {
+            if let Ok(ident) = input.expect_ident() {
+                self.decls.text_transform = match ident.to_ascii_lowercase().as_str() {
+                    "none" => Some(TextTransform::None),
+                    "uppercase" => Some(TextTransform::Uppercase),
+                    "lowercase" => Some(TextTransform::Lowercase),
+                    "capitalize" => Some(TextTransform::Capitalize),
+                    _ => None,
+                };
+            }
         } else if name.eq_ignore_ascii_case("list-style-type") {
             if let Ok(ident) = input.expect_ident() {
-                self.decls.list_style_type = if ident.eq_ignore_ascii_case("disc") {
-                    Some(ListStyleType::Disc)
-                } else if ident.eq_ignore_ascii_case("circle") {
-                    Some(ListStyleType::Circle)
-                } else if ident.eq_ignore_ascii_case("square") {
-                    Some(ListStyleType::Square)
-                } else if ident.eq_ignore_ascii_case("decimal") {
-                    Some(ListStyleType::Decimal)
-                } else if ident.eq_ignore_ascii_case("none") {
-                    Some(ListStyleType::None)
-                } else {
-                    None
-                };
+                self.decls.list_style_type = ListStyleType::from_keyword(ident);
             }
         } else if name.eq_ignore_ascii_case("list-style") {
             if let Ok(ty) = parse_list_style_shorthand(input) {
@@ -6018,6 +6269,8 @@ struct InheritedStyle {
     font_style: FontStyle,
     font_family: FontFamily,
     white_space: WhiteSpace,
+    word_break: WordBreak,
+    text_transform: TextTransform,
     list_style_type: ListStyleType,
     text_align: TextAlign,
     line_height: LineHeight,
@@ -6052,6 +6305,8 @@ const ROOT_STYLE: InheritedStyle = InheritedStyle {
     font_style: FontStyle::Normal,
     font_family: FontFamily(&[FontFamilyItem::SansSerif]),
     white_space: WhiteSpace::Normal,
+    word_break: WordBreak::Normal,
+    text_transform: TextTransform::None,
     list_style_type: ListStyleType::Disc,
     text_align: TextAlign::Left,
     line_height: LineHeight::Normal,
@@ -6191,6 +6446,10 @@ struct ComputedStyle {
     /// `finalize_box_lengths`), neither of which `resolve_style` knows at
     /// cascade time.
     width: Option<BoxLength>,
+    /// `width: min-content|max-content|fit-content` (Q20f); `width` is
+    /// `None` then and `measure` sizes the box from its content.
+    width_kw: Option<IntrinsicSize>,
+    min_width_kw: Option<IntrinsicSize>,
     height: Option<BoxLength>,
     min_width: Option<BoxLength>,
     max_width: Option<BoxLength>,
@@ -6199,6 +6458,8 @@ struct ComputedStyle {
     /// Not inherited (same as `overflow`/`border_width`). See
     /// `BoxSizing`'s own docs.
     box_sizing: BoxSizing,
+    /// `display: list-item` was cascaded (not inherited); generates a marker.
+    list_item: bool,
     margin: Sides,
     padding: Sides,
     /// Per-side (top, right, bottom, left). Width is already 0 for a side
@@ -6238,6 +6499,8 @@ struct ComputedStyle {
     text_decoration_style: Option<DecorationStyle>,
     text_decoration_color: Option<TextColor>,
     white_space: WhiteSpace,
+    word_break: WordBreak,
+    text_transform: TextTransform,
     list_style_type: ListStyleType,
     text_align: TextAlign,
     /// Not inherited (see `VerticalAlign`'s own docs) — propagates the
@@ -6410,6 +6673,8 @@ impl ComputedStyle {
             font_style: self.font_style,
             font_family: self.font_family,
             white_space: self.white_space,
+            word_break: self.word_break,
+            text_transform: self.text_transform,
             list_style_type: self.list_style_type,
             text_align: self.text_align,
             line_height: self.line_height,
@@ -7062,6 +7327,10 @@ fn resolve_style_for(
     // piece of this file that branches on `display` (`collect_children`,
     // `measure`) needs no separate `position`/`float` check of its own.
     let display_declared = display;
+    let list_item = matches!(
+        cascade_css(&matches, inl, "display", |d| d.list_item),
+        Cascaded::Value(true)
+    ) && display == Display::Block;
     let force_block = |display: Display, position: Position, float: Float| {
         if (matches!(position, Position::Absolute | Position::Fixed) || float != Float::None) && display != Display::None {
             Display::Block
@@ -7083,11 +7352,23 @@ fn resolve_style_for(
         ROOT_STYLE.font_size,
         |l| Some(l.resolve(inherited.font_size, inherited.root_font_size)),
     );
-    let width = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.width), |d| d.width)
+    let raw_width = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.width), |d| d.width);
+    let width_kw = match raw_width {
+        Some(Length::Intrinsic(k)) => Some(k),
+        _ => None,
+    };
+    let width = raw_width
+        .filter(|_| width_kw.is_none())
         .map(|l| BoxLength::from_length(l, font_size, inherited.root_font_size));
     let height = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.height), |d| d.height)
         .map(|l| BoxLength::from_length(l, font_size, inherited.root_font_size));
-    let min_width = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.min_width), |d| d.min_width)
+    let raw_min_width = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.min_width), |d| d.min_width);
+    let min_width_kw = match raw_min_width {
+        Some(Length::Intrinsic(k)) => Some(k),
+        _ => None,
+    };
+    let min_width = raw_min_width
+        .filter(|_| min_width_kw.is_none())
         .map(|l| BoxLength::from_length(l, font_size, inherited.root_font_size));
     let min_height = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.min_height), |d| d.min_height)
         .map(|l| BoxLength::from_length(l, font_size, inherited.root_font_size));
@@ -7455,6 +7736,8 @@ fn resolve_style_for(
         width,
         height,
         min_width,
+        width_kw,
+        min_width_kw,
         max_width,
         min_height,
         max_height,
@@ -7474,7 +7757,16 @@ fn resolve_style_for(
         text_decoration_style,
         text_decoration_color,
         white_space,
+        word_break: cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.word_break), |d| d.word_break)
+            .unwrap_or(inherited.word_break),
+        text_transform: cascade_property(
+            &matches,
+            inline_decls.as_ref().and_then(|d| d.text_transform),
+            |d| d.text_transform,
+        )
+        .unwrap_or(inherited.text_transform),
         list_style_type,
+        list_item,
         text_align,
         vertical_align,
         line_height,
@@ -7531,6 +7823,8 @@ fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         width: None,
         height: None,
         min_width: None,
+        width_kw: None,
+        min_width_kw: None,
         max_width: None,
         min_height: None,
         max_height: None,
@@ -7550,7 +7844,10 @@ fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         text_decoration_style: None,
         text_decoration_color: None,
         white_space: inherited.white_space,
+        word_break: inherited.word_break,
+        text_transform: inherited.text_transform,
         list_style_type: inherited.list_style_type,
+        list_item: false,
         text_align: inherited.text_align,
         vertical_align: VerticalAlign::default(),
         line_height: inherited.line_height,
@@ -7624,6 +7921,8 @@ struct SpanStyle {
     /// inline`, which applies it directly to a word's own measured
     /// advance (see its own docs) — never by `shape_spans`/cosmic-text.
     word_spacing: f32,
+    /// `word-break: break-all` (Q20d) switches the run to glyph wrapping.
+    word_break: WordBreak,
     /// The absolute-or-relative `href` text of the nearest enclosing
     /// `a`/`area` with an `href` attribute, if any — not a CSS property
     /// at all, so it's carried the same *ambient* way `background_color`/
@@ -7658,6 +7957,7 @@ impl From<InheritedStyle> for SpanStyle {
             visibility: s.visibility,
             cursor: s.cursor,
             word_spacing: s.word_spacing,
+            word_break: s.word_break,
             href: None,
         }
     }
@@ -8160,7 +8460,7 @@ fn build_box_for_element(
             )),
         };
     }
-    let prefix = if element_tag(handle) == "li" {
+    let prefix = if element_tag(handle) == "li" || style.list_item {
         marker_prefix(handle, rules, &style, viewport_width)
     } else {
         None
@@ -8341,13 +8641,10 @@ fn build_flex_children(
             span.text_decoration = decoration.deco;
             span.decoration_style = decoration.style;
             span.href = href;
-            if inherited.white_space == WhiteSpace::Pre {
-                pending.push(InlineItem::Text(contents.borrow().to_string(), span));
-            } else {
-                let mut text = normalize_whitespace(&contents.borrow());
-                text.push(' ');
-                pending.push(InlineItem::Text(text, span));
-            }
+            pending.push(InlineItem::Text(
+                inline_text(&contents.borrow(), inherited.white_space, inherited.text_transform),
+                span,
+            ));
             continue;
         }
         let NodeData::Element { .. } = &child.data else { continue };
@@ -9029,13 +9326,10 @@ fn collect_real_children(
                 // `white-space: pre` preserves the text byte-for-byte
                 // (literal newlines, runs of spaces, no fabricated
                 // trailing space) instead of collapsing it.
-                if inherited.white_space == WhiteSpace::Pre {
-                    pending.push(InlineItem::Text(contents.borrow().to_string(), span));
-                } else {
-                    let mut text = normalize_whitespace(&contents.borrow());
-                    text.push(' ');
-                    pending.push(InlineItem::Text(text, span));
-                }
+                pending.push(InlineItem::Text(
+                    inline_text(&contents.borrow(), inherited.white_space, inherited.text_transform),
+                    span,
+                ));
             }
             NodeData::Element { name, .. } => {
                 let tag = name.local.as_ref();
@@ -10067,6 +10361,8 @@ fn shape_spans(
         // in the text still start new lines regardless of wrap mode
         // (cosmic-text splits buffer lines on them either way).
         buffer.set_wrap(Wrap::None);
+    } else if spans.iter().any(|(_, span)| span.word_break == WordBreak::BreakAll) {
+        buffer.set_wrap(Wrap::Glyph);
     }
     let rich: Vec<(&str, Attrs)> = spans
         .iter()
@@ -10382,6 +10678,34 @@ pub fn measure<'a>(
         );
     }
     let mut s = b.style;
+    let mut auto_margin_box_override = auto_margin_box_override;
+    // `width`/`min-width: min-content|max-content|fit-content` (Q20f):
+    // sized from the box's own min/max-content widths (margin-box terms,
+    // the same `cell_natural_width` a `width: auto` float uses). Not
+    // applied to table/flex/grid containers, which return above.
+    if s.width_kw.is_some() || s.min_width_kw.is_some() {
+        let (min_mb, max_mb) = cell_natural_width(b, font_system, next_id, cache, deadline, incomplete);
+        let pick = |k: IntrinsicSize| match k {
+            IntrinsicSize::MinContent => min_mb,
+            IntrinsicSize::MaxContent => max_mb,
+            IntrinsicSize::FitContent => width.min(max_mb).max(min_mb.min(width)),
+        };
+        if let Some(k) = s.width_kw {
+            auto_margin_box_override = Some(pick(k));
+        }
+        if let Some(k) = s.min_width_kw {
+            let mut t = s;
+            finalize_box_lengths(&mut t, 0.0, None);
+            let margins = t.margin.left.px() + t.margin.right.px();
+            let extra = t.border_h() + t.padding.left.px() + t.padding.right.px();
+            let border_box = (pick(k) - margins).max(0.0);
+            let px = match s.box_sizing {
+                BoxSizing::ContentBox => (border_box - extra).max(0.0),
+                BoxSizing::BorderBox => border_box,
+            };
+            s.min_width = Some(BoxLength::Px(px));
+        }
+    }
     let entry = box_model_entry(&mut s, x, y, width, containing_height, auto_margin_box_override);
     let border_x = entry.border_x;
     let border_y = entry.border_y;
@@ -18343,6 +18667,142 @@ mod tests {
         assert_eq!(find("→ "), Some(TextColor::rgb(0xff, 0, 0)), "{texts:?}");
         assert!(texts.iter().filter(|(t, _)| t.starts_with('\u{2022}')).count() == 1, "none removes it: {texts:?}");
         assert!(find("c ").is_some());
+    }
+
+    #[test]
+    fn q20a_font_shorthand() {
+        let d = parse_declarations("font: italic bold 20px/1.5 Georgia, serif");
+        assert!(d.font_style == Some(FontStyle::Italic));
+        assert!(d.font_weight == Some(FontWeightValue::Absolute(FontWeight::BOLD)));
+        assert!(d.font_size == Some(Length::Px(20.0)));
+        assert!(d.line_height == Some(LineHeight::Multiplier(1.5)));
+        assert!(d.font_family.is_some());
+        let d = parse_declarations("font: 12px sans-serif");
+        assert!(d.font_style == Some(FontStyle::Normal));
+        assert!(d.font_weight == Some(FontWeightValue::Absolute(FontWeight::NORMAL)));
+        assert!(d.line_height == Some(LineHeight::Normal));
+        let d = parse_declarations("font: 600 small/20px \"Foo Bar\", serif");
+        assert!(d.font_weight == Some(FontWeightValue::Absolute(FontWeight(600))));
+        assert!(d.font_size == Some(Length::Px(13.0)));
+        assert!(d.line_height == Some(LineHeight::Len(Length::Px(20.0))));
+        assert!(parse_declarations("font: menu").font_size.is_none());
+        assert!(parse_declarations("font: bold").font_size.is_none());
+    }
+
+    #[test]
+    fn q20b_prefixed_aliases_are_plain_synonyms() {
+        let d = parse_declarations("-webkit-box-sizing: border-box; -moz-box-sizing: content-box");
+        assert!(d.box_sizing == Some(BoxSizing::ContentBox));
+        let d = parse_declarations("-webkit-box-sizing: border-box");
+        assert!(d.box_sizing == Some(BoxSizing::BorderBox));
+        let d = parse_declarations("display: -webkit-flex; -webkit-flex: 2 1 10px; -webkit-box-shadow: 1px 1px 2px red");
+        assert!(d.display == Some(Display::Flex));
+        assert!(d.flex_grow.is_some() && d.box_shadow.is_some());
+        assert!(parse_declarations("display: -webkit-inline-flex").display == Some(Display::InlineFlex));
+        assert!(parse_declarations("display: -webkit-box").display.is_none());
+    }
+
+    #[test]
+    fn q20c_alpha_roman_greek_markers_and_display_list_item() {
+        assert!(parse_declarations("list-style-type: lower-alpha").list_style_type == Some(ListStyleType::LowerAlpha));
+        assert!(parse_declarations("list-style: upper-roman inside").list_style_type == Some(ListStyleType::UpperRoman));
+        let doc = parse_html(
+            r#"<html><head><style>
+            .a { list-style-type: lower-alpha; } .g { list-style-type: lower-greek; }
+            .r { list-style-type: upper-roman; }
+            div.i { display: list-item; list-style-type: decimal; }
+            div.i::marker { color: #ff0000; }
+            </style></head><body>
+            <ol class="a"><li>x</li><li>y</li></ol><ol class="g"><li>x</li><li>y</li></ol>
+            <ol class="r"><li>x</li><li>y</li><li>z</li><li>w</li></ol>
+            <div class="i">p</div><div>q</div></body></html>"#,
+        );
+        let tree = build_layout_tree(&doc, 1920.0);
+        let mut texts = Vec::new();
+        q19_texts(&tree, &mut texts);
+        let has = |t: &str| texts.iter().any(|(x, _)| x == t);
+        assert!(has("a. ") && has("b. "), "{texts:?}");
+        assert!(has("\u{3b1}. ") && has("\u{3b2}. "), "{texts:?}");
+        assert!(has("IV. "), "{texts:?}");
+        let m = texts.iter().find(|(x, _)| x == "1. ").map(|(_, c)| *c);
+        assert_eq!(m, Some(TextColor::rgb(0xff, 0, 0)), "list-item div gets a styled marker: {texts:?}");
+        assert!(texts.iter().filter(|(x, _)| x.ends_with(". ")).count() == 9, "plain div gets none: {texts:?}");
+    }
+
+    #[test]
+    fn q20def_word_break_text_transform_and_white_space_variants() {
+        assert!(parse_declarations("word-break: break-all").word_break == Some(WordBreak::BreakAll));
+        assert!(parse_declarations("overflow-wrap: anywhere").word_break == Some(WordBreak::BreakWord));
+        assert!(parse_declarations("word-wrap: break-word").word_break == Some(WordBreak::BreakWord));
+        assert!(parse_declarations("text-transform: capitalize").text_transform == Some(TextTransform::Capitalize));
+        assert!(parse_declarations("white-space: pre-wrap").white_space == Some(WhiteSpace::PreWrap));
+        assert!(parse_declarations("white-space: pre-line").white_space == Some(WhiteSpace::PreLine));
+        assert_eq!(inline_text("hello wORLD it's", WhiteSpace::Normal, TextTransform::Capitalize), "Hello WORLD It's ");
+        assert_eq!(inline_text("a  b", WhiteSpace::Normal, TextTransform::Uppercase), "A B ");
+        assert_eq!(inline_text("A  b\n  c ", WhiteSpace::PreLine, TextTransform::Lowercase), "a b\nc");
+        assert_eq!(inline_text("a  b\n", WhiteSpace::PreWrap, TextTransform::None), "a  b\n");
+
+        let doc = parse_html(
+            r#"<html><head><style>
+            .u { text-transform: uppercase; } .l { text-transform: lowercase; }
+            </style></head><body><p class="u">shout <b>loud</b></p><p class="l">QUIET</p></body></html>"#,
+        );
+        let tree = build_layout_tree(&doc, 1920.0);
+        let mut texts = Vec::new();
+        q19_texts(&tree, &mut texts);
+        assert!(texts.iter().any(|(t, _)| t == "SHOUT "), "{texts:?}");
+        assert!(texts.iter().any(|(t, _)| t == "LOUD "), "inherited into <b>: {texts:?}");
+        assert!(texts.iter().any(|(t, _)| t == "quiet "), "{texts:?}");
+
+        // Shaping: pre-wrap wraps (several lines), nowrap does not; pre-line
+        // honors a newline; break-all splits a single long word.
+        let mut fs = new_font_system();
+        let mut run = |ws: WhiteSpace, wb: WordBreak, text: &str| {
+            let mut span = SpanStyle::from(ROOT_STYLE);
+            span.word_break = wb;
+            let items = [InlineItem::Text(inline_text(text, ws, TextTransform::None), span)];
+            let pre = matches!(ws, WhiteSpace::Pre | WhiteSpace::Nowrap);
+            let shaped = shape_spans(&mut fs, &items, 60.0, pre, None);
+            shaped.0.layout_runs().count()
+        };
+        let long = "word word word word word word word word";
+        assert!(run(WhiteSpace::PreWrap, WordBreak::Normal, long) > 1);
+        assert_eq!(run(WhiteSpace::Pre, WordBreak::Normal, long), 1);
+        assert_eq!(run(WhiteSpace::PreLine, WordBreak::Normal, "a\nb"), 2);
+        assert!(run(WhiteSpace::Normal, WordBreak::BreakAll, "abcdefghijklmnopqrstuvwxyz") > 1);
+    }
+
+    #[test]
+    fn q20f_intrinsic_width_keywords_size_from_content() {
+        assert!(parse_declarations("width: max-content").width == Some(Length::Intrinsic(IntrinsicSize::MaxContent)));
+        assert!(parse_declarations("min-width: fit-content").min_width == Some(Length::Intrinsic(IntrinsicSize::FitContent)));
+        assert!(parse_declarations("margin: min-content").margin_top.is_none());
+        fn widths(l: &Laid, out: &mut Vec<f32>) {
+            out.push(l.w);
+            if let LaidContent::Blocks(c) = &l.content {
+                for k in c {
+                    widths(k, out);
+                }
+            }
+        }
+        let width_of = |style: &str| {
+            let laid = measure_fixture(
+                &format!(r#"<html><body><div id="t" style="{style}">alpha beta gamma delta</div></body></html>"#),
+                600.0,
+            );
+            let mut ws = Vec::new();
+            widths(&laid, &mut ws);
+            // the test div's inline child is the last box in document order
+            *ws.last().unwrap()
+        };
+        let max = width_of("width: max-content");
+        let min = width_of("width: min-content");
+        let fit = width_of("width: fit-content");
+        let minw = width_of("min-width: max-content; width: 10px");
+        assert!(min > 20.0 && min < max, "min {min} max {max}");
+        assert!(max < 400.0, "max-content hugs the text: {max}");
+        assert!((fit - max).abs() < 0.5, "fit-content with room equals max-content: {fit} vs {max}");
+        assert!((minw - max).abs() < 0.5, "min-width: max-content overrides a small width: {minw} vs {max}");
     }
 
     #[test]

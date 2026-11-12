@@ -447,27 +447,30 @@ dropped selectors summed across those pages. Caveats:
       inline-style `display:none`, `<ol start>`/`<li value>`, `content`
       on replaced elements.
 
-- [ ] Q20 [S×6] Small, independent property gaps. Do them as one
+- [x] Q20 [S×6] Small, independent property gaps. Do them as one
       commit each, in this order:
-      - [ ] Q20a `font` shorthand (n=30): `[style] [weight] size[/line-
+      - [x] Q20a (53aa842) `font` shorthand (n=30): `[style] [weight] size[/line-
             height] family`. System-font keywords drop.
-      - [ ] Q20b Prefixed aliases as plain synonyms:
+      - [x] Q20b (ff72ab7) Prefixed aliases as plain synonyms:
             `-webkit-box-sizing`/`-moz-box-sizing` (30),
             `-webkit-flex`, `display:-webkit-flex`,
             `-webkit-box-shadow` and `-webkit-transform`. Don't add
             legacy `-webkit-box` flexbox semantics.
-      - [ ] Q20c `list-style-type`: `lower-alpha`/`upper-alpha`,
+      - [x] Q20c (9762fcb, 9ae1fe3) `list-style-type`: `lower-alpha`/`upper-alpha`,
             `lower-roman`/`upper-roman`, `lower-greek` (n=23), plus
             `display: list-item` (3).
-      - [ ] Q20d `word-break: break-word|break-all`, `overflow-wrap`/
+      - [x] Q20d (7cddd62) `word-break: break-word|break-all`, `overflow-wrap`/
             `word-wrap: break-word|anywhere` (n=31): break a word
             that's too long instead of overflowing it. Check what
             cosmic-text's `Wrap::WordOrGlyph` already gives for free.
-      - [ ] Q20e `text-transform` (n=18): `uppercase`, `lowercase`,
+      - [x] Q20e (7cddd62) `text-transform` (n=18): `uppercase`, `lowercase`,
             `capitalize`, `none`. Apply it to the text before shaping.
-      - [ ] Q20f `white-space: pre-wrap`/`pre-line` (n=8), plus
+      - [x] Q20f (7cddd62, 01a1a77) `white-space: pre-wrap`/`pre-line` (n=8), plus
             `width`/`min-width: min-content|max-content|fit-content`
             (n=18), using `cell_natural_width`.
+      DONE: see the PROMPTS.md Q20 entry. Left out: `-webkit-transform`
+      (no `transform` support at all), intrinsic width keywords on
+      table/flex/grid containers and on `max-width`.
 
 - [ ] Q21 [M] `overflow-x`/`overflow-y` (n=11) and `text-overflow:
       ellipsis` (n=22). `overflow-x`/`-y` set the axes separately; a
