@@ -5926,3 +5926,12 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > Implement the first unchecked item (Q19e, `::first-letter` and `::first-line`) of the ranked QUEUE in scratchy/TODO.txt; do `::first-letter` and re-split `::first-line` if hard.
 
 **What changed:** new `apply_first_letter`, called at the end of `build_children_with_prefix`, matches `::first-letter` rules (`matching_declarations_for(.., Some("first-letter"))`, skipped cheaply when no rule has that pseudo), resolves the pseudo's style with `resolve_style_for`, and splits the first alphanumeric character plus any leading punctuation off the first anonymous inline run's first text item (after an `<li>` marker prefix) into its own `InlineItem::Text` with that style; the rest keeps the original span. Test: `q19e_first_letter_styles_the_leading_letter`. `grim` worked: a red bold 48px opening quote and `O` before normal paragraph text. `::first-line` is split out as new queue item Q19e2 (needs layout-time line knowledge). Left out: `float` drop caps, first-letter inside a nested first block child, and `::first-letter` on elements whose first child is a generated/embedded/image item.
+
+
+---
+
+## Q19e2 — `::first-line` (queue item)
+
+> Implement the first unchecked item (Q19e2, `::first-line`) of the ranked QUEUE in scratchy/TODO.txt.
+
+**What changed:** new `apply_first_line` (called after `apply_first_letter` in `build_children_with_prefix`) resolves the `::first-line` pseudo style and keeps only the properties that differ from the element's own (color, background, font size/weight/style, line-height, word-spacing) as `FirstLineStyle` in the new `ComputedStyle::first_line` on the first anonymous inline run. `measure`'s text-only `BoxContent::Inline` arm shapes normally, reads the end byte of the first `layout_runs()` entry, restyles that prefix with `apply_first_line_split` and re-shapes; it repeats (max 4 times) until the styled prefix is exactly the first line, since a bolder/larger style moves the break (the first grim attempt showed a stray red word on line 2 before this loop). Test: `q19e2_first_line_styles_only_the_first_laid_out_line` (checks glyph colors per layout run). `grim` worked: a bold red first line and plain following lines. Left out: runs that go through `measure_mixed_inline` (images, inline-blocks, `word-spacing`) ignore `::first-line`; nested first block child; a `::first-letter` span is overridden by first-line properties it also sets (spec says first-letter wins); text-decoration/other properties are not carried.

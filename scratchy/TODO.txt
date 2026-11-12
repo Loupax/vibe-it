@@ -423,9 +423,15 @@ dropped selectors summed across those pages. Caveats:
       text item with the pseudo's resolved style. Left out: `float` drop
       caps, first-letter inside a nested first block child, and
       `::first-line` (see Q19e2).
-- [ ] Q19e2 [M] `::first-line`: style the first laid-out line (needs a
-      line-break-aware split in `measure_mixed_inline`/shaping, since the
-      line's extent is only known at layout time).
+- [x] Q19e2 [M] (HASH) `::first-line`: style the first laid-out line.
+      DONE: `apply_first_line` stores a `FirstLineStyle` overlay on the
+      anonymous inline run's `ComputedStyle::first_line`; `measure`'s
+      text-only `Inline` arm finds the first layout run's end byte,
+      restyles that prefix (`apply_first_line_split`) and re-shapes,
+      re-splitting up to 4 times because the restyle can move the break.
+      Left out: runs routed through `measure_mixed_inline` (images /
+      inline-blocks / word-spacing), first-line inside a nested first
+      block child, `::first-letter` vs `::first-line` precedence.
 - [ ] Q19f [S] Counter polish: implicit `list-item` counter, no counting
       for `display:none` elements, `counter-set`, CSS-wide keywords on
       `counter-reset`/`counter-increment`, quotes from the `quotes`
