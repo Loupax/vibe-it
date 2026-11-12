@@ -112,7 +112,7 @@ dropped selectors summed across those pages. Caveats:
       Generating `content:` boxes for `::before`/`::after` is NOT part
       of this item; that's Q19.
 
-- [x] Q4 [M] (done, see commit hash below) Per-side borders (n=150+, the biggest real visual gap
+- [x] Q4 [M] (3e80aae) Per-side borders (n=150+, the biggest real visual gap
       after icons). `Declarations` and `ComputedStyle` hold one uniform
       `border_width`, `border_color` and `border_style`, and
       `border-top`, `border-right`, `border-bottom`, `border-left` and
