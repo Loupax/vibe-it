@@ -5781,3 +5781,11 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > scratchy/TODO.txt.
 
 **What changed:** `parse_length`/`parse_length_percent` accept the four math functions via `parse_calc_function`/`parse_calc_body` (recursive descent: `parse_calc_sum`/`_product`/`_atom`), building a `CalcNode` tree (px/em/rem/pt/% leaves, `+ - * /`, nested parentheses and functions). The tree is type-checked (`CalcNode::is_length`): length+number, length*length, division by a non-number or literal zero, and non-length results make the declaration drop. `Length::Calc` resolves eagerly (`Length::resolve`) unless it contains a `%`, in which case `BoxLength::Calc` carries the font sizes and resolves in `measure` against the containing block (`BoxLength::resolve`/`resolve_opt`, which also replaced three copies of the percent-height match). `media_feature_length_px` evaluates `calc()` in `@media` features, so the old "calc never matches" test became `media_calc_feature_value_is_evaluated`. Test: `q11_calc_min_max_clamp`. `grim` worked: `width:calc(100% - 200px)` and `min(300px,50%)` blocks rendered at 854px and 300px in a 1054px window. Left out (noted in TODO, no new item): vw/vh (Q14), `var()` inside calc, `%` in flex-basis/grid-track calc.
+
+---
+
+## Q12a1 — SVG decoding at intrinsic size (queue item, first Q12 sub-item)
+
+> Implement the first unchecked sub-item of Q12 in scratchy/TODO.txt.
+
+**What changed:** new dependency `resvg` (no default features, so no text/system fonts). `decode_image_bytes` now sniffs SVG via `looks_like_svg` (BOM/whitespace then `<svg`, `<?xml`, `<!doctype svg`) and rasterizes through `decode_svg_bytes` at the size usvg resolves (`width`/`height`, else `viewBox`), un-premultiplying to the packed RGBA form. `decode_data_uri` now accepts percent-encoded non-base64 payloads, the form Wikipedia's `data:image/svg+xml,...` uses. Test: `q12a_svg_decodes_to_pixels`. `grim` worked: a percent-encoded 60x40 red-rect SVG `<img>` rendered as a red box. Left out (split into new item Q12a2): rasterizing at the CSS size with an `(src,w,h)` cache, `Content-Type` detection, 300x150 fallback.
