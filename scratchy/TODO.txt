@@ -378,13 +378,13 @@ dropped selectors summed across those pages. Caveats:
       decode per BOM / Content-Type charset / `@charset` (Q8 follow-up).
       Skipped: `@import ... supports(...)`/`layer(...)` (dropped).
 
-- [x] Q19 [M] (HASH) Generated content: `::before`/`::after` with `content:
+- [x] Q19 [M] (bb7c64d) Generated content: `::before`/`::after` with `content:
       "<string>"` (and `none`/`normal`), after Q3. Insert an inline box
       at the start or end of the element's children, styled by the
       pseudo-element's own rule. `attr()`, `counter()` and `url()`
       content are out of scope. List the uses on the measured pages
       first, to confirm string content dominates.
-      DONE (HASH): `content` parses (`parse_content`/`ContentDecl`), the
+      DONE (bb7c64d): `content` parses (`parse_content`/`ContentDecl`), the
       pseudo's rules cascade via `matching_declarations_for` +
       `resolve_style_for`, and `collect_children` wraps the real children
       with `generated_content`/`push_generated`. Not done: the per-page
