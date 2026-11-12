@@ -5694,3 +5694,18 @@ bevel borders with a radius now go through `paint_per_side_border`. Test:
 120x80 box with `8px dashed red` and `border-radius: 24px` showed rounded
 dashed corners. This also completes Q27 (Q4b covered unequal per-side
 borders), so Q27 is ticked.
+
+---
+
+## Q5 — anonymous flex items for bare text (queue item)
+
+> Implement the first unchecked item (Q5) of the ranked QUEUE in
+> scratchy/TODO.txt.
+
+**What changed:** `build_flex_children` now collects runs of consecutive
+text nodes directly inside a flex/grid container into one anonymous block
+item (`BoxContent::Inline`, `anonymous_style`); whitespace-only runs are
+dropped. Elements remain their own items (per CSS Flexbox §4, inline
+siblings are not merged into the text item). Test:
+`q5_bare_text_in_flex_container_becomes_anonymous_flex_item`. `grim`
+worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".

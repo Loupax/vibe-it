@@ -5783,14 +5783,9 @@ fn build_table_row_cells(
 /// a `<div>` would — nothing extra needed to force block-level
 /// behavior.
 ///
-/// **Deliberately not attempted** (see `TODO.txt`): a bare text node
-/// directly inside the container (no wrapping element) doesn't become
-/// its own anonymous flex/grid item the way real CSS would — only
-/// element children are collected here, matching the task's own
-/// explicitly-permitted scope-narrowing latitude; non-whitespace text
-/// placed directly in a flex/grid container (uncommon in real page
-/// chrome, which almost always wraps each item in an element) is
-/// silently dropped rather than rendered. `position: absolute`/`fixed`
+/// A run of consecutive text nodes directly inside the container becomes
+/// one anonymous block flex/grid item (CSS Flexbox §4); whitespace-only
+/// runs are dropped. `position: absolute`/`fixed`
 /// children are *not* filtered out here (unlike `build_table_
 /// children`'s own `Display::None` skip) — they're still real children
 /// of this returned list, but `measure_flex`/`measure_grid` themselves
@@ -5808,7 +5803,36 @@ fn build_flex_children(
     image_cache: &HashMap<String, Arc<DecodedImage>>,
 ) -> Vec<LayoutBox> {
     let mut result = Vec::new();
+    // Consecutive text nodes accumulate here and become one anonymous
+    // flex item (CSS Flexbox §4); whitespace-only runs are dropped.
+    let mut pending: Vec<InlineItem> = Vec::new();
+    let flush = |pending: &mut Vec<InlineItem>, result: &mut Vec<LayoutBox>| {
+        let has_text = pending.iter().any(|i| matches!(i, InlineItem::Text(t, _) if !t.trim().is_empty()));
+        if has_text {
+            result.push(LayoutBox {
+                style: anonymous_style(inherited),
+                background_image: None,
+                content: BoxContent::Inline(std::mem::take(pending)),
+            });
+        } else {
+            pending.clear();
+        }
+    };
     for child in handle.children.borrow().iter() {
+        if let NodeData::Text { contents } = &child.data {
+            let mut span: SpanStyle = inherited.into();
+            span.text_decoration = decoration.deco;
+            span.decoration_style = decoration.style;
+            span.href = href;
+            if inherited.white_space == WhiteSpace::Pre {
+                pending.push(InlineItem::Text(contents.borrow().to_string(), span));
+            } else {
+                let mut text = normalize_whitespace(&contents.borrow());
+                text.push(' ');
+                pending.push(InlineItem::Text(text, span));
+            }
+            continue;
+        }
         let NodeData::Element { .. } = &child.data else { continue };
         let tag = element_tag(child);
         if tag == "script" || tag == "style" {
@@ -5818,8 +5842,10 @@ fn build_flex_children(
         if style.display == Display::None {
             continue;
         }
+        flush(&mut pending, &mut result);
         result.push(build_box_for_element(child, rules, inherited, decoration, href, viewport_width, image_cache));
     }
+    flush(&mut pending, &mut result);
     result
 }
 
@@ -19214,6 +19240,17 @@ mod tests {
         assert_eq!(children[0].y, children[1].y, "two equally-flexed items should share one row, not stack vertically — proves this actually flexed, not just became an inline-block");
         assert_eq!(children[0].w, 50.0, "flex: 1 on both items should split the 100px evenly");
         assert_eq!(children[1].x, children[0].x + children[0].w, "the second flex item should start exactly where the first ends");
+    }
+
+    #[test]
+    fn q5_bare_text_in_flex_container_becomes_anonymous_flex_item() {
+        let laid = measure_fixture(
+            r#"<html><body style="margin: 0"><div style="display:flex">hello <b>x</b></div></body></html>"#,
+            500.0,
+        );
+        let mut ids = Vec::new();
+        collect_text_shape_ids(&laid, &mut ids);
+        assert_eq!(ids.len(), 2, "bare text 'hello' should lay out as its own item alongside <b>x</b>, not be dropped");
     }
 
     #[test]
