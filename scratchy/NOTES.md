@@ -2884,3 +2884,12 @@ content overflows. `vw`/`vh`/`vmin`/`vmax` resolve from a thread-local
 (`set_viewport`) written at the start of every style build; layout-time
 `BoxLength::Calc` carries a copy since it resolves on the worker thread.
 Height changes now trigger a rebuild (`App::cached_height`).
+
+Q15a: grid content-sized tracks. `GridTrackSpec`/`TrackBreadth` gained
+`Auto`/`MinContent`/`MaxContent`. `measure_grid` now places items before
+sizing columns (placement only needs the track count), gathers
+`cell_natural_width` (min, max) per content-sized column from its
+single-column items, and passes that to `resolve_grid_tracks`. Order in
+the resolver: fixed tracks, content tracks start at base and grow toward
+their limit, `fr` tracks share what is left, and with no `fr` track the
+`auto` tracks stretch equally. Single-pass, no spec iteration.

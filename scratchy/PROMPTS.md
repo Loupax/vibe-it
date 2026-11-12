@@ -5823,3 +5823,11 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > scratchy/TODO.txt.
 
 **What changed:** `vw`/`vh`/`vmin`/`vmax` parse in `parse_length`/`parse_length_percent` (`Length::Vp(VpUnit, f32)`) and inside `calc()` (`CalcNode::Vp`, which makes the earlier Q11 note obsolete). They resolve against a thread-local viewport set by `build_layout_tree_sized`/`build_layout_tree_with_resources` (new `viewport_height` parameter); `BoxLength::Calc` carries its own copy of the viewport because it finishes resolving later on the shaping worker thread. The synthetic root box gets `ComputedStyle::icb_height`, used only as `child_containing_height` in `box_model_entry`, so `html,body{height:100%}` resolves. `measure_document` then raises the root `Laid`'s `h` to the lowest in-flow descendant edge (`in_flow_bottom`) so scrolling is not capped at one window. `App::redraw` rebuilds when the window height changes too (`cached_height`). Test: `q14_viewport_units_and_icb_height`. `grim` worked: `html,body{height:100%}` with `50%`/`50vw` and `25vh`/`25vw` boxes rendered at half and a quarter of the window. Left out: `@media` height features, `dvh`/`svh`/`lvh`.
+
+---
+
+## Q15a — `auto`/`min-content`/`max-content` grid tracks (queue item, first Q15 sub-item)
+
+> Implement the first unchecked sub-item of Q15 (Q15a) in scratchy/TODO.txt.
+
+**What changed:** `GridTrackSpec` and `TrackBreadth` gained `Auto`, `MinContent`, `MaxContent` (parsed by `parse_track_keyword`, bare and inside `minmax()`). `measure_grid` now places items first, then collects `cell_natural_width` (min, max) for each content-sized column from the single-column items in it and hands that to `resolve_grid_tracks` (new `content` parameter, `TrackCalc::intr`). Order: fixed tracks, content tracks start at their base and grow toward their limit, `fr` tracks share the rest, and with no `fr` track `auto` tracks stretch equally. Row tracks with these keywords size from content as implicit rows already do. Test: `q15a_grid_content_sized_tracks`. `grim` worked: `max-content 1fr` rendered an orange label column hugging its text beside a blue column filling the rest. Left out: items spanning several columns do not feed content sizing; no iterative spec freeze/redistribute pass.

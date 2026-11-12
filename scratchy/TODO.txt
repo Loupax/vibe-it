@@ -336,7 +336,7 @@ dropped selectors summed across those pages. Caveats:
 
 - [ ] Q15 [L] Grid gaps that block Wikipedia's page skeleton. Do these
       in order:
-      - [ ] Q15a [M] `auto`, `min-content` and `max-content` track sizes,
+      - [x] Q15a [M] `auto`, `min-content` and `max-content` track sizes,
             standalone and inside `minmax()`, sized from items via
             `cell_natural_width`.
       - [ ] Q15b [S] The `grid-template` shorthand
@@ -1122,8 +1122,11 @@ session can pick a coherent slice rather than one property at a time.
             cell's full width (the same "stretch" a table cell already
             gets) and sits at its row's own top edge, with no
             alternative alignment/sizing-within-the-cell behavior.
-      - [ ] No content-based track-sizing keywords (`auto`/`min-
-            content`/`max-content`) — every column/row track `grid-
+      - [x] (Q15a, HASH) No content-based track-sizing keywords (`auto`/`min-
+            content`/`max-content`) — now parsed bare and inside `minmax()`;
+            columns are sized from single-column items via
+            `cell_natural_width` (multi-column spans don't contribute;
+            rows still size from content as before). Original gap: every column/row track `grid-
             template-columns`/`-rows` declares must still be a plain
             fixed `<length-percentage>`, `fr`, or `minmax()` of either
             (`GridTrackSpec`'s own grammar, now including `minmax()` —

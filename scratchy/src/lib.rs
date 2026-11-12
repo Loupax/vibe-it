@@ -1012,6 +1012,15 @@ enum FlexBasis {
 enum GridTrackSpec {
     Len(Length),
     Fr(f32),
+    /// `auto` — sized from the items in the track (`minmax(auto, auto)`):
+    /// at least their min-content, growing toward max-content, then
+    /// stretched equally to absorb leftover space when no `fr` track
+    /// wants it. See `resolve_grid_tracks`.
+    Auto,
+    /// `min-content` / `max-content` — the narrowest unbreakable / the
+    /// unwrapped width of the items in the track (`cell_natural_width`).
+    MinContent,
+    MaxContent,
     /// `minmax(<min>, <max>)` — real CSS Grid §7.2.3, scoped to the two
     /// `TrackBreadth` forms this file's own `<track-size>` grammar
     /// already allows outside of `minmax()` (a plain length/`%`/`fr`),
@@ -1049,6 +1058,24 @@ enum GridTrackSpec {
 enum TrackBreadth {
     Len(Length),
     Fr(f32),
+    Auto,
+    MinContent,
+    MaxContent,
+}
+
+/// `auto` / `min-content` / `max-content` as a track breadth keyword.
+fn parse_track_keyword(input: &mut CssParser) -> Option<TrackBreadth> {
+    let state = input.state();
+    let found = match input.next() {
+        Ok(Token::Ident(id)) if id.eq_ignore_ascii_case("auto") => Some(TrackBreadth::Auto),
+        Ok(Token::Ident(id)) if id.eq_ignore_ascii_case("min-content") => Some(TrackBreadth::MinContent),
+        Ok(Token::Ident(id)) if id.eq_ignore_ascii_case("max-content") => Some(TrackBreadth::MaxContent),
+        _ => None,
+    };
+    if found.is_none() {
+        input.reset(&state);
+    }
+    found
 }
 
 /// `top`/`right`/`bottom`/`left` ("inset" is this file's own shorthand
@@ -3624,6 +3651,9 @@ fn parse_flex_shorthand(input: &mut CssParser) -> Result<(f32, f32, FlexBasis), 
 /// itself uses, since this is exactly that function's grammar minus
 /// `minmax()` recursion.
 fn parse_track_breadth(input: &mut CssParser) -> Result<TrackBreadth, ()> {
+    if let Some(k) = parse_track_keyword(input) {
+        return Ok(k);
+    }
     let state = input.state();
     let fr = match input.next() {
         Ok(Token::Dimension { value, unit, .. }) if unit.eq_ignore_ascii_case("fr") => Some(*value),
@@ -3661,6 +3691,12 @@ fn parse_grid_track_size(input: &mut CssParser) -> Result<GridTrackSpec, ()> {
         return Ok(GridTrackSpec::MinMax(min, max));
     }
     input.reset(&state);
+    match parse_track_keyword(input) {
+        Some(TrackBreadth::Auto) => return Ok(GridTrackSpec::Auto),
+        Some(TrackBreadth::MinContent) => return Ok(GridTrackSpec::MinContent),
+        Some(TrackBreadth::MaxContent) => return Ok(GridTrackSpec::MaxContent),
+        _ => {}
+    }
     let fr = match input.next() {
         Ok(Token::Dimension { value, unit, .. }) if unit.eq_ignore_ascii_case("fr") => Some(*value),
         _ => None,
@@ -3668,6 +3704,7 @@ fn parse_grid_track_size(input: &mut CssParser) -> Result<GridTrackSpec, ()> {
     if let Some(v) = fr {
         return Ok(GridTrackSpec::Fr(v));
     }
+    input.reset(&state);
     input.reset(&state);
     parse_length_percent(input).map(GridTrackSpec::Len)
 }
@@ -11008,95 +11045,116 @@ fn measure_flex_column<'a>(
 /// constraint" is the correct behavior there, not a special case.
 struct TrackCalc {
     /// `Some(px)` for a track that takes a fixed size regardless of free
-    /// space (a plain `Len`, or a `MinMax` whose own max side is itself
-    /// a `Len` — real CSS Grid still lets that one grow/shrink between
-    /// its min and max against free space, but doing that without the
-    /// spec's own iterative resolution would mean guessing; clamping to
-    /// its own ceiling is the one single-pass answer that's never wrong
-    /// in the single most common real shape, a fully-overcommitted or
-    /// fully-slack grid — see this function's own docs). `None` for a
-    /// flexible (`fr`) track.
+    /// space (a plain `Len`, a `min-content`/`max-content` track, or a
+    /// `MinMax` whose own max side is a `Len`). `None` for a flexible
+    /// (`fr`) or growable (`intr`) track.
     fixed: Option<f32>,
     /// A flexible track's own floor (`minmax`'s first argument,
     /// resolved) — `0.0` for a plain `Fr` track or a fixed one.
     floor: f32,
     /// A flexible track's own `fr` factor — `0.0` for a fixed track.
     fr: f32,
+    /// A content-sized growable track: `(base, growth limit, stretch)`.
+    /// Starts at `base`, grows toward `limit` with free space, and when
+    /// `stretch` (an `auto` max) also absorbs leftover space equally if
+    /// no `fr` track claims it.
+    intr: Option<(f32, f32, bool)>,
 }
 
-/// CSS Grid's own flexible-length distribution for one axis's track
-/// list, sized against `available` — a real, independent-of-content,
-/// definite extent (the grid container's own content *width*, for
-/// `grid-template-columns`, always definite; see `measure_grid`'s own
-/// docs for why the same isn't attempted for row tracks). Every
-/// non-flexible track takes its own fixed/`%` size first (`%` against
-/// `available`, the same containing-block-width basis `width`/`margin`
-/// already resolve a box's own `%` against); each flexible track's own
-/// floor (`0.0` for a plain `Fr`, `minmax()`'s own first argument
-/// otherwise) is reserved right alongside the fixed tracks, and
-/// whatever's left over after *that* (never negative — an overcommitted
-/// explicit grid simply doesn't leave `fr` tracks any extra space above
-/// their own floor, same "no free space to grow into" outcome `resolve_
-/// flex_main_sizes` already gives an overcommitted flex line) is divided
-/// among the flexible tracks in proportion to their own factor (CSS
-/// Grid §11.7's "flexible sizing" step), then added back on top of each
-/// one's own floor.
+/// CSS Grid's own track sizing for one axis's track list, sized against
+/// `available` — a real, independent-of-content, definite extent (the
+/// grid container's own content *width*, for `grid-template-columns`,
+/// always definite; see `measure_grid`'s own docs for why the same
+/// isn't attempted for row tracks). `content[i]` is the `(min, max)`
+/// content width of track `i`'s items (only consulted by `auto`/
+/// `min-content`/`max-content` tracks). Order: every fixed/`%` track
+/// takes its own size; content-sized tracks start at their base and
+/// are maximised toward their growth limit with free space; flexible
+/// tracks (floor reserved first) share what's left by `fr` factor
+/// (CSS Grid §11.7); with no `fr` track, leftover space stretches the
+/// `auto` tracks equally.
 ///
 /// Deliberately single-pass, same simplification `resolve_flex_main_
 /// sizes` already carries for flexbox: the real spec's own iterative
 /// algorithm re-checks whether *this* pass's result actually respects
 /// every track's floor/ceiling and, if not, freezes the violating track
-/// at its own floor/ceiling and redistributes the rest from scratch —
-/// not attempted here. This matches the real spec exactly whenever every
-/// flexible track's floor is `0` (confirmed against real Wikipedia CSS,
-/// which never uses anything else — see `GridTrackSpec::MinMax`'s own
-/// docs) and is a reasonable, bounded approximation otherwise (a nonzero
-/// floor is still reserved and still never violated by this function's
-/// own output — just without the redistribution a second flexible
-/// track's own slack could otherwise have absorbed).
-fn resolve_grid_tracks(tracks: &[GridTrackSpec], available: f32, gap: f32, font_size: f32, root_font_size: f32) -> Vec<f32> {
+/// and redistributes. This matches the real spec exactly whenever every
+/// flexible track's floor is `0` and is a reasonable approximation
+/// otherwise. Items spanning several columns don't contribute to
+/// content sizing (see `measure_grid`).
+fn resolve_grid_tracks(
+    tracks: &[GridTrackSpec],
+    content: &[(f32, f32)],
+    available: f32,
+    gap: f32,
+    font_size: f32,
+    root_font_size: f32,
+) -> Vec<f32> {
     let n = tracks.len();
     if n == 0 {
         return Vec::new();
     }
-    let resolve_breadth = |b: TrackBreadth| -> f32 {
+    let breadth_px = |b: TrackBreadth, c: (f32, f32)| -> f32 {
         match b {
             TrackBreadth::Len(Length::Percent(p)) => available * p,
             TrackBreadth::Len(l) => l.resolve(font_size, root_font_size),
-            // A flexible minimum isn't real CSS (`minmax()`'s own grammar
-            // disallows `fr` as its first argument) and never arises from
-            // real CSS either — see `TrackBreadth`'s own docs. Treated as
-            // "no floor" rather than rejecting the whole track, the same
-            // forgiving spirit `GridTrackSpec::MinMax`'s own docs already
-            // take toward a theoretical, not-really-reachable shape.
+            TrackBreadth::Auto | TrackBreadth::MinContent => c.0,
+            TrackBreadth::MaxContent => c.1,
+            // A flexible minimum isn't real CSS; treated as "no floor".
             TrackBreadth::Fr(_) => 0.0,
         }
     };
     let calcs: Vec<TrackCalc> = tracks
         .iter()
-        .map(|t| match *t {
-            GridTrackSpec::Fr(f) => TrackCalc { fixed: None, floor: 0.0, fr: f },
-            GridTrackSpec::Len(Length::Percent(p)) => TrackCalc { fixed: Some(available * p), floor: 0.0, fr: 0.0 },
-            GridTrackSpec::Len(l) => TrackCalc { fixed: Some(l.resolve(font_size, root_font_size)), floor: 0.0, fr: 0.0 },
-            GridTrackSpec::MinMax(min, max) => {
-                let floor = resolve_breadth(min);
-                match max {
-                    TrackBreadth::Fr(f) => TrackCalc { fixed: None, floor, fr: f },
-                    TrackBreadth::Len(_) => TrackCalc { fixed: Some(resolve_breadth(max).max(floor)), floor: 0.0, fr: 0.0 },
+        .enumerate()
+        .map(|(i, t)| {
+            let c = content.get(i).copied().unwrap_or((0.0, 0.0));
+            let fixed = |px: f32| TrackCalc { fixed: Some(px), floor: 0.0, fr: 0.0, intr: None };
+            match *t {
+                GridTrackSpec::Fr(f) => TrackCalc { fixed: None, floor: 0.0, fr: f, intr: None },
+                GridTrackSpec::Len(Length::Percent(p)) => fixed(available * p),
+                GridTrackSpec::Len(l) => fixed(l.resolve(font_size, root_font_size)),
+                GridTrackSpec::Auto => TrackCalc { fixed: None, floor: 0.0, fr: 0.0, intr: Some((c.0, c.1.max(c.0), true)) },
+                GridTrackSpec::MinContent => fixed(c.0),
+                GridTrackSpec::MaxContent => fixed(c.1),
+                GridTrackSpec::MinMax(min, max) => {
+                    let floor = breadth_px(min, c);
+                    match max {
+                        TrackBreadth::Fr(f) => TrackCalc { fixed: None, floor, fr: f, intr: None },
+                        TrackBreadth::Len(_) => fixed(breadth_px(max, c).max(floor)),
+                        TrackBreadth::Auto => {
+                            TrackCalc { fixed: None, floor: 0.0, fr: 0.0, intr: Some((floor, c.1.max(floor), true)) }
+                        }
+                        TrackBreadth::MaxContent | TrackBreadth::MinContent => {
+                            let lim = breadth_px(max, c).max(floor);
+                            TrackCalc { fixed: None, floor: 0.0, fr: 0.0, intr: Some((floor, lim, false)) }
+                        }
+                    }
                 }
             }
         })
         .collect();
+    let flexible = |c: &&TrackCalc| c.fixed.is_none() && c.intr.is_none();
     let sum_fixed: f32 = calcs.iter().filter_map(|c| c.fixed).sum();
-    let sum_floor: f32 = calcs.iter().filter(|c| c.fixed.is_none()).map(|c| c.floor).sum();
-    let sum_fr: f32 = calcs.iter().filter(|c| c.fixed.is_none()).map(|c| c.fr).sum();
-    let free = (available - sum_fixed - sum_floor - gap * (n.saturating_sub(1)) as f32).max(0.0);
+    let sum_floor: f32 = calcs.iter().filter(flexible).map(|c| c.floor).sum();
+    let sum_fr: f32 = calcs.iter().filter(flexible).map(|c| c.fr).sum();
+    let sum_base: f32 = calcs.iter().filter_map(|c| c.intr).map(|i| i.0).sum();
+    let gaps = gap * (n.saturating_sub(1)) as f32;
+    let mut free = (available - sum_fixed - sum_floor - sum_base - gaps).max(0.0);
+    let want: f32 = calcs.iter().filter_map(|c| c.intr).map(|i| i.1 - i.0).sum();
+    let grow_frac = if want > 0.0 { (free / want).min(1.0) } else { 0.0 };
+    free = (free - want * grow_frac).max(0.0);
+    let num_stretch = calcs.iter().filter(|c| matches!(c.intr, Some((_, _, true)))).count();
+    let stretch_each = if sum_fr == 0.0 && num_stretch > 0 { free / num_stretch as f32 } else { 0.0 };
     calcs
         .iter()
-        .map(|c| match c.fixed {
-            Some(px) => px,
-            None if sum_fr > 0.0 => c.floor + free * (c.fr / sum_fr),
-            None => c.floor,
+        .map(|c| match (c.fixed, c.intr) {
+            (Some(px), _) => px,
+            (None, Some((base, limit, stretch))) => {
+                base + (limit - base) * grow_frac + if stretch { stretch_each } else { 0.0 }
+            }
+            (None, None) if sum_fr > 0.0 => c.floor + free * (c.fr / sum_fr),
+            (None, None) => c.floor,
         })
         .collect()
 }
@@ -11301,13 +11359,6 @@ fn measure_grid<'a>(
         }
     };
     let num_cols = col_tracks.len().max(1);
-    let col_widths = resolve_grid_tracks(col_tracks, entry.content_w, s.column_gap, s.font_size, s.root_font_size);
-    let mut col_x = Vec::with_capacity(num_cols);
-    let mut cx = entry.content_x;
-    for w in &col_widths {
-        col_x.push(cx);
-        cx += w + s.column_gap;
-    }
 
     // Placement: an item whose own `grid-area` names one of `grid-
     // template-areas`'s own areas goes exactly there (`occupied` marks
@@ -11358,6 +11409,37 @@ fn measure_grid<'a>(
     }
     let num_rows = occupied.len();
 
+    // Content-sized (`auto`/`min-content`/`max-content`) column tracks
+    // get their `(min, max)` from the single-column items placed in
+    // them (`cell_natural_width`); multi-column spans don't contribute.
+    let content_sized = |t: &GridTrackSpec| {
+        matches!(
+            t,
+            GridTrackSpec::Auto
+                | GridTrackSpec::MinContent
+                | GridTrackSpec::MaxContent
+                | GridTrackSpec::MinMax(_, TrackBreadth::Auto | TrackBreadth::MinContent | TrackBreadth::MaxContent)
+                | GridTrackSpec::MinMax(TrackBreadth::Auto | TrackBreadth::MinContent | TrackBreadth::MaxContent, _)
+        )
+    };
+    let mut col_content = vec![(0.0f32, 0.0f32); num_cols];
+    for p in &placements {
+        if p.col_end - p.col_start == 1 && col_tracks.get(p.col_start).is_some_and(content_sized) {
+            let (mn, mx) = cell_natural_width(p.item, font_system, next_id, cache, deadline, incomplete);
+            let c = &mut col_content[p.col_start];
+            c.0 = c.0.max(mn);
+            c.1 = c.1.max(mx);
+        }
+    }
+    let col_widths =
+        resolve_grid_tracks(col_tracks, &col_content, entry.content_w, s.column_gap, s.font_size, s.root_font_size);
+    let mut col_x = Vec::with_capacity(num_cols);
+    let mut cx = entry.content_x;
+    for w in &col_widths {
+        col_x.push(cx);
+        cx += w + s.column_gap;
+    }
+
     // Bucketed by `row_start` (see `GridPlacement`'s own docs for why a
     // multi-row span's own height only ever counts toward this one row)
     // and sorted by `col_start` within a row — document order alone
@@ -11398,7 +11480,14 @@ fn measure_grid<'a>(
         let explicit_h = s.grid_template_rows.and_then(|tracks| tracks.get(r)).and_then(|t| match *t {
             GridTrackSpec::Len(Length::Percent(p)) => containing_height.map(|h| h * p),
             GridTrackSpec::Len(l) => Some(l.resolve(s.font_size, s.root_font_size)),
-            GridTrackSpec::Fr(_) | GridTrackSpec::MinMax(_, TrackBreadth::Fr(_)) => None,
+            GridTrackSpec::Fr(_)
+            | GridTrackSpec::Auto
+            | GridTrackSpec::MinContent
+            | GridTrackSpec::MaxContent
+            | GridTrackSpec::MinMax(
+                _,
+                TrackBreadth::Fr(_) | TrackBreadth::Auto | TrackBreadth::MinContent | TrackBreadth::MaxContent,
+            ) => None,
             GridTrackSpec::MinMax(_, TrackBreadth::Len(Length::Percent(p))) => containing_height.map(|h| h * p),
             GridTrackSpec::MinMax(_, TrackBreadth::Len(l)) => Some(l.resolve(s.font_size, s.root_font_size)),
         });
@@ -18598,6 +18687,40 @@ mod tests {
             panic!("expected the grid container's content to be Blocks (its own grid items)");
         };
         children.iter().collect()
+    }
+
+    #[test]
+    fn q15a_grid_content_sized_tracks() {
+        let widths = |cols: &str, a: &str| -> (f32, f32) {
+            let html = format!(
+                r#"<html><body style="margin: 0"><div style="display: grid; grid-template-columns: {cols}; width: 400px;"><div>{a}</div><div>b</div></div></body></html>"#
+            );
+            let laid = measure_fixture(&html, 500.0);
+            let items = grid_items(&laid, 400.0);
+            (items[0].w, items[1].w)
+        };
+        let text = "alpha bravo charlie";
+        let (max_w, rest) = widths("max-content 1fr", text);
+        let (min_w, _) = widths("min-content 1fr", text);
+        assert!(max_w > 60.0 && max_w < 350.0, "max-content width {max_w}");
+        assert!(min_w > 20.0 && min_w < max_w * 0.6, "min-content {min_w} should be the longest word, less than {max_w}");
+        assert!((max_w + rest - 400.0).abs() < 0.01, "1fr should take the rest");
+        // `auto` + fr: auto sizes like max-content here.
+        let (auto_w, auto_rest) = widths("auto 1fr", text);
+        assert!((auto_w - max_w).abs() < 0.01);
+        assert!((auto_w + auto_rest - 400.0).abs() < 0.01);
+        // `auto` alone stretches to fill the container.
+        let laid = measure_fixture(
+            r#"<html><body style="margin: 0"><div style="display: grid; grid-template-columns: auto; width: 400px;"><div>a</div></div></body></html>"#,
+            500.0,
+        );
+        assert_eq!(grid_items(&laid, 400.0)[0].w, 400.0);
+        // `minmax(300px, max-content)`: floor wins over small content.
+        let (w, _) = widths("minmax(300px, max-content) 1fr", "a");
+        assert_eq!(w, 300.0);
+        // `minmax(min-content, 1fr)`: flexible with a content floor.
+        let (w, r) = widths("minmax(min-content, 1fr) 100px", text);
+        assert_eq!((w, r), (300.0, 100.0));
     }
 
     #[test]
