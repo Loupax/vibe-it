@@ -221,7 +221,7 @@ dropped selectors summed across those pages. Caveats:
       iso-8859-1>` decodes "é" correctly, and a BOM'd UTF-8 input still
       works.
 
-- [ ] Q9 [S] `vertical-align` beyond `sub`/`super` (n=109: `middle` 49,
+- [x] Q9 [S] (f43f902) `vertical-align` beyond `sub`/`super` (n=109: `middle` 49,
       `text-bottom` 23, `top` 13, `bottom` 5, `text-top` 2). Add these
       variants to `VerticalAlign`. Two places use them:
       (a) Table cells: `top`, `middle` and `bottom` offset the cell's
@@ -233,6 +233,11 @@ dropped selectors summed across those pages. Caveats:
           bottom (today's behavior).
       Text spans: treat `middle`/`top`/`bottom` as `baseline`, a
       documented approximation. Tests: one per context.
+      Done. Notes: `default.css` still doesn't give `tbody`/`thead`/
+      `tfoot` `vertical-align: middle` (the real UA default), so cells
+      without an explicit value stay top-aligned; only `middle`/`bottom`
+      cells are stretched to the row height. Length/percentage values
+      are still ignored.
 
 - [ ] Q10 [S] `@supports` (n=75 blocks on Wikipedia, including the
       `display: grid` override that hides its whole left rail). In
