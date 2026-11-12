@@ -423,7 +423,7 @@ dropped selectors summed across those pages. Caveats:
       text item with the pseudo's resolved style. Left out: `float` drop
       caps, first-letter inside a nested first block child, and
       `::first-line` (see Q19e2).
-- [x] Q19e2 [M] (HASH) `::first-line`: style the first laid-out line.
+- [x] Q19e2 [M] (0e57f9d) `::first-line`: style the first laid-out line.
       DONE: `apply_first_line` stores a `FirstLineStyle` overlay on the
       anonymous inline run's `ComputedStyle::first_line`; `measure`'s
       text-only `Inline` arm finds the first layout run's end byte,
