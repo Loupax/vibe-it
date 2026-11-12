@@ -2898,6 +2898,68 @@ fn parse_line_height(input: &mut CssParser) -> Result<LineHeight, ()> {
     }
 }
 
+/// `font` shorthand (Q20a): `[style] [variant] [weight] [stretch] size
+/// [/ line-height] family`. The leading keywords may come in any order;
+/// style/weight/line-height reset to their initial values when omitted.
+/// System-font keywords (`caption`, `menu`, ...) fail to parse, so the
+/// declaration is dropped.
+fn parse_font_shorthand(
+    input: &mut CssParser,
+) -> Result<(FontStyle, FontWeightValue, Length, LineHeight, FontFamily), ()> {
+    let mut style = FontStyle::Normal;
+    let mut weight = FontWeightValue::Absolute(FontWeight::NORMAL);
+    let size = loop {
+        let state = input.state();
+        let tok = input.next().map_err(|_| ())?.clone();
+        match tok {
+            Token::Ident(ref id) => {
+                let id = id.to_ascii_lowercase();
+                match id.as_str() {
+                    "normal" | "small-caps" | "ultra-condensed" | "extra-condensed" | "condensed"
+                    | "semi-condensed" | "semi-expanded" | "expanded" | "extra-expanded"
+                    | "ultra-expanded" => {}
+                    "italic" => style = FontStyle::Italic,
+                    "oblique" => style = FontStyle::Oblique,
+                    "bold" | "bolder" | "lighter" => {
+                        input.reset(&state);
+                        weight = parse_font_weight(input)?;
+                    }
+                    _ => {
+                        let px = font_size_keyword(&id).ok_or(())?;
+                        break Length::Px(px);
+                    }
+                }
+            }
+            Token::Number { value, .. } => weight = FontWeightValue::Absolute(FontWeight(value.round() as u16)),
+            _ => {
+                input.reset(&state);
+                break parse_length_percent(input)?;
+            }
+        }
+    };
+    let line_height = if input.try_parse(|i| i.expect_delim('/')).is_ok() {
+        parse_line_height(input)?
+    } else {
+        LineHeight::Normal
+    };
+    let items = parse_font_family(input)?;
+    Ok((style, weight, size, line_height, FontFamily(Box::leak(items.into_boxed_slice()))))
+}
+
+/// The absolute `font-size` keywords, in px.
+fn font_size_keyword(id: &str) -> Option<f32> {
+    Some(match id {
+        "xx-small" => 9.0,
+        "x-small" => 10.0,
+        "small" => 13.0,
+        "medium" => 16.0,
+        "large" => 18.0,
+        "x-large" => 24.0,
+        "xx-large" => 32.0,
+        _ => return None,
+    })
+}
+
 /// `font-weight`'s value as declared — `bolder`/`lighter` are relative to
 /// whatever weight this element would otherwise *inherit*, not a fixed
 /// number, so (like `font-size`'s `Length::Larger`/`Smaller`, v29) they
@@ -5298,6 +5360,7 @@ impl DeclParser<'_> {
             let keyword = input.next().ok().and_then(|t| match t {
                 Token::Ident(ident) if ident.eq_ignore_ascii_case("larger") => Some(Length::Larger),
                 Token::Ident(ident) if ident.eq_ignore_ascii_case("smaller") => Some(Length::Smaller),
+                Token::Ident(ident) => font_size_keyword(&ident.to_ascii_lowercase()).map(Length::Px),
                 _ => None,
             });
             if let Some(v) = keyword {
@@ -5307,6 +5370,14 @@ impl DeclParser<'_> {
                 if let Ok(v) = parse_length_percent(input) {
                     self.decls.font_size = Some(v);
                 }
+            }
+        } else if name.eq_ignore_ascii_case("font") {
+            if let Ok((style, weight, size, lh, family)) = parse_font_shorthand(input) {
+                self.decls.font_style = Some(style);
+                self.decls.font_weight = Some(weight);
+                self.decls.font_size = Some(size);
+                self.decls.line_height = Some(lh);
+                self.decls.font_family = Some(family);
             }
         } else if name.eq_ignore_ascii_case("font-weight") {
             if let Ok(w) = parse_font_weight(input) {
@@ -18343,6 +18414,26 @@ mod tests {
         assert_eq!(find("→ "), Some(TextColor::rgb(0xff, 0, 0)), "{texts:?}");
         assert!(texts.iter().filter(|(t, _)| t.starts_with('\u{2022}')).count() == 1, "none removes it: {texts:?}");
         assert!(find("c ").is_some());
+    }
+
+    #[test]
+    fn q20a_font_shorthand() {
+        let d = parse_declarations("font: italic bold 20px/1.5 Georgia, serif");
+        assert!(d.font_style == Some(FontStyle::Italic));
+        assert!(d.font_weight == Some(FontWeightValue::Absolute(FontWeight::BOLD)));
+        assert!(d.font_size == Some(Length::Px(20.0)));
+        assert!(d.line_height == Some(LineHeight::Multiplier(1.5)));
+        assert!(d.font_family.is_some());
+        let d = parse_declarations("font: 12px sans-serif");
+        assert!(d.font_style == Some(FontStyle::Normal));
+        assert!(d.font_weight == Some(FontWeightValue::Absolute(FontWeight::NORMAL)));
+        assert!(d.line_height == Some(LineHeight::Normal));
+        let d = parse_declarations("font: 600 small/20px \"Foo Bar\", serif");
+        assert!(d.font_weight == Some(FontWeightValue::Absolute(FontWeight(600))));
+        assert!(d.font_size == Some(Length::Px(13.0)));
+        assert!(d.line_height == Some(LineHeight::Len(Length::Px(20.0))));
+        assert!(parse_declarations("font: menu").font_size.is_none());
+        assert!(parse_declarations("font: bold").font_size.is_none());
     }
 
     #[test]
