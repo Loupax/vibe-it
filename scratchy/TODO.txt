@@ -472,11 +472,13 @@ dropped selectors summed across those pages. Caveats:
       (no `transform` support at all), intrinsic width keywords on
       table/flex/grid containers and on `max-width`.
 
-- [ ] Q21 [M] `overflow-x`/`overflow-y` (n=11) and `text-overflow:
+- [x] Q21 [M] (HASH) `overflow-x`/`overflow-y` (n=11) and `text-overflow:
       ellipsis` (n=22). `overflow-x`/`-y` set the axes separately; a
       single `overflow` value sets both. With `white-space:nowrap` plus
       `overflow:hidden`, `text-overflow:ellipsis` replaces the clipped
       tail with "…".
+
+      DONE: see the PROMPTS.md Q21 entry.
 
 - [ ] Q22 [S] Local files through wire: `file://`, and relative `src`/
       `href` on a page opened from a file. The user decided 2026-11-12.

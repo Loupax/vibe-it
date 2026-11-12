@@ -1887,7 +1887,11 @@ struct Declarations {
     /// can't tell those two cases apart.
     box_shadow: Option<ShadowDecl>,
     border_radius: Option<Length>,
+    /// `overflow` (shorthand) and `overflow-x` both land here: the x axis.
     overflow: Option<Overflow>,
+    /// `overflow-y` (Q21); the `overflow` shorthand sets it as well.
+    overflow_y: Option<Overflow>,
+    text_overflow: Option<TextOverflow>,
     cursor: Option<CursorStyle>,
     flex_direction: Option<FlexDirection>,
     flex_wrap: Option<FlexWrap>,
@@ -2191,6 +2195,15 @@ pub enum Visibility {
 /// content actually overflows (`ScrollInfo::max_scroll() > 0.0`);
 /// `Scroll` always paints a scrollbar indicator even when nothing
 /// overflows yet, `Auto` only when it does (see `paint_scrollbar`).
+/// `text-overflow` (Q21): `Ellipsis` replaces the clipped tail of a
+/// single-line (`nowrap`) text run with "…".
+#[derive(Clone, Copy, PartialEq, Default)]
+enum TextOverflow {
+    #[default]
+    Clip,
+    Ellipsis,
+}
+
 #[derive(Clone, Copy, PartialEq, Default)]
 enum Overflow {
     #[default]
@@ -4964,6 +4977,7 @@ impl Declarations {
             "padding-left" => padding_left, "outline-width" => outline_width,
             "outline-color" => outline_color, "box-shadow" => box_shadow,
             "border-radius" => border_radius, "overflow" => overflow,
+            "overflow-y" => overflow_y, "text-overflow" => text_overflow,
             "flex-direction" => flex_direction, "flex-wrap" => flex_wrap,
             "justify-content" => justify_content, "align-items" => align_items,
             "align-self" => align_self, "flex-grow" => flex_grow,
@@ -5327,19 +5341,33 @@ impl DeclParser<'_> {
             }
         } else if name.eq_ignore_ascii_case("border-radius") {
             set_length(input, &mut self.decls.border_radius);
-        } else if name.eq_ignore_ascii_case("overflow") {
-            if let Ok(ident) = input.expect_ident() {
-                self.decls.overflow = if ident.eq_ignore_ascii_case("visible") {
-                    Some(Overflow::Visible)
-                } else if ident.eq_ignore_ascii_case("hidden") {
-                    Some(Overflow::Hidden)
-                } else if ident.eq_ignore_ascii_case("scroll") {
-                    Some(Overflow::Scroll)
-                } else if ident.eq_ignore_ascii_case("auto") {
-                    Some(Overflow::Auto)
+        } else if name.eq_ignore_ascii_case("overflow")
+            || name.eq_ignore_ascii_case("overflow-x")
+            || name.eq_ignore_ascii_case("overflow-y")
+        {
+            if name.eq_ignore_ascii_case("overflow") {
+                // One value sets both axes; two values are `x y`.
+                if let Some(x) = parse_overflow_keyword(input) {
+                    let y = if input.is_exhausted() { Some(x) } else { parse_overflow_keyword(input) };
+                    if let Some(y) = y {
+                        self.decls.overflow = Some(x);
+                        self.decls.overflow_y = Some(y);
+                    }
+                }
+            } else if let Some(v) = parse_overflow_keyword(input) {
+                if name.eq_ignore_ascii_case("overflow-x") {
+                    self.decls.overflow = Some(v);
                 } else {
-                    None
-                };
+                    self.decls.overflow_y = Some(v);
+                }
+            }
+        } else if name.eq_ignore_ascii_case("text-overflow") {
+            if let Ok(ident) = input.expect_ident() {
+                if ident.eq_ignore_ascii_case("ellipsis") {
+                    self.decls.text_overflow = Some(TextOverflow::Ellipsis);
+                } else if ident.eq_ignore_ascii_case("clip") {
+                    self.decls.text_overflow = Some(TextOverflow::Clip);
+                }
             }
         } else if name.eq_ignore_ascii_case("cursor") {
             if let Ok(ident) = input.expect_ident() {
@@ -6559,6 +6587,9 @@ struct ComputedStyle {
     border_radius: BoxLength,
     /// Not inherited. See `Overflow`'s own docs for the clip's scope.
     overflow: Overflow,
+    /// `text-overflow` (Q21). Not inherited; `build_box_for_element` copies
+    /// an `Ellipsis` onto the anonymous inline runs of a clipping box.
+    text_overflow: TextOverflow,
     /// Only ever `Some` on the synthetic document-root box: the window
     /// height, i.e. the initial containing block's definite height. It
     /// feeds `child_containing_height` (so `html{height:100%}` resolves)
@@ -6786,7 +6817,7 @@ fn wide_keys(name: &str) -> Option<&'static [&'static str]> {
         "margin-right", "margin-bottom", "margin-left", "padding-top",
         "padding-right", "padding-bottom", "padding-left", "outline-width",
         "outline-color", "box-shadow", "border-radius", "overflow",
-        "flex-direction", "flex-wrap", "justify-content", "align-items",
+        "overflow-y", "text-overflow", "flex-direction", "flex-wrap", "justify-content", "align-items",
         "align-self", "flex-grow", "flex-shrink", "flex-basis", "row-gap",
         "column-gap", "grid-template-columns", "grid-template-rows",
         "grid-template-areas", "grid-area", "font-style", "list-style-type",
@@ -6932,6 +6963,7 @@ fn copy_prop(dst: &mut ComputedStyle, src: &ComputedStyle, key: &str) {
         "box-shadow" => dst.box_shadow = src.box_shadow,
         "border-radius" => dst.border_radius = src.border_radius,
         "overflow" => dst.overflow = src.overflow,
+        "text-overflow" => dst.text_overflow = src.text_overflow,
         "flex-direction" => dst.flex_direction = src.flex_direction,
         "flex-wrap" => dst.flex_wrap = src.flex_wrap,
         "justify-content" => dst.justify_content = src.justify_content,
@@ -7636,7 +7668,16 @@ fn resolve_style_for(
     )
     .map(|l| BoxLength::from_length(l, font_size, inherited.root_font_size))
     .unwrap_or_default();
-    let overflow = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.overflow), |d| d.overflow)
+    let overflow_x = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.overflow), |d| d.overflow)
+        .unwrap_or_default();
+    let overflow_y = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.overflow_y), |d| d.overflow_y)
+        .unwrap_or_default();
+    // The style model has one clip/scroll mode per box, not one per axis,
+    // so fold the two: a `visible` axis yields to the other one (real CSS
+    // computes `visible` to `auto` there; the single-mode model treats
+    // `hidden` as clipping both axes, the common `overflow-x:hidden` use).
+    let overflow = if overflow_x == Overflow::Visible { overflow_y } else { overflow_x };
+    let text_overflow = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.text_overflow), |d| d.text_overflow)
         .unwrap_or_default();
     let cursor = apply_wide(
         cascade_css(&matches, inl, "cursor", |d| d.cursor),
@@ -7778,6 +7819,7 @@ fn resolve_style_for(
         bg_layout,
         border_radius,
         overflow,
+        text_overflow,
         icb_height: None,
         first_line: None,
         cursor,
@@ -7859,6 +7901,7 @@ fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         bg_layout: BgLayout::default(),
         border_radius: BoxLength::default(),
         overflow: Overflow::default(),
+        text_overflow: TextOverflow::default(),
         icb_height: None,
         first_line: None,
         cursor: inherited.cursor,
@@ -8465,20 +8508,14 @@ fn build_box_for_element(
     } else {
         None
     };
-    LayoutBox {
-        style,
-        background_image,
-        content: BoxContent::Blocks(build_children_with_prefix(
-            handle,
-            rules,
-            style.inherited(),
-            prefix,
-            own_decoration,
-            href,
-            viewport_width,
-            image_cache,
-        )),
+    let mut children =
+        build_children_with_prefix(handle, rules, style.inherited(), prefix, own_decoration, href, viewport_width, image_cache);
+    if style.text_overflow == TextOverflow::Ellipsis && style.overflow != Overflow::Visible {
+        for c in children.iter_mut().filter(|c| matches!(c.content, BoxContent::Inline(_))) {
+            c.style.text_overflow = TextOverflow::Ellipsis;
+        }
     }
+    LayoutBox { style, background_image, content: BoxContent::Blocks(children) }
 }
 
 /// Walks a `display: table` element's children for its rows (and any
@@ -8805,6 +8842,85 @@ fn apply_first_line_split(items: &[InlineItem], end: usize, fl: &FirstLineStyle)
         }
     }
     out
+}
+
+/// `text-overflow: ellipsis` (Q21) for a single-line text-only run: when
+/// the shaped line is wider than `width`, cuts the text and appends "…" so
+/// the result fits, re-shaping into `shaped`. Returns the new items, or
+/// `None` when nothing overflows or the run is not plain single-line text.
+fn ellipsize_items(
+    font_system: &mut FontSystem,
+    items: &[InlineItem],
+    width: f32,
+    align: Option<CosmicAlign>,
+    shaped: &mut ShapedParagraph,
+) -> Option<Vec<InlineItem>> {
+    let line_w = |b: &Buffer| b.layout_runs().map(|r| r.line_w).fold(0.0f32, f32::max);
+    if line_w(&shaped.0) <= width + 0.5
+        || !items.iter().all(|i| matches!(i, InlineItem::Text(t, _) if !t.contains('\n')))
+    {
+        return None;
+    }
+    let total: usize = items.iter().map(|i| if let InlineItem::Text(t, _) = i { t.len() } else { 0 }).sum();
+    // Largest end byte such that the glyphs before it plus "…" fit.
+    let ew = items
+        .iter()
+        .rev()
+        .find_map(|i| if let InlineItem::Text(_, s) = i { Some(s.font_size * 0.9) } else { None })
+        .unwrap_or(14.0);
+    let limit = (width - ew).max(0.0);
+    let mut end = shaped
+        .0
+        .layout_runs()
+        .next()
+        .map(|r| r.glyphs.iter().filter(|g| g.x + g.w <= limit).map(|g| g.end).max().unwrap_or(0))
+        .unwrap_or(0)
+        .min(total);
+    for _ in 0..16 {
+        let mut out: Vec<InlineItem> = Vec::new();
+        let mut pos = 0usize;
+        let mut last_style = None;
+        for item in items {
+            let InlineItem::Text(text, span) = item else { continue };
+            if pos >= end {
+                break;
+            }
+            let mut cut = (end - pos).min(text.len());
+            while !text.is_char_boundary(cut) {
+                cut -= 1;
+            }
+            out.push(InlineItem::Text(text[..cut].trim_end_matches(char::is_whitespace).to_string(), *span));
+            last_style = Some(*span);
+            pos += text.len();
+        }
+        let style = last_style.or_else(|| items.iter().find_map(|i| if let InlineItem::Text(_, s) = i { Some(*s) } else { None }))?;
+        out.push(InlineItem::Text("\u{2026}".to_string(), style));
+        let reshaped = shape_spans(font_system, &out, width, true, align);
+        let fits = line_w(&reshaped.0) <= width + 0.5;
+        *shaped = reshaped;
+        if fits || end == 0 {
+            return Some(out);
+        }
+        end = (end.saturating_sub(1)).min(total);
+        // step back to the previous char boundary of the concatenation
+        // is handled by the `is_char_boundary` loop above
+    }
+    None
+}
+
+fn parse_overflow_keyword(input: &mut CssParser) -> Option<Overflow> {
+    let ident = input.expect_ident().ok()?;
+    if ident.eq_ignore_ascii_case("visible") {
+        Some(Overflow::Visible)
+    } else if ident.eq_ignore_ascii_case("hidden") || ident.eq_ignore_ascii_case("clip") {
+        Some(Overflow::Hidden)
+    } else if ident.eq_ignore_ascii_case("scroll") {
+        Some(Overflow::Scroll)
+    } else if ident.eq_ignore_ascii_case("auto") {
+        Some(Overflow::Auto)
+    } else {
+        None
+    }
 }
 
 fn items_clone_fallback(items: &[InlineItem]) -> Vec<InlineItem> {
@@ -10811,6 +10927,18 @@ pub fn measure<'a>(
             } else if std::time::Instant::now() < deadline {
                 let pre = matches!(s.white_space, WhiteSpace::Pre | WhiteSpace::Nowrap);
                 let mut shaped = shape_spans(font_system, items, content_w, pre, s.text_align.to_cosmic());
+                let ellipsized;
+                let items: &[InlineItem] = if pre && s.text_overflow == TextOverflow::Ellipsis {
+                    match ellipsize_items(font_system, items, content_w, s.text_align.to_cosmic(), &mut shaped) {
+                        Some(v) => {
+                            ellipsized = v;
+                            &ellipsized
+                        }
+                        None => items,
+                    }
+                } else {
+                    items
+                };
                 // `::first-line` (Q19e2): find where the first laid-out
                 // line ends, restyle that prefix, and shape again. The
                 // restyle can move the break; that is not re-iterated.
@@ -18648,6 +18776,46 @@ mod tests {
         assert!(lines.len() >= 2, "paragraph should wrap: {lines:?}");
         assert!(lines[0], "first line red: {lines:?}");
         assert!(lines[1..].iter().all(|r| !r), "later lines not red: {lines:?}");
+    }
+
+    #[test]
+    fn q21_overflow_axes_and_text_overflow_ellipsis() {
+        assert!(parse_declarations("overflow-x: hidden").overflow == Some(Overflow::Hidden));
+        assert!(parse_declarations("overflow-x: hidden").overflow_y.is_none());
+        let d = parse_declarations("overflow: hidden scroll");
+        assert!(d.overflow == Some(Overflow::Hidden) && d.overflow_y == Some(Overflow::Scroll));
+        let d = parse_declarations("overflow: auto");
+        assert!(d.overflow == Some(Overflow::Auto) && d.overflow_y == Some(Overflow::Auto));
+        assert!(parse_declarations("text-overflow: ellipsis").text_overflow == Some(TextOverflow::Ellipsis));
+        let ink_width = |css: &str| -> (f32, bool) {
+            let doc = parse_html(&format!(
+                r#"<html><head><style>div {{ width: 100px; margin: 0; {css} }}</style></head><body><div>aaaa bbbb cccc dddd eeee ffff gggg</div></body></html>"#
+            ));
+            let tree = build_layout_tree(&doc, 1920.0);
+            let mut font_system = new_font_system();
+            let mut cache = ShapeCache::new();
+            let mut next_id = 0usize;
+            let mut incomplete = false;
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            measure_document(&tree, &mut font_system, 400.0, 400.0, &mut next_id, &mut cache, deadline, &mut incomplete);
+            let mut best = (0.0f32, false);
+            for entry in cache.values() {
+                let g = entry.lock().unwrap();
+                for run in g.0.layout_runs() {
+                    if run.glyphs.iter().any(|gl| gl.end > 0) && run.line_w > best.0 {
+                        let text = run.text;
+                        best = (run.line_w, text.contains('\u{2026}'));
+                    }
+                }
+            }
+            best
+        };
+        let (plain_w, _) = ink_width("white-space: nowrap; overflow: hidden;");
+        assert!(plain_w > 150.0, "unclipped nowrap line is wide: {plain_w}");
+        let (w, has) = ink_width("white-space: nowrap; overflow-x: hidden; text-overflow: ellipsis;");
+        assert!(w <= 100.5 && has, "ellipsized line fits the box and ends in an ellipsis: {w}");
+        let (w, _) = ink_width("white-space: nowrap; overflow: visible; text-overflow: ellipsis;");
+        assert!(w > 150.0, "no ellipsis without clipping overflow: {w}");
     }
 
     #[test]
