@@ -506,8 +506,9 @@ dropped selectors summed across those pages. Caveats:
 - [x] Q23 [S] (4661363) Flex `order` (stable sort of the flex items in
       `measure_flex`). Detail: the `order` item under
       "`display: flex` (440e03b)".
-- [ ] Q23b [S] Flex leftovers, cheapest first: `align-content`,
-      the column-axis automatic minimum size, then `flex-wrap` for
+- [x] Q23b [S] (c446586) Flex `align-content` (row containers).
+- [ ] Q23c [S] Flex leftovers, cheapest first: the column-axis
+      automatic minimum size, then `flex-wrap` for
       column direction, then `baseline`, then the iterative §9.7 loop.
       Each is its own commit. Detail: the remaining `[ ]` items under
       "`display: flex` (440e03b)".
@@ -978,7 +979,7 @@ session can pick a coherent slice rather than one property at a time.
             test page needs it yet; same shape of cut `z-index`'s own
             stacking-context work (v56) left for an analogous "not
             reachable by anything real yet" reason.
-      - [ ] `align-content` (multi-line cross-axis distribution — e.g.
+      - [x] (c446586) `align-content` (multi-line cross-axis distribution — e.g.
             spreading several wrapped lines apart when a `flex-wrap`
             container's own cross size is larger than its lines' summed
             cross size) isn't implemented — lines always stack with no

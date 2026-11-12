@@ -984,6 +984,21 @@ enum JustifyContent {
     SpaceEvenly,
 }
 
+/// `align-content`'s keywords: how the lines of a *wrapped* row flex
+/// container are distributed along the cross axis when the container
+/// has a definite height. `normal` is `stretch`.
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+enum AlignContent {
+    #[default]
+    Stretch,
+    FlexStart,
+    FlexEnd,
+    Center,
+    SpaceBetween,
+    SpaceAround,
+    SpaceEvenly,
+}
+
 /// `align-items`/`align-self`'s keywords, cross-axis alignment.
 /// `Baseline` is accepted but resolves identically to `FlexStart` — real
 /// baseline alignment needs each item's own font ascent threaded out of
@@ -1896,6 +1911,7 @@ struct Declarations {
     flex_direction: Option<FlexDirection>,
     flex_wrap: Option<FlexWrap>,
     justify_content: Option<JustifyContent>,
+    align_content: Option<AlignContent>,
     align_items: Option<AlignItems>,
     /// `None` here means "not declared" *and* the real `auto` keyword
     /// (an item's `align-self: auto` falls back to its container's own
@@ -4983,6 +4999,7 @@ impl Declarations {
             "overflow-y" => overflow_y, "text-overflow" => text_overflow,
             "flex-direction" => flex_direction, "flex-wrap" => flex_wrap,
             "justify-content" => justify_content, "align-items" => align_items,
+            "align-content" => align_content,
             "align-self" => align_self, "flex-grow" => flex_grow,
             "flex-shrink" => flex_shrink, "flex-basis" => flex_basis, "order" => order,
             "row-gap" => row_gap, "column-gap" => column_gap,
@@ -5446,6 +5463,22 @@ impl DeclParser<'_> {
                 } else {
                     None
                 };
+            }
+        } else if name.eq_ignore_ascii_case("align-content") {
+            if let Ok(ident) = input.expect_ident() {
+                let v = match &*ident.to_ascii_lowercase() {
+                    "stretch" | "normal" => Some(AlignContent::Stretch),
+                    "flex-start" | "start" => Some(AlignContent::FlexStart),
+                    "flex-end" | "end" => Some(AlignContent::FlexEnd),
+                    "center" => Some(AlignContent::Center),
+                    "space-between" => Some(AlignContent::SpaceBetween),
+                    "space-around" => Some(AlignContent::SpaceAround),
+                    "space-evenly" => Some(AlignContent::SpaceEvenly),
+                    _ => None,
+                };
+                if v.is_some() {
+                    self.decls.align_content = v;
+                }
             }
         } else if name.eq_ignore_ascii_case("align-items") {
             if let Ok(a) = parse_align_keyword(input) {
@@ -6627,6 +6660,7 @@ struct ComputedStyle {
     flex_direction: FlexDirection,
     flex_wrap: FlexWrap,
     justify_content: JustifyContent,
+    align_content: AlignContent,
     align_items: AlignItems,
     /// `None` means `auto` (the real initial value) — resolved against
     /// the *containing* flex container's own `align_items` only at
@@ -6976,6 +7010,7 @@ fn copy_prop(dst: &mut ComputedStyle, src: &ComputedStyle, key: &str) {
         "flex-direction" => dst.flex_direction = src.flex_direction,
         "flex-wrap" => dst.flex_wrap = src.flex_wrap,
         "justify-content" => dst.justify_content = src.justify_content,
+        "align-content" => dst.align_content = src.align_content,
         "align-items" => dst.align_items = src.align_items,
         "align-self" => dst.align_self = src.align_self,
         "order" => dst.order = src.order,
@@ -7710,6 +7745,12 @@ fn resolve_style_for(
         |d| d.justify_content,
     )
     .unwrap_or_default();
+    let align_content = cascade_property(
+        &matches,
+        inline_decls.as_ref().and_then(|d| d.align_content),
+        |d| d.align_content,
+    )
+    .unwrap_or_default();
     let align_items = cascade_property(
         &matches,
         inline_decls.as_ref().and_then(|d| d.align_items),
@@ -7837,6 +7878,7 @@ fn resolve_style_for(
         flex_direction,
         flex_wrap,
         justify_content,
+        align_content,
         align_items,
         align_self,
         flex_grow,
@@ -7920,6 +7962,7 @@ fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         flex_direction: FlexDirection::default(),
         flex_wrap: FlexWrap::default(),
         justify_content: JustifyContent::default(),
+        align_content: AlignContent::default(),
         align_items: AlignItems::default(),
         align_self: None,
         flex_grow: 0.0,
@@ -12885,6 +12928,7 @@ fn measure_flex_row<'a>(
 
     let mut laid: Vec<Option<Laid>> = (0..items.len()).map(|_| None).collect();
     let mut line_top = entry.content_y;
+    let mut line_crosses: Vec<f32> = Vec::with_capacity(lines.len());
     for line in &lines {
         let line_infos: Vec<FlexBasisInfo> = line
             .iter()
@@ -12917,6 +12961,46 @@ fn measure_flex_row<'a>(
             cursor_x += preps[i].margin_left + main_w + preps[i].margin_right + main_gap + extra_between;
             laid[i] = Some(lc);
         }
+        line_crosses.push(line_cross);
+        line_top += line_cross + cross_gap;
+    }
+
+    // `align-content`: only a multi-line container with a definite
+    // height has free cross space to distribute (a single line, i.e.
+    // `nowrap`, ignores it).
+    let (mut ac_start, mut ac_between) = (0.0f32, 0.0f32);
+    if wrap != FlexWrap::NoWrap {
+        if let Some(inner_h) = s.height.map(|h| match s.box_sizing {
+            BoxSizing::ContentBox => h.px().max(0.0),
+            BoxSizing::BorderBox => (h.px() - entry.extra_h).max(0.0),
+        }) {
+            let n = lines.len();
+            let used: f32 = line_crosses.iter().sum::<f32>() + cross_gap * (n.saturating_sub(1)) as f32;
+            let free = inner_h - used;
+            if free > 0.0 {
+                (ac_start, ac_between) = match s.align_content {
+                    AlignContent::Stretch => {
+                        let each = free / n as f32;
+                        for c in line_crosses.iter_mut() {
+                            *c += each;
+                        }
+                        (0.0, 0.0)
+                    }
+                    AlignContent::FlexStart => (0.0, 0.0),
+                    AlignContent::FlexEnd => (free, 0.0),
+                    AlignContent::Center => (free / 2.0, 0.0),
+                    AlignContent::SpaceBetween if n > 1 => (0.0, free / (n - 1) as f32),
+                    AlignContent::SpaceBetween => (0.0, 0.0),
+                    AlignContent::SpaceAround => (free / n as f32 / 2.0, free / n as f32),
+                    AlignContent::SpaceEvenly => (free / (n + 1) as f32, free / (n + 1) as f32),
+                };
+            }
+        }
+    }
+
+    let mut line_top = entry.content_y + ac_start;
+    for (j, line) in lines.iter().enumerate() {
+        let line_cross = line_crosses[j];
         for &i in line {
             let lc = laid[i].as_mut().expect("just measured above");
             let align = items[i].style.align_self.unwrap_or(s.align_items);
@@ -12932,7 +13016,7 @@ fn measure_flex_row<'a>(
             };
             shift_laid_tree(lc, 0.0, target_y - lc.y);
         }
-        line_top += line_cross + cross_gap;
+        line_top += line_cross + cross_gap + ac_between;
     }
 
     let mut result: Vec<Laid> = laid.into_iter().map(|l| l.expect("every item measured exactly once")).collect();
@@ -21441,6 +21525,30 @@ mod tests {
             (100.0 - 20.0) / 2.0,
             "the shorter item should be vertically centered within the line's cross size (100px)"
         );
+    }
+
+    #[test]
+    fn q23b_align_content_distributes_wrapped_lines() {
+        let html = |ac: &str| {
+            format!(
+                r#"<html><body style="margin:0"><div style="display: flex; flex-wrap: wrap; width: 100px; height: 200px; align-items: flex-start; {ac}"><div style="width: 100px; height: 20px;">a</div><div style="width: 100px; height: 20px;">b</div></div></body></html>"#
+            )
+        };
+        let ys = |ac: &str| -> Vec<f32> {
+            let laid = measure_fixture(&html(ac), 500.0);
+            flex_items(&laid, 100.0).iter().map(|i| i.y).collect()
+        };
+        let base = ys("align-content: flex-start;");
+        assert_eq!(base[1] - base[0], 20.0);
+        let center = ys("align-content: center;");
+        assert_eq!(center[0] - base[0], 80.0, "(200-40)/2 of free space above the lines");
+        let end = ys("align-content: flex-end;");
+        assert_eq!(end[0] - base[0], 160.0);
+        let between = ys("align-content: space-between;");
+        assert_eq!(between[0] - base[0], 0.0);
+        assert_eq!(between[1] - between[0], 180.0);
+        let stretch = ys("");
+        assert_eq!(stretch[1] - stretch[0], 100.0, "default stretch: each line grows by 160/2");
     }
 
     #[test]
