@@ -2893,3 +2893,13 @@ single-column items, and passes that to `resolve_grid_tracks`. Order in
 the resolver: fixed tracks, content tracks start at base and grow toward
 their limit, `fr` tracks share what is left, and with no `fr` track the
 `auto` tracks stretch equally. Single-pass, no spec iteration.
+
+Q15c: numeric grid placement. New `GridLine` (`Auto`/`Line(i32)`/`Span(n)`),
+four item longhands on `Declarations`/`ComputedStyle`
+(`grid_row_start` etc.), set by `grid-row`/`grid-column`, the longhands and
+the 4-value `grid-area` (a lone ident still means a named area). In
+`measure_grid`, `resolve_grid_axis` turns an axis' lines into a fixed range
+or an auto span; placement runs in three passes (named/fully fixed, one fixed
+axis, cursor auto-placement with spans via a `free` cell check). A row span
+still only contributes height to its first row. Named lines and implicit
+columns beyond the template are not supported (clamped).

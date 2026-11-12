@@ -5839,3 +5839,11 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > Implement the first unchecked sub-item of Q15 (Q15b) in scratchy/TODO.txt.
 
 **What changed:** `grid-template` now parses via `parse_grid_template_shorthand`: `none`, `<rows> / <columns>`, and area strings each optionally followed by a row size (`"h h" 50px "m s" 70px / 1fr 100px`; a string with no size gets an `auto` row). It sets `grid_template_rows`, `grid_template_columns` and `grid_template_areas` together (an omitted part is set to empty, as the shorthand resets its longhands). Named lines (`[x]`) still fail to parse and drop the declaration. Test: `q15b_grid_template_shorthand`. `grim` worked: the area template above rendered a 400px header row, then a 300px/100px pair 50px below. Left out: CSS-wide keywords on the shorthand, `grid-template` auto-flow shorthand `grid`.
+
+---
+
+## Q15c — Numeric grid placement (queue item, third Q15 sub-item)
+
+> Implement the first unchecked sub-item of Q15 (Q15c) in scratchy/TODO.txt.
+
+**What changed:** `grid-column`/`grid-row`, `grid-{row,column}-{start,end}` and the 4-value `grid-area` (`row-start / column-start / row-end / column-end`) now parse (`parse_grid_line`, `parse_grid_line_pair`, `parse_grid_area_lines`) into `GridLine` values (`auto`, non-zero line number, negative counting from the end, `span N`). `measure_grid` resolves them with `resolve_grid_axis` and places items in three passes (named areas and fully fixed items; one fixed axis; cursor auto-placement that now honours spans). A bare `grid-area: <ident>` is still the named-area form. The old test `parse_stylesheet_leaves_an_unsupported_declaration_with_no_effect` now uses a five-line `grid-area` as its invalid case. Test: `q15c_grid_numeric_placement`. `grim` worked: a 4x2 grid with `grid-column: 2/4`, `grid-area: 2/1/3/3` and `grid-column: span 2` rendered at the expected columns and rows. Left out: named lines, implicit columns past the template, row-span height distribution (a span's height counts toward its first row only). This completes Q15 except Q15d, so Q15 stays unchecked.
