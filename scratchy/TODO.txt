@@ -390,11 +390,11 @@ dropped selectors summed across those pages. Caveats:
       with `generated_content`/`push_generated`. Not done: the per-page
       survey of `content` uses (no network measurement in the sandbox).
 
-- [x] Q19b [S] (HASH) Generated content, dynamic parts: `attr(name)`,
+- [x] Q19b [S] (baee567) Generated content, dynamic parts: `attr(name)`,
       `counter()`/`counters()` with `counter-reset`/`counter-increment`,
       `open-quote`/`close-quote`/`no-*-quote`, and `::before`/`::after`
       as real (blockified) flex/grid items.
-      DONE (HASH): `parse_content` yields `ContentDecl::Parts`;
+      DONE (baee567): `parse_content` yields `ContentDecl::Parts`;
       `precompute_generated` evaluates them in document order into
       `GENERATED_TEXT`; `build_flex_children` pushes the pseudo boxes.
       Left out, split into Q19c..Q19f below.
