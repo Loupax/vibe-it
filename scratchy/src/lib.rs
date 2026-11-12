@@ -1906,6 +1906,9 @@ struct Declarations {
     flex_grow: Option<f32>,
     flex_shrink: Option<f32>,
     flex_basis: Option<FlexBasis>,
+    /// `order` (integer): flex items lay out in ascending order, ties
+    /// keep source order. Only read by `measure_flex`.
+    order: Option<i32>,
     row_gap: Option<Length>,
     column_gap: Option<Length>,
     /// Leaked (`Box::leak`, once per distinct parsed declaration) into
@@ -3058,7 +3061,7 @@ fn unprefixed_property(name: &str) -> &str {
     const ALIASED: &[&str] = &[
         "box-sizing", "flex", "flex-direction", "flex-wrap", "flex-flow", "flex-grow",
         "flex-shrink", "flex-basis", "box-shadow", "justify-content", "align-items",
-        "align-self", "border-radius", "opacity",
+        "align-self", "order", "border-radius", "opacity",
     ];
     let lower = name.to_ascii_lowercase();
     for prefix in ["-webkit-", "-moz-"] {
@@ -4981,7 +4984,7 @@ impl Declarations {
             "flex-direction" => flex_direction, "flex-wrap" => flex_wrap,
             "justify-content" => justify_content, "align-items" => align_items,
             "align-self" => align_self, "flex-grow" => flex_grow,
-            "flex-shrink" => flex_shrink, "flex-basis" => flex_basis,
+            "flex-shrink" => flex_shrink, "flex-basis" => flex_basis, "order" => order,
             "row-gap" => row_gap, "column-gap" => column_gap,
             "grid-template-columns" => grid_template_columns,
             "grid-template-rows" => grid_template_rows,
@@ -5200,6 +5203,10 @@ impl DeclParser<'_> {
             set_length(input, &mut self.decls.bottom);
         } else if name.eq_ignore_ascii_case("left") {
             set_length(input, &mut self.decls.left);
+        } else if name.eq_ignore_ascii_case("order") {
+            if let Ok(Token::Number { int_value: Some(v), .. }) = input.next().map_err(|_| ()) {
+                self.decls.order = Some(*v);
+            }
         } else if name.eq_ignore_ascii_case("z-index") {
             if let Ok(z) = parse_z_index(input) {
                 self.decls.z_index = Some(z);
@@ -6630,6 +6637,8 @@ struct ComputedStyle {
     flex_grow: f32,
     flex_shrink: f32,
     flex_basis: FlexBasis,
+    /// `order`; see `Declarations::order`.
+    order: i32,
     /// Resolved eagerly (like `border_width`/`outline_width`) rather
     /// than deferred as a `BoxLength` — real CSS allows a `%` `row-gap`/
     /// `column-gap` (resolving against the flex container's own cross/
@@ -6818,7 +6827,7 @@ fn wide_keys(name: &str) -> Option<&'static [&'static str]> {
         "padding-right", "padding-bottom", "padding-left", "outline-width",
         "outline-color", "box-shadow", "border-radius", "overflow",
         "overflow-y", "text-overflow", "flex-direction", "flex-wrap", "justify-content", "align-items",
-        "align-self", "flex-grow", "flex-shrink", "flex-basis", "row-gap",
+        "align-self", "order", "flex-grow", "flex-shrink", "flex-basis", "row-gap",
         "column-gap", "grid-template-columns", "grid-template-rows",
         "grid-template-areas", "grid-area", "font-style", "list-style-type",
         "word-spacing",
@@ -6969,6 +6978,7 @@ fn copy_prop(dst: &mut ComputedStyle, src: &ComputedStyle, key: &str) {
         "justify-content" => dst.justify_content = src.justify_content,
         "align-items" => dst.align_items = src.align_items,
         "align-self" => dst.align_self = src.align_self,
+        "order" => dst.order = src.order,
         "flex-grow" => dst.flex_grow = src.flex_grow,
         "flex-shrink" => dst.flex_shrink = src.flex_shrink,
         "flex-basis" => dst.flex_basis = src.flex_basis,
@@ -7716,6 +7726,7 @@ fn resolve_style_for(
         inline_decls.as_ref().and_then(|d| d.align_self),
         |d| d.align_self,
     );
+    let order = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.order), |d| d.order).unwrap_or(0);
     let flex_grow = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.flex_grow), |d| d.flex_grow)
         .unwrap_or(0.0);
     let flex_shrink = cascade_property(
@@ -7829,6 +7840,7 @@ fn resolve_style_for(
         align_items,
         align_self,
         flex_grow,
+        order,
         flex_shrink,
         flex_basis,
         row_gap,
@@ -7911,6 +7923,7 @@ fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         align_items: AlignItems::default(),
         align_self: None,
         flex_grow: 0.0,
+        order: 0,
         flex_shrink: 1.0,
         flex_basis: FlexBasis::default(),
         row_gap: 0.0,
@@ -12587,7 +12600,7 @@ fn distribute_justify_content(leftover: f32, n: usize, justify: JustifyContent) 
 /// row/column of items, growing/shrinking/justified/aligned" case — see
 /// `measure_flex_row`/`measure_flex_column`'s own docs for exactly what
 /// each direction implements, and `TODO.txt` for what's deliberately
-/// cut (no `align-content`, no `order`, real baseline alignment
+/// cut (no `align-content`, real baseline alignment
 /// approximated as `flex-start`, `flex-wrap` only real for `row`/
 /// `row-reverse`, no automatic-minimum-size/iterative constraint
 /// resolution, and an item's own explicit `width`/`flex-basis` on a
@@ -12635,6 +12648,8 @@ fn measure_flex<'a>(
         }
         items.push(child);
     }
+    // `order`: stable sort, ties keep source order.
+    items.sort_by_key(|c| c.style.order);
     let is_row = s.flex_direction.is_row();
     let main_gap = if is_row { s.column_gap } else { s.row_gap };
     let cross_gap = if is_row { s.row_gap } else { s.column_gap };
@@ -21426,6 +21441,18 @@ mod tests {
             (100.0 - 20.0) / 2.0,
             "the shorter item should be vertically centered within the line's cross size (100px)"
         );
+    }
+
+    #[test]
+    fn q23_order_reorders_flex_items_stably() {
+        let laid = measure_fixture(
+            r#"<html><body><div style="display: flex; width: 300px;"><div style="width: 10px; order: 2;">a</div><div style="width: 20px;">b</div><div style="width: 30px; order: -1;">c</div><div style="width: 40px;">d</div></div></body></html>"#,
+            500.0,
+        );
+        let items = flex_items(&laid, 300.0);
+        let ws: Vec<f32> = items.iter().map(|i| i.w).collect();
+        assert_eq!(ws, vec![30.0, 20.0, 40.0, 10.0], "order -1, then the two order-0 items in source order, then order 2");
+        assert!(items[0].x < items[1].x && items[2].x < items[3].x);
     }
 
     #[test]

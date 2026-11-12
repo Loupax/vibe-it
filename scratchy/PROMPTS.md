@@ -5980,3 +5980,12 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > Implement the first unchecked item (Q22b, sub-resources for a streamed page) of the ranked QUEUE in scratchy/TODO.txt.
 
 **What changed:** the base URL of a streamed page is its own `<base href>` (what `snag` synthesizes), read at `AppEvent::Eof` as before; no new flag was needed. At EOF, with `--socket` given, the new `start_stream_resources` walks the finished DOM with `find_external_resources` and starts image fetches (`spawn_image_fetches`, now shared with `process_external_resources`) plus one background thread running `fetch_stylesheets` (also extracted from `process_external_resources`), which reports through the new `AppEvent::StreamCss(generation, css)`; the handler sets `App::extra_css` and marks layout dirty. Unlike a file page the CSS therefore arrives after the first layout (a restyle, not a blocking wait). Test: `q22b_streamed_page_stylesheets_resolve_against_its_base_href` (base resolution plus `fetch_stylesheets` over a mock wire; the event plumbing needs a winit proxy and is covered by grim only). `grim` worked: `wire` + a `<base file://...>` page piped to `scratchy --socket` showed a red 48px heading from relative `a.css` and a blue 40x40 `b.png`. Left out: a streamed page with no `<base>` fetches nothing (no `--base` flag; relative references need a base), and the unstyled first paint flashes before the CSS lands.
+
+
+---
+
+## Q23 — Flex `order` (queue item)
+
+> Implement the first unchecked item (Q23, flex leftovers, cheapest first) of the ranked QUEUE in scratchy/TODO.txt.
+
+**What changed:** only the cheapest part, `order`, was done; the rest is re-split as Q23b. `order` (integer, `-webkit-order` aliased) is a new `Declarations::order` / `ComputedStyle::order` (non-inherited, default 0), and `measure_flex` stable-sorts its in-flow items by it before row/column layout, so source order breaks ties and laid children (paint and hit-test order too) follow the visual order. Non-integer values are ignored. Test: `q23_order_reorders_flex_items_stably`. `grim` worked: blue (`order:-1`), green, red (`order:2`) boxes appear left to right. Left out: `order` on grid items, and `order` with `row-reverse` was not separately tested (the sort happens before the reverse logic, so it should compose per spec).
