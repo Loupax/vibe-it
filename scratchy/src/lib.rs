@@ -10591,7 +10591,10 @@ fn paint_box_decoration(
         && s.border_style.iter().all(|t| *t == s.border_style[0])
         && s.border_color.iter().all(|c| *c == s.border_color[0]);
     let no_border = s.border_width.iter().all(|w| *w <= 0.0);
-    let round = border_radius > 0.0 && (no_border || !uniform || s.border_style[0] == BorderStyle::Solid);
+    let round = border_radius > 0.0;
+    // Uniform solid borders keep the dedicated ring path; every other
+    // style with a radius goes through the per-pixel per-side painter.
+    let ring_path = uniform && (no_border || s.border_style[0] == BorderStyle::Solid || border_radius <= 0.0);
     if let Some(bg) = s.background_color {
         if round {
             fill_rounded_rect(pixels, win_w, win_h, x, y, w, h, border_radius, bg, clip);
@@ -10609,7 +10612,7 @@ fn paint_box_decoration(
     if let Some(image) = background_image {
         tile_image(image, pixels, win_w, win_h, x, y, w, h, clip);
     }
-    if uniform {
+    if ring_path {
         if s.border_width[0] > 0.0 && s.border_style[0] != BorderStyle::None {
             if let Some(bc) = s.border_color[0] {
                 let bw = s.border_width[0];
@@ -15657,6 +15660,25 @@ mod tests {
             r#"<html><body style="margin:0"><div style="box-sizing: border-box; width: 60px; height: 60px; border-top: 8px inset gray; border-bottom: 8px inset gray;"></div></body></html>"#,
         );
         assert_ne!(px_at(&pixels, win_w, 30, 3), px_at(&pixels, win_w, 30, 56), "inset top (dark) and bottom (light) differ");
+    }
+
+    #[test]
+    fn q4c_uniform_non_solid_borders_round_with_border_radius() {
+        for style in ["dashed", "dotted", "double", "inset", "groove"] {
+            let html = format!(
+                r#"<html><body style="margin:0;background:#ffffff"><div style="box-sizing: border-box; width: 60px; height: 60px; border-radius: 24px; border: 8px {style} #ff0000;"></div></body></html>"#
+            );
+            let (pixels, win_w, _h) = paint_fixture(&html);
+            let bg = px_at(&pixels, win_w, 100, 30);
+            assert_eq!(px_at(&pixels, win_w, 0, 0), bg, "{style}: outer corner is rounded away");
+            assert_eq!(px_at(&pixels, win_w, 5, 5), bg, "{style}: still outside the curve");
+        }
+        // Solid dashed-with-radius still paints the top edge somewhere.
+        let (pixels, win_w, _h) = paint_fixture(
+            r#"<html><body style="margin:0;background:#ffffff"><div style="box-sizing: border-box; width: 60px; height: 60px; border-radius: 24px; border: 8px double #ff0000;"></div></body></html>"#,
+        );
+        let bg = px_at(&pixels, win_w, 100, 30);
+        assert!((24..36).any(|x| px_at(&pixels, win_w, x, 1) != bg), "double border painted along the top");
     }
 
     #[test]
