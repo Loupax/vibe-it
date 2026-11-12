@@ -2852,3 +2852,20 @@ right from reading the code alone and is worth having actually run
 once, with `xclip -selection clipboard` specifically (not a bare
 `xclip`, which would have set `PRIMARY` and proven nothing about the
 selection `paste_into_command_line` actually reads).
+
+## Q13 — custom properties cascade per element
+
+Replaces the v45 design (one `:root` table, whole-stylesheet textual
+substitution before cascading). Declarations containing `var(` are kept
+raw in `Declarations::var_decls`; `resolve_style` builds the element's
+custom-property table (`compute_custom_props`: inherited from the parent
+via `InheritedStyle::custom_props`, overlaid with its own `--x`), then
+re-parses the deferred declarations with `var()` substituted and
+inserts them next to their rule's entries in the match list, so the
+existing `cascade_property` machinery needs no change. The table is an
+interned, leaked `&'static BTreeMap` so `ComputedStyle` stays `Copy`;
+elements that declare no custom properties just copy the parent's
+pointer. Cost: each element matching a rule with `var()` re-parses those
+declarations (resolve_style runs several times per element), which is
+fine at current page sizes but the first thing to cache if profiling
+points here.

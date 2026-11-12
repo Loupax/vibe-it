@@ -1501,10 +1501,14 @@ struct Declarations {
     /// names are case-*sensitive*, unlike every other property this file
     /// matches via `eq_ignore_ascii_case`). The raw value text is kept
     /// unparsed/unresolved here — `var()` substitution happens as a
-    /// whole-stylesheet text pass in `substitute_css_vars`, not here; see
+    /// per-element pass in `resolve_style` (`var_decls`), not here; see
     /// its own docs for why and for the "`:root`/`html`-scoped only, no
     /// per-element override chain" simplification this implies.
     custom_props: Vec<(String, String)>,
+    /// Declarations whose value mentions `var(` (Q13): `(name, raw
+    /// value text)`, deferred until `resolve_style` knows the element's
+    /// custom properties, then re-parsed with the calls substituted.
+    var_decls: Vec<(String, String)>,
     /// CSS-wide keywords (`inherit`/`initial`/`unset`/`revert`) declared
     /// for a property, keyed by `wide_key`. Mutually exclusive with that
     /// property's typed field on the same `Declarations`: whichever was
@@ -3891,6 +3895,16 @@ impl DeclParser<'_> {
     /// debug path can re-run it against a scratch `Declarations`.
     fn apply<'i>(&mut self, name: &str, input: &mut CssParser<'i>) {
         if !name.starts_with("--") {
+            let start = input.state();
+            while input.next().is_ok() {}
+            let raw = input.slice_from(start.position()).trim();
+            if raw.contains("var(") {
+                self.decls.var_decls.push((name.to_string(), raw.to_string()));
+                return;
+            }
+            input.reset(&start);
+        }
+        if !name.starts_with("--") {
             if let Some(keys) = wide_keys(name) {
                 // A CSS-wide keyword (optionally followed by `!important`).
                 let kw = input.try_parse(|i| {
@@ -4820,81 +4834,132 @@ fn parse_stylesheet(css: &str) -> Vec<StyleRule> {
     rules
 }
 
-/// Collects every `--name` custom-property declaration from whichever
-/// `rules` match the document's real `<html>` element — i.e. `:root`,
-/// `html`, `html.foo`, or anything else whose selector happens to match
-/// it, via the exact same real selector matching `resolve_style` uses,
-/// not a hardcoded string check. This is the dominant real-world pattern
-/// for custom properties (design tokens declared once at the top,
-/// referenced everywhere via `var()`) and is deliberately the *only*
-/// pattern supported: a `--name` declared on some other, non-root-
-/// matching selector (e.g. `.dark-mode { --bg: ... }`, scoping a
-/// variable to one subtree) isn't picked up here and plays no part in
-/// `var()` substitution. Real CSS custom properties inherit per-element
-/// like any other inherited property, with descendants able to override
-/// them — that would mean threading a resolved-custom-props map through
-/// `resolve_style`'s per-element cascade (plus a second, per-element
-/// `var()` substitution pass, since an element's inherited custom props
-/// aren't known until its ancestors are resolved) instead of this one
-/// flat, whole-document table built once up front. Nothing in a real
-/// test page needs anything but root-scoped tokens yet, so that more
-/// invasive version is deferred, not attempted. Later same-name
-/// declarations (by rule order, not specificity) win on a tie, matching
-/// `cascade_property`'s own `>=` tie-break elsewhere in this file.
-fn collect_root_custom_props(rules: &[StyleRule], html: &Handle, viewport_width: f32) -> HashMap<String, String> {
-    let element = El(html.clone());
-    let mut caches = SelectorCaches::default();
-    let mut props = HashMap::new();
-    for rule in rules {
-        if !media_list_matches(&rule.media, viewport_width) {
-            continue;
+/// A resolved custom-property table (Q13).
+type CustomProps = std::collections::BTreeMap<String, String>;
+
+thread_local! {
+    static CUSTOM_PROPS_INTERNER: RefCell<HashMap<CustomProps, &'static CustomProps>> =
+        RefCell::new(HashMap::new());
+}
+
+/// Leaks one copy of each distinct table so `ComputedStyle` can stay
+/// `Copy` while carrying it; bounded by the number of distinct tables.
+fn intern_custom_props(map: CustomProps) -> &'static CustomProps {
+    CUSTOM_PROPS_INTERNER.with(|i| {
+        let mut i = i.borrow_mut();
+        if let Some(r) = i.get(&map) {
+            return *r;
         }
-        let mut ctx = MatchingContext::new(
-            MatchingMode::Normal,
-            None,
-            &mut caches,
-            QuirksMode::NoQuirks,
-            NeedsSelectorFlags::No,
-            MatchingForInvalidation::No,
-        );
-        if matches_selector_list(&rule.selectors, &element, &mut ctx) {
-            for (name, value) in &rule.decls.custom_props {
-                props.insert(name.clone(), value.clone());
+        let leaked: &'static CustomProps = Box::leak(Box::new(map.clone()));
+        i.insert(map, leaked);
+        leaked
+    })
+}
+
+/// Computes an element's custom properties: the parent's table overlaid
+/// with this element's own `--name` declarations (highest specificity,
+/// later rule on ties, inline last), each own value `var()`-substituted
+/// against the combined table. A cycle makes the property invalid
+/// (removed, so a `var()` of it uses its fallback).
+fn compute_custom_props(
+    matches: &[(u32, &Declarations)],
+    inline: Option<&Declarations>,
+    parent: Option<&'static CustomProps>,
+) -> Option<&'static CustomProps> {
+    let mut own: HashMap<&str, (u32, &str)> = HashMap::new();
+    for &(spec, decls) in matches {
+        for (name, value) in &decls.custom_props {
+            if own.get(name.as_str()).is_none_or(|(s, _)| spec >= *s) {
+                own.insert(name, (spec, value));
             }
         }
     }
-    props
+    if let Some(inl) = inline {
+        for (name, value) in &inl.custom_props {
+            own.insert(name, (u32::MAX, value));
+        }
+    }
+    if own.is_empty() {
+        return parent;
+    }
+    // `visiting` is the current resolution stack; every name on it when a
+    // cycle is hit goes into `invalid` (the whole cycle is invalid).
+    let visiting: RefCell<(Vec<String>, HashSet<String>)> = RefCell::new((Vec::new(), HashSet::new()));
+    fn lookup(
+        name: &str,
+        own: &HashMap<&str, (u32, &str)>,
+        parent: Option<&'static CustomProps>,
+        visiting: &RefCell<(Vec<String>, HashSet<String>)>,
+    ) -> Option<String> {
+        if let Some((_, raw)) = own.get(name) {
+            {
+                let mut v = visiting.borrow_mut();
+                if v.1.contains(name) {
+                    return None;
+                }
+                if let Some(pos) = v.0.iter().position(|n| n == name) {
+                    let cyc: Vec<String> = v.0[pos..].to_vec();
+                    v.1.extend(cyc);
+                    return None;
+                }
+                v.0.push(name.to_string());
+            }
+            let v = substitute_css_vars(raw, &|n| lookup(n, own, parent, visiting));
+            let mut vis = visiting.borrow_mut();
+            vis.0.pop();
+            if vis.1.contains(name) {
+                return None;
+            }
+            return v;
+        }
+        parent.and_then(|p| p.get(name).cloned())
+    }
+    let mut map = parent.cloned().unwrap_or_default();
+    for name in own.keys() {
+        match lookup(name, &own, parent, &visiting) {
+            Some(v) => {
+                map.insert(name.to_string(), v);
+            }
+            None => {
+                map.remove(*name);
+            }
+        }
+    }
+    if Some(&map) == parent {
+        return parent;
+    }
+    Some(intern_custom_props(map))
 }
 
-/// Replaces every `var(--name)` / `var(--name, <fallback>)` call
-/// anywhere in `css` with the matching entry from `vars` — or, if
-/// `--name` isn't in `vars`, the fallback text (itself recursively
-/// substituted, so `var(--a, var(--b, red))` resolves correctly) — or,
-/// with no fallback either, an empty string (same as everywhere else in
-/// this file: an unresolvable value just makes that one declaration
-/// silently fail to parse, not a hard error for the whole rule/block).
-///
-/// A plain balanced-paren-aware text scan, not a real CSS tokenizer:
-/// correctly finds the *matching* close-paren even through a nested
-/// function call in the fallback, but has no notion of CSS string or
-/// comment context, so (unlike real `var()` substitution) it would still
-/// fire inside a quoted string, e.g. `content: "var(--x)"`. Nothing in
-/// `default.css` or a real test page does that, so not handled. Also:
-/// `vars`' own values are used verbatim, never substituted against each
-/// other — a `:root { --a: blue; --b: var(--a); }` won't resolve `--b`'s
-/// `var(--a)` to `blue`, only a *fallback* ever gets this recursive
-/// treatment. A real page defining one custom property in terms of
-/// another would need that; nothing exercises it yet, and avoiding it
-/// here sidesteps needing a cycle guard for a theoretical `--a: var(--a)`.
-fn substitute_css_vars(css: &str, vars: &HashMap<String, String>) -> String {
+/// Replaces every `var(--name)` / `var(--name, <fallback>)` call in
+/// `css` using `lookup`; an unknown name uses the (recursively
+/// substituted) fallback. Quoted strings are copied verbatim. Returns
+/// `None` when a lookup hit a cycle (a cycle makes the whole value
+/// invalid), and an empty string for an unresolvable call with no
+/// fallback, so that one declaration just fails to parse.
+fn substitute_css_vars(css: &str, lookup: &dyn Fn(&str) -> Option<String>) -> Option<String> {
     let bytes = css.as_bytes();
     let mut out = String::with_capacity(css.len());
     let mut i = 0;
     while i < bytes.len() {
+        let b = bytes[i];
+        if b == b'"' || b == b'\'' {
+            let mut j = i + 1;
+            while j < bytes.len() && bytes[j] != b {
+                if bytes[j] == b'\\' {
+                    j += 1;
+                }
+                j += 1;
+            }
+            let end = (j + 1).min(bytes.len());
+            out.push_str(&css[i..end]);
+            i = end;
+            continue;
+        }
         if css[i..].starts_with("var(") && is_var_call_boundary(bytes, i) {
             let call_start = i + "var(".len();
             if let Some(call_end) = matching_close_paren(bytes, call_start) {
-                out.push_str(&resolve_var_call(&css[call_start..call_end], vars));
+                out.push_str(&resolve_var_call(&css[call_start..call_end], lookup)?);
                 i = call_end + 1;
                 continue;
             }
@@ -4903,7 +4968,7 @@ fn substitute_css_vars(css: &str, vars: &HashMap<String, String>) -> String {
         out.push_str(&css[i..i + ch_len]);
         i += ch_len;
     }
-    out
+    Some(out)
 }
 
 /// `var(` shouldn't match as a trailing slice of a longer identifier
@@ -4938,7 +5003,7 @@ fn matching_close_paren(bytes: &[u8], start: usize) -> Option<usize> {
 /// inside a fallback's own function call) into name/fallback, resolves
 /// `name` against `vars`, or recursively substitutes and returns the
 /// fallback if `name` isn't declared.
-fn resolve_var_call(inner: &str, vars: &HashMap<String, String>) -> String {
+fn resolve_var_call(inner: &str, lookup: &dyn Fn(&str) -> Option<String>) -> Option<String> {
     let bytes = inner.as_bytes();
     let mut depth = 0u32;
     let mut comma_at = None;
@@ -4957,12 +5022,12 @@ fn resolve_var_call(inner: &str, vars: &HashMap<String, String>) -> String {
         Some(idx) => (inner[..idx].trim(), Some(inner[idx + 1..].trim())),
         None => (inner.trim(), None),
     };
-    if let Some(v) = vars.get(name) {
-        return v.clone();
+    if let Some(v) = lookup(name) {
+        return Some(v);
     }
     match fallback {
-        Some(f) => substitute_css_vars(f, vars),
-        None => String::new(),
+        Some(f) => substitute_css_vars(f, lookup),
+        None => Some(String::new()),
     }
 }
 
@@ -5020,6 +5085,8 @@ struct InheritedStyle {
     /// inherited properties) can read any property (`apply_rest_wide`).
     /// `None` at the root.
     parent: Option<ComputedStyle>,
+    /// The parent's resolved custom properties (Q13), inherited.
+    custom_props: Option<&'static CustomProps>,
 }
 
 const ROOT_STYLE: InheritedStyle = InheritedStyle {
@@ -5040,6 +5107,7 @@ const ROOT_STYLE: InheritedStyle = InheritedStyle {
     display: Display::Inline,
     vertical_align: VerticalAlign::Baseline,
     parent: None,
+    custom_props: None,
 };
 
 /// Per-side box-model values. Physical (top/right/bottom/left), not logical
@@ -5066,6 +5134,10 @@ struct Sides {
 
 #[derive(Clone, Copy)]
 struct ComputedStyle {
+    /// This element's resolved custom properties (Q13): inherited from
+    /// the parent, overlaid with its own `--name` declarations, every
+    /// value already `var()`-substituted. Interned, see `intern_custom_props`.
+    custom_props: Option<&'static CustomProps>,
     color: TextColor,
     background_color: Option<TextColor>,
     display: Display,
@@ -5342,6 +5414,7 @@ impl ComputedStyle {
             display: self.display,
             vertical_align: self.vertical_align,
             parent: Some(*self),
+            custom_props: self.custom_props,
         }
     }
 }
@@ -5776,9 +5849,18 @@ enum BackgroundImageDecl {
 /// `Arc` — same reasoning, and the same `Arc<DecodedImage>` type, as
 /// `BoxContent::Image` (see its own docs). Only a `data:` URI `url(...)`
 /// decodes — same `<img src>` policy, see `decode_data_uri`'s own docs.
-fn resolve_background_image(handle: &Handle, rules: &[StyleRule], viewport_width: f32) -> Option<Arc<DecodedImage>> {
-    let mut matches = matching_declarations(handle, rules, viewport_width);
-    let inline_split = element_attr(handle, "style").map(|s| parse_declarations_split(&s));
+fn resolve_background_image(
+    handle: &Handle,
+    rules: &[StyleRule],
+    viewport_width: f32,
+    custom_props: Option<&'static CustomProps>,
+) -> Option<Arc<DecodedImage>> {
+    let base_matches = matching_declarations(handle, rules, viewport_width);
+    let var_lookup = |n: &str| custom_props.and_then(|p| p.get(n).cloned());
+    let synth = expand_var_decls(&base_matches, &var_lookup);
+    let mut matches = merge_var_matches(&base_matches, &synth);
+    let inline_src = element_attr(handle, "style").map(|s| substitute_css_vars(&s, &var_lookup).unwrap_or_default());
+    let inline_split = inline_src.map(|s| parse_declarations_split(&s));
     let (inline_decls, inline_important) = match inline_split {
         Some((n, i)) => (Some(n), Some(i)),
         None => (None, None),
@@ -5793,7 +5875,7 @@ fn resolve_background_image(handle: &Handle, rules: &[StyleRule], viewport_width
         // other keyword is `none` (`background-image` isn't inherited).
         Cascaded::Wide(CssWide::Inherit) => {
             let parent = parent_handle(handle).filter(|p| matches!(p.data, NodeData::Element { .. }))?;
-            return resolve_background_image(&parent, rules, viewport_width);
+            return resolve_background_image(&parent, rules, viewport_width, custom_props);
         }
         Cascaded::Wide(_) => return None,
     };
@@ -5808,9 +5890,69 @@ fn resolve_background_image(handle: &Handle, rules: &[StyleRule], viewport_width
     decode_data_uri(&url).and_then(|b| decode_image_bytes(&b)).map(Arc::new)
 }
 
+/// Re-parses each matched rule's `var()`-bearing declarations with
+/// `lookup`'s custom properties substituted (Q13); one slot per match.
+fn expand_var_decls(
+    base: &[(u32, &Declarations)],
+    lookup: &dyn Fn(&str) -> Option<String>,
+) -> Vec<Option<(Declarations, Declarations)>> {
+    base.iter()
+        .map(|(_, d)| {
+            if d.var_decls.is_empty() {
+                return None;
+            }
+            let mut src = String::new();
+            for (name, raw) in &d.var_decls {
+                src.push_str(name);
+                src.push(':');
+                src.push_str(&substitute_css_vars(raw, lookup).unwrap_or_default());
+                src.push(';');
+            }
+            Some(parse_declarations_split(&src))
+        })
+        .collect()
+}
+
+/// Slots each `expand_var_decls` result right after its rule's own
+/// entries, so source order still breaks specificity ties.
+fn merge_var_matches<'a>(
+    base: &[(u32, &'a Declarations)],
+    synth: &'a [Option<(Declarations, Declarations)>],
+) -> Vec<(u32, &'a Declarations)> {
+    let mut matches = Vec::with_capacity(base.len() + 2);
+    for (idx, &(spec, d)) in base.iter().enumerate() {
+        matches.push((spec, d));
+        if let Some(Some((n, i))) = synth.get(idx) {
+            matches.push((spec, n));
+            matches.push((spec | IMPORTANT_TIER, i));
+        }
+    }
+    matches
+}
+
 fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle, viewport_width: f32) -> ComputedStyle {
-    let mut matches = matching_declarations(handle, rules, viewport_width);
-    let inline_split = element_attr(handle, "style").map(|s| parse_declarations_split(&s));
+    let base_matches = matching_declarations(handle, rules, viewport_width);
+    // Q13: re-parse each matched rule's `var()`-bearing declarations with
+    // this element's custom properties substituted, slotting the result
+    // in right after the rule's own entries (so source order still breaks ties).
+    let inline_src = element_attr(handle, "style");
+    let mut inline_split = inline_src.as_ref().map(|s| parse_declarations_split(s));
+    let rule_has_vars = base_matches.iter().any(|(_, d)| !d.var_decls.is_empty());
+    let inline_has_vars = inline_split.as_ref().is_some_and(|(n, i)| !n.var_decls.is_empty() || !i.var_decls.is_empty());
+    let has_custom = base_matches.iter().any(|(_, d)| !d.custom_props.is_empty())
+        || inline_split.as_ref().is_some_and(|(n, _)| !n.custom_props.is_empty());
+    let custom_props = if has_custom {
+        compute_custom_props(&base_matches, inline_split.as_ref().map(|(n, _)| n), inherited.custom_props)
+    } else {
+        inherited.custom_props
+    };
+    let var_lookup = |n: &str| custom_props.and_then(|p| p.get(n).cloned());
+    let synth = if rule_has_vars { expand_var_decls(&base_matches, &var_lookup) } else { Vec::new() };
+    let mut matches = merge_var_matches(&base_matches, &synth);
+    if inline_has_vars {
+        let src = inline_src.as_ref().map(|s| s.to_string()).unwrap_or_default();
+        inline_split = Some(parse_declarations_split(&substitute_css_vars(&src, &var_lookup).unwrap_or_default()));
+    }
     let (inline_decls, inline_important) = match inline_split {
         Some((n, i)) => (Some(n), Some(i)),
         None => (None, None),
@@ -6188,6 +6330,7 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
     let grid_area = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.grid_area), |d| d.grid_area);
 
     let mut cs = ComputedStyle {
+        custom_props,
         color,
         background_color,
         display,
@@ -6255,6 +6398,7 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
 
 fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
     ComputedStyle {
+        custom_props: inherited.custom_props,
         color: inherited.color,
         background_color: None,
         display: Display::Block,
@@ -6807,7 +6951,7 @@ fn build_box_for_element(
     // Resolved once here (cheap to carry further — just an `Arc` clone —
     // vs. re-running `resolve_background_image`'s own selector-matching
     // pass again in every branch below).
-    let background_image = resolve_background_image(handle, rules, viewport_width);
+    let background_image = resolve_background_image(handle, rules, viewport_width, style.custom_props);
     // Only reached for a `display: block`/`table` `<img>` — the default
     // `display: inline` case is handled entirely inside `collect_children`
     // instead (pushed into the surrounding text run, never given its own
@@ -6947,7 +7091,7 @@ fn build_table_children(
             Display::TableRow => {
                 let cells =
                     build_table_row_cells(child, rules, style.inherited(), child_decoration, href, viewport_width, image_cache);
-                let background_image = resolve_background_image(child, rules, viewport_width);
+                let background_image = resolve_background_image(child, rules, viewport_width, style.custom_props);
                 result.push(LayoutBox { style, background_image, content: BoxContent::TableRow(cells) });
             }
             Display::TableGroup => {
@@ -7255,7 +7399,7 @@ fn collect_children(
                 // simplification — see TODO.txt/NOTES.md for why that
                 // was the original call and what changed.
                 if tag == "img" && !matches!(style.display, Display::Block | Display::Table | Display::Flex | Display::Grid) {
-                    let background_image = resolve_background_image(child, rules, viewport_width);
+                    let background_image = resolve_background_image(child, rules, viewport_width, style.custom_props);
                     let (img_style, decoded) = resolve_img(child, style, image_cache);
                     match decoded {
                         Some(image) => pending.push(InlineItem::Image { image, style: img_style, background_image }),
@@ -7270,7 +7414,7 @@ fn collect_children(
                     }
                 } else if tag == "svg" && !matches!(style.display, Display::Block | Display::Table | Display::Flex | Display::Grid) {
                     // Inline `<svg>`: a replaced inline item like `<img>`.
-                    let background_image = resolve_background_image(child, rules, viewport_width);
+                    let background_image = resolve_background_image(child, rules, viewport_width, style.custom_props);
                     let (svg_style, decoded) = resolve_inline_svg(child, style);
                     if let Some(image) = decoded {
                         pending.push(InlineItem::Image { image, style: svg_style, background_image });
@@ -7400,29 +7544,7 @@ fn build_layout_tree_with_resources(
     let html_handle = find_html_element(document);
     let mut rules = parse_stylesheet(DEFAULT_CSS);
     rules.extend(parse_stylesheet(&css_source));
-    // CSS custom properties (v45): harvest `--name` values from whatever
-    // rules in this first pass match the real `<html>` element (`:root`,
-    // `html`, `html.foo`, ...) — see `collect_root_custom_props`'s own
-    // docs for why only root-matching rules count — then re-parse both
-    // stylesheets with every `var()` call textually substituted
-    // (`substitute_css_vars`) so the normal per-property parsers above
-    // see a plain value, never a `var()` they'd otherwise just silently
-    // fail to recognize and drop. Gated on whether either stylesheet's
-    // *text* mentions `var(` at all, not on whether `root_vars` actually
-    // found anything — a `var(--undeclared, red)` with no matching
-    // `--undeclared` anywhere still needs this pass to fall back to its
-    // literal `red`, so an empty `root_vars` map doesn't mean nothing to
-    // do. Skipped only for the common case of a page that never uses
-    // `var()` at all, to avoid the extra reparse cost.
-    if DEFAULT_CSS.contains("var(") || css_source.contains("var(") {
-        let root_vars = html_handle
-            .as_ref()
-            .map(|html| collect_root_custom_props(&rules, html, viewport_width))
-            .unwrap_or_default();
-        let mut substituted = parse_stylesheet(&substitute_css_vars(DEFAULT_CSS, &root_vars));
-        substituted.extend(parse_stylesheet(&substitute_css_vars(&css_source, &root_vars)));
-        rules = substituted;
-    }
+    // `var()` is resolved per element in `resolve_style` (Q13).
     // `rem` lengths resolve against `<html>`'s own cascaded font-size, not
     // necessarily `ROOT_STYLE.font_size` — resolve it once up front (pure,
     // side-effect-free) so `root_font_size` carries the real value into
@@ -16014,18 +16136,87 @@ mod tests {
         assert_eq!(color, TextColor::rgb(0x11, 0x22, 0x33), "a nested var() inside a fallback should itself resolve");
     }
 
-    #[test]
-    fn non_root_custom_prop_is_not_picked_up() {
-        let doc = parse_html(
-            r#"<html><head><style>.scope { --c: #ff0000; } p { color: var(--c, #00ff00); }</style></head><body><p class="scope">hi</p></body></html>"#,
-        );
+    fn first_span_color(html: &str) -> TextColor {
+        let doc = parse_html(html);
         let tree = build_layout_tree(&doc, 1920.0);
-        let color = find_first_span_color(&tree).expect("no span found");
-        assert_eq!(
-            color,
-            TextColor::rgb(0, 0xff, 0),
-            "a custom property declared on a non-root-matching selector shouldn't be visible to var() (documented scope limit)"
+        find_first_span_color(&tree).expect("no span found")
+    }
+
+    #[test]
+    fn custom_prop_on_ancestor_inherits_to_subtree() {
+        let c = first_span_color(
+            r#"<html><head><style>.dark{--bg:#000001} .dark p{color:var(--bg)}</style></head><body><div class="dark"><section><p>hi</p></section></div></body></html>"#,
         );
+        assert_eq!(c, TextColor::rgb(0, 0, 1));
+    }
+
+    #[test]
+    fn custom_prop_not_visible_outside_its_subtree() {
+        let c = first_span_color(
+            r#"<html><head><style>.scope { --c: #ff0000; } p { color: var(--c, #00ff00); }</style></head><body><div class="scope"></div><p>hi</p></body></html>"#,
+        );
+        assert_eq!(c, TextColor::rgb(0, 0xff, 0));
+    }
+
+    #[test]
+    fn descendant_overrides_custom_prop() {
+        let c = first_span_color(
+            r#"<html><head><style>:root{--c:#010101} .x{--c:#020202} p{color:var(--c)}</style></head><body><div class="x"><p>hi</p></div></body></html>"#,
+        );
+        assert_eq!(c, TextColor::rgb(2, 2, 2));
+    }
+
+    #[test]
+    fn chained_custom_props_resolve() {
+        let c = first_span_color(
+            r#"<html><head><style>:root{--b:var(--a);--a:#030303} p{color:var(--b)}</style></head><body><p>hi</p></body></html>"#,
+        );
+        assert_eq!(c, TextColor::rgb(3, 3, 3));
+    }
+
+    #[test]
+    fn custom_prop_cycle_uses_fallback() {
+        let c = first_span_color(
+            r#"<html><head><style>:root{--a:var(--b);--b:var(--a)} p{color:var(--a,#040404)}</style></head><body><p>hi</p></body></html>"#,
+        );
+        assert_eq!(c, TextColor::rgb(4, 4, 4));
+    }
+
+    #[test]
+    fn var_inside_quoted_string_is_not_substituted() {
+        let vars = |n: &str| if n == "--x" { Some("BAD".to_string()) } else { None };
+        assert_eq!(substitute_css_vars("\"var(--x)\" var(--x)", &vars).unwrap(), "\"var(--x)\" BAD");
+    }
+
+    #[test]
+    fn var_inside_calc_resolves_per_element() {
+        let doc = parse_html(
+            r#"<html><head><style>.a{--w:30px} div{width:calc(var(--w) + 10px)}</style></head><body><div class="a" id="d">x</div></body></html>"#,
+        );
+        let rules = parse_stylesheet(".a{--w:30px} div{width:calc(var(--w) + 10px)}");
+        let d = find_element_by_tag(&doc, "div").expect("div");
+        let st = resolve_style(&d, &rules, ROOT_STYLE, 800.0);
+        assert!(st.width.is_some());
+    }
+
+    #[test]
+    fn background_image_var_resolves() {
+        let uri = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4'%3E%3Crect width='4' height='4' fill='red'/%3E%3C/svg%3E";
+        let css = format!(":root{{--bg:url(\"{uri}\")}} p{{background-image:var(--bg)}}");
+        let doc = parse_html("<html><body><p>x</p></body></html>");
+        let rules = parse_stylesheet(&css);
+        let p = find_element_by_tag(&doc, "p").expect("p");
+        let html = find_html_element(&doc).unwrap();
+        let hs = resolve_style(&html, &rules, ROOT_STYLE, 800.0);
+        assert!(resolve_background_image(&p, &rules, 800.0, hs.custom_props).is_some());
+    }
+
+    #[test]
+    fn inline_style_custom_prop_and_var() {
+        let c = first_span_color(
+            r#"<html><body><div style="--c:#050505"><p style="color:var(--c)">hi</p></div></body></html>"#,
+        );
+        assert_eq!(c, TextColor::rgb(5, 5, 5));
     }
 
     // ---------- v46: `<img>` rendering ----------
@@ -20810,9 +21001,9 @@ mod tests {
         let doc = parse_html(r#"<div><p>x</p></div>"#);
         let rules = parse_stylesheet(&format!("div{{background-image:url({uri})}} p{{background:inherit}}"));
         let p = find_element_by_tag(&doc, "p").unwrap();
-        assert!(resolve_background_image(&p, &rules, 800.0).is_some());
+        assert!(resolve_background_image(&p, &rules, 800.0, None).is_some());
         let rules = parse_stylesheet(&format!("div{{background-image:url({uri})}} p{{background-image:initial}}"));
-        assert!(resolve_background_image(&p, &rules, 800.0).is_none());
+        assert!(resolve_background_image(&p, &rules, 800.0, None).is_none());
     }
 
     #[test]
