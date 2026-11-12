@@ -1846,6 +1846,8 @@ struct Declarations {
     text_decoration_style: Option<DecorationStyle>,
     text_decoration_color: Option<CssColor>,
     white_space: Option<WhiteSpace>,
+    word_break: Option<WordBreak>,
+    text_transform: Option<TextTransform>,
     list_style_type: Option<ListStyleType>,
     /// `display: list-item` (true) or any other `display` (false).
     list_item: Option<bool>,
@@ -1932,6 +1934,70 @@ enum WhiteSpace {
     Normal,
     Pre,
     Nowrap,
+    /// `pre-wrap` (Q20f): whitespace preserved like `pre`, lines still wrap.
+    PreWrap,
+    /// `pre-line` (Q20f): spaces collapse, newlines are kept, lines wrap.
+    PreLine,
+}
+
+/// `word-break`/`overflow-wrap` (Q20d), one inherited value. cosmic-text's
+/// default `Wrap::WordOrGlyph` already breaks a word that is too long for
+/// its line, i.e. what `overflow-wrap: break-word`/`anywhere` ask for, so
+/// `BreakWord` is the same as `Normal` here (a deliberate deviation from
+/// real CSS, where plain `normal` overflows); only `BreakAll` changes
+/// shaping (`Wrap::Glyph`).
+#[derive(Clone, Copy, PartialEq, Default)]
+enum WordBreak {
+    #[default]
+    Normal,
+    BreakWord,
+    BreakAll,
+}
+
+/// `text-transform` (Q20e), inherited; applied to the text when the
+/// inline items are collected, before shaping.
+#[derive(Clone, Copy, PartialEq, Default)]
+enum TextTransform {
+    #[default]
+    None,
+    Uppercase,
+    Lowercase,
+    Capitalize,
+}
+
+/// The text of one DOM text node as an inline item should carry it:
+/// whitespace per `white-space`, then `text-transform`.
+fn inline_text(raw: &str, ws: WhiteSpace, tt: TextTransform) -> String {
+    let mut text = match ws {
+        WhiteSpace::Pre | WhiteSpace::PreWrap => raw.to_string(),
+        WhiteSpace::PreLine => raw
+            .split('\n')
+            .map(|l| l.split_whitespace().collect::<Vec<_>>().join(" "))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        _ => {
+            let mut t = normalize_whitespace(raw);
+            t.push(' ');
+            t
+        }
+    };
+    match tt {
+        TextTransform::None => {}
+        TextTransform::Uppercase => text = text.to_uppercase(),
+        TextTransform::Lowercase => text = text.to_lowercase(),
+        TextTransform::Capitalize => {
+            let mut start = true;
+            text = text
+                .chars()
+                .flat_map(|c| {
+                    let up = start && c.is_alphanumeric();
+                    start = !c.is_alphanumeric() && c != '\'';
+                    if up { c.to_uppercase().collect::<Vec<_>>() } else { vec![c] }
+                })
+                .collect();
+        }
+    }
+    text
 }
 
 /// The 4 keywords `default.css` actually declares (`disc`/`decimal`
@@ -5489,8 +5555,39 @@ impl DeclParser<'_> {
                     Some(WhiteSpace::Pre)
                 } else if ident.eq_ignore_ascii_case("nowrap") {
                     Some(WhiteSpace::Nowrap)
+                } else if ident.eq_ignore_ascii_case("pre-wrap") || ident.eq_ignore_ascii_case("break-spaces") {
+                    Some(WhiteSpace::PreWrap)
+                } else if ident.eq_ignore_ascii_case("pre-line") {
+                    Some(WhiteSpace::PreLine)
                 } else {
                     None
+                };
+            }
+        } else if name.eq_ignore_ascii_case("word-break") {
+            if let Ok(ident) = input.expect_ident() {
+                self.decls.word_break = match ident.to_ascii_lowercase().as_str() {
+                    "normal" | "keep-all" => Some(WordBreak::Normal),
+                    "break-all" => Some(WordBreak::BreakAll),
+                    "break-word" => Some(WordBreak::BreakWord),
+                    _ => None,
+                };
+            }
+        } else if name.eq_ignore_ascii_case("overflow-wrap") || name.eq_ignore_ascii_case("word-wrap") {
+            if let Ok(ident) = input.expect_ident() {
+                match ident.to_ascii_lowercase().as_str() {
+                    "normal" => self.decls.word_break = Some(WordBreak::Normal),
+                    "break-word" | "anywhere" => self.decls.word_break = Some(WordBreak::BreakWord),
+                    _ => {}
+                }
+            }
+        } else if name.eq_ignore_ascii_case("text-transform") {
+            if let Ok(ident) = input.expect_ident() {
+                self.decls.text_transform = match ident.to_ascii_lowercase().as_str() {
+                    "none" => Some(TextTransform::None),
+                    "uppercase" => Some(TextTransform::Uppercase),
+                    "lowercase" => Some(TextTransform::Lowercase),
+                    "capitalize" => Some(TextTransform::Capitalize),
+                    _ => None,
                 };
             }
         } else if name.eq_ignore_ascii_case("list-style-type") {
@@ -6137,6 +6234,8 @@ struct InheritedStyle {
     font_style: FontStyle,
     font_family: FontFamily,
     white_space: WhiteSpace,
+    word_break: WordBreak,
+    text_transform: TextTransform,
     list_style_type: ListStyleType,
     text_align: TextAlign,
     line_height: LineHeight,
@@ -6171,6 +6270,8 @@ const ROOT_STYLE: InheritedStyle = InheritedStyle {
     font_style: FontStyle::Normal,
     font_family: FontFamily(&[FontFamilyItem::SansSerif]),
     white_space: WhiteSpace::Normal,
+    word_break: WordBreak::Normal,
+    text_transform: TextTransform::None,
     list_style_type: ListStyleType::Disc,
     text_align: TextAlign::Left,
     line_height: LineHeight::Normal,
@@ -6359,6 +6460,8 @@ struct ComputedStyle {
     text_decoration_style: Option<DecorationStyle>,
     text_decoration_color: Option<TextColor>,
     white_space: WhiteSpace,
+    word_break: WordBreak,
+    text_transform: TextTransform,
     list_style_type: ListStyleType,
     text_align: TextAlign,
     /// Not inherited (see `VerticalAlign`'s own docs) — propagates the
@@ -6531,6 +6634,8 @@ impl ComputedStyle {
             font_style: self.font_style,
             font_family: self.font_family,
             white_space: self.white_space,
+            word_break: self.word_break,
+            text_transform: self.text_transform,
             list_style_type: self.list_style_type,
             text_align: self.text_align,
             line_height: self.line_height,
@@ -7599,6 +7704,14 @@ fn resolve_style_for(
         text_decoration_style,
         text_decoration_color,
         white_space,
+        word_break: cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.word_break), |d| d.word_break)
+            .unwrap_or(inherited.word_break),
+        text_transform: cascade_property(
+            &matches,
+            inline_decls.as_ref().and_then(|d| d.text_transform),
+            |d| d.text_transform,
+        )
+        .unwrap_or(inherited.text_transform),
         list_style_type,
         list_item,
         text_align,
@@ -7676,6 +7789,8 @@ fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         text_decoration_style: None,
         text_decoration_color: None,
         white_space: inherited.white_space,
+        word_break: inherited.word_break,
+        text_transform: inherited.text_transform,
         list_style_type: inherited.list_style_type,
         list_item: false,
         text_align: inherited.text_align,
@@ -7751,6 +7866,8 @@ struct SpanStyle {
     /// inline`, which applies it directly to a word's own measured
     /// advance (see its own docs) — never by `shape_spans`/cosmic-text.
     word_spacing: f32,
+    /// `word-break: break-all` (Q20d) switches the run to glyph wrapping.
+    word_break: WordBreak,
     /// The absolute-or-relative `href` text of the nearest enclosing
     /// `a`/`area` with an `href` attribute, if any — not a CSS property
     /// at all, so it's carried the same *ambient* way `background_color`/
@@ -7785,6 +7902,7 @@ impl From<InheritedStyle> for SpanStyle {
             visibility: s.visibility,
             cursor: s.cursor,
             word_spacing: s.word_spacing,
+            word_break: s.word_break,
             href: None,
         }
     }
@@ -8468,13 +8586,10 @@ fn build_flex_children(
             span.text_decoration = decoration.deco;
             span.decoration_style = decoration.style;
             span.href = href;
-            if inherited.white_space == WhiteSpace::Pre {
-                pending.push(InlineItem::Text(contents.borrow().to_string(), span));
-            } else {
-                let mut text = normalize_whitespace(&contents.borrow());
-                text.push(' ');
-                pending.push(InlineItem::Text(text, span));
-            }
+            pending.push(InlineItem::Text(
+                inline_text(&contents.borrow(), inherited.white_space, inherited.text_transform),
+                span,
+            ));
             continue;
         }
         let NodeData::Element { .. } = &child.data else { continue };
@@ -9156,13 +9271,10 @@ fn collect_real_children(
                 // `white-space: pre` preserves the text byte-for-byte
                 // (literal newlines, runs of spaces, no fabricated
                 // trailing space) instead of collapsing it.
-                if inherited.white_space == WhiteSpace::Pre {
-                    pending.push(InlineItem::Text(contents.borrow().to_string(), span));
-                } else {
-                    let mut text = normalize_whitespace(&contents.borrow());
-                    text.push(' ');
-                    pending.push(InlineItem::Text(text, span));
-                }
+                pending.push(InlineItem::Text(
+                    inline_text(&contents.borrow(), inherited.white_space, inherited.text_transform),
+                    span,
+                ));
             }
             NodeData::Element { name, .. } => {
                 let tag = name.local.as_ref();
@@ -10194,6 +10306,8 @@ fn shape_spans(
         // in the text still start new lines regardless of wrap mode
         // (cosmic-text splits buffer lines on them either way).
         buffer.set_wrap(Wrap::None);
+    } else if spans.iter().any(|(_, span)| span.word_break == WordBreak::BreakAll) {
+        buffer.set_wrap(Wrap::Glyph);
     }
     let rich: Vec<(&str, Attrs)> = spans
         .iter()
@@ -18530,6 +18644,49 @@ mod tests {
         let m = texts.iter().find(|(x, _)| x == "1. ").map(|(_, c)| *c);
         assert_eq!(m, Some(TextColor::rgb(0xff, 0, 0)), "list-item div gets a styled marker: {texts:?}");
         assert!(texts.iter().filter(|(x, _)| x.ends_with(". ")).count() == 9, "plain div gets none: {texts:?}");
+    }
+
+    #[test]
+    fn q20def_word_break_text_transform_and_white_space_variants() {
+        assert!(parse_declarations("word-break: break-all").word_break == Some(WordBreak::BreakAll));
+        assert!(parse_declarations("overflow-wrap: anywhere").word_break == Some(WordBreak::BreakWord));
+        assert!(parse_declarations("word-wrap: break-word").word_break == Some(WordBreak::BreakWord));
+        assert!(parse_declarations("text-transform: capitalize").text_transform == Some(TextTransform::Capitalize));
+        assert!(parse_declarations("white-space: pre-wrap").white_space == Some(WhiteSpace::PreWrap));
+        assert!(parse_declarations("white-space: pre-line").white_space == Some(WhiteSpace::PreLine));
+        assert_eq!(inline_text("hello wORLD it's", WhiteSpace::Normal, TextTransform::Capitalize), "Hello WORLD It's ");
+        assert_eq!(inline_text("a  b", WhiteSpace::Normal, TextTransform::Uppercase), "A B ");
+        assert_eq!(inline_text("A  b\n  c ", WhiteSpace::PreLine, TextTransform::Lowercase), "a b\nc");
+        assert_eq!(inline_text("a  b\n", WhiteSpace::PreWrap, TextTransform::None), "a  b\n");
+
+        let doc = parse_html(
+            r#"<html><head><style>
+            .u { text-transform: uppercase; } .l { text-transform: lowercase; }
+            </style></head><body><p class="u">shout <b>loud</b></p><p class="l">QUIET</p></body></html>"#,
+        );
+        let tree = build_layout_tree(&doc, 1920.0);
+        let mut texts = Vec::new();
+        q19_texts(&tree, &mut texts);
+        assert!(texts.iter().any(|(t, _)| t == "SHOUT "), "{texts:?}");
+        assert!(texts.iter().any(|(t, _)| t == "LOUD "), "inherited into <b>: {texts:?}");
+        assert!(texts.iter().any(|(t, _)| t == "quiet "), "{texts:?}");
+
+        // Shaping: pre-wrap wraps (several lines), nowrap does not; pre-line
+        // honors a newline; break-all splits a single long word.
+        let mut fs = new_font_system();
+        let mut run = |ws: WhiteSpace, wb: WordBreak, text: &str| {
+            let mut span = SpanStyle::from(ROOT_STYLE);
+            span.word_break = wb;
+            let items = [InlineItem::Text(inline_text(text, ws, TextTransform::None), span)];
+            let pre = matches!(ws, WhiteSpace::Pre | WhiteSpace::Nowrap);
+            let shaped = shape_spans(&mut fs, &items, 60.0, pre, None);
+            shaped.0.layout_runs().count()
+        };
+        let long = "word word word word word word word word";
+        assert!(run(WhiteSpace::PreWrap, WordBreak::Normal, long) > 1);
+        assert_eq!(run(WhiteSpace::Pre, WordBreak::Normal, long), 1);
+        assert_eq!(run(WhiteSpace::PreLine, WordBreak::Normal, "a\nb"), 2);
+        assert!(run(WhiteSpace::Normal, WordBreak::BreakAll, "abcdefghijklmnopqrstuvwxyz") > 1);
     }
 
     #[test]
