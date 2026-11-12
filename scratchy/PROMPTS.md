@@ -5789,3 +5789,11 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > Implement the first unchecked sub-item of Q12 in scratchy/TODO.txt.
 
 **What changed:** new dependency `resvg` (no default features, so no text/system fonts). `decode_image_bytes` now sniffs SVG via `looks_like_svg` (BOM/whitespace then `<svg`, `<?xml`, `<!doctype svg`) and rasterizes through `decode_svg_bytes` at the size usvg resolves (`width`/`height`, else `viewBox`), un-premultiplying to the packed RGBA form. `decode_data_uri` now accepts percent-encoded non-base64 payloads, the form Wikipedia's `data:image/svg+xml,...` uses. Test: `q12a_svg_decodes_to_pixels`. `grim` worked: a percent-encoded 60x40 red-rect SVG `<img>` rendered as a red box. Left out (split into new item Q12a2): rasterizing at the CSS size with an `(src,w,h)` cache, `Content-Type` detection, 300x150 fallback.
+
+---
+
+## Q12a2 — SVG rasterized at the CSS box size (queue item, second Q12 sub-item)
+
+> Implement the first unchecked sub-item of Q12 (Q12a2) in scratchy/TODO.txt.
+
+**What changed:** `DecodedImage` gained `svg: Option<Arc<Vec<u8>>>` (the source document). `rasterize_svg(bytes, target)` renders the vector tree with a scale transform to any size; `resolve_img` post-processes via `svg_at_css_size`, which, when CSS/HTML gives a pixel `width` and/or `height` (the other follows the intrinsic aspect), re-rasterizes at that size, cached in a thread-local keyed by (hash of the SVG, w, h). `parse_svg` gives a root with no width/height/viewBox the CSS default 300x150 (usvg alone says 100x100). `fetch_image_via_wire` now accepts `image/svg+xml` and, via the new `fetch_sub_resource_typed` (returns the MIME), decodes such bodies as SVG regardless of prefix. Test: `q12a2_svg_rasterizes_at_css_size`. `grim` worked: a viewBox-only circle SVG at `width=120 height=60` rendered 120x60. Known limit: a non-uniform box stretches the drawing (no `preserveAspectRatio` meet centering; the circle became an ellipse). Left out: `%`/auto-from-container sizes still use the intrinsic raster scaled by `measure` (the box size isn't known at build time).
