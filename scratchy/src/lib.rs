@@ -4378,6 +4378,82 @@ fn parse_declarations_split(source: &str) -> (Declarations, Declarations) {
     (decls, important)
 }
 
+/// Prelude of a top-level at-rule we understand.
+enum AtPrelude {
+    Media(Vec<MediaQuery>),
+    /// `@supports`: the condition's truth value, evaluated up front.
+    Supports(bool),
+}
+
+/// `@supports` condition: `not <in-parens>` or `<in-parens> [and|or
+/// <in-parens>]*` (mixing `and`/`or` unparenthesised is invalid, so false).
+fn parse_supports_condition<'i>(input: &mut CssParser<'i>) -> Result<bool, ParseError<CssError>> {
+    let state = input.state();
+    let first = input.expect_ident_matching("not").is_ok();
+    if !first {
+        input.reset(&state);
+    }
+    if first {
+        return Ok(!parse_supports_in_parens(input)?);
+    }
+    let mut value = parse_supports_in_parens(input)?;
+    let mut op: Option<bool> = None; // true = and
+    while !input.is_exhausted() {
+        let is_and = {
+            let t = input.expect_ident()?;
+            if t.eq_ignore_ascii_case("and") {
+                true
+            } else if t.eq_ignore_ascii_case("or") {
+                false
+            } else {
+                return Err(input.new_error_for_next_token());
+            }
+        };
+        if *op.get_or_insert(is_and) != is_and {
+            return Ok(false);
+        }
+        let rhs = parse_supports_in_parens(input)?;
+        value = if is_and { value && rhs } else { value || rhs };
+    }
+    Ok(value)
+}
+
+fn parse_supports_in_parens<'i>(input: &mut CssParser<'i>) -> Result<bool, ParseError<CssError>> {
+    let tok = input.next()?.clone();
+    match tok {
+        Token::ParenthesisBlock => input.parse_nested_block(|i| {
+            let state = i.state();
+            // `(prop: value)` first; otherwise a nested condition.
+            if let Ok(name) = i.expect_ident().map(|n| n.clone()) {
+                if i.expect_colon().is_ok() {
+                    let mut scratch = Declarations::default();
+                    DeclParser { decls: &mut scratch, important: &mut Declarations::default() }
+                        .apply(&name, i);
+                    while i.next().is_ok() {}
+                    return Ok(scratch != Declarations::default());
+                }
+            }
+            i.reset(&state);
+            let v = parse_supports_condition(i)?;
+            while i.next().is_ok() {}
+            Ok(v)
+        }),
+        Token::Function(ref f) if f.eq_ignore_ascii_case("selector") => input.parse_nested_block(|i| {
+            let ok = SelectorList::parse(&OurSelectorParser, i, ParseRelative::No).is_ok();
+            while i.next().is_ok() {}
+            Ok(ok)
+        }),
+        Token::Function(_) => {
+            input.parse_nested_block(|i| {
+                while i.next().is_ok() {}
+                Ok::<(), ParseError<CssError>>(())
+            })?;
+            Ok(false)
+        }
+        _ => Err(input.new_error_for_next_token()),
+    }
+}
+
 struct TopLevelParser;
 
 impl<'i> AtRuleParser<'i> for TopLevelParser {
@@ -4386,7 +4462,7 @@ impl<'i> AtRuleParser<'i> for TopLevelParser {
     // below, which is exactly "skip @import/@font-face/@keyframes/etc."
     // for this stage, same as the old blanket no-op (see TODO.txt's own
     // narrower item for exactly what's still deferred and why).
-    type Prelude = Vec<MediaQuery>;
+    type Prelude = AtPrelude;
     // One at-rule can expand into several real rules (every rule inside
     // an `@media` block), so this can't stay a single `StyleRule` the
     // way a plain qualified rule's `QualifiedRule` output can — see
@@ -4402,7 +4478,12 @@ impl<'i> AtRuleParser<'i> for TopLevelParser {
         input: &mut CssParser<'i>,
     ) -> Result<Self::Prelude, ParseError<Self::Error>> {
         if name.eq_ignore_ascii_case("media") {
-            Ok(parse_media_query_list(input))
+            Ok(AtPrelude::Media(parse_media_query_list(input)))
+        } else if name.eq_ignore_ascii_case("supports") {
+            // Unparseable conditions are false (rules dropped), never an error.
+            let holds = parse_supports_condition(input).unwrap_or(false);
+            while input.next().is_ok() {}
+            Ok(AtPrelude::Supports(holds))
         } else {
             Err(input.new_error_for_next_token())
         }
@@ -4414,6 +4495,15 @@ impl<'i> AtRuleParser<'i> for TopLevelParser {
         _start: &ParserState,
         input: &mut CssParser<'i>,
     ) -> Result<Self::AtRule, ParseError<Self::Error>> {
+        let (prelude, supported) = match prelude {
+            AtPrelude::Media(q) => (q, true),
+            AtPrelude::Supports(b) => (Vec::new(), b),
+        };
+        if !supported {
+            // Consume the block; its rules never apply.
+            while input.next().is_ok() {}
+            return Ok(Vec::new());
+        }
         // The block's own content is an ordinary rule list (selectors +
         // declarations, same grammar as the top level) — recursing with
         // a fresh `TopLevelParser` over this already block-delimited
@@ -19894,13 +19984,35 @@ mod tests {
         parse_stylesheet(
             "p { color: red; color: red; frobnicate: 3; }\
              p::bogus { color: blue; }\
-             @supports (display: grid) { p { color: green; } }",
+             @font-face { font-family: x; }",
         );
         let lines = CSS_DEBUG_CAPTURE.with(|c| c.borrow_mut().take().unwrap());
         assert!(lines.iter().any(|l| l == "scratchy: css: ignored `frobnicate: 3`"), "{lines:?}");
         assert!(!lines.iter().any(|l| l.contains("ignored `color")), "{lines:?}");
         assert!(lines.iter().any(|l| l == "scratchy: css: dropped selector `p::bogus`"), "{lines:?}");
-        assert!(lines.iter().any(|l| l == "scratchy: css: dropped @supports"), "{lines:?}");
+        assert!(lines.iter().any(|l| l == "scratchy: css: dropped @font-face"), "{lines:?}");
+    }
+
+    /// Q10: `@supports` conditions gate their block.
+    #[test]
+    fn q10_supports_conditions_gate_blocks() {
+        let n = |css: &str| parse_stylesheet(css).len();
+        assert_eq!(n("@supports (display:grid){p{color:red}}"), 1);
+        assert_eq!(n("@supports (display:bogus){p{color:red}}"), 0);
+        assert_eq!(n("@supports not (display:bogus){p{color:red}}"), 1);
+        assert_eq!(n("@supports not (display:grid){p{color:red}}"), 0);
+        assert_eq!(n("@supports (display:grid) and (color:red){p{color:red}}"), 1);
+        assert_eq!(n("@supports (display:grid) and (display:bogus){p{color:red}}"), 0);
+        assert_eq!(n("@supports (display:bogus) or (color:red){p{color:red}}"), 1);
+        assert_eq!(n("@supports (display:bogus) or (display:grid) and (color:red){p{color:red}}"), 0);
+        assert_eq!(n("@supports ((display:bogus) or (color:red)){p{color:red}}"), 1);
+        assert_eq!(n("@supports selector(a > b){p{color:red}}"), 1);
+        assert_eq!(n("@supports selector(a::bogus){p{color:red}}"), 0);
+        assert_eq!(n("@supports foo(bar){p{color:red}}"), 0);
+        assert_eq!(n("@supports garbage{p{color:red}}p{color:blue}"), 1);
+        // Applies through the cascade.
+        let r = parse_stylesheet("@supports (display:grid){p{color:red}}");
+        assert!(r[0].decls.color.is_some());
     }
 
     // ---------- `display: flow-root` ----------
