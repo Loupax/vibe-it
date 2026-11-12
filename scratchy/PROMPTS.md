@@ -5899,3 +5899,12 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > Implement the first unchecked item (Q19b) of the ranked QUEUE in scratchy/TODO.txt: the cheapest coherent subset, re-splitting the rest.
 
 **What changed:** `parse_content` now also accepts `attr(name)`, `counter(name[, style])`, `counters(name, "sep"[, style])` and `open-quote`/`close-quote`/`no-open-quote`/`no-close-quote` (`ContentDecl::Parts` of `ContentPart`s; all-string content stays `ContentDecl::Text`); `url()` is still invalid. `counter-reset`/`counter-increment` parse into `Declarations` (`parse_counter_ops`). New `precompute_generated` (called from `build_layout_tree_with_resources`, a no-op unless some rule uses dynamic content or a counter property) walks the DOM once in document order, keeps a scoped counter stack and quote depth, and stores each evaluated pseudo text in the thread-local `GENERATED_TEXT`, which `generated_content` reads. `format_counter` handles decimal, decimal-leading-zero, lower/upper alpha/latin/roman, lower-greek, none and bullets. `build_flex_children` (flex and grid) now emits `::before`/`::after` as blockified items before/after the real items. Test: `q19b_attr_counters_quotes_and_flex_pseudo_items`; the Q19 test's `attr()` invalid-case now uses `url()`. `grim` worked: red `1. One`/`2. Two` headings via counters, `x.html "link"` via `attr()` and quotes, and an orange and a blue box flanking flex content. Left out (new queue items Q19c-Q19f): `::marker`, `content: url()`, `::first-letter`/`::first-line`, implicit `list-item` counter, `counter-set`, `quotes`, `display:none` elements still count.
+
+
+---
+
+## Q19c — `::marker` styling (queue item)
+
+> Implement the first unchecked item (Q19c, `::marker`) of the ranked QUEUE in scratchy/TODO.txt.
+
+**What changed:** new `marker_prefix` (called where `build_box_for_element` built the `<li>` prefix) matches `li::marker` rules via `matching_declarations_for(.., Some("marker"))`, resolves the pseudo's own style with `resolve_style_for` (so `color`, font properties etc. apply to the marker run) and honors a string `content` (replaces the bullet/number text; `none` removes it). `li::before` content was already emitted after the marker prefix, so the two coexist. Test: `q19c_marker_pseudo_styles_and_replaces_the_marker`. `grim` worked: red bullet, blue `→ ` custom marker, and a `content:none` item with no marker. Left out: `attr()`/counters inside `::marker` content, `::marker` on non-`li` elements (`display:list-item`, Q20c).

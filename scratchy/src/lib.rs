@@ -483,6 +483,31 @@ fn element_tag(handle: &Handle) -> &str {
     }
 }
 
+/// The `<li>` marker run (Q19c): the default bullet/number text styled by
+/// the element's inherited style, or, when a `li::marker` rule matches,
+/// that rule's own style (color, font, ...) and `content` string (`none`
+/// removes the marker). Dynamic `content` (`attr()`/counters) is ignored.
+fn marker_prefix(
+    handle: &Handle,
+    rules: &[StyleRule],
+    style: &ComputedStyle,
+    viewport_width: f32,
+) -> Option<(String, SpanStyle)> {
+    let mut text = list_marker(handle, style.list_style_type);
+    let mut span: SpanStyle = style.inherited().into();
+    let matches = matching_declarations_for(handle, rules, viewport_width, Some("marker"));
+    if !matches.is_empty() {
+        let mstyle = resolve_style_for(handle, rules, style.inherited(), viewport_width, Some("marker"));
+        span = mstyle.inherited().into();
+        match cascade_css(&matches, None, "content", |d| d.content.clone()) {
+            Cascaded::Value(ContentDecl::Text(t)) => text = t,
+            Cascaded::Value(ContentDecl::None) => text.clear(),
+            _ => {}
+        }
+    }
+    if text.is_empty() { None } else { Some((text, span)) }
+}
+
 /// The marker text for a `<li>`: `"<n>. "` when its parent is an `<ol>`,
 /// where `<n>` is this element's 1-based position among the parent's
 /// direct `<li>` children (document order, non-`<li>` children skipped
@@ -8062,8 +8087,7 @@ fn build_box_for_element(
         };
     }
     let prefix = if element_tag(handle) == "li" {
-        let marker = list_marker(handle, style.list_style_type);
-        if marker.is_empty() { None } else { Some((marker, style.inherited().into())) }
+        marker_prefix(handle, rules, &style, viewport_width)
     } else {
         None
     };
@@ -17804,6 +17828,25 @@ mod tests {
         assert_eq!(parse_declarations("content: url(x.png)").content, None);
         assert_eq!(parse_declarations("content: normal").content, Some(ContentDecl::None));
         assert_eq!(parse_declarations("content: 'a' \"b\"").content, Some(ContentDecl::Text("ab".into())));
+    }
+
+    #[test]
+    fn q19c_marker_pseudo_styles_and_replaces_the_marker() {
+        let doc = parse_html(
+            r#"<html><head><style>
+            li::marker { color: #00ff00; }
+            li.c::marker { content: "→ "; color: #ff0000; }
+            li.n::marker { content: none; }
+            </style></head><body><ul><li>a</li><li class="c">b</li><li class="n">c</li></ul></body></html>"#,
+        );
+        let tree = build_layout_tree(&doc, 1920.0);
+        let mut texts = Vec::new();
+        q19_texts(&tree, &mut texts);
+        let find = |t: &str| texts.iter().find(|(x, _)| x == t).map(|(_, c)| *c);
+        assert_eq!(find("\u{2022} "), Some(TextColor::rgb(0, 0xff, 0)), "{texts:?}");
+        assert_eq!(find("→ "), Some(TextColor::rgb(0xff, 0, 0)), "{texts:?}");
+        assert!(texts.iter().filter(|(t, _)| t.starts_with('\u{2022}')).count() == 1, "none removes it: {texts:?}");
+        assert!(find("c ").is_some());
     }
 
     #[test]
