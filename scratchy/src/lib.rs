@@ -1207,6 +1207,18 @@ enum Length {
     /// `vw`/`vh`/`vmin`/`vmax` (Q14): resolved against the viewport
     /// recorded by `set_viewport` for the current style build.
     Vp(VpUnit, f32),
+    /// `min-content`/`max-content`/`fit-content` (Q20f); only `width` and
+    /// `min-width` accept it, and `resolve_style` turns it into
+    /// `ComputedStyle::width_kw`/`min_width_kw` (the plain length stays
+    /// unset), so it never reaches `resolve`.
+    Intrinsic(IntrinsicSize),
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum IntrinsicSize {
+    MinContent,
+    MaxContent,
+    FitContent,
 }
 
 /// Which viewport-relative unit a `Length::Vp`/`CalcNode::Vp` is in.
@@ -1479,6 +1491,7 @@ impl Length {
             Length::Smaller => font_size / 1.2,
             Length::Calc(c) => c.eval(font_size, root_font_size, font_size, current_viewport()),
             Length::Vp(u, v) => u.px(v, current_viewport()),
+            Length::Intrinsic(_) => 0.0,
         }
     }
 }
@@ -2786,7 +2799,7 @@ fn media_feature_length_px(input: &mut CssParser) -> Result<f32, ()> {
         // regardless of which new variant showed up.
         Length::Calc(c) => Ok(c.eval(16.0, 16.0, 0.0, current_viewport())),
         Length::Vp(..) => Err(()),
-        Length::Percent(_) | Length::Larger | Length::Smaller => Err(()),
+        Length::Percent(_) | Length::Larger | Length::Smaller | Length::Intrinsic(_) => Err(()),
     }
 }
 
@@ -2924,6 +2937,25 @@ fn parse_length_percent(input: &mut CssParser) -> Result<Length, ()> {
 /// is `<length-percentage>` (see `parse_length_percent`'s own docs) —
 /// `border-width`/`outline-width` parse `parse_length` directly instead,
 /// since real CSS doesn't allow a percentage on either.
+/// `width`/`min-width`: a length or an intrinsic-size keyword (Q20f).
+fn set_width_length(input: &mut CssParser, target: &mut Option<Length>) {
+    let kw = input
+        .try_parse(|i| {
+            let id = i.expect_ident().map_err(|_| ())?;
+            match id.to_ascii_lowercase().as_str() {
+                "min-content" => Ok(IntrinsicSize::MinContent),
+                "max-content" | "-webkit-max-content" | "-moz-max-content" => Ok(IntrinsicSize::MaxContent),
+                "fit-content" | "-webkit-fit-content" | "-moz-fit-content" => Ok(IntrinsicSize::FitContent),
+                _ => Err(()),
+            }
+        })
+        .ok();
+    match kw {
+        Some(k) => *target = Some(Length::Intrinsic(k)),
+        None => set_length(input, target),
+    }
+}
+
 fn set_length(input: &mut CssParser, target: &mut Option<Length>) {
     if let Ok(v) = parse_length_percent(input) {
         *target = Some(v);
@@ -5180,11 +5212,11 @@ impl DeclParser<'_> {
                 self.decls.opacity = Some(o);
             }
         } else if name.eq_ignore_ascii_case("width") {
-            set_length(input, &mut self.decls.width);
+            set_width_length(input, &mut self.decls.width);
         } else if name.eq_ignore_ascii_case("height") {
             set_length(input, &mut self.decls.height);
         } else if name.eq_ignore_ascii_case("min-width") {
-            set_length(input, &mut self.decls.min_width);
+            set_width_length(input, &mut self.decls.min_width);
         } else if name.eq_ignore_ascii_case("min-height") {
             set_length(input, &mut self.decls.min_height);
         } else if name.eq_ignore_ascii_case("max-width") {
@@ -6411,6 +6443,10 @@ struct ComputedStyle {
     /// `finalize_box_lengths`), neither of which `resolve_style` knows at
     /// cascade time.
     width: Option<BoxLength>,
+    /// `width: min-content|max-content|fit-content` (Q20f); `width` is
+    /// `None` then and `measure` sizes the box from its content.
+    width_kw: Option<IntrinsicSize>,
+    min_width_kw: Option<IntrinsicSize>,
     height: Option<BoxLength>,
     min_width: Option<BoxLength>,
     max_width: Option<BoxLength>,
@@ -7313,11 +7349,23 @@ fn resolve_style_for(
         ROOT_STYLE.font_size,
         |l| Some(l.resolve(inherited.font_size, inherited.root_font_size)),
     );
-    let width = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.width), |d| d.width)
+    let raw_width = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.width), |d| d.width);
+    let width_kw = match raw_width {
+        Some(Length::Intrinsic(k)) => Some(k),
+        _ => None,
+    };
+    let width = raw_width
+        .filter(|_| width_kw.is_none())
         .map(|l| BoxLength::from_length(l, font_size, inherited.root_font_size));
     let height = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.height), |d| d.height)
         .map(|l| BoxLength::from_length(l, font_size, inherited.root_font_size));
-    let min_width = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.min_width), |d| d.min_width)
+    let raw_min_width = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.min_width), |d| d.min_width);
+    let min_width_kw = match raw_min_width {
+        Some(Length::Intrinsic(k)) => Some(k),
+        _ => None,
+    };
+    let min_width = raw_min_width
+        .filter(|_| min_width_kw.is_none())
         .map(|l| BoxLength::from_length(l, font_size, inherited.root_font_size));
     let min_height = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.min_height), |d| d.min_height)
         .map(|l| BoxLength::from_length(l, font_size, inherited.root_font_size));
@@ -7685,6 +7733,8 @@ fn resolve_style_for(
         width,
         height,
         min_width,
+        width_kw,
+        min_width_kw,
         max_width,
         min_height,
         max_height,
@@ -7770,6 +7820,8 @@ fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         width: None,
         height: None,
         min_width: None,
+        width_kw: None,
+        min_width_kw: None,
         max_width: None,
         min_height: None,
         max_height: None,
@@ -10623,6 +10675,34 @@ pub fn measure<'a>(
         );
     }
     let mut s = b.style;
+    let mut auto_margin_box_override = auto_margin_box_override;
+    // `width`/`min-width: min-content|max-content|fit-content` (Q20f):
+    // sized from the box's own min/max-content widths (margin-box terms,
+    // the same `cell_natural_width` a `width: auto` float uses). Not
+    // applied to table/flex/grid containers, which return above.
+    if s.width_kw.is_some() || s.min_width_kw.is_some() {
+        let (min_mb, max_mb) = cell_natural_width(b, font_system, next_id, cache, deadline, incomplete);
+        let pick = |k: IntrinsicSize| match k {
+            IntrinsicSize::MinContent => min_mb,
+            IntrinsicSize::MaxContent => max_mb,
+            IntrinsicSize::FitContent => width.min(max_mb).max(min_mb.min(width)),
+        };
+        if let Some(k) = s.width_kw {
+            auto_margin_box_override = Some(pick(k));
+        }
+        if let Some(k) = s.min_width_kw {
+            let mut t = s;
+            finalize_box_lengths(&mut t, 0.0, None);
+            let margins = t.margin.left.px() + t.margin.right.px();
+            let extra = t.border_h() + t.padding.left.px() + t.padding.right.px();
+            let border_box = (pick(k) - margins).max(0.0);
+            let px = match s.box_sizing {
+                BoxSizing::ContentBox => (border_box - extra).max(0.0),
+                BoxSizing::BorderBox => border_box,
+            };
+            s.min_width = Some(BoxLength::Px(px));
+        }
+    }
     let entry = box_model_entry(&mut s, x, y, width, containing_height, auto_margin_box_override);
     let border_x = entry.border_x;
     let border_y = entry.border_y;
@@ -18687,6 +18767,39 @@ mod tests {
         assert_eq!(run(WhiteSpace::Pre, WordBreak::Normal, long), 1);
         assert_eq!(run(WhiteSpace::PreLine, WordBreak::Normal, "a\nb"), 2);
         assert!(run(WhiteSpace::Normal, WordBreak::BreakAll, "abcdefghijklmnopqrstuvwxyz") > 1);
+    }
+
+    #[test]
+    fn q20f_intrinsic_width_keywords_size_from_content() {
+        assert!(parse_declarations("width: max-content").width == Some(Length::Intrinsic(IntrinsicSize::MaxContent)));
+        assert!(parse_declarations("min-width: fit-content").min_width == Some(Length::Intrinsic(IntrinsicSize::FitContent)));
+        assert!(parse_declarations("margin: min-content").margin_top.is_none());
+        fn widths(l: &Laid, out: &mut Vec<f32>) {
+            out.push(l.w);
+            if let LaidContent::Blocks(c) = &l.content {
+                for k in c {
+                    widths(k, out);
+                }
+            }
+        }
+        let width_of = |style: &str| {
+            let laid = measure_fixture(
+                &format!(r#"<html><body><div id="t" style="{style}">alpha beta gamma delta</div></body></html>"#),
+                600.0,
+            );
+            let mut ws = Vec::new();
+            widths(&laid, &mut ws);
+            // the test div's inline child is the last box in document order
+            *ws.last().unwrap()
+        };
+        let max = width_of("width: max-content");
+        let min = width_of("width: min-content");
+        let fit = width_of("width: fit-content");
+        let minw = width_of("min-width: max-content; width: 10px");
+        assert!(min > 20.0 && min < max, "min {min} max {max}");
+        assert!(max < 400.0, "max-content hugs the text: {max}");
+        assert!((fit - max).abs() < 0.5, "fit-content with room equals max-content: {fit} vs {max}");
+        assert!((minw - max).abs() < 0.5, "min-width: max-content overrides a small width: {minw} vs {max}");
     }
 
     #[test]
