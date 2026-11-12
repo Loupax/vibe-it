@@ -194,6 +194,17 @@ enum OurPseudoClass {
     Link,
     Visited,
     Root,
+    /// `:hover`/`:active`/`:focus`/`:focus-visible`/`:focus-within`/`:target`
+    /// (Q2): scratchy has no such state, so these parse but never match.
+    /// The `&'static str` is the source name, for `to_css`.
+    NeverMatches(&'static str),
+    Checked,
+    Disabled,
+    Enabled,
+    /// `:dir(ltr)` (true) / `:dir(rtl)` (false). Engine is LTR-only.
+    Dir(bool),
+    /// `:lang(x)`, stored as given.
+    Lang(String),
 }
 
 impl cssparser::ToCss for OurPseudoClass {
@@ -202,6 +213,14 @@ impl cssparser::ToCss for OurPseudoClass {
             OurPseudoClass::Link => ":link",
             OurPseudoClass::Visited => ":visited",
             OurPseudoClass::Root => ":root",
+            OurPseudoClass::NeverMatches(n) => return write!(dest, ":{n}"),
+            OurPseudoClass::Checked => ":checked",
+            OurPseudoClass::Disabled => ":disabled",
+            OurPseudoClass::Enabled => ":enabled",
+            OurPseudoClass::Dir(ltr) => {
+                return write!(dest, ":dir({})", if *ltr { "ltr" } else { "rtl" })
+            }
+            OurPseudoClass::Lang(l) => return write!(dest, ":lang({l})"),
         })
     }
 }
@@ -278,6 +297,39 @@ impl<'i> SelectorsParser<'i> for OurSelectorParser {
             "link" => return Ok(OurPseudoClass::Link),
             "visited" => return Ok(OurPseudoClass::Visited),
             "root" => return Ok(OurPseudoClass::Root),
+            "hover" => return Ok(OurPseudoClass::NeverMatches("hover")),
+            "active" => return Ok(OurPseudoClass::NeverMatches("active")),
+            "focus" => return Ok(OurPseudoClass::NeverMatches("focus")),
+            "focus-visible" => return Ok(OurPseudoClass::NeverMatches("focus-visible")),
+            "focus-within" => return Ok(OurPseudoClass::NeverMatches("focus-within")),
+            "target" => return Ok(OurPseudoClass::NeverMatches("target")),
+            "checked" => return Ok(OurPseudoClass::Checked),
+            "disabled" => return Ok(OurPseudoClass::Disabled),
+            "enabled" => return Ok(OurPseudoClass::Enabled),
+            _ => {}
+        }
+        Err(ParseError::custom(SelectorParseErrorKind::UnsupportedPseudoClassOrElement))
+    }
+
+    fn parse_non_ts_functional_pseudo_class(
+        &self,
+        name: CowRcStr<'i>,
+        parser: &mut cssparser::Parser<'i>,
+        _after_part: bool,
+    ) -> Result<OurPseudoClass, ParseError<CssError>> {
+        match_ignore_ascii_case! { &name,
+            "dir" => {
+                let ident = parser.expect_ident()?.clone();
+                if ident.eq_ignore_ascii_case("ltr") {
+                    return Ok(OurPseudoClass::Dir(true));
+                } else if ident.eq_ignore_ascii_case("rtl") {
+                    return Ok(OurPseudoClass::Dir(false));
+                }
+            },
+            "lang" => {
+                let l = parser.expect_ident_or_string()?.as_ref().to_owned();
+                return Ok(OurPseudoClass::Lang(l));
+            },
             _ => {}
         }
         Err(ParseError::custom(SelectorParseErrorKind::UnsupportedPseudoClassOrElement))
@@ -289,6 +341,13 @@ impl<'i> SelectorsParser<'i> for OurSelectorParser {
 /// `Handle`, which is itself a foreign type alias for `Rc<Node>`).
 #[derive(Clone, Debug)]
 struct El(Handle);
+
+fn is_form_control(h: &Handle) -> bool {
+    matches!(
+        element_tag(h),
+        "input" | "button" | "select" | "textarea" | "option" | "fieldset"
+    )
+}
 
 fn parent_handle(node: &Handle) -> Option<Handle> {
     let weak: Option<WeakHandle> = node.parent.take();
@@ -472,6 +531,27 @@ impl SelectorsElement for El {
             OurPseudoClass::Link => self.is_link(),
             OurPseudoClass::Visited => false,
             OurPseudoClass::Root => self.is_root(),
+            OurPseudoClass::NeverMatches(_) => false,
+            OurPseudoClass::Checked => match element_tag(&self.0) {
+                "input" => element_attr(&self.0, "checked").is_some(),
+                "option" => element_attr(&self.0, "selected").is_some(),
+                _ => false,
+            },
+            OurPseudoClass::Disabled => is_form_control(&self.0) && element_attr(&self.0, "disabled").is_some(),
+            OurPseudoClass::Enabled => is_form_control(&self.0) && element_attr(&self.0, "disabled").is_none(),
+            OurPseudoClass::Dir(ltr) => *ltr,
+            OurPseudoClass::Lang(want) => {
+                let mut cur = Some(self.0.clone());
+                while let Some(n) = cur {
+                    if let Some(v) = element_attr(&n, "lang") {
+                        let v = v.to_ascii_lowercase();
+                        let w = want.to_ascii_lowercase();
+                        return v == w || v.starts_with(&format!("{w}-"));
+                    }
+                    cur = parent_handle(&n);
+                }
+                false
+            }
         }
     }
 
@@ -14219,6 +14299,53 @@ mod tests {
         assert_eq!(colors.len(), 2);
         assert_eq!(colors[0], TextColor::rgb(0, 0, 0xff), ":first-child should match the 1st <p>");
         assert_ne!(colors[1], TextColor::rgb(0, 0, 0xff), ":first-child should not match the 2nd <p>");
+    }
+
+    // ---------- Q2: dropped pseudo-classes now parse ----------
+
+    #[test]
+    fn q2_state_pseudo_classes_parse_and_match() {
+        let red = TextColor::rgb(0xff, 0, 0);
+        let run = |html: &str| {
+            let doc = parse_html(html);
+            let tree = build_layout_tree(&doc, 1920.0);
+            let mut colors = Vec::new();
+            find_all_span_colors(&tree, &mut colors);
+            colors
+        };
+        // :hover never matches, and doesn't drop the other selector in the list.
+        let c = run(r#"<html><head><style>p:hover, p.a { color: #ff0000; } p:not(:focus).b { color: #ff0000; }</style></head><body><p>x</p><p class="a">y</p><p class="b">z</p></body></html>"#);
+        assert_ne!(c[0], red);
+        assert_eq!(c[1], red);
+        assert_eq!(c[2], red, ":not(:focus) should match");
+        // :checked / :disabled / :enabled
+        // :dir / :lang
+        let c = run(r#"<html lang="en-GB"><head><style>p:dir(ltr) { color: #ff0000; } .r:dir(rtl) { color: #00ff00; } .e:lang(en) { color: #0000ff; } .f:lang(fr) { color: #00ff00; }</style></head><body><p class="r e f">x</p></body></html>"#);
+        assert_ne!(c[0], TextColor::rgb(0, 0xff, 0));
+        assert_eq!(c[0], TextColor::rgb(0, 0, 0xff), ":lang(en) matches en-GB, last matching rule wins");
+    }
+
+    #[test]
+    fn q2_checked_disabled_enabled_match_elements() {
+        let doc = parse_html(
+            r#"<html><head><style>button:disabled { color: #ff0000; } button:enabled { color: #0000ff; }</style></head><body><p><button disabled>a</button><button>b</button></p></body></html>"#,
+        );
+        let tree = build_layout_tree(&doc, 1920.0);
+        let mut colors = Vec::new();
+        find_all_span_colors(&tree, &mut colors);
+        assert!(colors.contains(&TextColor::rgb(0xff, 0, 0)), ":disabled should match: {colors:?}");
+        assert!(colors.contains(&TextColor::rgb(0, 0, 0xff)), ":enabled should match: {colors:?}");
+        let parse = |sel: &str| {
+            let mut p = CssParser::new(sel);
+            SelectorList::parse(&OurSelectorParser, &mut p, ParseRelative::No).is_ok()
+        };
+        for s in [
+            "a:checked", "a:disabled", "a:enabled", "a:dir(rtl)", "a:lang(en)", "a:focus-within",
+            "a:target", "a:focus-visible", "a:active",
+        ] {
+            assert!(parse(s), "{s} should parse");
+        }
+        assert!(!parse("a:dir(up)"));
     }
 
     // ---------- v45: CSS custom properties (`:root`/`html`-scoped) + `var()` ----------

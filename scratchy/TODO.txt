@@ -78,7 +78,7 @@ dropped selectors summed across those pages. Caveats:
 
 --- Tier 1: whole rules or content silently lost; cheap, broad --------
 
-- [ ] Q2 [S] Pseudo-classes that are dropped today (n=225 selectors on
+- [x] Q2 [S] (HASH) Pseudo-classes that are dropped today (n=225 selectors on
       Wikipedia alone). Add these to `OurPseudoClass` (parse and
       `to_css`) and to `match_non_ts_pseudo_class`:
       - `:hover`, `:active`, `:focus`, `:focus-visible`,
@@ -2546,7 +2546,7 @@ last, per the user's own call.
         tree (or grim-screenshot it) and confirm the title sits right
         below the header with no grey bands.
 
-- [ ] **Parse `:focus`/`:hover`/`:active`/`:focus-visible`/`:focus-
+- [x] (HASH) **Parse `:focus`/`:hover`/`:active`/`:focus-visible`/`:focus-
       within` as never-matching pseudo-classes, instead of rejecting
       them** (investigated 2026-11-11 on the same SoHo Weekly News page,
       base `5f8ceed`). This is a narrower, cheap first step toward the

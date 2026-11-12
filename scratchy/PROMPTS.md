@@ -5596,3 +5596,22 @@ declarations stay silent. Selectors that fail to parse are reported as
 capture via a thread-local. Test:
 `css_debug_distinguishes_duplicates_dropped_selectors_and_at_rules`.
 No grim screenshot: output-only diagnostic on stderr.
+
+---
+
+## Q2 — dropped pseudo-classes now parse (queue item)
+
+> Implement the first unchecked item (Q2) of the ranked QUEUE in
+> scratchy/TODO.txt.
+
+**What changed:** `OurPseudoClass` gained `NeverMatches(name)` (for
+`:hover`, `:active`, `:focus`, `:focus-visible`, `:focus-within`,
+`:target`), `Checked`, `Disabled`, `Enabled`, `Dir(ltr)` and `Lang(x)`.
+`OurSelectorParser` parses the plain ones and, through a new
+`parse_non_ts_functional_pseudo_class`, `:dir()` and `:lang()`.
+`match_non_ts_pseudo_class` implements them per the queue spec (`:lang`
+walks ancestors via `parent_handle`; new free fn `is_form_control`).
+Tests: `q2_state_pseudo_classes_parse_and_match`,
+`q2_checked_disabled_enabled_match_elements`. No grim screenshot:
+`grim` fails in this sandbox ("failed to copy output eDP-1"), so the
+Wikipedia "Jump to content" check is unverified by a real render.
