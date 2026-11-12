@@ -310,7 +310,7 @@ dropped selectors summed across those pages. Caveats:
       Test: a 10x10 red-square SVG data-URI decodes to a red pixel, and
       inline `<svg width=10 height=10>` gets a 10x10 box.
 
-- [x] Q13 [M] (commit: HASH) Custom properties that cascade per element (n=300+ ignored
+- [x] Q13 [M] (commit: b23fd53) Custom properties that cascade per element (n=300+ ignored
       declarations involve `var()`). Today only the `:root`/`html` table
       from `collect_root_custom_props` and `substitute_css_vars` exists.
       - Custom properties must inherit down the tree, so a `--x` set on
@@ -1455,7 +1455,7 @@ session can pick a coherent slice rather than one property at a time.
       earlier. A real, if narrow, false-negative of that tool's own
       design — see its own TODO.txt entry — not a bug in this item.)
 
-- [x] (Q13, commit: HASH) CSS custom properties (v45) only resolve `var()` against `:root`/
+- [x] (Q13, commit: b23fd53) CSS custom properties (v45) only resolve `var()` against `:root`/
       `html`-scoped declarations — a flat, whole-document table, not
       real per-element cascade/inheritance. A `--name` declared on any
       other selector (scoping a variable to one subtree, e.g. `.dark-
