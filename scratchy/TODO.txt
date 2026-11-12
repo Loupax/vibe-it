@@ -503,7 +503,7 @@ dropped selectors summed across those pages. Caveats:
 
 --- Tier 3: polish --------------------------------------------------
 
-- [x] Q23 [S] (HASH) Flex `order` (stable sort of the flex items in
+- [x] Q23 [S] (4661363) Flex `order` (stable sort of the flex items in
       `measure_flex`). Detail: the `order` item under
       "`display: flex` (440e03b)".
 - [ ] Q23b [S] Flex leftovers, cheapest first: `align-content`,
@@ -971,7 +971,7 @@ session can pick a coherent slice rather than one property at a time.
       **Deliberately cut within flexbox itself, each precise and
       documented, not silently dropped:**
 
-      - [x] (HASH) `order` is not implemented — every flex item lays out (and
+      - [x] (4661363) `order` is not implemented — every flex item lays out (and
             paints/hit-tests) in plain document order, `row-reverse`/
             `column-reverse` only mirror *position* along the main axis,
             not reordering anything. Nothing in `default.css` or a real
