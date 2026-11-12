@@ -5917,3 +5917,12 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > Implement the first unchecked item (Q19d, `content: url()`) of the ranked QUEUE in scratchy/TODO.txt.
 
 **What changed:** `parse_content` accepts a lone `url(...)` as the new `ContentDecl::Image`. `generated_content` now takes `image_cache` and returns `(ComputedStyle, GenContent)` (`Text` or `Image`); the image is a decoded `data:` URI or an `image_cache` hit keyed by the raw url text (same policy as `<img src>`), passed through `svg_at_css_size`. `push_generated` delegates images to the new `push_generated_image`: inline display pushes an `InlineItem::Image`, block/table/flex/grid a block box with `BoxContent::Image` (so `width`/`height` on the pseudo size it). Test: `q19d_content_url_renders_an_image`. `grim` worked: a 40x40 red image inline before a paragraph's text and a 120x20 block image after a div. Left out: `url()` mixed with strings or counters (declaration stays invalid), and `process_external_resources` does not collect CSS `content: url()` references, so non-`data:` urls only render if the same string is already in the image cache (currently the same limitation `background-image` has).
+
+
+---
+
+## Q19e — `::first-letter` (queue item)
+
+> Implement the first unchecked item (Q19e, `::first-letter` and `::first-line`) of the ranked QUEUE in scratchy/TODO.txt; do `::first-letter` and re-split `::first-line` if hard.
+
+**What changed:** new `apply_first_letter`, called at the end of `build_children_with_prefix`, matches `::first-letter` rules (`matching_declarations_for(.., Some("first-letter"))`, skipped cheaply when no rule has that pseudo), resolves the pseudo's style with `resolve_style_for`, and splits the first alphanumeric character plus any leading punctuation off the first anonymous inline run's first text item (after an `<li>` marker prefix) into its own `InlineItem::Text` with that style; the rest keeps the original span. Test: `q19e_first_letter_styles_the_leading_letter`. `grim` worked: a red bold 48px opening quote and `O` before normal paragraph text. `::first-line` is split out as new queue item Q19e2 (needs layout-time line knowledge). Left out: `float` drop caps, first-letter inside a nested first block child, and `::first-letter` on elements whose first child is a generated/embedded/image item.

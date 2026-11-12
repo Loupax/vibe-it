@@ -8336,6 +8336,7 @@ fn build_children_with_prefix(
 ) -> Vec<LayoutBox> {
     let mut result = Vec::new();
     let mut pending: Vec<InlineItem> = Vec::new();
+    let has_prefix = prefix.is_some();
     if let Some((text, span)) = prefix {
         pending.push(InlineItem::Text(text, span));
     }
@@ -8360,7 +8361,74 @@ fn build_children_with_prefix(
             content: BoxContent::Inline(pending),
         });
     }
+    apply_first_letter(handle, rules, inherited, viewport_width, has_prefix, &mut result);
     result
+}
+
+/// `::first-letter` (Q19e): styles the first letter (with any leading
+/// punctuation) of the element's first inline run by splitting it off
+/// into its own text item carrying the pseudo's style. Applies only when
+/// the first child box is an anonymous inline run starting with text
+/// (after the `<li>` marker prefix, if any); `float` (drop caps) is not
+/// honored.
+fn apply_first_letter(
+    handle: &Handle,
+    rules: &[StyleRule],
+    inherited: InheritedStyle,
+    viewport_width: f32,
+    has_prefix: bool,
+    result: &mut [LayoutBox],
+) {
+    if !matches!(handle.data, NodeData::Element { .. })
+        || !rules.iter().any(|r| {
+            r.selectors.slice().iter().any(|s| matches!(s.pseudo_element(), Some(OurPseudoElement::Named("first-letter"))))
+        })
+    {
+        return;
+    }
+    let Some(LayoutBox { content: BoxContent::Inline(items), .. }) = result.first_mut() else { return };
+    let idx = usize::from(has_prefix);
+    let Some(InlineItem::Text(text, span)) = items.get(idx) else { return };
+    let mut split = None;
+    let mut seen_punct = false;
+    for (i, c) in text.char_indices() {
+        if c.is_whitespace() && !seen_punct {
+            continue;
+        }
+        if c.is_alphanumeric() {
+            split = Some(i + c.len_utf8());
+            break;
+        }
+        if c.is_whitespace() {
+            return;
+        }
+        seen_punct = true;
+    }
+    let Some(end) = split else { return };
+    let start = text.len() - text.trim_start().len();
+    let matches = matching_declarations_for(handle, rules, viewport_width, Some("first-letter"));
+    if matches.is_empty() {
+        return;
+    }
+    let style = resolve_style_for(handle, rules, inherited, viewport_width, Some("first-letter"));
+    let mut letter_span: SpanStyle = style.inherited().into();
+    letter_span.background_color = style.background_color.or(span.background_color);
+    letter_span.text_decoration = span.text_decoration;
+    letter_span.decoration_style = span.decoration_style;
+    letter_span.vertical_align = span.vertical_align;
+    letter_span.href = span.href;
+    let (lead, rest) = (text[..start].to_string(), text[end..].to_string());
+    let letter = text[start..end].to_string();
+    let orig = *span;
+    let mut new_items = Vec::new();
+    if !lead.is_empty() {
+        new_items.push(InlineItem::Text(lead, orig));
+    }
+    new_items.push(InlineItem::Text(letter, letter_span));
+    if !rest.is_empty() {
+        new_items.push(InlineItem::Text(rest, orig));
+    }
+    items.splice(idx..=idx, new_items);
 }
 
 /// Background color and text-decoration, painted/drawn for a run's glyphs,
@@ -17922,6 +17990,22 @@ mod tests {
         );
         let tree = build_layout_tree_with_resources(&parse_html(&html), 800.0, None, "", &cache);
         assert_eq!(count_images(&tree), 3, "a fetched (cached) url now renders too");
+    }
+
+    #[test]
+    fn q19e_first_letter_styles_the_leading_letter() {
+        let doc = parse_html(
+            r#"<html><head><style>
+            p::first-letter { color: #ff0000; font-size: 40px; }
+            </style></head><body><p>"Hello world</p><div>plain</div></body></html>"#,
+        );
+        let tree = build_layout_tree(&doc, 1920.0);
+        let mut texts = Vec::new();
+        q19_texts(&tree, &mut texts);
+        let red = TextColor::rgb(0xff, 0, 0);
+        assert!(texts.iter().any(|(t, c)| t == "\"H" && *c == red), "{texts:?}");
+        assert!(texts.iter().any(|(t, c)| t == "ello world " && *c != red), "{texts:?}");
+        assert!(texts.iter().any(|(t, c)| t == "plain " && *c != red), "{texts:?}");
     }
 
     #[test]

@@ -415,8 +415,17 @@ dropped selectors summed across those pages. Caveats:
       or a block image box. Left out: url() mixed with strings,
       `process_external_resources` does not yet collect CSS `content`
       urls for fetching (only data: URIs and already-cached keys render).
-- [ ] Q19e [M] `::first-letter` and `::first-line`: split the first text
+- [x] Q19e [M] (17346a8) `::first-letter` and `::first-line`: split the first text
       run and style the leading letter / first laid-out line.
+      DONE for `::first-letter` (17346a8): `apply_first_letter` (called at the
+      end of `build_children_with_prefix`) splits the first letter plus
+      leading punctuation off the first anonymous inline run into its own
+      text item with the pseudo's resolved style. Left out: `float` drop
+      caps, first-letter inside a nested first block child, and
+      `::first-line` (see Q19e2).
+- [ ] Q19e2 [M] `::first-line`: style the first laid-out line (needs a
+      line-break-aware split in `measure_mixed_inline`/shaping, since the
+      line's extent is only known at layout time).
 - [ ] Q19f [S] Counter polish: implicit `list-item` counter, no counting
       for `display:none` elements, `counter-set`, CSS-wide keywords on
       `counter-reset`/`counter-increment`, quotes from the `quotes`
