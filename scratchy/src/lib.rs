@@ -1723,8 +1723,33 @@ fn parse_counter_ops(input: &mut CssParser, default: i32) -> Result<Vec<(String,
     }
     let mut out = Vec::new();
     while let Ok(name) = input.try_parse(|i| i.expect_ident().map(|s| s.to_string())) {
+        // CSS-wide keywords are not counter names (declaration ignored).
+        if ["inherit", "initial", "unset", "revert", "revert-layer"].iter().any(|k| name.eq_ignore_ascii_case(k)) {
+            return Err(());
+        }
         let n = input.try_parse(|i| i.expect_integer()).unwrap_or(default);
         out.push((name, n));
+    }
+    if out.is_empty() || !input.is_exhausted() { Err(()) } else { Ok(out) }
+}
+
+/// The default `quotes: auto` pairs (English, two nesting levels).
+fn default_quotes() -> Vec<(String, String)> {
+    vec![("\u{201C}".into(), "\u{201D}".into()), ("\u{2018}".into(), "\u{2019}".into())]
+}
+
+/// `quotes: none | auto | [<string> <string>]+`. `none` is an empty list.
+fn parse_quotes(input: &mut CssParser) -> Result<Vec<(String, String)>, ()> {
+    if input.try_parse(|i| i.expect_ident_matching("none")).is_ok() {
+        return if input.is_exhausted() { Ok(Vec::new()) } else { Err(()) };
+    }
+    if input.try_parse(|i| i.expect_ident_matching("auto")).is_ok() {
+        return if input.is_exhausted() { Ok(default_quotes()) } else { Err(()) };
+    }
+    let mut out = Vec::new();
+    while let Ok(open) = input.try_parse(|i| i.expect_string().map(|s| s.to_string())) {
+        let close = input.expect_string().map_err(|_| ())?.to_string();
+        out.push((open, close));
     }
     if out.is_empty() || !input.is_exhausted() { Err(()) } else { Ok(out) }
 }
@@ -1783,6 +1808,9 @@ struct Declarations {
     /// `counter-reset` / `counter-increment` (Q19b); read only by `precompute_generated`.
     counter_reset: Option<Vec<(String, i32)>>,
     counter_increment: Option<Vec<(String, i32)>>,
+    /// `counter-set` (Q19f) and `quotes` (Q19f; empty = `none`, inherited).
+    counter_set: Option<Vec<(String, i32)>>,
+    quotes: Option<Vec<(String, String)>>,
     width: Option<Length>,
     height: Option<Length>,
     min_width: Option<Length>,
@@ -4950,6 +4978,14 @@ impl DeclParser<'_> {
         } else if name.eq_ignore_ascii_case("counter-increment") {
             if let Ok(c) = parse_counter_ops(input, 1) {
                 self.decls.counter_increment = Some(c);
+            }
+        } else if name.eq_ignore_ascii_case("counter-set") {
+            if let Ok(c) = parse_counter_ops(input, 0) {
+                self.decls.counter_set = Some(c);
+            }
+        } else if name.eq_ignore_ascii_case("quotes") {
+            if let Ok(q) = parse_quotes(input) {
+                self.decls.quotes = Some(q);
             }
         } else if name.eq_ignore_ascii_case("opacity") {
             if let Ok(o) = parse_opacity(input) {
@@ -8590,6 +8626,13 @@ thread_local! {
         std::cell::RefCell::new(HashMap::new());
 }
 
+thread_local! {
+    /// `content` declared on a real (non-pseudo) element (Q19f): it
+    /// replaces the element's children. Filled by `precompute_generated`.
+    static ELEMENT_CONTENT: std::cell::RefCell<HashMap<usize, String>> =
+        std::cell::RefCell::new(HashMap::new());
+}
+
 /// Formats a counter value in a `counter()` style.
 fn format_counter(n: i32, style: &str) -> String {
     fn alpha(n: i32, base: u8) -> String {
@@ -8646,19 +8689,36 @@ fn format_counter(n: i32, style: &str) -> String {
 /// unless some rule declares such a `content` or a counter property.
 fn precompute_generated(document: &Handle, rules: &[StyleRule], viewport_width: f32) {
     GENERATED_TEXT.with(|g| g.borrow_mut().clear());
+    ELEMENT_CONTENT.with(|g| g.borrow_mut().clear());
     let wanted = rules.iter().any(|r| {
         [&r.decls, &r.important].iter().any(|d| {
             matches!(d.content, Some(ContentDecl::Parts(_)))
                 || d.counter_reset.is_some()
                 || d.counter_increment.is_some()
+                || d.counter_set.is_some()
+                || d.quotes.is_some()
         })
     });
-    if !wanted {
+    // A `content` on a selector with no pseudo-element targets the
+    // element itself (Q19f).
+    let wants_element_content = rules.iter().any(|r| {
+        (r.decls.content.is_some() || r.important.content.is_some())
+            && r.selectors.slice().iter().any(|s| s.pseudo_element().is_none())
+    });
+    if !wanted && !wants_element_content {
         return;
     }
     struct State {
         counters: Vec<(String, i32, usize)>,
         quote_depth: usize,
+        quotes: Vec<(String, String)>,
+        element_content: bool,
+    }
+    fn quote(st: &State, open: bool, depth: usize) -> String {
+        match st.quotes.get(depth.min(st.quotes.len().saturating_sub(1))) {
+            Some((o, c)) => (if open { o } else { c }).clone(),
+            None => String::new(),
+        }
     }
     fn eval(parts: &[ContentPart], handle: &Handle, st: &mut State) -> String {
         let mut out = String::new();
@@ -8680,12 +8740,12 @@ fn precompute_generated(document: &Handle, rules: &[StyleRule], viewport_width: 
                     out.push_str(&if vals.is_empty() { format_counter(0, style) } else { vals.join(sep) });
                 }
                 ContentPart::OpenQuote => {
-                    out.push_str(if st.quote_depth == 0 { "\u{201C}" } else { "\u{2018}" });
+                    out.push_str(&quote(st, true, st.quote_depth));
                     st.quote_depth += 1;
                 }
                 ContentPart::CloseQuote => {
                     st.quote_depth = st.quote_depth.saturating_sub(1);
-                    out.push_str(if st.quote_depth == 0 { "\u{201D}" } else { "\u{2019}" });
+                    out.push_str(&quote(st, false, st.quote_depth));
                 }
                 ContentPart::NoOpenQuote => st.quote_depth += 1,
                 ContentPart::NoCloseQuote => st.quote_depth = st.quote_depth.saturating_sub(1),
@@ -8696,22 +8756,66 @@ fn precompute_generated(document: &Handle, rules: &[StyleRule], viewport_width: 
     fn walk(handle: &Handle, rules: &[StyleRule], vw: f32, depth: usize, st: &mut State) {
         let is_el = matches!(handle.data, NodeData::Element { .. });
         let key = Rc::as_ptr(handle) as usize;
+        let saved_quotes = st.quotes.clone();
         if is_el {
             let own = matching_declarations_for(handle, rules, vw, None);
-            if let Cascaded::Value(ops) = cascade_css(&own, None, "counter-reset", |d| d.counter_reset.clone()) {
-                for (name, v) in ops {
-                    st.counters.retain(|c| !(c.0 == name && c.2 == depth));
-                    st.counters.push((name, v, depth));
+            // `display: none` elements generate no boxes: no counters, no
+            // pseudos, nothing in the subtree.
+            if matches!(cascade_css(&own, None, "display", |d| d.display), Cascaded::Value(Display::None)) {
+                return;
+            }
+            if let Cascaded::Value(q) = cascade_css(&own, None, "quotes", |d| d.quotes.clone()) {
+                st.quotes = q;
+            }
+            if st.element_content {
+                let c = match cascade_css(&own, None, "content", |d| d.content.clone()) {
+                    Cascaded::Value(ContentDecl::Text(t)) => Some(t),
+                    Cascaded::Value(ContentDecl::Parts(p)) => Some(eval(&p, handle, st)),
+                    _ => None,
+                };
+                if let Some(t) = c {
+                    ELEMENT_CONTENT.with(|g| g.borrow_mut().insert(key, t));
                 }
             }
-            if let Cascaded::Value(ops) =
-                cascade_css(&own, None, "counter-increment", |d| d.counter_increment.clone())
-            {
-                for (name, v) in ops {
-                    match st.counters.iter_mut().rev().find(|c| c.0 == name) {
-                        Some(c) => c.1 += v,
-                        None => st.counters.push((name, v, depth)),
-                    }
+            let tag = match &handle.data {
+                NodeData::Element { name, .. } => name.local.to_string(),
+                _ => String::new(),
+            };
+            let reset = match cascade_css(&own, None, "counter-reset", |d| d.counter_reset.clone()) {
+                Cascaded::Value(ops) => ops,
+                _ => Vec::new(),
+            };
+            let set = match cascade_css(&own, None, "counter-set", |d| d.counter_set.clone()) {
+                Cascaded::Value(ops) => ops,
+                _ => Vec::new(),
+            };
+            let mut inc = match cascade_css(&own, None, "counter-increment", |d| d.counter_increment.clone()) {
+                Cascaded::Value(ops) => ops,
+                _ => Vec::new(),
+            };
+            // Implicit `list-item` counter: lists start one, `li` counts.
+            let mentions = |n: &str| reset.iter().chain(&set).chain(&inc).any(|c| c.0 == n);
+            let mut reset = reset.clone();
+            if matches!(tag.as_str(), "ol" | "ul") && !mentions("list-item") {
+                reset.push(("list-item".into(), 0));
+            }
+            if tag == "li" && !mentions("list-item") {
+                inc.push(("list-item".into(), 1));
+            }
+            for (name, v) in reset {
+                st.counters.retain(|c| !(c.0 == name && c.2 == depth));
+                st.counters.push((name, v, depth));
+            }
+            for (name, v) in set {
+                match st.counters.iter_mut().rev().find(|c| c.0 == name) {
+                    Some(c) => c.1 = v,
+                    None => st.counters.push((name, v, depth)),
+                }
+            }
+            for (name, v) in inc {
+                match st.counters.iter_mut().rev().find(|c| c.0 == name) {
+                    Some(c) => c.1 += v,
+                    None => st.counters.push((name, v, depth)),
                 }
             }
             let m = matching_declarations_for(handle, rules, vw, Some("before"));
@@ -8731,8 +8835,9 @@ fn precompute_generated(document: &Handle, rules: &[StyleRule], viewport_width: 
             }
             st.counters.retain(|c| c.2 <= depth);
         }
+        st.quotes = saved_quotes;
     }
-    let mut st = State { counters: Vec::new(), quote_depth: 0 };
+    let mut st = State { counters: Vec::new(), quote_depth: 0, quotes: default_quotes(), element_content: wants_element_content };
     walk(document, rules, viewport_width, 0, &mut st);
 }
 
@@ -8749,6 +8854,20 @@ fn collect_children(
     viewport_width: f32,
     image_cache: &HashMap<String, Arc<DecodedImage>>,
 ) {
+    // `content` on the element itself replaces its children (Q19f).
+    let own_content = ELEMENT_CONTENT.with(|g| g.borrow().get(&(Rc::as_ptr(handle) as usize)).cloned());
+    if let Some(text) = own_content {
+        if !text.is_empty() {
+            let mut span: SpanStyle = inherited.into();
+            span.background_color = bg;
+            span.text_decoration = decoration.deco;
+            span.decoration_style = decoration.style;
+            span.vertical_align = valign;
+            span.href = href;
+            pending.push(InlineItem::Text(text, span));
+        }
+        return;
+    }
     let gen_before = generated_content(handle, rules, inherited, "before", viewport_width, image_cache);
     if let Some(g) = gen_before {
         push_generated(g, inherited, bg, decoration, href, valign, pending, result);
@@ -18138,6 +18257,41 @@ mod tests {
         assert!(texts.iter().any(|(t, c)| t == "\"H" && *c == red), "{texts:?}");
         assert!(texts.iter().any(|(t, c)| t == "ello world " && *c != red), "{texts:?}");
         assert!(texts.iter().any(|(t, c)| t == "plain " && *c != red), "{texts:?}");
+    }
+
+    #[test]
+    fn q19f_counter_polish_quotes_and_element_content() {
+        assert_eq!(parse_declarations("quotes: none").quotes, Some(Vec::new()));
+        assert_eq!(
+            parse_declarations(r#"quotes: "<" ">" "[" "]""#).quotes,
+            Some(vec![("<".into(), ">".into()), ("[".into(), "]".into())])
+        );
+        assert_eq!(parse_declarations("counter-reset: inherit").counter_reset, None);
+        assert_eq!(parse_declarations("counter-set: a 5").counter_set, Some(vec![("a".into(), 5)]));
+        let doc = parse_html(
+            r#"<html><head><style>
+            li::before { content: counter(list-item) ". "; }
+            .skip { display: none; counter-increment: n; }
+            .skip::before { content: "HIDDEN"; }
+            body { counter-reset: n; }
+            p::before { content: counter(n) "|"; }
+            .set { counter-set: n 7; }
+            q { quotes: "<" ">" "[" "]"; }
+            q::before { content: open-quote; }
+            .rep { content: "REPLACED"; }
+            </style></head><body>
+            <ol><li>a</li><li>b</li></ol>
+            <div class="skip">x</div><p>one</p><p class="set">two</p>
+            <p><q>a<q>b</q></q></p>
+            <span class="rep">orig</span></body></html>"#,
+        );
+        let tree = build_layout_tree(&doc, 1920.0);
+        let mut texts = Vec::new();
+        q19_texts(&tree, &mut texts);
+        for want in ["1. ", "2. ", "0|", "7|", "REPLACED", "<", "["] {
+            assert!(texts.iter().any(|(t, _)| t == want), "{want:?} missing: {texts:?}");
+        }
+        assert!(!texts.iter().any(|(t, _)| t.contains("HIDDEN") || t.starts_with("orig")), "{texts:?}");
     }
 
     #[test]
