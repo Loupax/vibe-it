@@ -5678,3 +5678,19 @@ non-uniform border (the background rounds too). Test:
 top, dashed blue left and double green bottom borders and `border-radius:
 24px` showed rounded, mitered corners. Left out: dashed/dotted/double/bevel
 uniform borders still go square with `border-radius` (see QUEUE Q4c).
+
+---
+
+## Q4c — uniform non-solid borders with border-radius (queue item)
+
+> Implement the first unchecked item (Q4c) of the ranked QUEUE in
+> scratchy/TODO.txt.
+
+**What changed:** in `paint_box_decoration`, `round` is now true for any
+`border-radius > 0`, and the old `fill_rounded_ring` path (`ring_path`) is
+kept only for uniform solid/absent borders; uniform dashed/dotted/double/
+bevel borders with a radius now go through `paint_per_side_border`. Test:
+`q4c_uniform_non_solid_borders_round_with_border_radius`. `grim` worked: a
+120x80 box with `8px dashed red` and `border-radius: 24px` showed rounded
+dashed corners. This also completes Q27 (Q4b covered unequal per-side
+borders), so Q27 is ticked.
