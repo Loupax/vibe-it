@@ -76,3 +76,5 @@ the commit it came up during.
       appears once), wrong for a request that deliberately repeats one
       (e.g. multiple `Cookie` headers, rare but legal). Nothing real has
       sent one of these yet.
+
+- [x] `file://` URLs are served (scratchy Q22). Open: no directory listings, no HEAD.

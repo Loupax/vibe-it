@@ -192,3 +192,10 @@ nothing about that path).
 argument loop, `print_usage` updated), `wire/PROMPTS.md` (this entry),
 `wire/NOTES.md`, and `README.md`'s own "How they fit together" example
 updated to use it instead of hand-expanding `$XDG_RUNTIME_DIR` directly.
+
+
+---
+
+## v-file — `file://` URLs (scratchy Q22)
+
+Added `serve_file`/`content_type_for_path` in `src/main.rs`: a `file://` request line is answered from disk (`200` + guessed `Content-Type`, `404` unreadable, `405` non-GET) without going through `ureq`. Test: `file_urls_are_served_from_disk_with_a_guessed_content_type`. Not done: directory listings, `HEAD`, `Content-Length`.

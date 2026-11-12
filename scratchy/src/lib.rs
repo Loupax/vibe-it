@@ -16179,6 +16179,26 @@ fn process_external_resources(
     extra_css
 }
 
+/// `file://<absolute path>` for a page opened from a local file (Q22):
+/// the base URL its relative `src`/`href`s resolve against, and what
+/// `wire` is asked for (it serves `file://`). `None` if the path can't
+/// be made absolute.
+fn file_page_url(path: &str) -> Option<Url> {
+    Url::from_file_path(fs::canonicalize(path).ok()?).ok()
+}
+
+/// Q22: a statically opened file with `--socket` given gets its own
+/// base URL and its external stylesheets/images fetched through `wire`
+/// exactly like a live-navigated page (`process_external_resources`).
+/// Runs synchronously before the window exists, so the stylesheets are
+/// in hand for the first layout; images arrive later through
+/// `AppEvent::ImageFetched` (generation 0, the app's initial one).
+fn load_file_resources(proxy: &EventLoopProxy<AppEvent>, socket: &std::path::Path, path: &str, html: &[u8]) -> (Option<Url>, String) {
+    let Some(url) = file_page_url(path) else { return (None, String::new()) };
+    let css = process_external_resources(proxy, socket, &url, html, 0);
+    (Some(url), css)
+}
+
 // ---------- windowing ----------
 
 /// A fully-fetched, ready-to-display page — the `Ok` payload of
@@ -18004,7 +18024,15 @@ pub fn run() {
                 std::process::exit(1);
             });
             let dom = new_parser().read_from(&mut html.as_bytes()).unwrap();
-            App::new_static(dom.document, proxy, socket)
+            let file_resources = socket.as_deref().map(|s| load_file_resources(&proxy, s, &path, html.as_bytes()));
+            let mut app = App::new_static(dom.document, proxy, socket);
+            if let Some((url, css)) = file_resources {
+                if app.base_url.is_none() {
+                    app.base_url = url;
+                }
+                app.extra_css = css;
+            }
+            app
         }
         Input::Stdin => {
             let stdin_proxy = proxy.clone();
@@ -23314,6 +23342,34 @@ mod tests {
             let _ = Read::read(&mut stream, &mut discard);
             let _ = stream.write_all(response);
         });
+    }
+
+    #[test]
+    fn q22_file_page_gets_a_file_url_base_and_relative_hrefs_resolve_against_it() {
+        let dir = std::env::temp_dir().join(format!("scratchy-q22-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let page = dir.join("page.html");
+        std::fs::write(&page, "<html></html>").unwrap();
+        let base = file_page_url(page.to_str().unwrap()).expect("file url");
+        assert_eq!(base.scheme(), "file");
+        assert!(base.path().ends_with("/page.html"));
+        let css = resolve_href(Some(&base), "style/a.css").unwrap();
+        assert_eq!(css.scheme(), "file");
+        assert!(css.path().ends_with("/style/a.css"));
+        // The request `wire` receives is plain absolute-form.
+        assert!(build_get_request_text(&css).starts_with("GET file:///"));
+        assert!(file_page_url("/nonexistent/q22.html").is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn q22_stylesheet_over_a_file_url_goes_through_wire() {
+        let path = unique_test_socket_path("q22-css");
+        let _ = std::fs::remove_file(&path);
+        spawn_mock_wire_once(&path, b"HTTP/1.1 200 OK\r\nContent-Type: text/css\r\n\r\np{margin:0}");
+        let url = Url::parse("file:///tmp/a.css").unwrap();
+        assert_eq!(fetch_stylesheet_via_wire(&path, &url), Some("p{margin:0}".to_string()));
+        let _ = std::fs::remove_file(&path);
     }
 
     #[test]
