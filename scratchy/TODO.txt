@@ -10,6 +10,439 @@ number, since several versions can share one commit and a hash is
 directly actionable. PROMPTS.md is append-only and never edited for
 these.
 
+========================================================================
+QUEUE — ranked work order (reviewed 2026-11-12)
+========================================================================
+
+Work through this queue top to bottom; it overrides the order of
+everything below it. Everything below the QUEUE is history and detail.
+An item here that says "Detail:" points at the longer entry further
+down by its title text. Search for that text, because line numbers in
+this file go stale.
+
+Rules for whoever implements an item:
+- Take the first unchecked item. Don't reorder the queue and don't
+  merge items. If an item turns out to be wrong or much bigger than its
+  size suggests, stop and report back. Don't guess.
+- Follow the standard per-feature checklist (read PROMPTS.md, NOTES.md
+  and this file, implement, add a PERMANENT test in `src/lib.rs`'s
+  `#[cfg(test)] mod tests`, run `cargo check`, `cargo clippy` and
+  `cargo test`, run `cargo install --path .`, take a real `grim`
+  screenshot, add a PROMPTS.md entry, update NOTES.md if the
+  architecture changed, commit, then do the separate "fill in the hash"
+  commit).
+- Code references are function and type names only. Find them with
+  `grep -n 'fn <name>' src/lib.rs`, and never trust a line number.
+- When an item is done, tick it here AND in its "Detail:" entry, with
+  the commit hash. If you deliberately leave part of an item out, add a
+  new, narrower `[ ]` item right below it in this QUEUE.
+- Sizes: S = under ~200 changed lines, a single concept. M = several
+  functions, new plumbing. L = split it into the listed sub-items and
+  do them one at a time.
+
+Evidence base: `SCRATCHY_CSS_DEBUG=1` runs plus raw-CSS selector and
+at-rule counts on four pages the user actually reads: Wikipedia
+(SoHo_Weekly_News), social.loupax.com/u/loupax, forums.gentoo.org and
+google.com. Numbers like "(n=47)" in an item are ignored declarations or
+dropped selectors summed across those pages. Caveats:
+- The gentoo page is CSS-only. `snag` timed out mid-fetch twice (its own
+  bug, not scratchy's), so the page body never arrived.
+- The debug tool under-reports. It reports "no change" when a rule had
+  already set the same value (Wikipedia writes every color twice,
+  `color:#202122; color:var(--color-base,#202122)`). It never reports
+  selectors or at-rules that were dropped wholesale. Q1 fixes both of
+  those blind spots.
+- Most of the sites the user browses require JavaScript, so they can't
+  be measured yet. Re-run this measurement after Tier 1 lands, and
+  re-rank if the numbers move.
+
+--- Tier 0: tooling that makes every later measurement honest ---------
+
+- [ ] Q1 [S] Make `SCRATCHY_CSS_DEBUG` tell different failures apart.
+      Today `DeclParser::parse_value` clones `Declarations` before
+      parsing and compares after (`css_debug_enabled`). Change it to:
+      (a) report "ignored" only when no branch accepted the value, and
+          stay silent when a branch parsed it successfully but produced
+          the same value the rule already had. Track whether a branch
+          returned `Ok` instead of relying only on `PartialEq`.
+      (b) Report every selector that fails to parse, as
+          `scratchy: css: dropped selector `<text>``. This is how
+          `:focus` and `::before` rules disappear today.
+      (c) Report every at-rule that is dropped, as
+          `scratchy: css: dropped @<name>`. This happens in
+          `TopLevelParser`'s `AtRuleParser` impl.
+      Test: one stylesheet with a duplicate-valued declaration, a
+      `p::before{}` rule and an `@supports` block. Assert on the
+      captured lines. Factor the reporting so a test can collect lines
+      instead of reading stderr.
+
+--- Tier 1: whole rules or content silently lost; cheap, broad --------
+
+- [ ] Q2 [S] Pseudo-classes that are dropped today (n=225 selectors on
+      Wikipedia alone). Add these to `OurPseudoClass` (parse and
+      `to_css`) and to `match_non_ts_pseudo_class`:
+      - `:hover`, `:active`, `:focus`, `:focus-visible`,
+        `:focus-within`, `:target`: never match.
+      - `:checked`: matches an `input` that has the `checked` attribute,
+        or an `option` that has `selected`.
+      - `:disabled`: matches an `input`, `button`, `select`, `textarea`,
+        `option` or `fieldset` with the `disabled` attribute.
+        `:enabled`: matches any of those same elements without it.
+      - `:dir(ltr)` matches everything and `:dir(rtl)` matches nothing.
+        This engine is LTR-only.
+      - `:lang(x)`: matches when the nearest ancestor-or-self `lang`
+        attribute equals `x` or starts with `x-` (ASCII
+        case-insensitive).
+      Detail: "Parse `:focus`/`:hover`/`:active`/`:focus-visible`"
+      (that entry's test plan applies). Done when Wikipedia's "Jump to
+      content" line is gone from a real render.
+
+- [ ] Q3 [S] Pseudo-elements. scratchy uses `NoPseudoElement`, so any
+      selector containing `::before`, `::after`, `::marker`,
+      `::placeholder`, `::selection` or `::-webkit-*` fails to parse.
+      The whole comma-separated rule goes with it, so `a, a::after{…}`
+      loses its `a` part too (n=95 selectors). Add a real
+      `PseudoElement` type that parses these names. Selector matching
+      for ordinary elements must then SKIP any selector that carries a
+      pseudo-element. A `p::before{color:red}` rule must NOT turn the
+      `p` red.
+      Tests:
+      - `a, a::after {color: blue}` makes `a` blue.
+      - `p::before {color: red}` leaves `p` its default color.
+      Generating `content:` boxes for `::before`/`::after` is NOT part
+      of this item; that's Q19.
+
+- [ ] Q4 [M] Per-side borders (n=150+, the biggest real visual gap
+      after icons). `Declarations` and `ComputedStyle` hold one uniform
+      `border_width`, `border_color` and `border_style`, and
+      `border-top`, `border-right`, `border-bottom`, `border-left` and
+      their `-width`/`-color`/`-style` longhands are never parsed.
+      Seen: `border-top` 47, `border-bottom` 39, `border-left` 27,
+      `border-right` 10, and per-side `-color`/`-width` around 55.
+      - Make all three fields per-side (reuse the existing `Sides`
+        type).
+      - Parse the 4 side shorthands and the 12 side longhands.
+      - Make `border-width`, `border-color` and `border-style` accept
+        the 1-to-4-value box syntax, the same way `margin` already does.
+      - Layout must read each side's width, and `paint_border` and
+        `paint_border_edge` must paint each side with its own
+        color/style/width. A side whose style is `none` or `hidden` has
+        width 0.
+      - `border-radius` keeps its current behavior when all four sides
+        are identical and solid. Otherwise it falls back to square
+        corners (document that as a new QUEUE line).
+      Tests:
+      - `border-bottom: 2px solid red` alone gives only the bottom a
+        width.
+      - `border-width: 1px 2px 3px 4px` sets all four sides correctly.
+      - `border: 1px solid; border-top: none` removes only the top.
+
+- [ ] Q5 [S] Anonymous flex items for bare text. Text placed directly
+      inside a flex container is silently NOT RENDERED today, so content
+      is lost. `build_flex_children` only collects element children.
+      Wrap each run of non-whitespace text (consecutive text plus inline
+      siblings, CSS Flexbox §4) in an anonymous block flex item.
+      Detail: "A bare, non-whitespace text node placed directly inside a
+      flex container". Test: `<div style="display:flex">hello
+      <b>x</b></div>` lays out text containing "hello".
+
+- [ ] Q6 [S] `!important` (n=86 Wikipedia, 60 gentoo). Today
+      `cascade_property` only sorts by specificity. Parse each
+      declaration's trailing `!important`, and store important
+      declarations in a second `Declarations` on `StyleRule`, and do the
+      same for the inline `style` attribute (`parse_declarations` on
+      `element_attr(handle, "style")`). The cascade then
+      becomes: important declarations from any matching rule beat
+      normal ones, and within each tier specificity decides, then
+      source order. Detail: "A real CSS-gap report" (its `!important`
+      paragraph). Test: `#a{color:red} p{color:blue !important}` gives
+      `<p id=a>` blue.
+
+- [ ] Q7 [M] CSS-wide keywords `inherit`, `initial`, `unset`, `revert`
+      and `revert-layer` (n=70+: `color` 28+16, `vertical-align` 14,
+      `background` 8, `font-size` 8, `line-height` 6, `display` 4).
+      Nothing parses them today. Before dispatching to the per-property
+      parsers, recognize these keywords in `parse_value` and record
+      them per property. Semantics:
+      - `unset`: same as `inherit` for an inherited property, and same
+        as `initial` for a non-inherited one.
+      - `revert` and `revert-layer`: treat as `unset`. There are no
+        cascade layers or UA-origin split here.
+      - `initial`: the property's initial value.
+      - `inherit`: the parent's computed value.
+      All of them must WIN the cascade at their own specificity; never
+      treat them as "not declared". If doing every property is too
+      invasive, scope to the properties listed above plus `font-family`,
+      `font-weight`, `text-align`, `white-space`, `cursor` and
+      `visibility`, and document the rest as a new QUEUE line.
+
+- [ ] Q8 [S] Charset decoding. Today `scratchy google.html` dies
+      immediately with "stream did not contain valid UTF-8", because
+      google.com is served as ISO-8859-1 and every input path assumes
+      UTF-8: `fs::read_to_string` in the file path, the streaming
+      `from_utf8()` in the stdin path, and `dispatch_wire_response`.
+      - Add `encoding_rs`, a pure-Rust crate (new dependency; the user
+        approved charset support 2026-11-12).
+      - Pick the encoding in this order: (1) a BOM; (2) for a wire
+        response, the `Content-Type` header's `charset=`; (3) a
+        `<meta charset>` or `<meta http-equiv=content-type>` found
+        within the first 1024 bytes; (4) UTF-8.
+      - Per the WHATWG Encoding spec, the labels `iso-8859-1`/`latin1`
+        decode as windows-1252.
+      - Streaming stdin: buffer the first 1024 bytes to sniff, then
+        decode incrementally.
+      Tests: a windows-1252 byte string with `<meta charset=
+      iso-8859-1>` decodes "é" correctly, and a BOM'd UTF-8 input still
+      works.
+
+- [ ] Q9 [S] `vertical-align` beyond `sub`/`super` (n=109: `middle` 49,
+      `text-bottom` 23, `top` 13, `bottom` 5, `text-top` 2). Add these
+      variants to `VerticalAlign`. Two places use them:
+      (a) Table cells: `top`, `middle` and `bottom` offset the cell's
+          content within the row height. Check how `measure_table` sizes
+          rows first.
+      (b) An inline `<img>` or inline-block in `measure_mixed_inline`:
+          `middle` centers it on the line, `top`/`text-top` aligns it to
+          the line top, `bottom`/`text-bottom` aligns it to the line
+          bottom (today's behavior).
+      Text spans: treat `middle`/`top`/`bottom` as `baseline`, a
+      documented approximation. Tests: one per context.
+
+- [ ] Q10 [S] `@supports` (n=75 blocks on Wikipedia, including the
+      `display: grid` override that hides its whole left rail). In
+      `TopLevelParser`'s `AtRuleParser` impl, parse the condition and,
+      if it holds, recurse into the block exactly the way `@media` does.
+      - Grammar: `(prop: value)`, `not`, `and`, `or`, parentheses, and
+        `selector(<sel>)`.
+      - A `(prop: value)` test holds if running the real
+        `DeclParser::parse_value` on it into a scratch `Declarations`
+        accepts it. Reuse Q1's "a branch returned Ok" signal so it never
+        drifts from what the cascade actually supports.
+      - `selector(...)` holds if the selector parses.
+      - Anything unparseable is false.
+      Detail: "`@supports` isn't parsed at all".
+      Tests:
+      - `@supports (display:grid){p{color:red}}` applies.
+      - `@supports (display:bogus){…}` doesn't.
+      - `@supports not (display:bogus){…}` applies.
+
+- [ ] Q11 [M] `calc()`, `min()`, `max()` and `clamp()` (n=60+:
+      `width`/`height` `calc(var(--x,1rem) + 2px)` 46, margins and
+      `left` `calc(-1 * 8px)`, `max-width: min(0.85*12rem, 75vw)`).
+      - Parse into a small expression tree (`+`, `-`, `*`, `/`,
+        parentheses, numbers, and px/em/rem/pt/%/vw/vh units).
+      - Units known when the style is resolved (px, em, rem, pt, and
+        vw/vh once Q14 lands) fold to px right away. Anything containing
+        `%` becomes a new `BoxLength` variant, resolved in `measure`
+        against the containing block, the same way `%` already is.
+      - Accept it wherever `parse_length`/`parse_length_percent` are
+        used, and inside `@media` feature values, which today mark the
+        query `never` (see `parse_media_query_list`).
+      - Division by zero, or mixing a length with a bare number under
+        `+`/`-`, makes the declaration invalid (it drops).
+      Tests: `calc(100% - 20px)` against a 200px containing block gives
+      180, `calc(2 * 1em)`, `min(10px, 5px)` and
+      `(max-width: calc(1120px - 1px))`.
+
+--- Tier 2: page structure and common visuals ----------------------
+
+- [ ] Q12 [L] SVG images. Today there is ZERO SVG support:
+      `decode_image_bytes` only knows png/jpeg/gif/webp. That leaves
+      269 `data:image/svg+xml` URIs on the Wikipedia page, and 36 inline
+      `<svg>` on Wikipedia plus 34 on social.loupax.com, as blank
+      space. Most icons on all these sites are SVG. Uses `resvg`/`usvg`
+      (pure Rust, so the all-Rust build stays). Do the sub-items in
+      order:
+      - [ ] Q12a [M] `decode_image_bytes` detects SVG (an
+            `image/svg+xml` data-URI or `Content-Type`, or the bytes
+            starting with `<svg`/`<?xml`) and rasterizes it at its
+            intrinsic size, which is `width`/`height`, else the
+            `viewBox`, else 300x150. If the CSS size is known when
+            painting, rasterize at that size instead of scaling a bitmap
+            (cache by `(src, w, h)`). This covers `<img>`,
+            `background-image` and wire-fetched images.
+      - [ ] Q12b [M] An inline `<svg>` element becomes a replaced box,
+            the same shape as `build_img_box`. Serialize the subtree
+            back to XML, rasterize it, then size it the same way `<img>`
+            is sized. `fill="currentColor"` must resolve to the
+            element's computed `color` (substitute it before
+            rasterizing).
+      Test: a 10x10 red-square SVG data-URI decodes to a red pixel, and
+      inline `<svg width=10 height=10>` gets a 10x10 box.
+
+- [ ] Q13 [M] Custom properties that cascade per element (n=300+ ignored
+      declarations involve `var()`). Today only the `:root`/`html` table
+      from `collect_root_custom_props` and `substitute_css_vars` exists.
+      - Custom properties must inherit down the tree, so a `--x` set on
+        any selector applies to that subtree.
+      - `--b: var(--a)` must resolve, with cycle detection.
+      - `var()` inside a quoted string must NOT be substituted.
+      Detail: "CSS custom properties (v45)". Do this AFTER Q11, since
+      many of these values are `calc(var(...))`.
+      Tests: `.dark{--bg:black} .dark p{background-color:var(--bg)}`,
+      plus a chained `--b: var(--a)`.
+
+- [ ] Q14 [M] Viewport units and initial-containing-block height. Add
+      `vw`, `vh`, `vmin` and `vmax`; they need the viewport size
+      threaded wherever `em`/`rem` are resolved. Give the document root
+      a definite height equal to the window height, so
+      `html,body{height:100%}` works. To do that, SEPARATE "the
+      containing-block height used for %" from "total content height
+      used to clamp scrolling", and don't pin scroll height to the
+      window. Detail: "No viewport/initial-containing-block height
+      concept exists" (it explains why a naive attempt regressed
+      scrolling). Tests: `height:50vh` and `html,body{height:100%}`
+      with a child `height:50%`.
+
+- [ ] Q15 [L] Grid gaps that block Wikipedia's page skeleton. Do these
+      in order:
+      - [ ] Q15a [M] `auto`, `min-content` and `max-content` track sizes,
+            standalone and inside `minmax()`, sized from items via
+            `cell_natural_width`.
+      - [ ] Q15b [S] The `grid-template` shorthand
+            (`<rows> / <columns>`, optionally with area strings).
+      - [ ] Q15c [S] Numeric placement: `grid-column`/`grid-row`, their
+            `-start`/`-end` longhands, `span N`, and the 4-value
+            `grid-area` form.
+      - [ ] Q15d [M] `repeat(auto-fill|auto-fit, …)`.
+      Detail: the `[ ]` items under "`grid-template-areas` +
+      `grid-area`".
+
+- [ ] Q16 [M] Background longhands: `background-position` (n=30),
+      `-size` (15) and `-repeat` (13). Support `cover`, `contain`,
+      explicit sizes, keyword and length/% positions, `no-repeat`,
+      `repeat-x` and `repeat-y`. Make `parse_background_shorthand` fill
+      them in instead of skipping them. Clip the background to
+      `border-radius`. Detail: "`background-image` (v47)".
+
+- [ ] Q17 [M] `opacity` (n=30). The user decided 2026-11-12: multiply
+      alpha down the tree. Carry the accumulated opacity down through
+      box building (the same ambient path `background-color` and
+      `text-decoration` use) and multiply every paint's alpha by it:
+      backgrounds, borders, text, images and shadows. `opacity:0`
+      still takes up layout space and receives hit-tests. Overlapping
+      semi-transparent children inside one faded parent are known to
+      double-blend; document that, don't fix it. Detail: "`opacity` was
+      deliberately skipped".
+
+- [ ] Q18 [M] `@import`, for wire-fetched stylesheets only. The user
+      decided 2026-11-12. In `process_external_resources`, after a
+      stylesheet is fetched, find its leading `@import url(...)`
+      or `@import "..."` rules. Resolve each against the stylesheet's
+      own URL, fetch it the same way, and insert it IN PLACE of the
+      `@import`. An `@import` with a media list gets wrapped in
+      `@media`. Limit the depth to 8 and skip cycles. `@import` in an
+      inline `<style>` on a static page stays out of scope. Test: the
+      pure function that expands imports, given a fake fetcher closure.
+
+- [ ] Q19 [M] Generated content: `::before`/`::after` with `content:
+      "<string>"` (and `none`/`normal`), after Q3. Insert an inline box
+      at the start or end of the element's children, styled by the
+      pseudo-element's own rule. `attr()`, `counter()` and `url()`
+      content are out of scope. List the uses on the measured pages
+      first, to confirm string content dominates.
+
+- [ ] Q20 [S×6] Small, independent property gaps. Do them as one
+      commit each, in this order:
+      - [ ] Q20a `font` shorthand (n=30): `[style] [weight] size[/line-
+            height] family`. System-font keywords drop.
+      - [ ] Q20b Prefixed aliases as plain synonyms:
+            `-webkit-box-sizing`/`-moz-box-sizing` (30),
+            `-webkit-flex`, `display:-webkit-flex`,
+            `-webkit-box-shadow` and `-webkit-transform`. Don't add
+            legacy `-webkit-box` flexbox semantics.
+      - [ ] Q20c `list-style-type`: `lower-alpha`/`upper-alpha`,
+            `lower-roman`/`upper-roman`, `lower-greek` (n=23), plus
+            `display: list-item` (3).
+      - [ ] Q20d `word-break: break-word|break-all`, `overflow-wrap`/
+            `word-wrap: break-word|anywhere` (n=31): break a word
+            that's too long instead of overflowing it. Check what
+            cosmic-text's `Wrap::WordOrGlyph` already gives for free.
+      - [ ] Q20e `text-transform` (n=18): `uppercase`, `lowercase`,
+            `capitalize`, `none`. Apply it to the text before shaping.
+      - [ ] Q20f `white-space: pre-wrap`/`pre-line` (n=8), plus
+            `width`/`min-width: min-content|max-content|fit-content`
+            (n=18), using `cell_natural_width`.
+
+- [ ] Q21 [M] `overflow-x`/`overflow-y` (n=11) and `text-overflow:
+      ellipsis` (n=22). `overflow-x`/`-y` set the axes separately; a
+      single `overflow` value sets both. With `white-space:nowrap` plus
+      `overflow:hidden`, `text-overflow:ellipsis` replaces the clipped
+      tail with "…".
+
+- [ ] Q22 [S] Local files through wire: `file://`, and relative `src`/
+      `href` on a page opened from a file. The user decided 2026-11-12.
+      - In the `wire` crate (not scratchy): serve `file://` URLs by
+        reading the file and guessing `Content-Type` from the extension
+        (html, css, png, jpg, gif, webp, svg, and
+        `application/octet-stream` for anything else). Log it in
+        wire's own PROMPTS.md and TODO.txt.
+      - In scratchy: when `--socket` is given with a file path, use
+        `file://<absolute path>` as the base URL and run
+        `process_external_resources` for static and streamed pages too
+        (today it only runs for live navigation). See the "Still fully
+        open" paragraph of the HTTP-over-unix-socket item.
+
+--- Tier 3: polish --------------------------------------------------
+
+- [ ] Q23 [S] Flex leftovers, cheapest first: `order`, `align-content`,
+      the column-axis automatic minimum size, then `flex-wrap` for
+      column direction, then `baseline`, then the iterative §9.7 loop.
+      Each is its own commit. Detail: the `[ ]` items under
+      "`display: flex` (440e03b)".
+- [ ] Q24 [M] `overflow: scroll|auto` on flex, grid and table
+      containers, and positioned children scrolling with their scroll
+      region. Add a nested-scroll-region test too. Detail: the `[ ]`
+      items under "`overflow` (v31".
+- [ ] Q25 [M] `box-shadow`: blur (a cheap box blur is fine), multiple
+      comma-separated shadows, `inset`, and `currentColor`. Detail:
+      "`box-shadow` (PROMPTS.md v27)".
+- [ ] Q26 [S] `letter-spacing` (n=8). The user decided 2026-11-12: first
+      bump cosmic-text to the latest release and re-run the recorded
+      repro ("Wide letter spacing " at 900px, 0-8px spacing, count the
+      lines). If the early wrapping is fixed, ship the feature. If not,
+      report back with the numbers and don't work around it. Detail:
+      "`letter-spacing` was attempted and reverted".
+- [ ] Q27 [M] `border-radius` with dashed, dotted, double or bevel
+      borders, and with unequal per-side borders after Q4. Detail:
+      "`border-radius` (v38) combined with".
+- [ ] Q28 [S] Images: `object-fit`/`object-position`, plus bilinear
+      downscaling in `blit_image`. Detail: "`<img>` (v46)".
+- [ ] Q29 [M] `mask-image`/`-webkit-mask-image` (n=438, all icon
+      stencils). Needs Q12a. Kept low by the user's own call. Detail:
+      "`mask-image`/`-webkit-mask-image`".
+
+--- Tier 4: interactivity and architecture (needs user check-in) -------
+
+- [ ] Q30 Forms, following the existing sequencing plan (button,
+      checkbox/radio, focus, text input/textarea, select). This now has
+      evidence: social.loupax.com has 30 forms, 33 buttons and 29
+      textareas. Detail: "Form elements — sequencing plan".
+- [ ] Q31 Real `:hover`/`:focus`/`:active` state, which upgrades Q2's
+      never-match rules. Detail: "`OurSelectorImpl`'s
+      `NonTSPseudoClass`".
+- [ ] Q32 Scrollbar drag-to-scroll; precise float placement and hit-test
+      order; negative-`z-index` hit-test order; moving DOM building and
+      cascade off the main thread. See their own Detail entries.
+- [ ] Q33 JavaScript. The user ordered this last. Detail:
+      "JavaScript — engine choice".
+
+Measured but deliberately NOT queued (each seen on the pages above;
+revisit only on request): `transform` (n=22), `filter` (28),
+transitions and animations (39+), `user-select` (50, no text selection
+exists), `direction`/`unicode-bidi` (36, the engine is LTR-only),
+`column-width` (12), `counter-reset` (10), `color-scheme` (18),
+`border-collapse` (12), `colspan`/`rowspan`.
+
+Not scratchy's: `snag https://forums.gentoo.org/` times out ("timed out
+reading response") right after inlining
+`styles/gentoo-20xx/theme/en/stylesheet.css` and emits a truncated page.
+It reproduced twice on 2026-11-12. Belongs in `snag/TODO.txt`.
+
+========================================================================
+HISTORY AND DETAIL (everything below is the original log)
+========================================================================
+
 - [x] `%` lengths (v49): `width`/`height` and their `min-`/`max-` forms,
       `margin`/`padding` (all four sides, including top/bottom — real
       CSS resolves a margin/padding `%` against the containing block's
@@ -450,7 +883,10 @@ session can pick a coherent slice rather than one property at a time.
             (no unusually tight min/max relative to an item's own
             basis); a real divergence only once several siblings'
             constraints interact non-trivially.
-      - [ ] No CSS Flexbox "automatic minimum size" — an item's own
+      - [ ] (Row axis DONE in `500bd16` — see "Flex items' automatic
+            minimum size" below. Only the *column* axis's implicit
+            `min-height` floor in `measure_flex_column` is still open.)
+            Original text: No CSS Flexbox "automatic minimum size" — an item's own
             `min-width`/`min-height` only clamps if explicitly declared;
             there's no implicit min-content floor preventing `flex-
             shrink` from shrinking an item's content below its own
@@ -1322,8 +1758,8 @@ last, per the user's own call.
       had at all, confirmed by grep: any concept of a focused element
       (nothing in `App` or `ComputedStyle`/`Laid`), and any keyboard
       input handling whatsoever (zero `WindowEvent::KeyboardInput`/`Ime`
-      usage anywhere — the `:hover`/`:focus`/`:active` comment at
-      lib.rs:116-117 already flags the missing state half of this).
+      usage anywhere — the `:hover`/`:focus`/`:active` comment near
+      `OurPseudoClass` already flags the missing state half of this).
       Painting needs *no* new primitive — a checkbox square, button
       face, or text caret is just another `fill_rect`/`paint_border`
       call, the same primitives `paint_box_decoration`/`paint_buffer`
@@ -1373,7 +1809,9 @@ last, per the user's own call.
       not bundled into *this* item, but no longer a separate, deferred
       cross-project change either.
 
-- [ ] **TOP PRIORITY (user's own explicit call): scratchy speaks HTTP
+- [ ] **(Was top priority; its GET/link-click half has landed — what's
+      left is blocked on forms, see QUEUE at the top of this file.)
+      scratchy speaks HTTP
       over a unix socket — replaces talking to `snag --serve` directly,
       unifies link-click navigation and form submission under one
       transport.** Supersedes the old link-nav-specific socket protocol
@@ -1564,23 +2002,22 @@ last, per the user's own call.
         purely on whether `--socket` is active and reachable, not on
         which kind of control was clicked). Form value-collection itself
         (walk to the nearest ancestor `form` via the existing
-        `parent_handle`/`El` machinery, lib.rs:229-238; read `value`/
+        `parent_handle`/`El` machinery; read `value`/
         `checked`/selected-`<option>`/textarea-text from the live DOM
         per control type; encode via `url::form_urlencoded`, already a
         dependency; resolve `action` against `base_url` via the existing
-        `resolve_href`, lib.rs:9863) is unchanged from this item's
+        `resolve_href`) is unchanged from this item's
         earlier draft — only the transport underneath it changed.
       - **Click-side rewrite this item actually requires**:
-        `build_box_for_element` (lib.rs:4683) needs the same early-
-        return shape it already gives `img` (line 4699, via
-        `build_img_box`, 4663) for `<button>`/`input[type=submit]`, with
+        `build_box_for_element` needs the same early-
+        return shape it already gives `img` (via
+        `build_img_box`) for `<button>`/`input[type=submit]`, with
         a new `submit_handle: Option<Handle>` field on `LayoutBox`
-        (lib.rs:4581, `None` at its ~9 other construction sites) so
-        `hit_test_cursor` (lib.rs:9581, already a 2-tuple with `href` —
+        (`None` at its ~9 other construction sites) so
+        `hit_test_cursor` (already a 2-tuple with `href` —
         widens to a 3-tuple, same shape v65's own `href` addition used)
         can report back *which* element was clicked. `start_navigation`
-        (lib.rs:10339) and the `WindowEvent::MouseInput` handler
-        (lib.rs:10469) both get rebuilt around the new socket protocol
+        and the `WindowEvent::MouseInput` handler both get rebuilt around the new socket protocol
         and request-building rather than the old bare-URL-line one.
       - **Still just a transport, not a solution to async resource
         loading**: this unblocks future `<img src="https://…">` fetches
@@ -2019,7 +2456,7 @@ last, per the user's own call.
             loading" symptom from this one step alone, even though
             `measure_document` itself is now fully backgrounded.
 
-- [x] **TOP PRIORITY (user-reported, investigated 2026-11-11, base
+- [x] **(Done, `f7dfda9`.) User-reported, investigated 2026-11-11, base
       `5f8ceed`): whitespace-only text between block-level siblings
       becomes its own full-height (~18-20px) anonymous line box.**
       **Landed** (`f7dfda9`): `discard_if_collapsible_
