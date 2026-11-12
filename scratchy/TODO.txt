@@ -239,7 +239,7 @@ dropped selectors summed across those pages. Caveats:
       cells are stretched to the row height. Length/percentage values
       are still ignored.
 
-- [ ] Q10 [S] `@supports` (n=75 blocks on Wikipedia, including the
+- [x] Q10 [S] (a4f4d91) `@supports` (n=75 blocks on Wikipedia, including the
       `display: grid` override that hides its whole left rail). In
       `TopLevelParser`'s `AtRuleParser` impl, parse the condition and,
       if it holds, recurse into the block exactly the way `@media` does.
@@ -1071,7 +1071,7 @@ session can pick a coherent slice rather than one property at a time.
             just `auto`, so parsing the shorthand's syntax alone
             wouldn't be enough to make most of these specific
             declarations resolve anyway.
-      - [ ] `@supports` isn't parsed at all (falls through to the same
+      - [x] (Q10, a4f4d91) `@supports` isn't parsed at all (falls through to the same
             "any at-rule but `media` is dropped" policy named below) —
             found as a *second*, independent reason part of Wikipedia's
             own left rail (`.vector-pinned-container`, which the TOC and

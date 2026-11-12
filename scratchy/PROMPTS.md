@@ -5763,3 +5763,12 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > scratchy/TODO.txt.
 
 **What changed:** `VerticalAlign` gained `Top`/`Middle`/`Bottom`/`TextTop`/`TextBottom`, parsed in `DeclParser::apply`. `VerticalAlign::inline_box_dy` positions an inline `<img>` or inline-block within its line in `measure_mixed_inline` (`middle` centers, `top`/`text-top` pin to the line top, everything else keeps the old bottom alignment). `lay_out_row_cells` stretches `middle`/`bottom` table cells to the row height and shifts their content down by half/all of the slack. Text spans treat the new keywords as `baseline` (`y_shift` returns 0), a documented approximation. Test: `q9_vertical_align_box_keywords_on_inline_blocks_and_table_cells`. `grim` worked: a table with top/middle/bottom cells showed the text at the top, centre and bottom of the row. Left out (noted in TODO, no new item): `tbody` default `middle` in `default.css`, length/percentage values.
+
+---
+
+## Q10 — `@supports` (queue item)
+
+> Implement the first unchecked item (Q10) of the ranked QUEUE in
+> scratchy/TODO.txt.
+
+**What changed:** `TopLevelParser`'s prelude is now `AtPrelude` (`Media(..)` or `Supports(bool)`). `parse_supports_condition`/`parse_supports_in_parens` evaluate `not`, `and`, `or` (mixing the two unparenthesised is false), nested parentheses, `(prop: value)` and `selector(...)`; unknown functions and unparseable conditions are false. A `(prop: value)` holds if `DeclParser::apply` on a scratch `Declarations` sets anything (same "a branch accepted it" signal as Q1's debug check). A true block recurses exactly like `@media`; a false one is consumed and yields no rules (so it no longer shows as "dropped" in `SCRATCHY_CSS_DEBUG`; that test now uses `@font-face`). Test: `q10_supports_conditions_gate_blocks`. `grim` worked: `p{color:blue}` plus `@supports (display:grid){p{color:green}}` rendered green, with the false `@supports` blocks ignored. Left out: nothing.
