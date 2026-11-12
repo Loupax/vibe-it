@@ -5082,7 +5082,7 @@ impl DeclParser<'_> {
         } else if name.eq_ignore_ascii_case("display") {
             if let Ok(ident) = input.expect_ident() {
                 // `list-item` is a block that also generates a marker (Q20c).
-                self.decls.list_item = Some(ident.eq_ignore_ascii_case("list-item"));
+                let is_list_item = ident.eq_ignore_ascii_case("list-item");
                 self.decls.display = if ident.eq_ignore_ascii_case("block") || ident.eq_ignore_ascii_case("list-item") {
                     Some(Display::Block)
                 } else if ident.eq_ignore_ascii_case("inline") {
@@ -5132,6 +5132,9 @@ impl DeclParser<'_> {
                 } else {
                     None
                 };
+                if self.decls.display.is_some() {
+                    self.decls.list_item = Some(is_list_item);
+                }
             }
         } else if name.eq_ignore_ascii_case("position") {
             if let Ok(ident) = input.expect_ident() {
