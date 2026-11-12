@@ -1200,6 +1200,11 @@ struct Declarations {
     /// its own docs for why and for the "`:root`/`html`-scoped only, no
     /// per-element override chain" simplification this implies.
     custom_props: Vec<(String, String)>,
+    /// CSS-wide keywords (`inherit`/`initial`/`unset`/`revert`) declared
+    /// for a property, keyed by `wide_key`. Mutually exclusive with that
+    /// property's typed field on the same `Declarations`: whichever was
+    /// declared last in the rule wins (`set_wide`/`clear_wide`).
+    wide: Vec<(&'static str, CssWide)>,
     color: Option<CssColor>,
     background_color: Option<CssColor>,
     /// The raw `url(...)` argument, unresolved — decoding (a `data:`
@@ -3470,10 +3475,64 @@ fn strip_important(raw: &str) -> Option<&str> {
     before.strip_suffix('!').map(|v| v.trim_end())
 }
 
+impl Declarations {
+    /// Records a CSS-wide keyword for `key`, dropping the typed value.
+    fn set_wide(&mut self, key: &'static str, kw: CssWide) {
+        self.clear_wide(key);
+        match key {
+            "color" => self.color = None,
+            "background-color" => self.background_color = None,
+            "display" => self.display = None,
+            "font-size" => self.font_size = None,
+            "line-height" => self.line_height = None,
+            "vertical-align" => self.vertical_align = None,
+            "font-family" => self.font_family = None,
+            "font-weight" => self.font_weight = None,
+            "text-align" => self.text_align = None,
+            "white-space" => self.white_space = None,
+            "cursor" => self.cursor = None,
+            "visibility" => self.visibility = None,
+            _ => {}
+        }
+        self.wide.push((key, kw));
+    }
+
+    fn clear_wide(&mut self, key: &str) {
+        self.wide.retain(|(k, _)| *k != key);
+    }
+}
+
 impl DeclParser<'_> {
     /// The per-property dispatch, split out of `parse_value` so the
     /// debug path can re-run it against a scratch `Declarations`.
     fn apply<'i>(&mut self, name: &str, input: &mut CssParser<'i>) {
+        if !name.starts_with("--") {
+            if let Some(key) = wide_key(name) {
+                // A CSS-wide keyword (optionally followed by `!important`).
+                let kw = input.try_parse(|i| {
+                    let kw = {
+                        let id = i.expect_ident().map_err(|_| ())?;
+                        CssWide::from_ident(id).ok_or(())?
+                    };
+                    match i.next() {
+                        Err(_) => Ok(kw),
+                        Ok(Token::Delim('!')) => Ok(kw),
+                        _ => Err(()),
+                    }
+                });
+                if let Ok(kw) = kw {
+                    // Swallow the remaining tokens (`important`).
+                    while input.next().is_ok() {}
+                    self.decls.set_wide(key, kw);
+                    return;
+                }
+                self.decls.clear_wide(key);
+            } else if name.eq_ignore_ascii_case("font") {
+                for k in ["font-size", "line-height", "font-family", "font-weight"] {
+                    self.decls.clear_wide(k);
+                }
+            }
+        }
         if name.starts_with("--") {
             // Custom property: grammar is "anything", so there's no typed
             // value to parse — just capture the raw source text of the
@@ -4467,6 +4526,12 @@ struct InheritedStyle {
     /// `word-spacing`'s own grammar has no per-descendant-reinterpreted
     /// form the way `line-height: <number>` does.
     word_spacing: f32,
+    /// The parent's computed values of three NON-inherited properties,
+    /// carried only so the CSS-wide keyword `inherit` can read them
+    /// (`apply_wide`); nothing else consults these.
+    background_color: Option<TextColor>,
+    display: Display,
+    vertical_align: VerticalAlign,
 }
 
 const ROOT_STYLE: InheritedStyle = InheritedStyle {
@@ -4483,6 +4548,9 @@ const ROOT_STYLE: InheritedStyle = InheritedStyle {
     visibility: Visibility::Visible,
     cursor: CursorStyle::Auto,
     word_spacing: 0.0,
+    background_color: None,
+    display: Display::Inline,
+    vertical_align: VerticalAlign::Baseline,
 };
 
 /// Per-side box-model values. Physical (top/right/bottom/left), not logical
@@ -4781,6 +4849,9 @@ impl ComputedStyle {
             visibility: self.visibility,
             cursor: self.cursor,
             word_spacing: self.word_spacing,
+            background_color: self.background_color,
+            display: self.display,
+            vertical_align: self.vertical_align,
         }
     }
 }
@@ -4805,6 +4876,124 @@ fn cascade_property<T: Clone>(
         Some((s, v)) if s >= IMPORTANT_TIER => Some(v),
         Some((_, v)) => inline.or(Some(v)),
         None => inline,
+    }
+}
+
+/// A CSS-wide keyword (`inherit`, `initial`, `unset`, `revert`,
+/// `revert-layer`). `revert`/`revert-layer` are stored as `Revert` and
+/// behave as `unset` (no cascade layers or UA-origin split here).
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum CssWide {
+    Inherit,
+    Initial,
+    Unset,
+    Revert,
+}
+
+impl CssWide {
+    fn from_ident(ident: &str) -> Option<CssWide> {
+        let l = ident.to_ascii_lowercase();
+        match l.as_str() {
+            "inherit" => Some(CssWide::Inherit),
+            "initial" => Some(CssWide::Initial),
+            "unset" => Some(CssWide::Unset),
+            "revert" | "revert-layer" => Some(CssWide::Revert),
+            _ => None,
+        }
+    }
+
+    /// Whether this keyword takes the parent's computed value for a
+    /// property that is (`inherited_prop`) or isn't inherited by default.
+    fn takes_parent(self, inherited_prop: bool) -> bool {
+        match self {
+            CssWide::Inherit => true,
+            CssWide::Initial => false,
+            CssWide::Unset | CssWide::Revert => inherited_prop,
+        }
+    }
+}
+
+/// Canonical `Declarations::wide` key for a property name that supports
+/// CSS-wide keywords (`background` maps to `background-color`).
+fn wide_key(name: &str) -> Option<&'static str> {
+    const KEYS: &[&str] = &[
+        "color",
+        "background-color",
+        "display",
+        "font-size",
+        "line-height",
+        "vertical-align",
+        "font-family",
+        "font-weight",
+        "text-align",
+        "white-space",
+        "cursor",
+        "visibility",
+    ];
+    if name.eq_ignore_ascii_case("background") {
+        return Some("background-color");
+    }
+    KEYS.iter().copied().find(|k| k.eq_ignore_ascii_case(name))
+}
+
+/// The winner of a cascade that can also see CSS-wide keywords.
+enum Cascaded<T> {
+    Value(T),
+    Wide(CssWide),
+    Unset,
+}
+
+/// Like `cascade_property`, but a CSS-wide keyword declared for `key`
+/// (`Declarations::wide`) competes at its own specificity, source order
+/// and `!important` tier exactly like a normal value.
+fn cascade_css<T: Clone>(
+    matches: &[(u32, &Declarations)],
+    inline: Option<&Declarations>,
+    key: &str,
+    get: impl Fn(&Declarations) -> Option<T>,
+) -> Cascaded<T> {
+    let cand = |d: &Declarations| -> Option<Cascaded<T>> {
+        if let Some((_, kw)) = d.wide.iter().find(|(k, _)| *k == key) {
+            Some(Cascaded::Wide(*kw))
+        } else {
+            get(d).map(Cascaded::Value)
+        }
+    };
+    let mut best: Option<(u32, Cascaded<T>)> = None;
+    for &(specificity, decls) in matches {
+        if let Some(c) = cand(decls)
+            && best.as_ref().is_none_or(|(s, _)| specificity >= *s)
+        {
+            best = Some((specificity, c));
+        }
+    }
+    let inline = inline.and_then(cand);
+    match best {
+        Some((s, c)) if s >= IMPORTANT_TIER => c,
+        Some((_, c)) => inline.unwrap_or(c),
+        None => inline.unwrap_or(Cascaded::Unset),
+    }
+}
+
+/// Resolves a `cascade_css` result: a real value goes through `f`
+/// (falling back as if undeclared when `f` rejects it), a keyword takes
+/// the parent's or the initial value, and "nothing declared" is the
+/// property's natural default (inherit for inherited properties).
+fn apply_wide<T, V>(
+    c: Cascaded<V>,
+    inherited_prop: bool,
+    parent: T,
+    initial: T,
+    f: impl FnOnce(V) -> Option<T>,
+) -> T {
+    let pick = |parent: T, initial: T, take_parent: bool| if take_parent { parent } else { initial };
+    match c {
+        Cascaded::Value(v) => match f(v) {
+            Some(t) => t,
+            None => pick(parent, initial, inherited_prop),
+        },
+        Cascaded::Wide(kw) => pick(parent, initial, kw.takes_parent(inherited_prop)),
+        Cascaded::Unset => pick(parent, initial, inherited_prop),
     }
 }
 
@@ -4921,17 +5110,28 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         matches.push((u32::MAX, i));
     }
 
-    let color = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.color), |d| d.color)
-        .and_then(|c| to_text_color(&c))
-        .unwrap_or(inherited.color);
-    let background_color = cascade_property(
-        &matches,
-        inline_decls.as_ref().and_then(|d| d.background_color),
-        |d| d.background_color,
-    )
-    .and_then(|c| to_text_color(&c));
-    let display = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.display), |d| d.display)
-        .unwrap_or(Display::Inline);
+    let inl = inline_decls.as_ref();
+    let color = apply_wide(
+        cascade_css(&matches, inl, "color", |d| d.color),
+        true,
+        inherited.color,
+        ROOT_STYLE.color,
+        |c| to_text_color(&c),
+    );
+    let background_color = apply_wide(
+        cascade_css(&matches, inl, "background-color", |d| d.background_color),
+        false,
+        inherited.background_color,
+        None,
+        |c| Some(to_text_color(&c)),
+    );
+    let display = apply_wide(
+        cascade_css(&matches, inl, "display", |d| d.display),
+        false,
+        inherited.display,
+        Display::Inline,
+        Some,
+    );
     // Not inherited (see `Position`'s own docs) — every element starts
     // from `Static` regardless of an ancestor's own `position`.
     let position = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.position), |d| d.position)
@@ -4962,9 +5162,13 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
     // font-size itself is relative to the parent's (`inherited.font_size`)
     // — there's no self-reference, since font-size can only ever be `em`
     // relative to the value it's inheriting from, never its own result.
-    let font_size = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.font_size), |d| d.font_size)
-        .map(|l| l.resolve(inherited.font_size, inherited.root_font_size))
-        .unwrap_or(inherited.font_size);
+    let font_size = apply_wide(
+        cascade_css(&matches, inl, "font-size", |d| d.font_size),
+        true,
+        inherited.font_size,
+        ROOT_STYLE.font_size,
+        |l| Some(l.resolve(inherited.font_size, inherited.root_font_size)),
+    );
     let width = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.width), |d| d.width)
         .map(|l| BoxLength::from_length(l, font_size, inherited.root_font_size));
     let height = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.height), |d| d.height)
@@ -5053,25 +5257,26 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         )
         .and_then(|c| to_text_color(&c));
     }
-    let font_weight = cascade_property(
-        &matches,
-        inline_decls.as_ref().and_then(|d| d.font_weight),
-        |d| d.font_weight,
-    )
-    .map(|v| v.resolve(inherited.font_weight))
-    .unwrap_or(inherited.font_weight);
+    let font_weight = apply_wide(
+        cascade_css(&matches, inl, "font-weight", |d| d.font_weight),
+        true,
+        inherited.font_weight,
+        ROOT_STYLE.font_weight,
+        |v| Some(v.resolve(inherited.font_weight)),
+    );
     let font_style = cascade_property(
         &matches,
         inline_decls.as_ref().and_then(|d| d.font_style),
         |d| d.font_style,
     )
     .unwrap_or(inherited.font_style);
-    let font_family = cascade_property(
-        &matches,
-        inline_decls.as_ref().and_then(|d| d.font_family),
-        |d| d.font_family,
-    )
-    .unwrap_or(inherited.font_family);
+    let font_family = apply_wide(
+        cascade_css(&matches, inl, "font-family", |d| d.font_family),
+        true,
+        inherited.font_family,
+        ROOT_STYLE.font_family,
+        Some,
+    );
     let text_decoration = cascade_property(
         &matches,
         inline_decls.as_ref().and_then(|d| d.text_decoration),
@@ -5093,45 +5298,50 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         |d| d.text_decoration_color,
     )
     .and_then(|c| to_text_color(&c));
-    let white_space = cascade_property(
-        &matches,
-        inline_decls.as_ref().and_then(|d| d.white_space),
-        |d| d.white_space,
-    )
-    .unwrap_or(inherited.white_space);
+    let white_space = apply_wide(
+        cascade_css(&matches, inl, "white-space", |d| d.white_space),
+        true,
+        inherited.white_space,
+        ROOT_STYLE.white_space,
+        Some,
+    );
     let list_style_type = cascade_property(
         &matches,
         inline_decls.as_ref().and_then(|d| d.list_style_type),
         |d| d.list_style_type,
     )
     .unwrap_or(inherited.list_style_type);
-    let text_align = cascade_property(
-        &matches,
-        inline_decls.as_ref().and_then(|d| d.text_align),
-        |d| d.text_align,
-    )
-    .unwrap_or(inherited.text_align);
+    let text_align = apply_wide(
+        cascade_css(&matches, inl, "text-align", |d| d.text_align),
+        true,
+        inherited.text_align,
+        ROOT_STYLE.text_align,
+        Some,
+    );
     // Not inherited — no `inherited.vertical_align` to fall back to;
     // the initial value (`Baseline`, also `VerticalAlign::default()`)
     // applies to any element that doesn't declare it itself.
-    let vertical_align = cascade_property(
-        &matches,
-        inline_decls.as_ref().and_then(|d| d.vertical_align),
-        |d| d.vertical_align,
-    )
-    .unwrap_or_default();
-    let line_height = cascade_property(
-        &matches,
-        inline_decls.as_ref().and_then(|d| d.line_height),
-        |d| d.line_height,
-    )
-    .unwrap_or(inherited.line_height);
-    let visibility = cascade_property(
-        &matches,
-        inline_decls.as_ref().and_then(|d| d.visibility),
-        |d| d.visibility,
-    )
-    .unwrap_or(inherited.visibility);
+    let vertical_align = apply_wide(
+        cascade_css(&matches, inl, "vertical-align", |d| d.vertical_align),
+        false,
+        inherited.vertical_align,
+        VerticalAlign::Baseline,
+        Some,
+    );
+    let line_height = apply_wide(
+        cascade_css(&matches, inl, "line-height", |d| d.line_height),
+        true,
+        inherited.line_height,
+        ROOT_STYLE.line_height,
+        Some,
+    );
+    let visibility = apply_wide(
+        cascade_css(&matches, inl, "visibility", |d| d.visibility),
+        true,
+        inherited.visibility,
+        ROOT_STYLE.visibility,
+        Some,
+    );
     // Eagerly resolved to pixels, like `border_width`/`outline_width`
     // just below (real CSS grammar is a plain `<length>`, no `%`, so
     // there's no layout-time basis to defer this against the way
@@ -5184,8 +5394,13 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
     .unwrap_or_default();
     let overflow = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.overflow), |d| d.overflow)
         .unwrap_or_default();
-    let cursor = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.cursor), |d| d.cursor)
-        .unwrap_or(inherited.cursor);
+    let cursor = apply_wide(
+        cascade_css(&matches, inl, "cursor", |d| d.cursor),
+        true,
+        inherited.cursor,
+        ROOT_STYLE.cursor,
+        Some,
+    );
     let flex_direction = cascade_property(
         &matches,
         inline_decls.as_ref().and_then(|d| d.flex_direction),
@@ -19308,6 +19523,46 @@ mod tests {
         assert_eq!(children[0].y, children[1].y, "two equally-flexed items should share one row, not stack vertically — proves this actually flexed, not just became an inline-block");
         assert_eq!(children[0].w, 50.0, "flex: 1 on both items should split the 100px evenly");
         assert_eq!(children[1].x, children[0].x + children[0].w, "the second flex item should start exactly where the first ends");
+    }
+
+    #[test]
+    fn q7_css_wide_keywords_inherit_initial_unset_revert() {
+        // Resolves <div> then its <p> child.
+        let styles = |css: &str, html: &str| {
+            let doc = parse_html(html);
+            let rules = parse_stylesheet(css);
+            let div = find_element_by_tag(&doc, "div").expect("no <div>");
+            let p = find_element_by_tag(&doc, "p").expect("no <p>");
+            let ds = resolve_style(&div, &rules, ROOT_STYLE, 800.0);
+            resolve_style(&p, &rules, ds.inherited(), 800.0)
+        };
+        let red = TextColor::rgb(255, 0, 0);
+        let h = r#"<div><p>x</p></div>"#;
+        // inherit on a non-inherited property reads the parent's value
+        let s = styles("div{background-color:red;display:block} p{background-color:inherit;display:inherit}", h);
+        assert_eq!(s.background_color, Some(red));
+        assert_eq!(s.display, Display::Block);
+        // background shorthand
+        assert_eq!(styles("div{background:red} p{background:inherit}", h).background_color, Some(red));
+        // initial on an inherited property
+        assert_eq!(styles("div{color:red} p{color:initial}", h).color, ROOT_STYLE.color);
+        assert_eq!(styles("div{color:red} p{color:inherit}", h).color, red);
+        // unset: inherited prop inherits, non-inherited resets
+        assert_eq!(styles("div{color:red;background:red} p{color:unset;background:unset}", h).color, red);
+        assert_eq!(styles("div{color:red;background:red} p{color:unset;background:unset}", h).background_color, None);
+        // revert behaves as unset
+        assert_eq!(styles("div{color:red} p{color:revert}", h).color, red);
+        assert_eq!(styles("div{font-size:30px} p{font-size:initial}", h).font_size, 16.0);
+        assert_eq!(styles("div{font-size:30px} p{font-size:unset}", h).font_size, 30.0);
+        // keywords win the cascade at their own specificity
+        assert_eq!(styles("div{color:red} #a{color:blue} p{color:inherit}", r#"<div><p id="a">x</p></div>"#).color, TextColor::rgb(0, 0, 255));
+        assert_eq!(styles("div{color:red} p{color:blue} #a{color:inherit}", r#"<div><p id="a">x</p></div>"#).color, red);
+        // last declaration in the same rule wins, in either order
+        assert_eq!(styles("div{color:red} p{color:blue;color:inherit}", h).color, red);
+        assert_eq!(styles("div{color:red} p{color:inherit;color:blue}", h).color, TextColor::rgb(0, 0, 255));
+        // !important keyword and inline style
+        assert_eq!(styles("div{color:red} p{color:inherit !important}", r#"<div><p style="color:blue">x</p></div>"#).color, red);
+        assert_eq!(styles("div{color:red}", r#"<div><p style="color:initial">x</p></div>"#).color, ROOT_STYLE.color);
     }
 
     #[test]

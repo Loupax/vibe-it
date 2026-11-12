@@ -5718,3 +5718,12 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > scratchy/TODO.txt.
 
 **What changed:** `DeclParser` detects a trailing `!important` (`strip_important`) and routes the declaration into a second `Declarations` (`StyleRule.important`; inline `style` via `parse_declarations_split`). `matching_declarations` pushes each rule's important set with `IMPORTANT_TIER` (bit 31) OR-ed into its specificity; inline important is pushed last at `u32::MAX`. `cascade_property` now lets any important entry beat an inline normal declaration; within a tier specificity then source order decide. Custom properties stay in the normal set. Test: `q6_important_declarations_beat_specificity_and_inline_style`. `grim` worked: `#a{color:red} p{color:blue !important}` rendered the `<p id=a>` blue.
+
+---
+
+## Q7 — CSS-wide keywords (queue item)
+
+> Implement the first unchecked item (Q7) of the ranked QUEUE in
+> scratchy/TODO.txt.
+
+**What changed:** `DeclParser::apply` recognizes `inherit`/`initial`/`unset`/`revert`/`revert-layer` (optionally followed by `!important`) for color, background/background-color, display, font-size, line-height, vertical-align, font-family, font-weight, text-align, white-space, cursor and visibility, storing them in `Declarations::wide` (mutually exclusive with the typed field; last declaration in a rule wins). `cascade_css` lets a keyword compete at its own specificity/source order/important tier, and `apply_wide` resolves it (`revert` = `unset`; `unset` = inherit for inherited properties, initial otherwise). `InheritedStyle` gained the parent's `background_color`, `display` and `vertical_align` so `inherit` works on those non-inherited properties. Test: `q7_css_wide_keywords_inherit_initial_unset_revert`. `grim` worked: `<p style="color:inherit">` under a red div rendered red. Left out: keywords on other properties (margin, border, etc.) are still ignored; `background: inherit` only covers the colour, not the image.
