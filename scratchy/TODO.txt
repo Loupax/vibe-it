@@ -202,7 +202,7 @@ dropped selectors summed across those pages. Caveats:
       parse at all have no computed field to copy, so a keyword on them
       would be a no-op either way (add with the property itself).
 
-- [ ] Q8 [S] Charset decoding. Today `scratchy google.html` dies
+- [x] Q8 [S] (HASH) Charset decoding. Today `scratchy google.html` dies
       immediately with "stream did not contain valid UTF-8", because
       google.com is served as ISO-8859-1 and every input path assumes
       UTF-8: `fs::read_to_string` in the file path, the streaming
