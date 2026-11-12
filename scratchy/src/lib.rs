@@ -33,7 +33,7 @@ use selectors::context::{
     MatchingContext, MatchingForInvalidation, MatchingMode, NeedsSelectorFlags, QuirksMode,
     SelectorCaches,
 };
-use selectors::matching::{matches_selector_list, ElementSelectorFlags};
+use selectors::matching::{matches_selector, matches_selector_list, ElementSelectorFlags};
 use selectors::parser::{
     NonTSPseudoClass, ParseRelative, Parser as SelectorsParser, PseudoElement, SelectorImpl,
     SelectorList, SelectorParseErrorKind,
@@ -1585,6 +1585,37 @@ impl LineHeight {
     }
 }
 
+/// `content` value (Q19). `attr()`, `counter()`, `url()` and quote keywords
+/// are not supported and make the declaration invalid.
+#[derive(Clone, Debug, PartialEq)]
+enum ContentDecl {
+    /// `none` / `normal`: no generated box.
+    None,
+    /// One or more adjacent strings, concatenated.
+    Text(String),
+}
+
+/// Parses a `content` value: `none`, `normal`, or one or more strings.
+fn parse_content(input: &mut CssParser) -> Result<ContentDecl, ()> {
+    if input.try_parse(|i| i.expect_ident_matching("none")).is_ok()
+        || input.try_parse(|i| i.expect_ident_matching("normal")).is_ok()
+    {
+        return Ok(ContentDecl::None);
+    }
+    let mut text = String::new();
+    let mut any = false;
+    while let Ok(tok) = input.next() {
+        match tok {
+            Token::QuotedString(q) => {
+                text.push_str(q);
+                any = true;
+            }
+            _ => return Err(()),
+        }
+    }
+    if any { Ok(ContentDecl::Text(text)) } else { Err(()) }
+}
+
 #[derive(Clone, Default, PartialEq)]
 struct Declarations {
     /// `--name: <raw text>` custom-property declarations on this rule,
@@ -1633,6 +1664,9 @@ struct Declarations {
     left: Option<Length>,
     z_index: Option<i32>,
     opacity: Option<f32>,
+    /// `content` (Q19): only string content (and `none`/`normal`) parses.
+    /// Only read for `::before`/`::after`.
+    content: Option<ContentDecl>,
     width: Option<Length>,
     height: Option<Length>,
     min_width: Option<Length>,
@@ -4789,6 +4823,10 @@ impl DeclParser<'_> {
             if let Ok(z) = parse_z_index(input) {
                 self.decls.z_index = Some(z);
             }
+        } else if name.eq_ignore_ascii_case("content") {
+            if let Ok(c) = parse_content(input) {
+                self.decls.content = Some(c);
+            }
         } else if name.eq_ignore_ascii_case("opacity") {
             if let Ok(o) = parse_opacity(input) {
                 self.decls.opacity = Some(o);
@@ -6568,6 +6606,19 @@ const IMPORTANT_TIER: u32 = 1 << 31;
 /// `ComputedStyle` itself — see `resolve_background_image`'s own docs
 /// for why it's resolved separately at all.
 fn matching_declarations<'a>(handle: &Handle, rules: &'a [StyleRule], viewport_width: f32) -> Vec<(u32, &'a Declarations)> {
+    matching_declarations_for(handle, rules, viewport_width, None)
+}
+
+/// `matching_declarations`, optionally for a generated pseudo-element of
+/// `handle` (`Some("before")`/`Some("after")`, Q19): then only selectors
+/// carrying exactly that pseudo-element count, matched against the
+/// originating element in `ForStatelessPseudoElement` mode.
+fn matching_declarations_for<'a>(
+    handle: &Handle,
+    rules: &'a [StyleRule],
+    viewport_width: f32,
+    pseudo: Option<&str>,
+) -> Vec<(u32, &'a Declarations)> {
     let element = El(handle.clone());
     let mut caches = SelectorCaches::default();
     let mut matches: Vec<(u32, &Declarations)> = Vec::new();
@@ -6580,6 +6631,30 @@ fn matching_declarations<'a>(handle: &Handle, rules: &'a [StyleRule], viewport_w
         // selector match, same short-circuit order `collect_root_
         // custom_props` also uses.
         if !media_list_matches(&rule.media, viewport_width) {
+            continue;
+        }
+        if let Some(name) = pseudo {
+            let mut best: Option<u32> = None;
+            for sel in rule.selectors.slice() {
+                if !matches!(sel.pseudo_element(), Some(OurPseudoElement::Named(n)) if *n == name) {
+                    continue;
+                }
+                let mut ctx = MatchingContext::new(
+                    MatchingMode::ForStatelessPseudoElement,
+                    None,
+                    &mut caches,
+                    QuirksMode::NoQuirks,
+                    NeedsSelectorFlags::No,
+                    MatchingForInvalidation::No,
+                );
+                if matches_selector(sel, 0, None, &element, &mut ctx) {
+                    best = best.max(Some(sel.specificity()));
+                }
+            }
+            if let Some(specificity) = best {
+                matches.push((specificity, &rule.decls));
+                matches.push((specificity | IMPORTANT_TIER, &rule.important));
+            }
             continue;
         }
         let mut ctx = MatchingContext::new(
@@ -6715,11 +6790,24 @@ fn merge_var_matches<'a>(
 }
 
 fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle, viewport_width: f32) -> ComputedStyle {
-    let base_matches = matching_declarations(handle, rules, viewport_width);
+    resolve_style_for(handle, rules, inherited, viewport_width, None)
+}
+
+/// `resolve_style`, optionally for the `::before`/`::after` pseudo-element
+/// of `handle` (Q19): matches only that pseudo's rules and ignores the
+/// element's inline `style`.
+fn resolve_style_for(
+    handle: &Handle,
+    rules: &[StyleRule],
+    inherited: InheritedStyle,
+    viewport_width: f32,
+    pseudo: Option<&str>,
+) -> ComputedStyle {
+    let base_matches = matching_declarations_for(handle, rules, viewport_width, pseudo);
     // Q13: re-parse each matched rule's `var()`-bearing declarations with
     // this element's custom properties substituted, slotting the result
     // in right after the rule's own entries (so source order still breaks ties).
-    let inline_src = element_attr(handle, "style");
+    let inline_src = if pseudo.is_some() { None } else { element_attr(handle, "style") };
     let mut inline_split = inline_src.as_ref().map(|s| parse_declarations_split(s));
     let rule_has_vars = base_matches.iter().any(|(_, d)| !d.var_decls.is_empty());
     let inline_has_vars = inline_split.as_ref().is_some_and(|(n, i)| !n.var_decls.is_empty() || !i.var_decls.is_empty());
@@ -8179,6 +8267,105 @@ fn discard_if_collapsible_whitespace_only(pending: &mut Vec<InlineItem>) {
 }
 
 fn collect_children(
+    handle: &Handle,
+    rules: &[StyleRule],
+    inherited: InheritedStyle,
+    bg: Option<TextColor>,
+    decoration: DecorationValue,
+    href: Option<&'static str>,
+    valign: VerticalAlign,
+    pending: &mut Vec<InlineItem>,
+    result: &mut Vec<LayoutBox>,
+    viewport_width: f32,
+    image_cache: &HashMap<String, Arc<DecodedImage>>,
+) {
+    let gen_before = generated_content(handle, rules, inherited, "before", viewport_width);
+    if let Some(g) = gen_before {
+        push_generated(g, inherited, bg, decoration, href, valign, pending, result);
+    }
+    collect_real_children(
+        handle, rules, inherited, bg, decoration, href, valign, pending, result, viewport_width, image_cache,
+    );
+    let gen_after = generated_content(handle, rules, inherited, "after", viewport_width);
+    if let Some(g) = gen_after {
+        push_generated(g, inherited, bg, decoration, href, valign, pending, result);
+    }
+}
+
+/// The `::before`/`::after` box of `handle` (Q19): its resolved style and
+/// its string content, or `None` when no rule gives it a string `content`
+/// (none/normal/unsupported), or it computes to `display: none`.
+fn generated_content(
+    handle: &Handle,
+    rules: &[StyleRule],
+    inherited: InheritedStyle,
+    which: &str,
+    viewport_width: f32,
+) -> Option<(ComputedStyle, String)> {
+    if !matches!(handle.data, NodeData::Element { .. }) {
+        return None;
+    }
+    let matches = matching_declarations_for(handle, rules, viewport_width, Some(which));
+    if matches.is_empty() {
+        return None;
+    }
+    let text = match cascade_css(&matches, None, "content", |d| d.content.clone()) {
+        Cascaded::Value(ContentDecl::Text(t)) => t,
+        _ => return None,
+    };
+    let style = resolve_style_for(handle, rules, inherited, viewport_width, Some(which));
+    if style.display == Display::None {
+        return None;
+    }
+    Some((style, text))
+}
+
+/// Inserts a generated box into the in-progress inline run (inline
+/// display) or as its own block / inline-block box.
+fn push_generated(
+    (mut style, text): (ComputedStyle, String),
+    inherited: InheritedStyle,
+    bg: Option<TextColor>,
+    decoration: DecorationValue,
+    href: Option<&'static str>,
+    valign: VerticalAlign,
+    pending: &mut Vec<InlineItem>,
+    result: &mut Vec<LayoutBox>,
+) {
+    let mut span: SpanStyle = style.inherited().into();
+    span.background_color = style.background_color.or(bg);
+    let deco = resolve_own_decoration(&style, decoration);
+    span.text_decoration = deco.deco;
+    span.decoration_style = deco.style;
+    span.vertical_align = if style.vertical_align == VerticalAlign::Baseline { valign } else { style.vertical_align };
+    span.href = href;
+    let items = if text.is_empty() { Vec::new() } else { vec![InlineItem::Text(text.clone(), span)] };
+    match style.display {
+        Display::Block | Display::Table | Display::Flex | Display::Grid => {
+            style.display = Display::Block;
+            discard_if_collapsible_whitespace_only(pending);
+            if !pending.is_empty() {
+                result.push(LayoutBox {
+                    style: anonymous_style(inherited),
+                    background_image: None,
+                    content: BoxContent::Inline(std::mem::take(pending)),
+                });
+            }
+            result.push(LayoutBox { style, background_image: None, content: BoxContent::Inline(items) });
+        }
+        Display::InlineBlock | Display::InlineFlex => {
+            style.display = Display::InlineBlock;
+            pending.push(InlineItem::Embedded(Box::new(LayoutBox {
+                style,
+                background_image: None,
+                content: BoxContent::Inline(items),
+            })));
+        }
+        _ => pending.extend(items),
+    }
+}
+
+fn collect_real_children(
     handle: &Handle,
     rules: &[StyleRule],
     inherited: InheritedStyle,
@@ -17306,6 +17493,59 @@ mod tests {
         find_all_span_colors(&tree, &mut colors);
         assert!(colors.contains(&TextColor::rgb(0, 0, 0xff)), "`a` keeps its blue: {colors:?}");
         assert!(!colors.contains(&TextColor::rgb(0xff, 0, 0)), "p::before must not color p: {colors:?}");
+    }
+
+    fn q19_texts(b: &LayoutBox, out: &mut Vec<(String, TextColor)>) {
+        match &b.content {
+            BoxContent::Inline(items) => {
+                for item in items {
+                    match item {
+                        InlineItem::Text(t, s) => out.push((t.clone(), s.color)),
+                        InlineItem::Embedded(e) => q19_texts(e, out),
+                        _ => {}
+                    }
+                }
+            }
+            BoxContent::Blocks(children) => {
+                for c in children {
+                    q19_texts(c, out);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    #[test]
+    fn q19_before_after_generate_string_content() {
+        let doc = parse_html(
+            r#"<html><head><style>
+            q::before { content: "<<"; color: #ff0000; }
+            q::after { content: ">>" "!"; }
+            q { color: #0000ff; }
+            p::before { content: none; }
+            p:nth-child(2)::after { content: "FIRST"; }
+            .b::before { content: ""; display: block; width: 33px; height: 7px; }
+            </style></head><body><q>mid</q><p>a</p><p>b</p><div class="b">x</div></body></html>"#,
+        );
+        let tree = build_layout_tree(&doc, 1920.0);
+        let mut texts = Vec::new();
+        q19_texts(&tree, &mut texts);
+        let pos = |t: &str| texts.iter().position(|(x, _)| x == t).unwrap_or_else(|| panic!("{t} missing: {texts:?}"));
+        let (b, m, a) = (pos("<<"), pos("mid "), pos(">>!"));
+        assert!(b < m && m < a, "order before, content, after: {texts:?}");
+        assert_eq!(texts[b].1, TextColor::rgb(0xff, 0, 0), "pseudo's own color");
+        assert_eq!(texts[a].1, TextColor::rgb(0, 0, 0xff), "inherits from the element");
+        assert!(texts.iter().any(|(t, _)| t == "FIRST"), "{texts:?}");
+        assert_eq!(texts.iter().filter(|(t, _)| t == "FIRST").count(), 1, "only the first p");
+        let laid = measure_document_fixture(
+            r#"<html><head><style>.b::before { content: ''; display: block; width: 33px; height: 7px; }</style></head><body><div class="b">x</div></body></html>"#,
+            800.0,
+            600.0,
+        );
+        assert_eq!(find_by_width(&laid, 33.0).expect("generated block").h, 7.0);
+        assert_eq!(parse_declarations("content: attr(x)").content, None);
+        assert_eq!(parse_declarations("content: normal").content, Some(ContentDecl::None));
+        assert_eq!(parse_declarations("content: 'a' \"b\"").content, Some(ContentDecl::Text("ab".into())));
     }
 
     // ---------- v45: CSS custom properties (`:root`/`html`-scoped) + `var()` ----------
