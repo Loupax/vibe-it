@@ -193,7 +193,7 @@ dropped selectors summed across those pages. Caveats:
       word-spacing) and `background: inherit` for `background-image`.
       Q7 scoped to the 12 listed properties.
 
-- [x] Q7c [S] (HASH) CSS-wide keywords for `text-decoration`/`-line`/`-style`/
+- [x] Q7c [S] (042f538) CSS-wide keywords for `text-decoration`/`-line`/`-style`/
       `-color` (`inherit` copies the parent's own cascaded value;
       `initial`/`unset`/`revert` mean "not declared", ambient propagation
       unchanged), logical shorthands (`inset*`, `border-block/inline*`
