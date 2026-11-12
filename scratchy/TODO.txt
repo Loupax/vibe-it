@@ -348,7 +348,7 @@ dropped selectors summed across those pages. Caveats:
       Detail: the `[ ]` items under "`grid-template-areas` +
       `grid-area`".
 
-- [x] Q16 [M] (HASH) Background longhands: `background-position` (n=30),
+- [x] Q16 [M] (93209c2) Background longhands: `background-position` (n=30),
       `-size` (15) and `-repeat` (13). Support `cover`, `contain`,
       explicit sizes, keyword and length/% positions, `no-repeat`,
       `repeat-x` and `repeat-y`. Make `parse_background_shorthand` fill
@@ -1651,7 +1651,7 @@ session can pick a coherent slice rather than one property at a time.
       toward its width for alignment purposes, unlike a real UA which
       hangs trailing whitespace past the edge.
 
-- [x] (HASH) `background-image` (v47) only decodes a `data:` URI `url(...)` —
+- [x] (93209c2) `background-image` (v47) only decodes a `data:` URI `url(...)` —
       same policy as `<img src>` (see `decode_data_uri`'s own docs and
       the `<img>` item above) — and only the unqualified default
       rendering: tiled at the image's own intrinsic size
@@ -1665,7 +1665,7 @@ session can pick a coherent slice rather than one property at a time.
       `cover`/`no-repeat`/positioning to look right, rather than
       guessing at scope now.
 
-      Q16 (HASH) DONE: `background-position`/`-size`/`-repeat` and the
+      Q16 (93209c2) DONE: `background-position`/`-size`/`-repeat` and the
       shorthand's position/size/repeat parts now work, and the image
       is clipped to `border-radius`. Still open: comma-separated
       multiple layers (only the first layer is used), gradients,
