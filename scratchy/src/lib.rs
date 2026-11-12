@@ -3171,41 +3171,58 @@ fn parse_grid_area_name(input: &mut CssParser) -> Result<&'static str, ()> {
 fn css_debug_enabled() -> bool {
     static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ENABLED.get_or_init(|| std::env::var_os("SCRATCHY_CSS_DEBUG").is_some())
+        || CSS_DEBUG_CAPTURE.with(|c| c.borrow().is_some())
+}
+
+thread_local! {
+    /// Test hook: when `Some`, `css_debug_report` collects lines here
+    /// (and `css_debug_enabled` reports true) instead of using stderr.
+    static CSS_DEBUG_CAPTURE: std::cell::RefCell<Option<Vec<String>>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Single sink for every `SCRATCHY_CSS_DEBUG` line.
+fn css_debug_report(line: String) {
+    let captured = CSS_DEBUG_CAPTURE.with(|c| {
+        if let Some(v) = c.borrow_mut().as_mut() {
+            v.push(line.clone());
+            true
+        } else {
+            false
+        }
+    });
+    if !captured {
+        eprintln!("{line}");
+    }
+}
+
+/// Reports a rule the stylesheet parser rejected: a dropped at-rule
+/// (`@name`) or a qualified rule whose selector failed to parse.
+fn css_debug_report_dropped_rule(slice: &str) {
+    if !css_debug_enabled() {
+        return;
+    }
+    let slice = slice.trim();
+    if let Some(rest) = slice.strip_prefix('@') {
+        let name: String = rest
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+            .collect();
+        css_debug_report(format!("scratchy: css: dropped @{name}"));
+    } else {
+        let sel = slice.split('{').next().unwrap_or(slice).trim();
+        css_debug_report(format!("scratchy: css: dropped selector `{sel}`"));
+    }
 }
 
 struct DeclParser<'a> {
     decls: &'a mut Declarations,
 }
 
-impl<'i> DeclarationParser<'i> for DeclParser<'_> {
-    type Declaration = ();
-    type Error = CssError;
-
-    fn parse_value(
-        &mut self,
-        name: CowRcStr<'i>,
-        input: &mut CssParser<'i>,
-        _declaration_start: &ParserState,
-    ) -> Result<Self::Declaration, ParseError<Self::Error>> {
-        // `SCRATCHY_CSS_DEBUG`'s own before/after snapshot (see `css_
-        // debug_enabled`'s own docs) — captured *before* any of the
-        // branches below touch `input`, then rewound, so the branch that
-        // actually matches `name` (if any) still sees the exact same
-        // untouched `input` it always has; this adds a read, never a
-        // behavior change. Skipped entirely when the flag is off, so
-        // the already-acknowledged "reparse the whole stylesheet every
-        // redraw" cost (see `NOTES.md`) never grows for the common case.
-        let debug = css_debug_enabled();
-        let (raw_value, before) = if debug {
-            let value_start = input.state();
-            while input.next().is_ok() {}
-            let raw = input.slice_from(value_start.position()).trim().to_string();
-            input.reset(&value_start);
-            (raw, Some(self.decls.clone()))
-        } else {
-            (String::new(), None)
-        };
-
+impl DeclParser<'_> {
+    /// The per-property dispatch, split out of `parse_value` so the
+    /// debug path can re-run it against a scratch `Declarations`.
+    fn apply<'i>(&mut self, name: &str, input: &mut CssParser<'i>) {
         if name.starts_with("--") {
             // Custom property: grammar is "anything", so there's no typed
             // value to parse — just capture the raw source text of the
@@ -3796,16 +3813,53 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
                 }
             }
         }
-        // `self.decls` unchanged from `before` means this declaration —
-        // whether `name` matched no branch above at all, or matched one
-        // whose own inner parse rejected `raw_value`'s particular shape
-        // — had no effect, the exact "silently drop the whole
-        // declaration" outcome this file's own `TODO.txt` documents
-        // throughout. Reported once per occurrence, not deduplicated —
-        // see `css_debug_enabled`'s own docs for why.
-        if let Some(before) = before {
+    }
+}
+
+impl<'i> DeclarationParser<'i> for DeclParser<'_> {
+    type Declaration = ();
+    type Error = CssError;
+
+    fn parse_value(
+        &mut self,
+        name: CowRcStr<'i>,
+        input: &mut CssParser<'i>,
+        _declaration_start: &ParserState,
+    ) -> Result<Self::Declaration, ParseError<Self::Error>> {
+        // `SCRATCHY_CSS_DEBUG`'s own before/after snapshot (see `css_
+        // debug_enabled`'s own docs) — captured *before* any of the
+        // branches below touch `input`, then rewound, so the branch that
+        // actually matches `name` (if any) still sees the exact same
+        // untouched `input` it always has; this adds a read, never a
+        // behavior change. Skipped entirely when the flag is off, so
+        // the already-acknowledged "reparse the whole stylesheet every
+        // redraw" cost (see `NOTES.md`) never grows for the common case.
+        let debug = css_debug_enabled();
+        let (raw_value, before, value_start) = if debug {
+            let value_start = input.state();
+            while input.next().is_ok() {}
+            let raw = input.slice_from(value_start.position()).trim().to_string();
+            input.reset(&value_start);
+            (raw, Some(self.decls.clone()), Some(value_start))
+        } else {
+            (String::new(), None, None)
+        };
+
+        self.apply(&name, input);
+        if let (Some(before), Some(value_start)) = (before, value_start) {
             if *self.decls == before {
-                eprintln!("scratchy: css: ignored `{name}: {raw_value}`");
+                // Unchanged: either no branch accepted the value, or a
+                // branch accepted it and it equalled what the rule
+                // already had (Wikipedia writes every colour twice).
+                // Re-apply onto a blank `Declarations` to tell them
+                // apart: a branch that returned `Ok` sets something
+                // there, since every field defaults to unset.
+                input.reset(&value_start);
+                let mut scratch = Declarations::default();
+                DeclParser { decls: &mut scratch }.apply(&name, input);
+                if scratch == Declarations::default() {
+                    css_debug_report(format!("scratchy: css: ignored `{name}: {raw_value}`"));
+                }
             }
         }
         Ok(())
@@ -3888,7 +3942,14 @@ impl<'i> AtRuleParser<'i> for TopLevelParser {
         let mut nested = TopLevelParser;
         let mut rules = Vec::new();
         let iter = StyleSheetParser::new(input, &mut nested);
-        for inner_rules in iter.flatten() {
+        for result in iter {
+            let inner_rules = match result {
+                Ok(r) => r,
+                Err((_, slice, _)) => {
+                    css_debug_report_dropped_rule(slice);
+                    continue;
+                }
+            };
             for mut rule in inner_rules {
                 // A rule nested directly inside this `@media` block
                 // inherits this block's own condition. A rule that's
@@ -3951,8 +4012,9 @@ fn parse_stylesheet(css: &str) -> Vec<StyleRule> {
     let mut rules = Vec::new();
     let mut stylesheet = StyleSheetParser::new(&mut input, &mut top);
     while let Some(result) = stylesheet.next() {
-        if let Ok(rule_list) = result {
-            rules.extend(rule_list);
+        match result {
+            Ok(rule_list) => rules.extend(rule_list),
+            Err((_, slice, _)) => css_debug_report_dropped_rule(slice),
         }
     }
     rules
@@ -18534,6 +18596,23 @@ mod tests {
             rules[0].decls.grid_area.is_none(),
             "the unsupported numeric grid-area form should leave the field unset, not guess at a value"
         );
+    }
+
+    /// Q1: duplicate-valued declarations stay silent; dropped selectors
+    /// and at-rules are reported.
+    #[test]
+    fn css_debug_distinguishes_duplicates_dropped_selectors_and_at_rules() {
+        CSS_DEBUG_CAPTURE.with(|c| *c.borrow_mut() = Some(Vec::new()));
+        parse_stylesheet(
+            "p { color: red; color: red; frobnicate: 3; }\
+             p::before { color: blue; }\
+             @supports (display: grid) { p { color: green; } }",
+        );
+        let lines = CSS_DEBUG_CAPTURE.with(|c| c.borrow_mut().take().unwrap());
+        assert!(lines.iter().any(|l| l == "scratchy: css: ignored `frobnicate: 3`"), "{lines:?}");
+        assert!(!lines.iter().any(|l| l.contains("ignored `color")), "{lines:?}");
+        assert!(lines.iter().any(|l| l == "scratchy: css: dropped selector `p::before`"), "{lines:?}");
+        assert!(lines.iter().any(|l| l == "scratchy: css: dropped @supports"), "{lines:?}");
     }
 
     // ---------- `display: flow-root` ----------

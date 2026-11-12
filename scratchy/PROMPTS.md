@@ -5577,3 +5577,22 @@ by function names, two misleading "TOP PRIORITY" labels on items that
 are done or blocked were removed, and the open flex "automatic minimum
 size" item is now narrowed to the column axis, since the row axis landed
 in `500bd16`.
+
+---
+
+## Q1 — `SCRATCHY_CSS_DEBUG` tells failures apart (queue item)
+
+> Implement the first unchecked item (Q1) of the ranked QUEUE in
+> scratchy/TODO.txt.
+
+**What changed:** `DeclParser::parse_value`'s per-property dispatch moved
+into `DeclParser::apply`. When a declaration leaves `Declarations`
+unchanged, it is re-applied to a blank `Declarations`. It is reported as
+`ignored` only if that also sets nothing, so duplicate-valued
+declarations stay silent. Selectors that fail to parse are reported as
+`dropped selector `<text>``, and dropped at-rules as `dropped @<name>`
+(from the `StyleSheetParser` errors in `parse_stylesheet` and the nested
+`@media` loop). All lines go through `css_debug_report`, which a test can
+capture via a thread-local. Test:
+`css_debug_distinguishes_duplicates_dropped_selectors_and_at_rules`.
+No grim screenshot: output-only diagnostic on stderr.
