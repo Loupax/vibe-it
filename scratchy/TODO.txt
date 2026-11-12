@@ -193,11 +193,14 @@ dropped selectors summed across those pages. Caveats:
       word-spacing) and `background: inherit` for `background-image`.
       Q7 scoped to the 12 listed properties.
 
-- [ ] Q7c [S] CSS-wide keywords for `text-decoration`/`-line`/`-style`/
-      `-color` (ambient propagation makes `inherit` ambiguous), logical
-      shorthands beyond margin/padding (`inset-*`, `border-*-block`), and
+- [x] Q7c [S] (042f538) CSS-wide keywords for `text-decoration`/`-line`/`-style`/
+      `-color` (`inherit` copies the parent's own cascaded value;
+      `initial`/`unset`/`revert` mean "not declared", ambient propagation
+      unchanged), logical shorthands (`inset*`, `border-block/inline*`
+      incl. -start/-end and -width/-style/-color). Not done, on purpose:
       `font-variant`/`letter-spacing`-style properties scratchy doesn't
-      parse at all.
+      parse at all have no computed field to copy, so a keyword on them
+      would be a no-op either way (add with the property itself).
 
 - [ ] Q8 [S] Charset decoding. Today `scratchy google.html` dies
       immediately with "stream did not contain valid UTF-8", because

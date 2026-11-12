@@ -3538,6 +3538,10 @@ impl Declarations {
             "grid-template-areas" => grid_template_areas, "grid-area" => grid_area,
             "font-style" => font_style, "list-style-type" => list_style_type,
             "word-spacing" => word_spacing,
+            "text-decoration" => text_decoration,
+            "text-decoration-line" => text_decoration_line,
+            "text-decoration-style" => text_decoration_style,
+            "text-decoration-color" => text_decoration_color,
         }
     }
 
@@ -4983,6 +4987,11 @@ fn border_key(key: &str) -> Option<(usize, char)> {
     }
 }
 
+/// Canonical keys of the text-decoration shorthand and its longhands.
+static TEXT_DECO_KEYS: [&str; 4] = [
+    "text-decoration", "text-decoration-line", "text-decoration-style", "text-decoration-color",
+];
+
 /// Canonical `Declarations::wide` keys a property name (longhand or
 /// shorthand) expands to. `None` for a property that doesn't support
 /// CSS-wide keywords (`background` maps to colour + image).
@@ -5042,6 +5051,47 @@ fn wide_keys(name: &str) -> Option<&'static [&'static str]> {
         "flex" => &["flex-grow", "flex-shrink", "flex-basis"],
         "gap" => &["row-gap", "column-gap"],
         "list-style" => &["list-style-type"],
+        "text-decoration" => &TEXT_DECO_KEYS,
+        "text-decoration-line" => &TEXT_DECO_KEYS[1..2],
+        "text-decoration-style" => &TEXT_DECO_KEYS[2..3],
+        "text-decoration-color" => &TEXT_DECO_KEYS[3..4],
+        "inset" => &["top", "right", "bottom", "left"],
+        "inset-block" => &["top", "bottom"],
+        "inset-inline" => &["left", "right"],
+        "inset-block-start" => &["top"],
+        "inset-block-end" => &["bottom"],
+        "inset-inline-start" => &["left"],
+        "inset-inline-end" => &["right"],
+        "border-block" => &[
+            "border-top-width", "border-bottom-width", "border-top-style",
+            "border-bottom-style", "border-top-color", "border-bottom-color",
+        ],
+        "border-inline" => &[
+            "border-left-width", "border-right-width", "border-left-style",
+            "border-right-style", "border-left-color", "border-right-color",
+        ],
+        "border-block-width" => &["border-top-width", "border-bottom-width"],
+        "border-block-style" => &["border-top-style", "border-bottom-style"],
+        "border-block-color" => &["border-top-color", "border-bottom-color"],
+        "border-inline-width" => &["border-left-width", "border-right-width"],
+        "border-inline-style" => &["border-left-style", "border-right-style"],
+        "border-inline-color" => &["border-left-color", "border-right-color"],
+        "border-block-start" => &["border-top-width", "border-top-style", "border-top-color"],
+        "border-block-end" => &["border-bottom-width", "border-bottom-style", "border-bottom-color"],
+        "border-inline-start" => &["border-left-width", "border-left-style", "border-left-color"],
+        "border-inline-end" => &["border-right-width", "border-right-style", "border-right-color"],
+        "border-block-start-width" => &["border-top-width"],
+        "border-block-start-style" => &["border-top-style"],
+        "border-block-start-color" => &["border-top-color"],
+        "border-block-end-width" => &["border-bottom-width"],
+        "border-block-end-style" => &["border-bottom-style"],
+        "border-block-end-color" => &["border-bottom-color"],
+        "border-inline-start-width" => &["border-left-width"],
+        "border-inline-start-style" => &["border-left-style"],
+        "border-inline-start-color" => &["border-left-color"],
+        "border-inline-end-width" => &["border-right-width"],
+        "border-inline-end-style" => &["border-right-style"],
+        "border-inline-end-color" => &["border-right-color"],
         _ => return None,
     })
 }
@@ -5502,27 +5552,31 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         ROOT_STYLE.font_family,
         Some,
     );
-    let text_decoration = cascade_property(
-        &matches,
-        inline_decls.as_ref().and_then(|d| d.text_decoration),
-        |d| d.text_decoration,
-    );
-    let text_decoration_line = cascade_property(
-        &matches,
-        inline_decls.as_ref().and_then(|d| d.text_decoration_line),
-        |d| d.text_decoration_line,
-    );
-    let text_decoration_style = cascade_property(
-        &matches,
-        inline_decls.as_ref().and_then(|d| d.text_decoration_style),
-        |d| d.text_decoration_style,
-    );
-    let text_decoration_color = cascade_property(
-        &matches,
-        inline_decls.as_ref().and_then(|d| d.text_decoration_color),
-        |d| d.text_decoration_color,
-    )
-    .and_then(|c| to_text_color(&c));
+    // Text-decoration properties aren't inherited, so `inherit` copies
+    // the parent's own (cascaded) value, while `initial`/`unset`/
+    // `revert` mean "not declared here" (the ambient decoration an
+    // ancestor already draws is unaffected, as in real CSS).
+    let deco_parent = inherited.parent.as_ref();
+    let text_decoration = match cascade_css(&matches, inl, "text-decoration", |d| d.text_decoration) {
+        Cascaded::Value(v) => Some(v),
+        Cascaded::Wide(CssWide::Inherit) => deco_parent.and_then(|p| p.text_decoration),
+        _ => None,
+    };
+    let text_decoration_line = match cascade_css(&matches, inl, "text-decoration-line", |d| d.text_decoration_line) {
+        Cascaded::Value(v) => Some(v),
+        Cascaded::Wide(CssWide::Inherit) => deco_parent.and_then(|p| p.text_decoration_line),
+        _ => None,
+    };
+    let text_decoration_style = match cascade_css(&matches, inl, "text-decoration-style", |d| d.text_decoration_style) {
+        Cascaded::Value(v) => Some(v),
+        Cascaded::Wide(CssWide::Inherit) => deco_parent.and_then(|p| p.text_decoration_style),
+        _ => None,
+    };
+    let text_decoration_color = match cascade_css(&matches, inl, "text-decoration-color", |d| d.text_decoration_color) {
+        Cascaded::Value(c) => to_text_color(&c),
+        Cascaded::Wide(CssWide::Inherit) => deco_parent.and_then(|p| p.text_decoration_color),
+        _ => None,
+    };
     let white_space = apply_wide(
         cascade_css(&matches, inl, "white-space", |d| d.white_space),
         true,
@@ -19794,6 +19848,48 @@ mod tests {
         // !important keyword and inline style
         assert_eq!(styles("div{color:red} p{color:inherit !important}", r#"<div><p style="color:blue">x</p></div>"#).color, red);
         assert_eq!(styles("div{color:red}", r#"<div><p style="color:initial">x</p></div>"#).color, ROOT_STYLE.color);
+    }
+
+    #[test]
+    fn q7c_css_wide_keywords_text_decoration_and_logical_shorthands() {
+        let styles = |css: &str, html: &str| {
+            let doc = parse_html(html);
+            let rules = parse_stylesheet(css);
+            let div = find_element_by_tag(&doc, "div").expect("no <div>");
+            let p = find_element_by_tag(&doc, "p").expect("no <p>");
+            let ds = resolve_style(&div, &rules, ROOT_STYLE, 800.0);
+            resolve_style(&p, &rules, ds.inherited(), 800.0)
+        };
+        let h = r#"<div><p>x</p></div>"#;
+        // text-decoration-line: inherit takes the parent's own value
+        let s = styles("div{text-decoration-line:underline} p{text-decoration-line:inherit}", h);
+        assert!(s.text_decoration_line.is_some_and(|l| l.underline));
+        // initial / unset leave it undeclared
+        let s = styles("div{text-decoration-line:underline} p{text-decoration-line:underline;text-decoration-line:initial}", h);
+        assert!(s.text_decoration_line.is_none());
+        let s = styles("p{text-decoration-line:underline;text-decoration-line:unset}", h);
+        assert!(s.text_decoration_line.is_none());
+        // shorthand keyword covers the longhands too
+        let s = styles("div{text-decoration:underline dashed red} p{text-decoration:inherit}", h);
+        assert!(s.text_decoration.is_some());
+        let s = styles("div{text-decoration-color:red} p{text-decoration-color:inherit}", h);
+        assert!(s.text_decoration_color.is_some());
+        let s = styles("div{text-decoration-style:dashed} p{text-decoration-style:inherit}", h);
+        assert!(s.text_decoration_style.is_some());
+        // later normal declaration beats an earlier keyword
+        let s = styles("div{text-decoration-style:dashed} p{text-decoration-style:inherit;text-decoration-style:dotted}", h);
+        assert!(s.text_decoration_style == Some(DecorationStyle::Dotted));
+        // logical border shorthands
+        let s = styles("div{border:3px solid red} p{border-block:inherit}", h);
+        assert_eq!(s.border_width, [3.0, 0.0, 3.0, 0.0]);
+        let s = styles("div{border:3px solid red} p{border-inline-start-width:inherit}", h);
+        assert_eq!(s.border_width, [0.0, 0.0, 0.0, 3.0]);
+        // inset-*
+        let s = styles("div{top:5px;left:6px} p{position:relative;inset:inherit}", h);
+        assert!(matches!(s.inset.top, Some(BoxLength::Px(v)) if v == 5.0));
+        assert!(matches!(s.inset.left, Some(BoxLength::Px(v)) if v == 6.0));
+        let s = styles("div{top:5px} p{position:relative;top:5px;inset-block-start:initial}", h);
+        assert!(s.inset.top.is_none());
     }
 
     #[test]
