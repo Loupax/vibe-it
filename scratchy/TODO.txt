@@ -406,9 +406,15 @@ dropped selectors summed across those pages. Caveats:
       style and string `content` (`none` removes it). `li::before` already
       coexists with the marker (it is generated after the marker prefix).
       Left out: `attr()`/counter content in `::marker`, marker on non-`li`.
-- [ ] Q19d [S] `content: url(...)`: an image as generated content (fetch
+- [x] Q19d [S] (c1507db) `content: url(...)`: an image as generated content (fetch
       via the same path as `<img>`; needs the image cache keyed at
       precompute time).
+      DONE (c1507db): a lone `url()` parses to `ContentDecl::Image`;
+      `generated_content` decodes a `data:` URI or looks the raw text up
+      in `image_cache`; `push_generated_image` emits an inline image item
+      or a block image box. Left out: url() mixed with strings,
+      `process_external_resources` does not yet collect CSS `content`
+      urls for fetching (only data: URIs and already-cached keys render).
 - [ ] Q19e [M] `::first-letter` and `::first-line`: split the first text
       run and style the leading letter / first laid-out line.
 - [ ] Q19f [S] Counter polish: implicit `list-item` counter, no counting

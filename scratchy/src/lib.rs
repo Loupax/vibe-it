@@ -1618,6 +1618,10 @@ enum ContentDecl {
     None,
     /// One or more adjacent strings, concatenated.
     Text(String),
+    /// A lone `url(...)` (Q19d): an image as generated content. The raw
+    /// argument; decoded in `generated_content` (a `data:` URI, or an
+    /// already-fetched `image_cache` entry keyed by the raw text).
+    Image(String),
     /// A list containing at least one dynamic part (`attr()`,
     /// `counter()`, `counters()`, a quote keyword). Evaluated in document
     /// order by `precompute_generated`.
@@ -1645,6 +1649,9 @@ fn parse_content(input: &mut CssParser) -> Result<ContentDecl, ()> {
         return Ok(ContentDecl::None);
     }
     let mut parts: Vec<ContentPart> = Vec::new();
+    if let Ok(url) = input.try_parse(|i| i.expect_url().map(|u| u.to_string())) {
+        return if input.is_exhausted() { Ok(ContentDecl::Image(url)) } else { Err(()) };
+    }
     while let Ok(tok) = input.next() {
         match tok.clone() {
             Token::QuotedString(q) => parts.push(ContentPart::Str(q.to_string())),
@@ -8254,7 +8261,7 @@ fn build_flex_children(
     };
     // `::before` / `::after` are real (blockified) flex items (Q19b).
     let push_pseudo = |which: &str, result: &mut Vec<LayoutBox>| {
-        if let Some((mut st, text)) = generated_content(handle, rules, inherited, which, viewport_width) {
+        if let Some((mut st, text)) = generated_content(handle, rules, inherited, which, viewport_width, image_cache) {
             st.display = Display::Block;
             let mut none = Vec::new();
             push_generated((st, text), inherited, None, decoration, href, VerticalAlign::default(), &mut none, result);
@@ -8558,14 +8565,14 @@ fn collect_children(
     viewport_width: f32,
     image_cache: &HashMap<String, Arc<DecodedImage>>,
 ) {
-    let gen_before = generated_content(handle, rules, inherited, "before", viewport_width);
+    let gen_before = generated_content(handle, rules, inherited, "before", viewport_width, image_cache);
     if let Some(g) = gen_before {
         push_generated(g, inherited, bg, decoration, href, valign, pending, result);
     }
     collect_real_children(
         handle, rules, inherited, bg, decoration, href, valign, pending, result, viewport_width, image_cache,
     );
-    let gen_after = generated_content(handle, rules, inherited, "after", viewport_width);
+    let gen_after = generated_content(handle, rules, inherited, "after", viewport_width, image_cache);
     if let Some(g) = gen_after {
         push_generated(g, inherited, bg, decoration, href, valign, pending, result);
     }
@@ -8580,7 +8587,8 @@ fn generated_content(
     inherited: InheritedStyle,
     which: &str,
     viewport_width: f32,
-) -> Option<(ComputedStyle, String)> {
+    image_cache: &HashMap<String, Arc<DecodedImage>>,
+) -> Option<(ComputedStyle, GenContent)> {
     if !matches!(handle.data, NodeData::Element { .. }) {
         return None;
     }
@@ -8588,23 +8596,40 @@ fn generated_content(
     if matches.is_empty() {
         return None;
     }
-    let text = match cascade_css(&matches, None, "content", |d| d.content.clone()) {
-        Cascaded::Value(ContentDecl::Text(t)) => t,
-        Cascaded::Value(ContentDecl::Parts(_)) => GENERATED_TEXT
-            .with(|g| g.borrow().get(&(Rc::as_ptr(handle) as usize, which == "after")).cloned())?,
+    let content = match cascade_css(&matches, None, "content", |d| d.content.clone()) {
+        Cascaded::Value(ContentDecl::Text(t)) => GenContent::Text(t),
+        Cascaded::Value(ContentDecl::Parts(_)) => GenContent::Text(GENERATED_TEXT
+            .with(|g| g.borrow().get(&(Rc::as_ptr(handle) as usize, which == "after")).cloned())?),
+        Cascaded::Value(ContentDecl::Image(url)) => {
+            let img = match decode_data_uri(&url) {
+                Some(bytes) => decode_image_bytes(&bytes).map(Arc::new),
+                None => image_cache.get(&*url).cloned(),
+            }?;
+            GenContent::Image(img)
+        }
         _ => return None,
     };
     let style = resolve_style_for(handle, rules, inherited, viewport_width, Some(which));
     if style.display == Display::None {
         return None;
     }
-    Some((style, text))
+    let content = match content {
+        GenContent::Image(img) => GenContent::Image(svg_at_css_size(img, &style)),
+        t => t,
+    };
+    Some((style, content))
+}
+
+/// What a generated box holds (Q19d).
+enum GenContent {
+    Text(String),
+    Image(Arc<DecodedImage>),
 }
 
 /// Inserts a generated box into the in-progress inline run (inline
 /// display) or as its own block / inline-block box.
 fn push_generated(
-    (mut style, text): (ComputedStyle, String),
+    (mut style, content): (ComputedStyle, GenContent),
     inherited: InheritedStyle,
     bg: Option<TextColor>,
     decoration: DecorationValue,
@@ -8620,6 +8645,10 @@ fn push_generated(
     span.decoration_style = deco.style;
     span.vertical_align = if style.vertical_align == VerticalAlign::Baseline { valign } else { style.vertical_align };
     span.href = href;
+    let text = match content {
+        GenContent::Text(t) => t,
+        GenContent::Image(image) => return push_generated_image(image, style, pending, result, inherited),
+    };
     let items = if text.is_empty() { Vec::new() } else { vec![InlineItem::Text(text.clone(), span)] };
     match style.display {
         Display::Block | Display::Table | Display::Flex | Display::Grid => {
@@ -8643,6 +8672,32 @@ fn push_generated(
             })));
         }
         _ => pending.extend(items),
+    }
+}
+
+/// `push_generated` for `content: url(...)`: an inline image item, or a
+/// block replaced box, depending on the pseudo's display.
+fn push_generated_image(
+    image: Arc<DecodedImage>,
+    mut style: ComputedStyle,
+    pending: &mut Vec<InlineItem>,
+    result: &mut Vec<LayoutBox>,
+    inherited: InheritedStyle,
+) {
+    match style.display {
+        Display::Block | Display::Table | Display::Flex | Display::Grid => {
+            style.display = Display::Block;
+            discard_if_collapsible_whitespace_only(pending);
+            if !pending.is_empty() {
+                result.push(LayoutBox {
+                    style: anonymous_style(inherited),
+                    background_image: None,
+                    content: BoxContent::Inline(std::mem::take(pending)),
+                });
+            }
+            result.push(LayoutBox { style, background_image: None, content: BoxContent::Image(image) });
+        }
+        _ => pending.push(InlineItem::Image { image, style, background_image: None }),
     }
 }
 
@@ -17825,9 +17880,48 @@ mod tests {
             600.0,
         );
         assert_eq!(find_by_width(&laid, 33.0).expect("generated block").h, 7.0);
-        assert_eq!(parse_declarations("content: url(x.png)").content, None);
+        assert_eq!(parse_declarations("content: url(x.png)").content, Some(ContentDecl::Image("x.png".into())));
+        assert_eq!(parse_declarations("content: url(x.png) 'a'").content, None);
         assert_eq!(parse_declarations("content: normal").content, Some(ContentDecl::None));
         assert_eq!(parse_declarations("content: 'a' \"b\"").content, Some(ContentDecl::Text("ab".into())));
+    }
+
+    #[test]
+    fn q19d_content_url_renders_an_image() {
+        fn count_images(b: &LayoutBox) -> usize {
+            match &b.content {
+                BoxContent::Image(_) => 1,
+                BoxContent::Inline(items) => items
+                    .iter()
+                    .map(|i| match i {
+                        InlineItem::Image { .. } => 1,
+                        InlineItem::Embedded(e) => count_images(e),
+                        _ => 0,
+                    })
+                    .sum(),
+                BoxContent::Blocks(c) | BoxContent::TableRow(c) => c.iter().map(count_images).sum(),
+                _ => 0,
+            }
+        }
+        let uri = tiny_png_data_uri(7, 5);
+        let html = format!(
+            r#"<html><head><style>
+            p::before {{ content: url({uri}); }}
+            div::after {{ content: url("{uri}"); display: block; width: 40px; height: 20px; }}
+            i::before {{ content: url(not-fetched.png); }}
+            </style></head><body><p>a</p><div>b</div><i>c</i></body></html>"#
+        );
+        let tree = build_layout_tree(&parse_html(&html), 800.0);
+        assert_eq!(count_images(&tree), 2, "p::before inline + div::after block; unfetched url is skipped");
+        let laid = measure_document_fixture(&html, 800.0, 600.0);
+        assert_eq!(find_by_width(&laid, 40.0).expect("block image").h, 20.0);
+        let mut cache = HashMap::new();
+        cache.insert(
+            "not-fetched.png".to_string(),
+            Arc::new(DecodedImage { width: 3, height: 3, pixels: vec![TextColor::rgb(9, 9, 9); 9], svg: None }),
+        );
+        let tree = build_layout_tree_with_resources(&parse_html(&html), 800.0, None, "", &cache);
+        assert_eq!(count_images(&tree), 3, "a fetched (cached) url now renders too");
     }
 
     #[test]
