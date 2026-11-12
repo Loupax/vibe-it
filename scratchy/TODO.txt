@@ -148,7 +148,7 @@ dropped selectors summed across those pages. Caveats:
       every style per pixel).
       Detail: see Q4b.
 
-- [ ] Q5 [S] Anonymous flex items for bare text. Text placed directly
+- [x] Q5 [S] (HASH) Anonymous flex items for bare text. Text placed directly
       inside a flex container is silently NOT RENDERED today, so content
       is lost. `build_flex_children` only collects element children.
       Wrap each run of non-whitespace text (consecutive text plus inline
@@ -920,7 +920,7 @@ session can pick a coherent slice rather than one property at a time.
             `Laid::h` write that always applies regardless (see
             `measure_flex_column`'s own docs for exactly why the two
             axes differ here).
-      - [ ] A bare, non-whitespace text node placed directly inside a
+      - [x] (HASH) A bare, non-whitespace text node placed directly inside a
             flex container (no wrapping element) doesn't become its own
             anonymous flex item the way real CSS would (CSS Flexbox §4:
             "runs of text... are treated as anonymous flex items") —
