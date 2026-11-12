@@ -187,10 +187,17 @@ dropped selectors summed across those pages. Caveats:
       `font-weight`, `text-align`, `white-space`, `cursor` and
       `visibility`, and document the rest as a new QUEUE line.
 
-- [ ] Q7b [S] CSS-wide keywords for the remaining properties (margin,
-      padding, border-*, width/height, position, float, overflow, ...) and
-      `background: inherit` for `background-image`. Q7 scoped to the
-      12 listed properties.
+- [x] Q7b [S] (HASH) CSS-wide keywords for the remaining properties (margin,
+      padding, border-*, width/height, position, float, overflow, flex,
+      grid, gap, outline, box-shadow, font-style, list-style-type,
+      word-spacing) and `background: inherit` for `background-image`.
+      Q7 scoped to the 12 listed properties.
+
+- [ ] Q7c [S] CSS-wide keywords for `text-decoration`/`-line`/`-style`/
+      `-color` (ambient propagation makes `inherit` ambiguous), logical
+      shorthands beyond margin/padding (`inset-*`, `border-*-block`), and
+      `font-variant`/`letter-spacing`-style properties scratchy doesn't
+      parse at all.
 
 - [ ] Q8 [S] Charset decoding. Today `scratchy google.html` dies
       immediately with "stream did not contain valid UTF-8", because

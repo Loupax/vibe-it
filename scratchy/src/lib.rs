@@ -3479,22 +3479,66 @@ impl Declarations {
     /// Records a CSS-wide keyword for `key`, dropping the typed value.
     fn set_wide(&mut self, key: &'static str, kw: CssWide) {
         self.clear_wide(key);
-        match key {
-            "color" => self.color = None,
-            "background-color" => self.background_color = None,
-            "display" => self.display = None,
-            "font-size" => self.font_size = None,
-            "line-height" => self.line_height = None,
-            "vertical-align" => self.vertical_align = None,
-            "font-family" => self.font_family = None,
-            "font-weight" => self.font_weight = None,
-            "text-align" => self.text_align = None,
-            "white-space" => self.white_space = None,
-            "cursor" => self.cursor = None,
-            "visibility" => self.visibility = None,
-            _ => {}
-        }
+        self.clear_typed(key);
         self.wide.push((key, kw));
+    }
+
+    /// Whether this declaration block holds a typed (non-keyword) value
+    /// for the canonical CSS-wide key `key`.
+    fn has_typed(&self, key: &str) -> bool {
+        let mut probe = self.clone();
+        probe.clear_typed(key);
+        probe != *self
+    }
+
+    /// Drops the typed value for the canonical CSS-wide key `key`.
+    fn clear_typed(&mut self, key: &str) {
+        macro_rules! clear {
+            ($($k:literal => $f:ident),* $(,)?) => {
+                match key {
+                    $($k => self.$f = None,)*
+                    _ => {
+                        if let Some((i, kind)) = border_key(key) {
+                            match kind {
+                                'w' => self.border_width[i] = None,
+                                's' => self.border_style[i] = None,
+                                _ => self.border_color[i] = None,
+                            }
+                        }
+                    }
+                }
+            };
+        }
+        clear! {
+            "color" => color, "background-color" => background_color,
+            "background-image" => background_image, "display" => display,
+            "font-size" => font_size, "line-height" => line_height,
+            "vertical-align" => vertical_align, "font-family" => font_family,
+            "font-weight" => font_weight, "text-align" => text_align,
+            "white-space" => white_space, "cursor" => cursor,
+            "visibility" => visibility, "position" => position, "float" => float,
+            "clear" => clear, "top" => top, "right" => right, "bottom" => bottom,
+            "left" => left, "z-index" => z_index, "width" => width,
+            "height" => height, "min-width" => min_width, "max-width" => max_width,
+            "min-height" => min_height, "max-height" => max_height,
+            "box-sizing" => box_sizing, "margin-top" => margin_top,
+            "margin-right" => margin_right, "margin-bottom" => margin_bottom,
+            "margin-left" => margin_left, "padding-top" => padding_top,
+            "padding-right" => padding_right, "padding-bottom" => padding_bottom,
+            "padding-left" => padding_left, "outline-width" => outline_width,
+            "outline-color" => outline_color, "box-shadow" => box_shadow,
+            "border-radius" => border_radius, "overflow" => overflow,
+            "flex-direction" => flex_direction, "flex-wrap" => flex_wrap,
+            "justify-content" => justify_content, "align-items" => align_items,
+            "align-self" => align_self, "flex-grow" => flex_grow,
+            "flex-shrink" => flex_shrink, "flex-basis" => flex_basis,
+            "row-gap" => row_gap, "column-gap" => column_gap,
+            "grid-template-columns" => grid_template_columns,
+            "grid-template-rows" => grid_template_rows,
+            "grid-template-areas" => grid_template_areas, "grid-area" => grid_area,
+            "font-style" => font_style, "list-style-type" => list_style_type,
+            "word-spacing" => word_spacing,
+        }
     }
 
     fn clear_wide(&mut self, key: &str) {
@@ -3507,7 +3551,7 @@ impl DeclParser<'_> {
     /// debug path can re-run it against a scratch `Declarations`.
     fn apply<'i>(&mut self, name: &str, input: &mut CssParser<'i>) {
         if !name.starts_with("--") {
-            if let Some(key) = wide_key(name) {
+            if let Some(keys) = wide_keys(name) {
                 // A CSS-wide keyword (optionally followed by `!important`).
                 let kw = input.try_parse(|i| {
                     let kw = {
@@ -3523,13 +3567,13 @@ impl DeclParser<'_> {
                 if let Ok(kw) = kw {
                     // Swallow the remaining tokens (`important`).
                     while input.next().is_ok() {}
-                    self.decls.set_wide(key, kw);
+                    for key in keys {
+                        self.decls.set_wide(key, kw);
+                    }
                     return;
                 }
-                self.decls.clear_wide(key);
-            } else if name.eq_ignore_ascii_case("font") {
-                for k in ["font-size", "line-height", "font-family", "font-weight"] {
-                    self.decls.clear_wide(k);
+                for key in keys {
+                    self.decls.clear_wide(key);
                 }
             }
         }
@@ -4532,6 +4576,10 @@ struct InheritedStyle {
     background_color: Option<TextColor>,
     display: Display,
     vertical_align: VerticalAlign,
+    /// The parent's whole computed style, so `inherit` (and `unset` on
+    /// inherited properties) can read any property (`apply_rest_wide`).
+    /// `None` at the root.
+    parent: Option<ComputedStyle>,
 }
 
 const ROOT_STYLE: InheritedStyle = InheritedStyle {
@@ -4551,6 +4599,7 @@ const ROOT_STYLE: InheritedStyle = InheritedStyle {
     background_color: None,
     display: Display::Inline,
     vertical_align: VerticalAlign::Baseline,
+    parent: None,
 };
 
 /// Per-side box-model values. Physical (top/right/bottom/left), not logical
@@ -4852,6 +4901,7 @@ impl ComputedStyle {
             background_color: self.background_color,
             display: self.display,
             vertical_align: self.vertical_align,
+            parent: Some(*self),
         }
     }
 }
@@ -4913,27 +4963,194 @@ impl CssWide {
     }
 }
 
-/// Canonical `Declarations::wide` key for a property name that supports
-/// CSS-wide keywords (`background` maps to `background-color`).
-fn wide_key(name: &str) -> Option<&'static str> {
-    const KEYS: &[&str] = &[
-        "color",
-        "background-color",
-        "display",
-        "font-size",
-        "line-height",
-        "vertical-align",
-        "font-family",
-        "font-weight",
-        "text-align",
-        "white-space",
-        "cursor",
-        "visibility",
-    ];
-    if name.eq_ignore_ascii_case("background") {
-        return Some("background-color");
+static BORDER_WIDE_KEYS: [&str; 12] = [
+    "border-top-width", "border-right-width", "border-bottom-width", "border-left-width",
+    "border-top-style", "border-right-style", "border-bottom-style", "border-left-style",
+    "border-top-color", "border-right-color", "border-bottom-color", "border-left-color",
+];
+
+/// `border-<side>-<width|style|color>` canonical key to (side index,
+/// 'w'/'s'/'c').
+fn border_key(key: &str) -> Option<(usize, char)> {
+    let rest = key.strip_prefix("border-")?;
+    let (side, prop) = rest.split_once('-')?;
+    let i = SIDE_NAMES.iter().position(|n| *n == side)?;
+    match prop {
+        "width" => Some((i, 'w')),
+        "style" => Some((i, 's')),
+        "color" => Some((i, 'c')),
+        _ => None,
     }
-    KEYS.iter().copied().find(|k| k.eq_ignore_ascii_case(name))
+}
+
+/// Canonical `Declarations::wide` keys a property name (longhand or
+/// shorthand) expands to. `None` for a property that doesn't support
+/// CSS-wide keywords (`background` maps to colour + image).
+fn wide_keys(name: &str) -> Option<&'static [&'static str]> {
+    const SINGLE: &[&str] = &[
+        "color", "background-color", "background-image", "display", "font-size",
+        "line-height", "vertical-align", "font-family", "font-weight", "text-align",
+        "white-space", "cursor", "visibility", "position", "float", "clear", "top",
+        "right", "bottom", "left", "z-index", "width", "height", "min-width",
+        "max-width", "min-height", "max-height", "box-sizing", "margin-top",
+        "margin-right", "margin-bottom", "margin-left", "padding-top",
+        "padding-right", "padding-bottom", "padding-left", "outline-width",
+        "outline-color", "box-shadow", "border-radius", "overflow",
+        "flex-direction", "flex-wrap", "justify-content", "align-items",
+        "align-self", "flex-grow", "flex-shrink", "flex-basis", "row-gap",
+        "column-gap", "grid-template-columns", "grid-template-rows",
+        "grid-template-areas", "grid-area", "font-style", "list-style-type",
+        "word-spacing",
+    ];
+    let l = name.to_ascii_lowercase();
+    let l = l.as_str();
+    if let Some(k) = SINGLE.iter().copied().find(|k| *k == l) {
+        // Slice of the `SINGLE` entry itself, so it is `'static`.
+        let idx = SINGLE.iter().position(|x| *x == k)?;
+        return Some(std::slice::from_ref(&SINGLE[idx]));
+    }
+    if let Some(k) = BORDER_WIDE_KEYS.iter().position(|k| *k == l) {
+        return Some(std::slice::from_ref(&BORDER_WIDE_KEYS[k]));
+    }
+    Some(match l {
+        "background" => &["background-color", "background-image"],
+        "font" => &["font-size", "line-height", "font-family", "font-weight", "font-style"],
+        "margin" => &["margin-top", "margin-right", "margin-bottom", "margin-left"],
+        "margin-block-start" => &["margin-top"],
+        "margin-block-end" => &["margin-bottom"],
+        "margin-inline-start" => &["margin-left"],
+        "margin-inline-end" => &["margin-right"],
+        "margin-block" => &["margin-top", "margin-bottom"],
+        "margin-inline" => &["margin-left", "margin-right"],
+        "padding" => &["padding-top", "padding-right", "padding-bottom", "padding-left"],
+        "padding-block-start" => &["padding-top"],
+        "padding-block-end" => &["padding-bottom"],
+        "padding-inline-start" => &["padding-left"],
+        "padding-inline-end" => &["padding-right"],
+        "padding-block" => &["padding-top", "padding-bottom"],
+        "padding-inline" => &["padding-left", "padding-right"],
+        "border" => &BORDER_WIDE_KEYS,
+        "border-width" => &BORDER_WIDE_KEYS[0..4],
+        "border-style" => &BORDER_WIDE_KEYS[4..8],
+        "border-color" => &BORDER_WIDE_KEYS[8..12],
+        "border-top" => &["border-top-width", "border-top-style", "border-top-color"],
+        "border-right" => &["border-right-width", "border-right-style", "border-right-color"],
+        "border-bottom" => &["border-bottom-width", "border-bottom-style", "border-bottom-color"],
+        "border-left" => &["border-left-width", "border-left-style", "border-left-color"],
+        "outline" => &["outline-width", "outline-color"],
+        "flex-flow" => &["flex-direction", "flex-wrap"],
+        "flex" => &["flex-grow", "flex-shrink", "flex-basis"],
+        "gap" => &["row-gap", "column-gap"],
+        "list-style" => &["list-style-type"],
+        _ => return None,
+    })
+}
+
+/// Whether a canonical key names an inherited property.
+fn is_inherited_key(key: &str) -> bool {
+    matches!(
+        key,
+        "color" | "font-size" | "line-height" | "font-family" | "font-weight" | "text-align"
+            | "white-space" | "cursor" | "visibility" | "font-style" | "list-style-type"
+            | "word-spacing"
+    )
+}
+
+/// Copies the computed value of the canonical key `key` from `src` into
+/// `dst`. Keys with no `ComputedStyle` field (colour/font properties
+/// handled in `resolve_style` itself, `background-image`) are no-ops.
+fn copy_prop(dst: &mut ComputedStyle, src: &ComputedStyle, key: &str) {
+    if let Some((i, kind)) = border_key(key) {
+        match kind {
+            'w' => dst.border_width[i] = src.border_width[i],
+            's' => dst.border_style[i] = src.border_style[i],
+            _ => dst.border_color[i] = src.border_color[i],
+        }
+        return;
+    }
+    match key {
+        "position" => dst.position = src.position,
+        "float" => dst.float = src.float,
+        "clear" => dst.clear = src.clear,
+        "top" => dst.inset.top = src.inset.top,
+        "right" => dst.inset.right = src.inset.right,
+        "bottom" => dst.inset.bottom = src.inset.bottom,
+        "left" => dst.inset.left = src.inset.left,
+        "z-index" => dst.z_index = src.z_index,
+        "width" => dst.width = src.width,
+        "height" => dst.height = src.height,
+        "min-width" => dst.min_width = src.min_width,
+        "max-width" => dst.max_width = src.max_width,
+        "min-height" => dst.min_height = src.min_height,
+        "max-height" => dst.max_height = src.max_height,
+        "box-sizing" => dst.box_sizing = src.box_sizing,
+        "margin-top" => dst.margin.top = src.margin.top,
+        "margin-right" => dst.margin.right = src.margin.right,
+        "margin-bottom" => dst.margin.bottom = src.margin.bottom,
+        "margin-left" => dst.margin.left = src.margin.left,
+        "padding-top" => dst.padding.top = src.padding.top,
+        "padding-right" => dst.padding.right = src.padding.right,
+        "padding-bottom" => dst.padding.bottom = src.padding.bottom,
+        "padding-left" => dst.padding.left = src.padding.left,
+        "outline-width" => dst.outline_width = src.outline_width,
+        "outline-color" => dst.outline_color = src.outline_color,
+        "box-shadow" => dst.box_shadow = src.box_shadow,
+        "border-radius" => dst.border_radius = src.border_radius,
+        "overflow" => dst.overflow = src.overflow,
+        "flex-direction" => dst.flex_direction = src.flex_direction,
+        "flex-wrap" => dst.flex_wrap = src.flex_wrap,
+        "justify-content" => dst.justify_content = src.justify_content,
+        "align-items" => dst.align_items = src.align_items,
+        "align-self" => dst.align_self = src.align_self,
+        "flex-grow" => dst.flex_grow = src.flex_grow,
+        "flex-shrink" => dst.flex_shrink = src.flex_shrink,
+        "flex-basis" => dst.flex_basis = src.flex_basis,
+        "row-gap" => dst.row_gap = src.row_gap,
+        "column-gap" => dst.column_gap = src.column_gap,
+        "grid-template-columns" => dst.grid_template_columns = src.grid_template_columns,
+        "grid-template-rows" => dst.grid_template_rows = src.grid_template_rows,
+        "grid-template-areas" => dst.grid_template_areas = src.grid_template_areas,
+        "grid-area" => dst.grid_area = src.grid_area,
+        "font-style" => dst.font_style = src.font_style,
+        "list-style-type" => dst.list_style_type = src.list_style_type,
+        "word-spacing" => dst.word_spacing = src.word_spacing,
+        _ => {}
+    }
+}
+
+/// The post-pass of `resolve_style` for CSS-wide keywords on every
+/// property outside the core set `cascade_css` already handles inline:
+/// for each such key whose cascade winner is a keyword, overwrite the
+/// computed field with the parent's (`inherit`, or `unset` on an
+/// inherited property) or the initial value.
+fn apply_rest_wide(
+    cs: &mut ComputedStyle,
+    matches: &[(u32, &Declarations)],
+    inline: Option<&Declarations>,
+    inherited: &InheritedStyle,
+) {
+    let mut keys: Vec<&'static str> = Vec::new();
+    for d in matches.iter().map(|(_, d)| *d).chain(inline) {
+        for (k, _) in &d.wide {
+            if !keys.contains(k) {
+                keys.push(k);
+            }
+        }
+    }
+    if keys.is_empty() {
+        return;
+    }
+    let initial = anonymous_style(ROOT_STYLE);
+    for key in keys {
+        if let Cascaded::Wide(kw) = cascade_css(matches, inline, key, |d| d.has_typed(key).then_some(())) {
+            let src = if kw.takes_parent(is_inherited_key(key)) {
+                inherited.parent.as_ref().unwrap_or(&initial)
+            } else {
+                &initial
+            };
+            copy_prop(cs, src, key);
+        }
+    }
 }
 
 /// The winner of a cascade that can also see CSS-wide keywords.
@@ -5083,11 +5300,17 @@ fn resolve_background_image(handle: &Handle, rules: &[StyleRule], viewport_width
     if let Some(i) = inline_important.as_ref() {
         matches.push((u32::MAX, i));
     }
-    let decl = cascade_property(
-        &matches,
-        inline_decls.as_ref().and_then(|d| d.background_image.clone()),
-        |d| d.background_image.clone(),
-    )?;
+    let decl = match cascade_css(&matches, inline_decls.as_ref(), "background-image", |d| d.background_image.clone()) {
+        Cascaded::Value(d) => d,
+        Cascaded::Unset => return None,
+        // `inherit` takes the parent element's resolved image; every
+        // other keyword is `none` (`background-image` isn't inherited).
+        Cascaded::Wide(CssWide::Inherit) => {
+            let parent = parent_handle(handle).filter(|p| matches!(p.data, NodeData::Element { .. }))?;
+            return resolve_background_image(&parent, rules, viewport_width);
+        }
+        Cascaded::Wide(_) => return None,
+    };
     let url = match decl {
         // The winning declaration at this specificity was a real `none`
         // — not "nothing declared it," which `cascade_property` already
@@ -5149,13 +5372,15 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
     // box to be block-level about). Applied here, once, so every later
     // piece of this file that branches on `display` (`collect_children`,
     // `measure`) needs no separate `position`/`float` check of its own.
-    let display = if (matches!(position, Position::Absolute | Position::Fixed) || float != Float::None)
-        && display != Display::None
-    {
-        Display::Block
-    } else {
-        display
+    let display_declared = display;
+    let force_block = |display: Display, position: Position, float: Float| {
+        if (matches!(position, Position::Absolute | Position::Fixed) || float != Float::None) && display != Display::None {
+            Display::Block
+        } else {
+            display
+        }
     };
+    let display = force_block(display, position, float);
     // Resolved before margin/padding/border-width: an `em` on any of those
     // is relative to *this* element's own font-size (not its parent's),
     // so font-size has to be cascaded and resolved first. An `em` on
@@ -5472,7 +5697,7 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
     );
     let grid_area = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.grid_area), |d| d.grid_area);
 
-    ComputedStyle {
+    let mut cs = ComputedStyle {
         color,
         background_color,
         display,
@@ -5529,7 +5754,13 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         grid_template_rows,
         grid_template_areas,
         grid_area,
+    };
+    // CSS-wide keywords on the remaining properties (`Q7b`).
+    if matches.iter().any(|(_, d)| !d.wide.is_empty()) || inl.is_some_and(|d| !d.wide.is_empty()) {
+        apply_rest_wide(&mut cs, &matches, inl, &inherited);
+        cs.display = force_block(display_declared, cs.position, cs.float);
     }
+    cs
 }
 
 fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
@@ -19563,6 +19794,63 @@ mod tests {
         // !important keyword and inline style
         assert_eq!(styles("div{color:red} p{color:inherit !important}", r#"<div><p style="color:blue">x</p></div>"#).color, red);
         assert_eq!(styles("div{color:red}", r#"<div><p style="color:initial">x</p></div>"#).color, ROOT_STYLE.color);
+    }
+
+    #[test]
+    fn q7b_css_wide_keywords_on_remaining_properties() {
+        let styles = |css: &str, html: &str| {
+            let doc = parse_html(html);
+            let rules = parse_stylesheet(css);
+            let div = find_element_by_tag(&doc, "div").expect("no <div>");
+            let p = find_element_by_tag(&doc, "p").expect("no <p>");
+            let ds = resolve_style(&div, &rules, ROOT_STYLE, 800.0);
+            resolve_style(&p, &rules, ds.inherited(), 800.0)
+        };
+        let h = r#"<div><p>x</p></div>"#;
+        // margin shorthand inherit
+        let s = styles("div{margin:10px} p{margin:inherit}", h);
+        assert!(matches!(s.margin.top, BoxLength::Px(v) if v == 10.0));
+        assert!(matches!(s.margin.left, BoxLength::Px(v) if v == 10.0));
+        // padding longhand inherit + initial
+        let s = styles("div{padding-left:7px} p{padding-left:inherit}", h);
+        assert!(matches!(s.padding.left, BoxLength::Px(v) if v == 7.0));
+        let s = styles("div{padding:7px} p{padding:5px;padding:initial}", h);
+        assert!(matches!(s.padding.top, BoxLength::Px(v) if v == 0.0));
+        // width / position / float / overflow
+        let s = styles("div{width:120px;position:relative;overflow:hidden} p{width:inherit;position:inherit;overflow:inherit}", h);
+        assert!(matches!(s.width, Some(BoxLength::Px(v)) if v == 120.0));
+        assert!(s.position == Position::Relative);
+        assert!(s.overflow == Overflow::Hidden);
+        // initial resets a rule's own declared value; unset on a
+        // non-inherited property also resets
+        let s = styles("p{float:left;float:initial}", h);
+        assert!(s.float == Float::None);
+        assert!(styles("div{width:50px} p{width:unset}", h).width.is_none());
+        // display is re-forced to block when inherit brings in a float
+        let s = styles("div{float:left} p{float:inherit}", h);
+        assert!(s.float == Float::Left);
+        assert_eq!(s.display, Display::Block);
+        // border shorthand and per-side
+        let s = styles("div{border:3px solid red} p{border:inherit}", h);
+        assert_eq!(s.border_width, [3.0; 4]);
+        let s = styles("div{border-top:3px solid red} p{border-top-width:inherit}", h);
+        assert_eq!(s.border_width, [3.0, 0.0, 0.0, 0.0]);
+        // inherited property via unset
+        assert_eq!(styles("div{font-style:italic} p{font-style:unset}", h).font_style, FontStyle::Italic);
+        // cascade order: later normal declaration beats earlier keyword
+        let s = styles("div{margin-top:10px} p{margin-top:inherit;margin-top:4px}", h);
+        assert!(matches!(s.margin.top, BoxLength::Px(v) if v == 4.0));
+        // specificity: a more specific keyword beats a less specific value
+        let s = styles("div{margin-top:10px} p{margin-top:4px} #a{margin-top:inherit}", r#"<div><p id="a">x</p></div>"#);
+        assert!(matches!(s.margin.top, BoxLength::Px(v) if v == 10.0));
+        // background: inherit also takes the parent's image
+        let uri = tiny_png_data_uri(2, 2);
+        let doc = parse_html(r#"<div><p>x</p></div>"#);
+        let rules = parse_stylesheet(&format!("div{{background-image:url({uri})}} p{{background:inherit}}"));
+        let p = find_element_by_tag(&doc, "p").unwrap();
+        assert!(resolve_background_image(&p, &rules, 800.0).is_some());
+        let rules = parse_stylesheet(&format!("div{{background-image:url({uri})}} p{{background-image:initial}}"));
+        assert!(resolve_background_image(&p, &rules, 800.0).is_none());
     }
 
     #[test]

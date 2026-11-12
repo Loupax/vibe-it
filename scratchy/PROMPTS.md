@@ -5727,3 +5727,12 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > scratchy/TODO.txt.
 
 **What changed:** `DeclParser::apply` recognizes `inherit`/`initial`/`unset`/`revert`/`revert-layer` (optionally followed by `!important`) for color, background/background-color, display, font-size, line-height, vertical-align, font-family, font-weight, text-align, white-space, cursor and visibility, storing them in `Declarations::wide` (mutually exclusive with the typed field; last declaration in a rule wins). `cascade_css` lets a keyword compete at its own specificity/source order/important tier, and `apply_wide` resolves it (`revert` = `unset`; `unset` = inherit for inherited properties, initial otherwise). `InheritedStyle` gained the parent's `background_color`, `display` and `vertical_align` so `inherit` works on those non-inherited properties. Test: `q7_css_wide_keywords_inherit_initial_unset_revert`. `grim` worked: `<p style="color:inherit">` under a red div rendered red. Left out: keywords on other properties (margin, border, etc.) are still ignored; `background: inherit` only covers the colour, not the image.
+
+---
+
+## Q7b — CSS-wide keywords on the remaining properties (queue item)
+
+> Implement the first unchecked item (Q7b) of the ranked QUEUE in
+> scratchy/TODO.txt.
+
+**What changed:** `wide_keys` maps every property name (longhand, shorthand, logical margin/padding) to canonical keys; `Declarations::set_wide`/`clear_typed`/`has_typed` keep keyword and typed value mutually exclusive for all of them. `InheritedStyle` now carries `parent: Option<ComputedStyle>`, and a post-pass in `resolve_style` (`apply_rest_wide`, run only if some matched rule declared a keyword) cascades each keyword key with `cascade_css` and, when a keyword wins, `copy_prop`s the parent's or the initial value (`anonymous_style(ROOT_STYLE)`) into the result; the float/position forced-block `display` rule is re-applied afterwards. `resolve_background_image` now uses `cascade_css`: `inherit` recurses to the parent element, other keywords give no image; `background` maps to colour + image. Test: `q7b_css_wide_keywords_on_remaining_properties`. `grim` worked: a `<p>` with `margin/padding/border/background/width: inherit` inside a bordered div rendered with the inherited values. Left out (new QUEUE item Q7c): text-decoration properties, other logical shorthands.
