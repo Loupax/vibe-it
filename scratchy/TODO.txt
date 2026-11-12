@@ -58,7 +58,7 @@ dropped selectors summed across those pages. Caveats:
 
 --- Tier 0: tooling that makes every later measurement honest ---------
 
-- [ ] Q1 [S] Make `SCRATCHY_CSS_DEBUG` tell different failures apart.
+- [x] Q1 [S] Make `SCRATCHY_CSS_DEBUG` tell different failures apart.
       Today `DeclParser::parse_value` clones `Declarations` before
       parsing and compares after (`css_debug_enabled`). Change it to:
       (a) report "ignored" only when no branch accepted the value, and
@@ -2039,6 +2039,7 @@ last, per the user's own call.
         unverified-live-in-this-sandbox bucket v32/v55/v62/v65 already
         flagged (no synthetic mouse/keyboard event tool here).
 
+- [x] (Q1 follow-up done, see QUEUE; dropped selectors/at-rules now reported, duplicate-valued declarations silent.)
 - [x] **Debug tools: `SCRATCHY_CSS_DEBUG=1` prints every CSS declaration
       scratchy's cascade couldn't act on.** The user's own request,
       picked up once the real motivating pain (diagnosing the `grid-
