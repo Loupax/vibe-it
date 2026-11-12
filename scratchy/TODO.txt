@@ -257,7 +257,7 @@ dropped selectors summed across those pages. Caveats:
       - `@supports (display:bogus){…}` doesn't.
       - `@supports not (display:bogus){…}` applies.
 
-- [x] Q11 [M] (HASH) `calc()`, `min()`, `max()` and `clamp()` (n=60+:
+- [x] Q11 [M] (33bd57f) `calc()`, `min()`, `max()` and `clamp()` (n=60+:
       `width`/`height` `calc(var(--x,1rem) + 2px)` 46, margins and
       `left` `calc(-1 * 8px)`, `max-width: min(0.85*12rem, 75vw)`).
       - Parse into a small expression tree (`+`, `-`, `*`, `/`,
