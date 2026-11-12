@@ -6450,6 +6450,9 @@ struct DecodedImage {
     width: u32,
     height: u32,
     pixels: Vec<TextColor>,
+    /// The original SVG document when this image came from one, so
+    /// `resolve_img` can re-rasterize it at the CSS box size (Q12a2).
+    svg: Option<Arc<Vec<u8>>>,
 }
 
 pub struct LayoutBox {
@@ -6505,17 +6508,45 @@ fn looks_like_svg(bytes: &[u8]) -> bool {
     t.starts_with("<svg") || t.starts_with("<?xml") || t.starts_with("<!doctype svg")
 }
 
-/// Rasterizes an SVG document at its intrinsic size (`width`/`height`,
-/// else `viewBox`, as resolved by usvg), un-premultiplying to RGBA.
-fn decode_svg_bytes(bytes: &[u8]) -> Option<DecodedImage> {
-    let tree = resvg::usvg::Tree::from_data(bytes, &resvg::usvg::Options::default()).ok()?;
+/// Intrinsic size of an SVG: usvg's resolved `width`/`height` (else
+/// `viewBox`); the CSS default replaced-element size, 300x150, when the
+/// document declares neither (usvg then fails to size it).
+fn svg_intrinsic_size(tree: &resvg::usvg::Tree) -> (u32, u32) {
     let size = tree.size().to_int_size();
-    let (width, height) = (size.width().max(1), size.height().max(1));
-    if width > 8192 || height > 8192 {
+    (size.width().max(1), size.height().max(1))
+}
+
+fn parse_svg(bytes: &[u8]) -> Option<resvg::usvg::Tree> {
+    let opt = resvg::usvg::Options::default();
+    // usvg falls back to 100x100 when the root has no size at all; CSS
+    // says 300x150, so give such a root those dimensions up front.
+    if let Ok(text) = std::str::from_utf8(bytes) {
+        let lower = text.to_ascii_lowercase();
+        if let Some(at) = lower.find("<svg") {
+            let tag_end = lower[at..].find('>').map_or(lower.len(), |e| at + e);
+            let tag = &lower[at..tag_end];
+            if !tag.contains("width") && !tag.contains("height") && !tag.contains("viewbox") {
+                let patched = format!("{} width=\"300\" height=\"150\"{}", &text[..at + 4], &text[at + 4..]);
+                return resvg::usvg::Tree::from_data(patched.as_bytes(), &opt).ok();
+            }
+        }
+    }
+    resvg::usvg::Tree::from_data(bytes, &opt).ok()
+}
+
+/// Rasterizes an SVG document to `target` pixels (`None` = its intrinsic
+/// size), un-premultiplying to RGBA. A different target scales the
+/// vector drawing (not a bitmap), so it stays sharp.
+fn rasterize_svg(bytes: &[u8], target: Option<(u32, u32)>) -> Option<DecodedImage> {
+    let tree = parse_svg(bytes)?;
+    let (iw, ih) = svg_intrinsic_size(&tree);
+    let (width, height) = target.unwrap_or((iw, ih));
+    if width == 0 || height == 0 || width > 8192 || height > 8192 {
         return None;
     }
     let mut pixmap = resvg::tiny_skia::Pixmap::new(width, height)?;
-    resvg::render(&tree, resvg::tiny_skia::Transform::identity(), &mut pixmap.as_mut());
+    let ts = resvg::tiny_skia::Transform::from_scale(width as f32 / iw as f32, height as f32 / ih as f32);
+    resvg::render(&tree, ts, &mut pixmap.as_mut());
     let pixels = pixmap
         .pixels()
         .iter()
@@ -6524,7 +6555,53 @@ fn decode_svg_bytes(bytes: &[u8]) -> Option<DecodedImage> {
             TextColor::rgba(c.red(), c.green(), c.blue(), c.alpha())
         })
         .collect();
-    Some(DecodedImage { width, height, pixels })
+    Some(DecodedImage { width, height, pixels, svg: Some(Arc::new(bytes.to_vec())) })
+}
+
+fn decode_svg_bytes(bytes: &[u8]) -> Option<DecodedImage> {
+    rasterize_svg(bytes, None)
+}
+
+type SvgSizedKey = (u64, u32, u32);
+
+thread_local! {
+    /// Sized SVG rasterizations, keyed by (hash of the document, w, h).
+    static SVG_SIZED_CACHE: std::cell::RefCell<HashMap<SvgSizedKey, Option<Arc<DecodedImage>>>> =
+        std::cell::RefCell::new(HashMap::new());
+}
+
+/// Re-rasterizes an SVG-backed `image` at the CSS box size when the
+/// style gives a pixel width and/or height (the missing one follows the
+/// intrinsic aspect ratio). Anything else is returned unchanged.
+fn svg_at_css_size(image: Arc<DecodedImage>, style: &ComputedStyle) -> Arc<DecodedImage> {
+    let Some(svg) = image.svg.clone() else { return image };
+    let px = |l: Option<BoxLength>| match l {
+        Some(BoxLength::Px(v)) if v >= 1.0 => Some(v),
+        _ => None,
+    };
+    let (iw, ih) = (image.width as f32, image.height as f32);
+    let (w, h) = match (px(style.width), px(style.height)) {
+        (Some(w), Some(h)) => (w, h),
+        (Some(w), None) => (w, w * ih / iw),
+        (None, Some(h)) => (h * iw / ih, h),
+        (None, None) => return image,
+    };
+    let (w, h) = (w.round().max(1.0) as u32, h.round().max(1.0) as u32);
+    if (w, h) == (image.width, image.height) {
+        return image;
+    }
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    svg.hash(&mut hasher);
+    let key = (hasher.finish(), w, h);
+    SVG_SIZED_CACHE.with(|c| {
+        let mut c = c.borrow_mut();
+        if c.len() > 256 {
+            c.clear();
+        }
+        c.entry(key).or_insert_with(|| rasterize_svg(&svg, Some((w, h))).map(Arc::new)).clone()
+    })
+    .unwrap_or(image)
 }
 
 /// Decodes raw image bytes (already extracted from a `data:` URI) via
@@ -6541,7 +6618,7 @@ fn decode_image_bytes(bytes: &[u8]) -> Option<DecodedImage> {
     let rgba = decoded.to_rgba8();
     let (width, height) = rgba.dimensions();
     let pixels = rgba.pixels().map(|p| TextColor::rgba(p[0], p[1], p[2], p[3])).collect();
-    Some(DecodedImage { width, height, pixels })
+    Some(DecodedImage { width, height, pixels, svg: None })
 }
 
 /// An `<img width>`/`<img height>` HTML attribute, as a plain unitless
@@ -6582,6 +6659,7 @@ fn resolve_img(handle: &Handle, mut style: ComputedStyle, image_cache: &HashMap<
         Some(bytes) => decode_image_bytes(&bytes).map(Arc::new),
         None => image_cache.get(&*src).cloned(),
     });
+    let decoded = decoded.map(|d| svg_at_css_size(d, &style));
     (style, decoded)
 }
 
@@ -13208,6 +13286,11 @@ fn timing_enabled() -> bool {
 /// TODO.txt`'s "no retry/backoff" item for the same spirit applied to a
 /// different failure mode).
 fn fetch_sub_resource_via_wire(path: &std::path::Path, url: &Url, accept: &[&str]) -> Option<Vec<u8>> {
+    fetch_sub_resource_typed(path, url, accept).map(|(_, body)| body)
+}
+
+/// Same as `fetch_sub_resource_via_wire` but also returns the matched MIME.
+fn fetch_sub_resource_typed(path: &std::path::Path, url: &Url, accept: &[&str]) -> Option<(String, Vec<u8>)> {
     let request_text = build_get_request_text(url);
     let WireFetchRaw::Responded { content_type, body } = fetch_raw_via_wire(path, &request_text) else { return None };
     let content_type = content_type.unwrap_or_default();
@@ -13215,7 +13298,7 @@ fn fetch_sub_resource_via_wire(path: &std::path::Path, url: &Url, accept: &[&str
     if !accept.contains(&mime.as_str()) {
         return None;
     }
-    Some(body)
+    Some((mime, body))
 }
 
 /// Fetches one external stylesheet — `None` on any failure (unreachable,
@@ -13233,7 +13316,13 @@ fn fetch_stylesheet_via_wire(path: &std::path::Path, url: &Url) -> Option<String
 /// exact same decoder `resolve_img` already uses for a `data:` URI
 /// `src`, so a live-fetched image and an inlined one decode identically.
 fn fetch_image_via_wire(path: &std::path::Path, url: &Url) -> Option<DecodedImage> {
-    let body = fetch_sub_resource_via_wire(path, url, &["image/png", "image/jpeg", "image/gif", "image/webp"])?;
+    let (mime, body) =
+        fetch_sub_resource_typed(path, url, &["image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml"])?;
+    if mime == "image/svg+xml" {
+        // Trust the wire Content-Type even when the bytes lack a
+        // recognisable prefix.
+        return decode_svg_bytes(&body);
+    }
     decode_image_bytes(&body)
 }
 
@@ -16029,7 +16118,7 @@ mod tests {
         let mut pixels = vec![0u32; (W * H) as usize];
         let red = TextColor::rgb(255, 0, 0);
         let blue = TextColor::rgb(0, 0, 255);
-        let image = DecodedImage { width: 2, height: 1, pixels: vec![red, blue] };
+        let image = DecodedImage { width: 2, height: 1, pixels: vec![red, blue], svg: None };
         tile_image(&image, &mut pixels, W, H, 0.0, 0.0, 8.0, 1.0, None);
         let px = |x: u32| pixels[x as usize] & 0x00FFFFFF;
         assert_eq!(px(0), 0xFF0000);
@@ -19809,7 +19898,7 @@ mod tests {
     fn resolve_img_renders_a_cached_live_fetched_image_for_a_non_data_uri_src() {
         let doc = parse_html(r#"<html><body><img src="https://example.com/photo.jpg" style="display:block"></body></html>"#);
         let img_handle = find_element_by_tag(&doc, "img").expect("no <img> found in fixture");
-        let decoded = DecodedImage { width: 4, height: 4, pixels: vec![TextColor::rgb(1, 2, 3); 16] };
+        let decoded = DecodedImage { width: 4, height: 4, pixels: vec![TextColor::rgb(1, 2, 3); 16], svg: None };
         let mut image_cache = HashMap::new();
         image_cache.insert("https://example.com/photo.jpg".to_string(), Arc::new(decoded));
         let (_, found) = resolve_img(&img_handle, resolve_style(&img_handle, &[], ROOT_STYLE, 1920.0), &image_cache);
@@ -19844,7 +19933,7 @@ mod tests {
         let mut image_cache = HashMap::new();
         image_cache.insert(
             "https://example.com/photo.jpg".to_string(),
-            Arc::new(DecodedImage { width: 2, height: 2, pixels: vec![TextColor::rgb(9, 9, 9); 4] }),
+            Arc::new(DecodedImage { width: 2, height: 2, pixels: vec![TextColor::rgb(9, 9, 9); 4], svg: None }),
         );
         let tree = build_layout_tree_with_resources(&doc, 1920.0, "", &image_cache);
         fn find_image_box(b: &LayoutBox) -> Option<&LayoutBox> {
@@ -20286,6 +20375,41 @@ mod tests {
         assert_eq!((img.width, img.height), (4, 6));
         assert_eq!(img.pixels[0], TextColor::rgba(0, 255, 0, 255));
         assert!(decode_image_bytes(b"<svg").is_none());
+    }
+
+    #[test]
+    fn q12a2_svg_rasterizes_at_css_size() {
+        let svg = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 10'><rect width='10' height='10' fill='red'/></svg>";
+        let uri = format!("data:image/svg+xml,{}", svg.replace('<', "%3C").replace('>', "%3E"));
+        let img_of = |attrs: &str| {
+            let html = format!(r#"<html><body style="margin:0"><img src="{uri}" {attrs}></body></html>"#);
+            let doc = parse_html(&html);
+            let tree = build_layout_tree(&doc, 400.0);
+            fn find(b: &LayoutBox) -> Option<Arc<DecodedImage>> {
+                match &b.content {
+                    BoxContent::Image(i) => Some(i.clone()),
+                    BoxContent::Inline(items) => items.iter().find_map(|i| match i {
+                        InlineItem::Image { image, .. } => Some(image.clone()),
+                        _ => None,
+                    }),
+                    BoxContent::Blocks(bs) | BoxContent::TableRow(bs) => bs.iter().find_map(find),
+                }
+            }
+            find(&tree).expect("image box")
+        };
+        let a = img_of(r#"width="40" height="20""#);
+        assert_eq!((a.width, a.height), (40, 20));
+        assert_eq!(a.pixels[0], TextColor::rgba(255, 0, 0, 255));
+        assert_eq!(a.pixels[40 * 20 - 1], TextColor::rgba(255, 0, 0, 255));
+        // One dimension: the other follows the aspect ratio.
+        let b = img_of(r#"width="30""#);
+        assert_eq!((b.width, b.height), (30, 30));
+        // No size: intrinsic.
+        let c = img_of("");
+        assert_eq!((c.width, c.height), (10, 10));
+        // No width/height/viewBox: 300x150 fallback.
+        let d = decode_image_bytes(b"<svg xmlns='http://www.w3.org/2000/svg'></svg>").expect("fallback size");
+        assert_eq!((d.width, d.height), (300, 150));
     }
 
     #[test]

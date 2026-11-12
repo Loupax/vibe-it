@@ -296,7 +296,7 @@ dropped selectors summed across those pages. Caveats:
             (`decode_svg_bytes`); `decode_data_uri` now also handles
             percent-encoded (non-base64) payloads. Covers `<img>` and
             `background-image` data URIs. (commit: eba4122)
-      - [ ] Q12a2 [S] Rasterize at the CSS box size when known (cache by
+      - [x] Q12a2 [S] (commit: HASH) Rasterize at the CSS box size when known (cache by
             `(src, w, h)`) instead of scaling the intrinsic bitmap;
             detect SVG via `Content-Type` `image/svg+xml` for wire-fetched
             images whose bytes lack an obvious prefix; 300x150 fallback
