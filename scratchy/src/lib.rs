@@ -10310,6 +10310,146 @@ fn bevel_colors(style: BorderStyle, base: TextColor) -> Option<(TextColor, TextC
     }
 }
 
+/// True when pixel centre `(px, py)` lies inside the rect `(rx, ry, rw, rh)`
+/// whose corners are elliptical with radii `radii` (tl, tr, br, bl).
+fn in_rounded_rect(px: f32, py: f32, rx: f32, ry: f32, rw: f32, rh: f32, radii: [(f32, f32); 4]) -> bool {
+    if px < rx || px >= rx + rw || py < ry || py >= ry + rh {
+        return false;
+    }
+    let corners = [
+        (rx + radii[0].0, ry + radii[0].1, px < rx + radii[0].0 && py < ry + radii[0].1, radii[0]),
+        (rx + rw - radii[1].0, ry + radii[1].1, px >= rx + rw - radii[1].0 && py < ry + radii[1].1, radii[1]),
+        (rx + rw - radii[2].0, ry + rh - radii[2].1, px >= rx + rw - radii[2].0 && py >= ry + rh - radii[2].1, radii[2]),
+        (rx + radii[3].0, ry + rh - radii[3].1, px < rx + radii[3].0 && py >= ry + rh - radii[3].1, radii[3]),
+    ];
+    for (cx, cy, active, (rxr, ryr)) in corners {
+        if active && rxr > 0.0 && ryr > 0.0 {
+            let (dx, dy) = ((px - cx) / rxr, (py - cy) / ryr);
+            if dx * dx + dy * dy > 1.0 {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// Paints a border whose four sides differ (width, color or style),
+/// per pixel, hard-edged like the rest of the painters. Each border-band
+/// pixel belongs to the side it is proportionally closest to
+/// (distance / that side's width), which yields the diagonal mitered
+/// joins real CSS draws at corners between unequal sides; a zero-width
+/// side never claims pixels. The outer edge is rounded by `radius`
+/// (clamped), the inner (padding) edge by `radius - width` per axis.
+/// Each side's style is evaluated per pixel: solid, dashed/dotted
+/// (along the side), double (outer/inner thirds) and the four bevel
+/// styles (light/dark whole edge, or split halves for groove/ridge).
+#[allow(clippy::too_many_arguments)]
+fn paint_per_side_border(
+    s: &ComputedStyle,
+    pixels: &mut [u32],
+    win_w: u32,
+    win_h: u32,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    radius: f32,
+    clip: Option<(f32, f32, f32, f32)>,
+) {
+    let [bt, br, bb, bl] = s.border_width;
+    let widths = [bt, br, bb, bl];
+    let visible = |i: usize| widths[i] > 0.0 && s.border_style[i] != BorderStyle::None && s.border_color[i].is_some();
+    if !(0..4).any(visible) {
+        return;
+    }
+    let r = radius.min(w / 2.0).min(h / 2.0).max(0.0);
+    let outer = [(r, r); 4];
+    let (iw, ih) = (w - bl - br, h - bt - bb);
+    let has_hole = iw > 0.0 && ih > 0.0;
+    let clampr = |rx: f32, ry: f32| ((rx.max(0.0)).min(iw / 2.0).max(0.0), (ry.max(0.0)).min(ih / 2.0).max(0.0));
+    let inner = [clampr(r - bl, r - bt), clampr(r - br, r - bt), clampr(r - br, r - bb), clampr(r - bl, r - bb)];
+    let y0 = y.floor() as i32;
+    let y1 = (y + h).ceil() as i32;
+    for row in y0..y1 {
+        let py = row as f32 + 0.5;
+        let in_corner_rows = py < y + r || py >= y + h - r;
+        let in_mid_rows = has_hole && py >= y + bt && py < y + h - bb && !in_corner_rows;
+        // Middle rows only touch the left/right strips.
+        let spans: [(i32, i32); 2] = if in_mid_rows {
+            [(x.floor() as i32, (x + bl).ceil() as i32), ((x + w - br).floor() as i32, (x + w).ceil() as i32)]
+        } else {
+            [(x.floor() as i32, (x + w).ceil() as i32), (0, 0)]
+        };
+        for (c0, c1) in spans {
+            for col in c0..c1 {
+                let px = col as f32 + 0.5;
+                if !in_rounded_rect(px, py, x, y, w, h, outer) {
+                    continue;
+                }
+                if has_hole && in_rounded_rect(px, py, x + bl, y + bt, iw, ih, inner) {
+                    continue;
+                }
+                let dist = [py - y, x + w - px, y + h - py, px - x];
+                let mut side = None;
+                let mut best = f32::INFINITY;
+                for i in 0..4 {
+                    if widths[i] > 0.0 {
+                        let n = dist[i] / widths[i];
+                        if n < best {
+                            best = n;
+                            side = Some(i);
+                        }
+                    }
+                }
+                let Some(i) = side else { continue };
+                if !visible(i) {
+                    continue;
+                }
+                let along = if i % 2 == 0 { px - x } else { py - y };
+                if let Some(c) = border_pixel_color(s.border_style[i], s.border_color[i].unwrap(), i, widths[i], dist[i], along) {
+                    fill_rect(pixels, win_w, win_h, col as f32, row as f32, 1.0, 1.0, c, clip);
+                }
+            }
+        }
+    }
+}
+
+/// Colour of one border pixel on side `side` (0=top,1=right,2=bottom,
+/// 3=left) of width `bw`, `across` px in from the outer edge and `along`
+/// px along the side; `None` means a gap (dash/dot/double middle).
+fn border_pixel_color(style: BorderStyle, color: TextColor, side: usize, bw: f32, across: f32, along: f32) -> Option<TextColor> {
+    let tl = side == 0 || side == 3;
+    match style {
+        BorderStyle::None => None,
+        BorderStyle::Solid => Some(color),
+        BorderStyle::Dashed => {
+            let dash = (bw * 3.0).max(2.0);
+            (along.rem_euclid(dash * 2.0) < dash).then_some(color)
+        }
+        BorderStyle::Dotted => {
+            let dot = bw.max(1.0);
+            (along.rem_euclid(dot * 2.0) < dot).then_some(color)
+        }
+        BorderStyle::Double => {
+            let stripe = (bw / 3.0).max(1.0);
+            (across < stripe || across >= bw - stripe).then_some(color)
+        }
+        BorderStyle::Inset | BorderStyle::Outset => {
+            let (light, dark) = bevel_colors(style, color)?;
+            let dark_side = (style == BorderStyle::Inset) == tl;
+            Some(if dark_side { dark } else { light })
+        }
+        BorderStyle::Groove | BorderStyle::Ridge => {
+            let (light, dark) = bevel_colors(style, color)?;
+            let half = (bw / 2.0).max(0.5);
+            let outer_half = across < half;
+            // Groove: top/left outer-dark inner-light, bottom/right the reverse.
+            let dark_here = (style == BorderStyle::Groove) == (tl == outer_half);
+            Some(if dark_here { dark } else { light })
+        }
+    }
+}
+
 /// Paints all 4 edges of a border rect `(x, y, w, h)` with thickness
 /// `bw`. Every style but the 4 bevel ones (`Groove`/`Ridge`/`Inset`/
 /// `Outset`) just delegates to `paint_border_edge` 4 times with one flat
@@ -10445,13 +10585,13 @@ fn paint_box_decoration(
     // already exactly the value needed and nothing else ever reads
     // this field before paint.
     let border_radius = s.border_radius.resolve(w);
-    // Rounded corners only when all four sides are identical and solid (or
-    // there is no border at all); otherwise square corners.
+    // Uniform borders round only when solid (or absent); unequal per-side
+    // borders always round, via `paint_per_side_border`.
     let uniform = s.border_width.iter().all(|w| *w == s.border_width[0])
         && s.border_style.iter().all(|t| *t == s.border_style[0])
         && s.border_color.iter().all(|c| *c == s.border_color[0]);
     let no_border = s.border_width.iter().all(|w| *w <= 0.0);
-    let round = border_radius > 0.0 && (no_border || (uniform && s.border_style[0] == BorderStyle::Solid));
+    let round = border_radius > 0.0 && (no_border || !uniform || s.border_style[0] == BorderStyle::Solid);
     if let Some(bg) = s.background_color {
         if round {
             fill_rounded_rect(pixels, win_w, win_h, x, y, w, h, border_radius, bg, clip);
@@ -10481,30 +10621,7 @@ fn paint_box_decoration(
             }
         }
     } else {
-        // Per-side: each side painted with its own width/style/color.
-        // Top and bottom span the full width; left and right fill the
-        // gap between them (square, un-mitered corners). Bevel styles
-        // degrade to solid here.
-        let flat = |st: BorderStyle| match st {
-            BorderStyle::Groove | BorderStyle::Ridge | BorderStyle::Inset | BorderStyle::Outset => BorderStyle::Solid,
-            other => other,
-        };
-        let [bt, br, bb, bl] = s.border_width;
-        let mid_h = (h - bt - bb).max(0.0);
-        let rects = [
-            (x, y, w, bt),
-            (x + w - br, y + bt, br, mid_h),
-            (x, y + h - bb, w, bb),
-            (x, y + bt, bl, mid_h),
-        ];
-        for (i, (rx, ry, rw, rh)) in rects.into_iter().enumerate() {
-            if s.border_width[i] <= 0.0 || s.border_style[i] == BorderStyle::None {
-                continue;
-            }
-            if let Some(bc) = s.border_color[i] {
-                paint_border_edge(pixels, win_w, win_h, rx, ry, rw, rh, flat(s.border_style[i]), bc, clip);
-            }
-        }
+        paint_per_side_border(s, pixels, win_w, win_h, x, y, w, h, border_radius, clip);
     }
     // Outside the border box (not part of the box model — doesn't affect
     // `w`/`h` the way `border_width` does), same 4-rect ring shape as
@@ -15513,6 +15630,33 @@ mod tests {
         let s = div_of("border: 1px solid; border-color: red green;", 305.0);
         assert_eq!(s.border_color[0], s.border_color[2]);
         assert_ne!(s.border_color[0], s.border_color[1]);
+    }
+
+    #[test]
+    fn q4b_per_side_borders_miter_round_and_bevel() {
+        // Mitered join: 10px red top, 2px blue left; a pixel just right of
+        // the left strip near the top-left corner is red (top claims it),
+        // one far down the left strip is blue.
+        let (pixels, win_w, _h) = paint_fixture(
+            r#"<html><body style="margin:0"><div style="box-sizing: border-box; width: 60px; height: 60px; border-top: 10px solid #ff0000; border-left: 2px solid #0000ff;"></div></body></html>"#,
+        );
+        let red = px_at(&pixels, win_w, 5, 3);
+        let blue = px_at(&pixels, win_w, 1, 30);
+        assert_ne!(red, blue);
+        assert_eq!(px_at(&pixels, win_w, 1, 3), red, "top side owns the mitered corner above the diagonal");
+        assert_eq!(px_at(&pixels, win_w, 1, 9), blue, "left side owns the corner below the diagonal");
+        // Rounded: the outer corner pixel is not painted with unequal sides.
+        let (pixels, win_w, _h) = paint_fixture(
+            r#"<html><body style="margin:0;background:#ffffff"><div style="box-sizing: border-box; width: 60px; height: 60px; border-radius: 20px; border-top: 6px solid #ff0000; border-left: 6px solid #0000ff;"></div></body></html>"#,
+        );
+        let bg = px_at(&pixels, win_w, 100, 30);
+        assert_eq!(px_at(&pixels, win_w, 0, 0), bg, "outer corner is rounded away");
+        assert_ne!(px_at(&pixels, win_w, 30, 2), bg, "top edge still painted");
+        // Bevel in per-side path: inset top and left are dark, differ from a right edge in outset.
+        let (pixels, win_w, _h) = paint_fixture(
+            r#"<html><body style="margin:0"><div style="box-sizing: border-box; width: 60px; height: 60px; border-top: 8px inset gray; border-bottom: 8px inset gray;"></div></body></html>"#,
+        );
+        assert_ne!(px_at(&pixels, win_w, 30, 3), px_at(&pixels, win_w, 30, 56), "inset top (dark) and bottom (light) differ");
     }
 
     #[test]

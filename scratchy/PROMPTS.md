@@ -5658,3 +5658,23 @@ with its own width/style/color (bevel styles degrade to solid;
 `q4_per_side_borders_parse_and_resolve`. `grim` worked: a div with
 `border-bottom: 4px solid red; border-left: 6px dashed blue` showed only
 those two sides.
+
+---
+
+## Q4b — per-side border joins, radius and bevels (queue item)
+
+> Implement the first unchecked item (Q4b) of the ranked QUEUE in
+> scratchy/TODO.txt.
+
+**What changed:** the non-uniform branch of `paint_box_decoration` now calls
+the new `paint_per_side_border`, a per-pixel painter: each border-band
+pixel goes to the side it is proportionally closest to (distance / width),
+giving diagonal mitered corners; the outer edge is rounded by
+`border-radius` and the inner edge by `radius - width` per axis
+(`in_rounded_rect`); `border_pixel_color` evaluates solid/dashed/dotted/
+double and the four bevel styles per side. `round` is now true for any
+non-uniform border (the background rounds too). Test:
+`q4b_per_side_borders_miter_round_and_bevel`. `grim` worked: a div with red
+top, dashed blue left and double green bottom borders and `border-radius:
+24px` showed rounded, mitered corners. Left out: dashed/dotted/double/bevel
+uniform borders still go square with `border-radius` (see QUEUE Q4c).
