@@ -322,7 +322,7 @@ dropped selectors summed across those pages. Caveats:
       Tests: `.dark{--bg:black} .dark p{background-color:var(--bg)}`,
       plus a chained `--b: var(--a)`.
 
-- [x] Q14 [M] (commit: HASH) Viewport units and initial-containing-block height. Add
+- [x] Q14 [M] (commit: 35c826a) Viewport units and initial-containing-block height. Add
       `vw`, `vh`, `vmin` and `vmax`; they need the viewport size
       threaded wherever `em`/`rem` are resolved. Give the document root
       a definite height equal to the window height, so
@@ -513,7 +513,7 @@ HISTORY AND DETAIL (everything below is the original log)
       for any other property scratchy supports (`z-index`/`flex`/etc.,
       where it would be valid, aren't implemented at all).
 
-      - [x] (Q14, commit: HASH) No viewport/initial-containing-block height concept exists
+      - [x] (Q14, commit: 35c826a) No viewport/initial-containing-block height concept exists
             (v49) — unlike a real UA, whose initial containing block
             always has the window's own definite height, this engine's
             document-root box (a synthetic wrapper `<html>` is laid out
