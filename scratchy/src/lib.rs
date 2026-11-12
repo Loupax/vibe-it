@@ -1617,6 +1617,12 @@ struct Declarations {
     /// represent that distinctly from "not declared" (same shape
     /// `box-shadow`'s own `ShadowDecl` already established).
     background_image: Option<BackgroundImageDecl>,
+    /// `background-position`/`-size`/`-repeat` (Q16): only the first
+    /// layer of a comma list is kept. Resolved in `resolve_style` into
+    /// `ComputedStyle::bg_layout`.
+    background_position: Option<BgPosDecl>,
+    background_size: Option<BgSizeDecl>,
+    background_repeat: Option<BgRepeat>,
     display: Option<Display>,
     position: Option<Position>,
     float: Option<Float>,
@@ -3397,44 +3403,390 @@ fn parse_list_style_shorthand(input: &mut CssParser) -> Result<ListStyleType, ()
     style_type.ok_or(())
 }
 
-/// `background`'s own grammar is far larger than this (layering,
-/// position, size, repeat, attachment, origin, clip) — this covers only
-/// the two longhands this file actually implements, `background-color`
-/// and `background-image`, which is the dominant real-world case
-/// (CSS-gap report: 80 occurrences, nearly all a bare `background:
-/// <color>` or a single `url(...)` image). Any other component (a
-/// repeat/attachment/position/box/`none` keyword, a size dimension, the
-/// `/` separator) is skipped rather than failing the whole value, same
-/// lenient philosophy as `border`'s own shorthand parser above —
-/// `background-image: none` has exactly the same "parsing it just
-/// fails, which happens to leave the property unset" behavior as the
-/// `background-image` longhand itself (see its own TODO.txt note); this
-/// shorthand doesn't attempt to fix that distinctly.
-fn parse_background_shorthand(input: &mut CssParser) -> Result<(Option<CssColor>, Option<String>), ()> {
-    let mut color = None;
-    let mut image = None;
+/// One axis of a `background-position`: `pct` of the free space
+/// (box size minus tile size) plus a fixed `off` offset. `left`/`top`
+/// are `0%`, `center` `50%`, `right`/`bottom` `100%`; a bare percentage
+/// is `pct`, any other length is `off` (with `pct` 0).
+#[derive(Clone, Copy, PartialEq)]
+struct BgAxisDecl {
+    pct: f32,
+    off: Length,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+struct BgPosDecl {
+    x: BgAxisDecl,
+    y: BgAxisDecl,
+}
+
+impl Default for BgPosDecl {
+    fn default() -> Self {
+        let z = BgAxisDecl { pct: 0.0, off: Length::Px(0.0) };
+        BgPosDecl { x: z, y: z }
+    }
+}
+
+/// One dimension of an explicit `background-size`.
+#[derive(Clone, Copy, PartialEq)]
+enum BgDimDecl {
+    Auto,
+    Len(Length),
+}
+
+#[derive(Clone, Copy, PartialEq, Default)]
+enum BgSizeDecl {
+    #[default]
+    Auto,
+    Cover,
+    Contain,
+    Explicit(BgDimDecl, BgDimDecl),
+}
+
+/// `background-repeat` per axis. `space`/`round` are treated as
+/// `repeat`.
+#[derive(Clone, Copy, PartialEq, Debug)]
+struct BgRepeat {
+    x: bool,
+    y: bool,
+}
+
+impl Default for BgRepeat {
+    fn default() -> Self {
+        BgRepeat { x: true, y: true }
+    }
+}
+
+/// Computed `background-size` dimension.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum BgDim {
+    Auto,
+    Px(f32),
+    Pct(f32),
+}
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum BgSize {
+    Cover,
+    Contain,
+    Explicit(BgDim, BgDim),
+}
+
+/// Computed background layout (everything but the image itself):
+/// position offsets are `(fraction of free space, px)` per axis.
+#[derive(Clone, Copy, PartialEq, Debug)]
+struct BgLayout {
+    pos_x: (f32, f32),
+    pos_y: (f32, f32),
+    size: BgSize,
+    repeat: BgRepeat,
+}
+
+impl Default for BgLayout {
+    fn default() -> Self {
+        BgLayout {
+            pos_x: (0.0, 0.0),
+            pos_y: (0.0, 0.0),
+            size: BgSize::Explicit(BgDim::Auto, BgDim::Auto),
+            repeat: BgRepeat::default(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum BgPosItem {
+    Kw(char), // 'l' 'r' 't' 'b' 'c'
+    Len(Length),
+}
+
+fn bg_pos_item(input: &mut CssParser) -> Option<BgPosItem> {
+    let state = input.state();
+    match input.next() {
+        Ok(Token::Ident(id)) => {
+            let k = match id.to_ascii_lowercase().as_str() {
+                "left" => 'l',
+                "right" => 'r',
+                "top" => 't',
+                "bottom" => 'b',
+                "center" => 'c',
+                _ => {
+                    input.reset(&state);
+                    return None;
+                }
+            };
+            Some(BgPosItem::Kw(k))
+        }
+        Ok(_) => {
+            input.reset(&state);
+            match parse_length_percent(input) {
+                Ok(l) if !matches!(l, Length::Calc(c) if c.has_percent()) => Some(BgPosItem::Len(l)),
+                _ => {
+                    input.reset(&state);
+                    None
+                }
+            }
+        }
+        Err(_) => None,
+    }
+}
+
+fn bg_axis_from_len(l: Length) -> BgAxisDecl {
+    match l {
+        Length::Percent(p) => BgAxisDecl { pct: p, off: Length::Px(0.0) },
+        other => BgAxisDecl { pct: 0.0, off: other },
+    }
+}
+
+fn bg_axis_from_kw(k: char) -> BgAxisDecl {
+    let pct = match k {
+        'l' | 't' => 0.0,
+        'r' | 'b' => 1.0,
+        _ => 0.5,
+    };
+    BgAxisDecl { pct, off: Length::Px(0.0) }
+}
+
+fn negate_length(l: Length) -> Option<Length> {
+    match l {
+        Length::Px(v) => Some(Length::Px(-v)),
+        Length::Em(v) => Some(Length::Em(-v)),
+        Length::Rem(v) => Some(Length::Rem(-v)),
+        Length::Vp(u, v) => Some(Length::Vp(u, -v)),
+        _ => None,
+    }
+}
+
+/// Parses the longest run of position components (1 to 4) from the
+/// parser's current place. Handles the one/two-value forms and the
+/// three/four-value edge-offset form (`right 10px bottom 20px`).
+fn parse_bg_position_items(input: &mut CssParser) -> Result<BgPosDecl, ()> {
+    let mut items = Vec::new();
+    while items.len() < 4 {
+        match bg_pos_item(input) {
+            Some(i) => items.push(i),
+            None => break,
+        }
+    }
+    let is_x = |c: char| matches!(c, 'l' | 'r');
+    let is_y = |c: char| matches!(c, 't' | 'b');
+    let center = BgAxisDecl { pct: 0.5, off: Length::Px(0.0) };
+    match items.as_slice() {
+        [] => Err(()),
+        [BgPosItem::Kw(k)] => Ok(if is_y(*k) {
+            BgPosDecl { x: center, y: bg_axis_from_kw(*k) }
+        } else {
+            BgPosDecl { x: bg_axis_from_kw(*k), y: center }
+        }),
+        [BgPosItem::Len(l)] => Ok(BgPosDecl { x: bg_axis_from_len(*l), y: center }),
+        [a, b] => {
+            let swap = match (a, b) {
+                (BgPosItem::Kw(a), BgPosItem::Kw(b)) => is_y(*a) || is_x(*b),
+                (BgPosItem::Kw(a), BgPosItem::Len(_)) => is_y(*a),
+                (BgPosItem::Len(_), BgPosItem::Kw(b)) => is_x(*b),
+                _ => false,
+            };
+            let (a, b) = if swap { (b, a) } else { (a, b) };
+            let ax = |i: &BgPosItem| match i {
+                BgPosItem::Kw(k) => bg_axis_from_kw(*k),
+                BgPosItem::Len(l) => bg_axis_from_len(*l),
+            };
+            // A keyword on the wrong axis (`left right`) is invalid.
+            if matches!(a, BgPosItem::Kw(k) if is_y(*k)) || matches!(b, BgPosItem::Kw(k) if is_x(*k)) {
+                return Err(());
+            }
+            Ok(BgPosDecl { x: ax(a), y: ax(b) })
+        }
+        _ => {
+            // Edge-offset form: two groups of `<keyword> [<length>]`.
+            let mut groups: Vec<(char, Option<Length>)> = Vec::new();
+            let mut i = 0;
+            while i < items.len() {
+                let BgPosItem::Kw(k) = items[i] else { return Err(()) };
+                if let Some(BgPosItem::Len(l)) = items.get(i + 1) {
+                    groups.push((k, Some(*l)));
+                    i += 2;
+                } else {
+                    groups.push((k, None));
+                    i += 1;
+                }
+            }
+            if groups.len() != 2 {
+                return Err(());
+            }
+            let axis = |k: char, l: Option<Length>| -> Result<BgAxisDecl, ()> {
+                match (k, l) {
+                    ('c', None) => Ok(center),
+                    ('c', Some(_)) => Err(()),
+                    (_, None) => Ok(bg_axis_from_kw(k)),
+                    (_, Some(Length::Percent(p))) => {
+                        let base = bg_axis_from_kw(k).pct;
+                        Ok(BgAxisDecl { pct: if matches!(k, 'r' | 'b') { base - p } else { base + p }, off: Length::Px(0.0) })
+                    }
+                    ('l' | 't', Some(l)) => Ok(BgAxisDecl { pct: 0.0, off: l }),
+                    (_, Some(l)) => Ok(BgAxisDecl { pct: 1.0, off: negate_length(l).ok_or(())? }),
+                }
+            };
+            let (g0, g1) = (groups[0], groups[1]);
+            let (xg, yg) = if is_y(g0.0) || is_x(g1.0) { (g1, g0) } else { (g0, g1) };
+            if is_y(xg.0) || is_x(yg.0) {
+                return Err(());
+            }
+            Ok(BgPosDecl { x: axis(xg.0, xg.1)?, y: axis(yg.0, yg.1)? })
+        }
+    }
+}
+
+fn parse_bg_position(input: &mut CssParser) -> Result<BgPosDecl, ()> {
+    parse_bg_position_items(input)
+}
+
+fn parse_bg_size_items(input: &mut CssParser) -> Result<BgSizeDecl, ()> {
+    let state = input.state();
+    if let Ok(Token::Ident(id)) = input.next() {
+        let l = id.to_ascii_lowercase();
+        if l == "cover" {
+            return Ok(BgSizeDecl::Cover);
+        }
+        if l == "contain" {
+            return Ok(BgSizeDecl::Contain);
+        }
+    }
+    input.reset(&state);
+    let dim = |input: &mut CssParser| -> Option<BgDimDecl> {
+        let st = input.state();
+        if let Ok(Token::Ident(id)) = input.next() {
+            if id.eq_ignore_ascii_case("auto") {
+                return Some(BgDimDecl::Auto);
+            }
+        }
+        input.reset(&st);
+        match parse_length_percent(input) {
+            Ok(Length::Calc(c)) if c.has_percent() => {
+                input.reset(&st);
+                None
+            }
+            Ok(l) => Some(BgDimDecl::Len(l)),
+            Err(_) => {
+                input.reset(&st);
+                None
+            }
+        }
+    };
+    let w = dim(input).ok_or(())?;
+    let h = dim(input).unwrap_or(BgDimDecl::Auto);
+    Ok(BgSizeDecl::Explicit(w, h))
+}
+
+fn parse_bg_size(input: &mut CssParser) -> Result<BgSizeDecl, ()> {
+    parse_bg_size_items(input)
+}
+
+/// `repeat-x`/`repeat-y`/`repeat`/`no-repeat`, or one keyword per axis.
+/// Returns `None` (without consuming) if the next token isn't one.
+fn parse_bg_repeat_items(input: &mut CssParser) -> Result<BgRepeat, ()> {
+    fn kw(input: &mut CssParser) -> Option<String> {
+        let st = input.state();
+        match input.next() {
+            Ok(Token::Ident(id)) => {
+                let l = id.to_ascii_lowercase();
+                if matches!(l.as_str(), "repeat-x" | "repeat-y" | "repeat" | "no-repeat" | "space" | "round") {
+                    return Some(l);
+                }
+                input.reset(&st);
+                None
+            }
+            _ => {
+                input.reset(&st);
+                None
+            }
+        }
+    }
+    let a = kw(input).ok_or(())?;
+    match a.as_str() {
+        "repeat-x" => return Ok(BgRepeat { x: true, y: false }),
+        "repeat-y" => return Ok(BgRepeat { x: false, y: true }),
+        _ => {}
+    }
+    let on = |s: &str| s != "no-repeat";
+    match kw(input) {
+        Some(b) if !b.starts_with("repeat-") => Ok(BgRepeat { x: on(&a), y: on(&b) }),
+        _ => Ok(BgRepeat { x: on(&a), y: on(&a) }),
+    }
+}
+
+fn parse_bg_repeat(input: &mut CssParser) -> Result<BgRepeat, ()> {
+    parse_bg_repeat_items(input)
+}
+
+/// What `parse_background_shorthand` found. `position`/`size`/`repeat`
+/// are from the first layer only.
+struct BgShorthand {
+    color: Option<CssColor>,
+    image: Option<String>,
+    position: Option<BgPosDecl>,
+    size: Option<BgSizeDecl>,
+    repeat: Option<BgRepeat>,
+}
+
+/// `background`'s grammar: a color, an image, `<position> [/ <size>]`
+/// and a repeat style, in any order. Attachment/origin/clip keywords and
+/// anything else unrecognized are skipped rather than failing the whole
+/// value (lenient, like `border`'s shorthand). Only the first layer of a
+/// comma list contributes the image, position, size and repeat; a color
+/// anywhere is taken.
+fn parse_background_shorthand(input: &mut CssParser) -> Result<BgShorthand, ()> {
+    let mut out = BgShorthand { color: None, image: None, position: None, size: None, repeat: None };
     let mut found = false;
+    let mut first_layer = true;
     loop {
         let state = input.state();
         if let Ok(url) = input.expect_url() {
-            image = Some(url.to_string());
+            if first_layer {
+                out.image = Some(url.to_string());
+            }
             found = true;
             continue;
         }
         input.reset(&state);
         if let Ok(c) = CssColor::parse(input) {
-            color = Some(c);
+            out.color = Some(c);
+            found = true;
+            continue;
+        }
+        input.reset(&state);
+        if let Ok(r) = parse_bg_repeat_items(input) {
+            if first_layer {
+                out.repeat = Some(r);
+            }
+            found = true;
+            continue;
+        }
+        input.reset(&state);
+        if let Ok(p) = parse_bg_position_items(input) {
+            let mut size = None;
+            let st = input.state();
+            if matches!(input.next(), Ok(Token::Delim('/'))) {
+                size = parse_bg_size_items(input).ok();
+            } else {
+                input.reset(&st);
+            }
+            if first_layer {
+                out.position = Some(p);
+                if size.is_some() {
+                    out.size = size;
+                }
+            }
             found = true;
             continue;
         }
         input.reset(&state);
         match input.next() {
+            Ok(Token::Comma) => first_layer = false,
             Ok(_) => {}
             Err(_) => break,
         }
     }
     if found {
-        Ok((color, image))
+        Ok(out)
     } else {
         Err(())
     }
@@ -4190,6 +4542,9 @@ impl Declarations {
         clear! {
             "color" => color, "background-color" => background_color,
             "background-image" => background_image, "display" => display,
+            "background-position" => background_position,
+            "background-size" => background_size,
+            "background-repeat" => background_repeat,
             "font-size" => font_size, "line-height" => line_height,
             "vertical-align" => vertical_align, "font-family" => font_family,
             "font-weight" => font_weight, "text-align" => text_align,
@@ -4293,14 +4648,31 @@ impl DeclParser<'_> {
             } else if let Ok(url) = input.expect_url() {
                 self.decls.background_image = Some(BackgroundImageDecl::Url(url.to_string()));
             }
+        } else if name.eq_ignore_ascii_case("background-position") {
+            if let Ok(v) = parse_bg_position(input) {
+                self.decls.background_position = Some(v);
+            }
+        } else if name.eq_ignore_ascii_case("background-size") {
+            if let Ok(v) = parse_bg_size(input) {
+                self.decls.background_size = Some(v);
+            }
+        } else if name.eq_ignore_ascii_case("background-repeat") {
+            if let Ok(v) = parse_bg_repeat(input) {
+                self.decls.background_repeat = Some(v);
+            }
         } else if name.eq_ignore_ascii_case("background") {
-            if let Ok((color, image)) = parse_background_shorthand(input) {
-                if let Some(c) = color {
+            if let Ok(bg) = parse_background_shorthand(input) {
+                if let Some(c) = bg.color {
                     self.decls.background_color = Some(c);
                 }
-                if let Some(url) = image {
+                if let Some(url) = bg.image {
                     self.decls.background_image = Some(BackgroundImageDecl::Url(url));
                 }
+                // The shorthand resets the three longhands to their
+                // initial values when it omits them.
+                self.decls.background_position = Some(bg.position.unwrap_or_default());
+                self.decls.background_size = Some(bg.size.unwrap_or_default());
+                self.decls.background_repeat = Some(bg.repeat.unwrap_or_default());
             }
         } else if parse_border_property(self.decls, name, input) {
         } else if name.eq_ignore_ascii_case("display") {
@@ -5664,6 +6036,9 @@ struct ComputedStyle {
     /// `None` means no `box-shadow` declared (or an unsupported form —
     /// see `BoxShadow`'s own docs). Not inherited.
     box_shadow: Option<ResolvedBoxShadow>,
+    /// `background-position`/`-size`/`-repeat` (Q16), applied by
+    /// `paint_background_image`. Not inherited.
+    bg_layout: BgLayout,
     /// Rounds both the background fill and (for `BorderStyle::Solid`
     /// only — see `fill_rounded_ring`'s own docs) the border itself, via
     /// `paint_box_decoration`. Not inherited. `BoxLength`, not a plain
@@ -5888,7 +6263,8 @@ static TEXT_DECO_KEYS: [&str; 4] = [
 /// CSS-wide keywords (`background` maps to colour + image).
 fn wide_keys(name: &str) -> Option<&'static [&'static str]> {
     const SINGLE: &[&str] = &[
-        "color", "background-color", "background-image", "display", "font-size",
+        "color", "background-color", "background-image", "background-position",
+        "background-size", "background-repeat", "display", "font-size",
         "line-height", "vertical-align", "font-family", "font-weight", "text-align",
         "white-space", "cursor", "visibility", "position", "float", "clear", "top",
         "right", "bottom", "left", "z-index", "width", "height", "min-width",
@@ -5913,7 +6289,10 @@ fn wide_keys(name: &str) -> Option<&'static [&'static str]> {
         return Some(std::slice::from_ref(&BORDER_WIDE_KEYS[k]));
     }
     Some(match l {
-        "background" => &["background-color", "background-image"],
+        "background" => &[
+            "background-color", "background-image", "background-position",
+            "background-size", "background-repeat",
+        ],
         "font" => &["font-size", "line-height", "font-family", "font-weight", "font-style"],
         "margin" => &["margin-top", "margin-right", "margin-bottom", "margin-left"],
         "margin-block-start" => &["margin-top"],
@@ -6624,6 +7003,46 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
             color,
         }),
     });
+    let bg_layout = {
+        let rl = |l: Length| l.resolve(font_size, inherited.root_font_size);
+        let pos = apply_wide(
+            cascade_css(&matches, inl, "background-position", |d| d.background_position),
+            false,
+            BgPosDecl::default(),
+            BgPosDecl::default(),
+            Some,
+        );
+        let size = apply_wide(
+            cascade_css(&matches, inl, "background-size", |d| d.background_size),
+            false,
+            BgSizeDecl::default(),
+            BgSizeDecl::default(),
+            Some,
+        );
+        let repeat = apply_wide(
+            cascade_css(&matches, inl, "background-repeat", |d| d.background_repeat),
+            false,
+            BgRepeat::default(),
+            BgRepeat::default(),
+            Some,
+        );
+        let dim = |d: BgDimDecl| match d {
+            BgDimDecl::Auto => BgDim::Auto,
+            BgDimDecl::Len(Length::Percent(p)) => BgDim::Pct(p),
+            BgDimDecl::Len(l) => BgDim::Px(rl(l)),
+        };
+        BgLayout {
+            pos_x: (pos.x.pct, rl(pos.x.off)),
+            pos_y: (pos.y.pct, rl(pos.y.off)),
+            size: match size {
+                BgSizeDecl::Auto => BgSize::Explicit(BgDim::Auto, BgDim::Auto),
+                BgSizeDecl::Cover => BgSize::Cover,
+                BgSizeDecl::Contain => BgSize::Contain,
+                BgSizeDecl::Explicit(w, h) => BgSize::Explicit(dim(w), dim(h)),
+            },
+            repeat,
+        }
+    };
     let border_radius = cascade_property(
         &matches,
         inline_decls.as_ref().and_then(|d| d.border_radius),
@@ -6758,6 +7177,7 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         outline_width,
         outline_color,
         box_shadow,
+        bg_layout,
         border_radius,
         overflow,
         icb_height: None,
@@ -6831,6 +7251,7 @@ fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         outline_width: 0.0,
         outline_color: None,
         box_shadow: None,
+        bg_layout: BgLayout::default(),
         border_radius: BoxLength::default(),
         overflow: Overflow::default(),
         icb_height: None,
@@ -12549,15 +12970,12 @@ fn paint_box_decoration(
             fill_rect(pixels, win_w, win_h, x, y, w, h, bg, clip);
         }
     }
-    // Layers on top of `background-color`, same real-CSS stacking —
-    // tiled at its own intrinsic size (`background-repeat: repeat`/
-    // `background-position: 0 0`, the unqualified default — no
-    // `background-size`/`-position`/`-repeat` longhand control yet, see
-    // TODO.txt). Not clipped to `border-radius`'s rounded corners even
-    // when `round` is true — same square-tile painting regardless, a
-    // further simplification nothing has needed yet.
+    // Layers on top of `background-color`, same real-CSS stacking; sized,
+    // positioned and repeated per `bg_layout`, and clipped to the
+    // rounded corners when `border-radius` is set. Origin/size use the
+    // border box (real CSS uses the padding box by default).
     if let Some(image) = background_image {
-        tile_image(image, pixels, win_w, win_h, x, y, w, h, clip);
+        paint_background_image(image, &s.bg_layout, pixels, win_w, win_h, x, y, w, h, border_radius, clip);
     }
     if ring_path {
         if s.border_width[0] > 0.0 && s.border_style[0] != BorderStyle::None {
@@ -12935,19 +13353,54 @@ fn blit_image(image: &DecodedImage, pixels: &mut [u32], win_w: u32, win_h: u32, 
     }
 }
 
-/// Tiles a decoded image across `(x, y, w, h)` at its own intrinsic
-/// size — real CSS's unqualified `background-image: url(...)` default
-/// (`background-repeat: repeat`, `background-position: 0 0` — no
-/// longhand control over either yet, see TODO.txt). Composited the same
-/// `blend` way every other paint primitive is, tile by tile, so a
-/// partially transparent tile shows whatever painted underneath it
-/// (this box's own `background-color`, if any — `paint_box_decoration`
-/// fills that first).
+/// Paints a background image per `layout` (Q16): `background-size`
+/// (`cover`/`contain`/explicit/auto, with a missing axis following the
+/// image's aspect), `background-position` (a fraction of the free space
+/// plus an offset, per axis), and `background-repeat` per axis. The
+/// painted area is clipped to the box's rounded corners (`radius`).
+/// Nearest-neighbour sampling.
 #[allow(clippy::too_many_arguments)]
-fn tile_image(image: &DecodedImage, pixels: &mut [u32], win_w: u32, win_h: u32, x: f32, y: f32, w: f32, h: f32, clip: Option<(f32, f32, f32, f32)>) {
+fn paint_background_image(
+    image: &DecodedImage,
+    layout: &BgLayout,
+    pixels: &mut [u32],
+    win_w: u32,
+    win_h: u32,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    radius: f32,
+    clip: Option<(f32, f32, f32, f32)>,
+) {
     if image.width == 0 || image.height == 0 || w <= 0.0 || h <= 0.0 {
         return;
     }
+    let (iw, ih) = (image.width as f32, image.height as f32);
+    let dim = |d: BgDim, basis: f32| match d {
+        BgDim::Auto => None,
+        BgDim::Px(v) => Some(v),
+        BgDim::Pct(p) => Some(basis * p),
+    };
+    let (tw, th) = match layout.size {
+        BgSize::Cover | BgSize::Contain => {
+            let sx = w / iw;
+            let sy = h / ih;
+            let sc = if layout.size == BgSize::Cover { sx.max(sy) } else { sx.min(sy) };
+            (iw * sc, ih * sc)
+        }
+        BgSize::Explicit(dw, dh) => match (dim(dw, w), dim(dh, h)) {
+            (None, None) => (iw, ih),
+            (Some(a), None) => (a, a * ih / iw),
+            (None, Some(b)) => (b * iw / ih, b),
+            (Some(a), Some(b)) => (a, b),
+        },
+    };
+    if tw < 0.5 || th < 0.5 {
+        return;
+    }
+    let ox = x + layout.pos_x.0 * (w - tw) + layout.pos_x.1;
+    let oy = y + layout.pos_y.0 * (h - th) + layout.pos_y.1;
     let (cx, cy, cw, ch) = intersect_clip(x, y, w, h, clip);
     let x0 = cx.max(0.0) as i64;
     let y0 = cy.max(0.0) as i64;
@@ -12956,21 +13409,43 @@ fn tile_image(image: &DecodedImage, pixels: &mut [u32], win_w: u32, win_h: u32, 
     if x1 <= x0 || y1 <= y0 {
         return;
     }
-    let (iw, ih) = (image.width as i64, image.height as i64);
+    let r = radius.min(w / 2.0).min(h / 2.0).max(0.0);
     for py in y0..y1 {
-        // `rem_euclid` (not `%`) so the tile pattern still lines up
-        // correctly when the box's own origin (`x`/`y`) sits at a
-        // fractional or negative offset from the pixel grid — a plain
-        // `%` would give a negative remainder there and sample out of
-        // bounds.
-        let sy = ((py as f32 - y) as i64).rem_euclid(ih) as u32;
-        for px in x0..x1 {
-            let sx = ((px as f32 - x) as i64).rem_euclid(iw) as u32;
+        let mut dy = py as f32 - oy;
+        if layout.repeat.y {
+            dy = dy.rem_euclid(th);
+        } else if dy < 0.0 || dy >= th {
+            continue;
+        }
+        let sy = ((dy / th * ih) as u32).min(image.height - 1);
+        let (lo, hi) = if r > 0.0 {
+            let ry = ((py as f32 - y).min((y + h) - py as f32 - 1.0)).max(0.0);
+            let inset = corner_inset(ry, r);
+            ((x + inset).ceil() as i64, (x + w - inset).floor() as i64)
+        } else {
+            (x0, x1)
+        };
+        for px in x0.max(lo)..x1.min(hi) {
+            let mut dx = px as f32 - ox;
+            if layout.repeat.x {
+                dx = dx.rem_euclid(tw);
+            } else if dx < 0.0 || dx >= tw {
+                continue;
+            }
+            let sx = ((dx / tw * iw) as u32).min(image.width - 1);
             let color = image.pixels[(sy * image.width + sx) as usize];
             let idx = (py as u32 * win_w + px as u32) as usize;
             pixels[idx] = blend(pixels[idx], color);
         }
     }
+}
+
+/// Default layout (intrinsic size, `0 0`, repeating) — kept for the
+/// unit test of the basic tiling behaviour.
+#[cfg(test)]
+#[allow(clippy::too_many_arguments)]
+fn tile_image(image: &DecodedImage, pixels: &mut [u32], win_w: u32, win_h: u32, x: f32, y: f32, w: f32, h: f32, clip: Option<(f32, f32, f32, f32)>) {
+    paint_background_image(image, &BgLayout::default(), pixels, win_w, win_h, x, y, w, h, 0.0, clip);
 }
 
 /// `overflow: scroll`/`auto`'s own minimal scrollbar indicator (v62) —
@@ -17114,6 +17589,54 @@ mod tests {
         paint(&laid, &mut font_system, &mut swash_cache, &mut cache, &HashMap::new(), &mut pixels, win_w, win_h, 0.0, None);
         let px = pixels[20 * win_w as usize + 20];
         assert_eq!(px & 0x00FF_FFFF, 0x00FF_0000, "`background: #ff0000` shorthand should paint the same red as `background-color` would");
+    }
+
+    #[test]
+    fn q16_background_longhands_parse_and_paint() {
+        let src = tiny_png_data_uri(4, 4);
+        let layout_of = |css: &str| {
+            let html = format!(r#"<html><body><div style="width: 13px; height: 13px; {css}"></div></body></html>"#);
+            let laid = measure_fixture(&html, 200.0);
+            find_by_width(&laid, 13.0).expect("div not found").style.bg_layout
+        };
+        let l = layout_of("background-position: right 10px bottom 20px; background-size: cover; background-repeat: no-repeat;");
+        assert_eq!((l.pos_x, l.pos_y), ((1.0, -10.0), (1.0, -20.0)));
+        assert_eq!(l.size, BgSize::Cover);
+        assert_eq!(l.repeat, BgRepeat { x: false, y: false });
+        let l = layout_of("background-position: top; background-size: 50% auto; background-repeat: repeat-x;");
+        assert_eq!((l.pos_x, l.pos_y), ((0.5, 0.0), (0.0, 0.0)));
+        assert_eq!(l.size, BgSize::Explicit(BgDim::Pct(0.5), BgDim::Auto));
+        assert_eq!(l.repeat, BgRepeat { x: true, y: false });
+        let l = layout_of(&format!("background: url('{src}') center / contain no-repeat red;"));
+        assert_eq!((l.pos_x, l.pos_y), ((0.5, 0.0), (0.5, 0.0)));
+        assert_eq!(l.size, BgSize::Contain);
+        assert_eq!(l.repeat, BgRepeat { x: false, y: false });
+        let l = layout_of("background: red; background-position: 3px 4px;");
+        assert_eq!((l.pos_x, l.pos_y), ((0.0, 3.0), (0.0, 4.0)));
+        assert_eq!(layout_of("background: red;"), BgLayout::default(), "shorthand resets the longhands");
+
+        // Painting: a 2x2 red image in a 10x10 box.
+        let red = TextColor::rgb(255, 0, 0);
+        let image = DecodedImage { width: 2, height: 2, pixels: vec![red; 4], svg: None };
+        let paint = |layout: BgLayout, radius: f32| {
+            let mut px = vec![0u32; 100];
+            paint_background_image(&image, &layout, &mut px, 10, 10, 0.0, 0.0, 10.0, 10.0, radius, None);
+            px
+        };
+        let on = |px: &[u32], x: usize, y: usize| px[y * 10 + x] & 0xFFFFFF == 0xFF0000;
+        let base = BgLayout { repeat: BgRepeat { x: false, y: false }, ..BgLayout::default() };
+        let px = paint(base, 0.0);
+        assert!(on(&px, 1, 1) && !on(&px, 2, 0) && !on(&px, 0, 2), "no-repeat paints one 2x2 tile");
+        let px = paint(BgLayout { pos_x: (1.0, 0.0), pos_y: (1.0, -1.0), ..base }, 0.0);
+        assert!(on(&px, 9, 7) && on(&px, 8, 8) && !on(&px, 9, 9), "right/bottom minus 1px offset");
+        let px = paint(BgLayout { size: BgSize::Cover, ..base }, 0.0);
+        assert!(on(&px, 0, 0) && on(&px, 9, 9), "cover fills the box");
+        let px = paint(BgLayout { size: BgSize::Explicit(BgDim::Px(6.0), BgDim::Auto), ..base }, 0.0);
+        assert!(on(&px, 5, 5) && !on(&px, 6, 0) && !on(&px, 0, 6), "one explicit axis keeps the aspect");
+        let px = paint(BgLayout { repeat: BgRepeat { x: true, y: false }, ..base }, 0.0);
+        assert!(on(&px, 9, 1) && !on(&px, 0, 2), "repeat-x repeats only horizontally");
+        let px = paint(BgLayout { size: BgSize::Cover, ..base }, 5.0);
+        assert!(!on(&px, 0, 0) && on(&px, 5, 5), "rounded corners clip the image");
     }
 
     #[test]

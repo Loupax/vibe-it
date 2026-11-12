@@ -5855,3 +5855,12 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > Implement the first unchecked sub-item of Q15 (Q15d) in scratchy/TODO.txt.
 
 **What changed:** new `GridTrackSpec::AutoRepeat { fit, tracks }`, parsed by `parse_grid_repeat` (`parse_nested_auto_repeat_keyword`); every repeated track must have a definite length (a length, or `minmax()` with a length side), and only one auto-repeat per list is allowed. Columns only: `grid-template-rows` and the `grid-template` row part reject it (`reject_auto_repeat`). `measure_grid` expands it against the container content width with `expand_auto_repeat` (count = floor((available - other tracks) / (repeat width + gaps)), at least 1) before placement; for `auto-fit`, repetitions with no item collapse to `0px` after placement. Test: `q15d_grid_repeat_auto_fill_fit`. `grim` worked: `repeat(auto-fill, minmax(120px,1fr))` in 700px gave five 140px columns with seven items wrapping, and `auto-fit` stretched two items to 350px each. Left out: gaps next to collapsed `auto-fit` tracks are not collapsed, auto-repeat in rows, intrinsic-size (`auto`/`min-content`) tracks inside the repeat. This completes Q15.
+
+---
+
+## Q16 — Background longhands (queue item)
+
+> Implement the first unchecked item (Q16) of the ranked QUEUE in scratchy/TODO.txt.
+
+**What changed:** `background-position`, `background-size` and `background-repeat` parse (`parse_bg_position_items`, `parse_bg_size_items`, `parse_bg_repeat_items`) into `Declarations`, cascade with CSS-wide keywords, and resolve into the Copy `ComputedStyle::bg_layout` (`BgLayout`). Position supports keywords, lengths, percentages and the 3/4-value edge-offset form; size supports `cover`, `contain`, explicit and `auto` (a missing axis keeps the image aspect); repeat supports `repeat-x`/`-y`/`no-repeat` and per-axis pairs. `parse_background_shorthand` now returns a `BgShorthand` and fills position, `/ size` and repeat from the first layer (and resets the three longhands to initial). `paint_background_image` replaces the old tiler (kept as a test-only `tile_image` wrapper) and clips the image to the `border-radius` rounded corners. Test: `q16_background_longhands_parse_and_paint`. `grim` worked: a checker image rendered as a bottom-right `no-repeat` tile, `cover` clipped to rounded corners, `repeat-x` at 40px, and `contain` centered. Left out: multiple background layers (first layer only), `background-origin`/`-clip`/`-attachment` (origin is the border box), `space`/`round` (act as `repeat`), `%` inside `calc()` for position/size.
+
