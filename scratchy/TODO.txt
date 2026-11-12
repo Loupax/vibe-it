@@ -406,10 +406,10 @@ dropped selectors summed across those pages. Caveats:
       style and string `content` (`none` removes it). `li::before` already
       coexists with the marker (it is generated after the marker prefix).
       Left out: `attr()`/counter content in `::marker`, marker on non-`li`.
-- [x] Q19d [S] (HASH) `content: url(...)`: an image as generated content (fetch
+- [x] Q19d [S] (c1507db) `content: url(...)`: an image as generated content (fetch
       via the same path as `<img>`; needs the image cache keyed at
       precompute time).
-      DONE (HASH): a lone `url()` parses to `ContentDecl::Image`;
+      DONE (c1507db): a lone `url()` parses to `ContentDecl::Image`;
       `generated_content` decodes a `data:` URI or looks the raw text up
       in `image_cache`; `push_generated_image` emits an inline image item
       or a block image box. Left out: url() mixed with strings,
