@@ -6051,6 +6051,31 @@ struct Sides {
     left: BoxLength,
 }
 
+/// The properties a `::first-line` rule actually changed relative to the
+/// element's own style (each `None` means "leave the span alone").
+#[derive(Clone, Copy, Default)]
+struct FirstLineStyle {
+    color: Option<TextColor>,
+    background_color: Option<TextColor>,
+    font_size: Option<f32>,
+    font_weight: Option<FontWeight>,
+    font_style: Option<FontStyle>,
+    line_height: Option<f32>,
+    word_spacing: Option<f32>,
+}
+
+impl FirstLineStyle {
+    fn apply(&self, span: &mut SpanStyle) {
+        if let Some(v) = self.color { span.color = v; }
+        if let Some(v) = self.background_color { span.background_color = Some(v); }
+        if let Some(v) = self.font_size { span.font_size = v; }
+        if let Some(v) = self.font_weight { span.font_weight = v; }
+        if let Some(v) = self.font_style { span.font_style = v; }
+        if let Some(v) = self.line_height { span.line_height = v; }
+        if let Some(v) = self.word_spacing { span.word_spacing = v; }
+    }
+}
+
 #[derive(Clone, Copy)]
 struct ComputedStyle {
     /// This element's resolved custom properties (Q13): inherited from
@@ -6241,6 +6266,10 @@ struct ComputedStyle {
     /// without pinning the root's own height, which `redraw` reads as
     /// the scrollable content height.
     icb_height: Option<f32>,
+    /// `::first-line` overrides (Q19e2), set only on the anonymous inline
+    /// run box that `apply_first_line` picks. Applied at layout time by
+    /// `measure`'s `Inline` arm once the first line's extent is known.
+    first_line: Option<FirstLineStyle>,
     cursor: CursorStyle,
     /// The following flexbox fields are all not inherited (same category
     /// as `border_width`/`overflow`) — a flex container's own `display:
@@ -7422,6 +7451,7 @@ fn resolve_style_for(
         border_radius,
         overflow,
         icb_height: None,
+        first_line: None,
         cursor,
         flex_direction,
         flex_wrap,
@@ -7497,6 +7527,7 @@ fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         border_radius: BoxLength::default(),
         overflow: Overflow::default(),
         icb_height: None,
+        first_line: None,
         cursor: inherited.cursor,
         flex_direction: FlexDirection::default(),
         flex_wrap: FlexWrap::default(),
@@ -8362,7 +8393,92 @@ fn build_children_with_prefix(
         });
     }
     apply_first_letter(handle, rules, inherited, viewport_width, has_prefix, &mut result);
+    apply_first_line(handle, rules, inherited, viewport_width, &mut result);
     result
+}
+
+/// `::first-line` (Q19e2): records, on the first anonymous inline run, the
+/// properties the pseudo's rules change relative to the element's own
+/// style. The line's extent is only known at layout, so `measure`'s
+/// `Inline` arm does the actual split (`apply_first_line_split`).
+fn apply_first_line(
+    handle: &Handle,
+    rules: &[StyleRule],
+    inherited: InheritedStyle,
+    viewport_width: f32,
+    result: &mut [LayoutBox],
+) {
+    if !matches!(handle.data, NodeData::Element { .. })
+        || !rules.iter().any(|r| {
+            r.selectors.slice().iter().any(|s| matches!(s.pseudo_element(), Some(OurPseudoElement::Named("first-line"))))
+        })
+    {
+        return;
+    }
+    let Some(first) = result.first_mut() else { return };
+    if !matches!(first.content, BoxContent::Inline(_)) {
+        return;
+    }
+    if matching_declarations_for(handle, rules, viewport_width, Some("first-line")).is_empty() {
+        return;
+    }
+    let base: SpanStyle = inherited.into();
+    let pseudo_style = resolve_style_for(handle, rules, inherited, viewport_width, Some("first-line"));
+    let p: SpanStyle = pseudo_style.inherited().into();
+    let diff = |changed: bool| changed;
+    let fl = FirstLineStyle {
+        color: diff(p.color != base.color).then_some(p.color),
+        background_color: pseudo_style.background_color,
+        font_size: diff(p.font_size != base.font_size).then_some(p.font_size),
+        font_weight: diff(p.font_weight != base.font_weight).then_some(p.font_weight),
+        font_style: diff(p.font_style != base.font_style).then_some(p.font_style),
+        line_height: diff(p.line_height != base.line_height).then_some(p.line_height),
+        word_spacing: diff(p.word_spacing != base.word_spacing).then_some(p.word_spacing),
+    };
+    first.style.first_line = Some(fl);
+}
+
+/// Splits `items` at byte offset `end` (into the concatenated text) and
+/// restyles everything before it with `fl`.
+fn apply_first_line_split(items: &[InlineItem], end: usize, fl: &FirstLineStyle) -> Vec<InlineItem> {
+    let mut out = Vec::with_capacity(items.len() + 1);
+    let mut pos = 0usize;
+    for item in items {
+        match item {
+            InlineItem::Text(text, span) => {
+                let len = text.len();
+                if pos + len <= end {
+                    let mut s = *span;
+                    fl.apply(&mut s);
+                    out.push(InlineItem::Text(text.clone(), s));
+                } else if pos >= end {
+                    out.push(InlineItem::Text(text.clone(), *span));
+                } else {
+                    let mut cut = end - pos;
+                    while !text.is_char_boundary(cut) {
+                        cut += 1;
+                    }
+                    let mut s = *span;
+                    fl.apply(&mut s);
+                    out.push(InlineItem::Text(text[..cut].to_string(), s));
+                    out.push(InlineItem::Text(text[cut..].to_string(), *span));
+                }
+                pos += len;
+            }
+            InlineItem::Image { image, style, background_image } => {
+                out.push(InlineItem::Image { image: image.clone(), style: *style, background_image: background_image.clone() });
+            }
+            InlineItem::Embedded(_) => return items_clone_fallback(items),
+        }
+    }
+    out
+}
+
+fn items_clone_fallback(items: &[InlineItem]) -> Vec<InlineItem> {
+    items.iter().filter_map(|i| match i {
+        InlineItem::Text(t, s) => Some(InlineItem::Text(t.clone(), *s)),
+        _ => None,
+    }).collect()
 }
 
 /// `::first-letter` (Q19e): styles the first letter (with any leading
@@ -10250,13 +10366,29 @@ pub fn measure<'a>(
                 );
                 0.0
             } else if std::time::Instant::now() < deadline {
-                let (buffer, h, backgrounds, valigns, hidden, cursors, decoration_styles, hrefs) = shape_spans(
-                    font_system,
-                    items,
-                    content_w,
-                    matches!(s.white_space, WhiteSpace::Pre | WhiteSpace::Nowrap),
-                    s.text_align.to_cosmic(),
-                );
+                let pre = matches!(s.white_space, WhiteSpace::Pre | WhiteSpace::Nowrap);
+                let mut shaped = shape_spans(font_system, items, content_w, pre, s.text_align.to_cosmic());
+                // `::first-line` (Q19e2): find where the first laid-out
+                // line ends, restyle that prefix, and shape again. The
+                // restyle can move the break; that is not re-iterated.
+                if let Some(fl) = s.first_line {
+                    let first_end = |b: &Buffer| b.layout_runs().next().and_then(|run| run.glyphs.iter().map(|g| g.end).max());
+                    let mut end = first_end(&shaped.0);
+                    // The restyle (bigger/bolder text) can move the break,
+                    // so re-split until the styled prefix is exactly the
+                    // first line (bounded; no convergence guarantee).
+                    for _ in 0..4 {
+                        let Some(e) = end else { break };
+                        let restyled = apply_first_line_split(items, e, &fl);
+                        shaped = shape_spans(font_system, &restyled, content_w, pre, s.text_align.to_cosmic());
+                        let new_end = first_end(&shaped.0);
+                        if new_end == Some(e) {
+                            break;
+                        }
+                        end = new_end;
+                    }
+                }
+                let (buffer, h, backgrounds, valigns, hidden, cursors, decoration_styles, hrefs) = shaped;
                 cache.insert(id, Arc::new(Mutex::new((buffer, h, backgrounds, valigns, hidden, cursors, decoration_styles, hrefs))));
                 h
             } else {
@@ -18006,6 +18138,38 @@ mod tests {
         assert!(texts.iter().any(|(t, c)| t == "\"H" && *c == red), "{texts:?}");
         assert!(texts.iter().any(|(t, c)| t == "ello world " && *c != red), "{texts:?}");
         assert!(texts.iter().any(|(t, c)| t == "plain " && *c != red), "{texts:?}");
+    }
+
+    #[test]
+    fn q19e2_first_line_styles_only_the_first_laid_out_line() {
+        let doc = parse_html(
+            r#"<html><head><style>
+            p { width: 120px; margin: 0; }
+            p::first-line { color: #ff0000; }
+            </style></head><body><p>aaa bbb ccc ddd eee fff ggg hhh iii jjj kkk lll</p></body></html>"#,
+        );
+        let tree = build_layout_tree(&doc, 1920.0);
+        let mut font_system = new_font_system();
+        let mut cache = ShapeCache::new();
+        let mut next_id = 0usize;
+        let mut incomplete = false;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        measure_document(&tree, &mut font_system, 400.0, 400.0, &mut next_id, &mut cache, deadline, &mut incomplete);
+        let red = TextColor::rgb(0xff, 0, 0);
+        let mut lines: Vec<bool> = Vec::new();
+        for entry in cache.values() {
+            let guard = entry.lock().unwrap();
+            let runs: Vec<_> = guard.0.layout_runs().collect();
+            if runs.len() < 2 {
+                continue;
+            }
+            for run in runs {
+                lines.push(run.glyphs.iter().all(|g| g.color_opt == Some(red)));
+            }
+        }
+        assert!(lines.len() >= 2, "paragraph should wrap: {lines:?}");
+        assert!(lines[0], "first line red: {lines:?}");
+        assert!(lines[1..].iter().all(|r| !r), "later lines not red: {lines:?}");
     }
 
     #[test]
