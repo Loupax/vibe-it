@@ -277,7 +277,7 @@ dropped selectors summed across those pages. Caveats:
       Done. Notes: `CalcNode` tree (leaked via `Box::leak` so `Length`
       stays `Copy`) in `Length::Calc`; `%`-bearing ones become
       `BoxLength::Calc(node, font_size, root_font_size)`. vw/vh units
-      are not accepted yet (Q14 should add a `CalcNode` leaf). In flex
+      are accepted since Q14 (`CalcNode::Vp`). In flex
       basis / grid track `Length::Calc` with a `%` resolves the `%`
       against the font size (wrong basis); rare, not worth an item.
       `var()` inside calc now works (Q13).
@@ -322,7 +322,7 @@ dropped selectors summed across those pages. Caveats:
       Tests: `.dark{--bg:black} .dark p{background-color:var(--bg)}`,
       plus a chained `--b: var(--a)`.
 
-- [ ] Q14 [M] Viewport units and initial-containing-block height. Add
+- [x] Q14 [M] (commit: 35c826a) Viewport units and initial-containing-block height. Add
       `vw`, `vh`, `vmin` and `vmax`; they need the viewport size
       threaded wherever `em`/`rem` are resolved. Give the document root
       a definite height equal to the window height, so
@@ -513,7 +513,7 @@ HISTORY AND DETAIL (everything below is the original log)
       for any other property scratchy supports (`z-index`/`flex`/etc.,
       where it would be valid, aren't implemented at all).
 
-      - [ ] No viewport/initial-containing-block height concept exists
+      - [x] (Q14, commit: 35c826a) No viewport/initial-containing-block height concept exists
             (v49) — unlike a real UA, whose initial containing block
             always has the window's own definite height, this engine's
             document-root box (a synthetic wrapper `<html>` is laid out
@@ -533,6 +533,14 @@ HISTORY AND DETAIL (everything below is the original log)
             "containing-block-height" role and its "total content
             height for scrolling" role separated before this can be
             revisited, not a one-line fix.
+            Done in Q14: `ComputedStyle::icb_height` on the synthetic
+            root feeds only `child_containing_height`, and
+            `measure_document` grows the root `Laid`'s `h` to the lowest
+            in-flow descendant edge (`in_flow_bottom`), so an
+            `html{height:100%}` page whose content overflows still
+            scrolls. `build_layout_tree` (no height) leaves the ICB
+            indefinite, as before. Not done: `@media (height)` /
+            `(min-height)` features, and `dvh`/`svh`/`lvh` units.
 
 - [x] Table layout (53bab7a) now does real CSS2.1 §17.5.2.2
       automatic table layout: each column's width is sized from the

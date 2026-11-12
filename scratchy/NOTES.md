@@ -2869,3 +2869,18 @@ pointer. Cost: each element matching a rule with `var()` re-parses those
 declarations (resolve_style runs several times per element), which is
 fine at current page sizes but the first thing to cache if profiling
 points here.
+
+## Q14 — viewport units and the initial containing block
+
+Two separate roles used to share the root `Laid`'s `h`: the basis for
+`%` heights, and the scrollable content height `redraw` clamps to. They
+are now split. `ComputedStyle::icb_height` (set only on the synthetic
+root box, from the window height) feeds `child_containing_height` and
+nothing else, so the root's own height stays content-driven.
+`measure_document` additionally raises the root's `h` to `in_flow_bottom`
+(lowest in-flow descendant edge, not descending into overflow-clipping
+boxes), because `html{height:100%}` ends at the window bottom while its
+content overflows. `vw`/`vh`/`vmin`/`vmax` resolve from a thread-local
+(`set_viewport`) written at the start of every style build; layout-time
+`BoxLength::Calc` carries a copy since it resolves on the worker thread.
+Height changes now trigger a rebuild (`App::cached_height`).
