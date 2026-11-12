@@ -5736,3 +5736,12 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > scratchy/TODO.txt.
 
 **What changed:** `wide_keys` maps every property name (longhand, shorthand, logical margin/padding) to canonical keys; `Declarations::set_wide`/`clear_typed`/`has_typed` keep keyword and typed value mutually exclusive for all of them. `InheritedStyle` now carries `parent: Option<ComputedStyle>`, and a post-pass in `resolve_style` (`apply_rest_wide`, run only if some matched rule declared a keyword) cascades each keyword key with `cascade_css` and, when a keyword wins, `copy_prop`s the parent's or the initial value (`anonymous_style(ROOT_STYLE)`) into the result; the float/position forced-block `display` rule is re-applied afterwards. `resolve_background_image` now uses `cascade_css`: `inherit` recurses to the parent element, other keywords give no image; `background` maps to colour + image. Test: `q7b_css_wide_keywords_on_remaining_properties`. `grim` worked: a `<p>` with `margin/padding/border/background/width: inherit` inside a bordered div rendered with the inherited values. Left out (new QUEUE item Q7c): text-decoration properties, other logical shorthands.
+
+---
+
+## Q7c — CSS-wide keywords on text-decoration and logical shorthands (queue item)
+
+> Implement the first unchecked item (Q7c) of the ranked QUEUE in
+> scratchy/TODO.txt.
+
+**What changed:** `wide_keys` now maps `text-decoration` (+ `-line`/`-style`/`-color`, via `TEXT_DECO_KEYS`), `inset*`, and `border-block/inline*` (shorthands, -start/-end, -width/-style/-color) to canonical keys; `clear_typed` knows the four text-decoration fields. `resolve_style` cascades the four text-decoration properties with `cascade_css`: `inherit` copies the parent's own cascaded value (via `InheritedStyle.parent`), `initial`/`unset`/`revert` give "not declared" (the ambient decoration an ancestor draws is unaffected, as in real CSS). Logical keys reuse the existing `copy_prop` path. Test: `q7c_css_wide_keywords_text_decoration_and_logical_shorthands`. `grim` worked: a `<p>` with `text-decoration-line/-color: inherit; border-block: inherit` showed a red underline and top/bottom blue borders. Left out (noted in TODO, no new item): `font-variant`/`letter-spacing`, which scratchy doesn't parse, so a keyword has nothing to apply to.
