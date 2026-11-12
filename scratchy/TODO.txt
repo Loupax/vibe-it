@@ -221,7 +221,7 @@ dropped selectors summed across those pages. Caveats:
       iso-8859-1>` decodes "é" correctly, and a BOM'd UTF-8 input still
       works.
 
-- [x] Q9 [S] (HASH) `vertical-align` beyond `sub`/`super` (n=109: `middle` 49,
+- [x] Q9 [S] (f43f902) `vertical-align` beyond `sub`/`super` (n=109: `middle` 49,
       `text-bottom` 23, `top` 13, `bottom` 5, `text-top` 2). Add these
       variants to `VerticalAlign`. Two places use them:
       (a) Table cells: `top`, `middle` and `bottom` offset the cell's
