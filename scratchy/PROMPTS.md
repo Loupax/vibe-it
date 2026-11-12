@@ -5772,3 +5772,12 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > scratchy/TODO.txt.
 
 **What changed:** `TopLevelParser`'s prelude is now `AtPrelude` (`Media(..)` or `Supports(bool)`). `parse_supports_condition`/`parse_supports_in_parens` evaluate `not`, `and`, `or` (mixing the two unparenthesised is false), nested parentheses, `(prop: value)` and `selector(...)`; unknown functions and unparseable conditions are false. A `(prop: value)` holds if `DeclParser::apply` on a scratch `Declarations` sets anything (same "a branch accepted it" signal as Q1's debug check). A true block recurses exactly like `@media`; a false one is consumed and yields no rules (so it no longer shows as "dropped" in `SCRATCHY_CSS_DEBUG`; that test now uses `@font-face`). Test: `q10_supports_conditions_gate_blocks`. `grim` worked: `p{color:blue}` plus `@supports (display:grid){p{color:green}}` rendered green, with the false `@supports` blocks ignored. Left out: nothing.
+
+---
+
+## Q11 — `calc()`, `min()`, `max()`, `clamp()` (queue item)
+
+> Implement the first unchecked item (Q11) of the ranked QUEUE in
+> scratchy/TODO.txt.
+
+**What changed:** `parse_length`/`parse_length_percent` accept the four math functions via `parse_calc_function`/`parse_calc_body` (recursive descent: `parse_calc_sum`/`_product`/`_atom`), building a `CalcNode` tree (px/em/rem/pt/% leaves, `+ - * /`, nested parentheses and functions). The tree is type-checked (`CalcNode::is_length`): length+number, length*length, division by a non-number or literal zero, and non-length results make the declaration drop. `Length::Calc` resolves eagerly (`Length::resolve`) unless it contains a `%`, in which case `BoxLength::Calc` carries the font sizes and resolves in `measure` against the containing block (`BoxLength::resolve`/`resolve_opt`, which also replaced three copies of the percent-height match). `media_feature_length_px` evaluates `calc()` in `@media` features, so the old "calc never matches" test became `media_calc_feature_value_is_evaluated`. Test: `q11_calc_min_max_clamp`. `grim` worked: `width:calc(100% - 200px)` and `min(300px,50%)` blocks rendered at 854px and 300px in a 1054px window. Left out (noted in TODO, no new item): vw/vh (Q14), `var()` inside calc, `%` in flex-basis/grid-track calc.
