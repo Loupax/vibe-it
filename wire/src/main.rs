@@ -321,6 +321,9 @@ fn is_response_header_to_strip(name: &str) -> bool {
 /// now fail is writing to `w` itself (the client side), propagated to
 /// the caller exactly as `write_response` used to.
 fn execute_and_stream(agent: &ureq::Agent, request: &ParsedRequest, w: &mut impl Write) -> std::io::Result<()> {
+    if request.url.scheme() == "file" {
+        return serve_file(request, w);
+    }
     let mut req = agent.request(&request.method, request.url.as_str());
     for (name, value) in &request.headers {
         if !is_request_header_to_skip(name) {
@@ -346,6 +349,54 @@ fn execute_and_stream(agent: &ureq::Agent, request: &ParsedRequest, w: &mut impl
         Err(ureq::Error::Transport(e)) => write_synthetic_error_response(w, &e.to_string())?,
     };
     log_timing(&request.method, &request.url, status, headers_elapsed, body_start.elapsed());
+    Ok(())
+}
+
+/// `Content-Type` guessed from a path's extension, for `file://` URLs
+/// (there is no upstream to tell us). Anything unknown is
+/// `application/octet-stream`.
+fn content_type_for_path(path: &std::path::Path) -> &'static str {
+    match path.extension().and_then(|e| e.to_str()).map(|e| e.to_ascii_lowercase()).as_deref() {
+        Some("html" | "htm") => "text/html",
+        Some("css") => "text/css",
+        Some("png") => "image/png",
+        Some("jpg" | "jpeg") => "image/jpeg",
+        Some("gif") => "image/gif",
+        Some("webp") => "image/webp",
+        Some("svg") => "image/svg+xml",
+        _ => "application/octet-stream",
+    }
+}
+
+/// Serves a `file://` URL by reading the file: `200` with a guessed
+/// `Content-Type`, `404` if it can't be read, `405` for anything but
+/// `GET`/`HEAD`-less use. Local files never touch `ureq`.
+fn serve_file(request: &ParsedRequest, w: &mut impl Write) -> std::io::Result<()> {
+    let text_plain = || vec![("Content-Type".to_string(), "text/plain".to_string())];
+    let status = if request.method != "GET" {
+        write_status_and_headers(w, 405, "Method Not Allowed", &text_plain())?;
+        w.write_all(b"wire: file:// URLs only support GET")?;
+        405
+    } else {
+        let read = request.url.to_file_path().map_err(|_| "not a local file path".to_string()).and_then(|p| {
+            let data = std::fs::read(&p).map_err(|e| e.to_string())?;
+            Ok((p, data))
+        });
+        match read {
+            Ok((path, data)) => {
+                write_status_and_headers(w, 200, "OK", &[("Content-Type".to_string(), content_type_for_path(&path).to_string())])?;
+                w.write_all(&data)?;
+                200
+            }
+            Err(e) => {
+                write_status_and_headers(w, 404, "Not Found", &text_plain())?;
+                w.write_all(format!("wire: cannot read file: {e}").as_bytes())?;
+                404
+            }
+        }
+    };
+    w.flush()?;
+    log_timing(&request.method, &request.url, status, Duration::ZERO, Duration::ZERO);
     Ok(())
 }
 
@@ -561,6 +612,29 @@ mod tests {
             .collect();
         let body = raw[header_end + 4..].to_vec();
         TestResponse { status, headers, body }
+    }
+
+    #[test]
+    fn file_urls_are_served_from_disk_with_a_guessed_content_type() {
+        let dir = std::env::temp_dir().join(format!("wire-file-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let css = dir.join("a.css");
+        std::fs::write(&css, "p{color:red}").unwrap();
+        let bin = dir.join("x.weird");
+        std::fs::write(&bin, [1u8, 2, 3]).unwrap();
+        let agent = build_agent();
+        let get = |p: &std::path::Path| {
+            let url = Url::from_file_path(p).unwrap();
+            execute_for_test(&agent, &ParsedRequest { method: "GET".into(), url, headers: vec![], body: vec![] })
+        };
+        let r = get(&css);
+        assert_eq!(r.status, 200);
+        assert!(r.headers.iter().any(|(n, v)| n == "Content-Type" && v == "text/css"));
+        assert_eq!(r.body, b"p{color:red}");
+        let r = get(&bin);
+        assert!(r.headers.iter().any(|(n, v)| n == "Content-Type" && v == "application/octet-stream"));
+        assert_eq!(get(&dir.join("missing.html")).status, 404);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
