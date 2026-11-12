@@ -16147,10 +16147,17 @@ fn process_external_resources(
     let base = find_base_url(&dom.document).unwrap_or_else(|| page_url.clone());
     let mut resources = ExternalResources::default();
     find_external_resources(&dom.document, &mut resources);
+    let extra_css = fetch_stylesheets(path, &base, &resources.stylesheets);
+    spawn_image_fetches(proxy, path, &base, resources.images, generation);
+    extra_css
+}
 
+/// Fetch (and `@import`-expand) every stylesheet href against `base`,
+/// concatenated in document order.
+fn fetch_stylesheets(path: &std::path::Path, base: &Url, hrefs: &[String]) -> String {
     let mut extra_css = String::new();
-    for href in resources.stylesheets {
-        let Ok(url) = resolve_href(Some(&base), &href) else { continue };
+    for href in hrefs {
+        let Ok(url) = resolve_href(Some(base), href) else { continue };
         if let Some(css) = fetch_stylesheet_via_wire(path, &url) {
             let mut stack = vec![url.clone()];
             let css = expand_css_imports(&css, &url, &mut stack, &mut |u| fetch_stylesheet_via_wire(path, u));
@@ -16158,16 +16165,19 @@ fn process_external_resources(
             extra_css.push('\n');
         }
     }
+    extra_css
+}
 
-    // Deduplicated — a real page commonly repeats the exact same icon/
-    // logo URL many times; one fetch (and one `image_cache` entry, keyed
-    // by this shared raw `src` string) already covers every occurrence.
+/// One background thread per distinct image `src` (a real page commonly
+/// repeats the same icon URL many times; one fetch and one `image_cache`
+/// entry keyed by the raw `src` covers every occurrence).
+fn spawn_image_fetches(proxy: &EventLoopProxy<AppEvent>, path: &std::path::Path, base: &Url, images: Vec<String>, generation: u64) {
     let mut seen = HashSet::new();
-    for src in resources.images {
+    for src in images {
         if !seen.insert(src.clone()) {
             continue;
         }
-        let Ok(url) = resolve_href(Some(&base), &src) else { continue };
+        let Ok(url) = resolve_href(Some(base), &src) else { continue };
         let path = path.to_path_buf();
         let proxy = proxy.clone();
         thread::spawn(move || {
@@ -16175,8 +16185,28 @@ fn process_external_resources(
             let _ = proxy.send_event(AppEvent::ImageFetched(generation, src, image));
         });
     }
+}
 
-    extra_css
+/// Q22b: sub-resources for a streamed (stdin) page, started at EOF when
+/// the whole document (`<head>` included) finally exists. The base is
+/// the page's own `<base href>` (what `snag` synthesizes for a piped
+/// page); with none there is nothing to resolve relative references
+/// against, so nothing is fetched. Unlike a file page, the stylesheets
+/// are fetched on a background thread (the window is already up and the
+/// first layout has happened) and arrive as `AppEvent::StreamCss`.
+fn start_stream_resources(proxy: &EventLoopProxy<AppEvent>, socket: &std::path::Path, document: &Handle, generation: u64) {
+    let Some(base) = find_base_url(document) else { return };
+    let mut resources = ExternalResources::default();
+    find_external_resources(document, &mut resources);
+    spawn_image_fetches(proxy, socket, &base, resources.images, generation);
+    if resources.stylesheets.is_empty() {
+        return;
+    }
+    let (proxy, socket, hrefs) = (proxy.clone(), socket.to_path_buf(), resources.stylesheets);
+    thread::spawn(move || {
+        let css = fetch_stylesheets(&socket, &base, &hrefs);
+        let _ = proxy.send_event(AppEvent::StreamCss(generation, css));
+    });
 }
 
 /// `file://<absolute path>` for a page opened from a local file (Q22):
@@ -16259,6 +16289,9 @@ enum AppEvent {
     /// reason: a since-superseded page's late-arriving image must never
     /// populate the *new* page's cache.
     ImageFetched(u64, String, Option<DecodedImage>),
+    /// Q22b: the stylesheets of a streamed page, fetched after EOF
+    /// (`start_stream_resources`); replaces `App::extra_css`.
+    StreamCss(u64, String),
     /// One tick of the persistent background shaping worker's own
     /// progress (`App::spawn_shaping_worker`) — the "move page shaping
     /// off the main thread" plan in TODO.txt, landed, fires *once per
@@ -17751,7 +17784,18 @@ impl ApplicationHandler<AppEvent> for App {
                     // after `snag url | scratchy`, not just after
                     // `scratchy saved-bundle.html`.
                     self.base_url = find_base_url(&self.document);
+                    if let Some(socket) = self.socket_path.clone() {
+                        start_stream_resources(&self.proxy, &socket, &self.document, self.nav_generation);
+                    }
                 }
+            }
+            AppEvent::StreamCss(generation, css) => {
+                if generation != self.nav_generation || css.is_empty() {
+                    return;
+                }
+                self.extra_css = css;
+                self.layout_dirty = true;
+                self.layout_generation += 1;
             }
             AppEvent::NavResult(generation, result) => {
                 // A result from a navigation the user has since clicked
@@ -23369,6 +23413,22 @@ mod tests {
         spawn_mock_wire_once(&path, b"HTTP/1.1 200 OK\r\nContent-Type: text/css\r\n\r\np{margin:0}");
         let url = Url::parse("file:///tmp/a.css").unwrap();
         assert_eq!(fetch_stylesheet_via_wire(&path, &url), Some("p{margin:0}".to_string()));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn q22b_streamed_page_stylesheets_resolve_against_its_base_href() {
+        let path = unique_test_socket_path("q22b-css");
+        let _ = std::fs::remove_file(&path);
+        spawn_mock_wire_once(&path, b"HTTP/1.1 200 OK\r\nContent-Type: text/css\r\n\r\nh1{color:red}");
+        let doc = parse_html("<html><head><base href=\"file:///tmp/site/\"><link rel=stylesheet href=a.css></head><body><h1>x</h1></body></html>");
+        let base = find_base_url(&doc).unwrap();
+        let mut res = ExternalResources::default();
+        find_external_resources(&doc, &mut res);
+        assert_eq!(resolve_href(Some(&base), &res.stylesheets[0]).unwrap().as_str(), "file:///tmp/site/a.css");
+        assert_eq!(fetch_stylesheets(&path, &base, &res.stylesheets), "h1{color:red}\n");
+        // And a page with no <base> has nothing to resolve against.
+        assert!(find_base_url(&parse_html("<link rel=stylesheet href=a.css>")).is_none());
         let _ = std::fs::remove_file(&path);
     }
 
