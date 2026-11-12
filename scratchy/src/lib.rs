@@ -524,20 +524,22 @@ fn list_marker(handle: &Handle, style_type: ListStyleType) -> String {
         ListStyleType::Disc => "\u{2022} ".to_string(),
         ListStyleType::Circle => "\u{25E6} ".to_string(),
         ListStyleType::Square => "\u{25AA} ".to_string(),
-        ListStyleType::Decimal => {
+        ListStyleType::None => String::new(),
+        numbered => {
+            let style = numbered.counter_style().unwrap_or("decimal");
             let Some(parent) = parent_handle(handle) else {
-                return "1. ".to_string();
+                return format!("{}. ", format_counter(1, style));
             };
             let children = parent.children.borrow();
+            let tag = element_tag(handle);
             let index = children
                 .iter()
-                .filter(|c| element_tag(c) == "li")
+                .filter(|c| element_tag(c) == tag)
                 .position(|c| Rc::ptr_eq(c, handle))
                 .map(|i| i + 1)
                 .unwrap_or(1);
-            format!("{index}. ")
+            format!("{}. ", format_counter(index as i32, style))
         }
-        ListStyleType::None => String::new(),
     }
 }
 
@@ -1845,6 +1847,8 @@ struct Declarations {
     text_decoration_color: Option<CssColor>,
     white_space: Option<WhiteSpace>,
     list_style_type: Option<ListStyleType>,
+    /// `display: list-item` (true) or any other `display` (false).
+    list_item: Option<bool>,
     text_align: Option<TextAlign>,
     vertical_align: Option<VerticalAlign>,
     line_height: Option<LineHeight>,
@@ -1943,7 +1947,44 @@ enum ListStyleType {
     Circle,
     Square,
     Decimal,
+    LowerAlpha,
+    UpperAlpha,
+    LowerRoman,
+    UpperRoman,
+    LowerGreek,
     None,
+}
+
+impl ListStyleType {
+    /// The `counter()` style name behind a numbered type (Q20c).
+    fn counter_style(self) -> Option<&'static str> {
+        Some(match self {
+            ListStyleType::Decimal => "decimal",
+            ListStyleType::LowerAlpha => "lower-alpha",
+            ListStyleType::UpperAlpha => "upper-alpha",
+            ListStyleType::LowerRoman => "lower-roman",
+            ListStyleType::UpperRoman => "upper-roman",
+            ListStyleType::LowerGreek => "lower-greek",
+            _ => return None,
+        })
+    }
+
+    /// Parses a `list-style-type` keyword.
+    fn from_keyword(id: &str) -> Option<ListStyleType> {
+        Some(match id.to_ascii_lowercase().as_str() {
+            "disc" => ListStyleType::Disc,
+            "circle" => ListStyleType::Circle,
+            "square" => ListStyleType::Square,
+            "decimal" => ListStyleType::Decimal,
+            "lower-alpha" | "lower-latin" => ListStyleType::LowerAlpha,
+            "upper-alpha" | "upper-latin" => ListStyleType::UpperAlpha,
+            "lower-roman" => ListStyleType::LowerRoman,
+            "upper-roman" => ListStyleType::UpperRoman,
+            "lower-greek" => ListStyleType::LowerGreek,
+            "none" => ListStyleType::None,
+            _ => return None,
+        })
+    }
 }
 
 /// The 4 keywords `text-align` actually has (no `start`/`end` — nothing
@@ -3649,18 +3690,11 @@ fn parse_border_like_shorthand<'k>(
 /// shorthand`. A bare `none` (far and away the real-world common case —
 /// hiding a nav/menu `<ul>`'s marker) resolves as `ListStyleType::None`.
 fn parse_list_style_shorthand(input: &mut CssParser) -> Result<ListStyleType, ()> {
-    const TYPE_KEYWORDS: &[(&str, ListStyleType)] = &[
-        ("disc", ListStyleType::Disc),
-        ("circle", ListStyleType::Circle),
-        ("square", ListStyleType::Square),
-        ("decimal", ListStyleType::Decimal),
-        ("none", ListStyleType::None),
-    ];
     let mut style_type = None;
     loop {
         let state = input.state();
         if let Ok(Token::Ident(ident)) = input.next() {
-            if let Some(&(_, ty)) = TYPE_KEYWORDS.iter().find(|(k, _)| ident.eq_ignore_ascii_case(k)) {
+            if let Some(ty) = ListStyleType::from_keyword(ident) {
                 style_type = Some(ty);
                 continue;
             }
@@ -4949,7 +4983,9 @@ impl DeclParser<'_> {
         } else if parse_border_property(self.decls, name, input) {
         } else if name.eq_ignore_ascii_case("display") {
             if let Ok(ident) = input.expect_ident() {
-                self.decls.display = if ident.eq_ignore_ascii_case("block") {
+                // `list-item` is a block that also generates a marker (Q20c).
+                self.decls.list_item = Some(ident.eq_ignore_ascii_case("list-item"));
+                self.decls.display = if ident.eq_ignore_ascii_case("block") || ident.eq_ignore_ascii_case("list-item") {
                     Some(Display::Block)
                 } else if ident.eq_ignore_ascii_case("inline") {
                     Some(Display::Inline)
@@ -5459,19 +5495,7 @@ impl DeclParser<'_> {
             }
         } else if name.eq_ignore_ascii_case("list-style-type") {
             if let Ok(ident) = input.expect_ident() {
-                self.decls.list_style_type = if ident.eq_ignore_ascii_case("disc") {
-                    Some(ListStyleType::Disc)
-                } else if ident.eq_ignore_ascii_case("circle") {
-                    Some(ListStyleType::Circle)
-                } else if ident.eq_ignore_ascii_case("square") {
-                    Some(ListStyleType::Square)
-                } else if ident.eq_ignore_ascii_case("decimal") {
-                    Some(ListStyleType::Decimal)
-                } else if ident.eq_ignore_ascii_case("none") {
-                    Some(ListStyleType::None)
-                } else {
-                    None
-                };
+                self.decls.list_style_type = ListStyleType::from_keyword(ident);
             }
         } else if name.eq_ignore_ascii_case("list-style") {
             if let Ok(ty) = parse_list_style_shorthand(input) {
@@ -6294,6 +6318,8 @@ struct ComputedStyle {
     /// Not inherited (same as `overflow`/`border_width`). See
     /// `BoxSizing`'s own docs.
     box_sizing: BoxSizing,
+    /// `display: list-item` was cascaded (not inherited); generates a marker.
+    list_item: bool,
     margin: Sides,
     padding: Sides,
     /// Per-side (top, right, bottom, left). Width is already 0 for a side
@@ -7157,6 +7183,10 @@ fn resolve_style_for(
     // piece of this file that branches on `display` (`collect_children`,
     // `measure`) needs no separate `position`/`float` check of its own.
     let display_declared = display;
+    let list_item = matches!(
+        cascade_css(&matches, inl, "display", |d| d.list_item),
+        Cascaded::Value(true)
+    ) && display == Display::Block;
     let force_block = |display: Display, position: Position, float: Float| {
         if (matches!(position, Position::Absolute | Position::Fixed) || float != Float::None) && display != Display::None {
             Display::Block
@@ -7570,6 +7600,7 @@ fn resolve_style_for(
         text_decoration_color,
         white_space,
         list_style_type,
+        list_item,
         text_align,
         vertical_align,
         line_height,
@@ -7646,6 +7677,7 @@ fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         text_decoration_color: None,
         white_space: inherited.white_space,
         list_style_type: inherited.list_style_type,
+        list_item: false,
         text_align: inherited.text_align,
         vertical_align: VerticalAlign::default(),
         line_height: inherited.line_height,
@@ -8255,7 +8287,7 @@ fn build_box_for_element(
             )),
         };
     }
-    let prefix = if element_tag(handle) == "li" {
+    let prefix = if element_tag(handle) == "li" || style.list_item {
         marker_prefix(handle, rules, &style, viewport_width)
     } else {
         None
@@ -18471,6 +18503,33 @@ mod tests {
         assert!(d.flex_grow.is_some() && d.box_shadow.is_some());
         assert!(parse_declarations("display: -webkit-inline-flex").display == Some(Display::InlineFlex));
         assert!(parse_declarations("display: -webkit-box").display.is_none());
+    }
+
+    #[test]
+    fn q20c_alpha_roman_greek_markers_and_display_list_item() {
+        assert!(parse_declarations("list-style-type: lower-alpha").list_style_type == Some(ListStyleType::LowerAlpha));
+        assert!(parse_declarations("list-style: upper-roman inside").list_style_type == Some(ListStyleType::UpperRoman));
+        let doc = parse_html(
+            r#"<html><head><style>
+            .a { list-style-type: lower-alpha; } .g { list-style-type: lower-greek; }
+            .r { list-style-type: upper-roman; }
+            div.i { display: list-item; list-style-type: decimal; }
+            div.i::marker { color: #ff0000; }
+            </style></head><body>
+            <ol class="a"><li>x</li><li>y</li></ol><ol class="g"><li>x</li><li>y</li></ol>
+            <ol class="r"><li>x</li><li>y</li><li>z</li><li>w</li></ol>
+            <div class="i">p</div><div>q</div></body></html>"#,
+        );
+        let tree = build_layout_tree(&doc, 1920.0);
+        let mut texts = Vec::new();
+        q19_texts(&tree, &mut texts);
+        let has = |t: &str| texts.iter().any(|(x, _)| x == t);
+        assert!(has("a. ") && has("b. "), "{texts:?}");
+        assert!(has("\u{3b1}. ") && has("\u{3b2}. "), "{texts:?}");
+        assert!(has("IV. "), "{texts:?}");
+        let m = texts.iter().find(|(x, _)| x == "1. ").map(|(_, c)| *c);
+        assert_eq!(m, Some(TextColor::rgb(0xff, 0, 0)), "list-item div gets a styled marker: {texts:?}");
+        assert!(texts.iter().filter(|(x, _)| x.ends_with(". ")).count() == 9, "plain div gets none: {texts:?}");
     }
 
     #[test]
