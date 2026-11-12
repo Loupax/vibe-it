@@ -257,7 +257,7 @@ dropped selectors summed across those pages. Caveats:
       - `@supports (display:bogus){…}` doesn't.
       - `@supports not (display:bogus){…}` applies.
 
-- [ ] Q11 [M] `calc()`, `min()`, `max()` and `clamp()` (n=60+:
+- [x] Q11 [M] (HASH) `calc()`, `min()`, `max()` and `clamp()` (n=60+:
       `width`/`height` `calc(var(--x,1rem) + 2px)` 46, margins and
       `left` `calc(-1 * 8px)`, `max-width: min(0.85*12rem, 75vw)`).
       - Parse into a small expression tree (`+`, `-`, `*`, `/`,
@@ -274,6 +274,13 @@ dropped selectors summed across those pages. Caveats:
       Tests: `calc(100% - 20px)` against a 200px containing block gives
       180, `calc(2 * 1em)`, `min(10px, 5px)` and
       `(max-width: calc(1120px - 1px))`.
+      Done. Notes: `CalcNode` tree (leaked via `Box::leak` so `Length`
+      stays `Copy`) in `Length::Calc`; `%`-bearing ones become
+      `BoxLength::Calc(node, font_size, root_font_size)`. vw/vh units
+      are not accepted yet (Q14 should add a `CalcNode` leaf). In flex
+      basis / grid track `Length::Calc` with a `%` resolves the `%`
+      against the font size (wrong basis); rare, not worth an item.
+      `var()` inside calc waits on the custom-properties item.
 
 --- Tier 2: page structure and common visuals ----------------------
 

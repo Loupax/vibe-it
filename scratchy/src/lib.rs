@@ -1139,6 +1139,208 @@ enum Length {
     Percent(f32),
     Larger,
     Smaller,
+    /// A `calc()`/`min()`/`max()`/`clamp()` expression (see `CalcNode`).
+    /// The tree is leaked (`Box::leak`) at parse time so this enum, and
+    /// everything that embeds it, stays `Copy`.
+    Calc(&'static CalcNode),
+}
+
+/// A parsed `calc()`/`min()`/`max()`/`clamp()` expression. `Num` is a
+/// bare number, every other leaf is a length (`Pct` is the raw fraction).
+/// `parse_calc_function` type-checks the tree (`+`/`-` operands agree,
+/// `*` has at most one length side, `/` has a non-zero number on the
+/// right), so `eval` can't fail.
+#[derive(PartialEq, Debug)]
+enum CalcNode {
+    Num(f32),
+    Px(f32),
+    Em(f32),
+    Rem(f32),
+    Pct(f32),
+    Add(Box<CalcNode>, Box<CalcNode>),
+    Sub(Box<CalcNode>, Box<CalcNode>),
+    Mul(Box<CalcNode>, Box<CalcNode>),
+    Div(Box<CalcNode>, Box<CalcNode>),
+    Min(Vec<CalcNode>),
+    Max(Vec<CalcNode>),
+    Clamp(Box<CalcNode>, Box<CalcNode>, Box<CalcNode>),
+}
+
+impl CalcNode {
+    /// Evaluates to a px value (or a bare number for number-typed
+    /// subtrees). `pct_basis` is what `100%` means.
+    fn eval(&self, font_size: f32, root_font_size: f32, pct_basis: f32) -> f32 {
+        let e = |n: &CalcNode| n.eval(font_size, root_font_size, pct_basis);
+        match self {
+            CalcNode::Num(v) | CalcNode::Px(v) => *v,
+            CalcNode::Em(v) => v * font_size,
+            CalcNode::Rem(v) => v * root_font_size,
+            CalcNode::Pct(p) => p * pct_basis,
+            CalcNode::Add(a, b) => e(a) + e(b),
+            CalcNode::Sub(a, b) => e(a) - e(b),
+            CalcNode::Mul(a, b) => e(a) * e(b),
+            CalcNode::Div(a, b) => {
+                let d = e(b);
+                if d == 0.0 { 0.0 } else { e(a) / d }
+            }
+            CalcNode::Min(v) => v.iter().map(e).fold(f32::INFINITY, f32::min),
+            CalcNode::Max(v) => v.iter().map(e).fold(f32::NEG_INFINITY, f32::max),
+            // CSS: clamp(MIN, VAL, MAX) = max(MIN, min(VAL, MAX)).
+            CalcNode::Clamp(lo, v, hi) => e(lo).max(e(v).min(e(hi))),
+        }
+    }
+
+    fn has_percent(&self) -> bool {
+        match self {
+            CalcNode::Pct(_) => true,
+            CalcNode::Num(_) | CalcNode::Px(_) | CalcNode::Em(_) | CalcNode::Rem(_) => false,
+            CalcNode::Add(a, b) | CalcNode::Sub(a, b) | CalcNode::Mul(a, b) | CalcNode::Div(a, b) => {
+                a.has_percent() || b.has_percent()
+            }
+            CalcNode::Min(v) | CalcNode::Max(v) => v.iter().any(CalcNode::has_percent),
+            CalcNode::Clamp(a, b, c) => a.has_percent() || b.has_percent() || c.has_percent(),
+        }
+    }
+
+    /// `Some(true)` for a length-typed subtree, `Some(false)` for a
+    /// number, `None` when the tree is ill-typed.
+    fn is_length(&self) -> Option<bool> {
+        match self {
+            CalcNode::Num(_) => Some(false),
+            CalcNode::Px(_) | CalcNode::Em(_) | CalcNode::Rem(_) | CalcNode::Pct(_) => Some(true),
+            CalcNode::Add(a, b) | CalcNode::Sub(a, b) => {
+                let (x, y) = (a.is_length()?, b.is_length()?);
+                (x == y).then_some(x)
+            }
+            CalcNode::Mul(a, b) => {
+                let (x, y) = (a.is_length()?, b.is_length()?);
+                (!(x && y)).then_some(x || y)
+            }
+            CalcNode::Div(a, b) => {
+                let (x, y) = (a.is_length()?, b.is_length()?);
+                // Divisor must be a non-zero number (no units, so a
+                // zero-basis evaluation is exact).
+                (!y && b.eval(0.0, 0.0, 0.0) != 0.0).then_some(x)
+            }
+            CalcNode::Min(v) | CalcNode::Max(v) => {
+                let first = v.first()?.is_length()?;
+                v.iter().all(|n| n.is_length() == Some(first)).then_some(first)
+            }
+            CalcNode::Clamp(a, b, c) => {
+                let x = a.is_length()?;
+                (b.is_length()? == x && c.is_length()? == x).then_some(x)
+            }
+        }
+    }
+}
+
+fn parse_calc_sum(input: &mut CssParser) -> Result<CalcNode, ()> {
+    let mut acc = parse_calc_product(input)?;
+    loop {
+        let state = input.state();
+        match input.next() {
+            Ok(Token::Delim('+')) => acc = CalcNode::Add(Box::new(acc), Box::new(parse_calc_product(input)?)),
+            Ok(Token::Delim('-')) => acc = CalcNode::Sub(Box::new(acc), Box::new(parse_calc_product(input)?)),
+            _ => {
+                input.reset(&state);
+                return Ok(acc);
+            }
+        }
+    }
+}
+
+fn parse_calc_product(input: &mut CssParser) -> Result<CalcNode, ()> {
+    let mut acc = parse_calc_atom(input)?;
+    loop {
+        let state = input.state();
+        match input.next() {
+            Ok(Token::Delim('*')) => acc = CalcNode::Mul(Box::new(acc), Box::new(parse_calc_atom(input)?)),
+            Ok(Token::Delim('/')) => acc = CalcNode::Div(Box::new(acc), Box::new(parse_calc_atom(input)?)),
+            _ => {
+                input.reset(&state);
+                return Ok(acc);
+            }
+        }
+    }
+}
+
+/// Comma-separated list of sums inside a `min(`/`max(`/`clamp(` block.
+fn parse_calc_args(input: &mut CssParser) -> Result<Vec<CalcNode>, ()> {
+    let mut args = vec![parse_calc_sum(input)?];
+    while input.try_parse(|i| i.expect_comma()).is_ok() {
+        args.push(parse_calc_sum(input)?);
+    }
+    input.expect_exhausted().map_err(|_| ())?;
+    Ok(args)
+}
+
+/// The body of a math function (`calc`/`min`/`max`/`clamp`, or a bare
+/// parenthesis when `name` is empty) whose opening token was consumed.
+fn parse_calc_body(input: &mut CssParser, name: &str) -> Result<CalcNode, ()> {
+    let name = name.to_ascii_lowercase();
+    input
+        .parse_nested_block(|i| {
+            let bad = |i: &mut CssParser| i.new_error_for_next_token::<()>();
+            match name.as_str() {
+                "" | "calc" => {
+                    let n = parse_calc_sum(i).map_err(|_| bad(i))?;
+                    i.expect_exhausted()?;
+                    Ok(n)
+                }
+                "min" => Ok(CalcNode::Min(parse_calc_args(i).map_err(|_| bad(i))?)),
+                "max" => Ok(CalcNode::Max(parse_calc_args(i).map_err(|_| bad(i))?)),
+                "clamp" => {
+                    let mut a = parse_calc_args(i).map_err(|_| bad(i))?;
+                    if a.len() != 3 {
+                        return Err(bad(i));
+                    }
+                    let hi = a.pop().unwrap();
+                    let v = a.pop().unwrap();
+                    let lo = a.pop().unwrap();
+                    Ok(CalcNode::Clamp(Box::new(lo), Box::new(v), Box::new(hi)))
+                }
+                _ => Err(bad(i)),
+            }
+        })
+        .map_err(|_: cssparser::ParseError<()>| ())
+}
+
+fn parse_calc_atom(input: &mut CssParser) -> Result<CalcNode, ()> {
+    match input.next().map_err(|_| ())?.clone() {
+        Token::Number { value, .. } => Ok(CalcNode::Num(value)),
+        Token::Percentage { unit_value, .. } => Ok(CalcNode::Pct(unit_value)),
+        Token::Dimension { value, unit, .. } => {
+            if unit.eq_ignore_ascii_case("px") {
+                Ok(CalcNode::Px(value))
+            } else if unit.eq_ignore_ascii_case("em") {
+                Ok(CalcNode::Em(value))
+            } else if unit.eq_ignore_ascii_case("rem") {
+                Ok(CalcNode::Rem(value))
+            } else if unit.eq_ignore_ascii_case("pt") {
+                Ok(CalcNode::Px(value * PX_PER_PT))
+            } else {
+                Err(())
+            }
+        }
+        Token::ParenthesisBlock => parse_calc_body(input, ""),
+        Token::Function(name) => parse_calc_body(input, &name),
+        _ => Err(()),
+    }
+}
+
+/// Parses a `calc()`/`min()`/`max()`/`clamp()` function whose name token
+/// has just been consumed (`name`), into a `Length`. Must be a length
+/// (not a bare number); `allow_percent` is false for `<length>`-only
+/// properties. Ill-typed or zero-dividing expressions are `Err`.
+fn parse_calc_function(input: &mut CssParser, name: &str, allow_percent: bool) -> Result<Length, ()> {
+    if !["calc", "min", "max", "clamp"].iter().any(|f| name.eq_ignore_ascii_case(f)) {
+        return Err(());
+    }
+    let node = parse_calc_body(input, name)?;
+    if node.is_length() != Some(true) || (!allow_percent && node.has_percent()) {
+        return Err(());
+    }
+    Ok(Length::Calc(Box::leak(Box::new(node))))
 }
 
 impl Length {
@@ -1158,6 +1360,7 @@ impl Length {
             Length::Percent(p) => font_size * p,
             Length::Larger => font_size * 1.2,
             Length::Smaller => font_size / 1.2,
+            Length::Calc(c) => c.eval(font_size, root_font_size, font_size),
         }
     }
 }
@@ -1189,6 +1392,10 @@ impl Length {
 enum BoxLength {
     Px(f32),
     Percent(f32),
+    /// A `calc()` containing a `%`: em/rem parts are resolved against the
+    /// carried (font-size, root-font-size) now, the `%` against the
+    /// containing-block basis later.
+    Calc(&'static CalcNode, f32, f32),
 }
 
 impl Default for BoxLength {
@@ -1207,6 +1414,7 @@ impl BoxLength {
     fn from_length(l: Length, font_size: f32, root_font_size: f32) -> Self {
         match l {
             Length::Percent(p) => BoxLength::Percent(p),
+            Length::Calc(c) if c.has_percent() => BoxLength::Calc(c, font_size, root_font_size),
             other => BoxLength::Px(other.resolve(font_size, root_font_size)),
         }
     }
@@ -1222,6 +1430,17 @@ impl BoxLength {
         match self {
             BoxLength::Px(v) => v,
             BoxLength::Percent(p) => basis * p,
+            BoxLength::Calc(c, fs, rfs) => c.eval(fs, rfs, basis),
+        }
+    }
+
+    /// Like `resolve`, but for a basis that may be indefinite (`height`
+    /// against an auto-height containing block): a percentage-bearing
+    /// value then has no answer.
+    fn resolve_opt(self, basis: Option<f32>) -> Option<f32> {
+        match self {
+            BoxLength::Px(v) => Some(v),
+            other => basis.map(|b| other.resolve(b)),
         }
     }
 
@@ -1234,8 +1453,8 @@ impl BoxLength {
     fn px(self) -> f32 {
         match self {
             BoxLength::Px(v) => v,
-            BoxLength::Percent(p) => {
-                debug_assert!(false, "BoxLength::px() called on an unresolved {p} (fraction) percent");
+            BoxLength::Percent(_) | BoxLength::Calc(..) => {
+                debug_assert!(false, "BoxLength::px() called on an unresolved percent");
                 0.0
             }
         }
@@ -2173,6 +2392,7 @@ fn media_feature_length_px(input: &mut CssParser) -> Result<f32, ()> {
         // (confirmed by its own match arms) — only reachable if that
         // changes later, in which case failing safely here is right
         // regardless of which new variant showed up.
+        Length::Calc(c) => Ok(c.eval(16.0, 16.0, 0.0)),
         Length::Percent(_) | Length::Larger | Length::Smaller => Err(()),
     }
 }
@@ -2264,6 +2484,10 @@ fn parse_length(input: &mut CssParser) -> Result<Length, ()> {
         Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("rem") => Ok(Length::Rem(*value)),
         Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("pt") => Ok(Length::Px(value * PX_PER_PT)),
         Token::Number { value, .. } if *value == 0.0 => Ok(Length::Px(0.0)),
+        Token::Function(name) => {
+            let name = name.clone();
+            parse_calc_function(input, &name, false)
+        }
         _ => Err(()),
     }
 }
@@ -2286,6 +2510,10 @@ fn parse_length_percent(input: &mut CssParser) -> Result<Length, ()> {
         Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("pt") => Ok(Length::Px(value * PX_PER_PT)),
         Token::Percentage { unit_value, .. } => Ok(Length::Percent(*unit_value)),
         Token::Number { value, .. } if *value == 0.0 => Ok(Length::Px(0.0)),
+        Token::Function(name) => {
+            let name = name.clone();
+            parse_calc_function(input, &name, true)
+        }
         _ => Err(()),
     }
 }
@@ -7175,10 +7403,7 @@ fn capture_sticky_info(laid: &mut Laid, s: &ComputedStyle, basis_h: Option<f32>)
     if s.position != Position::Sticky {
         return;
     }
-    let resolve_v = |bl: BoxLength| match bl {
-        BoxLength::Px(v) => v,
-        BoxLength::Percent(p) => basis_h.map(|h| h * p).unwrap_or(0.0),
-    };
+    let resolve_v = |bl: BoxLength| bl.resolve_opt(basis_h).unwrap_or(0.0);
     laid.sticky = Some(StickyInfo {
         static_top: laid.y,
         top: s.inset.top.map(resolve_v),
@@ -7501,10 +7726,7 @@ fn apply_relative_offset(laid: &mut Laid, s: &ComputedStyle, basis_w: f32, basis
     if s.position != Position::Relative {
         return;
     }
-    let resolve_v = |bl: BoxLength| match bl {
-        BoxLength::Px(v) => v,
-        BoxLength::Percent(p) => basis_h.map(|h| h * p).unwrap_or(0.0),
-    };
+    let resolve_v = |bl: BoxLength| bl.resolve_opt(basis_h).unwrap_or(0.0);
     let dx = s.inset.left.map(|v| v.resolve(basis_w)).unwrap_or(0.0) - s.inset.right.map(|v| v.resolve(basis_w)).unwrap_or(0.0);
     let dy = s.inset.top.map(resolve_v).unwrap_or(0.0) - s.inset.bottom.map(resolve_v).unwrap_or(0.0);
     shift_laid_tree(laid, dx, dy);
@@ -7897,10 +8119,7 @@ fn clamp_box_dim(
 /// (and every paint/hit-test call site that relies on it) depends on.
 fn finalize_box_lengths(s: &mut ComputedStyle, width: f32, containing_height: Option<f32>) {
     let resolve_h = |v: Option<BoxLength>| -> Option<f32> {
-        v.and_then(|bl| match bl {
-            BoxLength::Px(px) => Some(px),
-            BoxLength::Percent(p) => containing_height.map(|ch| ch * p),
-        })
+        v.and_then(|bl| bl.resolve_opt(containing_height))
     };
     s.margin = Sides {
         top: BoxLength::Px(s.margin.top.resolve(width)),
@@ -19000,24 +19219,15 @@ mod tests {
     }
 
     #[test]
-    fn media_unsupported_calc_feature_never_applies_without_crashing() {
-        // This project has no `calc()` arithmetic evaluator anywhere
-        // (confirmed by grep before implementing this) — a media
-        // feature using it must fail to parse into a real constraint and
-        // safely never match, the same "unsupported value drops" policy
-        // used throughout this file, rather than crashing the parser or
-        // (the dangerous alternative) silently matching unconditionally.
+    fn media_calc_feature_value_is_evaluated() {
+        // Q11: `calc()` in a media feature is now evaluated (1120-1 = 1119).
         let doc = parse_html(
             r#"<html><body><style>@media (max-width: calc(1120px - 1px)) { .box { background-color: #abcdef; } }</style><div class="box">x</div></body></html>"#,
         );
-        let narrow = build_layout_tree(&doc, 50.0);
-        assert_eq!(
-            find_box_with_background(&narrow),
-            None,
-            "an unparseable calc() feature must never match, even at a width a correct calc() evaluation would have satisfied"
-        );
-        let wide = build_layout_tree(&doc, 5000.0);
-        assert_eq!(find_box_with_background(&wide), None, "and must still never match at a width nothing would satisfy either — not a crash");
+        let narrow = build_layout_tree(&doc, 1119.0);
+        assert_eq!(find_box_with_background(&narrow), Some(TextColor::rgb(0xab, 0xcd, 0xef)));
+        let wide = build_layout_tree(&doc, 1120.0);
+        assert_eq!(find_box_with_background(&wide), None);
     }
 
     #[test]
@@ -20013,6 +20223,43 @@ mod tests {
         // Applies through the cascade.
         let r = parse_stylesheet("@supports (display:grid){p{color:red}}");
         assert!(r[0].decls.color.is_some());
+    }
+
+    #[test]
+    fn q11_calc_min_max_clamp() {
+        let w = |v: &str, vw: f32| {
+            let laid = measure_fixture(
+                &format!(r#"<html><body style="margin:0"><div style="width:{v};height:7px">x</div></body></html>"#),
+                vw,
+            );
+            find_by_height(&laid, 7.0).map(|l| l.w)
+        };
+        // Percentage resolved against the containing block.
+        assert_eq!(w("calc(100% - 20px)", 200.0), Some(180.0));
+        assert_eq!(w("calc(50% + 1em)", 200.0), Some(116.0));
+        assert_eq!(w("calc(2 * 1em)", 200.0), Some(32.0));
+        assert_eq!(w("calc((1px + 2px) * 3 - 4px / 2)", 200.0), Some(7.0));
+        assert_eq!(w("calc(-1 * 8px + 10px)", 200.0), Some(2.0));
+        assert_eq!(w("min(10px, 5px)", 200.0), Some(5.0));
+        assert_eq!(w("max(10px, 5px, 1rem)", 200.0), Some(16.0));
+        assert_eq!(w("min(100%, 150px)", 200.0), Some(150.0));
+        assert_eq!(w("min(100%, 150px)", 100.0), Some(100.0));
+        assert_eq!(w("clamp(50px, 10%, 100px)", 200.0), Some(50.0));
+        assert_eq!(w("clamp(50px, 40%, 100px)", 200.0), Some(80.0));
+        assert_eq!(w("clamp(50px, 90%, 100px)", 200.0), Some(100.0));
+        // Invalid: division by zero, length + bare number, length * length.
+        // The declaration drops, leaving the auto width (full container).
+        assert_eq!(w("calc(10px / 0)", 200.0), Some(200.0));
+        assert_eq!(w("calc(10px + 2)", 200.0), Some(200.0));
+        assert_eq!(w("calc(10px * 2px)", 200.0), Some(200.0));
+        assert_eq!(w("calc(10px / 2px)", 200.0), Some(200.0));
+        assert_eq!(w("calc(1px + )", 200.0), Some(200.0));
+        // Margins and font-size take it too.
+        let laid = measure_fixture(
+            r#"<html><body style="margin:0"><div style="margin-left:calc(10% + 5px);height:7px">x</div></body></html>"#,
+            200.0,
+        );
+        assert_eq!(find_by_height(&laid, 7.0).map(|l| l.x), Some(25.0));
     }
 
     // ---------- `display: flow-root` ----------
