@@ -14586,22 +14586,7 @@ fn timing_enabled() -> bool {
 // PRIORITY" item), so scratchy has to do this inlining-equivalent work
 // itself for exactly that path.
 
-/// Mime-checked low-level fetch shared by `fetch_stylesheet_via_wire`/
-/// `fetch_image_via_wire`: runs `fetch_raw_via_wire`, then accepts the
-/// body only if `Content-Type` (ignoring any `;charset=...`/`;
-/// boundary=...` parameter, same as `dispatch_wire_response`) is one of
-/// `accept`. Any other outcome — unreachable, no/mismatched `Content-
-/// Type` — is a silent `None`, not an error: a single sub-resource
-/// failing to fetch is never allowed to sink the whole page, the same
-/// lenient "one bad image/stylesheet doesn't stop the rest" precedent
-/// `snag`'s own sub-resource fetching already established (see `snag/
-/// TODO.txt`'s "no retry/backoff" item for the same spirit applied to a
-/// different failure mode).
-fn fetch_sub_resource_via_wire(path: &std::path::Path, url: &Url, accept: &[&str]) -> Option<Vec<u8>> {
-    fetch_sub_resource_typed(path, url, accept).map(|(_, body)| body)
-}
-
-/// Same as `fetch_sub_resource_via_wire` but also returns the matched MIME.
+/// Mime-checked low-level fetch; returns the matched MIME and body.
 fn fetch_sub_resource_typed(path: &std::path::Path, url: &Url, accept: &[&str]) -> Option<(String, Vec<u8>)> {
     let request_text = build_get_request_text(url);
     let WireFetchRaw::Responded { content_type, body } = fetch_raw_via_wire(path, &request_text) else { return None };
@@ -14613,13 +14598,157 @@ fn fetch_sub_resource_typed(path: &std::path::Path, url: &Url, accept: &[&str]) 
     Some((mime, body))
 }
 
-/// Fetches one external stylesheet — `None` on any failure (unreachable,
-/// not real CSS, or not valid UTF-8 — a real stylesheet declaring some
-/// other encoding is a narrower gap than this function alone, not
-/// attempted here; nothing has needed it yet).
+/// Decodes stylesheet bytes: BOM, then the `Content-Type` header's
+/// `charset=`, then a leading `@charset "<label>";` rule, then UTF-8.
+fn decode_css_bytes(bytes: &[u8], header: Option<&'static encoding_rs::Encoding>) -> String {
+    let enc = if let Some((enc, _)) = encoding_rs::Encoding::for_bom(bytes) {
+        enc
+    } else if let Some(enc) = header {
+        enc
+    } else {
+        let head = &bytes[..bytes.len().min(1024)];
+        let at = b"@charset \"";
+        head.strip_prefix(&at[..])
+            .and_then(|rest| rest.iter().position(|&b| b == b'"').map(|i| &rest[..i]))
+            .and_then(encoding_rs::Encoding::for_label)
+            .filter(|e| e.is_ascii_compatible())
+            .unwrap_or(encoding_rs::UTF_8)
+    };
+    enc.decode_with_bom_removal(bytes).0.into_owned()
+}
+
+/// Fetches one external stylesheet — `None` on any failure (unreachable
+/// or not real CSS). Decoded per `decode_css_bytes` (Q8 follow-up: no
+/// longer UTF-8 only).
 fn fetch_stylesheet_via_wire(path: &std::path::Path, url: &Url) -> Option<String> {
-    let body = fetch_sub_resource_via_wire(path, url, &["text/css"])?;
-    String::from_utf8(body).ok()
+    let request_text = build_get_request_text(url);
+    let WireFetchRaw::Responded { content_type, body } = fetch_raw_via_wire(path, &request_text) else { return None };
+    let content_type = content_type.unwrap_or_default();
+    if !content_type.split(';').next().unwrap_or("").trim().eq_ignore_ascii_case("text/css") {
+        return None;
+    }
+    Some(decode_css_bytes(&body, content_type_charset(&content_type)))
+}
+
+/// Maximum `@import` nesting depth `expand_css_imports` follows.
+const MAX_IMPORT_DEPTH: usize = 8;
+
+/// Splits the leading `@charset`/`@import` rules off `css`. Returns the
+/// imports as `(target, media)` pairs and the remaining stylesheet text.
+fn split_leading_imports(css: &str) -> (Vec<(String, String)>, &str) {
+    let mut rest = css.trim_start_matches('\u{feff}');
+    let mut imports = Vec::new();
+    loop {
+        rest = rest.trim_start();
+        if let Some(r) = rest.strip_prefix("/*") {
+            match r.find("*/") {
+                Some(i) => {
+                    rest = &r[i + 2..];
+                    continue;
+                }
+                None => return (imports, ""),
+            }
+        }
+        let lower = rest.get(..8).map(|s| s.to_ascii_lowercase());
+        let is_import = lower.as_deref() == Some("@import ") || rest.get(..8).is_some_and(|s| s.eq_ignore_ascii_case("@import\"") || s.eq_ignore_ascii_case("@import\n") || s.eq_ignore_ascii_case("@import\t"));
+        let is_charset = rest.get(..8).is_some_and(|s| s.eq_ignore_ascii_case("@charset"));
+        if !is_import && !is_charset {
+            return (imports, rest);
+        }
+        let Some(end) = find_rule_end(rest) else { return (imports, "") };
+        let body = rest[if is_import { 7 } else { 8 }..end].trim();
+        rest = &rest[end + 1..];
+        if is_charset {
+            continue;
+        }
+        if let Some((target, media)) = parse_import_prelude(body) {
+            imports.push((target, media));
+        }
+    }
+}
+
+/// Index of the `;` ending the at-rule at the start of `s`, skipping
+/// quoted strings and parentheses.
+fn find_rule_end(s: &str) -> Option<usize> {
+    let mut quote: Option<char> = None;
+    let mut chars = s.char_indices();
+    while let Some((i, c)) = chars.next() {
+        match quote {
+            Some(q) if c == q => quote = None,
+            Some(_) if c == '\\' => {
+                chars.next();
+            }
+            Some(_) => {}
+            None if c == '"' || c == '\'' => quote = Some(c),
+            None if c == ';' => return Some(i),
+            None => {}
+        }
+    }
+    None
+}
+
+/// `url(x) screen` / `"x" screen` -> (`x`, `screen`). `None` for forms we
+/// don't follow (`supports(...)`, `layer(...)`, an empty target).
+fn parse_import_prelude(body: &str) -> Option<(String, String)> {
+    let body = body.trim();
+    let (target, rest) = if body.len() >= 4 && body[..4].eq_ignore_ascii_case("url(") {
+        let close = body.find(')')?;
+        (body[4..close].trim().trim_matches(|c| c == '"' || c == '\'').to_string(), &body[close + 1..])
+    } else if let Some(q) = body.chars().next().filter(|c| *c == '"' || *c == '\'') {
+        let end = body[1..].find(q)? + 1;
+        (body[1..end].to_string(), &body[end + 1..])
+    } else {
+        return None;
+    };
+    let mut media = rest.trim();
+    let lower = media.to_ascii_lowercase();
+    if lower.contains("supports(") || lower.contains("layer(") {
+        return None;
+    }
+    if lower == "layer" {
+        media = "";
+    } else if let Some(m) = lower.strip_prefix("layer ") {
+        media = media[media.len() - m.len()..].trim();
+    }
+    if target.is_empty() {
+        return None;
+    }
+    Some((target, media.to_string()))
+}
+
+/// Expands the leading `@import` rules of a fetched stylesheet in place
+/// (Q18). Each import is resolved against `sheet_url`, fetched through
+/// `fetch`, expanded recursively (depth <= `MAX_IMPORT_DEPTH`, cycles
+/// skipped) and inserted where the `@import` was, wrapped in `@media`
+/// when it has a media list. `stack` holds the URLs being expanded.
+fn expand_css_imports(
+    css: &str,
+    sheet_url: &Url,
+    stack: &mut Vec<Url>,
+    fetch: &mut dyn FnMut(&Url) -> Option<String>,
+) -> String {
+    let (imports, rest) = split_leading_imports(css);
+    let mut out = String::new();
+    if stack.len() < MAX_IMPORT_DEPTH {
+        for (target, media) in imports {
+            let Ok(url) = sheet_url.join(&target) else { continue };
+            if url == *sheet_url || stack.contains(&url) {
+                continue;
+            }
+            let Some(text) = fetch(&url) else { continue };
+            stack.push(url.clone());
+            let expanded = expand_css_imports(&text, &url, stack, fetch);
+            stack.pop();
+            if media.is_empty() {
+                out.push_str(&expanded);
+            } else {
+                out.push_str(&format!("@media {media} {{\n{expanded}\n}}"));
+            }
+            out.push('\n');
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 /// Fetches and decodes one external image — `None` on any failure
@@ -14728,6 +14857,8 @@ fn process_external_resources(
     for href in resources.stylesheets {
         let Ok(url) = resolve_href(Some(&base), &href) else { continue };
         if let Some(css) = fetch_stylesheet_via_wire(path, &url) {
+            let mut stack = vec![url.clone()];
+            let css = expand_css_imports(&css, &url, &mut stack, &mut |u| fetch_stylesheet_via_wire(path, u));
             extra_css.push_str(&css);
             extra_css.push('\n');
         }
@@ -21486,6 +21617,47 @@ mod tests {
         // own test already holds to.
         assert_eq!(fetch_stylesheet_via_wire(&path, &url), Some("body{color:red}".to_string()));
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn q18_expand_css_imports_in_place_media_depth_and_cycles() {
+        let base = Url::parse("https://e.com/css/main.css").unwrap();
+        let mut fetched: Vec<String> = Vec::new();
+        let mut fetch = |u: &Url| -> Option<String> {
+            fetched.push(u.to_string());
+            match u.path() {
+                "/css/a.css" => Some("@import 'b.css';\na{color:red}".to_string()),
+                "/css/b.css" => Some("@import url(main.css);\nb{color:blue}".to_string()),
+                "/css/p.css" => Some("p{margin:0}".to_string()),
+                _ => None,
+            }
+        };
+        let css = "@charset \"utf-8\";\n/* c */ @import url(\"a.css\");\n@import p.css;\n@import \"p.css\" print and (min-width:1px);\n@import \"missing.css\";\nbody{x:y}";
+        let mut stack = vec![base.clone()];
+        let out = expand_css_imports(css, &base, &mut stack, &mut fetch);
+        // `@import p.css` (unquoted) is not valid CSS and is dropped.
+        let b = out.find("b{color:blue}").unwrap();
+        let a = out.find("a{color:red}").unwrap();
+        let m = out.find("@media print and (min-width:1px) {").unwrap();
+        assert!(b < a && a < m && m < out.find("body{x:y}").unwrap());
+        assert!(!out.contains("@import"));
+        // The cycle back to main.css was skipped, not fetched.
+        assert!(!fetched.iter().any(|u| u.ends_with("main.css")));
+        // Depth limit: a self-chaining fetcher stops.
+        let mut n = 0;
+        let mut chain = |_: &Url| -> Option<String> {
+            n += 1;
+            Some(format!("@import \"x{n}.css\"; i{n}{{}}"))
+        };
+        let out = expand_css_imports("@import \"x0.css\";", &base, &mut vec![base.clone()], &mut chain);
+        assert_eq!(out.matches("{}").count(), MAX_IMPORT_DEPTH - 1);
+    }
+
+    #[test]
+    fn q18_stylesheet_charset_decoding() {
+        assert_eq!(decode_css_bytes(b"a{content:'\xE9'}", Some(encoding_rs::WINDOWS_1252)), "a{content:'é'}");
+        assert_eq!(decode_css_bytes(b"@charset \"iso-8859-1\"; a{content:'\xE9'}", None), "@charset \"iso-8859-1\"; a{content:'é'}");
+        assert_eq!(decode_css_bytes(b"\xEF\xBB\xBFa{}", None), "a{}");
     }
 
     #[test]
