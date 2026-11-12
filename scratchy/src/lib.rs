@@ -125,6 +125,92 @@ fn parse_args() -> Args {
     Args { input, socket }
 }
 
+/// Charset of a `Content-Type` header value's `charset=` parameter, if
+/// it names an encoding `encoding_rs` knows. WHATWG labels apply, so
+/// `iso-8859-1`/`latin1` come back as windows-1252.
+fn content_type_charset(content_type: &str) -> Option<&'static encoding_rs::Encoding> {
+    let lower = content_type.to_ascii_lowercase();
+    let idx = lower.find("charset")?;
+    let rest = lower[idx + "charset".len()..].trim_start().strip_prefix('=')?;
+    let label: String = rest
+        .trim_start()
+        .trim_start_matches(['"', '\''])
+        .chars()
+        .take_while(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | ':' | '.'))
+        .collect();
+    encoding_rs::Encoding::for_label(label.as_bytes())
+}
+
+/// `<meta charset=...>` / `<meta http-equiv=content-type content="...;
+/// charset=...">` within the first 1024 bytes. A UTF-16 label found
+/// this way means UTF-8 (the bytes are demonstrably ASCII-compatible).
+fn meta_charset(bytes: &[u8]) -> Option<&'static encoding_rs::Encoding> {
+    let head = &bytes[..bytes.len().min(1024)];
+    let lower: Vec<u8> = head.to_ascii_lowercase();
+    let text = String::from_utf8_lossy(&lower);
+    let mut from = 0;
+    while let Some(i) = text[from..].find("<meta") {
+        let start = from + i;
+        let end = text[start..].find('>').map(|e| start + e).unwrap_or(text.len());
+        let tag = &text[start..end];
+        if let Some(enc) = content_type_charset(tag) {
+            return Some(if enc == encoding_rs::UTF_16LE || enc == encoding_rs::UTF_16BE { encoding_rs::UTF_8 } else { enc });
+        }
+        from = end;
+    }
+    None
+}
+
+/// Encoding order: BOM, header charset (wire only), meta within the
+/// first 1024 bytes, UTF-8.
+fn sniff_encoding(bytes: &[u8], header: Option<&'static encoding_rs::Encoding>) -> &'static encoding_rs::Encoding {
+    if let Some((enc, _)) = encoding_rs::Encoding::for_bom(bytes) {
+        return enc;
+    }
+    header.or_else(|| meta_charset(bytes)).unwrap_or(encoding_rs::UTF_8)
+}
+
+/// Decodes a whole document to a `String` (BOM stripped, malformed
+/// sequences replaced).
+fn decode_html_bytes(bytes: &[u8], header: Option<&'static encoding_rs::Encoding>) -> String {
+    let enc = sniff_encoding(bytes, header);
+    enc.decode_with_bom_removal(bytes).0.into_owned()
+}
+
+/// Incremental bytes-to-UTF-8 transcoder for streaming stdin: buffers
+/// until 1024 bytes (or EOF) to sniff, then decodes chunk by chunk.
+struct StreamTranscoder {
+    pending: Vec<u8>,
+    decoder: Option<encoding_rs::Decoder>,
+}
+
+impl StreamTranscoder {
+    fn new() -> Self {
+        Self { pending: Vec::new(), decoder: None }
+    }
+
+    fn decode(&mut self, bytes: &[u8], last: bool) -> Vec<u8> {
+        if self.decoder.is_none() {
+            self.pending.extend_from_slice(bytes);
+            if self.pending.len() < 1024 && !last {
+                return Vec::new();
+            }
+            let enc = sniff_encoding(&self.pending, None);
+            self.decoder = Some(enc.new_decoder_with_bom_removal());
+            let buf = std::mem::take(&mut self.pending);
+            return self.run(&buf, last);
+        }
+        self.run(bytes, last)
+    }
+
+    fn run(&mut self, bytes: &[u8], last: bool) -> Vec<u8> {
+        let decoder = self.decoder.as_mut().expect("decoder set");
+        let mut out = String::with_capacity(decoder.max_utf8_buffer_length(bytes.len()).unwrap_or(bytes.len() * 3 + 16));
+        let _ = decoder.decode_to_string(bytes, &mut out, last);
+        out.into_bytes()
+    }
+}
+
 fn new_parser() -> Utf8LossyDecoder<Parser<RcDom>> {
     parse_document(RcDom::default(), ParseOpts::default()).from_utf8()
 }
@@ -12610,7 +12696,7 @@ fn dispatch_wire_response(content_type: Option<String>, body: Vec<u8>) -> Result
     let content_type = content_type.unwrap_or_default();
     let mime = content_type.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
     match mime.as_str() {
-        "text/html" => Ok(body),
+        "text/html" => Ok(decode_html_bytes(&body, content_type_charset(&content_type)).into_bytes()),
         "image/png" | "image/jpeg" | "image/gif" | "image/webp" => Ok(wrap_image_as_html(&mime, &body)),
         _ => Err(format!("can't render this content type: {mime:?}")),
     }
@@ -14673,7 +14759,7 @@ pub fn run() {
 
     let mut app = match input {
         Input::File(path) => {
-            let html = fs::read_to_string(&path).unwrap_or_else(|e| {
+            let html = fs::read(&path).map(|b| decode_html_bytes(&b, None)).unwrap_or_else(|e| {
                 eprintln!("scratchy: {e}");
                 std::process::exit(1);
             });
@@ -14686,14 +14772,20 @@ pub fn run() {
                 let proxy = stdin_proxy;
                 let mut stdin = io::stdin();
                 let mut buf = [0u8; 8192];
+                let mut transcoder = StreamTranscoder::new();
                 loop {
                     match stdin.read(&mut buf) {
                         Ok(0) => {
+                            let tail = transcoder.decode(&[], true);
+                            if !tail.is_empty() {
+                                let _ = proxy.send_event(AppEvent::Chunk(tail));
+                            }
                             let _ = proxy.send_event(AppEvent::Eof);
                             break;
                         }
                         Ok(n) => {
-                            if proxy.send_event(AppEvent::Chunk(buf[..n].to_vec())).is_err() {
+                            let out = transcoder.decode(&buf[..n], false);
+                            if !out.is_empty() && proxy.send_event(AppEvent::Chunk(out)).is_err() {
                                 break;
                             }
                         }
@@ -19074,6 +19166,35 @@ mod tests {
 
     // -- dispatching by Content-Type, per `scratchy/TODO.txt`'s own
     // settled response-framing contract --
+
+    #[test]
+    fn q8_charset_decoding_meta_header_bom_and_streaming() {
+        // windows-1252 bytes, <meta charset=iso-8859-1> -> "é" (0xE9).
+        let mut doc = b"<meta charset=iso-8859-1><p>caf".to_vec();
+        doc.push(0xE9);
+        assert!(decode_html_bytes(&doc, None).ends_with("caf\u{e9}"));
+        // http-equiv form, and windows-1252 specific 0x80 = euro sign.
+        let doc2 = b"<meta http-equiv=\"Content-Type\" content=\"text/html; charset=windows-1252\">\x80";
+        assert!(decode_html_bytes(doc2, None).ends_with('\u{20ac}'));
+        // Header charset wins over meta; wire path transcodes to UTF-8.
+        let out = dispatch_wire_response(Some("text/html; charset=ISO-8859-1".to_string()), vec![b'a', 0xE9]).unwrap();
+        assert_eq!(String::from_utf8(out).unwrap(), "a\u{e9}");
+        // BOM'd UTF-8 has the BOM stripped; no BOM/meta stays UTF-8.
+        assert_eq!(decode_html_bytes(b"\xEF\xBB\xBFhi \xC3\xA9", None), "hi \u{e9}");
+        assert_eq!(decode_html_bytes("h\u{e9}".as_bytes(), None), "h\u{e9}");
+        // Streaming: split chunks, sniff buffered, multi-byte split ok.
+        let mut t = StreamTranscoder::new();
+        let mut out = t.decode(b"<meta charset=latin1>", false);
+        assert!(out.is_empty());
+        out.extend(t.decode(&[0xE9; 1500], false));
+        out.extend(t.decode(&[], true));
+        let s = String::from_utf8(out).unwrap();
+        assert!(s.starts_with("<meta") && s.ends_with("\u{e9}") && s.matches('\u{e9}').count() == 1500);
+        // Short stream flushed at EOF.
+        let mut t = StreamTranscoder::new();
+        assert!(t.decode(b"<meta charset=latin1>\xE9", false).is_empty());
+        assert!(String::from_utf8(t.decode(&[], true)).unwrap().ends_with('\u{e9}'));
+    }
 
     #[test]
     fn dispatch_wire_response_passes_html_through_untouched() {

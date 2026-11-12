@@ -5745,3 +5745,12 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > scratchy/TODO.txt.
 
 **What changed:** `wide_keys` now maps `text-decoration` (+ `-line`/`-style`/`-color`, via `TEXT_DECO_KEYS`), `inset*`, and `border-block/inline*` (shorthands, -start/-end, -width/-style/-color) to canonical keys; `clear_typed` knows the four text-decoration fields. `resolve_style` cascades the four text-decoration properties with `cascade_css`: `inherit` copies the parent's own cascaded value (via `InheritedStyle.parent`), `initial`/`unset`/`revert` give "not declared" (the ambient decoration an ancestor draws is unaffected, as in real CSS). Logical keys reuse the existing `copy_prop` path. Test: `q7c_css_wide_keywords_text_decoration_and_logical_shorthands`. `grim` worked: a `<p>` with `text-decoration-line/-color: inherit; border-block: inherit` showed a red underline and top/bottom blue borders. Left out (noted in TODO, no new item): `font-variant`/`letter-spacing`, which scratchy doesn't parse, so a keyword has nothing to apply to.
+
+---
+
+## Q8 — Charset decoding (queue item)
+
+> Implement the first unchecked item (Q8) of the ranked QUEUE in
+> scratchy/TODO.txt.
+
+**What changed:** new dependency `encoding_rs`. `sniff_encoding` picks BOM, then the wire `Content-Type` `charset=` (`content_type_charset`), then `<meta charset>`/`http-equiv` in the first 1024 bytes (`meta_charset`), then UTF-8; WHATWG labels apply (`iso-8859-1`/`latin1` become windows-1252). `decode_html_bytes` is used by the file path (`fs::read` instead of `read_to_string`) and `dispatch_wire_response` (HTML bodies are now transcoded to UTF-8). Streaming stdin runs through `StreamTranscoder` in the reader thread (buffers 1024 bytes to sniff, then decodes incrementally), so `AppEvent::Chunk` stays UTF-8. Test: `q8_charset_decoding_meta_header_bom_and_streaming`. `grim` worked: a latin-1 file with `<meta charset=iso-8859-1>` rendered "café €". Left out (noted, no new item): external stylesheets fetched via wire are still UTF-8 only.
