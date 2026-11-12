@@ -97,7 +97,7 @@ dropped selectors summed across those pages. Caveats:
       (that entry's test plan applies). Done when Wikipedia's "Jump to
       content" line is gone from a real render.
 
-- [ ] Q3 [S] Pseudo-elements. scratchy uses `NoPseudoElement`, so any
+- [x] Q3 [S] (5001376) Pseudo-elements. scratchy uses `NoPseudoElement`, so any
       selector containing `::before`, `::after`, `::marker`,
       `::placeholder`, `::selection` or `::-webkit-*` fails to parse.
       The whole comma-separated rule goes with it, so `a, a::after{…}`
