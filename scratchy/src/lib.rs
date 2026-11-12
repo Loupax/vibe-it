@@ -1847,6 +1847,10 @@ impl FontFamily {
 struct StyleRule {
     selectors: SelectorList<OurSelectorImpl>,
     decls: Declarations,
+    /// The `!important` declarations of this rule, kept apart from
+    /// `decls` so the cascade can put them in their own, stronger tier
+    /// (see `IMPORTANT_TIER` and `cascade_property`).
+    important: Declarations,
     /// Zero or more comma-separated `@media` conditions this rule is
     /// wrapped in (comma = OR between entries; `and` is folded into one
     /// entry's own fields, real Media Queries list grammar). An empty
@@ -3450,6 +3454,20 @@ fn css_debug_report_dropped_rule(slice: &str) {
 
 struct DeclParser<'a> {
     decls: &'a mut Declarations,
+    /// Receives declarations that end in `!important`.
+    important: &'a mut Declarations,
+}
+
+/// Strips a trailing `!important` (any case, optional whitespace after
+/// the `!`) from raw declaration text, if present.
+fn strip_important(raw: &str) -> Option<&str> {
+    let t = raw.trim_end();
+    let len = t.len();
+    if len < 9 || !t.is_char_boundary(len - 9) || !t[len - 9..].eq_ignore_ascii_case("important") {
+        return None;
+    }
+    let before = t[..len - 9].trim_end();
+    before.strip_suffix('!').map(|v| v.trim_end())
 }
 
 impl DeclParser<'_> {
@@ -3463,7 +3481,8 @@ impl DeclParser<'_> {
             // which wraps this call, doesn't see it as a parse error).
             let start = input.state();
             while input.next().is_ok() {}
-            let raw = input.slice_from(start.position()).trim().to_string();
+            let raw = input.slice_from(start.position()).trim();
+            let raw = strip_important(raw).unwrap_or(raw).to_string();
             self.decls.custom_props.push((name.to_string(), raw));
         } else if name.eq_ignore_ascii_case("color") {
             if let Ok(c) = CssColor::parse(input) {
@@ -4055,6 +4074,25 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
             (String::new(), None, None)
         };
 
+        // Detect a trailing `!important` (it is part of this value's
+        // tokens, not delimited off by the caller) and route the
+        // declaration into the important `Declarations` by swapping the
+        // two for the duration of `apply`. Custom properties always stay
+        // in the normal set (`var()` substitution has no tiers).
+        let important = !name.starts_with("--") && {
+            let start = input.state();
+            while input.next().is_ok() {}
+            let raw = input.slice_from(start.position());
+            let found = strip_important(raw).is_some();
+            input.reset(&start);
+            found
+        };
+        if important {
+            std::mem::swap(self.decls, self.important);
+            self.apply(&name, input);
+            std::mem::swap(self.decls, self.important);
+            return Ok(());
+        }
         self.apply(&name, input);
         if let (Some(before), Some(value_start)) = (before, value_start) {
             if *self.decls == before {
@@ -4066,7 +4104,7 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
                 // there, since every field defaults to unset.
                 input.reset(&value_start);
                 let mut scratch = Declarations::default();
-                DeclParser { decls: &mut scratch }.apply(&name, input);
+                DeclParser { decls: &mut scratch, important: &mut Declarations::default() }.apply(&name, input);
                 if scratch == Declarations::default() {
                     css_debug_report(format!("scratchy: css: ignored `{name}: {raw_value}`"));
                 }
@@ -4097,15 +4135,22 @@ impl<'i> RuleBodyItemParser<'i, (), CssError> for DeclParser<'_> {
     }
 }
 
+#[cfg(test)]
 fn parse_declarations(source: &str) -> Declarations {
+    parse_declarations_split(source).0
+}
+
+/// Parses a declaration list into (normal, `!important`) sets.
+fn parse_declarations_split(source: &str) -> (Declarations, Declarations) {
     let mut decls = Declarations::default();
+    let mut important = Declarations::default();
     {
         let mut input = CssParser::new(source);
-        let mut decl_parser = DeclParser { decls: &mut decls };
+        let mut decl_parser = DeclParser { decls: &mut decls, important: &mut important };
         let mut iter = RuleBodyParser::new(&mut input, &mut decl_parser);
         while iter.next().is_some() {}
     }
-    decls
+    (decls, important)
 }
 
 struct TopLevelParser;
@@ -4203,14 +4248,16 @@ impl<'i> QualifiedRuleParser<'i> for TopLevelParser {
         input: &mut CssParser<'i>,
     ) -> Result<Self::QualifiedRule, ParseError<Self::Error>> {
         let mut decls = Declarations::default();
+        let mut important = Declarations::default();
         {
-            let mut decl_parser = DeclParser { decls: &mut decls };
+            let mut decl_parser = DeclParser { decls: &mut decls, important: &mut important };
             let mut iter = RuleBodyParser::new(input, &mut decl_parser);
             while iter.next().is_some() {}
         }
         Ok(vec![StyleRule {
             selectors: prelude,
             decls,
+            important,
             media: Vec::new(),
         }])
     }
@@ -4744,9 +4791,6 @@ fn cascade_property<T: Clone>(
     inline: Option<T>,
     get: impl Fn(&Declarations) -> Option<T>,
 ) -> Option<T> {
-    if inline.is_some() {
-        return inline;
-    }
     let mut best: Option<(u32, T)> = None;
     for &(specificity, decls) in matches {
         if let Some(v) = get(decls) {
@@ -4755,8 +4799,17 @@ fn cascade_property<T: Clone>(
             }
         }
     }
-    best.map(|(_, v)| v)
+    match best {
+        // An `!important` declaration (rule or inline) beats an inline
+        // normal one.
+        Some((s, v)) if s >= IMPORTANT_TIER => Some(v),
+        Some((_, v)) => inline.or(Some(v)),
+        None => inline,
+    }
 }
+
+/// Specificities are 30 bits; this bit marks the `!important` tier.
+const IMPORTANT_TIER: u32 = 1 << 31;
 
 /// Every rule in `rules` whose selector matches `handle`, paired with its
 /// specificity — the real selector-matching work `resolve_style` itself
@@ -4798,6 +4851,7 @@ fn matching_declarations<'a>(handle: &Handle, rules: &'a [StyleRule], viewport_w
                 .max()
                 .unwrap_or(0);
             matches.push((specificity, &rule.decls));
+            matches.push((specificity | IMPORTANT_TIER, &rule.important));
         }
     }
     matches
@@ -4831,8 +4885,15 @@ enum BackgroundImageDecl {
 /// `BoxContent::Image` (see its own docs). Only a `data:` URI `url(...)`
 /// decodes — same `<img src>` policy, see `decode_data_uri`'s own docs.
 fn resolve_background_image(handle: &Handle, rules: &[StyleRule], viewport_width: f32) -> Option<Arc<DecodedImage>> {
-    let matches = matching_declarations(handle, rules, viewport_width);
-    let inline_decls = element_attr(handle, "style").map(|s| parse_declarations(&s));
+    let mut matches = matching_declarations(handle, rules, viewport_width);
+    let inline_split = element_attr(handle, "style").map(|s| parse_declarations_split(&s));
+    let (inline_decls, inline_important) = match inline_split {
+        Some((n, i)) => (Some(n), Some(i)),
+        None => (None, None),
+    };
+    if let Some(i) = inline_important.as_ref() {
+        matches.push((u32::MAX, i));
+    }
     let decl = cascade_property(
         &matches,
         inline_decls.as_ref().and_then(|d| d.background_image.clone()),
@@ -4850,8 +4911,15 @@ fn resolve_background_image(handle: &Handle, rules: &[StyleRule], viewport_width
 }
 
 fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle, viewport_width: f32) -> ComputedStyle {
-    let matches = matching_declarations(handle, rules, viewport_width);
-    let inline_decls = element_attr(handle, "style").map(|s| parse_declarations(&s));
+    let mut matches = matching_declarations(handle, rules, viewport_width);
+    let inline_split = element_attr(handle, "style").map(|s| parse_declarations_split(&s));
+    let (inline_decls, inline_important) = match inline_split {
+        Some((n, i)) => (Some(n), Some(i)),
+        None => (None, None),
+    };
+    if let Some(i) = inline_important.as_ref() {
+        matches.push((u32::MAX, i));
+    }
 
     let color = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.color), |d| d.color)
         .and_then(|c| to_text_color(&c))
@@ -19240,6 +19308,25 @@ mod tests {
         assert_eq!(children[0].y, children[1].y, "two equally-flexed items should share one row, not stack vertically — proves this actually flexed, not just became an inline-block");
         assert_eq!(children[0].w, 50.0, "flex: 1 on both items should split the 100px evenly");
         assert_eq!(children[1].x, children[0].x + children[0].w, "the second flex item should start exactly where the first ends");
+    }
+
+    #[test]
+    fn q6_important_declarations_beat_specificity_and_inline_style() {
+        let color_of = |css: &str, html: &str| {
+            let doc = parse_html(html);
+            let p = find_element_by_tag(&doc, "p").expect("no <p>");
+            resolve_style(&p, &parse_stylesheet(css), ROOT_STYLE, 800.0).color
+        };
+        let red = TextColor::rgb(255, 0, 0);
+        let blue = TextColor::rgb(0, 0, 255);
+        assert_eq!(color_of("#a{color:red} p{color:blue !important}", r#"<p id="a">x</p>"#), blue);
+        assert_eq!(color_of("#a{color:red} p{color:blue}", r#"<p id="a">x</p>"#), red);
+        // important rule beats a normal inline style
+        assert_eq!(color_of("p{color:blue !important}", r#"<p style="color:red">x</p>"#), blue);
+        // inline important beats important rule
+        assert_eq!(color_of("p{color:blue !important}", r#"<p style="color:red ! IMPORTANT">x</p>"#), red);
+        // within the tier, specificity then source order
+        assert_eq!(color_of("#a{color:red !important} p{color:blue !important}", r#"<p id="a">x</p>"#), red);
     }
 
     #[test]

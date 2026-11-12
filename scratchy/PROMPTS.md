@@ -5709,3 +5709,12 @@ dropped. Elements remain their own items (per CSS Flexbox §4, inline
 siblings are not merged into the text item). Test:
 `q5_bare_text_in_flex_container_becomes_anonymous_flex_item`. `grim`
 worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
+
+---
+
+## Q6 — `!important` (queue item)
+
+> Implement the first unchecked item (Q6) of the ranked QUEUE in
+> scratchy/TODO.txt.
+
+**What changed:** `DeclParser` detects a trailing `!important` (`strip_important`) and routes the declaration into a second `Declarations` (`StyleRule.important`; inline `style` via `parse_declarations_split`). `matching_declarations` pushes each rule's important set with `IMPORTANT_TIER` (bit 31) OR-ed into its specificity; inline important is pushed last at `u32::MAX`. `cascade_property` now lets any important entry beat an inline normal declaration; within a tier specificity then source order decide. Custom properties stay in the normal set. Test: `q6_important_declarations_beat_specificity_and_inline_style`. `grim` worked: `#a{color:red} p{color:blue !important}` rendered the `<p id=a>` blue.

@@ -157,7 +157,7 @@ dropped selectors summed across those pages. Caveats:
       flex container". Test: `<div style="display:flex">hello
       <b>x</b></div>` lays out text containing "hello".
 
-- [ ] Q6 [S] `!important` (n=86 Wikipedia, 60 gentoo). Today
+- [x] Q6 [S] (HASH) `!important` (n=86 Wikipedia, 60 gentoo). Today
       `cascade_property` only sorts by specificity. Parse each
       declaration's trailing `!important`, and store important
       declarations in a second `Declarations` on `StyleRule`, and do the
