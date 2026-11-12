@@ -1710,6 +1710,11 @@ struct Declarations {
     /// do with the container declaring it" split `align-self`/`flex-
     /// grow`/etc. already have.
     grid_area: Option<&'static str>,
+    /// Numeric placement longhands (`grid-row-start` etc.), see `GridLine`.
+    grid_row_start: Option<GridLine>,
+    grid_row_end: Option<GridLine>,
+    grid_column_start: Option<GridLine>,
+    grid_column_end: Option<GridLine>,
 }
 
 /// `normal` (the default — current behavior, collapse+wrap), `pre`
@@ -3862,10 +3867,97 @@ fn parse_grid_template_areas(input: &mut CssParser) -> Result<Vec<&'static str>,
 /// closed by this.
 fn parse_grid_area_name(input: &mut CssParser) -> Result<&'static str, ()> {
     let ident = input.expect_ident().map_err(|_| ())?.as_ref().to_string();
-    if !input.is_exhausted() {
+    if !input.is_exhausted() || ident.eq_ignore_ascii_case("auto") || ident.eq_ignore_ascii_case("span") {
         return Err(());
     }
     Ok(Box::leak(ident.into_boxed_str()))
+}
+
+/// One `<grid-line>` of numeric placement: `auto`, a non-zero line
+/// number (negative counts from the end), or `span N`. Named lines are
+/// not supported.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum GridLine {
+    Auto,
+    Line(i32),
+    Span(usize),
+}
+
+fn parse_grid_line(input: &mut CssParser) -> Result<GridLine, ()> {
+    let tok = input.next().map_err(|_| ())?.clone();
+    match tok {
+        Token::Ident(id) if id.eq_ignore_ascii_case("auto") => Ok(GridLine::Auto),
+        Token::Ident(id) if id.eq_ignore_ascii_case("span") => {
+            match input.try_parse(|i| match i.next().map_err(|_| ())? {
+                Token::Number { int_value: Some(n), .. } if *n > 0 => Ok(*n as usize),
+                _ => Err(()),
+            }) {
+                Ok(n) => Ok(GridLine::Span(n)),
+                Err(()) => Ok(GridLine::Span(1)),
+            }
+        }
+        Token::Number { int_value: Some(n), .. } if n != 0 => {
+            // `<integer> span` is not valid; a bare integer is a line.
+            Ok(GridLine::Line(n))
+        }
+        _ => Err(()),
+    }
+}
+
+/// `<grid-line> [ / <grid-line> ]?` (`grid-row`/`grid-column`).
+fn parse_grid_line_pair(input: &mut CssParser) -> Result<(GridLine, GridLine), ()> {
+    let a = parse_grid_line(input)?;
+    let b = if input.try_parse(|i| i.expect_delim('/')).is_ok() { parse_grid_line(input)? } else { GridLine::Auto };
+    if !input.is_exhausted() {
+        return Err(());
+    }
+    Ok((a, b))
+}
+
+/// `grid-area` numeric form: up to four `<grid-line>`s separated by `/`
+/// in row-start, column-start, row-end, column-end order; omitted ones
+/// are `auto`. Returns `[row_start, column_start, row_end, column_end]`.
+fn parse_grid_area_lines(input: &mut CssParser) -> Result<[GridLine; 4], ()> {
+    let mut out = [GridLine::Auto; 4];
+    out[0] = parse_grid_line(input)?;
+    for slot in out.iter_mut().skip(1) {
+        if input.try_parse(|i| i.expect_delim('/')).is_err() {
+            break;
+        }
+        *slot = parse_grid_line(input)?;
+    }
+    if !input.is_exhausted() {
+        return Err(());
+    }
+    Ok(out)
+}
+
+/// One axis' placement after resolving `GridLine`s against the number of
+/// explicit tracks.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum AxisPlace {
+    Fixed(usize, usize),
+    Auto(usize),
+}
+
+fn resolve_grid_axis(start: Option<GridLine>, end: Option<GridLine>, explicit: usize) -> AxisPlace {
+    let line = |n: i32| -> usize {
+        if n > 0 { (n - 1) as usize } else { (explicit as i32 + 1 + n).max(0) as usize }
+    };
+    use GridLine::*;
+    match (start.unwrap_or(Auto), end.unwrap_or(Auto)) {
+        (Line(a), Line(b)) => {
+            let (a, b) = (line(a), line(b));
+            let (a, b) = if a <= b { (a, b) } else { (b, a) };
+            AxisPlace::Fixed(a, if a == b { a + 1 } else { b })
+        }
+        (Line(a), Span(n)) => AxisPlace::Fixed(line(a), line(a) + n),
+        (Span(n), Line(b)) => AxisPlace::Fixed(line(b).saturating_sub(n), line(b).max(n)),
+        (Line(a), Auto) => AxisPlace::Fixed(line(a), line(a) + 1),
+        (Auto, Line(b)) => AxisPlace::Fixed(line(b).saturating_sub(1), line(b).max(1)),
+        (Span(n), Span(_)) | (Span(n), Auto) | (Auto, Span(n)) => AxisPlace::Auto(n),
+        (Auto, Auto) => AxisPlace::Auto(1),
+    }
 }
 
 /// `SCRATCHY_CSS_DEBUG=1 scratchy ...` prints every CSS declaration
@@ -4492,9 +4584,36 @@ impl DeclParser<'_> {
             if let Ok(rows) = parse_grid_template_areas(input) {
                 self.decls.grid_template_areas = Some(Box::leak(rows.into_boxed_slice()));
             }
+        } else if name.eq_ignore_ascii_case("grid-row") || name.eq_ignore_ascii_case("grid-column") {
+            if let Ok((a, b)) = parse_grid_line_pair(input) {
+                if name.eq_ignore_ascii_case("grid-row") {
+                    self.decls.grid_row_start = Some(a);
+                    self.decls.grid_row_end = Some(b);
+                } else {
+                    self.decls.grid_column_start = Some(a);
+                    self.decls.grid_column_end = Some(b);
+                }
+            }
+        } else if let Some(which) = ["grid-row-start", "grid-row-end", "grid-column-start", "grid-column-end"]
+            .iter()
+            .position(|n| name.eq_ignore_ascii_case(n))
+        {
+            if let Ok(l) = parse_grid_line(input).and_then(|l| if input.is_exhausted() { Ok(l) } else { Err(()) }) {
+                match which {
+                    0 => self.decls.grid_row_start = Some(l),
+                    1 => self.decls.grid_row_end = Some(l),
+                    2 => self.decls.grid_column_start = Some(l),
+                    _ => self.decls.grid_column_end = Some(l),
+                }
+            }
         } else if name.eq_ignore_ascii_case("grid-area") {
-            if let Ok(name) = parse_grid_area_name(input) {
+            if let Ok(name) = input.try_parse(parse_grid_area_name) {
                 self.decls.grid_area = Some(name);
+            } else if let Ok(l) = parse_grid_area_lines(input) {
+                self.decls.grid_row_start = Some(l[0]);
+                self.decls.grid_column_start = Some(l[1]);
+                self.decls.grid_row_end = Some(l[2]);
+                self.decls.grid_column_end = Some(l[3]);
             }
         } else if name.eq_ignore_ascii_case("font-size") {
             let state = input.state();
@@ -5529,6 +5648,11 @@ struct ComputedStyle {
     /// inherited, not meaningful on a container" shape `flex_grow`/
     /// `align_self` already have).
     grid_area: Option<&'static str>,
+    /// Numeric placement longhands (`grid-row-start` etc.), see `GridLine`.
+    grid_row_start: Option<GridLine>,
+    grid_row_end: Option<GridLine>,
+    grid_column_start: Option<GridLine>,
+    grid_column_end: Option<GridLine>,
 }
 
 /// `BoxShadow` with its lengths resolved to pixels (against the
@@ -6492,6 +6616,12 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         |d| d.grid_template_areas,
     );
     let grid_area = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.grid_area), |d| d.grid_area);
+    let grid_row_start = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.grid_row_start), |d| d.grid_row_start);
+    let grid_row_end = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.grid_row_end), |d| d.grid_row_end);
+    let grid_column_start =
+        cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.grid_column_start), |d| d.grid_column_start);
+    let grid_column_end =
+        cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.grid_column_end), |d| d.grid_column_end);
 
     let mut cs = ComputedStyle {
         custom_props,
@@ -6552,6 +6682,10 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         grid_template_rows,
         grid_template_areas,
         grid_area,
+        grid_row_start,
+        grid_row_end,
+        grid_column_start,
+        grid_column_end,
     };
     // CSS-wide keywords on the remaining properties (`Q7b`).
     if matches.iter().any(|(_, d)| !d.wide.is_empty()) || inl.is_some_and(|d| !d.wide.is_empty()) {
@@ -6621,6 +6755,10 @@ fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         grid_template_rows: None,
         grid_template_areas: None,
         grid_area: None,
+        grid_row_start: None,
+        grid_row_end: None,
+        grid_column_start: None,
+        grid_column_end: None,
     }
 }
 
@@ -11426,42 +11564,83 @@ fn measure_grid<'a>(
     // document order, skipping any cell a named placement already
     // claimed).
     let template_rows = area_template.map(|a| a.len()).unwrap_or(0);
+    let explicit_rows = template_rows.max(s.grid_template_rows.map(|t| t.len()).unwrap_or(0));
     let mut occupied: Vec<Vec<bool>> = vec![vec![false; num_cols]; template_rows];
     let mut placements: Vec<GridPlacement<'a>> = Vec::with_capacity(items.len());
-    let mut unplaced: Vec<&'a LayoutBox> = Vec::new();
+    // Marks a rectangle occupied (growing the implicit rows) and records it.
+    let place = |occupied: &mut Vec<Vec<bool>>,
+                     placements: &mut Vec<GridPlacement<'a>>,
+                     item: &'a LayoutBox,
+                     r0: usize,
+                     r1: usize,
+                     c0: usize,
+                     c1: usize| {
+        while occupied.len() < r1 {
+            occupied.push(vec![false; num_cols]);
+        }
+        for row in occupied.iter_mut().take(r1).skip(r0) {
+            for cell in row.iter_mut().take(c1).skip(c0) {
+                *cell = true;
+            }
+        }
+        placements.push(GridPlacement { item, row_start: r0, col_start: c0, col_end: c1 });
+    };
+    let free = |occupied: &Vec<Vec<bool>>, r0: usize, r1: usize, c0: usize, c1: usize| {
+        (r0..r1).all(|r| occupied.get(r).is_none_or(|row| row[c0..c1].iter().all(|o| !o)))
+    };
+    // Pass 1: named areas and fully-fixed numeric placements. Pass 2: one
+    // fixed axis. Pass 3: auto-placement with the cursor.
+    let mut one_axis: Vec<(&'a LayoutBox, AxisPlace, AxisPlace)> = Vec::new();
+    let mut unplaced: Vec<(&'a LayoutBox, usize, usize)> = Vec::new();
     for &item in &items {
         let rect = item.style.grid_area.zip(area_template).and_then(|(name, areas)| grid_area_rect(areas, name));
-        match rect {
-            Some((row_start, row_end, col_start, col_end)) => {
-                let col_end = col_end.min(num_cols).max(col_start + 1);
-                while occupied.len() < row_end {
-                    occupied.push(vec![false; num_cols]);
-                }
-                for row in occupied.iter_mut().take(row_end).skip(row_start) {
-                    for cell in row.iter_mut().take(col_end).skip(col_start) {
-                        *cell = true;
-                    }
-                }
-                placements.push(GridPlacement { item, row_start, col_start, col_end });
+        if let Some((row_start, row_end, col_start, col_end)) = rect {
+            let col_end = col_end.min(num_cols).max(col_start + 1);
+            place(&mut occupied, &mut placements, item, row_start, row_end, col_start, col_end);
+            continue;
+        }
+        let st = &item.style;
+        let cols = resolve_grid_axis(st.grid_column_start, st.grid_column_end, num_cols);
+        let rows = resolve_grid_axis(st.grid_row_start, st.grid_row_end, explicit_rows);
+        match (rows, cols) {
+            (AxisPlace::Fixed(r0, r1), AxisPlace::Fixed(c0, c1)) => {
+                let c0 = c0.min(num_cols - 1);
+                let c1 = c1.min(num_cols).max(c0 + 1);
+                place(&mut occupied, &mut placements, item, r0, r1, c0, c1);
             }
-            None => unplaced.push(item),
+            (AxisPlace::Auto(rs), AxisPlace::Auto(cs)) => unplaced.push((item, rs, cs.min(num_cols))),
+            _ => one_axis.push((item, rows, cols)),
+        }
+    }
+    for (item, rows, cols) in one_axis {
+        match (rows, cols) {
+            (AxisPlace::Fixed(r0, r1), AxisPlace::Auto(cs)) => {
+                let cs = cs.min(num_cols);
+                let c0 = (0..=num_cols - cs).find(|&c| free(&occupied, r0, r1, c, c + cs)).unwrap_or(0);
+                place(&mut occupied, &mut placements, item, r0, r1, c0, c0 + cs);
+            }
+            (AxisPlace::Auto(rs), AxisPlace::Fixed(c0, c1)) => {
+                let c0 = c0.min(num_cols - 1);
+                let c1 = c1.min(num_cols).max(c0 + 1);
+                let mut r0 = 0;
+                while !free(&occupied, r0, r0 + rs, c0, c1) {
+                    r0 += 1;
+                }
+                place(&mut occupied, &mut placements, item, r0, r0 + rs, c0, c1);
+            }
+            _ => unreachable!(),
         }
     }
     let mut cursor = (0usize, 0usize);
-    for item in unplaced {
+    for (item, rs, cs) in unplaced {
         loop {
             let (r, c) = cursor;
-            if r >= occupied.len() {
-                occupied.push(vec![false; num_cols]);
+            if c + cs <= num_cols && free(&occupied, r, r + rs, c, c + cs) {
+                place(&mut occupied, &mut placements, item, r, r + rs, c, c + cs);
+                cursor = if c + cs < num_cols { (r, c + cs) } else { (r + 1, 0) };
+                break;
             }
-            if occupied[r][c] {
-                cursor = if c + 1 < num_cols { (r, c + 1) } else { (r + 1, 0) };
-                continue;
-            }
-            occupied[r][c] = true;
             cursor = if c + 1 < num_cols { (r, c + 1) } else { (r + 1, 0) };
-            placements.push(GridPlacement { item, row_start: r, col_start: c, col_end: c + 1 });
-            break;
         }
     }
     let num_rows = occupied.len();
@@ -18747,6 +18926,40 @@ mod tests {
     }
 
     #[test]
+    fn q15c_grid_numeric_placement() {
+        let grid = |style: &str, kids: &str| {
+            let html = format!(
+                r#"<html><body style="margin: 0"><div style="display: grid; grid-template-columns: 100px 100px 100px 100px; width: 400px; {style}">{kids}</div></body></html>"#
+            );
+            let laid = measure_fixture(&html, 500.0);
+            grid_items(&laid, 400.0).iter().map(|l| (l.x, l.y, l.w)).collect::<Vec<_>>()
+        };
+        // grid-column line numbers and span
+        let it = grid("", r#"<div style="grid-column: 2 / 4">a</div><div style="grid-column: 1 / span 2">b</div><div style="grid-column: -2 / -1">c</div>"#);
+        // items come back in row-then-column order: a, c (row 0), b (pushed to row 1)
+        assert_eq!((it[0].0, it[0].2), (100.0, 200.0));
+        assert_eq!((it[1].0, it[1].2), (300.0, 100.0), "-2/-1 is the last column");
+        assert_eq!((it[2].0, it[2].2), (0.0, 200.0), "b collides with a in row 0 and moves down");
+        // longhands + span only: auto-placed with a column span
+        let it = grid("", r#"<div style="grid-column-start: span 3">a</div><div>b</div><div style="grid-column-start: 3; grid-column-end: span 2">c</div>"#);
+        // c has a fixed column so it is placed first (row 0, cols 3-4); a's
+        // 3-wide span no longer fits row 0, so a and b share row 1.
+        assert_eq!((it[0].0, it[0].2), (200.0, 200.0));
+        assert_eq!((it[1].0, it[1].2), (0.0, 300.0));
+        assert_eq!((it[2].0, it[2].1), (300.0, it[1].1), "b follows a's span in the same row");
+        // grid-row fixes the row; auto column finds the first free cell in it
+        let it = grid("grid-template-rows: 30px 40px;", r#"<div style="grid-row: 2">a</div><div>b</div>"#);
+        assert_eq!(it[1].1 - it[0].1, 30.0, "a sits in the second row, b auto-places into the first");
+        // 4-value grid-area: row-start / col-start / row-end / col-end
+        let it = grid("grid-template-rows: 30px 40px;", r#"<div style="grid-area: 2 / 2 / 3 / 4">a</div><div>b</div>"#);
+        assert_eq!((it[1].0, it[1].2), (100.0, 200.0));
+        assert_eq!(it[1].1 - it[0].1, 30.0);
+        // invalid values (line 0) are dropped
+        let it = grid("", r#"<div style="grid-column: 0 / 2">a</div>"#);
+        assert_eq!((it[0].0, it[0].2), (0.0, 100.0));
+    }
+
+    #[test]
     fn q15a_grid_content_sized_tracks() {
         let widths = |cols: &str, a: &str| -> (f32, f32) {
             let html = format!(
@@ -21000,12 +21213,12 @@ mod tests {
     /// own comparison to catch, not just the synthetic structs above.
     #[test]
     fn parse_stylesheet_leaves_an_unsupported_declaration_with_no_effect() {
-        let rules = parse_stylesheet("div { color: red; grid-area: 1 / 2 / 3 / 4; }");
+        let rules = parse_stylesheet("div { color: red; grid-area: 1 / 2 / 3 / 4 / 5; }");
         assert_eq!(rules.len(), 1);
         assert!(rules[0].decls.color.is_some(), "the supported declaration in the same rule should still apply");
         assert!(
             rules[0].decls.grid_area.is_none(),
-            "the unsupported numeric grid-area form should leave the field unset, not guess at a value"
+            "an invalid grid-area form (five lines) should leave the field unset, not guess at a value"
         );
     }
 
