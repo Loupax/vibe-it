@@ -344,7 +344,7 @@ dropped selectors summed across those pages. Caveats:
       - [x] Q15c [S] (a665a34) Numeric placement: `grid-column`/`grid-row`, their
             `-start`/`-end` longhands, `span N`, and the 4-value
             `grid-area` form.
-      - [x] Q15d [M] (HASH) `repeat(auto-fill|auto-fit, …)`.
+      - [x] Q15d [M] (86e1dcb) `repeat(auto-fill|auto-fit, …)`.
       Detail: the `[ ]` items under "`grid-template-areas` +
       `grid-area`".
 
@@ -1133,7 +1133,7 @@ session can pick a coherent slice rather than one property at a time.
             see the item just above); a bare `auto`/`min-content`/
             `max-content`, inside `minmax()` or not, still simply fails
             to parse, dropping the whole declaration.
-      - [x] (Q15d, HASH) `repeat(auto-fill, ...)`/`repeat(auto-fit, ...)` aren't
+      - [x] (Q15d, 86e1dcb) `repeat(auto-fill, ...)`/`repeat(auto-fit, ...)` aren't
             recognized — only `repeat(<integer>, ...)` — real available-
             space-driven track-count resolution (how many tracks fit)
             is a different, bigger problem than this item's own
