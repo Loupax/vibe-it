@@ -284,7 +284,7 @@ dropped selectors summed across those pages. Caveats:
 
 --- Tier 2: page structure and common visuals ----------------------
 
-- [ ] Q12 [L] SVG images. Today there is ZERO SVG support:
+- [x] Q12 [L] (commit: af12757) SVG images. Today there is ZERO SVG support:
       `decode_image_bytes` only knows png/jpeg/gif/webp. That leaves
       269 `data:image/svg+xml` URIs on the Wikipedia page, and 36 inline
       `<svg>` on Wikipedia plus 34 on social.loupax.com, as blank
@@ -301,7 +301,7 @@ dropped selectors summed across those pages. Caveats:
             detect SVG via `Content-Type` `image/svg+xml` for wire-fetched
             images whose bytes lack an obvious prefix; 300x150 fallback
             when neither width/height nor viewBox exist.
-      - [ ] Q12b [M] An inline `<svg>` element becomes a replaced box,
+      - [x] Q12b [M] (commit: af12757) An inline `<svg>` element becomes a replaced box,
             the same shape as `build_img_box`. Serialize the subtree
             back to XML, rasterize it, then size it the same way `<img>`
             is sized. `fill="currentColor"` must resolve to the

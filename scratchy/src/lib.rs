@@ -6663,6 +6663,104 @@ fn resolve_img(handle: &Handle, mut style: ComputedStyle, image_cache: &HashMap<
     (style, decoded)
 }
 
+/// Serializes an inline `<svg>` subtree back to standalone XML (html5ever
+/// has already case-fixed `viewBox`, `linearGradient` etc.), making sure
+/// the root carries the SVG (and xlink) namespace declarations a
+/// standalone document needs, and substituting every `currentColor` with
+/// the element's computed `color` (resvg has no inherited CSS `color` to
+/// resolve it against).
+fn serialize_inline_svg(handle: &Handle, color: TextColor) -> String {
+    fn esc(out: &mut String, s: &str, attr: bool) {
+        for c in s.chars() {
+            match c {
+                '&' => out.push_str("&amp;"),
+                '<' => out.push_str("&lt;"),
+                '>' => out.push_str("&gt;"),
+                '"' if attr => out.push_str("&quot;"),
+                _ => out.push(c),
+            }
+        }
+    }
+    fn walk(node: &Handle, out: &mut String, root: bool) {
+        match &node.data {
+            NodeData::Text { contents } => esc(out, &contents.borrow(), false),
+            NodeData::Element { name, attrs, .. } => {
+                let tag = name.local.as_ref();
+                out.push('<');
+                out.push_str(tag);
+                let attrs = attrs.borrow();
+                let (mut has_ns, mut has_xlink) = (false, false);
+                for a in attrs.iter() {
+                    let local = a.name.local.as_ref();
+                    match a.name.prefix.as_ref().map(|p| p.as_ref()) {
+                        Some(p) => {
+                            has_xlink |= p == "xmlns" && local == "xlink";
+                            out.push_str(&format!(" {p}:{local}=\""));
+                        }
+                        None => {
+                            has_ns |= local == "xmlns";
+                            out.push_str(&format!(" {local}=\""));
+                        }
+                    }
+                    esc(out, a.value.as_ref(), true);
+                    out.push('"');
+                }
+                if root {
+                    if !has_ns {
+                        out.push_str(" xmlns=\"http://www.w3.org/2000/svg\"");
+                    }
+                    if !has_xlink {
+                        out.push_str(" xmlns:xlink=\"http://www.w3.org/1999/xlink\"");
+                    }
+                }
+                out.push('>');
+                for child in node.children.borrow().iter() {
+                    walk(child, out, false);
+                }
+                out.push_str("</");
+                out.push_str(tag);
+                out.push('>');
+            }
+            _ => {}
+        }
+    }
+    let mut xml = String::new();
+    walk(handle, &mut xml, true);
+    let replacement = if color.a() == 255 {
+        format!("rgb({},{},{})", color.r(), color.g(), color.b())
+    } else {
+        format!("rgba({},{},{},{})", color.r(), color.g(), color.b(), color.a() as f32 / 255.0)
+    };
+    // ASCII lowercasing keeps byte offsets identical to `xml`.
+    let lower = xml.to_ascii_lowercase();
+    let needle = "currentcolor";
+    let mut out = String::with_capacity(xml.len());
+    let mut last = 0;
+    while let Some(i) = lower[last..].find(needle) {
+        out.push_str(&xml[last..last + i]);
+        out.push_str(&replacement);
+        last += i + needle.len();
+    }
+    out.push_str(&xml[last..]);
+    out
+}
+
+/// Inline `<svg>` as a replaced element: the same style-size fallbacks as
+/// `resolve_img` (CSS `width`/`height`, else the unitless HTML
+/// attributes), then the serialized subtree is rasterized at the
+/// resulting size. `None` when the markup doesn't parse as SVG.
+fn resolve_inline_svg(handle: &Handle, mut style: ComputedStyle) -> (ComputedStyle, Option<Arc<DecodedImage>>) {
+    if style.width.is_none() {
+        style.width = img_size_attr(handle, "width").map(BoxLength::Px);
+    }
+    if style.height.is_none() {
+        style.height = img_size_attr(handle, "height").map(BoxLength::Px);
+    }
+    let xml = serialize_inline_svg(handle, style.color);
+    let decoded = decode_svg_bytes(xml.as_bytes()).map(Arc::new).map(|d| svg_at_css_size(d, &style));
+    (style, decoded)
+}
+
 /// Builds `<img>`'s own box directly, bypassing the normal children walk
 /// (it's a void element — nothing to recurse into) — only reached for a
 /// `display: block`/`table` `<img>` (see `collect_children`'s own docs);
@@ -6722,6 +6820,14 @@ fn build_box_for_element(
     // `LayoutBox` directly too, rather than delegating further down).
     if element_tag(handle) == "img" {
         return build_img_box(handle, style, background_image, image_cache);
+    }
+    if element_tag(handle) == "svg" {
+        let (style, decoded) = resolve_inline_svg(handle, style);
+        let content = match decoded {
+            Some(image) => BoxContent::Image(image),
+            None => BoxContent::Inline(Vec::new()),
+        };
+        return LayoutBox { style, background_image, content };
     }
     let own_decoration = resolve_own_decoration(&style, decoration);
     if style.display == Display::Table {
@@ -7161,6 +7267,13 @@ fn collect_children(
                             span.href = child_href;
                             pending.push(InlineItem::Text(alt, span));
                         }
+                    }
+                } else if tag == "svg" && !matches!(style.display, Display::Block | Display::Table | Display::Flex | Display::Grid) {
+                    // Inline `<svg>`: a replaced inline item like `<img>`.
+                    let background_image = resolve_background_image(child, rules, viewport_width);
+                    let (svg_style, decoded) = resolve_inline_svg(child, style);
+                    if let Some(image) = decoded {
+                        pending.push(InlineItem::Image { image, style: svg_style, background_image });
                     }
                 } else if matches!(style.display, Display::Block | Display::Table | Display::Flex | Display::Grid) {
                     discard_if_collapsible_whitespace_only(pending);
@@ -20375,6 +20488,43 @@ mod tests {
         assert_eq!((img.width, img.height), (4, 6));
         assert_eq!(img.pixels[0], TextColor::rgba(0, 255, 0, 255));
         assert!(decode_image_bytes(b"<svg").is_none());
+    }
+
+    #[test]
+    fn q12b_inline_svg_is_a_replaced_box_with_current_color() {
+        let imgs = |html: &str| {
+            let doc = parse_html(html);
+            let tree = build_layout_tree(&doc, 400.0);
+            fn collect(b: &LayoutBox, out: &mut Vec<Arc<DecodedImage>>) {
+                match &b.content {
+                    BoxContent::Image(i) => out.push(i.clone()),
+                    BoxContent::Inline(items) => {
+                        for i in items {
+                            match i {
+                                InlineItem::Image { image, .. } => out.push(image.clone()),
+                                InlineItem::Embedded(b) => collect(b, out),
+                                _ => {}
+                            }
+                        }
+                    }
+                    BoxContent::Blocks(bs) | BoxContent::TableRow(bs) => bs.iter().for_each(|b| collect(b, out)),
+                }
+            }
+            let mut out = Vec::new();
+            collect(&tree, &mut out);
+            out
+        };
+        // Sized by its width/height attributes; the title text must not render.
+        let v = imgs(r#"<html><body style="margin:0"><svg width="10" height="10" viewBox="0 0 10 10"><title>hi</title><rect width="10" height="10" fill="red"/></svg></body></html>"#);
+        assert_eq!(v.len(), 1);
+        assert_eq!((v[0].width, v[0].height), (10, 10));
+        assert_eq!(v[0].pixels[0], TextColor::rgba(255, 0, 0, 255));
+        // currentColor follows the computed (inherited) color.
+        let v = imgs(r#"<html><body style="margin:0;color:#0000ff"><svg width="4" height="4"><rect width="4" height="4" fill="currentColor"/></svg></body></html>"#);
+        assert_eq!(v[0].pixels[0], TextColor::rgba(0, 0, 255, 255));
+        // CSS size wins; block svg is its own box.
+        let v = imgs(r#"<html><body style="margin:0"><svg viewBox="0 0 2 2" style="display:block;width:20px;height:20px"><rect width="2" height="2" fill="lime"/></svg></body></html>"#);
+        assert_eq!((v[0].width, v[0].height), (20, 20));
     }
 
     #[test]
