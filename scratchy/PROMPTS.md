@@ -5539,3 +5539,41 @@ confirming `start_navigation`'s own clear takes effect.
 pre_help_page`, `App::restore_saved_page`, `show_help`'s snapshot guard,
 `dispatch_command`'s `:q`/`:quit` arm, `start_navigation`'s clear);
 `scratchy/src/help.html` (`:q`/`:quit` row updated).
+
+---
+
+## TODO.txt review — ranked QUEUE for cheaper-model handoff (no code change)
+
+> I want you to review the TODO.txt of @scratchy/ and prioritize the
+> features in order of maximum impact when rendering a web page. Look
+> for holes and logic gaps and ask me for clarification so you can
+> update the items accordignly. Those items will be given to a cheaper
+> model for implemetation.
+
+Follow-up answers, verbatim:
+
+> https://social.loupax.com/u/loupax wikipedia https://forums.gentoo.org/
+> google.com most sites I browse require js so we can't really test them
+> yet. Yes, wire should deal with file:// URLs. Let's do the @import as
+> suggested
+
+Decisions picked from multiple-choice questions in the same
+conversation: rank by a re-measured gap report on the pages above;
+`opacity` multiplies alpha down the tree; for `letter-spacing`, check a
+newer cosmic-text first; add a ranked QUEUE at the top of `TODO.txt`
+and leave the history below it in place.
+
+**What changed:** `TODO.txt` only. A new QUEUE section (Q1–Q33, each with
+a size, functions to touch by name, tests, and a pointer to its detail
+entry) now sits above the original log, and the order in it comes from
+`SCRATCHY_CSS_DEBUG=1` runs plus raw-CSS selector/at-rule counts on the
+four pages. Gaps that had no open item at all are now queued: per-side
+borders, pseudo-elements, `!important` in the cascade, CSS-wide keywords,
+`calc()`, viewport units, charset decoding (google.com dies on
+ISO-8859-1), SVG (zero support; 269 SVG data URIs on one Wikipedia page),
+`vertical-align: middle`, and several small properties. Stale entries in
+the history were also fixed: `lib.rs:NNNN` line references were replaced
+by function names, two misleading "TOP PRIORITY" labels on items that
+are done or blocked were removed, and the open flex "automatic minimum
+size" item is now narrowed to the column axis, since the row axis landed
+in `500bd16`.
