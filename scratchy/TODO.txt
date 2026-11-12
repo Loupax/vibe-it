@@ -339,7 +339,7 @@ dropped selectors summed across those pages. Caveats:
       - [x] Q15a [M] `auto`, `min-content` and `max-content` track sizes, (1154431)
             standalone and inside `minmax()`, sized from items via
             `cell_natural_width`.
-      - [ ] Q15b [S] The `grid-template` shorthand
+      - [x] Q15b [S] The `grid-template` shorthand (HASH)
             (`<rows> / <columns>`, optionally with area strings).
       - [ ] Q15c [S] Numeric placement: `grid-column`/`grid-row`, their
             `-start`/`-end` longhands, `span N`, and the 4-value

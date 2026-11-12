@@ -5831,3 +5831,11 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > Implement the first unchecked sub-item of Q15 (Q15a) in scratchy/TODO.txt.
 
 **What changed:** `GridTrackSpec` and `TrackBreadth` gained `Auto`, `MinContent`, `MaxContent` (parsed by `parse_track_keyword`, bare and inside `minmax()`). `measure_grid` now places items first, then collects `cell_natural_width` (min, max) for each content-sized column from the single-column items in it and hands that to `resolve_grid_tracks` (new `content` parameter, `TrackCalc::intr`). Order: fixed tracks, content tracks start at their base and grow toward their limit, `fr` tracks share the rest, and with no `fr` track `auto` tracks stretch equally. Row tracks with these keywords size from content as implicit rows already do. Test: `q15a_grid_content_sized_tracks`. `grim` worked: `max-content 1fr` rendered an orange label column hugging its text beside a blue column filling the rest. Left out: items spanning several columns do not feed content sizing; no iterative spec freeze/redistribute pass.
+
+---
+
+## Q15b — `grid-template` shorthand (queue item, second Q15 sub-item)
+
+> Implement the first unchecked sub-item of Q15 (Q15b) in scratchy/TODO.txt.
+
+**What changed:** `grid-template` now parses via `parse_grid_template_shorthand`: `none`, `<rows> / <columns>`, and area strings each optionally followed by a row size (`"h h" 50px "m s" 70px / 1fr 100px`; a string with no size gets an `auto` row). It sets `grid_template_rows`, `grid_template_columns` and `grid_template_areas` together (an omitted part is set to empty, as the shorthand resets its longhands). Named lines (`[x]`) still fail to parse and drop the declaration. Test: `q15b_grid_template_shorthand`. `grim` worked: the area template above rendered a 400px header row, then a 300px/100px pair 50px below. Left out: CSS-wide keywords on the shorthand, `grid-template` auto-flow shorthand `grid`.
