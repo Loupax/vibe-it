@@ -1044,6 +1044,13 @@ enum GridTrackSpec {
     /// `resolve_grid_tracks`'s own docs for exactly what that trades
     /// away.
     MinMax(TrackBreadth, TrackBreadth),
+    /// `repeat(auto-fill|auto-fit, <track-list>)` — the number of
+    /// repetitions depends on the available space, so it stays
+    /// symbolic until `measure_grid` calls `expand_auto_repeat`
+    /// (columns only; rows reject it at parse time). `fit` collapses
+    /// repetitions that end up with no items. Never reaches
+    /// `resolve_grid_tracks`.
+    AutoRepeat { fit: bool, tracks: &'static [GridTrackSpec] },
 }
 
 /// One `minmax()` argument — deliberately a narrower type than
@@ -3721,7 +3728,85 @@ fn parse_grid_track_size(input: &mut CssParser) -> Result<GridTrackSpec, ()> {
 /// different algorithm, deferred (see `TODO.txt`). An `auto-fill`/
 /// `auto-fit` first argument simply fails `expect_integer` here, same
 /// "drop the whole declaration" outcome as any other unsupported form.
+fn parse_nested_auto_repeat_keyword(input: &mut CssParser) -> Result<GridTrackSpec, ParseError<()>> {
+    input.parse_nested_block(|input| {
+        let fit = {
+            let id = input.expect_ident()?;
+            if id.eq_ignore_ascii_case("auto-fit") {
+                true
+            } else if id.eq_ignore_ascii_case("auto-fill") {
+                false
+            } else {
+                return Err(input.new_error_for_next_token::<()>());
+            }
+        };
+        input.expect_comma()?;
+        let mut one = Vec::new();
+        while !input.is_exhausted() {
+            one.push(parse_grid_track_size(input).map_err(|_| input.new_error_for_next_token::<()>())?);
+        }
+        // Real CSS needs every track fixed-size (or minmax with a fixed
+        // side) so a repetition width is knowable.
+        if one.is_empty() || one.iter().any(|t| auto_repeat_track_px(t, 0.0, 0.0, 0.0).is_none()) {
+            return Err(input.new_error_for_next_token::<()>());
+        }
+        Ok(GridTrackSpec::AutoRepeat { fit, tracks: Box::leak(one.into_boxed_slice()) })
+    })
+}
+
+/// A track's definite size for counting `auto-fill`/`auto-fit`
+/// repetitions: a length, or a `minmax()` with a length minimum (else
+/// its length maximum). `None` when neither side is a length.
+fn auto_repeat_track_px(t: &GridTrackSpec, available: f32, font_size: f32, root_font_size: f32) -> Option<f32> {
+    let len = |l: Length| match l {
+        Length::Percent(p) => available * p,
+        l => l.resolve(font_size, root_font_size),
+    };
+    match *t {
+        GridTrackSpec::Len(l) => Some(len(l)),
+        GridTrackSpec::MinMax(TrackBreadth::Len(l), _) | GridTrackSpec::MinMax(_, TrackBreadth::Len(l)) => Some(len(l)),
+        _ => None,
+    }
+}
+
+/// Expands an `AutoRepeat` entry into as many repetitions as fit in
+/// `available` (at least one). Returns the flat list and, for
+/// `auto-fit`, the index range of the repeated tracks.
+fn expand_auto_repeat(
+    tracks: &[GridTrackSpec],
+    available: f32,
+    gap: f32,
+    font_size: f32,
+    root_font_size: f32,
+) -> (Vec<GridTrackSpec>, Option<(usize, usize)>) {
+    let Some(pos) = tracks.iter().position(|t| matches!(t, GridTrackSpec::AutoRepeat { .. })) else {
+        return (tracks.to_vec(), None);
+    };
+    let GridTrackSpec::AutoRepeat { fit, tracks: rep } = tracks[pos] else { unreachable!() };
+    let others: Vec<f32> = tracks
+        .iter()
+        .filter(|t| !matches!(t, GridTrackSpec::AutoRepeat { .. }))
+        .map(|t| auto_repeat_track_px(t, available, font_size, root_font_size).unwrap_or(0.0))
+        .collect();
+    let rep_px: f32 = rep.iter().filter_map(|t| auto_repeat_track_px(t, available, font_size, root_font_size)).sum();
+    let k = rep.len() as f32;
+    let fixed_total: f32 = others.iter().sum::<f32>() + gap * others.len() as f32;
+    // n repetitions occupy n*(rep_px + k*gap) plus the other tracks.
+    let per = rep_px + k * gap;
+    let n = if per > 0.0 { (((available - fixed_total) / per).floor().max(1.0)) as usize } else { 1 };
+    let mut out = Vec::with_capacity(tracks.len() + rep.len() * n);
+    out.extend_from_slice(&tracks[..pos]);
+    for _ in 0..n {
+        out.extend_from_slice(rep);
+    }
+    out.extend_from_slice(&tracks[pos + 1..]);
+    (out, fit.then_some((pos, pos + rep.len() * n)))
+}
+
 fn parse_grid_repeat(input: &mut CssParser) -> Result<Vec<GridTrackSpec>, ()> {
+    if let Ok(auto) = input.try_parse(parse_nested_auto_repeat_keyword) {
+        return Ok(vec![auto]);
+    }
     let (count, one): (i32, Vec<GridTrackSpec>) = input
         .parse_nested_block(|input| {
             let count = input.expect_integer()?;
@@ -3766,7 +3851,16 @@ fn parse_grid_template(input: &mut CssParser) -> Result<Vec<GridTrackSpec>, ()> 
         input.reset(&state);
         tracks.push(parse_grid_track_size(input)?);
     }
-    if tracks.is_empty() {
+    if tracks.is_empty() || tracks.iter().filter(|t| matches!(t, GridTrackSpec::AutoRepeat { .. })).count() > 1 {
+        Err(())
+    } else {
+        Ok(tracks)
+    }
+}
+
+/// Rows can't use `repeat(auto-fill|auto-fit, …)` (no definite height).
+fn reject_auto_repeat(tracks: Vec<GridTrackSpec>) -> Result<Vec<GridTrackSpec>, ()> {
+    if tracks.iter().any(|t| matches!(t, GridTrackSpec::AutoRepeat { .. })) {
         Err(())
     } else {
         Ok(tracks)
@@ -3821,7 +3915,7 @@ fn parse_grid_template_shorthand(
     if rows.is_empty() && cols.is_empty() {
         return Err(());
     }
-    Ok((rows, cols, areas))
+    Ok((reject_auto_repeat(rows)?, cols, areas))
 }
 
 /// `grid-template-areas`'s own grammar: one or more `<string>` tokens in
@@ -4571,7 +4665,7 @@ impl DeclParser<'_> {
                 self.decls.grid_template_columns = Some(Box::leak(tracks.into_boxed_slice()));
             }
         } else if name.eq_ignore_ascii_case("grid-template-rows") {
-            if let Ok(tracks) = parse_grid_template(input) {
+            if let Ok(tracks) = parse_grid_template(input).and_then(reject_auto_repeat) {
                 self.decls.grid_template_rows = Some(Box::leak(tracks.into_boxed_slice()));
             }
         } else if name.eq_ignore_ascii_case("grid-template") {
@@ -11306,6 +11400,7 @@ fn resolve_grid_tracks(
             let c = content.get(i).copied().unwrap_or((0.0, 0.0));
             let fixed = |px: f32| TrackCalc { fixed: Some(px), floor: 0.0, fr: 0.0, intr: None };
             match *t {
+                GridTrackSpec::AutoRepeat { .. } => fixed(0.0), // expanded before this point
                 GridTrackSpec::Fr(f) => TrackCalc { fixed: None, floor: 0.0, fr: f, intr: None },
                 GridTrackSpec::Len(Length::Percent(p)) => fixed(available * p),
                 GridTrackSpec::Len(l) => fixed(l.resolve(font_size, root_font_size)),
@@ -11545,13 +11640,9 @@ fn measure_grid<'a>(
     // single full-width implicit column (see this function's own docs
     // for why, rather than real CSS's own implicit-column-per-item
     // fallback).
-    let synthetic_cols: Vec<GridTrackSpec>;
-    let col_tracks: &[GridTrackSpec] = match s.grid_template_columns {
-        Some(cols) => cols,
-        None => {
-            synthetic_cols = vec![GridTrackSpec::Fr(1.0); areas_num_cols.max(1)];
-            &synthetic_cols
-        }
+    let (mut col_tracks, fit_range): (Vec<GridTrackSpec>, Option<(usize, usize)>) = match s.grid_template_columns {
+        Some(cols) => expand_auto_repeat(cols, entry.content_w, s.column_gap, s.font_size, s.root_font_size),
+        None => (vec![GridTrackSpec::Fr(1.0); areas_num_cols.max(1)], None),
     };
     let num_cols = col_tracks.len().max(1);
 
@@ -11658,6 +11749,16 @@ fn measure_grid<'a>(
                 | GridTrackSpec::MinMax(TrackBreadth::Auto | TrackBreadth::MinContent | TrackBreadth::MaxContent, _)
         )
     };
+    // `auto-fit`: repetitions with no item collapse to zero width (their
+    // gaps are not collapsed — simplification).
+    if let Some((a, b)) = fit_range {
+        for c in a..b.min(num_cols) {
+            if !placements.iter().any(|p| p.col_start < c + 1 && c < p.col_end) {
+                col_tracks[c] = GridTrackSpec::Len(Length::Px(0.0));
+            }
+        }
+    }
+    let col_tracks = &col_tracks[..];
     let mut col_content = vec![(0.0f32, 0.0f32); num_cols];
     for p in &placements {
         if p.col_end - p.col_start == 1 && col_tracks.get(p.col_start).is_some_and(content_sized) {
@@ -11717,6 +11818,7 @@ fn measure_grid<'a>(
             GridTrackSpec::Len(Length::Percent(p)) => containing_height.map(|h| h * p),
             GridTrackSpec::Len(l) => Some(l.resolve(s.font_size, s.root_font_size)),
             GridTrackSpec::Fr(_)
+            | GridTrackSpec::AutoRepeat { .. }
             | GridTrackSpec::Auto
             | GridTrackSpec::MinContent
             | GridTrackSpec::MaxContent
@@ -18923,6 +19025,38 @@ mod tests {
             panic!("expected the grid container's content to be Blocks (its own grid items)");
         };
         children.iter().collect()
+    }
+
+    #[test]
+    fn q15d_grid_repeat_auto_fill_fit() {
+        let cells = |cols: &str, n: usize, w: u32| {
+            let kids = "<div>x</div>".repeat(n);
+            let html = format!(
+                r#"<html><body style="margin: 0"><div style="display: grid; grid-template-columns: {cols}; width: {w}px;">{kids}</div></body></html>"#
+            );
+            let laid = measure_fixture(&html, 700.0);
+            grid_items(&laid, w as f32).iter().map(|l| (l.x, l.y, l.w)).collect::<Vec<_>>()
+        };
+        // 400px fits four 100px tracks; 5 items wrap to a second row.
+        let it = cells("repeat(auto-fill, 100px)", 5, 400);
+        assert_eq!(it.iter().filter(|c| c.1 == it[0].1).count(), 4);
+        assert_eq!(it[3].0, 300.0);
+        // Remainder is left empty for auto-fill: 450px still fits four.
+        assert_eq!(cells("repeat(auto-fill, 100px)", 2, 450)[1].0, 100.0);
+        // auto-fit with minmax(100px, 1fr): 2 items stretch over 4 slots.
+        let it = cells("repeat(auto-fit, minmax(100px, 1fr))", 2, 400);
+        assert_eq!((it[0].2, it[1].0), (200.0, 200.0));
+        // auto-fill keeps the empty tracks, so 1fr items stay 100px wide.
+        let it = cells("repeat(auto-fill, minmax(100px, 1fr))", 2, 400);
+        assert_eq!(it[0].2, 100.0);
+        // Fixed tracks around the repeat reduce the space.
+        let it = cells("50px repeat(auto-fill, 100px)", 5, 400);
+        assert_eq!(it.iter().filter(|c| c.1 == it[0].1).count(), 4, "50 + 3*100 fits in 400");
+        // Too narrow still yields one repetition.
+        assert_eq!(cells("repeat(auto-fill, 100px)", 2, 50)[1].0, 0.0);
+        // A single item still gets one 100px column of the repeat.
+        let it = cells("repeat(auto-fill, 100px)", 1, 400);
+        assert_eq!(it[0].2, 100.0);
     }
 
     #[test]
