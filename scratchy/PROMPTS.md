@@ -5754,3 +5754,12 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > scratchy/TODO.txt.
 
 **What changed:** new dependency `encoding_rs`. `sniff_encoding` picks BOM, then the wire `Content-Type` `charset=` (`content_type_charset`), then `<meta charset>`/`http-equiv` in the first 1024 bytes (`meta_charset`), then UTF-8; WHATWG labels apply (`iso-8859-1`/`latin1` become windows-1252). `decode_html_bytes` is used by the file path (`fs::read` instead of `read_to_string`) and `dispatch_wire_response` (HTML bodies are now transcoded to UTF-8). Streaming stdin runs through `StreamTranscoder` in the reader thread (buffers 1024 bytes to sniff, then decodes incrementally), so `AppEvent::Chunk` stays UTF-8. Test: `q8_charset_decoding_meta_header_bom_and_streaming`. `grim` worked: a latin-1 file with `<meta charset=iso-8859-1>` rendered "café €". Left out (noted, no new item): external stylesheets fetched via wire are still UTF-8 only.
+
+---
+
+## Q9 — `vertical-align` beyond sub/super (queue item)
+
+> Implement the first unchecked item (Q9) of the ranked QUEUE in
+> scratchy/TODO.txt.
+
+**What changed:** `VerticalAlign` gained `Top`/`Middle`/`Bottom`/`TextTop`/`TextBottom`, parsed in `DeclParser::apply`. `VerticalAlign::inline_box_dy` positions an inline `<img>` or inline-block within its line in `measure_mixed_inline` (`middle` centers, `top`/`text-top` pin to the line top, everything else keeps the old bottom alignment). `lay_out_row_cells` stretches `middle`/`bottom` table cells to the row height and shifts their content down by half/all of the slack. Text spans treat the new keywords as `baseline` (`y_shift` returns 0), a documented approximation. Test: `q9_vertical_align_box_keywords_on_inline_blocks_and_table_cells`. `grim` worked: a table with top/middle/bottom cells showed the text at the top, centre and bottom of the row. Left out (noted in TODO, no new item): `tbody` default `middle` in `default.css`, length/percentage values.

@@ -1490,9 +1490,28 @@ pub enum VerticalAlign {
     Baseline,
     Sub,
     Super,
+    Top,
+    Middle,
+    Bottom,
+    TextTop,
+    TextBottom,
 }
 
 impl VerticalAlign {
+    /// Vertical offset (from the line's top) of an inline replaced/
+    /// inline-block box of height `h` on a line `line_height` tall.
+    /// `Middle` centers it, `Top`/`TextTop` pin it to the line top, every
+    /// other value (`Baseline`, `Sub`, `Super`, `Bottom`, `TextBottom`)
+    /// keeps the original bottom alignment — a documented approximation
+    /// of the real baseline/text-bottom rules.
+    fn inline_box_dy(self, line_height: f32, h: f32) -> f32 {
+        match self {
+            VerticalAlign::Middle => (line_height - h) / 2.0,
+            VerticalAlign::Top | VerticalAlign::TextTop => 0.0,
+            _ => line_height - h,
+        }
+    }
+
     /// Pixels to shift a glyph's baseline by (positive = down), scaled to
     /// that glyph's own font size so it still looks right if `font-size`
     /// ever varies within a sub/sup span. Not real font-metric
@@ -1505,6 +1524,9 @@ impl VerticalAlign {
             VerticalAlign::Baseline => 0.0,
             VerticalAlign::Sub => font_size * 0.2,
             VerticalAlign::Super => font_size * -0.35,
+            // Documented approximation: text spans treat the box-relative
+            // keywords as `baseline`.
+            _ => 0.0,
         }
     }
 }
@@ -4195,6 +4217,16 @@ impl DeclParser<'_> {
                     Some(VerticalAlign::Sub)
                 } else if ident.eq_ignore_ascii_case("super") {
                     Some(VerticalAlign::Super)
+                } else if ident.eq_ignore_ascii_case("top") {
+                    Some(VerticalAlign::Top)
+                } else if ident.eq_ignore_ascii_case("middle") {
+                    Some(VerticalAlign::Middle)
+                } else if ident.eq_ignore_ascii_case("bottom") {
+                    Some(VerticalAlign::Bottom)
+                } else if ident.eq_ignore_ascii_case("text-top") {
+                    Some(VerticalAlign::TextTop)
+                } else if ident.eq_ignore_ascii_case("text-bottom") {
+                    Some(VerticalAlign::TextBottom)
                 } else {
                     None
                 };
@@ -9044,7 +9076,7 @@ fn measure_mixed_inline<'a>(
                     Some(mut laid) => {
                         let own_pending = std::mem::take(own_pending);
                         let target_x = final_x + laid.style.margin.left.px();
-                        let target_y = content_y + cursor_y + (line_height - laid.h);
+                        let target_y = content_y + cursor_y + laid.style.vertical_align.inline_box_dy(line_height, laid.h);
                         let dx = target_x - laid.x;
                         let dy = target_y - laid.y;
                         shift_laid_tree(&mut laid, dx, dy);
@@ -9145,7 +9177,7 @@ fn measure_mixed_inline<'a>(
                     positioned.push(MixedPositioned::Embedded(Box::new(Laid {
                         style: *laid_style,
                         x: final_x + laid_style.margin.left.px(),
-                        y: content_y + cursor_y + (line_height - img_h),
+                        y: content_y + cursor_y + laid_style.vertical_align.inline_box_dy(line_height, *img_h),
                         w: *img_w,
                         h: *img_h,
                         background_image: background_image.clone(),
@@ -9438,6 +9470,23 @@ fn lay_out_row_cells<'a>(
         row_h = row_h.max(lc.style.margin.top.px() + lc.style.margin.bottom.px() + lc.h);
         cursor_x += cell_w;
         laid_cells.push(lc);
+    }
+    // `vertical-align: middle`/`bottom` on a cell: stretch it to the row
+    // height and move its content down by half/all of the slack. `top`
+    // (and `baseline`, approximated as top) leave the cell untouched.
+    for lc in &mut laid_cells {
+        let extra = row_h - (lc.style.margin.top.px() + lc.style.margin.bottom.px() + lc.h);
+        let dy = match lc.style.vertical_align {
+            VerticalAlign::Middle => extra / 2.0,
+            VerticalAlign::Bottom | VerticalAlign::TextBottom => extra,
+            _ => 0.0,
+        };
+        if extra > 0.0 && dy > 0.0 {
+            let own_y = lc.y;
+            shift_laid_tree(lc, 0.0, dy);
+            lc.y = own_y;
+            lc.h += extra;
+        }
     }
     (row_h, laid_cells)
 }
@@ -20087,6 +20136,42 @@ mod tests {
         assert_eq!(color_of("p{color:blue !important}", r#"<p style="color:red ! IMPORTANT">x</p>"#), red);
         // within the tier, specificity then source order
         assert_eq!(color_of("#a{color:red !important} p{color:blue !important}", r#"<p id="a">x</p>"#), red);
+    }
+
+    #[test]
+    fn q9_vertical_align_box_keywords_on_inline_blocks_and_table_cells() {
+        // Inline-block (embedded) boxes on one line: 40px tall one sets
+        // the line height; the 10px one moves per its `vertical-align`.
+        let offset = |va: &str| -> f32 {
+            let html = format!(
+                r#"<html><body style="margin:0"><p style="margin:0"><span style="display:inline-block;width:20px;height:40px">a</span><span style="display:inline-block;width:30px;height:10px;vertical-align:{va}">b</span></p></body></html>"#
+            );
+            let laid = measure_fixture(&html, 400.0);
+            let run = find_mixed_inline(&laid).expect("mixed inline run");
+            let tall = find_embedded(mixed_items(run), |l| l.w == 20.0).expect("tall box");
+            let small = find_embedded(mixed_items(run), |l| l.w == 30.0).expect("small box");
+            small.y - tall.y
+        };
+        assert_eq!(offset("baseline"), 30.0);
+        assert_eq!(offset("bottom"), 30.0);
+        assert_eq!(offset("text-bottom"), 30.0);
+        assert_eq!(offset("middle"), 15.0);
+        assert_eq!(offset("top"), 0.0);
+        assert_eq!(offset("text-top"), 0.0);
+
+        // Table cells: a 60px-tall cell next to a short one.
+        let cell_content_dy = |va: &str| -> (f32, f32) {
+            let html = format!(
+                r#"<html><body style="margin:0"><table style="border-spacing:0"><tr><td style="padding:0"><div style="height:60px">a</div></td><td style="padding:0;vertical-align:{va}"><div style="height:10px">b</div></td></tr></table></body></html>"#
+            );
+            let laid = measure_fixture(&html, 400.0);
+            let cells = find_table_row_cells(&laid).expect("row cells");
+            let inner = find_by_height(&cells[1], 10.0).expect("inner div");
+            (inner.y - cells[1].y, cells[1].h)
+        };
+        assert_eq!(cell_content_dy("top"), (0.0, 10.0));
+        assert_eq!(cell_content_dy("middle"), (25.0, 60.0));
+        assert_eq!(cell_content_dy("bottom"), (50.0, 60.0));
     }
 
     #[test]
