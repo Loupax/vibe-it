@@ -1143,6 +1143,58 @@ enum Length {
     /// The tree is leaked (`Box::leak`) at parse time so this enum, and
     /// everything that embeds it, stays `Copy`.
     Calc(&'static CalcNode),
+    /// `vw`/`vh`/`vmin`/`vmax` (Q14): resolved against the viewport
+    /// recorded by `set_viewport` for the current style build.
+    Vp(VpUnit, f32),
+}
+
+/// Which viewport-relative unit a `Length::Vp`/`CalcNode::Vp` is in.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum VpUnit {
+    W,
+    H,
+    Min,
+    Max,
+}
+
+thread_local! {
+    /// The viewport (width, height) in CSS px that `vw`/`vh`/`vmin`/`vmax`
+    /// resolve against. Set by `build_layout_tree_sized` at the start of
+    /// every style build (style resolution runs synchronously on the
+    /// calling thread, so this never needs to cross to the shaping
+    /// worker: `BoxLength::Calc` carries its own copy).
+    static VIEWPORT: std::cell::Cell<(f32, f32)> = const { std::cell::Cell::new((1920.0, 1080.0)) };
+}
+
+fn set_viewport(w: f32, h: f32) {
+    VIEWPORT.with(|v| v.set((w, h)));
+}
+
+fn current_viewport() -> (f32, f32) {
+    VIEWPORT.with(|v| v.get())
+}
+
+impl VpUnit {
+    fn from_unit(unit: &str) -> Option<VpUnit> {
+        match unit.to_ascii_lowercase().as_str() {
+            "vw" => Some(VpUnit::W),
+            "vh" => Some(VpUnit::H),
+            "vmin" => Some(VpUnit::Min),
+            "vmax" => Some(VpUnit::Max),
+            _ => None,
+        }
+    }
+
+    /// `v` units of this kind (1 unit = 1% of the viewport dimension).
+    fn px(self, v: f32, vp: (f32, f32)) -> f32 {
+        let base = match self {
+            VpUnit::W => vp.0,
+            VpUnit::H => vp.1,
+            VpUnit::Min => vp.0.min(vp.1),
+            VpUnit::Max => vp.0.max(vp.1),
+        };
+        v * base / 100.0
+    }
 }
 
 /// A parsed `calc()`/`min()`/`max()`/`clamp()` expression. `Num` is a
@@ -1157,6 +1209,7 @@ enum CalcNode {
     Em(f32),
     Rem(f32),
     Pct(f32),
+    Vp(VpUnit, f32),
     Add(Box<CalcNode>, Box<CalcNode>),
     Sub(Box<CalcNode>, Box<CalcNode>),
     Mul(Box<CalcNode>, Box<CalcNode>),
@@ -1169,13 +1222,14 @@ enum CalcNode {
 impl CalcNode {
     /// Evaluates to a px value (or a bare number for number-typed
     /// subtrees). `pct_basis` is what `100%` means.
-    fn eval(&self, font_size: f32, root_font_size: f32, pct_basis: f32) -> f32 {
-        let e = |n: &CalcNode| n.eval(font_size, root_font_size, pct_basis);
+    fn eval(&self, font_size: f32, root_font_size: f32, pct_basis: f32, vp: (f32, f32)) -> f32 {
+        let e = |n: &CalcNode| n.eval(font_size, root_font_size, pct_basis, vp);
         match self {
             CalcNode::Num(v) | CalcNode::Px(v) => *v,
             CalcNode::Em(v) => v * font_size,
             CalcNode::Rem(v) => v * root_font_size,
             CalcNode::Pct(p) => p * pct_basis,
+            CalcNode::Vp(u, v) => u.px(*v, vp),
             CalcNode::Add(a, b) => e(a) + e(b),
             CalcNode::Sub(a, b) => e(a) - e(b),
             CalcNode::Mul(a, b) => e(a) * e(b),
@@ -1193,7 +1247,7 @@ impl CalcNode {
     fn has_percent(&self) -> bool {
         match self {
             CalcNode::Pct(_) => true,
-            CalcNode::Num(_) | CalcNode::Px(_) | CalcNode::Em(_) | CalcNode::Rem(_) => false,
+            CalcNode::Num(_) | CalcNode::Px(_) | CalcNode::Em(_) | CalcNode::Rem(_) | CalcNode::Vp(..) => false,
             CalcNode::Add(a, b) | CalcNode::Sub(a, b) | CalcNode::Mul(a, b) | CalcNode::Div(a, b) => {
                 a.has_percent() || b.has_percent()
             }
@@ -1207,7 +1261,7 @@ impl CalcNode {
     fn is_length(&self) -> Option<bool> {
         match self {
             CalcNode::Num(_) => Some(false),
-            CalcNode::Px(_) | CalcNode::Em(_) | CalcNode::Rem(_) | CalcNode::Pct(_) => Some(true),
+            CalcNode::Px(_) | CalcNode::Em(_) | CalcNode::Rem(_) | CalcNode::Pct(_) | CalcNode::Vp(..) => Some(true),
             CalcNode::Add(a, b) | CalcNode::Sub(a, b) => {
                 let (x, y) = (a.is_length()?, b.is_length()?);
                 (x == y).then_some(x)
@@ -1220,7 +1274,7 @@ impl CalcNode {
                 let (x, y) = (a.is_length()?, b.is_length()?);
                 // Divisor must be a non-zero number (no units, so a
                 // zero-basis evaluation is exact).
-                (!y && b.eval(0.0, 0.0, 0.0) != 0.0).then_some(x)
+                (!y && b.eval(0.0, 0.0, 0.0, (0.0, 0.0)) != 0.0).then_some(x)
             }
             CalcNode::Min(v) | CalcNode::Max(v) => {
                 let first = v.first()?.is_length()?;
@@ -1318,6 +1372,8 @@ fn parse_calc_atom(input: &mut CssParser) -> Result<CalcNode, ()> {
                 Ok(CalcNode::Rem(value))
             } else if unit.eq_ignore_ascii_case("pt") {
                 Ok(CalcNode::Px(value * PX_PER_PT))
+            } else if let Some(u) = VpUnit::from_unit(&unit) {
+                Ok(CalcNode::Vp(u, value))
             } else {
                 Err(())
             }
@@ -1360,7 +1416,8 @@ impl Length {
             Length::Percent(p) => font_size * p,
             Length::Larger => font_size * 1.2,
             Length::Smaller => font_size / 1.2,
-            Length::Calc(c) => c.eval(font_size, root_font_size, font_size),
+            Length::Calc(c) => c.eval(font_size, root_font_size, font_size, current_viewport()),
+            Length::Vp(u, v) => u.px(v, current_viewport()),
         }
     }
 }
@@ -1395,7 +1452,7 @@ enum BoxLength {
     /// A `calc()` containing a `%`: em/rem parts are resolved against the
     /// carried (font-size, root-font-size) now, the `%` against the
     /// containing-block basis later.
-    Calc(&'static CalcNode, f32, f32),
+    Calc(&'static CalcNode, f32, f32, (f32, f32)),
 }
 
 impl Default for BoxLength {
@@ -1414,7 +1471,7 @@ impl BoxLength {
     fn from_length(l: Length, font_size: f32, root_font_size: f32) -> Self {
         match l {
             Length::Percent(p) => BoxLength::Percent(p),
-            Length::Calc(c) if c.has_percent() => BoxLength::Calc(c, font_size, root_font_size),
+            Length::Calc(c) if c.has_percent() => BoxLength::Calc(c, font_size, root_font_size, current_viewport()),
             other => BoxLength::Px(other.resolve(font_size, root_font_size)),
         }
     }
@@ -1430,7 +1487,7 @@ impl BoxLength {
         match self {
             BoxLength::Px(v) => v,
             BoxLength::Percent(p) => basis * p,
-            BoxLength::Calc(c, fs, rfs) => c.eval(fs, rfs, basis),
+            BoxLength::Calc(c, fs, rfs, vp) => c.eval(fs, rfs, basis, vp),
         }
     }
 
@@ -2396,7 +2453,8 @@ fn media_feature_length_px(input: &mut CssParser) -> Result<f32, ()> {
         // (confirmed by its own match arms) — only reachable if that
         // changes later, in which case failing safely here is right
         // regardless of which new variant showed up.
-        Length::Calc(c) => Ok(c.eval(16.0, 16.0, 0.0)),
+        Length::Calc(c) => Ok(c.eval(16.0, 16.0, 0.0, current_viewport())),
+        Length::Vp(..) => Err(()),
         Length::Percent(_) | Length::Larger | Length::Smaller => Err(()),
     }
 }
@@ -2487,6 +2545,9 @@ fn parse_length(input: &mut CssParser) -> Result<Length, ()> {
         Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("em") => Ok(Length::Em(*value)),
         Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("rem") => Ok(Length::Rem(*value)),
         Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("pt") => Ok(Length::Px(value * PX_PER_PT)),
+        Token::Dimension { value, unit, .. } if VpUnit::from_unit(unit).is_some() => {
+            Ok(Length::Vp(VpUnit::from_unit(unit).unwrap(), *value))
+        }
         Token::Number { value, .. } if *value == 0.0 => Ok(Length::Px(0.0)),
         Token::Function(name) => {
             let name = name.clone();
@@ -2512,6 +2573,9 @@ fn parse_length_percent(input: &mut CssParser) -> Result<Length, ()> {
         Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("em") => Ok(Length::Em(*value)),
         Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("rem") => Ok(Length::Rem(*value)),
         Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("pt") => Ok(Length::Px(value * PX_PER_PT)),
+        Token::Dimension { value, unit, .. } if VpUnit::from_unit(unit).is_some() => {
+            Ok(Length::Vp(VpUnit::from_unit(unit).unwrap(), *value))
+        }
         Token::Percentage { unit_value, .. } => Ok(Length::Percent(*unit_value)),
         Token::Number { value, .. } if *value == 0.0 => Ok(Length::Px(0.0)),
         Token::Function(name) => {
@@ -5305,6 +5369,12 @@ struct ComputedStyle {
     border_radius: BoxLength,
     /// Not inherited. See `Overflow`'s own docs for the clip's scope.
     overflow: Overflow,
+    /// Only ever `Some` on the synthetic document-root box: the window
+    /// height, i.e. the initial containing block's definite height. It
+    /// feeds `child_containing_height` (so `html{height:100%}` resolves)
+    /// without pinning the root's own height, which `redraw` reads as
+    /// the scrollable content height.
+    icb_height: Option<f32>,
     cursor: CursorStyle,
     /// The following flexbox fields are all not inherited (same category
     /// as `border_width`/`overflow`) — a flex container's own `display:
@@ -6372,6 +6442,7 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         box_shadow,
         border_radius,
         overflow,
+        icb_height: None,
         cursor,
         flex_direction,
         flex_wrap,
@@ -6440,6 +6511,7 @@ fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         box_shadow: None,
         border_radius: BoxLength::default(),
         overflow: Overflow::default(),
+        icb_height: None,
         cursor: inherited.cursor,
         flex_direction: FlexDirection::default(),
         flex_wrap: FlexWrap::default(),
@@ -7520,7 +7592,14 @@ fn find_html_element(handle: &Handle) -> Option<Handle> {
 /// site (there are dozens) keeps using this simpler signature unchanged;
 /// only `App::redraw`'s one real call site needs the richer one.
 pub fn build_layout_tree(document: &Handle, viewport_width: f32) -> LayoutBox {
-    build_layout_tree_with_resources(document, viewport_width, "", &HashMap::new())
+    build_layout_tree_with_resources(document, viewport_width, None, "", &HashMap::new())
+}
+
+/// Like `build_layout_tree`, but knows the window height too: `vh`/`vmin`/
+/// `vmax` resolve against it and the document root gets a definite
+/// height (the initial containing block), so `html{height:100%}` works.
+pub fn build_layout_tree_sized(document: &Handle, viewport_width: f32, viewport_height: f32) -> LayoutBox {
+    build_layout_tree_with_resources(document, viewport_width, Some(viewport_height), "", &HashMap::new())
 }
 
 /// Same as `build_layout_tree`, but also takes CSS fetched (via `wire`)
@@ -7534,9 +7613,11 @@ pub fn build_layout_tree(document: &Handle, viewport_width: f32) -> LayoutBox {
 fn build_layout_tree_with_resources(
     document: &Handle,
     viewport_width: f32,
+    viewport_height: Option<f32>,
     extra_css: &str,
     image_cache: &HashMap<String, Arc<DecodedImage>>,
 ) -> LayoutBox {
+    set_viewport(viewport_width, viewport_height.unwrap_or(1080.0));
     let mut css_source = String::new();
     collect_style_css(document, &mut css_source);
     css_source.push('\n');
@@ -7558,8 +7639,10 @@ fn build_layout_tree_with_resources(
         root_font_size,
         ..ROOT_STYLE
     };
+    let mut root_style = anonymous_style(root_inherited);
+    root_style.icb_height = viewport_height;
     LayoutBox {
-        style: anonymous_style(root_inherited),
+        style: root_style,
         background_image: None,
         content: BoxContent::Blocks(build_children(
             document,
@@ -8567,10 +8650,13 @@ fn box_model_entry(
     let content_y = border_y + s.border_top() + padding_top;
     let content_w = (border_w - extra_w).max(0.0);
     let extra_h = s.border_v() + padding_top + padding_bottom;
-    let child_containing_height = s.height.map(|h| match s.box_sizing {
-        BoxSizing::ContentBox => h.px().max(0.0),
-        BoxSizing::BorderBox => (h.px() - extra_h).max(0.0),
-    });
+    let child_containing_height = s
+        .height
+        .map(|h| match s.box_sizing {
+            BoxSizing::ContentBox => h.px().max(0.0),
+            BoxSizing::BorderBox => (h.px() - extra_h).max(0.0),
+        })
+        .or(s.icb_height);
     BoxModelEntry { border_x, border_y, border_w, content_x, content_y, content_w, extra_h, child_containing_height }
 }
 
@@ -11422,7 +11508,41 @@ pub fn measure_document(
         // even if that ever changes.
         laid.positioned.sort_by_key(|l| l.style.z_index.unwrap_or(0));
     }
+    // The root's `h` is what `redraw` clamps scrolling to. With a definite
+    // initial-containing-block height an `html{height:100%}` box ends at
+    // the window bottom while its content overflows, so grow `h` to the
+    // lowest in-flow descendant edge.
+    let extent = in_flow_bottom(&laid);
+    if extent > laid.y + laid.h {
+        laid.h = extent - laid.y;
+    }
     laid
+}
+
+/// Lowest bottom edge (document space) of `l` and its in-flow
+/// descendants. A box that clips its overflow contributes only its own
+/// edge; out-of-flow (`positioned`) boxes are ignored.
+fn in_flow_bottom(l: &Laid) -> f32 {
+    let mut bottom = l.y + l.h;
+    if l.style.overflow != Overflow::Visible {
+        return bottom;
+    }
+    match &l.content {
+        LaidContent::Blocks(children) | LaidContent::TableRow(children) => {
+            for c in children {
+                bottom = bottom.max(in_flow_bottom(c));
+            }
+        }
+        LaidContent::MixedInline(items) => {
+            for item in items {
+                if let MixedPositioned::Embedded(e) = item {
+                    bottom = bottom.max(in_flow_bottom(e));
+                }
+            }
+        }
+        LaidContent::Text(_) | LaidContent::Image(_) => {}
+    }
+    bottom
 }
 
 fn blend(existing: u32, color: TextColor) -> u32 {
@@ -14031,6 +14151,9 @@ struct App {
     /// feel laggy.
     cached: Option<Laid>,
     cached_width: u32,
+    /// Window height the cached tree was built for (`vh` units and the
+    /// initial containing block depend on it).
+    cached_height: u32,
     layout_dirty: bool,
     /// Shaped paragraphs matching whatever `Laid` tree is currently in
     /// `cached`, keyed by the stable id `measure` assigned them when it
@@ -14297,6 +14420,7 @@ impl App {
             scroll_offset: 0.0,
             cached: None,
             cached_width: 0,
+            cached_height: 0,
             layout_dirty: true,
             shape_cache: ShapeCache::new(),
             surface_size: (0, 0),
@@ -14339,6 +14463,7 @@ impl App {
             scroll_offset: 0.0,
             cached: None,
             cached_width: 0,
+            cached_height: 0,
             layout_dirty: true,
             shape_cache: ShapeCache::new(),
             surface_size: (0, 0),
@@ -14392,7 +14517,7 @@ impl App {
         // (measured: ~600ms of duplicate shaping on a small page).
         let width_matches_pending = self.pending_width == Some(width);
         self.pending_width = Some(width);
-        let need_rebuild = self.layout_dirty || self.cached_width != width;
+        let need_rebuild = self.layout_dirty || self.cached_width != width || self.cached_height != height;
 
         if need_rebuild && width_matches_pending {
             // The DOM walk + cascade match itself stays synchronous,
@@ -14401,7 +14526,7 @@ impl App {
             // `spawn_shaping_worker`'s own docs). Only the `LayoutBox`
             // tree this produces — plain owned data, no `Handle` left
             // inside it — gets handed off below.
-            let tree = build_layout_tree_with_resources(&self.document, width as f32, &self.extra_css, &self.image_cache);
+            let tree = build_layout_tree_with_resources(&self.document, width as f32, Some(height as f32), &self.extra_css, &self.image_cache);
             // Ids the worker is about to assign restart at `0` for this
             // new tree (see `spawn_shaping_worker`'s own docs) — stale
             // entries keyed by an old tree's ids would just be harmless
@@ -14410,6 +14535,7 @@ impl App {
             // streaming mode.
             self.scroll_offsets.clear();
             self.cached_width = width;
+            self.cached_height = height;
             self.layout_dirty = false;
             self.layout_generation += 1;
             Self::queue_shaping_request(&self.shaping_requests, tree, width as f32, height as f32, self.layout_generation);
@@ -16140,6 +16266,51 @@ mod tests {
         let doc = parse_html(html);
         let tree = build_layout_tree(&doc, 1920.0);
         find_first_span_color(&tree).expect("no span found")
+    }
+
+    /// Builds with a real 800x600 viewport and measures via
+    /// `measure_document` (the path the app uses).
+    fn measure_viewport_fixture(html: &str) -> Laid {
+        let doc = parse_html(html);
+        let tree = build_layout_tree_sized(&doc, 800.0, 600.0);
+        let mut font_system = new_font_system();
+        let mut cache = ShapeCache::new();
+        let mut next_id = 0usize;
+        let mut incomplete = false;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        measure_document(&tree, &mut font_system, 800.0, 600.0, &mut next_id, &mut cache, deadline, &mut incomplete)
+    }
+
+    #[test]
+    fn q14_viewport_units_and_icb_height() {
+        // vh / vw / vmin / vmax, plain and inside calc().
+        let laid = measure_viewport_fixture(
+            r#"<html><body><div style="height:50vh;width:25vw"></div><div style="height:calc(10vh + 5px);width:10vmin"></div><div style="height:10px;width:10vmax"></div></body></html>"#,
+        );
+        assert_eq!(find_by_height(&laid, 300.0).expect("50vh").style.width.map(BoxLength::px), Some(200.0));
+        let calc = find_by_height(&laid, 65.0).expect("calc(10vh + 5px)");
+        assert_eq!(calc.style.width.map(BoxLength::px), Some(60.0));
+        assert!(find_by_width(&laid, 80.0).is_some(), "10vmax of 800x600");
+        // %-width inside calc with vw resolves against the carried viewport.
+        let laid = measure_viewport_fixture(
+            r#"<html><body style="margin:0"><div style="width:calc(50% + 10vw)"></div></body></html>"#,
+        );
+        assert!(find_by_width(&laid, 480.0).is_some());
+
+        // html,body{height:100%} + child 50%.
+        let laid = measure_viewport_fixture(
+            r#"<html><head><style>html,body{height:100%;margin:0}</style></head><body><div style="height:50%"></div></body></html>"#,
+        );
+        assert!(find_by_height(&laid, 600.0).is_some(), "html/body fill the window");
+        assert!(find_by_height(&laid, 300.0).is_some(), "child 50% of the body");
+        assert_eq!(laid.h, 600.0);
+
+        // Content taller than the window still scrolls: root h is the
+        // content extent, not pinned to the viewport.
+        let laid = measure_viewport_fixture(
+            r#"<html><head><style>html,body{height:100%;margin:0}</style></head><body><div style="height:1500px"></div></body></html>"#,
+        );
+        assert!(laid.h >= 1500.0, "scroll height {} must cover overflowing content", laid.h);
     }
 
     #[test]
@@ -20223,7 +20394,7 @@ mod tests {
     fn build_layout_tree_with_resources_applies_extra_css_to_the_real_cascade() {
         let doc = parse_html(r#"<html><body><div class="box">x</div></body></html>"#);
         let extra_css = ".box { background-color: #00ff00; }";
-        let tree = build_layout_tree_with_resources(&doc, 1920.0, extra_css, &HashMap::new());
+        let tree = build_layout_tree_with_resources(&doc, 1920.0, None, extra_css, &HashMap::new());
         assert_eq!(
             find_box_with_background(&tree),
             Some(TextColor::rgb(0, 0xff, 0)),
@@ -20239,7 +20410,7 @@ mod tests {
             "https://example.com/photo.jpg".to_string(),
             Arc::new(DecodedImage { width: 2, height: 2, pixels: vec![TextColor::rgb(9, 9, 9); 4], svg: None }),
         );
-        let tree = build_layout_tree_with_resources(&doc, 1920.0, "", &image_cache);
+        let tree = build_layout_tree_with_resources(&doc, 1920.0, None, "", &image_cache);
         fn find_image_box(b: &LayoutBox) -> Option<&LayoutBox> {
             if matches!(b.content, BoxContent::Image(_)) {
                 return Some(b);
