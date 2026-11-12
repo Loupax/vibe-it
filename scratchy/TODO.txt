@@ -341,7 +341,7 @@ dropped selectors summed across those pages. Caveats:
             `cell_natural_width`.
       - [x] Q15b [S] The `grid-template` shorthand (9397a18)
             (`<rows> / <columns>`, optionally with area strings).
-      - [x] Q15c [S] (HASH) Numeric placement: `grid-column`/`grid-row`, their
+      - [x] Q15c [S] (a665a34) Numeric placement: `grid-column`/`grid-row`, their
             `-start`/`-end` longhands, `span N`, and the 4-value
             `grid-area` form.
       - [ ] Q15d [M] `repeat(auto-fill|auto-fit, …)`.
@@ -1100,7 +1100,7 @@ session can pick a coherent slice rather than one property at a time.
             `display: grid` by then. Not attempted as part of this item
             — a real, separate at-rule feature, same shape `@media`
             itself was before v64, not a grid gap.
-      - [x] (Q15c, HASH) No numeric explicit item placement — `grid-column`/`grid-
+      - [x] (Q15c, a665a34) No numeric explicit item placement — `grid-column`/`grid-
             row`/their `-start`/`-end` longhands, and `grid-area`'s own
             fuller `<grid-line> / <grid-line> / <grid-line> / <grid-
             line>` numeric form, still aren't parsed; only a bare
