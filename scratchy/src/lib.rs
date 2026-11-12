@@ -1,4 +1,4 @@
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::env;
 use std::fs;
@@ -1632,6 +1632,7 @@ struct Declarations {
     bottom: Option<Length>,
     left: Option<Length>,
     z_index: Option<i32>,
+    opacity: Option<f32>,
     width: Option<Length>,
     height: Option<Length>,
     min_width: Option<Length>,
@@ -2671,6 +2672,15 @@ fn set_max_length(input: &mut CssParser, target: &mut Option<MaxLen>) {
 /// `ComputedStyle::z_index`'s `None` already covers both "never
 /// declared" and "declared `auto`" identically, so there's nothing a
 /// matched `auto` arm would do differently from just failing to parse.
+/// `opacity`: a `<number>` or `<percentage>`, clamped to `0..=1`.
+fn parse_opacity(input: &mut CssParser) -> Result<f32, ()> {
+    match input.next().map_err(|_| ())? {
+        Token::Number { value, .. } => Ok(value.clamp(0.0, 1.0)),
+        Token::Percentage { unit_value, .. } => Ok(unit_value.clamp(0.0, 1.0)),
+        _ => Err(()),
+    }
+}
+
 fn parse_z_index(input: &mut CssParser) -> Result<i32, ()> {
     match input.next().map_err(|_| ())? {
         Token::Number { int_value: Some(v), .. } => Ok(*v),
@@ -4551,7 +4561,7 @@ impl Declarations {
             "white-space" => white_space, "cursor" => cursor,
             "visibility" => visibility, "position" => position, "float" => float,
             "clear" => clear, "top" => top, "right" => right, "bottom" => bottom,
-            "left" => left, "z-index" => z_index, "width" => width,
+            "left" => left, "z-index" => z_index, "opacity" => opacity, "width" => width,
             "height" => height, "min-width" => min_width, "max-width" => max_width,
             "min-height" => min_height, "max-height" => max_height,
             "box-sizing" => box_sizing, "margin-top" => margin_top,
@@ -4778,6 +4788,10 @@ impl DeclParser<'_> {
         } else if name.eq_ignore_ascii_case("z-index") {
             if let Ok(z) = parse_z_index(input) {
                 self.decls.z_index = Some(z);
+            }
+        } else if name.eq_ignore_ascii_case("opacity") {
+            if let Ok(o) = parse_opacity(input) {
+                self.decls.opacity = Some(o);
             }
         } else if name.eq_ignore_ascii_case("width") {
             set_length(input, &mut self.decls.width);
@@ -5906,6 +5920,14 @@ struct ComputedStyle {
     /// inherited, and only ever consulted for a `position`-ed box (an
     /// in-flow box's own `z_index` is simply never read).
     z_index: Option<i32>,
+    /// `opacity` (Q17), already multiplied by every ancestor's, so it is
+    /// the effective group alpha for this box and everything painted in
+    /// it. Not inherited as such, but accumulated down the tree in
+    /// `resolve_style` via `InheritedStyle::parent`. Paint scales every
+    /// alpha by it (`paint` publishes it to `blend`). Known limitation:
+    /// overlapping semi-transparent children of one faded parent
+    /// double-blend, unlike real group compositing.
+    opacity: f32,
     /// Not inherited (see `Float`'s own docs). Forces `display` to
     /// `Block` the same way `position: absolute`/`fixed` does — applied
     /// in `resolve_style` right alongside that existing rule, so nothing
@@ -6267,7 +6289,7 @@ fn wide_keys(name: &str) -> Option<&'static [&'static str]> {
         "background-size", "background-repeat", "display", "font-size",
         "line-height", "vertical-align", "font-family", "font-weight", "text-align",
         "white-space", "cursor", "visibility", "position", "float", "clear", "top",
-        "right", "bottom", "left", "z-index", "width", "height", "min-width",
+        "right", "bottom", "left", "z-index", "opacity", "width", "height", "min-width",
         "max-width", "min-height", "max-height", "box-sizing", "margin-top",
         "margin-right", "margin-bottom", "margin-left", "padding-top",
         "padding-right", "padding-bottom", "padding-left", "outline-width",
@@ -6397,6 +6419,7 @@ fn copy_prop(dst: &mut ComputedStyle, src: &ComputedStyle, key: &str) {
         "bottom" => dst.inset.bottom = src.inset.bottom,
         "left" => dst.inset.left = src.inset.left,
         "z-index" => dst.z_index = src.z_index,
+        "opacity" => dst.opacity = src.opacity,
         "width" => dst.width = src.width,
         "height" => dst.height = src.height,
         "min-width" => dst.min_width = src.min_width,
@@ -6815,6 +6838,11 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
     // Not inherited; `None` ("auto") is only ever actually consulted
     // for a `position`-ed box — see `ComputedStyle::z_index`'s own docs.
     let z_index = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.z_index), |d| d.z_index);
+    // Q17: not inherited, but ACCUMULATED — own value times the parent's
+    // accumulated one, so every paint can just scale its alpha by this.
+    let opacity = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.opacity), |d| d.opacity)
+        .unwrap_or(1.0)
+        * inherited.parent.map_or(1.0, |p| p.opacity);
     let margin = Sides {
         top: cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.margin_top), |d| d.margin_top)
             .map(|l| BoxLength::from_length(l, font_size, inherited.root_font_size))
@@ -7144,6 +7172,7 @@ fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle
         position,
         inset,
         z_index,
+        opacity,
         float,
         clear,
         width,
@@ -7218,6 +7247,7 @@ fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         position: Position::Static,
         inset: Insets::default(),
         z_index: None,
+        opacity: 1.0,
         float: Float::default(),
         clear: Clear::default(),
         width: None,
@@ -12393,8 +12423,15 @@ fn in_flow_bottom(l: &Laid) -> f32 {
     bottom
 }
 
+thread_local! {
+    /// Accumulated `opacity` of the box `paint` is currently painting
+    /// (Q17); `blend` scales every source alpha by it.
+    static PAINT_OPACITY: Cell<f32> = const { Cell::new(1.0) };
+}
+
 fn blend(existing: u32, color: TextColor) -> u32 {
-    let a = color.a() as u32;
+    let op = PAINT_OPACITY.with(|o| o.get());
+    let a = if op >= 1.0 { color.a() as u32 } else { (color.a() as f32 * op).round() as u32 };
     if a == 255 {
         return (color.r() as u32) << 16 | (color.g() as u32) << 8 | (color.b() as u32);
     }
@@ -13647,6 +13684,24 @@ fn paint_z_layer(
 
 #[allow(clippy::too_many_arguments)]
 fn paint(
+    laid: &Laid,
+    font_system: &mut FontSystem,
+    swash_cache: &mut SwashCache,
+    cache: &mut ShapeCache,
+    scroll_offsets: &HashMap<usize, f32>,
+    pixels: &mut [u32],
+    win_w: u32,
+    win_h: u32,
+    scroll_offset: f32,
+    clip: Option<(f32, f32, f32, f32)>,
+) {
+    let prev = PAINT_OPACITY.with(|o| o.replace(laid.style.opacity));
+    paint_inner(laid, font_system, swash_cache, cache, scroll_offsets, pixels, win_w, win_h, scroll_offset, clip);
+    PAINT_OPACITY.with(|o| o.set(prev));
+}
+
+#[allow(clippy::too_many_arguments)]
+fn paint_inner(
     laid: &Laid,
     font_system: &mut FontSystem,
     swash_cache: &mut SwashCache,
@@ -17589,6 +17644,37 @@ mod tests {
         paint(&laid, &mut font_system, &mut swash_cache, &mut cache, &HashMap::new(), &mut pixels, win_w, win_h, 0.0, None);
         let px = pixels[20 * win_w as usize + 20];
         assert_eq!(px & 0x00FF_FFFF, 0x00FF_0000, "`background: #ff0000` shorthand should paint the same red as `background-color` would");
+    }
+
+    #[test]
+    fn q17_opacity_multiplies_down_the_tree_and_fades_paint() {
+        let html = r#"<html><body style="margin:0"><div style="width: 40px; height: 40px; background: #ff0000; opacity: .5;"><div style="width: 20px; height: 20px; background: #0000ff; opacity: 50%;"></div></div></body></html>"#;
+        let doc = parse_html(html);
+        let tree = build_layout_tree(&doc, 1920.0);
+        let mut font_system = new_font_system();
+        let mut cache = ShapeCache::new();
+        let mut next_id = 0usize;
+        let mut incomplete = false;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let laid = measure(
+            &tree, &mut font_system, 0.0, 0.0, 200.0, None, &mut next_id, &mut cache, deadline, &mut incomplete,
+            &mut Vec::new(), &Floats::default(), None,
+        );
+        assert_eq!(find_by_width(&laid, 40.0).unwrap().style.opacity, 0.5);
+        assert_eq!(find_by_width(&laid, 20.0).unwrap().style.opacity, 0.25, "child multiplies the parent's");
+        // Out-of-range values clamp; invalid ones are ignored.
+        assert_eq!(parse_declarations("opacity: 3").opacity, Some(1.0));
+        assert_eq!(parse_declarations("opacity: -1").opacity, Some(0.0));
+        assert_eq!(parse_declarations("opacity: red").opacity, None);
+        let mut swash_cache = SwashCache::new();
+        let (win_w, win_h) = (100u32, 100u32);
+        let mut pixels = vec![0xFFFFFFu32; (win_w * win_h) as usize];
+        paint(&laid, &mut font_system, &mut swash_cache, &mut cache, &HashMap::new(), &mut pixels, win_w, win_h, 0.0, None);
+        let outer = pixels[30 * win_w as usize + 30] & 0xFFFFFF;
+        assert!((outer >> 16) & 0xFF == 255 && ((outer >> 8) & 0xFF).abs_diff(127) <= 1, "red at 50% over white: {outer:06x}");
+        let inner = pixels[10 * win_w as usize + 10] & 0xFFFFFF;
+        assert!((inner & 0xFF).abs_diff(0x9f) <= 2 && ((inner >> 16) & 0xFF).abs_diff(0xbf) <= 2, "double-blended blue over faded red: {inner:06x}");
+        assert_eq!(PAINT_OPACITY.with(|o| o.get()), 1.0, "paint restores the ambient opacity");
     }
 
     #[test]

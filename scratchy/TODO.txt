@@ -355,7 +355,7 @@ dropped selectors summed across those pages. Caveats:
       them in instead of skipping them. Clip the background to
       `border-radius`. Detail: "`background-image` (v47)".
 
-- [ ] Q17 [M] `opacity` (n=30). The user decided 2026-11-12: multiply
+- [x] Q17 [M] (dd101c7) `opacity` (n=30). The user decided 2026-11-12: multiply
       alpha down the tree. Carry the accumulated opacity down through
       box building (the same ambient path `background-color` and
       `text-decoration` use) and multiply every paint's alpha by it:
@@ -1372,7 +1372,7 @@ session can pick a coherent slice rather than one property at a time.
       straight edge — real extra work, not attempted here since nothing
       in `default.css` or a real test page needs it yet.
 
-- [ ] **`opacity` was deliberately skipped, not attempted** — scoping
+- [x] (dd101c7) **`opacity` was deliberately skipped, not attempted** (DONE as Q17: user chose multiply-alpha-down-the-tree; `ComputedStyle::opacity` accumulates in `resolve_style`, `paint` publishes it to `blend`; overlapping semi-transparent children double-blend, by decision) — scoping
       it out surfaced a real design decision, not just an
       implementation task. Unlike every other paint-only property
       landed this session (`outline`/`box-shadow`/v12's
