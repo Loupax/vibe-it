@@ -415,9 +415,9 @@ dropped selectors summed across those pages. Caveats:
       or a block image box. Left out: url() mixed with strings,
       `process_external_resources` does not yet collect CSS `content`
       urls for fetching (only data: URIs and already-cached keys render).
-- [x] Q19e [M] (HASH) `::first-letter` and `::first-line`: split the first text
+- [x] Q19e [M] (17346a8) `::first-letter` and `::first-line`: split the first text
       run and style the leading letter / first laid-out line.
-      DONE for `::first-letter` (HASH): `apply_first_letter` (called at the
+      DONE for `::first-letter` (17346a8): `apply_first_letter` (called at the
       end of `build_children_with_prefix`) splits the first letter plus
       leading punctuation off the first anonymous inline run into its own
       text item with the pseudo's resolved style. Left out: `float` drop
