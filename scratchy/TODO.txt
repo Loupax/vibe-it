@@ -503,10 +503,13 @@ dropped selectors summed across those pages. Caveats:
 
 --- Tier 3: polish --------------------------------------------------
 
-- [ ] Q23 [S] Flex leftovers, cheapest first: `order`, `align-content`,
+- [x] Q23 [S] (HASH) Flex `order` (stable sort of the flex items in
+      `measure_flex`). Detail: the `order` item under
+      "`display: flex` (440e03b)".
+- [ ] Q23b [S] Flex leftovers, cheapest first: `align-content`,
       the column-axis automatic minimum size, then `flex-wrap` for
       column direction, then `baseline`, then the iterative §9.7 loop.
-      Each is its own commit. Detail: the `[ ]` items under
+      Each is its own commit. Detail: the remaining `[ ]` items under
       "`display: flex` (440e03b)".
 - [ ] Q24 [M] `overflow: scroll|auto` on flex, grid and table
       containers, and positioned children scrolling with their scroll
@@ -968,7 +971,7 @@ session can pick a coherent slice rather than one property at a time.
       **Deliberately cut within flexbox itself, each precise and
       documented, not silently dropped:**
 
-      - [ ] `order` is not implemented — every flex item lays out (and
+      - [x] (HASH) `order` is not implemented — every flex item lays out (and
             paints/hit-tests) in plain document order, `row-reverse`/
             `column-reverse` only mirror *position* along the main axis,
             not reordering anything. Nothing in `default.css` or a real
