@@ -365,7 +365,7 @@ dropped selectors summed across those pages. Caveats:
       double-blend; document that, don't fix it. Detail: "`opacity` was
       deliberately skipped".
 
-- [x] Q18 [M] (HASH) `@import`, for wire-fetched stylesheets only. The user
+- [x] Q18 [M] (3a7054b) `@import`, for wire-fetched stylesheets only. The user
       decided 2026-11-12. In `process_external_resources`, after a
       stylesheet is fetched, find its leading `@import url(...)`
       or `@import "..."` rules. Resolve each against the stylesheet's
@@ -374,7 +374,7 @@ dropped selectors summed across those pages. Caveats:
       `@media`. Limit the depth to 8 and skip cycles. `@import` in an
       inline `<style>` on a static page stays out of scope. Test: the
       pure function that expands imports, given a fake fetcher closure.
-      DONE (HASH): `expand_css_imports`; also fetched stylesheets now
+      DONE (3a7054b): `expand_css_imports`; also fetched stylesheets now
       decode per BOM / Content-Type charset / `@charset` (Q8 follow-up).
       Skipped: `@import ... supports(...)`/`layer(...)` (dropped).
 
