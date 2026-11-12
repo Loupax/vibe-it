@@ -495,11 +495,11 @@ dropped selectors summed across those pages. Caveats:
 
       DONE (c3d42f7): see the PROMPTS.md Q22 entry. Static files only; the
       streamed (stdin) case is the new item Q22b below.
-- [x] Q22b [S] Sub-resources for a streamed (stdin) page: no file path to
+- [x] Q22b [S] (ad60ed4) Sub-resources for a streamed (stdin) page: no file path to
       derive a base URL from and CSS must precede first layout, so it
       needs its own trigger point after EOF (or a `--base` flag).
 
-      DONE (HASH): see the PROMPTS.md Q22b entry.
+      DONE (ad60ed4): see the PROMPTS.md Q22b entry.
 
 --- Tier 3: polish --------------------------------------------------
 
