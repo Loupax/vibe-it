@@ -390,13 +390,28 @@ dropped selectors summed across those pages. Caveats:
       with `generated_content`/`push_generated`. Not done: the per-page
       survey of `content` uses (no network measurement in the sandbox).
 
-- [ ] Q19b [S] Generated content beyond strings: `attr(name)`, `counter()`/
-      `counters()` with `counter-reset`/`counter-increment`, `open-quote`/
-      `close-quote`, and `content: url()`. Today such a `content` value is
-      an invalid declaration (ignored). Also: `::before`/`::after` on
-      flex/grid containers is laid out as a block box before/after the
-      items run, not as a flex item; `::marker`, `::first-letter`,
-      `::first-line` and `content` on real elements are unsupported.
+- [x] Q19b [S] (baee567) Generated content, dynamic parts: `attr(name)`,
+      `counter()`/`counters()` with `counter-reset`/`counter-increment`,
+      `open-quote`/`close-quote`/`no-*-quote`, and `::before`/`::after`
+      as real (blockified) flex/grid items.
+      DONE (baee567): `parse_content` yields `ContentDecl::Parts`;
+      `precompute_generated` evaluates them in document order into
+      `GENERATED_TEXT`; `build_flex_children` pushes the pseudo boxes.
+      Left out, split into Q19c..Q19f below.
+
+- [ ] Q19c [S] `::marker` styling: `li::marker { color; content }` (today
+      the parsed selector never matches), and `content` on `li::before`
+      interacting with the marker prefix.
+- [ ] Q19d [S] `content: url(...)`: an image as generated content (fetch
+      via the same path as `<img>`; needs the image cache keyed at
+      precompute time).
+- [ ] Q19e [M] `::first-letter` and `::first-line`: split the first text
+      run and style the leading letter / first laid-out line.
+- [ ] Q19f [S] Counter polish: implicit `list-item` counter, no counting
+      for `display:none` elements, `counter-set`, CSS-wide keywords on
+      `counter-reset`/`counter-increment`, quotes from the `quotes`
+      property (today fixed English curly quotes), `content` on real
+      elements (not just pseudos).
 
 - [ ] Q20 [S×6] Small, independent property gaps. Do them as one
       commit each, in this order:

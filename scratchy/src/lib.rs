@@ -1387,7 +1387,7 @@ fn parse_calc_body(input: &mut CssParser, name: &str) -> Result<CalcNode, ()> {
                     let lo = a.pop().unwrap();
                     Ok(CalcNode::Clamp(Box::new(lo), Box::new(v), Box::new(hi)))
                 }
-                _ => Err(bad(i)),
+                _ => Err(i.new_error_for_next_token()),
             }
         })
         .map_err(|_: cssparser::ParseError<()>| ())
@@ -1585,35 +1585,116 @@ impl LineHeight {
     }
 }
 
-/// `content` value (Q19). `attr()`, `counter()`, `url()` and quote keywords
-/// are not supported and make the declaration invalid.
+/// `content` value (Q19, Q19b). `url()` is not supported and makes the
+/// declaration invalid.
 #[derive(Clone, Debug, PartialEq)]
 enum ContentDecl {
     /// `none` / `normal`: no generated box.
     None,
     /// One or more adjacent strings, concatenated.
     Text(String),
+    /// A list containing at least one dynamic part (`attr()`,
+    /// `counter()`, `counters()`, a quote keyword). Evaluated in document
+    /// order by `precompute_generated`.
+    Parts(Vec<ContentPart>),
 }
 
-/// Parses a `content` value: `none`, `normal`, or one or more strings.
+#[derive(Clone, Debug, PartialEq)]
+enum ContentPart {
+    Str(String),
+    Attr(String),
+    Counter { name: String, style: String },
+    Counters { name: String, sep: String, style: String },
+    OpenQuote,
+    CloseQuote,
+    NoOpenQuote,
+    NoCloseQuote,
+}
+
+/// Parses a `content` value: `none`, `normal`, or a list of strings,
+/// `attr()`, `counter()`, `counters()` and quote keywords.
 fn parse_content(input: &mut CssParser) -> Result<ContentDecl, ()> {
     if input.try_parse(|i| i.expect_ident_matching("none")).is_ok()
         || input.try_parse(|i| i.expect_ident_matching("normal")).is_ok()
     {
         return Ok(ContentDecl::None);
     }
-    let mut text = String::new();
-    let mut any = false;
+    let mut parts: Vec<ContentPart> = Vec::new();
     while let Ok(tok) = input.next() {
-        match tok {
-            Token::QuotedString(q) => {
-                text.push_str(q);
-                any = true;
+        match tok.clone() {
+            Token::QuotedString(q) => parts.push(ContentPart::Str(q.to_string())),
+            Token::Ident(id) => parts.push(match &*id.to_ascii_lowercase() {
+                "open-quote" => ContentPart::OpenQuote,
+                "close-quote" => ContentPart::CloseQuote,
+                "no-open-quote" => ContentPart::NoOpenQuote,
+                "no-close-quote" => ContentPart::NoCloseQuote,
+                _ => return Err(()),
+            }),
+            Token::Function(f) => {
+                let f = f.to_ascii_lowercase();
+                let part = input
+                    .parse_nested_block(|i| -> Result<ContentPart, ParseError<()>> {
+                        let name = match i.next()?.clone() {
+                            Token::Ident(n) => n.to_string(),
+                            _ => return Err(i.new_error_for_next_token()),
+                        };
+                        match &*f {
+                            "attr" => Ok(ContentPart::Attr(name)),
+                            "counter" => {
+                                let style = if i.try_parse(|i| i.expect_comma()).is_ok() {
+                                    i.expect_ident()?.to_ascii_lowercase()
+                                } else {
+                                    "decimal".to_string()
+                                };
+                                Ok(ContentPart::Counter { name, style })
+                            }
+                            "counters" => {
+                                i.expect_comma()?;
+                                let sep = i.expect_string()?.to_string();
+                                let style = if i.try_parse(|i| i.expect_comma()).is_ok() {
+                                    i.expect_ident()?.to_ascii_lowercase()
+                                } else {
+                                    "decimal".to_string()
+                                };
+                                Ok(ContentPart::Counters { name, sep, style })
+                            }
+                            _ => Err(i.new_error_for_next_token()),
+                        }
+                    })
+                    .map_err(|_| ())?;
+                parts.push(part);
             }
             _ => return Err(()),
         }
     }
-    if any { Ok(ContentDecl::Text(text)) } else { Err(()) }
+    if parts.is_empty() {
+        Err(())
+    } else if parts.iter().all(|p| matches!(p, ContentPart::Str(_))) {
+        let mut text = String::new();
+        for p in &parts {
+            if let ContentPart::Str(s) = p {
+                text.push_str(s);
+            }
+        }
+        Ok(ContentDecl::Text(text))
+    } else {
+        Ok(ContentDecl::Parts(parts))
+    }
+}
+
+/// `counter-reset` / `counter-increment`: `<name> [<integer>]` pairs, or
+/// `none`. `default` is the integer used when none is given (0 for reset,
+/// 1 for increment).
+fn parse_counter_ops(input: &mut CssParser, default: i32) -> Result<Vec<(String, i32)>, ()> {
+    if input.try_parse(|i| i.expect_ident_matching("none")).is_ok() {
+        return Ok(Vec::new());
+    }
+    let mut out = Vec::new();
+    while let Ok(name) = input.try_parse(|i| i.expect_ident().map(|s| s.to_string())) {
+        let n = input.try_parse(|i| i.expect_integer()).unwrap_or(default);
+        out.push((name, n));
+    }
+    if out.is_empty() || !input.is_exhausted() { Err(()) } else { Ok(out) }
 }
 
 #[derive(Clone, Default, PartialEq)]
@@ -1667,6 +1748,9 @@ struct Declarations {
     /// `content` (Q19): only string content (and `none`/`normal`) parses.
     /// Only read for `::before`/`::after`.
     content: Option<ContentDecl>,
+    /// `counter-reset` / `counter-increment` (Q19b); read only by `precompute_generated`.
+    counter_reset: Option<Vec<(String, i32)>>,
+    counter_increment: Option<Vec<(String, i32)>>,
     width: Option<Length>,
     height: Option<Length>,
     min_width: Option<Length>,
@@ -4826,6 +4910,14 @@ impl DeclParser<'_> {
         } else if name.eq_ignore_ascii_case("content") {
             if let Ok(c) = parse_content(input) {
                 self.decls.content = Some(c);
+            }
+        } else if name.eq_ignore_ascii_case("counter-reset") {
+            if let Ok(c) = parse_counter_ops(input, 0) {
+                self.decls.counter_reset = Some(c);
+            }
+        } else if name.eq_ignore_ascii_case("counter-increment") {
+            if let Ok(c) = parse_counter_ops(input, 1) {
+                self.decls.counter_increment = Some(c);
             }
         } else if name.eq_ignore_ascii_case("opacity") {
             if let Ok(o) = parse_opacity(input) {
@@ -8136,6 +8228,15 @@ fn build_flex_children(
             pending.clear();
         }
     };
+    // `::before` / `::after` are real (blockified) flex items (Q19b).
+    let push_pseudo = |which: &str, result: &mut Vec<LayoutBox>| {
+        if let Some((mut st, text)) = generated_content(handle, rules, inherited, which, viewport_width) {
+            st.display = Display::Block;
+            let mut none = Vec::new();
+            push_generated((st, text), inherited, None, decoration, href, VerticalAlign::default(), &mut none, result);
+        }
+    };
+    push_pseudo("before", &mut result);
     for child in handle.children.borrow().iter() {
         if let NodeData::Text { contents } = &child.data {
             let mut span: SpanStyle = inherited.into();
@@ -8164,6 +8265,7 @@ fn build_flex_children(
         result.push(build_box_for_element(child, rules, inherited, decoration, href, viewport_width, image_cache));
     }
     flush(&mut pending, &mut result);
+    push_pseudo("after", &mut result);
     result
 }
 
@@ -8266,6 +8368,159 @@ fn discard_if_collapsible_whitespace_only(pending: &mut Vec<InlineItem>) {
     }
 }
 
+thread_local! {
+    /// Evaluated dynamic `content` (`attr()`, counters, quotes) per
+    /// (element pointer, is-`::after`), filled by `precompute_generated`.
+    static GENERATED_TEXT: std::cell::RefCell<HashMap<(usize, bool), String>> =
+        std::cell::RefCell::new(HashMap::new());
+}
+
+/// Formats a counter value in a `counter()` style.
+fn format_counter(n: i32, style: &str) -> String {
+    fn alpha(n: i32, base: u8) -> String {
+        if n <= 0 {
+            return n.to_string();
+        }
+        let mut n = n as u32;
+        let mut out = Vec::new();
+        while n > 0 {
+            n -= 1;
+            out.push(base + (n % 26) as u8);
+            n /= 26;
+        }
+        out.reverse();
+        String::from_utf8(out).unwrap_or_default()
+    }
+    fn roman(n: i32) -> String {
+        if !(1..4000).contains(&n) {
+            return n.to_string();
+        }
+        let mut n = n;
+        let mut out = String::new();
+        for (v, r) in [
+            (1000, "m"), (900, "cm"), (500, "d"), (400, "cd"), (100, "c"), (90, "xc"),
+            (50, "l"), (40, "xl"), (10, "x"), (9, "ix"), (5, "v"), (4, "iv"), (1, "i"),
+        ] {
+            while n >= v {
+                out.push_str(r);
+                n -= v;
+            }
+        }
+        out
+    }
+    match style {
+        "none" => String::new(),
+        "decimal-leading-zero" => format!("{n:02}"),
+        "lower-alpha" | "lower-latin" => alpha(n, b'a'),
+        "upper-alpha" | "upper-latin" => alpha(n, b'A'),
+        "lower-roman" => roman(n),
+        "upper-roman" => roman(n).to_uppercase(),
+        "lower-greek" if (1..=24).contains(&n) => {
+            char::from_u32('α' as u32 + (n as u32 - 1) + u32::from(n >= 18)).map(String::from).unwrap_or_default()
+        }
+        "disc" => "\u{2022}".into(),
+        "circle" => "\u{25E6}".into(),
+        "square" => "\u{25AA}".into(),
+        _ => n.to_string(),
+    }
+}
+
+/// Document-order pass (Q19b) that evaluates every `::before`/`::after`
+/// `content` containing `attr()`, `counter()`/`counters()` or quote
+/// keywords, into `GENERATED_TEXT`. Does nothing (no per-element cost)
+/// unless some rule declares such a `content` or a counter property.
+fn precompute_generated(document: &Handle, rules: &[StyleRule], viewport_width: f32) {
+    GENERATED_TEXT.with(|g| g.borrow_mut().clear());
+    let wanted = rules.iter().any(|r| {
+        [&r.decls, &r.important].iter().any(|d| {
+            matches!(d.content, Some(ContentDecl::Parts(_)))
+                || d.counter_reset.is_some()
+                || d.counter_increment.is_some()
+        })
+    });
+    if !wanted {
+        return;
+    }
+    struct State {
+        counters: Vec<(String, i32, usize)>,
+        quote_depth: usize,
+    }
+    fn eval(parts: &[ContentPart], handle: &Handle, st: &mut State) -> String {
+        let mut out = String::new();
+        for p in parts {
+            match p {
+                ContentPart::Str(s) => out.push_str(s),
+                ContentPart::Attr(n) => {
+                    if let Some(v) = element_attr(handle, n) {
+                        out.push_str(&v);
+                    }
+                }
+                ContentPart::Counter { name, style } => {
+                    let v = st.counters.iter().rev().find(|c| c.0 == *name).map_or(0, |c| c.1);
+                    out.push_str(&format_counter(v, style));
+                }
+                ContentPart::Counters { name, sep, style } => {
+                    let vals: Vec<String> =
+                        st.counters.iter().filter(|c| c.0 == *name).map(|c| format_counter(c.1, style)).collect();
+                    out.push_str(&if vals.is_empty() { format_counter(0, style) } else { vals.join(sep) });
+                }
+                ContentPart::OpenQuote => {
+                    out.push_str(if st.quote_depth == 0 { "\u{201C}" } else { "\u{2018}" });
+                    st.quote_depth += 1;
+                }
+                ContentPart::CloseQuote => {
+                    st.quote_depth = st.quote_depth.saturating_sub(1);
+                    out.push_str(if st.quote_depth == 0 { "\u{201D}" } else { "\u{2019}" });
+                }
+                ContentPart::NoOpenQuote => st.quote_depth += 1,
+                ContentPart::NoCloseQuote => st.quote_depth = st.quote_depth.saturating_sub(1),
+            }
+        }
+        out
+    }
+    fn walk(handle: &Handle, rules: &[StyleRule], vw: f32, depth: usize, st: &mut State) {
+        let is_el = matches!(handle.data, NodeData::Element { .. });
+        let key = Rc::as_ptr(handle) as usize;
+        if is_el {
+            let own = matching_declarations_for(handle, rules, vw, None);
+            if let Cascaded::Value(ops) = cascade_css(&own, None, "counter-reset", |d| d.counter_reset.clone()) {
+                for (name, v) in ops {
+                    st.counters.retain(|c| !(c.0 == name && c.2 == depth));
+                    st.counters.push((name, v, depth));
+                }
+            }
+            if let Cascaded::Value(ops) =
+                cascade_css(&own, None, "counter-increment", |d| d.counter_increment.clone())
+            {
+                for (name, v) in ops {
+                    match st.counters.iter_mut().rev().find(|c| c.0 == name) {
+                        Some(c) => c.1 += v,
+                        None => st.counters.push((name, v, depth)),
+                    }
+                }
+            }
+            let m = matching_declarations_for(handle, rules, vw, Some("before"));
+            if let Cascaded::Value(ContentDecl::Parts(parts)) = cascade_css(&m, None, "content", |d| d.content.clone()) {
+                let t = eval(&parts, handle, st);
+                GENERATED_TEXT.with(|g| g.borrow_mut().insert((key, false), t));
+            }
+        }
+        for child in handle.children.borrow().iter() {
+            walk(child, rules, vw, depth + 1, st);
+        }
+        if is_el {
+            let m = matching_declarations_for(handle, rules, vw, Some("after"));
+            if let Cascaded::Value(ContentDecl::Parts(parts)) = cascade_css(&m, None, "content", |d| d.content.clone()) {
+                let t = eval(&parts, handle, st);
+                GENERATED_TEXT.with(|g| g.borrow_mut().insert((key, true), t));
+            }
+            st.counters.retain(|c| c.2 <= depth);
+        }
+    }
+    let mut st = State { counters: Vec::new(), quote_depth: 0 };
+    walk(document, rules, viewport_width, 0, &mut st);
+}
+
 fn collect_children(
     handle: &Handle,
     rules: &[StyleRule],
@@ -8311,6 +8566,8 @@ fn generated_content(
     }
     let text = match cascade_css(&matches, None, "content", |d| d.content.clone()) {
         Cascaded::Value(ContentDecl::Text(t)) => t,
+        Cascaded::Value(ContentDecl::Parts(_)) => GENERATED_TEXT
+            .with(|g| g.borrow().get(&(Rc::as_ptr(handle) as usize, which == "after")).cloned())?,
         _ => return None,
     };
     let style = resolve_style_for(handle, rules, inherited, viewport_width, Some(which));
@@ -8589,6 +8846,7 @@ fn build_layout_tree_with_resources(
     let html_handle = find_html_element(document);
     let mut rules = parse_stylesheet(DEFAULT_CSS);
     rules.extend(parse_stylesheet(&css_source));
+    precompute_generated(document, &rules, viewport_width);
     // `var()` is resolved per element in `resolve_style` (Q13).
     // `rem` lengths resolve against `<html>`'s own cascaded font-size, not
     // necessarily `ROOT_STYLE.font_size` — resolve it once up front (pure,
@@ -17543,9 +17801,55 @@ mod tests {
             600.0,
         );
         assert_eq!(find_by_width(&laid, 33.0).expect("generated block").h, 7.0);
-        assert_eq!(parse_declarations("content: attr(x)").content, None);
+        assert_eq!(parse_declarations("content: url(x.png)").content, None);
         assert_eq!(parse_declarations("content: normal").content, Some(ContentDecl::None));
         assert_eq!(parse_declarations("content: 'a' \"b\"").content, Some(ContentDecl::Text("ab".into())));
+    }
+
+    #[test]
+    fn q19b_attr_counters_quotes_and_flex_pseudo_items() {
+        assert_eq!(
+            parse_declarations("content: attr(title) counter(n, lower-roman)").content,
+            Some(ContentDecl::Parts(vec![
+                ContentPart::Attr("title".into()),
+                ContentPart::Counter { name: "n".into(), style: "lower-roman".into() },
+            ]))
+        );
+        assert_eq!(format_counter(4, "lower-roman"), "iv");
+        assert_eq!(format_counter(28, "upper-alpha"), "AB");
+        assert_eq!(format_counter(3, "decimal-leading-zero"), "03");
+        let doc = parse_html(
+            r#"<html><head><style>
+            body { counter-reset: sec; }
+            h2 { counter-increment: sec; }
+            h2::before { content: counter(sec) ". "; }
+            ul { counter-reset: item; }
+            li { counter-increment: item 2; }
+            li::after { content: "[" counters(item, "-") "]"; }
+            a::before { content: attr(href) open-quote; }
+            a::after { content: close-quote; }
+            </style></head><body><h2>A</h2><h2>B</h2><ul><li>x</li><li>y</li></ul>
+            <a href="u">l</a></body></html>"#,
+        );
+        let tree = build_layout_tree(&doc, 1920.0);
+        let mut texts = Vec::new();
+        q19_texts(&tree, &mut texts);
+        for want in ["1. ", "2. ", "[2]", "[4]", "u\u{201C}", "\u{201D}"] {
+            assert!(texts.iter().any(|(t, _)| t == want), "{want:?} missing: {texts:?}");
+        }
+        // ::before / ::after are their own flex items.
+        let laid = measure_document_fixture(
+            r#"<html><head><style>
+            .f { display: flex; width: 300px; }
+            .f::before { content: ""; width: 40px; height: 9px; }
+            .f::after { content: ""; width: 50px; height: 9px; }
+            </style></head><body><div class="f"><span style="width:100px">m</span></div></body></html>"#,
+            800.0,
+            600.0,
+        );
+        let before = find_by_width(&laid, 40.0).expect("before item");
+        let after = find_by_width(&laid, 50.0).expect("after item");
+        assert!(after.x > before.x + 40.0, "after item sits to the right: {} vs {}", after.x, before.x);
     }
 
     // ---------- v45: CSS custom properties (`:root`/`html`-scoped) + `var()` ----------
