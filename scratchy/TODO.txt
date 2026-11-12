@@ -399,10 +399,10 @@ dropped selectors summed across those pages. Caveats:
       `GENERATED_TEXT`; `build_flex_children` pushes the pseudo boxes.
       Left out, split into Q19c..Q19f below.
 
-- [x] Q19c [S] (HASH) `::marker` styling: `li::marker { color; content }` (today
+- [x] Q19c [S] (76a9d25) `::marker` styling: `li::marker { color; content }` (today
       the parsed selector never matches), and `content` on `li::before`
       interacting with the marker prefix.
-      DONE (HASH): `marker_prefix` applies a matching `li::marker` rule's
+      DONE (76a9d25): `marker_prefix` applies a matching `li::marker` rule's
       style and string `content` (`none` removes it). `li::before` already
       coexists with the marker (it is generated after the marker prefix).
       Left out: `attr()`/counter content in `::marker`, marker on non-`li`.
