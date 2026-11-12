@@ -6475,10 +6475,56 @@ fn decode_data_uri(src: &str) -> Option<Vec<u8>> {
     let rest = src.strip_prefix("data:")?;
     let (meta, payload) = rest.split_once(',')?;
     if !meta.split(';').any(|p| p.eq_ignore_ascii_case("base64")) {
-        return None;
+        // Non-base64 payloads are percent-encoded text (the usual form for
+        // `data:image/svg+xml,...`).
+        let raw = payload.as_bytes();
+        let mut out = Vec::with_capacity(raw.len());
+        let mut i = 0;
+        while i < raw.len() {
+            if raw[i] == b'%' && i + 2 < raw.len() && let Ok(h) = u8::from_str_radix(&payload[i + 1..i + 3], 16) {
+                out.push(h);
+                i += 3;
+            } else {
+                out.push(raw[i]);
+                i += 1;
+            }
+        }
+        return Some(out);
     }
     use base64::Engine;
     base64::engine::general_purpose::STANDARD.decode(payload.trim()).ok()
+}
+
+/// True when `bytes` look like an SVG document (optional BOM/whitespace,
+/// then `<svg`, `<?xml` or `<!DOCTYPE svg`).
+fn looks_like_svg(bytes: &[u8]) -> bool {
+    let head = &bytes[..bytes.len().min(512)];
+    let head = head.strip_prefix(&[0xEF, 0xBB, 0xBF][..]).unwrap_or(head);
+    let text = String::from_utf8_lossy(head);
+    let t = text.trim_start().to_ascii_lowercase();
+    t.starts_with("<svg") || t.starts_with("<?xml") || t.starts_with("<!doctype svg")
+}
+
+/// Rasterizes an SVG document at its intrinsic size (`width`/`height`,
+/// else `viewBox`, as resolved by usvg), un-premultiplying to RGBA.
+fn decode_svg_bytes(bytes: &[u8]) -> Option<DecodedImage> {
+    let tree = resvg::usvg::Tree::from_data(bytes, &resvg::usvg::Options::default()).ok()?;
+    let size = tree.size().to_int_size();
+    let (width, height) = (size.width().max(1), size.height().max(1));
+    if width > 8192 || height > 8192 {
+        return None;
+    }
+    let mut pixmap = resvg::tiny_skia::Pixmap::new(width, height)?;
+    resvg::render(&tree, resvg::tiny_skia::Transform::identity(), &mut pixmap.as_mut());
+    let pixels = pixmap
+        .pixels()
+        .iter()
+        .map(|p| {
+            let c = p.demultiply();
+            TextColor::rgba(c.red(), c.green(), c.blue(), c.alpha())
+        })
+        .collect();
+    Some(DecodedImage { width, height, pixels })
 }
 
 /// Decodes raw image bytes (already extracted from a `data:` URI) via
@@ -6488,6 +6534,9 @@ fn decode_data_uri(src: &str) -> Option<Vec<u8>> {
 /// unsupported format (only PNG/JPEG/GIF/WebP are compiled in, see
 /// `Cargo.toml`), or truncated/corrupt data.
 fn decode_image_bytes(bytes: &[u8]) -> Option<DecodedImage> {
+    if looks_like_svg(bytes) {
+        return decode_svg_bytes(bytes);
+    }
     let decoded = image::load_from_memory(bytes).ok()?;
     let rgba = decoded.to_rgba8();
     let (width, height) = rgba.dimensions();
@@ -20223,6 +20272,20 @@ mod tests {
         // Applies through the cascade.
         let r = parse_stylesheet("@supports (display:grid){p{color:red}}");
         assert!(r[0].decls.color.is_some());
+    }
+
+    #[test]
+    fn q12a_svg_decodes_to_pixels() {
+        let svg = b"<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10'><rect width='10' height='10' fill='red'/></svg>";
+        let img = decode_image_bytes(svg).expect("svg decodes");
+        assert_eq!((img.width, img.height), (10, 10));
+        assert_eq!(img.pixels[55], TextColor::rgba(255, 0, 0, 255));
+        // percent-encoded data URI, viewBox-only size
+        let uri = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 4 6'%3E%3Crect width='4' height='6' fill='%230f0'/%3E%3C/svg%3E";
+        let img = decode_image_bytes(&decode_data_uri(uri).unwrap()).expect("uri svg decodes");
+        assert_eq!((img.width, img.height), (4, 6));
+        assert_eq!(img.pixels[0], TextColor::rgba(0, 255, 0, 255));
+        assert!(decode_image_bytes(b"<svg").is_none());
     }
 
     #[test]

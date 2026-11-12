@@ -291,14 +291,16 @@ dropped selectors summed across those pages. Caveats:
       space. Most icons on all these sites are SVG. Uses `resvg`/`usvg`
       (pure Rust, so the all-Rust build stays). Do the sub-items in
       order:
-      - [ ] Q12a [M] `decode_image_bytes` detects SVG (an
-            `image/svg+xml` data-URI or `Content-Type`, or the bytes
-            starting with `<svg`/`<?xml`) and rasterizes it at its
-            intrinsic size, which is `width`/`height`, else the
-            `viewBox`, else 300x150. If the CSS size is known when
-            painting, rasterize at that size instead of scaling a bitmap
-            (cache by `(src, w, h)`). This covers `<img>`,
-            `background-image` and wire-fetched images.
+      - [x] Q12a1 [S] `decode_image_bytes` sniffs SVG (`looks_like_svg`)
+            and rasterizes it with resvg at its intrinsic size
+            (`decode_svg_bytes`); `decode_data_uri` now also handles
+            percent-encoded (non-base64) payloads. Covers `<img>` and
+            `background-image` data URIs. (commit: pending)
+      - [ ] Q12a2 [S] Rasterize at the CSS box size when known (cache by
+            `(src, w, h)`) instead of scaling the intrinsic bitmap;
+            detect SVG via `Content-Type` `image/svg+xml` for wire-fetched
+            images whose bytes lack an obvious prefix; 300x150 fallback
+            when neither width/height nor viewBox exist.
       - [ ] Q12b [M] An inline `<svg>` element becomes a replaced box,
             the same shape as `build_img_box`. Serialize the subtree
             back to XML, rasterize it, then size it the same way `<img>`

@@ -15,6 +15,7 @@ html5ever = "0.39"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 markup5ever_rcdom = "0.39.0"
 precomputed-hash = "0.1.1"
+resvg = { version = "0.50.0", default-features = false }
 selectors = "0.41.0"
 signal-hook = "0.3.17"
 softbuffer = "0.4.8"
