@@ -169,7 +169,7 @@ dropped selectors summed across those pages. Caveats:
       paragraph). Test: `#a{color:red} p{color:blue !important}` gives
       `<p id=a>` blue.
 
-- [x] Q7 [M] (COMMIT) CSS-wide keywords `inherit`, `initial`, `unset`, `revert`
+- [x] Q7 [M] (407d3bf) CSS-wide keywords `inherit`, `initial`, `unset`, `revert`
       and `revert-layer` (n=70+: `color` 28+16, `vertical-align` 14,
       `background` 8, `font-size` 8, `line-height` 6, `display` 4).
       Nothing parses them today. Before dispatching to the per-property
