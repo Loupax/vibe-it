@@ -2903,3 +2903,5 @@ or an auto span; placement runs in three passes (named/fully fixed, one fixed
 axis, cursor auto-placement with spans via a `free` cell check). A row span
 still only contributes height to its first row. Named lines and implicit
 columns beyond the template are not supported (clamped).
+
+**Q17 `opacity`.** Implemented the "multiply alpha down the tree" option: `resolve_style` accumulates `ComputedStyle::opacity` (own times parent's, via `InheritedStyle::parent`), and `paint` sets a thread-local `PAINT_OPACITY` around `paint_inner` so `blend` scales every alpha. This avoided threading a parameter through the 6 box-building functions that the older `opacity` entry above feared. Double-blending of overlapping faded children is accepted; inline-span `opacity` is not applied (no per-span style slot).
