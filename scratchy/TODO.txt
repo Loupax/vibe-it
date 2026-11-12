@@ -432,12 +432,12 @@ dropped selectors summed across those pages. Caveats:
       Left out: runs routed through `measure_mixed_inline` (images /
       inline-blocks / word-spacing), first-line inside a nested first
       block child, `::first-letter` vs `::first-line` precedence.
-- [x] Q19f [S] (HASH) Counter polish: implicit `list-item` counter, no counting
+- [x] Q19f [S] (cfa71ec) Counter polish: implicit `list-item` counter, no counting
       for `display:none` elements, `counter-set`, CSS-wide keywords on
       `counter-reset`/`counter-increment`, quotes from the `quotes`
       property (today fixed English curly quotes), `content` on real
       elements (not just pseudos).
-      DONE (HASH): all in `precompute_generated`: `ol`/`ul` reset and `li`
+      DONE (cfa71ec): all in `precompute_generated`: `ol`/`ul` reset and `li`
       increments `list-item` unless the author names it; `display:none`
       (stylesheet only) skips the subtree; `counter-set`; `quotes`
       (`parse_quotes`, inherited via the walk); `ELEMENT_CONTENT` holds a
