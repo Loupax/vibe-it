@@ -5989,3 +5989,12 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > Implement the first unchecked item (Q23, flex leftovers, cheapest first) of the ranked QUEUE in scratchy/TODO.txt.
 
 **What changed:** only the cheapest part, `order`, was done; the rest is re-split as Q23b. `order` (integer, `-webkit-order` aliased) is a new `Declarations::order` / `ComputedStyle::order` (non-inherited, default 0), and `measure_flex` stable-sorts its in-flow items by it before row/column layout, so source order breaks ties and laid children (paint and hit-test order too) follow the visual order. Non-integer values are ignored. Test: `q23_order_reorders_flex_items_stably`. `grim` worked: blue (`order:-1`), green, red (`order:2`) boxes appear left to right. Left out: `order` on grid items, and `order` with `row-reverse` was not separately tested (the sort happens before the reverse logic, so it should compose per spec).
+
+
+---
+
+## Q23b — Flex `align-content` (queue item)
+
+> Implement the first unchecked item (Q23b, flex leftovers) of the ranked QUEUE in scratchy/TODO.txt.
+
+**What changed:** only `align-content` was done; the remaining leftovers are re-queued as Q23c. New `AlignContent` enum (`normal` = `stretch`, plus flex-start/start, flex-end/end, center, space-between/around/evenly), `Declarations::align_content` / `ComputedStyle::align_content`. `measure_flex_row` now measures all lines first (collecting each line's cross size), then, for a wrapping container with a definite `height`, distributes the free cross space (stretch grows each line equally, so `align-items: stretch` items grow too), then aligns items per line in a second pass. Test: `q23b_align_content_distributes_wrapped_lines`. `grim` worked: red and blue 30px bars pushed to the top and bottom of a 200px `space-between` container. Left out: column containers (no wrapping there yet), `wrap-reverse` flipping of the flex-start/flex-end meaning, and a definite height coming only from `min-height` or a percentage.
