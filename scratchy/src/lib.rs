@@ -2898,6 +2898,27 @@ fn parse_line_height(input: &mut CssParser) -> Result<LineHeight, ()> {
     }
 }
 
+/// Vendor-prefixed aliases (Q20b) that are plain synonyms of the standard
+/// property: `-webkit-box-sizing` is `box-sizing`, and so on. Legacy
+/// `-webkit-box` flexbox semantics are deliberately not implemented, and
+/// `-webkit-transform` stays ignored along with `transform`.
+fn unprefixed_property(name: &str) -> &str {
+    const ALIASED: &[&str] = &[
+        "box-sizing", "flex", "flex-direction", "flex-wrap", "flex-flow", "flex-grow",
+        "flex-shrink", "flex-basis", "box-shadow", "justify-content", "align-items",
+        "align-self", "border-radius", "opacity",
+    ];
+    let lower = name.to_ascii_lowercase();
+    for prefix in ["-webkit-", "-moz-"] {
+        if let Some(rest) = lower.strip_prefix(prefix)
+            && let Some(p) = ALIASED.iter().find(|p| **p == rest)
+        {
+            return p;
+        }
+    }
+    name
+}
+
 /// `font` shorthand (Q20a): `[style] [variant] [weight] [stretch] size
 /// [/ line-height] family`. The leading keywords may come in any order;
 /// style/weight/line-height reset to their initial values when omitted.
@@ -4837,6 +4858,7 @@ impl DeclParser<'_> {
     /// The per-property dispatch, split out of `parse_value` so the
     /// debug path can re-run it against a scratch `Declarations`.
     fn apply<'i>(&mut self, name: &str, input: &mut CssParser<'i>) {
+        let name = unprefixed_property(name);
         if !name.starts_with("--") {
             let start = input.state();
             while input.next().is_ok() {}
@@ -4951,7 +4973,7 @@ impl DeclParser<'_> {
                     // the right simplification: it still renders, in its
                     // source position, just without special placement.
                     Some(Display::Block)
-                } else if ident.eq_ignore_ascii_case("flex") {
+                } else if ident.eq_ignore_ascii_case("flex") || ident.eq_ignore_ascii_case("-webkit-flex") {
                     Some(Display::Flex)
                 } else if ident.eq_ignore_ascii_case("grid") {
                     Some(Display::Grid)
@@ -4969,7 +4991,9 @@ impl DeclParser<'_> {
                     Some(Display::Block)
                 } else if ident.eq_ignore_ascii_case("inline-block") {
                     Some(Display::InlineBlock)
-                } else if ident.eq_ignore_ascii_case("inline-flex") {
+                } else if ident.eq_ignore_ascii_case("inline-flex")
+                    || ident.eq_ignore_ascii_case("-webkit-inline-flex")
+                {
                     Some(Display::InlineFlex)
                 } else {
                     None
@@ -18434,6 +18458,19 @@ mod tests {
         assert!(d.line_height == Some(LineHeight::Len(Length::Px(20.0))));
         assert!(parse_declarations("font: menu").font_size.is_none());
         assert!(parse_declarations("font: bold").font_size.is_none());
+    }
+
+    #[test]
+    fn q20b_prefixed_aliases_are_plain_synonyms() {
+        let d = parse_declarations("-webkit-box-sizing: border-box; -moz-box-sizing: content-box");
+        assert!(d.box_sizing == Some(BoxSizing::ContentBox));
+        let d = parse_declarations("-webkit-box-sizing: border-box");
+        assert!(d.box_sizing == Some(BoxSizing::BorderBox));
+        let d = parse_declarations("display: -webkit-flex; -webkit-flex: 2 1 10px; -webkit-box-shadow: 1px 1px 2px red");
+        assert!(d.display == Some(Display::Flex));
+        assert!(d.flex_grow.is_some() && d.box_shadow.is_some());
+        assert!(parse_declarations("display: -webkit-inline-flex").display == Some(Display::InlineFlex));
+        assert!(parse_declarations("display: -webkit-box").display.is_none());
     }
 
     #[test]
