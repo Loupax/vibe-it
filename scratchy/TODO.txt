@@ -137,10 +137,16 @@ dropped selectors summed across those pages. Caveats:
       - `border-width: 1px 2px 3px 4px` sets all four sides correctly.
       - `border: 1px solid; border-top: none` removes only the top.
 
-- [ ] Q4b [S] Per-side borders with `border-radius`: when the four
+- [x] Q4b [S] (HASH) Per-side borders with `border-radius`: when the four
       sides differ (width, color or style) corners fall back to square,
       and unequal sides don't get mitered corner joins; bevel styles
       (groove/ridge/inset/outset) degrade to solid in the per-side path.
+
+- [ ] Q4c [S] Uniform non-solid borders (dashed/dotted/double/bevel) with
+      `border-radius` still fall back to square corners; route them
+      through `paint_per_side_border` (which already handles radius and
+      every style per pixel).
+      Detail: see Q4b.
 
 - [ ] Q5 [S] Anonymous flex items for bare text. Text placed directly
       inside a flex container is silently NOT RENDERED today, so content
