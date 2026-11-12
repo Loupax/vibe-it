@@ -58,7 +58,7 @@ dropped selectors summed across those pages. Caveats:
 
 --- Tier 0: tooling that makes every later measurement honest ---------
 
-- [x] Q1 [S] Make `SCRATCHY_CSS_DEBUG` tell different failures apart.
+- [x] Q1 [S] (287fdab) Make `SCRATCHY_CSS_DEBUG` tell different failures apart.
       Today `DeclParser::parse_value` clones `Declarations` before
       parsing and compares after (`css_debug_enabled`). Change it to:
       (a) report "ignored" only when no branch accepted the value, and
