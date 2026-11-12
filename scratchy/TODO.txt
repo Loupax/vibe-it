@@ -339,7 +339,7 @@ dropped selectors summed across those pages. Caveats:
       - [x] Q15a [M] `auto`, `min-content` and `max-content` track sizes, (1154431)
             standalone and inside `minmax()`, sized from items via
             `cell_natural_width`.
-      - [ ] Q15b [S] The `grid-template` shorthand
+      - [x] Q15b [S] The `grid-template` shorthand (9397a18)
             (`<rows> / <columns>`, optionally with area strings).
       - [ ] Q15c [S] Numeric placement: `grid-column`/`grid-row`, their
             `-start`/`-end` longhands, `span N`, and the 4-value
@@ -1074,7 +1074,7 @@ session can pick a coherent slice rather than one property at a time.
       doesn't parse (see below) — it falls back to this item's own
       equal-`fr` default instead.
 
-      - [ ] `grid-template` (the `<rows> / <columns>` shorthand,
+      - [x] (Q15b, 9397a18) `grid-template` (the `<rows> / <columns>` shorthand,
             optionally combined with area strings) isn't parsed at
             all — only the two longhands (`grid-template-columns`/
             `-rows`) and the standalone `grid-template-areas` are.

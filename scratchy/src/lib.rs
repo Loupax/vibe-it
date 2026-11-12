@@ -3768,6 +3768,57 @@ fn parse_grid_template(input: &mut CssParser) -> Result<Vec<GridTrackSpec>, ()> 
     }
 }
 
+/// `grid-template` shorthand: `none`, `<rows> / <columns>`, or area
+/// strings each optionally followed by a row `<track-size>`
+/// (`"a a" 40px "b c" / 1fr 2fr`). Returns (rows, columns, areas); an
+/// empty vec means that part was not declared. Area rows with no size
+/// get `auto`. Named lines (`[x]`) are not supported (fails to parse).
+#[allow(clippy::type_complexity)]
+fn parse_grid_template_shorthand(
+    input: &mut CssParser,
+) -> Result<(Vec<GridTrackSpec>, Vec<GridTrackSpec>, Vec<&'static str>), ()> {
+    let state = input.state();
+    if let Ok(id) = input.expect_ident() {
+        if id.eq_ignore_ascii_case("none") && input.is_exhausted() {
+            return Ok((Vec::new(), Vec::new(), Vec::new()));
+        }
+    }
+    input.reset(&state);
+    let mut rows = Vec::new();
+    let mut areas: Vec<&'static str> = Vec::new();
+    let mut cols = Vec::new();
+    while !input.is_exhausted() {
+        let state = input.state();
+        if input.try_parse(|i| i.expect_delim('/')).is_ok() {
+            cols = parse_grid_template(input)?;
+            break;
+        }
+        input.reset(&state);
+        if let Ok(s) = input.try_parse(|i| i.expect_string().map(|s| s.as_ref().to_string())) {
+            areas.push(Box::leak(s.into_boxed_str()));
+            let size = input
+                .try_parse(parse_grid_track_size)
+                .unwrap_or(GridTrackSpec::Auto);
+            rows.push(size);
+            continue;
+        }
+        if !areas.is_empty() {
+            return Err(());
+        }
+        let state = input.state();
+        if input.expect_function_matching("repeat").is_ok() {
+            rows.extend(parse_grid_repeat(input)?);
+            continue;
+        }
+        input.reset(&state);
+        rows.push(parse_grid_track_size(input)?);
+    }
+    if rows.is_empty() && cols.is_empty() {
+        return Err(());
+    }
+    Ok((rows, cols, areas))
+}
+
 /// `grid-template-areas`'s own grammar: one or more `<string>` tokens in
 /// a row, each one a template row (`"a a" "b c"`), split into per-cell
 /// name tokens by `measure_grid`'s own `grid_area_rect` at measure time,
@@ -4430,6 +4481,12 @@ impl DeclParser<'_> {
         } else if name.eq_ignore_ascii_case("grid-template-rows") {
             if let Ok(tracks) = parse_grid_template(input) {
                 self.decls.grid_template_rows = Some(Box::leak(tracks.into_boxed_slice()));
+            }
+        } else if name.eq_ignore_ascii_case("grid-template") {
+            if let Ok((rows, cols, areas)) = parse_grid_template_shorthand(input) {
+                self.decls.grid_template_rows = Some(Box::leak(rows.into_boxed_slice()));
+                self.decls.grid_template_columns = Some(Box::leak(cols.into_boxed_slice()));
+                self.decls.grid_template_areas = Some(Box::leak(areas.into_boxed_slice()));
             }
         } else if name.eq_ignore_ascii_case("grid-template-areas") {
             if let Ok(rows) = parse_grid_template_areas(input) {
@@ -18721,6 +18778,36 @@ mod tests {
         // `minmax(min-content, 1fr)`: flexible with a content floor.
         let (w, r) = widths("minmax(min-content, 1fr) 100px", text);
         assert_eq!((w, r), (300.0, 100.0));
+    }
+
+    #[test]
+    fn q15b_grid_template_shorthand() {
+        let laid = measure_fixture(
+            r#"<html><body style="margin: 0"><div style="display: grid; grid-template: 30px 40px / 100px 1fr; width: 400px;"><div>a</div><div>b</div><div>c</div></div></body></html>"#,
+            500.0,
+        );
+        let items = grid_items(&laid, 400.0);
+        assert_eq!((items[0].w, items[1].w), (100.0, 300.0));
+        assert_eq!(items[2].y - items[0].y, 30.0, "first row track is 30px tall");
+        // area strings with row sizes and a column list
+        let laid = measure_fixture(
+            r#"<html><body style="margin: 0"><div style="display: grid; grid-template: 'h h' 50px 'm s' 70px / 1fr 100px; width: 400px;"><div style="grid-area:s">s</div><div style="grid-area:h">h</div><div style="grid-area:m">m</div></div></body></html>"#,
+            500.0,
+        );
+        let items = grid_items(&laid, 400.0);
+        let mut pos: Vec<(f32, f32, f32)> = items.iter().map(|l| (l.y, l.x, l.w)).collect();
+        pos.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        let (y0, y1) = (pos[0].0, pos[1].0);
+        assert_eq!(y1 - y0, 50.0, "first area row is 50px tall");
+        assert_eq!((pos[0].1, pos[0].2), (0.0, 400.0), "'h h' spans both columns");
+        assert_eq!((pos[1].1, pos[1].2), (0.0, 300.0), "'m' is the 1fr column");
+        assert_eq!((pos[2].1, pos[2].2), (300.0, 100.0), "'s' is the 100px column");
+        // an invalid value is dropped as a whole
+        let laid = measure_fixture(
+            r#"<html><body style="margin: 0"><div style="display: grid; grid-template: bogus / 1fr; width: 400px;"><div>a</div></div></body></html>"#,
+            500.0,
+        );
+        assert_eq!(grid_items(&laid, 400.0)[0].w, 400.0);
     }
 
     #[test]
