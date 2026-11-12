@@ -169,7 +169,7 @@ dropped selectors summed across those pages. Caveats:
       paragraph). Test: `#a{color:red} p{color:blue !important}` gives
       `<p id=a>` blue.
 
-- [ ] Q7 [M] CSS-wide keywords `inherit`, `initial`, `unset`, `revert`
+- [x] Q7 [M] (COMMIT) CSS-wide keywords `inherit`, `initial`, `unset`, `revert`
       and `revert-layer` (n=70+: `color` 28+16, `vertical-align` 14,
       `background` 8, `font-size` 8, `line-height` 6, `display` 4).
       Nothing parses them today. Before dispatching to the per-property
@@ -186,6 +186,11 @@ dropped selectors summed across those pages. Caveats:
       invasive, scope to the properties listed above plus `font-family`,
       `font-weight`, `text-align`, `white-space`, `cursor` and
       `visibility`, and document the rest as a new QUEUE line.
+
+- [ ] Q7b [S] CSS-wide keywords for the remaining properties (margin,
+      padding, border-*, width/height, position, float, overflow, ...) and
+      `background: inherit` for `background-image`. Q7 scoped to the
+      12 listed properties.
 
 - [ ] Q8 [S] Charset decoding. Today `scratchy google.html` dies
       immediately with "stream did not contain valid UTF-8", because
