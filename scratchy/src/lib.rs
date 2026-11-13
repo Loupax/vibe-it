@@ -35,7 +35,7 @@ use selectors::context::{
 };
 use selectors::matching::{matches_selector, matches_selector_list, ElementSelectorFlags};
 use selectors::parser::{
-    NonTSPseudoClass, ParseRelative, Parser as SelectorsParser, PseudoElement, SelectorImpl,
+    Component, NonTSPseudoClass, ParseRelative, Parser as SelectorsParser, PseudoElement, SelectorImpl,
     SelectorList, SelectorParseErrorKind,
 };
 use selectors::{Element as SelectorsElement, OpaqueElement};
@@ -368,6 +368,47 @@ thread_local! {
     /// `build_layout_tree_with_resources` mentioned (bitmask of `STATE_*`).
     /// A state change only needs a restyle when the relevant bit is set.
     static STATE_RULES: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
+    /// Whether anything in the most recent `build_layout_tree_with_resources`
+    /// depended on the viewport *height* (R4): `vh`/`vmin`/`vmax` units,
+    /// percentage heights (they can chain up to the initial containing
+    /// block), or `position: fixed`/orphaned `absolute` boxes (resolved
+    /// against the viewport in `measure_document`). When false, a
+    /// height-only window change needs no rebuild at all.
+    static VIEWPORT_H_READ: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+fn note_viewport_height_read() {
+    VIEWPORT_H_READ.with(|m| m.set(true));
+}
+
+fn viewport_height_read() -> bool {
+    VIEWPORT_H_READ.with(|m| m.get())
+}
+
+/// Conservative static check of a built tree for boxes whose layout
+/// depends on the viewport height (see `VIEWPORT_H_READ`).
+fn tree_reads_viewport_height(b: &LayoutBox, positioned_ancestor: bool) -> bool {
+    let s = &b.style;
+    let pct = |l: &Option<BoxLength>| matches!(l, Some(BoxLength::Percent(_) | BoxLength::Calc(..)));
+    if pct(&s.height) || pct(&s.min_height) || pct(&s.max_height) {
+        return true;
+    }
+    match s.position {
+        Position::Fixed => return true,
+        Position::Absolute if !positioned_ancestor => return true,
+        _ => {}
+    }
+    let anc = positioned_ancestor || s.position != Position::Static;
+    match &b.content {
+        BoxContent::Blocks(children) | BoxContent::TableRow(children) => {
+            children.iter().any(|c| tree_reads_viewport_height(c, anc))
+        }
+        BoxContent::Inline(items) => items.iter().any(|i| match i {
+            InlineItem::Embedded(e) => tree_reads_viewport_height(e, anc),
+            _ => false,
+        }),
+        BoxContent::Image(_) => false,
+    }
 }
 
 fn note_state_rule(bit: u8) {
@@ -1544,6 +1585,9 @@ impl VpUnit {
 
     /// `v` units of this kind (1 unit = 1% of the viewport dimension).
     fn px(self, v: f32, vp: (f32, f32)) -> f32 {
+        if self != VpUnit::W {
+            note_viewport_height_read();
+        }
         let base = match self {
             VpUnit::W => vp.0,
             VpUnit::H => vp.1,
@@ -1829,7 +1873,10 @@ impl BoxLength {
     fn from_length(l: Length, font_size: f32, root_font_size: f32) -> Self {
         match l {
             Length::Percent(p) => BoxLength::Percent(p),
-            Length::Calc(c) if c.has_percent() => BoxLength::Calc(c, font_size, root_font_size, current_viewport()),
+            Length::Calc(c) if c.has_percent() => {
+                note_viewport_height_read();
+                BoxLength::Calc(c, font_size, root_font_size, current_viewport())
+            }
             other => BoxLength::Px(other.resolve(font_size, root_font_size)),
         }
     }
@@ -2259,7 +2306,7 @@ enum WhiteSpace {
 /// `BreakWord` is the same as `Normal` here (a deliberate deviation from
 /// real CSS, where plain `normal` overflows); only `BreakAll` changes
 /// shaping (`Wrap::Glyph`).
-#[derive(Clone, Copy, PartialEq, Default)]
+#[derive(Clone, Copy, PartialEq, Default, Debug)]
 enum WordBreak {
     #[default]
     Normal,
@@ -2408,7 +2455,7 @@ impl TextAlign {
 /// property; see `collect_children`'s `valign` parameter for how it
 /// actually propagates (ambient, like `background-color`/
 /// `text-decoration`, not real inheritance).
-#[derive(Clone, Copy, PartialEq, Default)]
+#[derive(Clone, Copy, PartialEq, Default, Debug)]
 pub enum VerticalAlign {
     #[default]
     Baseline,
@@ -2465,7 +2512,7 @@ impl VerticalAlign {
 /// element's own `inherited.visibility` at the point a text node or box
 /// is built already reflects the correctly-cascaded value, descendant
 /// overrides included, with no extra propagation parameter needed).
-#[derive(Clone, Copy, PartialEq, Default)]
+#[derive(Clone, Copy, PartialEq, Default, Debug)]
 pub enum Visibility {
     #[default]
     Visible,
@@ -2801,7 +2848,7 @@ impl FontFamilyItem {
 /// work already redone on every one of those redraws. Worth revisiting
 /// only if a page with many distinct `font-family` values redrawn many
 /// times is ever shown to matter in practice.
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 struct FontFamily(&'static [FontFamilyItem]);
 
 impl Default for FontFamily {
@@ -7526,7 +7573,24 @@ fn matching_declarations_for<'a>(
     let element = El(handle.clone());
     let mut caches = SelectorCaches::default();
     let mut matches: Vec<(u32, &Declarations)> = Vec::new();
-    for rule in rules {
+    // R3.3: when an index was registered for exactly this rule slice,
+    // only test the rules whose rightmost compound could match this
+    // element (ascending rule order preserved, so cascade ties are
+    // unchanged); otherwise test every rule.
+    let candidates = RULE_INDEX.with(|ri| {
+        let ri = ri.borrow();
+        let (ptr, len, idx) = ri.as_ref()?;
+        (*ptr == rules.as_ptr() as usize && *len == rules.len()).then(|| idx.candidates(handle, pseudo.is_some()))
+    });
+    let all: Vec<usize>;
+    let order: &mut dyn Iterator<Item = &'a StyleRule> = &mut match &candidates {
+        Some(c) => {
+            all = c.clone();
+            Box::new(all.into_iter().map(|i| &rules[i])) as Box<dyn Iterator<Item = &'a StyleRule>>
+        }
+        None => Box::new(rules.iter()),
+    };
+    for rule in order {
         // The one choke point every cascade/matching call in this file
         // goes through — a media-conditioned rule is only ever a
         // cascade candidate when its own condition currently holds for
@@ -7711,6 +7775,206 @@ fn merge_var_matches<'a>(
         }
     }
     matches
+}
+
+/// Rule index (R3.3): rules bucketed by the id / class / tag of each
+/// selector's rightmost compound, like real engines. Only a candidate
+/// filter — every candidate still goes through the real selector match.
+/// Two bucket sets: selectors without a pseudo-element (the normal
+/// match) and selectors with one (`::before`/`::after` lookups), since
+/// each kind of match can only ever succeed for its own.
+#[derive(Default)]
+struct RuleBuckets {
+    by_id: HashMap<String, Vec<usize>>,
+    by_class: HashMap<String, Vec<usize>>,
+    by_tag: HashMap<String, Vec<usize>>,
+    universal: Vec<usize>,
+}
+
+#[derive(Default)]
+struct RuleIndex {
+    normal: RuleBuckets,
+    pseudo: RuleBuckets,
+}
+
+impl RuleIndex {
+    fn build(rules: &[StyleRule]) -> Self {
+        let mut ix = RuleIndex::default();
+        for (i, rule) in rules.iter().enumerate() {
+            for (with_pseudo, buckets) in [(false, &mut ix.normal), (true, &mut ix.pseudo)] {
+                let mut placed: Vec<(u8, String)> = Vec::new();
+                let mut universal = false;
+                let mut any = false;
+                for sel in rule.selectors.slice() {
+                    if sel.has_pseudo_element() != with_pseudo {
+                        continue;
+                    }
+                    any = true;
+                    let (mut id, mut class, mut tag) = (None, None, None);
+                    for c in sel.iter() {
+                        match c {
+                            Component::ID(a) => id = Some(a.0.clone()),
+                            Component::Class(a) => class = class.or_else(|| Some(a.0.clone())),
+                            Component::LocalName(n) => tag = Some(n.lower_name.0.clone()),
+                            _ => {}
+                        }
+                    }
+                    let key = match (id, class, tag) {
+                        (Some(id), _, _) => Some((0u8, id)),
+                        (_, Some(c), _) => Some((1, c)),
+                        (_, _, Some(t)) => Some((2, t)),
+                        _ => None,
+                    };
+                    match key {
+                        Some(k) => {
+                            if !placed.contains(&k) {
+                                placed.push(k);
+                            }
+                        }
+                        None => universal = true,
+                    }
+                }
+                if !any {
+                    continue;
+                }
+                if universal {
+                    buckets.universal.push(i);
+                    continue;
+                }
+                for (kind, name) in placed {
+                    let map = match kind {
+                        0 => &mut buckets.by_id,
+                        1 => &mut buckets.by_class,
+                        _ => &mut buckets.by_tag,
+                    };
+                    map.entry(name).or_default().push(i);
+                }
+            }
+        }
+        ix
+    }
+
+    /// Sorted, deduplicated indices of rules that could match `handle`
+    /// (for a pseudo-element lookup if `pseudo`).
+    fn candidates(&self, handle: &Handle, pseudo: bool) -> Vec<usize> {
+        let b = if pseudo { &self.pseudo } else { &self.normal };
+        let mut out: Vec<usize> = b.universal.clone();
+        if let NodeData::Element { name, .. } = &handle.data
+            && let Some(v) = b.by_tag.get(&name.local.as_ref().to_ascii_lowercase())
+        {
+            out.extend_from_slice(v);
+        }
+        if let Some(id) = element_attr(handle, "id")
+            && let Some(v) = b.by_id.get(&*id)
+        {
+            out.extend_from_slice(v);
+        }
+        if let Some(classes) = element_attr(handle, "class") {
+            for c in classes.split_ascii_whitespace() {
+                if let Some(v) = b.by_class.get(c) {
+                    out.extend_from_slice(v);
+                }
+            }
+        }
+        out.sort_unstable();
+        out.dedup();
+        out
+    }
+}
+
+/// `(css source, parsed rules, STATE_* mask seen while parsing)`.
+type ParsedRules = (String, Rc<Vec<StyleRule>>, u8);
+
+/// Which elements a `:hover` rule can possibly restyle (R2.4): for every
+/// selector compound containing `:hover`, the id / class / tag it
+/// requires (or `any` when it requires none, or `:hover` is nested
+/// somewhere this scan can't see). A hover change between elements none
+/// of whose chain members could match such a compound can't change any
+/// style, so it needs no restyle. Over-approximate by construction.
+#[derive(Default, Clone)]
+struct HoverKeys {
+    any: bool,
+    ids: std::collections::HashSet<String>,
+    classes: std::collections::HashSet<String>,
+    tags: std::collections::HashSet<String>,
+}
+
+impl HoverKeys {
+    fn build(rules: &[StyleRule]) -> Self {
+        let mut k = HoverKeys::default();
+        for rule in rules {
+            for sel in rule.selectors.slice() {
+                // Debug/css text of the whole selector: counts every `:hover`,
+                // including ones nested in `:not()`/`:is()` this scan can't see
+                // (a class merely named "hover" only makes us more cautious).
+                let total = format!("{sel:?}").to_ascii_lowercase().matches("hover").count();
+                let mut found = 0;
+                let mut it = sel.iter();
+                loop {
+                    let comps: Vec<_> = it.by_ref().collect();
+                    let hover = comps.iter().filter(|c| matches!(c, Component::NonTSPseudoClass(OurPseudoClass::Hover))).count();
+                    if hover > 0 {
+                        found += hover;
+                        let (mut id, mut class, mut tag) = (None, None, None);
+                        for c in &comps {
+                            match c {
+                                Component::ID(a) => id = Some(a.0.clone()),
+                                Component::Class(a) => class = class.or_else(|| Some(a.0.clone())),
+                                Component::LocalName(n) => tag = Some(n.lower_name.0.clone()),
+                                _ => {}
+                            }
+                        }
+                        match (id, class, tag) {
+                            (Some(i), _, _) => {
+                                k.ids.insert(i);
+                            }
+                            (_, Some(c), _) => {
+                                k.classes.insert(c);
+                            }
+                            (_, _, Some(t)) => {
+                                k.tags.insert(t);
+                            }
+                            _ => k.any = true,
+                        }
+                    }
+                    if it.next_sequence().is_none() {
+                        break;
+                    }
+                }
+                if found < total {
+                    k.any = true;
+                }
+            }
+        }
+        k
+    }
+
+    fn may_match(&self, handle: &Handle) -> bool {
+        if self.any {
+            return true;
+        }
+        let NodeData::Element { name, .. } = &handle.data else { return false };
+        if self.tags.contains(&name.local.as_ref().to_ascii_lowercase()) {
+            return true;
+        }
+        if let Some(id) = element_attr(handle, "id")
+            && self.ids.contains(&*id)
+        {
+            return true;
+        }
+        element_attr(handle, "class").is_some_and(|c| c.split_ascii_whitespace().any(|c| self.classes.contains(c)))
+    }
+}
+
+thread_local! {
+    /// `HoverKeys` of the most recent `build_layout_tree_with_resources`.
+    static HOVER_KEYS: RefCell<HoverKeys> = RefCell::new(HoverKeys::default());
+    /// Last parsed stylesheet: `(css source, rules, STATE_* mask seen while parsing)`.
+    static RULES_CACHE: RefCell<Option<ParsedRules>> = const { RefCell::new(None) };
+    /// `(rules.as_ptr(), rules.len(), index)` for the rule slice of the
+    /// `build_layout_tree_with_resources` call in progress. Matched by
+    /// slice identity, so any other caller falls back to a full scan.
+    static RULE_INDEX: RefCell<Option<(usize, usize, RuleIndex)>> = const { RefCell::new(None) };
 }
 
 fn resolve_style(handle: &Handle, rules: &[StyleRule], inherited: InheritedStyle, viewport_width: f32) -> ComputedStyle {
@@ -8425,7 +8689,7 @@ fn normalize_whitespace(s: &str) -> String {
 /// correctly, carried independently of the anonymous inline box's own
 /// style since a single run can mix spans from different elements
 /// (e.g. plain text next to a `<b>`).
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 struct SpanStyle {
     color: TextColor,
     background_color: Option<TextColor>,
@@ -10138,8 +10402,25 @@ fn build_layout_tree_with_resources(
     css_source.push_str(extra_css);
     let html_handle = find_html_element(document);
     STATE_RULES.with(|m| m.set(0));
-    let mut rules = parse_stylesheet(DEFAULT_CSS);
-    rules.extend(parse_stylesheet(&css_source));
+    VIEWPORT_H_READ.with(|m| m.set(false));
+    // R3.1: a restyle of an unchanged document re-uses the parsed rules.
+    // Parsing also records which state pseudo-classes appear
+    // (`note_state_rule`), so that mask is cached with the rules.
+    let rules: Rc<Vec<StyleRule>> = RULES_CACHE.with(|c| {
+        if let Some((src, rules, mask)) = c.borrow().as_ref()
+            && *src == css_source
+        {
+            note_state_rule(*mask);
+            return rules.clone();
+        }
+        let mut rules = parse_stylesheet(DEFAULT_CSS);
+        rules.extend(parse_stylesheet(&css_source));
+        let rules = Rc::new(rules);
+        *c.borrow_mut() = Some((css_source.clone(), rules.clone(), state_rules_mask()));
+        rules
+    });
+    HOVER_KEYS.with(|k| *k.borrow_mut() = HoverKeys::build(&rules));
+    RULE_INDEX.with(|ri| *ri.borrow_mut() = Some((rules.as_ptr() as usize, rules.len(), RuleIndex::build(&rules))));
     precompute_generated(document, &rules, viewport_width);
     // `var()` is resolved per element in `resolve_style` (Q13).
     // `rem` lengths resolve against `<html>`'s own cascaded font-size, not
@@ -10157,7 +10438,7 @@ fn build_layout_tree_with_resources(
     };
     let mut root_style = anonymous_style(root_inherited);
     root_style.icb_height = viewport_height;
-    LayoutBox {
+    let tree = LayoutBox {
         style: root_style,
         background_image: None,
         content: BoxContent::Blocks(build_children(
@@ -10169,7 +10450,12 @@ fn build_layout_tree_with_resources(
             viewport_width,
             image_cache,
         )),
+    };
+    RULE_INDEX.with(|ri| *ri.borrow_mut() = None);
+    if tree_reads_viewport_height(&tree, false) {
+        note_viewport_height_read();
     }
+    tree
 }
 
 fn collect_text_only(handle: &Handle, out: &mut String) {
@@ -10257,6 +10543,95 @@ pub struct Laid {
     /// scrollbar when it actually overflows" check has a real number to
     /// compare against.
     scroll: Option<ScrollInfo>,
+    /// Document-space extent of everything this box can paint or be hit
+    /// at: its own border box unioned with every descendant's extent
+    /// (visible overflow, negative margins, fixed-height wrappers and
+    /// out-of-flow descendants all push it past the border box). Computed
+    /// once by `compute_ink` at the end of `measure_document`; `paint`
+    /// and hit testing prune on it instead of the border box.
+    /// `Ink::UNKNOWN` (never prunes) until then.
+    ink: Ink,
+}
+
+/// See `Laid::ink`.
+#[derive(Clone, Copy)]
+struct Ink {
+    l: f32,
+    t: f32,
+    r: f32,
+    b: f32,
+}
+
+impl Ink {
+    const UNKNOWN: Ink = Ink { l: f32::NEG_INFINITY, t: f32::NEG_INFINITY, r: f32::INFINITY, b: f32::INFINITY };
+
+    fn union(&mut self, o: Ink) {
+        self.l = self.l.min(o.l);
+        self.t = self.t.min(o.t);
+        self.r = self.r.max(o.r);
+        self.b = self.b.max(o.b);
+    }
+
+    fn contains(&self, x: f32, y: f32) -> bool {
+        x >= self.l && x < self.r && y >= self.t && y < self.b
+    }
+}
+
+/// Post-pass: fills `Laid::ink` for the whole finished tree (children
+/// first). A clipping box (`overflow` other than `visible`) contributes
+/// only its own rect for in-flow content, since descendants are clipped
+/// to it; its out-of-flow descendants are still unioned (conservatively,
+/// widened upward by the box's max scroll, since those paint shifted by
+/// the live scroll offset). `fixed` boxes live in viewport space and are
+/// not unioned into their parent.
+fn compute_ink(l: &mut Laid) -> Ink {
+    let mut ink = Ink { l: l.x, t: l.y, r: l.x + l.w, b: l.y + l.h };
+    let clips = l.style.overflow != Overflow::Visible;
+    match &mut l.content {
+        LaidContent::Blocks(children) | LaidContent::TableRow(children) => {
+            for c in children.iter_mut() {
+                let ci = compute_ink(c);
+                if clips {
+                    continue;
+                }
+                ink.union(ci);
+                if let Some(info) = &c.sticky {
+                    ink.t = ink.t.min(info.cb_top);
+                    ink.b = ink.b.max(info.cb_bottom);
+                }
+            }
+        }
+        LaidContent::MixedInline(items) => {
+            for item in items.iter_mut() {
+                match item {
+                    MixedPositioned::Embedded(e) => {
+                        let ei = compute_ink(e);
+                        if !clips {
+                            ink.union(ei);
+                        }
+                    }
+                    MixedPositioned::Word { x, y, w, h, .. } => {
+                        if !clips {
+                            ink.union(Ink { l: *x, t: *y, r: *x + *w, b: *y + *h });
+                        }
+                    }
+                }
+            }
+        }
+        LaidContent::Text(_) | LaidContent::Image(_) => {}
+    }
+    let extra = l.scroll.map_or(0.0, |i| i.max_scroll());
+    for p in l.positioned.iter_mut() {
+        let pi = compute_ink(p);
+        if p.fixed {
+            continue;
+        }
+        let mut pi = pi;
+        pi.t -= extra;
+        ink.union(pi);
+    }
+    l.ink = ink;
+    ink
 }
 
 /// `position: sticky`'s own layout-time-resolved, scroll-independent
@@ -10907,6 +11282,54 @@ pub type ShapeCache = std::collections::HashMap<usize, Arc<Mutex<ShapedParagraph
 /// below it has somewhere reasonable to sit until the real height arrives.
 const PLACEHOLDER_LINE_HEIGHT: f32 = 20.0;
 
+/// Minimum spacing between two hover-driven restyles (R2.3).
+const HOVER_RESTYLE_INTERVAL: std::time::Duration = std::time::Duration::from_millis(150);
+/// Hover restyles wait this long after the last wheel tick (R2.3).
+const HOVER_WHEEL_QUIET: std::time::Duration = std::time::Duration::from_millis(200);
+
+thread_local! {
+    /// Content-keyed shaping memo (R2.2), enabled only on the shaping
+    /// worker thread. Paragraph ids are positional and restart at 0 for
+    /// every tree, so a restyle can't reuse the id-keyed `ShapeCache`;
+    /// instead every shaped result is also remembered under a hash of
+    /// everything that determined it (text, span styles, width, flags),
+    /// and an identical request later is served from here.
+    static SHAPE_MEMO: RefCell<HashMap<u64, Arc<Mutex<ShapedParagraph>>>> = RefCell::new(HashMap::new());
+    static SHAPE_MEMO_ENABLED: Cell<bool> = const { Cell::new(false) };
+}
+
+fn memo_key(kind: u8, items: &[InlineItem], width: f32, pre: bool, align: Option<CosmicAlign>) -> Option<u64> {
+    use std::hash::{Hash, Hasher};
+    if !SHAPE_MEMO_ENABLED.with(|m| m.get()) {
+        return None;
+    }
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    kind.hash(&mut h);
+    width.to_bits().hash(&mut h);
+    pre.hash(&mut h);
+    format!("{align:?}").hash(&mut h);
+    for item in items {
+        match item {
+            InlineItem::Text(t, span) => {
+                t.hash(&mut h);
+                format!("{span:?}").hash(&mut h);
+            }
+            _ => return None,
+        }
+    }
+    Some(h.finish())
+}
+
+fn memo_get(key: Option<u64>) -> Option<Arc<Mutex<ShapedParagraph>>> {
+    SHAPE_MEMO.with(|m| m.borrow().get(&key?).cloned())
+}
+
+fn memo_put(key: Option<u64>, entry: &Arc<Mutex<ShapedParagraph>>) {
+    if let Some(k) = key {
+        SHAPE_MEMO.with(|m| m.borrow_mut().insert(k, entry.clone()));
+    }
+}
+
 /// Asks the system's real fontconfig (via `fc-match`, the same resolution
 /// path Firefox and other fontconfig-aware apps use) which actually-
 /// installed family a generic name like "sans-serif" currently resolves
@@ -11412,6 +11835,7 @@ pub fn measure<'a>(
                 content: LaidContent::MixedInline(positioned),
                 positioned: Vec::new(),
                 fixed: false,
+                ink: Ink::UNKNOWN,
                 sticky: None,
                 scroll: None,
             }
@@ -11437,6 +11861,14 @@ pub fn measure<'a>(
                     ))),
                 );
                 0.0
+            } else if let Some(hit) = {
+                let pre = matches!(s.white_space, WhiteSpace::Pre | WhiteSpace::Nowrap);
+                let plain = s.first_line.is_none() && !(pre && s.text_overflow == TextOverflow::Ellipsis);
+                if plain { memo_get(memo_key(0, items, content_w, pre, s.text_align.to_cosmic())) } else { None }
+            } {
+                let h = hit.lock().unwrap().1;
+                cache.insert(id, hit);
+                h
             } else if std::time::Instant::now() < deadline {
                 let pre = matches!(s.white_space, WhiteSpace::Pre | WhiteSpace::Nowrap);
                 let mut shaped = shape_spans(font_system, items, content_w, pre, s.text_align.to_cosmic());
@@ -11473,7 +11905,11 @@ pub fn measure<'a>(
                     }
                 }
                 let (buffer, h, backgrounds, valigns, hidden, cursors, decoration_styles, hrefs) = shaped;
-                cache.insert(id, Arc::new(Mutex::new((buffer, h, backgrounds, valigns, hidden, cursors, decoration_styles, hrefs))));
+                let entry = Arc::new(Mutex::new((buffer, h, backgrounds, valigns, hidden, cursors, decoration_styles, hrefs)));
+                if s.first_line.is_none() && !(pre && s.text_overflow == TextOverflow::Ellipsis) {
+                    memo_put(memo_key(0, items, content_w, pre, s.text_align.to_cosmic()), &entry);
+                }
+                cache.insert(id, entry);
                 h
             } else {
                 *incomplete = true;
@@ -11508,6 +11944,7 @@ pub fn measure<'a>(
                 content: LaidContent::Text(id),
                 positioned: Vec::new(),
                 fixed: false,
+                ink: Ink::UNKNOWN,
                 sticky: None,
                 scroll: None,
             }
@@ -11723,6 +12160,7 @@ pub fn measure<'a>(
                 content: LaidContent::Blocks(laid_children),
                 positioned: positioned_children,
                 fixed: false,
+                ink: Ink::UNKNOWN,
                 sticky: None,
                 scroll,
             }
@@ -11763,6 +12201,7 @@ pub fn measure<'a>(
                 content: LaidContent::TableRow(laid_cells),
                 positioned: Vec::new(),
                 fixed: false,
+                ink: Ink::UNKNOWN,
                 sticky: None,
                 scroll: None,
             }
@@ -11783,6 +12222,7 @@ pub fn measure<'a>(
                 content: LaidContent::Image(Arc::clone(image)),
                 positioned: Vec::new(),
                 fixed: false,
+                ink: Ink::UNKNOWN,
                 sticky: None,
                 scroll: None,
             }
@@ -11958,10 +12398,21 @@ fn shape_or_resume_word(
         (guard.0.layout_runs().next().map(|r| r.line_w).unwrap_or(0.0), guard.1)
     } else if std::time::Instant::now() < deadline {
         let synth = [InlineItem::Text(word.to_string(), span)];
+        let mkey = memo_key(1, &synth, width, true, None);
+        if let Some(hit) = memo_get(mkey) {
+            let (w, h) = {
+                let g = hit.lock().unwrap();
+                (g.0.layout_runs().next().map(|r| r.line_w).unwrap_or(0.0), g.1)
+            };
+            cache.insert(id, hit);
+            return (w, h);
+        }
         let (buffer, h, backgrounds, valigns, hidden, cursors, decoration_styles, hrefs) =
             shape_spans(font_system, &synth, width, true, None);
         let w = buffer.layout_runs().next().map(|r| r.line_w).unwrap_or(0.0);
-        cache.insert(id, Arc::new(Mutex::new((buffer, h, backgrounds, valigns, hidden, cursors, decoration_styles, hrefs))));
+        let entry = Arc::new(Mutex::new((buffer, h, backgrounds, valigns, hidden, cursors, decoration_styles, hrefs)));
+        memo_put(mkey, &entry);
+        cache.insert(id, entry);
         (w, h)
     } else {
         *incomplete = true;
@@ -12180,11 +12631,23 @@ fn measure_mixed_inline<'a>(
                     (word_widths_from_buffer(&guard.0, &ranges), guard.1)
                 } else if std::time::Instant::now() < deadline {
                     let synth = [InlineItem::Text(text.clone(), *span)];
-                    let (buffer, height, backgrounds, valigns, hidden, cursors, decoration_styles, hrefs) =
-                        shape_spans(font_system, &synth, WORD_MEASURE_WIDTH, true, None);
-                    let widths = word_widths_from_buffer(&buffer, &ranges);
-                    cache.insert(chunk_id, Arc::new(Mutex::new((buffer, height, backgrounds, valigns, hidden, cursors, decoration_styles, hrefs))));
-                    (widths, height)
+                    let mkey = memo_key(2, &synth, WORD_MEASURE_WIDTH, true, None);
+                    if let Some(hit) = memo_get(mkey) {
+                        let r = {
+                            let g = hit.lock().unwrap();
+                            (word_widths_from_buffer(&g.0, &ranges), g.1)
+                        };
+                        cache.insert(chunk_id, hit);
+                        r
+                    } else {
+                        let (buffer, height, backgrounds, valigns, hidden, cursors, decoration_styles, hrefs) =
+                            shape_spans(font_system, &synth, WORD_MEASURE_WIDTH, true, None);
+                        let widths = word_widths_from_buffer(&buffer, &ranges);
+                        let entry = Arc::new(Mutex::new((buffer, height, backgrounds, valigns, hidden, cursors, decoration_styles, hrefs)));
+                        memo_put(mkey, &entry);
+                        cache.insert(chunk_id, entry);
+                        (widths, height)
+                    }
                 } else {
                     *incomplete = true;
                     (vec![0.0; ranges.len()], PLACEHOLDER_LINE_HEIGHT)
@@ -12456,6 +12919,7 @@ fn measure_mixed_inline<'a>(
                             content: LaidContent::Blocks(Vec::new()),
                             positioned: Vec::new(),
                             fixed: false,
+                            ink: Ink::UNKNOWN,
                             sticky: None,
                             scroll: None,
                         })));
@@ -12522,6 +12986,7 @@ fn measure_mixed_inline<'a>(
                         content: LaidContent::Image(Arc::clone(image)),
                         positioned: Vec::new(),
                         fixed: false,
+                        ink: Ink::UNKNOWN,
                         sticky: None,
                         scroll: None,
                     })));
@@ -12871,6 +13336,7 @@ fn measure_row_with_widths<'a>(
         content: LaidContent::TableRow(laid_cells),
         positioned: Vec::new(),
         fixed: false,
+        ink: Ink::UNKNOWN,
         sticky: None,
         scroll: None,
     }
@@ -12991,6 +13457,7 @@ fn measure_table<'a>(
         content: LaidContent::Blocks(laid_children),
         positioned: positioned_children,
         fixed: false,
+        ink: Ink::UNKNOWN,
         sticky: None,
         scroll: make_scroll_info(s.overflow, next_id, content_h, border_h, entry.extra_h),
     };
@@ -13241,6 +13708,7 @@ fn measure_flex<'a>(
         content: LaidContent::Blocks(laid_children),
         positioned: positioned_children,
         fixed: false,
+        ink: Ink::UNKNOWN,
         sticky: None,
         scroll: make_scroll_info(s.overflow, next_id, content_h, border_h, entry.extra_h),
     };
@@ -14354,6 +14822,7 @@ fn measure_grid<'a>(
         content: LaidContent::Blocks(laid_children),
         positioned: positioned_children,
         fixed: false,
+        ink: Ink::UNKNOWN,
         sticky: None,
         scroll: make_scroll_info(s.overflow, next_id, content_h, border_h, entry.extra_h),
     };
@@ -14420,6 +14889,7 @@ pub fn measure_document(
     if extent > laid.y + laid.h {
         laid.h = extent - laid.y;
     }
+    compute_ink(&mut laid);
     laid
 }
 
@@ -16119,12 +16589,13 @@ fn paint_inner(
 ) {
     let s = laid.style;
     let draw_y = laid.y - scroll_offset;
-    if draw_y + laid.h < 0.0 || draw_y > win_h as f32 {
-        // Entirely outside the viewport. Every descendant's y-range is
-        // contained within this box's, so none of them can be visible
-        // either — skip the whole subtree instead of just clipping
-        // per-pixel, since that's what was making every redraw cost
-        // O(whole document) instead of O(visible content).
+    if laid.ink.b - scroll_offset < 0.0 || laid.ink.t - scroll_offset > win_h as f32 {
+        // Entirely outside the viewport. `ink` is the union of this
+        // box's rect and everything it can paint (visible overflow,
+        // positioned descendants, negative margins...) — NOT just the
+        // border box, since descendants are not contained in their
+        // parent's rect in CSS. Skip the whole subtree instead of
+        // clipping per-pixel, so a redraw costs O(visible content).
         return;
     }
 
@@ -16450,9 +16921,28 @@ fn hit_test_node(
     scroll_offset: f32,
     viewport_h: f32,
 ) -> (CursorStyle, Option<&'static str>, usize) {
-    if x < laid.x || x >= laid.x + laid.w || y < laid.y || y >= laid.y + laid.h {
-        return (CursorStyle::Auto, None, 0);
+    hit_test_inner(laid, x, y, cache, scroll_offsets, scroll_offset, viewport_h).unwrap_or((CursorStyle::Auto, None, 0))
+}
+
+/// `None` = nothing in this subtree is under the point. Pruning uses
+/// `Laid::ink` (the union of the box and all its descendants), not the
+/// border box, since descendants can overflow it; the box *itself* only
+/// counts as a hit when the point is inside its own border box.
+#[allow(clippy::too_many_arguments)]
+fn hit_test_inner(
+    laid: &Laid,
+    x: f32,
+    y: f32,
+    cache: &ShapeCache,
+    scroll_offsets: &HashMap<usize, f32>,
+    scroll_offset: f32,
+    viewport_h: f32,
+) -> Option<(CursorStyle, Option<&'static str>, usize)> {
+    if !laid.ink.contains(x, y) {
+        return None;
     }
+    let inside = x >= laid.x && x < laid.x + laid.w && y >= laid.y && y < laid.y + laid.h;
+    let own = (laid.style.cursor, None, laid.style.node);
     // Same `is_explicit_stacking_child` pull-out `paint` uses, merged
     // with `laid.positioned` for one combined reversed-priority check
     // below — a direct `Blocks`/`TableRow` child establishing its own
@@ -16495,14 +16985,13 @@ fn hit_test_node(
             // `dy` is always `0` for it (its offset is already baked
             // into `x`/`y` permanently).
             let dy = item.sticky.as_ref().map_or(0.0, |info| sticky_shift(info, item.h, scroll_offset, viewport_h));
-            let (ix, iy) = (item.x, item.y + dy);
-            if ix <= x && x < ix + item.w && iy <= y && y < iy + item.h {
-                return hit_test_fb(hit_test_node(item, x, y - dy, cache, scroll_offsets, scroll_offset, viewport_h), laid.style.node);
+            if let Some(r) = hit_test_inner(item, x, y - dy, cache, scroll_offsets, scroll_offset, viewport_h) {
+                return Some(hit_test_fb(r, laid.style.node));
             }
         } else {
             let (ix, iy, inner_scroll) = if item.fixed { (x, y - scroll_offset, 0.0) } else { (x, y, scroll_offset) };
-            if ix >= item.x && ix < item.x + item.w && iy >= item.y && iy < item.y + item.h {
-                return hit_test_fb(hit_test_node(item, ix, iy, cache, scroll_offsets, inner_scroll, viewport_h), laid.style.node);
+            if let Some(r) = hit_test_inner(item, ix, iy, cache, scroll_offsets, inner_scroll, viewport_h) {
+                return Some(hit_test_fb(r, laid.style.node));
             }
         }
     }
@@ -16524,19 +17013,21 @@ fn hit_test_node(
                 // its own static, unshifted position.
                 if let Some(info) = &child.sticky {
                     let dy = sticky_shift(info, child.h, scroll_offset, viewport_h);
-                    let (cx, cy) = (child.x, child.y + dy);
-                    if cx <= x && x < cx + child.w && cy <= y && y < cy + child.h {
-                        return hit_test_fb(hit_test_node(child, x, y - dy, cache, scroll_offsets, scroll_offset, viewport_h), laid.style.node);
+                    if let Some(r) = hit_test_inner(child, x, y - dy, cache, scroll_offsets, scroll_offset, viewport_h) {
+                        return Some(hit_test_fb(r, laid.style.node));
                     }
                     continue;
                 }
-                if child.x <= x && x < child.x + child.w && child.y <= y && y < child.y + child.h {
-                    return hit_test_fb(hit_test_node(child, x, y, cache, scroll_offsets, scroll_offset, viewport_h), laid.style.node);
+                if let Some(r) = hit_test_inner(child, x, y, cache, scroll_offsets, scroll_offset, viewport_h) {
+                    return Some(hit_test_fb(r, laid.style.node));
                 }
             }
-            (laid.style.cursor, None, laid.style.node)
+            inside.then_some(own)
         }
         LaidContent::Text(id) => {
+            if !inside {
+                return None;
+            }
             if let Some(entry) = cache.get(id) {
                 let guard = entry.lock().unwrap();
                 let (buffer, _, _, _, _, cursors, _, hrefs) = &*guard;
@@ -16551,16 +17042,16 @@ fn hit_test_node(
                     for glyph in run.glyphs {
                         if local_x >= glyph.x && local_x < glyph.x + glyph.w {
                             let (href, node) = hrefs.get(glyph.metadata).copied().unwrap_or((None, 0));
-                            return (
+                            return Some((
                                 cursors.get(glyph.metadata).copied().unwrap_or(laid.style.cursor),
                                 href,
                                 if node != 0 { node } else { laid.style.node },
-                            );
+                            ));
                         }
                     }
                 }
             }
-            (laid.style.cursor, None, laid.style.node)
+            Some(own)
         }
         // No finer-grained hit test within an image — just this box's
         // own (already-cascaded) cursor, same fallback the other arms
@@ -16570,13 +17061,13 @@ fn hit_test_node(
         // own box — see `SpanStyle::href`'s own docs; a deliberate,
         // narrow scope cut, same spirit as other "images don't carry
         // the per-span machinery text does" gaps already in TODO.txt.)
-        LaidContent::Image(_) => (laid.style.cursor, None, laid.style.node),
+        LaidContent::Image(_) => inside.then_some(own),
         LaidContent::MixedInline(positioned) => {
             for item in positioned {
                 match item {
                     MixedPositioned::Embedded(img_laid) => {
-                        if img_laid.x <= x && x < img_laid.x + img_laid.w && img_laid.y <= y && y < img_laid.y + img_laid.h {
-                            return hit_test_fb(hit_test_node(img_laid, x, y, cache, scroll_offsets, scroll_offset, viewport_h), laid.style.node);
+                        if let Some(r) = hit_test_inner(img_laid, x, y, cache, scroll_offsets, scroll_offset, viewport_h) {
+                            return Some(hit_test_fb(r, laid.style.node));
                         }
                     }
                     MixedPositioned::Word { id, x: wx, y: wy, w, h } => {
@@ -16595,11 +17086,11 @@ fn hit_test_node(
                                 for glyph in run.glyphs {
                                     if local_x >= glyph.x && local_x < glyph.x + glyph.w {
                                         let (href, node) = hrefs.get(glyph.metadata).copied().unwrap_or((None, 0));
-                                        return (
+                                        return Some((
                                             cursors.get(glyph.metadata).copied().unwrap_or(laid.style.cursor),
                                             href,
                                             if node != 0 { node } else { laid.style.node },
-                                        );
+                                        ));
                                     }
                                 }
                             }
@@ -16607,7 +17098,7 @@ fn hit_test_node(
                     }
                 }
             }
-            (laid.style.cursor, None, laid.style.node)
+            inside.then_some(own)
         }
     }
 }
@@ -16646,10 +17137,11 @@ fn hit_test_scroll_region(
     scroll_offset: f32,
     viewport_h: f32,
 ) -> Option<ScrollInfo> {
-    if x < laid.x || x >= laid.x + laid.w || y < laid.y || y >= laid.y + laid.h {
+    if !laid.ink.contains(x, y) {
         return None;
     }
-    let self_info = laid.scroll;
+    let inside = x >= laid.x && x < laid.x + laid.w && y >= laid.y && y < laid.y + laid.h;
+    let self_info = if inside { laid.scroll } else { None };
     let (LaidContent::Blocks(children) | LaidContent::TableRow(children)) = &laid.content else {
         return self_info;
     };
@@ -16657,7 +17149,7 @@ fn hit_test_scroll_region(
     // `TableRow` arm applies, for the same reason — see that
     // computation's own docs.
     let own_scroll =
-        self_info.map_or(0.0, |info| scroll_offsets.get(&info.id).copied().unwrap_or(0.0).clamp(0.0, info.max_scroll()));
+        laid.scroll.map_or(0.0, |info| scroll_offsets.get(&info.id).copied().unwrap_or(0.0).clamp(0.0, info.max_scroll()));
     let child_y = y + own_scroll;
     let child_scroll_offset = scroll_offset + own_scroll;
     for child in children.iter().filter(|c| !is_explicit_stacking_child(c)) {
@@ -16669,17 +17161,15 @@ fn hit_test_scroll_region(
         }
         if let Some(info) = &child.sticky {
             let dy = sticky_shift(info, child.h, child_scroll_offset, viewport_h);
-            let (cx, cy) = (child.x, child.y + dy);
-            if cx <= x && x < cx + child.w && cy <= child_y && child_y < cy + child.h {
-                let sub =
-                    hit_test_scroll_region(child, x, child_y - dy, scroll_offsets, child_scroll_offset, viewport_h);
-                return sub.or(self_info);
+            if let Some(sub) =
+                hit_test_scroll_region(child, x, child_y - dy, scroll_offsets, child_scroll_offset, viewport_h)
+            {
+                return Some(sub);
             }
             continue;
         }
-        if child.x <= x && x < child.x + child.w && child.y <= child_y && child_y < child.y + child.h {
-            let sub = hit_test_scroll_region(child, x, child_y, scroll_offsets, child_scroll_offset, viewport_h);
-            return sub.or(self_info);
+        if let Some(sub) = hit_test_scroll_region(child, x, child_y, scroll_offsets, child_scroll_offset, viewport_h) {
+            return Some(sub);
         }
     }
     self_info
@@ -17441,7 +17931,9 @@ enum AppEvent {
     /// them pays for that on the stack (`clippy::large_enum_variant`);
     /// `self.cached: Option<Laid>` on the receiving end stays unboxed,
     /// same as before this plan.
-    ShapeResult(u64, Box<Laid>, ShapeCache),
+    ShapeResult(u64, Box<Laid>, ShapeCache, bool),
+    /// A deferred hover restyle (R2.3) is due; see `App::update_hover`.
+    HoverFlush,
     /// `SIGUSR1`'s own background thread (`run()`) waking the event
     /// loop — the out-of-band bootstrap the vim-mode plan in TODO.txt
     /// settled on for turning vim mode back *on* once it's off: with
@@ -17687,6 +18179,10 @@ struct ShapingRequest {
     width: f32,
     height: f32,
     generation: u64,
+    /// `true` for a restyle of the same document (hover/focus state,
+    /// height-only resize): the worker keeps its content-keyed shaping
+    /// memo so unchanged paragraphs aren't reshaped. `false` clears it.
+    reuse_shaping: bool,
 }
 
 struct App {
@@ -17784,6 +18280,21 @@ struct App {
     /// The next rebuild is a pure restyle (state change): keep the live
     /// per-element scroll offsets instead of clearing them.
     keep_scroll_on_rebuild: bool,
+    /// The next rebuild is a restyle of the *same* document (interaction
+    /// state or a height-only resize), not new content (R2.1).
+    restyle_requested: bool,
+    /// While `true`, partial `ShapeResult`s are ignored and the previous
+    /// complete frame stays on screen until the new generation reports
+    /// `incomplete == false` (R2.1). Cleared by `replace_document`.
+    hold_old_frame: bool,
+    /// Did the current layout read the viewport height (R4)?
+    reads_viewport_h: bool,
+    /// Which elements a `:hover` rule can restyle (R2.4).
+    hover_keys: HoverKeys,
+    /// Hover restyle throttle (R2.3).
+    last_hover_restyle: Option<std::time::Instant>,
+    last_wheel: Option<std::time::Instant>,
+    hover_flush_scheduled: bool,
     /// Lets a background navigation thread (`start_navigation`) get its
     /// result back onto this (the event-loop) thread — the exact same
     /// `thread::spawn` + `event_loop.create_proxy().send_event(..)`
@@ -18003,6 +18514,13 @@ impl App {
             hover_node: 0,
             pending_fragment: None,
             keep_scroll_on_rebuild: false,
+            restyle_requested: false,
+            hold_old_frame: false,
+            reads_viewport_h: true,
+            hover_keys: HoverKeys { any: true, ..Default::default() },
+            last_hover_restyle: None,
+            last_wheel: None,
+            hover_flush_scheduled: false,
             proxy,
             shaping_requests,
             base_url,
@@ -18051,6 +18569,13 @@ impl App {
             hover_node: 0,
             pending_fragment: None,
             keep_scroll_on_rebuild: false,
+            restyle_requested: false,
+            hold_old_frame: false,
+            reads_viewport_h: true,
+            hover_keys: HoverKeys { any: true, ..Default::default() },
+            last_hover_restyle: None,
+            last_wheel: None,
+            hover_flush_scheduled: false,
             proxy,
             shaping_requests,
             base_url: None,
@@ -18096,6 +18621,12 @@ impl App {
         // (measured: ~600ms of duplicate shaping on a small page).
         let width_matches_pending = self.pending_width == Some(width);
         self.pending_width = Some(width);
+        // R4: a height-only change only needs a rebuild if the layout
+        // actually read the viewport height; otherwise just track it.
+        if self.cached_width == width && self.cached_height != height && self.cached.is_some() && !self.reads_viewport_h {
+            self.cached_height = height;
+        }
+        let height_rebuild = self.cached_width == width && self.cached_height != height && self.cached.is_some();
         let need_rebuild = self.layout_dirty || self.cached_width != width || self.cached_height != height;
 
         if need_rebuild && width_matches_pending {
@@ -18117,11 +18648,19 @@ impl App {
             }
             self.keep_scroll_on_rebuild = false;
             self.state_rules = state_rules_mask();
+            self.reads_viewport_h = viewport_height_read();
+            self.hover_keys = HOVER_KEYS.with(|k| k.borrow().clone());
+            // R2.1: same document, new style/height -> keep painting the
+            // previous complete frame until the new one is fully shaped.
+            let restyle = (self.restyle_requested || height_rebuild || self.hold_old_frame) && self.cached.is_some();
+            self.restyle_requested = false;
+            self.hold_old_frame = restyle;
+            let reuse = restyle && self.cached_width == width;
             self.cached_width = width;
             self.cached_height = height;
             self.layout_dirty = false;
             self.layout_generation += 1;
-            Self::queue_shaping_request(&self.shaping_requests, tree, width as f32, height as f32, self.layout_generation);
+            Self::queue_shaping_request(&self.shaping_requests, tree, width as f32, height as f32, self.layout_generation, reuse);
         } else if need_rebuild {
             window.request_redraw();
         }
@@ -18193,8 +18732,11 @@ impl App {
     /// own caller already holds `self.window`/`self.surface` borrowed
     /// apart from the rest of `self` (see its own destructuring `let`),
     /// which an `&self` method call can't see past.
-    fn queue_shaping_request(requests: &mpsc::Sender<ShapingRequest>, tree: LayoutBox, width: f32, height: f32, generation: u64) {
-        let _ = requests.send(ShapingRequest { tree, width, height, generation });
+    fn queue_shaping_request(
+        requests: &mpsc::Sender<ShapingRequest>, tree: LayoutBox, width: f32, height: f32, generation: u64,
+        reuse_shaping: bool,
+    ) {
+        let _ = requests.send(ShapingRequest { tree, width, height, generation, reuse_shaping });
     }
 
     /// Starts the persistent background shaping worker — called once,
@@ -18252,6 +18794,7 @@ impl App {
         let (tx, rx) = mpsc::channel::<ShapingRequest>();
         thread::spawn(move || {
             let mut font_system = new_font_system();
+            SHAPE_MEMO_ENABLED.with(|m| m.set(true));
             // `rx.recv()` blocks here whenever there's no page waiting
             // to be shaped — this thread is otherwise entirely idle,
             // not spinning. `next` carries a request straight into the
@@ -18267,7 +18810,10 @@ impl App {
                 while let Ok(newer) = rx.try_recv() {
                     request = newer;
                 }
-                let ShapingRequest { tree, width, height, generation } = request;
+                let ShapingRequest { tree, width, height, generation, reuse_shaping } = request;
+                if !reuse_shaping {
+                    SHAPE_MEMO.with(|m| m.borrow_mut().clear());
+                }
                 let mut shape_cache = ShapeCache::new();
                 let mut superseded_by = None;
                 loop {
@@ -18332,7 +18878,7 @@ impl App {
                             break;
                         }
                     };
-                    if proxy.send_event(AppEvent::ShapeResult(generation, Box::new(laid), shape_cache.clone())).is_err() {
+                    if proxy.send_event(AppEvent::ShapeResult(generation, Box::new(laid), shape_cache.clone(), incomplete)).is_err() {
                         return; // the event loop (and App) is gone
                     }
                     if !incomplete {
@@ -18391,6 +18937,8 @@ impl App {
         self.layout_dirty = true;
         self.layout_generation += 1;
         self.cached = None;
+        self.restyle_requested = false;
+        self.hold_old_frame = false;
         self.shape_cache.clear();
         self.scroll_offsets.clear();
         self.scroll_offset = 0.0;
@@ -18517,6 +19065,7 @@ impl App {
         }
         if changed & self.state_rules != 0 {
             self.layout_dirty = true;
+            self.restyle_requested = true;
             self.keep_scroll_on_rebuild = true;
             if let Some(w) = &self.window {
                 w.request_redraw();
@@ -18551,9 +19100,65 @@ impl App {
         if self.state_rules & STATE_HOVER == 0 {
             return;
         }
+        // R2.3: a hover restyle is a full rebuild, so coalesce them: at
+        // most one per `HOVER_RESTYLE_INTERVAL`, none while a restyle is
+        // still in flight or the wheel was just used. The latest hover
+        // target is applied by a deferred `AppEvent::HoverFlush`.
+        if let Some(delay) = self.hover_restyle_delay() {
+            self.schedule_hover_flush(delay);
+            return;
+        }
+        self.apply_hover();
+    }
+
+    fn hover_restyle_delay(&self) -> Option<std::time::Duration> {
+        let now = std::time::Instant::now();
+        let mut delay = std::time::Duration::ZERO;
+        if let Some(t) = self.last_hover_restyle {
+            delay = delay.max(HOVER_RESTYLE_INTERVAL.saturating_sub(now.duration_since(t)));
+        }
+        if let Some(t) = self.last_wheel {
+            delay = delay.max(HOVER_WHEEL_QUIET.saturating_sub(now.duration_since(t)));
+        }
+        if self.hold_old_frame || self.layout_dirty {
+            delay = delay.max(HOVER_RESTYLE_INTERVAL);
+        }
+        (!delay.is_zero()).then_some(delay)
+    }
+
+    fn schedule_hover_flush(&mut self, delay: std::time::Duration) {
+        if self.hover_flush_scheduled {
+            return;
+        }
+        self.hover_flush_scheduled = true;
+        let proxy = self.proxy.clone();
+        thread::spawn(move || {
+            thread::sleep(delay);
+            let _ = proxy.send_event(AppEvent::HoverFlush);
+        });
+    }
+
+    /// Installs the latest hover chain as interaction state (restyling
+    /// if a `:hover` rule exists).
+    fn apply_hover(&mut self) {
         let mut st = self.interaction.clone();
-        st.hover = self.chain_for(node);
-        self.set_interaction_state(st);
+        st.hover = self.chain_for(self.hover_node);
+        if st.hover == self.interaction.hover {
+            return;
+        }
+        // R2.4: only elements entering/leaving the hover chain can change
+        // style. If none of them could match a `:hover` compound, record
+        // the new chain (so later diffs are right) but don't restyle.
+        let relevant = st.hover.symmetric_difference(&self.interaction.hover).any(|&id| {
+            find_node_by_id(&self.document, id).is_none_or(|h| self.hover_keys.may_match(&h))
+        });
+        if relevant {
+            self.last_hover_restyle = Some(std::time::Instant::now());
+            self.set_interaction_state(st);
+        } else {
+            self.interaction.hover = st.hover;
+            set_interaction(&self.interaction);
+        }
     }
 
     /// Focuses `h` (or blurs on `None`). `visible` = reached by keyboard
@@ -19229,7 +19834,7 @@ impl ApplicationHandler<AppEvent> for App {
                 self.layout_dirty = true;
                 self.layout_generation += 1;
             }
-            AppEvent::ShapeResult(generation, laid, shape_cache) => {
+            AppEvent::ShapeResult(generation, laid, shape_cache, incomplete) => {
                 // Same staleness guard `NavResult`/`ImageFetched` already
                 // use, tagged with `layout_generation` instead of `nav_
                 // generation` — a background shaping pass that only
@@ -19239,6 +19844,14 @@ impl ApplicationHandler<AppEvent> for App {
                 // own docs.
                 if generation != self.layout_generation {
                     return;
+                }
+                // R2.1: a restyle keeps the old complete frame (and its
+                // shape cache) on screen until the new one is complete.
+                if self.hold_old_frame {
+                    if incomplete {
+                        return;
+                    }
+                    self.hold_old_frame = false;
                 }
                 // Replaced wholesale on every tick this generation's
                 // worker reports, not merged — see `App::shape_cache`'s
@@ -19253,6 +19866,16 @@ impl ApplicationHandler<AppEvent> for App {
                     && self.apply_fragment(&frag)
                 {
                     self.pending_fragment = None;
+                }
+            }
+            AppEvent::HoverFlush => {
+                self.hover_flush_scheduled = false;
+                if self.state_rules & STATE_HOVER != 0 {
+                    if let Some(delay) = self.hover_restyle_delay() {
+                        self.schedule_hover_flush(delay);
+                    } else {
+                        self.apply_hover();
+                    }
                 }
             }
             AppEvent::ToggleVimMode => {
@@ -19403,6 +20026,7 @@ impl ApplicationHandler<AppEvent> for App {
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {
+                self.last_wheel = Some(std::time::Instant::now());
                 let dy = match delta {
                     MouseScrollDelta::LineDelta(_, y) => y * 40.0,
                     MouseScrollDelta::PixelDelta(pos) => pos.y as f32,
@@ -22890,6 +23514,187 @@ mod tests {
         let mut pixels = vec![0u32; (win_w * win_h) as usize];
         paint(&laid, &mut font_system, &mut swash_cache, &mut cache, &HashMap::new(), &mut pixels, win_w, win_h, 0.0, None);
         (pixels, win_w, win_h)
+    }
+
+    /// `measure_document` + `paint` at `scroll_offset` in a 200x200 window.
+    fn paint_doc_at(html: &str, scroll_offset: f32) -> (Vec<u32>, u32, u32) {
+        let doc = parse_html(html);
+        let tree = build_layout_tree_sized(&doc, 1920.0, 200.0);
+        let mut font_system = new_font_system();
+        let mut cache = ShapeCache::new();
+        let mut next_id = 0usize;
+        let mut incomplete = false;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let laid =
+            measure_document(&tree, &mut font_system, 200.0, 200.0, &mut next_id, &mut cache, deadline, &mut incomplete);
+        let mut swash_cache = SwashCache::new();
+        let (win_w, win_h) = (200u32, 200u32);
+        let mut pixels = vec![0xFFFF_FFFFu32; (win_w * win_h) as usize];
+        paint(&laid, &mut font_system, &mut swash_cache, &mut cache, &HashMap::new(), &mut pixels, win_w, win_h, scroll_offset, None);
+        (pixels, win_w, win_h)
+    }
+
+    const TALL_100PCT_PAGE: &str = r#"<html><head><style>
+        html, body { height: 100%; margin: 0 }
+        .blk { height: 200px; background: #ff0000 }
+    </style></head><body>
+        <div class="blk"></div><div class="blk"></div><div class="blk"></div>
+        <div class="blk"></div><div class="blk"></div><div class="blk"></div>
+    </body></html>"#;
+
+    #[test]
+    fn paint_past_first_viewport_still_draws_with_height_100_percent_body() {
+        // R1: `html,body{height:100%}` makes <body> exactly one viewport
+        // tall while its content overflows; culling on the border box
+        // used to skip the whole body once scrolled past it.
+        let (pixels, w, _) = paint_doc_at(TALL_100PCT_PAGE, 500.0);
+        assert_eq!(px_at(&pixels, w, 100, 100), 0xFF0000, "overflowing content below the first viewport must paint");
+    }
+
+    #[test]
+    fn hit_test_finds_link_below_first_viewport_with_height_100_percent_body() {
+        let html = r#"<html><head><style>html, body { height: 100%; margin: 0 }
+            .pad { height: 500px }</style></head><body>
+            <div class="pad"></div><p><a href="/deep">deep link</a></p></body></html>"#;
+        let doc = parse_html(html);
+        let tree = build_layout_tree_sized(&doc, 1920.0, 200.0);
+        let mut font_system = new_font_system();
+        let mut cache = ShapeCache::new();
+        let mut next_id = 0usize;
+        let mut incomplete = false;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let laid =
+            measure_document(&tree, &mut font_system, 400.0, 200.0, &mut next_id, &mut cache, deadline, &mut incomplete);
+        let (lx, ly) = find_glyph_center(&laid, &cache, CursorStyle::Pointer).expect("no link glyph found");
+        assert!(ly > 400.0, "fixture must put the link well past the first viewport, got y={ly}");
+        let so = HashMap::new();
+        assert_eq!(hit_test_cursor(&laid, lx, ly, &cache, &so, 0.0, 200.0).1, Some("/deep"));
+    }
+
+    #[test]
+    fn zero_height_list_with_visible_children_still_paints_and_hit_tests() {
+        let html = r#"<html><head><style>html, body { margin: 0 }
+            ul { height: 0; margin: 0; padding: 0; list-style: none }
+            li { height: 50px; background: #00ff00 }
+            .pad { height: 400px }</style></head><body>
+            <div class="pad"></div><ul><li></li><li></li></ul><div class="pad"></div></body></html>"#;
+        let (pixels, w, _) = paint_doc_at(html, 420.0);
+        assert_eq!(px_at(&pixels, w, 100, 10), 0x00FF00, "li at y=400..450 should be visible at scroll 420 although its h=0 ul is above the viewport");
+    }
+
+    // -- R2.2 / R3.1 / R3.3 / R4 --
+
+    #[test]
+    fn viewport_height_flag_only_set_when_layout_can_depend_on_it() {
+        let build = |html: &str| {
+            let doc = parse_html(html);
+            build_layout_tree_sized(&doc, 800.0, 600.0);
+            viewport_height_read()
+        };
+        assert!(!build("<html><body><p>plain</p><div style='height:40px'>x</div></body></html>"));
+        assert!(build("<html><head><style>html,body{height:100%}</style></head><body><p>x</p></body></html>"));
+        assert!(build("<html><body><div style='height:50vh'>x</div></body></html>"));
+        assert!(build("<html><body><div style='position:fixed;top:0'>x</div></body></html>"));
+        assert!(!build("<html><body><div style='width:50vw'>x</div></body></html>"));
+    }
+
+    #[test]
+    fn shape_memo_reuses_unchanged_paragraphs_across_trees() {
+        SHAPE_MEMO.with(|m| m.borrow_mut().clear());
+        SHAPE_MEMO_ENABLED.with(|m| m.set(true));
+        let html = "<html><body><p>First paragraph</p><p>Second <b>one</b> here</p></body></html>";
+        // Node ids are DOM addresses: a restyle re-shapes the *same* document.
+        let shape = |doc: &Handle| {
+            let tree = build_layout_tree(doc, 400.0);
+            let mut fs = new_font_system();
+            let mut cache = ShapeCache::new();
+            let (mut next_id, mut inc) = (0usize, false);
+            let dl = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            measure_document(&tree, &mut fs, 400.0, 300.0, &mut next_id, &mut cache, dl, &mut inc);
+            cache
+        };
+        let doc = parse_html(html);
+        let first = shape(&doc);
+        let second = shape(&doc);
+        SHAPE_MEMO_ENABLED.with(|m| m.set(false));
+        assert!(!first.is_empty());
+        let shaped: Vec<_> = first.iter().filter(|(_, e)| e.lock().unwrap().1 > 0.0).collect();
+        assert!(!shaped.is_empty());
+        for (id, entry) in shaped {
+            assert!(Arc::ptr_eq(entry, &second[id]), "paragraph {id} should come from the memo, not be reshaped");
+        }
+        // A changed paragraph is not served stale.
+        SHAPE_MEMO_ENABLED.with(|m| m.set(true));
+        let doc2 = parse_html("<html><body><p>First paragraph</p><p>Changed text</p></body></html>");
+        let third = shape(&doc2);
+        SHAPE_MEMO_ENABLED.with(|m| m.set(false));
+        let changed = first.iter().filter(|(id, e)| !Arc::ptr_eq(e, &third[id])).count();
+        assert!(changed >= 1, "paragraphs of a different document must be reshaped");
+    }
+
+    #[test]
+    fn rule_index_returns_the_same_matches_as_a_full_scan() {
+        let css = "p{color:red} .a{color:blue} #x{color:green} div p{margin:0} *{padding:0} \
+                   a:hover{color:red} .a.b, span{color:pink} p::before{content:'x'} li:nth-child(2){color:red}";
+        let doc = parse_html(
+            "<html><body><div id=x class='a b'><p class=a>t<span>s</span></p><ul><li>1<li>2</ul><a href=#>l</a></div></body></html>",
+        );
+        let rules = parse_stylesheet(css);
+        let mut elements = Vec::new();
+        fn collect(h: &Handle, out: &mut Vec<Handle>) {
+            if matches!(h.data, NodeData::Element { .. }) {
+                out.push(h.clone());
+            }
+            for c in h.children.borrow().iter() {
+                collect(c, out);
+            }
+        }
+        collect(&doc, &mut elements);
+        let summarize = |h: &Handle, pseudo: Option<&str>| -> Vec<u32> {
+            matching_declarations_for(h, &rules, 800.0, pseudo).iter().map(|(sp, _)| *sp).collect()
+        };
+        let full: Vec<_> = elements.iter().map(|h| (summarize(h, None), summarize(h, Some("before")))).collect();
+        RULE_INDEX.with(|ri| *ri.borrow_mut() = Some((rules.as_ptr() as usize, rules.len(), RuleIndex::build(&rules))));
+        let indexed: Vec<_> = elements.iter().map(|h| (summarize(h, None), summarize(h, Some("before")))).collect();
+        RULE_INDEX.with(|ri| *ri.borrow_mut() = None);
+        assert_eq!(full, indexed);
+        assert!(full.iter().any(|(n, _)| !n.is_empty()));
+    }
+
+    #[test]
+    fn cached_stylesheet_still_reports_state_rules() {
+        let doc = parse_html("<html><head><style>a:hover{color:red}</style></head><body><a href=#>x</a></body></html>");
+        build_layout_tree_sized(&doc, 800.0, 600.0);
+        assert_eq!(state_rules_mask() & STATE_HOVER, STATE_HOVER);
+        // Second build hits the parsed-rules cache; the mask must survive.
+        build_layout_tree_sized(&doc, 800.0, 600.0);
+        assert_eq!(state_rules_mask() & STATE_HOVER, STATE_HOVER);
+    }
+
+    #[test]
+    fn hover_keys_cover_exactly_the_elements_a_hover_rule_can_restyle() {
+        let doc = parse_html("<html><body><a href=#>l</a><p class=btn>b</p><div id=d>d</div><p>plain</p></body></html>");
+        let find = |tag: &str, class: Option<&str>| -> Handle {
+            fn walk(h: &Handle, tag: &str, class: Option<&str>) -> Option<Handle> {
+                if let NodeData::Element { name, .. } = &h.data
+                    && &*name.local == tag
+                    && class.is_none_or(|c| element_attr(h, "class").is_some_and(|v| &*v == c))
+                {
+                    return Some(h.clone());
+                }
+                h.children.borrow().iter().find_map(|c| walk(c, tag, class))
+            }
+            walk(&doc, tag, class).unwrap()
+        };
+        let keys = HoverKeys::build(&parse_stylesheet("a:hover{color:red} .btn:hover > span{color:blue}"));
+        assert!(!keys.any);
+        assert!(keys.may_match(&find("a", None)));
+        assert!(keys.may_match(&find("p", Some("btn"))));
+        assert!(!keys.may_match(&find("div", None)));
+        // `:hover` with no id/class/tag requirement, or nested, matches anything.
+        assert!(HoverKeys::build(&parse_stylesheet(":hover{color:red}")).any);
+        assert!(HoverKeys::build(&parse_stylesheet("div:not(:hover){color:red}")).any);
+        assert!(!HoverKeys::build(&parse_stylesheet("div{color:red}")).any);
     }
 
     fn px_at(pixels: &[u32], win_w: u32, x: u32, y: u32) -> u32 {

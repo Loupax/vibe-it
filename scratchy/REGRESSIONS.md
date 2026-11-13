@@ -1,0 +1,343 @@
+# scratchy — regressions
+
+## R1–R4: white screen past one viewport, hover-driven relayout storms, slow scrolling — ALL FIXED (2026-11-13)
+
+**Discovered:** 2026-11-13T09:16:02+01:00 (investigation on `main` @ `530f741`)
+**Reported symptoms (on https://en.wikipedia.org/wiki/Main_Page):**
+page flickers seemingly without interaction; mouse-wheel scrolling is
+painfully slow; scrolling down ~two pages gives a white screen, and
+scrolling back up renders again (it's not a crash).
+
+There are three separate bugs here. Two are regressions with a known
+introducing commit. The third is an old hotspot that Q31 made hit much
+more often. All numbers below were **measured** with a temporarily
+instrumented release build (see "How this was measured"), not guessed.
+Window was 1052×1050.
+
+---
+
+### R1 — White screen after scrolling past the first viewport (regression, Q14 `35c826a`) — FIXED
+
+**Fix:** `Laid::ink` (`Ink`, computed once by `compute_ink` at the end of
+`measure_document`) is the union of a box and everything it can paint
+(visible overflow, positioned descendants, sticky ranges; clipping boxes
+contribute only their own rect for in-flow content; `fixed` boxes are
+not unioned into parents). `paint_inner` culls on it, and `hit_test_node`
+(now `hit_test_inner`, returning `Option`) / `hit_test_scroll_region`
+prune on it while a box itself only counts as a hit inside its own
+border box. Trees not passed through `measure_document` carry
+`Ink::UNKNOWN` and never prune. Tests: `paint_past_first_viewport_still_
+draws_with_height_100_percent_body` (fails without the fix),
+`hit_test_finds_link_below_first_viewport_with_height_100_percent_body`,
+`zero_height_list_with_visible_children_still_paints_and_hit_tests`.
+Not added: dedicated `fixed`/`sticky` cull tests (the formula is
+unchanged for them; existing sticky/fixed tests still pass).
+
+**Measured:** with synthetic scrolling at 30px/frame, `paint` took
+~10ms/frame up to `scroll_offset ≈ 900`. From `scroll_offset ≥ ~1050`
+it took **~7µs/frame**, so it was painting nothing at all. That's the
+white screen.
+
+**Root cause:** Wikipedia's CSS has `html, body { height: 100% }`. Since
+Q14 (`35c826a`, "viewport units and initial-containing-block height"),
+that resolves against the ICB, so `<html>` and `<body>` lay out at
+**exactly h=1050** (the viewport). Their content overflows visibly down
+to y≈3809 (in-flow) and y≈24443 (an absolutely positioned
+`.vector-dropdown-content`). Q14 raised the *synthetic root's* `h` to
+`in_flow_bottom` so scrolling still works, but left `<html>`/`<body>` at
+1050.
+
+`paint_inner` (search for `Entirely outside the viewport`) culls a
+whole subtree with:
+
+```rust
+if draw_y + laid.h < 0.0 || draw_y > win_h as f32 { return; }
+```
+
+Its comment assumes "every descendant's y-range is contained within
+this box's". **That invariant is false in CSS.** Visible overflow,
+positioned descendants, negative margins and fixed-height boxes all
+break it. Once `scroll_offset > 1050`, `<body>` is "off-screen" and the
+entire page gets culled. Scrolling back up brings it back.
+
+A dump of boxes whose descendants extend past their own bottom edge
+found 93 violators on Main_Page, including `<html>`, `<body>`,
+`.mw-page-container`, `main#content`, `#bodyContent`, flex headers with
+dropdowns, and `ul`s with `h=0`. So this isn't only a `height:100%`
+problem. Any page with a fixed-height wrapper hits it.
+
+**Same bug, second place: hit testing.** `hit_test_node` (and
+`hit_test_scroll_region`) prune with
+`if x < laid.x || x >= laid.x + laid.w || y < laid.y || y >= laid.y + laid.h { return … }`.
+On Wikipedia this means hover, the link cursor and **link clicks below
+y=1050 never reach the target element**. Not observed by hand yet, but
+it follows directly from the same geometry. Verify it while fixing.
+
+**Fix plan:**
+1. Add a precomputed descendant extent to `Laid`, e.g.
+   `ink_top: f32, ink_bottom: f32` (and `ink_left/right` for the hit-test
+   x check). Set it once when the `Laid` is built at the end of
+   `measure_document` (or in one post-pass over the finished tree):
+   union of own rect, every `Blocks`/`TableRow` child's extent and every
+   `positioned` entry's extent. `in_flow_bottom` (near `measure_document`)
+   is a similar walk to crib from. Don't recompute it per frame.
+2. In `paint_inner`, cull on the extent instead of `laid.y/laid.h`:
+   `if ink_bottom - scroll_offset < 0.0 || ink_top - scroll_offset > win_h { return; }`.
+   Keep it conservative. If a box clips (`overflow` hidden/scroll/auto),
+   its descendants are clipped to it anyway, but don't optimise that
+   until it's correct.
+   - `fixed` subtrees: `paint` is called with `scroll_offset = 0.0` for
+     them, so the same formula holds. `sticky`: the caller already
+     adjusts `scroll_offset` (`sticky_shift`), so it holds there too.
+     Add a test for each anyway.
+3. In `hit_test_node` / `hit_test_scroll_region`, prune on the extent
+   instead of the border box. The *hit itself* must still require the
+   point to be inside the element's own rect. Only the "can any
+   descendant be under this point" early-out changes.
+4. Fix the misleading comment in `paint_inner`.
+5. Tests (keep them, per project rules): `html,body{height:100%}` with
+   ~3 viewports of paragraphs. Paint at `scroll_offset = 2 × viewport`
+   and assert non-white pixels exist (`paint_fixture`-style). Hit-test a
+   link at y = 2.5 × viewport and assert the href comes back.
+   Also test an `h=0` `ul` with visible children.
+
+---
+
+### R2 — Every hover change re-runs the whole style + layout pipeline (regression, Q31 `a4b93c4`) — FIXED (items 1–4)
+
+**Fix:** (1) `AppEvent::ShapeResult` now carries `incomplete`; a restyle
+(`restyle_requested`/`hold_old_frame` on `App`) keeps painting the previous
+complete `Laid` + its `ShapeCache` and swaps once, when the new
+generation completes, so no flicker and no scroll yanking (the clamp only
+ever sees complete trees). Navigation (`replace_document`) clears the hold.
+(2) Content-keyed shaping memo on the worker thread (`SHAPE_MEMO`, keyed
+by hash of text + span styles + width + flags at the paragraph, word and
+chunk sites); `ShapingRequest::reuse_shaping` keeps it across restyles of
+the same document/width and clears it otherwise. (3) Hover restyles are
+throttled (150ms apart, none while a restyle is in flight, 200ms quiet
+after a wheel tick) via a deferred `AppEvent::HoverFlush`. (4) `HoverKeys`:
+only hover-chain changes touching an element a `:hover` compound could
+match restyle at all. Tests: `shape_memo_reuses_unchanged_paragraphs_
+across_trees`, `hover_keys_cover_exactly_the_elements_a_hover_rule_can_
+restyle`. **Not verified in the live window** (the app can't be driven
+headlessly); the App-level hold/throttle wiring has no unit test.
+
+**Measured:** with a synthetic hover sweep (cursor moving down the
+page), every element change under the pointer logged
+`INTERACTION changed=0x1 -> relayout`, then a full rebuild:
+**`build_layout_tree` 1.09–1.15s on the main thread, every time**.
+That's 13 relayouts in ~10s, and frame rate dropped to roughly one frame
+per second. After each rebuild, the page's laid-out height jumped
+(3939 → 2798) because the worker restarts shaping from an **empty**
+`ShapeCache` (`spawn_shaping_worker`: `let mut shape_cache = ShapeCache::new()`
+per request). The first progressive `ShapeResult` replaces the fully
+shaped `self.cached` with a partial tree, so text below the shaped
+region vanishes and refills. **That's the flicker.**
+
+It looks like it happens "without interaction" because any tiny pointer
+movement (or a compositor-sent motion event when the window gets focus
+or the layout changes) that crosses an element boundary is enough.
+Wikipedia has plenty of `:hover` rules, so `state_rules & STATE_HOVER`
+is set. Also, when a partial `Laid` with a smaller `h` arrives,
+`redraw` clamps `self.scroll_offset` to the smaller `max_scroll`, so
+**the scroll position gets yanked upward** during a hover relayout.
+Scrolling then feels sluggish or jumpy.
+
+`set_interaction_state` sets `layout_dirty` + `keep_scroll_on_rebuild`
+→ `redraw` → `build_layout_tree_with_resources` (full CSS parse +
+`precompute_generated` + full cascade) → new `layout_generation` →
+reshape from scratch. Q31's own docs say "pages without `:hover` rules
+pay nothing". That's true, but real pages always have them.
+
+**Fix plan (in order; ship 1+2 first, they're what fixes the reported
+symptoms):**
+1. **Never drop the old `cached` for a partial result of a restyle.**
+   (User confirmed 2026-11-13 that hover effects appearing slightly late
+   is fine in exchange for no flicker.)
+   For interaction-driven rebuilds, keep painting the previous complete
+   `Laid` until the new generation's worker reports `incomplete == false`.
+   Then swap it in once. That needs `incomplete` sent in
+   `AppEvent::ShapeResult`; today it isn't. Navigation and first load
+   keep the current progressive behaviour. Also stop clamping
+   `scroll_offset` against a partial tree's `h` (or only clamp once the
+   generation is complete).
+2. **Reuse shaping work across restyles.** Hover almost never changes
+   text or fonts. Let `ShapingRequest` carry the previous generation's
+   `ShapeCache` when the request is a restyle of the same document and
+   width. The worker can then reuse every paragraph whose key is
+   unchanged. The ids are positional (`next_id` restarts at 0 per tree),
+   so reuse is only valid if the cached entry also matches on content.
+   Key on (text, attrs/span styles, width) or store a hash in
+   `ShapedParagraph` and verify before reusing. Measure: a hover relayout
+   should go from multiple worker ticks to ~1.
+3. **Throttle/coalesce hover restyles.** Don't restyle on every
+   `CursorMoved`. Restyle at most once per N ms, and skip entirely while
+   a wheel scroll is in progress, using the latest hover chain. Cheap
+   and independent of 1–2.
+4. (Bigger, later) Only restyle when the hovered chain actually matches
+   a `:hover` selector differently. Record which elements
+   could match a `:hover` rule (subject or ancestor compound) during the
+   cascade. If neither the old nor the new hover chain contains one,
+   don't relayout. On Wikipedia most hover changes are between
+   elements no `:hover` rule targets, so this could remove most
+   relayouts outright.
+
+---
+
+### R3 — `build_layout_tree_with_resources` costs ~1.1–1.5s on Wikipedia, on the main thread (pre-existing; amplified by R2) — FIXED (items 1, 3, 4; item 2 only partly)
+
+**Measured after** (`SCRATCHY_BENCH_PAGE=<saved Wikipedia main page, 1.2MB
+html> cargo bench --bench layout -- real_page`; that file carries its own
+inline CSS, not the 218KB external sheet, so absolute numbers differ from
+the table below): **1.27s -> 0.42s** for `build_layout_tree_sized`.
+**Fix:** (1) parsed rules cached by css source (`RULES_CACHE`, which also
+caches the `STATE_*` mask the parse records). (3) `RuleIndex`: rules
+bucketed by id/class/tag of each selector's rightmost compound, separate
+buckets for normal vs pseudo-element selectors, candidates merged in
+source order, registered per build (`RULE_INDEX`, matched by slice
+identity so other callers fall back to a full scan). (4) `benches/layout.rs`
+gains `real_page` driven by `SCRATCHY_BENCH_PAGE` (page not committed, too
+large). (2) `precompute_generated` still walks the whole document once;
+it now benefits from the index (its `::before`/`::after` lookups are
+nearly free) but was not folded into the main walk. Tests:
+`rule_index_returns_the_same_matches_as_a_full_scan`,
+`cached_stylesheet_still_reports_state_rules`.
+
+**Measured** (same page, 218,654 bytes of CSS, 1146 rules):
+
+| phase | time |
+|---|---|
+| `parse_stylesheet` (default + page CSS) | ~17ms |
+| `precompute_generated` | 350–400ms |
+| `build_children` (cascade + box tree) | 760–970ms |
+| **total** | **1.1–1.5s** |
+
+The pre-Q31 commit `b1e6a09` measured the same (~1.45–1.49s), so this
+is **not new**. Before Q31 it ran only on load, resize, stdin chunk or
+image arrival. Now every hover change triggers it (R2), and each
+`AppEvent::ImageFetched` triggers one too. On Main_Page all 24 images
+arrived in one batch and coalesced into one rebuild. A page whose
+images trickle in gets a ~1.4s freeze per straggler.
+
+**Fix plan:**
+1. Cache the parsed `Vec<StyleRule>` on `App`, keyed by
+   `(css_source, viewport_width)` or invalidated by
+   `replace_document`/chunk/`extra_css` change. Restyles reuse it.
+   Saves ~17ms (small, but trivial to do).
+2. `precompute_generated` does a full second cascade over the document
+   whenever *any* rule has `content`/counters/quotes, which is always
+   true on real pages. Either fold it into the `build_children` walk or
+   only resolve styles for elements that a counter/quote/content rule
+   can actually match. Measure before and after.
+3. Selector matching in the cascade: index rules by rightmost compound
+   (id / class / tag / universal) like real engines do, so each element
+   only tests candidate rules instead of all 1146. Likely the biggest
+   win inside `build_children`. Measure first: split `build_children`
+   into `resolve_style` time vs box-building time.
+4. Add a `benches/` target that runs `build_layout_tree_with_resources`
+   on a saved Wikipedia page + CSS (fetch once via `wire`/`snag`, commit
+   as a fixture). Then this number gets tracked instead of rediscovered.
+
+---
+
+### Secondary observations (not the reported symptoms; lower priority)
+
+- Static paint at scroll 0 during load was 15–30ms/frame on Main_Page,
+  then ~10ms once settled. Acceptable, but watch it once R1's
+  culling uses the larger extents (more subtrees pass the cull).
+- `.vector-dropdown-content` (absolutely positioned, `h=32`, clipping)
+  has descendants laid out to y≈24443. Likely a dropdown menu real
+  browsers hide via the checkbox hack (`:checked ~ …` / `display:none`).
+  Harmless while it clips, but it inflates any extent computed in R1.
+  Check that it doesn't make the "scrollable height" or the cull useless.
+- Q14's height-change rebuild was moved up to **R4** below (user decided
+  2026-11-13 to fix it).
+
+---
+
+### R4 — Height-only window changes trigger a full rebuild (regression, Q14 `35c826a`) — FIXED
+
+**Fix:** `VIEWPORT_H_READ` is set while building when a `vh`/`vmin`/`vmax`
+unit or a `%`-calc resolves, or (static tree walk,
+`tree_reads_viewport_height`) when any box has a percentage
+height/min/max-height, `position: fixed`, or an orphaned `position:
+absolute`. `redraw` skips the rebuild for a height-only change when it is
+clear (`reads_viewport_h`); otherwise the rebuild is a restyle (held old
+frame + shaping memo). Test: `viewport_height_flag_only_set_when_layout_
+can_depend_on_it`. Note: Wikipedia (`html,body{height:100%}`) still
+rebuilds on a height change, but through the cheap restyle path.
+
+Q14 made `redraw` rebuild whenever the window **height** changes
+(`self.cached_height != height` in `need_rebuild`). On a tiling WM,
+height-only changes are routine (another window opens, a bar toggles).
+Each one is now a full ~1.4s main-thread rebuild plus a reshape from
+scratch, which means freeze + flicker (same mechanics as R2).
+
+Only a few things depend on viewport height: `vh`/`vmin`/`vmax`,
+`%` heights that chain up to the ICB (`html,body{height:100%}`), and
+`position: fixed` / orphaned-absolute containing blocks (`viewport_h`
+in `measure_document`).
+
+**Fix plan:**
+1. While building the tree, record whether anything actually read the
+   viewport height. Use a thread-local flag like `STATE_RULES`, set when
+   resolving a `Length::Vp` with a height component, when `icb_height`
+   is used as a containing height, or when `viewport_h` is used for a
+   fixed/orphaned-absolute box. Store it on `App` next to `state_rules`.
+2. In `redraw`, only treat a height change as needing a rebuild if that
+   flag is set. Otherwise just update `cached_height`, re-clamp
+   `scroll_offset` and repaint.
+3. When it *does* need a rebuild, treat it like a restyle: hold the old
+   frame (R2.1) and reuse the shape cache (R2.2). Text wrapping depends
+   only on width, so with R2.2 nearly every paragraph should come back
+   from the cache.
+4. Test: a page with no `vh`/`%`-height rules doesn't bump
+   `layout_generation` on a height-only resize. A page with
+   `html,body{height:100%}` does.
+
+---
+
+### Suggested order for the fixing session
+
+1. **R1** (white screen + unclickable links). Self-contained, highest
+   user impact, easy to test headlessly.
+2. **R2.1 + R2.3** (keep old frame until restyle completes; throttle
+   hover). Kills the flicker and the scroll-position yanking.
+3. **R2.2** (reuse shape cache across restyles).
+3b. **R4** (skip height-only rebuilds unless something reads the viewport
+   height; otherwise route them through R2.1/R2.2).
+4. **R3.1–R3.4** (make the restyle itself cheap), each measured.
+5. **R2.4** (selective `:hover` invalidation).
+
+Each step: `cargo check`, `cargo clippy`, `cargo test`, keep the new
+tests, `cargo install --path .`, then re-run the measurement below
+against Wikipedia Main_Page to confirm the numbers moved.
+
+---
+
+### How this was measured (reproduce before and after each fix)
+
+Done in a throwaway `git worktree` (not committed). Temporary
+`eprintln!` + `Instant` lines were added to:
+- `App::redraw`: log each rebuild (reason: `layout_dirty`, width/height
+  change, new generation) and `build_layout_tree_with_resources`
+  duration. Log per frame: `paint` duration, `scroll_offset`, `cached.h`,
+  generation.
+- `user_event`: `ImageFetched` and `ShapeResult` (generation, cache size,
+  `laid.h`).
+- `set_interaction_state`: when it marks `layout_dirty`.
+- `build_layout_tree_with_resources`: phase split (parse,
+  `precompute_generated`, `build_children`).
+- Synthetic input via env vars, since the window can't be driven
+  externally: `AUTOSCROLL=1` (request a redraw every frame; after 15s
+  add 30px to `scroll_offset` per frame) and `AUTOHOVER=1` (after 15s
+  call `update_hover(element_at((300, y)))` with `y` sweeping the window
+  each frame).
+- `DUMP=1`: one-off walk of the `Laid` tree printing every box whose
+  descendants extend below its own bottom edge, with tag/id/class (via
+  `find_node_by_id`). That's how R1's cause was pinned to
+  `<html>`/`<body>` h=1050.
+
+Run with `timeout 45 target/release/scratchy --socket /run/user/1001/wire.sock https://en.wikipedia.org/wiki/Main_Page 2> log`.
+Use `--release`, since the installed binary is a release build. Remove
+all instrumentation before committing.

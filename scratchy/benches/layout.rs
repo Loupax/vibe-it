@@ -160,5 +160,21 @@ fn bench_measure(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, bench_build_layout_tree, bench_measure, bench_measure_mixed_inline);
+/// A real saved page (R3.4): set `SCRATCHY_BENCH_PAGE=/path/to/page.html`
+/// (e.g. a Wikipedia article saved through `wire`/`snag`) to track the
+/// restyle cost the hover/relayout path pays. Skipped when unset — the
+/// page itself is too large to commit.
+fn bench_real_page(c: &mut Criterion) {
+    let Ok(path) = std::env::var("SCRATCHY_BENCH_PAGE") else { return };
+    let html = std::fs::read_to_string(&path).expect("SCRATCHY_BENCH_PAGE unreadable");
+    let document = parse_html(&html);
+    let mut group = c.benchmark_group("real_page");
+    group.sample_size(10);
+    group.bench_function("build_layout_tree_sized", |b| {
+        b.iter(|| black_box(scratchy::build_layout_tree_sized(black_box(&document), 1052.0, 1050.0)));
+    });
+    group.finish();
+}
+
+criterion_group!(benches, bench_build_layout_tree, bench_measure, bench_measure_mixed_inline, bench_real_page);
 criterion_main!(benches);
