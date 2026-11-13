@@ -507,7 +507,7 @@ dropped selectors summed across those pages. Caveats:
       `measure_flex`). Detail: the `order` item under
       "`display: flex` (440e03b)".
 - [x] Q23b [S] (c446586) Flex `align-content` (row containers).
-- [x] Q23c [S] (HASH) Flex leftovers, cheapest first: the column-axis
+- [x] Q23c [S] (18c8812) Flex leftovers, cheapest first: the column-axis
       automatic minimum size, then `flex-wrap` for
       column direction, then `baseline`, then the iterative §9.7 loop.
       Each is its own commit. Detail: the remaining `[ ]` items under
@@ -986,7 +986,7 @@ session can pick a coherent slice rather than one property at a time.
             extra distribution (`align-content: flex-start`'s behavior
             unconditionally). Not in this item's own requirements list;
             flagged here for completeness since `flex-wrap` is real.
-      - [x] (HASH) `flex-wrap` is only genuinely real for `flex-direction: row`/
+      - [x] (18c8812) `flex-wrap` is only genuinely real for `flex-direction: row`/
             `row-reverse` — a `column`/`column-reverse` flex container
             always lays its items out as a single column regardless of
             the declared `flex-wrap` value. Wrapping a *column* means
@@ -994,7 +994,7 @@ session can pick a coherent slice rather than one property at a time.
             columns, a materially different (and much rarer in real page
             chrome) shape than the classic wrapped-multi-line-row case
             this item prioritized — see `measure_flex_column`'s own docs.
-      - [x] (HASH) `align-items`/`align-self: baseline` resolves identically to
+      - [x] (18c8812) `align-items`/`align-self: baseline` resolves identically to
             `flex-start` — real baseline alignment needs each item's own
             font ascent threaded out of `measure`'s box-model math (no
             box here tracks its own baseline today, only cosmic-text's
@@ -1003,7 +1003,7 @@ session can pick a coherent slice rather than one property at a time.
             real "flex row of items" pages don't rely on. Explicitly
             permitted as an approximation by this item's own task
             wording, not silently dropped.
-      - [x] (HASH) No CSS Flexbox §9.7 iterative constraint resolution — `flex-
+      - [x] (18c8812) No CSS Flexbox §9.7 iterative constraint resolution — `flex-
             grow`/`flex-shrink` distribution (`resolve_flex_main_sizes`)
             is a single pass: an item whose flexed size gets clamped by
             its own `min-width`/`max-width`/`min-height`/`max-height`
@@ -1013,7 +1013,7 @@ session can pick a coherent slice rather than one property at a time.
             (no unusually tight min/max relative to an item's own
             basis); a real divergence only once several siblings'
             constraints interact non-trivially.
-      - [x] (HASH) (Row axis DONE in `500bd16` — see "Flex items' automatic
+      - [x] (18c8812) (Row axis DONE in `500bd16` — see "Flex items' automatic
             minimum size" below. Only the *column* axis's implicit
             `min-height` floor in `measure_flex_column` is still open.)
             Original text: No CSS Flexbox "automatic minimum size" — an item's own
