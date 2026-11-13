@@ -12579,30 +12579,77 @@ fn resolve_flex_main_sizes(main_size: f32, gap: f32, items: &[FlexBasisInfo]) ->
     if n == 0 {
         return Vec::new();
     }
-    let sum_basis: f32 = items.iter().map(|i| i.basis).sum();
-    let free = main_size - sum_basis - gap * (n - 1) as f32;
-    let mut sizes: Vec<f32> = if free > 0.0 {
-        let sum_grow: f32 = items.iter().map(|i| i.grow).sum();
-        if sum_grow > 0.0 {
-            items.iter().map(|i| i.basis + free * (i.grow / sum_grow)).collect()
-        } else {
-            items.iter().map(|i| i.basis).collect()
+    let gaps = gap * (n - 1) as f32;
+    let clamp = |i: &FlexBasisInfo, v: f32| v.clamp(i.min, i.max.max(i.min));
+    let sum_hyp: f32 = items.iter().map(|i| clamp(i, i.basis)).sum::<f32>() + gaps;
+    let growing = sum_hyp < main_size;
+    let mut sizes: Vec<f32> = items.iter().map(|i| i.basis).collect();
+    let mut frozen = vec![false; n];
+    for (k, i) in items.iter().enumerate() {
+        let hyp = clamp(i, i.basis);
+        let factor = if growing { i.grow } else { i.shrink };
+        if factor == 0.0 || (growing && i.basis > hyp) || (!growing && i.basis < hyp) {
+            frozen[k] = true;
+            sizes[k] = hyp;
         }
-    } else if free < 0.0 {
-        let sum_scaled: f32 = items.iter().map(|i| i.shrink * i.basis).sum();
-        if sum_scaled > 0.0 {
-            items
-                .iter()
-                .map(|i| (i.basis - free.abs() * (i.shrink * i.basis / sum_scaled)).max(0.0))
-                .collect()
-        } else {
-            items.iter().map(|i| i.basis).collect()
-        }
-    } else {
-        items.iter().map(|i| i.basis).collect()
+    }
+    let free_now = |sizes: &[f32], frozen: &[bool]| -> f32 {
+        main_size - gaps - sizes.iter().zip(frozen).zip(items).map(|((&sz, &f), i)| if f { sz } else { i.basis }).sum::<f32>()
     };
-    for (size, item) in sizes.iter_mut().zip(items) {
-        *size = size.clamp(item.min, item.max.max(item.min));
+    let initial_free = free_now(&sizes, &frozen);
+    // Each pass freezes at least one item, so n passes always suffice.
+    for _ in 0..=n {
+        if frozen.iter().all(|&f| f) {
+            break;
+        }
+        let factor = |i: &FlexBasisInfo| if growing { i.grow } else { i.shrink };
+        let sum_factor: f32 = items.iter().zip(&frozen).filter(|(_, f)| !**f).map(|(i, _)| factor(i)).sum();
+        let mut remaining = free_now(&sizes, &frozen);
+        if sum_factor < 1.0 && (initial_free * sum_factor).abs() < remaining.abs() {
+            remaining = initial_free * sum_factor;
+        }
+        let sum_scaled: f32 = items.iter().zip(&frozen).filter(|(_, f)| !**f).map(|(i, _)| i.shrink * i.basis).sum();
+        let mut unclamped = sizes.clone();
+        for (k, i) in items.iter().enumerate() {
+            if frozen[k] {
+                continue;
+            }
+            unclamped[k] = if growing {
+                i.basis + remaining * (i.grow / sum_factor)
+            } else if sum_scaled > 0.0 {
+                i.basis - remaining.abs() * (i.shrink * i.basis / sum_scaled)
+            } else {
+                i.basis
+            };
+        }
+        let mut total_violation = 0.0f32;
+        let mut clamped = unclamped.clone();
+        for (k, i) in items.iter().enumerate() {
+            if !frozen[k] {
+                clamped[k] = clamp(i, unclamped[k]).max(0.0);
+                total_violation += clamped[k] - unclamped[k];
+            }
+        }
+        for k in 0..n {
+            if frozen[k] {
+                continue;
+            }
+            let freeze = if total_violation == 0.0 {
+                true
+            } else if total_violation > 0.0 {
+                clamped[k] > unclamped[k]
+            } else {
+                clamped[k] < unclamped[k]
+            };
+            if freeze {
+                frozen[k] = true;
+            }
+        }
+        for k in 0..n {
+            if frozen[k] {
+                sizes[k] = clamped[k];
+            }
+        }
     }
     sizes
 }
@@ -12705,7 +12752,7 @@ fn measure_flex<'a>(
     } else {
         measure_flex_column(
             &items, &s, &entry, font_system, next_id, cache, deadline, incomplete, &mut own_pending, &no_floats,
-            reverse, main_gap,
+            reverse, main_gap, cross_gap,
         )
     };
     let bottom_extent = laid_children
@@ -12929,6 +12976,10 @@ fn measure_flex_row<'a>(
     let mut laid: Vec<Option<Laid>> = (0..items.len()).map(|_| None).collect();
     let mut line_top = entry.content_y;
     let mut line_crosses: Vec<f32> = Vec::with_capacity(lines.len());
+    // `align-items: baseline`: each such item's baseline offset from its
+    // own margin-box top, and each line's shared baseline (the max offset).
+    let mut base_off: Vec<Option<f32>> = vec![None; items.len()];
+    let mut line_bases: Vec<f32> = Vec::with_capacity(lines.len());
     for line in &lines {
         let line_infos: Vec<FlexBasisInfo> = line
             .iter()
@@ -12958,9 +13009,25 @@ fn measure_flex_row<'a>(
                 incomplete, pending, no_floats, None,
             );
             line_cross = line_cross.max(lc.style.margin.top.px() + lc.h + lc.style.margin.bottom.px());
+            if item.style.align_self.unwrap_or(s.align_items) == AlignItems::Baseline {
+                let base = first_baseline(&lc, cache).unwrap_or(lc.y + lc.h);
+                base_off[i] = Some(lc.style.margin.top.px() + (base - lc.y));
+            }
             cursor_x += preps[i].margin_left + main_w + preps[i].margin_right + main_gap + extra_between;
             laid[i] = Some(lc);
         }
+        // Baseline-aligned items need room above and below the shared
+        // baseline, which can exceed the tallest margin box.
+        let line_base = line.iter().filter_map(|&i| base_off[i]).fold(0.0f32, f32::max);
+        let below = line
+            .iter()
+            .filter_map(|&i| {
+                let lc = laid[i].as_ref()?;
+                Some(lc.style.margin.top.px() + lc.h + lc.style.margin.bottom.px() - base_off[i]?)
+            })
+            .fold(0.0f32, f32::max);
+        line_cross = line_cross.max(line_base + below);
+        line_bases.push(line_base);
         line_crosses.push(line_cross);
         line_top += line_cross + cross_gap;
     }
@@ -12976,24 +13043,11 @@ fn measure_flex_row<'a>(
         }) {
             let n = lines.len();
             let used: f32 = line_crosses.iter().sum::<f32>() + cross_gap * (n.saturating_sub(1)) as f32;
-            let free = inner_h - used;
-            if free > 0.0 {
-                (ac_start, ac_between) = match s.align_content {
-                    AlignContent::Stretch => {
-                        let each = free / n as f32;
-                        for c in line_crosses.iter_mut() {
-                            *c += each;
-                        }
-                        (0.0, 0.0)
-                    }
-                    AlignContent::FlexStart => (0.0, 0.0),
-                    AlignContent::FlexEnd => (free, 0.0),
-                    AlignContent::Center => (free / 2.0, 0.0),
-                    AlignContent::SpaceBetween if n > 1 => (0.0, free / (n - 1) as f32),
-                    AlignContent::SpaceBetween => (0.0, 0.0),
-                    AlignContent::SpaceAround => (free / n as f32 / 2.0, free / n as f32),
-                    AlignContent::SpaceEvenly => (free / (n + 1) as f32, free / (n + 1) as f32),
-                };
+            let (st, bt, each) = distribute_align_content(inner_h - used, n, s.align_content);
+            ac_start = st;
+            ac_between = bt;
+            for c in line_crosses.iter_mut() {
+                *c += each;
             }
         }
     }
@@ -13010,7 +13064,8 @@ fn measure_flex_row<'a>(
                 lc.h = (line_cross - margin_top - margin_bottom).max(0.0);
             }
             let target_y = match align {
-                AlignItems::Stretch | AlignItems::FlexStart | AlignItems::Baseline => line_top + margin_top,
+                AlignItems::Stretch | AlignItems::FlexStart => line_top + margin_top,
+                AlignItems::Baseline => line_top + (line_bases[j] - base_off[i].unwrap_or(margin_top)) + margin_top,
                 AlignItems::FlexEnd => line_top + (line_cross - lc.h - margin_bottom),
                 AlignItems::Center => line_top + (line_cross - lc.h - margin_top - margin_bottom) / 2.0 + margin_top,
             };
@@ -13066,6 +13121,7 @@ fn measure_flex_column<'a>(
     no_floats: &Floats,
     reverse: bool,
     main_gap: f32,
+    cross_gap: f32,
 ) -> Vec<Laid> {
     if items.is_empty() {
         return Vec::new();
@@ -13080,6 +13136,8 @@ fn measure_flex_column<'a>(
         margin_top: f32,
         margin_bottom: f32,
     }
+    // Wrapping needs a definite container height to break columns at.
+    let wrapping = s.flex_wrap != FlexWrap::NoWrap && entry.child_containing_height.is_some();
     let mut prepped: Vec<ColItem> = items
         .iter()
         .map(|item| {
@@ -13089,8 +13147,10 @@ fn measure_flex_column<'a>(
             // explicit-width-wins-else-auto-fills logic already does
             // the right thing for both for free. Only a non-stretch,
             // `width: auto` item needs an actual shrink-to-fit width
-            // computed up front.
-            let width_param = if align != AlignItems::Stretch && item.style.width.is_none() {
+            // computed up front. A wrapping container measures every
+            // auto-width item at its fit-content width, because the line's
+            // cross size is the widest item and stretch is applied after.
+            let width_param = if (wrapping || align != AlignItems::Stretch) && item.style.width.is_none() {
                 let mut item_style = item.style;
                 finalize_box_lengths(&mut item_style, entry.content_w, entry.child_containing_height);
                 let margin_lr = item_style.margin.left.px() + item_style.margin.right.px();
@@ -13110,7 +13170,17 @@ fn measure_flex_column<'a>(
                 FlexBasis::Len(l) => l.resolve(lc.style.font_size, lc.style.root_font_size),
                 FlexBasis::Auto => lc.h,
             };
-            let min = lc.style.min_height.map(|v| v.px()).unwrap_or(0.0);
+            // Automatic minimum size (CSS Flexbox 4.5), column axis: with no
+            // `min-height` and `overflow: visible`, the floor is the item's
+            // content height (its measured height when `height` is auto),
+            // clamped to the basis. An explicit `height` makes the content
+            // height unknown without a second measure, so that case keeps a
+            // floor of 0 (documented approximation).
+            let min = match lc.style.min_height {
+                Some(v) => v.px(),
+                None if item.style.height.is_none() && lc.style.overflow == Overflow::Visible => lc.h.min(basis),
+                None => 0.0,
+            };
             let max = lc.style.max_height.map(|v| v.px()).unwrap_or(f32::INFINITY);
             ColItem {
                 lc,
@@ -13134,30 +13204,101 @@ fn measure_flex_column<'a>(
     // today (matches `entry.child_containing_height`'s own `None` case,
     // see `box_model_entry`'s own docs).
     let main_size = entry.child_containing_height.unwrap_or(sum_natural);
-    let infos: Vec<FlexBasisInfo> = prepped
-        .iter()
-        .map(|p| FlexBasisInfo { basis: p.basis, grow: p.grow, shrink: p.shrink, min: p.min, max: p.max })
-        .collect();
-    let final_sizes = resolve_flex_main_sizes(main_size, main_gap, &infos);
-    let used: f32 = prepped.iter().zip(&final_sizes).map(|(p, &f)| f + p.margin_top + p.margin_bottom).sum::<f32>()
-        + main_gap * (n.saturating_sub(1)) as f32;
-    let leftover = (main_size - used).max(0.0);
-    let (start_offset, extra_between) = distribute_justify_content(leftover, n, s.justify_content);
 
-    let mut cursor_y = entry.content_y + start_offset;
-    for (item, (p, &final_h)) in items.iter().zip(prepped.iter_mut().zip(&final_sizes)) {
-        p.lc.h = final_h;
-        let align = item.style.align_self.unwrap_or(s.align_items);
-        let target_x = match align {
-            AlignItems::Stretch | AlignItems::FlexStart | AlignItems::Baseline => entry.content_x,
-            AlignItems::FlexEnd => entry.content_x + entry.content_w - p.lc.w,
-            AlignItems::Center => entry.content_x + (entry.content_w - p.lc.w) / 2.0,
-        };
-        let target_y = cursor_y + p.margin_top;
-        let dx = target_x - p.lc.x;
-        let dy = target_y - p.lc.y;
-        shift_laid_tree(&mut p.lc, dx, dy);
-        cursor_y += p.margin_top + final_h + p.margin_bottom + main_gap + extra_between;
+    // Break into lines (columns): one, or greedy by hypothetical main size.
+    let mut lines: Vec<Vec<usize>> = Vec::new();
+    if !wrapping {
+        lines.push((0..n).collect());
+    } else {
+        let mut current: Vec<usize> = Vec::new();
+        let mut extent = 0.0f32;
+        for (i, p) in prepped.iter().enumerate() {
+            let item_extent = p.basis + p.margin_top + p.margin_bottom;
+            let needed = if current.is_empty() { item_extent } else { extent + main_gap + item_extent };
+            if !current.is_empty() && needed > main_size {
+                lines.push(std::mem::take(&mut current));
+                extent = item_extent;
+            } else {
+                extent = needed;
+            }
+            current.push(i);
+        }
+        if !current.is_empty() {
+            lines.push(current);
+        }
+    }
+
+    // Cross size of each line: the full width when not wrapping, else the
+    // widest margin box, then `align-content` distributes the free width.
+    let mut line_crosses: Vec<f32> = lines
+        .iter()
+        .map(|line| {
+            if !wrapping {
+                entry.content_w
+            } else {
+                line.iter()
+                    .map(|&i| prepped[i].lc.style.margin.left.px() + prepped[i].lc.w + prepped[i].lc.style.margin.right.px())
+                    .fold(0.0, f32::max)
+            }
+        })
+        .collect();
+    let (mut ac_start, mut ac_between) = (0.0f32, 0.0f32);
+    if wrapping {
+        let used: f32 = line_crosses.iter().sum::<f32>() + cross_gap * (lines.len().saturating_sub(1)) as f32;
+        let (st, bt, each) = distribute_align_content(entry.content_w - used, lines.len(), s.align_content);
+        ac_start = st;
+        ac_between = bt;
+        for c in line_crosses.iter_mut() {
+            *c += each;
+        }
+    }
+    // `wrap-reverse` stacks the columns from the right edge.
+    let mut order: Vec<usize> = (0..lines.len()).collect();
+    if s.flex_wrap == FlexWrap::WrapReverse && wrapping {
+        order.reverse();
+    }
+    let mut line_x = vec![0.0f32; lines.len()];
+    let mut cursor = entry.content_x + ac_start;
+    for &j in &order {
+        line_x[j] = cursor;
+        cursor += line_crosses[j] + cross_gap + ac_between;
+    }
+
+    for (j, line) in lines.iter().enumerate() {
+        let infos: Vec<FlexBasisInfo> = line
+            .iter()
+            .map(|&i| {
+                let p = &prepped[i];
+                FlexBasisInfo { basis: p.basis, grow: p.grow, shrink: p.shrink, min: p.min, max: p.max }
+            })
+            .collect();
+        let final_sizes = resolve_flex_main_sizes(main_size, main_gap, &infos);
+        let used: f32 = line.iter().zip(&final_sizes).map(|(&i, &f)| f + prepped[i].margin_top + prepped[i].margin_bottom).sum::<f32>()
+            + main_gap * (line.len().saturating_sub(1)) as f32;
+        let leftover = (main_size - used).max(0.0);
+        let (start_offset, extra_between) = distribute_justify_content(leftover, line.len(), s.justify_content);
+        let mut cursor_y = entry.content_y + start_offset;
+        for (&i, &final_h) in line.iter().zip(&final_sizes) {
+            let item = items[i];
+            let p = &mut prepped[i];
+            p.lc.h = final_h;
+            let align = item.style.align_self.unwrap_or(s.align_items);
+            let margin_l = p.lc.style.margin.left.px();
+            let margin_r = p.lc.style.margin.right.px();
+            if wrapping && align == AlignItems::Stretch && item.style.width.is_none() {
+                p.lc.w = (line_crosses[j] - margin_l - margin_r).max(0.0);
+            }
+            let target_x = match align {
+                AlignItems::Stretch | AlignItems::FlexStart | AlignItems::Baseline => line_x[j] + margin_l,
+                AlignItems::FlexEnd => line_x[j] + line_crosses[j] - p.lc.w - margin_r,
+                AlignItems::Center => line_x[j] + (line_crosses[j] - p.lc.w - margin_l - margin_r) / 2.0 + margin_l,
+            };
+            let target_y = cursor_y + p.margin_top;
+            let dx = target_x - p.lc.x;
+            let dy = target_y - p.lc.y;
+            shift_laid_tree(&mut p.lc, dx, dy);
+            cursor_y += p.margin_top + final_h + p.margin_bottom + main_gap + extra_between;
+        }
     }
 
     let mut result: Vec<Laid> = prepped.into_iter().map(|p| p.lc).collect();
@@ -13168,6 +13309,44 @@ fn measure_flex_column<'a>(
         }
     }
     result
+}
+
+/// Absolute y of a laid box's first baseline, when it has text: a text
+/// box's first shaped line, else the first child (or table cell) that has
+/// one. `None` for boxes with no text (images, empty boxes) and for text
+/// not shaped yet; callers fall back to the border-box bottom edge.
+fn first_baseline(laid: &Laid, cache: &ShapeCache) -> Option<f32> {
+    match &laid.content {
+        LaidContent::Text(id) => {
+            let entry = cache.get(id)?;
+            let guard = entry.lock().unwrap();
+            let run = guard.0.layout_runs().next()?;
+            Some(laid.y + laid.style.border_top() + laid.style.padding.top.px() + run.line_y)
+        }
+        LaidContent::Blocks(children) | LaidContent::TableRow(children) => {
+            children.iter().find_map(|c| first_baseline(c, cache))
+        }
+        LaidContent::Image(_) | LaidContent::MixedInline(_) => None,
+    }
+}
+
+/// `align-content`'s distribution of `free` cross space among `n` lines:
+/// returns `(start_offset, extra_between_lines, extra_added_to_each_line)`.
+/// Shared by the row and column flex layouts.
+fn distribute_align_content(free: f32, n: usize, ac: AlignContent) -> (f32, f32, f32) {
+    if free <= 0.0 || n == 0 {
+        return (0.0, 0.0, 0.0);
+    }
+    match ac {
+        AlignContent::Stretch => (0.0, 0.0, free / n as f32),
+        AlignContent::FlexStart => (0.0, 0.0, 0.0),
+        AlignContent::FlexEnd => (free, 0.0, 0.0),
+        AlignContent::Center => (free / 2.0, 0.0, 0.0),
+        AlignContent::SpaceBetween if n > 1 => (0.0, free / (n - 1) as f32, 0.0),
+        AlignContent::SpaceBetween => (0.0, 0.0, 0.0),
+        AlignContent::SpaceAround => (free / n as f32 / 2.0, free / n as f32, 0.0),
+        AlignContent::SpaceEvenly => (free / (n + 1) as f32, free / (n + 1) as f32, 0.0),
+    }
 }
 
 /// One track's classification for `resolve_grid_tracks`'s own
@@ -21668,6 +21847,83 @@ mod tests {
         assert_eq!(children.len(), 1, "the absolutely-positioned child should be pulled out of the flex item list entirely");
         assert_eq!(children[0].x, 0.0, "the one real flex item should start at the container's left edge, not pushed aside by the out-of-flow child");
         assert_eq!(container.positioned.len(), 1, "the absolutely-positioned child should instead land in the container's own `positioned` list");
+    }
+
+    // ---------- Q23c: flex leftovers ----------
+
+    #[test]
+    fn q23c_flexible_lengths_freeze_clamped_items_and_redistribute() {
+        let info = |basis: f32, max: f32| FlexBasisInfo { basis, grow: 1.0, shrink: 1.0, min: 0.0, max };
+        // Three items of basis 20 in 300px: an even split is 100 each, but
+        // the first is capped at 50, so the other two share the rest (125).
+        let sizes = resolve_flex_main_sizes(300.0, 0.0, &[info(20.0, 50.0), info(20.0, f32::INFINITY), info(20.0, f32::INFINITY)]);
+        assert_eq!(sizes, vec![50.0, 125.0, 125.0]);
+        // Shrinking: one item floored at its basis (min) pushes the whole
+        // deficit onto the other.
+        let shrink = |basis: f32, min: f32| FlexBasisInfo { basis, grow: 0.0, shrink: 1.0, min, max: f32::INFINITY };
+        let sizes = resolve_flex_main_sizes(100.0, 0.0, &[shrink(100.0, 80.0), shrink(100.0, 0.0)]);
+        assert_eq!(sizes, vec![80.0, 20.0]);
+    }
+
+    #[test]
+    fn q23c_column_items_do_not_shrink_below_their_content_height() {
+        let laid = measure_fixture(
+            r#"<html><body><div style="display: flex; flex-direction: column; width: 300px; height: 60px;"><div><div style="height: 40px;"></div></div><div><div style="height: 40px;"></div></div></div></body></html>"#,
+            500.0,
+        );
+        let items = flex_items(&laid, 300.0);
+        assert_eq!(items[0].h, 40.0, "automatic minimum size: an overflow:visible column item keeps its content height");
+        assert_eq!(items[1].h, 40.0);
+        let laid = measure_fixture(
+            r#"<html><body><div style="display: flex; flex-direction: column; width: 300px; height: 60px;"><div style="overflow: hidden"><div style="height: 40px;"></div></div><div style="overflow: hidden"><div style="height: 40px;"></div></div></div></body></html>"#,
+            500.0,
+        );
+        let items = flex_items(&laid, 300.0);
+        assert_eq!(items[0].h, 30.0, "overflow:hidden items have a zero automatic minimum and shrink");
+    }
+
+    #[test]
+    fn q23c_column_wrap_makes_side_by_side_columns() {
+        let laid = measure_fixture(
+            r#"<html><body style="margin:0"><div style="display: flex; flex-direction: column; flex-wrap: wrap; align-content: flex-start; width: 300px; height: 100px;"><div style="width: 50px; height: 60px;"></div><div style="width: 50px; height: 60px;"></div><div style="width: 50px; height: 60px;"></div></div></body></html>"#,
+            500.0,
+        );
+        let items = flex_items(&laid, 300.0);
+        assert_eq!(items[0].x, 0.0);
+        assert_eq!(items[1].x, 50.0, "second item wraps into a new column to the right");
+        assert_eq!(items[2].x, 100.0);
+        assert_eq!(items[0].y, items[1].y, "each column starts at the top");
+        let laid = measure_fixture(
+            r#"<html><body style="margin:0"><div style="display: flex; flex-direction: column; flex-wrap: wrap-reverse; align-content: flex-start; width: 300px; height: 100px;"><div style="width: 50px; height: 60px;"></div><div style="width: 50px; height: 60px;"></div></div></body></html>"#,
+            500.0,
+        );
+        let items = flex_items(&laid, 300.0);
+        assert!(items[0].x > items[1].x);
+        // Default align-content stretches the columns to fill the width.
+        let laid = measure_fixture(
+            r#"<html><body style="margin:0"><div style="display: flex; flex-direction: column; flex-wrap: wrap; width: 300px; height: 100px;"><div style="width: 50px; height: 60px;"></div><div style="height: 60px;"></div></div></body></html>"#,
+            500.0,
+        );
+        let items = flex_items(&laid, 300.0);
+        // Cross sizes 50 and 0, plus 125 of free width each.
+        assert_eq!(items[1].x, 175.0, "second column starts after the first (175px wide)");
+        assert_eq!(items[1].w, 125.0, "a stretched auto-width item fills its column");
+    }
+
+    #[test]
+    fn q23c_baseline_alignment_lines_up_first_text_baselines() {
+        let html = |align: &str| {
+            format!(
+                r#"<html><body style="margin:0"><div style="display: flex; align-items: {align}; width: 300px;"><div style="font-size: 40px;">Big</div><div style="font-size: 10px;">small</div></div></body></html>"#
+            )
+        };
+        let start = measure_fixture(&html("flex-start"), 500.0);
+        let s_items = flex_items(&start, 300.0);
+        assert_eq!(s_items[0].y, s_items[1].y);
+        let base = measure_fixture(&html("baseline"), 500.0);
+        let b_items = flex_items(&base, 300.0);
+        assert_eq!(b_items[0].y, s_items[0].y, "the item with the larger ascent stays on top");
+        assert!(b_items[1].y > b_items[0].y + 10.0, "the small item is pushed down to share the baseline (got {})", b_items[1].y);
     }
 
     // ---------- v58: `display: grid` ----------

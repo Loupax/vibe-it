@@ -1654,8 +1654,9 @@ more branching than two focused functions. Both share two small, pure
 helpers: `resolve_flex_main_sizes` (CSS Flexbox §9.7's resolving-
 flexible-lengths step — proportional `flex-grow` distribution of
 positive free space, proportional *scaled-shrink-factor* distribution
-of a negative deficit, single-pass, not the real spec's iterative
-freeze-and-retry algorithm — see `TODO.txt`) and `distribute_justify_
+of a negative deficit; since Q23c it is the real iterative freeze-and-
+retry loop, so clamped items are frozen and their violation is
+redistributed) and `distribute_justify_
 content` (the `justify-content` keyword → `(start_offset, extra_
 between)` math, identical regardless of which physical axis is "main").
 
@@ -2909,3 +2910,17 @@ columns beyond the template are not supported (clamped).
 **Q19 generated content.** Pseudo-element rules are matched by `matching_declarations_for` (a `pseudo: Option<&str>` parameter; `matching_declarations` is the `None` wrapper) using `matches_selector` per selector in `MatchingMode::ForStatelessPseudoElement`, because `matches_selector_list` in `Normal` mode always rejects selectors with a pseudo-element (Q3 relies on that). `resolve_style_for` is the pseudo-aware `resolve_style`. Generation happens only in `collect_children` (which now brackets `collect_real_children`), so it covers block, inline, list-item and flex/grid containers' inline runs, but not `build_flex_children` items or table internals. Cost: two extra rule scans per element; each is a cheap `pseudo_element()` check per selector, and it exits early when nothing matches.
 
 **Q19b dynamic content.** `attr()`, counters and quotes depend on document order, which the recursive box builders do not follow uniformly (inline, block, flex, table paths), so `precompute_generated` does a separate pre-pass in `build_layout_tree_with_resources` that evaluates them into the thread-local `GENERATED_TEXT` keyed by (element pointer, is-after); `generated_content` only looks the string up. The pass is skipped entirely unless a rule uses such content or a counter property. `build_flex_children` emits `::before`/`::after` as blockified items.
+
+
+**Q23c flex leftovers (update to the flex notes above).** `measure_flex_column`
+now wraps: with `flex-wrap` set and a definite container height it breaks
+items into side-by-side columns (greedy by hypothetical height), sizes each
+column's cross extent from the widest margin box, and distributes the free
+width with `distribute_align_content` (shared with `measure_flex_row`).
+Wrapping items are measured once at fit-content width and stretched post hoc
+(`Laid::w` overwrite, no re-measure, so no duplicate `pending` entries).
+Column items get a content-based automatic minimum height (their measured
+height, `overflow: visible` and no `min-height` only). `align-items: baseline`
+in rows uses `first_baseline` (first shaped line's `line_y` found through the
+shape cache, falling back to the border-box bottom) and the line cross size
+accounts for baseline items' above/below extents.
