@@ -552,7 +552,7 @@ dropped selectors summed across those pages. Caveats:
       (grim screenshot, 2026-11-13). The repro is pasted at the end of
       this item. Use it for the screenshot step.
 
-      - [x] Q34a [M] Floats never leave the `Blocks` box that placed them.
+      - [x] Q34a [M] (acbcb00) Floats never leave the `Blocks` box that placed them.
             `measure` takes `floats: &Floats` read-only. The `Blocks`
             arm clones it into `local_floats`, adds its own float
             children to the clone, and throws the clone away when it
@@ -589,7 +589,7 @@ dropped selectors summed across those pages. Caveats:
             Assert the `<p>`'s first line is narrower than the container
             and the cleared div's `y >= 300`.
 
-      - [x] Q34b [M] Boxes that start their own BFC must not overlap floats
+      - [x] Q34b [M] (acbcb00) Boxes that start their own BFC must not overlap floats
             (CSS2.1 §9.5: "The border box of a table, a block-level
             replaced element, or an element in the normal flow that
             establishes a new block formatting context ... must not
@@ -628,7 +628,7 @@ dropped selectors summed across those pages. Caveats:
             Assert a `display:flow-root` div with one float child
             h100 and no other content is 100 tall.
 
-      - [x] Q34c [S] `display: table-caption` makes a shrink-to-fit table
+      - [x] Q34c [S] (acbcb00) `display: table-caption` makes a shrink-to-fit table
             as wide as its caption. The `display` parser maps
             `table-caption` to `Display::Block`. The caption then counts
             as an ordinary block child of the `display: table` figure,
