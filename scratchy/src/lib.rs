@@ -9989,6 +9989,17 @@ struct ScrollInfo {
     client_h: f32,
 }
 
+/// `Some(ScrollInfo)` (with a fresh id) for an `overflow: scroll`/`auto`
+/// box, `None` otherwise. Shared by the ordinary `Blocks` arm of `measure`
+/// and the table/flex/grid container tails (Q24).
+fn make_scroll_info(overflow: Overflow, next_id: &mut usize, content_h: f32, border_h: f32, extra_h: f32) -> Option<ScrollInfo> {
+    matches!(overflow, Overflow::Scroll | Overflow::Auto).then(|| {
+        let id = *next_id;
+        *next_id += 1;
+        ScrollInfo { id, content_h: content_h.max(0.0), client_h: (border_h - extra_h).max(0.0) }
+    })
+}
+
 impl ScrollInfo {
     /// How far this box's own live scroll offset can go before it runs
     /// out of content to reveal — `0.0` whenever `content_h <= client_h`
@@ -11233,11 +11244,7 @@ pub fn measure<'a>(
             // + padding) already subtracted everywhere else in this
             // function — the content-box height `content_h` is actually
             // visible through, before any scrolling moves it.
-            let scroll = matches!(s.overflow, Overflow::Scroll | Overflow::Auto).then(|| {
-                let id = *next_id;
-                *next_id += 1;
-                ScrollInfo { id, content_h: content_h.max(0.0), client_h: (border_h - extra_h).max(0.0) }
-            });
+            let scroll = make_scroll_info(s.overflow, next_id, content_h, border_h, extra_h);
             // Only now — `border_h` just above is the first point this
             // box's own final size is known — can `own_pending` (this
             // box's *own* direct out-of-flow children, plus anything
@@ -12539,7 +12546,7 @@ fn measure_table<'a>(
         positioned: positioned_children,
         fixed: false,
         sticky: None,
-        scroll: None,
+        scroll: make_scroll_info(s.overflow, next_id, content_h, border_h, entry.extra_h),
     };
     apply_relative_offset(&mut laid, &s, width, containing_height);
     capture_sticky_info(&mut laid, &s, containing_height);
@@ -12789,7 +12796,7 @@ fn measure_flex<'a>(
         positioned: positioned_children,
         fixed: false,
         sticky: None,
-        scroll: None,
+        scroll: make_scroll_info(s.overflow, next_id, content_h, border_h, entry.extra_h),
     };
     apply_relative_offset(&mut laid, &s, width, containing_height);
     capture_sticky_info(&mut laid, &s, containing_height);
@@ -13902,7 +13909,7 @@ fn measure_grid<'a>(
         positioned: positioned_children,
         fixed: false,
         sticky: None,
-        scroll: None,
+        scroll: make_scroll_info(s.overflow, next_id, content_h, border_h, entry.extra_h),
     };
     apply_relative_offset(&mut laid, &s, width, containing_height);
     capture_sticky_info(&mut laid, &s, containing_height);
@@ -15413,7 +15420,7 @@ fn paint_inner(
     // own* `style.visibility`).
     paint_z_layer(
         neg_positioned, &neg_stacking_children, font_system, swash_cache, cache, scroll_offsets, pixels, win_w,
-        win_h, scroll_offset, child_clip,
+        win_h, content_scroll_offset, child_clip,
     );
 
     match &laid.content {
@@ -15562,7 +15569,7 @@ fn paint_inner(
     // containing block, which is always true here by construction).
     paint_z_layer(
         nonneg_positioned, &nonneg_stacking_children, font_system, swash_cache, cache, scroll_offsets, pixels, win_w,
-        win_h, scroll_offset, child_clip,
+        win_h, content_scroll_offset, child_clip,
     );
 }
 
@@ -15633,6 +15640,13 @@ fn hit_test_cursor(
     // negative stacking context's hit-test priority is rarely
     // observable in practice (it only wins a hit at all when nothing in
     // the normal-content layer happens to cover the same pixel).
+    // Q24: this box's own live scroll shifts its stacking/positioned
+    // descendants too, same as `paint`'s `content_scroll_offset`.
+    let own_scroll = laid.scroll.map_or(0.0, |info| {
+        scroll_offsets.get(&info.id).copied().unwrap_or(0.0).clamp(0.0, info.max_scroll())
+    });
+    let y = y + own_scroll;
+    let scroll_offset = scroll_offset + own_scroll;
     let stacking_children: Vec<&Laid> = match &laid.content {
         LaidContent::Blocks(children) | LaidContent::TableRow(children) => {
             children.iter().filter(|c| is_explicit_stacking_child(c)).collect()
@@ -15673,11 +15687,6 @@ fn hit_test_cursor(
             // `content_scroll_offset` does — see that computation's own
             // docs for the full derivation. Composes with a nested
             // sticky/scrollable descendant for free, same mechanism.
-            let own_scroll = laid.scroll.map_or(0.0, |info| {
-                scroll_offsets.get(&info.id).copied().unwrap_or(0.0).clamp(0.0, info.max_scroll())
-            });
-            let y = y + own_scroll;
-            let scroll_offset = scroll_offset + own_scroll;
             for child in children.iter().filter(|c| !is_explicit_stacking_child(c)) {
                 // Mirror image of `paint`'s own trick: a sticky child's
                 // own *document-space* rect, for hit-testing purposes, is
@@ -23033,6 +23042,76 @@ mod tests {
             "scrolling to max_scroll should bring the red child into the clipped view"
         );
         assert!(pixels_scrolled.contains(&0x0000FF), "the blue outer box should still paint after scrolling too");
+    }
+
+    #[test]
+    fn q24_flex_grid_and_table_containers_can_be_scroll_regions() {
+        for display in ["flex", "grid", "table"] {
+            let html = format!(
+                concat!(
+                    r#"<html><body style="margin:0"><div style="display: {d}; overflow: auto; height: 50px; width: 100px;">"#,
+                    r#"<div style="height: 120px; width: 40px;"></div></div></body></html>"#,
+                ),
+                d = display
+            );
+            let laid = measure_fixture(&html, 400.0);
+            let b = find_laid_with_scroll(&laid).unwrap_or_else(|| panic!("display:{display} overflow:auto got no ScrollInfo"));
+            let info = b.scroll.unwrap();
+            assert_eq!(info.client_h, 50.0, "{display}: client_h");
+            assert!(info.max_scroll() > 0.0, "{display}: content_h {} should overflow", info.content_h);
+        }
+    }
+
+    #[test]
+    fn q24_absolute_child_scrolls_with_its_scroll_container() {
+        let laid = measure_fixture(
+            concat!(
+                r#"<html><body style="margin:0"><div style="position: relative; overflow: scroll; height: 50px; width: 100px;">"#,
+                r#"<div style="height: 200px;"></div>"#,
+                r#"<div style="position: absolute; top: 100px; left: 0; width: 20px; height: 20px; background-color: red;"></div>"#,
+                "</div></body></html>",
+            ),
+            400.0,
+        );
+        let info = find_laid_with_scroll(&laid).unwrap().scroll.unwrap();
+        let mut font_system = new_font_system();
+        let mut swash_cache = SwashCache::new();
+        let mut cache = ShapeCache::new();
+        let (w, h) = (200u32, 200u32);
+        let mut before = vec![0u32; (w * h) as usize];
+        paint(&laid, &mut font_system, &mut swash_cache, &mut cache, &HashMap::new(), &mut before, w, h, 0.0, None);
+        assert!(!before.contains(&0xFF0000), "absolute child at top:100px is below the 50px window");
+        let mut offsets = HashMap::new();
+        offsets.insert(info.id, 80.0);
+        let mut after = vec![0u32; (w * h) as usize];
+        paint(&laid, &mut font_system, &mut swash_cache, &mut cache, &offsets, &mut after, w, h, 0.0, None);
+        assert!(after.contains(&0xFF0000), "scrolling by 80 should bring the absolute child (now at y=20) into view");
+    }
+
+    #[test]
+    fn q24_nested_scroll_regions_route_the_wheel_to_the_innermost() {
+        let laid = measure_fixture(
+            concat!(
+                r#"<html><body style="margin:0"><div style="overflow: scroll; height: 100px; width: 100px;">"#,
+                r#"<div style="overflow: scroll; height: 50px;"><div style="height: 150px;"></div></div>"#,
+                r#"<div style="height: 200px;"></div>"#,
+                "</div></body></html>",
+            ),
+            400.0,
+        );
+        let mut all = Vec::new();
+        find_all_laid_with_scroll(&laid, &mut all);
+        assert_eq!(all.len(), 2, "outer and inner regions");
+        let outer = all[0].scroll.unwrap();
+        let inner = all[1].scroll.unwrap();
+        let none = HashMap::new();
+        let id_at = |y: f32, offs: &HashMap<usize, f32>| hit_test_scroll_region(&laid, 5.0, y, offs, 0.0, 600.0).map(|i| i.id);
+        assert_eq!(id_at(25.0, &none), Some(inner.id), "over the inner region");
+        assert_eq!(id_at(75.0, &none), Some(outer.id), "below the inner region: outer");
+        let mut offs = HashMap::new();
+        offs.insert(outer.id, 30.0);
+        assert_eq!(id_at(10.0, &offs), Some(inner.id), "outer scrolled 30: y=10 is content y=40, still inner");
+        assert_eq!(id_at(25.0, &offs), Some(outer.id), "outer scrolled 30: y=25 is content y=55, past inner");
     }
 
     #[test]
