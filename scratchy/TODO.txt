@@ -519,6 +519,200 @@ dropped selectors summed across those pages. Caveats:
 - [x] Q25 [M] (3c7a36a) `box-shadow`: blur (a cheap box blur is fine), multiple
       comma-separated shadows, `inset`, and `currentColor`. Detail:
       "`box-shadow` (PROMPTS.md v27)".
+- [ ] Q34 [L] Floats across section boundaries, BFC roots beside floats,
+      and `display: table-caption`. Added 2026-11-13 from a user report
+      and placed ahead of Q26 because it breaks every long Wikipedia
+      article (corpus page). Do the sub-items in order.
+
+      Symptom (https://en.wikipedia.org/wiki/Nvidia, window ~1057px):
+      the "History" `<h2>`'s bottom border runs straight through the
+      infobox. The first thumbnail (Denny's diner) is ~800px wide, starts
+      mid-page, sits on top of the infobox and hides part of it, and the
+      infobox's remaining rows show out below the thumbnail.
+
+      Relevant markup (Parsoid HTML, trimmed):
+        <section id=mwAQ>                        <!-- lead section -->
+          <table class="infobox">...</table>     <!-- float:right; clear:right; width:22em -->
+          <p>...</p><p>...</p>
+        </section>
+        <section>                                <!-- sibling of the lead -->
+          <div class="mw-heading mw-heading2"><h2>History</h2></div>
+          <section>                              <!-- nested -->
+            <div class="mw-heading mw-heading3"><h3>Founding</h3></div>
+            <figure typeof="mw:File/Thumb"><a><img width=250></a>
+              <figcaption>The Denny's roadside diner ...</figcaption></figure>
+      Relevant CSS (Vector 2022 / MediaWiki core):
+        .mw-heading2 { overflow:hidden; border-bottom:1px solid #a2a9b1 }
+        figure[typeof~='mw:File/Thumb'] { display:table; float:right;
+                                          clear:right; line-height:0 }
+        figure[typeof~='mw:File/Thumb'] > figcaption {
+            display:table-caption; caption-side:bottom }
+
+      Three independent root causes, all confirmed with a minimal repro
+      (grim screenshot, 2026-11-13). The repro is pasted at the end of
+      this item. Use it for the screenshot step.
+
+      - [x] Q34a [M] Floats never leave the `Blocks` box that placed them.
+            `measure` takes `floats: &Floats` read-only. The `Blocks`
+            arm clones it into `local_floats`, adds its own float
+            children to the clone, and throws the clone away when it
+            returns. So the infobox, placed inside the lead `<section>`,
+            does not exist for the next `<section>`. Nothing after the
+            lead section wraps around it, and the figure's
+            `clear: right` doesn't clear it (`Floats::clear_y` sees an
+            empty list). Real CSS: a float belongs to its BFC, not its
+            parent. It affects every later box in that BFC, including
+            boxes outside its parent, and its parent's auto height still
+            ignores it. In the repro, figure B overlaps FLOAT A instead
+            of sitting below it.
+            Fix: let floats flow back out to the caller. Either change
+            the parameter to `&mut Floats` or have `measure` return the
+            grown set. The `Blocks` arm hands its updated set back to
+            its caller instead of dropping it. Every place that starts a
+            fresh BFC (search `Floats::default()`: float content,
+            `resolve_positioned`, table cells, inline-flex,
+            `measure_document`) keeps its own set and does NOT pass it
+            back up. The `cursor_y`/float `top`/`bottom` values are
+            already absolute document coordinates, so no translation is
+            needed. Watch out for: (1) `max_bottom`'s fast-path check
+            will now see floats from earlier sections, which is correct,
+            but measure Wikipedia relayout time before and after (R3 in
+            REGRESSIONS.md got layout down to 0.42s, so don't regress
+            it). (2) The layout cache (`cache`/`ShapeCache` and any
+            per-box memo). A box's layout now depends on floats from
+            outside its parent, so any memo keyed only on the box +
+            width is wrong when floats are present. Grep for where
+            `Laid` results are reused and check. (3) The flex, grid and
+            table paths must not leak their items' floats either.
+            Test: `<section><div float:right w200 h300/></section>
+            <section><p>long text</p><div clear:right h10/></section>`.
+            Assert the `<p>`'s first line is narrower than the container
+            and the cleared div's `y >= 300`.
+
+      - [x] Q34b [M] Boxes that start their own BFC must not overlap floats
+            (CSS2.1 §9.5: "The border box of a table, a block-level
+            replaced element, or an element in the normal flow that
+            establishes a new block formatting context ... must not
+            overlap the margin box of any floats in the same BFC").
+            Today no in-flow box is narrowed. `overflow: hidden` gets no
+            special treatment, and `display: flow-root` is parsed as
+            plain `Display::Block` (see the comment at the `flow-root`
+            arm of the `display` parser, which already points at this
+            gap). So the `.mw-heading2` box spans the full width and its
+            border runs under the float. In the repro, the red border
+            crosses FLOAT A.
+            Fix, in the `Blocks` arm's in-flow (non-float) branch, for a
+            child that establishes a BFC (`overflow` != visible,
+            `display: flow-root` (needs its own flag or variant now), and
+            `display: table`/`flex`/`grid` block-level boxes):
+            (1) Place it in the corridor `local_floats.avail_bounds`
+                leaves: x = left bound, width = right - left. Use the
+                same single probe at `cursor_y`
+                that floats already use. If the box's min-content width
+                doesn't fit, move it down past the next float bottom and
+                try again (the simplest correct version of the §9.5
+                rule; browsers do the same).
+            (2) Give it a fresh `Floats::default()` for its own content.
+                Its own floats don't leak out, and outer floats don't
+                narrow its text twice.
+            (3) Its auto height grows to include its own floats' bottom
+                edges. This is the real "contain floats" behavior
+                (`overflow:hidden` clearfix, `flow-root`). The comment
+                near `let content_h = cursor_y - content_y;` saying a
+                float never grows its parent stays true for ordinary
+                boxes only.
+            Depends on Q34a for the Wikipedia case: the heading and the
+            infobox are in different sections.
+            Test: a float:right w200 and a sibling `overflow:hidden` div.
+            Assert the div's `x + w <= float.x - float margin-left`.
+            Assert a `display:flow-root` div with one float child
+            h100 and no other content is 100 tall.
+
+      - [x] Q34c [S] `display: table-caption` makes a shrink-to-fit table
+            as wide as its caption. The `display` parser maps
+            `table-caption` to `Display::Block`. The caption then counts
+            as an ordinary block child of the `display: table` figure,
+            so `cell_natural_width` (the float's shrink-to-fit width)
+            picks up the caption's full one-line max-content width,
+            ~800px on the Nvidia page instead of the image's 250px +
+            borders. In the repro, figure B is 655px wide instead of
+            ~122px. Real CSS (CSS2.1 §17.4, CSS Tables 3): the table
+            wrapper's width comes from the table grid. A caption adds
+            only its *min*-content width to that, never its max-content
+            width. The caption is then laid out at the table's final
+            width, above the grid or below it for
+            `caption-side: bottom`. Add a `Display::TableCaption` (or a
+            flag), parse `caption-side: top|bottom`, and in
+            `measure_table` and the shrink-to-fit sizing
+            (`cell_natural_width` on a table) leave captions out of the
+            max-content width, then lay them out at the final table
+            width in caption-side order. The real `<caption>` element
+            should take the same path. Check that `default.css` gives it
+            `display: table-caption`. Note that a non-table child of a
+            `display: table` box (the figure's `<a>` holding the image)
+            is wrapped in an anonymous row/cell in real CSS. Check what
+            `measure_table` does with it today and make sure the image
+            still sets the width.
+            Test: a `display:table; float:right` box holding a 120px
+            block and a `display:table-caption` with a 30-word
+            sentence. Assert the box's width is ~120px, not the
+            sentence's width, and that the caption wraps below the
+            block.
+
+      - [ ] Q34d [S] Investigate first: words missing from a wrapped line
+            beside the infobox. In the user's screenshot, the second
+            lead paragraph reads "...creative workloads, and" then an
+            indented "for edge computing". The words "professional GPUs"
+            are missing and the line starts ~47px in. That paragraph
+            goes through the per-word path (`measure_mixed_inline`)
+            because a float is active. The minimal repro at 700px did
+            NOT reproduce this, so it may depend on width or on the
+            infobox's exact bottom edge relative to that line.
+            Re-check after Q34a/b land (they change which lines are
+            narrowed). If it's still there, reproduce at ~1057px and
+            find where the words go. Don't guess a fix.
+
+            UPDATE (after Q34a-c, 2026-11-13): STILL REPRODUCES in the live
+            window ("In 2025, Nvidia [became the] first company [to
+            surpass] US$4 trillion": two blank runs mid-line). A headless
+            layout of the saved page at 1057px (`measure_document`) places
+            EVERY word, with sane x/w, and no opaque box covers the blank
+            spot, so it is not a layout/wrapping bug and not an overlay.
+            Next step: it is a paint-side loss. Compare the live window's
+            layout width against the headless one (live text starts at
+            x=34, headless at x=332, so the two layouts differ; find out
+            why first), then check per-word paint (`paint` of
+            `MixedPositioned::Word`, the R1 paint-cull / ink code).
+
+      Also visible in the same screenshot, NOT part of Q34 and not
+      investigated: a dark square painted over "View history" in the
+      page tabs, and the "78 languages" button's icons rendering as
+      plain blue squares (probably `mask-image` icon cases Q29 left
+      out). Look at these only if they're still there after Q34.
+
+      Done when: the Nvidia page at ~1057px shows the History border
+      ending at the infobox's left edge, the Denny's thumbnail below the
+      infobox at ~252px wide with its caption wrapped under the image,
+      and no float drawn over another. Take a grim screenshot of both
+      the repro and the live page.
+
+      Repro (save as repro.html, run `scratchy repro.html`):
+        <html><body style="margin:10px;font-family:sans-serif;font-size:14px;width:700px">
+        <section>
+        <div style="float:right;clear:right;width:200px;height:300px;background:#cde;border:1px solid #888">FLOAT A (in section 1)</div>
+        <p>Section one text ... (enough for 4 lines beside A)</p>
+        </section>
+        <section>
+        <div style="overflow:hidden;border-bottom:2px solid red;font-size:22px">BFC heading (overflow:hidden) — border should stop at float</div>
+        <section>
+        <p>Nested section text should wrap beside FLOAT A, which is still going.</p>
+        <div style="float:right;clear:right;background:#fed;border:1px solid #888;display:table"><div style="width:120px;height:60px;background:#888"></div><div style="display:table-caption;caption-side:bottom">A long caption that should wrap at the image width rather than widen the figure to the caption's full length</div></div>
+        <p>After figure B; it should sit below A (clear:right), and be 120px wide.</p>
+        </section></section>
+        </body></html>
+      Observed 2026-11-13 (before the fix): the red border crosses A,
+      B is 655px wide, and B overlaps A, starting at A's y≈210 instead
+      of y≥340.
 - [ ] Q26 [S] `letter-spacing` (n=8). The user decided 2026-11-12: first
       bump cosmic-text to the latest release and re-run the recorded
       repro ("Wide letter spacing " at 900px, 0-8px spacing, count the
@@ -802,6 +996,10 @@ session can pick a coherent slice rather than one property at a time.
             the markup, not whichever one is actually on top. None of
             these affect the common single-float case this item's own
             tests/screenshots cover.
+      - [ ] Floats don't escape their parent `Blocks` box, BFC roots
+            (`overflow:hidden`, `flow-root`) don't avoid or contain
+            floats, and `table-caption` is a plain block. These are
+            queued as Q34a-c (2026-11-13, Wikipedia Nvidia page).
 
 - [x] `position: sticky` (636f369) now parses and works —
       per the user's own explicit design decision (asked via

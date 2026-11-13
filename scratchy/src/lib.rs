@@ -2203,6 +2203,12 @@ struct Declarations {
     list_style_type: Option<ListStyleType>,
     /// `display: list-item` (true) or any other `display` (false).
     list_item: Option<bool>,
+    /// `display: flow-root` (true) or any other `display` (false) — Q34b.
+    flow_root: Option<bool>,
+    /// `display: table-caption` (true) or any other `display` (false) — Q34c.
+    table_caption: Option<bool>,
+    /// `caption-side: bottom` (true) / `top` (false) — Q34c. Not inherited.
+    caption_bottom: Option<bool>,
     text_align: Option<TextAlign>,
     vertical_align: Option<VerticalAlign>,
     line_height: Option<LineHeight>,
@@ -5525,6 +5531,8 @@ impl DeclParser<'_> {
             if let Ok(ident) = input.expect_ident() {
                 // `list-item` is a block that also generates a marker (Q20c).
                 let is_list_item = ident.eq_ignore_ascii_case("list-item");
+                let is_flow_root = ident.eq_ignore_ascii_case("flow-root");
+                let is_caption = ident.eq_ignore_ascii_case("table-caption");
                 self.decls.display = if ident.eq_ignore_ascii_case("block") || ident.eq_ignore_ascii_case("list-item") {
                     Some(Display::Block)
                 } else if ident.eq_ignore_ascii_case("inline") {
@@ -5544,26 +5552,18 @@ impl DeclParser<'_> {
                 ) {
                     Some(Display::TableGroup)
                 } else if ident.eq_ignore_ascii_case("table-caption") {
-                    // No separate caption-box behavior implemented (no
-                    // caption-side/alignment handling) — a plain block is
-                    // the right simplification: it still renders, in its
-                    // source position, just without special placement.
+                    // A block box plus the `table_caption` flag (Q34c):
+                    // `measure_table` places it by `caption-side`, and it
+                    // adds only its min-content width to a table's
+                    // shrink-to-fit size.
                     Some(Display::Block)
                 } else if ident.eq_ignore_ascii_case("flex") || ident.eq_ignore_ascii_case("-webkit-flex") {
                     Some(Display::Flex)
                 } else if ident.eq_ignore_ascii_case("grid") {
                     Some(Display::Grid)
                 } else if ident.eq_ignore_ascii_case("flow-root") {
-                    // No real "establishes its own block formatting
-                    // context" behavior implemented (the one thing that
-                    // actually distinguishes `flow-root` from plain
-                    // `block` — mainly used to contain floats without
-                    // the old `overflow: hidden` hack) — same scoped
-                    // simplification `table-caption` just above already
-                    // uses: still a real block-level box, in its source
-                    // position, just without the float-containment
-                    // behavior real CSS gives this specific keyword. See
-                    // TODO.txt for the float-containment gap itself.
+                    // A block box plus the `flow_root` flag (Q34b), which
+                    // makes it establish its own BFC (`establishes_bfc`).
                     Some(Display::Block)
                 } else if ident.eq_ignore_ascii_case("inline-block") {
                     Some(Display::InlineBlock)
@@ -5576,6 +5576,16 @@ impl DeclParser<'_> {
                 };
                 if self.decls.display.is_some() {
                     self.decls.list_item = Some(is_list_item);
+                    self.decls.flow_root = Some(is_flow_root);
+                    self.decls.table_caption = Some(is_caption);
+                }
+            }
+        } else if name.eq_ignore_ascii_case("caption-side") {
+            if let Ok(ident) = input.expect_ident() {
+                if ident.eq_ignore_ascii_case("bottom") {
+                    self.decls.caption_bottom = Some(true);
+                } else if ident.eq_ignore_ascii_case("top") {
+                    self.decls.caption_bottom = Some(false);
                 }
             }
         } else if name.eq_ignore_ascii_case("position") {
@@ -6939,6 +6949,12 @@ struct ComputedStyle {
     box_sizing: BoxSizing,
     /// `display: list-item` was cascaded (not inherited); generates a marker.
     list_item: bool,
+    /// `display: flow-root` was cascaded (not inherited) — Q34b.
+    flow_root: bool,
+    /// `display: table-caption` was cascaded (not inherited) — Q34c.
+    table_caption: bool,
+    /// `caption-side: bottom` (not inherited) — Q34c.
+    caption_bottom: bool,
     margin: Sides,
     padding: Sides,
     /// Per-side (top, right, bottom, left). Width is already 0 for a side
@@ -7143,6 +7159,16 @@ struct ResolvedBoxShadow {
 }
 
 impl ComputedStyle {
+    /// Whether this box starts its own block formatting context (Q34b):
+    /// float, `overflow` other than visible, `display: flow-root`, or a
+    /// block-level table/flex/grid container.
+    fn establishes_bfc(&self) -> bool {
+        self.float != Float::None
+            || self.overflow != Overflow::Visible
+            || self.flow_root
+            || matches!(self.display, Display::Table | Display::Flex | Display::Grid)
+    }
+
     fn border_top(&self) -> f32 {
         self.border_width[0]
     }
@@ -8065,8 +8091,23 @@ fn resolve_style_for(
         cascade_css(&matches, inl, "display", |d| d.list_item),
         Cascaded::Value(true)
     ) && display == Display::Block;
+    let flow_root = matches!(
+        cascade_css(&matches, inl, "display", |d| d.flow_root),
+        Cascaded::Value(true)
+    ) && display == Display::Block;
+    let table_caption = matches!(
+        cascade_css(&matches, inl, "display", |d| d.table_caption),
+        Cascaded::Value(true)
+    ) && display == Display::Block;
+    let caption_bottom = matches!(
+        cascade_css(&matches, inl, "caption-side", |d| d.caption_bottom),
+        Cascaded::Value(true)
+    );
     let force_block = |display: Display, position: Position, float: Float| {
-        if (matches!(position, Position::Absolute | Position::Fixed) || float != Float::None) && display != Display::None {
+        // CSS2.1 §9.7: `table` stays `table` when floated/absolute (Q34c).
+        if (matches!(position, Position::Absolute | Position::Fixed) || float != Float::None)
+            && !matches!(display, Display::None | Display::Table)
+        {
             Display::Block
         } else {
             display
@@ -8549,6 +8590,9 @@ fn resolve_style_for(
         .unwrap_or(inherited.text_transform),
         list_style_type,
         list_item,
+        flow_root,
+        table_caption,
+        caption_bottom,
         text_align,
         vertical_align,
         line_height,
@@ -8637,6 +8681,9 @@ fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         text_transform: inherited.text_transform,
         list_style_type: inherited.list_style_type,
         list_item: false,
+        flow_root: false,
+        table_caption: false,
+        caption_bottom: false,
         text_align: inherited.text_align,
         vertical_align: VerticalAlign::default(),
         line_height: inherited.line_height,
@@ -10874,13 +10921,18 @@ struct FloatEntry {
 /// with one) to call `measure` at all.
 #[derive(Clone, Default)]
 pub struct Floats {
-    left: Vec<FloatEntry>,
-    right: Vec<FloatEntry>,
+    // Interior mutability (Q34a): a float belongs to its BFC, not to the
+    // `Blocks` box whose loop placed it, so a `Blocks` arm pushes into the
+    // *shared* set it was handed and every later box in the same BFC (even
+    // outside that arm's own parent) sees it. Boxes that start a new BFC
+    // hand their content a fresh `Floats::default()`, so nothing leaks.
+    left: std::cell::RefCell<Vec<FloatEntry>>,
+    right: std::cell::RefCell<Vec<FloatEntry>>,
 }
 
 impl Floats {
     fn is_empty(&self) -> bool {
-        self.left.is_empty() && self.right.is_empty()
+        self.left.borrow().is_empty() && self.right.borrow().is_empty()
     }
 
     /// The lowest bottom edge among every float placed so far (on either
@@ -10892,7 +10944,8 @@ impl Floats {
     /// needs. `f32::MIN` (never `>=` any real `content_y`) when there
     /// are no floats at all.
     fn max_bottom(&self) -> f32 {
-        self.left.iter().chain(self.right.iter()).map(|f| f.bottom).fold(f32::MIN, f32::max)
+        let (l, r) = (self.left.borrow(), self.right.borrow());
+        l.iter().chain(r.iter()).map(|f| f.bottom).fold(f32::MIN, f32::max)
     }
 
     /// The horizontal range available for content at document-space `y`
@@ -10906,17 +10959,26 @@ impl Floats {
     fn avail_bounds(&self, y: f32, outer_left: f32, outer_right: f32) -> (f32, f32) {
         let left_bound = self
             .left
+            .borrow()
             .iter()
             .filter(|f| f.top <= y && y < f.bottom)
             .map(|f| f.edge)
             .fold(outer_left, f32::max);
         let right_bound = self
             .right
+            .borrow()
             .iter()
             .filter(|f| f.top <= y && y < f.bottom)
             .map(|f| f.edge)
             .fold(outer_right, f32::min);
         (left_bound, right_bound.max(left_bound))
+    }
+
+    /// The smallest float bottom edge strictly below `y`, if any — where
+    /// a box that can't fit beside the current floats retries (Q34b).
+    fn next_bottom(&self, y: f32) -> Option<f32> {
+        let (l, r) = (self.left.borrow(), self.right.borrow());
+        l.iter().chain(r.iter()).map(|f| f.bottom).filter(|&b| b > y).fold(None, |m, b| Some(m.map_or(b, |m: f32| m.min(b))))
     }
 
     /// The flow position a `clear`-ing box must not start above: the
@@ -10927,10 +10989,10 @@ impl Floats {
     fn clear_y(&self, clear: Clear) -> f32 {
         let mut y = f32::MIN;
         if matches!(clear, Clear::Left | Clear::Both) {
-            y = self.left.iter().map(|f| f.bottom).fold(y, f32::max);
+            y = self.left.borrow().iter().map(|f| f.bottom).fold(y, f32::max);
         }
         if matches!(clear, Clear::Right | Clear::Both) {
-            y = self.right.iter().map(|f| f.bottom).fold(y, f32::max);
+            y = self.right.borrow().iter().map(|f| f.bottom).fold(y, f32::max);
         }
         y
     }
@@ -11694,6 +11756,7 @@ pub fn measure<'a>(
     {
         return measure_table(
             b, children, font_system, x, y, width, containing_height, next_id, cache, deadline, incomplete, pending,
+            auto_margin_box_override,
         );
     }
     // `display: flex` — same shape of special-case as `Table` just
@@ -11758,6 +11821,11 @@ pub fn measure<'a>(
             s.min_width = Some(BoxLength::Px(px));
         }
     }
+    // A box that starts its own BFC (Q34b) sees no outer floats and keeps
+    // its own inside it (its auto height grows to contain them, below).
+    let bfc_root = b.style.establishes_bfc();
+    let fresh_floats = Floats::default();
+    let floats = if bfc_root { &fresh_floats } else { floats };
     let entry = box_model_entry(&mut s, x, y, width, containing_height, auto_margin_box_override);
     let border_x = entry.border_x;
     let border_y = entry.border_y;
@@ -11965,7 +12033,9 @@ pub fn measure<'a>(
             // an earlier non-floated sibling) sees them too — see
             // `Floats`'s own docs for why this is a clone of the
             // inherited set, not a fresh one.
-            let mut local_floats = floats.clone();
+            // Q34a: not a clone any more — floats placed here stay in the
+            // shared BFC set for the caller's later siblings.
+            let local_floats = floats;
             // A float's own `Laid` is collected here, not pushed
             // straight into `laid_children` at its own point in the
             // loop, and appended only once every normal sibling has
@@ -12067,20 +12137,45 @@ pub fn measure<'a>(
                     match child.style.float {
                         Float::Left => {
                             let edge = lc.x + lc.w + margin_right;
-                            local_floats.left.push(FloatEntry { top, bottom, edge });
+                            local_floats.left.borrow_mut().push(FloatEntry { top, bottom, edge });
                         }
                         Float::Right => {
                             let edge = lc.x - margin_left;
-                            local_floats.right.push(FloatEntry { top, bottom, edge });
+                            local_floats.right.borrow_mut().push(FloatEntry { top, bottom, edge });
                         }
                         Float::None => unreachable!(),
                     }
                     float_children.push(lc);
                     continue;
                 }
+                // Q34b (CSS2.1 §9.5): a BFC root's border box must not
+                // overlap a float — place it in the corridor the floats
+                // leave, dropping below the next float if its min-content
+                // width doesn't fit.
+                let (mut child_x, mut child_w) = (content_x, content_w);
+                if child.style.establishes_bfc() && child.style.display != Display::None && !local_floats.is_empty() {
+                    loop {
+                        let (l, r) = local_floats.avail_bounds(cursor_y, content_x, content_x + content_w);
+                        if l <= content_x && r >= content_x + content_w {
+                            break;
+                        }
+                        (child_x, child_w) = (l, r - l);
+                        let (min_mb, _) = cell_natural_width(child, font_system, next_id, cache, deadline, incomplete);
+                        if min_mb <= child_w + 0.01 {
+                            break;
+                        }
+                        match local_floats.next_bottom(cursor_y) {
+                            Some(y) => {
+                                (child_x, child_w) = (content_x, content_w);
+                                cursor_y = y;
+                            }
+                            None => break,
+                        }
+                    }
+                }
                 let lc = measure(
-                    child, font_system, content_x, cursor_y, content_w, child_containing_height, next_id, cache,
-                    deadline, incomplete, &mut own_pending, &local_floats, None,
+                    child, font_system, child_x, cursor_y, child_w, child_containing_height, next_id, cache,
+                    deadline, incomplete, &mut own_pending, local_floats, None,
                 );
                 cursor_y += lc.style.margin.top.px() + lc.style.margin.bottom.px() + lc.h;
                 laid_children.push(lc);
@@ -12102,7 +12197,10 @@ pub fn measure<'a>(
             // "needs a clearfix" behavior; see TODO.txt) — so this is
             // still purely `cursor_y`, never adjusted by anything in
             // `local_floats`, exactly as before this feature existed.
-            let content_h = cursor_y - content_y;
+            let mut content_h = cursor_y - content_y;
+            if bfc_root {
+                content_h = content_h.max(local_floats.max_bottom() - content_y);
+            }
             // See the `Inline` branch's own comment just above — same
             // "override only the reported size, children already laid
             // out in full regardless" behavior.
@@ -13117,6 +13215,9 @@ fn cell_natural_width(
         // natural width is the *widest* child, not their sum.
         BoxContent::Blocks(children) => children.iter().fold((0.0f32, 0.0f32), |(mn, mx), child| {
             let (cmn, cmx) = cell_natural_width(child, font_system, next_id, cache, deadline, incomplete);
+            // Q34c: a table's caption contributes only its *min*-content
+            // width to the table's max-content width (CSS Tables 3).
+            let cmx = if child.style.table_caption && cell.style.display == Display::Table { cmn } else { cmx };
             (mn.max(cmn), mx.max(cmx))
         }),
         // Only reached for a nested `<table>`'s own rows (never a real
@@ -13380,9 +13481,10 @@ fn measure_table<'a>(
     deadline: std::time::Instant,
     incomplete: &mut bool,
     pending: &mut Vec<PendingPositioned<'a>>,
+    auto_margin_box_override: Option<f32>,
 ) -> Laid {
     let mut s = b.style;
-    let entry = box_model_entry(&mut s, x, y, width, containing_height, None);
+    let entry = box_model_entry(&mut s, x, y, width, containing_height, auto_margin_box_override);
     let col_widths = table_column_widths(children, entry.content_w, font_system, next_id, cache, deadline, incomplete);
 
     let mut cursor_y = entry.content_y;
@@ -13403,7 +13505,12 @@ fn measure_table<'a>(
     // `<table>` child (a row, or a plain-`Block` child like a
     // `caption`) never needs to see floats from outside the table.
     let no_floats = Floats::default();
-    for child in children {
+    // Q34c: `caption-side: bottom` captions are laid out after the grid.
+    let ordered = children
+        .iter()
+        .filter(|c| !(c.style.table_caption && c.style.caption_bottom))
+        .chain(children.iter().filter(|c| c.style.table_caption && c.style.caption_bottom));
+    for child in ordered {
         let lc = if matches!(child.content, BoxContent::TableRow(_)) {
             measure_row_with_widths(
                 child, &col_widths, font_system, entry.content_x, cursor_y, entry.content_w,
@@ -23175,6 +23282,70 @@ mod tests {
             float_box.y + float_box.h,
             "clear: left should push this box down to exactly the bottom of the earlier left float, instead of landing beside/under it like the uncleared sibling in the test above"
         );
+    }
+
+    #[test]
+    fn float_in_one_section_affects_text_and_clear_in_the_next_section() {
+        // Q34a: a float belongs to its BFC, not its parent `Blocks` box.
+        let word_text = "hi ".repeat(40);
+        let html = format!(
+            r#"<html><body><div style="width: 300px;"><section><div style="float: right; width: 200px; height: 300px;"></div></section><section><p style="margin: 0">{word_text}</p><div style="clear: right; height: 10px;"></div></section></div></body></html>"#
+        );
+        let laid = measure_fixture(&html, 400.0);
+        let container = find_by_width(&laid, 300.0).expect("container not found");
+        let run = find_mixed_inline(&laid).expect("paragraph beside a float from an earlier section takes the per-word path");
+        let positions: Vec<(f32, f32)> = mixed_items(run).iter().map(mixed_item_xy).collect();
+        let first_y = positions.iter().map(|&(_, y)| y).fold(f32::MAX, f32::min);
+        assert!(first_y < container.y + 300.0);
+        // Float is 200 wide at the right edge of 300: every word must stay
+        // within the left 100px corridor.
+        for &(x, y) in positions.iter().filter(|&&(_, y)| y < container.y + 300.0) {
+            assert!(x < container.x + 100.0 + 0.01, "word at ({x},{y}) is under the float");
+        }
+        let cleared = find_by_height(&laid, 10.0).expect("cleared div not found");
+        assert!(cleared.y >= container.y + 300.0 - 0.01, "clear: right must see the earlier section's float, got y={}", cleared.y);
+    }
+
+    #[test]
+    fn bfc_root_beside_a_float_is_narrowed_to_the_corridor() {
+        // Q34b: `overflow: hidden` must not overlap an earlier float.
+        let laid = measure_fixture(
+            r#"<html><body><div style="width: 300px;"><div style="float: right; width: 100px; height: 50px;"></div><div style="overflow: hidden; height: 20px;"></div></div></body></html>"#,
+            400.0,
+        );
+        let container = find_by_width(&laid, 300.0).expect("container not found");
+        let bfc = find_by_height(&laid, 20.0).expect("overflow box not found");
+        assert!(bfc.x + bfc.w <= container.x + 200.0 + 0.01, "bfc root overlaps the float: x={} w={}", bfc.x, bfc.w);
+        assert_eq!(bfc.x, container.x);
+    }
+
+    #[test]
+    fn flow_root_contains_its_own_floats() {
+        let laid = measure_fixture(
+            r#"<html><body><div style="width: 300px; display: flow-root;"><div style="float: left; width: 50px; height: 100px;"></div></div></body></html>"#,
+            400.0,
+        );
+        let root = find_by_width(&laid, 300.0).expect("flow-root not found");
+        assert_eq!(root.h, 100.0, "flow-root's auto height must include its float");
+    }
+
+    #[test]
+    fn table_caption_does_not_widen_a_shrink_to_fit_table_and_wraps_below() {
+        // Q34c: caption adds only its min-content width.
+        let cap = "word ".repeat(30);
+        let html = format!(
+            r#"<html><body style="margin:0"><div style="width: 600px;"><div style="display: table; float: right;"><div>wwwwwwwwwwwwwwwwwwww</div><div style="display: table-caption; caption-side: bottom;">{cap}</div></div></div></body></html>"#
+        );
+        let laid = measure_fixture(&html, 700.0);
+        let container = find_by_width(&laid, 600.0).expect("container not found");
+        let LaidContent::Blocks(cs) = &container.content else { panic!("expected Blocks") };
+        let table = &cs[0];
+        assert!(table.w < 300.0, "table must not be as wide as the caption's one-line width, w={}", table.w);
+        let LaidContent::Blocks(children) = &table.content else { panic!("expected Blocks") };
+        assert_eq!(children.len(), 2);
+        let (block, caption) = (&children[0], &children[1]);
+        assert!(caption.y >= block.y + block.h - 0.01, "caption must sit below the grid content");
+        assert!(caption.h > 60.0, "caption should wrap onto several lines, h={}", caption.h);
     }
 
     #[test]
