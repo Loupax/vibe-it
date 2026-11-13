@@ -12653,7 +12653,15 @@ fn measure_mixed_inline<'a>(
         /// range within that item's text, used only if pass 2 ends up
         /// falling back to a per-word re-shape (this chunk split across
         /// more than one wrapped line — rare).
-        Chunk { chunk_id: usize, range: std::ops::Range<usize> },
+        ///
+        /// `word_id` (Q34d) is a cache id reserved for the per-word
+        /// fallback up front, in pass 1, so the number of ids a run
+        /// consumes never depends on where lines happen to break: with
+        /// progressive layout the widths differ between passes, and ids
+        /// allocated only on the (width-dependent) fallback shifted every
+        /// later id, so later items read another paragraph's cache entry
+        /// (blank or wrong words in the live window).
+        Chunk { chunk_id: usize, range: std::ops::Range<usize>, word_id: usize },
         /// Already fully shaped and cached under this id on its own —
         /// `word-spacing != 0` (can't reuse a shared multi-word buffer:
         /// the extra space it inserts after *this* word has to move
@@ -12752,7 +12760,9 @@ fn measure_mixed_inline<'a>(
                 };
                 chunk_text.insert(chunk_id, (text.as_str(), *span));
                 for (range, width) in ranges.into_iter().zip(widths) {
-                    measured.push(Measured::Word { source: WordSource::Chunk { chunk_id, range }, width, height });
+                    let word_id = *next_id;
+                    *next_id += 1;
+                    measured.push(Measured::Word { source: WordSource::Chunk { chunk_id, range, word_id }, width, height });
                 }
             }
             InlineItem::Image { image, style, background_image } => {
@@ -13054,7 +13064,7 @@ fn measure_mixed_inline<'a>(
                     idx = end;
                     continue;
                 }
-                Measured::Word { source: WordSource::Chunk { chunk_id, range }, .. } => {
+                Measured::Word { source: WordSource::Chunk { chunk_id, range, word_id }, .. } => {
                     // Rare fallback: this chunk ended up split across
                     // more than one wrapped line, so its shared buffer
                     // (shaped as one unwrapped line) can't be reused
@@ -13063,8 +13073,7 @@ fn measure_mixed_inline<'a>(
                     // already does.
                     let &(text, span) = chunk_text.get(chunk_id).expect("chunk_text missing an entry its own chunk_id was inserted under");
                     let word = &text[range.clone()];
-                    let id = *next_id;
-                    *next_id += 1;
+                    let id = *word_id;
                     let (w, h) = shape_or_resume_word(font_system, cache, id, word, span, WORD_MEASURE_WIDTH, deadline, incomplete);
                     positioned.push(MixedPositioned::Word { id, x: final_x, y: content_y + cursor_y, w, h });
                     idx += 1;
@@ -23346,6 +23355,33 @@ mod tests {
         let (block, caption) = (&children[0], &children[1]);
         assert!(caption.y >= block.y + block.h - 0.01, "caption must sit below the grid content");
         assert!(caption.h > 60.0, "caption should wrap onto several lines, h={}", caption.h);
+    }
+
+    #[test]
+    fn mixed_inline_id_consumption_does_not_depend_on_line_breaks() {
+        // Q34d: progressive layout re-runs `measure_document` with the
+        // same cache and `next_id` reset, but widths differ between passes
+        // (0 for not-yet-shaped text). If the number of ids a run consumes
+        // depends on where lines break, every later id shifts and later
+        // items read another paragraph's cache entry (blank/wrong words).
+        let para = "alpha beta gamma delta epsilon zeta eta theta iota kappa ".repeat(6);
+        let mut body = String::from(r#"<div style="float: right; width: 50px; height: 9000px;"></div>"#);
+        for i in 0..4 {
+            body.push_str(&format!(r#"<p style="margin: 0">p{i} {para}</p>"#));
+        }
+        let html = format!(r#"<html><body style="margin:0">{body}</body></html>"#);
+        let doc = parse_html(&html);
+        let tree = build_layout_tree(&doc, 1920.0);
+        let mut fs = new_font_system();
+        let mut ids_used = |width: f32| {
+            let mut cache = ShapeCache::new();
+            let (mut id, mut inc) = (0usize, false);
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+            measure_document(&tree, &mut fs, width, 900.0, &mut id, &mut cache, deadline, &mut inc);
+            id
+        };
+        let (a, b) = (ids_used(5000.0), ids_used(300.0));
+        assert_eq!(a, b, "ids consumed must not depend on how lines wrap");
     }
 
     #[test]
