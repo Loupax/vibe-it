@@ -2924,3 +2924,12 @@ height, `overflow: visible` and no `min-height` only). `align-items: baseline`
 in rows uses `first_baseline` (first shaped line's `line_y` found through the
 shape cache, falling back to the border-box bottom) and the line cross size
 accounts for baseline items' above/below extents.
+
+## `mask-image` (Q29)
+
+A mask rides in `DecodedImage::mask` on the same per-box `background_image`
+bundle (a 0x0 placeholder when there is no background image), because
+`ComputedStyle` is `Copy`. `paint` diverts masked boxes to `paint_masked`,
+which paints the box normally and then lerps the border-box region back to a
+pre-paint snapshot by the mask coverage (descendants are masked too). SVG
+masks are re-rasterized at the tile size on every paint, uncached.
