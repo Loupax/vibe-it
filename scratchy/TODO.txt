@@ -536,7 +536,7 @@ dropped selectors summed across those pages. Caveats:
       "`border-radius` (v38) combined with".
 - [x] Q28 [S] (0867a4c) Images: `object-fit`/`object-position`, plus bilinear
       downscaling in `blit_image`. Detail: "`<img>` (v46)".
-- [ ] Q29 [M] `mask-image`/`-webkit-mask-image` (n=438, all icon
+- [x] Q29 [M] (HASH) `mask-image`/`-webkit-mask-image` (n=438, all icon
       stencils). Needs Q12a. Kept low by the user's own call. Detail:
       "`mask-image`/`-webkit-mask-image`".
 
@@ -2458,7 +2458,7 @@ last, per the user's own call.
       before this item, verifying the `measure_mixed_inline` part of the
       fix directly.
 
-- [ ] **`mask-image`/`-webkit-mask-image` (icon alpha-masking) — real
+- [x] (HASH) **`mask-image`/`-webkit-mask-image` (icon alpha-masking) — real
       numbers in hand, deliberately sent to the bottom of the priority
       list, the user's own explicit call.** The CSS-gap report's single
       largest raw count by far (436 occurrences on the Wikipedia Main

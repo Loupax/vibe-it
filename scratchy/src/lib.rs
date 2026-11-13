@@ -1816,6 +1816,11 @@ struct Declarations {
     /// represent that distinctly from "not declared" (same shape
     /// `box-shadow`'s own `ShadowDecl` already established).
     background_image: Option<BackgroundImageDecl>,
+    /// `mask-image` / `-webkit-mask-image` and their layout longhands (Q29).
+    mask_image: Option<BackgroundImageDecl>,
+    mask_position: Option<BgPosDecl>,
+    mask_size: Option<BgSizeDecl>,
+    mask_repeat: Option<BgRepeat>,
     /// `background-position`/`-size`/`-repeat` (Q16): only the first
     /// layer of a comma list is kept. Resolved in `resolve_style` into
     /// `ComputedStyle::bg_layout`.
@@ -5137,6 +5142,34 @@ impl DeclParser<'_> {
             } else if let Ok(url) = input.expect_url() {
                 self.decls.background_image = Some(BackgroundImageDecl::Url(url.to_string()));
             }
+        } else if name.eq_ignore_ascii_case("mask-image") || name.eq_ignore_ascii_case("-webkit-mask-image") {
+            if input.try_parse(|input| input.expect_ident_matching("none")).is_ok() {
+                self.decls.mask_image = Some(BackgroundImageDecl::None);
+            } else if let Ok(url) = input.expect_url() {
+                self.decls.mask_image = Some(BackgroundImageDecl::Url(url.to_string()));
+            }
+        } else if name.eq_ignore_ascii_case("mask-position") || name.eq_ignore_ascii_case("-webkit-mask-position") {
+            if let Ok(v) = parse_bg_position(input) {
+                self.decls.mask_position = Some(v);
+            }
+        } else if name.eq_ignore_ascii_case("mask-size") || name.eq_ignore_ascii_case("-webkit-mask-size") {
+            if let Ok(v) = parse_bg_size(input) {
+                self.decls.mask_size = Some(v);
+            }
+        } else if name.eq_ignore_ascii_case("mask-repeat") || name.eq_ignore_ascii_case("-webkit-mask-repeat") {
+            if let Ok(v) = parse_bg_repeat(input) {
+                self.decls.mask_repeat = Some(v);
+            }
+        } else if name.eq_ignore_ascii_case("mask") || name.eq_ignore_ascii_case("-webkit-mask") {
+            if let Ok(bg) = parse_background_shorthand(input) {
+                self.decls.mask_image = Some(match bg.image {
+                    Some(url) => BackgroundImageDecl::Url(url),
+                    None => BackgroundImageDecl::None,
+                });
+                self.decls.mask_position = Some(bg.position.unwrap_or_default());
+                self.decls.mask_size = Some(bg.size.unwrap_or_default());
+                self.decls.mask_repeat = Some(bg.repeat.unwrap_or_default());
+            }
         } else if name.eq_ignore_ascii_case("background-position") {
             if let Ok(v) = parse_bg_position(input) {
                 self.decls.background_position = Some(v);
@@ -6674,6 +6707,8 @@ struct ComputedStyle {
     /// `background-position`/`-size`/`-repeat` (Q16), applied by
     /// `paint_background_image`. Not inherited.
     bg_layout: BgLayout,
+    /// `mask-position`/`-size`/`-repeat` (Q29), same shape as `bg_layout`.
+    mask_layout: BgLayout,
     /// `object-fit` and `object-position` (Q28), applied by `blit_image`.
     /// Position is `(fraction of free space, px)` per axis, like
     /// `bg_layout`. Not inherited.
@@ -7324,26 +7359,46 @@ fn resolve_background_image(
     if let Some(i) = inline_important.as_ref() {
         matches.push((u32::MAX, i));
     }
-    let decl = match cascade_css(&matches, inline_decls.as_ref(), "background-image", |d| d.background_image.clone()) {
-        Cascaded::Value(d) => d,
-        Cascaded::Unset => return None,
-        // `inherit` takes the parent element's resolved image; every
-        // other keyword is `none` (`background-image` isn't inherited).
-        Cascaded::Wide(CssWide::Inherit) => {
-            let parent = parent_handle(handle).filter(|p| matches!(p.data, NodeData::Element { .. }))?;
-            return resolve_background_image(&parent, rules, viewport_width, custom_props);
+    let bg = match cascade_css(&matches, inline_decls.as_ref(), "background-image", |d| d.background_image.clone()) {
+        Cascaded::Value(BackgroundImageDecl::Url(url)) => decode_data_uri(&url).and_then(|b| decode_image_bytes(&b)),
+        // `inherit` takes the parent element's resolved image;
+        // `background-image` isn't inherited otherwise.
+        Cascaded::Wide(CssWide::Inherit) => parent_handle(handle)
+            .filter(|p| matches!(p.data, NodeData::Element { .. }))
+            .and_then(|parent| resolve_background_image(&parent, rules, viewport_width, custom_props))
+            .and_then(|a| Arc::try_unwrap(a).ok())
+            .map(|mut i| {
+                i.mask = None;
+                i
+            }),
+        // An explicit `none`, another CSS-wide keyword, or undeclared.
+        _ => None,
+    };
+    // `mask-image` (Q29), same data-URI policy; not inherited.
+    let mask = match cascade_css(&matches, inline_decls.as_ref(), "mask-image", |d| d.mask_image.clone()) {
+        Cascaded::Value(BackgroundImageDecl::Url(url)) => {
+            decode_data_uri(&url).and_then(|b| decode_image_bytes(&b)).map(whiten_mask).map(Arc::new)
         }
-        Cascaded::Wide(_) => return None,
+        _ => None,
     };
-    let url = match decl {
-        // The winning declaration at this specificity was a real `none`
-        // — not "nothing declared it," which `cascade_property` already
-        // tells apart from this (see `BackgroundImageDecl`'s own docs)
-        // — so this element genuinely has no background image.
-        BackgroundImageDecl::None => return None,
-        BackgroundImageDecl::Url(url) => url,
-    };
-    decode_data_uri(&url).and_then(|b| decode_image_bytes(&b)).map(Arc::new)
+    match (bg, mask) {
+        (None, None) => None,
+        (Some(img), None) => Some(Arc::new(img)),
+        (img, mask) => {
+            let mut img = img.unwrap_or(DecodedImage { width: 0, height: 0, pixels: Vec::new(), svg: None, mask: None });
+            img.mask = mask;
+            Some(Arc::new(img))
+        }
+    }
+}
+
+/// Turns a decoded mask image into white pixels carrying its alpha, so
+/// painting it onto a black scratch buffer yields the coverage (Q29).
+fn whiten_mask(mut img: DecodedImage) -> DecodedImage {
+    for p in img.pixels.iter_mut() {
+        *p = TextColor::rgba(255, 255, 255, p.a());
+    }
+    img
 }
 
 /// Re-parses each matched rule's `var()`-bearing declarations with
@@ -7745,24 +7800,24 @@ fn resolve_style_for(
         }
     })
     .unwrap_or([None; MAX_SHADOWS]);
-    let bg_layout = {
+    let layout_for = |mask: bool| {
         let rl = |l: Length| l.resolve(font_size, inherited.root_font_size);
         let pos = apply_wide(
-            cascade_css(&matches, inl, "background-position", |d| d.background_position),
+            cascade_css(&matches, inl, if mask { "mask-position" } else { "background-position" }, |d| if mask { d.mask_position } else { d.background_position }),
             false,
             BgPosDecl::default(),
             BgPosDecl::default(),
             Some,
         );
         let size = apply_wide(
-            cascade_css(&matches, inl, "background-size", |d| d.background_size),
+            cascade_css(&matches, inl, if mask { "mask-size" } else { "background-size" }, |d| if mask { d.mask_size } else { d.background_size }),
             false,
             BgSizeDecl::default(),
             BgSizeDecl::default(),
             Some,
         );
         let repeat = apply_wide(
-            cascade_css(&matches, inl, "background-repeat", |d| d.background_repeat),
+            cascade_css(&matches, inl, if mask { "mask-repeat" } else { "background-repeat" }, |d| if mask { d.mask_repeat } else { d.background_repeat }),
             false,
             BgRepeat::default(),
             BgRepeat::default(),
@@ -7785,6 +7840,8 @@ fn resolve_style_for(
             repeat,
         }
     };
+    let bg_layout = layout_for(false);
+    let mask_layout = layout_for(true);
     let object_fit = apply_wide(
         cascade_css(&matches, inl, "object-fit", |d| d.object_fit),
         false,
@@ -7964,6 +8021,7 @@ fn resolve_style_for(
         outline_color,
         box_shadow,
         bg_layout,
+        mask_layout,
         object_fit,
         object_pos,
         border_radius,
@@ -8050,6 +8108,7 @@ fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         outline_color: None,
         box_shadow: [None; MAX_SHADOWS],
         bg_layout: BgLayout::default(),
+        mask_layout: BgLayout::default(),
         object_fit: ObjectFit::Fill,
         object_pos: ((0.5, 0.0), (0.5, 0.0)),
         border_radius: BoxLength::default(),
@@ -8223,6 +8282,10 @@ struct DecodedImage {
     /// The original SVG document when this image came from one, so
     /// `resolve_img` can re-rasterize it at the CSS box size (Q12a2).
     svg: Option<Arc<Vec<u8>>>,
+    /// `mask-image` (Q29) of the element this image bundle belongs to
+    /// (white pixels carrying the mask's alpha). When an element has a
+    /// mask but no `background-image`, the bundle is a 0x0 placeholder.
+    mask: Option<Arc<DecodedImage>>,
 }
 
 pub struct LayoutBox {
@@ -8325,7 +8388,7 @@ fn rasterize_svg(bytes: &[u8], target: Option<(u32, u32)>) -> Option<DecodedImag
             TextColor::rgba(c.red(), c.green(), c.blue(), c.alpha())
         })
         .collect();
-    Some(DecodedImage { width, height, pixels, svg: Some(Arc::new(bytes.to_vec())) })
+    Some(DecodedImage { width, height, pixels, svg: Some(Arc::new(bytes.to_vec())), mask: None })
 }
 
 fn decode_svg_bytes(bytes: &[u8]) -> Option<DecodedImage> {
@@ -8388,7 +8451,7 @@ fn decode_image_bytes(bytes: &[u8]) -> Option<DecodedImage> {
     let rgba = decoded.to_rgba8();
     let (width, height) = rgba.dimensions();
     let pixels = rgba.pixels().map(|p| TextColor::rgba(p[0], p[1], p[2], p[3])).collect();
-    Some(DecodedImage { width, height, pixels, svg: None })
+    Some(DecodedImage { width, height, pixels, svg: None, mask: None })
 }
 
 /// An `<img width>`/`<img height>` HTML attribute, as a plain unitless
@@ -15319,6 +15382,110 @@ fn sample_image(image: &DecodedImage, fx: f32, fy: f32, kx: f32, ky: f32) -> Tex
     )
 }
 
+/// The painted tile size of a `width` x `height` image under `layout`
+/// in a `w` x `h` positioning area (`background-size` / `mask-size`).
+fn bg_tile_size(width: u32, height: u32, layout: &BgLayout, w: f32, h: f32) -> (f32, f32) {
+    let (iw, ih) = (width as f32, height as f32);
+    let dim = |d: BgDim, basis: f32| match d {
+        BgDim::Auto => None,
+        BgDim::Px(v) => Some(v),
+        BgDim::Pct(p) => Some(basis * p),
+    };
+    match layout.size {
+        BgSize::Cover | BgSize::Contain => {
+            let sx = w / iw;
+            let sy = h / ih;
+            let sc = if layout.size == BgSize::Cover { sx.max(sy) } else { sx.min(sy) };
+            (iw * sc, ih * sc)
+        }
+        BgSize::Explicit(dw, dh) => match (dim(dw, w), dim(dh, h)) {
+            (None, None) => (iw, ih),
+            (Some(a), None) => (a, a * ih / iw),
+            (None, Some(b)) => (b * iw / ih, b),
+            (Some(a), Some(b)) => (a, b),
+        },
+    }
+}
+
+/// `mask-image` (Q29): paints the box via `paint_inner` and then blends
+/// the result back toward what was underneath wherever the mask's alpha
+/// is below 1, over the whole border box (descendants included). The
+/// coverage comes from painting the (white-with-alpha) mask through the
+/// background tiling code onto a black scratch buffer. An SVG mask is
+/// re-rasterized at its tile size so it stays sharp.
+#[allow(clippy::too_many_arguments)]
+fn paint_masked(
+    laid: &Laid,
+    mask: &DecodedImage,
+    font_system: &mut FontSystem,
+    swash_cache: &mut SwashCache,
+    cache: &mut ShapeCache,
+    scroll_offsets: &HashMap<usize, f32>,
+    pixels: &mut [u32],
+    win_w: u32,
+    win_h: u32,
+    scroll_offset: f32,
+    clip: Option<(f32, f32, f32, f32)>,
+) {
+    let (x, y, w, h) = (laid.x, laid.y - scroll_offset, laid.w, laid.h);
+    let (cx, cy, cw, ch) = intersect_clip(x, y, w, h, clip);
+    let x0 = cx.max(0.0).floor() as i64;
+    let y0 = cy.max(0.0).floor() as i64;
+    let x1 = ((cx + cw).min(win_w as f32)).ceil() as i64;
+    let y1 = ((cy + ch).min(win_h as f32)).ceil() as i64;
+    let go = |pixels: &mut [u32], font_system: &mut FontSystem, swash_cache: &mut SwashCache, cache: &mut ShapeCache| {
+        paint_inner_with_opacity(laid, font_system, swash_cache, cache, scroll_offsets, pixels, win_w, win_h, scroll_offset, clip);
+    };
+    if x1 <= x0 || y1 <= y0 || w <= 0.0 || h <= 0.0 || mask.width == 0 || mask.height == 0 {
+        // Nothing visible to mask; a box whose mask is empty paints nothing.
+        return;
+    }
+    let (rw, rh) = ((x1 - x0) as usize, (y1 - y0) as usize);
+    let mut before = Vec::with_capacity(rw * rh);
+    for py in y0..y1 {
+        let base = (py as u32 * win_w) as usize + x0 as usize;
+        before.extend_from_slice(&pixels[base..base + rw]);
+    }
+    go(pixels, font_system, swash_cache, cache);
+    let layout = &laid.style.mask_layout;
+    let sharp;
+    let mask = match &mask.svg {
+        Some(bytes) => {
+            let (tw, th) = bg_tile_size(mask.width, mask.height, layout, w, h);
+            let (tw, th) = (tw.round() as u32, th.round() as u32);
+            match rasterize_svg(bytes, Some((tw.max(1), th.max(1)))) {
+                Some(img) => {
+                    sharp = whiten_mask(img);
+                    &sharp
+                }
+                None => mask,
+            }
+        }
+        None => mask,
+    };
+    let mut cov = vec![0u32; rw * rh];
+    let prev = PAINT_OPACITY.with(|o| o.replace(1.0));
+    paint_background_image(mask, layout, &mut cov, rw as u32, rh as u32, x - x0 as f32, y - y0 as f32, w, h, 0.0, None);
+    PAINT_OPACITY.with(|o| o.set(prev));
+    for j in 0..rh {
+        let base = ((y0 as usize + j) * win_w as usize) + x0 as usize;
+        for i in 0..rw {
+            let a = cov[j * rw + i] & 0xFF;
+            if a == 255 {
+                continue;
+            }
+            let old = before[j * rw + i];
+            let new = pixels[base + i];
+            let mix = |sh: u32| {
+                let o = (old >> sh) & 0xFF;
+                let n = (new >> sh) & 0xFF;
+                ((o * (255 - a) + n * a) / 255) << sh
+            };
+            pixels[base + i] = mix(16) | mix(8) | mix(0);
+        }
+    }
+}
+
 /// Paints a background image per `layout` (Q16): `background-size`
 /// (`cover`/`contain`/explicit/auto, with a missing axis following the
 /// image's aspect), `background-position` (a fraction of the free space
@@ -15343,25 +15510,7 @@ fn paint_background_image(
         return;
     }
     let (iw, ih) = (image.width as f32, image.height as f32);
-    let dim = |d: BgDim, basis: f32| match d {
-        BgDim::Auto => None,
-        BgDim::Px(v) => Some(v),
-        BgDim::Pct(p) => Some(basis * p),
-    };
-    let (tw, th) = match layout.size {
-        BgSize::Cover | BgSize::Contain => {
-            let sx = w / iw;
-            let sy = h / ih;
-            let sc = if layout.size == BgSize::Cover { sx.max(sy) } else { sx.min(sy) };
-            (iw * sc, ih * sc)
-        }
-        BgSize::Explicit(dw, dh) => match (dim(dw, w), dim(dh, h)) {
-            (None, None) => (iw, ih),
-            (Some(a), None) => (a, a * ih / iw),
-            (None, Some(b)) => (b * iw / ih, b),
-            (Some(a), Some(b)) => (a, b),
-        },
-    };
+    let (tw, th) = bg_tile_size(image.width, image.height, layout, w, h);
     if tw < 0.5 || th < 0.5 {
         return;
     }
@@ -15613,6 +15762,26 @@ fn paint_z_layer(
 
 #[allow(clippy::too_many_arguments)]
 fn paint(
+    laid: &Laid,
+    font_system: &mut FontSystem,
+    swash_cache: &mut SwashCache,
+    cache: &mut ShapeCache,
+    scroll_offsets: &HashMap<usize, f32>,
+    pixels: &mut [u32],
+    win_w: u32,
+    win_h: u32,
+    scroll_offset: f32,
+    clip: Option<(f32, f32, f32, f32)>,
+) {
+    if let Some(mask) = laid.background_image.as_ref().and_then(|b| b.mask.clone()) {
+        paint_masked(laid, &mask, font_system, swash_cache, cache, scroll_offsets, pixels, win_w, win_h, scroll_offset, clip);
+        return;
+    }
+    paint_inner_with_opacity(laid, font_system, swash_cache, cache, scroll_offsets, pixels, win_w, win_h, scroll_offset, clip);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn paint_inner_with_opacity(
     laid: &Laid,
     font_system: &mut FontSystem,
     swash_cache: &mut SwashCache,
@@ -19397,7 +19566,7 @@ mod tests {
         let mut cache = HashMap::new();
         cache.insert(
             "not-fetched.png".to_string(),
-            Arc::new(DecodedImage { width: 3, height: 3, pixels: vec![TextColor::rgb(9, 9, 9); 9], svg: None }),
+            Arc::new(DecodedImage { width: 3, height: 3, pixels: vec![TextColor::rgb(9, 9, 9); 9], svg: None, mask: None }),
         );
         let tree = build_layout_tree_with_resources(&parse_html(&html), 800.0, None, "", &cache);
         assert_eq!(count_images(&tree), 3, "a fetched (cached) url now renders too");
@@ -20100,7 +20269,7 @@ mod tests {
         let mut pixels = vec![0u32; (W * H) as usize];
         let red = TextColor::rgb(255, 0, 0);
         let blue = TextColor::rgb(0, 0, 255);
-        let image = DecodedImage { width: 2, height: 1, pixels: vec![red, blue], svg: None };
+        let image = DecodedImage { width: 2, height: 1, pixels: vec![red, blue], svg: None, mask: None };
         tile_image(&image, &mut pixels, W, H, 0.0, 0.0, 8.0, 1.0, None);
         let px = |x: u32| pixels[x as usize] & 0x00FFFFFF;
         assert_eq!(px(0), 0xFF0000);
@@ -20126,7 +20295,7 @@ mod tests {
         // Painting: a 2x1 image (left red, right blue) in a 10x10 box.
         let red = TextColor::rgb(255, 0, 0);
         let blue = TextColor::rgb(0, 0, 255);
-        let image = DecodedImage { width: 2, height: 1, pixels: vec![red, blue], svg: None };
+        let image = DecodedImage { width: 2, height: 1, pixels: vec![red, blue], svg: None, mask: None };
         let paint = |fit: ObjectFit, pos: ((f32, f32), (f32, f32))| {
             let mut px = vec![0u32; 100];
             blit_image(&image, fit, pos, &mut px, 10, 10, 0.0, 0.0, 10.0, 10.0, None);
@@ -20155,12 +20324,57 @@ mod tests {
         let checker = DecodedImage {
             width: 4, height: 4,
             pixels: (0..16).map(|i| if (i % 4 + i / 4) % 2 == 0 { TextColor::rgb(255, 255, 255) } else { TextColor::rgb(0, 0, 0) }).collect(),
-            svg: None,
+            svg: None, mask: None,
         };
         let mut px = vec![0u32; 4];
         blit_image(&checker, ObjectFit::Fill, center, &mut px, 2, 2, 0.0, 0.0, 1.0, 1.0, None);
         let g = px[0] & 0xFF;
         assert!((120..=135).contains(&g), "a 4x4 checkerboard downscaled to 1px averages to grey, got {g}");
+    }
+
+    #[test]
+    fn q29_mask_image_clips_the_box_by_the_masks_alpha() {
+        // Mask: an SVG whose left half is opaque, right half empty.
+        let svg = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 2 1'><rect width='1' height='1'/></svg>";
+        let uri = format!("data:image/svg+xml,{}", svg.replace('<', "%3C").replace('>', "%3E").replace('\'', "%27"));
+        let render = |css: &str| {
+            let html = format!(
+                r#"<html><body style="margin: 0"><div style="width: 40px; height: 20px; background-color: #ff0000; {css}"></div></body></html>"#
+            );
+            let doc = parse_html(&html);
+            let tree = build_layout_tree(&doc, 1920.0);
+            let mut font_system = new_font_system();
+            let mut cache = ShapeCache::new();
+            let mut next_id = 0usize;
+            let mut incomplete = false;
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            let laid = measure(
+                &tree, &mut font_system, 0.0, 0.0, 200.0, None, &mut next_id, &mut cache, deadline, &mut incomplete,
+                &mut Vec::new(), &Floats::default(), None,
+            );
+            let mut swash_cache = SwashCache::new();
+            let mut pixels = vec![0u32; 60 * 30];
+            paint(&laid, &mut font_system, &mut swash_cache, &mut cache, &HashMap::new(), &mut pixels, 60, 30, 0.0, None);
+            (laid, pixels)
+        };
+        let px = |p: &[u32], x: u32, y: u32| p[(y * 60 + x) as usize] & 0xFFFFFF;
+        let (_, plain) = render("");
+        assert_eq!((px(&plain, 5, 10), px(&plain, 35, 10)), (0xFF0000, 0xFF0000));
+        for prop in ["-webkit-mask-image", "mask-image"] {
+            let (_, p) = render(&format!("{prop}: url('{uri}'); mask-size: 40px 20px; mask-repeat: no-repeat;"));
+            assert_eq!(px(&p, 5, 10), 0xFF0000, "{prop}: inside the mask stays painted");
+            assert_eq!(px(&p, 35, 10), 0, "{prop}: outside the mask is cut away");
+        }
+        // A later `none` wins; then the `-webkit-mask` shorthand.
+        let (_, p) = render(&format!("mask-image: url('{uri}'); mask-image: none;"));
+        assert_eq!(px(&p, 35, 10), 0xFF0000);
+        let (_, p) = render(&format!("-webkit-mask: url('{uri}') no-repeat center / 40px 20px;"));
+        assert_eq!((px(&p, 5, 10), px(&p, 35, 10)), (0xFF0000, 0));
+        // Position moves the stencil: a 20px mask pinned right covers x 20..40.
+        let (laid, p) = render(&format!("mask-image: url('{uri}'); mask-size: 20px 20px; mask-repeat: no-repeat; mask-position: right;"));
+        assert_eq!((px(&p, 5, 10), px(&p, 25, 10), px(&p, 35, 10)), (0, 0xFF0000, 0));
+        let div = find_by_width(&laid, 40.0).expect("div not found");
+        assert!(div.style.mask_layout.repeat == BgRepeat { x: false, y: false });
     }
 
     #[test]
@@ -20305,7 +20519,7 @@ mod tests {
 
         // Painting: a 2x2 red image in a 10x10 box.
         let red = TextColor::rgb(255, 0, 0);
-        let image = DecodedImage { width: 2, height: 2, pixels: vec![red; 4], svg: None };
+        let image = DecodedImage { width: 2, height: 2, pixels: vec![red; 4], svg: None, mask: None };
         let paint = |layout: BgLayout, radius: f32| {
             let mut px = vec![0u32; 100];
             paint_background_image(&image, &layout, &mut px, 10, 10, 0.0, 0.0, 10.0, 10.0, radius, None);
@@ -24409,7 +24623,7 @@ mod tests {
     fn resolve_img_renders_a_cached_live_fetched_image_for_a_non_data_uri_src() {
         let doc = parse_html(r#"<html><body><img src="https://example.com/photo.jpg" style="display:block"></body></html>"#);
         let img_handle = find_element_by_tag(&doc, "img").expect("no <img> found in fixture");
-        let decoded = DecodedImage { width: 4, height: 4, pixels: vec![TextColor::rgb(1, 2, 3); 16], svg: None };
+        let decoded = DecodedImage { width: 4, height: 4, pixels: vec![TextColor::rgb(1, 2, 3); 16], svg: None, mask: None };
         let mut image_cache = HashMap::new();
         image_cache.insert("https://example.com/photo.jpg".to_string(), Arc::new(decoded));
         let (_, found) = resolve_img(&img_handle, resolve_style(&img_handle, &[], ROOT_STYLE, 1920.0), &image_cache);
@@ -24444,7 +24658,7 @@ mod tests {
         let mut image_cache = HashMap::new();
         image_cache.insert(
             "https://example.com/photo.jpg".to_string(),
-            Arc::new(DecodedImage { width: 2, height: 2, pixels: vec![TextColor::rgb(9, 9, 9); 4], svg: None }),
+            Arc::new(DecodedImage { width: 2, height: 2, pixels: vec![TextColor::rgb(9, 9, 9); 4], svg: None, mask: None }),
         );
         let tree = build_layout_tree_with_resources(&doc, 1920.0, None, "", &image_cache);
         fn find_image_box(b: &LayoutBox) -> Option<&LayoutBox> {
