@@ -512,7 +512,7 @@ dropped selectors summed across those pages. Caveats:
       column direction, then `baseline`, then the iterative §9.7 loop.
       Each is its own commit. Detail: the remaining `[ ]` items under
       "`display: flex` (440e03b)".
-- [x] Q24 [M] (HASH) `overflow: scroll|auto` on flex, grid and table
+- [x] Q24 [M] (00648b9) `overflow: scroll|auto` on flex, grid and table
       containers, and positioned children scrolling with their scroll
       region. Add a nested-scroll-region test too. Detail: the `[ ]`
       items under "`overflow` (v31".
@@ -1377,7 +1377,7 @@ session can pick a coherent slice rather than one property at a time.
             wheel scrolling is interactive; the painted indicator is
             display-only (per this item's own explicit latitude to scope
             this out as a nice-to-have).
-      - [x] (Q24, HASH) **Only an ordinary `measure`'s `BoxContent::Blocks` arm
+      - [x] (Q24, 00648b9) **Only an ordinary `measure`'s `BoxContent::Blocks` arm
             assigns a `ScrollInfo`** — a `display: table`/`flex`/`grid`
             container's own box (`measure_table`/`measure_flex`/
             `measure_grid`, each a separate tail from the ordinary
@@ -1389,7 +1389,7 @@ session can pick a coherent slice rather than one property at a time.
             v31/v40 "narrowest real choke point over the general case"
             precedent was — the single most common real case (a plain
             block container) is what's covered.
-      - [x] (Q24, HASH) **Explicitly-stacked (`position: relative`/`sticky` with its
+      - [x] (Q24, 00648b9) **Explicitly-stacked (`position: relative`/`sticky` with its
             own `z-index`) and out-of-flow (`position: absolute`/
             `fixed`) content *inside* a scroll region doesn't scroll
             with it at all** — `paint`'s own `paint_z_layer` calls
@@ -1403,7 +1403,7 @@ session can pick a coherent slice rather than one property at a time.
             pattern) will sit frozen in place while the rest of the
             region's content scrolls underneath it, rather than
             scrolling along with its containing block.
-      - [x] (Q24, HASH) **A scroll region nested inside another scroll region is
+      - [x] (Q24, 00648b9) **A scroll region nested inside another scroll region is
             architecturally supported (the same ambient-offset-
             composition trick `position: fixed`/`sticky` already use
             for their own nesting generalizes for free — see `paint`'s
