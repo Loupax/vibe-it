@@ -1822,6 +1822,9 @@ struct Declarations {
     background_position: Option<BgPosDecl>,
     background_size: Option<BgSizeDecl>,
     background_repeat: Option<BgRepeat>,
+    /// `object-fit` / `object-position` (Q28) for `<img>`.
+    object_fit: Option<ObjectFit>,
+    object_position: Option<BgPosDecl>,
     display: Option<Display>,
     position: Option<Position>,
     float: Option<Float>,
@@ -3861,6 +3864,30 @@ impl Default for BgPosDecl {
     }
 }
 
+/// `object-fit` (Q28): how a replaced `<img>`'s picture sits in its box.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+enum ObjectFit {
+    #[default]
+    Fill,
+    Contain,
+    Cover,
+    None,
+    ScaleDown,
+}
+
+impl ObjectFit {
+    fn from_keyword(k: &str) -> Option<ObjectFit> {
+        Some(match k {
+            "fill" => ObjectFit::Fill,
+            "contain" => ObjectFit::Contain,
+            "cover" => ObjectFit::Cover,
+            "none" => ObjectFit::None,
+            "scale-down" => ObjectFit::ScaleDown,
+            _ => return Option::None,
+        })
+    }
+}
+
 /// One dimension of an explicit `background-size`.
 #[derive(Clone, Copy, PartialEq)]
 enum BgDimDecl {
@@ -5002,6 +5029,8 @@ impl Declarations {
             "background-position" => background_position,
             "background-size" => background_size,
             "background-repeat" => background_repeat,
+            "object-fit" => object_fit,
+            "object-position" => object_position,
             "font-size" => font_size, "line-height" => line_height,
             "vertical-align" => vertical_align, "font-family" => font_family,
             "font-weight" => font_weight, "text-align" => text_align,
@@ -5115,6 +5144,14 @@ impl DeclParser<'_> {
         } else if name.eq_ignore_ascii_case("background-size") {
             if let Ok(v) = parse_bg_size(input) {
                 self.decls.background_size = Some(v);
+            }
+        } else if name.eq_ignore_ascii_case("object-fit") {
+            if let Ok(id) = input.expect_ident() {
+                self.decls.object_fit = ObjectFit::from_keyword(&id.to_ascii_lowercase());
+            }
+        } else if name.eq_ignore_ascii_case("object-position") {
+            if let Ok(v) = parse_bg_position(input) {
+                self.decls.object_position = Some(v);
             }
         } else if name.eq_ignore_ascii_case("background-repeat") {
             if let Ok(v) = parse_bg_repeat(input) {
@@ -6637,6 +6674,11 @@ struct ComputedStyle {
     /// `background-position`/`-size`/`-repeat` (Q16), applied by
     /// `paint_background_image`. Not inherited.
     bg_layout: BgLayout,
+    /// `object-fit` and `object-position` (Q28), applied by `blit_image`.
+    /// Position is `(fraction of free space, px)` per axis, like
+    /// `bg_layout`. Not inherited.
+    object_fit: ObjectFit,
+    object_pos: ((f32, f32), (f32, f32)),
     /// Rounds both the background fill and (for `BorderStyle::Solid`
     /// only — see `fill_rounded_ring`'s own docs) the border itself, via
     /// `paint_box_decoration`. Not inherited. `BoxLength`, not a plain
@@ -7743,6 +7785,22 @@ fn resolve_style_for(
             repeat,
         }
     };
+    let object_fit = apply_wide(
+        cascade_css(&matches, inl, "object-fit", |d| d.object_fit),
+        false,
+        ObjectFit::Fill,
+        ObjectFit::Fill,
+        Some,
+    );
+    let object_pos = {
+        let half = BgAxisDecl { pct: 0.5, off: Length::Px(0.0) };
+        let def = BgPosDecl { x: half, y: half };
+        let p = apply_wide(cascade_css(&matches, inl, "object-position", |d| d.object_position), false, def, def, Some);
+        (
+            (p.x.pct, p.x.off.resolve(font_size, inherited.root_font_size)),
+            (p.y.pct, p.y.off.resolve(font_size, inherited.root_font_size)),
+        )
+    };
     let border_radius = cascade_property(
         &matches,
         inline_decls.as_ref().and_then(|d| d.border_radius),
@@ -7906,6 +7964,8 @@ fn resolve_style_for(
         outline_color,
         box_shadow,
         bg_layout,
+        object_fit,
+        object_pos,
         border_radius,
         overflow,
         text_overflow,
@@ -7990,6 +8050,8 @@ fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         outline_color: None,
         box_shadow: [None; MAX_SHADOWS],
         bg_layout: BgLayout::default(),
+        object_fit: ObjectFit::Fill,
+        object_pos: ((0.5, 0.0), (0.5, 0.0)),
         border_radius: BoxLength::default(),
         overflow: Overflow::default(),
         text_overflow: TextOverflow::default(),
@@ -15131,20 +15193,57 @@ fn paint_decoration_line<R: Renderer>(
 
 /// Blits a decoded image into `(x, y, w, h)` — the laid content-box rect,
 /// same positioning `paint`'s `Text` arm already uses for its own content
-/// (padding/border already excluded by the caller). Nearest-neighbor
-/// scaled from the image's intrinsic size to `w`/`h` when they differ —
-/// no bilinear/smoothing, matching this file's existing hard-edged
-/// painting fidelity everywhere else (see TODO.txt). Composited through
+/// (padding/border already excluded by the caller). The picture is
+/// scaled from the image's intrinsic size and placed per `object-fit`/`object-position` and sampled by
+/// `sample_image` (bilinear, box-averaged when downscaling). Composited through
 /// the same `blend` every other paint primitive uses, so a partially
 /// transparent pixel (a PNG with alpha) shows whatever `paint_box_
 /// decoration` already painted underneath (this box's own background,
 /// if any — called first, same stacking a real browser uses).
 #[allow(clippy::too_many_arguments)]
-fn blit_image(image: &DecodedImage, pixels: &mut [u32], win_w: u32, win_h: u32, x: f32, y: f32, w: f32, h: f32, clip: Option<(f32, f32, f32, f32)>) {
+fn blit_image(
+    image: &DecodedImage,
+    fit: ObjectFit,
+    pos: ((f32, f32), (f32, f32)),
+    pixels: &mut [u32],
+    win_w: u32,
+    win_h: u32,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    clip: Option<(f32, f32, f32, f32)>,
+) {
     if image.width == 0 || image.height == 0 || w <= 0.0 || h <= 0.0 {
         return;
     }
-    let (cx, cy, cw, ch) = intersect_clip(x, y, w, h, clip);
+    // Where the picture lands inside the content box (`object-fit`,
+    // `object-position`); it may be smaller (contain/none) or larger
+    // (cover/none) than the box, and is clipped to the box either way.
+    let (iw, ih) = (image.width as f32, image.height as f32);
+    let (rw, rh) = match fit {
+        ObjectFit::Fill => (w, h),
+        ObjectFit::Contain => {
+            let sc = (w / iw).min(h / ih);
+            (iw * sc, ih * sc)
+        }
+        ObjectFit::Cover => {
+            let sc = (w / iw).max(h / ih);
+            (iw * sc, ih * sc)
+        }
+        ObjectFit::None => (iw, ih),
+        ObjectFit::ScaleDown => {
+            let sc = (w / iw).min(h / ih).min(1.0);
+            (iw * sc, ih * sc)
+        }
+    };
+    if rw <= 0.0 || rh <= 0.0 {
+        return;
+    }
+    let rx = x + pos.0 .0 * (w - rw) + pos.0 .1;
+    let ry = y + pos.1 .0 * (h - rh) + pos.1 .1;
+    let (bx, by, bw, bh) = intersect_clip(x, y, w, h, clip);
+    let (cx, cy, cw, ch) = intersect_clip(rx, ry, rw, rh, Some((bx, by, bw, bh)));
     let x0 = cx.max(0.0) as i64;
     let y0 = cy.max(0.0) as i64;
     let x1 = ((cx + cw).min(win_w as f32)) as i64;
@@ -15152,18 +15251,72 @@ fn blit_image(image: &DecodedImage, pixels: &mut [u32], win_w: u32, win_h: u32, 
     if x1 <= x0 || y1 <= y0 {
         return;
     }
+    let (kx, ky) = (iw / rw, ih / rh);
     for py in y0..y1 {
-        // Maps this destination row back to a source row via the
-        // *unclipped* box bounds (`x`/`y`/`w`/`h`, not `cx`/`cy`), so
-        // clipping never shifts which part of the image is sampled.
-        let sy = (((py as f32 + 0.5 - y) / h * image.height as f32) as i64).clamp(0, image.height as i64 - 1) as u32;
+        // Maps this destination row back to source space via the
+        // *unclipped* rect, so clipping never shifts the sampling.
+        let fy = (py as f32 + 0.5 - ry) * ky;
         for px in x0..x1 {
-            let sx = (((px as f32 + 0.5 - x) / w * image.width as f32) as i64).clamp(0, image.width as i64 - 1) as u32;
-            let color = image.pixels[(sy * image.width + sx) as usize];
+            let fx = (px as f32 + 0.5 - rx) * kx;
+            let color = sample_image(image, fx, fy, kx, ky);
+            if color.a() == 0 {
+                continue;
+            }
             let idx = (py as u32 * win_w + px as u32) as usize;
             pixels[idx] = blend(pixels[idx], color);
         }
     }
+}
+
+/// Samples `image` at source-space point `(fx, fy)` (pixel centres at
+/// +0.5). `kx`/`ky` are source pixels per destination pixel: when
+/// downscaling by 2x or more the whole footprint is box-averaged (capped
+/// at 16x16 taps), otherwise a 4-tap bilinear blend. Alpha-weighted so a
+/// transparent neighbour doesn't bleed its colour into the result.
+fn sample_image(image: &DecodedImage, fx: f32, fy: f32, kx: f32, ky: f32) -> TextColor {
+    let (w, h) = (image.width as i64, image.height as i64);
+    let at = |x: i64, y: i64| image.pixels[(y.clamp(0, h - 1) * w + x.clamp(0, w - 1)) as usize];
+    let mut acc = [0.0f32; 4];
+    let mut add = |c: TextColor, wt: f32| {
+        let a = c.a() as f32 * wt;
+        acc[0] += c.r() as f32 * a;
+        acc[1] += c.g() as f32 * a;
+        acc[2] += c.b() as f32 * a;
+        acc[3] += a;
+    };
+    let total = if kx >= 2.0 || ky >= 2.0 {
+        let (sx0, sx1) = (fx - kx / 2.0, fx + kx / 2.0);
+        let (sy0, sy1) = (fy - ky / 2.0, fy + ky / 2.0);
+        let nx = (kx.ceil() as i64).clamp(1, 16);
+        let ny = (ky.ceil() as i64).clamp(1, 16);
+        for j in 0..ny {
+            let yy = sy0 + (sy1 - sy0) * (j as f32 + 0.5) / ny as f32;
+            for i in 0..nx {
+                let xx = sx0 + (sx1 - sx0) * (i as f32 + 0.5) / nx as f32;
+                add(at(xx.floor() as i64, yy.floor() as i64), 1.0);
+            }
+        }
+        (nx * ny) as f32
+    } else {
+        let (gx, gy) = (fx - 0.5, fy - 0.5);
+        let (x0, y0) = (gx.floor(), gy.floor());
+        let (tx, ty) = (gx - x0, gy - y0);
+        let (x0, y0) = (x0 as i64, y0 as i64);
+        add(at(x0, y0), (1.0 - tx) * (1.0 - ty));
+        add(at(x0 + 1, y0), tx * (1.0 - ty));
+        add(at(x0, y0 + 1), (1.0 - tx) * ty);
+        add(at(x0 + 1, y0 + 1), tx * ty);
+        1.0
+    };
+    if acc[3] <= 0.0 {
+        return TextColor::rgba(0, 0, 0, 0);
+    }
+    TextColor::rgba(
+        (acc[0] / acc[3]).round().min(255.0) as u8,
+        (acc[1] / acc[3]).round().min(255.0) as u8,
+        (acc[2] / acc[3]).round().min(255.0) as u8,
+        (acc[3] / total).round().min(255.0) as u8,
+    )
 }
 
 /// Paints a background image per `layout` (Q16): `background-size`
@@ -15675,7 +15828,7 @@ fn paint_inner(
             let content_y = draw_y + s.border_top() + s.padding.top.px();
             let content_w = (laid.w - s.border_h() - s.padding.left.px() - s.padding.right.px()).max(0.0);
             let content_h = (laid.h - s.border_v() - s.padding.top.px() - s.padding.bottom.px()).max(0.0);
-            blit_image(image, pixels, win_w, win_h, content_x, content_y, content_w, content_h, child_clip);
+            blit_image(image, s.object_fit, s.object_pos, pixels, win_w, win_h, content_x, content_y, content_w, content_h, child_clip);
         }
         LaidContent::MixedInline(positioned) => {
             // Don't reveal this run's text word by word as each one
@@ -19956,6 +20109,58 @@ mod tests {
         assert_eq!(px(3), 0x0000FF);
         assert_eq!(px(6), 0xFF0000);
         assert_eq!(px(7), 0x0000FF);
+    }
+
+    #[test]
+    fn q28_object_fit_and_position_parse_and_place_the_picture() {
+        let style_of = |css: &str| {
+            let html = format!(r#"<html><body><div style="width: 13px; height: 13px; {css}"></div></body></html>"#);
+            let laid = measure_fixture(&html, 200.0);
+            let st = find_by_width(&laid, 13.0).expect("div not found").style;
+            (st.object_fit, st.object_pos)
+        };
+        assert_eq!(style_of(""), (ObjectFit::Fill, ((0.5, 0.0), (0.5, 0.0))));
+        assert_eq!(style_of("object-fit: cover; object-position: left 3px top;"), (ObjectFit::Cover, ((0.0, 3.0), (0.0, 0.0))));
+        assert_eq!(style_of("object-fit: scale-down;").0, ObjectFit::ScaleDown);
+        assert_eq!(style_of("object-fit: bogus;").0, ObjectFit::Fill);
+        // Painting: a 2x1 image (left red, right blue) in a 10x10 box.
+        let red = TextColor::rgb(255, 0, 0);
+        let blue = TextColor::rgb(0, 0, 255);
+        let image = DecodedImage { width: 2, height: 1, pixels: vec![red, blue], svg: None };
+        let paint = |fit: ObjectFit, pos: ((f32, f32), (f32, f32))| {
+            let mut px = vec![0u32; 100];
+            blit_image(&image, fit, pos, &mut px, 10, 10, 0.0, 0.0, 10.0, 10.0, None);
+            px
+        };
+        let center = ((0.5, 0.0), (0.5, 0.0));
+        let set = |px: &[u32], x: usize, y: usize| px[y * 10 + x] & 0xFFFFFF != 0;
+        let px = paint(ObjectFit::Fill, center);
+        assert!(set(&px, 0, 0) && set(&px, 9, 9), "fill covers the whole box");
+        let px = paint(ObjectFit::Contain, center);
+        assert!(set(&px, 0, 5) && set(&px, 9, 5) && !set(&px, 5, 0) && !set(&px, 5, 9), "contain letterboxes a 2:1 picture");
+        let px = paint(ObjectFit::None, center);
+        assert!(set(&px, 4, 4) && set(&px, 5, 4) && !set(&px, 3, 4) && !set(&px, 6, 4), "none keeps the 2x1 intrinsic size, centred");
+        let px = paint(ObjectFit::None, ((0.0, 0.0), (0.0, 0.0)));
+        assert!(set(&px, 0, 0) && set(&px, 1, 0) && !set(&px, 2, 0) && !set(&px, 0, 1), "object-position 0 0 pins it top-left");
+        let px = paint(ObjectFit::Cover, center);
+        assert!(set(&px, 0, 0) && set(&px, 9, 9), "cover fills the box");
+        assert!(((px[5 * 10 + 1] >> 16) & 0xFF) > (px[5 * 10 + 1] & 0xFF) * 2, "cover crops: the left half is still mostly red");
+        let px = paint(ObjectFit::ScaleDown, center);
+        assert!(set(&px, 4, 4) && !set(&px, 3, 4), "scale-down never upscales past intrinsic size");
+        // Bilinear: scaling the 2x1 image up blends red into blue mid-way.
+        let px = paint(ObjectFit::Fill, center);
+        let mid = px[5 * 10 + 5];
+        assert!(((mid >> 16) & 0xFF) > 20 && (mid & 0xFF) > 20, "bilinear blends across the seam: {mid:06x}");
+        // Downscaling box-averages instead of picking one pixel.
+        let checker = DecodedImage {
+            width: 4, height: 4,
+            pixels: (0..16).map(|i| if (i % 4 + i / 4) % 2 == 0 { TextColor::rgb(255, 255, 255) } else { TextColor::rgb(0, 0, 0) }).collect(),
+            svg: None,
+        };
+        let mut px = vec![0u32; 4];
+        blit_image(&checker, ObjectFit::Fill, center, &mut px, 2, 2, 0.0, 0.0, 1.0, 1.0, None);
+        let g = px[0] & 0xFF;
+        assert!((120..=135).contains(&g), "a 4x4 checkerboard downscaled to 1px averages to grey, got {g}");
     }
 
     #[test]
