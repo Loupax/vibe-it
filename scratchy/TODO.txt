@@ -525,6 +525,12 @@ dropped selectors summed across those pages. Caveats:
       lines). If the early wrapping is fixed, ship the feature. If not,
       report back with the numbers and don't work around it. Detail:
       "`letter-spacing` was attempted and reverted".
+      BLOCKED 2026-11-13: 0.19.0 (published 2026-04-22) is already the
+      latest crates.io release, so there is nothing to bump to and the
+      wrap bug can't be re-tested against a fix. Not shipped. Options
+      for the user: test upstream git HEAD (pop-os/cosmic-text), file an
+      upstream issue, or sign off on a limitation. Leave this item
+      first-unchecked until decided.
 - [x] Q27 [M] (96bb7b1, done by Q4b+Q4c) `border-radius` with dashed, dotted, double or bevel
       borders, and with unequal per-side borders after Q4. Detail:
       "`border-radius` (v38) combined with".
