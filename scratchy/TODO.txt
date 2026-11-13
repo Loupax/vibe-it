@@ -534,7 +534,7 @@ dropped selectors summed across those pages. Caveats:
 - [x] Q27 [M] (96bb7b1, done by Q4b+Q4c) `border-radius` with dashed, dotted, double or bevel
       borders, and with unequal per-side borders after Q4. Detail:
       "`border-radius` (v38) combined with".
-- [x] Q28 [S] (HASH) Images: `object-fit`/`object-position`, plus bilinear
+- [x] Q28 [S] (0867a4c) Images: `object-fit`/`object-position`, plus bilinear
       downscaling in `blit_image`. Detail: "`<img>` (v46)".
 - [ ] Q29 [M] `mask-image`/`-webkit-mask-image` (n=438, all icon
       stencils). Needs Q12a. Kept low by the user's own call. Detail:
@@ -1662,7 +1662,7 @@ session can pick a coherent slice rather than one property at a time.
       `cursor` property, not selector re-matching/repaint-on-state-
       change).
 
-- [x] (HASH, Q28: `object-fit`/`object-position` and bilinear/box-averaged
+- [x] (0867a4c, Q28: `object-fit`/`object-position` and bilinear/box-averaged
       sampling done; the remainder below is history) `<img>` (v46) only decodes a `data:` URI `src` directly (base64
       form) — PNG/JPEG/GIF/WebP via the `image` crate. **A real
       `http(s)://` `src` is now also handled, but only for a page
