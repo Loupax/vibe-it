@@ -550,7 +550,7 @@ dropped selectors summed across those pages. Caveats:
       `:focus-within` state (links and `tabindex` elements; mouse hover,
       press, click focus, Tab, Enter), which upgrades Q2's never-match
       rules. Detail: "`OurSelectorImpl`'s `NonTSPseudoClass`".
-- [x] Q31b [S] (HASH) `:target` (needs fragment navigation), scroll-into-view on Tab
+- [x] Q31b [S] (9552b38) `:target` (needs fragment navigation), scroll-into-view on Tab
       focus, and a default focus ring. Form controls stay with Q30.
 - [ ] Q32 Scrollbar drag-to-scroll; precise float placement and hit-test
       order; negative-`z-index` hit-test order; moving DOM building and
@@ -1658,7 +1658,7 @@ session can pick a coherent slice rather than one property at a time.
       was before v64 — a real future item, not a trivial follow-on.
 
 - [x] (a4b93c4, Q31: hover/active/focus/focus-visible/focus-within done, see
-      NOTES.md "Interaction state"; `:target` done as Q31b (HASH); the text
+      NOTES.md "Interaction state"; `:target` done as Q31b (9552b38); the text
       below is history) `OurSelectorImpl`'s `NonTSPseudoClass` (now `OurPseudoClass`,
       v37) still can't parse `:hover`/`:focus`/`:active` — unlike
       `:link`/`:visited`, those need real mouse-button/keyboard-focus
