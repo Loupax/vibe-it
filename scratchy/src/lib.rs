@@ -280,10 +280,9 @@ enum OurPseudoClass {
     Link,
     Visited,
     Root,
-    /// `:target` (Q2): scratchy has no fragment navigation state, so it
-    /// parses but never matches. The `&'static str` is the source name,
-    /// for `to_css`.
-    NeverMatches(&'static str),
+    /// `:target` (Q31b): the element a `#fragment` navigation names
+    /// (`InteractionState::target`).
+    Target,
     /// Q31: live pointer/keyboard state, read from `INTERACTION` (see
     /// `InteractionState`). `:hover` also matches the hovered element's
     /// ancestors, `:active` the pressed element's ancestors, `:focus` just
@@ -309,7 +308,7 @@ impl cssparser::ToCss for OurPseudoClass {
             OurPseudoClass::Link => ":link",
             OurPseudoClass::Visited => ":visited",
             OurPseudoClass::Root => ":root",
-            OurPseudoClass::NeverMatches(n) => return write!(dest, ":{n}"),
+            OurPseudoClass::Target => ":target",
             OurPseudoClass::Hover => ":hover",
             OurPseudoClass::Active => ":active",
             OurPseudoClass::Focus => ":focus",
@@ -354,11 +353,14 @@ struct InteractionState {
     focus_within: std::collections::HashSet<usize>,
     /// Focus arrived by keyboard (Tab), so `:focus-visible` matches.
     focus_visible: bool,
+    /// `:target` (Q31b): the element named by the current URL fragment.
+    target: Option<usize>,
 }
 
 const STATE_HOVER: u8 = 1;
 const STATE_ACTIVE: u8 = 2;
 const STATE_FOCUS: u8 = 4;
+const STATE_TARGET: u8 = 8;
 
 thread_local! {
     static INTERACTION: RefCell<InteractionState> = RefCell::new(InteractionState::default());
@@ -425,6 +427,120 @@ fn is_focusable(h: &Handle) -> bool {
         return n >= 0;
     }
     matches!(element_tag(h), "a" | "area") && element_attr(h, "href").is_some()
+}
+
+/// The element a URL fragment names (Q31b): `id == frag`, else an
+/// `<a name == frag>`, same as browsers.
+fn find_fragment_target(root: &Handle, frag: &str) -> Option<Handle> {
+    fn walk(h: &Handle, frag: &str, by_name: bool) -> Option<Handle> {
+        if matches!(h.data, NodeData::Element { .. }) {
+            let attr = if by_name { "name" } else { "id" };
+            let ok = element_attr(h, attr).is_some_and(|v| *v == *frag) && (!by_name || element_tag(h) == "a");
+            if ok {
+                return Some(h.clone());
+            }
+        }
+        h.children.borrow().iter().find_map(|c| walk(c, frag, by_name))
+    }
+    if frag.is_empty() {
+        return None;
+    }
+    walk(root, frag, false).or_else(|| walk(root, frag, true))
+}
+
+/// Where an element ended up on screen: document-space rects (its own box,
+/// or one per line for an inline element's glyph runs) and whether an
+/// author `outline` already marks it. Used for scroll-into-view and the
+/// default focus ring (Q31b). Ignores scroll containers and sticky shifts.
+#[derive(Default)]
+struct NodeGeom {
+    rects: Vec<(f32, f32, f32, f32)>,
+    outline: bool,
+}
+
+fn node_geometry(laid: &Laid, cache: &ShapeCache, node: usize) -> NodeGeom {
+    fn glyph_rects(
+        cache: &ShapeCache, id: usize, node: usize, ox: f32, oy: f32, out: &mut Vec<(f32, f32, f32, f32)>,
+    ) {
+        let Some(entry) = cache.get(&id) else { return };
+        let guard = entry.lock().unwrap();
+        let (buffer, _, _, _, _, _, _, hrefs) = &*guard;
+        for run in buffer.layout_runs() {
+            let (mut lo, mut hi) = (f32::MAX, f32::MIN);
+            for g in run.glyphs {
+                if hrefs.get(g.metadata).is_some_and(|h| h.1 == node) {
+                    lo = lo.min(g.x);
+                    hi = hi.max(g.x + g.w);
+                }
+            }
+            if lo < hi {
+                out.push((ox + lo, oy + run.line_top, hi - lo, run.line_height));
+            }
+        }
+    }
+    fn walk(laid: &Laid, cache: &ShapeCache, node: usize, out: &mut NodeGeom) {
+        if laid.style.node == node {
+            out.rects.push((laid.x, laid.y, laid.w, laid.h));
+            out.outline |= laid.style.outline_width > 0.0;
+            return;
+        }
+        match &laid.content {
+            LaidContent::Blocks(cs) | LaidContent::TableRow(cs) => cs.iter().for_each(|c| walk(c, cache, node, out)),
+            LaidContent::Text(id) => {
+                let cx = laid.x + laid.style.border_left() + laid.style.padding.left.px();
+                let cy = laid.y + laid.style.border_top() + laid.style.padding.top.px();
+                glyph_rects(cache, *id, node, cx, cy, &mut out.rects);
+            }
+            LaidContent::MixedInline(items) => {
+                for item in items {
+                    match item {
+                        MixedPositioned::Embedded(l) => walk(l, cache, node, out),
+                        MixedPositioned::Word { id, x, y, .. } => glyph_rects(cache, *id, node, *x, *y, &mut out.rects),
+                    }
+                }
+            }
+            LaidContent::Image(_) => {}
+        }
+        laid.positioned.iter().for_each(|c| walk(c, cache, node, out));
+    }
+    let mut out = NodeGeom::default();
+    if node != 0 {
+        walk(laid, cache, node, &mut out);
+    }
+    out
+}
+
+/// Decodes `%XX` in a URL fragment (UTF-8, lossy).
+fn percent_decode_fragment(frag: &str) -> String {
+    let b = frag.as_bytes();
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%'
+            && i + 2 < b.len()
+            && let Some(v) = std::str::from_utf8(&b[i + 1..i + 3]).ok().and_then(|h| u8::from_str_radix(h, 16).ok())
+        {
+            out.push(v);
+            i += 3;
+        } else {
+            out.push(b[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// The default `:focus-visible` ring (Q31b): 2px, just outside `(x, y, w, h)`
+/// (window space). Two colors so it shows on light and dark backgrounds.
+fn paint_focus_ring(pixels: &mut [u32], win_w: u32, win_h: u32, x: f32, y: f32, w: f32, h: f32) {
+    for (grow, color) in [(2.0, TextColor::rgb(0xff, 0xff, 0xff)), (0.0, TextColor::rgb(0x10, 0x5c, 0xd6))] {
+        let (ox, oy, ow, oh) = (x - 2.0 - grow, y - 2.0 - grow, w + 4.0 + 2.0 * grow, h + 4.0 + 2.0 * grow);
+        let t = 2.0;
+        fill_rect(pixels, win_w, win_h, ox, oy, ow, t, color, None);
+        fill_rect(pixels, win_w, win_h, ox, oy + oh - t, ow, t, color, None);
+        fill_rect(pixels, win_w, win_h, ox, oy, t, oh, color, None);
+        fill_rect(pixels, win_w, win_h, ox + ow - t, oy, t, oh, color, None);
+    }
 }
 
 /// Focusable elements in tab order: positive `tabindex` ascending first,
@@ -543,7 +659,10 @@ impl<'i> SelectorsParser<'i> for OurSelectorParser {
                 note_state_rule(STATE_FOCUS);
                 return Ok(OurPseudoClass::FocusWithin);
             },
-            "target" => return Ok(OurPseudoClass::NeverMatches("target")),
+            "target" => {
+                note_state_rule(STATE_TARGET);
+                return Ok(OurPseudoClass::Target);
+            },
             "checked" => return Ok(OurPseudoClass::Checked),
             "disabled" => return Ok(OurPseudoClass::Disabled),
             "enabled" => return Ok(OurPseudoClass::Enabled),
@@ -821,7 +940,7 @@ impl SelectorsElement for El {
             OurPseudoClass::Link => self.is_link(),
             OurPseudoClass::Visited => false,
             OurPseudoClass::Root => self.is_root(),
-            OurPseudoClass::NeverMatches(_) => false,
+            OurPseudoClass::Target => interaction_has(|st| st.target == Some(node_id(&self.0))),
             OurPseudoClass::Hover => interaction_has(|st| st.hover.contains(&node_id(&self.0))),
             OurPseudoClass::Active => interaction_has(|st| st.active.contains(&node_id(&self.0))),
             OurPseudoClass::Focus => interaction_has(|st| st.focus == Some(node_id(&self.0))),
@@ -17659,6 +17778,9 @@ struct App {
     state_rules: u8,
     /// `node_id` last seen under the mouse (0 = none).
     hover_node: usize,
+    /// Q31b: a `#fragment` waiting for the new page's first layout that
+    /// contains its target (set by `fetch_url`, consumed in `ShapeResult`).
+    pending_fragment: Option<String>,
     /// The next rebuild is a pure restyle (state change): keep the live
     /// per-element scroll offsets instead of clearing them.
     keep_scroll_on_rebuild: bool,
@@ -17879,6 +18001,7 @@ impl App {
             interaction: InteractionState::default(),
             state_rules: 0,
             hover_node: 0,
+            pending_fragment: None,
             keep_scroll_on_rebuild: false,
             proxy,
             shaping_requests,
@@ -17926,6 +18049,7 @@ impl App {
             interaction: InteractionState::default(),
             state_rules: 0,
             hover_node: 0,
+            pending_fragment: None,
             keep_scroll_on_rebuild: false,
             proxy,
             shaping_requests,
@@ -18031,6 +18155,16 @@ impl App {
                 self.scroll_offset,
                 None,
             );
+            // Q31b: default focus ring for keyboard focus, unless the author
+            // already styled an outline on the element.
+            if let (Some(f), true) = (self.interaction.focus, self.interaction.focus_visible) {
+                let geom = node_geometry(laid, &self.shape_cache, f);
+                if !geom.outline {
+                    for &(x, y, w, h) in &geom.rects {
+                        paint_focus_ring(&mut pixels, width, height, x, y - self.scroll_offset, w, h);
+                    }
+                }
+            }
         }
 
         if self.vim_mode == VimMode::Command {
@@ -18378,6 +18512,9 @@ impl App {
         if old.focus != new.focus || old.focus_within != new.focus_within || old.focus_visible != new.focus_visible {
             changed |= STATE_FOCUS;
         }
+        if old.target != new.target {
+            changed |= STATE_TARGET;
+        }
         if changed & self.state_rules != 0 {
             self.layout_dirty = true;
             self.keep_scroll_on_rebuild = true;
@@ -18481,6 +18618,69 @@ impl App {
             (Some(i), true) => (i + order.len() - 1) % order.len(),
         };
         self.set_focus_element(Some(&order[next]), true);
+        self.scroll_focus_into_view();
+    }
+
+    /// Q31b: scrolls the page the minimum amount that brings the focused
+    /// element fully into view (with a small margin). No-op when it is
+    /// already visible or has no laid-out geometry yet.
+    fn scroll_focus_into_view(&mut self) {
+        let (Some(f), Some(laid)) = (self.interaction.focus, &self.cached) else { return };
+        let geom = node_geometry(laid, &self.shape_cache, f);
+        let Some((top, bottom)) = geom.rects.iter().fold(None, |acc: Option<(f32, f32)>, r| {
+            Some(acc.map_or((r.1, r.1 + r.3), |(t, b)| (t.min(r.1), b.max(r.1 + r.3))))
+        }) else {
+            return;
+        };
+        let view = self.surface_size.1 as f32;
+        const MARGIN: f32 = 24.0;
+        if top < self.scroll_offset {
+            self.scroll_offset = (top - MARGIN).max(0.0);
+        } else if bottom > self.scroll_offset + view {
+            self.scroll_offset = (bottom + MARGIN - view).max(0.0).min(top.max(0.0));
+        } else {
+            return;
+        }
+        if let Some(w) = &self.window {
+            w.request_redraw();
+        }
+    }
+
+    /// Q31b: `#fragment` navigation within the current document: makes the
+    /// named element `:target` and scrolls it to the top of the viewport
+    /// (an empty or `top` fragment scrolls to the top and clears the
+    /// target). Returns false while the element has no layout yet (a page
+    /// still shaping), so the caller can retry; true once done or when the
+    /// fragment names nothing.
+    fn apply_fragment(&mut self, frag: &str) -> bool {
+        // Raw first (an id may really contain `%`), then percent-decoded.
+        let target = find_fragment_target(&self.document, frag)
+            .or_else(|| find_fragment_target(&self.document, &percent_decode_fragment(frag)));
+        let frag = frag.to_string();
+        let mut st = self.interaction.clone();
+        st.target = target.as_ref().map(node_id);
+        self.set_interaction_state(st);
+        let Some(target) = target else {
+            if frag.is_empty() || frag.eq_ignore_ascii_case("top") {
+                self.scroll_offset = 0.0;
+            }
+            return true;
+        };
+        let Some(laid) = &self.cached else { return false };
+        // An inline element without its own box falls back to its ancestors.
+        let mut cur = Some(target);
+        while let Some(n) = cur {
+            let geom = node_geometry(laid, &self.shape_cache, node_id(&n));
+            if let Some(top) = geom.rects.iter().map(|r| r.1).reduce(f32::min) {
+                self.scroll_offset = top.max(0.0);
+                if let Some(w) = &self.window {
+                    w.request_redraw();
+                }
+                return true;
+            }
+            cur = parent_handle(&n);
+        }
+        false
     }
 
     /// Enter on a focused link follows it.
@@ -18497,6 +18697,11 @@ impl App {
 
     fn start_navigation(&mut self, href: &str) {
         self.pre_help_page = None;
+        if let (Some(frag), None) = (href.strip_prefix('#'), &self.base_url) {
+            // No base to resolve against, but a bare fragment needs none.
+            self.apply_fragment(frag);
+            return;
+        }
         let url = match resolve_href(self.base_url.as_ref(), href) {
             Ok(url) => url,
             Err(message) => {
@@ -18589,7 +18794,7 @@ impl App {
                 }
             },
         };
-        self.fetch_url(url);
+        self.fetch_url_inner(url);
     }
 
     /// The actual fetch-and-swap logic shared by a fresh navigation
@@ -18599,6 +18804,30 @@ impl App {
     /// NavResult`'s own docs for how the result gets back onto this
     /// thread.
     fn fetch_url(&mut self, url: Url) {
+        // Q31b: a link that only changes the fragment of the page already on
+        // screen is not a fetch: just move `:target` and scroll.
+        if let (Some(frag), Some(base)) = (url.fragment(), &self.base_url) {
+            let strip = |u: &Url| {
+                let mut u = u.clone();
+                u.set_fragment(None);
+                u
+            };
+            if strip(base) == strip(&url) {
+                let frag = frag.to_string();
+                self.apply_fragment(&frag);
+                return;
+            }
+        }
+        self.fetch_url_inner(url);
+    }
+
+    /// `fetch_url` without the same-document shortcut (`:refresh` must
+    /// really reload). The fragment is kept for after the new page's
+    /// layout (`pending_fragment`) and never sent in the request.
+    fn fetch_url_inner(&mut self, url: Url) {
+        self.pending_fragment = url.fragment().map(str::to_string);
+        let mut url = url;
+        url.set_fragment(None);
         self.nav_generation += 1;
         let generation = self.nav_generation;
         self.show_message("Loading…");
@@ -19018,6 +19247,13 @@ impl ApplicationHandler<AppEvent> for App {
                 // generation, same underlying tree).
                 self.shape_cache = shape_cache;
                 self.cached = Some(*laid);
+                // Q31b: a fragment from a cross-page navigation waits for
+                // the first layout that contains its target.
+                if let Some(frag) = self.pending_fragment.clone()
+                    && self.apply_fragment(&frag)
+                {
+                    self.pending_fragment = None;
+                }
             }
             AppEvent::ToggleVimMode => {
                 self.vim_enabled = !self.vim_enabled;
@@ -19824,6 +20060,61 @@ mod tests {
             return Some(h.clone());
         }
         h.children.borrow().iter().find_map(|c| find_by_tag(c, tag))
+    }
+
+    #[test]
+    fn q31b_target_fragment_geometry_and_focus_ring() {
+        let red = TextColor::rgb(0xff, 0, 0);
+        let html = r#"<html><head><style>p:target { color: #ff0000; }</style></head><body>
+            <div style="height:900px">spacer</div>
+            <p id="sec two">section</p><a name="old">anchor</a>
+            <p><a href="/x" id="lnk">link text</a></p></body></html>"#;
+        let doc = parse_html(html);
+        set_interaction(&InteractionState::default());
+        let colors = || {
+            let tree = build_layout_tree(&doc, 400.0);
+            let mut c = Vec::new();
+            find_all_span_colors(&tree, &mut c);
+            c
+        };
+        assert!(!colors().contains(&red));
+        assert_eq!(state_rules_mask(), STATE_TARGET);
+        // Fragment lookup: id, <a name>, percent-decoding, empty.
+        let p = find_fragment_target(&doc, &percent_decode_fragment("sec%20two")).expect("by id");
+        assert_eq!(element_tag(&p), "p");
+        assert!(find_fragment_target(&doc, "old").is_some(), "by <a name>");
+        assert!(find_fragment_target(&doc, "nope").is_none() && find_fragment_target(&doc, "").is_none());
+        assert_eq!(percent_decode_fragment("a%2"), "a%2", "malformed escapes are left alone");
+        // :target matches exactly that element.
+        let mut st = InteractionState::default();
+        st.target = Some(node_id(&p));
+        set_interaction(&st);
+        assert!(colors().contains(&red), "p:target applies");
+        set_interaction(&InteractionState::default());
+        // Geometry: the block's box and the inline link's glyph run are
+        // found below the 900px spacer, which is what scrolling uses.
+        let tree = build_layout_tree(&doc, 400.0);
+        let mut fc = new_font_system();
+        let mut cache = ShapeCache::new();
+        let (mut next_id, mut inc) = (0usize, false);
+        let laid = measure(
+            &tree, &mut fc, 0.0, 0.0, 400.0, None, &mut next_id, &mut cache,
+            std::time::Instant::now() + std::time::Duration::from_secs(5), &mut inc, &mut Vec::new(),
+            &Floats::default(), None,
+        );
+        let pg = node_geometry(&laid, &cache, node_id(&p));
+        assert!(pg.rects.first().is_some_and(|r| r.1 >= 900.0), "block target: {:?}", pg.rects);
+        let a = find_fragment_target(&doc, "lnk").unwrap();
+        let ag = node_geometry(&laid, &cache, node_id(&a));
+        assert!(ag.rects.first().is_some_and(|r| r.1 > pg.rects[0].1 && r.2 > 0.0), "inline link glyph run: {:?}", ag.rects);
+        assert!(!ag.outline);
+        assert!(node_geometry(&laid, &cache, 0).rects.is_empty());
+        // The default ring is painted just outside the rect, not inside it.
+        let mut px = vec![0x00FFFFFFu32; 100 * 100];
+        paint_focus_ring(&mut px, 100, 100, 40.0, 40.0, 20.0, 20.0);
+        assert_eq!(px[50 * 100 + 50], 0x00FFFFFF, "inside untouched");
+        assert_ne!(px[50 * 100 + 38], 0x00FFFFFF, "left edge of the ring");
+        assert_ne!(px[38 * 100 + 50], 0x00FFFFFF, "top edge of the ring");
     }
 
     #[test]

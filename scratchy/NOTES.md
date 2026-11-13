@@ -2958,7 +2958,7 @@ ancestor chain is identical changes nothing.
 Events: `CursorMoved` -> `update_hover`; mouse press -> `press_state` (active
 chain, and focus on the nearest focusable ancestor, not focus-visible);
 release clears active; Tab/Shift+Tab -> `tab_focus` (focus-visible); Enter
-on a focused link navigates. `:target` still never matches.
+on a focused link navigates.
 
 Reusing it for forms (Q30): make the control focusable in `is_focusable`
 (it covers links and `tabindex >= 0` only today, and `focusable_in_tab_order`
@@ -2970,5 +2970,21 @@ already apply to any element. `:disabled`/`:checked` stay in the matcher.
 Measured (release, synthetic 5000-item list): a restyle rebuild is ~113 ms
 (DOM walk + cascade; shaping runs on the worker afterwards); finding the
 hovered handle from its id and building its ancestor chain is ~0.15 ms.
-Not done: scroll-into-view on Tab, a visible default focus ring, focus
-restoration across navigation.
+Not done: focus restoration across navigation.
+
+### Fragments, scroll-into-view, focus ring (Q31b)
+
+`InteractionState::target` (node id) backs `:target` (`STATE_TARGET` bit).
+`fetch_url` short-circuits a URL whose fragment-stripped form equals
+`base_url`: `App::apply_fragment` finds the element (`find_fragment_target`:
+`id`, then `<a name>`; raw then percent-decoded), sets `target`, and scrolls
+its top to the viewport top. A cross-page navigation keeps the fragment in
+`pending_fragment` (never sent in the request; `fetch_url_inner`), applied in
+the `ShapeResult` handler once a layout containing the target exists.
+`node_geometry(laid, cache, node)` is the shared "where is this element"
+query: its own box, else one rect per line of its glyph runs (spans carry the
+node id), plus whether an author `outline` is set. Tab uses it in
+`scroll_focus_into_view` (minimum scroll, 24px margin); `redraw` uses it to
+paint `paint_focus_ring` (2px blue with a white halo) for `:focus-visible`
+focus unless the element already has an outline. Limits: ignores
+`overflow: scroll` containers and sticky shifts.
