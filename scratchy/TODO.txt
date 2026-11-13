@@ -546,7 +546,7 @@ dropped selectors summed across those pages. Caveats:
       checkbox/radio, focus, text input/textarea, select). This now has
       evidence: social.loupax.com has 30 forms, 33 buttons and 29
       textareas. Detail: "Form elements — sequencing plan".
-- [x] Q31 [M] (HASH) Real `:hover`/`:focus`/`:active`/`:focus-visible`/
+- [x] Q31 [M] (a4b93c4) Real `:hover`/`:focus`/`:active`/`:focus-visible`/
       `:focus-within` state (links and `tabindex` elements; mouse hover,
       press, click focus, Tab, Enter), which upgrades Q2's never-match
       rules. Detail: "`OurSelectorImpl`'s `NonTSPseudoClass`".
@@ -1657,7 +1657,7 @@ session can pick a coherent slice rather than one property at a time.
       own parsing surface, same shape `@media`'s own query-list grammar
       was before v64 — a real future item, not a trivial follow-on.
 
-- [x] (HASH, Q31: hover/active/focus/focus-visible/focus-within done, see
+- [x] (a4b93c4, Q31: hover/active/focus/focus-visible/focus-within done, see
       NOTES.md "Interaction state"; `:target` remains, as Q31b; the text
       below is history) `OurSelectorImpl`'s `NonTSPseudoClass` (now `OurPseudoClass`,
       v37) still can't parse `:hover`/`:focus`/`:active` — unlike
