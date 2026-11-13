@@ -516,7 +516,7 @@ dropped selectors summed across those pages. Caveats:
       containers, and positioned children scrolling with their scroll
       region. Add a nested-scroll-region test too. Detail: the `[ ]`
       items under "`overflow` (v31".
-- [ ] Q25 [M] `box-shadow`: blur (a cheap box blur is fine), multiple
+- [x] Q25 [M] (HASH) `box-shadow`: blur (a cheap box blur is fine), multiple
       comma-separated shadows, `inset`, and `currentColor`. Detail:
       "`box-shadow` (PROMPTS.md v27)".
 - [ ] Q26 [S] `letter-spacing` (n=8). The user decided 2026-11-12: first
@@ -1511,7 +1511,7 @@ session can pick a coherent slice rather than one property at a time.
       lossy enough to want explicit sign-off before shipping, which is
       why this was skipped rather than guessed at).
 
-- [ ] `box-shadow` (PROMPTS.md v27) is deliberately narrower than the
+- [x] (HASH, Q25: blur, multiple (max 4), inset, currentColor all done) `box-shadow` (PROMPTS.md v27) is deliberately narrower than the
       real property: no `inset` (rejected outright, not misrendered as
       an outer shadow), no blur (`blur-radius` is parsed so it doesn't
       drop the declaration, but discarded — every shadow is a

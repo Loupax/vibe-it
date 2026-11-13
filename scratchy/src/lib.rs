@@ -4227,52 +4227,50 @@ fn parse_background_shorthand(input: &mut CssParser) -> Result<BgShorthand, ()> 
     }
 }
 
-/// A parsed (not-yet-resolved) `box-shadow` value. Deliberately narrower
-/// than the real property: no `inset` (an inner shadow would need an
-/// entirely different paint — clipped to the box's own content area,
-/// not drawn outside it — so `parse_box_shadow` rejects the whole
-/// declaration rather than render it as an outer shadow, which would
-/// look wrong, not just incomplete), no blur (`blur-radius` is parsed,
-/// so it doesn't make the declaration drop, but intentionally discarded
-/// — every shadow paints as a hard-edged solid rect), no comma-separated
-/// multiple shadows (just the first/only one), and `color` is required
-/// (real CSS defaults a missing color to `currentColor`; nothing in
-/// `default.css` or a real test page has needed that yet, so it isn't
-/// implemented — see TODO.txt).
+/// Most comma-separated shadows kept per box (extras are ignored).
+/// `ComputedStyle` is `Copy`, so the list is a fixed array.
+const MAX_SHADOWS: usize = 4;
+
+/// A parsed (not-yet-resolved) `box-shadow` layer:
+/// `inset? <offset-x> <offset-y> <blur>? <spread>? <color>?`. A missing
+/// color means `currentColor`.
 #[derive(Clone, Copy, PartialEq)]
 struct BoxShadow {
     offset_x: Length,
     offset_y: Length,
+    blur: Length,
     spread: Length,
-    color: CssColor,
+    /// `None` = no color given, which (like an explicit `currentColor`)
+    /// resolves to the element's own `color`.
+    color: Option<CssColor>,
+    inset: bool,
 }
 
 /// `box-shadow`'s own declared value, as stored in `Declarations` —
-/// either a real shadow or the literal `none` keyword, which real CSS
-/// needs to win the cascade at its own specificity (overriding a real
+/// either a real shadow list or the literal `none` keyword, which real
+/// CSS needs to win the cascade at its own specificity (overriding a real
 /// shadow a *less*-specific rule declared) exactly like any other
 /// explicit value would. Plain `Option<BoxShadow>` can't represent
 /// that: both "this rule said `none`" and "this rule never mentioned
 /// `box-shadow` at all" would collapse to the same `None`, so `cascade_
 /// property` (which skips a rule entirely when its own accessor
 /// returns `None`) could never let an explicit `none` override a less-
-/// specific real shadow — it would just fall through to that shadow as
-/// if `none` had never been declared.
+/// specific real shadow.
 #[derive(Clone, Copy, PartialEq)]
 enum ShadowDecl {
     None,
-    Shadow(BoxShadow),
+    Shadow([Option<BoxShadow>; MAX_SHADOWS]),
 }
 
-/// `<offset-x> <offset-y> <blur-radius>? <spread-radius>? <color>` — a
-/// `<color>` is accepted at any position in the token stream (real CSS
-/// allows it first or last), same token-loop style as the shorthand
-/// parsers above, but *not* lenient about unrecognized tokens: an
-/// unexpected token (most likely `inset`, or two colors) drops the whole
-/// declaration rather than guessing at which length is which.
-fn parse_box_shadow(input: &mut CssParser) -> Result<BoxShadow, ()> {
+/// One shadow layer, up to the next top-level comma (consumed) or the end
+/// of input. Returns the layer and whether more layers follow. A `<color>`
+/// is accepted at any position, `inset` first or last; any other
+/// unrecognized token drops the whole declaration.
+fn parse_box_shadow_layer(input: &mut CssParser) -> Result<(BoxShadow, bool), ()> {
     let mut lengths: Vec<Length> = Vec::new();
     let mut color: Option<CssColor> = None;
+    let mut inset = false;
+    let more;
     loop {
         let state = input.state();
         if let Ok(v) = parse_length(input) {
@@ -4288,23 +4286,47 @@ fn parse_box_shadow(input: &mut CssParser) -> Result<BoxShadow, ()> {
             input.reset(&state);
         }
         match input.next() {
+            Ok(Token::Comma) => {
+                more = true;
+                break;
+            }
+            Ok(Token::Ident(id)) if id.eq_ignore_ascii_case("inset") && !inset => inset = true,
             Ok(_) => return Err(()),
-            Err(_) => break,
+            Err(_) => {
+                more = false;
+                break;
+            }
         }
     }
-    if lengths.len() < 2 {
+    if lengths.len() < 2 || lengths.len() > 4 {
         return Err(());
     }
-    let color = color.ok_or(())?;
-    Ok(BoxShadow {
-        offset_x: lengths[0],
-        offset_y: lengths[1],
-        // lengths[2] (blur-radius), if present, is read past above (so it
-        // doesn't fall through to the reject-unrecognized-token branch)
-        // but never stored — no blur rendering.
-        spread: lengths.get(3).copied().unwrap_or(Length::Px(0.0)),
-        color,
-    })
+    Ok((
+        BoxShadow {
+            offset_x: lengths[0],
+            offset_y: lengths[1],
+            blur: lengths.get(2).copied().unwrap_or(Length::Px(0.0)),
+            spread: lengths.get(3).copied().unwrap_or(Length::Px(0.0)),
+            color,
+            inset,
+        },
+        more,
+    ))
+}
+
+fn parse_box_shadow(input: &mut CssParser) -> Result<[Option<BoxShadow>; MAX_SHADOWS], ()> {
+    let mut out = [None; MAX_SHADOWS];
+    let mut n = 0;
+    loop {
+        let (layer, more) = parse_box_shadow_layer(input)?;
+        if n < MAX_SHADOWS {
+            out[n] = Some(layer);
+            n += 1;
+        }
+        if !more {
+            return Ok(out);
+        }
+    }
 }
 
 fn flex_direction_from_keyword(ident: &str) -> Option<FlexDirection> {
@@ -6611,7 +6633,7 @@ struct ComputedStyle {
     outline_color: Option<TextColor>,
     /// `None` means no `box-shadow` declared (or an unsupported form —
     /// see `BoxShadow`'s own docs). Not inherited.
-    box_shadow: Option<ResolvedBoxShadow>,
+    box_shadow: [Option<ResolvedBoxShadow>; MAX_SHADOWS],
     /// `background-position`/`-size`/`-repeat` (Q16), applied by
     /// `paint_background_image`. Not inherited.
     bg_layout: BgLayout,
@@ -6718,8 +6740,10 @@ struct ComputedStyle {
 struct ResolvedBoxShadow {
     offset_x: f32,
     offset_y: f32,
+    blur: f32,
     spread: f32,
     color: TextColor,
+    inset: bool,
 }
 
 impl ComputedStyle {
@@ -7652,20 +7676,33 @@ fn resolve_style_for(
         inline_decls.as_ref().and_then(|d| d.box_shadow),
         |d| d.box_shadow,
     )
-    .and_then(|decl| match decl {
-        // The winning declaration at this specificity was a real `none`
-        // — not "nothing declared it," which `cascade_property` already
-        // tells apart from this (see `ShadowDecl`'s own docs) — so this
-        // element genuinely has no shadow, regardless of what a less-
-        // specific rule elsewhere might have declared.
-        ShadowDecl::None => None,
-        ShadowDecl::Shadow(bs) => to_text_color(&bs.color).map(|color| ResolvedBoxShadow {
-            offset_x: bs.offset_x.resolve(font_size, inherited.root_font_size),
-            offset_y: bs.offset_y.resolve(font_size, inherited.root_font_size),
-            spread: bs.spread.resolve(font_size, inherited.root_font_size),
-            color,
-        }),
-    });
+    .map(|decl| match decl {
+        // A real `none` at the winning specificity: no shadow regardless
+        // of less-specific rules (see `ShadowDecl`).
+        ShadowDecl::None => [None; MAX_SHADOWS],
+        ShadowDecl::Shadow(list) => {
+            let rl = |l: Length| l.resolve(font_size, inherited.root_font_size);
+            let mut out = [None; MAX_SHADOWS];
+            for (o, bs) in out.iter_mut().zip(list.iter()) {
+                *o = bs.and_then(|bs| {
+                    let c = match bs.color {
+                        None | Some(CssColor::CurrentColor) => Some(color),
+                        Some(c) => to_text_color(&c),
+                    }?;
+                    Some(ResolvedBoxShadow {
+                        offset_x: rl(bs.offset_x),
+                        offset_y: rl(bs.offset_y),
+                        blur: rl(bs.blur).max(0.0),
+                        spread: rl(bs.spread),
+                        color: c,
+                        inset: bs.inset,
+                    })
+                });
+            }
+            out
+        }
+    })
+    .unwrap_or([None; MAX_SHADOWS]);
     let bg_layout = {
         let rl = |l: Length| l.resolve(font_size, inherited.root_font_size);
         let pos = apply_wide(
@@ -7951,7 +7988,7 @@ fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         word_spacing: inherited.word_spacing,
         outline_width: 0.0,
         outline_color: None,
-        box_shadow: None,
+        box_shadow: [None; MAX_SHADOWS],
         bg_layout: BgLayout::default(),
         border_radius: BoxLength::default(),
         overflow: Overflow::default(),
@@ -14533,21 +14570,12 @@ fn paint_box_decoration(
     h: f32,
     clip: Option<(f32, f32, f32, f32)>,
 ) {
-    // Painted first — behind this box's own background/border, same
-    // stacking a real (non-inset) box-shadow has. A hard-edged solid
-    // rect, not a blurred one (see `BoxShadow`'s own docs).
-    if let Some(shadow) = s.box_shadow {
-        fill_rect(
-            pixels,
-            win_w,
-            win_h,
-            x + shadow.offset_x - shadow.spread,
-            y + shadow.offset_y - shadow.spread,
-            w + 2.0 * shadow.spread,
-            h + 2.0 * shadow.spread,
-            shadow.color,
-            clip,
-        );
+    // Outer shadows: behind this box's own background/border, first
+    // listed on top (so paint last-to-first), and never drawn inside the
+    // border box itself.
+    let border_radius = s.border_radius.resolve(w);
+    for shadow in s.box_shadow.iter().rev().flatten().filter(|sh| !sh.inset) {
+        paint_box_shadow(pixels, win_w, win_h, shadow, x, y, w, h, border_radius, clip);
     }
     // Rounds both background and border together, matching a real
     // rounded box's background-under-border stacking — see
@@ -14569,7 +14597,6 @@ fn paint_box_decoration(
     // `BoxLength`'s own docs) — rather than in `measure`, since `w` is
     // already exactly the value needed and nothing else ever reads
     // this field before paint.
-    let border_radius = s.border_radius.resolve(w);
     // Uniform borders round only when solid (or absent); unequal per-side
     // borders always round, via `paint_per_side_border`.
     let uniform = s.border_width.iter().all(|w| *w == s.border_width[0])
@@ -14619,6 +14646,175 @@ fn paint_box_decoration(
             fill_rect(pixels, win_w, win_h, ox, oy + oh_total - ow, ow_total, ow, oc, clip);
             fill_rect(pixels, win_w, win_h, ox, oy, ow, oh_total, oc, clip);
             fill_rect(pixels, win_w, win_h, ox + ow_total - ow, oy, ow, oh_total, oc, clip);
+        }
+    }
+    // Inset shadows: inside the padding box, over the background.
+    if s.box_shadow.iter().flatten().any(|sh| sh.inset) {
+        let (bt, br, bb, bl) = (s.border_width[0], s.border_width[1], s.border_width[2], s.border_width[3]);
+        let (px, py, pw, ph) = (x + bl, y + bt, w - bl - br, h - bt - bb);
+        let pr = (border_radius - bt.max(br).max(bb).max(bl)).max(0.0);
+        for shadow in s.box_shadow.iter().rev().flatten().filter(|sh| sh.inset) {
+            paint_box_shadow(pixels, win_w, win_h, shadow, px, py, pw, ph, pr, clip);
+        }
+    }
+}
+
+/// Blurs `mask` (`mw` x `mh`, alpha 0..1) in place with three box-blur
+/// passes per axis approximating a Gaussian of standard deviation `sigma`.
+fn blur_mask(mask: &mut [f32], mw: usize, mh: usize, sigma: f32) {
+    // Box width for 3 passes (the classic "boxes for gauss" formula).
+    let wi = ((12.0 * sigma * sigma / 3.0 + 1.0).sqrt().floor() as usize).max(1);
+    let r = wi / 2;
+    if r == 0 {
+        return;
+    }
+    let mut line = vec![0.0f32; mw.max(mh)];
+    let box_pass = |src: &[f32], dst: &mut [f32], n: usize| {
+        // dst[i] = mean of src[i-r..=i+r], zero outside.
+        let inv = 1.0 / (2 * r + 1) as f32;
+        let mut acc: f32 = src[..(r + 1).min(n)].iter().sum();
+        for i in 0..n {
+            dst[i] = acc * inv;
+            if i + r + 1 < n {
+                acc += src[i + r + 1];
+            }
+            if i >= r {
+                acc -= src[i - r];
+            }
+        }
+    };
+    let mut tmp = vec![0.0f32; mw.max(mh)];
+    for _ in 0..3 {
+        for row in 0..mh {
+            let base = row * mw;
+            line[..mw].copy_from_slice(&mask[base..base + mw]);
+            box_pass(&line[..mw], &mut tmp[..mw], mw);
+            mask[base..base + mw].copy_from_slice(&tmp[..mw]);
+        }
+        for col in 0..mw {
+            for row in 0..mh {
+                line[row] = mask[row * mw + col];
+            }
+            box_pass(&line[..mh], &mut tmp[..mh], mh);
+            for row in 0..mh {
+                mask[row * mw + col] = tmp[row];
+            }
+        }
+    }
+}
+
+/// Whether the pixel centre `(px, py)` lies inside the rounded rect.
+fn in_uniform_rrect(px: f32, py: f32, x: f32, y: f32, w: f32, h: f32, radius: f32) -> bool {
+    if px < x || px >= x + w || py < y || py >= y + h {
+        return false;
+    }
+    let r = radius.min(w / 2.0).min(h / 2.0).max(0.0);
+    let dy = (py - y).min(y + h - py);
+    let inset = corner_inset(dy, r);
+    px >= x + inset && px < x + w - inset
+}
+
+/// Paints one `box-shadow` layer for the border box `(x, y, w, h)` with
+/// corner radius `radius`. Outer shadows skip the border box's own area;
+/// inset ones are confined to `(x, y, w, h)`, which the caller passes as
+/// the padding box. Blur is a 3-pass box blur of a coverage mask
+/// (sigma = blur / 2); above `MAX_SHADOW_MASK` cells it degrades to a
+/// hard edge.
+#[allow(clippy::too_many_arguments)]
+fn paint_box_shadow(
+    pixels: &mut [u32],
+    win_w: u32,
+    win_h: u32,
+    sh: &ResolvedBoxShadow,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    radius: f32,
+    clip: Option<(f32, f32, f32, f32)>,
+) {
+    const MAX_SHADOW_MASK: f32 = 4_000_000.0;
+    if sh.color.a() == 0 || w <= 0.0 || h <= 0.0 {
+        return;
+    }
+    // The shadow shape: the box moved by the offset, grown (outer) or
+    // shrunk (inset) by the spread.
+    let g = if sh.inset { -sh.spread } else { sh.spread };
+    let (sx, sy) = (x + sh.offset_x - g, y + sh.offset_y - g);
+    let (sw, shh) = (w + 2.0 * g, h + 2.0 * g);
+    let sr = if sh.inset { (radius - sh.spread).max(0.0) } else { (radius + sh.spread).max(0.0) };
+    let mut blur = sh.blur;
+    let mut m = (blur * 1.5).ceil() as i32;
+    // The mask covers the region the shadow can touch: outer = the shape
+    // plus the blur margin, inset = the padding box.
+    let (rx, ry, rw, rh) = if sh.inset {
+        (x.floor() as i32 - m, y.floor() as i32 - m, w.ceil() as i32 + 2 * m + 1, h.ceil() as i32 + 2 * m + 1)
+    } else {
+        (sx.floor() as i32 - m, sy.floor() as i32 - m, sw.max(0.0).ceil() as i32 + 2 * m + 1, shh.max(0.0).ceil() as i32 + 2 * m + 1)
+    };
+    let (mut rx, mut ry, mut rw, mut rh) = (rx, ry, rw, rh);
+    if rw <= 0 || rh <= 0 {
+        return;
+    }
+    if (rw as f32) * (rh as f32) > MAX_SHADOW_MASK {
+        blur = 0.0;
+        m = 0;
+        if sh.inset {
+            (rx, ry, rw, rh) = (x.floor() as i32, y.floor() as i32, w.ceil() as i32 + 1, h.ceil() as i32 + 1);
+        } else {
+            (rx, ry, rw, rh) = (sx.floor() as i32, sy.floor() as i32, sw.max(0.0).ceil() as i32 + 1, shh.max(0.0).ceil() as i32 + 1);
+        }
+        if (rw as f32) * (rh as f32) > MAX_SHADOW_MASK * 4.0 {
+            return;
+        }
+    }
+    let _ = m;
+    let (mw, mh) = (rw as usize, rh as usize);
+    let mut mask = vec![0.0f32; mw * mh];
+    for j in 0..mh {
+        for i in 0..mw {
+            let (cx, cy) = ((rx + i as i32) as f32 + 0.5, (ry + j as i32) as f32 + 0.5);
+            if in_uniform_rrect(cx, cy, sx, sy, sw, shh, sr) {
+                mask[j * mw + i] = 1.0;
+            }
+        }
+    }
+    if blur > 0.0 {
+        blur_mask(&mut mask, mw, mh, blur / 2.0);
+    }
+    let (cx0, cy0, cw, ch) = intersect_clip(0.0, 0.0, win_w as f32, win_h as f32, clip);
+    let (lo_x, lo_y) = (cx0.max(0.0).floor() as i32, cy0.max(0.0).floor() as i32);
+    let (hi_x, hi_y) = ((cx0 + cw).min(win_w as f32).ceil() as i32, (cy0 + ch).min(win_h as f32).ceil() as i32);
+    for j in 0..mh as i32 {
+        let py = ry + j;
+        if py < lo_y || py >= hi_y {
+            continue;
+        }
+        for i in 0..mw as i32 {
+            let px = rx + i;
+            if px < lo_x || px >= hi_x {
+                continue;
+            }
+            let (cx, cy) = (px as f32 + 0.5, py as f32 + 0.5);
+            let inside_box = in_uniform_rrect(cx, cy, x, y, w, h, radius);
+            let cov = mask[j as usize * mw + i as usize];
+            let alpha = if sh.inset {
+                if !inside_box {
+                    continue;
+                }
+                1.0 - cov
+            } else {
+                if inside_box {
+                    continue;
+                }
+                cov
+            };
+            let a = (sh.color.a() as f32 * alpha).round() as u8;
+            if a == 0 {
+                continue;
+            }
+            let idx = (py as u32 * win_w + px as u32) as usize;
+            pixels[idx] = blend(pixels[idx], TextColor::rgba(sh.color.r(), sh.color.g(), sh.color.b(), a));
         }
     }
 }
@@ -24946,7 +25142,7 @@ mod tests {
         );
         let div = find_by_width(&laid, 123.0).expect("div not found");
         assert!(
-            div.style.box_shadow.is_none(),
+            div.style.box_shadow[0].is_none(),
             "box-shadow: none should win the cascade and clear the rule-level shadow, not silently fail to parse and let the rule's shadow leak through"
         );
     }
@@ -24958,8 +25154,58 @@ mod tests {
             400.0,
         );
         let div = find_by_width(&laid, 50.0).expect("div not found");
-        let shadow = div.style.box_shadow.expect("a real box-shadow declaration should still resolve normally");
+        let shadow = div.style.box_shadow[0].expect("a real box-shadow declaration should still resolve normally");
         assert_eq!((shadow.offset_x, shadow.offset_y), (2.0, 3.0));
+    }
+
+    // ---------- Q25: box-shadow blur, multiple, inset, currentColor ----------
+
+    #[test]
+    fn q25_box_shadow_parses_multiple_inset_blur_and_current_color() {
+        let laid = measure_fixture(
+            r#"<html><body><div style="color: #00ff00; width: 50px; box-shadow: 1px 2px 3px 4px red, inset 0 0 5px blue, 5px 5px;">x</div></body></html>"#,
+            400.0,
+        );
+        let div = find_by_width(&laid, 50.0).expect("div not found");
+        let b = &div.style.box_shadow;
+        let first = b[0].expect("first shadow");
+        assert_eq!((first.offset_x, first.offset_y, first.blur, first.spread), (1.0, 2.0, 3.0, 4.0));
+        assert!(!first.inset);
+        let second = b[1].expect("second shadow");
+        assert!(second.inset && second.blur == 5.0);
+        let third = b[2].expect("third shadow");
+        assert_eq!((third.color.g(), third.color.r()), (255, 0), "a missing color means currentColor");
+        assert!(b[3].is_none());
+    }
+
+    #[test]
+    fn q25_blurred_outer_shadow_fades_and_skips_the_border_box() {
+        let (px, w, _) = paint_fixture(
+            r#"<html><body style="margin:0;background:#fff"><div style="margin:50px;width:60px;height:60px;box-shadow:0 0 20px #000000"></div></body></html>"#,
+        );
+        // Inside the (transparent) box: no shadow drawn.
+        assert_eq!(px_at(&px, w, 80, 80), 0xFFFFFF);
+        // Just outside the edge is darker than farther out; far away is untouched.
+        let near = px_at(&px, w, 47, 80) & 0xFF;
+        let far = px_at(&px, w, 35, 80) & 0xFF;
+        assert!(near < far, "shadow should fade with distance ({near} vs {far})");
+        assert!(near < 0xF0, "shadow should be visible right at the edge");
+        assert_eq!(px_at(&px, w, 5, 80), 0xFFFFFF);
+    }
+
+    #[test]
+    fn q25_inset_shadow_paints_inside_and_multiple_layers_stack() {
+        let (px, w, _) = paint_fixture(
+            r#"<html><body style="margin:0;background:#fff"><div style="margin:20px;width:100px;height:100px;background:#ffffff;box-shadow:inset 10px 10px 0 #ff0000"></div></body></html>"#,
+        );
+        assert_eq!(px_at(&px, w, 25, 25), 0xFF0000, "top-left band is inset-shadowed");
+        assert_eq!(px_at(&px, w, 100, 100), 0xFFFFFF, "the rest is untouched");
+        assert_eq!(px_at(&px, w, 15, 25), 0xFFFFFF, "nothing outside the box");
+        let (px, w, _) = paint_fixture(
+            r#"<html><body style="margin:0;background:#fff"><div style="margin:50px;width:20px;height:20px;box-shadow:5px 0 0 #ff0000, 10px 0 0 #0000ff"></div></body></html>"#,
+        );
+        assert_eq!(px_at(&px, w, 73, 60), 0xFF0000, "first layer is on top");
+        assert_eq!(px_at(&px, w, 78, 60), 0x0000FF);
     }
 
     // ---------- `text-align: start`/`end` ----------
