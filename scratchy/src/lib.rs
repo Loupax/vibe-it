@@ -280,10 +280,20 @@ enum OurPseudoClass {
     Link,
     Visited,
     Root,
-    /// `:hover`/`:active`/`:focus`/`:focus-visible`/`:focus-within`/`:target`
-    /// (Q2): scratchy has no such state, so these parse but never match.
-    /// The `&'static str` is the source name, for `to_css`.
+    /// `:target` (Q2): scratchy has no fragment navigation state, so it
+    /// parses but never matches. The `&'static str` is the source name,
+    /// for `to_css`.
     NeverMatches(&'static str),
+    /// Q31: live pointer/keyboard state, read from `INTERACTION` (see
+    /// `InteractionState`). `:hover` also matches the hovered element's
+    /// ancestors, `:active` the pressed element's ancestors, `:focus` just
+    /// the focused element, `:focus-visible` only when focus arrived by
+    /// keyboard, `:focus-within` the focused element and its ancestors.
+    Hover,
+    Active,
+    Focus,
+    FocusVisible,
+    FocusWithin,
     Checked,
     Disabled,
     Enabled,
@@ -300,6 +310,11 @@ impl cssparser::ToCss for OurPseudoClass {
             OurPseudoClass::Visited => ":visited",
             OurPseudoClass::Root => ":root",
             OurPseudoClass::NeverMatches(n) => return write!(dest, ":{n}"),
+            OurPseudoClass::Hover => ":hover",
+            OurPseudoClass::Active => ":active",
+            OurPseudoClass::Focus => ":focus",
+            OurPseudoClass::FocusVisible => ":focus-visible",
+            OurPseudoClass::FocusWithin => ":focus-within",
             OurPseudoClass::Checked => ":checked",
             OurPseudoClass::Disabled => ":disabled",
             OurPseudoClass::Enabled => ":enabled",
@@ -318,6 +333,119 @@ impl NonTSPseudoClass for OurPseudoClass {
     fn is_user_action_state(&self) -> bool {
         false
     }
+}
+
+/// Q31: live pointer/keyboard state the `:hover`/`:active`/`:focus*`
+/// pseudo-classes match against. Element identity is `node_id` (the DOM
+/// node's address), because the `LayoutBox`/`Laid` tree holds no `Handle`
+/// (`ComputedStyle::node` and `SpanStyle::node` carry the id, which is how
+/// a hit test finds the element under the mouse). The set of ids is already
+/// expanded to ancestors (`hover`, `active`, `focus_within`), so matching is
+/// one hash lookup. Lives in a thread-local (`INTERACTION`) because style
+/// matching runs synchronously on the main thread inside
+/// `build_layout_tree_with_resources` and has no other channel to the `App`.
+/// Reusable for forms (Q30): a text input / button just needs to be made
+/// focusable in `is_focusable` and to call `App::set_focus_element`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+struct InteractionState {
+    hover: std::collections::HashSet<usize>,
+    active: std::collections::HashSet<usize>,
+    focus: Option<usize>,
+    focus_within: std::collections::HashSet<usize>,
+    /// Focus arrived by keyboard (Tab), so `:focus-visible` matches.
+    focus_visible: bool,
+}
+
+const STATE_HOVER: u8 = 1;
+const STATE_ACTIVE: u8 = 2;
+const STATE_FOCUS: u8 = 4;
+
+thread_local! {
+    static INTERACTION: RefCell<InteractionState> = RefCell::new(InteractionState::default());
+    /// Which state pseudo-classes the stylesheets of the most recent
+    /// `build_layout_tree_with_resources` mentioned (bitmask of `STATE_*`).
+    /// A state change only needs a restyle when the relevant bit is set.
+    static STATE_RULES: std::cell::Cell<u8> = const { std::cell::Cell::new(0) };
+}
+
+fn note_state_rule(bit: u8) {
+    STATE_RULES.with(|m| m.set(m.get() | bit));
+}
+
+fn state_rules_mask() -> u8 {
+    STATE_RULES.with(|m| m.get())
+}
+
+fn interaction_has(f: impl FnOnce(&InteractionState) -> bool) -> bool {
+    INTERACTION.with(|i| f(&i.borrow()))
+}
+
+fn set_interaction(state: &InteractionState) {
+    INTERACTION.with(|i| *i.borrow_mut() = state.clone());
+}
+
+/// The identity of a DOM node for `InteractionState`: its address.
+fn node_id(h: &Handle) -> usize {
+    Rc::as_ptr(h) as usize
+}
+
+/// `h` and its ancestors' ids (elements only).
+fn ancestor_ids(h: &Handle) -> Vec<usize> {
+    let mut out = Vec::new();
+    let mut cur = Some(h.clone());
+    while let Some(n) = cur {
+        if matches!(n.data, NodeData::Element { .. }) {
+            out.push(node_id(&n));
+        }
+        cur = parent_handle(&n);
+    }
+    out
+}
+
+/// The element with `id` under `root`, if it still exists.
+fn find_node_by_id(root: &Handle, id: usize) -> Option<Handle> {
+    if node_id(root) == id {
+        return Some(root.clone());
+    }
+    for child in root.children.borrow().iter() {
+        if let Some(f) = find_node_by_id(child, id) {
+            return Some(f);
+        }
+    }
+    None
+}
+
+/// Whether Tab / a click can focus `h`: links and `tabindex` elements.
+/// (Form controls are Q30's job: add them here.)
+fn is_focusable(h: &Handle) -> bool {
+    if !matches!(h.data, NodeData::Element { .. }) {
+        return false;
+    }
+    if let Some(n) = element_attr(h, "tabindex").and_then(|t| t.trim().parse::<i32>().ok()) {
+        return n >= 0;
+    }
+    matches!(element_tag(h), "a" | "area") && element_attr(h, "href").is_some()
+}
+
+/// Focusable elements in tab order: positive `tabindex` ascending first,
+/// then the rest (`tabindex=0`/links) in document order.
+fn focusable_in_tab_order(root: &Handle) -> Vec<Handle> {
+    fn walk(h: &Handle, out: &mut Vec<Handle>) {
+        if is_focusable(h) {
+            out.push(h.clone());
+        }
+        for c in h.children.borrow().iter() {
+            walk(c, out);
+        }
+    }
+    let mut all = Vec::new();
+    walk(root, &mut all);
+    let key = |h: &Handle| match element_attr(h, "tabindex").and_then(|t| t.trim().parse::<i32>().ok()) {
+        Some(n) if n > 0 => n,
+        _ => i32::MAX,
+    };
+    all.sort_by_key(key);
+    all
 }
 
 /// A pseudo-element a selector may carry. Only parsed (so a rule like
@@ -395,11 +523,26 @@ impl<'i> SelectorsParser<'i> for OurSelectorParser {
             "link" => return Ok(OurPseudoClass::Link),
             "visited" => return Ok(OurPseudoClass::Visited),
             "root" => return Ok(OurPseudoClass::Root),
-            "hover" => return Ok(OurPseudoClass::NeverMatches("hover")),
-            "active" => return Ok(OurPseudoClass::NeverMatches("active")),
-            "focus" => return Ok(OurPseudoClass::NeverMatches("focus")),
-            "focus-visible" => return Ok(OurPseudoClass::NeverMatches("focus-visible")),
-            "focus-within" => return Ok(OurPseudoClass::NeverMatches("focus-within")),
+            "hover" => {
+                note_state_rule(STATE_HOVER);
+                return Ok(OurPseudoClass::Hover);
+            },
+            "active" => {
+                note_state_rule(STATE_ACTIVE);
+                return Ok(OurPseudoClass::Active);
+            },
+            "focus" => {
+                note_state_rule(STATE_FOCUS);
+                return Ok(OurPseudoClass::Focus);
+            },
+            "focus-visible" => {
+                note_state_rule(STATE_FOCUS);
+                return Ok(OurPseudoClass::FocusVisible);
+            },
+            "focus-within" => {
+                note_state_rule(STATE_FOCUS);
+                return Ok(OurPseudoClass::FocusWithin);
+            },
             "target" => return Ok(OurPseudoClass::NeverMatches("target")),
             "checked" => return Ok(OurPseudoClass::Checked),
             "disabled" => return Ok(OurPseudoClass::Disabled),
@@ -679,6 +822,13 @@ impl SelectorsElement for El {
             OurPseudoClass::Visited => false,
             OurPseudoClass::Root => self.is_root(),
             OurPseudoClass::NeverMatches(_) => false,
+            OurPseudoClass::Hover => interaction_has(|st| st.hover.contains(&node_id(&self.0))),
+            OurPseudoClass::Active => interaction_has(|st| st.active.contains(&node_id(&self.0))),
+            OurPseudoClass::Focus => interaction_has(|st| st.focus == Some(node_id(&self.0))),
+            OurPseudoClass::FocusVisible => {
+                interaction_has(|st| st.focus_visible && st.focus == Some(node_id(&self.0)))
+            }
+            OurPseudoClass::FocusWithin => interaction_has(|st| st.focus_within.contains(&node_id(&self.0))),
             OurPseudoClass::Checked => match element_tag(&self.0) {
                 "input" => element_attr(&self.0, "checked").is_some(),
                 "option" => element_attr(&self.0, "selected").is_some(),
@@ -6529,6 +6679,9 @@ impl FirstLineStyle {
 
 #[derive(Clone, Copy)]
 struct ComputedStyle {
+    /// Q31: `node_id` of the element this style was resolved for (0 for
+    /// anonymous boxes). Lets a hit test name the element under the mouse.
+    node: usize,
     /// This element's resolved custom properties (Q13): inherited from
     /// the parent, overlaid with its own `--name` declarations, every
     /// value already `var()`-substituted. Interned, see `intern_custom_props`.
@@ -7968,6 +8121,7 @@ fn resolve_style_for(
         cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.grid_column_end), |d| d.grid_column_end);
 
     let mut cs = ComputedStyle {
+        node: node_id(handle),
         custom_props,
         color,
         background_color,
@@ -8061,6 +8215,7 @@ fn resolve_style_for(
 
 fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
     ComputedStyle {
+        node: 0,
         custom_props: inherited.custom_props,
         color: inherited.color,
         background_color: None,
@@ -8196,6 +8351,9 @@ struct SpanStyle {
     /// answer "is this exact point a link, and to what" for
     /// `WindowEvent::MouseInput`'s click handler.
     href: Option<&'static str>,
+    /// Q31: `node_id` of the element whose text this is (0 = unknown), for
+    /// hover/active hit testing of inline text.
+    node: usize,
 }
 
 impl From<InheritedStyle> for SpanStyle {
@@ -8216,6 +8374,7 @@ impl From<InheritedStyle> for SpanStyle {
             word_spacing: s.word_spacing,
             word_break: s.word_break,
             href: None,
+            node: 0,
         }
     }
 }
@@ -8896,6 +9055,7 @@ fn build_flex_children(
             span.text_decoration = decoration.deco;
             span.decoration_style = decoration.style;
             span.href = href;
+            span.node = node_id(handle);
             pending.push(InlineItem::Text(
                 inline_text(&contents.borrow(), inherited.white_space, inherited.text_transform),
                 span,
@@ -9495,6 +9655,7 @@ fn collect_children(
             span.decoration_style = decoration.style;
             span.vertical_align = valign;
             span.href = href;
+            span.node = node_id(handle);
             pending.push(InlineItem::Text(text, span));
         }
         return;
@@ -9579,6 +9740,7 @@ fn push_generated(
     span.decoration_style = deco.style;
     span.vertical_align = if style.vertical_align == VerticalAlign::Baseline { valign } else { style.vertical_align };
     span.href = href;
+    span.node = style.node;
     let text = match content {
         GenContent::Text(t) => t,
         GenContent::Image(image) => return push_generated_image(image, style, pending, result, inherited),
@@ -9657,6 +9819,7 @@ fn collect_real_children(
                 span.decoration_style = decoration.style;
                 span.vertical_align = valign;
                 span.href = href;
+                span.node = node_id(handle);
                 // `white-space: pre` preserves the text byte-for-byte
                 // (literal newlines, runs of spaces, no fabricated
                 // trailing space) instead of collapsing it.
@@ -9712,6 +9875,7 @@ fn collect_real_children(
                             span.background_color = bg;
                             span.vertical_align = valign;
                             span.href = child_href;
+                            span.node = node_id(child);
                             pending.push(InlineItem::Text(alt, span));
                         }
                     }
@@ -9854,6 +10018,7 @@ fn build_layout_tree_with_resources(
     css_source.push('\n');
     css_source.push_str(extra_css);
     let html_handle = find_html_element(document);
+    STATE_RULES.with(|m| m.set(0));
     let mut rules = parse_stylesheet(DEFAULT_CSS);
     rules.extend(parse_stylesheet(&css_source));
     precompute_generated(document, &rules, viewport_width);
@@ -10594,7 +10759,7 @@ enum MixedPositioned {
 /// the original `spans` list by index (via cosmic-text's own per-glyph
 /// `metadata` field, set in `shape_spans`): `(height, backgrounds, vertical
 /// aligns, per-span "visibility: hidden", per-span cursor style, per-span
-/// text-decoration style, per-span link href)`.
+/// text-decoration style, per-span `(link href, node_id)`)`.
 pub type ShapedParagraph = (
     Buffer,
     f32,
@@ -10603,7 +10768,7 @@ pub type ShapedParagraph = (
     Vec<bool>,
     Vec<CursorStyle>,
     Vec<DecorationStyle>,
-    Vec<Option<&'static str>>,
+    Vec<(Option<&'static str>, usize)>,
 );
 
 /// Each entry wrapped in `Arc<Mutex<_>>` — not for real concurrent
@@ -10743,7 +10908,7 @@ fn shape_spans(
     let hidden = spans.iter().map(|(_, span)| span.visibility == Visibility::Hidden).collect();
     let cursors = spans.iter().map(|(_, span)| span.cursor).collect();
     let decoration_styles = spans.iter().map(|(_, span)| span.decoration_style).collect();
-    let hrefs = spans.iter().map(|(_, span)| span.href).collect();
+    let hrefs = spans.iter().map(|(_, span)| (span.href, span.node)).collect();
     (buffer, height, backgrounds, valigns, hidden, cursors, decoration_styles, hrefs)
 }
 
@@ -16131,8 +16296,33 @@ fn paint_inner(
 /// exists at all, see its own docs), so every arm that falls back to
 /// `laid.style.cursor` for the cursor half pairs it with a plain `None`
 /// for the href half.
+/// The element under a point as a `node_id` (0 if none), for Q31's
+/// hover/active/focus tracking. Same walk as `hit_test_cursor`.
+#[allow(clippy::too_many_arguments)]
+fn hit_test_element(
+    laid: &Laid, x: f32, y: f32, cache: &ShapeCache, scroll_offsets: &HashMap<usize, f32>, scroll_offset: f32,
+    viewport_h: f32,
+) -> usize {
+    hit_test_node(laid, x, y, cache, scroll_offsets, scroll_offset, viewport_h).2
+}
+
+/// Anonymous boxes carry node 0: fall back to the enclosing element's id.
+fn hit_test_fb(r: (CursorStyle, Option<&'static str>, usize), parent: usize) -> (CursorStyle, Option<&'static str>, usize) {
+    if r.2 == 0 { (r.0, r.1, parent) } else { r }
+}
+
+/// `hit_test_node` without the element id (the original API).
 #[allow(clippy::too_many_arguments)]
 fn hit_test_cursor(
+    laid: &Laid, x: f32, y: f32, cache: &ShapeCache, scroll_offsets: &HashMap<usize, f32>, scroll_offset: f32,
+    viewport_h: f32,
+) -> (CursorStyle, Option<&'static str>) {
+    let (c, h, _) = hit_test_node(laid, x, y, cache, scroll_offsets, scroll_offset, viewport_h);
+    (c, h)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn hit_test_node(
     laid: &Laid,
     x: f32,
     y: f32,
@@ -16140,9 +16330,9 @@ fn hit_test_cursor(
     scroll_offsets: &HashMap<usize, f32>,
     scroll_offset: f32,
     viewport_h: f32,
-) -> (CursorStyle, Option<&'static str>) {
+) -> (CursorStyle, Option<&'static str>, usize) {
     if x < laid.x || x >= laid.x + laid.w || y < laid.y || y >= laid.y + laid.h {
-        return (CursorStyle::Auto, None);
+        return (CursorStyle::Auto, None, 0);
     }
     // Same `is_explicit_stacking_child` pull-out `paint` uses, merged
     // with `laid.positioned` for one combined reversed-priority check
@@ -16188,12 +16378,12 @@ fn hit_test_cursor(
             let dy = item.sticky.as_ref().map_or(0.0, |info| sticky_shift(info, item.h, scroll_offset, viewport_h));
             let (ix, iy) = (item.x, item.y + dy);
             if ix <= x && x < ix + item.w && iy <= y && y < iy + item.h {
-                return hit_test_cursor(item, x, y - dy, cache, scroll_offsets, scroll_offset, viewport_h);
+                return hit_test_fb(hit_test_node(item, x, y - dy, cache, scroll_offsets, scroll_offset, viewport_h), laid.style.node);
             }
         } else {
             let (ix, iy, inner_scroll) = if item.fixed { (x, y - scroll_offset, 0.0) } else { (x, y, scroll_offset) };
             if ix >= item.x && ix < item.x + item.w && iy >= item.y && iy < item.y + item.h {
-                return hit_test_cursor(item, ix, iy, cache, scroll_offsets, inner_scroll, viewport_h);
+                return hit_test_fb(hit_test_node(item, ix, iy, cache, scroll_offsets, inner_scroll, viewport_h), laid.style.node);
             }
         }
     }
@@ -16217,15 +16407,15 @@ fn hit_test_cursor(
                     let dy = sticky_shift(info, child.h, scroll_offset, viewport_h);
                     let (cx, cy) = (child.x, child.y + dy);
                     if cx <= x && x < cx + child.w && cy <= y && y < cy + child.h {
-                        return hit_test_cursor(child, x, y - dy, cache, scroll_offsets, scroll_offset, viewport_h);
+                        return hit_test_fb(hit_test_node(child, x, y - dy, cache, scroll_offsets, scroll_offset, viewport_h), laid.style.node);
                     }
                     continue;
                 }
                 if child.x <= x && x < child.x + child.w && child.y <= y && y < child.y + child.h {
-                    return hit_test_cursor(child, x, y, cache, scroll_offsets, scroll_offset, viewport_h);
+                    return hit_test_fb(hit_test_node(child, x, y, cache, scroll_offsets, scroll_offset, viewport_h), laid.style.node);
                 }
             }
-            (laid.style.cursor, None)
+            (laid.style.cursor, None, laid.style.node)
         }
         LaidContent::Text(id) => {
             if let Some(entry) = cache.get(id) {
@@ -16241,15 +16431,17 @@ fn hit_test_cursor(
                     }
                     for glyph in run.glyphs {
                         if local_x >= glyph.x && local_x < glyph.x + glyph.w {
+                            let (href, node) = hrefs.get(glyph.metadata).copied().unwrap_or((None, 0));
                             return (
                                 cursors.get(glyph.metadata).copied().unwrap_or(laid.style.cursor),
-                                hrefs.get(glyph.metadata).copied().flatten(),
+                                href,
+                                if node != 0 { node } else { laid.style.node },
                             );
                         }
                     }
                 }
             }
-            (laid.style.cursor, None)
+            (laid.style.cursor, None, laid.style.node)
         }
         // No finer-grained hit test within an image — just this box's
         // own (already-cascaded) cursor, same fallback the other arms
@@ -16259,13 +16451,13 @@ fn hit_test_cursor(
         // own box — see `SpanStyle::href`'s own docs; a deliberate,
         // narrow scope cut, same spirit as other "images don't carry
         // the per-span machinery text does" gaps already in TODO.txt.)
-        LaidContent::Image(_) => (laid.style.cursor, None),
+        LaidContent::Image(_) => (laid.style.cursor, None, laid.style.node),
         LaidContent::MixedInline(positioned) => {
             for item in positioned {
                 match item {
                     MixedPositioned::Embedded(img_laid) => {
                         if img_laid.x <= x && x < img_laid.x + img_laid.w && img_laid.y <= y && y < img_laid.y + img_laid.h {
-                            return hit_test_cursor(img_laid, x, y, cache, scroll_offsets, scroll_offset, viewport_h);
+                            return hit_test_fb(hit_test_node(img_laid, x, y, cache, scroll_offsets, scroll_offset, viewport_h), laid.style.node);
                         }
                     }
                     MixedPositioned::Word { id, x: wx, y: wy, w, h } => {
@@ -16283,9 +16475,11 @@ fn hit_test_cursor(
                                 }
                                 for glyph in run.glyphs {
                                     if local_x >= glyph.x && local_x < glyph.x + glyph.w {
+                                        let (href, node) = hrefs.get(glyph.metadata).copied().unwrap_or((None, 0));
                                         return (
                                             cursors.get(glyph.metadata).copied().unwrap_or(laid.style.cursor),
-                                            hrefs.get(glyph.metadata).copied().flatten(),
+                                            href,
+                                            if node != 0 { node } else { laid.style.node },
                                         );
                                     }
                                 }
@@ -16294,7 +16488,7 @@ fn hit_test_cursor(
                     }
                 }
             }
-            (laid.style.cursor, None)
+            (laid.style.cursor, None, laid.style.node)
         }
     }
 }
@@ -17456,6 +17650,18 @@ struct App {
     /// see `is_click`'s own docs). Cleared back to `None` on release
     /// regardless of outcome.
     mouse_down_pos: Option<(f32, f32)>,
+    /// Q31: live `:hover`/`:active`/`:focus*` state (also mirrored into the
+    /// `INTERACTION` thread-local style matching reads).
+    interaction: InteractionState,
+    /// `STATE_*` bits of state pseudo-classes the current stylesheets use,
+    /// captured after each rebuild. A state change restyles only if its bit
+    /// is set here.
+    state_rules: u8,
+    /// `node_id` last seen under the mouse (0 = none).
+    hover_node: usize,
+    /// The next rebuild is a pure restyle (state change): keep the live
+    /// per-element scroll offsets instead of clearing them.
+    keep_scroll_on_rebuild: bool,
     /// Lets a background navigation thread (`start_navigation`) get its
     /// result back onto this (the event-loop) thread — the exact same
     /// `thread::spawn` + `event_loop.create_proxy().send_event(..)`
@@ -17670,6 +17876,10 @@ impl App {
             scroll_offsets: HashMap::new(),
             last_mouse_pos: None,
             mouse_down_pos: None,
+            interaction: InteractionState::default(),
+            state_rules: 0,
+            hover_node: 0,
+            keep_scroll_on_rebuild: false,
             proxy,
             shaping_requests,
             base_url,
@@ -17713,6 +17923,10 @@ impl App {
             scroll_offsets: HashMap::new(),
             last_mouse_pos: None,
             mouse_down_pos: None,
+            interaction: InteractionState::default(),
+            state_rules: 0,
+            hover_node: 0,
+            keep_scroll_on_rebuild: false,
             proxy,
             shaping_requests,
             base_url: None,
@@ -17774,7 +17988,11 @@ impl App {
             // dead weight otherwise, but clearing keeps this from
             // growing unboundedly across many stdin chunks in
             // streaming mode.
-            self.scroll_offsets.clear();
+            if !self.keep_scroll_on_rebuild {
+                self.scroll_offsets.clear();
+            }
+            self.keep_scroll_on_rebuild = false;
+            self.state_rules = state_rules_mask();
             self.cached_width = width;
             self.cached_height = height;
             self.layout_dirty = false;
@@ -18031,6 +18249,9 @@ impl App {
     /// check drops it before it could repopulate this cache anyway).
     fn replace_document(&mut self, document: Handle, extra_css: String) {
         self.document = document;
+        self.interaction = InteractionState::default();
+        set_interaction(&self.interaction);
+        self.hover_node = 0;
         self.extra_css = extra_css;
         self.image_cache.clear();
         self.layout_dirty = true;
@@ -18136,6 +18357,144 @@ impl App {
     /// unconditionally, even on `resolve_href`'s own error path just
     /// below — an error message shown over `:help` is still "no longer
     /// showing `:help`."
+    /// Q31: installs `new` as the live interaction state. The thread-local
+    /// is always updated; a restyle (`layout_dirty`) is requested only when
+    /// a kind of state that changed is actually mentioned by a stylesheet
+    /// rule (`state_rules`), so pages without `:hover` rules pay nothing.
+    fn set_interaction_state(&mut self, new: InteractionState) {
+        if new == self.interaction {
+            return;
+        }
+        let old = std::mem::replace(&mut self.interaction, new);
+        let new = &self.interaction;
+        set_interaction(new);
+        let mut changed = 0;
+        if old.hover != new.hover {
+            changed |= STATE_HOVER;
+        }
+        if old.active != new.active {
+            changed |= STATE_ACTIVE;
+        }
+        if old.focus != new.focus || old.focus_within != new.focus_within || old.focus_visible != new.focus_visible {
+            changed |= STATE_FOCUS;
+        }
+        if changed & self.state_rules != 0 {
+            self.layout_dirty = true;
+            self.keep_scroll_on_rebuild = true;
+            if let Some(w) = &self.window {
+                w.request_redraw();
+            }
+        }
+    }
+
+    /// The `node_id` of the element under window-space `pos` (0 = none).
+    fn element_at(&self, pos: (f32, f32)) -> usize {
+        match &self.cached {
+            Some(laid) => hit_test_element(
+                laid, pos.0, pos.1 + self.scroll_offset, &self.shape_cache, &self.scroll_offsets, self.scroll_offset,
+                self.surface_size.1 as f32,
+            ),
+            None => 0,
+        }
+    }
+
+    /// Ancestor-inclusive id set for a `node_id`, empty if it is gone.
+    fn chain_for(&self, node: usize) -> std::collections::HashSet<usize> {
+        if node == 0 {
+            return Default::default();
+        }
+        find_node_by_id(&self.document, node).map(|h| ancestor_ids(&h).into_iter().collect()).unwrap_or_default()
+    }
+
+    fn update_hover(&mut self, node: usize) {
+        if node == self.hover_node {
+            return;
+        }
+        self.hover_node = node;
+        if self.state_rules & STATE_HOVER == 0 {
+            return;
+        }
+        let mut st = self.interaction.clone();
+        st.hover = self.chain_for(node);
+        self.set_interaction_state(st);
+    }
+
+    /// Focuses `h` (or blurs on `None`). `visible` = reached by keyboard
+    /// (`:focus-visible`). The entry point forms (Q30) reuse.
+    fn set_focus_element(&mut self, h: Option<&Handle>, visible: bool) {
+        let mut st = self.interaction.clone();
+        match h {
+            Some(h) => {
+                let ids = ancestor_ids(h);
+                st.focus = ids.first().copied();
+                st.focus_within = ids.into_iter().collect();
+                st.focus_visible = visible;
+            }
+            None => {
+                st.focus = None;
+                st.focus_within.clear();
+                st.focus_visible = false;
+            }
+        }
+        self.set_interaction_state(st);
+    }
+
+    /// Mouse press: element + ancestors become `:active`, and the nearest
+    /// focusable ancestor-or-self takes focus (not `:focus-visible`).
+    fn press_state(&mut self, pos: (f32, f32)) {
+        let node = self.element_at(pos);
+        let target = if node == 0 { None } else { find_node_by_id(&self.document, node) };
+        let mut focus = None;
+        let mut cur = target.clone();
+        while let Some(n) = cur {
+            if is_focusable(&n) {
+                focus = Some(n);
+                break;
+            }
+            cur = parent_handle(&n);
+        }
+        let mut st = self.interaction.clone();
+        st.active = target.map(|h| ancestor_ids(&h).into_iter().collect()).unwrap_or_default();
+        self.set_interaction_state(st);
+        self.set_focus_element(focus.as_ref(), false);
+    }
+
+    fn release_state(&mut self) {
+        if !self.interaction.active.is_empty() {
+            let mut st = self.interaction.clone();
+            st.active.clear();
+            self.set_interaction_state(st);
+        }
+    }
+
+    /// Tab / Shift+Tab: move focus through `focusable_in_tab_order`.
+    fn tab_focus(&mut self, backwards: bool) {
+        let order = focusable_in_tab_order(&self.document);
+        if order.is_empty() {
+            return;
+        }
+        let cur = self.interaction.focus.and_then(|f| order.iter().position(|h| node_id(h) == f));
+        let next = match (cur, backwards) {
+            (None, false) => 0,
+            (None, true) => order.len() - 1,
+            (Some(i), false) => (i + 1) % order.len(),
+            (Some(i), true) => (i + order.len() - 1) % order.len(),
+        };
+        self.set_focus_element(Some(&order[next]), true);
+    }
+
+    /// Enter on a focused link follows it.
+    fn activate_focus(&mut self) {
+        let Some(f) = self.interaction.focus else { return };
+        let Some(h) = find_node_by_id(&self.document, f) else { return };
+        if matches!(element_tag(&h), "a" | "area") {
+            let href = element_attr(&h, "href").map(|v| v.to_string());
+            if let Some(href) = href {
+                self.start_navigation(&href);
+            }
+        }
+    }
+
     fn start_navigation(&mut self, href: &str) {
         self.pre_help_page = None;
         let url = match resolve_href(self.base_url.as_ref(), href) {
@@ -18695,6 +19054,22 @@ impl ApplicationHandler<AppEvent> for App {
                 // action like `HistoryBack`/`HistoryFront` opts back out
                 // of it instead.
                 if event.state == ElementState::Pressed {
+                    if self.vim_mode != VimMode::Command {
+                        match event.logical_key {
+                            Key::Named(NamedKey::Tab) => {
+                                self.tab_focus(self.modifiers.shift_key());
+                                if let Some(w) = &self.window {
+                                    w.request_redraw();
+                                }
+                                return;
+                            }
+                            Key::Named(NamedKey::Enter) if self.interaction.focus.is_some() => {
+                                self.activate_focus();
+                                return;
+                            }
+                            _ => {}
+                        }
+                    }
                     self.handle_key_event(&event);
                     // `:q`/`:quit` (`dispatch_command`) only set this
                     // flag — `event_loop.exit()` itself has to happen
@@ -18716,6 +19091,8 @@ impl ApplicationHandler<AppEvent> for App {
                 // document space (scroll isn't applied until paint time),
                 // so the same `+ scroll_offset` adjustment `paint` itself
                 // makes (in reverse) is needed here too.
+                let hovered = self.element_at((position.x as f32, position.y as f32));
+                self.update_hover(hovered);
                 if let (Some(laid), Some(window)) = (&self.cached, &self.window) {
                     let doc_x = position.x as f32;
                     let doc_y = position.y as f32 + self.scroll_offset;
@@ -18756,8 +19133,14 @@ impl ApplicationHandler<AppEvent> for App {
                     return;
                 }
                 match state {
-                    ElementState::Pressed => self.mouse_down_pos = self.last_mouse_pos,
+                    ElementState::Pressed => {
+                        self.mouse_down_pos = self.last_mouse_pos;
+                        if let Some(pos) = self.last_mouse_pos {
+                            self.press_state(pos);
+                        }
+                    }
                     ElementState::Released => {
+                        self.release_state();
                         // Computed into a plain, owned `Option<&'static
                         // str>` (not borrowed from `self`) *before*
                         // calling `start_navigation` below, which needs
@@ -19422,7 +19805,9 @@ mod tests {
             find_all_span_colors(&tree, &mut colors);
             colors
         };
-        // :hover never matches, and doesn't drop the other selector in the list.
+        // With no interaction state (Q31), :hover never matches, and doesn't
+        // drop the other selector in the list.
+        set_interaction(&InteractionState::default());
         let c = run(r#"<html><head><style>p:hover, p.a { color: #ff0000; } p:not(:focus).b { color: #ff0000; }</style></head><body><p>x</p><p class="a">y</p><p class="b">z</p></body></html>"#);
         assert_ne!(c[0], red);
         assert_eq!(c[1], red);
@@ -19432,6 +19817,92 @@ mod tests {
         let c = run(r#"<html lang="en-GB"><head><style>p:dir(ltr) { color: #ff0000; } .r:dir(rtl) { color: #00ff00; } .e:lang(en) { color: #0000ff; } .f:lang(fr) { color: #00ff00; }</style></head><body><p class="r e f">x</p></body></html>"#);
         assert_ne!(c[0], TextColor::rgb(0, 0xff, 0));
         assert_eq!(c[0], TextColor::rgb(0, 0, 0xff), ":lang(en) matches en-GB, last matching rule wins");
+    }
+
+    fn find_by_tag(h: &Handle, tag: &str) -> Option<Handle> {
+        if element_tag(h) == tag {
+            return Some(h.clone());
+        }
+        h.children.borrow().iter().find_map(|c| find_by_tag(c, tag))
+    }
+
+    #[test]
+    fn q31_hover_active_focus_state_matches_and_tracks_the_element_chain() {
+        let red = TextColor::rgb(0xff, 0, 0);
+        let blue = TextColor::rgb(0, 0, 0xff);
+        let html = r#"<html><head><style>
+            a:hover { color: #ff0000; } a:active { color: #0000ff; }
+            div:hover > p { color: #00ff00; } a:focus-visible { color: #ff0000; }
+            div:focus-within { color: #0000ff; }
+            </style></head><body><div><p>plain</p><a href="/x" tabindex="0">link</a></div><b tabindex="-1">no</b></body></html>"#;
+        let doc = parse_html(html);
+        let color_of = |tag: &str| {
+            let tree = build_layout_tree(&doc, 1920.0);
+            let mut colors = Vec::new();
+            let _ = tag;
+            find_all_span_colors(&tree, &mut colors);
+            colors
+        };
+        set_interaction(&InteractionState::default());
+        let base = color_of("a");
+        assert!(!base.contains(&red), "no state: nothing hovered");
+        assert_eq!(state_rules_mask(), STATE_HOVER | STATE_ACTIVE | STATE_FOCUS);
+        let a = find_by_tag(&doc, "a").unwrap();
+        let div = find_by_tag(&doc, "div").unwrap();
+        // Hover: the element and its ancestors, found through the real hit test.
+        let doc_tree = build_layout_tree(&doc, 400.0);
+        let mut fc = new_font_system();
+        let mut cache = ShapeCache::new();
+        let (mut next_id, mut inc) = (0usize, false);
+        let laid = measure(
+            &doc_tree, &mut fc, 0.0, 0.0, 400.0, None, &mut next_id, &mut cache,
+            std::time::Instant::now() + std::time::Duration::from_secs(5), &mut inc, &mut Vec::new(),
+            &Floats::default(), None,
+        );
+        let (gx, gy) = find_glyph_center(&laid, &cache, CursorStyle::Pointer).expect("link glyph");
+        let hit = hit_test_element(&laid, gx, gy, &cache, &HashMap::new(), 0.0, 600.0);
+        assert_eq!(hit, node_id(&a), "the hit test names the <a> under the mouse");
+        let mut st = InteractionState::default();
+        st.hover = ancestor_ids(&a).into_iter().collect();
+        assert!(st.hover.contains(&node_id(&div)), "ancestors are part of the chain");
+        set_interaction(&st);
+        let c = color_of("a");
+        assert!(c.contains(&red), "a:hover applies: {c:?}");
+        assert!(c.contains(&TextColor::rgb(0, 0xff, 0)), "div:hover > p applies via the ancestor chain");
+        // Active beats hover (later rule, same specificity).
+        st.active = st.hover.clone();
+        set_interaction(&st);
+        assert!(color_of("a").contains(&blue));
+        // Focus: :focus-visible only after keyboard focus; :focus-within on the ancestor.
+        let mut st = InteractionState::default();
+        let ids = ancestor_ids(&a);
+        st.focus = Some(ids[0]);
+        st.focus_within = ids.into_iter().collect();
+        set_interaction(&st);
+        let c = color_of("a");
+        assert!(!c.contains(&red), "mouse focus is not :focus-visible");
+        assert!(c.contains(&blue), "div:focus-within applies");
+        st.focus_visible = true;
+        set_interaction(&st);
+        assert!(color_of("a").contains(&red), ":focus-visible after keyboard focus");
+        set_interaction(&InteractionState::default());
+    }
+
+    #[test]
+    fn q31_focusable_elements_and_tab_order() {
+        let doc = parse_html(
+            r#"<html><body><a href="/1">1</a><a>no href</a><span tabindex="0" id="s">2</span><b tabindex="-1">3</b><i tabindex="1" id="first">4</i></body></html>"#,
+        );
+        let order = focusable_in_tab_order(&doc);
+        let tags: Vec<&str> = order.iter().map(|h| element_tag(h)).collect();
+        assert_eq!(tags, ["i", "a", "span"], "positive tabindex first, then document order, -1 and href-less skipped");
+    }
+
+    #[test]
+    fn q31_state_rule_mask_is_zero_when_no_stylesheet_uses_state() {
+        let doc = parse_html("<html><head><style>p { color: red }</style></head><body><p>x</p></body></html>");
+        let _ = build_layout_tree(&doc, 400.0);
+        assert_eq!(state_rules_mask(), 0, "no restyle will ever be needed for state on such a page");
     }
 
     #[test]

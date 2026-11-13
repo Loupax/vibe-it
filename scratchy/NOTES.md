@@ -2933,3 +2933,42 @@ bundle (a 0x0 placeholder when there is no background image), because
 which paints the box normally and then lerps the border-box region back to a
 pre-paint snapshot by the mask coverage (descendants are masked too). SVG
 masks are re-rasterized at the tile size on every paint, uncached.
+
+## Interaction state: `:hover` / `:active` / `:focus*` (Q31)
+
+The `LayoutBox`/`Laid` tree holds no DOM handles, so element identity is
+`node_id` (the `Rc<Node>` address). `ComputedStyle::node` (0 for anonymous
+boxes) and `SpanStyle::node` (stored per glyph span next to the href in
+`ShapedParagraph`) carry it; `hit_test_node` (wrapped by `hit_test_cursor`
+and `hit_test_element`) returns it, falling back to the enclosing box's id.
+
+State lives in `InteractionState` (hover / active / focus_within already
+expanded to ancestor-inclusive id sets, plus `focus` and `focus_visible`).
+`App` owns it and mirrors it into the `INTERACTION` thread-local, which
+`match_non_ts_pseudo_class` reads (style matching is synchronous on the main
+thread and has no other channel). `App::set_interaction_state` is the one
+place state changes: it restyles (`layout_dirty` plus
+`keep_scroll_on_rebuild`, so inner scroll offsets survive) only if a kind
+that changed is mentioned by a stylesheet. The parser records that in the
+`STATE_RULES` bitmask (`STATE_HOVER|ACTIVE|FOCUS`, reset at the start of each
+`build_layout_tree_with_resources`, read into `App::state_rules`). A page with
+no `:hover` rules pays nothing, and a hover that moves between elements whose
+ancestor chain is identical changes nothing.
+
+Events: `CursorMoved` -> `update_hover`; mouse press -> `press_state` (active
+chain, and focus on the nearest focusable ancestor, not focus-visible);
+release clears active; Tab/Shift+Tab -> `tab_focus` (focus-visible); Enter
+on a focused link navigates. `:target` still never matches.
+
+Reusing it for forms (Q30): make the control focusable in `is_focusable`
+(it covers links and `tabindex >= 0` only today, and `focusable_in_tab_order`
+follows it), call `App::set_focus_element(Some(&handle), visible)` from a text
+input's own click/Tab handling, and `:focus`/`:focus-within` work with no
+matcher changes. A button needs nothing beyond `is_focusable`: hover/active
+already apply to any element. `:disabled`/`:checked` stay in the matcher.
+
+Measured (release, synthetic 5000-item list): a restyle rebuild is ~113 ms
+(DOM walk + cascade; shaping runs on the worker afterwards); finding the
+hovered handle from its id and building its ancestor chain is ~0.15 ms.
+Not done: scroll-into-view on Tab, a visible default focus ring, focus
+restoration across navigation.

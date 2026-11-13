@@ -546,9 +546,12 @@ dropped selectors summed across those pages. Caveats:
       checkbox/radio, focus, text input/textarea, select). This now has
       evidence: social.loupax.com has 30 forms, 33 buttons and 29
       textareas. Detail: "Form elements — sequencing plan".
-- [ ] Q31 Real `:hover`/`:focus`/`:active` state, which upgrades Q2's
-      never-match rules. Detail: "`OurSelectorImpl`'s
-      `NonTSPseudoClass`".
+- [x] Q31 [M] (HASH) Real `:hover`/`:focus`/`:active`/`:focus-visible`/
+      `:focus-within` state (links and `tabindex` elements; mouse hover,
+      press, click focus, Tab, Enter), which upgrades Q2's never-match
+      rules. Detail: "`OurSelectorImpl`'s `NonTSPseudoClass`".
+- [ ] Q31b `:target` (needs fragment navigation), scroll-into-view on Tab
+      focus, and a default focus ring. Form controls stay with Q30.
 - [ ] Q32 Scrollbar drag-to-scroll; precise float placement and hit-test
       order; negative-`z-index` hit-test order; moving DOM building and
       cascade off the main thread. See their own Detail entries.
@@ -1654,7 +1657,9 @@ session can pick a coherent slice rather than one property at a time.
       own parsing surface, same shape `@media`'s own query-list grammar
       was before v64 — a real future item, not a trivial follow-on.
 
-- [ ] `OurSelectorImpl`'s `NonTSPseudoClass` (now `OurPseudoClass`,
+- [x] (HASH, Q31: hover/active/focus/focus-visible/focus-within done, see
+      NOTES.md "Interaction state"; `:target` remains, as Q31b; the text
+      below is history) `OurSelectorImpl`'s `NonTSPseudoClass` (now `OurPseudoClass`,
       v37) still can't parse `:hover`/`:focus`/`:active` — unlike
       `:link`/`:visited`, those need real mouse-button/keyboard-focus
       state scratchy has no concept of tracking yet (only
