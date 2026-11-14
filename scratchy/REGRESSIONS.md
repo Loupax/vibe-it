@@ -522,3 +522,15 @@ beyond that.
 | writing modes, fragmentation | `flexbox-writing-mode` 15, `flexbox-break-request-*` 8 | | NOT CLAIMED |
 | abspos children | `abspos/*` 9, `position-absolute-*` 6 | uses W10 | BROKEN |
 | not root-caused | `flex-minimum-height-flex-items-*` 16, `percentage-heights` 15, `col-wrap` 14, `balance-*` 28, `intrinsic-size` 24, `aspect-ratio-*` 19, `flexbox-flex-basis-content-*` 8 | | Q40c |
+
+#### CSS2/backgrounds + css-backgrounds (claimed: Q16 93209c2, Q25 3c7a36a)
+
+CSS2/backgrounds: 336 eligible (+3 JS) | pass 66 | fail 270. Flipped 98.
+css-backgrounds: 488 eligible (+90 JS) | pass 105 | fail 383. Flipped 31.
+
+| group | tests (examples) | wrong render | triage |
+|-------|------------------|--------------|--------|
+| W19 only `data:` URI images | 98 + 31 flipped (`background-053`, `background-position-*` 74) | image never drawn | PARTIAL (documented) |
+| W18 `<img width="100%">` | 49 references (`background-001`: reference image paints as a small square) | | BROKEN |
+| W1 units | `background-position-054` (`+0mm`) | | NOT CLAIMED |
+| css-backgrounds | `background-size-*` 55, `background-origin/-clip` 12, `box-shadow-*` 12 | mostly need url images (W19); rest not root-caused | PARTIAL / Q40c |
