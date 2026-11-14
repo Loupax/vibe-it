@@ -828,7 +828,7 @@ Not vendored; pass the path to the runner.
       collapsible space before `<br>` should not count toward line width
       (matters for `text-align:right/center`), `<br>` directly inside a flex
       container, `<br>` with `display:block` (counts as a line break only).
-- [x] Q42 [S] (done, commit HASH42; `ex`/`ch` are half an em; `ic`/`lh`/`rlh`/`cap` left as Q42a) Physical and font-relative units (W1, W2): parse `in`, `cm`,
+- [x] Q42 [S] (done, commit b79a100; `ex`/`ch` are half an em; `ic`/`lh`/`rlh`/`cap` left as Q42a) Physical and font-relative units (W1, W2): parse `in`, `cm`,
       `mm`, `pc`, `Q` (fixed px ratios) and `ex`, `ch` (x-height /
       advance of `0`; half an em is acceptable for `ex` if the font has no
       metric). Hides ~600 CSS2 failures (nf 189, mpc 198, pos 138, bg/borders
