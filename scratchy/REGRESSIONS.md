@@ -485,7 +485,7 @@ css-position: 134 eligible (+119 JS) | pass 38 | fail 96. Flipped 0.
 
 CSS2/tables: 250 eligible (+123 JS) | pass 36 | fail 214.
 css-tables: 145 eligible (+31 JS) | pass 43 | fail 102.
-Flipped 0 in both (units are not the issue here).
+Measured before Q36 (colspan/rowspan) merged. Flipped 0 in both (units are not the issue here).
 
 | group | tests (examples) | wrong render | triage |
 |-------|------------------|--------------|--------|
