@@ -299,3 +299,15 @@ FAIL css/css-tables/table-cell-tiny-width-excess-width-distribution.html
 FAIL css/css-tables/table-row-group-nested-anonymous-001.html
 FAIL css/css-tables/tentative/collapsed-borders-painting-order-007.html
 FAIL css/css-tables/tentative/paint/collapsed-border-large-cell.html
+PASS css/selectors/child-indexed-no-parent.html
+FAIL css/selectors/featureless-001.html
+FAIL css/selectors/has-style-sharing-001.html
+FAIL css/selectors/has-style-sharing-pseudo-004.html
+PASS css/selectors/is-default-ns-003.html
+FAIL css/selectors/nth-child-of-classname.html
+FAIL css/selectors/nth-child-of-pseudo.html
+FAIL css/selectors/nth-last-child-of-nesting.html
+FAIL css/selectors/nth-of-selector-before.html
+PASS css/selectors/selectors-4/lang-003.html
+PASS css/selectors/selectors-4/lang-013.html
+PASS css/selectors/selectors-4/lang-023.html

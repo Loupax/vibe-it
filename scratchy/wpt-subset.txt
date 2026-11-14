@@ -310,3 +310,16 @@ css/css-lists/li-value-reversed-022.html
 css/css-lists/list-marker-alignment.html
 css/css-lists/list-style-type-string-002.html
 css/css-lists/outside-marker-after-empty-writing-mode-root.html
+# Q40b selectors
+css/selectors/child-indexed-no-parent.html
+css/selectors/featureless-001.html
+css/selectors/has-style-sharing-001.html
+css/selectors/has-style-sharing-pseudo-004.html
+css/selectors/is-default-ns-003.html
+css/selectors/nth-child-of-classname.html
+css/selectors/nth-child-of-pseudo.html
+css/selectors/nth-last-child-of-nesting.html
+css/selectors/nth-of-selector-before.html
+css/selectors/selectors-4/lang-003.html
+css/selectors/selectors-4/lang-013.html
+css/selectors/selectors-4/lang-023.html

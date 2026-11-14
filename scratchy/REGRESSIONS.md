@@ -559,3 +559,16 @@ because test and reference both ignored the unit.
 | counter scope | `counters` 6, `counters-scope` 4 | nesting scope differs | PARTIAL (not confirmed on a minimal repro) |
 | `::marker` layout | `outside-marker-*`, `nested-marker-*`, `marker-*` ~12 | | PARTIAL |
 | residue | 77 without marker | | Q40c |
+
+#### selectors (claimed: Q2 66bdc60, Q31 a4b93c4)
+
+120 eligible (+109 JS: most selector tests are testharness) | pass 43 | fail 77.
+
+| group | tests | wrong render | triage |
+|-------|-------|--------------|--------|
+| W21 `:has()` | `has-style-sharing-*` 15 | `:has(> span)` and `:has(+ .x)` never match (minimal repro) | NOT CLAIMED |
+| `:nth-child(n of S)` | `nth-child-of-*` ~10 | | NOT CLAIMED |
+| `:host` / featureless | `featureless-*` 5 | | NOT CLAIMED |
+| `:dir()` RTL | `dir-style-*` 3 | engine is LTR-only (Q2 says so) | PARTIAL |
+| default namespace | `is-default-ns-*`, `not-default-ns-*` 6 | | NOT CLAIMED |
+| `:lang()` | `lang-*` 10 | plain `:lang(en)`/`:lang(fr)` work on a minimal repro; the tests use wildcard/string forms | PARTIAL |
