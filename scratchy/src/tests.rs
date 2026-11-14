@@ -7374,3 +7374,15 @@ fn q44_abspos_auto_width_is_shrink_to_fit() {
     assert_eq!(abs_w("left: 10px; right: 20px; top: 0;"), 270.0, "left+right stretches");
     assert_eq!(abs_w("left: 10px; width: 50px; top: 0;"), 50.0, "explicit width wins");
 }
+
+#[test]
+fn abspos_box_contains_its_floats_including_bottom_margin() {
+    // Q45 / W11: an abspos box is a BFC, so its auto height includes floats.
+    let laid = measure_fixture(
+        r#"<html><body style="margin:0"><div style="position:relative; width:300px;"><div style="position:absolute; width:96px; background:black;"><div style="float:left; margin-bottom:48px; height:48px; width:100%;"></div></div></div></body></html>"#,
+        400.0,
+    );
+    let outer = find_by_width(&laid, 300.0).expect("container not found");
+    let c = &outer.positioned[0];
+    assert_eq!(c.h, 96.0, "abspos auto height must include float and its bottom margin");
+}

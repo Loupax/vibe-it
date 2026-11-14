@@ -168,7 +168,7 @@ PASS css/CSS2/margin-padding-clear/padding-left-018.xht
 FAIL css/CSS2/margin-padding-clear/padding-left-applies-to-004.xht
 PASS css/CSS2/margin-padding-clear/padding-right-071.xht
 PASS css/CSS2/margin-padding-clear/padding-top-029.xht
-FAIL css/CSS2/normal-flow/block-formatting-context-height-001.xht
+PASS css/CSS2/normal-flow/block-formatting-context-height-001.xht
 PASS css/CSS2/normal-flow/block-formatting-contexts-005.xht
 FAIL css/CSS2/normal-flow/block-formatting-contexts-011.xht
 FAIL css/CSS2/normal-flow/block-in-inline-align-justify-001.html

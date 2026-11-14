@@ -858,7 +858,7 @@ Not vendored; pass the path to the runner.
       `linebox/border-padding-bleed-001` (now in wpt-subset.txt) still fail,
       and abspos auto width ignores margins when stretching between
       `left`+`right` (margins are not subtracted). Diagnose with --out.
-- [ ] Q45 [S] An abspos box contains its floats (W11): it is a BFC, so its
+- [x] Q45 [S] (done, commit 2ce2b2a) An abspos box contains its floats (W11): it is a BFC, so its
       auto height must include float children. WPT:
       `block-formatting-context-height-001`. (Q40a lead, repro confirmed.)
 - [ ] Q46 [M] Flex items with an explicit `width` take the flexed size when

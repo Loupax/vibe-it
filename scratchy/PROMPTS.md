@@ -6159,3 +6159,9 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > Do ONLY Q44: abspos `width:auto` is shrink-to-fit when left or right is auto; test, WPT (add target tests to the subset), screenshot, PROMPTS entry, tick Q44.
 
 **What changed:** `resolve_positioned` now passes an `auto_override` to `measure` for `width:auto` boxes: with `left` and `right` both set it is `cb_w - left - right` (stretch), otherwise the shrink-to-fit width (`cell_natural_width`, clamped to the space left of/right of the inset or static position). Test `q44_abspos_auto_width_is_shrink_to_fit`. `cargo test` 331 passed, clippy 31 warnings (unchanged). WPT: added 5 tests to `wpt-subset.txt`; 122 -> 125 pass (newly passing: `absolute-non-replaced-width-001`, `linebox/empty-inline-001`, `absolute-non-replaced-height-002`; `-002`/`-003`/`border-padding-bleed-001` recorded FAIL), 0 regressions, expectations updated. `grim` screenshot of a local abspos page (left badge and right-anchored badge both shrink to text). Left out (Q44a): margins when stretching, remaining three failures. Paint untouched, no AUTOSCROLL run.
+
+## Q45 — abspos box contains its floats (queue item)
+
+> Do ONLY Q45: an abspos box is a BFC, so its auto height must include float children (WPT block-formatting-context-height-001); test, WPT, screenshot, PROMPTS entry, tick Q45.
+
+**What changed:** `ComputedStyle::establishes_bfc` (style.rs) now also returns true for `position: absolute|fixed`, so `measure` gives them a fresh float list and grows their auto height to the floats bottom (including float bottom margin). Test: `abspos_box_contains_its_floats_including_bottom_margin`.
