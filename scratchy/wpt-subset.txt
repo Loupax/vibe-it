@@ -297,3 +297,16 @@ css/CSS2/borders/border-right-width-079.xht
 css/CSS2/borders/border-top-018.xht
 css/CSS2/borders/border-top-width-017.xht
 css/CSS2/borders/border-top-width-089.xht
+# Q40b lists
+css/css-lists/content-property/marker-text-matches-armenian.html
+css/css-lists/counter-001.html
+css/css-lists/counter-reset-reversed-display-none.html
+css/css-lists/counter-reset-reversed-siblings-003.html
+css/css-lists/foo-counter-reversed-006a.html
+css/css-lists/inline-block-list.html
+css/css-lists/li-value-reversed-003.html
+css/css-lists/li-value-reversed-009b.html
+css/css-lists/li-value-reversed-022.html
+css/css-lists/list-marker-alignment.html
+css/css-lists/list-style-type-string-002.html
+css/css-lists/outside-marker-after-empty-writing-mode-root.html

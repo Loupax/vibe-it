@@ -548,3 +548,14 @@ because test and reference both ignored the unit.
 | W16 border-collapse on internal table parts | `border-*-applies-to-*` (~109 mention table internals) | hollow square missing | PARTIAL |
 | W1 units | 31 flipped | | NOT CLAIMED |
 | ungrouped | 86 with no marker | not root-caused | Q40c |
+
+#### css-lists (claimed: Q19c 76a9d25 `::marker`, Q19f cfa71ec counters)
+
+155 eligible (+42 JS) | pass 57 | fail 98. Flipped 0.
+
+| group | tests | wrong render | triage |
+|-------|-------|--------------|--------|
+| W23 `list-style-type:"str"`, `reversed` | `list-style-type-string-*` 8, `foo-counter-reversed` 11, `li-value-reversed` 8, `counter-reset-reversed-*` 7 | `1.` shown instead of the string; counters count up | NOT CLAIMED |
+| counter scope | `counters` 6, `counters-scope` 4 | nesting scope differs | PARTIAL (not confirmed on a minimal repro) |
+| `::marker` layout | `outside-marker-*`, `nested-marker-*`, `marker-*` ~12 | | PARTIAL |
+| residue | 77 without marker | | Q40c |
