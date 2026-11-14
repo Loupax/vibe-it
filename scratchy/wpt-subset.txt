@@ -168,3 +168,24 @@ css/CSS2/box-display/containing-block-026.xht
 css/CSS2/box-display/display-001.xht
 css/CSS2/box-display/display-010.xht
 css/CSS2/box-display/display-017.xht
+# Q40b floats
+css/CSS2/floats/float-avoids-float-with-margin-009.html
+css/CSS2/floats/float-nowrap-1.html
+css/CSS2/floats/float-root.html
+css/CSS2/floats/floats-placement-vertical-003.xht
+css/CSS2/floats/floats-wrap-bfc-001-left-table.xht
+css/CSS2/floats/floats-wrap-bfc-with-margin-006.tentative.html
+css/CSS2/floats/floats-wrap-top-below-bfc-003l.xht
+css/CSS2/floats/intrinsic-size-float-and-line.html
+css/CSS2/floats-clear/adjacent-floats-001.xht
+css/CSS2/floats-clear/clear-applies-to-004.xht
+css/CSS2/floats-clear/clear-float-003.xht
+css/CSS2/floats-clear/float-003.xht
+css/CSS2/floats-clear/float-applies-to-015.xht
+css/CSS2/floats-clear/float-replaced-height-005.xht
+css/CSS2/floats-clear/floats-006.xht
+css/CSS2/floats-clear/floats-038.xht
+css/CSS2/floats-clear/floats-122.xht
+css/CSS2/floats-clear/floats-149.xht
+css/CSS2/floats-clear/margin-collapse-023.xht
+css/CSS2/floats-clear/margin-collapse-clear-003.xht

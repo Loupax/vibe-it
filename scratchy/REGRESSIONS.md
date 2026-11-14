@@ -451,3 +451,17 @@ Flipped by the W1+W19 rewrite: 189, so about half of all failures are W1 alone
 | containing block | `containing-block-*` 9 | abspos boxes stretch (W10) | BROKEN |
 | block-in-inline | `block-in-inline-*` 8 (`block-in-inline-margin-with-leading-text`) | margins around the split differ | BROKEN (not confirmed on a minimal repro, see Q40c) |
 | residue | 12 with no marker | | Q40c |
+
+#### CSS2/floats + floats-clear (claimed: float 5fc83ce, Q34)
+
+324 eligible (+12 JS) | pass 69 | fail 255. Flipped 37 (W1).
+Marker counts among failures: 212 mention `float`, 57 `inline-block`, 40 `position:absolute`.
+
+| group | tests (examples) | wrong render | triage |
+|-------|------------------|--------------|--------|
+| W8 float after inline | `floats-001` | blue float lands below the black box instead of at its left inner edge | BROKEN |
+| W9 shrink-to-fit | `float-non-replaced-width-*` (6), `float-replaced-width-*`, `clear-applies-to-000` | `PA SS` instead of `PASS` | BROKEN |
+| W14 table internals | `float-applies-to-*` (12) | `display:table-row-group; float:right` | BROKEN |
+| W1 units | 37 flipped | | NOT CLAIMED |
+| clearance | `clear-clearance-calculation-*` (5), `margin-collapse-clear-*` (10) | spacing after a cleared block differs; not root-caused | Q40c |
+| ungrouped | 4 with no marker | | Q40c |
