@@ -837,7 +837,7 @@ Not vendored; pass the path to the runner.
 - [ ] Q42a [S] Remaining units: `ic`, `lh`, `rlh`, `cap`; real x-height
       for `ex` and the advance of `0` for `ch` (today half an em); negative
       lengths for other length-only properties (W5) are still accepted.
-- [x] Q43 [M] (done, commit HASH; trailing collapsible space no longer counted; leading-space and sub-pixel leftovers in Q43a) Shrink-to-fit width is too wide (W9): floats, inline-blocks,
+- [x] Q43 [M] (done, commit c8e334c; trailing collapsible space no longer counted; leading-space and sub-pixel leftovers in Q43a) Shrink-to-fit width is too wide (W9): floats, inline-blocks,
       tables and abspos boxes measure text about one space wider than it is
       (Ahem 20px "X" float is 40px, not 20). Find the max-content
       measurement and fix the extra. Test: float/inline-block holding Ahem
