@@ -861,7 +861,7 @@ Not vendored; pass the path to the runner.
 - [x] Q45 [S] (done, commit 2ce2b2a) An abspos box contains its floats (W11): it is a BFC, so its
       auto height must include float children. WPT:
       `block-formatting-context-height-001`. (Q40a lead, repro confirmed.)
-- [x] Q46 [M] (done, commit PENDING; row containers only, rest in Q46a) Flex items with an explicit `width` take the flexed size when
+- [x] Q46 [M] (done, commit 9abe87b; row containers only, rest in Q46a) Flex items with an explicit `width` take the flexed size when
       growing/shrinking (W12): today siblings move but the item paints at
       `width`. WPT: `flex-grow-001/002/006-009`, `flex-shrink-001/002/003`.
 - [ ] Q46a [S] After Q46: a flex item that is itself a table/flex/grid container
