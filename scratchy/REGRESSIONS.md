@@ -509,3 +509,16 @@ beyond that.
 |-------|-------|--------|
 | W10, W1, W2, W5 gating | most of the 175 | BROKEN / NOT CLAIMED |
 | `vertical-align-*` (Q9), `line-height-*` | re-measure after W10/W1 | Q40c |
+
+#### css-flexbox (claimed: `display:flex` 440e03b, Q5 1000951, Q23/Q23b/Q23c)
+
+928 eligible (+70 JS) | pass 243 | fail 685 (26% pass). Flipped 0.
+
+| group | tests (examples) | wrong render | triage |
+|-------|------------------|--------------|--------|
+| W12 explicit width ignored when flexing | `flex-grow-001/002/006-009`, `flex-shrink-001/002/003/006` (273 mention flex-grow/shrink) | item paints at `width` while siblings move | BROKEN |
+| W13 cross size | `align-self-002..016` (9); 147 mention align-* | items hug the top; `flex-end`/`center` are relative to the tallest item | BROKEN |
+| W5 negative basis | `flex-basis-003/004` | negative `flex-basis` honoured | BROKEN |
+| writing modes, fragmentation | `flexbox-writing-mode` 15, `flexbox-break-request-*` 8 | | NOT CLAIMED |
+| abspos children | `abspos/*` 9, `position-absolute-*` 6 | uses W10 | BROKEN |
+| not root-caused | `flex-minimum-height-flex-items-*` 16, `percentage-heights` 15, `col-wrap` 14, `balance-*` 28, `intrinsic-size` 24, `aspect-ratio-*` 19, `flexbox-flex-basis-content-*` 8 | | Q40c |
