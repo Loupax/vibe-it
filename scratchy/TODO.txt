@@ -845,7 +845,7 @@ Not vendored; pass the path to the runner.
       width|style=width>` with `span` feeds the column's min/max sizing.
       Test: a `rowspan=0` cell covers all later rows of its tbody; a
       `<col span=2 style="width:100px">` fixes two columns at 100px.
-- [x] Q37 [S] (see PR; hash below) Cleanup of stale entries, no code: tick the history items
+- [x] Q37 [S] (36c8d2d) Cleanup of stale entries, no code: tick the history items
       that Q34a-c and Q10/Q18 already resolved (search "Floats don't
       escape their parent" and "`@import`/`@font-face`/`@keyframes`/
       `@supports`") and reword the latter to what's still open
