@@ -909,9 +909,16 @@ Not vendored; pass the path to the runner.
       (today `content_w.min(max_mb).max(min_mb.min(content_w))` wraps `XXXX` per
       letter when the container is 0 wide). Q49 also ignores `text-align` other
       than left in the fit check.
-- [ ] Q50 [S] Block-level `display:table` (no float, no width) shrinks to fit
+- [x] Q50 [S] (done, commit HASH) Block-level `display:table` (no float, no width) shrinks to fit
       (W14). Today it fills the container and spreads cells. WPT:
       `border-applies-to-*`, `float-applies-to-*`.
+      Done: `measure` passes the float shrink-to-fit width to `measure_table`
+      for `width:auto` tables; a table's `cell_natural_width` is now the sum
+      of its column extents (`table_column_extents`), not the widest row.
+- [ ] Q50a [S] `border-applies-to-*` / `float-applies-to-*` still fail: they
+      need anonymous table objects (`display:table-row-group|cell` outside a
+      table) and `border-collapse`/`border-spacing` (W16). Subset now includes
+      `border-applies-to-001..012` and `float-applies-to-001..015`.
 - [ ] Q51 [S] Table `width` includes the table's border and padding (W15).
       WPT: `block-formatting-contexts-001` (reference).
 - [ ] Q52 [S] Border width defaults to `medium` (3px) when a style is set

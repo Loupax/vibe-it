@@ -1493,6 +1493,19 @@ fn measure_inner<'a>(
     if b.style.display == Display::Table
         && let BoxContent::Blocks(children) = &b.content
     {
+        // Q50 (W14): a block-level `display: table` with `width: auto`
+        // shrink-to-fits (CSS2.1 §17.5.2.2) rather than filling the
+        // container: same min/max-content clamp a `width: auto` float uses.
+        let auto_margin_box_override = if auto_margin_box_override.is_none()
+            && forced_border_w.is_none()
+            && b.style.width.is_none()
+            && b.style.width_kw.is_none()
+        {
+            let (min_mb, max_mb) = cell_natural_width(b, font_system, next_id, cache, deadline, incomplete);
+            Some(width.min(max_mb).max(min_mb.min(width)))
+        } else {
+            auto_margin_box_override
+        };
         return measure_table(
             b, children, font_system, x, y, width, containing_height, next_id, cache, deadline, incomplete, pending,
             auto_margin_box_override,
@@ -3051,6 +3064,19 @@ pub(crate) fn cell_natural_width(
         }
         // A nested block stacks its children vertically — its own
         // natural width is the *widest* child, not their sum.
+        BoxContent::Blocks(children) if cell.style.display == Display::Table => {
+            // Q50: a table's width is the sum of its *column* extents (not
+            // the widest row); captions add only their min-content width.
+            let (cmin, cmax) = table_column_extents(children, font_system, next_id, cache, deadline, incomplete);
+            let (mut mn, mut mx) = (cmin.iter().sum::<f32>(), cmax.iter().sum::<f32>());
+            for child in children.iter().filter(|c| !matches!(c.content, BoxContent::TableRow(_))) {
+                let (cmn, cmx) = cell_natural_width(child, font_system, next_id, cache, deadline, incomplete);
+                let cmx = if child.style.table_caption { cmn } else { cmx };
+                mn = mn.max(cmn);
+                mx = mx.max(cmx);
+            }
+            (mn, mx)
+        }
         BoxContent::Blocks(children) => children.iter().fold((0.0f32, 0.0f32), |(mn, mx), child| {
             let (cmn, cmx) = cell_natural_width(child, font_system, next_id, cache, deadline, incomplete);
             // Q34c: a table's caption contributes only its *min*-content
@@ -3149,11 +3175,30 @@ pub(crate) fn table_column_widths(
     deadline: std::time::Instant,
     incomplete: &mut bool,
 ) -> Vec<f32> {
-    let placement = table_grid_placement(children);
-    let num_cols = placement.iter().flatten().map(|&(start, span)| start + span).max().unwrap_or(0);
+    let (col_min, mut col_max) = table_column_extents(children, font_system, next_id, cache, deadline, incomplete);
+    let num_cols = col_min.len();
     if num_cols == 0 {
         return Vec::new();
     }
+    let total_min: f32 = col_min.iter().sum();
+    let total_max: f32 = col_max.iter().sum();
+    table_distribute_columns(&col_min, &mut col_max, total_min, total_max, content_w, num_cols)
+}
+
+/// Per-column `(min, max)` content widths of a table's rows (Q50: shared by
+/// `table_column_widths` and the table's own `cell_natural_width`, so a
+/// shrink-to-fit table is the sum of its *column* maxima, not the widest
+/// single row).
+pub(crate) fn table_column_extents(
+    children: &[LayoutBox],
+    font_system: &mut FontSystem,
+    next_id: &mut usize,
+    cache: &mut ShapeCache,
+    deadline: std::time::Instant,
+    incomplete: &mut bool,
+) -> (Vec<f32>, Vec<f32>) {
+    let placement = table_grid_placement(children);
+    let num_cols = placement.iter().flatten().map(|&(start, span)| start + span).max().unwrap_or(0);
     let mut col_min = vec![0.0f32; num_cols];
     let mut col_max = vec![0.0f32; num_cols];
     // Cells spanning several columns are applied after every single-
@@ -3198,9 +3243,17 @@ pub(crate) fn table_column_widths(
             col_max[c] = col_max[c].max(col_min[c]);
         }
     }
-    let total_min: f32 = col_min.iter().sum();
-    let total_max: f32 = col_max.iter().sum();
+    (col_min, col_max)
+}
 
+fn table_distribute_columns(
+    col_min: &[f32],
+    col_max: &mut [f32],
+    total_min: f32,
+    total_max: f32,
+    content_w: f32,
+    num_cols: usize,
+) -> Vec<f32> {
     if total_max <= content_w {
         if total_max <= 0.0 {
             return vec![content_w / num_cols as f32; num_cols];
