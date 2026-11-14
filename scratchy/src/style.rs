@@ -433,6 +433,7 @@ impl ComputedStyle {
     /// block-level table/flex/grid container.
     pub(crate) fn establishes_bfc(&self) -> bool {
         self.float != Float::None
+            || matches!(self.position, Position::Absolute | Position::Fixed)
             || self.overflow != Overflow::Visible
             || self.flow_root
             || matches!(self.display, Display::Table | Display::Flex | Display::Grid)
