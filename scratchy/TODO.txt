@@ -909,7 +909,7 @@ Not vendored; pass the path to the runner.
       (today `content_w.min(max_mb).max(min_mb.min(content_w))` wraps `XXXX` per
       letter when the container is 0 wide). Q49 also ignores `text-align` other
       than left in the fit check.
-- [x] Q50 [S] (done, commit HASH) Block-level `display:table` (no float, no width) shrinks to fit
+- [x] Q50 [S] (done, commit bf93cba) Block-level `display:table` (no float, no width) shrinks to fit
       (W14). Today it fills the container and spreads cells. WPT:
       `border-applies-to-*`, `float-applies-to-*`.
       Done: `measure` passes the float shrink-to-fit width to `measure_table`
