@@ -869,7 +869,7 @@ Not vendored; pass the path to the runner.
       blocks); column containers still overwrite `lc.h` post hoc;
       `margin: 0 10px` shorthand on a flex item in an inline `style` seemed to
       give margin 0 (check). `flex-grow-008` still fails for other reasons.
-- [x] Q47 [S] (done, commit HASH) Single-line flex container with definite `height`: the line's
+- [x] Q47 [S] (done, commit d0d8e67) Single-line flex container with definite `height`: the line's
       cross size is the container's inner height (W13), so
       `align-items/-self: center|flex-end|stretch` are relative to it. WPT:
       `align-self-002..016`.
