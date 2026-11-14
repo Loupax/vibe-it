@@ -723,9 +723,36 @@ realistic test fixtures. Nothing built yet; just the agreed approach.
 In the meantime, ad hoc testing against real pages this session used:
 `curl -s URL -o /tmp/page.html` then `scratchy /tmp/page.html`.
 
+## Source layout (Q38): `src/lib.rs` split into modules
+
+`src/lib.rs` used to be one ~27k-line file. It is now a thin root plus
+modules, moved verbatim (no behavior change). Find code with
+`grep -rn 'fn <name>' src/`.
+
+- `lib.rs` (~190 lines): imports, `mod` declarations, `pub use`/`pub(crate) use`
+  re-exports of every module, and `pub fn run()`.
+- `dom.rs`: CLI input/args, encoding sniffing, html5ever parse glue,
+  `selectors` glue (`El`, `OurSelectorImpl`), interaction state, focus.
+- `css.rs`: CSS parsing, value types (`ComputedStyle` and friends), media queries.
+- `style.rs`: the cascade (`compute_style` and helpers).
+- `images.rs`: image decoding, `data:` URIs, background-image/mask plumbing.
+- `layout.rs`: `LayoutBox` tree, `measure`/`measure_document`, block, inline,
+  float, flex, grid, table layout, text shaping, `Laid`.
+- `paint.rs`: `paint`, backgrounds, borders, hit testing.
+- `net.rs`: link navigation (`wire`) and external stylesheet/image resources.
+- `app.rs`: the winit `App`, key bindings, command line, event loop handler.
+- `tests.rs`: the `#[cfg(test)] mod tests` (never delete tests); `wpt.rs`: the WPT runner.
+
+Every module starts with `use super::*;` and the root re-exports each
+module with a glob, so all modules (and `tests.rs`) see each other's items
+unqualified, exactly as when it was one file. Moving items across modules
+required `pub(crate)` on items, struct fields and inherent methods. The
+public (`pub`) surface used by `benches/` is unchanged. The `thread_local!`
+statics are `pub(crate)` for the same reason.
+
 ## Working notes for next session
 
-- **Verification tests are now kept permanently**, in `src/lib.rs`'s
+- **Verification tests are now kept permanently**, in `src/tests.rs` (was `src/lib.rs`'s
   `#[cfg(test)] mod tests` — reversed as of v41. Every version from
   v13 through v40 wrote a temporary `#[cfg(test)]` module, verified,
   then deleted it before committing, on a self-justification v13 wrote

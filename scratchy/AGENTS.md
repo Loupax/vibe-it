@@ -4,11 +4,11 @@
 - Read `TODO.txt` (QUEUE section first), `NOTES.md`, `REGRESSIONS.md`.
 - Take the first unchecked QUEUE item. Don't reorder or merge items.
 - If an item is wrong or much bigger than its size, stop and report. Don't guess.
-- Find code by function/type name (`grep -n 'fn <name>' src/lib.rs`). Never trust line numbers.
+- Find code by function/type name (`grep -rn 'fn <name>' src/`). Never trust line numbers.
 
 ## Per-item checklist
 1. Implement.
-2. Add a permanent test in `src/lib.rs` `#[cfg(test)] mod tests`. Never delete tests.
+2. Add a permanent test in `src/tests.rs` (the `#[cfg(test)] mod tests`). Never delete tests.
 3. `cargo check`, `cargo clippy`, `cargo test` — all clean.
 4. WPT subset (once Q40a lands): `scratchy --wpt /home/loupax/src/wpt` (run from `scratchy/`; reads
    `wpt-subset.txt`, compares with `wpt-expected.txt`, exits 1 on any change;
