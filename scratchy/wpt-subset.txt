@@ -323,3 +323,16 @@ css/selectors/nth-of-selector-before.html
 css/selectors/selectors-4/lang-003.html
 css/selectors/selectors-4/lang-013.html
 css/selectors/selectors-4/lang-023.html
+# Q40b vars
+css/css-variables/css-vars-custom-property-case-sensitive-001.html
+css/css-variables/variable-declaration-13.html
+css/css-variables/variable-declaration-30.html
+css/css-variables/variable-declaration-45.html
+css/css-variables/variable-declaration-60.html
+css/css-variables/variable-reference-08.html
+css/css-variables/variable-reference-23.html
+css/css-variables/variable-reference-38.html
+css/css-variables/variable-supports-11.html
+css/css-variables/variable-supports-26.html
+css/css-variables/variable-supports-41.html
+css/css-variables/variable-supports-56.html

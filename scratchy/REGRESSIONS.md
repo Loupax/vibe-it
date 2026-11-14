@@ -572,3 +572,16 @@ because test and reference both ignored the unit.
 | `:dir()` RTL | `dir-style-*` 3 | engine is LTR-only (Q2 says so) | PARTIAL |
 | default namespace | `is-default-ns-*`, `not-default-ns-*` 6 | | NOT CLAIMED |
 | `:lang()` | `lang-*` 10 | plain `:lang(en)`/`:lang(fr)` work on a minimal repro; the tests use wildcard/string forms | PARTIAL |
+
+#### css-variables (claimed: Q13 b23fd53)
+
+181 eligible (+2 JS) | pass 109 | fail 72. Flipped 0.
+
+| group | tests (examples) | wrong render | triage |
+|-------|------------------|--------------|--------|
+| W22a invalid-at-parse accepted | `variable-declaration-11/12/13/23` | `--a:var(--b,!)` is accepted and wins (crimson); it must be dropped | BROKEN |
+| W22b IACVT | `variable-declaration-24` | invalid at computed time falls back to an earlier declaration (red) instead of `unset` (inherited green) | BROKEN |
+| W22c escaped names | `variable-declaration-31/42`, `variable-reference-21/24` | `--\30` and unicode names unresolved | BROKEN |
+| W22d adjacent `var()var()` | `variable-declaration-53` | not substituted | BROKEN |
+| `@supports` with var() | `variable-supports-*` 12 | conditions containing `var()` mis-evaluated | BROKEN (Q10) |
+| `var()` in `content`, shorthands | `variable-reference-12`, `vars-background-shorthand`, `vars-font-shorthand` | | PARTIAL |
