@@ -6098,6 +6098,12 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 
 ---
 
+## Q36 — colspan/rowspan in measure_table (queue item, out of order at user's request)
+
+> implement Q36 (colspan/rowspan in measure_table)
+
+**What changed:** `ComputedStyle` gained `col_span`/`row_span` (set by `build_table_row_cells` from the attributes, clamped to 1000/65534). New `table_grid_placement` assigns each cell a start column, skipping columns held by a `rowspan` cell from an earlier row. `table_column_widths` sizes columns from single-column cells first, then widens the spanned columns only if a spanning cell needs more (shortfall split in proportion to current width). `lay_out_row_cells` takes the placement and gives a cell the summed width of its spanned columns. `settle_rowspans` runs after the rows are laid out: a rowspan cell gets the summed height of its rows, the last spanned row grows if the cell is taller, and later rows shift down. Tests: `colspan_header_spans_both_columns_without_squeezing_them`, `cell_after_colspan_cell_lands_in_the_following_column`, `rowspan_cell_takes_summed_row_height_and_pushes_the_next_column_over`. Left out: `rowspan="0"`, `<col span>` widths, `table-layout: fixed`.
+
 ## Q40a — WPT reftest runner (queue item)
 
 > Implement ONLY item Q40a (WPT reftest runner) following the AGENTS.md per-item checklist.
