@@ -11440,8 +11440,19 @@ fn fc_match_family(generic: &str) -> Option<String> {
 /// resolves against the fonts that are actually present, so it's used to
 /// override the three generic families explicitly when available.
 pub fn new_font_system() -> FontSystem {
+    new_font_system_with(&[])
+}
+
+/// `new_font_system` plus extra font files loaded into the database (the
+/// WPT runner loads `Ahem.ttf` this way).
+fn new_font_system_with(extra_fonts: &[PathBuf]) -> FontSystem {
     let mut db = fontdb::Database::new();
     db.load_system_fonts();
+    for f in extra_fonts {
+        if let Err(e) = db.load_font_file(f) {
+            eprintln!("scratchy: cannot load font {}: {e}", f.display());
+        }
+    }
     if let Some(name) = fc_match_family("sans-serif") {
         db.set_sans_serif_family(name);
     }
@@ -20319,6 +20330,11 @@ impl ApplicationHandler<AppEvent> for App {
 /// `eprintln!`/`Instant` timing for every performance question (see
 /// NOTES.md/TODO.txt — long agreed worth doing, not done until now).
 pub fn run() {
+    // Headless WPT reftest runner: no window, no event loop.
+    let raw_args: Vec<String> = env::args().skip(1).collect();
+    if raw_args.first().map(String::as_str) == Some("--wpt") {
+        std::process::exit(wpt::main(&raw_args[1..]));
+    }
     let Args { input, socket } = parse_args();
 
     let event_loop = EventLoop::<AppEvent>::with_user_event().build().unwrap();
@@ -20420,6 +20436,8 @@ pub fn run() {
 
     event_loop.run_app(&mut app).unwrap();
 }
+
+mod wpt;
 
 /// Persistent regression tests, kept from here on (not removed before
 /// committing like `NOTES.md`'s earlier versions describe) — see the
@@ -27631,5 +27649,46 @@ mod tests {
             LineHeight::Len(l) => assert_eq!(l.resolve(div.style.font_size, div.style.root_font_size), 32.0, "24pt should convert to exactly 32px"),
             _ => panic!("line-height: 24pt should parse as LineHeight::Len, not be dropped as unsupported"),
         }
+    }
+
+    // ---------- Q40a: WPT reftest runner ----------
+
+    #[test]
+    fn q40a_wpt_expectation_logic() {
+        use wpt::{Status, compare_expectations, format_expected, images_match, parse_expected};
+        assert!(images_match(&[0xFF112233, 1], &[0x00112233, 1]));
+        assert!(!images_match(&[1, 2], &[1, 3]));
+        assert!(!images_match(&[1], &[1, 1]));
+        let exp = parse_expected("# c\nPASS a\nFAIL b\nFAIL c\n");
+        let mut got = std::collections::BTreeMap::new();
+        got.insert("a".to_string(), Status::Fail);
+        got.insert("b".to_string(), Status::Pass);
+        got.insert("c".to_string(), Status::Fail);
+        got.insert("d".to_string(), Status::Pass);
+        let ch = compare_expectations(&got, &exp);
+        assert_eq!(ch.len(), 3);
+        assert!(ch[0].starts_with("REGRESSION a"));
+        assert!(ch[1].starts_with("NEWLY PASSING b"));
+        assert!(ch[2].starts_with("UNRECORDED PASS d"));
+        assert_eq!(parse_expected(&format_expected(&got)), got);
+    }
+
+    #[test]
+    fn q40a_wpt_runner_renders_match_mismatch_and_skips() {
+        use wpt::{Outcome, Renderer, Status};
+        let dir = std::env::temp_dir().join(format!("scratchy-q40a-{}", std::process::id()));
+        fs::create_dir_all(&dir).unwrap();
+        let w = |name: &str, body: &str| fs::write(dir.join(name), body).unwrap();
+        w("ref.html", "<div style=\"width:50px;height:50px;background:#f00\"></div>");
+        w("pass.html", "<link rel=match href=ref.html><div style=\"width:50px;height:25px;background:#f00;border-bottom:25px solid #f00\"></div>");
+        w("fail.html", "<link rel=match href=ref.html><div style=\"width:60px;height:50px;background:#f00\"></div>");
+        w("mm.html", "<link rel=mismatch href=ref.html><div style=\"width:60px;height:50px;background:#f00\"></div>");
+        w("js.html", "<link rel=match href=ref.html><script>1</script>");
+        let mut r = Renderer::new(&[]);
+        assert_eq!(r.run_test(&dir.join("pass.html"), None), Outcome::Ran(Status::Pass));
+        assert_eq!(r.run_test(&dir.join("fail.html"), None), Outcome::Ran(Status::Fail));
+        assert_eq!(r.run_test(&dir.join("mm.html"), None), Outcome::Ran(Status::Pass));
+        assert_eq!(r.run_test(&dir.join("js.html"), None), Outcome::Skip("script"));
+        let _ = fs::remove_dir_all(&dir);
     }
 }
