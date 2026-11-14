@@ -260,7 +260,7 @@ PASS css/css-flexbox/abspos/abspos-autopos-htb-ltr.html
 FAIL css/css-flexbox/auto-margins-002.html
 FAIL css/css-flexbox/flex-aspect-ratio-cross-size-002.html
 FAIL css/css-flexbox/flex-grow-008.html
-FAIL css/css-flexbox/flex-shrink-006.html
+PASS css/css-flexbox/flex-shrink-006.html
 FAIL css/css-flexbox/flexbox-break-request-vert-001a.html
 FAIL css/css-flexbox/flexbox-min-width-auto-003.html
 FAIL css/css-flexbox/flexbox_align-items-flexend-2.html

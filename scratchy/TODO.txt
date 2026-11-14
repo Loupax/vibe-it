@@ -861,9 +861,14 @@ Not vendored; pass the path to the runner.
 - [x] Q45 [S] (done, commit 2ce2b2a) An abspos box contains its floats (W11): it is a BFC, so its
       auto height must include float children. WPT:
       `block-formatting-context-height-001`. (Q40a lead, repro confirmed.)
-- [ ] Q46 [M] Flex items with an explicit `width` take the flexed size when
+- [x] Q46 [M] (done, commit 9abe87b; row containers only, rest in Q46a) Flex items with an explicit `width` take the flexed size when
       growing/shrinking (W12): today siblings move but the item paints at
       `width`. WPT: `flex-grow-001/002/006-009`, `flex-shrink-001/002/003`.
+- [ ] Q46a [S] After Q46: a flex item that is itself a table/flex/grid container
+      still keeps its own `width` (the forced size only reaches ordinary
+      blocks); column containers still overwrite `lc.h` post hoc;
+      `margin: 0 10px` shorthand on a flex item in an inline `style` seemed to
+      give margin 0 (check). `flex-grow-008` still fails for other reasons.
 - [ ] Q47 [S] Single-line flex container with definite `height`: the line's
       cross size is the container's inner height (W13), so
       `align-items/-self: center|flex-end|stretch` are relative to it. WPT:
