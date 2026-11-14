@@ -27507,4 +27507,22 @@ mod tests {
         assert_eq!(wpt::strip_cdata(std::path::Path::new("t.xht"), src.clone()), "<style> a{} </style>");
         assert_eq!(wpt::strip_cdata(std::path::Path::new("t.html"), src.clone()), src);
     }
+
+    #[test]
+    fn q40b_wpt_root_relative_reference() {
+        use wpt::{Outcome, Renderer, Status};
+        let root = std::env::temp_dir().join(format!("scratchy-q40b-{}", std::process::id()));
+        fs::create_dir_all(root.join("css/reference")).unwrap();
+        fs::create_dir_all(root.join("css/t")).unwrap();
+        fs::write(root.join("css/reference/r.html"), "<div style=\"width:50px;height:50px;background:#f00\"></div>").unwrap();
+        fs::write(
+            root.join("css/t/t.html"),
+            "<link rel=match href=\"/css/reference/r.html \"><div style=\"width:50px;height:50px;background:#f00\"></div>",
+        )
+        .unwrap();
+        let mut r = Renderer::new(&[]);
+        r.root = fs::canonicalize(&root).ok();
+        assert_eq!(r.run_test(&root.join("css/t/t.html"), None), Outcome::Ran(Status::Pass));
+        let _ = fs::remove_dir_all(&root);
+    }
 }

@@ -141,11 +141,13 @@ pub struct Renderer {
     font_system: FontSystem,
     swash_cache: SwashCache,
     cache: HashMap<PathBuf, Rc<Vec<u32>>>,
+    /// Checkout root, for root-relative reference hrefs like `/css/reference/x.html`.
+    pub root: Option<PathBuf>,
 }
 
 impl Renderer {
     pub fn new(extra_fonts: &[PathBuf]) -> Self {
-        Renderer { font_system: new_font_system_with(extra_fonts), swash_cache: SwashCache::new(), cache: HashMap::new() }
+        Renderer { font_system: new_font_system_with(extra_fonts), swash_cache: SwashCache::new(), cache: HashMap::new(), root: None }
     }
 
     /// Render a local HTML file to an 800x600 white-backed buffer.
@@ -232,7 +234,11 @@ impl Renderer {
         let test_px = self.render_guarded(&canon)?;
         let mut ok = true;
         for (is_match, href) in refs {
-            let ref_path = canon.parent().unwrap_or(Path::new("/")).join(href.split(['#', '?']).next().unwrap_or(&href));
+            let href = href.split(['#', '?']).next().unwrap_or(&href).trim();
+            let ref_path = match (&self.root, href.strip_prefix('/')) {
+                (Some(root), Some(rest)) => root.join(rest),
+                _ => canon.parent().unwrap_or(Path::new("/")).join(href),
+            };
             let ref_px = self.render_guarded(&ref_path)?;
             let same = images_match(&test_px, &ref_px);
             if same != is_match {
@@ -324,6 +330,7 @@ pub fn main(args: &[String]) -> i32 {
     let ahem = wpt.join("fonts/Ahem.ttf");
     let fonts = if ahem.exists() { vec![ahem] } else { eprintln!("scratchy --wpt: warning: {} missing", ahem.display()); vec![] };
     let mut renderer = Renderer::new(&fonts);
+    renderer.root = fs::canonicalize(&wpt).ok();
     // Panics are reported as CRASH; keep the output quiet.
     std::panic::set_hook(Box::new(|_| {}));
 
