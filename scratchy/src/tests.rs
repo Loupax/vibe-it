@@ -7427,6 +7427,81 @@ fn q47_single_line_flex_cross_size_is_container_height() {
     assert_eq!((items[2].y, items[2].h), (0.0, 100.0));
 }
 
+fn q49_find(laid: &Laid, h: f32) -> Option<&Laid> {
+    if laid.style.height.map(BoxLength::px) == Some(h) {
+        return Some(laid);
+    }
+    match &laid.content {
+        LaidContent::Blocks(cs) => cs.iter().find_map(|c| q49_find(c, h)),
+        LaidContent::MixedInline(items) => items.iter().find_map(|i| match i {
+            MixedPositioned::Embedded(l) => q49_find(l, h),
+            _ => None,
+        }),
+        _ => None,
+    }
+}
+
+fn q49_first_embedded(l: &Laid) -> Option<&Laid> {
+    match &l.content {
+        LaidContent::Blocks(cs) => cs.iter().find_map(q49_first_embedded),
+        LaidContent::MixedInline(items) => items.iter().find_map(|i| match i {
+            MixedPositioned::Embedded(e) => Some(&**e),
+            _ => None,
+        }),
+        _ => None,
+    }
+}
+
+// Q49: a float after inline content on the same line goes at the top of
+// that line, and the inline content shifts beside it when it fits.
+#[test]
+fn q49_float_after_inline_block_goes_at_line_top_and_content_shifts() {
+    let laid = measure_fixture(
+        r#"<html><body style="margin:0"><div style="width:200px"><div style="display:inline-block;width:100px;height:96px"></div> <div style="float:left;width:100px;height:77px"></div></div></body></html>"#,
+        500.0,
+    );
+    let f = q49_find(&laid, 77.0).expect("float");
+    assert_eq!((f.x, f.y), (0.0, 0.0));
+    let ib = q49_find(&laid, 96.0).expect("inline-block");
+    assert_eq!((ib.x, ib.y), (100.0, 0.0));
+}
+
+#[test]
+fn q49_float_that_does_not_fit_beside_the_line_stays_below() {
+    let laid = measure_fixture(
+        r#"<html><body style="margin:0"><div style="width:150px"><div style="display:inline-block;width:100px;height:96px"></div> <div style="float:left;width:100px;height:77px"></div></div></body></html>"#,
+        500.0,
+    );
+    let f = q49_find(&laid, 77.0).expect("float");
+    assert_eq!((f.x, f.y), (0.0, 96.0));
+    let ib = q49_find(&laid, 96.0).expect("inline-block");
+    assert_eq!((ib.x, ib.y), (0.0, 0.0));
+}
+
+#[test]
+fn q49_float_after_plain_text_goes_at_line_top() {
+    let laid = measure_fixture(
+        r#"<html><body style="margin:0"><div style="width:300px">some text <div style="float:left;width:50px;height:77px"></div></div></body></html>"#,
+        500.0,
+    );
+    let f = q49_find(&laid, 77.0).expect("float");
+    assert_eq!((f.x, f.y), (0.0, 0.0));
+}
+
+#[test]
+fn q49_leading_and_trailing_markup_space_does_not_push_float_down() {
+    let laid = measure_fixture(
+        r#"<html><head><style>#div1{border:solid 5px black;height:1in;width:2in} div div{display:inline-block;height:1in;width:1in} #div3{background-color:blue;float:left}</style></head><body style="margin:0"><div id="div1">
+           <div id="div2"></div>
+           <div id="div3"></div>
+        </div></body></html>"#,
+        800.0,
+    );
+    // Markup whitespace around the inline-block must not widen line 1.
+    let ib = q49_first_embedded(&laid).expect("inline-block");
+    assert_eq!((ib.x, ib.y), (101.0, 5.0));
+}
+
 // Q48: vertical margins collapse through an empty block (CSS2.1 8.3.1).
 fn q48_y_of(html: &str, h: f32) -> f32 {
     let laid = measure_fixture(html, 900.0);

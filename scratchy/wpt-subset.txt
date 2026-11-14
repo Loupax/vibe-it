@@ -369,3 +369,5 @@ css/css-flexbox/align-self-013.html
 css/css-flexbox/align-self-014.html
 css/css-flexbox/align-self-015.html
 css/css-flexbox/align-self-016.html
+css/CSS2/floats-clear/floats-001.xht
+css/CSS2/normal-flow/inlines-013.xht
