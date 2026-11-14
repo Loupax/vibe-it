@@ -145,3 +145,14 @@ css/CSS2/normal-flow/min-height-051.xht
 css/CSS2/normal-flow/min-width-013.xht
 css/CSS2/normal-flow/min-width-103.xht
 css/CSS2/normal-flow/width-040.xht
+# Q40b mpc
+css/CSS2/margin-padding-clear/margin-bottom-076.xht
+css/CSS2/margin-padding-clear/margin-left-056.xht
+css/CSS2/margin-padding-clear/margin-right-042.xht
+css/CSS2/margin-padding-clear/margin-top-018.xht
+css/CSS2/margin-padding-clear/padding-002.xht
+css/CSS2/margin-padding-clear/padding-bottom-056.xht
+css/CSS2/margin-padding-clear/padding-left-018.xht
+css/CSS2/margin-padding-clear/padding-left-applies-to-004.xht
+css/CSS2/margin-padding-clear/padding-right-071.xht
+css/CSS2/margin-padding-clear/padding-top-029.xht

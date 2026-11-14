@@ -83,6 +83,7 @@ PASS css/CSS2/margin-padding-clear/margin-bottom-020.xht
 PASS css/CSS2/margin-padding-clear/margin-bottom-040.xht
 PASS css/CSS2/margin-padding-clear/margin-bottom-053.xht
 PASS css/CSS2/margin-padding-clear/margin-bottom-066.xht
+PASS css/CSS2/margin-padding-clear/margin-bottom-076.xht
 PASS css/CSS2/margin-padding-clear/margin-bottom-079.xht
 FAIL css/CSS2/margin-padding-clear/margin-bottom-092.xht
 PASS css/CSS2/margin-padding-clear/margin-bottom-109.xht
@@ -93,6 +94,15 @@ FAIL css/CSS2/margin-padding-clear/margin-collapse-007.xht
 FAIL css/CSS2/margin-padding-clear/margin-collapse-015a.xht
 FAIL css/CSS2/margin-padding-clear/margin-collapse-021.xht
 FAIL css/CSS2/margin-padding-clear/margin-collapse-038.xht
+PASS css/CSS2/margin-padding-clear/margin-left-056.xht
+FAIL css/CSS2/margin-padding-clear/margin-right-042.xht
+PASS css/CSS2/margin-padding-clear/margin-top-018.xht
+FAIL css/CSS2/margin-padding-clear/padding-002.xht
+PASS css/CSS2/margin-padding-clear/padding-bottom-056.xht
+PASS css/CSS2/margin-padding-clear/padding-left-018.xht
+FAIL css/CSS2/margin-padding-clear/padding-left-applies-to-004.xht
+FAIL css/CSS2/margin-padding-clear/padding-right-071.xht
+FAIL css/CSS2/margin-padding-clear/padding-top-029.xht
 FAIL css/CSS2/normal-flow/block-formatting-context-height-001.xht
 FAIL css/CSS2/normal-flow/block-formatting-contexts-005.xht
 FAIL css/CSS2/normal-flow/block-formatting-contexts-011.xht

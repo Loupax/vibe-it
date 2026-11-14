@@ -426,3 +426,17 @@ Flipped by the W1+W19 rewrite: 189, so about half of all failures are W1 alone
 | W11 abspos + float | `block-formatting-context-height-001` (Q40a lead) | paints nothing | BROKEN |
 | W20 `<object>` svg | `replaced-intrinsic-*` (5) | nothing drawn | NOT CLAIMED |
 | ungrouped | 28 failures with none of the markers, plus `inline-table-zorder-*` (5), `inline-block-zorder-*` (3) | not yet root-caused | see Q40c |
+
+#### CSS2/margin-padding-clear (claimed: baseline box model; float/clear 5fc83ce)
+
+684 eligible (0 JS) | pass 277 | fail 406 | 1 no-reference. Flipped 198 (W1:
+`1in`, `5em` margins). Residual 224.
+
+| group | tests (examples) | wrong render | triage |
+|-------|------------------|--------------|--------|
+| W1 units | 198 flipped | `padding:1in` ignored | NOT CLAIMED |
+| W5 negative padding | 33 mention a negative length (`padding-right-001`, `-012`) | `padding-right:-1px` shrinks the box by 1px | BROKEN |
+| W7 empty-block margins | `margin-collapse-012`, `margin-collapse-022` | 20px gap instead of 60 | BROKEN |
+| W14/W16 table internals | 52 mention `display:table-*` (`margin-applies-to-001..015`) | table drawn full width, no border-spacing | BROKEN/PARTIAL |
+| W9/W10 | abspos/float references | | BROKEN |
+| ungrouped | 43 with no marker (`margin-collapse-001`: inline margins in Ahem rows) | not yet root-caused | Q40c |
