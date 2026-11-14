@@ -802,7 +802,7 @@ Not vendored; pass the path to the runner.
 
 --- Tier 5: rendering close-out (small, then stop polishing) -----------
 
-- [ ] Q35 [S] Live-window verification pass. R1-R4 (REGRESSIONS.md) and
+- [x] Q35 [S] (done, commit fbce742; both leftovers diagnosed, fix queued as Q35a) Live-window verification pass. R1-R4 (REGRESSIONS.md) and
       Q34 were only checked headlessly. Run the AUTOSCROLL/AUTOHOVER
       recipe from REGRESSIONS.md on Wikipedia Nvidia and Main_Page at
       ~1057px. Record frame times and grim screenshots (top, after 3
@@ -812,6 +812,19 @@ Not vendored; pass the path to the runner.
       if each fix is S. Otherwise add a narrower item here. Don't start
       forms on top of an unverified paint/hover path, because form
       controls add more hover/focus/repaint traffic to exactly that code.
+- [ ] Q35a [M] External `background-image`/`mask-image` URLs are never
+      loaded. Diagnosed in Q35: the dark squares (page tabs, "View
+      history", header) and the blue "78 languages" squares are Vector
+      `.vector-icon.mw-ui-icon-*` elements whose `mask-image` is
+      `url(https://en.wikipedia.org/w/load.php?...image=language...)`,
+      not a data URI. `resolve_background_image` only decodes `data:`
+      URIs (`decode_data_uri`), so the mask is dropped and the element's
+      `background-color: currentColor` paints as a plain square. Fix:
+      route non-data background/mask URLs through the same fetch +
+      `ImageFetched` path `<img>` uses (resolve against the base URL,
+      relayout/repaint when it lands). Test: a stylesheet-supplied
+      mask URL served via the image cache paints the masked shape, not a
+      square.
 - [x] Q36 [M] (done, commit 3a5df87; `rowspan="0"` is treated as 1, not
       "to end of row group"; row-group/`<col>` widths still ignored) (optional, user call: it was on the "not queued" list
       below) `colspan`/`rowspan` in `measure_table`. Suggested because
@@ -825,6 +838,13 @@ Not vendored; pass the path to the runner.
       grid "named area spanning multiple rows" item has). Test: a 2-col
       table whose first row is one `colspan=2` cell keeps both columns
       at their natural widths and the header spans both.
+- [ ] Q36a [S] Table span leftovers from Q36. `rowspan="0"` (span to the
+      end of the row group) is treated as 1, and `<col span>`/`<colgroup>`
+      widths are ignored by `measure_table`. Scope: `rowspan=0` extends to
+      the last row of the enclosing thead/tbody/tfoot (or table); `<col
+      width|style=width>` with `span` feeds the column's min/max sizing.
+      Test: a `rowspan=0` cell covers all later rows of its tbody; a
+      `<col span=2 style="width:100px">` fixes two columns at 100px.
 - [ ] Q37 [S] Cleanup of stale entries, no code: tick the history items
       that Q34a-c and Q10/Q18 already resolved (search "Floats don't
       escape their parent" and "`@import`/`@font-face`/`@keyframes`/
