@@ -384,8 +384,8 @@ item that says the feature is done.
 
 | id | what is wrong | claimed by | triage |
 |----|---------------|------------|--------|
-| W1 | `in`, `cm`, `mm`, `pc`, `Q` lengths are not parsed (declaration dropped). `width:1in` renders full width. | none (`pt` 17dd346, viewport units 35c826a) | NOT CLAIMED, S, hides ~1/3 of CSS2 failures |
-| W2 | `ex`, `ch`, `ic`, `lh`, `rlh`, `cap` units not parsed. | none | NOT CLAIMED |
+| W1 | `in`, `cm`, `mm`, `pc`, `Q` lengths are not parsed (declaration dropped). `width:1in` renders full width. | Q42 (HASH42) | FIXED (also `padding` rejects negative lengths) |
+| W2 | `ex`, `ch`, `ic`, `lh`, `rlh`, `cap` units not parsed. | Q42 (HASH42) for `ex`/`ch` (half an em) | PARTIAL (rest: Q42a) |
 | W3 | `<br>` is not implemented anywhere (`grep '"br"' src/*.rs` is empty). `a<br>b` renders `a b` in a block, float, inline-block, abspos. | Q41 (09b8e63) | FIXED (leftovers: Q41a) |
 | W4 | `border: solid black` / `border-style: solid` with no width computes width 0; should be `medium` (3px). `border-bottom: solid` likewise. | Q4 3e80aae | BROKEN |
 | W5 | Negative values that CSS says are invalid are accepted: `padding-right:-1px` shrinks the box, `max-height:-1px` clamps to 0 (should be ignored), negative `flex-basis`, negative `border-*-width`. | pre-Q box model | BROKEN |

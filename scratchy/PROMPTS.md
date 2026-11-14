@@ -6141,3 +6141,9 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > Do ONLY Q41: implement `<br>` as a forced line break (plain text, after inline images, floats, inline-blocks, cells), test, WPT, screenshot, PROMPTS entry, tick Q41.
 
 **What changed:** `<br>` was ignored (`a<br>b` rendered `a b`). `collect_real_children` now pushes `InlineItem::Text(BR_TEXT)` (a lone `"\n"`) for `<br>`; cosmic-text breaks on it in the plain-text path, and `measure_mixed_inline` got a `Measured::Break { height }` that closes the current line (height from a shaped space, one cache id always consumed). Collapsible spaces right after a `<br>` are trimmed so they do not form an extra line (this also keeps `floats-placement-vertical-004-ref`, which used to pass only because `<br>` was ignored, passing). Test: `q41_br_forces_a_line_break` (plain, double, trailing, whitespace-after, mixed with image, inline-block). `cargo test` 328 passed, clippy 31 warnings (unchanged), WPT 96 pass / 240 fail, no change. Left out (Q41a): `br clear`, trailing space before `<br>`, `<br>` directly in a flex container.
+
+## Q42 — physical and font-relative units (queue item)
+
+> Do ONLY Q42: parse in/cm/mm/pc/Q and ex/ch, test, WPT, screenshot, PROMPTS entry, tick Q42 and REGRESSIONS cross-refs.
+
+**What changed:** `abs_unit_px` (`pt`, `pc`, `in`, `cm`, `mm`, `Q`, case-insensitive) and `half_em_unit` (`ex`, `ch` as 0.5em) in `css.rs`, used by `parse_length`, `parse_length_percent`, `parse_line_height` and `parse_calc_atom`. Negative `padding*` values are now dropped (`set_padding`): `padding-bottom-056` had passed only because `-1in` was unparsed. Test `q42_physical_and_font_relative_units`. `cargo test` 329 passed, clippy 31 warnings (unchanged), WPT 96 -> 122 pass (26 newly passing, 0 regressions, expectations updated). Left out (Q42a): `ic`/`lh`/`rlh`/`cap`, real x-height and `0` advance.

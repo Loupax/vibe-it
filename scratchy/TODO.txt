@@ -828,12 +828,15 @@ Not vendored; pass the path to the runner.
       collapsible space before `<br>` should not count toward line width
       (matters for `text-align:right/center`), `<br>` directly inside a flex
       container, `<br>` with `display:block` (counts as a line break only).
-- [ ] Q42 [S] Physical and font-relative units (W1, W2): parse `in`, `cm`,
+- [x] Q42 [S] (done, commit HASH42; `ex`/`ch` are half an em; `ic`/`lh`/`rlh`/`cap` left as Q42a) Physical and font-relative units (W1, W2): parse `in`, `cm`,
       `mm`, `pc`, `Q` (fixed px ratios) and `ex`, `ch` (x-height /
       advance of `0`; half an em is acceptable for `ex` if the font has no
       metric). Hides ~600 CSS2 failures (nf 189, mpc 198, pos 138, bg/borders
       more). Test: `width:1in` == `96px`. After it lands, re-run the audit
       areas: many currently-failing tests will show their next cause.
+- [ ] Q42a [S] Remaining units: `ic`, `lh`, `rlh`, `cap`; real x-height
+      for `ex` and the advance of `0` for `ch` (today half an em); negative
+      lengths for other length-only properties (W5) are still accepted.
 - [ ] Q43 [M] Shrink-to-fit width is too wide (W9): floats, inline-blocks,
       tables and abspos boxes measure text about one space wider than it is
       (Ahem 20px "X" float is 40px, not 20). Find the max-content
