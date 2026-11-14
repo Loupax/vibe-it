@@ -341,3 +341,14 @@ Done in a throwaway `git worktree` (not committed). Temporary
 Run with `timeout 45 target/release/scratchy --socket /run/user/1001/wire.sock https://en.wikipedia.org/wiki/Main_Page 2> log`.
 Use `--release`, since the installed binary is a release build. Remove
 all instrumentation before committing.
+
+---
+
+## WPT audit (Q40, opened 2026-11-14)
+
+Findings from running `/home/loupax/src/wpt` reftests against features
+TODO.txt marks done. Format per area: counts, failure groups by root
+cause (example tests, wrong render), claiming Q item + hash, triage
+(BROKEN / PARTIAL / NOT CLAIMED). See Q40b in TODO.txt.
+
+_No results yet. Blocked on Q40a (runner)._

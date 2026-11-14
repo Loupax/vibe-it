@@ -11,7 +11,7 @@ directly actionable. PROMPTS.md is append-only and never edited for
 these.
 
 ========================================================================
-QUEUE — ranked work order (reviewed 2026-11-12)
+QUEUE — ranked work order (reviewed 2026-11-12, re-planned 2026-11-14)
 ========================================================================
 
 Work through this queue top to bottom; it overrides the order of
@@ -24,13 +24,7 @@ Rules for whoever implements an item:
 - Take the first unchecked item. Don't reorder the queue and don't
   merge items. If an item turns out to be wrong or much bigger than its
   size suggests, stop and report back. Don't guess.
-- Follow the standard per-feature checklist (read PROMPTS.md, NOTES.md
-  and this file, implement, add a PERMANENT test in `src/lib.rs`'s
-  `#[cfg(test)] mod tests`, run `cargo check`, `cargo clippy` and
-  `cargo test`, run `cargo install --path .`, take a real `grim`
-  screenshot, add a PROMPTS.md entry, update NOTES.md if the
-  architecture changed, commit, then do the separate "fill in the hash"
-  commit).
+- Follow the per-item checklist in `AGENTS.md`.
 - Code references are function and type names only. Find them with
   `grep -n 'fn <name>' src/lib.rs`, and never trust a line number.
 - When an item is done, tick it here AND in its "Detail:" entry, with
@@ -728,6 +722,282 @@ dropped selectors summed across those pages. Caveats:
       Observed 2026-11-13 (before the fix): the red border crosses A,
       B is 655px wide, and B overlaps A, starting at A's y≈210 instead
       of y≥340.
+- [~] Q26 [S] PARKED 2026-11-14 (moved to the "Parked" list at the end of
+      the QUEUE so it no longer blocks it). `letter-spacing`, BLOCKED on
+      cosmic-text. See the Parked entry.
+- [x] Q27 [M] (96bb7b1, done by Q4b+Q4c) `border-radius` with dashed, dotted, double or bevel
+      borders, and with unequal per-side borders after Q4. Detail:
+      "`border-radius` (v38) combined with".
+- [x] Q28 [S] (0867a4c) Images: `object-fit`/`object-position`, plus bilinear
+      downscaling in `blit_image`. Detail: "`<img>` (v46)".
+- [x] Q29 [M] (312a345) `mask-image`/`-webkit-mask-image` (n=438, all icon
+      stencils). Needs Q12a. Kept low by the user's own call. Detail:
+      "`mask-image`/`-webkit-mask-image`".
+
+--- Tier 4: interaction state (done) -----------------------------------
+
+- [x] Q31 [M] (a4b93c4) Real `:hover`/`:focus`/`:active`/`:focus-visible`/
+      `:focus-within` state (links and `tabindex` elements; mouse hover,
+      press, click focus, Tab, Enter), which upgrades Q2's never-match
+      rules. Detail: "`OurSelectorImpl`'s `NonTSPseudoClass`".
+- [x] Q31b [S] (9552b38) `:target` (needs fragment navigation), scroll-into-view on Tab
+      focus, and a default focus ring. Form controls stay with Q30.
+
+========================================================================
+RE-PLAN 2026-11-14: rendering is "good enough" (user's call). Order is
+now: WPT audit (Q40, top priority, added the same day) -> close out
+rendering (Tier 5) -> forms (Tier 6) -> JavaScript (Tier 7). Status at this point: Q1-Q34 done except Q26 (parked) and
+Q32 (parked); 320 tests pass, 2 ignored; lib.rs is ~27.4k lines.
+========================================================================
+
+--- TOP PRIORITY: WPT audit of "done" features (user, 2026-11-14) -----
+
+Do not start Tier 5+ until Q40 is done. Purpose: find out how much of
+Q1-Q34 is actually correct before building forms on top of it.
+WPT checkout: /home/loupax/src/wpt (upstream 49726b1613, 2026-11-14).
+Not vendored; pass the path to the runner.
+
+- [ ] Q40a [M] WPT reftest runner.
+      - Headless render to PNG at 800x600, no window. Check first
+        whether `paint` can target an offscreen buffer.
+      - For each test in `wpt-subset.txt`: render the test and its
+        `<link rel=match>` reference (follow chained references), pixel
+        diff, print pass/fail. `rel=mismatch`: pass if they differ.
+      - Load `<wpt>/fonts/Ahem.ttf` into the fontdb before rendering.
+        1241 of the ~3.6k CSS2 reftests use Ahem, and scratchy has no
+        `@font-face`, so without this they fail for the wrong reason.
+      - Skip and count separately: tests containing `<script>` (320 in
+        CSS2), `class="reftest-wait"`, testharness.js tests. They need JS.
+      - `.xht` tests are XHTML; parse them as HTML and note it.
+      - `wpt-expected.txt` records results; exit non-zero only on a
+        change from expected. Fill in the command in AGENTS.md step 4.
+      - Test: the runner's diff/expectation logic on two tiny fixtures.
+
+- [ ] Q40b [L] Run the audit and write up findings. One area at a time,
+      each its own commit. Reftest counts are from the checkout:
+        CSS2/normal-flow 793, margin-padding-clear 684, box-display 120,
+        CSS2/floats 122 + floats-clear 214, CSS2/positioning 520 +
+        css-position 252, CSS2/borders 504, CSS2/tables 373 + css-tables
+        172, CSS2/linebox 191, css-flexbox 947, css-grid 1761 (only the
+        subset Q15 claims), css-backgrounds 577, css-cascade 50,
+        css-variables 183, css-values 211, selectors 225, css-pseudo 255,
+        css-content 66, css-lists 198, css-overflow 716, css-masking 387,
+        css-text-decor 318, css-color 310, mediaqueries 58,
+        css-conditional 173, css-sizing 612, html/rendering 309, acid 2.
+      Skip areas for features scratchy doesn't claim (transforms,
+      animations, writing modes, bidi, etc.).
+      For each area, in REGRESSIONS.md under "WPT audit":
+      - pass / fail / skipped counts;
+      - failures grouped by cause (one root cause per group, with 1-2
+        example test paths and a short description of the wrong render);
+      - which Q item claimed the feature, with its commit hash;
+      - triage: BROKEN (claimed, wrong), PARTIAL (claimed with known
+        scope cuts, failure is inside the cut), NOT CLAIMED.
+      Then add a fix item to this QUEUE right after Q40b for every
+      BROKEN group, ordered by fail count on the corpus-relevant areas.
+      Don't fix anything inside Q40b. Measure, don't guess: confirm each
+      root cause on a minimal repro before writing it down.
+
+--- Tier 5: rendering close-out (small, then stop polishing) -----------
+
+- [ ] Q35 [S] Live-window verification pass. R1-R4 (REGRESSIONS.md) and
+      Q34 were only checked headlessly. Run the AUTOSCROLL/AUTOHOVER
+      recipe from REGRESSIONS.md on Wikipedia Nvidia and Main_Page at
+      ~1057px. Record frame times and grim screenshots (top, after 3
+      pages of scroll, while hovering). Also look at the two leftovers
+      from the Q34 screenshot: the dark square over "View history" and
+      the "78 languages" icons painting as blue squares. Fix them only
+      if each fix is S. Otherwise add a narrower item here. Don't start
+      forms on top of an unverified paint/hover path, because form
+      controls add more hover/focus/repaint traffic to exactly that code.
+- [ ] Q36 [M] (optional, user call: it was on the "not queued" list
+      below) `colspan`/`rowspan` in `measure_table`. Suggested because
+      Wikipedia infobox header rows, phpBB (forums.gentoo.org) and most
+      old-school form layouts are tables that use `colspan`. Today the
+      nth cell always takes column n, so a spanning header squeezes
+      into one column and shifts the rest of the row. Scope: the column
+      grid accounts for spans when sizing columns (spread a spanning
+      cell's min/max width over its columns) and placing cells; a
+      `rowspan` cell takes the summed height of its rows (same gap the
+      grid "named area spanning multiple rows" item has). Test: a 2-col
+      table whose first row is one `colspan=2` cell keeps both columns
+      at their natural widths and the header spans both.
+- [ ] Q37 [S] Cleanup of stale entries, no code: tick the history items
+      that Q34a-c and Q10/Q18 already resolved (search "Floats don't
+      escape their parent" and "`@import`/`@font-face`/`@keyframes`/
+      `@supports`") and reword the latter to what's still open
+      (`@font-face`, `@keyframes`, transitions).
+
+--- Tier 6: forms (Q30, split 2026-11-14) ------------------------------
+
+Evidence: social.loupax.com has 30 forms, 33 buttons and 29 textareas;
+Wikipedia has a search form. What already exists and gets REUSED (don't
+rebuild it): focus state + Tab order + focus ring (Q31/Q31b,
+`InteractionState`, `is_focusable`, the tab-order fn), keyboard input
+(`WindowEvent::KeyboardInput`, `resolve_binding`, `key_insertion_text`),
+a single-line `TextEditBuffer` (the `:` command bar is its first
+caller and was written to be reused here), navigation + history
+(`start_navigation`, `App::history`), and `wire` already forwards any
+method with a `Content-Length` body (`execute_and_stream`). The old
+"Form elements — sequencing plan" detail entry is superseded by these
+items (its steps 3 and the keyboard half of 4 already landed).
+
+Perf rule for every Tier 6 item: a keystroke, toggle or focus change
+must not rebuild the whole layout tree (R2/R3 lesson; full rebuild is
+~0.4s on Wikipedia). Measure keystroke-to-paint latency on a real page
+with temporary `Instant` timing, and say the number in the commit.
+
+- [ ] Q30a [M] Form controls get real boxes and UA styles (render only,
+      no interaction yet). `default.css` rules for `input`, `button`,
+      `select`, `textarea`, `fieldset`, `legend`, `label` (cross-check
+      the WHATWG rendering chapter, hand-curate, don't copy html.css).
+      `input` (text-like types: text, search, email, url, tel, password,
+      number) is an inline-block replaced-like box: width from `size`
+      (default 20 chars of the average char width) or CSS `width`, one
+      line high, painted border/background, its `value` attribute (or
+      `placeholder` in a dimmer color when value is empty; password
+      shows bullets). `checkbox`/`radio`: 13x13 box / circle, painted
+      check/dot when `checked`. `submit`/`reset`/`button` inputs and
+      `<button>`: inline-block with a button face, label from `value`
+      or children. `textarea`: `rows`x`cols` box with its text content,
+      clipped. `select`: closed state only, shows the selected (or
+      first) `option` text plus a drop arrow; `option`s are not
+      rendered in flow. `type=hidden`: `display:none`. Follow
+      `build_img_box`'s shape for the box-building path. Tests: one
+      per control type for box size; `:checked`/`:disabled` already
+      match (Q2), check the UA styles use them. Screenshot
+      social.loupax.com/u/loupax and the Wikipedia search box.
+- [ ] Q30b [S] Controls are focusable and clickable. `is_focusable`
+      includes enabled `input` (not hidden), `button`, `select`,
+      `textarea`; `disabled` ones are skipped by Tab and clicks. A
+      click on a control focuses it (`:focus` + focus ring apply).
+      `<label for=id>` and a wrapping `<label>` forward clicks to their
+      control. Hit-testing must return the control for clicks on its
+      box (today only text spans carry an href; controls need their
+      own hit target, cf. the `<img>`-wrapped-link scope cut).
+- [ ] Q30c [S] Checkbox/radio live state. A per-element map on `App`
+      (key it the way `scroll_offsets`/`InteractionState` key elements,
+      and make sure it survives relayouts and is cleared on
+      navigation), seeded from the `checked` attribute, flipped by
+      click and Space. Radios: one checked per `name` within the same
+      form owner. `:checked` reads the live state, not the attribute.
+      This also makes the Wikipedia/Vector "checkbox hack" menus
+      (`:checked ~ .menu`) work; REGRESSIONS.md notes a
+      `.vector-dropdown-content` subtree they keep hidden.
+- [ ] Q30d [M] Text editing in `input` and `textarea`. When a text control
+      is focused, key events go to it, not to `resolve_binding`: this
+      is the automatic vim-mode suspension the vim-keybindings item
+      left open. `Esc` blurs and returns to normal mode. One
+      `TextEditBuffer` per control, seeded from `value`/text content.
+      Extend it for `textarea` (newline, up/down by line, wrap) without
+      breaking the command bar. Paint the caret (one `fill_rect`),
+      scroll an `input` horizontally to keep the caret visible, mask
+      `password`. Clipboard paste (the command bar already has it).
+      Repaint/re-shape only the control (see the perf rule). Tests on
+      the pure buffer ops plus one "type into input updates its painted
+      text" headless test.
+- [ ] Q30e [M] Form submission. Build the form data set per the HTML spec
+      as a pure function (successful controls only: named, enabled,
+      checked boxes/radios, selected options, textarea text, hidden
+      inputs, plus the submitter button's name/value), encoded as
+      `application/x-www-form-urlencoded` (use the `url` crate's
+      `form_urlencoded`). Triggers: click a submit button, Enter in a
+      single-line input (implicit submission). `action` resolved
+      against `<base href>`/page URL, default = the page URL; `method`
+      GET replaces the query and calls `start_navigation`; POST needs a
+      `build_post_request_text` next to `build_get_request_text`
+      (body + `Content-Type` + `Content-Length`) and the same response
+      path; a 303/302 after POST is already followed by `wire`. History
+      gets the resulting URL. Out of scope: `multipart/form-data` and
+      `<input type=file>`, `formaction`/`formmethod` overrides,
+      `form=` attribute owners, validation (`required`, `pattern`).
+      Tests: the pure encoder (checkbox off/on, radio group, select,
+      submitter), GET URL building, POST request text.
+- [ ] Q30f [S] (in `wire`, not scratchy; log it in wire's own PROMPTS.md/
+      TODO.txt) An in-memory cookie jar, so a login on
+      social.loupax.com survives the next request. ureq 2's `cookies`
+      feature gives one per `Agent`; `wire` already shares one agent.
+      Memory only, nothing written to disk (say so in wire's NOTES).
+      Without this, any form behind a login (CSRF token + session
+      cookie) fails even though Q30e is correct.
+- [ ] Q30g [M] Open `<select>`. Click or Space/Enter opens a list painted
+      above all page content (a top-layer overlay, closest in shape to
+      the command bar's chrome painting, not to z-index stacking),
+      j/k/arrows move, Enter/click picks, Esc closes. The chosen
+      option updates the closed box (Q30a) and the data set (Q30e).
+      `multiple`/`size>1` list boxes: render as a scrolled list, out of
+      scope for picking until a page needs it.
+Done when: on social.loupax.com the user can log in (with Q30f), write
+a reply in a textarea and submit it, using only scratchy; and a
+Wikipedia search from the search box lands on a results page.
+
+--- Tier 7: JavaScript (Q33, split 2026-11-14; user ordered it last) ----
+
+Detail: "JavaScript — engine choice" (boa_engine recommended). Expect
+pages that enhance server-rendered HTML to become usable first; full
+SPA frameworks need a much larger API surface and are a long shot.
+Before Q33a, the user picks 2-3 JS-needing sites they actually browse
+as the JS measurement corpus (same role the four CSS pages played).
+
+- [ ] Q33-0 [S] Spike, measure before committing (no feature shipped):
+      add `boa_engine` on a branch, run a real 0.5-2MB script bundle
+      from the JS corpus with a stub global object, and record parse +
+      execute time, release binary size and clean build time against
+      today's. If parse+execute of a typical bundle is several seconds,
+      report back with the numbers before Q33a (`rquickjs` is the
+      documented fallback, at the cost of a C build step). Don't guess.
+- [ ] Q38 [M] (optional, user call) Split `src/lib.rs` (~27k lines) into
+      modules (css, style, layout, paint, net, app) before JS adds a
+      `dom`/`js` layer on top. Pure move, no behavior change, tests
+      unchanged and passing. Mainly helps item-sized subagents find
+      code and keeps incremental builds shorter.
+- [ ] Q33a [M] Run scripts. Classic (non-module) inline and external
+      `<script>`s, in document order, after the DOM is complete, then
+      `DOMContentLoaded` and `load`. External scripts are fetched
+      through `wire` in `process_external_resources`, the same way
+      stylesheets are. `console.log/warn/error` -> stderr. Script errors
+      are logged, never fatal. A `:set nojs` / `--no-js` toggle from day
+      one, and `<noscript>` content is hidden only when JS is on (many
+      pages look better today because of their noscript fallbacks).
+      `type=module`, `async`/`defer` ordering subtleties: out of scope.
+- [ ] Q33b [M] DOM read API: `document.getElementById/querySelector/
+      querySelectorAll` (reuse the `selectors` crate matching already
+      used by the cascade), `Element.tagName/id/className/
+      getAttribute/hasAttribute/textContent/children/parentNode/
+      classList.contains`. One JS wrapper object per `Handle`, cached
+      so `===` holds.
+- [ ] Q33c [M] DOM mutation: `setAttribute/removeAttribute`,
+      `classList.add/remove/toggle`, `textContent=`, `style.<prop>=`
+      (writes the inline style attribute), `createElement/
+      createTextNode/appendChild/insertBefore/removeChild/remove`,
+      `innerHTML=` (html5ever fragment parsing). `markup5ever_rcdom`
+      has no mutation API, so write the helpers over its `RefCell`
+      children/attrs. Every mutation only marks the document dirty; one
+      rebuild per event-loop turn, never one per call.
+- [ ] Q33d [M] Events and timers: `addEventListener/removeEventListener`
+      for click, input, change, submit, keydown/keyup, focus/blur,
+      DOMContentLoaded, load; capture/bubble dispatch with
+      `preventDefault`/`stopPropagation`, hooked into link clicks and
+      form submission (Q30e) so a page's handler can cancel them.
+      `setTimeout/setInterval/requestAnimationFrame` driven by the
+      winit loop via `EventLoopProxy`; drain the Promise job queue after
+      each task.
+- [ ] Q33e [S] Forms <-> JS: `.value`, `.checked`, `.selectedIndex`,
+      `.disabled` read and write the Q30 live state; `form.submit()`,
+      `form.elements`, `input`/`change` events fire from Q30d/Q30c.
+- [ ] Q33f [L] Networking and location from JS: `fetch()` (and a minimal
+      `XMLHttpRequest`) through `wire` on a background thread,
+      resolving a Promise via `AppEvent`; `JSON` is built in;
+      `location.href=` / `location.assign` navigate; `history.pushState/
+      replaceState` update the URL and history stack without a fetch.
+      This is what most "needs JS" sites actually wait on.
+- [ ] Q33g later, only when a corpus page needs it: `localStorage`,
+      `document.cookie`, `MutationObserver`, `getComputedStyle`,
+      `getBoundingClientRect` (needs layout results exposed to JS),
+      the JS-scriptable `bind()` from the vim-keybindings item.
+
+--- Parked (not blocking the queue; each needs a user decision) --------
+
 - [ ] Q26 [S] `letter-spacing` (n=8). The user decided 2026-11-12: first
       bump cosmic-text to the latest release and re-run the recorded
       repro ("Wide letter spacing " at 900px, 0-8px spacing, count the
@@ -738,41 +1008,18 @@ dropped selectors summed across those pages. Caveats:
       latest crates.io release, so there is nothing to bump to and the
       wrap bug can't be re-tested against a fix. Not shipped. Options
       for the user: test upstream git HEAD (pop-os/cosmic-text), file an
-      upstream issue, or sign off on a limitation. Leave this item
-      first-unchecked until decided.
-- [x] Q27 [M] (96bb7b1, done by Q4b+Q4c) `border-radius` with dashed, dotted, double or bevel
-      borders, and with unequal per-side borders after Q4. Detail:
-      "`border-radius` (v38) combined with".
-- [x] Q28 [S] (0867a4c) Images: `object-fit`/`object-position`, plus bilinear
-      downscaling in `blit_image`. Detail: "`<img>` (v46)".
-- [x] Q29 [M] (312a345) `mask-image`/`-webkit-mask-image` (n=438, all icon
-      stencils). Needs Q12a. Kept low by the user's own call. Detail:
-      "`mask-image`/`-webkit-mask-image`".
-
---- Tier 4: interactivity and architecture (needs user check-in) -------
-
-- [ ] Q30 Forms, following the existing sequencing plan (button,
-      checkbox/radio, focus, text input/textarea, select). This now has
-      evidence: social.loupax.com has 30 forms, 33 buttons and 29
-      textareas. Detail: "Form elements — sequencing plan".
-- [x] Q31 [M] (a4b93c4) Real `:hover`/`:focus`/`:active`/`:focus-visible`/
-      `:focus-within` state (links and `tabindex` elements; mouse hover,
-      press, click focus, Tab, Enter), which upgrades Q2's never-match
-      rules. Detail: "`OurSelectorImpl`'s `NonTSPseudoClass`".
-- [x] Q31b [S] (9552b38) `:target` (needs fragment navigation), scroll-into-view on Tab
-      focus, and a default focus ring. Form controls stay with Q30.
+      upstream issue, or sign off on a limitation.
 - [ ] Q32 Scrollbar drag-to-scroll; precise float placement and hit-test
       order; negative-`z-index` hit-test order; moving DOM building and
-      cascade off the main thread. See their own Detail entries.
-- [ ] Q33 JavaScript. The user ordered this last. Detail:
-      "JavaScript — engine choice".
+      cascade off the main thread. See their own Detail entries. Revisit
+      the hit-test-order part if Q30b clicks land on the wrong control.
 
 Measured but deliberately NOT queued (each seen on the pages above;
 revisit only on request): `transform` (n=22), `filter` (28),
 transitions and animations (39+), `user-select` (50, no text selection
 exists), `direction`/`unicode-bidi` (36, the engine is LTR-only),
 `column-width` (12), `counter-reset` (10), `color-scheme` (18),
-`border-collapse` (12), `colspan`/`rowspan`.
+`border-collapse` (12), `colspan`/`rowspan` (now proposed as Q36).
 
 Not scratchy's: `snag https://forums.gentoo.org/` times out ("timed out
 reading response") right after inlining
@@ -2125,7 +2372,10 @@ of "nothing real needs this yet" cuts); interleave based on "does a
 real page need this," not "is this pillar done." JS explicitly ordered
 last, per the user's own call.
 
-- [ ] **Form elements — sequencing plan.** Two things scratchy has never
+- [ ] **Form elements — sequencing plan.** (SUPERSEDED 2026-11-14 by the
+      QUEUE's Tier 6, Q30a-g. Focus state, keyboard input and a reusable
+      `TextEditBuffer` have landed since this was written, so the
+      "never had" premise below is out of date.) Two things scratchy has never
       had at all, confirmed by grep: any concept of a focused element
       (nothing in `App` or `ComputedStyle`/`Laid`), and any keyboard
       input handling whatsoever (zero `WindowEvent::KeyboardInput`/`Ime`
@@ -2696,7 +2946,8 @@ last, per the user's own call.
       one leaves a blank space where an icon would be, not a broken
       layout, unlike `vertical-align`/`background`/per-side borders/etc.
 
-- [ ] **JavaScript — engine choice, investigated, not started; last
+- [ ] **JavaScript — engine choice (split into QUEUE Tier 7, Q33-0..Q33g,
+      on 2026-11-14), investigated, not started; last
       pillar per the user's own explicit ordering.** Recommendation:
       `boa_engine` (crates.io) — the only realistic option that keeps
       scratchy's current all-Rust build with zero new C toolchain
