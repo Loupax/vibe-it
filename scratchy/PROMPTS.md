@@ -6129,3 +6129,9 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > Do ONLY Q37: tick the history items that Q34a-c and Q10/Q18 already resolved, verify against git log/code, include hashes, reword the `@import`/`@font-face`/... item to what is still open, tick Q37 in the QUEUE.
 
 **What changed:** TODO.txt only. The "Floats don't escape their parent `Blocks` box" history item is ticked with acbcb00 (Q34a-c, confirmed in git log and `table-caption`/float code in lib.rs). The `@import`/`@font-face`/`@keyframes`/`@supports` item is reworded to the still-open `@font-face`, `@keyframes`, transitions and animations, citing Q10 (a4f4d91) and Q18 (3a7054b, `expand_css_imports` exists). Q37 ticked in the QUEUE. No cargo steps (no code).
+
+## Q38 — split `src/lib.rs` into modules (queue item)
+
+> Do ONLY Q38: split src/lib.rs into modules as a pure move, no behavior change, tests kept, same test count, in verifiable steps; run before the Q41+ fix items.
+
+**What changed:** `src/lib.rs` (27.7k lines) is now a 190-line root plus `dom.rs` (1031), `css.rs` (5656), `style.rs` (2003), `images.rs` (1647), `layout.rs` (4795), `paint.rs` (2258), `net.rs` (663), `app.rs` (2229) and `tests.rs` (7271), cut along the existing `// ----------` section markers. A script did the move, adding `pub(crate)` to items, struct fields, inherent methods and thread-local statics, plus `use super::*;` in each module and glob re-exports in the root (`pub use` where the bench crate needs it). The seams were not tangled: every module still sees the others unqualified. `cargo test` 327 passed, 2 ignored, clippy 31 warnings (same as before), WPT runner unchanged. Docs updated: `NOTES.md` "Source layout", `AGENTS.md`/`TODO.txt` grep hints. Left out: no finer split of `layout.rs`/`css.rs`.

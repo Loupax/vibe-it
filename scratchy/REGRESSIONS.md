@@ -386,7 +386,7 @@ item that says the feature is done.
 |----|---------------|------------|--------|
 | W1 | `in`, `cm`, `mm`, `pc`, `Q` lengths are not parsed (declaration dropped). `width:1in` renders full width. | none (`pt` 17dd346, viewport units 35c826a) | NOT CLAIMED, S, hides ~1/3 of CSS2 failures |
 | W2 | `ex`, `ch`, `ic`, `lh`, `rlh`, `cap` units not parsed. | none | NOT CLAIMED |
-| W3 | `<br>` is not implemented anywhere (`grep '"br"' src/lib.rs` is empty). `a<br>b` renders `a b` in a block, float, inline-block, abspos. | none | NOT CLAIMED, but Wikipedia-relevant |
+| W3 | `<br>` is not implemented anywhere (`grep '"br"' src/*.rs` is empty). `a<br>b` renders `a b` in a block, float, inline-block, abspos. | none | NOT CLAIMED, but Wikipedia-relevant |
 | W4 | `border: solid black` / `border-style: solid` with no width computes width 0; should be `medium` (3px). `border-bottom: solid` likewise. | Q4 3e80aae | BROKEN |
 | W5 | Negative values that CSS says are invalid are accepted: `padding-right:-1px` shrinks the box, `max-height:-1px` clamps to 0 (should be ignored), negative `flex-basis`, negative `border-*-width`. | pre-Q box model | BROKEN |
 | W6 | A block with `width:auto` whose borders+padding exceed the containing block is clamped to the container width; it should overflow (48px container, 2x32px borders paints 48 wide, expected 64). | pre-Q box model | BROKEN |

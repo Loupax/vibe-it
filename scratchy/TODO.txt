@@ -26,7 +26,7 @@ Rules for whoever implements an item:
   size suggests, stop and report back. Don't guess.
 - Follow the per-item checklist in `AGENTS.md`.
 - Code references are function and type names only. Find them with
-  `grep -n 'fn <name>' src/lib.rs`, and never trust a line number.
+  `grep -rn 'fn <name>' src/`, and never trust a line number.
 - When an item is done, tick it here AND in its "Detail:" entry, with
   the commit hash. If you deliberately leave part of an item out, add a
   new, narrower `[ ]` item right below it in this QUEUE.
@@ -1054,7 +1054,7 @@ as the JS measurement corpus (same role the four CSS pages played).
       today's. If parse+execute of a typical bundle is several seconds,
       report back with the numbers before Q33a (`rquickjs` is the
       documented fallback, at the cost of a C build step). Don't guess.
-- [ ] Q38 [M] (optional, user call) Split `src/lib.rs` (~27k lines) into
+- [x] Q38 [M] (done, 38ca872) Split `src/lib.rs` (~27k lines) into
       modules (css, style, layout, paint, net, app) before JS adds a
       `dom`/`js` layer on top. Pure move, no behavior change, tests
       unchanged and passing. Mainly helps item-sized subagents find
