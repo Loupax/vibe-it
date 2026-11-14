@@ -775,7 +775,7 @@ Not vendored; pass the path to the runner.
         change from expected. Fill in the command in AGENTS.md step 4.
       - Test: the runner's diff/expectation logic on two tiny fixtures.
 
-- [x] Q40b [L] (Q40B_HASH) Run the audit and write up findings. One area at a time,
+- [x] Q40b [L] (be89177) Run the audit and write up findings. One area at a time,
       each its own commit. Reftest counts are from the checkout:
         CSS2/normal-flow 793, margin-padding-clear 684, box-display 120,
         CSS2/floats 122 + floats-clear 214, CSS2/positioning 520 +
