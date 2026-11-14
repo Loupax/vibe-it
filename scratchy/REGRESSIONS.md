@@ -495,3 +495,17 @@ Flipped 0 in both (units are not the issue here).
 | W15 table width | `block-formatting-contexts-001` reference | 2px too wide | BROKEN |
 | caption-side | `caption-side-applies-to-*` 11 | `caption-side` on non-captions changes layout | BROKEN (not confirmed on a minimal repro) |
 | css-tables misc | `percentage-sizing-of-table-cell-children` 5, `table-intrinsic-size` 4, `subpixel-*` 5, `visibility-collapse-*` 4 | | NOT CLAIMED |
+
+#### CSS2/linebox (claimed: Q9 f43f902 `vertical-align`; baseline `line-height`)
+
+191 eligible (0 JS) | pass 16 | fail 175 (8% pass, the worst area). Flipped 13 (W1).
+Clusters: `line-height-*` 60 (+13 `-applies-to`), `vertical-align-*` 49 (+13), `inline-formatting-context-*` 14.
+Marker counts: 121 mention `position:absolute` (W10), 11 `ex` units (W2), 10 negative lengths (W5, `line-height:-1px`).
+These tests put a reference box beside the test box with `font: 1in Ahem` and
+absolute positioning, so they sit behind W1, W10, W2 and W5. Not root-caused
+beyond that.
+
+| group | tests | triage |
+|-------|-------|--------|
+| W10, W1, W2, W5 gating | most of the 175 | BROKEN / NOT CLAIMED |
+| `vertical-align-*` (Q9), `line-height-*` | re-measure after W10/W1 | Q40c |

@@ -237,3 +237,15 @@ css/css-tables/table-cell-tiny-width-excess-width-distribution.html
 css/css-tables/table-row-group-nested-anonymous-001.html
 css/css-tables/tentative/collapsed-borders-painting-order-007.html
 css/css-tables/tentative/paint/collapsed-border-large-cell.html
+# Q40b linebox
+css/CSS2/linebox/inline-formatting-context-003.xht
+css/CSS2/linebox/line-height-002.xht
+css/CSS2/linebox/line-height-035.xht
+css/CSS2/linebox/line-height-068.xht
+css/CSS2/linebox/line-height-095.xht
+css/CSS2/linebox/line-height-applies-to-003.xht
+css/CSS2/linebox/vertical-align-004.xht
+css/CSS2/linebox/vertical-align-041.xht
+css/CSS2/linebox/vertical-align-078.xht
+css/CSS2/linebox/vertical-align-117a.xht
+css/CSS2/linebox/vertical-align-applies-to-015.xht
