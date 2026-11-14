@@ -6081,3 +6081,16 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > work on Q34d
 
 **What changed:** the missing words were not a paint bug. A headless layout of the saved Nvidia page placed every word and painted them all, but a headless *progressive* run (tiny deadline, same `ShapeCache`, `next_id` reset, like the shaping worker) reproduced empty `w=0` words. `measure_mixed_inline` took a fresh `next_id` for each word of a chunk that split across wrapped lines, so the ids consumed depended on line breaks, which differ between passes; later ids shifted onto other paragraphs' cache entries. Each chunk word now reserves its fallback id up front (`WordSource::Chunk::word_id`). Test: `mixed_inline_id_consumption_does_not_depend_on_line_breaks` (4 ids at width 5000 vs 248 at 300 before the fix; equal after). `grim` of the live Nvidia page: "Nvidia became the first company to surpass US$4 trillion" is complete. Left out: the whole-buffer vs per-word path choice (`content_y < floats.max_bottom()`) can also change the id count between passes if placeholder heights differ; not observed on a real page yet (noted in TODO.txt). A first synthetic regression test that ran progressive passes did not reproduce the bug, so the test checks the id-count invariant directly.
+
+
+---
+
+## Re-plan: status review, forms/JS split, AGENTS.md, WPT audit (planning only, no code)
+
+> Check the status of scratchy compared to @scratchy/TODO.txt and help me priotitize the next steps. Pages aren't getting rendered perfectly but are good enough. Ideally i'd like to work with forms once the rendering is acceptable, and adding javascript after that. Do a detailed analysis and create an artifact explaining the state of @scratchy along and update @scratchy/TODO.txt accordingly
+
+> go ahead and draft it. Keep it short and to the point. No flowery language
+
+> Add a top priority item for testing our supposedly complete features against the testing suite in @../wpt/  and add any findings in the REGRESSIONS file. Wouldn't want to keep going while our existing features are half baked
+
+**What changed:** TODO.txt QUEUE re-planned: Q40a/b (WPT reftest runner, then an audit of Q1-Q34 against `/home/loupax/src/wpt`, findings into REGRESSIONS.md) at top priority; Tier 5 rendering close-out (Q35 live verification, optional Q36 colspan/rowspan, Q37 stale-entry cleanup); Tier 6 forms (Q30a-g, reusing Q31 focus, keyboard routing and `TextEditBuffer`; Q30f is a cookie jar in `wire`); Tier 7 JavaScript (Q33-0 boa measurement spike, optional Q38 lib.rs split, Q33a-g). Q26 and Q32 moved to a Parked list. New `AGENTS.md` holds the per-item checklist (moved out of the QUEUE preamble) and standing rules; `CLAUDE.md` imports it. REGRESSIONS.md has an empty "WPT audit" section. Status at the time: `cargo test` 320 passed, 2 ignored, at `72c352d`.
