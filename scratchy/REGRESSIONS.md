@@ -465,3 +465,18 @@ Marker counts among failures: 212 mention `float`, 57 `inline-block`, 40 `positi
 | W1 units | 37 flipped | | NOT CLAIMED |
 | clearance | `clear-clearance-calculation-*` (5), `margin-collapse-clear-*` (10) | spacing after a cleared block differs; not root-caused | Q40c |
 | ungrouped | 4 with no marker | | Q40c |
+
+#### CSS2/positioning + css-position (claimed: position bb97e60, sticky 636f369)
+
+CSS2/positioning: 513 eligible (+7 JS) | pass 154 | fail 359. Flipped 138 (W1).
+css-position: 134 eligible (+119 JS) | pass 38 | fail 96. Flipped 0.
+
+| group | tests (examples) | wrong render | triage |
+|-------|------------------|--------------|--------|
+| W1 units | 138 flipped | | NOT CLAIMED |
+| W10 abspos auto width | `absolute-non-replaced-width-001`, `-018` | box fills the containing block instead of shrink-to-fit | BROKEN |
+| W11 abspos + float child | `block-formatting-context-height-001` (normal-flow) | abspos box paints no background | BROKEN |
+| W20 inline `svg:svg` | 26 mention svg (`absolute-replaced-width-009`, `-032`) | svg missing | NOT CLAIMED |
+| W18 `<img width="100%">` | 11 | | BROKEN |
+| css-position | `position-absolute-in-inline` 12, `inline-level-absolute-in-block-level-context` 6, `position-relative` 8, 38 mention `<br>` (W3), 6 `position-sticky-*` | abspos inside inline parents, static position | BROKEN (re-measure after W10) |
+| vertical writing modes | ~30 `vrl-*`/`vlr-*` in css-position | | NOT CLAIMED |

@@ -189,3 +189,26 @@ css/CSS2/floats-clear/floats-122.xht
 css/CSS2/floats-clear/floats-149.xht
 css/CSS2/floats-clear/margin-collapse-023.xht
 css/CSS2/floats-clear/margin-collapse-clear-003.xht
+# Q40b positioning
+css/CSS2/positioning/absolute-replaced-height-035.xht
+css/CSS2/positioning/absolute-replaced-width-066.xht
+css/CSS2/positioning/abspos-overflow-002.xht
+css/CSS2/positioning/bottom-064.xht
+css/CSS2/positioning/left-006.xht
+css/CSS2/positioning/left-109.xht
+css/CSS2/positioning/position-fixed-007.xht
+css/CSS2/positioning/right-016.xht
+css/CSS2/positioning/right-112.xht
+css/CSS2/positioning/top-056.xht
+css/css-position/multicol/static-position/vlr-ltr-ltr-in-multicol.html
+css/css-position/multicol/vlr-rtl-rtl-in-multicols.html
+css/css-position/position-absolute-center-004.html
+css/css-position/position-absolute-in-inline-007a.html
+css/css-position/position-absolute-replaced-intrinsic-size.tentative.html
+css/css-position/position-fixed-video-controls-print.html
+css/css-position/position-relative-empty-inline.html
+css/css-position/position-relative-table-tfoot-top.html
+css/css-position/static-position/htb-ltr-rtl.tentative.html
+css/css-position/static-position/inline-level-absolute-in-block-level-context-009.html
+css/css-position/static-position/vrl-ltr-rtl.tentative.html
+css/css-position/sticky/position-sticky-left-003.html
