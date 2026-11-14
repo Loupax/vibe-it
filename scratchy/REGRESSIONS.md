@@ -440,3 +440,14 @@ Flipped by the W1+W19 rewrite: 189, so about half of all failures are W1 alone
 | W14/W16 table internals | 52 mention `display:table-*` (`margin-applies-to-001..015`) | table drawn full width, no border-spacing | BROKEN/PARTIAL |
 | W9/W10 | abspos/float references | | BROKEN |
 | ungrouped | 43 with no marker (`margin-collapse-001`: inline margins in Ahem rows) | not yet root-caused | Q40c |
+
+#### CSS2/box-display (claimed: baseline; inline-block 244a8f4; flow-root a4852af)
+
+86 eligible (+34 JS) | pass 44 | fail 42. Flipped 6.
+
+| group | tests | wrong render | triage |
+|-------|-------|--------------|--------|
+| `display:table-*` | `display-*` 12 (12 mention table internals) | W14 | BROKEN |
+| containing block | `containing-block-*` 9 | abspos boxes stretch (W10) | BROKEN |
+| block-in-inline | `block-in-inline-*` 8 (`block-in-inline-margin-with-leading-text`) | margins around the split differ | BROKEN (not confirmed on a minimal repro, see Q40c) |
+| residue | 12 with no marker | | Q40c |

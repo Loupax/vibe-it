@@ -156,3 +156,15 @@ css/CSS2/margin-padding-clear/padding-left-018.xht
 css/CSS2/margin-padding-clear/padding-left-applies-to-004.xht
 css/CSS2/margin-padding-clear/padding-right-071.xht
 css/CSS2/margin-padding-clear/padding-top-029.xht
+# Q40b bd
+css/CSS2/box-display/anonymous-box-generation-001.xht
+css/CSS2/box-display/block-in-inline-008.xht
+css/CSS2/box-display/block-in-inline-margin-collapses-through-multiple-floats.html
+css/CSS2/box-display/block-in-inline-margin-with-text-then-block-in-inline.html
+css/CSS2/box-display/block-in-inline-self-collapsing-only-child.html
+css/CSS2/box-display/containing-block-001.xht
+css/CSS2/box-display/containing-block-009.xht
+css/CSS2/box-display/containing-block-026.xht
+css/CSS2/box-display/display-001.xht
+css/CSS2/box-display/display-010.xht
+css/CSS2/box-display/display-017.xht
