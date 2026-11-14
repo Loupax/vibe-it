@@ -1372,10 +1372,17 @@ pub(crate) fn collect_real_children(
                 // `white-space: pre` preserves the text byte-for-byte
                 // (literal newlines, runs of spaces, no fabricated
                 // trailing space) instead of collapsing it.
-                pending.push(InlineItem::Text(
-                    inline_text(&contents.borrow(), inherited.white_space, inherited.text_transform),
-                    span,
-                ));
+                let mut text = inline_text(&contents.borrow(), inherited.white_space, inherited.text_transform);
+                // Collapsible spaces at the start of a line (right after a
+                // `<br>`) are removed, so they never form a line of their
+                // own (Q41).
+                if inherited.white_space != WhiteSpace::Pre && matches!(pending.last(), Some(InlineItem::Text(t, _)) if t == BR_TEXT) {
+                    text = text.trim_start_matches(' ').to_string();
+                    if text.is_empty() {
+                        continue;
+                    }
+                }
+                pending.push(InlineItem::Text(text, span));
             }
             NodeData::Element { name, .. } => {
                 let tag = name.local.as_ref();
@@ -1413,7 +1420,14 @@ pub(crate) fn collect_real_children(
                 // regardless of `display`, a deliberate (now reverted)
                 // simplification — see TODO.txt/NOTES.md for why that
                 // was the original call and what changed.
-                if tag == "img" && !matches!(style.display, Display::Block | Display::Table | Display::Flex | Display::Grid) {
+                if tag == "br" {
+                    let mut span: SpanStyle = inherited.into();
+                    span.background_color = bg;
+                    span.vertical_align = valign;
+                    span.href = child_href;
+                    span.node = node_id(child);
+                    pending.push(InlineItem::Text(BR_TEXT.to_string(), span));
+                } else if tag == "img" && !matches!(style.display, Display::Block | Display::Table | Display::Flex | Display::Grid) {
                     let background_image = resolve_background_image(child, rules, viewport_width, style.custom_props);
                     let (img_style, decoded) = resolve_img(child, style, image_cache);
                     match decoded {

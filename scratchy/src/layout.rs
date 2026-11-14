@@ -92,6 +92,10 @@ impl From<InheritedStyle> for SpanStyle {
 /// `LayoutBox.background_image` does (see its own docs) — an inline
 /// `<img>` is still a full element that can have its own CSS
 /// background-image/border/etc., not just its foreground pixels.
+/// `<br>`'s text payload: a lone newline, which cosmic-text breaks on and
+/// `measure_mixed_inline` turns into a forced break (Q41).
+pub(crate) const BR_TEXT: &str = "\n";
+
 pub(crate) enum InlineItem {
     Text(String, SpanStyle),
     Image {
@@ -2317,6 +2321,8 @@ pub(crate) fn measure_mixed_inline<'a>(
     #[allow(clippy::large_enum_variant)]
     enum Measured<'a> {
         Word { source: WordSource, width: f32, height: f32 },
+        /// A forced line break (`<br>`): ends the current line.
+        Break { height: f32 },
         Image { laid_style: ComputedStyle, background_image: Option<Arc<DecodedImage>>, image: Arc<DecodedImage>, advance_w: f32, img_w: f32, img_h: f32 },
         /// `laid`/`own_pending` are `None`/empty in `trial` mode (see
         /// this function's own `trial` parameter docs) — no real
@@ -2341,6 +2347,14 @@ pub(crate) fn measure_mixed_inline<'a>(
     let mut chunk_text: HashMap<usize, (&str, SpanStyle)> = HashMap::new();
     for item in items {
         match item {
+            InlineItem::Text(text, span) if text == BR_TEXT => {
+                // `<br>` (Q41): a zero-width forced break whose height is
+                // the line height of the surrounding text. One id always.
+                let id = *next_id;
+                *next_id += 1;
+                let (_, height) = shape_or_resume_word(font_system, cache, id, " ", *span, WORD_MEASURE_WIDTH, deadline, incomplete);
+                measured.push(Measured::Break { height });
+            }
             InlineItem::Text(text, span) => {
                 if span.word_spacing != 0.0 {
                     for word in text.split_inclusive(' ') {
@@ -2536,13 +2550,14 @@ pub(crate) fn measure_mixed_inline<'a>(
     for (i, m) in measured.iter().enumerate() {
         let w = match m {
             Measured::Word { width, .. } => *width,
+            Measured::Break { .. } => 0.0,
             Measured::Image { advance_w, .. } | Measured::Embedded { advance_w, .. } => *advance_w,
         };
         if !current.is_empty() && s.white_space != WhiteSpace::Nowrap && cursor_x + w > avail_w {
             let line_height = current
                 .iter()
                 .map(|&(i, _)| match &measured[i] {
-                    Measured::Word { height, .. } => *height,
+                    Measured::Word { height, .. } | Measured::Break { height } => *height,
                     Measured::Image { img_h, .. } => *img_h,
                     Measured::Embedded { h, .. } => *h,
                 })
@@ -2556,6 +2571,25 @@ pub(crate) fn measure_mixed_inline<'a>(
         }
         current.push((i, cursor_x));
         cursor_x += w;
+        if let Measured::Break { height } = m {
+            // Forced break: close this line now (its height includes the
+            // break's own so an empty line still has height).
+            let _ = height;
+            let line_height = current
+                .iter()
+                .map(|&(i, _)| match &measured[i] {
+                    Measured::Word { height, .. } | Measured::Break { height } => *height,
+                    Measured::Image { img_h, .. } => *img_h,
+                    Measured::Embedded { h, .. } => *h,
+                })
+                .fold(0.0f32, f32::max);
+            lines.push((left_bound, avail_w, std::mem::take(&mut current)));
+            cursor_y += line_height;
+            cursor_x = 0.0;
+            let bounds = line_bounds(cursor_y);
+            left_bound = bounds.0;
+            avail_w = bounds.1;
+        }
     }
     if !current.is_empty() {
         lines.push((left_bound, avail_w, current));
@@ -2590,7 +2624,7 @@ pub(crate) fn measure_mixed_inline<'a>(
         let line_height = line
             .iter()
             .map(|&(i, _)| match &measured[i] {
-                Measured::Word { height, .. } => *height,
+                Measured::Word { height, .. } | Measured::Break { height } => *height,
                 Measured::Image { img_h, .. } => *img_h,
                 Measured::Embedded { h, .. } => *h,
             })
@@ -2600,6 +2634,7 @@ pub(crate) fn measure_mixed_inline<'a>(
             .map(|&(i, x)| {
                 x + match &measured[i] {
                     Measured::Word { width, .. } => *width,
+                    Measured::Break { .. } => 0.0,
                     Measured::Image { advance_w, .. } | Measured::Embedded { advance_w, .. } => *advance_w,
                 }
             })
@@ -2720,6 +2755,9 @@ pub(crate) fn measure_mixed_inline<'a>(
                     let id = *word_id;
                     let (w, h) = shape_or_resume_word(font_system, cache, id, word, span, WORD_MEASURE_WIDTH, deadline, incomplete);
                     positioned.push(MixedPositioned::Word { id, x: final_x, y: content_y + cursor_y, w, h });
+                    idx += 1;
+                }
+                Measured::Break { .. } => {
                     idx += 1;
                 }
                 Measured::Word { source: WordSource::Cached(id), width, height } => {

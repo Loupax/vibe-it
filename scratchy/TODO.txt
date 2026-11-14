@@ -809,12 +809,25 @@ Not vendored; pass the path to the runner.
 
 --- Q40b fix items (WPT audit, 2026-11-14) -----------------------------
 
-- [ ] Q41 [S] `<br>` (W3, NOT CLAIMED but Wikipedia-relevant): there is no
+- [x] Q41 [S] (09b8e63) `<br>` (W3, NOT CLAIMED but Wikipedia-relevant): there is no
       `<br>` handling at all, `a<br>b` renders `a b`. Emit a forced line
       break in inline layout (also `<br>` right after an inline `<img>`,
       and inside floats, inline-blocks, table cells, abspos). Test: the
       `a<br>b` fixture gives two lines. WPT: reference of
       `width-percentage-001`, `table-anonymous-objects-059`.
+      Result: `<br>` is `InlineItem::Text(BR_TEXT)` (a lone newline);
+      cosmic-text breaks on it in the plain path and `measure_mixed_inline`
+      has a `Measured::Break` (works after inline images, in floats,
+      inline-blocks, cells). Leading spaces after a `<br>` are dropped.
+      WPT subset unchanged (96 pass): `floats-placement-vertical-004-ref`
+      relied on `<br>` being ignored and stays passing only because of the
+      leading-space trim. Left out: `<br>` as a direct child of a flex
+      container (anonymous item drops it), `clear` on `<br>`, trailing
+      spaces before a `<br>` are not trimmed (Q41a).
+- [ ] Q41a [S] `<br>` leftovers: `<br clear=...>`/`br{clear}`, trailing
+      collapsible space before `<br>` should not count toward line width
+      (matters for `text-align:right/center`), `<br>` directly inside a flex
+      container, `<br>` with `display:block` (counts as a line break only).
 - [ ] Q42 [S] Physical and font-relative units (W1, W2): parse `in`, `cm`,
       `mm`, `pc`, `Q` (fixed px ratios) and `ex`, `ch` (x-height /
       advance of `0`; half an em is acceptable for `ex` if the font has no
