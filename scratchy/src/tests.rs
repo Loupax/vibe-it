@@ -7269,3 +7269,26 @@ fn q40b_wpt_root_relative_reference() {
     assert_eq!(r.run_test(&root.join("css/t/t.html"), None), Outcome::Ran(Status::Pass));
     let _ = fs::remove_dir_all(&root);
 }
+
+#[test]
+fn q41_br_forces_a_line_break() {
+    let h = |body: &str| measure_fixture(&format!("<html><body style=\"margin:0\">{body}</body></html>"), 800.0).h;
+    let one = h("<div>a b</div>");
+    assert!(one > 0.0);
+    // Plain text run.
+    assert!((h("<div>a<br>b</div>") - 2.0 * one).abs() < 1.0, "a<br>b must be two lines");
+    assert!((h("<div>a<br><br>b</div>") - 3.0 * one).abs() < 1.0, "double br leaves an empty line");
+    // A trailing <br> does not add a line.
+    assert!((h("<div>a<br></div>") - one).abs() < 1.0);
+    // Mixed run (inline image forces the hand-rolled breaker).
+    let src = tiny_png_data_uri(10, 10);
+    let mixed_one = h(&format!("<div>a <img src=\"{src}\"> b</div>"));
+    let mixed_two = h(&format!("<div>a <img src=\"{src}\"><br>b</div>"));
+    assert!(mixed_two > mixed_one + 1.0, "br after an inline image breaks the line: {mixed_one} vs {mixed_two}");
+    // Whitespace after a <br> never forms a line of its own.
+    assert!((h("<div>a<br>\n</div>") - one).abs() < 1.0);
+    assert!((h("<div>a<br> b</div>") - 2.0 * one).abs() < 1.0);
+    // Inside an inline-block.
+    let ib = h("<div><span style=\"display:inline-block\">a<br>b</span></div>");
+    assert!(ib > one + 1.0, "br inside inline-block: {ib} vs {one}");
+}
