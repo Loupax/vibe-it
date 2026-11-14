@@ -386,7 +386,7 @@ item that says the feature is done.
 |----|---------------|------------|--------|
 | W1 | `in`, `cm`, `mm`, `pc`, `Q` lengths are not parsed (declaration dropped). `width:1in` renders full width. | none (`pt` 17dd346, viewport units 35c826a) | NOT CLAIMED, S, hides ~1/3 of CSS2 failures |
 | W2 | `ex`, `ch`, `ic`, `lh`, `rlh`, `cap` units not parsed. | none | NOT CLAIMED |
-| W3 | `<br>` is not implemented anywhere (`grep '"br"' src/*.rs` is empty). `a<br>b` renders `a b` in a block, float, inline-block, abspos. | Q41 (HASH) | FIXED (leftovers: Q41a) |
+| W3 | `<br>` is not implemented anywhere (`grep '"br"' src/*.rs` is empty). `a<br>b` renders `a b` in a block, float, inline-block, abspos. | Q41 (09b8e63) | FIXED (leftovers: Q41a) |
 | W4 | `border: solid black` / `border-style: solid` with no width computes width 0; should be `medium` (3px). `border-bottom: solid` likewise. | Q4 3e80aae | BROKEN |
 | W5 | Negative values that CSS says are invalid are accepted: `padding-right:-1px` shrinks the box, `max-height:-1px` clamps to 0 (should be ignored), negative `flex-basis`, negative `border-*-width`. | pre-Q box model | BROKEN |
 | W6 | A block with `width:auto` whose borders+padding exceed the containing block is clamped to the container width; it should overflow (48px container, 2x32px borders paints 48 wide, expected 64). | pre-Q box model | BROKEN |
@@ -420,7 +420,7 @@ Flipped by the W1+W19 rewrite: 189, so about half of all failures are W1 alone
 | W5 negative values | 13 mention one (`max-height-001`, `max-height-012`) | `max-height:-1px` collapses a 96px square to 0 | BROKEN |
 | W6 over-constrained width | `blocks-011`, `blocks-012` | box 48px wide instead of 64 | BROKEN |
 | W7 empty-block margins | `margin-collapse-through-zero-height-block`, `margin-collapse-after-float-001` | gap 300 instead of 200 | BROKEN |
-| W3 `<br>` | 17 mention it (`width-percentage-001` reference) | two images in the reference sit side by side | FIXED by Q41 (HASH) |
+| W3 `<br>` | 17 mention it (`width-percentage-001` reference) | two images in the reference sit side by side | FIXED by Q41 (09b8e63) |
 | W9 shrink-to-fit | `inline-block-non-replaced-width-001` | red strip: box one em too wide | BROKEN |
 | W8 float after inline | `inlines-013` | float lands on the next line | BROKEN |
 | W11 abspos + float | `block-formatting-context-height-001` (Q40a lead) | paints nothing | BROKEN |
