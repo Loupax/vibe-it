@@ -6094,3 +6094,12 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > Add a top priority item for testing our supposedly complete features against the testing suite in @../wpt/  and add any findings in the REGRESSIONS file. Wouldn't want to keep going while our existing features are half baked
 
 **What changed:** TODO.txt QUEUE re-planned: Q40a/b (WPT reftest runner, then an audit of Q1-Q34 against `/home/loupax/src/wpt`, findings into REGRESSIONS.md) at top priority; Tier 5 rendering close-out (Q35 live verification, optional Q36 colspan/rowspan, Q37 stale-entry cleanup); Tier 6 forms (Q30a-g, reusing Q31 focus, keyboard routing and `TextEditBuffer`; Q30f is a cookie jar in `wire`); Tier 7 JavaScript (Q33-0 boa measurement spike, optional Q38 lib.rs split, Q33a-g). Q26 and Q32 moved to a Parked list. New `AGENTS.md` holds the per-item checklist (moved out of the QUEUE preamble) and standing rules; `CLAUDE.md` imports it. REGRESSIONS.md has an empty "WPT audit" section. Status at the time: `cargo test` 320 passed, 2 ignored, at `72c352d`.
+
+
+---
+
+## Q36 — colspan/rowspan in measure_table (queue item, out of order at user's request)
+
+> implement Q36 (colspan/rowspan in measure_table)
+
+**What changed:** `ComputedStyle` gained `col_span`/`row_span` (set by `build_table_row_cells` from the attributes, clamped to 1000/65534). New `table_grid_placement` assigns each cell a start column, skipping columns held by a `rowspan` cell from an earlier row. `table_column_widths` sizes columns from single-column cells first, then widens the spanned columns only if a spanning cell needs more (shortfall split in proportion to current width). `lay_out_row_cells` takes the placement and gives a cell the summed width of its spanned columns. `settle_rowspans` runs after the rows are laid out: a rowspan cell gets the summed height of its rows, the last spanned row grows if the cell is taller, and later rows shift down. Tests: `colspan_header_spans_both_columns_without_squeezing_them`, `cell_after_colspan_cell_lands_in_the_following_column`, `rowspan_cell_takes_summed_row_height_and_pushes_the_next_column_over`. Left out: `rowspan="0"`, `<col span>` widths, `table-layout: fixed`.

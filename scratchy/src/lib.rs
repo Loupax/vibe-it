@@ -6955,6 +6955,10 @@ struct ComputedStyle {
     table_caption: bool,
     /// `caption-side: bottom` (not inherited) — Q34c.
     caption_bottom: bool,
+    /// `colspan`/`rowspan` of a table cell (Q36), set by
+    /// `build_table_row_cells` from the attributes; 1 everywhere else.
+    col_span: usize,
+    row_span: usize,
     margin: Sides,
     padding: Sides,
     /// Per-side (top, right, bottom, left). Width is already 0 for a side
@@ -8593,6 +8597,8 @@ fn resolve_style_for(
         flow_root,
         table_caption,
         caption_bottom,
+        col_span: 1,
+        row_span: 1,
         text_align,
         vertical_align,
         line_height,
@@ -8684,6 +8690,8 @@ fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         flow_root: false,
         table_caption: false,
         caption_bottom: false,
+        col_span: 1,
+        row_span: 1,
         text_align: inherited.text_align,
         vertical_align: VerticalAlign::default(),
         line_height: inherited.line_height,
@@ -9411,7 +9419,13 @@ fn build_table_row_cells(
         let NodeData::Element { .. } = &child.data else { continue };
         let style = resolve_style(child, rules, inherited, viewport_width);
         if style.display == Display::TableCell {
-            cells.push(build_box_for_element(child, rules, inherited, decoration, href, viewport_width, image_cache));
+            let mut cell = build_box_for_element(child, rules, inherited, decoration, href, viewport_width, image_cache);
+            let span = |name: &str, max: usize| {
+                element_attr(child, name).and_then(|v| v.trim().parse::<usize>().ok()).map_or(1, |n| n.clamp(1, max))
+            };
+            cell.style.col_span = span("colspan", 1000);
+            cell.style.row_span = span("rowspan", 65534);
+            cells.push(cell);
         }
     }
     cells
@@ -12275,8 +12289,9 @@ pub fn measure<'a>(
             // already documents.
             let n = cells.len().max(1) as f32;
             let col_widths = vec![content_w / n; cells.len()];
+            let placement: Vec<(usize, usize)> = (0..cells.len()).map(|i| (i, 1)).collect();
             let (row_h, laid_cells) = lay_out_row_cells(
-                cells, &col_widths, font_system, content_x, content_y, child_containing_height, next_id, cache,
+                cells, &col_widths, &placement, font_system, content_x, content_y, child_containing_height, next_id, cache,
                 deadline, incomplete, pending,
             );
             // Same explicit-`height`-overrides-only-the-reported-size
@@ -13249,12 +13264,48 @@ fn cell_natural_width(
     (content_min + extra_w, content_max + extra_w)
 }
 
+/// Grid placement of every cell of every `TableRow` among `children`
+/// (Q36): one `(start_column, colspan)` per cell, one `Vec` per row, in
+/// row order. A cell goes in the first column at or after the previous
+/// cell's end that no `rowspan` cell from an earlier row still occupies.
+fn table_grid_placement(children: &[LayoutBox]) -> Vec<Vec<(usize, usize)>> {
+    // `occupied[c]` = how many more rows (including the current one)
+    // column `c` is taken by a rowspan cell from above.
+    let mut occupied: Vec<usize> = Vec::new();
+    let mut result = Vec::new();
+    for child in children {
+        let BoxContent::TableRow(cells) = &child.content else { continue };
+        let mut col = 0;
+        let mut row = Vec::with_capacity(cells.len());
+        for cell in cells {
+            while occupied.get(col).copied().unwrap_or(0) > 0 {
+                col += 1;
+            }
+            let span = cell.style.col_span.max(1);
+            if occupied.len() < col + span {
+                occupied.resize(col + span, 0);
+            }
+            // The row's own tick below removes one, so a rowspan of `k`
+            // blocks the next `k - 1` rows.
+            for o in &mut occupied[col..col + span] {
+                *o = cell.style.row_span.max(1);
+            }
+            row.push((col, span));
+            col += span;
+        }
+        for o in &mut occupied {
+            *o = o.saturating_sub(1);
+        }
+        result.push(row);
+    }
+    result
+}
+
 /// The real per-column widths `measure_table` distributes a table's own
 /// `content_w` into — CSS2.1 §17.5.2.2's automatic table layout, scoped
-/// to what matters without colspan/rowspan (a row's `n`th cell always
-/// maps to column `n`; a row with fewer cells than the table's column
-/// count just leaves its later columns unfilled, handled already by
-/// `lay_out_row_cells`'s own fallback). Each column's own `min`/`max` is
+/// to what matters (a cell's column comes from `table_grid_placement`,
+/// which accounts for `colspan`/`rowspan`; a spanning cell only widens
+/// the columns it spans if single-column cells left them too narrow). Each column's own `min`/`max` is
 /// the largest of its cells' own `cell_natural_width` across every row —
 /// a column has to be wide enough for its widest cell, in either
 /// direction. Then:
@@ -13284,32 +13335,53 @@ fn table_column_widths(
     deadline: std::time::Instant,
     incomplete: &mut bool,
 ) -> Vec<f32> {
-    let num_cols = children
-        .iter()
-        .filter_map(|c| match &c.content {
-            BoxContent::TableRow(cells) => Some(cells.len()),
-            _ => None,
-        })
-        .max()
-        .unwrap_or(0);
+    let placement = table_grid_placement(children);
+    let num_cols = placement.iter().flatten().map(|&(start, span)| start + span).max().unwrap_or(0);
     if num_cols == 0 {
         return Vec::new();
     }
     let mut col_min = vec![0.0f32; num_cols];
     let mut col_max = vec![0.0f32; num_cols];
+    // Cells spanning several columns are applied after every single-
+    // column cell, so they only widen columns that the single-column
+    // cells left too narrow for them (CSS Tables 3, spanning cells).
+    let mut spanning: Vec<(usize, usize, f32, f32)> = Vec::new();
+    let mut row_idx = 0;
     for child in children {
         if let BoxContent::TableRow(cells) = &child.content {
-            for (i, cell) in cells.iter().enumerate() {
+            for (cell, &(start, span)) in cells.iter().zip(&placement[row_idx]) {
                 let (min_w, max_w) = cell_natural_width(cell, font_system, next_id, cache, deadline, incomplete);
-                col_min[i] = col_min[i].max(min_w);
+                if span > 1 {
+                    spanning.push((start, span, min_w, max_w));
+                    continue;
+                }
+                col_min[start] = col_min[start].max(min_w);
                 // A column's `max` is never smaller than its own `min`
                 // (can happen per-cell if a trial measurement landed on
                 // an incomplete/placeholder shape under the deadline
                 // budget — see `cell_natural_width`'s own docs) so the
                 // distribution math below never has to handle `max <
                 // min` for a single column.
-                col_max[i] = col_max[i].max(max_w).max(col_min[i]);
+                col_max[start] = col_max[start].max(max_w).max(col_min[start]);
             }
+            row_idx += 1;
+        }
+    }
+    for (start, span, min_w, max_w) in spanning {
+        let cols = start..start + span;
+        for (want, col) in [(min_w, &mut col_min), (max_w, &mut col_max)] {
+            let have: f32 = col[cols.clone()].iter().sum();
+            if want > have {
+                // Spread the shortfall in proportion to each spanned
+                // column's current width (equally if they're all 0).
+                for c in cols.clone() {
+                    let share = if have > 0.0 { col[c] / have } else { 1.0 / span as f32 };
+                    col[c] += (want - have) * share;
+                }
+            }
+        }
+        for c in cols {
+            col_max[c] = col_max[c].max(col_min[c]);
         }
     }
     let total_min: f32 = col_min.iter().sum();
@@ -13356,6 +13428,7 @@ fn table_column_widths(
 fn lay_out_row_cells<'a>(
     cells: &'a [LayoutBox],
     col_widths: &[f32],
+    placement: &[(usize, usize)],
     font_system: &mut FontSystem,
     content_x: f32,
     content_y: f32,
@@ -13367,7 +13440,6 @@ fn lay_out_row_cells<'a>(
     pending: &mut Vec<PendingPositioned<'a>>,
 ) -> (f32, Vec<Laid>) {
     let fallback_w = if col_widths.is_empty() { 0.0 } else { col_widths.iter().sum::<f32>() / col_widths.len() as f32 };
-    let mut cursor_x = content_x;
     let mut row_h = 0.0f32;
     let mut laid_cells = Vec::with_capacity(cells.len());
     // A table cell's own interior is its own fresh BFC (same category
@@ -13375,19 +13447,26 @@ fn lay_out_row_cells<'a>(
     // docs): floats don't escape a cell's own box, in either direction.
     let no_floats = Floats::default();
     for (i, cell) in cells.iter().enumerate() {
-        let cell_w = col_widths.get(i).copied().unwrap_or(fallback_w);
+        // Q36: a cell sits at its grid column and spans `colspan` columns.
+        let (start, span) = placement.get(i).copied().unwrap_or((i, 1));
+        let width_of = |c: usize| col_widths.get(c).copied().unwrap_or(fallback_w);
+        let cell_w: f32 = (start..start + span).map(width_of).sum();
+        let cursor_x = content_x + (0..start).map(width_of).sum::<f32>();
         let lc = measure(
             cell, font_system, cursor_x, content_y, cell_w, child_containing_height, next_id, cache, deadline,
             incomplete, pending, &no_floats, None,
         );
-        row_h = row_h.max(lc.style.margin.top.px() + lc.style.margin.bottom.px() + lc.h);
-        cursor_x += cell_w;
+        // A `rowspan` cell's height is settled by `measure_table`, after
+        // it knows every spanned row's height.
+        if cell.style.row_span <= 1 {
+            row_h = row_h.max(lc.style.margin.top.px() + lc.style.margin.bottom.px() + lc.h);
+        }
         laid_cells.push(lc);
     }
     // `vertical-align: middle`/`bottom` on a cell: stretch it to the row
     // height and move its content down by half/all of the slack. `top`
     // (and `baseline`, approximated as top) leave the cell untouched.
-    for lc in &mut laid_cells {
+    for lc in laid_cells.iter_mut().filter(|lc| lc.style.row_span <= 1) {
         let extra = row_h - (lc.style.margin.top.px() + lc.style.margin.bottom.px() + lc.h);
         let dy = match lc.style.vertical_align {
             VerticalAlign::Middle => extra / 2.0,
@@ -13414,6 +13493,7 @@ fn lay_out_row_cells<'a>(
 fn measure_row_with_widths<'a>(
     row: &'a LayoutBox,
     col_widths: &[f32],
+    placement: &[(usize, usize)],
     font_system: &mut FontSystem,
     x: f32,
     y: f32,
@@ -13431,7 +13511,7 @@ fn measure_row_with_widths<'a>(
     let mut s = row.style;
     let entry = box_model_entry(&mut s, x, y, width, containing_height, None);
     let (row_h, laid_cells) = lay_out_row_cells(
-        cells, col_widths, font_system, entry.content_x, entry.content_y, entry.child_containing_height, next_id,
+        cells, col_widths, placement, font_system, entry.content_x, entry.content_y, entry.child_containing_height, next_id,
         cache, deadline, incomplete, pending,
     );
     let border_h =
@@ -13450,6 +13530,51 @@ fn measure_row_with_widths<'a>(
         sticky: None,
         scroll: None,
     }
+}
+
+/// Q36: gives every `rowspan` cell the summed height of the rows it
+/// spans. Rows are already laid out with their rowspan cells ignored;
+/// when a rowspan cell is taller than its rows together, the last
+/// spanned row grows, and every later child of the table shifts down.
+/// Returns the total height added.
+fn settle_rowspans(laid_children: &mut [Laid]) -> f32 {
+    let row_idx: Vec<usize> =
+        (0..laid_children.len()).filter(|&i| matches!(laid_children[i].content, LaidContent::TableRow(_))).collect();
+    let mut row_h: Vec<f32> = row_idx.iter().map(|&i| laid_children[i].h).collect();
+    let mut extra = vec![0.0f32; row_idx.len()];
+    // (row ordinal, cell index, last spanned ordinal)
+    let mut spans: Vec<(usize, usize, usize)> = Vec::new();
+    for (r, &i) in row_idx.iter().enumerate() {
+        let LaidContent::TableRow(cells) = &laid_children[i].content else { continue };
+        for (ci, c) in cells.iter().enumerate().filter(|(_, c)| c.style.row_span > 1) {
+            let end = (r + c.style.row_span - 1).min(row_idx.len() - 1);
+            spans.push((r, ci, end));
+            let need = c.style.margin.top.px() + c.style.margin.bottom.px() + c.h;
+            let have: f32 = row_h[r..=end].iter().sum();
+            if need > have {
+                row_h[end] += need - have;
+                extra[end] += need - have;
+            }
+        }
+    }
+    let mut shift = 0.0f32;
+    let mut ord = 0;
+    for (i, child) in laid_children.iter_mut().enumerate() {
+        shift_laid_tree(child, 0.0, shift);
+        if ord < row_idx.len() && row_idx[ord] == i {
+            child.h += extra[ord];
+            shift += extra[ord];
+            ord += 1;
+        }
+    }
+    for (r, ci, end) in spans {
+        let total: f32 = row_h[r..=end].iter().sum();
+        if let LaidContent::TableRow(cells) = &mut laid_children[row_idx[r]].content {
+            let c = &mut cells[ci];
+            c.h = (total - c.style.margin.top.px() - c.style.margin.bottom.px()).max(c.h);
+        }
+    }
+    shift
 }
 
 /// A `display: table` element's own box model (`box_model_entry`, same
@@ -13474,8 +13599,9 @@ fn measure_row_with_widths<'a>(
 /// instead, passing the real per-column widths rather than an equal
 /// split.
 ///
-/// No colspan/rowspan, no border-collapse/cell borders, no
-/// `caption-side` — all still explicitly out of scope, see `TODO.txt`.
+/// `colspan`/`rowspan` are supported (Q36: `table_grid_placement`,
+/// `settle_rowspans`). No border-collapse/cell borders — still out of
+/// scope, see `TODO.txt`.
 #[allow(clippy::too_many_arguments)]
 fn measure_table<'a>(
     b: &'a LayoutBox,
@@ -13496,6 +13622,8 @@ fn measure_table<'a>(
     let entry = box_model_entry(&mut s, x, y, width, containing_height, auto_margin_box_override);
     let col_widths = table_column_widths(children, entry.content_w, font_system, next_id, cache, deadline, incomplete);
 
+    let placement = table_grid_placement(children);
+    let mut row_ordinal = 0;
     let mut cursor_y = entry.content_y;
     let mut laid_children = Vec::with_capacity(children.len());
     // A direct `<table>` child (a row, or a plain-`Block` child like a
@@ -13521,8 +13649,9 @@ fn measure_table<'a>(
         .chain(children.iter().filter(|c| c.style.table_caption && c.style.caption_bottom));
     for child in ordered {
         let lc = if matches!(child.content, BoxContent::TableRow(_)) {
+            row_ordinal += 1;
             measure_row_with_widths(
-                child, &col_widths, font_system, entry.content_x, cursor_y, entry.content_w,
+                child, &col_widths, &placement[row_ordinal - 1], font_system, entry.content_x, cursor_y, entry.content_w,
                 entry.child_containing_height, next_id, cache, deadline, incomplete, &mut own_pending,
             )
         } else {
@@ -13534,6 +13663,7 @@ fn measure_table<'a>(
         cursor_y += lc.style.margin.top.px() + lc.style.margin.bottom.px() + lc.h;
         laid_children.push(lc);
     }
+    cursor_y += settle_rowspans(&mut laid_children);
     // Same patch `measure`'s own `Blocks` arm does, for a direct
     // `<table>` child (e.g. a `caption`) that's itself `position:
     // sticky` — a `<tr>`/`<td>` itself declaring `position` still isn't
@@ -22743,6 +22873,67 @@ mod tests {
             }
         }
         None
+    }
+
+    // ---------- Q36: colspan / rowspan ----------
+
+    fn collect_table_rows<'a>(l: &'a Laid, out: &mut Vec<&'a Laid>) {
+        match &l.content {
+            LaidContent::TableRow(_) => out.push(l),
+            LaidContent::Blocks(cs) => cs.iter().for_each(|c| collect_table_rows(c, out)),
+            _ => {}
+        }
+    }
+
+    fn row_cells(l: &Laid) -> &[Laid] {
+        let LaidContent::TableRow(c) = &l.content else { panic!("not a row") };
+        c
+    }
+
+    #[test]
+    fn colspan_header_spans_both_columns_without_squeezing_them() {
+        let laid = measure_fixture(
+            r#"<table><tr><td colspan="2">Header</td></tr><tr><td>Hi</td><td>This is a much longer piece of cell text that needs far more room than the first</td></tr></table>"#,
+            900.0,
+        );
+        let mut rows = Vec::new();
+        collect_table_rows(&laid, &mut rows);
+        let header = row_cells(rows[0]);
+        let second = row_cells(rows[1]);
+        assert_eq!(header.len(), 1);
+        assert!((header[0].w - (second[0].w + second[1].w)).abs() < 0.5, "header {} vs {} + {}", header[0].w, second[0].w, second[1].w);
+        assert!(second[1].w > second[0].w * 3.0, "columns keep their natural widths");
+        assert!((second[1].x - (second[0].x + second[0].w)).abs() < 0.5);
+    }
+
+    #[test]
+    fn cell_after_colspan_cell_lands_in_the_following_column() {
+        let laid = measure_fixture(
+            r#"<table><tr><td>a</td><td>b</td><td>c</td></tr><tr><td colspan="2">ab</td><td>c</td></tr></table>"#,
+            600.0,
+        );
+        let mut rows = Vec::new();
+        collect_table_rows(&laid, &mut rows);
+        let (r0, r1) = (row_cells(rows[0]), row_cells(rows[1]));
+        assert!((r1[1].x - r0[2].x).abs() < 0.5, "third column lines up: {} vs {}", r1[1].x, r0[2].x);
+        assert!((r1[0].w - (r0[0].w + r0[1].w)).abs() < 0.5);
+    }
+
+    #[test]
+    fn rowspan_cell_takes_summed_row_height_and_pushes_the_next_column_over() {
+        let laid = measure_fixture(
+            r#"<table><tr><td rowspan="2"><div>tall</div><div>tall</div><div>tall</div><div>tall</div></td><td>x</td></tr><tr><td>y</td></tr><tr><td>z</td><td>w</td></tr></table>"#,
+            600.0,
+        );
+        let mut rows = Vec::new();
+        collect_table_rows(&laid, &mut rows);
+        assert_eq!(rows.len(), 3);
+        let (r0, r1, r2) = (row_cells(rows[0]), row_cells(rows[1]), row_cells(rows[2]));
+        assert!((r1[0].x - r0[1].x).abs() < 0.5, "y under x: {} vs {}", r1[0].x, r0[1].x);
+        assert!((r0[0].h - (rows[0].h + rows[1].h)).abs() < 0.5, "{} vs {}+{}", r0[0].h, rows[0].h, rows[1].h);
+        assert!(r0[0].h > 2.0 * rows[2].h, "four lines tall: {} vs one-line row {}", r0[0].h, rows[2].h);
+        assert!((rows[2].y - (rows[1].y + rows[1].h)).abs() < 0.5);
+        assert!((r2[0].x - r0[0].x).abs() < 0.5);
     }
 
     #[test]
