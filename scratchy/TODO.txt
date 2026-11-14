@@ -802,7 +802,7 @@ Not vendored; pass the path to the runner.
 
 --- Tier 5: rendering close-out (small, then stop polishing) -----------
 
-- [x] Q35 [S] (done, see PROMPTS.md; both leftovers diagnosed, fix queued as Q35a) Live-window verification pass. R1-R4 (REGRESSIONS.md) and
+- [x] Q35 [S] (done, commit fbce742; both leftovers diagnosed, fix queued as Q35a) Live-window verification pass. R1-R4 (REGRESSIONS.md) and
       Q34 were only checked headlessly. Run the AUTOSCROLL/AUTOHOVER
       recipe from REGRESSIONS.md on Wikipedia Nvidia and Main_Page at
       ~1057px. Record frame times and grim screenshots (top, after 3
