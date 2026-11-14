@@ -775,7 +775,7 @@ Not vendored; pass the path to the runner.
         change from expected. Fill in the command in AGENTS.md step 4.
       - Test: the runner's diff/expectation logic on two tiny fixtures.
 
-- [ ] Q40b [L] Run the audit and write up findings. One area at a time,
+- [x] Q40b [L] (be89177) Run the audit and write up findings. One area at a time,
       each its own commit. Reftest counts are from the checkout:
         CSS2/normal-flow 793, margin-padding-clear 684, box-display 120,
         CSS2/floats 122 + floats-clear 214, CSS2/positioning 520 +
@@ -799,6 +799,91 @@ Not vendored; pass the path to the runner.
       BROKEN group, ordered by fail count on the corpus-relevant areas.
       Don't fix anything inside Q40b. Measure, don't guess: confirm each
       root cause on a minimal repro before writing it down.
+      Result (Q40b, hash above): 14 of the listed areas audited, findings in
+      REGRESSIONS.md "WPT audit" (root causes W1-W23). Areas not audited are
+      Q40c. Fix items for every BROKEN group (and the two NOT CLAIMED gaps
+      that hide the most failures) follow, in this order. Each fix item:
+      write the minimal repro from REGRESSIONS.md as a permanent test,
+      then re-run `scratchy --wpt` and update `wpt-expected.txt` (the new
+      passes go in the same commit).
+
+--- Q40b fix items (WPT audit, 2026-11-14) -----------------------------
+
+- [ ] Q41 [S] `<br>` (W3, NOT CLAIMED but Wikipedia-relevant): there is no
+      `<br>` handling at all, `a<br>b` renders `a b`. Emit a forced line
+      break in inline layout (also `<br>` right after an inline `<img>`,
+      and inside floats, inline-blocks, table cells, abspos). Test: the
+      `a<br>b` fixture gives two lines. WPT: reference of
+      `width-percentage-001`, `table-anonymous-objects-059`.
+- [ ] Q42 [S] Physical and font-relative units (W1, W2): parse `in`, `cm`,
+      `mm`, `pc`, `Q` (fixed px ratios) and `ex`, `ch` (x-height /
+      advance of `0`; half an em is acceptable for `ex` if the font has no
+      metric). Hides ~600 CSS2 failures (nf 189, mpc 198, pos 138, bg/borders
+      more). Test: `width:1in` == `96px`. After it lands, re-run the audit
+      areas: many currently-failing tests will show their next cause.
+- [ ] Q43 [M] Shrink-to-fit width is too wide (W9): floats, inline-blocks,
+      tables and abspos boxes measure text about one space wider than it is
+      (Ahem 20px "X" float is 40px, not 20). Find the max-content
+      measurement and fix the extra. Test: float/inline-block holding Ahem
+      "XX" at 20px is 40px wide; `PA`+`SS` floats touch. WPT:
+      `inline-block-non-replaced-width-001`, `float-non-replaced-width-*`,
+      `clear-applies-to-000`.
+- [ ] Q44 [M] Abspos `width:auto` is shrink-to-fit (W10), not stretch-to-edge,
+      when `left` or `right` (or both) is auto. WPT:
+      `absolute-non-replaced-width-001/-018`, most of `linebox/*`.
+- [ ] Q45 [S] An abspos box contains its floats (W11): it is a BFC, so its
+      auto height must include float children. WPT:
+      `block-formatting-context-height-001`. (Q40a lead, repro confirmed.)
+- [ ] Q46 [M] Flex items with an explicit `width` take the flexed size when
+      growing/shrinking (W12): today siblings move but the item paints at
+      `width`. WPT: `flex-grow-001/002/006-009`, `flex-shrink-001/002/003`.
+- [ ] Q47 [S] Single-line flex container with definite `height`: the line's
+      cross size is the container's inner height (W13), so
+      `align-items/-self: center|flex-end|stretch` are relative to it. WPT:
+      `align-self-002..016`.
+- [ ] Q48 [S] Margins collapse through empty blocks (W7), both `height:auto`
+      with no content and `height:0`. WPT:
+      `margin-collapse-through-zero-height-block`,
+      `margin-collapse-012`/`-022`.
+- [ ] Q49 [M] A float that follows inline content on the same line goes at
+      the top of that line beside it (W8), and the inline content shifts
+      (only when it fits). WPT: `floats-001`, `inlines-013`.
+- [ ] Q50 [S] Block-level `display:table` (no float, no width) shrinks to fit
+      (W14). Today it fills the container and spreads cells. WPT:
+      `border-applies-to-*`, `float-applies-to-*`.
+- [ ] Q51 [S] Table `width` includes the table's border and padding (W15).
+      WPT: `block-formatting-contexts-001` (reference).
+- [ ] Q52 [S] Border width defaults to `medium` (3px) when a style is set
+      without a width (W4): `border: solid black`, `border-style: solid`,
+      `border-bottom: solid`. Wikipedia tables often rely on it.
+- [ ] Q53 [S] Reject values CSS says are invalid (W5): negative `padding-*`,
+      `border-*-width`, `max-height`, `max-width`, `min-*`, `flex-basis`,
+      `width`, `height`. The declaration is dropped. WPT: `padding-right-001`,
+      `max-height-001`, `border-top-width-012`, `flex-basis-003`.
+- [ ] Q54 [S] Over-constrained `width:auto` block (borders+padding wider than
+      the container) overflows at full border width instead of being clamped
+      to the container (W6). WPT: `blocks-011`, `blocks-012`.
+- [ ] Q55 [S] Negative `z-index` children of a positioned, non-stacking-context
+      parent paint below the parent's background (W17).
+- [ ] Q56 [S] `<img width="NN%">`/`height="NN%"` attributes are percentages
+      (W18). 49 backgrounds references and 11 positioning references use them.
+- [ ] Q57 [M] `var()` correctness (W22): (a) reject invalid custom property
+      values at parse (`var(--b,!)`, `;`, doubled `!important`), (b) invalid at
+      computed-value time means `unset`, not "declaration dropped", (c)
+      escaped custom property names, (d) adjacent `var(--b)var(--c)`, (e)
+      `@supports` conditions containing `var()`. WPT:
+      `variable-declaration-11..13/23/24/31/42/53`, `variable-supports-*`.
+
+- [ ] Q40c [L] Audit the areas Q40b did not reach, same method and write-up:
+      css-grid (only what Q15 claims), css-cascade, css-pseudo,
+      css-content, css-overflow, css-masking, css-text-decor, css-color,
+      mediaqueries, css-conditional, css-sizing, html/rendering, acid2. Also
+      root-cause the "ungrouped / not root-caused" rows in the REGRESSIONS.md
+      WPT audit (`clear-clearance-calculation-*`, `block-in-inline-*`,
+      `inline-table-zorder-*`, `caption-side-applies-to-*`,
+      `flex-minimum-height-flex-items-*`, `percentage-heights`, `col-wrap`).
+      Do it after Q42, Q43 and Q44 land: they unhide many tests. Skip
+      transforms, animations, writing modes and bidi (not claimed).
 
 --- Tier 5: rendering close-out (small, then stop polishing) -----------
 
