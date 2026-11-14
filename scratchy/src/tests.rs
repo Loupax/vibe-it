@@ -2537,7 +2537,7 @@ fn table_column_widths_still_fill_the_tables_own_content_width() {
     // css) eats 16px total, so a 900px window gives the table a
     // 884px content width.
     let laid = measure_fixture(
-        r#"<table><tr><td>a</td><td>a much much longer second column of text here</td></tr></table>"#,
+        r#"<table style="width:100%"><tr><td>a</td><td>a much much longer second column of text here</td></tr></table>"#,
         900.0,
     );
     let cells = find_table_row_cells(&laid).expect("table row not found");
@@ -3098,6 +3098,32 @@ fn flow_root_contains_its_own_floats() {
     );
     let root = find_by_width(&laid, 300.0).expect("flow-root not found");
     assert_eq!(root.h, 100.0, "flow-root's auto height must include its float");
+}
+
+#[test]
+fn block_display_table_without_width_shrinks_to_fit() {
+    // Q50 (W14): no float, no width -> shrink-to-fit, not container fill.
+    let laid = measure_fixture(
+        r#"<html><body style="margin:0"><div style="width:600px"><table><tr><td>a</td><td>b</td></tr></table></div></body></html>"#,
+        700.0,
+    );
+    let container = find_by_width(&laid, 600.0).expect("container not found");
+    let LaidContent::Blocks(cs) = &container.content else { panic!("expected Blocks") };
+    assert!(cs[0].w < 100.0, "auto-width table must shrink to its cells, w={}", cs[0].w);
+}
+
+#[test]
+fn shrink_to_fit_table_is_sum_of_column_maxima_so_no_cell_wraps() {
+    // Q50: rows with different per-column widths must not make cells wrap.
+    let laid = measure_fixture(
+        r#"<html><body style="margin:0"><div style="width:600px"><table><tr><td>Founded</td><td>1993</td></tr><tr><td>HQ</td><td>Santa Clara</td></tr></table></div></body></html>"#,
+        700.0,
+    );
+    let container = find_by_width(&laid, 600.0).expect("container not found");
+    let LaidContent::Blocks(cs) = &container.content else { panic!("expected Blocks") };
+    let LaidContent::Blocks(rows) = &cs[0].content else { panic!("expected rows") };
+    assert!(rows[0].h < 30.0, "first row must stay on one line, h={}", rows[0].h);
+    assert!(rows[1].h < 30.0, "second row must stay on one line, h={}", rows[1].h);
 }
 
 #[test]
