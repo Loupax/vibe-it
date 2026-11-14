@@ -879,7 +879,7 @@ Not vendored; pass the path to the runner.
       with no content and `height:0`. WPT:
       `margin-collapse-through-zero-height-block`,
       `margin-collapse-012`/`-022`.
-      BLOCKED: premise wrong. The engine has NO vertical margin collapsing
+      BLOCKED (commit 1bd1ac1): premise wrong. The engine has NO vertical margin collapsing
       at all: the `BoxContent::Blocks` loop in `measure_inner` does
       `cursor_y += margin.top + margin.bottom + h` for every in-flow child
       (adjacent siblings sum: 10 + 50 + empty + 30 gives 90, expected 60), and
