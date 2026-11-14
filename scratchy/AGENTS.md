@@ -10,7 +10,9 @@
 1. Implement.
 2. Add a permanent test in `src/lib.rs` `#[cfg(test)] mod tests`. Never delete tests.
 3. `cargo check`, `cargo clippy`, `cargo test` — all clean.
-4. WPT subset (once Q40a lands): `<runner command>`. A new failure is a
+4. WPT subset (once Q40a lands): `scratchy --wpt /home/loupax/src/wpt` (run from `scratchy/`; reads
+   `wpt-subset.txt`, compares with `wpt-expected.txt`, exits 1 on any change;
+   `--update` rewrites expectations; `--out DIR` saves failing PNGs). A new failure is a
    regression and blocks the commit. A newly passing test: update the
    expectations file in the same commit.
 5. `cargo install --path .`

@@ -6094,3 +6094,12 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > Add a top priority item for testing our supposedly complete features against the testing suite in @../wpt/  and add any findings in the REGRESSIONS file. Wouldn't want to keep going while our existing features are half baked
 
 **What changed:** TODO.txt QUEUE re-planned: Q40a/b (WPT reftest runner, then an audit of Q1-Q34 against `/home/loupax/src/wpt`, findings into REGRESSIONS.md) at top priority; Tier 5 rendering close-out (Q35 live verification, optional Q36 colspan/rowspan, Q37 stale-entry cleanup); Tier 6 forms (Q30a-g, reusing Q31 focus, keyboard routing and `TextEditBuffer`; Q30f is a cookie jar in `wire`); Tier 7 JavaScript (Q33-0 boa measurement spike, optional Q38 lib.rs split, Q33a-g). Q26 and Q32 moved to a Parked list. New `AGENTS.md` holds the per-item checklist (moved out of the QUEUE preamble) and standing rules; `CLAUDE.md` imports it. REGRESSIONS.md has an empty "WPT audit" section. Status at the time: `cargo test` 320 passed, 2 ignored, at `72c352d`.
+
+
+---
+
+## Q40a — WPT reftest runner (queue item)
+
+> Implement ONLY item Q40a (WPT reftest runner) following the AGENTS.md per-item checklist.
+
+**What changed:** new `src/wpt.rs` and `scratchy --wpt <wpt-checkout>`: headless, no window; renders test and `rel=match`/`mismatch` references (followed transitively) through the real `build_layout_tree_with_resources` + `measure_document` + `paint` into an 800x600 buffer and compares pixels exactly. Loads `fonts/Ahem.ttf` via the new `new_font_system_with`. Local `<link>` stylesheets (with `@import`) and `<img>` files are read from disk. Skips (counted separately) `<script>`, `reftest-wait`, testharness.js and tests with no reference; `.xht` is parsed as HTML (counted). Panics become CRASH. `wpt-expected.txt` records PASS/FAIL/CRASH; exit 1 on any change (regression, newly passing, unrecorded). Initial subset `wpt-subset.txt`: 135 CSS2 tests (normal-flow, floats, box-display, borders, margin-padding-clear, linebox, positioning), result 27 pass / 107 fail, ~2.5s. Tests: `q40a_wpt_expectation_logic`, `q40a_wpt_runner_renders_match_mismatch_and_skips`. AGENTS.md step 4 filled in. Left out: no `grim` check (headless tool, no paint change); `<meta name=fuzzy>` ignored; the mass failure rate is Q40b's to triage (spot checks: abspos auto-height with a float child paints nothing; an Ahem `<p>` lands 2px lower than an equivalent div).
