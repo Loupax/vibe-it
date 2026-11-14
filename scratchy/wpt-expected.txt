@@ -106,6 +106,8 @@ FAIL css/CSS2/floats/new-fc-beside-adjoining-float-2.html
 FAIL css/CSS2/floats/new-fc-separates-from-float-2.html
 FAIL css/CSS2/floats/zero-available-space-float-positioning.html
 PASS css/CSS2/linebox/anonymous-inline-inherit-001.html
+FAIL css/CSS2/linebox/border-padding-bleed-001.xht
+PASS css/CSS2/linebox/empty-inline-001.xht
 FAIL css/CSS2/linebox/empty-inline-002.xht
 FAIL css/CSS2/linebox/inline-box-002.xht
 FAIL css/CSS2/linebox/inline-formatting-context-003.xht
@@ -197,11 +199,14 @@ PASS css/CSS2/normal-flow/min-height-051.xht
 PASS css/CSS2/normal-flow/min-width-013.xht
 PASS css/CSS2/normal-flow/min-width-103.xht
 PASS css/CSS2/normal-flow/width-040.xht
-FAIL css/CSS2/positioning/absolute-non-replaced-height-002.xht
+PASS css/CSS2/positioning/absolute-non-replaced-height-002.xht
 PASS css/CSS2/positioning/absolute-non-replaced-height-008.xht
 FAIL css/CSS2/positioning/absolute-non-replaced-max-001.html
 FAIL css/CSS2/positioning/absolute-non-replaced-max-height-007.xht
 FAIL css/CSS2/positioning/absolute-non-replaced-min-001.html
+PASS css/CSS2/positioning/absolute-non-replaced-width-001.xht
+FAIL css/CSS2/positioning/absolute-non-replaced-width-002.xht
+FAIL css/CSS2/positioning/absolute-non-replaced-width-003.xht
 FAIL css/CSS2/positioning/absolute-non-replaced-width-005.xht
 FAIL css/CSS2/positioning/absolute-non-replaced-width-012.xht
 FAIL css/CSS2/positioning/absolute-non-replaced-width-018.xht

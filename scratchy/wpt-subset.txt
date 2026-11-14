@@ -349,3 +349,8 @@ css/css-values/ic-unit-003.html
 css/css-values/lh-unit-same-element-line-height-dependency.html
 css/css-values/urls/cross-origin/url-image-cross-origin-use-credentials-negative.sub.html
 css/css-values/vh-support-margin.html
+css/CSS2/positioning/absolute-non-replaced-width-001.xht
+css/CSS2/positioning/absolute-non-replaced-width-002.xht
+css/CSS2/positioning/absolute-non-replaced-width-003.xht
+css/CSS2/linebox/empty-inline-001.xht
+css/CSS2/linebox/border-padding-bleed-001.xht

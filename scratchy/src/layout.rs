@@ -882,9 +882,27 @@ pub(crate) fn resolve_positioned(
     // auto` float (the two are mutually exclusive — real CSS computes
     // `float` to `none` whenever `position` is `absolute`/`fixed`).
     let no_floats = Floats::default();
+    // CSS2.1 §10.3.7: `width: auto` is shrink-to-fit unless both `left`
+    // and `right` are set (then it stretches between them).
+    let auto_override = if s.width.is_none() {
+        let avail = match (left, right) {
+            (Some(l), Some(r)) => (cb_w - l - r).max(0.0),
+            (Some(l), None) => (cb_w - l).max(0.0),
+            (None, Some(r)) => (cb_w - r).max(0.0),
+            (None, None) => (cb_x + cb_w - item.static_x).max(0.0),
+        };
+        if left.is_some() && right.is_some() {
+            Some(avail)
+        } else {
+            let (min_mb, max_mb) = cell_natural_width(item.b, font_system, next_id, cache, deadline, incomplete);
+            Some(avail.min(max_mb).max(min_mb.min(avail)))
+        }
+    } else {
+        None
+    };
     let mut laid = measure(
         item.b, font_system, provisional_x, provisional_y, cb_w, Some(cb_h), next_id, cache, deadline, incomplete,
-        &mut nested_pending, &no_floats, None,
+        &mut nested_pending, &no_floats, auto_override,
     );
     debug_assert!(nested_pending.is_empty(), "an absolute/fixed box is itself always a positioned ancestor");
     let final_x = if left.is_some() {
