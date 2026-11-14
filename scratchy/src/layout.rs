@@ -634,6 +634,53 @@ impl Floats {
     }
 }
 
+/// Q49: where the last line of an already-laid anonymous inline run sits:
+/// `(top, right)` in absolute coordinates — the line's top edge and the
+/// right edge of its content. `None` when the run has no placed content.
+fn last_line_extent(laid: &Laid, cache: &ShapeCache) -> Option<(f32, f32)> {
+    match &laid.content {
+        LaidContent::Text(id) => {
+            let shaped = cache.get(id)?.lock().ok()?;
+            let run = shaped.0.layout_runs().last()?;
+            Some((laid.y + run.line_top, laid.x + run.line_w))
+        }
+        LaidContent::MixedInline(items) => {
+            // (y, bottom, right) per item; a new line starts when an item
+            // begins at or below the lowest-so-far bottom of the current one.
+            let mut line_top = f32::MAX;
+            let mut line_min_bottom = f32::MAX;
+            let mut right = f32::MIN;
+            let mut any = false;
+            for it in items {
+                let (y, h, r) = match it {
+                    MixedPositioned::Word { id, x, y, w, h } => {
+                        // A collapsible-space word takes no room on the line.
+                        let blank = cache.get(id).and_then(|c| c.lock().ok()).is_some_and(|sh| {
+                            sh.0.lines.iter().all(|l| l.text().trim().is_empty())
+                        });
+                        if blank {
+                            continue;
+                        }
+                        (*y, *h, *x + *w)
+                    }
+                    MixedPositioned::Embedded(l) => (l.y, l.h, l.x + l.w),
+                };
+                if any && y >= line_min_bottom - 0.01 {
+                    line_top = f32::MAX;
+                    line_min_bottom = f32::MAX;
+                    right = f32::MIN;
+                }
+                any = true;
+                line_top = line_top.min(y);
+                line_min_bottom = line_min_bottom.min(y + h);
+                right = right.max(r);
+            }
+            any.then_some((line_top, right))
+        }
+        _ => None,
+    }
+}
+
 /// A `position: absolute`/`fixed` descendant collected while its
 /// immediate containing `Blocks`/table structure is being measured —
 /// deliberately *not* measured there and then (see `measure`'s own
@@ -1759,8 +1806,14 @@ fn measure_inner<'a>(
             // without it, a later opaque-background sibling painted
             // straight over most of an unrelated, non-cleared float.
             let mut float_children: Vec<Laid> = Vec::new();
+            // Q49: the immediately preceding anonymous inline run, if any:
+            // (index in `laid_children`, its start y, `own_pending` length
+            // before it was measured, its box). A float that follows it is
+            // placed at the top of that run's last line.
+            let mut prev_anon: Option<(usize, f32, usize, &LayoutBox)> = None;
             for child in children {
                 if matches!(child.style.position, Position::Absolute | Position::Fixed) {
+                    prev_anon = None;
                     own_pending.push(PendingPositioned {
                         b: child,
                         fixed: child.style.position == Position::Fixed,
@@ -1793,54 +1846,55 @@ fn measure_inner<'a>(
                     // the container), it's placed here anyway rather
                     // than dropped down to retry below the obstruction
                     // — it may visually overlap a competing float.
-                    let (left_bound, right_bound) =
-                        local_floats.avail_bounds(cursor_y, content_x, content_x + content_w);
-                    // A `width: auto` float uses shrink-to-fit sizing
-                    // (CSS2.1 §10.3.5), not "fill the container" the
-                    // way an ordinary `width: auto` block does — reused
-                    // from the exact min/max-content machinery real
-                    // auto table-column sizing already uses (`cell_
-                    // natural_width`, despite its table-specific name,
-                    // works on any box). Clamped against this box's own
-                    // real containing-block width (`content_w`), *not*
-                    // the narrowed avail corridor just computed above —
-                    // a float's shrink-to-fit basis is the ordinary
-                    // containing block, same as any other box; only its
-                    // final *position* (below), never its size, adjusts
-                    // to avoid other floats.
-                    let auto_override = if child.style.width.is_none() {
-                        let (min_mb, max_mb) =
-                            cell_natural_width(child, font_system, next_id, cache, deadline, incomplete);
-                        Some(content_w.min(max_mb).max(min_mb.min(content_w)))
-                    } else {
-                        None
+                    // Q49 (CSS2.1 §9.5.1 rule 8/§9.5): after inline content on
+                    // the same line the float goes at the top of that line if
+                    // it fits beside the content, which then shifts.
+                    let hoist = match prev_anon {
+                        Some(pa) if child.style.clear == Clear::None => last_line_extent(&laid_children[pa.0], cache).map(|(t, r)| (pa, t, r)),
+                        _ => None,
                     };
-                    // A float establishes its own, fresh BFC for its
-                    // own content (see `Floats`'s own docs) — outer
-                    // floats don't affect text wrapping *inside* it, and
-                    // it can have floats of its own that don't escape
-                    // back out either.
-                    let empty_floats = Floats::default();
-                    // Measured at `left_bound` first regardless of
-                    // side — for `Right`, shifted into its real final
-                    // position below (`shift_laid_tree`, no
-                    // re-measuring) once its real width is known, the
-                    // same provisional-then-shift trick `resolve_
-                    // positioned` already uses for `right`/`bottom`.
-                    let mut lc = measure(
-                        child, font_system, left_bound, cursor_y, content_w, child_containing_height, next_id,
-                        cache, deadline, incomplete, &mut own_pending, &empty_floats, auto_override,
-                    );
+                    let mut place_y = hoist.map_or(cursor_y, |h| h.1);
+                    let mut trying_hoist = hoist.is_some();
+                    let float_pending_start;
+                    let lc = loop {
+                        let plen_before = own_pending.len();
+                        let (left_bound, right_bound) =
+                            local_floats.avail_bounds(place_y, content_x, content_x + content_w);
+                        let auto_override = if child.style.width.is_none() {
+                            let (min_mb, max_mb) =
+                                cell_natural_width(child, font_system, next_id, cache, deadline, incomplete);
+                            Some(content_w.min(max_mb).max(min_mb.min(content_w)))
+                        } else {
+                            None
+                        };
+                        let empty_floats = Floats::default();
+                        let mut lc = measure(
+                            child, font_system, left_bound, place_y, content_w, child_containing_height, next_id,
+                            cache, deadline, incomplete, &mut own_pending, &empty_floats, auto_override,
+                        );
+                        if child.style.float == Float::Right {
+                            let dx = right_bound - lc.style.margin.right.px() - (lc.x + lc.w);
+                            shift_laid_tree(&mut lc, dx, 0.0);
+                        }
+                        if trying_hoist {
+                            let mw = lc.w + lc.style.margin.left.px() + lc.style.margin.right.px();
+                            let line_right = hoist.map_or(0.0, |h| h.2);
+                            if line_right + mw > right_bound + 0.01 {
+                                own_pending.truncate(plen_before);
+                                trying_hoist = false;
+                                place_y = cursor_y;
+                                continue;
+                            }
+                        }
+                        float_pending_start = plen_before;
+                        break lc;
+                    };
                     let margin_top = lc.style.margin.top.px();
                     let margin_bottom = lc.style.margin.bottom.px();
                     let margin_right = lc.style.margin.right.px();
                     let margin_left = lc.style.margin.left.px();
-                    if child.style.float == Float::Right {
-                        let dx = right_bound - margin_right - (lc.x + lc.w);
-                        shift_laid_tree(&mut lc, dx, 0.0);
-                    }
-                    let top = cursor_y;
-                    let bottom = cursor_y + margin_top + lc.h + margin_bottom;
+                    let top = place_y;
+                    let bottom = place_y + margin_top + lc.h + margin_bottom;
                     match child.style.float {
                         Float::Left => {
                             let edge = lc.x + lc.w + margin_right;
@@ -1851,6 +1905,21 @@ fn measure_inner<'a>(
                             local_floats.right.borrow_mut().push(FloatEntry { top, bottom, edge });
                         }
                         Float::None => unreachable!(),
+                    }
+                    if let (true, Some(((idx, start_y, plen, pbox), _, _))) = (trying_hoist, hoist) {
+                        // Re-lay the run beside the float; keep the float's
+                        // own out-of-flow children, regenerate the run's.
+                        let float_pend = own_pending.split_off(float_pending_start);
+                        own_pending.truncate(plen);
+                        let re = measure(
+                            pbox, font_system, content_x, start_y, content_w, child_containing_height, next_id, cache,
+                            deadline, incomplete, &mut own_pending, local_floats, None,
+                        );
+                        own_pending.extend(float_pend);
+                        cursor_y = start_y + re.style.margin.top.px() + re.style.margin.bottom.px() + re.h;
+                        laid_children[idx] = re;
+                    } else {
+                        prev_anon = None;
                     }
                     float_children.push(lc);
                     continue;
@@ -1880,11 +1949,17 @@ fn measure_inner<'a>(
                         }
                     }
                 }
+                let (start_y, plen) = (cursor_y, own_pending.len());
                 let lc = measure(
                     child, font_system, child_x, cursor_y, child_w, child_containing_height, next_id, cache,
                     deadline, incomplete, &mut own_pending, local_floats, None,
                 );
                 cursor_y += lc.style.margin.top.px() + lc.style.margin.bottom.px() + lc.h;
+                prev_anon = (child.style.node == 0
+                    && child.style.display == Display::Block
+                    && matches!(child.content, BoxContent::Inline(_))
+                    && matches!(lc.content, LaidContent::Text(_) | LaidContent::MixedInline(_)))
+                .then_some((laid_children.len(), start_y, plen, child));
                 laid_children.push(lc);
             }
             // Appended last, after every normal sibling — see

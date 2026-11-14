@@ -900,9 +900,15 @@ Not vendored; pass the path to the runner.
 - [ ] Q48c [M] After Q48a: parent and first/last child margins collapse
       (no padding/border/BFC between them), and an auto-height parent's
       bottom margin collapses with its last child's.
-- [ ] Q49 [M] A float that follows inline content on the same line goes at
+- [x] Q49 [M] (done, commit ab0678c) A float that follows inline content on the same line goes at
       the top of that line beside it (W8), and the inline content shifts
       (only when it fits). WPT: `floats-001`, `inlines-013`.
+- [ ] Q49a [S] After Q49: `inlines-013` still fails. Needs (1) an `<img>` line box
+      strut so the 1x1 image run is 64px high in WPT, and (2) float
+      shrink-to-fit width must be `min(max(min-content, available), max-content)`
+      (today `content_w.min(max_mb).max(min_mb.min(content_w))` wraps `XXXX` per
+      letter when the container is 0 wide). Q49 also ignores `text-align` other
+      than left in the fit check.
 - [ ] Q50 [S] Block-level `display:table` (no float, no width) shrinks to fit
       (W14). Today it fills the container and spreads cells. WPT:
       `border-applies-to-*`, `float-applies-to-*`.

@@ -956,6 +956,16 @@ pub(crate) fn apply_first_letter(
 pub(crate) fn discard_if_collapsible_whitespace_only(pending: &mut Vec<InlineItem>) {
     if pending.iter().all(|item| matches!(item, InlineItem::Text(t, _) if t == " ")) {
         pending.clear();
+        return;
+    }
+    // Q49: a collapsible space at the start of the run is at a line start
+    // and takes no room (CSS Text 4.1.1), so it must not widen line 1.
+    let lead = pending.iter().take_while(|item| matches!(item, InlineItem::Text(t, _) if t == " ")).count();
+    pending.drain(..lead);
+    // Likewise a collapsible space at the end of the run hangs at the line
+    // end and must not wrap onto a line of its own.
+    while matches!(pending.last(), Some(InlineItem::Text(t, _)) if t == " ") {
+        pending.pop();
     }
 }
 
