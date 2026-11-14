@@ -869,10 +869,12 @@ Not vendored; pass the path to the runner.
       blocks); column containers still overwrite `lc.h` post hoc;
       `margin: 0 10px` shorthand on a flex item in an inline `style` seemed to
       give margin 0 (check). `flex-grow-008` still fails for other reasons.
-- [ ] Q47 [S] Single-line flex container with definite `height`: the line's
+- [x] Q47 [S] (done, commit HASH) Single-line flex container with definite `height`: the line's
       cross size is the container's inner height (W13), so
       `align-items/-self: center|flex-end|stretch` are relative to it. WPT:
       `align-self-002..016`.
+- [ ] Q47a [S] After Q47: `align-self-015/016` (column wrap with auto margins
+      and per-column centring) still fail; auto margins in flex items.
 - [ ] Q48 [S] Margins collapse through empty blocks (W7), both `height:auto`
       with no content and `height:0`. WPT:
       `margin-collapse-through-zero-height-block`,

@@ -3939,6 +3939,15 @@ pub(crate) fn measure_flex_row<'a>(
         line_top += line_cross + cross_gap;
     }
 
+    // A single-line container with a definite height: the line's cross
+    // size is the container's inner height, not the tallest item.
+    if let (FlexWrap::NoWrap, 1, Some(h)) = (wrap, line_crosses.len(), s.height) {
+        line_crosses[0] = match s.box_sizing {
+            BoxSizing::ContentBox => h.px().max(0.0),
+            BoxSizing::BorderBox => (h.px() - entry.extra_h).max(0.0),
+        };
+    }
+
     // `align-content`: only a multi-line container with a definite
     // height has free cross space to distribute (a single line, i.e.
     // `nowrap`, ignores it).
