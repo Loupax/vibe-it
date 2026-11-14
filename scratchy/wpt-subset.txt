@@ -336,3 +336,16 @@ css/css-variables/variable-supports-11.html
 css/css-variables/variable-supports-26.html
 css/css-variables/variable-supports-41.html
 css/css-variables/variable-supports-56.html
+# Q40b values
+css/css-values/angle-units-001.html
+css/css-values/attr-namespace-non-existing.html
+css/css-values/calc-border-radius-1.html
+css/css-values/calc-min-height-block-1.html
+css/css-values/calc-positive-fraction-001.html
+css/css-values/calc-size/calc-size-flex-005.html
+css/css-values/calc-transform-origin-1.html
+css/css-values/ch-unit-011.html
+css/css-values/ic-unit-003.html
+css/css-values/lh-unit-same-element-line-height-dependency.html
+css/css-values/urls/cross-origin/url-image-cross-origin-use-credentials-negative.sub.html
+css/css-values/vh-support-margin.html

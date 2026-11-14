@@ -585,3 +585,15 @@ because test and reference both ignored the unit.
 | W22d adjacent `var()var()` | `variable-declaration-53` | not substituted | BROKEN |
 | `@supports` with var() | `variable-supports-*` 12 | conditions containing `var()` mis-evaluated | BROKEN (Q10) |
 | `var()` in `content`, shorthands | `variable-reference-12`, `vars-background-shorthand`, `vars-font-shorthand` | | PARTIAL |
+
+#### css-values (claimed: Q11 33bd57f calc/min/max/clamp, Q14 35c826a viewport units, pt 17dd346)
+
+170 eligible (+44 JS) | pass 52 | fail 118. Not mirrored.
+
+| group | tests | wrong render | triage |
+|-------|-------|--------------|--------|
+| W2 units | `ch-unit` 13, `ic-unit` 13, `ex-unit` 2, `lh-unit` 2, `q-unit-case-insensitivity` 2 | declaration dropped | NOT CLAIMED |
+| `calc-size()` | `calc-size-*` 20 | not parsed | NOT CLAIMED |
+| `attr()` typed | `attr-style-sharing` 5 | | NOT CLAIMED |
+| angle units, `calc` rounding | `angle-units` 5, `calc-rounding` 2 | | NOT CLAIMED |
+| viewport units in odd contexts | 4 | | PARTIAL (Q14) |
