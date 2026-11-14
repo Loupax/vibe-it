@@ -810,7 +810,7 @@ Not vendored; pass the path to the runner.
       if each fix is S. Otherwise add a narrower item here. Don't start
       forms on top of an unverified paint/hover path, because form
       controls add more hover/focus/repaint traffic to exactly that code.
-- [x] Q36 [M] (done, commit HASH_Q36; `rowspan="0"` is treated as 1, not
+- [x] Q36 [M] (done, commit 3a5df87; `rowspan="0"` is treated as 1, not
       "to end of row group"; row-group/`<col>` widths still ignored) (optional, user call: it was on the "not queued" list
       below) `colspan`/`rowspan` in `measure_table`. Suggested because
       Wikipedia infobox header rows, phpBB (forums.gentoo.org) and most
