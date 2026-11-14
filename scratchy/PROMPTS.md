@@ -6175,3 +6175,9 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > Do ONLY Q47: single-line flex container with definite height has cross size = inner height (W13); test, WPT, screenshot, PROMPTS entry, tick Q47.
 
 **What changed:** in `measure_flex_row`, a `nowrap` container with a definite `height` now sets the (only) line's cross size to its inner height (honouring `box-sizing`), so `align-items/-self` `center|flex-end|stretch` are relative to the container. Test `q47_single_line_flex_cross_size_is_container_height`. `cargo test` 335 passed, clippy 31 warnings (unchanged). WPT: added `align-self-002..016` to the subset; 127 -> 138 pass (newly passing: `align-self-002/003/004/005/007/008/009/011/012/013`, `flex-grow-008`), 0 regressions, expectations updated. `grim` screenshot of a local flex page (center/flex-end/stretch inside a 160px container). Left out (Q47a): `align-self-015/016` (column wrap, auto margins). Paint untouched, no AUTOSCROLL run.
+
+## Q48 — margin collapse through empty blocks (queue item, BLOCKED)
+
+> Do ONLY Q48: margins collapse through empty blocks (W7); test, WPT, screenshot, PROMPTS entry, tick Q48.
+
+**What happened:** BLOCKED, no engine change. Writing the tests showed the engine has no vertical margin collapsing at all (the `Blocks` loop in `measure_inner` sums every child's top margin, bottom margin and height, so even adjacent siblings add). Q48 assumed sibling collapse existed. Recorded BLOCKED in TODO.txt and split into Q48a (sibling collapse), Q48b (through empty blocks), Q48c (parent/child). Tests `margin_collapses_through_*` are committed `#[ignore]`d; `padding_blocks_margin_collapse_through` passes today. No WPT, install or screenshot (no behaviour change).

@@ -7426,3 +7426,49 @@ fn q47_single_line_flex_cross_size_is_container_height() {
     assert_eq!((items[1].y, items[1].h), (40.0, 20.0));
     assert_eq!((items[2].y, items[2].h), (0.0, 100.0));
 }
+
+// Q48: vertical margins collapse through an empty block (CSS2.1 8.3.1).
+fn q48_y_of(html: &str, h: f32) -> f32 {
+    let laid = measure_fixture(html, 900.0);
+    find_by_height(&laid, h).expect("marker div not found").y
+}
+
+#[test]
+#[ignore = "Q48 BLOCKED: engine has no margin collapsing at all (see TODO Q48)"]
+fn margin_collapses_through_empty_auto_block() {
+    let y = q48_y_of(
+        r#"<html><body style="margin:0"><div style="height:10px"></div><div style="margin-bottom:50px"></div><div></div><div style="margin-top:30px;height:77px"></div></body></html>"#,
+        77.0,
+    );
+    assert_eq!(y, 60.0);
+}
+
+#[test]
+#[ignore = "Q48 BLOCKED: engine has no margin collapsing at all (see TODO Q48)"]
+fn margin_collapses_through_zero_height_block() {
+    let y = q48_y_of(
+        r#"<html><body style="margin:0"><div style="height:10px"></div><div style="margin-bottom:50px"></div><div style="height:0"></div><div style="margin-top:30px;height:77px"></div></body></html>"#,
+        77.0,
+    );
+    assert_eq!(y, 60.0);
+}
+
+#[test]
+#[ignore = "Q48 BLOCKED: engine has no margin collapsing at all (see TODO Q48)"]
+fn margin_collapses_through_empty_block_own_margins() {
+    // 20, 40, 10, 30 collapse to 40.
+    let y = q48_y_of(
+        r#"<html><body style="margin:0"><div style="height:10px"></div><div style="margin-bottom:20px"></div><div style="margin:40px 0 10px"></div><div style="margin-top:30px;height:77px"></div></body></html>"#,
+        77.0,
+    );
+    assert_eq!(y, 50.0);
+}
+
+#[test]
+fn padding_blocks_margin_collapse_through() {
+    let y = q48_y_of(
+        r#"<html><body style="margin:0"><div style="height:10px"></div><div style="margin-bottom:50px"></div><div style="padding-top:1px"></div><div style="margin-top:30px;height:77px"></div></body></html>"#,
+        77.0,
+    );
+    assert_eq!(y, 91.0);
+}
