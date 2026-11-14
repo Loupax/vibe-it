@@ -287,3 +287,13 @@ css/css-backgrounds/background-size/vector/wide--12px-auto--nonpercent-width-omi
 css/css-backgrounds/background-size/vector/wide--auto-32px--omitted-width-omitted-height-viewbox.html
 css/css-backgrounds/background-size/vector/wide--cover--omitted-width-omitted-height.html
 css/css-backgrounds/box-shadow-overlapping-002.html
+# Q40b borders
+css/CSS2/borders/border-color-011.xht
+css/CSS2/borders/border-left-color-175.xht
+css/CSS2/borders/border-left-width-045.xht
+css/CSS2/borders/border-left-width-applies-to-015.xht
+css/CSS2/borders/border-right-width-006.xht
+css/CSS2/borders/border-right-width-079.xht
+css/CSS2/borders/border-top-018.xht
+css/CSS2/borders/border-top-width-017.xht
+css/CSS2/borders/border-top-width-089.xht

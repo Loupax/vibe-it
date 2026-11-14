@@ -534,3 +534,17 @@ css-backgrounds: 488 eligible (+90 JS) | pass 105 | fail 383. Flipped 31.
 | W18 `<img width="100%">` | 49 references (`background-001`: reference image paints as a small square) | | BROKEN |
 | W1 units | `background-position-054` (`+0mm`) | | NOT CLAIMED |
 | css-backgrounds | `background-size-*` 55, `background-origin/-clip` 12, `box-shadow-*` 12 | mostly need url images (W19); rest not root-caused | PARTIAL / Q40c |
+
+#### CSS2/borders (claimed: Q4 3e80aae, Q4b c13703c, Q4c 96bb7b1)
+
+504 eligible (+2 JS) | pass 242 | fail 262. Flipped 31 (W1: `border-*-width-*` with
+`in/cm/pc`). 23 tests that passed raw fail after the rewrite: they passed only
+because test and reference both ignored the unit.
+
+| group | tests (examples) | wrong render | triage |
+|-------|------------------|--------------|--------|
+| W4 width-less border | `inline-replaced-width-001` (normal-flow), any `border: solid black` | border not painted | BROKEN |
+| W5 negative width | `border-top-width-012` (`-1pt` must be invalid, i.e. medium); 15 mention negatives | | BROKEN |
+| W16 border-collapse on internal table parts | `border-*-applies-to-*` (~109 mention table internals) | hollow square missing | PARTIAL |
+| W1 units | 31 flipped | | NOT CLAIMED |
+| ungrouped | 86 with no marker | not root-caused | Q40c |

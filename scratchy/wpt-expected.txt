@@ -31,6 +31,15 @@ PASS css/CSS2/borders/border-bottom-width-071.xht
 PASS css/CSS2/borders/border-bottom-width-081.xht
 PASS css/CSS2/borders/border-bottom-width-091.xht
 FAIL css/CSS2/borders/border-bottom-width-applies-to-005.xht
+PASS css/CSS2/borders/border-color-011.xht
+PASS css/CSS2/borders/border-left-color-175.xht
+PASS css/CSS2/borders/border-left-width-045.xht
+FAIL css/CSS2/borders/border-left-width-applies-to-015.xht
+FAIL css/CSS2/borders/border-right-width-006.xht
+PASS css/CSS2/borders/border-right-width-079.xht
+FAIL css/CSS2/borders/border-top-018.xht
+FAIL css/CSS2/borders/border-top-width-017.xht
+PASS css/CSS2/borders/border-top-width-089.xht
 PASS css/CSS2/box-display/anonymous-box-generation-001.xht
 PASS css/CSS2/box-display/anonymous-boxes-inheritance-001.xht
 FAIL css/CSS2/box-display/block-in-inline-007.xht
