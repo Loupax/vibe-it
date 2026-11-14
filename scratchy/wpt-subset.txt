@@ -133,3 +133,15 @@ css/CSS2/positioning/absolute-replaced-width-009.xht
 css/CSS2/positioning/absolute-replaced-width-022.xht
 css/CSS2/positioning/absolute-replaced-width-030.xht
 css/CSS2/positioning/absolute-replaced-width-038.xht
+# Q40b normalflow
+css/CSS2/normal-flow/block-replaced-width-006.xht
+css/CSS2/normal-flow/height-067.xht
+css/CSS2/normal-flow/inline-block-replaced-height-003.xht
+css/CSS2/normal-flow/inline-table-width-001a.xht
+css/CSS2/normal-flow/max-height-049.xht
+css/CSS2/normal-flow/max-width-007.xht
+css/CSS2/normal-flow/max-width-101.xht
+css/CSS2/normal-flow/min-height-051.xht
+css/CSS2/normal-flow/min-width-013.xht
+css/CSS2/normal-flow/min-width-103.xht
+css/CSS2/normal-flow/width-040.xht

@@ -351,4 +351,78 @@ TODO.txt marks done. Format per area: counts, failure groups by root
 cause (example tests, wrong render), claiming Q item + hash, triage
 (BROKEN / PARTIAL / NOT CLAIMED). See Q40b in TODO.txt.
 
-_No results yet. Blocked on Q40a (runner)._
+### How the audit was run (Q40b)
+
+- Runner: `scratchy --wpt /home/loupax/src/wpt --subset LIST` at 800x600 with Ahem
+  loaded. Counts below are over EVERY eligible reftest in the area (a file with
+  `rel=match|mismatch`, not a `-ref`, no `<script>`/`reftest-wait`), taken from
+  throwaway lists, not from the committed `wpt-subset.txt`. The committed subset
+  gets ~12 evenly spaced tests per area as a regression guard.
+- Two runner fixes were needed first, both in `src/wpt.rs` (not engine bugs):
+  `<![CDATA[` markers in `.xht` `<style>` corrupted the first rule (b86c983),
+  and root-relative reference hrefs (`/css/reference/...`) counted as CRASH (6d523e5).
+  Counts here are after both. There are no crashes left in the audited areas.
+- "pass" can be vacuous: a test and its reference that both render wrong the same
+  way match. Pass counts are an upper bound on correctness. Fail counts are exact.
+- "flipped" = tests that fail raw but pass when a scratch copy of the test tree
+  has (a) `in/cm/mm/pc` lengths rewritten to `px` and (b) `url(file)` images
+  inlined as `data:` URIs. It measures how much a failure area is hidden behind
+  W1 and W19 below. The copy lives outside the repo.
+- "marker counts" (`tests mentioning X among the failures`) are grep upper bounds,
+  not root-cause counts. A root cause is only listed as a group after a minimal
+  repro was rendered and the wrong output seen.
+- `.xht` parsed as HTML, so inline `svg:svg` and other namespaced XML do not work
+  for the wrong reason in some tests (noted under W20).
+- Not reproduced: the Q40a lead "Ahem `<p>` lands 2px lower than the same content
+  in a `<div>`". With margins zeroed, `<p>` and `<div>` Ahem text land on the same
+  row. The apparent offset is the UA `p` margin (1em). Dropped.
+
+### Root causes found (referenced from the area sections)
+
+Each has a minimal repro that was rendered with the runner. Claim = the Q/history
+item that says the feature is done.
+
+| id | what is wrong | claimed by | triage |
+|----|---------------|------------|--------|
+| W1 | `in`, `cm`, `mm`, `pc`, `Q` lengths are not parsed (declaration dropped). `width:1in` renders full width. | none (`pt` 17dd346, viewport units 35c826a) | NOT CLAIMED, S, hides ~1/3 of CSS2 failures |
+| W2 | `ex`, `ch`, `ic`, `lh`, `rlh`, `cap` units not parsed. | none | NOT CLAIMED |
+| W3 | `<br>` is not implemented anywhere (`grep '"br"' src/lib.rs` is empty). `a<br>b` renders `a b` in a block, float, inline-block, abspos. | none | NOT CLAIMED, but Wikipedia-relevant |
+| W4 | `border: solid black` / `border-style: solid` with no width computes width 0; should be `medium` (3px). `border-bottom: solid` likewise. | Q4 3e80aae | BROKEN |
+| W5 | Negative values that CSS says are invalid are accepted: `padding-right:-1px` shrinks the box, `max-height:-1px` clamps to 0 (should be ignored), negative `flex-basis`, negative `border-*-width`. | pre-Q box model | BROKEN |
+| W6 | A block with `width:auto` whose borders+padding exceed the containing block is clamped to the container width; it should overflow (48px container, 2x32px borders paints 48 wide, expected 64). | pre-Q box model | BROKEN |
+| W7 | Vertical margins do not collapse through an empty block (`height:auto` with no content, or `height:0`): `margin-bottom:50` + empty div + `margin-top:30` gives 80, expected 50. | pre-Q box model | BROKEN |
+| W8 | A float that follows inline content on the same line (`<div style=inline-block></div><div style=float:left>`) is placed below the line box instead of at the top of the current line beside it. | float 5fc83ce, Q34 | BROKEN |
+| W9 | Shrink-to-fit width (float, inline-block, table, abspos) is wider than the text: with Ahem 20px, `float:left` "X" is 40px wide instead of 20 (+1em); with sans 20px "PA" is +3px. Adjacent floats of text show a visible gap. | float 5fc83ce, inline-block 244a8f4 | BROKEN |
+| W10 | `position:absolute` with `width:auto` and `left`/`right` auto/one side set stretches to the containing block edge (to x=800) instead of shrink-to-fit. | position bb97e60 | BROKEN |
+| W11 | An abspos box (auto height) whose only children are floats gets height 0 and paints no background (an abspos box is a BFC and must contain floats). `overflow:hidden` on it hides the bug. | position bb97e60, Q34 | BROKEN (Q40a lead, confirmed) |
+| W12 | Flex items with an explicit `width` keep it when growing/shrinking: siblings move as if the item grew, but it paints at its specified width. `flex:1` items without `width` are fine. | flex 440e03b | BROKEN |
+| W13 | Single-line flex container with a definite `height`: cross size is taken from the tallest item, not the container. `align-items:center|flex-end` aligns inside the tallest item. | flex 440e03b | BROKEN |
+| W14 | A block-level `display:table` element (no `float`, no `width`) fills the container and spreads its cells across it (two 40px cells land at x=0 and x=400); it should shrink-to-fit. Only the floated case works (Q34c acbcb00). | table 53bab7a, Q34c | BROKEN |
+| W15 | A table's `width` is content-box here; browsers (and WPT refs) treat it as including the table's border+padding. `table{width:100%;border:1px}` paints 2px too wide. | table 53bab7a | BROKEN |
+| W16 | No `border-collapse`, `border-spacing` or `table-layout:fixed` support (NOTES.md says so). | table 53bab7a scope cut | PARTIAL |
+| W17 | A `z-index:-1` positioned child of a non-stacking-context positioned parent paints above the parent's background; it should paint below it (in the ancestor stacking context's negative layer). | none explicit | BROKEN |
+| W18 | `<img width="100%">` (percentage in the HTML attribute) is treated as unset; image paints at `height` x intrinsic aspect (20px for `height=20`). | image support | BROKEN |
+| W19 | `background-image`/`mask-image` `url()` only decodes `data:` URIs; file/network URLs never load in `resolve_background_image`. | Q16 93209c2 (documented) | PARTIAL |
+| W20 | Inline `<svg:svg xmlns:svg=...>` (prefixed) and `<object data=x.svg>` are not rendered. | Q12 af12757 (`<img>` SVG only) | NOT CLAIMED |
+| W21 | `:has()` never matches; `:nth-child(n of S)`, `:host`, `:is/:where` with namespaces not handled. | Q2 66bdc60 lists neither | NOT CLAIMED |
+| W22 | `var()`: (a) invalid-at-parse values (`var(--b,!)`, `;`, `!important !important`) are accepted; (b) invalid-at-computed-time resolves as "declaration dropped" instead of `unset`; (c) escaped custom property names (`--\30`) do not resolve; (d) adjacent `var(--b)var(--c)` fails. | Q13 b23fd53 | BROKEN |
+| W23 | `list-style-type:"string"` and `<ol reversed>` are ignored (shows `1.`, `2.`). | Q19f cfa71ec (counters only) | NOT CLAIMED |
+
+#### CSS2/normal-flow (claimed: baseline box model, no Q item)
+
+698 eligible (+53 skipped for JS) | pass 313 | fail 384 | 1 no-reference.
+Flipped by the W1+W19 rewrite: 189, so about half of all failures are W1 alone
+(`1in` squares). Residual after the rewrite: 205 failures.
+
+| group | tests (examples) | wrong render | triage |
+|-------|------------------|--------------|--------|
+| W1 units | 189 flipped (`max-height-006`, `height-006`, `width-applies-to-*`) | `width:1in` ignored, box full width | NOT CLAIMED |
+| W5 negative values | 13 mention one (`max-height-001`, `max-height-012`) | `max-height:-1px` collapses a 96px square to 0 | BROKEN |
+| W6 over-constrained width | `blocks-011`, `blocks-012` | box 48px wide instead of 64 | BROKEN |
+| W7 empty-block margins | `margin-collapse-through-zero-height-block`, `margin-collapse-after-float-001` | gap 300 instead of 200 | BROKEN |
+| W3 `<br>` | 17 mention it (`width-percentage-001` reference) | two images in the reference sit side by side | NOT CLAIMED |
+| W9 shrink-to-fit | `inline-block-non-replaced-width-001` | red strip: box one em too wide | BROKEN |
+| W8 float after inline | `inlines-013` | float lands on the next line | BROKEN |
+| W11 abspos + float | `block-formatting-context-height-001` (Q40a lead) | paints nothing | BROKEN |
+| W20 `<object>` svg | `replaced-intrinsic-*` (5) | nothing drawn | NOT CLAIMED |
+| ungrouped | 28 failures with none of the markers, plus `inline-table-zorder-*` (5), `inline-block-zorder-*` (3) | not yet root-caused | see Q40c |
