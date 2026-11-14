@@ -7308,3 +7308,49 @@ fn q42_physical_and_font_relative_units() {
     assert!(h("padding-bottom:-1in").abs() < 0.5);
     assert!((h("padding:1in") - 192.0).abs() < 0.5);
 }
+
+#[test]
+fn q43_shrink_to_fit_excludes_trailing_collapsible_space() {
+    // Ahem (1em-wide squares) is only available next to a WPT checkout;
+    // the trailing-space bug is font-independent, so fall back to a
+    // relative comparison when it is missing.
+    let ahem = std::path::PathBuf::from("/home/loupax/src/wpt/fonts/Ahem.ttf");
+    let fonts: Vec<std::path::PathBuf> = if ahem.exists() { vec![ahem] } else { vec![] };
+    let run = |body: &str| {
+        let doc = parse_html(&format!("<html><body style=\"margin:0;font:20px Ahem\">{body}</body></html>"));
+        let tree = build_layout_tree(&doc, 1920.0);
+        let mut fs = new_font_system_with(&fonts);
+        let mut cache = ShapeCache::new();
+        let (mut next_id, mut incomplete) = (0usize, false);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        measure(&tree, &mut fs, 0.0, 0.0, 800.0, None, &mut next_id, &mut cache, deadline, &mut incomplete, &mut Vec::new(), &Floats::default(), None)
+    };
+    fn collect(l: &Laid, out: &mut Vec<(f32, f32)>) {
+        if let LaidContent::Blocks(c) = &l.content {
+            for k in c {
+                out.push((k.x, k.w));
+                collect(k, out);
+            }
+        }
+    }
+    let mut v = Vec::new();
+    collect(&run("<div style=\"float:left\">X</div><div style=\"float:left\">XX</div>"), &mut v);
+    let floats: Vec<_> = v.iter().filter(|(_, w)| *w < 700.0).collect();
+    // Source whitespace/trailing collapsible space must not widen a float:
+    // the second float starts exactly where the first ends.
+    assert!((floats[0].0 - 0.0).abs() < 0.01);
+    assert!((floats[2].0 - (floats[0].0 + floats[0].1)).abs() < 0.01, "{floats:?}");
+    if !fonts.is_empty() {
+        assert!((floats[0].1 - 20.0).abs() < 0.01, "{floats:?}");
+        assert!((floats[2].1 - 40.0).abs() < 0.01, "{floats:?}");
+    }
+    // Inline-block, same.
+    if !fonts.is_empty() {
+        let laid = run("<div><span style=\"display:inline-block\">XX</span></div>");
+        let items = mixed_items(find_mixed_inline(&laid).expect("mixed run"));
+        assert!(
+            items.iter().any(|m| matches!(m, MixedPositioned::Embedded(l) if (l.w - 40.0).abs() < 0.01)),
+            "inline-block of XX at 20px should be 40px wide"
+        );
+    }
+}
