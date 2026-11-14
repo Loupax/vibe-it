@@ -7386,3 +7386,31 @@ fn abspos_box_contains_its_floats_including_bottom_margin() {
     let c = &outer.positioned[0];
     assert_eq!(c.h, 96.0, "abspos auto height must include float and its bottom margin");
 }
+
+#[test]
+fn q46_flex_item_with_explicit_width_takes_flexed_size() {
+    let laid = measure_fixture(
+        r#"<html><body style="margin:0"><div style="display: flex; width: 300px;"><div style="width: 100px; flex-grow: 1;">a</div><div style="width: 100px;">b</div></div></body></html>"#,
+        500.0,
+    );
+    let items = flex_items(&laid, 300.0);
+    assert_eq!(items[0].w, 200.0, "explicit width item must paint at the grown size");
+    assert_eq!(items[1].x, 200.0);
+    let laid = measure_fixture(
+        r#"<html><body style="margin:0"><div style="display: flex; width: 100px;"><div style="width: 100px; min-width: 0;">a</div><div style="width: 100px; min-width: 0;">b</div></div></body></html>"#,
+        500.0,
+    );
+    let items = flex_items(&laid, 100.0);
+    assert_eq!(items[0].w, 50.0);
+    assert_eq!(items[1].w, 50.0);
+}
+
+#[test]
+fn q46_flex_item_margins_count_against_free_space() {
+    let laid = measure_fixture(
+        r#"<html><body style="margin:0"><div style="display: flex; width: 300px;"><div style="width: 100px; flex-grow: 1; margin-left: 10px; margin-right: 10px;">a</div><div style="width: 100px;">b</div></div></body></html>"#,
+        500.0,
+    );
+    let items = flex_items(&laid, 300.0);
+    assert_eq!((items[0].x, items[0].w, items[1].x, items[1].w), (10.0, 180.0, 200.0, 100.0));
+}

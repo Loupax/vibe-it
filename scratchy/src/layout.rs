@@ -1371,6 +1371,32 @@ pub fn measure<'a>(
     cache: &mut ShapeCache,
     deadline: std::time::Instant,
     incomplete: &mut bool,
+    pending: &mut Vec<PendingPositioned<'a>>,
+    floats: &Floats,
+    auto_margin_box_override: Option<f32>,
+) -> Laid {
+    measure_inner(
+        b, font_system, x, y, width, containing_height, next_id, cache, deadline, incomplete, pending, floats,
+        auto_margin_box_override, None,
+    )
+}
+
+/// `measure` with one extra input: `forced_border_w`, when `Some`, is the
+/// box's final border-box width (a flex item's already-resolved flexed
+/// main size, Q46) and replaces its own `width`/`min-width`/`max-width`
+/// entirely, so an explicit `width` no longer wins over a flexed size.
+#[allow(clippy::too_many_arguments)]
+fn measure_inner<'a>(
+    b: &'a LayoutBox,
+    font_system: &mut FontSystem,
+    x: f32,
+    y: f32,
+    width: f32,
+    containing_height: Option<f32>,
+    next_id: &mut usize,
+    cache: &mut ShapeCache,
+    deadline: std::time::Instant,
+    incomplete: &mut bool,
     // `position: absolute`/`fixed` descendants that bubbled all the way
     // up out of this box's own subtree without finding a positioned
     // ancestor to resolve against (see `PendingPositioned`'s own docs) —
@@ -1400,6 +1426,7 @@ pub fn measure<'a>(
     // fills the container" result. `None` for every other call
     // (everything that isn't itself a `width: auto` float).
     auto_margin_box_override: Option<f32>,
+    forced_border_w: Option<f32>,
 ) -> Laid {
     // `display: table` builds its own box model exactly the same way as
     // any other box (`box_model_entry`, just below — reused, not
@@ -1459,6 +1486,21 @@ pub fn measure<'a>(
     }
     let mut s = b.style;
     let mut auto_margin_box_override = auto_margin_box_override;
+    if let Some(bw) = forced_border_w {
+        let mut t = s;
+        finalize_box_lengths(&mut t, width, containing_height);
+        let extra = t.border_h() + t.padding.left.px() + t.padding.right.px();
+        let px = match s.box_sizing {
+            BoxSizing::ContentBox => (bw - extra).max(0.0),
+            BoxSizing::BorderBox => bw.max(0.0),
+        };
+        s.width = Some(BoxLength::Px(px));
+        s.min_width = None;
+        s.max_width = None;
+        s.width_kw = None;
+        s.min_width_kw = None;
+        auto_margin_box_override = None;
+    }
     // `width`/`min-width: min-content|max-content|fit-content` (Q20f):
     // sized from the box's own min/max-content widths (margin-box terms,
     // the same `cell_natural_width` a `width: auto` float uses). Not
@@ -3855,7 +3897,8 @@ pub(crate) fn measure_flex_row<'a>(
                 max: preps[i].max,
             })
             .collect();
-        let final_sizes = resolve_flex_main_sizes(entry.content_w, main_gap, &line_infos);
+        let margins: f32 = line.iter().map(|&i| preps[i].margin_left + preps[i].margin_right).sum();
+        let final_sizes = resolve_flex_main_sizes((entry.content_w - margins).max(0.0), main_gap, &line_infos);
         let n = line.len();
         let used: f32 = line.iter().enumerate().map(|(k, &i)| final_sizes[k] + preps[i].margin_left + preps[i].margin_right).sum::<f32>()
             + main_gap * (n.saturating_sub(1)) as f32;
@@ -3867,10 +3910,10 @@ pub(crate) fn measure_flex_row<'a>(
         for (k, &i) in line.iter().enumerate() {
             let item = items[i];
             let main_w = final_sizes[k];
-            let x = cursor_x + preps[i].margin_left;
-            let lc = measure(
-                item, font_system, x, line_top, main_w, entry.child_containing_height, next_id, cache, deadline,
-                incomplete, pending, no_floats, None,
+            let lc = measure_inner(
+                item, font_system, cursor_x, line_top, main_w + preps[i].margin_left + preps[i].margin_right,
+                entry.child_containing_height, next_id, cache, deadline, incomplete, pending, no_floats, None,
+                Some(main_w),
             );
             line_cross = line_cross.max(lc.style.margin.top.px() + lc.h + lc.style.margin.bottom.px());
             if item.style.align_self.unwrap_or(s.align_items) == AlignItems::Baseline {

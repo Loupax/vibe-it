@@ -6165,3 +6165,7 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > Do ONLY Q45: an abspos box is a BFC, so its auto height must include float children (WPT block-formatting-context-height-001); test, WPT, screenshot, PROMPTS entry, tick Q45.
 
 **What changed:** `ComputedStyle::establishes_bfc` (style.rs) now also returns true for `position: absolute|fixed`, so `measure` gives them a fresh float list and grows their auto height to the floats bottom (including float bottom margin). Test: `abspos_box_contains_its_floats_including_bottom_margin`.
+
+### Q46 flex items with explicit width take the flexed size
+
+**What changed:** `measure` is now a thin wrapper over `measure_inner`, which takes `forced_border_w`; `measure_flex_row` passes each item's resolved main size so an explicit `width`/`min-`/`max-width` no longer overrides it (and the item's margin is no longer counted twice in x). Also found while testing: item margins were not subtracted from the free space handed to `resolve_flex_main_sizes`, so items with margins overflowed; fixed. Tests `q46_flex_item_with_explicit_width_takes_flexed_size`, `q46_flex_item_margins_count_against_free_space`. `cargo test` 334 passed, clippy 31 warnings (unchanged). WPT subset 126 -> 127 pass (newly passing: `flex-shrink-006`), no regressions, expectations updated. `grim` screenshot of a local flex page (width:100px flex-grow:1 item grows to fill). Left out (Q46a): nested table/flex/grid items, column containers. Paint untouched, no AUTOSCROLL run.
