@@ -851,9 +851,13 @@ Not vendored; pass the path to the runner.
       (box lands 4px right; strip leading collapsible spaces at line start in
       `measure_mixed_inline`), (b) `PA`+`SS` floats render visually the same
       as the reference but differ by a few pixels (investigate sub-pixel x).
-- [ ] Q44 [M] Abspos `width:auto` is shrink-to-fit (W10), not stretch-to-edge,
+- [x] Q44 [M] (done, commit 0e42655; shrink-to-fit and left+right stretch; remaining failures in Q44a) Abspos `width:auto` is shrink-to-fit (W10), not stretch-to-edge,
       when `left` or `right` (or both) is auto. WPT:
       `absolute-non-replaced-width-001/-018`, most of `linebox/*`.
+- [ ] Q44a [S] After Q44, `absolute-non-replaced-width-002/003` and
+      `linebox/border-padding-bleed-001` (now in wpt-subset.txt) still fail,
+      and abspos auto width ignores margins when stretching between
+      `left`+`right` (margins are not subtracted). Diagnose with --out.
 - [ ] Q45 [S] An abspos box contains its floats (W11): it is a BFC, so its
       auto height must include float children. WPT:
       `block-formatting-context-height-001`. (Q40a lead, repro confirmed.)

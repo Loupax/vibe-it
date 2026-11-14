@@ -7354,3 +7354,23 @@ fn q43_shrink_to_fit_excludes_trailing_collapsible_space() {
         );
     }
 }
+
+#[test]
+fn q44_abspos_auto_width_is_shrink_to_fit() {
+    let abs_w = |style: &str| {
+        let laid = measure_fixture(
+            &format!(r#"<html><body><div style="position: relative; width: 300px; height: 100px;"><div style="position: absolute; {style}">ab</div></div></body></html>"#),
+            400.0,
+        );
+        let container = find_by_width(&laid, 300.0).expect("container");
+        container.positioned[0].w
+    };
+    let w = abs_w("left: 10px; top: 0;");
+    assert!(w > 0.0 && w < 100.0, "left-only abspos shrinks to its text, got {w}");
+    let w = abs_w("right: 10px; top: 0;");
+    assert!(w > 0.0 && w < 100.0, "right-only abspos shrinks to its text, got {w}");
+    let w = abs_w("top: 0;");
+    assert!(w > 0.0 && w < 100.0, "static-position abspos shrinks to its text, got {w}");
+    assert_eq!(abs_w("left: 10px; right: 20px; top: 0;"), 270.0, "left+right stretches");
+    assert_eq!(abs_w("left: 10px; width: 50px; top: 0;"), 50.0, "explicit width wins");
+}
