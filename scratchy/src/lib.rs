@@ -27500,4 +27500,11 @@ mod tests {
         assert_eq!(r.run_test(&dir.join("js.html"), None), Outcome::Skip("script"));
         let _ = fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn q40b_wpt_strip_cdata_only_for_xhtml() {
+        let src = "<style><![CDATA[ a{} ]]></style>".to_string();
+        assert_eq!(wpt::strip_cdata(std::path::Path::new("t.xht"), src.clone()), "<style> a{} </style>");
+        assert_eq!(wpt::strip_cdata(std::path::Path::new("t.html"), src.clone()), src);
+    }
 }

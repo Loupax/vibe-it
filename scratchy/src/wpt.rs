@@ -130,6 +130,13 @@ pub fn skip_reason(source: &str) -> Option<&'static str> {
     }
 }
 
+/// `.xht` files are parsed as HTML, where `<![CDATA[` inside `<style>` is
+/// raw text and corrupts the first rule. Drop the markers for XHTML paths.
+pub fn strip_cdata(path: &Path, html: String) -> String {
+    let xhtml = path.extension().and_then(|e| e.to_str()).is_some_and(|e| e == "xht" || e == "xhtml");
+    if xhtml && html.contains("<![CDATA[") { html.replace("<![CDATA[", "").replace("]]>", "") } else { html }
+}
+
 pub struct Renderer {
     font_system: FontSystem,
     swash_cache: SwashCache,
@@ -148,7 +155,7 @@ impl Renderer {
             return Ok(p.clone());
         }
         let bytes = fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-        let html = decode_html_bytes(&bytes, None);
+        let html = strip_cdata(&path, decode_html_bytes(&bytes, None));
         let dom = new_parser().read_from(&mut html.as_bytes()).map_err(|e| e.to_string())?;
         let url = Url::from_file_path(&path).map_err(|_| "bad path".to_string())?;
         let base = find_base_url(&dom.document).unwrap_or_else(|| url.clone());
