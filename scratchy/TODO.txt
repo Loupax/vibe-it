@@ -879,6 +879,27 @@ Not vendored; pass the path to the runner.
       with no content and `height:0`. WPT:
       `margin-collapse-through-zero-height-block`,
       `margin-collapse-012`/`-022`.
+      BLOCKED (commit 1bd1ac1): premise wrong. The engine has NO vertical margin collapsing
+      at all: the `BoxContent::Blocks` loop in `measure_inner` does
+      `cursor_y += margin.top + margin.bottom + h` for every in-flow child
+      (adjacent siblings sum: 10 + 50 + empty + 30 gives 90, expected 60), and
+      parent/first-child and last-child/parent never collapse either. Collapsing
+      through empty blocks needs the sibling rule first and changes the layout
+      of nearly every page, so it is not an [S]. Tests written and kept
+      `#[ignore]`d in src/tests.rs (`margin_collapses_through_*`, helper
+      `q48_y_of`); drop the `#[ignore]` as each sub-item lands. Split into:
+- [ ] Q48a [M] Adjacent in-flow sibling margins collapse (CSS2.1 8.3.1:
+      max of positives + min of negatives; clearance and floats excluded).
+      Suggested approach: track the previous sibling's bottom margin in the
+      Blocks loop and `shift_laid_tree(&mut lc, 0, -overlap)` after measure.
+      Expect WPT `margin-collapse-*` movement; run the full subset.
+- [ ] Q48b [M] After Q48a: margins collapse through empty blocks (no height,
+      padding, border, in-flow content, min-height; `height:auto` or `0`),
+      including the empty block's own top and bottom margins. WPT:
+      `margin-collapse-through-zero-height-block`, `margin-collapse-012`/`-022`.
+- [ ] Q48c [M] After Q48a: parent and first/last child margins collapse
+      (no padding/border/BFC between them), and an auto-height parent's
+      bottom margin collapses with its last child's.
 - [ ] Q49 [M] A float that follows inline content on the same line goes at
       the top of that line beside it (W8), and the inline content shifts
       (only when it fits). WPT: `floats-001`, `inlines-013`.
