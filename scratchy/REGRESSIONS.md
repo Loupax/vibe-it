@@ -480,3 +480,18 @@ css-position: 134 eligible (+119 JS) | pass 38 | fail 96. Flipped 0.
 | W18 `<img width="100%">` | 11 | | BROKEN |
 | css-position | `position-absolute-in-inline` 12, `inline-level-absolute-in-block-level-context` 6, `position-relative` 8, 38 mention `<br>` (W3), 6 `position-sticky-*` | abspos inside inline parents, static position | BROKEN (re-measure after W10) |
 | vertical writing modes | ~30 `vrl-*`/`vlr-*` in css-position | | NOT CLAIMED |
+
+#### CSS2/tables + css-tables (claimed: table 53bab7a, Q34c acbcb00; Q36 colspan/rowspan is in flight elsewhere)
+
+CSS2/tables: 250 eligible (+123 JS) | pass 36 | fail 214.
+css-tables: 145 eligible (+31 JS) | pass 43 | fail 102.
+Flipped 0 in both (units are not the issue here).
+
+| group | tests (examples) | wrong render | triage |
+|-------|------------------|--------------|--------|
+| W16 no `border-collapse`/`border-spacing`/`table-layout:fixed` | CSS2/tables: 56 `border-collapse`, 85 `table-layout`, 112 `border-spacing` (`collapsing-border-model-001`, `fixed-table-layout-*` ~50); css-tables: 40 `border-collapse` (`collapsed-borders-painting-order` 13) | table border and cell border both painted, widths from content | PARTIAL (documented scope cut) |
+| anonymous table objects | `table-anonymous-objects-*` 61 (`-017`, `-059`) | loose cells/rows are not wrapped in an anonymous row/table; cells overlap | NOT CLAIMED (Q34c covers `display:table-caption` only) |
+| W14 block `display:table` | many `border-*-applies-to`, `float-applies-to` | fills the container | BROKEN |
+| W15 table width | `block-formatting-contexts-001` reference | 2px too wide | BROKEN |
+| caption-side | `caption-side-applies-to-*` 11 | `caption-side` on non-captions changes layout | BROKEN (not confirmed on a minimal repro) |
+| css-tables misc | `percentage-sizing-of-table-cell-children` 5, `table-intrinsic-size` 4, `subpixel-*` 5, `visibility-collapse-*` 4 | | NOT CLAIMED |
