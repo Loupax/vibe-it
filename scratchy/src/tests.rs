@@ -7414,3 +7414,15 @@ fn q46_flex_item_margins_count_against_free_space() {
     let items = flex_items(&laid, 300.0);
     assert_eq!((items[0].x, items[0].w, items[1].x, items[1].w), (10.0, 180.0, 200.0, 100.0));
 }
+
+#[test]
+fn q47_single_line_flex_cross_size_is_container_height() {
+    let laid = measure_fixture(
+        r#"<html><body style="margin:0"><div style="display: flex; width: 100px; height: 100px;"><div style="align-self: flex-end; height: 50px; width: 25px;"></div><div style="align-self: center; height: 20px; width: 25px;"></div><div style="width: 25px;"></div></div></body></html>"#,
+        500.0,
+    );
+    let items = flex_items(&laid, 100.0);
+    assert_eq!((items[0].y, items[0].h), (50.0, 50.0));
+    assert_eq!((items[1].y, items[1].h), (40.0, 20.0));
+    assert_eq!((items[2].y, items[2].h), (0.0, 100.0));
+}
