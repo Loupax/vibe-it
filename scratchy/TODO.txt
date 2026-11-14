@@ -845,7 +845,7 @@ Not vendored; pass the path to the runner.
       width|style=width>` with `span` feeds the column's min/max sizing.
       Test: a `rowspan=0` cell covers all later rows of its tbody; a
       `<col span=2 style="width:100px">` fixes two columns at 100px.
-- [ ] Q37 [S] Cleanup of stale entries, no code: tick the history items
+- [x] Q37 [S] (36c8d2d) Cleanup of stale entries, no code: tick the history items
       that Q34a-c and Q10/Q18 already resolved (search "Floats don't
       escape their parent" and "`@import`/`@font-face`/`@keyframes`/
       `@supports`") and reword the latter to what's still open
@@ -1281,10 +1281,11 @@ session can pick a coherent slice rather than one property at a time.
             the markup, not whichever one is actually on top. None of
             these affect the common single-float case this item's own
             tests/screenshots cover.
-      - [ ] Floats don't escape their parent `Blocks` box, BFC roots
+      - [x] (Q34a-c, acbcb00) Floats don't escape their parent `Blocks` box, BFC roots
             (`overflow:hidden`, `flow-root`) don't avoid or contain
-            floats, and `table-caption` is a plain block. These are
-            queued as Q34a-c (2026-11-13, Wikipedia Nvidia page).
+            floats, and `table-caption` is a plain block. These were
+            queued as Q34a-c (2026-11-13, Wikipedia Nvidia page); all
+            three done in acbcb00.
 
 - [x] `position: sticky` (636f369) now parses and works —
       per the user's own explicit design decision (asked via
@@ -2114,31 +2115,13 @@ session can pick a coherent slice rather than one property at a time.
       `grid-area` (the other half of the real fix, see `display: grid`'s
       own item above) is deliberately not part of this item.
 
-- [ ] `@import`/`@font-face`/`@keyframes`/`@supports`, and transitions/
-      animations are still skipped outright at the stylesheet-parsing
-      stage (any at-rule name other than `media` still falls through to
-      the same "invalid, drop it" outcome `TopLevelParser`'s old blanket
-      no-op gave every at-rule) — split off from the old combined "no
-      at-rules at all" item now that `@media` (just above) has its own
-      real implementation. `@import` is a fetch-time concept this
-      no-networking renderer doesn't need yet (see NOTES.md's "rendering,
-      not networking" priority); `@font-face`/`@keyframes`/transitions/
-      animations are unrelated to responsive layout, which was what was
-      actually blocking real pages from looking right. No responsive-
-      breakpoint gap remains — that's `@media`'s own item, now resolved.
-      `@supports` is the one addition to this list no longer purely
-      theoretical: confirmed, via the `grid-template-areas`/`minmax()`
-      item above, to be the real reason part of a real Wikipedia page
-      (its left rail's own `display: none` default, meant to be
-      overridden back to `block` by a rule wrapped in `@supports
-      (display: grid){...}`) stays invisible even once the column
-      layout around it is real — dropping the whole `@supports` block
-      means that override never applies, regardless of whether scratchy
-      actually supports the feature being queried by then. Not attempted
-      as part of that item; real CSS feature queries (`@supports (prop:
-      value)`, `and`/`or`/`not` combination, `selector(...)`) are their
-      own parsing surface, same shape `@media`'s own query-list grammar
-      was before v64 — a real future item, not a trivial follow-on.
+- [ ] `@font-face`, `@keyframes`, and transitions/animations are still
+      skipped at the stylesheet-parsing stage (any at-rule other than
+      `media`/`supports`/`import` falls through to "invalid, drop it").
+      Done and split off: `@media` (own item above), `@supports` (Q10,
+      a4f4d91) and `@import` for wire-fetched stylesheets (Q18, 3a7054b).
+      Still open: `@font-face` (web fonts), `@keyframes`, transitions and
+      animations; none block responsive layout.
 
 - [x] (a4b93c4, Q31: hover/active/focus/focus-visible/focus-within done, see
       NOTES.md "Interaction state"; `:target` done as Q31b (9552b38); the text
