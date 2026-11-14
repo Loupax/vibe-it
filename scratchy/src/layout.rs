@@ -2345,7 +2345,7 @@ pub(crate) fn measure_mixed_inline<'a>(
     // docs) — every other word's chunk buffer is read straight out of
     // `cache` by id, same as any other `ShapeCache` entry.
     let mut chunk_text: HashMap<usize, (&str, SpanStyle)> = HashMap::new();
-    for item in items {
+    for (item_idx, item) in items.iter().enumerate() {
         match item {
             InlineItem::Text(text, span) if text == BR_TEXT => {
                 // `<br>` (Q41): a zero-width forced break whose height is
@@ -2356,6 +2356,18 @@ pub(crate) fn measure_mixed_inline<'a>(
                 measured.push(Measured::Break { height });
             }
             InlineItem::Text(text, span) => {
+                // Q43: `inline_text` appends a collapsible space to every
+                // text node; that trailing space hangs and never counts
+                // toward max-content, so a trial (intrinsic-size) pass
+                // drops it from the last item.
+                let text: &str = if trial && item_idx + 1 == items.len() && !matches!(s.white_space, WhiteSpace::Pre | WhiteSpace::PreWrap) {
+                    text.strip_suffix(' ').unwrap_or(text)
+                } else {
+                    text
+                };
+                if text.is_empty() {
+                    continue;
+                }
                 if span.word_spacing != 0.0 {
                     for word in text.split_inclusive(' ') {
                         if word.is_empty() {
@@ -2394,7 +2406,7 @@ pub(crate) fn measure_mixed_inline<'a>(
                     let guard = entry.lock().unwrap();
                     (word_widths_from_buffer(&guard.0, &ranges), guard.1)
                 } else if std::time::Instant::now() < deadline {
-                    let synth = [InlineItem::Text(text.clone(), *span)];
+                    let synth = [InlineItem::Text(text.to_string(), *span)];
                     let mkey = memo_key(2, &synth, WORD_MEASURE_WIDTH, true, None);
                     if let Some(hit) = memo_get(mkey) {
                         let r = {
@@ -2416,7 +2428,7 @@ pub(crate) fn measure_mixed_inline<'a>(
                     *incomplete = true;
                     (vec![0.0; ranges.len()], PLACEHOLDER_LINE_HEIGHT)
                 };
-                chunk_text.insert(chunk_id, (text.as_str(), *span));
+                chunk_text.insert(chunk_id, (text, *span));
                 for (range, width) in ranges.into_iter().zip(widths) {
                     let word_id = *next_id;
                     *next_id += 1;

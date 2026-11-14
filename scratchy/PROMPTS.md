@@ -6147,3 +6147,9 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > Do ONLY Q42: parse in/cm/mm/pc/Q and ex/ch, test, WPT, screenshot, PROMPTS entry, tick Q42 and REGRESSIONS cross-refs.
 
 **What changed:** `abs_unit_px` (`pt`, `pc`, `in`, `cm`, `mm`, `Q`, case-insensitive) and `half_em_unit` (`ex`, `ch` as 0.5em) in `css.rs`, used by `parse_length`, `parse_length_percent`, `parse_line_height` and `parse_calc_atom`. Negative `padding*` values are now dropped (`set_padding`): `padding-bottom-056` had passed only because `-1in` was unparsed. Test `q42_physical_and_font_relative_units`. `cargo test` 329 passed, clippy 31 warnings (unchanged), WPT 96 -> 122 pass (26 newly passing, 0 regressions, expectations updated). Left out (Q42a): `ic`/`lh`/`rlh`/`cap`, real x-height and `0` advance.
+
+## Q43 — shrink-to-fit trailing space (queue item)
+
+> Do ONLY Q43: fix floats/inline-blocks/tables/abspos measuring text one space too wide (Ahem 20px "X" float is 40, not 20); test, WPT, screenshot, PROMPTS entry, tick Q43.
+
+**What changed:** `inline_text` appends a collapsible space to every text node, and `cell_natural_width` (the shrink-to-fit max/min-content measure) counted it. In `measure_mixed_inline` a `trial` pass now strips one trailing space from the last item (not for `pre`/`pre-wrap`). Ahem 20px float "X" is 20 wide, "XX" 40, "X X" 60, and adjacent floats touch. Test `q43_shrink_to_fit_excludes_trailing_collapsible_space` (Ahem checks only when a WPT checkout is present). `cargo test` 330 passed, clippy 31 warnings (unchanged), WPT subset 122 pass / 214 fail, no change (the target tests are not in `wpt-subset.txt`; run by hand they still fail for other reasons, see Q43a). Checked the Nvidia page (infobox float) by `grim`: unchanged. Left out (Q43a): leading collapsible space at line start, sub-pixel diff in `clear-applies-to-000`. Paint and scroll untouched, so no AUTOSCROLL run.

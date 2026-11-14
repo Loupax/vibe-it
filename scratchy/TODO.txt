@@ -837,13 +837,20 @@ Not vendored; pass the path to the runner.
 - [ ] Q42a [S] Remaining units: `ic`, `lh`, `rlh`, `cap`; real x-height
       for `ex` and the advance of `0` for `ch` (today half an em); negative
       lengths for other length-only properties (W5) are still accepted.
-- [ ] Q43 [M] Shrink-to-fit width is too wide (W9): floats, inline-blocks,
+- [x] Q43 [M] (done, commit c8e334c; trailing collapsible space no longer counted; leading-space and sub-pixel leftovers in Q43a) Shrink-to-fit width is too wide (W9): floats, inline-blocks,
       tables and abspos boxes measure text about one space wider than it is
       (Ahem 20px "X" float is 40px, not 20). Find the max-content
       measurement and fix the extra. Test: float/inline-block holding Ahem
       "XX" at 20px is 40px wide; `PA`+`SS` floats touch. WPT:
       `inline-block-non-replaced-width-001`, `float-non-replaced-width-*`,
       `clear-applies-to-000`.
+- [ ] Q43a [S] The shrink-to-fit widths are now right (Ahem 20px "X" float is
+      20, inline-block "X" at 100px is 100), but `inline-block-non-replaced-
+      width-001..004` and `clear-applies-to-000` still fail: (a) the
+      collapsible space before an inline-block at the start of a line is kept
+      (box lands 4px right; strip leading collapsible spaces at line start in
+      `measure_mixed_inline`), (b) `PA`+`SS` floats render visually the same
+      as the reference but differ by a few pixels (investigate sub-pixel x).
 - [ ] Q44 [M] Abspos `width:auto` is shrink-to-fit (W10), not stretch-to-edge,
       when `left` or `right` (or both) is auto. WPT:
       `absolute-non-replaced-width-001/-018`, most of `linebox/*`.
