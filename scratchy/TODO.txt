@@ -757,7 +757,7 @@ Q1-Q34 is actually correct before building forms on top of it.
 WPT checkout: /home/loupax/src/wpt (upstream 49726b1613, 2026-11-14).
 Not vendored; pass the path to the runner.
 
-- [x] Q40a [M] (HASH) WPT reftest runner. `scratchy --wpt <wpt> [--subset F] [--expected F]
+- [x] Q40a [M] (9b66b74) WPT reftest runner. `scratchy --wpt <wpt> [--subset F] [--expected F]
       [--update] [--out DIR] [-v]`; code in src/wpt.rs. Subset: wpt-subset.txt (135 CSS2 tests,
       27 pass / 107 fail at landing). Multiple refs: all must hold; fuzzy meta ignored.
       - Headless render to PNG at 800x600, no window. Check first
