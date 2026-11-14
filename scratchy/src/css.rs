@@ -427,6 +427,26 @@ pub(crate) struct Insets {
 /// handle identically to `Px` everywhere it matters.
 pub(crate) const PX_PER_PT: f32 = 96.0 / 72.0;
 
+/// Absolute length units with a fixed px ratio (CSS Values 3: `pt`, `pc`,
+/// `in`, `cm`, `mm`, `Q`), case-insensitive. Returns px per one unit.
+pub(crate) fn abs_unit_px(unit: &str) -> Option<f32> {
+    let u = unit.to_ascii_lowercase();
+    Some(match u.as_str() {
+        "pt" => PX_PER_PT,
+        "pc" => 16.0,
+        "in" => 96.0,
+        "cm" => 96.0 / 2.54,
+        "mm" => 96.0 / 25.4,
+        "q" => 96.0 / 101.6,
+        _ => return None,
+    })
+}
+
+/// `ex` and `ch` have no font metric here; half an em approximates both.
+pub(crate) fn half_em_unit(unit: &str) -> bool {
+    unit.eq_ignore_ascii_case("ex") || unit.eq_ignore_ascii_case("ch")
+}
+
 #[derive(Clone, Copy, PartialEq)]
 pub(crate) enum Length {
     Px(f32),
@@ -691,8 +711,10 @@ pub(crate) fn parse_calc_atom(input: &mut CssParser) -> Result<CalcNode, ()> {
                 Ok(CalcNode::Em(value))
             } else if unit.eq_ignore_ascii_case("rem") {
                 Ok(CalcNode::Rem(value))
-            } else if unit.eq_ignore_ascii_case("pt") {
-                Ok(CalcNode::Px(value * PX_PER_PT))
+            } else if let Some(k) = abs_unit_px(&unit) {
+                Ok(CalcNode::Px(value * k))
+            } else if half_em_unit(&unit) {
+                Ok(CalcNode::Em(value * 0.5))
             } else if let Some(u) = VpUnit::from_unit(&unit) {
                 Ok(CalcNode::Vp(u, value))
             } else {
@@ -2170,7 +2192,8 @@ pub(crate) fn parse_length(input: &mut CssParser) -> Result<Length, ()> {
         Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("px") => Ok(Length::Px(*value)),
         Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("em") => Ok(Length::Em(*value)),
         Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("rem") => Ok(Length::Rem(*value)),
-        Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("pt") => Ok(Length::Px(value * PX_PER_PT)),
+        Token::Dimension { value, unit, .. } if abs_unit_px(unit).is_some() => Ok(Length::Px(value * abs_unit_px(unit).unwrap())),
+        Token::Dimension { value, unit, .. } if half_em_unit(unit) => Ok(Length::Em(value * 0.5)),
         Token::Dimension { value, unit, .. } if VpUnit::from_unit(unit).is_some() => {
             Ok(Length::Vp(VpUnit::from_unit(unit).unwrap(), *value))
         }
@@ -2198,7 +2221,8 @@ pub(crate) fn parse_length_percent(input: &mut CssParser) -> Result<Length, ()> 
         Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("px") => Ok(Length::Px(*value)),
         Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("em") => Ok(Length::Em(*value)),
         Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("rem") => Ok(Length::Rem(*value)),
-        Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("pt") => Ok(Length::Px(value * PX_PER_PT)),
+        Token::Dimension { value, unit, .. } if abs_unit_px(unit).is_some() => Ok(Length::Px(value * abs_unit_px(unit).unwrap())),
+        Token::Dimension { value, unit, .. } if half_em_unit(unit) => Ok(Length::Em(value * 0.5)),
         Token::Dimension { value, unit, .. } if VpUnit::from_unit(unit).is_some() => {
             Ok(Length::Vp(VpUnit::from_unit(unit).unwrap(), *value))
         }
@@ -2235,6 +2259,17 @@ pub(crate) fn set_width_length(input: &mut CssParser, target: &mut Option<Length
     match kw {
         Some(k) => *target = Some(Length::Intrinsic(k)),
         None => set_length(input, target),
+    }
+}
+
+/// Like `set_length` for `padding-*`: a negative length/percentage is
+/// invalid, so the declaration is dropped.
+pub(crate) fn set_padding(input: &mut CssParser, target: &mut Option<Length>) {
+    if let Ok(v) = parse_length_percent(input) {
+        let neg = matches!(v, Length::Px(x) | Length::Em(x) | Length::Rem(x) | Length::Percent(x) if x < 0.0);
+        if !neg {
+            *target = Some(v);
+        }
     }
 }
 
@@ -2311,9 +2346,10 @@ pub(crate) fn parse_line_height(input: &mut CssParser) -> Result<LineHeight, ()>
         Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("rem") => {
             Ok(LineHeight::Len(Length::Rem(*value)))
         }
-        Token::Dimension { value, unit, .. } if unit.eq_ignore_ascii_case("pt") => {
-            Ok(LineHeight::Len(Length::Px(value * PX_PER_PT)))
+        Token::Dimension { value, unit, .. } if abs_unit_px(unit).is_some() => {
+            Ok(LineHeight::Len(Length::Px(value * abs_unit_px(unit).unwrap())))
         }
+        Token::Dimension { value, unit, .. } if half_em_unit(unit) => Ok(LineHeight::Len(Length::Em(value * 0.5))),
         Token::Percentage { unit_value, .. } => Ok(LineHeight::Len(Length::Percent(*unit_value))),
         _ => Err(()),
     }
@@ -4646,35 +4682,35 @@ impl DeclParser<'_> {
                 self.decls.margin_right = Some(v);
             }
         } else if name.eq_ignore_ascii_case("padding") {
-            if let Ok(v) = parse_length_percent(input) {
+            if let Some(v) = parse_length_percent(input).ok().filter(|v| !matches!(v, Length::Px(x) | Length::Em(x) | Length::Rem(x) | Length::Percent(x) if *x < 0.0)) {
                 self.decls.padding_top = Some(v);
                 self.decls.padding_right = Some(v);
                 self.decls.padding_bottom = Some(v);
                 self.decls.padding_left = Some(v);
             }
         } else if name.eq_ignore_ascii_case("padding-top") {
-            set_length(input, &mut self.decls.padding_top);
+            set_padding(input, &mut self.decls.padding_top);
         } else if name.eq_ignore_ascii_case("padding-right") {
-            set_length(input, &mut self.decls.padding_right);
+            set_padding(input, &mut self.decls.padding_right);
         } else if name.eq_ignore_ascii_case("padding-bottom") {
-            set_length(input, &mut self.decls.padding_bottom);
+            set_padding(input, &mut self.decls.padding_bottom);
         } else if name.eq_ignore_ascii_case("padding-left") {
-            set_length(input, &mut self.decls.padding_left);
+            set_padding(input, &mut self.decls.padding_left);
         } else if name.eq_ignore_ascii_case("padding-block-start") {
-            set_length(input, &mut self.decls.padding_top);
+            set_padding(input, &mut self.decls.padding_top);
         } else if name.eq_ignore_ascii_case("padding-block-end") {
-            set_length(input, &mut self.decls.padding_bottom);
+            set_padding(input, &mut self.decls.padding_bottom);
         } else if name.eq_ignore_ascii_case("padding-inline-start") {
-            set_length(input, &mut self.decls.padding_left);
+            set_padding(input, &mut self.decls.padding_left);
         } else if name.eq_ignore_ascii_case("padding-inline-end") {
-            set_length(input, &mut self.decls.padding_right);
+            set_padding(input, &mut self.decls.padding_right);
         } else if name.eq_ignore_ascii_case("padding-block") {
-            if let Ok(v) = parse_length_percent(input) {
+            if let Some(v) = parse_length_percent(input).ok().filter(|v| !matches!(v, Length::Px(x) | Length::Em(x) | Length::Rem(x) | Length::Percent(x) if *x < 0.0)) {
                 self.decls.padding_top = Some(v);
                 self.decls.padding_bottom = Some(v);
             }
         } else if name.eq_ignore_ascii_case("padding-inline") {
-            if let Ok(v) = parse_length_percent(input) {
+            if let Some(v) = parse_length_percent(input).ok().filter(|v| !matches!(v, Length::Px(x) | Length::Em(x) | Length::Rem(x) | Length::Percent(x) if *x < 0.0)) {
                 self.decls.padding_left = Some(v);
                 self.decls.padding_right = Some(v);
             }

@@ -7292,3 +7292,19 @@ fn q41_br_forces_a_line_break() {
     let ib = h("<div><span style=\"display:inline-block\">a<br>b</span></div>");
     assert!(ib > one + 1.0, "br inside inline-block: {ib} vs {one}");
 }
+
+#[test]
+fn q42_physical_and_font_relative_units() {
+    let h = |style: &str| measure_fixture(&format!("<html><body style=\"margin:0\"><div style=\"{style}\"></div></body></html>"), 800.0).h;
+    assert!((h("height:96px") - 96.0).abs() < 0.5);
+    for (u, v) in [("1in", 96.0), ("2.54cm", 96.0), ("25.4mm", 96.0), ("6pc", 96.0), ("101.6Q", 96.0), ("1IN", 96.0)] {
+        assert!((h(&format!("height:{u}")) - v).abs() < 0.5, "{u}");
+    }
+    assert!((h("height:calc(1in + 4px)") - 100.0).abs() < 0.5);
+    // ex/ch fall back to half an em (font-size 20px -> 10px).
+    assert!((h("font-size:20px;height:1ex") - 10.0).abs() < 0.5);
+    assert!((h("font-size:20px;height:2ch") - 20.0).abs() < 0.5);
+    // Negative padding is invalid and dropped (padding-bottom-056).
+    assert!(h("padding-bottom:-1in").abs() < 0.5);
+    assert!((h("padding:1in") - 192.0).abs() < 0.5);
+}
