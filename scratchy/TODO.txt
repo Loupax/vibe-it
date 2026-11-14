@@ -1054,7 +1054,7 @@ as the JS measurement corpus (same role the four CSS pages played).
       today's. If parse+execute of a typical bundle is several seconds,
       report back with the numbers before Q33a (`rquickjs` is the
       documented fallback, at the cost of a C build step). Don't guess.
-- [x] Q38 [M] (done, @@@@@@@) Split `src/lib.rs` (~27k lines) into
+- [x] Q38 [M] (done, 38ca872) Split `src/lib.rs` (~27k lines) into
       modules (css, style, layout, paint, net, app) before JS adds a
       `dom`/`js` layer on top. Pure move, no behavior change, tests
       unchanged and passing. Mainly helps item-sized subagents find
