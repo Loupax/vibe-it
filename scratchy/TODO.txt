@@ -519,7 +519,7 @@ dropped selectors summed across those pages. Caveats:
 - [x] Q25 [M] (3c7a36a) `box-shadow`: blur (a cheap box blur is fine), multiple
       comma-separated shadows, `inset`, and `currentColor`. Detail:
       "`box-shadow` (PROMPTS.md v27)".
-- [ ] Q34 [L] Floats across section boundaries, BFC roots beside floats,
+- [x] Q34 [L] Floats across section boundaries, BFC roots beside floats,
       and `display: table-caption`. Added 2026-11-13 from a user report
       and placed ahead of Q26 because it breaks every long Wikipedia
       article (corpus page). Do the sub-items in order.
@@ -659,7 +659,7 @@ dropped selectors summed across those pages. Caveats:
             sentence's width, and that the caption wraps below the
             block.
 
-      - [ ] Q34d [S] Investigate first: words missing from a wrapped line
+      - [x] Q34d [S] (see PR; hash below) Investigate first: words missing from a wrapped line
             beside the infobox. In the user's screenshot, the second
             lead paragraph reads "...creative workloads, and" then an
             indented "for edge computing". The words "professional GPUs"
@@ -683,6 +683,21 @@ dropped selectors summed across those pages. Caveats:
             x=34, headless at x=332, so the two layouts differ; find out
             why first), then check per-word paint (`paint` of
             `MixedPositioned::Word`, the R1 paint-cull / ink code).
+
+            RESOLVED: root cause was cache-id instability across
+            progressive layout passes, not paint. `measure_mixed_inline`
+            took a fresh `next_id` for each word that fell back to
+            per-word shaping (a chunk split across lines), so the number
+            of ids consumed depended on line breaks, which differ between
+            passes (widths are 0 until a chunk is shaped). Later ids
+            shifted and read other paragraphs' cache entries (blank or
+            wrong words). Fix: reserve each chunk word's fallback id up
+            front (`WordSource::Chunk::word_id`). Test:
+            `mixed_inline_id_consumption_does_not_depend_on_line_breaks`.
+            Known remaining hazard (not seen on a page yet): `measure`
+            picks the whole-buffer path or `measure_mixed_inline` by
+            `content_y < floats.max_bottom()`, and placeholder heights in
+            an incomplete pass can flip that, changing the ids consumed.
 
       Also visible in the same screenshot, NOT part of Q34 and not
       investigated: a dark square painted over "View history" in the
