@@ -3535,19 +3535,27 @@ pub(crate) struct BgShorthand {
     pub(crate) repeat: Option<BgRepeat>,
 }
 
-/// `background`'s grammar: a color, an image, `<position> [/ <size>]`
-/// and a repeat style, in any order. Attachment/origin/clip keywords and
-/// anything else unrecognized are skipped rather than failing the whole
-/// value (lenient, like `border`'s shorthand). Only the first layer of a
-/// comma list contributes the image, position, size and repeat; a color
-/// anywhere is taken.
-pub(crate) fn parse_background_shorthand(input: &mut CssParser) -> Result<BgShorthand, ()> {
+/// `background`'s grammar: a color, an image (`url()`, `none` or a
+/// gradient, which is accepted but not rendered), `<position> [/ <size>]`,
+/// a repeat style and the attachment/box keywords (parsed, ignored), in any
+/// order. Only the first layer of a comma list contributes the image,
+/// position, size and repeat. With `strict` (QA4, the `background`
+/// property) any unrecognized token, a second colour, or a colour outside
+/// the last layer fails the whole value so the declaration is dropped;
+/// `mask` stays lenient and skips unknown tokens.
+pub(crate) fn parse_background_shorthand(input: &mut CssParser, strict: bool) -> Result<BgShorthand, ()> {
     let mut out = BgShorthand { color: None, image: None, position: None, size: None, repeat: None };
     let mut found = false;
     let mut first_layer = true;
+    // In the current layer: saw an image / repeat / position.
+    let (mut l_image, mut l_repeat, mut l_pos) = (false, false, false);
     loop {
         let state = input.state();
         if let Ok(url) = input.expect_url() {
+            if strict && l_image {
+                return Err(());
+            }
+            l_image = true;
             if first_layer {
                 out.image = Some(url.to_string());
             }
@@ -3555,13 +3563,49 @@ pub(crate) fn parse_background_shorthand(input: &mut CssParser) -> Result<BgShor
             continue;
         }
         input.reset(&state);
+        // `none` image and gradients (accepted, not rendered).
+        if input.try_parse(|i| i.expect_ident_matching("none")).is_ok() {
+            if strict && l_image {
+                return Err(());
+            }
+            l_image = true;
+            found = true;
+            continue;
+        }
+        let grad = input
+            .try_parse(|i| match i.next()? {
+                Token::Function(f) if f.to_ascii_lowercase().ends_with("gradient") => {
+                    i.parse_nested_block(|n| {
+                        while n.next().is_ok() {}
+                        Ok::<(), ParseError<()>>(())
+                    })
+                }
+                _ => Err(i.new_error_for_next_token::<()>()),
+            })
+            .is_ok();
+        if grad {
+            if strict && l_image {
+                return Err(());
+            }
+            l_image = true;
+            found = true;
+            continue;
+        }
+        input.reset(&state);
         if let Ok(c) = CssColor::parse(input) {
+            if strict && out.color.is_some() {
+                return Err(());
+            }
             out.color = Some(c);
             found = true;
             continue;
         }
         input.reset(&state);
         if let Ok(r) = parse_bg_repeat_items(input) {
+            if strict && l_repeat {
+                return Err(());
+            }
+            l_repeat = true;
             if first_layer {
                 out.repeat = Some(r);
             }
@@ -3570,10 +3614,18 @@ pub(crate) fn parse_background_shorthand(input: &mut CssParser) -> Result<BgShor
         }
         input.reset(&state);
         if let Ok(p) = parse_bg_position_items(input) {
+            if strict && l_pos {
+                return Err(());
+            }
+            l_pos = true;
             let mut size = None;
             let st = input.state();
             if matches!(input.next(), Ok(Token::Delim('/'))) {
-                size = parse_bg_size_items(input).ok();
+                match parse_bg_size_items(input) {
+                    Ok(s) => size = Some(s),
+                    Err(_) if strict => return Err(()),
+                    Err(_) => {}
+                }
             } else {
                 input.reset(&st);
             }
@@ -3588,7 +3640,22 @@ pub(crate) fn parse_background_shorthand(input: &mut CssParser) -> Result<BgShor
         }
         input.reset(&state);
         match input.next() {
-            Ok(Token::Comma) => first_layer = false,
+            Ok(Token::Comma) => {
+                // A colour is only allowed in the final layer.
+                if strict && (out.color.is_some() || !(l_image || l_repeat || l_pos)) {
+                    return Err(());
+                }
+                first_layer = false;
+                (l_image, l_repeat, l_pos) = (false, false, false);
+            }
+            Ok(Token::Ident(id)) if strict && is_bg_box_keyword(id) => {}
+            Ok(Token::Delim('!')) if strict => {
+                if input.expect_ident_matching("important").is_ok() && input.is_exhausted() {
+                    break;
+                }
+                return Err(());
+            }
+            Ok(_) if strict => return Err(()),
             Ok(_) => {}
             Err(_) => break,
         }
@@ -3598,6 +3665,20 @@ pub(crate) fn parse_background_shorthand(input: &mut CssParser) -> Result<BgShor
     } else {
         Err(())
     }
+}
+
+/// The `transparent` colour (initial `background-color`).
+fn transparent_color() -> CssColor {
+    let mut p = CssParser::new("transparent");
+    CssColor::parse(&mut p).expect("transparent parses")
+}
+
+/// Attachment, origin/clip box and `text` keywords of `background`: parsed
+/// so the declaration stays valid, but not stored (QA8 renders `fixed`).
+fn is_bg_box_keyword(id: &str) -> bool {
+    ["scroll", "fixed", "local", "border-box", "padding-box", "content-box", "text"]
+        .iter()
+        .any(|k| id.eq_ignore_ascii_case(k))
 }
 
 /// Most comma-separated shadows kept per box (extras are ignored).
@@ -4506,7 +4587,7 @@ impl DeclParser<'_> {
                 self.decls.mask_repeat = Some(v);
             }
         } else if name.eq_ignore_ascii_case("mask") || name.eq_ignore_ascii_case("-webkit-mask") {
-            if let Ok(bg) = parse_background_shorthand(input) {
+            if let Ok(bg) = parse_background_shorthand(input, false) {
                 self.decls.mask_image = Some(match bg.image {
                     Some(url) => BackgroundImageDecl::Url(url),
                     None => BackgroundImageDecl::None,
@@ -4536,15 +4617,17 @@ impl DeclParser<'_> {
                 self.decls.background_repeat = Some(v);
             }
         } else if name.eq_ignore_ascii_case("background") {
-            if let Ok(bg) = parse_background_shorthand(input) {
-                if let Some(c) = bg.color {
-                    self.decls.background_color = Some(c);
-                }
-                if let Some(url) = bg.image {
-                    self.decls.background_image = Some(BackgroundImageDecl::Url(url));
-                }
-                // The shorthand resets the three longhands to their
-                // initial values when it omits them.
+            // QA4: strict parse; the shorthand resets every omitted
+            // longhand (colour, image, position, size, repeat) to initial.
+            if let Ok(bg) = parse_background_shorthand(input, true) {
+                self.decls.background_color = Some(match bg.color {
+                    Some(c) => c,
+                    None => transparent_color(),
+                });
+                self.decls.background_image = Some(match bg.image {
+                    Some(url) => BackgroundImageDecl::Url(url),
+                    None => BackgroundImageDecl::None,
+                });
                 self.decls.background_position = Some(bg.position.unwrap_or_default());
                 self.decls.background_size = Some(bg.size.unwrap_or_default());
                 self.decls.background_repeat = Some(bg.repeat.unwrap_or_default());

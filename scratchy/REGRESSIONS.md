@@ -88,12 +88,12 @@ replace the Unicode-whitespace calls on rendered text, including
 `inline_text`/`normalize_whitespace`, which also used to fold runs of
 `&nbsp;` into one space.
 
-### R15 — `background` shorthand doesn't reset omitted parts, accepts junk (bug) — OPEN
+### R15 — `background` shorthand doesn't reset omitted parts, accepts junk (bug) — FIXED (QA4 065b61b)
 
 `parse_background_shorthand` skips tokens it doesn't know and the
 `background` arm only writes colour/image when given, so `background:none`
 leaves an earlier colour, `background: red pink` gives pink, and `fixed`
-is dropped silently. Fix: QA4 (with QA8 for `fixed`).
+is dropped silently. Fixed by QA4: the shorthand resets colour/image/position/size/repeat, parses attachment/box keywords (ignored; QA8 will render `fixed`), and any junk, second colour or colour before a comma drops the declaration.
 
 ### R16 — `data:` URLs: escaped base64 not decoded, and data: scripts/stylesheets go to wire (bug) — OPEN
 
