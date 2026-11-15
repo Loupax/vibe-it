@@ -124,7 +124,7 @@ layout containing the target landed mid-page on Wikipedia (earlier content
 still growing); it now re-applies until the first complete layout. Live:
 Wikipedia `#References` and acid2 `#top` open at their targets.
 
-### R19 — Shrink-to-fit width ignores floats (bug) — FIXED (QA7, ede2830)
+### R19 — Shrink-to-fit width ignores floats (bug) — FIXED (QA7, 00530a0)
 
 `resolve_positioned` sizes `width:auto` from `cell_natural_width`, which
 doesn't count floated children: a box containing only a 48px float is 0px
