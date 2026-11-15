@@ -756,7 +756,7 @@ Overrides everything else in the QUEUE. User report: visiting
 https://www.youtube.com shows console errors and a BLANK window. Video
 playback is explicitly out of scope for now.
 
-- [ ] QY0 [Opus investigator, NO FIXES] Test scratchy against
+- [x] QY0 [Opus investigator, NO FIXES] Test scratchy against
       https://www.youtube.com (JS on and with `--no-js`) and file action items.
       An Opus agent (`model: "opus"`) must NOT change any source code. It:
       (a) reproduces the blank window and the console errors (stderr plus
@@ -781,6 +781,187 @@ playback is explicitly out of scope for now.
       Agent rules: AGENTS.md "Background shells and waiting" (no
       `pgrep -f` wait loops, no `pkill -f` with a pattern in the command
       line, kill own background shells, don't spawn subagents).
+      DONE 2026-11-15 (docs-only PR, branch scratchy/opus-youtube-2026-11-15).
+      Findings: REGRESSIONS.md "R20" (the blank window is a PAINT-ORDER bug,
+      not JS: `--no-js` is just as blank) and "YouTube: what the page needs".
+      Filed QY1-QY6 below, cheapest/highest-payoff first.
+
+Read REGRESSIONS.md "R20" before starting any QY item. Short version:
+- Blank with JS on AND with `--no-js` / `:set nojs` + `:refresh`. The
+  server HTML has a grey "skeleton" (masthead + placeholder video
+  cards); it is painted, then covered by `<ytd-app>`, an EMPTY
+  `position:absolute; min-height:100%; background:#fff` box that comes
+  earlier in the tree. Chrome paints the later `position:relative;
+  z-index:0` skeleton on top (CSS2 Appendix E, tree order). QY1 fixes it.
+- After QY1 the best reachable result is what Chrome shows without JS:
+  the grey skeleton. Real YouTube content (and the EU cookie-consent
+  dialog that a logged-out visitor gets INSTEAD of videos; there is no
+  consent redirect and no `<noscript>` path) is built by Polymer custom
+  elements and needs Web Components (QY6, L). Video playback: out of
+  scope.
+- Live check for every QY item: nested dwl (`tools/nest.sh`), `timeout 60
+  target/release/scratchy --socket /run/user/1001/wire.sock
+  https://www.youtube.com`, grim after ~20 s, plus the `--js-report` run
+  from R20 (paste the before/after error lines into the commit message).
+
+- [ ] QY1 [M] (P1, R20; supersedes QA9, tick QA9 and R17 too) Paint
+      positioned boxes in one stacking order per stacking context, with a
+      TREE-ORDER tie-break. Symptom: www.youtube.com is a blank white
+      window. Repro (headless WPT runner as in REGRESSIONS.md R12-R19, or
+      any window): `<body style=margin:0><div style="position:absolute;
+      top:0;left:0;right:0;min-height:100%;background:yellow"></div><div
+      style="position:relative;z-index:0;background:gray;height:100px;
+      margin-top:56px"></div>`: all yellow today, Chrome shows the gray
+      bar. Same with `z-index:1`, and with plain `position:relative` (no
+      z-index). Root cause: `paint_inner` paints in-flow children first
+      and each box's `positioned` list (abs/fixed caught by that box,
+      `catch_or_bubble_positioned`) LAST, via `paint_z_layer`; an abs box
+      whose containing block is the root bubbles to the root, so it is
+      painted after every relative box anywhere in the page, whatever their
+      z-index. `is_explicit_stacking_child` only pulls out relative/sticky
+      boxes WITH a z-index, and only those that are direct children of the
+      box owning the `positioned` list. NOTE: QA9 as written would NOT fix
+      YouTube: its tie-break puts `stacking_children` before `positioned`,
+      so the z-index:0 skeleton would still lose to the z-index:auto
+      (treated as 0) `ytd-app`. Fix:
+      (1) give `Laid` a tree-order key (`order: u32`, a pre-order counter
+          handed out in `measure`/the layout-tree build, so positioned and
+          in-flow boxes share one numbering);
+      (2) at each stacking-context root (the root, any positioned box with
+          a non-auto z-index, `position:fixed`/`sticky` boxes; an abs or
+          relative box with `z-index:auto` is NOT one, its positioned
+          descendants join the enclosing root) collect every descendant
+          positioned box (abs/fixed from the `positioned` lists, and
+          relative/sticky with OR without z-index) up to the next
+          stacking-context root, instead of only direct children; skip
+          those boxes in the ordinary in-flow child loop so nothing paints
+          twice;
+      (3) paint negative z first (before the root's background, as today),
+          then in-flow content, then z = 0/auto entries in tree order, then
+          positive z ascending; ties always by `order` (stable sort by
+          `(z, order)`);
+      (4) mirror the same order in `hit_test_inner` (topmost = last
+          painted), and keep `fixed` entries' scroll handling and `clip`
+          as `paint_z_layer` does now. Fold Q55a's hoisting into the same
+          walk if it is free, else leave Q55a open.
+      Tests (tests.rs): the repro above with z-index 0, 1 and none (gray
+      wins each time); the reverse order (relative first, abs second:
+      abs wins); QA9's test (`relative;z-index:2;background:lime` vs a later
+      unrelated `position:fixed` black box: lime wins); a hit-test version
+      of the first repro (a click on the gray bar hits the gray div). WPT
+      run (AGENTS.md step 4): stacking/z-index tests may flip, update
+      `wpt-expected.txt`. Live: YouTube shows the masthead line, the
+      white guide column and the grey skeleton cards (compare
+      REGRESSIONS.md R20 "expected" screenshot description); re-check
+      Acid2 intro, en.wikipedia Main_Page, wikipedia.org portal, HN.
+- [ ] QY2 [S] (P2, R20 error 1) `performance.timing` and page visibility.
+      Error: `inline script #6: TypeError: cannot read property
+      'responseStart' of undefined` (YouTube's `ytcsi` timing script does
+      `w.performance ? w.performance.timing.responseStart : null`).
+      QuickJS already defines `performance` (with `now`) but no `timing`.
+      Fix in `PRELUDE` (js.rs): if `performance` exists add, else create,
+      `performance.timing` with `navigationStart`, `fetchStart`,
+      `responseStart`, `responseEnd`, `domLoading`, `domInteractive`,
+      `domContentLoadedEventStart/End`, `loadEventStart/End` (all the page
+      start time in epoch ms; keep it simple, numbers only),
+      `performance.timeOrigin`, `performance.getEntriesByType/
+      getEntriesByName/getEntries` returning `[]`, `performance.mark/
+      measure` no-ops; plus `document.visibilityState = 'visible'` and
+      `document.hidden = false`. Test: a script reading
+      `performance.timing.responseStart > 0 && document.visibilityState
+      === 'visible'` logs true, no error.
+- [ ] QY3 [S] (P2, R20 error 2) `<canvas>` element interface without
+      drawing. Error: `web-animations-next-lite.min.js: TypeError: not a
+      function` at `f=document.createElementNS(xhtml,"canvas"); ...
+      a=f.getContext("2d")`. Fix in `DOM_PRELUDE` (js_dom.rs): an
+      `HTMLCanvasElement` constructor (prototype from `HTMLElement`), used
+      by `wrap` for `canvas` elements (as `wrap` already does for
+      `dialog`); `getContext()` returns `null` (spec-allowed for an
+      unsupported context type), `width`/`height` reflect the attributes
+      (defaults 300/150), `toDataURL()` returns `"data:,"`. Test:
+      `document.createElement('canvas').getContext('2d') === null` and
+      `.width === 300`, no error. With QY2+QY3 (measured with JS shims,
+      see R20) the web-animations polyfill runs clean.
+- [ ] QY4 [S] (P2, R20 error 3; do QA15 here and tick it) The
+      Web Components polyfill's startup chain. Error:
+      `webcomponents-all-noPatch.js: TypeError: not a function` at
+      `document.createEvent("Event")` (QA15). Measured by stubbing each
+      missing piece with a JS shim and re-running `--js-report` (R20), the
+      polyfill then dies on, in this order: `DocumentFragment is not
+      defined`, `CharacterData is not defined`, `ErrorEvent is not
+      defined` (used to report the real error, which is) `cannot read
+      property '__CE_registry' of undefined` (no `Node.prototype.
+      ownerDocument`), `document.defaultView` (QA16's one-liner part),
+      `MutationObserver is not defined`, `NodeFilter is not defined`, then
+      `document.createTreeWalker` (QA17) and `document.implementation.
+      createHTMLDocument` (QA18). This item covers only the cheap part:
+      QA15 (`createEvent` + `init*Event`), constructor globals
+      `DocumentFragment`, `CharacterData`, `Text`, `Comment`, `Attr`,
+      `NodeList`, `HTMLCollection`, `ErrorEvent` (with `message`,
+      `filename`, `lineno`, `colno`, `error`), wrappers of text/comment/
+      fragment nodes getting `Text`/`Comment`/`DocumentFragment`
+      prototypes in `wrap` so `instanceof` works, `Node.prototype.
+      ownerDocument` (the document; `null` on the document itself),
+      `document.defaultView === window`, and the `NodeFilter` constants
+      object. Do NOT stub `MutationObserver`/`createTreeWalker` with
+      no-ops: the polyfill trusts them (QY6). Test: each name above is a
+      function/object, `document.body.ownerDocument === document`,
+      `document.createTextNode('x') instanceof Text`, and QA15's own test.
+      Expected `--js-report` effect: the polyfill's first error moves from
+      `createEvent` to `MutationObserver is not defined`.
+- [ ] QY5 [S] (P3, R20 error 4) The page-load script budget is eaten by
+      compiling a huge script, and the error says nothing useful.
+      Error: `kevlar_base...: InternalError: interrupted` at a cheap loop
+      near the top of the file. The script is 10.8 MB; QuickJS needs
+      2.6 s of CPU just to compile it (8.3-8.9 s wall on this loaded
+      machine), and `JsEngine::eval` arms the 5 s wall-clock
+      `SCRIPT_BUDGET` BEFORE compiling, so it is interrupted almost as
+      soon as it starts running (and on a busy machine any big script
+      fails). Fix: (1) when an eval ends in an interrupt, log one clear
+      line instead of the bare `InternalError: interrupted` stack:
+      `scratchy: js: <script name> stopped: exceeded the 5 s page-load
+      budget (<N> KB of source)`; (2) measure the budget in thread CPU
+      time (`libc::clock_gettime(CLOCK_THREAD_CPUTIME_ID)` in the
+      interrupt handler; `libc` is already a transitive dependency, check
+      `Cargo.lock`, else use `std::time::Instant` and say so) so machine
+      load does not decide which scripts run. Do NOT raise the budget:
+      the main thread is frozen for the whole run (R8 territory) and on
+      YouTube nothing visible depends on this script until QY6 exists.
+      Test: a script `for(;;){}` produces exactly the new message (call
+      the report helper, not stderr); a cheap script still runs.
+- [ ] QY6 [L] (P4, needs a user decision before starting) Web Components,
+      the only path to real YouTube content (and to the EU consent dialog
+      a logged-out visitor sees first). Everything visible on youtube.com
+      is `ytd-*` Polymer custom elements built by the 10.8 MB app script
+      from the inline `ytInitialData` JSON; the shipped polyfill
+      (`webcomponents-all-noPatch.js`, ShadyDOM + custom-elements
+      polyfill) needs, natively: `MutationObserver` (Q33g) with real
+      childList/subtree records, `document.createTreeWalker` (QA17;
+      ShadyDOM reads "native" `parentNode`/`firstChild` through TreeWalker
+      objects), `document.implementation.createHTMLDocument` (QA18),
+      `importNode`/`adoptNode`, `template.content` (Q33c1), and every
+      `Node`/`Element` accessor as a configurable prototype getter (Q33b1
+      already does that). Then Polymer itself needs `fetch`/XHR (Q33f)
+      for anything past the first screen, `getComputedStyle` (QA16),
+      `IntersectionObserver` (polyfill is shipped, needs
+      `getBoundingClientRect`, Q33g) and QY5. Split before starting, in
+      this order: QY6a MutationObserver (M), QY6b TreeWalker/
+      NodeIterator = QA17 (M), QY6c `createHTMLDocument` = the
+      document-only half of QA18 (M), QY6d re-run `--js-report` and file
+      what the app script hits next. Native `customElements`/Shadow DOM
+      is a later, separate decision (the polyfill path is cheaper).
+- [ ] QY7 [M] (P4) CSS container queries: `container-type`/
+      `container-name`, `@container (min-width|max-width|width: …)`.
+      YouTube's CSS has 269 `@container` rules; its skeleton grid
+      (`#home-container-media{display:grid;grid-template-columns:
+      repeat(1,1fr)}` widened by `@container (min-width:604px|890px|
+      1752px)`) shows 1 column instead of 3 at 1052 px. Today the
+      at-rule is dropped wholesale. Needs the container's laid-out inline
+      size during the cascade (two passes, or cascade the descendants of
+      a container after its width is known). Test: `<div style=
+      "container-type:inline-size;width:700px"><p>` with `@container
+      (min-width:600px){p{color:red}}` is red; at width 500 it is not.
+      Only after QY1; low payoff until real content exists.
 
 --- TOP PRIORITY: Acid2/Acid3 audit (Opus investigator, 2026-11-15) ----
 
@@ -966,7 +1147,9 @@ into the commit message of every JS item.
       treated as `scroll` (should scroll with an `overflow` box's content),
       `fixed` is stored per element (first layer only; no multi-layer
       lists), and the viewport is taken to be the whole paint buffer.
-- [ ] QA9 [M] (P2, R17) Stacking contexts compete only within one parent.
+- [ ] QA9 [M] (P2, R17) SUPERSEDED by QY1 (same fix plus a tree-order
+      tie-break; this item's tie-break would not fix YouTube, see R20).
+      Stacking contexts compete only within one parent.
       `paint` merges `is_explicit_stacking_child` (relative/sticky with
       `z-index`) only with the same box's `positioned` list, so an
       abs/fixed box that bubbles up to the root paints above a
@@ -1017,7 +1200,7 @@ into the commit message of every JS item.
       name's case for non-HTML namespaces (`PREFIX:LOCALNAME` bug). Acid3
       T19-T23, T25 (part). Test: `try{document.createElement('<a')}catch(e)
       {e.code===5}`.
-- [ ] QA15 [S] (P3, JS) `document.createEvent(iface)` with
+- [ ] QA15 [S] (P3, JS; done inside QY4, tick both) `document.createEvent(iface)` with
       `initEvent`/`initUIEvent`/`initMouseEvent`/`initKeyboardEvent`
       (legacy init methods on the Q33d event classes; `detail` field).
       Acid3 T30-T32 ("not a function"). Test: `e=document.createEvent(

@@ -6527,3 +6527,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Implement QA8 (`background-attachment: fixed`: position/size the image against the viewport, clip to the element's border box; scroll default, local treated as scroll).
 
 **What changed:** `ComputedStyle.bg_layout.fixed` (css.rs `BgLayout`, style.rs `layout_for`; never set for masks). New `background_attachment` decl, longhand parse (`fixed` / `scroll` / `local`, else ignored) and the `background` shorthand records `fixed` from the first layer (omitted resets to scroll). `paint_background_image` uses the pixel buffer (0,0,win_w,win_h) as the positioning area when `fixed`, still clipping to the box and radius; the existing `ink` culling needs no change since a fixed background is clipped to the box. Tests `qa8_background_attachment_parses` and `qa8_fixed_background_positions_against_viewport` (the latter fails with the paint branch disabled). Left out: QA8a.
+
+## QY0: www.youtube.com investigation (Opus, docs only)
+
+> Investigate why https://www.youtube.com shows console errors and a blank window (JS on and `--no-js`), diagnose, and file sized, prioritised QUEUE items and REGRESSIONS.md entries; no source changes.
+
+**What changed:** docs only. REGRESSIONS.md R20: the blank window is a paint-order bug, not JS (`--no-js` and `:set nojs` + `:refresh` are equally blank): an earlier empty `position:absolute;min-height:100%;background:#fff` `<ytd-app>` bubbles to the root's `positioned` list and is painted over the later `position:relative;z-index:0` skeleton; minimal repro, bisect, and why QA9's tie-break would not fix it. The 4 console errors (`performance.timing`, canvas `getContext`, `document.createEvent` then a measured polyfill chain, and a 10.8 MB script whose compile eats the 5 s budget) are mapped to source lines. TODO.txt: QY0 ticked, QY1 (paint order, supersedes QA9) .. QY7 filed. Not tested: Chrome side-by-side, logged-in/non-EU/watch/search pages.
