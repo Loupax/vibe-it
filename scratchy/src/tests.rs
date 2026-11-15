@@ -8631,6 +8631,8 @@ fn q49a_float_in_narrow_container_is_at_least_min_content() {
     let f = find_float(&laid).expect("float");
     assert!(f.w > 20.0, "float w {} should be >= min-content, not the 5px container", f.w);
     assert!(shrink_to_fit(30.0, 80.0, 5.0) == 30.0 && shrink_to_fit(30.0, 80.0, 50.0) == 50.0 && shrink_to_fit(30.0, 80.0, 500.0) == 80.0);
+}
+
 // ---------- QB2: JS DOM writes use the restyle path ----------
 
 /// An `App` with a complete cached frame and a JS engine whose script has
