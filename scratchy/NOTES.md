@@ -3104,3 +3104,16 @@ Dialog (QB4): `wrap` gives `<dialog>` wrappers `HTMLDialogElement.prototype` (op
 JS and `:help` (QB6): `SavedPage.js` parks the page's `JsEngine` while help is shown (`show_help` takes `self.js`, `restore_saved_page` puts it back and calls `js_sync`). Help and `show_message` pages run no JS (`self.js = None`), so timers, key/click listeners and the dirty flag cannot touch them. Timer deadlines are absolute, so overdue ones fire on return. Back/forward and `:refresh` refetch, so `fetch_url_inner` simply drops the engine; `navigate`-style loads drop `pre_help_page` (and its engine) too.
 
 `document.currentScript` (QB8): `ScriptSource.index` is the script's position among runnable `<script>` elements; `start_scripts` resolves it to a DOM handle and brackets each script with `__scratchy_cs(id)` / `__scratchy_cs(-1)`. Scripts without an element (tests, index `None`) see null. `JsEngine::eval_value(label, code)` names its eval (`event:click`, `timer`) so stack traces say which dispatch ran.
+
+## QY1 — stacking contexts (paint order)
+
+`measure_document` ends with `hoist_negative_z`, which flattens each stacking
+context: every positioned descendant (abs/fixed, and relative/sticky with or
+without `z-index`) is moved into the `positioned` list of the nearest owner
+(the root, `fixed`, positioned with `z-index`, sticky, `opacity<1`, or a
+clipping `overflow` box; `<html>`'s propagated overflow is exempt). Lists are
+sorted by `layout::stack_key` = (z-index, `ComputedStyle.tree_order`), where
+`tree_order` is a counter bumped per `resolve_style` (document order).
+`paint_z_layer` and `hit_test_inner` use the same key, so hit testing equals
+paint order. The old `is_explicit_stacking_child` pull-out in `paint` is now
+mostly a no-op (those children have already been hoisted).

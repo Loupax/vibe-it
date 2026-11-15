@@ -1586,7 +1586,7 @@ pub(crate) fn paint_z_layer(
 ) {
     let mut entries: Vec<&Laid> = stacking_children.to_vec();
     entries.extend(positioned.iter());
-    entries.sort_by_key(|l| l.style.z_index.unwrap_or(0));
+    entries.sort_by_key(|l| crate::layout::stack_key(l));
     for item in entries {
         if matches!(item.style.position, Position::Relative | Position::Sticky) {
             // Same sticky-vs-relative scroll-offset trick `paint`'s own
@@ -2071,7 +2071,7 @@ pub(crate) fn hit_test_inner(
     };
     let mut above: Vec<&Laid> = stacking_children.clone();
     above.extend(laid.positioned.iter());
-    above.sort_by_key(|l| l.style.z_index.unwrap_or(0));
+    above.sort_by_key(|l| crate::layout::stack_key(l));
     // Checked first, in reverse (highest `z-index`/last-painted first),
     // so a hit lands on whatever's actually on top. `.rev()` over an
     // ascending-`z-index` list, not a second sort.
