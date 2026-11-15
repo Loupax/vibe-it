@@ -91,7 +91,12 @@ callback, each with its own 5 s budget.
 
 **Fix:** QB1 (never panic; exit cleanly with a clear message) — DONE
 (637fef5) — and QB3 (bound how long the main thread stays busy while
-input is flowing) — still open.
+input is flowing) — DONE (HASH): hover restyles wait for the pointer to
+be still 150 ms when the last build took >50 ms, timer/event callbacks
+get 500 ms. Live (2 ms motion, 20 s, Main_Page): before 0/3 survive,
+after 7/7 (JS on and off); busy-loop page: before dies, after survives.
+Remaining stalls (the cascade itself, 350 ms Main_Page, 1.65 s SoHo first
+build, when started by image arrival/JS/resize) go to Q32.
 
 ### R9 — JS DOM writes rebuild without the restyle path: periodic writes leave the page blank or missing text (bug, Q33c `80b5e0a`) — FIXED (QB2 d78587f)
 

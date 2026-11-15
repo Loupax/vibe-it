@@ -3006,6 +3006,13 @@ until its complete `ShapeResult`; writes in that window only set
 `js_restyle_pending`, and the next rebuild starts when the pass completes.
 Without it a timer faster than a full pass made every pass stale.
 
+Main-thread stall limits (QB3, R8): the compositor drops a client that
+doesn't read its socket while input piles up. `hover_idle_wait` (layout.rs)
+makes a hover restyle wait for 150 ms of pointer stillness when the last
+cascade build took >50 ms. `CALLBACK_BUDGET` (js.rs, 500 ms) bounds each
+timer/event callback; only the page-load script run keeps `SCRIPT_BUDGET`
+(5 s). The cascade itself still runs synchronously in `App::redraw`.
+
 ### Fragments, scroll-into-view, focus ring (Q31b)
 
 `InteractionState::target` (node id) backs `:target` (`STATE_TARGET` bit).

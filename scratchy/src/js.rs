@@ -346,6 +346,11 @@ const FIRE_LOAD: &str = "document.readyState='complete';__scratchy_dispatch(wind
 pub(crate) type LogFn = Rc<dyn Fn(&str, &str)>;
 
 const SCRIPT_BUDGET: Duration = Duration::from_secs(5);
+/// QB3: budget for one timer or event callback. The page-load run keeps
+/// `SCRIPT_BUDGET`; a callback runs on the main thread while input is
+/// flowing, and the compositor drops a client that doesn't read its
+/// socket for long enough (R8), so it gets a tenth of that.
+pub(crate) const CALLBACK_BUDGET: Duration = Duration::from_millis(500);
 const MEMORY_LIMIT: usize = 256 * 1024 * 1024;
 
 /// Defines `__scratchy_env` (plain strings) for the prelude to build
@@ -458,13 +463,13 @@ fn js_string_literal(s: &str) -> String {
 const MAX_TIMERS_PER_TURN: usize = 100;
 
 impl JsEngine {
-    fn arm_budget(&self) {
-        let d = (self.base.elapsed() + SCRIPT_BUDGET).as_nanos() as u64;
+    fn arm_budget(&self, budget: Duration) {
+        let d = (self.base.elapsed() + budget).as_nanos() as u64;
         self.deadline.store(d, Ordering::Relaxed);
     }
 
     pub(crate) fn eval(&self, name: &str, code: &str) {
-        self.arm_budget();
+        self.arm_budget(SCRIPT_BUDGET);
         self.ctx.with(|ctx| {
             // HTML classic scripts are sloppy unless they opt in; rquickjs
             // defaults to strict, so build the options explicitly (R5).
@@ -479,7 +484,8 @@ impl JsEngine {
     }
 
     pub(crate) fn eval_value<T: for<'js> FromJs<'js>>(&self, code: &str) -> Option<T> {
-        self.arm_budget();
+        self.arm_budget(CALLBACK_BUDGET);
+        let started = Instant::now();
         let v = self.ctx.with(|ctx| {
             let mut opts = EvalOptions::default();
             opts.strict = false;
@@ -493,6 +499,9 @@ impl JsEngine {
             }
         });
         drain_jobs(&self.rt, &*self.log);
+        if started.elapsed() >= CALLBACK_BUDGET {
+            (self.log)("error", &format!("a callback ran past its {} ms budget and was interrupted", CALLBACK_BUDGET.as_millis()));
+        }
         v
     }
 
