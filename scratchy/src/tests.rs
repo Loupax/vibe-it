@@ -7604,3 +7604,14 @@ fn q53_negative_sizes_are_dropped() {
     let b = find_laid_by_margin_top(&laid, 2.0).expect("b");
     assert_eq!(b.w, 500.0, "width:-10px dropped -> auto");
 }
+
+// Q54: width:auto with borders+padding wider than the container overflows at full border width.
+#[test]
+fn q54_overconstrained_auto_width_overflows() {
+    let laid = measure_fixture(
+        r#"<html><body style="margin:0"><div style="width:48px"><div style="border-left:32px solid;border-right:32px solid;height:9px"></div></div></body></html>"#,
+        500.0,
+    );
+    let d = find_by_height(&laid, 9.0).expect("inner");
+    assert_eq!(d.w, 64.0);
+}

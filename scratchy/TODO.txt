@@ -958,9 +958,9 @@ Not vendored; pass the path to the runner.
       Left out: `parse_box4` (`border-width: 1px -2px`) keeps the valid prefix
       instead of dropping the whole declaration (Q53a).
 - [ ] Q53a [S] `border-width: 1px -2px` should drop the whole declaration.
-- [ ] Q54 [S] Over-constrained `width:auto` block (borders+padding wider than
+- [x] Q54 [S] Over-constrained `width:auto` block (borders+padding wider than
       the container) overflows at full border width instead of being clamped
-      to the container (W6). WPT: `blocks-011`, `blocks-012`.
+      to the container (W6). WPT: `blocks-011`, `blocks-012`. Done HASH.
 - [ ] Q55 [S] Negative `z-index` children of a positioned, non-stacking-context
       parent paint below the parent's background (W17).
 - [ ] Q56 [S] `<img width="NN%">`/`height="NN%"` attributes are percentages
