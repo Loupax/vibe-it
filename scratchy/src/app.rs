@@ -1140,6 +1140,18 @@ impl App {
         self.replace_document(parse_html(&html), String::new());
     }
 
+    /// Q33c: if page scripts wrote to the DOM, request one layout
+    /// rebuild (never one per write) and a redraw.
+    pub(crate) fn js_sync(&mut self) {
+        if self.js.as_ref().is_some_and(|js| js.take_dirty()) {
+            self.layout_dirty = true;
+            self.layout_generation += 1;
+            if let Some(w) = &self.window {
+                w.request_redraw();
+            }
+        }
+    }
+
     /// `AppEvent::NavResult` handler (see its docs).
     pub(crate) fn handle_nav_result(&mut self, generation: u64, result: Result<FetchedPage, String>) {
         // A result from a navigation the user has since clicked
@@ -1156,6 +1168,7 @@ impl App {
                 self.base_url = Some(resolve_page_base_url(&dom.document, url));
                 self.replace_document(dom.document, extra_css);
                 self.js = run_page_scripts(&self.document, &scripts, self.base_url.as_ref());
+                self.js_sync();
             }
             Err(message) => self.show_message(&message),
         }
@@ -1983,9 +1996,12 @@ impl ApplicationHandler<AppEvent> for App {
     /// indefinitely when none are pending, so timer-less pages never
     /// wake up on their own).
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        if let Some(js) = &self.js {
+            js.run_due();
+        }
+        self.js_sync();
         let flow = match &self.js {
             Some(js) => {
-                js.run_due();
                 match js.next_deadline() {
                     Some(at) => ControlFlow::WaitUntil(at),
                     None => ControlFlow::Wait,
@@ -2025,6 +2041,7 @@ impl ApplicationHandler<AppEvent> for App {
                         start_stream_resources(&self.proxy, &socket, &self.document, self.nav_generation);
                     } else {
                         self.js = run_page_scripts(&self.document, &inline_scripts(&self.document), self.base_url.as_ref());
+                        self.js_sync();
                     }
                 }
             }
@@ -2038,6 +2055,7 @@ impl ApplicationHandler<AppEvent> for App {
                     self.layout_generation += 1;
                 }
                 self.js = run_page_scripts(&self.document, &scripts, self.base_url.as_ref());
+                self.js_sync();
             }
             AppEvent::NavResult(generation, result) => self.handle_nav_result(generation, result),
             AppEvent::ImageFetched(generation, src, image) => self.handle_image_fetched(generation, src, image),

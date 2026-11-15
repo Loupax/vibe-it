@@ -8274,3 +8274,115 @@ fn r7_image_fetched_before_nav_result_survives_document_swap() {
     assert!(app.image_cache.contains_key("globe.png"), "image that beat NavResult must survive");
     assert!(!app.image_cache.contains_key("old"), "stale-generation image must be dropped");
 }
+
+// ---------- Q33c: DOM writes ----------
+
+/// Runs `code` against `html`, returns the log and the body's markup
+/// afterwards, read from the Rust tree (not through JS).
+fn mutate(html: &str, code: &str) -> (Vec<String>, String) {
+    let doc = parse_html(html);
+    let out = Rc::new(RefCell::new(Vec::new()));
+    let o = out.clone();
+    let _engine = start_scripts(&doc, &[src(code)], Rc::new(move |level, text| o.borrow_mut().push(format!("{level}:{text}"))));
+    let mut body = None;
+    let mut stack = vec![doc.clone()];
+    while let Some(n) = stack.pop() {
+        if element_tag(&n) == "body" {
+            body = Some(n.clone());
+        }
+        stack.extend(n.children.borrow().iter().cloned());
+    }
+    let mut s = String::new();
+    for c in body.unwrap().children.borrow().iter() {
+        let mut buf = Vec::new();
+        let _ = html5ever::serialize::serialize(
+            &mut buf,
+            &markup5ever_rcdom::SerializableHandle::from(c.clone()),
+            html5ever::serialize::SerializeOpts {
+                traversal_scope: html5ever::serialize::TraversalScope::IncludeNode,
+                ..Default::default()
+            },
+        );
+        s.push_str(&String::from_utf8_lossy(&buf));
+    }
+    let log = out.borrow().clone();
+    (log, s)
+}
+
+#[test]
+fn q33c_class_attribute_and_classlist_writes_reach_the_tree() {
+    let (log, body) = mutate(
+        "<html class=no-js><body><div id=a class=x>t</div></body></html>",
+        "var a=document.getElementById('a'); a.setAttribute('data-k','v'); a.id='b';\
+         a.classList.add('y','z'); a.classList.remove('x'); console.log(a.classList.toggle('q'), a.classList.toggle('q'), a.className);\
+         a.removeAttribute('data-k'); a.title='T';",
+    );
+    assert_eq!(log, ["log:true false y z"], "{log:?}");
+    assert_eq!(body, "<div id=\"b\" class=\"y z\" title=\"T\">t</div>");
+    let doc = parse_html("<html class=no-js><body></body></html>");
+    let _ = start_scripts(&doc, &[src("document.documentElement.className = 'js-enabled'")], Rc::new(|_, _| {}));
+    let html = doc.children.borrow().iter().find(|c| element_tag(c) == "html").cloned().unwrap();
+    assert_eq!(element_attr(&html, "class").as_deref(), Some("js-enabled"));
+}
+
+#[test]
+fn q33c_text_create_append_insert_remove() {
+    let (log, body) = mutate(
+        "<html><body><ul id=l><li>1</li><li id=two>2</li></ul><p id=p>old <b>x</b></p></body></html>",
+        "var l=document.getElementById('l');\
+         var n=document.createElement('LI'); n.textContent='new'; l.appendChild(n);\
+         var f=document.createElement('li'); f.appendChild(document.createTextNode('first')); l.insertBefore(f, l.firstChild);\
+         l.removeChild(document.getElementById('two'));\
+         document.getElementById('p').textContent='plain';\
+         var c=n.cloneNode(true); c.textContent='clone'; l.append(c);\
+         try { n.appendChild(l); } catch (e) { console.log(e.name); }\
+         var fr=document.createDocumentFragment(); fr.appendChild(document.createElement('hr')); fr.appendChild(document.createElement('br'));\
+         document.body.appendChild(fr); console.log(fr.childNodes.length, l.children.length, n.parentNode===l);",
+    );
+    assert_eq!(log, ["log:HierarchyRequestError", "log:0 4 true"], "{log:?}");
+    assert_eq!(body, "<ul id=\"l\"><li>first</li><li>1</li><li>new</li><li>clone</li></ul><p id=\"p\">plain</p><hr><br>");
+}
+
+#[test]
+fn q33c_inner_html_and_remove() {
+    let (log, body) = mutate(
+        "<html><body><div id=d>gone</div><span id=s>x</span></body></html>",
+        "var d=document.getElementById('d'); d.innerHTML='<p class=k>a<b>b</b></p><i>c</i>';\
+         console.log(d.innerHTML, d.firstChild.className, d.outerHTML.slice(0,15));\
+         document.getElementById('s').remove();",
+    );
+    assert_eq!(log, ["log:<p class=\"k\">a<b>b</b></p><i>c</i> k <div id=\"d\"><p "], "{log:?}");
+    assert_eq!(body, "<div id=\"d\"><p class=\"k\">a<b>b</b></p><i>c</i></div>");
+}
+
+#[test]
+fn q33c_style_property_writes_the_style_attribute() {
+    let (log, body) = mutate(
+        "<html><body><div id=a style='color: red'>t</div></body></html>",
+        "var a=document.getElementById('a'); a.style.backgroundColor='blue'; a.style.color='';\
+         a.style.setProperty('margin-top','3px'); console.log(a.style.backgroundColor, a.style.marginTop, JSON.stringify(a.style.color));\
+         a.style.display='none';",
+    );
+    assert_eq!(log, ["log:blue 3px \"\""], "{log:?}");
+    assert_eq!(body, "<div id=\"a\" style=\"background-color: blue; margin-top: 3px; display: none;\">t</div>");
+}
+
+#[test]
+fn q33c_many_writes_mark_dirty_once_and_reads_stay_clean() {
+    let doc = parse_html("<html><body><div id=a></div></body></html>");
+    let engine = start_scripts(
+        &doc,
+        &[src("var a=document.getElementById('a'); for (var i=0;i<50;i++) a.className='c'+i;")],
+        Rc::new(|_, _| {}),
+    )
+    .unwrap();
+    assert!(engine.take_dirty());
+    assert!(!engine.take_dirty(), "the flag clears once drained");
+    let clean = start_scripts(
+        &parse_html("<html><body><div id=a></div></body></html>"),
+        &[src("document.getElementById('a').className")],
+        Rc::new(|_, _| {}),
+    )
+    .unwrap();
+    assert!(!clean.take_dirty(), "reads never dirty the page");
+}
