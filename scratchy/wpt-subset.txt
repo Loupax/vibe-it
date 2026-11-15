@@ -1,5 +1,6 @@
 # WPT reftest subset (paths relative to the wpt checkout). Modest CSS2 start; Q40b widens it.
 css/CSS2/normal-flow/block-formatting-context-height-001.xht
+css/CSS2/normal-flow/block-formatting-contexts-001.xht
 css/CSS2/normal-flow/block-formatting-contexts-005.xht
 css/CSS2/normal-flow/block-formatting-contexts-011.xht
 css/CSS2/normal-flow/block-in-inline-align-justify-001.html
