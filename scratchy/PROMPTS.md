@@ -6302,7 +6302,6 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 
 **What changed:** `run_scripts_with` now evals via `eval_with_options` with `strict = false` and `filename = <script name>`. Test `qj1_classic_scripts_run_in_sloppy_mode`. `cargo test` 371 passed, clippy 32 lines before and after. WPT not run (no layout/paint change). Checked the installed binary on a fixture with `portalSearchDomain = 'x'`: logs `ok x`, no error; the real portal was not fetched.
 
-
 ## QJ3 — headless JS report (queue item)
 
 > Do ONLY QJ3: `scratchy --js-report [--socket S] <file>`, headless, runs the page's scripts with a collecting log, prints error lines plus a summary (scripts run, errors total, grouped by first line); record baseline counts for the 3 corpus pages.
