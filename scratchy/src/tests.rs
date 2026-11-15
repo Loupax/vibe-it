@@ -7370,6 +7370,19 @@ fn q41_br_forces_a_line_break() {
 }
 
 #[test]
+fn q41a_br_trailing_space_and_display_block() {
+    // Trailing spaces before a <br> do not count toward the line width, so
+    // right-aligned text sits flush against the edge.
+    let doc = |body: &str| format!("<html><body style=\"margin:0\">{body}</body></html>");
+    let one = measure_fixture(&doc("<div>a b</div>"), 800.0).h;
+    let tight = measure_fixture(&doc("<div style=\"width:40px\">aaaa   <br>b</div>"), 800.0).h;
+    assert!((tight - 2.0 * one).abs() < 1.0, "spaces before br must not wrap an extra line: {tight}");
+    // `display:block` on a <br> is still just a line break.
+    let blk = measure_fixture(&doc("<div>a<br style=\"display:block\">b</div>"), 800.0).h;
+    assert!((blk - 2.0 * one).abs() < 1.0, "display:block br: {blk}");
+}
+
+#[test]
 fn q42_physical_and_font_relative_units() {
     let h = |style: &str| measure_fixture(&format!("<html><body style=\"margin:0\"><div style=\"{style}\"></div></body></html>"), 800.0).h;
     assert!((h("height:96px") - 96.0).abs() < 0.5);
