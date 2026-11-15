@@ -5240,23 +5240,29 @@ pub fn measure_document(
 
 /// True when `l` is a stacking-context root for *descendant* painting
 /// (CSS2.1 §9.9.1): `fixed`, `absolute`/`relative`/`sticky` with an explicit
-/// `z-index`, or a box that clips (`overflow` other than `visible`, which
-/// is also the boundary a hoisted box must not escape).
+/// `z-index`, `opacity < 1`, or a box that clips (`overflow` other than
+/// `visible`, which is also the boundary a hoisted box must not escape).
+/// A `sticky` box is also treated as a boundary even with `z-index: auto`
+/// (not spec): its painted position shifts with the scroll offset, which a
+/// hoisted descendant would not follow.
 fn is_stacking_boundary(l: &Laid) -> bool {
     l.fixed
         || l.style.position == Position::Fixed
+        || l.style.position == Position::Sticky
         || (l.style.position != Position::Static && l.style.z_index.is_some())
+        || l.style.opacity < 1.0
         || l.style.overflow != Overflow::Visible
 }
 
-/// Q55 (W17): a negative-`z-index` out-of-flow child of a *positioned,
-/// non-stacking-context* box (`z-index: auto`) belongs to the nearest
-/// ancestor stacking context's negative layer, so it paints below that
-/// ancestor's in-between backgrounds, not just above the parent's own.
-/// Moves such entries out of the parent's `positioned` list into the
-/// nearest boundary ancestor's list (which `paint`/`hit_test_cursor`
-/// already order by `z-index`). Coordinates are absolute, so no
-/// translation is needed.
+/// Q55 (W17) + QA9 (R17): every descendant that establishes its own stacking
+/// context (an out-of-flow child with an explicit `z-index`, or an in-flow
+/// `relative`/`sticky` child with one) is z-ordered in the *nearest ancestor
+/// stacking context*, not within its DOM parent (CSS2.1 Appendix E). Moves
+/// such entries out of their parents' `positioned` lists / `Blocks` child
+/// lists into the nearest boundary ancestor's `positioned` list (which
+/// `paint`/`hit_test_cursor` already order by `z-index`). Coordinates are
+/// absolute, so no translation is needed. Entries with `z-index: auto`
+/// stay where they are.
 fn hoist_negative_z(root: &mut Laid) {
     collect_negative_z(root);
 }
@@ -5265,7 +5271,11 @@ fn collect_negative_z(owner: &mut Laid) {
     let mut bag = Vec::new();
     walk_negative_z(owner, &mut bag, true);
     if !bag.is_empty() {
-        owner.positioned.append(&mut bag);
+        // Hoisted entries first so that, on a z-index tie, tree-order in-flow
+        // entries stay before the owner's own out-of-flow list (the order
+        // `paint_z_layer` always used).
+        bag.append(&mut owner.positioned);
+        owner.positioned = bag;
         owner.positioned.sort_by_key(|l| l.style.z_index.unwrap_or(0));
     }
 }
@@ -5273,27 +5283,38 @@ fn collect_negative_z(owner: &mut Laid) {
 /// Visits the children (in-flow and out-of-flow) of `l`. `is_owner` is
 /// true for the boundary box itself.
 fn walk_negative_z(l: &mut Laid, bag: &mut Vec<Laid>, is_owner: bool) {
-    if !is_owner {
-        // A positioned, non-boundary box: its negative out-of-flow
+    if !is_owner && l.style.position != Position::Static {
+        // A positioned, non-boundary box: its z-indexed out-of-flow
         // children escape to the owner.
-        if l.style.position != Position::Static {
-            let all = std::mem::take(&mut l.positioned);
-            let (neg, rest): (Vec<Laid>, Vec<Laid>) = all.into_iter().partition(|c| c.style.z_index.is_some_and(|z| z < 0));
-            l.positioned = rest;
-            for mut n in neg {
-                collect_negative_z(&mut n);
-                bag.push(n);
-            }
+        let all = std::mem::take(&mut l.positioned);
+        let (hoisted, rest): (Vec<Laid>, Vec<Laid>) = all.into_iter().partition(|c| c.style.z_index.is_some());
+        l.positioned = rest;
+        for mut n in hoisted {
+            collect_negative_z(&mut n);
+            bag.push(n);
         }
     }
     if let LaidContent::Blocks(children) | LaidContent::TableRow(children) = &mut l.content {
-        for c in children.iter_mut() {
-            visit_negative_z_child(c, bag);
+        let old = std::mem::take(children);
+        let mut kept = Vec::with_capacity(old.len());
+        for mut c in old {
+            if is_explicit_stacking_child_kind(&c) {
+                collect_negative_z(&mut c);
+                bag.push(c);
+            } else {
+                visit_negative_z_child(&mut c, bag);
+                kept.push(c);
+            }
         }
+        *children = kept;
     }
     for c in l.positioned.iter_mut() {
         visit_negative_z_child(c, bag);
     }
+}
+
+fn is_explicit_stacking_child_kind(l: &Laid) -> bool {
+    matches!(l.style.position, Position::Relative | Position::Sticky) && l.style.z_index.is_some()
 }
 
 fn visit_negative_z_child(c: &mut Laid, bag: &mut Vec<Laid>) {

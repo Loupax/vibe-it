@@ -7743,6 +7743,33 @@ fn q55_negative_z_child_of_non_stacking_parent_paints_below_parent_background() 
     assert_eq!(px_at(&pixels, win_w, 20, 20), 0x0000_FF00, "nested non-SC chain: negative child below ancestor bg");
 }
 
+// QA9 (R17): z-index orders stacking contexts across parents. A
+// `position:relative; z-index:2` box nested in a static wrapper must paint
+// above an unrelated later `position:fixed` (z auto) box.
+#[test]
+fn qa9_z_indexed_relative_paints_above_unrelated_fixed() {
+    let html = r#"<html><body style="margin:0"><div><div style="position: relative; z-index: 2; width: 100px; height: 100px; background-color: #00ff00;"></div></div><div style="position: fixed; top: 0px; left: 0px; width: 60px; height: 60px; background-color: #000000;"></div></body></html>"#;
+    let (pixels, win_w, _) = paint_fixture(html);
+    assert_eq!(px_at(&pixels, win_w, 30, 30), 0x0000_FF00, "z-index:2 lime wins over later fixed z:auto black");
+    // Without the z-index the later fixed box wins (normal order).
+    let (pixels, win_w, _) = paint_fixture(&html.replace("z-index: 2;", ""));
+    assert_eq!(px_at(&pixels, win_w, 30, 30), 0x0000_0000, "no z-index: fixed black on top");
+    // A positive-z abspos nested in a z:auto relative parent escapes to the
+    // root context and beats a later positioned box with a lower z-index.
+    let nested = r#"<html><body style="margin:0"><div style="position: relative;"><div style="position: absolute; z-index: 5; top: 0px; left: 0px; width: 50px; height: 50px; background-color: #00ff00;"></div></div><div style="position: absolute; z-index: 1; top: 0px; left: 0px; width: 50px; height: 50px; background-color: #000000;"></div></body></html>"#;
+    let (pixels, win_w, _) = paint_fixture(nested);
+    assert_eq!(px_at(&pixels, win_w, 20, 20), 0x0000_FF00, "z:5 abspos nested in z-auto parent beats z:1 elsewhere");
+}
+
+// QA9 / Q55a: a negative-z in-flow relative child of a non-stacking
+// positioned parent paints below that parent's background.
+#[test]
+fn qa9_negative_z_relative_child_below_non_stacking_parent_background() {
+    let html = r#"<html><body style="margin:0"><div style="position: relative; width: 100px; height: 100px; background-color: #00ff00;"><div style="position: relative; z-index: -1; width: 100px; height: 100px; background-color: #ff0000;"></div></div></body></html>"#;
+    let (pixels, win_w, _) = paint_fixture(html);
+    assert_eq!(px_at(&pixels, win_w, 50, 50), 0x0000_FF00, "z:-1 relative child under z-auto parent bg");
+}
+
 // ---------- Q57: var() correctness ----------
 
 fn q57_color(css: &str) -> TextColor {
