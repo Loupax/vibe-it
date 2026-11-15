@@ -8608,4 +8608,25 @@ fn qb1_event_loop_exit_message() {
     let m = event_loop_exit_message(&Err(EventLoopError::ExitFailure(1))).unwrap();
     assert!(m.contains("Wayland compositor"), "{m}");
     assert!(!m.contains(char::from(10)));
+// Q49a: a float's shrink-to-fit width is min(max(min-content, available),
+// max-content), so a float in a container narrower than its longest word is
+// as wide as the word, not squeezed to the container.
+#[test]
+fn q49a_float_in_narrow_container_is_at_least_min_content() {
+    let laid = measure_fixture(
+        r#"<html><body style="margin:0"><div style="width:5px"><div style="float:left;height:0">WWWWWWWWWW</div></div></body></html>"#,
+        500.0,
+    );
+    fn find_float(l: &Laid) -> Option<&Laid> {
+        if l.style.float != Float::None {
+            return Some(l);
+        }
+        match &l.content {
+            LaidContent::Blocks(cs) => cs.iter().find_map(find_float),
+            _ => None,
+        }
+    }
+    let f = find_float(&laid).expect("float");
+    assert!(f.w > 20.0, "float w {} should be >= min-content, not the 5px container", f.w);
+    assert!(shrink_to_fit(30.0, 80.0, 5.0) == 30.0 && shrink_to_fit(30.0, 80.0, 50.0) == 50.0 && shrink_to_fit(30.0, 80.0, 500.0) == 80.0);
 }

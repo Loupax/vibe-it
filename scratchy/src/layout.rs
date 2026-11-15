@@ -942,7 +942,7 @@ pub(crate) fn resolve_positioned(
             Some(avail)
         } else {
             let (min_mb, max_mb) = cell_natural_width(item.b, font_system, next_id, cache, deadline, incomplete);
-            Some(avail.min(max_mb).max(min_mb.min(avail)))
+            Some(shrink_to_fit(min_mb, max_mb, avail))
         }
     } else {
         None
@@ -1532,7 +1532,7 @@ fn measure_inner<'a>(
             && b.style.width_kw.is_none()
         {
             let (min_mb, max_mb) = cell_natural_width(b, font_system, next_id, cache, deadline, incomplete);
-            Some(width.min(max_mb).max(min_mb.min(width)))
+            Some(shrink_to_fit(min_mb, max_mb, width))
         } else {
             auto_margin_box_override
         };
@@ -1600,7 +1600,7 @@ fn measure_inner<'a>(
         let pick = |k: IntrinsicSize| match k {
             IntrinsicSize::MinContent => min_mb,
             IntrinsicSize::MaxContent => max_mb,
-            IntrinsicSize::FitContent => width.min(max_mb).max(min_mb.min(width)),
+            IntrinsicSize::FitContent => shrink_to_fit(min_mb, max_mb, width),
         };
         if let Some(k) = s.width_kw {
             auto_margin_box_override = Some(pick(k));
@@ -1926,7 +1926,7 @@ fn measure_inner<'a>(
                         let auto_override = if child.style.width.is_none() {
                             let (min_mb, max_mb) =
                                 cell_natural_width(child, font_system, next_id, cache, deadline, incomplete);
-                            Some(content_w.min(max_mb).max(min_mb.min(content_w)))
+                            Some(shrink_to_fit(min_mb, max_mb, content_w))
                         } else {
                             None
                         };
@@ -2720,25 +2720,11 @@ pub(crate) fn measure_mixed_inline<'a>(
                 let auto_override = if embedded_box.style.width.is_none() {
                     let (min_mb, max_mb) =
                         cell_natural_width(embedded_box, font_system, next_id, cache, deadline, incomplete);
-                    Some(if trial {
-                        // The float formula above degenerates incorrectly
-                        // at exactly the `content_w == 0.0` extreme `cell_
-                        // natural_width`'s own min-content trial calls
-                        // with (verified by hand: `0.0.min(max).max(min.
-                        // min(0.0))` is always `0.0`, never `min`), which
-                        // would silently under-report this run's own
-                        // min-content width whenever it contains an auto-
-                        // width embedded box. The textbook CSS2.1 §10.3.5
-                        // shrink-to-fit form is correct at *both*
-                        // extremes `cell_natural_width` actually probes
-                        // with (`0.0` -> `min_mb`; unbounded -> `max_mb`),
-                        // so trial mode uses that instead — a deliberate,
-                        // narrow deviation from "mirror float exactly,"
-                        // scoped only to this sizing-only path.
-                        content_w.max(min_mb).min(max_mb)
-                    } else {
-                        content_w.min(max_mb).max(min_mb.min(content_w))
-                    })
+                    // Both modes use the CSS2.1 10.3.5 form (see
+                    // `shrink_to_fit`); it is also correct at the
+                    // `content_w == 0.0` / unbounded extremes that
+                    // `cell_natural_width` probes with.
+                    Some(shrink_to_fit(min_mb, max_mb, content_w))
                 } else {
                     None
                 };
@@ -5239,4 +5225,11 @@ pub(crate) fn in_flow_bottom(l: &Laid) -> f32 {
         LaidContent::Text(_) | LaidContent::Image(_) => {}
     }
     bottom
+}
+
+/// CSS2.1 10.3.5 shrink-to-fit: `min(max(preferred-minimum, available),
+/// preferred)`. When `avail < min` the result is `min` (the box overflows
+/// rather than wrapping below its min-content width).
+pub(crate) fn shrink_to_fit(min_mb: f32, max_mb: f32, avail: f32) -> f32 {
+    avail.max(min_mb).min(max_mb)
 }
