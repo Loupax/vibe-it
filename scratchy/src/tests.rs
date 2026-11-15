@@ -6344,6 +6344,36 @@ fn resolve_binding_maps_bare_hl_to_history_back_and_front() {
 }
 
 #[test]
+fn resolve_binding_maps_capital_g_and_home_end_to_scroll_extremes() {
+    let n = VimMode::Normal;
+    let m = ModifiersState::empty();
+    assert_eq!(resolve_binding(&Key::Character("G".into()), m, n), Some(Action::ScrollBottom));
+    assert_eq!(resolve_binding(&Key::Named(NamedKey::End), m, n), Some(Action::ScrollBottom));
+    assert_eq!(resolve_binding(&Key::Named(NamedKey::Home), m, n), Some(Action::ScrollTop));
+    assert_eq!(resolve_binding(&Key::Character("G".into()), m, VimMode::Command), None);
+    // bare `g` alone is not a binding; it goes through `resolve_pending_g`.
+    assert_eq!(resolve_binding(&Key::Character("g".into()), m, n), None);
+}
+
+#[test]
+fn pending_g_double_g_scrolls_top_and_other_keys_clear() {
+    let m = ModifiersState::empty();
+    let g = Key::Character("g".into());
+    assert_eq!(resolve_pending_g(false, &g, m), (None, true, true));
+    assert_eq!(resolve_pending_g(true, &g, m), (Some(Action::ScrollTop), false, true));
+    for other in [Key::Character("j".into()), Key::Named(NamedKey::Escape), Key::Character(":".into())] {
+        assert_eq!(resolve_pending_g(true, &other, m), (None, false, false));
+        assert_eq!(resolve_pending_g(false, &other, m), (None, false, false));
+    }
+    // `g`, `j`, `g` must not fire: the `j` cleared the flag.
+    let (_, p, _) = resolve_pending_g(false, &g, m);
+    let (_, p, _) = resolve_pending_g(p, &Key::Character("j".into()), m);
+    assert_eq!(resolve_pending_g(p, &g, m), (None, true, true));
+    // Ctrl-g is not `g`.
+    assert_eq!(resolve_pending_g(false, &g, ModifiersState::CONTROL), (None, false, false));
+}
+
+#[test]
 fn action_ignores_repeat_exempts_scroll_but_not_history_navigation() {
     // The regression this closes: holding `h` fires `Action::
     // HistoryBack` on every OS key-repeat tick, and `navigate_

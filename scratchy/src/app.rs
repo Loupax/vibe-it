@@ -139,6 +139,10 @@ pub(crate) enum Action {
     EnterCommandMode,
     HistoryBack,
     HistoryFront,
+    /// `gg` / `Home`.
+    ScrollTop,
+    /// `G` / `End`.
+    ScrollBottom,
 }
 
 /// Whether `action` must ignore OS key-repeat rather than fire on every
@@ -184,7 +188,25 @@ pub(crate) fn resolve_binding(key: &Key, mods: ModifiersState, mode: VimMode) ->
         Key::Character(s) if s.as_str() == ":" => Some(Action::EnterCommandMode),
         Key::Character(s) if s.as_str() == "h" => Some(Action::HistoryBack),
         Key::Character(s) if s.as_str() == "l" => Some(Action::HistoryFront),
+        Key::Character(s) if s.as_str() == "G" => Some(Action::ScrollBottom),
+        Key::Named(NamedKey::Home) => Some(Action::ScrollTop),
+        Key::Named(NamedKey::End) => Some(Action::ScrollBottom),
         _ => None,
+    }
+}
+
+/// The pending-`g` state machine for vim's `gg`: given whether a `g` is
+/// already pending and the key just pressed, returns the action to run
+/// (if any), the new pending flag, and whether the key was consumed (so
+/// the caller must not also run `resolve_binding` on it). Bare `g`
+/// arms; a second bare `g` fires `ScrollTop`; every other key (Esc
+/// included) clears the flag and falls through unconsumed.
+pub(crate) fn resolve_pending_g(pending: bool, key: &Key, mods: ModifiersState) -> (Option<Action>, bool, bool) {
+    let is_g = matches!(key, Key::Character(s) if s.as_str() == "g") && !mods.control_key() && !mods.alt_key();
+    match (is_g, pending) {
+        (true, true) => (Some(Action::ScrollTop), false, true),
+        (true, false) => (None, true, true),
+        (false, _) => (None, false, false),
     }
 }
 
@@ -594,6 +616,8 @@ pub(crate) struct App {
     /// this itself right after, same as every other command-line
     /// submission does.
     pub(crate) vim_mode: VimMode,
+    /// A bare `g` was just pressed in Normal mode; the next `g` completes `gg`.
+    pub(crate) pending_g: bool,
     /// The `:`-command line's own live text, editable only while `vim_
     /// mode` is `Command` — see `TextEditBuffer`'s own docs for why this
     /// is a standalone type rather than a plain `String` field.
@@ -721,6 +745,7 @@ impl App {
             image_cache: HashMap::new(),
             vim_enabled: true,
             vim_mode: VimMode::Normal,
+            pending_g: false,
             command_line: TextEditBuffer::default(),
             modifiers: ModifiersState::empty(),
             completion: None,
@@ -781,6 +806,7 @@ impl App {
             image_cache: HashMap::new(),
             vim_enabled: true,
             vim_mode: VimMode::Normal,
+            pending_g: false,
             command_line: TextEditBuffer::default(),
             modifiers: ModifiersState::empty(),
             completion: None,
@@ -1951,10 +1977,20 @@ impl App {
     /// claimed keys" guarantee the whole toggle exists for (TODO.txt).
     pub(crate) fn handle_key_event(&mut self, event: &KeyEvent) {
         if self.vim_mode == VimMode::Command {
+            self.pending_g = false;
             self.handle_command_line_key(event);
             return;
         }
         if !self.vim_enabled {
+            self.pending_g = false;
+            return;
+        }
+        let (g_action, pending, consumed) = resolve_pending_g(self.pending_g, &event.logical_key, self.modifiers);
+        self.pending_g = pending;
+        if consumed {
+            if let Some(action) = g_action {
+                self.perform_action(action);
+            }
             return;
         }
         if let Some(action) = resolve_binding(&event.logical_key, self.modifiers, self.vim_mode) {
@@ -1989,6 +2025,9 @@ impl App {
                 // now-empty one.
                 self.completion = None;
             }
+            Action::ScrollTop => self.scroll_offset = 0.0,
+            // `redraw` clamps to the real max scroll every frame, same as `j`.
+            Action::ScrollBottom => self.scroll_offset = f32::MAX,
             Action::HistoryBack => self.navigate_history(-1),
             Action::HistoryFront => self.navigate_history(1),
         }
