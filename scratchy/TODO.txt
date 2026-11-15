@@ -969,8 +969,12 @@ Not vendored; pass the path to the runner.
       of a non-stacking positioned or static parent still paint in that
       parent's own negative layer; hoisted entries do not follow a `sticky`
       ancestor's shift; hit-test uses the same (now hoisted) lists.
-- [ ] Q56 [S] `<img width="NN%">`/`height="NN%"` attributes are percentages
+- [x] Q56 [S] `<img width="NN%">`/`height="NN%"` attributes are percentages
       (W18). 49 backgrounds references and 11 positioning references use them.
+      Done bdbc410: `img_size_length` parses `NN%` for img and inline svg; WPT +2
+      (background-001, block-replaced-width-006). Not covered: `<img>` percent
+      height against indefinite containers is left to the existing Percent
+      layout rules.
 - [ ] Q57 [M] `var()` correctness (W22): (a) reject invalid custom property
       values at parse (`var(--b,!)`, `;`, doubled `!important`), (b) invalid at
       computed-value time means `unset`, not "declaration dropped", (c)

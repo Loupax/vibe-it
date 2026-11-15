@@ -6223,3 +6223,9 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > Do ONLY Q55: negative `z-index` children of a positioned, non-stacking-context parent paint below the parent's background (W17); test, WPT, screenshot, AUTOSCROLL/AUTOHOVER, PROMPTS entry, tick Q55.
 
 **What changed:** new post-layout pass `hoist_negative_z` (in `measure_document`, before `compute_ink`) moves negative-`z-index` out-of-flow children of a positioned box with `z-index:auto` (not fixed, no clipping `overflow`) into the nearest stacking-context ancestor's `positioned` list, so `paint`'s existing layer 2 puts them under the parent's background (CSS2.1 App. E). Fixed boxes, explicit-`z-index` positioned boxes and `overflow` boxes are boundaries. Two older tests whose container was a `z-auto` relative box now use `z-index:0` (that was their intent). Test `q55_negative_z_child_of_non_stacking_parent_paints_below_parent_background`. `cargo test` 346 passed; clippy 32 warning lines before and after. WPT: added `fixed-pos-stacking-001`, `abspos-overflow-010` (both pass); 170 -> 172 pass, 0 regressions, expectations updated. Left out: Q55a (in-flow relative negatives, sticky shift). Paint touched: AUTOSCROLL/AUTOHOVER run done.
+
+## Q56 — img percentage width/height attributes (queue item)
+
+> Do ONLY Q56: `<img width="NN%">`/`height="NN%"` attributes are percentages (W18); test, WPT, screenshot, PROMPTS entry, tick Q56.
+
+**What changed:** new `img_size_length` in `images.rs` parses a trailing `%` (stored as a fraction `BoxLength::Percent`) before falling back to the unitless pixel form; used by `resolve_img` and `resolve_inline_svg`. WPT 172 -> 174 (`background-001`, `block-replaced-width-006`), no regressions. Clippy stays at 32 warning lines; 347 tests pass. Screenshot: live Wikipedia "Cat" via `--socket /run/user/1001/wire.sock`, images render.
