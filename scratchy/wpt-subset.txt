@@ -409,3 +409,16 @@ css/css-variables/variable-declaration-53.html
 css/css-variables/variable-supports-01.html
 css/css-variables/variable-supports-02.html
 css/css-variables/variable-supports-12.html
+# Q40c: css-cascade
+css/css-cascade/all-prop-001.html
+css/css-cascade/all-prop-initial-color.html
+css/css-cascade/all-prop-revert-visited.html
+css/css-cascade/import-conditional-001.html
+css/css-cascade/layer-stylesheet-sharing.html
+css/css-cascade/revert-layer-002.html
+css/css-cascade/revert-layer-007.html
+css/css-cascade/revert-layer-011.html
+css/css-cascade/revert-val-001.html
+css/css-cascade/scope-implicit-002-print.html
+css/css-cascade/scope-implicit-005-print.html
+css/css-cascade/scope-pseudo-element.html

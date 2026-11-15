@@ -597,3 +597,36 @@ because test and reference both ignored the unit.
 | `attr()` typed | `attr-style-sharing` 5 | | NOT CLAIMED |
 | angle units, `calc` rounding | `angle-units` 5, `calc-rounding` 2 | | NOT CLAIMED |
 | viewport units in odd contexts | 4 | | PARTIAL (Q14) |
+
+### Q40c: the areas Q40b did not reach (2026-11-15)
+
+Same method as Q40b (see "How the audit was run"). Whole-area counts come from throwaway
+lists (every `rel=match|mismatch` test, not a `-ref`, not under `reference/` or `support/`),
+run with `scratchy --wpt WPT --subset LIST --expected /dev/null -v`; each area also adds ~12 evenly
+spaced tests to `wpt-subset.txt`. Q40b root causes W1-W23 above; new ones follow. Before starting, the
+committed subset re-ran clean (187 pass / 203 fail / 6 skipped, no change from `wpt-expected.txt`).
+Every root cause below was confirmed on a minimal inline test/reference pair rendered with the runner.
+
+| id | what is wrong | claimed by | triage |
+|----|---------------|------------|--------|
+| W24 | `@layer` blocks are dropped whole (even a lone `@layer { #t{background:green} }` paints nothing); `revert-layer` is stored as `revert`, which behaves as `unset`. | none (style.rs notes "no cascade layers") | NOT CLAIMED |
+| W25 | The `all` shorthand is not implemented (`div{background:red; all:initial}` still paints red). `all` is parsed only as a media type. | none | NOT CLAIMED |
+| W26 | `@scope` is not implemented (`@scope{div{...}}` rules are dropped). | none | NOT CLAIMED |
+| W27 | `revert` has no UA-origin step: `display:inline; display:revert` on a `<div>` stays inline (computes as `unset`, i.e. initial), expected `block`. | Q7 38ca872 (CSS-wide keywords; documented as unset) | PARTIAL |
+| W28 | `@import` inside an inline `<style>` is never fetched (only wire-fetched stylesheets expand imports). Same with a plain file import and no media list. | Q18 3a7054b (documented scope cut) | PARTIAL |
+<!-- Q40c-table-end -->
+
+#### css-cascade (claimed: Q7 38ca872 CSS-wide keywords, Q18 3a7054b `@import` for fetched sheets)
+
+50 eligible (+10 skipped for JS) | pass 13 | fail 27. (No crashes.)
+
+| group | tests (examples) | wrong render | triage |
+|-------|------------------|--------------|--------|
+| W24 `@layer` / `revert-layer` | `revert-layer-001/002/003/005/006/007/009/010/011/012` (10), `layer-stylesheet-sharing`, `-important` (12) | layered rules vanish; the box is unpainted instead of green | NOT CLAIMED |
+| W26 `@scope` | `scope-implicit-001..006-print` (6), `scope-pseudo-element`, `scope-ua-shadow-host` (8) | scoped rules dropped, box missing | NOT CLAIMED |
+| W25 `all` shorthand | `all-prop-001`, `all-prop-002`, `all-prop-initial-visited` (3) | `all:initial` does not reset (red box stays) | NOT CLAIMED |
+| W28 inline `@import` | `import-conditional-001`, `-002` (2) | imported sheets never applied | PARTIAL |
+| W27 `revert` | `revert-val-001` (1) | `display:revert` on a div stays inline | PARTIAL |
+| animations | `important-prop` (1) | `@keyframes` overriding normal declarations | NOT CLAIMED |
+
+Passing tests include `all-prop-*-color`, `revert-val-002`, `unset-val-*`: they only check `inherit`/`initial`/`unset` on single properties.
