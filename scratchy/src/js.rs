@@ -211,7 +211,13 @@ fn drain_jobs(rt: &Runtime, log: &dyn Fn(&str, &str)) {
 /// Runs `scripts` in order, then `DOMContentLoaded` and `load`. `log`
 /// receives `(level, text)` for every `console` call and every script
 /// error (level `error`); the real caller prints those to stderr.
+#[cfg(test)]
 pub(crate) fn run_scripts_with(scripts: &[ScriptSource], log: LogFn) {
+    run_scripts_in(&parse_html(""), scripts, log);
+}
+
+/// `run_scripts_with` against a real document (Q33b DOM read API).
+pub(crate) fn run_scripts_in(document: &Handle, scripts: &[ScriptSource], log: LogFn) {
     let Ok(rt) = Runtime::new() else {
         log("error", "could not create the JS runtime");
         return;
@@ -244,6 +250,7 @@ pub(crate) fn run_scripts_with(scripts: &[ScriptSource], log: LogFn) {
         drain_jobs(&rt, &*log);
     };
     eval("prelude", PRELUDE);
+    ctx.with(|ctx| js_dom::install_dom(&ctx, document));
     for s in scripts {
         eval(&s.name, &s.code);
     }
@@ -253,11 +260,12 @@ pub(crate) fn run_scripts_with(scripts: &[ScriptSource], log: LogFn) {
 
 /// The real entry point: runs a page's scripts (no-op with JS off or
 /// nothing to run) with console output going to stderr.
-pub(crate) fn run_page_scripts(scripts: &[ScriptSource]) {
+pub(crate) fn run_page_scripts(document: &Handle, scripts: &[ScriptSource]) {
     if !js_enabled() || scripts.is_empty() {
         return;
     }
-    run_scripts_with(
+    run_scripts_in(
+        document,
         scripts,
         Rc::new(|level, text| {
             if level == "error" {
@@ -272,10 +280,11 @@ pub(crate) fn run_page_scripts(scripts: &[ScriptSource]) {
 /// QJ3: runs `scripts` with a collecting log and returns the report
 /// text: every error line, then a summary (scripts run, errors total,
 /// errors grouped by first line with counts, most frequent first).
-pub(crate) fn js_report_for_scripts(scripts: &[ScriptSource]) -> String {
+pub(crate) fn js_report_for_scripts(document: &Handle, scripts: &[ScriptSource]) -> String {
     let errors = Rc::new(std::cell::RefCell::new(Vec::<String>::new()));
     let e = errors.clone();
-    run_scripts_with(
+    run_scripts_in(
+        document,
         scripts,
         Rc::new(move |level, text| {
             if level == "error" {
@@ -354,5 +363,5 @@ pub(crate) fn js_report_for_html(html: &str, socket: Option<&std::path::Path>, f
         }
         _ => inline_scripts(&dom.document),
     };
-    js_report_for_scripts(&scripts)
+    js_report_for_scripts(&dom.document, &scripts)
 }
