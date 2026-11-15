@@ -205,7 +205,7 @@ const DOM_PRELUDE: &str = r#"
   var wrap = function (id) {
     if (id === undefined || id < 0) return null;
     if (cache[id]) return cache[id];
-    var o = Object.create(__d_kind(id) === 1 ? ElementProto : NodeProto);
+    var o = Object.create(__d_kind(id) === 1 ? HTMLElement.prototype : Node.prototype);
     Object.defineProperty(o, '__id', { value: id });
     return (cache[id] = o);
   };
@@ -221,7 +221,9 @@ const DOM_PRELUDE: &str = r#"
     return r;
   };
   var def = function (o, name, get) { Object.defineProperty(o, name, { get: get, configurable: true, enumerable: true }); };
-  var NodeProto = {};
+  // Q33b1: hang the accessors off the real constructors' prototypes so
+  // `x instanceof Element` and `Element.prototype.foo = ...` work.
+  var NodeProto = Node.prototype;
   def(NodeProto, 'nodeType', function () { return __d_kind(this.__id); });
   def(NodeProto, 'nodeName', function () { return __d_tag(this.__id); });
   def(NodeProto, 'textContent', function () { return __d_text(this.__id); });
@@ -263,7 +265,7 @@ const DOM_PRELUDE: &str = r#"
       return sel ? wrapAll(q(this.__id, sel, false)) : [];
     };
   };
-  var ElementProto = Object.create(NodeProto);
+  var ElementProto = Element.prototype;
   queries(ElementProto);
   def(ElementProto, 'tagName', function () { return __d_tag(this.__id); });
   def(ElementProto, 'localName', function () { return __d_tag(this.__id).toLowerCase(); });

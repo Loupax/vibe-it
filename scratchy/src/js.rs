@@ -13,6 +13,20 @@ use rquickjs::{Context, FromJs, Ctx, Error as JsError, Exception, Function, Runt
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
+thread_local! {
+    /// URL of the page whose scripts are about to run (`location`,
+    /// `document.URL`); set by the caller, read by `run_scripts_with`.
+    static PAGE_URL: std::cell::RefCell<Option<Url>> = const { std::cell::RefCell::new(None) };
+}
+
+pub(crate) fn set_page_url(url: Option<&Url>) {
+    PAGE_URL.with(|u| *u.borrow_mut() = url.cloned());
+}
+
+/// Viewport reported as `window.innerWidth/innerHeight` until the real
+/// size is plumbed through (new item Q33b2).
+const DEFAULT_VIEWPORT: (u32, u32) = (1024, 768);
+
 static JS_ENABLED: AtomicBool = AtomicBool::new(true);
 
 /// Whether scripts run (and `<noscript>` is hidden). `--no-js` / `:set
@@ -157,7 +171,63 @@ const PRELUDE: &str = r#"
   };
   g.window = g; g.self = g;
   target(g, 'w:');
-  g.document = target({ readyState: 'loading' }, 'd:');
+  // Q33b1: constructor globals pages feature-test or extend. Real DOM
+  // wrappers (Q33b) hang off these prototypes.
+  var ctor = function (name, parent, init) {
+    var f = new Function('init', 'return function ' + name + '() { if (init) init.apply(this, arguments); };')(init);
+    if (parent) f.prototype = Object.create(parent.prototype, { constructor: { value: f, writable: true, configurable: true } });
+    g[name] = f;
+    return f;
+  };
+  var EventTarget = ctor('EventTarget');
+  var Node = ctor('Node', EventTarget);
+  var Element = ctor('Element', Node);
+  var HTMLElement = ctor('HTMLElement', Element);
+  var Document = ctor('Document', Node);
+  ctor('HTMLDocument', Document);
+  [['ELEMENT_NODE', 1], ['ATTRIBUTE_NODE', 2], ['TEXT_NODE', 3], ['COMMENT_NODE', 8], ['DOCUMENT_NODE', 9], ['DOCUMENT_FRAGMENT_NODE', 11]]
+    .forEach(function (kv) { Node[kv[0]] = Node.prototype[kv[0]] = kv[1]; });
+  var Event = ctor('Event', null, function (type, init) {
+    init = init || {};
+    this.type = String(type);
+    this.bubbles = !!init.bubbles;
+    this.cancelable = !!init.cancelable;
+    this.defaultPrevented = false;
+    this.target = null;
+    this.timeStamp = 0;
+  });
+  Event.prototype.preventDefault = function () { if (this.cancelable) this.defaultPrevented = true; };
+  Event.prototype.stopPropagation = function () {};
+  Event.prototype.stopImmediatePropagation = function () {};
+  var CustomEvent = ctor('CustomEvent', Event, function (type, init) {
+    Event.call(this, type, init);
+    this.detail = init && init.detail !== undefined ? init.detail : null;
+  });
+  var Image = ctor('Image', HTMLElement, function (w, h) {
+    this.tagName = 'IMG'; this.src = ''; this.width = w || 0; this.height = h || 0;
+  });
+  var env = g.__scratchy_env || {};
+  delete g.__scratchy_env;
+  g.navigator = {
+    userAgent: env.userAgent, appName: 'Netscape', appVersion: '5.0 (X11)', product: 'Gecko',
+    platform: 'Linux x86_64', vendor: '', language: 'en-US', languages: ['en-US', 'en'],
+    onLine: true, cookieEnabled: false, hardwareConcurrency: 1, maxTouchPoints: 0,
+  };
+  g.innerWidth = Number(env.innerWidth); g.innerHeight = Number(env.innerHeight);
+  g.outerWidth = g.innerWidth; g.outerHeight = g.innerHeight; g.devicePixelRatio = 1;
+  var loc = { href: env.href, protocol: env.protocol, host: env.host, hostname: env.hostname,
+    port: env.port, pathname: env.pathname, search: env.search, hash: env.hash, origin: env.origin };
+  loc.toString = function () { return this.href; };
+  loc.assign = loc.replace = loc.reload = function () {};
+  g.location = loc;
+  var doc = target({ readyState: 'loading', title: env.title || '', URL: env.href, documentURI: env.href,
+    baseURI: env.href, referrer: '', characterSet: 'UTF-8', contentType: 'text/html', compatMode: 'CSS1Compat',
+    nodeType: 9, nodeName: '#document' }, 'd:');
+  // cookie: reads are empty, writes are ignored (until Q33g)
+  Object.defineProperty(doc, 'cookie', { get: function () { return ''; }, set: function () {}, configurable: true, enumerable: true });
+  Object.setPrototypeOf(doc, Document.prototype);
+  Object.defineProperty(doc, 'location', { get: function () { return g.location; }, configurable: true });
+  g.document = doc;
   Object.defineProperty(g, '__scratchy_fire', { value: function (key, type, handler) {
     var list = (listeners[key + type] || []).slice();
     if (typeof handler === 'function') list.push(handler);
@@ -179,6 +249,34 @@ pub(crate) type LogFn = Rc<dyn Fn(&str, &str)>;
 
 const SCRIPT_BUDGET: Duration = Duration::from_secs(5);
 const MEMORY_LIMIT: usize = 256 * 1024 * 1024;
+
+/// Defines `__scratchy_env` (plain strings) for the prelude to build
+/// `location`, `navigator`, `document.URL` from.
+fn install_env(ctx: &Ctx<'_>) -> rquickjs::Result<()> {
+    let env = rquickjs::Object::new(ctx.clone())?;
+    let url = PAGE_URL.with(|u| u.borrow().clone()).unwrap_or_else(|| Url::parse("about:blank").unwrap());
+    let origin = match url.scheme() {
+        "http" | "https" | "ftp" | "ws" | "wss" => url.origin().ascii_serialization(),
+        _ => "null".to_string(),
+    };
+    let port = url.port().map(|p| p.to_string()).unwrap_or_default();
+    let hostname = url.host_str().unwrap_or("").to_string();
+    let host = if port.is_empty() { hostname.clone() } else { format!("{hostname}:{port}") };
+    let pathname = url.path().to_string();
+    env.set("href", url.as_str())?;
+    env.set("protocol", format!("{}:", url.scheme()))?;
+    env.set("host", host)?;
+    env.set("hostname", hostname)?;
+    env.set("port", port)?;
+    env.set("pathname", pathname)?;
+    env.set("search", url.query().filter(|q| !q.is_empty()).map(|q| format!("?{q}")).unwrap_or_default())?;
+    env.set("hash", url.fragment().filter(|f| !f.is_empty()).map(|f| format!("#{f}")).unwrap_or_default())?;
+    env.set("origin", origin)?;
+    env.set("userAgent", format!("Mozilla/5.0 (X11; Linux x86_64) scratchy/{}", env!("CARGO_PKG_VERSION")))?;
+    env.set("innerWidth", DEFAULT_VIEWPORT.0)?;
+    env.set("innerHeight", DEFAULT_VIEWPORT.1)?;
+    ctx.globals().set("__scratchy_env", env)
+}
 
 fn describe_error(ctx: &Ctx<'_>, err: JsError) -> String {
     if matches!(err, JsError::Exception) {
@@ -235,6 +333,7 @@ pub(crate) fn run_scripts_in(document: &Handle, scripts: &[ScriptSource], log: L
         if let Ok(native) = native {
             let _ = ctx.globals().set("__scratchy_log", native);
         }
+        let _ = install_env(&ctx);
     });
     let eval = |name: &str, code: &str| {
         ctx.with(|ctx| {
@@ -260,10 +359,11 @@ pub(crate) fn run_scripts_in(document: &Handle, scripts: &[ScriptSource], log: L
 
 /// The real entry point: runs a page's scripts (no-op with JS off or
 /// nothing to run) with console output going to stderr.
-pub(crate) fn run_page_scripts(document: &Handle, scripts: &[ScriptSource]) {
+pub(crate) fn run_page_scripts(document: &Handle, scripts: &[ScriptSource], page_url: Option<&Url>) {
     if !js_enabled() || scripts.is_empty() {
         return;
     }
+    set_page_url(page_url);
     run_scripts_in(
         document,
         scripts,
@@ -349,6 +449,7 @@ pub(crate) fn js_report_main(args: &[String]) -> i32 {
 
 pub(crate) fn js_report_for_html(html: &str, socket: Option<&std::path::Path>, file: &str) -> String {
     let Ok(dom) = new_parser().read_from(&mut html.as_bytes()) else { return "could not parse page\n".into() };
+    set_page_url(file_page_url(file).as_ref());
     let scripts = match (socket, file_page_url(file)) {
         (Some(socket), page_url) => {
             let base = find_base_url(&dom.document).or(page_url);
