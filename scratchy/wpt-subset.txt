@@ -483,3 +483,16 @@ css/css-color/rgb-003.html
 css/css-color/t32-opacity-offscreen-b.xht
 css/css-color/t422-rgba-func-whitespace-b.xht
 css/css-color/t425-hsla-values-b.xht
+# Q40c: mediaqueries
+css/mediaqueries/aspect-ratio-001.html
+css/mediaqueries/aspect-ratio-005.html
+css/mediaqueries/device-aspect-ratio-003.html
+css/mediaqueries/mq-calc-001.html
+css/mediaqueries/mq-calc-resolution.html
+css/mediaqueries/mq-calc-sign-function-004.html
+css/mediaqueries/mq-deprecated-001.html
+css/mediaqueries/mq-gamut-004.html
+css/mediaqueries/mq-invalid-media-type-003.html
+css/mediaqueries/mq-negative-range-001.html
+css/mediaqueries/negation-002.html
+css/mediaqueries/prefers-color-scheme-svg-image-normal-with-meta-dark.html
