@@ -8083,3 +8083,42 @@ fn qj3_js_report_counts_scripts_and_errors() {
     assert!(report.contains("errors total: 1\n"), "{report}");
     assert!(report.contains("boom"), "{report}");
 }
+
+// ---------- Q33b: DOM read API ----------
+
+fn run_in_html(html: &str, code: &str) -> Vec<String> {
+    let doc = parse_html(html);
+    let out = Rc::new(RefCell::new(Vec::new()));
+    let o = out.clone();
+    run_scripts_in(&doc, &[src(code)], Rc::new(move |level, text| o.borrow_mut().push(format!("{level}:{text}"))));
+    let v = out.borrow().clone();
+    v
+}
+
+#[test]
+fn q33b_get_element_by_id_and_attributes() {
+    let log = run_in_html(
+        "<html><body><div id=a class='x y' data-k=v>hi <b>there</b></div></body></html>",
+        "var e=document.getElementById('a');\
+         console.log(e.tagName, e.id, e.className, e.getAttribute('data-k'), e.hasAttribute('nope'), e.getAttribute('nope'), e.textContent);\
+         console.log(document.getElementById('zz'), e===document.getElementById('a'), e.classList.contains('y'), e.classList.contains('q'));",
+    );
+    assert_eq!(log, ["log:DIV a x y v false null hi there", "log:null true true false"], "{log:?}");
+}
+
+#[test]
+fn q33b_query_selector_and_tree_walk() {
+    let log = run_in_html(
+        "<html><head></head><body><ul id=l><li class=i>1</li><li>2</li><li class=i>3</li></ul></body></html>",
+        "var l=document.querySelector('#l');\
+         console.log(document.querySelectorAll('li.i').length, l.querySelector('li').textContent, l.children.length);\
+         console.log(l.parentNode===document.body, document.documentElement.tagName, document.head.tagName, l.firstElementChild.nextSibling.textContent);\
+         console.log(l.querySelector('li:nth-child(2)').matches('li'), l.closest('body')===document.body, document.querySelector('p'));\
+         try { document.querySelector('!!'); } catch (e) { console.log(e.name); }",
+    );
+    assert_eq!(
+        log,
+        ["log:2 1 3", "log:true HTML HEAD 2", "log:true true null", "log:SyntaxError"],
+        "{log:?}"
+    );
+}

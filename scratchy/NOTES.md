@@ -3056,3 +3056,9 @@ parser runs with `scripting_enabled=false` so `<noscript>` children are real
 elements, and the UA rule `noscript{display:none}` is only added when JS is
 on (not in default.css; the rules cache key notes the flag). `:set nojs`
 applies from the next page load (`:refresh`).
+
+DOM read API (Q33b), `src/js_dom.rs`: `run_scripts_in(document, ..)` installs
+native `__d_*` functions over a Rust table of `Handle`s (ids are indices,
+document = 0) plus a JS prelude of cached per-node wrappers. Selectors use the
+cascade's `OurSelectorParser`/`matches_selector_list`. Read-only; element
+listeners are stored but never fired yet.

@@ -60,6 +60,7 @@ mod paint;
 mod net;
 mod app;
 mod js;
+mod js_dom;
 
 pub use dom::*;
 pub use css::*;
@@ -144,7 +145,7 @@ pub fn run() {
                 }
                 None => inline_scripts(&app.document),
             };
-            run_page_scripts(&scripts);
+            run_page_scripts(&app.document, &scripts);
             app
         }
         Input::Stdin => {

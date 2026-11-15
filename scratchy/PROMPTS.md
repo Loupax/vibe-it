@@ -6313,3 +6313,9 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > Do ONLY QJ2: fix REGRESSIONS.md R6, error lines carry `Name: message`, inline scripts numbered, non-Error throws formatted via JS String().
 
 **What changed:** `__scratchy_fire` logs `String(e)` plus the stack; `describe_error` prefixes the error name and formats non-Error throws with JS `String()` (`Uncaught plain`); inline scripts are named `inline script #N` (1-based document position, in both `inline_scripts` and `fetch_scripts`) which is also the eval filename. Tests `qj2_*`; `q33a_script_errors_are_logged_and_not_fatal` updated to expect `Error: boom`. `cargo test` 373 passed, no clippy warnings in js.rs. WPT not run (no layout/paint change).
+
+## Q33b — DOM read API (queue item)
+
+> Do ONLY Q33b: document.getElementById/querySelector/querySelectorAll and the read-only Element API, one cached JS wrapper per node.
+
+**What changed:** new `src/js_dom.rs`: Handles live in a Rust id table exposed through native `__d_*` functions; a JS prelude builds cached wrappers (so `===` holds) with tagName/id/className/getAttribute/hasAttribute/textContent/children/childNodes/parentNode/siblings/classList.contains/matches/closest/contains and querySelector(All)/getElementsByTagName/ClassName, plus document.getElementById/documentElement/head/body. Selectors reuse `OurSelectorParser` + `matches_selector_list` (invalid selector throws SyntaxError). New entry `run_scripts_in(document, ..)`; `run_page_scripts` and `js_report_for_scripts` take the document. Element addEventListener stores but never fires (Q33d). Tests `q33b_*`. 373 tests pass; no clippy warnings in js.rs/js_dom.rs. `--js-report` errors before -> after: portal 4 -> 3, Main_Page 2 -> 1, SoHo 2 -> 1. No paint change, so no grim.

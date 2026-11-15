@@ -1422,12 +1422,18 @@ as the JS measurement corpus (same role the four CSS pages played).
       one, and `<noscript>` content is hidden only when JS is on (many
       pages look better today because of their noscript fallbacks).
       `type=module`, `async`/`defer` ordering subtleties: out of scope.
-- [ ] Q33b [M] (top priority, see "JS on real pages") DOM read API: `document.getElementById/querySelector/
+- [x] Q33b [M] (cda0cb7) (top priority, see "JS on real pages") DOM read API: `document.getElementById/querySelector/
       querySelectorAll` (reuse the `selectors` crate matching already
       used by the cascade), `Element.tagName/id/className/
       getAttribute/hasAttribute/textContent/children/parentNode/
       classList.contains`. One JS wrapper object per `Handle`, cached
       so `===` holds.
+      Done in `src/js_dom.rs` (also childNodes/siblings/matches/closest/
+      contains/getElementsBy*; element listeners stored, not fired).
+      `--js-report` errors before -> after: portal 4 -> 3, Main_Page
+      2 -> 1, SoHo 2 -> 1. Remaining: `'match' of undefined` (likely
+      `document.cookie`/navigator, Q33b1), `not a function`, `Element is
+      not defined` (Q33b1), gt-ie9 `Uncaught` (R6/QJ2 formatting).
 - [ ] Q33b1 [S] (top priority, see "JS on real pages") Global
       objects pages feature-test or touch at startup:
       `document.documentElement/head/body` (Q33b wrappers),
