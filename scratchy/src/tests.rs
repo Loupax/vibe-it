@@ -9459,3 +9459,14 @@ fn qa8_fixed_background_positions_against_viewport() {
     assert_eq!(fixed[6 * 20 + 5], 0, "above the box");
     assert_eq!(fixed[17 * 20 + 5], 0, "below the box");
 }
+
+#[test]
+fn qy2_performance_timing_and_visibility() {
+    let log = run_collecting(&[src(
+        "console.log(performance.timing.responseStart > 0 && document.visibilityState === 'visible' && document.hidden === false);\
+         console.log(performance.timeOrigin > 0 && performance.timing.navigationStart <= performance.timing.loadEventEnd);\
+         console.log(performance.getEntries().length + ',' + performance.getEntriesByType('resource').length + ',' + performance.getEntriesByName('x').length);\
+         console.log(typeof performance.now() + typeof performance.mark);",
+    )]);
+    assert_eq!(log, ["log:true", "log:true", "log:0,0,0", "log:numberfunction"]);
+}
