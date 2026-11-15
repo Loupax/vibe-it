@@ -1,5 +1,187 @@
 # scratchy — regressions
 
+## R12–R19: Acid2 / Acid3 audit (Opus investigator, 2026-11-15) — OPEN
+
+Investigation only, no code changed. Fix items are QA1–QA21 at the top of
+the TODO.txt QUEUE. Build: release build of `e7a090d` (before QB8 merged).
+Every repro below was rendered headless with the WPT runner (a scratch
+"checkout" dir holding `fonts/Ahem.ttf` and a one-line subset file per
+fixture, each fixture `<!DOCTYPE html><link rel=match href=about:blank>…`,
+`scratchy --wpt DIR --subset F --expected /dev/null --out OUT` saves the
+800x600 PNG), and the colours were read off the PNG on a 12px grid. The
+live screenshots are from a nested dwl (`tools/nest.sh`, one scratchy
+window, `grim`).
+
+### Acid2 (http://acid2.acidtests.org/)
+
+What a user sees, live, through wire:
+- Opening the URL: the intro ("Standards compliant? / Take The Acid2 Test
+  and compare it to the reference rendering.") with no border around it
+  (`border: solid thin` has no colour, so Q52/Q52c), and a black bar with
+  a red bottom edge painted over the word "Standards" (should be hidden
+  under the intro: R17, and red instead of yellow: R12).
+- Opening `http://acid2.acidtests.org/#top`: identical, the page does not
+  scroll to `#top` (R18).
+- Clicking "Take The Acid2 Test": "Hello World!" at the right place, then
+  a red rectangle from x=38 to the window edge and y=74 to 369 with face
+  fragments in it. The reference page (`reference.html`, also rendered by
+  scratchy, correctly) shows the yellow smiley at x=74..242, y=110..278.
+
+The face, line by line (12px grid, headless render of the test with the
+intro removed and `#top{margin-top:0}` so it needs no scrolling):
+
+| face line (Acid2 CSS) | expected | seen | cause |
+|---|---|---|---|
+| whole picture | no background (`<link rel="appendix stylesheet" href="data:text/css,.picture{background:none}">`) | red block | R15 (`background:none` keeps red) and R16 (data: stylesheet sent to wire) |
+| 1 scalp: `position:fixed`, min/max-height | black 48x12, yellow 6px bottom border | black 48x12 correct, bottom 6px red | `p.bad` (`margin-top:3em`, red border) sits on top of it: R12 |
+| 2 abspos `blockquote` with float child | `##yyyy##` at y=120, x=108 | `yyyy##` at y=84, x=24 | R12 (margins 36px/60px ignored) + R19 (shrink-to-fit ignores the float, so the float overhangs the left border) |
+| 3 forehead (`&nbsp;` line, 1x1 PNG bg) | `#yyyyyyyy#` | nothing (height 0) | R14 (NBSP-only line has no height); its PNG is also `%2F`-escaped base64 (R16) |
+| 4-5 eyes: `<object>` fallback chain, fixed backgrounds, float vs block paint order | yellow with two eyes | red with a black/yellow left edge | `<object>` image not rendered (W20, QA21); both 2x2 PNGs fail to decode (R16); `background-attachment:fixed` unsupported (QA8) |
+| 6-9 nose: float, min/max-height, `::before/::after` borders | at y=168 | correct shape, 12px too high | knock-on from the 0-height forehead (R14) |
+| 10-11 smile: `.empty` margin collapsing, negative clearance, abspos `width:auto`, nested floats | `#y#yyyyyy#y#` / `#yy######yy#` | wrong shape ~60px low | Q48b + Q74 (margins through empty block, clearance; repro below) and R19 |
+| 12 chin (`&nbsp;` line, fixed bg) | `#yyyyyyyy#` | nothing | R14 |
+| 13 parser (`background: red pink` must be ignored) | yellow | pink | R15 |
+| 14 table (`ul` as `display:table`, anonymous cells) | 4 black cells | 1 cell | Q50a (repro below) |
+
+Not checked: the `:hover` rules on the nose (the face is too broken for a
+meaningful hover check).
+
+Repros (each confirmed headless):
+- `div{background:red} div{background:none}` paints red (R15).
+- `.a{position:absolute;top:0;left:0;margin:36px 0 0 60px;width:48px;height:12px}` paints at (0,0); the same with `position:fixed` too; static and relative boxes get the margin (R12).
+- `.a{position:absolute;border-left:24px solid;border-right:24px solid}` containing `<div style="float:right;width:48px;height:12px;background:yellow">`: box is 48px wide (borders only) and the float hangs left over the left border (R19).
+- `<div style="line-height:1em">&nbsp;</div>` is 0px tall; `x` instead of `&nbsp;` is 12px (R14).
+- `background:url(data:image/png;base64,…4%2F58BAAT%2FAf9j…)` paints nothing; the same PNG with `/` instead of `%2F` paints (R16).
+- `.i{position:relative;z-index:2;background:lime}` then a later `position:fixed` (or root-bubbled `absolute`) black box over it: black wins. A later `position:relative` sibling with no z-index loses, correctly (R17).
+- `<div style=display:table>` with three `display:table-cell` children and no row: nothing renders. With a plain block between two cells only the block renders (Q50a).
+- `.top{height:12px;margin-bottom:4em}` + `.nose` float (`margin:-2em 2em -1em`) + `.empty{margin:6.25em}` containing `<div style="margin:0 2em -6em 4em">` + `.smile{margin:5em 3em;clear:both}`: smile top at y=168, expected 37 (Q48b, Q74).
+- `<p><table><tr><td></table><p class=bad>` parses correctly (`p + table + p` matches), so the scalp problem is R12, not the parser.
+
+### R12 — Margins of `position:absolute`/`fixed` boxes are ignored (bug) — OPEN
+
+`resolve_positioned` places the border box at `cb_x + left` (or the
+static position) and never adds `margin-left`/`margin-top`; `right`/`bottom`
+never subtract the margin. Any abspos/fixed box with a margin is misplaced.
+Fix: QA3.
+
+### R13 — `border-style` defaults to `solid` (bug) — OPEN
+
+`BorderStyle`'s `#[default]` variant is `Solid` and `compute_style` uses
+`unwrap_or_default()`, so `border: 1px blue` or a bare `border-width`
+paints a solid border. The CSS initial value is `none`. Seen live on Acid3:
+`* { border: 1px blue }` outlines every element in blue. Fix: QA1.
+
+### R14 — `&nbsp;` is treated as collapsible white space (bug) — OPEN
+
+`str::trim()` and `char::is_whitespace` include U+00A0. A line made only
+of `&nbsp;` collapses to nothing and its block gets height 0. Sites:
+`collect_real_children` (`has_text`), `measure_mixed_inline` (hang test),
+the blank-word test in the line-box loop, `:empty`. Fix: QA2.
+
+### R15 — `background` shorthand doesn't reset omitted parts, accepts junk (bug) — OPEN
+
+`parse_background_shorthand` skips tokens it doesn't know and the
+`background` arm only writes colour/image when given, so `background:none`
+leaves an earlier colour, `background: red pink` gives pink, and `fixed`
+is dropped silently. Fix: QA4 (with QA8 for `fixed`).
+
+### R16 — `data:` URLs: escaped base64 not decoded, and data: scripts/stylesheets go to wire (bug) — OPEN
+
+`decode_data_uri` base64-decodes without percent-decoding first, so
+`%2F`/`%3D` payloads (all of Acid2's images) fail. `<script src=data:…>`
+and `<link href=data:…>` are fetched through wire, which doesn't decode
+them: Acid3's five data: scripts each log `SyntaxError: expecting ';'` at
+1:16. Fix: QA5.
+
+### R17 — z-index only orders siblings of the same parent (bug) — OPEN
+
+`paint`/`paint_z_layer` merge `is_explicit_stacking_child` boxes only with
+the same box's `positioned` list. An abs/fixed box that bubbled to the root
+paints above `position:relative; z-index:2` content anywhere else. Acid2's
+intro (`z-index:2`) is painted under the fixed scalp bar. Fix: QA9.
+
+### R18 — A fragment in the first URL is ignored (bug) — OPEN
+
+`scratchy …/wiki/SoHo_Weekly_News#References` and
+`http://acid2.acidtests.org/#top` open at the top of the page (seen live,
+both `--no-js` and JS on). Clicking a same-document `#top` link works.
+Suspected: `apply_fragment` returns true when the target isn't found, so
+`pending_fragment` is cleared by an early layout. Fix: QA6 (verify first).
+
+### R19 — Shrink-to-fit width ignores floats (bug) — OPEN
+
+`resolve_positioned` sizes `width:auto` from `cell_natural_width`, which
+doesn't count floated children: a box containing only a 48px float is 0px
+wide (Acid2 line 2) or takes the whole available width (Acid2 smile).
+Fix: QA7.
+
+Also seen, not filed separately: with no compositor (`WAYLAND_DISPLAY`
+pointing at a dead socket) scratchy panics at `run()`'s
+`EventLoop::with_user_event().build().unwrap()`
+(`WaylandError(Connection(NoCompositor))`)
+instead of printing one line; same shape as QB1, cheap to add to it.
+
+### Acid3 (http://acid3.acidtests.org/)
+
+Live, through wire, JS on: the page shows "Acid3", "JS ?", the
+instructions and "Scripting must be enabled to use this test." The score
+never starts: the test is started by `<body onload="update()">`, and
+inline `on*` attributes are not wired (QA12). Every element has a blue
+outline (R13). stderr: the five `data:` scripts fail (R16), and the
+`document.write(...)` script fails with `TypeError: not a function`
+(QA13).
+
+Because the real harness never starts, the score below comes from a
+per-test harness: the saved page plus 100 extra `<script>`s, each running
+`tests[i]()` in try/catch and printing `ACID3 Tnn PASS/FAIL <message>`
+through `console.error`, then the score, run with
+`scratchy --js-report acid3-harness.html` (each test is its own script, so
+each gets its own 5 s budget; nothing hit it). This is NOT the official
+flow: no timers between tests, no retry loop (T69 asks for a retry and is
+counted as a fail), and nothing is rendered. Observed: **28/100** (same
+with `--socket` and a `<base href=http://acid3.acidtests.org/>`).
+With the `document.write` markup pasted in by hand (what QA13 would do):
+36/100.
+
+| bucket / tests | first failure seen | missing feature | item | cost |
+|---|---|---|---|---|
+| 0: T0 | `getComputedStyle' of undefined` | `document.defaultView`, `getComputedStyle` | QA16 | M |
+| 1: T1-T3, T6, T9, T11-T13 | `contentDocument' of null` | the `document.write` iframe; then `iframe.contentDocument` | QA13, QA18 | S, L |
+| 1: T4, T5 | `not a function` | `createNodeIterator`, `createTreeWalker` | QA17 | M |
+| 1: T7-T13 | `not a function` / iframe | DOM Range | QA19 | L |
+| 1: T8 | `createDocument' of undefined` | `document.implementation` | QA18 | L |
+| 1: T10 | PASS | | | |
+| 1: T14-T16 | `no <iframe> support`, `<map>` missing | `document.write` | QA13 | S |
+| 2: T17 | `hasAttribute' of undefined` | `document.write` (`<map>`/`<form>`) | QA13 | S |
+| 2: T18, T24, T28 | PASS | | | |
+| 2: T19, T20, T22, T23, T25 | exception constants / no exception | `DOMException` codes, name validation | QA14 | S |
+| 2: T21 | `'PREFIX:LOCALNAME'` | `createElementNS` uppercases | QA14 | S |
+| 2: T26, T27 | `createDocument' of undefined` | `document.implementation` | QA18 | L |
+| 2: T29 | `cloneNode'/'0' of undefined` | `document.write` table, `tBodies/rows/cells` | QA13, QA20 | S, M |
+| 2: T30-T32 | `not a function` | `document.createEvent` + `init*Event` | QA15 | S |
+| 3: T33-T44, T46, T47 | `contentDocument' of null` | iframe doc + `getComputedStyle(...).zIndex` | QA18, QA16 | L, M |
+| 3: T45 | PASS | | | |
+| 3: T48 | `getAttribute' of null` | `document.write` | QA13 | S |
+| 4: T49-T51 | `initially: tBodies`, `not a function` | table DOM | QA20 | M |
+| 4: T52-T59, T62 | `elements`/`name`/`type` wrong | form/input/select/option/button/label DOM | QA20 (Q33e) | M |
+| 4: T60, T61 | PASS | | | |
+| 4: T63, T64 | `getAttribute'/'match' of undefined` | `document.write` markup, more attribute reflection | QA13, QA20 | S, M |
+| 5: T65 | `appendChild' of undefined` | `document.write` | QA13 | S |
+| 5: T66-T68, T70 | PASS | | | |
+| 5: T69 | retry | support files loaded into iframes/objects | QA18 | L |
+| 5: T71-T73 | `missing document for test` | iframe documents | QA18 | L |
+| 5: T74-T79 | `contentDocument failed … svg document` | SVG documents in iframe/object, SMIL, SVG fonts | not filed | L+ |
+| 5: T80 | `'1' of undefined` | the iframes/objects to remove | QA13, QA18 | |
+| 6: T81-T96 | PASS (all 16) | QuickJS | | |
+| T97 | `expected 'one' but got 'fail'` | data: scripts | QA5 | S |
+| T98 | `createDocumentType' of undefined` | `document.implementation` | QA18 | L |
+| T99 | PASS | | | |
+
+Cheap wins in payoff order: QA12 (the test runs at all), QA5 (T97),
+QA13 (+8 measured), QA14 and QA15 (about 9 tests by their messages, not
+measured), QA17 (T4/T5). Everything else waits on second documents
+(QA18), which gates about 35 tests.
+
 ## R8–R11: build-test pass on `main` @ `f3b06a8` (Opus investigator, 2026-11-15) — OPEN
 
 **R11 DONE** (QB4), **R10 DONE** (QB6), see TODO.txt. R8, R9 still open.
