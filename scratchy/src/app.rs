@@ -1080,7 +1080,7 @@ impl App {
                                 .map(|s| s.to_string())
                                 .or_else(|| payload.downcast_ref::<String>().cloned())
                                 .unwrap_or_else(|| "non-string panic payload".to_string());
-                            eprintln!(
+                            diag!(
                                 "scratchy: shaping worker: measure_document panicked on generation {generation} ({message}) — abandoning this page, worker still running"
                             );
                             break;
@@ -1887,7 +1887,7 @@ impl App {
                     let fetch_start = std::time::Instant::now();
                     let wire_result = fetch_raw_via_wire(path, &request_text);
                     if timing_enabled() {
-                        eprintln!(
+                        diag!(
                             "scratchy: TIMING page_fetch={:>7.1}ms {url_for_log}",
                             fetch_start.elapsed().as_secs_f64() * 1000.0
                         );
@@ -1906,7 +1906,7 @@ impl App {
                                 let css_start = std::time::Instant::now();
                                 let PageResources { css: extra_css, scripts } = process_external_resources(&proxy, path, &url, &html, generation);
                                 if timing_enabled() {
-                                    eprintln!(
+                                    diag!(
                                         "scratchy: TIMING stylesheets={:>7.1}ms {url_for_log}",
                                         css_start.elapsed().as_secs_f64() * 1000.0
                                     );

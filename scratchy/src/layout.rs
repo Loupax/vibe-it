@@ -1165,7 +1165,7 @@ pub(crate) fn new_font_system_with(extra_fonts: &[PathBuf]) -> FontSystem {
     db.load_system_fonts();
     for f in extra_fonts {
         if let Err(e) = db.load_font_file(f) {
-            eprintln!("scratchy: cannot load font {}: {e}", f.display());
+            diag!("scratchy: cannot load font {}: {e}", f.display());
         }
     }
     if let Some(name) = fc_match_family("sans-serif") {
