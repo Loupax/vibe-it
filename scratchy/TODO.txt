@@ -917,7 +917,7 @@ touching the user's desktop: use it for the live check of each item.
       UTF-8). Test: `dispatch_wire_response(Some("text/plain"), b"a<b")`
       gives HTML containing `<pre>a&lt;b</pre>`. Live check: `:go
       https://nonexistent-host-xyz.invalid/` shows wire's DNS error text.
-- [ ] QB8 [S] (P2) `document.currentScript`: set it to the executing
+- [x] QB8 (HASH) [S] (P2) `document.currentScript`: set it to the executing
       `<script>` element while each classic script runs, and to `null`
       otherwise. bbc.com/news: 13 of 14 JS errors are turbopack's `chunk
       path empty but not in a worker`, which reads

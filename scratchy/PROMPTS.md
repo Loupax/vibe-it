@@ -6444,3 +6444,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Implement QB10 from the TODO.txt queue: commit the virtual-input injector and a nested-compositor recipe so agents can click/type/scroll in scratchy for real.
 
 **What changed:** The original injector source survived in a scratchpad and was committed as `tools/inject/` (own Cargo project, not a dependency of scratchy; `wayland-client` 0.31 plus the wlr virtual-pointer and misc virtual-keyboard protocol crates; embedded `keymap.xkb`). `tools/nest.sh` starts the nested dwl and prints its socket. `tools/README` documents usage; AGENTS.md step 6 now points at it. No code under `src/` changed, so no new unit test. Live (nested dwl, installed scratchy, news.ycombinator.com): wheel `scroll:5` moved the list about four rows, `key:j`/`key:k` scrolled and hovered links underlined, and a `click` on a story link navigated to the PyPI blog page. `key:g key:g` did not return to top (not investigated).
+
+## QB8 — `document.currentScript` and named eval frames (queue item)
+
+> Implement QB8 from the TODO.txt queue: `document.currentScript` set to the executing `<script>` element during script evaluation and null otherwise (bbc.com's turbopack chunks read it); name event/timer eval stack frames instead of `timers`.
+
+**What changed:** `ScriptSource` gained `index: Option<usize>` (the script's position among runnable `<script>` elements, same order as `find_external_resources`). `start_scripts` collects those elements (`collect_script_elements`), and around each script calls the JS-side `__scratchy_cs(id)` setter (id -1 = null) so `document.currentScript` (an accessor in `DOM_PRELUDE`) returns the wrapped element only while that script runs. `JsEngine::eval_value` takes a label used as the eval filename and error prefix: `event:<type>` for `dispatch_event`, `timer` for timers, so a listener exception reads `at <eval> (event:click:1:1)`. Tests `qb8_*` in `src/tests.rs`.
