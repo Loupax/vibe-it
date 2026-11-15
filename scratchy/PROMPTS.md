@@ -6389,3 +6389,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Implement QB1 from the TODO.txt queue (R8): print one clear line and exit 1 when the compositor drops the connection; same for the unwraps in redraw.
 
 **What changed:** `run()` now matches the result of `run_app`; `event_loop_exit_message` (pure, tested) gives the one-line message and the process exits 1. The `unwrap()`s on surface resize, `buffer_mut` and `present` in `App::redraw` log once (`log_redraw_error_once`) and return. QB3 (bounding main-thread stalls) remains. Test: `qb1_event_loop_exit_message`.
+
+## Q49a — float shrink-to-fit uses the CSS2.1 formula (queue item)
+
+> Take the first small clear-cut QUEUE item (Q42a skipped: needs font metrics plumbing into style resolution; Q41b/Q43a/Q52 excluded).
+
+**What changed:** new `shrink_to_fit(min, max, avail)` = `min(max(min, avail), max)` replaces the old `avail.min(max).max(min.min(avail))` at all float, abspos, table and `fit-content` sites, so a float in a container narrower than its longest word is min-content wide instead of squeezed to the container. The trial-mode special case in the inline-embedded path was removed (one formula). The img strut and text-align fit check were split into Q49b. Test: `q49a_float_in_narrow_container_is_at_least_min_content`. WPT unchanged.
