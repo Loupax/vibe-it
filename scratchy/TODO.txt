@@ -786,7 +786,7 @@ paste the before/after error counts into the commit message):
 count on each corpus page drops item by item, and no page looks worse
 with JS on than with `--no-js` (compare `grim` screenshots of both).
 
-- [x] QJ1 [S] (HASH) Fix REGRESSIONS.md R5: evaluate classic scripts in sloppy
+- [x] QJ1 [S] (7f6b4b8) Fix REGRESSIONS.md R5: evaluate classic scripts in sloppy
       mode (`eval_with_options`, `strict = false`, `filename =` the
       script name). Root cause, fix and tests are in R5. Mark R5 FIXED
       with the hash.
