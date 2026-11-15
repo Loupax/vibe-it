@@ -6462,3 +6462,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > The QB10 agent noticed `key:g key:g` does not return to the top; check app.rs key handling, fix if it is a clear bug, otherwise add a precise TODO item instead of inventing behaviour.
 
 **What changed:** no code. `resolve_binding` binds only `j k Ctrl-d Ctrl-u : h l`; there is no pending-key state and `:help` (help.html) does not document `gg`, and TODO.txt already lists `gg`/`G` as "still fully open". So it is missing functionality, not a bug. Added TODO item QB12 (`gg`/`G` design: new Actions, pending-`g` flag, help entry, tests, live check) and corrected the tools/README quirk note. Not run live: reading the code was conclusive and nothing under `src/` changed.
+
+## Acid2/Acid3 audit (Opus investigator, docs only)
+
+> Check scratchy against Acid2 and Acid3 through wire, screenshot in a nested dwl, attribute every Acid2 deviation to a feature, enumerate Acid3 failures, and file self-contained fix items (no source changes).
+
+**What changed:** no code. REGRESSIONS.md "R12–R19" (Acid2 line-by-line table with headless 12px-grid repros, Acid3 per-test table) and a TODO.txt QUEUE block "Acid2/Acid3 audit" with QA1–QA21 at the top. Acid2: no face. Root causes: abspos margins ignored, `border-style` defaulting to solid, NBSP collapsing, `background` shorthand not resetting, escaped-base64 data: URLs, z-order across parents, first-load fragments, shrink-to-fit ignoring floats, plus existing Q48b/Q74/Q50a/W20. Acid3: never starts live (`body onload` not wired); a per-test `--js-report` harness scores 28/100 (36 with the `document.write` markup inlined).

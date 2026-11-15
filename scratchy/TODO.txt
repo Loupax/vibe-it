@@ -750,6 +750,229 @@ rendering (Tier 5) -> forms (Tier 6) -> JavaScript (Tier 7). Status at this poin
 Q32 (parked); 320 tests pass, 2 ignored; lib.rs is ~27.4k lines.
 ========================================================================
 
+--- TOP PRIORITY: Acid2/Acid3 audit (Opus investigator, 2026-11-15) ----
+
+These override everything below, including the QB and JS blocks. Do
+them top to bottom. Evidence, minimal repros and screenshots are in
+REGRESSIONS.md "R12–R19". Each item's repro is a few lines of HTML: make
+it the permanent test, then run `scratchy --wpt` (AGENTS.md step 4) and
+update `wpt-expected.txt`. Live check for Acid2: in a nested dwl
+(`tools/nest.sh`) open `http://acid2.acidtests.org/`, click "Take The
+Acid2 Test" (`inject 1052 1050 move:150,143 click`; loading the URL with
+`#top` does not scroll, that is QA6), grim, and compare with
+`http://acid2.acidtests.org/reference.html` rendered the same way.
+Acid3: `--js-report` on the per-test harness described in REGRESSIONS.md
+"Acid3" (score 28/100 at `e7a090d`); paste the before/after harness score
+into the commit message of every JS item.
+
+- [ ] QA1 [S] (P1, R13) `border-style` initial value is `none`, not
+      `solid`. `BorderStyle::default()` is `Solid` (`#[default]` on the
+      variant in css.rs), and `compute_style` in style.rs uses
+      `.unwrap_or_default()` for an undeclared style, so `border: 1px blue`
+      or `border-width: 4px` alone paints a solid border. Acid3's
+      `* { border: 1px blue }` draws a blue box around every element (seen
+      live). Fix: add a `BorderStyle::None` default (or make the cascade
+      fall back to `None`), keep `border_width = 0` for `None`/`Hidden`.
+      Grep `default.css` and `BorderStyle::default()` callers for anything
+      that relied on "unset = solid" (e.g. `iframe`/`fieldset`/`table` UA
+      borders must then name a style explicitly). Test: `div{border:4px
+      blue}` has `border_width == [0;4]`; `div{border:4px solid blue}`
+      still 4. Run WPT: expect new passes; a test that only passed because
+      of this bug is a real regression to investigate, not to hide.
+- [ ] QA2 [S] (P1, R14) U+00A0 (`&nbsp;`) is not collapsible white space.
+      Rust's `str::trim()` / `char::is_whitespace` include NBSP, so a block
+      whose text is only `&nbsp;` gets height 0: `has_text` in
+      `collect_real_children`'s pending-run check (images.rs, the
+      `!t.trim().is_empty()` test), the hang test in `measure_mixed_inline`
+      (`text.trim().is_empty()`, layout.rs), the blank-word test in the
+      line-box loop (`l.text().trim().is_empty()`), and `is_empty` for
+      `:empty` (dom.rs). Replace each with a helper
+      `is_css_collapsible_ws(c)` = `' ' | '\t' | '\n' | '\r' | '\x0c'` and
+      `trim_matches(is_css_collapsible_ws)`; grep the rest of layout.rs /
+      images.rs for `is_whitespace` on text content too. Acid2 loses the
+      forehead and chin lines to this (both are `&nbsp;`-only lines).
+      Test: `<div style="font:12px sans-serif;line-height:1em">&nbsp;</div>`
+      lays out 12px tall; `<div>&nbsp;&nbsp;&nbsp;</div>` is not empty.
+- [ ] QA3 [S] (P1, R12) Margins on `position:absolute`/`fixed` boxes are
+      ignored. `resolve_positioned` (layout.rs) sets `final_x` to
+      `cb_x + left` or `item.static_x` and `final_y` likewise, then shifts
+      the laid box there, so `margin-*` never moves an abspos box
+      (`top:0;left:0;margin:36px 0 0 60px` paints at 0,0). Fix (CSS2.1
+      §10.3.7 / §10.6.4, `auto` margins = 0 except the existing centring
+      case): `left` set -> `cb_x + left + margin_left`; `right` only ->
+      `cb_x + cb_w - right - margin_right - laid.w`; static ->
+      `static_x + margin_left` (the static position is the margin edge);
+      same for y with top/bottom. Subtract the horizontal margins from
+      `avail` before `shrink_to_fit`. Check how `measure` already treats
+      the box's own margins (it may offset `laid.x` by them), so they are
+      added exactly once. Acid2: the second face line and the
+      `p + table + p` scalp both depend on it (R12). Test: the repro above
+      gives a box at (60,36); `right:0;margin-right:10px` ends 10px from
+      the edge; `position:fixed` likewise.
+- [ ] QA4 [S] (P1, R15) The `background` shorthand must reset what it
+      omits and reject junk. `parse_background_shorthand` (css.rs) skips
+      unknown tokens (`Ok(_) => {}` in its loop) and the `background` arm
+      in `DeclParser::parse_value` only writes `background_color` /
+      `background_image` when present, so `background:red` then
+      `background:none` stays red, and `background: red pink` paints pink
+      (Acid2 expects both bugs absent). Fix: the shorthand sets
+      `background_color` to transparent and `background_image` to none when
+      omitted; accept `none` as the image; accept the attachment keywords
+      `scroll|fixed|local` (see QA8) and box keywords
+      `border-box|padding-box|content-box|text` (parse and ignore); any
+      other token makes the whole declaration invalid; a colour is only
+      allowed once and only in the last layer. This takes the `background`
+      part of Q57a. Tests: `div{background:red} div{background:none}` has
+      no background colour; `background: red pink` keeps the previous value.
+- [ ] QA5 [S] (P1, R16) `data:` URLs. (a) `decode_data_uri` (images.rs)
+      base64-decodes the raw payload, so the common `%2F`/`%3D`-escaped
+      base64 (every image in Acid2) fails and paints nothing. Per the
+      Fetch spec: percent-decode the payload first, then forgiving-base64
+      (strip ASCII white space, allow missing `=` padding). (b) `<script
+      src="data:…">` and `<link rel=stylesheet href="data:…">` go to wire
+      (`fetch_scripts`, `fetch_stylesheets`, and the WPT renderer's
+      `read_css`); wire does not decode them, and all five Acid3 data:
+      scripts die with `SyntaxError: expecting ';' … :1:16`. Decode
+      `data:` locally there (text: the charset parameter or UTF-8).
+      Tests: the Acid2 1x1 yellow PNG with `%2F` decodes to a yellow pixel;
+      `data:text/javascript;base64,%20ZD%20Qg%0D%0APS%20An%20Zm91cic%0D%0A%207%20`
+      decodes to exactly `d4 = 'four';` (spaces and CR/LF are dropped
+      before base64; Acid3 T97); a `data:text/css,p%7Bcolor:red%7D` link
+      applies.
+- [ ] QA6 [S] (P2, R18) A fragment in the URL of the first page load is
+      ignored (`scratchy …/SoHo_Weekly_News#References` and
+      `http://acid2.acidtests.org/#top` both open at the top; clicking a
+      same-page `#top` link works). Suspect: `apply_fragment` returns
+      `true` (so `handle_shape_result` clears `pending_fragment`) when the
+      target is not found, which happens on the first, incomplete or
+      placeholder layout. Verify with a temporary log first. Fix: only
+      clear `pending_fragment` when the target was found or the layout is
+      complete for the current `nav_generation`. Test: an `App` with
+      `pending_fragment = Some("x")` and an incomplete layout without
+      `id=x` keeps it; a later complete layout with `id=x` scrolls to it.
+- [ ] QA7 [S] (P2, R19) Shrink-to-fit width ignores floats. An abspos box
+      whose only content is a float (`float:right;width:48px`) gets
+      content width 0 (Acid2 line 2), and in the smile it gets the full
+      available width instead. `cell_natural_width` (used by
+      `resolve_positioned` for `width:auto`) must count floated children:
+      min = widest float/line, max = sum of adjacent floats plus inline
+      content on that line. Test: `position:absolute` box containing
+      `<div style="float:right;width:48px;height:12px">` lays out 48 wide.
+- [ ] QA8 [S] (P2) `background-attachment` (none parsed today, the
+      shorthand silently drops `fixed`). Add the longhand and the shorthand
+      keyword; for `fixed`, the image is positioned and tiled relative to
+      the viewport (paint at `scroll_offset`-adjusted origin, clipped to
+      the box). Acid2's eyes (two 2x2 checker PNGs offset by 1px that only
+      line up when both are viewport-fixed) and chin (a red 64x64 square
+      that must be invisible unless the face is at the viewport origin)
+      need it; once QA2/QA5 land the chin would otherwise show a red
+      square. Test: a `fixed` background on a box at y=100 paints the
+      image's row 100 at the box top.
+- [ ] QA9 [M] (P2, R17) Stacking contexts compete only within one parent.
+      `paint` merges `is_explicit_stacking_child` (relative/sticky with
+      `z-index`) only with the same box's `positioned` list, so an
+      abs/fixed box that bubbles up to the root paints above a
+      `position:relative; z-index:2` box elsewhere in the tree. Acid2: the
+      fixed scalp bar paints over the intro text that has `z-index:2`.
+      Fix: collect z-indexed descendants (and bubbled positioned boxes)
+      up to the nearest stacking-context ancestor (root, abs/fixed, or
+      relative/sticky with `z-index`) and sort them together there; mirror
+      in `hit_test_inner`. Overlaps Q55a (do Q55a's hoisting in the same
+      walk). Test: `<div style=position:relative;z-index:2;background:lime>`
+      followed by an unrelated `position:fixed` black box over it: the
+      lime box wins the pixel.
+- [ ] QA10 [S] Promoted for Acid2 line 14: do Q50a now, with this extra
+      repro: `<div style=display:table><div style=display:table-cell>…`
+      ×3 (no row) renders nothing at all, and a block child of a
+      `display:table` between cells drops the cells. Tick Q50a too.
+- [ ] QA11 [M] Promoted for Acid2 lines 10-12: do Q48b then Q74 now (the
+      `.empty` block collapses `75, -72, 75` margins through itself, then
+      `.smile` gets negative clearance; in the REGRESSIONS.md "Acid2"
+      repro the smile's top lands at y=168 instead of y=37). Tick Q48b and
+      Q74 too.
+- [ ] QA12 [S] (P2, JS) Event-handler content attributes. `<body
+      onload="update()">` never runs, so the real Acid3 page stays on
+      "JS ?" forever even with every API present. Compile `on<type>`
+      attributes (body/frameset `onload` etc. forward to `window`) as
+      listener functions with `this` = element and `event` in scope
+      (`new Function('event', code)` with a `with`-free scope is enough for
+      now), lazily on first dispatch and when set via `setAttribute`.
+      This is the "inline handlers" part of Q33d1 (tick that part there).
+      Test: `<body onload="console.log('L')">` logs `L` after `load`;
+      `<button onclick="this.id='x'">` gets id `x` on a dispatched click.
+- [ ] QA13 [S] (P2, JS) `document.write`/`writeln` during the page-load
+      script run: parse the string as an HTML fragment in the context of
+      the running script's parent and insert it right after
+      `document.currentScript` (QB8 landed); concatenate consecutive writes
+      from one script before parsing; outside page load, log and ignore
+      (no `document.open` semantics). Acid3 creates its `<map>`, `<form>`,
+      `<table>` and the `iframe#selectors` this way; with the markup inlined
+      by hand the harness goes 28 -> 36 (T14-T17, T48, T55, T63, T65).
+      Test: `<p id=a><script>document.write('<b id=w>x</b>')</script>`
+      gives `#w` as the script's next sibling.
+- [ ] QA14 [S] (P3, JS) `DOMException` with the legacy `code` constants
+      (`INDEX_SIZE_ERR`=1 … `HIERARCHY_REQUEST_ERR`=3 …
+      `INVALID_CHARACTER_ERR`=5 … `NAMESPACE_ERR`=14) on the constructor
+      and prototype, thrown by `createElement`/`createElementNS` for
+      invalid names (`<div>`, a NUL byte), by `appendChild` cycles and by
+      `Node` constants on `Node`. `createElementNS` keeps the qualified
+      name's case for non-HTML namespaces (`PREFIX:LOCALNAME` bug). Acid3
+      T19-T23, T25 (part). Test: `try{document.createElement('<a')}catch(e)
+      {e.code===5}`.
+- [ ] QA15 [S] (P3, JS) `document.createEvent(iface)` with
+      `initEvent`/`initUIEvent`/`initMouseEvent`/`initKeyboardEvent`
+      (legacy init methods on the Q33d event classes; `detail` field).
+      Acid3 T30-T32 ("not a function"). Test: `e=document.createEvent(
+      'UIEvents'); e.initUIEvent('t',true,false,null,6)` dispatched to a
+      listener sees `detail===6`.
+- [ ] QA16 [M] (P3, JS) `getComputedStyle(el, pseudo)` (moved up from
+      Q33g; also listed in Q33c1): a `CSSStyleDeclaration`-like object of
+      the element's computed values from the cascade (`compute_style` on
+      the current DOM; camelCase and `getPropertyValue`), at least
+      `display, position, z-index, white-space, color, background-color,
+      width, height, float/cssFloat, cursor, visibility, font-*`, plus
+      `document.defaultView === window`. Acid3 T0 and every selector test
+      (T33-T47, which read `zIndex`) need it. Prerequisite for the
+      selector bucket: QA18. Test: `<p style=white-space:pre-wrap>` reads
+      `pre-wrap`; `z-index:3` reads `"3"`, unset reads `"auto"`.
+- [ ] QA17 [M] (P3, JS) DOM Traversal: `document.createNodeIterator`,
+      `createTreeWalker`, `NodeFilter` constants/`FILTER_*`, live
+      reference-node fixups on removal (Acid3 T1-T6; T4/T5 fail today with
+      "not a function" on the main document). Pure JS over the existing
+      node accessors is fine. Test: a walker with `SHOW_ELEMENT` visits the
+      elements of a small tree in order and `previousNode` reverses it.
+- [ ] QA18 [L] (P4, JS) Second documents: `iframe.contentDocument` for a
+      same-origin `src` (start with a fresh empty HTML document; loading
+      the real `src` through wire is a sub-item), `document.implementation`
+      (`createDocument`, `createHTMLDocument`, `createDocumentType`,
+      `hasFeature`), `ownerDocument`, and a cascade/`getComputedStyle` that
+      works on a document that is not the page. Gates Acid3 T1-T3, T6,
+      T8, T9, T11-T13, T26, T27, T33-T47, T71-T73, T98 (about 35 tests).
+      Split before starting: (a) DOMImplementation + detached documents,
+      (b) iframe `contentDocument`/`contentWindow`, (c) styles for a
+      second document.
+- [ ] QA19 [L] (P4, JS) DOM Range (`document.createRange`, boundary
+      points, `extractContents`/`deleteContents`/`cloneContents`/
+      `insertNode`, mutation fixups). Acid3 T7-T13. Only after QA18.
+- [ ] QA20 [M] (P4, JS) HTML element DOM interfaces Acid3 bucket 4 uses:
+      table (`tBodies`, `rows`, `cells`, `insertRow/deleteRow`,
+      `createCaption/createTHead/createTFoot`), `form.elements` (named
+      access), reflected `input.type/name/value/checked`, `button.type`
+      (default `submit`), `select.add/options/selectedIndex`,
+      `option.defaultSelected`, `label.htmlFor`. Overlaps Q33e (live form
+      state stays there). Acid3 T29, T49-T59, T62.
+- [ ] QA21 [M] (P4) `<object data>`: an image (data: URI, or fetched with
+      an image MIME) renders as a replaced inline image sized like `<img>`
+      (its children are then not rendered); an unsupported type, a
+      `type=text/html` 404, or a failed fetch renders the children
+      (fallback, which is what scratchy does for every `<object>` today).
+      This is W20's `<object>` half and gives Acid2 its eyes. Test: an
+      `<object data="data:image/png;base64,…">` with fallback text lays out
+      an image box and no text.
+Not filed (deliberately): Acid3 T74-T79 need SVG documents in
+iframes/objects (`getSVGDocument`, SMIL, SVG fonts); out of scope.
+Acid3 T81-T96 (ECMAScript) already pass on QuickJS.
+
 --- TOP PRIORITY: build-test findings (Opus investigator, 2026-11-15) --
 
 These override everything else in the QUEUE, including the JS block
@@ -1205,7 +1428,7 @@ Not vendored; pass the path to the runner.
       float bottom (CSS2.1 9.5.2); the engine moves the margin edge and then
       adds margin-top. Test `clearance_prevents_sibling_margin_collapse` pins
       the current 80 (correct is 50). WPT: `clear-clearance-calculation-*`.
-- [ ] Q48b [M] After Q48a: margins collapse through empty blocks (no height,
+- [ ] Q48b [M] (promoted: QA11, Acid2) After Q48a: margins collapse through empty blocks (no height,
       padding, border, in-flow content, min-height; `height:auto` or `0`),
       including the empty block's own top and bottom margins. WPT:
       `margin-collapse-through-zero-height-block`, `margin-collapse-012`/`-022`.
@@ -1233,7 +1456,7 @@ Not vendored; pass the path to the runner.
       Done: `measure` passes the float shrink-to-fit width to `measure_table`
       for `width:auto` tables; a table's `cell_natural_width` is now the sum
       of its column extents (`table_column_extents`), not the widest row.
-- [ ] Q50a [S] `border-applies-to-*` / `float-applies-to-*` still fail: they
+- [ ] Q50a [S] (promoted: QA10, Acid2 line 14) `border-applies-to-*` / `float-applies-to-*` still fail: they
       need anonymous table objects (`display:table-row-group|cell` outside a
       table) and `border-collapse`/`border-spacing` (W16). Subset now includes
       `border-applies-to-001..012` and `float-applies-to-001..015`.
@@ -1269,7 +1492,7 @@ Not vendored; pass the path to the runner.
       300x150 unless CSS/`width`/`height` attrs say otherwise; paints nothing
       inside. WPT unchanged (244): the four replaced-height tests still pass.
       Left out: default `2px inset` border (not set; Q52 will interact), Q52a1.
-- [ ] Q52a1 [S] iframe `frameborder`/`border` UA behaviour and `<object>`/`<embed>`/`<video>`/`<canvas>`
+- [ ] Q52a1 [S] (`<object>` rendering itself is QA21) iframe `frameborder`/`border` UA behaviour and `<object>`/`<embed>`/`<video>`/`<canvas>`
       replaced default sizes (300x150).
 - [ ] Q52b [S] Expand `var()` declarations in source order relative to the
       rule's other declarations (`variable-reference-38`).
@@ -1304,7 +1527,7 @@ Not vendored; pass the path to the runner.
 - [x] Q55 [S] Negative `z-index` children of a positioned, non-stacking-context
       parent paint below the parent's background (W17). WPT:
       `fixed-pos-stacking-001`, `abspos-overflow-010`. Done 53e9727.
-- [ ] Q55a [S] Q55 only hoists negative-`z-index` *absolute* children (post-layout
+- [ ] Q55a [S] (see QA9, same walk) Q55 only hoists negative-`z-index` *absolute* children (post-layout
       pass `hoist_negative_z`). Negative `relative`/`sticky` in-flow children
       of a non-stacking positioned or static parent still paint in that
       parent's own negative layer; hoisted entries do not follow a `sticky`
@@ -1326,7 +1549,7 @@ Not vendored; pass the path to the runner.
       Left out: inline `style=` declarations with var() still drop (not unset) when
       invalid at computed time, and only `color`/`background-color` reject trailing
       tokens (`color: orange red`); other properties still parse leniently (Q57a).
-- [ ] Q57a [S] Strict full-value parsing for all properties (leftover tokens make the
+- [ ] Q57a [S] (`background` part moved to QA4) Strict full-value parsing for all properties (leftover tokens make the
       declaration invalid) and `unset` semantics for inline-style var() declarations.
 
 - [x] Q40c [L] (dacd49d) Audit the areas Q40b did not reach, same method and write-up:
@@ -1464,7 +1687,7 @@ Not vendored; pass the path to the runner.
 - [ ] Q73 [S] `display:inline-grid` / `inline-flex` are inline-level (W50): a
       following `inline-block` sits beside them (shrink-to-fit, baseline
       aligned). WPT: `grid-model/*-inline-*`, `display-inline-grid`.
-- [ ] Q74 [S] Clearance (W53): a cleared block's margin-top is absorbed by
+- [ ] Q74 [S] (promoted: QA11, Acid2) Clearance (W53): a cleared block's margin-top is absorbed by
       clearance; its top border edge is the float's bottom (plus any
       excess margin). WPT: `clear-clearance-calculation-*` (needs Q48a for
       the collapsing cases).
@@ -1760,7 +1983,7 @@ as the JS measurement corpus (same role the four CSS pages played).
       `focus/blur/focusin/focusout` from `set_focus_element`. Promise
       jobs drain after each dispatch; DOM writes sync via `js_sync`.
       `App::js_dispatch` -> `JsEngine::dispatch_event`.
-- [ ] Q33d1 [S] Left out of Q33d, needs Q30: native `input`/`change`/
+- [ ] Q33d1 [S] (inline `on*` handlers moved to QA12) Left out of Q33d, needs Q30: native `input`/`change`/
       `submit` events (Q30c/d/e) with `preventDefault` cancelling the
       submission; `mousedown/mouseup/mouseover/mouseenter/scroll/resize`
       natives; inline `onclick="..."` attribute handlers; `el.click()`
@@ -1774,7 +1997,7 @@ as the JS measurement corpus (same role the four CSS pages played).
       `location.href=` / `location.assign` navigate; `history.pushState/
       replaceState` update the URL and history stack without a fetch.
       This is what most "needs JS" sites actually wait on.
-- [ ] Q33g later, only when a corpus page needs it: `localStorage`,
+- [ ] Q33g (`getComputedStyle` moved to QA16) later, only when a corpus page needs it: `localStorage`,
       `document.cookie`, `MutationObserver`, `getComputedStyle`,
       `getBoundingClientRect` (needs layout results exposed to JS),
       the JS-scriptable `bind()` from the vim-keybindings item.
