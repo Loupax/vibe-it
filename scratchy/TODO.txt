@@ -966,6 +966,22 @@ Not vendored; pass the path to the runner.
       rule's other declarations (`variable-reference-38`).
 - [ ] Q52c [S] `border-color: inherit` where the parent's color is unset
       resolves to the parent's currentColor keyword (`border-color-011`).
+      BLOCKED 2026-11-15: root cause is NOT inherit: an unset/`currentColor`
+      border colour is `None` in `ComputedStyle.border_color` and paint.rs
+      draws nothing for `None` (so `border: 1px solid` with no colour never
+      paints). Fix tried: paint resolves `None` via
+      `s.border_color_or_current(i)` (= `border_color[i].unwrap_or(color)`,
+      kept as a keyword in the computed value so `inherit` re-resolves).
+      Tests pass (364), clippy 32 -> 31 lines, WPT +7 newly passing
+      (`border-{bottom,left,right,top}-width-*`: 029/040/051/061, left-applies-to-015,
+      right-006, top-017) but 2 REGRESSIONS that passed by accident while
+      table borders were invisible: `css-tables/row-group-margin-border-padding.html` and
+      `html/rendering/.../tables/table-rules-rows-vertical.html`. Both need
+      `border-collapse` (unsupported) and ignoring row-group borders in the
+      separated model. Code reverted; see Q52c1.
+- [ ] Q52c1 [M] Table borders: `border-collapse` (collapse model) and ignore
+      `thead/tbody/tfoot/tr` borders/padding/margin in the separated model, so
+      Q52c can land. Then redo Q52c (diff ~10 lines, described above).
 - [x] Q53 [S] Reject values CSS says are invalid (W5): negative `padding-*`,
       `border-*-width`, `max-height`, `max-width`, `min-*`, `flex-basis`,
       `width`, `height`. The declaration is dropped. WPT: `padding-right-001`,

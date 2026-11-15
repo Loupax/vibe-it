@@ -6277,3 +6277,9 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > Do ONLY Q52a: treat `<iframe>` as a replaced box with default 300x150 size honouring width/height attrs and CSS, painting nothing inside.
 
 **What changed:** `default.css` `iframe { display: inline-block }`; `images.rs` `build_box_for_element` builds an iframe as an empty box sized by CSS, else `width`/`height` attrs (px or %), else 300x150; fallback children are not rendered. Test `q52a_iframe_is_a_replaced_box_default_300x150_honouring_attrs_and_css`. Clippy 32 warning lines before and after; `cargo test` 363 passed. WPT 244 -> 244, no change; `block-replaced-height-005`, `float-replaced-height-005`, `absolute-replaced-height-028` and `-035` still pass (they passed by accident before; Q52 not retried here, so they are not yet proven with visible borders). grim screenshot of a fixture (two iframes inline with text, 300x150 and 120x60), no real page with an iframe was tried.
+
+## Q52c — border-color inherit / currentColor (queue item, BLOCKED)
+
+> Do ONLY Q52c: `border-color: inherit` (and initial) must resolve to the parent's value / currentColor correctly; see `border-color-011`.
+
+**Outcome:** blocked, code reverted. Real cause is that an unset/currentColor border colour (`None`) paints nothing; resolving it at paint (`border_color_or_current`) made `border-color-011` and 7 border-width tests pass (WPT +7) but regressed `row-group-margin-border-padding.html` and `table-rules-rows-vertical.html`, which passed by accident while table borders were invisible (no `border-collapse`, row-group borders). Recorded in TODO as Q52c BLOCKED + Q52c1. Tests 364 passed, clippy 32 -> 31 lines for the reverted change.
