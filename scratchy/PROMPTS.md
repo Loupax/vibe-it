@@ -6365,3 +6365,9 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > Do ONLY Q41a: `<br>` leftovers.
 
 **What changed:** collapsible spaces right before a `<br>` are now trimmed (they hang instead of counting toward line width, which matters for right/center alignment and wrapping). `display:block` on a `<br>` was verified to already be a plain line break. `<br clear>` and `<br>` as a flex child were split out as Q41b. Test: `q41a_br_trailing_space_and_display_block`. WPT unchanged.
+
+## Q48d — clearance puts the border edge at the float bottom (queue item)
+
+> Take the first small clear-cut QUEUE item (Q43a skipped: its leading-space bug does not reproduce and 002-004 are blocked on Q52).
+
+**What changed:** in the `Blocks` loop of `measure_inner`, a cleared non-float box now computes its hypothetical (margin-collapsed) border edge; if that is above the float bottom, clearance is introduced so the BORDER edge lands exactly at the float bottom (margin-top absorbed, no collapse with the previous sibling), otherwise nothing changes. Previously the margin edge was moved and margin-top added on top (80 instead of 50). Tests: `clearance_prevents_sibling_margin_collapse` (re-pinned to 50), `q48d_*`. WPT: clear-clearance-calculation-001 and margin-collapse-023 newly pass (246 -> 248).
