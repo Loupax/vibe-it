@@ -6395,8 +6395,16 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Take the first small clear-cut QUEUE item (Q42a skipped: needs font metrics plumbing into style resolution; Q41b/Q43a/Q52 excluded).
 
 **What changed:** new `shrink_to_fit(min, max, avail)` = `min(max(min, avail), max)` replaces the old `avail.min(max).max(min.min(avail))` at all float, abspos, table and `fit-content` sites, so a float in a container narrower than its longest word is min-content wide instead of squeezed to the container. The trial-mode special case in the inline-embedded path was removed (one formula). The img strut and text-align fit check were split into Q49b. Test: `q49a_float_in_narrow_container_is_at_least_min_content`. WPT unchanged.
+
 ## QB2 — JS DOM writes use the restyle path (queue item)
 
 > Implement QB2 from the TODO.txt queue (R9): JS DOM writes must go through the restyle path and be coalesced.
 
 **What changed:** `App::js_sync` sets `layout_dirty`, `restyle_requested` and `keep_scroll_on_rebuild` instead of bumping the generation. `layout_in_flight` (set when `redraw` queues a shaping pass, cleared by its complete `ShapeResult`) turns writes made meanwhile into one `js_restyle_pending` rebuild. The `ShapeResult` handler became `App::handle_shape_result`. The first layout is coalesced too, which the item had left out: the SoHo first layout takes longer than 300 ms, so the first version of the fix still left the page blank. Test: `qb2_js_dom_writes_use_restyle_path` (one test, since a process can build only one event loop). Live check: SoHo with a 300 ms and a 1000 ms `setInterval` now shows the full article; CPU about 190% before, about 100% and 45-60% after.
+
+
+## QB4 — HTMLDialogElement API and modal centring (queue item)
+
+> Implement QB4 from the TODO.txt queue (R11): show/showModal/close/open/returnValue/close event, centred modal rendering; makes wikipedia.org's donation dialog Close button work.
+
+**What changed:** `HTMLDialogElement` (prototype picked in `wrap` by tag) in `DOM_PRELUDE` with `open` (reflects the attribute), `returnValue`, `show`, `showModal` (sets internal `data-scratchy-modal`), `close(rv)` (removes both, fires `close` synchronously). UA CSS in `default.css`: `dialog` is absolute, `left/right: 0`, `margin: auto`, 2px black border, white; modal is `position: fixed; top/bottom: 0`. `resolve_positioned` now shrink-wraps and centres a box with both insets set and an `auto` margin (new `margin_auto_v` in `ComputedStyle` for the vertical axis), which also newly passes WPT `absolute-non-replaced-width-003`. Found live: `hit_test_inner` pruned on the root's `ink`, which excludes `fixed` boxes, so clicks on any fixed overlay missed; it no longer prunes when the box holds a fixed child. Updated `q33c2_...` (an open dialog is now out of flow). Left out (QB11): `::backdrop`, Escape/`cancel`, `form method=dialog`. Tests: `qb4_dialog_show_modal_close_return_value_and_event`, `qb4_modal_dialog_is_centred_in_the_viewport`, `qb4_clicks_inside_a_modal_dialog_hit_its_content`.

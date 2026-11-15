@@ -8418,12 +8418,14 @@ fn q33c_many_writes_mark_dirty_once_and_reads_stay_clean() {
 
 #[test]
 fn q33c2_closed_dialog_is_not_rendered_open_dialog_is() {
-    let h = |d: &str| measure_fixture(&format!("<html><body><p>a</p>{d}</body></html>"), 500.0).h;
-    let none = h("");
-    let closed = h("<dialog><div style=\"height:100px\">x</div></dialog>");
-    let open = h("<dialog open><div style=\"height:100px\">x</div></dialog>");
-    assert_eq!(closed, none, "closed dialog takes no space");
-    assert!(open >= none + 100.0, "open dialog still renders");
+    // QB4: an open dialog is now out of flow (UA `position: absolute`), so
+    // it shows up in `positioned` and with its own height rather than
+    // growing the document.
+    let p = |d: &str| measure_document_fixture(&format!("<html><body><p>a</p>{d}</body></html>"), 500.0, 400.0).positioned.len();
+    assert_eq!(p("<dialog><div style=\"height:100px\">x</div></dialog>"), 0, "closed dialog renders nothing");
+    let laid = measure_document_fixture("<html><body><p>a</p><dialog open><div style=\"height:100px\">x</div></dialog></body></html>", 500.0, 400.0);
+    let d = laid.positioned.first().expect("open dialog still renders");
+    assert!(d.h >= 100.0, "open dialog renders its content, h {}", d.h);
 }
 
 #[test]
@@ -8711,4 +8713,59 @@ fn qb2_first_layout_not_made_stale(mut app: App) {
     app.handle_shape_result(generation, Box::new(measure_fixture("<p>hello</p>", 400.0)), ShapeCache::new(), false);
     assert!(app.cached.is_some());
     assert!(app.layout_dirty && app.restyle_requested);
+}
+
+// ---------- QB4: HTMLDialogElement ----------
+
+#[test]
+fn qb4_dialog_show_modal_close_return_value_and_event() {
+    let (log, body) = mutate(
+        "<html><body><dialog id=d><button id=b>x</button></dialog></body></html>",
+        "var d=document.getElementById('d'); var b=document.getElementById('b');\
+         console.log(typeof d.showModal, typeof d.close, d.open, JSON.stringify(d.returnValue));\
+         d.addEventListener('close', function(e){ console.log('closed', d.open, d.returnValue, e.type); });\
+         b.addEventListener('click', function(){ d.close('x'); });\
+         d.showModal(); console.log(d.open, d.hasAttribute('open'));\
+         b.dispatchEvent(new Event('click',{bubbles:true}));\
+         console.log(d.open, d.returnValue, d instanceof HTMLDialogElement);\
+         d.show(); console.log(d.open); d.open = false; console.log(d.open);",
+    );
+    assert_eq!(
+        log,
+        ["log:function function false \"\"", "log:true true", "log:closed false x close", "log:false x true", "log:true", "log:false"],
+        "{log:?}"
+    );
+    assert!(!body.contains("open") && !body.contains("modal"), "{body}");
+}
+
+#[test]
+fn qb4_modal_dialog_is_centred_in_the_viewport() {
+    let w = |attrs: &str| {
+        measure_document_fixture(
+            &format!("<html><body style=\"margin:0\"><dialog {attrs} style=\"width:100px;height:50px;padding:0;border:0\">x</dialog></body></html>"),
+            400.0,
+            300.0,
+        )
+    };
+    let closed = w("");
+    assert!(closed.positioned.is_empty(), "closed dialog renders nothing");
+    let laid = w("open data-scratchy-modal");
+    let d = laid.positioned.first().expect("modal dialog is out of flow");
+    assert_eq!((d.x, d.y), (150.0, 125.0), "centred in 400x300");
+}
+
+#[test]
+fn qb4_clicks_inside_a_modal_dialog_hit_its_content() {
+    let html = "<html><body style=\"margin:0\"><p>outer</p><dialog open data-scratchy-modal style=\"width:100px;height:50px;padding:0;border:0\"><div style=\"height:50px\">in</div></dialog></body></html>";
+    let doc = parse_html(html);
+    let tree = build_layout_tree(&doc, 1920.0);
+    let mut font_system = new_font_system();
+    let mut cache = ShapeCache::new();
+    let (mut next_id, mut incomplete) = (0usize, false);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let laid = measure_document(&tree, &mut font_system, 400.0, 300.0, &mut next_id, &mut cache, deadline, &mut incomplete);
+    let so = HashMap::new();
+    let node = hit_test_element(&laid, 200.0, 150.0, &cache, &so, 0.0, 300.0);
+    let h = crate::dom::find_node_by_id(&doc, node).unwrap_or_else(|| panic!("hit node {node}"));
+    assert_eq!(element_tag(&h), "div", "click at the dialog's centre lands on its content");
 }

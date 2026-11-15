@@ -938,7 +938,9 @@ pub(crate) fn resolve_positioned(
             (None, Some(r)) => (cb_w - r).max(0.0),
             (None, None) => (cb_x + cb_w - item.static_x).max(0.0),
         };
-        if left.is_some() && right.is_some() {
+        // QB4: `left`+`right` with an `auto` side margin (the UA `dialog`
+        // rule) shrink-wraps and centres, as `width: fit-content` would.
+        if left.is_some() && right.is_some() && !(s.margin_auto.0 || s.margin_auto.1) {
             Some(avail)
         } else {
             let (min_mb, max_mb) = cell_natural_width(item.b, font_system, next_id, cache, deadline, incomplete);
@@ -952,14 +954,18 @@ pub(crate) fn resolve_positioned(
         &mut nested_pending, &no_floats, auto_override,
     );
     debug_assert!(nested_pending.is_empty(), "an absolute/fixed box is itself always a positioned ancestor");
-    let final_x = if left.is_some() {
+    let final_x = if let (Some(l), Some(r), true) = (left, right, s.margin_auto.0 || s.margin_auto.1) {
+        cb_x + l + ((cb_w - l - r - laid.w) / 2.0).max(0.0)
+    } else if left.is_some() {
         provisional_x
     } else if let Some(r) = right {
         cb_x + cb_w - r - laid.w
     } else {
         item.static_x
     };
-    let final_y = if top.is_some() {
+    let final_y = if let (Some(t), Some(b), true) = (top, bottom, s.margin_auto_v.0 || s.margin_auto_v.1) {
+        cb_y + t + ((cb_h - t - b - laid.h) / 2.0).max(0.0)
+    } else if top.is_some() {
         provisional_y
     } else if let Some(b) = bottom {
         cb_y + cb_h - b - laid.h

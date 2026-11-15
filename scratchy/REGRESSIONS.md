@@ -2,6 +2,8 @@
 
 ## R8–R11: build-test pass on `main` @ `f3b06a8` (Opus investigator, 2026-11-15) — OPEN
 
+**R11 DONE** (QB4, see TODO.txt). R8–R10 still open.
+
 Investigation only, no code changed. Fix items are QB1–QB10 at the top of
 the TODO.txt QUEUE. Everything below was seen in a real window and
 screenshotted, unless it says otherwise.
@@ -150,7 +152,7 @@ has no `js` field.
 
 **Fix:** QB6.
 
-### R11 — User report: wikipedia.org "Thank you for donating recently!" dialog shows and Close does nothing — ANALYSIS
+### R11 — User report: wikipedia.org "Thank you for donating recently!" dialog shows and Close does nothing — DONE (QB4; part (c) = QB5)
 
 **(a) Why the dialog was visible.** Not reproducible on `f3b06a8`, with JS
 on or off. A full-window screenshot of https://wikipedia.org shows no

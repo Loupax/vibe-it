@@ -428,7 +428,7 @@ const DOM_PRELUDE: &str = r#"
   var wrap = function (id) {
     if (id === undefined || id < 0) return null;
     if (cache[id]) return cache[id];
-    var o = Object.create(__d_kind(id) === 1 ? HTMLElement.prototype : Node.prototype);
+    var o = Object.create(__d_kind(id) === 1 ? (__d_tag(id).toLowerCase() === 'dialog' ? HTMLDialogElement.prototype : HTMLElement.prototype) : Node.prototype);
     Object.defineProperty(o, '__id', { value: id });
     if (__d_kind(id) === 11) { queries(o); }
     return (cache[id] = o);
@@ -545,6 +545,37 @@ const DOM_PRELUDE: &str = r#"
     var has = this.hasAttribute(n), want = force === undefined ? !has : !!force;
     if (want && !has) this.setAttribute(n, ''); else if (!want && has) this.removeAttribute(n);
     return want;
+  };
+  // QB4: HTMLDialogElement. `showModal` also sets an internal attribute so
+  // the UA sheet can centre it (`:modal` isn't supported). `::backdrop` is
+  // not rendered. `close` fires synchronously (browsers queue a task).
+  var domErr = function (name, msg) { var e = new Error(msg); e.name = name; return e; };
+  var HTMLDialogElement = function HTMLDialogElement() {};
+  HTMLDialogElement.prototype = Object.create(HTMLElement.prototype, { constructor: { value: HTMLDialogElement, writable: true, configurable: true } });
+  g.HTMLDialogElement = HTMLDialogElement;
+  var DP = HTMLDialogElement.prototype;
+  defs(DP, 'open', function () { return __d_attr(this.__id, 'open') != null; },
+    function (v) { if (v) __d_setattr(this.__id, 'open', ''); else __d_rmattr(this.__id, 'open'); });
+  defs(DP, 'returnValue', function () { return this.__rv === undefined ? '' : this.__rv; },
+    function (v) { this.__rv = String(v); });
+  DP.show = function () {
+    if (this.open) { if (__d_attr(this.__id, 'data-scratchy-modal') != null) throw domErr('InvalidStateError', "Failed to execute 'show' on 'HTMLDialogElement': The element is already open, and therefore cannot be opened non-modally."); return; }
+    __d_setattr(this.__id, 'open', '');
+  };
+  DP.showModal = function () {
+    if (this.open) {
+      if (__d_attr(this.__id, 'data-scratchy-modal') != null) return;
+      throw domErr('InvalidStateError', "Failed to execute 'showModal' on 'HTMLDialogElement': The element already has an 'open' attribute, and therefore cannot be opened modally.");
+    }
+    __d_setattr(this.__id, 'data-scratchy-modal', '');
+    __d_setattr(this.__id, 'open', '');
+  };
+  DP.close = function (rv) {
+    if (!this.open) return;
+    if (rv !== undefined) this.__rv = String(rv);
+    __d_rmattr(this.__id, 'open');
+    __d_rmattr(this.__id, 'data-scratchy-modal');
+    this.dispatchEvent(new Event('close'));
   };
   var classes = function (el) { return el.className.split(/\s+/).filter(Boolean); };
   def(ElementProto, 'classList', function () {

@@ -2031,7 +2031,10 @@ pub(crate) fn hit_test_inner(
     scroll_offset: f32,
     viewport_h: f32,
 ) -> Option<(CursorStyle, Option<&'static str>, usize)> {
-    if !laid.ink.contains(x, y) {
+    // `fixed` boxes are deliberately not part of an ancestor's `ink` (they
+    // live in viewport space), so a box holding any must not prune on it
+    // or a click on a fixed overlay (QB4: modal dialog) would miss it.
+    if !laid.ink.contains(x, y) && !laid.positioned.iter().any(|p| p.fixed) {
         return None;
     }
     let inside = x >= laid.x && x < laid.x + laid.w && y >= laid.y && y < laid.y + laid.h;

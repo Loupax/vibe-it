@@ -836,7 +836,7 @@ touching the user's desktop: use it for the live check of each item.
       (pure function of last-build time and time since last move). Live
       check: the R8 recipe (Main_Page, motion every 2 ms for 20 s) survives
       5/5 runs, JS on and off.
-- [ ] QB4 [S] (P1, user report, R11) `HTMLDialogElement`: `show()`,
+- [x] QB4 [S] (P1, user report, R11) (HASH) `HTMLDialogElement`: `show()`,
       `showModal()`, `close(returnValue?)`, the `open` property (reflects
       the attribute) and `returnValue`. `close()` removes `open`, sets
       `returnValue`, then fires a `close` event at the dialog. `showModal`
@@ -916,6 +916,13 @@ touching the user's desktop: use it for the live check of each item.
       its socket. Add a short "Driving a real window" section to AGENTS.md
       step 6 that replaces the deleted AUTOSCROLL/AUTOHOVER recipe.
       Without it, nobody can click, type or scroll in a live check.
+- [ ] QB11 [S] (P2, from QB4) `dialog::backdrop` (dimmed layer behind a
+      modal dialog, and blocking clicks outside it), the `cancel` event and
+      Escape-to-close, `<dialog>` `requestClose()`, and `<form
+      method=dialog>` submit closing the dialog with the submitter's value
+      (the last waits for Q30e). QB4 only did the API plus centring; the
+      modal marker is the internal `data-scratchy-modal` attribute and the
+      UA rule is in `default.css`.
 
 --- TOP PRIORITY: JS on real pages (user report, 2026-11-15) ----------
 
