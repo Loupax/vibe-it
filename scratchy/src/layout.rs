@@ -139,6 +139,7 @@ pub(crate) enum BoxContent {
 /// `width`/`height` are the *intrinsic* pixel dimensions straight off the
 /// decoded image — `measure`'s own `Image` arm is what applies any CSS/
 /// HTML `width`/`height` override on top.
+#[derive(Clone)]
 pub(crate) struct DecodedImage {
     pub(crate) width: u32,
     pub(crate) height: u32,

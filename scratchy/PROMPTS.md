@@ -6570,3 +6570,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Implement QY5 (R20 error 4): clear log line when a script/callback is stopped by the interrupt budget, and measure the budget in thread CPU time instead of wall-clock; keep the 5 s / 500 ms values.
 
 **What changed:** js.rs `thread_cpu_nanos()` (`libc::clock_gettime(CLOCK_THREAD_CPUTIME_ID)`; `libc = "0.2"` added as a direct dependency, already in Cargo.lock transitively). The interrupt deadline is now thread-CPU nanoseconds, armed per top-level eval; the handler sets a `tripped` flag and `eval`/`eval_value` log `js: <name> stopped: exceeded the 5 s CPU-time page-load budget (<N> KB of source)` (or `500 ms ... callback budget`) instead of `InternalError: interrupted`. Compile time of a huge script still counts as CPU (QuickJS has no hook to exclude it); only machine load and waiting no longer do. Tests `qy5_*`.
+
+## Q35a external background-image / mask-image url() fetching
+
+> Implement Q35a: external `background-image`/`mask-image` `url()` references are never fetched (only `data:` decodes). Fetch through wire like `<img>`, cache, relayout on arrival; SVG sprites via resvg; verify wikipedia.org wordmark and en.wikipedia Main_Page icons.
+
+**What changed:** see NOTES.md "External CSS `url()` images (Q35a)". style.rs `resolve_background_image` takes the image cache and records misses (`take_wanted_css_images`); net.rs `absolutize_css_urls` makes stylesheet urls absolute; app.rs `fetch_wanted_css_images` spawns the fetches (cap 64). Tests `absolutize_css_urls_resolves_relative_against_sheet_q35a`, `external_background_and_mask_urls_use_image_cache_q35a`, `layout_build_reports_wanted_css_images_and_uses_cache_q35a`.

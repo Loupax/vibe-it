@@ -752,7 +752,7 @@ Q32 (parked); 320 tests pass, 2 ignored; lib.rs is ~27.4k lines.
 
 --- TOP PRIORITY: wikipedia.org wordmark missing (coordinator, 2026-11-15) ---
 
-- [ ] QW1 [S] (PARTLY DONE, see "QW1 diagnosis" below; remaining work is Q35a)
+- [x] QW1 [S] (done, commit HASH; PR #157 layer-list parse + Q35a url fetching; wordmark verified on a live window)
       The "Wikipedia" wordmark above the tagline on https://wikipedia.org
       is not drawn (two agents reported it; it was visible earlier today).
       Cause found by reading the page: the markup is
@@ -2065,7 +2065,7 @@ Not vendored; pass the path to the runner.
       if each fix is S. Otherwise add a narrower item here. Don't start
       forms on top of an unverified paint/hover path, because form
       controls add more hover/focus/repaint traffic to exactly that code.
-- [ ] Q35a [M] External `background-image`/`mask-image` URLs are never
+- [x] Q35a [M] (done, commit HASH; background-image + mask-image, cap 64 fetches; follow-up Q35b) External `background-image`/`mask-image` URLs are never
       loaded. Diagnosed in Q35: the dark squares (page tabs, "View
       history", header) and the blue "78 languages" squares are Vector
       `.vector-icon.mw-ui-icon-*` elements whose `mask-image` is
@@ -2078,6 +2078,12 @@ Not vendored; pass the path to the runner.
       relayout/repaint when it lands). Test: a stylesheet-supplied
       mask URL served via the image cache paints the masked shape, not a
       square.
+- [ ] Q35b [S] Leftovers from Q35a. (1) `background:`/`mask:` shorthand with a
+      gradient layer before the url layer still keeps only the first layer's
+      image. (2) Each arriving CSS image triggers a full relayout (like <img>);
+      a paint-only path or debounce would help pages with many icons.
+      (3) HN vote arrows (`grayarrow.gif` background) now load but sit on top
+      of the title's first letter (votelinks column too narrow): diagnose.
 - [x] Q36 [M] (done, commit 3a5df87; `rowspan="0"` is treated as 1, not
       "to end of row group"; row-group/`<col>` widths still ignored) (optional, user call: it was on the "not queued" list
       below) `colspan`/`rowspan` in `measure_table`. Suggested because

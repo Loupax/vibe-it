@@ -521,9 +521,71 @@ pub(crate) fn expand_css_imports(
             out.push('\n');
         }
     }
-    out.push_str(rest);
+    out.push_str(&absolutize_css_urls(rest, sheet_url));
     out
 }
+
+/// Q35a: rewrites every relative `url(...)` in a fetched stylesheet's text
+/// to an absolute one against the sheet's own URL, so a `background-image`
+/// or `mask-image` reference means the same thing once the text is
+/// concatenated into the page's one stylesheet (where the resolution base
+/// would otherwise be lost). `data:`, absolute, protocol-relative-free
+/// (`//host` is resolved too), fragment-only (`#id`) and empty references
+/// are left alone, as is everything when the sheet URL is not a base
+/// (`data:`).
+pub(crate) fn absolutize_css_urls(css: &str, sheet_url: &Url) -> String {
+    if sheet_url.cannot_be_a_base() {
+        return css.to_string();
+    }
+    let bytes = css.as_bytes();
+    let mut out = String::with_capacity(css.len());
+    let mut i = 0;
+    let mut last = 0;
+    while i + 4 <= bytes.len() {
+        let is_url = bytes[i..i + 4].eq_ignore_ascii_case(b"url(")
+            && (i == 0 || !(bytes[i - 1].is_ascii_alphanumeric() || bytes[i - 1] == b'-' || bytes[i - 1] == b'_'));
+        if !is_url {
+            i += 1;
+            continue;
+        }
+        let start = i + 4;
+        let mut j = start;
+        while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+            j += 1;
+        }
+        let (arg, end) = if j < bytes.len() && (bytes[j] == b'"' || bytes[j] == b'\'') {
+            let q = bytes[j];
+            let Some(close) = css[j + 1..].find(q as char) else { break };
+            let arg = &css[j + 1..j + 1 + close];
+            let mut e = j + 1 + close + 1;
+            while e < bytes.len() && bytes[e].is_ascii_whitespace() {
+                e += 1;
+            }
+            if e >= bytes.len() || bytes[e] != b')' {
+                i = start;
+                continue;
+            }
+            (arg, e + 1)
+        } else {
+            let Some(close) = css[j..].find(')') else { break };
+            (css[j..j + close].trim_end(), j + close + 1)
+        };
+        let skip = arg.is_empty() || is_data_url(arg) || arg.starts_with('#') || arg.contains('\\') || arg.contains('"') || arg.contains('\'');
+        if !skip && let Ok(abs) = sheet_url.join(arg) && abs.as_str() != arg {
+            out.push_str(&css[last..i]);
+            out.push_str("url(\"");
+            out.push_str(abs.as_str());
+            out.push_str("\")");
+            last = end;
+        }
+        i = end;
+    }
+    out.push_str(&css[last..]);
+    out
+}
+
+/// Upper bound on distinct CSS `background-image`/`mask-image` urls fetched per page (Q35a).
+pub(crate) const MAX_CSS_IMAGE_FETCHES: usize = 64;
 
 /// Fetches and decodes one external image — `None` on any failure
 /// (unreachable, not a supported image content type, or bytes `image`
