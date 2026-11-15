@@ -36,7 +36,7 @@ intro removed and `#top{margin-top:0}` so it needs no scrolling):
 | 1 scalp: `position:fixed`, min/max-height | black 48x12, yellow 6px bottom border | black 48x12 correct, bottom 6px red | `p.bad` (`margin-top:3em`, red border) sits on top of it: R12 |
 | 2 abspos `blockquote` with float child | `##yyyy##` at y=120, x=108 | `yyyy##` at y=84, x=24 | R12 (margins 36px/60px ignored) + R19 (shrink-to-fit ignores the float, so the float overhangs the left border) |
 | 3 forehead (`&nbsp;` line, 1x1 PNG bg) | `#yyyyyyyy#` | nothing (height 0) | R14 (NBSP-only line has no height); its PNG is also `%2F`-escaped base64 (R16) |
-| 4-5 eyes: `<object>` fallback chain, fixed backgrounds, float vs block paint order | yellow with two eyes | red with a black/yellow left edge | `<object>` image not rendered (W20, QA21); both 2x2 PNGs fail to decode (R16); `background-attachment:fixed` unsupported (QA8) |
+| 4-5 eyes: `<object>` fallback chain, fixed backgrounds, float vs block paint order | yellow with two eyes | red with a black/yellow left edge | `<object>` image not rendered (W20, QA21); both 2x2 PNGs fail to decode (R16); `background-attachment:fixed` unsupported (fixed by QA8) |
 | 6-9 nose: float, min/max-height, `::before/::after` borders | at y=168 | correct shape, 12px too high | knock-on from the 0-height forehead (R14) |
 | 10-11 smile: `.empty` margin collapsing, negative clearance, abspos `width:auto`, nested floats | `#y#yyyyyy#y#` / `#yy######yy#` | wrong shape ~60px low | Q48b + Q74 (margins through empty block, clearance; repro below) and R19 |
 | 12 chin (`&nbsp;` line, fixed bg) | `#yyyyyyyy#` | nothing | R14 |

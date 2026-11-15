@@ -1087,6 +1087,9 @@ pub(crate) struct Declarations {
     pub(crate) background_position: Option<BgPosDecl>,
     pub(crate) background_size: Option<BgSizeDecl>,
     pub(crate) background_repeat: Option<BgRepeat>,
+    /// `background-attachment`: `true` for `fixed` (QA8); `scroll` and
+    /// `local` are both `false`.
+    pub(crate) background_attachment: Option<bool>,
     /// `object-fit` / `object-position` (Q28) for `<img>`.
     pub(crate) object_fit: Option<ObjectFit>,
     pub(crate) object_position: Option<BgPosDecl>,
@@ -3287,6 +3290,9 @@ pub(crate) struct BgLayout {
     pub(crate) pos_y: (f32, f32),
     pub(crate) size: BgSize,
     pub(crate) repeat: BgRepeat,
+    /// `background-attachment: fixed` (QA8): position and size against
+    /// the viewport instead of the box.
+    pub(crate) fixed: bool,
 }
 
 impl Default for BgLayout {
@@ -3296,6 +3302,7 @@ impl Default for BgLayout {
             pos_y: (0.0, 0.0),
             size: BgSize::Explicit(BgDim::Auto, BgDim::Auto),
             repeat: BgRepeat::default(),
+            fixed: false,
         }
     }
 }
@@ -3533,6 +3540,8 @@ pub(crate) struct BgShorthand {
     pub(crate) position: Option<BgPosDecl>,
     pub(crate) size: Option<BgSizeDecl>,
     pub(crate) repeat: Option<BgRepeat>,
+    /// `Some(true)` for `fixed` in the first layer (QA8).
+    pub(crate) fixed: Option<bool>,
 }
 
 /// `background`'s grammar: a color, an image (`url()`, `none` or a
@@ -3544,7 +3553,7 @@ pub(crate) struct BgShorthand {
 /// the last layer fails the whole value so the declaration is dropped;
 /// `mask` stays lenient and skips unknown tokens.
 pub(crate) fn parse_background_shorthand(input: &mut CssParser, strict: bool) -> Result<BgShorthand, ()> {
-    let mut out = BgShorthand { color: None, image: None, position: None, size: None, repeat: None };
+    let mut out = BgShorthand { color: None, image: None, position: None, size: None, repeat: None, fixed: None };
     let mut found = false;
     let mut first_layer = true;
     // In the current layer: saw an image / repeat / position.
@@ -3648,7 +3657,16 @@ pub(crate) fn parse_background_shorthand(input: &mut CssParser, strict: bool) ->
                 first_layer = false;
                 (l_image, l_repeat, l_pos) = (false, false, false);
             }
-            Ok(Token::Ident(id)) if strict && is_bg_box_keyword(id) => {}
+            Ok(Token::Ident(id)) if strict && is_bg_box_keyword(id) => {
+                if first_layer {
+                    if id.eq_ignore_ascii_case("fixed") {
+                        out.fixed = Some(true);
+                    } else if id.eq_ignore_ascii_case("scroll") || id.eq_ignore_ascii_case("local") {
+                        out.fixed = Some(false);
+                    }
+                }
+            }
+            Ok(Token::Ident(id)) if !strict && (id.eq_ignore_ascii_case("fixed") || id.eq_ignore_ascii_case("scroll") || id.eq_ignore_ascii_case("local")) => {}
             Ok(Token::Delim('!')) if strict => {
                 if input.expect_ident_matching("important").is_ok() && input.is_exhausted() {
                     break;
@@ -4456,6 +4474,7 @@ impl Declarations {
             "background-position" => background_position,
             "background-size" => background_size,
             "background-repeat" => background_repeat,
+            "background-attachment" => background_attachment,
             "object-fit" => object_fit,
             "object-position" => object_position,
             "font-size" => font_size, "line-height" => line_height,
@@ -4616,6 +4635,18 @@ impl DeclParser<'_> {
             if let Ok(v) = parse_bg_repeat(input) {
                 self.decls.background_repeat = Some(v);
             }
+        } else if name.eq_ignore_ascii_case("background-attachment") {
+            // First layer of a comma list only (QA8).
+            if let Ok(fixed) = input.try_parse(|i| {
+                let id = i.expect_ident()?.to_ascii_lowercase();
+                match id.as_str() {
+                    "fixed" => Ok(true),
+                    "scroll" | "local" => Ok(false),
+                    _ => Err(i.new_error_for_next_token::<()>()),
+                }
+            }) {
+                self.decls.background_attachment = Some(fixed);
+            }
         } else if name.eq_ignore_ascii_case("background") {
             // QA4: strict parse; the shorthand resets every omitted
             // longhand (colour, image, position, size, repeat) to initial.
@@ -4631,6 +4662,7 @@ impl DeclParser<'_> {
                 self.decls.background_position = Some(bg.position.unwrap_or_default());
                 self.decls.background_size = Some(bg.size.unwrap_or_default());
                 self.decls.background_repeat = Some(bg.repeat.unwrap_or_default());
+                self.decls.background_attachment = Some(bg.fixed.unwrap_or(false));
             }
         } else if parse_border_property(self.decls, name, input) {
         } else if name.eq_ignore_ascii_case("display") {
