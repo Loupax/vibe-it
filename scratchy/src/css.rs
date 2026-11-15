@@ -2888,7 +2888,6 @@ pub(crate) fn parse_text_decoration_line(input: &mut CssParser) -> Result<Decora
 /// crease, not just a flat shade — see `paint_border` for exactly how.
 #[derive(Clone, Copy, PartialEq, Default, Debug)]
 pub(crate) enum BorderStyle {
-    #[default]
     Solid,
     Dashed,
     Dotted,
@@ -2909,7 +2908,8 @@ pub(crate) enum BorderStyle {
     /// Same outcome as `hidden` — no border renders regardless of
     /// `border-width`/`border-color` — scratchy has no `display: table`
     /// border-conflict-resolution rules that would ever need to tell
-    /// `none` and `hidden` apart.
+    /// `none` and `hidden` apart. Also the CSS initial value (QA1).
+    #[default]
     None,
 }
 

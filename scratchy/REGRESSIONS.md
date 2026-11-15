@@ -64,12 +64,13 @@ static position) and never adds `margin-left`/`margin-top`; `right`/`bottom`
 never subtract the margin. Any abspos/fixed box with a margin is misplaced.
 Fix: QA3.
 
-### R13 — `border-style` defaults to `solid` (bug) — OPEN
+### R13 — `border-style` defaults to `solid` (bug) — FIXED (QA1)
 
 `BorderStyle`'s `#[default]` variant is `Solid` and `compute_style` uses
 `unwrap_or_default()`, so `border: 1px blue` or a bare `border-width`
 paints a solid border. The CSS initial value is `none`. Seen live on Acid3:
-`* { border: 1px blue }` outlines every element in blue. Fix: QA1.
+`* { border: 1px blue }` outlines every element in blue. Fixed by QA1 (default is now `none`;
+verified headless, a `*{border:1px blue}` fixture no longer outlines).
 
 ### R14 — `&nbsp;` is treated as collapsible white space (bug) — OPEN
 
