@@ -8608,6 +8608,8 @@ fn qb1_event_loop_exit_message() {
     let m = event_loop_exit_message(&Err(EventLoopError::ExitFailure(1))).unwrap();
     assert!(m.contains("Wayland compositor"), "{m}");
     assert!(!m.contains(char::from(10)));
+}
+
 // Q49a: a float's shrink-to-fit width is min(max(min-content, available),
 // max-content), so a float in a container narrower than its longest word is
 // as wide as the word, not squeezed to the container.

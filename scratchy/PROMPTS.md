@@ -6389,6 +6389,7 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Implement QB1 from the TODO.txt queue (R8): print one clear line and exit 1 when the compositor drops the connection; same for the unwraps in redraw.
 
 **What changed:** `run()` now matches the result of `run_app`; `event_loop_exit_message` (pure, tested) gives the one-line message and the process exits 1. The `unwrap()`s on surface resize, `buffer_mut` and `present` in `App::redraw` log once (`log_redraw_error_once`) and return. QB3 (bounding main-thread stalls) remains. Test: `qb1_event_loop_exit_message`.
+
 ## Q49a — float shrink-to-fit uses the CSS2.1 formula (queue item)
 
 > Take the first small clear-cut QUEUE item (Q42a skipped: needs font metrics plumbing into style resolution; Q41b/Q43a/Q52 excluded).

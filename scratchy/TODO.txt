@@ -1144,7 +1144,7 @@ Not vendored; pass the path to the runner.
 - [x] Q49 [M] (done, commit ab0678c) A float that follows inline content on the same line goes at
       the top of that line beside it (W8), and the inline content shifts
       (only when it fits). WPT: `floats-001`, `inlines-013`.
-- [x] Q49a [S] (6f73d6c; part 2 only, rest in Q49b) After Q49: `inlines-013` still fails. Needs (1) an `<img>` line box
+- [x] Q49a [S] (ba0de68; part 2 only, rest in Q49b) After Q49: `inlines-013` still fails. Needs (1) an `<img>` line box
       strut so the 1x1 image run is 64px high in WPT, and (2) float
       shrink-to-fit width must be `min(max(min-content, available), max-content)`
       (today `content_w.min(max_mb).max(min_mb.min(content_w))` wraps `XXXX` per
