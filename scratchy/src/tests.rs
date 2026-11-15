@@ -7585,7 +7585,7 @@ fn q48_y_of(html: &str, h: f32) -> f32 {
 }
 
 #[test]
-#[ignore = "Q48 BLOCKED: engine has no margin collapsing at all (see TODO Q48)"]
+#[ignore = "Q48b: needs margins to collapse through empty blocks (sibling rule is Q48a, done)"]
 fn margin_collapses_through_empty_auto_block() {
     let y = q48_y_of(
         r#"<html><body style="margin:0"><div style="height:10px"></div><div style="margin-bottom:50px"></div><div></div><div style="margin-top:30px;height:77px"></div></body></html>"#,
@@ -7595,7 +7595,7 @@ fn margin_collapses_through_empty_auto_block() {
 }
 
 #[test]
-#[ignore = "Q48 BLOCKED: engine has no margin collapsing at all (see TODO Q48)"]
+#[ignore = "Q48b: needs margins to collapse through empty blocks (sibling rule is Q48a, done)"]
 fn margin_collapses_through_zero_height_block() {
     let y = q48_y_of(
         r#"<html><body style="margin:0"><div style="height:10px"></div><div style="margin-bottom:50px"></div><div style="height:0"></div><div style="margin-top:30px;height:77px"></div></body></html>"#,
@@ -7605,7 +7605,7 @@ fn margin_collapses_through_zero_height_block() {
 }
 
 #[test]
-#[ignore = "Q48 BLOCKED: engine has no margin collapsing at all (see TODO Q48)"]
+#[ignore = "Q48b: needs margins to collapse through empty blocks (sibling rule is Q48a, done)"]
 fn margin_collapses_through_empty_block_own_margins() {
     // 20, 40, 10, 30 collapse to 40.
     let y = q48_y_of(
@@ -7847,4 +7847,66 @@ fn q59_text_node_trailing_space_only_where_source_had_whitespace() {
         assert!((tight - 40.0).abs() < 0.01, "{tight}");
         assert!((spaced - 60.0).abs() < 0.01, "{spaced}");
     }
+}
+
+// Q48a: adjacent in-flow sibling vertical margins collapse (CSS2.1 8.3.1).
+fn q48a_pair(a: &str, b: &str) -> f32 {
+    q48_y_of(
+        &format!(r#"<html><body style="margin:0"><div style="height:10px;margin-bottom:{a}"></div><div style="height:77px;margin-top:{b}"></div></body></html>"#),
+        77.0,
+    )
+}
+
+#[test]
+fn sibling_margins_collapse_positive() {
+    assert_eq!(q48a_pair("20px", "30px"), 40.0);
+    assert_eq!(q48a_pair("30px", "20px"), 40.0);
+}
+
+#[test]
+fn sibling_margins_collapse_negative() {
+    assert_eq!(q48a_pair("-20px", "-30px"), 10.0 - 30.0);
+}
+
+#[test]
+fn sibling_margins_collapse_mixed() {
+    // 30 + (-10) = 20
+    assert_eq!(q48a_pair("30px", "-10px"), 30.0);
+    assert_eq!(q48a_pair("-10px", "30px"), 30.0);
+}
+
+#[test]
+fn sibling_margins_percent_top_collapses() {
+    // 10% of 900px = 90 collapses with 20 -> 90
+    assert_eq!(q48a_pair("20px", "10%"), 100.0);
+}
+
+#[test]
+fn float_between_siblings_does_not_break_or_join_collapse() {
+    let y = q48_y_of(
+        r#"<html><body style="margin:0"><div style="height:10px;margin-bottom:20px"></div><div style="float:left;width:5px;height:5px;margin:100px"></div><div style="height:77px;margin-top:30px"></div></body></html>"#,
+        77.0,
+    );
+    assert_eq!(y, 40.0);
+}
+
+#[test]
+fn abspos_between_siblings_is_transparent_to_collapse() {
+    let y = q48_y_of(
+        r#"<html><body style="margin:0"><div style="height:10px;margin-bottom:20px"></div><div style="position:absolute;height:5px;margin:100px"></div><div style="height:77px;margin-top:30px"></div></body></html>"#,
+        77.0,
+    );
+    assert_eq!(y, 40.0);
+}
+
+#[test]
+fn clearance_prevents_sibling_margin_collapse() {
+    let y = q48_y_of(
+        r#"<html><body style="margin:0"><div style="float:left;width:5px;height:50px"></div><div style="height:10px;margin-bottom:20px"></div><div style="clear:left;height:77px;margin-top:30px"></div></body></html>"#,
+        77.0,
+    );
+    // Not collapsed with the previous sibling (clearance). The engine still
+    // adds the cleared box's own margin-top below the float bottom (CSS puts
+    // its border edge at 50); see TODO Q48d.
+    assert_eq!(y, 80.0);
 }

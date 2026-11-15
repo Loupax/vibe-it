@@ -51,7 +51,7 @@ PASS css/CSS2/borders/border-top-width-089.xht
 PASS css/CSS2/box-display/anonymous-box-generation-001.xht
 PASS css/CSS2/box-display/anonymous-boxes-inheritance-001.xht
 PASS css/CSS2/box-display/block-in-inline-003.xht
-FAIL css/CSS2/box-display/block-in-inline-007.xht
+PASS css/CSS2/box-display/block-in-inline-007.xht
 PASS css/CSS2/box-display/block-in-inline-008.xht
 PASS css/CSS2/box-display/block-in-inline-margin-bottom-with-trailing-block.html
 PASS css/CSS2/box-display/block-in-inline-margin-collapses-through-multiple-floats.html
@@ -303,12 +303,12 @@ FAIL css/css-cascade/scope-pseudo-element.html
 FAIL css/css-color/a98rgb-001.html
 FAIL css/css-color/color-mix-currentcolor-003.html
 FAIL css/css-color/deprecated-sameas-012.html
-FAIL css/css-color/hex-002.html
+PASS css/css-color/hex-002.html
 FAIL css/css-color/hwb-002.html
 PASS css/css-color/lch-l-over-100-1.html
 FAIL css/css-color/oklch-007.html
 PASS css/css-color/prophoto-rgb-004.html
-FAIL css/css-color/rgb-003.html
+PASS css/css-color/rgb-003.html
 FAIL css/css-color/t32-opacity-offscreen-b.xht
 FAIL css/css-color/t422-rgba-func-whitespace-b.xht
 FAIL css/css-color/t425-hsla-values-b.xht
