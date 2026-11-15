@@ -1854,6 +1854,9 @@ fn measure_inner<'a>(
             // before it was measured, its box). A float that follows it is
             // placed at the top of that run's last line.
             let mut prev_anon: Option<(usize, f32, usize, &LayoutBox)> = None;
+            // Q48a (CSS2.1 8.3.1): the previous in-flow block sibling's
+            // bottom margin, still pending collapse with the next one's top.
+            let mut prev_mb: Option<f32> = None;
             for child in children {
                 if matches!(child.style.position, Position::Absolute | Position::Fixed) {
                     prev_anon = None;
@@ -1870,6 +1873,7 @@ fn measure_inner<'a>(
                 // side(s) in this same BFC, *before* this child (float
                 // or not) is measured. `clear_y` returns `f32::MIN`
                 // (never wins the `max`) when there's nothing to clear.
+                let y_before_clear = cursor_y;
                 if child.style.clear != Clear::None {
                     cursor_y = cursor_y.max(local_floats.clear_y(child.style.clear));
                 }
@@ -1992,11 +1996,32 @@ fn measure_inner<'a>(
                         }
                     }
                 }
+                // Q48a: adjacent sibling margins collapse unless clearance or
+                // float avoidance displaced this box.
+                let collapsible = child.style.display != Display::None && cursor_y == y_before_clear;
+                let mut overlap_done = false;
+                if collapsible
+                    && let (Some(pb), BoxLength::Px(mt)) = (prev_mb, child.style.margin.top)
+                {
+                    cursor_y -= margin_overlap(pb, mt);
+                    overlap_done = true;
+                }
                 let (start_y, plen) = (cursor_y, own_pending.len());
-                let lc = measure(
+                let mut lc = measure(
                     child, font_system, child_x, cursor_y, child_w, child_containing_height, next_id, cache,
                     deadline, incomplete, &mut own_pending, local_floats, None,
                 );
+                if collapsible
+                    && !overlap_done
+                    && let Some(pb) = prev_mb
+                {
+                    let ov = margin_overlap(pb, lc.style.margin.top.px());
+                    shift_laid_tree(&mut lc, 0.0, -ov);
+                    cursor_y -= ov;
+                }
+                if child.style.display != Display::None {
+                    prev_mb = Some(lc.style.margin.bottom.px());
+                }
                 cursor_y += lc.style.margin.top.px() + lc.style.margin.bottom.px() + lc.h;
                 prev_anon = (child.style.node == 0
                     && child.style.display == Display::Block
@@ -2186,6 +2211,20 @@ fn measure_inner<'a>(
     // those in immediately after, via `patch_sticky_containing_block`).
     capture_sticky_info(&mut laid, &s, containing_height);
     laid
+}
+
+/// Q48a: how much two adjoining vertical margins `a` (earlier box's bottom)
+/// and `b` (later box's top) overlap once collapsed (CSS2.1 8.3.1: the
+/// largest positive plus the most negative; one sign alone just the extreme).
+fn margin_overlap(a: f32, b: f32) -> f32 {
+    let collapsed = if a >= 0.0 && b >= 0.0 {
+        a.max(b)
+    } else if a <= 0.0 && b <= 0.0 {
+        a.min(b)
+    } else {
+        a + b
+    };
+    a + b - collapsed
 }
 
 /// A replaced element's border-box size from its intrinsic decoded size

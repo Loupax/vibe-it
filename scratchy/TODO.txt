@@ -888,11 +888,20 @@ Not vendored; pass the path to the runner.
       of nearly every page, so it is not an [S]. Tests written and kept
       `#[ignore]`d in src/tests.rs (`margin_collapses_through_*`, helper
       `q48_y_of`); drop the `#[ignore]` as each sub-item lands. Split into:
-- [ ] Q48a [M] Adjacent in-flow sibling margins collapse (CSS2.1 8.3.1:
+- [x] Q48a [M] (done, commit b55ccac) Adjacent in-flow sibling margins collapse (CSS2.1 8.3.1:
       max of positives + min of negatives; clearance and floats excluded).
       Suggested approach: track the previous sibling's bottom margin in the
       Blocks loop and `shift_laid_tree(&mut lc, 0, -overlap)` after measure.
       Expect WPT `margin-collapse-*` movement; run the full subset.
+      Done: `margin_overlap` + `prev_mb` in the `Blocks` loop of `measure_inner`
+      (positive max / negative min / mixed sum). Not collapsed across a
+      clearance or Q34b float-avoidance displacement; floats, abspos and
+      display:none are transparent. `margin_collapses_through_*` stay ignored
+      (they need Q48b).
+- [ ] Q48d [S] After Q48a: clearance puts the cleared box's BORDER edge at the
+      float bottom (CSS2.1 9.5.2); the engine moves the margin edge and then
+      adds margin-top. Test `clearance_prevents_sibling_margin_collapse` pins
+      the current 80 (correct is 50). WPT: `clear-clearance-calculation-*`.
 - [ ] Q48b [M] After Q48a: margins collapse through empty blocks (no height,
       padding, border, in-flow content, min-height; `height:auto` or `0`),
       including the empty block's own top and bottom margins. WPT:
