@@ -110,7 +110,7 @@ the same box's `positioned` list. An abs/fixed box that bubbled to the root
 paints above `position:relative; z-index:2` content anywhere else. Acid2's
 intro (`z-index:2`) is painted under the fixed scalp bar. Fix: QA9.
 
-### R18 — A fragment in the first URL is ignored (bug) — FIXED (QA6, commit a59677f)
+### R18 — A fragment in the first URL is ignored (bug) — FIXED (QA6, commit e8fb789)
 
 `scratchy …/wiki/SoHo_Weekly_News#References` and
 `http://acid2.acidtests.org/#top` open at the top of the page (seen live,
