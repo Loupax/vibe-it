@@ -794,7 +794,7 @@ with JS on than with `--no-js` (compare `grim` screenshots of both).
       for listener exceptions, number inline scripts (`inline script #3`)
       and use that as the stack filename, format non-Error throws with
       JS `String()`. Details and tests in R6. Mark R6 FIXED with the hash.
-- [x] QJ3 [S] (HASH) Headless JS report: `scratchy --js-report [--socket S]
+- [x] QJ3 [S] (b53730c) Headless JS report: `scratchy --js-report [--socket S]
       <file>` (dispatched in `run()` next to `--wpt`, no window, no event
       loop). Parses the page, gets scripts the same way the windowed path
       does (`load_file_resources` with a socket, else `inline_scripts`),
