@@ -8395,7 +8395,9 @@ fn q33c2_closed_dialog_is_not_rendered_open_dialog_is() {
     let open = h("<dialog open><div style=\"height:100px\">x</div></dialog>");
     assert_eq!(closed, none, "closed dialog takes no space");
     assert!(open >= none + 100.0, "open dialog still renders");
+}
 
+#[test]
 fn q33c3_select_color_transparent_paints_no_option_text() {
     // Wikipedia portal: `.styled-select.js-enabled select` overlays a
     // `color:transparent` select on a visible label; the select's option
@@ -8406,7 +8408,7 @@ fn q33c3_select_color_transparent_paints_no_option_text() {
     // Unpainted pixels are 0, the white body fill is ffffff; any anti-aliased
     // glyph pixel is something else.
     let stray = pixels.iter().filter(|&&p| p & 0x00FF_FFFF != 0 && p & 0x00FF_FFFF != 0x00FF_FFFF).count();
-    let mut cs: Vec<u32> = pixels.iter().copied().filter(|&p| p & 0xFFFFFF != 0 && p & 0xFFFFFF != 0xFFFFFF).collect(); cs.sort(); cs.dedup(); assert_eq!(stray, 0, "transparent select text must not paint {cs:x?}");
+    assert_eq!(stray, 0, "transparent select text must not paint");
     assert_eq!(
         to_text_color(&parse_declarations("color: hsl(120, 100%, 50%)").color.unwrap()),
         Some(TextColor::rgb(0, 255, 0))
