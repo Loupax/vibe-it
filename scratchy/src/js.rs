@@ -8,6 +8,7 @@
 //! the page. The engine is created per page load and dropped afterwards
 //! (Q33d will need to keep it alive for events/timers).
 use super::*;
+use rquickjs::context::EvalOptions;
 use rquickjs::{Context, Ctx, Error as JsError, Exception, Function, Runtime};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -224,7 +225,12 @@ pub(crate) fn run_scripts_with(scripts: &[ScriptSource], log: LogFn) {
     });
     let eval = |name: &str, code: &str| {
         ctx.with(|ctx| {
-            if let Err(e) = ctx.eval::<(), _>(code) {
+            // HTML classic scripts are sloppy unless they opt in; rquickjs
+            // defaults to strict, so build the options explicitly (R5).
+            let mut opts = EvalOptions::default();
+            opts.strict = false;
+            opts.filename = Some(name.to_string());
+            if let Err(e) = ctx.eval_with_options::<(), _>(code, opts) {
                 log("error", &format!("{name}: {}", describe_error(&ctx, e)));
             }
         });
@@ -254,4 +260,92 @@ pub(crate) fn run_page_scripts(scripts: &[ScriptSource]) {
             }
         }),
     );
+}
+
+/// QJ3: runs `scripts` with a collecting log and returns the report
+/// text: every error line, then a summary (scripts run, errors total,
+/// errors grouped by first line with counts, most frequent first).
+pub(crate) fn js_report_for_scripts(scripts: &[ScriptSource]) -> String {
+    let errors = Rc::new(std::cell::RefCell::new(Vec::<String>::new()));
+    let e = errors.clone();
+    run_scripts_with(
+        scripts,
+        Rc::new(move |level, text| {
+            if level == "error" {
+                e.borrow_mut().push(text.to_string());
+            }
+        }),
+    );
+    let errors = errors.borrow();
+    let mut out = String::new();
+    for err in errors.iter() {
+        out.push_str("js error: ");
+        out.push_str(err);
+        out.push('\n');
+    }
+    let mut groups: Vec<(String, usize)> = Vec::new();
+    for err in errors.iter() {
+        let first = err.lines().next().unwrap_or("").to_string();
+        match groups.iter_mut().find(|(k, _)| *k == first) {
+            Some((_, n)) => *n += 1,
+            None => groups.push((first, 1)),
+        }
+    }
+    groups.sort_by_key(|g| std::cmp::Reverse(g.1));
+    out.push_str("--- summary ---\n");
+    out.push_str(&format!("scripts run: {}\nerrors total: {}\n", scripts.len(), errors.len()));
+    for (first, n) in groups {
+        out.push_str(&format!("{n:>4}  {first}\n"));
+    }
+    out
+}
+
+/// QJ3: `scratchy --js-report [--socket S] <file>`; headless, no window.
+/// With a socket the external scripts are fetched through `wire` (against
+/// the page's `<base href>`, else the file's own URL); without one only
+/// inline scripts run.
+pub(crate) fn js_report_main(args: &[String]) -> i32 {
+    let mut socket = None;
+    let mut file = None;
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        if a == "--socket" {
+            socket = it.next().map(std::path::PathBuf::from);
+        } else {
+            file = Some(a.clone());
+        }
+    }
+    let Some(file) = file else {
+        eprintln!("usage: scratchy --js-report [--socket <path>] <file>");
+        return 2;
+    };
+    let bytes = match fs::read(&file) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!("scratchy: {file}: {e}");
+            return 2;
+        }
+    };
+    set_js_enabled(true);
+    print!("{}", js_report_for_html(&decode_html_bytes(&bytes, None), socket.as_deref(), &file));
+    0
+}
+
+pub(crate) fn js_report_for_html(html: &str, socket: Option<&std::path::Path>, file: &str) -> String {
+    let Ok(dom) = new_parser().read_from(&mut html.as_bytes()) else { return "could not parse page\n".into() };
+    let scripts = match (socket, file_page_url(file)) {
+        (Some(socket), page_url) => {
+            let base = find_base_url(&dom.document).or(page_url);
+            match base {
+                Some(base) => {
+                    let mut res = ExternalResources::default();
+                    find_external_resources(&dom.document, &mut res);
+                    fetch_scripts(socket, &base, res.scripts)
+                }
+                None => inline_scripts(&dom.document),
+            }
+        }
+        _ => inline_scripts(&dom.document),
+    };
+    js_report_for_scripts(&scripts)
 }

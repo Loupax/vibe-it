@@ -85,6 +85,9 @@ pub fn run() {
     if raw_args.first().map(String::as_str) == Some("--wpt") {
         std::process::exit(wpt::main(&raw_args[1..]));
     }
+    if raw_args.first().map(String::as_str) == Some("--js-report") {
+        std::process::exit(js::js_report_main(&raw_args[1..]));
+    }
     let Args { input, socket, no_js } = parse_args();
     set_js_enabled(!no_js);
 

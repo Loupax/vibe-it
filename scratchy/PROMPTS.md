@@ -6295,3 +6295,9 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > "Go with rquickjs" (engine decision) and, earlier, "do the javascript since that's pretty stand alone". Task: do ONLY Q33a: classic inline/external scripts in document order, DOMContentLoaded + load, console to stderr, errors never fatal, `--no-js` / `:set nojs`, noscript hidden only with JS on.
 
 **What changed:** new `src/js.rs` (rquickjs 0.14.0 pinned), script collection in `find_external_resources`, `process_external_resources` returns `PageResources {css, scripts}` (external scripts fetched concurrently via wire), scripts run after the document is installed (nav, file, stream paths), `--no-js` and `:set js/nojs`, noscript UA rule only when JS on and scripting-disabled parse when off. 6 tests `q33a_*`. Cuts recorded as Q33a1-4 in TODO. Engine decision recorded in TODO Detail and NOTES.md.
+
+## QJ1 — sloppy-mode classic scripts, R5 (queue item)
+
+> Do ONLY QJ1: fix REGRESSIONS.md R5, classic scripts must run in sloppy mode with the filename set.
+
+**What changed:** `run_scripts_with` now evals via `eval_with_options` with `strict = false` and `filename = <script name>`. Test `qj1_classic_scripts_run_in_sloppy_mode`. `cargo test` 371 passed, clippy 32 lines before and after. WPT not run (no layout/paint change). Checked the installed binary on a fixture with `portalSearchDomain = 'x'`: logs `ok x`, no error; the real portal was not fetched.
