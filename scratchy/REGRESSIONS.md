@@ -152,7 +152,7 @@ has no `js` field.
 
 **Fix:** QB6.
 
-### R11 — User report: wikipedia.org "Thank you for donating recently!" dialog shows and Close does nothing — DONE (QB4; part (c) = QB5)
+### R11 — User report: wikipedia.org "Thank you for donating recently!" dialog shows and Close does nothing — DONE (QB4; part (c) = QB5, fixed)
 
 **(a) Why the dialog was visible.** Not reproducible on `f3b06a8`, with JS
 on or off. A full-window screenshot of https://wikipedia.org shows no

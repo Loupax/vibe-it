@@ -854,7 +854,7 @@ touching the user's desktop: use it for the live check of each item.
       flow can't be triggered outside the banner geos, so use the
       `dialog.html`-style fixture in R11: clicking Open shows the dialog
       centred, clicking Close hides it.
-- [ ] QB5 [S] (P1, R11c) Fix the portal's last JS error
+- [x] QB5 [S] (HASH) (P1, R11c) Fix the portal's last JS error
       (`index-be66aee782.js:1:18546`, `t.focus()` "not a function"),
       which also kills the search-language `change` listener. Add:
       reflected boolean `autofocus` (and `disabled`, `required`,
@@ -868,6 +868,10 @@ touching the user's desktop: use it for the live check of each item.
       `typeof el.focus === 'function'`; `el.autofocus` reflects the
       attribute; `window.scrollTo(0, 100)` produces a scroll request of
       100. Re-run `scratchy --js-report` on the portal: 0 errors (was 1).
+      Done: portal 1 -> 0. `focus()` accepts links/tabindex and enabled
+      input/button/select/textarea; scrollX/scrollY are optimistic (not
+      read back from the App); only the y axis scrolls (page has no x
+      scroll). `click()` and live form state remain in Q33d1/Q33e.
 - [ ] QB6 [S] (P1, R10) `:help` must suspend the current page's JS. Add
       `js: Option<JsEngine>` to `SavedPage`. `show_help` moves
       `self.js.take()` into it and `restore_saved_page` puts it back, then
@@ -1707,8 +1711,8 @@ as the JS measurement corpus (same role the four CSS pages played).
 - [ ] Q33d1 [S] Left out of Q33d, needs Q30: native `input`/`change`/
       `submit` events (Q30c/d/e) with `preventDefault` cancelling the
       submission; `mousedown/mouseup/mouseover/mouseenter/scroll/resize`
-      natives; inline `onclick="..."` attribute handlers; `el.focus()`/
-      `blur()`/`click()` from JS.
+      natives; inline `onclick="..."` attribute handlers; `el.click()`
+      from JS. (`el.focus()`/`blur()` done in QB5, HASH.)
 - [ ] Q33e [S] Forms <-> JS: `.value`, `.checked`, `.selectedIndex`,
       `.disabled` read and write the Q30 live state; `form.submit()`,
       `form.elements`, `input`/`change` events fire from Q30d/Q30c.
