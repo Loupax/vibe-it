@@ -509,3 +509,16 @@ css/css-conditional/container-queries/size-container-with-quotes.html
 css/css-conditional/css-supports-008.xht
 css/css-conditional/css-supports-020.xht
 css/css-conditional/css-supports-034.xht
+# Q40c: css-sizing
+css/css-sizing/abspos-auto-sizing-fit-content-percentage-001.html
+css/css-sizing/aspect-ratio/block-aspect-ratio-016.html
+css/css-sizing/aspect-ratio/flex-aspect-ratio-006.html
+css/css-sizing/aspect-ratio/flex-aspect-ratio-055.html
+css/css-sizing/aspect-ratio/intrinsic-size-005.html
+css/css-sizing/aspect-ratio/replaced-element-026.html
+css/css-sizing/box-sizing-border-box-001.xht
+css/css-sizing/div-fit-content-auto-margin.tentative.html
+css/css-sizing/fit-content-max-inline-size.tentative.html
+css/css-sizing/intrinsic-percent-replaced-018.html
+css/css-sizing/replaced-percent-min-width-max-content.html
+css/css-sizing/stretch-function-block-size-vertical-001.html
