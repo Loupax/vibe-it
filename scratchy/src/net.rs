@@ -495,6 +495,16 @@ pub(crate) fn expand_css_imports(
     let mut out = String::new();
     if stack.len() < MAX_IMPORT_DEPTH {
         for (target, media) in imports {
+            if let Some(text) = decode_data_uri_text(target.trim()) {
+                let expanded = expand_css_imports(&text, sheet_url, stack, fetch);
+                if media.is_empty() {
+                    out.push_str(&expanded);
+                } else {
+                    out.push_str(&format!("@media {media} {{\n{expanded}\n}}"));
+                }
+                out.push('\n');
+                continue;
+            }
             let Ok(url) = sheet_url.join(&target) else { continue };
             if url == *sheet_url || stack.contains(&url) {
                 continue;
@@ -634,6 +644,15 @@ pub(crate) fn process_external_resources(
 pub(crate) fn fetch_stylesheets(path: &std::path::Path, base: &Url, hrefs: &[String]) -> String {
     let mut extra_css = String::new();
     for href in hrefs {
+        if let Some(css) = decode_data_uri_text(href.trim()) {
+            // Local `data:` stylesheet (QA5); its `@import`s resolve like any other.
+            let url = Url::parse("data:text/css,").expect("static url");
+            let mut stack = vec![url.clone()];
+            let css = expand_css_imports(&css, base, &mut stack, &mut |u| fetch_stylesheet_via_wire(path, u));
+            extra_css.push_str(&css);
+            extra_css.push('\n');
+            continue;
+        }
         let Ok(url) = resolve_href(Some(base), href) else { continue };
         if let Some(css) = fetch_stylesheet_via_wire(path, &url) {
             let mut stack = vec![url.clone()];

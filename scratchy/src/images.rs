@@ -2,35 +2,103 @@ use super::*;
 
 // ---------- images ----------
 
-/// Decodes a `data:` URI's base64 payload into raw bytes — the only
-/// `<img src>` form this engine understands (see TODO.txt: no
-/// networking, and no local file reads either, until that's revisited
-/// — `snag` already rewrites real pages' `<img src>`s into exactly this
-/// form). Returns `None` for anything else: a non-`data:` scheme, a
-/// non-base64 payload (the alternate, URL-encoded `data:` text form —
-/// not what `snag` emits), or a malformed one.
-pub(crate) fn decode_data_uri(src: &str) -> Option<Vec<u8>> {
-    let rest = src.strip_prefix("data:")?;
-    let (meta, payload) = rest.split_once(',')?;
-    if !meta.split(';').any(|p| p.eq_ignore_ascii_case("base64")) {
-        // Non-base64 payloads are percent-encoded text (the usual form for
-        // `data:image/svg+xml,...`).
-        let raw = payload.as_bytes();
-        let mut out = Vec::with_capacity(raw.len());
-        let mut i = 0;
-        while i < raw.len() {
-            if raw[i] == b'%' && i + 2 < raw.len() && let Ok(h) = u8::from_str_radix(&payload[i + 1..i + 3], 16) {
-                out.push(h);
-                i += 3;
-            } else {
-                out.push(raw[i]);
-                i += 1;
+/// A parsed RFC 2397 / Fetch `data:` URL.
+pub(crate) struct DataUrl {
+    /// Lower-cased `type/subtype` (default `text/plain`).
+    pub(crate) mime: String,
+    /// The `charset` parameter, if any.
+    pub(crate) charset: Option<String>,
+    pub(crate) body: Vec<u8>,
+}
+
+fn hex_val(b: u8) -> Option<u8> {
+    (b as char).to_digit(16).map(|d| d as u8)
+}
+
+/// Percent-decodes `s` (bytes that are not a valid `%XX` pass through).
+pub(crate) fn percent_decode_bytes(s: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(s.len());
+    let mut i = 0;
+    while i < s.len() {
+        if s[i] == b'%'
+            && i + 2 < s.len()
+            && let (Some(h), Some(l)) = (hex_val(s[i + 1]), hex_val(s[i + 2]))
+        {
+            out.push(h * 16 + l);
+            i += 3;
+        } else {
+            out.push(s[i]);
+            i += 1;
+        }
+    }
+    out
+}
+
+/// Fetch-spec forgiving base64: ASCII white space is dropped, padding is
+/// optional, but a length of 1 mod 4 or a stray `=`/non-alphabet byte fails.
+fn forgiving_base64(input: &[u8]) -> Option<Vec<u8>> {
+    use base64::Engine;
+    let mut v: Vec<u8> = input.iter().copied().filter(|b| !matches!(b, b' ' | b'\t' | b'\n' | 0x0C | b'\r')).collect();
+    if v.len() % 4 == 0 {
+        for _ in 0..2 {
+            if v.last() == Some(&b'=') {
+                v.pop();
             }
         }
-        return Some(out);
     }
-    use base64::Engine;
-    base64::engine::general_purpose::STANDARD.decode(payload.trim()).ok()
+    if v.len() % 4 == 1 || v.contains(&b'=') {
+        return None;
+    }
+    let cfg = base64::engine::GeneralPurposeConfig::new()
+        .with_decode_padding_mode(base64::engine::DecodePaddingMode::Indifferent)
+        .with_decode_allow_trailing_bits(true);
+    base64::engine::GeneralPurpose::new(&base64::alphabet::STANDARD, cfg).decode(&v).ok()
+}
+
+/// Parses a `data:` URL: `data:[<mediatype>][;base64],<payload>`. The
+/// payload is percent-decoded first, then (with `;base64`) base64-decoded.
+/// `None` for another scheme or a malformed URL.
+pub(crate) fn parse_data_url(src: &str) -> Option<DataUrl> {
+    let src = src.trim_start();
+    if !src.get(..5)?.eq_ignore_ascii_case("data:") {
+        return None;
+    }
+    let rest = &src[5..];
+    let (meta, payload) = rest.split_once(',')?;
+    let mut parts = meta.split(';').map(str::trim);
+    let mime = parts.next().unwrap_or("").to_ascii_lowercase();
+    let mut is_b64 = false;
+    let mut charset = None;
+    for p in parts {
+        if p.eq_ignore_ascii_case("base64") {
+            is_b64 = true;
+        } else if let Some((k, v)) = p.split_once('=')
+            && k.trim().eq_ignore_ascii_case("charset")
+        {
+            charset = Some(v.trim().trim_matches('"').to_string());
+        }
+    }
+    let mime = if mime.is_empty() || !mime.contains('/') { "text/plain".to_string() } else { mime };
+    let decoded = percent_decode_bytes(payload.as_bytes());
+    let body = if is_b64 { forgiving_base64(&decoded)? } else { decoded };
+    Some(DataUrl { mime, charset, body })
+}
+
+/// Decodes a `data:` URI into its raw bytes (any mediatype).
+pub(crate) fn decode_data_uri(src: &str) -> Option<Vec<u8>> {
+    parse_data_url(src).map(|d| d.body)
+}
+
+/// Decodes a `data:` URL as text: BOM, then the `charset` parameter, then
+/// UTF-8. `None` when `src` is not a `data:` URL.
+pub(crate) fn decode_data_uri_text(src: &str) -> Option<String> {
+    let d = parse_data_url(src)?;
+    let enc = d.charset.as_deref().and_then(|c| encoding_rs::Encoding::for_label(c.as_bytes())).unwrap_or(encoding_rs::UTF_8);
+    Some(enc.decode_with_bom_removal(&d.body).0.into_owned())
+}
+
+pub(crate) fn is_data_url(s: &str) -> bool {
+    s.trim_start().get(..5).is_some_and(|p| p.eq_ignore_ascii_case("data:"))
 }
 
 /// True when `bytes` look like an SVG document (optional BOM/whitespace,

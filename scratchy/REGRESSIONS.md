@@ -95,13 +95,13 @@ replace the Unicode-whitespace calls on rendered text, including
 leaves an earlier colour, `background: red pink` gives pink, and `fixed`
 is dropped silently. Fixed by QA4: the shorthand resets colour/image/position/size/repeat, parses attachment/box keywords (ignored; QA8 will render `fixed`), and any junk, second colour or colour before a comma drops the declaration.
 
-### R16 — `data:` URLs: escaped base64 not decoded, and data: scripts/stylesheets go to wire (bug) — OPEN
+### R16 — `data:` URLs: escaped base64 not decoded, and data: scripts/stylesheets go to wire (bug) — FIXED (QA5, HASH)
 
 `decode_data_uri` base64-decodes without percent-decoding first, so
 `%2F`/`%3D` payloads (all of Acid2's images) fail. `<script src=data:…>`
 and `<link href=data:…>` are fetched through wire, which doesn't decode
 them: Acid3's five data: scripts each log `SyntaxError: expecting ';'` at
-1:16. Fix: QA5.
+1:16. Fixed by QA5: percent-decode then forgiving base64; `data:` scripts/stylesheets/@import decoded locally. Acid3 harness: no SyntaxError, T97 passes (29/100, was 28).
 
 ### R17 — z-index only orders siblings of the same parent (bug) — OPEN
 
