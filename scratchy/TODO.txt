@@ -1018,7 +1018,7 @@ Not vendored; pass the path to the runner.
 
 --- Q40c fix items (WPT audit, 2026-11-15) -----------------------------
 
-- [x] Q58 [S] (HASH58) Multi-value box shorthands (W34): `margin`, `padding`,
+- [x] Q58 [S] (6b8f773) Multi-value box shorthands (W34): `margin`, `padding`,
       `border-width`, `border-color`, `border-style`, `border-radius`,
       `inset` take 1-4 values (top right bottom left; 2 = vertical/horizontal;
       3 = top, horizontal, bottom). Today the branches in `css.rs` parse one
