@@ -8841,3 +8841,65 @@ fn qb5_app_applies_requests(proxy: &winit::event_loop::EventLoopProxy<AppEvent>)
     assert_eq!(app.scroll_offset, 0.0, "clamped at the top");
     assert!(app.interaction.focus.is_none(), "blur() of the focused element clears focus");
 }
+
+/// QB3: the pointer-idle gate for hover restyles is a pure function of
+/// the last build time and the time since the pointer last moved.
+#[test]
+fn qb3_hover_idle_gate() {
+    use std::time::Duration as D;
+    let ms = D::from_millis;
+    // Fast builds never wait, however recently the pointer moved.
+    assert_eq!(hover_idle_wait(Some(ms(20)), Some(ms(0))), None);
+    assert_eq!(hover_idle_wait(Some(HOVER_SLOW_BUILD), Some(ms(0))), None);
+    // No build measured yet: nothing to protect against.
+    assert_eq!(hover_idle_wait(None, Some(ms(0))), None);
+    // Slow build, pointer just moved: wait out the idle window.
+    assert_eq!(hover_idle_wait(Some(ms(400)), Some(ms(0))), Some(HOVER_POINTER_IDLE));
+    assert_eq!(hover_idle_wait(Some(ms(400)), Some(ms(100))), Some(HOVER_POINTER_IDLE - ms(100)));
+    // Slow build, pointer still long enough (or never moved): go ahead.
+    assert_eq!(hover_idle_wait(Some(ms(400)), Some(HOVER_POINTER_IDLE)), None);
+    assert_eq!(hover_idle_wait(Some(ms(400)), Some(ms(5000))), None);
+    assert_eq!(hover_idle_wait(Some(ms(400)), None), None);
+}
+
+/// QB3: `hover_restyle_delay` uses the gate: a slow page with a moving
+/// pointer defers the restyle, a still pointer or a fast page does not.
+#[test]
+fn qb3_app_defers_hover_while_pointer_moves_on_slow_pages() {
+    use winit::platform::wayland::EventLoopBuilderExtWayland;
+    let event_loop = match EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build() {
+        Ok(l) => l,
+        Err(_) => return, // no display available (headless CI)
+    };
+    let mut app = App::new_static(parse_html("<html></html>"), event_loop.create_proxy(), None);
+    app.layout_dirty = false;
+    app.hold_old_frame = false;
+    app.last_build_time = Some(std::time::Duration::from_millis(400));
+    app.last_pointer_move = Some(std::time::Instant::now());
+    assert!(app.hover_restyle_delay().is_some(), "moving pointer on a slow page defers hover");
+    app.last_pointer_move = Some(std::time::Instant::now() - std::time::Duration::from_secs(1));
+    assert!(app.hover_restyle_delay().is_none(), "still pointer applies hover");
+    app.last_pointer_move = Some(std::time::Instant::now());
+    app.last_build_time = Some(std::time::Duration::from_millis(5));
+    assert!(app.hover_restyle_delay().is_none(), "fast page applies hover immediately");
+}
+
+/// QB3: timer/event callbacks get ~500 ms, not the 5 s page-load budget.
+#[test]
+fn qb3_callback_budget_is_much_shorter_than_load_budget() {
+    let log = Rc::new(std::cell::RefCell::new(Vec::<String>::new()));
+    let l = log.clone();
+    let engine = start_scripts(
+        &parse_html(""),
+        &[src("setTimeout(()=>{ for(;;){} },0);")],
+        Rc::new(move |lvl, t| l.borrow_mut().push(format!("{lvl}:{t}"))),
+    )
+    .unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(5));
+    let t = std::time::Instant::now();
+    engine.run_due();
+    let took = t.elapsed();
+    assert!(took < std::time::Duration::from_millis(2500), "callback ran {took:?}");
+    assert!(took >= std::time::Duration::from_millis(400), "callback ran {took:?}");
+    assert!(log.borrow().iter().any(|m| m.contains("budget")), "{:?}", log.borrow());
+}

@@ -466,6 +466,10 @@ pub(crate) struct App {
     /// Hover restyle throttle (R2.3).
     pub(crate) last_hover_restyle: Option<std::time::Instant>,
     pub(crate) last_wheel: Option<std::time::Instant>,
+    /// QB3: when the pointer last moved, and how long the last
+    /// `build_layout_tree_with_resources` took (the hover idle gate).
+    pub(crate) last_pointer_move: Option<std::time::Instant>,
+    pub(crate) last_build_time: Option<std::time::Duration>,
     pub(crate) hover_flush_scheduled: bool,
     /// Lets a background navigation thread (`start_navigation`) get its
     /// result back onto this (the event-loop) thread — the exact same
@@ -698,6 +702,8 @@ impl App {
             hover_keys: HoverKeys { any: true, ..Default::default() },
             last_hover_restyle: None,
             last_wheel: None,
+            last_pointer_move: None,
+            last_build_time: None,
             hover_flush_scheduled: false,
             proxy,
             shaping_requests,
@@ -756,6 +762,8 @@ impl App {
             hover_keys: HoverKeys { any: true, ..Default::default() },
             last_hover_restyle: None,
             last_wheel: None,
+            last_pointer_move: None,
+            last_build_time: None,
             hover_flush_scheduled: false,
             proxy,
             shaping_requests,
@@ -822,7 +830,9 @@ impl App {
             // `spawn_shaping_worker`'s own docs). Only the `LayoutBox`
             // tree this produces — plain owned data, no `Handle` left
             // inside it — gets handed off below.
+            let build_started = std::time::Instant::now();
             let tree = build_layout_tree_with_resources(&self.document, width as f32, Some(height as f32), &self.extra_css, &self.image_cache);
+            self.last_build_time = Some(build_started.elapsed());
             // Ids the worker is about to assign restart at `0` for this
             // new tree (see `spawn_shaping_worker`'s own docs) — stale
             // entries keyed by an old tree's ids would just be harmless
@@ -1517,6 +1527,10 @@ impl App {
         }
         if self.hold_old_frame || self.layout_dirty {
             delay = delay.max(HOVER_RESTYLE_INTERVAL);
+        }
+        // QB3: on a page whose builds are slow, wait for the pointer to stop.
+        if let Some(w) = hover_idle_wait(self.last_build_time, self.last_pointer_move.map(|t| now.duration_since(t))) {
+            delay = delay.max(w);
         }
         (!delay.is_zero()).then_some(delay)
     }
@@ -2329,6 +2343,7 @@ impl ApplicationHandler<AppEvent> for App {
                 // pick the right scroll region, since that event carries
                 // no position of its own at all.
                 self.last_mouse_pos = Some((position.x as f32, position.y as f32));
+                self.last_pointer_move = Some(std::time::Instant::now());
                 // `position` is window/screen space; `Laid.x`/`.y` are
                 // document space (scroll isn't applied until paint time),
                 // so the same `+ scroll_offset` adjustment `paint` itself

@@ -1055,6 +1055,28 @@ pub(crate) const PLACEHOLDER_LINE_HEIGHT: f32 = 20.0;
 pub(crate) const HOVER_RESTYLE_INTERVAL: std::time::Duration = std::time::Duration::from_millis(150);
 /// Hover restyles wait this long after the last wheel tick (R2.3).
 pub(crate) const HOVER_WHEEL_QUIET: std::time::Duration = std::time::Duration::from_millis(200);
+/// QB3: a hover restyle build slower than this makes hover wait for the
+/// pointer to stop.
+pub(crate) const HOVER_SLOW_BUILD: std::time::Duration = std::time::Duration::from_millis(50);
+/// QB3: how long the pointer must have been still before a slow-build
+/// page applies `:hover`.
+pub(crate) const HOVER_POINTER_IDLE: std::time::Duration = std::time::Duration::from_millis(150);
+
+/// QB3: pure "pointer idle" gate for hover restyles. When the last build
+/// took longer than `HOVER_SLOW_BUILD`, a restyle must wait until the
+/// pointer has been still for `HOVER_POINTER_IDLE`: a still pointer sends
+/// no events, so the long synchronous build can't overflow the Wayland
+/// socket (R8). Returns the remaining wait, or `None` to go ahead.
+pub(crate) fn hover_idle_wait(
+    last_build: Option<std::time::Duration>,
+    since_pointer_move: Option<std::time::Duration>,
+) -> Option<std::time::Duration> {
+    if last_build? <= HOVER_SLOW_BUILD {
+        return None;
+    }
+    let left = HOVER_POINTER_IDLE.saturating_sub(since_pointer_move?);
+    (!left.is_zero()).then_some(left)
+}
 
 thread_local! {
     /// Content-keyed shaping memo (R2.2), enabled only on the shaping

@@ -810,7 +810,7 @@ touching the user's desktop: use it for the live check of each item.
       coalesced too, since the SoHo first layout outlasts a 300 ms timer.
       `ShapeResult` handling moved to `App::handle_shape_result` so it is
       testable. Test: `qb2_js_dom_writes_use_restyle_path`.
-- [ ] QB3 [M] (P0, R8) Keep the main thread from stalling while input
+- [x] QB3 [M] (P0, R8) (dbf1610) Keep the main thread from stalling while input
       flows, or the compositor disconnects scratchy. Main_Page crashed 4/4
       with a 500 Hz mouse moving during load and hover, `--no-js`
       included. Measured stalls: hover restyle portal ~180 ms, SoHo
@@ -836,6 +836,30 @@ touching the user's desktop: use it for the live check of each item.
       (pure function of last-build time and time since last move). Live
       check: the R8 recipe (Main_Page, motion every 2 ms for 20 s) survives
       5/5 runs, JS on and off.
+      DONE: (1) measured (release, nested dwl, load ~8): hover restyle
+      build portal 43-141 ms, SoHo 394-484 ms (one 1.7 s), live
+      Main_Page 341-404 ms back to back (1.03 s once); first build SoHo
+      1.65 s, Main_Page 0.37 s; `handle_nav_result` parse 10 ms +
+      `run_page_scripts` 13 ms on Main_Page; `run_due` never >20 ms on
+      the three pages. So the stall is the synchronous cascade, nothing
+      else. (2) `hover_idle_wait` gate (last build >50 ms: hover waits for
+      150 ms of pointer stillness; `App::last_build_time`,
+      `last_pointer_move`). (3) `CALLBACK_BUDGET` 500 ms for timer/event
+      callbacks, logged when hit; page-load run keeps 5 s. Live: Main_Page
+      2 ms motion 20 s, base 0/3 survive, new 7/7 (5 JS on, 2 `--no-js`);
+      busy-loop page + 2 ms motion: base dies, new survives.
+      (4) STILL OVER 250 ms, motivation for Q32 "cascade off the main
+      thread": the cascade build itself (SoHo 400 ms / first build 1.65 s,
+      Main_Page 350 ms) still blocks the main thread whenever something
+      other than hover starts one (image arrival, JS restyle, resize,
+      navigation) while input flows. The gate only removes the
+      hover-triggered ones.
+- [ ] QB3b [S] Pre-existing, seen while verifying QB3 (also on the
+      pre-QB3 build): on Main_Page (local copy with an `a:hover` rule), a
+      burst of ~100 pointer moves at 5 ms followed immediately by a move
+      onto "Donate" leaves the link un-highlighted 2.5 s later; with a
+      300 ms pause before the last move it highlights. Find why the
+      deferred `HoverFlush` / `apply_hover` path misses the final target.
 - [x] QB4 [S] (P1, user report, R11) (a29738f) `HTMLDialogElement`: `show()`,
       `showModal()`, `close(returnValue?)`, the `open` property (reflects
       the attribute) and `returnValue`. `close()` removes `open`, sets
