@@ -954,7 +954,7 @@ Not vendored; pass the path to the runner.
 - [x] Q53 [S] Reject values CSS says are invalid (W5): negative `padding-*`,
       `border-*-width`, `max-height`, `max-width`, `min-*`, `flex-basis`,
       `width`, `height`. The declaration is dropped. WPT: `padding-right-001`,
-      `max-height-001`, `border-top-width-012`, `flex-basis-003`. DONE (HASH): all four WPT tests now pass (164 -> 168).
+      `max-height-001`, `border-top-width-012`, `flex-basis-003`. DONE (4662a7f): all four WPT tests now pass (164 -> 168).
       Left out: `parse_box4` (`border-width: 1px -2px`) keeps the valid prefix
       instead of dropping the whole declaration (Q53a).
 - [ ] Q53a [S] `border-width: 1px -2px` should drop the whole declaration.
