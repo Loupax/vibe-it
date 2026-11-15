@@ -3076,3 +3076,5 @@ per turn, each with a fresh 5s interrupt budget, promise jobs drained after
 each) and sets `ControlFlow::WaitUntil(next)` or `Wait` (no wake-ups without
 timers). Intervals and >5-nested timeouts clamp to 4ms; rAF aligns to 60Hz and
 is not gated on window visibility yet.
+
+Events (Q33d): one `EventTarget` implementation in `PRELUDE` (WeakMap listener store keyed by the target object, shared by window/document/wrappers/bare targets) with capture/target/bubble `dispatch`; `on<type>` properties run after listeners. Rust fires trusted events with `JsEngine::dispatch_event` (-> `__scratchy_dn`, `None` target = body); `App::js_dispatch` also runs `js_sync`. Hooked: click (release and Enter on a focused link; `preventDefault` cancels navigation), keydown/keyup (before vim bindings, not in command mode), focus/blur/focusin/focusout in `set_focus_element`. DOMContentLoaded/load use the same dispatcher. input/change/submit natives wait for Q30 (Q33d1).

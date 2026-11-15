@@ -8435,3 +8435,139 @@ fn q33c3_option_in_select_uses_the_selects_colour() {
     let stray = pixels.iter().filter(|&&p| p & 0x00FF_FFFF != 0 && p & 0x00FF_FFFF != 0x00FF_FFFF).count();
     assert_eq!(stray, 0, "option colour must not override the select's transparent text");
 }
+
+// ---------- Q33d: events ----------
+
+/// Starts `code` against `html` and returns the engine, the document and
+/// the shared log (so tests can dispatch native events afterwards).
+fn events_engine(html: &str, code: &str) -> (JsEngine, Handle, Rc<RefCell<Vec<String>>>) {
+    let doc = parse_html(html);
+    let out = Rc::new(RefCell::new(Vec::new()));
+    let o = out.clone();
+    let engine = start_scripts(&doc, &[src(code)], Rc::new(move |level, text| o.borrow_mut().push(format!("{level}:{text}")))).unwrap();
+    (engine, doc, out)
+}
+
+fn by_id(doc: &Handle, id: &str) -> Handle {
+    let mut stack = vec![doc.clone()];
+    while let Some(n) = stack.pop() {
+        if element_attr(&n, "id").as_deref() == Some(id) {
+            return n;
+        }
+        stack.extend(n.children.borrow().iter().cloned());
+    }
+    panic!("no #{id}");
+}
+
+#[test]
+fn q33d_capture_target_bubble_order_and_stop_propagation() {
+    let (_e, _d, log) = events_engine(
+        "<html><body><div id=o><p id=i>x</p></div></body></html>",
+        "var o=document.getElementById('o'), i=document.getElementById('i');\
+         window.addEventListener('click', function(e){ console.log('w-cap', e.eventPhase) }, true);\
+         o.addEventListener('click', function(e){ console.log('o-cap', e.eventPhase) }, true);\
+         i.addEventListener('click', function(e){ console.log('i-bub', e.eventPhase, e.target===i, e.currentTarget===i) });\
+         i.addEventListener('click', function(e){ console.log('i-cap') }, {capture:true});\
+         o.addEventListener('click', function(e){ console.log('o-bub', e.eventPhase) });\
+         document.addEventListener('click', function(e){ console.log('doc'); e.stopPropagation(); });\
+         window.addEventListener('click', function(e){ console.log('w-bub') });\
+         i.dispatchEvent(new Event('click', {bubbles:true}));",
+    );
+    assert_eq!(
+        *log.borrow(),
+        ["log:w-cap 1", "log:o-cap 1", "log:i-cap", "log:i-bub 2 true true", "log:o-bub 3", "log:doc"]
+    );
+}
+
+#[test]
+fn q33d_prevent_default_once_remove_passive_onprop_and_throwing_listener() {
+    let (_e, _d, log) = events_engine(
+        "<html><body><div id=o><p id=i>x</p></div></body></html>",
+        "var o=document.getElementById('o'), i=document.getElementById('i');\
+         o.addEventListener('ping', function(){ console.log('o') });\
+         var f=function(){ console.log('f') }; i.addEventListener('ping', f); i.removeEventListener('ping', f);\
+         i.addEventListener('ping', function(e){ console.log('once'); e.preventDefault(); }, {once:true});\
+         console.log(i.dispatchEvent(new Event('ping')));\
+         console.log(i.dispatchEvent(new Event('ping', {cancelable:true})));\
+         i.addEventListener('pong', function(e){ e.preventDefault(); console.log(e.defaultPrevented) }, {passive:true});\
+         i.dispatchEvent(new Event('pong', {cancelable:true}));\
+         i.onclick = function(){ console.log('onclick'); return false; };\
+         console.log(i.dispatchEvent(new Event('click', {cancelable:true})));\
+         i.addEventListener('boom', function(){ throw new Error('x') });\
+         i.addEventListener('boom', function(){ console.log('after boom') });\
+         i.dispatchEvent(new Event('boom'));",
+    );
+    let log = log.borrow();
+    assert_eq!(log[..5], ["log:once", "log:true", "log:true", "log:false", "log:onclick"]);
+    assert_eq!(log[5], "log:false");
+    assert!(log[6].starts_with("error:Uncaught Error: x"), "{log:?}");
+    assert_eq!(log[7], "log:after boom");
+}
+
+#[test]
+fn q33d_native_click_reaches_page_handler_and_prevent_default_is_reported() {
+    let (engine, doc, log) = events_engine(
+        "<html><body><a id=a href='/x'><b id=b>t</b></a></body></html>",
+        "document.getElementById('a').addEventListener('click', function(e){\
+           console.log('click', e.target.id, e.isTrusted, e.clientX, e.button, e.ctrlKey); e.preventDefault(); });",
+    );
+    let b = by_id(&doc, "b");
+    let init = [
+        ("bubbles", EventField::Bool(true)),
+        ("cancelable", EventField::Bool(true)),
+        ("clientX", EventField::Num(12.0)),
+        ("button", EventField::Num(0.0)),
+    ];
+    assert!(!engine.dispatch_event(Some(&b), "click", &init), "handler cancelled the click");
+    assert_eq!(*log.borrow(), ["log:click b true 12 0 false"]);
+    // A page with no handler lets the default action proceed.
+    let (engine2, doc2, _) = events_engine("<html><body><a id=a href='/x'>t</a></body></html>", "1");
+    assert!(engine2.dispatch_event(Some(&by_id(&doc2, "a")), "click", &init));
+}
+
+#[test]
+fn q33d_native_key_and_focus_events_carry_their_fields() {
+    let (engine, doc, log) = events_engine(
+        "<html><body><a id=a href='/x'>t</a></body></html>",
+        "var a=document.getElementById('a');\
+         document.addEventListener('keydown', function(e){ console.log('kd', e.key, e.repeat, e.shiftKey, e.target.id); });\
+         a.addEventListener('focus', function(e){ console.log('focus', e.type, e.bubbles); });\
+         document.addEventListener('focusin', function(e){ console.log('focusin', e.target.id); });\
+         a.addEventListener('blur', function(e){ console.log('blur'); });\
+         document.body.addEventListener('keyup', function(e){ console.log('ku', e.key, e.target.tagName); e.preventDefault(); });",
+    );
+    let a = by_id(&doc, "a");
+    let key = |k: &str, shift: bool| {
+        [
+            ("bubbles", EventField::Bool(true)),
+            ("cancelable", EventField::Bool(true)),
+            ("key", EventField::Str(k.to_string())),
+            ("shiftKey", EventField::Bool(shift)),
+        ]
+    };
+    assert!(engine.dispatch_event(Some(&a), "keydown", &key("\u{e9}", true)));
+    assert!(!engine.dispatch_event(None, "keyup", &key("Enter", false)), "None targets <body>");
+    engine.dispatch_event(Some(&a), "focus", &[("bubbles", EventField::Bool(false))]);
+    engine.dispatch_event(Some(&a), "focusin", &[("bubbles", EventField::Bool(true))]);
+    engine.dispatch_event(Some(&a), "blur", &[]);
+    assert_eq!(
+        *log.borrow(),
+        ["log:kd \u{e9} false true a", "log:ku Enter BODY", "log:focus focus false", "log:focusin a", "log:blur"]
+    );
+}
+
+#[test]
+fn q33d_load_events_and_event_target_subclass() {
+    let log = run_collecting(&[src(
+        "document.addEventListener('DOMContentLoaded', function(e){ console.log('dcl', e.target===document, e.bubbles); });\
+         window.addEventListener('DOMContentLoaded', function(e){ console.log('dcl-window'); });\
+         window.addEventListener('load', function(e){ console.log('load', e.target===window); });\
+         var t = new EventTarget(); t.addEventListener('x', function(e){ console.log('x', e instanceof CustomEvent, e.detail); });\
+         t.dispatchEvent(new CustomEvent('x', {detail: 7}));\
+         addEventListener('y', function(){ console.log('global y'); }); dispatchEvent(new Event('y'));",
+    )]);
+    assert_eq!(
+        log,
+        ["log:x true 7", "log:global y", "log:dcl true true", "log:dcl-window", "log:load true"]
+    );
+}
