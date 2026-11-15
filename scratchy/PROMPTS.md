@@ -6247,3 +6247,9 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > Do ONLY Q58: multi-value box shorthands (W34): `margin`, `padding`, `inset`, `margin/padding/inset-block/-inline`; test, WPT, screenshot, PROMPTS entry, tick Q58. First report clippy baseline and `cargo install`.
 
 **What changed:** `css.rs` `margin`, `padding` and new `inset` use `parse_box4` (1-4 values); `margin/padding/inset-block/-inline` use new `parse_pair` (1-2 values). Any negative padding value drops the whole declaration. `inset`, `inset-block`, `inset-inline` were not parsed at all before. `border-width/-color/-style` already used `parse_box4`; `border-radius` stays single-value (Q58a). Tests `q58_*` (3). Clippy baseline 31 lib warnings, 31 after. `cargo test` 355 passed. WPT 232 -> 234 pass (`flexbox_align-items-flexend-2`, `grid-spanning-item-with-paddings-auto-rows-001` newly pass), 0 regressions, expectations updated. `grim` screenshot of live Wikipedia "Cat" renders normally. No paint change, no AUTOSCROLL run.
+
+## Q59 — text-node trailing space (queue item) — BLOCKED
+
+> Do ONLY Q59: text-node whitespace (W29): keep a leading/trailing space only where the source had whitespace, collapse across node boundaries; test, WPT, screenshot, PROMPTS entry, tick Q59.
+
+**What changed:** no engine code landed. The implementation worked (352 tests pass, clippy unchanged, WPT 234 -> 239 pass with 6 newly passing) but `block-replaced-width-006` regressed because it only passed by accident: horizontal `margin: auto` is not implemented, so the centred block `<img>` and the reference both sat left thanks to the old trailing space. Recorded BLOCKED in TODO.txt with new prerequisite Q59p; the working diff is saved as `scratchy/patches-q59-text-space.patch` for re-applying after Q59p. No screenshot or `cargo install` since nothing shipped.

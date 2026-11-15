@@ -1039,6 +1039,28 @@ Not vendored; pass the path to the runner.
       one node and the start of the next is one space). Mind the plain
       whole-buffer path, `measure_mixed_inline`, `<br>` and `pre`. Test:
       Ahem `a<span>b</span>` is 40px wide, `a <span>b</span>` 60px.
+      BLOCKED 2026-11-15: implemented and working (patch saved in
+      scratchy/patches-q59-text-space.patch, not applied): inline_text keeps a
+      leading/trailing space only where the source had whitespace; a node's
+      leading space is carried as the previous item's trailing space (or a
+      standalone hanging space after an image/inline-block; `hang` set in
+      measure_mixed_inline so it never wraps to a line start); the run's last
+      trailing space is trimmed in discard_if_collapsible_whitespace_only and
+      at anonymous flex/grid item edges. 352 tests pass, clippy count
+      unchanged. WPT 234 -> 239 pass (+6 newly passing: display-001,
+      display-018, floats-006, inline-formatting-context-013,
+      box-shadow-overlapping-002, text-decoration-inset-017) but ONE
+      regression, css/CSS2/normal-flow/block-replaced-width-006.xht, which
+      only passed by accident: the engine implements no horizontal
+      `margin: auto` centering at all, so the test's centered block <img>
+      sat at the left and the old trailing space made the reference's
+      "1"/"2" sit left too. Prerequisite: Q59p. Then re-apply the patch,
+      update wpt-expected.txt (+6 pass).
+- [ ] Q59p [S] Horizontal auto margins (prerequisite of Q59): `margin-left/right:
+      auto` on a block box with a definite width, and on a block replaced element
+      (`img{display:block;margin:0 auto}`), must centre it (CSS2.1 10.3.3/10.3.4);
+      `box_model_entry` treats auto as 0. Test: 100px-wide block in a 200px
+      container sits at x=50. WPT: block-replaced-width-006 must still pass.
 - [ ] Q60 [S] `hsl()`/`hsla()`, `hwb()`, `lab()`, `lch()`, `oklab()`,
       `oklch()`, `color(srgb|display-p3|...)` (W38): cssparser-color parses
       them but `to_text_color` only handles `CssColor::Rgba`. Convert the
