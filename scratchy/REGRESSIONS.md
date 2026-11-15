@@ -1,6 +1,6 @@
 # scratchy — regressions
 
-## R20: www.youtube.com is a blank window (Opus investigator, 2026-11-15) — blank window FIXED by QY1 (HASH)
+## R20: www.youtube.com is a blank window (Opus investigator, 2026-11-15) — blank window FIXED by QY1 (b75b39d)
 
 Investigation only, no code changed. Fix items are QY1–QY7 at the top of
 the TODO.txt QUEUE. Build: release build of `feada0e` (= origin/main at
@@ -43,7 +43,7 @@ are given where they matter.
   the whole script-less page: 1.1 s CPU. Time to replace "Loading…": ~4 s
   with JS, ~3–4 s without (1 s grim polling).
 
-### R20 — An earlier `position:absolute` box paints over later positioned boxes whatever their z-index (bug) — FIXED (QY1, HASH)
+### R20 — An earlier `position:absolute` box paints over later positioned boxes whatever their z-index (bug) — FIXED (QY1, b75b39d)
 
 **Why YouTube is blank.** The 3.8 MB stylesheet has
 `ytd-app{…;background:var(--t3e41d7b17b187f69) /* #fff */;display:block;
@@ -247,7 +247,7 @@ and `<link href=data:…>` are fetched through wire, which doesn't decode
 them: Acid3's five data: scripts each log `SyntaxError: expecting ';'` at
 1:16. Fixed by QA5: percent-decode then forgiving base64; `data:` scripts/stylesheets/@import decoded locally. Acid3 harness: no SyntaxError, T97 passes (29/100, was 28).
 
-### R17 — z-index only orders siblings of the same parent (bug) — FIXED (QY1, HASH)
+### R17 — z-index only orders siblings of the same parent (bug) — FIXED (QY1, b75b39d)
 
 `paint`/`paint_z_layer` merge `is_explicit_stacking_child` boxes only with
 the same box's `positioned` list. An abs/fixed box that bubbled to the root
