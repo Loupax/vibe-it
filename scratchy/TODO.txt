@@ -1253,11 +1253,32 @@ into the commit message of every JS item.
       repro: `<div style=display:table><div style=display:table-cell>…`
       ×3 (no row) renders nothing at all, and a block child of a
       `display:table` between cells drops the cells. Tick Q50a too.
-- [ ] QA11 [M] Promoted for Acid2 lines 10-12: do Q48b then Q74 now (the
+- [ ] QA11 [M] (code done on branch scratchy/qa11-margin-collapse-through, merge BLOCKED on QA11a; Q74 was already done by Q48d; Acid2 smile moved up 60px, remaining offset is other items) Promoted for Acid2 lines 10-12: do Q48b then Q74 now (the
       `.empty` block collapses `75, -72, 75` margins through itself, then
       `.smile` gets negative clearance; in the REGRESSIONS.md "Acid2"
       repro the smile's top lands at y=168 instead of y=37). Tick Q48b and
       Q74 too.
+- [ ] QA11a [M] PREREQUISITE of QA11 (blocks its merge). Branch
+      scratchy/qa11-margin-collapse-through holds the Q48b code, but it turns
+      3 WPT tests PASS->FAIL (css/CSS2/positioning/absolute-replaced-height-009,
+      -016, -022): they passed only because two bugs cancelled. `border-top:
+      solid black` (no width) computes 0 (initial is `medium` = 3px) and the
+      ref's `black solid medium` drops the unparsed `medium` keyword, so both
+      sides lost their border; with collapse-through the ref's empty div
+      (margin-bottom 96) now collapses with the `<p>`'s 16px and the bar sits
+      16px higher, which is correct once borders exist. Fix first: (1)
+      thin/medium/thick keywords in `border-width` and the `border*`
+      shorthands, (2) an omitted width with a non-none style is `medium`,
+      (3) unset `border-color` is currentColor at paint time (computed value
+      stays None so `inherit` passes the keyword). A tried patch (all three,
+      saved in the PR description) makes 5 border-*-width tests pass but
+      regresses css/CSS2/borders/border-color-011 (`border-style:solid`
+      longhand alone needs width medium too), css-variables/
+      variable-reference-38 (`var()` declarations are expanded after the
+      rule's plain ones, so `border-style: var(--s)` overrides a later
+      `border-top: none`: needs source-order var expansion),
+      css-tables/row-group-margin-border-padding and html/rendering/
+      non-replaced-elements/tables/table-rules-rows-vertical (not diagnosed).
 - [ ] QA12 [S] (P2, JS) Event-handler content attributes. `<body
       onload="update()">` never runs, so the real Acid3 page stays on
       "JS ?" forever even with every API present. Compile `on<type>`
