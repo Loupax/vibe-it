@@ -930,7 +930,7 @@ touching the user's desktop: use it for the live check of each item.
       Test: an inline script logs `document.currentScript.id`, the id of
       its own `<script id=…>`, and a timer callback logs `null`. Re-run
       `--js-report` on bbc.com/news and paste before/after counts.
-- [x] QB9 [S] (P3) (hash pending) Don't panic when stderr/stdout is a closed pipe
+- [x] QB9 [S] (P3) (939cafb) Don't panic when stderr/stdout is a closed pipe
       (`scratchy … 2>&1 | head -1` exits with code 101). Route
       every `eprintln!`/`print!` in `src/` (js log closure in
       `run_page_scripts`, net/app timing, `print_fallback_request`, …)
