@@ -1031,7 +1031,7 @@ Not vendored; pass the path to the runner.
       multi-value list still uses only the first value. Needs four corner
       lengths through style.rs and paint.rs. `border-width/-color/-style`
       already used `parse_box4`, so W34's border part was stale.
-- [x] Q59 [S] (HASH) Text-node whitespace (W29): `inline_text` appends a space to
+- [x] Q59 [S] (510e93f) Text-node whitespace (W29): `inline_text` appends a space to
       every text node and `normalize_whitespace` strips both ends, so
       `a<b>b</b>`, `<b>x</b>,` and `<span>a</span>bc` get a one-em/space gap.
       Keep a single leading/trailing space only where the source had
