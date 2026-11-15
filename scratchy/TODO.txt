@@ -898,7 +898,7 @@ into the commit message of every JS item.
       in `handle_nav_result`, re-applied each incomplete layout, dropped on
       the first complete one. Not done: images that arrive after the first
       complete layout can still shift the target (new item if it shows up).
-- [x] QA7 [S] (HASH) (P2, R19) Shrink-to-fit width ignores floats. An abspos box
+- [x] QA7 [S] (00530a0) (P2, R19) Shrink-to-fit width ignores floats. An abspos box
       whose only content is a float (`float:right;width:48px`) gets
       content width 0 (Acid2 line 2), and in the smile it gets the full
       available width instead. `cell_natural_width` (used by
