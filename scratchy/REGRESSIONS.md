@@ -1,9 +1,153 @@
 # scratchy — regressions
 
+## R20: www.youtube.com is a blank window (Opus investigator, 2026-11-15) — OPEN
+
+Investigation only, no code changed. Fix items are QY1–QY7 at the top of
+the TODO.txt QUEUE. Build: release build of `feada0e` (= origin/main at
+the time, built in an isolated worktree); live runs in a nested dwl
+(`tools/nest.sh`, one scratchy window, `grim`, screenshots viewed);
+headless renders with the WPT runner recipe from R12–R19. Machine load
+was 9–26 during the run, so wall-clock numbers are inflated; CPU times
+are given where they matter.
+
+### What the user sees, and what the network does
+
+- `scratchy --socket $XDG_RUNTIME_DIR/wire.sock https://www.youtube.com`:
+  "Loading…" for ~3–4 s, then a completely white window, forever (checked
+  at 15 s and 30 s). stderr has exactly 4 `js error` lines (below).
+- `--no-js`: the same white window, no stderr. `:set nojs` + `:refresh`
+  (typed with `tools/inject`): white; no new JS errors after the refresh.
+  So **the blank window is not caused by JavaScript.**
+- Network is fine: `curl -sIL` and a raw `GET` through wire both get one
+  `200 text/html; charset=utf-8`, no redirect, no consent.youtube.com
+  hop (EU/DE IP, no cookies), ~1.0 MB of HTML (curl with a Chrome UA
+  0.92 MB, without one 0.87 MB). Headers include
+  `content-security-policy: require-trusted-types-for 'script'`
+  (scratchy ignores CSP; harmless here). Set-Cookie: `YSC`,
+  `__Secure-YEC`, `VISITOR_PRIVACY_METADATA` etc.; wire stores none,
+  which does not matter for this page.
+- Server HTML without JS: no `<noscript>` at all. `<body>` holds a hidden
+  `iframe` (passive Google sign-in), `<ytd-app>` (contains the masthead
+  shell: hidden search input, hamburger `<svg>`, two `display:none`
+  logo links, 3 grey skeleton icons, then `display:none` footer links),
+  then `#home-page-skeleton` (guide column + chip bar + 16 grey
+  placeholder video cards) and a hidden `#watch-page-skeleton`. All
+  real data is JSON in inline scripts (`ytInitialData`, 160 KB). For a
+  logged-out EU visitor that data is NOT videos: it is a cookie-consent
+  bump ("Bevor Sie zu YouTube weitergehen", "Alle akzeptieren" …) and a
+  "Der YouTube-Verlauf ist deaktiviert" feed nudge. Chrome itself shows
+  only those after JS; without JS Chrome shows the grey skeleton.
+- Size: 43 scripts (34 inline, 9 external; the app script `kevlar_base`
+  is 10.8 MB), 4 stylesheets including one of 3.8 MB (871 `@media`, 507
+  `@supports`, 269 `@container`), snag bundle 9.8 MB. Headless render of
+  the whole script-less page: 1.1 s CPU. Time to replace "Loading…": ~4 s
+  with JS, ~3–4 s without (1 s grim polling).
+
+### R20 — An earlier `position:absolute` box paints over later positioned boxes whatever their z-index (bug) — OPEN, fix: QY1
+
+**Why YouTube is blank.** The 3.8 MB stylesheet has
+`ytd-app{…;background:var(--t3e41d7b17b187f69) /* #fff */;display:block;
+left:0;min-height:100%;position:absolute;right:0;top:0}`. Without JS
+`<ytd-app>` is empty apart from a `position:fixed` white masthead, so it is
+a white sheet over the whole viewport. The skeleton that follows it is
+`#home-page-skeleton{position:relative;z-index:0;margin:56px 0 0;…}`. In
+CSS 2 Appendix E both are in the root stacking context's
+"positioned, z-index auto/0" layer, painted in tree order, so the
+later skeleton is on top (that is what a no-JS Chrome shows). scratchy
+paints the `ytd-app` sheet last.
+
+Bisect (headless, scripts stripped from the snag bundle; "blank" = the
+800x600 render equals `about:blank`): the full page is blank; with the
+3.8 MB `<style>` removed it shows content; with the `<ytd-app>` element
+removed it shows content; with the fonts `<style>` or the skeleton
+stylesheet removed it is still blank. With `<ytd-app>`
+removed, JS ON, live window: the masthead line, the white guide column
+and the grey skeleton cards render (single column, see QY7), i.e.
+roughly what Chrome shows with JS off.
+
+**Minimal repro** (all yellow today; the gray bar must show):
+```html
+<body style=margin:0>
+<div style="position:absolute;top:0;left:0;right:0;min-height:100%;background:yellow"></div>
+<div style="position:relative;z-index:0;background:gray;height:100px;margin-top:56px"></div>
+```
+Also wrong with `z-index:1` and with no `z-index`; a custom element
+(`<x-app style=display:block;…>`) behaves the same; `height:100%` instead
+of `min-height` the same; an abs box with no height correctly shows the
+gray bar (nothing to cover it).
+
+**Root cause.** `paint_inner` paints a box's in-flow children, then its
+`positioned` list through `paint_z_layer`. An abs box whose containing
+block is the initial containing block bubbles (`catch_or_bubble_
+positioned`) to the root's `positioned` list, so it is painted after the
+entire `<body>` subtree, including every relative/z-indexed box in it.
+`is_explicit_stacking_child` only re-orders relative/sticky boxes that
+have a z-index AND are direct children of the box that owns the
+`positioned` list. This is R17 seen from the other side; QA9's planned fix
+breaks ties "stacking children before positioned", which still loses here
+(`ytd-app` z auto = 0 vs skeleton z 0), so QY1 replaces QA9 with a
+tree-order tie-break.
+
+### The four console errors (JS on), each read at its source location
+
+`scratchy --js-report --socket $XDG_RUNTIME_DIR/wire.sock page.html`, where
+`page.html` is the raw wire response body with `<base
+href="https://www.youtube.com/">` added (snag's bundle works too): 43
+scripts run, 4 errors; the live window prints the same 4.
+
+| # | where | message | what is missing | item |
+|---|---|---|---|---|
+| 1 | inline script #6 (`ytcsi`), `ytcsi.setStart(w.performance ? w.performance.timing.responseStart : null)` | `cannot read property 'responseStart' of undefined` | `performance.timing` (QuickJS has `performance.now` only) | QY2 |
+| 2 | `web-animations-next-lite.min.js`, `createElementNS(xhtml,"canvas").getContext("2d")` | `TypeError: not a function` | `HTMLCanvasElement.getContext` (null is fine) | QY3 |
+| 3 | `webcomponents-all-noPatch.js`, `document.createEvent("Event"); initEvent(…)` | `TypeError: not a function` | `document.createEvent` (QA15), then a chain, see QY4 | QY4 |
+| 4 | `kevlar_base…` (10.8 MB app script), a CRC table loop near the top | `InternalError: interrupted` | compile alone takes 2.6 s CPU / 8.3–8.9 s wall here, and the 5 s wall-clock budget is armed before compiling | QY5 |
+
+None of the four affects what is painted today (the DOM is never
+changed). Fixing all four would not show content either: see below.
+
+How the chain in QY4 was found: a JS shim script inserted before
+YouTube's scripts (scratchpad only) defined the missing piece, then
+`--js-report` was re-run on a page holding just the shim and the
+polyfill. With `performance.timing`, a `createEvent` stub and a
+`getContext` returning null, errors 1 and 2 disappear and the polyfill
+moves on to `DocumentFragment is not defined` → `CharacterData` →
+`ErrorEvent` → `cannot read property '__CE_registry' of undefined`
+(`node.ownerDocument` missing) → `MutationObserver is not defined` →
+`NodeFilter is not defined` → `document.createTreeWalker` not a function,
+with `document.implementation.createHTMLDocument` on the same line.
+The chain was stopped there: TreeWalker and a second document are
+QA17/QA18-sized.
+
+### YouTube: what the page needs (beyond R20)
+
+- Content and the consent dialog are Polymer custom elements (`ytd-*`)
+  rendered from `ytInitialData`: Web Components via the shipped polyfill
+  (QY6, L), then `fetch`/XHR (Q33f) for anything past the first screen.
+  Until then the best possible rendering is the skeleton.
+- Even if QY5 let the 10.8 MB script run to its end, it freezes the main
+  thread for the whole run (R8) and cannot build anything without QY6; do
+  not raise the budget for it.
+- `@container` queries (QY7) only change the skeleton's column count.
+- Not filed (seen, no payoff now): `window.onerror` is never called for
+  script errors (YouTube installs one to beacon errors, harmless), the
+  masthead hamburger `<svg>` uses `viewBox` on a `<g>` (also odd in
+  Chrome), `scrollbar-color`/`::-webkit-scrollbar` rules.
+
+### Not tested / caveats
+
+- No Chrome/Firefox on this machine: "Chrome shows the skeleton" is from
+  the CSS 2 Appendix E paint order, not a side-by-side screenshot.
+- Logged-in YouTube, non-EU consent flow, `/watch` pages, `/results`
+  search pages and mobile `m.youtube.com` were not tried; video playback
+  is out of scope.
+- QY2–QY4's effect was measured with JS shims, not with real fixes; the
+  real implementations can hit further errors.
+- Wall times are from a machine at load 9–26 (other agents' builds).
+
 ## R12–R19: Acid2 / Acid3 audit (Opus investigator, 2026-11-15) — OPEN
 
 Investigation only, no code changed. Fix items are QA1–QA21 at the top of
-the TODO.txt QUEUE. Build: release build of `e7a090d` (before QB8 merged).
+the TODO.txt QUEUE (R17/QA9 is now QY1, see R20). Build: release build of `e7a090d` (before QB8 merged).
 Every repro below was rendered headless with the WPT runner (a scratch
 "checkout" dir holding `fonts/Ahem.ttf` and a one-line subset file per
 fixture, each fixture `<!DOCTYPE html><link rel=match href=about:blank>…`,
@@ -108,7 +252,8 @@ them: Acid3's five data: scripts each log `SyntaxError: expecting ';'` at
 `paint`/`paint_z_layer` merge `is_explicit_stacking_child` boxes only with
 the same box's `positioned` list. An abs/fixed box that bubbled to the root
 paints above `position:relative; z-index:2` content anywhere else. Acid2's
-intro (`z-index:2`) is painted under the fixed scalp bar. Fix: QA9.
+intro (`z-index:2`) is painted under the fixed scalp bar. Fix: QA9, now
+superseded by QY1 (tree-order tie-break needed, see R20).
 
 ### R18 — A fragment in the first URL is ignored (bug) — FIXED (QA6, commit e8fb789)
 
