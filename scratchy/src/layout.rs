@@ -656,7 +656,7 @@ fn last_line_extent(laid: &Laid, cache: &ShapeCache) -> Option<(f32, f32)> {
                     MixedPositioned::Word { id, x, y, w, h } => {
                         // A collapsible-space word takes no room on the line.
                         let blank = cache.get(id).and_then(|c| c.lock().ok()).is_some_and(|sh| {
-                            sh.0.lines.iter().all(|l| l.text().trim().is_empty())
+                            sh.0.lines.iter().all(|l| trim_css_ws(&l.text()).is_empty())
                         });
                         if blank {
                             continue;
@@ -2644,7 +2644,7 @@ pub(crate) fn measure_mixed_inline<'a>(
                 if text.is_empty() {
                     continue;
                 }
-                if text.trim().is_empty() && !matches!(s.white_space, WhiteSpace::Pre | WhiteSpace::PreWrap) {
+                if trim_css_ws(text).is_empty() && !matches!(s.white_space, WhiteSpace::Pre | WhiteSpace::PreWrap) {
                     hang.insert(measured.len());
                 }
                 if span.word_spacing != 0.0 {

@@ -98,7 +98,7 @@ PASS css/CSS2/floats-clear/floats-001.xht
 PASS css/CSS2/floats-clear/floats-006.xht
 PASS css/CSS2/floats-clear/floats-038.xht
 PASS css/CSS2/floats-clear/floats-122.xht
-PASS css/CSS2/floats-clear/floats-149.xht
+FAIL css/CSS2/floats-clear/floats-149.xht
 PASS css/CSS2/floats-clear/margin-collapse-023.xht
 FAIL css/CSS2/floats-clear/margin-collapse-clear-003.xht
 FAIL css/CSS2/floats/float-after-block-with-collapsed-margin-inside-inline.html
@@ -151,9 +151,9 @@ FAIL css/CSS2/linebox/line-height-094.xht
 FAIL css/CSS2/linebox/line-height-095.xht
 FAIL css/CSS2/linebox/line-height-105.xht
 FAIL css/CSS2/linebox/line-height-127.xht
-FAIL css/CSS2/linebox/line-height-applies-to-003.xht
-FAIL css/CSS2/linebox/line-height-applies-to-004.xht
-FAIL css/CSS2/linebox/line-height-applies-to-012.xht
+PASS css/CSS2/linebox/line-height-applies-to-003.xht
+PASS css/CSS2/linebox/line-height-applies-to-004.xht
+PASS css/CSS2/linebox/line-height-applies-to-012.xht
 PASS css/CSS2/linebox/line-height-bleed-002.xht
 PASS css/CSS2/linebox/vertical-align-004.xht
 FAIL css/CSS2/linebox/vertical-align-007.xht
@@ -195,7 +195,7 @@ PASS css/CSS2/margin-padding-clear/padding-top-029.xht
 PASS css/CSS2/normal-flow/block-formatting-context-height-001.xht
 PASS css/CSS2/normal-flow/block-formatting-contexts-001.xht
 PASS css/CSS2/normal-flow/block-formatting-contexts-005.xht
-PASS css/CSS2/normal-flow/block-formatting-contexts-011.xht
+FAIL css/CSS2/normal-flow/block-formatting-contexts-011.xht
 PASS css/CSS2/normal-flow/block-in-inline-align-justify-001.html
 PASS css/CSS2/normal-flow/block-in-inline-empty-002.xht
 PASS css/CSS2/normal-flow/block-in-inline-float-in-layer-001.html
@@ -231,7 +231,7 @@ PASS css/CSS2/normal-flow/width-040.xht
 PASS css/CSS2/positioning/absolute-non-replaced-height-002.xht
 PASS css/CSS2/positioning/absolute-non-replaced-height-008.xht
 FAIL css/CSS2/positioning/absolute-non-replaced-max-001.html
-FAIL css/CSS2/positioning/absolute-non-replaced-max-height-007.xht
+PASS css/CSS2/positioning/absolute-non-replaced-max-height-007.xht
 FAIL css/CSS2/positioning/absolute-non-replaced-min-001.html
 PASS css/CSS2/positioning/absolute-non-replaced-width-001.xht
 FAIL css/CSS2/positioning/absolute-non-replaced-width-002.xht
@@ -460,7 +460,7 @@ FAIL css/css-tables/table-row-group-nested-anonymous-001.html
 FAIL css/css-tables/tentative/collapsed-borders-painting-order-007.html
 FAIL css/css-tables/tentative/paint/collapsed-border-large-cell.html
 PASS css/css-text-decor/decorating-box/text-decoration-decorating-box-thickness-001.html
-PASS css/css-text-decor/text-decoration-inset-017.html
+FAIL css/css-text-decor/text-decoration-inset-017.html
 PASS css/css-text-decor/text-decoration-inset-percentage-negative-multiline.html
 FAIL css/css-text-decor/text-decoration-propagation-display-contents.html
 FAIL css/css-text-decor/text-decoration-subelements-003.html

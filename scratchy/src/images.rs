@@ -596,7 +596,7 @@ pub(crate) fn build_flex_children(
     // flex item (CSS Flexbox §4); whitespace-only runs are dropped.
     let mut pending: Vec<InlineItem> = Vec::new();
     let flush = |pending: &mut Vec<InlineItem>, result: &mut Vec<LayoutBox>| {
-        let has_text = pending.iter().any(|i| matches!(i, InlineItem::Text(t, _) if !t.trim().is_empty()));
+        let has_text = pending.iter().any(|i| matches!(i, InlineItem::Text(t, _) if !trim_css_ws(t).is_empty()));
         if has_text {
             // Q59: an anonymous flex/grid item starts and ends a line, so
             // the collapsible spaces at its edges take no room.
@@ -844,7 +844,7 @@ pub(crate) fn ellipsize_items(
             while !text.is_char_boundary(cut) {
                 cut -= 1;
             }
-            out.push(InlineItem::Text(text[..cut].trim_end_matches(char::is_whitespace).to_string(), *span));
+            out.push(InlineItem::Text(text[..cut].trim_end_matches(is_css_ws).to_string(), *span));
             last_style = Some(*span);
             pos += text.len();
         }
@@ -912,20 +912,20 @@ pub(crate) fn apply_first_letter(
     let mut split = None;
     let mut seen_punct = false;
     for (i, c) in text.char_indices() {
-        if c.is_whitespace() && !seen_punct {
+        if is_css_ws(c) && !seen_punct {
             continue;
         }
         if c.is_alphanumeric() {
             split = Some(i + c.len_utf8());
             break;
         }
-        if c.is_whitespace() {
+        if is_css_ws(c) {
             return;
         }
         seen_punct = true;
     }
     let Some(end) = split else { return };
-    let start = text.len() - text.trim_start().len();
+    let start = text.len() - text.trim_start_matches(is_css_ws).len();
     let matches = matching_declarations_for(handle, rules, viewport_width, Some("first-letter"));
     if matches.is_empty() {
         return;

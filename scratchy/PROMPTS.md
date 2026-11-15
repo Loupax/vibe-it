@@ -6480,3 +6480,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Implement QA1: `border-style` defaults to `none`, not `solid` (R13); check WPT and real pages before/after.
 
 **What changed:** `BorderStyle`'s `#[default]` moved from `Solid` to `None` (css.rs); no other code, the UA sheet already names styles where it wants borders. Test `qa1_border_style_initial_value_is_none` (fails without the fix). WPT 249 pass before and after, no change. Screenshots (nested dwl): a `*{border:1px blue}` fixture lost all outlines (hr kept); en.wikipedia Main_Page, wikipedia.org and news.ycombinator.com identical to a baseline build. Left out: shorthand reset of omitted style/width (QA1a, Q52).
+
+## QA2 U+00A0 is not collapsible white space
+
+> Implement TODO.txt item QA2 (`&nbsp;` must not be treated as collapsible white space; an `&nbsp;`-only line gets height 0 today; replace `trim`/`is_whitespace`/`split_whitespace` on rendered text with CSS-aware helpers), with tests, WPT, and real-page checks.
+
+**What changed:** `is_css_ws`/`trim_css_ws` in css.rs (space, tab, LF, CR, FF). Used by `inline_text` (normal and pre-line), `normalize_whitespace`, flex-item `has_text`, the first-letter scan, the line-clamp trim, the mixed-inline hang and blank-word tests and `:empty`. Tests: `qa2_nbsp_only_line_has_height`, `qa2_inline_text_keeps_nbsp_collapses_ascii_ws`, `qa2_css_ws_helpers_and_flex_item` (all fail when the helper is `char::is_whitespace`). WPT: 4 newly pass (line-height-applies-to-003/004/012, absolute-non-replaced-max-height-007); 3 that passed only because both test and reference had a 0px `&nbsp;` line now fail (QA2a-c filed). Live (headless nested dwl + grim, before/after binaries): fixture shows the `&nbsp;` line with height, six `&nbsp;` kept, ASCII runs and a spaces-only div still collapse; Wikipedia Main Page and Hacker News screenshots look identical before/after.

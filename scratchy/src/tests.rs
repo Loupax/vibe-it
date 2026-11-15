@@ -9121,3 +9121,36 @@ fn qa1_border_style_initial_value_is_none() {
     let hr = find_by_width(&laid, 321.0).expect("hr not found").style;
     assert_eq!(hr.border_width, [1.0; 4]);
 }
+
+// ---------- QA2: U+00A0 is not collapsible white space ----------
+
+fn qa2_body_h(inner: &str) -> f32 {
+    let html = format!(r#"<html><body style="margin:0;font:12px sans-serif;line-height:1em">{inner}</body></html>"#);
+    measure_fixture(&html, 400.0).h
+}
+
+#[test]
+fn qa2_nbsp_only_line_has_height() {
+    assert!(qa2_body_h("<div>&nbsp;</div>") >= 11.0, "{}", qa2_body_h("<div>&nbsp;</div>"));
+    assert!(qa2_body_h("<div>&nbsp;&nbsp;&nbsp;</div>") >= 11.0);
+    // A plain space still collapses to nothing.
+    assert_eq!(qa2_body_h("<div> </div>"), 0.0);
+}
+
+#[test]
+fn qa2_inline_text_keeps_nbsp_collapses_ascii_ws() {
+    let n = TextTransform::None;
+    assert_eq!(inline_text("a\u{a0}\u{a0}b", WhiteSpace::Normal, n), "a\u{a0}\u{a0}b");
+    assert_eq!(inline_text("a  \t\n b", WhiteSpace::Normal, n), "a b");
+    assert_eq!(inline_text("\u{a0}", WhiteSpace::Normal, n), "\u{a0}");
+    assert_eq!(inline_text(" a\u{a0}", WhiteSpace::Normal, n), " a\u{a0}");
+    assert_eq!(inline_text("a\u{a0}\u{a0}b  c", WhiteSpace::PreLine, n), "a\u{a0}\u{a0}b c");
+    assert_eq!(normalize_whitespace("\u{a0}x  y\u{a0}"), "\u{a0}x y\u{a0}");
+}
+
+#[test]
+fn qa2_css_ws_helpers_and_flex_item() {
+    assert!(is_css_ws(' ') && is_css_ws('\x0c') && !is_css_ws('\u{a0}'));
+    assert_eq!(trim_css_ws(" \u{a0} "), "\u{a0}");
+    assert!(qa2_body_h("<div style=\"display:flex\">&nbsp;</div>") >= 11.0);
+}
