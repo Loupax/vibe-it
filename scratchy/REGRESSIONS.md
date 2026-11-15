@@ -91,7 +91,7 @@ callback, each with its own 5 s budget.
 (637fef5) — and QB3 (bound how long the main thread stays busy while
 input is flowing) — still open.
 
-### R9 — JS DOM writes rebuild without the restyle path: periodic writes leave the page blank or missing text (bug, Q33c `80b5e0a`) — FIXED (QB2 7698674)
+### R9 — JS DOM writes rebuild without the restyle path: periodic writes leave the page blank or missing text (bug, Q33c `80b5e0a`) — FIXED (QB2 d78587f)
 
 **Repro:** a local copy of SoHo_Weekly_News with `<base href>` plus
 `setInterval(function(){document.body.setAttribute('data-tick',
