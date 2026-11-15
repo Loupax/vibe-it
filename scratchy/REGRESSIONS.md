@@ -2,7 +2,7 @@
 
 ## R8–R11: build-test pass on `main` @ `f3b06a8` (Opus investigator, 2026-11-15) — OPEN
 
-**R11 DONE** (QB4, see TODO.txt). R8–R10 still open.
+**R11 DONE** (QB4), **R10 DONE** (QB6), see TODO.txt. R8, R9 still open.
 
 Investigation only, no code changed. Fix items are QB1–QB10 at the top of
 the TODO.txt QUEUE. Everything below was seen in a real window and
@@ -135,7 +135,7 @@ after. 1000 ms timer: header+image but no paragraph text, ~190% before; full
 article, ~45-60% after. No-timer page: 0% idle. wikipedia.org renders with
 globe. The `squat` symptom above was not re-checked live.
 
-### R10 — The previous page's JS engine stays alive under `:help` (bug, Q33t `bec5507` / Q33d `46dfc45`) — OPEN
+### R10 — The previous page's JS engine stays alive under `:help` (bug, Q33t `bec5507` / Q33d `46dfc45`) — DONE (QB6)
 
 **Repro:** a page with `document.addEventListener('keydown', …)` (logs each
 key, `preventDefault`s `j`) and a 500 ms `setInterval` writing a body
@@ -155,7 +155,7 @@ its dirty flag keeps triggering rebuilds of the help page.
 `restore_saved_page` has no engine to restore either, because `SavedPage`
 has no `js` field.
 
-**Fix:** QB6.
+**Fix:** QB6 (done): the engine now lives in `SavedPage.js` while help is shown.
 
 ### R11 — User report: wikipedia.org "Thank you for donating recently!" dialog shows and Close does nothing — DONE (QB4; part (c) = QB5, fixed)
 

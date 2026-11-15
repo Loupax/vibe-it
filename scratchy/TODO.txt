@@ -896,7 +896,7 @@ touching the user's desktop: use it for the live check of each item.
       input/button/select/textarea; scrollX/scrollY are optimistic (not
       read back from the App); only the y axis scrolls (page has no x
       scroll). `click()` and live form state remain in Q33d1/Q33e.
-- [ ] QB6 [S] (P1, R10) `:help` must suspend the current page's JS. Add
+- [x] QB6 [S] (HASH) (P1, R10) `:help` must suspend the current page's JS. Add
       `js: Option<JsEngine>` to `SavedPage`. `show_help` moves
       `self.js.take()` into it and `restore_saved_page` puts it back, then
       calls `js_sync`. Timers simply don't run while help is shown; their
