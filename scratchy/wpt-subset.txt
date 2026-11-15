@@ -535,3 +535,16 @@ html/rendering/replaced-elements/the-select-element/customizable-select/min-size
 html/rendering/the-details-element/details-page-break-after-2-print.html
 html/rendering/widgets/button-layout/centering-002.html
 html/rendering/widgets/input-date-baseline.html
+# Q40c: css-overflow
+css/css-overflow/abspos-shrink-to-fit-with-scrollable-descendant.html
+css/css-overflow/line-clamp/block-ellipsis-023.html
+css/css-overflow/line-clamp/line-clamp-013.html
+css/css-overflow/line-clamp/line-clamp-auto-019.html
+css/css-overflow/line-clamp/line-clamp-auto-with-ruby-005.tentative.html
+css/css-overflow/line-clamp/line-clamp-outside-list-marker-001.html
+css/css-overflow/line-clamp/line-clamp-with-floats-003.html
+css/css-overflow/line-clamp/webkit-line-clamp-031.html
+css/css-overflow/overflow-body-propagation-011.html
+css/css-overflow/overflow-negative-margin.html
+css/css-overflow/scroll-markers/scroll-marker-007.html
+css/css-overflow/text-overflow-028.html
