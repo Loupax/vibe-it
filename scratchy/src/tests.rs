@@ -8165,4 +8165,81 @@ fn q33b1_wrappers_are_instances_of_the_constructors() {
            document.head.myPoly(), document instanceof Node, typeof document.getElementById].join('|'));",
     )]);
     assert_eq!(out, vec!["log:true|true|true|true|HEAD|true|function"]);
+
+// ---------- Q33t: timers ----------
+
+/// Runs `code` and keeps the engine, then pumps its timers (real time)
+/// until none are pending or 15s pass; returns everything logged.
+fn run_with_timers(code: &str) -> Vec<String> {
+    let out = Rc::new(RefCell::new(Vec::new()));
+    let o = out.clone();
+    let engine = start_scripts(
+        &parse_html(""),
+        &[src(code)],
+        Rc::new(move |level, text| o.borrow_mut().push(format!("{level}:{text}"))),
+    )
+    .unwrap();
+    let start = std::time::Instant::now();
+    while let Some(at) = engine.next_deadline() {
+        if start.elapsed() > std::time::Duration::from_secs(15) {
+            break;
+        }
+        std::thread::sleep(at.saturating_duration_since(std::time::Instant::now()));
+        engine.run_due();
+    }
+    let v = out.borrow().clone();
+    v
+}
+
+#[test]
+fn q33t_set_timeout_runs_after_the_turn() {
+    let log = run_with_timers("setTimeout(()=>console.log('a'),0); console.log('b');");
+    assert_eq!(log, vec!["log:b", "log:a"]);
+}
+
+#[test]
+fn q33t_clear_timeout_cancels() {
+    let log = run_with_timers(
+        "var t = setTimeout(()=>console.log('no'),0); clearTimeout(t); window.setTimeout(()=>console.log('yes'),1);",
+    );
+    assert_eq!(log, vec!["log:yes"]);
+}
+
+#[test]
+fn q33t_interval_runs_n_times_then_clears_itself() {
+    let log = run_with_timers(
+        "var n=0; var id=setInterval(function(){ n++; console.log('i'+n); if(n==3) clearInterval(id); }, 1);",
+    );
+    assert_eq!(log, vec!["log:i1", "log:i2", "log:i3"]);
+}
+
+#[test]
+fn q33t_timer_args_string_handler_raf_and_order() {
+    let log = run_with_timers(
+        "setTimeout(function(a,b){console.log('args '+a+b)},30,'x','y');\
+         setTimeout(\"console.log('str')\",1);\
+         requestAnimationFrame(function(ts){console.log(typeof ts)});\
+         var c=requestAnimationFrame(function(){console.log('cancelled')}); cancelAnimationFrame(c);",
+    );
+    assert_eq!(log, vec!["log:str", "log:number", "log:args xy"]);
+}
+
+#[test]
+fn q33t_timer_error_is_logged_and_does_not_stop_others() {
+    let log = run_with_timers("setTimeout(()=>{throw new Error('boom')},0); setTimeout(()=>console.log('ok'),1);");
+    assert!(log[0].starts_with("error:Uncaught Error: boom"), "{log:?}");
+    assert_eq!(log[1], "log:ok");
+}
+
+#[test]
+fn q33t_no_timers_means_no_deadline() {
+    let engine = start_scripts(&parse_html(""), &[src("1+1")], Rc::new(|_, _| {})).unwrap();
+    assert!(engine.next_deadline().is_none());
+}
+
+#[test]
+fn q33t_runaway_timer_callback_is_interrupted_with_its_own_budget() {
+    let log = run_with_timers("setTimeout(()=>{ for(;;){} },0); setTimeout(()=>console.log('after'),1);");
+    assert!(log.iter().any(|l| l.starts_with("error:")), "{log:?}");
+    assert!(log.iter().any(|l| l == "log:after"), "{log:?}");
 }
