@@ -1506,7 +1506,7 @@ as the JS measurement corpus (same role the four CSS pages played).
 - [x] Q33c3 [S] (5bd6b26) `select{color:transparent}` still paints the option
       text: the portal's language select (`.styled-select.js-enabled`)
       overlaps its helper label ("AfrikaEnglish").
-- [x] Q33d [M] (402cb78) Events: `addEventListener/removeEventListener/
+- [x] Q33d [M] (46dfc45) Events: `addEventListener/removeEventListener/
       dispatchEvent` on window, document, nodes and `new EventTarget()`
       (capture/once/passive options, `handleEvent` objects, `on<type>`
       properties), capture -> target -> bubble dispatch with
