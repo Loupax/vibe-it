@@ -8386,3 +8386,13 @@ fn q33c_many_writes_mark_dirty_once_and_reads_stay_clean() {
     .unwrap();
     assert!(!clean.take_dirty(), "reads never dirty the page");
 }
+
+#[test]
+fn q33c2_closed_dialog_is_not_rendered_open_dialog_is() {
+    let h = |d: &str| measure_fixture(&format!("<html><body><p>a</p>{d}</body></html>"), 500.0).h;
+    let none = h("");
+    let closed = h("<dialog><div style=\"height:100px\">x</div></dialog>");
+    let open = h("<dialog open><div style=\"height:100px\">x</div></dialog>");
+    assert_eq!(closed, none, "closed dialog takes no space");
+    assert!(open >= none + 100.0, "open dialog still renders");
+}

@@ -50,6 +50,7 @@
    `meta`/`link`/`base`) from rendering: once `head` itself resolves to
    `display: none`, nothing underneath it is ever visited at all. */
 head, title, meta, link, base { display: none; }
+dialog:not([open]) { display: none; }
 /* `noscript { display: none }` is added only when JS is on (see build_layout_tree_with_resources). */
 
 /* ---- blocks ---- */

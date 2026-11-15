@@ -1499,7 +1499,7 @@ as the JS measurement corpus (same role the four CSS pages played).
       writing reflected `href/src/value/...` properties, `<script>`
       elements inserted by JS never run, `template.content`, `style`
       iteration/`getComputedStyle`.
-- [ ] Q33c2 [S] A `<dialog>` without `open` must be `display:none` (UA
+- [x] Q33c2 [S] (HASH) A `<dialog>` without `open` must be `display:none` (UA
       sheet). The portal's closed `frb-iad-dialog` shows as a modal box
       in flow today (visible with JS on at wikipedia.org; it is also
       rendered, further down, with JS off). Needs a WPT run.
