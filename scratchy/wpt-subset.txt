@@ -470,3 +470,16 @@ css/css-text-decor/text-emphasis-property-004a.html
 css/css-text-decor/text-emphasis-style-property-005a.html
 css/css-text-decor/text-emphasis-style-property-019.html
 css/css-text-decor/text-shadow/svg-stroke-dasharray.html
+# Q40c: css-color
+css/css-color/a98rgb-001.html
+css/css-color/color-mix-currentcolor-003.html
+css/css-color/deprecated-sameas-012.html
+css/css-color/hex-002.html
+css/css-color/hwb-002.html
+css/css-color/lch-l-over-100-1.html
+css/css-color/oklch-007.html
+css/css-color/prophoto-rgb-004.html
+css/css-color/rgb-003.html
+css/css-color/t32-opacity-offscreen-b.xht
+css/css-color/t422-rgba-func-whitespace-b.xht
+css/css-color/t425-hsla-values-b.xht
