@@ -963,7 +963,7 @@ Not vendored; pass the path to the runner.
       to the container (W6). WPT: `blocks-011`, `blocks-012`. Done a4f43e4.
 - [x] Q55 [S] Negative `z-index` children of a positioned, non-stacking-context
       parent paint below the parent's background (W17). WPT:
-      `fixed-pos-stacking-001`, `abspos-overflow-010`. Done HASH.
+      `fixed-pos-stacking-001`, `abspos-overflow-010`. Done 53e9727.
 - [ ] Q55a [S] Q55 only hoists negative-`z-index` *absolute* children (post-layout
       pass `hoist_negative_z`). Negative `relative`/`sticky` in-flow children
       of a non-stacking positioned or static parent still paint in that
