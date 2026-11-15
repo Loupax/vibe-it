@@ -164,7 +164,7 @@ PASS css/CSS2/linebox/vertical-align-applies-to-015.xht
 FAIL css/CSS2/margin-padding-clear/margin-001.xht
 FAIL css/CSS2/margin-padding-clear/margin-007.xht
 FAIL css/CSS2/margin-padding-clear/margin-applies-to-004.xht
-FAIL css/CSS2/margin-padding-clear/margin-applies-to-013.xht
+PASS css/CSS2/margin-padding-clear/margin-applies-to-013.xht
 PASS css/CSS2/margin-padding-clear/margin-border-padding-001.xht
 PASS css/CSS2/margin-padding-clear/margin-bottom-007.xht
 PASS css/CSS2/margin-padding-clear/margin-bottom-020.xht
@@ -435,7 +435,7 @@ FAIL css/css-pseudo/marker-hyphens.html
 FAIL css/css-pseudo/marker-text-align-001.html
 FAIL css/css-pseudo/marker-text-transform-uppercase.html
 PASS css/css-pseudo/placeholder-vertical-align.html
-FAIL css/css-sizing/abspos-auto-sizing-fit-content-percentage-001.html
+PASS css/css-sizing/abspos-auto-sizing-fit-content-percentage-001.html
 FAIL css/css-sizing/aspect-ratio/block-aspect-ratio-016.html
 FAIL css/css-sizing/aspect-ratio/flex-aspect-ratio-006.html
 FAIL css/css-sizing/aspect-ratio/flex-aspect-ratio-055.html

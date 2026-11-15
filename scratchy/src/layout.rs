@@ -3293,10 +3293,13 @@ fn natural_width_impl(
     // `width` is the box's own contribution), instead of whatever its
     // (possibly empty) content measures. Percent/calc widths can't resolve
     // without a containing block, so they keep the content-based figures.
-    // Plain block children are deliberately excluded: `max-width: fit-content`
-    // (unparsed today) must clamp them, WPT fit-content-max-inline-size.
+    // Q35b3: an *empty* plain block (HN's `div.votearrow{width:10px}` in a
+    // `<center><a>`) also contributes its definite width, else its column
+    // collapses to the margins. Non-empty plain blocks are still excluded:
+    // `max-width: fit-content` (unparsed today) must clamp them, WPT
+    // fit-content-max-inline-size.
     if as_child
-        && cell.style.float != Float::None
+        && (cell.style.float != Float::None || (content_max == 0.0 && content_min == 0.0))
         && !matches!(cell.style.display, Display::TableCell | Display::Table)
         && !matches!(cell.content, BoxContent::Image(_) | BoxContent::TableRow(_))
         && cell.style.width_kw.is_none()

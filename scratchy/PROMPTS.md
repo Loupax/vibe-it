@@ -6582,3 +6582,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Implement QW2: the blue search button label is clipped to "Searc" on wikipedia.org. Diagnose with evidence, fix the smallest root cause.
 
 **What changed:** diagnosis from the live portal HTML/CSS: the label is `<i class="sprite svg-search-icon">Search</i>` (22x22 inline-block) hidden via `button .svg-search-icon{text-indent:-9999px}`; scratchy had no `text-indent`, so the text showed and overflowed. Added `text-indent` (length) in css.rs, inherited px `text_indent` in style.rs, and `paint_buffer` takes a `first_line_dx` applied to the first laid-out line (only negative indents are painted for now). Test `negative_text_indent_moves_the_label_off_the_icon_qw2`. Also applied to the first line in `measure_mixed_inline` (the path wikipedia.org actually takes, because of an earlier float). Left out (QW2b): positive indent, wrap-width effect.
+
+## Q35b3 HN vote arrows paint over the title's first letter
+
+> Diagnose with evidence why the Q35a-loaded vote-arrow GIFs on news.ycombinator.com overlap the story titles; fix the smallest root cause.
+
+**What changed:** root cause in layout.rs `natural_width_impl`: HN's arrow is an *empty block* `div.votearrow{width:10px;margin:3px 2px}` inside `<td><center><a>`; a definite `width` counted toward a parent's intrinsic width only for floats, so the vote column measured 6px (margins only) and the 10px arrow overflowed into the title cell. Now an empty (zero natural width) plain block child also contributes its definite width. Non-empty plain blocks stay excluded (WPT fit-content-max-inline-size; `max-width: fit-content` is unparsed). Test `hn_vote_arrow_div_in_center_anchor_gets_its_own_column_wide_enough` (column was w=6 before the fix). WPT: 2 newly passing (margin-applies-to-013, abspos-auto-sizing-fit-content-percentage-001), no regressions.
