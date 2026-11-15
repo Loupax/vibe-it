@@ -8937,6 +8937,47 @@ fn qb3_app_defers_hover_while_pointer_moves_on_slow_pages() {
     assert!(app.hover_restyle_delay().is_none(), "fast page applies hover immediately");
 }
 
+/// QB3b: a burst of pointer-driven hover changes on a slow page, then a
+/// final move onto a link, must end with the link (the last target)
+/// hovered: the pending flush re-arms while the pointer moves and applies
+/// the final `hover_node`, never an earlier one. (The "link stays
+/// un-highlighted" symptom came from the dev injector dropping its last
+/// pointer motion, not from this path; this pins the app side.)
+#[test]
+fn qb3b_final_hover_target_applied_after_burst() {
+    use winit::platform::wayland::EventLoopBuilderExtWayland;
+    let event_loop = match EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build() {
+        Ok(l) => l,
+        Err(_) => return, // no display available (headless CI)
+    };
+    let doc = parse_html("<html><head><style>a:hover{color:red}</style></head><body><p>x</p><div>y</div><a href=\"/x\">z</a></body></html>");
+    let a = node_id(&find_by_tag(&doc, "a").unwrap());
+    let p = node_id(&find_by_tag(&doc, "p").unwrap());
+    let div = node_id(&find_by_tag(&doc, "div").unwrap());
+    let mut app = App::new_static(doc, event_loop.create_proxy(), None);
+    app.layout_dirty = false;
+    app.hold_old_frame = false;
+    app.state_rules = STATE_HOVER;
+    app.last_build_time = Some(std::time::Duration::from_millis(400));
+    // The burst: the pointer keeps moving, so every flush is deferred.
+    for i in 0..100 {
+        app.last_pointer_move = Some(std::time::Instant::now());
+        app.update_hover(if i % 2 == 0 { p } else { div });
+        assert!(app.hover_restyle_delay().is_some());
+    }
+    // The last move lands on the link immediately after the burst.
+    app.last_pointer_move = Some(std::time::Instant::now());
+    app.update_hover(a);
+    assert_eq!(app.hover_node, a);
+    assert!(app.interaction.hover.is_empty(), "still deferred: pointer not idle");
+    // Pointer goes still; the flush that was already pending fires.
+    app.last_pointer_move = Some(std::time::Instant::now() - std::time::Duration::from_secs(1));
+    assert!(app.hover_restyle_delay().is_none());
+    app.apply_hover();
+    assert!(app.interaction.hover.contains(&a), "the final target is hovered");
+    assert!(app.layout_dirty, "and a restyle was requested");
+}
+
 /// QB3: timer/event callbacks get ~500 ms, not the 5 s page-load budget.
 #[test]
 fn qb3_callback_budget_is_much_shorter_than_load_budget() {

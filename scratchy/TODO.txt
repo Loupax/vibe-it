@@ -854,12 +854,24 @@ touching the user's desktop: use it for the live check of each item.
       other than hover starts one (image arrival, JS restyle, resize,
       navigation) while input flows. The gate only removes the
       hover-triggered ones.
-- [ ] QB3b [S] Pre-existing, seen while verifying QB3 (also on the
+- [x] QB3b [S] (7c584ac) Pre-existing, seen while verifying QB3 (also on the
       pre-QB3 build): on Main_Page (local copy with an `a:hover` rule), a
       burst of ~100 pointer moves at 5 ms followed immediately by a move
       onto "Donate" leaves the link un-highlighted 2.5 s later; with a
       300 ms pause before the last move it highlights. Find why the
       deferred `HoverFlush` / `apply_hover` path misses the final target.
+      DONE: not an app bug. Temporary logging showed the final `move:` never
+      reached `WindowEvent::CursorMoved` at all: `tools/inject` never
+      delivers the last motion of an invocation (also on a trivial page
+      with no hover rules: `move:440,440 wait:300 move:460,460` delivers
+      only the first). The app side is right: with the last move delivered
+      the burst ends with Donate hovered (flush re-arms while the pointer
+      moves, then applies the final `hover_node`). Fix: the injector
+      repeats the last position before each `wait:` and at exit (the
+      motion otherwise only arrives with the next one); verified live.
+      Test: `qb3b_final_hover_target_applied_after_burst` pins the app
+      path (passes before and after; there was no app defect to fail on).
+      Cause of the injector loss is not understood (wlroots/dwl/winit).
 - [x] QB4 [S] (P1, user report, R11) (a29738f) `HTMLDialogElement`: `show()`,
       `showModal()`, `close(returnValue?)`, the `open` property (reflects
       the attribute) and `returnValue`. `close()` removes `open`, sets
