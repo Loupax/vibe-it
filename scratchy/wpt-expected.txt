@@ -50,13 +50,16 @@ FAIL css/CSS2/borders/border-top-width-017.xht
 PASS css/CSS2/borders/border-top-width-089.xht
 PASS css/CSS2/box-display/anonymous-box-generation-001.xht
 PASS css/CSS2/box-display/anonymous-boxes-inheritance-001.xht
+PASS css/CSS2/box-display/block-in-inline-003.xht
 FAIL css/CSS2/box-display/block-in-inline-007.xht
 PASS css/CSS2/box-display/block-in-inline-008.xht
 PASS css/CSS2/box-display/block-in-inline-margin-bottom-with-trailing-block.html
 PASS css/CSS2/box-display/block-in-inline-margin-collapses-through-multiple-floats.html
 PASS css/CSS2/box-display/block-in-inline-margin-with-leading-text.html
+PASS css/CSS2/box-display/block-in-inline-margin-with-line-break-then-block-in-inline.html
 PASS css/CSS2/box-display/block-in-inline-margin-with-text-then-block-in-inline.html
 PASS css/CSS2/box-display/block-in-inline-negative-margin-with-intervening-float.html
+FAIL css/CSS2/box-display/block-in-inline-relpos-001.xht
 FAIL css/CSS2/box-display/block-in-inline-self-collapsing-only-child.html
 PASS css/CSS2/box-display/block-in-inline-vertical-margins-on-span-ignored.html
 PASS css/CSS2/box-display/containing-block-001.xht
@@ -76,6 +79,7 @@ PASS css/CSS2/box-display/inline-text-after-block-in-inline-with-intervening-flo
 PASS css/CSS2/box-display/three-block-in-inlines-cascading-margins.html
 PASS css/CSS2/floats-clear/adjacent-floats-001.xht
 FAIL css/CSS2/floats-clear/clear-applies-to-004.xht
+FAIL css/CSS2/floats-clear/clear-clearance-calculation-001.xht
 FAIL css/CSS2/floats-clear/clear-float-003.xht
 FAIL css/CSS2/floats-clear/float-003.xht
 FAIL css/CSS2/floats-clear/float-applies-to-001.xht
@@ -214,6 +218,7 @@ PASS css/CSS2/normal-flow/blocks-026.xht
 PASS css/CSS2/normal-flow/height-067.xht
 PASS css/CSS2/normal-flow/inline-block-replaced-height-003.xht
 PASS css/CSS2/normal-flow/inline-table-width-001a.xht
+FAIL css/CSS2/normal-flow/inline-table-zorder-001.xht
 FAIL css/CSS2/normal-flow/inlines-013.xht
 PASS css/CSS2/normal-flow/max-height-001.xht
 PASS css/CSS2/normal-flow/max-height-049.xht
@@ -259,6 +264,7 @@ PASS css/CSS2/positioning/right-112.xht
 FAIL css/CSS2/positioning/top-056.xht
 FAIL css/CSS2/tables/anonymous-table-box-width-001.xht
 PASS css/CSS2/tables/caption-side-applies-to-003.xht
+FAIL css/CSS2/tables/caption-side-applies-to-011.xht
 FAIL css/CSS2/tables/collapsing-border-model-010b.xht
 FAIL css/CSS2/tables/fixed-table-layout-003a06.xht
 FAIL css/CSS2/tables/fixed-table-layout-003d01.xht
@@ -343,6 +349,10 @@ FAIL css/css-flexbox/auto-margins-002.html
 FAIL css/css-flexbox/flex-aspect-ratio-cross-size-002.html
 PASS css/css-flexbox/flex-basis-003.html
 PASS css/css-flexbox/flex-grow-008.html
+PASS css/css-flexbox/flex-minimum-height-flex-items-001.xht
+PASS css/css-flexbox/flex-minimum-height-flex-items-008.xht
+FAIL css/css-flexbox/flex-minimum-height-flex-items-018.html
+PASS css/css-flexbox/flex-minimum-height-flex-items-027.html
 PASS css/css-flexbox/flex-shrink-006.html
 FAIL css/css-flexbox/flexbox-break-request-vert-001a.html
 FAIL css/css-flexbox/flexbox-min-width-auto-003.html
@@ -350,7 +360,9 @@ FAIL css/css-flexbox/flexbox_align-items-flexend-2.html
 FAIL css/css-flexbox/flexbox_flex-1-N-N-shrink.html
 FAIL css/css-flexbox/flexbox_justifycontent-start-rtl.html
 FAIL css/css-flexbox/gap-015.html
+FAIL css/css-flexbox/percentage-heights-006.html
 FAIL css/css-flexbox/percentage-heights-016.html
+FAIL css/css-flexbox/percentage-heights-017.html
 PASS css/css-grid/anonymous-grid-items-001.html
 FAIL css/css-grid/grid-definition/flex-item-grid-container-auto-repeat-002.html
 FAIL css/css-grid/grid-definition/grid-auto-repeat-minmax.html

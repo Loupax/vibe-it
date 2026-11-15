@@ -561,3 +561,18 @@ css/css-grid/layout-algorithm/flex-and-intrinsic-sizes-002.html
 css/css-grid/layout-algorithm/grid-fit-content-width-percent-height-aspect-ratio-001.html
 css/css-grid/layout-algorithm/grid-spanning-item-with-paddings-auto-rows-001.html
 css/css-grid/placement/grid-placement-using-named-grid-lines-002.html
+# Q40c: residue
+css/CSS2/floats-clear/clear-clearance-calculation-001.xht
+css/CSS2/box-display/block-in-inline-003.xht
+css/CSS2/box-display/block-in-inline-margin-bottom-with-trailing-block.html
+css/CSS2/box-display/block-in-inline-margin-with-line-break-then-block-in-inline.html
+css/CSS2/box-display/block-in-inline-relpos-001.xht
+css/CSS2/normal-flow/inline-table-zorder-001.xht
+css/CSS2/tables/caption-side-applies-to-003.xht
+css/CSS2/tables/caption-side-applies-to-011.xht
+css/css-flexbox/flex-minimum-height-flex-items-001.xht
+css/css-flexbox/flex-minimum-height-flex-items-008.xht
+css/css-flexbox/flex-minimum-height-flex-items-018.html
+css/css-flexbox/flex-minimum-height-flex-items-027.html
+css/css-flexbox/percentage-heights-006.html
+css/css-flexbox/percentage-heights-017.html
