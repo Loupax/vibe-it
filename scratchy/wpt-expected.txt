@@ -249,6 +249,7 @@ FAIL css/CSS2/positioning/absolute-replaced-width-030.xht
 FAIL css/CSS2/positioning/absolute-replaced-width-038.xht
 FAIL css/CSS2/positioning/absolute-replaced-width-066.xht
 FAIL css/CSS2/positioning/abspos-overflow-002.xht
+PASS css/CSS2/positioning/abspos-overflow-010.xht
 PASS css/CSS2/positioning/bottom-064.xht
 PASS css/CSS2/positioning/left-006.xht
 PASS css/CSS2/positioning/left-109.xht
@@ -268,6 +269,7 @@ FAIL css/CSS2/tables/table-anonymous-objects-074.xht
 FAIL css/CSS2/tables/table-anonymous-objects-095.xht
 PASS css/CSS2/tables/table-anonymous-objects-200.xht
 PASS css/CSS2/tables/table-height-algorithm-008a.xht
+PASS css/CSS2/visuren/fixed-pos-stacking-001.xht
 PASS css/css-backgrounds/animations/background-color-animation-in-body.html
 FAIL css/css-backgrounds/background-clip/clip-border-area-border-shape.html
 PASS css/css-backgrounds/background-clip/clip-text-transform.html

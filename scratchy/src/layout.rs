@@ -5043,8 +5043,75 @@ pub fn measure_document(
     if extent > laid.y + laid.h {
         laid.h = extent - laid.y;
     }
+    hoist_negative_z(&mut laid);
     compute_ink(&mut laid);
     laid
+}
+
+/// True when `l` is a stacking-context root for *descendant* painting
+/// (CSS2.1 §9.9.1): `fixed`, `absolute`/`relative`/`sticky` with an explicit
+/// `z-index`, or a box that clips (`overflow` other than `visible`, which
+/// is also the boundary a hoisted box must not escape).
+fn is_stacking_boundary(l: &Laid) -> bool {
+    l.fixed
+        || l.style.position == Position::Fixed
+        || (l.style.position != Position::Static && l.style.z_index.is_some())
+        || l.style.overflow != Overflow::Visible
+}
+
+/// Q55 (W17): a negative-`z-index` out-of-flow child of a *positioned,
+/// non-stacking-context* box (`z-index: auto`) belongs to the nearest
+/// ancestor stacking context's negative layer, so it paints below that
+/// ancestor's in-between backgrounds, not just above the parent's own.
+/// Moves such entries out of the parent's `positioned` list into the
+/// nearest boundary ancestor's list (which `paint`/`hit_test_cursor`
+/// already order by `z-index`). Coordinates are absolute, so no
+/// translation is needed.
+fn hoist_negative_z(root: &mut Laid) {
+    collect_negative_z(root);
+}
+
+fn collect_negative_z(owner: &mut Laid) {
+    let mut bag = Vec::new();
+    walk_negative_z(owner, &mut bag, true);
+    if !bag.is_empty() {
+        owner.positioned.append(&mut bag);
+        owner.positioned.sort_by_key(|l| l.style.z_index.unwrap_or(0));
+    }
+}
+
+/// Visits the children (in-flow and out-of-flow) of `l`. `is_owner` is
+/// true for the boundary box itself.
+fn walk_negative_z(l: &mut Laid, bag: &mut Vec<Laid>, is_owner: bool) {
+    if !is_owner {
+        // A positioned, non-boundary box: its negative out-of-flow
+        // children escape to the owner.
+        if l.style.position != Position::Static {
+            let all = std::mem::take(&mut l.positioned);
+            let (neg, rest): (Vec<Laid>, Vec<Laid>) = all.into_iter().partition(|c| c.style.z_index.is_some_and(|z| z < 0));
+            l.positioned = rest;
+            for mut n in neg {
+                collect_negative_z(&mut n);
+                bag.push(n);
+            }
+        }
+    }
+    if let LaidContent::Blocks(children) | LaidContent::TableRow(children) = &mut l.content {
+        for c in children.iter_mut() {
+            visit_negative_z_child(c, bag);
+        }
+    }
+    for c in l.positioned.iter_mut() {
+        visit_negative_z_child(c, bag);
+    }
+}
+
+fn visit_negative_z_child(c: &mut Laid, bag: &mut Vec<Laid>) {
+    if is_stacking_boundary(c) {
+        collect_negative_z(c);
+    } else {
+        walk_negative_z(c, bag, false);
+    }
 }
 
 /// Lowest bottom edge (document space) of `l` and its in-flow
