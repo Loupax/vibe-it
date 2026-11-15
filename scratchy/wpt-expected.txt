@@ -70,7 +70,7 @@ FAIL css/CSS2/box-display/containing-block-022.xht
 PASS css/CSS2/box-display/containing-block-026.xht
 PASS css/CSS2/box-display/containing-block-030.xht
 PASS css/CSS2/box-display/display-001.xht
-FAIL css/CSS2/box-display/display-006.xht
+PASS css/CSS2/box-display/display-006.xht
 FAIL css/CSS2/box-display/display-010.xht
 FAIL css/CSS2/box-display/display-012.xht
 PASS css/CSS2/box-display/display-017.xht
@@ -81,15 +81,15 @@ PASS css/CSS2/floats-clear/adjacent-floats-001.xht
 FAIL css/CSS2/floats-clear/clear-applies-to-004.xht
 PASS css/CSS2/floats-clear/clear-clearance-calculation-001.xht
 FAIL css/CSS2/floats-clear/clear-float-003.xht
-FAIL css/CSS2/floats-clear/float-003.xht
+PASS css/CSS2/floats-clear/float-003.xht
 FAIL css/CSS2/floats-clear/float-applies-to-001.xht
 FAIL css/CSS2/floats-clear/float-applies-to-002.xht
 FAIL css/CSS2/floats-clear/float-applies-to-003.xht
 FAIL css/CSS2/floats-clear/float-applies-to-004.xht
 FAIL css/CSS2/floats-clear/float-applies-to-005.xht
 FAIL css/CSS2/floats-clear/float-applies-to-006.xht
-FAIL css/CSS2/floats-clear/float-applies-to-007.xht
-FAIL css/CSS2/floats-clear/float-applies-to-008.xht
+PASS css/CSS2/floats-clear/float-applies-to-007.xht
+PASS css/CSS2/floats-clear/float-applies-to-008.xht
 PASS css/CSS2/floats-clear/float-applies-to-009.xht
 PASS css/CSS2/floats-clear/float-applies-to-012.xht
 FAIL css/CSS2/floats-clear/float-applies-to-015.xht
@@ -195,7 +195,7 @@ PASS css/CSS2/margin-padding-clear/padding-top-029.xht
 PASS css/CSS2/normal-flow/block-formatting-context-height-001.xht
 PASS css/CSS2/normal-flow/block-formatting-contexts-001.xht
 PASS css/CSS2/normal-flow/block-formatting-contexts-005.xht
-FAIL css/CSS2/normal-flow/block-formatting-contexts-011.xht
+PASS css/CSS2/normal-flow/block-formatting-contexts-011.xht
 PASS css/CSS2/normal-flow/block-in-inline-align-justify-001.html
 PASS css/CSS2/normal-flow/block-in-inline-empty-002.xht
 PASS css/CSS2/normal-flow/block-in-inline-float-in-layer-001.html
@@ -451,7 +451,7 @@ PASS css/css-tables/absolute-tables-007.html
 PASS css/css-tables/background-clip-001.html
 PASS css/css-tables/col-definite-min-size-001.html
 PASS css/css-tables/collapsed-border-vertical-lr-rtl-overflow.html
-FAIL css/css-tables/height-distribution/percentage-sizing-of-table-cell-children-003.html
+PASS css/css-tables/height-distribution/percentage-sizing-of-table-cell-children-003.html
 FAIL css/css-tables/min-max-size-table-content-box.html
 PASS css/css-tables/row-group-margin-border-padding.html
 PASS css/css-tables/table-as-item-cell-percentage-001.html

@@ -3137,3 +3137,18 @@ sorted by `layout::stack_key` = (z-index, `ComputedStyle.tree_order`), where
 `paint_z_layer` and `hit_test_inner` use the same key, so hit testing equals
 paint order. The old `is_explicit_stacking_child` pull-out in `paint` is now
 mostly a no-op (those children have already been hoisted).
+
+## QA10 — anonymous table objects
+
+Box building (images.rs), not layout, generates the missing table parts
+(CSS 2.1 17.2.1). `build_table_nodes` walks a node list: consecutive
+`table-cell` nodes become one anonymous `TableRow` box; a block/flex/grid/
+table node arriving while such a run is open becomes an anonymous cell in the
+same row (a `table-caption` or a block before the first cell stays a stacked
+child, as before). `build_table_row_cells` wraps runs of non-cell content in
+an anonymous cell (whitespace-only runs are dropped). In `collect_real_nodes`
+a `table-row|cell|row-group` element outside a table collects its following
+sibling table parts (plus whitespace/script/`display:none`) into a run and
+emits one anonymous `Display::Table` box around `build_table_nodes` of it.
+Real `<table>` markup takes the same paths unchanged. `paint_buffer` also
+adds the fractional part of the run's x origin to each glyph position.

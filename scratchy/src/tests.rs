@@ -9801,3 +9801,68 @@ fn hn_vote_arrow_div_in_center_anchor_gets_its_own_column_wide_enough() {
         assert!(cells[1].x >= cells[0].x + 14.0 - 0.01, "title cell x {} starts right of the arrow ({d})", cells[1].x);
     }
 }
+
+// ---------- QA10: anonymous table objects (CSS 2.1 17.2.1) ----------
+
+#[test]
+fn qa10_table_cells_in_a_block_get_an_anonymous_row_and_table() {
+    // Four `display:table-cell` siblings, no row, no table: one row, 4 cells side by side.
+    let laid = measure_fixture(
+        r#"<html><body style="margin:0"><div><div style="display:table-cell;width:20px;height:10px"></div> <div style="display:table-cell;width:20px;height:10px"></div><div style="display:table-cell;width:20px;height:10px"></div><div style="display:table-cell;width:20px;height:10px"></div></div></body></html>"#,
+        600.0,
+    );
+    let mut rows = Vec::new();
+    collect_table_rows(&laid, &mut rows);
+    assert_eq!(rows.len(), 1, "one anonymous row");
+    let cells = row_cells(rows[0]);
+    assert_eq!(cells.len(), 4);
+    for w in cells.windows(2) {
+        assert!((w[1].x - (w[0].x + w[0].w)).abs() < 0.5, "cells abut horizontally");
+    }
+}
+
+#[test]
+fn qa10_cells_directly_in_display_table_get_an_anonymous_row() {
+    let laid = measure_fixture(
+        r#"<html><body style="margin:0"><div style="display:table"><div style="display:table-cell;width:20px;height:10px"></div><div style="display:table-cell;width:20px;height:10px"></div><div style="display:table-cell;width:20px;height:10px"></div></div></body></html>"#,
+        600.0,
+    );
+    let mut rows = Vec::new();
+    collect_table_rows(&laid, &mut rows);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(row_cells(rows[0]).len(), 3);
+}
+
+#[test]
+fn qa10_table_rows_in_a_block_get_an_anonymous_table() {
+    let laid = measure_fixture(
+        r#"<html><body style="margin:0"><div><div style="display:table-row"><div style="display:table-cell;width:20px;height:10px"></div><div style="display:table-cell;width:20px;height:10px"></div></div><div style="display:table-row"><div style="display:table-cell;width:20px;height:10px"></div><div style="display:table-cell;width:20px;height:10px"></div></div></div></body></html>"#,
+        600.0,
+    );
+    let mut rows = Vec::new();
+    collect_table_rows(&laid, &mut rows);
+    assert_eq!(rows.len(), 2);
+    let (a, b) = (row_cells(rows[0]), row_cells(rows[1]));
+    assert_eq!((a.len(), b.len()), (2, 2));
+    assert!((a[1].x - (a[0].x + a[0].w)).abs() < 0.5);
+    assert!((b[0].x - a[0].x).abs() < 0.5, "columns line up");
+    assert!(b[0].y > a[0].y, "second row below the first");
+}
+
+#[test]
+fn qa10_blocks_between_cells_of_a_table_get_anonymous_cells_in_the_same_row() {
+    // The Acid2 line-14 shape: cell, nested table, cell, plain block, all
+    // children of one `display:table`: a single row of four cells.
+    let laid = measure_fixture(
+        r#"<html><body style="margin:0"><ul style="display:table;padding:0;margin:0"><li style="display:table-cell;width:10px;height:10px"></li><li style="display:table;width:10px;height:10px"></li><li style="display:table-cell;width:10px;height:10px"></li><li style="list-style:none;width:10px;height:10px"></li></ul></body></html>"#,
+        600.0,
+    );
+    let mut rows = Vec::new();
+    collect_table_rows(&laid, &mut rows);
+    assert_eq!(rows.len(), 1, "one anonymous row");
+    let cells = row_cells(rows[0]);
+    assert_eq!(cells.len(), 4);
+    for w in cells.windows(2) {
+        assert!((w[1].x - (w[0].x + w[0].w)).abs() < 0.5, "cells abut horizontally");
+    }
+}
