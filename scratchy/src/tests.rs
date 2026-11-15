@@ -3113,6 +3113,23 @@ fn block_display_table_without_width_shrinks_to_fit() {
 }
 
 #[test]
+fn q51_table_width_includes_border_and_padding() {
+    let laid = measure_fixture(
+        r#"<html><body style="margin:0"><div style="width:400px"><table style="width:100%;border:5px solid black;padding:10px"><tr><td>a</td></tr></table></div></body></html>"#,
+        700.0,
+    );
+    let container = find_by_width(&laid, 400.0).expect("container not found");
+    let LaidContent::Blocks(cs) = &container.content else { panic!("expected Blocks") };
+    assert_eq!(cs[0].w, 400.0, "table width:100% is its border box");
+    let laid = measure_fixture(
+        r#"<html><body style="margin:0"><table style="width:200px;border:5px solid black;padding:10px"><tr><td>a</td></tr></table></body></html>"#,
+        700.0,
+    );
+    let t = find_by_width(&laid, 200.0).expect("table must be 200px wide including border+padding");
+    assert_eq!(t.w, 200.0);
+}
+
+#[test]
 fn shrink_to_fit_table_is_sum_of_column_maxima_so_no_cell_wraps() {
     // Q50: rows with different per-column widths must not make cells wrap.
     let laid = measure_fixture(

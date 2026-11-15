@@ -919,8 +919,13 @@ Not vendored; pass the path to the runner.
       need anonymous table objects (`display:table-row-group|cell` outside a
       table) and `border-collapse`/`border-spacing` (W16). Subset now includes
       `border-applies-to-001..012` and `float-applies-to-001..015`.
-- [ ] Q51 [S] Table `width` includes the table's border and padding (W15).
+- [x] Q51 [S] (done, commit e09c450) Table `width` includes the table's border and padding (W15).
       WPT: `block-formatting-contexts-001` (reference).
+      Done: `measure_table` forces border-box sizing; the table widens to its
+      columns' min-content; a table cell's definite `width` floors its column.
+- [ ] Q51a [S] Table `height` is still content-box and rows ignore their cells'
+      `height`; browsers treat table height as border-box with cell heights
+      as a floor (kept authored sizing to avoid regressing `floats-038`).
 - [ ] Q52 [S] Border width defaults to `medium` (3px) when a style is set
       without a width (W4): `border: solid black`, `border-style: solid`,
       `border-bottom: solid`. Wikipedia tables often rely on it.

@@ -3101,6 +3101,19 @@ pub(crate) fn cell_natural_width(
             (w, w)
         }
     };
+    // Q51: a table cell's definite `width` is a floor for its column
+    // (browsers never shrink a column below its cell's specified width).
+    let (mut content_min, mut content_max) = (content_min, content_max);
+    if cell.style.display == Display::TableCell
+        && let Some(w) = s.width
+    {
+        let w = match s.box_sizing {
+            BoxSizing::ContentBox => w.px().max(0.0),
+            BoxSizing::BorderBox => (w.px() - (extra_w - s.margin.left.px() - s.margin.right.px())).max(0.0),
+        };
+        content_min = content_min.max(w);
+        content_max = content_max.max(w);
+    }
     (content_min + extra_w, content_max + extra_w)
 }
 
@@ -3486,7 +3499,21 @@ pub(crate) fn measure_table<'a>(
     auto_margin_box_override: Option<f32>,
 ) -> Laid {
     let mut s = b.style;
-    let entry = box_model_entry(&mut s, x, y, width, containing_height, auto_margin_box_override);
+    // Q51 (W15): a table's `width` includes its own border and
+    // padding regardless of `box-sizing` (CSS2.1 §17.5.2 / browsers).
+    // `height` stays as authored (rows don't yet honour their cells' own
+    // `height`, which browsers use as a floor).
+    let authored_box_sizing = s.box_sizing;
+    s.box_sizing = BoxSizing::BorderBox;
+    let mut entry = box_model_entry(&mut s, x, y, width, containing_height, auto_margin_box_override);
+    s.box_sizing = authored_box_sizing;
+    // ...but the table can't be narrower than its columns' min-content.
+    let (col_min, _) = table_column_extents(children, font_system, next_id, cache, deadline, incomplete);
+    let total_min: f32 = col_min.iter().sum();
+    if total_min > entry.content_w {
+        entry.border_w += total_min - entry.content_w;
+        entry.content_w = total_min;
+    }
     let col_widths = table_column_widths(children, entry.content_w, font_system, next_id, cache, deadline, incomplete);
 
     let placement = table_grid_placement(children);
