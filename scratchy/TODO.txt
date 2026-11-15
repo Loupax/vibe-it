@@ -857,7 +857,7 @@ into the commit message of every JS item.
       allowed once and only in the last layer. This takes the `background`
       part of Q57a. Tests: `div{background:red} div{background:none}` has
       no background colour; `background: red pink` keeps the previous value.
-- [x] QA5 [S] (P1, R16) (849aae3) `data:` URLs. (a) `decode_data_uri` (images.rs)
+- [x] QA5 [S] (P1, R16) (e9232f3) `data:` URLs. (a) `decode_data_uri` (images.rs)
       base64-decodes the raw payload, so the common `%2F`/`%3D`-escaped
       base64 (every image in Acid2) fails and paints nothing. Per the
       Fetch spec: percent-decode the payload first, then forgiving-base64
