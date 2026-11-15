@@ -9,7 +9,7 @@
 //! (Q33d will need to keep it alive for events/timers).
 use super::*;
 use rquickjs::context::EvalOptions;
-use rquickjs::{Context, Ctx, Error as JsError, Exception, Function, Runtime};
+use rquickjs::{Context, FromJs, Ctx, Error as JsError, Exception, Function, Runtime};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
@@ -86,8 +86,9 @@ pub(crate) fn inline_scripts(document: &Handle) -> Vec<ScriptSource> {
     find_external_resources(document, &mut res);
     res.scripts
         .into_iter()
-        .filter_map(|s| match s {
-            ScriptRef::Inline(code) => Some(ScriptSource { name: "inline script".into(), code }),
+        .enumerate()
+        .filter_map(|(i, s)| match s {
+            ScriptRef::Inline(code) => Some(ScriptSource { name: format!("inline script #{}", i + 1), code }),
             ScriptRef::External(_) => None,
         })
         .collect()
@@ -103,9 +104,10 @@ pub(crate) fn fetch_scripts(path: &std::path::Path, base: &Url, refs: Vec<Script
     thread::scope(|scope| {
         let handles: Vec<_> = refs
             .into_iter()
-            .map(|r| {
+            .enumerate()
+            .map(|(i, r)| {
                 scope.spawn(move || match r {
-                    ScriptRef::Inline(code) => Some(ScriptSource { name: "inline script".into(), code }),
+                    ScriptRef::Inline(code) => Some(ScriptSource { name: format!("inline script #{}", i + 1), code }),
                     ScriptRef::External(src) => {
                         let url = resolve_href(Some(base), &src).ok()?;
                         match fetch_script_via_wire(path, &url) {
@@ -161,7 +163,7 @@ const PRELUDE: &str = r#"
     if (typeof handler === 'function') list.push(handler);
     list.forEach(function (fn) {
       try { fn.call(key === 'w:' ? g : g.document, { type: type }); }
-      catch (e) { console.error('Uncaught ' + (e && e.stack ? e.stack : e)); }
+      catch (e) { console.error('Uncaught ' + String(e) + (e && e.stack ? '\\n' + e.stack : '')); }
     });
   } });
 })(globalThis);
@@ -183,12 +185,17 @@ fn describe_error(ctx: &Ctx<'_>, err: JsError) -> String {
         let value = ctx.catch();
         if let Some(ex) = value.as_object().and_then(|o| Exception::from_object(o.clone())) {
             let msg = ex.message().unwrap_or_default();
+            let name = value.as_object().and_then(|o| o.get::<_, String>("name").ok()).unwrap_or_default();
+            let msg = if name.is_empty() { msg } else { format!("{name}: {msg}") };
             return match ex.stack() {
                 Some(stack) if !stack.is_empty() => format!("{msg}\n{stack}"),
                 _ => msg,
             };
         }
-        return format!("uncaught {value:?}");
+        let text = rquickjs::Coerced::<String>::from_js(ctx, value.clone())
+            .map(|c| c.0)
+            .unwrap_or_else(|_| "<unprintable value>".into());
+        return format!("Uncaught {text}");
     }
     err.to_string()
 }

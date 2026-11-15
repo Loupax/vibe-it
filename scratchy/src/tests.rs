@@ -7973,7 +7973,7 @@ fn q33a_script_errors_are_logged_and_not_fatal() {
         src("syntax error here ("),
         src("Promise.resolve().then(function(){ console.log('job'); }); console.warn('still', 1, {x: 2});"),
     ]);
-    assert!(log[0].starts_with("error:t: boom"), "{log:?}");
+    assert!(log[0].starts_with("error:t: Error: boom"), "{log:?}");
     assert!(log[1].starts_with("error:t: "), "{log:?}");
     assert_eq!(&log[2..], ["warn:still 1 {\"x\":2}", "log:job"]);
 }
@@ -7988,6 +7988,27 @@ fn qj1_classic_scripts_run_in_sloppy_mode() {
     assert_eq!(&log[..2], ["log:number", "log:true"], "{log:?}");
     assert_eq!(log.len(), 3, "{log:?}");
     assert!(log[2].starts_with("error:t: "), "{log:?}");
+}
+
+#[test]
+fn qj2_error_lines_carry_name_message_and_script_number() {
+    let log = run_collecting(&[
+        src("window.addEventListener('load', function(){ throw new TypeError('boom'); });"),
+        ScriptSource { name: "inline script #2".into(), code: "throw new RangeError('r');".into() },
+        src("throw 'plain'"),
+        src("throw {a: 1}"),
+    ]);
+    assert!(log.iter().any(|l| l.contains("Uncaught TypeError: boom")), "{log:?}");
+    assert!(log.iter().any(|l| l.contains("inline script #2: RangeError: r") && l.contains("inline script #2:1")), "{log:?}");
+    assert!(log.iter().any(|l| l.contains("t: Uncaught plain")), "{log:?}");
+    assert!(log.iter().all(|l| !l.contains("Value(")), "{log:?}");
+}
+
+#[test]
+fn qj2_inline_scripts_are_numbered_by_document_position() {
+    let doc = parse_html("<script src=a.js></script><script>1</script><script>2</script>");
+    let names: Vec<_> = inline_scripts(&doc).into_iter().map(|s| s.name).collect();
+    assert_eq!(names, ["inline script #2", "inline script #3"]);
 }
 
 #[test]
