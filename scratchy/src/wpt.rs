@@ -180,6 +180,12 @@ impl Renderer {
         };
         let mut extra_css = String::new();
         for href in &res.stylesheets {
+            if let Some(css) = decode_data_uri_text(href.trim()) {
+                let mut stack = vec![url.clone()];
+                extra_css.push_str(&expand_css_imports(&css, &base, &mut stack, &mut |x| read_css(x)));
+                extra_css.push('\n');
+                continue;
+            }
             let Ok(u) = self.resolve_resource(&base, href) else { continue };
             if let Some(css) = read_css(&u) {
                 let mut stack = vec![u.clone()];

@@ -9248,3 +9248,55 @@ fn qa3_auto_margins_centre_with_fixed_margins_subtracted() {
     let a = c.positioned.first().expect("a");
     assert_eq!(a.x - c.x, 300.0 - 20.0 - 80.0, "left auto margin absorbs all free space");
 }
+
+#[test]
+fn qa5_data_url_percent_decodes_before_base64() {
+    use base64::Engine;
+    let bytes: Vec<u8> = (0u8..=255).collect();
+    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+    let escaped: String = b64.replace('/', "%2F").replace('+', "%2B").replace('=', "%3D");
+    assert!(escaped.contains("%2F") && escaped.contains("%3D"));
+    let got = decode_data_uri(&format!("data:image/png;base64,{escaped}")).expect("escaped base64 decodes");
+    assert_eq!(got, bytes);
+    // A real PNG round-trips through the escaped form and decodes to an image.
+    let uri = tiny_png_data_uri(2, 2).replace('/', "%2F").replace('=', "%3D");
+    assert!(decode_image_bytes(&decode_data_uri(&uri).unwrap()).is_some());
+}
+
+#[test]
+fn qa5_data_url_forgiving_base64_and_text_forms() {
+    // Acid3 T97: spaces and CR/LF inside the payload are dropped, padding optional.
+    let t = decode_data_uri_text("data:text/javascript;base64,%20ZD%20Qg%0D%0APS%20An%20Zm91cic%0D%0A%207%20").unwrap();
+    assert_eq!(t, "d4 = 'four';");
+    assert_eq!(decode_data_uri_text("data:text/css,p%7Bcolor:red%7D").unwrap(), "p{color:red}");
+    // Default mediatype, params, charset.
+    let d = parse_data_url("data:,a%20b").unwrap();
+    assert_eq!((d.mime.as_str(), d.body.as_slice()), ("text/plain", &b"a b"[..]));
+    assert_eq!(decode_data_uri_text("data:text/plain;charset=iso-8859-1,caf%E9").unwrap(), "caf\u{e9}");
+    assert_eq!(decode_data_uri_text("data:text/plain;charset=utf-8;base64,w6k=").unwrap(), "\u{e9}");
+    // Malformed: stray `=`, length 1 mod 4, other scheme, no comma.
+    assert!(decode_data_uri("data:;base64,a=bc").is_none());
+    assert!(decode_data_uri("data:;base64,abcde").is_none());
+    assert!(decode_data_uri("http://x/").is_none());
+    assert!(decode_data_uri("data:text/plain").is_none());
+}
+
+#[test]
+fn qa5_data_script_and_stylesheet_are_decoded_locally() {
+    let _g = JS_FLAG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    set_js_enabled(true);
+    let base = Url::parse("http://example.test/").unwrap();
+    let nowhere = std::path::Path::new("/nonexistent");
+    let srcs = fetch_scripts(
+        nowhere,
+        &base,
+        vec![ScriptRef::External("data:text/javascript;base64,%20ZD%20Qg%0D%0APS%20An%20Zm91cic%0D%0A%207%20".into())],
+    );
+    assert_eq!(srcs.len(), 1);
+    assert_eq!(srcs[0].code, "d4 = 'four';");
+    let css = fetch_stylesheets(nowhere, &base, &["data:text/css,p%7Bcolor:red%7D".to_string()]);
+    assert!(css.contains("p{color:red}"), "{css:?}");
+    // @import of a data: URL inside a stylesheet.
+    let out = expand_css_imports("@import url(\"data:text/css,b%7Bx:y%7D\");a{}", &base, &mut vec![base.clone()], &mut |_| None);
+    assert!(out.contains("b{x:y}") && out.contains("a{}"), "{out:?}");
+}

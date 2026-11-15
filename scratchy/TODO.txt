@@ -857,7 +857,7 @@ into the commit message of every JS item.
       allowed once and only in the last layer. This takes the `background`
       part of Q57a. Tests: `div{background:red} div{background:none}` has
       no background colour; `background: red pink` keeps the previous value.
-- [ ] QA5 [S] (P1, R16) `data:` URLs. (a) `decode_data_uri` (images.rs)
+- [x] QA5 [S] (P1, R16) (e9232f3) `data:` URLs. (a) `decode_data_uri` (images.rs)
       base64-decodes the raw payload, so the common `%2F`/`%3D`-escaped
       base64 (every image in Acid2) fails and paints nothing. Per the
       Fetch spec: percent-decode the payload first, then forgiving-base64
@@ -872,6 +872,16 @@ into the commit message of every JS item.
       decodes to exactly `d4 = 'four';` (spaces and CR/LF are dropped
       before base64; Acid3 T97); a `data:text/css,p%7Bcolor:red%7D` link
       applies.
+      Done: `parse_data_url` (images.rs, RFC 2397 + forgiving base64) and
+      `decode_data_uri_text`; used by `fetch_scripts`, `fetch_stylesheets`,
+      `expand_css_imports` (@import data:) and the WPT renderer's
+      stylesheet loop, all before any URL resolution. Left out (filed
+      QA5a): URL fragment stripping of `data:` URLs, `data:` in
+      `<object data>`/`<iframe src>`/@font-face, mime sniffing.
+- [ ] QA5a [S] (P3) `data:` URL corner cases: strip the `#fragment` (the
+      decoder keeps it as payload, so an unescaped `#` in SVG still works
+      by accident), check the mime of `data:` stylesheets/scripts (an
+      `image/png` data: script should not run), `data:` for `<object>`.
 - [ ] QA6 [S] (P2, R18) A fragment in the URL of the first page load is
       ignored (`scratchy …/SoHo_Weekly_News#References` and
       `http://acid2.acidtests.org/#top` both open at the top; clicking a

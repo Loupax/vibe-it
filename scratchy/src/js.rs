@@ -140,6 +140,13 @@ pub(crate) fn fetch_scripts(path: &std::path::Path, base: &Url, refs: Vec<Script
             .map(|(i, r)| {
                 scope.spawn(move || match r {
                     ScriptRef::Inline(code) => Some(ScriptSource { name: format!("inline script #{}", i + 1), code, index: Some(i) }),
+                    ScriptRef::External(src) if is_data_url(&src) => match decode_data_uri_text(&src) {
+                        Some(code) => Some(ScriptSource { name: "data: script".to_string(), code, index: Some(i) }),
+                        None => {
+                            diag!("scratchy: js: malformed data: script URL");
+                            None
+                        }
+                    },
                     ScriptRef::External(src) => {
                         let url = resolve_href(Some(base), &src).ok()?;
                         match fetch_script_via_wire(path, &url) {
