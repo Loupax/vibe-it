@@ -952,7 +952,7 @@ into the commit message of every JS item.
       float's outer width to the line it sits on, and min-content should
       count a float next to a long word. Today floats and inline runs are
       only max'd against each other.
-- [ ] QA8 [S] (P2) `background-attachment` (none parsed today, the
+- [x] QA8 [S] (P2) (38099dd) `background-attachment` (none parsed today, the
       shorthand silently drops `fixed`). Add the longhand and the shorthand
       keyword; for `fixed`, the image is positioned and tiled relative to
       the viewport (paint at `scroll_offset`-adjusted origin, clipped to
@@ -962,6 +962,10 @@ into the commit message of every JS item.
       need it; once QA2/QA5 land the chin would otherwise show a red
       square. Test: a `fixed` background on a box at y=100 paints the
       image's row 100 at the box top.
+- [ ] QA8a [S] (P3) Leftovers of QA8: `background-attachment: local` is
+      treated as `scroll` (should scroll with an `overflow` box's content),
+      `fixed` is stored per element (first layer only; no multi-layer
+      lists), and the viewport is taken to be the whole paint buffer.
 - [ ] QA9 [M] (P2, R17) Stacking contexts compete only within one parent.
       `paint` merges `is_explicit_stacking_child` (relative/sticky with
       `z-index`) only with the same box's `positioned` list, so an

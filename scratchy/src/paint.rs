@@ -1357,12 +1357,15 @@ pub(crate) fn paint_background_image(
         return;
     }
     let (iw, ih) = (image.width as f32, image.height as f32);
-    let (tw, th) = bg_tile_size(image.width, image.height, layout, w, h);
+    // `background-attachment: fixed` (QA8): the positioning area is the
+    // viewport (the pixel buffer, origin 0,0), clipping stays the box.
+    let (ax, ay, aw, ah) = if layout.fixed { (0.0, 0.0, win_w as f32, win_h as f32) } else { (x, y, w, h) };
+    let (tw, th) = bg_tile_size(image.width, image.height, layout, aw, ah);
     if tw < 0.5 || th < 0.5 {
         return;
     }
-    let ox = x + layout.pos_x.0 * (w - tw) + layout.pos_x.1;
-    let oy = y + layout.pos_y.0 * (h - th) + layout.pos_y.1;
+    let ox = ax + layout.pos_x.0 * (aw - tw) + layout.pos_x.1;
+    let oy = ay + layout.pos_y.0 * (ah - th) + layout.pos_y.1;
     let (cx, cy, cw, ch) = intersect_clip(x, y, w, h, clip);
     let x0 = cx.max(0.0) as i64;
     let y0 = cy.max(0.0) as i64;
