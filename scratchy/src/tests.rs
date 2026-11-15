@@ -7748,3 +7748,45 @@ fn q58_logical_pairs() {
     assert_eq!((s.margin.top.px(), s.margin.bottom.px()), (3.0, 9.0));
     assert_eq!((s.padding.left.px(), s.padding.right.px()), (4.0, 6.0));
 }
+
+// ---------- Q59p: horizontal `margin: auto` ----------
+
+fn find_box_at(laid: &Laid, x: f32, w: f32) -> Option<&Laid> {
+    if laid.w == w && laid.x == x {
+        return Some(laid);
+    }
+    if let LaidContent::Blocks(children) = &laid.content {
+        return children.iter().find_map(|c| find_box_at(c, x, w));
+    }
+    None
+}
+
+#[test]
+fn auto_margins_centre_and_right_align_blocks_and_images() {
+    let laid = measure_fixture(
+        r#"<html><body style="margin:0"><div style="width:100px;margin:0 auto">a</div></body></html>"#,
+        200.0,
+    );
+    assert!(find_box_at(&laid, 50.0, 100.0).is_some(), "width box centred");
+    let laid = measure_fixture(
+        r#"<html><body style="margin:0"><div style="width:100px;margin-left:auto">a</div></body></html>"#,
+        200.0,
+    );
+    assert!(find_box_at(&laid, 100.0, 100.0).is_some(), "right-aligned");
+    let laid = measure_fixture(
+        r#"<html><body style="margin:0"><div style="max-width:100px;margin:0 auto">a</div></body></html>"#,
+        200.0,
+    );
+    assert!(find_box_at(&laid, 50.0, 100.0).is_some(), "max-width box centred");
+    let src = tiny_png_data_uri(40, 20);
+    let html = format!(r#"<html><body style="margin:0"><img src="{src}" style="display:block;margin:0 auto"></body></html>"#);
+    let laid = measure_fixture(&html, 200.0);
+    let img = find_image_laid(&laid).expect("img");
+    assert_eq!((img.x, img.w), (80.0, 40.0), "block img centred");
+    // Floats keep auto margins at 0.
+    let laid = measure_fixture(
+        r#"<html><body style="margin:0"><div style="float:left;width:100px;margin:0 auto">a</div></body></html>"#,
+        200.0,
+    );
+    assert!(find_box_at(&laid, 0.0, 100.0).is_some(), "float not centred");
+}

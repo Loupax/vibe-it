@@ -6253,3 +6253,9 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > Do ONLY Q59: text-node whitespace (W29): keep a leading/trailing space only where the source had whitespace, collapse across node boundaries; test, WPT, screenshot, PROMPTS entry, tick Q59.
 
 **What changed:** no engine code landed. The implementation worked (352 tests pass, clippy unchanged, WPT 234 -> 239 pass with 6 newly passing) but `block-replaced-width-006` regressed because it only passed by accident: horizontal `margin: auto` is not implemented, so the centred block `<img>` and the reference both sat left thanks to the old trailing space. Recorded BLOCKED in TODO.txt with new prerequisite Q59p; the working diff is saved as `scratchy/patches-q59-text-space.patch` for re-applying after Q59p. No screenshot or `cargo install` since nothing shipped.
+
+## Q59p — horizontal auto margins (queue item)
+
+> Do ONLY Q59p: horizontal `margin-left/right:auto` centering/right-aligning for blocks and block replaced elements; verify missing first; test, WPT, screenshot, PROMPTS entry, tick Q59p.
+
+**What changed:** confirmed missing: `auto` was not parsed for margins at all, so `margin:0 auto` dropped the whole declaration. Added `Length::Auto` (margin parsers only via `parse_margin_length`), `ComputedStyle.margin_auto`, and `resolve_auto_margins` (CSS2.1 10.3.3) called from `box_model_entry` and the block `<img>` arm; floats and abspos keep 0; works with `width` and `max-width`. Test `auto_margins_centre_and_right_align_blocks_and_images`. `cargo test` 353 passed; clippy 41 warning lines before and after. WPT 234 -> 235 pass (floats-122 newly passing), 0 regressions, expectations updated. `patches-q59-text-space.patch` still applies cleanly. Left out: Q59q (flex/grid/abspos auto margins).

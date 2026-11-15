@@ -97,7 +97,7 @@ PASS css/CSS2/floats-clear/float-replaced-height-005.xht
 PASS css/CSS2/floats-clear/floats-001.xht
 FAIL css/CSS2/floats-clear/floats-006.xht
 PASS css/CSS2/floats-clear/floats-038.xht
-FAIL css/CSS2/floats-clear/floats-122.xht
+PASS css/CSS2/floats-clear/floats-122.xht
 PASS css/CSS2/floats-clear/floats-149.xht
 FAIL css/CSS2/floats-clear/margin-collapse-023.xht
 FAIL css/CSS2/floats-clear/margin-collapse-clear-003.xht
