@@ -104,6 +104,16 @@ fn main() {
         vk.key(ms(), code, 0);
         vk.modifiers(0, 0, 0, 0);
     };
+    let mut last_move: Option<(u32, u32)> = None;
+    // Nested dwl delivers a pointer motion to the client only when the next
+    // motion arrives (the last `move` of a run, or before a `wait`, was
+    // otherwise lost: QB3b). Repeating the position once pushes it out.
+    let flush_move = |m: &mut Option<(u32, u32)>| {
+        if let Some((x, y)) = m.take() {
+            vp.motion_absolute(ms(), x, y, w, h);
+            vp.frame();
+        }
+    };
     for cmd in &args[3..] {
         let (op, arg) = cmd.split_once(':').unwrap_or((cmd.as_str(), ""));
         match op {
@@ -111,6 +121,7 @@ fn main() {
                 let (x, y) = arg.split_once(',').unwrap();
                 vp.motion_absolute(ms(), x.parse().unwrap(), y.parse().unwrap(), w, h);
                 vp.frame();
+                last_move = Some((x.parse::<u32>().unwrap(), y.parse::<u32>().unwrap()));
             }
             "click" | "rclick" => {
                 let b = if op == "click" { 0x110 } else { 0x111 };
@@ -128,6 +139,7 @@ fn main() {
                 vp.frame();
             }
             "wait" => {
+                flush_move(&mut last_move);
                 q_rt(&mut st);
                 std::thread::sleep(Duration::from_millis(arg.parse().unwrap()));
             }
@@ -150,4 +162,7 @@ fn main() {
         }
         q_rt(&mut st);
     }
+    flush_move(&mut last_move);
+    q_rt(&mut st);
+    std::thread::sleep(Duration::from_millis(100));
 }
