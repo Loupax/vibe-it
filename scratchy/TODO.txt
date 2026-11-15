@@ -1056,11 +1056,20 @@ Not vendored; pass the path to the runner.
       sat at the left and the old trailing space made the reference's
       "1"/"2" sit left too. Prerequisite: Q59p. Then re-apply the patch,
       update wpt-expected.txt (+6 pass).
-- [ ] Q59p [S] Horizontal auto margins (prerequisite of Q59): `margin-left/right:
+- [x] Q59p [S] (HASH) Horizontal auto margins (prerequisite of Q59): `margin-left/right:
       auto` on a block box with a definite width, and on a block replaced element
       (`img{display:block;margin:0 auto}`), must centre it (CSS2.1 10.3.3/10.3.4);
       `box_model_entry` treats auto as 0. Test: 100px-wide block in a 200px
       container sits at x=50. WPT: block-replaced-width-006 must still pass.
+      Done: `Length::Auto` + `ComputedStyle.margin_auto`; `resolve_auto_margins`
+      in `box_model_entry` and the block-image arm (floats/abspos stay 0; works
+      with `max-width` too). `margin: 0 auto` used to drop the whole
+      declaration. WPT 234 -> 235 (floats-122 newly passing); patch
+      patches-q59-text-space.patch still applies (git apply --check).
+- [ ] Q59q [S] Auto margins elsewhere: flex/grid items (`margin-left:auto`
+      pushes), abspos with insets, `margin: auto` vertical in flex, auto
+      margin on `display:table` with shrink-to-fit width is only centred via
+      the block path. Test: flex item `margin-left:auto` sits at the right edge.
 - [ ] Q60 [S] `hsl()`/`hsla()`, `hwb()`, `lab()`, `lch()`, `oklab()`,
       `oklch()`, `color(srgb|display-p3|...)` (W38): cssparser-color parses
       them but `to_text_color` only handles `CssColor::Rgba`. Convert the

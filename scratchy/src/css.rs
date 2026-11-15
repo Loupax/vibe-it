@@ -472,6 +472,8 @@ pub(crate) enum Length {
     /// `vw`/`vh`/`vmin`/`vmax` (Q14): resolved against the viewport
     /// recorded by `set_viewport` for the current style build.
     Vp(VpUnit, f32),
+    /// `auto`; only `margin-*` accepts it (Q59p), via `parse_margin_length`.
+    Auto,
     /// `min-content`/`max-content`/`fit-content` (Q20f); only `width` and
     /// `min-width` accept it, and `resolve_style` turns it into
     /// `ComputedStyle::width_kw`/`min_width_kw` (the plain length stays
@@ -761,7 +763,7 @@ impl Length {
             Length::Smaller => font_size / 1.2,
             Length::Calc(c) => c.eval(font_size, root_font_size, font_size, current_viewport()),
             Length::Vp(u, v) => u.px(v, current_viewport()),
-            Length::Intrinsic(_) => 0.0,
+            Length::Intrinsic(_) | Length::Auto => 0.0,
         }
     }
 }
@@ -2103,7 +2105,7 @@ pub(crate) fn media_feature_length_px(input: &mut CssParser) -> Result<f32, ()> 
         // regardless of which new variant showed up.
         Length::Calc(c) => Ok(c.eval(16.0, 16.0, 0.0, current_viewport())),
         Length::Vp(..) => Err(()),
-        Length::Percent(_) | Length::Larger | Length::Smaller | Length::Intrinsic(_) => Err(()),
+        Length::Percent(_) | Length::Larger | Length::Smaller | Length::Intrinsic(_) | Length::Auto => Err(()),
     }
 }
 
@@ -2282,6 +2284,24 @@ pub(crate) fn set_padding(input: &mut CssParser, target: &mut Option<Length>) {
 /// `height`, `min-*`).
 pub(crate) fn set_nonneg_length(input: &mut CssParser, target: &mut Option<Length>) {
     set_padding(input, target);
+}
+
+/// `margin-*` value: `auto` or a `<length-percentage>` (Q59p).
+pub(crate) fn parse_margin_length(input: &mut CssParser) -> Result<Length, ()> {
+    let state = input.state();
+    if let Ok(Token::Ident(id)) = input.next()
+        && id.eq_ignore_ascii_case("auto")
+    {
+        return Ok(Length::Auto);
+    }
+    input.reset(&state);
+    parse_length_percent(input)
+}
+
+pub(crate) fn set_margin_length(input: &mut CssParser, target: &mut Option<Length>) {
+    if let Ok(v) = parse_margin_length(input) {
+        *target = Some(v);
+    }
 }
 
 pub(crate) fn set_length(input: &mut CssParser, target: &mut Option<Length>) {
@@ -4672,35 +4692,35 @@ impl DeclParser<'_> {
                 };
             }
         } else if name.eq_ignore_ascii_case("margin") {
-            if let Some(v) = parse_box4(input, |i| parse_length_percent(i).ok()) {
+            if let Some(v) = parse_box4(input, |i| parse_margin_length(i).ok()) {
                 self.decls.margin_top = Some(v[0]);
                 self.decls.margin_right = Some(v[1]);
                 self.decls.margin_bottom = Some(v[2]);
                 self.decls.margin_left = Some(v[3]);
             }
         } else if name.eq_ignore_ascii_case("margin-top") {
-            set_length(input, &mut self.decls.margin_top);
+            set_margin_length(input, &mut self.decls.margin_top);
         } else if name.eq_ignore_ascii_case("margin-right") {
-            set_length(input, &mut self.decls.margin_right);
+            set_margin_length(input, &mut self.decls.margin_right);
         } else if name.eq_ignore_ascii_case("margin-bottom") {
-            set_length(input, &mut self.decls.margin_bottom);
+            set_margin_length(input, &mut self.decls.margin_bottom);
         } else if name.eq_ignore_ascii_case("margin-left") {
-            set_length(input, &mut self.decls.margin_left);
+            set_margin_length(input, &mut self.decls.margin_left);
         } else if name.eq_ignore_ascii_case("margin-block-start") {
-            set_length(input, &mut self.decls.margin_top);
+            set_margin_length(input, &mut self.decls.margin_top);
         } else if name.eq_ignore_ascii_case("margin-block-end") {
-            set_length(input, &mut self.decls.margin_bottom);
+            set_margin_length(input, &mut self.decls.margin_bottom);
         } else if name.eq_ignore_ascii_case("margin-inline-start") {
-            set_length(input, &mut self.decls.margin_left);
+            set_margin_length(input, &mut self.decls.margin_left);
         } else if name.eq_ignore_ascii_case("margin-inline-end") {
-            set_length(input, &mut self.decls.margin_right);
+            set_margin_length(input, &mut self.decls.margin_right);
         } else if name.eq_ignore_ascii_case("margin-block") {
-            if let Some([s, e]) = parse_pair(input, |i| parse_length_percent(i).ok()) {
+            if let Some([s, e]) = parse_pair(input, |i| parse_margin_length(i).ok()) {
                 self.decls.margin_top = Some(s);
                 self.decls.margin_bottom = Some(e);
             }
         } else if name.eq_ignore_ascii_case("margin-inline") {
-            if let Some([s, e]) = parse_pair(input, |i| parse_length_percent(i).ok()) {
+            if let Some([s, e]) = parse_pair(input, |i| parse_margin_length(i).ok()) {
                 self.decls.margin_left = Some(s);
                 self.decls.margin_right = Some(e);
             }

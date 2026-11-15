@@ -1348,6 +1348,26 @@ pub(crate) struct BoxModelEntry {
 /// converted to border-box terms here using the margins this call just
 /// resolved, the same way `width`'s own ordinary margin-box-to-border-
 /// box conversion works one line below.
+/// CSS2.1 10.3.3: distributes the free space of a block-level box into its
+/// `auto` left/right margins (Q59p). `border_w` is the used border-box
+/// width; `s.margin` already holds 0 for auto sides. Floats and absolutely
+/// positioned boxes keep auto margins at 0 here. Updates `s.margin`.
+fn resolve_auto_margins(s: &mut ComputedStyle, width: f32, border_w: f32) {
+    let (al, ar) = s.margin_auto;
+    if !(al || ar) || s.float != Float::None || matches!(s.position, Position::Absolute | Position::Fixed) {
+        return;
+    }
+    let free = (width - border_w - s.margin.left.px() - s.margin.right.px()).max(0.0);
+    match (al, ar) {
+        (true, true) => {
+            s.margin.left = BoxLength::Px(free / 2.0);
+            s.margin.right = BoxLength::Px(free / 2.0);
+        }
+        (true, false) => s.margin.left = BoxLength::Px(free),
+        _ => s.margin.right = BoxLength::Px(free),
+    }
+}
+
 pub(crate) fn box_model_entry(
     s: &mut ComputedStyle,
     x: f32,
@@ -1376,6 +1396,12 @@ pub(crate) fn box_model_entry(
     // shrinks the border box below its own borders and padding.
     let auto_border_w = auto_border_w.max(extra_w);
     let border_w = clamp_box_dim(s.width, s.min_width, s.max_width, auto_border_w, s.box_sizing, extra_w);
+    let border_x = if s.margin_auto.0 || s.margin_auto.1 {
+        resolve_auto_margins(s, width, border_w);
+        x + s.margin.left.px()
+    } else {
+        border_x
+    };
     let content_x = border_x + s.border_left() + padding_left;
     let content_y = border_y + s.border_top() + padding_top;
     let content_w = (border_w - extra_w).max(0.0);
@@ -2110,6 +2136,12 @@ fn measure_inner<'a>(
             // basis for a replaced element's own box) — `image_box_size`
             // just reads it, no further resolution needed.
             let (border_w, border_h) = image_box_size(image, &s);
+            let border_x = if s.margin_auto.0 || s.margin_auto.1 {
+                resolve_auto_margins(&mut s, width, border_w);
+                x + s.margin.left.px()
+            } else {
+                border_x
+            };
             Laid {
                 style: s,
                 x: border_x,
