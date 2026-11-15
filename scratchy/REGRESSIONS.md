@@ -1,6 +1,6 @@
 # scratchy — regressions
 
-## R7 — Fetched images lost when scripts delay NavResult (bug) — FIXED (HASH)
+## R7 — Fetched images lost when scripts delay NavResult (bug) — FIXED (b40c62a)
 
 **Discovered:** 2026-11-15, user report: navigating to https://wikipedia.org
 with JS on loses the globe logo; `--no-js` renders it; a snag'd copy (data:
