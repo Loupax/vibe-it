@@ -422,3 +422,16 @@ css/css-cascade/revert-val-001.html
 css/css-cascade/scope-implicit-002-print.html
 css/css-cascade/scope-implicit-005-print.html
 css/css-cascade/scope-pseudo-element.html
+# Q40c: css-pseudo
+css/css-pseudo/before-as-flex-container.html
+css/css-pseudo/first-letter-c0.tentative.html
+css/css-pseudo/first-letter-opacity-001.html
+css/css-pseudo/first-letter-with-quote.html
+css/css-pseudo/first-line-line-height-001.html
+css/css-pseudo/first-line-with-out-of-flow-and-nested-div.html
+css/css-pseudo/marker-content-002.html
+css/css-pseudo/marker-content-015.html
+css/css-pseudo/marker-hyphens.html
+css/css-pseudo/marker-text-align-001.html
+css/css-pseudo/marker-text-transform-uppercase.html
+css/css-pseudo/placeholder-vertical-align.html
