@@ -810,7 +810,7 @@ touching the user's desktop: use it for the live check of each item.
       coalesced too, since the SoHo first layout outlasts a 300 ms timer.
       `ShapeResult` handling moved to `App::handle_shape_result` so it is
       testable. Test: `qb2_js_dom_writes_use_restyle_path`.
-- [x] QB3 [M] (P0, R8) (HASH) Keep the main thread from stalling while input
+- [x] QB3 [M] (P0, R8) (dbf1610) Keep the main thread from stalling while input
       flows, or the compositor disconnects scratchy. Main_Page crashed 4/4
       with a 500 Hz mouse moving during load and hover, `--no-js`
       included. Measured stalls: hover restyle portal ~180 ms, SoHo
