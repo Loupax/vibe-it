@@ -922,7 +922,7 @@ Read REGRESSIONS.md "R20" before starting any QY item. Short version:
       `document.createElement('canvas').getContext('2d') === null` and
       `.width === 300`, no error. With QY2+QY3 (measured with JS shims,
       see R20) the web-animations polyfill runs clean.
-- [x] QY4 (HASH) [S] (P2, R20 error 3; do QA15 here and tick it) The
+- [x] QY4 (11979c4) [S] (P2, R20 error 3; do QA15 here and tick it) The
       Web Components polyfill's startup chain. Error:
       `webcomponents-all-noPatch.js: TypeError: not a function` at
       `document.createEvent("Event")` (QA15). Measured by stubbing each
@@ -1249,7 +1249,7 @@ into the commit message of every JS item.
       name's case for non-HTML namespaces (`PREFIX:LOCALNAME` bug). Acid3
       T19-T23, T25 (part). Test: `try{document.createElement('<a')}catch(e)
       {e.code===5}`.
-- [x] QA15 (HASH, done inside QY4) [S] (P3, JS; done inside QY4, tick both) `document.createEvent(iface)` with
+- [x] QA15 (11979c4, done inside QY4) [S] (P3, JS; done inside QY4, tick both) `document.createEvent(iface)` with
       `initEvent`/`initUIEvent`/`initMouseEvent`/`initKeyboardEvent`
       (legacy init methods on the Q33d event classes; `detail` field).
       Acid3 T30-T32 ("not a function"). Test: `e=document.createEvent(
