@@ -752,7 +752,8 @@ Q32 (parked); 320 tests pass, 2 ignored; lib.rs is ~27.4k lines.
 
 --- TOP PRIORITY: wikipedia.org wordmark missing (coordinator, 2026-11-15) ---
 
-- [ ] QW1 [S] The "Wikipedia" wordmark above the tagline on https://wikipedia.org
+- [ ] QW1 [S] (PARTLY DONE, see "QW1 diagnosis" below; remaining work is Q35a)
+      The "Wikipedia" wordmark above the tagline on https://wikipedia.org
       is not drawn (two agents reported it; it was visible earlier today).
       Cause found by reading the page: the markup is
       `<span class="central-textlogo__image sprite svg-Wikipedia_wordmark">Wikipedia</span>`
@@ -772,6 +773,33 @@ Q32 (parked); 320 tests pass, 2 ignored; lib.rs is ~27.4k lines.
       (existing before today; file QW2 if it is a separate bug). Repro: open
       `scratchy --socket $XDG_RUNTIME_DIR/wire.sock https://wikipedia.org` and
       compare with `--no-js`.
+      QW1 diagnosis (2026-11-15, evidence from the live portal HTML):
+      (1) `.sprite{background-image:linear-gradient(transparent,transparent),
+      url(portal/wikipedia.org/assets/img/sprite-e49fbf32.svg)}` is a two-layer
+      list; the `background-image` longhand only accepted a bare url()/none, so
+      the whole declaration was dropped. FIXED on branch
+      scratchy/qw1-wordmark-sprite (css.rs `first_url_layer`, test
+      `background_image_layer_list_with_gradient_first_resolves_url_qw1`).
+      (2) NOT sufficient: `resolve_background_image` (style.rs) only decodes
+      `data:` URIs and nothing fetches CSS `url()` images, so the sprite
+      (a 176x811 SVG made of nested <svg> sprites, positioned by
+      `background-position:0 -304px`) is never loaded. This is exactly Q35a
+      (external background/mask URLs). After the fix the screenshot is
+      unchanged (blank above "The Free Encyclopedia"). Next: do Q35a, then
+      re-check that resvg renders the nested-<svg> sprite and that
+      background-position -304px crops the wordmark inside the 176x32
+      inline-block; tick QW1 then. The `filter:url(data:..)`/`invert` rules
+      are inside `@media (prefers-color-scheme:dark)` and not involved.
+      Remaining shorthand gap: `background:` with a gradient layer before
+      the url layer still keeps only the first layer's image.
+- [ ] QW2 [S] On https://wikipedia.org (both JS and --no-js) the "Search"
+      button label is clipped to "Searc" (bold italic text overflows the
+      blue button's right edge at ~x=751 instead of fitting/centring in
+      the button). Separate from QW1 (not a background issue; likely button
+      intrinsic width/overflow or font-style: italic from the UA/portal
+      rule on `button`/`.pure-button`). Diagnose with --dump of the box
+      widths; test: a fixture button whose label is wider than its
+      declared width is not clipped mid-glyph.
 
 --- TOP PRIORITY: www.youtube.com investigation (user report, 2026-11-15) ---
 

@@ -3544,6 +3544,30 @@ pub(crate) struct BgShorthand {
     pub(crate) fixed: Option<bool>,
 }
 
+/// `background-image` value: a comma list of layers. Only one image layer is
+/// modelled, so take the first `url()` layer and skip gradient layers (not
+/// rendered anyway; QW1: `linear-gradient(transparent,transparent), url(sprite)`
+/// on wikipedia.org's `.sprite`). `None` if no layer is a url.
+fn first_url_layer(input: &mut CssParser) -> Option<String> {
+    loop {
+        let state = input.state();
+        if let Ok(url) = input.expect_url() {
+            return Some(url.to_string());
+        }
+        input.reset(&state);
+        match input.next() {
+            Ok(Token::Function(_)) => {
+                let _ = input.parse_nested_block(|n| {
+                    while n.next().is_ok() {}
+                    Ok::<(), ParseError<()>>(())
+                });
+            }
+            Ok(Token::Comma) | Ok(Token::Ident(_)) => {}
+            _ => return None,
+        }
+    }
+}
+
 /// `background`'s grammar: a color, an image (`url()`, `none` or a
 /// gradient, which is accepted but not rendered), `<position> [/ <size>]`,
 /// a repeat style and the attachment/box keywords (parsed, ignored), in any
@@ -4584,8 +4608,8 @@ impl DeclParser<'_> {
         } else if name.eq_ignore_ascii_case("background-image") {
             if input.try_parse(|input| input.expect_ident_matching("none")).is_ok() {
                 self.decls.background_image = Some(BackgroundImageDecl::None);
-            } else if let Ok(url) = input.expect_url() {
-                self.decls.background_image = Some(BackgroundImageDecl::Url(url.to_string()));
+            } else if let Some(url) = first_url_layer(input) {
+                self.decls.background_image = Some(BackgroundImageDecl::Url(url));
             }
         } else if name.eq_ignore_ascii_case("mask-image") || name.eq_ignore_ascii_case("-webkit-mask-image") {
             if input.try_parse(|input| input.expect_ident_matching("none")).is_ok() {
