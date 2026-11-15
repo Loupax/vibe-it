@@ -3060,8 +3060,11 @@ applies from the next page load (`:refresh`).
 DOM read API (Q33b), `src/js_dom.rs`: `run_scripts_in(document, ..)` installs
 native `__d_*` functions over a Rust table of `Handle`s (ids are indices,
 document = 0) plus a JS prelude of cached per-node wrappers. Selectors use the
-cascade's `OurSelectorParser`/`matches_selector_list`. Read-only; element
-listeners are stored but never fired yet.
+cascade's `OurSelectorParser`/`matches_selector_list`. Element listeners are
+stored but never fired yet. Writes (Q33c): natives mutate the `Handle` tree
+directly (own detach/insert helpers) and set `JsEngine.dirty`; `App::js_sync`
+turns that into one `layout_dirty` per event-loop turn (after page load and
+after timers). `style.<prop>` is a JS Proxy over the `style` attribute.
 
 Timers (Q33t): `js::start_scripts` returns a `JsEngine` (runtime + context +
 log + clock base) that `App.js` keeps for the page's lifetime; it is replaced

@@ -3,6 +3,7 @@
 //! `__d_*` functions, and a JS-side wrapper per id (cached, so `===`
 //! holds) turns them into `Element`-like objects. Document id is 0.
 use super::*;
+use markup5ever_rcdom::Node;
 use rquickjs::{Ctx, Function};
 
 #[derive(Default)]
@@ -85,8 +86,144 @@ fn matches_list(list: &SelectorList<OurSelectorImpl>, h: &Handle) -> bool {
     matches_selector_list(list, &El(h.clone()), &mut ctx)
 }
 
+fn html_name(local: &str) -> html5ever::QualName {
+    html5ever::QualName::new(None, html5ever::ns!(html), html5ever::LocalName::from(local))
+}
+
+/// Removes `h` from its parent's child list (no-op when detached).
+fn detach(h: &Handle) {
+    if let Some(p) = parent_handle(h) {
+        p.children.borrow_mut().retain(|c| !Rc::ptr_eq(c, h));
+    }
+    h.parent.set(None);
+}
+
+fn is_ancestor_or_self(anc: &Handle, mut n: Handle) -> bool {
+    loop {
+        if Rc::ptr_eq(anc, &n) {
+            return true;
+        }
+        match parent_handle(&n) {
+            Some(p) => n = p,
+            None => return false,
+        }
+    }
+}
+
+fn is_fragment(id: i32, h: &Handle) -> bool {
+    id != 0 && matches!(h.data, NodeData::Document)
+}
+
+/// Inserts `child` into `parent` before `before` (end when `None`),
+/// moving it from wherever it was; a fragment donates its children.
+/// `false` when that would put a node inside itself.
+fn insert_child(parent: &Handle, child: &Handle, before: Option<&Handle>, frag: bool) -> bool {
+    if is_ancestor_or_self(child, parent.clone()) {
+        return false;
+    }
+    let moved: Vec<Handle> = if frag { child.children.borrow_mut().drain(..).collect() } else { vec![child.clone()] };
+    if !frag {
+        detach(child);
+    }
+    let mut kids = parent.children.borrow_mut();
+    let at = before.and_then(|b| kids.iter().position(|c| Rc::ptr_eq(c, b))).unwrap_or(kids.len());
+    for m in &moved {
+        m.parent.set(Some(Rc::downgrade(parent)));
+    }
+    kids.splice(at..at, moved);
+    true
+}
+
+fn set_attr(h: &Handle, name: &str, value: &str) {
+    if let NodeData::Element { attrs, .. } = &h.data {
+        let mut attrs = attrs.borrow_mut();
+        if let Some(a) = attrs.iter_mut().find(|a| a.name.local.as_ref() == name) {
+            a.value = value.into();
+        } else {
+            let name = html5ever::QualName::new(None, html5ever::ns!(), html5ever::LocalName::from(name));
+            attrs.push(html5ever::Attribute { name, value: value.into() });
+        }
+    }
+}
+
+fn remove_attr(h: &Handle, name: &str) {
+    if let NodeData::Element { attrs, .. } = &h.data {
+        attrs.borrow_mut().retain(|a| a.name.local.as_ref() != name);
+    }
+}
+
+fn clear_children(h: &Handle) {
+    for c in h.children.borrow_mut().drain(..) {
+        c.parent.set(None);
+    }
+}
+
+fn set_children_text(h: &Handle, text: &str) {
+    clear_children(h);
+    if !text.is_empty() {
+        let t = Node::new(NodeData::Text { contents: RefCell::new(text.into()) });
+        t.parent.set(Some(Rc::downgrade(h)));
+        h.children.borrow_mut().push(t);
+    }
+}
+
+/// `innerHTML = html`: fragment-parses in the context of `h`.
+fn set_inner_html(h: &Handle, html: &str) {
+    clear_children(h);
+    let ctx = match &h.data {
+        NodeData::Element { name, .. } => name.clone(),
+        _ => html_name("div"),
+    };
+    let mut opts = html5ever::driver::ParseOpts::default();
+    opts.tree_builder.scripting_enabled = js_enabled();
+    let dom = html5ever::driver::parse_fragment(RcDom::default(), opts, ctx, Vec::new(), false).one(html);
+    // The parser wraps the fragment in one synthetic root element.
+    let root = dom.document.children.borrow().first().cloned();
+    if let Some(root) = root {
+        let kids: Vec<Handle> = root.children.borrow_mut().drain(..).collect();
+        for k in kids {
+            k.parent.set(Some(Rc::downgrade(h)));
+            h.children.borrow_mut().push(k);
+        }
+    }
+}
+
+fn serialize_node(h: &Handle, outer: bool) -> String {
+    use html5ever::serialize::{serialize, SerializeOpts, TraversalScope};
+    let mut out = Vec::new();
+    let opts = SerializeOpts {
+        traversal_scope: if outer { TraversalScope::IncludeNode } else { TraversalScope::ChildrenOnly(None) },
+        ..Default::default()
+    };
+    let _ = serialize(&mut out, &markup5ever_rcdom::SerializableHandle::from(h.clone()), opts);
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+fn clone_node(h: &Handle, deep: bool) -> Handle {
+    let data = match &h.data {
+        NodeData::Element { name, attrs, mathml_annotation_xml_integration_point, .. } => NodeData::Element {
+            name: name.clone(),
+            attrs: RefCell::new(attrs.borrow().clone()),
+            template_contents: RefCell::new(None),
+            mathml_annotation_xml_integration_point: *mathml_annotation_xml_integration_point,
+        },
+        NodeData::Text { contents } => NodeData::Text { contents: RefCell::new(contents.borrow().clone()) },
+        NodeData::Comment { contents } => NodeData::Comment { contents: contents.clone() },
+        _ => NodeData::Document,
+    };
+    let n = Node::new(data);
+    if deep {
+        for c in h.children.borrow().iter() {
+            let cc = clone_node(c, true);
+            cc.parent.set(Some(Rc::downgrade(&n)));
+            n.children.borrow_mut().push(cc);
+        }
+    }
+    n
+}
+
 /// Installs the `__d_*` natives for `document` and the JS wrappers on top.
-pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle) {
+pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>>) {
     let table = Rc::new(RefCell::new(DomTable::default()));
     table.borrow_mut().intern(document);
     let globals = ctx.globals();
@@ -132,7 +269,9 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle) {
         Some(is_element(&h) && matches_list(&list, &h))
     });
     let t = table.clone();
-    native!("__d_kind", move |id: i32| -> i32 { t.borrow().get(id).map_or(0, |h| node_type(&h)) });
+    native!("__d_kind", move |id: i32| -> i32 {
+        t.borrow().get(id).map_or(0, |h| if is_fragment(id, &h) { 11 } else { node_type(&h) })
+    });
     let t = table.clone();
     native!("__d_tag", move |id: i32| -> String {
         let Some(h) = t.borrow().get(id) else { return String::new() };
@@ -146,6 +285,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle) {
             }
             NodeData::Text { .. } => "#text".into(),
             NodeData::Comment { .. } => "#comment".into(),
+            NodeData::Document if id != 0 => "#document-fragment".into(),
             NodeData::Document => "#document".into(),
             _ => String::new(),
         }
@@ -194,6 +334,87 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle) {
             None => -1,
         }
     });
+    // ---- Q33c mutation. Every write marks the page dirty; the event
+    // loop rebuilds layout once per turn, not once per call.
+    let (t, d) = (table.clone(), dirty.clone());
+    native!("__d_setattr", move |id: i32, name: String, val: String| {
+        if let Some(h) = t.borrow().get(id) {
+            set_attr(&h, &name.to_ascii_lowercase(), &val);
+            d.set(true);
+        }
+    });
+    let (t, d) = (table.clone(), dirty.clone());
+    native!("__d_rmattr", move |id: i32, name: String| {
+        if let Some(h) = t.borrow().get(id) {
+            remove_attr(&h, &name.to_ascii_lowercase());
+            d.set(true);
+        }
+    });
+    let (t, d) = (table.clone(), dirty.clone());
+    native!("__d_settext", move |id: i32, text: String| {
+        if let Some(h) = t.borrow().get(id) {
+            match &h.data {
+                NodeData::Text { contents } => *contents.borrow_mut() = text.as_str().into(),
+                NodeData::Comment { .. } => {}
+                _ => set_children_text(&h, &text),
+            }
+            d.set(true);
+        }
+    });
+    let (t, d) = (table.clone(), dirty.clone());
+    native!("__d_sethtml", move |id: i32, html: String| {
+        if let Some(h) = t.borrow().get(id) {
+            set_inner_html(&h, &html);
+            d.set(true);
+        }
+    });
+    let t = table.clone();
+    native!("__d_gethtml", move |id: i32, outer: bool| -> String {
+        t.borrow().get(id).map(|h| serialize_node(&h, outer)).unwrap_or_default()
+    });
+    // kind: 1 element (`s` = tag), 3 text, 8 comment, 11 fragment.
+    let t = table.clone();
+    native!("__d_create", move |kind: i32, s: String| -> i32 {
+        let data = match kind {
+            1 => NodeData::Element {
+                name: html_name(&s.to_ascii_lowercase()),
+                attrs: RefCell::new(Vec::new()),
+                template_contents: RefCell::new(None),
+                mathml_annotation_xml_integration_point: false,
+            },
+            3 => NodeData::Text { contents: RefCell::new(s.as_str().into()) },
+            8 => NodeData::Comment { contents: s.as_str().into() },
+            _ => NodeData::Document,
+        };
+        t.borrow_mut().intern(&Node::new(data))
+    });
+    let t = table.clone();
+    native!("__d_clone", move |id: i32, deep: bool| -> i32 {
+        let mut t = t.borrow_mut();
+        match t.get(id) {
+            Some(h) => t.intern(&clone_node(&h, deep)),
+            None => -1,
+        }
+    });
+    // `before` < 0 appends. `false` = HierarchyRequestError.
+    let (t, d) = (table.clone(), dirty.clone());
+    native!("__d_insert", move |parent: i32, child: i32, before: i32| -> bool {
+        let t = t.borrow();
+        let (Some(p), Some(c)) = (t.get(parent), t.get(child)) else { return false };
+        if !matches!(p.data, NodeData::Element { .. } | NodeData::Document) {
+            return false;
+        }
+        let ok = insert_child(&p, &c, t.get(before).as_ref(), is_fragment(child, &c));
+        d.set(true);
+        ok
+    });
+    let (t, d) = (table.clone(), dirty.clone());
+    native!("__d_remove", move |id: i32| {
+        if let Some(h) = t.borrow().get(id) {
+            detach(&h);
+            d.set(true);
+        }
+    });
     let _ = ctx.eval::<(), _>(DOM_PRELUDE);
 }
 
@@ -202,11 +423,13 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle) {
 const DOM_PRELUDE: &str = r#"
 (function (g) {
   var doc = g.document, cache = {}, elListeners = {};
+  var queries;
   var wrap = function (id) {
     if (id === undefined || id < 0) return null;
     if (cache[id]) return cache[id];
     var o = Object.create(__d_kind(id) === 1 ? HTMLElement.prototype : Node.prototype);
     Object.defineProperty(o, '__id', { value: id });
+    if (__d_kind(id) === 11) { queries(o); }
     return (cache[id] = o);
   };
   var wrapAll = function (ids) { return ids.map(function (id) { return wrap(id); }); };
@@ -256,7 +479,7 @@ const DOM_PRELUDE: &str = r#"
     var l = elListeners[this.__id + ':' + type] || [], i = l.indexOf(fn);
     if (i >= 0) l.splice(i, 1);
   };
-  var queries = function (P) {
+  queries = function (P) {
     P.querySelector = function (s) { return wrap(q(this.__id, s, true)[0]); };
     P.querySelectorAll = function (s) { return wrapAll(q(this.__id, s, false)); };
     P.getElementsByTagName = function (t) { return wrapAll(q(this.__id, String(t).toLowerCase(), false)); };
@@ -295,6 +518,172 @@ const DOM_PRELUDE: &str = r#"
     for (var n = this; n && n.nodeType === 1; n = n.parentNode) if (n.matches(s)) return n;
     return null;
   };
+
+  // ---- Q33c: DOM writes.
+  var defs = function (o, name, get, set) {
+    Object.defineProperty(o, name, { get: get, set: set, configurable: true, enumerable: true });
+  };
+  var herr = function (msg, name) { var e = new Error(msg); e.name = name; return e; };
+  var toNode = function (n) {
+    if (n && typeof n === 'object' && n.__id !== undefined) return n;
+    return wrap(__d_create(3, String(n)));
+  };
+  defs(NodeProto, 'textContent', function () { return __d_text(this.__id); },
+    function (v) { __d_settext(this.__id, v == null ? '' : String(v)); });
+  defs(NodeProto, 'nodeValue', function () { return this.nodeType === 1 ? null : __d_text(this.__id); },
+    function (v) { if (this.nodeType === 3 || this.nodeType === 8) __d_settext(this.__id, String(v)); });
+  defs(NodeProto, 'data', function () { return this.nodeType === 3 || this.nodeType === 8 ? __d_text(this.__id) : undefined; },
+    function (v) { if (this.nodeType === 3 || this.nodeType === 8) __d_settext(this.__id, String(v)); });
+  defs(ElementProto, 'innerText', function () { return __d_text(this.__id); },
+    function (v) { __d_settext(this.__id, v == null ? '' : String(v)); });
+  defs(ElementProto, 'innerHTML', function () { return __d_gethtml(this.__id, false); },
+    function (v) { __d_sethtml(this.__id, v == null ? '' : String(v)); });
+  defs(ElementProto, 'outerHTML', function () { return __d_gethtml(this.__id, true); }, function () {});
+  var reflect = function (prop, attr) {
+    defs(ElementProto, prop, function () { var v = __d_attr(this.__id, attr); return v == null ? '' : v; },
+      function (v) { __d_setattr(this.__id, attr, String(v)); });
+  };
+  reflect('id', 'id'); reflect('className', 'class'); reflect('title', 'title');
+  reflect('lang', 'lang'); reflect('dir', 'dir');
+  defs(ElementProto, 'hidden', function () { return __d_attr(this.__id, 'hidden') != null; },
+    function (v) { if (v) __d_setattr(this.__id, 'hidden', ''); else __d_rmattr(this.__id, 'hidden'); });
+  ElementProto.setAttribute = function (n, v) { __d_setattr(this.__id, String(n), String(v)); };
+  ElementProto.removeAttribute = function (n) { __d_rmattr(this.__id, String(n)); };
+  ElementProto.toggleAttribute = function (n, force) {
+    var has = this.hasAttribute(n), want = force === undefined ? !has : !!force;
+    if (want && !has) this.setAttribute(n, ''); else if (!want && has) this.removeAttribute(n);
+    return want;
+  };
+  var classes = function (el) { return el.className.split(/\s+/).filter(Boolean); };
+  def(ElementProto, 'classList', function () {
+    var el = this;
+    var put = function (c) { el.className = c.join(' '); };
+    var list = {
+      contains: function (c) { return classes(el).indexOf(String(c)) >= 0; },
+      add: function () {
+        var c = classes(el);
+        for (var i = 0; i < arguments.length; i++) if (c.indexOf(String(arguments[i])) < 0) c.push(String(arguments[i]));
+        put(c);
+      },
+      remove: function () {
+        var drop = Array.prototype.map.call(arguments, String);
+        put(classes(el).filter(function (x) { return drop.indexOf(x) < 0; }));
+      },
+      toggle: function (c, force) {
+        c = String(c);
+        var has = this.contains(c), want = force === undefined ? !has : !!force;
+        if (want && !has) this.add(c); else if (!want && has) this.remove(c);
+        return want;
+      },
+      replace: function (a, b) {
+        var c = classes(el), i = c.indexOf(String(a));
+        if (i < 0) return false;
+        c[i] = String(b); put(c); return true;
+      },
+      item: function (i) { var c = classes(el); return c[i] === undefined ? null : c[i]; },
+      toString: function () { return el.className; },
+      forEach: function (f, t) { classes(el).forEach(f, t); }
+    };
+    def(list, 'length', function () { return classes(el).length; });
+    return list;
+  });
+  // style.<prop> reads/writes the inline `style` attribute.
+  var kebab = function (p) { return p.replace(/[A-Z]/g, function (m) { return '-' + m.toLowerCase(); }); };
+  var readStyle = function (el) {
+    var out = [], s = __d_attr(el.__id, 'style') || '';
+    s.split(';').forEach(function (d) {
+      var i = d.indexOf(':');
+      if (i > 0) out.push([d.slice(0, i).trim().toLowerCase(), d.slice(i + 1).trim()]);
+    });
+    return out;
+  };
+  var writeStyle = function (el, decls) {
+    if (!decls.length) { __d_rmattr(el.__id, 'style'); return; }
+    __d_setattr(el.__id, 'style', decls.map(function (d) { return d[0] + ': ' + d[1]; }).join('; ') + ';');
+  };
+  var styleGet = function (el, p) {
+    var d = readStyle(el).filter(function (x) { return x[0] === p; });
+    return d.length ? d[d.length - 1][1] : '';
+  };
+  var styleSet = function (el, p, v) {
+    var d = readStyle(el).filter(function (x) { return x[0] !== p; });
+    v = v == null ? '' : String(v).trim();
+    if (v) d.push([p, v]);
+    writeStyle(el, d);
+  };
+  var styles = {};
+  def(ElementProto, 'style', function () {
+    var el = this;
+    if (styles[el.__id]) return styles[el.__id];
+    var api = {
+      getPropertyValue: function (p) { return styleGet(el, kebab(String(p))); },
+      setProperty: function (p, v) { styleSet(el, kebab(String(p)), v); },
+      removeProperty: function (p) { var o = styleGet(el, String(p)); styleSet(el, String(p), ''); return o; },
+      item: function (i) { var d = readStyle(el)[i]; return d ? d[0] : ''; }
+    };
+    var proxy = new Proxy(api, {
+      get: function (t, p) {
+        if (p in t) return t[p];
+        if (p === 'cssText') return __d_attr(el.__id, 'style') || '';
+        if (p === 'length') return readStyle(el).length;
+        if (typeof p !== 'string') return undefined;
+        return styleGet(el, p === 'cssFloat' ? 'float' : kebab(p));
+      },
+      set: function (t, p, v) {
+        if (p === 'cssText') { if (v == null || v === '') __d_rmattr(el.__id, 'style'); else __d_setattr(el.__id, 'style', String(v)); }
+        else if (typeof p === 'string') styleSet(el, p === 'cssFloat' ? 'float' : kebab(p), v);
+        return true;
+      }
+    });
+    return (styles[el.__id] = proxy);
+  });
+  NodeProto.appendChild = function (c) {
+    if (!c || c.__id === undefined) throw new TypeError("Failed to execute 'appendChild': parameter 1 is not of type 'Node'.");
+    if (!__d_insert(this.__id, c.__id, -1)) throw herr('The new child element contains the parent.', 'HierarchyRequestError');
+    return c;
+  };
+  NodeProto.insertBefore = function (c, ref) {
+    if (!c || c.__id === undefined) throw new TypeError("Failed to execute 'insertBefore': parameter 1 is not of type 'Node'.");
+    if (ref && ref.parentNode !== this) throw herr('The node before which the new node is to be inserted is not a child of this node.', 'NotFoundError');
+    if (!__d_insert(this.__id, c.__id, ref ? ref.__id : -1)) throw herr('The new child element contains the parent.', 'HierarchyRequestError');
+    return c;
+  };
+  NodeProto.removeChild = function (c) {
+    if (!c || c.parentNode !== this) throw herr('The node to be removed is not a child of this node.', 'NotFoundError');
+    __d_remove(c.__id);
+    return c;
+  };
+  NodeProto.replaceChild = function (n, old) {
+    if (!old || old.parentNode !== this) throw herr('The node to be replaced is not a child of this node.', 'NotFoundError');
+    this.insertBefore(n, old);
+    if (n !== old) __d_remove(old.__id);
+    return old;
+  };
+  NodeProto.cloneNode = function (deep) { return wrap(__d_clone(this.__id, !!deep)); };
+  var many = function (args) { return Array.prototype.map.call(args, toNode); };
+  ElementProto.append = function () { var s = this; many(arguments).forEach(function (n) { s.appendChild(n); }); };
+  ElementProto.prepend = function () {
+    var s = this, first = this.firstChild;
+    many(arguments).forEach(function (n) { s.insertBefore(n, first); });
+  };
+  ElementProto.remove = function () { __d_remove(this.__id); };
+  ElementProto.before = function () {
+    var p = this.parentNode, s = this;
+    if (p) many(arguments).forEach(function (n) { p.insertBefore(n, s); });
+  };
+  ElementProto.after = function () {
+    var p = this.parentNode, nx = this.nextSibling;
+    if (p) many(arguments).forEach(function (n) { p.insertBefore(n, nx); });
+  };
+  ElementProto.replaceWith = function () { this.before.apply(this, arguments); this.remove(); };
+  doc.createElement = function (t) { return wrap(__d_create(1, String(t))); };
+  doc.createElementNS = function (ns, t) { return wrap(__d_create(1, String(t))); };
+  doc.createTextNode = function (s) { return wrap(__d_create(3, String(s))); };
+  doc.createComment = function (s) { return wrap(__d_create(8, String(s))); };
+  doc.createDocumentFragment = function () { return wrap(__d_create(11, '')); };
+  doc.appendChild = NodeProto.appendChild;
+  doc.insertBefore = NodeProto.insertBefore;
+  doc.removeChild = NodeProto.removeChild;
   cache[0] = doc;
   Object.defineProperty(doc, '__id', { value: 0 });
   Object.defineProperty(doc, 'nodeType', { value: 9 });

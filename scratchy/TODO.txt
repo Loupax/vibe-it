@@ -1479,7 +1479,7 @@ as the JS measurement corpus (same role the four CSS pages played).
       runs N times then clears itself. Live check: the wikipedia.org
       portal's `wmL10nVisible.makeVisible` runs (log it temporarily).
       Lands BEFORE Q33c (see the HAZARD in "JS on real pages").
-- [ ] Q33c [M] DOM mutation: `setAttribute/removeAttribute`,
+- [x] Q33c [M] (80b5e0a) DOM mutation: `setAttribute/removeAttribute`,
       `classList.add/remove/toggle`, `textContent=`, `style.<prop>=`
       (writes the inline style attribute), `createElement/
       createTextNode/appendChild/insertBefore/removeChild/remove`,
@@ -1487,6 +1487,25 @@ as the JS measurement corpus (same role the four CSS pages played).
       has no mutation API, so write the helpers over its `RefCell`
       children/attrs. Every mutation only marks the document dirty; one
       rebuild per event-loop turn, never one per call.
+      Done in `src/js_dom.rs` (+ `JsEngine::take_dirty`, `App::js_sync`):
+      every write sets a shared dirty flag; `about_to_wait` and the
+      page-load sites call `js_sync` which sets `layout_dirty` once per
+      turn. Also cloneNode, replaceChild, append/prepend/before/after/
+      replaceWith, fragments, outerHTML, toggleAttribute, and reflected
+      id/className/title/lang/dir/hidden. `--js-report` errors before ->
+      after: portal 2 -> 1, Main_Page 0 -> 0, SoHo 0 -> 0. grim: portal
+      and Main_Page visible with JS on (timers reveal `.central-featured`).
+- [ ] Q33c1 [S] Left out of Q33c: `insertAdjacentHTML/Element/Text`,
+      writing reflected `href/src/value/...` properties, `<script>`
+      elements inserted by JS never run, `template.content`, `style`
+      iteration/`getComputedStyle`.
+- [ ] Q33c2 [S] A `<dialog>` without `open` must be `display:none` (UA
+      sheet). The portal's closed `frb-iad-dialog` shows as a modal box
+      in flow today (visible with JS on at wikipedia.org; it is also
+      rendered, further down, with JS off). Needs a WPT run.
+- [ ] Q33c3 [S] `select{color:transparent}` still paints the option
+      text: the portal's language select (`.styled-select.js-enabled`)
+      overlaps its helper label ("AfrikaEnglish").
 - [ ] Q33d [M] Events and timers: `addEventListener/removeEventListener`
       for click, input, change, submit, keydown/keyup, focus/blur,
       DOMContentLoaded, load; capture/bubble dispatch with

@@ -319,6 +319,8 @@ pub(crate) struct JsEngine {
     /// every top-level evaluation so each timer callback gets its own
     /// `SCRIPT_BUDGET` rather than sharing the page-load one.
     deadline: Arc<std::sync::atomic::AtomicU64>,
+    /// Q33c: set by every DOM write; the app drains it with `take_dirty`.
+    dirty: Rc<std::cell::Cell<bool>>,
 }
 
 /// Max timer callbacks run in one event-loop turn, so a pile of due
@@ -362,6 +364,11 @@ impl JsEngine {
         });
         drain_jobs(&self.rt, &*self.log);
         v
+    }
+
+    /// Whether JS wrote to the DOM since the last call (clears the flag).
+    pub(crate) fn take_dirty(&self) -> bool {
+        self.dirty.replace(false)
     }
 
     /// When the earliest pending timer is due, `None` if there are none
@@ -424,10 +431,11 @@ pub(crate) fn start_scripts(document: &Handle, scripts: &[ScriptSource], log: Lo
             let _ = ctx.globals().set("__scratchy_now", now);
         }
     });
-    let engine = JsEngine { ctx, rt, log, base, deadline };
+    let dirty = Rc::new(std::cell::Cell::new(false));
+    let engine = JsEngine { ctx, rt, log, base, deadline, dirty: dirty.clone() };
     engine.eval("prelude", PRELUDE);
     engine.eval("timers", TIMERS_PRELUDE);
-    engine.ctx.with(|ctx| js_dom::install_dom(&ctx, document));
+    engine.ctx.with(|ctx| js_dom::install_dom(&ctx, document, dirty.clone()));
     for s in scripts {
         engine.eval(&s.name, &s.code);
     }
