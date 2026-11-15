@@ -775,7 +775,7 @@ touching the user's desktop: use it for the live check of each item.
       mentions the compositor; `Ok(())` gives `None`. Live check: run in a
       nested dwl (REGRESSIONS.md recipe) and kill that dwl: one clean line
       on stderr, exit code 1, no `panicked`.
-- [x] QB2 [M] (P0, R9) (HASH) JS DOM writes must go through the restyle path.
+- [x] QB2 [M] (P0, R9) (7698674) JS DOM writes must go through the restyle path.
       Symptom: a page with a 300 ms `setInterval` that writes the DOM stays
       blank forever; at 1000 ms all body text is missing and CPU is ~150%.
       Root cause: `App::js_sync` sets `layout_dirty` and bumps
