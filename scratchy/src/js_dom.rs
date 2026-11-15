@@ -808,6 +808,10 @@ const DOM_PRELUDE: &str = r#"
   def(doc, 'childNodes', Object.getOwnPropertyDescriptor(NodeProto, 'childNodes').get);
   doc.getElementById = function (id) { return wrap(__d_byid(String(id))); };
   def(doc, 'documentElement', function () { return wrap(__d_special(0)); });
+  // QB8: `document.currentScript`: the executing classic <script>, else null.
+  var curScript = null;
+  Object.defineProperty(g, '__scratchy_cs', { value: function (id) { curScript = id < 0 ? null : wrap(id); } });
+  def(doc, 'currentScript', function () { return curScript; });
   def(doc, 'head', function () { return wrap(__d_special(1)); });
   def(doc, 'body', function () { return wrap(__d_special(2)); });
 })(globalThis);

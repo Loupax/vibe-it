@@ -52,6 +52,10 @@ pub(crate) enum ScriptRef {
 pub(crate) struct ScriptSource {
     pub(crate) name: String,
     pub(crate) code: String,
+    /// QB8: position among the document's runnable `<script>` elements
+    /// (the `find_external_resources` order), so `document.currentScript`
+    /// can find the element. `None` = no element (tests).
+    pub(crate) index: Option<usize>,
 }
 
 /// Classic script `type` values (absent/empty counts); `module`,
@@ -93,6 +97,20 @@ pub(crate) fn script_ref(handle: &Handle) -> Option<ScriptRef> {
     (!code.trim().is_empty()).then_some(ScriptRef::Inline(code))
 }
 
+/// QB8: every runnable classic `<script>` element in document order, the
+/// same order and filter as `find_external_resources`.
+fn collect_script_elements(handle: &Handle, out: &mut Vec<Handle>) {
+    if let NodeData::Element { name, .. } = &handle.data
+        && name.local.as_ref() == "script"
+        && script_ref(handle).is_some()
+    {
+        out.push(handle.clone());
+    }
+    for child in handle.children.borrow().iter() {
+        collect_script_elements(child, out);
+    }
+}
+
 /// Inline scripts only, in document order — for pages with no way to
 /// fetch external ones (no `--socket`, no base URL).
 pub(crate) fn inline_scripts(document: &Handle) -> Vec<ScriptSource> {
@@ -102,7 +120,7 @@ pub(crate) fn inline_scripts(document: &Handle) -> Vec<ScriptSource> {
         .into_iter()
         .enumerate()
         .filter_map(|(i, s)| match s {
-            ScriptRef::Inline(code) => Some(ScriptSource { name: format!("inline script #{}", i + 1), code }),
+            ScriptRef::Inline(code) => Some(ScriptSource { name: format!("inline script #{}", i + 1), code, index: Some(i) }),
             ScriptRef::External(_) => None,
         })
         .collect()
@@ -121,11 +139,11 @@ pub(crate) fn fetch_scripts(path: &std::path::Path, base: &Url, refs: Vec<Script
             .enumerate()
             .map(|(i, r)| {
                 scope.spawn(move || match r {
-                    ScriptRef::Inline(code) => Some(ScriptSource { name: format!("inline script #{}", i + 1), code }),
+                    ScriptRef::Inline(code) => Some(ScriptSource { name: format!("inline script #{}", i + 1), code, index: Some(i) }),
                     ScriptRef::External(src) => {
                         let url = resolve_href(Some(base), &src).ok()?;
                         match fetch_script_via_wire(path, &url) {
-                            Some(code) => Some(ScriptSource { name: url.to_string(), code }),
+                            Some(code) => Some(ScriptSource { name: url.to_string(), code, index: Some(i) }),
                             None => {
                                 diag!("scratchy: js: could not fetch script {url}");
                                 None
@@ -483,17 +501,17 @@ impl JsEngine {
         drain_jobs(&self.rt, &*self.log);
     }
 
-    pub(crate) fn eval_value<T: for<'js> FromJs<'js>>(&self, code: &str) -> Option<T> {
+    pub(crate) fn eval_value<T: for<'js> FromJs<'js>>(&self, label: &str, code: &str) -> Option<T> {
         self.arm_budget(CALLBACK_BUDGET);
         let started = Instant::now();
         let v = self.ctx.with(|ctx| {
             let mut opts = EvalOptions::default();
             opts.strict = false;
-            opts.filename = Some("timers".to_string());
+            opts.filename = Some(label.to_string());
             match ctx.eval_with_options::<T, _>(code, opts) {
                 Ok(v) => Some(v),
                 Err(e) => {
-                    (self.log)("error", &format!("timers: {}", describe_error(&ctx, e)));
+                    (self.log)("error", &format!("{label}: {}", describe_error(&ctx, e)));
                     None
                 }
             }
@@ -537,13 +555,13 @@ impl JsEngine {
         }
         obj.push('}');
         let code = format!("__scratchy_dn({id},{},{obj})", js_string_literal(kind));
-        self.eval_value::<bool>(&code).unwrap_or(true)
+        self.eval_value::<bool>(&format!("event:{kind}"), &code).unwrap_or(true)
     }
 
     /// When the earliest pending timer is due, `None` if there are none
     /// (the event loop then sleeps with no wake-up at all).
     pub(crate) fn next_deadline(&self) -> Option<Instant> {
-        let ms: f64 = self.eval_value("__scratchy_timers_next()")?;
+        let ms: f64 = self.eval_value("timer", "__scratchy_timers_next()")?;
         (ms >= 0.0).then(|| self.base + Duration::from_secs_f64(ms / 1000.0))
     }
 
@@ -551,7 +569,7 @@ impl JsEngine {
     /// its own interrupt budget, draining promise jobs after each.
     pub(crate) fn run_due(&self) {
         for _ in 0..MAX_TIMERS_PER_TURN {
-            if self.eval_value::<bool>("__scratchy_timers_run_one()") != Some(true) {
+            if self.eval_value::<bool>("timer", "__scratchy_timers_run_one()") != Some(true) {
                 break;
             }
         }
@@ -606,8 +624,16 @@ pub(crate) fn start_scripts(document: &Handle, scripts: &[ScriptSource], log: Lo
     engine.eval("prelude", PRELUDE);
     engine.eval("timers", TIMERS_PRELUDE);
     engine.table = engine.ctx.with(|ctx| js_dom::install_dom(&ctx, document, dirty.clone(), reqs.clone()));
+    let mut script_els = Vec::new();
+    collect_script_elements(document, &mut script_els);
     for s in scripts {
+        let id = match s.index.and_then(|i| script_els.get(i)) {
+            Some(h) => engine.table.borrow_mut().intern(h),
+            None => -1,
+        };
+        engine.eval_value::<()>("script", &format!("__scratchy_cs({id})"));
         engine.eval(&s.name, &s.code);
+        engine.eval_value::<()>("script", "__scratchy_cs(-1)");
     }
     engine.eval("DOMContentLoaded", FIRE_DOM_CONTENT_LOADED);
     engine.eval("load", FIRE_LOAD);
