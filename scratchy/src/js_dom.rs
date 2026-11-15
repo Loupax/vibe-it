@@ -481,7 +481,7 @@ const DOM_PRELUDE: &str = r#"
   var wrap = function (id) {
     if (id === undefined || id < 0) return null;
     if (cache[id]) return cache[id];
-    var o = Object.create(__d_kind(id) === 1 ? (__d_tag(id).toLowerCase() === 'dialog' ? HTMLDialogElement.prototype : HTMLElement.prototype) : Node.prototype);
+    var o = Object.create(__d_kind(id) === 1 ? (__d_tag(id).toLowerCase() === 'dialog' ? HTMLDialogElement.prototype : __d_tag(id).toLowerCase() === 'canvas' ? HTMLCanvasElement.prototype : HTMLElement.prototype) : Node.prototype);
     Object.defineProperty(o, '__id', { value: id });
     if (__d_kind(id) === 11) { queries(o); }
     return (cache[id] = o);
@@ -658,6 +658,24 @@ const DOM_PRELUDE: &str = r#"
     __d_rmattr(this.__id, 'data-scratchy-modal');
     this.dispatchEvent(new Event('close'));
   };
+  // QY3: HTMLCanvasElement without drawing: no context type is supported,
+  // so `getContext` is null (as in a browser lacking it), `toDataURL` is
+  // the empty data URL, `toBlob` calls back null.
+  var HTMLCanvasElement = function HTMLCanvasElement() {};
+  HTMLCanvasElement.prototype = Object.create(HTMLElement.prototype, { constructor: { value: HTMLCanvasElement, writable: true, configurable: true } });
+  g.HTMLCanvasElement = HTMLCanvasElement;
+  var CP = HTMLCanvasElement.prototype;
+  var canvasDim = function (name, dflt) {
+    defs(CP, name, function () {
+      var v = parseInt(__d_attr(this.__id, name), 10);
+      return v >= 0 ? v : dflt;
+    }, function (v) { __d_setattr(this.__id, name, String(Math.max(0, Math.floor(Number(v)) || 0))); });
+  };
+  canvasDim('width', 300);
+  canvasDim('height', 150);
+  CP.getContext = function () { return null; };
+  CP.toDataURL = function () { return 'data:,'; };
+  CP.toBlob = function (cb) { if (typeof cb === 'function') setTimeout(function () { cb(null); }, 0); };
   var classes = function (el) { return el.className.split(/\s+/).filter(Boolean); };
   def(ElementProto, 'classList', function () {
     var el = this;

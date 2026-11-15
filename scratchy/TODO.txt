@@ -887,7 +887,7 @@ Read REGRESSIONS.md "R20" before starting any QY item. Short version:
       `document.hidden = false`. Test: a script reading
       `performance.timing.responseStart > 0 && document.visibilityState
       === 'visible'` logs true, no error.
-- [ ] QY3 [S] (P2, R20 error 2) `<canvas>` element interface without
+- [x] QY3 (0f048a1) [S] (P2, R20 error 2) `<canvas>` element interface without
       drawing. Error: `web-animations-next-lite.min.js: TypeError: not a
       function` at `f=document.createElementNS(xhtml,"canvas"); ...
       a=f.getContext("2d")`. Fix in `DOM_PRELUDE` (js_dom.rs): an

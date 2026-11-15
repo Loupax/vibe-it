@@ -9563,3 +9563,17 @@ fn qy2_performance_timing_and_visibility() {
     )]);
     assert_eq!(log, ["log:true", "log:true", "log:0,0,0", "log:numberfunction"]);
 }
+
+// ---------- QY3: HTMLCanvasElement ----------
+
+#[test]
+fn qy3_canvas_element_interface_without_drawing() {
+    let (log, _body) = mutate(
+        "<html><body><canvas id=c width=40></canvas></body></html>",
+        "var c=document.createElement('canvas'); var d=document.createElementNS('http://www.w3.org/1999/xhtml','canvas');\
+         console.log(c.getContext('2d'), d.getContext('webgl'), c.width, c.height, c instanceof HTMLCanvasElement, c instanceof HTMLElement);\
+         c.width=20; console.log(c.width, c.getAttribute('width'), c.toDataURL());\
+         var p=document.getElementById('c'); console.log(p.width, p.height, p.getContext('2d'), typeof p.toBlob);",
+    );
+    assert_eq!(log, ["log:null null 300 150 true true", "log:20 20 data:,", "log:40 150 null function"], "{log:?}");
+}
