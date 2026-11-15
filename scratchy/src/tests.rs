@@ -7994,7 +7994,7 @@ fn run_collecting(scripts: &[ScriptSource]) -> Vec<String> {
 }
 
 fn src(code: &str) -> ScriptSource {
-    ScriptSource { name: "t".into(), code: code.into() }
+    ScriptSource { name: "t".into(), code: code.into(), index: None }
 }
 
 #[test]
@@ -8034,7 +8034,7 @@ fn qj1_classic_scripts_run_in_sloppy_mode() {
 fn qj2_error_lines_carry_name_message_and_script_number() {
     let log = run_collecting(&[
         src("window.addEventListener('load', function(){ throw new TypeError('boom'); });"),
-        ScriptSource { name: "inline script #2".into(), code: "throw new RangeError('r');".into() },
+        ScriptSource { name: "inline script #2".into(), code: "throw new RangeError('r');".into(), index: None },
         src("throw 'plain'"),
         src("throw {a: 1}"),
     ]);
@@ -8680,7 +8680,7 @@ fn qb2_js_dom_writes_use_restyle_path() {
 // ---------- QB6: `:help` suspends the page's JS ----------
 
 fn qb6_counter(app: &App) -> f64 {
-    app.js.as_ref().unwrap().eval_value::<f64>("window.__n").unwrap()
+    app.js.as_ref().unwrap().eval_value::<f64>("t", "window.__n").unwrap()
 }
 
 fn qb6_help_suspends_js(proxy: &winit::event_loop::EventLoopProxy<AppEvent>) {
@@ -8859,7 +8859,7 @@ fn qb5_autofocus_and_boolean_attributes_reflect() {
          void 0===j.autofocus?j.focus():window.scroll(0,0);
          globalThis.out = r.join();",
     );
-    assert_eq!(engine.eval_value::<String>("out").unwrap(), "true,false,false,true,true,false,false,false");
+    assert_eq!(engine.eval_value::<String>("t", "out").unwrap(), "true,false,false,true,true,false,false,false");
 }
 
 #[test]
@@ -8873,7 +8873,7 @@ fn qb5_window_scroll_family_records_a_request() {
     engine.eval("t", "window.scroll({top: 40})");
     let s = engine.take_requests().scroll.unwrap();
     assert_eq!((s.x, s.y), (None, Some(40.0)), "missing left keeps the axis");
-    assert_eq!(engine.eval_value::<f64>("window.scrollY").unwrap(), 40.0);
+    assert_eq!(engine.eval_value::<f64>("t", "window.scrollY").unwrap(), 40.0);
 }
 
 /// App side: `js_sync` applies a scroll request and a focus request.
@@ -8985,4 +8985,46 @@ fn qb9_write_line_to_writes_text_and_newline() {
     let mut buf: Vec<u8> = Vec::new();
     write_line_to(&mut buf, format_args!("usage: scratchy {}", "[file|url]"));
     assert_eq!(buf, b"usage: scratchy [file|url]\n");
+}
+
+// ---------- QB8: document.currentScript, named eval frames ----------
+
+fn qb8_start(html: &str) -> (JsEngine, Rc<RefCell<Vec<String>>>) {
+    let doc = parse_html(html);
+    let out = Rc::new(RefCell::new(Vec::new()));
+    let o = out.clone();
+    let engine = start_scripts(&doc, &inline_scripts(&doc), Rc::new(move |level, text| o.borrow_mut().push(format!("{level}:{text}")))).unwrap();
+    (engine, out)
+}
+
+#[test]
+fn qb8_current_script_is_the_executing_element_then_null() {
+    let (_engine, out) = qb8_start(
+        "<script src=x.js></script><script id=a>console.log(document.currentScript.id, document.currentScript.tagName);
+         document.addEventListener('DOMContentLoaded', function(){ console.log('dcl', document.currentScript); });</script>
+         <script id=b>console.log(document.currentScript.id)</script>",
+    );
+    assert_eq!(*out.borrow(), ["log:a SCRIPT", "log:b", "log:dcl null"]);
+}
+
+#[test]
+fn qb8_timer_callback_sees_null_current_script() {
+    let (engine, out) = qb8_start("<script id=a>setTimeout(function(){ console.log('t:' + document.currentScript); }, 0)</script>");
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    engine.run_due();
+    assert_eq!(*out.borrow(), ["log:t:null"]);
+}
+
+#[test]
+fn qb8_event_and_timer_errors_name_their_frame() {
+    let (engine, out) = qb8_start(
+        "<body><script>document.body.addEventListener('click', function(){ throw new Error('boom'); }); setTimeout(function(){ throw new Error('tick'); }, 0);</script></body>",
+    );
+    engine.dispatch_event(None, "click", &[]);
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    engine.run_due();
+    let out = out.borrow();
+    assert!(out.iter().any(|l| l.contains("boom") && l.contains("event:click")), "{out:?}");
+    assert!(out.iter().any(|l| l.contains("tick") && l.contains("timer")), "{out:?}");
+    assert!(out.iter().all(|l| !l.contains("(timers:1:1)")), "{out:?}");
 }
