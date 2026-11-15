@@ -3012,6 +3012,9 @@ makes a hover restyle wait for 150 ms of pointer stillness when the last
 cascade build took >50 ms. `CALLBACK_BUDGET` (js.rs, 500 ms) bounds each
 timer/event callback; only the page-load script run keeps `SCRIPT_BUDGET`
 (5 s). The cascade itself still runs synchronously in `App::redraw`.
+Both budgets are thread CPU time (QY5, `thread_cpu_nanos`), not wall
+clock, so load or waiting doesn't kill scripts; a stop is logged as
+`js: <script> stopped: exceeded the N CPU-time ... budget`.
 
 ### Fragments, scroll-into-view, focus ring (Q31b)
 

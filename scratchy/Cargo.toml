@@ -12,6 +12,7 @@ cssparser-color = "0.6.0"
 encoding_rs = "0.8"
 fontdb = "0.23.0"
 html5ever = "0.39"
+libc = "0.2"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 markup5ever_rcdom = "0.39.0"
 precomputed-hash = "0.1.1"

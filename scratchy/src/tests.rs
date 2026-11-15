@@ -8216,7 +8216,7 @@ fn q33a_runaway_script_is_interrupted() {
     let start = std::time::Instant::now();
     let log = run_collecting(&[src("while(true){}"), src("console.log('after');")]);
     assert!(start.elapsed() < std::time::Duration::from_secs(30));
-    assert!(log[0].starts_with("error:t:"), "{log:?}");
+    assert!(log[0].starts_with("error:js: t stopped"), "{log:?}");
 }
 
 #[test]
@@ -9609,4 +9609,44 @@ fn qy4_create_event_and_constructor_globals() {
     )]);
     assert_eq!(log, ["log:6:true", "log:7,8,true", "log:1", "log:ztrue", "log:NotSupportedError",
         "log:true", "log:mf345", "log:true,true,true", "log:true,true,true,true", "log:1,1,4294967295"]);
+}
+
+/// QY5: a runaway page-load script is stopped with one clear line naming
+/// the script and the budget, not a bare `InternalError: interrupted`.
+#[test]
+fn qy5_interrupted_page_script_logs_a_clear_message() {
+    let log = run_collecting(&[ScriptSource { name: "big.js".into(), code: "for(;;){}".into(), index: None }, src("console.log('after');")]);
+    let errs: Vec<_> = log.iter().filter(|l| l.starts_with("error:")).collect();
+    assert_eq!(errs.len(), 1, "{log:?}");
+    assert!(errs[0].contains("big.js stopped: exceeded the 5 s"), "{log:?}");
+    assert!(errs[0].contains("budget") && errs[0].contains("KB of source"), "{log:?}");
+    assert!(!errs[0].contains("InternalError"), "{log:?}");
+    assert!(log.iter().any(|l| l == "log:after"), "{log:?}");
+}
+
+/// QY5: same for a timer callback, with the callback budget.
+#[test]
+fn qy5_interrupted_callback_logs_a_clear_message() {
+    let log = run_with_timers("setTimeout(()=>{ for(;;){} },0);");
+    assert!(log.iter().any(|l| l.starts_with("error:js: timer stopped: exceeded the 500 ms")), "{log:?}");
+    assert!(!log.iter().any(|l| l.contains("InternalError")), "{log:?}");
+}
+
+/// QY5: the budget clock is thread CPU time: it advances when the thread
+/// works and not while it sleeps (a slow-to-compile or merely waiting
+/// script on a loaded machine is not killed for wall-clock time).
+#[test]
+fn qy5_budget_clock_is_thread_cpu_time() {
+    let a = crate::js::thread_cpu_nanos();
+    std::thread::sleep(std::time::Duration::from_millis(300));
+    let slept = crate::js::thread_cpu_nanos() - a;
+    assert!(slept < 100_000_000, "sleeping used {slept} ns of CPU");
+    let t = std::time::Instant::now();
+    let mut x = 0u64;
+    while t.elapsed() < std::time::Duration::from_millis(100) {
+        x = x.wrapping_add(1);
+        std::hint::black_box(x);
+    }
+    let spun = crate::js::thread_cpu_nanos() - a - slept;
+    assert!(spun > 20_000_000, "spinning used {spun} ns of CPU");
 }
