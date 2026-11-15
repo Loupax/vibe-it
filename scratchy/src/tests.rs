@@ -8165,6 +8165,7 @@ fn q33b1_wrappers_are_instances_of_the_constructors() {
            document.head.myPoly(), document instanceof Node, typeof document.getElementById].join('|'));",
     )]);
     assert_eq!(out, vec!["log:true|true|true|true|HEAD|true|function"]);
+}
 
 // ---------- Q33t: timers ----------
 

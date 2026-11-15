@@ -3062,3 +3062,14 @@ native `__d_*` functions over a Rust table of `Handle`s (ids are indices,
 document = 0) plus a JS prelude of cached per-node wrappers. Selectors use the
 cascade's `OurSelectorParser`/`matches_selector_list`. Read-only; element
 listeners are stored but never fired yet.
+
+Timers (Q33t): `js::start_scripts` returns a `JsEngine` (runtime + context +
+log + clock base) that `App.js` keeps for the page's lifetime; it is replaced
+when a page's scripts run and cleared in `fetch_url_inner`, so stale timers die
+with their page. `setTimeout/setInterval/clear*/requestAnimationFrame` are JS
+over a timer table (`TIMERS_PRELUDE`); Rust only calls `__scratchy_timers_next`
+and `__scratchy_timers_run_one`. `App::about_to_wait` runs due timers (max 100
+per turn, each with a fresh 5s interrupt budget, promise jobs drained after
+each) and sets `ControlFlow::WaitUntil(next)` or `Wait` (no wake-ups without
+timers). Intervals and >5-nested timeouts clamp to 4ms; rAF aligns to 60Hz and
+is not gated on window visibility yet.
