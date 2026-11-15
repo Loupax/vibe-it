@@ -228,6 +228,8 @@ pub(crate) struct ComputedStyle {
     /// (left, right) margin is `auto` (Q59p); `margin` holds 0 for it until
     /// layout resolves the free space.
     pub(crate) margin_auto: (bool, bool),
+    /// (top, bottom) margin is `auto` (QB4): only used to centre an out-of-flow box between top/bottom insets.
+    pub(crate) margin_auto_v: (bool, bool),
     pub(crate) padding: Sides,
     /// Per-side (top, right, bottom, left). Width is already 0 for a side
     /// whose style is `none`/`hidden`.
@@ -1472,6 +1474,10 @@ pub(crate) fn resolve_style_for(
         matches!(cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.margin_left), |d| d.margin_left), Some(Length::Auto)),
         matches!(cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.margin_right), |d| d.margin_right), Some(Length::Auto)),
     );
+    let margin_auto_v = (
+        matches!(cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.margin_top), |d| d.margin_top), Some(Length::Auto)),
+        matches!(cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.margin_bottom), |d| d.margin_bottom), Some(Length::Auto)),
+    );
     let margin = Sides {
         top: cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.margin_top), |d| d.margin_top)
             .map(|l| BoxLength::from_length(l, font_size, inherited.root_font_size))
@@ -1863,6 +1869,7 @@ pub(crate) fn resolve_style_for(
         box_sizing,
         margin,
         margin_auto,
+        margin_auto_v,
         padding,
         border_width,
         border_color,
@@ -1963,6 +1970,7 @@ pub(crate) fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         box_sizing: BoxSizing::default(),
         margin: Sides::default(),
         margin_auto: (false, false),
+        margin_auto_v: (false, false),
         padding: Sides::default(),
         border_width: [0.0; 4],
         border_color: [None; 4],

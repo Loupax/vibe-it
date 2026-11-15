@@ -235,7 +235,7 @@ FAIL css/CSS2/positioning/absolute-non-replaced-max-height-007.xht
 FAIL css/CSS2/positioning/absolute-non-replaced-min-001.html
 PASS css/CSS2/positioning/absolute-non-replaced-width-001.xht
 FAIL css/CSS2/positioning/absolute-non-replaced-width-002.xht
-FAIL css/CSS2/positioning/absolute-non-replaced-width-003.xht
+PASS css/CSS2/positioning/absolute-non-replaced-width-003.xht
 FAIL css/CSS2/positioning/absolute-non-replaced-width-005.xht
 FAIL css/CSS2/positioning/absolute-non-replaced-width-012.xht
 FAIL css/CSS2/positioning/absolute-non-replaced-width-018.xht
