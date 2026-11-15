@@ -17,8 +17,9 @@
    expectations file in the same commit.
 5. `cargo install --path .`
 6. Real `grim` screenshot of a real page, not only a fixture. For paint,
-   hover or scroll changes, also run the AUTOSCROLL/AUTOHOVER recipe in
-   `REGRESSIONS.md`.
+   hover or scroll changes, drive real input: `tools/nest.sh` (nested dwl)
+   plus `tools/inject` (virtual pointer/keyboard); see `tools/README`.
+   Recipe background is in `REGRESSIONS.md` "How this was tested".
 7. Add a `PROMPTS.md` entry. Update `NOTES.md` if architecture changed.
 8. Tick the item in `TODO.txt` (QUEUE and its Detail entry). Add a new
    narrower `[ ]` item for anything deliberately left out.

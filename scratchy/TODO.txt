@@ -940,7 +940,7 @@ touching the user's desktop: use it for the live check of each item.
       Done: `diag!`/`out!` macros over `write_line_to` and
       `write_raw_stdout` in lib.rs. Tests `qb9_write_line_to_*`.
       `--wpt | head -0` (delayed): old 101, new 2 (normal usage exit).
-- [ ] QB10 [S] (P2, tooling) Commit the virtual-input tool from
+- [x] QB10 [S] (P2, tooling) (03f5a6f) Commit the virtual-input tool from
       REGRESSIONS.md "How this was tested" as a dev-only binary, e.g.
       `scratchy/tools/inject/` (its own `Cargo.toml`, not a scratchy
       dependency), plus a `nest.sh` that starts the nested dwl and prints

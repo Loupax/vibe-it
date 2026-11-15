@@ -1,0 +1,41 @@
+tools/ - dev-only helpers, not part of the scratchy crate build.
+
+Driving a real scratchy window (click, type, wheel-scroll)
+----------------------------------------------------------
+1. Build the injector once (own Cargo project; needs no change to the main
+   Cargo.toml). Use a target dir outside the worktree if you like:
+     (cd tools/inject && cargo build --release)      # -> tools/inject/target/release/inject
+
+2. Start a nested dwl and get its socket name:
+     SOCK=$(tools/nest.sh /path/to/scratchpad/nest)  # e.g. wayland-1
+   It writes dwl.pid in that dir; kill only that PID when finished
+   (never `pkill -f` a pattern that appears in your own command line, and
+   never kill the user's scratchy/dwl: `pgrep -fa scratchy` first).
+   The window is about 1052x1050. The backend must be `wayland`; headless
+   dwl advertises no seat capabilities, so clients get no input.
+
+3. Run scratchy in it (ONE scratchy window at a time, or clicks split):
+     WAYLAND_DISPLAY=$SOCK timeout 120 scratchy --socket /run/user/1001/wire.sock <url> &
+     WAYLAND_DISPLAY=$SOCK grim shot.png              # then view the PNG
+
+4. Inject input (W H must be the window size, used to scale absolute moves):
+     WAYLAND_DISPLAY=$SOCK inject 1052 1050 move:500,500 scroll:5 wait:800
+     WAYLAND_DISPLAY=$SOCK inject 1052 1050 move:54,977 click wait:4000
+     WAYLAND_DISPLAY=$SOCK inject 1052 1050 key:j key:c-d type::go\ example.org key:ret
+
+   Commands (run in order):
+     move:X,Y      absolute pointer move (window pixels)
+     click rclick  left / right button press+release (40 ms apart)
+     scroll:N      N wheel notches (positive = down)
+     key:NAME      one key; NAME is a letter/digit/punctuation (uppercase
+                   adds Shift) or esc ret tab space bs colon slash up down
+                   left right pgup pgdn home end; prefix c- for Ctrl
+     type:TEXT     letters, digits, space . : / - _ = ? & # %
+     wait:MS       roundtrip then sleep
+
+Protocols: zwlr_virtual_pointer_v1 and zwp_virtual_keyboard_v1 (both are dwl
+globals). keymap.xkb is a pc+us/evdev keymap dumped with xkbcomp, embedded at
+build time.
+
+Known quirk: `key:g key:g` did not return to top in the QB10 check (j/k and
+wheel scrolling and link clicks all worked); not investigated.
