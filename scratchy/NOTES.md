@@ -1126,7 +1126,7 @@ is passed down exactly once, straight into the root `measure` call's
 document`'s own post-resolution step for out-of-flow boxes only.
 `redraw` now calls `measure_document` instead of `measure` directly.
 
-**Resolving a `PendingPositioned` entry** (`resolve_positioned`) turns
+**Resolving a `PendingPositioned` entry** (`resolve_positioned`; QA3: the inset/static position names the *margin* edge, so the box's used margins are added to / subtracted from the border-box position, `auto` margins absorbing free space with insets on both sides) turns
 it into a real `Laid` against a *now-concrete* containing block rect
 (`cb_x`/`cb_y`/`cb_w`/`cb_h` — always known for real by this point,
 unlike `measure`'s own `containing_height`, which can be indefinite for

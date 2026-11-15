@@ -57,12 +57,16 @@ Repros (each confirmed headless):
 - `.top{height:12px;margin-bottom:4em}` + `.nose` float (`margin:-2em 2em -1em`) + `.empty{margin:6.25em}` containing `<div style="margin:0 2em -6em 4em">` + `.smile{margin:5em 3em;clear:both}`: smile top at y=168, expected 37 (Q48b, Q74).
 - `<p><table><tr><td></table><p class=bad>` parses correctly (`p + table + p` matches), so the scalp problem is R12, not the parser.
 
-### R12 — Margins of `position:absolute`/`fixed` boxes are ignored (bug) — OPEN
+### R12 — Margins of `position:absolute`/`fixed` boxes are ignored (bug) — FIXED (QA3, bd2945f)
 
 `resolve_positioned` places the border box at `cb_x + left` (or the
 static position) and never adds `margin-left`/`margin-top`; `right`/`bottom`
 never subtract the margin. Any abspos/fixed box with a margin is misplaced.
-Fix: QA3.
+Fixed by QA3: `resolve_positioned` now adds the used margins (`left`/`top`: inset
++ margin; `right`/`bottom`: minus margin; static position + margin; `auto` margins
+absorb free space after subtracting fixed ones). Acid2 live: scalp bottom border is
+now yellow (was red) and line 2 moved to its right place; the rest of the face is
+other items.
 
 ### R13 — `border-style` defaults to `solid` (bug) — FIXED (QA1)
 

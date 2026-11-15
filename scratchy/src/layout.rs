@@ -954,23 +954,43 @@ pub(crate) fn resolve_positioned(
         &mut nested_pending, &no_floats, auto_override,
     );
     debug_assert!(nested_pending.is_empty(), "an absolute/fixed box is itself always a positioned ancestor");
+    // QA3 (CSS2.1 §10.3.7 / §10.6.4): `left`/`top`/`right`/`bottom` locate
+    // the *margin* edge, so the used margins (already resolved on the laid
+    // box, `auto` = 0) are added to the border-box position. A static
+    // position is a margin-edge position too. `auto` margins on a box with
+    // both insets set absorb the free space (centring); over-constrained
+    // boxes keep their left/top inset.
+    let (ml, mr) = (laid.style.margin.left.px(), laid.style.margin.right.px());
+    let (mt, mb) = (laid.style.margin.top.px(), laid.style.margin.bottom.px());
     let final_x = if let (Some(l), Some(r), true) = (left, right, s.margin_auto.0 || s.margin_auto.1) {
-        cb_x + l + ((cb_w - l - r - laid.w) / 2.0).max(0.0)
-    } else if left.is_some() {
-        provisional_x
+        let free = (cb_w - l - r - laid.w - ml - mr).max(0.0);
+        let lead = match s.margin_auto {
+            (true, true) => free / 2.0,
+            (true, false) => free,
+            _ => 0.0,
+        };
+        cb_x + l + ml + lead
+    } else if let Some(l) = left {
+        cb_x + l + ml
     } else if let Some(r) = right {
-        cb_x + cb_w - r - laid.w
+        cb_x + cb_w - r - mr - laid.w
     } else {
-        item.static_x
+        item.static_x + ml
     };
     let final_y = if let (Some(t), Some(b), true) = (top, bottom, s.margin_auto_v.0 || s.margin_auto_v.1) {
-        cb_y + t + ((cb_h - t - b - laid.h) / 2.0).max(0.0)
-    } else if top.is_some() {
-        provisional_y
+        let free = (cb_h - t - b - laid.h - mt - mb).max(0.0);
+        let lead = match s.margin_auto_v {
+            (true, true) => free / 2.0,
+            (true, false) => free,
+            _ => 0.0,
+        };
+        cb_y + t + mt + lead
+    } else if let Some(t) = top {
+        cb_y + t + mt
     } else if let Some(b) = bottom {
-        cb_y + cb_h - b - laid.h
+        cb_y + cb_h - b - mb - laid.h
     } else {
-        item.static_y
+        item.static_y + mt
     };
     let (dx, dy) = (final_x - laid.x, final_y - laid.y);
     shift_laid_tree(&mut laid, dx, dy);

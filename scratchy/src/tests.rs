@@ -9154,3 +9154,49 @@ fn qa2_css_ws_helpers_and_flex_item() {
     assert_eq!(trim_css_ws(" \u{a0} "), "\u{a0}");
     assert!(qa2_body_h("<div style=\"display:flex\">&nbsp;</div>") >= 11.0);
 }
+
+/// QA3: margins on out-of-flow boxes (CSS2.1 §10.3.7 / §10.6.4).
+#[test]
+fn qa3_abspos_margins_offset_from_insets() {
+    let laid = measure_fixture(
+        r#"<html><body><div style="position: relative; width: 300px; height: 100px;">
+<div style="position: absolute; top: 0; left: 0; margin: 36px 0 0 60px; width: 48px; height: 12px;"></div>
+<div style="position: absolute; right: 0; bottom: 0; margin: 0 10px 7px 0; width: 40px; height: 20px;"></div>
+</div></body></html>"#,
+        400.0,
+    );
+    let c = find_by_width(&laid, 300.0).expect("container");
+    let a = c.positioned.iter().find(|l| l.w == 48.0).expect("a");
+    assert_eq!((a.x - c.x, a.y - c.y), (60.0, 36.0));
+    let b = c.positioned.iter().find(|l| l.w == 40.0).expect("b");
+    assert_eq!((b.x - c.x, b.y - c.y), (300.0 - 10.0 - 40.0, 100.0 - 7.0 - 20.0));
+}
+
+#[test]
+fn qa3_fixed_margin_and_static_position_margin() {
+    let laid = measure_document_fixture(
+        r#"<html><body style="margin:0"><div style="height: 50px;"></div>
+<div style="position: fixed; top: 0; left: 0; margin: 36px 0 0 60px; width: 48px; height: 12px;"></div>
+<div style="position: absolute; margin: 5px 0 0 9px; width: 10px; height: 10px;"></div>
+</body></html>"#,
+        400.0,
+        600.0,
+    );
+    let f = laid.positioned.iter().find(|l| l.fixed).expect("fixed");
+    assert_eq!((f.x, f.y), (60.0, 36.0));
+    let s = laid.positioned.iter().find(|l| !l.fixed).expect("static abs");
+    assert_eq!((s.x, s.y), (9.0, 55.0), "static position is the margin edge, margins add");
+}
+
+#[test]
+fn qa3_auto_margins_centre_with_fixed_margins_subtracted() {
+    let laid = measure_fixture(
+        r#"<html><body><div style="position: relative; width: 300px; height: 100px;">
+<div style="position: absolute; left: 0; right: 0; margin-left: auto; margin-right: 20px; width: 80px; height: 10px;"></div>
+</div></body></html>"#,
+        400.0,
+    );
+    let c = find_by_width(&laid, 300.0).expect("container");
+    let a = c.positioned.first().expect("a");
+    assert_eq!(a.x - c.x, 300.0 - 20.0 - 80.0, "left auto margin absorbs all free space");
+}
