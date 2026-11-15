@@ -1434,7 +1434,7 @@ as the JS measurement corpus (same role the four CSS pages played).
       2 -> 1, SoHo 2 -> 1. Remaining: `'match' of undefined` (likely
       `document.cookie`/navigator, Q33b1), `not a function`, `Element is
       not defined` (Q33b1), gt-ie9 `Uncaught` (R6/QJ2 formatting).
-- [x] Q33b1 [S] (HASH) (top priority, see "JS on real pages") Global
+- [x] Q33b1 [S] (062c3c8) (top priority, see "JS on real pages") Global
       objects pages feature-test or touch at startup:
       `document.documentElement/head/body` (Q33b wrappers),
       `Node/Element/HTMLElement/Document/Event/CustomEvent/Image` as
