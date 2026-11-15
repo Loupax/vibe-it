@@ -781,7 +781,7 @@ playback is explicitly out of scope for now.
       Agent rules: AGENTS.md "Background shells and waiting" (no
       `pgrep -f` wait loops, no `pkill -f` with a pattern in the command
       line, kill own background shells, don't spawn subagents).
-      DONE 2026-11-15 (docs-only PR, branch scratchy/opus-youtube-2026-11-15).
+      DONE 2026-11-15 (docs-only PR https://github.com/Loupax/vibe-it/pull/152).
       Findings: REGRESSIONS.md "R20" (the blank window is a PAINT-ORDER bug,
       not JS: `--no-js` is just as blank) and "YouTube: what the page needs".
       Filed QY1-QY6 below, cheapest/highest-payoff first.
