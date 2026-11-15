@@ -1092,18 +1092,19 @@ impl App {
     /// own externally-fetched stylesheets never carry over to whatever
     /// replaces it, same "nothing leaks across a document swap" rule
     /// `scroll_offsets`/`shape_cache` already follow just below.
-    /// `image_cache` is cleared unconditionally for the same reason: a
-    /// new document starts owing nothing to the previous one's fetched
-    /// images (any background fetch still in flight for the *old* page
-    /// is harmless — `AppEvent::ImageFetched`'s own `nav_generation`
-    /// check drops it before it could repopulate this cache anyway).
+    /// `image_cache` is deliberately NOT cleared here (R7): the cache
+    /// is cleared when a navigation *starts* (`fetch_url_inner`,
+    /// `show_message`, `show_help`), because images for the new page
+    /// are fetched while `process_external_resources` is still running
+    /// scripts, so an `ImageFetched` for the current generation can
+    /// land *before* `NavResult` does. Stale-generation fetches are
+    /// dropped by `ImageFetched`'s own `nav_generation` check.
     pub(crate) fn replace_document(&mut self, document: Handle, extra_css: String) {
         self.document = document;
         self.interaction = InteractionState::default();
         set_interaction(&self.interaction);
         self.hover_node = 0;
         self.extra_css = extra_css;
-        self.image_cache.clear();
         self.layout_dirty = true;
         self.layout_generation += 1;
         self.cached = None;
@@ -1135,7 +1136,52 @@ impl App {
     /// `extra_css` for it.
     pub(crate) fn show_message(&mut self, text: &str) {
         let html = format!("<html><body><p>{}</p></body></html>", escape_html(text));
+        self.image_cache.clear();
         self.replace_document(parse_html(&html), String::new());
+    }
+
+    /// `AppEvent::NavResult` handler (see its docs).
+    pub(crate) fn handle_nav_result(&mut self, generation: u64, result: Result<FetchedPage, String>) {
+        // A result from a navigation the user has since clicked
+        // past (a second link, before the first one's fetch
+        // finished) — drop it silently rather than clobbering
+        // whatever's already newer on screen. See `AppEvent::
+        // NavResult`'s own docs.
+        if generation != self.nav_generation {
+            return;
+        }
+        match result {
+            Ok(FetchedPage { html, extra_css, scripts, url }) => {
+                let dom = new_parser().read_from(&mut html.as_slice()).unwrap();
+                self.base_url = Some(resolve_page_base_url(&dom.document, url));
+                self.replace_document(dom.document, extra_css);
+                self.js = run_page_scripts(&self.document, &scripts, self.base_url.as_ref());
+            }
+            Err(message) => self.show_message(&message),
+        }
+    }
+
+    /// `AppEvent::ImageFetched` handler (see its docs).
+    pub(crate) fn handle_image_fetched(&mut self, generation: u64, src: String, image: Option<DecodedImage>) {
+        // Same staleness guard `NavResult` already uses — a slow
+        // image fetch that only finishes after the user has since
+        // navigated elsewhere must never populate the *new*
+        // page's `image_cache` just because it happens to share
+        // the same raw `src` string. See `AppEvent::ImageFetched`'s
+        // own docs.
+        if generation != self.nav_generation {
+            return;
+        }
+        let Some(image) = image else { return };
+        self.image_cache.insert(src, Arc::new(image));
+        // A newly-arrived image can change this element's own
+        // intrinsic size (no explicit CSS/HTML width/height —
+        // see `resolve_img`), so the whole tree needs a real
+        // rebuild, not just a repaint — the same `layout_dirty`
+        // flag `redraw` already checks before deciding whether to
+        // call `build_layout_tree_with_resources` again.
+        self.layout_dirty = true;
+        self.layout_generation += 1;
     }
 
     /// `:help` — built the same way `show_message` builds its own
@@ -1160,6 +1206,7 @@ impl App {
                 scroll_offsets: self.scroll_offsets.clone(),
             });
         }
+        self.image_cache.clear();
         self.replace_document(parse_html(HELP_PAGE_HTML), String::new());
     }
 
@@ -1605,6 +1652,7 @@ impl App {
         url.set_fragment(None);
         self.nav_generation += 1;
         self.js = None;
+        self.image_cache.clear();
         let generation = self.nav_generation;
         self.show_message("Loading…");
         let proxy = self.proxy.clone();
@@ -1991,46 +2039,8 @@ impl ApplicationHandler<AppEvent> for App {
                 }
                 self.js = run_page_scripts(&self.document, &scripts, self.base_url.as_ref());
             }
-            AppEvent::NavResult(generation, result) => {
-                // A result from a navigation the user has since clicked
-                // past (a second link, before the first one's fetch
-                // finished) — drop it silently rather than clobbering
-                // whatever's already newer on screen. See `AppEvent::
-                // NavResult`'s own docs.
-                if generation != self.nav_generation {
-                    return;
-                }
-                match result {
-                    Ok(FetchedPage { html, extra_css, scripts, url }) => {
-                        let dom = new_parser().read_from(&mut html.as_slice()).unwrap();
-                        self.base_url = Some(resolve_page_base_url(&dom.document, url));
-                        self.replace_document(dom.document, extra_css);
-                        self.js = run_page_scripts(&self.document, &scripts, self.base_url.as_ref());
-                    }
-                    Err(message) => self.show_message(&message),
-                }
-            }
-            AppEvent::ImageFetched(generation, src, image) => {
-                // Same staleness guard `NavResult` already uses — a slow
-                // image fetch that only finishes after the user has since
-                // navigated elsewhere must never populate the *new*
-                // page's `image_cache` just because it happens to share
-                // the same raw `src` string. See `AppEvent::ImageFetched`'s
-                // own docs.
-                if generation != self.nav_generation {
-                    return;
-                }
-                let Some(image) = image else { return };
-                self.image_cache.insert(src, Arc::new(image));
-                // A newly-arrived image can change this element's own
-                // intrinsic size (no explicit CSS/HTML width/height —
-                // see `resolve_img`), so the whole tree needs a real
-                // rebuild, not just a repaint — the same `layout_dirty`
-                // flag `redraw` already checks before deciding whether to
-                // call `build_layout_tree_with_resources` again.
-                self.layout_dirty = true;
-                self.layout_generation += 1;
-            }
+            AppEvent::NavResult(generation, result) => self.handle_nav_result(generation, result),
+            AppEvent::ImageFetched(generation, src, image) => self.handle_image_fetched(generation, src, image),
             AppEvent::ShapeResult(generation, laid, shape_cache, incomplete) => {
                 // Same staleness guard `NavResult`/`ImageFetched` already
                 // use, tagged with `layout_generation` instead of `nav_

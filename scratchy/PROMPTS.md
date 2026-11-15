@@ -6330,3 +6330,9 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > Do ONLY Q33t: setTimeout/setInterval/clear*/requestAnimationFrame/cancelAnimationFrame, engine kept alive in App, driven from the winit loop.
 
 **What changed:** `js.rs` `JsEngine` (kept in `App.js`, cleared on navigation), `start_scripts`, `TIMERS_PRELUDE`; `App::about_to_wait` runs due timers and sets `WaitUntil`/`Wait`. Per-callback interrupt budget via an atomic deadline. Tests `q33t_*` (7). 385 tests pass, no clippy warnings in js/app/lib. `--js-report` errors before -> after: portal 3 -> 2, Main_Page 0 -> 0, SoHo 0 -> 0. Live: a fixture's timeout/interval fire in order in the real window; grim of the portal looks right (content visible). Cut: rAF is not gated on window visibility.
+
+## R7 — image cache cleared by NavResult (regression fix)
+
+> Fix REGRESSIONS.md R7: wikipedia.org globe image lost with JS on; verify the ImageFetched-before-NavResult hypothesis, fix, add a test.
+
+**What changed:** hypothesis confirmed by code ordering (images spawned before synchronous script fetch; `NavResult` -> `replace_document` cleared `image_cache`). `image_cache` is now cleared at navigation start (`fetch_url_inner`, `show_message`, `show_help`), not in `replace_document`. Handlers extracted to `App::handle_nav_result`/`handle_image_fetched`. Test `r7_*`.
