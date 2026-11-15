@@ -33,3 +33,19 @@
 - Cross-references in tracking files use commit hashes, not `vN` labels.
 - `PROMPTS.md` is append-only.
 - Don't vendor third-party source (WPT, browser UA sheets). Use it as reference.
+
+## Background shells and waiting (don't leak processes)
+- Never wait for a process with `while/until pgrep -f "<pattern>"; do sleep N; done`.
+  `pgrep -f` matches full command lines, including the wait loop's own, so the
+  loop finds itself and never exits. A run once left 24 such shells alive for
+  up to 8 hours.
+- Run long commands (`cargo build/test/install`, `--wpt`) with
+  `run_in_background` (or in the foreground with `timeout`) and wait for the
+  exit notification. Don't build a polling loop around them.
+- If a wait loop is truly unavoidable, wait on a PID you own (`kill -0 $PID`)
+  or use `pgrep -x`, and always wrap it in `timeout`.
+- Never `pkill -f` with a pattern that also appears in your own command line;
+  it can kill your own shell. Kill specific PIDs.
+- Before you finish, check for background shells you started and kill them
+  (specific PIDs only; never the user's scratchy/compositor).
+- Don't spawn subagents from inside an agent task.
