@@ -1249,10 +1249,26 @@ into the commit message of every JS item.
       walk). Test: `<div style=position:relative;z-index:2;background:lime>`
       followed by an unrelated `position:fixed` black box over it: the
       lime box wins the pixel.
-- [ ] QA10 [S] Promoted for Acid2 line 14: do Q50a now, with this extra
+- [x] QA10 [S] (done, commit HASH) Promoted for Acid2 line 14: do Q50a now, with this extra
       repro: `<div style=display:table><div style=display:table-cell>…`
       ×3 (no row) renders nothing at all, and a block child of a
       `display:table` between cells drops the cells. Tick Q50a too.
+      Done: CSS 2.1 17.2.1 anonymous objects at box-building time
+      (images.rs `build_table_nodes`, `collect_real_nodes`): cell runs get an
+      anonymous row, rows/cells outside a table get an anonymous table, non-
+      cell content in a row gets an anonymous cell, blocks/tables after a cell
+      join the same anonymous row. Also text runs now keep the sub-pixel x of
+      their origin (paint.rs), so cell-split text matches single-run text.
+      Left out: QA10a below. Q50a stays open (see there).
+- [ ] QA10a [S] Table cells with `vertical-align: top/baseline` don't stretch
+      to the row height, so a short cell's background/border stops early
+      (Acid2 line 14 "gets stretched to fit row"). Needs `q9_vertical_align_box_
+      keywords_on_inline_blocks_and_table_cells` updated (it asserts a top cell
+      stays 10px in a 60px row, which real browsers contradict). Tried and
+      reverted in QA10 for that reason.
+- [ ] QA10b [S] Leading block/inline content in a table before the first cell
+      (no cell yet) is still stacked, not wrapped in an anonymous row+cell;
+      `display:table-caption` and real `<caption>` keep their special path.
 - [ ] QA11 [M] Promoted for Acid2 lines 10-12: do Q48b then Q74 now (the
       `.empty` block collapses `75, -72, 75` margins through itself, then
       `.smile` gets negative clearance; in the REGRESSIONS.md "Acid2"
@@ -1824,7 +1840,7 @@ Not vendored; pass the path to the runner.
       Done: `measure` passes the float shrink-to-fit width to `measure_table`
       for `width:auto` tables; a table's `cell_natural_width` is now the sum
       of its column extents (`table_column_extents`), not the widest row.
-- [ ] Q50a [S] (promoted: QA10, Acid2 line 14) `border-applies-to-*` / `float-applies-to-*` still fail: they
+- [ ] Q50a [S] (anonymous-table part done in QA10; the border/border-collapse part remains) `border-applies-to-*` / `float-applies-to-*` still fail: they
       need anonymous table objects (`display:table-row-group|cell` outside a
       table) and `border-collapse`/`border-spacing` (W16). Subset now includes
       `border-applies-to-001..012` and `float-applies-to-001..015`.

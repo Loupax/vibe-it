@@ -864,6 +864,10 @@ pub(crate) fn paint_buffer(
 ) {
     let ox = offset_x.round() as i32;
     let oy = offset_y.round() as i32;
+    // Sub-pixel x of the run origin goes into the glyph position (swash has
+    // 4 horizontal bins), so text split across boxes (table cells) lines up
+    // with the same text in one run (QA10, table-anonymous-objects-200).
+    let frac_x = offset_x - ox as f32;
     paint_span_backgrounds(buffer, font_system, backgrounds, hidden, pixels, win_w, win_h, ox, oy, clip);
     let default_color = TextColor::rgb(0, 0, 0);
     // `buffer.draw()`'s own internals, copied out by hand (public:
@@ -910,7 +914,7 @@ pub(crate) fn paint_buffer(
         },
     };
     for (run_idx, run) in buffer.layout_runs().enumerate() {
-        let line_dx = if run_idx == 0 { first_line_dx } else { 0.0 };
+        let line_dx = frac_x + if run_idx == 0 { first_line_dx } else { 0.0 };
         for glyph in run.glyphs {
             if hidden.get(glyph.metadata).copied().unwrap_or(false) {
                 continue;
