@@ -1952,7 +1952,7 @@ impl ApplicationHandler<AppEvent> for App {
                     if let Some(socket) = self.socket_path.clone() {
                         start_stream_resources(&self.proxy, &socket, &self.document, self.nav_generation);
                     } else {
-                        run_page_scripts(&self.document, &inline_scripts(&self.document));
+                        run_page_scripts(&self.document, &inline_scripts(&self.document), self.base_url.as_ref());
                     }
                 }
             }
@@ -1965,7 +1965,7 @@ impl ApplicationHandler<AppEvent> for App {
                     self.layout_dirty = true;
                     self.layout_generation += 1;
                 }
-                run_page_scripts(&self.document, &scripts);
+                run_page_scripts(&self.document, &scripts, self.base_url.as_ref());
             }
             AppEvent::NavResult(generation, result) => {
                 // A result from a navigation the user has since clicked
@@ -1981,7 +1981,7 @@ impl ApplicationHandler<AppEvent> for App {
                         let dom = new_parser().read_from(&mut html.as_slice()).unwrap();
                         self.base_url = Some(resolve_page_base_url(&dom.document, url));
                         self.replace_document(dom.document, extra_css);
-                        run_page_scripts(&self.document, &scripts);
+                        run_page_scripts(&self.document, &scripts, self.base_url.as_ref());
                     }
                     Err(message) => self.show_message(&message),
                 }

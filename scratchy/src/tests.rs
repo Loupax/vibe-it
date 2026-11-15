@@ -8122,3 +8122,47 @@ fn q33b_query_selector_and_tree_walk() {
         "{log:?}"
     );
 }
+// ---------- Q33b1: startup globals ----------
+
+#[test]
+fn q33b1_globals_feature_test_and_polyfill() {
+    set_page_url(Url::parse("https://example.org:8080/a/b?x=1#frag").ok().as_ref());
+    let out = run_collecting(&[src(
+        "var r = [];\
+         r.push(typeof Node, typeof Element, typeof HTMLElement, typeof Document, typeof Event, typeof CustomEvent, typeof Image);\
+         Element.prototype.polyfilled = Element.prototype.polyfilled || function () { return true; };\
+         r.push(Element.prototype.polyfilled() === true);\
+         r.push(new Image() instanceof Element, new Image(3,4).width, document instanceof Document);\
+         var e = new CustomEvent('x', { detail: 5, cancelable: true }); e.preventDefault();\
+         r.push(e.type, e.detail, e.defaultPrevented, e instanceof Event);\
+         r.push(navigator.userAgent.indexOf('scratchy') > 0, navigator.language);\
+         r.push(innerWidth > 0, window.innerHeight > 0);\
+         r.push(document.readyState, document.URL, document.cookie); document.cookie = 'a=b'; r.push(document.cookie === '');\
+         r.push(location.href, location.protocol, location.host, location.hostname, location.port, location.pathname, location.search, location.hash, location.origin, String(location));\
+         console.log(r.join('|'));",
+    )]);
+    assert_eq!(
+        out,
+        vec![
+            "log:function|function|function|function|function|function|function|true|true|3|true|x|5|true|true|true|en-US|true|true|loading|https://example.org:8080/a/b?x=1#frag||true|https://example.org:8080/a/b?x=1#frag|https:|example.org:8080|example.org|8080|/a/b|?x=1|#frag|https://example.org:8080|https://example.org:8080/a/b?x=1#frag"
+        ]
+    );
+}
+
+#[test]
+fn q33b1_no_url_gives_about_blank() {
+    set_page_url(None);
+    let out = run_collecting(&[src("console.log(location.href, location.protocol, typeof document.title)")]);
+    assert_eq!(out, vec!["log:about:blank about: string"]);
+}
+
+#[test]
+fn q33b1_wrappers_are_instances_of_the_constructors() {
+    let out = run_collecting(&[src(
+        "var b = document.body;\
+         Element.prototype.myPoly = function () { return this.tagName; };\
+         console.log([b instanceof Element, b instanceof HTMLElement, b instanceof Node, document.documentElement instanceof Element,\
+           document.head.myPoly(), document instanceof Node, typeof document.getElementById].join('|'));",
+    )]);
+    assert_eq!(out, vec!["log:true|true|true|true|HEAD|true|function"]);
+}

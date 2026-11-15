@@ -145,7 +145,7 @@ pub fn run() {
                 }
                 None => inline_scripts(&app.document),
             };
-            run_page_scripts(&app.document, &scripts);
+            run_page_scripts(&app.document, &scripts, app.base_url.as_ref());
             app
         }
         Input::Stdin => {
