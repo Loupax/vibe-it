@@ -150,6 +150,17 @@ impl Renderer {
         Renderer { font_system: new_font_system_with(extra_fonts), swash_cache: SwashCache::new(), cache: HashMap::new(), root: None }
     }
 
+    /// Resolve a stylesheet/image href. Root-relative ones (`/fonts/ahem.css`,
+    /// `/images/x.png`) point into the checkout, not at the filesystem root.
+    fn resolve_resource(&self, base: &Url, href: &str) -> Result<Url, ()> {
+        if let (Some(root), Some(rest)) = (&self.root, href.strip_prefix('/'))
+            && !rest.starts_with('/')
+        {
+            return Url::from_file_path(root.join(rest.split(['#', '?']).next().unwrap_or(rest))).map_err(|_| ());
+        }
+        resolve_href(Some(base), href).map_err(|_| ())
+    }
+
     /// Render a local HTML file to an 800x600 white-backed buffer.
     pub fn render(&mut self, path: &Path) -> Result<Rc<Vec<u32>>, String> {
         let path = fs::canonicalize(path).map_err(|e| format!("{}: {e}", path.display()))?;
@@ -169,7 +180,7 @@ impl Renderer {
         };
         let mut extra_css = String::new();
         for href in &res.stylesheets {
-            let Ok(u) = resolve_href(Some(&base), href) else { continue };
+            let Ok(u) = self.resolve_resource(&base, href) else { continue };
             if let Some(css) = read_css(&u) {
                 let mut stack = vec![u.clone()];
                 extra_css.push_str(&expand_css_imports(&css, &u, &mut stack, &mut |x| read_css(x)));
@@ -178,7 +189,7 @@ impl Renderer {
         }
         let mut images = HashMap::new();
         for src in &res.images {
-            let Ok(u) = resolve_href(Some(&base), src) else { continue };
+            let Ok(u) = self.resolve_resource(&base, src) else { continue };
             let Ok(p) = u.to_file_path() else { continue };
             if let Some(img) = fs::read(p).ok().and_then(|b| decode_image_bytes(&b)) {
                 images.insert(src.clone(), Arc::new(img));
@@ -239,7 +250,8 @@ impl Renderer {
                 (Some(root), Some(rest)) => root.join(rest),
                 _ => canon.parent().unwrap_or(Path::new("/")).join(href),
             };
-            let ref_px = self.render_guarded(&ref_path)?;
+            // `about:blank` references are an empty white page.
+            let ref_px = if href == "about:blank" { Rc::new(vec![0x00FF_FFFFu32; (WIN_W * WIN_H) as usize]) } else { self.render_guarded(&ref_path)? };
             let same = images_match(&test_px, &ref_px);
             if same != is_match {
                 ok = false;
@@ -247,7 +259,7 @@ impl Renderer {
                     save_failure(dir, &canon, &test_px, &ref_px);
                 }
             }
-            if is_match && same && !self.check(&ref_path, seen, depth + 1, out)? {
+            if is_match && same && href != "about:blank" && !self.check(&ref_path, seen, depth + 1, out)? {
                 ok = false;
             }
         }
