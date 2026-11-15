@@ -1491,6 +1491,19 @@ pub(crate) fn collect_real_children(
                 // simplification — see TODO.txt/NOTES.md for why that
                 // was the original call and what changed.
                 if tag == "br" {
+                    // Collapsible spaces at the end of a line (right before
+                    // the `<br>`) hang and never count toward its width (Q41a).
+                    if collapses_ws(inherited.white_space) {
+                        if let Some(InlineItem::Text(t, _)) = pending.last_mut()
+                            && t != BR_TEXT
+                        {
+                            let trimmed = t.trim_end_matches(' ').len();
+                            t.truncate(trimmed);
+                            if t.is_empty() {
+                                pending.pop();
+                            }
+                        }
+                    }
                     let mut span: SpanStyle = inherited.into();
                     span.background_color = bg;
                     span.vertical_align = valign;

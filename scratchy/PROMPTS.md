@@ -6360,3 +6360,8 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > Do ONLY Q33d: addEventListener/removeEventListener/dispatch, capture/bubble, preventDefault/stopPropagation, hooked into link clicks (and form submission once it exists).
 
 **What changed:** the listener store in `PRELUDE` is now one WeakMap-backed `EventTarget` implementation shared by window, document, nodes and bare `EventTarget`s, with a real capture/target/bubble `dispatch` (once/passive/capture, handleEvent, `on<type>`, per-listener error isolation) and Event subclasses (UI/Mouse/Keyboard/Focus/Input/Custom). `JsEngine::dispatch_event` (via `__scratchy_dn`) lets Rust fire trusted events; `App::js_dispatch` wires click (cancelable navigation, also Enter on a focused link), keydown/keyup, focus/blur/focusin/focusout, and syncs DOM writes. DOMContentLoaded/load go through the same dispatcher. Form submit/input/change natives don't exist yet (Q30), split to Q33d1. Tests `q33d_*` (5).
+## Q41a — `<br>` leftovers (queue item)
+
+> Do ONLY Q41a: `<br>` leftovers.
+
+**What changed:** collapsible spaces right before a `<br>` are now trimmed (they hang instead of counting toward line width, which matters for right/center alignment and wrapping). `display:block` on a `<br>` was verified to already be a plain line break. `<br clear>` and `<br>` as a flex child were split out as Q41b. Test: `q41a_br_trailing_space_and_display_block`. WPT unchanged.
