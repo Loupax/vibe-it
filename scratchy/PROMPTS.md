@@ -6259,3 +6259,9 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > Do ONLY Q59p: horizontal `margin-left/right:auto` centering/right-aligning for blocks and block replaced elements; verify missing first; test, WPT, screenshot, PROMPTS entry, tick Q59p.
 
 **What changed:** confirmed missing: `auto` was not parsed for margins at all, so `margin:0 auto` dropped the whole declaration. Added `Length::Auto` (margin parsers only via `parse_margin_length`), `ComputedStyle.margin_auto`, and `resolve_auto_margins` (CSS2.1 10.3.3) called from `box_model_entry` and the block `<img>` arm; floats and abspos keep 0; works with `width` and `max-width`. Test `auto_margins_centre_and_right_align_blocks_and_images`. `cargo test` 353 passed; clippy 41 warning lines before and after. WPT 234 -> 235 pass (floats-122 newly passing), 0 regressions, expectations updated. `patches-q59-text-space.patch` still applies cleanly. Left out: Q59q (flex/grid/abspos auto margins).
+
+## Q59 — text-node trailing space, re-landed after Q59p (queue item)
+
+> Finish Q59 now that Q59p landed: apply patches-q59-text-space.patch, verify (tests, clippy vs baseline, WPT +6, block-replaced-width-006 still passes), update wpt-expected.txt, screenshot a real page, delete the patch.
+
+**What changed:** applied the saved patch (`css.rs`, `images.rs`, `layout.rs`): text nodes keep a leading/trailing space only where the source had whitespace, collapsed across node boundaries; a space after an image/inline-block is a standalone hanging item. Added test `q59_text_node_trailing_space_only_where_source_had_whitespace`; updated three mixed-inline tests (item counts 3 -> 4, word ids 2 -> 3) because the space after an image is now its own item. Clippy 32 warning lines before and after. WPT 235 -> 241, 0 regressions, expectations updated. Patch file deleted (history keeps it).

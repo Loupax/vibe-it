@@ -589,6 +589,16 @@ pub(crate) fn build_flex_children(
     let flush = |pending: &mut Vec<InlineItem>, result: &mut Vec<LayoutBox>| {
         let has_text = pending.iter().any(|i| matches!(i, InlineItem::Text(t, _) if !t.trim().is_empty()));
         if has_text {
+            // Q59: an anonymous flex/grid item starts and ends a line, so
+            // the collapsible spaces at its edges take no room.
+            if collapses_ws(inherited.white_space) {
+                if let Some(InlineItem::Text(t, _)) = pending.first_mut() {
+                    *t = t.trim_start_matches(' ').to_string();
+                }
+                if let Some(InlineItem::Text(t, _)) = pending.last_mut() {
+                    *t = t.trim_end_matches(' ').to_string();
+                }
+            }
             result.push(LayoutBox {
                 style: anonymous_style(inherited),
                 background_image: None,
@@ -690,7 +700,7 @@ pub(crate) fn build_children_with_prefix(
         viewport_width,
         image_cache,
     );
-    discard_if_collapsible_whitespace_only(&mut pending);
+    discard_if_collapsible_whitespace_only(&mut pending, collapses_ws(inherited.white_space));
     if !pending.is_empty() {
         result.push(LayoutBox {
             style: anonymous_style(inherited),
@@ -944,6 +954,10 @@ pub(crate) fn apply_first_letter(
 /// already has a representable off state within the type itself — an
 /// element can use that to explicitly turn off an ancestor's decoration by
 /// declaring `text-decoration: none`.
+fn collapses_ws(ws: WhiteSpace) -> bool {
+    !matches!(ws, WhiteSpace::Pre | WhiteSpace::PreWrap | WhiteSpace::PreLine)
+}
+
 /// Empties `pending` when it holds nothing but collapsed inter-tag
 /// whitespace, so the caller's "flush `pending` into an anonymous inline
 /// box" step emits nothing. CSS 2.1 §9.2.2.1: "White space content that
@@ -962,7 +976,7 @@ pub(crate) fn apply_first_letter(
 /// one space and nothing else, which renders as a blank line in a real
 /// browser and is dropped here. Any `Image`/`Embedded` item, or a list
 /// marker prefix (real text), keeps the whole run.
-pub(crate) fn discard_if_collapsible_whitespace_only(pending: &mut Vec<InlineItem>) {
+pub(crate) fn discard_if_collapsible_whitespace_only(pending: &mut Vec<InlineItem>, collapse: bool) {
     if pending.iter().all(|item| matches!(item, InlineItem::Text(t, _) if t == " ")) {
         pending.clear();
         return;
@@ -975,6 +989,10 @@ pub(crate) fn discard_if_collapsible_whitespace_only(pending: &mut Vec<InlineIte
     // end and must not wrap onto a line of its own.
     while matches!(pending.last(), Some(InlineItem::Text(t, _)) if t == " ") {
         pending.pop();
+    }
+    // Q59: the trailing space of the last text node hangs the same way.
+    if collapse && let Some(InlineItem::Text(t, _)) = pending.last_mut() && t != BR_TEXT && t.ends_with(' ') {
+        t.pop();
     }
 }
 
@@ -1317,7 +1335,7 @@ pub(crate) fn push_generated(
     match style.display {
         Display::Block | Display::Table | Display::Flex | Display::Grid => {
             style.display = Display::Block;
-            discard_if_collapsible_whitespace_only(pending);
+            discard_if_collapsible_whitespace_only(pending, collapses_ws(inherited.white_space));
             if !pending.is_empty() {
                 result.push(LayoutBox {
                     style: anonymous_style(inherited),
@@ -1351,7 +1369,7 @@ pub(crate) fn push_generated_image(
     match style.display {
         Display::Block | Display::Table | Display::Flex | Display::Grid => {
             style.display = Display::Block;
-            discard_if_collapsible_whitespace_only(pending);
+            discard_if_collapsible_whitespace_only(pending, collapses_ws(inherited.white_space));
             if !pending.is_empty() {
                 result.push(LayoutBox {
                     style: anonymous_style(inherited),
@@ -1397,6 +1415,30 @@ pub(crate) fn collect_real_children(
                 // own (Q41).
                 if inherited.white_space != WhiteSpace::Pre && matches!(pending.last(), Some(InlineItem::Text(t, _)) if t == BR_TEXT) {
                     text = text.trim_start_matches(' ').to_string();
+                    if text.is_empty() {
+                        continue;
+                    }
+                }
+                // Q59: a collapsible space starting this node is carried as
+                // a trailing space on the previous item (or a standalone
+                // hanging space after an image/inline-block), so the one
+                // space between two nodes is never doubled and never leads
+                // a wrapped line.
+                if collapses_ws(inherited.white_space) && text.starts_with(' ') {
+                    text = text[1..].to_string();
+                    match pending.last_mut() {
+                        Some(InlineItem::Text(t, _)) if t != BR_TEXT => {
+                            if !t.ends_with(' ') {
+                                t.push(' ');
+                            }
+                        }
+                        Some(InlineItem::Text(..)) | None => {
+                            if text.is_empty() && pending.is_empty() {
+                                pending.push(InlineItem::Text(" ".to_string(), span));
+                            }
+                        }
+                        Some(_) => pending.push(InlineItem::Text(" ".to_string(), span)),
+                    }
                     if text.is_empty() {
                         continue;
                     }
@@ -1469,7 +1511,7 @@ pub(crate) fn collect_real_children(
                         pending.push(InlineItem::Image { image, style: svg_style, background_image });
                     }
                 } else if matches!(style.display, Display::Block | Display::Table | Display::Flex | Display::Grid) {
-                    discard_if_collapsible_whitespace_only(pending);
+                    discard_if_collapsible_whitespace_only(pending, collapses_ws(inherited.white_space));
                     if !pending.is_empty() {
                         result.push(LayoutBox {
                             style: anonymous_style(inherited),

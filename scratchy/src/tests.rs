@@ -719,7 +719,7 @@ fn q19_before_after_generate_string_content() {
     let mut texts = Vec::new();
     q19_texts(&tree, &mut texts);
     let pos = |t: &str| texts.iter().position(|(x, _)| x == t).unwrap_or_else(|| panic!("{t} missing: {texts:?}"));
-    let (b, m, a) = (pos("<<"), pos("mid "), pos(">>!"));
+    let (b, m, a) = (pos("<<"), pos("mid"), pos(">>!"));
     assert!(b < m && m < a, "order before, content, after: {texts:?}");
     assert_eq!(texts[b].1, TextColor::rgb(0xff, 0, 0), "pseudo's own color");
     assert_eq!(texts[a].1, TextColor::rgb(0, 0, 0xff), "inherits from the element");
@@ -787,8 +787,8 @@ fn q19e_first_letter_styles_the_leading_letter() {
     q19_texts(&tree, &mut texts);
     let red = TextColor::rgb(0xff, 0, 0);
     assert!(texts.iter().any(|(t, c)| t == "\"H" && *c == red), "{texts:?}");
-    assert!(texts.iter().any(|(t, c)| t == "ello world " && *c != red), "{texts:?}");
-    assert!(texts.iter().any(|(t, c)| t == "plain " && *c != red), "{texts:?}");
+    assert!(texts.iter().any(|(t, c)| t == "ello world" && *c != red), "{texts:?}");
+    assert!(texts.iter().any(|(t, c)| t == "plain" && *c != red), "{texts:?}");
 }
 
 #[test]
@@ -914,7 +914,7 @@ fn q19c_marker_pseudo_styles_and_replaces_the_marker() {
     assert_eq!(find("\u{2022} "), Some(TextColor::rgb(0, 0xff, 0)), "{texts:?}");
     assert_eq!(find("→ "), Some(TextColor::rgb(0xff, 0, 0)), "{texts:?}");
     assert!(texts.iter().filter(|(t, _)| t.starts_with('\u{2022}')).count() == 1, "none removes it: {texts:?}");
-    assert!(find("c ").is_some());
+    assert!(find("c").is_some());
 }
 
 #[test]
@@ -985,8 +985,8 @@ fn q20def_word_break_text_transform_and_white_space_variants() {
     assert!(parse_declarations("text-transform: capitalize").text_transform == Some(TextTransform::Capitalize));
     assert!(parse_declarations("white-space: pre-wrap").white_space == Some(WhiteSpace::PreWrap));
     assert!(parse_declarations("white-space: pre-line").white_space == Some(WhiteSpace::PreLine));
-    assert_eq!(inline_text("hello wORLD it's", WhiteSpace::Normal, TextTransform::Capitalize), "Hello WORLD It's ");
-    assert_eq!(inline_text("a  b", WhiteSpace::Normal, TextTransform::Uppercase), "A B ");
+    assert_eq!(inline_text("hello wORLD it's", WhiteSpace::Normal, TextTransform::Capitalize), "Hello WORLD It's");
+    assert_eq!(inline_text("a  b", WhiteSpace::Normal, TextTransform::Uppercase), "A B");
     assert_eq!(inline_text("A  b\n  c ", WhiteSpace::PreLine, TextTransform::Lowercase), "a b\nc");
     assert_eq!(inline_text("a  b\n", WhiteSpace::PreWrap, TextTransform::None), "a  b\n");
 
@@ -999,8 +999,8 @@ fn q20def_word_break_text_transform_and_white_space_variants() {
     let mut texts = Vec::new();
     q19_texts(&tree, &mut texts);
     assert!(texts.iter().any(|(t, _)| t == "SHOUT "), "{texts:?}");
-    assert!(texts.iter().any(|(t, _)| t == "LOUD "), "inherited into <b>: {texts:?}");
-    assert!(texts.iter().any(|(t, _)| t == "quiet "), "{texts:?}");
+    assert!(texts.iter().any(|(t, _)| t == "LOUD"), "inherited into <b>: {texts:?}");
+    assert!(texts.iter().any(|(t, _)| t == "quiet"), "{texts:?}");
 
     // Shaping: pre-wrap wraps (several lines), nowrap does not; pre-line
     // honors a newline; break-all splits a single long word.
@@ -1414,11 +1414,12 @@ fn img_with_default_display_shares_the_inline_run_with_surrounding_text() {
     let doc = parse_html(&html);
     let tree = build_layout_tree(&doc, 1920.0);
     let items = find_inline_run_with_image(&tree).expect("<p> should be one inline run containing the image");
-    assert_eq!(items.len(), 3, "text before/the image/text after should be 3 items in the SAME inline run");
+    // Q59: the source space after the image is its own (hanging) text item.
+    assert_eq!(items.len(), 4, "text before/the image/hanging space/text after should be 4 items in the SAME inline run");
     let InlineItem::Text(before, _) = &items[0] else { panic!("expected text before the image") };
     assert!(before.trim_start().starts_with("before"), "unexpected text before the image: {before:?}");
     assert!(matches!(items[1], InlineItem::Image { .. }));
-    let InlineItem::Text(after, _) = &items[2] else { panic!("expected text after the image") };
+    let InlineItem::Text(after, _) = &items[3] else { panic!("expected text after the image") };
     assert!(after.trim_start().starts_with("after"), "unexpected text after the image: {after:?}");
 }
 
@@ -1948,7 +1949,8 @@ fn mixed_inline_keeps_items_on_one_line_when_they_fit() {
     let laid = measure_fixture(&html, 500.0);
     let run = find_mixed_inline(&laid).expect("mixed inline run not found");
     let items = mixed_items(run);
-    assert_eq!(items.len(), 3, "word, image, word");
+    // Q59: word, image, hanging space after the image, word.
+    assert_eq!(items.len(), 4, "word, image, space, word");
     // One line's height is `max(word line-height, image height)` —
     // the word's own `Metrics::new(16.0, 20.0)` line-height (20px)
     // dominates a 10px-tall image, so the whole run's box should be
@@ -1962,7 +1964,7 @@ fn mixed_inline_keeps_items_on_one_line_when_they_fit() {
     assert!(run.h < 25.0, "word+image should fit on one ~20px line, got height {}", run.h);
     let positions: Vec<(f32, f32)> = items.iter().map(mixed_item_xy).collect();
     assert!(positions[0].0 < positions[1].0, "image should sit after the first word, not stacked below it");
-    assert!(positions[1].0 < positions[2].0, "trailing word should sit after the image");
+    assert!(positions[1].0 < positions[3].0, "trailing word should sit after the image");
 }
 
 #[test]
@@ -2019,7 +2021,8 @@ fn mixed_inline_text_only_paints_once_the_whole_runs_shaped() {
             MixedPositioned::Embedded(_) => None,
         })
         .collect();
-    assert_eq!(word_ids.len(), 2, "expected the two words (\"x \", \"y\") to each get their own id");
+    // Q59: "x ", the hanging space after the image, and "y".
+    assert_eq!(word_ids.len(), 3, "expected the words (\"x \", \" \", \"y\") to each get their own id");
 
     let mut font_system = new_font_system();
     let mut swash_cache = SwashCache::new();
@@ -7789,4 +7792,59 @@ fn auto_margins_centre_and_right_align_blocks_and_images() {
         200.0,
     );
     assert!(find_box_at(&laid, 0.0, 100.0).is_some(), "float not centred");
+}
+
+#[test]
+fn q59_block_img_with_explicit_width_centres_with_auto_margins() {
+    // Regression: auto margins on a block <img> with a width were resolved
+    // twice and the second pass zeroed them (block-replaced-width-006).
+    let src = tiny_png_data_uri(15, 15);
+    for (body, want_x) in [
+        (format!(r#"<div style="width:200px"><img src="{src}" width="50%" style="display:block;margin-left:auto;margin-right:auto"></div>"#), 50.0),
+        (format!(r#"<div style="width:200px"><img src="{src}" width="100" style="display:block;margin:0 auto"></div>"#), 50.0),
+        (format!(r#"<img src="{src}" width="100" style="display:block;margin:0 auto">"#), 350.0),
+    ] {
+        let laid = measure_fixture(&format!(r#"<html><body style="margin:0">{body}</body></html>"#), 800.0);
+        let img = find_image_laid(&laid).expect("img");
+        assert_eq!((img.x, img.w), (want_x, 100.0));
+    }
+}
+
+#[test]
+fn q59_text_node_trailing_space_only_where_source_had_whitespace() {
+    let ahem = std::path::PathBuf::from("/home/loupax/src/wpt/fonts/Ahem.ttf");
+    let fonts: Vec<std::path::PathBuf> = if ahem.exists() { vec![ahem] } else { vec![] };
+    fn collect(l: &Laid, out: &mut Vec<f32>) {
+        if let LaidContent::Blocks(c) = &l.content {
+            for k in c {
+                out.push(k.w);
+                collect(k, out);
+            }
+        }
+    }
+    let float_w = |inner: &str| -> f32 {
+        let doc = parse_html(&format!(
+            "<html><body style=\"margin:0;font:20px Ahem\"><div style=\"float:left\">{inner}</div></body></html>"
+        ));
+        let tree = build_layout_tree(&doc, 1920.0);
+        let mut fs = new_font_system_with(&fonts);
+        let mut cache = ShapeCache::new();
+        let (mut next_id, mut incomplete) = (0usize, false);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let laid = measure(&tree, &mut fs, 0.0, 0.0, 800.0, None, &mut next_id, &mut cache, deadline, &mut incomplete, &mut Vec::new(), &Floats::default(), None);
+        let mut ws = Vec::new();
+        collect(&laid, &mut ws);
+        ws.into_iter().filter(|w| *w < 700.0).fold(0.0, f32::max)
+    };
+    let tight = float_w("a<span>b</span>");
+    let spaced = float_w("a <span>b</span>");
+    assert!(spaced > tight + 1.0, "real space preserved: {tight} vs {spaced}");
+    // Punctuation after an element adds no gap.
+    assert!(float_w("<b>x</b>,") <= float_w("<b>x</b> ,") - 1.0);
+    // Collapsing across node boundaries: one space, not two.
+    assert!((float_w("a <span> b</span>") - spaced).abs() < 0.01);
+    if !fonts.is_empty() {
+        assert!((tight - 40.0).abs() < 0.01, "{tight}");
+        assert!((spaced - 60.0).abs() < 0.01, "{spaced}");
+    }
 }
