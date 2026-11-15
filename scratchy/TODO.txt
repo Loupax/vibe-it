@@ -2092,7 +2092,7 @@ Not vendored; pass the path to the runner.
       gradient layer before the url layer still keeps only the first layer's
       image. (2) Each arriving CSS image triggers a full relayout (like <img>);
       a paint-only path or debounce would help pages with many icons.
-      (3) DONE (commit HASH_Q35B3): HN vote arrows overlapped titles because an
+      (3) DONE (commit 84233b0): HN vote arrows overlapped titles because an
       empty block with a definite width did not widen its table column
       (natural_width_impl only honoured it for floats); fixed for empty
       blocks. Remaining: non-empty plain blocks with a definite width still
