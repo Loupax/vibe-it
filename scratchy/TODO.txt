@@ -882,7 +882,7 @@ into the commit message of every JS item.
       decoder keeps it as payload, so an unescaped `#` in SVG still works
       by accident), check the mime of `data:` stylesheets/scripts (an
       `image/png` data: script should not run), `data:` for `<object>`.
-- [x] QA6 [S] (P2, R18) (done, commit HASH) A fragment in the URL of the first page load is
+- [x] QA6 [S] (P2, R18) (done, commit a59677f) A fragment in the URL of the first page load is
       ignored (`scratchy …/SoHo_Weekly_News#References` and
       `http://acid2.acidtests.org/#top` both open at the top; clicking a
       same-page `#top` link works). Suspect: `apply_fragment` returns
