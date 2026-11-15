@@ -1338,7 +1338,7 @@ as the JS measurement corpus (same role the four CSS pages played).
       `dom`/`js` layer on top. Pure move, no behavior change, tests
       unchanged and passing. Mainly helps item-sized subagents find
       code and keeps incremental builds shorter.
-- [x] Q33a [M] (done, HASH) Run scripts (engine: rquickjs, user decided 2026-11-15).
+- [x] Q33a [M] (done, 2646dd1) Run scripts (engine: rquickjs, user decided 2026-11-15).
       Cuts, each a new narrower item: [ ] Q33a1 `setTimeout/setInterval`,
       `requestAnimationFrame` etc. are undefined (arrive with Q33d); [ ] Q33a2
       the engine is dropped after each page load (Q33d must keep it in App);
