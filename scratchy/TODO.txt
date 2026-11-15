@@ -919,7 +919,7 @@ Not vendored; pass the path to the runner.
       need anonymous table objects (`display:table-row-group|cell` outside a
       table) and `border-collapse`/`border-spacing` (W16). Subset now includes
       `border-applies-to-001..012` and `float-applies-to-001..015`.
-- [x] Q51 [S] (done, commit HASH) Table `width` includes the table's border and padding (W15).
+- [x] Q51 [S] (done, commit e09c450) Table `width` includes the table's border and padding (W15).
       WPT: `block-formatting-contexts-001` (reference).
       Done: `measure_table` forces border-box sizing; the table widens to its
       columns' min-content; a table cell's definite `width` floors its column.
