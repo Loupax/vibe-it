@@ -435,3 +435,12 @@ css/css-pseudo/marker-hyphens.html
 css/css-pseudo/marker-text-align-001.html
 css/css-pseudo/marker-text-transform-uppercase.html
 css/css-pseudo/placeholder-vertical-align.html
+# Q40c: css-content
+css/css-content/attr-case-sensitivity-001.html
+css/css-content/element-replacement-gradient.html
+css/css-content/element-replacement-root-canvas-bg.html
+css/css-content/quotes-003.html
+css/css-content/quotes-010.html
+css/css-content/quotes-017.html
+css/css-content/quotes-024.html
+css/css-content/quotes-031.html

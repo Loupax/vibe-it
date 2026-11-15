@@ -294,6 +294,14 @@ FAIL css/css-cascade/revert-val-001.html
 FAIL css/css-cascade/scope-implicit-002-print.html
 FAIL css/css-cascade/scope-implicit-005-print.html
 FAIL css/css-cascade/scope-pseudo-element.html
+FAIL css/css-content/attr-case-sensitivity-001.html
+PASS css/css-content/element-replacement-gradient.html
+FAIL css/css-content/element-replacement-root-canvas-bg.html
+FAIL css/css-content/quotes-003.html
+FAIL css/css-content/quotes-010.html
+FAIL css/css-content/quotes-017.html
+FAIL css/css-content/quotes-024.html
+FAIL css/css-content/quotes-031.html
 PASS css/css-flexbox/abspos/abspos-autopos-htb-ltr.html
 PASS css/css-flexbox/align-self-002.html
 PASS css/css-flexbox/align-self-003.html
