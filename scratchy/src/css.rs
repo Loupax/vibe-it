@@ -2903,6 +2903,14 @@ pub(crate) fn parse_box4<T: Copy>(input: &mut CssParser, mut one: impl FnMut(&mu
     })
 }
 
+/// 1-or-2-value form (`margin-block: a b`): `[start, end]`, one value
+/// repeats.
+pub(crate) fn parse_pair<T: Copy>(input: &mut CssParser, mut one: impl FnMut(&mut CssParser) -> Option<T>) -> Option<[T; 2]> {
+    let a = one(input)?;
+    let b = one(input).unwrap_or(a);
+    Some([a, b])
+}
+
 /// Handles `border`, `border-{width,color,style}` (box syntax),
 /// `border-{top,right,bottom,left}` shorthands and the 12 side longhands.
 /// Returns false for any other `border-*` name (e.g. `border-radius`).
@@ -4664,11 +4672,11 @@ impl DeclParser<'_> {
                 };
             }
         } else if name.eq_ignore_ascii_case("margin") {
-            if let Ok(v) = parse_length_percent(input) {
-                self.decls.margin_top = Some(v);
-                self.decls.margin_right = Some(v);
-                self.decls.margin_bottom = Some(v);
-                self.decls.margin_left = Some(v);
+            if let Some(v) = parse_box4(input, |i| parse_length_percent(i).ok()) {
+                self.decls.margin_top = Some(v[0]);
+                self.decls.margin_right = Some(v[1]);
+                self.decls.margin_bottom = Some(v[2]);
+                self.decls.margin_left = Some(v[3]);
             }
         } else if name.eq_ignore_ascii_case("margin-top") {
             set_length(input, &mut self.decls.margin_top);
@@ -4687,21 +4695,38 @@ impl DeclParser<'_> {
         } else if name.eq_ignore_ascii_case("margin-inline-end") {
             set_length(input, &mut self.decls.margin_right);
         } else if name.eq_ignore_ascii_case("margin-block") {
-            if let Ok(v) = parse_length_percent(input) {
-                self.decls.margin_top = Some(v);
-                self.decls.margin_bottom = Some(v);
+            if let Some([s, e]) = parse_pair(input, |i| parse_length_percent(i).ok()) {
+                self.decls.margin_top = Some(s);
+                self.decls.margin_bottom = Some(e);
             }
         } else if name.eq_ignore_ascii_case("margin-inline") {
-            if let Ok(v) = parse_length_percent(input) {
-                self.decls.margin_left = Some(v);
-                self.decls.margin_right = Some(v);
+            if let Some([s, e]) = parse_pair(input, |i| parse_length_percent(i).ok()) {
+                self.decls.margin_left = Some(s);
+                self.decls.margin_right = Some(e);
+            }
+        } else if name.eq_ignore_ascii_case("inset") {
+            if let Some(v) = parse_box4(input, |i| parse_length_percent(i).ok()) {
+                self.decls.top = Some(v[0]);
+                self.decls.right = Some(v[1]);
+                self.decls.bottom = Some(v[2]);
+                self.decls.left = Some(v[3]);
+            }
+        } else if name.eq_ignore_ascii_case("inset-block") {
+            if let Some([s, e]) = parse_pair(input, |i| parse_length_percent(i).ok()) {
+                self.decls.top = Some(s);
+                self.decls.bottom = Some(e);
+            }
+        } else if name.eq_ignore_ascii_case("inset-inline") {
+            if let Some([s, e]) = parse_pair(input, |i| parse_length_percent(i).ok()) {
+                self.decls.left = Some(s);
+                self.decls.right = Some(e);
             }
         } else if name.eq_ignore_ascii_case("padding") {
-            if let Some(v) = parse_length_percent(input).ok().filter(|v| !matches!(v, Length::Px(x) | Length::Em(x) | Length::Rem(x) | Length::Percent(x) if *x < 0.0)) {
-                self.decls.padding_top = Some(v);
-                self.decls.padding_right = Some(v);
-                self.decls.padding_bottom = Some(v);
-                self.decls.padding_left = Some(v);
+            if let Some(v) = parse_box4(input, |i| parse_length_percent(i).ok()).filter(|v| !v.iter().any(is_negative_length)) {
+                self.decls.padding_top = Some(v[0]);
+                self.decls.padding_right = Some(v[1]);
+                self.decls.padding_bottom = Some(v[2]);
+                self.decls.padding_left = Some(v[3]);
             }
         } else if name.eq_ignore_ascii_case("padding-top") {
             set_padding(input, &mut self.decls.padding_top);
@@ -4720,14 +4745,14 @@ impl DeclParser<'_> {
         } else if name.eq_ignore_ascii_case("padding-inline-end") {
             set_padding(input, &mut self.decls.padding_right);
         } else if name.eq_ignore_ascii_case("padding-block") {
-            if let Some(v) = parse_length_percent(input).ok().filter(|v| !matches!(v, Length::Px(x) | Length::Em(x) | Length::Rem(x) | Length::Percent(x) if *x < 0.0)) {
-                self.decls.padding_top = Some(v);
-                self.decls.padding_bottom = Some(v);
+            if let Some([s, e]) = parse_pair(input, |i| parse_length_percent(i).ok()).filter(|v| !v.iter().any(is_negative_length)) {
+                self.decls.padding_top = Some(s);
+                self.decls.padding_bottom = Some(e);
             }
         } else if name.eq_ignore_ascii_case("padding-inline") {
-            if let Some(v) = parse_length_percent(input).ok().filter(|v| !matches!(v, Length::Px(x) | Length::Em(x) | Length::Rem(x) | Length::Percent(x) if *x < 0.0)) {
-                self.decls.padding_left = Some(v);
-                self.decls.padding_right = Some(v);
+            if let Some([s, e]) = parse_pair(input, |i| parse_length_percent(i).ok()).filter(|v| !v.iter().any(is_negative_length)) {
+                self.decls.padding_left = Some(s);
+                self.decls.padding_right = Some(e);
             }
         } else if name.eq_ignore_ascii_case("outline-width") {
             if let Ok(v) = parse_length(input) {

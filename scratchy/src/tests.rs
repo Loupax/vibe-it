@@ -7689,3 +7689,62 @@ fn q57_var_correctness() {
     // @supports conditions containing var().
     assert_eq!(q57_color("p{color:#ff0000} @supports (--a: a) and (not (--a: var(--b,!))){p{color:#008000}}"), green);
 }
+
+// ---------- Q58: multi-value box shorthands ----------
+
+fn q58_style(css: &str) -> ComputedStyle {
+    let doc = parse_html(&format!(r#"<html><body><div style="{css}">x</div></body></html>"#));
+    let tree = build_layout_tree(&doc, 1920.0);
+    // The div is the only box with any non-zero margin/padding/offset.
+    fn find(b: &LayoutBox) -> Option<ComputedStyle> {
+        let s = &b.style;
+        if s.margin.top.px() != 0.0
+            || s.margin.right.px() != 0.0
+            || s.margin.bottom.px() != 0.0
+            || s.margin.left.px() != 0.0
+            || s.padding.top.px() != 0.0
+            || s.padding.right.px() != 0.0
+            || s.padding.bottom.px() != 0.0
+            || s.padding.left.px() != 0.0
+        {
+            // Prefer a descendant match (body has its own default margin).
+            if let BoxContent::Blocks(c) = &b.content
+                && let Some(d) = c.iter().find_map(find)
+            {
+                return Some(d);
+            }
+            return Some(s.clone());
+        }
+        match &b.content {
+            BoxContent::Blocks(c) => c.iter().find_map(find),
+            _ => None,
+        }
+    }
+    find(&tree).unwrap_or_else(|| tree.style.clone())
+}
+
+#[test]
+fn q58_margin_three_values() {
+    let s = q58_style("margin:5px 30px 7px");
+    assert_eq!(
+        (s.margin.top.px(), s.margin.right.px(), s.margin.bottom.px(), s.margin.left.px()),
+        (5.0, 30.0, 7.0, 30.0)
+    );
+}
+
+#[test]
+fn q58_padding_two_and_four_values_and_negative_rejected() {
+    let s = q58_style("padding:1px 2px");
+    assert_eq!((s.padding.top.px(), s.padding.right.px(), s.padding.bottom.px(), s.padding.left.px()), (1.0, 2.0, 1.0, 2.0));
+    let s = q58_style("padding:1px 2px 3px 4px");
+    assert_eq!((s.padding.top.px(), s.padding.right.px(), s.padding.bottom.px(), s.padding.left.px()), (1.0, 2.0, 3.0, 4.0));
+    let s = q58_style("padding:1px -2px");
+    assert_eq!(s.padding.right.px(), 0.0);
+}
+
+#[test]
+fn q58_logical_pairs() {
+    let s = q58_style("margin-block:3px 9px;padding-inline:4px 6px");
+    assert_eq!((s.margin.top.px(), s.margin.bottom.px()), (3.0, 9.0));
+    assert_eq!((s.padding.left.px(), s.padding.right.px()), (4.0, 6.0));
+}
