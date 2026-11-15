@@ -6324,3 +6324,9 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > Do ONLY Q33b1: Node/Element/HTMLElement/Document/Event/CustomEvent/Image constructors, navigator, window.innerWidth/innerHeight, document.readyState/title/URL/cookie, location.
 
 **What changed:** the `PRELUDE` in `js.rs` defines constructor functions with a prototype chain (EventTarget > Node > Element > HTMLElement > Image; Document/HTMLDocument; Event > CustomEvent), `navigator`, `innerWidth/innerHeight` (fixed 1024x768 until real size is plumbed), `location` (read-only fields from the page URL), and `document` (instanceof Document, `URL`, `cookie` reads '' and ignores writes, `title` ''). The page URL reaches the runtime through a thread-local set by `run_page_scripts(scripts, page_url)` / `js_report_for_html`; `install_env` passes it to the prelude as `__scratchy_env`. Tests `q33b1_*`; 375 tests pass. Rebased over Q33b: `js_dom.rs` wrappers now inherit from `Node/Element/HTMLElement.prototype` (instanceof + polyfills), `run_page_scripts(document, scripts, page_url)`. Corpus errors (portal/Main_Page/SoHo): 3/1/1 before, 3/0/0 after. No paint change, no grim screenshot.
+
+## Q33t — timers (queue item)
+
+> Do ONLY Q33t: setTimeout/setInterval/clear*/requestAnimationFrame/cancelAnimationFrame, engine kept alive in App, driven from the winit loop.
+
+**What changed:** `js.rs` `JsEngine` (kept in `App.js`, cleared on navigation), `start_scripts`, `TIMERS_PRELUDE`; `App::about_to_wait` runs due timers and sets `WaitUntil`/`Wait`. Per-callback interrupt budget via an atomic deadline. Tests `q33t_*` (7). 385 tests pass, no clippy warnings in js/app/lib. `--js-report` errors before -> after: portal 3 -> 2, Main_Page 0 -> 0, SoHo 0 -> 0. Live: a fixture's timeout/interval fire in order in the real window; grim of the portal looks right (content visible). Cut: rAF is not gated on window visibility.

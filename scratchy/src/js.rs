@@ -6,7 +6,7 @@
 //! `DOMContentLoaded`/`load` listeners), then those two events fire. A
 //! script error is logged to stderr and never stops the next script or
 //! the page. The engine is created per page load and dropped afterwards
-//! (Q33d will need to keep it alive for events/timers).
+//! (Q33t keeps it alive in `App` for timers; see `JsEngine`.)
 use super::*;
 use rquickjs::context::EvalOptions;
 use rquickjs::{Context, FromJs, Ctx, Error as JsError, Exception, Function, Runtime};
@@ -306,6 +306,82 @@ fn drain_jobs(rt: &Runtime, log: &dyn Fn(&str, &str)) {
     }
 }
 
+/// Q33t: a page's live QuickJS runtime. Kept in `App` for the page's
+/// lifetime so timers can fire after load; dropping it (navigation)
+/// discards every pending timer. Field order matters: the context must
+/// drop before the runtime.
+pub(crate) struct JsEngine {
+    ctx: Context,
+    rt: Runtime,
+    log: LogFn,
+    base: Instant,
+    /// Interrupt deadline in nanoseconds since `base`; reset before
+    /// every top-level evaluation so each timer callback gets its own
+    /// `SCRIPT_BUDGET` rather than sharing the page-load one.
+    deadline: Arc<std::sync::atomic::AtomicU64>,
+}
+
+/// Max timer callbacks run in one event-loop turn, so a pile of due
+/// zero-delay timers cannot starve painting and input.
+const MAX_TIMERS_PER_TURN: usize = 100;
+
+impl JsEngine {
+    fn arm_budget(&self) {
+        let d = (self.base.elapsed() + SCRIPT_BUDGET).as_nanos() as u64;
+        self.deadline.store(d, Ordering::Relaxed);
+    }
+
+    fn eval(&self, name: &str, code: &str) {
+        self.arm_budget();
+        self.ctx.with(|ctx| {
+            // HTML classic scripts are sloppy unless they opt in; rquickjs
+            // defaults to strict, so build the options explicitly (R5).
+            let mut opts = EvalOptions::default();
+            opts.strict = false;
+            opts.filename = Some(name.to_string());
+            if let Err(e) = ctx.eval_with_options::<(), _>(code, opts) {
+                (self.log)("error", &format!("{name}: {}", describe_error(&ctx, e)));
+            }
+        });
+        drain_jobs(&self.rt, &*self.log);
+    }
+
+    fn eval_value<T: for<'js> FromJs<'js>>(&self, code: &str) -> Option<T> {
+        self.arm_budget();
+        let v = self.ctx.with(|ctx| {
+            let mut opts = EvalOptions::default();
+            opts.strict = false;
+            opts.filename = Some("timers".to_string());
+            match ctx.eval_with_options::<T, _>(code, opts) {
+                Ok(v) => Some(v),
+                Err(e) => {
+                    (self.log)("error", &format!("timers: {}", describe_error(&ctx, e)));
+                    None
+                }
+            }
+        });
+        drain_jobs(&self.rt, &*self.log);
+        v
+    }
+
+    /// When the earliest pending timer is due, `None` if there are none
+    /// (the event loop then sleeps with no wake-up at all).
+    pub(crate) fn next_deadline(&self) -> Option<Instant> {
+        let ms: f64 = self.eval_value("__scratchy_timers_next()")?;
+        (ms >= 0.0).then(|| self.base + Duration::from_secs_f64(ms / 1000.0))
+    }
+
+    /// Runs every timer that is due now (bounded per turn), each under
+    /// its own interrupt budget, draining promise jobs after each.
+    pub(crate) fn run_due(&self) {
+        for _ in 0..MAX_TIMERS_PER_TURN {
+            if self.eval_value::<bool>("__scratchy_timers_run_one()") != Some(true) {
+                break;
+            }
+        }
+    }
+}
+
 /// Runs `scripts` in order, then `DOMContentLoaded` and `load`. `log`
 /// receives `(level, text)` for every `console` call and every script
 /// error (level `error`); the real caller prints those to stderr.
@@ -315,17 +391,26 @@ pub(crate) fn run_scripts_with(scripts: &[ScriptSource], log: LogFn) {
 }
 
 /// `run_scripts_with` against a real document (Q33b DOM read API).
+/// The engine (and so every pending timer) is dropped on return.
 pub(crate) fn run_scripts_in(document: &Handle, scripts: &[ScriptSource], log: LogFn) {
+    drop(start_scripts(document, scripts, log));
+}
+
+/// Q33t: like `run_scripts_in` but hands back the live engine so the
+/// caller can drive its timers.
+pub(crate) fn start_scripts(document: &Handle, scripts: &[ScriptSource], log: LogFn) -> Option<JsEngine> {
     let Ok(rt) = Runtime::new() else {
         log("error", "could not create the JS runtime");
-        return;
+        return None;
     };
     rt.set_memory_limit(MEMORY_LIMIT);
-    let deadline = Instant::now() + SCRIPT_BUDGET;
-    rt.set_interrupt_handler(Some(Box::new(move || Instant::now() > deadline)));
+    let base = Instant::now();
+    let deadline = Arc::new(std::sync::atomic::AtomicU64::new((SCRIPT_BUDGET).as_nanos() as u64));
+    let dl = deadline.clone();
+    rt.set_interrupt_handler(Some(Box::new(move || base.elapsed().as_nanos() as u64 > dl.load(Ordering::Relaxed))));
     let Ok(ctx) = Context::full(&rt) else {
         log("error", "could not create the JS context");
-        return;
+        return None;
     };
     ctx.with(|ctx| {
         let l = log.clone();
@@ -334,37 +419,93 @@ pub(crate) fn run_scripts_in(document: &Handle, scripts: &[ScriptSource], log: L
             let _ = ctx.globals().set("__scratchy_log", native);
         }
         let _ = install_env(&ctx);
+        let now = Function::new(ctx.clone(), move || base.elapsed().as_secs_f64() * 1000.0);
+        if let Ok(now) = now {
+            let _ = ctx.globals().set("__scratchy_now", now);
+        }
     });
-    let eval = |name: &str, code: &str| {
-        ctx.with(|ctx| {
-            // HTML classic scripts are sloppy unless they opt in; rquickjs
-            // defaults to strict, so build the options explicitly (R5).
-            let mut opts = EvalOptions::default();
-            opts.strict = false;
-            opts.filename = Some(name.to_string());
-            if let Err(e) = ctx.eval_with_options::<(), _>(code, opts) {
-                log("error", &format!("{name}: {}", describe_error(&ctx, e)));
-            }
-        });
-        drain_jobs(&rt, &*log);
-    };
-    eval("prelude", PRELUDE);
-    ctx.with(|ctx| js_dom::install_dom(&ctx, document));
+    let engine = JsEngine { ctx, rt, log, base, deadline };
+    engine.eval("prelude", PRELUDE);
+    engine.eval("timers", TIMERS_PRELUDE);
+    engine.ctx.with(|ctx| js_dom::install_dom(&ctx, document));
     for s in scripts {
-        eval(&s.name, &s.code);
+        engine.eval(&s.name, &s.code);
     }
-    eval("DOMContentLoaded", FIRE_DOM_CONTENT_LOADED);
-    eval("load", FIRE_LOAD);
+    engine.eval("DOMContentLoaded", FIRE_DOM_CONTENT_LOADED);
+    engine.eval("load", FIRE_LOAD);
+    Some(engine)
 }
+
+/// Q33t: `setTimeout` & co, as plain JS over a timer table; Rust only
+/// asks `__scratchy_timers_next()` (ms of the earliest due time on the
+/// `__scratchy_now` clock, -1 if none) and calls `__scratchy_timers_
+/// run_one()` (runs the earliest due timer, true if it ran one).
+/// Intervals and nested (>5 deep) timeouts are clamped to >= 4ms.
+const TIMERS_PRELUDE: &str = r#"
+(function (g) {
+  var timers = [], nextId = 1, level = 0, FRAME = 1000 / 60;
+  var add = function (fn, delay, args, repeat, raf) {
+    var id = nextId++;
+    delay = Number(delay);
+    if (!(delay > 0)) delay = 0;
+    if (typeof fn !== 'function') {
+      var code = String(fn);
+      fn = function () { (0, eval)(code); };
+      args = [];
+    }
+    if (repeat || level > 5) delay = Math.max(delay, 4);
+    var t = __scratchy_now();
+    if (raf) delay = FRAME - (t % FRAME);
+    timers.push({ id: id, fn: fn, args: args, due: t + delay, rep: repeat ? delay : -1, lvl: level + 1, raf: raf });
+    return id;
+  };
+  var clear = function (id) {
+    for (var i = 0; i < timers.length; i++) if (timers[i].id === id) { timers.splice(i, 1); return; }
+  };
+  var def = function (name, fn) {
+    Object.defineProperty(g, name, { value: fn, writable: true, configurable: true, enumerable: true });
+  };
+  def('setTimeout', function (fn, delay) { return add(fn, delay, Array.prototype.slice.call(arguments, 2), false); });
+  def('setInterval', function (fn, delay) { return add(fn, delay, Array.prototype.slice.call(arguments, 2), true); });
+  def('clearTimeout', clear);
+  def('clearInterval', clear);
+  def('requestAnimationFrame', function (fn) {
+    if (typeof fn !== 'function') throw new TypeError('requestAnimationFrame: callback is not a function');
+    return add(fn, 0, [], false, true);
+  });
+  def('cancelAnimationFrame', clear);
+  Object.defineProperty(g, '__scratchy_timers_next', { value: function () {
+    var m = -1;
+    for (var i = 0; i < timers.length; i++) if (m < 0 || timers[i].due < m) m = timers[i].due;
+    return m;
+  } });
+  Object.defineProperty(g, '__scratchy_timers_run_one', { value: function () {
+    var now = __scratchy_now(), best = -1;
+    for (var i = 0; i < timers.length; i++) {
+      if (timers[i].due <= now && (best < 0 || timers[i].due < timers[best].due)) best = i;
+    }
+    if (best < 0) return false;
+    var t = timers[best];
+    if (t.rep >= 0) t.due = now + t.rep; else timers.splice(best, 1);
+    var saved = level;
+    level = t.lvl;
+    try { t.fn.apply(g, t.raf ? [now] : t.args); }
+    catch (e) { console.error('Uncaught ' + String(e) + (e && e.stack ? '\n' + e.stack : '')); }
+    level = saved;
+    return true;
+  } });
+})(globalThis);
+"#;
 
 /// The real entry point: runs a page's scripts (no-op with JS off or
 /// nothing to run) with console output going to stderr.
-pub(crate) fn run_page_scripts(document: &Handle, scripts: &[ScriptSource], page_url: Option<&Url>) {
+/// Returns the live engine (Q33t) for the caller to keep for the page.
+pub(crate) fn run_page_scripts(document: &Handle, scripts: &[ScriptSource], page_url: Option<&Url>) -> Option<JsEngine> {
     if !js_enabled() || scripts.is_empty() {
-        return;
+        return None;
     }
     set_page_url(page_url);
-    run_scripts_in(
+    start_scripts(
         document,
         scripts,
         Rc::new(|level, text| {
@@ -374,7 +515,7 @@ pub(crate) fn run_page_scripts(document: &Handle, scripts: &[ScriptSource], page
                 eprintln!("scratchy: console.{level}: {text}");
             }
         }),
-    );
+    )
 }
 
 /// QJ3: runs `scripts` with a collecting log and returns the report

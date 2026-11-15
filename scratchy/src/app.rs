@@ -532,6 +532,10 @@ pub(crate) struct App {
     /// that thread, so the bookkeeping itself is proven not to regress
     /// anything before anything depends on it.
     pub(crate) layout_generation: u64,
+    /// Q33t: the current page's live JS engine (its timers). Replaced
+    /// whenever a page's scripts run and cleared on navigation, so a
+    /// stale page's timers never fire; driven from `about_to_wait`.
+    pub(crate) js: Option<JsEngine>,
     /// The `--socket <path>` CLI flag, if given — where a `wire` daemon
     /// is expected to be listening. `None` means the user never opted
     /// in at all; `start_navigation` treats that identically to "gave a
@@ -692,6 +696,7 @@ impl App {
             history_index: 0,
             nav_generation: 0,
             layout_generation: 0,
+            js: None,
             socket_path,
             extra_css: String::new(),
             image_cache: HashMap::new(),
@@ -747,6 +752,7 @@ impl App {
             history_index: 0,
             nav_generation: 0,
             layout_generation: 0,
+            js: None,
             socket_path,
             extra_css: String::new(),
             image_cache: HashMap::new(),
@@ -1598,6 +1604,7 @@ impl App {
         let mut url = url;
         url.set_fragment(None);
         self.nav_generation += 1;
+        self.js = None;
         let generation = self.nav_generation;
         self.show_message("Loading…");
         let proxy = self.proxy.clone();
@@ -1924,6 +1931,23 @@ impl ApplicationHandler<AppEvent> for App {
         self.surface = Some(surface);
     }
 
+    /// Q33t: run due JS timers, then sleep until the next one (or
+    /// indefinitely when none are pending, so timer-less pages never
+    /// wake up on their own).
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        let flow = match &self.js {
+            Some(js) => {
+                js.run_due();
+                match js.next_deadline() {
+                    Some(at) => ControlFlow::WaitUntil(at),
+                    None => ControlFlow::Wait,
+                }
+            }
+            None => ControlFlow::Wait,
+        };
+        event_loop.set_control_flow(flow);
+    }
+
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: AppEvent) {
         match event {
             AppEvent::Chunk(bytes) => {
@@ -1952,7 +1976,7 @@ impl ApplicationHandler<AppEvent> for App {
                     if let Some(socket) = self.socket_path.clone() {
                         start_stream_resources(&self.proxy, &socket, &self.document, self.nav_generation);
                     } else {
-                        run_page_scripts(&self.document, &inline_scripts(&self.document), self.base_url.as_ref());
+                        self.js = run_page_scripts(&self.document, &inline_scripts(&self.document), self.base_url.as_ref());
                     }
                 }
             }
@@ -1965,7 +1989,7 @@ impl ApplicationHandler<AppEvent> for App {
                     self.layout_dirty = true;
                     self.layout_generation += 1;
                 }
-                run_page_scripts(&self.document, &scripts, self.base_url.as_ref());
+                self.js = run_page_scripts(&self.document, &scripts, self.base_url.as_ref());
             }
             AppEvent::NavResult(generation, result) => {
                 // A result from a navigation the user has since clicked
@@ -1981,7 +2005,7 @@ impl ApplicationHandler<AppEvent> for App {
                         let dom = new_parser().read_from(&mut html.as_slice()).unwrap();
                         self.base_url = Some(resolve_page_base_url(&dom.document, url));
                         self.replace_document(dom.document, extra_css);
-                        run_page_scripts(&self.document, &scripts, self.base_url.as_ref());
+                        self.js = run_page_scripts(&self.document, &scripts, self.base_url.as_ref());
                     }
                     Err(message) => self.show_message(&message),
                 }
