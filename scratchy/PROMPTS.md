@@ -6205,3 +6205,9 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > Do ONLY Q52: border width defaults to `medium` (3px) when a style is set without a width (W4); test, WPT, screenshot, PROMPTS entry, tick Q52.
 
 **What changed:** nothing landed. The implementation (3px default when a style is declared, shorthand width reset, thin/medium/thick keywords) passed `cargo test` (344) but regressed 6 WPT tests that were passing by accident with zero-width borders (iframe replaced sizing, `var()` declaration order, `border-color: inherit`). Recorded BLOCKED in TODO.txt with new prerequisite items Q52a-c. Clippy 32 warnings, unchanged.
+
+## Q53 — reject negative values (queue item)
+
+> Do ONLY Q53: reject values CSS says are invalid (W5): negative `padding-*`, `border-*-width`, `max-*`, `min-*`, `flex-basis`, `width`, `height`; test, WPT, screenshot, PROMPTS entry, tick Q53.
+
+**What changed:** padding already dropped negatives; new `is_negative_length`/`set_nonneg_length` now also drop them for `width`, `height`, `min-*`, `max-*`, `flex-basis`, `border-width`, `border-*-width` and the `border` shorthand width. Test `q53_negative_sizes_are_dropped`. `cargo clippy --all-targets` 39 warning lines before and after. WPT: added `padding-right-001`, `max-height-001`, `border-top-width-012`, `flex-basis-003` to the subset; 164 -> 168 pass, 0 regressions, expectations updated. `grim` screenshot of a local page with negative padding/border/max-height. Left out: Q53a (`parse_box4` keeps the valid prefix). Paint untouched, no AUTOSCROLL run.

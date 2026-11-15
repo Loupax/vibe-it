@@ -392,3 +392,7 @@ css/CSS2/floats-clear/float-applies-to-008.xht
 css/CSS2/floats-clear/float-applies-to-009.xht
 css/CSS2/floats-clear/float-applies-to-010.xht
 css/CSS2/floats-clear/float-applies-to-012.xht
+css/CSS2/margin-padding-clear/padding-right-001.xht
+css/CSS2/normal-flow/max-height-001.xht
+css/CSS2/borders/border-top-width-012.xht
+css/css-flexbox/flex-basis-003.html

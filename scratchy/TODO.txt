@@ -951,10 +951,13 @@ Not vendored; pass the path to the runner.
       rule's other declarations (`variable-reference-38`).
 - [ ] Q52c [S] `border-color: inherit` where the parent's color is unset
       resolves to the parent's currentColor keyword (`border-color-011`).
-- [ ] Q53 [S] Reject values CSS says are invalid (W5): negative `padding-*`,
+- [x] Q53 [S] Reject values CSS says are invalid (W5): negative `padding-*`,
       `border-*-width`, `max-height`, `max-width`, `min-*`, `flex-basis`,
       `width`, `height`. The declaration is dropped. WPT: `padding-right-001`,
-      `max-height-001`, `border-top-width-012`, `flex-basis-003`.
+      `max-height-001`, `border-top-width-012`, `flex-basis-003`. DONE (HASH): all four WPT tests now pass (164 -> 168).
+      Left out: `parse_box4` (`border-width: 1px -2px`) keeps the valid prefix
+      instead of dropping the whole declaration (Q53a).
+- [ ] Q53a [S] `border-width: 1px -2px` should drop the whole declaration.
 - [ ] Q54 [S] Over-constrained `width:auto` block (borders+padding wider than
       the container) overflows at full border width instead of being clamped
       to the container (W6). WPT: `blocks-011`, `blocks-012`.
