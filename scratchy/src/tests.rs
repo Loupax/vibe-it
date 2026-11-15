@@ -9577,3 +9577,22 @@ fn qy3_canvas_element_interface_without_drawing() {
     );
     assert_eq!(log, ["log:null null 300 150 true true", "log:20 20 data:,", "log:40 150 null function"], "{log:?}");
 }
+
+#[test]
+fn qy4_create_event_and_constructor_globals() {
+    let log = run_collecting(&[src(
+        "var e=document.createEvent('UIEvents');e.initUIEvent('t',true,false,null,6);\
+         var d=-1;document.addEventListener('t',function(x){d=x.detail+':'+x.bubbles;});document.dispatchEvent(e);console.log(d);\
+         var m=document.createEvent('MouseEvents');m.initMouseEvent('c',true,true,window,1,0,0,7,8,false,false,false,false,0,null);console.log(m.clientX+','+m.clientY+','+(m instanceof MouseEvent));\
+         var c=document.createEvent('CustomEvent');c.initCustomEvent('k',false,false,{a:1});console.log(c.detail.a);\
+         var v=document.createEvent('Event');v.initEvent('z',true,true);console.log(v.type+v.cancelable);\
+         try{document.createEvent('Bogus')}catch(x){console.log(x.name)}\
+         console.log(['DocumentFragment','CharacterData','Text','Comment','Attr','NodeList','HTMLCollection','ErrorEvent'].every(function(n){return typeof window[n]==='function'}));\
+         var er=new ErrorEvent('error',{message:'m',filename:'f',lineno:3,colno:4,error:5});console.log(er.message+er.filename+er.lineno+er.colno+er.error);\
+         console.log((document.body.ownerDocument===document)+','+(document.ownerDocument===null)+','+(document.defaultView===window));\
+         console.log((document.createTextNode('x') instanceof Text)+','+(document.createComment('x') instanceof Comment)+','+(document.createDocumentFragment() instanceof DocumentFragment)+','+(document.createTextNode('x') instanceof CharacterData));\
+         console.log(NodeFilter.SHOW_ELEMENT+','+NodeFilter.FILTER_ACCEPT+','+NodeFilter.SHOW_ALL);",
+    )]);
+    assert_eq!(log, ["log:6:true", "log:7,8,true", "log:1", "log:ztrue", "log:NotSupportedError",
+        "log:true", "log:mf345", "log:true,true,true", "log:true,true,true,true", "log:1,1,4294967295"]);
+}

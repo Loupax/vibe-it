@@ -196,6 +196,15 @@ const PRELUDE: &str = r#"
   var HTMLElement = ctor('HTMLElement', Element);
   var Document = ctor('Document', Node);
   ctor('HTMLDocument', Document);
+  // QY4: node-type constructor globals (wrappers get these prototypes in `wrap`).
+  var CharacterData = ctor('CharacterData', Node);
+  ctor('Text', CharacterData); ctor('Comment', CharacterData);
+  ctor('DocumentFragment', Node);
+  ctor('Attr', Node); ctor('NodeList'); ctor('HTMLCollection');
+  g.NodeFilter = { FILTER_ACCEPT: 1, FILTER_REJECT: 2, FILTER_SKIP: 3, SHOW_ALL: 0xFFFFFFFF, SHOW_ELEMENT: 1,
+    SHOW_ATTRIBUTE: 2, SHOW_TEXT: 4, SHOW_CDATA_SECTION: 8, SHOW_ENTITY_REFERENCE: 16, SHOW_ENTITY: 32,
+    SHOW_PROCESSING_INSTRUCTION: 64, SHOW_COMMENT: 128, SHOW_DOCUMENT: 256, SHOW_DOCUMENT_TYPE: 512,
+    SHOW_DOCUMENT_FRAGMENT: 1024, SHOW_NOTATION: 2048 };
   [['ELEMENT_NODE', 1], ['ATTRIBUTE_NODE', 2], ['TEXT_NODE', 3], ['COMMENT_NODE', 8], ['DOCUMENT_NODE', 9], ['DOCUMENT_FRAGMENT_NODE', 11]]
     .forEach(function (kv) { Node[kv[0]] = Node.prototype[kv[0]] = kv[1]; });
   // Q33d: events. One listener store (a WeakMap keyed by the target
@@ -249,6 +258,36 @@ const PRELUDE: &str = r#"
     this.keyCode = Number(init.keyCode) || 0; this.which = this.keyCode;
     var self = this;
     ['ctrlKey', 'shiftKey', 'altKey', 'metaKey'].forEach(function (k) { self[k] = !!init[k]; });
+  });
+  // QY4/QA15: legacy init*Event methods and ErrorEvent.
+  Event.prototype.initEvent = function (type, bubbles, cancelable) {
+    this.type = String(type); this.bubbles = !!bubbles; this.cancelable = !!cancelable;
+  };
+  CustomEvent.prototype.initCustomEvent = function (type, bubbles, cancelable, detail) {
+    this.initEvent(type, bubbles, cancelable); this.detail = detail === undefined ? null : detail;
+  };
+  UIEvent.prototype.initUIEvent = function (type, bubbles, cancelable, view, detail) {
+    this.initEvent(type, bubbles, cancelable); this.view = view || null; this.detail = Number(detail) || 0;
+  };
+  MouseEvent.prototype.initMouseEvent = function (type, bubbles, cancelable, view, detail, sx, sy, cx, cy, ctrl, alt, shift, meta, button, related) {
+    this.initUIEvent(type, bubbles, cancelable, view, detail);
+    this.screenX = Number(sx) || 0; this.screenY = Number(sy) || 0; this.clientX = Number(cx) || 0; this.clientY = Number(cy) || 0;
+    this.pageX = this.clientX; this.pageY = this.clientY; this.offsetX = this.clientX; this.offsetY = this.clientY;
+    this.ctrlKey = !!ctrl; this.altKey = !!alt; this.shiftKey = !!shift; this.metaKey = !!meta;
+    this.button = Number(button) || 0; this.relatedTarget = related || null;
+  };
+  KeyboardEvent.prototype.initKeyboardEvent = function (type, bubbles, cancelable, view, key, loc, ctrl, alt, shift, meta) {
+    this.initUIEvent(type, bubbles, cancelable, view, 0);
+    this.key = key === undefined ? '' : String(key); this.location = Number(loc) || 0;
+    this.ctrlKey = !!ctrl; this.altKey = !!alt; this.shiftKey = !!shift; this.metaKey = !!meta;
+  };
+  ctor('ErrorEvent', Event, function (type, init) {
+    Event.call(this, type, init);
+    init = init || {};
+    this.message = init.message === undefined ? '' : String(init.message);
+    this.filename = init.filename === undefined ? '' : String(init.filename);
+    this.lineno = Number(init.lineno) || 0; this.colno = Number(init.colno) || 0;
+    this.error = init.error === undefined ? null : init.error;
   });
   var FocusEvent = ctor('FocusEvent', UIEvent, function (type, init) {
     UIEvent.call(this, type, init);
