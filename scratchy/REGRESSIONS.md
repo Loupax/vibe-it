@@ -1,5 +1,231 @@
 # scratchy — regressions
 
+## R8–R11: build-test pass on `main` @ `f3b06a8` (Opus investigator, 2026-11-15) — OPEN
+
+Investigation only, no code changed. Fix items are QB1–QB10 at the top of
+the TODO.txt QUEUE. Everything below was seen in a real window and
+screenshotted, unless it says otherwise.
+
+### How this was tested (reusable recipe)
+
+The old `AUTOSCROLL`/`AUTOHOVER` env vars no longer exist in `src/`; they
+were temporary instrumentation. Real input can be driven without touching
+the user's desktop:
+
+- Nested compositor: `env -u DISPLAY WLR_BACKENDS=wayland WLR_RENDERER=pixman
+  setsid timeout 3600 dwl -s 'echo $WAYLAND_DISPLAY > disp' &`. This opens a
+  dwl window (1052x1050 here) inside the user's dwl and prints its socket
+  name (e.g. `wayland-1`). `WLR_BACKENDS=headless` also works and is fully
+  invisible, but dwl then never advertises seat capabilities
+  (`wl_seat.capabilities(0)`), so clients get no pointer or keyboard. Use the
+  `wayland` backend when input is needed.
+- Run scratchy in it: `WAYLAND_DISPLAY=wayland-1 timeout 120
+  target/release/scratchy --socket /run/user/1001/wire.sock <url>`.
+  Screenshot with `WAYLAND_DISPLAY=wayland-1 grim out.png`.
+- Input: a ~150-line Rust tool (scratchpad only, not committed; QB10 asks
+  to commit it). It uses `wayland-client` 0.31, `wayland-protocols-wlr`
+  (`zwlr_virtual_pointer_v1`: `motion_absolute`, `button` 0x110,
+  `axis_discrete`, `frame`) and `wayland-protocols-misc`
+  (`zwp_virtual_keyboard_v1`: `keymap` from `xkbcomp -xkb` of
+  `pc+us`/`evdev`, `key` with evdev codes, `modifiers` with Shift=1 and
+  Control=4). It takes commands like `move:X,Y click scroll:N key:j key:c-d
+  type::go\ URL key:ret wait:MS`. Both protocols are dwl globals.
+- Never `pkill -f <pattern>` from a shell whose own command line contains
+  the pattern: it kills that shell. Kill PIDs you started.
+
+Tested (all in the nested dwl, release build of `f3b06a8`): `:go` by
+typing; wikipedia.org, en.wikipedia Main_Page, SoHo_Weekly_News,
+news.ycombinator.com, html.duckduckgo.com/html, github.com, bbc.com/news,
+each with JS on and `--no-js`; `:set nojs` + `:refresh`; mouse-wheel and
+`Ctrl+d` scrolling; hover sweeps; link clicks (portal language button,
+"Commons" sister link); `h`/`l` history incl. rapid `l h l h`; `:help`;
+window resize (tiling a second client, then closing it); unreachable host
+via wire; missing wire socket; image loading after rapid navigation (images
+present every time, no R7 recurrence); idle CPU after load (0% on HN,
+portal, Main_Page, SoHo, JS on and off); stderr closed early. Not tested:
+`Ctrl+v` paste, `Tab` completion, `<select>`, keyboard focus with `Tab`,
+streaming stdin mode, HiDPI/fractional scale, X11.
+
+### R8 — Main-thread stalls get scratchy disconnected by the compositor, then it panics (bug) — OPEN
+
+**User report:** stderr `Io error: Broken pipe (os error 32)` then
+`thread 'main' panicked at src/lib.rs:197:34: called Result::unwrap() on an
+Err value: ExitFailure(1)`.
+
+**What the message is:** `Io error: …` is `wayland-backend`'s own
+`WaylandError::Io` printed by its `log_error!` (it falls back to `eprintln!`
+because scratchy doesn't enable the `log` feature) when writing to the
+Wayland socket fails. `ExitFailure(1)` comes from winit's Wayland
+`pump_events`: `self.connection.flush().is_err()` -> `set_exit_code(1)`;
+`run_app` turns that into `Err(EventLoopError::ExitFailure(1))` and `run()`
+in `lib.rs` does `event_loop.run_app(&mut app).unwrap()`. So the compositor
+closed scratchy's connection. scratchy itself writes nothing to a pipe here.
+
+**Reproduced exactly, twice:**
+1. Kill the (nested) compositor while scratchy runs: identical two lines and
+   the same panic.
+2. Compositor alive (dwl, libwayland 1.24): a page whose `setTimeout`
+   callback busy-loops 1.5 s, plus pointer motion over the window during the
+   stall. 200 motion events: survives. 400 motion events: disconnected,
+   same panic. The compositor drops a client whose socket buffer fills up
+   because the client isn't reading. winit always binds
+   `zwp_relative_pointer_v1` (`listen_device_events` is a no-op on Wayland),
+   so each mouse move costs about 3 events.
+3. Real page, no busy loop: en.wikipedia.org/wiki/Main_Page with the pointer
+   moving every 2 ms (a 500 Hz mouse) during load and hover: **crashed 4/4
+   runs**, 3 with JS on and 1 with `--no-js`. SoHo_Weekly_News and the
+   portal survived the same test.
+
+**Measured stalls** (gaps between consecutive `wl_pointer.motion` events
+received, from `WAYLAND_DEBUG=1` timestamps, pointer moving every 20 ms,
+`--no-js`, machine load ~8 on 8 cores, so absolute numbers are inflated):
+portal ~180 ms per gap, SoHo ~530 ms, Main_Page 1.3–1.8 s. They recur
+about every 2 s while the pointer moves. That is `HOVER_RESTYLE_INTERVAL`
+pacing: every hover restyle runs `build_layout_tree_with_resources` (DOM
+walk + cascade) synchronously in `App::redraw`. Other synchronous main-thread
+work that can stall the same way: `handle_nav_result` (HTML parse +
+`run_page_scripts`, up to `SCRIPT_BUDGET` = 5 s), and every timer or event
+callback, each with its own 5 s budget.
+
+**Fix:** QB1 (never panic; exit cleanly with a clear message) and QB3
+(bound how long the main thread stays busy while input is flowing).
+
+### R9 — JS DOM writes rebuild without the restyle path: periodic writes leave the page blank or missing text (bug, Q33c `80b5e0a`) — OPEN
+
+**Repro:** a local copy of SoHo_Weekly_News with `<base href>` plus
+`setInterval(function(){document.body.setAttribute('data-tick',
+String(Date.now()))}, 300)` before `</body>`, loaded with `--socket`:
+**the page stays completely blank** (screenshot after 25 s). With a 1000 ms
+interval the header and infobox image show, but **every paragraph of body
+text is missing**, and scratchy sits at ~150% CPU. The same file without the
+interval renders fully. Real pages do this all the time (clocks, carousels,
+ad rotators, "x minutes ago" updaters).
+
+**Root cause:** `App::js_sync` sets `layout_dirty = true` and bumps
+`layout_generation`, but never sets `restyle_requested`. So `redraw`
+queues a plain rebuild: `restyle = false`, `hold_old_frame = false`,
+`reuse = false`. The `AppEvent::ShapeResult` handler then shows every
+*incomplete* progressive pass (`self.cached = Some(*laid)` when
+`incomplete` and not holding). The `layout_generation` bump in `js_sync` also
+makes the in-flight shaping result stale on arrival. When a DOM write lands
+more often than a full shaping pass takes, no complete frame ever lands:
+the screen shows an early partial pass (missing text) or nothing at all.
+The hover path (`set_interaction_state`) already does this right: it sets
+`restyle_requested` and `keep_scroll_on_rebuild`, and `hover_restyle_delay`
+coalesces while `hold_old_frame || layout_dirty`.
+
+Related, seen once: after `:set js` + rapid `l h l h` back to Main_Page,
+the word "squat" was missing mid-sentence ("a type of toy with a / body")
+for 20+ s. Not reproduced in 3 more tries or after `:refresh`. It looks like
+the same "incomplete pass left on screen" symptom. Re-check after QB2.
+
+**Fix:** QB2.
+
+### R10 — The previous page's JS engine stays alive under `:help` (bug, Q33t `bec5507` / Q33d `46dfc45`) — OPEN
+
+**Repro:** a page with `document.addEventListener('keydown', …)` (logs each
+key, `preventDefault`s `j`) and a 500 ms `setInterval` writing a body
+attribute. Run `:help`, press `j` four times: stderr logs `old page keydown
+:` and `old page keydown j` x4, so the old page still gets the keys and can
+cancel the vim bindings. Worse, the help page **renders with its whole
+second half missing**: the Commands table, the "Also demonstrated" heading
+and the list text are gone, and the image sits alone above the `<hr>`. It
+stays that way. The same `:help` from that page with `--no-js` renders
+completely. Mechanism: the old timers' DOM writes call `js_sync` -> R9
+rebuild churn on the help document.
+
+**Root cause:** `App::show_help` swaps the document via `replace_document`
+but leaves `self.js` (the old page's `JsEngine`) in place. `about_to_wait`
+keeps running its timers, `js_key`/`js_click` keep dispatching into it, and
+its dirty flag keeps triggering rebuilds of the help page.
+`restore_saved_page` has no engine to restore either, because `SavedPage`
+has no `js` field.
+
+**Fix:** QB6.
+
+### R11 — User report: wikipedia.org "Thank you for donating recently!" dialog shows and Close does nothing — ANALYSIS
+
+**(a) Why the dialog was visible.** Not reproducible on `f3b06a8`, with JS
+on or off. A full-window screenshot of https://wikipedia.org shows no
+dialog, and a `:refresh` doesn't bring it back. Facts:
+- The markup is `<dialog class="frb-iad-dialog">` with no `open` attribute.
+  The page CSS never sets `display` on it, so the UA rule
+  `dialog:not([open]) { display: none; }` (`src/default.css`, Q33c2
+  `1b02dd5`) hides it.
+- The page's JS never opens it on load. `showModal()` is only called from
+  the click handler of the banner's "I already donated" link (`.frb-iad`),
+  in `index-be66aee782.js` around column 23586. The banner itself only
+  becomes visible (`banner--visible`) for geo US/CA/GB/IE/AU/NZ, `en`, in
+  2026.
+- Before Q33c2 (`1b02dd5`, committed 14:20) every closed `<dialog>` rendered
+  in flow. Q33c2's own TODO entry describes exactly this dialog. The
+  installed `~/.cargo/bin/scratchy` (14:43) contains the rule.
+- So the user was almost certainly running a process started from a binary
+  older than `1b02dd5`. A live window check on the current install closes
+  this.
+
+**(b) Why Close did nothing.** Close is a plain `<button autofocus
+class="frb-dialog-action frb-iad-dialog-close">`, not in a `<form
+method=dialog>`. The page wires it with
+`querySelectorAll(".frb-iad-dialog-close").forEach(e =>
+e.addEventListener("click", () =>
+document.querySelector(".frb-iad-dialog").close()))`. Q33d's click dispatch
+does reach buttons: in a fixture, a `<button>` click listener logged on a
+real injected click. But `HTMLDialogElement` has no `close`, `showModal`,
+`show`, `open` or `returnValue` in `js_dom.rs`'s `DOM_PRELUDE`. Fixture
+output: `typeof showModal undefined typeof close undefined`. Clicking a link
+whose handler calls `showModal()` logs `Uncaught TypeError: not a function`.
+On the old binary the dialog also had no `open` attribute to remove, so
+Close could never hide it. Fix: QB4 (dialog API plus modal rendering).
+
+**(c) The portal's remaining `TypeError: not a function` at
+`index-be66aee782.js:1:18546`** (the only `--js-report` error left on the
+portal). It is not related to the Close button. Source around that column,
+inside a `doWhenReady` (DOMContentLoaded) handler:
+`let t=i("searchInput"),a=i("searchLanguage");if(t){void 0===t.autofocus?t.focus():window.scroll(0,0);…}a.addEventListener("change",…)`.
+`autofocus` isn't reflected, so it is `undefined`, and that takes the
+`t.focus()` branch. `Element.prototype.focus` doesn't exist, so the call
+throws. Fixture: `typeof el.focus`, `el.autofocus` and `typeof
+window.scroll` are all `undefined`. Because it throws, the rest of that
+handler never runs: the `change` listener on the search-language `<select>`
+and the `<link rel=preconnect>` for the chosen language. Fix: QB5 (`focus`/
+`blur`, `autofocus` reflection, `window.scroll/scrollTo/scrollBy`).
+
+### Other things seen (filed or noted)
+
+- Unreachable host: wire answers `502` with a `text/plain` body (`wire:
+  upstream request failed: … Dns Failed: … Name or service not known`).
+  scratchy shows only `can't render this content type: "text/plain"`,
+  because `dispatch_wire_response` rejects every MIME type except HTML and
+  images. The user never sees the reason. QB7. (A missing wire socket is
+  handled well: a clear message, and the request is printed to stdout.)
+- bbc.com/news with JS: 13 of 14 errors are `Error: chunk path empty but
+  not in a worker` from Next.js/turbopack chunks. The runtime reads
+  `document.currentScript` (`if(e)return{src:e.getAttribute("src")}`), which
+  doesn't exist. QB8. (The page still looks better with JS than without:
+  without JS its nav drawer renders expanded.)
+- stderr closed early (`scratchy … 2>&1 | head -1`, page logging every
+  200 ms): exit code 101, a panic. `eprintln!` panics on `EPIPE`. Not the
+  user's crash (that message is different), but the same family. QB9.
+- Portal, JS on, after clicking "Read Wikipedia in your language": the
+  language list renders as one long column. The CSS is
+  `.langlist>ul{column-width:11.2rem}`, and CSS multi-column isn't
+  implemented. With `--no-js` the list is inline rows, which reads better.
+  It also covers the button's own text. Not queued as a bug, since
+  multi-column was never claimed. A new feature item would be M-sized.
+- Hover after a fast 50-point sweep: the final hovered link is correct
+  once the coalesced `HoverFlush` lands, about 2 s later.
+- Main_Page/SoHo/Commons header icons render as dark grey squares (mask
+  images, Q35a, known). Tofu for Bengali/Tamil/etc. is a missing system
+  font, not a scratchy bug. SoHo at a ~470 px tile width renders infobox
+  rows as one run-together line ("TypeAlternative weeklyFounder…");
+  unverified against a real browser, not filed.
+- Error stacks for events dispatched from Rust say `at <eval> (timers:1:1)`,
+  because `JsEngine::eval_value` names every eval `timers`. Cosmetic, folded
+  into QB8.
+
+---
+
 ## R7 — Fetched images lost when scripts delay NavResult (bug) — FIXED (b40c62a)
 
 **Discovered:** 2026-11-15, user report: navigating to https://wikipedia.org

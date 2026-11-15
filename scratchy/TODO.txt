@@ -750,6 +750,165 @@ rendering (Tier 5) -> forms (Tier 6) -> JavaScript (Tier 7). Status at this poin
 Q32 (parked); 320 tests pass, 2 ignored; lib.rs is ~27.4k lines.
 ========================================================================
 
+--- TOP PRIORITY: build-test findings (Opus investigator, 2026-11-15) --
+
+These override everything else in the QUEUE, including the JS block
+below. Do them in this order. Evidence, measurements and repro recipes
+are in REGRESSIONS.md "R8–R11". That section also has the nested-dwl +
+virtual-input recipe for driving real clicks, keys and scrolls without
+touching the user's desktop: use it for the live check of each item.
+
+- [ ] QB1 [S] (P0, crash, R8) Never panic when the Wayland connection
+      dies. Today `run()` in `lib.rs` does `event_loop.run_app(&mut
+      app).unwrap()`, and winit returns `Err(EventLoopError::ExitFailure(1))`
+      when `connection.flush()` fails (the compositor closed the socket).
+      Fix: match the result. On `Err`, print one line, e.g. `scratchy:
+      lost the connection to the Wayland compositor (it closed the socket;
+      usually because the main thread was busy while input queued up)`,
+      then `std::process::exit(1)`; no panic and no backtrace hint. Put the
+      message in a pure `fn event_loop_exit_message(&Result<(),
+      EventLoopError>) -> Option<String>` so it can be tested. Also replace
+      the `.unwrap()`s on `surface.resize`, `surface.buffer_mut()` and
+      `pixels.present()` in `App::redraw` with log-once-and-return, since a
+      dead connection can surface there first. Test:
+      `event_loop_exit_message(&Err(ExitFailure(1)))` is `Some` and
+      mentions the compositor; `Ok(())` gives `None`. Live check: run in a
+      nested dwl (REGRESSIONS.md recipe) and kill that dwl: one clean line
+      on stderr, exit code 1, no `panicked`.
+- [ ] QB2 [M] (P0, R9) JS DOM writes must go through the restyle path.
+      Symptom: a page with a 300 ms `setInterval` that writes the DOM stays
+      blank forever; at 1000 ms all body text is missing and CPU is ~150%.
+      Root cause: `App::js_sync` sets `layout_dirty` and bumps
+      `layout_generation`, but never sets `restyle_requested`, so
+      `ShapeResult` shows every incomplete pass and no complete pass ever
+      lands. Fix:
+      (1) In `js_sync`, set `layout_dirty`, `restyle_requested` and
+          `keep_scroll_on_rebuild`, like `set_interaction_state` does. Drop
+          the `layout_generation += 1` there; `redraw` bumps it when it
+          actually queues the rebuild.
+      (2) Coalesce: while a restyle is in flight (`hold_old_frame`), don't
+          queue another one for JS writes. Keep a `js_restyle_pending` flag
+          and start the next rebuild when the current one's complete
+          `ShapeResult` lands. Pages with steady writes then update about
+          once per full shaping pass, not never.
+      (3) The very first layout of a page (no `cached` yet) still shows
+          progressive passes. That's fine: the old frame belongs to a
+          different document.
+      Tests: build an `App` the way `r7_image_fetched_before_nav_result_
+      survives_document_swap` does, give it a complete cached frame, set
+      the engine dirty and call `js_sync`. Assert `restyle_requested`, then
+      assert that an `incomplete` `ShapeResult` for the new generation does
+      not replace `cached`. Second test: two `js_sync`s while
+      `hold_old_frame` is set queue only one rebuild. Live check: the
+      SoHo + `setInterval` repro in R9 shows the full article, and
+      Main_Page `l h l h` never drops words.
+- [ ] QB3 [M] (P0, R8) Keep the main thread from stalling while input
+      flows, or the compositor disconnects scratchy. Main_Page crashed 4/4
+      with a 500 Hz mouse moving during load and hover, `--no-js`
+      included. Measured stalls: hover restyle portal ~180 ms, SoHo
+      ~530 ms, Main_Page 1.3–1.8 s, recurring every ~2 s while the pointer
+      moves. Steps:
+      (1) Measure first, with temporary `Instant` timing removed before the
+          commit: `build_layout_tree_with_resources` in `redraw` for
+          initial vs hover restyles, `handle_nav_result` (parse +
+          `run_page_scripts`), and `JsEngine::run_due` per turn, on the
+          three corpus pages. Paste the numbers into this item.
+      (2) Hover restyles: when the last build took longer than ~50 ms,
+          apply `:hover` only once the pointer has been still for
+          ~150 ms (no `CursorMoved`). The pointer sends no events while it
+          is still, so a long build can't overflow the socket. Today's
+          `hover_restyle_delay` only rate-limits.
+      (3) Lower the per-callback JS budget for timer and event callbacks
+          from `SCRIPT_BUDGET` (5 s) to ~500 ms. Keep 5 s for the initial
+          script run, and log when a callback is interrupted.
+      (4) Whatever is still over ~250 ms after (1)–(3) goes into the
+          parked Q32 "cascade off the main thread" item as its measured
+          motivation. Don't start that rewrite here.
+      Test: a unit test for the new "pointer idle" gate on hover restyles
+      (pure function of last-build time and time since last move). Live
+      check: the R8 recipe (Main_Page, motion every 2 ms for 20 s) survives
+      5/5 runs, JS on and off.
+- [ ] QB4 [S] (P1, user report, R11) `HTMLDialogElement`: `show()`,
+      `showModal()`, `close(returnValue?)`, the `open` property (reflects
+      the attribute) and `returnValue`. `close()` removes `open`, sets
+      `returnValue`, then fires a `close` event at the dialog. `showModal`
+      adds `open` and marks the dialog modal. UA CSS for modal dialogs:
+      `position: fixed; inset: 0; margin: auto; max-width/max-height:
+      calc(100% - 2em - 6px)`, centred. Do this with an internal attribute
+      or class set by `showModal`, since `:modal` isn't supported.
+      `::backdrop` is out of scope (new item). Put the methods on
+      `HTMLElement.prototype` guarded by `localName === 'dialog'`, or add a
+      `HTMLDialogElement` constructor in `PRELUDE` and pick the prototype in
+      `wrap` by tag. `<form method=dialog>` waits for Q30e (note it there).
+      Test: a fixture whose button listener calls `d.showModal()` then
+      `d.close('x')` logs `open` true then false, `returnValue` `x`, and a
+      `close` event fires. Live check: the portal's "I already donated"
+      flow can't be triggered outside the banner geos, so use the
+      `dialog.html`-style fixture in R11: clicking Open shows the dialog
+      centred, clicking Close hides it.
+- [ ] QB5 [S] (P1, R11c) Fix the portal's last JS error
+      (`index-be66aee782.js:1:18546`, `t.focus()` "not a function"),
+      which also kills the search-language `change` listener. Add:
+      reflected boolean `autofocus` (and `disabled`, `required`,
+      `checked` as attribute reflections only; Q33e does live state);
+      `HTMLElement.prototype.focus()` and `blur()` through a native that
+      calls `App::set_focus_element` and fires focus events. Gate it with a
+      flag the App drains in `js_sync`, since the engine has no `&mut App`.
+      Also `window.scroll/scrollTo/scrollBy(x, y | {top, left})`, which set
+      the page scroll offset through the same drained-request mechanism.
+      This narrows the open Q33d1 item; tick that part there. Test:
+      `typeof el.focus === 'function'`; `el.autofocus` reflects the
+      attribute; `window.scrollTo(0, 100)` produces a scroll request of
+      100. Re-run `scratchy --js-report` on the portal: 0 errors (was 1).
+- [ ] QB6 [S] (P1, R10) `:help` must suspend the current page's JS. Add
+      `js: Option<JsEngine>` to `SavedPage`. `show_help` moves
+      `self.js.take()` into it and `restore_saved_page` puts it back, then
+      calls `js_sync`. Timers simply don't run while help is shown; their
+      deadlines are absolute, so due ones fire on return. Any other
+      `replace_document` caller that isn't a navigation must do the same or
+      drop the engine; audit them. `fetch_url_inner` already drops it.
+      Test: an `App` with an engine whose interval sets a global counter.
+      After `show_help` and an `about_to_wait`-equivalent `run_due`, the
+      counter doesn't advance and `js_key` returns true without dispatching.
+      After `restore_saved_page` the engine is back. Live check: the R10
+      repro renders the full help page, and keys go to the vim bindings.
+- [ ] QB7 [S] (P2) Render `text/plain` responses instead of refusing them.
+      `dispatch_wire_response` maps anything that isn't HTML or an image to
+      `can't render this content type`, so an unreachable host shows that
+      instead of wire's 502 body ("upstream request failed: … Dns Failed …
+      Name or service not known"). Wrap `text/plain` in `<pre>` (escape it
+      with `escape_html`; decode with the charset parameter, default
+      UTF-8). Test: `dispatch_wire_response(Some("text/plain"), b"a<b")`
+      gives HTML containing `<pre>a&lt;b</pre>`. Live check: `:go
+      https://nonexistent-host-xyz.invalid/` shows wire's DNS error text.
+- [ ] QB8 [S] (P2) `document.currentScript`: set it to the executing
+      `<script>` element while each classic script runs, and to `null`
+      otherwise. bbc.com/news: 13 of 14 JS errors are turbopack's `chunk
+      path empty but not in a worker`, which reads
+      `document.currentScript.getAttribute('src')`. `ScriptSource` needs
+      the script's document index (scripts are already numbered in
+      `find_external_resources` order, R6) so the engine can look up the
+      element. Also name `JsEngine::eval_value`'s evals after what they
+      run, e.g. `event:click`, `timer`, instead of always `timers`. Today
+      a listener exception from a click says `at <eval> (timers:1:1)`.
+      Test: an inline script logs `document.currentScript.id`, the id of
+      its own `<script id=…>`, and a timer callback logs `null`. Re-run
+      `--js-report` on bbc.com/news and paste before/after counts.
+- [ ] QB9 [S] (P3) Don't panic when stderr/stdout is a closed pipe
+      (`scratchy … 2>&1 | head -1` exits with code 101). Route
+      every `eprintln!`/`print!` in `src/` (js log closure in
+      `run_page_scripts`, net/app timing, `print_fallback_request`, …)
+      through helpers that use `writeln!(io::stderr().lock(), …)` and
+      ignore errors. Test: the helper on a writer that returns `EPIPE`
+      returns without panicking. Keep the existing message texts.
+- [ ] QB10 [S] (P2, tooling) Commit the virtual-input tool from
+      REGRESSIONS.md "How this was tested" as a dev-only binary, e.g.
+      `scratchy/tools/inject/` (its own `Cargo.toml`, not a scratchy
+      dependency), plus a `nest.sh` that starts the nested dwl and prints
+      its socket. Add a short "Driving a real window" section to AGENTS.md
+      step 6 that replaces the deleted AUTOSCROLL/AUTOHOVER recipe.
+      Without it, nobody can click, type or scroll in a live check.
+
 --- TOP PRIORITY: JS on real pages (user report, 2026-11-15) ----------
 
 The user visited https://wikipedia.org with JS on (after Q33a, `2646dd1`)
