@@ -110,13 +110,19 @@ the same box's `positioned` list. An abs/fixed box that bubbled to the root
 paints above `position:relative; z-index:2` content anywhere else. Acid2's
 intro (`z-index:2`) is painted under the fixed scalp bar. Fix: QA9.
 
-### R18 — A fragment in the first URL is ignored (bug) — OPEN
+### R18 — A fragment in the first URL is ignored (bug) — FIXED (QA6, commit e8fb789)
 
 `scratchy …/wiki/SoHo_Weekly_News#References` and
 `http://acid2.acidtests.org/#top` open at the top of the page (seen live,
 both `--no-js` and JS on). Clicking a same-document `#top` link works.
 Suspected: `apply_fragment` returns true when the target isn't found, so
-`pending_fragment` is cleared by an early layout. Fix: QA6 (verify first).
+`pending_fragment` is cleared by an early layout. Cause: `fetch_url_inner` set `pending_fragment` and then showed "Loading…";
+that placeholder's complete layout consumed the fragment (`apply_fragment`
+returns true for a missing target). Fixed in QA6: held in `nav_fragment`
+until the real page arrives. A first attempt that applied on the first
+layout containing the target landed mid-page on Wikipedia (earlier content
+still growing); it now re-applies until the first complete layout. Live:
+Wikipedia `#References` and acid2 `#top` open at their targets.
 
 ### R19 — Shrink-to-fit width ignores floats (bug) — OPEN
 

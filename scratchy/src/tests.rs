@@ -9300,3 +9300,79 @@ fn qa5_data_script_and_stylesheet_are_decoded_locally() {
     let out = expand_css_imports("@import url(\"data:text/css,b%7Bx:y%7D\");a{}", &base, &mut vec![base.clone()], &mut |_| None);
     assert!(out.contains("b{x:y}") && out.contains("a{}"), "{out:?}");
 }
+
+// ---------- QA6: fragment of the first page load ----------
+
+/// Lays out `app.document` (so node ids match) and delivers it as a
+/// `ShapeResult` for the current layout generation.
+fn qa6_deliver_layout(app: &mut App, incomplete: bool) {
+    let tree = build_layout_tree(&app.document, 400.0);
+    let mut fc = new_font_system();
+    let mut cache = ShapeCache::new();
+    let (mut next_id, mut inc) = (0usize, false);
+    let laid = measure(
+        &tree, &mut fc, 0.0, 0.0, 400.0, None, &mut next_id, &mut cache,
+        std::time::Instant::now() + std::time::Duration::from_secs(5), &mut inc, &mut Vec::new(),
+        &Floats::default(), None,
+    );
+    let generation = app.layout_generation;
+    app.handle_shape_result(generation, Box::new(laid), cache, incomplete);
+}
+
+#[test]
+fn qa6_fragment_waits_for_real_page_and_target() {
+    use winit::platform::wayland::EventLoopBuilderExtWayland;
+    let event_loop = match EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build() {
+        Ok(l) => l,
+        Err(_) => return, // no display available (headless CI)
+    };
+    let mut app = App::new_static(parse_html("<html></html>"), event_loop.create_proxy(), None);
+    app.fetch_url(Url::parse("http://127.0.0.1:9/p#sec").unwrap());
+    // The "Loading…" page lays out first: it must not consume the fragment.
+    qa6_deliver_layout(&mut app, false);
+    assert_eq!(app.nav_fragment.as_deref(), Some("sec"), "still held for the real page");
+    assert!(app.pending_fragment.is_none());
+    let generation = app.nav_generation;
+    let page = FetchedPage {
+        html: b"<html><body><div style=\"height:900px\">x</div><p id=\"sec\">target</p></body></html>".to_vec(),
+        extra_css: String::new(),
+        scripts: Vec::new(),
+        url: Url::parse("http://127.0.0.1:9/p").unwrap(),
+    };
+    app.handle_nav_result(generation, Ok(page));
+    assert_eq!(app.pending_fragment.as_deref(), Some("sec"));
+    qa6_deliver_layout(&mut app, false);
+    assert!(app.pending_fragment.is_none());
+    assert!(app.scroll_offset >= 900.0, "scrolled to target, got {}", app.scroll_offset);
+    assert!(app.interaction.target.is_some());
+
+    // An existing target on an incomplete layout is applied but kept, so
+    // the scroll follows content that is still growing above it.
+    app.pending_fragment = Some("sec".into());
+    app.scroll_offset = 0.0;
+    qa6_deliver_layout(&mut app, true);
+    assert_eq!(app.pending_fragment.as_deref(), Some("sec"), "kept while incomplete");
+    assert!(app.scroll_offset >= 900.0);
+    qa6_deliver_layout(&mut app, false);
+    assert!(app.pending_fragment.is_none());
+
+    // Target absent from an incomplete layout: keep waiting; a complete
+    // layout without it gives up.
+    app.pending_fragment = Some("late".into());
+    app.scroll_offset = 0.0;
+    qa6_deliver_layout(&mut app, true);
+    assert_eq!(app.pending_fragment.as_deref(), Some("late"), "incomplete layout keeps waiting");
+    qa6_deliver_layout(&mut app, false);
+    assert!(app.pending_fragment.is_none(), "complete layout without the id gives up");
+
+    // Target that appears only in a later layout generation.
+    app.pending_fragment = Some("late".into());
+    qa6_deliver_layout(&mut app, true);
+    assert_eq!(app.pending_fragment.as_deref(), Some("late"));
+    let doc = parse_html("<html><body><div style=\"height:700px\">x</div><p id=\"late\">t</p></body></html>");
+    app.replace_document(doc, String::new());
+    app.pending_fragment = Some("late".into());
+    qa6_deliver_layout(&mut app, false);
+    assert!(app.pending_fragment.is_none());
+    assert!(app.scroll_offset >= 700.0, "got {}", app.scroll_offset);
+}

@@ -882,7 +882,7 @@ into the commit message of every JS item.
       decoder keeps it as payload, so an unescaped `#` in SVG still works
       by accident), check the mime of `data:` stylesheets/scripts (an
       `image/png` data: script should not run), `data:` for `<object>`.
-- [ ] QA6 [S] (P2, R18) A fragment in the URL of the first page load is
+- [x] QA6 [S] (P2, R18) (done, commit e8fb789) A fragment in the URL of the first page load is
       ignored (`scratchy …/SoHo_Weekly_News#References` and
       `http://acid2.acidtests.org/#top` both open at the top; clicking a
       same-page `#top` link works). Suspect: `apply_fragment` returns
@@ -893,6 +893,11 @@ into the commit message of every JS item.
       complete for the current `nav_generation`. Test: an `App` with
       `pending_fragment = Some("x")` and an incomplete layout without
       `id=x` keeps it; a later complete layout with `id=x` scrolls to it.
+      Done: real cause was the "Loading…" placeholder page's layout
+      consuming the fragment (see R18); now `nav_fragment` -> `pending_fragment`
+      in `handle_nav_result`, re-applied each incomplete layout, dropped on
+      the first complete one. Not done: images that arrive after the first
+      complete layout can still shift the target (new item if it shows up).
 - [ ] QA7 [S] (P2, R19) Shrink-to-fit width ignores floats. An abspos box
       whose only content is a float (`float:right;width:48px`) gets
       content width 0 (Acid2 line 2), and in the smile it gets the full

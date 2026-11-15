@@ -3020,8 +3020,12 @@ timer/event callback; only the page-load script run keeps `SCRIPT_BUDGET`
 `base_url`: `App::apply_fragment` finds the element (`find_fragment_target`:
 `id`, then `<a name>`; raw then percent-decoded), sets `target`, and scrolls
 its top to the viewport top. A cross-page navigation keeps the fragment in
-`pending_fragment` (never sent in the request; `fetch_url_inner`), applied in
-the `ShapeResult` handler once a layout containing the target exists.
+`nav_fragment` (never sent in the request; `fetch_url_inner`), promoted to
+`pending_fragment` by `handle_nav_result` (not earlier: the "Loading…" page
+lays out first and would consume it, QA6/R18), and applied in the
+`ShapeResult` handler once a layout containing the target exists. A target
+the document does not have is waited for while layouts are incomplete and
+dropped on the first complete one.
 `node_geometry(laid, cache, node)` is the shared "where is this element"
 query: its own box, else one rect per line of its glyph runs (spans carry the
 node id), plus whether an author `outline` is set. Tab uses it in

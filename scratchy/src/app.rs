@@ -463,6 +463,9 @@ pub(crate) struct App {
     /// Q31b: a `#fragment` waiting for the new page's first layout that
     /// contains its target (set by `fetch_url`, consumed in `ShapeResult`).
     pub(crate) pending_fragment: Option<String>,
+    /// QA6: fragment of the navigation in flight; becomes `pending_fragment`
+    /// when its page arrives (not before: "Loading…" lays out first).
+    pub(crate) nav_fragment: Option<String>,
     /// The next rebuild is a pure restyle (state change): keep the live
     /// per-element scroll offsets instead of clearing them.
     pub(crate) keep_scroll_on_rebuild: bool,
@@ -720,6 +723,7 @@ impl App {
             state_rules: 0,
             hover_node: 0,
             pending_fragment: None,
+            nav_fragment: None,
             keep_scroll_on_rebuild: false,
             restyle_requested: false,
             hold_old_frame: false,
@@ -781,6 +785,7 @@ impl App {
             state_rules: 0,
             hover_node: 0,
             pending_fragment: None,
+            nav_fragment: None,
             keep_scroll_on_rebuild: false,
             restyle_requested: false,
             hold_old_frame: false,
@@ -1243,10 +1248,16 @@ impl App {
         self.cached = Some(*laid);
         // Q31b: a fragment from a cross-page navigation waits for
         // the first layout that contains its target.
-        if let Some(frag) = self.pending_fragment.clone()
-            && self.apply_fragment(&frag)
-        {
-            self.pending_fragment = None;
+        // QA6: a target that does not exist yet (page still shaping) keeps
+        // waiting; one that never appears is given up on when the layout
+        // is complete. `apply_fragment` alone returns true for "missing".
+        if let Some(frag) = self.pending_fragment.clone() {
+            let applied = self.apply_fragment(&frag);
+            // Re-applied on every incomplete tick (earlier content may still
+            // grow and move the target) and dropped on the first complete one.
+            if applied && (!incomplete || frag.is_empty() || frag.eq_ignore_ascii_case("top")) {
+                self.pending_fragment = None;
+            }
         }
     }
 
@@ -1374,10 +1385,15 @@ impl App {
                 let dom = new_parser().read_from(&mut html.as_slice()).unwrap();
                 self.base_url = Some(resolve_page_base_url(&dom.document, url));
                 self.replace_document(dom.document, extra_css);
+                // QA6: only now is the document the one the fragment names.
+                self.pending_fragment = self.nav_fragment.take();
                 self.js = run_page_scripts(&self.document, &scripts, self.base_url.as_ref());
                 self.js_sync();
             }
-            Err(message) => self.show_message(&message),
+            Err(message) => {
+                self.nav_fragment = None;
+                self.show_message(&message);
+            }
         }
     }
 
@@ -1895,7 +1911,11 @@ impl App {
     /// really reload). The fragment is kept for after the new page's
     /// layout (`pending_fragment`) and never sent in the request.
     pub(crate) fn fetch_url_inner(&mut self, url: Url) {
-        self.pending_fragment = url.fragment().map(str::to_string);
+        // QA6: the "Loading…" page shown below finishes layout before the
+        // real one arrives, so the fragment must not be pending yet; it is
+        // held in `nav_fragment` and promoted by `handle_nav_result`.
+        self.pending_fragment = None;
+        self.nav_fragment = url.fragment().map(str::to_string);
         let mut url = url;
         url.set_fragment(None);
         self.nav_generation += 1;
