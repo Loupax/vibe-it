@@ -759,7 +759,7 @@ Q32 (parked); 320 tests pass, 2 ignored; lib.rs is ~27.4k lines.
       with CSS `.central-textlogo__image{color:transparent;text-indent:-10000px;overflow:hidden}`
       and the real wordmark supplied by a SPRITE BACKGROUND image
       (`.svg-Wikipedia_wordmark{background-position:0 -304px;width:176px;height:32px}`
-      on `.sprite{background-image:url(<sprite>.svg)}`). Before Q33c3 (9d6dbaf-era,
+      on `.sprite{background-image:url(<sprite>.svg)}`). Before Q33c3 (PR #121,
       transparent text honoured) the transparent text was painted opaque, so the
       plain word "Wikipedia" showed by accident. Now the text is correctly hidden and
       the sprite does not render. Diagnose which part fails (grep the portal CSS for
