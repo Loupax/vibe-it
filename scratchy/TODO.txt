@@ -1338,7 +1338,13 @@ as the JS measurement corpus (same role the four CSS pages played).
       `dom`/`js` layer on top. Pure move, no behavior change, tests
       unchanged and passing. Mainly helps item-sized subagents find
       code and keeps incremental builds shorter.
-- [ ] Q33a [M] Run scripts. Classic (non-module) inline and external
+- [x] Q33a [M] (done, 2646dd1) Run scripts (engine: rquickjs, user decided 2026-11-15).
+      Cuts, each a new narrower item: [ ] Q33a1 `setTimeout/setInterval`,
+      `requestAnimationFrame` etc. are undefined (arrive with Q33d); [ ] Q33a2
+      the engine is dropped after each page load (Q33d must keep it in App);
+      [ ] Q33a3 scripts run synchronously on the main thread (5s budget),
+      `async`/`defer` ignored, no `document.write`; [ ] Q33a4 `:set nojs`
+      only applies on the next load, not live. Classic (non-module) inline and external
       `<script>`s, in document order, after the DOM is complete, then
       `DOMContentLoaded` and `load`. External scripts are fetched
       through `wire` in `process_external_resources`, the same way
@@ -3343,6 +3349,10 @@ last, per the user's own call.
       this project; V8/`deno_core` was ruled out outright — its speed/
       conformance edge solves a problem scratchy doesn't have, at far
       higher embedding and build complexity.
+
+      **DECISION (user, 2026-11-15, "Go with rquickjs"): the engine is
+      rquickjs 0.14.0 (QuickJS), NOT boa. Landed in Q33a. The boa
+      recommendation above is superseded.**
 
       **Q33-0 spike measurements (2026-11-15, loaded 8-core box, so wall
       times are noisy; CPU time is the steadier number).** Throwaway

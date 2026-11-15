@@ -3028,3 +3028,31 @@ is 13.5MB (11.1MB stripped) and builds clean in 5m11 / 37m CPU. Recommendation:
 rquickjs, pending the user's confirmation. Full table in TODO.txt, Detail
 "JavaScript - engine choice". Caveat: the machine was loaded by other builds,
 so wall times are noisy and jquery/react-dom were not usable without a DOM.
+
+### Engine decision and script running (Q33a)
+
+Decision (user, 2026-11-15, "Go with rquickjs"): the engine is `rquickjs`
+0.14.0 (QuickJS, bundled C compiled by `cc`, no bindgen), pinned exactly in
+Cargo.toml, always built in (no cargo feature; `--no-js`/`:set nojs` is the
+runtime switch). boa is not used.
+
+`src/js.rs`. `find_external_resources` also collects classic `<script>`s
+(`ScriptRef::Inline`/`External`, document order; module/json/template types
+skipped). `process_external_resources` now returns `PageResources { css,
+scripts }`: external scripts are fetched concurrently through wire
+(`fetch_script_via_wire`, same path as stylesheets) on the fetch thread and
+joined in order; `FetchedPage` and `AppEvent::StreamCss` carry the
+`Vec<ScriptSource>`. Scripts run on the main thread right after the document
+is installed (`run_page_scripts`): fresh Runtime/Context per page, a JS
+prelude (console -> stderr via native `__scratchy_log`, `window`/`document`
+stubs holding only `DOMContentLoaded`/`load` listeners and `window.onload`),
+each script evaluated separately (errors logged, never fatal), promise jobs
+drained, then DOMContentLoaded and load. Guards: 5s total interrupt budget,
+256MB memory limit. A page with no scripts never creates a runtime. File
+pages without `--socket` run inline scripts only.
+
+JS flag: process-wide `AtomicBool` (`js_enabled`). With JS off the HTML
+parser runs with `scripting_enabled=false` so `<noscript>` children are real
+elements, and the UA rule `noscript{display:none}` is only added when JS is
+on (not in default.css; the rules cache key notes the flag). `:set nojs`
+applies from the next page load (`:refresh`).
