@@ -1031,7 +1031,7 @@ Not vendored; pass the path to the runner.
       multi-value list still uses only the first value. Needs four corner
       lengths through style.rs and paint.rs. `border-width/-color/-style`
       already used `parse_box4`, so W34's border part was stale.
-- [ ] Q59 [S] Text-node whitespace (W29): `inline_text` appends a space to
+- [x] Q59 [S] (510e93f) Text-node whitespace (W29): `inline_text` appends a space to
       every text node and `normalize_whitespace` strips both ends, so
       `a<b>b</b>`, `<b>x</b>,` and `<span>a</span>bc` get a one-em/space gap.
       Keep a single leading/trailing space only where the source had
@@ -1039,23 +1039,16 @@ Not vendored; pass the path to the runner.
       one node and the start of the next is one space). Mind the plain
       whole-buffer path, `measure_mixed_inline`, `<br>` and `pre`. Test:
       Ahem `a<span>b</span>` is 40px wide, `a <span>b</span>` 60px.
-      BLOCKED 2026-11-15: implemented and working (patch saved in
-      scratchy/patches-q59-text-space.patch, not applied): inline_text keeps a
-      leading/trailing space only where the source had whitespace; a node's
-      leading space is carried as the previous item's trailing space (or a
-      standalone hanging space after an image/inline-block; `hang` set in
-      measure_mixed_inline so it never wraps to a line start); the run's last
-      trailing space is trimmed in discard_if_collapsible_whitespace_only and
-      at anonymous flex/grid item edges. 352 tests pass, clippy count
-      unchanged. WPT 234 -> 239 pass (+6 newly passing: display-001,
+      Done 2026-11-15 (after Q59p): inline_text keeps a leading/trailing space
+      only where the source had whitespace; a node's leading space is carried
+      as the previous item's trailing space (or a standalone hanging space
+      after an image/inline-block, `hang` in measure_mixed_inline); the run's
+      last trailing space is trimmed in discard_if_collapsible_whitespace_only
+      and at anonymous flex/grid item edges. WPT 235 -> 241 (+6: display-001,
       display-018, floats-006, inline-formatting-context-013,
-      box-shadow-overlapping-002, text-decoration-inset-017) but ONE
-      regression, css/CSS2/normal-flow/block-replaced-width-006.xht, which
-      only passed by accident: the engine implements no horizontal
-      `margin: auto` centering at all, so the test's centered block <img>
-      sat at the left and the old trailing space made the reference's
-      "1"/"2" sit left too. Prerequisite: Q59p. Then re-apply the patch,
-      update wpt-expected.txt (+6 pass).
+      box-shadow-overlapping-002, text-decoration-inset-017);
+      block-replaced-width-006 still passes. Also fixed a Q59p double-resolution bug (block img with explicit width lost its auto margins; test q59_block_img_with_explicit_width_centres_with_auto_margins). Three mixed-inline unit tests
+      updated for the extra hanging-space item after an image.
 - [x] Q59p [S] (4aa4617) Horizontal auto margins (prerequisite of Q59): `margin-left/right:
       auto` on a block box with a definite width, and on a block replaced element
       (`img{display:block;margin:0 auto}`), must centre it (CSS2.1 10.3.3/10.3.4);

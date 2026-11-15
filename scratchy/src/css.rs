@@ -1286,8 +1286,20 @@ pub(crate) fn inline_text(raw: &str, ws: WhiteSpace, tt: TextTransform) -> Strin
             .collect::<Vec<_>>()
             .join("\n"),
         _ => {
-            let mut t = normalize_whitespace(raw);
-            t.push(' ');
+            // Q59: keep a single leading/trailing space only where the
+            // source had whitespace (a whitespace-only node is one space).
+            let core = normalize_whitespace(raw);
+            if core.is_empty() {
+                return if raw.is_empty() { String::new() } else { " ".to_string() };
+            }
+            let mut t = String::new();
+            if raw.starts_with(char::is_whitespace) {
+                t.push(' ');
+            }
+            t.push_str(&core);
+            if raw.ends_with(char::is_whitespace) {
+                t.push(' ');
+            }
             t
         }
     };

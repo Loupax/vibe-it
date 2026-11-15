@@ -69,12 +69,12 @@ PASS css/CSS2/box-display/containing-block-009.xht
 FAIL css/CSS2/box-display/containing-block-022.xht
 PASS css/CSS2/box-display/containing-block-026.xht
 PASS css/CSS2/box-display/containing-block-030.xht
-FAIL css/CSS2/box-display/display-001.xht
+PASS css/CSS2/box-display/display-001.xht
 FAIL css/CSS2/box-display/display-006.xht
 FAIL css/CSS2/box-display/display-010.xht
 FAIL css/CSS2/box-display/display-012.xht
 PASS css/CSS2/box-display/display-017.xht
-FAIL css/CSS2/box-display/display-018.xht
+PASS css/CSS2/box-display/display-018.xht
 PASS css/CSS2/box-display/inline-text-after-block-in-inline-with-intervening-float.html
 PASS css/CSS2/box-display/three-block-in-inlines-cascading-margins.html
 PASS css/CSS2/floats-clear/adjacent-floats-001.xht
@@ -95,7 +95,7 @@ PASS css/CSS2/floats-clear/float-applies-to-012.xht
 FAIL css/CSS2/floats-clear/float-applies-to-015.xht
 PASS css/CSS2/floats-clear/float-replaced-height-005.xht
 PASS css/CSS2/floats-clear/floats-001.xht
-FAIL css/CSS2/floats-clear/floats-006.xht
+PASS css/CSS2/floats-clear/floats-006.xht
 PASS css/CSS2/floats-clear/floats-038.xht
 PASS css/CSS2/floats-clear/floats-122.xht
 PASS css/CSS2/floats-clear/floats-149.xht
@@ -135,7 +135,7 @@ FAIL css/CSS2/linebox/empty-inline-002.xht
 FAIL css/CSS2/linebox/inline-box-002.xht
 FAIL css/CSS2/linebox/inline-formatting-context-003.xht
 FAIL css/CSS2/linebox/inline-formatting-context-006.xht
-FAIL css/CSS2/linebox/inline-formatting-context-013.xht
+PASS css/CSS2/linebox/inline-formatting-context-013.xht
 FAIL css/CSS2/linebox/line-breaking-font-size-zero-001.html
 FAIL css/CSS2/linebox/line-height-002.xht
 FAIL css/CSS2/linebox/line-height-013.xht
@@ -287,7 +287,7 @@ FAIL css/css-backgrounds/background-size/vector/tall--contain--nonpercent-width-
 FAIL css/css-backgrounds/background-size/vector/wide--12px-auto--nonpercent-width-omitted-height.html
 FAIL css/css-backgrounds/background-size/vector/wide--auto-32px--omitted-width-omitted-height-viewbox.html
 FAIL css/css-backgrounds/background-size/vector/wide--cover--omitted-width-omitted-height.html
-FAIL css/css-backgrounds/box-shadow-overlapping-002.html
+PASS css/css-backgrounds/box-shadow-overlapping-002.html
 FAIL css/css-cascade/all-prop-001.html
 PASS css/css-cascade/all-prop-initial-color.html
 PASS css/css-cascade/all-prop-revert-visited.html
@@ -460,7 +460,7 @@ FAIL css/css-tables/table-row-group-nested-anonymous-001.html
 FAIL css/css-tables/tentative/collapsed-borders-painting-order-007.html
 FAIL css/css-tables/tentative/paint/collapsed-border-large-cell.html
 PASS css/css-text-decor/decorating-box/text-decoration-decorating-box-thickness-001.html
-FAIL css/css-text-decor/text-decoration-inset-017.html
+PASS css/css-text-decor/text-decoration-inset-017.html
 PASS css/css-text-decor/text-decoration-inset-percentage-negative-multiline.html
 FAIL css/css-text-decor/text-decoration-propagation-display-contents.html
 FAIL css/css-text-decor/text-decoration-subelements-003.html

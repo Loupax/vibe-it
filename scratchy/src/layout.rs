@@ -2137,6 +2137,14 @@ fn measure_inner<'a>(
             // just reads it, no further resolution needed.
             let (border_w, border_h) = image_box_size(image, &s);
             let border_x = if s.margin_auto.0 || s.margin_auto.1 {
+                // `box_model_entry` already distributed free space using the
+                // pre-image width; redo it from zero with the real image size.
+                if s.margin_auto.0 {
+                    s.margin.left = BoxLength::Px(0.0);
+                }
+                if s.margin_auto.1 {
+                    s.margin.right = BoxLength::Px(0.0);
+                }
                 resolve_auto_margins(&mut s, width, border_w);
                 x + s.margin.left.px()
             } else {
@@ -2524,6 +2532,7 @@ pub(crate) fn measure_mixed_inline<'a>(
     }
 
     let mut measured: Vec<Measured<'a>> = Vec::new();
+    let mut hang: std::collections::HashSet<usize> = std::collections::HashSet::new();
     // Keyed by `chunk_id`, needed only if pass 2 falls back to shaping
     // one of a chunk's words on its own (see `WordSource::Chunk`'s own
     // docs) — every other word's chunk buffer is read straight out of
@@ -2551,6 +2560,9 @@ pub(crate) fn measure_mixed_inline<'a>(
                 };
                 if text.is_empty() {
                     continue;
+                }
+                if text.trim().is_empty() && !matches!(s.white_space, WhiteSpace::Pre | WhiteSpace::PreWrap) {
+                    hang.insert(measured.len());
                 }
                 if span.word_spacing != 0.0 {
                     for word in text.split_inclusive(' ') {
@@ -2744,12 +2756,14 @@ pub(crate) fn measure_mixed_inline<'a>(
     let mut cursor_y = 0.0f32;
     let (mut left_bound, mut avail_w) = line_bounds(cursor_y);
     for (i, m) in measured.iter().enumerate() {
+        // Q59: a collapsible-space-only word hangs at the line end.
+        let hangs = hang.contains(&i);
         let w = match m {
             Measured::Word { width, .. } => *width,
             Measured::Break { .. } => 0.0,
             Measured::Image { advance_w, .. } | Measured::Embedded { advance_w, .. } => *advance_w,
         };
-        if !current.is_empty() && s.white_space != WhiteSpace::Nowrap && cursor_x + w > avail_w {
+        if !current.is_empty() && !hangs && s.white_space != WhiteSpace::Nowrap && cursor_x + w > avail_w {
             let line_height = current
                 .iter()
                 .map(|&(i, _)| match &measured[i] {
