@@ -7590,3 +7590,17 @@ fn padding_blocks_margin_collapse_through() {
     );
     assert_eq!(y, 91.0);
 }
+
+// Q53: negative values for non-negative-only properties drop the declaration.
+#[test]
+fn q53_negative_sizes_are_dropped() {
+    let laid = measure_fixture(
+        r#"<html><body style="margin:0"><div style="margin-top:1px;height:40px;max-height:-1px;min-height:-3px;padding-right:-1px;border-top-width:-4px;border-top-style:solid"></div><div style="margin-top:2px;width:-10px;height:7px"></div></body></html>"#,
+        500.0,
+    );
+    let a = find_laid_by_margin_top(&laid, 1.0).expect("a");
+    assert_eq!(a.w, 500.0);
+    assert_eq!(a.h, 40.0, "max-height:-1px / border-top-width:-4px dropped");
+    let b = find_laid_by_margin_top(&laid, 2.0).expect("b");
+    assert_eq!(b.w, 500.0, "width:-10px dropped -> auto");
+}

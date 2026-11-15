@@ -2258,19 +2258,30 @@ pub(crate) fn set_width_length(input: &mut CssParser, target: &mut Option<Length
         .ok();
     match kw {
         Some(k) => *target = Some(Length::Intrinsic(k)),
-        None => set_length(input, target),
+        None => set_nonneg_length(input, target),
     }
+}
+
+/// True for a literal negative length/percentage (Q53): properties whose
+/// grammar is `<length [0,inf]>` drop the declaration on one.
+pub(crate) fn is_negative_length(v: &Length) -> bool {
+    matches!(v, Length::Px(x) | Length::Em(x) | Length::Rem(x) | Length::Percent(x) if *x < 0.0)
 }
 
 /// Like `set_length` for `padding-*`: a negative length/percentage is
 /// invalid, so the declaration is dropped.
 pub(crate) fn set_padding(input: &mut CssParser, target: &mut Option<Length>) {
-    if let Ok(v) = parse_length_percent(input) {
-        let neg = matches!(v, Length::Px(x) | Length::Em(x) | Length::Rem(x) | Length::Percent(x) if x < 0.0);
-        if !neg {
-            *target = Some(v);
-        }
+    if let Ok(v) = parse_length_percent(input)
+        && !is_negative_length(&v)
+    {
+        *target = Some(v);
     }
+}
+
+/// Like `set_length` for properties that reject negatives (`width`,
+/// `height`, `min-*`).
+pub(crate) fn set_nonneg_length(input: &mut CssParser, target: &mut Option<Length>) {
+    set_padding(input, target);
 }
 
 pub(crate) fn set_length(input: &mut CssParser, target: &mut Option<Length>) {
@@ -2293,7 +2304,7 @@ pub(crate) fn set_max_length(input: &mut CssParser, target: &mut Option<MaxLen>)
         return;
     }
     input.reset(&state);
-    if let Ok(v) = parse_length_percent(input) {
+    if let Ok(v) = parse_length_percent(input).and_then(|v| if is_negative_length(&v) { Err(()) } else { Ok(v) }) {
         *target = Some(MaxLen::Len(v));
     }
 }
@@ -2919,7 +2930,7 @@ pub(crate) fn parse_border_property(decls: &mut Declarations, name: &str, input:
             }
         }
         "-width" => {
-            if let Some(v) = parse_box4(input, |i| parse_length(i).ok()) {
+            if let Some(v) = parse_box4(input, |i| parse_length(i).ok().filter(|v| !is_negative_length(v))) {
                 for (i, x) in v.into_iter().enumerate() {
                     decls.border_width[i] = Some(x);
                 }
@@ -2967,7 +2978,7 @@ pub(crate) fn parse_border_property(decls: &mut Declarations, name: &str, input:
                     }
                 }
                 Some("width") => {
-                    if let Ok(v) = parse_length(input) {
+                    if let Some(v) = parse_length(input).ok().filter(|v| !is_negative_length(v)) {
                         decls.border_width[i] = Some(v);
                     }
                 }
@@ -3065,7 +3076,7 @@ pub(crate) fn parse_border_like_shorthand<'k>(
     let mut found = false;
     loop {
         let state = input.state();
-        if let Ok(v) = parse_length(input) {
+        if let Some(v) = parse_length(input).ok().filter(|v| !is_negative_length(v)) {
             width = Some(v);
             found = true;
             continue;
@@ -3715,7 +3726,7 @@ pub(crate) fn parse_flex_basis(input: &mut CssParser) -> Result<FlexBasis, ()> {
         return Ok(FlexBasis::Auto);
     }
     input.reset(&state);
-    parse_length_percent(input).map(FlexBasis::Len)
+    parse_length_percent(input).and_then(|v| if is_negative_length(&v) { Err(()) } else { Ok(v) }).map(FlexBasis::Len)
 }
 
 /// The `flex` shorthand: `none` (`flex-grow: 0; flex-shrink: 0; flex-
@@ -4629,11 +4640,11 @@ impl DeclParser<'_> {
         } else if name.eq_ignore_ascii_case("width") {
             set_width_length(input, &mut self.decls.width);
         } else if name.eq_ignore_ascii_case("height") {
-            set_length(input, &mut self.decls.height);
+            set_nonneg_length(input, &mut self.decls.height);
         } else if name.eq_ignore_ascii_case("min-width") {
             set_width_length(input, &mut self.decls.min_width);
         } else if name.eq_ignore_ascii_case("min-height") {
-            set_length(input, &mut self.decls.min_height);
+            set_nonneg_length(input, &mut self.decls.min_height);
         } else if name.eq_ignore_ascii_case("max-width") {
             set_max_length(input, &mut self.decls.max_width);
         } else if name.eq_ignore_ascii_case("max-height") {
