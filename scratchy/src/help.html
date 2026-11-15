@@ -38,6 +38,9 @@ cancels without running anything.</p>
 <table>
 <tr><th>Command</th><th>Effect</th></tr>
 <tr><td><code>:go &lt;url&gt;</code></td><td>Navigate to a URL</td></tr>
+<tr><td><code>:refresh</code></td><td>Re-fetch the page on screen and reload it in place (it does not add a history entry), e.g. after <code>:set nojs</code>/<code>:set js</code> or when testing a changing page</td></tr>
+<tr><td><code>:historyBack</code></td><td>Go back one page in history (same as <code>h</code>)</td></tr>
+<tr><td><code>:historyFront</code></td><td>Go forward one page in history (same as <code>l</code>)</td></tr>
 <tr><td><code>:set vim</code></td><td>Turn vim-mode key handling on</td></tr>
 <tr><td><code>:set novim</code></td><td>Turn vim-mode key handling off (every key then passes straight through to the page)</td></tr>
 <tr><td><code>:set nojs</code> / <code>:set js</code></td><td>Turn scripts off/on (and show/hide &lt;noscript&gt; content) from the next page load; <code>--no-js</code> starts with them off</td></tr>
