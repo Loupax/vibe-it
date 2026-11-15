@@ -1325,7 +1325,7 @@ SPA frameworks need a much larger API surface and are a long shot.
 Before Q33a, the user picks 2-3 JS-needing sites they actually browse
 as the JS measurement corpus (same role the four CSS pages played).
 
-- [x] Q33-0 [S] (done, HASH) Spike, measure before committing (no feature
+- [x] Q33-0 [S] (done, bda28d4) Spike, measure before committing (no feature
       shipped): numbers below and in NOTES.md "JS engine spike (Q33-0)".
       Result: boa passes the "several seconds" gate (~1.05s for 1.67MB
       of real libraries) but rquickjs wins every axis except being C.
