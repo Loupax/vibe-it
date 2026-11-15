@@ -854,7 +854,7 @@ touching the user's desktop: use it for the live check of each item.
       other than hover starts one (image arrival, JS restyle, resize,
       navigation) while input flows. The gate only removes the
       hover-triggered ones.
-- [x] QB3b [S] (HASH) Pre-existing, seen while verifying QB3 (also on the
+- [x] QB3b [S] (7c584ac) Pre-existing, seen while verifying QB3 (also on the
       pre-QB3 build): on Main_Page (local copy with an `a:hover` rule), a
       burst of ~100 pointer moves at 5 ms followed immediately by a move
       onto "Donate" leaves the link un-highlighted 2.5 s later; with a
