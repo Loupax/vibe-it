@@ -752,7 +752,7 @@ Q32 (parked); 320 tests pass, 2 ignored; lib.rs is ~27.4k lines.
 
 --- TOP PRIORITY: wikipedia.org wordmark missing (coordinator, 2026-11-15) ---
 
-- [x] QW1 [S] (done, commit HASH; PR #157 layer-list parse + Q35a url fetching; wordmark verified on a live window)
+- [x] QW1 [S] (done, commit 96dcc23; PR #157 layer-list parse + Q35a url fetching; wordmark verified on a live window)
       The "Wikipedia" wordmark above the tagline on https://wikipedia.org
       is not drawn (two agents reported it; it was visible earlier today).
       Cause found by reading the page: the markup is
@@ -2065,7 +2065,7 @@ Not vendored; pass the path to the runner.
       if each fix is S. Otherwise add a narrower item here. Don't start
       forms on top of an unverified paint/hover path, because form
       controls add more hover/focus/repaint traffic to exactly that code.
-- [x] Q35a [M] (done, commit HASH; background-image + mask-image, cap 64 fetches; follow-up Q35b) External `background-image`/`mask-image` URLs are never
+- [x] Q35a [M] (done, commit 96dcc23; background-image + mask-image, cap 64 fetches; follow-up Q35b) External `background-image`/`mask-image` URLs are never
       loaded. Diagnosed in Q35: the dark squares (page tabs, "View
       history", header) and the blue "78 languages" squares are Vector
       `.vector-icon.mw-ui-icon-*` elements whose `mask-image` is
