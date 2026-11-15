@@ -8663,6 +8663,48 @@ fn qb2_js_dom_writes_use_restyle_path() {
     qb2_coalesce_into_one_rebuild(qb2_app(&proxy));
     qb2_first_layout_not_made_stale(qb2_app(&proxy));
     qb5_app_applies_requests(&proxy);
+    qb6_help_suspends_js(&proxy);
+}
+
+// ---------- QB6: `:help` suspends the page's JS ----------
+
+fn qb6_counter(app: &App) -> f64 {
+    app.js.as_ref().unwrap().eval_value::<f64>("window.__n").unwrap()
+}
+
+fn qb6_help_suspends_js(proxy: &winit::event_loop::EventLoopProxy<AppEvent>) {
+    let doc = parse_html("<html><body><p>page</p></body></html>");
+    let mut app = App::new_static(doc.clone(), proxy.clone(), None);
+    app.js = run_page_scripts(
+        &doc,
+        &[src("window.__n = 0; setInterval(function(){ window.__n++; document.body.setAttribute('data-n', window.__n); }, 1);")],
+        None,
+    );
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    app.js.as_ref().unwrap().run_due();
+    let before = qb6_counter(&app);
+    assert!(before >= 1.0, "interval should have fired");
+
+    app.show_help();
+    assert!(app.js.is_none(), "help page must have no JS engine");
+    assert!(app.pre_help_page.as_ref().unwrap().js.is_some(), "engine parked in SavedPage");
+    // Key dispatch and sync reach nothing: the old page's listeners are gone.
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    assert!(app.js_dispatch(None, "keydown", &[]), "no engine: dispatch returns true");
+    app.js_sync();
+    // Re-running :help keeps the parked engine.
+    app.show_help();
+    assert!(app.pre_help_page.as_ref().unwrap().js.is_some());
+
+    app.restore_saved_page();
+    assert!(app.js.is_some(), "engine restored");
+    assert_eq!(qb6_counter(&app), before, "timers did not run while help was shown");
+    app.js.as_ref().unwrap().run_due();
+    assert!(qb6_counter(&app) > before, "overdue timer fires after return");
+
+    // show_message also drops the engine.
+    app.show_message("oops");
+    assert!(app.js.is_none());
 }
 
 fn qb2_restyle_and_keep_old_frame(mut app: App) {

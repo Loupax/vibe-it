@@ -664,6 +664,9 @@ pub(crate) struct SavedPage {
     pub(crate) image_cache: HashMap<String, Arc<DecodedImage>>,
     pub(crate) scroll_offset: f32,
     pub(crate) scroll_offsets: HashMap<usize, f32>,
+    /// QB6: the page's JS engine, suspended while help is shown (its
+    /// timers, listeners and dirty flag must not touch the help page).
+    pub(crate) js: Option<JsEngine>,
 }
 
 impl App {
@@ -1174,6 +1177,9 @@ impl App {
     pub(crate) fn show_message(&mut self, text: &str) {
         let html = format!("<html><body><p>{}</p></body></html>", escape_html(text));
         self.image_cache.clear();
+        // QB6: a status/error page replaces the document, so the old
+        // page's engine must not keep running against it.
+        self.js = None;
         self.replace_document(parse_html(&html), String::new());
     }
 
@@ -1392,8 +1398,12 @@ impl App {
                 image_cache: self.image_cache.clone(),
                 scroll_offset: self.scroll_offset,
                 scroll_offsets: self.scroll_offsets.clone(),
+                js: self.js.take(),
             });
         }
+        // QB6: help has no JS; a page's engine is parked in `pre_help_page`
+        // (or already dropped when re-running `:help`).
+        self.js = None;
         self.image_cache.clear();
         self.replace_document(parse_html(HELP_PAGE_HTML), String::new());
     }
@@ -1415,6 +1425,8 @@ impl App {
         self.image_cache = saved.image_cache;
         self.scroll_offsets = saved.scroll_offsets;
         self.scroll_offset = saved.scroll_offset;
+        self.js = saved.js;
+        self.js_sync();
     }
 
     /// Entry point for `WindowEvent::MouseInput`'s click handler:
