@@ -842,7 +842,7 @@ into the commit message of every JS item.
       `p + table + p` scalp both depend on it (R12). Test: the repro above
       gives a box at (60,36); `right:0;margin-right:10px` ends 10px from
       the edge; `position:fixed` likewise.
-- [x] QA4 [S] (75e3700) (P1, R15) The `background` shorthand must reset what it
+- [x] QA4 [S] (065b61b) (P1, R15) The `background` shorthand must reset what it
       omits and reject junk. `parse_background_shorthand` (css.rs) skips
       unknown tokens (`Ok(_) => {}` in its loop) and the `background` arm
       in `DeclParser::parse_value` only writes `background_color` /
@@ -1582,7 +1582,7 @@ Not vendored; pass the path to the runner.
       Left out: inline `style=` declarations with var() still drop (not unset) when
       invalid at computed time, and only `color`/`background-color` reject trailing
       tokens (`color: orange red`); other properties still parse leniently (Q57a).
-- [ ] Q57a [S] (`background` part done in QA4, 75e3700) Strict full-value parsing for all properties (leftover tokens make the
+- [ ] Q57a [S] (`background` part done in QA4, 065b61b) Strict full-value parsing for all properties (leftover tokens make the
       declaration invalid) and `unset` semantics for inline-style var() declarations.
 
 - [x] Q40c [L] (dacd49d) Audit the areas Q40b did not reach, same method and write-up:

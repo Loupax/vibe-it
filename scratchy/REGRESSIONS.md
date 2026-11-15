@@ -88,7 +88,7 @@ replace the Unicode-whitespace calls on rendered text, including
 `inline_text`/`normalize_whitespace`, which also used to fold runs of
 `&nbsp;` into one space.
 
-### R15 — `background` shorthand doesn't reset omitted parts, accepts junk (bug) — FIXED (QA4 75e3700)
+### R15 — `background` shorthand doesn't reset omitted parts, accepts junk (bug) — FIXED (QA4 065b61b)
 
 `parse_background_shorthand` skips tokens it doesn't know and the
 `background` arm only writes colour/image when given, so `background:none`
