@@ -836,7 +836,7 @@ touching the user's desktop: use it for the live check of each item.
       (pure function of last-build time and time since last move). Live
       check: the R8 recipe (Main_Page, motion every 2 ms for 20 s) survives
       5/5 runs, JS on and off.
-- [x] QB4 [S] (P1, user report, R11) (HASH) `HTMLDialogElement`: `show()`,
+- [x] QB4 [S] (P1, user report, R11) (a29738f) `HTMLDialogElement`: `show()`,
       `showModal()`, `close(returnValue?)`, the `open` property (reflects
       the attribute) and `returnValue`. `close()` removes `open`, sets
       `returnValue`, then fires a `close` event at the dialog. `showModal`
