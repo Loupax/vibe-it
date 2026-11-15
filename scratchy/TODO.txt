@@ -792,14 +792,24 @@ Q32 (parked); 320 tests pass, 2 ignored; lib.rs is ~27.4k lines.
       are inside `@media (prefers-color-scheme:dark)` and not involved.
       Remaining shorthand gap: `background:` with a gradient layer before
       the url layer still keeps only the first layer's image.
-- [ ] QW2 [S] On https://wikipedia.org (both JS and --no-js) the "Search"
-      button label is clipped to "Searc" (bold italic text overflows the
-      blue button's right edge at ~x=751 instead of fitting/centring in
-      the button). Separate from QW1 (not a background issue; likely button
-      intrinsic width/overflow or font-style: italic from the UA/portal
-      rule on `button`/`.pure-button`). Diagnose with --dump of the box
-      widths; test: a fixture button whose label is wider than its
-      declared width is not clipped mid-glyph.
+- [x] QW2 [S] On https://wikipedia.org (both JS and --no-js) the "Search"
+      button label was clipped to "Searc". ROOT CAUSE (2026-11-15): the
+      portal markup is `<button class="pure-button ..."><i class="sprite
+      svg-search-icon">Search</i></button>` with `.svg-search-icon{width:22px;
+      height:22px}` (inline-block) and `.search-container button
+      .svg-search-icon{text-indent:-9999px}` (icon-sprite hides its label by
+      indenting it off-screen), `.pure-button{white-space:nowrap}`. `text-
+      indent` was not implemented at all, so the label painted inside the
+      22px icon box and overflowed (clipped by the button's own bounds).
+      Not a sizing/italic/font bug. FIXED (HASH): css.rs `text-indent`
+      (<length>), inherited `text_indent` px in style.rs, paint.rs
+      `paint_buffer` and `measure_mixed_inline` (the path wikipedia.org takes,
+      an earlier float forces it) shift the first line by a NEGATIVE indent.
+      Tests `negative_text_indent_{moves_the_label_off_the_icon,applies_on_
+      the_mixed_inline_path_too}_qw2`.
+- [ ] QW2b [S] `text-indent` leftovers: positive indents (and `%`/`each-line`/
+      `hanging`) are ignored; a positive/negative indent should also change
+      the first line's available width for wrapping.
 
 --- TOP PRIORITY: www.youtube.com investigation (user report, 2026-11-15) ---
 

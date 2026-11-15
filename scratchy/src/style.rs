@@ -34,6 +34,10 @@ pub(crate) struct InheritedStyle {
     /// `word-spacing`'s own grammar has no per-descendant-reinterpreted
     /// form the way `line-height: <number>` does.
     pub(crate) word_spacing: f32,
+    /// `text-indent` (QW2), inherited, eagerly resolved to px. Only a
+    /// negative value is honoured (painted as a first-line x shift, see
+    /// `paint_buffer`); positive indents don't narrow the first line yet.
+    pub(crate) text_indent: f32,
     /// The parent's computed values of three NON-inherited properties,
     /// carried only so the CSS-wide keyword `inherit` can read them
     /// (`apply_wide`); nothing else consults these.
@@ -64,6 +68,7 @@ pub(crate) const ROOT_STYLE: InheritedStyle = InheritedStyle {
     visibility: Visibility::Visible,
     cursor: CursorStyle::Auto,
     word_spacing: 0.0,
+    text_indent: 0.0,
     background_color: None,
     display: Display::Inline,
     vertical_align: VerticalAlign::Baseline,
@@ -308,6 +313,8 @@ pub(crate) struct ComputedStyle {
     /// never something cosmic-text's own internal wrap computation has
     /// to account for.
     pub(crate) word_spacing: f32,
+    /// Inherited `text-indent` in px (see `InheritedStyle::text_indent`).
+    pub(crate) text_indent: f32,
     /// Not inherited (same as `border_width`/`border_color`) and doesn't
     /// affect layout at all (unlike `border`, which is part of the box
     /// model) — drawn one `outline_width` ring *outside* the border box,
@@ -481,6 +488,7 @@ impl ComputedStyle {
             visibility: self.visibility,
             cursor: self.cursor,
             word_spacing: self.word_spacing,
+            text_indent: self.text_indent,
             background_color: self.background_color,
             display: self.display,
             vertical_align: self.vertical_align,
@@ -752,6 +760,7 @@ pub(crate) fn copy_prop(dst: &mut ComputedStyle, src: &ComputedStyle, key: &str)
         "font-style" => dst.font_style = src.font_style,
         "list-style-type" => dst.list_style_type = src.list_style_type,
         "word-spacing" => dst.word_spacing = src.word_spacing,
+        "text-indent" => dst.text_indent = src.text_indent,
         _ => {}
     }
 }
@@ -1684,6 +1693,13 @@ pub(crate) fn resolve_style_for(
     )
     .map(|l| l.resolve(font_size, inherited.root_font_size))
     .unwrap_or(inherited.word_spacing);
+    let text_indent = cascade_property(
+        &matches,
+        inline_decls.as_ref().and_then(|d| d.text_indent),
+        |d| d.text_indent,
+    )
+    .map(|l| l.resolve(font_size, inherited.root_font_size))
+    .unwrap_or(inherited.text_indent);
     let outline_width = cascade_property(
         &matches,
         inline_decls.as_ref().and_then(|d| d.outline_width),
@@ -1964,6 +1980,7 @@ pub(crate) fn resolve_style_for(
         line_height,
         visibility,
         word_spacing,
+        text_indent,
         outline_width,
         outline_color,
         box_shadow,
@@ -2073,6 +2090,7 @@ pub(crate) fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         line_height: inherited.line_height,
         visibility: inherited.visibility,
         word_spacing: inherited.word_spacing,
+        text_indent: inherited.text_indent,
         outline_width: 0.0,
         outline_color: None,
         box_shadow: [None; MAX_SHADOWS],
