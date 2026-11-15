@@ -357,7 +357,33 @@ const PRELUDE: &str = r#"
   Object.defineProperty(doc, 'cookie', { get: function () { return ''; }, set: function () {}, configurable: true, enumerable: true });
   Object.setPrototypeOf(doc, Document.prototype);
   Object.defineProperty(doc, 'location', { get: function () { return g.location; }, configurable: true });
+  // QY2: page visibility (the window is always shown).
+  Object.defineProperty(doc, 'visibilityState', { get: function () { return 'visible'; }, configurable: true, enumerable: true });
+  Object.defineProperty(doc, 'hidden', { get: function () { return false; }, configurable: true, enumerable: true });
   g.document = doc;
+  // QY2: `performance`: Navigation Timing 1 numbers (epoch ms, all taken
+  // at page start and monotonic), `timeOrigin`, empty entry lists.
+  var t0 = Date.now();
+  var timing = {};
+  ['navigationStart', 'unloadEventStart', 'unloadEventEnd', 'redirectStart', 'redirectEnd', 'fetchStart',
+    'domainLookupStart', 'domainLookupEnd', 'connectStart', 'connectEnd', 'secureConnectionStart',
+    'requestStart', 'responseStart', 'responseEnd', 'domLoading', 'domInteractive',
+    'domContentLoadedEventStart', 'domContentLoadedEventEnd', 'domComplete', 'loadEventStart', 'loadEventEnd']
+    .forEach(function (k, i) {
+      timing[k] = (k === 'unloadEventStart' || k === 'unloadEventEnd' || k === 'redirectStart' || k === 'redirectEnd') ? 0 : t0;
+    });
+  var perf = {
+    timing: timing, timeOrigin: t0,
+    navigation: { type: 0, redirectCount: 0 },
+    now: function () { return __scratchy_now(); },
+    getEntries: function () { return []; },
+    getEntriesByType: function () { return []; },
+    getEntriesByName: function () { return []; },
+    mark: function () {}, measure: function () {},
+    clearMarks: function () {}, clearMeasures: function () {},
+    toJSON: function () { return { timeOrigin: t0, timing: timing }; },
+  };
+  Object.defineProperty(g, 'performance', { value: perf, writable: true, configurable: true, enumerable: true });
 })(globalThis);
 "#;
 

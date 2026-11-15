@@ -6533,3 +6533,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Investigate why https://www.youtube.com shows console errors and a blank window (JS on and `--no-js`), diagnose, and file sized, prioritised QUEUE items and REGRESSIONS.md entries; no source changes.
 
 **What changed:** docs only. REGRESSIONS.md R20: the blank window is a paint-order bug, not JS (`--no-js` and `:set nojs` + `:refresh` are equally blank): an earlier empty `position:absolute;min-height:100%;background:#fff` `<ytd-app>` bubbles to the root's `positioned` list and is painted over the later `position:relative;z-index:0` skeleton; minimal repro, bisect, and why QA9's tie-break would not fix it. The 4 console errors (`performance.timing`, canvas `getContext`, `document.createEvent` then a measured polyfill chain, and a 10.8 MB script whose compile eats the 5 s budget) are mapped to source lines. TODO.txt: QY0 ticked, QY1 (paint order, supersedes QA9) .. QY7 filed. Not tested: Chrome side-by-side, logged-in/non-EU/watch/search pages.
+
+## QY2 performance.timing and page visibility
+
+> Implement QY2 (R20 error 1): `performance.timing`, `timeOrigin`, `getEntries*`, `document.visibilityState`/`hidden`, with a permanent test and real-page checks.
+
+**What changed:** `PRELUDE` (js.rs) now defines `window.performance` (none existed before, contrary to the item text): Navigation Timing 1 `timing` (all fields numbers, epoch ms at page start; unload/redirect fields 0), `timeOrigin`, `navigation`, `now()` over `__scratchy_now`, empty `getEntries/ByType/ByName`, no-op `mark/measure/clearMarks/clearMeasures`; `document.visibilityState` is `'visible'`, `document.hidden` `false`. Test `qy2_performance_timing_and_visibility`.
