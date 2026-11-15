@@ -397,3 +397,5 @@ css/CSS2/margin-padding-clear/padding-right-001.xht
 css/CSS2/normal-flow/max-height-001.xht
 css/CSS2/borders/border-top-width-012.xht
 css/css-flexbox/flex-basis-003.html
+css/CSS2/visuren/fixed-pos-stacking-001.xht
+css/CSS2/positioning/abspos-overflow-010.xht

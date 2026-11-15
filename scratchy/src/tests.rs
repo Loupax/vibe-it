@@ -3739,7 +3739,7 @@ fn negative_z_index_paints_above_its_containing_boxs_background_but_below_normal
     // shifting every box below it (the exact v51/v52-documented
     // pitfall; caught here by a debug dump during development, not
     // assumed away).
-    let html = r#"<html><body style="margin:0"><div style="position: relative; width: 100px; height: 100px; background-color: #00ff00;"><div style="position: absolute; top: 0px; left: 0px; width: 100px; height: 100px; background-color: #ff0000; z-index: -1;"></div><div style="width: 100px; height: 50px; background-color: #0000ff;"></div></div></body></html>"#;
+    let html = r#"<html><body style="margin:0"><div style="position: relative; z-index: 0; width: 100px; height: 100px; background-color: #00ff00;"><div style="position: absolute; top: 0px; left: 0px; width: 100px; height: 100px; background-color: #ff0000; z-index: -1;"></div><div style="width: 100px; height: 50px; background-color: #0000ff;"></div></div></body></html>"#;
     let (pixels, win_w, _) = paint_fixture(html);
     assert_eq!(
         px_at(&pixels, win_w, 50, 80),
@@ -3768,7 +3768,7 @@ fn seven_layer_stacking_order_within_one_containing_block() {
     // yellow last, but neither is topmost solely from parsing order) —
     // z-index/layer membership alone must decide it.
     // No inter-tag whitespace — see the test above's own note.
-    let html = r#"<html><body style="margin:0"><div style="position: relative; width: 100px; height: 100px; background-color: #00ff00;"><div style="position: absolute; top: 0px; left: 0px; width: 100px; height: 100px; background-color: #ff0000; z-index: -1;"></div><div style="width: 100px; height: 50px; background-color: #0000ff;"></div><div style="position: absolute; top: 0px; left: 0px; width: 30px; height: 30px; background-color: #ffff00; z-index: 5;"></div></div></body></html>"#;
+    let html = r#"<html><body style="margin:0"><div style="position: relative; z-index: 0; width: 100px; height: 100px; background-color: #00ff00;"><div style="position: absolute; top: 0px; left: 0px; width: 100px; height: 100px; background-color: #ff0000; z-index: -1;"></div><div style="width: 100px; height: 50px; background-color: #0000ff;"></div><div style="position: absolute; top: 0px; left: 0px; width: 30px; height: 30px; background-color: #ffff00; z-index: 5;"></div></div></body></html>"#;
     let (pixels, win_w, _) = paint_fixture(html);
     // Outside the static child's 0-50 range and the small yellow
     // child's 0-30 range: only green (layer 1) and red (layer 2)
@@ -7614,4 +7614,21 @@ fn q54_overconstrained_auto_width_overflows() {
     );
     let d = find_by_height(&laid, 9.0).expect("inner");
     assert_eq!(d.w, 64.0);
+}
+
+// Q55 (W17): a negative-z-index abspos child of a positioned parent with
+// z-index:auto (not a stacking context) paints below that parent's
+// background; with z-index:0 (a stacking context) it paints above it.
+#[test]
+fn q55_negative_z_child_of_non_stacking_parent_paints_below_parent_background() {
+    let auto = r#"<html><body style="margin:0"><div style="position: relative; width: 100px; height: 100px; background-color: #00ff00;"><div style="position: absolute; top: 0px; left: 0px; width: 100px; height: 100px; background-color: #ff0000; z-index: -1;"></div></div></body></html>"#;
+    let (pixels, win_w, _) = paint_fixture(auto);
+    assert_eq!(px_at(&pixels, win_w, 50, 50), 0x0000_FF00, "z-auto parent: child goes below parent bg");
+    let sc = auto.replace("position: relative;", "position: relative; z-index: 0;");
+    let (pixels, win_w, _) = paint_fixture(&sc);
+    assert_eq!(px_at(&pixels, win_w, 50, 50), 0x00FF_0000, "z-index:0 parent: child above parent bg");
+    // Nested abspos chain (WPT fixed-pos-stacking-001 shape).
+    let nested = r#"<html><body style="margin:0"><div style="position: absolute; left: 0px; top: 0px; width: 100px; height: 100px; background-color: #00ff00;"><div style="position: absolute; width: 50px; height: 50px;"><div style="position: absolute; z-index: -1; width: 50px; height: 50px; background-color: #ff0000;"></div></div></div></body></html>"#;
+    let (pixels, win_w, _) = paint_fixture(nested);
+    assert_eq!(px_at(&pixels, win_w, 20, 20), 0x0000_FF00, "nested non-SC chain: negative child below ancestor bg");
 }
