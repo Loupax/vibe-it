@@ -790,7 +790,7 @@ into the commit message of every JS item.
       style to `none`, width to `medium`, colour to currentColor (today only
       the parts present are written, so `border: 1px blue` after
       `border: solid` stays solid). Fold in with Q52.
-- [x] QA2 (HASH) [S] (P1, R14) U+00A0 (`&nbsp;`) is not collapsible white space.
+- [x] QA2 (80395ee) [S] (P1, R14) U+00A0 (`&nbsp;`) is not collapsible white space.
       DONE: `is_css_ws`/`trim_css_ws` (css.rs) replace `trim`/`is_whitespace`/
       `split_whitespace` in `inline_text`, `normalize_whitespace`, the
       flex-item `has_text`, first-letter scan, the line-clamp trim, the

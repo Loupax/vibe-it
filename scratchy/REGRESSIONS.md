@@ -72,14 +72,14 @@ paints a solid border. The CSS initial value is `none`. Seen live on Acid3:
 `* { border: 1px blue }` outlines every element in blue. Fixed by QA1 (default is now `none`;
 verified headless, a `*{border:1px blue}` fixture no longer outlines).
 
-### R14 — `&nbsp;` is treated as collapsible white space (bug) — FIXED (QA2 HASH)
+### R14 — `&nbsp;` is treated as collapsible white space (bug) — FIXED (QA2 80395ee)
 
 `str::trim()` and `char::is_whitespace` include U+00A0. A line made only
 of `&nbsp;` collapses to nothing and its block gets height 0. Sites:
 `collect_real_children` (`has_text`), `measure_mixed_inline` (hang test),
 the blank-word test in the line-box loop, `:empty`. Fix: QA2.
 
-FIXED (QA2 HASH): `is_css_ws`/`trim_css_ws` (space, tab, LF, CR, FF only)
+FIXED (QA2 80395ee): `is_css_ws`/`trim_css_ws` (space, tab, LF, CR, FF only)
 replace the Unicode-whitespace calls on rendered text, including
 `inline_text`/`normalize_whitespace`, which also used to fold runs of
 `&nbsp;` into one space.
