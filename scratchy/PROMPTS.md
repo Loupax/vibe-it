@@ -6576,3 +6576,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Implement Q35a: external `background-image`/`mask-image` `url()` references are never fetched (only `data:` decodes). Fetch through wire like `<img>`, cache, relayout on arrival; SVG sprites via resvg; verify wikipedia.org wordmark and en.wikipedia Main_Page icons.
 
 **What changed:** see NOTES.md "External CSS `url()` images (Q35a)". style.rs `resolve_background_image` takes the image cache and records misses (`take_wanted_css_images`); net.rs `absolutize_css_urls` makes stylesheet urls absolute; app.rs `fetch_wanted_css_images` spawns the fetches (cap 64). Tests `absolutize_css_urls_resolves_relative_against_sheet_q35a`, `external_background_and_mask_urls_use_image_cache_q35a`, `layout_build_reports_wanted_css_images_and_uses_cache_q35a`.
+
+## QW2 wikipedia.org Search button label clipped
+
+> Implement QW2: the blue search button label is clipped to "Searc" on wikipedia.org. Diagnose with evidence, fix the smallest root cause.
+
+**What changed:** diagnosis from the live portal HTML/CSS: the label is `<i class="sprite svg-search-icon">Search</i>` (22x22 inline-block) hidden via `button .svg-search-icon{text-indent:-9999px}`; scratchy had no `text-indent`, so the text showed and overflowed. Added `text-indent` (length) in css.rs, inherited px `text_indent` in style.rs, and `paint_buffer` takes a `first_line_dx` applied to the first laid-out line (only negative indents are painted for now). Test `negative_text_indent_moves_the_label_off_the_icon_qw2`. Also applied to the first line in `measure_mixed_inline` (the path wikipedia.org actually takes, because of an earlier float). Left out (QW2b): positive indent, wrap-width effect.

@@ -2920,7 +2920,7 @@ pub(crate) fn measure_mixed_inline<'a>(
     // final absolute (document-space) positions.
     let mut positioned: Vec<MixedPositioned> = Vec::with_capacity(measured.len());
     let mut cursor_y = 0.0f32;
-    for (left_bound, avail_w, line) in &lines {
+    for (line_no, (left_bound, avail_w, line)) in lines.iter().enumerate() {
         let line_height = line
             .iter()
             .map(|&(i, _)| match &measured[i] {
@@ -2943,7 +2943,7 @@ pub(crate) fn measure_mixed_inline<'a>(
             TextAlign::Right => (avail_w - line_w).max(0.0),
             TextAlign::Center => (avail_w - line_w).max(0.0) / 2.0,
             TextAlign::Left | TextAlign::Justify => 0.0,
-        };
+        } + if line_no == 0 { s.text_indent.min(0.0) } else { 0.0 }; // QW2: negative `text-indent` on the first line
         let mut idx = 0;
         while idx < line.len() {
             let (i, x) = line[idx];

@@ -9724,3 +9724,57 @@ fn layout_build_reports_wanted_css_images_and_uses_cache_q35a() {
     }
     assert!(any_bg(&tree), "the cached image must be attached to the div's box");
 }
+
+// ---------- QW2: `text-indent` (wikipedia.org search-button label) ----------
+
+fn red_pixel_count_of(html: &str) -> usize {
+    let doc = parse_html(html);
+    let tree = build_layout_tree(&doc, 1920.0);
+    let mut font_system = new_font_system();
+    let mut cache = ShapeCache::new();
+    let mut next_id = 0usize;
+    let mut incomplete = false;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let laid = measure(
+        &tree, &mut font_system, 0.0, 0.0, 300.0, None, &mut next_id, &mut cache, deadline, &mut incomplete,
+        &mut Vec::new(), &Floats::default(), None,
+    );
+    let mut swash_cache = SwashCache::new();
+    let (win_w, win_h) = (300u32, 100u32);
+    let mut pixels = vec![0xFFFFFFu32; (win_w * win_h) as usize];
+    paint(&laid, &mut font_system, &mut swash_cache, &mut cache, &HashMap::new(), &mut pixels, win_w, win_h, 0.0, None);
+    pixels.iter().filter(|&&p| ((p >> 16) & 0xFF) > 200 && ((p >> 8) & 0xFF) < 80 && (p & 0xFF) < 80).count()
+}
+
+#[test]
+fn negative_text_indent_moves_the_label_off_the_icon_qw2() {
+    // wikipedia.org: `<button><i class="sprite svg-search-icon">Search</i></button>`
+    // with `.svg-search-icon{width:22px;height:22px;display:inline-block}` and
+    // `button .svg-search-icon{text-indent:-9999px}`: the label must be hidden
+    // off to the left, not spill out of the 22px icon box ("Searc" clipped).
+    let page = |indent: &str| {
+        format!(
+            r#"<html><body><button style="white-space:nowrap;font-weight:700;font-style:italic;color:#f00;padding:8px 16px"><i style="display:inline-block;width:22px;height:22px;vertical-align:middle;{indent}">Search</i></button></body></html>"#
+        )
+    };
+    let without = red_pixel_count_of(&page(""));
+    let with = red_pixel_count_of(&page("text-indent:-9999px"));
+    assert!(without > 20, "control: the label must paint without text-indent (got {without} red px)");
+    assert_eq!(with, 0, "text-indent:-9999px must push the first line off-screen (got {with} red px)");
+}
+
+#[test]
+fn negative_text_indent_applies_on_the_mixed_inline_path_too_qw2() {
+    // wikipedia.org has a float earlier in the BFC, which routes the label
+    // through `measure_mixed_inline` (per-word `Word` items) instead of the
+    // single-buffer path; the indent must apply there as well.
+    let page = |indent: &str| {
+        format!(
+            r#"<html><body><div style="float:left;width:10px;height:200px"></div><button style="white-space:nowrap;font-weight:700;font-style:italic;color:#f00;padding:8px 16px"><i style="display:inline-block;width:22px;height:22px;vertical-align:middle;{indent}">Search</i></button></body></html>"#
+        )
+    };
+    let without = red_pixel_count_of(&page(""));
+    let with = red_pixel_count_of(&page("text-indent:-9999px"));
+    assert!(without > 20, "control: the label must paint without text-indent (got {without} red px)");
+    assert_eq!(with, 0, "text-indent:-9999px must push the first mixed-inline line off-screen (got {with} red px)");
+}

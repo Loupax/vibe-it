@@ -858,6 +858,9 @@ pub(crate) fn paint_buffer(
     // per-pixel here (text has no shared `fill_rect` choke point to push
     // this into, unlike box decoration — see `fill_rect`'s own docs).
     clip: Option<(f32, f32, f32, f32)>,
+    // `text-indent` (QW2): x shift of the first laid-out line only. Callers
+    // pass 0.0 except the block-text arm, which passes a negative indent.
+    first_line_dx: f32,
 ) {
     let ox = offset_x.round() as i32;
     let oy = offset_y.round() as i32;
@@ -906,7 +909,8 @@ pub(crate) fn paint_buffer(
             }
         },
     };
-    for run in buffer.layout_runs() {
+    for (run_idx, run) in buffer.layout_runs().enumerate() {
+        let line_dx = if run_idx == 0 { first_line_dx } else { 0.0 };
         for glyph in run.glyphs {
             if hidden.get(glyph.metadata).copied().unwrap_or(false) {
                 continue;
@@ -916,7 +920,7 @@ pub(crate) fn paint_buffer(
                 .copied()
                 .unwrap_or_default()
                 .y_shift(glyph.font_size);
-            let physical_glyph = glyph.physical((0., run.line_y + y_shift), 1.0);
+            let physical_glyph = glyph.physical((line_dx, run.line_y + y_shift), 1.0);
             let glyph_color = glyph.color_opt.unwrap_or(default_color);
             if glyph_color.a() == 0 {
                 continue;
@@ -1521,7 +1525,7 @@ pub(crate) fn paint_command_bar(
     let decoration_styles = [DecorationStyle::default()];
     paint_buffer(
         &mut buffer, font_system, swash_cache, &backgrounds, &valigns, &hidden, &decoration_styles, pixels, win_w,
-        win_h, PAD_X, bar_y + (BAR_H - 20.0) / 2.0, None,
+        win_h, PAD_X, bar_y + (BAR_H - 20.0) / 2.0, None, 0.0,
     );
 
     fill_rect(pixels, win_w, win_h, PAD_X + caret_x, bar_y + 3.0, 1.5, BAR_H - 6.0, TextColor::rgb(225, 225, 225), None);
@@ -1839,7 +1843,7 @@ pub(crate) fn paint_inner(
                 let content_y = draw_y + s.border_top() + s.padding.top.px();
                 paint_buffer(
                     buffer, font_system, swash_cache, backgrounds, valigns, hidden, decoration_styles, pixels,
-                    win_w, win_h, content_x, content_y, child_clip,
+                    win_w, win_h, content_x, content_y, child_clip, s.text_indent.min(0.0),
                 );
             }
         }
@@ -1897,7 +1901,7 @@ pub(crate) fn paint_inner(
                             let (buffer, _, backgrounds, valigns, hidden, _, decoration_styles, _) = &mut *guard;
                             paint_buffer(
                                 buffer, font_system, swash_cache, backgrounds, valigns, hidden, decoration_styles,
-                                pixels, win_w, win_h, *x, *y - scroll_offset, child_clip,
+                                pixels, win_w, win_h, *x, *y - scroll_offset, child_clip, 0.0,
                             );
                         }
                     }

@@ -1169,6 +1169,8 @@ pub(crate) struct Declarations {
     /// into cosmic-text's own `Attrs`, unlike what `letter-spacing`
     /// (still reverted, see TODO.txt) tried.
     pub(crate) word_spacing: Option<Length>,
+    /// `text-indent` (QW2): a `<length>` only (`%` unsupported).
+    pub(crate) text_indent: Option<Length>,
     pub(crate) visibility: Option<Visibility>,
     pub(crate) outline_width: Option<Length>,
     pub(crate) outline_color: Option<CssColor>,
@@ -4529,6 +4531,7 @@ impl Declarations {
             "grid-template-areas" => grid_template_areas, "grid-area" => grid_area,
             "font-style" => font_style, "list-style-type" => list_style_type,
             "word-spacing" => word_spacing,
+            "text-indent" => text_indent,
             "text-decoration" => text_decoration,
             "text-decoration-line" => text_decoration_line,
             "text-decoration-style" => text_decoration_style,
@@ -5378,6 +5381,10 @@ impl DeclParser<'_> {
                 if let Ok(v) = parse_length(input) {
                     self.decls.word_spacing = Some(v);
                 }
+            }
+        } else if name.eq_ignore_ascii_case("text-indent") {
+            if let Ok(v) = parse_length(input) {
+                self.decls.text_indent = Some(v);
             }
         }
     }
