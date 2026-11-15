@@ -167,6 +167,15 @@ pub(crate) fn img_size_attr(handle: &Handle, name: &str) -> Option<f32> {
     element_attr(handle, name)?.trim().parse::<f32>().ok().filter(|v| *v > 0.0)
 }
 
+/// `img_size_attr` plus the percentage form (`width="50%"`), as a `BoxLength`.
+pub(crate) fn img_size_length(handle: &Handle, name: &str) -> Option<BoxLength> {
+    let raw = element_attr(handle, name)?;
+    if let Some(p) = raw.trim().strip_suffix('%') {
+        return p.trim().parse::<f32>().ok().filter(|v| *v >= 0.0 && v.is_finite()).map(|v| BoxLength::Percent(v / 100.0));
+    }
+    img_size_attr(handle, name).map(BoxLength::Px)
+}
+
 /// Resolves `<img>`'s own box-model style (CSS `width`/`height`, falling
 /// back to the HTML attributes — see `img_size_attr`'s own docs) and
 /// decodes its `src`, shared by both places `<img>` can end up:
@@ -185,10 +194,10 @@ pub(crate) fn img_size_attr(handle: &Handle, name: &str) -> Option<f32> {
 /// both fall out of a plain cache miss, `None` either way.
 pub(crate) fn resolve_img(handle: &Handle, mut style: ComputedStyle, image_cache: &HashMap<String, Arc<DecodedImage>>) -> (ComputedStyle, Option<Arc<DecodedImage>>) {
     if style.width.is_none() {
-        style.width = img_size_attr(handle, "width").map(BoxLength::Px);
+        style.width = img_size_length(handle, "width");
     }
     if style.height.is_none() {
-        style.height = img_size_attr(handle, "height").map(BoxLength::Px);
+        style.height = img_size_length(handle, "height");
     }
     let decoded = element_attr(handle, "src").and_then(|src| match decode_data_uri(&src) {
         Some(bytes) => decode_image_bytes(&bytes).map(Arc::new),
@@ -286,10 +295,10 @@ pub(crate) fn serialize_inline_svg(handle: &Handle, color: TextColor) -> String 
 /// resulting size. `None` when the markup doesn't parse as SVG.
 pub(crate) fn resolve_inline_svg(handle: &Handle, mut style: ComputedStyle) -> (ComputedStyle, Option<Arc<DecodedImage>>) {
     if style.width.is_none() {
-        style.width = img_size_attr(handle, "width").map(BoxLength::Px);
+        style.width = img_size_length(handle, "width");
     }
     if style.height.is_none() {
-        style.height = img_size_attr(handle, "height").map(BoxLength::Px);
+        style.height = img_size_length(handle, "height");
     }
     let xml = serialize_inline_svg(handle, style.color);
     let decoded = decode_svg_bytes(xml.as_bytes()).map(Arc::new).map(|d| svg_at_css_size(d, &style));

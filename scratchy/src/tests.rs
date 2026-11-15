@@ -1354,6 +1354,15 @@ fn img_html_width_height_attrs_used_when_css_leaves_both_auto() {
 }
 
 #[test]
+fn img_html_percent_width_attr_is_percentage_of_container() {
+    let src = tiny_png_data_uri(40, 20);
+    let html = format!(r#"<html><body style="margin:0"><div style="width:200px"><img src="{src}" width="50%"></div></body></html>"#);
+    let laid = measure_fixture(&html, 500.0);
+    let img = find_image_laid(&laid).expect("img box not found");
+    assert_eq!((img.w, img.h), (100.0, 50.0), "width=50% should be half the container, height by aspect");
+}
+
+#[test]
 fn img_css_size_overrides_html_attrs() {
     let src = tiny_png_data_uri(40, 20);
     let html = format!(r#"<html><body><img src="{src}" width="80" height="90" style="width: 10px; height: 10px"></body></html>"#);
