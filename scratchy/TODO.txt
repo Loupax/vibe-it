@@ -975,12 +975,19 @@ Not vendored; pass the path to the runner.
       (background-001, block-replaced-width-006). Not covered: `<img>` percent
       height against indefinite containers is left to the existing Percent
       layout rules.
-- [ ] Q57 [M] `var()` correctness (W22): (a) reject invalid custom property
+- [x] Q57 [M] (done, commit HASH) `var()` correctness (W22): (a) reject invalid custom property
       values at parse (`var(--b,!)`, `;`, doubled `!important`), (b) invalid at
       computed-value time means `unset`, not "declaration dropped", (c)
       escaped custom property names, (d) adjacent `var(--b)var(--c)`, (e)
       `@supports` conditions containing `var()`. WPT:
       `variable-declaration-11..13/23/24/31/42/53`, `variable-supports-*`.
+      DONE (HASH): all of (a)-(e) fixed; WPT 174 -> 187 (declaration-11/12/13/23/24/31/42/53,
+      supports-01/02/12/41, reference-23). Q52b (source order) untouched, no overlap.
+      Left out: inline `style=` declarations with var() still drop (not unset) when
+      invalid at computed time, and only `color`/`background-color` reject trailing
+      tokens (`color: orange red`); other properties still parse leniently (Q57a).
+- [ ] Q57a [S] Strict full-value parsing for all properties (leftover tokens make the
+      declaration invalid) and `unset` semantics for inline-style var() declarations.
 
 - [ ] Q40c [L] Audit the areas Q40b did not reach, same method and write-up:
       css-grid (only what Q15 claims), css-cascade, css-pseudo,

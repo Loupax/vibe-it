@@ -399,3 +399,13 @@ css/CSS2/borders/border-top-width-012.xht
 css/css-flexbox/flex-basis-003.html
 css/CSS2/visuren/fixed-pos-stacking-001.xht
 css/CSS2/positioning/abspos-overflow-010.xht
+css/css-variables/variable-declaration-11.html
+css/css-variables/variable-declaration-12.html
+css/css-variables/variable-declaration-23.html
+css/css-variables/variable-declaration-24.html
+css/css-variables/variable-declaration-31.html
+css/css-variables/variable-declaration-42.html
+css/css-variables/variable-declaration-53.html
+css/css-variables/variable-supports-01.html
+css/css-variables/variable-supports-02.html
+css/css-variables/variable-supports-12.html

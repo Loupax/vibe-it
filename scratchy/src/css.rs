@@ -4416,13 +4416,17 @@ impl DeclParser<'_> {
             while input.next().is_ok() {}
             let raw = input.slice_from(start.position()).trim();
             let raw = strip_important(raw).unwrap_or(raw).to_string();
-            self.decls.custom_props.push((name.to_string(), raw));
+            // Q57a: a value that is not a valid <declaration-value> drops
+            // the whole declaration.
+            if valid_declaration_value(&raw) {
+                self.decls.custom_props.push((name.to_string(), raw));
+            }
         } else if name.eq_ignore_ascii_case("color") {
-            if let Ok(c) = CssColor::parse(input) {
+            if let Some(c) = CssColor::parse(input).ok().filter(|_| only_important_left(input)) {
                 self.decls.color = Some(c);
             }
         } else if name.eq_ignore_ascii_case("background-color") {
-            if let Ok(c) = CssColor::parse(input) {
+            if let Some(c) = CssColor::parse(input).ok().filter(|_| only_important_left(input)) {
                 self.decls.background_color = Some(c);
             }
         } else if name.eq_ignore_ascii_case("background-image") {
@@ -5563,7 +5567,7 @@ pub(crate) fn compute_custom_props(
                 }
                 v.0.push(name.to_string());
             }
-            let v = substitute_css_vars(raw, &|n| lookup(n, own, parent, visiting));
+            let v = substitute_css_vars(raw, &|n| lookup(n, own, parent, visiting)).map(|v| v.trim().to_string());
             let mut vis = visiting.borrow_mut();
             vis.0.pop();
             if vis.1.contains(name) {
@@ -5588,6 +5592,76 @@ pub(crate) fn compute_custom_props(
         return parent;
     }
     Some(intern_custom_props(map))
+}
+
+/// Q57d: after a single-token value, only an optional `!important` may remain
+/// (`color: orange red` is invalid).
+pub(crate) fn only_important_left<'i>(input: &mut CssParser<'i>) -> bool {
+    input.is_exhausted()
+        || (input.expect_delim('!').is_ok()
+            && input.expect_ident_matching("important").is_ok()
+            && input.is_exhausted())
+}
+
+/// Q57a: whether `raw` is a CSS `<declaration-value>`: no `!` delim, no
+/// bad string/url, no unmatched closer, no top-level `;`.
+pub(crate) fn valid_declaration_value(raw: &str) -> bool {
+    fn walk<'i>(p: &mut CssParser<'i>, top: bool) -> bool {
+        loop {
+            let tok = match p.next_including_whitespace_and_comments() {
+                Ok(t) => t.clone(),
+                Err(_) => return true,
+            };
+            match tok {
+                Token::Delim('!') | Token::BadUrl(_) | Token::BadString(_) => return false,
+                Token::Semicolon if top => return false,
+                Token::CloseParenthesis | Token::CloseSquareBracket | Token::CloseCurlyBracket => return false,
+                Token::Function(_) | Token::ParenthesisBlock | Token::SquareBracketBlock | Token::CurlyBracketBlock => {
+                    // A `var()` fallback is itself a <declaration-value>, so
+                    // a `;` inside it is invalid too.
+                    let is_var = matches!(&tok, Token::Function(f) if f.eq_ignore_ascii_case("var"));
+                    match p.parse_nested_block(|i| Ok::<bool, ParseError<()>>(walk(i, is_var))) {
+                        Ok(true) => {}
+                        _ => return false,
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    let mut p = CssParser::new(raw);
+    walk(&mut p, true)
+}
+
+/// Decodes CSS escapes (`\30 `, `\27`, `\x`) in an identifier.
+pub(crate) fn css_unescape(s: &str) -> String {
+    if !s.contains('\\') {
+        return s.to_string();
+    }
+    let mut out = String::new();
+    let mut it = s.chars().peekable();
+    while let Some(c) = it.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        let mut hex = String::new();
+        while hex.len() < 6 && it.peek().is_some_and(|c| c.is_ascii_hexdigit()) {
+            hex.push(it.next().unwrap());
+        }
+        if hex.is_empty() {
+            if let Some(n) = it.next() {
+                out.push(n);
+            }
+        } else {
+            if it.peek().is_some_and(|c| c.is_whitespace()) {
+                it.next();
+            }
+            let cp = u32::from_str_radix(&hex, 16).unwrap_or(0xFFFD);
+            out.push(char::from_u32(cp).filter(|&c| c != '\0').unwrap_or('\u{FFFD}'));
+        }
+    }
+    out
 }
 
 /// Replaces every `var(--name)` / `var(--name, <fallback>)` call in
@@ -5618,7 +5692,16 @@ pub(crate) fn substitute_css_vars(css: &str, lookup: &dyn Fn(&str) -> Option<Str
         if css[i..].starts_with("var(") && is_var_call_boundary(bytes, i) {
             let call_start = i + "var(".len();
             if let Some(call_end) = matching_close_paren(bytes, call_start) {
-                out.push_str(&resolve_var_call(&css[call_start..call_end], lookup)?);
+                // Q57d: substitution is token-level, so a substituted value
+                // never fuses with an adjacent token (`var(--a)var(--b)`).
+                let v = resolve_var_call(&css[call_start..call_end], lookup)?;
+                if v.is_empty() {
+                    out.push_str(&v);
+                } else {
+                    out.push(' ');
+                    out.push_str(v.trim());
+                    out.push(' ');
+                }
                 i = call_end + 1;
                 continue;
             }
@@ -5681,7 +5764,7 @@ pub(crate) fn resolve_var_call(inner: &str, lookup: &dyn Fn(&str) -> Option<Stri
         Some(idx) => (inner[..idx].trim(), Some(inner[idx + 1..].trim())),
         None => (inner.trim(), None),
     };
-    if let Some(v) = lookup(name) {
+    if let Some(v) = lookup(&css_unescape(name)) {
         return Some(v);
     }
     match fallback {

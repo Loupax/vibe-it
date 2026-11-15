@@ -1046,10 +1046,17 @@ pub(crate) fn expand_var_decls(
             }
             let mut src = String::new();
             for (name, raw) in &d.var_decls {
-                src.push_str(name);
-                src.push(':');
-                src.push_str(&substitute_css_vars(raw, lookup).unwrap_or_default());
-                src.push(';');
+                // Q57b: a value that is invalid at computed-value time makes
+                // the property `unset` instead of dropping the declaration.
+                let value = substitute_css_vars(raw, lookup).unwrap_or_default();
+                let one = format!("{name}:{value};");
+                let (n, i) = parse_declarations_split(&one);
+                if n == Declarations::default() && i == Declarations::default() {
+                    src.push_str(name);
+                    src.push_str(if strip_important(raw).is_some() { ":unset !important;" } else { ":unset;" });
+                } else {
+                    src.push_str(&one);
+                }
             }
             Some(parse_declarations_split(&src))
         })

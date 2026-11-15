@@ -6229,3 +6229,9 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > Do ONLY Q56: `<img width="NN%">`/`height="NN%"` attributes are percentages (W18); test, WPT, screenshot, PROMPTS entry, tick Q56.
 
 **What changed:** new `img_size_length` in `images.rs` parses a trailing `%` (stored as a fraction `BoxLength::Percent`) before falling back to the unitless pixel form; used by `resolve_img` and `resolve_inline_svg`. WPT 172 -> 174 (`background-001`, `block-replaced-width-006`), no regressions. Clippy stays at 32 warning lines; 347 tests pass. Screenshot: live Wikipedia "Cat" via `--socket /run/user/1001/wire.sock`, images render.
+
+## Q57 — var() correctness (queue item)
+
+> Do ONLY Q57: `var()` correctness (W22): reject invalid custom property values at parse, invalid-at-computed-time means `unset`, escaped custom property names, adjacent `var()` calls, `@supports` with `var()`; test, WPT, screenshot, PROMPTS entry, tick Q57.
+
+**What changed:** `valid_declaration_value` drops custom property declarations containing `!`, bad tokens, unmatched closers or a `;` (also inside `var()` fallbacks); `expand_var_decls` seeds `unset` when the substituted declaration fails to parse; `css_unescape` decodes escaped names in `var()`; substitution pads values with spaces so adjacent calls do not fuse, and `color`/`background-color` reject trailing tokens (`only_important_left`). `@supports (--a: var(--b,!))` is now false via the parse check. WPT 174 -> 187. Existing quoted-string test expectation updated for the padding.
