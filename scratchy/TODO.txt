@@ -908,7 +908,7 @@ touching the user's desktop: use it for the live check of each item.
       counter doesn't advance and `js_key` returns true without dispatching.
       After `restore_saved_page` the engine is back. Live check: the R10
       repro renders the full help page, and keys go to the vim bindings.
-- [x] QB7 [S] (P2) Render `text/plain` responses instead of refusing them.
+- [x] QB7 [S] (bc309d2) (P2) Render `text/plain` responses instead of refusing them.
       `dispatch_wire_response` maps anything that isn't HTML or an image to
       `can't render this content type`, so an unreachable host shows that
       instead of wire's 502 body ("upstream request failed: … Dns Failed …
