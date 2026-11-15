@@ -9778,3 +9778,26 @@ fn negative_text_indent_applies_on_the_mixed_inline_path_too_qw2() {
     assert!(without > 20, "control: the label must paint without text-indent (got {without} red px)");
     assert_eq!(with, 0, "text-indent:-9999px must push the first mixed-inline line off-screen (got {with} red px)");
 }
+
+// ---------- Q35b3: HN vote arrow column ----------
+
+fn hn_vote_row_html(arrow_display: &str) -> String {
+    format!(
+        r#"<style>.votearrow{{width:10px;height:10px;border:0;margin:3px 2px 6px;background:url('grayarrow.gif') no-repeat;{arrow_display}}} td{{font-size:10pt}}</style>
+<table border="0" cellpadding="0" cellspacing="0" width="85%"><tr class="athing"><td valign="top" class="votelinks"><center><a href="vote?id=1"><div class="votearrow" title="upvote"></div></a></center></td><td class="title"><span class="titleline"><a href="https://example.com/">Old Bitly Links Are Being Hijacked</a></span></td></tr></table>"#
+    )
+}
+
+#[test]
+fn hn_vote_arrow_div_in_center_anchor_gets_its_own_column_wide_enough() {
+    // Real HN: block-level `div.votearrow` (10px + 2px side margins) inside
+    // `<center><a>` in a narrow cell; the column must fit its margin box and
+    // the title cell must start to its right (Q35b3).
+    for d in ["", "display:inline-block"] {
+        let laid = measure_fixture(&hn_vote_row_html(d), 900.0);
+        let cells = find_table_row_cells(&laid).expect("table row not found");
+        assert_eq!(cells.len(), 2);
+        assert!(cells[0].w >= 14.0 - 0.01, "vote column {} fits 10px + 2*2px margins ({d})", cells[0].w);
+        assert!(cells[1].x >= cells[0].x + 14.0 - 0.01, "title cell x {} starts right of the arrow ({d})", cells[1].x);
+    }
+}
