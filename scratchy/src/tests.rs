@@ -5947,6 +5947,17 @@ fn dispatch_wire_response_errors_on_an_unsupported_content_type() {
 }
 
 #[test]
+fn qb7_text_plain_is_wrapped_in_an_escaped_pre() {
+    let out = dispatch_wire_response(Some("text/plain; charset=utf-8".to_string()), b"a<b\n  c".to_vec()).unwrap();
+    let html = String::from_utf8(out).unwrap();
+    assert!(html.contains("a&lt;b\n  c</pre>"), "{html}");
+    let out = dispatch_wire_response(Some("text/plain; charset=ISO-8859-1".to_string()), vec![b'a', 0xE9]).unwrap();
+    assert!(String::from_utf8(out).unwrap().contains("a\u{e9}</pre>"));
+    let out = dispatch_wire_response(Some("text/plain".to_string()), b"\nx".to_vec()).unwrap();
+    assert!(String::from_utf8(out).unwrap().contains("<pre style=\"white-space:pre-wrap\">\n\nx"));
+}
+
+#[test]
 fn dispatch_wire_response_errors_clearly_when_there_is_no_content_type_at_all() {
     assert!(dispatch_wire_response(None, vec![1, 2, 3]).is_err());
 }

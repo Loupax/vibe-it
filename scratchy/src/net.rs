@@ -223,8 +223,25 @@ pub(crate) fn dispatch_wire_response(content_type: Option<String>, body: Vec<u8>
     match mime.as_str() {
         "text/html" => Ok(decode_html_bytes(&body, content_type_charset(&content_type)).into_bytes()),
         "image/png" | "image/jpeg" | "image/gif" | "image/webp" => Ok(wrap_image_as_html(&mime, &body)),
+        "text/plain" => Ok(wrap_text_as_html(&decode_text_bytes(&body, content_type_charset(&content_type)))),
         _ => Err(format!("can't render this content type: {mime:?}")),
     }
+}
+
+/// Decodes a `text/plain` body: the `charset` parameter if recognised,
+/// else UTF-8 (lossy). No `<meta>` sniffing — it isn't HTML.
+fn decode_text_bytes(bytes: &[u8], header: Option<&'static encoding_rs::Encoding>) -> String {
+    header.unwrap_or(encoding_rs::UTF_8).decode_with_bom_removal(bytes).0.into_owned()
+}
+
+/// Wraps plain text in a synthetic HTML document: an escaped `<pre>`
+/// (whitespace preserved, monospace from the UA sheet, long lines wrap
+/// so wire's one-line error bodies stay readable). Same "everything
+/// reaches the one HTML path" idea as `wrap_image_as_html`.
+pub(crate) fn wrap_text_as_html(text: &str) -> Vec<u8> {
+    // A leading newline right after `<pre>` is dropped by the HTML parser.
+    let lead = if text.starts_with('\n') { "\n" } else { "" };
+    format!(r#"<html><body><pre style="white-space:pre-wrap">{lead}{}</pre></body></html>"#, escape_html(text)).into_bytes()
 }
 
 /// What connecting to `wire` and reading one full response back came out
