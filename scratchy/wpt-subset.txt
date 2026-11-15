@@ -17,6 +17,7 @@ css/CSS2/normal-flow/block-in-inline-remove-005-ref.xht
 css/CSS2/normal-flow/block-non-replaced-height-011.xht
 css/CSS2/normal-flow/block-non-replaced-width-005.xht
 css/CSS2/normal-flow/block-replaced-height-005.xht
+css/CSS2/normal-flow/blocks-011.xht
 css/CSS2/normal-flow/blocks-012.xht
 css/CSS2/normal-flow/blocks-018.xht
 css/CSS2/normal-flow/blocks-026.xht

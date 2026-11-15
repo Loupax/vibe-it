@@ -207,7 +207,8 @@ PASS css/CSS2/normal-flow/block-non-replaced-height-011.xht
 PASS css/CSS2/normal-flow/block-non-replaced-width-005.xht
 PASS css/CSS2/normal-flow/block-replaced-height-005.xht
 FAIL css/CSS2/normal-flow/block-replaced-width-006.xht
-FAIL css/CSS2/normal-flow/blocks-012.xht
+PASS css/CSS2/normal-flow/blocks-011.xht
+PASS css/CSS2/normal-flow/blocks-012.xht
 FAIL css/CSS2/normal-flow/blocks-018.xht
 PASS css/CSS2/normal-flow/blocks-026.xht
 PASS css/CSS2/normal-flow/height-067.xht

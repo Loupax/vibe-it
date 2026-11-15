@@ -6211,3 +6211,9 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > Do ONLY Q53: reject values CSS says are invalid (W5): negative `padding-*`, `border-*-width`, `max-*`, `min-*`, `flex-basis`, `width`, `height`; test, WPT, screenshot, PROMPTS entry, tick Q53.
 
 **What changed:** padding already dropped negatives; new `is_negative_length`/`set_nonneg_length` now also drop them for `width`, `height`, `min-*`, `max-*`, `flex-basis`, `border-width`, `border-*-width` and the `border` shorthand width. Test `q53_negative_sizes_are_dropped`. `cargo clippy --all-targets` 39 warning lines before and after. WPT: added `padding-right-001`, `max-height-001`, `border-top-width-012`, `flex-basis-003` to the subset; 164 -> 168 pass, 0 regressions, expectations updated. `grim` screenshot of a local page with negative padding/border/max-height. Left out: Q53a (`parse_box4` keeps the valid prefix). Paint untouched, no AUTOSCROLL run.
+
+## Q54 — over-constrained auto width (queue item)
+
+> Do ONLY Q54: a `width:auto` block whose borders+padding exceed the container overflows at full border width (W6); test, WPT, screenshot, PROMPTS entry, tick Q54.
+
+**What changed:** in `box_model_entry`, the auto border-box width is floored at the box's own border+padding (`auto_border_w.max(extra_w)`), so it overflows instead of being clamped to the container. Test `q54_overconstrained_auto_width_overflows`. `cargo test` 345 passed (5 ignored); clippy 32 warnings before and after. WPT: added `blocks-011` to the subset; `blocks-012` flipped to pass; 168 -> 170 pass (one new test, one flip), 0 regressions, expectations updated. `grim` screenshot of a local page (180px bordered box in a 120px container). Paint untouched, no AUTOSCROLL run.

@@ -1371,6 +1371,10 @@ pub(crate) fn box_model_entry(
         Some(mb) => (mb - margin_left - margin_right).max(0.0),
         None => (width - margin_left - margin_right).max(0.0),
     };
+    // CSS2.1 10.3.3 over-constrained: borders+padding wider than the
+    // containing block overflow it at full width; auto width never
+    // shrinks the border box below its own borders and padding.
+    let auto_border_w = auto_border_w.max(extra_w);
     let border_w = clamp_box_dim(s.width, s.min_width, s.max_width, auto_border_w, s.box_sizing, extra_w);
     let content_x = border_x + s.border_left() + padding_left;
     let content_y = border_y + s.border_top() + padding_top;
