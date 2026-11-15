@@ -9799,6 +9799,9 @@ fn hn_vote_arrow_div_in_center_anchor_gets_its_own_column_wide_enough() {
         assert_eq!(cells.len(), 2);
         assert!(cells[0].w >= 14.0 - 0.01, "vote column {} fits 10px + 2*2px margins ({d})", cells[0].w);
         assert!(cells[1].x >= cells[0].x + 14.0 - 0.01, "title cell x {} starts right of the arrow ({d})", cells[1].x);
+    }
+}
+
 // ---------- QA10: anonymous table objects (CSS 2.1 17.2.1) ----------
 
 #[test]
