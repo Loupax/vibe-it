@@ -989,7 +989,7 @@ Not vendored; pass the path to the runner.
 - [ ] Q57a [S] Strict full-value parsing for all properties (leftover tokens make the
       declaration invalid) and `unset` semantics for inline-style var() declarations.
 
-- [x] Q40c [L] (HASH) Audit the areas Q40b did not reach, same method and write-up:
+- [x] Q40c [L] (dacd49d) Audit the areas Q40b did not reach, same method and write-up:
       css-grid (only what Q15 claims), css-cascade, css-pseudo,
       css-content, css-overflow, css-masking, css-text-decor, css-color,
       mediaqueries, css-conditional, css-sizing, html/rendering, acid2. Also
