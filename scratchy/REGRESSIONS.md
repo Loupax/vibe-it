@@ -41,7 +41,7 @@ Tests (in `src/tests.rs`, via `run_scripts_with` with a collecting
   (strict stays opt-in).
 Re-check: the portal no longer logs `portalSearchDomain is not defined`.
 
-### R6 — Script errors lose the message and the script name (bug, Q33a `2646dd1`) — FIXED (741839f)
+### R6 — Script errors lose the message and the script name (bug, Q33a `2646dd1`) — FIXED (a56d276)
 
 Symptoms in the report:
 - `js error: Uncaught     at <anonymous> (eval_script:1:32) …` — no

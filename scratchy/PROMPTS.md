@@ -6307,6 +6307,7 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > Do ONLY QJ3: `scratchy --js-report [--socket S] <file>`, headless, runs the page's scripts with a collecting log, prints error lines plus a summary (scripts run, errors total, grouped by first line); record baseline counts for the 3 corpus pages.
 
 **What changed:** `js.rs` `js_report_main` / `js_report_for_html` / `js_report_for_scripts`, dispatched in `lib.rs` `run()` beside `--wpt`. With `--socket`, external scripts are fetched via `fetch_scripts` against the page's `<base href>` (what `snag` emits) else the file URL; without, inline scripts only. Test `qj3_js_report_counts_scripts_and_errors`. Clippy 32 warning lines before and after; 371 tests pass. Baseline errors/scripts: wikipedia.org portal 4/4, en.wikipedia Main_Page 2/4, SoHo_Weekly_News 2/4. No window/paint change, so no grim screenshot.
+
 ## QJ2 — JS error lines: name, message, numbered inline scripts, R6 (queue item)
 
 > Do ONLY QJ2: fix REGRESSIONS.md R6, error lines carry `Name: message`, inline scripts numbered, non-Error throws formatted via JS String().

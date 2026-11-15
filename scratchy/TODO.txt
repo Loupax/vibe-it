@@ -790,7 +790,7 @@ with JS on than with `--no-js` (compare `grim` screenshots of both).
       mode (`eval_with_options`, `strict = false`, `filename =` the
       script name). Root cause, fix and tests are in R5. Mark R5 FIXED
       with the hash.
-- [x] QJ2 [S] (741839f) Fix REGRESSIONS.md R6: error lines carry `Name: message`
+- [x] QJ2 [S] (a56d276) Fix REGRESSIONS.md R6: error lines carry `Name: message`
       for listener exceptions, number inline scripts (`inline script #3`)
       and use that as the stack filename, format non-Error throws with
       JS `String()`. Details and tests in R6. Mark R6 FIXED with the hash.
