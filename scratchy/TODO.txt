@@ -1249,7 +1249,7 @@ into the commit message of every JS item.
       walk). Test: `<div style=position:relative;z-index:2;background:lime>`
       followed by an unrelated `position:fixed` black box over it: the
       lime box wins the pixel.
-- [x] QA10 [S] (done, commit HASH) Promoted for Acid2 line 14: do Q50a now, with this extra
+- [x] QA10 [S] (done, commit b2ccdb1) Promoted for Acid2 line 14: do Q50a now, with this extra
       repro: `<div style=display:table><div style=display:table-cell>…`
       ×3 (no row) renders nothing at all, and a block child of a
       `display:table` between cells drops the cells. Tick Q50a too.
