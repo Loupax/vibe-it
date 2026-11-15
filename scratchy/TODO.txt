@@ -893,7 +893,7 @@ Not vendored; pass the path to the runner.
       leading-space trim. Left out: `<br>` as a direct child of a flex
       container (anonymous item drops it), `clear` on `<br>`, trailing
       spaces before a `<br>` are not trimmed (Q41a).
-- [x] Q41a [S] (HASH_Q41A; trailing-space trim done; clear / flex-child left as Q41b) `<br>` leftovers: `<br clear=...>`/`br{clear}`, trailing
+- [x] Q41a [S] (67208f5; trailing-space trim done; clear / flex-child left as Q41b) `<br>` leftovers: `<br clear=...>`/`br{clear}`, trailing
       collapsible space before `<br>` should not count toward line width
       (matters for `text-align:right/center`), `<br>` directly inside a flex
       container, `<br>` with `display:block` (counts as a line break only).
