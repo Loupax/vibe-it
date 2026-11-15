@@ -95,7 +95,7 @@ replace the Unicode-whitespace calls on rendered text, including
 leaves an earlier colour, `background: red pink` gives pink, and `fixed`
 is dropped silently. Fixed by QA4: the shorthand resets colour/image/position/size/repeat, parses attachment/box keywords (ignored; QA8 will render `fixed`), and any junk, second colour or colour before a comma drops the declaration.
 
-### R16 — `data:` URLs: escaped base64 not decoded, and data: scripts/stylesheets go to wire (bug) — FIXED (QA5, HASH)
+### R16 — `data:` URLs: escaped base64 not decoded, and data: scripts/stylesheets go to wire (bug) — FIXED (QA5, 849aae3)
 
 `decode_data_uri` base64-decodes without percent-decoding first, so
 `%2F`/`%3D` payloads (all of Acid2's images) fail. `<script src=data:…>`
