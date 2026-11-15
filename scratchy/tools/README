@@ -41,5 +41,5 @@ Known quirks:
 - Nested dwl delivers a pointer motion to the client only when the next one
   arrives, so a final `move:` used to be lost (QB3b). The injector now
   repeats the last position once before each `wait:` and at exit.
-- `key:g key:g` did not return to top in the QB10 check (j/k and wheel
-  scrolling and link clicks all worked); not investigated.
+- `key:g key:g` does nothing because scratchy has no `gg` binding (see QB12 in
+  TODO.txt); it is not an injector problem.

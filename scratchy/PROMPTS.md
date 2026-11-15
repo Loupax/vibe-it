@@ -6456,3 +6456,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Implement QB8 from the TODO.txt queue: `document.currentScript` set to the executing `<script>` element during script evaluation and null otherwise (bbc.com's turbopack chunks read it); name event/timer eval stack frames instead of `timers`.
 
 **What changed:** `ScriptSource` gained `index: Option<usize>` (the script's position among runnable `<script>` elements, same order as `find_external_resources`). `start_scripts` collects those elements (`collect_script_elements`), and around each script calls the JS-side `__scratchy_cs(id)` setter (id -1 = null) so `document.currentScript` (an accessor in `DOM_PRELUDE`) returns the wrapped element only while that script runs. `JsEngine::eval_value` takes a label used as the eval filename and error prefix: `event:<type>` for `dispatch_event`, `timer` for timers, so a listener exception reads `at <eval> (event:click:1:1)`. Tests `qb8_*` in `src/tests.rs`.
+
+## gg scroll-to-top check (follow-up to QB10)
+
+> The QB10 agent noticed `key:g key:g` does not return to the top; check app.rs key handling, fix if it is a clear bug, otherwise add a precise TODO item instead of inventing behaviour.
+
+**What changed:** no code. `resolve_binding` binds only `j k Ctrl-d Ctrl-u : h l`; there is no pending-key state and `:help` (help.html) does not document `gg`, and TODO.txt already lists `gg`/`G` as "still fully open". So it is missing functionality, not a bug. Added TODO item QB12 (`gg`/`G` design: new Actions, pending-`g` flag, help entry, tests, live check) and corrected the tools/README quirk note. Not run live: reading the code was conclusive and nothing under `src/` changed.
