@@ -124,12 +124,15 @@ layout containing the target landed mid-page on Wikipedia (earlier content
 still growing); it now re-applies until the first complete layout. Live:
 Wikipedia `#References` and acid2 `#top` open at their targets.
 
-### R19 — Shrink-to-fit width ignores floats (bug) — OPEN
+### R19 — Shrink-to-fit width ignores floats (bug) — FIXED (QA7, 00530a0)
 
 `resolve_positioned` sizes `width:auto` from `cell_natural_width`, which
 doesn't count floated children: a box containing only a 48px float is 0px
 wide (Acid2 line 2) or takes the whole available width (Acid2 smile).
-Fix: QA7.
+Fix: QA7: a floated descendant with a px `width` now contributes it to the
+intrinsic widths and adjacent floats sum (live: Acid2 head top correct). A
+float beside inline text and non-float block/inline-block widths are left
+for QA7a/QA7b.
 
 Also seen, not filed separately: with no compositor (`WAYLAND_DISPLAY`
 pointing at a dead socket) scratchy panics at `run()`'s

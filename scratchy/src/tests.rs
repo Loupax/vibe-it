@@ -7506,6 +7506,29 @@ fn q44_abspos_auto_width_is_shrink_to_fit() {
 }
 
 #[test]
+fn qa7_abspos_shrink_to_fit_counts_float_children() {
+    let abs_w = |inner: &str, style: &str| {
+        let laid = measure_fixture(
+            &format!(r#"<html><body><div style="position: relative; width: 300px; height: 100px;"><div style="position: absolute; left: 0; top: 0; {style}">{inner}</div></div></body></html>"#),
+            400.0,
+        );
+        let container = find_by_width(&laid, 300.0).expect("container");
+        container.positioned[0].w
+    };
+    let fl = r#"<div style="float:right;width:48px;height:12px"></div>"#;
+    assert_eq!(abs_w(fl, ""), 48.0, "abspos holding only a 48px float is 48 wide");
+    assert_eq!(
+        abs_w(fl, "border-left:24px solid;border-right:24px solid;"),
+        96.0,
+        "borders add to the float's width"
+    );
+    let two = r#"<div style="float:left;width:30px;height:5px"></div><div style="float:left;width:20px;height:5px"></div>"#;
+    assert_eq!(abs_w(two, ""), 50.0, "adjacent floats sum for max-content");
+    let nested = r#"<div><div style="float:left;width:40px;height:5px"></div></div>"#;
+    assert_eq!(abs_w(nested, ""), 40.0, "float inside a plain block child");
+}
+
+#[test]
 fn abspos_box_contains_its_floats_including_bottom_margin() {
     // Q45 / W11: an abspos box is a BFC, so its auto height includes floats.
     let laid = measure_fixture(
