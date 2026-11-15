@@ -873,13 +873,20 @@ pub(crate) fn paint_buffer(
     // `glyph.metadata`, the same per-span index `paint_span_backgrounds`
     // already reads it by).
     buffer.shape_until_scroll(font_system, false);
+    // cosmic-text's `LegacyRenderer` hands the callback the glyph mask's
+    // coverage as the colour's alpha, dropping the span colour's own alpha
+    // (so `color: transparent` / `rgba(..., .5)` text painted opaque, Q33c3).
+    // Each glyph's real alpha is stashed here and multiplied back in.
+    let glyph_alpha = std::cell::Cell::new(255u8);
     let mut renderer = LegacyRenderer {
         font_system,
         cache: swash_cache,
         callback: |x: i32, y: i32, w: u32, h: u32, color: TextColor| {
-            if color.a() == 0 {
+            let a = (color.a() as u32 * glyph_alpha.get() as u32 + 127) / 255;
+            if a == 0 {
                 return;
             }
+            let color = TextColor::rgba(color.r(), color.g(), color.b(), a as u8);
             for dy in 0..h as i32 {
                 for dx in 0..w as i32 {
                     let px = x + dx + ox;
@@ -911,6 +918,10 @@ pub(crate) fn paint_buffer(
                 .y_shift(glyph.font_size);
             let physical_glyph = glyph.physical((0., run.line_y + y_shift), 1.0);
             let glyph_color = glyph.color_opt.unwrap_or(default_color);
+            if glyph_color.a() == 0 {
+                continue;
+            }
+            glyph_alpha.set(glyph_color.a());
             renderer.glyph(physical_glyph, glyph_color);
         }
         paint_decorations(&mut renderer, &run, default_color, decoration_styles);

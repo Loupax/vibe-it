@@ -5830,6 +5830,11 @@ pub(crate) fn resolve_var_call(inner: &str, lookup: &dyn Fn(&str) -> Option<Stri
     }
 }
 
+fn float_text_color(r: f32, g: f32, b: f32, a: f32) -> TextColor {
+    let c = |v: f32| (v.clamp(0.0, 1.0) * 255.0).round() as u8;
+    TextColor::rgba(c(r), c(g), c(b), c(a))
+}
+
 pub(crate) fn to_text_color(color: &CssColor) -> Option<TextColor> {
     match color {
         CssColor::Rgba(rgba) => Some(TextColor::rgba(
@@ -5838,6 +5843,27 @@ pub(crate) fn to_text_color(color: &CssColor) -> Option<TextColor> {
             rgba.blue,
             (rgba.alpha * 255.0).round() as u8,
         )),
+        // `hsl()`/`hsla()`/`hwb()` come back as their own variants, not
+        // `Rgba`; without these arms the whole declaration was dropped
+        // (Q33c3: `color: hsla(0,0%,100%,0)` fell back to opaque black).
+        CssColor::Hsl(h) => {
+            let hue = h.hue.unwrap_or(0.0).rem_euclid(360.0) / 360.0;
+            let (r, g, b) = cssparser_color::hsl_to_rgb(
+                hue,
+                h.saturation.unwrap_or(0.0).clamp(0.0, 1.0),
+                h.lightness.unwrap_or(0.0).clamp(0.0, 1.0),
+            );
+            Some(float_text_color(r, g, b, h.alpha.unwrap_or(1.0)))
+        }
+        CssColor::Hwb(h) => {
+            let hue = h.hue.unwrap_or(0.0).rem_euclid(360.0) / 360.0;
+            let (r, g, b) = cssparser_color::hwb_to_rgb(
+                hue,
+                h.whiteness.unwrap_or(0.0).clamp(0.0, 1.0),
+                h.blackness.unwrap_or(0.0).clamp(0.0, 1.0),
+            );
+            Some(float_text_color(r, g, b, h.alpha.unwrap_or(1.0)))
+        }
         _ => None,
     }
 }

@@ -1335,6 +1335,18 @@ pub(crate) fn resolve_style_for(
         ROOT_STYLE.color,
         |c| to_text_color(&c),
     );
+    // A closed `<select>` paints its selected option's text in the
+    // select's own colour (as browsers do); an `option`'s own `color` only
+    // matters in the popup list, which scratchy doesn't draw. Q33c3: the
+    // portal sets `select{color:transparent}` and `select option{color:grey}`.
+    let color = if pseudo.is_none()
+        && element_tag(handle) == "option"
+        && parent_handle(handle).is_some_and(|p| matches!(element_tag(&p), "select" | "optgroup" | "datalist"))
+    {
+        inherited.color
+    } else {
+        color
+    };
     let background_color = apply_wide(
         cascade_css(&matches, inl, "background-color", |d| d.background_color),
         false,
