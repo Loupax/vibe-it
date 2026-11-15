@@ -6474,3 +6474,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Implement TODO.txt item QB12 (vim-style `gg` = scroll to top, `G` = scroll to bottom), standard vim behaviour; pending `g` cleared by any other key and Esc; keep page JS keydown first; add Home/End if trivially the same Actions; update help; tests; live check.
 
 **What changed:** `Action::ScrollTop`/`ScrollBottom`; `G`, `End` -> bottom, `Home` -> top in `resolve_binding`; new pure `resolve_pending_g` plus `App::pending_g` for `gg` (cleared by any other key, by Command mode and by vim off; page JS keydown still fires first and preventDefault still wins since the vim handler is never reached). Bottom sets `scroll_offset = f32::MAX`, clamped by `redraw` like `j`. help.html lists the keys. Tests: `resolve_binding_maps_capital_g_and_home_end_to_scroll_extremes`, `pending_g_double_g_scrolls_top_and_other_keys_clear` (pure, no display). Live (nested dwl + injector, HN): `G` showed ranks 8-30 + footer, `gg` returned to the top, `g j g` and `g esc g` did not scroll, `:` `g g` did not scroll, `Home` matched `gg` byte-for-byte. Not tested live: a page with a keydown handler that preventDefaults `g`, text-field focus (no such vim-path consumer exists).
+
+## QA1: `border-style` initial value is `none`
+
+> Implement QA1: `border-style` defaults to `none`, not `solid` (R13); check WPT and real pages before/after.
+
+**What changed:** `BorderStyle`'s `#[default]` moved from `Solid` to `None` (css.rs); no other code, the UA sheet already names styles where it wants borders. Test `qa1_border_style_initial_value_is_none` (fails without the fix). WPT 249 pass before and after, no change. Screenshots (nested dwl): a `*{border:1px blue}` fixture lost all outlines (hr kept); en.wikipedia Main_Page, wikipedia.org and news.ycombinator.com identical to a baseline build. Left out: shorthand reset of omitted style/width (QA1a, Q52).

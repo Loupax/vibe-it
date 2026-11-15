@@ -765,7 +765,7 @@ Acid3: `--js-report` on the per-test harness described in REGRESSIONS.md
 "Acid3" (score 28/100 at `e7a090d`); paste the before/after harness score
 into the commit message of every JS item.
 
-- [ ] QA1 [S] (P1, R13) `border-style` initial value is `none`, not
+- [x] QA1 [S] (P1, R13) (done, commit HASH) `border-style` initial value is `none`, not
       `solid`. `BorderStyle::default()` is `Solid` (`#[default]` on the
       variant in css.rs), and `compute_style` in style.rs uses
       `.unwrap_or_default()` for an undeclared style, so `border: 1px blue`
@@ -779,6 +779,17 @@ into the commit message of every JS item.
       blue}` has `border_width == [0;4]`; `div{border:4px solid blue}`
       still 4. Run WPT: expect new passes; a test that only passed because
       of this bug is a real regression to investigate, not to hide.
+      Done: `#[default]` moved to `BorderStyle::None`. UA sheet needed no
+      change (`hr`, `dialog` and the form-control rules name a style). WPT
+      unchanged (249 pass). Left out / interplay: the `border` shorthand
+      still does not reset an omitted style (a later `border: 1px blue`
+      keeps an earlier `solid`), nor width to `medium` (Q52, still BLOCKED
+      on Q52b/Q52c1; with a default of `none` Q52 now only matters once a
+      style is declared). See QA1a.
+- [ ] QA1a [S] `border` / `border-<side>` shorthand resets omitted parts:
+      style to `none`, width to `medium`, colour to currentColor (today only
+      the parts present are written, so `border: 1px blue` after
+      `border: solid` stays solid). Fold in with Q52.
 - [ ] QA2 [S] (P1, R14) U+00A0 (`&nbsp;`) is not collapsible white space.
       Rust's `str::trim()` / `char::is_whitespace` include NBSP, so a block
       whose text is only `&nbsp;` gets height 0: `has_text` in

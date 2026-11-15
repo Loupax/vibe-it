@@ -9099,3 +9099,25 @@ fn qb8_event_and_timer_errors_name_their_frame() {
     assert!(out.iter().any(|l| l.contains("tick") && l.contains("timer")), "{out:?}");
     assert!(out.iter().all(|l| !l.contains("(timers:1:1)")), "{out:?}");
 }
+
+#[test]
+fn qa1_border_style_initial_value_is_none() {
+    let div_of = |style: &str, width: f32| {
+        let html = format!(r#"<html><body><div style="width: {width}px; {style}">x</div></body></html>"#);
+        let laid = measure_fixture(&html, 500.0);
+        find_by_width(&laid, width).expect("div not found").style
+    };
+    let s = div_of("border: 4px blue;", 311.0);
+    assert_eq!(s.border_width, [0.0; 4]);
+    assert_eq!(s.border_style, [BorderStyle::None; 4]);
+    let s = div_of("border-width: 4px;", 312.0);
+    assert_eq!(s.border_width, [0.0; 4]);
+    let s = div_of("border: 4px solid blue;", 313.0);
+    assert_eq!(s.border_width, [4.0; 4]);
+    let s = div_of("border-top: 4px solid blue;", 314.0);
+    assert_eq!(s.border_width, [4.0, 0.0, 0.0, 0.0]);
+    // The UA sheet's own borders still name a style.
+    let laid = measure_fixture(r#"<html><body><hr style="width: 321px"></body></html>"#, 500.0);
+    let hr = find_by_width(&laid, 321.0).expect("hr not found").style;
+    assert_eq!(hr.border_width, [1.0; 4]);
+}
