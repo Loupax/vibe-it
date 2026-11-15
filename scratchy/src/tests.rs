@@ -9137,6 +9137,54 @@ fn qa2_nbsp_only_line_has_height() {
     assert_eq!(qa2_body_h("<div> </div>"), 0.0);
 }
 
+// ---------- QA4: `background` shorthand resets omitted longhands, rejects junk ----------
+
+/// Computed background colour of the 13x13 div under the stylesheet `css`.
+fn qa4_bg(css: &str) -> Option<TextColor> {
+    let html = format!(r#"<html><head><style>{css}</style></head><body><div style="width:13px;height:13px"></div></body></html>"#);
+    let laid = measure_fixture(&html, 200.0);
+    find_by_width(&laid, 13.0).expect("div not found").style.background_color
+}
+
+fn qa4_rgb(c: Option<TextColor>) -> (u8, u8, u8) {
+    let c = c.expect("a background colour");
+    (c.r(), c.g(), c.b())
+}
+
+fn qa4_visible_red(c: Option<TextColor>) -> bool {
+    c.is_some_and(|c| c.a() > 0 && c.r() == 255 && c.g() == 0)
+}
+
+#[test]
+fn qa4_background_none_resets_earlier_color() {
+    assert!(qa4_visible_red(qa4_bg("div{background:red}")));
+    assert!(!qa4_visible_red(qa4_bg("div{background:red} div{background:none}")));
+    assert!(!qa4_visible_red(qa4_bg("div{background:red; background:none}")));
+    // Omitted colour resets to transparent, even with other parts given.
+    assert!(!qa4_visible_red(qa4_bg("div{background-color:red; background:no-repeat}")));
+    // Resets the image too.
+    let src = tiny_png_data_uri(4, 4);
+    let html = format!(r#"<html><head><style>div{{background-image:url('{src}')}} div{{background:red}}</style></head><body><div style="width:13px;height:13px"></div></body></html>"#);
+    let laid = measure_fixture(&html, 200.0);
+    assert!(find_by_width(&laid, 13.0).unwrap().background_image.is_none());
+}
+
+#[test]
+fn qa4_background_junk_drops_whole_declaration() {
+    // Acid2 parser line: two colours is invalid, the earlier yellow stays.
+    assert_eq!(qa4_rgb(qa4_bg("div{background:yellow; background: red pink}")), (255, 255, 0));
+    assert_eq!(qa4_rgb(qa4_bg("div{background:yellow; background: red bogus}")), (255, 255, 0));
+    // A colour before a comma (not the last layer) is invalid.
+    assert_eq!(qa4_rgb(qa4_bg("div{background:yellow; background: red, url(x.png)}")), (255, 255, 0));
+}
+
+#[test]
+fn qa4_background_accepts_attachment_and_box_keywords() {
+    assert_eq!(qa4_rgb(qa4_bg("div{background: blue fixed padding-box content-box}")), (0, 0, 255));
+    assert_eq!(qa4_rgb(qa4_bg("div{background: scroll border-box no-repeat center / cover #00f}")), (0, 0, 255));
+    assert_eq!(qa4_rgb(qa4_bg("div{background: linear-gradient(red, blue) green !important}")), (0, 128, 0));
+}
+
 #[test]
 fn qa2_inline_text_keeps_nbsp_collapses_ascii_ws() {
     let n = TextTransform::None;
