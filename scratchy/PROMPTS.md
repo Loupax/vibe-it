@@ -6438,3 +6438,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Implement QB7 from the TODO.txt queue (R-notes): `text/plain` should render as preformatted text instead of "can't render this content type", so wire's DNS error body is visible.
 
 **What changed:** `dispatch_wire_response` gained a `text/plain` arm: the body is decoded with the `charset` parameter (default UTF-8), HTML-escaped and wrapped by `wrap_text_as_html` in `<pre style="white-space:pre-wrap">` (pre-wrap so wire's long one-line errors wrap in the viewport). HTML, image and other-type handling is unchanged. Test: `qb7_text_plain_is_wrapped_in_an_escaped_pre` (fails without the fix). Live: wikipedia robots.txt shows as monospace text; `http://nonexistent.invalid/` shows "wire: upstream request failed: … Dns Failed … Name or service not known".
+
+## QB10 — commit the virtual-input tool and nested-dwl recipe (queue item)
+
+> Implement QB10 from the TODO.txt queue: commit the virtual-input injector and a nested-compositor recipe so agents can click/type/scroll in scratchy for real.
+
+**What changed:** The original injector source survived in a scratchpad and was committed as `tools/inject/` (own Cargo project, not a dependency of scratchy; `wayland-client` 0.31 plus the wlr virtual-pointer and misc virtual-keyboard protocol crates; embedded `keymap.xkb`). `tools/nest.sh` starts the nested dwl and prints its socket. `tools/README` documents usage; AGENTS.md step 6 now points at it. No code under `src/` changed, so no new unit test. Live (nested dwl, installed scratchy, news.ycombinator.com): wheel `scroll:5` moved the list about four rows, `key:j`/`key:k` scrolled and hovered links underlined, and a `click` on a story link navigated to the PyPI blog page. `key:g key:g` did not return to top (not investigated).
