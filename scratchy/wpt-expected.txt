@@ -165,7 +165,7 @@ FAIL css/CSS2/margin-padding-clear/margin-001.xht
 FAIL css/CSS2/margin-padding-clear/margin-007.xht
 FAIL css/CSS2/margin-padding-clear/margin-applies-to-004.xht
 FAIL css/CSS2/margin-padding-clear/margin-applies-to-013.xht
-FAIL css/CSS2/margin-padding-clear/margin-border-padding-001.xht
+PASS css/CSS2/margin-padding-clear/margin-border-padding-001.xht
 PASS css/CSS2/margin-padding-clear/margin-bottom-007.xht
 PASS css/CSS2/margin-padding-clear/margin-bottom-020.xht
 PASS css/CSS2/margin-padding-clear/margin-bottom-040.xht
@@ -243,7 +243,7 @@ FAIL css/CSS2/positioning/absolute-non-replaced-width-024.xht
 PASS css/CSS2/positioning/absolute-replaced-height-003.xht
 PASS css/CSS2/positioning/absolute-replaced-height-009.xht
 PASS css/CSS2/positioning/absolute-replaced-height-016.xht
-FAIL css/CSS2/positioning/absolute-replaced-height-022.xht
+PASS css/CSS2/positioning/absolute-replaced-height-022.xht
 PASS css/CSS2/positioning/absolute-replaced-height-028.xht
 FAIL css/CSS2/positioning/absolute-replaced-height-034.xht
 PASS css/CSS2/positioning/absolute-replaced-height-035.xht
