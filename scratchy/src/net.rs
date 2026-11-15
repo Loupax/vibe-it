@@ -358,6 +358,26 @@ pub(crate) fn fetch_stylesheet_via_wire(path: &std::path::Path, url: &Url) -> Op
     Some(decode_css_bytes(&body, content_type_charset(&content_type)))
 }
 
+/// Fetches one external script (Q33a). `None` on failure or an HTML
+/// response (an error page is not a script).
+pub(crate) fn fetch_script_via_wire(path: &std::path::Path, url: &Url) -> Option<String> {
+    let request_text = build_get_request_text(url);
+    let WireFetchRaw::Responded { content_type, body } = fetch_raw_via_wire(path, &request_text) else { return None };
+    let content_type = content_type.unwrap_or_default();
+    if content_type.trim_start().to_ascii_lowercase().starts_with("text/html") {
+        return None;
+    }
+    let enc = content_type_charset(&content_type).unwrap_or(encoding_rs::UTF_8);
+    Some(enc.decode_with_bom_removal(&body).0.into_owned())
+}
+
+/// What `process_external_resources` hands back: the concatenated
+/// stylesheets and the scripts ready to run, in document order.
+pub(crate) struct PageResources {
+    pub(crate) css: String,
+    pub(crate) scripts: Vec<ScriptSource>,
+}
+
 /// Maximum `@import` nesting depth `expand_css_imports` follows.
 pub(crate) const MAX_IMPORT_DEPTH: usize = 8;
 
@@ -509,6 +529,8 @@ pub(crate) struct ExternalResources {
     /// needs no fetch, and `resolve_img` never consults `image_cache`
     /// for one anyway).
     pub(crate) images: Vec<String>,
+    /// Each runnable classic `<script>`, in document order (Q33a).
+    pub(crate) scripts: Vec<ScriptRef>,
 }
 
 /// Walks the whole tree (not just `<head>`, same "a malformed document
@@ -528,6 +550,11 @@ pub(crate) fn find_external_resources(handle: &Handle, out: &mut ExternalResourc
                     && let Some(href) = element_attr(handle, "href")
                 {
                     out.stylesheets.push(href.to_string());
+                }
+            }
+            "script" => {
+                if let Some(r) = script_ref(handle) {
+                    out.scripts.push(r);
                 }
             }
             "img" => {
@@ -572,8 +599,8 @@ pub(crate) fn process_external_resources(
     page_url: &Url,
     html: &[u8],
     generation: u64,
-) -> String {
-    let Ok(dom) = new_parser().read_from(&mut &html[..]) else { return String::new() };
+) -> PageResources {
+    let Ok(dom) = new_parser().read_from(&mut &html[..]) else { return PageResources { css: String::new(), scripts: Vec::new() } };
     // The fetched page's own `<base href>`, if it declares one, wins —
     // same priority `resolve_href`'s every other caller already gives
     // an explicit `<base>` over the document's own URL.
@@ -582,7 +609,8 @@ pub(crate) fn process_external_resources(
     find_external_resources(&dom.document, &mut resources);
     let extra_css = fetch_stylesheets(path, &base, &resources.stylesheets);
     spawn_image_fetches(proxy, path, &base, resources.images, generation);
-    extra_css
+    let scripts = fetch_scripts(path, &base, resources.scripts);
+    PageResources { css: extra_css, scripts }
 }
 
 /// Fetch (and `@import`-expand) every stylesheet href against `base`,
@@ -632,13 +660,14 @@ pub(crate) fn start_stream_resources(proxy: &EventLoopProxy<AppEvent>, socket: &
     let mut resources = ExternalResources::default();
     find_external_resources(document, &mut resources);
     spawn_image_fetches(proxy, socket, &base, resources.images, generation);
-    if resources.stylesheets.is_empty() {
+    if resources.stylesheets.is_empty() && resources.scripts.is_empty() {
         return;
     }
-    let (proxy, socket, hrefs) = (proxy.clone(), socket.to_path_buf(), resources.stylesheets);
+    let (proxy, socket, hrefs, refs) = (proxy.clone(), socket.to_path_buf(), resources.stylesheets, resources.scripts);
     thread::spawn(move || {
         let css = fetch_stylesheets(&socket, &base, &hrefs);
-        let _ = proxy.send_event(AppEvent::StreamCss(generation, css));
+        let scripts = fetch_scripts(&socket, &base, refs);
+        let _ = proxy.send_event(AppEvent::StreamCss(generation, css, scripts));
     });
 }
 
@@ -656,8 +685,8 @@ pub(crate) fn file_page_url(path: &str) -> Option<Url> {
 /// Runs synchronously before the window exists, so the stylesheets are
 /// in hand for the first layout; images arrive later through
 /// `AppEvent::ImageFetched` (generation 0, the app's initial one).
-pub(crate) fn load_file_resources(proxy: &EventLoopProxy<AppEvent>, socket: &std::path::Path, path: &str, html: &[u8]) -> (Option<Url>, String) {
-    let Some(url) = file_page_url(path) else { return (None, String::new()) };
-    let css = process_external_resources(proxy, socket, &url, html, 0);
-    (Some(url), css)
+pub(crate) fn load_file_resources(proxy: &EventLoopProxy<AppEvent>, socket: &std::path::Path, path: &str, html: &[u8]) -> (Option<Url>, String, Vec<ScriptSource>) {
+    let Some(url) = file_page_url(path) else { return (None, String::new(), Vec::new()) };
+    let res = process_external_resources(proxy, socket, &url, html, 0);
+    (Some(url), res.css, res.scripts)
 }

@@ -44,11 +44,14 @@ pub(crate) fn classify_input(arg: &str) -> Input {
 pub(crate) struct Args {
     pub(crate) input: Input,
     pub(crate) socket: Option<PathBuf>,
+    /// `--no-js`: scripts never run and `<noscript>` content shows.
+    pub(crate) no_js: bool,
 }
 
 pub(crate) fn parse_args() -> Args {
     let raw: Vec<String> = env::args().skip(1).collect();
     let mut socket = None;
+    let mut no_js = false;
     let mut rest = Vec::new();
     let mut i = 0;
     while i < raw.len() {
@@ -59,6 +62,9 @@ pub(crate) fn parse_args() -> Args {
             };
             socket = Some(PathBuf::from(path));
             i += 2;
+        } else if raw[i] == "--no-js" {
+            no_js = true;
+            i += 1;
         } else {
             rest.push(raw[i].clone());
             i += 1;
@@ -68,11 +74,11 @@ pub(crate) fn parse_args() -> Args {
         0 => Input::Stdin,
         1 => classify_input(&rest[0]),
         _ => {
-            eprintln!("usage: scratchy [--socket <path>] [file|url]");
+            eprintln!("usage: scratchy [--socket <path>] [--no-js] [file|url]");
             std::process::exit(1);
         }
     };
-    Args { input, socket }
+    Args { input, socket, no_js }
 }
 
 /// Charset of a `Content-Type` header value's `charset=` parameter, if
@@ -162,7 +168,11 @@ impl StreamTranscoder {
 }
 
 pub(crate) fn new_parser() -> Utf8LossyDecoder<Parser<RcDom>> {
-    parse_document(RcDom::default(), ParseOpts::default()).from_utf8()
+    // With JS off, `<noscript>` content must parse as real elements
+    // (scripting-disabled tree building) so it can be shown.
+    let mut opts = ParseOpts::default();
+    opts.tree_builder.scripting_enabled = js_enabled();
+    parse_document(RcDom::default(), opts).from_utf8()
 }
 
 /// One-shot batch parse of a complete HTML string into a DOM root — the

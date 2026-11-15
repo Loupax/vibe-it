@@ -23,6 +23,7 @@ use super::*;
 pub(crate) struct FetchedPage {
     pub(crate) html: Vec<u8>,
     pub(crate) extra_css: String,
+    pub(crate) scripts: Vec<ScriptSource>,
     pub(crate) url: Url,
 }
 
@@ -62,7 +63,7 @@ pub(crate) enum AppEvent {
     ImageFetched(u64, String, Option<DecodedImage>),
     /// Q22b: the stylesheets of a streamed page, fetched after EOF
     /// (`start_stream_resources`); replaces `App::extra_css`.
-    StreamCss(u64, String),
+    StreamCss(u64, String, Vec<ScriptSource>),
     /// One tick of the persistent background shaping worker's own
     /// progress (`App::spawn_shaping_worker`) — the "move page shaping
     /// off the main thread" plan in TODO.txt, landed, fires *once per
@@ -222,7 +223,7 @@ pub(crate) const COMMAND_NAMES: &[&str] = &["go", "help", "historyBack", "histor
 
 /// `:set`'s own one valid argument, completed the same way `COMMAND_
 /// NAMES` completes a command name itself — see `command_completions`.
-pub(crate) const SET_ARGS: &[&str] = &["novim", "vim"];
+pub(crate) const SET_ARGS: &[&str] = &["js", "nojs", "novim", "vim"];
 
 /// Candidate completions for the token the command line's cursor is
 /// currently positioned at the end of (`token_start..cursor`, from
@@ -1626,14 +1627,14 @@ impl App {
                                 // resolving independently and later, via its
                                 // own `AppEvent::ImageFetched`.
                                 let css_start = std::time::Instant::now();
-                                let extra_css = process_external_resources(&proxy, path, &url, &html, generation);
+                                let PageResources { css: extra_css, scripts } = process_external_resources(&proxy, path, &url, &html, generation);
                                 if timing_enabled() {
                                     eprintln!(
                                         "scratchy: TIMING stylesheets={:>7.1}ms {url_for_log}",
                                         css_start.elapsed().as_secs_f64() * 1000.0
                                     );
                                 }
-                                Ok(FetchedPage { html, extra_css, url })
+                                Ok(FetchedPage { html, extra_css, scripts, url })
                             }
                             Err(e) => Err(e),
                         },
@@ -1887,6 +1888,9 @@ impl App {
             ("refresh", []) => self.refresh(),
             ("set", ["vim"]) => self.vim_enabled = true,
             ("set", ["novim"]) => self.vim_enabled = false,
+            // Takes effect from the next page load (`:refresh`).
+            ("set", ["js"]) => set_js_enabled(true),
+            ("set", ["nojs"]) => set_js_enabled(false),
             ("help", []) => self.show_help(),
             ("q", []) | ("quit", []) => {
                 if self.pre_help_page.is_some() {
@@ -1947,16 +1951,21 @@ impl ApplicationHandler<AppEvent> for App {
                     self.base_url = find_base_url(&self.document);
                     if let Some(socket) = self.socket_path.clone() {
                         start_stream_resources(&self.proxy, &socket, &self.document, self.nav_generation);
+                    } else {
+                        run_page_scripts(&inline_scripts(&self.document));
                     }
                 }
             }
-            AppEvent::StreamCss(generation, css) => {
-                if generation != self.nav_generation || css.is_empty() {
+            AppEvent::StreamCss(generation, css, scripts) => {
+                if generation != self.nav_generation {
                     return;
                 }
-                self.extra_css = css;
-                self.layout_dirty = true;
-                self.layout_generation += 1;
+                if !css.is_empty() {
+                    self.extra_css = css;
+                    self.layout_dirty = true;
+                    self.layout_generation += 1;
+                }
+                run_page_scripts(&scripts);
             }
             AppEvent::NavResult(generation, result) => {
                 // A result from a navigation the user has since clicked
@@ -1968,10 +1977,11 @@ impl ApplicationHandler<AppEvent> for App {
                     return;
                 }
                 match result {
-                    Ok(FetchedPage { html, extra_css, url }) => {
+                    Ok(FetchedPage { html, extra_css, scripts, url }) => {
                         let dom = new_parser().read_from(&mut html.as_slice()).unwrap();
                         self.base_url = Some(resolve_page_base_url(&dom.document, url));
                         self.replace_document(dom.document, extra_css);
+                        run_page_scripts(&scripts);
                     }
                     Err(message) => self.show_message(&message),
                 }

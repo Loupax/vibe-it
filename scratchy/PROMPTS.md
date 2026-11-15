@@ -6289,3 +6289,9 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > Do ONLY Q33-0: measure boa_engine and rquickjs (build time, binary size, memory, startup, parse+execute of 0.5-2MB real bundles) on throwaway crates; no JS dependency in scratchy; record numbers and a recommendation in TODO and NOTES.
 
 **What changed:** docs only (TODO.txt Q33-0 ticked with measurements in the engine-choice Detail, NOTES.md section, this entry). Result: boa ~1.05s vs QuickJS ~0.15s for 1.67MB of libraries, +13MB vs +1.3MB binary, 3m43 vs 50s build; recommendation rquickjs, user to confirm. Q33a-g unchanged (engine-agnostic). No code touched, so no tests/WPT/screenshot run.
+
+## Q33a — run scripts with rquickjs (queue item)
+
+> "Go with rquickjs" (engine decision) and, earlier, "do the javascript since that's pretty stand alone". Task: do ONLY Q33a: classic inline/external scripts in document order, DOMContentLoaded + load, console to stderr, errors never fatal, `--no-js` / `:set nojs`, noscript hidden only with JS on.
+
+**What changed:** new `src/js.rs` (rquickjs 0.14.0 pinned), script collection in `find_external_resources`, `process_external_resources` returns `PageResources {css, scripts}` (external scripts fetched concurrently via wire), scripts run after the document is installed (nav, file, stream paths), `--no-js` and `:set js/nojs`, noscript UA rule only when JS on and scripting-disabled parse when off. 6 tests `q33a_*`. Cuts recorded as Q33a1-4 in TODO. Engine decision recorded in TODO Detail and NOTES.md.

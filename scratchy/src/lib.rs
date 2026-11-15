@@ -59,6 +59,7 @@ mod images;
 mod paint;
 mod net;
 mod app;
+mod js;
 
 pub use dom::*;
 pub use css::*;
@@ -68,6 +69,7 @@ pub use images::*;
 pub(crate) use paint::*;
 pub(crate) use net::*;
 pub(crate) use app::*;
+pub(crate) use js::*;
 
 
 /// The actual entry point — `src/main.rs` is just `fn main() {
@@ -83,7 +85,8 @@ pub fn run() {
     if raw_args.first().map(String::as_str) == Some("--wpt") {
         std::process::exit(wpt::main(&raw_args[1..]));
     }
-    let Args { input, socket } = parse_args();
+    let Args { input, socket, no_js } = parse_args();
+    set_js_enabled(!no_js);
 
     let event_loop = EventLoop::<AppEvent>::with_user_event().build().unwrap();
     // Needed unconditionally now, not just for `Input::Stdin`'s own
@@ -128,12 +131,17 @@ pub fn run() {
             let dom = new_parser().read_from(&mut html.as_bytes()).unwrap();
             let file_resources = socket.as_deref().map(|s| load_file_resources(&proxy, s, &path, html.as_bytes()));
             let mut app = App::new_static(dom.document, proxy, socket);
-            if let Some((url, css)) = file_resources {
-                if app.base_url.is_none() {
-                    app.base_url = url;
+            let scripts = match file_resources {
+                Some((url, css, scripts)) => {
+                    if app.base_url.is_none() {
+                        app.base_url = url;
+                    }
+                    app.extra_css = css;
+                    scripts
                 }
-                app.extra_css = css;
-            }
+                None => inline_scripts(&app.document),
+            };
+            run_page_scripts(&scripts);
             app
         }
         Input::Stdin => {

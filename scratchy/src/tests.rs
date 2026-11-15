@@ -7939,3 +7939,105 @@ fn q52a_iframe_is_a_replaced_box_default_300x150_honouring_attrs_and_css() {
     let v = sizes("<iframe>hello world fallback</iframe>");
     assert!(v.iter().any(|&(_, h)| h == 150.0), "{v:?}");
 }
+
+// ---------- Q33a: running scripts ----------
+
+/// Serializes tests that flip the process-wide JS flag.
+static JS_FLAG_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn run_collecting(scripts: &[ScriptSource]) -> Vec<String> {
+    let out = Rc::new(RefCell::new(Vec::new()));
+    let o = out.clone();
+    run_scripts_with(scripts, Rc::new(move |level, text| o.borrow_mut().push(format!("{level}:{text}"))));
+    let v = out.borrow().clone();
+    v
+}
+
+fn src(code: &str) -> ScriptSource {
+    ScriptSource { name: "t".into(), code: code.into() }
+}
+
+#[test]
+fn q33a_scripts_run_in_order_then_dom_content_loaded_then_load() {
+    let log = run_collecting(&[
+        src("console.log('a'); document.addEventListener('DOMContentLoaded', function(){ console.log('dcl:' + document.readyState); });"),
+        src("window.addEventListener('load', function(){ console.log('load:' + document.readyState); }); window.onload = function(){ console.log('onload'); }; console.log('b');"),
+    ]);
+    assert_eq!(log, ["log:a", "log:b", "log:dcl:interactive", "log:load:complete", "log:onload"]);
+}
+
+#[test]
+fn q33a_script_errors_are_logged_and_not_fatal() {
+    let log = run_collecting(&[
+        src("throw new Error('boom');"),
+        src("syntax error here ("),
+        src("Promise.resolve().then(function(){ console.log('job'); }); console.warn('still', 1, {x: 2});"),
+    ]);
+    assert!(log[0].starts_with("error:t: boom"), "{log:?}");
+    assert!(log[1].starts_with("error:t: "), "{log:?}");
+    assert_eq!(&log[2..], ["warn:still 1 {\"x\":2}", "log:job"]);
+}
+
+#[test]
+fn q33a_runaway_script_is_interrupted() {
+    let start = std::time::Instant::now();
+    let log = run_collecting(&[src("while(true){}"), src("console.log('after');")]);
+    assert!(start.elapsed() < std::time::Duration::from_secs(30));
+    assert!(log[0].starts_with("error:t:"), "{log:?}");
+}
+
+#[test]
+fn q33a_classic_script_types_and_collection_order() {
+    let doc = parse_html(
+        "<html><head><script>var a=1;</script><script src=\"x.js\"></script>\
+         <script type=\"module\">import 'z';</script><script type=\"application/json\">{}</script>\
+         <script type=\"text/javascript\">var b=2;</script><script> </script></head></html>",
+    );
+    let mut res = ExternalResources::default();
+    find_external_resources(&doc, &mut res);
+    assert_eq!(
+        res.scripts,
+        [
+            ScriptRef::Inline("var a=1;".into()),
+            ScriptRef::External("x.js".into()),
+            ScriptRef::Inline("var b=2;".into())
+        ]
+    );
+    assert_eq!(inline_scripts(&doc).len(), 2);
+}
+
+#[test]
+fn q33a_no_js_flag_and_set_command_toggle() {
+    let _g = JS_FLAG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    assert!(SET_ARGS.contains(&"js") && SET_ARGS.contains(&"nojs"));
+    set_js_enabled(false);
+    assert!(!js_enabled());
+    let base = Url::parse("http://example.test/").unwrap();
+    assert!(fetch_scripts(std::path::Path::new("/nonexistent"), &base, vec![ScriptRef::Inline("1".into())]).is_empty());
+    set_js_enabled(true);
+    assert!(js_enabled());
+    assert_eq!(fetch_scripts(std::path::Path::new("/nonexistent"), &base, vec![ScriptRef::Inline("1".into())]).len(), 1);
+}
+
+#[test]
+fn q33a_noscript_content_hidden_only_when_js_is_on() {
+    let _g = JS_FLAG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    fn has_size(l: &Laid, w: f32, h: f32) -> bool {
+        (l.w == w && l.h == h) || matches!(&l.content, LaidContent::Blocks(c) if c.iter().any(|k| has_size(k, w, h)))
+    }
+    let visible = |js: bool| -> bool {
+        set_js_enabled(js);
+        let doc = parse_html("<html><body style=\"margin:0\"><noscript><div style=\"width:123px;height:45px\"></div></noscript></body></html>");
+        let tree = build_layout_tree(&doc, 1000.0);
+        let mut fs = new_font_system_with(&[]);
+        let mut cache = ShapeCache::new();
+        let (mut next_id, mut incomplete) = (0usize, false);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let laid = measure(&tree, &mut fs, 0.0, 0.0, 1000.0, None, &mut next_id, &mut cache, deadline, &mut incomplete, &mut Vec::new(), &Floats::default(), None);
+        has_size(&laid, 123.0, 45.0)
+    };
+    let (on, off) = (visible(true), visible(false));
+    set_js_enabled(true);
+    assert!(!on, "noscript content must be hidden with JS on");
+    assert!(off, "noscript content must show with JS off");
+}

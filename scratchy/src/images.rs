@@ -1650,6 +1650,9 @@ pub(crate) fn build_layout_tree_with_resources(
     collect_style_css(document, &mut css_source);
     css_source.push('\n');
     css_source.push_str(extra_css);
+    if !js_enabled() {
+        css_source.push_str("\n/* nojs */");
+    }
     let html_handle = find_html_element(document);
     STATE_RULES.with(|m| m.set(0));
     VIEWPORT_H_READ.with(|m| m.set(false));
@@ -1664,6 +1667,9 @@ pub(crate) fn build_layout_tree_with_resources(
             return rules.clone();
         }
         let mut rules = parse_stylesheet(DEFAULT_CSS);
+        if js_enabled() {
+            rules.extend(parse_stylesheet("noscript { display: none; }"));
+        }
         rules.extend(parse_stylesheet(&css_source));
         let rules = Rc::new(rules);
         *c.borrow_mut() = Some((css_source.clone(), rules.clone(), state_rules_mask()));
