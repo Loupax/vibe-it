@@ -6301,3 +6301,9 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > Do ONLY QJ1: fix REGRESSIONS.md R5, classic scripts must run in sloppy mode with the filename set.
 
 **What changed:** `run_scripts_with` now evals via `eval_with_options` with `strict = false` and `filename = <script name>`. Test `qj1_classic_scripts_run_in_sloppy_mode`. `cargo test` 371 passed, clippy 32 lines before and after. WPT not run (no layout/paint change). Checked the installed binary on a fixture with `portalSearchDomain = 'x'`: logs `ok x`, no error; the real portal was not fetched.
+
+## QJ3 — headless JS report (queue item)
+
+> Do ONLY QJ3: `scratchy --js-report [--socket S] <file>`, headless, runs the page's scripts with a collecting log, prints error lines plus a summary (scripts run, errors total, grouped by first line); record baseline counts for the 3 corpus pages.
+
+**What changed:** `js.rs` `js_report_main` / `js_report_for_html` / `js_report_for_scripts`, dispatched in `lib.rs` `run()` beside `--wpt`. With `--socket`, external scripts are fetched via `fetch_scripts` against the page's `<base href>` (what `snag` emits) else the file URL; without, inline scripts only. Test `qj3_js_report_counts_scripts_and_errors`. Clippy 32 warning lines before and after; 371 tests pass. Baseline errors/scripts: wikipedia.org portal 4/4, en.wikipedia Main_Page 2/4, SoHo_Weekly_News 2/4. No window/paint change, so no grim screenshot.
