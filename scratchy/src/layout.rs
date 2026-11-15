@@ -868,7 +868,7 @@ pub(crate) fn resolve_or_bubble_positioned<'a>(
     // (the order `own_pending` was built in, since `Vec::sort_by_key` is
     // a stable sort) — see `Laid::positioned`'s own docs for why this is
     // the paint/hit-test order, not a real stacking-context ordering.
-    resolved.sort_by_key(|l| l.style.z_index.unwrap_or(0));
+    resolved.sort_by_key(stack_key);
     resolved
 }
 
@@ -5223,7 +5223,7 @@ pub fn measure_document(
         // again regardless keeps the invariant "a `Laid`'s own
         // `positioned` is always in ascending `z-index` order" true
         // even if that ever changes.
-        laid.positioned.sort_by_key(|l| l.style.z_index.unwrap_or(0));
+        laid.positioned.sort_by_key(stack_key);
     }
     // The root's `h` is what `redraw` clamps scrolling to. With a definite
     // initial-containing-block height an `html{height:100%}` box ends at
@@ -5238,62 +5238,118 @@ pub fn measure_document(
     laid
 }
 
+/// Sort key for a stacking context's z-ordered entries (QY1): `z-index`
+/// (`auto` = 0), ties by tree order.
+pub(crate) fn stack_key(l: &Laid) -> (i32, usize) {
+    (l.style.z_index.unwrap_or(0), l.style.tree_order)
+}
+
 /// True when `l` is a stacking-context root for *descendant* painting
 /// (CSS2.1 §9.9.1): `fixed`, `absolute`/`relative`/`sticky` with an explicit
-/// `z-index`, or a box that clips (`overflow` other than `visible`, which
-/// is also the boundary a hoisted box must not escape).
+/// `z-index`, `opacity < 1`, or a box that clips (`overflow` other than
+/// `visible`, which is also the boundary a hoisted box must not escape).
+/// A `sticky` box is also treated as a boundary even with `z-index: auto`
+/// (not spec): its painted position shifts with the scroll offset, which a
+/// hoisted descendant would not follow.
 fn is_stacking_boundary(l: &Laid) -> bool {
     l.fixed
         || l.style.position == Position::Fixed
+        || l.style.position == Position::Sticky
         || (l.style.position != Position::Static && l.style.z_index.is_some())
-        || l.style.overflow != Overflow::Visible
+        || l.style.opacity < 1.0
+        || (l.style.overflow != Overflow::Visible && !VIEWPORT_ROOT_NODE.with(|n| l.style.node != 0 && n.get().contains(&l.style.node)))
 }
 
-/// Q55 (W17): a negative-`z-index` out-of-flow child of a *positioned,
-/// non-stacking-context* box (`z-index: auto`) belongs to the nearest
-/// ancestor stacking context's negative layer, so it paints below that
-/// ancestor's in-between backgrounds, not just above the parent's own.
-/// Moves such entries out of the parent's `positioned` list into the
-/// nearest boundary ancestor's list (which `paint`/`hit_test_cursor`
-/// already order by `z-index`). Coordinates are absolute, so no
-/// translation is needed.
+thread_local! {
+    /// `node` of `<html>` and, when `<html>`'s own `overflow` is
+    /// `visible`, of `<body>`: their `overflow` is propagated to the
+    /// viewport and so does not make them clipping stacking boundaries
+    /// (Acid2 has `html{overflow:hidden}`, YouTube `body{overflow-y:scroll}`).
+    static VIEWPORT_ROOT_NODE: std::cell::Cell<[usize; 2]> = const { std::cell::Cell::new([0, 0]) };
+}
+
+/// Q55 (W17) + QA9 (R17): every descendant that establishes its own stacking
+/// context (an out-of-flow child with an explicit `z-index`, or an in-flow
+/// `relative`/`sticky` child with one) is z-ordered in the *nearest ancestor
+/// stacking context*, not within its DOM parent (CSS2.1 Appendix E). Moves
+/// such entries out of their parents' `positioned` lists / `Blocks` child
+/// lists into the nearest boundary ancestor's `positioned` list (which
+/// `paint`/`hit_test_cursor` already order by `z-index`). Coordinates are
+/// absolute, so no translation is needed. Entries with `z-index: auto`
+/// stay where they are.
 fn hoist_negative_z(root: &mut Laid) {
+    // `root` is the anonymous wrapper box; its only child is `<html>`,
+    // whose only child (head is `display:none`) is normally `<body>`.
+    let mut nodes = [0usize; 2];
+    if let LaidContent::Blocks(cs) = &root.content
+        && let [html] = cs.as_slice()
+    {
+        nodes[0] = html.style.node;
+        if html.style.overflow == Overflow::Visible
+            && let LaidContent::Blocks(hc) = &html.content
+            && let [body] = hc.as_slice()
+        {
+            nodes[1] = body.style.node;
+        }
+    }
+    VIEWPORT_ROOT_NODE.with(|n| n.set(nodes));
     collect_negative_z(root);
+    VIEWPORT_ROOT_NODE.with(|n| n.set([0, 0]));
 }
 
 fn collect_negative_z(owner: &mut Laid) {
     let mut bag = Vec::new();
     walk_negative_z(owner, &mut bag, true);
     if !bag.is_empty() {
-        owner.positioned.append(&mut bag);
-        owner.positioned.sort_by_key(|l| l.style.z_index.unwrap_or(0));
+        // Hoisted entries first so that, on a z-index tie, tree-order in-flow
+        // entries stay before the owner's own out-of-flow list (the order
+        // `paint_z_layer` always used).
+        bag.append(&mut owner.positioned);
+        owner.positioned = bag;
+        owner.positioned.sort_by_key(stack_key);
     }
 }
 
 /// Visits the children (in-flow and out-of-flow) of `l`. `is_owner` is
 /// true for the boundary box itself.
 fn walk_negative_z(l: &mut Laid, bag: &mut Vec<Laid>, is_owner: bool) {
-    if !is_owner {
-        // A positioned, non-boundary box: its negative out-of-flow
+    if !is_owner && l.style.position != Position::Static {
+        // A positioned, non-boundary box: its z-indexed out-of-flow
         // children escape to the owner.
-        if l.style.position != Position::Static {
-            let all = std::mem::take(&mut l.positioned);
-            let (neg, rest): (Vec<Laid>, Vec<Laid>) = all.into_iter().partition(|c| c.style.z_index.is_some_and(|z| z < 0));
-            l.positioned = rest;
-            for mut n in neg {
-                collect_negative_z(&mut n);
-                bag.push(n);
-            }
+        let all = std::mem::take(&mut l.positioned);
+        for n in all {
+            hoist_into(n, bag);
         }
     }
     if let LaidContent::Blocks(children) | LaidContent::TableRow(children) = &mut l.content {
-        for c in children.iter_mut() {
-            visit_negative_z_child(c, bag);
+        let old = std::mem::take(children);
+        let mut kept = Vec::with_capacity(old.len());
+        for mut c in old {
+            if matches!(c.style.position, Position::Relative | Position::Sticky) {
+                hoist_into(c, bag);
+            } else {
+                visit_negative_z_child(&mut c, bag);
+                kept.push(c);
+            }
         }
+        *children = kept;
     }
     for c in l.positioned.iter_mut() {
         visit_negative_z_child(c, bag);
     }
+}
+
+/// Moves a positioned box into the owner's bag. A box that is itself a
+/// stacking-context boundary keeps its own descendants (they are collected
+/// into it); a `z-index: auto` box is transparent: its positioned
+/// descendants join the same owner bag.
+fn hoist_into(mut n: Laid, bag: &mut Vec<Laid>) {
+    if is_stacking_boundary(&n) {
+        collect_negative_z(&mut n);
+    } else {
+        walk_negative_z(&mut n, bag, false);
+    }
+    bag.push(n);
 }
 
 fn visit_negative_z_child(c: &mut Laid, bag: &mut Vec<Laid>) {

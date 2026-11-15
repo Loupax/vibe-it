@@ -6539,3 +6539,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Implement QY2 (R20 error 1): `performance.timing`, `timeOrigin`, `getEntries*`, `document.visibilityState`/`hidden`, with a permanent test and real-page checks.
 
 **What changed:** `PRELUDE` (js.rs) now defines `window.performance` (none existed before, contrary to the item text): Navigation Timing 1 `timing` (all fields numbers, epoch ms at page start; unload/redirect fields 0), `timeOrigin`, `navigation`, `now()` over `__scratchy_now`, empty `getEntries/ByType/ByName`, no-op `mark/measure/clearMarks/clearMeasures`; `document.visibilityState` is `'visible'`, `document.hidden` `false`. Test `qy2_performance_timing_and_visibility`.
+
+## QY1: one stacking order per stacking context (supersedes QA9)
+
+> Implement QY1 (paint positioned boxes in one stacking order per stacking context, tree-order tie-break; REGRESSIONS.md R17/R20; QA9 and Q55a folded in). Verify R20 repro, YouTube, Acid2 intro and real pages.
+
+**What changed:** `hoist_negative_z` (layout.rs) now hoists every positioned descendant into the nearest stacking-context owner's `positioned` list (in-flow relative/sticky boxes physically move out of `Blocks`/`TableRow` child lists; z-auto boxes are transparent). All z-ordered lists sort by `stack_key` = (z-index, `ComputedStyle.tree_order`), a new counter assigned in `resolve_style`. `html{overflow:hidden}` is exempt from being a clipping boundary (Acid2), which was why the bar still covered the intro after the first attempt. Tests: `qy1_*`, `qa9_*` (fail without the fix, confirmed for the first two). The old test pinning "z-auto relative loses to a later static sibling" asserted non-spec behaviour (Chrome paints the relative box on top); its expectation was flipped with a comment. Left out: QY1a.

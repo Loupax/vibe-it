@@ -804,7 +804,7 @@ Read REGRESSIONS.md "R20" before starting any QY item. Short version:
   https://www.youtube.com`, grim after ~20 s, plus the `--js-report` run
   from R20 (paste the before/after error lines into the commit message).
 
-- [ ] QY1 [M] (P1, R20; supersedes QA9, tick QA9 and R17 too) Paint
+- [x] QY1 [M] (P1, R20; supersedes QA9, tick QA9 and R17 too) DONE ebea7ae (see "QY1 done" below). Paint
       positioned boxes in one stacking order per stacking context, with a
       TREE-ORDER tie-break. Symptom: www.youtube.com is a blank white
       window. Repro (headless WPT runner as in REGRESSIONS.md R12-R19, or
@@ -854,6 +854,23 @@ Read REGRESSIONS.md "R20" before starting any QY item. Short version:
       white guide column and the grey skeleton cards (compare
       REGRESSIONS.md R20 "expected" screenshot description); re-check
       Acid2 intro, en.wikipedia Main_Page, wikipedia.org portal, HN.
+- [x] QY1 done ebea7ae: `hoist_negative_z` (layout.rs) now moves EVERY positioned
+      descendant (abs/fixed from `positioned` lists, relative/sticky from
+      `Blocks`/`TableRow` child lists, with or without z-index) into the
+      `positioned` list of the nearest stacking-context owner (root,
+      fixed, positioned+z-index, sticky, opacity<1, overflow!=visible
+      except `<html>`), and every such list is sorted by `stack_key` =
+      (z-index, tree order). Tree order is `ComputedStyle.tree_order`, a
+      counter bumped in `resolve_style`. `paint_z_layer` and
+      `hit_test_inner` sort with the same key. A z-auto positioned box is
+      transparent: its own positioned descendants go to the same owner.
+- [ ] QY1a [S] (P3) Leftovers of QY1: `<body>`'s propagated `overflow` is
+      exempt only if it is `<html>`'s sole child; a positioned inline-block
+      inside a `MixedInline` run is not hoisted; `opacity<1` and `sticky`
+      are boundaries even where the spec would not need it (conservative);
+      flex/grid items with `z-index` on a static box do not create a
+      stacking context; `tree_order` is only valid within one style pass
+      (a partial restyle would hand out later numbers).
 - [x] QY2 [S] (P2, R20 error 1) DONE 2026-11-15 (22bb105; note: `performance` did not exist at all, now defined in PRELUDE) `performance.timing` and page visibility.
       Error: `inline script #6: TypeError: cannot read property
       'responseStart' of undefined` (YouTube's `ytcsi` timing script does
@@ -1147,7 +1164,7 @@ into the commit message of every JS item.
       treated as `scroll` (should scroll with an `overflow` box's content),
       `fixed` is stored per element (first layer only; no multi-layer
       lists), and the viewport is taken to be the whole paint buffer.
-- [ ] QA9 [M] (P2, R17) SUPERSEDED by QY1 (same fix plus a tree-order
+- [x] QA9 [M] (P2, R17) DONE via QY1 (ebea7ae); SUPERSEDED by QY1 (same fix plus a tree-order
       tie-break; this item's tie-break would not fix YouTube, see R20).
       Stacking contexts compete only within one parent.
       `paint` merges `is_explicit_stacking_child` (relative/sticky with
@@ -1808,7 +1825,7 @@ Not vendored; pass the path to the runner.
 - [x] Q55 [S] Negative `z-index` children of a positioned, non-stacking-context
       parent paint below the parent's background (W17). WPT:
       `fixed-pos-stacking-001`, `abspos-overflow-010`. Done 53e9727.
-- [ ] Q55a [S] (see QA9, same walk) Q55 only hoists negative-`z-index` *absolute* children (post-layout
+- [x] Q55a [S] DONE via QY1 (ebea7ae; relative/sticky in-flow boxes are hoisted in the same walk; a sticky box is itself a boundary so hoisted entries never need its shift). Was: (see QA9, same walk) Q55 only hoists negative-`z-index` *absolute* children (post-layout
       pass `hoist_negative_z`). Negative `relative`/`sticky` in-flow children
       of a non-stacking positioned or static parent still paint in that
       parent's own negative layer; hoisted entries do not follow a `sticky`

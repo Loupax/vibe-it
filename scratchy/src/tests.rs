@@ -3831,10 +3831,14 @@ fn relative_box_with_auto_z_index_does_not_establish_a_stacking_context() {
     // No inter-tag whitespace — see the first test in this section.
     let html = r#"<html><body style="margin:0"><div style="position: relative; top: 30px; left: 0px; width: 50px; height: 50px; background-color: #ff0000;"></div><div style="width: 50px; height: 50px; background-color: #0000ff;"></div></body></html>"#;
     let (pixels, win_w, _) = paint_fixture(html);
+    // QY1: the old expectation here (blue, the later static sibling, wins) was
+    // wrong per CSS2.1 Appendix E: a positioned `z-index:auto` box paints in
+    // layer 6, above all in-flow non-positioned content (Chrome shows red).
+    // It still does not establish a stacking context (see the next test).
     assert_eq!(
         px_at(&pixels, win_w, 10, 60),
-        0x0000_00FF,
-        "z-index:auto should not establish a stacking context — the later sibling keeps winning the overlap by plain document/paint order"
+        0x00FF_0000,
+        "z-index:auto relative box paints above later non-positioned in-flow content (layer 6)"
     );
 }
 
@@ -7741,6 +7745,95 @@ fn q55_negative_z_child_of_non_stacking_parent_paints_below_parent_background() 
     let nested = r#"<html><body style="margin:0"><div style="position: absolute; left: 0px; top: 0px; width: 100px; height: 100px; background-color: #00ff00;"><div style="position: absolute; width: 50px; height: 50px;"><div style="position: absolute; z-index: -1; width: 50px; height: 50px; background-color: #ff0000;"></div></div></div></body></html>"#;
     let (pixels, win_w, _) = paint_fixture(nested);
     assert_eq!(px_at(&pixels, win_w, 20, 20), 0x0000_FF00, "nested non-SC chain: negative child below ancestor bg");
+}
+
+// QA9 (R17): z-index orders stacking contexts across parents. A
+// `position:relative; z-index:2` box nested in a static wrapper must paint
+// above an unrelated later `position:fixed` (z auto) box.
+#[test]
+fn qa9_z_indexed_relative_paints_above_unrelated_fixed() {
+    let html = r#"<html><body style="margin:0"><div><div style="position: relative; z-index: 2; width: 100px; height: 100px; background-color: #00ff00;"></div></div><div style="position: fixed; top: 0px; left: 0px; width: 60px; height: 60px; background-color: #000000;"></div></body></html>"#;
+    let (pixels, win_w, _) = paint_fixture(html);
+    assert_eq!(px_at(&pixels, win_w, 30, 30), 0x0000_FF00, "z-index:2 lime wins over later fixed z:auto black");
+    // Without the z-index the later fixed box wins (normal order).
+    let (pixels, win_w, _) = paint_fixture(&html.replace("z-index: 2;", ""));
+    assert_eq!(px_at(&pixels, win_w, 30, 30), 0x0000_0000, "no z-index: fixed black on top");
+    // A positive-z abspos nested in a z:auto relative parent escapes to the
+    // root context and beats a later positioned box with a lower z-index.
+    let nested = r#"<html><body style="margin:0"><div style="position: relative;"><div style="position: absolute; z-index: 5; top: 0px; left: 0px; width: 50px; height: 50px; background-color: #00ff00;"></div></div><div style="position: absolute; z-index: 1; top: 0px; left: 0px; width: 50px; height: 50px; background-color: #000000;"></div></body></html>"#;
+    let (pixels, win_w, _) = paint_fixture(nested);
+    assert_eq!(px_at(&pixels, win_w, 20, 20), 0x0000_FF00, "z:5 abspos nested in z-auto parent beats z:1 elsewhere");
+}
+
+// QA9 / Q55a: a negative-z in-flow relative child of a non-stacking
+// positioned parent paints below that parent's background.
+#[test]
+fn qa9_negative_z_relative_child_below_non_stacking_parent_background() {
+    let html = r#"<html><body style="margin:0"><div style="position: relative; width: 100px; height: 100px; background-color: #00ff00;"><div style="position: relative; z-index: -1; width: 100px; height: 100px; background-color: #ff0000;"></div></div></body></html>"#;
+    let (pixels, win_w, _) = paint_fixture(html);
+    assert_eq!(px_at(&pixels, win_w, 50, 50), 0x0000_FF00, "z:-1 relative child under z-auto parent bg");
+}
+
+// QY1 (R20): one stacking order per stacking context, tree-order tie-break.
+// An earlier `position:absolute` z-auto box must not cover a later
+// positioned box (the YouTube `ytd-app` vs skeleton shape).
+fn qy1_repro(second_style: &str) -> String {
+    format!(
+        r#"<html><body style="margin:0"><div style="position:absolute;top:0;left:0;right:0;min-height:100%;background:#ffff00"></div><div style="{second_style};background:#808080;height:100px;margin-top:56px;cursor:pointer"></div></body></html>"#
+    )
+}
+
+#[test]
+fn qy1_later_positioned_box_paints_over_earlier_abspos_sheet() {
+    for second in ["position:relative;z-index:0", "position:relative;z-index:1", "position:relative"] {
+        let (pixels, win_w, _) = paint_fixture(&qy1_repro(second));
+        assert_eq!(px_at(&pixels, win_w, 50, 100), 0x0080_8080, "gray wins for {second}");
+        assert_eq!(px_at(&pixels, win_w, 50, 20), 0x00FF_FF00, "yellow above the bar for {second}");
+    }
+    // Reverse order: relative first, abspos second: abspos wins.
+    let rev = r#"<html><body style="margin:0"><div style="position:relative;z-index:0;background:#808080;height:100px"></div><div style="position:absolute;top:0;left:0;right:0;height:100px;background:#ffff00"></div></body></html>"#;
+    let (pixels, win_w, _) = paint_fixture(rev);
+    assert_eq!(px_at(&pixels, win_w, 50, 50), 0x00FF_FF00, "later abspos paints over earlier relative");
+    // An explicit higher z-index still beats a later z-auto abspos.
+    let hi = r#"<html><body style="margin:0"><div style="position:relative;z-index:3;background:#808080;height:100px"></div><div style="position:absolute;top:0;left:0;right:0;height:100px;background:#ffff00"></div></body></html>"#;
+    let (pixels, win_w, _) = paint_fixture(hi);
+    assert_eq!(px_at(&pixels, win_w, 50, 50), 0x0080_8080, "z:3 beats later z-auto abspos");
+}
+
+#[test]
+fn qy1_hit_test_follows_paint_order() {
+    let html = qy1_repro("position:relative;z-index:0");
+    let doc = parse_html(&html);
+    let tree = build_layout_tree(&doc, 1920.0);
+    let mut font_system = new_font_system();
+    let mut cache = ShapeCache::new();
+    let mut next_id = 0usize;
+    let mut incomplete = false;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let laid =
+        measure_document(&tree, &mut font_system, 200.0, 200.0, &mut next_id, &mut cache, deadline, &mut incomplete);
+    let so = HashMap::new();
+    assert_eq!(hit_test_cursor(&laid, 50.0, 100.0, &cache, &so, 0.0, 200.0).0, CursorStyle::Pointer);
+    assert_ne!(hit_test_cursor(&laid, 50.0, 20.0, &cache, &so, 0.0, 200.0).0, CursorStyle::Pointer);
+}
+
+// QA9/R17 Acid2 shape: `html{overflow:hidden}` is propagated to the viewport
+// and must not turn `<html>` into a clipping stacking boundary that traps
+// the z-indexed intro away from the root-level fixed bar.
+#[test]
+fn qa9_html_overflow_hidden_does_not_trap_z_indexed_box() {
+    let html = r#"<html style="overflow:hidden"><body style="margin:0"><div style="position:relative;z-index:2;width:100px;height:100px;background:#00ff00"></div><div><div style="position:fixed;top:0;left:0;width:60px;height:60px;background:#000000"></div></div></body></html>"#;
+    let (pixels, win_w, _) = paint_fixture(html);
+    assert_eq!(px_at(&pixels, win_w, 30, 30), 0x0000_FF00, "z:2 intro covers the fixed bar even with html overflow hidden");
+}
+
+// QY1 / R20 (YouTube): `body{overflow-y:scroll}` is propagated to the viewport
+// too, so an earlier abspos sheet must not cover a later z-indexed box inside body.
+#[test]
+fn qy1_body_overflow_scroll_does_not_trap_later_positioned_box() {
+    let html = r#"<html><body style="margin:0;overflow-y:scroll"><div style="position:absolute;top:0;left:0;right:0;min-height:100%;background:#ffff00"></div><div style="position:relative;z-index:0;background:#808080;height:100px;margin-top:56px"></div></body></html>"#;
+    let (pixels, win_w, _) = paint_fixture(html);
+    assert_eq!(px_at(&pixels, win_w, 50, 100), 0x0080_8080, "gray skeleton wins over the earlier abspos sheet");
 }
 
 // ---------- Q57: var() correctness ----------

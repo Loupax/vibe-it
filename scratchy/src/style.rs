@@ -123,6 +123,11 @@ pub(crate) struct ComputedStyle {
     /// Q31: `node_id` of the element this style was resolved for (0 for
     /// anonymous boxes). Lets a hit test name the element under the mouse.
     pub(crate) node: usize,
+    /// QY1: creation sequence number, ascending in the order styles are
+    /// computed (parent before children, siblings in document order), so
+    /// it is a tree-order key. Used as the tie-break when positioned boxes
+    /// in one stacking context share a `z-index`. 0 for anonymous boxes.
+    pub(crate) tree_order: usize,
     /// This element's resolved custom properties (Q13): inherited from
     /// the parent, overlaid with its own `--name` declarations, every
     /// value already `var()`-substituted. Interned, see `intern_custom_props`.
@@ -1857,6 +1862,7 @@ pub(crate) fn resolve_style_for(
 
     let mut cs = ComputedStyle {
         node: node_id(handle),
+        tree_order: next_style_order(),
         custom_props,
         color,
         background_color,
@@ -1955,9 +1961,23 @@ pub(crate) fn resolve_style_for(
     cs
 }
 
+thread_local! {
+    static STYLE_ORDER: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Next value of the monotonically increasing tree-order counter (QY1).
+fn next_style_order() -> usize {
+    STYLE_ORDER.with(|c| {
+        let v = c.get() + 1;
+        c.set(v);
+        v
+    })
+}
+
 pub(crate) fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
     ComputedStyle {
         node: 0,
+        tree_order: 0,
         custom_props: inherited.custom_props,
         color: inherited.color,
         background_color: None,

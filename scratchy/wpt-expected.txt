@@ -261,7 +261,7 @@ PASS css/CSS2/positioning/left-109.xht
 FAIL css/CSS2/positioning/position-fixed-007.xht
 PASS css/CSS2/positioning/right-016.xht
 PASS css/CSS2/positioning/right-112.xht
-FAIL css/CSS2/positioning/top-056.xht
+PASS css/CSS2/positioning/top-056.xht
 FAIL css/CSS2/tables/anonymous-table-box-width-001.xht
 PASS css/CSS2/tables/caption-side-applies-to-003.xht
 FAIL css/CSS2/tables/caption-side-applies-to-011.xht
