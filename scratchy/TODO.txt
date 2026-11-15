@@ -888,7 +888,7 @@ Not vendored; pass the path to the runner.
       of nearly every page, so it is not an [S]. Tests written and kept
       `#[ignore]`d in src/tests.rs (`margin_collapses_through_*`, helper
       `q48_y_of`); drop the `#[ignore]` as each sub-item lands. Split into:
-- [x] Q48a [M] (done, commit HASH) Adjacent in-flow sibling margins collapse (CSS2.1 8.3.1:
+- [x] Q48a [M] (done, commit b55ccac) Adjacent in-flow sibling margins collapse (CSS2.1 8.3.1:
       max of positives + min of negatives; clearance and floats excluded).
       Suggested approach: track the previous sibling's bottom margin in the
       Blocks loop and `shift_laid_tree(&mut lc, 0, -overlap)` after measure.
