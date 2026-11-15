@@ -3015,3 +3015,16 @@ node id), plus whether an author `outline` is set. Tab uses it in
 paint `paint_focus_ring` (2px blue with a white halo) for `:focus-visible`
 focus unless the element already has an outline. Limits: ignores
 `overflow: scroll` containers and sticky shifts.
+
+### JS engine spike (Q33-0)
+
+Measured, nothing shipped (no JS dependency in the scratchy crate). Throwaway
+crates ran real libraries (moment, d3, lodash, three.js: 1.67MB) in `boa_engine`
+0.22 and `rquickjs` 0.14 with stub globals. parse+exec: boa ~1.05s, QuickJS
+~0.15s. CPU-bound loop: 1.1s vs 0.47s. RSS after ~1.9MB of JS: 126MB vs 55MB.
+Engine-alone clean build: boa 3m43 wall / 21m CPU, QuickJS 50s (gcc only).
+Stripped binary of a stub program: boa 13.0MB, QuickJS 1.66MB; scratchy itself
+is 13.5MB (11.1MB stripped) and builds clean in 5m11 / 37m CPU. Recommendation:
+rquickjs, pending the user's confirmation. Full table in TODO.txt, Detail
+"JavaScript - engine choice". Caveat: the machine was loaded by other builds,
+so wall times are noisy and jquery/react-dom were not usable without a DOM.
