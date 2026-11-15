@@ -1235,7 +1235,7 @@ fn custom_prop_cycle_uses_fallback() {
 #[test]
 fn var_inside_quoted_string_is_not_substituted() {
     let vars = |n: &str| if n == "--x" { Some("BAD".to_string()) } else { None };
-    assert_eq!(substitute_css_vars("\"var(--x)\" var(--x)", &vars).unwrap(), "\"var(--x)\" BAD");
+    assert_eq!(substitute_css_vars("\"var(--x)\" var(--x)", &vars).unwrap(), "\"var(--x)\"  BAD ");
 }
 
 #[test]
@@ -7640,4 +7640,31 @@ fn q55_negative_z_child_of_non_stacking_parent_paints_below_parent_background() 
     let nested = r#"<html><body style="margin:0"><div style="position: absolute; left: 0px; top: 0px; width: 100px; height: 100px; background-color: #00ff00;"><div style="position: absolute; width: 50px; height: 50px;"><div style="position: absolute; z-index: -1; width: 50px; height: 50px; background-color: #ff0000;"></div></div></div></body></html>"#;
     let (pixels, win_w, _) = paint_fixture(nested);
     assert_eq!(px_at(&pixels, win_w, 20, 20), 0x0000_FF00, "nested non-SC chain: negative child below ancestor bg");
+}
+
+// ---------- Q57: var() correctness ----------
+
+fn q57_color(css: &str) -> TextColor {
+    let html = format!("<html><head><style>body{{color:#008000}} {css}</style></head><body><p>hi</p></body></html>");
+    let doc = parse_html(&html);
+    let tree = build_layout_tree(&doc, 1920.0);
+    find_first_span_color(&tree).expect("no span found")
+}
+
+#[test]
+fn q57_var_correctness() {
+    let green = TextColor::rgb(0, 0x80, 0);
+    // (a) invalid custom property values are dropped at parse.
+    assert_eq!(q57_color("p{--a:#008000;--b:#dc143c;--a:var(--b,!);color:var(--a)}"), green);
+    assert_eq!(q57_color("p{--a:#008000;--b:#dc143c;--a:var(--b) !important !important;color:var(--a)}"), green);
+    assert_eq!(q57_color("p{--a:#008000;--b:#dc143c;--a:var(--b,;);color:var(--a)}"), green);
+    // (b) invalid at computed-value time is unset (inherits from body), not dropped.
+    assert_eq!(q57_color("p{color:#ffa500;--a:red;--a:var(--b) <!--;color:var(--a)}"), green);
+    assert_eq!(q57_color("p{color:#ffa500;color:var(--nope)}"), green);
+    // (c) escaped names.
+    assert_eq!(q57_color("p{color:#ffa500;--0:#008000;color:var(--\\30)}"), green);
+    // (d) adjacent substitutions do not fuse into one token.
+    assert_eq!(q57_color("p{color:#ffa500;--a:var(--b)var(--c);--b:orange;--c:red;color:var(--a)}"), green);
+    // @supports conditions containing var().
+    assert_eq!(q57_color("p{color:#ff0000} @supports (--a: a) and (not (--a: var(--b,!))){p{color:#008000}}"), green);
 }
