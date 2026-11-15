@@ -765,7 +765,7 @@ Acid3: `--js-report` on the per-test harness described in REGRESSIONS.md
 "Acid3" (score 28/100 at `e7a090d`); paste the before/after harness score
 into the commit message of every JS item.
 
-- [x] QA1 [S] (P1, R13) (done, commit HASH) `border-style` initial value is `none`, not
+- [x] QA1 [S] (P1, R13) (done, commit 10e4006) `border-style` initial value is `none`, not
       `solid`. `BorderStyle::default()` is `Solid` (`#[default]` on the
       variant in css.rs), and `compute_style` in style.rs uses
       `.unwrap_or_default()` for an undeclared style, so `border: 1px blue`
