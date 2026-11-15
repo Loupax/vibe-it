@@ -1422,7 +1422,7 @@ as the JS measurement corpus (same role the four CSS pages played).
       one, and `<noscript>` content is hidden only when JS is on (many
       pages look better today because of their noscript fallbacks).
       `type=module`, `async`/`defer` ordering subtleties: out of scope.
-- [x] Q33b [M] (HASH) (top priority, see "JS on real pages") DOM read API: `document.getElementById/querySelector/
+- [x] Q33b [M] (e4e2ef1) (top priority, see "JS on real pages") DOM read API: `document.getElementById/querySelector/
       querySelectorAll` (reuse the `selectors` crate matching already
       used by the cascade), `Element.tagName/id/className/
       getAttribute/hasAttribute/textContent/children/parentNode/
