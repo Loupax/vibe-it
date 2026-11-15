@@ -1189,7 +1189,7 @@ touching the user's desktop: use it for the live check of each item.
       (the last waits for Q30e). QB4 only did the API plus centring; the
       modal marker is the internal `data-scratchy-modal` attribute and the
       UA rule is in `default.css`.
-- [x] QB12 (b677835) [S] (P2, from QB10) Vim `gg` / `G` (scroll to top / bottom).
+- [x] QB12 (ee35824) [S] (P2, from QB10) Vim `gg` / `G` (scroll to top / bottom).
       Not a bug: `resolve_binding` (app.rs) only knows `j k Ctrl-d Ctrl-u : h
       l`, there is no pending-key state and `:help` does not list `gg`, so
       `key:g key:g` in the injector correctly does nothing. (Same for
