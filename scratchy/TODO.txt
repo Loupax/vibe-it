@@ -750,6 +750,29 @@ rendering (Tier 5) -> forms (Tier 6) -> JavaScript (Tier 7). Status at this poin
 Q32 (parked); 320 tests pass, 2 ignored; lib.rs is ~27.4k lines.
 ========================================================================
 
+--- TOP PRIORITY: wikipedia.org wordmark missing (coordinator, 2026-11-15) ---
+
+- [ ] QW1 [S] The "Wikipedia" wordmark above the tagline on https://wikipedia.org
+      is not drawn (two agents reported it; it was visible earlier today).
+      Cause found by reading the page: the markup is
+      `<span class="central-textlogo__image sprite svg-Wikipedia_wordmark">Wikipedia</span>`
+      with CSS `.central-textlogo__image{color:transparent;text-indent:-10000px;overflow:hidden}`
+      and the real wordmark supplied by a SPRITE BACKGROUND image
+      (`.svg-Wikipedia_wordmark{background-position:0 -304px;width:176px;height:32px}`
+      on `.sprite{background-image:url(<sprite>.svg)}`). Before Q33c3 (9d6dbaf-era,
+      transparent text honoured) the transparent text was painted opaque, so the
+      plain word "Wikipedia" showed by accident. Now the text is correctly hidden and
+      the sprite does not render. Diagnose which part fails (grep the portal CSS for
+      `.sprite`; is the background SVG fetched through wire? decoded with
+      resvg/`parse_svg`? does `background-position` with a negative y and an
+      explicit width/height on an inline `span` with `display:inline-block` work?
+      is `filter:url('data:image/svg+xml...')` on `.central-textlogo__image`
+      interfering?), fix the smallest thing, add a test with a fixture of that
+      markup. Also glance at the clipped "Search" button label on the same page
+      (existing before today; file QW2 if it is a separate bug). Repro: open
+      `scratchy --socket $XDG_RUNTIME_DIR/wire.sock https://wikipedia.org` and
+      compare with `--no-js`.
+
 --- TOP PRIORITY: www.youtube.com investigation (user report, 2026-11-15) ---
 
 Overrides everything else in the QUEUE. User report: visiting
