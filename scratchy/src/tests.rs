@@ -9400,6 +9400,20 @@ fn qa6_fragment_waits_for_real_page_and_target() {
     assert!(app.scroll_offset >= 700.0, "got {}", app.scroll_offset);
 }
 
+/// Every command the command bar accepts (`COMMAND_NAMES`, also what Tab
+/// completes) must be documented on the `:help` page. Fails when a new
+/// command is added without a row in `src/help.html`.
+#[test]
+fn help_page_documents_every_command() {
+    for name in COMMAND_NAMES {
+        let needle = format!(":{name}");
+        assert!(
+            HELP_PAGE_HTML.contains(&needle),
+            "`:{name}` is a command-bar command but is not documented in src/help.html"
+        );
+    }
+}
+
 // ---------- QA8: background-attachment: fixed ----------
 
 #[test]

@@ -6510,6 +6510,12 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 
 **What changed:** cause verified by reading the flow: `fetch_url_inner` set `pending_fragment` and then called `show_message("Loading…")`; that placeholder page's layout completed first and `apply_fragment` returned true for "target not found", clearing the fragment before the real page arrived. Now the fragment is held in `App::nav_fragment` and promoted to `pending_fragment` in `handle_nav_result`; `handle_shape_result` clears it only on the first complete layout (re-applying on every incomplete one, since content above the target may still grow: applying on the first incomplete layout landed mid-page on Wikipedia), or at once for empty/`top`; a missing target waits through incomplete layouts. Live (nested dwl + grim): Wikipedia Spinning_top#References opens with the References heading at the top; acid2 #top opens scrolled to the Hello World/face block (face itself still broken by other items). Not live-tested: `:go #frag` and in-page clicks (same code path; unit test only). Same path serves `scratchy <url>#frag`, `:go` and cross-page link clicks; same-document `#frag` clicks were already working. Test `qa6_fragment_waits_for_real_page_and_target` (fails with the old clearing rule).
 
+## :help documents :refresh, :historyBack, :historyFront
+
+> Add a :refresh command (useful for testing) and document it on the :help page like the other commands.
+
+**What changed:** `:refresh` already existed in `App::refresh` (and Tab completion) but was missing from `src/help.html`, as were `:historyBack` and `:historyFront`; added the three rows. New permanent test `help_page_documents_every_command` fails (confirmed by temporarily dropping the rows) whenever a command in `COMMAND_NAMES` has no `:name` on the help page. No behaviour change.
+
 ## QA7: shrink-to-fit counts floats
 
 > Implement QA7 (shrink-to-fit width ignores floats inside the box; Acid2 line 2/smile; REGRESSIONS.md R19), with tests, WPT and real-page checks.
