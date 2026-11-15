@@ -7979,6 +7979,18 @@ fn q33a_script_errors_are_logged_and_not_fatal() {
 }
 
 #[test]
+fn qj1_classic_scripts_run_in_sloppy_mode() {
+    let log = run_collecting(&[
+        src("x = 1; console.log(typeof x)"),
+        src("console.log((function(){ return this === globalThis })())"),
+        src("\"use strict\"; y = 1"),
+    ]);
+    assert_eq!(&log[..2], ["log:number", "log:true"], "{log:?}");
+    assert_eq!(log.len(), 3, "{log:?}");
+    assert!(log[2].starts_with("error:t: "), "{log:?}");
+}
+
+#[test]
 fn q33a_runaway_script_is_interrupted() {
     let start = std::time::Instant::now();
     let log = run_collecting(&[src("while(true){}"), src("console.log('after');")]);
@@ -8040,4 +8052,13 @@ fn q33a_noscript_content_hidden_only_when_js_is_on() {
     set_js_enabled(true);
     assert!(!on, "noscript content must be hidden with JS on");
     assert!(off, "noscript content must show with JS off");
+}
+
+#[test]
+fn qj3_js_report_counts_scripts_and_errors() {
+    let html = "<html><body><script>console.log('ok');</script><script>throw new Error('boom');</script></body></html>";
+    let report = js::js_report_for_html(html, None, "none.html");
+    assert!(report.contains("scripts run: 2\n"), "{report}");
+    assert!(report.contains("errors total: 1\n"), "{report}");
+    assert!(report.contains("boom"), "{report}");
 }
