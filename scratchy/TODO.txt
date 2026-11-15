@@ -1056,7 +1056,7 @@ Not vendored; pass the path to the runner.
       sat at the left and the old trailing space made the reference's
       "1"/"2" sit left too. Prerequisite: Q59p. Then re-apply the patch,
       update wpt-expected.txt (+6 pass).
-- [x] Q59p [S] (HASH) Horizontal auto margins (prerequisite of Q59): `margin-left/right:
+- [x] Q59p [S] (4aa4617) Horizontal auto margins (prerequisite of Q59): `margin-left/right:
       auto` on a block box with a definite width, and on a block replaced element
       (`img{display:block;margin:0 auto}`), must centre it (CSS2.1 10.3.3/10.3.4);
       `box_model_entry` treats auto as 0. Test: 100px-wide block in a 200px
