@@ -6342,3 +6342,9 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > Do ONLY Q33c: setAttribute/removeAttribute/classList/textContent/style/createElement/appendChild/insertBefore/removeChild/remove/innerHTML; one rebuild per event-loop turn. Verify the portal stays visible with JS on.
 
 **What changed:** `js_dom.rs` gets write natives (`__d_setattr/rmattr/settext/sethtml/gethtml/create/clone/insert/remove`) over the `Handle` table, with own detach/insert helpers (rcdom has no mutation API; innerHTML uses `parse_fragment`, serialization uses `SerializableHandle`) and JS-side setters (`className`, `textContent`, `innerHTML`, `classList.add/remove/toggle/replace`, `style.<prop>` as a Proxy over the `style` attribute, append/prepend/before/after/remove, fragments, cloneNode). Every native write sets a shared `dirty` flag; `JsEngine::take_dirty` + `App::js_sync` turn it into one `layout_dirty`/redraw per turn (after load and after timers). Tests `q33c_*` (5); 391 pass; clippy warning count unchanged (32). `--js-report` errors before -> after: portal 2 -> 1, Main_Page 0 -> 0, SoHo 0 -> 0. grim of portal and Main_Page with JS on vs `--no-js`: portal content visible; Main_Page identical. Found and filed Q33c2 (closed `<dialog>` shown) and Q33c3 (transparent select text).
+
+## Q33c2 — closed dialog (queue item)
+
+> Do ONLY Q33c2: a `<dialog>` without `open` must not render (wikipedia.org portal donation box).
+
+**What changed:** one UA rule in `default.css`: `dialog:not([open]) { display: none; }`. Test `q33c2_closed_dialog_is_not_rendered_open_dialog_is`; 392 tests pass, clippy warning count unchanged (32).
