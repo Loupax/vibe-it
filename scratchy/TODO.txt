@@ -1018,7 +1018,7 @@ Not vendored; pass the path to the runner.
 
 --- Q40c fix items (WPT audit, 2026-11-15) -----------------------------
 
-- [ ] Q58 [S] Multi-value box shorthands (W34): `margin`, `padding`,
+- [x] Q58 [S] (HASH58) Multi-value box shorthands (W34): `margin`, `padding`,
       `border-width`, `border-color`, `border-style`, `border-radius`,
       `inset` take 1-4 values (top right bottom left; 2 = vertical/horizontal;
       3 = top, horizontal, bottom). Today the branches in `css.rs` parse one
@@ -1026,6 +1026,11 @@ Not vendored; pass the path to the runner.
       Also `margin-block/-inline` and `padding-block/-inline` two-value forms.
       Test: `margin:5px 30px 7px` gives top 5, right/left 30, bottom 7.
       Real pages use these everywhere; expect visible movement on Wikipedia.
+- [ ] Q58a [S] `border-radius` multi-value/per-corner (`5px 10px`, `/` elliptical)
+      (left out of Q58): `Declarations.border_radius` is one `Length`, so a
+      multi-value list still uses only the first value. Needs four corner
+      lengths through style.rs and paint.rs. `border-width/-color/-style`
+      already used `parse_box4`, so W34's border part was stale.
 - [ ] Q59 [S] Text-node whitespace (W29): `inline_text` appends a space to
       every text node and `normalize_whitespace` strips both ends, so
       `a<b>b</b>`, `<b>x</b>,` and `<span>a</span>bc` get a one-em/space gap.
