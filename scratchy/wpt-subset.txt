@@ -496,3 +496,16 @@ css/mediaqueries/mq-invalid-media-type-003.html
 css/mediaqueries/mq-negative-range-001.html
 css/mediaqueries/negation-002.html
 css/mediaqueries/prefers-color-scheme-svg-image-normal-with-meta-dark.html
+# Q40c: css-conditional
+css/css-conditional/at-media-001.html
+css/css-conditional/at-supports-004.html
+css/css-conditional/at-supports-016.html
+css/css-conditional/at-supports-028.html
+css/css-conditional/at-supports-043.html
+css/css-conditional/at-supports-content-002.html
+css/css-conditional/at-supports-selector-details-content.html
+css/css-conditional/container-queries/display-in-container.html
+css/css-conditional/container-queries/size-container-with-quotes.html
+css/css-conditional/css-supports-008.xht
+css/css-conditional/css-supports-020.xht
+css/css-conditional/css-supports-034.xht
