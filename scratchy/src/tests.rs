@@ -7918,10 +7918,26 @@ fn clearance_prevents_sibling_margin_collapse() {
         r#"<html><body style="margin:0"><div style="float:left;width:5px;height:50px"></div><div style="height:10px;margin-bottom:20px"></div><div style="clear:left;height:77px;margin-top:30px"></div></body></html>"#,
         77.0,
     );
-    // Not collapsed with the previous sibling (clearance). The engine still
-    // adds the cleared box's own margin-top below the float bottom (CSS puts
-    // its border edge at 50); see TODO Q48d.
-    assert_eq!(y, 80.0);
+    // Q48d: clearance puts the cleared box's BORDER edge at the float's
+    // bottom (50); its margin-top is absorbed, not added on top.
+    assert_eq!(y, 50.0);
+}
+
+#[test]
+fn q48d_clear_without_clearance_still_collapses_and_clear_on_first_child() {
+    // Float only 5px tall: the collapsed hypothetical border edge (10 + max(20,30)
+    // = 40) is already below it, so no clearance is added.
+    let y = q48_y_of(
+        r#"<html><body style="margin:0"><div style="float:left;width:5px;height:5px"></div><div style="height:10px;margin-bottom:20px"></div><div style="clear:left;height:77px;margin-top:30px"></div></body></html>"#,
+        77.0,
+    );
+    assert_eq!(y, 40.0);
+    // First in-flow child cleared past a 50px float with margin-top 30: border edge at 50.
+    let y = q48_y_of(
+        r#"<html><body style="margin:0"><div style="float:left;width:5px;height:50px"></div><div style="clear:left;height:77px;margin-top:30px"></div></body></html>"#,
+        77.0,
+    );
+    assert_eq!(y, 50.0);
 }
 
 #[test]

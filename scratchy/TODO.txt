@@ -971,7 +971,7 @@ Not vendored; pass the path to the runner.
       clearance or Q34b float-avoidance displacement; floats, abspos and
       display:none are transparent. `margin_collapses_through_*` stay ignored
       (they need Q48b).
-- [ ] Q48d [S] After Q48a: clearance puts the cleared box's BORDER edge at the
+- [x] Q48d [S] (done, commit HASH; WPT clear-clearance-calculation-001 and margin-collapse-023 newly pass) After Q48a: clearance puts the cleared box's BORDER edge at the
       float bottom (CSS2.1 9.5.2); the engine moves the margin edge and then
       adds margin-top. Test `clearance_prevents_sibling_margin_collapse` pins
       the current 80 (correct is 50). WPT: `clear-clearance-calculation-*`.

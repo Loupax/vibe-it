@@ -79,7 +79,7 @@ PASS css/CSS2/box-display/inline-text-after-block-in-inline-with-intervening-flo
 PASS css/CSS2/box-display/three-block-in-inlines-cascading-margins.html
 PASS css/CSS2/floats-clear/adjacent-floats-001.xht
 FAIL css/CSS2/floats-clear/clear-applies-to-004.xht
-FAIL css/CSS2/floats-clear/clear-clearance-calculation-001.xht
+PASS css/CSS2/floats-clear/clear-clearance-calculation-001.xht
 FAIL css/CSS2/floats-clear/clear-float-003.xht
 FAIL css/CSS2/floats-clear/float-003.xht
 FAIL css/CSS2/floats-clear/float-applies-to-001.xht
@@ -99,7 +99,7 @@ PASS css/CSS2/floats-clear/floats-006.xht
 PASS css/CSS2/floats-clear/floats-038.xht
 PASS css/CSS2/floats-clear/floats-122.xht
 PASS css/CSS2/floats-clear/floats-149.xht
-FAIL css/CSS2/floats-clear/margin-collapse-023.xht
+PASS css/CSS2/floats-clear/margin-collapse-023.xht
 FAIL css/CSS2/floats-clear/margin-collapse-clear-003.xht
 FAIL css/CSS2/floats/float-after-block-with-collapsed-margin-inside-inline.html
 PASS css/CSS2/floats/float-avoids-float-with-margin-006.html

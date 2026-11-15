@@ -1874,8 +1874,24 @@ fn measure_inner<'a>(
                 // or not) is measured. `clear_y` returns `f32::MIN`
                 // (never wins the `max`) when there's nothing to clear.
                 let y_before_clear = cursor_y;
+                let mut cleared = false;
                 if child.style.clear != Clear::None {
-                    cursor_y = cursor_y.max(local_floats.clear_y(child.style.clear));
+                    let cy = local_floats.clear_y(child.style.clear);
+                    if child.style.float != Float::None || child.style.display == Display::None {
+                        cursor_y = cursor_y.max(cy);
+                    } else if cy > cursor_y || prev_mb.is_some() {
+                        // Q48d (CSS2.1 9.5.2): clearance places the BORDER
+                        // edge at the float's bottom when the hypothetical
+                        // (margin-collapsed) border edge would be above it;
+                        // the cleared box's margin-top is then absorbed.
+                        let mt = child.style.margin.top.px();
+                        let overlap = prev_mb.map_or(0.0, |pb| margin_overlap(pb, mt));
+                        let hypothetical = cursor_y - overlap + mt;
+                        if hypothetical < cy {
+                            cursor_y = cy - mt;
+                            cleared = true;
+                        }
+                    }
                 }
                 if child.style.float != Float::None {
                     // Real CSS takes a float out of normal block-level
@@ -1998,7 +2014,7 @@ fn measure_inner<'a>(
                 }
                 // Q48a: adjacent sibling margins collapse unless clearance or
                 // float avoidance displaced this box.
-                let collapsible = child.style.display != Display::None && cursor_y == y_before_clear;
+                let collapsible = child.style.display != Display::None && cursor_y == y_before_clear && !cleared;
                 let mut overlap_done = false;
                 if collapsible
                     && let (Some(pb), BoxLength::Px(mt)) = (prev_mb, child.style.margin.top)
