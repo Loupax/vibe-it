@@ -9,7 +9,7 @@ pages"). Two are bugs in the Q33a runner (`2646dd1`) itself, fixed here.
 Mapping below was done by fetching the portal HTML and lining up line:col
 from the error stacks with its 4 `<script>`s (2 inline, 2 external).
 
-### R5 — Classic scripts run in strict mode (bug, Q33a `2646dd1`) — OPEN
+### R5 — Classic scripts run in strict mode (bug, Q33a `2646dd1`) — FIXED (HASH)
 
 Symptom: `js error: inline script: portalSearchDomain is not defined at
 <eval> (eval_script:15:5)`. Line 15 of the portal's 2nd inline script is
