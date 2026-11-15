@@ -826,7 +826,7 @@ into the commit message of every JS item.
       NBSP no longer collapses); needs `text-decoration-inset` and
       `text-decoration-skip-spaces`, which are unsupported, so it fails
       for the right reason now.
-- [x] QA3 [S] (P1, R12) (HASH) Margins on `position:absolute`/`fixed` boxes are
+- [x] QA3 [S] (P1, R12) (bd2945f) Margins on `position:absolute`/`fixed` boxes are
       ignored. `resolve_positioned` (layout.rs) sets `final_x` to
       `cb_x + left` or `item.static_x` and `final_y` likewise, then shifts
       the laid box there, so `margin-*` never moves an abspos box
