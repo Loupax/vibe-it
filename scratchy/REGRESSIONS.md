@@ -1,5 +1,80 @@
 # scratchy — regressions
 
+## R5–R6: Q33a script runner bugs seen on https://wikipedia.org — OPEN (2026-11-15)
+
+**Discovered:** 2026-11-15, user report (stderr from visiting
+https://wikipedia.org with JS on, `main` @ `c1fb661`). Most of the reported
+errors are just the missing DOM API (Q33b/c/d, see TODO.txt "JS on real
+pages"). Two are bugs in the Q33a runner (`2646dd1`) itself, fixed here.
+Mapping below was done by fetching the portal HTML and lining up line:col
+from the error stacks with its 4 `<script>`s (2 inline, 2 external).
+
+### R5 — Classic scripts run in strict mode (bug, Q33a `2646dd1`) — OPEN
+
+Symptom: `js error: inline script: portalSearchDomain is not defined at
+<eval> (eval_script:15:5)`. Line 15 of the portal's 2nd inline script is
+`portalSearchDomain = 'wikipedia.org'`, an assignment to an undeclared
+name. In sloppy mode that creates a global; in strict mode it throws a
+ReferenceError. Everything after it in that script (`wmL10nVisible`,
+the `setTimeout` call) never runs.
+
+Root cause (confirmed in the crate source): `run_scripts_with` calls
+`ctx.eval::<(), _>(code)`, and rquickjs 0.14's `Ctx::eval` uses
+`EvalOptions::default()`, which has `strict: true`
+(`rquickjs-core-0.14.0/src/context/ctx.rs`, `impl Default for
+EvalOptions`). HTML classic scripts are sloppy unless they say
+`"use strict"`. Strict mode also makes `this` `undefined` inside plain
+function calls, which breaks old UMD/IIFE code (`(function(){ this.x = …
+})()`), so some of the "cannot read/set property of undefined" errors in
+the report may be this bug too, not missing DOM.
+
+Fix: evaluate with `ctx.eval_with_options(code, opts)` where `opts` is
+`EvalOptions::default()` with `strict = false` and `filename =
+Some(<script name>)` (`EvalOptions` is `#[non_exhaustive]`, so build it
+from `default()` and set fields). The prelude and the two FIRE_* snippets
+can keep strict mode or not; keep it simple and use sloppy for all.
+Tests (in `src/tests.rs`, via `run_scripts_with` with a collecting
+`LogFn`):
+- `x = 1; console.log(typeof x)` logs `number` and no error.
+- `console.log((function(){ return this === globalThis })())` logs `true`.
+- A script starting with `"use strict"; y = 1` still logs an error
+  (strict stays opt-in).
+Re-check: the portal no longer logs `portalSearchDomain is not defined`.
+
+### R6 — Script errors lose the message and the script name (bug, Q33a `2646dd1`) — OPEN
+
+Symptoms in the report:
+- `js error: Uncaught     at <anonymous> (eval_script:1:32) …` — no
+  error name or message at all. Source: `__scratchy_fire` in the
+  `PRELUDE` logs `'Uncaught ' + e.stack`. QuickJS's `Error.stack` holds
+  only the frames, not `Name: message` (V8 includes it, QuickJS doesn't),
+  so a throwing `DOMContentLoaded`/`load` listener prints an empty
+  message. (The external script ran `forEach` → `value` → `call` inside a
+  load listener; the real message is lost, so it can't be triaged.)
+- Every stack frame says `eval_script:L:C`, and every inline script is
+  named just `inline script`, so with many inline scripts you can't tell
+  which one failed (the report has 9 different `inline script` errors).
+- `describe_error` prints `uncaught {value:?}` (a Rust Debug dump) when a
+  script throws a non-Error value (`throw "x"`, `throw {…}`).
+
+Fix:
+- In `__scratchy_fire`, log `String(e)` (gives `TypeError: msg`) plus,
+  when present, `'\n' + e.stack`.
+- Name inline scripts by document position, e.g. `inline script #3`
+  (1-based among all scripts, counted in `find_external_resources` order
+  so it matches the page source), and pass that name as the eval
+  `filename` (same change as R5), so frames read `inline script #3:15:5`.
+- For a non-Error throw, convert the value with JS `String()` (or
+  `JSON.stringify` for plain objects, like the console formatter does).
+Tests:
+- A `load` listener that throws `new TypeError('boom')` logs a line
+  containing `TypeError: boom`.
+- A failing second inline script's error line contains `inline script #2`.
+- `throw "plain"` logs a line containing `plain` and no `Value(`/Debug
+  formatting.
+
+---
+
 ## R1–R4: white screen past one viewport, hover-driven relayout storms, slow scrolling — ALL FIXED (2026-11-13)
 
 **Discovered:** 2026-11-13T09:16:02+01:00 (investigation on `main` @ `530f741`)

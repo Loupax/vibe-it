@@ -750,6 +750,69 @@ rendering (Tier 5) -> forms (Tier 6) -> JavaScript (Tier 7). Status at this poin
 Q32 (parked); 320 tests pass, 2 ignored; lib.rs is ~27.4k lines.
 ========================================================================
 
+--- TOP PRIORITY: JS on real pages (user report, 2026-11-15) ----------
+
+The user visited https://wikipedia.org with JS on (after Q33a, `2646dd1`)
+and got 12 `scratchy: js error:` lines. Investigation (fetched the portal
+HTML, matched line:col in each stack against its `<script>`s):
+- 2 are bugs in the Q33a runner itself: REGRESSIONS.md R5 (scripts run in
+  strict mode) and R6 (error lines lose the message and script name).
+- The rest are the DOM API simply not existing yet: `document.
+  documentElement`/`body` are `undefined` (-> "cannot read property
+  'className'/'addEventListener'/'clientWidth' of undefined"),
+  `document.getElementById`/`querySelector` "not a function",
+  `setTimeout` undefined / `window.setTimeout` "not a function",
+  `Element is not defined` (external `index-*.js`).
+These are expected for a no-DOM first slice, but they are the user's
+top priority now. This block overrides everything else in the QUEUE:
+do QJ1..QJ3, Q33b, Q33b1 and Q33t (Tier 7) in that order before any
+other unchecked item, including Q41a+.
+
+HAZARD, read before Q33c: the portal's CSS has `.js-enabled
+.central-featured, .js-enabled .jsl10n {opacity:0}`, and the page only
+reveals itself via `window.setTimeout(wmL10nVisible.makeVisible, 1000)`
+(adds `jsl10n-visible` to body). Once `className=` writes reach the DOM
+(Q33c) the `no-js` -> `js-enabled` swap in its first inline script
+works, so WITHOUT timers the portal's main content goes invisible
+forever. So Q33t (timers) must land before Q33c. Same pattern on
+en.wikipedia (`client-nojs` -> `client-js` in its first inline script).
+
+Corpus for this block (measure with QJ3 before and after each item,
+paste the before/after error counts into the commit message):
+  https://wikipedia.org/ (the portal),
+  https://en.wikipedia.org/wiki/Main_Page,
+  https://en.wikipedia.org/wiki/SoHo_Weekly_News.
+"Done" for the block: the portal shows no R5/R6-type errors, the error
+count on each corpus page drops item by item, and no page looks worse
+with JS on than with `--no-js` (compare `grim` screenshots of both).
+
+- [ ] QJ1 [S] Fix REGRESSIONS.md R5: evaluate classic scripts in sloppy
+      mode (`eval_with_options`, `strict = false`, `filename =` the
+      script name). Root cause, fix and tests are in R5. Mark R5 FIXED
+      with the hash.
+- [ ] QJ2 [S] Fix REGRESSIONS.md R6: error lines carry `Name: message`
+      for listener exceptions, number inline scripts (`inline script #3`)
+      and use that as the stack filename, format non-Error throws with
+      JS `String()`. Details and tests in R6. Mark R6 FIXED with the hash.
+- [ ] QJ3 [S] Headless JS report: `scratchy --js-report [--socket S]
+      <file>` (dispatched in `run()` next to `--wpt`, no window, no event
+      loop). Parses the page, gets scripts the same way the windowed path
+      does (`load_file_resources` with a socket, else `inline_scripts`),
+      runs them via `run_scripts_with` with a collecting `LogFn`, then
+      prints every error line plus a summary: scripts run, errors total,
+      errors grouped by first line with counts, sorted by count. Exit 0.
+      Usage for a URL: `snag <url> > page.html; scratchy --js-report
+      --socket $XDG_RUNTIME_DIR/wire.sock page.html` (check how `snag`
+      emits `<base href>` so external scripts resolve). Record the
+      baseline counts for the 3 corpus pages in this item when ticking it.
+      Test: on an inline fixture with one good and one throwing script,
+      the summary reports 2 scripts, 1 error. Factor so the test calls a
+      function returning the report string, not stdout.
+      (QJ3 can be done before QJ1/QJ2 if you want a "before" number for
+      them; it's independent.)
+- [ ] Next: Q33b, Q33b1, Q33t in Tier 7 (they're in that order there).
+      Tick this line when Q33t is ticked.
+
 --- TOP PRIORITY: WPT audit of "done" features (user, 2026-11-14) -----
 
 Do not start Tier 5+ until Q40 is done. Purpose: find out how much of
@@ -1340,8 +1403,8 @@ as the JS measurement corpus (same role the four CSS pages played).
       code and keeps incremental builds shorter.
 - [x] Q33a [M] (done, 2646dd1) Run scripts (engine: rquickjs, user decided 2026-11-15).
       Cuts, each a new narrower item: [ ] Q33a1 `setTimeout/setInterval`,
-      `requestAnimationFrame` etc. are undefined (arrive with Q33d); [ ] Q33a2
-      the engine is dropped after each page load (Q33d must keep it in App);
+      `requestAnimationFrame` etc. are undefined (-> now Q33t); [ ] Q33a2
+      the engine is dropped after each page load (-> now Q33t);
       [ ] Q33a3 scripts run synchronously on the main thread (5s budget),
       `async`/`defer` ignored, no `document.write`; [ ] Q33a4 `:set nojs`
       only applies on the next load, not live. Classic (non-module) inline and external
@@ -1353,12 +1416,45 @@ as the JS measurement corpus (same role the four CSS pages played).
       one, and `<noscript>` content is hidden only when JS is on (many
       pages look better today because of their noscript fallbacks).
       `type=module`, `async`/`defer` ordering subtleties: out of scope.
-- [ ] Q33b [M] DOM read API: `document.getElementById/querySelector/
+- [ ] Q33b [M] (top priority, see "JS on real pages") DOM read API: `document.getElementById/querySelector/
       querySelectorAll` (reuse the `selectors` crate matching already
       used by the cascade), `Element.tagName/id/className/
       getAttribute/hasAttribute/textContent/children/parentNode/
       classList.contains`. One JS wrapper object per `Handle`, cached
       so `===` holds.
+- [ ] Q33b1 [S] (top priority, see "JS on real pages") Global
+      objects pages feature-test or touch at startup:
+      `document.documentElement/head/body` (Q33b wrappers),
+      `Node/Element/HTMLElement/Document/Event/CustomEvent/Image` as
+      constructor functions so `x instanceof Element` and
+      `Element.prototype.foo = …` polyfills don't throw (the portal's
+      `index-*.js` dies on `Element is not defined`), `navigator`
+      (`userAgent`, `language`), `window.innerWidth/innerHeight`,
+      `document.readyState/title/URL/cookie` (cookie: empty string,
+      writes ignored until Q33g), `location` (read-only fields, from the
+      page URL). Element `clientWidth/offsetWidth` etc.: return 0 for
+      now and note it as a new item (real values need layout results,
+      Q33g `getBoundingClientRect`). Re-run QJ3 on the corpus; the next
+      top error groups go in as new items here if they're a one-liner
+      global, else report them.
+- [ ] Q33t [M] (top priority, see "JS on real pages"; takes over Q33a1
+      and Q33a2, and the timer half of Q33d) Keep the QuickJS
+      runtime/context alive in `App` for the page's lifetime (drop it on
+      navigation; key it by `nav_generation` like `NavResult` so stale
+      timers from the old page never fire). `setTimeout/
+      clearTimeout/setInterval/clearInterval/requestAnimationFrame/
+      cancelAnimationFrame` on `window` and as globals; string handler
+      arg evaluated as code. Drive them from the winit loop: next
+      deadline -> `ControlFlow::WaitUntil`, run due callbacks, drain the
+      Promise job queue after each. Clamp nested intervals to >=4ms, rAF
+      at ~60Hz only while the window is visible. Each callback runs
+      under its own interrupt budget (the 5s page budget is for load).
+      Must not cost anything for pages without timers (no busy wake-up).
+      Test: `setTimeout(()=>console.log('a'),0); console.log('b')` logs
+      `b` then `a` after a turn; `clearTimeout` cancels; an interval
+      runs N times then clears itself. Live check: the wikipedia.org
+      portal's `wmL10nVisible.makeVisible` runs (log it temporarily).
+      Lands BEFORE Q33c (see the HAZARD in "JS on real pages").
 - [ ] Q33c [M] DOM mutation: `setAttribute/removeAttribute`,
       `classList.add/remove/toggle`, `textContent=`, `style.<prop>=`
       (writes the inline style attribute), `createElement/
@@ -1372,9 +1468,9 @@ as the JS measurement corpus (same role the four CSS pages played).
       DOMContentLoaded, load; capture/bubble dispatch with
       `preventDefault`/`stopPropagation`, hooked into link clicks and
       form submission (Q30e) so a page's handler can cancel them.
-      `setTimeout/setInterval/requestAnimationFrame` driven by the
-      winit loop via `EventLoopProxy`; drain the Promise job queue after
-      each task.
+      (Timers moved to Q33t, which lands first; Q33d reuses its
+      kept-alive engine and its event-loop hook.) Drain the Promise job
+      queue after each dispatched event.
 - [ ] Q33e [S] Forms <-> JS: `.value`, `.checked`, `.selectedIndex`,
       `.disabled` read and write the Q30 live state; `form.submit()`,
       `form.elements`, `input`/`change` events fire from Q30d/Q30c.
