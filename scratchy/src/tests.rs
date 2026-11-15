@@ -8244,3 +8244,33 @@ fn q33t_runaway_timer_callback_is_interrupted_with_its_own_budget() {
     assert!(log.iter().any(|l| l.starts_with("error:")), "{log:?}");
     assert!(log.iter().any(|l| l == "log:after"), "{log:?}");
 }
+
+/// R7: an image fetched for the current navigation can arrive before
+/// that navigation's `NavResult` (scripts are fetched synchronously
+/// before `NavResult` is sent); the document swap must not drop it,
+/// while a stale-generation image must still be dropped.
+#[test]
+fn r7_image_fetched_before_nav_result_survives_document_swap() {
+    use winit::platform::wayland::EventLoopBuilderExtWayland;
+    let event_loop = match EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build() {
+        Ok(l) => l,
+        Err(_) => return, // no display available (headless CI)
+    };
+    let mut app = App::new_static(parse_html("<html></html>"), event_loop.create_proxy(), None);
+    let img = || Some(DecodedImage { width: 1, height: 1, pixels: vec![TextColor::rgb(1, 2, 3)], svg: None, mask: None });
+    app.image_cache.insert("stale-from-old-page".into(), Arc::new(img().unwrap()));
+    app.fetch_url_inner(Url::parse("http://127.0.0.1:9/").unwrap());
+    assert!(app.image_cache.is_empty(), "starting a navigation clears the old page images");
+    let generation = app.nav_generation;
+    app.handle_image_fetched(generation - 1, "old".into(), img());
+    app.handle_image_fetched(generation, "globe.png".into(), img());
+    let page = FetchedPage {
+        html: b"<html><body><img src=\"globe.png\"></body></html>".to_vec(),
+        extra_css: String::new(),
+        scripts: Vec::new(),
+        url: Url::parse("http://127.0.0.1:9/").unwrap(),
+    };
+    app.handle_nav_result(generation, Ok(page));
+    assert!(app.image_cache.contains_key("globe.png"), "image that beat NavResult must survive");
+    assert!(!app.image_cache.contains_key("old"), "stale-generation image must be dropped");
+}

@@ -1,5 +1,24 @@
 # scratchy — regressions
 
+## R7 — Fetched images lost when scripts delay NavResult (bug) — FIXED (b40c62a)
+
+**Discovered:** 2026-11-15, user report: navigating to https://wikipedia.org
+with JS on loses the globe logo; `--no-js` renders it; a snag'd copy (data:
+URIs) works.
+
+Root cause: `process_external_resources` spawns image fetch threads and then
+synchronously fetches scripts, so `AppEvent::ImageFetched` (current generation)
+can be applied to `image_cache` before `AppEvent::NavResult`; `NavResult` ->
+`replace_document` then did `image_cache.clear()`, dropping it. With no
+scripts, NavResult wins the race.
+
+Fix: `replace_document` no longer clears `image_cache`; the cache is cleared
+where a navigation starts (`fetch_url_inner`), plus `show_message`/`show_help`.
+Stale generations are still dropped by `ImageFetched`'s `nav_generation` check;
+`restore_saved_page` still restores its saved cache. `NavResult`/`ImageFetched`
+bodies moved to `App::handle_nav_result`/`handle_image_fetched` so a test can
+drive them. Test: `r7_image_fetched_before_nav_result_survives_document_swap`.
+
 ## R5–R6: Q33a script runner bugs seen on https://wikipedia.org — OPEN (2026-11-15)
 
 **Discovered:** 2026-11-15, user report (stderr from visiting
