@@ -1211,6 +1211,30 @@ impl App {
     /// Q33c: if page scripts wrote to the DOM, request one layout
     /// rebuild (never one per write) and a redraw.
     pub(crate) fn js_sync(&mut self) {
+        // QB5: focus/blur and window.scroll* requests made by page script.
+        if let Some(js) = &self.js {
+            let reqs = js.take_requests();
+            match reqs.focus {
+                Some(crate::js_dom::FocusReq::Focus(h)) => {
+                    self.set_focus_element(Some(&h), false);
+                    self.scroll_focus_into_view();
+                }
+                Some(crate::js_dom::FocusReq::Blur(h)) => {
+                    if self.interaction.focus == Some(node_id(&h)) {
+                        self.set_focus_element(None, false);
+                    }
+                }
+                None => {}
+            }
+            if let Some(sr) = reqs.scroll
+                && let Some(y) = sr.y
+            {
+                self.scroll_offset = if sr.relative { self.scroll_offset + y as f32 } else { y as f32 }.max(0.0);
+                if let Some(w) = &self.window {
+                    w.request_redraw();
+                }
+            }
+        }
         if self.js.as_ref().is_some_and(|js| js.take_dirty()) {
             // QB2: a DOM write is a restyle of the same document. While a
             // layout is still being shaped, don't start another (it would

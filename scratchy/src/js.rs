@@ -421,6 +421,8 @@ pub(crate) struct JsEngine {
     dirty: Rc<std::cell::Cell<bool>>,
     /// Q33d: handle <-> JS id table, to address events at nodes.
     table: Rc<std::cell::RefCell<js_dom::DomTable>>,
+    /// QB5: focus/blur/scroll requests for the App.
+    reqs: Rc<std::cell::RefCell<js_dom::JsRequests>>,
 }
 
 /// One init field of a natively dispatched event (Q33d).
@@ -461,7 +463,7 @@ impl JsEngine {
         self.deadline.store(d, Ordering::Relaxed);
     }
 
-    fn eval(&self, name: &str, code: &str) {
+    pub(crate) fn eval(&self, name: &str, code: &str) {
         self.arm_budget();
         self.ctx.with(|ctx| {
             // HTML classic scripts are sloppy unless they opt in; rquickjs
@@ -476,7 +478,7 @@ impl JsEngine {
         drain_jobs(&self.rt, &*self.log);
     }
 
-    fn eval_value<T: for<'js> FromJs<'js>>(&self, code: &str) -> Option<T> {
+    pub(crate) fn eval_value<T: for<'js> FromJs<'js>>(&self, code: &str) -> Option<T> {
         self.arm_budget();
         let v = self.ctx.with(|ctx| {
             let mut opts = EvalOptions::default();
@@ -497,6 +499,11 @@ impl JsEngine {
     /// Whether JS wrote to the DOM since the last call (clears the flag).
     pub(crate) fn take_dirty(&self) -> bool {
         self.dirty.replace(false)
+    }
+
+    /// QB5: drains pending focus/blur/scroll requests.
+    pub(crate) fn take_requests(&self) -> js_dom::JsRequests {
+        std::mem::take(&mut *self.reqs.borrow_mut())
     }
 
     /// Q33d: fires a trusted event of `kind` (`click`, `keydown`, ...) at
@@ -585,10 +592,11 @@ pub(crate) fn start_scripts(document: &Handle, scripts: &[ScriptSource], log: Lo
         }
     });
     let dirty = Rc::new(std::cell::Cell::new(false));
-    let mut engine = JsEngine { ctx, rt, log, base, deadline, dirty: dirty.clone(), table: Default::default() };
+    let reqs: Rc<std::cell::RefCell<js_dom::JsRequests>> = Default::default();
+    let mut engine = JsEngine { ctx, rt, log, base, deadline, dirty: dirty.clone(), table: Default::default(), reqs: reqs.clone() };
     engine.eval("prelude", PRELUDE);
     engine.eval("timers", TIMERS_PRELUDE);
-    engine.table = engine.ctx.with(|ctx| js_dom::install_dom(&ctx, document, dirty.clone()));
+    engine.table = engine.ctx.with(|ctx| js_dom::install_dom(&ctx, document, dirty.clone(), reqs.clone()));
     for s in scripts {
         engine.eval(&s.name, &s.code);
     }

@@ -223,7 +223,44 @@ fn clone_node(h: &Handle, deep: bool) -> Handle {
 }
 
 /// Installs the `__d_*` natives for `document` and the JS wrappers on top.
-pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>>) -> Rc<RefCell<DomTable>> {
+/// QB5: requests page script made of the App (which owns focus and the
+/// scroll offset); drained by `App::js_sync` through `take_requests`.
+#[derive(Default, Debug, Clone)]
+pub(crate) struct JsRequests {
+    pub(crate) focus: Option<FocusReq>,
+    /// `window.scroll*`: target axes (`None` = keep), `relative` = scrollBy.
+    pub(crate) scroll: Option<ScrollReq>,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum FocusReq {
+    Focus(Handle),
+    /// Only blurs if that element is the focused one.
+    Blur(Handle),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct ScrollReq {
+    pub(crate) x: Option<f64>,
+    pub(crate) y: Option<f64>,
+    pub(crate) relative: bool,
+}
+
+/// QB5: what `focus()` accepts. Form controls count even though Tab
+/// navigation skips them until Q30 makes them real controls.
+fn js_focusable(h: &Handle) -> bool {
+    if is_focusable(h) {
+        return true;
+    }
+    let control = match element_tag(h) {
+        "input" => !element_attr(h, "type").is_some_and(|t| t.eq_ignore_ascii_case("hidden")),
+        "button" | "select" | "textarea" => true,
+        _ => false,
+    };
+    control && element_attr(h, "disabled").is_none()
+}
+
+pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>>, reqs: Rc<RefCell<JsRequests>>) -> Rc<RefCell<DomTable>> {
     let table = Rc::new(RefCell::new(DomTable::default()));
     table.borrow_mut().intern(document);
     let globals = ctx.globals();
@@ -415,6 +452,22 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             d.set(true);
         }
     });
+    // QB5: focus()/blur() only record a request; the App applies it.
+    let (t, r) = (table.clone(), reqs.clone());
+    native!("__d_focus", move |id: i32, focus: bool| {
+        if let Some(h) = t.borrow().get(id) {
+            if focus && js_focusable(&h) {
+                r.borrow_mut().focus = Some(FocusReq::Focus(h));
+            } else if !focus {
+                r.borrow_mut().focus = Some(FocusReq::Blur(h));
+            }
+        }
+    });
+    let r = reqs;
+    native!("__d_scroll", move |x: f64, y: f64, relative: bool| {
+        let f = |v: f64| if v.is_finite() { Some(v) } else { None };
+        r.borrow_mut().scroll = Some(ScrollReq { x: f(x), y: f(y), relative });
+    });
     let _ = ctx.eval::<(), _>(DOM_PRELUDE);
     table
 }
@@ -539,6 +592,34 @@ const DOM_PRELUDE: &str = r#"
   reflect('lang', 'lang'); reflect('dir', 'dir');
   defs(ElementProto, 'hidden', function () { return __d_attr(this.__id, 'hidden') != null; },
     function (v) { if (v) __d_setattr(this.__id, 'hidden', ''); else __d_rmattr(this.__id, 'hidden'); });
+  var reflectBool = function (prop, attr) {
+    defs(ElementProto, prop, function () { return __d_attr(this.__id, attr) != null; },
+      function (v) { if (v) __d_setattr(this.__id, attr, ''); else __d_rmattr(this.__id, attr); });
+  };
+  reflectBool('autofocus', 'autofocus'); reflectBool('disabled', 'disabled');
+  reflectBool('required', 'required'); reflectBool('checked', 'checked');
+  // QB5: focus/blur record a request the App applies in `js_sync`.
+  HTMLElement.prototype.focus = function () { __d_focus(this.__id, true); };
+  HTMLElement.prototype.blur = function () { __d_focus(this.__id, false); };
+  // QB5: window.scroll/scrollTo/scrollBy(x, y | {top, left}); NaN = keep axis.
+  // scrollX/scrollY follow optimistically (the App owns the real offset).
+  var scrollArgs = function (a, b) {
+    if (a !== null && typeof a === 'object') return [a.left === undefined ? NaN : Number(a.left), a.top === undefined ? NaN : Number(a.top)];
+    return [Number(a), Number(b)];
+  };
+  g.scrollX = g.pageXOffset = 0; g.scrollY = g.pageYOffset = 0;
+  g.scroll = g.scrollTo = function () {
+    var a = scrollArgs(arguments[0], arguments[1]);
+    __d_scroll(a[0], a[1], false);
+    if (a[0] === a[0]) g.scrollX = g.pageXOffset = Math.max(0, a[0]);
+    if (a[1] === a[1]) g.scrollY = g.pageYOffset = Math.max(0, a[1]);
+  };
+  g.scrollBy = function () {
+    var a = scrollArgs(arguments[0], arguments[1]);
+    __d_scroll(a[0] === a[0] ? a[0] : 0, a[1] === a[1] ? a[1] : 0, true);
+    if (a[0] === a[0]) g.scrollX = g.pageXOffset = Math.max(0, g.scrollX + a[0]);
+    if (a[1] === a[1]) g.scrollY = g.pageYOffset = Math.max(0, g.scrollY + a[1]);
+  };
   ElementProto.setAttribute = function (n, v) { __d_setattr(this.__id, String(n), String(v)); };
   ElementProto.removeAttribute = function (n) { __d_rmattr(this.__id, String(n)); };
   ElementProto.toggleAttribute = function (n, force) {

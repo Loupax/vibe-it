@@ -8662,6 +8662,7 @@ fn qb2_js_dom_writes_use_restyle_path() {
     qb2_restyle_and_keep_old_frame(qb2_app(&proxy));
     qb2_coalesce_into_one_rebuild(qb2_app(&proxy));
     qb2_first_layout_not_made_stale(qb2_app(&proxy));
+    qb5_app_applies_requests(&proxy);
 }
 
 fn qb2_restyle_and_keep_old_frame(mut app: App) {
@@ -8768,4 +8769,75 @@ fn qb4_clicks_inside_a_modal_dialog_hit_its_content() {
     let node = hit_test_element(&laid, 200.0, 150.0, &cache, &so, 0.0, 300.0);
     let h = crate::dom::find_node_by_id(&doc, node).unwrap_or_else(|| panic!("hit node {node}"));
     assert_eq!(element_tag(&h), "div", "click at the dialog's centre lands on its content");
+}
+
+// ---------- QB5: focus()/blur(), autofocus, window.scroll* ----------
+
+fn qb5_engine(html: &str, code: &str) -> JsEngine {
+    let doc = parse_html(html);
+    start_scripts(&doc, &[src(code)], Rc::new(|_, _| {})).unwrap()
+}
+
+#[test]
+fn qb5_focus_and_blur_are_functions_and_record_requests() {
+    let engine = qb5_engine(
+        "<html><body><input id=i><div id=d></div></body></html>",
+        "var i=document.getElementById('i'), d=document.getElementById('d');
+         if (typeof i.focus !== 'function' || typeof i.blur !== 'function') throw new Error('missing');
+         d.focus(); // not focusable: ignored
+         i.focus();",
+    );
+    let r = engine.take_requests();
+    let Some(crate::js_dom::FocusReq::Focus(h)) = r.focus else { panic!("no focus request: {r:?}") };
+    assert_eq!(element_attr(&h, "id").as_deref(), Some("i"));
+    assert!(engine.take_requests().focus.is_none(), "drained");
+    engine.eval("t2", "document.getElementById('i').blur()");
+    assert!(matches!(engine.take_requests().focus, Some(crate::js_dom::FocusReq::Blur(_))));
+}
+
+#[test]
+fn qb5_autofocus_and_boolean_attributes_reflect() {
+    let engine = qb5_engine(
+        "<html><body><input id=i autofocus><input id=j></body></html>",
+        "var i=document.getElementById('i'), j=document.getElementById('j');
+         var r=[i.autofocus, j.autofocus, j.disabled]; j.autofocus=true; j.disabled=true; i.autofocus=false;
+         r.push(j.hasAttribute('autofocus'), j.disabled, i.hasAttribute('autofocus'), j.required, j.checked);
+         // the portal's idiom: void 0===t.autofocus?t.focus():window.scroll(0,0)
+         void 0===j.autofocus?j.focus():window.scroll(0,0);
+         globalThis.out = r.join();",
+    );
+    assert_eq!(engine.eval_value::<String>("out").unwrap(), "true,false,false,true,true,false,false,false");
+}
+
+#[test]
+fn qb5_window_scroll_family_records_a_request() {
+    let engine = qb5_engine("<html><body></body></html>", "window.scrollTo(0, 100);");
+    let s = engine.take_requests().scroll.expect("scroll request");
+    assert_eq!((s.x, s.y, s.relative), (Some(0.0), Some(100.0), false));
+    engine.eval("t", "window.scroll({top: 40}); window.scrollBy(0, 5);");
+    let s = engine.take_requests().scroll.unwrap();
+    assert_eq!((s.y, s.relative), (Some(5.0), true), "last request wins");
+    engine.eval("t", "window.scroll({top: 40})");
+    let s = engine.take_requests().scroll.unwrap();
+    assert_eq!((s.x, s.y), (None, Some(40.0)), "missing left keeps the axis");
+    assert_eq!(engine.eval_value::<f64>("window.scrollY").unwrap(), 40.0);
+}
+
+/// App side: `js_sync` applies a scroll request and a focus request.
+fn qb5_app_applies_requests(proxy: &winit::event_loop::EventLoopProxy<AppEvent>) {
+    let doc = parse_html("<html><body><input id=i><p>hello</p></body></html>");
+    let mut app = App::new_static(doc.clone(), proxy.clone(), None);
+    app.js = run_page_scripts(
+        &doc,
+        &[src("window.scrollTo(0, 120); document.getElementById('i').focus();")],
+        None,
+    );
+    app.js_sync();
+    assert_eq!(app.scroll_offset, 120.0);
+    let i = crate::dom::find_node_by_id(&doc, app.interaction.focus.expect("focused")).unwrap();
+    assert_eq!(element_attr(&i, "id").as_deref(), Some("i"));
+    app.js.as_ref().unwrap().eval("t", "window.scrollBy(0, -500); document.getElementById('i').blur();");
+    app.js_sync();
+    assert_eq!(app.scroll_offset, 0.0, "clamped at the top");
+    assert!(app.interaction.focus.is_none(), "blur() of the focused element clears focus");
 }
