@@ -50,6 +50,16 @@ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy}
 use winit::keyboard::{Key, ModifiersState, NamedKey};
 use winit::window::{CursorIcon, Window, WindowId};
 
+/// Diagnostic output (`scratchy: …` lines, usage text, timing). Use these
+/// instead of `eprintln!`/`println!`: those panic on a closed pipe
+/// (`scratchy … 2>&1 | head -1` exited 101; QB9). See `write_line_to`.
+macro_rules! diag {
+    ($($arg:tt)*) => { $crate::write_line_to(&mut io::stderr().lock(), format_args!($($arg)*)) };
+}
+macro_rules! out {
+    ($($arg:tt)*) => { $crate::write_line_to(&mut io::stdout().lock(), format_args!($($arg)*)) };
+}
+
 mod wpt;
 mod dom;
 mod css;
@@ -129,7 +139,7 @@ pub fn run() {
     let mut app = match input {
         Input::File(path) => {
             let html = fs::read(&path).map(|b| decode_html_bytes(&b, None)).unwrap_or_else(|e| {
-                eprintln!("scratchy: {e}");
+                diag!("scratchy: {e}");
                 std::process::exit(1);
             });
             let dom = new_parser().read_from(&mut html.as_bytes()).unwrap();
@@ -196,7 +206,7 @@ pub fn run() {
 
     let result = event_loop.run_app(&mut app);
     if let Some(msg) = event_loop_exit_message(&result) {
-        eprintln!("{msg}");
+        diag!("{msg}");
         std::process::exit(1);
     }
 }
@@ -219,13 +229,29 @@ pub(crate) fn event_loop_exit_message(
     }
 }
 
+/// Writes one line and ignores errors (a closed pipe, a full disk). QB9:
+/// `eprintln!`/`println!` panic on those, which turned `scratchy … | head -1`
+/// into exit 101. Callers go through the `diag!`/`out!` macros.
+pub(crate) fn write_line_to(w: &mut dyn Write, args: std::fmt::Arguments<'_>) {
+    let _ = w.write_fmt(args);
+    let _ = w.write_all(b"\n");
+    let _ = w.flush();
+}
+
+/// Like `print!`: writes without a newline, ignoring errors (QB9).
+pub(crate) fn write_raw_stdout(args: std::fmt::Arguments<'_>) {
+    let mut out = io::stdout().lock();
+    let _ = out.write_fmt(args);
+    let _ = out.flush();
+}
+
 /// Logs a redraw failure once per process (a dead connection would
 /// otherwise repeat it every frame).
 pub(crate) fn log_redraw_error_once(what: &str, err: &dyn std::fmt::Display) {
     use std::sync::atomic::{AtomicBool, Ordering};
     static LOGGED: AtomicBool = AtomicBool::new(false);
     if !LOGGED.swap(true, Ordering::Relaxed) {
-        eprintln!("scratchy: could not {what}: {err}");
+        diag!("scratchy: could not {what}: {err}");
     }
 }
 

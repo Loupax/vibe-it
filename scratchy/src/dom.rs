@@ -57,7 +57,7 @@ pub(crate) fn parse_args() -> Args {
     while i < raw.len() {
         if raw[i] == "--socket" {
             let Some(path) = raw.get(i + 1) else {
-                eprintln!("scratchy: --socket needs a path argument");
+                diag!("scratchy: --socket needs a path argument");
                 std::process::exit(1);
             };
             socket = Some(PathBuf::from(path));
@@ -74,7 +74,7 @@ pub(crate) fn parse_args() -> Args {
         0 => Input::Stdin,
         1 => classify_input(&rest[0]),
         _ => {
-            eprintln!("usage: scratchy [--socket <path>] [--no-js] [file|url]");
+            diag!("usage: scratchy [--socket <path>] [--no-js] [file|url]");
             std::process::exit(1);
         }
     };

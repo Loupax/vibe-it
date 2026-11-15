@@ -127,7 +127,7 @@ pub(crate) fn fetch_scripts(path: &std::path::Path, base: &Url, refs: Vec<Script
                         match fetch_script_via_wire(path, &url) {
                             Some(code) => Some(ScriptSource { name: url.to_string(), code }),
                             None => {
-                                eprintln!("scratchy: js: could not fetch script {url}");
+                                diag!("scratchy: js: could not fetch script {url}");
                                 None
                             }
                         }
@@ -688,9 +688,9 @@ pub(crate) fn run_page_scripts(document: &Handle, scripts: &[ScriptSource], page
         scripts,
         Rc::new(|level, text| {
             if level == "error" {
-                eprintln!("scratchy: js error: {text}");
+                diag!("scratchy: js error: {text}");
             } else {
-                eprintln!("scratchy: console.{level}: {text}");
+                diag!("scratchy: console.{level}: {text}");
             }
         }),
     )
@@ -751,18 +751,18 @@ pub(crate) fn js_report_main(args: &[String]) -> i32 {
         }
     }
     let Some(file) = file else {
-        eprintln!("usage: scratchy --js-report [--socket <path>] <file>");
+        diag!("usage: scratchy --js-report [--socket <path>] <file>");
         return 2;
     };
     let bytes = match fs::read(&file) {
         Ok(b) => b,
         Err(e) => {
-            eprintln!("scratchy: {file}: {e}");
+            diag!("scratchy: {file}: {e}");
             return 2;
         }
     };
     set_js_enabled(true);
-    print!("{}", js_report_for_html(&decode_html_bytes(&bytes, None), socket.as_deref(), &file));
+    write_raw_stdout(format_args!("{}", js_report_for_html(&decode_html_bytes(&bytes, None), socket.as_deref(), &file)));
     0
 }
 

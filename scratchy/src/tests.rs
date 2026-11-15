@@ -8945,3 +8945,33 @@ fn qb3_callback_budget_is_much_shorter_than_load_budget() {
     assert!(took >= std::time::Duration::from_millis(400), "callback ran {took:?}");
     assert!(log.borrow().iter().any(|m| m.contains("budget")), "{:?}", log.borrow());
 }
+
+/// QB9: a writer whose every call fails with EPIPE, which is what
+/// `scratchy … 2>&1 | head -1` gives once `head` has exited.
+struct ClosedPipe;
+
+impl Write for ClosedPipe {
+    fn write(&mut self, _buf: &[u8]) -> io::Result<usize> {
+        Err(io::Error::from(io::ErrorKind::BrokenPipe))
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Err(io::Error::from(io::ErrorKind::BrokenPipe))
+    }
+}
+
+/// QB9: diagnostic output on a closed pipe returns normally. The old
+/// `eprintln!`/`println!` call sites panicked here (exit 101).
+#[test]
+fn qb9_write_line_to_ignores_closed_pipe() {
+    let mut pipe = ClosedPipe;
+    write_line_to(&mut pipe, format_args!("scratchy: could not {}: {}", "draw", 1));
+    write_line_to(&mut pipe, format_args!("plain"));
+}
+
+/// QB9: the helper writes exactly what `eprintln!` wrote (text plus `\n`).
+#[test]
+fn qb9_write_line_to_writes_text_and_newline() {
+    let mut buf: Vec<u8> = Vec::new();
+    write_line_to(&mut buf, format_args!("usage: scratchy {}", "[file|url]"));
+    assert_eq!(buf, b"usage: scratchy [file|url]\n");
+}

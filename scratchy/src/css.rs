@@ -4282,7 +4282,7 @@ pub(crate) fn css_debug_report(line: String) {
         }
     });
     if !captured {
-        eprintln!("{line}");
+        diag!("{line}");
     }
 }
 

@@ -310,7 +310,7 @@ pub fn main(args: &[String]) -> i32 {
         match args[i].as_str() {
             "--subset" | "--expected" | "--out" => {
                 let Some(v) = args.get(i + 1) else {
-                    eprintln!("scratchy --wpt: {} needs an argument", args[i]);
+                    diag!("scratchy --wpt: {} needs an argument", args[i]);
                     return 2;
                 };
                 match args[i].as_str() {
@@ -325,22 +325,22 @@ pub fn main(args: &[String]) -> i32 {
             "-v" => verbose = true,
             a if wpt.is_none() => wpt = Some(a.into()),
             a => {
-                eprintln!("scratchy --wpt: unexpected argument {a}");
+                diag!("scratchy --wpt: unexpected argument {a}");
                 return 2;
             }
         }
         i += 1;
     }
     let Some(wpt) = wpt else {
-        eprintln!("usage: scratchy --wpt <wpt-checkout> [--subset FILE] [--expected FILE] [--update] [--out DIR] [-v]");
+        diag!("usage: scratchy --wpt <wpt-checkout> [--subset FILE] [--expected FILE] [--update] [--out DIR] [-v]");
         return 2;
     };
     let Ok(subset_text) = fs::read_to_string(&subset) else {
-        eprintln!("scratchy --wpt: cannot read {}", subset.display());
+        diag!("scratchy --wpt: cannot read {}", subset.display());
         return 2;
     };
     let ahem = wpt.join("fonts/Ahem.ttf");
-    let fonts = if ahem.exists() { vec![ahem] } else { eprintln!("scratchy --wpt: warning: {} missing", ahem.display()); vec![] };
+    let fonts = if ahem.exists() { vec![ahem] } else { diag!("scratchy --wpt: warning: {} missing", ahem.display()); vec![] };
     let mut renderer = Renderer::new(&fonts);
     renderer.root = fs::canonicalize(&wpt).ok();
     // Panics are reported as CRASH; keep the output quiet.
@@ -356,20 +356,20 @@ pub fn main(args: &[String]) -> i32 {
         match renderer.run_test(&wpt.join(&rel), out.as_deref()) {
             Outcome::Ran(st) => {
                 if verbose || st != Status::Pass {
-                    println!("{} {rel}", st.word());
+                    out!("{} {rel}", st.word());
                 }
                 results.insert(rel, st);
             }
             Outcome::Skip(r) => {
                 if verbose {
-                    println!("SKIP({r}) {rel}");
+                    out!("SKIP({r}) {rel}");
                 }
                 *skips.entry(r).or_default() += 1;
             }
         }
     }
     let count = |s: Status| results.values().filter(|&&v| v == s).count();
-    println!(
+    out!(
         "wpt: pass {} fail {} crash {} skipped {} ({}); {} XHTML tests parsed as HTML",
         count(Status::Pass),
         count(Status::Fail),
@@ -380,22 +380,22 @@ pub fn main(args: &[String]) -> i32 {
     );
     if update {
         if let Err(e) = fs::write(&expected_path, format_expected(&results)) {
-            eprintln!("scratchy --wpt: cannot write {}: {e}", expected_path.display());
+            diag!("scratchy --wpt: cannot write {}: {e}", expected_path.display());
             return 2;
         }
-        println!("wpt: wrote {}", expected_path.display());
+        out!("wpt: wrote {}", expected_path.display());
         return 0;
     }
     let expected = fs::read_to_string(&expected_path).map(|t| parse_expected(&t)).unwrap_or_default();
     let changes = compare_expectations(&results, &expected);
     for c in &changes {
-        println!("{c}");
+        out!("{c}");
     }
     if changes.is_empty() {
-        println!("wpt: no change from {}", expected_path.display());
+        out!("wpt: no change from {}", expected_path.display());
         0
     } else {
-        println!("wpt: {} change(s) from expected; fix regressions, or rerun with --update for improvements", changes.len());
+        out!("wpt: {} change(s) from expected; fix regressions, or rerun with --update for improvements", changes.len());
         1
     }
 }

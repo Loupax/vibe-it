@@ -930,13 +930,16 @@ touching the user's desktop: use it for the live check of each item.
       Test: an inline script logs `document.currentScript.id`, the id of
       its own `<script id=…>`, and a timer callback logs `null`. Re-run
       `--js-report` on bbc.com/news and paste before/after counts.
-- [ ] QB9 [S] (P3) Don't panic when stderr/stdout is a closed pipe
+- [x] QB9 [S] (P3) (hash pending) Don't panic when stderr/stdout is a closed pipe
       (`scratchy … 2>&1 | head -1` exits with code 101). Route
       every `eprintln!`/`print!` in `src/` (js log closure in
       `run_page_scripts`, net/app timing, `print_fallback_request`, …)
       through helpers that use `writeln!(io::stderr().lock(), …)` and
       ignore errors. Test: the helper on a writer that returns `EPIPE`
       returns without panicking. Keep the existing message texts.
+      Done: `diag!`/`out!` macros over `write_line_to` and
+      `write_raw_stdout` in lib.rs. Tests `qb9_write_line_to_*`.
+      `--wpt | head -0` (delayed): old 101, new 2 (normal usage exit).
 - [ ] QB10 [S] (P2, tooling) Commit the virtual-input tool from
       REGRESSIONS.md "How this was tested" as a dev-only binary, e.g.
       `scratchy/tools/inject/` (its own `Cargo.toml`, not a scratchy

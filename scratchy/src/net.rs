@@ -280,8 +280,7 @@ pub(crate) fn fetch_raw_via_wire(path: &std::path::Path, request_text: &str) -> 
 /// zero translation, whenever no `--socket` was given at all or the
 /// configured one couldn't be reached.
 pub(crate) fn print_fallback_request(request_text: &str) {
-    print!("{request_text}");
-    let _ = io::stdout().flush();
+    write_raw_stdout(format_args!("{request_text}"));
 }
 
 /// `SCRATCHY_TIMING=1 scratchy ...` prints one line per navigation's
