@@ -522,3 +522,16 @@ css/css-sizing/fit-content-max-inline-size.tentative.html
 css/css-sizing/intrinsic-percent-replaced-018.html
 css/css-sizing/replaced-percent-min-width-max-content.html
 css/css-sizing/stretch-function-block-size-vertical-001.html
+# Q40c: rendering
+html/rendering/bindings/the-button-element/button-type-menu-historical.html
+html/rendering/non-replaced-elements/lists/li-type-unsupported-upper-alpha.html
+html/rendering/non-replaced-elements/phrasing-content-0/b-strong-styles.html
+html/rendering/non-replaced-elements/tables/table-rules-rows-vertical.html
+html/rendering/non-replaced-elements/the-fieldset-and-legend-elements/fieldset-content-box-rule-visibility-items.html
+html/rendering/non-replaced-elements/the-frameset-and-frame-elements/different-writing-modes.html
+html/rendering/non-replaced-elements/the-page/body-margin-2b.html
+html/rendering/replaced-elements/attributes-for-embedded-content-and-images/number-placeholder-right-aligned.html
+html/rendering/replaced-elements/the-select-element/customizable-select/min-size-empty-002.html
+html/rendering/the-details-element/details-page-break-after-2-print.html
+html/rendering/widgets/button-layout/centering-002.html
+html/rendering/widgets/input-date-baseline.html

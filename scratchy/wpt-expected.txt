@@ -493,3 +493,15 @@ FAIL css/selectors/nth-of-selector-before.html
 PASS css/selectors/selectors-4/lang-003.html
 PASS css/selectors/selectors-4/lang-013.html
 PASS css/selectors/selectors-4/lang-023.html
+PASS html/rendering/bindings/the-button-element/button-type-menu-historical.html
+PASS html/rendering/non-replaced-elements/lists/li-type-unsupported-upper-alpha.html
+FAIL html/rendering/non-replaced-elements/phrasing-content-0/b-strong-styles.html
+PASS html/rendering/non-replaced-elements/tables/table-rules-rows-vertical.html
+PASS html/rendering/non-replaced-elements/the-fieldset-and-legend-elements/fieldset-content-box-rule-visibility-items.html
+PASS html/rendering/non-replaced-elements/the-frameset-and-frame-elements/different-writing-modes.html
+PASS html/rendering/non-replaced-elements/the-page/body-margin-2b.html
+PASS html/rendering/replaced-elements/attributes-for-embedded-content-and-images/number-placeholder-right-aligned.html
+FAIL html/rendering/replaced-elements/the-select-element/customizable-select/min-size-empty-002.html
+PASS html/rendering/the-details-element/details-page-break-after-2-print.html
+FAIL html/rendering/widgets/button-layout/centering-002.html
+FAIL html/rendering/widgets/input-date-baseline.html
