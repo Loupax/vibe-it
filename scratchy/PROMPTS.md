@@ -6545,3 +6545,8 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Implement QY1 (paint positioned boxes in one stacking order per stacking context, tree-order tie-break; REGRESSIONS.md R17/R20; QA9 and Q55a folded in). Verify R20 repro, YouTube, Acid2 intro and real pages.
 
 **What changed:** `hoist_negative_z` (layout.rs) now hoists every positioned descendant into the nearest stacking-context owner's `positioned` list (in-flow relative/sticky boxes physically move out of `Blocks`/`TableRow` child lists; z-auto boxes are transparent). All z-ordered lists sort by `stack_key` = (z-index, `ComputedStyle.tree_order`), a new counter assigned in `resolve_style`. `html{overflow:hidden}` is exempt from being a clipping boundary (Acid2), which was why the bar still covered the intro after the first attempt. Tests: `qy1_*`, `qa9_*` (fail without the fix, confirmed for the first two). The old test pinning "z-auto relative loses to a later static sibling" asserted non-spec behaviour (Chrome paints the relative box on top); its expectation was flipped with a comment. Left out: QY1a.
+## QY3 HTMLCanvasElement without drawing
+
+> Implement QY3 (R20 error 2): canvas elements get an HTMLCanvasElement prototype with width/height, getContext() null, toDataURL.
+
+**What changed:** js_dom.rs `wrap` picks `HTMLCanvasElement.prototype` for `canvas` elements (like `dialog`): `width`/`height` reflect attributes (default 300/150), `getContext()` returns null for every type, `toDataURL()` is `"data:,"`, `toBlob(cb)` calls back null asynchronously. Test `qy3_canvas_element_interface_without_drawing`. YouTube `--js-report`: web-animations-next-lite error gone.
