@@ -922,7 +922,7 @@ Read REGRESSIONS.md "R20" before starting any QY item. Short version:
       `document.createElement('canvas').getContext('2d') === null` and
       `.width === 300`, no error. With QY2+QY3 (measured with JS shims,
       see R20) the web-animations polyfill runs clean.
-- [ ] QY4 [S] (P2, R20 error 3; do QA15 here and tick it) The
+- [x] QY4 (HASH) [S] (P2, R20 error 3; do QA15 here and tick it) The
       Web Components polyfill's startup chain. Error:
       `webcomponents-all-noPatch.js: TypeError: not a function` at
       `document.createEvent("Event")` (QA15). Measured by stubbing each
@@ -949,7 +949,16 @@ Read REGRESSIONS.md "R20" before starting any QY item. Short version:
       `document.createTextNode('x') instanceof Text`, and QA15's own test.
       Expected `--js-report` effect: the polyfill's first error moves from
       `createEvent` to `MutationObserver is not defined`.
-- [ ] QY5 [S] (P3, R20 error 4) The page-load script budget is eaten by
+      RESULT: `createEvent` is fixed, but the polyfill now dies earlier
+      than predicted, at `window.SVGElement.prototype` (webcomponents
+      line 46, right after `mb(CharacterData)`): see QY4a.
+- [ ] QY4a [S] (P2, found by QY4) `SVGElement` global (and `SVGSVGElement`
+      etc. as a hierarchy under `Element`); `createElementNS` with the SVG
+      namespace should wrap with it. The webcomponents polyfill reads
+      `window.SVGElement.prototype` at load. Then re-run `--js-report` on
+      YouTube to find the next missing global (expected: `MutationObserver`,
+      QY6).
+- [ ] QY5[S] (P3, R20 error 4) The page-load script budget is eaten by
       compiling a huge script, and the error says nothing useful.
       Error: `kevlar_base...: InternalError: interrupted` at a cheap loop
       near the top of the file. The script is 10.8 MB; QuickJS needs
@@ -1240,7 +1249,7 @@ into the commit message of every JS item.
       name's case for non-HTML namespaces (`PREFIX:LOCALNAME` bug). Acid3
       T19-T23, T25 (part). Test: `try{document.createElement('<a')}catch(e)
       {e.code===5}`.
-- [ ] QA15 [S] (P3, JS; done inside QY4, tick both) `document.createEvent(iface)` with
+- [x] QA15 (HASH, done inside QY4) [S] (P3, JS; done inside QY4, tick both) `document.createEvent(iface)` with
       `initEvent`/`initUIEvent`/`initMouseEvent`/`initKeyboardEvent`
       (legacy init methods on the Q33d event classes; `detail` field).
       Acid3 T30-T32 ("not a function"). Test: `e=document.createEvent(

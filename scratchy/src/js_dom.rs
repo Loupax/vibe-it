@@ -481,7 +481,9 @@ const DOM_PRELUDE: &str = r#"
   var wrap = function (id) {
     if (id === undefined || id < 0) return null;
     if (cache[id]) return cache[id];
-    var o = Object.create(__d_kind(id) === 1 ? (__d_tag(id).toLowerCase() === 'dialog' ? HTMLDialogElement.prototype : __d_tag(id).toLowerCase() === 'canvas' ? HTMLCanvasElement.prototype : HTMLElement.prototype) : Node.prototype);
+    var k = __d_kind(id), tg = k === 1 ? __d_tag(id).toLowerCase() : '';
+    var o = Object.create(k === 1 ? (tg === 'dialog' ? HTMLDialogElement.prototype : tg === 'canvas' ? HTMLCanvasElement.prototype : HTMLElement.prototype)
+      : k === 3 ? Text.prototype : k === 8 ? Comment.prototype : k === 11 ? DocumentFragment.prototype : Node.prototype);
     Object.defineProperty(o, '__id', { value: id });
     if (__d_kind(id) === 11) { queries(o); }
     return (cache[id] = o);
@@ -505,6 +507,9 @@ const DOM_PRELUDE: &str = r#"
   def(NodeProto, 'nodeName', function () { return __d_tag(this.__id); });
   def(NodeProto, 'textContent', function () { return __d_text(this.__id); });
   def(NodeProto, 'nodeValue', function () { return this.nodeType === 1 ? null : __d_text(this.__id); });
+  def(NodeProto, 'ownerDocument', function () { return this.nodeType === 9 ? null : doc; });
+  def(CharacterData.prototype, 'data', function () { return __d_text(this.__id); });
+  def(CharacterData.prototype, 'length', function () { return __d_text(this.__id).length; });
   def(NodeProto, 'parentNode', function () { return wrap(__d_parent(this.__id)); });
   def(NodeProto, 'parentElement', function () {
     var p = this.parentNode; return p && p.nodeType === 1 ? p : null;
@@ -803,6 +808,16 @@ const DOM_PRELUDE: &str = r#"
   doc.createTextNode = function (s) { return wrap(__d_create(3, String(s))); };
   doc.createComment = function (s) { return wrap(__d_create(8, String(s))); };
   doc.createDocumentFragment = function () { return wrap(__d_create(11, '')); };
+  def(doc, 'defaultView', function () { return g; });
+  // QY4/QA15: legacy createEvent.
+  doc.createEvent = function (iface) {
+    var C = { event: Event, events: Event, htmlevents: Event, svgevents: Event, customevent: CustomEvent,
+      uievent: UIEvent, uievents: UIEvent, mouseevent: MouseEvent, mouseevents: MouseEvent,
+      keyboardevent: KeyboardEvent, focusevent: FocusEvent, errorevent: ErrorEvent }[String(iface).toLowerCase()];
+    if (!C) throw herr('The provided event type (\'' + iface + '\') is invalid.', 'NotSupportedError');
+    var e = new C('');
+    return e;
+  };
   doc.appendChild = NodeProto.appendChild;
   doc.insertBefore = NodeProto.insertBefore;
   doc.removeChild = NodeProto.removeChild;
