@@ -2999,6 +2999,13 @@ Measured (release, synthetic 5000-item list): a restyle rebuild is ~113 ms
 hovered handle from its id and building its ancestor chain is ~0.15 ms.
 Not done: focus restoration across navigation.
 
+JS DOM writes (QB2): `App::js_sync` is a restyle request like a hover
+change (`layout_dirty` + `restyle_requested` + `keep_scroll_on_rebuild`).
+`layout_in_flight` is true from the moment `redraw` queues a shaping pass
+until its complete `ShapeResult`; writes in that window only set
+`js_restyle_pending`, and the next rebuild starts when the pass completes.
+Without it a timer faster than a full pass made every pass stale.
+
 ### Fragments, scroll-into-view, focus ring (Q31b)
 
 `InteractionState::target` (node id) backs `:target` (`STATE_TARGET` bit).

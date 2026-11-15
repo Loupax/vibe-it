@@ -8631,4 +8631,82 @@ fn q49a_float_in_narrow_container_is_at_least_min_content() {
     let f = find_float(&laid).expect("float");
     assert!(f.w > 20.0, "float w {} should be >= min-content, not the 5px container", f.w);
     assert!(shrink_to_fit(30.0, 80.0, 5.0) == 30.0 && shrink_to_fit(30.0, 80.0, 50.0) == 50.0 && shrink_to_fit(30.0, 80.0, 500.0) == 80.0);
+// ---------- QB2: JS DOM writes use the restyle path ----------
+
+/// An `App` with a complete cached frame and a JS engine whose script has
+/// already written the DOM (engine dirty). `None` without a display.
+fn qb2_app(proxy: &winit::event_loop::EventLoopProxy<AppEvent>) -> App {
+    let doc = parse_html("<html><body><p>hello</p></body></html>");
+    let mut app = App::new_static(doc.clone(), proxy.clone(), None);
+    app.js = run_page_scripts(&doc, &[src("document.body.setAttribute('data-tick', '1')")], None);
+    app.cached = Some(measure_fixture("<p>hello</p>", 400.0));
+    app.layout_dirty = false;
+    app.restyle_requested = false;
+    app.keep_scroll_on_rebuild = false;
+    app
+}
+
+/// One process can build only one event loop, so both scenarios share it.
+#[test]
+fn qb2_js_dom_writes_use_restyle_path() {
+    use winit::platform::wayland::EventLoopBuilderExtWayland;
+    let event_loop = match EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build() {
+        Ok(l) => l,
+        Err(_) => return, // no display available (headless CI)
+    };
+    let proxy = event_loop.create_proxy();
+    qb2_restyle_and_keep_old_frame(qb2_app(&proxy));
+    qb2_coalesce_into_one_rebuild(qb2_app(&proxy));
+    qb2_first_layout_not_made_stale(qb2_app(&proxy));
+}
+
+fn qb2_restyle_and_keep_old_frame(mut app: App) {
+    let generation = app.layout_generation;
+    app.js_sync();
+    assert!(app.layout_dirty && app.restyle_requested && app.keep_scroll_on_rebuild);
+    assert_eq!(app.layout_generation, generation, "redraw bumps the generation, not js_sync");
+    // Simulate what redraw does when it queues the rebuild.
+    app.restyle_requested = false;
+    app.hold_old_frame = true;
+    app.layout_in_flight = true;
+    app.layout_dirty = false;
+    app.layout_generation += 1;
+    let h_before = app.cached.as_ref().unwrap().h;
+    let partial = measure_fixture("<p>hello</p><p>world</p><p>more</p><p>text</p>", 400.0);
+    app.handle_shape_result(app.layout_generation, Box::new(partial), ShapeCache::new(), true);
+    assert_eq!(app.cached.as_ref().unwrap().h, h_before, "incomplete pass must not replace the old frame");
+    assert!(app.hold_old_frame);
+}
+
+fn qb2_coalesce_into_one_rebuild(mut app: App) {
+    app.hold_old_frame = true;
+    app.layout_in_flight = true;
+    let generation = app.layout_generation;
+    app.js_sync();
+    assert!(!app.layout_dirty && !app.restyle_requested, "no rebuild queued while a restyle is in flight");
+    assert!(app.js_restyle_pending);
+    assert_eq!(app.layout_generation, generation, "in-flight result must not go stale");
+    // A second write while still holding changes nothing more.
+    app.js_sync();
+    assert!(!app.layout_dirty && app.js_restyle_pending);
+    // The complete pass lands: exactly one follow-up rebuild is requested.
+    app.handle_shape_result(generation, Box::new(measure_fixture("<p>hello</p>", 400.0)), ShapeCache::new(), false);
+    assert!(!app.hold_old_frame);
+    assert!(!app.js_restyle_pending);
+    assert!(app.layout_dirty && app.restyle_requested && app.keep_scroll_on_rebuild);
+    assert!(!app.layout_in_flight);
+}
+
+/// A write while the very first layout is still being shaped (no complete
+/// frame yet) must not make that pass stale either.
+fn qb2_first_layout_not_made_stale(mut app: App) {
+    app.cached = None;
+    app.layout_in_flight = true;
+    let generation = app.layout_generation;
+    app.js_sync();
+    assert!(app.js_restyle_pending && !app.layout_dirty);
+    assert_eq!(app.layout_generation, generation);
+    app.handle_shape_result(generation, Box::new(measure_fixture("<p>hello</p>", 400.0)), ShapeCache::new(), false);
+    assert!(app.cached.is_some());
+    assert!(app.layout_dirty && app.restyle_requested);
 }

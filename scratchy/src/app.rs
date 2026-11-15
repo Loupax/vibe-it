@@ -451,6 +451,14 @@ pub(crate) struct App {
     /// complete frame stays on screen until the new generation reports
     /// `incomplete == false` (R2.1). Cleared by `replace_document`.
     pub(crate) hold_old_frame: bool,
+    /// QB2: JS wrote the DOM while a restyle was in flight; rebuild once
+    /// that restyle's complete `ShapeResult` lands.
+    pub(crate) js_restyle_pending: bool,
+    /// QB2: a shaping pass is queued or running and its complete result
+    /// has not landed. JS writes in this window are coalesced into
+    /// `js_restyle_pending` instead of making the pass stale (an early
+    /// layout of a big page takes longer than a 300 ms timer period).
+    pub(crate) layout_in_flight: bool,
     /// Did the current layout read the viewport height (R4)?
     pub(crate) reads_viewport_h: bool,
     /// Which elements a `:hover` rule can restyle (R2.4).
@@ -684,6 +692,8 @@ impl App {
             keep_scroll_on_rebuild: false,
             restyle_requested: false,
             hold_old_frame: false,
+            js_restyle_pending: false,
+            layout_in_flight: false,
             reads_viewport_h: true,
             hover_keys: HoverKeys { any: true, ..Default::default() },
             last_hover_restyle: None,
@@ -740,6 +750,8 @@ impl App {
             keep_scroll_on_rebuild: false,
             restyle_requested: false,
             hold_old_frame: false,
+            js_restyle_pending: false,
+            layout_in_flight: false,
             reads_viewport_h: true,
             hover_keys: HoverKeys { any: true, ..Default::default() },
             last_hover_restyle: None,
@@ -833,6 +845,7 @@ impl App {
             self.cached_width = width;
             self.cached_height = height;
             self.layout_dirty = false;
+            self.layout_in_flight = true;
             self.layout_generation += 1;
             Self::queue_shaping_request(&self.shaping_requests, tree, width as f32, height as f32, self.layout_generation, reuse);
         } else if need_rebuild {
@@ -1122,6 +1135,8 @@ impl App {
         self.cached = None;
         self.restyle_requested = false;
         self.hold_old_frame = false;
+        self.js_restyle_pending = false;
+        self.layout_in_flight = false;
         self.shape_cache.clear();
         self.scroll_offsets.clear();
         self.scroll_offset = 0.0;
@@ -1152,15 +1167,73 @@ impl App {
         self.replace_document(parse_html(&html), String::new());
     }
 
+    pub(crate) fn handle_shape_result(&mut self, generation: u64, laid: Box<Laid>, shape_cache: ShapeCache, incomplete: bool) {
+        // Same staleness guard `NavResult`/`ImageFetched` already
+        // use, tagged with `layout_generation` instead of `nav_
+        // generation` — a background shaping pass that only
+        // finishes after a resize/chunk/navigation/image already
+        // started a newer one must never clobber content that's
+        // already further along. See `AppEvent::ShapeResult`'s
+        // own docs.
+        if generation != self.layout_generation {
+            return;
+        }
+        // R2.1: a restyle keeps the old complete frame (and its
+        // shape cache) on screen until the new one is complete.
+        if self.hold_old_frame {
+            if incomplete {
+                return;
+            }
+            self.hold_old_frame = false;
+        }
+        if !incomplete {
+            self.layout_in_flight = false;
+            if self.js_restyle_pending {
+                self.request_js_restyle();
+            }
+        }
+        // Replaced wholesale on every tick this generation's
+        // worker reports, not merged — see `App::shape_cache`'s
+        // own docs for why that's always safe (every entry here
+        // is a strict superset of the last delivery's, same
+        // generation, same underlying tree).
+        self.shape_cache = shape_cache;
+        self.cached = Some(*laid);
+        // Q31b: a fragment from a cross-page navigation waits for
+        // the first layout that contains its target.
+        if let Some(frag) = self.pending_fragment.clone()
+            && self.apply_fragment(&frag)
+        {
+            self.pending_fragment = None;
+        }
+    }
+
     /// Q33c: if page scripts wrote to the DOM, request one layout
     /// rebuild (never one per write) and a redraw.
     pub(crate) fn js_sync(&mut self) {
         if self.js.as_ref().is_some_and(|js| js.take_dirty()) {
-            self.layout_dirty = true;
-            self.layout_generation += 1;
-            if let Some(w) = &self.window {
-                w.request_redraw();
+            // QB2: a DOM write is a restyle of the same document. While a
+            // layout is still being shaped, don't start another (it would
+            // make the in-flight result stale, so no complete frame would
+            // ever land under steady writes); remember it and rebuild once
+            // the current pass completes.
+            if self.layout_in_flight && !self.layout_dirty {
+                self.js_restyle_pending = true;
+                return;
             }
+            self.request_js_restyle();
+        }
+    }
+
+    /// QB2: queue a restyle rebuild for JS DOM writes (the old complete
+    /// frame stays up until the new one is fully shaped).
+    fn request_js_restyle(&mut self) {
+        self.js_restyle_pending = false;
+        self.layout_dirty = true;
+        self.restyle_requested = true;
+        self.keep_scroll_on_rebuild = true;
+        if let Some(w) = &self.window {
+            w.request_redraw();
         }
     }
 
@@ -2145,40 +2218,7 @@ impl ApplicationHandler<AppEvent> for App {
             }
             AppEvent::NavResult(generation, result) => self.handle_nav_result(generation, result),
             AppEvent::ImageFetched(generation, src, image) => self.handle_image_fetched(generation, src, image),
-            AppEvent::ShapeResult(generation, laid, shape_cache, incomplete) => {
-                // Same staleness guard `NavResult`/`ImageFetched` already
-                // use, tagged with `layout_generation` instead of `nav_
-                // generation` — a background shaping pass that only
-                // finishes after a resize/chunk/navigation/image already
-                // started a newer one must never clobber content that's
-                // already further along. See `AppEvent::ShapeResult`'s
-                // own docs.
-                if generation != self.layout_generation {
-                    return;
-                }
-                // R2.1: a restyle keeps the old complete frame (and its
-                // shape cache) on screen until the new one is complete.
-                if self.hold_old_frame {
-                    if incomplete {
-                        return;
-                    }
-                    self.hold_old_frame = false;
-                }
-                // Replaced wholesale on every tick this generation's
-                // worker reports, not merged — see `App::shape_cache`'s
-                // own docs for why that's always safe (every entry here
-                // is a strict superset of the last delivery's, same
-                // generation, same underlying tree).
-                self.shape_cache = shape_cache;
-                self.cached = Some(*laid);
-                // Q31b: a fragment from a cross-page navigation waits for
-                // the first layout that contains its target.
-                if let Some(frag) = self.pending_fragment.clone()
-                    && self.apply_fragment(&frag)
-                {
-                    self.pending_fragment = None;
-                }
-            }
+            AppEvent::ShapeResult(generation, laid, shape_cache, incomplete) => self.handle_shape_result(generation, laid, shape_cache, incomplete),
             AppEvent::HoverFlush => {
                 self.hover_flush_scheduled = false;
                 if self.state_rules & STATE_HOVER != 0 {

@@ -6395,3 +6395,8 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Take the first small clear-cut QUEUE item (Q42a skipped: needs font metrics plumbing into style resolution; Q41b/Q43a/Q52 excluded).
 
 **What changed:** new `shrink_to_fit(min, max, avail)` = `min(max(min, avail), max)` replaces the old `avail.min(max).max(min.min(avail))` at all float, abspos, table and `fit-content` sites, so a float in a container narrower than its longest word is min-content wide instead of squeezed to the container. The trial-mode special case in the inline-embedded path was removed (one formula). The img strut and text-align fit check were split into Q49b. Test: `q49a_float_in_narrow_container_is_at_least_min_content`. WPT unchanged.
+## QB2 — JS DOM writes use the restyle path (queue item)
+
+> Implement QB2 from the TODO.txt queue (R9): JS DOM writes must go through the restyle path and be coalesced.
+
+**What changed:** `App::js_sync` sets `layout_dirty`, `restyle_requested` and `keep_scroll_on_rebuild` instead of bumping the generation. `layout_in_flight` (set when `redraw` queues a shaping pass, cleared by its complete `ShapeResult`) turns writes made meanwhile into one `js_restyle_pending` rebuild. The `ShapeResult` handler became `App::handle_shape_result`. The first layout is coalesced too, which the item had left out: the SoHo first layout takes longer than 300 ms, so the first version of the fix still left the page blank. Test: `qb2_js_dom_writes_use_restyle_path` (one test, since a process can build only one event loop). Live check: SoHo with a 300 ms and a 1000 ms `setInterval` now shows the full article; CPU about 190% before, about 100% and 45-60% after.

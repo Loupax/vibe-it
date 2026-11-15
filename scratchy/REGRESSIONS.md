@@ -91,7 +91,7 @@ callback, each with its own 5 s budget.
 (637fef5) — and QB3 (bound how long the main thread stays busy while
 input is flowing) — still open.
 
-### R9 — JS DOM writes rebuild without the restyle path: periodic writes leave the page blank or missing text (bug, Q33c `80b5e0a`) — OPEN
+### R9 — JS DOM writes rebuild without the restyle path: periodic writes leave the page blank or missing text (bug, Q33c `80b5e0a`) — FIXED (QB2 HASH)
 
 **Repro:** a local copy of SoHo_Weekly_News with `<base href>` plus
 `setInterval(function(){document.body.setAttribute('data-tick',
@@ -120,7 +120,13 @@ the word "squat" was missing mid-sentence ("a type of toy with a / body")
 for 20+ s. Not reproduced in 3 more tries or after `:refresh`. It looks like
 the same "incomplete pass left on screen" symptom. Re-check after QB2.
 
-**Fix:** QB2.
+**Fix:** QB2. `js_sync` now takes the restyle path and `layout_in_flight`
+coalesces writes to one rebuild per complete shaping pass. Measured with the
+recipe above (release, 20 s in): 300 ms timer: blank page, ~190% CPU before;
+full article incl. paragraphs, ~100% CPU (one core, back-to-back rebuilds)
+after. 1000 ms timer: header+image but no paragraph text, ~190% before; full
+article, ~45-60% after. No-timer page: 0% idle. wikipedia.org renders with
+globe. The `squat` symptom above was not re-checked live.
 
 ### R10 — The previous page's JS engine stays alive under `:help` (bug, Q33t `bec5507` / Q33d `46dfc45`) — OPEN
 
