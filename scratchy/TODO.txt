@@ -758,7 +758,7 @@ are in REGRESSIONS.md "R8–R11". That section also has the nested-dwl +
 virtual-input recipe for driving real clicks, keys and scrolls without
 touching the user's desktop: use it for the live check of each item.
 
-- [x] QB1 [S] (P0, crash, R8) (HASH_QB1) Never panic when the Wayland connection
+- [x] QB1 [S] (P0, crash, R8) (637fef5) Never panic when the Wayland connection
       dies. Today `run()` in `lib.rs` does `event_loop.run_app(&mut
       app).unwrap()`, and winit returns `Err(EventLoopError::ExitFailure(1))`
       when `connection.flush()` fails (the compositor closed the socket).
