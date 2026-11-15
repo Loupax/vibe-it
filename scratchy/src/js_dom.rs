@@ -7,13 +7,13 @@ use markup5ever_rcdom::Node;
 use rquickjs::{Ctx, Function};
 
 #[derive(Default)]
-struct DomTable {
+pub(crate) struct DomTable {
     nodes: Vec<Handle>,
     ids: HashMap<usize, i32>,
 }
 
 impl DomTable {
-    fn intern(&mut self, h: &Handle) -> i32 {
+    pub(crate) fn intern(&mut self, h: &Handle) -> i32 {
         let key = Rc::as_ptr(h) as usize;
         if let Some(&id) = self.ids.get(&key) {
             return id;
@@ -223,7 +223,7 @@ fn clone_node(h: &Handle, deep: bool) -> Handle {
 }
 
 /// Installs the `__d_*` natives for `document` and the JS wrappers on top.
-pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>>) {
+pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>>) -> Rc<RefCell<DomTable>> {
     let table = Rc::new(RefCell::new(DomTable::default()));
     table.borrow_mut().intern(document);
     let globals = ctx.globals();
@@ -416,13 +416,14 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         }
     });
     let _ = ctx.eval::<(), _>(DOM_PRELUDE);
+    table
 }
 
 /// Wrappers over the natives; runs after the base prelude (which defines
 /// `document`). Element event listeners are stored but never fired yet.
 const DOM_PRELUDE: &str = r#"
 (function (g) {
-  var doc = g.document, cache = {}, elListeners = {};
+  var doc = g.document, cache = {};
   var queries;
   var wrap = function (id) {
     if (id === undefined || id < 0) return null;
@@ -469,15 +470,6 @@ const DOM_PRELUDE: &str = r#"
   NodeProto.contains = function (n) {
     for (; n; n = n.parentNode) if (n === this) return true;
     return false;
-  };
-  NodeProto.addEventListener = function (type, fn) {
-    if (typeof fn !== 'function') return;
-    var k = this.__id + ':' + type;
-    (elListeners[k] = elListeners[k] || []).push(fn);
-  };
-  NodeProto.removeEventListener = function (type, fn) {
-    var l = elListeners[this.__id + ':' + type] || [], i = l.indexOf(fn);
-    if (i >= 0) l.splice(i, 1);
   };
   queries = function (P) {
     P.querySelector = function (s) { return wrap(q(this.__id, s, true)[0]); };
@@ -684,6 +676,16 @@ const DOM_PRELUDE: &str = r#"
   doc.appendChild = NodeProto.appendChild;
   doc.insertBefore = NodeProto.insertBefore;
   doc.removeChild = NodeProto.removeChild;
+  // Q33d: entry point for events born in Rust (clicks, keys, focus).
+  Object.defineProperty(g, '__scratchy_dn', { value: function (id, type, init) {
+    var t = id === -2 ? (doc.body || doc) : wrap(id);
+    if (!t) return true;
+    var C = { click: MouseEvent, mousedown: MouseEvent, mouseup: MouseEvent, keydown: KeyboardEvent,
+      keyup: KeyboardEvent, focus: FocusEvent, blur: FocusEvent, focusin: FocusEvent, focusout: FocusEvent }[type] || Event;
+    var ev = new C(type, init);
+    ev.isTrusted = true;
+    return __scratchy_dispatch(t, ev);
+  } });
   cache[0] = doc;
   Object.defineProperty(doc, '__id', { value: 0 });
   Object.defineProperty(doc, 'nodeType', { value: 9 });

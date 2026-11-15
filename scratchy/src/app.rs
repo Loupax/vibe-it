@@ -1152,6 +1152,62 @@ impl App {
         }
     }
 
+    /// Q33d: fires a trusted event at `target` (`None` = `<body>`) in the
+    /// page's JS engine, then syncs any DOM writes the handlers made.
+    /// Returns false if a handler cancelled the default action. Free for
+    /// pages with no engine.
+    pub(crate) fn js_dispatch(&mut self, target: Option<&Handle>, kind: &str, init: &[(&str, EventField)]) -> bool {
+        let Some(js) = &self.js else { return true };
+        let ok = js.dispatch_event(target, kind, init);
+        self.js_sync();
+        ok
+    }
+
+    /// Q33d: a `click` at window position `pos` on `target`; true if the
+    /// default action (following a link) may proceed.
+    pub(crate) fn js_click(&mut self, target: Option<&Handle>, pos: (f32, f32)) -> bool {
+        let m = &self.modifiers;
+        let init = [
+            ("bubbles", EventField::Bool(true)),
+            ("cancelable", EventField::Bool(true)),
+            ("clientX", EventField::Num(pos.0 as f64)),
+            ("clientY", EventField::Num(pos.1 as f64)),
+            ("button", EventField::Num(0.0)),
+            ("ctrlKey", EventField::Bool(m.control_key())),
+            ("shiftKey", EventField::Bool(m.shift_key())),
+            ("altKey", EventField::Bool(m.alt_key())),
+            ("metaKey", EventField::Bool(m.super_key())),
+        ];
+        self.js_dispatch(target, "click", &init)
+    }
+
+    /// Q33d: `keydown`/`keyup` at the focused element (else `<body>`);
+    /// true if the page did not cancel it.
+    pub(crate) fn js_key(&mut self, kind: &str, event: &KeyEvent) -> bool {
+        if self.js.is_none() {
+            return true;
+        }
+        let key = match &event.logical_key {
+            Key::Character(s) => s.to_string(),
+            Key::Named(NamedKey::Space) => " ".to_string(),
+            Key::Named(n) => format!("{n:?}"),
+            _ => "Unidentified".to_string(),
+        };
+        let m = &self.modifiers;
+        let init = [
+            ("bubbles", EventField::Bool(true)),
+            ("cancelable", EventField::Bool(true)),
+            ("key", EventField::Str(key)),
+            ("repeat", EventField::Bool(event.repeat)),
+            ("ctrlKey", EventField::Bool(m.control_key())),
+            ("shiftKey", EventField::Bool(m.shift_key())),
+            ("altKey", EventField::Bool(m.alt_key())),
+            ("metaKey", EventField::Bool(m.super_key())),
+        ];
+        let target = self.interaction.focus.and_then(|f| find_node_by_id(&self.document, f));
+        self.js_dispatch(target.as_ref(), kind, &init)
+    }
+
     /// `AppEvent::NavResult` handler (see its docs).
     pub(crate) fn handle_nav_result(&mut self, generation: u64, result: Result<FetchedPage, String>) {
         // A result from a navigation the user has since clicked
@@ -1408,7 +1464,21 @@ impl App {
                 st.focus_visible = false;
             }
         }
+        let (old_focus, new_focus) = (self.interaction.focus, st.focus);
         self.set_interaction_state(st);
+        if old_focus != new_focus && self.js.is_some() {
+            // Q33d: blur/focusout on the old element, focus/focusin on the
+            // new one (focus and blur do not bubble; the *in/out* pair do).
+            let init = |bubbles: bool| [("bubbles", EventField::Bool(bubbles))];
+            if let Some(h) = old_focus.and_then(|f| find_node_by_id(&self.document, f)) {
+                self.js_dispatch(Some(&h), "blur", &init(false));
+                self.js_dispatch(Some(&h), "focusout", &init(true));
+            }
+            if let Some(h) = new_focus.and_then(|f| find_node_by_id(&self.document, f)) {
+                self.js_dispatch(Some(&h), "focus", &init(false));
+                self.js_dispatch(Some(&h), "focusin", &init(true));
+            }
+        }
     }
 
     /// Mouse press: element + ancestors become `:active`, and the nearest
@@ -1523,6 +1593,10 @@ impl App {
         let Some(f) = self.interaction.focus else { return };
         let Some(h) = find_node_by_id(&self.document, f) else { return };
         if matches!(element_tag(&h), "a" | "area") {
+            // Q33d: activation fires a (synthetic) click the page may cancel.
+            if !self.js_click(Some(&h), (0.0, 0.0)) {
+                return;
+            }
             let href = element_attr(&h, "href").map(|v| v.to_string());
             if let Some(href) = href {
                 self.start_navigation(&href);
@@ -2137,6 +2211,14 @@ impl ApplicationHandler<AppEvent> for App {
                 // held; `action_ignores_repeat` is where a one-shot
                 // action like `HistoryBack`/`HistoryFront` opts back out
                 // of it instead.
+                // Q33d: page `keydown`/`keyup` handlers see keys first (never
+                // the `:` command line) and can cancel them.
+                if self.vim_mode != VimMode::Command {
+                    let kind = if event.state == ElementState::Pressed { "keydown" } else { "keyup" };
+                    if !self.js_key(kind, &event) {
+                        return;
+                    }
+                }
                 if event.state == ElementState::Pressed {
                     if self.vim_mode != VimMode::Command {
                         match event.logical_key {
@@ -2231,6 +2313,20 @@ impl ApplicationHandler<AppEvent> for App {
                         // `&mut self` — `laid`/`shape_cache`/
                         // `scroll_offsets` are only borrowed for this
                         // one `match`, not held across that call.
+                        let clicked = match (self.mouse_down_pos, self.last_mouse_pos) {
+                            (Some(down), Some(up)) if is_click(down, up, CLICK_DRAG_THRESHOLD_PX) => Some(up),
+                            _ => None,
+                        };
+                        // Q33d: a page's click handler runs first and can
+                        // cancel the navigation with `preventDefault`.
+                        let allowed = match clicked {
+                            Some(up) if self.js.is_some() => {
+                                let node = self.element_at(up);
+                                let target = if node == 0 { None } else { find_node_by_id(&self.document, node) };
+                                self.js_click(target.as_ref(), up)
+                            }
+                            _ => true,
+                        };
                         let href = match (self.mouse_down_pos.take(), self.last_mouse_pos, &self.cached) {
                             (Some(down), Some(up), Some(laid)) if is_click(down, up, CLICK_DRAG_THRESHOLD_PX) => {
                                 let doc_x = up.0;
@@ -2244,7 +2340,7 @@ impl ApplicationHandler<AppEvent> for App {
                             _ => None,
                         };
                         self.mouse_down_pos = None;
-                        if let Some(href) = href {
+                        if let (Some(href), true) = (href, allowed) {
                             self.start_navigation(href);
                         }
                     }

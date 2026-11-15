@@ -156,21 +156,7 @@ const PRELUDE: &str = r#"
     c[l] = function () { __scratchy_log(l, fmt(Array.prototype.slice.call(arguments))); };
   });
   g.console = c;
-  var listeners = {};
-  var target = function (o, key) {
-    o.addEventListener = function (type, fn) {
-      if (typeof fn !== 'function') return;
-      (listeners[key + type] = listeners[key + type] || []).push(fn);
-    };
-    o.removeEventListener = function (type, fn) {
-      var l = listeners[key + type] || [];
-      var i = l.indexOf(fn);
-      if (i >= 0) l.splice(i, 1);
-    };
-    return o;
-  };
   g.window = g; g.self = g;
-  target(g, 'w:');
   // Q33b1: constructor globals pages feature-test or extend. Real DOM
   // wrappers (Q33b) hang off these prototypes.
   var ctor = function (name, parent, init) {
@@ -187,21 +173,140 @@ const PRELUDE: &str = r#"
   ctor('HTMLDocument', Document);
   [['ELEMENT_NODE', 1], ['ATTRIBUTE_NODE', 2], ['TEXT_NODE', 3], ['COMMENT_NODE', 8], ['DOCUMENT_NODE', 9], ['DOCUMENT_FRAGMENT_NODE', 11]]
     .forEach(function (kv) { Node[kv[0]] = Node.prototype[kv[0]] = kv[1]; });
+  // Q33d: events. One listener store (a WeakMap keyed by the target
+  // object) serves window, document, nodes and bare `new EventTarget()`.
+  var store = new WeakMap();
+  var lists = function (t, type, create) {
+    var m = store.get(t);
+    if (!m) { if (!create) return null; m = {}; store.set(t, m); }
+    return m[type] || (create ? (m[type] = []) : null);
+  };
   var Event = ctor('Event', null, function (type, init) {
     init = init || {};
     this.type = String(type);
     this.bubbles = !!init.bubbles;
     this.cancelable = !!init.cancelable;
+    this.composed = !!init.composed;
     this.defaultPrevented = false;
     this.target = null;
-    this.timeStamp = 0;
+    this.currentTarget = null;
+    this.eventPhase = 0;
+    this.isTrusted = false;
+    this.timeStamp = __scratchy_now();
   });
-  Event.prototype.preventDefault = function () { if (this.cancelable) this.defaultPrevented = true; };
-  Event.prototype.stopPropagation = function () {};
-  Event.prototype.stopImmediatePropagation = function () {};
+  Event.NONE = 0; Event.CAPTURING_PHASE = 1; Event.AT_TARGET = 2; Event.BUBBLING_PHASE = 3;
+  Event.prototype.preventDefault = function () { if (this.cancelable && !this._passive) this.defaultPrevented = true; };
+  Event.prototype.stopPropagation = function () { this._stop = true; };
+  Event.prototype.stopImmediatePropagation = function () { this._stop = true; this._stopNow = true; };
+  Event.prototype.composedPath = function () { return this._path ? this._path.slice() : []; };
+  Object.defineProperty(Event.prototype, 'cancelBubble', { get: function () { return !!this._stop; },
+    set: function (v) { if (v) this._stop = true; }, configurable: true });
   var CustomEvent = ctor('CustomEvent', Event, function (type, init) {
     Event.call(this, type, init);
     this.detail = init && init.detail !== undefined ? init.detail : null;
+  });
+  var UIEvent = ctor('UIEvent', Event, function (type, init) { Event.call(this, type, init); this.detail = (init && init.detail) || 0; });
+  var MouseEvent = ctor('MouseEvent', UIEvent, function (type, init) {
+    UIEvent.call(this, type, init);
+    init = init || {};
+    var self = this;
+    ['clientX', 'clientY', 'screenX', 'screenY', 'button', 'buttons'].forEach(function (k) { self[k] = Number(init[k]) || 0; });
+    ['ctrlKey', 'shiftKey', 'altKey', 'metaKey'].forEach(function (k) { self[k] = !!init[k]; });
+    this.pageX = this.clientX; this.pageY = this.clientY; this.offsetX = this.clientX; this.offsetY = this.clientY;
+    this.relatedTarget = init.relatedTarget || null;
+  });
+  var KeyboardEvent = ctor('KeyboardEvent', UIEvent, function (type, init) {
+    UIEvent.call(this, type, init);
+    init = init || {};
+    this.key = init.key === undefined ? '' : String(init.key);
+    this.code = init.code === undefined ? '' : String(init.code);
+    this.repeat = !!init.repeat;
+    this.keyCode = Number(init.keyCode) || 0; this.which = this.keyCode;
+    var self = this;
+    ['ctrlKey', 'shiftKey', 'altKey', 'metaKey'].forEach(function (k) { self[k] = !!init[k]; });
+  });
+  var FocusEvent = ctor('FocusEvent', UIEvent, function (type, init) {
+    UIEvent.call(this, type, init);
+    this.relatedTarget = (init && init.relatedTarget) || null;
+  });
+  ctor('InputEvent', UIEvent, function (type, init) {
+    UIEvent.call(this, type, init);
+    init = init || {};
+    this.data = init.data === undefined ? null : init.data;
+    this.inputType = init.inputType || '';
+    this.isComposing = false;
+  });
+  var normOpts = function (o) {
+    if (typeof o === 'boolean') return { capture: o };
+    o = o || {};
+    return { capture: !!o.capture, once: !!o.once, passive: !!o.passive };
+  };
+  var oops = function (e) { console.error('Uncaught ' + String(e) + (e && e.stack ? '\n' + e.stack : '')); };
+  var dispatch = function (target, ev) {
+    ev.target = target;
+    ev._stop = false; ev._stopNow = false;
+    var path = [target];
+    if (target && target.__id !== undefined) {
+      for (var n = target.parentNode; n; n = n.parentNode) path.push(n);
+      if (path[path.length - 1] === g.document) path.push(g);
+    }
+    ev._path = path;
+    // capFilter: true = capture listeners only, false = non-capture only.
+    var invoke = function (node, phase, capFilter) {
+      ev.currentTarget = node; ev.eventPhase = phase;
+      var l = lists(node, ev.type, false);
+      if (l) {
+        var snap = l.slice();
+        for (var i = 0; i < snap.length; i++) {
+          var e = snap[i];
+          if (e.removed || e.capture !== capFilter) continue;
+          if (e.once) node.removeEventListener(ev.type, e.fn, e.capture);
+          ev._passive = e.passive;
+          try {
+            if (typeof e.fn === 'function') e.fn.call(node, ev);
+            else if (e.fn && typeof e.fn.handleEvent === 'function') e.fn.handleEvent(ev);
+          } catch (x) { oops(x); }
+          ev._passive = false;
+          if (ev._stopNow) return;
+        }
+      }
+      if (!capFilter && !ev._stopNow) {
+        var h = node['on' + ev.type];
+        if (typeof h === 'function') {
+          try { if (h.call(node, ev) === false) ev.preventDefault(); } catch (x) { oops(x); }
+        }
+      }
+    };
+    var i;
+    for (i = path.length - 1; i > 0 && !ev._stop; i--) invoke(path[i], 1, true);
+    if (!ev._stop) { invoke(path[0], 2, true); if (!ev._stopNow) invoke(path[0], 2, false); }
+    if (ev.bubbles) for (i = 1; i < path.length && !ev._stop; i++) invoke(path[i], 3, false);
+    ev.currentTarget = null; ev.eventPhase = 0;
+    return !ev.defaultPrevented;
+  };
+  Object.defineProperty(g, '__scratchy_dispatch', { value: dispatch });
+  var ETP = EventTarget.prototype;
+  ETP.addEventListener = function (type, fn, opt) {
+    if (fn == null || (typeof fn !== 'function' && typeof fn !== 'object')) return;
+    var o = normOpts(opt), l = lists(this, String(type), true);
+    for (var i = 0; i < l.length; i++) if (l[i].fn === fn && l[i].capture === o.capture) return;
+    l.push({ fn: fn, capture: o.capture, once: o.once, passive: o.passive, removed: false });
+  };
+  ETP.removeEventListener = function (type, fn, opt) {
+    var l = lists(this, String(type), false);
+    if (!l) return;
+    var c = normOpts(opt).capture;
+    for (var i = 0; i < l.length; i++) {
+      if (l[i].fn === fn && l[i].capture === c) { l[i].removed = true; l.splice(i, 1); return; }
+    }
+  };
+  ETP.dispatchEvent = function (ev) {
+    if (!(ev instanceof Event)) throw new TypeError("Failed to execute 'dispatchEvent': parameter 1 is not of type 'Event'.");
+    ev.isTrusted = false;
+    return dispatch(this, ev);
+  };
+  ['addEventListener', 'removeEventListener', 'dispatchEvent'].forEach(function (m) {
+    Object.defineProperty(g, m, { value: function () { return ETP[m].apply(g, arguments); }, writable: true, configurable: true });
   });
   var Image = ctor('Image', HTMLElement, function (w, h) {
     this.tagName = 'IMG'; this.src = ''; this.width = w || 0; this.height = h || 0;
@@ -220,27 +325,20 @@ const PRELUDE: &str = r#"
   loc.toString = function () { return this.href; };
   loc.assign = loc.replace = loc.reload = function () {};
   g.location = loc;
-  var doc = target({ readyState: 'loading', title: env.title || '', URL: env.href, documentURI: env.href,
+  var doc = ({ readyState: 'loading', title: env.title || '', URL: env.href, documentURI: env.href,
     baseURI: env.href, referrer: '', characterSet: 'UTF-8', contentType: 'text/html', compatMode: 'CSS1Compat',
-    nodeType: 9, nodeName: '#document' }, 'd:');
+    nodeType: 9, nodeName: '#document' });
   // cookie: reads are empty, writes are ignored (until Q33g)
   Object.defineProperty(doc, 'cookie', { get: function () { return ''; }, set: function () {}, configurable: true, enumerable: true });
   Object.setPrototypeOf(doc, Document.prototype);
   Object.defineProperty(doc, 'location', { get: function () { return g.location; }, configurable: true });
   g.document = doc;
-  Object.defineProperty(g, '__scratchy_fire', { value: function (key, type, handler) {
-    var list = (listeners[key + type] || []).slice();
-    if (typeof handler === 'function') list.push(handler);
-    list.forEach(function (fn) {
-      try { fn.call(key === 'w:' ? g : g.document, { type: type }); }
-      catch (e) { console.error('Uncaught ' + String(e) + (e && e.stack ? '\\n' + e.stack : '')); }
-    });
-  } });
 })(globalThis);
 "#;
 
-const FIRE_DOM_CONTENT_LOADED: &str = "document.readyState='interactive';__scratchy_fire('d:','DOMContentLoaded');";
-const FIRE_LOAD: &str = "document.readyState='complete';__scratchy_fire('w:','load',window.onload);";
+const FIRE_DOM_CONTENT_LOADED: &str =
+    "document.readyState='interactive';__scratchy_dispatch(document,new Event('DOMContentLoaded',{bubbles:true}));";
+const FIRE_LOAD: &str = "document.readyState='complete';__scratchy_dispatch(window,new Event('load'));";
 
 /// Total wall-clock budget for one page's scripts; QuickJS is
 /// interrupted past it so a runaway loop cannot freeze the window.
@@ -321,6 +419,36 @@ pub(crate) struct JsEngine {
     deadline: Arc<std::sync::atomic::AtomicU64>,
     /// Q33c: set by every DOM write; the app drains it with `take_dirty`.
     dirty: Rc<std::cell::Cell<bool>>,
+    /// Q33d: handle <-> JS id table, to address events at nodes.
+    table: Rc<std::cell::RefCell<js_dom::DomTable>>,
+}
+
+/// One init field of a natively dispatched event (Q33d).
+pub(crate) enum EventField {
+    Bool(bool),
+    Num(f64),
+    Str(String),
+}
+
+/// `s` as a JS string literal (everything outside printable ASCII is
+/// `\u`-escaped, so it is safe in any source).
+fn js_string_literal(s: &str) -> String {
+    let mut out = String::from('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            ' '..='~' => out.push(c),
+            _ => {
+                let mut buf = [0u16; 2];
+                for u in c.encode_utf16(&mut buf) {
+                    out.push_str(&format!("\\u{:04x}", u));
+                }
+            }
+        }
+    }
+    out.push('"');
+    out
 }
 
 /// Max timer callbacks run in one event-loop turn, so a pile of due
@@ -369,6 +497,31 @@ impl JsEngine {
     /// Whether JS wrote to the DOM since the last call (clears the flag).
     pub(crate) fn take_dirty(&self) -> bool {
         self.dirty.replace(false)
+    }
+
+    /// Q33d: fires a trusted event of `kind` (`click`, `keydown`, ...) at
+    /// `target` (`None` = `<body>`, else the document) with the given init fields, through
+    /// capture/target/bubble. Returns false when a page handler called
+    /// `preventDefault`, so the caller must skip its default action.
+    pub(crate) fn dispatch_event(&self, target: Option<&Handle>, kind: &str, init: &[(&str, EventField)]) -> bool {
+        let id = match target {
+            Some(h) => self.table.borrow_mut().intern(h),
+            None => -2,
+        };
+        let mut obj = String::from("{");
+        for (k, v) in init {
+            obj.push_str(&js_string_literal(k));
+            obj.push(':');
+            match v {
+                EventField::Bool(b) => obj.push_str(&b.to_string()),
+                EventField::Num(n) => obj.push_str(&n.to_string()),
+                EventField::Str(s) => obj.push_str(&js_string_literal(s)),
+            }
+            obj.push(',');
+        }
+        obj.push('}');
+        let code = format!("__scratchy_dn({id},{},{obj})", js_string_literal(kind));
+        self.eval_value::<bool>(&code).unwrap_or(true)
     }
 
     /// When the earliest pending timer is due, `None` if there are none
@@ -432,10 +585,10 @@ pub(crate) fn start_scripts(document: &Handle, scripts: &[ScriptSource], log: Lo
         }
     });
     let dirty = Rc::new(std::cell::Cell::new(false));
-    let engine = JsEngine { ctx, rt, log, base, deadline, dirty: dirty.clone() };
+    let mut engine = JsEngine { ctx, rt, log, base, deadline, dirty: dirty.clone(), table: Default::default() };
     engine.eval("prelude", PRELUDE);
     engine.eval("timers", TIMERS_PRELUDE);
-    engine.ctx.with(|ctx| js_dom::install_dom(&ctx, document, dirty.clone()));
+    engine.table = engine.ctx.with(|ctx| js_dom::install_dom(&ctx, document, dirty.clone()));
     for s in scripts {
         engine.eval(&s.name, &s.code);
     }

@@ -1506,14 +1506,25 @@ as the JS measurement corpus (same role the four CSS pages played).
 - [x] Q33c3 [S] (5bd6b26) `select{color:transparent}` still paints the option
       text: the portal's language select (`.styled-select.js-enabled`)
       overlaps its helper label ("AfrikaEnglish").
-- [ ] Q33d [M] Events and timers: `addEventListener/removeEventListener`
-      for click, input, change, submit, keydown/keyup, focus/blur,
-      DOMContentLoaded, load; capture/bubble dispatch with
-      `preventDefault`/`stopPropagation`, hooked into link clicks and
-      form submission (Q30e) so a page's handler can cancel them.
-      (Timers moved to Q33t, which lands first; Q33d reuses its
-      kept-alive engine and its event-loop hook.) Drain the Promise job
-      queue after each dispatched event.
+- [x] Q33d [M] (HASH) Events: `addEventListener/removeEventListener/
+      dispatchEvent` on window, document, nodes and `new EventTarget()`
+      (capture/once/passive options, `handleEvent` objects, `on<type>`
+      properties), capture -> target -> bubble dispatch with
+      `preventDefault`/`stopPropagation`/`stopImmediatePropagation`,
+      Event/CustomEvent/UIEvent/MouseEvent/KeyboardEvent/FocusEvent/
+      InputEvent. Native sources: DOMContentLoaded (document, bubbles to
+      window) and load; `click` on mouse release and on Enter over a
+      focused link (page `preventDefault` cancels the navigation);
+      `keydown`/`keyup` at the focused element or body (cancelled keys
+      skip the vim bindings; never sent in command-line mode);
+      `focus/blur/focusin/focusout` from `set_focus_element`. Promise
+      jobs drain after each dispatch; DOM writes sync via `js_sync`.
+      `App::js_dispatch` -> `JsEngine::dispatch_event`.
+- [ ] Q33d1 [S] Left out of Q33d, needs Q30: native `input`/`change`/
+      `submit` events (Q30c/d/e) with `preventDefault` cancelling the
+      submission; `mousedown/mouseup/mouseover/mouseenter/scroll/resize`
+      natives; inline `onclick="..."` attribute handlers; `el.focus()`/
+      `blur()`/`click()` from JS.
 - [ ] Q33e [S] Forms <-> JS: `.value`, `.checked`, `.selectedIndex`,
       `.disabled` read and write the Q30 live state; `form.submit()`,
       `form.elements`, `input`/`change` events fire from Q30d/Q30c.
