@@ -8840,6 +8840,8 @@ fn qb5_app_applies_requests(proxy: &winit::event_loop::EventLoopProxy<AppEvent>)
     app.js_sync();
     assert_eq!(app.scroll_offset, 0.0, "clamped at the top");
     assert!(app.interaction.focus.is_none(), "blur() of the focused element clears focus");
+}
+
 /// QB3: the pointer-idle gate for hover restyles is a pure function of
 /// the last build time and the time since the pointer last moved.
 #[test]
