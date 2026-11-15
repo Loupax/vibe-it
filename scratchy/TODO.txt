@@ -1461,7 +1461,7 @@ as the JS measurement corpus (same role the four CSS pages played).
       from the window (fixed 1024x768 now), `location` from the page URL
       not `<base href>`, Element `clientWidth/offsetWidth` (0, needs
       layout results, Q33g).
-- [x] Q33t [M] (HASH) (top priority, see "JS on real pages"; takes over Q33a1
+- [x] Q33t [M] (bec5507, code in b4b21df) (top priority, see "JS on real pages"; takes over Q33a1
       and Q33a2, and the timer half of Q33d) Keep the QuickJS
       runtime/context alive in `App` for the page's lifetime (drop it on
       navigation; key it by `nav_generation` like `NavResult` so stale
