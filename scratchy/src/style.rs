@@ -2036,5 +2036,5 @@ pub(crate) fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
 }
 
 pub(crate) fn normalize_whitespace(s: &str) -> String {
-    s.split_whitespace().collect::<Vec<_>>().join(" ")
+    s.split(is_css_ws).filter(|w| !w.is_empty()).collect::<Vec<_>>().join(" ")
 }

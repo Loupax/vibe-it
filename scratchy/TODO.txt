@@ -790,7 +790,14 @@ into the commit message of every JS item.
       style to `none`, width to `medium`, colour to currentColor (today only
       the parts present are written, so `border: 1px blue` after
       `border: solid` stays solid). Fold in with Q52.
-- [ ] QA2 [S] (P1, R14) U+00A0 (`&nbsp;`) is not collapsible white space.
+- [x] QA2 (HASH) [S] (P1, R14) U+00A0 (`&nbsp;`) is not collapsible white space.
+      DONE: `is_css_ws`/`trim_css_ws` (css.rs) replace `trim`/`is_whitespace`/
+      `split_whitespace` in `inline_text`, `normalize_whitespace`, the
+      flex-item `has_text`, first-letter scan, the line-clamp trim, the
+      hang test, the blank-word test and `:empty`. Three WPT tests that
+      passed only because a `&nbsp;` line was 0px tall in both test and
+      reference now FAIL honestly (expected updated): see QA2a-c below.
+      Original text:
       Rust's `str::trim()` / `char::is_whitespace` include NBSP, so a block
       whose text is only `&nbsp;` gets height 0: `has_text` in
       `collect_real_children`'s pending-run check (images.rs, the
@@ -804,6 +811,21 @@ into the commit message of every JS item.
       forehead and chin lines to this (both are `&nbsp;`-only lines).
       Test: `<div style="font:12px sans-serif;line-height:1em">&nbsp;</div>`
       lays out 12px tall; `<div>&nbsp;&nbsp;&nbsp;</div>` is not empty.
+- [ ] QA2a [S] (from QA2) WPT `css/CSS2/normal-flow/block-formatting-contexts-011.xht`:
+      `<span style="display:table-cell;width:100px">&nbsp;&nbsp;...</span>`
+      then a span in a block div. We draw a 35px blue stub inline with
+      "Filler Text"; a browser makes the table-cell an anonymous table
+      box 100px wide and puts the text below. Anonymous-table wrapping of a
+      lone inline `display:table-cell` (cf. Q50a).
+- [ ] QA2b [S] (from QA2) WPT `css/CSS2/floats-clear/floats-149.xht`: the
+      reference now (correctly) shows a green bar (`<div>&nbsp;</div>`) at
+      the right; our render of the test has no bar: a float inside an empty
+      `display:inline` that contains a block parent is displaced/lost.
+- [ ] QA2c [S] (from QA2) WPT `css/css-text-decor/text-decoration-inset-017.html`:
+      the reference underlines trailing `&nbsp;&nbsp;` (now rendered, since
+      NBSP no longer collapses); needs `text-decoration-inset` and
+      `text-decoration-skip-spaces`, which are unsupported, so it fails
+      for the right reason now.
 - [ ] QA3 [S] (P1, R12) Margins on `position:absolute`/`fixed` boxes are
       ignored. `resolve_positioned` (layout.rs) sets `final_x` to
       `cb_x + left` or `item.static_x` and `final_y` likewise, then shifts

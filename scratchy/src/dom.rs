@@ -1026,7 +1026,7 @@ impl SelectorsElement for El {
     fn is_empty(&self) -> bool {
         !self.0.children.borrow().iter().any(|c| match &c.data {
             NodeData::Element { .. } => true,
-            NodeData::Text { contents } => !contents.borrow().trim().is_empty(),
+            NodeData::Text { contents } => !crate::css::trim_css_ws(&contents.borrow()).is_empty(),
             _ => false,
         })
     }

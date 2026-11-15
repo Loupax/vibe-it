@@ -1275,6 +1275,18 @@ pub(crate) enum TextTransform {
     Capitalize,
 }
 
+/// CSS collapsible white space (CSS Text 3 §4.1): space, tab, LF, CR, FF.
+/// Unlike `char::is_whitespace`/`str::trim` this excludes U+00A0 (`&nbsp;`)
+/// and the other Unicode spaces, which are real, rendered characters (QA2).
+pub(crate) fn is_css_ws(c: char) -> bool {
+    matches!(c, ' ' | '\t' | '\n' | '\r' | '\x0c')
+}
+
+/// `s` without leading/trailing CSS white space (not `str::trim`: keeps NBSP).
+pub(crate) fn trim_css_ws(s: &str) -> &str {
+    s.trim_matches(is_css_ws)
+}
+
 /// The text of one DOM text node as an inline item should carry it:
 /// whitespace per `white-space`, then `text-transform`.
 pub(crate) fn inline_text(raw: &str, ws: WhiteSpace, tt: TextTransform) -> String {
@@ -1282,7 +1294,7 @@ pub(crate) fn inline_text(raw: &str, ws: WhiteSpace, tt: TextTransform) -> Strin
         WhiteSpace::Pre | WhiteSpace::PreWrap => raw.to_string(),
         WhiteSpace::PreLine => raw
             .split('\n')
-            .map(|l| l.split_whitespace().collect::<Vec<_>>().join(" "))
+            .map(normalize_whitespace)
             .collect::<Vec<_>>()
             .join("\n"),
         _ => {
@@ -1293,11 +1305,11 @@ pub(crate) fn inline_text(raw: &str, ws: WhiteSpace, tt: TextTransform) -> Strin
                 return if raw.is_empty() { String::new() } else { " ".to_string() };
             }
             let mut t = String::new();
-            if raw.starts_with(char::is_whitespace) {
+            if raw.starts_with(is_css_ws) {
                 t.push(' ');
             }
             t.push_str(&core);
-            if raw.ends_with(char::is_whitespace) {
+            if raw.ends_with(is_css_ws) {
                 t.push(' ');
             }
             t
