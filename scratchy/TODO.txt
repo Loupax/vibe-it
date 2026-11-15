@@ -1325,13 +1325,14 @@ SPA frameworks need a much larger API surface and are a long shot.
 Before Q33a, the user picks 2-3 JS-needing sites they actually browse
 as the JS measurement corpus (same role the four CSS pages played).
 
-- [ ] Q33-0 [S] Spike, measure before committing (no feature shipped):
-      add `boa_engine` on a branch, run a real 0.5-2MB script bundle
-      from the JS corpus with a stub global object, and record parse +
-      execute time, release binary size and clean build time against
-      today's. If parse+execute of a typical bundle is several seconds,
-      report back with the numbers before Q33a (`rquickjs` is the
-      documented fallback, at the cost of a C build step). Don't guess.
+- [x] Q33-0 [S] (done, bda28d4) Spike, measure before committing (no feature
+      shipped): numbers below and in NOTES.md "JS engine spike (Q33-0)".
+      Result: boa passes the "several seconds" gate (~1.05s for 1.67MB
+      of real libraries) but rquickjs wins every axis except being C.
+      RECOMMENDATION: rquickjs (QuickJS, bundled C source, only needs
+      gcc, which is already installed). The user should confirm the
+      engine before Q33a starts, since this reverses the earlier boa
+      recommendation. Q33a-g are engine-agnostic as written.
 - [x] Q38 [M] (done, 38ca872) Split `src/lib.rs` (~27k lines) into
       modules (css, style, layout, paint, net, app) before JS adds a
       `dom`/`js` layer on top. Pure move, no behavior change, tests
@@ -3342,6 +3343,33 @@ last, per the user's own call.
       this project; V8/`deno_core` was ruled out outright — its speed/
       conformance edge solves a problem scratchy doesn't have, at far
       higher embedding and build complexity.
+
+      **Q33-0 spike measurements (2026-11-15, loaded 8-core box, so wall
+      times are noisy; CPU time is the steadier number).** Throwaway
+      crates in the scratchpad (not committed), release profile, stub
+      `window/document/console` globals, scripts wrapped in a function
+      (parse-only, then called). Corpus: moment 176KB, d3 280KB, lodash
+      544KB, three.js 670KB (1.67MB total; jquery/react-dom need a real
+      DOM/React so they threw in both engines and are not counted).
+        metric                                 boa_engine 0.22 | rquickjs 0.14
+        parse+exec, 1.67MB                     ~1050ms         | ~150ms (7x)
+        three.min.js 670KB                     440ms           | 73ms
+        CPU loop (fib25, 200k obj sort, JSON)  1.1s            | 0.47s (2.3x)
+        runtime init                           ~0.9ms          | ~0.4ms
+        RSS, engine idle                       9MB             | 3.7MB
+        RSS after 1.9MB JS                     126MB           | 55MB
+        clean build, engine alone              3m43 / 21m CPU  | 50s / 57s CPU
+        stripped binary, engine + stub         13.0MB          | 1.66MB
+      scratchy today: clean release build 5m11 wall / 37m CPU, binary
+      13.5MB (11.1MB stripped). Adding boa is therefore roughly +60% CPU
+      build time and about +13MB (binary roughly doubles; boa's ICU data
+      dominates); rquickjs is +~1 minute and +~1.3MB. rquickjs-sys
+      compiles the bundled QuickJS with `cc`; no libclang/bindgen was
+      needed here (gcc only). Verdict: no "several seconds" blocker for
+      boa, but QuickJS is cheaper on every measured axis. Open cost:
+      QuickJS is C (unsafe FFI, lifetime ergonomics around `Handle`
+      wrappers); boa is safe Rust with a friendlier embedding for
+      Rc-based trees.
 
       `App::document` is already a live, persistent `Handle` (`Rc<Node>`
       from `markup5ever_rcdom`) that gets rebuilt into a fresh layout

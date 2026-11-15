@@ -6283,3 +6283,9 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > Do ONLY Q52c: `border-color: inherit` (and initial) must resolve to the parent's value / currentColor correctly; see `border-color-011`.
 
 **Outcome:** blocked, code reverted. Real cause is that an unset/currentColor border colour (`None`) paints nothing; resolving it at paint (`border_color_or_current`) made `border-color-011` and 7 border-width tests pass (WPT +7) but regressed `row-group-margin-border-padding.html` and `table-rules-rows-vertical.html`, which passed by accident while table borders were invisible (no `border-collapse`, row-group borders). Recorded in TODO as Q52c BLOCKED + Q52c1. Tests 364 passed, clippy 32 -> 31 lines for the reverted change.
+
+## Q33-0 — JS engine spike (queue item)
+
+> Do ONLY Q33-0: measure boa_engine and rquickjs (build time, binary size, memory, startup, parse+execute of 0.5-2MB real bundles) on throwaway crates; no JS dependency in scratchy; record numbers and a recommendation in TODO and NOTES.
+
+**What changed:** docs only (TODO.txt Q33-0 ticked with measurements in the engine-choice Detail, NOTES.md section, this entry). Result: boa ~1.05s vs QuickJS ~0.15s for 1.67MB of libraries, +13MB vs +1.3MB binary, 3m43 vs 50s build; recommendation rquickjs, user to confirm. Q33a-g unchanged (engine-agnostic). No code touched, so no tests/WPT/screenshot run.
