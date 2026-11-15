@@ -966,6 +966,19 @@ touching the user's desktop: use it for the live check of each item.
       (the last waits for Q30e). QB4 only did the API plus centring; the
       modal marker is the internal `data-scratchy-modal` attribute and the
       UA rule is in `default.css`.
+- [ ] QB12 [S] (P2, from QB10) Vim `gg` / `G` (scroll to top / bottom).
+      Not a bug: `resolve_binding` (app.rs) only knows `j k Ctrl-d Ctrl-u : h
+      l`, there is no pending-key state and `:help` does not list `gg`, so
+      `key:g key:g` in the injector correctly does nothing. (Same for
+      `Home`/`End`/`PgUp`/`PgDn`, which are also unbound.) Do: add
+      `Action::ScrollTop` / `Action::ScrollBottom`; `G` (`Key::Character("G")`)
+      is a single key, `gg` needs a pending-`g` flag on `App` that the next
+      key consumes (any other key clears it, Esc clears it, and it must not
+      be armed while the command line or a text field has focus). Clamp the
+      bottom to the same max scroll `j` uses. List them in `help.html`.
+      Test: `resolve_binding` for `G`, plus a pending-`g` unit test on the
+      key handler. Live: HN, `scroll:20` then `gg` returns to the top and
+      `G` reaches the bottom.
 
 --- TOP PRIORITY: JS on real pages (user report, 2026-11-15) ----------
 
