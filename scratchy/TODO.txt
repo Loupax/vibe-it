@@ -794,7 +794,7 @@ with JS on than with `--no-js` (compare `grim` screenshots of both).
       for listener exceptions, number inline scripts (`inline script #3`)
       and use that as the stack filename, format non-Error throws with
       JS `String()`. Details and tests in R6. Mark R6 FIXED with the hash.
-- [ ] QJ3 [S] Headless JS report: `scratchy --js-report [--socket S]
+- [x] QJ3 [S] (e76d162, code landed inside the QJ1 commit) Headless JS report: `scratchy --js-report [--socket S]
       <file>` (dispatched in `run()` next to `--wpt`, no window, no event
       loop). Parses the page, gets scripts the same way the windowed path
       does (`load_file_resources` with a socket, else `inline_scripts`),
@@ -810,6 +810,12 @@ with JS on than with `--no-js` (compare `grim` screenshots of both).
       function returning the report string, not stdout.
       (QJ3 can be done before QJ1/QJ2 if you want a "before" number for
       them; it's independent.)
+      BASELINE (QJ3, before QJ1/QJ2; errors / scripts run): wikipedia.org
+      portal 4 / 4 (className of undefined; 'not a function'; Element is
+      not defined; one 'Uncaught' with no message = R6), en.wikipedia
+      Main_Page 2 / 4 and SoHo_Weekly_News 2 / 4 (both: 'match' of
+      undefined; startup load.php 'className' of undefined). R5/R6 not
+      yet fixed at this point. Report prints every error line plus summary.
 - [ ] Next: Q33b, Q33b1, Q33t in Tier 7 (they're in that order there).
       Tick this line when Q33t is ticked.
 
