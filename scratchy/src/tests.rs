@@ -1258,7 +1258,7 @@ fn background_image_var_resolves() {
     let p = find_element_by_tag(&doc, "p").expect("p");
     let html = find_html_element(&doc).unwrap();
     let hs = resolve_style(&html, &rules, ROOT_STYLE, 800.0);
-    assert!(resolve_background_image(&p, &rules, 800.0, hs.custom_props).is_some());
+    assert!(resolve_background_image(&p, &rules, 800.0, hs.custom_props, &HashMap::new()).is_some());
 }
 
 #[test]
@@ -1923,7 +1923,7 @@ fn background_image_layer_list_with_gradient_first_resolves_url_qw1() {
     let rules = parse_stylesheet(&css);
     let sp = find_element_by_tag(&doc, "span").expect("span");
     assert!(
-        resolve_background_image(&sp, &rules, 800.0, None).is_some(),
+        resolve_background_image(&sp, &rules, 800.0, None, &HashMap::new()).is_some(),
         "gradient,url() layer list must resolve the url layer (wikipedia.org wordmark sprite)"
     );
 }
@@ -7072,9 +7072,9 @@ fn q7b_css_wide_keywords_on_remaining_properties() {
     let doc = parse_html(r#"<div><p>x</p></div>"#);
     let rules = parse_stylesheet(&format!("div{{background-image:url({uri})}} p{{background:inherit}}"));
     let p = find_element_by_tag(&doc, "p").unwrap();
-    assert!(resolve_background_image(&p, &rules, 800.0, None).is_some());
+    assert!(resolve_background_image(&p, &rules, 800.0, None, &HashMap::new()).is_some());
     let rules = parse_stylesheet(&format!("div{{background-image:url({uri})}} p{{background-image:initial}}"));
-    assert!(resolve_background_image(&p, &rules, 800.0, None).is_none());
+    assert!(resolve_background_image(&p, &rules, 800.0, None, &HashMap::new()).is_none());
 }
 
 #[test]
@@ -9649,4 +9649,78 @@ fn qy5_budget_clock_is_thread_cpu_time() {
     }
     let spun = crate::js::thread_cpu_nanos() - a - slept;
     assert!(spun > 20_000_000, "spinning used {spun} ns of CPU");
+}
+
+#[test]
+fn absolutize_css_urls_resolves_relative_against_sheet_q35a() {
+    let sheet = Url::parse("https://en.wikipedia.org/w/load.php?x=1").unwrap();
+    let css = ".a{background:url(img/a.png)} .b{mask-image:url( '../m.svg' )} .c{background-image:url(\"data:image/png;base64,AAAA\")} .d{background:url(https://other/z.png)} .e{filter:url(#f)} .f{background:URL(/abs.png) no-repeat} .g{x:myurl(rel)}";
+    let out = absolutize_css_urls(css, &sheet);
+    assert!(out.contains("url(\"https://en.wikipedia.org/w/img/a.png\")"), "{out}");
+    assert!(out.contains("url(\"https://en.wikipedia.org/m.svg\")"), "{out}");
+    assert!(out.contains("url(\"data:image/png;base64,AAAA\")"), "{out}");
+    assert!(out.contains("url(https://other/z.png)"), "{out}");
+    assert!(out.contains("url(#f)"), "{out}");
+    assert!(out.contains("url(\"https://en.wikipedia.org/abs.png\") no-repeat"), "{out}");
+    assert!(out.contains("myurl(rel)"), "{out}");
+    // a data: sheet has no base: left alone
+    let data = Url::parse("data:text/css,").unwrap();
+    assert_eq!(absolutize_css_urls(css, &data), css);
+    // imported sheets resolve against their own url
+    let mut stack = vec![sheet.clone()];
+    let expanded = expand_css_imports("@import url(sub/x.css);\n.k{background:url(k.png)}", &sheet, &mut stack, &mut |u| {
+        assert_eq!(u.as_str(), "https://en.wikipedia.org/w/sub/x.css");
+        Some(".i{background:url(i.png)}".to_string())
+    });
+    assert!(expanded.contains("https://en.wikipedia.org/w/sub/i.png"), "{expanded}");
+    assert!(expanded.contains("https://en.wikipedia.org/w/k.png"), "{expanded}");
+}
+
+#[test]
+fn external_background_and_mask_urls_use_image_cache_q35a() {
+    let _ = take_wanted_css_images();
+    let doc = parse_html(r#"<html><body><span class="s">x</span><i class="m">y</i></body></html>"#);
+    let rules = parse_stylesheet(
+        r#".s{background-image:url("https://h.test/sprite.svg")} .m{background-color:red;mask-image:url("https://h.test/icon.png")}"#,
+    );
+    let s = find_element_by_tag(&doc, "span").unwrap();
+    let m = find_element_by_tag(&doc, "i").unwrap();
+    let mut cache: HashMap<String, Arc<DecodedImage>> = HashMap::new();
+    // Not fetched yet: nothing resolves, but both urls are reported as wanted.
+    assert!(resolve_background_image(&s, &rules, 800.0, None, &cache).is_none());
+    assert!(resolve_background_image(&m, &rules, 800.0, None, &cache).is_none());
+    let mut wanted = take_wanted_css_images();
+    wanted.sort();
+    assert_eq!(wanted, ["https://h.test/icon.png", "https://h.test/sprite.svg"]);
+    // Fetched: the cached images resolve, as a background and as a mask.
+    let img = decode_image_bytes(&decode_data_uri(&tiny_png_data_uri(3, 2)).unwrap()).unwrap();
+    cache.insert("https://h.test/sprite.svg".into(), Arc::new(img.clone()));
+    cache.insert("https://h.test/icon.png".into(), Arc::new(img));
+    let bg = resolve_background_image(&s, &rules, 800.0, None, &cache).expect("cached background resolves");
+    assert_eq!((bg.width, bg.height), (3, 2));
+    assert!(bg.mask.is_none());
+    let masked = resolve_background_image(&m, &rules, 800.0, None, &cache).expect("cached mask resolves");
+    assert!(masked.mask.is_some(), "mask-image url must come from the cache");
+    assert!(take_wanted_css_images().is_empty());
+}
+
+#[test]
+fn layout_build_reports_wanted_css_images_and_uses_cache_q35a() {
+    let _ = take_wanted_css_images();
+    let doc = parse_html(r#"<html><body><div style="width:20px;height:20px;background-image:url(http://h.test/a.png)">x</div></body></html>"#);
+    let mut cache: HashMap<String, Arc<DecodedImage>> = HashMap::new();
+    let _ = build_layout_tree_with_resources(&doc, 400.0, Some(300.0), "", &cache);
+    assert_eq!(take_wanted_css_images(), ["http://h.test/a.png"]);
+    let img = decode_image_bytes(&decode_data_uri(&tiny_png_data_uri(2, 2)).unwrap()).unwrap();
+    cache.insert("http://h.test/a.png".into(), Arc::new(img));
+    let tree = build_layout_tree_with_resources(&doc, 400.0, Some(300.0), "", &cache);
+    assert!(take_wanted_css_images().is_empty());
+    fn any_bg(b: &LayoutBox) -> bool {
+        b.background_image.is_some()
+            || match &b.content {
+                BoxContent::Blocks(c) => c.iter().any(any_bg),
+                _ => false,
+            }
+    }
+    assert!(any_bg(&tree), "the cached image must be attached to the div's box");
 }

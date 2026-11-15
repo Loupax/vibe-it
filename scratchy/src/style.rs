@@ -987,6 +987,7 @@ pub(crate) fn resolve_background_image(
     rules: &[StyleRule],
     viewport_width: f32,
     custom_props: Option<&'static CustomProps>,
+    image_cache: &HashMap<String, Arc<DecodedImage>>,
 ) -> Option<Arc<DecodedImage>> {
     let base_matches = matching_declarations(handle, rules, viewport_width);
     let var_lookup = |n: &str| custom_props.and_then(|p| p.get(n).cloned());
@@ -1002,16 +1003,19 @@ pub(crate) fn resolve_background_image(
         matches.push((u32::MAX, i));
     }
     let bg = match cascade_css(&matches, inline_decls.as_ref(), "background-image", |d| d.background_image.clone()) {
-        Cascaded::Value(BackgroundImageDecl::Url(url)) => decode_data_uri(&url).and_then(|b| decode_image_bytes(&b)),
+        Cascaded::Value(BackgroundImageDecl::Url(url)) => lookup_css_image(&url, image_cache),
         // `inherit` takes the parent element's resolved image;
         // `background-image` isn't inherited otherwise.
         Cascaded::Wide(CssWide::Inherit) => parent_handle(handle)
             .filter(|p| matches!(p.data, NodeData::Element { .. }))
-            .and_then(|parent| resolve_background_image(&parent, rules, viewport_width, custom_props))
-            .and_then(|a| Arc::try_unwrap(a).ok())
-            .map(|mut i| {
+            .and_then(|parent| resolve_background_image(&parent, rules, viewport_width, custom_props, image_cache))
+            .map(|a| {
+                if a.mask.is_none() {
+                    return a;
+                }
+                let mut i = DecodedImage::clone(&a);
                 i.mask = None;
-                i
+                Arc::new(i)
             }),
         // An explicit `none`, another CSS-wide keyword, or undeclared.
         _ => None,
@@ -1019,19 +1023,60 @@ pub(crate) fn resolve_background_image(
     // `mask-image` (Q29), same data-URI policy; not inherited.
     let mask = match cascade_css(&matches, inline_decls.as_ref(), "mask-image", |d| d.mask_image.clone()) {
         Cascaded::Value(BackgroundImageDecl::Url(url)) => {
-            decode_data_uri(&url).and_then(|b| decode_image_bytes(&b)).map(whiten_mask).map(Arc::new)
+            lookup_css_image(&url, image_cache).map(|a| Arc::new(whiten_mask(DecodedImage::clone(&a))))
         }
         _ => None,
     };
     match (bg, mask) {
         (None, None) => None,
-        (Some(img), None) => Some(Arc::new(img)),
+        (Some(img), None) => Some(img),
         (img, mask) => {
-            let mut img = img.unwrap_or(DecodedImage { width: 0, height: 0, pixels: Vec::new(), svg: None, mask: None });
+            let mut img = match img {
+                Some(a) => DecodedImage::clone(&a),
+                None => DecodedImage { width: 0, height: 0, pixels: Vec::new(), svg: None, mask: None },
+            };
             img.mask = mask;
             Some(Arc::new(img))
         }
     }
+}
+
+thread_local! {
+    /// Q35a: external `url()` references of `background-image`/`mask-image`
+    /// that `resolve_background_image` met during the current layout build
+    /// and found in no cache. The app drains this after each build
+    /// (`take_wanted_css_images`) and fetches them like `<img src>`s.
+    static WANTED_CSS_IMAGES: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Drains the external CSS image URLs (raw, as written / as made absolute
+/// by `absolutize_css_urls`) the last layout build asked for and missed.
+pub(crate) fn take_wanted_css_images() -> Vec<String> {
+    WANTED_CSS_IMAGES.with(|w| std::mem::take(&mut *w.borrow_mut()))
+}
+
+/// A CSS `url()` image: a `data:` URI is decoded on the spot; anything
+/// else is looked up in `image_cache` (keyed by the raw url text, like
+/// `<img src>`), and on a miss recorded in `WANTED_CSS_IMAGES` so the app
+/// can fetch it (Q35a).
+fn lookup_css_image(url: &str, image_cache: &HashMap<String, Arc<DecodedImage>>) -> Option<Arc<DecodedImage>> {
+    if is_data_url(url) {
+        return decode_data_uri(url).and_then(|b| decode_image_bytes(&b)).map(Arc::new);
+    }
+    let url = url.trim();
+    if url.is_empty() {
+        return None;
+    }
+    if let Some(img) = image_cache.get(url) {
+        return Some(img.clone());
+    }
+    WANTED_CSS_IMAGES.with(|w| {
+        let mut w = w.borrow_mut();
+        if !w.iter().any(|u| u == url) {
+            w.push(url.to_string());
+        }
+    });
+    None
 }
 
 /// Turns a decoded mask image into white pixels carrying its alpha, so

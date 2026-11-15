@@ -419,7 +419,7 @@ pub(crate) fn build_box_for_element(
     // Resolved once here (cheap to carry further — just an `Arc` clone —
     // vs. re-running `resolve_background_image`'s own selector-matching
     // pass again in every branch below).
-    let background_image = resolve_background_image(handle, rules, viewport_width, style.custom_props);
+    let background_image = resolve_background_image(handle, rules, viewport_width, style.custom_props, image_cache);
     // Only reached for a `display: block`/`table` `<img>` — the default
     // `display: inline` case is handled entirely inside `collect_children`
     // instead (pushed into the surrounding text run, never given its own
@@ -561,7 +561,7 @@ pub(crate) fn build_table_children(
             Display::TableRow => {
                 let cells =
                     build_table_row_cells(child, rules, style.inherited(), child_decoration, href, viewport_width, image_cache);
-                let background_image = resolve_background_image(child, rules, viewport_width, style.custom_props);
+                let background_image = resolve_background_image(child, rules, viewport_width, style.custom_props, image_cache);
                 result.push(LayoutBox { style, background_image, content: BoxContent::TableRow(cells) });
             }
             Display::TableGroup => {
@@ -1579,7 +1579,7 @@ pub(crate) fn collect_real_children(
                     span.node = node_id(child);
                     pending.push(InlineItem::Text(BR_TEXT.to_string(), span));
                 } else if tag == "img" && !matches!(style.display, Display::Block | Display::Table | Display::Flex | Display::Grid) {
-                    let background_image = resolve_background_image(child, rules, viewport_width, style.custom_props);
+                    let background_image = resolve_background_image(child, rules, viewport_width, style.custom_props, image_cache);
                     let (img_style, decoded) = resolve_img(child, style, image_cache);
                     match decoded {
                         Some(image) => pending.push(InlineItem::Image { image, style: img_style, background_image }),
@@ -1595,7 +1595,7 @@ pub(crate) fn collect_real_children(
                     }
                 } else if tag == "svg" && !matches!(style.display, Display::Block | Display::Table | Display::Flex | Display::Grid) {
                     // Inline `<svg>`: a replaced inline item like `<img>`.
-                    let background_image = resolve_background_image(child, rules, viewport_width, style.custom_props);
+                    let background_image = resolve_background_image(child, rules, viewport_width, style.custom_props, image_cache);
                     let (svg_style, decoded) = resolve_inline_svg(child, style);
                     if let Some(image) = decoded {
                         pending.push(InlineItem::Image { image, style: svg_style, background_image });

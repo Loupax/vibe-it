@@ -2795,6 +2795,23 @@ subtly wrong at a glance ("but what if two pages use the same relative
 path for different images?") until the actual lifetime guarantee is
 spelled out.
 
+## External CSS `url()` images (Q35a)
+
+`background-image`/`mask-image` `url()`s that are not `data:` are fetched
+through the same `spawn_image_fetches` / `AppEvent::ImageFetched` /
+`image_cache` path as `<img>`, keyed by the url text. Two pieces make the
+key meaningful: `absolutize_css_urls` (net.rs, called at the end of
+`expand_css_imports`) rewrites relative `url()`s of every fetched
+stylesheet to absolute ones against the sheet's own URL, so the resolution
+base survives concatenation; inline `style`/`<style>` urls stay raw and
+resolve against the page base like `<img src>`. Discovery is miss-driven:
+`resolve_background_image` (now takes `image_cache`) records every
+uncached external url in a thread-local (`take_wanted_css_images`), and the
+app drains it after each layout build (`fetch_wanted_css_images`), once per
+url per page (`App::css_images_requested`, cleared with `image_cache`),
+capped at `MAX_CSS_IMAGE_FETCHES` (64). A late arrival sets `layout_dirty`
+like `<img>` (the image is baked into the `LayoutBox`).
+
 ## Live verification: proving the async/sync split, not just asserting it
 
 The easy trap here would have been: click a link, take one screenshot

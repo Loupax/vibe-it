@@ -599,6 +599,10 @@ pub(crate) struct App {
     /// fetches finish rather than blocking the page on all of them.
     /// Cleared on every navigation/`show_message`, same as `extra_css`.
     pub(crate) image_cache: HashMap<String, Arc<DecodedImage>>,
+    /// Q35a: external CSS image URLs already handed to a fetch thread for
+    /// this page (success or failure), so a rebuild never refetches. Cleared
+    /// with `image_cache`.
+    pub(crate) css_images_requested: HashSet<String>,
     /// Whether vim-mode key interception is on at all — `:set vim`/
     /// `:set novim`'s own stored state (plus `AppEvent::ToggleVimMode`'s
     /// own flip). `false` means `resolve_binding` is never even reached
@@ -747,6 +751,7 @@ impl App {
             socket_path,
             extra_css: String::new(),
             image_cache: HashMap::new(),
+            css_images_requested: HashSet::new(),
             vim_enabled: true,
             vim_mode: VimMode::Normal,
             pending_g: false,
@@ -809,6 +814,7 @@ impl App {
             socket_path,
             extra_css: String::new(),
             image_cache: HashMap::new(),
+            css_images_requested: HashSet::new(),
             vim_enabled: true,
             vim_mode: VimMode::Normal,
             pending_g: false,
@@ -867,6 +873,7 @@ impl App {
             let build_started = std::time::Instant::now();
             let tree = build_layout_tree_with_resources(&self.document, width as f32, Some(height as f32), &self.extra_css, &self.image_cache);
             self.last_build_time = Some(build_started.elapsed());
+            fetch_wanted_css_images(&self.proxy, self.socket_path.as_deref(), self.base_url.as_ref(), &mut self.css_images_requested, self.nav_generation);
             // Ids the worker is about to assign restart at `0` for this
             // new tree (see `spawn_shaping_worker`'s own docs) — stale
             // entries keyed by an old tree's ids would just be harmless
@@ -1208,6 +1215,7 @@ impl App {
     pub(crate) fn show_message(&mut self, text: &str) {
         let html = format!("<html><body><p>{}</p></body></html>", escape_html(text));
         self.image_cache.clear();
+        self.css_images_requested.clear();
         // QB6: a status/error page replaces the document, so the old
         // page's engine must not keep running against it.
         self.js = None;
@@ -1447,6 +1455,7 @@ impl App {
         // (or already dropped when re-running `:help`).
         self.js = None;
         self.image_cache.clear();
+        self.css_images_requested.clear();
         self.replace_document(parse_html(HELP_PAGE_HTML), String::new());
     }
 
@@ -1921,6 +1930,7 @@ impl App {
         self.nav_generation += 1;
         self.js = None;
         self.image_cache.clear();
+        self.css_images_requested.clear();
         let generation = self.nav_generation;
         self.show_message("Loading…");
         let proxy = self.proxy.clone();
@@ -2546,4 +2556,32 @@ impl ApplicationHandler<AppEvent> for App {
             _ => {}
         }
     }
+}
+
+/// Q35a: starts a fetch for every external `background-image`/`mask-image`
+/// `url()` the layout build just missed in `image_cache`
+/// (`take_wanted_css_images`), through the same `spawn_image_fetches` path
+/// `<img>` uses; the result arrives as `AppEvent::ImageFetched` keyed by
+/// the url text. Each url is requested once per page and at most
+/// `MAX_CSS_IMAGE_FETCHES` distinct urls are fetched.
+pub(crate) fn fetch_wanted_css_images(
+    proxy: &EventLoopProxy<AppEvent>,
+    socket: Option<&std::path::Path>,
+    base: Option<&Url>,
+    requested: &mut HashSet<String>,
+    generation: u64,
+) {
+    let wanted = take_wanted_css_images();
+    if wanted.is_empty() {
+        return;
+    }
+    let Some(socket) = socket else { return };
+    let budget = MAX_CSS_IMAGE_FETCHES.saturating_sub(requested.len());
+    let fresh: Vec<String> = wanted.into_iter().filter(|u| !requested.contains(u)).take(budget).collect();
+    if fresh.is_empty() {
+        return;
+    }
+    requested.extend(fresh.iter().cloned());
+    let base = base.cloned().unwrap_or_else(|| Url::parse("about:blank").expect("static url"));
+    spawn_image_fetches(proxy, socket, &base, fresh, generation);
 }
