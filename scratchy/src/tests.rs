@@ -1914,6 +1914,20 @@ fn background_image_without_none_still_resolves_normally() {
     assert!(div.background_image.is_some(), "a real url() background-image should still resolve normally");
 }
 
+#[test]
+fn background_image_layer_list_with_gradient_first_resolves_url_qw1() {
+    // wikipedia.org's `.sprite`: gradient layer first, sprite url second.
+    let uri = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='4' height='4'%3E%3Crect width='4' height='4' fill='red'/%3E%3C/svg%3E";
+    let css = format!(".sprite{{background-image:linear-gradient(transparent,transparent),url(\"{uri}\");background-repeat:no-repeat;display:inline-block}} .wm{{background-position:0 -2px;width:17px;height:9px;color:transparent;text-indent:-10000px;overflow:hidden}}");
+    let doc = parse_html("<html><body><span class=\"sprite wm\">Wikipedia</span></body></html>");
+    let rules = parse_stylesheet(&css);
+    let sp = find_element_by_tag(&doc, "span").expect("span");
+    assert!(
+        resolve_background_image(&sp, &rules, 800.0, None).is_some(),
+        "gradient,url() layer list must resolve the url layer (wikipedia.org wordmark sprite)"
+    );
+}
+
 // ---------- v48: real inline-level `<img>` flow ----------
 
 fn find_mixed_inline(laid: &Laid) -> Option<&Laid> {
