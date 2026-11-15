@@ -441,6 +441,19 @@ const SCRIPT_BUDGET: Duration = Duration::from_secs(5);
 /// flowing, and the compositor drops a client that doesn't read its
 /// socket for long enough (R8), so it gets a tenth of that.
 pub(crate) const CALLBACK_BUDGET: Duration = Duration::from_millis(500);
+
+/// QY5: CPU time this thread has used, in nanoseconds. The interrupt
+/// budgets are measured in this, not wall-clock time, so a loaded machine
+/// (or a script that merely waits) does not eat a script's budget.
+pub(crate) fn thread_cpu_nanos() -> u64 {
+    let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+    // SAFETY: `ts` is a valid out-pointer for the duration of the call.
+    if unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut ts) } != 0 {
+        return 0;
+    }
+    ts.tv_sec as u64 * 1_000_000_000 + ts.tv_nsec as u64
+}
+
 const MEMORY_LIMIT: usize = 256 * 1024 * 1024;
 
 /// Defines `__scratchy_env` (plain strings) for the prelude to build
@@ -508,10 +521,13 @@ pub(crate) struct JsEngine {
     rt: Runtime,
     log: LogFn,
     base: Instant,
-    /// Interrupt deadline in nanoseconds since `base`; reset before
+    /// Interrupt deadline in thread-CPU nanoseconds (QY5); reset before
     /// every top-level evaluation so each timer callback gets its own
     /// `SCRIPT_BUDGET` rather than sharing the page-load one.
     deadline: Arc<std::sync::atomic::AtomicU64>,
+    /// QY5: set by the interrupt handler when it stops a script, so the
+    /// caller can log a clear message instead of `InternalError: interrupted`.
+    tripped: Arc<std::sync::atomic::AtomicBool>,
     /// Q33c: set by every DOM write; the app drains it with `take_dirty`.
     dirty: Rc<std::cell::Cell<bool>>,
     /// Q33d: handle <-> JS id table, to address events at nodes.
@@ -554,8 +570,15 @@ const MAX_TIMERS_PER_TURN: usize = 100;
 
 impl JsEngine {
     fn arm_budget(&self, budget: Duration) {
-        let d = (self.base.elapsed() + budget).as_nanos() as u64;
-        self.deadline.store(d, Ordering::Relaxed);
+        self.tripped.store(false, Ordering::Relaxed);
+        self.deadline.store(thread_cpu_nanos() + budget.as_nanos() as u64, Ordering::Relaxed);
+    }
+
+    /// QY5: the one log line for a script stopped by the interrupt budget.
+    fn log_interrupted(&self, name: &str, what: &str, budget: Duration, size: usize) {
+        let b = if budget.as_millis().is_multiple_of(1000) { format!("{} s", budget.as_secs()) } else { format!("{} ms", budget.as_millis()) };
+        let kb = if size > 0 { format!(" ({} KB of source)", size.div_ceil(1024)) } else { String::new() };
+        (self.log)("error", &format!("js: {name} stopped: exceeded the {b} CPU-time {what} budget{kb}"));
     }
 
     pub(crate) fn eval(&self, name: &str, code: &str) {
@@ -567,7 +590,12 @@ impl JsEngine {
             opts.strict = false;
             opts.filename = Some(name.to_string());
             if let Err(e) = ctx.eval_with_options::<(), _>(code, opts) {
-                (self.log)("error", &format!("{name}: {}", describe_error(&ctx, e)));
+                let msg = describe_error(&ctx, e);
+                if self.tripped.load(Ordering::Relaxed) {
+                    self.log_interrupted(name, "page-load", SCRIPT_BUDGET, code.len());
+                } else {
+                    (self.log)("error", &format!("{name}: {msg}"));
+                }
             }
         });
         drain_jobs(&self.rt, &*self.log);
@@ -575,7 +603,6 @@ impl JsEngine {
 
     pub(crate) fn eval_value<T: for<'js> FromJs<'js>>(&self, label: &str, code: &str) -> Option<T> {
         self.arm_budget(CALLBACK_BUDGET);
-        let started = Instant::now();
         let v = self.ctx.with(|ctx| {
             let mut opts = EvalOptions::default();
             opts.strict = false;
@@ -583,15 +610,17 @@ impl JsEngine {
             match ctx.eval_with_options::<T, _>(code, opts) {
                 Ok(v) => Some(v),
                 Err(e) => {
-                    (self.log)("error", &format!("{label}: {}", describe_error(&ctx, e)));
+                    let msg = describe_error(&ctx, e);
+                    if self.tripped.load(Ordering::Relaxed) {
+                        self.log_interrupted(label, "callback", CALLBACK_BUDGET, 0);
+                    } else {
+                        (self.log)("error", &format!("{label}: {msg}"));
+                    }
                     None
                 }
             }
         });
         drain_jobs(&self.rt, &*self.log);
-        if started.elapsed() >= CALLBACK_BUDGET {
-            (self.log)("error", &format!("a callback ran past its {} ms budget and was interrupted", CALLBACK_BUDGET.as_millis()));
-        }
         v
     }
 
@@ -671,9 +700,16 @@ pub(crate) fn start_scripts(document: &Handle, scripts: &[ScriptSource], log: Lo
     };
     rt.set_memory_limit(MEMORY_LIMIT);
     let base = Instant::now();
-    let deadline = Arc::new(std::sync::atomic::AtomicU64::new((SCRIPT_BUDGET).as_nanos() as u64));
-    let dl = deadline.clone();
-    rt.set_interrupt_handler(Some(Box::new(move || base.elapsed().as_nanos() as u64 > dl.load(Ordering::Relaxed))));
+    let deadline = Arc::new(std::sync::atomic::AtomicU64::new(thread_cpu_nanos() + SCRIPT_BUDGET.as_nanos() as u64));
+    let tripped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let (dl, tr) = (deadline.clone(), tripped.clone());
+    rt.set_interrupt_handler(Some(Box::new(move || {
+        let over = thread_cpu_nanos() > dl.load(Ordering::Relaxed);
+        if over {
+            tr.store(true, Ordering::Relaxed);
+        }
+        over
+    })));
     let Ok(ctx) = Context::full(&rt) else {
         log("error", "could not create the JS context");
         return None;
@@ -692,7 +728,7 @@ pub(crate) fn start_scripts(document: &Handle, scripts: &[ScriptSource], log: Lo
     });
     let dirty = Rc::new(std::cell::Cell::new(false));
     let reqs: Rc<std::cell::RefCell<js_dom::JsRequests>> = Default::default();
-    let mut engine = JsEngine { ctx, rt, log, base, deadline, dirty: dirty.clone(), table: Default::default(), reqs: reqs.clone() };
+    let mut engine = JsEngine { ctx, rt, log, base, deadline, tripped, dirty: dirty.clone(), table: Default::default(), reqs: reqs.clone() };
     engine.eval("prelude", PRELUDE);
     engine.eval("timers", TIMERS_PRELUDE);
     engine.table = engine.ctx.with(|ctx| js_dom::install_dom(&ctx, document, dirty.clone(), reqs.clone()));

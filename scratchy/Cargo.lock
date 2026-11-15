@@ -2342,6 +2342,7 @@ dependencies = [
  "fontdb",
  "html5ever",
  "image",
+ "libc",
  "markup5ever_rcdom",
  "precomputed-hash",
  "resvg",

@@ -986,7 +986,7 @@ Read REGRESSIONS.md "R20" before starting any QY item. Short version:
       `window.SVGElement.prototype` at load. Then re-run `--js-report` on
       YouTube to find the next missing global (expected: `MutationObserver`,
       QY6).
-- [ ] QY5[S] (P3, R20 error 4) The page-load script budget is eaten by
+- [x] QY5[S] (HASH) (P3, R20 error 4) The page-load script budget is eaten by
       compiling a huge script, and the error says nothing useful.
       Error: `kevlar_base...: InternalError: interrupted` at a cheap loop
       near the top of the file. The script is 10.8 MB; QuickJS needs
