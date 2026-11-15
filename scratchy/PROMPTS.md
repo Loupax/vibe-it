@@ -6371,3 +6371,15 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > Take the first small clear-cut QUEUE item (Q43a skipped: its leading-space bug does not reproduce and 002-004 are blocked on Q52).
 
 **What changed:** in the `Blocks` loop of `measure_inner`, a cleared non-float box now computes its hypothetical (margin-collapsed) border edge; if that is above the float bottom, clearance is introduced so the BORDER edge lands exactly at the float bottom (margin-top absorbed, no collapse with the previous sibling), otherwise nothing changes. Previously the margin edge was moved and margin-top added on top (80 instead of 50). Tests: `clearance_prevents_sibling_margin_collapse` (re-pinned to 50), `q48d_*`. WPT: clear-clearance-calculation-001 and margin-collapse-023 newly pass (246 -> 248).
+
+## Build-test investigation (Opus, docs only)
+
+> Investigate user reports on https://wikipedia.org (the donation dialog shows and Close does nothing; `TypeError: not a function` at index-be66aee782.js:1:18546; `Io error: Broken pipe` then an `ExitFailure(1)` panic in `run()`), then run a broad live test pass and file every bug found. No source changes.
+
+**What changed:** docs only: REGRESSIONS.md R8–R11, and TODO.txt QB1–QB10 at the top of the QUEUE. Findings:
+- The Broken-pipe panic happens when the compositor drops scratchy after a main-thread stall. Reproduced; hover restyles stall the main thread for 0.2–1.8 s.
+- JS DOM writes skip the restyle path, so pages that write the DOM on a timer stay blank or lose text.
+- `:help` keeps the previous page's JS running.
+- The dialog doesn't show on current `main` (Q33c2 hides closed dialogs), but `showModal`/`close` don't exist. Neither does `focus()`, which is the portal's last JS error.
+
+Clicks, keys and scrolling were driven in a nested dwl through the virtual-pointer and virtual-keyboard protocols; the recipe is in REGRESSIONS.md.
