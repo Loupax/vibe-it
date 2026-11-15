@@ -8434,6 +8434,7 @@ fn q33c3_option_in_select_uses_the_selects_colour() {
     );
     let stray = pixels.iter().filter(|&&p| p & 0x00FF_FFFF != 0 && p & 0x00FF_FFFF != 0x00FF_FFFF).count();
     assert_eq!(stray, 0, "option colour must not override the select's transparent text");
+}
 
 // ---------- Q33d: events ----------
 
