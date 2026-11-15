@@ -7506,6 +7506,29 @@ fn q44_abspos_auto_width_is_shrink_to_fit() {
 }
 
 #[test]
+fn qa7_abspos_shrink_to_fit_counts_float_children() {
+    let abs_w = |inner: &str, style: &str| {
+        let laid = measure_fixture(
+            &format!(r#"<html><body><div style="position: relative; width: 300px; height: 100px;"><div style="position: absolute; left: 0; top: 0; {style}">{inner}</div></div></body></html>"#),
+            400.0,
+        );
+        let container = find_by_width(&laid, 300.0).expect("container");
+        container.positioned[0].w
+    };
+    let fl = r#"<div style="float:right;width:48px;height:12px"></div>"#;
+    assert_eq!(abs_w(fl, ""), 48.0, "abspos holding only a 48px float is 48 wide");
+    assert_eq!(
+        abs_w(fl, "border-left:24px solid;border-right:24px solid;"),
+        96.0,
+        "borders add to the float's width"
+    );
+    let two = r#"<div style="float:left;width:30px;height:5px"></div><div style="float:left;width:20px;height:5px"></div>"#;
+    assert_eq!(abs_w(two, ""), 50.0, "adjacent floats sum for max-content");
+    let nested = r#"<div><div style="float:left;width:40px;height:5px"></div></div>"#;
+    assert_eq!(abs_w(nested, ""), 40.0, "float inside a plain block child");
+}
+
+#[test]
 fn abspos_box_contains_its_floats_including_bottom_margin() {
     // Q45 / W11: an abspos box is a BFC, so its auto height includes floats.
     let laid = measure_fixture(
@@ -9389,4 +9412,50 @@ fn help_page_documents_every_command() {
             "`:{name}` is a command-bar command but is not documented in src/help.html"
         );
     }
+}
+
+// ---------- QA8: background-attachment: fixed ----------
+
+#[test]
+fn qa8_background_attachment_parses() {
+    let src = tiny_png_data_uri(4, 4);
+    let fixed_of = |css: &str| {
+        let html = format!(r#"<html><body><div style="width: 13px; height: 13px; {css}"></div></body></html>"#);
+        let laid = measure_fixture(&html, 200.0);
+        find_by_width(&laid, 13.0).expect("div not found").style.bg_layout.fixed
+    };
+    assert!(!fixed_of("background: red;"));
+    assert!(fixed_of("background-attachment: fixed;"));
+    assert!(!fixed_of("background-attachment: scroll;"));
+    assert!(!fixed_of("background-attachment: local;"));
+    assert!(!fixed_of("background-attachment: bogus;"));
+    assert!(fixed_of(&format!("background: url('{src}') fixed no-repeat;")));
+    assert!(!fixed_of(&format!("background-attachment: fixed; background: url('{src}') no-repeat;")), "shorthand resets");
+    assert!(fixed_of(&format!("background: url('{src}') local; background-attachment: fixed;")));
+}
+
+#[test]
+fn qa8_fixed_background_positions_against_viewport() {
+    // 1x20 image whose row n has red = n*10. A 10x10 box at y=7 with a
+    // fixed background: box row 0 shows image row 7 (viewport y), not 0.
+    let pixels_img: Vec<TextColor> = (0..20u8).map(|n| TextColor::rgb(n * 10, 0, 0)).collect();
+    let image = DecodedImage { width: 1, height: 20, pixels: pixels_img, svg: None, mask: None };
+    let repeat_x = BgRepeat { x: true, y: false };
+    let paint_at = |fixed: bool| {
+        let layout = BgLayout { repeat: repeat_x, fixed, ..BgLayout::default() };
+        let mut px = vec![0u32; 20 * 20];
+        paint_background_image(&image, &layout, &mut px, 20, 20, 5.0, 7.0, 10.0, 10.0, 0.0, None);
+        px
+    };
+    let red = |px: &[u32], x: usize, y: usize| (px[y * 20 + x] >> 16) & 0xFF;
+    let scroll = paint_at(false);
+    assert_eq!(red(&scroll, 5, 7), 0, "scroll: image row 0 at the box top");
+    assert_eq!(red(&scroll, 5, 8), 10);
+    let fixed = paint_at(true);
+    assert_eq!(red(&fixed, 5, 7), 70, "fixed: image row 7 (viewport y) at the box top");
+    assert_eq!(red(&fixed, 5, 16), 160);
+    // Still clipped to the box.
+    assert_eq!(fixed[7 * 20 + 4], 0, "left of the box");
+    assert_eq!(fixed[6 * 20 + 5], 0, "above the box");
+    assert_eq!(fixed[17 * 20 + 5], 0, "below the box");
 }

@@ -3155,6 +3155,23 @@ pub(crate) fn cell_natural_width(
     deadline: std::time::Instant,
     incomplete: &mut bool,
 ) -> (f32, f32) {
+    natural_width_impl(cell, font_system, next_id, cache, deadline, incomplete, false)
+}
+
+/// `cell_natural_width`'s body. `as_child` is true when the box is measured
+/// as a *descendant* of the box being sized (QA7): then its own definite
+/// `width` is its contribution; for the box being sized itself that width
+/// is the thing being replaced (`min-width: max-content` etc.), so it is
+/// ignored.
+fn natural_width_impl(
+    cell: &LayoutBox,
+    font_system: &mut FontSystem,
+    next_id: &mut usize,
+    cache: &mut ShapeCache,
+    deadline: std::time::Instant,
+    incomplete: &mut bool,
+    as_child: bool,
+) -> (f32, f32) {
     // Effectively unconstrained, same constant/reasoning as `measure_
     // mixed_inline`'s own `WORD_MEASURE_WIDTH`.
     const UNBOUNDED: f32 = 1_000_000.0;
@@ -3216,13 +3233,29 @@ pub(crate) fn cell_natural_width(
             }
             (mn, mx)
         }
-        BoxContent::Blocks(children) => children.iter().fold((0.0f32, 0.0f32), |(mn, mx), child| {
-            let (cmn, cmx) = cell_natural_width(child, font_system, next_id, cache, deadline, incomplete);
-            // Q34c: a table's caption contributes only its *min*-content
-            // width to the table's max-content width (CSS Tables 3).
-            let cmx = if child.style.table_caption && cell.style.display == Display::Table { cmn } else { cmx };
-            (mn.max(cmn), mx.max(cmx))
-        }),
+        BoxContent::Blocks(children) => {
+            let (mut mn, mut mx) = (0.0f32, 0.0f32);
+            // QA7: consecutive floats sit side by side on one line in the
+            // max-content layout, so their outer widths add up; any
+            // non-float child ends the run.
+            let mut float_run = 0.0f32;
+            for child in children {
+                let (cmn, cmx) = natural_width_impl(child, font_system, next_id, cache, deadline, incomplete, true);
+                if child.style.float != Float::None && child.style.display != Display::None {
+                    float_run += cmx;
+                    mx = mx.max(float_run);
+                    mn = mn.max(cmn);
+                    continue;
+                }
+                float_run = 0.0;
+                // Q34c: a table's caption contributes only its *min*-content
+                // width to the table's max-content width (CSS Tables 3).
+                let cmx = if child.style.table_caption && cell.style.display == Display::Table { cmn } else { cmx };
+                mn = mn.max(cmn);
+                mx = mx.max(cmx);
+            }
+            (mn, mx)
+        }
         // Only reached for a nested `<table>`'s own rows (never a real
         // table cell's direct content — see `build_table_row_cells`): a
         // row lays its own cells out horizontally, so its natural width
@@ -3252,6 +3285,28 @@ pub(crate) fn cell_natural_width(
         };
         content_min = content_min.max(w);
         content_max = content_max.max(w);
+    }
+    // QA7 (R19): a floated descendant with a definite pixel `width`
+    // contributes exactly that width to
+    // its container's min- and max-content widths (css-sizing: a definite
+    // `width` is the box's own contribution), instead of whatever its
+    // (possibly empty) content measures. Percent/calc widths can't resolve
+    // without a containing block, so they keep the content-based figures.
+    // Plain block children are deliberately excluded: `max-width: fit-content`
+    // (unparsed today) must clamp them, WPT fit-content-max-inline-size.
+    if as_child
+        && cell.style.float != Float::None
+        && !matches!(cell.style.display, Display::TableCell | Display::Table)
+        && !matches!(cell.content, BoxContent::Image(_) | BoxContent::TableRow(_))
+        && cell.style.width_kw.is_none()
+        && let Some(BoxLength::Px(w)) = cell.style.width
+    {
+        let w = match s.box_sizing {
+            BoxSizing::ContentBox => w.max(0.0),
+            BoxSizing::BorderBox => (w - (extra_w - s.margin.left.px() - s.margin.right.px())).max(0.0),
+        };
+        content_min = w;
+        content_max = w;
     }
     (content_min + extra_w, content_max + extra_w)
 }

@@ -6515,3 +6515,15 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Add a :refresh command (useful for testing) and document it on the :help page like the other commands.
 
 **What changed:** `:refresh` already existed in `App::refresh` (and Tab completion) but was missing from `src/help.html`, as were `:historyBack` and `:historyFront`; added the three rows. New permanent test `help_page_documents_every_command` fails (confirmed by temporarily dropping the rows) whenever a command in `COMMAND_NAMES` has no `:name` on the help page. No behaviour change.
+
+## QA7: shrink-to-fit counts floats
+
+> Implement QA7 (shrink-to-fit width ignores floats inside the box; Acid2 line 2/smile; REGRESSIONS.md R19), with tests, WPT and real-page checks.
+
+**What changed:** `cell_natural_width` now wraps `natural_width_impl(.., as_child)`; a floated descendant with a definite px `width` contributes exactly that width (box-sizing aware) and the `Blocks` arm sums consecutive floats for max-content (min stays the widest). Test `qa7_abspos_shrink_to_fit_counts_float_children` (fails without the fix: width 0). A first version applied the width to every block child and flipped WPT `fit-content-max-inline-size.tentative` to fail (needs `max-width: fit-content`, unparsed), so it was narrowed to floats (QA7a). WPT 252 pass, no change. Live (nested dwl, before/after binaries): fixture (abspos with only a float, with borders, two floats, float/inline-block/table-cell) now hugs the float; Wikipedia Main Page, wikipedia.org, HN and the Acid2 intro are pixel-identical before/after; Acid2 after clicking the test link has a correct head top (was a broken black/yellow strip), smile still wrong (other items). Not tested: table-cell holding only a float showed nothing before or after (float-only cell height).
+
+## QA8 background-attachment: fixed
+
+> Implement QA8 (`background-attachment: fixed`: position/size the image against the viewport, clip to the element's border box; scroll default, local treated as scroll).
+
+**What changed:** `ComputedStyle.bg_layout.fixed` (css.rs `BgLayout`, style.rs `layout_for`; never set for masks). New `background_attachment` decl, longhand parse (`fixed` / `scroll` / `local`, else ignored) and the `background` shorthand records `fixed` from the first layer (omitted resets to scroll). `paint_background_image` uses the pixel buffer (0,0,win_w,win_h) as the positioning area when `fixed`, still clipping to the box and radius; the existing `ink` culling needs no change since a fixed background is clipped to the box. Tests `qa8_background_attachment_parses` and `qa8_fixed_background_positions_against_viewport` (the latter fails with the paint branch disabled). Left out: QA8a.

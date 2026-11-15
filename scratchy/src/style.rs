@@ -1702,6 +1702,14 @@ pub(crate) fn resolve_style_for(
             BgRepeat::default(),
             Some,
         );
+        let fixed = !mask
+            && apply_wide(
+                cascade_css(&matches, inl, "background-attachment", |d| d.background_attachment),
+                false,
+                false,
+                false,
+                Some,
+            );
         let dim = |d: BgDimDecl| match d {
             BgDimDecl::Auto => BgDim::Auto,
             BgDimDecl::Len(Length::Percent(p)) => BgDim::Pct(p),
@@ -1717,6 +1725,7 @@ pub(crate) fn resolve_style_for(
                 BgSizeDecl::Explicit(w, h) => BgSize::Explicit(dim(w), dim(h)),
             },
             repeat,
+            fixed,
         }
     };
     let bg_layout = layout_for(false);

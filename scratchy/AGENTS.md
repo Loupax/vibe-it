@@ -15,7 +15,10 @@
    `--update` rewrites expectations; `--out DIR` saves failing PNGs). A new failure is a
    regression and blocks the commit. A newly passing test: update the
    expectations file in the same commit.
-5. `cargo install --path .`
+5. Do NOT run `cargo install --path .` (agents run concurrently and all would
+   overwrite the same `~/.cargo/bin/scratchy`, so it ends up being some other agent's
+   branch). Test with your own worktree's `target/release/scratchy`. The coordinator
+   installs from up-to-date `main` after each merge.
 6. Real `grim` screenshot of a real page, not only a fixture. For paint,
    hover or scroll changes, drive real input: `tools/nest.sh` (nested dwl)
    plus `tools/inject` (virtual pointer/keyboard); see `tools/README`.
