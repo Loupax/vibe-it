@@ -955,7 +955,13 @@ Not vendored; pass the path to the runner.
         not resolve to currentColor (border paints nothing); the ref (now
         correct, `medium` keyword) paints green.
       Do Q52a-c first, then redo Q52 (diff is ~15 lines).
-- [ ] Q52a [S] `<iframe>` is a replaced inline-block, default 300x150.
+- [x] Q52a [S] (done, commit HASH) `<iframe>` is a replaced inline-block, default 300x150.
+      Done: UA `iframe{display:inline-block}`; `build_box_for_element` gives it
+      300x150 unless CSS/`width`/`height` attrs say otherwise; paints nothing
+      inside. WPT unchanged (244): the four replaced-height tests still pass.
+      Left out: default `2px inset` border (not set; Q52 will interact), Q52a1.
+- [ ] Q52a1 [S] iframe `frameborder`/`border` UA behaviour and `<object>`/`<embed>`/`<video>`/`<canvas>`
+      replaced default sizes (300x150).
 - [ ] Q52b [S] Expand `var()` declarations in source order relative to the
       rule's other declarations (`variable-reference-38`).
 - [ ] Q52c [S] `border-color: inherit` where the parent's color is unset

@@ -365,6 +365,15 @@ pub(crate) fn build_box_for_element(
     if element_tag(handle) == "img" {
         return build_img_box(handle, style, background_image, image_cache);
     }
+    if element_tag(handle) == "iframe" {
+        // Q52a: a replaced box with no nested browsing context: default
+        // 300x150, `width`/`height` attributes next, CSS wins; paints
+        // nothing inside (fallback children are not rendered).
+        let mut style = style;
+        style.width = style.width.or_else(|| img_size_length(handle, "width")).or(Some(BoxLength::Px(300.0)));
+        style.height = style.height.or_else(|| img_size_length(handle, "height")).or(Some(BoxLength::Px(150.0)));
+        return LayoutBox { style, background_image, content: BoxContent::Inline(Vec::new()) };
+    }
     if element_tag(handle) == "svg" {
         let (style, decoded) = resolve_inline_svg(handle, style);
         let content = match decoded {

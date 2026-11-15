@@ -7910,3 +7910,32 @@ fn clearance_prevents_sibling_margin_collapse() {
     // its border edge at 50); see TODO Q48d.
     assert_eq!(y, 80.0);
 }
+
+#[test]
+fn q52a_iframe_is_a_replaced_box_default_300x150_honouring_attrs_and_css() {
+    fn collect(l: &Laid, out: &mut Vec<(f32, f32)>) {
+        out.push((l.w, l.h));
+        if let LaidContent::Blocks(c) = &l.content {
+            for k in c {
+                collect(k, out);
+            }
+        }
+    }
+    let sizes = |html: &str| -> Vec<(f32, f32)> {
+        let doc = parse_html(&format!("<html><body style=\"margin:0\">{html}</body></html>"));
+        let tree = build_layout_tree(&doc, 1000.0);
+        let mut fs = new_font_system_with(&[]);
+        let mut cache = ShapeCache::new();
+        let (mut next_id, mut incomplete) = (0usize, false);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let laid = measure(&tree, &mut fs, 0.0, 0.0, 1000.0, None, &mut next_id, &mut cache, deadline, &mut incomplete, &mut Vec::new(), &Floats::default(), None);
+        let mut v = Vec::new();
+        collect(&laid, &mut v);
+        v
+    };
+    assert!(sizes("<iframe style=\"display:block\"></iframe>").contains(&(300.0, 150.0)));
+    assert!(sizes("<iframe style=\"display:block\" width=\"200\" height=\"80\"></iframe>").contains(&(200.0, 80.0)));
+    assert!(sizes("<iframe style=\"display:block;width:120px\" width=\"200\" height=\"80\"></iframe>").contains(&(120.0, 80.0)));
+    let v = sizes("<iframe>hello world fallback</iframe>");
+    assert!(v.iter().any(|&(_, h)| h == 150.0), "{v:?}");
+}

@@ -155,3 +155,5 @@ tfoot { display: table-footer-group; }
 tr { display: table-row; vertical-align: inherit; }
 td, th { display: table-cell; vertical-align: inherit; padding: 1px; }
 th { font-weight: bold; }
+
+iframe { display: inline-block; }
