@@ -548,3 +548,16 @@ css/css-overflow/overflow-body-propagation-011.html
 css/css-overflow/overflow-negative-margin.html
 css/css-overflow/scroll-markers/scroll-marker-007.html
 css/css-overflow/text-overflow-028.html
+# Q40c: grid-q15
+css/css-grid/anonymous-grid-items-001.html
+css/css-grid/grid-definition/flex-item-grid-container-auto-repeat-002.html
+css/css-grid/grid-definition/grid-auto-repeat-minmax.html
+css/css-grid/grid-definition/grid-support-named-grid-lines-002.html
+css/css-grid/grid-model/display-grid.html
+css/css-grid/grid-model/grid-container-scrollbar-vertical-rl-001.html
+css/css-grid/grid-model/grid-inline-first-line-001.html
+css/css-grid/grid-model/grid-overflow-padding-002.html
+css/css-grid/layout-algorithm/flex-and-intrinsic-sizes-002.html
+css/css-grid/layout-algorithm/grid-fit-content-width-percent-height-aspect-ratio-001.html
+css/css-grid/layout-algorithm/grid-spanning-item-with-paddings-auto-rows-001.html
+css/css-grid/placement/grid-placement-using-named-grid-lines-002.html
