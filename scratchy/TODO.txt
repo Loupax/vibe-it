@@ -989,7 +989,7 @@ Not vendored; pass the path to the runner.
 - [ ] Q57a [S] Strict full-value parsing for all properties (leftover tokens make the
       declaration invalid) and `unset` semantics for inline-style var() declarations.
 
-- [ ] Q40c [L] Audit the areas Q40b did not reach, same method and write-up:
+- [x] Q40c [L] (dacd49d) Audit the areas Q40b did not reach, same method and write-up:
       css-grid (only what Q15 claims), css-cascade, css-pseudo,
       css-content, css-overflow, css-masking, css-text-decor, css-color,
       mediaqueries, css-conditional, css-sizing, html/rendering, acid2. Also
@@ -999,6 +999,109 @@ Not vendored; pass the path to the runner.
       `flex-minimum-height-flex-items-*`, `percentage-heights`, `col-wrap`).
       Do it after Q42, Q43 and Q44 land: they unhide many tests. Skip
       transforms, animations, writing modes and bidi (not claimed).
+      Result (Q40c, hash above): all listed areas and the residue audited,
+      findings in REGRESSIONS.md "Q40c" (root causes W24-W59, one commit per
+      area). Counts (pass/fail over eligible tests): cascade 13/27, pseudo
+      29/81, content 9/46, masking 47/240, text-decor 82/229, color 88/211,
+      mediaqueries 20/28, conditional 88/57, sizing 143/426, rendering
+      145/127, overflow 98/461, grid Q15 subset 79/111, acid2 0/1, residue
+      42/57. The committed subset grew to 542 tests. Also in this commit: the
+      runner resolves root-relative stylesheet/image hrefs into the checkout
+      and treats `about:blank` references as a white page (src/wpt.rs; 3
+      masking tests and 1 overflow test had been CRASH). Two findings beat
+      everything else for reach: W34 (multi-value margin/padding/border/inset
+      shorthands use only the first value) and W29 (every text node carries a
+      trailing space, so `a<b>b</b>` has a gap). Fix items for every BROKEN
+      group follow, ordered by corpus reach, then by fail count. Each: write
+      the minimal repro from REGRESSIONS.md as a permanent test, run
+      `scratchy --wpt`, update `wpt-expected.txt`.
+
+--- Q40c fix items (WPT audit, 2026-11-15) -----------------------------
+
+- [ ] Q58 [S] Multi-value box shorthands (W34): `margin`, `padding`,
+      `border-width`, `border-color`, `border-style`, `border-radius`,
+      `inset` take 1-4 values (top right bottom left; 2 = vertical/horizontal;
+      3 = top, horizontal, bottom). Today the branches in `css.rs` parse one
+      value and copy it to all four sides. Keep negative-padding rejection.
+      Also `margin-block/-inline` and `padding-block/-inline` two-value forms.
+      Test: `margin:5px 30px 7px` gives top 5, right/left 30, bottom 7.
+      Real pages use these everywhere; expect visible movement on Wikipedia.
+- [ ] Q59 [S] Text-node whitespace (W29): `inline_text` appends a space to
+      every text node and `normalize_whitespace` strips both ends, so
+      `a<b>b</b>`, `<b>x</b>,` and `<span>a</span>bc` get a one-em/space gap.
+      Keep a single leading/trailing space only where the source had
+      whitespace, and collapse across node boundaries (a space at the end of
+      one node and the start of the next is one space). Mind the plain
+      whole-buffer path, `measure_mixed_inline`, `<br>` and `pre`. Test:
+      Ahem `a<span>b</span>` is 40px wide, `a <span>b</span>` 60px.
+- [ ] Q60 [S] `hsl()`/`hsla()`, `hwb()`, `lab()`, `lch()`, `oklab()`,
+      `oklch()`, `color(srgb|display-p3|...)` (W38): cssparser-color parses
+      them but `to_text_color` only handles `CssColor::Rgba`. Convert the
+      other variants to sRGB (gamut-clip is fine). Test: `hsl(0 100% 50%)`
+      paints like `red`. Leftovers (W39): `color-mix()`, relative colours,
+      system colours, `light-dark()` become Q60a.
+- [ ] Q61 [S] Default `<q>` quotes (W35, 34 tests): UA rule
+      `q::before{content:open-quote}`, `q::after{content:close-quote}` and a
+      default `quotes` of “ ” ‘ ’ (language-dependent in browsers, fixed is fine
+      first). Test: `<q>a<q>b</q></q>` renders nested double/single marks.
+- [ ] Q62 [S] Long unbreakable words must overflow, not wrap (W47): cosmic-text
+      `Wrap::WordOrGlyph` is used even when `overflow-wrap:normal`. Use word
+      wrapping by default and glyph wrapping only for `overflow-wrap:
+      break-word|anywhere` / `word-break: break-all|break-word`. Check table
+      cell and shrink-to-fit paths (min-content uses the long word). Test: a
+      10-char Ahem word in a 100px box is one line, 200px wide.
+- [ ] Q63 [S] `@supports` grammar (W42): `and`/`or`/`not` must not mix
+      without parentheses, `(unknown)` is a general-enclosed that evaluates
+      false (and can be an operand of `or`/`and`), `not ()` is false-negated,
+      `selector(:has(...))`, `at-rule(@x)`, `font-tech()`/`font-format()`.
+      WPT: `css-supports-019/023/029/030/032/033/034/040/041/042`,
+      `at-supports-026/034..039/045/048`.
+- [ ] Q64 [M] Flex automatic minimum size (W54): `min-height:auto` /
+      `min-width:auto` for flex items = `min(content size, specified size)`
+      for non-scroll containers; apply it in the shrink loop. Test: column
+      flex `height:10px`, item `height:100px` stays 100px (overflows).
+      WPT: `flex-minimum-height-flex-items-*` (16).
+- [ ] Q65 [M] Column-wrap flex (W56): honour `max-height` as the wrap limit
+      (and `height`), pack the wrapped columns at their content widths
+      instead of spreading them across the container width. WPT:
+      `intrinsic-size/col-wrap-*` (14), plus Q47a's `align-self-015/016`.
+- [ ] Q66 [S] `caption-side` inherits (W57): `style.rs` marks it non-inherited
+      and reads only the caption's own declaration. WPT:
+      `caption-side-applies-to-006..017` (11).
+- [ ] Q67 [S] A definite height from `top`+`bottom` on an abspos box (W55)
+      must resolve `%` heights of its children (block, flex, grid). WPT:
+      `percentage-heights-*` (about 10 of 15).
+- [ ] Q68 [S] Paint order for inline-block / inline-table (W58): paint them
+      in the inline-content layer after in-flow block backgrounds of later
+      siblings, before positioned descendants. WPT: `inline-table-zorder-*`
+      (5), `inline-block-zorder-*` (3).
+- [ ] Q69 [S] `width:min-content` ignores the trailing space of the widest
+      word (W45): Ahem `XX XX` must be 40px, not 60. WPT:
+      `*-with-min-or-max-content`, `border-box-and-max-content` (some of 29).
+- [ ] Q70 [S] Media queries starting with `not` (W40): negate the whole
+      query instead of `never = true`. `not all and (min-width:100000px)` and
+      `not (min-width:...)` (MQ4). WPT: `negation-001/002`,
+      `mq-invalid-media-type-001/004`. Unsupported-feature rules (W41)
+      become Q70a: `height`, `orientation`, `aspect-ratio`, `resolution`,
+      `hover`, range syntax, `or`, nested parentheses.
+- [ ] Q71 [S] `::first-letter` takes trailing punctuation (W31): following
+      P* characters except Ps/Pd, and intervening non-word-separator
+      spaces bridge to following punctuation. Test: `T.est` colours `T.`.
+      WPT: `first-letter-trailing-punctuation`, `first-letter-with-quote`.
+- [ ] Q72 [M] `::first-line` before line breaking (W30): apply the pseudo's
+      `font-size`/`line-height`/`font-weight` when breaking the first line
+      and size its line box from them. WPT: `first-line-line-height-001/002`,
+      `first-line-with-*`.
+- [ ] Q73 [S] `display:inline-grid` / `inline-flex` are inline-level (W50): a
+      following `inline-block` sits beside them (shrink-to-fit, baseline
+      aligned). WPT: `grid-model/*-inline-*`, `display-inline-grid`.
+- [ ] Q74 [S] Clearance (W53): a cleared block's margin-top is absorbed by
+      clearance; its top border edge is the float's bottom (plus any
+      excess margin). WPT: `clear-clearance-calculation-*` (needs Q48a for
+      the collapsing cases).
+- [ ] Q75 [S] `position:relative` on an inline that contains a block
+      (block-in-inline) offsets the block part too (W59). WPT:
+      `block-in-inline-relpos-001/002`.
 
 --- Tier 5: rendering close-out (small, then stop polishing) -----------
 

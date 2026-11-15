@@ -6235,3 +6235,11 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > Do ONLY Q57: `var()` correctness (W22): reject invalid custom property values at parse, invalid-at-computed-time means `unset`, escaped custom property names, adjacent `var()` calls, `@supports` with `var()`; test, WPT, screenshot, PROMPTS entry, tick Q57.
 
 **What changed:** `valid_declaration_value` drops custom property declarations containing `!`, bad tokens, unmatched closers or a `;` (also inside `var()` fallbacks); `expand_var_decls` seeds `unset` when the substituted declaration fails to parse; `css_unescape` decodes escaped names in `var()`; substitution pads values with spaces so adjacent calls do not fuse, and `color`/`background-color` reject trailing tokens (`only_important_left`). `@supports (--a: var(--b,!))` is now false via the parse check. WPT 174 -> 187. Existing quoted-string test expectation updated for the padding.
+
+## Q40c — WPT audit of the areas Q40b did not reach (queue item)
+
+> Do ONLY Q40c: re-run the runner, audit css-grid (Q15 subset), css-cascade, css-pseudo, css-content, css-overflow, css-masking, css-text-decor, css-color, mediaqueries, css-conditional, css-sizing, html/rendering and acid2 one area per commit, root-cause the Q40b residue, extend wpt-subset/wpt-expected, add a fix item per BROKEN group, do not fix engine bugs, never vendor WPT.
+
+**What changed:** no engine code. `src/wpt.rs`: root-relative stylesheet/image hrefs resolve inside the checkout and `about:blank` references are a white page (test `q40c_wpt_root_relative_stylesheet_and_about_blank_reference`). REGRESSIONS.md "Q40c": root causes W24-W59 with a minimal repro each (rendered with the runner), per-area counts, triage. TODO.txt: Q40c ticked, fix items Q58-Q75. wpt-subset.txt/wpt-expected.txt: about 140 new tests across the areas (542 recorded).
+
+**Method notes:** repros were inline test/reference pairs run through `--subset` with `--out`; "flipped" counts came from a scratch copy with W29 and W34 patched (not committed). Biggest findings: multi-value margin/padding/border shorthands use only the first value (W34), every text node carries a trailing space (W29), `hsl()` and the other colour functions are dropped (W38), `<q>` has no default quotes (W35), `not` media queries never match (W40).

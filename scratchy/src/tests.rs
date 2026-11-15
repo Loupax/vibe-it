@@ -7323,6 +7323,27 @@ fn q40b_wpt_root_relative_reference() {
 }
 
 #[test]
+fn q40c_wpt_root_relative_stylesheet_and_about_blank_reference() {
+    use wpt::{Outcome, Renderer, Status};
+    let root = std::env::temp_dir().join(format!("scratchy-q40c-{}", std::process::id()));
+    fs::create_dir_all(root.join("css/t")).unwrap();
+    fs::create_dir_all(root.join("support")).unwrap();
+    fs::write(root.join("support/s.css"), "div{width:50px;height:50px;background:#f00}").unwrap();
+    fs::write(root.join("css/t/ref.html"), "<div style=\"width:50px;height:50px;background:#f00\"></div>").unwrap();
+    // The root-relative stylesheet link must resolve inside the checkout.
+    fs::write(root.join("css/t/t.html"), "<link rel=match href=ref.html><link rel=stylesheet href=\"/support/s.css\"><div></div>").unwrap();
+    // `about:blank` is an empty white page: an empty body matches, a box does not.
+    fs::write(root.join("css/t/blank-pass.html"), "<link rel=match href=\"about:blank\"><p></p>").unwrap();
+    fs::write(root.join("css/t/blank-fail.html"), "<link rel=match href=\"about:blank\"><div style=\"width:5px;height:5px;background:#000\"></div>").unwrap();
+    let mut r = Renderer::new(&[]);
+    r.root = fs::canonicalize(&root).ok();
+    assert_eq!(r.run_test(&root.join("css/t/t.html"), None), Outcome::Ran(Status::Pass));
+    assert_eq!(r.run_test(&root.join("css/t/blank-pass.html"), None), Outcome::Ran(Status::Pass));
+    assert_eq!(r.run_test(&root.join("css/t/blank-fail.html"), None), Outcome::Ran(Status::Fail));
+    let _ = fs::remove_dir_all(&root);
+}
+
+#[test]
 fn q41_br_forces_a_line_break() {
     let h = |body: &str| measure_fixture(&format!("<html><body style=\"margin:0\">{body}</body></html>"), 800.0).h;
     let one = h("<div>a b</div>");
