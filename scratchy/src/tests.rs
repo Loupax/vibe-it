@@ -8395,4 +8395,41 @@ fn q33c2_closed_dialog_is_not_rendered_open_dialog_is() {
     let open = h("<dialog open><div style=\"height:100px\">x</div></dialog>");
     assert_eq!(closed, none, "closed dialog takes no space");
     assert!(open >= none + 100.0, "open dialog still renders");
+
+fn q33c3_select_color_transparent_paints_no_option_text() {
+    // Wikipedia portal: `.styled-select.js-enabled select` overlays a
+    // `color:transparent` select on a visible label; the select's option
+    // text must not paint.
+    let (pixels, _, _) = paint_fixture(
+        r#"<html><head><style>.s select{background:transparent;border:0;margin:0;padding:0 24px;font-size:40px;color:transparent;color:hsla(0,0%,100%,0)}</style></head><body style="margin:0;background:#fff"><div class="s"><select><option selected>Afrikaans</option><option>English</option></select></div></body></html>"#,
+    );
+    // Unpainted pixels are 0, the white body fill is ffffff; any anti-aliased
+    // glyph pixel is something else.
+    let stray = pixels.iter().filter(|&&p| p & 0x00FF_FFFF != 0 && p & 0x00FF_FFFF != 0x00FF_FFFF).count();
+    let mut cs: Vec<u32> = pixels.iter().copied().filter(|&p| p & 0xFFFFFF != 0 && p & 0xFFFFFF != 0xFFFFFF).collect(); cs.sort(); cs.dedup(); assert_eq!(stray, 0, "transparent select text must not paint {cs:x?}");
+    assert_eq!(
+        to_text_color(&parse_declarations("color: hsl(120, 100%, 50%)").color.unwrap()),
+        Some(TextColor::rgb(0, 255, 0))
+    );
+    assert_eq!(
+        to_text_color(&parse_declarations("color: hsla(0,0%,100%,0)").color.unwrap()),
+        Some(TextColor::rgba(255, 255, 255, 0))
+    );
+    // Partial alpha text is scaled, not painted opaque.
+    let (half, _, _) = paint_fixture(
+        r#"<html><body style="margin:0;background:#fff"><p style="margin:0;font-size:40px;color:rgba(0,0,0,0.2)">HHHH</p></body></html>"#,
+    );
+    let darkest = half.iter().filter(|&&p| p != 0).map(|&p| p & 0xFF).min().unwrap();
+    assert!(darkest > 0xA0, "20% black text must stay light, darkest channel {darkest:#x}");
+}
+
+#[test]
+fn q33c3_option_in_select_uses_the_selects_colour() {
+    // The portal's `select option{color:grey}` must not paint the closed
+    // select's text when the select itself is transparent.
+    let (pixels, _, _) = paint_fixture(
+        r#"<html><head><style>select{color:transparent;font-size:40px;border:0}select option{color:#777}</style></head><body style="margin:0;background:#fff"><select><option selected>Afrikaans</option></select></body></html>"#,
+    );
+    let stray = pixels.iter().filter(|&&p| p & 0x00FF_FFFF != 0 && p & 0x00FF_FFFF != 0x00FF_FFFF).count();
+    assert_eq!(stray, 0, "option colour must not override the select's transparent text");
 }

@@ -6348,3 +6348,9 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > Do ONLY Q33c2: a `<dialog>` without `open` must not render (wikipedia.org portal donation box).
 
 **What changed:** one UA rule in `default.css`: `dialog:not([open]) { display: none; }`. Test `q33c2_closed_dialog_is_not_rendered_open_dialog_is`; 392 tests pass, clippy warning count unchanged (32).
+
+## Q33c3 — transparent text painted opaque (queue item)
+
+> Do ONLY Q33c3: the portal's language select has `color:transparent` but its option text still paints over the EN label.
+
+**What changed:** two real bugs, neither select-specific. (1) `paint_text` used cosmic-text's `LegacyRenderer`, whose callback receives the glyph mask coverage as the colour's alpha and drops the span colour's own alpha, so any `color` with alpha < 1 (incl. `transparent`) painted fully opaque; each glyph's alpha is now stashed in a `Cell` and multiplied back, alpha-0 glyphs are skipped. (2) `to_text_color` only handled `CssColor::Rgba`, so `hsl()/hsla()/hwb()` colours were silently dropped (the portal's `color: hsla(0,0%,100%,0)` fell back to black); Hsl and Hwb now convert. Test `q33c3_*`. 392 tests pass. (3) `style.rs`: an `option` inside `select` takes the select's colour, since the closed select paints in its own colour and the portal sets `select option{color:grey}`. Test `q33c3_option_in_select_*`. Portal grim: only "EN" shows, no "Afrikaans" overlap. WPT: hwb-002 and t425-hsla-values-b newly pass (expectations updated).

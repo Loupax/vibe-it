@@ -1503,7 +1503,7 @@ as the JS measurement corpus (same role the four CSS pages played).
       sheet). The portal's closed `frb-iad-dialog` shows as a modal box
       in flow today (visible with JS on at wikipedia.org; it is also
       rendered, further down, with JS off). Needs a WPT run.
-- [ ] Q33c3 [S] `select{color:transparent}` still paints the option
+- [x] Q33c3 [S] (HASH) `select{color:transparent}` still paints the option
       text: the portal's language select (`.styled-select.js-enabled`)
       overlaps its helper label ("AfrikaEnglish").
 - [ ] Q33d [M] Events and timers: `addEventListener/removeEventListener`
