@@ -6383,3 +6383,9 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 - The dialog doesn't show on current `main` (Q33c2 hides closed dialogs), but `showModal`/`close` don't exist. Neither does `focus()`, which is the portal's last JS error.
 
 Clicks, keys and scrolling were driven in a nested dwl through the virtual-pointer and virtual-keyboard protocols; the recipe is in REGRESSIONS.md.
+
+## QB1 — no panic when the Wayland connection dies (queue item)
+
+> Implement QB1 from the TODO.txt queue (R8): print one clear line and exit 1 when the compositor drops the connection; same for the unwraps in redraw.
+
+**What changed:** `run()` now matches the result of `run_app`; `event_loop_exit_message` (pure, tested) gives the one-line message and the process exits 1. The `unwrap()`s on surface resize, `buffer_mut` and `present` in `App::redraw` log once (`log_redraw_error_once`) and return. QB3 (bounding main-thread stalls) remains. Test: `qb1_event_loop_exit_message`.

@@ -8600,3 +8600,12 @@ fn q33d_load_events_and_event_target_subclass() {
         ["log:x true 7", "log:global y", "log:dcl true true", "log:dcl-window", "log:load true"]
     );
 }
+
+#[test]
+fn qb1_event_loop_exit_message() {
+    use winit::error::EventLoopError;
+    assert_eq!(event_loop_exit_message(&Ok(())), None);
+    let m = event_loop_exit_message(&Err(EventLoopError::ExitFailure(1))).unwrap();
+    assert!(m.contains("Wayland compositor"), "{m}");
+    assert!(!m.contains(char::from(10)));
+}

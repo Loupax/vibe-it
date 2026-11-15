@@ -87,8 +87,9 @@ work that can stall the same way: `handle_nav_result` (HTML parse +
 `run_page_scripts`, up to `SCRIPT_BUDGET` = 5 s), and every timer or event
 callback, each with its own 5 s budget.
 
-**Fix:** QB1 (never panic; exit cleanly with a clear message) and QB3
-(bound how long the main thread stays busy while input is flowing).
+**Fix:** QB1 (never panic; exit cleanly with a clear message) — DONE
+(HASH_QB1) — and QB3 (bound how long the main thread stays busy while
+input is flowing) — still open.
 
 ### R9 — JS DOM writes rebuild without the restyle path: periodic writes leave the page blank or missing text (bug, Q33c `80b5e0a`) — OPEN
 

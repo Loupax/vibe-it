@@ -194,7 +194,39 @@ pub fn run() {
         }
     };
 
-    event_loop.run_app(&mut app).unwrap();
+    let result = event_loop.run_app(&mut app);
+    if let Some(msg) = event_loop_exit_message(&result) {
+        eprintln!("{msg}");
+        std::process::exit(1);
+    }
+}
+
+/// One clear line for a failed event loop, or `None` on a clean exit.
+/// `ExitFailure` is what winit's Wayland backend returns when flushing
+/// the connection fails (the compositor closed the socket; R8).
+pub(crate) fn event_loop_exit_message(
+    result: &Result<(), winit::error::EventLoopError>,
+) -> Option<String> {
+    use winit::error::EventLoopError;
+    match result {
+        Ok(()) => None,
+        Err(EventLoopError::ExitFailure(_)) => Some(
+            "scratchy: lost the connection to the Wayland compositor (it closed the socket; \
+             usually because the main thread was busy while input queued up)"
+                .to_string(),
+        ),
+        Err(e) => Some(format!("scratchy: event loop failed: {e}")),
+    }
+}
+
+/// Logs a redraw failure once per process (a dead connection would
+/// otherwise repeat it every frame).
+pub(crate) fn log_redraw_error_once(what: &str, err: &dyn std::fmt::Display) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static LOGGED: AtomicBool = AtomicBool::new(false);
+    if !LOGGED.swap(true, Ordering::Relaxed) {
+        eprintln!("scratchy: could not {what}: {err}");
+    }
 }
 
 
