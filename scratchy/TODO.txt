@@ -854,7 +854,7 @@ Read REGRESSIONS.md "R20" before starting any QY item. Short version:
       white guide column and the grey skeleton cards (compare
       REGRESSIONS.md R20 "expected" screenshot description); re-check
       Acid2 intro, en.wikipedia Main_Page, wikipedia.org portal, HN.
-- [x] QY2 [S] (P2, R20 error 1) DONE 2026-11-15 (HASH; note: `performance` did not exist at all, now defined in PRELUDE) `performance.timing` and page visibility.
+- [x] QY2 [S] (P2, R20 error 1) DONE 2026-11-15 (22bb105; note: `performance` did not exist at all, now defined in PRELUDE) `performance.timing` and page visibility.
       Error: `inline script #6: TypeError: cannot read property
       'responseStart' of undefined` (YouTube's `ytcsi` timing script does
       `w.performance ? w.performance.timing.responseStart : null`).
