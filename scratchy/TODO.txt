@@ -929,6 +929,28 @@ Not vendored; pass the path to the runner.
 - [ ] Q52 [S] Border width defaults to `medium` (3px) when a style is set
       without a width (W4): `border: solid black`, `border-style: solid`,
       `border-bottom: solid`. Wikipedia tables often rely on it.
+      BLOCKED 2026-11-15: implemented (style.rs: width 3 when a style was
+      declared without a width; css.rs: `border` shorthand resets omitted
+      width to medium; thin/medium/thick keywords) and unit tests pass, but
+      the WPT subset gets 6 REGRESSIONS (158 vs 164 pass), all tests that
+      passed by accident while borders had width 0:
+      - `block-replaced-height-005`, `float-replaced-height-005`,
+        `absolute-replaced-height-028`/`-035`: `<iframe>` has no replaced
+        sizing (300x150 default), so its newly visible `border: solid red`
+        shows. Needs iframe as an inline-block replaced box first.
+      - `variable-reference-38`: `var()` declarations are applied after the
+        rule's other declarations (expand_var_decls), so `border-style:
+        var(--s)` overrides a later-written `border-top: none`.
+        Needs source-order-aware var expansion.
+      - `border-color-011`: `border-color: inherit` of an unset color does
+        not resolve to currentColor (border paints nothing); the ref (now
+        correct, `medium` keyword) paints green.
+      Do Q52a-c first, then redo Q52 (diff is ~15 lines).
+- [ ] Q52a [S] `<iframe>` is a replaced inline-block, default 300x150.
+- [ ] Q52b [S] Expand `var()` declarations in source order relative to the
+      rule's other declarations (`variable-reference-38`).
+- [ ] Q52c [S] `border-color: inherit` where the parent's color is unset
+      resolves to the parent's currentColor keyword (`border-color-011`).
 - [ ] Q53 [S] Reject values CSS says are invalid (W5): negative `padding-*`,
       `border-*-width`, `max-height`, `max-width`, `min-*`, `flex-basis`,
       `width`, `height`. The declaration is dropped. WPT: `padding-right-001`,

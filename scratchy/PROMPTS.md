@@ -6199,3 +6199,9 @@ worked: `<div style="display:flex">hello <b>x</b></div>` showed "hello x".
 > Do ONLY Q51: a table's `width` includes its border and padding (W15); test, WPT, screenshot, PROMPTS entry, tick Q51.
 
 **What changed:** `measure_table` forces `box-sizing: border-box` on the table for `width` only (height stays as authored: Q51a), so `width:100%;border:1px` no longer paints 2px too wide. That broke `floats-038` (a `0.5in` table whose cell is also `0.5in`), because a cell's own `width` never counted toward its column; so the table now widens to its columns' min-content, and `cell_natural_width` floors a `display:table-cell`'s content at its definite `width`. Test `q51_table_width_includes_border_and_padding`. `cargo test` 343 passed (5 ignored); clippy 32 warnings before and after. WPT: added `block-formatting-contexts-001` to the subset; 163 -> 164 pass, 0 regressions, expectations updated. `grim` screenshot of a local page (`width:100%` bordered, padded table filling a 600px container exactly). Paint untouched, no AUTOSCROLL run.
+
+## Q52 — border width defaults to medium (queue item, BLOCKED)
+
+> Do ONLY Q52: border width defaults to `medium` (3px) when a style is set without a width (W4); test, WPT, screenshot, PROMPTS entry, tick Q52.
+
+**What changed:** nothing landed. The implementation (3px default when a style is declared, shorthand width reset, thin/medium/thick keywords) passed `cargo test` (344) but regressed 6 WPT tests that were passing by accident with zero-width borders (iframe replaced sizing, `var()` declaration order, `border-color: inherit`). Recorded BLOCKED in TODO.txt with new prerequisite items Q52a-c. Clippy 32 warnings, unchanged.
