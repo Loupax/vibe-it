@@ -801,7 +801,7 @@ Q32 (parked); 320 tests pass, 2 ignored; lib.rs is ~27.4k lines.
       indenting it off-screen), `.pure-button{white-space:nowrap}`. `text-
       indent` was not implemented at all, so the label painted inside the
       22px icon box and overflowed (clipped by the button's own bounds).
-      Not a sizing/italic/font bug. FIXED (HASH): css.rs `text-indent`
+      Not a sizing/italic/font bug. FIXED (c5d46d7): css.rs `text-indent`
       (<length>), inherited `text_indent` px in style.rs, paint.rs
       `paint_buffer` and `measure_mixed_inline` (the path wikipedia.org takes,
       an earlier float forces it) shift the first line by a NEGATIVE indent.
