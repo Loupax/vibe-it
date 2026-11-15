@@ -775,9 +775,13 @@ impl App {
         let height = size.height.max(1);
 
         if self.surface_size != (width, height) {
-            surface
-                .resize(NonZeroU32::new(width).unwrap(), NonZeroU32::new(height).unwrap())
-                .unwrap();
+            let (Some(w), Some(h)) = (NonZeroU32::new(width), NonZeroU32::new(height)) else {
+                return;
+            };
+            if let Err(e) = surface.resize(w, h) {
+                log_redraw_error_once("resize the surface", &e);
+                return;
+            }
             self.surface_size = (width, height);
         }
 
@@ -835,7 +839,13 @@ impl App {
             window.request_redraw();
         }
 
-        let mut pixels = surface.buffer_mut().unwrap();
+        let mut pixels = match surface.buffer_mut() {
+            Ok(p) => p,
+            Err(e) => {
+                log_redraw_error_once("get the frame buffer", &e);
+                return;
+            }
+        };
         for pixel in pixels.iter_mut() {
             *pixel = 0x00FFFFFF;
         }
@@ -881,7 +891,9 @@ impl App {
         }
 
         window.pre_present_notify();
-        pixels.present().unwrap();
+        if let Err(e) = pixels.present() {
+            log_redraw_error_once("present the frame", &e);
+        }
     }
 
     /// Queues a fresh `LayoutBox` tree for the persistent background
