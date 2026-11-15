@@ -750,6 +750,38 @@ rendering (Tier 5) -> forms (Tier 6) -> JavaScript (Tier 7). Status at this poin
 Q32 (parked); 320 tests pass, 2 ignored; lib.rs is ~27.4k lines.
 ========================================================================
 
+--- TOP PRIORITY: www.youtube.com investigation (user report, 2026-11-15) ---
+
+Overrides everything else in the QUEUE. User report: visiting
+https://www.youtube.com shows console errors and a BLANK window. Video
+playback is explicitly out of scope for now.
+
+- [ ] QY0 [Opus investigator, NO FIXES] Test scratchy against
+      https://www.youtube.com (JS on and with `--no-js`) and file action items.
+      An Opus agent (`model: "opus"`) must NOT change any source code. It:
+      (a) reproduces the blank window and the console errors (stderr plus
+          `scratchy --js-report`; see QJ3 for feeding a saved page, and
+          scratchy/tools/README for the nested-dwl + injector recipe);
+          screenshots are viewed (grim), not assumed;
+      (b) diagnoses WHY it is blank: JS error vs layout/CSS vs a fetch,
+          redirect or consent/cookie problem vs a crash, and for each console
+          error names the missing API or behaviour (DOM method, global,
+          CSS feature, network case);
+      (c) checks `--no-js` and `:set nojs` to see what the server-rendered
+          page looks like without JS, and whether a noscript path exists;
+      (d) files self-contained, sized (S/M/L), prioritised `[ ]` items at the
+          TOP of the QUEUE (next free ids, e.g. QY1, QY2, ...) and R-numbered
+          entries in REGRESSIONS.md, each with: symptom, exact repro, root
+          cause (function/type names, not line numbers), proposed fix steps
+          and the test to add; avoids duplicating existing items (grep first,
+          reference ids instead); says honestly what it could not test;
+      (e) delivers a docs-only PR (TODO.txt, REGRESSIONS.md, optional
+          PROMPTS.md entry) and merges it.
+      Sonnet/Haiku agents then implement what it files, top to bottom.
+      Agent rules: AGENTS.md "Background shells and waiting" (no
+      `pgrep -f` wait loops, no `pkill -f` with a pattern in the command
+      line, kill own background shells, don't spawn subagents).
+
 --- TOP PRIORITY: Acid2/Acid3 audit (Opus investigator, 2026-11-15) ----
 
 These override everything below, including the QB and JS blocks. Do
