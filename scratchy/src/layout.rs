@@ -1099,6 +1099,24 @@ pub(crate) fn hover_idle_wait(
     (!left.is_zero()).then_some(left)
 }
 
+/// Q35b2: how long an arriving image's relayout is held back so a burst
+/// of arrivals collapses into one rebuild.
+pub(crate) const IMAGE_RELAYOUT_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(80);
+
+/// Q35b2: pure debounce decision for an image-triggered relayout.
+/// `pending_for` is how long the oldest unapplied arrival has waited
+/// (`None` = this is the first). Returns the remaining wait, or `None`
+/// to rebuild now (a rebuild is already queued, or the window passed).
+/// The window runs from the first arrival and is not extended by later
+/// ones, so an idle page waits at most `IMAGE_RELAYOUT_DEBOUNCE`.
+pub(crate) fn image_relayout_wait(pending_for: Option<std::time::Duration>, layout_dirty: bool) -> Option<std::time::Duration> {
+    if layout_dirty {
+        return None;
+    }
+    let left = IMAGE_RELAYOUT_DEBOUNCE.saturating_sub(pending_for.unwrap_or_default());
+    (!left.is_zero()).then_some(left)
+}
+
 thread_local! {
     /// Content-keyed shaping memo (R2.2), enabled only on the shaping
     /// worker thread. Paragraph ids are positional and restart at 0 for

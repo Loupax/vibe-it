@@ -2211,7 +2211,8 @@ Not vendored; pass the path to the runner.
       blocks. Remaining: non-empty plain blocks with a definite width still
       use content-based intrinsic width (needs `max-width: fit-content`
       parsed first).
-- [ ] Q35b2 [M] Each arriving CSS image sets `layout_dirty` (full relayout).
+- [x] Q35b2 [M] (done, commit HASH_Q35B2: debounce + defer while in flight; the paint-only
+      patch pass is not done) Each arriving CSS image sets `layout_dirty` (full relayout).
       Measured 2026-11-16 on en.wikipedia.org/wiki/Main_Page: 28 images ->
       8 rebuilds, the last 3 about 430 ms each. A background/mask image Arc is
       baked into the laid boxes at build time, so a paint-only path needs a
