@@ -1299,7 +1299,7 @@ into the commit message of every JS item.
       by hand the harness goes 28 -> 36 (T14-T17, T48, T55, T63, T65).
       Test: `<p id=a><script>document.write('<b id=w>x</b>')</script>`
       gives `#w` as the script's next sibling.
-- [ ] QA14 [S] (P3, JS) `DOMException` with the legacy `code` constants
+- [x] QA14 (HASH) [S] (P3, JS) `DOMException` with the legacy `code` constants
       (`INDEX_SIZE_ERR`=1 … `HIERARCHY_REQUEST_ERR`=3 …
       `INVALID_CHARACTER_ERR`=5 … `NAMESPACE_ERR`=14) on the constructor
       and prototype, thrown by `createElement`/`createElementNS` for
@@ -1308,6 +1308,10 @@ into the commit message of every JS item.
       name's case for non-HTML namespaces (`PREFIX:LOCALNAME` bug). Acid3
       T19-T23, T25 (part). Test: `try{document.createElement('<a')}catch(e)
       {e.code===5}`.
+- [ ] QA14a [S] (P3, JS) Element `prefix`, `localName`, `namespaceURI`
+      (split from QA14): `createElementNS` keeps the qualified name as the
+      local name today; store the prefix/local/ns separately. Acid3 T21
+      ("wrong prefix"). T25 needs `document.implementation` (QA18).
 - [x] QA15 (f00ca10, done inside QY4) [S] (P3, JS; done inside QY4, tick both) `document.createEvent(iface)` with
       `initEvent`/`initUIEvent`/`initMouseEvent`/`initKeyboardEvent`
       (legacy init methods on the Q33d event classes; `detail` field).

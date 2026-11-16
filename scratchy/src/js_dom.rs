@@ -425,6 +425,19 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         };
         t.borrow_mut().intern(&Node::new(data))
     });
+    // QA14: createElementNS keeps the qualified name's case outside XHTML.
+    let t = table.clone();
+    native!("__d_create_ns", move |ns: String, name: String| -> i32 {
+        let local = if ns.is_empty() || ns == "http://www.w3.org/1999/xhtml" { name.to_ascii_lowercase() } else { name };
+        let ns = if ns.is_empty() { html5ever::ns!(html) } else { html5ever::Namespace::from(ns.as_str()) };
+        let data = NodeData::Element {
+            name: html5ever::QualName::new(None, ns, html5ever::LocalName::from(local.as_str())),
+            attrs: RefCell::new(Vec::new()),
+            template_contents: RefCell::new(None),
+            mathml_annotation_xml_integration_point: false,
+        };
+        t.borrow_mut().intern(&Node::new(data))
+    });
     let t = table.clone();
     native!("__d_clone", move |id: i32, deep: bool| -> i32 {
         let mut t = t.borrow_mut();
@@ -490,9 +503,7 @@ const DOM_PRELUDE: &str = r#"
   };
   var wrapAll = function (ids) { return ids.map(function (id) { return wrap(id); }); };
   var bad = function (sel) {
-    var e = new Error("'" + sel + "' is not a valid selector");
-    e.name = 'SyntaxError';
-    return e;
+    return new DOMException("'" + sel + "' is not a valid selector", 'SyntaxError');
   };
   var q = function (id, sel, first) {
     var r = __d_query(id, String(sel), first);
@@ -573,7 +584,12 @@ const DOM_PRELUDE: &str = r#"
   var defs = function (o, name, get, set) {
     Object.defineProperty(o, name, { get: get, set: set, configurable: true, enumerable: true });
   };
-  var herr = function (msg, name) { var e = new Error(msg); e.name = name; return e; };
+  var herr = function (msg, name) { return new DOMException(msg, name); };
+  // QA14: XML Name check (approximate: ASCII start, then ASCII name chars or any non-ASCII).
+  var validName = function (n) { return /^[A-Za-z_:\u00C0-\uFFFF][-A-Za-z0-9_:.\u00B7-\uFFFF]*$/.test(n); };
+  var checkName = function (fn, n) {
+    if (!validName(n)) throw herr("Failed to execute '" + fn + "': The string contains invalid characters.", 'InvalidCharacterError');
+  };
   var toNode = function (n) {
     if (n && typeof n === 'object' && n.__id !== undefined) return n;
     return wrap(__d_create(3, String(n)));
@@ -625,7 +641,7 @@ const DOM_PRELUDE: &str = r#"
     if (a[0] === a[0]) g.scrollX = g.pageXOffset = Math.max(0, g.scrollX + a[0]);
     if (a[1] === a[1]) g.scrollY = g.pageYOffset = Math.max(0, g.scrollY + a[1]);
   };
-  ElementProto.setAttribute = function (n, v) { __d_setattr(this.__id, String(n), String(v)); };
+  ElementProto.setAttribute = function (n, v) { checkName('setAttribute', String(n)); __d_setattr(this.__id, String(n), String(v)); };
   ElementProto.removeAttribute = function (n) { __d_rmattr(this.__id, String(n)); };
   ElementProto.toggleAttribute = function (n, force) {
     var has = this.hasAttribute(n), want = force === undefined ? !has : !!force;
@@ -635,7 +651,7 @@ const DOM_PRELUDE: &str = r#"
   // QB4: HTMLDialogElement. `showModal` also sets an internal attribute so
   // the UA sheet can centre it (`:modal` isn't supported). `::backdrop` is
   // not rendered. `close` fires synchronously (browsers queue a task).
-  var domErr = function (name, msg) { var e = new Error(msg); e.name = name; return e; };
+  var domErr = herr;
   var HTMLDialogElement = function HTMLDialogElement() {};
   HTMLDialogElement.prototype = Object.create(HTMLElement.prototype, { constructor: { value: HTMLDialogElement, writable: true, configurable: true } });
   g.HTMLDialogElement = HTMLDialogElement;
@@ -776,7 +792,8 @@ const DOM_PRELUDE: &str = r#"
     return c;
   };
   NodeProto.removeChild = function (c) {
-    if (!c || c.parentNode !== this) throw herr('The node to be removed is not a child of this node.', 'NotFoundError');
+    if (!c || c.__id === undefined) throw new TypeError("Failed to execute 'removeChild': parameter 1 is not of type 'Node'.");
+    if (c.parentNode !== this) throw herr('The node to be removed is not a child of this node.', 'NotFoundError');
     __d_remove(c.__id);
     return c;
   };
@@ -803,8 +820,17 @@ const DOM_PRELUDE: &str = r#"
     if (p) many(arguments).forEach(function (n) { p.insertBefore(n, nx); });
   };
   ElementProto.replaceWith = function () { this.before.apply(this, arguments); this.remove(); };
-  doc.createElement = function (t) { return wrap(__d_create(1, String(t))); };
-  doc.createElementNS = function (ns, t) { return wrap(__d_create(1, String(t))); };
+  doc.createElement = function (t) { t = String(t); checkName('createElement', t); return wrap(__d_create(1, t)); };
+  doc.createElementNS = function (ns, t) {
+    ns = ns == null || ns === '' ? null : String(ns); t = String(t);
+    checkName('createElementNS', t);
+    var i = t.indexOf(':'), pre = i < 0 ? null : t.slice(0, i), loc = i < 0 ? t : t.slice(i + 1);
+    if (i === 0 || loc === '' || loc.indexOf(':') >= 0 || (pre !== null && (ns === null ||
+      (pre === 'xml' && ns !== 'http://www.w3.org/XML/1998/namespace'))) ||
+      ((t === 'xmlns' || pre === 'xmlns') !== (ns === 'http://www.w3.org/2000/xmlns/')))
+      throw herr("Failed to execute 'createElementNS': The namespace is invalid for the qualified name.", 'NamespaceError');
+    return wrap(__d_create_ns(ns === null ? '' : ns, t));
+  };
   doc.createTextNode = function (s) { return wrap(__d_create(3, String(s))); };
   doc.createComment = function (s) { return wrap(__d_create(8, String(s))); };
   doc.createDocumentFragment = function () { return wrap(__d_create(11, '')); };

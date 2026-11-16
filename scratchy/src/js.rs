@@ -205,6 +205,33 @@ const PRELUDE: &str = r#"
     SHOW_ATTRIBUTE: 2, SHOW_TEXT: 4, SHOW_CDATA_SECTION: 8, SHOW_ENTITY_REFERENCE: 16, SHOW_ENTITY: 32,
     SHOW_PROCESSING_INSTRUCTION: 64, SHOW_COMMENT: 128, SHOW_DOCUMENT: 256, SHOW_DOCUMENT_TYPE: 512,
     SHOW_DOCUMENT_FRAGMENT: 1024, SHOW_NOTATION: 2048 };
+  // QA14: DOMException with the legacy numeric codes. A real Error object
+  // (so the JS error log prints `Name: message`) re-prototyped onto
+  // DOMException.prototype.
+  var DOM_CODES = { IndexSizeError: 1, HierarchyRequestError: 3, WrongDocumentError: 4, InvalidCharacterError: 5,
+    NoModificationAllowedError: 7, NotFoundError: 8, NotSupportedError: 9, InvalidStateError: 11, SyntaxError: 12,
+    InvalidModificationError: 13, NamespaceError: 14, InvalidAccessError: 15, TypeMismatchError: 17, SecurityError: 18,
+    NetworkError: 19, AbortError: 20, URLMismatchError: 21, QuotaExceededError: 22, TimeoutError: 23, DataCloneError: 25 };
+  var DOM_CONSTS = { INDEX_SIZE_ERR: 1, DOMSTRING_SIZE_ERR: 2, HIERARCHY_REQUEST_ERR: 3, WRONG_DOCUMENT_ERR: 4,
+    INVALID_CHARACTER_ERR: 5, NO_DATA_ALLOWED_ERR: 6, NO_MODIFICATION_ALLOWED_ERR: 7, NOT_FOUND_ERR: 8,
+    NOT_SUPPORTED_ERR: 9, INUSE_ATTRIBUTE_ERR: 10, INVALID_STATE_ERR: 11, SYNTAX_ERR: 12, INVALID_MODIFICATION_ERR: 13,
+    NAMESPACE_ERR: 14, INVALID_ACCESS_ERR: 15, VALIDATION_ERR: 16, TYPE_MISMATCH_ERR: 17, SECURITY_ERR: 18,
+    NETWORK_ERR: 19, ABORT_ERR: 20, URL_MISMATCH_ERR: 21, QUOTA_EXCEEDED_ERR: 22, TIMEOUT_ERR: 23,
+    INVALID_NODE_TYPE_ERR: 24, DATA_CLONE_ERR: 25 };
+  var DOMException = function DOMException(message, name) {
+    var e = new Error(message === undefined ? '' : String(message));
+    Object.setPrototypeOf(e, DOMException.prototype);
+    var n = name === undefined ? 'Error' : String(name);
+    Object.defineProperty(e, 'name', { value: n, writable: true, configurable: true });
+    Object.defineProperty(e, 'code', { value: DOM_CODES[n] || 0, writable: true, configurable: true });
+    return e;
+  };
+  DOMException.prototype = Object.create(Error.prototype, { constructor: { value: DOMException, writable: true, configurable: true } });
+  Object.keys(DOM_CONSTS).forEach(function (k) {
+    Object.defineProperty(DOMException, k, { value: DOM_CONSTS[k], enumerable: true });
+    Object.defineProperty(DOMException.prototype, k, { value: DOM_CONSTS[k], enumerable: true });
+  });
+  g.DOMException = DOMException;
   [['ELEMENT_NODE', 1], ['ATTRIBUTE_NODE', 2], ['TEXT_NODE', 3], ['COMMENT_NODE', 8], ['DOCUMENT_NODE', 9], ['DOCUMENT_FRAGMENT_NODE', 11]]
     .forEach(function (kv) { Node[kv[0]] = Node.prototype[kv[0]] = kv[1]; });
   // Q33d: events. One listener store (a WeakMap keyed by the target
