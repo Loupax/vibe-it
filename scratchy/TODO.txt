@@ -50,6 +50,343 @@ dropped selectors summed across those pages. Caveats:
   be measured yet. Re-run this measurement after Tier 1 lands, and
   re-rank if the numbers move.
 
+--- DESIGN MEMO (QSD): Shadow DOM, <template> content, GitHub's module wall --
+--- (Opus investigator, 2026-11-16; supersedes the QY6 memo's "no measured --
+--- user for native Shadow DOM") -------------------------------------------
+
+This block is now FIRST in the queue. Items marked READY need no
+decision and come before everything else (including the QF block below).
+Items marked "WAITING FOR USER (design first)" are skipped until the user
+ticks the matching SD-D box and writes the chosen option next to it.
+Evidence for every number here: R23 in REGRESSIONS.md.
+
+What was measured (release build of `5ca5619`, `--js-report --run-timers
+5000` on curl'd pages + `<base href>`, then COPIES with JS stand-ins):
+- The github "appendChild of undefined" that kills core/marketing-
+  essentials/landing-pages (and 4 module entries on a repo page) is NOT
+  shadow DOM. f18-10a827ef5e40729a.js:223:27350 is the task-lists element
+  module's top level: `let f=document.createElement("template"); ...
+  f.content.appendChild(p)`. `template.content` is undefined (QY6f).
+  youtube kevlar_base line 10725:29 is the same API:
+  `document.head.appendChild(_.GZ().content)` (a Polymer `<template>`).
+  So QY6f alone unblocks both. (YouTube then hits the 5 s CPU page-load
+  budget in the 9.5 MB app script: a separate, non-shadow wall.)
+- With template.content stood in, github's NEXT error was a scratchy bug:
+  GitHub's popover polyfill redefines
+  `DocumentFragment.prototype.querySelectorAll` with
+  `Object.defineProperty(..., {value})` (= read-only), and scratchy's
+  `wrap()` then ASSIGNS `querySelectorAll` onto every fragment wrapper
+  (`queries(o)` per instance), which throws `'querySelectorAll' is
+  read-only` in strict mode on the first `template.content` access (QSD0).
+- The 13 `attachShadow` errors are 12 `<relative-time>` constructors and
+  one `<tool-tip>` connectedCallback (f18 136:687). Feature detection
+  does not help: relative-time falls back to `this` if `attachShadow` is
+  absent, but GitHub's `command` polyfill (f18 ~275321) wraps
+  `HTMLElement.prototype.attachShadow` unconditionally, so an absent
+  method becomes `undefined.call` -> TypeError.
+- Ordered minimal set that runs github.com's 3 module entries and all
+  relative-time/tool-tip elements with ZERO startup errors (29 -> 1):
+  1 template.content (+ template innerHTML/cloneNode), 2 the QSD0 fix,
+  3 attachShadow returning a ShadowRoot + `shadowRoot` getter, 4
+  `document.domain`, `document.firstElementChild`, `document.
+  getElementsByName` (non-shadow DOM gaps the modules hit next), then
+  observed but non-fatal: `new CSSStyleSheet` + `replaceSync` +
+  `document.adoptedStyleSheets=`, shadow-root `adoptedStyleSheets=`,
+  `getRootNode`, `isConnected`. The one remaining error is
+  `crypto.randomUUID` (not a function) in react-core's `react-app`
+  connectedCallback, plus one timer over the 500 ms CPU budget and the
+  collector POST blocked by CORS preflight (QF13).
+- VISIBLE gain on github.com from all of the above: none measurable.
+  Every `<relative-time>` on the logged-out home page has NO `datetime`
+  attribute (`<relative-time no-title data-component="RelativeTime">Nov
+  16, 2026</relative-time>`); its `update()` then copies the light text
+  into the shadow root, so Chrome shows the same "Nov 16, 2026" scratchy
+  shows today. The tool-tip's shadow root is `<style>` + `<slot>`. The
+  real payoff is that github's module code runs at all (React islands,
+  menus, the repo page's code view), and its next walls are non-shadow
+  (crypto, run-time module imports QY15a: `primer-react-*.js` on a repo
+  page). A repo page's file list/dates are React-rendered, not measured.
+- Survey (14 pages, R23 table): shadow DOM needed at startup by github
+  (JS, imperative), chromestatus.com (whole UI is one Lit app in shadow
+  roots: blank without real rendering), developer.mozilla.org (Lit +
+  DECLARATIVE shadow DOM: 17 `<template shadowrootmode>` hosts; only the
+  "Search" button label and dropdown/theme widgets live in shadow roots;
+  `--no-js` screenshot already readable), salesforce.com (185 DSD
+  templates, 315 `<slot>`s, 36% of body text inside DSD, incl. the whole
+  nav; scratchy's `--no-js` window was blank after 20 s, cause not
+  isolated). youtube uses ShadyDOM (`ShadyDOM={force:true}`, no native
+  shadow DOM). ddg ships its own fallback (`if(!attachShadow)
+  attachShadow=()=>appendChild(div)`, a flattened polyfill) that never
+  runs because scratchy defines a throwing attachShadow. bbc only
+  feature-detects it for the video player (media: off limits). guardian,
+  lobste.rs, wikipedia, HN, web.dev: no use. reddit/old.reddit: www
+  returns an 8 KB bot wall to curl; the old.reddit login page saved by
+  R22 has shreddit/Lit code but no startup error from it.
+- html5ever 0.39 already implements the declarative-shadow-DOM parser
+  hook (`should_attach_declarative_shadow`/`attach_declarative_shadow`
+  in tree_builder); markup5ever_rcdom's sink returns false, so DSD
+  templates parse as ordinary inert templates today (content hidden,
+  light children shown). The `selectors` crate already has `:host`,
+  `::slotted()`, `::part()` matching behind `Parser::parse_host/
+  parse_slotted/parse_part` and `Element::containing_shadow_host/
+  parent_node_is_shadow_root/assigned_slot` (all stubbed `false/None` in
+  dom.rs `impl SelectorsElement for El`). scratchy has NO
+  `display:contents` (needed for `<slot>` and `:host{display:contents}`).
+
+Options:
+A) Keep attachShadow throwing (today). Cost 0. GitHub: relative-time and
+   tool-tip constructors keep throwing, but after QY6f+QSD0 the module
+   entries still die only if something else calls attachShadow at module
+   level (none measured), so most of github's JS runs anyway. chromestatus
+   stays blank, MDN/salesforce keep today's (DSD-less) rendering.
+B) Lightweight composed tree, in two stages.
+   B1 "real DOM, not rendered": attachShadow returns a real ShadowRoot
+   node (a DocumentFragment-kind node registered on its host in a Rust
+   side table), with the JS API (host, mode, shadowRoot getter for open,
+   innerHTML, querySelector scoped to the shadow tree, getRootNode,
+   isConnected through the host, custom-element callbacks inside it,
+   events climbing from shadow root to host). Rendering ignores shadow
+   roots: the host's LIGHT children render exactly as today, and a
+   one-time log line says shadow content is not rendered. Cost: M (QSD3)
+   + S (QSD2). Gain: github relative-time/tool-tip run (measured), Lit
+   apps (chromestatus, MDN) stop throwing; nothing new on screen.
+   Risk: a component that hides its light children and shows only shadow
+   content shows the light children (same as today when it throws).
+   B2 "flattened rendering": layout/paint walk a composed tree:
+   `composed_children(h)` = the shadow root's children if `h` hosts one,
+   a `<slot>`'s assigned light nodes (by `slot=` name, default slot gets
+   the rest, fallback content if none) if `h` is a slot in a shadow tree,
+   else `h.children`. `<slot>` is a `display:contents` box, so
+   `slot[name=x]{display:none}` hides its slotted nodes (MDN's dropdown
+   does exactly that). Style: rules from `<style>`/`<link>`/adopted
+   sheets inside a shadow root match only that tree (+ `:host`,
+   `:host()`, `::slotted()` via the selectors crate hooks); document
+   rules do not match into shadow trees; inheritance follows the
+   composed tree (free: the layout walk passes `inherited` down).
+   Hit-test/hover/focus-within use the composed parent; events retarget
+   at the shadow boundary. Cost: display:contents (QSD5, M) + composed
+   walk (QSD6, M) + scoping (QSD7, M) + retargeting (QSD8, S) + DSD
+   (QSD9, M) ~ 4-5 M items. Gain: MDN's DSD widgets + salesforce's nav
+   render; chromestatus can render once fetch works; github's
+   relative-time renders through its shadow root (same text).
+C) Faithful implementation: B2 plus slotchange/re-slotting on mutation,
+   nested slot re-distribution, `::part`/`exportparts`, `:host-context`,
+   closed-mode leak proofing, `delegatesFocus` + sequential focus
+   navigation across trees, selection across boundaries, `relatedTarget`
+   retargeting, `ElementInternals` form association (forms are off
+   limits), per-tree `document.activeElement` retargeting. Honest size:
+   L (another 5-8 M items on top of B2); no surveyed page needs any of it
+   at startup.
+
+RECOMMENDATION: do the READY items now (QY6f, QSD0, QSD1, QSD2, QSD4,
+QSD5); they are correct-by-spec, unblock github's module entries and
+youtube's first wall, and need no product decision. Then B1 (QSD3) as
+soon as the user OKs it: it is the cheapest honest way to stop 13 github
+errors and let Lit apps start, and it renders exactly what scratchy
+renders today. Then B2 (QSD6-QSD9) in order, re-measured after each, with
+MDN + salesforce + chromestatus as the test pages (github gains nothing
+visible from it). Do not do C until a page the user reads needs a
+specific piece; file it as narrow items then. Declarative shadow DOM
+(QSD9) only after QSD6/QSD7, because a shadow root nobody renders turns
+DSD content from "hidden template" into "hidden shadow root" with no
+gain.
+
+User decisions:
+- [ ] SD-D1 (USER) Is B1 acceptable as a first step: `attachShadow`
+      works and the JS sees a real shadow tree, but scratchy keeps
+      rendering the host's light children and NOT the shadow content
+      (logged once per page as `not implemented: shadow root rendering`)?
+      (Recommended: yes, with B2 queued right behind it.) Or A (keep
+      throwing until B2 is ready), or go straight to B2.
+- [ ] SD-D2 (USER) Event retargeting fidelity. (Recommended) basic:
+      composed events (all UA input events, `composed:true` custom
+      events) continue from a shadow root to its host; `event.target`
+      is retargeted to the host for listeners outside the shadow tree;
+      `composedPath()` omits nodes inside closed roots; non-composed
+      events stop at the shadow root. Cut: `relatedTarget` retargeting,
+      focus/blur retargeting, `delegatesFocus`.
+- [ ] SD-D3 (USER) Declarative shadow DOM (`<template shadowrootmode>`,
+      parsed by html5ever via a sink wrapper). (Recommended) yes, but
+      only after QSD6/QSD7 render shadow trees.
+- [ ] SD-D4 (USER) Style scoping scope for B2. (Recommended) `<style>`,
+      `<link rel=stylesheet>` and `adoptedStyleSheets` per shadow root,
+      `:host`, `:host(<sel>)`, `::slotted(<compound>)`; CUT `::part`/
+      `exportparts` and `:host-context` (parsed and dropped, logged).
+
+Items (in order):
+- [ ] QSD0 [S] READY Fragment wrappers must not assign query methods per
+      instance. `wrap()` in js_dom.rs calls `queries(o)` for every
+      kind-11 node, i.e. `o.querySelectorAll = ...` on the instance; once
+      a page has made `DocumentFragment.prototype.querySelectorAll`
+      read-only (GitHub's popover polyfill: `Object.defineProperty(
+      DocumentFragment.prototype, "querySelectorAll", {value})`), the
+      assignment throws `'querySelectorAll' is read-only` in strict mode.
+      Fix: call `queries(DocumentFragment.prototype)` once (like
+      `queries(ElementProto)`) and drop the per-instance call. Test: after
+      `Object.defineProperty(DocumentFragment.prototype,
+      'querySelectorAll', {value: function(){return []}})`,
+      `document.createDocumentFragment()` does not throw and uses the
+      page's method. Payoff: required before QY6f is useful on github.
+- [ ] QY6f [M] READY (moved here from the QY6 block; Detail: search
+      "QY6f [M] `<template>` content") `template.content`. Additions from
+      R23: the content fragment's node document is an inert document
+      (reuse QA18a's `makeDoc`, one per main document, created lazily);
+      parsed templates expose html5ever's `template_contents`; templates
+      created by `document.createElement('template')` get a fresh empty
+      fragment; `innerHTML` get/set on a template goes through the
+      content; `cloneNode(true)` and `document.importNode(t, true)` copy
+      the content (importNode does not exist yet: add it here, deep/
+      shallow clone adopted into the calling document). Custom elements
+      inside template content are NOT upgraded and scripts in it never
+      run. Tests: as in Detail, plus `createElement('template');
+      t.content.appendChild(p)` then `t.content.cloneNode(true)`.
+      Payoff (measured with a stand-in): github's 3 module entries (4 on a
+      repo page) get past f18 223:27350; youtube gets past kevlar_base
+      10725:29 (next: 5 s CPU page-load budget).
+- [ ] QSD1 [S] READY Document gaps github's modules hit right after
+      QY6f/QSD0 (measured in this order): `document.domain` (getter =
+      the document URL's host, `""` for about:blank/file; setter throws
+      SecurityError, no domain relaxation), Document as ParentNode
+      (`document.firstElementChild/lastElementChild/childElementCount/
+      children`), `document.getElementsByName` on the MAIN document (only
+      second documents have it today). Test each. Payoff: github core's
+      `TV()` cookie helper (core 136:26710) and two promise errors.
+- [ ] QSD1b [S] READY `crypto.getRandomValues(typedArray)` (<= 65536
+      bytes, QuotaExceededError above) and `crypto.randomUUID()` (v4),
+      from the OS RNG via a Rust native (`getrandom`), `crypto.subtle`
+      absent. Measured users: github react-core (`randomUUID`),
+      salesforce (`uuid` package: "crypto.getRandomValues() not
+      supported").
+- [ ] QSD2 [S] READY `Node.getRootNode({composed})` and `Node.isConnected`
+      (neither exists today). Without shadow roots: the topmost ancestor
+      (document, or a detached root/fragment). Written so QSD3 only adds
+      "a ShadowRoot's host" as the composed step. Tests: detached element
+      -> itself; element in a fragment -> the fragment; attached ->
+      document; isConnected follows. Payoff: used by github f18 (21x),
+      salesforce (24x), youtube (45x), chromestatus (11x).
+- [ ] QSD3 [M] WAITING FOR USER (design first, SD-D1) B1: real ShadowRoot,
+      not rendered. `Element.attachShadow({mode, delegatesFocus,
+      slotAssignment, clonable, serializable})`: valid hosts only (custom
+      names + article aside blockquote body div footer h1-h6 header main
+      nav p section span), NotSupportedError on a second attach;
+      creates a kind-11 node registered in a Rust side table
+      host-id -> root-id (do NOT reuse rcdom's `template_contents` field:
+      rcdom's serializer prints `template_contents` children instead of
+      an element's own children whenever it is set). `ShadowRoot` (extends
+      DocumentFragment): `host`, `mode`, `delegatesFocus`, `innerHTML`,
+      `getElementById`, `activeElement` (null), `adoptedStyleSheets`
+      (array, stored for QSD7), `getHTML` cut. `Element.shadowRoot`
+      (open only). `ceIsConn` and QSD2 walk root -> host. Custom element
+      reactions and MutationObserver inside shadow trees work (the hook
+      layer already sees all DOM writes). Event dispatch: a composed event
+      continues from the shadow root to the host (full retargeting is
+      QSD8). Rendering: unchanged, one `not implemented: shadow root
+      rendering (QSD6)` log line per page. Replace the throwing
+      `attachShadow` and the `illegal('ShadowRoot')` placeholder. Tests:
+      open/closed `shadowRoot`, second attach throws, shadow children not
+      found by `document.querySelector`, `getRootNode()` is the root,
+      `getRootNode({composed:true})` is the document, a custom element
+      appended into a connected shadow root gets connectedCallback.
+      Payoff (measured with a JS stand-in): github 12 relative-time + 1
+      tool-tip errors gone; chromestatus and MDN Lit components start.
+- [ ] QSD4 [M] READY Constructable stylesheets: `new CSSStyleSheet()`
+      (today `illegal`), `replaceSync`, `replace` (Promise), `insertRule`/
+      `deleteRule`/`cssRules` (minimal CSSRule with `cssText`), `@import`
+      ignored with a log as in the spec, and `document.adoptedStyleSheets`
+      (FrozenArray-ish setter accepting only constructed sheets) APPLIED
+      to the document cascade after the document's own author sheets
+      (re-cascade on set/replace, like a `<style>` text change).
+      Shadow-root `adoptedStyleSheets` are stored by QSD3 and applied by
+      QSD7. Measured user: github core sets `document.adoptedStyleSheets`
+      at startup; salesforce (15 uses), youtube (16), chromestatus.
+- [ ] QSD5 [M] READY `display: contents` (general CSS, no shadow DOM
+      needed): the element generates no box; its children are laid out
+      as if they were the parent's children, inheriting from it.
+      `Display::Contents` in css.rs, handled in `collect_real_nodes`
+      (images.rs) by recursing into the children with the element's
+      computed style as `inherited`; hit-test/hover fall through to the
+      children. Tests: `<div style="display:contents;color:red;border:
+      1px solid"><p>x</p></div>` puts `p` directly in the parent flow,
+      red, no border; inside a flex container the children become flex
+      items. Prerequisite for QSD6 (`slot{display:contents}`) and MDN's
+      `:host{display:contents}`.
+- [ ] QSD6 [M] WAITING FOR USER (design first, SD-D1) B2 composed-tree
+      rendering. One function `composed_children(handle)` (dom.rs) used
+      by every layout/style walk that today reads `handle.children`
+      (images.rs `collect_real_children`/`collect_real_nodes` and its 8
+      other `children.borrow()` sites; style.rs inheritance follows the
+      walk). Hosts render their shadow root's children; a `<slot>` in a
+      shadow tree is a `display:contents` element (UA rule) whose
+      children are its assigned nodes (light children of the host with a
+      matching `slot` attribute; the unnamed slot gets the rest; first
+      matching slot in tree order wins; fallback = the slot's own
+      children when nothing is assigned). `ancestor_ids` (hover chain,
+      focus-within) uses the composed parent. Re-layout when a shadow tree
+      or a `slot` attribute changes (the existing DOM-write dirty path).
+      Until QSD7, shadow `<style>` text is NOT applied at all (do not let
+      it leak into the document). Tests: host with shadow `<b>s</b><slot>`
+      and light `<i>l</i>` renders "s" then "l"; `slot{display:none}`
+      hides slotted nodes; a named slot gets only `slot=` children.
+- [ ] QSD7 [M] WAITING FOR USER (design first, SD-D4) Scoped styles.
+      `StyleRule` gets a tree scope (document or shadow root id);
+      `collect_style_css` and the `<link rel=stylesheet>` fetch walk also
+      run per shadow root; adopted sheets per root (QSD3/QSD4). An element
+      matches only rules of its own tree; `:host`/`:host()` rules of a
+      root match its host (selectors crate: return true from
+      `parse_host`/`parse_slotted` in `OurSelectorParser`, implement
+      `containing_shadow_host`, `parent_node_is_shadow_root`,
+      `assigned_slot` on `El`, set the MatchingContext shadow host), and
+      `::slotted()` rules match the root's assigned light nodes. Cascade
+      order between a host's outer rules and its `:host` rules per spec
+      (outer wins for normal declarations). `::part`/`:host-context`
+      parsed and dropped (QSD7b). Tests: shadow `p{color:red}` does not
+      colour a document `p`; document `p{color:red}` does not colour a
+      shadow `p` but `color` inherits through the host; `:host{display:
+      block}` applies; `::slotted(i){color:green}`.
+- [ ] QSD7b [M] (later, only on measured need) `::part()` + `exportparts`,
+      `:host-context()`. Users seen: salesforce (36 `::part(`),
+      chromestatus (89, shoelace).
+- [ ] QSD8 [S] WAITING FOR USER (design first, SD-D2) Event retargeting
+      as chosen in SD-D2: in `dispatch` (js.rs) build the path through
+      shadow roots to hosts for composed events (UA mouse/key/focus
+      events are composed), stop non-composed events at the shadow root,
+      set `event.target` per listener to the retargeted node, `composedPath`
+      hides closed-tree nodes from outside listeners. App hit-testing
+      already reports the innermost (shadow) node once QSD6 lays it out.
+      Tests: click on a shadow `<button>` -> document listener sees
+      `target === host`, `composedPath()[0]` is the button (open);
+      `new Event('x',{bubbles:true})` from inside does not reach document.
+- [ ] QSD9 [M] WAITING FOR USER (design first, SD-D3) Declarative shadow
+      DOM. Wrap `RcDom` in a TreeSink that delegates everything and
+      implements `attach_declarative_shadow(host, template, attrs)`: the
+      template's contents fragment becomes the host's shadow root (QSD3
+      side table, mode from `shadowrootmode`, `shadowrootdelegatesfocus`,
+      `shadowrootclonable`), return true (html5ever 0.39 then keeps the
+      template off the DOM). Only for the main document parse, not
+      `innerHTML` (spec). Needs QSD3+QSD6+QSD7 to show anything. Tests:
+      `<div><template shadowrootmode=open><b>s</b><slot></slot></template>
+      <i>l</i></div>` -> `div.shadowRoot.innerHTML` is `<b>s</b><slot>
+      </slot>`, renders "s" "l". Payoff: MDN search button/theme/
+      language widgets, salesforce nav (185 DSD hosts).
+- [ ] QSD10 [S] WAITING (after QSD6) Slot API: `slot.assignedNodes/
+      assignedElements({flatten})`, `Element/Text.assignedSlot`,
+      `slotchange` (microtask, once per slot per batch), `slot.name`.
+      Users: youtube (16 assignedNodes, but ShadyDOM), chromestatus (18
+      assignedElements, 21 slotchange), salesforce (3).
+- [ ] QSD11 [S] READY placeholder (AGENTS.md placeholder rule; form parts
+      are off limits) `HTMLElement.attachInternals()` -> `ElementInternals`
+      with `states` (a CustomStateSet-like Set; `:state()` not matched),
+      `shadowRoot` (after QSD3), `role`/aria reflections stored;
+      `setFormValue`/`setValidity`/`form`/`labels` log `not implemented`
+      and do nothing. NotSupportedError for non-custom elements or a
+      second call. Users: salesforce (7), github (wraps it only).
+- [ ] QSD12 [S] READY after each of QY6f/QSD1/QSD3/QSD6 Re-measure the
+      R23 corpus (`--js-report --run-timers 5000`, plus nested-dwl
+      screenshots of MDN, salesforce, chromestatus, github) and file what
+      it hits next. Known next walls: github `crypto` (QSD1b), github
+      repo page run-time module import of `primer-react-*.js` (QY15a),
+      youtube 5 s CPU page-load budget, chromestatus fetch data.
+
 --- DESIGN MEMO (QF): fetch / XMLHttpRequest / networking from page JS ----
 --- (Opus investigator, 2026-11-16; replaces the Q33f entries) ----------
 
@@ -1488,7 +1825,9 @@ C) Real implementations, ordered by measured payoff across sites
 
 RECOMMENDATION: C, phases 1 and 2 now; phase 3 (YouTube) deferred and
 re-decided after Q33f, with a fresh `--js-report` run (QY6d). Do NOT
-build native Shadow DOM/slots (no measured user). Do NOT ship B's
+build native Shadow DOM/slots (no measured user). [OUT OF DATE
+2026-11-16: github, chromestatus, MDN and salesforce now need it; see
+the "DESIGN MEMO (QSD)" block at the top of the QUEUE and R23.] Do NOT ship B's
 never-firing stubs as the final state: every API added must do what the
 spec says for the cases it claims, or be absent (feature detection then
 takes the page's fallback path, which is usually better than a lie).
@@ -2333,7 +2672,8 @@ Read REGRESSIONS.md "R20" before starting any QY item. Short version:
         `TypeError: cannot read property 'appendChild' of undefined` at
         f18-10a827ef5e40729a.js:223:27350 (called from webpack module
         core-*.js:27:77453; unidentified, probably something that
-        attachShadow/shadowRoot would return). youtube: first error
+        attachShadow/shadowRoot would return; R23: it is NOT shadow DOM,
+        it is `template.content`, QY6f). youtube: first error
         unchanged (kevlar_base `appendChild: parameter 1 is not of type
         Node`, QY6a note); youtube does not reach IO. The other 6 pages:
         0 errors; bbc has the pre-existing timer-phase `Route did not
@@ -2403,6 +2743,12 @@ Read REGRESSIONS.md "R20" before starting any QY item. Short version:
         `HTMLTemplateElement` with `content`. Tests: parsed template's
         `content.childNodes.length`, innerHTML round trip, a cloned
         template has its own content.
+        NOTE 2026-11-16 (R23): promoted to the top of the QUEUE in the
+        "DESIGN MEMO (QSD)" block (after QSD0). It is the cause of github's
+        `appendChild of undefined` (f18 223:27350) and youtube's
+        kevlar_base `appendChild: parameter 1 is not of type Node`
+        (10725:29); `document.importNode` is also missing and is added
+        there.
       - [ ] QY6d re-run `--js-report --run-timers` (QY14) on YouTube after
         QY6a/e/f and Q33f, and file what it hits next.
 - [ ] QY7 [M] (P4) CSS container queries: `container-type`/
