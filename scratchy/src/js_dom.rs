@@ -275,6 +275,13 @@ pub(crate) struct JsRequests {
     pub(crate) scroll: Option<ScrollReq>,
     /// Q33d1: `el.click()` on a link asks the App to follow it.
     pub(crate) nav: Option<String>,
+    /// QF7: validated page-network requests for the App's scheduler.
+    pub(crate) net: Vec<crate::js_net::NetJob>,
+    /// QF7: results known at once (refused requests, suppressed beacons);
+    /// delivered asynchronously like any other result.
+    pub(crate) net_done: Vec<(u64, Result<WireResponse, NetError>)>,
+    /// QF7: ids the page gave up on that may already be queued or running.
+    pub(crate) net_abort: Vec<u64>,
 }
 
 #[derive(Debug, Clone)]

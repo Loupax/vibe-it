@@ -8950,6 +8950,7 @@ fn qb2_js_dom_writes_use_restyle_path() {
     qb2_first_layout_not_made_stale(qb2_app(&proxy));
     qb5_app_applies_requests(&proxy);
     qb6_help_suspends_js(&proxy);
+    qf7_app_net(&proxy);
 }
 
 // ---------- QB6: `:help` suspends the page's JS ----------
@@ -13065,4 +13066,360 @@ fn qf5_fake_wire_timeouts_and_connect_errors() {
     // nothing listening
     let missing = std::env::temp_dir().join(format!("scratchy-qf5-{}-none.sock", std::process::id()));
     assert!(matches!(fetch_full_via_wire(&missing, &req, &WireLimits::default()), Err(NetError::Connect(_))));
+}
+
+
+// ---------- QF7: page JS network queue (no fetch/XHR globals yet) ----------
+
+use crate::js_net::NetExecutor;
+
+/// A canned executor: answers by URL substring, records every request it
+/// receives (url, thread, read timeout) and can sleep first.
+struct QfFake {
+    calls: Mutex<Vec<(String, thread::ThreadId, std::time::Duration)>>,
+    answers: Vec<(&'static str, Result<WireResponse, NetError>)>,
+    delay_ms: u64,
+}
+
+impl QfFake {
+    fn new(answers: Vec<(&'static str, Result<WireResponse, NetError>)>) -> Arc<Self> {
+        Arc::new(QfFake { calls: Mutex::new(Vec::new()), answers, delay_ms: 0 })
+    }
+    fn urls(&self) -> Vec<String> {
+        self.calls.lock().unwrap().iter().map(|c| c.0.clone()).collect()
+    }
+}
+
+impl NetExecutor for QfFake {
+    fn execute(&self, job: &crate::js_net::NetJob) -> Result<WireResponse, NetError> {
+        let line = String::from_utf8_lossy(&job.request).lines().next().unwrap_or("").to_string();
+        let url = line.split(' ').nth(1).unwrap_or("").to_string();
+        self.calls.lock().unwrap().push((url.clone(), thread::current().id(), job.limits.read_timeout));
+        if self.delay_ms > 0 {
+            thread::sleep(std::time::Duration::from_millis(self.delay_ms));
+        }
+        for (pat, r) in &self.answers {
+            if url.contains(pat) {
+                return r.clone();
+            }
+        }
+        Err(NetError::Io("no canned answer".into()))
+    }
+}
+
+fn qf7_ok(body: &str, headers: &[(&str, &str)]) -> Result<WireResponse, NetError> {
+    Ok(WireResponse {
+        status: 200,
+        status_text: "OK".into(),
+        headers: headers.iter().map(|(a, b)| (a.to_string(), b.to_string())).collect(),
+        body: body.as_bytes().to_vec(),
+        error: None,
+        final_url: None,
+    })
+}
+
+/// Starts an engine on `page` with the fake as the executor (no scripts yet).
+fn qf7_engine(page: &str, fake: &Arc<QfFake>) -> (JsEngine, Rc<RefCell<Vec<String>>>) {
+    set_page_url(Some(&Url::parse(page).unwrap()));
+    crate::js_net::set_net_executor(fake.clone());
+    let out = Rc::new(RefCell::new(Vec::new()));
+    let o = out.clone();
+    let engine = crate::js::start_scripts(&parse_html(""), &[src("")], Rc::new(move |l, t| o.borrow_mut().push(format!("{l}:{t}")))).unwrap();
+    (engine, out)
+}
+
+fn qf7_drive(engine: &JsEngine, fake: &Arc<QfFake>) {
+    let mut sched = NetScheduler::new(&engine.net_policy());
+    crate::js_net::drive_report_net(engine, &mut sched, &**fake);
+}
+
+/// JS that sends one GET and logs `ok <status> <type> <body>` or `err <name> <msg>`.
+fn qf7_go(url: &str, extra: &str) -> String {
+    format!(
+        "var h = __net_request({{method:'GET', url:'{url}', headers:[], body:null{extra}}});\
+         h.promise.then(function(r){{ return r.text().then(function(t){{ console.log('ok', r.status, r.type, t); }}); }},\
+         function(e){{ console.log('err', e.name, e.message); }});"
+    )
+}
+
+#[test]
+fn qf7_same_origin_request_resolves_in_order() {
+    let fake = QfFake::new(vec![("/a", qf7_ok("AAA", &[])), ("/b", qf7_ok("BBB", &[]))]);
+    let (engine, log) = qf7_engine("https://page.test/", &fake);
+    engine.eval("t", &format!("{}{}", qf7_go("https://page.test/a", ""), qf7_go("https://page.test/b", "")));
+    qf7_drive(&engine, &fake);
+    assert_eq!(fake.urls(), vec!["https://page.test/a", "https://page.test/b"]);
+    let l = log.borrow().clone();
+    assert_eq!(l, vec!["log:ok 200 basic AAA", "log:ok 200 basic BBB"], "answers arrive in request order");
+    let e = engine.net_entries();
+    assert_eq!(e.len(), 2);
+    assert_eq!(e[0].outcome, "200 OK");
+    assert_eq!(e[0].bytes, 3);
+}
+
+#[test]
+fn qf7_policy_refusal_never_reaches_the_executor_and_rejects_async() {
+    let fake = QfFake::new(vec![]);
+    let (engine, log) = qf7_engine("https://page.test/", &fake);
+    engine.eval("t", &format!("{}console.log('sync-done');", qf7_go("ftp://page.test/x", "")));
+    assert_eq!(log.borrow().last().map(String::as_str), Some("log:sync-done"), "no rejection before the turn ends");
+    qf7_drive(&engine, &fake);
+    assert!(fake.urls().is_empty());
+    let l = log.borrow().clone();
+    assert!(l.iter().any(|x| x.starts_with("net:blocked GET ftp://page.test/x: scheme ftp:")), "{l:?}");
+    assert!(l.contains(&"log:err TypeError Failed to fetch".to_string()), "{l:?}");
+    assert!(engine.net_entries()[0].outcome.starts_with("blocked: "));
+}
+
+#[test]
+fn qf7_private_target_warns_and_is_sent() {
+    let fake = QfFake::new(vec![("127.0.0.1", qf7_ok("x", &[("access-control-allow-origin", "*")]))]);
+    let (engine, log) = qf7_engine("http://page.test/", &fake);
+    engine.eval("t", &qf7_go("http://127.0.0.1:8080/x", ""));
+    qf7_drive(&engine, &fake);
+    assert_eq!(fake.urls().len(), 1, "warn-and-allow");
+    let l = log.borrow().clone();
+    assert!(
+        l.contains(&"net-warning:scratchy: net warning: http://page.test/ -> http://127.0.0.1:8080/x (loopback) allowed by policy".to_string()),
+        "{l:?}"
+    );
+    assert_eq!(engine.net_entries()[0].warnings.len(), 1);
+    assert!(l.contains(&"log:ok 200 cors x".to_string()), "{l:?}");
+}
+
+#[test]
+fn qf7_cors_blocked_allowed_and_headers_filtered() {
+    let fake = QfFake::new(vec![
+        ("/closed", qf7_ok("secret", &[])),
+        ("/open", qf7_ok("pub", &[("access-control-allow-origin", "*"), ("x-hidden", "1"), ("content-type", "text/plain")])),
+    ]);
+    let (engine, log) = qf7_engine("https://page.test/", &fake);
+    engine.eval(
+        "t",
+        &format!(
+            "{}{}{}",
+            qf7_go("https://other.test/closed", ""),
+            qf7_go("https://other.test/open", ""),
+            "__net_request({method:'GET', url:'https://other.test/open', headers:[], body:null}).promise\
+              .then(function(r){ console.log('hdr', r.headers.get('x-hidden'), r.headers.get('content-type')); });"
+        ),
+    );
+    qf7_drive(&engine, &fake);
+    let l = log.borrow().clone();
+    assert!(l.contains(&"net:GET https://other.test/closed: CORS: no Access-Control-Allow-Origin header (blocked by CORS policy)".to_string()), "{l:?}");
+    assert!(l.contains(&"log:err TypeError Failed to fetch".to_string()), "{l:?}");
+    assert!(l.contains(&"log:ok 200 cors pub".to_string()), "{l:?}");
+    assert!(l.contains(&"log:hdr null text/plain".to_string()), "non-safelisted response headers are hidden from a cors response: {l:?}");
+    assert_eq!(fake.urls().len(), 3);
+}
+
+#[test]
+fn qf7_no_cors_is_opaque_and_beacon_is_logged_not_sent() {
+    let fake = QfFake::new(vec![]);
+    let (engine, log) = qf7_engine("https://page.test/", &fake);
+    engine.eval(
+        "t",
+        "__net_request({method:'GET', url:'https://track.test/p?x=1', headers:[], body:null, mode:'no-cors'}).promise\
+           .then(function(r){ console.log('nc', r.status, r.type, JSON.stringify(r.url)); });\
+         __net_request({method:'POST', url:'https://track.test/b', headers:[['Content-Type','text/plain']], body:new Uint8Array([104,105]), api:'beacon'}).promise\
+           .then(function(r){ console.log('bc', r.type); });",
+    );
+    qf7_drive(&engine, &fake);
+    assert!(fake.urls().is_empty(), "beacons are suppressed, not sent");
+    let l = log.borrow().clone();
+    assert!(l.contains(&"log:nc 0 opaque \"\"".to_string()), "{l:?}");
+    assert!(l.contains(&"log:bc opaque".to_string()), "{l:?}");
+    assert!(
+        l.contains(&"net:beacon navigator.sendBeacon POST https://track.test/b content-type=text/plain body=2 bytes body[..200]=\"hi\" page=https://page.test/: suppressed (not sent)".to_string()),
+        "{l:?}"
+    );
+    assert!(l.iter().any(|x| x.contains("beacon fetch no-cors GET https://track.test/p?x=1") && x.ends_with("suppressed (not sent)")), "{l:?}");
+}
+
+#[test]
+fn qf7_beacons_send_flag_sends_and_stays_opaque() {
+    let fake = QfFake::new(vec![("track.test", qf7_ok("gif", &[]))]);
+    let (engine, log) = qf7_engine("https://page.test/", &fake);
+    let mut p = RequestPolicy::default();
+    p.beacons_send = true;
+    engine.set_net_policy(p);
+    engine.eval("t", &qf7_go("https://track.test/p", ", mode:'no-cors'"));
+    qf7_drive(&engine, &fake);
+    assert_eq!(fake.urls().len(), 1);
+    assert!(log.borrow().iter().any(|x| x == "log:ok 0 opaque "), "{:?}", log.borrow());
+}
+
+#[test]
+fn qf7_preflight_is_rejected_with_a_clear_log() {
+    let fake = QfFake::new(vec![]);
+    let (engine, log) = qf7_engine("https://page.test/", &fake);
+    engine.eval(
+        "t",
+        "__net_request({method:'PUT', url:'https://other.test/x', headers:[], body:null}).promise.catch(function(e){ console.log('err', e.name); });",
+    );
+    qf7_drive(&engine, &fake);
+    assert!(fake.urls().is_empty());
+    let l = log.borrow().clone();
+    assert!(l.iter().any(|x| x.starts_with("net:blocked PUT https://other.test/x:") && x.contains("not implemented (QF13 preflight)")), "{l:?}");
+    assert!(l.contains(&"log:err TypeError".to_string()), "{l:?}");
+}
+
+#[test]
+fn qf7_abort_cancels_and_a_late_result_is_ignored() {
+    let (engine, log) = qf7_engine("https://page.test/", &QfFake::new(vec![]));
+    engine.eval(
+        "t",
+        "var c = new AbortController(); c.abort();\
+         __net_request({method:'GET', url:'https://page.test/a', headers:[], body:null, signal:c.signal}).promise\
+           .then(function(){ console.log('A resolved'); }, function(e){ console.log('A', e.name); });\
+         var c2 = new AbortController();\
+         __net_request({method:'GET', url:'https://page.test/b', headers:[], body:null, signal:c2.signal}).promise\
+           .then(function(){ console.log('B resolved'); }, function(e){ console.log('B', e.name); });",
+    );
+    let reqs = engine.take_requests();
+    assert_eq!(reqs.net.len(), 1, "the pre-aborted request is not even queued");
+    let mut sched = NetScheduler::new(&RequestPolicy::default());
+    let job = reqs.net.into_iter().next().unwrap();
+    let id = job.id;
+    sched.enqueue(job);
+    let mut started = Vec::new();
+    sched.pump(&mut |j| started.push(j));
+    assert_eq!(started.len(), 1);
+    // Abort while it is in flight, then deliver the answer anyway.
+    engine.eval("t", "c2.abort();");
+    assert_eq!(engine.take_requests().net_abort, vec![id]);
+    engine.deliver_net(id, qf7_ok("B", &[]));
+    let l = log.borrow().clone();
+    assert_eq!(l, vec!["log:A AbortError", "log:B AbortError"], "{l:?}");
+    // A job still queued is cancelled by its abort id.
+    let mut s2 = NetScheduler::new(&RequestPolicy::default());
+    s2.enqueue(started.into_iter().next().unwrap());
+    assert!(s2.abort(id));
+    assert_eq!(s2.counts(), (0, 0));
+}
+
+fn qf7_job(id: u64, reserve: usize) -> crate::js_net::NetJob {
+    crate::js_net::NetJob { id, request: Vec::new(), limits: WireLimits::default(), reserve }
+}
+
+#[test]
+fn qf7_scheduler_caps_parallelism_and_in_flight_bytes() {
+    let mut p = RequestPolicy::default();
+    let mut s = NetScheduler::new(&p);
+    for i in 1..=10 {
+        s.enqueue(qf7_job(i, 0));
+    }
+    let mut started = Vec::new();
+    s.pump(&mut |j| started.push(j.id));
+    assert_eq!(started, vec![1, 2, 3, 4, 5, 6], "max_concurrent_requests (6) from the policy");
+    s.done(1);
+    s.done(999); // unknown ids are a no-op
+    s.pump(&mut |j| started.push(j.id));
+    assert_eq!(started.len(), 7);
+    assert_eq!(s.counts(), (3, 6));
+    // Byte cap, FIFO: a 60-byte request waits for the other 60-byte one.
+    p.max_in_flight_bytes = 100;
+    let mut s = NetScheduler::new(&p);
+    s.enqueue(qf7_job(1, 60));
+    s.enqueue(qf7_job(2, 60));
+    s.enqueue(qf7_job(3, 10));
+    let mut started = Vec::new();
+    s.pump(&mut |j| started.push(j.id));
+    assert_eq!(started, vec![1]);
+    s.done(1);
+    s.pump(&mut |j| started.push(j.id));
+    assert_eq!(started, vec![1, 2, 3]);
+    s.reset();
+    assert_eq!(s.counts(), (0, 0));
+}
+
+#[test]
+fn qf7_per_page_and_body_caps_come_from_the_policy() {
+    let fake = QfFake::new(vec![("page.test", qf7_ok("x", &[]))]);
+    let (engine, log) = qf7_engine("https://page.test/", &fake);
+    let mut p = RequestPolicy::default();
+    p.max_requests_per_page = 2;
+    p.max_in_flight_bytes = 8;
+    engine.set_net_policy(p);
+    let post = |n: usize| {
+        format!("__net_request({{method:'POST', url:'https://page.test/p', headers:[], body:new Uint8Array({n})}});")
+    };
+    engine.eval("t", &format!("{}{}{}{}", post(9), post(1), post(1), post(1)));
+    qf7_drive(&engine, &fake);
+    assert_eq!(fake.urls().len(), 2, "the oversized body and the third request are refused");
+    let l = log.borrow().clone();
+    assert!(l.iter().any(|x| x.contains("request body is too large (9 bytes, limit 8)")), "{l:?}");
+    assert!(l.iter().any(|x| x.contains("too many requests from this page (limit 2)")), "{l:?}");
+}
+
+#[test]
+fn qf7_sync_blocks_on_the_engine_thread_with_the_short_timeout() {
+    let fake = Arc::new(QfFake {
+        calls: Mutex::new(Vec::new()),
+        answers: vec![("/ok", qf7_ok("sync-body", &[])), ("/slow", Err(NetError::Timeout))],
+        delay_ms: 60,
+    });
+    let (engine, log) = qf7_engine("https://page.test/", &fake);
+    let t = std::time::Instant::now();
+    engine.eval(
+        "t",
+        "var r = __net_request({method:'GET', url:'https://page.test/ok', headers:[], body:null, sync:true}).response;\
+         console.log('got', r.status, r.type);\
+         try { __net_request({method:'GET', url:'https://page.test/slow', headers:[], body:null, sync:true}); }\
+         catch (e) { console.log('threw', e.name); }",
+    );
+    assert!(t.elapsed() >= std::time::Duration::from_millis(120), "send() blocked for both requests");
+    let l = log.borrow().clone();
+    assert!(l.contains(&"log:got 200 basic".to_string()), "{l:?}");
+    assert!(l.contains(&"log:threw NetworkError".to_string()), "{l:?}");
+    assert!(l.iter().any(|x| x.starts_with("net:sync GET https://page.test/ok: blocking the page for up to 5000 ms")), "{l:?}");
+    assert!(l.iter().any(|x| x.starts_with("net:GET https://page.test/slow: request timed out")), "{l:?}");
+    let calls = fake.calls.lock().unwrap();
+    assert_eq!(calls.len(), 2);
+    assert!(calls.iter().all(|c| c.1 == thread::current().id()), "sync runs on the calling thread");
+    assert!(calls.iter().all(|c| c.2 == std::time::Duration::from_millis(5000)), "sync_xhr_timeout_ms, not the 30 s default");
+}
+
+#[test]
+fn qf7_js_report_has_a_network_section_and_uses_the_base_href() {
+    let fake = QfFake::new(vec![("page.test/data", qf7_ok("12345", &[])), ("other.test", qf7_ok("no-acao", &[]))]);
+    crate::js_net::set_net_executor(fake.clone());
+    let html = "<html><head><base href='https://page.test/dir/'></head><body><script>\
+        var q = function(u){ __net_request({method:'GET', url:u, headers:[], body:null}).promise.catch(function(){}); };\
+        q('https://page.test/data'); q('https://other.test/x'); q('http://127.0.0.1:8080/');\
+        </script></body></html>";
+    set_js_enabled(true);
+    let report = js::js_report_for_html(html, None, "/tmp/qf7-none.html");
+    assert!(report.contains("--- network (3 requests, 12 bytes) ---"), "{report}");
+    assert!(report.contains("GET https://page.test/data -> 200 OK 5 bytes"), "same-origin check uses the <base href>, not file://: {report}");
+    assert!(report.contains("GET https://other.test/x -> blocked: CORS: no Access-Control-Allow-Origin header"), "{report}");
+    assert!(report.contains("(loopback) allowed by policy"), "{report}");
+    assert!(report.contains("errors total: 0"), "{report}");
+}
+
+/// App side: queued requests are started by `js_sync`, results of a
+/// superseded page are dropped, current ones reach the page.
+fn qf7_app_net(proxy: &winit::event_loop::EventLoopProxy<AppEvent>) {
+    let fake = QfFake::new(vec![("/a", qf7_ok("AAA", &[]))]);
+    let doc = parse_html("<html><body></body></html>");
+    let mut app = App::new_static(doc.clone(), proxy.clone(), None);
+    crate::js_net::set_net_executor(fake.clone());
+    let page = Url::parse("https://page.test/").unwrap();
+    let code = format!("{} h.promise.then(function(r){{ return r.text(); }}).then(function(t){{ window.__done = t; }});", qf7_go("https://page.test/a", ""));
+    app.js = run_page_scripts(&doc, &[src(&code)], Some(&page));
+    app.js_sync();
+    for _ in 0..200 {
+        if !fake.urls().is_empty() {
+            break;
+        }
+        thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert_eq!(fake.urls(), vec!["https://page.test/a"], "js_sync started the request on a thread");
+    let done = |app: &App| app.js.as_ref().unwrap().eval_value::<String>("t", "String(window.__done)");
+    let id = app.js.as_ref().unwrap().eval_value::<f64>("t", "h.id").unwrap() as u64;
+    // A stale generation is dropped: the promise stays pending.
+    app.handle_js_net(app.nav_generation + 1, id, qf7_ok("STALE", &[]));
+    assert_eq!(done(&app).as_deref(), Some("undefined"));
+    app.handle_js_net(app.nav_generation, id, qf7_ok("AAA", &[]));
+    assert_eq!(done(&app).as_deref(), Some("AAA"));
 }

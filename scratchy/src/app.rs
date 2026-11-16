@@ -48,6 +48,9 @@ pub(crate) enum AppEvent {
     /// on from gets dropped the same way a stale forward navigation
     /// does.
     NavResult(u64, Result<FetchedPage, String>),
+    /// QF7: a page-JS network request finished (or was refused at once):
+    /// `(nav_generation, request id, result)`. Stale generations are dropped.
+    JsNet(u64, u64, Result<WireResponse, NetError>),
     /// One non-`data:` `<img src>` reference's own fetch finishing (v67)
     /// — `String` is the exact, unresolved `src` attribute text
     /// `process_external_resources` found it under (see `App::image_
@@ -594,6 +597,10 @@ pub(crate) struct App {
     /// path but nothing's listening there" (see its own docs), just
     /// without even attempting a connection first.
     pub(crate) socket_path: Option<PathBuf>,
+    /// QF7: the page's network request queue (caps from `RequestPolicy`).
+    pub(crate) net: NetScheduler,
+    /// QF7: results that arrived while `:help` had the engine parked.
+    pub(crate) parked_net: Vec<(u64, Result<WireResponse, NetError>)>,
     /// CSS fetched via `wire` from the current page's own `<link
     /// rel=stylesheet href>` references (v67) — concatenated once, by
     /// `start_navigation`'s own background thread (`process_external_
@@ -717,6 +724,10 @@ pub(crate) struct SavedPage {
 
 impl App {
     pub(crate) fn new_static(document: Handle, proxy: EventLoopProxy<AppEvent>, socket_path: Option<PathBuf>) -> Self {
+        crate::js_net::set_net_executor(match &socket_path {
+            Some(p) => Arc::new(WireExecutor(p.clone())),
+            None => Arc::new(crate::js_net::NoSocketExecutor),
+        });
         let base_url = find_base_url(&document);
         let shaping_requests = Self::spawn_shaping_worker(proxy.clone());
         Self {
@@ -767,6 +778,8 @@ impl App {
             layout_generation: 0,
             js: None,
             socket_path,
+            net: NetScheduler::new(&RequestPolicy::default()),
+            parked_net: Vec::new(),
             extra_css: String::new(),
             image_cache: HashMap::new(),
             css_images_requested: HashSet::new(),
@@ -782,6 +795,10 @@ impl App {
     }
 
     pub(crate) fn new_streaming(proxy: EventLoopProxy<AppEvent>, socket_path: Option<PathBuf>) -> Self {
+        crate::js_net::set_net_executor(match &socket_path {
+            Some(p) => Arc::new(WireExecutor(p.clone())),
+            None => Arc::new(crate::js_net::NoSocketExecutor),
+        });
         let decoder = new_parser();
         let document = decoder.inner_sink.tokenizer.sink.sink.document.clone();
         let shaping_requests = Self::spawn_shaping_worker(proxy.clone());
@@ -833,6 +850,8 @@ impl App {
             layout_generation: 0,
             js: None,
             socket_path,
+            net: NetScheduler::new(&RequestPolicy::default()),
+            parked_net: Vec::new(),
             extra_css: String::new(),
             image_cache: HashMap::new(),
             css_images_requested: HashSet::new(),
@@ -1315,6 +1334,18 @@ impl App {
             if let Some(href) = reqs.nav {
                 self.start_navigation(&href);
             }
+            // QF7: page network requests (enqueue before abort, so a request
+            // made and aborted in one turn never starts).
+            for job in reqs.net {
+                self.net.enqueue(job);
+            }
+            for id in reqs.net_abort {
+                self.net.abort(id);
+            }
+            for (id, result) in reqs.net_done {
+                let _ = self.proxy.send_event(AppEvent::JsNet(self.nav_generation, id, result));
+            }
+            self.pump_net();
             if let Some(sr) = reqs.scroll
                 && let Some(y) = sr.y
             {
@@ -1335,6 +1366,36 @@ impl App {
                 return;
             }
             self.request_js_restyle();
+        }
+    }
+
+    /// QF7: starts queued page requests, one thread each (like image
+    /// fetches), as far as the policy's parallelism and byte caps allow.
+    fn pump_net(&mut self) {
+        let (proxy, generation) = (self.proxy.clone(), self.nav_generation);
+        let exec = crate::js_net::net_executor();
+        self.net.pump(&mut |job| {
+            let (proxy, exec) = (proxy.clone(), exec.clone());
+            thread::spawn(move || {
+                let result = exec.execute(&job);
+                let _ = proxy.send_event(AppEvent::JsNet(generation, job.id, result));
+            });
+        });
+    }
+
+    /// QF7: `AppEvent::JsNet` handler. A result of a superseded page is
+    /// dropped; while `:help` parks the engine it is kept for `restore_saved_page`.
+    pub(crate) fn handle_js_net(&mut self, generation: u64, id: u64, result: Result<WireResponse, NetError>) {
+        if generation != self.nav_generation {
+            return;
+        }
+        self.net.done(id);
+        self.pump_net();
+        if let Some(js) = &self.js {
+            js.deliver_net(id, result);
+            self.js_sync();
+        } else if self.pre_help_page.as_ref().is_some_and(|p| p.js.is_some()) {
+            self.parked_net.push((id, result));
         }
     }
 
@@ -1603,6 +1664,11 @@ impl App {
         self.scroll_offsets = saved.scroll_offsets;
         self.scroll_offset = saved.scroll_offset;
         self.js = saved.js;
+        for (id, result) in std::mem::take(&mut self.parked_net) {
+            if let Some(js) = &self.js {
+                js.deliver_net(id, result);
+            }
+        }
         self.js_sync();
     }
 
@@ -2097,6 +2163,8 @@ impl App {
         url.set_fragment(None);
         self.nav_generation += 1;
         self.js = None;
+        self.net.reset();
+        self.parked_net.clear();
         self.image_cache.clear();
         self.css_images_requested.clear();
         let generation = self.nav_generation;
@@ -2505,6 +2573,7 @@ impl ApplicationHandler<AppEvent> for App {
                 self.js_sync();
             }
             AppEvent::NavResult(generation, result) => self.handle_nav_result(generation, result),
+            AppEvent::JsNet(generation, id, result) => self.handle_js_net(generation, id, result),
             AppEvent::ImageFetched(generation, src, image) => self.handle_image_fetched(generation, src, image),
             AppEvent::ShapeResult(generation, laid, shape_cache, incomplete) => self.handle_shape_result(generation, laid, shape_cache, incomplete),
             AppEvent::MetaRefresh(generation, target) => self.handle_meta_refresh(generation, target),

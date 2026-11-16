@@ -440,7 +440,20 @@ R22 copies and paste the before/after numbers in the commit.
       must 403. The synthesized 502 body today is `wire: upstream request
       failed: <e>` (scratchy's `parse_wire_response_full` recognises it even
       from an old wire).
-- [ ] QF7 [M] READY (needs QF4, QF5, QF6) The engine/App plumbing.
+- [x] QF7 [M] DONE (commit da6a5c7; src/js_net.rs + glue in src/fetch_prelude.js;
+      differs from the sketch below: policy is the QF5 `RequestPolicy`, the
+      executor is injectable (`NetExecutor`), the native is `__net_send(desc)`,
+      results come back through `__net_complete(result)`; CORS applied in
+      `NetState::finish`; beacons logged and not sent; sync mode and the
+      `--js-report` network section are in. Left out: see QF7a.) The engine/App plumbing.
+- [ ] QF7a [S] READY (needs QF6) Gaps left by QF7: fail closed when a wire response
+      has no `X-Wire-Final-Url` ("wire is too old for page networking; restart
+      it": today a missing header falls back to the request URL, because the
+      user's wire is not updated yet); CORS checks on redirect hops
+      (`check_redirect_hop`); preflight (QF13); progress callback for XHR (QF9);
+      wire `X-Wire-Target-Class` to warn for DNS names that resolve privately.
+      Original QF7 text follows (kept for reference):
+- [ ] (QF7 original) READY (needs QF4, QF5, QF6) The engine/App plumbing.
       `JsRequests.net: Vec<NetRequest { id, method, url, headers, body
       }>` and `net_abort: Vec<u64>`. Native `__net_send(method, url,
       headers, body) -> id or error string`: it runs
