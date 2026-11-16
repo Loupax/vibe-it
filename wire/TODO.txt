@@ -50,6 +50,15 @@ the commit it came up during.
       one real client exists, and it has no concept of per-request
       timeout preferences either.
 
+- [ ] **Cookie control channel has no access token** (user decision 2026-11-17:
+      no token for now). The cookie-jar control requests (`X-Wire-Cookie-Op`,
+      clear/read of the jar) are open to any process that can reach `wire.sock`,
+      which sits under `/run/user/<uid>/` so in practice only the same user.
+      Hardening idea: a random token wire writes to a file readable only by the
+      user, required on the control channel, read by scratchy at startup (adds a
+      startup dependency between the two). Firefox has no equivalent: its jar
+      sits behind a private IPC channel. Do this only if the user asks.
+
 - [ ] **No TLS certificate pinning/custom root-CA support** — `ureq`'s
       own default TLS config (via `rustls`, the default backend) is
       used as-is. A real need for this would most likely surface as "a

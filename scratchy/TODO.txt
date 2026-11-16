@@ -16,6 +16,17 @@ QUEUE — ranked work order (reviewed 2026-11-12, re-planned 2026-11-14)
 
 --- CURRENT STATUS (2026-11-16, docs audit; READ THIS FIRST) -------------
 
+USER ANSWERS 2026-11-17 (night): QJ11 DECIDED: pages may override the user-agent
+defaults, so page JS may cancel ANY key (no reserved set); the user will turn vim
+mode off on social.loupax.com for themself (localStorage.vimOff). Cookie control
+token: DEFAULT = no token for now (hardening item filed in wire/TODO.txt). Forms
+(Q30) and media: the user wants to DESIGN THEM TOGETHER with the coordinator; no
+implementation until a design is agreed (AGENTS.md "Off limits" still holds). The
+suggested form order (text input/textarea, checkbox/radio, select, GET submit via
+wire, POST/file later) is only the opening proposal for that conversation.
+Persistence: no (in-memory). EventSource: yes soon (QF19a, below). WebSocket: later,
+own design. Workers: no until a measured page needs them. The coordinator may
+implement the agreed defaults when there are no other tasks.
 USER ANSWERS 2026-11-16 (evening): SD-D1 YES (B1 first), SD-D2 YES (basic event
 retargeting), SD-D3 YES (declarative shadow DOM only after QSD6/QSD7 render), SD-D4
 YES (style scoping cut: per-root sheets + :host/::slotted, ::part and :host-context
@@ -75,7 +86,7 @@ READY, in recommended order (no user decision needed):
  (YouTube's 5 s wall: 86% of the time is QY6e's own define() scan), QY22 [S],
  QY23 [S], QY24 [S], QY25 [S], QJ4 [M] (social.loupax.com/vim.js wall:
  getBoundingClientRect), QJ5 [S], QJ6 [M], QJ7 [M], QJ8 [S], QJ9 [S], QW6 [S];
- later QY26 [M], QJ10 [M], QY27 [S] re-measure. WAITING FOR USER: QJ11.
+ later QY26 [M], QJ10 [M], QY27 [S] re-measure. QJ11 DECIDED 2026-11-17 (nothing to do).
  Then P3/P4 leftovers in their blocks (QY*, QA*, Q40b/Q40c fix items).
 WAITING FOR USER (skip until answered):
 - SD-D1: OK to ship B1 (attachShadow works, JS sees a real shadow tree, but
@@ -87,7 +98,7 @@ WAITING FOR USER (skip until answered):
   :host-context dropped? Gates QSD7.
 - QY18: OK to implement translate-only `transform` (paint + hit-test offset,
   no layout change)? Left out on purpose in the 2026-11-14 re-plan.
-- Cookie control token: should wire require a token on the
+- (ANSWERED 2026-11-17: no token for now, see wire/TODO.txt) Cookie control token: should wire require a token on the
   `X-Wire-Cookie-Op` channel, and how is it shared? (hook
   `control_authorized`; QF14b2 (f)). Also QF14b2 (d) `--profile` jar name
   and (e) tracker-list blocking: want them, and which list?
@@ -95,7 +106,7 @@ WAITING FOR USER (skip until answered):
   until you design live state/editing/submission. Same for media.
 - QF19 WebSocket/EventSource/Workers; QY16a real localisation (ICU data?);
   persistence of jar/storage/cache (QF-D7: not now); Q26, Q32 (parked).
-- QJ11: which keys may page JS cancel? Once QJ4-QJ6 land, social.loupax.com's
+- (ANSWERED 2026-11-17: pages may cancel any key) QJ11: which keys may page JS cancel? Once QJ4-QJ6 land, social.loupax.com's
   vim.js cancels `:` `/` j k h l g G n N Enter Esc Ctrl-D/U/O/I, so scratchy's
   own `:` command line and vim keys become unreachable on that site.
 Standing rules:
@@ -374,6 +385,10 @@ IntersectionObserver and matchMedia are not used by any of the site's scripts.
       multi-word tag ("air traffic control", `.tags a{white-space:nowrap}`) can still
       break between its words. Fix in the inline item collection (images.rs
       collect_real_nodes / layout.rs measure_mixed_inline): per-run white-space.
+- [ ] QY18a [S] (P3, left out of QY18) transform limits: a transformed static
+      box is not a stacking context; a transformed box is not a containing block for
+      fixed descendants; `transform: inherit/initial` and `-webkit-transform` are
+      ignored; transforms do not affect scrollable overflow.
 - [ ] QW6 [S] (P2, CSS, visible on the user's site) The canvas background
       does not come from `<body>`: CSS backgrounds 3 2.11.2 says when the
       root element has no background, the body's background paints the
@@ -383,7 +398,11 @@ IntersectionObserver and matchMedia are not used by any of the site's scripts.
       Repro: `<body style="background:#123;max-width:300px;margin:40px
       auto">` paints only the body box today. Test: canvas pixel at (5,5)
       has the body's color; with `html{background:red}` it stays red.
-- [ ] QJ11 WAITING FOR USER (design first) Page key handlers vs scratchy's
+- [x] QJ11 DECIDED 2026-11-17 (user): pages in general may override the user-agent
+      defaults, so a page may cancel ANY key; scratchy keeps no reserved chord. The
+      user turns vim mode off on social.loupax.com for themself. Nothing to build.
+      Original analysis (kept for reference):
+      Page key handlers vs scratchy's
       own keys. `js_key` (app.rs) gives the page every keydown first and
       lets it cancel; only scratchy's own `:` command-line mode is exempt.
       Once QJ4-QJ6 land, vim.js (document keydown, vim.js:1213) cancels
@@ -1491,7 +1510,16 @@ QF13a, QF14b2, QF18 open; QF19 waits for the user):
       `AppEvent`s feeding a real ReadableStream). Not a user decision,
       but only when a measured page needs incremental delivery.
       Today none does.
-- [ ] QF19 [L] WAITING FOR USER (design first) WebSocket, EventSource,
+- [ ] QF19a [M] READY when a slot is free (user 2026-11-17: EventSource yes, soon)
+      `EventSource` (text/event-stream: onopen/onmessage/onerror, named events,
+      retry/Last-Event-ID, close()). CAVEAT: wire answers one buffered response per
+      connection, so a long-lived stream may need incremental reads from wire. The
+      agent must FIRST check whether a buffered poll-style implementation is
+      honest enough; if it needs a wire protocol change, STOP and report (that is
+      a design question for the user), do not change wire's protocol on its own.
+- [ ] QF19 [L] WAITING FOR USER (design first) WebSocket (later, own design;
+      user 2026-11-17), Workers (no until a measured page needs them), (EventSource is
+      QF19a), EventSource,
       Workers: out of scope. wire speaks one request and one response per
       connection.
 Also: QY15a (run-time `import()` of a URL that was not pre-fetched) can
