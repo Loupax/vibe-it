@@ -54,17 +54,24 @@
 - Don't spawn subagents from inside an agent task.
 
 ## Off limits until the user says so (design first)
-Do NOT implement these, not even as stubs or "small slices", until the user
-has explicitly asked and the design has been agreed. The user wants to
-understand how they will work first (same stance as forms, Q30):
+Do NOT implement the real behaviour of these until the user has explicitly
+asked and the design has been agreed. The user wants to understand how they
+will work first (same stance as forms, Q30):
 - **Audio and video**: `<video>`, `<audio>`, `<source>`, `<track>`,
   `HTMLMediaElement` playback (`play()`/`pause()`/`currentTime`/events),
   codecs, MediaSource/EME, Web Audio, `<canvas>` capture/WebRTC, autoplay.
-  Rendering a poster frame or an empty replaced box is fine; real playback,
-  decoding, audio output and the media JS API are not.
 - **Forms** (Q30 and children): live form state, text input widgets,
   form submission. QA20/Q33d1 only added DOM reflections and event stubs.
-If an item or a page seems to need one of these, stop, write what it needs
-in TODO.txt as a `[ ]` item marked "WAITING FOR USER (design first)", and
-move on to something else.
 
+What IS allowed (placeholders so the rest of the page keeps working, and
+nothing more):
+- Render the element as an inert box (a poster image if it has one, else an
+  empty replaced box with its width/height) that does nothing.
+- Make the JS API exist but fail loudly and harmlessly: e.g. `video.play()`
+  logs a clear `not implemented` error line (QJ2 log format) and returns a
+  rejected promise / does nothing, instead of throwing `not a function` and
+  killing the surrounding script.
+No decoding, no audio output, no playback state machine, no controls UI.
+If an item or page seems to need more than a placeholder, stop, write what it
+needs in TODO.txt as a `[ ]` item marked "WAITING FOR USER (design first)", and
+move on to something else.
