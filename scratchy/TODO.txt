@@ -900,7 +900,7 @@ Phase 1 (each S, independent; do in this order):
       `change` never fires. Do together with Q33b2: pass the live
       viewport into the JS env, and on resize re-evaluate each live
       MediaQueryList and dispatch `change` (needs a list of live MQLs).
-- [ ] QY11 [S] (P2; guardian, yt, ddg, bbc; overlaps Q33c1's "reflected
+- [x] QY11 [S] (XXXXXXX) (P2; guardian, yt, ddg, bbc; overlaps Q33c1's "reflected
       properties" part: tick that part there) Reflected attributes and
       attribute enumeration. Symptoms: guardian's commercial bundle
       `Error: Automatic publicPath is not supported in this browser`
@@ -925,6 +925,18 @@ Phase 1 (each S, independent; do in this order):
       document with `<base href=https://x.org/d/>` has `.src ===
       'https://x.org/d/a.js'`; `el.dataset.fooBar = 1` sets `data-foo-bar`;
       `getAttributeNames()` order; `[...el.classList]` works.
+      DONE 2026-11-16: reflections on script/img/link/base/source/
+      video/audio/embed/object/track/a/area/form/iframe/input (absolute
+      against `document.baseURI`, which now honours `<base href>`),
+      `a/area` hyperlink utils over `URL`, `dataset`, `attributes`
+      (Proxy NamedNodeMap, lightweight Attr views), `getAttributeNames`,
+      `hasAttributes`, `getAttributeNode`, `DOMTokenList` classList.
+      Real-site `--js-report`: guardian 1 -> 0 errors; ddg/bbc now reach
+      `history.replaceState` (QY13), masked before. Acid3 61 -> 62.
+- [ ] QY11a [S] Left out of QY11: `Attr` nodes are views (no
+      `setAttributeNode/removeAttributeNode`, `createAttribute`,
+      attribute-node identity); `a.relList`, `img.complete/naturalWidth`,
+      `style` as a full `CSSStyleDeclaration` (Q33g).
 - [ ] QY12 [S] (P3; yt, plus `instanceof` checks everywhere) Interface
       objects. Symptoms (YouTube chain, R21 rows 3, 5, 8, 9, 11; QY4a is
       the SVG part, do it here and tick QY4a): `Window is not defined`,
@@ -2940,6 +2952,7 @@ as the JS measurement corpus (same role the four CSS pages played).
       writing reflected `href/src/value/...` properties, `<script>`
       elements inserted by JS never run, `template.content`, `style`
       iteration/`getComputedStyle`.
+      Reflected URL properties and their setters: done in QY11.
 - [x] Q33c2 [S] (1b02dd5) A `<dialog>` without `open` must be `display:none` (UA
       sheet). The portal's closed `frb-iad-dialog` shows as a modal box
       in flow today (visible with JS on at wikipedia.org; it is also

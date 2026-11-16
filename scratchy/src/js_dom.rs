@@ -381,6 +381,15 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         let h = t.borrow().get(id)?;
         element_attr(&h, &name.to_ascii_lowercase()).map(|v| v.to_string())
     });
+    // QY11: attribute names in stored order (for `attributes`, `dataset`).
+    let t = table.clone();
+    native!("__d_attr_names", move |id: i32| -> Vec<String> {
+        let Some(h) = t.borrow().get(id) else { return Vec::new() };
+        match &h.data {
+            NodeData::Element { attrs, .. } => attrs.borrow().iter().map(|a| a.name.local.as_ref().to_string()).collect(),
+            _ => Vec::new(),
+        }
+    });
     let t = table.clone();
     native!("__d_text", move |id: i32| -> String {
         let mut s = String::new();
@@ -1768,5 +1777,241 @@ const DOM_PRELUDE: &str = r#"
     g.setTimeout(function () { if (inPage(c) && frameSrcOk(c)) c.dispatchEvent(new Event('load')); }, 0);
   };
   def(doc, 'implementation', function () { return impl; });
+  // ---- QY11: reflected URL attributes, hyperlink utils, dataset,
+  // attributes, getAttributeNames, iterable classList. Pure JS over the
+  // attribute natives; the base is `document.baseURI` (honours <base href>).
+  var docBase = function () {
+    var b = doc.querySelector('base[href]'), loc = g.location.href;
+    if (b) { try { return new URL(__d_attr(b.__id, 'href'), loc).href; } catch (e) {} }
+    return loc;
+  };
+  Object.defineProperty(doc, 'baseURI', { get: docBase, configurable: true, enumerable: true });
+  def(ElementProto, 'baseURI', function () { return doc.baseURI; });
+  var absUrl = function (el, attr) {
+    var v = __d_attr(el.__id, attr);
+    if (v == null) return '';
+    var t = v.replace(/^[ \t\n\f\r]+|[ \t\n\f\r]+$/g, '');
+    if (t === '' && attr !== 'href' && attr !== 'action') return '';
+    try { return new URL(t, doc.baseURI).href; } catch (e) { return v; }
+  };
+  var rUrl = function (P, prop, attr) {
+    defs(P, prop, function () { return absUrl(this, attr); },
+      function (v) { __d_setattr(this.__id, attr, String(v)); });
+  };
+  var rStrs = function (P, list) { list.forEach(function (p) { rStr(P, p, p.toLowerCase()); }); };
+  var rBools = function (P, list) { list.forEach(function (p) { rBool(P, p, p.toLowerCase()); }); };
+  var SCP = mkProto('HTMLScriptElement', ['script']);
+  rUrl(SCP, 'src', 'src'); rStrs(SCP, ['type', 'charset', 'nonce', 'crossOrigin', 'integrity', 'referrerPolicy']); rBools(SCP, ['async', 'defer', 'noModule']);
+  defs(SCP, 'text', function () { return this.textContent; }, function (v) { this.textContent = String(v); });
+  var IMP = mkProto('HTMLImageElement', ['img']);
+  rUrl(IMP, 'src', 'src'); rStrs(IMP, ['alt', 'srcset', 'sizes', 'crossOrigin', 'useMap', 'decoding', 'loading', 'referrerPolicy', 'name', 'align']);
+  rBool(IMP, 'isMap', 'ismap');
+  def(IMP, 'currentSrc', function () { return absUrl(this, 'src'); });
+  var LKP = mkProto('HTMLLinkElement', ['link']);
+  rUrl(LKP, 'href', 'href'); rStrs(LKP, ['rel', 'type', 'media', 'as', 'hreflang', 'charset', 'nonce', 'crossOrigin', 'integrity', 'referrerPolicy', 'sizes']);
+  rBool(LKP, 'disabled', 'disabled');
+  var BAP = mkProto('HTMLBaseElement', ['base']);
+  rUrl(BAP, 'href', 'href'); rStr(BAP, 'target', 'target');
+  var SOP = mkProto('HTMLSourceElement', ['source']);
+  rUrl(SOP, 'src', 'src'); rStrs(SOP, ['type', 'srcset', 'sizes', 'media']);
+  var MEP = mkProto('HTMLMediaElement', []);
+  rUrl(MEP, 'src', 'src'); rStr(MEP, 'crossOrigin', 'crossorigin'); rStr(MEP, 'preload', 'preload');
+  rBools(MEP, ['autoplay', 'loop', 'controls', 'muted']);
+  def(MEP, 'currentSrc', function () { return absUrl(this, 'src'); });
+  var VIP = mkProto('HTMLVideoElement', ['video'], g.HTMLMediaElement);
+  rUrl(VIP, 'poster', 'poster'); rBool(VIP, 'playsInline', 'playsinline');
+  mkProto('HTMLAudioElement', ['audio'], g.HTMLMediaElement);
+  var EMP = mkProto('HTMLEmbedElement', ['embed']);
+  rUrl(EMP, 'src', 'src'); rStrs(EMP, ['type', 'width', 'height']);
+  var OBP = mkProto('HTMLObjectElement', ['object']);
+  rUrl(OBP, 'data', 'data'); rStrs(OBP, ['type', 'name', 'width', 'height']);
+  var TRP = mkProto('HTMLTrackElement', ['track']);
+  rUrl(TRP, 'src', 'src'); rStrs(TRP, ['kind', 'srclang', 'label']);
+  var ANP = mkProto('HTMLAnchorElement', ['a']);
+  rStrs(ANP, ['target', 'download', 'rel', 'rev', 'hreflang', 'type', 'referrerPolicy', 'ping', 'coords', 'name', 'shape', 'charset']);
+  defs(ANP, 'text', function () { return this.textContent; }, function (v) { this.textContent = String(v); });
+  rUrl(FP, 'action', 'action');
+  rUrl(IFP, 'src', 'src');
+  rUrl(IP, 'src', 'src');
+  // HTMLHyperlinkElementUtils on a and area.
+  var linkURL = function (el) {
+    if (__d_attr(el.__id, 'href') == null) return null;
+    try { return new URL(__d_attr(el.__id, 'href'), doc.baseURI); } catch (e) { return null; }
+  };
+  var hl = function (P) {
+    rUrl(P, 'href', 'href');
+    ['protocol', 'host', 'hostname', 'port', 'pathname', 'search', 'hash', 'username', 'password'].forEach(function (k) {
+      defs(P, k, function () {
+        var u = linkURL(this);
+        return u ? u[k] : '';
+      }, function (v) {
+        var u = linkURL(this);
+        if (!u) return;
+        u[k] = String(v);
+        __d_setattr(this.__id, 'href', u.href);
+      });
+    });
+    def(P, 'origin', function () { var u = linkURL(this); return u ? u.origin : ''; });
+    P.toString = function () { return this.href; };
+  };
+  hl(ANP); hl(ARP);
+  // classList: a DOMTokenList keyed on the element.
+  var DOMTokenList = g.DOMTokenList = function DOMTokenList() { throw new TypeError('Illegal constructor'); };
+  var DTP = DOMTokenList.prototype;
+  var tokcheck = function (fn, t) {
+    t = String(t);
+    if (t === '') throw herr("Failed to execute '" + fn + "' on 'DOMTokenList': The token provided must not be empty.", 'SyntaxError');
+    if (/[ \t\n\f\r]/.test(t)) throw herr("Failed to execute '" + fn + "' on 'DOMTokenList': The token provided ('" + t + "') contains HTML space characters, which are not valid in tokens.", 'InvalidCharacterError');
+    return t;
+  };
+  var toks = function (l) { return classes(l._el); };
+  var putToks = function (l, c) { l._el.className = c.join(' '); };
+  DTP.contains = function (c) { return toks(this).indexOf(String(c)) >= 0; };
+  DTP.add = function () {
+    var c = toks(this), a = Array.prototype.map.call(arguments, function (x) { return tokcheck('add', x); });
+    a.forEach(function (t) { if (c.indexOf(t) < 0) c.push(t); });
+    putToks(this, c);
+  };
+  DTP.remove = function () {
+    var a = Array.prototype.map.call(arguments, function (x) { return tokcheck('remove', x); });
+    putToks(this, toks(this).filter(function (x) { return a.indexOf(x) < 0; }));
+  };
+  DTP.toggle = function (c, force) {
+    c = tokcheck('toggle', c);
+    var has = this.contains(c), want = force === undefined ? !has : !!force;
+    if (want && !has) this.add(c); else if (!want && has) this.remove(c);
+    return want;
+  };
+  DTP.replace = function (a, b) {
+    a = tokcheck('replace', a); b = tokcheck('replace', b);
+    var c = toks(this), i = c.indexOf(a);
+    if (i < 0) return false;
+    if (c.indexOf(b) >= 0 && c.indexOf(b) !== i) c.splice(i, 1); else c[i] = b;
+    putToks(this, c); return true;
+  };
+  DTP.item = function (i) { var c = toks(this); return c[i] === undefined ? null : c[i]; };
+  DTP.supports = function () { return true; };
+  DTP.toString = function () { return this._el.className; };
+  DTP.forEach = function (f, t) { toks(this).forEach(function (x, i) { f.call(t, x, i, this); }, this); };
+  DTP.keys = function () { return toks(this).keys(); };
+  DTP.values = function () { return toks(this).values(); };
+  DTP.entries = function () { return toks(this).entries(); };
+  DTP[Symbol.iterator] = DTP.values;
+  def(DTP, 'length', function () { return toks(this).length; });
+  defs(DTP, 'value', function () { return this._el.className; }, function (v) { this._el.className = String(v); });
+  Object.defineProperty(DTP, Symbol.toStringTag, { value: 'DOMTokenList', configurable: true });
+  var tlists = {};
+  var isIdx = function (k) { return typeof k === 'string' && /^(0|[1-9][0-9]*)$/.test(k); };
+  defs(ElementProto, 'classList', function () {
+    if (tlists[this.__id]) return tlists[this.__id];
+    var l = Object.create(DTP);
+    Object.defineProperty(l, '_el', { value: this });
+    var p = new Proxy(l, {
+      get: function (t, k) { return isIdx(k) ? toks(t)[+k] : Reflect.get(t, k, t); },
+      has: function (t, k) { return isIdx(k) ? +k < toks(t).length : k in t; }
+    });
+    return (tlists[this.__id] = p);
+  }, function (v) { this.classList.value = v; });
+  // dataset: live DOMStringMap over data-* attributes.
+  var dsName = function (attr) { return attr.slice(5).replace(/-([a-z])/g, function (m, c) { return c.toUpperCase(); }); };
+  var dsAttr = function (p) { return 'data-' + p.replace(/[A-Z]/g, function (m) { return '-' + m.toLowerCase(); }); };
+  var dsKeys = function (el) {
+    return __d_attr_names(el.__id).filter(function (n) { return n.indexOf('data-') === 0 && !/[A-Z]/.test(n); }).map(dsName);
+  };
+  var dsets = {};
+  var DOMStringMap = g.DOMStringMap = function DOMStringMap() { throw new TypeError('Illegal constructor'); };
+  def(HTMLElement.prototype, 'dataset', function () {
+    var el = this;
+    if (dsets[el.__id]) return dsets[el.__id];
+    var p = new Proxy(Object.create(DOMStringMap.prototype), {
+      get: function (t, k) {
+        if (typeof k !== 'string') return Reflect.get(t, k);
+        var v = __d_attr(el.__id, dsAttr(k)); return v == null ? undefined : v;
+      },
+      set: function (t, k, v) {
+        if (typeof k !== 'string') return false;
+        if (/-[a-z]/.test(k)) throw herr("Failed to set the '" + k + "' property on 'DOMStringMap': '" + k + "' is not a valid property name.", 'SyntaxError');
+        __d_setattr(el.__id, dsAttr(k), String(v)); return true;
+      },
+      has: function (t, k) { return typeof k === 'string' ? __d_attr(el.__id, dsAttr(k)) != null : k in t; },
+      deleteProperty: function (t, k) { if (typeof k === 'string') __d_rmattr(el.__id, dsAttr(k)); return true; },
+      ownKeys: function () { return dsKeys(el); },
+      getOwnPropertyDescriptor: function (t, k) {
+        if (typeof k !== 'string') return undefined;
+        var v = __d_attr(el.__id, dsAttr(k));
+        return v == null ? undefined : { value: v, writable: true, enumerable: true, configurable: true };
+      },
+      defineProperty: function (t, k, d) { if (typeof k === 'string' && 'value' in d) __d_setattr(el.__id, dsAttr(k), String(d.value)); return true; }
+    });
+    return (dsets[el.__id] = p);
+  });
+  // attributes: a live NamedNodeMap-like Proxy; Attr objects are lightweight
+  // views whose `value` reads/writes through (not nodes in the tree).
+  var AttrP = g.Attr.prototype;
+  var mkAttr = function (el, name) {
+    var a = Object.create(AttrP);
+    Object.defineProperty(a, '_el', { value: el });
+    Object.defineProperty(a, '_n', { value: name });
+    return a;
+  };
+  def(AttrP, 'name', function () { return this._n; });
+  def(AttrP, 'localName', function () { return this._n; });
+  def(AttrP, 'nodeName', function () { return this._n; });
+  def(AttrP, 'nodeType', function () { return 2; });
+  def(AttrP, 'namespaceURI', function () { return null; });
+  def(AttrP, 'prefix', function () { return null; });
+  def(AttrP, 'specified', function () { return true; });
+  def(AttrP, 'ownerElement', function () { return this._el; });
+  defs(AttrP, 'value', function () { var v = __d_attr(this._el.__id, this._n); return v == null ? '' : v; },
+    function (v) { __d_setattr(this._el.__id, this._n, String(v)); });
+  defs(AttrP, 'nodeValue', function () { return this.value; }, function (v) { this.value = v; });
+  defs(AttrP, 'textContent', function () { return this.value; }, function (v) { this.value = v; });
+  var NNM = g.NamedNodeMap = function NamedNodeMap() { throw new TypeError('Illegal constructor'); };
+  var NP = NNM.prototype;
+  var attrList = function (el) { return __d_attr_names(el.__id).map(function (n) { return mkAttr(el, n); }); };
+  NP.item = function (i) { return attrList(this._el)[i] || null; };
+  NP.getNamedItem = function (n) {
+    n = String(n).toLowerCase();
+    return __d_attr(this._el.__id, n) == null ? null : mkAttr(this._el, n);
+  };
+  NP.getNamedItemNS = function (ns, n) { return this.getNamedItem(n); };
+  NP.removeNamedItem = function (n) {
+    var a = this.getNamedItem(n);
+    if (!a) throw herr("Failed to execute 'removeNamedItem' on 'NamedNodeMap': No item with name '" + n + "' was found.", 'NotFoundError');
+    __d_rmattr(this._el.__id, a.name); return a;
+  };
+  NP.setNamedItem = function (a) { __d_setattr(this._el.__id, a.name, a.value); return null; };
+  NP[Symbol.iterator] = function () { return attrList(this._el)[Symbol.iterator](); };
+  def(NP, 'length', function () { return __d_attr_names(this._el.__id).length; });
+  Object.defineProperty(NP, Symbol.toStringTag, { value: 'NamedNodeMap', configurable: true });
+  var amaps = {};
+  def(ElementProto, 'attributes', function () {
+    if (amaps[this.__id]) return amaps[this.__id];
+    var m = Object.create(NP);
+    Object.defineProperty(m, '_el', { value: this, configurable: true });
+    var el = this;
+    return (amaps[this.__id] = new Proxy(m, {
+      get: function (t, k) {
+        if (typeof k === 'string') {
+          if (isIdx(k)) return t.item(+k) || undefined;
+          if (!(k in t)) { var a = t.getNamedItem(k); if (a) return a; }
+        }
+        return Reflect.get(t, k, t);
+      },
+      has: function (t, k) {
+        if (typeof k !== 'string') return k in t;
+        return isIdx(k) ? +k < t.length : (k in t || __d_attr(el.__id, k.toLowerCase()) != null);
+      },
+      ownKeys: function () { var n = __d_attr_names(el.__id); return n.map(function (x, i) { return String(i); }).concat(n); },
+      getOwnPropertyDescriptor: function (t, k) {
+        if (typeof k !== 'string') return undefined;
+        var ix = isIdx(k), v = ix ? t.item(+k) : t.getNamedItem(k);
+        return v ? { value: v, writable: false, enumerable: ix, configurable: true } : undefined;
+      }
+    }));
+  });
+  ElementProto.getAttributeNames = function () { return __d_attr_names(this.__id); };
+  ElementProto.hasAttributes = function () { return __d_attr_names(this.__id).length > 0; };
+  ElementProto.getAttributeNode = function (n) { return this.attributes.getNamedItem(n); };
 })(globalThis);
 "#;
