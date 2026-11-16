@@ -694,6 +694,10 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
 const DOM_PRELUDE: &str = r#"
 (function (g) {
   var doc = g.document, cache = {}, tagProto = Object.create(null);
+  // QY6e: the mutation natives the custom-element hooks rebind (once, at the
+  // first `customElements.define`); until then nothing is wrapped (zero cost).
+  var __d_insert = g.__d_insert, __d_remove = g.__d_remove, __d_sethtml = g.__d_sethtml, __d_settext = g.__d_settext,
+    __d_setattr = g.__d_setattr, __d_rmattr = g.__d_rmattr, __d_write = g.__d_write, ceNew;
   var queries, svgProto = Object.create(null);
   var wrap = function (id) {
     if (id === undefined || id < 0) return null;
@@ -1369,7 +1373,8 @@ const DOM_PRELUDE: &str = r#"
   tagProto.dialog = HTMLDialogElement.prototype;
   tagProto.canvas = HTMLCanvasElement.prototype;
   var mkProto = function (name, tags, base) {
-    var C = ({ [name]: function () { throw new TypeError('Illegal constructor'); } })[name];
+    // QY6e: `class X extends HTMLButtonElement` (customized built-ins) reaches ceNew via super().
+    var C = ({ [name]: function () { if (!new.target) throw new TypeError('Illegal constructor'); return ceNew(new.target); } })[name];
     C.prototype = Object.create((base || HTMLElement).prototype, { constructor: { value: C, writable: true, configurable: true } });
     g[name] = C;
     tags.forEach(function (t) { tagProto[t] = C.prototype; });
@@ -2130,5 +2135,232 @@ const DOM_PRELUDE: &str = r#"
   ['append', 'prepend', 'replaceChildren'].forEach(function (k) {
     if (ElementProto[k]) DocumentFragment.prototype[k] = ElementProto[k];
   });
+
+  // ---- QY6e: Custom Elements (window.customElements). Everything is JS over the
+  // wrappers; the DOM mutation natives (`__d_insert/remove/sethtml/settext/
+  // setattr/rmattr/write`, which every API path funnels through) are rebound
+  // to hooked versions at the FIRST `define()`, so a page that never uses
+  // custom elements runs the bare natives (`__ce_stats.hooks` stays 0).
+  // Upgrade = run the class constructor on the existing wrapper: HTMLElement's
+  // constructor (`ceNew`, reached through `super()`) returns the element
+  // being upgraded (per-definition construction stack). Reactions run
+  // synchronously after the API call (a microtask-free simplification of
+  // the CEReactions stack). Only the main document (id 0) is ever upgraded.
+  // Cuts: adoptedCallback, `:defined`, no shadow DOM (attachShadow throws).
+  var ceOn = false, ceByName = Object.create(null), ceByCtor = new Map(), ceWhen = Object.create(null);
+  var ceState = Object.create(null), ceConnFlag = Object.create(null), ceNConn = 0, ceSel = '';
+  var ceStats = { hooks: 0 };
+  Object.defineProperty(g, '__ce_stats', { value: ceStats });
+  var ceReport = function (e, what) {
+    __scratchy_err('scratchy: js: uncaught exception in custom element ' + what + ': ' + (e && e.stack ? e.stack : String(e)));
+  };
+  var ceCall = function (el, fn, args) {
+    if (typeof fn !== 'function') return;
+    try { fn.apply(el, args); } catch (e) { ceReport(e, fn.name || 'callback'); }
+  };
+  var ceIsConn = function (id) { var p; while ((p = __d_parent(id)) >= 0) id = p; return id === 0; };
+  var ceDefFor = function (id) {
+    var raw = __d_tag(id);
+    if (raw !== raw.toUpperCase()) return null; // not an HTML-namespace element
+    var tg = raw.toLowerCase(), is = __d_attr(id, 'is'), d;
+    if (is != null && (d = ceByName[is]) && d.ext === tg) return d;
+    d = ceByName[tg];
+    return d && !d.ext ? d : null;
+  };
+  var ceSetConn = function (id) {
+    ceConnFlag[id] = 1; ceNConn++;
+    var d = ceState[id]; ceCall(cache[id], d.connected, []);
+  };
+  var ceCollect = function (id, self) {
+    var out = [];
+    if (self && ceConnFlag[id]) out.push(id);
+    var l = __d_query(id, ceSel, false);
+    for (var i = 0; i < l.length; i++) if (ceConnFlag[l[i]]) out.push(l[i]);
+    return out;
+  };
+  var ceFire = function (ids) {
+    for (var i = 0; i < ids.length; i++) {
+      var id = ids[i];
+      if (!ceConnFlag[id]) continue;
+      ceConnFlag[id] = 0; ceNConn--;
+      ceCall(cache[id], ceState[id].disconnected, []);
+    }
+  };
+  var ceUpgrade = function (id, d, conn) {
+    var el = wrap(id), ok = false;
+    d.stack.push({ el: el, done: false });
+    try {
+      var r = Reflect.construct(d.ctor, [], d.ctor);
+      if (r !== el) throw new TypeError('The custom element constructor did not produce the element being upgraded.');
+      ok = true;
+    } catch (e) { ceReport(e, d.name + ' constructor'); }
+    d.stack.pop();
+    if (!ok) { ceState[id] = -1; return; }
+    ceState[id] = d;
+    if (d.observed.length) {
+      var names = __d_attr_names(id);
+      for (var i = 0; i < names.length; i++) {
+        var n = names[i].toLowerCase();
+        if (d.observed.indexOf(n) >= 0) ceCall(el, d.changed, [n, null, __d_attr(id, n)]);
+      }
+    }
+    if (conn) ceSetConn(id);
+  };
+  var ceProcess = function (id, conn) {
+    var st = ceState[id];
+    if (!st) { var d = ceDefFor(id); if (d) ceUpgrade(id, d, conn); return; }
+    if (st !== -1 && conn && !ceConnFlag[id]) ceSetConn(id);
+  };
+  // Upgrade (and fire connectedCallback for) candidates under `id`, tree order.
+  // `force` also upgrades inside a disconnected tree (customElements.upgrade, clones).
+  var ceScan = function (id, force) {
+    var conn = ceIsConn(id);
+    if (!conn && !force) return;
+    var l = __d_query(id, ceSel, false);
+    if (__d_kind(id) === 1) l.unshift(id);
+    for (var i = 0; i < l.length; i++) ceProcess(l[i], conn);
+  };
+  var ceInstall = function () {
+    var oIns = __d_insert, oRem = __d_remove, oHtml = __d_sethtml, oTxt = __d_settext, oSet = __d_setattr, oRm = __d_rmattr, oW = __d_write;
+    __d_insert = function (p, c, b) {
+      ceStats.hooks++;
+      var kids = __d_kind(c) === 11 ? __d_children(c, false) : [c];
+      var pre = ceNConn && __d_parent(c) >= 0 ? ceCollect(c, true) : null; // a move = disconnect + connect
+      var ok = oIns(p, c, b);
+      if (pre) ceFire(pre);
+      for (var i = 0; i < kids.length; i++) ceScan(kids[i], false);
+      return ok;
+    };
+    __d_remove = function (id) {
+      ceStats.hooks++;
+      var pre = ceNConn ? ceCollect(id, true) : null;
+      oRem(id);
+      if (pre) ceFire(pre);
+    };
+    __d_sethtml = function (id, html) {
+      ceStats.hooks++;
+      var pre = ceNConn ? ceCollect(id, false) : null;
+      oHtml(id, html);
+      if (pre) ceFire(pre);
+      ceScan(id, false);
+    };
+    __d_settext = function (id, t) {
+      ceStats.hooks++;
+      var k = __d_kind(id), pre = ceNConn && (k === 1 || k === 11) ? ceCollect(id, false) : null;
+      oTxt(id, t);
+      if (pre) ceFire(pre);
+    };
+    __d_write = function (a, h) {
+      ceStats.hooks++;
+      var r = oW(a, h), p = __d_parent(a);
+      if (p >= 0) ceScan(p, false);
+      return r;
+    };
+    __d_setattr = function (id, n, v) {
+      ceStats.hooks++;
+      var d = ceState[id];
+      if (!d || d === -1 || !d.observed.length) return oSet(id, n, v);
+      var ln = String(n).toLowerCase(), old = __d_attr(id, ln);
+      if (old == null) old = null;
+      oSet(id, n, v);
+      if (d.observed.indexOf(ln) >= 0) ceCall(cache[id], d.changed, [ln, old, __d_attr(id, ln)]);
+    };
+    __d_rmattr = function (id, n) {
+      ceStats.hooks++;
+      var d = ceState[id];
+      if (!d || d === -1 || !d.observed.length) return oRm(id, n);
+      var ln = String(n).toLowerCase(), old = __d_attr(id, ln);
+      oRm(id, n);
+      if (old != null && d.observed.indexOf(ln) >= 0) ceCall(cache[id], d.changed, [ln, old, null]);
+    };
+    var oCE = doc.createElement, oCENS = doc.createElementNS, oClone = NodeProto.cloneNode;
+    var created = function (el, opts, self) {
+      if (self && self.__id > 0) return el; // second documents: never upgraded
+      var id = el.__id, raw = __d_tag(id), tg = raw.toLowerCase(), is = opts && opts.is != null ? String(opts.is) : null, d = null;
+      if (raw !== raw.toUpperCase()) return el;
+      if (is !== null && ceByName[is] && ceByName[is].ext === tg) { d = ceByName[is]; oSet(id, 'is', is); }
+      else if (ceByName[tg] && !ceByName[tg].ext) d = ceByName[tg];
+      if (d) ceUpgrade(id, d, false);
+      return el;
+    };
+    doc.createElement = function (t, o) { return created(oCE.call(this, t), o, this); };
+    doc.createElementNS = function (ns, t, o) {
+      var el = oCENS.call(this, ns, t);
+      return ns === 'http://www.w3.org/1999/xhtml' ? created(el, o, this) : el;
+    };
+    NodeProto.cloneNode = function (deep) {
+      var c = oClone.call(this, deep);
+      if (c && c.__id !== undefined) ceScan(c.__id, true);
+      return c;
+    };
+  };
+  var NAME_RE = /^[a-z][-._0-9a-z·À-ÖØ-öø-ͽͿ-῿‌‍‿⁀⁰-↏Ⰰ-⿯、-퟿豈-﷏ﷰ-�]*$/;
+  var RESERVED = ['annotation-xml', 'color-profile', 'font-face', 'font-face-src', 'font-face-uri', 'font-face-format', 'font-face-name', 'missing-glyph'];
+  var ceValidName = function (n) { return NAME_RE.test(n) && n.indexOf('-') > 0 && RESERVED.indexOf(n) < 0; };
+  // The HTMLElement constructor (js.rs forwards `new.target` here).
+  ceNew = function (nt) {
+    var d = ceByCtor.get(nt);
+    if (!d) throw new TypeError('Illegal constructor');
+    var top = d.stack[d.stack.length - 1];
+    if (top) {
+      if (top.done) throw new TypeError('This instance is already constructed');
+      top.done = true;
+      Object.setPrototypeOf(top.el, nt.prototype);
+      return top.el;
+    }
+    var id = __d_create(1, d.ext || d.name), el = wrap(id);
+    if (d.ext) __d_setattr(id, 'is', d.name);
+    Object.setPrototypeOf(el, nt.prototype);
+    ceState[id] = d;
+    return el;
+  };
+  Object.defineProperty(g, '__ce_new', { value: ceNew });
+  var CER = g.CustomElementRegistry = function CustomElementRegistry() { throw new TypeError('Illegal constructor'); };
+  var cerErr = function (m, n) { return new DOMException(m, n); };
+  CER.prototype.define = function (name, ctor, opts) {
+    name = String(name);
+    if (typeof ctor !== 'function' || !ctor.prototype || typeof ctor.prototype !== 'object')
+      throw new TypeError("Failed to execute 'define' on 'CustomElementRegistry': parameter 2 is not of type 'Function'.");
+    if (!ceValidName(name)) throw cerErr("Failed to execute 'define' on 'CustomElementRegistry': \"" + name + '" is not a valid custom element name', 'SyntaxError');
+    if (ceByName[name]) throw cerErr("Failed to execute 'define' on 'CustomElementRegistry': the name \"" + name + '" has already been used with this registry', 'NotSupportedError');
+    if (ceByCtor.has(ctor)) throw cerErr("Failed to execute 'define' on 'CustomElementRegistry': this constructor has already been used with this registry", 'NotSupportedError');
+    var ext = null;
+    if (opts && opts.extends != null) {
+      ext = String(opts.extends).toLowerCase();
+      if (ceValidName(ext)) throw cerErr("Failed to execute 'define' on 'CustomElementRegistry': \"" + ext + '" is a valid custom element name', 'NotSupportedError');
+    }
+    var P = ctor.prototype, observed = [], oa = ctor.observedAttributes;
+    if (oa != null) observed = Array.prototype.map.call(Array.from(oa), String);
+    var d = { name: name, ctor: ctor, ext: ext, stack: [], observed: observed,
+      connected: P.connectedCallback, disconnected: P.disconnectedCallback, changed: observed.length ? P.attributeChangedCallback : undefined };
+    if (!ceOn) { ceOn = true; ceInstall(); }
+    ceByName[name] = d; ceByCtor.set(ctor, d);
+    var names = Object.keys(ceByName);
+    ceSel = names.some(function (k) { return k.indexOf('.') >= 0; }) ? '*'
+      : names.map(function (k) { return ceByName[k].ext ? ceByName[k].ext + '[is]' : k; }).join(',');
+    var l = __d_query(0, ceSel, false);
+    for (var i = 0; i < l.length; i++) { if (!ceState[l[i]] && ceDefFor(l[i]) === d) ceUpgrade(l[i], d, true); }
+    if (ceWhen[name]) { var w = ceWhen[name]; delete ceWhen[name]; w.resolve(ctor); }
+  };
+  CER.prototype.get = function (name) { var d = ceByName[String(name)]; return d ? d.ctor : undefined; };
+  CER.prototype.getName = function (ctor) { var d = ceByCtor.get(ctor); return d ? d.name : null; };
+  CER.prototype.whenDefined = function (name) {
+    name = String(name);
+    if (!ceValidName(name)) return Promise.reject(cerErr("Failed to execute 'whenDefined' on 'CustomElementRegistry': \"" + name + '" is not a valid custom element name', 'SyntaxError'));
+    if (ceByName[name]) return Promise.resolve(ceByName[name].ctor);
+    if (!ceWhen[name]) { var w = {}; w.promise = new Promise(function (res) { w.resolve = res; }); ceWhen[name] = w; }
+    return ceWhen[name].promise;
+  };
+  CER.prototype.upgrade = function (root) {
+    if (!root || root.__id === undefined) throw new TypeError("Failed to execute 'upgrade' on 'CustomElementRegistry': parameter 1 is not of type 'Node'.");
+    if (ceOn) ceScan(root.__id, true);
+  };
+  Object.defineProperty(CER.prototype, Symbol.toStringTag, { value: 'CustomElementRegistry', configurable: true });
+  Object.defineProperty(g, 'customElements', { value: Object.create(CER.prototype), writable: true, configurable: true, enumerable: true });
+  // No native Shadow DOM (QY6 memo): fail loudly and harmlessly.
+  ElementProto.attachShadow = function () {
+    __scratchy_err('scratchy: js: not implemented: Element.attachShadow');
+    throw new DOMException('Element.attachShadow is not implemented', 'NotSupportedError');
+  };
 })(globalThis);
 "#;

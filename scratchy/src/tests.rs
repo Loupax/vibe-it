@@ -12050,3 +12050,218 @@ fn qf4_blob_stream_and_body_stream_read_marks_used() {
     );
     assert_eq!(log, ["log:function", "log:false", "log:3 false", "log:true", "log:TypeError"], "{log:?}");
 }
+
+// ---- QY6e: Custom Elements.
+
+#[test]
+fn qy6e_define_upgrades_existing_runs_ctor_once_and_connected() {
+    let log = run_in_html(
+        "<html><body><x-a id=a1 k=v></x-a><div><x-a id=a2></x-a></div></body></html>",
+        r#"let n = 0;
+         class XA extends HTMLElement {
+           static get observedAttributes() { return ['k']; }
+           constructor() { super(); n++; this.tag = 'ctor:' + this.id; }
+           connectedCallback() { console.log('conn ' + this.id); }
+           attributeChangedCallback(a, o, v) { console.log('attr ' + this.id + ' ' + a + ' ' + o + ' ' + v); }
+         }
+         const a1 = document.getElementById('a1');
+         console.log(a1 instanceof XA, a1 instanceof HTMLElement, a1.tag);
+         customElements.define('x-a', XA);
+         console.log(n, a1.tag, document.getElementById('a1') === a1, a1 instanceof XA);
+         console.log(customElements.get('x-a') === XA, customElements.getName(XA), customElements.get('x-b'));"#,
+    );
+    assert_eq!(
+        log,
+        [
+            "log:false true undefined",
+            "log:attr a1 k null v",
+            "log:conn a1",
+            "log:conn a2",
+            "log:2 ctor:a1 true true",
+            "log:true x-a undefined",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy6e_create_element_new_and_innerhtml_construct() {
+    let log = run_in_html(
+        "<html><body><div id=host></div></body></html>",
+        r#"let made = [];
+         class XB extends HTMLElement {
+           constructor() { super(); made.push('ctor'); }
+           connectedCallback() { made.push('conn'); }
+           disconnectedCallback() { made.push('disc'); }
+         }
+         customElements.define('x-b', XB);
+         const e = document.createElement('x-b');
+         console.log(e instanceof XB, e.localName, made.join());
+         const n = new XB();
+         console.log(n instanceof XB, n.localName, n.parentNode === null, made.join());
+         made.length = 0;
+         const host = document.getElementById('host');
+         host.innerHTML = '<p><x-b></x-b></p>';
+         console.log(host.querySelector('x-b') instanceof XB, made.join());
+         made.length = 0;
+         host.appendChild(e);
+         console.log(made.join());
+         made.length = 0;
+         host.removeChild(e);
+         console.log(made.join());
+         made.length = 0;
+         host.innerHTML = '';
+         console.log(made.join());
+         const frag = document.createDocumentFragment();
+         frag.appendChild(document.createElement('x-b'));
+         made.length = 0;
+         host.appendChild(frag);
+         console.log(made.join());
+         made.length = 0;
+         const c = host.firstChild.cloneNode(true);
+         console.log(c instanceof XB, made.join());"#,
+    );
+    assert_eq!(
+        log,
+        [
+            "log:true x-b ctor",
+            "log:true x-b true ctor,ctor",
+            "log:true ctor,conn",
+            "log:conn",
+            "log:disc",
+            "log:disc",
+            "log:conn",
+            "log:true ctor",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy6e_attribute_changed_only_for_observed() {
+    let log = run_in_html(
+        "<html><body><x-c id=c></x-c></body></html>",
+        r#"class XC extends HTMLElement {
+           static get observedAttributes() { return ['title', 'class']; }
+           attributeChangedCallback(a, o, v) { console.log(a + ':' + o + '>' + v); }
+         }
+         customElements.define('x-c', XC);
+         const c = document.getElementById('c');
+         c.setAttribute('title', 'a');
+         c.setAttribute('lang', 'x');
+         c.setAttribute('title', 'b');
+         c.className = 'k';
+         c.classList.add('m');
+         c.removeAttribute('title');
+         c.removeAttribute('title');
+         c.toggleAttribute('title');
+         c.id = 'd';"#,
+    );
+    assert_eq!(
+        log,
+        [
+            "log:title:null>a",
+            "log:title:a>b",
+            "log:class:null>k",
+            "log:class:k>k m",
+            "log:title:b>null",
+            "log:title:null>",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy6e_when_defined_resolves_and_errors() {
+    let log = run_in_html(
+        "<html><body></body></html>",
+        r#"class XD extends HTMLElement {}
+         customElements.whenDefined('x-d').then(function (c) { console.log('resolved ' + (c === XD)); });
+         customElements.whenDefined('x-d').then(function () { console.log('second'); });
+         console.log('before');
+         customElements.define('x-d', XD);
+         customElements.whenDefined('x-d').then(function (c) { console.log('already ' + (c === XD)); });
+         customElements.whenDefined('bad').catch(function (e) { console.log('rej ' + e.name); });
+         const names = [];
+         const tryDef = function (n, C, o) { try { customElements.define(n, C, o); names.push('ok'); } catch (e) { names.push(e.name); } };
+         tryDef('nohyphen', class extends HTMLElement {});
+         tryDef('Has-Upper', class extends HTMLElement {});
+         tryDef('font-face', class extends HTMLElement {});
+         tryDef('x-d', class extends HTMLElement {});
+         tryDef('x-e', XD);
+         tryDef('x-f', 5);
+         console.log(names.join());"#,
+    );
+    assert_eq!(
+        log,
+        [
+            "log:before",
+            "log:SyntaxError,SyntaxError,SyntaxError,NotSupportedError,NotSupportedError,TypeError",
+            "log:resolved true",
+            "log:second",
+            "log:already true",
+            "log:rej SyntaxError",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy6e_upgrade_and_is_and_attach_shadow() {
+    let log = run_in_html(
+        "<html><body><button id=b is=x-btn></button></body></html>",
+        r#"class XBtn extends HTMLButtonElement { constructor() { super(); this.mark = 'built'; } connectedCallback() { console.log('conn'); } }
+         customElements.define('x-btn', XBtn, { extends: 'button' });
+         const b = document.getElementById('b');
+         console.log(b instanceof XBtn, b.mark);
+         const d = document.createElement('div');
+         d.innerHTML = '<x-g></x-g>';
+         class XG extends HTMLElement { constructor() { super(); this.up = 1; } }
+         customElements.define('x-g', XG);
+         console.log(d.firstChild.up);
+         customElements.upgrade(d);
+         console.log(d.firstChild.up);
+         try { d.attachShadow({ mode: 'open' }); } catch (e) { console.log(e.name); }
+         try { new HTMLElement(); } catch (e) { console.log(e.name); }"#,
+    );
+    assert_eq!(
+        log,
+        [
+            "log:conn",
+            "log:true built",
+            "log:undefined",
+            "log:1",
+            "error:scratchy: js: not implemented: Element.attachShadow",
+            "log:NotSupportedError",
+            "log:TypeError",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy6e_zero_cost_without_define() {
+    let log = run_in_html(
+        "<html><body><div id=h></div></body></html>",
+        r#"const h = document.getElementById('h');
+         for (let i = 0; i < 20; i++) { const e = document.createElement('x-z'); e.setAttribute('a', i); h.appendChild(e); }
+         h.innerHTML = '<x-z></x-z>'; h.textContent = 'x'; h.removeChild(h.firstChild);
+         console.log(__ce_stats.hooks);
+         customElements.define('x-y', class extends HTMLElement {});
+         h.appendChild(document.createElement('div'));
+         console.log(__ce_stats.hooks > 0);"#,
+    );
+    assert_eq!(log, ["log:0", "log:true"], "{log:?}");
+}
+
+#[test]
+fn qy6e_document_write_upgrades() {
+    let out = qa13_run(
+        "<html><body><script>\
+         class XW extends HTMLElement { connectedCallback() { console.log('w conn'); } }\
+         customElements.define('x-w', XW);\
+         document.write('<x-w></x-w>');\
+         console.log('end');</script></body></html>",
+    );
+    assert_eq!(out, ["log:w conn", "log:end"], "{out:?}");
+}
