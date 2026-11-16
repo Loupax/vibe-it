@@ -545,6 +545,92 @@ fn install_env(ctx: &Ctx<'_>) -> rquickjs::Result<()> {
     ctx.globals().set("__scratchy_env", env)
 }
 
+/// QY9: the eleven URL components the JS `URL` class caches, in order:
+/// href, protocol, username, password, host, hostname, port, pathname,
+/// search, hash, origin.
+fn url_parts(url: &Url) -> Vec<String> {
+    let origin = match url.scheme() {
+        "http" | "https" | "ftp" | "ws" | "wss" => url.origin().ascii_serialization(),
+        _ => "null".to_string(),
+    };
+    let port = url.port().map(|p| p.to_string()).unwrap_or_default();
+    let hostname = url.host_str().unwrap_or("").to_string();
+    let host = if port.is_empty() { hostname.clone() } else { format!("{hostname}:{port}") };
+    vec![
+        url.as_str().to_string(),
+        format!("{}:", url.scheme()),
+        url.username().to_string(),
+        url.password().unwrap_or("").to_string(),
+        host,
+        hostname,
+        port,
+        url.path().to_string(),
+        url.query().filter(|q| !q.is_empty()).map(|q| format!("?{q}")).unwrap_or_default(),
+        url.fragment().filter(|f| !f.is_empty()).map(|f| format!("#{f}")).unwrap_or_default(),
+        origin,
+    ]
+}
+
+/// `__url_parse(input, base)`: components, or `None` when invalid.
+fn url_parse_native(input: String, base: Option<String>) -> Option<Vec<String>> {
+    let parsed = match base.filter(|b| !b.is_empty()) {
+        Some(b) => Url::parse(&b).ok()?.join(&input).ok()?,
+        None => Url::parse(&input).ok()?,
+    };
+    Some(url_parts(&parsed))
+}
+
+/// `__url_set(href, component, value)`: apply a setter, return the new
+/// components (unchanged ones when the setter rejects the value).
+fn url_set_native(href: String, key: String, value: String) -> Option<Vec<String>> {
+    let mut u = Url::parse(&href).ok()?;
+    match key.as_str() {
+        "href" => u = Url::parse(&value).ok()?,
+        "protocol" => {
+            let _ = u.set_scheme(value.trim_end_matches(':'));
+        }
+        "username" => {
+            let _ = u.set_username(&value);
+        }
+        "password" => {
+            let _ = u.set_password(if value.is_empty() { None } else { Some(&value) });
+        }
+        "host" => {
+            let (h, p) = match value.rsplit_once(':') {
+                Some((h, p)) if !value.ends_with(']') && p.chars().all(|c| c.is_ascii_digit()) => (h, Some(p)),
+                _ => (value.as_str(), None),
+            };
+            if let (true, Some(p)) = (u.set_host(Some(h)).is_ok(), p) {
+                let _ = u.set_port(p.parse().ok());
+            }
+        }
+        "hostname" => {
+            let _ = u.set_host(Some(&value));
+        }
+        "port" => {
+            if value.is_empty() {
+                let _ = u.set_port(None);
+            } else {
+                let digits: String = value.chars().take_while(|c| c.is_ascii_digit()).collect();
+                if let Ok(p) = digits.parse::<u16>() {
+                    let _ = u.set_port(Some(p));
+                }
+            }
+        }
+        "pathname" => u.set_path(&value),
+        "search" => {
+            let v = value.strip_prefix('?').unwrap_or(&value);
+            u.set_query(if value.is_empty() { None } else { Some(v) });
+        }
+        "hash" => {
+            let v = value.strip_prefix('#').unwrap_or(&value);
+            u.set_fragment(if value.is_empty() { None } else { Some(v) });
+        }
+        _ => {}
+    }
+    Some(url_parts(&u))
+}
+
 fn describe_error(ctx: &Ctx<'_>, err: JsError) -> String {
     if matches!(err, JsError::Exception) {
         let value = ctx.catch();
@@ -805,6 +891,12 @@ pub(crate) fn start_scripts_clocked(
             let _ = ctx.globals().set("__scratchy_log", native);
         }
         let _ = install_env(&ctx);
+        if let Ok(f) = Function::new(ctx.clone(), url_parse_native) {
+            let _ = ctx.globals().set("__url_parse", f);
+        }
+        if let Ok(f) = Function::new(ctx.clone(), url_set_native) {
+            let _ = ctx.globals().set("__url_set", f);
+        }
         let now = Function::new(ctx.clone(), move || match &clock {
             Some(c) => c.get(),
             None => base.elapsed().as_secs_f64() * 1000.0,
@@ -818,6 +910,7 @@ pub(crate) fn start_scripts_clocked(
     let mut engine = JsEngine { ctx, rt, log, base, deadline, tripped, dirty: dirty.clone(), table: Default::default(), reqs: reqs.clone() };
     engine.eval("prelude", PRELUDE);
     engine.eval("timers", TIMERS_PRELUDE);
+    engine.eval("url", URL_PRELUDE);
     engine.table = engine.ctx.with(|ctx| js_dom::install_dom(&ctx, document, dirty.clone(), reqs.clone()));
     let mut script_els = Vec::new();
     collect_script_elements(document, &mut script_els);
@@ -834,6 +927,10 @@ pub(crate) fn start_scripts_clocked(
     engine.eval("load", FIRE_LOAD);
     Some(engine)
 }
+
+/// QY9: `URL` and `URLSearchParams`; parsing and setters are Rust natives
+/// over the `url` crate, the list/serialization logic is plain JS.
+const URL_PRELUDE: &str = include_str!("url_prelude.js");
 
 /// Q33t: `setTimeout` & co, as plain JS over a timer table; Rust only
 /// asks `__scratchy_timers_next()` (ms of the earliest due time on the

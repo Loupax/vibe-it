@@ -850,7 +850,7 @@ Phase 1 (each S, independent; do in this order):
       DONE: natives `__d_sibling`/`__d_edge_child` with a verified index
       hint (no invalidation needed); also added `nextElementSibling`/
       `previousElementSibling`. 1000 siblings 792 ms -> 1.7 ms. Commit ffd73ac.
-- [ ] QY9 [S] (P2; ddg, reddit challenge, yt/gh/bbc/guardian use it)
+- [x] QY9 [S] (99c1df0) (P2; ddg, reddit challenge, yt/gh/bbc/guardian use it)
       `URL` and `URLSearchParams`. Symptom: `ReferenceError: URL is not
       defined` (duckduckgo turbopack runtime, twice) and `URLSearchParams
       is not defined` (duckduckgo, reddit's challenge page). Fix: natives

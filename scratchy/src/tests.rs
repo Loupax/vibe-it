@@ -10666,3 +10666,85 @@ fn qy8_sibling_hint_is_o1_when_walking() {
     assert_eq!(crate::js_dom::child_index(&kids, &kids[10], 1999, &mut steps), Some(10));
     assert_eq!(crate::js_dom::child_index(&kids, &kids[10], 99999, &mut steps), Some(10));
 }
+
+// ---------- QY9: URL and URLSearchParams ----------
+
+fn qy9_run(code: &str) -> Vec<String> {
+    run_in_html("<html><body></body></html>", code)
+}
+
+#[test]
+fn qy9_url_parse_and_relative() {
+    let log = qy9_run(
+        "var u=new URL('https://u:p@Example.org:8080/a/b?x=1#frag');\
+         console.log(u.href,u.protocol,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,u.origin,u.username,u.password);\
+         console.log(new URL('../a?b=1#c','https://x.org/p/q').href, new URL('/z','https://x.org/p/q').href, String(new URL('a','https://x.org/')), JSON.stringify({u:new URL('https://x.org')}));\
+         console.log(URL.canParse('nope'), URL.canParse('a','https://x.org'), URL.parse('nope'));",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:https://u:p@example.org:8080/a/b?x=1#frag https: example.org:8080 example.org 8080 /a/b ?x=1 #frag https://example.org:8080 u p",
+            "log:https://x.org/a?b=1#c https://x.org/z https://x.org/a {\"u\":\"https://x.org/\"}",
+            "log:false true null",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy9_url_invalid_throws_type_error() {
+    let log = qy9_run("try{new URL('not a url');console.log('no')}catch(e){console.log(e instanceof TypeError, e.name)}");
+    assert_eq!(log, ["log:true TypeError"], "{log:?}");
+}
+
+#[test]
+fn qy9_search_params_live_link_both_ways() {
+    let log = qy9_run(
+        "var u=new URL('https://x.org/p?a=1&a=2');\
+         u.searchParams.set('z','1 2');\
+         console.log(u.search, u.href);\
+         u.search='?q=%C3%A9&w=a+b';\
+         console.log(u.searchParams.get('q'), u.searchParams.get('w'), u.searchParams.size);\
+         u.searchParams.delete('q'); u.searchParams.delete('w');\
+         console.log(JSON.stringify(u.search), u.href);\
+         u.pathname='/new path'; u.hash='h'; u.port='81';\
+         console.log(u.href);",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:?a=1&a=2&z=1+2 https://x.org/p?a=1&a=2&z=1+2",
+            "log:é a b 2",
+            "log:\"\" https://x.org/p",
+            "log:https://x.org:81/new%20path#h",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy9_search_params_encoding_and_iteration() {
+    let log = qy9_run(
+        "var p=new URLSearchParams('a=1&a=2&b=%20&c');\
+         console.log(p.getAll('a').length, JSON.stringify(p.get('b')), p.has('c'), p.get('nope'), p.size);\
+         var q=new URLSearchParams({k:'a b', u:'h\\u00e9llo&='});\
+         console.log(q.toString());\
+         var r=new URLSearchParams([['x','1'],['y','2']]); r.append('x','3'); r.sort();\
+         var out=[]; for (var e of r) out.push(e.join(':'));\
+         console.log(out.join(','), Array.from(r.keys()).join(''), Array.from(r.values()).join(''));\
+         var n=[]; r.forEach(function(v,k){n.push(k+v)}); console.log(n.join(','));\
+         console.log(new URLSearchParams('?a=1').toString());",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:2 \" \" true null 4",
+            "log:k=a+b&u=h%C3%A9llo%26%3D",
+            "log:x:1,x:3,y:2 xxy 132",
+            "log:x1,x3,y2",
+            "log:a=1",
+        ],
+        "{log:?}"
+    );
+}
