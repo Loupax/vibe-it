@@ -850,12 +850,31 @@ R22 copies and paste the before/after numbers in the commit.
       results come back through `__net_complete(result)`; CORS applied in
       `NetState::finish`; beacons logged and not sent; sync mode and the
       `--js-report` network section are in. Left out: see QF7a.) The engine/App plumbing.
-- [ ] QF7a [S] READY (needs QF6, DONE in ce2175a; the user must restart wire first) Gaps left by QF7: fail closed when a wire response
-      has no `X-Wire-Final-Url` ("wire is too old for page networking; restart
-      it": today a missing header falls back to the request URL, because the
-      user's wire is not updated yet); CORS checks on redirect hops
-      (`check_redirect_hop`); preflight (QF13); progress callback for XHR (QF9);
-      wire `X-Wire-Target-Class` to warn for DNS names that resolve privately.
+- [x] QF7a [S] DONE (commit 4f58afe) Gaps left by QF7. Done: page networking (fetch/XHR/beacons,
+      everything through `__net_send`) FAILS CLOSED on an old wire: an answer
+      with `X-Wire-Version` < 2 or absent (such a wire also sends no
+      `X-Wire-Final-Url`) logs ONE line `scratchy: page networking disabled: wire
+      is too old (restart it)`, fails that request, and every later request is
+      refused without more log lines (wire v2: networking works, no cookies,
+      QF14b logs that once; v3: everything). `X-Wire-Target-Class` that is not
+      public for a request whose URL host is a NAME (the URL check could not know)
+      writes the usual `net warning` line (private_targets Warn; Allow is silent);
+      in Block mode wire's 403 `policy` answer becomes `blocked: <host> resolves to
+      a non-public address (private_targets is block)`. `x-wire-*` response
+      headers are no longer visible to the page. The test builds do not check the
+      version (the fake executors send none): `NetState.check_wire_version`.
+      Left out, split as QF7b: CORS checks on every redirect hop (wire follows
+      redirects itself and only reports `X-Wire-Hop-Classes`, a list of target
+      classes, not each hop's URL/headers, so only the final answer is checked,
+      against `Origin: null` after a cross-origin hop: QF13); a warning per hop
+      class (only the worst class is reported); progress callback for XHR (QF9).
+- [ ] QF7b [M] READY (needs a wire change) Per-hop CORS. wire would have to send
+      each hop's URL and its CORS headers (e.g. `X-Wire-Hop-Urls`,
+      `X-Wire-Hop-Acao`), or scratchy asks wire to NOT follow redirects
+      (`X-Wire-Max-Redirects: 0`, as QF13 does for preflighted requests) and
+      follows them itself (re-running the request policy and the CORS check on
+      each hop). The second is a scratchy-only change but costs one wire round
+      trip per hop and needs the cookie jar rules per hop.
       Original QF7 text follows (kept for reference):
 - [ ] (QF7 original) READY (needs QF4, QF5, QF6) The engine/App plumbing.
       `JsRequests.net: Vec<NetRequest { id, method, url, headers, body
