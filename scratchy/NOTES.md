@@ -3259,3 +3259,16 @@ After a fetched page arrives, `handle_nav_result` looks for the first `meta[http
 
 ## Cascade layers (QY17)
 `@layer` is parsed in `TopLevelParser` (`LayerState` registers every mentioned layer path and its prefixes in first-mention order; `parse_stylesheet` ranks them afterwards, sub-layers before their parent's own rules). `StyleRule::layer`: 0 unlayered, 1 user-agent (`parse_ua_stylesheet`), n>=2 author layer. The cascade key in `matching_declarations_for` is a u64: bit 62 important, bits 32..61 layer rank (`normal_key`; reversed for important by `important_key`/`to_important`), low bits specificity. `@import ... layer(x)` is expanded into `@layer x { ... }` text by `expand_css_imports`.
+
+## FormData (QF3)
+
+Same file, after Blob/File. Entries are `[name, value]` pairs in a WeakMap
+(value: string or File). A Blob value becomes a File (name `blob` unless a
+filename is given). Names and values are USVString-normalised (lone
+surrogates to U+FFFD). Iteration (`entries/keys/values/Symbol.iterator`) is
+live over the list, in insertion order. `new FormData(form)` never reads the
+controls: it logs `scratchy: js: not implemented: FormData(form) (waits for
+Q30e)` and stays empty (forms rule, AGENTS.md). A FormData request/response
+body is serialised as multipart/form-data with a random boundary (QF13 partly
+done, serialisation only). `formData()` still parses urlencoded bodies only,
+so a multipart body rejects with TypeError (QF4a).

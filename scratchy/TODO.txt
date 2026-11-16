@@ -143,6 +143,57 @@ App owns everything else, wire does the network):
    origin checks would be wrong: guardian's beacon carried
    `url=file:///tmp/...`.
 
+USER ANSWERS 2026-11-16 (these override the defaults listed below; the
+coordinator recorded them from the user's message):
+- QF-D1 CORS: DEFAULT (browser rules). DECIDED.
+- QF-D2 Cookies: an IN-MEMORY cookie jar for now (no disk). Making it
+  persistent will be a separate later action item (see QF-D7). DECIDED.
+  QF14 (= Q30f) is therefore READY as the in-memory jar; the third-party
+  cookie rule and CORS credentials mode from the QF-D2 text below still
+  need a sensible default (use: send cookies only for same-site requests
+  with `credentials` 'include'/'same-origin' per the Fetch spec; third-party
+  cookies are NOT sent; document it). Forms stay placeholder-only (AGENTS.md).
+- QF-D3 Analytics beacons (`navigator.sendBeacon`, `fetch` with `keepalive`
+  or `no-cors`, `<a ping>`): DECIDED (user, 2026-11-16): LOG IN DETAIL, DO NOT
+  EMIT. Every beacon attempt writes one clear console line (QJ2 format) with
+  the API used, method, absolute URL, content type and body size / first 200
+  bytes of text bodies, the page URL, and the word `suppressed (not sent)`.
+  `sendBeacon` returns true; `fetch`/XHR in this class resolve with an opaque
+  or synthetic empty response, as a browser would for an unreadable answer. A
+  policy flag (`beacons_send: false`) in the same limits/policy struct lets the
+  user turn real sending on later.
+- QF-D4 Methods: ALL methods (GET/HEAD/POST/PUT/PATCH/DELETE/OPTIONS) with
+  request bodies, "the same way as GET through wire". DECIDED. QF13 is READY
+  (wire must carry method, headers and body; QF6/QF5 codec change). CORS
+  preflight (OPTIONS) follows QF-D1 browser rules. Form SUBMISSION stays a
+  placeholder (AGENTS.md): this is only fetch/XHR from page scripts.
+- QF-D5 Targets: the user said "http(s) and file should be supported by
+  wire". Coordinator's reading: wire itself keeps serving http(s) and file://
+  for scratchy's own loads (opening local files, :go file://...). What a PAGE'S
+  JS may reach (localhost/private/link-local/file) is STILL OPEN and needs
+  one confirmation; working default until answered: page JS may fetch only
+  public http(s) (see QF-D5 below), file:// pages per QF-D6.
+- QF-D6 file:// pages: STILL OPEN (default below: nothing local).
+- QF-D7 Persistence: NOTHING persisted yet. Mock persistence IN MEMORY (cookie
+  jar, localStorage/sessionStorage, any cache) until the user decides how
+  persistence works. DECIDED. QF15 is not needed now; keep every store behind
+  one small interface so a persistent backend can replace it later.
+- QF-D8 Sync XHR: DECIDED (user, 2026-11-16): log to the console and BLOCK
+  until the request is done. `open(..., false)` + `send()` performs the real
+  request synchronously on the main thread, with log lines for start, bytes,
+  elapsed time and result. Risk (R8): a stalled main thread can make the
+  compositor drop the client, so sync XHR gets its own SHORTER timeout
+  (default 5 s, `sync_xhr_timeout_ms` in the limits struct) and, on timeout,
+  throws `NetworkError` after logging. Everything is in one place (QF-D9).
+- QF-D9 Limits: DECIDED (user, 2026-11-16): keep the listed numbers, held in
+  ONE place so they are easy to tweak: a single `NetLimits`/policy struct in
+  scratchy (QF5, src/net_policy.rs) holds every number (per-response bytes,
+  in-flight bytes, parallelism, requests per page, request timeout, sync XHR
+  timeout, redirect limit, URL length, beacon policy flag). No other file
+  hard-codes a limit. Wire gets the per-request caps from scratchy (QF6:
+  request headers such as `X-Wire-Max-Bytes` / `X-Wire-Timeout-Ms`) and keeps
+  its own hard ceiling only as a backstop plus the resolved-IP public check.
+
 USER DECISIONS (READY items implement the first, most restrictive
 option; changing it later is a small change in QF5/QF8):
 - [ ] QF-D1 CORS stance. (B, default, recommended) browser rules for
@@ -231,7 +282,7 @@ R22 copies and paste the before/after numbers in the commit.
       createObjectURL/revoke round trip. Payoff: prerequisite for
       `response.blob()` and XHR `responseType='blob'` (Blob refs: yt 8,
       bbc 9, guardian 4).
-- [ ] QF3 [S] READY `FormData` as a data class only (no submission:
+- [x] QF3 cc1b1ff [S] DONE `FormData` as a data class only (no submission:
       forms rule in AGENTS.md). `new FormData()`, append/set (a Blob
       value becomes a File named 'blob' unless a filename is given),
       get/getAll/has/delete/keys/values/entries/forEach and iteration in
