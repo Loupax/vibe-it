@@ -352,7 +352,7 @@ R22 copies and paste the before/after numbers in the commit.
       Guardian after QF4: `new Request('')` succeeds and the next failure is
       `ActiveXObject is not defined` (the polyfill.io fetch polyfill falls
       back to XHR; expected until QF8).
-- [x] QF5 [S] DONE (commit HASH_QF5; src/net_policy.rs + codec in src/net.rs;
+- [x] QF5 [S] DONE (commits 315d309 + 88b0376; src/net_policy.rs + codec in src/net.rs;
       implemented with the later user answers D3/D5/D6/D8/D9: ONE
       `RequestPolicy` struct holds every number; `private_targets`/
       `file_targets: PrivatePolicy` default Warn; `check_request` returns a
