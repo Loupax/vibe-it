@@ -116,6 +116,14 @@ pub(crate) enum InlineItem {
     /// Embedded`'s own `Laid` is: keeps this enum's own size small
     /// regardless of how large `LayoutBox` gets.
     Embedded(Box<LayoutBox>),
+    /// QW4: the horizontal margin + padding + border of one edge of a
+    /// non-replaced inline element (`start` = its left/first-fragment
+    /// edge). Adds `w` to the line advance; `bg` is the element's
+    /// background, painted over the padding/border part (`pad_w`, the part
+    /// of `w` that is inside the border box; margin is transparent).
+    /// A start spacer never separates from the content after it, an end
+    /// spacer never from the content before it.
+    Spacer { w: f32, pad_w: f32, bg: Option<TextColor>, start: bool },
 }
 
 pub(crate) enum BoxContent {
@@ -1242,7 +1250,7 @@ pub(crate) fn shape_spans(
             // keeps any run containing one of these out of this
             // function entirely, routing it to `measure_mixed_inline`
             // instead (same reasoning the `Image` arm already has).
-            InlineItem::Image { .. } | InlineItem::Embedded(_) => None,
+            InlineItem::Image { .. } | InlineItem::Embedded(_) | InlineItem::Spacer { .. } => None,
         })
         .collect();
     let metrics = Metrics::new(16.0, 20.0);
@@ -1702,7 +1710,7 @@ fn measure_inner<'a>(
 
     let mut laid = match &b.content {
         BoxContent::Inline(items)
-            if items.iter().any(|i| matches!(i, InlineItem::Image { .. } | InlineItem::Embedded(_)))
+            if items.iter().any(|i| matches!(i, InlineItem::Image { .. } | InlineItem::Embedded(_) | InlineItem::Spacer { .. }))
                 || (!floats.is_empty() && content_y < floats.max_bottom())
                 || items.iter().any(|i| matches!(i, InlineItem::Text(_, span) if span.word_spacing != 0.0)) =>
         {
@@ -2671,6 +2679,7 @@ pub(crate) fn measure_mixed_inline<'a>(
         /// already has (only horizontal margin reserves real line
         /// space — see `advance_w`), not a new one introduced here.
         Embedded { laid: Option<Laid>, own_pending: Vec<PendingPositioned<'a>>, advance_w: f32, h: f32, style: ComputedStyle },
+        Spacer { w: f32, pad_w: f32, bg: Option<TextColor>, start: bool },
     }
 
     let mut measured: Vec<Measured<'a>> = Vec::new();
@@ -2682,6 +2691,9 @@ pub(crate) fn measure_mixed_inline<'a>(
     let mut chunk_text: HashMap<usize, (&str, SpanStyle)> = HashMap::new();
     for (item_idx, item) in items.iter().enumerate() {
         match item {
+            InlineItem::Spacer { w, pad_w, bg, start } => {
+                measured.push(Measured::Spacer { w: *w, pad_w: *pad_w, bg: *bg, start: *start });
+            }
             InlineItem::Text(text, span) if text == BR_TEXT => {
                 // `<br>` (Q41): a zero-width forced break whose height is
                 // the line height of the surrounding text. One id always.
@@ -2890,14 +2902,30 @@ pub(crate) fn measure_mixed_inline<'a>(
             Measured::Word { width, .. } => *width,
             Measured::Break { .. } => 0.0,
             Measured::Image { advance_w, .. } | Measured::Embedded { advance_w, .. } => *advance_w,
+            Measured::Spacer { w, .. } => *w,
         };
-        if !current.is_empty() && !hangs && s.white_space != WhiteSpace::Nowrap && cursor_x + w > avail_w {
+        // QW4: a start spacer wraps together with the content after it, an
+        // end spacer never wraps away from the content before it.
+        let (check_w, hangs) = match m {
+            Measured::Spacer { start: true, w, .. } => {
+                let next = match measured.get(i + 1) {
+                    Some(Measured::Word { width, .. }) => *width,
+                    Some(Measured::Image { advance_w, .. } | Measured::Embedded { advance_w, .. }) => *advance_w,
+                    _ => 0.0,
+                };
+                (*w + next, hangs)
+            }
+            Measured::Spacer { start: false, .. } => (w, true),
+            _ => (w, hangs),
+        };
+        if !current.is_empty() && !hangs && s.white_space != WhiteSpace::Nowrap && cursor_x + check_w > avail_w {
             let line_height = current
                 .iter()
                 .map(|&(i, _)| match &measured[i] {
                     Measured::Word { height, .. } | Measured::Break { height } => *height,
                     Measured::Image { img_h, .. } => *img_h,
                     Measured::Embedded { h, .. } => *h,
+                    Measured::Spacer { .. } => 0.0,
                 })
                 .fold(0.0f32, f32::max);
             lines.push((left_bound, avail_w, std::mem::take(&mut current)));
@@ -2919,6 +2947,7 @@ pub(crate) fn measure_mixed_inline<'a>(
                     Measured::Word { height, .. } | Measured::Break { height } => *height,
                     Measured::Image { img_h, .. } => *img_h,
                     Measured::Embedded { h, .. } => *h,
+                    Measured::Spacer { .. } => 0.0,
                 })
                 .fold(0.0f32, f32::max);
             lines.push((left_bound, avail_w, std::mem::take(&mut current)));
@@ -2965,6 +2994,7 @@ pub(crate) fn measure_mixed_inline<'a>(
                 Measured::Word { height, .. } | Measured::Break { height } => *height,
                 Measured::Image { img_h, .. } => *img_h,
                 Measured::Embedded { h, .. } => *h,
+                Measured::Spacer { .. } => 0.0,
             })
             .fold(0.0f32, f32::max);
         let line_w = line
@@ -2974,6 +3004,7 @@ pub(crate) fn measure_mixed_inline<'a>(
                     Measured::Word { width, .. } => *width,
                     Measured::Break { .. } => 0.0,
                     Measured::Image { advance_w, .. } | Measured::Embedded { advance_w, .. } => *advance_w,
+            Measured::Spacer { w, .. } => *w,
                 }
             })
             .unwrap_or(0.0);
@@ -3096,6 +3127,30 @@ pub(crate) fn measure_mixed_inline<'a>(
                     idx += 1;
                 }
                 Measured::Break { .. } => {
+                    idx += 1;
+                }
+                Measured::Spacer { pad_w, bg, start, w } => {
+                    // Paint the background over the padding/border part only
+                    // (the margin part sits outside the border box).
+                    if let (Some(bg), true) = (bg, *pad_w > 0.0) {
+                        let mut st = anonymous_style(s.inherited());
+                        st.background_color = Some(*bg);
+                        let x = if *start { final_x + (*w - *pad_w) } else { final_x };
+                        positioned.push(MixedPositioned::Embedded(Box::new(Laid {
+                            style: st,
+                            x,
+                            y: content_y + cursor_y,
+                            w: *pad_w,
+                            h: line_height,
+                            background_image: None,
+                            content: LaidContent::Blocks(Vec::new()),
+                            positioned: Vec::new(),
+                            fixed: false,
+                            ink: Ink::UNKNOWN,
+                            sticky: None,
+                            scroll: None,
+                        })));
+                    }
                     idx += 1;
                 }
                 Measured::Word { source: WordSource::Cached(id), width, height } => {

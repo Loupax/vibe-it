@@ -348,7 +348,7 @@ IntersectionObserver and matchMedia are not used by any of the site's scripts.
       but its cursor (`cursor` highlight) and search hits (`find`) are
       invisible; layout.html styles both. Also `caretPositionFromPoint`
       (click-to-move-cursor; feature-detected, silently does nothing).
-- [ ] QW4 [M] (P1, user bug report 2026-11-16) Horizontal margin and padding on
+- [x] QW4 (commit cf159bc) [M] (P1, user bug report 2026-11-16) Horizontal margin and padding on
       INLINE (non-replaced) elements are ignored, so adjacent links run together
       (social.loupax.com/discover: "HomeDiscover", tag cloud with no gaps; the
       markup has no whitespace, spacing is CSS only: `nav a{margin-right:.75rem}`,
