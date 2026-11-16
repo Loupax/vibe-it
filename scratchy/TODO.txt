@@ -361,7 +361,7 @@ IntersectionObserver and matchMedia are not used by any of the site's scripts.
       Acceptance: unit test with the repro, WPT no pass->fail, before/after
       screenshots of social.loupax.com/discover, wikipedia.org, en.wikipedia
       Main_Page, news.ycombinator.com.
-- [ ] QW5 [S] (P1, user bug report 2026-11-16) The HTML `hidden` attribute is not
+- [x] QW5 [S] (P1, user bug report 2026-11-16) The HTML `hidden` attribute is not
       honoured: src/default.css has no `[hidden]` rule. social.loupax.com marks its
       tag list `<p class="tags" id="vimpagetags" hidden>` (never meant to show; vim.js
       reads it via querySelectorAll, so it must stay in the DOM). Fix: UA rule
