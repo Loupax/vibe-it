@@ -23,6 +23,10 @@ pub(crate) fn set_page_url(url: Option<&Url>) {
     PAGE_URL.with(|u| *u.borrow_mut() = url.cloned());
 }
 
+pub(crate) fn page_url() -> Option<Url> {
+    PAGE_URL.with(|u| u.borrow().clone())
+}
+
 /// Viewport reported as `window.innerWidth/innerHeight` until the real
 /// size is plumbed through (new item Q33b2).
 const DEFAULT_VIEWPORT: (u32, u32) = (1024, 768);
@@ -45,10 +49,31 @@ pub(crate) enum ScriptRef {
     Inline(String),
     /// The raw `src` attribute, unresolved.
     External(String),
+    /// QY15: `<script type=module>` with inline code.
+    ModuleInline(String),
+    /// QY15: `<script type=module src=...>`, `src` unresolved.
+    ModuleExternal(String),
+    /// QY15: `<script type=importmap>` JSON text.
+    ImportMap(String),
+}
+
+/// QY15: what a `ScriptSource` is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum ScriptKind {
+    #[default]
+    Classic,
+    /// An entry module script (run after the classic ones, in order).
+    Module,
+    /// A pre-fetched module that is only imported, never run by itself.
+    ModuleDep,
+    /// `code` is the import map JSON.
+    ImportMap,
+    /// A module script whose fetch failed: `code` is the message to log.
+    ModuleError,
 }
 
 /// A script ready to run: `name` is only used in error messages.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub(crate) struct ScriptSource {
     pub(crate) name: String,
     pub(crate) code: String,
@@ -56,6 +81,11 @@ pub(crate) struct ScriptSource {
     /// (the `find_external_resources` order), so `document.currentScript`
     /// can find the element. `None` = no element (tests).
     pub(crate) index: Option<usize>,
+    /// QY15: classic or one of the module kinds.
+    pub(crate) kind: ScriptKind,
+    /// QY15: the document base URL (resolves relative imports of inline
+    /// modules and dynamic `import()` from classic scripts).
+    pub(crate) base: Option<String>,
 }
 
 /// Classic script `type` values (absent/empty counts); `module`,
@@ -78,15 +108,21 @@ pub(crate) fn is_classic_script_type(ty: Option<&str>) -> bool {
         )
 }
 
-/// The `ScriptRef` for a `<script>` element, `None` if it isn't a
-/// runnable classic script. (`language=` and `nomodule` are ignored.)
+/// The `ScriptRef` for a `<script>` element, `None` if it isn't runnable
+/// (QY15: classic, module or importmap). `nomodule` classic scripts are
+/// skipped (this engine supports modules). `language=` is ignored.
 pub(crate) fn script_ref(handle: &Handle) -> Option<ScriptRef> {
-    if !is_classic_script_type(element_attr(handle, "type").as_deref()) {
+    let ty = element_attr(handle, "type");
+    let tl = ty.as_deref().map(|t| t.trim().to_ascii_lowercase());
+    let module = tl.as_deref() == Some("module");
+    let importmap = tl.as_deref() == Some("importmap");
+    if !module && !importmap && (!is_classic_script_type(ty.as_deref()) || element_attr(handle, "nomodule").is_some()) {
         return None;
     }
-    if let Some(src) = element_attr(handle, "src") {
+    let src = if importmap { None } else { element_attr(handle, "src") };
+    if let Some(src) = src {
         let src = src.trim();
-        return (!src.is_empty()).then(|| ScriptRef::External(src.to_string()));
+        return (!src.is_empty()).then(|| if module { ScriptRef::ModuleExternal(src.to_string()) } else { ScriptRef::External(src.to_string()) });
     }
     let mut code = String::new();
     for child in handle.children.borrow().iter() {
@@ -94,7 +130,16 @@ pub(crate) fn script_ref(handle: &Handle) -> Option<ScriptRef> {
             code.push_str(&contents.borrow());
         }
     }
-    (!code.trim().is_empty()).then_some(ScriptRef::Inline(code))
+    if code.trim().is_empty() {
+        return None;
+    }
+    Some(if importmap {
+        ScriptRef::ImportMap(code)
+    } else if module {
+        ScriptRef::ModuleInline(code)
+    } else {
+        ScriptRef::Inline(code)
+    })
 }
 
 /// QB8: every runnable classic `<script>` element in document order, the
@@ -112,48 +157,74 @@ fn collect_script_elements(handle: &Handle, out: &mut Vec<Handle>) {
 }
 
 /// Inline scripts only, in document order — for pages with no way to
-/// fetch external ones (no `--socket`, no base URL).
+/// fetch external ones (no `--socket`, no base URL). Inline modules run
+/// too (their imports can only be `data:` URLs).
 pub(crate) fn inline_scripts(document: &Handle) -> Vec<ScriptSource> {
     let mut res = ExternalResources::default();
     find_external_resources(document, &mut res);
-    res.scripts
-        .into_iter()
-        .enumerate()
-        .filter_map(|(i, s)| match s {
-            ScriptRef::Inline(code) => Some(ScriptSource { name: format!("inline script #{}", i + 1), code, index: Some(i) }),
-            ScriptRef::External(_) => None,
-        })
-        .collect()
+    let base = Url::parse("about:blank").expect("static url");
+    let nofetch = |_: &Url| None;
+    // Externals become empty placeholders (keeps the indices aligned with
+    // the document's script elements), dropped again below.
+    let refs: Vec<ScriptRef> = res.scripts.into_iter().map(|r| if matches!(r, ScriptRef::External(_) | ScriptRef::ModuleExternal(_)) { ScriptRef::Inline(String::new()) } else { r }).collect();
+    let mut out = fetch_scripts_with(&base, refs, &nofetch);
+    out.retain(|s| !(s.kind == ScriptKind::Classic && s.code.is_empty()));
+    out
 }
 
 /// Resolves every `ScriptRef` against `base` into runnable sources, in
 /// document order. External scripts are fetched concurrently (one thread
 /// each, joined in order); one that fails to fetch is logged and skipped.
+/// QY15: module scripts and the import map are included, followed by the
+/// pre-fetched static import graph (`ModuleDep`s).
 pub(crate) fn fetch_scripts(path: &std::path::Path, base: &Url, refs: Vec<ScriptRef>) -> Vec<ScriptSource> {
+    fetch_scripts_with(base, refs, &|u: &Url| fetch_script_via_wire(path, u))
+}
+
+pub(crate) fn fetch_scripts_with(base: &Url, refs: Vec<ScriptRef>, fetch: js_modules::Fetcher<'_>) -> Vec<ScriptSource> {
     if !js_enabled() {
         return Vec::new();
     }
-    thread::scope(|scope| {
+    let doc_base = base.to_string();
+    let mut scripts: Vec<ScriptSource> = thread::scope(|scope| {
         let handles: Vec<_> = refs
             .into_iter()
             .enumerate()
             .map(|(i, r)| {
-                scope.spawn(move || match r {
-                    ScriptRef::Inline(code) => Some(ScriptSource { name: format!("inline script #{}", i + 1), code, index: Some(i) }),
-                    ScriptRef::External(src) if is_data_url(&src) => match decode_data_uri_text(&src) {
-                        Some(code) => Some(ScriptSource { name: "data: script".to_string(), code, index: Some(i) }),
-                        None => {
-                            diag!("scratchy: js: malformed data: script URL");
-                            None
-                        }
-                    },
-                    ScriptRef::External(src) => {
-                        let url = resolve_href(Some(base), &src).ok()?;
-                        match fetch_script_via_wire(path, &url) {
-                            Some(code) => Some(ScriptSource { name: url.to_string(), code, index: Some(i) }),
+                let doc_base = doc_base.clone();
+                scope.spawn(move || {
+                    let mk = |name: String, code: String, kind: ScriptKind| ScriptSource { name, code, index: Some(i), kind, base: Some(doc_base.clone()) };
+                    match r {
+                        ScriptRef::Inline(code) => Some(mk(format!("inline script #{}", i + 1), code, ScriptKind::Classic)),
+                        ScriptRef::ImportMap(code) => Some(mk(format!("importmap #{}", i + 1), code, ScriptKind::ImportMap)),
+                        ScriptRef::ModuleInline(code) => Some(mk(format!("{doc_base}#inline-module-{}", i + 1), code, ScriptKind::Module)),
+                        ScriptRef::External(src) if is_data_url(&src) => match decode_data_uri_text(&src) {
+                            Some(code) => Some(mk("data: script".to_string(), code, ScriptKind::Classic)),
                             None => {
-                                diag!("scratchy: js: could not fetch script {url}");
+                                diag!("scratchy: js: malformed data: script URL");
                                 None
+                            }
+                        },
+                        ScriptRef::ModuleExternal(src) => {
+                            let url = resolve_href(Some(base), &src).ok()?;
+                            let name = url.to_string();
+                            let code = if is_data_url(&name) { decode_data_uri_text(&name) } else { fetch(&url) };
+                            Some(match code {
+                                Some(code) => mk(name, code, ScriptKind::Module),
+                                None => {
+                                    diag!("scratchy: js: could not fetch module script {url}");
+                                    mk(name, "could not fetch the module script".to_string(), ScriptKind::ModuleError)
+                                }
+                            })
+                        }
+                        ScriptRef::External(src) => {
+                            let url = resolve_href(Some(base), &src).ok()?;
+                            match fetch(&url) {
+                                Some(code) => Some(mk(url.to_string(), code, ScriptKind::Classic)),
+                                None => {
+                                    diag!("scratchy: js: could not fetch script {url}");
+                                    None
+                                }
                             }
                         }
                     }
@@ -161,7 +232,24 @@ pub(crate) fn fetch_scripts(path: &std::path::Path, base: &Url, refs: Vec<Script
             })
             .collect();
         handles.into_iter().filter_map(|h| h.join().ok().flatten()).collect()
-    })
+    });
+    // Classic scripts only matter here for literal dynamic `import('x')`.
+    let classic_dynamic = |s: &ScriptSource| s.kind == ScriptKind::Classic && s.code.contains("import(");
+    if scripts.iter().any(|s| s.kind == ScriptKind::Module || classic_dynamic(s)) {
+        let map = scripts
+            .iter()
+            .find(|s| s.kind == ScriptKind::ImportMap)
+            .and_then(|s| js_modules::ImportMap::parse(&s.code, base))
+            .unwrap_or_default();
+        let entries: Vec<(String, String)> = scripts
+            .iter()
+            .filter(|s| s.kind == ScriptKind::Module || classic_dynamic(s))
+            .map(|s| (if s.kind == ScriptKind::Module { s.name.clone() } else { doc_base.clone() }, s.code.clone()))
+            .collect();
+        let deps = js_modules::prefetch_graph(&entries, &map, base, fetch);
+        scripts.extend(deps);
+    }
+    scripts
 }
 
 /// Everything a page sees before its own scripts run. `console.*` calls
@@ -177,9 +265,26 @@ const PRELUDE: &str = r#"
     }).join(' ');
   };
   var c = {};
-  ['log', 'info', 'debug', 'warn', 'error'].forEach(function (l) {
+  ['log', 'info', 'debug', 'warn'].forEach(function (l) {
     c[l] = function () { __scratchy_log(l, fmt(Array.prototype.slice.call(arguments))); };
   });
+  // QY14: a page's own `console.error` is level `console.error`, so
+  // `--js-report` counts it apart from engine-reported errors (level
+  // `error`: uncaught exceptions, `not implemented`, rejections).
+  c.error = function () { __scratchy_log('console.error', fmt(Array.prototype.slice.call(arguments))); };
+  Object.defineProperty(g, '__scratchy_err', { value: function (t) { __scratchy_log('error', String(t)); } });
+  var depth = 0, counts = {};
+  c.assert = function (cond) {
+    if (cond) return;
+    var a = Array.prototype.slice.call(arguments, 1);
+    __scratchy_log('console.error', 'Assertion failed' + (a.length ? ': ' + fmt(a) : ''));
+  };
+  c.trace = function () { __scratchy_log('log', 'Trace: ' + fmt(Array.prototype.slice.call(arguments)) + '\n' + (new Error().stack || '')); };
+  c.dir = c.dirxml = c.table = function () { __scratchy_log('log', fmt(Array.prototype.slice.call(arguments))); };
+  c.group = c.groupCollapsed = function () { if (arguments.length) __scratchy_log('log', fmt(Array.prototype.slice.call(arguments))); depth++; };
+  c.groupEnd = function () { if (depth > 0) depth--; };
+  c.count = function (l) { l = l === undefined ? 'default' : String(l); counts[l] = (counts[l] || 0) + 1; __scratchy_log('log', l + ': ' + counts[l]); };
+  c.clear = c.time = c.timeEnd = c.timeLog = function () {};
   g.console = c;
   g.window = g; g.self = g;
   // Q33b1: constructor globals pages feature-test or extend. Real DOM
@@ -193,7 +298,13 @@ const PRELUDE: &str = r#"
   var EventTarget = ctor('EventTarget');
   var Node = ctor('Node', EventTarget);
   var Element = ctor('Element', Node);
-  var HTMLElement = ctor('HTMLElement', Element);
+  // QY6e: callable only through `super()` of a defined custom element class (js_dom `ceNew`).
+  var HTMLElement = function HTMLElement() {
+    if (!new.target || !g.__ce_new) throw new TypeError('Illegal constructor');
+    return g.__ce_new(new.target);
+  };
+  HTMLElement.prototype = Object.create(Element.prototype, { constructor: { value: HTMLElement, writable: true, configurable: true } });
+  g.HTMLElement = HTMLElement;
   var Document = ctor('Document', Node);
   ctor('HTMLDocument', Document);
   // QY4: node-type constructor globals (wrappers get these prototypes in `wrap`).
@@ -205,6 +316,33 @@ const PRELUDE: &str = r#"
     SHOW_ATTRIBUTE: 2, SHOW_TEXT: 4, SHOW_CDATA_SECTION: 8, SHOW_ENTITY_REFERENCE: 16, SHOW_ENTITY: 32,
     SHOW_PROCESSING_INSTRUCTION: 64, SHOW_COMMENT: 128, SHOW_DOCUMENT: 256, SHOW_DOCUMENT_TYPE: 512,
     SHOW_DOCUMENT_FRAGMENT: 1024, SHOW_NOTATION: 2048 };
+  // QA14: DOMException with the legacy numeric codes. A real Error object
+  // (so the JS error log prints `Name: message`) re-prototyped onto
+  // DOMException.prototype.
+  var DOM_CODES = { IndexSizeError: 1, HierarchyRequestError: 3, WrongDocumentError: 4, InvalidCharacterError: 5,
+    NoModificationAllowedError: 7, NotFoundError: 8, NotSupportedError: 9, InvalidStateError: 11, SyntaxError: 12,
+    InvalidModificationError: 13, NamespaceError: 14, InvalidAccessError: 15, TypeMismatchError: 17, SecurityError: 18,
+    NetworkError: 19, AbortError: 20, URLMismatchError: 21, QuotaExceededError: 22, TimeoutError: 23, DataCloneError: 25 };
+  var DOM_CONSTS = { INDEX_SIZE_ERR: 1, DOMSTRING_SIZE_ERR: 2, HIERARCHY_REQUEST_ERR: 3, WRONG_DOCUMENT_ERR: 4,
+    INVALID_CHARACTER_ERR: 5, NO_DATA_ALLOWED_ERR: 6, NO_MODIFICATION_ALLOWED_ERR: 7, NOT_FOUND_ERR: 8,
+    NOT_SUPPORTED_ERR: 9, INUSE_ATTRIBUTE_ERR: 10, INVALID_STATE_ERR: 11, SYNTAX_ERR: 12, INVALID_MODIFICATION_ERR: 13,
+    NAMESPACE_ERR: 14, INVALID_ACCESS_ERR: 15, VALIDATION_ERR: 16, TYPE_MISMATCH_ERR: 17, SECURITY_ERR: 18,
+    NETWORK_ERR: 19, ABORT_ERR: 20, URL_MISMATCH_ERR: 21, QUOTA_EXCEEDED_ERR: 22, TIMEOUT_ERR: 23,
+    INVALID_NODE_TYPE_ERR: 24, DATA_CLONE_ERR: 25 };
+  var DOMException = function DOMException(message, name) {
+    var e = new Error(message === undefined ? '' : String(message));
+    Object.setPrototypeOf(e, DOMException.prototype);
+    var n = name === undefined ? 'Error' : String(name);
+    Object.defineProperty(e, 'name', { value: n, writable: true, configurable: true });
+    Object.defineProperty(e, 'code', { value: DOM_CODES[n] || 0, writable: true, configurable: true });
+    return e;
+  };
+  DOMException.prototype = Object.create(Error.prototype, { constructor: { value: DOMException, writable: true, configurable: true } });
+  Object.keys(DOM_CONSTS).forEach(function (k) {
+    Object.defineProperty(DOMException, k, { value: DOM_CONSTS[k], enumerable: true });
+    Object.defineProperty(DOMException.prototype, k, { value: DOM_CONSTS[k], enumerable: true });
+  });
+  g.DOMException = DOMException;
   [['ELEMENT_NODE', 1], ['ATTRIBUTE_NODE', 2], ['TEXT_NODE', 3], ['COMMENT_NODE', 8], ['DOCUMENT_NODE', 9], ['DOCUMENT_FRAGMENT_NODE', 11]]
     .forEach(function (kv) { Node[kv[0]] = Node.prototype[kv[0]] = kv[1]; });
   // Q33d: events. One listener store (a WeakMap keyed by the target
@@ -300,12 +438,39 @@ const PRELUDE: &str = r#"
     this.inputType = init.inputType || '';
     this.isComposing = false;
   });
+  // QY12: the remaining Event subclasses: name, parent, init-dict defaults.
+  var evt = function (name, parent, dflt) {
+    var C = ctor(name, parent, function (type, init) {
+      parent.call(this, type, init);
+      init = init || {};
+      for (var k in dflt) this[k] = init[k] === undefined ? (Array.isArray(dflt[k]) ? [] : dflt[k]) : init[k];
+    });
+    return C;
+  };
+  var PE = evt('PointerEvent', MouseEvent, { pointerId: 0, width: 1, height: 1, pressure: 0, tangentialPressure: 0,
+    tiltX: 0, tiltY: 0, twist: 0, pointerType: '', isPrimary: false });
+  PE.prototype.getCoalescedEvents = PE.prototype.getPredictedEvents = function () { return []; };
+  evt('WheelEvent', MouseEvent, { deltaX: 0, deltaY: 0, deltaZ: 0, deltaMode: 0 });
+  evt('DragEvent', MouseEvent, { dataTransfer: null });
+  evt('TouchEvent', UIEvent, { touches: [], targetTouches: [], changedTouches: [], ctrlKey: false, shiftKey: false, altKey: false, metaKey: false });
+  evt('CompositionEvent', UIEvent, { data: '' });
+  evt('TransitionEvent', Event, { propertyName: '', elapsedTime: 0, pseudoElement: '' });
+  evt('AnimationEvent', Event, { animationName: '', elapsedTime: 0, pseudoElement: '' });
+  evt('PromiseRejectionEvent', Event, { promise: undefined, reason: undefined });
+  evt('HashChangeEvent', Event, { oldURL: '', newURL: '' });
+  evt('PopStateEvent', Event, { state: null });
+  evt('StorageEvent', Event, { key: null, oldValue: null, newValue: null, url: '', storageArea: null });
+  evt('MessageEvent', Event, { data: null, origin: '', lastEventId: '', source: null, ports: [] });
+  evt('ProgressEvent', Event, { lengthComputable: false, loaded: 0, total: 0 });
+  evt('ClipboardEvent', Event, { clipboardData: null });
+  evt('PageTransitionEvent', Event, { persisted: false });
+  evt('SubmitEvent', Event, { submitter: null });
   var normOpts = function (o) {
     if (typeof o === 'boolean') return { capture: o };
     o = o || {};
     return { capture: !!o.capture, once: !!o.once, passive: !!o.passive };
   };
-  var oops = function (e) { console.error('Uncaught ' + String(e) + (e && e.stack ? '\n' + e.stack : '')); };
+  var oops = function (e) { __scratchy_err('Uncaught ' + String(e) + (e && e.stack ? '\n' + e.stack : '')); };
   // QA12: inline `on<type>="..."` content attributes. Compiled lazily on
   // the first dispatch that reaches the element (recompiled when the
   // attribute text changes) as `function (event) { code }`, so `this` is
@@ -402,6 +567,12 @@ const PRELUDE: &str = r#"
   ['addEventListener', 'removeEventListener', 'dispatchEvent'].forEach(function (m) {
     Object.defineProperty(g, m, { value: function () { return ETP[m].apply(g, arguments); }, writable: true, configurable: true });
   });
+  // QY12: `Window` interface. `Window.prototype` is its own object under
+  // EventTarget.prototype (never Object.prototype: that pollutes every object
+  // and breaks ShadyDOM); the global object inherits from it.
+  var Window = ctor('Window', EventTarget, function () { throw new TypeError('Illegal constructor'); });
+  try { Object.setPrototypeOf(g, Window.prototype); } catch (e) {}
+  g.top = g.parent = g.frames = g; g.opener = null;
   var Image = ctor('Image', HTMLElement, function (w, h) {
     this.tagName = 'IMG'; this.src = ''; this.width = w || 0; this.height = h || 0;
   });
@@ -413,6 +584,21 @@ const PRELUDE: &str = r#"
     onLine: true, cookieEnabled: false, hardwareConcurrency: 1, maxTouchPoints: 0,
   };
   g.innerWidth = Number(env.innerWidth); g.innerHeight = Number(env.innerHeight);
+  // QY10: MediaQueryList. `matches` is re-evaluated on every read;
+  // `change` never fires (the viewport is fixed for the page's life
+  // until Q33b2 plumbs the real size and a resize event).
+  var MediaQueryList = ctor('MediaQueryList', EventTarget);
+  Object.defineProperty(MediaQueryList.prototype, 'matches', { get: function () { return !!__scratchy_media(this.__q)[0]; }, configurable: true, enumerable: true });
+  Object.defineProperty(MediaQueryList.prototype, 'media', { get: function () { return __scratchy_media(this.__q)[1]; }, configurable: true, enumerable: true });
+  MediaQueryList.prototype.onchange = null;
+  MediaQueryList.prototype.addListener = function (fn) { this.addEventListener('change', fn); };
+  MediaQueryList.prototype.removeListener = function (fn) { this.removeEventListener('change', fn); };
+  g.matchMedia = function (q) {
+    if (arguments.length < 1) throw new TypeError("Failed to execute 'matchMedia' on 'Window': 1 argument required, but only 0 present.");
+    var m = Object.create(MediaQueryList.prototype);
+    Object.defineProperty(m, '__q', { value: String(q) });
+    return m;
+  };
   g.outerWidth = g.innerWidth; g.outerHeight = g.innerHeight; g.devicePixelRatio = 1;
   var loc = { href: env.href, protocol: env.protocol, host: env.host, hostname: env.hostname,
     port: env.port, pathname: env.pathname, search: env.search, hash: env.hash, origin: env.origin };
@@ -514,7 +700,93 @@ fn install_env(ctx: &Ctx<'_>) -> rquickjs::Result<()> {
     ctx.globals().set("__scratchy_env", env)
 }
 
-fn describe_error(ctx: &Ctx<'_>, err: JsError) -> String {
+/// QY9: the eleven URL components the JS `URL` class caches, in order:
+/// href, protocol, username, password, host, hostname, port, pathname,
+/// search, hash, origin.
+fn url_parts(url: &Url) -> Vec<String> {
+    let origin = match url.scheme() {
+        "http" | "https" | "ftp" | "ws" | "wss" => url.origin().ascii_serialization(),
+        _ => "null".to_string(),
+    };
+    let port = url.port().map(|p| p.to_string()).unwrap_or_default();
+    let hostname = url.host_str().unwrap_or("").to_string();
+    let host = if port.is_empty() { hostname.clone() } else { format!("{hostname}:{port}") };
+    vec![
+        url.as_str().to_string(),
+        format!("{}:", url.scheme()),
+        url.username().to_string(),
+        url.password().unwrap_or("").to_string(),
+        host,
+        hostname,
+        port,
+        url.path().to_string(),
+        url.query().filter(|q| !q.is_empty()).map(|q| format!("?{q}")).unwrap_or_default(),
+        url.fragment().filter(|f| !f.is_empty()).map(|f| format!("#{f}")).unwrap_or_default(),
+        origin,
+    ]
+}
+
+/// `__url_parse(input, base)`: components, or `None` when invalid.
+fn url_parse_native(input: String, base: Option<String>) -> Option<Vec<String>> {
+    let parsed = match base.filter(|b| !b.is_empty()) {
+        Some(b) => Url::parse(&b).ok()?.join(&input).ok()?,
+        None => Url::parse(&input).ok()?,
+    };
+    Some(url_parts(&parsed))
+}
+
+/// `__url_set(href, component, value)`: apply a setter, return the new
+/// components (unchanged ones when the setter rejects the value).
+fn url_set_native(href: String, key: String, value: String) -> Option<Vec<String>> {
+    let mut u = Url::parse(&href).ok()?;
+    match key.as_str() {
+        "href" => u = Url::parse(&value).ok()?,
+        "protocol" => {
+            let _ = u.set_scheme(value.trim_end_matches(':'));
+        }
+        "username" => {
+            let _ = u.set_username(&value);
+        }
+        "password" => {
+            let _ = u.set_password(if value.is_empty() { None } else { Some(&value) });
+        }
+        "host" => {
+            let (h, p) = match value.rsplit_once(':') {
+                Some((h, p)) if !value.ends_with(']') && p.chars().all(|c| c.is_ascii_digit()) => (h, Some(p)),
+                _ => (value.as_str(), None),
+            };
+            if let (true, Some(p)) = (u.set_host(Some(h)).is_ok(), p) {
+                let _ = u.set_port(p.parse().ok());
+            }
+        }
+        "hostname" => {
+            let _ = u.set_host(Some(&value));
+        }
+        "port" => {
+            if value.is_empty() {
+                let _ = u.set_port(None);
+            } else {
+                let digits: String = value.chars().take_while(|c| c.is_ascii_digit()).collect();
+                if let Ok(p) = digits.parse::<u16>() {
+                    let _ = u.set_port(Some(p));
+                }
+            }
+        }
+        "pathname" => u.set_path(&value),
+        "search" => {
+            let v = value.strip_prefix('?').unwrap_or(&value);
+            u.set_query(if value.is_empty() { None } else { Some(v) });
+        }
+        "hash" => {
+            let v = value.strip_prefix('#').unwrap_or(&value);
+            u.set_fragment(if value.is_empty() { None } else { Some(v) });
+        }
+        _ => {}
+    }
+    Some(url_parts(&u))
+}
+
+pub(crate) fn describe_error(ctx: &Ctx<'_>, err: JsError) -> String {
     if matches!(err, JsError::Exception) {
         let value = ctx.catch();
         if let Some(ex) = value.as_object().and_then(|o| Exception::from_object(o.clone())) {
@@ -534,10 +806,32 @@ fn describe_error(ctx: &Ctx<'_>, err: JsError) -> String {
     err.to_string()
 }
 
-fn drain_jobs(rt: &Runtime, log: &dyn Fn(&str, &str)) {
-    while rt.is_job_pending() {
-        if rt.execute_pending_job().is_err() {
-            log("error", "Uncaught exception in a promise job");
+/// Runs pending promise jobs, logging the message of any job that throws
+/// (QY14), then reports rejections that stayed unhandled via the prelude's
+/// `__scratchy_rej_flush` (which may queue more jobs: loop until quiet).
+pub(crate) fn drain_jobs(ctx: &Context, rt: &Runtime, log: &dyn Fn(&str, &str)) {
+    loop {
+        while rt.is_job_pending() {
+            if let Err(job) = rt.execute_pending_job() {
+                job.0.with(|c| {
+                    let msg = describe_error(&c, JsError::Exception);
+                    log("error", &format!("Uncaught (in promise job) {msg}"));
+                });
+            }
+        }
+        let more = ctx.with(|c| {
+            let f: Option<Function> = c.globals().get("__scratchy_rej_flush").ok();
+            let Some(f) = f else { return false };
+            match f.call::<_, bool>(()) {
+                Ok(b) => b,
+                Err(e) => {
+                    log("error", &describe_error(&c, e));
+                    false
+                }
+            }
+        });
+        if !more && !rt.is_job_pending() {
+            break;
         }
     }
 }
@@ -547,9 +841,9 @@ fn drain_jobs(rt: &Runtime, log: &dyn Fn(&str, &str)) {
 /// discards every pending timer. Field order matters: the context must
 /// drop before the runtime.
 pub(crate) struct JsEngine {
-    ctx: Context,
-    rt: Runtime,
-    log: LogFn,
+    pub(crate) ctx: Context,
+    pub(crate) rt: Runtime,
+    pub(crate) log: LogFn,
     base: Instant,
     /// Interrupt deadline in thread-CPU nanoseconds (QY5); reset before
     /// every top-level evaluation so each timer callback gets its own
@@ -557,13 +851,15 @@ pub(crate) struct JsEngine {
     deadline: Arc<std::sync::atomic::AtomicU64>,
     /// QY5: set by the interrupt handler when it stops a script, so the
     /// caller can log a clear message instead of `InternalError: interrupted`.
-    tripped: Arc<std::sync::atomic::AtomicBool>,
+    pub(crate) tripped: Arc<std::sync::atomic::AtomicBool>,
     /// Q33c: set by every DOM write; the app drains it with `take_dirty`.
     dirty: Rc<std::cell::Cell<bool>>,
     /// Q33d: handle <-> JS id table, to address events at nodes.
     table: Rc<std::cell::RefCell<js_dom::DomTable>>,
     /// QB5: focus/blur/scroll requests for the App.
     reqs: Rc<std::cell::RefCell<js_dom::JsRequests>>,
+    /// QF7: page networking state (policy, pending requests, report log).
+    pub(crate) net: Rc<std::cell::RefCell<js_net::NetState>>,
 }
 
 /// One init field of a natively dispatched event (Q33d).
@@ -571,6 +867,8 @@ pub(crate) enum EventField {
     Bool(bool),
     Num(f64),
     Str(String),
+    /// A node, passed as its JS table id (read back as an element).
+    Node(Handle),
 }
 
 /// `s` as a JS string literal (everything outside printable ASCII is
@@ -599,13 +897,13 @@ fn js_string_literal(s: &str) -> String {
 const MAX_TIMERS_PER_TURN: usize = 100;
 
 impl JsEngine {
-    fn arm_budget(&self, budget: Duration) {
+    pub(crate) fn arm_budget(&self, budget: Duration) {
         self.tripped.store(false, Ordering::Relaxed);
         self.deadline.store(thread_cpu_nanos() + budget.as_nanos() as u64, Ordering::Relaxed);
     }
 
     /// QY5: the one log line for a script stopped by the interrupt budget.
-    fn log_interrupted(&self, name: &str, what: &str, budget: Duration, size: usize) {
+    pub(crate) fn log_interrupted(&self, name: &str, what: &str, budget: Duration, size: usize) {
         let b = if budget.as_millis().is_multiple_of(1000) { format!("{} s", budget.as_secs()) } else { format!("{} ms", budget.as_millis()) };
         let kb = if size > 0 { format!(" ({} KB of source)", size.div_ceil(1024)) } else { String::new() };
         (self.log)("error", &format!("js: {name} stopped: exceeded the {b} CPU-time {what} budget{kb}"));
@@ -628,7 +926,32 @@ impl JsEngine {
                 }
             }
         });
-        drain_jobs(&self.rt, &*self.log);
+        drain_jobs(&self.ctx, &self.rt, &*self.log);
+    }
+
+    /// QY15: runs the entry module registered under `name` (its source is
+    /// in the loader's map) through a dynamic `import()`, so an entry that
+    /// other modules also import is evaluated once. A rejection (fetch
+    /// failure, syntax error, throw) is logged once as `name: message`.
+    fn eval_module(&self, name: &str, size: usize) {
+        // The `.then` handler also marks the promise handled, so the QY14
+        // unhandled-rejection report does not log the failure a second time.
+        let code = format!(
+            "(function(p){{var r=globalThis.__scratchy_modr={{s:0}};p.then(function(){{r.s=1;}},function(e){{r.s=2;r.m=(e&&e.name?e.name+': '+e.message:'Uncaught '+String(e))+(e&&e.stack?'\\n'+e.stack:'');}});}})(import({}))",
+            js_string_literal(name)
+        );
+        self.eval(&format!("{name} (import)"), &code);
+        let failed: Option<String> = self.ctx.with(|ctx| {
+            let r: rquickjs::Object = ctx.globals().get("__scratchy_modr").ok()?;
+            (r.get::<_, i32>("s").ok()? == 2).then(|| r.get::<_, String>("m").unwrap_or_default())
+        });
+        if let Some(msg) = failed {
+            if self.tripped.load(Ordering::Relaxed) {
+                self.log_interrupted(name, "page-load", SCRIPT_BUDGET, size);
+            } else {
+                (self.log)("error", &format!("{name}: {msg}"));
+            }
+        }
     }
 
     pub(crate) fn eval_value<T: for<'js> FromJs<'js>>(&self, label: &str, code: &str) -> Option<T> {
@@ -650,7 +973,7 @@ impl JsEngine {
                 }
             }
         });
-        drain_jobs(&self.rt, &*self.log);
+        drain_jobs(&self.ctx, &self.rt, &*self.log);
         v
     }
 
@@ -681,6 +1004,7 @@ impl JsEngine {
                 EventField::Bool(b) => obj.push_str(&b.to_string()),
                 EventField::Num(n) => obj.push_str(&n.to_string()),
                 EventField::Str(s) => obj.push_str(&js_string_literal(s)),
+                EventField::Node(h) => obj.push_str(&self.table.borrow_mut().intern(h).to_string()),
             }
             obj.push(',');
         }
@@ -698,7 +1022,6 @@ impl JsEngine {
 
     /// Test seam: the earliest pending timer's due time in ms on the
     /// `__scratchy_now` clock.
-    #[cfg(test)]
     pub(crate) fn next_due_ms(&self) -> Option<f64> {
         let ms: f64 = self.eval_value("timer", "__scratchy_timers_next()")?;
         (ms >= 0.0).then_some(ms)
@@ -706,6 +1029,17 @@ impl JsEngine {
 
     /// Runs every timer that is due now (bounded per turn), each under
     /// its own interrupt budget, draining promise jobs after each.
+    pub(crate) fn run_due_counted(&self) -> usize {
+        let mut n = 0;
+        for _ in 0..MAX_TIMERS_PER_TURN {
+            if self.eval_value::<bool>("timer", "__scratchy_timers_run_one()") != Some(true) {
+                break;
+            }
+            n += 1;
+        }
+        n
+    }
+
     pub(crate) fn run_due(&self) {
         for _ in 0..MAX_TIMERS_PER_TURN {
             if self.eval_value::<bool>("timer", "__scratchy_timers_run_one()") != Some(true) {
@@ -725,6 +1059,7 @@ pub(crate) fn run_scripts_with(scripts: &[ScriptSource], log: LogFn) {
 
 /// `run_scripts_with` against a real document (Q33b DOM read API).
 /// The engine (and so every pending timer) is dropped on return.
+#[cfg(test)]
 pub(crate) fn run_scripts_in(document: &Handle, scripts: &[ScriptSource], log: LogFn) {
     drop(start_scripts(document, scripts, log));
 }
@@ -749,6 +1084,13 @@ pub(crate) fn start_scripts_clocked(
         return None;
     };
     rt.set_memory_limit(MEMORY_LIMIT);
+    // QY14: forward every rejection event to the prelude's queue.
+    rt.set_host_promise_rejection_tracker(Some(Box::new(|ctx, promise, reason, handled| {
+        let f: Option<Function> = ctx.globals().get("__scratchy_rej_push").ok();
+        if f.is_some_and(|f| f.call::<_, ()>((promise, reason, handled)).is_err()) {
+            let _ = ctx.catch();
+        }
+    })));
     let base = Instant::now();
     let deadline = Arc::new(std::sync::atomic::AtomicU64::new(thread_cpu_nanos() + SCRIPT_BUDGET.as_nanos() as u64));
     let tripped = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -760,6 +1102,8 @@ pub(crate) fn start_scripts_clocked(
         }
         over
     })));
+    let store = Rc::new(js_modules::ModuleStore::from_scripts(scripts, &*log));
+    rt.set_loader(js_modules::PageResolver(store.clone()), js_modules::PageLoader(store));
     let Ok(ctx) = Context::full(&rt) else {
         log("error", "could not create the JS context");
         return None;
@@ -771,6 +1115,20 @@ pub(crate) fn start_scripts_clocked(
             let _ = ctx.globals().set("__scratchy_log", native);
         }
         let _ = install_env(&ctx);
+        if let Ok(f) = Function::new(ctx.clone(), url_parse_native) {
+            let _ = ctx.globals().set("__url_parse", f);
+        }
+        if let Ok(f) = Function::new(ctx.clone(), url_set_native) {
+            let _ = ctx.globals().set("__url_set", f);
+        }
+        // QY10: `matchMedia` evaluates through the CSS media-query code.
+        let mm = Function::new(ctx.clone(), |q: String| -> Vec<String> {
+            let (m, media) = css::media_query_string_matches(&q, DEFAULT_VIEWPORT.0 as f32, DEFAULT_VIEWPORT.1 as f32);
+            vec![if m { "1".into() } else { String::new() }, media]
+        });
+        if let Ok(mm) = mm {
+            let _ = ctx.globals().set("__scratchy_media", mm);
+        }
         let now = Function::new(ctx.clone(), move || match &clock {
             Some(c) => c.get(),
             None => base.elapsed().as_secs_f64() * 1000.0,
@@ -781,13 +1139,19 @@ pub(crate) fn start_scripts_clocked(
     });
     let dirty = Rc::new(std::cell::Cell::new(false));
     let reqs: Rc<std::cell::RefCell<js_dom::JsRequests>> = Default::default();
-    let mut engine = JsEngine { ctx, rt, log, base, deadline, tripped, dirty: dirty.clone(), table: Default::default(), reqs: reqs.clone() };
+    let net = Rc::new(std::cell::RefCell::new(js_net::NetState::new(log.clone())));
+    ctx.with(|c| js_net::install_net(&c, net.clone(), reqs.clone()));
+    let mut engine = JsEngine { ctx, rt, log, base, deadline, tripped, dirty: dirty.clone(), table: Default::default(), reqs: reqs.clone(), net };
     engine.eval("prelude", PRELUDE);
     engine.eval("timers", TIMERS_PRELUDE);
+    engine.eval("url", URL_PRELUDE);
+    engine.eval("globals", GLOBALS_PRELUDE);
+    engine.eval("intl", INTL_PRELUDE);
+    engine.eval("fetch", FETCH_PRELUDE);
     engine.table = engine.ctx.with(|ctx| js_dom::install_dom(&ctx, document, dirty.clone(), reqs.clone()));
     let mut script_els = Vec::new();
     collect_script_elements(document, &mut script_els);
-    for s in scripts {
+    for s in scripts.iter().filter(|s| s.kind == ScriptKind::Classic) {
         let id = match s.index.and_then(|i| script_els.get(i)) {
             Some(h) => engine.table.borrow_mut().intern(h),
             None => -1,
@@ -796,10 +1160,35 @@ pub(crate) fn start_scripts_clocked(
         engine.eval(&s.name, &s.code);
         engine.eval_value::<()>("script", "__scratchy_cs(-1)");
     }
+    // QY15: module scripts are deferred: after parsing (and the classic
+    // scripts), in document order, before DOMContentLoaded.
+    for s in scripts.iter().filter(|s| matches!(s.kind, ScriptKind::Module | ScriptKind::ModuleError)) {
+        if s.kind == ScriptKind::ModuleError {
+            (engine.log)("error", &format!("{}: {}", s.name, s.code));
+        } else {
+            engine.eval_module(&s.name, s.code.len());
+        }
+    }
     engine.eval("DOMContentLoaded", FIRE_DOM_CONTENT_LOADED);
     engine.eval("load", FIRE_LOAD);
     Some(engine)
 }
+
+/// QY9: `URL` and `URLSearchParams`; parsing and setters are Rust natives
+/// over the `url` crate, the list/serialization logic is plain JS.
+const URL_PRELUDE: &str = include_str!("url_prelude.js");
+
+/// QY13: history, AbortController, MessageChannel, requestIdleCallback,
+/// Storage, structuredClone, queueMicrotask (plain JS, see the file).
+const GLOBALS_PRELUDE: &str = include_str!("globals_prelude.js");
+
+/// QY16: a minimal en-US `Intl` (QuickJS has none) and the `toLocale*String`
+/// methods routed through it. See the file header and TODO.txt QY16a.
+const INTL_PRELUDE: &str = include_str!("intl_prelude.js");
+
+/// QF2: Blob, File, FileReader, blob: URL store (`__blob_lookup`); the
+/// home of the fetch/XHR data classes (QF memo in TODO.txt).
+const FETCH_PRELUDE: &str = include_str!("fetch_prelude.js");
 
 /// Q33t: `setTimeout` & co, as plain JS over a timer table; Rust only
 /// asks `__scratchy_timers_next()` (ms of the earliest due time on the
@@ -855,7 +1244,7 @@ const TIMERS_PRELUDE: &str = r#"
     var saved = level;
     level = t.lvl;
     try { t.fn.apply(g, t.raf ? [now] : t.args); }
-    catch (e) { console.error('Uncaught ' + String(e) + (e && e.stack ? '\n' + e.stack : '')); }
+    catch (e) { __scratchy_err('Uncaught ' + String(e) + (e && e.stack ? '\n' + e.stack : '')); }
     level = saved;
     return true;
   } });
@@ -876,6 +1265,12 @@ pub(crate) fn run_page_scripts(document: &Handle, scripts: &[ScriptSource], page
         Rc::new(|level, text| {
             if level == "error" {
                 diag!("scratchy: js error: {text}");
+            } else if level == "net" {
+                diag!("scratchy: js net: {text}");
+            } else if level == "net-warning" {
+                diag!("{text}");
+            } else if level.starts_with("console.") {
+                diag!("scratchy: {level}: {text}");
             } else {
                 diag!("scratchy: console.{level}: {text}");
             }
@@ -883,42 +1278,123 @@ pub(crate) fn run_page_scripts(document: &Handle, scripts: &[ScriptSource], page
     )
 }
 
+/// QY14: bounds for the `--run-timers` pump.
+const REPORT_MAX_TIMER_CALLBACKS: usize = 5000;
+
 /// QJ3: runs `scripts` with a collecting log and returns the report
 /// text: every error line, then a summary (scripts run, errors total,
 /// errors grouped by first line with counts, most frequent first).
+#[cfg(test)]
 pub(crate) fn js_report_for_scripts(document: &Handle, scripts: &[ScriptSource]) -> String {
-    let errors = Rc::new(std::cell::RefCell::new(Vec::<String>::new()));
-    let e = errors.clone();
-    run_scripts_in(
-        document,
-        scripts,
-        Rc::new(move |level, text| {
-            if level == "error" {
-                e.borrow_mut().push(text.to_string());
+    js_report_for_scripts_timers(document, scripts, None)
+}
+
+/// QY14: `run_timers = Some(ms)` also pumps the page's timer queue after
+/// the scripts ran, on a manual clock (simulated time, no sleeping): jump
+/// to each next due time up to `ms`, run the due callbacks (each under the
+/// per-callback CPU budget, promise jobs drained after each), at most
+/// `REPORT_MAX_TIMER_CALLBACKS`. Errors from that phase are listed and
+/// summarised apart from the load-phase ones. `None` is the QJ3 report.
+pub(crate) fn js_report_for_scripts_timers(document: &Handle, scripts: &[ScriptSource], run_timers: Option<u64>) -> String {
+    let errors = Rc::new(std::cell::RefCell::new(Vec::<(String, String)>::new()));
+    let phase = Rc::new(std::cell::Cell::new(false));
+    let (e, ph) = (errors.clone(), phase.clone());
+    let log: LogFn = Rc::new(move |level, text| {
+        if level == "error" || level == "console.error" {
+            let kind = if level == "error" { "js error" } else { "console.error" };
+            let kind = if ph.get() { format!("{kind} (timers)") } else { kind.to_string() };
+            e.borrow_mut().push((kind, text.to_string()));
+        }
+    });
+    let mut pumped = None;
+    // QF7: the report has no App; it runs the page's network requests itself.
+    let exec = js_net::net_executor();
+    let mut sched = NetScheduler::new(&RequestPolicy::default());
+    let mut net_entries = Vec::new();
+    match run_timers {
+        None => {
+            if let Some(engine) = start_scripts(document, scripts, log) {
+                js_net::drive_report_net(&engine, &mut sched, &*exec);
+                net_entries = engine.net_entries();
             }
-        }),
-    );
+        }
+        Some(limit) => {
+            let clock = Rc::new(std::cell::Cell::new(0.0f64));
+            let engine = start_scripts_clocked(document, scripts, log, Some(clock.clone()));
+            phase.set(true);
+            let mut callbacks = 0usize;
+            if let Some(engine) = &engine {
+                js_net::drive_report_net(engine, &mut sched, &*exec);
+                while callbacks < REPORT_MAX_TIMER_CALLBACKS {
+                    let Some(due) = engine.next_due_ms() else { break };
+                    if due > limit as f64 {
+                        break;
+                    }
+                    if due > clock.get() {
+                        clock.set(due);
+                    }
+                    let n = engine.run_due_counted();
+                    if n == 0 {
+                        break;
+                    }
+                    callbacks += n;
+                    js_net::drive_report_net(engine, &mut sched, &*exec);
+                }
+                net_entries = engine.net_entries();
+            }
+            pumped = Some((callbacks, clock.get()));
+        }
+    }
     let errors = errors.borrow();
+    let is_err = |k: &str| k.starts_with("js error");
+    let is_timer = |k: &str| k.ends_with("(timers)");
     let mut out = String::new();
-    for err in errors.iter() {
-        out.push_str("js error: ");
+    for (kind, err) in errors.iter() {
+        out.push_str(kind);
+        out.push_str(": ");
         out.push_str(err);
         out.push('\n');
     }
-    let mut groups: Vec<(String, usize)> = Vec::new();
-    for err in errors.iter() {
-        let first = err.lines().next().unwrap_or("").to_string();
-        match groups.iter_mut().find(|(k, _)| *k == first) {
-            Some((_, n)) => *n += 1,
-            None => groups.push((first, 1)),
+    let group = |sel: &dyn Fn(&str) -> bool| {
+        let mut groups: Vec<(String, usize)> = Vec::new();
+        for (kind, err) in errors.iter().filter(|(k, _)| sel(k)) {
+            let first = err.lines().next().unwrap_or("").to_string();
+            match groups.iter_mut().find(|(k, _)| *k == first) {
+                Some((_, n)) => *n += 1,
+                None => groups.push((first, 1)),
+            }
+            let _ = kind;
         }
-    }
-    groups.sort_by_key(|g| std::cmp::Reverse(g.1));
+        groups.sort_by_key(|g| std::cmp::Reverse(g.1));
+        groups
+    };
+    let total = errors.iter().filter(|(k, _)| is_err(k) && !is_timer(k)).count();
     out.push_str("--- summary ---\n");
-    out.push_str(&format!("scripts run: {}\nerrors total: {}\n", scripts.len(), errors.len()));
-    for (first, n) in groups {
+    let runnable = scripts.iter().filter(|s| matches!(s.kind, ScriptKind::Classic | ScriptKind::Module)).count();
+    out.push_str(&format!("scripts run: {}\nerrors total: {}\n", runnable, total));
+    for (first, n) in group(&|k| is_err(k) && !is_timer(k)) {
         out.push_str(&format!("{n:>4}  {first}\n"));
     }
+    let ce = errors.iter().filter(|(k, _)| k == "console.error").count();
+    if ce > 0 {
+        out.push_str(&format!("console.error calls: {ce}\n"));
+        for (first, n) in group(&|k| k == "console.error") {
+            out.push_str(&format!("{n:>4}  {first}\n"));
+        }
+    }
+    if let Some((callbacks, ms)) = pumped {
+        let te = errors.iter().filter(|(k, _)| k == "js error (timers)").count();
+        out.push_str(&format!("--- timers (simulated {ms:.0} ms, {callbacks} callbacks) ---\n"));
+        out.push_str(&format!("errors in timer phase: {te}\n"));
+        for (first, n) in group(&|k| k == "js error (timers)") {
+            out.push_str(&format!("{n:>4}  {first}\n"));
+        }
+        let tce = errors.iter().filter(|(k, _)| k == "console.error (timers)").count();
+        if tce > 0 {
+            out.push_str(&format!("console.error calls in timer phase: {tce}\n"));
+        }
+    }
+    out.push_str(&js_net::format_net_report(&net_entries));
     out
 }
 
@@ -929,16 +1405,19 @@ pub(crate) fn js_report_for_scripts(document: &Handle, scripts: &[ScriptSource])
 pub(crate) fn js_report_main(args: &[String]) -> i32 {
     let mut socket = None;
     let mut file = None;
+    let mut run_timers = None;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         if a == "--socket" {
             socket = it.next().map(std::path::PathBuf::from);
+        } else if a == "--run-timers" {
+            run_timers = it.next().and_then(|v| v.parse::<u64>().ok());
         } else {
             file = Some(a.clone());
         }
     }
     let Some(file) = file else {
-        diag!("usage: scratchy --js-report [--socket <path>] <file>");
+        diag!("usage: scratchy --js-report [--socket <path>] [--run-timers <ms>] <file>");
         return 2;
     };
     let bytes = match fs::read(&file) {
@@ -949,13 +1428,22 @@ pub(crate) fn js_report_main(args: &[String]) -> i32 {
         }
     };
     set_js_enabled(true);
-    write_raw_stdout(format_args!("{}", js_report_for_html(&decode_html_bytes(&bytes, None), socket.as_deref(), &file)));
+    write_raw_stdout(format_args!("{}", js_report_for_html_timers(&decode_html_bytes(&bytes, None), socket.as_deref(), &file, run_timers)));
     0
 }
 
+#[cfg(test)]
 pub(crate) fn js_report_for_html(html: &str, socket: Option<&std::path::Path>, file: &str) -> String {
+    js_report_for_html_timers(html, socket, file, None)
+}
+
+pub(crate) fn js_report_for_html_timers(html: &str, socket: Option<&std::path::Path>, file: &str, run_timers: Option<u64>) -> String {
     let Ok(dom) = new_parser().read_from(&mut html.as_bytes()) else { return "could not parse page\n".into() };
-    set_page_url(file_page_url(file).as_ref());
+    // The page URL for origin checks is the copy's `<base href>`, not file://.
+    set_page_url(find_base_url(&dom.document).or_else(|| file_page_url(file)).as_ref());
+    if let Some(s) = socket {
+        js_net::set_net_executor(Arc::new(WireExecutor(s.to_path_buf())));
+    }
     let scripts = match (socket, file_page_url(file)) {
         (Some(socket), page_url) => {
             let base = find_base_url(&dom.document).or(page_url);
@@ -963,6 +1451,7 @@ pub(crate) fn js_report_for_html(html: &str, socket: Option<&std::path::Path>, f
                 Some(base) => {
                     let mut res = ExternalResources::default();
                     find_external_resources(&dom.document, &mut res);
+                    prefetch_iframes(socket, &base, &dom.document);
                     fetch_scripts(socket, &base, res.scripts)
                 }
                 None => inline_scripts(&dom.document),
@@ -970,5 +1459,5 @@ pub(crate) fn js_report_for_html(html: &str, socket: Option<&std::path::Path>, f
         }
         _ => inline_scripts(&dom.document),
     };
-    js_report_for_scripts(&dom.document, &scripts)
+    js_report_for_scripts_timers(&dom.document, &scripts, run_timers)
 }

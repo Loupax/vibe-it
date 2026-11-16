@@ -1,4 +1,5 @@
 use super::*;
+use crate::js_style;
 
 // ---------- windowing ----------
 
@@ -47,6 +48,9 @@ pub(crate) enum AppEvent {
     /// on from gets dropped the same way a stale forward navigation
     /// does.
     NavResult(u64, Result<FetchedPage, String>),
+    /// QF7: a page-JS network request finished (or was refused at once):
+    /// `(nav_generation, request id, result)`. Stale generations are dropped.
+    JsNet(u64, u64, Result<WireResponse, NetError>),
     /// One non-`data:` `<img src>` reference's own fetch finishing (v67)
     /// — `String` is the exact, unresolved `src` attribute text
     /// `process_external_resources` found it under (see `App::image_
@@ -98,6 +102,13 @@ pub(crate) enum AppEvent {
     ShapeResult(u64, Box<Laid>, ShapeCache, bool),
     /// A deferred hover restyle (R2.3) is due; see `App::update_hover`.
     HoverFlush,
+    /// Q35b2: the image-relayout debounce window (`IMAGE_RELAYOUT_DEBOUNCE`)
+    /// has passed; see `App::flush_image_relayout`.
+    ImageFlush,
+    /// QY19: a `<meta http-equiv=refresh>` delay elapsed for the page of
+    /// navigation generation `.0`; follow `.1` unless the user has since
+    /// navigated (generation changed).
+    MetaRefresh(u64, Url),
     /// `SIGUSR1`'s own background thread (`run()`) waking the event
     /// loop — the out-of-band bootstrap the vim-mode plan in TODO.txt
     /// settled on for turning vim mode back *on* once it's off: with
@@ -466,6 +477,8 @@ pub(crate) struct App {
     /// QA6: fragment of the navigation in flight; becomes `pending_fragment`
     /// when its page arrives (not before: "Loading…" lays out first).
     pub(crate) nav_fragment: Option<String>,
+    /// QY19: meta-refresh redirects followed for the current user navigation.
+    pub(crate) meta_chain: u8,
     /// The next rebuild is a pure restyle (state change): keep the live
     /// per-element scroll offsets instead of clearing them.
     pub(crate) keep_scroll_on_rebuild: bool,
@@ -496,6 +509,11 @@ pub(crate) struct App {
     pub(crate) last_pointer_move: Option<std::time::Instant>,
     pub(crate) last_build_time: Option<std::time::Duration>,
     pub(crate) hover_flush_scheduled: bool,
+    /// Q35b2: when the first not-yet-applied image arrival of the current
+    /// burst landed. An image changes layout, but a burst of them is
+    /// collapsed into one rebuild (`image_relayout_wait`).
+    pub(crate) image_relayout_since: Option<std::time::Instant>,
+    pub(crate) image_flush_scheduled: bool,
     /// Lets a background navigation thread (`start_navigation`) get its
     /// result back onto this (the event-loop) thread — the exact same
     /// `thread::spawn` + `event_loop.create_proxy().send_event(..)`
@@ -579,6 +597,10 @@ pub(crate) struct App {
     /// path but nothing's listening there" (see its own docs), just
     /// without even attempting a connection first.
     pub(crate) socket_path: Option<PathBuf>,
+    /// QF7: the page's network request queue (caps from `RequestPolicy`).
+    pub(crate) net: NetScheduler,
+    /// QF7: results that arrived while `:help` had the engine parked.
+    pub(crate) parked_net: Vec<(u64, Result<WireResponse, NetError>)>,
     /// CSS fetched via `wire` from the current page's own `<link
     /// rel=stylesheet href>` references (v67) — concatenated once, by
     /// `start_navigation`'s own background thread (`process_external_
@@ -702,6 +724,10 @@ pub(crate) struct SavedPage {
 
 impl App {
     pub(crate) fn new_static(document: Handle, proxy: EventLoopProxy<AppEvent>, socket_path: Option<PathBuf>) -> Self {
+        crate::js_net::set_net_executor(match &socket_path {
+            Some(p) => Arc::new(WireExecutor(p.clone())),
+            None => Arc::new(crate::js_net::NoSocketExecutor),
+        });
         let base_url = find_base_url(&document);
         let shaping_requests = Self::spawn_shaping_worker(proxy.clone());
         Self {
@@ -728,6 +754,7 @@ impl App {
             hover_node: 0,
             pending_fragment: None,
             nav_fragment: None,
+            meta_chain: 0,
             keep_scroll_on_rebuild: false,
             restyle_requested: false,
             hold_old_frame: false,
@@ -740,6 +767,8 @@ impl App {
             last_pointer_move: None,
             last_build_time: None,
             hover_flush_scheduled: false,
+            image_relayout_since: None,
+            image_flush_scheduled: false,
             proxy,
             shaping_requests,
             base_url,
@@ -749,6 +778,8 @@ impl App {
             layout_generation: 0,
             js: None,
             socket_path,
+            net: NetScheduler::new(&RequestPolicy::default()),
+            parked_net: Vec::new(),
             extra_css: String::new(),
             image_cache: HashMap::new(),
             css_images_requested: HashSet::new(),
@@ -764,6 +795,10 @@ impl App {
     }
 
     pub(crate) fn new_streaming(proxy: EventLoopProxy<AppEvent>, socket_path: Option<PathBuf>) -> Self {
+        crate::js_net::set_net_executor(match &socket_path {
+            Some(p) => Arc::new(WireExecutor(p.clone())),
+            None => Arc::new(crate::js_net::NoSocketExecutor),
+        });
         let decoder = new_parser();
         let document = decoder.inner_sink.tokenizer.sink.sink.document.clone();
         let shaping_requests = Self::spawn_shaping_worker(proxy.clone());
@@ -791,6 +826,7 @@ impl App {
             hover_node: 0,
             pending_fragment: None,
             nav_fragment: None,
+            meta_chain: 0,
             keep_scroll_on_rebuild: false,
             restyle_requested: false,
             hold_old_frame: false,
@@ -803,6 +839,8 @@ impl App {
             last_pointer_move: None,
             last_build_time: None,
             hover_flush_scheduled: false,
+            image_relayout_since: None,
+            image_flush_scheduled: false,
             proxy,
             shaping_requests,
             base_url: None,
@@ -812,6 +850,8 @@ impl App {
             layout_generation: 0,
             js: None,
             socket_path,
+            net: NetScheduler::new(&RequestPolicy::default()),
+            parked_net: Vec::new(),
             extra_css: String::new(),
             image_cache: HashMap::new(),
             css_images_requested: HashSet::new(),
@@ -1180,6 +1220,7 @@ impl App {
         self.interaction = InteractionState::default();
         set_interaction(&self.interaction);
         self.hover_node = 0;
+        js_style::set_js_extra_css(&extra_css);
         self.extra_css = extra_css;
         self.layout_dirty = true;
         self.layout_generation += 1;
@@ -1188,6 +1229,7 @@ impl App {
         self.hold_old_frame = false;
         self.js_restyle_pending = false;
         self.layout_in_flight = false;
+        self.image_relayout_since = None;
         self.shape_cache.clear();
         self.scroll_offsets.clear();
         self.scroll_offset = 0.0;
@@ -1246,6 +1288,8 @@ impl App {
             if self.js_restyle_pending {
                 self.request_js_restyle();
             }
+            // Q35b2: images that arrived during the pass rebuild now.
+            self.flush_image_relayout();
         }
         // Replaced wholesale on every tick this generation's
         // worker reports, not merged — see `App::shape_cache`'s
@@ -1287,6 +1331,21 @@ impl App {
                 }
                 None => {}
             }
+            if let Some(href) = reqs.nav {
+                self.start_navigation(&href);
+            }
+            // QF7: page network requests (enqueue before abort, so a request
+            // made and aborted in one turn never starts).
+            for job in reqs.net {
+                self.net.enqueue(job);
+            }
+            for id in reqs.net_abort {
+                self.net.abort(id);
+            }
+            for (id, result) in reqs.net_done {
+                let _ = self.proxy.send_event(AppEvent::JsNet(self.nav_generation, id, result));
+            }
+            self.pump_net();
             if let Some(sr) = reqs.scroll
                 && let Some(y) = sr.y
             {
@@ -1307,6 +1366,36 @@ impl App {
                 return;
             }
             self.request_js_restyle();
+        }
+    }
+
+    /// QF7: starts queued page requests, one thread each (like image
+    /// fetches), as far as the policy's parallelism and byte caps allow.
+    fn pump_net(&mut self) {
+        let (proxy, generation) = (self.proxy.clone(), self.nav_generation);
+        let exec = crate::js_net::net_executor();
+        self.net.pump(&mut |job| {
+            let (proxy, exec) = (proxy.clone(), exec.clone());
+            thread::spawn(move || {
+                let result = exec.execute(&job);
+                let _ = proxy.send_event(AppEvent::JsNet(generation, job.id, result));
+            });
+        });
+    }
+
+    /// QF7: `AppEvent::JsNet` handler. A result of a superseded page is
+    /// dropped; while `:help` parks the engine it is kept for `restore_saved_page`.
+    pub(crate) fn handle_js_net(&mut self, generation: u64, id: u64, result: Result<WireResponse, NetError>) {
+        if generation != self.nav_generation {
+            return;
+        }
+        self.net.done(id);
+        self.pump_net();
+        if let Some(js) = &self.js {
+            js.deliver_net(id, result);
+            self.js_sync();
+        } else if self.pre_help_page.as_ref().is_some_and(|p| p.js.is_some()) {
+            self.parked_net.push((id, result));
         }
     }
 
@@ -1336,6 +1425,20 @@ impl App {
     /// Q33d: a `click` at window position `pos` on `target`; true if the
     /// default action (following a link) may proceed.
     pub(crate) fn js_click(&mut self, target: Option<&Handle>, pos: (f32, f32)) -> bool {
+        self.js_mouse("click", target, pos)
+    }
+
+    /// Q33d1: `mousedown`/`mouseup` at the element under `pos`.
+    fn js_mouse_at(&mut self, kind: &str, pos: (f32, f32)) {
+        if self.js.is_none() {
+            return;
+        }
+        let node = self.element_at(pos);
+        let target = if node == 0 { None } else { find_node_by_id(&self.document, node) };
+        self.js_mouse(kind, target.as_ref(), pos);
+    }
+
+    fn js_mouse(&mut self, kind: &str, target: Option<&Handle>, pos: (f32, f32)) -> bool {
         let m = &self.modifiers;
         let init = [
             ("bubbles", EventField::Bool(true)),
@@ -1348,7 +1451,7 @@ impl App {
             ("altKey", EventField::Bool(m.alt_key())),
             ("metaKey", EventField::Bool(m.super_key())),
         ];
-        self.js_dispatch(target, "click", &init)
+        self.js_dispatch(target, kind, &init)
     }
 
     /// Q33d: `keydown`/`keyup` at the focused element (else `<body>`);
@@ -1392,16 +1495,63 @@ impl App {
             Ok(FetchedPage { html, extra_css, scripts, url }) => {
                 let dom = new_parser().read_from(&mut html.as_slice()).unwrap();
                 self.base_url = Some(resolve_page_base_url(&dom.document, url));
+                // QY19: an immediate meta redirect replaces this page: do not
+                // even install it (nor run its scripts).
+                let meta = meta_refresh_action(&dom.document, self.base_url.as_ref(), self.meta_chain);
+                if let Some((0, target)) = &meta {
+                    self.follow_meta_refresh(target.clone());
+                    return;
+                }
                 self.replace_document(dom.document, extra_css);
                 // QA6: only now is the document the one the fragment names.
                 self.pending_fragment = self.nav_fragment.take();
                 self.js = run_page_scripts(&self.document, &scripts, self.base_url.as_ref());
                 self.js_sync();
+                if let Some((delay, target)) = meta {
+                    let (proxy, generation) = (self.proxy.clone(), self.nav_generation);
+                    thread::spawn(move || {
+                        thread::sleep(std::time::Duration::from_secs(delay));
+                        let _ = proxy.send_event(AppEvent::MetaRefresh(generation, target));
+                    });
+                }
             }
             Err(message) => {
                 self.nav_fragment = None;
                 self.show_message(&message);
             }
+        }
+    }
+
+    /// QY19: follows a meta refresh to `target`. Counts against
+    /// `META_REFRESH_MAX_CHAIN`. A 0-second redirect (the page was never
+    /// installed) replaces the current history entry like an HTTP redirect;
+    /// a delayed one pushes normally (`self.meta_chain` is only reset by user
+    /// navigations).
+    pub(crate) fn follow_meta_refresh(&mut self, target: Url) {
+        self.meta_chain += 1;
+        self.push_or_replace_history(target.clone(), true);
+        self.fetch_url(target);
+    }
+
+    /// `AppEvent::MetaRefresh` handler: a delayed redirect pushes normally.
+    pub(crate) fn handle_meta_refresh(&mut self, generation: u64, target: Url) {
+        if generation == self.nav_generation {
+            self.meta_chain += 1;
+            self.push_history(target.clone());
+            self.fetch_url(target);
+        }
+    }
+
+    /// Replaces the current history entry with `url` (`replace`, no extra
+    /// back step) when there is one; with none yet nothing is recorded (the
+    /// next push seeds from `base_url`, which is then the target).
+    pub(crate) fn push_or_replace_history(&mut self, url: Url, replace: bool) {
+        if replace {
+            if let Some(slot) = self.history.get_mut(self.history_index) {
+                *slot = url;
+            }
+        } else {
+            self.push_history(url);
         }
     }
 
@@ -1421,11 +1571,48 @@ impl App {
         // A newly-arrived image can change this element's own
         // intrinsic size (no explicit CSS/HTML width/height —
         // see `resolve_img`), so the whole tree needs a real
-        // rebuild, not just a repaint — the same `layout_dirty`
-        // flag `redraw` already checks before deciding whether to
-        // call `build_layout_tree_with_resources` again.
+        // rebuild, not just a repaint. Q35b2: but a rebuild costs up to
+        // ~430 ms on big pages, so a burst of arrivals is collapsed:
+        // the rebuild is deferred by `IMAGE_RELAYOUT_DEBOUNCE` and, if
+        // a shaping pass is still in flight, until it completes.
+        if self.layout_dirty {
+            // A rebuild is already queued (first layout, chunk, resize...).
+            return;
+        }
+        let now = std::time::Instant::now();
+        let since = *self.image_relayout_since.get_or_insert(now);
+        if image_relayout_wait(Some(now.duration_since(since)), self.layout_dirty).is_some() && !self.image_flush_scheduled {
+            self.schedule_image_flush(IMAGE_RELAYOUT_DEBOUNCE);
+        }
+        self.flush_image_relayout();
+    }
+
+    /// Q35b2: applies the pending image relayout if its debounce window
+    /// has passed and no shaping pass is in flight (a completing pass
+    /// calls this again, so nothing is lost).
+    pub(crate) fn flush_image_relayout(&mut self) {
+        let Some(since) = self.image_relayout_since else { return };
+        if self.layout_in_flight || self.hold_old_frame {
+            return;
+        }
+        if image_relayout_wait(Some(since.elapsed()), self.layout_dirty).is_some() {
+            return;
+        }
+        self.image_relayout_since = None;
         self.layout_dirty = true;
         self.layout_generation += 1;
+        if let Some(w) = &self.window {
+            w.request_redraw();
+        }
+    }
+
+    pub(crate) fn schedule_image_flush(&mut self, delay: std::time::Duration) {
+        self.image_flush_scheduled = true;
+        let proxy = self.proxy.clone();
+        thread::spawn(move || {
+            thread::sleep(delay);
+            let _ = proxy.send_event(AppEvent::ImageFlush);
+        });
     }
 
     /// `:help` — built the same way `show_message` builds its own
@@ -1477,6 +1664,11 @@ impl App {
         self.scroll_offsets = saved.scroll_offsets;
         self.scroll_offset = saved.scroll_offset;
         self.js = saved.js;
+        for (id, result) in std::mem::take(&mut self.parked_net) {
+            if let Some(js) = &self.js {
+                js.deliver_net(id, result);
+            }
+        }
         self.js_sync();
     }
 
@@ -1560,11 +1752,50 @@ impl App {
         find_node_by_id(&self.document, node).map(|h| ancestor_ids(&h).into_iter().collect()).unwrap_or_default()
     }
 
+    /// Q33d1: `mouseout` on the node the pointer left, `mouseover` on the
+    /// one it entered (both bubble; `relatedTarget` is the other). Runs only
+    /// on a change of the hit node and never restyles by itself, so it is
+    /// independent of the debounced `:hover` restyle machinery (QB3).
+    fn js_hover_events(&mut self, old: usize, new: usize) {
+        if self.js.is_none() {
+            return;
+        }
+        let pos = self.last_mouse_pos.unwrap_or((0.0, 0.0));
+        let m = &self.modifiers;
+        let hold = |n: usize| (n != 0).then(|| find_node_by_id(&self.document, n)).flatten();
+        let (old_h, new_h) = (hold(old), hold(new));
+        let mk = |related: &Option<Handle>| {
+            let mut v = vec![
+                ("bubbles", EventField::Bool(true)),
+                ("cancelable", EventField::Bool(true)),
+                ("clientX", EventField::Num(pos.0 as f64)),
+                ("clientY", EventField::Num(pos.1 as f64)),
+                ("ctrlKey", EventField::Bool(m.control_key())),
+                ("shiftKey", EventField::Bool(m.shift_key())),
+                ("altKey", EventField::Bool(m.alt_key())),
+                ("metaKey", EventField::Bool(m.super_key())),
+            ];
+            if let Some(r) = related {
+                v.push(("relatedTargetId", EventField::Node(r.clone())));
+            }
+            v
+        };
+        let (out_init, over_init) = (mk(&new_h), mk(&old_h));
+        if let Some(h) = &old_h {
+            self.js_dispatch(Some(h), "mouseout", &out_init);
+        }
+        if let Some(h) = &new_h {
+            self.js_dispatch(Some(h), "mouseover", &over_init);
+        }
+    }
+
     pub(crate) fn update_hover(&mut self, node: usize) {
         if node == self.hover_node {
             return;
         }
+        let old = self.hover_node;
         self.hover_node = node;
+        self.js_hover_events(old, node);
         if self.state_rules & STATE_HOVER == 0 {
             return;
         }
@@ -1791,6 +2022,7 @@ impl App {
     }
 
     pub(crate) fn start_navigation(&mut self, href: &str) {
+        self.meta_chain = 0;
         self.pre_help_page = None;
         if let (Some(frag), None) = (href.strip_prefix('#'), &self.base_url) {
             // No base to resolve against, but a bare fragment needs none.
@@ -1860,6 +2092,7 @@ impl App {
             return;
         };
         self.history_index = new_index;
+        self.meta_chain = 0;
         let url = self.history[new_index].clone();
         self.fetch_url(url);
     }
@@ -1879,6 +2112,7 @@ impl App {
     /// `base_url`-less page (a local file with no `<base href>` of its
     /// own) has truly nothing to refresh.
     pub(crate) fn refresh(&mut self) {
+        self.meta_chain = 0;
         let url = match self.history.get(self.history_index).cloned() {
             Some(url) => url,
             None => match self.base_url.clone() {
@@ -1929,6 +2163,8 @@ impl App {
         url.set_fragment(None);
         self.nav_generation += 1;
         self.js = None;
+        self.net.reset();
+        self.parked_net.clear();
         self.image_cache.clear();
         self.css_images_requested.clear();
         let generation = self.nav_generation;
@@ -2328,6 +2564,7 @@ impl ApplicationHandler<AppEvent> for App {
                     return;
                 }
                 if !css.is_empty() {
+                    js_style::set_js_extra_css(&css);
                     self.extra_css = css;
                     self.layout_dirty = true;
                     self.layout_generation += 1;
@@ -2336,8 +2573,22 @@ impl ApplicationHandler<AppEvent> for App {
                 self.js_sync();
             }
             AppEvent::NavResult(generation, result) => self.handle_nav_result(generation, result),
+            AppEvent::JsNet(generation, id, result) => self.handle_js_net(generation, id, result),
             AppEvent::ImageFetched(generation, src, image) => self.handle_image_fetched(generation, src, image),
             AppEvent::ShapeResult(generation, laid, shape_cache, incomplete) => self.handle_shape_result(generation, laid, shape_cache, incomplete),
+            AppEvent::MetaRefresh(generation, target) => self.handle_meta_refresh(generation, target),
+            AppEvent::ImageFlush => {
+                self.image_flush_scheduled = false;
+                if let Some(since) = self.image_relayout_since {
+                    // The burst this timer was armed for may have been
+                    // replaced (navigation); re-arm for the remainder.
+                    if let Some(left) = image_relayout_wait(Some(since.elapsed()), self.layout_dirty) {
+                        self.schedule_image_flush(left);
+                    } else {
+                        self.flush_image_relayout();
+                    }
+                }
+            }
             AppEvent::HoverFlush => {
                 self.hover_flush_scheduled = false;
                 if self.state_rules & STATE_HOVER != 0 {
@@ -2474,10 +2725,14 @@ impl ApplicationHandler<AppEvent> for App {
                     ElementState::Pressed => {
                         self.mouse_down_pos = self.last_mouse_pos;
                         if let Some(pos) = self.last_mouse_pos {
+                            self.js_mouse_at("mousedown", pos);
                             self.press_state(pos);
                         }
                     }
                     ElementState::Released => {
+                        if let Some(pos) = self.last_mouse_pos {
+                            self.js_mouse_at("mouseup", pos);
+                        }
                         self.release_state();
                         // Computed into a plain, owned `Option<&'static
                         // str>` (not borrowed from `self`) *before*

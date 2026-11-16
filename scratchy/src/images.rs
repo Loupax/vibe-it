@@ -1918,9 +1918,9 @@ pub(crate) fn build_layout_tree_with_resources(
             note_state_rule(*mask);
             return rules.clone();
         }
-        let mut rules = parse_stylesheet(DEFAULT_CSS);
+        let mut rules = parse_ua_stylesheet(DEFAULT_CSS);
         if js_enabled() {
-            rules.extend(parse_stylesheet("noscript { display: none; }"));
+            rules.extend(parse_ua_stylesheet("noscript { display: none; }"));
         }
         rules.extend(parse_stylesheet(&css_source));
         let rules = Rc::new(rules);

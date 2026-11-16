@@ -3023,6 +3023,17 @@ until its complete `ShapeResult`; writes in that window only set
 `js_restyle_pending`, and the next rebuild starts when the pass completes.
 Without it a timer faster than a full pass made every pass stale.
 
+Image arrival (Q35b2): `handle_image_fetched` caches the image at once but
+no longer rebuilds per arrival. It records `image_relayout_since` and arms
+an `AppEvent::ImageFlush` timer for `IMAGE_RELAYOUT_DEBOUNCE` (80 ms, from
+the first arrival, not extended). `flush_image_relayout` (timer, and the
+complete `ShapeResult` in `handle_shape_result`) sets `layout_dirty` only
+when the window has passed and no pass is in flight (`layout_in_flight` /
+`hold_old_frame`), so a burst is one rebuild and no pass is made stale.
+An arrival while a rebuild is already queued (first layout) adds nothing.
+`replace_document` clears the pending state; stale-generation images are
+still dropped first (R7). Pure decision: `image_relayout_wait`.
+
 Main-thread stall limits (QB3, R8): the compositor drops a client that
 doesn't read its socket while input piles up. `hover_idle_wait` (layout.rs)
 makes a hover restyle wait for 150 ms of pointer stillness when the last
@@ -3152,3 +3163,161 @@ sibling table parts (plus whitespace/script/`display:none`) into a run and
 emits one anonymous `Display::Table` box around `build_table_nodes` of it.
 Real `<table>` markup takes the same paths unchanged. `paint_buffer` also
 adds the fractional part of the run's x origin to each glyph position.
+
+`document.write` (QA13): `__scratchy_cs` also resets a per-script insertion point; `document.write` parses its argument as a fragment in the context of the current script's parent (`parse_fragment_in`, shared with innerHTML) and splices the nodes after the script (then after the previous write's last node). Not stream-parsed: split tags across writes are not joined, written `<script>`s do not execute, after load it is a warned no-op.
+
+getComputedStyle (QA16), `src/js_style.rs`: the engine cannot see `App`, so `__d_cs(id, pseudo, prop)` runs the cascade itself for one element (`StyleCache::style_of`: `resolve_style_for` from the outermost ancestor down, rules parsed from UA + `<style>` + the thread-local external CSS set by `set_js_extra_css`). Cache: per (element, pseudo) until the DOM write generation (`wgen`, bumped by each mutating native) changes; rules re-parsed only if their source text changed. `RULE_INDEX` is swapped in for the call and the layout build's is restored. No layout: width/height are computed values (`auto` when unset), not used px (QA16a).
+
+Multiple documents (QA18a): the page is DomTable id 0; `document.implementation.createHTMLDocument/createDocument` allocate another `NodeData::Document` root through `__d_newdoc` and register its id in `DomTable.docs` (any other Document-data node is a fragment). All nodes of all documents live in the one table and share wrappers/prototypes. The JS Document wrapper for a second document is `Object.create(document)`: every method/getter reads `this.__id`, so `getElementById`, `documentElement`, `head`, `body`, queries and child access just work per document. Ownership of detached nodes is a JS map (`owners`, set by the document's creators, `importNode` and `adoptNode`); an attached node's owner is its root document. The cascade (`__d_cs`) is still the page's only.
+
+iframe documents (QA18b): `HTMLIFrameElement.contentDocument/contentWindow` make, on first access, a `makeDoc` document with html/head/body and a minimal window object (frames table keyed by the iframe's node id, in the prelude). Only for an iframe that is in the page and whose `src` is empty, `about:blank` or `data:` (the data content is ignored); anything else, including http(s), gives null until QA18b1. `load` is queued by a hook (`afterIns`) in `appendChild`/`insertBefore`, so iframes inserted by innerHTML or document.write get no event. Nothing is laid out or painted inside the iframe (still the Q52a replaced box), and the frame has no cascade (QA18c).
+
+iframe src documents (QA18b1): `net::prefetch_iframes` runs where scripts are fetched (so on the fetch thread, before the JS engine starts) and keeps the HTML of same-origin http(s)/file iframes present in the markup in a process-wide map keyed by absolute URL; the JS engine cannot reach the network, so `frameOf` only looks the URL up (`__d_iframe_page`) and parses it into the frame's document (`__d_load_html`). Iframes made later by script, and streamed pages, get null. Scripts inside frames are not run. QA18c: `__d_cs` takes the cascade root from the node's top ancestor (page or a registered second document); `StyleCache` reseeds when the root changes, and the externally fetched CSS (`EXTRA_CSS`) is only applied to the page.
+
+## QY15 — ES modules (module graph pre-fetch)
+
+`script_ref` now returns `ModuleInline`/`ModuleExternal`/`ImportMap` for
+`<script type=module>`, `type=module src` and `type=importmap`; classic
+scripts with `nomodule` are skipped. QuickJS' module loader is synchronous, so
+the static import graph is fetched BEFORE the engine runs, in
+`fetch_scripts_with` (src/js.rs; `fetch_scripts` plugs in `wire`): each
+module entry's source is scanned (`js_modules::scan_import_specifiers`, a
+comment/string/template/regex-aware token scan, not a parser; it also picks
+literal dynamic `import('x')`, including from classic scripts), specifiers are
+resolved (`resolve_specifier`: import map `imports` + `scopes` first, then
+`/ ./ ../` and absolute URLs; bare specifiers with no map entry are an error),
+and each level of new URLs is fetched in parallel, breadth-first, capped at
+200 modules / 16 MB / depth 32 (github needs more than 5 MB). `data:` modules decode locally. The result is
+ordinary `ScriptSource`s tagged by `ScriptKind` (`Classic`, `Module`,
+`ModuleDep`, `ImportMap`, `ModuleError`), so `FetchedPage`/`StreamCss` and the
+`--js-report` path are unchanged. The engine builds a `ModuleStore` (url ->
+source, parsed import map) behind an rquickjs `Resolver`/`Loader` pair that
+only reads it; an import of a URL that is not in the store (fetch failed, or a
+computed run-time `import()`) fails with a clear error (QY15a: fetch at run
+time). Execution: classic scripts first, in order; then module entries in
+document order (defer semantics), each through `import(<url>)` so a module
+that is also imported elsewhere is evaluated once, under the same 5 s CPU
+budget; rejections log once as `<module url>: <message>`; then
+DOMContentLoaded/load. Inline modules are named `<doc url>#inline-module-N`
+(`import.meta.url` strips the tag). Top-level await works (module promise).
+
+## QF2: Blob / File / FileReader / blob: store
+
+src/fetch_prelude.js (evaluated after intl in js.rs; the home of the QF fetch/XHR
+data classes). Blob bytes live in a WeakMap (Uint8Array, never mutated); File
+extends Blob; FileReader is an EventTarget whose events fire from one
+setTimeout(0). No I/O. The blob: URL store is a JS Map behind
+URL.createObjectURL/revokeObjectURL; QF8/QF9 read it with the global
+`__blob_lookup(url)` (Blob or undefined). `Blob.stream()` only exists if
+ReadableStream exists at load time (QF4). UTF-8 helpers are private to the file.
+
+## QF4: ReadableStream / Headers / Request / Response (data classes)
+
+Same file (src/fetch_prelude.js), all inside the one IIFE so they share the Blob
+byte helpers. No network. ReadableStream is minimal: a default reader
+(`read/cancel/releaseLock/closed`), `locked`, `cancel`, `values()`/async
+iteration, a controller (`enqueue/close/error/desiredSize`), `highWaterMark`
+counted in chunks. `tee/pipeTo/pipeThrough`, BYOB, TransformStream and
+WritableStream stay ABSENT on purpose (duckduckgo polyfills what is missing).
+Headers keep a lowercased `[name, value]` list plus a guard
+(none/request/response/immutable): iteration is sorted, values combined with
+`, `, Set-Cookie kept separate. Request/Response keep their state in WeakMaps;
+a body is `{bytes | src stream, lazily created stream, type, used}` and every
+consumer (`text/json/arrayBuffer/bytes/blob/formData`) goes through one
+`consume()` that rejects TypeError "body already used". Cloning a body that
+came from a page-supplied stream throws (no tee).
+
+INTERNAL HOOK for QF7/QF8: global `__make_response(status, statusText,
+headersPairs, bodyBytes, url, redirected, type)` builds a real Response
+(`headersPairs` = `[[name, value], ...]` in wire order). Headers get the
+`immutable` guard; for `basic`/`cors` Set-Cookie/Set-Cookie2 are dropped;
+`opaque`/`opaqueredirect`/`error` have status 0, no headers, no body, url ''.
+CORS-safelisted filtering of `cors` headers is the caller's job.
+
+## QY6e: Custom Elements hooks
+
+All in the QY6e block at the end of `DOM_PRELUDE` (js_dom.rs). The mutation
+natives are IIFE-local `var`s (`__d_insert/remove/sethtml/settext/setattr/
+rmattr/write`), so the first `customElements.define` can rebind them to hooked
+versions (and `createElement`/`createElementNS`/`cloneNode`); a page that never
+defines an element runs the bare natives (`__ce_stats.hooks` counts hook calls,
+0 until then). Hooks query the subtree with one selector built from the defined
+names (`ceSel`; `tag[is]` for customized built-ins) and only touch matches.
+Per-element state lives in `ceState[id]` (the definition, or -1 for a failed
+upgrade) and `ceConnFlag[id]`; `ceNConn` lets removals skip the subtree query
+when no custom element is connected. Upgrade runs `Reflect.construct(ctor)`
+with the element pushed on the definition's construction stack; `HTMLElement`
+(js.rs) forwards `new.target` to `ceNew`, which returns that element (or builds
+a new one for `new X()`). Reactions are synchronous after the API call, not
+microtask-queued. Only document id 0 is upgraded/connected. Not implemented:
+adoptedCallback, `:defined`, shadow DOM (`attachShadow` logs `not implemented`
+and throws NotSupportedError).
+
+### QY6a: MutationObserver on the same hook layer
+
+`hookInstall` (js_dom.rs, just before `ceInstall`) is the ONE place that rebinds
+the mutation natives; it runs at the first `customElements.define` or the first
+`MutationObserver.observe`, never otherwise (`__ce_stats.hooks` stays 0).
+Each hook does the custom-element work only when `ceOn` and the record work only
+when `moN > 0` (live registrations). Hooks call `moChild/moAttr/moChar`, which
+walk the target's ancestors through `moReg[id]` (registrations by node id),
+build per-observer `MutationRecord`s and queue ONE Promise job (`moNotify`,
+observers sorted by creation id, `callback.call(observer, records, observer)`).
+Multi-step APIs (`replaceChild`, `append/prepend/before/after/replaceWith/
+replaceChildren`, the `outerHTML` setter) wrap their natives in `moBegin/moEnd`
+so the pieces of one call merge into one childList record per target.
+Transient registered observers: a removed node inherits its old ancestors'
+subtree registrations until the next delivery to that observer. Cuts: writes
+from the parser or Rust do not notify; `Comment.data =` is a native no-op
+(QA18e) so it makes no record; `attributeNamespace` is null.
+
+### Meta refresh (QY19)
+
+After a fetched page arrives, `handle_nav_result` looks for the first `meta[http-equiv=refresh]` (`meta_refresh_action`). With JS off `<noscript>` children are elements (`new_parser`), with JS on they are text, so only the right one is found. A 0 s `url=` redirect never installs the page: it replaces the current history entry and fetches the target (`follow_meta_refresh`). A delayed one (<=10 s) installs the page and a sleeping thread (same shape as `schedule_image_flush`) sends `AppEvent::MetaRefresh(generation, url)`; a changed `nav_generation` cancels it. `App::meta_chain` (reset by link/`:go`/history/`:refresh`) caps chains at 3.
+
+## Cascade layers (QY17)
+`@layer` is parsed in `TopLevelParser` (`LayerState` registers every mentioned layer path and its prefixes in first-mention order; `parse_stylesheet` ranks them afterwards, sub-layers before their parent's own rules). `StyleRule::layer`: 0 unlayered, 1 user-agent (`parse_ua_stylesheet`), n>=2 author layer. The cascade key in `matching_declarations_for` is a u64: bit 62 important, bits 32..61 layer rank (`normal_key`; reversed for important by `important_key`/`to_important`), low bits specificity. `@import ... layer(x)` is expanded into `@layer x { ... }` text by `expand_css_imports`.
+
+## FormData (QF3)
+
+Same file, after Blob/File. Entries are `[name, value]` pairs in a WeakMap
+(value: string or File). A Blob value becomes a File (name `blob` unless a
+filename is given). Names and values are USVString-normalised (lone
+surrogates to U+FFFD). Iteration (`entries/keys/values/Symbol.iterator`) is
+live over the list, in insertion order. `new FormData(form)` never reads the
+controls: it logs `scratchy: js: not implemented: FormData(form) (waits for
+Q30e)` and stays empty (forms rule, AGENTS.md). A FormData request/response
+body is serialised as multipart/form-data with a random boundary (QF13 partly
+done, serialisation only). `formData()` still parses urlencoded bodies only,
+so a multipart body rejects with TypeError (QF4a).
+
+## Net policy and wire codec (QF5)
+
+`src/net_policy.rs` is pure (no I/O, no JS): `RequestPolicy` is the ONE place for every network number and open decision (limits, timeouts, redirect limit, `sync_xhr_timeout_ms`, `beacons_send`, `private_targets`/`file_targets` as `PrivatePolicy`). `check_request(page, url, method, has_body)` returns a `PolicyOutcome` whose `warning` class is logged with `format_net_warning`; same-origin never warns; schemes, bad ports, mixed content (loopback exempt) and method/body rules apply in every mode; `check_redirect_hop` re-runs it per hop. CORS helpers (`classify_fetch`, `needs_preflight`, `check_cors_response`, `check_preflight_response`) and the forbidden header lists (a test pins them to fetch_prelude.js) are pure. `classify_beacon` + `format_beacon_log` serve the suppressed-beacon log. `is_public_ip` is mirrored by hand in wire (QF6). The codec in net.rs (`build_wire_request`, `parse_wire_response_full`, `fetch_full_via_wire`) is not called by anything yet; it can carry `X-Wire-Policy/Max-Bytes/Timeout-Ms/Max-Redirects` (`wire_cap_headers`). Wire already supports every method and Content-Length bodies; what it lacks is listed under QF6.
+
+## Page JS network queue (QF7)
+
+JS never does I/O and cannot touch `App`. The flow:
+
+1. `__net_send(desc) -> id` (native, src/js_net.rs `NetState::send`) checks, in order: page URL known, URL parses, `max_requests_per_page`, `check_request` (warning -> engine log level `net-warning`), `classify_fetch` (CORS kind), beacon classification (suppressed: logged in detail with level `net`, answered as an opaque empty response, never sent unless `beacons_send`), CORS preflight need (rejected, `not implemented (QF13 preflight)`), body vs `max_in_flight_bytes`. It serialises with `build_wire_request` plus `wire_cap_headers` (`X-Wire-Policy` only when `private_targets == Block`; `Origin` for cors) and pushes a `NetJob` to `JsRequests.net`. Refused requests and suppressed beacons go to `JsRequests.net_done` and are delivered asynchronously like any result. `__net_abort(id)` forgets the request (a late result is ignored) and cancels it if queued (`net_abort`).
+2. `App::js_sync` drains those into `App::net` (`NetScheduler`: `max_concurrent_requests` in flight, request bytes in flight under `max_in_flight_bytes`, FIFO) and `pump_net` starts one thread per job through the executor (`js_net::net_executor()`, a thread-local set by `App::new_*`/`--js-report`; tests inject a fake `NetExecutor`). The thread sends `AppEvent::JsNet(nav_generation, id, Result<WireResponse, NetError>)`. `handle_js_net` drops stale generations, frees the slot, pumps again, calls `JsEngine::deliver_net` and `js_sync`. While `:help` parks the engine results wait in `App::parked_net` and are delivered by `restore_saved_page`. `fetch_url_inner` resets the scheduler.
+3. `deliver_net` -> `NetState::finish`: cross-origin `cors` responses go through `check_cors_response` (failure = network error, logged with the reason) and header filtering (safelisted + `Access-Control-Expose-Headers`); no-cors = opaque. Then JS `__net_complete(result)` (src/fetch_prelude.js `__net_request`) runs under `CALLBACK_BUDGET`, promise jobs drain.
+4. `sync: true` runs the executor on the engine thread with `sync_xhr_timeout_ms` as the wire read timeout; the result is read with `__net_sync_result(id)`; the JS helper throws `NetworkError` on failure.
+5. `--js-report`: `drive_report_net` runs the same queue on the calling thread after load and after each timer slice; `NetState.entries` gives the `--- network (N requests, B bytes) ---` section. The report's page URL is the `<base href>`.
+
+Every number comes from `RequestPolicy` (src/net_policy.rs).
+
+## wire protocol version 2 (QF6)
+
+wire now answers `X-Wire-Version: 2` on every response; an old wire sends none. QF7/QF8 must send the `X-Wire-*` request headers only after seeing that header (a probe request, or fail closed with "wire is too old for page networking; restart it" when a response lacks it). Wire reports `X-Wire-Final-Url`, `X-Wire-Target-Class` (worst class over all hops), `X-Wire-Hop-Classes`, and marks its own errors with `X-Wire-Error` (`1` transport, `too-large`, `policy`; the `parse_wire_response_full` codec already consumes `x-wire-error`/`x-wire-final-url`, the class headers stay in `headers`). Over-cap bodies and redirect-limit overruns come back as a 502, not a truncated 200. Details: wire/NOTES.md.
+## fetch (QF8)
+
+`window.fetch` is pure JS at the end of src/fetch_prelude.js, a thin layer over `__net_request` (QF7): `new Request(input, init)` validates, then `data:` is decoded in JS and `blob:` is read from the QF2 store (both local, no policy, no network); http(s)/`file:` go to `__net_request` (policy, CORS, beacons, opaque no-cors); any other scheme rejects with TypeError. Bodies are buffered through the Request (`arrayBuffer()`, FormData is multipart). `redirect:"error"` rejects on `response.redirected`; `"manual"` acts as follow. Ignored: cache, referrer, referrerPolicy, integrity, priority. Credentials are accepted; no cookies are sent until QF14 (`include` with ACAO `*` fails the CORS check in QF7). Failures reject with `TypeError("Failed to fetch")`; the real reason is the QF7 console line.
+
+## XMLHttpRequest (QF9)
+
+`XMLHttpRequest` (plus `XMLHttpRequestEventTarget`, `XMLHttpRequestUpload`) is JS at the end of src/fetch_prelude.js over `__net_request` (api `xhr`), so policy, CORS, limits and logs are fetch's. A hidden `__xhr_internals` (forbidden-header list, body extraction, UTF-8 decode, response bytes) is shared from the QF4/QF5 closure; the forbidden request header list is the Headers one. Events: readystatechange 1 after open; async send fires loadstart, then (rs2, rs3, one progress when the body is non-empty, rs4, load, loadend); network/CORS/policy failure is rs4, error, loadend with status 0; abort is rs4, abort, loadend then readyState 0; `timeout` is a JS timer that cancels the request (rs4, timeout, loadend). Non-simple cross-origin requests fail like fetch (QF13 preflight log + error). Sync (`open(..,false)`): `send()` blocks in `__net_request` with `sync_xhr_timeout_ms`, fires rs4/load/loadend, and throws a NetworkError DOMException on failure; `responseType` or `timeout` on a sync XHR throws InvalidAccessError (at open and on the setters, as browsers do on a window). Deviations: `responseType "document"` and `responseXML` are null (console.error once; no DOMParser yet); the body arrives whole; upload fires its events only at the end; open() user/password ignored; withCredentials stored only (cookies are QF14). `navigator.sendBeacon` is QF10.
+
+## Cookie jar lives in wire (QF14, wire half)
+
+wire (version 3) owns a memory-only cookie jar, partitioned by top-level site and selected per request with `X-Wire-Jar: scratchy` (scratchy sends the headers in QF14b-scratchy; until then nothing changes). With the jar, wire strips `Set-Cookie` from answers and ignores a client `Cookie` header; `document.cookie` will go through wire's control channel (`X-Wire-Cookie-Op`). scratchy detects the jar by `X-Wire-Cookies: on|off` plus the version. Details and limits: wire/NOTES.md "The cookie jar".

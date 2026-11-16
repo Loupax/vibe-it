@@ -143,6 +143,85 @@ pub(crate) fn find_base_href(handle: &Handle) -> Option<String> {
     None
 }
 
+/// QY19: longest delay (seconds) a `<meta http-equiv=refresh>` redirect is
+/// honoured with; larger values are clamped to this.
+pub(crate) const META_REFRESH_MAX_DELAY: u64 = 10;
+/// QY19: most chained meta redirects followed for one user navigation.
+pub(crate) const META_REFRESH_MAX_CHAIN: u8 = 3;
+
+/// QY19: parses a `<meta http-equiv=refresh content="...">` value into
+/// `(delay seconds, target URL)`. Only `url=` redirects are honoured: a bare
+/// `N` (reload the same page), a missing/negative number or an empty URL
+/// give `None`, so a page can never make scratchy reload itself in a loop.
+/// The delay is clamped to `META_REFRESH_MAX_DELAY`. Accepts `N; url=x`,
+/// `N, URL = 'x'`, `N;x` (HTML spec), quotes optional, resolved against `base`.
+pub(crate) fn parse_meta_refresh(content: &str, base: Option<&Url>) -> Option<(u64, Url)> {
+    let s = content.trim_start_matches(|c: char| c.is_ascii_whitespace());
+    let digits = s.bytes().take_while(u8::is_ascii_digit).count();
+    if digits == 0 {
+        return None;
+    }
+    let delay: u64 = s[..digits].parse().unwrap_or(u64::MAX);
+    let mut rest = &s[digits..];
+    // Optional fractional part is ignored.
+    if let Some(r) = rest.strip_prefix('.') {
+        rest = r.trim_start_matches(|c: char| c.is_ascii_digit());
+    }
+    let rest = rest.trim_start_matches(|c: char| c.is_ascii_whitespace() || c == ';' || c == ',');
+    let mut url_part = rest;
+    if rest.len() >= 3 && rest.is_char_boundary(3) && rest[..3].eq_ignore_ascii_case("url") {
+        let after = rest[3..].trim_start_matches(|c: char| c.is_ascii_whitespace());
+        if let Some(a) = after.strip_prefix('=') {
+            url_part = a.trim_start_matches(|c: char| c.is_ascii_whitespace());
+        }
+    }
+    let url_part = match url_part.chars().next() {
+        Some(q @ ('"' | '\'')) => {
+            let inner = &url_part[1..];
+            inner.split(q).next().unwrap_or("")
+        }
+        _ => url_part,
+    };
+    let url_part = url_part.trim();
+    if url_part.is_empty() {
+        return None;
+    }
+    let url = resolve_href(base, url_part).ok()?;
+    Some((delay.min(META_REFRESH_MAX_DELAY), url))
+}
+
+/// QY19: the `content` of the first `<meta http-equiv=refresh>` (value
+/// matched case-insensitively) in the tree. With scripts off, `<noscript>`
+/// children are real elements (see `new_parser`), so one inside it is
+/// found; with scripts on, noscript content is raw text and is not.
+pub(crate) fn find_meta_refresh_content(handle: &Handle) -> Option<String> {
+    if let NodeData::Element { name, .. } = &handle.data {
+        if name.local.as_ref() == "meta"
+            && element_attr(handle, "http-equiv").is_some_and(|v| v.trim().eq_ignore_ascii_case("refresh"))
+        {
+            if let Some(c) = element_attr(handle, "content") {
+                return Some(c.to_string());
+            }
+        }
+    }
+    for child in handle.children.borrow().iter() {
+        if let Some(found) = find_meta_refresh_content(child) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+/// QY19: what to do for a freshly loaded document: `(delay seconds, URL)`,
+/// or `None` when it has no usable meta refresh or `chain` redirects have
+/// already been followed for this navigation.
+pub(crate) fn meta_refresh_action(document: &Handle, base: Option<&Url>, chain: u8) -> Option<(u64, Url)> {
+    if chain >= META_REFRESH_MAX_CHAIN {
+        return None;
+    }
+    parse_meta_refresh(&find_meta_refresh_content(document)?, base)
+}
+
 /// Minimal HTML-escaping for `App::show_message`'s synthetic `<p>...
 /// </p>` wrapper — `text` can carry a clicked `href` or an OS/`io::
 /// Error` message, neither of which scratchy controls the contents of,
@@ -276,7 +355,15 @@ pub(crate) enum WireFetchRaw {
 /// all exactly the same outcome: no usable response came back, for
 /// whatever reason.
 pub(crate) fn fetch_raw_via_wire(path: &std::path::Path, request_text: &str) -> WireFetchRaw {
+    fetch_raw_via_wire_with_timeout(path, request_text, RequestPolicy::default().legacy_idle_timeout)
+}
+
+/// `fetch_raw_via_wire` with an explicit per-read (idle) timeout: a hung
+/// upstream (measured: 169.254.169.254) used to pin the thread forever.
+/// A timeout collapses to `Unreachable` like every other failure.
+pub(crate) fn fetch_raw_via_wire_with_timeout(path: &std::path::Path, request_text: &str, read_timeout: std::time::Duration) -> WireFetchRaw {
     let Ok(mut stream) = UnixStream::connect(path) else { return WireFetchRaw::Unreachable };
+    let _ = stream.set_read_timeout(Some(read_timeout));
     if stream.write_all(request_text.as_bytes()).is_err() {
         return WireFetchRaw::Unreachable;
     }
@@ -289,6 +376,222 @@ pub(crate) fn fetch_raw_via_wire(path: &std::path::Path, request_text: &str) -> 
         Err(_) => WireFetchRaw::Unreachable,
     }
 }
+
+// ---------- QF5: full wire codec for page-JS networking ----------
+//
+// Pure building blocks (nothing calls them yet; QF7/QF8 will). What wire
+// does today (read from wire/src/main.rs): any method; request headers
+// forwarded except Host/Content-Length/Connection; request bodies read by
+// Content-Length (no chunked requests); redirects followed by ureq; the
+// response is `HTTP/1.1 <status> <reason>` + headers with NO Content-Length
+// and the body read until the connection closes; transport failures become a
+// `502` `text/plain` body starting `wire: upstream request failed:`.
+// Duplicate response headers (Set-Cookie) are collapsed by wire today and
+// the final URL / an error marker are not reported: QF6.
+
+#[allow(unused_imports)]
+pub(crate) use wire_codec::*;
+
+#[allow(dead_code)] // nothing calls the codec until QF7/QF8
+mod wire_codec {
+use super::*;
+
+/// Limits and timeouts for one request through the new path.
+#[derive(Debug, Clone)]
+pub(crate) struct WireLimits {
+    pub max_body_bytes: usize,
+    pub connect_timeout: std::time::Duration,
+    /// Total time allowed for sending the request and reading the whole response.
+    pub read_timeout: std::time::Duration,
+}
+
+impl Default for WireLimits {
+    fn default() -> Self {
+        RequestPolicy::default().wire_limits()
+    }
+}
+
+impl RequestPolicy {
+    pub(crate) fn wire_limits(&self) -> WireLimits {
+        WireLimits { max_body_bytes: self.max_response_bytes, connect_timeout: self.connect_timeout, read_timeout: self.read_timeout }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum NetError {
+    Connect(String),
+    Timeout,
+    Io(String),
+    TooLarge,
+    Malformed(String),
+    /// A header name/value or method the codec refuses to serialise.
+    BadRequest(String),
+}
+
+impl std::fmt::Display for NetError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            NetError::Connect(e) => write!(f, "cannot connect to wire: {e}"),
+            NetError::Timeout => write!(f, "request timed out"),
+            NetError::Io(e) => write!(f, "network I/O error: {e}"),
+            NetError::TooLarge => write!(f, "response is too large"),
+            NetError::Malformed(e) => write!(f, "malformed response from wire: {e}"),
+            NetError::BadRequest(e) => write!(f, "bad request: {e}"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) struct WireResponse {
+    pub status: u16,
+    pub status_text: String,
+    /// Lowercased names, trimmed values, wire order, duplicates kept
+    /// (`set-cookie` stays here: the cookie jar, QF14, needs it).
+    pub headers: Vec<(String, String)>,
+    pub body: Vec<u8>,
+    /// Set when this is wire's synthesized transport-failure response (the
+    /// `X-Wire-Error` header of QF6, or today's 502 text/plain marker).
+    pub error: Option<String>,
+    /// `X-Wire-Final-Url` (QF6), when wire sends it.
+    pub final_url: Option<String>,
+}
+
+impl WireResponse {
+    pub(crate) fn header(&self, name: &str) -> Option<&str> {
+        self.headers.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str())
+    }
+}
+
+fn is_header_token(s: &str) -> bool {
+    !s.is_empty() && s.bytes().all(|b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b))
+}
+
+/// Serialises one absolute-form HTTP/1.1 request for wire. Host,
+/// Content-Length, Connection and Transfer-Encoding in `headers` are dropped
+/// (wire/ureq own them). `Content-Length` is added for a non-empty body and
+/// for an empty POST/PUT/PATCH. CR/LF/NUL in a name or value, a non-token
+/// name or method are rejected. Header policy (forbidden names, `X-Wire-*`)
+/// is the caller's job: this codec is trusted and lets `X-Wire-Policy` through.
+pub(crate) fn build_wire_request(method: &str, url: &Url, headers: &[(String, String)], body: &[u8]) -> Result<Vec<u8>, NetError> {
+    if !is_header_token(method) {
+        return Err(NetError::BadRequest(format!("invalid method {method:?}")));
+    }
+    let host = url.host_str().unwrap_or("");
+    let host_header = match url.port() {
+        Some(port) => format!("{host}:{port}"),
+        None => host.to_string(),
+    };
+    let mut out = format!("{method} {url} HTTP/1.1\r\nHost: {host_header}\r\n").into_bytes();
+    for (name, value) in headers {
+        if !is_header_token(name) {
+            return Err(NetError::BadRequest(format!("invalid header name {name:?}")));
+        }
+        if value.bytes().any(|b| b == b'\r' || b == b'\n' || b == 0) {
+            return Err(NetError::BadRequest(format!("header {name} value contains CR, LF or NUL")));
+        }
+        if matches!(name.to_ascii_lowercase().as_str(), "host" | "content-length" | "connection" | "transfer-encoding") {
+            continue;
+        }
+        out.extend_from_slice(format!("{name}: {value}\r\n").as_bytes());
+    }
+    if !body.is_empty() || matches!(method.to_ascii_uppercase().as_str(), "POST" | "PUT" | "PATCH") {
+        out.extend_from_slice(format!("Content-Length: {}\r\n", body.len()).as_bytes());
+    }
+    out.extend_from_slice(b"\r\n");
+    out.extend_from_slice(body);
+    Ok(out)
+}
+
+/// Parses wire's full response (status line, headers, body to EOF).
+pub(crate) fn parse_wire_response_full(bytes: &[u8]) -> Result<WireResponse, NetError> {
+    let header_end = bytes
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .ok_or_else(|| NetError::Malformed("no header terminator found".into()))?;
+    let head = String::from_utf8_lossy(&bytes[..header_end]);
+    let mut lines = head.split("\r\n");
+    let status_line = lines.next().unwrap_or("");
+    let mut parts = status_line.splitn(3, ' ');
+    let version = parts.next().unwrap_or("");
+    if !version.starts_with("HTTP/") {
+        return Err(NetError::Malformed(format!("bad status line {status_line:?}")));
+    }
+    let status: u16 = parts
+        .next()
+        .and_then(|s| s.parse().ok())
+        .filter(|s| (100..600).contains(s))
+        .ok_or_else(|| NetError::Malformed(format!("bad status code in {status_line:?}")))?;
+    let status_text = parts.next().unwrap_or("").trim().to_string();
+    let mut headers = Vec::new();
+    let (mut wire_error, mut final_url) = (None, None);
+    for line in lines {
+        let (name, value) = line.split_once(':').ok_or_else(|| NetError::Malformed(format!("bad header line {line:?}")))?;
+        let (name, value) = (name.trim().to_ascii_lowercase(), value.trim().to_string());
+        match name.as_str() {
+            "x-wire-error" => wire_error = Some(value),
+            "x-wire-final-url" => final_url = Some(value),
+            _ => headers.push((name, value)),
+        }
+    }
+    let body = bytes[header_end + 4..].to_vec();
+    let mut error = wire_error;
+    // Today's wire (before QF6): the synthesized 502 text/plain body.
+    if error.is_none() && status == 502 && body.starts_with(b"wire: upstream request failed:") {
+        error = Some(String::new());
+    }
+    if let Some(e) = error.as_mut() {
+        *e = String::from_utf8_lossy(&body).trim().to_string();
+    }
+    Ok(WireResponse { status, status_text, headers, body, error, final_url })
+}
+
+/// Sends the request bytes to wire and reads the whole response with a
+/// connect timeout, a total read deadline and a body cap (over the cap ->
+/// `NetError::TooLarge`, without buffering more).
+pub(crate) fn fetch_full_via_wire(path: &std::path::Path, request: &[u8], limits: &WireLimits) -> Result<WireResponse, NetError> {
+    use std::time::Instant;
+    // Unix connect() has no timeout API: do it on a thread.
+    let (tx, rx) = mpsc::channel();
+    let p = path.to_path_buf();
+    thread::spawn(move || {
+        let _ = tx.send(UnixStream::connect(p));
+    });
+    let mut stream = match rx.recv_timeout(limits.connect_timeout) {
+        Ok(Ok(s)) => s,
+        Ok(Err(e)) => return Err(NetError::Connect(e.to_string())),
+        Err(_) => return Err(NetError::Timeout),
+    };
+    let deadline = Instant::now() + limits.read_timeout;
+    let remaining = |d: Instant| d.checked_duration_since(Instant::now()).filter(|r| !r.is_zero());
+    let io_err = |e: io::Error| match e.kind() {
+        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut => NetError::Timeout,
+        _ => NetError::Io(e.to_string()),
+    };
+    stream.set_write_timeout(remaining(deadline)).map_err(io_err)?;
+    stream.write_all(request).map_err(io_err)?;
+    // The head is not part of the body cap; allow it generous room.
+    let cap = limits.max_body_bytes.saturating_add(64 * 1024);
+    let mut buf = Vec::new();
+    let mut chunk = [0u8; 16 * 1024];
+    loop {
+        let left = remaining(deadline).ok_or(NetError::Timeout)?;
+        stream.set_read_timeout(Some(left)).map_err(io_err)?;
+        let n = stream.read(&mut chunk).map_err(io_err)?;
+        if n == 0 {
+            break;
+        }
+        buf.extend_from_slice(&chunk[..n]);
+        if buf.len() > cap {
+            return Err(NetError::TooLarge);
+        }
+    }
+    let resp = parse_wire_response_full(&buf)?;
+    if resp.body.len() > limits.max_body_bytes {
+        return Err(NetError::TooLarge);
+    }
+    Ok(resp)
+}
+} // mod wire_codec
 
 /// `start_navigation`'s own stdout fallback — per `scratchy/TODO.txt`'s
 /// own design, printed verbatim as the literal HTTP/1.1 wire text
@@ -387,6 +690,83 @@ pub(crate) fn fetch_script_via_wire(path: &std::path::Path, url: &Url) -> Option
     Some(enc.decode_with_bom_removal(&body).0.into_owned())
 }
 
+/// QA18b1: bytes cap for a pre-fetched iframe document.
+const IFRAME_MAX_BYTES: usize = 1 << 20;
+/// QA18b1: at most this many iframes per page are pre-fetched.
+const IFRAME_MAX_COUNT: usize = 8;
+
+static IFRAME_PAGES: std::sync::Mutex<Option<HashMap<String, String>>> = std::sync::Mutex::new(None);
+
+/// QA18b1: the pre-fetched HTML of an iframe, by absolute URL (what
+/// `iframe.contentDocument` parses into its second document).
+pub(crate) fn iframe_page(url: &str) -> Option<String> {
+    IFRAME_PAGES.lock().ok()?.as_ref()?.get(url).cloned()
+}
+
+pub(crate) fn set_iframe_pages(pages: HashMap<String, String>) {
+    if let Ok(mut g) = IFRAME_PAGES.lock() {
+        *g = Some(pages);
+    }
+}
+
+/// Same origin as `base` (all `file:` URLs count as one origin).
+fn same_frame_origin(base: &Url, url: &Url) -> bool {
+    match url.scheme() {
+        "http" | "https" => url.origin() == base.origin(),
+        "file" => base.scheme() == "file",
+        _ => false,
+    }
+}
+
+/// QA18b1: fetches the `src` documents of the page's `<iframe>`s that are
+/// same-origin http(s)/file, concurrently, bounded by `IFRAME_MAX_COUNT`
+/// and `IFRAME_MAX_BYTES`, and stores them for the JS engine (which
+/// cannot touch the network). Scripts in them never run. Replaces the
+/// previous page's set. No-op with JS off.
+pub(crate) fn prefetch_iframes(path: &std::path::Path, base: &Url, document: &Handle) {
+    set_iframe_pages(HashMap::new());
+    if !js_enabled() {
+        return;
+    }
+    fn collect(h: &Handle, base: &Url, out: &mut Vec<Url>) {
+        if let NodeData::Element { name, .. } = &h.data
+            && name.local.as_ref() == "iframe"
+            && let Some(src) = element_attr(h, "src")
+            && let Ok(u) = resolve_href(Some(base), src.trim())
+            && same_frame_origin(base, &u)
+            && !out.contains(&u)
+            && out.len() < IFRAME_MAX_COUNT
+        {
+            out.push(u);
+        }
+        for c in h.children.borrow().iter() {
+            collect(c, base, out);
+        }
+    }
+    let mut urls = Vec::new();
+    collect(document, base, &mut urls);
+    if urls.is_empty() {
+        return;
+    }
+    let pages: HashMap<String, String> = thread::scope(|scope| {
+        let hs: Vec<_> = urls
+            .into_iter()
+            .map(|u| {
+                scope.spawn(move || {
+                    let WireFetchRaw::Responded { content_type, body } = fetch_raw_via_wire(path, &build_get_request_text(&u)) else { return None };
+                    let ct = content_type.unwrap_or_default().to_ascii_lowercase();
+                    if body.len() > IFRAME_MAX_BYTES || !(ct.trim_start().starts_with("text/html") || ct.trim().is_empty() && u.scheme() == "file") {
+                        return None;
+                    }
+                    Some((u.to_string(), decode_html_bytes(&body, None)))
+                })
+            })
+            .collect();
+        hs.into_iter().filter_map(|h| h.join().ok().flatten()).collect()
+    });
+    set_iframe_pages(pages);
+}
+
 /// What `process_external_resources` hands back: the concatenated
 /// stylesheets and the scripts ready to run, in document order.
 pub(crate) struct PageResources {
@@ -399,7 +779,7 @@ pub(crate) const MAX_IMPORT_DEPTH: usize = 8;
 
 /// Splits the leading `@charset`/`@import` rules off `css`. Returns the
 /// imports as `(target, media)` pairs and the remaining stylesheet text.
-pub(crate) fn split_leading_imports(css: &str) -> (Vec<(String, String)>, &str) {
+pub(crate) fn split_leading_imports(css: &str) -> (Vec<(String, String, Option<String>)>, &str) {
     let mut rest = css.trim_start_matches('\u{feff}');
     let mut imports = Vec::new();
     loop {
@@ -425,8 +805,8 @@ pub(crate) fn split_leading_imports(css: &str) -> (Vec<(String, String)>, &str) 
         if is_charset {
             continue;
         }
-        if let Some((target, media)) = parse_import_prelude(body) {
-            imports.push((target, media));
+        if let Some((target, media, layer)) = parse_import_prelude(body) {
+            imports.push((target, media, layer));
         }
     }
 }
@@ -451,9 +831,11 @@ pub(crate) fn find_rule_end(s: &str) -> Option<usize> {
     None
 }
 
-/// `url(x) screen` / `"x" screen` -> (`x`, `screen`). `None` for forms we
-/// don't follow (`supports(...)`, `layer(...)`, an empty target).
-pub(crate) fn parse_import_prelude(body: &str) -> Option<(String, String)> {
+/// `url(x) layer(a.b) screen` / `"x" screen` -> (`x`, `screen`, layer).
+/// The layer is `Some(name)` for `layer(name)` and `Some("")` for a bare
+/// `layer` (QY17: the importer wraps the sheet in `@layer`). `None` for
+/// forms we don't follow (`supports(...)`, an empty target).
+pub(crate) fn parse_import_prelude(body: &str) -> Option<(String, String, Option<String>)> {
     let body = body.trim();
     let (target, rest) = if body.len() >= 4 && body[..4].eq_ignore_ascii_case("url(") {
         let close = body.find(')')?;
@@ -466,18 +848,19 @@ pub(crate) fn parse_import_prelude(body: &str) -> Option<(String, String)> {
     };
     let mut media = rest.trim();
     let lower = media.to_ascii_lowercase();
-    if lower.contains("supports(") || lower.contains("layer(") {
+    let mut layer = None;
+    if lower.starts_with("layer(") {
+        let close = media.find(')')?;
+        layer = Some(media[6..close].split_whitespace().collect::<String>());
+        media = media[close + 1..].trim();
+    } else if lower == "layer" || lower.starts_with("layer ") {
+        layer = Some(String::new());
+        media = media[5..].trim();
+    }
+    if media.to_ascii_lowercase().contains("supports(") || target.is_empty() {
         return None;
     }
-    if lower == "layer" {
-        media = "";
-    } else if let Some(m) = lower.strip_prefix("layer ") {
-        media = media[media.len() - m.len()..].trim();
-    }
-    if target.is_empty() {
-        return None;
-    }
-    Some((target, media.to_string()))
+    Some((target, media.to_string(), layer))
 }
 
 /// Expands the leading `@import` rules of a fetched stylesheet in place
@@ -494,14 +877,10 @@ pub(crate) fn expand_css_imports(
     let (imports, rest) = split_leading_imports(css);
     let mut out = String::new();
     if stack.len() < MAX_IMPORT_DEPTH {
-        for (target, media) in imports {
+        for (target, media, layer) in imports {
             if let Some(text) = decode_data_uri_text(target.trim()) {
                 let expanded = expand_css_imports(&text, sheet_url, stack, fetch);
-                if media.is_empty() {
-                    out.push_str(&expanded);
-                } else {
-                    out.push_str(&format!("@media {media} {{\n{expanded}\n}}"));
-                }
+                out.push_str(&wrap_import(expanded, &media, layer.as_deref()));
                 out.push('\n');
                 continue;
             }
@@ -513,16 +892,25 @@ pub(crate) fn expand_css_imports(
             stack.push(url.clone());
             let expanded = expand_css_imports(&text, &url, stack, fetch);
             stack.pop();
-            if media.is_empty() {
-                out.push_str(&expanded);
-            } else {
-                out.push_str(&format!("@media {media} {{\n{expanded}\n}}"));
-            }
+            out.push_str(&wrap_import(expanded, &media, layer.as_deref()));
             out.push('\n');
         }
     }
     out.push_str(&absolutize_css_urls(rest, sheet_url));
     out
+}
+
+/// Wraps an imported sheet's text in `@media` (when it has a media list)
+/// and `@layer name`/`@layer` (QY17, `layer(name)` / bare `layer`).
+fn wrap_import(expanded: String, media: &str, layer: Option<&str>) -> String {
+    let mut text = expanded;
+    if !media.is_empty() {
+        text = format!("@media {media} {{\n{text}\n}}");
+    }
+    if let Some(name) = layer {
+        text = format!("@layer{}{name} {{\n{text}\n}}", if name.is_empty() { "" } else { " " });
+    }
+    text
 }
 
 /// Q35a: rewrites every relative `url(...)` in a fetched stylesheet's text
@@ -698,6 +1086,7 @@ pub(crate) fn process_external_resources(
     let extra_css = fetch_stylesheets(path, &base, &resources.stylesheets);
     spawn_image_fetches(proxy, path, &base, resources.images, generation);
     let scripts = fetch_scripts(path, &base, resources.scripts);
+    prefetch_iframes(path, &base, &dom.document);
     PageResources { css: extra_css, scripts }
 }
 

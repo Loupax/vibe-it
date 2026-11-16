@@ -6611,3 +6611,241 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Implement QA12 (takes the inline-handler part of Q33d1): `onclick="..."`, `onload`, `onerror`, `onsubmit`, ... on any element plus `<body onload/onunload/onresize>` mapping to window, compiled with `this` = element and `event`, run through the Q33d dispatcher; return false cancels; errors logged and non-fatal; Acid3's `<body onload="update()">` is the motivating case.
 
 **What changed:** js.rs `dispatch` now falls back to `attrHandler(node, type)` when the `on<type>` property is not a function: reads the attribute via `__d_attr`, compiles `new Function('event', src)` once per element/type/text (WeakMap), body/frameset forwarding for window events, compile errors logged via `oops`. Test `qa12_inline_handlers_click_return_false_body_onload_and_errors` (fails without the fix). Verified live in nested dwl: body onload, real injected clicks on a button and on a `return false` link. Left out: `with(document/form/element)` scope chain, reading `el.onclick` as a property from the attribute, `onerror` window signature.
+
+## QA14 DOMException with legacy codes
+
+> Implement QA14: `DOMException` (message, name, code, the numeric constants on constructor and prototype, inherits Error) and make createElement/createElementNS/setAttribute/appendChild/insertBefore/removeChild and invalid selectors throw the right DOMException; keep the QJ2 `Name: message` error log format.
+
+**What changed:** js.rs defines the `DOMException` global (a real Error re-prototyped so describe_error prints `Name: message`; code from the name). js_dom.rs: `herr`/`domErr`/selector `bad` now build DOMExceptions; XML-name validation in `createElement`/`createElementNS`/`setAttribute` (InvalidCharacterError 5), createElementNS namespace/prefix checks (NamespaceError 14) and a new `__d_create_ns` that keeps the qualified name's case outside XHTML (Acid3 T21); `removeChild` of a non-Node is a TypeError. Tests `qa14_domexception_constructor_and_constants`, `qa14_dom_methods_throw_domexception`. Left out: name validation is an ASCII-start approximation of the XML Name production; createElementNS does not store prefix/localName separately.
+
+## QA13 document.write / writeln during page load
+
+> Implement QA13: `document.write`/`writeln` (and `open`/`close`) inside a classic script during load insert the parsed markup right after the running `<script>` element (html5ever fragment parse as in innerHTML); after load log and do nothing; mark DOM dirty; Acid3 throws `not a function` from this gap.
+
+**What changed:** js_dom.rs: `parse_fragment_in` (shared with the innerHTML setter), `write_after`, native `__d_write(afterId, html)` returning the last inserted node, JS `document.write/writeln/open/close` tracking the insertion point per script via `__scratchy_cs`. Each call is parsed immediately (not concatenated across calls, so a tag split over two writes is not joined); written `<script>` elements are inserted but not run; write with no running script (timers, events, after load) logs a console.warn and is ignored. Tests qa13_* (fail without the fix).
+
+## QA16 getComputedStyle
+
+> Implement QA16: window.getComputedStyle(el[, pseudo]) returning a live-ish CSSStyleDeclaration-like object (getPropertyValue, camelCase and dashed access, length/item) with CSSOM-serialised values for the properties scratchy computes; unknown properties return empty; cheap and cached; element.style keeps working.
+
+**What changed:** new src/js_style.rs: `StyleCache` re-parses UA + `<style>` + external CSS only when that text changes (external CSS reaches it through `set_js_extra_css`, called wherever `App::extra_css` is assigned), runs `resolve_style_for` down the ancestor chain (so inheritance, em/rem work), caches per element until the next DOM write (`wgen` bumped by every write native in js_dom.rs), registers a `RuleIndex` for the call and restores the layout build one. `serialize` maps `ComputedStyle` fields to CSSOM strings. js_dom.rs: natives `__d_cs`/`__d_csprops` and `window.getComputedStyle` (Proxy; disconnected/detached elements give empty values; setProperty throws NoModificationAllowedError). No layout is run: width/height are the computed (specified) value or `auto`, not used px; split into QA16a. Test `qa16_get_computed_style_cascade_inheritance_and_unknowns`.
+
+## Q35b background/mask shorthand takes the first url() layer; relayout-per-image measured
+
+> Implement the remaining Q35b parts: the `background:`/`mask:` shorthand with a gradient layer before the url layer must keep the url layer's image like the longhand's `first_url_layer`, keeping QA4 strict parsing; measure whether each arriving CSS image's relayout is significant and coalesce only if it is.
+
+**What changed:** css.rs `parse_background_shorthand` now collects each layer's image/position/size/repeat/attachment and `end_bg_layer` picks the first layer that has a `url()` (falling back to the first layer's attributes when no layer has one), so HN's `url(triangle.svg), linear-gradient(..)` and `linear-gradient(..), url(sprite)` both work and the url layer's own repeat/position apply. Strict (QA4) rejection of junk, a second colour or a colour in a non-final layer is unchanged. Test `q35b_background_shorthand_takes_first_url_layer_after_gradient` (fails without the fix). Part (2) measured on en.wikipedia.org/wiki/Main_Page (temporary timing, removed): 28 ImageFetched events produced 8 rebuilds, the last three costing ~430 ms of build each (earlier ones 0 ms on the tiny initial page). The background image Arc is baked into the laid-out boxes, so a true paint-only path needs a laid-tree patch pass (bigger than S), and a debounce would save about one 430 ms build. Left open as Q35b2 in TODO.txt.
+
+
+## QW3 language-button divider strikethrough on wikipedia.org
+
+> Fix QW3: on wikipedia.org a horizontal line is drawn through the "Read Wikipedia in your language" link; in a real browser it is a divider behind the button. Diagnose with evidence from the live HTML/CSS, reduce to a fixture, fix the smallest root cause.
+
+**What changed:** the divider is the sibling `.lang-list-border` div pulled up by a negative margin; the `<button class=lang-list-button>` (`display:inline; position:relative; z-index:1; outline:1.6rem solid #fff`) is meant to hide it. style.rs: `<button>` with computed `display:inline` becomes inline-block (also re-applied on the CSS-wide-keyword path that re-derives `display`, hit by `font-family:inherit`). layout.rs `walk_negative_z`: relative/sticky `Embedded` inline items are hoisted into the stacking context's positioned layer like in-flow relative block children. Test `qw3_divider_line_is_hidden_behind_z_indexed_inline_button` (fails without either part); `find_all_span_colors` test helper now descends into embedded boxes. Left out: QW3a (plain inline elements paint no border/outline).
+
+## QA17 DOM Traversal (NodeIterator, TreeWalker)
+
+> Implement QA17: document.createNodeIterator / NodeIterator and document.createTreeWalker / TreeWalker with the NodeFilter masks and FILTER_ACCEPT/REJECT/SKIP (function and {acceptNode} filters), per the DOM spec traversal algorithms; NodeIterator should survive node removal if cheap. No MutationObserver or document.implementation.
+
+**What changed:** js_dom.rs prelude, pure JS over the node wrappers (no new natives): spec TreeWalker (parentNode, firstChild/lastChild, previousSibling/nextSibling, previousNode/nextNode, currentNode setter) and NodeIterator (nextNode/previousNode, referenceNode, pointerBeforeReferenceNode, detach), a re-entrant filter throws InvalidStateError, missing root throws TypeError. NodeIterator removal fix-up (spec "removing steps") runs through a new `rmNode` used by removeChild, replaceChild and Element.remove; limits: moves via insertBefore/appendChild of an attached node, innerHTML/textContent replacement and `replaceChildren` do not adjust live iterators. Tests qa17_* (fail without the fix: `createTreeWalker` is not a function). Acid3 harness: T4 and T5 now run past the traversal and fail on missing page markup (`<map>`, forms.form QA20, score text), so the score stays 41/100.
+
+## QA20 table and form element DOM interfaces
+
+> Implement QA20: document.forms, form.elements (named access), form.length, submit/reset stubs, HTMLTableElement/Row/Cell APIs, plain form-control reflections, HTMLMapElement/areas. Live form state stays in Q33e. Pure-JS prelude is fine.
+
+**What changed:** js_dom.rs `wrap` now picks a tag-specific prototype from a `tagProto` table (dialog/canvas registered there too) and a prelude block defines the interfaces over the existing natives: HTMLTableElement (rows in thead/tbody/tfoot order, tBodies, tHead, tFoot, caption, insertRow/deleteRow with IndexSizeError, create/delete THead/TFoot/Caption/TBody), section/row/cell/caption/col elements (cells, rowIndex, sectionRowIndex, insertCell/deleteCell, cellIndex, colSpan, rowSpan), HTMLFormElement (elements and `document.forms` as arrays with `item`/`namedItem` plus name/id properties), Input/Button (default type submit)/TextArea/Select (options, selectedIndex, value, add/remove)/Option/OptGroup/Label/FieldSet/Output/Meta/Map(areas, images)/Area, `document.images/links/anchors`. `input.value` is a dirty value held on the wrapper. Tests qa20_* (fail without the fix). Acid3 harness 41 -> 51/100. Left out as QA20a: radio groups, click()/submit events, form-object named access.
+
+## Q35b2 debounce image-triggered relayouts
+
+> Implement Q35b2: each arriving image (`ImageFetched`) sets `layout_dirty` and costs a full relayout. Defer the rebuild while one is in flight and add a short debounce so a burst collapses into one rebuild, without delaying the first layout or leaving an image unflushed; keep the R2/R7/QB2 invariants. Measure first.
+
+**What changed:** app.rs `handle_image_fetched` still caches the image immediately but records `image_relayout_since` and arms an `AppEvent::ImageFlush` timer (`IMAGE_RELAYOUT_DEBOUNCE`, 80 ms from the first arrival, layout.rs, with the pure `image_relayout_wait`). `flush_image_relayout` (timer and the complete `ShapeResult`) sets `layout_dirty`/bumps `layout_generation` only when the window passed and no pass is in flight/holding the old frame, so a burst is one rebuild and never makes an in-flight pass stale. An arrival while `layout_dirty` (first layout) is a no-op; `replace_document` clears the pending state. Measured (temporary `Instant` prints, removed, unloaded machine) on en.wikipedia.org/wiki/Main_Page: 28 ImageFetched either way; builds 3 heavy (about 360 ms each) + 5-8 trivial before, 2 heavy after; all complete frames: before final complete frame ~4.95 s, after ~5.1-5.2 s (an intermediate complete frame with most images appears at ~4.4 s). Main-thread build time dropped by about one build (~360 ms). Tests `q35b2_*` (the pure one runs without a display; the handler one returns early without one; both fail without the fix). The paint-only patch pass stays out of scope.
+
+## QA18a DOMImplementation and detached documents
+
+> Implement the first sub-item of QA18 (QA18a): a Document wrapper over a second detached rcdom tree, `document.implementation.createHTMLDocument/createDocument/createDocumentType`, sharing the wrapper machinery; no iframes, no styles for second documents.
+
+**What changed:** js_dom.rs: `DomTable.docs` marks extra Document roots (so they are not mistaken for fragments); natives `__d_newdoc`, `__d_create_doctype`, `__d_doctype`; `__d_byid` and `__d_special` take a document id (documentElement is the first element child). In the prelude `makeDoc` builds `Object.create(doc)` per second document (methods and getters are keyed by `this.__id`, so they are shared), overriding URL/contentType/readyState, `defaultView`/`location`/`currentScript` null, `title`, `doctype`, `importNode`, `adoptNode`, creators that record the owning document. `ownerDocument` now resolves via the attached root, then a per-root owner map. `DOMImplementation` and `DocumentType` globals. Tests qa18a_* (fail without the fix: `document.implementation` undefined). Acid3 harness 51 -> 54/100 (T26, T27, T98). Left out: QA18b (iframe contentDocument), QA18c (styles for second documents, XML createElement).
+
+## QA18b iframe contentDocument and contentWindow
+
+> Implement QA18b: `iframe.contentDocument` / `contentWindow` for same-origin iframes (about:blank, data:, empty src) via a second document on demand using the QA18a machinery; asynchronous `load` after insertion; network iframes return null and are split into a new item; no iframe rendering.
+
+**What changed:** js_dom.rs prelude: `HTMLIFrameElement` (via `mkProto`) with `contentDocument`, `contentWindow`, `getSVGDocument`, reflected `src/name/width/height`. The frame is made lazily by `makeDoc` plus html/head/body, kept per iframe id in `frames`, only while the iframe is in the page and its src is empty, `about:blank` or `data:`; otherwise null. The window is a minimal object (`document`, `window`, `self`, `parent`/`top` = the page window, `frameElement`, `location`, `getComputedStyle`); `doc.defaultView` of the frame returns it. `appendChild`/`insertBefore` call `afterIns`, which queues a `load` event (setTimeout 0) for an inserted iframe. Test `qa18b_iframe_content_document_and_window`. Acid3 harness unchanged at 54/100 because its iframe has `src="empty.html"` (network, null); with that src removed it reaches 58 (T1, T3, T6, T44 pass), the rest wait on QA18c styles and QA18b1.
+
+## Q33d1 click(), submit events, mouse events
+
+> Implement the remaining parts of Q33d1: element.click() with default actions (links, checkbox checked, form submit event), form.submit()/requestSubmit(), mousedown/mouseup/mouseover/mouseout from Rust pointer input (coalesced, not bypassing the QB3 hover machinery), scroll/resize on window. Split what is too big into new TODO items.
+
+**What changed:** js_dom.rs: `HTMLElement.prototype.click` (untrusted click, disabled controls ignored; checkbox/radio `checked` toggled before dispatch and reverted if cancelled, `input`+`change` fired otherwise; radio groups uncheck siblings; links record a `nav` request via the new `__d_navigate` native that `App::js_sync` follows; submit buttons call `form.requestSubmit(button)`), `HTMLFormElement.requestSubmit` (fires a cancelable bubbling `submit` with `submitter`; the default action is a no-op stub until Q30), `submit()` fires nothing. app.rs: `mousedown`/`mouseup` at the element under the pointer on press/release, `mouseout`/`mouseover` (with `relatedTarget`, via the new `EventField::Node`) fired from `update_hover` on a change of the hit node only, before and independent of the debounced `:hover` restyle, so QB3 still gates restyles. Tests `q33d1_*` (fail without the fix: `click` is not a function). Left out (new TODO items): window `scroll`/`resize`, `mousemove`, real clicks on form controls toggling/submitting.
+
+## QA18b1 iframe src documents (and QA18c styles)
+
+> Implement QA18b1: fetch a same-origin iframe `src` (relative http/file, Acid3 `empty.html`) through wire, parse it into the iframe's second document, scripts not run, depth 1, size cap; plus QA18c (cascade for second documents) if small.
+
+**What changed:** net.rs `prefetch_iframes` (same-origin, max 8, 1 MB, text/html) run beside script fetching in `process_external_resources` and `--js-report`, results in a global map (`iframe_page`/`set_iframe_pages`). js_dom.rs natives `__d_iframe_page` (resolves the iframe's `src` against `<base>`/page URL) and `__d_load_html` (full-document parse into a Document root); `frameOf`/`frameSrcOk` use them, set `URL`/`location.href`. QA18c: `__d_cs` finds the node's own document root and `StyleCache` is keyed by it (fetched CSS only for the page). Test `qa18b1_iframe_src_document_is_loaded_and_styled`. Left out: dynamic iframes, load events for markup iframes, `window.frames` (QA18b2), XML createElement and `new Document()` (QA18c1).
+
+## QY6 decision memo and real-site JS survey (Opus investigator, docs only)
+
+> Investigator only, no source changes. Build a release binary from latest origin/main. (1) YouTube: list the scripts and current first errors, and by inserting JS stand-ins in a copy of the page find the ordered list of missing APIs until kevlar_base runs without throwing, what it does next, and the size of a faithful implementation of each. (2) Do the same quick survey for other popular JS-heavy pages (github, reddit/old.reddit, bbc news, duckduckgo, lobste.rs, guardian), with live screenshots JS on/off, and aggregate which missing APIs and CSS gaps block the most sites. (3) Write a decision memo at the top of the TODO.txt QUEUE (options A skip / B stubs / C real implementations, costs, recommendation, ordered items) and an R-numbered REGRESSIONS.md section; docs-only PR, merged.
+
+**What changed:** TODO.txt: a "DECISION MEMO (QY6)" block at the top of the active QUEUE, gated on a user tick (D0); recommendation C phases 1-2 (QY8-QY14 small broad APIs and diagnostics, QY15 ES modules, Q33f fetch, QY16 Intl, QY17 `@layer`, QY18 translate-only `transform` (needs the user's OK), QY19 meta refresh, QY20 hidden scrollbars), YouTube/Web Components deferred to phase 3 (QY6 re-split into QY6a MutationObserver, QY6e customElements, QY6f template.content, QY6d re-measure; QY4a folded into QY12). REGRESSIONS.md "R21": the YouTube shim chain (16 APIs until the app ran clean; it then stamps a 1600-element shell and 337 fetches but the window still shows only the skeleton; YouTube forces ShadyDOM so native Shadow DOM is not needed, and webcomponents-sd.js has no custom-elements polyfill), the 10-page survey table, static API/CSS counts, the measured quadratic `nextSibling`, and what could not be tested.
+
+## Acid3 real page runs to a score (QA18d)
+
+> The real Acid3 page never reaches a score live. Find exactly why (stderr, instrumented copy, timers, onload), fix it if small.
+
+**What changed:** found by an instrumented copy (`console.log` in `update()`): the 100 tests all ran, but `span.firstChild.data = score` was a no-op because the getter-only `CharacterData.prototype.data` in js_dom.rs shadowed the settable `Node.prototype.data`. Added a settable `data` on `CharacterData.prototype`. Test `acid3_text_node_data_setter_writes_the_tree` (fails without the fix). Live Acid3 now shows 61/100. Left out: `Comment.data =` (QA18e).
+
+## O(1) sibling access (QY8)
+
+> Implement QY8: nextSibling/previousSibling (and Element variants, firstChild/lastChild) must not scan the parent child list through JS each step (walking 1000 siblings took 689 ms). Measure first, keep correctness after every DOM write native, add deterministic tests.
+
+**What changed:** js_dom.rs: natives `__d_sibling(id, dir, elementsOnly)` and `__d_edge_child(id, last, elementsOnly)` replace the childNodes-building `sib` helper and firstChild/lastChild; new nextElementSibling/previousElementSibling (were missing) and native firstElementChild/lastElementChild. Rust keeps a per-node index hint, verified on every use (`child_index`: kids[hint] is the node, else scan), so no write needs to invalidate it. Measured with --js-report: walking 1000 siblings 792 ms before, 1.7 ms after; 3000 spans exceeded the 5 s CPU budget before, 5 ms after; 10000: 18 ms. Tests `qy8_walk_counts_and_stays_correct_after_mutations` and `qy8_sibling_hint_is_o1_when_walking` (counts probe steps, no wall clock).
+
+## URL and URLSearchParams (QY9)
+
+> Implement TODO.txt QY9: `URL` and `URLSearchParams` globals as natives over the Rust `url` crate (href/protocol/host/hostname/port/pathname/search/hash/origin/username/password/searchParams live-linked, toString/toJSON, setters, canParse/parse; URLSearchParams from string/object/iterable with append/delete/get/getAll/has/set/sort/toString/forEach/iteration/size; invalid URL throws TypeError). Permanent tests, WPT subset, js-report before/after on real sites, grim screenshot of wikipedia.org.
+
+**What changed:** js.rs: natives `__url_parse(input, base)` and `__url_set(href, key, value)` over `url::Url` (11-component array), and `URL_PRELUDE` = new `src/url_prelude.js` (evaluated after the timers prelude) with the `URL` and `URLSearchParams` classes (form-urlencoded with `+`, live two-way link: `searchParams` mutations call `_setQuery`, `u.search`/`u.href` setters re-parse the list). `URL.createObjectURL` returns `blob:<origin>/<n>-scratchy`. Tests `qy9_*` in tests.rs (4). `--js-report` duckduckgo 4 -> 1 errors (left: `matchMedia`, QY10); youtube still 2 (webcomponents/ShadyDOM, QY6); wikipedia/HN/bbc stay 0. WPT unchanged (pass 263). Left out: `URL.createObjectURL` has no blob store; IDNA/special-scheme edge cases follow the `url` crate.
+
+## window.matchMedia (QY10)
+
+> Implement QY10: `window.matchMedia(query)` returning a MediaQueryList (matches, media, addListener/removeListener, addEventListener, onchange) reusing the CSS media-query code; invalid query gives matches false and media 'not all'; duckduckgo and youtube call it at startup.
+
+**What changed:** css.rs: `media_query_string_matches(query, w, h)` evaluates a query string (comma lists, `not`/`only`, `and`/`or`, nested conditions, level-4 range syntax, width/height/orientation/resolution/hover/pointer/prefers-*/forced-colors/color etc.; unknown features are false, invalid items become `not all`) and reuses `media_feature_length_px` for lengths. The existing `MediaQuery` struct was not extended, so `@media` CSS behaviour is unchanged. js.rs: native `__scratchy_media`, `MediaQueryList` (an EventTarget; `matches`/`media` re-evaluated per read) and `window.matchMedia`. Viewport is the fixed 1024x768 and `change` never fires (QY10a). Tests `qy10_*` (3).
+
+## Reflected URL attributes, dataset, attributes (QY11)
+
+> Implement TODO.txt QY11: reflected `src/href/action/data/poster/currentSrc` as absolute URLs against `document.baseURI` (honouring `<base href>`), `a.origin/protocol/host/...`, live `dataset`, `attributes`/`getAttributeNames`/`hasAttributes`/`getAttributeNode`, iterable `classList`, style string reflection check. Permanent tests, WPT subset, js-report before/after on real sites, Acid3, wikipedia screenshot.
+
+**What changed:** js_dom.rs: native `__d_attr_names` (attribute order as stored) and a prelude block (pure JS): `document.baseURI` is now a getter (first `<base href>` resolved against the page URL), `mkProto` interfaces for script/img/link/base/source/media/embed/object/track/a, URL reflections via `new URL(v, baseURI)` (raw value if unparseable, empty src gives empty), `a`/`area` hyperlink utils built on the QY9 `URL`, `DOMTokenList` classList (iterator, forEach, keys/values/entries, value, supports, token validation, cached per element), `dataset` Proxy over `data-*` (camelCase mapping, in, delete, ownKeys), `attributes` Proxy NamedNodeMap with `Attr` views, `getAttributeNames`, `hasAttributes`, `getAttributeNode`. The QA18b iframe `src` reflection now resolves but `frameSrcOk` still reads the raw attribute. Tests `qy11_*` (6; the old build fails them, e.g. `dataset` undefined). `--js-report`: guardian 1 -> 0, wikipedia x2/HN 0, youtube 2 -> 2 (webcomponents `prototype of undefined`, QY6), ddg 1 -> 2 (first: `matchMedia` not a function; new: `history.replaceState`, QY13), bbc 0 -> 1 (`history.replaceState`, unmasked by working `script.src`). Acid3 61 -> 62/100. WPT unchanged (pass 263). Left out: QY11a (real Attr nodes, `relList`, `img.complete`).
+
+## Interface objects (QY12, absorbs QY4a)
+
+> Implement QY12: Window with its own prototype chain, HTML*Element and SVG*Element constructors chosen by `wrap`, CDATASection/ProcessingInstruction/Range stubs, DocumentFragment ParentNode, missing Event subclasses, inert media interfaces (AGENTS.md off-limits rule). Tests, WPT, js-report before/after, Acid3, grim of wikipedia.org.
+
+**What changed:** js.rs: `Window` (prototype under `EventTarget.prototype`, never `Object.prototype`; the global object inherits from it; `top/parent/frames` = window, `opener` null) and a table-driven `evt()` helper for PointerEvent, WheelEvent, DragEvent, TouchEvent, CompositionEvent, TransitionEvent, AnimationEvent, PromiseRejectionEvent, HashChangeEvent, PopStateEvent, StorageEvent, MessageEvent, ProgressEvent, ClipboardEvent, PageTransitionEvent, SubmitEvent. js_dom.rs: native `__d_ns`; `wrap` picks SVG interfaces by local name in the SVG namespace, `HTMLUnknownElement` for unknown non-custom HTML tags; table of ~40 extra `HTML*Element` via `mkProto` (never replacing existing ones); inert `HTMLMediaElement/Video/Audio/Source/Track` (play/load/pause log `not implemented`, play rejects, canPlayType ''); the SVG family; `CDATASection`, `ProcessingInstruction`, `Range` (throws NotSupportedError), illegal-constructor `Selection NamedNodeMap DOMTokenList StyleSheet CSSStyleSheet CSSRule CSSStyleDeclaration Screen Storage ShadowRoot` when missing; DocumentFragment `children/firstElementChild/lastElementChild/childElementCount/append/prepend/replaceChildren`. Tests `qy12_*` (6). `--js-report`: youtube first webcomponents error moved from `window.SVGElement.prototype` to `MutationObserver is not defined` (QY6); duckduckgo, wikipedia x2, HN, bbc 0 errors. WPT unchanged (pass 263). Acid3 real page 62/100 after rebase (unchanged). Left out: addEventListener etc. still own properties of the global (shadowing Window.prototype), real Range (QA19), `template.content` (QY6f).
+
+## history, AbortController, MessageChannel, Storage and friends (QY13)
+
+> Implement TODO.txt QY13: window.history, AbortController/AbortSignal, MessageChannel/MessagePort/window.postMessage, requestIdleCallback, localStorage/sessionStorage (in memory), structuredClone, queueMicrotask, reportError. Tests, WPT, js-report before/after, Acid3, wikipedia screenshot.
+
+**What changed:** new src/globals_prelude.js (pure JS, evaluated after the url prelude, reusing QY12 MessageEvent/PopStateEvent/HashChangeEvent). history keeps an entry list; pushState/replaceState update location.* and document.URL (same-origin only, SecurityError otherwise); back/forward/go are async, fire popstate/hashchange, and stay JS-side (no App navigation). Storage is an in-memory Proxy, not persisted (QY13a, product decision). Tests qy13_* (4).
+
+## JS diagnostics (QY14)
+
+> Implement TODO.txt QY14 (Opus QY6 memo): log errors from promise jobs / unhandled rejections in the QJ2 format via the engine rejection tracker, fire unhandledrejection/rejectionhandled; `--js-report --run-timers <ms>` pumping timers on a simulated clock with timer-phase errors reported separately; check console methods and count console.error separately. Tests, WPT, js-report before/after on real sites, Acid3, wikipedia screenshot.
+
+**What changed:** js.rs: `drain_jobs` now takes the context, logs the message of a throwing job and calls the prelude's `__scratchy_rej_flush` after each drain; `set_host_promise_rejection_tracker` forwards to `__scratchy_rej_push`; `js_report_for_scripts_timers`/`js_report_for_html_timers` (manual clock, jump to next due time up to the limit, max 5000 callbacks, `JsEngine::run_due_counted`); `--run-timers <ms>` flag; console gained assert/trace/table/dir/group/count/time; page `console.error` is level `console.error` (counted separately), engine errors use `__scratchy_err`. globals_prelude.js: rejection queue/flush with `PromiseRejectionEvent`. Tests `qy14_*` (6). WPT unchanged (pass 263), Acid3 real page 62/100 (unchanged, no stderr output). Left out: DOM summary in the report.
+
+## Minimal en-US Intl (QY16)
+
+> Implement TODO.txt QY16 (Opus QY6 memo): QuickJS has no `Intl` and duckduckgo's Next.js app dies on `ReferenceError: Intl is not defined`. Write a compact JS prelude: NumberFormat, DateTimeFormat (UTC), PluralRules, RelativeTimeFormat, ListFormat, Collator, Segmenter, DisplayNames, Locale, getCanonicalLocales, supportedValuesOf, and route Number/Date/BigInt/Array toLocale*String and String.localeCompare through it. Every constructor accepts any well-formed locale and answers en-US. Tests, WPT, js-report before/after, Acid3, wikipedia screenshot; document what is not supported (QY16a).
+
+**What changed:** new src/intl_prelude.js (pure JS, evaluated last in js.rs after the globals prelude, a no-op if `Intl` already exists). Number formatting works on decimal digit strings (round half-up on the shortest repr, so 1.005 -> 1.01 at 2 digits), supports decimal/percent/currency/unit, compact and scientific notation, significant/fraction digits, signDisplay, accounting, `formatToParts`. DateTimeFormat renders from UTC getters with dateStyle/timeStyle and component options, 12/24h, `formatToParts`. Locale parsing validates tags (RangeError for malformed). `Number/BigInt/Date/Array.prototype.toLocale*String` and `String.prototype.localeCompare` (QuickJS's compares code points, so 'a' sorted after 'B') now go through Intl. Tests `qy16_*` (4; they all fail with the eval line removed). Left out: QY16a.
+
+## ES modules (QY15)
+
+> Implement TODO.txt QY15 (Opus QY6 memo, Phase 2): `<script type=module>` inline/external, static import/export between modules, dynamic import(), import.meta.url, importmap bare specifiers, nomodule skipped, deferred in document order, strict, `this` undefined; pre-fetch the module graph through wire (caps 200 modules / 16 MB / depth 32); failed fetch/syntax errors logged in QJ2 format; 5 s CPU budget covers module evaluation; `--js-report` runs modules too. Tests, WPT, js-report before/after on real sites, Acid3, grim of github/lobste.rs/wikipedia.
+
+**What changed:** new src/js_modules.rs (mini JSON parser, `ImportMap`, `resolve_specifier`, `scan_import_specifiers`, `prefetch_graph`, `ModuleStore` + rquickjs `PageResolver`/`PageLoader`); js.rs: `ScriptRef::{ModuleInline,ModuleExternal,ImportMap}`, `ScriptKind` and `base` on `ScriptSource`, `fetch_scripts_with` (injectable fetcher for tests), `JsEngine::eval_module`; rquickjs gets the `loader` feature. Tests `qy15_*` (15). See NOTES.md "QY15". Left out (QY15a): run-time fetching for computed dynamic `import()`, `import.meta.resolve`, JSON/CSS modules, worker modules, `modulepreload`.
+## Node.isEqualNode and isSameNode (QY16b)
+
+> Implement TODO.txt QY16b: `Node.prototype.isEqualNode` is missing and duckduckgo's Next.js `updateHead` dies on `e.isEqualNode(t)` ("TypeError: not a function"). Implement per the DOM spec in the DOM prelude (pure JS over the node natives): same nodeType; elements with the same namespace, tag and attribute set (order ignored); doctype name/publicId/systemId; text/comment data; children equal pairwise in order; `isEqualNode(null)` false; add `isSameNode` if missing; `contains` already exists (Q33b). Tests, WPT subset, js-report before/after on duckduckgo (base href) and wikipedia.org.
+
+**What changed:** js_dom.rs: `eqNode` over node ids (natives `__d_kind`, `__d_tag`, `__d_ns`, `__d_attr_names`, `__d_attr`, `__d_doctype`, `__d_text`, `__d_children`), `NodeProto.isEqualNode` (a non-Node argument throws TypeError, null/undefined give false) and `NodeProto.isSameNode` (`===`). Tests `qy16b_*` (2, both fail with the method removed: "TypeError: not a function"). WPT unchanged (pass 263, no change from wpt-expected.txt). `--js-report --run-timers 5000` on duckduckgo.com with `<base href>`: 8 `TypeError: not a function` console.error lines -> 0; the first remaining error is React #418 (timer phase, QY16d). Wikipedia.org: 2 `SyntaxError: expecting ';'` in portal scripts before and after (QY16e), 0 changes from this item. `compareDocumentPosition` is still missing (QY16c).
+
+## fetch/XHR design memo (QF, Opus investigator, docs only)
+
+> Investigate Q33f (fetch, XMLHttpRequest, Request/Response/Headers/FormData/Blob/TextEncoder) without changing code: survey what real pages call (stand-ins in copies of curl'd pages, `--js-report --run-timers 5000`), read wire's capabilities, and write a design memo with a user-decision checklist (CORS, POST, cookies, persistence, SSRF) plus small implementation items; evidence in REGRESSIONS.md.
+
+**What changed:** docs only. TODO.txt: "DESIGN MEMO (QF)" at the top of the QUEUE (findings, recommended architecture, decisions QF-D1..D9, items QF1-QF12 READY and QF13-QF19 waiting); Q33f (both entries), QY15b and Q30f point at it. REGRESSIONS.md: R22 (per-site call table, static counts, CORS headers of the observed endpoints, wire probes incl. `file://` served to any client and loopback reachable, caveats).
+## TextEncoder / TextDecoder (QY15b)
+
+> Implement TODO.txt QY15b: `TextEncoder`/`TextDecoder` are missing and all 3 of github's module entry scripts die on `ReferenceError: TextEncoder is not defined` before touching the DOM. In the JS prelude: TextEncoder (encode, encodeInto, surrogate pairs, lone surrogates -> U+FFFD); TextDecoder (utf-8 with BOM handling, fatal, ignoreBOM, `{stream}` across chunk boundaries; utf-16le; windows-1252 for latin1 labels; unknown label -> RangeError); ArrayBuffer/TypedArray/DataView input. Check atob/btoa. Tests, WPT subset, js-report before/after on github, wikipedia.org, en.wikipedia Main_Page, news.ycombinator.com.
+
+**What changed:** src/globals_prelude.js: new QY15b section (pure JS over Uint8Array, state in a WeakMap per decoder). `atob`/`btoa` already exist in the engine, so they were not re-implemented. Tests `qy15b_*` (5) in src/tests.rs; four fail on origin/main (ReferenceError on TextEncoder/TextDecoder), `qy15b_atob_btoa_and_invalid_character` pins the existing atob/btoa behaviour. `--js-report --run-timers 5000` (curl'd pages + `<base>`): github 5 scripts / 3 errors before and after, but the 3 errors changed from `TextEncoder is not defined` to `customElements is not defined` (next blocker, QY6e). wikipedia.org 4/0 -> 4/0, en.wikipedia Main_Page 4/0 -> 4/0, news.ycombinator 1/0 -> 1/0. Left out: nothing beyond the listed encodings (other legacy encodings are not supported and throw RangeError).
+
+## Blob, File, FileReader, blob: URL store (QF2)
+
+> Implement TODO.txt QF2 from the QF design memo: spec-faithful in-memory Blob/File/FileReader and a blob: URL store in a new src/fetch_prelude.js (no I/O, no file picker, no network), `__blob_lookup(url)` for QF8/QF9, replacing the stub in url_prelude.js. Tests, WPT, js-report before/after, wikipedia screenshot.
+
+**What changed:** new src/fetch_prelude.js loaded in js.rs after the intl prelude; url_prelude.js stub removed. Blob (strings, ArrayBuffer, views, nested Blobs, endings, lowercased ASCII type, slice, text/arrayBuffer/bytes), File, FileReader (4 read methods, events, abort, readyState/result/error), createObjectURL/revokeObjectURL with a uuid-style store. Tests `qf2_*` (5). Left out: Blob.stream() until ReadableStream (QF4).
+
+## ReadableStream, Headers, Request, Response (QF4)
+
+> Implement TODO.txt QF4 from the QF design memo: spec-faithful data classes in src/fetch_prelude.js: Headers (guards, forbidden request headers, combining, sorted iteration, validation), minimal ReadableStream (default reader, controller; no tee/pipeTo/pipeThrough/BYOB), Request (method/url/body/signal/clone, body mixin), Response (status validation, error/redirect/json, clone, body mixin, bodyUsed), plus a documented internal `__make_response` hook for the future network layer. No fetch/XHR/network. Tests, WPT, js-report before/after on guardian, duckduckgo, wikipedia, HN, wikipedia screenshot.
+
+**What changed:** src/fetch_prelude.js (ReadableStream before Blob so `Blob.stream()` now exists; Headers/Request/Response at the end); tests `qf4_*` (8) in src/tests.rs; NOTES.md section. Left out (TODO.txt QF4a): tee/pipeTo/pipeThrough, BYOB, strategy.size, FormData bodies (QF13), cloning streamed bodies, no-cors header/method restrictions, multipart formData() parsing.
+
+## Custom Elements (QY6e)
+
+> Implement TODO.txt QY6e: `window.customElements` (CustomElementRegistry: define with name validation and SyntaxError/NotSupportedError, get, getName, whenDefined, upgrade); upgrade of existing elements at define time via the super()-returns-the-existing-element technique; createElement/new/innerHTML construction; connectedCallback/disconnectedCallback hooked through the DOM write natives with zero cost when the registry is empty; attributeChangedCallback for observedAttributes; `is=` customized built-ins if small; `attachShadow` must not be implemented (throw NotSupportedError with a `not implemented` log line). Tests, WPT subset, js-report before/after on github, old.reddit, youtube, wikipedia, HN, a 5000-appendChild check.
+
+**What changed:** src/js_dom.rs (DOM_PRELUDE end: QY6e block; `ceNew` used by `mkProto` constructors) and src/js.rs (`HTMLElement` is now a callable-through-`super()` function forwarding `new.target` to `__ce_new`). The `__d_insert/remove/sethtml/settext/setattr/rmattr/write` locals are rebound to hooked versions at the first `define()`; before that nothing is wrapped (`__ce_stats.hooks` stays 0). Tests `qy6e_*` (7). Left out: adoptedCallback, `:defined`, shadow DOM, microtask-queued reactions (callbacks run synchronously after the API call), `createElement(.., {is})` adds a visible `is` attribute.
+
+## meta refresh (QY19)
+
+> Implement TODO.txt QY19: `<meta http-equiv=refresh content="N; url=...">` support so duckduckgo.com with `--no-js` (its `<noscript>` holds a 0-second redirect to the html version) is no longer blank. Safe subset: only `url=` redirects, delay capped at 10 s, at most 3 chained per navigation, never a bare `N` reload; a 0-second redirect replaces the history entry, a delayed one pushes. Tests, WPT subset, live check in nested dwl.
+
+**What changed:** src/net.rs (`parse_meta_refresh`, `find_meta_refresh_content`, `meta_refresh_action`), src/app.rs (`handle_nav_result` checks the fresh document; `AppEvent::MetaRefresh`, `handle_meta_refresh`, `follow_meta_refresh`, `App::meta_chain`). Tests `qy19_*` (4). Left out: bare-N reload, delays above 10 s are clamped not ignored, no meta refresh for file/stdin inputs.
+
+## CSS cascade layers (QY17)
+
+> Implement TODO.txt QY17: `@layer` (block, nested `a.b`, anonymous, statement form fixing the order at first mention, `@import ... layer(x)`), with the CSS Cascade 5 layer order in the cascade sort (unlayered beats layered for normal declarations, later layer beats earlier, reversed for `!important`; UA origin below author). github.com's `[hidden]{display:none!important}` lives inside `@layer primer-css-base`, which scratchy dropped. Tests, WPT subset, live check.
+
+**What changed:** src/css.rs (`StyleRule::layer`, `LayerState`, `parse_layer_names`, `@layer` in `TopLevelParser` incl. `rule_without_block`, rank post-pass in `parse_stylesheet`, `parse_ua_stylesheet`), src/style.rs (cascade key is now u64: `normal_key`/`important_key`/`to_important`; important bit 62, layer rank bits 32..61, specificity low bits), src/net.rs (`parse_import_prelude` returns the layer; `wrap_import` wraps the imported text in `@layer`), src/images.rs and src/js_style.rs (UA sheet via `parse_ua_stylesheet`). Tests `qy17_*` (7). Side effect: UA rules are now strictly below author rules (was: by specificity). Left out: `revert-layer` (still behaves as `unset`), `@import` with `supports()`, layers inside a false `@supports` are not registered.
+
+## FormData (QF3)
+
+> Implement TODO.txt QF3 from the QF design memo: `FormData` as a data class only (src/fetch_prelude.js). `new FormData()`, append/set (a Blob becomes a File, default name 'blob'), get/getAll/has/delete, entries/keys/values/forEach/Symbol.iterator in insertion order, string coercion and USVString names. `new FormData(form)` must not read the form: log `not implemented` once and return an empty FormData. Request/Response bodies from a FormData become multipart/form-data if trivial. No submission, no network.
+
+**What changed:** src/fetch_prelude.js: FormData section after Blob/File (WeakMap entries, live iterators, `fdBody` multipart serialiser); extract() serialises FormData bodies instead of throwing QF13. formData() of a multipart body still rejects (QF4a). Tests `qf3_*` (5) in src/tests.rs; all five fail against origin/main's prelude. NOTES.md "FormData (QF3)".
+
+## Net policy and wire codec (QF5)
+
+> Implement TODO.txt QF5 from the QF design memo as pure Rust building blocks: src/net_policy.rs (`is_public_ip`, one `RequestPolicy` struct holding every number/decision incl. `PrivatePolicy {Block,Warn,Allow}` for private and file targets, `check_request`, redirect-hop check, CORS decision helpers, preflight classification and response check, forbidden header lists, beacon classification + log formatter, `X-Wire-*` cap headers) and the wire codec in src/net.rs (`build_wire_request`, `parse_wire_response_full`, `fetch_full_via_wire` with connect/total-read timeouts and a body cap). No JS exposure, no real network in tests (fake wire on a temp unix socket). Later user answers (D3/D5/D6/D8/D9) were folded in mid-task.
+
+**What changed:** new src/net_policy.rs; src/net.rs (codec; `fetch_raw_via_wire` now has a 60 s idle read timeout via `fetch_raw_via_wire_with_timeout`); src/lib.rs (module); tests `qf5_*` in src/tests.rs; NOTES.md section; TODO.txt (QF5 ticked, QF6 requirements listed). Wire itself is untouched.
+
+## Hidden scrollbars (QY20)
+
+> Implement TODO.txt QY20 (P3, from the QY6 decision memo; bbc.com/news): a scroll container with `visibility:hidden` (own or inherited) must not paint its scrollbar and must not take the wheel. A `visibility:visible` descendant of it still does both, and `display:none` already had no box.
+
+**What changed:** src/paint.rs: `paint` draws a scroll box's scrollbar only when its computed `visibility` is `visible`, and `hit_test_scroll_region` no longer returns a hidden box as the wheel target (its visible descendants still can). Test `qy20_visibility_hidden_scroll_container_paints_no_scrollbar_and_takes_no_wheel` in src/tests.rs (visible control, hidden box, and a visible child inside a hidden ancestor). The test fails without each hunk (checked by reverting them one at a time). Full `cargo test`: 593 passed, 5 ignored. WPT subset: pass 264, no change from wpt-expected.txt. Left out: `opacity:0` and `clip` on scroll containers (not asked for here).
+
+## Page JS network queue (QF7)
+
+> Implement TODO.txt QF7: the engine/App plumbing that lets page JS send a request and receive the answer without exposing `fetch`/`XMLHttpRequest` (QF8/QF9). Native `__net_send(desc) -> id` validates with `RequestPolicy::check_request`/`classify_fetch`/beacon classifier and records a job in `JsRequests`; `App::js_sync` feeds a scheduler (6 parallel, in-flight byte cap, from the one policy) that runs each on a thread through an injectable executor; results return as `AppEvent::JsNet(generation, id, result)`; `JsEngine::deliver_net` applies CORS and calls JS `__net_complete` under the callback budget. JS glue `__net_request` in src/fetch_prelude.js (AbortSignal, Response via `__make_response`). Sync mode on the engine thread with `sync_xhr_timeout_ms`. `--js-report` runs the queue and prints a `--- network ---` section, with the `<base href>` as page URL. Fake executor for unit tests.
+
+**What changed:** new src/js_net.rs (`NetJob`, `NetExecutor`/`WireExecutor`/`NoSocketExecutor`, `NetScheduler`, `NetState`, `install_net`, `deliver_net`, `drive_report_net`, `format_net_report`); src/js_dom.rs (`JsRequests.net/net_done/net_abort`); src/js.rs (engine `net` state, log levels `net`/`net-warning`, report loop, base-href page URL); src/app.rs (`AppEvent::JsNet`, `NetScheduler` in `App`, `pump_net`, `handle_js_net`, parked results for `:help`); src/fetch_prelude.js (`__net_request`, `__net_complete`). Tests `qf7_*` (12). Left out: QF6 final-URL fail-closed check (wire not updated yet: a missing `X-Wire-Final-Url` falls back to the request URL), preflight (QF13), redirect-hop CORS, progress events for XHR, cookies (QF14).
+
+## wire caps, class and public-only policy (QF6)
+
+> Implement TODO.txt QF6 [S] (the wire side of the fetch/XHR memo): per-request caps, per-hop target class, `X-Wire-Policy: public-only`, final URL, error marker, duplicate headers, version header. Backwards compatible; private test instance only.
+
+**What changed:** wire/src/main.rs (see wire/NOTES.md and wire/PROMPTS.md). No scratchy code changed.
+## fetch() (QF8)
+
+> Implement TODO.txt QF8: `window.fetch(input, init)` as a thin layer over QF7's `__net_request`: Request from input/init, signal, mode, redirect, keepalive/beacon, body types, local blob: and data: fetches, unsupported schemes -> TypeError, Response with url/redirected/type from the network layer. Re-measure the R22 survey.
+
+**What changed:** src/fetch_prelude.js (`fetch`, a JS data: decoder); tests `qf8_*` (11) in src/tests.rs with the QF7 fake executor (it now also records the raw request). Found by the tests: `fetch()` with no arguments must reject (it fetched `/undefined`). Full `cargo test`: 629 passed, 5 ignored. WPT subset: pass 264, no change. Survey: guardian 7 -> 0 errors (ActiveXObject and the CMP country error gone, geolocation 200, ophan beacons suppressed); github still 3 (`MutationObserver is not defined`, next blocker); ddg and bbc now make their GETs. Live check: api.github.com/zen, a text/plain POST to httpbin (through the current wire), blob and data fetches; JSON POST cross-origin is refused until the preflight item (QF13). Left out: preflight, cookies, `redirect:"manual"` opaque-redirect, XHR (QF9).
+
+## XMLHttpRequest (QF9)
+
+> Implement TODO.txt QF9: `XMLHttpRequest` as a thin layer over the QF7 queue in src/fetch_prelude.js: constants, open/setRequestHeader/send/abort, timeout, withCredentials, responseType, response*, header getters, overrideMimeType, upload, spec event order, sync mode that blocks and throws NetworkError, CORS through the shared path.
+
+**What changed:** src/fetch_prelude.js (`__xhr_internals`, the XHR classes); tests `qf9_*` in src/tests.rs (fake executor and manual clock). Left out: `document` responseType (needs DOMParser), real upload progress, user/password, cookies (QF14), preflight (QF13), sendBeacon (QF10).
+
+## MutationObserver (QY6a)
+
+> Implement TODO.txt QY6a: MutationObserver with real MutationRecords (childList/attributes/characterData, subtree, oldValue, attributeFilter, takeRecords/disconnect, transient observers), microtask-batch delivery in creation order, hooked through the same single mutation layer QY6e installs and only at the first observe() (zero cost before). Verify against github/youtube and the survey pages.
+
+**What changed:** src/js_dom.rs (`hookInstall` is now the one shared native-rebinding layer for custom elements and observers; `MutationObserver`/`MutationRecord`/`WebKitMutationObserver`; `moBegin/moEnd` batching so replaceChild/append/prepend/before/after/replaceWith/replaceChildren make one record; new `replaceChildren`, `outerHTML` setter, CharacterData `appendData/insertData/deleteData/replaceData/substringData`); tests `qy6a_*` (24) in src/tests.rs. Full `cargo test`: 653 passed, 5 ignored. WPT subset: pass 264, no change. Survey: github still 3 errors but now `IntersectionObserver is not defined`; youtube webcomponents-sd.js now loads, first error is kevlar_base `appendChild: parameter 1 is not of type Node`; the other 7 pages stay at 0. Left out (QY6a1): Comment.data (native no-op), insertAdjacent*, parser/Rust writes, attributeNamespace.
+
+## wire cookie jar (QF14, wire half)
+
+> Implement the wire half of QF14 (QF-D2a): an in-memory, partitioned cookie jar in wire with the `document.cookie` control channel, `--no-cookies`, `X-Wire-Cookies`, `X-Wire-Version: 3`.
+
+**What changed:** wire/src/cookies.rs (new), wire/src/main.rs, wire/NOTES.md. No scratchy code changed; the scratchy half is QF14b-scratchy in TODO.txt. The user must rebuild and restart wire (instructions in TODO.txt QF14).

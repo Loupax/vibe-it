@@ -419,8 +419,11 @@ fn max_height_clamps_reported_height_but_children_still_fully_laid_out() {
 fn find_all_span_colors(b: &LayoutBox, out: &mut Vec<TextColor>) {
     if let BoxContent::Inline(items) = &b.content {
         for item in items {
-            if let InlineItem::Text(_, s) = item {
-                out.push(s.color);
+            match item {
+                InlineItem::Text(_, s) => out.push(s.color),
+                // QW3: `<button>` is an inline-block (embedded box).
+                InlineItem::Embedded(e) => find_all_span_colors(e, out),
+                _ => {}
             }
         }
     } else if let BoxContent::Blocks(children) = &b.content {
@@ -1761,6 +1764,34 @@ fn background_shorthand_url_sets_background_image() {
     let laid = measure_fixture(&html, 200.0);
     let div = find_by_width(&laid, 13.0).expect("div not found");
     assert!(div.background_image.is_some(), "`background: url(...)` shorthand should resolve a background-image the same as the longhand would");
+}
+
+#[test]
+fn q35b_background_shorthand_takes_first_url_layer_after_gradient() {
+    let src = tiny_png_data_uri(4, 4);
+    for decl in [
+        format!("background: linear-gradient(transparent, transparent), url('{src}')"),
+        format!("background: url('{src}'), linear-gradient(red, blue)"),
+        format!("background: linear-gradient(red, blue) no-repeat, url('{src}') repeat-x #fff"),
+    ] {
+        let html = format!(r#"<html><body><div style="width: 13px; height: 13px; {decl};"></div></body></html>"#);
+        let laid = measure_fixture(&html, 200.0);
+        let div = find_by_width(&laid, 13.0).expect("div not found");
+        assert!(div.background_image.is_some(), "shorthand `{decl}` should keep the url layer's image");
+    }
+    // No url layer at all: gradient-only stays imageless; strict parsing still rejects junk.
+    let html = r#"<html><body><div style="width: 13px; height: 13px; background: linear-gradient(red, blue), linear-gradient(blue, red);"></div></body></html>"#;
+    let laid = measure_fixture(html, 200.0);
+    assert!(find_by_width(&laid, 13.0).expect("div").background_image.is_none());
+    let mut p = CssParser::new("linear-gradient(red,blue), url(x.png) repeat-x 3px 4px");
+    let bg = parse_background_shorthand(&mut p, true).ok().expect("parses");
+    assert_eq!(bg.image.as_deref(), Some("x.png"));
+    assert!(bg.repeat.is_some() && bg.position.is_some(), "position/repeat come from the url layer");
+    let mut p = CssParser::new("linear-gradient(red,blue) no-repeat, url(x.png)");
+    let bg = parse_background_shorthand(&mut p, true).ok().expect("parses");
+    assert!(bg.repeat.is_none(), "the gradient layer's repeat does not apply to the url layer");
+    let mut p = CssParser::new("linear-gradient(red,blue), url(x.png) bogus");
+    assert!(parse_background_shorthand(&mut p, true).is_err(), "QA4 strict parsing still drops junk");
 }
 
 #[test]
@@ -3688,7 +3719,7 @@ fn rule_index_returns_the_same_matches_as_a_full_scan() {
         }
     }
     collect(&doc, &mut elements);
-    let summarize = |h: &Handle, pseudo: Option<&str>| -> Vec<u32> {
+    let summarize = |h: &Handle, pseudo: Option<&str>| -> Vec<u64> {
         matching_declarations_for(h, &rules, 800.0, pseudo).iter().map(|(sp, _)| *sp).collect()
     };
     let full: Vec<_> = elements.iter().map(|h| (summarize(h, None), summarize(h, Some("before")))).collect();
@@ -5475,6 +5506,74 @@ fn scrollbar_paints_for_scroll_even_when_not_overflowing_but_auto_only_paints_wh
             auto_overflow_box.y + auto_overflow_box.h, win_w
         ),
         "overflow: auto should paint a scrollbar once its content actually overflows"
+    );
+}
+
+#[test]
+fn qy20_visibility_hidden_scroll_container_paints_no_scrollbar_and_takes_no_wheel() {
+    // bbc.com/news: a drawer with `visibility:hidden` holds an
+    // `overflow-y:scroll` child. Real CSS: the hidden box is painted
+    // as if transparent and is not a hit-test target, so its own
+    // scrollbar must not paint and the wheel must not scroll it. A
+    // descendant with `visibility:visible` still does both.
+    let mut font_system = new_font_system();
+    let mut swash_cache = SwashCache::new();
+    let mut cache = ShapeCache::new();
+    let (win_w, win_h) = (200u32, 260u32);
+    let has_scrollbar_pixel = |pixels: &[u32], box_right: f32, box_top: f32, box_bottom: f32| {
+        let x = (box_right - 4.0) as u32;
+        (box_top as u32..box_bottom as u32).any(|y| pixels[(y * win_w + x) as usize] != 0x00FFFFFF)
+    };
+    let mut paint_white = |laid: &Laid| {
+        let mut pixels = vec![0x00FFFFFFu32; (win_w * win_h) as usize];
+        paint(laid, &mut font_system, &mut swash_cache, &mut cache, &HashMap::new(), &mut pixels, win_w, win_h, 0.0, None);
+        pixels
+    };
+
+    // Control: the same box, visible, paints its scrollbar and takes the wheel.
+    let visible = measure_fixture(
+        r#"<html><body><div style="overflow-y: scroll; height: 200px; width: 100px;">short</div></body></html>"#,
+        400.0,
+    );
+    let vbox = find_laid_with_scroll(&visible).expect("overflow-y: scroll box not found");
+    let pixels = paint_white(&visible);
+    assert!(
+        has_scrollbar_pixel(&pixels, vbox.x + vbox.w, vbox.y, vbox.y + vbox.h),
+        "a visible overflow-y: scroll box must still paint its scrollbar"
+    );
+    assert!(
+        hit_test_scroll_region(&visible, vbox.x + 10.0, vbox.y + 10.0, &HashMap::new(), 0.0, 600.0).is_some(),
+        "a visible scroll box must still take the wheel under the cursor"
+    );
+
+    // The same box under `visibility: hidden` (inherited by its
+    // content): no scrollbar pixels, and the wheel does not land on it.
+    let hidden = measure_fixture(
+        r#"<html><body><div style="visibility: hidden; overflow-y: scroll; height: 200px; width: 100px;"><div style="height: 500px"></div></div></body></html>"#,
+        400.0,
+    );
+    let hbox = find_laid_with_scroll(&hidden).expect("hidden overflow-y: scroll box not found");
+    let pixels = paint_white(&hidden);
+    assert!(
+        !has_scrollbar_pixel(&pixels, hbox.x + hbox.w, hbox.y, hbox.y + hbox.h),
+        "a visibility:hidden scroll container must not paint its scrollbar"
+    );
+    assert!(
+        hit_test_scroll_region(&hidden, hbox.x + 10.0, hbox.y + 10.0, &HashMap::new(), 0.0, 600.0).is_none(),
+        "a visibility:hidden scroll container must not take the wheel"
+    );
+
+    // A `visibility: visible` scroll box nested inside the hidden one
+    // overrides the inherited value: its own scrollbar paints again.
+    let nested = measure_fixture(
+        r#"<html><body><div style="visibility: hidden; height: 200px; width: 100px;"><div style="visibility: visible; overflow-y: scroll; height: 200px; width: 100px;">short</div></div></body></html>"#,
+        400.0,
+    );
+    let nbox = find_laid_with_scroll(&nested).expect("nested overflow-y: scroll box not found");
+    let pixels = paint_white(&nested);
+    assert!(
+        has_scrollbar_pixel(&pixels, nbox.x + nbox.w, nbox.y, nbox.y + nbox.h),
+        "a visibility:visible scroll box inside a hidden ancestor must still paint its scrollbar"
     );
 }
 
@@ -8157,7 +8256,7 @@ fn run_collecting(scripts: &[ScriptSource]) -> Vec<String> {
 }
 
 fn src(code: &str) -> ScriptSource {
-    ScriptSource { name: "t".into(), code: code.into(), index: None }
+    ScriptSource { name: "t".into(), code: code.into(), index: None, ..Default::default() }
 }
 
 #[test]
@@ -8197,7 +8296,7 @@ fn qj1_classic_scripts_run_in_sloppy_mode() {
 fn qj2_error_lines_carry_name_message_and_script_number() {
     let log = run_collecting(&[
         src("window.addEventListener('load', function(){ throw new TypeError('boom'); });"),
-        ScriptSource { name: "inline script #2".into(), code: "throw new RangeError('r');".into(), index: None },
+        ScriptSource { name: "inline script #2".into(), code: "throw new RangeError('r');".into(), index: None, ..Default::default() },
         src("throw 'plain'"),
         src("throw {a: 1}"),
     ]);
@@ -8236,10 +8335,12 @@ fn q33a_classic_script_types_and_collection_order() {
         [
             ScriptRef::Inline("var a=1;".into()),
             ScriptRef::External("x.js".into()),
+            // QY15: module scripts are collected now.
+            ScriptRef::ModuleInline("import 'z';".into()),
             ScriptRef::Inline("var b=2;".into())
         ]
     );
-    assert_eq!(inline_scripts(&doc).len(), 2);
+    assert_eq!(inline_scripts(&doc).len(), 3);
 }
 
 #[test]
@@ -8549,6 +8650,17 @@ fn q33c_text_create_append_insert_remove() {
     assert_eq!(body, "<ul id=\"l\"><li>first</li><li>1</li><li>new</li><li>clone</li></ul><p id=\"p\">plain</p><hr><br>");
 }
 
+// Acid3 (real page): `span.firstChild.data = score` must write the text node.
+#[test]
+fn acid3_text_node_data_setter_writes_the_tree() {
+    let (log, body) = mutate(
+        "<html><body><p id=p><span id=s>JS</span></p></body></html>",
+        "var t=document.getElementById('s').firstChild; t.data='42'; console.log(t.data, t.nodeValue, t.length);",
+    );
+    assert_eq!(log, ["log:42 42 2"], "{log:?}");
+    assert_eq!(body, "<p id=\"p\"><span id=\"s\">42</span></p>");
+}
+
 #[test]
 fn q33c_inner_html_and_remove() {
     let (log, body) = mutate(
@@ -8841,6 +8953,7 @@ fn qb2_js_dom_writes_use_restyle_path() {
     qb2_first_layout_not_made_stale(qb2_app(&proxy));
     qb5_app_applies_requests(&proxy);
     qb6_help_suspends_js(&proxy);
+    qf7_app_net(&proxy);
 }
 
 // ---------- QB6: `:help` suspends the page's JS ----------
@@ -9192,6 +9305,55 @@ fn qb9_write_line_to_writes_text_and_newline() {
     let mut buf: Vec<u8> = Vec::new();
     write_line_to(&mut buf, format_args!("usage: scratchy {}", "[file|url]"));
     assert_eq!(buf, b"usage: scratchy [file|url]\n");
+}
+
+// ---------- QA13: document.write / writeln during page load ----------
+
+fn qa13_run(html: &str) -> Vec<String> {
+    let (_engine, out) = qb8_start(html);
+    let v = out.borrow().clone();
+    v
+}
+
+#[test]
+fn qa13_write_inserts_after_the_running_script() {
+    let out = qa13_run(
+        "<html><body><p id=a>x<script>document.write('<b id=w>hi</b>')</script><i id=z></i></p>\
+         <script>var s=document.getElementById('a').getElementsByTagName('script')[0];\
+         console.log(s.nextSibling.id, s.nextSibling.textContent, s.nextSibling.nextSibling.id);</script></body></html>",
+    );
+    assert_eq!(out, ["log:w hi z"]);
+}
+
+#[test]
+fn qa13_two_scripts_each_write_and_consecutive_writes_keep_order() {
+    let out = qa13_run(
+        "<html><body><script>document.write('<u id=a1></u>'); document.write('<u id=a2></u>', '<u id=a3></u>')</script>\
+         <script>document.write('<u id=b1></u>')</script>\
+         <script>console.log(Array.prototype.map.call(document.body.children, function(e){return e.id||e.tagName}).join())</script></body></html>",
+    );
+    assert_eq!(out, ["log:SCRIPT,a1,a2,a3,SCRIPT,b1,SCRIPT"]);
+}
+
+#[test]
+fn qa13_write_inside_head_and_writeln() {
+    let out = qa13_run(
+        "<html><head><script>document.writeln('<meta id=m name=k>'); document.write('<meta id=n>')</script></head>\
+         <body><script>var m=document.getElementById('m'); console.log(document.head.children.length, m.nextSibling.nodeType, m.nextSibling.data === '\\n');</script></body></html>",
+    );
+    assert_eq!(out, ["log:3 3 true"]);
+}
+
+#[test]
+fn qa13_write_after_load_is_ignored_with_a_warning() {
+    let (engine, out) = qb8_start(
+        "<body><script>setTimeout(function(){ document.write('<b id=late></b>'); console.log(String(document.getElementById('late'))); }, 0)</script></body>",
+    );
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    engine.run_due();
+    let out = out.borrow();
+    assert!(out.iter().any(|l| l.contains("ignored")), "{out:?}");
+    assert!(out.iter().any(|l| l == "log:null"), "{out:?}");
 }
 
 // ---------- QB8: document.currentScript, named eval frames ----------
@@ -9617,11 +9779,84 @@ fn qy4_create_event_and_constructor_globals() {
         "log:true", "log:mf345", "log:true,true,true", "log:true,true,true,true", "log:1,1,4294967295"]);
 }
 
+/// QA17 fixture: root div#R > a(span) > ["x", b], c(i), "t", d(p) > e(em).
+const QA17_TREE: &str = "var R=document.createElement('div');R.id='R';\
+    function mk(t,id){var e=document.createElement(t);e.id=id;return e}\
+    var a=mk('span','a'),b=mk('b','b'),c=mk('i','c'),d=mk('p','d'),e=mk('em','e');\
+    a.appendChild(document.createTextNode('x'));a.appendChild(b);R.appendChild(a);R.appendChild(c);\
+    R.appendChild(document.createTextNode('t'));d.appendChild(e);R.appendChild(d);\
+    function nm(n){return n?(n.id||('#'+n.nodeValue)):'null'}";
+
+#[test]
+fn qa17_tree_walker_show_element_walks_forward_and_back() {
+    let log = run_collecting(&[src(&format!(
+        "{QA17_TREE} var w=document.createTreeWalker(R,NodeFilter.SHOW_ELEMENT,null);\
+         var f=[],n;while((n=w.nextNode()))f.push(n.id);console.log(f.join(','));\
+         var r=[];while((n=w.previousNode()))r.push(n.id);console.log(r.join(','));\
+         console.log(w.root===R, w.whatToShow, w.filter===null, w.currentNode===R);"
+    ))]);
+    assert_eq!(log, ["log:a,b,c,d,e", "log:d,c,b,a,R", "log:true 1 true true"], "{log:?}");
+}
+
+#[test]
+fn qa17_tree_walker_filter_skip_vs_reject() {
+    let log = run_collecting(&[src(&format!(
+        "{QA17_TREE} function walk(code){{var w=document.createTreeWalker(R,NodeFilter.SHOW_ELEMENT,\
+           function(n){{return n.id==='a'?code:NodeFilter.FILTER_ACCEPT}});var o=[],n;while((n=w.nextNode()))o.push(n.id);return o.join(',')}}\
+         console.log(walk(NodeFilter.FILTER_SKIP));console.log(walk(NodeFilter.FILTER_REJECT));\
+         var w=document.createTreeWalker(R,NodeFilter.SHOW_ALL,{{acceptNode:function(n){{return n.nodeType===3?NodeFilter.FILTER_REJECT:NodeFilter.FILTER_ACCEPT}}}});\
+         var o=[],n;while((n=w.nextNode()))o.push(nm(n));console.log(o.join(','));"
+    ))]);
+    assert_eq!(log, ["log:b,c,d,e", "log:c,d,e", "log:a,b,c,d,e"], "{log:?}");
+}
+
+#[test]
+fn qa17_tree_walker_current_node_and_relatives() {
+    let log = run_collecting(&[src(&format!(
+        "{QA17_TREE} var w=document.createTreeWalker(R,NodeFilter.SHOW_ELEMENT);\
+         var o=[];o.push(nm(w.firstChild()));o.push(nm(w.nextSibling()));o.push(nm(w.nextSibling()));\
+         o.push(nm(w.nextSibling()));o.push(nm(w.previousSibling()));o.push(nm(w.lastChild()));o.push(nm(w.parentNode()));\
+         o.push(w.currentNode===d);w.currentNode=b;o.push(nm(w.nextNode()));o.push(nm(w.parentNode()));\
+         w.currentNode=R;o.push(nm(w.nextSibling()));o.push(nm(w.parentNode()));\
+         w.currentNode=d;o.push(nm(w.nextSibling()));w.currentNode=e;o.push(nm(w.nextNode()));\
+         console.log(o.join(','));"
+    ))]);
+    assert_eq!(log, ["log:a,c,d,null,c,null,R,false,c,R,null,null,null,null"], "{log:?}");
+}
+
+#[test]
+fn qa17_node_iterator_next_and_previous() {
+    let log = run_collecting(&[src(&format!(
+        "{QA17_TREE} var it=document.createNodeIterator(R,NodeFilter.SHOW_ELEMENT|NodeFilter.SHOW_TEXT);\
+         console.log(it.root===R, it.whatToShow, it.referenceNode===R, it.pointerBeforeReferenceNode);\
+         var f=[],n;while((n=it.nextNode()))f.push(nm(n));console.log(f.join(','));\
+         console.log(it.pointerBeforeReferenceNode, nm(it.referenceNode));\
+         var r=[];while((n=it.previousNode()))r.push(nm(n));console.log(r.join(','));\
+         console.log(typeof it.detach, it.detach());\
+         var o=document.createNodeIterator(R,NodeFilter.SHOW_ELEMENT,function(n){{return n.id==='b'?NodeFilter.FILTER_REJECT:NodeFilter.FILTER_ACCEPT}});\
+         var g=[];while((n=o.nextNode()))g.push(n.id);console.log(g.join(','));"
+    ))]);
+    assert_eq!(log, ["log:true 5 true true", "log:R,a,#x,b,c,#t,d,e", "log:false e",
+        "log:e,d,#t,c,b,#x,a,R", "log:function undefined", "log:R,a,c,d,e"], "{log:?}");
+}
+
+#[test]
+fn qa17_node_iterator_survives_removal_and_filter_reentry_throws() {
+    let log = run_collecting(&[src(&format!(
+        "{QA17_TREE} var it=document.createNodeIterator(R,NodeFilter.SHOW_ELEMENT);\
+         it.nextNode();it.nextNode();it.nextNode();console.log(nm(it.referenceNode));\
+         R.removeChild(a);console.log(nm(it.referenceNode),it.pointerBeforeReferenceNode,nm(it.nextNode()));\
+         var w;w=document.createTreeWalker(R,NodeFilter.SHOW_ALL,function(){{try{{w.nextNode()}}catch(x){{console.log(x.name)}}return 1}});w.nextNode();\
+         try{{document.createTreeWalker()}}catch(x){{console.log(x.name)}}"
+    ))]);
+    assert_eq!(log, ["log:b", "log:R false c", "log:InvalidStateError", "log:TypeError"], "{log:?}");
+}
+
 /// QY5: a runaway page-load script is stopped with one clear line naming
 /// the script and the budget, not a bare `InternalError: interrupted`.
 #[test]
 fn qy5_interrupted_page_script_logs_a_clear_message() {
-    let log = run_collecting(&[ScriptSource { name: "big.js".into(), code: "for(;;){}".into(), index: None }, src("console.log('after');")]);
+    let log = run_collecting(&[ScriptSource { name: "big.js".into(), code: "for(;;){}".into(), index: None, ..Default::default() }, src("console.log('after');")]);
     let errs: Vec<_> = log.iter().filter(|l| l.starts_with("error:")).collect();
     assert_eq!(errs.len(), 1, "{log:?}");
     assert!(errs[0].contains("big.js stopped: exceeded the 5 s"), "{log:?}");
@@ -9885,6 +10120,60 @@ fn qa12_inline_handlers_click_return_false_body_onload_and_errors() {
     assert_eq!(*log.borrow(), ["log:listener", "log:listener2", "log:s1"]);
 }
 
+// Q33d1: element.click(), form submit events, mouseover/out relatedTarget.
+#[test]
+fn q33d1_click_toggles_checkbox_fires_submit_and_follows_links() {
+    let (engine, doc, log) = events_engine(
+        "<html><body><form id=f onsubmit=\"console.log('submit', event.submitter && event.submitter.id); return false\">\
+         <input id=c type=checkbox><input id=r1 type=radio name=g checked><input id=r2 type=radio name=g>\
+         <input id=d type=checkbox disabled><button id=b>go</button></form>\
+         <a id=l href=/next>l</a><a id=l2 href=/no>n</a><form id=g><button id=gb>x</button></form></body></html>",
+        "var $=function(i){return document.getElementById(i)};\
+         $('c').addEventListener('click', function(e){ console.log('c', e.isTrusted, $('c').checked) });\
+         $('c').addEventListener('change', function(){ console.log('change') });\
+         $('c').click(); console.log('after', $('c').checked); $('c').click(); console.log('again', $('c').checked);\
+         $('d').click(); console.log('disabled', $('d').checked);\
+         $('r2').click(); console.log('radio', $('r1').checked, $('r2').checked);\
+         $('b').click();\
+         $('l2').addEventListener('click', function(e){ e.preventDefault(); });\
+         $('l2').click();\
+         $('g').addEventListener('submit', function(){ console.log('g submit'); });\
+         $('g').submit(); console.log('submit() fires none');\
+         $('g').requestSubmit(); $('l').click();",
+    );
+    let _ = doc;
+    let l = log.borrow().clone();
+    assert_eq!(
+        l,
+        [
+            "log:c false true", "log:change", "log:after true", "log:c false false", "log:change", "log:again false",
+            "log:disabled false", "log:radio false true", "log:submit b", "log:submit() fires none", "log:g submit",
+        ],
+        "{l:?}"
+    );
+    assert_eq!(engine.take_requests().nav.as_deref(), Some("/next"), "only the uncancelled link navigates");
+}
+
+#[test]
+fn q33d1_cancelled_checkbox_click_reverts_and_mouseover_has_related_target() {
+    let (engine, doc, log) = events_engine(
+        "<html><body><input id=c type=checkbox><p id=a>a</p><p id=b>b</p></body></html>",
+        "var $=function(i){return document.getElementById(i)};\
+         $('c').addEventListener('click', function(e){ e.preventDefault(); });\
+         $('c').click(); console.log('checked', $('c').checked);\
+         $('b').addEventListener('mouseover', function(e){ console.log('over', e.relatedTarget && e.relatedTarget.id, e.isTrusted, e.bubbles); });\
+         $('a').addEventListener('mouseout', function(e){ console.log('out', e.relatedTarget && e.relatedTarget.id); });",
+    );
+    assert_eq!(log.borrow()[0], "log:checked false");
+    let a = by_id(&doc, "a");
+    let b = by_id(&doc, "b");
+    let init = |rel: &markup5ever_rcdom::Handle| vec![("bubbles", EventField::Bool(true)), ("relatedTargetId", EventField::Node(rel.clone()))];
+    engine.dispatch_event(Some(&a), "mouseout", &init(&b));
+    engine.dispatch_event(Some(&b), "mouseover", &init(&a));
+    let l = log.borrow().clone();
+    assert_eq!(l[1..], ["log:out b", "log:over a true true"], "{l:?}");
+}
+
 #[test]
 fn qa10_blocks_between_cells_of_a_table_get_anonymous_cells_in_the_same_row() {
     // The Acid2 line-14 shape: cell, nested table, cell, plain block, all
@@ -10014,4 +10303,4007 @@ fn border_color_current_color_resolves_to_own_color() {
     assert_eq!(c.border_color[0], Some(TextColor::rgb(0, 0x80, 0)), "inherited currentColor uses the child's colour");
     let d = find_by_width(&laid, 316.0).expect("d").style;
     assert_eq!(d.border_color[0], Some(TextColor::rgb(0, 0, 0xff)));
+}
+
+#[test]
+fn qa14_domexception_constructor_and_constants() {
+    let (log, _) = mutate(
+        "<html><body></body></html>",
+        "var e=new DOMException('m','NotFoundError');\
+         console.log(e.name, e.message, e.code, e instanceof Error, e instanceof DOMException, String(e));\
+         console.log(DOMException.INVALID_CHARACTER_ERR, DOMException.prototype.HIERARCHY_REQUEST_ERR, DOMException.NAMESPACE_ERR, DOMException.DATA_CLONE_ERR);\
+         console.log(new DOMException('x').code, new DOMException('x').name);",
+    );
+    assert_eq!(log, ["log:NotFoundError m 8 true true NotFoundError: m", "log:5 3 14 25", "log:0 Error"], "{log:?}");
+}
+
+#[test]
+fn qa14_dom_methods_throw_domexception() {
+    let (log, _) = mutate(
+        "<html><body><div id=a><span id=s></span></div><p id=p></p></body></html>",
+        "var t=function(f){try{f();console.log('none')}catch(e){console.log(e.name+' '+e.code+' '+(e instanceof DOMException))}};\
+         var a=document.getElementById('a'), s=document.getElementById('s'), p=document.getElementById('p');\
+         t(function(){document.createElement('<bad>')});\
+         t(function(){document.createElement('')});\
+         t(function(){s.appendChild(a)});\
+         t(function(){a.removeChild(p)});\
+         t(function(){a.insertBefore(p, p)});\
+         t(function(){document.querySelector('a[')});\
+         t(function(){p.setAttribute('a b','x')});\
+         t(function(){document.createElementNS('http://www.w3.org/2000/svg','a:b:c')});\
+         t(function(){document.createElementNS(null,'a:b')});\
+         t(function(){document.createEvent('Bogus')});\
+         t(function(){document.createElement('ok-name')});\
+         console.log(document.createElementNS('http://www.example.org/ns','PREFIX:LOCALNAME').tagName);",
+    );
+    assert_eq!(
+        log,
+        ["log:InvalidCharacterError 5 true", "log:InvalidCharacterError 5 true", "log:HierarchyRequestError 3 true",
+         "log:NotFoundError 8 true", "log:NotFoundError 8 true", "log:SyntaxError 12 true",
+         "log:InvalidCharacterError 5 true", "log:NamespaceError 14 true", "log:NamespaceError 14 true",
+         "log:NotSupportedError 9 true", "log:none", "log:PREFIX:LOCALNAME"],
+        "{log:?}"
+    );
+}
+
+// ---------- QA16: getComputedStyle ----------
+
+#[test]
+fn qa16_get_computed_style_cascade_inheritance_and_unknowns() {
+    let (_e, _d, log) = events_engine(
+        "<html><head><style>#a{white-space:pre-wrap;position:relative;z-index:3;display:flex;clear:both}\
+         .c{color:#102030;font-size:2em;opacity:.5;margin-left:7px;border:2px solid red}\
+         #k{white-space:pre-line;white-space:x-bogus}</style></head>\
+         <body style='font-size:10px'><div id=a>x</div><p id=b class=c style='background-color:rgb(1,2,3)'>y<span id=s>z</span></p>\
+         <div id=h style='display:none'></div><i id=k></i></body></html>",
+        "var a=document.getElementById('a'), b=document.getElementById('b'), cs=getComputedStyle(a);\
+         console.log(cs.whiteSpace, cs.zIndex, cs.display, cs.cssFloat, cs['float'], cs.position, cs.getPropertyValue('white-space'));\
+         var cb=getComputedStyle(b);\
+         console.log(cb.color, cb.fontSize, cb.opacity, cb.marginLeft, cb.borderTopWidth, cb.getPropertyValue('border-top-style'), cb['background-color'], cb.zIndex, cb.display);\
+         console.log(getComputedStyle(document.getElementById('s')).color, getComputedStyle(document.getElementById('s')).fontSize);\
+         console.log(getComputedStyle(document.getElementById('h')).display, JSON.stringify(cs.bogus), JSON.stringify(cs.getPropertyValue('bogus')), cs.length > 10, typeof cs.item(0));\
+         b.style.display='none'; console.log(getComputedStyle(b).display);\
+         var d=document.createElement('div'); console.log(JSON.stringify(getComputedStyle(d).display), window.document.defaultView === window);\
+         console.log(getComputedStyle(document.getElementById('k')).whiteSpace); try { getComputedStyle(null) } catch (e) { console.log('te', e instanceof TypeError) }",
+    );
+    let l = log.borrow();
+    assert_eq!(l[0], "log:pre-wrap 3 flex none none relative pre-wrap", "{l:?}");
+    assert_eq!(l[1], "log:rgb(16, 32, 48) 20px 0.5 7px 2px solid rgb(1, 2, 3) auto block", "{l:?}");
+    assert_eq!(l[2], "log:rgb(16, 32, 48) 20px", "{l:?}");
+    assert_eq!(l[3], "log:none \"\" \"\" true string", "{l:?}");
+    assert_eq!(l[4], "log:none", "write invalidates the cache: {l:?}");
+    assert_eq!(l[5], "log:\"\" true", "{l:?}");
+    assert_eq!(l[6], "log:pre-line", "invalid later keyword must not override: {l:?}");
+    assert_eq!(l[7], "log:te true", "{l:?}");
+}
+
+// QW3: wikipedia.org language-button divider. A later z-auto relative 1px
+// line pulled up by a negative margin must be hidden by the earlier
+// z-index:1 inline button's white background / outline, not drawn over it.
+#[test]
+fn qw3_divider_line_is_hidden_behind_z_indexed_inline_button() {
+    let html = r#"<html><body style="margin:0;background:#fff"><div style="text-align:center;font-size:14px"><button style="display:inline;position:relative;z-index:1;margin:0 auto;padding:10px 20px;outline:20px solid #fff;border:2px solid #0000ff;font-family:inherit;background-color:#f8f9fa;font-size:14px;line-height:1"><i style="display:inline-block;vertical-align:middle;width:10px;height:10px"></i><span style="padding:0 6px;vertical-align:middle">Read</span><i style="display:inline-block;vertical-align:middle;width:10px;height:10px"></i></button></div><div style="background-color:#ff0000;display:block;position:relative;width:80%;margin:-20px auto 20px;height:1px"></div></body></html>"#;
+    let (pixels, win_w, _) = paint_fixture(html);
+    let mut red_in_button = 0;
+    for x in 50..150u32 {
+        for y in 0..40u32 {
+            if px_at(&pixels, win_w, x, y) == 0x00FF_0000 {
+                red_in_button += 1;
+            }
+        }
+    }
+    assert_eq!(red_in_button, 0, "divider must not paint over the button");
+    // A `<button>` with `display:inline` computes to inline-block, so its
+    // border paints (a plain inline box paints none).
+    let mut blue = 0;
+    for x in 0..200u32 {
+        for y in 0..60u32 {
+            if px_at(&pixels, win_w, x, y) == 0x0000_00FF {
+                blue += 1;
+            }
+        }
+    }
+    assert!(blue > 20, "button border must paint, got {blue} blue pixels");
+}
+
+// ---------- QA20: table and form DOM interfaces ----------
+
+#[test]
+fn qa20_table_rows_cells_and_sections() {
+    let log = run_in_html(
+        "<html><body><table id=t><caption>c</caption><thead><tr><th>h</th></tr></thead>\
+         <tbody><tr id=r1><td>a</td><td colspan=3 rowspan=2>b</td></tr><tr id=r2><td>c</td></tr></tbody>\
+         <tfoot><tr><td>f</td></tr></tfoot></table></body></html>",
+        "var t=document.getElementById('t'), r2=document.getElementById('r2'), r1=document.getElementById('r1');\
+         console.log(t.rows.length, t.tBodies.length, t.tHead.tagName, t.tFoot.tagName, t.caption.tagName);\
+         console.log(r2.rowIndex, r2.sectionRowIndex, r1.cells.length, r1.cells[1].cellIndex, r1.cells[1].colSpan, r1.cells[1].rowSpan, r1.cells[0].colSpan);\
+         console.log(t.rows[0].parentNode.tagName, t.rows[3].parentNode.tagName, t.rows.item(1)===r1, t instanceof HTMLTableElement, r1 instanceof HTMLTableRowElement, r1.cells[0] instanceof HTMLTableCellElement);",
+    );
+    assert_eq!(log, ["log:4 1 THEAD TFOOT CAPTION", "log:2 1 2 1 3 2 1", "log:THEAD TFOOT true true true true"], "{log:?}");
+}
+
+#[test]
+fn qa20_table_insert_delete_and_create() {
+    let log = run_in_html(
+        "<html><body><table id=t></table></body></html>",
+        "var t=document.getElementById('t');\
+         var r=t.insertRow(); var c=r.insertCell(); c.textContent='x'; r.insertCell(0).textContent='y';\
+         console.log(t.rows.length, t.tBodies.length, r.cells.length, r.cells[0].textContent, r.cells[1].textContent);\
+         t.insertRow(0); console.log(t.rows.length, t.rows[1]===r);\
+         t.deleteRow(0); console.log(t.rows.length, t.rows[0]===r); r.deleteCell(-1); console.log(r.cells.length);\
+         var h=t.createTHead(); console.log(h===t.createTHead(), t.tHead===h, t.firstChild===h);\
+         var cap=t.createCaption(); console.log(t.firstChild===cap, t.caption===cap);\
+         var f=t.createTFoot(); console.log(t.lastChild===f); t.deleteTHead(); t.deleteCaption(); t.deleteTFoot();\
+         console.log(t.tHead, t.caption, t.tFoot);\
+         try { t.insertRow(9); } catch (e) { console.log(e.name); }\
+         try { t.deleteRow(9); } catch (e) { console.log(e.name); }",
+    );
+    assert_eq!(
+        log,
+        ["log:1 1 2 y x", "log:2 true", "log:1 true", "log:1", "log:true true true", "log:true true", "log:true", "log:null null null", "log:IndexSizeError", "log:IndexSizeError"],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qa20_forms_collection_and_elements_named_access() {
+    let log = run_in_html(
+        "<html><body><form id=f1 name=first action=/go method=post><input name=a value=1><select name=s><option>x<option selected value=v>y</select>\
+         <textarea name=ta>hi</textarea><button name=b>go</button><input type=image name=img></form>\
+         <form id=f2><input id=z></form></body></html>",
+        "var f=document.forms[0];\
+         console.log(document.forms.length, f.id, document.forms.f2.id, document.forms.namedItem('first')===f, f.length, f.elements.length);\
+         console.log(f.elements.a.value, f.elements.namedItem('s').tagName, f.elements[2].name, f.elements.img, f.action, f.method);\
+         console.log(document.forms.f2.elements.z.form===document.forms.f2, typeof f.submit, typeof f.reset);",
+    );
+    assert_eq!(log, ["log:2 f1 f2 true 4 4", "log:1 SELECT ta undefined /go post", "log:true function function"], "{log:?}");
+}
+
+#[test]
+fn qa20_form_control_reflections() {
+    let log = run_in_html(
+        "<html><body><form id=f><input id=i name=n value=v><input id=c type=checkbox checked><input id=bad type=bogus>\
+         <button id=b></button><button id=b2 type=button></button>\
+         <select id=s><option id=o1>one</option><option id=o2 value=2 selected>two</option></select>\
+         <label id=l for=i>L</label><textarea id=ta>t</textarea><input id=d disabled></form></body></html>",
+        "var $=function(i){return document.getElementById(i)};\
+         console.log($('i').type, $('i').name, $('i').value, $('c').type, $('c').checked, $('bad').type, $('d').disabled, $('i').form===$('f'));\
+         console.log($('b').type, $('b2').type, $('s').type, $('s').options.length, $('s').selectedIndex, $('s').value, $('o1').value, $('o2').value, $('o2').selected, $('o2').defaultSelected, $('o2').index);\
+         $('s').selectedIndex=0; console.log($('s').value, $('o2').selected);\
+         $('i').type='password'; $('i').name='m'; $('c').checked=false; console.log($('i').getAttribute('type'), $('i').name, $('c').checked);\
+         console.log($('l').htmlFor, $('l').control===$('i'), $('ta').value, $('ta').type);\
+         var o=document.createElement('option'); o.text='three'; $('s').add(o); console.log($('s').length, $('s').options[2].value);",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:text n v checkbox true text true true",
+            "log:submit button select-one 2 1 2 one 2 true true 1",
+            "log:one false",
+            "log:password m false",
+            "log:i true t textarea",
+            "log:3 three"
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qa20_map_areas_and_form_global_constructors() {
+    let log = run_in_html(
+        "<html><body><map id=m name=mm><area id=a1 shape=rect coords='0,0,1,1' href=x><area id=a2></map><img usemap='#mm'></body></html>",
+        "var m=document.getElementById('m');\
+         console.log(m.areas.length, m.areas[0].shape, m.areas[0].coords, m.name, m.images.length, m instanceof HTMLMapElement, m instanceof HTMLElement, typeof HTMLFormElement);",
+    );
+    assert_eq!(log, ["log:2 rect 0,0,1,1 mm 1 true true function"], "{log:?}");
+}
+
+#[test]
+fn qa20_input_value_property_is_separate_from_the_attribute_and_meta_http_equiv() {
+    let log = run_in_html(
+        "<html><body></body></html>",
+        "var i=document.createElement('input'); i.value='test';\
+         console.log(i.hasAttribute('value'), i.value, i.defaultValue);\
+         var m=document.createElement('meta'); m.setAttribute('http-equiv','x'); console.log(m.httpEquiv, m.hasAttribute('httpEquiv'));",
+    );
+    assert_eq!(log, ["log:false test ", "log:x false"], "{log:?}");
+}
+
+// ---------- Q35b2: image arrivals are debounced ----------
+
+#[test]
+fn q35b2_image_relayout_wait_is_pure_debounce() {
+    let ms = std::time::Duration::from_millis;
+    // First arrival on an idle page waits the whole window, no more.
+    assert_eq!(image_relayout_wait(None, false), Some(IMAGE_RELAYOUT_DEBOUNCE));
+    assert!(IMAGE_RELAYOUT_DEBOUNCE <= ms(100));
+    // Part-way through: the remainder, never extended by later arrivals.
+    assert_eq!(image_relayout_wait(Some(ms(30)), false), Some(IMAGE_RELAYOUT_DEBOUNCE - ms(30)));
+    // Window passed: rebuild now (the timer flushes even with no more events).
+    assert_eq!(image_relayout_wait(Some(IMAGE_RELAYOUT_DEBOUNCE), false), None);
+    assert_eq!(image_relayout_wait(Some(ms(5000)), false), None);
+    // A rebuild is already queued (first layout, chunk, resize): nothing to defer.
+    assert_eq!(image_relayout_wait(None, true), None);
+}
+
+#[test]
+fn q35b2_image_burst_collapses_and_flushes() {
+    use winit::platform::wayland::EventLoopBuilderExtWayland;
+    // Without a display, only the pure decision above can be checked.
+    let event_loop = match EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build() {
+        Ok(l) => l,
+        Err(_) => {
+            assert_eq!(image_relayout_wait(None, false), Some(IMAGE_RELAYOUT_DEBOUNCE));
+            return;
+        }
+    };
+    let mut app = App::new_static(parse_html("<html><body><img src=\"a.png\"><img src=\"b.png\"></body></html>"), event_loop.create_proxy(), None);
+    let img = || Some(DecodedImage { width: 1, height: 1, pixels: vec![TextColor::rgb(1, 2, 3)], svg: None, mask: None });
+    let generation = app.nav_generation;
+
+    // First layout still queued: arrivals add nothing extra and are not deferred.
+    assert!(app.layout_dirty);
+    app.handle_image_fetched(generation, "a.png".into(), img());
+    assert!(app.image_relayout_since.is_none());
+    assert!(app.image_cache.contains_key("a.png"));
+
+    // Idle page with a finished layout: the image is cached at once but the
+    // rebuild waits for the window.
+    app.layout_dirty = false;
+    app.layout_in_flight = false;
+    let before = app.layout_generation;
+    app.handle_image_fetched(generation, "b.png".into(), img());
+    assert!(app.image_cache.contains_key("b.png"));
+    assert!(!app.layout_dirty, "rebuild is deferred by the debounce window");
+    assert!(app.image_relayout_since.is_some());
+    assert_eq!(app.layout_generation, before, "no stale-making bump until the flush");
+
+    // A burst member inside the window does not rebuild either.
+    app.handle_image_fetched(generation, "c.png".into(), img());
+    assert!(!app.layout_dirty);
+
+    // Window passed but a pass is in flight: still deferred (QB2: no stale frame).
+    app.image_relayout_since = Some(std::time::Instant::now() - IMAGE_RELAYOUT_DEBOUNCE * 2);
+    app.layout_in_flight = true;
+    app.flush_image_relayout();
+    assert!(!app.layout_dirty);
+    // The pass completes (handle_shape_result calls flush): one rebuild.
+    app.layout_in_flight = false;
+    app.flush_image_relayout();
+    assert!(app.layout_dirty);
+    assert!(app.image_relayout_since.is_none());
+    assert_eq!(app.layout_generation, before + 1);
+
+    // A stale-generation image is dropped entirely (R7).
+    app.layout_dirty = false;
+    app.handle_image_fetched(generation + 1, "stale".into(), img());
+    assert!(!app.image_cache.contains_key("stale"));
+    assert!(app.image_relayout_since.is_none());
+
+    // A navigation clears any pending debounce.
+    app.handle_image_fetched(generation, "d.png".into(), img());
+    assert!(app.image_relayout_since.is_some());
+    app.replace_document(parse_html("<html></html>"), String::new());
+    assert!(app.image_relayout_since.is_none());
+}
+
+#[test]
+fn qa18a_create_html_document_has_skeleton_and_own_tree() {
+    let log = run_in_html(
+        "<html><head><title>P</title></head><body><p id=x>page</p></body></html>",
+        "var d=document.implementation.createHTMLDocument('T');\
+         console.log(d.nodeType, d.nodeName, d!==document, d instanceof Document, d.title, d.documentElement.tagName,\
+           d.head.tagName, d.body.tagName, d.doctype.name, d.contentType, d.URL, d.defaultView, d.location);\
+         var e=d.createElement('div'); e.id='in'; d.body.appendChild(e);\
+         console.log(d.getElementById('in')===e, document.getElementById('in'), d.getElementById('x'),\
+           d.querySelector('#in')===e, d.querySelectorAll('div').length, document.querySelectorAll('div').length);\
+         console.log(e.ownerDocument===d, document.body.ownerDocument===document, d.createElement('b').ownerDocument===d, document.createElement('b').ownerDocument===document);\
+         d.title='N'; console.log(d.title, document.title, d.body.parentNode===d.documentElement, d.parentNode, d.childNodes.length);",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:9 #document true true T HTML HEAD BODY html text/html about:blank null null",
+            "log:true null null true 1 0",
+            "log:true true true true",
+            "log:N  true null 2"
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qa18a_import_and_adopt_node_and_create_document_type() {
+    let log = run_in_html(
+        "<html><body><div id=s><b>x</b></div></body></html>",
+        "var d=document.implementation.createHTMLDocument('');\
+         var s=document.getElementById('s'); var c=d.importNode(s,true);\
+         console.log(c.ownerDocument===d, c.parentNode, c.innerHTML, s.ownerDocument===document, c!==s);\
+         var u=document.createElement('u'); var a=d.adoptNode(u); d.body.appendChild(a);\
+         console.log(a===u, u.ownerDocument===d, d.body.firstChild===u, u.parentNode===d.body);\
+         var dt=document.implementation.createDocumentType('svg','pub','sys');\
+         console.log(dt.nodeType, dt.name, dt.publicId, dt.systemId, dt.nodeName, dt instanceof DocumentType);\
+         var x=document.implementation.createDocument('http://www.w3.org/2000/svg','svg',null);\
+         console.log(x.documentElement.tagName, x.contentType, x.body, document.implementation.hasFeature('x','1.0'));\
+         var thrown=''; try { document.implementation.createDocumentType('1 bad','','') } catch (e) { thrown=e.name }\
+         console.log(thrown);",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:true null <b>x</b> true true",
+            "log:true true true true",
+            "log:10 svg pub sys svg true",
+            "log:svg image/svg+xml null true",
+            "log:InvalidCharacterError"
+        ],
+        "{log:?}"
+    );
+}
+
+// ---------- QA18b: iframe.contentDocument / contentWindow ----------
+
+#[test]
+fn qa18b_iframe_content_document_and_window() {
+    let log = run_with_timers(
+        "var f=document.createElement('iframe');\
+         console.log(f.contentDocument, f.contentWindow);\
+         f.onload=function(){ console.log('onload', this===f); };\
+         f.addEventListener('load', function(){ console.log('listener'); });\
+         document.body.appendChild(f);\
+         var d=f.contentDocument; var w=f.contentWindow;\
+         console.log(d!==document, d.nodeType, d.documentElement.tagName, d.body.tagName, d.head.tagName,\
+           w.document===d, d.defaultView===w, w.parent===window, w.top===window, w.frameElement===f, f.contentDocument===d);\
+         var e=d.createElement('p'); d.body.appendChild(e); console.log(d.getElementsByTagName('p').length, document.getElementsByTagName('p').length, e.ownerDocument===d);\
+         var n=document.createElement('iframe'); n.src='http://example.org/x.html'; document.body.appendChild(n);\
+         console.log(n.contentDocument, n.contentWindow);\
+         var u=document.createElement('iframe'); u.setAttribute('src','about:blank'); document.body.appendChild(u);\
+         var dd=document.createElement('iframe'); dd.src='data:text/html,hi'; document.body.appendChild(dd);\
+         console.log(u.contentDocument.nodeType, dd.contentDocument.nodeType, f instanceof HTMLIFrameElement);\
+         var r=document.createElement('iframe'); document.body.appendChild(r); document.body.removeChild(r); console.log(r.contentDocument);\
+         console.log('sync-end');",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:null null",
+            "log:true 9 HTML BODY HEAD true true true true true true",
+            "log:1 0 true",
+            "log:null null",
+            "log:9 9 true",
+            "log:null",
+            "log:sync-end",
+            "log:listener",
+            "log:onload true",
+        ],
+        "{log:?}"
+    );
+}
+
+// ---------- QA18b1 / QA18c: iframe src documents, styles in second documents ----------
+
+#[test]
+fn qa18b1_iframe_src_document_is_loaded_and_styled() {
+    let mut pages = HashMap::new();
+    pages.insert(
+        "http://qa18b1.test/dir/empty.html".to_string(),
+        "<!doctype html><html><head><style>p{white-space:pre;color:#102030}</style><title>T</title></head><body><p id=a>hi</p></body></html>".to_string(),
+    );
+    crate::net::set_iframe_pages(pages);
+    crate::js::set_page_url(Url::parse("http://qa18b1.test/dir/page.html").ok().as_ref());
+    let (_e, _d, log) = events_engine(
+        "<html><body><iframe id=f src='empty.html'></iframe><iframe id=g src='missing.html'></iframe>\
+         <iframe id=h src='http://other.test/empty.html'></iframe></body></html>",
+        "var f=document.getElementById('f'), d=f.contentDocument, w=f.contentWindow;\
+         console.log(d!==null, d.title, d.getElementById('a').textContent, d.URL, w.location.href, d.defaultView===w, w.parent===window);\
+         var cs=getComputedStyle(d.getElementById('a'));\
+         console.log(cs.whiteSpace, cs.color, getComputedStyle(document.body).whiteSpace);\
+         console.log(document.getElementById('g').contentDocument, document.getElementById('h').contentDocument);\
+         console.log(document.getElementById('a'), document.getElementsByTagName('p').length);\
+         var e=d.createElement('div'); d.body.appendChild(e); e.style.whiteSpace='pre-wrap';\
+         console.log(getComputedStyle(e).whiteSpace);",
+    );
+    assert_eq!(
+        *log.borrow(),
+        [
+            "log:true T hi http://qa18b1.test/dir/empty.html http://qa18b1.test/dir/empty.html true true",
+            "log:pre rgb(16, 32, 48) normal",
+            "log:null null",
+            "log:null 0",
+            "log:pre-wrap",
+        ],
+        "{:?}",
+        log.borrow()
+    );
+}
+
+// ---------- QY8: O(1) sibling access ----------
+
+#[test]
+fn qy8_walk_counts_and_stays_correct_after_mutations() {
+    let log = run_in_html(
+        "<div id=p></div>",
+        "var p=document.getElementById('p');
+         for(var i=0;i<50;i++){var s=document.createElement('span');s.id='s'+i;p.appendChild(s);}
+         var w=function(){var o=[];for(var n=p.firstChild;n;n=n.nextSibling)o.push(n.id||'#');return o.join(',');};
+         var b=function(){var o=[];for(var n=p.lastChild;n;n=n.previousSibling)o.push(n.id||'#');return o.join(',');};
+         var s5=document.getElementById('s5');
+         console.log(s5.nextSibling.id+' '+s5.previousSibling.id);
+         p.insertBefore(document.createElement('i'),s5);
+         console.log(s5.previousSibling.tagName+' '+s5.nextSibling.id);
+         p.removeChild(document.getElementById('s6'));
+         console.log(s5.nextSibling.id);
+         s5.before(document.createTextNode('t'));
+         console.log(s5.previousSibling.nodeType+' '+s5.previousElementSibling.tagName+' '+s5.nextElementSibling.id);
+         s5.replaceWith(document.createElement('b'));
+         console.log(s5.nextSibling+' '+s5.parentNode);
+         var c=0;for(var n=p.firstChild;n;n=n.nextSibling)c++;
+         console.log(c+' '+(w().split(',').length)+' '+(b().split(',').reverse().join(',')===w()));
+         p.innerHTML='<a></a><b></b>';
+         console.log(p.firstChild.tagName+p.lastChild.tagName+p.firstChild.nextSibling.tagName+p.lastElementChild.previousElementSibling.tagName);
+         var x=document.createElement('div');console.log(x.nextSibling+' '+x.firstChild+' '+x.nextElementSibling);",
+    );
+    assert_eq!(
+        log,
+        vec![
+            "log:s6 s4",
+            "log:I s6",
+            "log:s7",
+            "log:3 I s7",
+            "log:null null",
+            "log:51 51 true",
+            "log:ABBA",
+            "log:null null null",
+        ]
+    );
+}
+
+#[test]
+fn qy8_sibling_hint_is_o1_when_walking() {
+    use markup5ever_rcdom::Node;
+    let kids: Vec<_> = (0..2000).map(|_| Node::new(markup5ever_rcdom::NodeData::Comment { contents: "x".into() })).collect();
+    let mut steps = 0;
+    let mut hint = 0;
+    for (i, k) in kids.iter().enumerate() {
+        let got = crate::js_dom::child_index(&kids, k, hint, &mut steps);
+        assert_eq!(got, Some(i));
+        hint = i + 1; // the native stores the sibling's index when it returns it
+    }
+    // One probe per step when the hint is right (a scan would be ~2M).
+    assert!(steps <= 2 * 2000, "steps = {steps}");
+    // A stale hint still gives the right answer (falls back to a scan).
+    assert_eq!(crate::js_dom::child_index(&kids, &kids[10], 1999, &mut steps), Some(10));
+    assert_eq!(crate::js_dom::child_index(&kids, &kids[10], 99999, &mut steps), Some(10));
+}
+
+// ---------- QY9: URL and URLSearchParams ----------
+
+fn qy9_run(code: &str) -> Vec<String> {
+    run_in_html("<html><body></body></html>", code)
+}
+
+#[test]
+fn qy9_url_parse_and_relative() {
+    let log = qy9_run(
+        "var u=new URL('https://u:p@Example.org:8080/a/b?x=1#frag');\
+         console.log(u.href,u.protocol,u.host,u.hostname,u.port,u.pathname,u.search,u.hash,u.origin,u.username,u.password);\
+         console.log(new URL('../a?b=1#c','https://x.org/p/q').href, new URL('/z','https://x.org/p/q').href, String(new URL('a','https://x.org/')), JSON.stringify({u:new URL('https://x.org')}));\
+         console.log(URL.canParse('nope'), URL.canParse('a','https://x.org'), URL.parse('nope'));",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:https://u:p@example.org:8080/a/b?x=1#frag https: example.org:8080 example.org 8080 /a/b ?x=1 #frag https://example.org:8080 u p",
+            "log:https://x.org/a?b=1#c https://x.org/z https://x.org/a {\"u\":\"https://x.org/\"}",
+            "log:false true null",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy9_url_invalid_throws_type_error() {
+    let log = qy9_run("try{new URL('not a url');console.log('no')}catch(e){console.log(e instanceof TypeError, e.name)}");
+    assert_eq!(log, ["log:true TypeError"], "{log:?}");
+}
+
+#[test]
+fn qy9_search_params_live_link_both_ways() {
+    let log = qy9_run(
+        "var u=new URL('https://x.org/p?a=1&a=2');\
+         u.searchParams.set('z','1 2');\
+         console.log(u.search, u.href);\
+         u.search='?q=%C3%A9&w=a+b';\
+         console.log(u.searchParams.get('q'), u.searchParams.get('w'), u.searchParams.size);\
+         u.searchParams.delete('q'); u.searchParams.delete('w');\
+         console.log(JSON.stringify(u.search), u.href);\
+         u.pathname='/new path'; u.hash='h'; u.port='81';\
+         console.log(u.href);",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:?a=1&a=2&z=1+2 https://x.org/p?a=1&a=2&z=1+2",
+            "log:é a b 2",
+            "log:\"\" https://x.org/p",
+            "log:https://x.org:81/new%20path#h",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy9_search_params_encoding_and_iteration() {
+    let log = qy9_run(
+        "var p=new URLSearchParams('a=1&a=2&b=%20&c');\
+         console.log(p.getAll('a').length, JSON.stringify(p.get('b')), p.has('c'), p.get('nope'), p.size);\
+         var q=new URLSearchParams({k:'a b', u:'h\\u00e9llo&='});\
+         console.log(q.toString());\
+         var r=new URLSearchParams([['x','1'],['y','2']]); r.append('x','3'); r.sort();\
+         var out=[]; for (var e of r) out.push(e.join(':'));\
+         console.log(out.join(','), Array.from(r.keys()).join(''), Array.from(r.values()).join(''));\
+         var n=[]; r.forEach(function(v,k){n.push(k+v)}); console.log(n.join(','));\
+         console.log(new URLSearchParams('?a=1').toString());",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:2 \" \" true null 4",
+            "log:k=a+b&u=h%C3%A9llo%26%3D",
+            "log:x:1,x:3,y:2 xxy 132",
+            "log:x1,x3,y2",
+            "log:a=1",
+        ],
+        "{log:?}"
+    );
+}
+
+// ---------- QY10: window.matchMedia ----------
+
+#[test]
+fn qy10_match_media_features_and_combinations() {
+    let out = run_collecting(&[src(
+        "var q = function (s) { return window.matchMedia(s).matches ? 1 : 0; };\
+         console.log([q('(min-width: 1px)'), q('(max-width: 1px)'), q('(min-width: 1024px)'), q('(max-width: 1023px)'),\
+           q('(min-width: 600px) and (max-width: 2000px)'), q('(min-width: 600px) and (max-width: 800px)'),\
+           q('(prefers-color-scheme: light)'), q('(prefers-color-scheme: dark)'), q('print'), q('screen'),\
+           q('not all'), q('not print'), q('(min-height: 700px)'), q('(orientation: landscape)'), q('(orientation: portrait)'),\
+           q('(hover: hover)'), q('(pointer: coarse)'), q('(prefers-reduced-motion: reduce)'), q('(min-resolution: 2dppx)'),\
+           q('(min-resolution: 1dppx)'), q('print, (min-width: 1px)'), q('(width >= 600px)'), q('(width < 600px)'),\
+           q('screen and (min-width: 1px)'), q('(forced-colors: active)'), q('')].join(','));",
+    )]);
+    assert_eq!(out, vec!["log:1,0,1,0,1,0,1,0,0,1,0,1,1,1,0,1,0,0,0,1,1,1,0,1,0,1"]);
+}
+
+#[test]
+fn qy10_match_media_invalid_is_not_all_and_media_is_reported() {
+    let out = run_collecting(&[src(
+        "var a = matchMedia('(((garbage'), b = matchMedia('(MIN-WIDTH: 10px)'), c = matchMedia('screen and');\
+         console.log(a.matches, a.media, b.matches, b.media, c.matches, c.media, matchMedia('').media === '');",
+    )]);
+    assert_eq!(out, vec!["log:false not all true (min-width: 10px) false not all true"]);
+}
+
+#[test]
+fn qy10_match_media_listeners_and_class() {
+    let out = run_collecting(&[src(
+        "var m = matchMedia('(min-width: 1px)'), n = 0, f = function () { n++; };\
+         var k = 0, g2 = function () { k++; }; m.addListener(g2);\
+         m.addListener(f); m.addEventListener('change', f); m.removeListener(f);\
+         m.dispatchEvent(new Event('change')); if (k !== 1) n += 100; m.removeListener(g2);\
+         m.dispatchEvent(new Event('change')); if (k !== 1) n += 1000;\
+         m.removeEventListener('change', f);\
+         m.dispatchEvent(new Event('change'));\
+         m.onchange = function () { n += 10; }; m.dispatchEvent(new Event('change'));\
+         console.log(m instanceof MediaQueryList, m instanceof EventTarget, typeof m.addListener, m.onchange !== undefined, n);",
+    )]);
+    assert_eq!(out, vec!["log:true true function true 10"]);
+}
+
+// ---------- QY11: reflected URL attributes, dataset, attributes, classList ----------
+
+#[test]
+fn qy11_url_reflection_is_absolute_and_honours_base() {
+    set_page_url(Url::parse("https://page.test/dir/index.html?q=1").ok().as_ref());
+    let log = run_in_html(
+        "<html><head><base href=https://x.org/d/></head><body><script src=a.js id=s></script><img src=../p.png id=i>\
+         <a href='sub/x?y#z' id=a></a><form action=go id=f></form><link rel=stylesheet href=/c.css id=l>\
+         <iframe src=about:blank id=fr></iframe><a id=n></a></body></html>",
+        "var g=function(i){return document.getElementById(i)};\
+         var r=[g('s').src,g('i').src,g('i').currentSrc,g('a').href,g('f').action,g('l').href,g('fr').src,g('n').href,document.baseURI];\
+         g('i').src='/z.png'; r.push(g('i').getAttribute('src'), g('i').src);\
+         var a=g('a'); r.push(a.origin,a.protocol,a.host,a.hostname,a.port,a.pathname,a.search,a.hash);\
+         a.pathname='/new'; r.push(a.href);\
+         console.log(r.join('|'));",
+    );
+    assert_eq!(
+        log,
+        ["log:https://x.org/d/a.js|https://x.org/p.png|https://x.org/p.png|https://x.org/d/sub/x?y#z|https://x.org/d/go|https://x.org/c.css|about:blank||https://x.org/d/|/z.png|https://x.org/z.png|https://x.org|https:|x.org|x.org||/d/sub/x|?y|#z|https://x.org/new?y#z"],
+        "{log:?}"
+    );
+    set_page_url(None);
+}
+
+#[test]
+fn qy11_url_reflection_without_base_uses_page_url() {
+    set_page_url(Url::parse("https://page.test/dir/index.html").ok().as_ref());
+    let log = run_in_html(
+        "<html><body><script src=a.js id=s></script></body></html>",
+        "console.log(document.getElementById('s').src, document.baseURI)",
+    );
+    assert_eq!(log, ["log:https://page.test/dir/a.js https://page.test/dir/index.html"], "{log:?}");
+    set_page_url(None);
+}
+
+#[test]
+fn qy11_dataset_roundtrip() {
+    let log = run_in_html(
+        "<html><body><div id=a data-foo-bar=1 data-x=2></div></body></html>",
+        "var e=document.getElementById('a'), d=e.dataset, r=[];\
+         r.push(d.fooBar, d.x, d.nope, 'fooBar' in d, 'zip' in d);\
+         d.newThing=5; r.push(e.getAttribute('data-new-thing'));\
+         e.setAttribute('data-late','L'); r.push(d.late);\
+         delete d.x; r.push(e.hasAttribute('data-x'), 'x' in d);\
+         r.push(Object.keys(d).join(','));\
+         var k=[]; for (var p in d) k.push(p); r.push(k.join(','));\
+         console.log(r.join('|'));",
+    );
+    assert_eq!(log, ["log:1|2||true|false|5|L|false|false|fooBar,newThing,late|fooBar,newThing,late"], "{log:?}");
+}
+
+#[test]
+fn qy11_attributes_and_attribute_names() {
+    let log = run_in_html(
+        "<html><body><p id=a class='c d' title=t></p><p id=e></p></body></html>",
+        "var e=document.getElementById('a'), m=e.attributes, r=[];\
+         r.push(m.length, m[0].name, m.item(1).value, m.item(9), m.getNamedItem('title').value, m.title.name, m.id.specified, m.id.ownerElement===e, m[2].nodeName);\
+         r.push(e.getAttributeNames().join(','), e.hasAttributes(), document.createElement('i').hasAttributes());\
+         var n=[]; for (var x of m) n.push(x.name+'='+x.value); r.push(n.join(';'));\
+         m.title.value='T2'; r.push(e.getAttribute('title'), e.getAttributeNode('id').value, e.getAttributeNode('zz'));\
+         e.setAttribute('lang','en'); r.push(m.length, e.getAttributeNames().pop());\
+         console.log(r.join('|'));",
+    );
+    assert_eq!(
+        log,
+        ["log:3|id|c d||t|title|true|true|title|id,class,title|true|false|id=a;class=c d;title=t|T2|a||4|lang"],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy11_classlist_iterable_and_consistent() {
+    let log = run_in_html(
+        "<html><body><div id=a class='x y'></div></body></html>",
+        "var e=document.getElementById('a'), l=e.classList, r=[];\
+         r.push([...l].join(','), l.length, l.item(1), l[0], l.value, l.supports('x'), e.classList===l);\
+         var f=[]; l.forEach(function(v,i){f.push(i+v)}); r.push(f.join(','));\
+         r.push([...l.keys()].join(','), [...l.values()].join(','), [...l.entries()].join(';'));\
+         for (var c of l) r.push('c'+c);\
+         l.add('z'); r.push(e.className); e.className='q'; r.push(l.value, l.length);\
+         l.value='m n'; r.push(e.getAttribute('class'), l.toggle('n'), e.className);\
+         console.log(r.join('|'));",
+    );
+    assert_eq!(
+        log,
+        ["log:x,y|2|y|x|x y|true|true|0x,1y|0,1|x,y|0,x;1,y|cx|cy|x y z|q|1|m n|false|m"],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy11_style_string_reflection() {
+    let log = run_in_html(
+        "<html><body><div id=a></div></body></html>",
+        "var e=document.getElementById('a'); e.style.color='red'; e.style.marginTop='1px';\
+         console.log(e.getAttribute('style'), '|', e.style.cssText, '|', e.style.color);",
+    );
+    assert_eq!(log, ["log:color: red; margin-top: 1px; | color: red; margin-top: 1px; | red"], "{log:?}");
+}
+
+#[test]
+fn qy12_window_interface_has_its_own_prototype() {
+    let out = run_collecting(&[src(
+        "console.log(window instanceof Window, window instanceof EventTarget, Window.prototype !== Object.prototype,\
+         Object.getPrototypeOf(Window.prototype) === EventTarget.prototype, ({}) instanceof Window,\
+         window.top === window, window.parent === window, window.frames === window, window.opener === null);\
+         try { new Window(); } catch (e) { console.log(e.name); }",
+    )]);
+    assert_eq!(out, vec!["log:true true true true false true true true true", "log:TypeError"]);
+}
+
+#[test]
+fn qy12_html_element_interfaces_and_instanceof() {
+    let out = run_in_html(
+        "<html><body><div id=d></div><span></span><a href=x></a><ul><li></li></ul><h3></h3><foo-bar></foo-bar><blink></blink><template></template><video></video></body></html>",
+        "var t = function (s) { return document.querySelector(s); };\
+         console.log(t('div') instanceof HTMLDivElement, t('span') instanceof HTMLSpanElement, t('a') instanceof HTMLAnchorElement,\
+           t('li') instanceof HTMLLIElement, t('ul') instanceof HTMLUListElement, t('h3') instanceof HTMLHeadingElement,\
+           document.body instanceof HTMLBodyElement, document.documentElement instanceof HTMLHtmlElement,\
+           document.createElement('img') instanceof HTMLImageElement, t('template') instanceof HTMLTemplateElement,\
+           t('div') instanceof HTMLElement, t('div') instanceof HTMLSpanElement);\
+         console.log(t('blink') instanceof HTMLUnknownElement, t('foo-bar') instanceof HTMLUnknownElement, t('foo-bar') instanceof HTMLElement,\
+           t('div') instanceof HTMLUnknownElement, t('div').constructor === HTMLDivElement);\
+         var c = [HTMLDivElement, HTMLScriptElement, HTMLStyleElement, HTMLLinkElement, HTMLMetaElement, HTMLTitleElement, HTMLHeadElement, HTMLSlotElement, HTMLParagraphElement, HTMLOListElement, HTMLButtonElement, HTMLInputElement, HTMLFormElement, HTMLLabelElement];\
+         var bad = 0; c.forEach(function (C) { try { C(); bad++; } catch (e) { if (!(e instanceof TypeError)) bad++; } try { new C(); bad++; } catch (e) {} });\
+         console.log(bad, Object.getPrototypeOf(HTMLDivElement.prototype) === HTMLElement.prototype);",
+    );
+    assert_eq!(out, vec!["log:true true true true true true true true true true true false", "log:true false true false true", "log:0 true"], "{out:?}");
+}
+
+#[test]
+fn qy12_svg_interfaces_by_namespace() {
+    let out = run_in_html(
+        "<html><body><svg id=s><path d='M0 0'></path><g></g></svg></body></html>",
+        "var svg = 'http://www.w3.org/2000/svg';\
+         var p = document.createElementNS(svg, 'path'), r = document.createElementNS(svg, 'rect'), x = document.createElementNS(svg, 'foo');\
+         var s = document.getElementById('s');\
+         console.log(s instanceof SVGSVGElement, s instanceof SVGGraphicsElement, s instanceof SVGElement, s instanceof Element, s instanceof HTMLElement,\
+           s.firstChild instanceof SVGPathElement, p instanceof SVGGeometryElement, r instanceof SVGRectElement, x instanceof SVGElement, x instanceof SVGGraphicsElement,\
+           document.createElement('div') instanceof SVGElement, typeof SVGUseElement, typeof SVGGElement);",
+    );
+    assert_eq!(out, vec!["log:true true true true false true true true true false false function function"], "{out:?}");
+}
+
+#[test]
+fn qy12_cdata_pi_range_and_fragment_children() {
+    let out = run_in_html(
+        "<html><body></body></html>",
+        "var f = document.createDocumentFragment(); var a = document.createElement('p'); f.appendChild(document.createTextNode('t')); f.appendChild(a); f.appendChild(document.createElement('i'));\
+         console.log(f.children.length, f.childElementCount, f.firstElementChild === a, f.lastElementChild.tagName, Array.from(f.children).length);\
+         f.prepend(document.createElement('b')); f.append(document.createElement('u')); console.log(f.children.length, f.firstElementChild.tagName);\
+         console.log(typeof CDATASection, typeof ProcessingInstruction, CDATASection.prototype instanceof Text, ProcessingInstruction.prototype instanceof CharacterData, typeof Range);\
+         try { new Range(); } catch (e) { console.log(e.name); }\
+         try { Selection(); } catch (e) { console.log(e.name); }",
+    );
+    assert_eq!(out, vec!["log:2 2 true I 2", "log:4 B", "log:function function true true function", "log:NotSupportedError", "log:TypeError"], "{out:?}");
+}
+
+#[test]
+fn qy12_event_subclasses_construct_with_init_dicts() {
+    let out = run_collecting(&[src(
+        "var p = new PointerEvent('pointerdown', { pointerId: 3, pointerType: 'mouse', clientX: 5, bubbles: true });\
+         var w = new WheelEvent('wheel', { deltaY: 100 }), h = new HashChangeEvent('hashchange', { oldURL: 'a', newURL: 'b' });\
+         var m = new MessageEvent('message', { data: { x: 1 }, origin: 'o' }), pr = new ProgressEvent('progress', { loaded: 2, total: 4, lengthComputable: true });\
+         var t = new TouchEvent('touchstart'), s = new StorageEvent('storage', { key: 'k' });\
+         console.log(p instanceof MouseEvent, p instanceof Event, p.pointerId, p.pointerType, p.clientX, p.bubbles, w.deltaY, w.deltaX, h.newURL, m.data.x, m.origin, pr.loaded, pr.total, pr.lengthComputable, t.touches.length, s.key, s.oldValue);\
+         var n = 0; ['TransitionEvent', 'AnimationEvent', 'PromiseRejectionEvent', 'PopStateEvent', 'ClipboardEvent', 'DragEvent', 'CompositionEvent'].forEach(function (k) { if (new window[k]('x') instanceof Event) n++; });\
+         console.log(n, new PopStateEvent('popstate', { state: 7 }).state, new TransitionEvent('transitionend', { propertyName: 'width' }).propertyName);",
+    )]);
+    assert_eq!(out[0], "log:true true 3 mouse 5 true 100 0 b 1 o 2 4 true 0 k null", "{out:?}");
+    assert_eq!(out[1], "log:7 7 width", "{out:?}");
+}
+
+#[test]
+fn qy12_media_interfaces_are_inert_placeholders() {
+    let out = run_in_html(
+        "<html><body><video id=v></video><audio></audio></body></html>",
+        "var v = document.getElementById('v');\
+         console.log(v instanceof HTMLVideoElement, v instanceof HTMLMediaElement, document.querySelector('audio') instanceof HTMLAudioElement,\
+           typeof HTMLSourceElement, typeof HTMLTrackElement, v.canPlayType('video/mp4') === '');\
+         v.pause(); v.load();\
+         var pr = v.play(); console.log(pr instanceof Promise);\
+         pr.catch(function (e) { console.log('rejected', e.name); });",
+    );
+    assert!(out.iter().any(|l| l == "log:true true true function function true"), "{out:?}");
+    assert!(out.iter().filter(|l| l.starts_with("error:") && l.contains("not implemented")).count() >= 3, "{out:?}");
+    assert!(out.iter().any(|l| l == "log:rejected NotSupportedError"), "{out:?}");
+}
+
+// ---------- QY13: history, AbortController, MessageChannel, storage, ... ----------
+
+#[test]
+fn qy13_history_push_replace() {
+    set_page_url(Url::parse("https://page.test/dir/index.html").ok().as_ref());
+    let log = run_with_timers(
+        "var n0=history.length; history.pushState({a:1},'','/p?q=1#h');\
+         console.log(n0, history.length, JSON.stringify(history.state), location.pathname, location.search, location.hash, document.URL.indexOf('/p?q=1#h')>0);\
+         history.replaceState({b:2},'','/r'); console.log(history.length, history.state.b, location.pathname, history.scrollRestoration);\
+         window.addEventListener('popstate', function(e){ console.log('pop', e.state, location.pathname); });\
+         history.back();",
+    );
+    assert_eq!(log, ["log:1 2 {\"a\":1} /p ?q=1 #h true", "log:2 2 /r auto", "log:pop null /dir/index.html"], "{log:?}");
+    set_page_url(None);
+}
+
+#[test]
+fn qy13_abort_controller() {
+    let log = run_with_timers(
+        "var c=new AbortController(), n=0; c.signal.addEventListener('abort',()=>n++); c.signal.onabort=()=>n+=10;\
+         console.log(c.signal.aborted); c.abort('why'); c.abort('again');\
+         console.log(c.signal.aborted, c.signal.reason, n);\
+         try { c.signal.throwIfAborted(); } catch (e) { console.log('threw', e); }\
+         console.log(AbortSignal.abort().reason.name);\
+         var t=AbortSignal.timeout(5); t.onabort=()=>console.log('timeout', t.reason.name);\
+         var a=new AbortController(); var any=AbortSignal.any([a.signal]); a.abort(); console.log(any.aborted);",
+    );
+    assert_eq!(log, ["log:false", "log:true why 11", "log:threw why", "log:AbortError", "log:true", "log:timeout TimeoutError"], "{log:?}");
+}
+
+#[test]
+fn qy13_message_channel_and_post_message() {
+    let log = run_with_timers(
+        "var ch=new MessageChannel(); ch.port1.onmessage=function(e){console.log('port', e.data.x)};\
+         ch.port2.postMessage({x:5}); console.log('sync');\
+         window.addEventListener('message', function(e){ console.log('win', e.data, e.source===window); });\
+         window.postMessage('hi','*'); window.postMessage('no','http://other.example');\
+         setTimeout(()=>console.log('t10'),10);",
+    );
+    assert_eq!(log, ["log:sync", "log:port 5", "log:win hi true", "log:t10"], "{log:?}");
+}
+
+#[test]
+fn qy13_storage_and_misc() {
+    let log = run_with_timers(
+        "localStorage.setItem('a',1); localStorage.b='two'; sessionStorage.setItem('c','3');\
+         console.log(localStorage.getItem('a'), localStorage.a, localStorage.length, localStorage.key(1), localStorage.getItem('zz'), sessionStorage.length);\
+         delete localStorage.a; localStorage.removeItem('b'); console.log(localStorage.length); localStorage.clear();\
+         var o=structuredClone({d:new Date(5),m:new Map([[1,2]]),s:new Set([1]),arr:[1,{z:2}]}); console.log(o.d.getTime(), o.m.get(1), o.s.has(1), o.arr[1].z);\
+         try { structuredClone(function(){}) } catch(e) { console.log(e.name) }\
+         queueMicrotask(()=>console.log('micro')); console.log('sync');\
+         requestIdleCallback(function(d){ console.log('idle', d.didTimeout, typeof d.timeRemaining()); });\
+         var id=requestIdleCallback(function(){console.log('never')}); cancelIdleCallback(id);",
+    );
+    assert_eq!(log, ["log:1 1 2 b null 1","log:0", "log:5 2 true 2", "log:DataCloneError", "log:sync", "log:micro", "log:idle false number"], "{log:?}");
+}
+
+// ---------- QY14: JS diagnostics ----------
+
+#[test]
+fn qy14_rejected_promise_job_and_unhandled_rejection_log_message() {
+    // A throw inside a `.then` job rejects the derived promise: one line.
+    let log = run_in_html("", "Promise.resolve().then(function () { throw new TypeError('job-boom'); });");
+    let hits: Vec<_> = log.iter().filter(|l| l.contains("job-boom")).collect();
+    assert_eq!(hits.len(), 1, "{log:?}");
+    assert!(hits[0].starts_with("error:Uncaught (in promise) TypeError: job-boom"), "{log:?}");
+    // Async function throwing, and a plain reject of a non-Error value.
+    let log = run_in_html("", "(async function () { throw new RangeError('async-boom'); })(); Promise.reject('plain-reason');");
+    assert!(log.iter().any(|l| l.starts_with("error:Uncaught (in promise) RangeError: async-boom")), "{log:?}");
+    assert!(log.iter().any(|l| l == "error:Uncaught (in promise) plain-reason"), "{log:?}");
+}
+
+#[test]
+fn qy14_handled_rejections_stay_silent_and_events_fire() {
+    let log = run_in_html("", "Promise.reject(new Error('quiet')).catch(function () {}); (async function () { try { await Promise.reject(1); } catch (e) {} })();");
+    assert!(!log.iter().any(|l| l.starts_with("error:")), "{log:?}");
+    let log = run_in_html(
+        "",
+        "var late = Promise.reject(new Error('later'));\
+         addEventListener('unhandledrejection', function (e) { console.log('unhandled', e.reason.message, e instanceof PromiseRejectionEvent); });\
+         addEventListener('rejectionhandled', function (e) { console.log('handled', e.reason.message); });\
+         setTimeout(function () { late.catch(function () {}); }, 0);\
+         Promise.reject(new Error('stopped'));",
+    );
+    assert!(log.iter().any(|l| l == "log:unhandled stopped true"), "{log:?}");
+    assert_eq!(log.iter().filter(|l| l.contains("Uncaught (in promise)")).count(), 2, "{log:?}");
+}
+
+#[test]
+fn qy14_prevent_default_suppresses_unhandled_rejection_log() {
+    let log = run_in_html("", "addEventListener('unhandledrejection', function (e) { e.preventDefault(); }); Promise.reject(new Error('muted'));");
+    assert!(!log.iter().any(|l| l.contains("muted")), "{log:?}");
+}
+
+#[test]
+fn qy14_js_report_run_timers_finds_timer_and_channel_errors() {
+    let html = "<html><body><script>\
+        setTimeout(function () { throw new Error('late-timer'); }, 1000);\
+        var ch = new MessageChannel(); ch.port1.onmessage = function () { throw new Error('chan-boom'); }; ch.port2.postMessage(1);\
+        requestIdleCallback(function () { throw new Error('idle-boom'); });\
+        setTimeout(function () { Promise.reject(new Error('timer-rejection')); }, 50);\
+        console.error('page-console-error');\
+        </script></body></html>";
+    // Default: unchanged format, nothing from the timer phase.
+    let plain = js::js_report_for_html(html, None, "none.html");
+    assert!(!plain.contains("late-timer") && !plain.contains("timers ("), "{plain}");
+    assert!(plain.contains("errors total: 0\n") && plain.contains("console.error calls: 1\n"), "{plain}");
+    let report = js::js_report_for_html_timers(html, None, "none.html", Some(2000));
+    for needle in ["late-timer", "chan-boom", "idle-boom", "timer-rejection"] {
+        assert!(report.contains(needle), "{needle}: {report}");
+    }
+    assert!(report.contains("js error (timers): "), "{report}");
+    assert!(report.contains("errors in timer phase: 4\n"), "{report}");
+    assert!(report.contains("errors total: 0\n"), "{report}");
+    let short = js::js_report_for_html_timers(html, None, "none.html", Some(500));
+    assert!(!short.contains("late-timer") && short.contains("chan-boom"), "{short}");
+}
+
+#[test]
+fn qy14_js_report_run_timers_is_bounded() {
+    let html = "<html><body><script>setInterval(function () { throw new Error('tick'); }, 1);</script></body></html>";
+    let report = js::js_report_for_html_timers(html, None, "none.html", Some(100000));
+    assert!(report.contains("errors in timer phase: 5000\n"), "{}", &report[report.len().saturating_sub(300)..]);
+}
+
+#[test]
+fn qy14_console_methods_exist() {
+    let log = run_in_html(
+        "",
+        "console.assert(true, 'no'); console.assert(false, 'yes'); console.group('g'); console.table([1]); console.trace('t'); console.groupEnd(); console.dir({a:1}); console.count(); console.time('x'); console.timeEnd('x'); console.error('e'); console.info('i'); console.debug('d'); console.warn('w');",
+    );
+    assert!(log.iter().any(|l| l == "console.error:Assertion failed: yes"), "{log:?}");
+    assert!(log.iter().any(|l| l == "console.error:e"), "{log:?}");
+    assert!(log.iter().any(|l| l.starts_with("log:Trace: t")), "{log:?}");
+    assert!(log.iter().any(|l| l == "log:default: 1") && log.iter().any(|l| l == "warn:w") && log.iter().any(|l| l == "info:i"), "{log:?}");
+    assert!(!log.iter().any(|l| l.contains(":no")), "{log:?}");
+}
+
+// ---------- QY16: minimal en-US Intl ----------
+
+#[test]
+fn qy16_number_format() {
+    let log = run_with_timers(
+        "var nf=new Intl.NumberFormat('en-US');\
+         console.log(nf.format(1234.5), nf.format(1234567.891), nf.format(-0.5), new Intl.NumberFormat('en',{maximumFractionDigits:2}).format(1.005), nf.format(NaN));\
+         console.log(new Intl.NumberFormat('en',{minimumFractionDigits:2}).format(5), new Intl.NumberFormat('en',{maximumFractionDigits:0}).format(2.5), new Intl.NumberFormat('en',{useGrouping:false}).format(12345));\
+         console.log(new Intl.NumberFormat('en',{style:'percent'}).format(0.256), new Intl.NumberFormat('en',{style:'percent',maximumFractionDigits:1}).format(0.2567));\
+         var c=function(cur,v,o){return new Intl.NumberFormat('en-US',Object.assign({style:'currency',currency:cur},o)).format(v)};\
+         console.log(c('USD',1234.5), c('EUR',-3), c('GBP',0.5), c('JPY',1234.5), c('USD',-5,{currencySign:'accounting'}));\
+         var k=function(v,o){return new Intl.NumberFormat('en',Object.assign({notation:'compact'},o)).format(v)};\
+         console.log(k(999), k(1234), k(12345), k(1500000), k(2.5e9), k(999999), k(1234,{compactDisplay:'long'}));\
+         console.log(new Intl.NumberFormat('en',{maximumSignificantDigits:3}).format(123456), new Intl.NumberFormat('en',{minimumIntegerDigits:3}).format(5));\
+         console.log(JSON.stringify(nf.formatToParts(-1234.5).map(function(p){return p.type+'='+p.value})));\
+         var r=new Intl.NumberFormat('de-DE').resolvedOptions(); console.log(r.locale, r.minimumFractionDigits, r.maximumFractionDigits, r.style);\
+         var f=nf.format; console.log(f(7), typeof Intl, Object.prototype.toString.call(Intl));",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:1,234.5 1,234,567.891 -0.5 1.01 NaN",
+            "log:5.00 3 12345",
+            "log:26% 25.7%",
+            "log:$1,234.50 -€3.00 £0.50 ¥1,235 ($5.00)",
+            "log:999 1.2K 12K 1.5M 2.5B 1M 1.2 thousand",
+            "log:123,000 005",
+            "log:[\"minusSign=-\",\"integer=1\",\"group=,\",\"integer=234\",\"decimal=.\",\"fraction=5\"]",
+            "log:en-US 0 3 decimal",
+            "log:7 object [object Intl]",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy16_date_time_format() {
+    let log = run_with_timers(
+        "var t=Date.UTC(2024,0,2,15,4,5,67);\
+         var f=function(o,l){return new Intl.DateTimeFormat(l||'en-US',Object.assign({timeZone:'UTC'},o)).format(t)};\
+         console.log(f({}), f({dateStyle:'short'}), f({dateStyle:'medium'}), f({dateStyle:'long'}), f({dateStyle:'full'}));\
+         console.log(f({timeStyle:'short'}), f({timeStyle:'medium'}), f({timeStyle:'long'}), f({timeStyle:'full'}));\
+         console.log(f({dateStyle:'medium',timeStyle:'short'}), '|', f({dateStyle:'long',timeStyle:'short'}));\
+         console.log(f({year:'numeric',month:'long',day:'numeric'}), f({month:'short',day:'numeric'}), f({year:'numeric',month:'2-digit',day:'2-digit'}), f({weekday:'long'}), f({month:'long',year:'numeric'}));\
+         console.log(f({hour:'numeric',minute:'2-digit',hour12:false}), f({hour:'numeric',hour12:true}), f({hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}));\
+         console.log(JSON.stringify(new Intl.DateTimeFormat('en-US',{timeZone:'UTC',month:'short',day:'numeric'}).formatToParts(t)));\
+         var r=new Intl.DateTimeFormat('fr-FR').resolvedOptions(); console.log(r.locale, r.timeZone, r.calendar);\
+         var d=new Date(t); console.log(d.toLocaleDateString('en-US',{timeZone:'UTC'}), '|', d.toLocaleTimeString('en-US',{timeZone:'UTC'}), '|', d.toLocaleString('en-US',{timeZone:'UTC'}), '|', d.toLocaleDateString(undefined,{month:'long',day:'numeric'}));\
+         console.log(new Date(NaN).toLocaleString(), (function(){try{new Intl.DateTimeFormat().format(NaN)}catch(e){return e.name}})());",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:1/2/2024 1/2/24 Jan 2, 2024 January 2, 2024 Tuesday, January 2, 2024",
+            "log:3:04 PM 3:04:05 PM 3:04:05 PM UTC 3:04:05 PM Coordinated Universal Time",
+            "log:Jan 2, 2024, 3:04 PM | January 2, 2024 at 3:04 PM",
+            "log:January 2, 2024 Jan 2 01/02/2024 Tuesday January 2024",
+            "log:15:04 3 PM 15:04:05",
+            "log:[{\"type\":\"month\",\"value\":\"Jan\"},{\"type\":\"literal\",\"value\":\" \"},{\"type\":\"day\",\"value\":\"2\"}]",
+            "log:en-US UTC gregory",
+            "log:1/2/2024 | 3:04:05 PM | 1/2/2024, 3:04:05 PM | January 2",
+            "log:Invalid Date RangeError",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy16_plural_relative_list_collator() {
+    let log = run_with_timers(
+        "var pr=new Intl.PluralRules('en'), po=new Intl.PluralRules('en-US',{type:'ordinal'});\
+         console.log(pr.select(0), pr.select(1), pr.select(2), pr.select(1.5), [1,2,3,4,11,12,13,21,22,23,101].map(function(n){return po.select(n)}).join());\
+         var rt=new Intl.RelativeTimeFormat('en'), ra=new Intl.RelativeTimeFormat('en',{numeric:'auto'});\
+         console.log(rt.format(3,'day'), rt.format(-3,'days'), rt.format(1,'hour'), rt.format(-1,'month'), rt.format(2,'year'));\
+         console.log(ra.format(-1,'day'), ra.format(1,'day'), ra.format(0,'day'), ra.format(1,'year'), ra.format(-2,'day'), ra.format(0,'second'));\
+         var lf=function(a,o){return new Intl.ListFormat('en',o).format(a)};\
+         console.log(lf(['a','b','c']), '|', lf(['a','b']), '|', lf(['a']), '|', lf(['a','b','c'],{type:'disjunction'}), '|', lf(['a','b','c'],{style:'short'}), '|', lf(['a','b','c'],{type:'unit',style:'narrow'}));\
+         var co=new Intl.Collator();\
+         console.log(['b','a','C','B','c','A'].sort(co.compare).join(''), co.compare('a','b'), co.compare('b','a'), co.compare('a','a'), 'a'.localeCompare('B'), 'résumé'.localeCompare('resume'));\
+         console.log(['a10','a2','a1'].sort(new Intl.Collator(undefined,{numeric:true}).compare).join(), ['a10','a2','a1'].sort(new Intl.Collator().compare).join(), new Intl.Collator('en',{sensitivity:'base'}).compare('a','Á'));",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:other one other other one,two,few,other,other,other,other,one,two,few,one",
+            "log:in 3 days 3 days ago in 1 hour 1 month ago in 2 years",
+            "log:yesterday tomorrow today next year 2 days ago now",
+            "log:a, b, and c | a and b | a | a, b, or c | a, b, & c | a b c",
+            "log:aAbBcC -1 1 0 -1 1",
+            "log:a1,a2,a10 a1,a10,a2 0",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy16_locale_fallback_and_misc_apis() {
+    let log = run_with_timers(
+        "var mk=[Intl.NumberFormat,Intl.DateTimeFormat,Intl.PluralRules,Intl.RelativeTimeFormat,Intl.ListFormat,Intl.Collator,Intl.Segmenter];\
+         console.log(mk.map(function(F){return new F('de-DE-u-nu-latn').resolvedOptions().locale}).join());\
+         console.log(mk.map(function(F){return new F(['xx','ja'],{bogusOption:1}).resolvedOptions().locale}).join());\
+         try { new Intl.NumberFormat('en_US') } catch (e) { console.log(e.name) }\
+         try { new Intl.NumberFormat('') } catch (e) { console.log(e.name) }\
+         console.log(Intl.getCanonicalLocales('EN-us').join(), JSON.stringify(Intl.supportedValuesOf('currency')), Intl.NumberFormat.supportedLocalesOf(['en-GB','de']).join());\
+         var l=new Intl.Locale('en-Latn-US'); console.log(l.language, l.script, l.region, l.baseName, String(l), new Intl.Locale('fr').maximize().toString(), new Intl.Locale('en-Latn-US').minimize().toString(), new Intl.Locale('en-US-u-hc-h23').hourCycle);\
+         console.log(new Intl.DisplayNames('en',{type:'region'}).of('US'), Array.from(new Intl.Segmenter('en').segment('a\\u0301b')).length, Array.from(new Intl.Segmenter('en',{granularity:'word'}).segment('Hi there!')).filter(function(s){return s.isWordLike}).map(function(s){return s.segment}).join());\
+         console.log((1234.5).toLocaleString(), (1234.5).toLocaleString('en-US',{style:'currency',currency:'USD'}), (0.5).toLocaleString(undefined,{style:'percent'}), [1234,5].toLocaleString(), (12345678901234567890n).toLocaleString());",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:en-US,en-US,en-US,en-US,en-US,en-US,en-US",
+            "log:en-US,en-US,en-US,en-US,en-US,en-US,en-US",
+            "log:RangeError",
+            "log:RangeError",
+            "log:en-US [] en-GB",
+            "log:en Latn US en-Latn-US en-Latn-US fr-Latn-FR en h23",
+            "log:US 2 Hi,there",
+            "log:1,234.5 $1,234.50 50% 1,234,5 12,345,678,901,234,567,890",
+        ],
+        "{log:?}"
+    );
+}
+
+// ---- QY15: ES modules
+
+/// Runs `html` as a page whose module fetches are served from `files`
+/// (url -> source); returns the log lines.
+fn run_module_page(html: &str, files: &[(&str, &str)]) -> Vec<String> {
+    let _g = JS_FLAG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    set_js_enabled(true);
+    let dom = parse_html(html);
+    let mut res = ExternalResources::default();
+    find_external_resources(&dom, &mut res);
+    let base = Url::parse("https://example.test/dir/page.html").unwrap();
+    let files: Vec<(String, String)> = files.iter().map(|(u, s)| (u.to_string(), s.to_string())).collect();
+    let fetch = move |u: &Url| files.iter().find(|(k, _)| k == u.as_str()).map(|(_, s)| s.clone());
+    let scripts = fetch_scripts_with(&base, res.scripts, &fetch);
+    let out = Rc::new(RefCell::new(Vec::new()));
+    let o = out.clone();
+    run_scripts_in(&dom, &scripts, Rc::new(move |level, text| o.borrow_mut().push(format!("{level}:{text}"))));
+    let v = out.borrow().clone();
+    v
+}
+
+#[test]
+fn qy15_inline_module_imports_prefetched_module_default_and_named() {
+    let log = run_module_page(
+        "<script type=module>import d, { n } from './b.js'; console.log(d + n);</script>",
+        &[("https://example.test/dir/b.js", "export default 'D'; export const n = 'N';")],
+    );
+    assert_eq!(log, ["log:DN"], "{log:?}");
+}
+
+#[test]
+fn qy15_external_module_and_transitive_imports_and_import_meta_url() {
+    let log = run_module_page(
+        "<script type=module src=\"/m/a.js\"></script>",
+        &[
+            ("https://example.test/m/a.js", "import { b } from './b.js'; console.log(b, import.meta.url);"),
+            ("https://example.test/m/b.js", "export { c as b } from '../c.js';"),
+            ("https://example.test/c.js", "export const c = 'C';"),
+        ],
+    );
+    assert_eq!(log, ["log:C https://example.test/m/a.js"], "{log:?}");
+}
+
+#[test]
+fn qy15_inline_import_meta_url_is_document_url() {
+    let log = run_module_page("<script type=module>console.log(import.meta.url);</script>", &[]);
+    assert_eq!(log, ["log:https://example.test/dir/page.html"], "{log:?}");
+}
+
+#[test]
+fn qy15_nomodule_scripts_are_skipped_and_classic_runs_first() {
+    let log = run_module_page(
+        "<script type=module>console.log('module');</script>\
+         <script nomodule>console.log('nomodule');</script>\
+         <script>console.log('classic');</script>\
+         <script>document.addEventListener('DOMContentLoaded', function(){ console.log('dcl'); });</script>",
+        &[],
+    );
+    assert_eq!(log, ["log:classic", "log:module", "log:dcl"], "{log:?}");
+}
+
+#[test]
+fn qy15_module_scripts_run_in_document_order() {
+    let log = run_module_page(
+        "<script type=module src=a.js></script><script type=module>console.log('inline');</script><script type=module src=b.js></script>",
+        &[("https://example.test/dir/a.js", "console.log('a');"), ("https://example.test/dir/b.js", "console.log('b');")],
+    );
+    assert_eq!(log, ["log:a", "log:inline", "log:b"], "{log:?}");
+}
+
+#[test]
+fn qy15_importmap_resolves_bare_specifiers_and_prefixes() {
+    let log = run_module_page(
+        "<script type=importmap>{\"imports\":{\"lib\":\"/vendor/lib.js\",\"u/\":\"/utils/\"}}</script>\
+         <script type=module>import { l } from 'lib'; import { x } from 'u/x.js'; console.log(l + x);</script>",
+        &[("https://example.test/vendor/lib.js", "export const l = 'L';"), ("https://example.test/utils/x.js", "export const x = 'X';")],
+    );
+    assert_eq!(log, ["log:LX"], "{log:?}");
+}
+
+#[test]
+fn qy15_bare_specifier_without_importmap_is_an_error() {
+    let log = run_module_page("<script type=module>import 'nope';</script>", &[]);
+    assert_eq!(log.len(), 1, "{log:?}");
+    assert!(log[0].starts_with("error:") && log[0].contains("nope"), "{log:?}");
+}
+
+#[test]
+fn qy15_failed_fetch_logs_once_and_other_scripts_still_run() {
+    let log = run_module_page(
+        "<script type=module src=gone.js></script><script type=module>import './gone2.js';</script><script>console.log('classic');</script><script type=module>console.log('ok');</script>",
+        &[],
+    );
+    assert_eq!(log.iter().filter(|l| l.starts_with("error:") && l.contains("gone.js")).count(), 1, "{log:?}");
+    assert_eq!(log.iter().filter(|l| l.starts_with("error:") && l.contains("gone2.js")).count(), 1, "{log:?}");
+    assert!(log.contains(&"log:classic".to_string()) && log.contains(&"log:ok".to_string()), "{log:?}");
+}
+
+#[test]
+fn qy15_module_is_strict_scoped_and_this_is_undefined() {
+    let log = run_module_page(
+        "<script type=module>var leaked = 1; console.log(this === undefined, typeof globalThis.leaked, (function(){ return this; })() === undefined);</script>\
+         <script type=module>try { undeclared = 1; } catch (e) { console.log(e.name); }</script>",
+        &[],
+    );
+    assert_eq!(log, ["log:true undefined true", "log:ReferenceError"], "{log:?}");
+}
+
+#[test]
+fn qy15_dynamic_import_of_prefetched_and_data_modules() {
+    let log = run_module_page(
+        "<script>import('./d.js').then(function(m){ console.log('classic ' + m.v); });</script>\
+         <script type=module>const m = await import('data:text/javascript,export default 7'); console.log('data ' + m.default);</script>",
+        &[("https://example.test/dir/d.js", "export const v = 'V';")],
+    );
+    assert!(log.contains(&"log:data 7".to_string()), "{log:?}");
+    assert!(log.iter().any(|l| l == "log:classic V"), "{log:?}");
+}
+
+#[test]
+fn qy15_dynamic_import_of_unfetched_url_rejects_with_clear_error() {
+    let log = run_module_page(
+        "<script type=module>try { await import('https://other.test/' + 'x.js'); } catch (e) { console.log('rejected ' + /not pre-fetched/.test(String(e.message))); }</script>",
+        &[],
+    );
+    assert_eq!(log, ["log:rejected true"], "{log:?}");
+}
+
+#[test]
+fn qy15_module_syntax_error_and_throw_are_logged_with_url() {
+    let log = run_module_page(
+        "<script type=module src=bad.js></script><script type=module src=thrower.js></script>",
+        &[("https://example.test/dir/bad.js", "export const = ;"), ("https://example.test/dir/thrower.js", "throw new Error('boom');")],
+    );
+    assert_eq!(log.len(), 2, "{log:?}");
+    assert!(log[0].starts_with("error:https://example.test/dir/bad.js: "), "{log:?}");
+    assert!(log[1].starts_with("error:https://example.test/dir/thrower.js: ") && log[1].contains("boom"), "{log:?}");
+}
+
+#[test]
+fn qy15_module_runaway_loop_hits_the_cpu_budget() {
+    let log = run_module_page("<script type=module>for(;;){}</script><script type=module>console.log('after');</script>", &[]);
+    assert!(log[0].starts_with("error:js: ") && log[0].contains("stopped"), "{log:?}");
+    assert_eq!(log[1], "log:after", "{log:?}");
+}
+
+#[test]
+fn qy15_import_scanner_finds_specifiers_and_ignores_strings_and_comments() {
+    let src = "import a from 'a'; import {b as c, d} from \"b\"; import * as ns from './ns.js';\n\
+               export * from 'e'; export { x } from 'f'; import 'side';\n\
+               // import 'commented'\n/* import 'block' */ var s = \"import 'instr'\"; var t = `import 'tpl'`;\n\
+               var r = /import 're'/; import('dyn'); const u = import.meta.url; export const k = 1;";
+    assert_eq!(crate::js_modules::scan_import_specifiers(src), ["a", "b", "./ns.js", "e", "f", "side", "dyn"]);
+}
+
+#[test]
+fn qy15_graph_prefetch_terminates_on_import_cycles() {
+    let log = run_module_page(
+        "<script type=module>import './a.js'; console.log('done');</script>",
+        &[
+            ("https://example.test/dir/a.js", "import './b.js'; export const a = 1;"),
+            ("https://example.test/dir/b.js", "import './a.js'; export const b = 2;"),
+        ],
+    );
+    assert_eq!(log, ["log:done"], "{log:?}");
+}
+
+#[test]
+fn qy15_literal_dynamic_import_is_prefetched_only_from_entries() {
+    // The entry's own `import('./lazy1.js')` is pre-fetched; the one inside a
+    // statically imported module (a lazy chunk of a big app) is not.
+    let log = run_module_page(
+        "<script type=module>import './a.js'; const m = await import('./lazy1.js'); console.log(m.v); try { await import('./lazy' + '2.js'); } catch (e) { console.log('lazy2 rejected'); }</script>",
+        &[
+            ("https://example.test/dir/a.js", "export const a = 1; export const f = () => import('./lazy2.js');"),
+            ("https://example.test/dir/lazy1.js", "export const v = 'L1';"),
+            ("https://example.test/dir/lazy2.js", "export const v = 'L2';"),
+        ],
+    );
+    assert_eq!(log, ["log:L1", "log:lazy2 rejected"], "{log:?}");
+}
+
+// ---------- QY16b: Node.prototype.isEqualNode / isSameNode ----------
+
+#[test]
+fn qy16b_is_equal_node_compares_subtrees() {
+    let log = run_in_html(
+        "<html><body></body></html>",
+        "function mk(attrs, kids) {\
+           var e = document.createElement('div');\
+           attrs.forEach(function (p) { e.setAttribute(p[0], p[1]); });\
+           kids.forEach(function (k) { e.appendChild(k); });\
+           return e;\
+         }\
+         function p(word) {\
+           var q = document.createElement('p');\
+           q.appendChild(document.createTextNode('hi '));\
+           var b = document.createElement(word);\
+           b.appendChild(document.createTextNode('there'));\
+           q.appendChild(b);\
+           return q;\
+         }\
+         function tree(comment) {\
+           return mk([['class', 'x'], ['data-k', '1']], [p('b'), document.createComment(comment || 'c')]);\
+         }\
+         var a = tree();\
+         console.log(a.isEqualNode(tree()), a.isEqualNode(a), a.isEqualNode(a.firstChild));\
+         console.log(a.isEqualNode(mk([['class', 'x'], ['data-k', '2']], [p('b'), document.createComment('c')])));\
+         console.log(a.isEqualNode(tree('d')), a.isEqualNode(mk([['class', 'x'], ['data-k', '1']], [p('i'), document.createComment('c')])));\
+         console.log(a.isEqualNode(mk([['class', 'x'], ['data-k', '1']], [p('b'), document.createComment('c'), document.createElement('span')])));\
+         console.log(a.isEqualNode(mk([['class', 'x'], ['data-k', '1']], [p('b')])));\
+         console.log(document.createTextNode('x').isEqualNode(document.createTextNode('x')), document.createTextNode('x').isEqualNode(document.createTextNode('y')));\
+         console.log(document.createComment('x').isEqualNode(document.createTextNode('x')), document.createElement('a').isEqualNode(document.createElement('b')));\
+         console.log(a.isEqualNode(null), a.isEqualNode(undefined), document.createDocumentFragment().isEqualNode(document.createDocumentFragment()));\
+         var t1 = document.implementation.createDocumentType('html', '-//A', 's.dtd'), t2 = document.implementation.createDocumentType('html', '-//A', 't.dtd'), t3 = document.implementation.createDocumentType('html', '-//A', 's.dtd');\
+         console.log(t1.isEqualNode(t2), t1.isEqualNode(t3));\
+         console.log(a.isSameNode(a), a.isSameNode(tree()), a.isSameNode(null));",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:true true false",
+            "log:false",
+            "log:false false",
+            "log:false",
+            "log:false",
+            "log:true false",
+            "log:false false",
+            "log:false false true",
+            "log:false true",
+            "log:true false false",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy16b_is_equal_node_attributes_are_a_set() {
+    let log = run_in_html(
+        "<html><body></body></html>",
+        "function mk(attrs) {\
+           var e = document.createElement('a');\
+           attrs.forEach(function (p) { e.setAttribute(p[0], p[1]); });\
+           return e;\
+         }\
+         var a = mk([['href', 'x'], ['title', 't']]);\
+         console.log(a.isEqualNode(mk([['title', 't'], ['href', 'x']])), a.isEqualNode(mk([['href', 'y'], ['title', 't']])), a.isEqualNode(mk([['href', 'x']])));\
+         var e = mk([['href', 'x'], ['title', 't'], ['data-z', '1']]);\
+         console.log(e.isEqualNode(mk([['data-z', '1'], ['href', 'x'], ['title', 't']])), a.isEqualNode(e), a.isEqualNode(mk([['href', 'x'], ['alt', 't']])));\
+         console.log(document.createElementNS('http://www.w3.org/2000/svg', 'a').isEqualNode(document.createElement('a')));",
+    );
+    assert_eq!(
+        log,
+        ["log:true false false", "log:true false false", "log:false"],
+        "{log:?}"
+    );
+}
+
+// ---------- QY15b: TextEncoder / TextDecoder / atob / btoa ----------
+
+#[test]
+fn qy15b_text_encoder_utf8_bytes() {
+    let log = run_in_html(
+        "<html><body></body></html>",
+        r#"var e = new TextEncoder();
+         function b(s) { return Array.from(e.encode(s)).join(','); }
+         console.log(e.encoding, b('abc'), e.encode() instanceof Uint8Array, e.encode().length);
+         console.log(b('é€'));
+         console.log(b('😀'));
+         console.log(b('a\uD800b'), b('\uDC00'));"#,
+    );
+    assert_eq!(
+        log,
+        [
+            "log:utf-8 97,98,99 true 0",
+            "log:195,169,226,130,172",
+            "log:240,159,152,128",
+            "log:97,239,191,189,98 239,191,189",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy15b_text_encoder_encode_into_read_and_written() {
+    let log = run_in_html(
+        "<html><body></body></html>",
+        r#"var e = new TextEncoder();
+         var b4 = new Uint8Array(4), r = e.encodeInto('aéb', b4);
+         console.log(r.read, r.written, Array.from(b4).join(','));
+         var b3 = new Uint8Array(3);
+         r = e.encodeInto('aéb', b3);
+         console.log(r.read, r.written, Array.from(b3).join(','));
+         r = e.encodeInto('€', new Uint8Array(2));
+         console.log(r.read, r.written);
+         r = e.encodeInto('😀', new Uint8Array(3));
+         console.log(r.read, r.written);
+         r = e.encodeInto('x😀', new Uint8Array(5));
+         console.log(r.read, r.written);
+         try { e.encodeInto('a', 'nope'); console.log('no'); } catch (err) { console.log(err.name); }"#,
+    );
+    assert_eq!(
+        log,
+        [
+            "log:3 4 97,195,169,98",
+            "log:2 3 97,195,169",
+            "log:0 0",
+            "log:0 0",
+            "log:3 5",
+            "log:TypeError",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy15b_text_decoder_utf8_bom_invalid_and_fatal() {
+    let log = run_in_html(
+        "<html><body></body></html>",
+        r#"function cs(s) { return Array.prototype.map.call(s, function (c) { return c.charCodeAt(0); }).join(','); }
+         var d = new TextDecoder();
+         console.log(d.encoding, d.fatal, d.ignoreBOM);
+         console.log(d.decode(new Uint8Array([0xEF, 0xBB, 0xBF, 0x68, 0x69])));
+         console.log(new TextDecoder('utf-8', { ignoreBOM: true }).decode(new Uint8Array([0xEF, 0xBB, 0xBF, 0x68])).length);
+         console.log(cs(d.decode(new Uint8Array([0x61, 0xFF, 0x62]))));
+         console.log(cs(d.decode(new Uint8Array([0xE2, 0x82, 0x61]))));
+         console.log(cs(d.decode(new Uint8Array([0xED, 0xA0, 0x80]))));
+         console.log(cs(d.decode(new Uint8Array([0xC0, 0x80]))));
+         console.log(cs(d.decode(new Uint8Array([0xF0, 0x9F, 0x98, 0x80]))));
+         console.log(cs(d.decode(new Uint8Array([0xE2, 0x82]))));
+         var f = new TextDecoder('utf-8', { fatal: true });
+         console.log(f.fatal, f.decode(new Uint8Array([0xF0, 0x9F, 0x98, 0x80])).length);
+         try { f.decode(new Uint8Array([0x61, 0xFF])); console.log('no'); } catch (err) { console.log(err.name); }
+         var buf = new Uint8Array([0x78, 0x79, 0x7a, 0x7a]).buffer;
+         console.log(d.decode(buf), d.decode(new DataView(buf, 1, 2)), d.decode().length);"#,
+    );
+    assert_eq!(
+        log,
+        [
+            "log:utf-8 false false",
+            "log:hi",
+            "log:2",
+            "log:97,65533,98",
+            "log:65533,97",
+            "log:65533,65533,65533",
+            "log:65533,65533",
+            "log:55357,56832",
+            "log:65533",
+            "log:true 2",
+            "log:TypeError",
+            "log:xyzz yz 0",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy15b_text_decoder_streaming_splits_characters() {
+    let log = run_in_html(
+        "<html><body></body></html>",
+        r#"function cs(s) { return Array.prototype.map.call(s, function (c) { return c.charCodeAt(0); }).join(','); }
+         var s = new TextDecoder();
+         var a1 = s.decode(new Uint8Array([0x61, 0xE2, 0x82]), { stream: true });
+         var a2 = s.decode(new Uint8Array([0xAC, 0x62]));
+         console.log(cs(a1), cs(a2));
+         var t = new TextDecoder(), out = '';
+         [0xF0, 0x9F, 0x98, 0x80].forEach(function (x) { out += t.decode(new Uint8Array([x]), { stream: true }); });
+         out += t.decode();
+         console.log(cs(out));
+         var u = new TextDecoder();
+         var p = u.decode(new Uint8Array([0xEF]), { stream: true });
+         console.log(p.length, u.decode(new Uint8Array([0xBB, 0xBF, 0x78])));
+         var bad = new TextDecoder('utf-8', { fatal: true });
+         try { bad.decode(new Uint8Array([0xE2]), { stream: true }); bad.decode(new Uint8Array([0x61])); console.log('no'); } catch (err) { console.log(err.name); }
+         console.log(bad.decode(new Uint8Array([0x62])));"#,
+    );
+    assert_eq!(
+        log,
+        [
+            "log:97 8364,98",
+            "log:55357,56832",
+            "log:0 x",
+            "log:TypeError",
+            "log:b",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy15b_text_decoder_utf16le_windows1252_and_labels() {
+    let log = run_in_html(
+        "<html><body></body></html>",
+        r#"function cs(s) { return Array.prototype.map.call(s, function (c) { return c.charCodeAt(0); }).join(','); }
+         var u = new TextDecoder('utf-16le');
+         console.log(u.encoding, cs(u.decode(new Uint8Array([0x61, 0x00, 0x3d, 0xd8, 0x00, 0xde]))));
+         console.log(cs(u.decode(new Uint8Array([0xff, 0xfe, 0x62, 0x00]))));
+         console.log(cs(u.decode(new Uint8Array([0x61]))));
+         console.log(new TextDecoder('utf8').encoding, new TextDecoder('unicode-1-1-utf-8').encoding, new TextDecoder(' LATIN1 ').encoding, new TextDecoder('iso-8859-1').encoding, new TextDecoder('windows-1252').encoding);
+         console.log(cs(new TextDecoder('latin1').decode(new Uint8Array([0x41, 0xe9, 0x80]))));
+         try { new TextDecoder('klingon'); console.log('no'); } catch (err) { console.log(err.name); }
+         try { TextDecoder('utf-8'); console.log('no'); } catch (err) { console.log(err.name); }"#,
+    );
+    assert_eq!(
+        log,
+        [
+            "log:utf-16le 97,55357,56832",
+            "log:98",
+            "log:65533",
+            "log:utf-8 utf-8 windows-1252 windows-1252 windows-1252",
+            "log:65,233,8364",
+            "log:RangeError",
+            "log:TypeError",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy15b_atob_btoa_and_invalid_character() {
+    let log = run_in_html(
+        "<html><body></body></html>",
+        r#"console.log(btoa(''), btoa('f'), btoa('fo'), btoa('foo'), btoa('foob'), btoa('fooba'), btoa('foobar'));
+         console.log(btoa('ÿ'));
+         console.log(atob('Zm9vYmFy'), atob('Zm9vYg'), atob(' Zm9v YmE= '), atob('Zg'));
+         try { btoa('Ā'); console.log('no'); } catch (err) { console.log(err.name); }
+         try { atob('a'); console.log('no'); } catch (err) { console.log(err.name); }
+         try { atob('@@@@'); console.log('no'); } catch (err) { console.log(err.name); }"#,
+    );
+    assert_eq!(
+        log,
+        [
+            "log: Zg== Zm8= Zm9v Zm9vYg== Zm9vYmE= Zm9vYmFy",
+            "log:/w==",
+            "log:foobar foob fooba f",
+            "log:InvalidCharacterError",
+            "log:InvalidCharacterError",
+            "log:InvalidCharacterError",
+        ],
+        "{log:?}"
+    );
+}
+
+// ---------- QF2: Blob, File, FileReader, blob: URL store ----------
+
+#[test]
+fn qf2_blob_size_type_slice() {
+    let log = run_with_timers(
+        "var b = new Blob(['héllo ', new Uint8Array([1, 2, 3]), new ArrayBuffer(2), new DataView(new ArrayBuffer(4))], {type: 'Text/Plain'});\
+         console.log(b.size, b.type);\
+         console.log(new Blob([], {type: 'a\\u00e9'}).type === '', new Blob().size);\
+         var s = b.slice(-3); console.log(s.size, s.type === '');\
+         var t = new Blob(['abcdef']).slice(1, -1, 'X/Y'); console.log(t.size, t.type);\
+         console.log(new Blob(['abc']).slice(5).size, new Blob(['abc']).slice(2, 1).size);\
+         console.log(new Blob(['a\\r\\nb\\rc'], {endings: 'native'}).size, new Blob(['a\\r\\nb']).size);\
+         console.log(Object.prototype.toString.call(b), b instanceof Blob);",
+    );
+    assert_eq!(
+        log,
+        ["log:16 text/plain", "log:true 0", "log:3 true", "log:4 x/y", "log:0 0", "log:5 4", "log:[object Blob] true"],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qf2_blob_text_arraybuffer_and_nested() {
+    let log = run_with_timers(
+        "var inner = new Blob(['é', '€']);\
+         var outer = new Blob(['x', inner, new Uint8Array([0x41])]);\
+         outer.text().then(function (t) { console.log('text', t, outer.size); });\
+         outer.arrayBuffer().then(function (ab) { console.log('ab', Array.prototype.join.call(new Uint8Array(ab), ',')); });\
+         outer.bytes().then(function (u) { console.log('bytes', u.length); });\
+         new Blob([new Uint8Array([0xEF, 0xBB, 0xBF, 0x68, 0xFF])]).text().then(function (t) { console.log('bom', t.length, t.charCodeAt(1)); });",
+    );
+    assert_eq!(
+        log,
+        ["log:text xé€A 7", "log:ab 120,195,169,226,130,172,65", "log:bytes 7", "log:bom 2 65533"],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qf2_file_properties() {
+    let log = run_with_timers(
+        "var f = new File(['hi'], 'a.txt', {type: 'text/plain', lastModified: 1234});\
+         console.log(f.name, f.size, f.type, f.lastModified, JSON.stringify(f.webkitRelativePath), f instanceof Blob, f instanceof File);\
+         console.log(typeof new File([], 'x').lastModified, f.slice(1).size);\
+         try { new File([]); } catch (e) { console.log(e.name); }",
+    );
+    assert_eq!(log, ["log:a.txt 2 text/plain 1234 \"\" true true", "log:number 1", "log:TypeError"], "{log:?}");
+}
+
+#[test]
+fn qf2_filereader_events_and_results() {
+    let log = run_with_timers(
+        "var b = new Blob(['hé'], {type: 'text/plain'});\
+         var r = new FileReader(); var ev = [];\
+         console.log(r.readyState, r.result);\
+         ['loadstart', 'progress', 'load', 'loadend'].forEach(function (n) { r.addEventListener(n, function (e) { ev.push(n + ':' + r.readyState + ':' + e.loaded); }); });\
+         r.onload = function () { var res = r.result; setTimeout(function () { console.log('onload', res, ev.join(' ')); }, 1); };\
+         r.readAsText(b); console.log(r.readyState, ev.length);\
+         try { r.readAsText(b); } catch (e) { console.log(e.name); }\
+         var r2 = new FileReader(); r2.onloadend = function () { console.log(r2.result); }; r2.readAsDataURL(b);\
+         var r3 = new FileReader(); r3.onload = function () { console.log(r3.result.byteLength, r3.result instanceof ArrayBuffer); }; r3.readAsArrayBuffer(b);\
+         var r4 = new FileReader(); r4.onload = function () { console.log(r4.result.length); }; r4.readAsBinaryString(b);\
+         var r5 = new FileReader(); var e5 = []; r5.onabort = function () { e5.push('abort'); }; r5.onloadend = function () { e5.push('end'); }; r5.onload = function () { e5.push('load'); };\
+         r5.readAsText(b); r5.abort(); console.log(r5.readyState, r5.result);\
+         setTimeout(function () { console.log(e5.join(',')); }, 10);",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:0 null",
+            "log:1 0",
+            "log:InvalidStateError",
+            "log:2 null",
+            "log:data:text/plain;base64,aMOp",
+            "log:3 true",
+            "log:3",
+            "log:onload h\u{e9} loadstart:1:0 progress:1:3 load:2:3 loadend:2:3",
+            "log:abort,end",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qf2_object_url_registered_revoked_and_lookup() {
+    let log = run_with_timers(
+        "var b = new Blob(['zz']); var u = URL.createObjectURL(b); var v = URL.createObjectURL(b);\
+         console.log(/^blob:.*\\/[0-9a-f-]{36}$/.test(u) || u, u !== v);\
+         console.log(__blob_lookup(u) === b, __blob_lookup(u + '#frag') === b, __blob_lookup('blob:nope'));\
+         URL.revokeObjectURL(u); console.log(__blob_lookup(u), __blob_lookup(v) === b);\
+         try { URL.createObjectURL({}); } catch (e) { console.log(e.name); }",
+    );
+    assert_eq!(log, ["log:true true", "log:true true undefined", "log:undefined true", "log:TypeError"], "{log:?}");
+}
+
+// ---------- QF4: ReadableStream, Headers, Request, Response ----------
+
+#[test]
+fn qf4_headers_normalise_combine_and_iterate_sorted() {
+    let log = run_with_timers(
+        "var h = new Headers({'X-B': ' two ', 'a-a': '1'});\
+         h.append('x-b', '3'); h.append('Set-Cookie', 'a=1'); h.append('set-cookie', 'b=2');\
+         console.log(JSON.stringify(Array.from(h)));\
+         console.log(h.get('X-B'), h.get('nope'), h.has('A-A'), JSON.stringify(h.getSetCookie()));\
+         h.set('X-B', 'only'); h.delete('a-a');\
+         console.log(JSON.stringify(Array.from(h.keys())), JSON.stringify(Array.from(h.values())));\
+         var seen = []; h.forEach(function (v, k, o) { seen.push(k + '=' + v + (o === h)); }); console.log(seen.join(';'));\
+         console.log(JSON.stringify(Array.from(new Headers([['b', '1'], ['A', '2']]))), JSON.stringify(Array.from(new Headers(h))));\
+         var bad = [function () { new Headers({'bad name': 'x'}); }, function () { new Headers().append('a', 'x\\ny'); },\
+           function () { new Headers([['a']]); }, function () { new Headers().append('a', '\\u0100'); }, function () { new Headers(5); }];\
+         console.log(bad.map(function (f) { try { f(); return 'ok'; } catch (e) { return e.name; } }).join());\
+         console.log(Object.prototype.toString.call(h), typeof h[Symbol.iterator], new Headers().get('x'));",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:[[\"a-a\",\"1\"],[\"set-cookie\",\"a=1\"],[\"set-cookie\",\"b=2\"],[\"x-b\",\"two, 3\"]]",
+            "log:two, 3 null true [\"a=1\",\"b=2\"]",
+            "log:[\"set-cookie\",\"set-cookie\",\"x-b\"] [\"a=1\",\"b=2\",\"only\"]",
+            "log:set-cookie=a=1true;set-cookie=b=2true;x-b=onlytrue",
+            "log:[[\"a\",\"2\"],[\"b\",\"1\"]] [[\"set-cookie\",\"a=1\"],[\"set-cookie\",\"b=2\"],[\"x-b\",\"only\"]]",
+            "log:TypeError,TypeError,TypeError,TypeError,TypeError",
+            "log:[object Headers] function null",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qf4_headers_guards_forbidden_and_immutable() {
+    let log = run_with_timers(
+        "var r = new Request('http://a.test/', {headers: {Cookie: 'x=1', Host: 'h', 'Sec-Fetch-Mode': 'x', 'Proxy-Foo': '1', Origin: 'o', 'X-Ok': '1', 'Content-Length': '3'}});\
+         console.log(JSON.stringify(Array.from(r.headers)));\
+         r.headers.set('Referer', 'x'); r.headers.append('Via', 'x'); console.log(r.headers.has('referer'), r.headers.has('via'));\
+         var s = new Response('x', {headers: {'Set-Cookie': 'a=1', 'X-Ok': '2'}});\
+         console.log(JSON.stringify(Array.from(s.headers)), s.headers.getSetCookie().length);\
+         var e = Response.error();\
+         try { e.headers.set('a', 'b'); } catch (x) { console.log(x.name); }\
+         var net = __make_response(200, 'OK', [['Set-Cookie', 'a=1'], ['Content-Type', 'text/x'], ['X', '1'], ['x', '2']], new Uint8Array([104, 105]), 'http://a.test/p', true, 'basic');\
+         console.log(JSON.stringify(Array.from(net.headers)), net.headers.get('set-cookie'), net.url, net.redirected, net.type);\
+         try { net.headers.append('a', 'b'); } catch (x) { console.log(x.name); }\
+         var op = __make_response(200, 'OK', [['a', 'b']], new Uint8Array([1]), 'http://a.test/', false, 'opaque');\
+         console.log(op.status, op.url === '', op.body, Array.from(op.headers).length);\
+         net.text().then(function (t) { console.log(t, net.bodyUsed); });",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:[[\"x-ok\",\"1\"]]",
+            "log:false false",
+            "log:[[\"content-type\",\"text/plain;charset=UTF-8\"],[\"x-ok\",\"2\"]] 0",
+            "log:TypeError",
+            "log:[[\"content-type\",\"text/x\"],[\"x\",\"1, 2\"]] null http://a.test/p true basic",
+            "log:TypeError",
+            "log:0 true null 0",
+            "log:hi true",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qf4_readablestream_reader_read_done_cancel() {
+    let log = run_with_timers(
+        "var ctl, cancelled = [], rs = new ReadableStream({start: function (c) { ctl = c; c.enqueue('a'); }, cancel: function (r) { cancelled.push(r); }});\
+         console.log(rs.locked, ctl.desiredSize, typeof rs.tee, typeof rs.pipeTo, typeof TransformStream);\
+         var rd = rs.getReader(); console.log(rs.locked);\
+         try { rs.getReader(); } catch (e) { console.log(e.name); }\
+         rd.read().then(function (r) { console.log(JSON.stringify(r)); ctl.enqueue('b'); ctl.close(); return rd.read(); })\
+           .then(function (r) { console.log(JSON.stringify(r)); return rd.read(); })\
+           .then(function (r) { console.log(r.done, r.value); return rd.closed; })\
+           .then(function () { rd.releaseLock(); console.log(rs.locked); return rd.read().catch(function (e) { console.log(e.name); }); })\
+           .then(function () {\
+              var s2 = new ReadableStream({pull: function (c) { c.enqueue(1); }, cancel: function (r) { cancelled.push(r); }}, {highWaterMark: 0});\
+              var r2 = s2.getReader();\
+              return r2.read().then(function (x) { console.log('pulled', x.value); return r2.cancel('bye'); }).then(function () { console.log(cancelled.join()); return r2.read(); });\
+           }).then(function (x) { console.log('after cancel', x.done);\
+              var s3 = new ReadableStream({start: function (c) { c.error(new Error('boom')); }});\
+              return s3.getReader().read().catch(function (e) { console.log(e.message); });\
+           }).then(function () {\
+              var s4 = new ReadableStream({start: function (c) { c.enqueue('x'); c.enqueue('y'); c.close(); }}), out = [];\
+              return (async function () { for await (var v of s4) out.push(v); console.log(out.join(), s4.locked); })();\
+           });",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:false 0 undefined undefined undefined",
+            "log:true",
+            "log:TypeError",
+            "log:{\"value\":\"a\",\"done\":false}",
+            "log:{\"value\":\"b\",\"done\":false}",
+            "log:true undefined",
+            "log:false",
+            "log:TypeError",
+            "log:pulled 1",
+            "log:bye",
+            "log:after cancel true",
+            "log:boom",
+            "log:x,y false",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qf4_request_method_url_headers_and_body_rules() {
+    let log = run_with_timers(
+        "var r = new Request('http://a.test/p?q#f', {method: 'post', body: 'héllo', headers: {A: '1'}});\
+         console.log(r.url, r.method, r.mode, r.credentials, r.cache, r.redirect, r.referrer, r.keepalive, JSON.stringify(Array.from(r.headers)));\
+         console.log(new Request('http://a.test/', {method: 'patch'}).method, new Request('http://a.test/', {method: 'Options'}).method);\
+         var t = ['CONNECT', 'trace', 'TRACK', 'bad method'].map(function (m) { try { new Request('http://a.test/', {method: m}); return 'ok'; } catch (e) { return e.name; } });\
+         console.log(t.join());\
+         var g = [function () { new Request('http://a.test/', {body: 'x'}); }, function () { new Request('http://a.test/', {method: 'HEAD', body: 'x'}); },\
+           function () { new Request('http://u:p@a.test/'); }, function () { new Request('/rel'); }, function () { new Request(); },\
+           function () { new Request('http://a.test/', {mode: 'navigate'}); }, function () { new Request('http://a.test/', {cache: 'zzz'}); }];\
+         console.log(g.map(function (f) { try { f(); return 'ok'; } catch (e) { return e.name; } }).join());\
+         var c = new Request(r, {method: 'PUT'}); console.log(c.method, c.url, r.bodyUsed, c.headers.get('a'), c.headers.get('content-type'));\
+         var ab = new AbortController(), q = new Request('http://a.test/', {signal: ab.signal});\
+         console.log(q.signal.aborted, q.signal === ab.signal); ab.abort(); console.log(q.signal.aborted);\
+         console.log(new Request('http://a.test/', {signal: AbortSignal.abort()}).signal.aborted, Object.prototype.toString.call(q));\
+         var u = new Request('http://a.test/', {method: 'POST', body: new URLSearchParams({a: '1 2'})});\
+         console.log(u.headers.get('content-type'));\
+         u.text().then(function (s) { console.log(s, u.bodyUsed); });\
+         new Request('http://a.test/', {method: 'POST', body: new Blob(['xy'], {type: 'text/Foo'})}).text().then(function (s) { console.log(s); });\
+         new Request('http://a.test/', {method: 'POST', body: new Uint8Array([104, 105])}).arrayBuffer().then(function (b) { console.log(b.byteLength); });\
+         try { new Request('http://a.test/', {method: 'POST', body: {}}).text().then(function (s) { console.log(s); }); } catch (e) { console.log(e.name); }",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:http://a.test/p?q#f POST cors same-origin default follow about:client false [[\"a\",\"1\"],[\"content-type\",\"text/plain;charset=UTF-8\"]]",
+            "log:patch OPTIONS",
+            "log:TypeError,TypeError,TypeError,TypeError",
+            "log:TypeError,TypeError,TypeError,TypeError,TypeError,TypeError,TypeError",
+            "log:PUT http://a.test/p?q#f true 1 text/plain;charset=UTF-8",
+            "log:false false",
+            "log:true",
+            "log:true [object Request]",
+            "log:application/x-www-form-urlencoded;charset=UTF-8",
+            "log:a=1+2 true",
+            "log:xy",
+            "log:2",
+            "log:[object Object]",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qf4_request_relative_url_resolves_against_base_href() {
+    set_page_url(Url::parse("https://page.test/dir/index.html").ok().as_ref());
+    let log = run_in_html(
+        "<html><head><base href=https://x.org/d/></head><body></body></html>",
+        "console.log(new Request('').url, new Request('sub/x?y').url, new Request('/abs').url);\
+         console.log(Response.redirect('r', 301).headers.get('location'));",
+    );
+    assert_eq!(log, ["log:https://x.org/d/ https://x.org/d/sub/x?y https://x.org/abs", "log:https://x.org/d/r"], "{log:?}");
+    set_page_url(None);
+}
+
+#[test]
+fn qf4_request_clone_and_body_used() {
+    let log = run_with_timers(
+        "var r = new Request('http://a.test/', {method: 'POST', body: 'abc'});\
+         var c = r.clone(); console.log(r.bodyUsed, c.bodyUsed, c.method, c.url, c.headers === r.headers, c.headers.get('content-type'));\
+         r.text().then(function (t) {\
+           console.log(t, r.bodyUsed, c.bodyUsed);\
+           return r.text().then(function () { console.log('no'); }, function (e) { console.log(e.name, /already used/.test(e.message)); });\
+         }).then(function () {\
+           try { r.clone(); } catch (e) { console.log('clone', e.name); }\
+           try { new Request(r); } catch (e) { console.log('ctor', e.name); }\
+           return c.json().catch(function (e) { console.log('json', e.name); });\
+         }).then(function () {\
+           var n = new Request('http://a.test/', {method: 'POST', body: 'zz'}), m = new Request(n);\
+           console.log(n.bodyUsed, m.bodyUsed); return m.text();\
+         }).then(function (t) { console.log(t);\
+           var ab = new Request('http://a.test/', {method: 'POST', body: 'qq'}).body;\
+           console.log(ab instanceof ReadableStream, new Request('http://a.test/').body);\
+           return ab.getReader().read();\
+         }).then(function (x) { console.log(x.value.length, x.done); });",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:false false POST http://a.test/ false text/plain;charset=UTF-8",
+            "log:abc true false",
+            "log:TypeError true",
+            "log:clone TypeError",
+            "log:ctor TypeError",
+            "log:json SyntaxError",
+            "log:true false",
+            "log:zz",
+            "log:true null",
+            "log:2 false",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qf4_response_status_json_text_clone_error_redirect() {
+    let log = run_with_timers(
+        "var r = new Response('hi', {status: 201, statusText: 'Made', headers: {X: '1'}});\
+         console.log(r.status, r.statusText, r.ok, r.type, JSON.stringify(r.url), r.redirected, r.headers.get('content-type'), r.headers.get('x'));\
+         var bad = [99, 600, 0, 1000].map(function (s) { try { new Response('', {status: s}); return 'ok'; } catch (e) { return e.name; } });\
+         console.log(bad.join(), new Response().status, new Response(null, {status: 404}).ok, new Response().statusText === '');\
+         try { new Response('x', {status: 204}); } catch (e) { console.log(e.name); }\
+         try { new Response('x', {statusText: 'a\\nb'}); } catch (e) { console.log(e.name); }\
+         var e = Response.error(); console.log(e.type, e.status, e.ok, e.body);\
+         var d = Response.redirect('http://a.test/x', 307); console.log(d.status, d.headers.get('location'), d.type);\
+         try { Response.redirect('http://a.test/', 200); } catch (x) { console.log(x.name); }\
+         var j = Response.json({a: [1, 'é']}, {status: 202, headers: {'x-y': 'z'}});\
+         console.log(j.status, j.headers.get('content-type'), j.headers.get('x-y'));\
+         try { Response.json(undefined); } catch (x) { console.log(x.name); }\
+         j.clone().text().then(function (t) { console.log(t, j.bodyUsed); return j.json(); })\
+          .then(function (v) { console.log(JSON.stringify(v), j.bodyUsed); return j.text().catch(function (x) { console.log(x.name, /already used/.test(x.message)); }); })\
+          .then(function () { try { j.clone(); } catch (x) { console.log('clone', x.name); }\
+            return new Response('héllo', {headers: {'content-type': 'Text/HTML'}}).blob(); })\
+          .then(function (b) { console.log(b.size, b.type, b instanceof Blob);\
+            return new Response(new Uint8Array([1, 2, 3])).arrayBuffer(); })\
+          .then(function (b) { console.log(b.byteLength); return new Response(new Blob(['xyz'], {type: 'a/b'})).bytes(); })\
+          .then(function (b) { console.log(Array.from(b).join(), new Response(new Blob(['x'], {type: 'a/b'})).headers.get('content-type'));\
+            return new Response('a=1&b=2').formData().catch(function (x) { console.log('fd', x.name === 'NotSupportedError' || x.name === 'TypeError'); }); })\
+          .then(function () { return new Response(new ReadableStream({start: function (c) { c.enqueue(new Uint8Array([104])); c.enqueue(new Uint8Array([105])); c.close(); }})).text(); })\
+          .then(function (t) { console.log('stream', t); });",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:201 Made true default \"\" false text/plain;charset=UTF-8 1",
+            "log:RangeError,RangeError,RangeError,RangeError 200 false true",
+            "log:TypeError",
+            "log:TypeError",
+            "log:error 0 false null",
+            "log:307 http://a.test/x default",
+            "log:RangeError",
+            "log:202 application/json z",
+            "log:TypeError",
+            "log:{\"a\":[1,\"é\"]} false",
+            "log:{\"a\":[1,\"é\"]} true",
+            "log:TypeError true",
+            "log:clone TypeError",
+            "log:6 text/html true",
+            "log:3",
+            "log:120,121,122 a/b",
+            "log:fd true",
+            "log:stream hi",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qf4_blob_stream_and_body_stream_read_marks_used() {
+    let log = run_with_timers(
+        "var b = new Blob(['abc']); console.log(typeof b.stream);\
+         b.stream().getReader().read().then(function (x) { console.log(x.value.length, x.done); });\
+         var r = new Response('abc'); var rd = r.body.getReader(); console.log(r.bodyUsed);\
+         rd.read().then(function () { console.log(r.bodyUsed); return r.text().catch(function (e) { console.log(e.name); }); });",
+    );
+    assert_eq!(log, ["log:function", "log:false", "log:3 false", "log:true", "log:TypeError"], "{log:?}");
+}
+
+// ---- QY6e: Custom Elements.
+
+#[test]
+fn qy6e_define_upgrades_existing_runs_ctor_once_and_connected() {
+    let log = run_in_html(
+        "<html><body><x-a id=a1 k=v></x-a><div><x-a id=a2></x-a></div></body></html>",
+        r#"let n = 0;
+         class XA extends HTMLElement {
+           static get observedAttributes() { return ['k']; }
+           constructor() { super(); n++; this.tag = 'ctor:' + this.id; }
+           connectedCallback() { console.log('conn ' + this.id); }
+           attributeChangedCallback(a, o, v) { console.log('attr ' + this.id + ' ' + a + ' ' + o + ' ' + v); }
+         }
+         const a1 = document.getElementById('a1');
+         console.log(a1 instanceof XA, a1 instanceof HTMLElement, a1.tag);
+         customElements.define('x-a', XA);
+         console.log(n, a1.tag, document.getElementById('a1') === a1, a1 instanceof XA);
+         console.log(customElements.get('x-a') === XA, customElements.getName(XA), customElements.get('x-b'));"#,
+    );
+    assert_eq!(
+        log,
+        [
+            "log:false true undefined",
+            "log:attr a1 k null v",
+            "log:conn a1",
+            "log:conn a2",
+            "log:2 ctor:a1 true true",
+            "log:true x-a undefined",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy6e_create_element_new_and_innerhtml_construct() {
+    let log = run_in_html(
+        "<html><body><div id=host></div></body></html>",
+        r#"let made = [];
+         class XB extends HTMLElement {
+           constructor() { super(); made.push('ctor'); }
+           connectedCallback() { made.push('conn'); }
+           disconnectedCallback() { made.push('disc'); }
+         }
+         customElements.define('x-b', XB);
+         const e = document.createElement('x-b');
+         console.log(e instanceof XB, e.localName, made.join());
+         const n = new XB();
+         console.log(n instanceof XB, n.localName, n.parentNode === null, made.join());
+         made.length = 0;
+         const host = document.getElementById('host');
+         host.innerHTML = '<p><x-b></x-b></p>';
+         console.log(host.querySelector('x-b') instanceof XB, made.join());
+         made.length = 0;
+         host.appendChild(e);
+         console.log(made.join());
+         made.length = 0;
+         host.removeChild(e);
+         console.log(made.join());
+         made.length = 0;
+         host.innerHTML = '';
+         console.log(made.join());
+         const frag = document.createDocumentFragment();
+         frag.appendChild(document.createElement('x-b'));
+         made.length = 0;
+         host.appendChild(frag);
+         console.log(made.join());
+         made.length = 0;
+         const c = host.firstChild.cloneNode(true);
+         console.log(c instanceof XB, made.join());"#,
+    );
+    assert_eq!(
+        log,
+        [
+            "log:true x-b ctor",
+            "log:true x-b true ctor,ctor",
+            "log:true ctor,conn",
+            "log:conn",
+            "log:disc",
+            "log:disc",
+            "log:conn",
+            "log:true ctor",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy6e_attribute_changed_only_for_observed() {
+    let log = run_in_html(
+        "<html><body><x-c id=c></x-c></body></html>",
+        r#"class XC extends HTMLElement {
+           static get observedAttributes() { return ['title', 'class']; }
+           attributeChangedCallback(a, o, v) { console.log(a + ':' + o + '>' + v); }
+         }
+         customElements.define('x-c', XC);
+         const c = document.getElementById('c');
+         c.setAttribute('title', 'a');
+         c.setAttribute('lang', 'x');
+         c.setAttribute('title', 'b');
+         c.className = 'k';
+         c.classList.add('m');
+         c.removeAttribute('title');
+         c.removeAttribute('title');
+         c.toggleAttribute('title');
+         c.id = 'd';"#,
+    );
+    assert_eq!(
+        log,
+        [
+            "log:title:null>a",
+            "log:title:a>b",
+            "log:class:null>k",
+            "log:class:k>k m",
+            "log:title:b>null",
+            "log:title:null>",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy6e_when_defined_resolves_and_errors() {
+    let log = run_in_html(
+        "<html><body></body></html>",
+        r#"class XD extends HTMLElement {}
+         customElements.whenDefined('x-d').then(function (c) { console.log('resolved ' + (c === XD)); });
+         customElements.whenDefined('x-d').then(function () { console.log('second'); });
+         console.log('before');
+         customElements.define('x-d', XD);
+         customElements.whenDefined('x-d').then(function (c) { console.log('already ' + (c === XD)); });
+         customElements.whenDefined('bad').catch(function (e) { console.log('rej ' + e.name); });
+         const names = [];
+         const tryDef = function (n, C, o) { try { customElements.define(n, C, o); names.push('ok'); } catch (e) { names.push(e.name); } };
+         tryDef('nohyphen', class extends HTMLElement {});
+         tryDef('Has-Upper', class extends HTMLElement {});
+         tryDef('font-face', class extends HTMLElement {});
+         tryDef('x-d', class extends HTMLElement {});
+         tryDef('x-e', XD);
+         tryDef('x-f', 5);
+         console.log(names.join());"#,
+    );
+    assert_eq!(
+        log,
+        [
+            "log:before",
+            "log:SyntaxError,SyntaxError,SyntaxError,NotSupportedError,NotSupportedError,TypeError",
+            "log:resolved true",
+            "log:second",
+            "log:already true",
+            "log:rej SyntaxError",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy6e_upgrade_and_is_and_attach_shadow() {
+    let log = run_in_html(
+        "<html><body><button id=b is=x-btn></button></body></html>",
+        r#"class XBtn extends HTMLButtonElement { constructor() { super(); this.mark = 'built'; } connectedCallback() { console.log('conn'); } }
+         customElements.define('x-btn', XBtn, { extends: 'button' });
+         const b = document.getElementById('b');
+         console.log(b instanceof XBtn, b.mark);
+         const d = document.createElement('div');
+         d.innerHTML = '<x-g></x-g>';
+         class XG extends HTMLElement { constructor() { super(); this.up = 1; } }
+         customElements.define('x-g', XG);
+         console.log(d.firstChild.up);
+         customElements.upgrade(d);
+         console.log(d.firstChild.up);
+         try { d.attachShadow({ mode: 'open' }); } catch (e) { console.log(e.name); }
+         try { new HTMLElement(); } catch (e) { console.log(e.name); }"#,
+    );
+    assert_eq!(
+        log,
+        [
+            "log:conn",
+            "log:true built",
+            "log:undefined",
+            "log:1",
+            "error:scratchy: js: not implemented: Element.attachShadow",
+            "log:NotSupportedError",
+            "log:TypeError",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy6e_zero_cost_without_define() {
+    let log = run_in_html(
+        "<html><body><div id=h></div></body></html>",
+        r#"const h = document.getElementById('h');
+         for (let i = 0; i < 20; i++) { const e = document.createElement('x-z'); e.setAttribute('a', i); h.appendChild(e); }
+         h.innerHTML = '<x-z></x-z>'; h.textContent = 'x'; h.removeChild(h.firstChild);
+         console.log(__ce_stats.hooks);
+         customElements.define('x-y', class extends HTMLElement {});
+         h.appendChild(document.createElement('div'));
+         console.log(__ce_stats.hooks > 0);"#,
+    );
+    assert_eq!(log, ["log:0", "log:true"], "{log:?}");
+}
+
+#[test]
+fn qy6e_document_write_upgrades() {
+    let out = qa13_run(
+        "<html><body><script>\
+         class XW extends HTMLElement { connectedCallback() { console.log('w conn'); } }\
+         customElements.define('x-w', XW);\
+         document.write('<x-w></x-w>');\
+         console.log('end');</script></body></html>",
+    );
+    assert_eq!(out, ["log:w conn", "log:end"], "{out:?}");
+}
+
+// ---------- QY19: <meta http-equiv=refresh> ----------
+
+#[test]
+fn qy19_parse_meta_refresh() {
+    let base = Url::parse("https://example.com/a/b").unwrap();
+    let p = |c: &str| parse_meta_refresh(c, Some(&base)).map(|(d, u)| (d, u.to_string()));
+    assert_eq!(p("0; url='x'"), Some((0, "https://example.com/a/x".into())));
+    assert_eq!(p("5;URL=x"), Some((5, "https://example.com/a/x".into())));
+    assert_eq!(p("  2 , url = \"/y?z=1\""), Some((2, "https://example.com/y?z=1".into())));
+    assert_eq!(p("0;url=\"https://html.duckduckgo.com/html\""), Some((0, "https://html.duckduckgo.com/html".into())));
+    assert_eq!(p("1; x"), Some((1, "https://example.com/a/x".into())), "url= prefix optional");
+    assert_eq!(p("999;url=x").map(|r| r.0), Some(10), "delay clamped");
+    assert_eq!(p("0; url=x#frag"), Some((0, "https://example.com/a/x#frag".into())));
+    // Bare reload, junk, empty URL: never followed.
+    assert_eq!(p("3"), None);
+    assert_eq!(p("3;"), None);
+    assert_eq!(p("0; url="), None);
+    assert_eq!(p("url=x"), None);
+    assert_eq!(p("-1; url=x"), None);
+    assert_eq!(p(""), None);
+}
+
+#[test]
+fn qy19_find_meta_refresh_and_chain_cap() {
+    let base = Url::parse("https://example.com/").unwrap();
+    let doc = parse_html(r#"<html><head><meta HTTP-EQUIV="Refresh" content="0; url=/next"></head><body></body></html>"#);
+    let (d, u) = meta_refresh_action(&doc, Some(&base), 0).expect("found");
+    assert_eq!((d, u.as_str()), (0, "https://example.com/next"));
+    assert!(meta_refresh_action(&doc, Some(&base), META_REFRESH_MAX_CHAIN).is_none(), "chain capped");
+    let other = parse_html(r#"<html><head><meta http-equiv="content-type" content="0; url=/x"></head></html>"#);
+    assert!(meta_refresh_action(&other, Some(&base), 0).is_none());
+}
+
+#[test]
+fn qy19_noscript_meta_only_with_js_off() {
+    let html = r#"<html><head><noscript><meta http-equiv="refresh" content="0; url=/h"></noscript></head><body></body></html>"#;
+    let was = js_enabled();
+    set_js_enabled(false);
+    let off = new_parser().read_from(&mut html.as_bytes()).unwrap().document;
+    set_js_enabled(true);
+    let on = new_parser().read_from(&mut html.as_bytes()).unwrap().document;
+    set_js_enabled(was);
+    assert!(find_meta_refresh_content(&off).is_some(), "JS off: noscript meta is an element");
+    assert!(find_meta_refresh_content(&on).is_none(), "JS on: noscript meta ignored");
+}
+
+#[test]
+fn qy19_meta_redirect_replaces_history_and_is_chained() {
+    use winit::platform::wayland::EventLoopBuilderExtWayland;
+    let event_loop = match EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build() {
+        Ok(l) => l,
+        Err(_) => return, // no display available (headless CI)
+    };
+    let mut app = App::new_static(parse_html("<html></html>"), event_loop.create_proxy(), None);
+    app.history = vec![Url::parse("http://127.0.0.1:9/start").unwrap(), Url::parse("http://127.0.0.1:9/redir").unwrap()];
+    app.history_index = 1;
+    app.base_url = Some(Url::parse("http://127.0.0.1:9/redir").unwrap());
+    app.fetch_url(app.history[1].clone());
+    let generation = app.nav_generation;
+    let page = FetchedPage {
+        html: br#"<html><head><meta http-equiv="refresh" content="0; url=/final#sec"></head><body>old</body></html>"#.to_vec(),
+        extra_css: String::new(),
+        scripts: Vec::new(),
+        url: Url::parse("http://127.0.0.1:9/redir").unwrap(),
+    };
+    app.handle_nav_result(generation, Ok(page));
+    assert_eq!(app.history.len(), 2, "no extra back step");
+    assert_eq!(app.history[1].as_str(), "http://127.0.0.1:9/final#sec", "entry replaced");
+    assert_eq!(app.history_index, 1);
+    assert_eq!(app.meta_chain, 1);
+    assert!(app.nav_generation > generation, "a new fetch was started");
+    assert_eq!(app.nav_fragment.as_deref(), Some("sec"), "fragment of the target kept");
+    // A stale delayed refresh (user navigated meanwhile) is ignored.
+    let g = app.nav_generation;
+    app.handle_meta_refresh(g - 1, Url::parse("http://127.0.0.1:9/zzz").unwrap());
+    assert_eq!(app.nav_generation, g);
+    // A current one pushes a new entry.
+    app.handle_meta_refresh(g, Url::parse("http://127.0.0.1:9/zzz").unwrap());
+    assert_eq!(app.history.len(), 3);
+}
+
+fn qy17_style(css: &str, html: &str) -> ComputedStyle {
+    let doc = parse_html(html);
+    let p = find_element_by_tag(&doc, "p").expect("no <p>");
+    resolve_style(&p, &parse_stylesheet(css), ROOT_STYLE, 800.0)
+}
+
+#[test]
+fn qy17_layered_rules_apply_unlayered_beat_them_and_later_layers_win() {
+    let red = TextColor::rgb(255, 0, 0);
+    let green = TextColor::rgb(0, 128, 0);
+    let h = r#"<p id="a" class="c">x</p>"#;
+    // A layered rule applies when nothing else does (it was dropped before).
+    assert_eq!(qy17_style("@layer a{p{color:red}}", h).color, red);
+    // Unlayered beats layered regardless of specificity and order.
+    assert_eq!(qy17_style("@layer a{#a{color:red}} p{color:green}", h).color, green);
+    assert_eq!(qy17_style("p{color:green} @layer a{#a.c{color:red}}", h).color, green);
+    // Later layer beats earlier, regardless of specificity.
+    assert_eq!(qy17_style("@layer a{p{color:green}} @layer b{p{color:red}}", h).color, red);
+    assert_eq!(qy17_style("@layer a{#a{color:red}} @layer b{p{color:green}}", h).color, green);
+    // Same layer: specificity then order as usual.
+    assert_eq!(qy17_style("@layer a{#a{color:green} p{color:red}}", h).color, green);
+    // Anonymous layers are separate, ordered layers.
+    assert_eq!(qy17_style("@layer{p{color:red}} @layer{p{color:green}}", h).color, green);
+}
+
+#[test]
+fn qy17_layer_statement_fixes_order_and_blocks_reopen() {
+    let red = TextColor::rgb(255, 0, 0);
+    let green = TextColor::rgb(0, 128, 0);
+    let h = "<p>x</p>";
+    assert_eq!(qy17_style("@layer a, b; @layer b{p{color:green}} @layer a{p{color:red}}", h).color, green);
+    // Without the statement the first block mentioned is the earlier layer.
+    assert_eq!(qy17_style("@layer b{p{color:green}} @layer a{p{color:red}}", h).color, red);
+    // A block reopens an earlier layer without moving it.
+    assert_eq!(qy17_style("@layer a{p{color:green}} @layer b{p{color:red}} @layer a{p{color:green}}", h).color, red);
+}
+
+#[test]
+fn qy17_important_reverses_layer_order() {
+    let red = TextColor::rgb(255, 0, 0);
+    let green = TextColor::rgb(0, 128, 0);
+    let h = "<p>x</p>";
+    // Earlier layer's important beats a later layer's important.
+    assert_eq!(qy17_style("@layer a{p{color:green!important}} @layer b{p{color:red!important}}", h).color, green);
+    // Layered important beats unlayered important.
+    assert_eq!(qy17_style("@layer a{p{color:green!important}} p{color:red!important}", h).color, green);
+    // Any important beats a normal unlayered declaration.
+    assert_eq!(qy17_style("@layer a{p{color:green!important}} p{color:red}", h).color, green);
+    // Specificity within a layer still orders important declarations.
+    assert_eq!(qy17_style("@layer a{#x{color:green!important} p{color:red!important}}", r#"<p id="x">x</p>"#).color, green);
+}
+
+#[test]
+fn qy17_nested_layers_and_media_supports_nesting() {
+    let red = TextColor::rgb(255, 0, 0);
+    let green = TextColor::rgb(0, 128, 0);
+    let h = "<p>x</p>";
+    // `a.b` is a sub-layer of `a`: it loses to rules directly in `a`.
+    assert_eq!(qy17_style("@layer a{@layer b{p{color:red}} p{color:green}}", h).color, green);
+    assert_eq!(qy17_style("@layer a.b{p{color:red}} @layer a{p{color:green}}", h).color, green);
+    // Sub-layers order within their parent; the parent's order decides across parents.
+    assert_eq!(qy17_style("@layer x.q, y; @layer y{p{color:green}} @layer x.q{p{color:red}}", h).color, green);
+    assert_eq!(qy17_style("@layer a.p, a.q; @layer a.q{p{color:green}} @layer a.p{p{color:red}}", h).color, green);
+    // Layer inside @media / @supports, and @media inside a layer.
+    assert_eq!(qy17_style("@media screen{@layer a{p{color:red}}}", h).color, red);
+    assert_eq!(qy17_style("@media print{@layer a{p{color:red}}}", h).color, ROOT_STYLE.color);
+    assert_eq!(qy17_style("@supports (display:block){@layer a{p{color:red}}}", h).color, red);
+    assert_eq!(qy17_style("@layer a{@media screen{p{color:red}}}", h).color, red);
+    assert_eq!(qy17_style("@layer a{@media print{p{color:red}}}", h).color, ROOT_STYLE.color);
+    assert_eq!(qy17_style("@layer a{@media screen{p{color:red}}} p{color:green}", h).color, green);
+}
+
+#[test]
+fn qy17_hidden_attribute_important_inside_a_layer_hides_the_element() {
+    let css = "@layer primer{template,[hidden]{display:none!important}} .x{display:flex}";
+    let s = qy17_style(css, r#"<p hidden class="x">x</p>"#);
+    assert!(matches!(s.display, Display::None));
+    let s = qy17_style(css, r#"<p class="x">x</p>"#);
+    assert!(!matches!(s.display, Display::None));
+}
+
+#[test]
+fn qy17_user_agent_rules_stay_below_author_rules() {
+    // The UA sheet gives <p> margins; a layered, low-specificity author rule
+    // still beats it (UA is its own, lower origin).
+    let doc = parse_html("<p>x</p>");
+    let p = find_element_by_tag(&doc, "p").unwrap();
+    let mut rules = parse_ua_stylesheet("p{margin-top:20px}");
+    rules.extend(parse_stylesheet("@layer a{p{margin-top:3px}}"));
+    let s = resolve_style(&p, &rules, ROOT_STYLE, 800.0);
+    assert!(matches!(s.margin.top, BoxLength::Px(v) if v == 3.0));
+}
+
+#[test]
+fn qy17_import_layer_wraps_the_imported_sheet() {
+    let base = Url::parse("https://e.com/css/main.css").unwrap();
+    let mut fetch = |u: &Url| -> Option<String> {
+        match u.path() {
+            "/css/a.css" => Some("p{color:red}".to_string()),
+            _ => None,
+        }
+    };
+    let out = expand_css_imports("@import url(a.css) layer(x.y) screen;\n@import \"a.css\" layer;", &base, &mut vec![base.clone()], &mut fetch);
+    assert!(out.contains("@layer x.y {\n@media screen {\np{color:red}"), "{out}");
+    assert!(out.contains("@layer {\np{color:red}"), "{out}");
+    // Layered import loses to an unlayered rule even when written after it.
+    let out = expand_css_imports("@import url(a.css) layer(x);\np{color:green}", &base, &mut vec![base.clone()], &mut fetch);
+    assert_eq!(qy17_style(&out, "<p>x</p>").color, TextColor::rgb(0, 128, 0));
+}
+
+// ---------- QF3: FormData (data class; no form reading, no submission) ----------
+
+#[test]
+fn qf3_formdata_append_get_getall_has_set_delete() {
+    let log = run_with_timers(
+        "var f = new FormData(); f.append('a', '1'); f.append('b', 2); f.append('a', true);\
+         console.log(f.get('a'), f.get('b'), f.get('zz'), f.getAll('a').join('|'), f.getAll('nope').length);\
+         console.log(f.has('a'), f.has('c'));\
+         f.set('a', 'x'); console.log(f.getAll('a').join('|'), f.get('b'));\
+         f.set('new', 'n'); console.log(f.get('new'));\
+         f.delete('a'); console.log(f.has('a'), f.getAll('a').length);\
+         f.append('wh\\ud800', 'v\\udc00'); console.log(f.get('wh\\ufffd'), f.get('wh\\ufffd').length, f.get('wh\\ud800') === 'v\\ufffd');\
+         try { f.append('only'); } catch (e) { console.log(e.name); }",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:1 2 null 1|true 0",
+            "log:true false",
+            "log:x 2",
+            "log:n",
+            "log:false 0",
+            "log:v\u{fffd} 2 true",
+            "log:TypeError",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qf3_formdata_iteration_order_and_for_each() {
+    let log = run_with_timers(
+        "var f = new FormData(); f.append('b', '1'); f.append('a', '2'); f.append('b', '3');\
+         console.log(Array.from(f.keys()).join(','), Array.from(f.values()).join(','));\
+         console.log(Array.from(f).map(function (e) { return e[0] + '=' + e[1]; }).join('&'));\
+         console.log(f[Symbol.iterator] === f.entries, Object.prototype.toString.call(f), Object.prototype.toString.call(f.entries()));\
+         var seen = []; f.forEach(function (v, k, fd) { seen.push(k + ':' + v + ':' + (fd === f)); }, null); console.log(seen.join(' '));\
+         var it = f.keys(); console.log(it.next().value, it.next().value, it.next().value, it.next().done, it.next().done);\
+         try { f.forEach(1); } catch (e) { console.log(e.name); }",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:b,a,b 1,2,3",
+            "log:b=1&a=2&b=3",
+            "log:true [object FormData] [object FormData Iterator]",
+            "log:b:1:true a:2:true b:3:true",
+            "log:b a b true true",
+            "log:TypeError",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qf3_formdata_blob_value_becomes_file() {
+    let log = run_with_timers(
+        "var fd = new FormData();\
+         fd.append('p', new Blob(['abc'], {type: 'text/plain'}));\
+         var v = fd.get('p'); console.log(v instanceof File, v.name, v.size, v.type);\
+         v.text().then(function (t) { console.log('text', t); });\
+         fd.append('q', new File(['xy'], 'orig.txt', {type: 'a/b'})); console.log(fd.get('q').name);\
+         fd.append('r', new File(['xy'], 'orig.txt'), 'renamed.txt'); console.log(fd.get('r').name, fd.get('r').size);\
+         fd.append('s', new Blob(['z']), 'named'); console.log(fd.get('s').name, fd.get('s') instanceof File);\
+         fd.append('t', 42, 'ignored'); console.log(typeof fd.get('t'), fd.get('t'));\
+         fd.append('u', new Blob(['w'])); console.log(fd.getAll('u')[0].name);",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:true blob 3 text/plain",
+            "log:orig.txt",
+            "log:renamed.txt 2",
+            "log:named true",
+            "log:string 42",
+            "log:blob",
+            "log:text abc",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qf3_formdata_form_argument_logs_and_is_empty() {
+    let log = run_with_timers(
+        "var none = new FormData();\
+         var fd = new FormData(document.createElement('form'), null);\
+         console.log(fd.has('x'), Array.from(fd).length, none.keys().next().done);",
+    );
+    assert_eq!(
+        log,
+        [
+            "error:scratchy: js: not implemented: FormData(form) (waits for Q30e)",
+            "log:false 0 true",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qf3_formdata_request_and_response_bodies() {
+    let log = run_with_timers(
+        "var fd = new FormData(); fd.append('a', 'x\\ny\"z'); fd.append('f', new File(['hi'], 'h.txt', {type: 'text/plain'}));\
+         var req = new Request('http://x.test/', {method: 'POST', body: fd}), ct = req.headers.get('content-type');\
+         req.text().then(function (t) {\
+           var bd = ct.split('boundary=')[1];\
+           console.log(ct.indexOf('multipart/form-data; boundary=----scratchyBoundary') === 0, t.indexOf('--' + bd + '\\r\\n') === 0,\
+             t.indexOf('name=\"a\"') > 0, t.indexOf('x\\r\\ny\"z') > 0,\
+             t.indexOf('name=\"f\"; filename=\"h.txt\"\\r\\nContent-Type: text/plain\\r\\n\\r\\nhi\\r\\n') > 0,\
+             t.endsWith('--' + bd + '--\\r\\n'), t.split('--' + bd).length === 4);\
+         });\
+         new Response(new URLSearchParams('a=1&a=2&b=%20')).formData().then(function (f) { console.log(f.getAll('a').join('|'), f.get('b').length, f instanceof FormData); });\
+         new Response(fd).formData().catch(function (e) { console.log(e.name); });",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:true true true true true true true",
+            "log:1|2 1 true",
+            "log:TypeError",
+        ],
+        "{log:?}"
+    );
+}
+
+// ---------- QF5: net policy + wire codec ----------
+
+fn qf5_url(s: &str) -> Url {
+    Url::parse(s).unwrap()
+}
+
+#[test]
+fn qf5_is_public_ip_classes() {
+    let no = [
+        "127.0.0.1", "127.9.9.9", "10.0.0.1", "172.16.0.1", "172.31.255.255", "192.168.1.1", "169.254.169.254", "169.254.0.1",
+        "100.64.0.1", "100.127.255.255", "0.0.0.0", "0.1.2.3", "224.0.0.1", "255.255.255.255", "192.0.2.1", "198.51.100.1",
+        "203.0.113.1", "198.18.0.1", "240.0.0.1", "::1", "::", "fe80::1", "febf::1", "fc00::1", "fd12::1", "ff02::1",
+        "2001:db8::1", "::ffff:127.0.0.1", "::ffff:10.1.2.3", "::ffff:169.254.169.254", "64:ff9b::7f00:1",
+    ];
+    for s in no {
+        assert!(!is_public_ip(s.parse().unwrap()), "{s} must not be public");
+    }
+    let yes = ["8.8.8.8", "1.1.1.1", "172.15.0.1", "172.32.0.1", "100.63.255.255", "100.128.0.1", "2606:4700::1111", "::ffff:8.8.8.8"];
+    for s in yes {
+        assert!(is_public_ip(s.parse().unwrap()), "{s} must be public");
+    }
+}
+
+fn qf5_block_policy() -> RequestPolicy {
+    let mut p = RequestPolicy::default();
+    p.private_targets = PrivatePolicy::Block;
+    p.file_targets = PrivatePolicy::Block;
+    p
+}
+
+#[test]
+fn qf5_warn_and_allow_modes_and_redirect_hops() {
+    let p = RequestPolicy::default();
+    assert_eq!((p.private_targets, p.file_targets), (PrivatePolicy::Warn, PrivatePolicy::Warn));
+    let page = qf5_url("https://example.com/a");
+    let cases = [
+        ("https://127.0.0.1/", "loopback"), ("https://localhost/", "loopback"), ("https://[::1]/", "loopback"),
+        ("https://10.0.0.5/", "private"), ("https://192.168.0.1/", "private"), ("https://172.20.1.1/", "private"),
+        ("https://169.254.169.254/", "link-local"), ("https://[fe80::1]/", "link-local"),
+        ("https://100.64.0.9/", "cgnat"), ("https://[fd00::1]/", "ula"), ("https://[::ffff:10.0.0.1]/", "private"),
+        ("https://nas.local/", "local-name"), ("https://db.internal/", "local-name"), ("file:///etc/os-release", "file"),
+    ];
+    for (u, class) in cases {
+        let out = p.check_request(&page, &qf5_url(u), "GET", false).unwrap_or_else(|e| panic!("{u}: {e}"));
+        assert_eq!(out.warning, Some(class), "{u}");
+    }
+    assert_eq!(p.check_request(&page, &qf5_url("https://example.org/"), "GET", false).unwrap().warning, None);
+    // same origin never warns
+    let dev = qf5_url("http://localhost:3000/");
+    assert_eq!(p.check_request(&dev, &qf5_url("http://localhost:3000/x"), "GET", false).unwrap().warning, None);
+    // still enforced in Warn mode: schemes, ports, mixed content (except loopback), methods
+    assert!(p.check_request(&page, &qf5_url("ftp://x.test/"), "GET", false).is_err());
+    assert_eq!(p.check_request(&page, &qf5_url("http://127.0.0.1:22/"), "GET", false), Err(PolicyError::BadPort(22)));
+    assert_eq!(p.check_request(&page, &qf5_url("http://10.0.0.1/"), "GET", false), Err(PolicyError::MixedContent));
+    assert_eq!(p.check_request(&page, &qf5_url("http://localhost:8080/"), "GET", false).unwrap().warning, Some("loopback"));
+    assert!(p.check_request(&page, &qf5_url("https://10.0.0.1/"), "TRACE", false).is_err());
+    // Allow: no warning
+    let mut a = RequestPolicy::default();
+    a.private_targets = PrivatePolicy::Allow;
+    a.file_targets = PrivatePolicy::Allow;
+    assert_eq!(a.check_request(&page, &qf5_url("https://10.0.0.1/"), "GET", false).unwrap().warning, None);
+    assert_eq!(a.check_request(&page, &qf5_url("file:///x"), "GET", false).unwrap().warning, None);
+    // the warning line
+    assert_eq!(
+        format_net_warning(&page, &qf5_url("https://10.0.0.1/x"), "private"),
+        "scratchy: net warning: https://example.com/a -> https://10.0.0.1/x (private) allowed by policy"
+    );
+    // redirect hops re-run the policy
+    let b = qf5_block_policy();
+    let (m, body, _) = b.check_redirect_hop(&page, &qf5_url("https://cdn.example.org/y"), 302, "POST", true, 1).unwrap();
+    assert_eq!((m.as_str(), body), ("GET", false));
+    let (m, body, _) = b.check_redirect_hop(&page, &qf5_url("https://cdn.example.org/y"), 307, "POST", true, 1).unwrap();
+    assert_eq!((m.as_str(), body), ("POST", true));
+    assert!(matches!(b.check_redirect_hop(&page, &qf5_url("http://169.254.169.254/"), 302, "GET", false, 1), Err(_)));
+    assert!(matches!(b.check_redirect_hop(&page, &qf5_url("https://10.0.0.1/"), 302, "GET", false, 2), Err(PolicyError::PrivateHost(_))));
+    assert_eq!(p.check_redirect_hop(&page, &qf5_url("https://10.0.0.1/"), 302, "GET", false, 2).unwrap().2.warning, Some("private"));
+    assert_eq!(p.check_redirect_hop(&page, &qf5_url("https://x.example/"), 302, "GET", false, 6).unwrap_err(), PolicyError::Redirects(5));
+}
+
+#[test]
+fn qf5_check_request_rules() {
+    let p = qf5_block_policy();
+    let page = qf5_url("https://example.com/a");
+    let ok = |u: &str, m: &str, body: bool| p.check_request(&page, &qf5_url(u), m, body);
+    assert!(ok("https://api.example.org/x", "GET", false).is_ok());
+    // address classes by IP literal and name
+    for u in [
+        "https://127.0.0.1/", "https://10.0.0.5/", "https://[::1]/", "https://169.254.169.254/latest", "https://[::ffff:7f00:1]/",
+        "https://localhost/", "https://a.localhost/", "https://printer.local/", "https://db.internal/", "https://LOCALHOST./",
+        "https://0x7f.1/",
+    ] {
+        assert!(matches!(ok(u, "GET", false), Err(PolicyError::PrivateHost(_))), "{u}");
+    }
+    // schemes
+    assert_eq!(ok("file:///etc/passwd", "GET", false), Err(PolicyError::FileNotAllowed));
+    assert!(matches!(ok("ftp://example.com/", "GET", false), Err(PolicyError::Scheme(_))));
+    assert!(matches!(ok("data:text/plain,hi", "GET", false), Err(PolicyError::Scheme(_))));
+    // ports
+    for port in [1, 22, 25, 101, 104, 513, 6000, 6667, 10080] {
+        assert_eq!(ok(&format!("https://example.org:{port}/"), "GET", false), Err(PolicyError::BadPort(port)));
+    }
+    assert!(ok("https://example.org:8443/", "GET", false).is_ok());
+    // mixed content
+    assert_eq!(ok("http://example.org/", "GET", false), Err(PolicyError::MixedContent));
+    assert!(p.check_request(&qf5_url("http://example.com/"), &qf5_url("http://example.org/"), "GET", false).is_ok());
+    // methods and bodies
+    for (m, body) in [("POST", true), ("PUT", true), ("PATCH", true), ("DELETE", true), ("OPTIONS", false), ("HEAD", false), ("post", true)] {
+        assert!(ok("https://example.org/", m, body).is_ok(), "{m}");
+    }
+    for m in ["CONNECT", "TRACE", "track", "TRACK"] {
+        assert!(matches!(ok("https://example.org/", m, false), Err(PolicyError::MethodForbidden(_))), "{m}");
+    }
+    assert!(matches!(ok("https://example.org/", "GET", true), Err(PolicyError::BodyNotAllowed(_))));
+    assert!(matches!(ok("https://example.org/", "HEAD", true), Err(PolicyError::BodyNotAllowed(_))));
+    assert!(matches!(ok("https://example.org/", "bad method", false), Err(PolicyError::MethodForbidden(_))));
+    // url length
+    let long = format!("https://example.org/{}", "a".repeat(p.max_url_len));
+    assert!(matches!(ok(&long, "GET", false), Err(PolicyError::UrlTooLong(_))));
+    // configurable
+    let mut q = qf5_block_policy();
+    q.private_targets = PrivatePolicy::Allow;
+    assert_eq!(q.check_request(&page, &qf5_url("https://localhost/"), "GET", false), Ok(PolicyOutcome::default()));
+}
+
+#[test]
+fn qf5_same_origin_exception_and_file_flag() {
+    let p = qf5_block_policy();
+    let dev = qf5_url("http://localhost:3000/app");
+    assert!(p.check_request(&dev, &qf5_url("http://localhost:3000/api"), "POST", true).is_ok());
+    assert!(p.check_request(&dev, &qf5_url("http://localhost:3001/api"), "GET", false).is_err());
+    assert!(p.check_request(&dev, &qf5_url("http://127.0.0.1:3000/api"), "GET", false).is_err());
+    // the bad-port check still applies to a same-origin private target
+    let bad = qf5_url("http://localhost:6000/");
+    assert_eq!(p.check_request(&bad, &bad, "GET", false), Err(PolicyError::BadPort(6000)));
+    // file:
+    let file_page = qf5_url("file:///home/u/a.html");
+    assert_eq!(p.check_request(&file_page, &qf5_url("file:///etc/passwd"), "GET", false), Err(PolicyError::FileNotAllowed));
+    let mut q = qf5_block_policy();
+    q.file_targets = PrivatePolicy::Warn;
+    assert_eq!(q.check_request(&file_page, &qf5_url("file:///home/u/b.json"), "GET", false).unwrap().warning, Some("file"));
+    // a file page is never same-origin, so private hosts stay blocked in Block mode
+    assert!(q.check_request(&file_page, &qf5_url("http://localhost/"), "GET", false).is_err());
+}
+
+fn qf5_h(v: &[(&str, &str)]) -> Vec<(String, String)> {
+    v.iter().map(|(a, b)| (a.to_string(), b.to_string())).collect()
+}
+
+#[test]
+fn qf5_cors_classification_and_preflight() {
+    let page = qf5_url("https://a.example/p");
+    let same = qf5_url("https://a.example/x");
+    let other = qf5_url("https://b.example/x");
+    assert_eq!(classify_fetch(RequestMode::SameOrigin, &page, &same, "GET", &[]), Ok(FetchKind::Basic));
+    assert!(classify_fetch(RequestMode::SameOrigin, &page, &other, "GET", &[]).is_err());
+    assert_eq!(classify_fetch(RequestMode::NoCors, &page, &other, "GET", &[]), Ok(FetchKind::Opaque));
+    assert!(classify_fetch(RequestMode::NoCors, &page, &other, "PUT", &[]).is_err());
+    assert_eq!(classify_fetch(RequestMode::Cors, &page, &other, "GET", &[]), Ok(FetchKind::Cors { preflight: false }));
+    assert_eq!(
+        classify_fetch(RequestMode::Cors, &page, &other, "POST", &qf5_h(&[("Content-Type", "text/plain;charset=UTF-8"), ("Accept", "*/*")])),
+        Ok(FetchKind::Cors { preflight: false })
+    );
+    assert_eq!(
+        classify_fetch(RequestMode::Cors, &page, &other, "POST", &qf5_h(&[("Content-Type", "application/json")])),
+        Ok(FetchKind::Cors { preflight: true })
+    );
+    assert!(needs_preflight("PUT", &[]) && needs_preflight("DELETE", &[]) && needs_preflight("PATCH", &[]));
+    assert!(needs_preflight("GET", &qf5_h(&[("X-Token", "1")])));
+    assert!(needs_preflight("GET", &qf5_h(&[("Authorization", "x")])));
+    assert!(!needs_preflight("get", &qf5_h(&[("accept-language", "en")])));
+    assert!(needs_preflight("GET", &qf5_h(&[("Accept", "a\"b")])));
+    assert_eq!(cors_unsafe_request_headers(&qf5_h(&[("X-B", "1"), ("x-a", "1"), ("X-B", "2"), ("Accept", "*/*")])), ["x-a", "x-b"]);
+}
+
+#[test]
+fn qf5_cors_response_decisions() {
+    let o = "https://a.example";
+    assert!(check_cors_response(o, false, &qf5_h(&[("Access-Control-Allow-Origin", "*")])).is_ok());
+    // `*` with credentials is refused
+    assert!(check_cors_response(o, true, &qf5_h(&[("Access-Control-Allow-Origin", "*")])).is_err());
+    assert!(check_cors_response(o, false, &qf5_h(&[("access-control-allow-origin", o)])).is_ok());
+    assert!(check_cors_response(o, false, &qf5_h(&[("Access-Control-Allow-Origin", "https://b.example")])).is_err());
+    assert!(check_cors_response(o, false, &[]).is_err());
+    assert!(check_cors_response(o, false, &qf5_h(&[("Access-Control-Allow-Origin", o), ("Access-Control-Allow-Origin", o)])).is_err());
+    // credentials need an exact origin plus Allow-Credentials: true
+    assert!(check_cors_response(o, true, &qf5_h(&[("Access-Control-Allow-Origin", o)])).is_err());
+    assert!(check_cors_response(o, true, &qf5_h(&[("Access-Control-Allow-Origin", o), ("Access-Control-Allow-Credentials", "true")])).is_ok());
+    // file pages send Origin: null
+    assert_eq!(origin_header(&qf5_url("file:///a.html")), "null");
+    assert_eq!(origin_header(&qf5_url("https://a.example:8443/x")), "https://a.example:8443");
+
+    let p = RequestPolicy::default();
+    let uh = vec!["x-token".to_string(), "content-type".to_string()];
+    let good = qf5_h(&[
+        ("Access-Control-Allow-Origin", o),
+        ("Access-Control-Allow-Methods", "GET, PUT"),
+        ("Access-Control-Allow-Headers", "X-Token, Content-Type"),
+        ("Access-Control-Max-Age", "99999"),
+    ]);
+    assert_eq!(p.check_preflight_response(o, false, "PUT", &uh, 204, &good).unwrap().max_age_secs, p.preflight_max_age_cap_secs);
+    assert!(p.check_preflight_response(o, false, "DELETE", &uh, 204, &good).is_err());
+    assert!(p.check_preflight_response(o, false, "PUT", &["x-other".to_string()], 204, &good).is_err());
+    assert!(p.check_preflight_response(o, false, "PUT", &uh, 404, &good).is_err());
+    let star = qf5_h(&[("Access-Control-Allow-Origin", "*"), ("Access-Control-Allow-Methods", "*"), ("Access-Control-Allow-Headers", "*")]);
+    let r = p.check_preflight_response(o, false, "PATCH", &uh, 200, &star).unwrap();
+    assert_eq!(r.max_age_secs, 5);
+    assert!(p.check_preflight_response(o, false, "PATCH", &["authorization".to_string()], 200, &star).is_err());
+    assert!(p.check_preflight_response(o, true, "PATCH", &uh, 200, &star).is_err());
+}
+
+#[test]
+fn qf5_forbidden_header_lists_match_js() {
+    let js = include_str!("fetch_prelude.js");
+    let start = js.find("var FORBIDDEN_REQ = [").unwrap() + "var FORBIDDEN_REQ = [".len();
+    let end = start + js[start..].find(']').unwrap();
+    let from_js: Vec<String> = js[start..end].split(',').map(|s| s.trim().trim_matches('\'').to_string()).collect();
+    let from_rust: Vec<String> = FORBIDDEN_REQUEST_HEADERS.iter().map(|s| s.to_string()).collect();
+    assert_eq!(from_js, from_rust);
+    assert!(is_forbidden_request_header("Proxy-Authorization") && is_forbidden_request_header("Sec-Fetch-Mode"));
+    assert!(is_forbidden_request_header("COOKIE") && !is_forbidden_request_header("X-Token"));
+    assert!(is_forbidden_response_header("Set-Cookie") && is_forbidden_response_header("set-cookie2") && !is_forbidden_response_header("etag"));
+    assert!(is_wire_reserved_header("X-Wire-Policy") && !is_wire_reserved_header("X-Token"));
+}
+
+#[test]
+fn qf5_beacon_classification_and_log() {
+    assert_eq!(classify_beacon(NetApi::SendBeacon, false, None), Some(BeaconKind::SendBeacon));
+    assert_eq!(classify_beacon(NetApi::Fetch, true, Some(FetchKind::Basic)), Some(BeaconKind::Keepalive));
+    assert_eq!(classify_beacon(NetApi::Fetch, false, Some(FetchKind::Opaque)), Some(BeaconKind::NoCorsOpaque));
+    assert_eq!(classify_beacon(NetApi::Fetch, false, Some(FetchKind::Cors { preflight: false })), None);
+    assert_eq!(classify_beacon(NetApi::Xhr, false, None), None);
+    let p = RequestPolicy::default();
+    assert!(!p.beacons_send && p.suppress_beacon(Some(BeaconKind::Keepalive)) && !p.suppress_beacon(None));
+    let body = "x".repeat(300);
+    let line = format_beacon_log(
+        BeaconKind::SendBeacon,
+        "POST",
+        &qf5_url("https://ophan.example/img?a=1"),
+        Some("text/plain"),
+        body.as_bytes(),
+        &qf5_url("https://page.example/"),
+        false,
+    );
+    assert!(line.contains("navigator.sendBeacon POST https://ophan.example/img?a=1 content-type=text/plain body=300 bytes"), "{line}");
+    assert!(line.contains(&format!("\"{}\"", "x".repeat(200))) && !line.contains(&"x".repeat(201)), "{line}");
+    assert!(line.ends_with("page=https://page.example/: suppressed (not sent)"), "{line}");
+    let bin = format_beacon_log(BeaconKind::Keepalive, "POST", &qf5_url("https://a.example/"), Some("image/png"), &[1, 2, 3], &qf5_url("https://p.example/"), false);
+    assert!(bin.contains("body=3 bytes page=") && !bin.contains("body[.."), "{bin}");
+}
+
+#[test]
+fn qf5_policy_defaults_are_the_user_numbers() {
+    let p = RequestPolicy::default();
+    assert_eq!(p.max_response_bytes, 16 << 20);
+    assert_eq!(p.max_in_flight_bytes, 64 << 20);
+    assert_eq!((p.max_concurrent_requests, p.max_requests_per_page), (6, 1000));
+    assert_eq!(p.read_timeout, std::time::Duration::from_secs(30));
+    assert_eq!(p.sync_xhr_timeout_ms, 5000);
+    assert_eq!(p.redirect_limit, 5);
+    let h = p.wire_cap_headers(Some(5000));
+    assert!(h.contains(&("X-Wire-Max-Bytes".to_string(), (16usize << 20).to_string())));
+    assert!(h.contains(&("X-Wire-Timeout-Ms".to_string(), "5000".to_string())));
+    assert!(h.contains(&("X-Wire-Policy".to_string(), "public-only".to_string())));
+    assert!(p.wire_cap_headers(None).contains(&("X-Wire-Timeout-Ms".to_string(), "30000".to_string())));
+}
+
+#[test]
+fn qf5_codec_build_and_parse() {
+    let url = qf5_url("https://example.org:8443/p?q=1");
+    let req = build_wire_request(
+        "POST",
+        &url,
+        &qf5_h(&[("Content-Type", "application/json"), ("Host", "evil"), ("Content-Length", "99"), ("Connection", "keep-alive"), ("X-A", "1")]),
+        b"{\"a\":1}",
+    )
+    .unwrap();
+    assert_eq!(
+        String::from_utf8(req).unwrap(),
+        "POST https://example.org:8443/p?q=1 HTTP/1.1\r\nHost: example.org:8443\r\nContent-Type: application/json\r\nX-A: 1\r\nContent-Length: 7\r\n\r\n{\"a\":1}"
+    );
+    let get = String::from_utf8(build_wire_request("GET", &url, &[], b"").unwrap()).unwrap();
+    assert!(!get.contains("Content-Length"));
+    let put = String::from_utf8(build_wire_request("PUT", &url, &[], b"").unwrap()).unwrap();
+    assert!(put.contains("Content-Length: 0\r\n"));
+    // CR/LF injection and bad names are refused
+    assert!(build_wire_request("GET", &url, &qf5_h(&[("X-A", "1\r\nX-B: 2")]), b"").is_err());
+    assert!(build_wire_request("GET", &url, &qf5_h(&[("X-A", "1\nX")]), b"").is_err());
+    assert!(build_wire_request("GET", &url, &qf5_h(&[("X A", "1")]), b"").is_err());
+    assert!(build_wire_request("GE T", &url, &[], b"").is_err());
+
+    let raw = b"HTTP/1.1 201 Created\r\nContent-Type: text/plain\r\nSet-Cookie: a=1\r\nSet-Cookie: b=2\r\nX-Wire-Final-Url: https://x.test/final\r\n\r\nhello\r\n\r\nworld";
+    let r = parse_wire_response_full(raw).unwrap();
+    assert_eq!((r.status, r.status_text.as_str()), (201, "Created"));
+    assert_eq!(r.body, b"hello\r\n\r\nworld");
+    assert_eq!(r.header("Content-Type"), Some("text/plain"));
+    let cookies: Vec<&str> = r.headers.iter().filter(|(n, _)| n == "set-cookie").map(|(_, v)| v.as_str()).collect();
+    assert_eq!(cookies, ["a=1", "b=2"]);
+    assert_eq!(r.final_url.as_deref(), Some("https://x.test/final"));
+    assert_eq!(r.error, None);
+    // today's synthesized 502 and the QF6 marker
+    let e = parse_wire_response_full(b"HTTP/1.1 502 Bad Gateway\r\nContent-Type: text/plain\r\n\r\nwire: upstream request failed: refused").unwrap();
+    assert_eq!(e.error.as_deref(), Some("wire: upstream request failed: refused"));
+    let e2 = parse_wire_response_full(b"HTTP/1.1 502 Bad Gateway\r\nX-Wire-Error: 1\r\n\r\nblocked: x").unwrap();
+    assert_eq!(e2.error.as_deref(), Some("blocked: x"));
+    let real502 = parse_wire_response_full(b"HTTP/1.1 502 Bad Gateway\r\n\r\nnginx says no").unwrap();
+    assert_eq!(real502.error, None);
+    assert!(parse_wire_response_full(b"HTTP/1.1 200 OK\r\nno terminator").is_err());
+    assert!(parse_wire_response_full(b"garbage\r\n\r\n").is_err());
+    assert!(parse_wire_response_full(b"HTTP/1.1 999 X\r\n\r\n").is_err());
+    assert_eq!(parse_wire_response_full(b"HTTP/1.1 204\r\n\r\n").unwrap().status_text, "");
+}
+
+/// In-memory fake wire: a thread on a temp unix socket. `respond` gets the
+/// full request bytes and writes the answer; the received request is sent back.
+fn qf5_fake_wire(
+    tag: &str,
+    respond: impl FnOnce(&[u8], &mut UnixStream) + Send + 'static,
+) -> (PathBuf, mpsc::Receiver<Vec<u8>>, thread::JoinHandle<()>) {
+    let dir = std::env::temp_dir().join(format!("scratchy-qf5-{}-{tag}", std::process::id()));
+    let _ = fs::create_dir_all(&dir);
+    let path = dir.join("wire.sock");
+    let _ = fs::remove_file(&path);
+    let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+    let (tx, rx) = mpsc::channel();
+    let h = thread::spawn(move || {
+        let (mut s, _) = listener.accept().unwrap();
+        let mut buf = Vec::new();
+        let mut chunk = [0u8; 4096];
+        loop {
+            let n = s.read(&mut chunk).unwrap_or(0);
+            if n == 0 {
+                break;
+            }
+            buf.extend_from_slice(&chunk[..n]);
+            if let Some(p) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                let head = String::from_utf8_lossy(&buf[..p]).to_ascii_lowercase();
+                let cl = head.split("content-length:").nth(1).and_then(|v| v.lines().next()).and_then(|v| v.trim().parse::<usize>().ok()).unwrap_or(0);
+                if buf.len() >= p + 4 + cl {
+                    break;
+                }
+            }
+        }
+        let _ = tx.send(buf.clone());
+        respond(&buf, &mut s);
+    });
+    (path, rx, h)
+}
+
+#[test]
+fn qf5_fake_wire_round_trip() {
+    let (path, rx, h) = qf5_fake_wire("rt", |_req, s| {
+        let _ = s.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nSet-Cookie: k=v\r\n\r\n{\"ok\":true}");
+    });
+    let url = qf5_url("https://example.org/api");
+    let mut headers = qf5_h(&[("Content-Type", "application/json")]);
+    headers.extend(RequestPolicy::default().wire_cap_headers(None));
+    let req = build_wire_request("POST", &url, &headers, b"{\"a\":1}").unwrap();
+    let resp = fetch_full_via_wire(&path, &req, &WireLimits::default()).unwrap();
+    h.join().unwrap();
+    let got = rx.recv().unwrap();
+    assert_eq!(got, req);
+    assert_eq!(resp.status, 200);
+    assert_eq!(resp.body, b"{\"ok\":true}");
+    assert_eq!(resp.header("set-cookie"), Some("k=v"));
+}
+
+#[test]
+fn qf5_fake_wire_size_cap() {
+    let (path, _rx, h) = qf5_fake_wire("cap", |_req, s| {
+        let _ = s.write_all(b"HTTP/1.1 200 OK\r\n\r\n");
+        let big = vec![b'a'; 1 << 20];
+        for _ in 0..4 {
+            if s.write_all(&big).is_err() {
+                break;
+            }
+        }
+    });
+    let req = build_wire_request("GET", &qf5_url("https://example.org/"), &[], b"").unwrap();
+    let mut limits = WireLimits::default();
+    limits.max_body_bytes = 1 << 20;
+    assert_eq!(fetch_full_via_wire(&path, &req, &limits), Err(NetError::TooLarge));
+    h.join().unwrap();
+    // exactly at the cap is fine
+    let (path, _rx, h) = qf5_fake_wire("cap2", |_req, s| {
+        let _ = s.write_all(b"HTTP/1.1 200 OK\r\n\r\n");
+        let _ = s.write_all(&vec![b'a'; 1000]);
+    });
+    limits.max_body_bytes = 1000;
+    assert_eq!(fetch_full_via_wire(&path, &req, &limits).unwrap().body.len(), 1000);
+    h.join().unwrap();
+}
+
+#[test]
+fn qf5_fake_wire_timeouts_and_connect_errors() {
+    let (path, _rx, h) = qf5_fake_wire("to", |_req, s| {
+        let _ = s.write_all(b"HTTP/1.1 200 OK\r\n\r\npartial");
+        thread::sleep(std::time::Duration::from_millis(1500));
+    });
+    let req = build_wire_request("GET", &qf5_url("https://example.org/"), &[], b"").unwrap();
+    let mut limits = WireLimits::default();
+    limits.read_timeout = std::time::Duration::from_millis(300);
+    let t = std::time::Instant::now();
+    assert_eq!(fetch_full_via_wire(&path, &req, &limits), Err(NetError::Timeout));
+    assert!(t.elapsed() < std::time::Duration::from_millis(1400));
+    h.join().unwrap();
+    // the legacy caller now has a read timeout too
+    let (path, _rx, h) = qf5_fake_wire("to2", |_req, _s| thread::sleep(std::time::Duration::from_millis(1200)));
+    let t = std::time::Instant::now();
+    let r = fetch_raw_via_wire_with_timeout(&path, "GET http://x.test/ HTTP/1.1\r\nHost: x.test\r\n\r\n", std::time::Duration::from_millis(250));
+    assert!(matches!(r, WireFetchRaw::Unreachable));
+    assert!(t.elapsed() < std::time::Duration::from_millis(1100));
+    h.join().unwrap();
+    // nothing listening
+    let missing = std::env::temp_dir().join(format!("scratchy-qf5-{}-none.sock", std::process::id()));
+    assert!(matches!(fetch_full_via_wire(&missing, &req, &WireLimits::default()), Err(NetError::Connect(_))));
+}
+
+
+// ---------- QF7: page JS network queue (no fetch/XHR globals yet) ----------
+
+use crate::js_net::NetExecutor;
+
+/// A canned executor: answers by URL substring, records every request it
+/// receives (url, thread, read timeout) and can sleep first.
+struct QfFake {
+    calls: Mutex<Vec<(String, thread::ThreadId, std::time::Duration)>>,
+    answers: Vec<(&'static str, Result<WireResponse, NetError>)>,
+    delay_ms: u64,
+    raw: Mutex<Vec<Vec<u8>>>,
+}
+
+impl QfFake {
+    fn new(answers: Vec<(&'static str, Result<WireResponse, NetError>)>) -> Arc<Self> {
+        Arc::new(QfFake { calls: Mutex::new(Vec::new()), answers, delay_ms: 0, raw: Mutex::new(Vec::new()) })
+    }
+    fn urls(&self) -> Vec<String> {
+        self.calls.lock().unwrap().iter().map(|c| c.0.clone()).collect()
+    }
+}
+
+impl NetExecutor for QfFake {
+    fn execute(&self, job: &crate::js_net::NetJob) -> Result<WireResponse, NetError> {
+        self.raw.lock().unwrap().push(job.request.clone());
+        let line = String::from_utf8_lossy(&job.request).lines().next().unwrap_or("").to_string();
+        let url = line.split(' ').nth(1).unwrap_or("").to_string();
+        self.calls.lock().unwrap().push((url.clone(), thread::current().id(), job.limits.read_timeout));
+        if self.delay_ms > 0 {
+            thread::sleep(std::time::Duration::from_millis(self.delay_ms));
+        }
+        for (pat, r) in &self.answers {
+            if url.contains(pat) {
+                return r.clone();
+            }
+        }
+        Err(NetError::Io("no canned answer".into()))
+    }
+}
+
+fn qf7_ok(body: &str, headers: &[(&str, &str)]) -> Result<WireResponse, NetError> {
+    Ok(WireResponse {
+        status: 200,
+        status_text: "OK".into(),
+        headers: headers.iter().map(|(a, b)| (a.to_string(), b.to_string())).collect(),
+        body: body.as_bytes().to_vec(),
+        error: None,
+        final_url: None,
+    })
+}
+
+/// Starts an engine on `page` with the fake as the executor (no scripts yet).
+fn qf7_engine(page: &str, fake: &Arc<QfFake>) -> (JsEngine, Rc<RefCell<Vec<String>>>) {
+    set_page_url(Some(&Url::parse(page).unwrap()));
+    crate::js_net::set_net_executor(fake.clone());
+    let out = Rc::new(RefCell::new(Vec::new()));
+    let o = out.clone();
+    let engine = crate::js::start_scripts(&parse_html(""), &[src("")], Rc::new(move |l, t| o.borrow_mut().push(format!("{l}:{t}")))).unwrap();
+    (engine, out)
+}
+
+fn qf7_drive(engine: &JsEngine, fake: &Arc<QfFake>) {
+    let mut sched = NetScheduler::new(&engine.net_policy());
+    crate::js_net::drive_report_net(engine, &mut sched, &**fake);
+}
+
+/// JS that sends one GET and logs `ok <status> <type> <body>` or `err <name> <msg>`.
+fn qf7_go(url: &str, extra: &str) -> String {
+    format!(
+        "var h = __net_request({{method:'GET', url:'{url}', headers:[], body:null{extra}}});\
+         h.promise.then(function(r){{ return r.text().then(function(t){{ console.log('ok', r.status, r.type, t); }}); }},\
+         function(e){{ console.log('err', e.name, e.message); }});"
+    )
+}
+
+#[test]
+fn qf7_same_origin_request_resolves_in_order() {
+    let fake = QfFake::new(vec![("/a", qf7_ok("AAA", &[])), ("/b", qf7_ok("BBB", &[]))]);
+    let (engine, log) = qf7_engine("https://page.test/", &fake);
+    engine.eval("t", &format!("{}{}", qf7_go("https://page.test/a", ""), qf7_go("https://page.test/b", "")));
+    qf7_drive(&engine, &fake);
+    assert_eq!(fake.urls(), vec!["https://page.test/a", "https://page.test/b"]);
+    let l = log.borrow().clone();
+    assert_eq!(l, vec!["log:ok 200 basic AAA", "log:ok 200 basic BBB"], "answers arrive in request order");
+    let e = engine.net_entries();
+    assert_eq!(e.len(), 2);
+    assert_eq!(e[0].outcome, "200 OK");
+    assert_eq!(e[0].bytes, 3);
+}
+
+#[test]
+fn qf7_policy_refusal_never_reaches_the_executor_and_rejects_async() {
+    let fake = QfFake::new(vec![]);
+    let (engine, log) = qf7_engine("https://page.test/", &fake);
+    engine.eval("t", &format!("{}console.log('sync-done');", qf7_go("ftp://page.test/x", "")));
+    assert_eq!(log.borrow().last().map(String::as_str), Some("log:sync-done"), "no rejection before the turn ends");
+    qf7_drive(&engine, &fake);
+    assert!(fake.urls().is_empty());
+    let l = log.borrow().clone();
+    assert!(l.iter().any(|x| x.starts_with("net:blocked GET ftp://page.test/x: scheme ftp:")), "{l:?}");
+    assert!(l.contains(&"log:err TypeError Failed to fetch".to_string()), "{l:?}");
+    assert!(engine.net_entries()[0].outcome.starts_with("blocked: "));
+}
+
+#[test]
+fn qf7_private_target_warns_and_is_sent() {
+    let fake = QfFake::new(vec![("127.0.0.1", qf7_ok("x", &[("access-control-allow-origin", "*")]))]);
+    let (engine, log) = qf7_engine("http://page.test/", &fake);
+    engine.eval("t", &qf7_go("http://127.0.0.1:8080/x", ""));
+    qf7_drive(&engine, &fake);
+    assert_eq!(fake.urls().len(), 1, "warn-and-allow");
+    let l = log.borrow().clone();
+    assert!(
+        l.contains(&"net-warning:scratchy: net warning: http://page.test/ -> http://127.0.0.1:8080/x (loopback) allowed by policy".to_string()),
+        "{l:?}"
+    );
+    assert_eq!(engine.net_entries()[0].warnings.len(), 1);
+    assert!(l.contains(&"log:ok 200 cors x".to_string()), "{l:?}");
+}
+
+#[test]
+fn qf7_cors_blocked_allowed_and_headers_filtered() {
+    let fake = QfFake::new(vec![
+        ("/closed", qf7_ok("secret", &[])),
+        ("/open", qf7_ok("pub", &[("access-control-allow-origin", "*"), ("x-hidden", "1"), ("content-type", "text/plain")])),
+    ]);
+    let (engine, log) = qf7_engine("https://page.test/", &fake);
+    engine.eval(
+        "t",
+        &format!(
+            "{}{}{}",
+            qf7_go("https://other.test/closed", ""),
+            qf7_go("https://other.test/open", ""),
+            "__net_request({method:'GET', url:'https://other.test/open', headers:[], body:null}).promise\
+              .then(function(r){ console.log('hdr', r.headers.get('x-hidden'), r.headers.get('content-type')); });"
+        ),
+    );
+    qf7_drive(&engine, &fake);
+    let l = log.borrow().clone();
+    assert!(l.contains(&"net:GET https://other.test/closed: CORS: no Access-Control-Allow-Origin header (blocked by CORS policy)".to_string()), "{l:?}");
+    assert!(l.contains(&"log:err TypeError Failed to fetch".to_string()), "{l:?}");
+    assert!(l.contains(&"log:ok 200 cors pub".to_string()), "{l:?}");
+    assert!(l.contains(&"log:hdr null text/plain".to_string()), "non-safelisted response headers are hidden from a cors response: {l:?}");
+    assert_eq!(fake.urls().len(), 3);
+}
+
+#[test]
+fn qf7_no_cors_is_opaque_and_beacon_is_logged_not_sent() {
+    let fake = QfFake::new(vec![]);
+    let (engine, log) = qf7_engine("https://page.test/", &fake);
+    engine.eval(
+        "t",
+        "__net_request({method:'GET', url:'https://track.test/p?x=1', headers:[], body:null, mode:'no-cors'}).promise\
+           .then(function(r){ console.log('nc', r.status, r.type, JSON.stringify(r.url)); });\
+         __net_request({method:'POST', url:'https://track.test/b', headers:[['Content-Type','text/plain']], body:new Uint8Array([104,105]), api:'beacon'}).promise\
+           .then(function(r){ console.log('bc', r.type); });",
+    );
+    qf7_drive(&engine, &fake);
+    assert!(fake.urls().is_empty(), "beacons are suppressed, not sent");
+    let l = log.borrow().clone();
+    assert!(l.contains(&"log:nc 0 opaque \"\"".to_string()), "{l:?}");
+    assert!(l.contains(&"log:bc opaque".to_string()), "{l:?}");
+    assert!(
+        l.contains(&"net:beacon navigator.sendBeacon POST https://track.test/b content-type=text/plain body=2 bytes body[..200]=\"hi\" page=https://page.test/: suppressed (not sent)".to_string()),
+        "{l:?}"
+    );
+    assert!(l.iter().any(|x| x.contains("beacon fetch no-cors GET https://track.test/p?x=1") && x.ends_with("suppressed (not sent)")), "{l:?}");
+}
+
+#[test]
+fn qf7_beacons_send_flag_sends_and_stays_opaque() {
+    let fake = QfFake::new(vec![("track.test", qf7_ok("gif", &[]))]);
+    let (engine, log) = qf7_engine("https://page.test/", &fake);
+    let mut p = RequestPolicy::default();
+    p.beacons_send = true;
+    engine.set_net_policy(p);
+    engine.eval("t", &qf7_go("https://track.test/p", ", mode:'no-cors'"));
+    qf7_drive(&engine, &fake);
+    assert_eq!(fake.urls().len(), 1);
+    assert!(log.borrow().iter().any(|x| x == "log:ok 0 opaque "), "{:?}", log.borrow());
+}
+
+#[test]
+fn qf7_preflight_is_rejected_with_a_clear_log() {
+    let fake = QfFake::new(vec![]);
+    let (engine, log) = qf7_engine("https://page.test/", &fake);
+    engine.eval(
+        "t",
+        "__net_request({method:'PUT', url:'https://other.test/x', headers:[], body:null}).promise.catch(function(e){ console.log('err', e.name); });",
+    );
+    qf7_drive(&engine, &fake);
+    assert!(fake.urls().is_empty());
+    let l = log.borrow().clone();
+    assert!(l.iter().any(|x| x.starts_with("net:blocked PUT https://other.test/x:") && x.contains("not implemented (QF13 preflight)")), "{l:?}");
+    assert!(l.contains(&"log:err TypeError".to_string()), "{l:?}");
+}
+
+#[test]
+fn qf7_abort_cancels_and_a_late_result_is_ignored() {
+    let (engine, log) = qf7_engine("https://page.test/", &QfFake::new(vec![]));
+    engine.eval(
+        "t",
+        "var c = new AbortController(); c.abort();\
+         __net_request({method:'GET', url:'https://page.test/a', headers:[], body:null, signal:c.signal}).promise\
+           .then(function(){ console.log('A resolved'); }, function(e){ console.log('A', e.name); });\
+         var c2 = new AbortController();\
+         __net_request({method:'GET', url:'https://page.test/b', headers:[], body:null, signal:c2.signal}).promise\
+           .then(function(){ console.log('B resolved'); }, function(e){ console.log('B', e.name); });",
+    );
+    let reqs = engine.take_requests();
+    assert_eq!(reqs.net.len(), 1, "the pre-aborted request is not even queued");
+    let mut sched = NetScheduler::new(&RequestPolicy::default());
+    let job = reqs.net.into_iter().next().unwrap();
+    let id = job.id;
+    sched.enqueue(job);
+    let mut started = Vec::new();
+    sched.pump(&mut |j| started.push(j));
+    assert_eq!(started.len(), 1);
+    // Abort while it is in flight, then deliver the answer anyway.
+    engine.eval("t", "c2.abort();");
+    assert_eq!(engine.take_requests().net_abort, vec![id]);
+    engine.deliver_net(id, qf7_ok("B", &[]));
+    let l = log.borrow().clone();
+    assert_eq!(l, vec!["log:A AbortError", "log:B AbortError"], "{l:?}");
+    // A job still queued is cancelled by its abort id.
+    let mut s2 = NetScheduler::new(&RequestPolicy::default());
+    s2.enqueue(started.into_iter().next().unwrap());
+    assert!(s2.abort(id));
+    assert_eq!(s2.counts(), (0, 0));
+}
+
+fn qf7_job(id: u64, reserve: usize) -> crate::js_net::NetJob {
+    crate::js_net::NetJob { id, request: Vec::new(), limits: WireLimits::default(), reserve }
+}
+
+#[test]
+fn qf7_scheduler_caps_parallelism_and_in_flight_bytes() {
+    let mut p = RequestPolicy::default();
+    let mut s = NetScheduler::new(&p);
+    for i in 1..=10 {
+        s.enqueue(qf7_job(i, 0));
+    }
+    let mut started = Vec::new();
+    s.pump(&mut |j| started.push(j.id));
+    assert_eq!(started, vec![1, 2, 3, 4, 5, 6], "max_concurrent_requests (6) from the policy");
+    s.done(1);
+    s.done(999); // unknown ids are a no-op
+    s.pump(&mut |j| started.push(j.id));
+    assert_eq!(started.len(), 7);
+    assert_eq!(s.counts(), (3, 6));
+    // Byte cap, FIFO: a 60-byte request waits for the other 60-byte one.
+    p.max_in_flight_bytes = 100;
+    let mut s = NetScheduler::new(&p);
+    s.enqueue(qf7_job(1, 60));
+    s.enqueue(qf7_job(2, 60));
+    s.enqueue(qf7_job(3, 10));
+    let mut started = Vec::new();
+    s.pump(&mut |j| started.push(j.id));
+    assert_eq!(started, vec![1]);
+    s.done(1);
+    s.pump(&mut |j| started.push(j.id));
+    assert_eq!(started, vec![1, 2, 3]);
+    s.reset();
+    assert_eq!(s.counts(), (0, 0));
+}
+
+#[test]
+fn qf7_per_page_and_body_caps_come_from_the_policy() {
+    let fake = QfFake::new(vec![("page.test", qf7_ok("x", &[]))]);
+    let (engine, log) = qf7_engine("https://page.test/", &fake);
+    let mut p = RequestPolicy::default();
+    p.max_requests_per_page = 2;
+    p.max_in_flight_bytes = 8;
+    engine.set_net_policy(p);
+    let post = |n: usize| {
+        format!("__net_request({{method:'POST', url:'https://page.test/p', headers:[], body:new Uint8Array({n})}});")
+    };
+    engine.eval("t", &format!("{}{}{}{}", post(9), post(1), post(1), post(1)));
+    qf7_drive(&engine, &fake);
+    assert_eq!(fake.urls().len(), 2, "the oversized body and the third request are refused");
+    let l = log.borrow().clone();
+    assert!(l.iter().any(|x| x.contains("request body is too large (9 bytes, limit 8)")), "{l:?}");
+    assert!(l.iter().any(|x| x.contains("too many requests from this page (limit 2)")), "{l:?}");
+}
+
+#[test]
+fn qf7_sync_blocks_on_the_engine_thread_with_the_short_timeout() {
+    let fake = Arc::new(QfFake {
+        calls: Mutex::new(Vec::new()),
+        answers: vec![("/ok", qf7_ok("sync-body", &[])), ("/slow", Err(NetError::Timeout))],
+        delay_ms: 60,
+        raw: Mutex::new(Vec::new()),
+    });
+    let (engine, log) = qf7_engine("https://page.test/", &fake);
+    let t = std::time::Instant::now();
+    engine.eval(
+        "t",
+        "var r = __net_request({method:'GET', url:'https://page.test/ok', headers:[], body:null, sync:true}).response;\
+         console.log('got', r.status, r.type);\
+         try { __net_request({method:'GET', url:'https://page.test/slow', headers:[], body:null, sync:true}); }\
+         catch (e) { console.log('threw', e.name); }",
+    );
+    assert!(t.elapsed() >= std::time::Duration::from_millis(120), "send() blocked for both requests");
+    let l = log.borrow().clone();
+    assert!(l.contains(&"log:got 200 basic".to_string()), "{l:?}");
+    assert!(l.contains(&"log:threw NetworkError".to_string()), "{l:?}");
+    assert!(l.iter().any(|x| x.starts_with("net:sync GET https://page.test/ok: blocking the page for up to 5000 ms")), "{l:?}");
+    assert!(l.iter().any(|x| x.starts_with("net:GET https://page.test/slow: request timed out")), "{l:?}");
+    let calls = fake.calls.lock().unwrap();
+    assert_eq!(calls.len(), 2);
+    assert!(calls.iter().all(|c| c.1 == thread::current().id()), "sync runs on the calling thread");
+    assert!(calls.iter().all(|c| c.2 == std::time::Duration::from_millis(5000)), "sync_xhr_timeout_ms, not the 30 s default");
+}
+
+#[test]
+fn qf7_js_report_has_a_network_section_and_uses_the_base_href() {
+    let fake = QfFake::new(vec![("page.test/data", qf7_ok("12345", &[])), ("other.test", qf7_ok("no-acao", &[]))]);
+    crate::js_net::set_net_executor(fake.clone());
+    let html = "<html><head><base href='https://page.test/dir/'></head><body><script>\
+        var q = function(u){ __net_request({method:'GET', url:u, headers:[], body:null}).promise.catch(function(){}); };\
+        q('https://page.test/data'); q('https://other.test/x'); q('http://127.0.0.1:8080/');\
+        </script></body></html>";
+    set_js_enabled(true);
+    let report = js::js_report_for_html(html, None, "/tmp/qf7-none.html");
+    assert!(report.contains("--- network (3 requests, 12 bytes) ---"), "{report}");
+    assert!(report.contains("GET https://page.test/data -> 200 OK 5 bytes"), "same-origin check uses the <base href>, not file://: {report}");
+    assert!(report.contains("GET https://other.test/x -> blocked: CORS: no Access-Control-Allow-Origin header"), "{report}");
+    assert!(report.contains("(loopback) allowed by policy"), "{report}");
+    assert!(report.contains("errors total: 0"), "{report}");
+}
+
+/// App side: queued requests are started by `js_sync`, results of a
+/// superseded page are dropped, current ones reach the page.
+fn qf7_app_net(proxy: &winit::event_loop::EventLoopProxy<AppEvent>) {
+    let fake = QfFake::new(vec![("/a", qf7_ok("AAA", &[]))]);
+    let doc = parse_html("<html><body></body></html>");
+    let mut app = App::new_static(doc.clone(), proxy.clone(), None);
+    crate::js_net::set_net_executor(fake.clone());
+    let page = Url::parse("https://page.test/").unwrap();
+    let code = format!("{} h.promise.then(function(r){{ return r.text(); }}).then(function(t){{ window.__done = t; }});", qf7_go("https://page.test/a", ""));
+    app.js = run_page_scripts(&doc, &[src(&code)], Some(&page));
+    app.js_sync();
+    for _ in 0..200 {
+        if !fake.urls().is_empty() {
+            break;
+        }
+        thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert_eq!(fake.urls(), vec!["https://page.test/a"], "js_sync started the request on a thread");
+    let done = |app: &App| app.js.as_ref().unwrap().eval_value::<String>("t", "String(window.__done)");
+    let id = app.js.as_ref().unwrap().eval_value::<f64>("t", "h.id").unwrap() as u64;
+    // A stale generation is dropped: the promise stays pending.
+    app.handle_js_net(app.nav_generation + 1, id, qf7_ok("STALE", &[]));
+    assert_eq!(done(&app).as_deref(), Some("undefined"));
+    app.handle_js_net(app.nav_generation, id, qf7_ok("AAA", &[]));
+    assert_eq!(done(&app).as_deref(), Some("AAA"));
+}
+
+// ---------- QF8: window.fetch over the QF7 queue (fake executor, no network) ----------
+
+fn qf8_run(page: &str, fake: &Arc<QfFake>, code: &str) -> Vec<String> {
+    let (engine, log) = qf7_engine(page, fake);
+    engine.eval("t", code);
+    qf7_drive(&engine, fake);
+    let l = log.borrow().clone();
+    l
+}
+
+#[test]
+fn qf8_fetch_exists_on_window_and_global_this() {
+    let fake = QfFake::new(vec![]);
+    let l = qf8_run(
+        "https://page.test/",
+        &fake,
+        "console.log(typeof fetch, typeof window.fetch, typeof globalThis.fetch, typeof self.fetch, fetch === window.fetch, fetch.length, fetch.name);",
+    );
+    assert_eq!(l, vec!["log:function function function function true 1 fetch"]);
+}
+
+#[test]
+fn qf8_get_text_and_json_round_trip() {
+    let fake = QfFake::new(vec![
+        ("/t", qf7_ok("hello", &[("content-type", "text/plain")])),
+        ("/j", qf7_ok("{\"a\":[1,2]}", &[("content-type", "application/json")])),
+    ]);
+    let l = qf8_run(
+        "https://page.test/",
+        &fake,
+        "fetch('/t').then(function(r){ console.log('r', r.status, r.ok, r.type, r.url, r.redirected, r.headers.get('content-type')); return r.text(); }).then(function(t){ console.log('text', t); });\
+         fetch('https://page.test/j').then(function(r){ return r.json(); }).then(function(j){ console.log('json', JSON.stringify(j)); });",
+    );
+    assert!(l.contains(&"log:r 200 true basic https://page.test/t false text/plain".to_string()), "{l:?}");
+    assert!(l.contains(&"log:text hello".to_string()), "{l:?}");
+    assert!(l.contains(&"log:json {\"a\":[1,2]}".to_string()), "{l:?}");
+}
+
+#[test]
+fn qf8_post_json_body_and_headers_reach_the_executor() {
+    let fake = QfFake::new(vec![("/p", qf7_ok("{}", &[]))]);
+    let _ = qf8_run(
+        "https://page.test/",
+        &fake,
+        "fetch('/p', {method:'post', headers:{'Content-Type':'application/json','X-Tok':'abc'}, body: JSON.stringify({k:1})});",
+    );
+    let raw = fake.raw.lock().unwrap().clone();
+    assert_eq!(raw.len(), 1);
+    let t = String::from_utf8_lossy(&raw[0]).to_string();
+    assert!(t.starts_with("POST https://page.test/p"), "{t}");
+    assert!(t.to_ascii_lowercase().contains("content-type: application/json"), "{t}");
+    assert!(t.to_ascii_lowercase().contains("x-tok: abc"), "{t}");
+    assert!(t.ends_with("{\"k\":1}"), "{t}");
+}
+
+#[test]
+fn qf8_form_data_body_is_multipart() {
+    let fake = QfFake::new(vec![("/u", qf7_ok("", &[]))]);
+    let _ = qf8_run(
+        "https://page.test/",
+        &fake,
+        "var fd = new FormData(); fd.append('a', 'one'); fd.append('f', new Blob(['xyz'], {type:'text/plain'}), 'n.txt'); fetch('/u', {method:'POST', body: fd});",
+    );
+    let raw = fake.raw.lock().unwrap().clone();
+    let t = String::from_utf8_lossy(&raw[0]).to_string();
+    assert!(t.to_ascii_lowercase().contains("content-type: multipart/form-data; boundary="), "{t}");
+    assert!(t.contains("name=\"a\"") && t.contains("one") && t.contains("filename=\"n.txt\"") && t.contains("xyz"), "{t}");
+}
+
+#[test]
+fn qf8_abort_before_and_after() {
+    let fake = QfFake::new(vec![("/a", qf7_ok("x", &[]))]);
+    let (engine, log) = qf7_engine("https://page.test/", &fake);
+    engine.eval(
+        "t",
+        "var c = new AbortController(); c.abort();\
+         fetch('/a', {signal: c.signal}).catch(function(e){ console.log('pre', e.name); });\
+         var c2 = new AbortController(); c2.abort('why');\
+         fetch('/a', {signal: c2.signal}).catch(function(e){ console.log('reason', e); });\
+         var c3 = new AbortController();\
+         fetch('/a', {signal: c3.signal}).then(function(){ console.log('B resolved'); }, function(e){ console.log('late', e.name); });\
+         Promise.resolve().then(function(){ return Promise.resolve(); }).then(function(){ c3.abort(); });",
+    );
+    qf7_drive(&engine, &fake);
+    let l = log.borrow().clone();
+    assert!(l.contains(&"log:pre AbortError".to_string()), "{l:?}");
+    assert!(l.contains(&"log:reason why".to_string()), "{l:?}");
+    assert!(l.contains(&"log:late AbortError".to_string()), "{l:?}");
+    assert!(!l.contains(&"log:B resolved".to_string()), "{l:?}");
+}
+
+#[test]
+fn qf8_cors_blocked_allowed_and_opaque() {
+    let fake = QfFake::new(vec![
+        ("/closed", qf7_ok("secret", &[])),
+        ("/open", qf7_ok("pub", &[("access-control-allow-origin", "*"), ("x-hidden", "1")])),
+        ("/cred", qf7_ok("c", &[("access-control-allow-origin", "*")])),
+    ]);
+    let l = qf8_run(
+        "https://page.test/",
+        &fake,
+        "fetch('https://o.test/closed').catch(function(e){ console.log('closed', e.name, e.message); });\
+         fetch('https://o.test/open').then(function(r){ console.log('open', r.type, r.headers.get('x-hidden')); return r.text(); }).then(function(t){ console.log('body', t); });\
+         fetch('https://o.test/cred', {credentials:'include'}).catch(function(e){ console.log('cred', e.name); });\
+         fetch('https://o.test/x', {mode:'no-cors'}).then(function(r){ console.log('nc', r.type, r.status, JSON.stringify(r.url)); });",
+    );
+    assert!(l.contains(&"log:closed TypeError Failed to fetch".to_string()), "{l:?}");
+    assert!(l.contains(&"log:open cors null".to_string()), "{l:?}");
+    assert!(l.contains(&"log:body pub".to_string()), "{l:?}");
+    assert!(l.contains(&"log:cred TypeError".to_string()), "credentials include rejects ACAO *: {l:?}");
+    assert!(l.contains(&"log:nc opaque 0 \"\"".to_string()), "{l:?}");
+}
+
+#[test]
+fn qf8_same_origin_mode_and_unsupported_schemes_reject() {
+    let fake = QfFake::new(vec![]);
+    let l = qf8_run(
+        "https://page.test/",
+        &fake,
+        "fetch('https://o.test/x', {mode:'same-origin'}).catch(function(e){ console.log('so', e.name); });\
+         ['ftp://h/x', 'about:blank', 'javascript:1'].forEach(function(u){ fetch(u).catch(function(e){ console.log('bad', e.name, u); }); });\
+         fetch().catch(function(e){ console.log('noargs', e.name); });",
+    );
+    assert!(fake.urls().is_empty(), "{:?} {l:?}", fake.urls());
+    assert!(l.contains(&"log:so TypeError".to_string()), "{l:?}");
+    assert!(l.contains(&"log:bad TypeError ftp://h/x".to_string()), "{l:?}");
+    assert!(l.contains(&"log:bad TypeError about:blank".to_string()), "{l:?}");
+    assert!(l.contains(&"log:bad TypeError javascript:1".to_string()), "{l:?}");
+    assert!(l.contains(&"log:noargs TypeError".to_string()), "{l:?}");
+}
+
+#[test]
+fn qf8_redirect_error_and_follow_report_final_url() {
+    let redirected = Ok(WireResponse {
+        status: 200,
+        status_text: "OK".into(),
+        headers: vec![],
+        body: b"final".to_vec(),
+        error: None,
+        final_url: Some("https://page.test/final".into()),
+    });
+    let fake = QfFake::new(vec![("/start", redirected)]);
+    let l = qf8_run(
+        "https://page.test/",
+        &fake,
+        "fetch('/start').then(function(r){ console.log('follow', r.url, r.redirected); });\
+         fetch('/start', {redirect:'error'}).catch(function(e){ console.log('error', e.name); });",
+    );
+    assert!(l.contains(&"log:follow https://page.test/final true".to_string()), "{l:?}");
+    assert!(l.contains(&"log:error TypeError".to_string()), "{l:?}");
+}
+
+#[test]
+fn qf8_blob_and_data_urls_resolve_locally() {
+    let fake = QfFake::new(vec![]);
+    let l = qf8_run(
+        "https://page.test/",
+        &fake,
+        "var u = URL.createObjectURL(new Blob(['blobby'], {type:'text/x-t'}));\
+         fetch(u).then(function(r){ console.log('blob', r.status, r.type, r.headers.get('content-type'), r.url === u); return r.text(); }).then(function(t){ console.log('bt', t); });\
+         fetch('data:text/plain;base64,aGk=').then(function(r){ return r.text(); }).then(function(t){ console.log('b64', t); });\
+         fetch('data:,a%20b%C3%A9').then(function(r){ console.log('ct', r.headers.get('content-type')); return r.text(); }).then(function(t){ console.log('pct', t); });\
+         var u3 = URL.createObjectURL(new Blob(['q'])); URL.revokeObjectURL(u3); fetch(u3).catch(function(e){ console.log('revoked', e.name); });\
+         var u2 = URL.createObjectURL(new Blob(['z'])); fetch(u2).then(function(r){ return r.arrayBuffer(); }).then(function(b){ console.log('ab', b.byteLength); });",
+    );
+    assert!(fake.urls().is_empty(), "local fetches never reach the network");
+    assert!(l.contains(&"log:blob 200 basic text/x-t true".to_string()), "{l:?}");
+    assert!(l.contains(&"log:bt blobby".to_string()), "{l:?}");
+    assert!(l.contains(&"log:b64 hi".to_string()), "{l:?}");
+    assert!(l.contains(&"log:ct text/plain;charset=US-ASCII".to_string()), "{l:?}");
+    assert!(l.contains(&"log:pct a b\u{e9}".to_string()), "{l:?}");
+    assert!(l.contains(&"log:revoked TypeError".to_string()), "{l:?}");
+    assert!(l.contains(&"log:ab 1".to_string()), "{l:?}");
+}
+
+#[test]
+fn qf8_keepalive_beacon_is_logged_not_sent() {
+    let fake = QfFake::new(vec![]);
+    let l = qf8_run(
+        "https://page.test/",
+        &fake,
+        "fetch('https://track.test/b', {method:'POST', keepalive:true, body:'x=1', headers:{'Content-Type':'text/plain'}}).then(function(r){ console.log('ka', r.type, r.status); });",
+    );
+    assert!(fake.urls().is_empty());
+    assert!(l.contains(&"log:ka opaque 0".to_string()), "{l:?}");
+    assert!(l.iter().any(|x| x.starts_with("net:") && x.contains("suppressed (not sent)")), "{l:?}");
+}
+
+#[test]
+fn qf8_network_failure_rejects_failed_to_fetch() {
+    let fake = QfFake::new(vec![]);
+    let l = qf8_run("https://page.test/", &fake, "fetch('/nothing').catch(function(e){ console.log('net', e.name, e.message); });");
+    assert!(l.contains(&"log:net TypeError Failed to fetch".to_string()), "{l:?}");
+}
+
+// ---------- QF9: XMLHttpRequest over the QF7 queue (fake executor, no network) ----------
+
+const QF9_TRACK: &str = "function track(x, tag) { tag = tag || ''; x.onreadystatechange = function () { console.log(tag + 'rs' + x.readyState); };\
+  ['loadstart','progress','load','error','abort','timeout','loadend'].forEach(function (t) { x.addEventListener(t, function (e) { console.log(tag + t, e.loaded, e.total, e.lengthComputable); }); }); }\n";
+
+fn qf9_run(page: &str, fake: &Arc<QfFake>, code: &str) -> Vec<String> {
+    qf8_run(page, fake, &format!("{QF9_TRACK}{code}"))
+}
+
+#[test]
+fn qf9_get_event_order_and_response_fields() {
+    let fake = QfFake::new(vec![("/a", qf7_ok("hello", &[("content-type", "text/plain"), ("content-length", "5")]))]);
+    let l = qf9_run(
+        "https://page.test/",
+        &fake,
+        "var x = new XMLHttpRequest(); console.log(typeof XMLHttpRequest, XMLHttpRequest.DONE, x.UNSENT, x.readyState, x instanceof EventTarget);\
+         track(x); x.open('get', '/a'); x.send();\
+         x.addEventListener('loadend', function () { console.log('final', x.status, x.statusText, x.responseURL, x.responseText, x.response, x.getResponseHeader('Content-Type')); });",
+    );
+    let want = [
+        "log:function 4 0 0 true",
+        "log:rs1",
+        "log:loadstart 0 0 false",
+        "log:rs2",
+        "log:rs3",
+        "log:progress 5 5 true",
+        "log:rs4",
+        "log:load 5 5 true",
+        "log:loadend 5 5 true",
+        "log:final 200 OK https://page.test/a hello hello text/plain",
+    ];
+    assert_eq!(l, want, "{l:?}");
+}
+
+#[test]
+fn qf9_post_body_and_headers_reach_the_executor_and_forbidden_is_ignored() {
+    let fake = QfFake::new(vec![("/p", qf7_ok("{}", &[]))]);
+    let l = qf9_run(
+        "https://page.test/",
+        &fake,
+        "var x = new XMLHttpRequest(); x.open('POST', '/p');\
+         x.setRequestHeader('X-Tok', 'a'); x.setRequestHeader('x-tok', 'b'); x.setRequestHeader('Cookie', 'evil=1'); x.setRequestHeader('Host', 'evil');\
+         try { x.send('payload'); x.setRequestHeader('X-Late', '1'); } catch (e) { console.log('late', e.name); }\
+         try { new XMLHttpRequest().setRequestHeader('A', 'b'); } catch (e) { console.log('unopened', e.name); }",
+    );
+    assert!(l.contains(&"log:late InvalidStateError".to_string()), "{l:?}");
+    assert!(l.contains(&"log:unopened InvalidStateError".to_string()), "{l:?}");
+    let raw = String::from_utf8_lossy(&fake.raw.lock().unwrap()[0]).to_string();
+    let lower = raw.to_lowercase();
+    assert!(raw.starts_with("POST https://page.test/p"), "{raw}");
+    assert!(lower.contains("x-tok: a, b"), "{raw}");
+    assert!(lower.contains("content-type: text/plain;charset=utf-8"), "{raw}");
+    assert!(raw.ends_with("payload"), "{raw}");
+    assert!(!lower.contains("evil"), "{raw}");
+}
+
+#[test]
+fn qf9_get_ignores_the_body_and_open_validates_the_method() {
+    let fake = QfFake::new(vec![("/g", qf7_ok("x", &[]))]);
+    let l = qf9_run(
+        "https://page.test/",
+        &fake,
+        "var x = new XMLHttpRequest(); x.open('GET', '/g'); x.send('ignored');\
+         ['TRACE','connect','Track'].forEach(function (m) { try { new XMLHttpRequest().open(m, '/'); } catch (e) { console.log(m, e.name); } });\
+         try { new XMLHttpRequest().open('bad method', '/'); } catch (e) { console.log('bad', e.name); }",
+    );
+    assert!(l.contains(&"log:TRACE SecurityError".to_string()) && l.contains(&"log:connect SecurityError".to_string()), "{l:?}");
+    assert!(l.contains(&"log:bad SyntaxError".to_string()), "{l:?}");
+    let raw = String::from_utf8_lossy(&fake.raw.lock().unwrap()[0]).to_string();
+    assert!(raw.starts_with("GET ") && !raw.contains("ignored"), "{raw}");
+}
+
+#[test]
+fn qf9_response_types() {
+    let fake = QfFake::new(vec![("/j", qf7_ok("{\"a\":[1,2]}", &[("content-type", "application/json")]))]);
+    let l = qf9_run(
+        "https://page.test/",
+        &fake,
+        "function go(t, f) { var x = new XMLHttpRequest(); x.open('GET', '/j'); x.responseType = t;\
+           x.onload = function () { f(x); }; x.send(); }\
+         go('json', function (x) { console.log('json', JSON.stringify(x.response), x.responseType); });\
+         go('arraybuffer', function (x) { console.log('ab', x.response instanceof ArrayBuffer, x.response.byteLength); });\
+         go('blob', function (x) { console.log('blob', x.response instanceof Blob, x.response.size, x.response.type); });\
+         go('text', function (x) { console.log('text', x.response, x.responseText.length); });\
+         go('json', function (x) { try { x.responseText; } catch (e) { console.log('rt', e.name); } });",
+    );
+    assert!(l.contains(&"log:json {\"a\":[1,2]} json".to_string()), "{l:?}");
+    assert!(l.contains(&"log:ab true 11".to_string()), "{l:?}");
+    assert!(l.contains(&"log:blob true 11 application/json".to_string()), "{l:?}");
+    assert!(l.contains(&"log:text {\"a\":[1,2]} 11".to_string()), "{l:?}");
+    assert!(l.contains(&"log:rt InvalidStateError".to_string()), "{l:?}");
+}
+
+#[test]
+fn qf9_get_all_response_headers_format() {
+    let fake = QfFake::new(vec![(
+        "/h",
+        qf7_ok("", &[("X-B", "2"), ("Content-Type", "text/plain"), ("Set-Cookie", "s=1"), ("x-a", "1"), ("X-B", "3")]),
+    )]);
+    let l = qf9_run(
+        "https://page.test/",
+        &fake,
+        "var x = new XMLHttpRequest(); console.log(JSON.stringify(x.getAllResponseHeaders()), x.getResponseHeader('x-a'));\
+         x.open('GET', '/h'); x.onload = function () { console.log(JSON.stringify(x.getAllResponseHeaders()), x.getResponseHeader('X-B'), x.getResponseHeader('set-cookie'), x.getResponseHeader('nope')); }; x.send();",
+    );
+    assert_eq!(l[0], "log:\"\" null");
+    assert_eq!(l[1], "log:\"content-type: text/plain\\r\\nx-a: 1\\r\\nx-b: 2, 3\\r\\n\" 2, 3 null null", "{l:?}");
+}
+
+#[test]
+fn qf9_abort_fires_abort_and_loadend_then_unsent() {
+    let fake = QfFake::new(vec![("/a", qf7_ok("late", &[]))]);
+    let l = qf9_run(
+        "https://page.test/",
+        &fake,
+        "var x = new XMLHttpRequest(); track(x); x.open('GET', '/a'); x.send(); x.abort(); console.log('after', x.readyState, x.status);\
+         var y = new XMLHttpRequest(); y.abort(); console.log('idle', y.readyState);",
+    );
+    let want = ["log:rs1", "log:loadstart 0 0 false", "log:rs4", "log:abort 0 0 false", "log:loadend 0 0 false", "log:after 0 0", "log:idle 0"];
+    assert_eq!(l, want, "{l:?}");
+}
+
+#[test]
+fn qf9_timeout_fires_on_the_manual_clock() {
+    let fake = QfFake::new(vec![]);
+    set_page_url(Some(&Url::parse("https://page.test/").unwrap()));
+    crate::js_net::set_net_executor(fake.clone());
+    let out = Rc::new(RefCell::new(Vec::new()));
+    let o = out.clone();
+    let clock = Rc::new(std::cell::Cell::new(0.0));
+    let engine = crate::js::start_scripts_clocked(
+        &parse_html(""),
+        &[src(&format!(
+            "{QF9_TRACK}var x = new XMLHttpRequest(); x.open('GET', '/slow'); x.timeout = 250; track(x); x.send();\
+             console.log('t', x.timeout);"
+        ))],
+        Rc::new(move |l, t| o.borrow_mut().push(format!("{l}:{t}"))),
+        Some(clock.clone()),
+    )
+    .unwrap();
+    // The request is queued but never delivered: only the timer can end it.
+    let due = engine.next_due_ms().expect("a timeout timer");
+    assert!((249.0..=251.0).contains(&due), "{due}");
+    clock.set(due);
+    engine.run_due();
+    let l = out.borrow().clone();
+    assert_eq!(l, ["log:loadstart 0 0 false", "log:t 250", "log:rs4", "log:timeout 0 0 false", "log:loadend 0 0 false"], "{l:?}");
+}
+
+#[test]
+fn qf9_cors_failure_is_an_error_event_with_status_0() {
+    let fake = QfFake::new(vec![("/closed", qf7_ok("secret", &[]))]);
+    let (engine, log) = qf7_engine("https://page.test/", &fake);
+    engine.eval(
+        "t",
+        &format!(
+            "{QF9_TRACK}var x = new XMLHttpRequest(); x.open('GET', 'https://other.test/closed'); track(x); x.send();\
+             x.addEventListener('loadend', function () {{ console.log('end', x.status, JSON.stringify(x.responseText)); }});\
+             var p = new XMLHttpRequest(); p.open('PUT', 'https://other.test/pf'); p.onerror = function () {{ console.log('pf error'); }}; p.send('x');"
+        ),
+    );
+    qf7_drive(&engine, &fake);
+    let l = log.borrow().clone();
+    assert!(l.contains(&"log:error 0 0 false".to_string()), "{l:?}");
+    assert!(l.contains(&"log:end 0 \"\"".to_string()), "{l:?}");
+    assert!(l.contains(&"log:pf error".to_string()), "{l:?}");
+    assert!(l.iter().any(|x| x.contains("GET https://other.test/closed: CORS: no Access-Control-Allow-Origin")), "{l:?}");
+    assert!(l.iter().any(|x| x.contains("QF13 preflight")), "{l:?}");
+}
+
+#[test]
+fn qf9_404_still_fires_load() {
+    let fake = QfFake::new(vec![(
+        "/nf",
+        Ok(WireResponse { status: 404, status_text: "Not Found".into(), headers: vec![], body: b"nope".to_vec(), error: None, final_url: None }),
+    )]);
+    let l = qf9_run(
+        "https://page.test/",
+        &fake,
+        "var x = new XMLHttpRequest(); x.open('GET', '/nf'); x.onload = function () { console.log('load', x.status, x.statusText, x.responseText); };\
+         x.onerror = function () { console.log('error'); }; x.send();",
+    );
+    assert_eq!(l, ["log:load 404 Not Found nope"], "{l:?}");
+}
+
+#[test]
+fn qf9_sync_returns_synchronously_and_logs() {
+    let fake = QfFake::new(vec![("/s", qf7_ok("sync-body", &[("content-type", "text/plain")]))]);
+    let (engine, log) = qf7_engine("https://page.test/", &fake);
+    engine.eval(
+        "t",
+        &format!(
+            "{QF9_TRACK}var x = new XMLHttpRequest(); x.open('GET', '/s', false); track(x); x.send(); console.log('after-send', x.readyState, x.status, x.responseText);\
+             var r = new XMLHttpRequest(); r.open('GET', '/s', false);\
+             try {{ r.responseType = 'json'; }} catch (e) {{ console.log('rt', e.name); }}\
+             try {{ r.timeout = 5; }} catch (e) {{ console.log('to', e.name); }}\
+             var q = new XMLHttpRequest(); q.responseType = 'blob';\
+             try {{ q.open('GET', '/s', false); }} catch (e) {{ console.log('open', e.name); }}"
+        ),
+    );
+    let l = log.borrow().clone();
+    assert!(l.contains(&"log:after-send 4 200 sync-body".to_string()), "{l:?}");
+    let pos = |s: &str| l.iter().position(|x| x == s).unwrap_or_else(|| panic!("{s} in {l:?}"));
+    assert!(pos("log:rs4") < pos("log:load 9 9 true") && pos("log:load 9 9 true") < pos("log:after-send 4 200 sync-body"), "{l:?}");
+    assert!(l.iter().any(|x| x.contains("sync GET https://page.test/s: blocking the page")), "{l:?}");
+    assert!(l.contains(&"log:rt InvalidAccessError".to_string()) && l.contains(&"log:to InvalidAccessError".to_string()), "{l:?}");
+    assert!(l.contains(&"log:open InvalidAccessError".to_string()), "{l:?}");
+    assert_eq!(fake.urls().len(), 1);
+}
+
+#[test]
+fn qf9_sync_failure_throws_network_error() {
+    let fake = QfFake::new(vec![]);
+    let l = qf9_run(
+        "https://page.test/",
+        &fake,
+        "var x = new XMLHttpRequest(); x.open('GET', '/nothing', false);\
+         try { x.send(); console.log('no throw'); } catch (e) { console.log('thrown', e.name, e instanceof DOMException, x.readyState, x.status); }",
+    );
+    assert!(l.contains(&"log:thrown NetworkError true 4 0".to_string()), "{l:?}");
+    assert!(l.iter().any(|x| x.contains("sync GET https://page.test/nothing")), "{l:?}");
+}
+
+#[test]
+fn qf9_form_data_urlsearchparams_and_arraybuffer_bodies() {
+    let fake = QfFake::new(vec![("/b", qf7_ok("", &[]))]);
+    qf9_run(
+        "https://page.test/",
+        &fake,
+        "var fd = new FormData(); fd.append('k', 'v');\
+         [fd, new URLSearchParams('a=1'), new Uint8Array([65, 66]).buffer].forEach(function (b) { var x = new XMLHttpRequest(); x.open('POST', '/b'); x.send(b); });",
+    );
+    let raws: Vec<String> = fake.raw.lock().unwrap().iter().map(|r| String::from_utf8_lossy(r).to_lowercase()).collect();
+    assert!(raws[0].contains("content-type: multipart/form-data; boundary=") && raws[0].contains("name=\"k\""), "{}", raws[0]);
+    assert!(raws[1].contains("application/x-www-form-urlencoded") && raws[1].ends_with("a=1"), "{}", raws[1]);
+    assert!(raws[2].ends_with("ab") && !raws[2].contains("content-type"), "{}", raws[2]);
+}
+
+// ---- QY6a: MutationObserver ----
+
+/// Shared JS helpers: `d(record)` summarises a record as
+/// `type|target|added|removed|prev|next|attr|old`; `watch(node, opts)` returns
+/// the observer and pushes one string per delivered callback (records joined
+/// by ` ; `) onto `out`; `step(f, g, ...)` runs each function in its own
+/// microtask turn, after the previous delivery.
+const QY6A_JS: &str = r#"
+const n = x => x ? (x.id || x.nodeName.toLowerCase()) : '-';
+const ns = l => Array.from(l).map(n).join(',') || '-';
+const d = r => [r.type, n(r.target), ns(r.addedNodes), ns(r.removedNodes), n(r.previousSibling), n(r.nextSibling), r.attributeName, r.oldValue].map(String).join('|');
+const out = [];
+function watch(t, o) { const mo = new MutationObserver(l => out.push(l.map(d).join(' ; '))); mo.observe(t, o); return mo; }
+function step() { const fs = Array.from(arguments); const run = () => { const f = fs.shift(); if (f) { f(); Promise.resolve().then(run); } else Promise.resolve().then(() => globalThis.__fin && __fin()); }; Promise.resolve().then(run); }
+const mk = (t, id) => { const e = document.createElement(t); if (id) e.id = id; return e; };
+const $ = id => document.getElementById(id);
+"#;
+
+fn qy6a_run(body: &str) -> Vec<String> {
+    run_in_html(
+        "<html><body><div id=h><i id=a></i><b id=b></b></div><span id=s>text</span><!--c--></body></html>",
+        &format!("{QY6A_JS}\n{body}"),
+    )
+}
+
+/// Runs `body` and returns the delivered callbacks (one entry each).
+fn qy6a_out(body: &str) -> Vec<String> {
+    let mut log = qy6a_run(&format!("globalThis.__fin = () => console.log(out.join('\\n'));\n{body}"));
+    assert_eq!(log.len(), 1, "{log:?}");
+    let l = log.remove(0);
+    let l = l.strip_prefix("log:").unwrap_or(&l).to_string();
+    if l.is_empty() {
+        Vec::new()
+    } else {
+        l.split('\n').map(String::from).collect()
+    }
+}
+
+#[test]
+fn qy6a_zero_cost_before_observe() {
+    let log = qy6a_run(
+        r#"const h = $('h');
+         for (let i = 0; i < 20; i++) { const e = mk('p'); e.setAttribute('a', i); h.appendChild(e); }
+         h.innerHTML = '<p></p>'; h.textContent = 'x'; h.removeChild(h.firstChild);
+         console.log(__ce_stats.hooks);
+         const mo = new MutationObserver(() => {});
+         console.log(__ce_stats.hooks);
+         mo.observe(h, { childList: true });
+         h.appendChild(mk('u'));
+         console.log(__ce_stats.hooks > 0);"#,
+    );
+    assert_eq!(log, ["log:0", "log:0", "log:true"], "{log:?}");
+}
+
+#[test]
+fn qy6a_child_list_write_paths() {
+    let o = qy6a_out(
+        r#"watch($('h'), { childList: true });
+         step(() => $('h').appendChild(mk('p', 'p1')),
+              () => $('h').insertBefore(mk('p', 'p2'), $('a')),
+              () => $('h').removeChild($('b')),
+              () => $('h').replaceChild(mk('p', 'p3'), $('a')),
+              () => $('p1').remove());"#,
+    );
+    assert_eq!(
+        o,
+        [
+            "childList|h|p1|-|b|-|null|null",
+            "childList|h|p2|-|-|a|null|null",
+            "childList|h|-|b|a|p1|null|null",
+            "childList|h|p3|a|p2|p1|null|null",
+            "childList|h|-|p1|p3|-|null|null",
+        ]
+    );
+}
+
+#[test]
+fn qy6a_multi_node_apis_make_one_record() {
+    let o = qy6a_out(
+        r#"watch($('h'), { childList: true });
+         step(() => $('h').append(mk('p', 'p1'), 'txt', mk('p', 'p2')),
+              () => $('h').prepend(mk('q', 'q1'), mk('q', 'q2')),
+              () => $('a').before(mk('r', 'r1'), mk('r', 'r2')),
+              () => $('b').after(mk('t', 't1'), mk('t', 't2')),
+              () => $('a').replaceWith(mk('u', 'u1'), mk('u', 'u2')),
+              () => $('h').replaceChildren(mk('v', 'v1')),
+              () => { const f = document.createDocumentFragment(); f.appendChild(mk('w', 'w1')); f.appendChild(mk('w', 'w2')); $('h').appendChild(f); });"#,
+    );
+    assert_eq!(
+        o,
+        [
+            "childList|h|p1,#text,p2|-|b|-|null|null",
+            "childList|h|q1,q2|-|-|a|null|null",
+            "childList|h|r1,r2|-|q2|a|null|null",
+            "childList|h|t1,t2|-|b|p1|null|null",
+            "childList|h|u1,u2|a|r2|b|null|null",
+            "childList|h|v1|q1,q2,r1,r2,u1,u2,b,t1,t2,p1,#text,p2|-|-|null|null",
+            "childList|h|w1,w2|-|v1|-|null|null",
+        ]
+    );
+}
+
+#[test]
+fn qy6a_inner_html_and_text_content_one_record() {
+    let o = qy6a_out(
+        r#"watch($('h'), { childList: true });
+         step(() => { $('h').innerHTML = '<p id=p1></p><p id=p2></p>'; },
+              () => { $('h').textContent = 'plain'; },
+              () => { $('h').textContent = ''; },
+              () => { $('h').innerHTML = ''; });"#,
+    );
+    // `#text` is the one text node textContent created; an empty -> empty write queues nothing.
+    assert_eq!(
+        o,
+        [
+            "childList|h|p1,p2|a,b|-|-|null|null",
+            "childList|h|#text|p1,p2|-|-|null|null",
+            "childList|h|-|#text|-|-|null|null",
+        ]
+    );
+}
+
+#[test]
+fn qy6a_outer_html_replaces_with_one_record() {
+    let o = qy6a_out(
+        r#"watch($('h'), { childList: true });
+         step(() => { $('a').outerHTML = '<p id=x1></p><p id=x2></p>'; });"#,
+    );
+    assert_eq!(o, ["childList|h|x1,x2|a|-|b|null|null"]);
+}
+
+#[test]
+fn qy6a_move_records_removal_and_insertion() {
+    let o = qy6a_out(
+        r#"const s = $('s'); watch($('h'), { childList: true }); watch(s, { childList: true });
+         step(() => s.appendChild($('a')));"#,
+    );
+    assert_eq!(o, ["childList|h|-|a|-|b|null|null", "childList|s|a|-|#text|-|null|null"]);
+}
+
+#[test]
+fn qy6a_attribute_records_and_old_value() {
+    let o = qy6a_out(
+        r#"const a = $('a'); watch(a, { attributes: true, attributeOldValue: true });
+         step(() => a.setAttribute('x', '1'),
+              () => a.setAttribute('x', '2'),
+              () => a.removeAttribute('x'),
+              () => a.removeAttribute('nope'),
+              () => a.toggleAttribute('hidden'),
+              () => { a.className = 'k'; },
+              () => { a.classList.add('m'); },
+              () => { a.id = 'a2'; },
+              () => { a.dataset.foo = 'bar'; },
+              () => { a.style.color = 'red'; });"#,
+    );
+    assert_eq!(
+        o,
+        [
+            "attributes|a|-|-|-|-|x|null",
+            "attributes|a|-|-|-|-|x|1",
+            "attributes|a|-|-|-|-|x|2",
+            "attributes|a|-|-|-|-|hidden|null",
+            "attributes|a|-|-|-|-|class|null",
+            "attributes|a|-|-|-|-|class|k",
+            "attributes|a2|-|-|-|-|id|a",
+            "attributes|a2|-|-|-|-|data-foo|null",
+            "attributes|a2|-|-|-|-|style|null",
+        ]
+    );
+}
+
+#[test]
+fn qy6a_old_value_only_when_requested() {
+    let o = qy6a_out(
+        r#"const a = $('a'); a.setAttribute('x', '1'); watch(a, { attributes: true });
+         step(() => a.setAttribute('x', '2'));"#,
+    );
+    assert_eq!(o, ["attributes|a|-|-|-|-|x|null"]);
+}
+
+#[test]
+fn qy6a_attribute_filter() {
+    let o = qy6a_out(
+        r#"const a = $('a'); watch(a, { attributeFilter: ['x', 'y'], attributeOldValue: true });
+         step(() => { a.setAttribute('z', '1'); a.setAttribute('x', '1'); a.setAttribute('w', '1'); a.setAttribute('y', '1'); });"#,
+    );
+    assert_eq!(o, ["attributes|a|-|-|-|-|x|null ; attributes|a|-|-|-|-|y|null"]);
+}
+
+#[test]
+fn qy6a_character_data_records() {
+    let o = qy6a_out(
+        r#"const t = $('s').firstChild; watch(t, { characterData: true, characterDataOldValue: true });
+         step(() => { t.data = 'one'; },
+              () => { t.nodeValue = 'two'; },
+              () => { t.textContent = 'three'; },
+              () => t.appendData('+'),
+              () => t.insertData(0, '>'),
+              () => t.deleteData(0, 1),
+              () => t.replaceData(0, 2, 'ZZ'));"#,
+    );
+    assert_eq!(
+        o,
+        [
+            "characterData|#text|-|-|-|-|null|text",
+            "characterData|#text|-|-|-|-|null|one",
+            "characterData|#text|-|-|-|-|null|two",
+            "characterData|#text|-|-|-|-|null|three",
+            "characterData|#text|-|-|-|-|null|three+",
+            "characterData|#text|-|-|-|-|null|>three+",
+            "characterData|#text|-|-|-|-|null|three+",
+        ]
+    );
+}
+
+#[test]
+fn qy6a_character_data_methods_edit_the_text() {
+    let log = qy6a_run(
+        r#"const t = document.createTextNode('hello');
+         t.appendData(' world'); t.insertData(0, '>'); t.deleteData(1, 2); t.replaceData(0, 1, '<<');
+         console.log(t.data, t.substringData(2, 3));
+         try { t.insertData(99, 'x'); } catch (e) { console.log(e.name); }"#,
+    );
+    assert_eq!(log, ["log:<<llo world llo", "log:IndexSizeError"], "{log:?}");
+}
+
+#[test]
+fn qy6a_document_write_records_insertions() {
+    let out = qa13_run(
+        "<html><body><p id=a>x<script id=sc>\
+         var mo = new MutationObserver(function (l) { l.forEach(function (r) { console.log(r.type, r.target.id, r.addedNodes[0].id, r.addedNodes.length, r.previousSibling.id, r.nextSibling && r.nextSibling.id); }); });\
+         mo.observe(document.getElementById('a'), { childList: true });\
+         document.write('<b id=w>hi</b><u id=v></u>');</script><i id=z></i></p></body></html>",
+    );
+    assert_eq!(out, ["log:childList a w 2 sc z"], "{out:?}");
+}
+
+#[test]
+fn qy6a_subtree_observation() {
+    let o = qy6a_out(
+        r#"const h = $('h'); const mo = watch(h, { subtree: true, childList: true, attributes: true });
+         step(() => $('a').appendChild(mk('p', 'p1')),
+              () => $('p1').setAttribute('q', '1'),
+              () => { $('s').appendChild(mk('z', 'z1')); });"#,
+    );
+    assert_eq!(o, ["childList|a|p1|-|-|-|null|null", "attributes|p1|-|-|-|-|q|null"]);
+}
+
+#[test]
+fn qy6a_without_subtree_only_direct_children() {
+    let o = qy6a_out(
+        r#"const h = $('h'); watch(h, { childList: true, attributes: true });
+         step(() => $('a').appendChild(mk('p', 'p1')), () => $('a').setAttribute('q', '1'), () => h.setAttribute('q', '1'));"#,
+    );
+    assert_eq!(o, ["attributes|h|-|-|-|-|q|null"]);
+}
+
+#[test]
+fn qy6a_transient_observers_for_removed_subtree() {
+    let o = qy6a_out(
+        r#"const h = $('h'), a = $('a'); watch(h, { subtree: true, attributes: true });
+         const kid = mk('p', 'p1'); a.appendChild(kid);
+         step(() => { h.removeChild(a); a.setAttribute('x', '1'); kid.setAttribute('y', '1'); },
+              () => { a.setAttribute('after', '1'); });"#,
+    );
+    // The removal inside the delivery turn: both writes still reach the observer
+    // (transient registrations); once delivered they are dropped.
+    assert_eq!(o, ["attributes|a|-|-|-|-|x|null ; attributes|p1|-|-|-|-|y|null"]);
+}
+
+#[test]
+fn qy6a_batching_microtask_order_and_this() {
+    let log = qy6a_run(
+        r#"const h = $('h');
+         const mo = new MutationObserver(function (recs, obs) { console.log('cb', recs.length, this === mo, obs === mo); });
+         mo.observe(h, { childList: true, attributes: true });
+         queueMicrotask(() => console.log('micro before'));
+         h.appendChild(mk('p')); h.setAttribute('x', '1'); h.appendChild(mk('p'));
+         console.log('sync done');
+         Promise.resolve().then(() => console.log('micro after'));"#,
+    );
+    assert_eq!(log, ["log:sync done", "log:micro before", "log:cb 3 true true", "log:micro after"], "{log:?}");
+}
+
+#[test]
+fn qy6a_observers_notified_in_creation_order() {
+    let log = qy6a_run(
+        r#"const h = $('h');
+         const m1 = new MutationObserver(() => console.log('first')), m2 = new MutationObserver(() => console.log('second'));
+         m2.observe(h, { childList: true }); m1.observe(h, { childList: true });
+         h.appendChild(mk('p'));"#,
+    );
+    assert_eq!(log, ["log:first", "log:second"], "{log:?}");
+}
+
+#[test]
+fn qy6a_records_made_in_a_callback_deliver_in_the_next_batch() {
+    let log = qy6a_run(
+        r#"const h = $('h'); let k = 0;
+         const mo = new MutationObserver(recs => { console.log('cb', recs.length); if (k++ === 0) h.appendChild(mk('q')); });
+         mo.observe(h, { childList: true });
+         h.appendChild(mk('p'));"#,
+    );
+    assert_eq!(log, ["log:cb 1", "log:cb 1"], "{log:?}");
+}
+
+#[test]
+fn qy6a_disconnect_and_take_records() {
+    let log = qy6a_run(
+        r#"const h = $('h');
+         const mo = new MutationObserver(recs => console.log('delivered', recs.length));
+         mo.observe(h, { childList: true });
+         h.appendChild(mk('p'));
+         const t = mo.takeRecords();
+         console.log('taken', t.length, t[0].type, mo.takeRecords().length);
+         h.appendChild(mk('p'));
+         mo.disconnect();
+         h.appendChild(mk('p'));
+         const m2 = new MutationObserver(recs => console.log('m2', recs.length));
+         m2.observe(h, { childList: true });
+         h.appendChild(mk('p'));
+         m2.disconnect();
+         Promise.resolve().then(() => console.log('end'));"#,
+    );
+    assert_eq!(log, ["log:taken 1 childList 0", "log:end"], "{log:?}");
+}
+
+#[test]
+fn qy6a_reobserve_replaces_options_and_other_targets_keep_theirs() {
+    let o = qy6a_out(
+        r#"const h = $('h'), a = $('a');
+         const mo = new MutationObserver(l => out.push(l.map(d).join(' ; ')));
+         mo.observe(h, { childList: true }); mo.observe(a, { attributes: true });
+         mo.observe(h, { attributes: true });
+         step(() => { h.appendChild(mk('p')); h.setAttribute('x', '1'); a.setAttribute('y', '1'); });"#,
+    );
+    assert_eq!(o, ["attributes|h|-|-|-|-|x|null ; attributes|a|-|-|-|-|y|null"]);
+}
+
+#[test]
+fn qy6a_observe_validates_options() {
+    let log = qy6a_run(
+        r#"const mo = new MutationObserver(() => {}), h = $('h');
+         const t = o => { try { mo.observe(h, o); console.log('ok'); } catch (e) { console.log(e.name); } };
+         t({}); t({ subtree: true }); t({ attributes: false });
+         t({ attributeOldValue: true }); t({ attributeFilter: ['a'] }); t({ characterDataOldValue: true });
+         t({ attributes: false, attributeOldValue: true }); t({ childList: true, attributeFilter: ['a'], attributes: false });
+         t({ characterData: false, characterDataOldValue: true, childList: true });
+         try { mo.observe(); } catch (e) { console.log(e.name); }
+         try { mo.observe({}, { childList: true }); } catch (e) { console.log(e.name); }
+         try { new MutationObserver(); } catch (e) { console.log(e.name); }
+         try { new MutationObserver(1); } catch (e) { console.log(e.name); }
+         try { MutationObserver(() => {}); } catch (e) { console.log(e.name); }"#,
+    );
+    assert_eq!(
+        log,
+        [
+            "log:TypeError", "log:TypeError", "log:TypeError", "log:ok", "log:ok", "log:ok", "log:TypeError", "log:TypeError",
+            "log:TypeError", "log:TypeError", "log:TypeError", "log:TypeError", "log:TypeError", "log:TypeError",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy6a_globals_and_record_shape() {
+    let log = qy6a_run(
+        r#"console.log(window.MutationObserver === MutationObserver, WebKitMutationObserver === MutationObserver, typeof MutationRecord);
+         console.log(Object.prototype.toString.call(new MutationObserver(() => {})), String(MutationRecord.prototype[Symbol.toStringTag]));
+         const mo = new MutationObserver(recs => {
+           const r = recs[0];
+           console.log(r instanceof MutationRecord, Object.prototype.toString.call(r), r.type, r.attributeNamespace, Array.isArray(r.addedNodes), r.removedNodes.length, r.target === $('a'));
+         });
+         mo.observe($('a'), { attributes: true }); $('a').setAttribute('k', 'v');"#,
+    );
+    assert_eq!(
+        log,
+        [
+            "log:true true function",
+            "log:[object MutationObserver] MutationRecord",
+            "log:true [object MutationRecord] attributes null true 0 true",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy6a_callback_error_does_not_stop_other_observers() {
+    let log = qy6a_run(
+        r#"const h = $('h');
+         const m1 = new MutationObserver(() => { throw new Error('boom'); }), m2 = new MutationObserver(() => console.log('second ran'));
+         m1.observe(h, { childList: true }); m2.observe(h, { childList: true });
+         h.appendChild(mk('p'));"#,
+    );
+    assert!(log.iter().any(|l| l == "log:second ran"), "{log:?}");
+    assert!(log.iter().any(|l| l.starts_with("error:") && l.contains("MutationObserver callback") && l.contains("boom")), "{log:?}");
+}
+
+#[test]
+fn qy6a_custom_elements_and_observers_share_the_hooks() {
+    let log = qy6a_run(
+        r#"class XQ extends HTMLElement { connectedCallback() { console.log('conn'); } }
+         customElements.define('x-q', XQ);
+         const mo = new MutationObserver(l => console.log('records', l.length));
+         mo.observe($('h'), { childList: true });
+         $('h').appendChild(mk('x-q'));"#,
+    );
+    assert_eq!(log, ["log:conn", "log:records 1"], "{log:?}");
 }
