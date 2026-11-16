@@ -15048,3 +15048,45 @@ fn qsd1_document_domain_and_parent_node() {
         "{log:?}"
     );
 }
+
+// ---- QSD1b: crypto.getRandomValues / randomUUID / subtle placeholder / isSecureContext.
+
+#[test]
+fn qsd1b_crypto_random_values_uuid_and_subtle_placeholder() {
+    set_page_url(Url::parse("https://github.com/").ok().as_ref());
+    let log = run_in_html(
+        "<html><body></body></html>",
+        r#"const r = [];
+         r.push(window.crypto === globalThis.crypto, crypto instanceof Crypto, crypto.subtle instanceof SubtleCrypto, isSecureContext);
+         const a = new Uint8Array(64); const b = crypto.getRandomValues(a);
+         r.push(a === b, a.some(function (x) { return x !== 0; }));
+         const u = new Uint32Array(4); crypto.getRandomValues(u); r.push(u.some(function (x) { return x !== 0; }));
+         const id1 = crypto.randomUUID(), id2 = crypto.randomUUID();
+         r.push(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(id1), id1 !== id2);
+         try { crypto.getRandomValues(new Float32Array(2)); r.push('no'); } catch (e) { r.push(e.name + ':' + (e instanceof DOMException)); }
+         try { crypto.getRandomValues(new Uint8Array(65537)); r.push('no'); } catch (e) { r.push(e.name); }
+         try { crypto.getRandomValues(new Uint8Array(65536)); r.push('ok'); } catch (e) { r.push(e.name); }
+         try { crypto.getRandomValues([1, 2]); r.push('no'); } catch (e) { r.push(e.name); }
+         console.log(r.join('|'));
+         crypto.subtle.digest('SHA-256', new Uint8Array(1)).then(function () { console.log('resolved'); }, function (e) { console.log('rejected:' + e.name); });"#,
+    );
+    set_page_url(None);
+    assert_eq!(log.len(), 3, "{log:?}");
+    assert_eq!(
+        log[0],
+        "log:true|true|true|true|true|true|true|true|true|TypeMismatchError:true|QuotaExceededError|ok|TypeMismatchError"
+    );
+    assert!(log[1].starts_with("error:") && log[1].contains("not implemented: SubtleCrypto.digest"), "{log:?}");
+    assert_eq!(log[2], "log:rejected:NotSupportedError");
+}
+
+#[test]
+fn qsd1b_is_secure_context_follows_scheme_and_loopback() {
+    let mut got = Vec::new();
+    for u in ["https://example.org/", "http://example.org/", "http://localhost:8080/", "http://127.0.0.1/", "http://[::1]/"] {
+        set_page_url(Url::parse(u).ok().as_ref());
+        got.push(run_in_html("<html><body></body></html>", "console.log(String(isSecureContext))").remove(0));
+    }
+    set_page_url(None);
+    assert_eq!(got, ["log:true", "log:false", "log:true", "log:true", "log:true"]);
+}
