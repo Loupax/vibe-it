@@ -287,6 +287,8 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     let table = Rc::new(RefCell::new(DomTable::default()));
     table.borrow_mut().intern(document);
     let globals = ctx.globals();
+    // QA16: DOM write generation (invalidates the getComputedStyle cache).
+    let wgen: Rc<Cell<u64>> = Rc::new(Cell::new(0));
     macro_rules! native {
         ($name:expr, $f:expr) => {
             if let Ok(f) = Function::new(ctx.clone(), $f) {
@@ -394,23 +396,46 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             None => -1,
         }
     });
+    // QA16: serialised computed value of `prop` (dashed) for element `id`.
+    let (t, gn) = (table.clone(), wgen.clone());
+    let cache = Rc::new(RefCell::new(js_style::StyleCache::default()));
+    native!("__d_cs", move |id: i32, pseudo: String, prop: String| -> String {
+        let (root, h) = {
+            let t = t.borrow();
+            (t.get(0).unwrap(), t.get(id))
+        };
+        let Some(h) = h else { return String::new() };
+        let p = pseudo.trim_start_matches(':').to_ascii_lowercase();
+        let p = match p.as_str() {
+            "before" => Some("before"),
+            "after" => Some("after"),
+            _ => None,
+        };
+        match cache.borrow_mut().style_of(&root, gn.get(), &h, p) {
+            Some(s) => js_style::serialize(&s, &prop),
+            None => String::new(),
+        }
+    });
+    native!("__d_csprops", move || -> Vec<String> { js_style::PROPS.iter().map(|s| s.to_string()).collect() });
     // ---- Q33c mutation. Every write marks the page dirty; the event
     // loop rebuilds layout once per turn, not once per call.
-    let (t, d) = (table.clone(), dirty.clone());
+    let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
     native!("__d_setattr", move |id: i32, name: String, val: String| {
         if let Some(h) = t.borrow().get(id) {
             set_attr(&h, &name.to_ascii_lowercase(), &val);
             d.set(true);
+            gn.set(gn.get() + 1);
         }
     });
-    let (t, d) = (table.clone(), dirty.clone());
+    let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
     native!("__d_rmattr", move |id: i32, name: String| {
         if let Some(h) = t.borrow().get(id) {
             remove_attr(&h, &name.to_ascii_lowercase());
             d.set(true);
+            gn.set(gn.get() + 1);
         }
     });
-    let (t, d) = (table.clone(), dirty.clone());
+    let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
     native!("__d_settext", move |id: i32, text: String| {
         if let Some(h) = t.borrow().get(id) {
             match &h.data {
@@ -419,22 +444,25 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
                 _ => set_children_text(&h, &text),
             }
             d.set(true);
+            gn.set(gn.get() + 1);
         }
     });
-    let (t, d) = (table.clone(), dirty.clone());
+    let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
     native!("__d_sethtml", move |id: i32, html: String| {
         if let Some(h) = t.borrow().get(id) {
             set_inner_html(&h, &html);
             d.set(true);
+            gn.set(gn.get() + 1);
         }
     });
     // QA13: returns the id of the last inserted node, or -1.
-    let (t, d) = (table.clone(), dirty.clone());
+    let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
     native!("__d_write", move |after: i32, html: String| -> i32 {
         let mut t = t.borrow_mut();
         let Some(a) = t.get(after) else { return -1 };
         let last = write_after(&a, &html);
         d.set(true);
+        gn.set(gn.get() + 1);
         t.intern(&last)
     });
     let t = table.clone();
@@ -479,7 +507,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         }
     });
     // `before` < 0 appends. `false` = HierarchyRequestError.
-    let (t, d) = (table.clone(), dirty.clone());
+    let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
     native!("__d_insert", move |parent: i32, child: i32, before: i32| -> bool {
         let t = t.borrow();
         let (Some(p), Some(c)) = (t.get(parent), t.get(child)) else { return false };
@@ -488,13 +516,15 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         }
         let ok = insert_child(&p, &c, t.get(before).as_ref(), is_fragment(child, &c));
         d.set(true);
+        gn.set(gn.get() + 1);
         ok
     });
-    let (t, d) = (table.clone(), dirty.clone());
+    let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
     native!("__d_remove", move |id: i32| {
         if let Some(h) = t.borrow().get(id) {
             detach(&h);
             d.set(true);
+            gn.set(gn.get() + 1);
         }
     });
     // QB5: focus()/blur() only record a request; the App applies it.
@@ -812,6 +842,35 @@ const DOM_PRELUDE: &str = r#"
     });
     return (styles[el.__id] = proxy);
   });
+  // QA16: getComputedStyle (cascade only, no layout; see js_style.rs).
+  var csProps = __d_csprops();
+  var camel = function (p) { return p.replace(/-([a-z])/g, function (m, c) { return c.toUpperCase(); }); };
+  g.getComputedStyle = function (el, pseudo) {
+    if (!el || el.__id === undefined || el.nodeType !== 1) throw new TypeError("Failed to execute 'getComputedStyle' on 'Window': parameter 1 is not of type 'Element'.");
+    var ps = pseudo == null ? '' : String(pseudo);
+    var get = function (p) { return __d_cs(el.__id, ps, p); };
+    var api = {
+      getPropertyValue: function (p) { return get(kebab(String(p)).toLowerCase()); },
+      getPropertyPriority: function () { return ''; },
+      item: function (i) { return csProps[i] === undefined ? '' : csProps[i]; },
+      setProperty: function () { throw domErr('NoModificationAllowedError', 'These styles are computed, and therefore read-only.'); },
+      removeProperty: function () { throw domErr('NoModificationAllowedError', 'These styles are computed, and therefore read-only.'); },
+      toString: function () { return '[object CSSStyleDeclaration]'; }
+    };
+    return new Proxy(api, {
+      get: function (t, p) {
+        if (p in t) return t[p];
+        if (p === 'length') return csProps.length;
+        if (p === 'cssText') return '';
+        if (p === 'parentRule') return null;
+        if (typeof p !== 'string') return undefined;
+        if (/^\d+$/.test(p)) return csProps[+p];
+        return get(p === 'cssFloat' ? 'float' : kebab(p));
+      },
+      has: function (t, p) { return p in t || (typeof p === 'string' && csProps.indexOf(kebab(p)) >= 0); },
+      set: function () { return true; }
+    });
+  };
   NodeProto.appendChild = function (c) {
     if (!c || c.__id === undefined) throw new TypeError("Failed to execute 'appendChild': parameter 1 is not of type 'Node'.");
     if (!__d_insert(this.__id, c.__id, -1)) throw herr('The new child element contains the parent.', 'HierarchyRequestError');

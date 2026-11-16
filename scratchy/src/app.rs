@@ -1,4 +1,5 @@
 use super::*;
+use crate::js_style;
 
 // ---------- windowing ----------
 
@@ -1180,6 +1181,7 @@ impl App {
         self.interaction = InteractionState::default();
         set_interaction(&self.interaction);
         self.hover_node = 0;
+        js_style::set_js_extra_css(&extra_css);
         self.extra_css = extra_css;
         self.layout_dirty = true;
         self.layout_generation += 1;
@@ -2328,6 +2330,7 @@ impl ApplicationHandler<AppEvent> for App {
                     return;
                 }
                 if !css.is_empty() {
+                    js_style::set_js_extra_css(&css);
                     self.extra_css = css;
                     self.layout_dirty = true;
                     self.layout_generation += 1;

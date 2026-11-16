@@ -71,6 +71,7 @@ mod net;
 mod app;
 mod js;
 mod js_dom;
+mod js_style;
 
 pub use dom::*;
 pub use css::*;
@@ -150,6 +151,7 @@ pub fn run() {
                     if app.base_url.is_none() {
                         app.base_url = url;
                     }
+                    js_style::set_js_extra_css(&css);
                     app.extra_css = css;
                     scripts
                 }

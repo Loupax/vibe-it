@@ -1324,7 +1324,7 @@ into the commit message of every JS item.
       Acid3 T30-T32 ("not a function"). Test: `e=document.createEvent(
       'UIEvents'); e.initUIEvent('t',true,false,null,6)` dispatched to a
       listener sees `detail===6`.
-- [ ] QA16 [M] (P3, JS) `getComputedStyle(el, pseudo)` (moved up from
+- [x] QA16 (37ca064, safe subset) [M] (P3, JS) `getComputedStyle(el, pseudo)` (moved up from
       Q33g; also listed in Q33c1): a `CSSStyleDeclaration`-like object of
       the element's computed values from the cascade (`compute_style` on
       the current DOM; camelCase and `getPropertyValue`), at least
@@ -1334,6 +1334,14 @@ into the commit message of every JS item.
       (T33-T47, which read `zIndex`) need it. Prerequisite for the
       selector bucket: QA18. Test: `<p style=white-space:pre-wrap>` reads
       `pre-wrap`; `z-index:3` reads `"3"`, unset reads `"auto"`.
+- [ ] QA16a [M] (P4, JS) getComputedStyle leftovers: used-value `width`/`height`
+      /margins (needs layout results exposed to JS, same prerequisite as
+      `getBoundingClientRect`, Q33g), `calc()` lengths (read back as `auto`
+      now), longhands scratchy computes but QA16 does not list (flex-*,
+      grid-*, text-decoration, outline, box-shadow, list-style-type needs
+      `Debug`), shorthands (`margin`, `border`, `font`), `::first-line`
+      and other pseudo-elements (only `::before`/`::after`), and
+      `float`+`display:flex` (blockified here).
 - [ ] QA17 [M] (P3, JS) DOM Traversal: `document.createNodeIterator`,
       `createTreeWalker`, `NodeFilter` constants/`FILTER_*`, live
       reference-node fixups on removal (Acid3 T1-T6; T4/T5 fail today with
@@ -2436,8 +2444,8 @@ as the JS measurement corpus (same role the four CSS pages played).
       `location.href=` / `location.assign` navigate; `history.pushState/
       replaceState` update the URL and history stack without a fetch.
       This is what most "needs JS" sites actually wait on.
-- [ ] Q33g (`getComputedStyle` moved to QA16) later, only when a corpus page needs it: `localStorage`,
-      `document.cookie`, `MutationObserver`, `getComputedStyle`,
+- [ ] Q33g (`getComputedStyle` done in QA16) later, only when a corpus page needs it: `localStorage`,
+      `document.cookie`, `MutationObserver`, (getComputedStyle: done, QA16),
       `getBoundingClientRect` (needs layout results exposed to JS),
       the JS-scriptable `bind()` from the vim-keybindings item.
 
