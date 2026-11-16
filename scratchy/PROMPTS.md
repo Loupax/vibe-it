@@ -6849,3 +6849,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Implement the wire half of QF14 (QF-D2a): an in-memory, partitioned cookie jar in wire with the `document.cookie` control channel, `--no-cookies`, `X-Wire-Cookies`, `X-Wire-Version: 3`.
 
 **What changed:** wire/src/cookies.rs (new), wire/src/main.rs, wire/NOTES.md. No scratchy code changed; the scratchy half is QF14b-scratchy in TODO.txt. The user must rebuild and restart wire (instructions in TODO.txt QF14).
+
+## QA11a part 2: border width defaults, keywords, currentColor (merge of PR #167)
+
+> Merge PR #167 (QA11a) after merging origin/main; the user decided (2026-11-16) to accept `css/css-tables/row-group-margin-border-padding.html` and `html/rendering/non-replaced-elements/tables/table-rules-rows-vertical.html` as failures (QA11a2).
+
+**What changed:** conflict only at the end of src/tests.rs (kept both sides). wpt-expected.txt: +7 PASS (border-bottom-width-029/040/051/061, border-left-width-applies-to-015, border-right-width-006, border-top-width-017), the two tables tests are `FAIL` with a QA11a2 comment. Full `cargo test` 667 passed, 5 ignored; WPT subset pass 269 fail 273.

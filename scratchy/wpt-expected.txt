@@ -30,10 +30,10 @@ PASS css/CSS2/borders/border-bottom-color-applies-to-014.xht
 PASS css/CSS2/borders/border-bottom-width-002.xht
 PASS css/CSS2/borders/border-bottom-width-012.xht
 PASS css/CSS2/borders/border-bottom-width-023.xht
-FAIL css/CSS2/borders/border-bottom-width-029.xht
-FAIL css/CSS2/borders/border-bottom-width-040.xht
-FAIL css/CSS2/borders/border-bottom-width-051.xht
-FAIL css/CSS2/borders/border-bottom-width-061.xht
+PASS css/CSS2/borders/border-bottom-width-029.xht
+PASS css/CSS2/borders/border-bottom-width-040.xht
+PASS css/CSS2/borders/border-bottom-width-051.xht
+PASS css/CSS2/borders/border-bottom-width-061.xht
 PASS css/CSS2/borders/border-bottom-width-071.xht
 PASS css/CSS2/borders/border-bottom-width-081.xht
 PASS css/CSS2/borders/border-bottom-width-091.xht
@@ -41,12 +41,12 @@ FAIL css/CSS2/borders/border-bottom-width-applies-to-005.xht
 PASS css/CSS2/borders/border-color-011.xht
 PASS css/CSS2/borders/border-left-color-175.xht
 PASS css/CSS2/borders/border-left-width-045.xht
-FAIL css/CSS2/borders/border-left-width-applies-to-015.xht
-FAIL css/CSS2/borders/border-right-width-006.xht
+PASS css/CSS2/borders/border-left-width-applies-to-015.xht
+PASS css/CSS2/borders/border-right-width-006.xht
 PASS css/CSS2/borders/border-right-width-079.xht
 PASS css/CSS2/borders/border-top-018.xht
 PASS css/CSS2/borders/border-top-width-012.xht
-FAIL css/CSS2/borders/border-top-width-017.xht
+PASS css/CSS2/borders/border-top-width-017.xht
 PASS css/CSS2/borders/border-top-width-089.xht
 PASS css/CSS2/box-display/anonymous-box-generation-001.xht
 PASS css/CSS2/box-display/anonymous-boxes-inheritance-001.xht
@@ -453,7 +453,8 @@ PASS css/css-tables/col-definite-min-size-001.html
 PASS css/css-tables/collapsed-border-vertical-lr-rtl-overflow.html
 PASS css/css-tables/height-distribution/percentage-sizing-of-table-cell-children-003.html
 FAIL css/css-tables/min-max-size-table-content-box.html
-PASS css/css-tables/row-group-margin-border-padding.html
+# QA11a2: accepted failure (user decision 2026-11-16); only passed by accident while unset border colours painted nothing. Must pass for the right reason when real border-collapse lands.
+FAIL css/css-tables/row-group-margin-border-padding.html
 PASS css/css-tables/table-as-item-cell-percentage-001.html
 FAIL css/css-tables/table-cell-tiny-width-excess-width-distribution.html
 FAIL css/css-tables/table-row-group-nested-anonymous-001.html
@@ -532,7 +533,8 @@ PASS css/selectors/selectors-4/lang-023.html
 PASS html/rendering/bindings/the-button-element/button-type-menu-historical.html
 PASS html/rendering/non-replaced-elements/lists/li-type-unsupported-upper-alpha.html
 FAIL html/rendering/non-replaced-elements/phrasing-content-0/b-strong-styles.html
-PASS html/rendering/non-replaced-elements/tables/table-rules-rows-vertical.html
+# QA11a2: accepted failure (user decision 2026-11-16); needs rules=rows + vertical writing-mode + real border-collapse.
+FAIL html/rendering/non-replaced-elements/tables/table-rules-rows-vertical.html
 PASS html/rendering/non-replaced-elements/the-fieldset-and-legend-elements/fieldset-content-box-rule-visibility-items.html
 PASS html/rendering/non-replaced-elements/the-frameset-and-frame-elements/different-writing-modes.html
 PASS html/rendering/non-replaced-elements/the-page/body-margin-2b.html

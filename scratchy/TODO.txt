@@ -3332,9 +3332,9 @@ Not vendored; pass the path to the runner.
       comment pointing here; they are the acceptance tests for this item: when
       QA11a2 lands both must pass for the right reason. Do the proper fix
       (real collapsed-border layout) as a normal queue item.
-- [ ] QA11a [M] (prerequisite of QA11/PR #162) `medium` default border width,
+- [x] QA11a [M] (prerequisite of QA11/PR #162) DONE (PR #167, user accepted the two accidental WPT passes as failures, see QA11a2): `medium` default border width,
       `thin/medium/thick` keywords, unset border colour = currentColor.
-      Patch on branch scratchy/qa11a-border-width-defaults (PR open, NOT merged):
+      Merged from scratchy/qa11a-border-width-defaults:
       WPT +9 (border-*-width-029/040/051/061, left-applies-to-015, right-006,
       top-017, border-color-011-class) but 2 pass->fail that were accidental
       passes: `table-rules-rows-vertical` (ref's td `border-left:1px solid` has
