@@ -981,7 +981,7 @@ Phase 1 (each S, independent; do in this order):
       === 'function'`, `new FocusEvent('focus') instanceof Event`,
       `frag.children.length`. Re-run YouTube `--js-report`: the
       `webcomponents-sd.js` error must now be `MutationObserver` only.
-- [x] QY13 [S] (P3; yt, ddg, bbc) HASH_QY13: done in src/globals_prelude.js
+- [x] QY13 [S] (P3; yt, ddg, bbc) 9218dc9: done in src/globals_prelude.js
       (pure JS): history (JS-side entry list, pushState/replaceState update
       location + document.URL, back/forward/go async with popstate, no App
       navigation), AbortController/Signal, MessageChannel/postMessage,
