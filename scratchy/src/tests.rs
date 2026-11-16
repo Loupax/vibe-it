@@ -15976,3 +15976,52 @@ fn qw5_js_hidden_toggle_relayouts_and_node_stays_in_dom() {
     engine.eval("t", "hide()");
     assert_eq!(qw5_doc_height(&doc), 0.0);
 }
+
+/// QW4: horizontal margin/padding on non-replaced inline elements advance
+/// the line: three adjacent links differ in x by text width + margin +
+/// padding on both sides.
+#[test]
+fn qw4_inline_margin_and_padding_advance_adjacent_links() {
+    let html = r##"<!doctype html><meta charset=utf-8><style>a{margin-right:2rem;padding:0 1rem;background:#cde}</style>
+<p><a href="#">one</a><a href="#">two</a><a href="#">three</a></p>"##;
+    let laid = measure_fixture(html, 800.0);
+    let run = find_mixed_inline(&laid).expect("mixed inline run not found");
+    let words: Vec<(f32, f32)> = mixed_items(run)
+        .iter()
+        .filter_map(|i| match i {
+            MixedPositioned::Word { x, w, .. } => Some((*x, *w)),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(words.len(), 3, "three words");
+    for pair in words.windows(2) {
+        // end padding 16 + end margin 32 + next start padding 16 = 64
+        let gap = pair[1].0 - (pair[0].0 + pair[0].1);
+        assert!((gap - 64.0).abs() < 0.5, "gap between links should be 64px, got {gap}");
+    }
+    let spacers: Vec<f32> = mixed_items(run)
+        .iter()
+        .filter_map(|i| match i {
+            MixedPositioned::Embedded(l) if l.style.background_color.is_some() => Some(l.w),
+            _ => None,
+        })
+        .collect();
+    assert!(spacers.iter().all(|w| (*w - 16.0).abs() < 0.5) && spacers.len() == 6, "padding backgrounds: {spacers:?}");
+}
+
+/// QW4: on a wrapped inline element the margin applies at the start of the
+/// first fragment and the end of the last, not at every line.
+#[test]
+fn qw4_inline_margin_wraps_only_at_outer_edges() {
+    let html = r##"<style>a{margin:0 20px}</style><div style="width:120px"><a href="#">aaaa bbbb cccc dddd</a></div>"##;
+    let laid = measure_fixture(html, 800.0);
+    let run = find_mixed_inline(&laid).expect("mixed inline run not found");
+    let words: Vec<(f32, f32)> = mixed_items(run)
+        .iter()
+        .filter_map(|i| if let MixedPositioned::Word { x, y, .. } = i { Some((*x, *y)) } else { None })
+        .collect();
+    assert!(words.len() >= 2);
+    assert!((words[0].0 - 28.0).abs() < 0.5, "first fragment starts after margin-left: {words:?}");
+    let second_line_x = words.iter().filter(|p| (p.1 - words[0].1).abs() > 1.0).map(|p| p.0).fold(f32::MAX, f32::min);
+    assert!((second_line_x - 8.0).abs() < 0.5, "wrapped line has no margin at its start: {second_line_x} {words:?}");
+}
