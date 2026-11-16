@@ -49,10 +49,31 @@ pub(crate) enum ScriptRef {
     Inline(String),
     /// The raw `src` attribute, unresolved.
     External(String),
+    /// QY15: `<script type=module>` with inline code.
+    ModuleInline(String),
+    /// QY15: `<script type=module src=...>`, `src` unresolved.
+    ModuleExternal(String),
+    /// QY15: `<script type=importmap>` JSON text.
+    ImportMap(String),
+}
+
+/// QY15: what a `ScriptSource` is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum ScriptKind {
+    #[default]
+    Classic,
+    /// An entry module script (run after the classic ones, in order).
+    Module,
+    /// A pre-fetched module that is only imported, never run by itself.
+    ModuleDep,
+    /// `code` is the import map JSON.
+    ImportMap,
+    /// A module script whose fetch failed: `code` is the message to log.
+    ModuleError,
 }
 
 /// A script ready to run: `name` is only used in error messages.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub(crate) struct ScriptSource {
     pub(crate) name: String,
     pub(crate) code: String,
@@ -60,6 +81,11 @@ pub(crate) struct ScriptSource {
     /// (the `find_external_resources` order), so `document.currentScript`
     /// can find the element. `None` = no element (tests).
     pub(crate) index: Option<usize>,
+    /// QY15: classic or one of the module kinds.
+    pub(crate) kind: ScriptKind,
+    /// QY15: the document base URL (resolves relative imports of inline
+    /// modules and dynamic `import()` from classic scripts).
+    pub(crate) base: Option<String>,
 }
 
 /// Classic script `type` values (absent/empty counts); `module`,
@@ -82,15 +108,21 @@ pub(crate) fn is_classic_script_type(ty: Option<&str>) -> bool {
         )
 }
 
-/// The `ScriptRef` for a `<script>` element, `None` if it isn't a
-/// runnable classic script. (`language=` and `nomodule` are ignored.)
+/// The `ScriptRef` for a `<script>` element, `None` if it isn't runnable
+/// (QY15: classic, module or importmap). `nomodule` classic scripts are
+/// skipped (this engine supports modules). `language=` is ignored.
 pub(crate) fn script_ref(handle: &Handle) -> Option<ScriptRef> {
-    if !is_classic_script_type(element_attr(handle, "type").as_deref()) {
+    let ty = element_attr(handle, "type");
+    let tl = ty.as_deref().map(|t| t.trim().to_ascii_lowercase());
+    let module = tl.as_deref() == Some("module");
+    let importmap = tl.as_deref() == Some("importmap");
+    if !module && !importmap && (!is_classic_script_type(ty.as_deref()) || element_attr(handle, "nomodule").is_some()) {
         return None;
     }
-    if let Some(src) = element_attr(handle, "src") {
+    let src = if importmap { None } else { element_attr(handle, "src") };
+    if let Some(src) = src {
         let src = src.trim();
-        return (!src.is_empty()).then(|| ScriptRef::External(src.to_string()));
+        return (!src.is_empty()).then(|| if module { ScriptRef::ModuleExternal(src.to_string()) } else { ScriptRef::External(src.to_string()) });
     }
     let mut code = String::new();
     for child in handle.children.borrow().iter() {
@@ -98,7 +130,16 @@ pub(crate) fn script_ref(handle: &Handle) -> Option<ScriptRef> {
             code.push_str(&contents.borrow());
         }
     }
-    (!code.trim().is_empty()).then_some(ScriptRef::Inline(code))
+    if code.trim().is_empty() {
+        return None;
+    }
+    Some(if importmap {
+        ScriptRef::ImportMap(code)
+    } else if module {
+        ScriptRef::ModuleInline(code)
+    } else {
+        ScriptRef::Inline(code)
+    })
 }
 
 /// QB8: every runnable classic `<script>` element in document order, the
@@ -116,48 +157,74 @@ fn collect_script_elements(handle: &Handle, out: &mut Vec<Handle>) {
 }
 
 /// Inline scripts only, in document order — for pages with no way to
-/// fetch external ones (no `--socket`, no base URL).
+/// fetch external ones (no `--socket`, no base URL). Inline modules run
+/// too (their imports can only be `data:` URLs).
 pub(crate) fn inline_scripts(document: &Handle) -> Vec<ScriptSource> {
     let mut res = ExternalResources::default();
     find_external_resources(document, &mut res);
-    res.scripts
-        .into_iter()
-        .enumerate()
-        .filter_map(|(i, s)| match s {
-            ScriptRef::Inline(code) => Some(ScriptSource { name: format!("inline script #{}", i + 1), code, index: Some(i) }),
-            ScriptRef::External(_) => None,
-        })
-        .collect()
+    let base = Url::parse("about:blank").expect("static url");
+    let nofetch = |_: &Url| None;
+    // Externals become empty placeholders (keeps the indices aligned with
+    // the document's script elements), dropped again below.
+    let refs: Vec<ScriptRef> = res.scripts.into_iter().map(|r| if matches!(r, ScriptRef::External(_) | ScriptRef::ModuleExternal(_)) { ScriptRef::Inline(String::new()) } else { r }).collect();
+    let mut out = fetch_scripts_with(&base, refs, &nofetch);
+    out.retain(|s| !(s.kind == ScriptKind::Classic && s.code.is_empty()));
+    out
 }
 
 /// Resolves every `ScriptRef` against `base` into runnable sources, in
 /// document order. External scripts are fetched concurrently (one thread
 /// each, joined in order); one that fails to fetch is logged and skipped.
+/// QY15: module scripts and the import map are included, followed by the
+/// pre-fetched static import graph (`ModuleDep`s).
 pub(crate) fn fetch_scripts(path: &std::path::Path, base: &Url, refs: Vec<ScriptRef>) -> Vec<ScriptSource> {
+    fetch_scripts_with(base, refs, &|u: &Url| fetch_script_via_wire(path, u))
+}
+
+pub(crate) fn fetch_scripts_with(base: &Url, refs: Vec<ScriptRef>, fetch: js_modules::Fetcher<'_>) -> Vec<ScriptSource> {
     if !js_enabled() {
         return Vec::new();
     }
-    thread::scope(|scope| {
+    let doc_base = base.to_string();
+    let mut scripts: Vec<ScriptSource> = thread::scope(|scope| {
         let handles: Vec<_> = refs
             .into_iter()
             .enumerate()
             .map(|(i, r)| {
-                scope.spawn(move || match r {
-                    ScriptRef::Inline(code) => Some(ScriptSource { name: format!("inline script #{}", i + 1), code, index: Some(i) }),
-                    ScriptRef::External(src) if is_data_url(&src) => match decode_data_uri_text(&src) {
-                        Some(code) => Some(ScriptSource { name: "data: script".to_string(), code, index: Some(i) }),
-                        None => {
-                            diag!("scratchy: js: malformed data: script URL");
-                            None
-                        }
-                    },
-                    ScriptRef::External(src) => {
-                        let url = resolve_href(Some(base), &src).ok()?;
-                        match fetch_script_via_wire(path, &url) {
-                            Some(code) => Some(ScriptSource { name: url.to_string(), code, index: Some(i) }),
+                let doc_base = doc_base.clone();
+                scope.spawn(move || {
+                    let mk = |name: String, code: String, kind: ScriptKind| ScriptSource { name, code, index: Some(i), kind, base: Some(doc_base.clone()) };
+                    match r {
+                        ScriptRef::Inline(code) => Some(mk(format!("inline script #{}", i + 1), code, ScriptKind::Classic)),
+                        ScriptRef::ImportMap(code) => Some(mk(format!("importmap #{}", i + 1), code, ScriptKind::ImportMap)),
+                        ScriptRef::ModuleInline(code) => Some(mk(format!("{doc_base}#inline-module-{}", i + 1), code, ScriptKind::Module)),
+                        ScriptRef::External(src) if is_data_url(&src) => match decode_data_uri_text(&src) {
+                            Some(code) => Some(mk("data: script".to_string(), code, ScriptKind::Classic)),
                             None => {
-                                diag!("scratchy: js: could not fetch script {url}");
+                                diag!("scratchy: js: malformed data: script URL");
                                 None
+                            }
+                        },
+                        ScriptRef::ModuleExternal(src) => {
+                            let url = resolve_href(Some(base), &src).ok()?;
+                            let name = url.to_string();
+                            let code = if is_data_url(&name) { decode_data_uri_text(&name) } else { fetch(&url) };
+                            Some(match code {
+                                Some(code) => mk(name, code, ScriptKind::Module),
+                                None => {
+                                    diag!("scratchy: js: could not fetch module script {url}");
+                                    mk(name, "could not fetch the module script".to_string(), ScriptKind::ModuleError)
+                                }
+                            })
+                        }
+                        ScriptRef::External(src) => {
+                            let url = resolve_href(Some(base), &src).ok()?;
+                            match fetch(&url) {
+                                Some(code) => Some(mk(url.to_string(), code, ScriptKind::Classic)),
+                                None => {
+                                    diag!("scratchy: js: could not fetch script {url}");
+                                    None
+                                }
                             }
                         }
                     }
@@ -165,7 +232,24 @@ pub(crate) fn fetch_scripts(path: &std::path::Path, base: &Url, refs: Vec<Script
             })
             .collect();
         handles.into_iter().filter_map(|h| h.join().ok().flatten()).collect()
-    })
+    });
+    // Classic scripts only matter here for literal dynamic `import('x')`.
+    let classic_dynamic = |s: &ScriptSource| s.kind == ScriptKind::Classic && s.code.contains("import(");
+    if scripts.iter().any(|s| s.kind == ScriptKind::Module || classic_dynamic(s)) {
+        let map = scripts
+            .iter()
+            .find(|s| s.kind == ScriptKind::ImportMap)
+            .and_then(|s| js_modules::ImportMap::parse(&s.code, base))
+            .unwrap_or_default();
+        let entries: Vec<(String, String)> = scripts
+            .iter()
+            .filter(|s| s.kind == ScriptKind::Module || classic_dynamic(s))
+            .map(|s| (if s.kind == ScriptKind::Module { s.name.clone() } else { doc_base.clone() }, s.code.clone()))
+            .collect();
+        let deps = js_modules::prefetch_graph(&entries, &map, base, fetch);
+        scripts.extend(deps);
+    }
+    scripts
 }
 
 /// Everything a page sees before its own scripts run. `console.*` calls
@@ -837,6 +921,31 @@ impl JsEngine {
         drain_jobs(&self.ctx, &self.rt, &*self.log);
     }
 
+    /// QY15: runs the entry module registered under `name` (its source is
+    /// in the loader's map) through a dynamic `import()`, so an entry that
+    /// other modules also import is evaluated once. A rejection (fetch
+    /// failure, syntax error, throw) is logged once as `name: message`.
+    fn eval_module(&self, name: &str, size: usize) {
+        // The `.then` handler also marks the promise handled, so the QY14
+        // unhandled-rejection report does not log the failure a second time.
+        let code = format!(
+            "(function(p){{var r=globalThis.__scratchy_modr={{s:0}};p.then(function(){{r.s=1;}},function(e){{r.s=2;r.m=(e&&e.name?e.name+': '+e.message:'Uncaught '+String(e))+(e&&e.stack?'\\n'+e.stack:'');}});}})(import({}))",
+            js_string_literal(name)
+        );
+        self.eval(&format!("{name} (import)"), &code);
+        let failed: Option<String> = self.ctx.with(|ctx| {
+            let r: rquickjs::Object = ctx.globals().get("__scratchy_modr").ok()?;
+            (r.get::<_, i32>("s").ok()? == 2).then(|| r.get::<_, String>("m").unwrap_or_default())
+        });
+        if let Some(msg) = failed {
+            if self.tripped.load(Ordering::Relaxed) {
+                self.log_interrupted(name, "page-load", SCRIPT_BUDGET, size);
+            } else {
+                (self.log)("error", &format!("{name}: {msg}"));
+            }
+        }
+    }
+
     pub(crate) fn eval_value<T: for<'js> FromJs<'js>>(&self, label: &str, code: &str) -> Option<T> {
         self.arm_budget(CALLBACK_BUDGET);
         let v = self.ctx.with(|ctx| {
@@ -984,6 +1093,8 @@ pub(crate) fn start_scripts_clocked(
         }
         over
     })));
+    let store = Rc::new(js_modules::ModuleStore::from_scripts(scripts, &*log));
+    rt.set_loader(js_modules::PageResolver(store.clone()), js_modules::PageLoader(store));
     let Ok(ctx) = Context::full(&rt) else {
         log("error", "could not create the JS context");
         return None;
@@ -1028,7 +1139,7 @@ pub(crate) fn start_scripts_clocked(
     engine.table = engine.ctx.with(|ctx| js_dom::install_dom(&ctx, document, dirty.clone(), reqs.clone()));
     let mut script_els = Vec::new();
     collect_script_elements(document, &mut script_els);
-    for s in scripts {
+    for s in scripts.iter().filter(|s| s.kind == ScriptKind::Classic) {
         let id = match s.index.and_then(|i| script_els.get(i)) {
             Some(h) => engine.table.borrow_mut().intern(h),
             None => -1,
@@ -1036,6 +1147,15 @@ pub(crate) fn start_scripts_clocked(
         engine.eval_value::<()>("script", &format!("__scratchy_cs({id})"));
         engine.eval(&s.name, &s.code);
         engine.eval_value::<()>("script", "__scratchy_cs(-1)");
+    }
+    // QY15: module scripts are deferred: after parsing (and the classic
+    // scripts), in document order, before DOMContentLoaded.
+    for s in scripts.iter().filter(|s| matches!(s.kind, ScriptKind::Module | ScriptKind::ModuleError)) {
+        if s.kind == ScriptKind::ModuleError {
+            (engine.log)("error", &format!("{}: {}", s.name, s.code));
+        } else {
+            engine.eval_module(&s.name, s.code.len());
+        }
     }
     engine.eval("DOMContentLoaded", FIRE_DOM_CONTENT_LOADED);
     engine.eval("load", FIRE_LOAD);
@@ -1218,7 +1338,8 @@ pub(crate) fn js_report_for_scripts_timers(document: &Handle, scripts: &[ScriptS
     };
     let total = errors.iter().filter(|(k, _)| is_err(k) && !is_timer(k)).count();
     out.push_str("--- summary ---\n");
-    out.push_str(&format!("scripts run: {}\nerrors total: {}\n", scripts.len(), total));
+    let runnable = scripts.iter().filter(|s| matches!(s.kind, ScriptKind::Classic | ScriptKind::Module)).count();
+    out.push_str(&format!("scripts run: {}\nerrors total: {}\n", runnable, total));
     for (first, n) in group(&|k| is_err(k) && !is_timer(k)) {
         out.push_str(&format!("{n:>4}  {first}\n"));
     }

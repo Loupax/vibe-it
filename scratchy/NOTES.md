@@ -3173,3 +3173,30 @@ Multiple documents (QA18a): the page is DomTable id 0; `document.implementation.
 iframe documents (QA18b): `HTMLIFrameElement.contentDocument/contentWindow` make, on first access, a `makeDoc` document with html/head/body and a minimal window object (frames table keyed by the iframe's node id, in the prelude). Only for an iframe that is in the page and whose `src` is empty, `about:blank` or `data:` (the data content is ignored); anything else, including http(s), gives null until QA18b1. `load` is queued by a hook (`afterIns`) in `appendChild`/`insertBefore`, so iframes inserted by innerHTML or document.write get no event. Nothing is laid out or painted inside the iframe (still the Q52a replaced box), and the frame has no cascade (QA18c).
 
 iframe src documents (QA18b1): `net::prefetch_iframes` runs where scripts are fetched (so on the fetch thread, before the JS engine starts) and keeps the HTML of same-origin http(s)/file iframes present in the markup in a process-wide map keyed by absolute URL; the JS engine cannot reach the network, so `frameOf` only looks the URL up (`__d_iframe_page`) and parses it into the frame's document (`__d_load_html`). Iframes made later by script, and streamed pages, get null. Scripts inside frames are not run. QA18c: `__d_cs` takes the cascade root from the node's top ancestor (page or a registered second document); `StyleCache` reseeds when the root changes, and the externally fetched CSS (`EXTRA_CSS`) is only applied to the page.
+
+## QY15 — ES modules (module graph pre-fetch)
+
+`script_ref` now returns `ModuleInline`/`ModuleExternal`/`ImportMap` for
+`<script type=module>`, `type=module src` and `type=importmap`; classic
+scripts with `nomodule` are skipped. QuickJS' module loader is synchronous, so
+the static import graph is fetched BEFORE the engine runs, in
+`fetch_scripts_with` (src/js.rs; `fetch_scripts` plugs in `wire`): each
+module entry's source is scanned (`js_modules::scan_import_specifiers`, a
+comment/string/template/regex-aware token scan, not a parser; it also picks
+literal dynamic `import('x')`, including from classic scripts), specifiers are
+resolved (`resolve_specifier`: import map `imports` + `scopes` first, then
+`/ ./ ../` and absolute URLs; bare specifiers with no map entry are an error),
+and each level of new URLs is fetched in parallel, breadth-first, capped at
+200 modules / 16 MB / depth 32 (github needs more than 5 MB). `data:` modules decode locally. The result is
+ordinary `ScriptSource`s tagged by `ScriptKind` (`Classic`, `Module`,
+`ModuleDep`, `ImportMap`, `ModuleError`), so `FetchedPage`/`StreamCss` and the
+`--js-report` path are unchanged. The engine builds a `ModuleStore` (url ->
+source, parsed import map) behind an rquickjs `Resolver`/`Loader` pair that
+only reads it; an import of a URL that is not in the store (fetch failed, or a
+computed run-time `import()`) fails with a clear error (QY15a: fetch at run
+time). Execution: classic scripts first, in order; then module entries in
+document order (defer semantics), each through `import(<url>)` so a module
+that is also imported elsewhere is evaluated once, under the same 5 s CPU
+budget; rejections log once as `<module url>: <message>`; then
+DOMContentLoaded/load. Inline modules are named `<doc url>#inline-module-N`
+(`import.meta.url` strips the tag). Top-level await works (module promise).
