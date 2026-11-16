@@ -6086,3 +6086,341 @@ pub(crate) fn to_text_color(color: &CssColor) -> Option<TextColor> {
         _ => None,
     }
 }
+
+// ---------- QY10: `window.matchMedia(query)` ----------
+
+/// Splits media-query text into top-level parts: bare words and
+/// balanced `( ... )` groups (kept with their parens).
+fn media_text_parts(s: &str) -> Result<Vec<String>, ()> {
+    let mut parts = Vec::new();
+    let mut cur = String::new();
+    let mut depth = 0usize;
+    for c in s.chars() {
+        match c {
+            '(' => {
+                if depth == 0 && !cur.trim().is_empty() {
+                    parts.push(cur.trim().to_string());
+                    cur.clear();
+                }
+                depth += 1;
+                cur.push(c);
+            }
+            ')' => {
+                if depth == 0 {
+                    return Err(());
+                }
+                depth -= 1;
+                cur.push(c);
+                if depth == 0 {
+                    parts.push(std::mem::take(&mut cur));
+                }
+            }
+            c if c.is_whitespace() && depth == 0 => {
+                if !cur.trim().is_empty() {
+                    parts.push(cur.trim().to_string());
+                }
+                cur.clear();
+            }
+            c => cur.push(c),
+        }
+    }
+    if depth != 0 {
+        return Err(());
+    }
+    if !cur.trim().is_empty() {
+        parts.push(cur.trim().to_string());
+    }
+    Ok(parts)
+}
+
+fn media_len(text: &str) -> Result<f32, ()> {
+    let mut input = CssParser::new(text.trim());
+    media_feature_length_px(&mut input)
+}
+
+fn media_resolution_dppx(text: &str) -> Result<f32, ()> {
+    let t = text.trim().to_ascii_lowercase();
+    let (num, mul) = if let Some(n) = t.strip_suffix("dppx") {
+        (n, 1.0)
+    } else if let Some(n) = t.strip_suffix("dpcm") {
+        (n, 2.54 / 96.0)
+    } else if let Some(n) = t.strip_suffix("dpi") {
+        (n, 1.0 / 96.0)
+    } else if let Some(n) = t.strip_suffix('x') {
+        (n, 1.0)
+    } else {
+        return Err(());
+    };
+    num.trim().parse::<f32>().map(|v| v * mul).map_err(|_| ())
+}
+
+fn media_cmp(op: &str, lhs: f32, rhs: f32) -> Result<bool, ()> {
+    Ok(match op {
+        "<" => lhs < rhs,
+        "<=" => lhs <= rhs,
+        ">" => lhs > rhs,
+        ">=" => lhs >= rhs,
+        "=" => (lhs - rhs).abs() < 0.01,
+        _ => return Err(()),
+    })
+}
+
+/// Evaluates one `( ... )` feature body the way scratchy renders: a
+/// light-scheme, no-reduced-motion, hover-capable fine-pointer
+/// 1dppx screen of `w` x `h` CSS px. `Ok(None)` = an unknown feature
+/// (evaluates false, and stays unknown under `not`), `Err` = invalid.
+fn media_feature_eval(body: &str, w: f32, h: f32) -> Result<Option<bool>, ()> {
+    let b = body.trim();
+    // Level 4 range syntax: `width >= 600px`, `400px <= width <= 700px`.
+    if b.contains(['<', '>']) || (!b.contains(':') && b.contains('=')) {
+        let mut toks: Vec<String> = Vec::new();
+        let mut cur = String::new();
+        let mut chars = b.chars().peekable();
+        while let Some(c) = chars.next() {
+            if c == '<' || c == '>' || c == '=' {
+                if !cur.trim().is_empty() {
+                    toks.push(cur.trim().to_string());
+                }
+                cur.clear();
+                let mut op = c.to_string();
+                if c != '=' && chars.peek() == Some(&'=') {
+                    op.push('=');
+                    chars.next();
+                }
+                toks.push(op);
+            } else {
+                cur.push(c);
+            }
+        }
+        if !cur.trim().is_empty() {
+            toks.push(cur.trim().to_string());
+        }
+        let flip = |op: &str| match op {
+            "<" => ">",
+            "<=" => ">=",
+            ">" => "<",
+            ">=" => "<=",
+            o => o,
+        }
+        .to_string();
+        let is_op = |t: &str| matches!(t, "<" | "<=" | ">" | ">=" | "=");
+        let feat = |name: &str| match name.to_ascii_lowercase().as_str() {
+            "width" | "device-width" => Some(w),
+            "height" | "device-height" => Some(h),
+            "resolution" => Some(1.0),
+            _ => None,
+        };
+        let value_of = |name: &str, t: &str| -> Result<f32, ()> {
+            if name.eq_ignore_ascii_case("resolution") { media_resolution_dppx(t) } else { media_len(t) }
+        };
+        return match toks.len() {
+            3 if is_op(&toks[1]) => {
+                if let Some(f) = feat(&toks[0]) {
+                    media_cmp(&toks[1], f, value_of(&toks[0], &toks[2])?).map(Some)
+                } else if let Some(f) = feat(&toks[2]) {
+                    media_cmp(&flip(&toks[1]), f, value_of(&toks[2], &toks[0])?).map(Some)
+                } else {
+                    Ok(None)
+                }
+            }
+            5 if is_op(&toks[1]) && is_op(&toks[3]) => {
+                let Some(f) = feat(&toks[2]) else { return Ok(None) };
+                let a = media_cmp(&toks[1], value_of(&toks[2], &toks[0])?, f)?;
+                let c = media_cmp(&toks[3], f, value_of(&toks[2], &toks[4])?)?;
+                Ok(Some(a && c))
+            }
+            _ => Err(()),
+        };
+    }
+    let (name, value) = match b.split_once(':') {
+        Some((n, v)) => (n.trim().to_ascii_lowercase(), Some(v.trim().to_string())),
+        None => (b.to_ascii_lowercase(), None),
+    };
+    if name.is_empty() || name.contains(char::is_whitespace) {
+        return Err(());
+    }
+    let (prefix, base) = if let Some(r) = name.strip_prefix("min-") {
+        (1, r.to_string())
+    } else if let Some(r) = name.strip_prefix("max-") {
+        (2, r.to_string())
+    } else {
+        (0, name.clone())
+    };
+    // Numeric features: exact / min- / max-.
+    let numeric = match base.as_str() {
+        "width" | "device-width" => Some((w, true)),
+        "height" | "device-height" => Some((h, true)),
+        "resolution" => Some((1.0, false)),
+        "color" => Some((8.0, false)),
+        "color-index" | "monochrome" | "grid" => Some((0.0, false)),
+        "aspect-ratio" | "device-aspect-ratio" => Some((w / h.max(1.0), false)),
+        _ => None,
+    };
+    if let Some((cur, is_len)) = numeric {
+        let Some(v) = value else {
+            return Ok(Some(cur != 0.0)); // boolean context
+        };
+        let rhs = if is_len {
+            media_len(&v)?
+        } else if base == "resolution" {
+            media_resolution_dppx(&v)?
+        } else if base.ends_with("aspect-ratio") {
+            let (a, d) = v.split_once('/').ok_or(())?;
+            a.trim().parse::<f32>().map_err(|_| ())? / d.trim().parse::<f32>().map_err(|_| ())?
+        } else {
+            v.parse::<f32>().map_err(|_| ())?
+        };
+        return Ok(Some(match prefix {
+            1 => cur >= rhs,
+            2 => cur <= rhs,
+            _ => (cur - rhs).abs() < 0.01,
+        }));
+    }
+    if prefix != 0 {
+        return Ok(None);
+    }
+    let v = value.map(|s| s.to_ascii_lowercase());
+    let v = v.as_deref();
+    // Discrete features: (current value, the `none`-like value).
+    let (cur, none): (&str, &str) = match name.as_str() {
+        "prefers-color-scheme" => ("light", ""),
+        "prefers-reduced-motion" | "prefers-contrast" | "prefers-reduced-transparency" | "prefers-reduced-data" => {
+            ("no-preference", "no-preference")
+        }
+        "forced-colors" | "inverted-colors" => ("none", "none"),
+        "hover" | "any-hover" => ("hover", "none"),
+        "pointer" | "any-pointer" => ("fine", "none"),
+        "orientation" => (if w >= h { "landscape" } else { "portrait" }, ""),
+        "display-mode" => ("browser", ""),
+        "scripting" => ("enabled", "none"),
+        "update" => ("fast", "none"),
+        "overflow-block" | "overflow-inline" => ("scroll", "none"),
+        "color-gamut" => ("srgb", ""),
+        _ => return Ok(None),
+    };
+    Ok(Some(match v {
+        None => cur != none, // boolean context: true unless the `none` value
+        Some(v) => v == cur,
+    }))
+}
+
+fn media_condition_eval(text: &str, w: f32, h: f32) -> Result<Option<bool>, ()> {
+    let parts = media_text_parts(text)?;
+    let group = |p: &str| -> Result<Option<bool>, ()> {
+        let inner = p.strip_prefix('(').and_then(|x| x.strip_suffix(')')).ok_or(())?.trim();
+        let ip = media_text_parts(inner)?;
+        let nested = inner.starts_with('(') || ip.first().is_some_and(|f| f.eq_ignore_ascii_case("not") && ip.len() > 1);
+        if nested { media_condition_eval(inner, w, h) } else { media_feature_eval(inner, w, h) }
+    };
+    match parts.as_slice() {
+        [] => Err(()),
+        [n, g] if n.eq_ignore_ascii_case("not") => Ok(group(g)?.map(|b| !b)),
+        _ => {
+            if parts.len() % 2 == 0 {
+                return Err(());
+            }
+            let mut acc: Option<Option<bool>> = None;
+            let mut op: Option<String> = None;
+            for (i, p) in parts.iter().enumerate() {
+                if i % 2 == 0 {
+                    let v = group(p)?;
+                    acc = Some(match (&acc, &op) {
+                        (None, _) => v,
+                        (Some(a), Some(o)) if o == "and" => match (a, v) {
+                            (Some(false), _) | (_, Some(false)) => Some(false),
+                            (None, _) | (_, None) => None,
+                            _ => Some(true),
+                        },
+                        (Some(a), Some(_)) => match (a, v) {
+                            (Some(true), _) | (_, Some(true)) => Some(true),
+                            (None, _) | (_, None) => None,
+                            _ => Some(false),
+                        },
+                        _ => return Err(()),
+                    });
+                } else {
+                    let o = p.to_ascii_lowercase();
+                    if (o != "and" && o != "or") || op.as_ref().is_some_and(|prev| *prev != o) {
+                        return Err(());
+                    }
+                    op = Some(o);
+                }
+            }
+            Ok(acc.unwrap_or(None))
+        }
+    }
+}
+
+fn media_one_query_eval(text: &str, w: f32, h: f32) -> Result<bool, ()> {
+    let parts = media_text_parts(text)?;
+    let Some(first) = parts.first() else { return Err(()) };
+    let lc = first.to_ascii_lowercase();
+    // A bare condition (`(a) and (b)`, `not (a)`).
+    if first.starts_with('(') || (lc == "not" && parts.get(1).is_some_and(|p| p.starts_with('('))) {
+        return Ok(media_condition_eval(text, w, h)?.unwrap_or(false));
+    }
+    let mut i = 0;
+    let mut neg = false;
+    if lc == "not" {
+        neg = true;
+        i = 1;
+    } else if lc == "only" {
+        i = 1;
+    }
+    let ty = parts.get(i).ok_or(())?.to_ascii_lowercase();
+    if ty.starts_with('(') || matches!(ty.as_str(), "and" | "or" | "not" | "only" | "layer") {
+        return Err(());
+    }
+    let ty_ok = ty == "all" || ty == "screen";
+    i += 1;
+    let mut cond = Some(true);
+    if i < parts.len() {
+        if !parts[i].eq_ignore_ascii_case("and") || i + 1 >= parts.len() {
+            return Err(());
+        }
+        let rest = parts[i + 1..].join(" ");
+        if parts[i + 1..].iter().any(|t| t.eq_ignore_ascii_case("or")) {
+            return Err(());
+        }
+        cond = media_condition_eval(&rest, w, h)?;
+    }
+    let r = ty_ok && cond.unwrap_or(false);
+    Ok(if neg { !r } else { r })
+}
+
+/// QY10: evaluates a `matchMedia` query string for a `w` x `h` px
+/// screen. Returns `(matches, serialized media)`; an invalid query is
+/// `(false, "not all")`, and an invalid item inside a comma list
+/// becomes `not all` while the others still count.
+pub(crate) fn media_query_string_matches(query: &str, w: f32, h: f32) -> (bool, String) {
+    let q = query.trim();
+    if q.is_empty() {
+        return (true, String::new());
+    }
+    let mut items = Vec::new();
+    let (mut depth, mut start) = (0i32, 0usize);
+    for (i, c) in q.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            ',' if depth == 0 => {
+                items.push(&q[start..i]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    items.push(&q[start..]);
+    let mut any = false;
+    let mut out = Vec::new();
+    for it in items {
+        match media_one_query_eval(it, w, h) {
+            Ok(m) => {
+                any |= m;
+                out.push(it.split_whitespace().collect::<Vec<_>>().join(" ").to_ascii_lowercase());
+            }
+            Err(()) => out.push("not all".to_string()),
+        }
+    }
+    (any, out.join(", "))
+}

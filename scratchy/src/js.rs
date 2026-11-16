@@ -444,6 +444,21 @@ const PRELUDE: &str = r#"
     onLine: true, cookieEnabled: false, hardwareConcurrency: 1, maxTouchPoints: 0,
   };
   g.innerWidth = Number(env.innerWidth); g.innerHeight = Number(env.innerHeight);
+  // QY10: MediaQueryList. `matches` is re-evaluated on every read;
+  // `change` never fires (the viewport is fixed for the page's life
+  // until Q33b2 plumbs the real size and a resize event).
+  var MediaQueryList = ctor('MediaQueryList', EventTarget);
+  Object.defineProperty(MediaQueryList.prototype, 'matches', { get: function () { return !!__scratchy_media(this.__q)[0]; }, configurable: true, enumerable: true });
+  Object.defineProperty(MediaQueryList.prototype, 'media', { get: function () { return __scratchy_media(this.__q)[1]; }, configurable: true, enumerable: true });
+  MediaQueryList.prototype.onchange = null;
+  MediaQueryList.prototype.addListener = function (fn) { this.addEventListener('change', fn); };
+  MediaQueryList.prototype.removeListener = function (fn) { this.removeEventListener('change', fn); };
+  g.matchMedia = function (q) {
+    if (arguments.length < 1) throw new TypeError("Failed to execute 'matchMedia' on 'Window': 1 argument required, but only 0 present.");
+    var m = Object.create(MediaQueryList.prototype);
+    Object.defineProperty(m, '__q', { value: String(q) });
+    return m;
+  };
   g.outerWidth = g.innerWidth; g.outerHeight = g.innerHeight; g.devicePixelRatio = 1;
   var loc = { href: env.href, protocol: env.protocol, host: env.host, hostname: env.hostname,
     port: env.port, pathname: env.pathname, search: env.search, hash: env.hash, origin: env.origin };
@@ -896,6 +911,14 @@ pub(crate) fn start_scripts_clocked(
         }
         if let Ok(f) = Function::new(ctx.clone(), url_set_native) {
             let _ = ctx.globals().set("__url_set", f);
+        }
+        // QY10: `matchMedia` evaluates through the CSS media-query code.
+        let mm = Function::new(ctx.clone(), |q: String| -> Vec<String> {
+            let (m, media) = css::media_query_string_matches(&q, DEFAULT_VIEWPORT.0 as f32, DEFAULT_VIEWPORT.1 as f32);
+            vec![if m { "1".into() } else { String::new() }, media]
+        });
+        if let Ok(mm) = mm {
+            let _ = ctx.globals().set("__scratchy_media", mm);
         }
         let now = Function::new(ctx.clone(), move || match &clock {
             Some(c) => c.get(),

@@ -871,7 +871,7 @@ Phase 1 (each S, independent; do in this order):
       `u.search`, invalid URL throws TypeError. Re-run `--js-report` on
       duckduckgo: the two URL errors and the URLSearchParams error are
       gone (paste before/after).
-- [ ] QY10 [S] (P2; ddg, yt) `window.matchMedia(q)`. Symptom: duckduckgo's
+- [x] QY10 [S] (P2; ddg, yt) `window.matchMedia(q)`. Symptom: duckduckgo's
       theme script `TypeError: not a function` at `window.matchMedia(
       "(prefers-color-scheme: dark)").matches`; YouTube's app script at
       top level. Fix: a native `__media_matches(query) -> bool` that
@@ -887,6 +887,19 @@ Phase 1 (each S, independent; do in this order):
       wait (note it). Test: at the default viewport `(min-width: 1px)`
       matches, `(max-width: 1px)` does not, `(prefers-color-scheme:
       dark)` does not, `print` does not; `instanceof MediaQueryList`.
+      DONE: `css::media_query_string_matches(q, w, h)` (css.rs: its own
+      small evaluator, since `MediaQuery` only models four features and
+      treats `not` as never): `not`/`only`, `and`/`or`, level-4 range
+      syntax, width/height/orientation/resolution/hover/pointer/
+      prefers-*/forced-colors etc.; invalid query = `not all`. JS
+      `MediaQueryList` + `matchMedia` in PRELUDE. Viewport is the fixed
+      1024x768 (see QY10a). Commit HASH.
+- [ ] QY10a [S] (P3) matchMedia with the real window size and `change`
+      events. `matchMedia` evaluates against `DEFAULT_VIEWPORT`
+      (1024x768) like `innerWidth`, so `matches` never changes and
+      `change` never fires. Do together with Q33b2: pass the live
+      viewport into the JS env, and on resize re-evaluate each live
+      MediaQueryList and dispatch `change` (needs a list of live MQLs).
 - [ ] QY11 [S] (P2; guardian, yt, ddg, bbc; overlaps Q33c1's "reflected
       properties" part: tick that part there) Reflected attributes and
       attribute enumeration. Symptoms: guardian's commercial bundle
