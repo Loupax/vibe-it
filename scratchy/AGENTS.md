@@ -52,3 +52,19 @@
 - Before you finish, check for background shells you started and kill them
   (specific PIDs only; never the user's scratchy/compositor).
 - Don't spawn subagents from inside an agent task.
+
+## Off limits until the user says so (design first)
+Do NOT implement these, not even as stubs or "small slices", until the user
+has explicitly asked and the design has been agreed. The user wants to
+understand how they will work first (same stance as forms, Q30):
+- **Audio and video**: `<video>`, `<audio>`, `<source>`, `<track>`,
+  `HTMLMediaElement` playback (`play()`/`pause()`/`currentTime`/events),
+  codecs, MediaSource/EME, Web Audio, `<canvas>` capture/WebRTC, autoplay.
+  Rendering a poster frame or an empty replaced box is fine; real playback,
+  decoding, audio output and the media JS API are not.
+- **Forms** (Q30 and children): live form state, text input widgets,
+  form submission. QA20/Q33d1 only added DOM reflections and event stubs.
+If an item or a page seems to need one of these, stop, write what it needs
+in TODO.txt as a `[ ]` item marked "WAITING FOR USER (design first)", and
+move on to something else.
+
