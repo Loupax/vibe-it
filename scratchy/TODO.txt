@@ -1324,7 +1324,7 @@ into the commit message of every JS item.
       Acid3 T30-T32 ("not a function"). Test: `e=document.createEvent(
       'UIEvents'); e.initUIEvent('t',true,false,null,6)` dispatched to a
       listener sees `detail===6`.
-- [x] QA16 (HASH, safe subset) [M] (P3, JS) `getComputedStyle(el, pseudo)` (moved up from
+- [x] QA16 (37ca064, safe subset) [M] (P3, JS) `getComputedStyle(el, pseudo)` (moved up from
       Q33g; also listed in Q33c1): a `CSSStyleDeclaration`-like object of
       the element's computed values from the cascade (`compute_style` on
       the current DOM; camelCase and `getPropertyValue`), at least
