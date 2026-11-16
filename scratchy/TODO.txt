@@ -807,6 +807,31 @@ Q32 (parked); 320 tests pass, 2 ignored; lib.rs is ~27.4k lines.
       an earlier float forces it) shift the first line by a NEGATIVE indent.
       Tests `negative_text_indent_{moves_the_label_off_the_icon,applies_on_
       the_mixed_inline_path_too}_qw2`.
+- [x] QW3 [S] (done, commit 79d338b) On https://wikipedia.org a horizontal line
+      was drawn through the "Read Wikipedia in your language" text. ROOT CAUSE
+      (2026-11-16, live portal HTML): the divider is a separate sibling
+      `<div class="lang-list-border">` (block, position:relative, height:1px,
+      margin-top:-1.6rem) AFTER `<div class="lang-list-button-wrapper"><button
+      class="lang-list-button">`, and the button is `display:inline;
+      position:relative;z-index:1;outline:1.6rem solid #fff;background:#f8f9fa;
+      border:1px solid`. Real browsers compute `button{display:inline}` to
+      inline-block, so the button is a box whose bg/outline hide the line.
+      Scratchy had two bugs: (1) `<button>` stayed a plain inline box, and
+      inline boxes paint only a text-run background (no border, no outline, no
+      vertical padding); (2) even as inline-block, a position:relative
+      `Embedded` inline item painted with its line's text instead of in the
+      stacking context's positioned layer, so the later z-auto relative line
+      painted over its z-index:1. Not a pseudo-element, not top:50%, not
+      text-decoration; QY1/QA3/QA8/QA10 neither caused nor fixed it. FIXED:
+      style.rs (button `display:inline` -> inline-block, also on the
+      CSS-wide-keyword `inherit` path that re-derives display, which the real
+      portal's `font:inherit`-style reset hits) and layout.rs
+      `walk_negative_z` hoists relative/sticky `Embedded` inline items like
+      in-flow relative block children. Test
+      `qw3_divider_line_is_hidden_behind_z_indexed_inline_button`.
+- [ ] QW3a [S] Plain `display:inline` elements still paint no border, outline or
+      vertical padding (only a per-glyph background); real inline-box painting
+      is a larger feature.
 - [ ] QW2b [S] `text-indent` leftovers: positive indents (and `%`/`each-line`/
       `hanging`) are ignored; a positive/negative indent should also change
       the first line's available width for wrapping.

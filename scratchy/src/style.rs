@@ -1493,6 +1493,13 @@ pub(crate) fn resolve_style_for(
         }
     };
     let display = force_block(display, position, float);
+    // QW3: a `<button>` is never a plain inline box (browsers compute
+    // `display:inline` to `inline-block` for it); scratchy only paints
+    // border/outline/vertical padding on real boxes, so without this the
+    // wikipedia.org language button lost its white outline and the divider
+    // line showed through its text.
+    let button_inline_block = pseudo.is_none() && element_tag(handle) == "button";
+    let display = if button_inline_block && display == Display::Inline { Display::InlineBlock } else { display };
     // Resolved before margin/padding/border-width: an `em` on any of those
     // is relative to *this* element's own font-size (not its parent's),
     // so font-size has to be cascaded and resolved first. An `em` on
@@ -2052,6 +2059,9 @@ pub(crate) fn resolve_style_for(
     if matches.iter().any(|(_, d)| !d.wide.is_empty()) || inl.is_some_and(|d| !d.wide.is_empty()) {
         apply_rest_wide(&mut cs, &matches, inl, &inherited);
         cs.display = force_block(display_declared, cs.position, cs.float);
+        if button_inline_block && cs.display == Display::Inline {
+            cs.display = Display::InlineBlock;
+        }
     }
     cs
 }
