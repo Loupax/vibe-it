@@ -1282,7 +1282,7 @@ into the commit message of every JS item.
       (`new Function('event', code)` with a `with`-free scope is enough for
       now), lazily on first dispatch and when set via `setAttribute`.
       This is the "inline handlers" part of Q33d1 (tick that part there).
-      DONE (HASH_QA12): lazy `attrHandler` in js.rs dispatch; no `with` scope chain, `el.onclick` property getter not reflecting the attribute (QA12a).
+      DONE (51efed9): lazy `attrHandler` in js.rs dispatch; no `with` scope chain, `el.onclick` property getter not reflecting the attribute (QA12a).
       Test: `<body onload="console.log('L')">` logs `L` after `load`;
       `<button onclick="this.id='x'">` gets id `x` on a dispatched click.
 - [ ] QA12a [S] (P3, JS) Leftovers of QA12: `el.onclick` / `window.onload`
@@ -2382,7 +2382,7 @@ as the JS measurement corpus (same role the four CSS pages played).
       `focus/blur/focusin/focusout` from `set_focus_element`. Promise
       jobs drain after each dispatch; DOM writes sync via `js_sync`.
       `App::js_dispatch` -> `JsEngine::dispatch_event`.
-- [ ] Q33d1 [S] (inline `on*` handlers done in QA12, HASH_QA12) Left out of Q33d, needs Q30: native `input`/`change`/
+- [ ] Q33d1 [S] (inline `on*` handlers done in QA12, 51efed9) Left out of Q33d, needs Q30: native `input`/`change`/
       `submit` events (Q30c/d/e) with `preventDefault` cancelling the
       submission; `mousedown/mouseup/mouseover/mouseenter/scroll/resize`
       natives; inline `onclick="..."` attribute handlers; `el.click()`
