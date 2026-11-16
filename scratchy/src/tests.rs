@@ -13858,6 +13858,7 @@ fn qf9_form_data_urlsearchparams_and_arraybuffer_bodies() {
     assert!(raws[0].contains("content-type: multipart/form-data; boundary=") && raws[0].contains("name=\"k\""), "{}", raws[0]);
     assert!(raws[1].contains("application/x-www-form-urlencoded") && raws[1].ends_with("a=1"), "{}", raws[1]);
     assert!(raws[2].ends_with("ab") && !raws[2].contains("content-type"), "{}", raws[2]);
+}
 
 // ---- QY6a: MutationObserver ----
 

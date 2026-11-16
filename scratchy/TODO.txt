@@ -2246,7 +2246,7 @@ Read REGRESSIONS.md "R20" before starting any QY item. Short version:
       Shadow DOM is NOT needed but a native `customElements` and
       `template.content` are. QY6b (= QA17) and QY6c (= QA18a) are done.
       New split, gated on the memo's D0 and on Q33f:
-      - [x] QY6a [M] DONE (commit c7ee44a) MutationObserver with real records. All DOM writes go
+      - [x] QY6a [M] DONE (commit 6f4e412) MutationObserver with real records. All DOM writes go
         through a few JS wrappers over natives in `DOM_PRELUDE`
         (`__d_insert`, `__d_remove`, `__d_setattr`, `__d_rmattr`,
         `__d_settext`, `__d_sethtml`, `__d_write`, plus `clone`-free
