@@ -1152,7 +1152,7 @@ Phase 2 (big enablers, after phase 1):
       of throwing RangeError. 12-hour clock uses a plain space before AM/PM
       (not U+202F). Needed only if a measured page wants real localisation:
       then it is a product decision (ship ICU data or not).
-- [x] QY16b [S] (P3; duckduckgo; found by QY16) HASH_PENDING `Node.prototype.isEqualNode`
+- [x] QY16b [S] (P3; duckduckgo; found by QY16) ae3d9c1 `Node.prototype.isEqualNode`
       was missing. With `Intl` present, duckduckgo's Next.js `updateHead`
       (`next/head` dedupe) died at `e.isEqualNode(t)` ("TypeError: not
       a function", 8 console.error lines in `--js-report --run-timers
