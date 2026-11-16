@@ -15090,3 +15090,54 @@ fn qsd1b_is_secure_context_follows_scheme_and_loopback() {
     set_page_url(None);
     assert_eq!(got, ["log:true", "log:false", "log:true", "log:true", "log:true"]);
 }
+
+// ---- QSD2: getRootNode, isConnected, compareDocumentPosition.
+
+#[test]
+fn qsd2_get_root_node_and_is_connected() {
+    let log = run_in_html(
+        "<html><body><div id=a><p id=b>x</p></div><template id=t><i id=ti></i></template></body></html>",
+        r#"const r = [];
+         const a = document.getElementById('a'), b = document.getElementById('b');
+         r.push(b.getRootNode() === document, b.getRootNode({ composed: true }) === document, document.getRootNode() === document, b.isConnected, document.isConnected);
+         const d = document.createElement('div'), s = document.createElement('span'); d.appendChild(s);
+         r.push(s.getRootNode() === d, d.getRootNode() === d, s.isConnected, d.isConnected);
+         const f = document.createDocumentFragment(), q = document.createElement('q'); f.appendChild(q);
+         r.push(q.getRootNode() === f, f.getRootNode() === f, q.isConnected, f.isConnected);
+         document.body.appendChild(d);
+         r.push(s.getRootNode() === document, s.isConnected);
+         const ti = document.getElementById('t').content.firstChild, tc = document.getElementById('t').content;
+         r.push(ti.getRootNode() === tc, ti.isConnected, document.getElementById('ti'));
+         const d2 = document.implementation.createHTMLDocument('t');
+         r.push(d2.body.getRootNode() === d2, d2.body.isConnected, d2.createElement('u').isConnected);
+         console.log(r.join('|'));"#,
+    );
+    assert_eq!(
+        log,
+        ["log:true|true|true|true|true|true|true|false|false|true|true|false|false|true|true|true|false||true|true|false"],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qsd2_compare_document_position() {
+    let log = run_in_html(
+        "<html><body><div id=a><p id=b>x</p><p id=c>y</p></div><span id=e></span></body></html>",
+        r#"const r = [], $ = function (i) { return document.getElementById(i); };
+         const a = $('a'), b = $('b'), c = $('c'), e = $('e');
+         r.push(a.compareDocumentPosition(a), a.compareDocumentPosition(b), b.compareDocumentPosition(a));
+         r.push(b.compareDocumentPosition(c), c.compareDocumentPosition(b), b.compareDocumentPosition(e), e.compareDocumentPosition(b));
+         r.push(document.compareDocumentPosition(b), b.compareDocumentPosition(document));
+         const x = document.createElement('x'), y = document.createElement('y');
+         const dx = x.compareDocumentPosition(y), dy = y.compareDocumentPosition(x);
+         r.push((dx & 1) !== 0, (dx & 32) !== 0, dx === 37 || dx === 35, (dx & 6) !== (dy & 6));
+         r.push(b.compareDocumentPosition(x) & 33, Node.DOCUMENT_POSITION_CONTAINED_BY, Node.prototype.DOCUMENT_POSITION_PRECEDING);
+         try { a.compareDocumentPosition(null); r.push('no'); } catch (err) { r.push(err.name); }
+         console.log(r.join('|'));"#,
+    );
+    assert_eq!(
+        log,
+        ["log:0|20|10|4|2|4|2|20|10|true|true|true|true|33|16|2|TypeError"],
+        "{log:?}"
+    );
+}

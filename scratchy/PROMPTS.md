@@ -6909,3 +6909,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Implement QSD1b: window.crypto (getRandomValues, randomUUID from the OS RNG), crypto.subtle placeholder, isSecureContext.
 
 **What changed:** src/js.rs (os_random_bytes native over libc::getrandom, already a dependency, no new crate; Crypto/SubtleCrypto interfaces, crypto getter on window, subtle methods log `not implemented` and reject NotSupportedError, window.isSecureContext true for https/wss and loopback hosts), tests qsd1b_* in src/tests.rs; NOTES.md; TODO.txt.
+
+## getRootNode, isConnected, compareDocumentPosition (QSD2)
+
+> Implement QSD2: Node.getRootNode, isConnected, compareDocumentPosition and DOCUMENT_POSITION_* constants.
+
+**What changed:** src/js_dom.rs (rootId walk, NodeProto getRootNode/isConnected/compareDocumentPosition, Node.DOCUMENT_POSITION_* constants), tests qsd2_* in src/tests.rs; NOTES.md; TODO.txt (new QSD2b item for lookupNamespaceURI/isDefaultNamespace).
