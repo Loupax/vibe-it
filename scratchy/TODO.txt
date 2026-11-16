@@ -241,7 +241,7 @@ R22 copies and paste the before/after numbers in the commit.
       error format (it must not throw). Tests for each method and the
       form log. Payoff: FormData refs gh 24, bbc 18, guardian 5. None
       were used at startup, so it is cheap safety only.
-- [ ] QF4 [S] READY `Headers`, `Request`, `Response` data classes and a
+- [x] QF4 HASH [S] DONE `Headers`, `Request`, `Response` data classes and a
       minimal `ReadableStream` (fetch_prelude.js; needs QF1-QF3; no
       network).
       Headers: guards none/request/response/immutable. Name must be an
@@ -280,6 +280,18 @@ R22 copies and paste the before/after numbers in the commit.
       used twice, Response.json(), Request with a relative URL against a
       `<base href>`, a GET with a body throws, a ReadableStream
       enqueue/read/close sequence.
+- [ ] QF4a [S] READY Gaps left by QF4 (src/fetch_prelude.js): ReadableStream
+      `tee/pipeTo/pipeThrough`, BYOB readers, byte streams, `strategy.size`,
+      TransformStream/WritableStream (all deliberately absent); cloning a
+      Request/Response whose body came from a page-supplied stream throws
+      (needs tee); the `no-cors` Request restrictions (method and header
+      limits, `request-no-cors` guard); `Request.destination`/`duplex` are
+      constants; `formData()` parses only urlencoded bodies (multipart needs
+      QF3/QF13); FormData bodies throw (QF13); `Response` `cors` header
+      filtering is left to the network layer (`__make_response`, QF7).
+      Guardian after QF4: `new Request('')` succeeds and the next failure is
+      `ActiveXObject is not defined` (the polyfill.io fetch polyfill falls
+      back to XHR; expected until QF8).
 - [ ] QF5 [S] READY (Rust, pure functions in net.rs; no JS) The request
       policy and the full wire codec.
       (a) `js_request_policy(page: Option<&Url>, target: &Url, method:

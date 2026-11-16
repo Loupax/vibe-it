@@ -6772,3 +6772,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Implement TODO.txt QF2 from the QF design memo: spec-faithful in-memory Blob/File/FileReader and a blob: URL store in a new src/fetch_prelude.js (no I/O, no file picker, no network), `__blob_lookup(url)` for QF8/QF9, replacing the stub in url_prelude.js. Tests, WPT, js-report before/after, wikipedia screenshot.
 
 **What changed:** new src/fetch_prelude.js loaded in js.rs after the intl prelude; url_prelude.js stub removed. Blob (strings, ArrayBuffer, views, nested Blobs, endings, lowercased ASCII type, slice, text/arrayBuffer/bytes), File, FileReader (4 read methods, events, abort, readyState/result/error), createObjectURL/revokeObjectURL with a uuid-style store. Tests `qf2_*` (5). Left out: Blob.stream() until ReadableStream (QF4).
+
+## ReadableStream, Headers, Request, Response (QF4)
+
+> Implement TODO.txt QF4 from the QF design memo: spec-faithful data classes in src/fetch_prelude.js: Headers (guards, forbidden request headers, combining, sorted iteration, validation), minimal ReadableStream (default reader, controller; no tee/pipeTo/pipeThrough/BYOB), Request (method/url/body/signal/clone, body mixin), Response (status validation, error/redirect/json, clone, body mixin, bodyUsed), plus a documented internal `__make_response` hook for the future network layer. No fetch/XHR/network. Tests, WPT, js-report before/after on guardian, duckduckgo, wikipedia, HN, wikipedia screenshot.
+
+**What changed:** src/fetch_prelude.js (ReadableStream before Blob so `Blob.stream()` now exists; Headers/Request/Response at the end); tests `qf4_*` (8) in src/tests.rs; NOTES.md section. Left out (TODO.txt QF4a): tee/pipeTo/pipeThrough, BYOB, strategy.size, FormData bodies (QF13), cloning streamed bodies, no-cors header/method restrictions, multipart formData() parsing.

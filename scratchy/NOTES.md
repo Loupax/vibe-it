@@ -3210,3 +3210,26 @@ setTimeout(0). No I/O. The blob: URL store is a JS Map behind
 URL.createObjectURL/revokeObjectURL; QF8/QF9 read it with the global
 `__blob_lookup(url)` (Blob or undefined). `Blob.stream()` only exists if
 ReadableStream exists at load time (QF4). UTF-8 helpers are private to the file.
+
+## QF4: ReadableStream / Headers / Request / Response (data classes)
+
+Same file (src/fetch_prelude.js), all inside the one IIFE so they share the Blob
+byte helpers. No network. ReadableStream is minimal: a default reader
+(`read/cancel/releaseLock/closed`), `locked`, `cancel`, `values()`/async
+iteration, a controller (`enqueue/close/error/desiredSize`), `highWaterMark`
+counted in chunks. `tee/pipeTo/pipeThrough`, BYOB, TransformStream and
+WritableStream stay ABSENT on purpose (duckduckgo polyfills what is missing).
+Headers keep a lowercased `[name, value]` list plus a guard
+(none/request/response/immutable): iteration is sorted, values combined with
+`, `, Set-Cookie kept separate. Request/Response keep their state in WeakMaps;
+a body is `{bytes | src stream, lazily created stream, type, used}` and every
+consumer (`text/json/arrayBuffer/bytes/blob/formData`) goes through one
+`consume()` that rejects TypeError "body already used". Cloning a body that
+came from a page-supplied stream throws (no tee).
+
+INTERNAL HOOK for QF7/QF8: global `__make_response(status, statusText,
+headersPairs, bodyBytes, url, redirected, type)` builds a real Response
+(`headersPairs` = `[[name, value], ...]` in wire order). Headers get the
+`immutable` guard; for `basic`/`cors` Set-Cookie/Set-Cookie2 are dropped;
+`opaque`/`opaqueredirect`/`error` have status 0, no headers, no body, url ''.
+CORS-safelisted filtering of `cors` headers is the caller's job.

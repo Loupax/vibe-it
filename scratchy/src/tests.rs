@@ -11781,3 +11781,272 @@ fn qf2_object_url_registered_revoked_and_lookup() {
     );
     assert_eq!(log, ["log:true true", "log:true true undefined", "log:undefined true", "log:TypeError"], "{log:?}");
 }
+
+// ---------- QF4: ReadableStream, Headers, Request, Response ----------
+
+#[test]
+fn qf4_headers_normalise_combine_and_iterate_sorted() {
+    let log = run_with_timers(
+        "var h = new Headers({'X-B': ' two ', 'a-a': '1'});\
+         h.append('x-b', '3'); h.append('Set-Cookie', 'a=1'); h.append('set-cookie', 'b=2');\
+         console.log(JSON.stringify(Array.from(h)));\
+         console.log(h.get('X-B'), h.get('nope'), h.has('A-A'), JSON.stringify(h.getSetCookie()));\
+         h.set('X-B', 'only'); h.delete('a-a');\
+         console.log(JSON.stringify(Array.from(h.keys())), JSON.stringify(Array.from(h.values())));\
+         var seen = []; h.forEach(function (v, k, o) { seen.push(k + '=' + v + (o === h)); }); console.log(seen.join(';'));\
+         console.log(JSON.stringify(Array.from(new Headers([['b', '1'], ['A', '2']]))), JSON.stringify(Array.from(new Headers(h))));\
+         var bad = [function () { new Headers({'bad name': 'x'}); }, function () { new Headers().append('a', 'x\\ny'); },\
+           function () { new Headers([['a']]); }, function () { new Headers().append('a', '\\u0100'); }, function () { new Headers(5); }];\
+         console.log(bad.map(function (f) { try { f(); return 'ok'; } catch (e) { return e.name; } }).join());\
+         console.log(Object.prototype.toString.call(h), typeof h[Symbol.iterator], new Headers().get('x'));",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:[[\"a-a\",\"1\"],[\"set-cookie\",\"a=1\"],[\"set-cookie\",\"b=2\"],[\"x-b\",\"two, 3\"]]",
+            "log:two, 3 null true [\"a=1\",\"b=2\"]",
+            "log:[\"set-cookie\",\"set-cookie\",\"x-b\"] [\"a=1\",\"b=2\",\"only\"]",
+            "log:set-cookie=a=1true;set-cookie=b=2true;x-b=onlytrue",
+            "log:[[\"a\",\"2\"],[\"b\",\"1\"]] [[\"set-cookie\",\"a=1\"],[\"set-cookie\",\"b=2\"],[\"x-b\",\"only\"]]",
+            "log:TypeError,TypeError,TypeError,TypeError,TypeError",
+            "log:[object Headers] function null",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qf4_headers_guards_forbidden_and_immutable() {
+    let log = run_with_timers(
+        "var r = new Request('http://a.test/', {headers: {Cookie: 'x=1', Host: 'h', 'Sec-Fetch-Mode': 'x', 'Proxy-Foo': '1', Origin: 'o', 'X-Ok': '1', 'Content-Length': '3'}});\
+         console.log(JSON.stringify(Array.from(r.headers)));\
+         r.headers.set('Referer', 'x'); r.headers.append('Via', 'x'); console.log(r.headers.has('referer'), r.headers.has('via'));\
+         var s = new Response('x', {headers: {'Set-Cookie': 'a=1', 'X-Ok': '2'}});\
+         console.log(JSON.stringify(Array.from(s.headers)), s.headers.getSetCookie().length);\
+         var e = Response.error();\
+         try { e.headers.set('a', 'b'); } catch (x) { console.log(x.name); }\
+         var net = __make_response(200, 'OK', [['Set-Cookie', 'a=1'], ['Content-Type', 'text/x'], ['X', '1'], ['x', '2']], new Uint8Array([104, 105]), 'http://a.test/p', true, 'basic');\
+         console.log(JSON.stringify(Array.from(net.headers)), net.headers.get('set-cookie'), net.url, net.redirected, net.type);\
+         try { net.headers.append('a', 'b'); } catch (x) { console.log(x.name); }\
+         var op = __make_response(200, 'OK', [['a', 'b']], new Uint8Array([1]), 'http://a.test/', false, 'opaque');\
+         console.log(op.status, op.url === '', op.body, Array.from(op.headers).length);\
+         net.text().then(function (t) { console.log(t, net.bodyUsed); });",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:[[\"x-ok\",\"1\"]]",
+            "log:false false",
+            "log:[[\"content-type\",\"text/plain;charset=UTF-8\"],[\"x-ok\",\"2\"]] 0",
+            "log:TypeError",
+            "log:[[\"content-type\",\"text/x\"],[\"x\",\"1, 2\"]] null http://a.test/p true basic",
+            "log:TypeError",
+            "log:0 true null 0",
+            "log:hi true",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qf4_readablestream_reader_read_done_cancel() {
+    let log = run_with_timers(
+        "var ctl, cancelled = [], rs = new ReadableStream({start: function (c) { ctl = c; c.enqueue('a'); }, cancel: function (r) { cancelled.push(r); }});\
+         console.log(rs.locked, ctl.desiredSize, typeof rs.tee, typeof rs.pipeTo, typeof TransformStream);\
+         var rd = rs.getReader(); console.log(rs.locked);\
+         try { rs.getReader(); } catch (e) { console.log(e.name); }\
+         rd.read().then(function (r) { console.log(JSON.stringify(r)); ctl.enqueue('b'); ctl.close(); return rd.read(); })\
+           .then(function (r) { console.log(JSON.stringify(r)); return rd.read(); })\
+           .then(function (r) { console.log(r.done, r.value); return rd.closed; })\
+           .then(function () { rd.releaseLock(); console.log(rs.locked); return rd.read().catch(function (e) { console.log(e.name); }); })\
+           .then(function () {\
+              var s2 = new ReadableStream({pull: function (c) { c.enqueue(1); }, cancel: function (r) { cancelled.push(r); }}, {highWaterMark: 0});\
+              var r2 = s2.getReader();\
+              return r2.read().then(function (x) { console.log('pulled', x.value); return r2.cancel('bye'); }).then(function () { console.log(cancelled.join()); return r2.read(); });\
+           }).then(function (x) { console.log('after cancel', x.done);\
+              var s3 = new ReadableStream({start: function (c) { c.error(new Error('boom')); }});\
+              return s3.getReader().read().catch(function (e) { console.log(e.message); });\
+           }).then(function () {\
+              var s4 = new ReadableStream({start: function (c) { c.enqueue('x'); c.enqueue('y'); c.close(); }}), out = [];\
+              return (async function () { for await (var v of s4) out.push(v); console.log(out.join(), s4.locked); })();\
+           });",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:false 0 undefined undefined undefined",
+            "log:true",
+            "log:TypeError",
+            "log:{\"value\":\"a\",\"done\":false}",
+            "log:{\"value\":\"b\",\"done\":false}",
+            "log:true undefined",
+            "log:false",
+            "log:TypeError",
+            "log:pulled 1",
+            "log:bye",
+            "log:after cancel true",
+            "log:boom",
+            "log:x,y false",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qf4_request_method_url_headers_and_body_rules() {
+    let log = run_with_timers(
+        "var r = new Request('http://a.test/p?q#f', {method: 'post', body: 'héllo', headers: {A: '1'}});\
+         console.log(r.url, r.method, r.mode, r.credentials, r.cache, r.redirect, r.referrer, r.keepalive, JSON.stringify(Array.from(r.headers)));\
+         console.log(new Request('http://a.test/', {method: 'patch'}).method, new Request('http://a.test/', {method: 'Options'}).method);\
+         var t = ['CONNECT', 'trace', 'TRACK', 'bad method'].map(function (m) { try { new Request('http://a.test/', {method: m}); return 'ok'; } catch (e) { return e.name; } });\
+         console.log(t.join());\
+         var g = [function () { new Request('http://a.test/', {body: 'x'}); }, function () { new Request('http://a.test/', {method: 'HEAD', body: 'x'}); },\
+           function () { new Request('http://u:p@a.test/'); }, function () { new Request('/rel'); }, function () { new Request(); },\
+           function () { new Request('http://a.test/', {mode: 'navigate'}); }, function () { new Request('http://a.test/', {cache: 'zzz'}); }];\
+         console.log(g.map(function (f) { try { f(); return 'ok'; } catch (e) { return e.name; } }).join());\
+         var c = new Request(r, {method: 'PUT'}); console.log(c.method, c.url, r.bodyUsed, c.headers.get('a'), c.headers.get('content-type'));\
+         var ab = new AbortController(), q = new Request('http://a.test/', {signal: ab.signal});\
+         console.log(q.signal.aborted, q.signal === ab.signal); ab.abort(); console.log(q.signal.aborted);\
+         console.log(new Request('http://a.test/', {signal: AbortSignal.abort()}).signal.aborted, Object.prototype.toString.call(q));\
+         var u = new Request('http://a.test/', {method: 'POST', body: new URLSearchParams({a: '1 2'})});\
+         console.log(u.headers.get('content-type'));\
+         u.text().then(function (s) { console.log(s, u.bodyUsed); });\
+         new Request('http://a.test/', {method: 'POST', body: new Blob(['xy'], {type: 'text/Foo'})}).text().then(function (s) { console.log(s); });\
+         new Request('http://a.test/', {method: 'POST', body: new Uint8Array([104, 105])}).arrayBuffer().then(function (b) { console.log(b.byteLength); });\
+         try { new Request('http://a.test/', {method: 'POST', body: {}}).text().then(function (s) { console.log(s); }); } catch (e) { console.log(e.name); }",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:http://a.test/p?q#f POST cors same-origin default follow about:client false [[\"a\",\"1\"],[\"content-type\",\"text/plain;charset=UTF-8\"]]",
+            "log:patch OPTIONS",
+            "log:TypeError,TypeError,TypeError,TypeError",
+            "log:TypeError,TypeError,TypeError,TypeError,TypeError,TypeError,TypeError",
+            "log:PUT http://a.test/p?q#f true 1 text/plain;charset=UTF-8",
+            "log:false false",
+            "log:true",
+            "log:true [object Request]",
+            "log:application/x-www-form-urlencoded;charset=UTF-8",
+            "log:a=1+2 true",
+            "log:xy",
+            "log:2",
+            "log:[object Object]",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qf4_request_relative_url_resolves_against_base_href() {
+    set_page_url(Url::parse("https://page.test/dir/index.html").ok().as_ref());
+    let log = run_in_html(
+        "<html><head><base href=https://x.org/d/></head><body></body></html>",
+        "console.log(new Request('').url, new Request('sub/x?y').url, new Request('/abs').url);\
+         console.log(Response.redirect('r', 301).headers.get('location'));",
+    );
+    assert_eq!(log, ["log:https://x.org/d/ https://x.org/d/sub/x?y https://x.org/abs", "log:https://x.org/d/r"], "{log:?}");
+    set_page_url(None);
+}
+
+#[test]
+fn qf4_request_clone_and_body_used() {
+    let log = run_with_timers(
+        "var r = new Request('http://a.test/', {method: 'POST', body: 'abc'});\
+         var c = r.clone(); console.log(r.bodyUsed, c.bodyUsed, c.method, c.url, c.headers === r.headers, c.headers.get('content-type'));\
+         r.text().then(function (t) {\
+           console.log(t, r.bodyUsed, c.bodyUsed);\
+           return r.text().then(function () { console.log('no'); }, function (e) { console.log(e.name, /already used/.test(e.message)); });\
+         }).then(function () {\
+           try { r.clone(); } catch (e) { console.log('clone', e.name); }\
+           try { new Request(r); } catch (e) { console.log('ctor', e.name); }\
+           return c.json().catch(function (e) { console.log('json', e.name); });\
+         }).then(function () {\
+           var n = new Request('http://a.test/', {method: 'POST', body: 'zz'}), m = new Request(n);\
+           console.log(n.bodyUsed, m.bodyUsed); return m.text();\
+         }).then(function (t) { console.log(t);\
+           var ab = new Request('http://a.test/', {method: 'POST', body: 'qq'}).body;\
+           console.log(ab instanceof ReadableStream, new Request('http://a.test/').body);\
+           return ab.getReader().read();\
+         }).then(function (x) { console.log(x.value.length, x.done); });",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:false false POST http://a.test/ false text/plain;charset=UTF-8",
+            "log:abc true false",
+            "log:TypeError true",
+            "log:clone TypeError",
+            "log:ctor TypeError",
+            "log:json SyntaxError",
+            "log:true false",
+            "log:zz",
+            "log:true null",
+            "log:2 false",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qf4_response_status_json_text_clone_error_redirect() {
+    let log = run_with_timers(
+        "var r = new Response('hi', {status: 201, statusText: 'Made', headers: {X: '1'}});\
+         console.log(r.status, r.statusText, r.ok, r.type, JSON.stringify(r.url), r.redirected, r.headers.get('content-type'), r.headers.get('x'));\
+         var bad = [99, 600, 0, 1000].map(function (s) { try { new Response('', {status: s}); return 'ok'; } catch (e) { return e.name; } });\
+         console.log(bad.join(), new Response().status, new Response(null, {status: 404}).ok, new Response().statusText === '');\
+         try { new Response('x', {status: 204}); } catch (e) { console.log(e.name); }\
+         try { new Response('x', {statusText: 'a\\nb'}); } catch (e) { console.log(e.name); }\
+         var e = Response.error(); console.log(e.type, e.status, e.ok, e.body);\
+         var d = Response.redirect('http://a.test/x', 307); console.log(d.status, d.headers.get('location'), d.type);\
+         try { Response.redirect('http://a.test/', 200); } catch (x) { console.log(x.name); }\
+         var j = Response.json({a: [1, 'é']}, {status: 202, headers: {'x-y': 'z'}});\
+         console.log(j.status, j.headers.get('content-type'), j.headers.get('x-y'));\
+         try { Response.json(undefined); } catch (x) { console.log(x.name); }\
+         j.clone().text().then(function (t) { console.log(t, j.bodyUsed); return j.json(); })\
+          .then(function (v) { console.log(JSON.stringify(v), j.bodyUsed); return j.text().catch(function (x) { console.log(x.name, /already used/.test(x.message)); }); })\
+          .then(function () { try { j.clone(); } catch (x) { console.log('clone', x.name); }\
+            return new Response('héllo', {headers: {'content-type': 'Text/HTML'}}).blob(); })\
+          .then(function (b) { console.log(b.size, b.type, b instanceof Blob);\
+            return new Response(new Uint8Array([1, 2, 3])).arrayBuffer(); })\
+          .then(function (b) { console.log(b.byteLength); return new Response(new Blob(['xyz'], {type: 'a/b'})).bytes(); })\
+          .then(function (b) { console.log(Array.from(b).join(), new Response(new Blob(['x'], {type: 'a/b'})).headers.get('content-type'));\
+            return new Response('a=1&b=2').formData().catch(function (x) { console.log('fd', x.name === 'NotSupportedError' || x.name === 'TypeError'); }); })\
+          .then(function () { return new Response(new ReadableStream({start: function (c) { c.enqueue(new Uint8Array([104])); c.enqueue(new Uint8Array([105])); c.close(); }})).text(); })\
+          .then(function (t) { console.log('stream', t); });",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:201 Made true default \"\" false text/plain;charset=UTF-8 1",
+            "log:RangeError,RangeError,RangeError,RangeError 200 false true",
+            "log:TypeError",
+            "log:TypeError",
+            "log:error 0 false null",
+            "log:307 http://a.test/x default",
+            "log:RangeError",
+            "log:202 application/json z",
+            "log:TypeError",
+            "log:{\"a\":[1,\"é\"]} false",
+            "log:{\"a\":[1,\"é\"]} true",
+            "log:TypeError true",
+            "log:clone TypeError",
+            "log:6 text/html true",
+            "log:3",
+            "log:120,121,122 a/b",
+            "log:fd true",
+            "log:stream hi",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qf4_blob_stream_and_body_stream_read_marks_used() {
+    let log = run_with_timers(
+        "var b = new Blob(['abc']); console.log(typeof b.stream);\
+         b.stream().getReader().read().then(function (x) { console.log(x.value.length, x.done); });\
+         var r = new Response('abc'); var rd = r.body.getReader(); console.log(r.bodyUsed);\
+         rd.read().then(function () { console.log(r.bodyUsed); return r.text().catch(function (e) { console.log(e.name); }); });",
+    );
+    assert_eq!(log, ["log:function", "log:false", "log:3 false", "log:true", "log:TypeError"], "{log:?}");
+}
