@@ -6874,6 +6874,12 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 
 **What changed:** TODO.txt ("DESIGN MEMO (QSD)" block first in the QUEUE: SD-D1..D4, QSD0-QSD12, QY6f promoted; notes on the QY6 memo and QY6f/QY6g), REGRESSIONS.md (R23). Finding: both "appendChild" errors are `template.content` (QY6f), not shadow DOM; a scratchy fragment-wrapper bug (QSD0) is next; with stand-ins github's startup errors go 29 -> 1. No code changed.
 
+## Fragment wrappers must not assign query methods per instance (QSD0)
+
+> GitHub popover polyfill makes DocumentFragment.prototype.querySelectorAll read-only; wrap() then assigns it onto each fragment wrapper and throws in strict mode. Define the query methods once on the prototype; test that freezing/overriding it does not break fragment wrappers.
+
+**What changed:** src/js_dom.rs (wrap no longer calls queries(o); queries(DocumentFragment.prototype) once), test qsd0_readonly_fragment_query_methods_do_not_break_wrappers in src/tests.rs; TODO.txt, NOTES.md.
+
 ## QA11 merge (PR #162, after QA11a/PR #167)
 
 > Merge PR #162 once QA11a landed: merge origin/main, rerun cargo test and WPT, visual check.
@@ -6885,3 +6891,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Implement the scratchy half of the cookie jar (design QF-D2a): send `X-Wire-Jar: scratchy` + `X-Wire-Top-Site` (+ Nav/Initiator for navigations) on all requests except Fetch-spec no-credentials ones, one header builder, `document.cookie` through wire's control channel (synchronous, short timeout), old-wire detection logged once, `--js-report` jar/cookie lines, tests with fakes, live check against a private wire.
 
 **What changed:** src/net_policy.rs (cookie section: `site_of`, `CookieSupport`, `CookieContext`, `wire_cookie_headers`, `cookie_control_headers`, `cookie_control_timeout_ms`), src/net.rs (`build_get_request_ctx`, `top` parameter on every sub-resource loader, learning from responses), src/js_net.rs (fetch/XHR credentials -> jar, `cookie_op`, natives, `jar` in the network report), src/js.rs (`document.cookie` on Document.prototype, `--- cookies ---` report line), src/app.rs (`nav_initiator`, `start_navigation_as`), tests `qf14b_*`, NOTES.md, TODO.txt.
+
+## template.content and importNode (QY6f)
+
+> Implement template.content (inert second document, parser content wired, innerHTML/outerHTML/cloneNode go through it), document.importNode/adoptNode, template UA display:none; GitHub task-lists and YouTube head.appendChild(template.content) must stop throwing.
+
+**What changed:** src/js_dom.rs (template_content helper, own serializer printing template content, set_inner_html and clone_node via content, __d_template_content native, HTMLTemplateElement.content getter with one lazy inert document, doc.importNode/adoptNode, cloneNode keeps the node document and inert clones are never upgraded), src/default.css (template display:none), tests qy6f_* in src/tests.rs; NOTES.md; TODO.txt.

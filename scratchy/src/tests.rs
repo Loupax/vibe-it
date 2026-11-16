@@ -14903,3 +14903,121 @@ fn qf14b_js_report_has_a_cookie_smoke_line() {
     assert!(report.contains("--- cookies ---\ndocument.cookie: "), "{report}");
     assert!(report.contains("errors total: 0"), "{report}");
 }
+
+// ---- QY6f: template.content, importNode.
+
+#[test]
+fn qy6f_parsed_template_content_innerhtml_and_outerhtml() {
+    let log = run_in_html(
+        "<html><body><template id=t><p class=x>a</p><b>b</b></template><div id=d></div></body></html>",
+        r#"const t = document.getElementById('t');
+         console.log(t.childNodes.length, t.content.childNodes.length, t.content === t.content, t.content.nodeType);
+         console.log(t.innerHTML);
+         console.log(t.outerHTML);
+         console.log(t.content.querySelector('p.x').textContent, t.content.querySelectorAll('*').length);
+         console.log(document.querySelector('p.x'), t.content.ownerDocument === document, t.content.ownerDocument.nodeType);
+         t.innerHTML = '<i>z</i>';
+         console.log(t.content.childNodes.length, t.content.firstChild.localName, t.innerHTML);
+         console.log(t instanceof HTMLTemplateElement);"#,
+    );
+    assert_eq!(
+        log,
+        [
+            "log:0 2 true 11",
+            "log:<p class=\"x\">a</p><b>b</b>",
+            "log:<template id=\"t\"><p class=\"x\">a</p><b>b</b></template>",
+            "log:a 2",
+            "log:null false 9",
+            "log:1 i <i>z</i>",
+            "log:true",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy6f_created_template_clone_import_and_append_fragment() {
+    let log = run_in_html(
+        "<html><body><div id=d></div></body></html>",
+        r#"const t = document.createElement('template');
+         const p = document.createElement('p'); p.textContent = 'hi';
+         t.content.appendChild(p);
+         console.log(t.content.childNodes.length, t.childNodes.length, t.innerHTML, p.ownerDocument === t.content.ownerDocument);
+         const c = t.cloneNode(true);
+         console.log(c.content !== t.content, c.content.childNodes.length, c.content.firstChild !== p, c.innerHTML);
+         const shallow = t.cloneNode(false);
+         console.log(shallow.content.childNodes.length);
+         const fc = t.content.cloneNode(true);
+         console.log(fc.childNodes.length, fc.firstChild.ownerDocument === t.content.ownerDocument);
+         const imp = document.importNode(t.content, true);
+         console.log(imp.childNodes.length, imp.firstChild.ownerDocument === document, t.content.childNodes.length);
+         const d = document.getElementById('d');
+         d.appendChild(imp);
+         console.log(d.innerHTML, imp.childNodes.length);
+         document.body.appendChild(t.content);
+         console.log(t.content.childNodes.length, document.body.querySelectorAll('p').length, p.ownerDocument === document);"#,
+    );
+    assert_eq!(
+        log,
+        [
+            "log:1 0 <p>hi</p> true",
+            "log:true 1 true <p>hi</p>",
+            "log:0",
+            "log:1 true",
+            "log:1 true 1",
+            "log:<p>hi</p> 0",
+            "log:0 2 true",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy6f_content_is_inert_no_custom_element_upgrade() {
+    let log = run_in_html(
+        "<html><body><template id=t><x-q></x-q></template></body></html>",
+        r#"let n = 0;
+         class XQ extends HTMLElement { constructor() { super(); n++; } }
+         customElements.define('x-q', XQ);
+         const t = document.getElementById('t');
+         const e = t.content.firstChild;
+         t.innerHTML = '<x-q></x-q>';
+         const cl = t.content.cloneNode(true);
+         console.log(n, e instanceof XQ, t.content.firstChild instanceof XQ, cl.firstChild instanceof XQ);
+         const im = document.importNode(t.content, true);
+         console.log(n, im.firstChild instanceof XQ);
+         document.body.appendChild(t.content);
+         console.log(n, document.body.lastChild instanceof XQ);"#,
+    );
+    assert_eq!(log, ["log:0 false false false", "log:1 true", "log:2 true"], "{log:?}");
+}
+
+#[test]
+fn qy6f_template_is_not_rendered() {
+    let doc = parse_html("<html><body><p>shown</p><template><p>TPLTEXT</p></template><template id=u></template></body></html>");
+    run_scripts_in(&doc, &[src("document.getElementById('u').appendChild(document.createTextNode('OWNKID'));")], Rc::new(|_, _| {}));
+    let tree = build_layout_tree(&doc, 1920.0);
+    let mut texts = Vec::new();
+    q19_texts(&tree, &mut texts);
+    assert!(texts.iter().any(|(t, _)| t.contains("shown")), "{texts:?}");
+    assert!(!texts.iter().any(|(t, _)| t.contains("TPLTEXT") || t.contains("OWNKID")), "{texts:?}");
+}
+
+// ---- QSD0: fragment wrappers must not assign query methods per instance.
+
+#[test]
+fn qsd0_readonly_fragment_query_methods_do_not_break_wrappers() {
+    let log = run_in_html(
+        "<html><body><div id=a><p class=c>x</p></div></body></html>",
+        r#"'use strict';
+         Object.defineProperty(DocumentFragment.prototype, 'querySelectorAll',
+           { value: function () { return ['page']; } });
+         Object.freeze(DocumentFragment.prototype);
+         const f = document.createDocumentFragment();
+         const p = document.createElement('p');
+         f.appendChild(p);
+         console.log(f.querySelectorAll('p')[0], f.querySelector('p') === p, f.getElementsByTagName('p').length);
+         console.log(document.querySelectorAll('p.c').length, document.getElementById('a').querySelector('.c').tagName);"#,
+    );
+    assert_eq!(log, ["log:page true 1", "log:1 P"], "{log:?}");
+}

@@ -3355,6 +3355,10 @@ wire now answers `X-Wire-Version: 2` on every response; an old wire sends none. 
 
 wire (version 3) owns a memory-only cookie jar, partitioned by top-level site and selected per request with `X-Wire-Jar: scratchy` (scratchy sends the headers in QF14b-scratchy; until then nothing changes). With the jar, wire strips `Set-Cookie` from answers and ignores a client `Cookie` header; `document.cookie` will go through wire's control channel (`X-Wire-Cookie-Op`). scratchy detects the jar by `X-Wire-Cookies: on|off` plus the version. Details and limits: wire/NOTES.md "The cookie jar".
 
+## QSD0: query methods on prototypes only
+
+querySelector/All and getElementsByTagName/ClassName are installed once on Element.prototype, DocumentFragment.prototype and document (queries(P)); wrap() assigns nothing per instance, so a page may redefine or freeze them (GitHub popover polyfill does) without breaking fragment wrappers.
+
 ## Border width defaults (QA11a)
 
 A border with a style but no width is `medium` (3px); `thin/medium/thick` are 1/3/5px; an unset or inherited border colour paints as the element's own `color` (currentColor). Two WPT tests that only passed while unset colours painted nothing (`row-group-margin-border-padding`, `table-rules-rows-vertical`) are accepted failures until QA11a2 (real border-collapse).
@@ -3366,3 +3370,7 @@ scratchy sends the jar headers wire (QF14) understands; ALL of them are built in
 `document.cookie` is an accessor on `Document.prototype` over natives `__cookie_get`/`__cookie_set` (js_net.rs `NetState::cookie_op`): a SYNCHRONOUS control request through the same `NetExecutor`, blocking the engine thread for at most `RequestPolicy::cookie_control_timeout_ms` (2 s). Any failure is logged once (`document.cookie: ...`) and it reads '' for the rest of the page; no `--socket` is silent. Second documents (iframe contentDocument, createHTMLDocument) read '' and ignore sets.
 
 Old wire: `CookieSupport` learns from the first jar response (`X-Wire-Version >= 3` and `X-Wire-Cookies: on`); too old or `off` logs ONCE `scratchy: cookies unavailable: wire is too old (restart it)` / `wire has cookies disabled` and no jar header is sent afterwards. wire v2 strips every `X-Wire-*` request header (checked in git history, QF6 `is_request_header_to_skip`); a v1 wire (before QF6) would forward them upstream, but the first request of a session is the top-level navigation whose top site is its own destination, so only that site name leaks. Not done: `cookieStore`, the `crossorigin` attribute credentials mode for img/script/module (they always use the jar), dropping same-origin-mode credentials on a cross-origin redirect hop, the access token for the control channel (wire hook `control_authorized`), `--profile`.
+
+## QY6f: template.content
+
+html5ever fills `template_contents` (a Document-data node = kind 11 fragment); `template_content(h)` creates it on demand. `__d_template_content(id)` exposes it; the JS `content` getter maps it to ONE lazily made inert document (`makeDoc`, via `owners`), so ownerDocument is inert and custom elements in it are never upgraded (ceIsConn is false, and the cloneNode hook skips non-main documents). rcdom serializes only `children`, so `serialize_node` is our own walk that prints template content. innerHTML set parses into the content; deep clone copies it. appendChild on the template element itself still adds ordinary children (hidden by `template { display:none }`). Not done: shadowrootmode (QSD3/9).

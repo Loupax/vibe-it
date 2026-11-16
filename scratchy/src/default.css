@@ -49,7 +49,7 @@
    them, and is what actually keeps `head`'s other children (`title`/
    `meta`/`link`/`base`) from rendering: once `head` itself resolves to
    `display: none`, nothing underneath it is ever visited at all. */
-head, title, meta, link, base { display: none; }
+head, title, meta, link, base, template { display: none; }
 dialog:not([open]) { display: none; }
 /* QB4: dialog[open] is out of flow and centred horizontally; a modal one
    (showModal sets data-scratchy-modal, since :modal isn't supported) is
