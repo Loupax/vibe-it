@@ -263,6 +263,7 @@ pub(crate) fn resolve_specifier(spec: &str, referrer: &str, map: &ImportMap, doc
 /// Static `import`/`export ... from` specifiers plus dynamic `import('lit')`
 /// literals, found by a small comment/string/template/regex-aware scan
 /// (not a parser: a miss only means the module is not pre-fetched).
+#[cfg(test)]
 pub(crate) fn scan_import_specifiers(src: &str) -> Vec<String> {
     scan_imports(src).into_iter().map(|(s, _)| s).collect()
 }
