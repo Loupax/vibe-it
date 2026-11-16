@@ -10231,3 +10231,106 @@ fn qw3_divider_line_is_hidden_behind_z_indexed_inline_button() {
     }
     assert!(blue > 20, "button border must paint, got {blue} blue pixels");
 }
+
+// ---------- QA20: table and form DOM interfaces ----------
+
+#[test]
+fn qa20_table_rows_cells_and_sections() {
+    let log = run_in_html(
+        "<html><body><table id=t><caption>c</caption><thead><tr><th>h</th></tr></thead>\
+         <tbody><tr id=r1><td>a</td><td colspan=3 rowspan=2>b</td></tr><tr id=r2><td>c</td></tr></tbody>\
+         <tfoot><tr><td>f</td></tr></tfoot></table></body></html>",
+        "var t=document.getElementById('t'), r2=document.getElementById('r2'), r1=document.getElementById('r1');\
+         console.log(t.rows.length, t.tBodies.length, t.tHead.tagName, t.tFoot.tagName, t.caption.tagName);\
+         console.log(r2.rowIndex, r2.sectionRowIndex, r1.cells.length, r1.cells[1].cellIndex, r1.cells[1].colSpan, r1.cells[1].rowSpan, r1.cells[0].colSpan);\
+         console.log(t.rows[0].parentNode.tagName, t.rows[3].parentNode.tagName, t.rows.item(1)===r1, t instanceof HTMLTableElement, r1 instanceof HTMLTableRowElement, r1.cells[0] instanceof HTMLTableCellElement);",
+    );
+    assert_eq!(log, ["log:4 1 THEAD TFOOT CAPTION", "log:2 1 2 1 3 2 1", "log:THEAD TFOOT true true true true"], "{log:?}");
+}
+
+#[test]
+fn qa20_table_insert_delete_and_create() {
+    let log = run_in_html(
+        "<html><body><table id=t></table></body></html>",
+        "var t=document.getElementById('t');\
+         var r=t.insertRow(); var c=r.insertCell(); c.textContent='x'; r.insertCell(0).textContent='y';\
+         console.log(t.rows.length, t.tBodies.length, r.cells.length, r.cells[0].textContent, r.cells[1].textContent);\
+         t.insertRow(0); console.log(t.rows.length, t.rows[1]===r);\
+         t.deleteRow(0); console.log(t.rows.length, t.rows[0]===r); r.deleteCell(-1); console.log(r.cells.length);\
+         var h=t.createTHead(); console.log(h===t.createTHead(), t.tHead===h, t.firstChild===h);\
+         var cap=t.createCaption(); console.log(t.firstChild===cap, t.caption===cap);\
+         var f=t.createTFoot(); console.log(t.lastChild===f); t.deleteTHead(); t.deleteCaption(); t.deleteTFoot();\
+         console.log(t.tHead, t.caption, t.tFoot);\
+         try { t.insertRow(9); } catch (e) { console.log(e.name); }\
+         try { t.deleteRow(9); } catch (e) { console.log(e.name); }",
+    );
+    assert_eq!(
+        log,
+        ["log:1 1 2 y x", "log:2 true", "log:1 true", "log:1", "log:true true true", "log:true true", "log:true", "log:null null null", "log:IndexSizeError", "log:IndexSizeError"],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qa20_forms_collection_and_elements_named_access() {
+    let log = run_in_html(
+        "<html><body><form id=f1 name=first action=/go method=post><input name=a value=1><select name=s><option>x<option selected value=v>y</select>\
+         <textarea name=ta>hi</textarea><button name=b>go</button><input type=image name=img></form>\
+         <form id=f2><input id=z></form></body></html>",
+        "var f=document.forms[0];\
+         console.log(document.forms.length, f.id, document.forms.f2.id, document.forms.namedItem('first')===f, f.length, f.elements.length);\
+         console.log(f.elements.a.value, f.elements.namedItem('s').tagName, f.elements[2].name, f.elements.img, f.action, f.method);\
+         console.log(document.forms.f2.elements.z.form===document.forms.f2, typeof f.submit, typeof f.reset);",
+    );
+    assert_eq!(log, ["log:2 f1 f2 true 4 4", "log:1 SELECT ta undefined /go post", "log:true function function"], "{log:?}");
+}
+
+#[test]
+fn qa20_form_control_reflections() {
+    let log = run_in_html(
+        "<html><body><form id=f><input id=i name=n value=v><input id=c type=checkbox checked><input id=bad type=bogus>\
+         <button id=b></button><button id=b2 type=button></button>\
+         <select id=s><option id=o1>one</option><option id=o2 value=2 selected>two</option></select>\
+         <label id=l for=i>L</label><textarea id=ta>t</textarea><input id=d disabled></form></body></html>",
+        "var $=function(i){return document.getElementById(i)};\
+         console.log($('i').type, $('i').name, $('i').value, $('c').type, $('c').checked, $('bad').type, $('d').disabled, $('i').form===$('f'));\
+         console.log($('b').type, $('b2').type, $('s').type, $('s').options.length, $('s').selectedIndex, $('s').value, $('o1').value, $('o2').value, $('o2').selected, $('o2').defaultSelected, $('o2').index);\
+         $('s').selectedIndex=0; console.log($('s').value, $('o2').selected);\
+         $('i').type='password'; $('i').name='m'; $('c').checked=false; console.log($('i').getAttribute('type'), $('i').name, $('c').checked);\
+         console.log($('l').htmlFor, $('l').control===$('i'), $('ta').value, $('ta').type);\
+         var o=document.createElement('option'); o.text='three'; $('s').add(o); console.log($('s').length, $('s').options[2].value);",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:text n v checkbox true text true true",
+            "log:submit button select-one 2 1 2 one 2 true true 1",
+            "log:one false",
+            "log:password m false",
+            "log:i true t textarea",
+            "log:3 three"
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qa20_map_areas_and_form_global_constructors() {
+    let log = run_in_html(
+        "<html><body><map id=m name=mm><area id=a1 shape=rect coords='0,0,1,1' href=x><area id=a2></map><img usemap='#mm'></body></html>",
+        "var m=document.getElementById('m');\
+         console.log(m.areas.length, m.areas[0].shape, m.areas[0].coords, m.name, m.images.length, m instanceof HTMLMapElement, m instanceof HTMLElement, typeof HTMLFormElement);",
+    );
+    assert_eq!(log, ["log:2 rect 0,0,1,1 mm 1 true true function"], "{log:?}");
+}
+
+#[test]
+fn qa20_input_value_property_is_separate_from_the_attribute_and_meta_http_equiv() {
+    let log = run_in_html(
+        "<html><body></body></html>",
+        "var i=document.createElement('input'); i.value='test';\
+         console.log(i.hasAttribute('value'), i.value, i.defaultValue);\
+         var m=document.createElement('meta'); m.setAttribute('http-equiv','x'); console.log(m.httpEquiv, m.hasAttribute('httpEquiv'));",
+    );
+    assert_eq!(log, ["log:false test ", "log:x false"], "{log:?}");
+}

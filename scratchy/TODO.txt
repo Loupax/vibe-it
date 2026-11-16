@@ -1392,13 +1392,26 @@ into the commit message of every JS item.
 - [ ] QA19 [L] (P4, JS) DOM Range (`document.createRange`, boundary
       points, `extractContents`/`deleteContents`/`cloneContents`/
       `insertNode`, mutation fixups). Acid3 T7-T13. Only after QA18.
-- [ ] QA20 [M] (P4, JS) HTML element DOM interfaces Acid3 bucket 4 uses:
+- [x] QA20 (HASH) [M] (P4, JS) HTML element DOM interfaces Acid3 bucket 4 uses:
       table (`tBodies`, `rows`, `cells`, `insertRow/deleteRow`,
       `createCaption/createTHead/createTFoot`), `form.elements` (named
       access), reflected `input.type/name/value/checked`, `button.type`
       (default `submit`), `select.add/options/selectedIndex`,
       `option.defaultSelected`, `label.htmlFor`. Overlaps Q33e (live form
       state stays there). Acid3 T29, T49-T59, T62.
+      Done as a pure-JS prelude (tag-specific prototypes in `wrap` via
+      `tagProto`): document.forms/images/links/anchors, HTMLTable*/Section/
+      Row/Cell/Caption/Col, HTMLFormElement (elements, length, submit/reset
+      no-op stubs), Input/Button/TextArea/Select/Option/OptGroup/Label/
+      FieldSet/Output/Meta/Map/Area reflections. Acid3 41 -> 51/100 (T29,
+      T49-T52, T53, T57-T59, T62 pass). `input.value` is a dirty value held
+      on the wrapper, not live widget state (Q33e).
+- [ ] QA20a [S] (P4, JS) Left out of QA20: radio-group `checked` semantics
+      (T56), `input.click()` and form `submit` events (T54, Q33d1), named
+      access on the form object itself (`form.fieldname`), `new Option()`/
+      `new Image` style constructors, `select.options.length = n`, `form`
+      attribute controls in document order.
+
 - [ ] QA21 [M] (P4) `<object data>`: an image (data: URI, or fetched with
       an image MIME) renders as a replaced inline image sized like `<img>`
       (its children are then not rendered); an unsupported type, a

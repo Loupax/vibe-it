@@ -551,13 +551,13 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
 /// `document`). Element event listeners are stored but never fired yet.
 const DOM_PRELUDE: &str = r#"
 (function (g) {
-  var doc = g.document, cache = {};
+  var doc = g.document, cache = {}, tagProto = Object.create(null);
   var queries;
   var wrap = function (id) {
     if (id === undefined || id < 0) return null;
     if (cache[id]) return cache[id];
     var k = __d_kind(id), tg = k === 1 ? __d_tag(id).toLowerCase() : '';
-    var o = Object.create(k === 1 ? (tg === 'dialog' ? HTMLDialogElement.prototype : tg === 'canvas' ? HTMLCanvasElement.prototype : HTMLElement.prototype)
+    var o = Object.create(k === 1 ? (tagProto[tg] || HTMLElement.prototype)
       : k === 3 ? Text.prototype : k === 8 ? Comment.prototype : k === 11 ? DocumentFragment.prototype : Node.prototype);
     Object.defineProperty(o, '__id', { value: id });
     if (__d_kind(id) === 11) { queries(o); }
@@ -1132,6 +1132,299 @@ const DOM_PRELUDE: &str = r#"
     ev.isTrusted = true;
     return __scratchy_dispatch(t, ev);
   } });
+  // QA20: table and form element interfaces, as reflections of attributes and
+  // of the tree (live form state is Q33e). Collections are plain arrays with
+  // `item`/`namedItem` and name/id properties added.
+  tagProto.dialog = HTMLDialogElement.prototype;
+  tagProto.canvas = HTMLCanvasElement.prototype;
+  var mkProto = function (name, tags, base) {
+    var C = ({ [name]: function () { throw new TypeError('Illegal constructor'); } })[name];
+    C.prototype = Object.create((base || HTMLElement).prototype, { constructor: { value: C, writable: true, configurable: true } });
+    g[name] = C;
+    tags.forEach(function (t) { tagProto[t] = C.prototype; });
+    return C.prototype;
+  };
+  var ga = function (el, n) { var v = __d_attr(el.__id, n); return v == null ? '' : v; };
+  var rStr = function (P, prop, attr, dflt) {
+    defs(P, prop, function () { var v = __d_attr(this.__id, attr); return v == null ? (dflt || '') : v; },
+      function (v) { __d_setattr(this.__id, attr, String(v)); });
+  };
+  var rBool = function (P, prop, attr) {
+    defs(P, prop, function () { return __d_attr(this.__id, attr) != null; },
+      function (v) { if (v) __d_setattr(this.__id, attr, ''); else __d_rmattr(this.__id, attr); });
+  };
+  var rInt = function (P, prop, attr, dflt, min) {
+    defs(P, prop, function () { var v = parseInt(__d_attr(this.__id, attr), 10); return v >= (min || 0) ? v : dflt; },
+      function (v) { __d_setattr(this.__id, attr, String(Math.floor(Number(v)) || 0)); });
+  };
+  var coll = function (arr) {
+    var named = function (n) {
+      n = String(n);
+      for (var i = 0; i < arr.length; i++) if (arr[i].id === n || ga(arr[i], 'name') === n) return arr[i];
+      return null;
+    };
+    Object.defineProperty(arr, 'item', { value: function (i) { return arr[i] || null; }, configurable: true });
+    Object.defineProperty(arr, 'namedItem', { value: named, configurable: true });
+    arr.forEach(function (e) {
+      [e.id, ga(e, 'name')].forEach(function (n) {
+        if (n && !(n in arr) && !/^\d+$/.test(n)) Object.defineProperty(arr, n, { value: e, configurable: true });
+      });
+    });
+    return arr;
+  };
+  var kidsOf = function (el, tags) { return el.children.filter(function (c) { return tags.indexOf(c.localName) >= 0; }); };
+  var newEl = function (t) { return doc.createElement(t); };
+  var idxErr = function (m) { return herr(m, 'IndexSizeError'); };
+  def(doc, 'forms', function () { return coll(doc.querySelectorAll('form')); });
+  def(doc, 'images', function () { return coll(doc.querySelectorAll('img')); });
+  def(doc, 'links', function () { return coll(doc.querySelectorAll('a[href], area[href]')); });
+  def(doc, 'anchors', function () { return coll(doc.querySelectorAll('a[name]')); });
+
+  // ---- tables
+  var secRows = function (sec) { return kidsOf(sec, ['tr']); };
+  var tableRows = function (t) {
+    var out = [], h = [], f = [];
+    t.children.forEach(function (c) {
+      var n = c.localName;
+      if (n === 'thead') h = h.concat(secRows(c));
+      else if (n === 'tfoot') f = f.concat(secRows(c));
+      else if (n === 'tbody') out = out.concat(secRows(c));
+      else if (n === 'tr') out.push(c);
+    });
+    return h.concat(out, f);
+  };
+  var insertRowIn = function (host, rows, idx, append) {
+    idx = idx === undefined ? -1 : Math.floor(Number(idx)) || 0;
+    if (idx < -1 || idx > rows.length) throw idxErr("Failed to execute 'insertRow': The provided index (" + idx + ') is outside the range [-1, ' + rows.length + '].');
+    var tr = newEl('tr');
+    if (idx === -1 || idx === rows.length) append(host, rows, tr);
+    else rows[idx].parentNode.insertBefore(tr, rows[idx]);
+    return tr;
+  };
+  var deleteRowIn = function (rows, idx) {
+    idx = idx === undefined ? NaN : Math.floor(Number(idx));
+    if (idx === -1) idx = rows.length - 1;
+    if (!(idx >= -1 && idx < rows.length)) throw idxErr("Failed to execute 'deleteRow': The provided index (" + idx + ') is outside the range [-1, ' + (rows.length - 1) + '].');
+    if (idx >= 0) rows[idx].parentNode.removeChild(rows[idx]);
+  };
+  var TP = mkProto('HTMLTableElement', ['table']);
+  def(TP, 'rows', function () { return coll(tableRows(this)); });
+  def(TP, 'tBodies', function () { return coll(kidsOf(this, ['tbody'])); });
+  def(TP, 'tHead', function () { return kidsOf(this, ['thead'])[0] || null; });
+  def(TP, 'tFoot', function () { return kidsOf(this, ['tfoot'])[0] || null; });
+  def(TP, 'caption', function () { return kidsOf(this, ['caption'])[0] || null; });
+  TP.createTHead = function () {
+    var h = this.tHead; if (h) return h;
+    h = newEl('thead');
+    var after = this.children.filter(function (c) { return c.localName === 'caption' || c.localName === 'colgroup'; }).pop();
+    this.insertBefore(h, after ? after.nextSibling : this.firstChild);
+    return h;
+  };
+  TP.createTFoot = function () { var f = this.tFoot; if (f) return f; f = newEl('tfoot'); this.appendChild(f); return f; };
+  TP.createCaption = function () { var c = this.caption; if (c) return c; c = newEl('caption'); this.insertBefore(c, this.firstChild); return c; };
+  TP.createTBody = function () {
+    var b = newEl('tbody'), last = kidsOf(this, ['tbody']).pop();
+    this.insertBefore(b, last ? last.nextSibling : null);
+    return b;
+  };
+  TP.deleteTHead = function () { var h = this.tHead; if (h) h.parentNode.removeChild(h); };
+  TP.deleteTFoot = function () { var f = this.tFoot; if (f) f.parentNode.removeChild(f); };
+  TP.deleteCaption = function () { var c = this.caption; if (c) c.parentNode.removeChild(c); };
+  TP.insertRow = function (idx) {
+    return insertRowIn(this, tableRows(this), idx, function (t, rows, tr) {
+      if (!rows.length) {
+        var bs = kidsOf(t, ['tbody']), b = bs[bs.length - 1];
+        if (!b) { b = newEl('tbody'); t.appendChild(b); }
+        b.appendChild(tr);
+      } else rows[rows.length - 1].parentNode.appendChild(tr);
+    });
+  };
+  TP.deleteRow = function (idx) { deleteRowIn(tableRows(this), idx); };
+  ['summary', 'align', 'bgColor', 'border', 'cellPadding', 'cellSpacing', 'frame', 'rules', 'width'].forEach(function (p) { rStr(TP, p, p.toLowerCase()); });
+  var SP = mkProto('HTMLTableSectionElement', ['tbody', 'thead', 'tfoot']);
+  def(SP, 'rows', function () { return coll(secRows(this)); });
+  SP.insertRow = function (idx) {
+    return insertRowIn(this, secRows(this), idx, function (s, rows, tr) { s.appendChild(tr); });
+  };
+  SP.deleteRow = function (idx) { deleteRowIn(secRows(this), idx); };
+  var RP = mkProto('HTMLTableRowElement', ['tr']);
+  var cellsOf = function (r) { return kidsOf(r, ['td', 'th']); };
+  def(RP, 'cells', function () { return coll(cellsOf(this)); });
+  def(RP, 'rowIndex', function () {
+    var t = this.parentNode;
+    while (t && t.localName !== 'table') t = t.parentNode;
+    return t ? tableRows(t).indexOf(this) : -1;
+  });
+  def(RP, 'sectionRowIndex', function () {
+    var p = this.parentNode;
+    return p ? kidsOf(p, ['tr']).indexOf(this) : -1;
+  });
+  RP.insertCell = function (idx) {
+    var cells = cellsOf(this);
+    idx = idx === undefined ? -1 : Math.floor(Number(idx)) || 0;
+    if (idx < -1 || idx > cells.length) throw idxErr("Failed to execute 'insertCell': The provided index (" + idx + ') is outside the range [-1, ' + cells.length + '].');
+    var td = newEl('td');
+    if (idx === -1 || idx === cells.length) this.appendChild(td); else this.insertBefore(td, cells[idx]);
+    return td;
+  };
+  RP.deleteCell = function (idx) {
+    var cells = cellsOf(this);
+    idx = idx === undefined ? NaN : Math.floor(Number(idx));
+    if (idx === -1) idx = cells.length - 1;
+    if (!(idx >= -1 && idx < cells.length)) throw idxErr("Failed to execute 'deleteCell': The provided index (" + idx + ') is outside the range [-1, ' + (cells.length - 1) + '].');
+    if (idx >= 0) this.removeChild(cells[idx]);
+  };
+  var CEP = mkProto('HTMLTableCellElement', ['td', 'th']);
+  def(CEP, 'cellIndex', function () { var p = this.parentNode; return p ? cellsOf(p).indexOf(this) : -1; });
+  rInt(CEP, 'colSpan', 'colspan', 1, 1);
+  rInt(CEP, 'rowSpan', 'rowspan', 1, 0);
+  ['abbr', 'axis', 'headers', 'scope', 'align', 'vAlign', 'bgColor', 'width', 'height'].forEach(function (p) { rStr(CEP, p, p.toLowerCase()); });
+  rBool(CEP, 'noWrap', 'nowrap');
+  var CAP = mkProto('HTMLTableCaptionElement', ['caption']); rStr(CAP, 'align', 'align');
+  var COLP = mkProto('HTMLTableColElement', ['col', 'colgroup']); rInt(COLP, 'span', 'span', 1, 1);
+
+  // ---- forms
+  var CTL = ['input', 'select', 'textarea', 'button', 'fieldset', 'object', 'output'];
+  var formOf = function (el) {
+    var fid = __d_attr(el.__id, 'form');
+    if (fid != null) { var f = doc.getElementById(fid); return f && f.localName === 'form' ? f : null; }
+    for (var n = el.parentNode; n; n = n.parentNode) if (n.localName === 'form') return n;
+    return null;
+  };
+  var FP = mkProto('HTMLFormElement', ['form']);
+  var formControls = function (f) {
+    var inside = f.querySelectorAll(CTL.join(','));
+    var ext = f.id ? doc.querySelectorAll(CTL.join(',')).filter(function (c) { return inside.indexOf(c) < 0; }) : [];
+    return inside.concat(ext).filter(function (c) {
+      return !(c.localName === 'input' && c.type === 'image') && formOf(c) === f;
+    });
+  };
+  def(FP, 'elements', function () { return coll(formControls(this)); });
+  def(FP, 'length', function () { return formControls(this).length; });
+  FP.submit = function () {};
+  FP.reset = function () {};
+  ['name', 'action', 'method', 'target', 'enctype', 'encoding', 'acceptCharset', 'autocomplete'].forEach(function (p) {
+    rStr(FP, p, p === 'acceptCharset' ? 'accept-charset' : p === 'encoding' ? 'enctype' : p);
+  });
+  var formProp = function (P) { def(P, 'form', function () { return formOf(this); }); };
+  var IP = mkProto('HTMLInputElement', ['input']);
+  var INPUT_TYPES = ['hidden', 'text', 'search', 'tel', 'url', 'email', 'password', 'date', 'month', 'week', 'time', 'datetime-local', 'number', 'range', 'color', 'checkbox', 'radio', 'file', 'submit', 'image', 'reset', 'button'];
+  defs(IP, 'type', function () {
+    var t = ga(this, 'type').toLowerCase();
+    return INPUT_TYPES.indexOf(t) >= 0 ? t : 'text';
+  }, function (v) { __d_setattr(this.__id, 'type', String(v)); });
+  formProp(IP);
+  ['name', 'alt', 'src', 'accept', 'placeholder', 'min', 'max', 'step', 'pattern', 'autocomplete', 'align', 'useMap'].forEach(function (p) { rStr(IP, p, p.toLowerCase()); });
+  // The value property is a dirty value held on the wrapper (the attribute
+  // is the default); wiring it to live widget state is Q33e.
+  defs(IP, 'value', function () { return this.__v !== undefined ? this.__v : ga(this, 'value'); },
+    function (v) { this.__v = String(v); });
+  defs(IP, 'defaultValue', function () { return ga(this, 'value'); }, function (v) { __d_setattr(this.__id, 'value', String(v)); });
+  defs(IP, 'defaultChecked', function () { return __d_attr(this.__id, 'checked') != null; },
+    function (v) { if (v) __d_setattr(this.__id, 'checked', ''); else __d_rmattr(this.__id, 'checked'); });
+  ['readOnly', 'multiple', 'indeterminate'].forEach(function (p) { rBool(IP, p, p.toLowerCase()); });
+  rInt(IP, 'size', 'size', 20, 1); rInt(IP, 'maxLength', 'maxlength', -1, 0);
+  var BP = mkProto('HTMLButtonElement', ['button']);
+  defs(BP, 'type', function () {
+    var t = ga(this, 'type').toLowerCase();
+    return t === 'reset' || t === 'button' ? t : 'submit';
+  }, function (v) { __d_setattr(this.__id, 'type', String(v)); });
+  formProp(BP);
+  ['name', 'value'].forEach(function (p) { rStr(BP, p, p); });
+  var TAP = mkProto('HTMLTextAreaElement', ['textarea']);
+  formProp(TAP);
+  def(TAP, 'type', function () { return 'textarea'; });
+  ['name', 'placeholder', 'wrap'].forEach(function (p) { rStr(TAP, p, p); });
+  defs(TAP, 'value', function () { return __d_text(this.__id); }, function (v) { __d_settext(this.__id, String(v)); });
+  defs(TAP, 'defaultValue', function () { return __d_text(this.__id); }, function (v) { __d_settext(this.__id, String(v)); });
+  rInt(TAP, 'rows', 'rows', 2, 1); rInt(TAP, 'cols', 'cols', 20, 1); rBool(TAP, 'readOnly', 'readonly');
+  var optionsOf = function (s) {
+    var out = [];
+    s.children.forEach(function (c) {
+      if (c.localName === 'option') out.push(c);
+      else if (c.localName === 'optgroup') out = out.concat(kidsOf(c, ['option']));
+    });
+    return out;
+  };
+  var SEP = mkProto('HTMLSelectElement', ['select']);
+  formProp(SEP);
+  def(SEP, 'options', function () { return coll(optionsOf(this)); });
+  def(SEP, 'length', function () { return optionsOf(this).length; });
+  def(SEP, 'type', function () { return this.multiple ? 'select-multiple' : 'select-one'; });
+  rBool(SEP, 'multiple', 'multiple'); rStr(SEP, 'name', 'name');
+  rInt(SEP, 'size', 'size', 0, 1);
+  defs(SEP, 'selectedIndex', function () {
+    var o = optionsOf(this);
+    for (var i = 0; i < o.length; i++) if (__d_attr(o[i].__id, 'selected') != null) return i;
+    if (!this.multiple && this.size <= 1) for (i = 0; i < o.length; i++) if (!o[i].disabled) return i;
+    return -1;
+  }, function (v) {
+    var o = optionsOf(this); v = Math.floor(Number(v));
+    o.forEach(function (x, i) { if (i === v) __d_setattr(x.__id, 'selected', ''); else __d_rmattr(x.__id, 'selected'); });
+  });
+  defs(SEP, 'value', function () { var o = optionsOf(this)[this.selectedIndex]; return o ? o.value : ''; },
+    function (v) {
+      v = String(v);
+      var o = optionsOf(this), hit = -1;
+      o.forEach(function (x, i) { if (hit < 0 && x.value === v) hit = i; });
+      this.selectedIndex = hit;
+    });
+  def(SEP, 'selectedOptions', function () { return optionsOf(this).filter(function (o) { return o.selected; }); });
+  SEP.add = function (opt, before) {
+    if (typeof before === 'number') before = optionsOf(this)[before] || null;
+    var host = before && before.parentNode ? before.parentNode : this;
+    host.insertBefore(opt, before || null);
+  };
+  SEP.item = function (i) { return optionsOf(this)[i] || null; };
+  SEP.namedItem = function (n) { return coll(optionsOf(this)).namedItem(n); };
+  var elRemove = ElementProto.remove;
+  SEP.remove = function (i) {
+    if (arguments.length === 0) { if (elRemove) elRemove.call(this); return; }
+    var o = optionsOf(this)[i]; if (o) o.parentNode.removeChild(o);
+  };
+  var OP = mkProto('HTMLOptionElement', ['option']);
+  formProp(OP);
+  defs(OP, 'value', function () { var v = __d_attr(this.__id, 'value'); return v == null ? this.text : v; },
+    function (v) { __d_setattr(this.__id, 'value', String(v)); });
+  defs(OP, 'text', function () { return __d_text(this.__id).replace(/[ \t\n\f\r]+/g, ' ').replace(/^ | $/g, ''); },
+    function (v) { __d_settext(this.__id, String(v)); });
+  defs(OP, 'label', function () { var v = __d_attr(this.__id, 'label'); return v == null ? this.text : v; },
+    function (v) { __d_setattr(this.__id, 'label', String(v)); });
+  rBool(OP, 'selected', 'selected'); rBool(OP, 'defaultSelected', 'selected');
+  def(OP, 'index', function () {
+    for (var s = this.parentNode; s; s = s.parentNode) if (s.localName === 'select') return optionsOf(s).indexOf(this);
+    return 0;
+  });
+  var OGP = mkProto('HTMLOptGroupElement', ['optgroup']); rStr(OGP, 'label', 'label');
+  var LP = mkProto('HTMLLabelElement', ['label']);
+  formProp(LP);
+  defs(LP, 'htmlFor', function () { return ga(this, 'for'); }, function (v) { __d_setattr(this.__id, 'for', String(v)); });
+  def(LP, 'control', function () {
+    var f = __d_attr(this.__id, 'for');
+    if (f != null) return doc.getElementById(f);
+    return this.querySelector('input,select,textarea,button,output');
+  });
+  var FSP = mkProto('HTMLFieldSetElement', ['fieldset']); formProp(FSP); rStr(FSP, 'name', 'name');
+  def(FSP, 'type', function () { return 'fieldset'; });
+  def(FSP, 'elements', function () { return coll(this.querySelectorAll(CTL.join(','))); });
+  var OUP = mkProto('HTMLOutputElement', ['output']); formProp(OUP); rStr(OUP, 'name', 'name');
+  def(OUP, 'type', function () { return 'output'; });
+  ['input', 'select', 'textarea', 'button', 'fieldset', 'output'].forEach(function (t) {
+    rBool(tagProto[t], 'disabled', 'disabled');
+  });
+  // ---- image maps
+  var MP = mkProto('HTMLMapElement', ['map']);
+  rStr(MP, 'name', 'name');
+  def(MP, 'areas', function () { return coll(this.querySelectorAll('area')); });
+  def(MP, 'images', function () {
+    var n = ga(this, 'name');
+    return n ? coll(doc.querySelectorAll('img,object')).filter(function (i) { return ga(i, 'usemap') === '#' + n; }) : [];
+  });
+  var METP = mkProto('HTMLMetaElement', ['meta']);
+  ['name', 'content', 'scheme'].forEach(function (p) { rStr(METP, p, p); });
+  rStr(METP, 'httpEquiv', 'http-equiv');
+  var ARP = mkProto('HTMLAreaElement', ['area']);
+  ['alt', 'coords', 'shape', 'href', 'target', 'rel'].forEach(function (p) { rStr(ARP, p, p); });
   cache[0] = doc;
   Object.defineProperty(doc, '__id', { value: 0 });
   Object.defineProperty(doc, 'nodeType', { value: 9 });
