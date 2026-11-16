@@ -83,3 +83,20 @@ user's design).
 If an item or page seems to need more than a placeholder, stop, write what it
 needs in TODO.txt as a `[ ]` item marked "WAITING FOR USER (design first)", and
 move on to something else.
+
+## Acid2 / Acid3 are information, not a merge gate
+The Acid2 and Acid3 results (including the saved per-test Acid3 harness and the
+live http://acid3.acidtests.org/ score) must NEVER block an item or its merge.
+Report the score in your PR/report for information, nothing more. Triage:
+1. A test fails because of a feature that is planned later (it has a `[ ]` item
+   in TODO.txt, e.g. Range QA19, real form state Q30, media): leave it alone
+   until that item is implemented. Do not work around it and do not chase it.
+2. A test fails because of a missing feature that is NOT yet listed anywhere:
+   do not guess a fix. Note it in your report ("Acid3 Tnn fails on <what you
+   saw>, not in TODO.txt") and the coordinator will have an Opus investigator
+   (read-only, docs only) audit it and file action items (as the QA1..QA21
+   audit did). Sonnet/Haiku agents then implement those items.
+3. The score DROPS because of a bug in your own change: that is a normal
+   regression; fix it before merging.
+The WPT subset rule (no pass->fail) is separate and still blocks merges.
+

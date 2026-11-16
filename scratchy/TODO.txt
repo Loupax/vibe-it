@@ -1282,6 +1282,13 @@ bot challenge (needs QY9 + `requestSubmit` POST = Q30e + cookies Q30f).
       `hanging`) are ignored; a positive/negative indent should also change
       the first line's available width for wrapping.
 
+--- STANDING RULE: Acid2/Acid3 are information, not a merge gate (user, 2026-11-16) ---
+Acid scores never block development (see AGENTS.md "Acid2 / Acid3 are
+information, not a merge gate"). Failures caused by features already queued
+wait for those items. Failures caused by features nobody has listed get an Opus
+read-only audit that files new action items (the QA1..QA21 pattern). Nothing to
+implement under this heading.
+
 --- TOP PRIORITY: www.youtube.com investigation (user report, 2026-11-15) ---
 
 Overrides everything else in the QUEUE. User report: visiting
