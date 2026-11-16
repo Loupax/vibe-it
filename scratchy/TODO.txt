@@ -2047,7 +2047,7 @@ Read REGRESSIONS.md "R20" before starting any QY item. Short version:
         from Rust (form state) do not notify (documented cut). Tests:
         appendChild + setAttribute in one script -> one callback with 2
         records in order; subtree observation; disconnect stops delivery.
-      - [ ] QY6e [M] `customElements` (define, get, getName,
+      - [x] QY6e [M] DONE (commit f887f67) `customElements` (define, get, getName,
         whenDefined, upgrade; `CustomElementRegistry`). `HTMLElement`
         (and QY12's subclasses) become constructors that, while an
         upgrade is in progress, return the element being upgraded (a
@@ -2064,6 +2064,20 @@ Read REGRESSIONS.md "R20" before starting any QY item. Short version:
         worked for YouTube is the reference design. Tests: define after
         parse upgrades; `document.createElement('x-a')` is upgraded;
         callbacks fire in order; `new XA()` works.
+        DONE: define/get/getName/whenDefined/upgrade, upgrade of
+        existing elements, createElement/new/innerHTML/cloneNode/
+        document.write construction, connected/disconnected/
+        attributeChanged (synchronous, not microtask-queued), `is=`
+        customized built-ins (`extends`), `attachShadow` logs
+        `not implemented` and throws NotSupportedError. NOT done:
+        adoptedCallback, `:defined`, shadow DOM. NEXT BLOCKERS measured
+        after it (--js-report --run-timers 5000): github core/
+        marketing-essentials/landing-pages all now die on
+        `ReferenceError: fetch is not defined` (QF); YouTube first
+        error `MutationObserver is not defined` in
+        webcomponents-all-noPatch.js (QY6a), then kevlar_base `TypeError:
+        not a function` at line 8854:192 (unidentified). old.reddit could
+        not be fetched (blocks curl). wikipedia/HN: 0 errors.
       - [ ] QY6f [M] `<template>` content. html5ever puts template
         children in `template_contents`, which nothing exposes: JS sees
         an empty template and `outerHTML` drops the content. Expose the

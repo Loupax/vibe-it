@@ -298,7 +298,13 @@ const PRELUDE: &str = r#"
   var EventTarget = ctor('EventTarget');
   var Node = ctor('Node', EventTarget);
   var Element = ctor('Element', Node);
-  var HTMLElement = ctor('HTMLElement', Element);
+  // QY6e: callable only through `super()` of a defined custom element class (js_dom `ceNew`).
+  var HTMLElement = function HTMLElement() {
+    if (!new.target || !g.__ce_new) throw new TypeError('Illegal constructor');
+    return g.__ce_new(new.target);
+  };
+  HTMLElement.prototype = Object.create(Element.prototype, { constructor: { value: HTMLElement, writable: true, configurable: true } });
+  g.HTMLElement = HTMLElement;
   var Document = ctor('Document', Node);
   ctor('HTMLDocument', Document);
   // QY4: node-type constructor globals (wrappers get these prototypes in `wrap`).
