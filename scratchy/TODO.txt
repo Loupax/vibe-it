@@ -1367,12 +1367,18 @@ into the commit message of every JS item.
       `Debug`), shorthands (`margin`, `border`, `font`), `::first-line`
       and other pseudo-elements (only `::before`/`::after`), and
       `float`+`display:flex` (blockified here).
-- [ ] QA17 [M] (P3, JS) DOM Traversal: `document.createNodeIterator`,
+- [x] QA17 (af82572) [M] (P3, JS) DOM Traversal: `document.createNodeIterator`,
       `createTreeWalker`, `NodeFilter` constants/`FILTER_*`, live
       reference-node fixups on removal (Acid3 T1-T6; T4/T5 fail today with
       "not a function" on the main document). Pure JS over the existing
       node accessors is fine. Test: a walker with `SHOW_ELEMENT` visits the
       elements of a small tree in order and `previousNode` reverses it.
+      Done in JS in js_dom.rs; Acid3 T4/T5 now get past traversal (stop at
+      missing page markup / QA20), score unchanged 41/100.
+- [ ] QA17a [S] (P4, JS) NodeIterator live fix-up only runs for removeChild,
+      replaceChild and Element.remove; also run it for moves through
+      insertBefore/appendChild of an attached node, innerHTML/textContent
+      replacement and replaceChildren.
 - [ ] QA18 [L] (P4, JS) Second documents: `iframe.contentDocument` for a
       same-origin `src` (start with a fresh empty HTML document; loading
       the real `src` through wire is a sub-item), `document.implementation`
