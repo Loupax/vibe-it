@@ -830,7 +830,7 @@ JS" into "JS runs"; fetch is what everything waits on next.
 
 Phase 1 (each S, independent; do in this order):
 
-- [ ] QY8 [S] (P2, perf, all JS pages) `nextSibling`/`previousSibling`
+- [x] QY8 [S] (P2, perf, all JS pages) `nextSibling`/`previousSibling`
       in O(1). Symptom: walking a child list with `firstChild`/
       `nextSibling` is quadratic: 100 siblings 11 ms, 300 93 ms, 1000
       689 ms (R21; indexing `childNodes` is 0 ms). Cause: the `sib`
@@ -847,6 +847,9 @@ Phase 1 (each S, independent; do in this order):
       with nextSibling, count == 2000, and the walk takes < 50 ms
       (assert loosely, or just assert the count and leave the timing to
       the commit message with before/after numbers).
+      DONE: natives `__d_sibling`/`__d_edge_child` with a verified index
+      hint (no invalidation needed); also added `nextElementSibling`/
+      `previousElementSibling`. 1000 siblings 792 ms -> 1.7 ms. Commit HASH.
 - [ ] QY9 [S] (P2; ddg, reddit challenge, yt/gh/bbc/guardian use it)
       `URL` and `URLSearchParams`. Symptom: `ReferenceError: URL is not
       defined` (duckduckgo turbopack runtime, twice) and `URLSearchParams

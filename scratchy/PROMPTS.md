@@ -6696,3 +6696,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > The real Acid3 page never reaches a score live. Find exactly why (stderr, instrumented copy, timers, onload), fix it if small.
 
 **What changed:** found by an instrumented copy (`console.log` in `update()`): the 100 tests all ran, but `span.firstChild.data = score` was a no-op because the getter-only `CharacterData.prototype.data` in js_dom.rs shadowed the settable `Node.prototype.data`. Added a settable `data` on `CharacterData.prototype`. Test `acid3_text_node_data_setter_writes_the_tree` (fails without the fix). Live Acid3 now shows 61/100. Left out: `Comment.data =` (QA18e).
+
+## O(1) sibling access (QY8)
+
+> Implement QY8: nextSibling/previousSibling (and Element variants, firstChild/lastChild) must not scan the parent child list through JS each step (walking 1000 siblings took 689 ms). Measure first, keep correctness after every DOM write native, add deterministic tests.
+
+**What changed:** js_dom.rs: natives `__d_sibling(id, dir, elementsOnly)` and `__d_edge_child(id, last, elementsOnly)` replace the childNodes-building `sib` helper and firstChild/lastChild; new nextElementSibling/previousElementSibling (were missing) and native firstElementChild/lastElementChild. Rust keeps a per-node index hint, verified on every use (`child_index`: kids[hint] is the node, else scan), so no write needs to invalidate it. Measured with --js-report: walking 1000 siblings 792 ms before, 1.7 ms after; 3000 spans exceeded the 5 s CPU budget before, 5 ms after; 10000: 18 ms. Tests `qy8_walk_counts_and_stays_correct_after_mutations` and `qy8_sibling_hint_is_o1_when_walking` (counts probe steps, no wall clock).
