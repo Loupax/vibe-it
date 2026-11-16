@@ -280,9 +280,9 @@ impl StyleCache {
             src.push_str("\n/* nojs */");
         }
         if self.rules.is_none() || self.css_source != src {
-            let mut rules = parse_stylesheet(DEFAULT_CSS);
+            let mut rules = parse_ua_stylesheet(DEFAULT_CSS);
             if js_enabled() {
-                rules.extend(parse_stylesheet("noscript { display: none; }"));
+                rules.extend(parse_ua_stylesheet("noscript { display: none; }"));
             }
             rules.extend(parse_stylesheet(&src));
             self.index = Some(RuleIndex::build(&rules));

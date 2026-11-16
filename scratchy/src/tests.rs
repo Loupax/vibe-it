@@ -3719,7 +3719,7 @@ fn rule_index_returns_the_same_matches_as_a_full_scan() {
         }
     }
     collect(&doc, &mut elements);
-    let summarize = |h: &Handle, pseudo: Option<&str>| -> Vec<u32> {
+    let summarize = |h: &Handle, pseudo: Option<&str>| -> Vec<u64> {
         matching_declarations_for(h, &rules, 800.0, pseudo).iter().map(|(sp, _)| *sp).collect()
     };
     let full: Vec<_> = elements.iter().map(|h| (summarize(h, None), summarize(h, Some("before")))).collect();
@@ -12345,4 +12345,114 @@ fn qy19_meta_redirect_replaces_history_and_is_chained() {
     // A current one pushes a new entry.
     app.handle_meta_refresh(g, Url::parse("http://127.0.0.1:9/zzz").unwrap());
     assert_eq!(app.history.len(), 3);
+}
+
+fn qy17_style(css: &str, html: &str) -> ComputedStyle {
+    let doc = parse_html(html);
+    let p = find_element_by_tag(&doc, "p").expect("no <p>");
+    resolve_style(&p, &parse_stylesheet(css), ROOT_STYLE, 800.0)
+}
+
+#[test]
+fn qy17_layered_rules_apply_unlayered_beat_them_and_later_layers_win() {
+    let red = TextColor::rgb(255, 0, 0);
+    let green = TextColor::rgb(0, 128, 0);
+    let h = r#"<p id="a" class="c">x</p>"#;
+    // A layered rule applies when nothing else does (it was dropped before).
+    assert_eq!(qy17_style("@layer a{p{color:red}}", h).color, red);
+    // Unlayered beats layered regardless of specificity and order.
+    assert_eq!(qy17_style("@layer a{#a{color:red}} p{color:green}", h).color, green);
+    assert_eq!(qy17_style("p{color:green} @layer a{#a.c{color:red}}", h).color, green);
+    // Later layer beats earlier, regardless of specificity.
+    assert_eq!(qy17_style("@layer a{p{color:green}} @layer b{p{color:red}}", h).color, red);
+    assert_eq!(qy17_style("@layer a{#a{color:red}} @layer b{p{color:green}}", h).color, green);
+    // Same layer: specificity then order as usual.
+    assert_eq!(qy17_style("@layer a{#a{color:green} p{color:red}}", h).color, green);
+    // Anonymous layers are separate, ordered layers.
+    assert_eq!(qy17_style("@layer{p{color:red}} @layer{p{color:green}}", h).color, green);
+}
+
+#[test]
+fn qy17_layer_statement_fixes_order_and_blocks_reopen() {
+    let red = TextColor::rgb(255, 0, 0);
+    let green = TextColor::rgb(0, 128, 0);
+    let h = "<p>x</p>";
+    assert_eq!(qy17_style("@layer a, b; @layer b{p{color:green}} @layer a{p{color:red}}", h).color, green);
+    // Without the statement the first block mentioned is the earlier layer.
+    assert_eq!(qy17_style("@layer b{p{color:green}} @layer a{p{color:red}}", h).color, red);
+    // A block reopens an earlier layer without moving it.
+    assert_eq!(qy17_style("@layer a{p{color:green}} @layer b{p{color:red}} @layer a{p{color:green}}", h).color, red);
+}
+
+#[test]
+fn qy17_important_reverses_layer_order() {
+    let red = TextColor::rgb(255, 0, 0);
+    let green = TextColor::rgb(0, 128, 0);
+    let h = "<p>x</p>";
+    // Earlier layer's important beats a later layer's important.
+    assert_eq!(qy17_style("@layer a{p{color:green!important}} @layer b{p{color:red!important}}", h).color, green);
+    // Layered important beats unlayered important.
+    assert_eq!(qy17_style("@layer a{p{color:green!important}} p{color:red!important}", h).color, green);
+    // Any important beats a normal unlayered declaration.
+    assert_eq!(qy17_style("@layer a{p{color:green!important}} p{color:red}", h).color, green);
+    // Specificity within a layer still orders important declarations.
+    assert_eq!(qy17_style("@layer a{#x{color:green!important} p{color:red!important}}", r#"<p id="x">x</p>"#).color, green);
+}
+
+#[test]
+fn qy17_nested_layers_and_media_supports_nesting() {
+    let red = TextColor::rgb(255, 0, 0);
+    let green = TextColor::rgb(0, 128, 0);
+    let h = "<p>x</p>";
+    // `a.b` is a sub-layer of `a`: it loses to rules directly in `a`.
+    assert_eq!(qy17_style("@layer a{@layer b{p{color:red}} p{color:green}}", h).color, green);
+    assert_eq!(qy17_style("@layer a.b{p{color:red}} @layer a{p{color:green}}", h).color, green);
+    // Sub-layers order within their parent; the parent's order decides across parents.
+    assert_eq!(qy17_style("@layer x.q, y; @layer y{p{color:green}} @layer x.q{p{color:red}}", h).color, green);
+    assert_eq!(qy17_style("@layer a.p, a.q; @layer a.q{p{color:green}} @layer a.p{p{color:red}}", h).color, green);
+    // Layer inside @media / @supports, and @media inside a layer.
+    assert_eq!(qy17_style("@media screen{@layer a{p{color:red}}}", h).color, red);
+    assert_eq!(qy17_style("@media print{@layer a{p{color:red}}}", h).color, ROOT_STYLE.color);
+    assert_eq!(qy17_style("@supports (display:block){@layer a{p{color:red}}}", h).color, red);
+    assert_eq!(qy17_style("@layer a{@media screen{p{color:red}}}", h).color, red);
+    assert_eq!(qy17_style("@layer a{@media print{p{color:red}}}", h).color, ROOT_STYLE.color);
+    assert_eq!(qy17_style("@layer a{@media screen{p{color:red}}} p{color:green}", h).color, green);
+}
+
+#[test]
+fn qy17_hidden_attribute_important_inside_a_layer_hides_the_element() {
+    let css = "@layer primer{template,[hidden]{display:none!important}} .x{display:flex}";
+    let s = qy17_style(css, r#"<p hidden class="x">x</p>"#);
+    assert!(matches!(s.display, Display::None));
+    let s = qy17_style(css, r#"<p class="x">x</p>"#);
+    assert!(!matches!(s.display, Display::None));
+}
+
+#[test]
+fn qy17_user_agent_rules_stay_below_author_rules() {
+    // The UA sheet gives <p> margins; a layered, low-specificity author rule
+    // still beats it (UA is its own, lower origin).
+    let doc = parse_html("<p>x</p>");
+    let p = find_element_by_tag(&doc, "p").unwrap();
+    let mut rules = parse_ua_stylesheet("p{margin-top:20px}");
+    rules.extend(parse_stylesheet("@layer a{p{margin-top:3px}}"));
+    let s = resolve_style(&p, &rules, ROOT_STYLE, 800.0);
+    assert!(matches!(s.margin.top, BoxLength::Px(v) if v == 3.0));
+}
+
+#[test]
+fn qy17_import_layer_wraps_the_imported_sheet() {
+    let base = Url::parse("https://e.com/css/main.css").unwrap();
+    let mut fetch = |u: &Url| -> Option<String> {
+        match u.path() {
+            "/css/a.css" => Some("p{color:red}".to_string()),
+            _ => None,
+        }
+    };
+    let out = expand_css_imports("@import url(a.css) layer(x.y) screen;\n@import \"a.css\" layer;", &base, &mut vec![base.clone()], &mut fetch);
+    assert!(out.contains("@layer x.y {\n@media screen {\np{color:red}"), "{out}");
+    assert!(out.contains("@layer {\np{color:red}"), "{out}");
+    // Layered import loses to an unlayered rule even when written after it.
+    let out = expand_css_imports("@import url(a.css) layer(x);\np{color:green}", &base, &mut vec![base.clone()], &mut fetch);
+    assert_eq!(qy17_style(&out, "<p>x</p>").color, TextColor::rgb(0, 128, 0));
 }

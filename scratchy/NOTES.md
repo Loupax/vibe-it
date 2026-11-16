@@ -3256,3 +3256,6 @@ and throws NotSupportedError).
 ### Meta refresh (QY19)
 
 After a fetched page arrives, `handle_nav_result` looks for the first `meta[http-equiv=refresh]` (`meta_refresh_action`). With JS off `<noscript>` children are elements (`new_parser`), with JS on they are text, so only the right one is found. A 0 s `url=` redirect never installs the page: it replaces the current history entry and fetches the target (`follow_meta_refresh`). A delayed one (<=10 s) installs the page and a sleeping thread (same shape as `schedule_image_flush`) sends `AppEvent::MetaRefresh(generation, url)`; a changed `nav_generation` cancels it. `App::meta_chain` (reset by link/`:go`/history/`:refresh`) caps chains at 3.
+
+## Cascade layers (QY17)
+`@layer` is parsed in `TopLevelParser` (`LayerState` registers every mentioned layer path and its prefixes in first-mention order; `parse_stylesheet` ranks them afterwards, sub-layers before their parent's own rules). `StyleRule::layer`: 0 unlayered, 1 user-agent (`parse_ua_stylesheet`), n>=2 author layer. The cascade key in `matching_declarations_for` is a u64: bit 62 important, bits 32..61 layer rank (`normal_key`; reversed for important by `important_key`/`to_important`), low bits specificity. `@import ... layer(x)` is expanded into `@layer x { ... }` text by `expand_css_imports`.

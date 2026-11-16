@@ -292,7 +292,7 @@ FAIL css/css-cascade/all-prop-001.html
 PASS css/css-cascade/all-prop-initial-color.html
 PASS css/css-cascade/all-prop-revert-visited.html
 FAIL css/css-cascade/import-conditional-001.html
-FAIL css/css-cascade/layer-stylesheet-sharing.html
+PASS css/css-cascade/layer-stylesheet-sharing.html
 FAIL css/css-cascade/revert-layer-002.html
 FAIL css/css-cascade/revert-layer-007.html
 FAIL css/css-cascade/revert-layer-011.html
