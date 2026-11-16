@@ -1883,7 +1883,7 @@ Not vendored; pass the path to the runner.
       Left out: default `2px inset` border (not set; Q52 will interact), Q52a1.
 - [ ] Q52a1 [S] (`<object>` rendering itself is QA21) iframe `frameborder`/`border` UA behaviour and `<object>`/`<embed>`/`<video>`/`<canvas>`
       replaced default sizes (300x150).
-- [x] Q52b [S] (HASH_PR1) Expand `var()` declarations in source order relative to the
+- [x] Q52b [S] (0606580) Expand `var()` declarations in source order relative to the
       rule's other declarations (`variable-reference-38`).
       DONE: `Declarations` keeps `var_seg` (source-order segment per var decl)
       and `late` layers (copies of plain decls written after a var decl, also
@@ -1906,7 +1906,7 @@ Not vendored; pass the path to the runner.
       `html/rendering/.../tables/table-rules-rows-vertical.html`. Both need
       `border-collapse` (unsupported) and ignoring row-group borders in the
       separated model. Code reverted; see Q52c1.
-- [x] Q52c1 [S] (HASH_PR1) Table rows in the separated model.
+- [x] Q52c1 [S] (0606580) Table rows in the separated model.
       DONE (partial): `border-collapse` is parsed + inherited (`border_collapse`);
       a `tr`'s used margin/padding are 0 and its used border is 0 unless the
       table collapses (then the row border keeps painting as the old
