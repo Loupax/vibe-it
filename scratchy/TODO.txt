@@ -369,6 +369,11 @@ IntersectionObserver and matchMedia are not used by any of the site's scripts.
       `display:` still wins), `el.hidden=false` un-hides (restyle). Tests: hidden <p>
       not laid out; author display overrides; JS toggle re-lays-out.
 
+- [ ] QW4a [S] (P2, found by the QW4 agent) `white-space: nowrap` set on an INLINE
+      element (not its block) is not honoured inside it: on social.loupax.com a
+      multi-word tag ("air traffic control", `.tags a{white-space:nowrap}`) can still
+      break between its words. Fix in the inline item collection (images.rs
+      collect_real_nodes / layout.rs measure_mixed_inline): per-run white-space.
 - [ ] QW6 [S] (P2, CSS, visible on the user's site) The canvas background
       does not come from `<body>`: CSS backgrounds 3 2.11.2 says when the
       root element has no background, the body's background paints the
