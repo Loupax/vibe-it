@@ -10607,3 +10607,62 @@ fn qa18b1_iframe_src_document_is_loaded_and_styled() {
         log.borrow()
     );
 }
+
+// ---------- QY8: O(1) sibling access ----------
+
+#[test]
+fn qy8_walk_counts_and_stays_correct_after_mutations() {
+    let log = run_in_html(
+        "<div id=p></div>",
+        "var p=document.getElementById('p');
+         for(var i=0;i<50;i++){var s=document.createElement('span');s.id='s'+i;p.appendChild(s);}
+         var w=function(){var o=[];for(var n=p.firstChild;n;n=n.nextSibling)o.push(n.id||'#');return o.join(',');};
+         var b=function(){var o=[];for(var n=p.lastChild;n;n=n.previousSibling)o.push(n.id||'#');return o.join(',');};
+         var s5=document.getElementById('s5');
+         console.log(s5.nextSibling.id+' '+s5.previousSibling.id);
+         p.insertBefore(document.createElement('i'),s5);
+         console.log(s5.previousSibling.tagName+' '+s5.nextSibling.id);
+         p.removeChild(document.getElementById('s6'));
+         console.log(s5.nextSibling.id);
+         s5.before(document.createTextNode('t'));
+         console.log(s5.previousSibling.nodeType+' '+s5.previousElementSibling.tagName+' '+s5.nextElementSibling.id);
+         s5.replaceWith(document.createElement('b'));
+         console.log(s5.nextSibling+' '+s5.parentNode);
+         var c=0;for(var n=p.firstChild;n;n=n.nextSibling)c++;
+         console.log(c+' '+(w().split(',').length)+' '+(b().split(',').reverse().join(',')===w()));
+         p.innerHTML='<a></a><b></b>';
+         console.log(p.firstChild.tagName+p.lastChild.tagName+p.firstChild.nextSibling.tagName+p.lastElementChild.previousElementSibling.tagName);
+         var x=document.createElement('div');console.log(x.nextSibling+' '+x.firstChild+' '+x.nextElementSibling);",
+    );
+    assert_eq!(
+        log,
+        vec![
+            "log:s6 s4",
+            "log:I s6",
+            "log:s7",
+            "log:3 I s7",
+            "log:null null",
+            "log:51 51 true",
+            "log:ABBA",
+            "log:null null null",
+        ]
+    );
+}
+
+#[test]
+fn qy8_sibling_hint_is_o1_when_walking() {
+    use markup5ever_rcdom::Node;
+    let kids: Vec<_> = (0..2000).map(|_| Node::new(markup5ever_rcdom::NodeData::Comment { contents: "x".into() })).collect();
+    let mut steps = 0;
+    let mut hint = 0;
+    for (i, k) in kids.iter().enumerate() {
+        let got = crate::js_dom::child_index(&kids, k, hint, &mut steps);
+        assert_eq!(got, Some(i));
+        hint = i + 1; // the native stores the sibling's index when it returns it
+    }
+    // One probe per step when the hint is right (a scan would be ~2M).
+    assert!(steps <= 2 * 2000, "steps = {steps}");
+    // A stale hint still gives the right answer (falls back to a scan).
+    assert_eq!(crate::js_dom::child_index(&kids, &kids[10], 1999, &mut steps), Some(10));
+    assert_eq!(crate::js_dom::child_index(&kids, &kids[10], 99999, &mut steps), Some(10));
+}

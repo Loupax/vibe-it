@@ -34,6 +34,20 @@ impl DomTable {
     }
 }
 
+/// QY8: index of `node` in `kids`. `hint` is the index it had last time; if
+/// `kids[hint]` is still `node` the lookup is O(1), else scan (and the caller
+/// stores the fresh index). Never stale: the hint is verified every call.
+pub(crate) fn child_index(kids: &[Handle], node: &Handle, hint: usize, steps: &mut usize) -> Option<usize> {
+    *steps += 1;
+    if kids.get(hint).is_some_and(|k| Rc::ptr_eq(k, node)) {
+        return Some(hint);
+    }
+    kids.iter().position(|k| {
+        *steps += 1;
+        Rc::ptr_eq(k, node)
+    })
+}
+
 fn is_element(h: &Handle) -> bool {
     matches!(h.data, NodeData::Element { .. })
 }
@@ -385,6 +399,42 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         let kids: Vec<Handle> = h.children.borrow().iter().cloned().collect();
         kids.iter().filter(|k| !elements_only || is_element(k)).map(|k| t.intern(k)).collect()
     });
+    // QY8: sibling / first / last child without building `childNodes`.
+    // `hints` remembers each node's last index in its parent's Vec; it is
+    // verified on use (see `child_index`), so no write needs to invalidate it.
+    let hints: Rc<RefCell<HashMap<i32, usize>>> = Rc::new(RefCell::new(HashMap::new()));
+    let t = table.clone();
+    let hs = hints.clone();
+    native!("__d_sibling", move |id: i32, dir: i32, elements_only: bool| -> i32 {
+        let mut t = t.borrow_mut();
+        let Some(h) = t.get(id) else { return -1 };
+        let Some(p) = parent_handle(&h) else { return -1 };
+        let kids = p.children.borrow();
+        let hint = hs.borrow().get(&id).copied().unwrap_or(0);
+        let mut steps = 0;
+        let Some(mut i) = child_index(&kids, &h, hint, &mut steps) else { return -1 };
+        hs.borrow_mut().insert(id, i);
+        loop {
+            i = if dir > 0 { i + 1 } else if i == 0 { return -1 } else { i - 1 };
+            let Some(k) = kids.get(i) else { return -1 };
+            if !elements_only || is_element(k) {
+                let kid = t.intern(k);
+                hs.borrow_mut().insert(kid, i);
+                return kid;
+            }
+        }
+    });
+    let t = table.clone();
+    native!("__d_edge_child", move |id: i32, last: bool, elements_only: bool| -> i32 {
+        let mut t = t.borrow_mut();
+        let Some(h) = t.get(id) else { return -1 };
+        let kids = h.children.borrow();
+        let found = if last { kids.iter().rev().find(|k| !elements_only || is_element(k)) } else { kids.iter().find(|k| !elements_only || is_element(k)) };
+        match found {
+            Some(k) => t.intern(k),
+            None => -1,
+        }
+    });
     let t = table.clone();
     native!("__d_parent", move |id: i32| -> i32 {
         let mut t = t.borrow_mut();
@@ -674,15 +724,10 @@ const DOM_PRELUDE: &str = r#"
     var p = this.parentNode; return p && p.nodeType === 1 ? p : null;
   });
   def(NodeProto, 'childNodes', function () { return wrapAll(__d_children(this.__id, false)); });
-  def(NodeProto, 'firstChild', function () { return this.childNodes[0] || null; });
-  def(NodeProto, 'lastChild', function () { var c = this.childNodes; return c[c.length - 1] || null; });
-  var sib = function (n, d) {
-    var p = n.parentNode; if (!p) return null;
-    var c = p.childNodes;
-    return c[c.indexOf(n) + d] || null;
-  };
-  def(NodeProto, 'nextSibling', function () { return sib(this, 1); });
-  def(NodeProto, 'previousSibling', function () { return sib(this, -1); });
+  def(NodeProto, 'firstChild', function () { return wrap(__d_edge_child(this.__id, false, false)); });
+  def(NodeProto, 'lastChild', function () { return wrap(__d_edge_child(this.__id, true, false)); });
+  def(NodeProto, 'nextSibling', function () { return wrap(__d_sibling(this.__id, 1, false)); });
+  def(NodeProto, 'previousSibling', function () { return wrap(__d_sibling(this.__id, -1, false)); });
   NodeProto.hasChildNodes = function () { return __d_children(this.__id, false).length > 0; };
   NodeProto.contains = function (n) {
     for (; n; n = n.parentNode) if (n === this) return true;
@@ -704,8 +749,10 @@ const DOM_PRELUDE: &str = r#"
   def(ElementProto, 'id', function () { var v = __d_attr(this.__id, 'id'); return v == null ? '' : v; });
   def(ElementProto, 'className', function () { var v = __d_attr(this.__id, 'class'); return v == null ? '' : v; });
   def(ElementProto, 'children', function () { return wrapAll(__d_children(this.__id, true)); });
-  def(ElementProto, 'firstElementChild', function () { return this.children[0] || null; });
-  def(ElementProto, 'lastElementChild', function () { var c = this.children; return c[c.length - 1] || null; });
+  def(ElementProto, 'firstElementChild', function () { return wrap(__d_edge_child(this.__id, false, true)); });
+  def(ElementProto, 'lastElementChild', function () { return wrap(__d_edge_child(this.__id, true, true)); });
+  def(ElementProto, 'nextElementSibling', function () { return wrap(__d_sibling(this.__id, 1, true)); });
+  def(ElementProto, 'previousElementSibling', function () { return wrap(__d_sibling(this.__id, -1, true)); });
   def(ElementProto, 'childElementCount', function () { return __d_children(this.__id, true).length; });
   def(ElementProto, 'classList', function () {
     var cls = this.className.split(/\s+/).filter(Boolean);
