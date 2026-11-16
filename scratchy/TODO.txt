@@ -974,7 +974,7 @@ R22 copies and paste the before/after numbers in the commit.
       votes need it (but also cookies, QF14); refs: yt 17, bbc 11,
       guardian 13.
 - [ ] QF9a [S] READY XHR responseType 'document' / responseXML: parse HTML/XML via DOMParser (does not exist yet; today the response is null plus a console.error). Also real upload progress and open() user/password if a page needs them.
-- [x] QF10 [S] DONE (commit HASH_QF10) `navigator.sendBeacon(url, data)`: TypeError for an
+- [x] QF10 [S] DONE (commit 67b71f2) `navigator.sendBeacon(url, data)`: TypeError for an
       invalid or non-http(s) URL (resolved against document.baseURI), body from
       string/Blob/ArrayBuffer/TypedArray/FormData/URLSearchParams/null (a
       ReadableStream is a TypeError), `false` when the queued bytes would pass
