@@ -600,10 +600,8 @@ fn url_set_native(href: String, key: String, value: String) -> Option<Vec<String
                 Some((h, p)) if !value.ends_with(']') && p.chars().all(|c| c.is_ascii_digit()) => (h, Some(p)),
                 _ => (value.as_str(), None),
             };
-            if u.set_host(Some(h)).is_ok() {
-                if let Some(p) = p {
-                    let _ = u.set_port(p.parse().ok());
-                }
+            if let (true, Some(p)) = (u.set_host(Some(h)).is_ok(), p) {
+                let _ = u.set_port(p.parse().ok());
             }
         }
         "hostname" => {
