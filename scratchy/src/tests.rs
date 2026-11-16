@@ -10790,3 +10790,103 @@ fn qy10_match_media_listeners_and_class() {
     )]);
     assert_eq!(out, vec!["log:true true function true 10"]);
 }
+
+// ---------- QY11: reflected URL attributes, dataset, attributes, classList ----------
+
+#[test]
+fn qy11_url_reflection_is_absolute_and_honours_base() {
+    set_page_url(Url::parse("https://page.test/dir/index.html?q=1").ok().as_ref());
+    let log = run_in_html(
+        "<html><head><base href=https://x.org/d/></head><body><script src=a.js id=s></script><img src=../p.png id=i>\
+         <a href='sub/x?y#z' id=a></a><form action=go id=f></form><link rel=stylesheet href=/c.css id=l>\
+         <iframe src=about:blank id=fr></iframe><a id=n></a></body></html>",
+        "var g=function(i){return document.getElementById(i)};\
+         var r=[g('s').src,g('i').src,g('i').currentSrc,g('a').href,g('f').action,g('l').href,g('fr').src,g('n').href,document.baseURI];\
+         g('i').src='/z.png'; r.push(g('i').getAttribute('src'), g('i').src);\
+         var a=g('a'); r.push(a.origin,a.protocol,a.host,a.hostname,a.port,a.pathname,a.search,a.hash);\
+         a.pathname='/new'; r.push(a.href);\
+         console.log(r.join('|'));",
+    );
+    assert_eq!(
+        log,
+        ["log:https://x.org/d/a.js|https://x.org/p.png|https://x.org/p.png|https://x.org/d/sub/x?y#z|https://x.org/d/go|https://x.org/c.css|about:blank||https://x.org/d/|/z.png|https://x.org/z.png|https://x.org|https:|x.org|x.org||/d/sub/x|?y|#z|https://x.org/new?y#z"],
+        "{log:?}"
+    );
+    set_page_url(None);
+}
+
+#[test]
+fn qy11_url_reflection_without_base_uses_page_url() {
+    set_page_url(Url::parse("https://page.test/dir/index.html").ok().as_ref());
+    let log = run_in_html(
+        "<html><body><script src=a.js id=s></script></body></html>",
+        "console.log(document.getElementById('s').src, document.baseURI)",
+    );
+    assert_eq!(log, ["log:https://page.test/dir/a.js https://page.test/dir/index.html"], "{log:?}");
+    set_page_url(None);
+}
+
+#[test]
+fn qy11_dataset_roundtrip() {
+    let log = run_in_html(
+        "<html><body><div id=a data-foo-bar=1 data-x=2></div></body></html>",
+        "var e=document.getElementById('a'), d=e.dataset, r=[];\
+         r.push(d.fooBar, d.x, d.nope, 'fooBar' in d, 'zip' in d);\
+         d.newThing=5; r.push(e.getAttribute('data-new-thing'));\
+         e.setAttribute('data-late','L'); r.push(d.late);\
+         delete d.x; r.push(e.hasAttribute('data-x'), 'x' in d);\
+         r.push(Object.keys(d).join(','));\
+         var k=[]; for (var p in d) k.push(p); r.push(k.join(','));\
+         console.log(r.join('|'));",
+    );
+    assert_eq!(log, ["log:1|2||true|false|5|L|false|false|fooBar,newThing,late|fooBar,newThing,late"], "{log:?}");
+}
+
+#[test]
+fn qy11_attributes_and_attribute_names() {
+    let log = run_in_html(
+        "<html><body><p id=a class='c d' title=t></p><p id=e></p></body></html>",
+        "var e=document.getElementById('a'), m=e.attributes, r=[];\
+         r.push(m.length, m[0].name, m.item(1).value, m.item(9), m.getNamedItem('title').value, m.title.name, m.id.specified, m.id.ownerElement===e, m[2].nodeName);\
+         r.push(e.getAttributeNames().join(','), e.hasAttributes(), document.createElement('i').hasAttributes());\
+         var n=[]; for (var x of m) n.push(x.name+'='+x.value); r.push(n.join(';'));\
+         m.title.value='T2'; r.push(e.getAttribute('title'), e.getAttributeNode('id').value, e.getAttributeNode('zz'));\
+         e.setAttribute('lang','en'); r.push(m.length, e.getAttributeNames().pop());\
+         console.log(r.join('|'));",
+    );
+    assert_eq!(
+        log,
+        ["log:3|id|c d||t|title|true|true|title|id,class,title|true|false|id=a;class=c d;title=t|T2|a||4|lang"],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy11_classlist_iterable_and_consistent() {
+    let log = run_in_html(
+        "<html><body><div id=a class='x y'></div></body></html>",
+        "var e=document.getElementById('a'), l=e.classList, r=[];\
+         r.push([...l].join(','), l.length, l.item(1), l[0], l.value, l.supports('x'), e.classList===l);\
+         var f=[]; l.forEach(function(v,i){f.push(i+v)}); r.push(f.join(','));\
+         r.push([...l.keys()].join(','), [...l.values()].join(','), [...l.entries()].join(';'));\
+         for (var c of l) r.push('c'+c);\
+         l.add('z'); r.push(e.className); e.className='q'; r.push(l.value, l.length);\
+         l.value='m n'; r.push(e.getAttribute('class'), l.toggle('n'), e.className);\
+         console.log(r.join('|'));",
+    );
+    assert_eq!(
+        log,
+        ["log:x,y|2|y|x|x y|true|true|0x,1y|0,1|x,y|0,x;1,y|cx|cy|x y z|q|1|m n|false|m"],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy11_style_string_reflection() {
+    let log = run_in_html(
+        "<html><body><div id=a></div></body></html>",
+        "var e=document.getElementById('a'); e.style.color='red'; e.style.marginTop='1px';\
+         console.log(e.getAttribute('style'), '|', e.style.cssText, '|', e.style.color);",
+    );
+    assert_eq!(log, ["log:color: red; margin-top: 1px; | color: red; margin-top: 1px; | red"], "{log:?}");
+}
