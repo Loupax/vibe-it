@@ -8369,23 +8369,26 @@ fn q33b1_wrappers_are_instances_of_the_constructors() {
 
 // ---------- Q33t: timers ----------
 
-/// Runs `code` and keeps the engine, then pumps its timers (real time)
-/// until none are pending or 15s pass; returns everything logged.
+/// Runs `code` and keeps the engine, then pumps its timers on a manual
+/// clock (jumping straight to each next due time, so no real sleeping
+/// and no dependence on machine load) until none are pending; returns
+/// everything logged. Every registration made while the script runs
+/// happens at t=0 ms, which makes due-time ordering fully deterministic.
 fn run_with_timers(code: &str) -> Vec<String> {
     let out = Rc::new(RefCell::new(Vec::new()));
     let o = out.clone();
-    let engine = start_scripts(
+    let clock = Rc::new(std::cell::Cell::new(0.0));
+    let engine = crate::js::start_scripts_clocked(
         &parse_html(""),
         &[src(code)],
         Rc::new(move |level, text| o.borrow_mut().push(format!("{level}:{text}"))),
+        Some(clock.clone()),
     )
     .unwrap();
-    let start = std::time::Instant::now();
-    while let Some(at) = engine.next_deadline() {
-        if start.elapsed() > std::time::Duration::from_secs(15) {
-            break;
-        }
-        std::thread::sleep(at.saturating_duration_since(std::time::Instant::now()));
+    // Bounded: an interval would otherwise never run dry.
+    for _ in 0..10_000 {
+        let Some(due) = engine.next_due_ms() else { break };
+        clock.set(clock.get().max(due));
         engine.run_due();
     }
     let v = out.borrow().clone();

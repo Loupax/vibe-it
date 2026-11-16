@@ -666,6 +666,14 @@ impl JsEngine {
         (ms >= 0.0).then(|| self.base + Duration::from_secs_f64(ms / 1000.0))
     }
 
+    /// Test seam: the earliest pending timer's due time in ms on the
+    /// `__scratchy_now` clock.
+    #[cfg(test)]
+    pub(crate) fn next_due_ms(&self) -> Option<f64> {
+        let ms: f64 = self.eval_value("timer", "__scratchy_timers_next()")?;
+        (ms >= 0.0).then_some(ms)
+    }
+
     /// Runs every timer that is due now (bounded per turn), each under
     /// its own interrupt budget, draining promise jobs after each.
     pub(crate) fn run_due(&self) {
@@ -694,6 +702,18 @@ pub(crate) fn run_scripts_in(document: &Handle, scripts: &[ScriptSource], log: L
 /// Q33t: like `run_scripts_in` but hands back the live engine so the
 /// caller can drive its timers.
 pub(crate) fn start_scripts(document: &Handle, scripts: &[ScriptSource], log: LogFn) -> Option<JsEngine> {
+    start_scripts_clocked(document, scripts, log, None)
+}
+
+/// `start_scripts` with an optional manual clock (milliseconds) that
+/// replaces the real one behind `__scratchy_now`; tests use it to drive
+/// timers deterministically. `None` is the real, monotonic clock.
+pub(crate) fn start_scripts_clocked(
+    document: &Handle,
+    scripts: &[ScriptSource],
+    log: LogFn,
+    clock: Option<Rc<std::cell::Cell<f64>>>,
+) -> Option<JsEngine> {
     let Ok(rt) = Runtime::new() else {
         log("error", "could not create the JS runtime");
         return None;
@@ -721,7 +741,10 @@ pub(crate) fn start_scripts(document: &Handle, scripts: &[ScriptSource], log: Lo
             let _ = ctx.globals().set("__scratchy_log", native);
         }
         let _ = install_env(&ctx);
-        let now = Function::new(ctx.clone(), move || base.elapsed().as_secs_f64() * 1000.0);
+        let now = Function::new(ctx.clone(), move || match &clock {
+            Some(c) => c.get(),
+            None => base.elapsed().as_secs_f64() * 1000.0,
+        });
         if let Ok(now) = now {
             let _ = ctx.globals().set("__scratchy_now", now);
         }
