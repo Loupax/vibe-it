@@ -6600,6 +6600,12 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 
 **What changed:** root cause: the test pumped timers against the real wall clock. The 30 ms setTimeout, the 1 ms string timeout and the rAF (due at the next 16.7 ms frame boundary, i.e. anywhere from ~0 to 16.7 ms after registration) are each stamped with `__scratchy_now()` at their own registration, so any stall between statements (CPU contention under parallel builds) or an unlucky frame phase reorders them. Added `start_scripts_clocked` in js.rs (optional manual clock behind `__scratchy_now`; `start_scripts` passes None, so behaviour is unchanged) and a `#[cfg(test)]` `next_due_ms`; the test helper `run_with_timers` now jumps the manual clock to each next due time (no real sleeping). All assertions kept.
 
+## QA11a part 1: var() source order (Q52b) and table rows (Q52c1)
+
+> Implement QA11a (border width defaults, prerequisite of PR #162): diagnose the four regressions of the earlier attempt with evidence and fix the underlying causes in the right order, with zero pass->fail.
+
+**What changed:** diagnosis: `variable-reference-38` = `var()` declarations expanded after all plain ones (Q52b); `table-rules-rows-vertical` and `row-group-margin-border-padding` = accidental passes (ref and test both blank while unset colours/widths painted nothing; the rows also painted borders/margins/padding that must be ignored); `border-color-011` = `border-color: inherit` of an unset colour must be currentColor. This PR lands the clean parts: `var_seg`/`late` layers (css.rs, style.rs), `border-collapse` parse/inherit and used-value row margin/padding/border zeroing in separated tables (images.rs). Tests: `var_declaration_does_not_override_later_plain_declaration`, `var_declarations_interleave_with_plain_ones_in_source_order`, `table_row_border_margin_padding_ignored_when_separated`, `table_row_border_kept_with_border_collapse`. WPT 261 -> 263, 0 regressions. The border default/keywords/currentColor part stays blocked, see QA11a/QA11a2 in TODO.txt.
+
 ## QA12 inline event-handler content attributes
 
 > Implement QA12 (takes the inline-handler part of Q33d1): `onclick="..."`, `onload`, `onerror`, `onsubmit`, ... on any element plus `<body onload/onunload/onresize>` mapping to window, compiled with `this` = element and `event`, run through the Q33d dispatcher; return false cancels; errors logged and non-fatal; Acid3's `<body onload="update()">` is the motivating case.

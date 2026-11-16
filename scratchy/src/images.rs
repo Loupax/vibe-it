@@ -598,7 +598,16 @@ pub(crate) fn build_table_nodes(
                 let cells =
                     build_table_row_cells(child, rules, style.inherited(), child_decoration, href, viewport_width, image_cache);
                 let background_image = resolve_background_image(child, rules, viewport_width, style.custom_props, image_cache);
-                result.push(LayoutBox { style, background_image, content: BoxContent::TableRow(cells) });
+                // Q52c1 (CSS2.1 17.6): margin and padding do not apply to a row,
+                // and in the separated model neither does its border. Used
+                // values only: the computed ones still inherit to the cells.
+                let mut row_style = style;
+                row_style.margin = Default::default();
+                row_style.padding = Default::default();
+                if !style.border_collapse {
+                    row_style.border_width = [0.0; 4];
+                }
+                result.push(LayoutBox { style: row_style, background_image, content: BoxContent::TableRow(cells) });
             }
             Display::TableGroup => {
                 result.extend(build_table_children(

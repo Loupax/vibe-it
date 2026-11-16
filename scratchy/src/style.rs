@@ -34,6 +34,10 @@ pub(crate) struct InheritedStyle {
     /// `word-spacing`'s own grammar has no per-descendant-reinterpreted
     /// form the way `line-height: <number>` does.
     pub(crate) word_spacing: f32,
+    /// `border-collapse: collapse` (inherited). Only used to decide that a
+    /// `tr`'s own border is ignored in the separated model (Q52c1); there is
+    /// no real collapsed-border layout.
+    pub(crate) border_collapse: bool,
     /// `text-indent` (QW2), inherited, eagerly resolved to px. Only a
     /// negative value is honoured (painted as a first-line x shift, see
     /// `paint_buffer`); positive indents don't narrow the first line yet.
@@ -68,6 +72,7 @@ pub(crate) const ROOT_STYLE: InheritedStyle = InheritedStyle {
     visibility: Visibility::Visible,
     cursor: CursorStyle::Auto,
     word_spacing: 0.0,
+    border_collapse: false,
     text_indent: 0.0,
     background_color: None,
     display: Display::Inline,
@@ -313,6 +318,8 @@ pub(crate) struct ComputedStyle {
     /// never something cosmic-text's own internal wrap computation has
     /// to account for.
     pub(crate) word_spacing: f32,
+    /// Inherited `border-collapse: collapse` (see `InheritedStyle`).
+    pub(crate) border_collapse: bool,
     /// Inherited `text-indent` in px (see `InheritedStyle::text_indent`).
     pub(crate) text_indent: f32,
     /// Not inherited (same as `border_width`/`border_color`) and doesn't
@@ -488,6 +495,7 @@ impl ComputedStyle {
             visibility: self.visibility,
             cursor: self.cursor,
             word_spacing: self.word_spacing,
+            border_collapse: self.border_collapse,
             text_indent: self.text_indent,
             background_color: self.background_color,
             display: self.display,
@@ -1102,43 +1110,61 @@ pub(crate) fn whiten_mask(mut img: DecodedImage) -> DecodedImage {
 pub(crate) fn expand_var_decls(
     base: &[(u32, &Declarations)],
     lookup: &dyn Fn(&str) -> Option<String>,
-) -> Vec<Option<(Declarations, Declarations)>> {
+) -> Vec<Option<Vec<(Declarations, Declarations)>>> {
     base.iter()
         .map(|(_, d)| {
             if d.var_decls.is_empty() {
                 return None;
             }
-            let mut src = String::new();
-            for (name, raw) in &d.var_decls {
-                // Q57b: a value that is invalid at computed-value time makes
-                // the property `unset` instead of dropping the declaration.
-                let value = substitute_css_vars(raw, lookup).unwrap_or_default();
-                let one = format!("{name}:{value};");
-                let (n, i) = parse_declarations_split(&one);
-                if n == Declarations::default() && i == Declarations::default() {
-                    src.push_str(name);
-                    src.push_str(if strip_important(raw).is_some() { ":unset !important;" } else { ":unset;" });
-                } else {
-                    src.push_str(&one);
-                }
-            }
-            Some(parse_declarations_split(&src))
+            // One group per source-order segment (Q52b): the `var()`
+            // declarations between two runs of plain ones.
+            let groups = d.var_seg.iter().copied().max().map_or(1, |m| m + 1);
+            Some(
+                (0..groups)
+                    .map(|k| {
+                        let mut src = String::new();
+                        for (idx, (name, raw)) in d.var_decls.iter().enumerate() {
+                            if d.var_seg.get(idx).copied().unwrap_or(0) != k {
+                                continue;
+                            }
+                            // Q57b: a value that is invalid at computed-value time makes
+                            // the property `unset` instead of dropping the declaration.
+                            let value = substitute_css_vars(raw, lookup).unwrap_or_default();
+                            let one = format!("{name}:{value};");
+                            let (n, i) = parse_declarations_split(&one);
+                            if n == Declarations::default() && i == Declarations::default() {
+                                src.push_str(name);
+                                src.push_str(if strip_important(raw).is_some() { ":unset !important;" } else { ":unset;" });
+                            } else {
+                                src.push_str(&one);
+                            }
+                        }
+                        parse_declarations_split(&src)
+                    })
+                    .collect(),
+            )
         })
         .collect()
 }
 
 /// Slots each `expand_var_decls` result right after its rule's own
-/// entries, so source order still breaks specificity ties.
+/// entries, so source order still breaks specificity ties; the plain
+/// declarations written after a `var()` group follow it (`late`).
 pub(crate) fn merge_var_matches<'a>(
     base: &[(u32, &'a Declarations)],
-    synth: &'a [Option<(Declarations, Declarations)>],
+    synth: &'a [Option<Vec<(Declarations, Declarations)>>],
 ) -> Vec<(u32, &'a Declarations)> {
     let mut matches = Vec::with_capacity(base.len() + 2);
     for (idx, &(spec, d)) in base.iter().enumerate() {
         matches.push((spec, d));
-        if let Some(Some((n, i))) = synth.get(idx) {
-            matches.push((spec, n));
-            matches.push((spec | IMPORTANT_TIER, i));
+        if let Some(Some(groups)) = synth.get(idx) {
+            for (k, (n, i)) in groups.iter().enumerate() {
+                matches.push((spec, n));
+                matches.push((spec | IMPORTANT_TIER, i));
+                if let Some(l) = d.late.get(k) {
+                    matches.push((spec, l));
+                }
+            }
         }
     }
     matches
@@ -1686,6 +1712,12 @@ pub(crate) fn resolve_style_for(
     // just below (real CSS grammar is a plain `<length>`, no `%`, so
     // there's no layout-time basis to defer this against the way
     // `width`/`margin`/etc. need `BoxLength` for).
+    let border_collapse = cascade_property(
+        &matches,
+        inline_decls.as_ref().and_then(|d| d.border_collapse),
+        |d| d.border_collapse,
+    )
+    .unwrap_or(inherited.border_collapse);
     let word_spacing = cascade_property(
         &matches,
         inline_decls.as_ref().and_then(|d| d.word_spacing),
@@ -1980,6 +2012,7 @@ pub(crate) fn resolve_style_for(
         line_height,
         visibility,
         word_spacing,
+        border_collapse,
         text_indent,
         outline_width,
         outline_color,
@@ -2090,6 +2123,7 @@ pub(crate) fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         line_height: inherited.line_height,
         visibility: inherited.visibility,
         word_spacing: inherited.word_spacing,
+        border_collapse: inherited.border_collapse,
         text_indent: inherited.text_indent,
         outline_width: 0.0,
         outline_color: None,
