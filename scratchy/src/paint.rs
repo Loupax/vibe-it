@@ -316,6 +316,20 @@ pub(crate) fn in_rounded_rect(px: f32, py: f32, rx: f32, ry: f32, rw: f32, rh: f
     true
 }
 
+/// An unset `border-color` is `currentColor` (the box's own `color`); the
+/// computed value stays `None` so `inherit` passes the keyword on.
+fn with_current_border_color(s: &ComputedStyle) -> std::borrow::Cow<'_, ComputedStyle> {
+    if s.border_color.iter().zip(&s.border_width).any(|(c, w)| c.is_none() && *w > 0.0) {
+        let mut c = s.clone();
+        for bc in c.border_color.iter_mut() {
+            bc.get_or_insert(s.color);
+        }
+        std::borrow::Cow::Owned(c)
+    } else {
+        std::borrow::Cow::Borrowed(s)
+    }
+}
+
 /// Paints a border whose four sides differ (width, color or style),
 /// per pixel, hard-edged like the rest of the painters. Each border-band
 /// pixel belongs to the side it is proportionally closest to
@@ -339,6 +353,7 @@ pub(crate) fn paint_per_side_border(
     radius: f32,
     clip: Option<(f32, f32, f32, f32)>,
 ) {
+    let s = &*with_current_border_color(s);
     let [bt, br, bb, bl] = s.border_width;
     let widths = [bt, br, bb, bl];
     let visible = |i: usize| widths[i] > 0.0 && s.border_style[i] != BorderStyle::None && s.border_color[i].is_some();
@@ -531,6 +546,7 @@ pub(crate) fn paint_box_decoration(
     h: f32,
     clip: Option<(f32, f32, f32, f32)>,
 ) {
+    let s = &*with_current_border_color(s);
     // Outer shadows: behind this box's own background/border, first
     // listed on top (so paint last-to-first), and never drawn inside the
     // border box itself.
@@ -864,6 +880,10 @@ pub(crate) fn paint_buffer(
 ) {
     let ox = offset_x.round() as i32;
     let oy = offset_y.round() as i32;
+    // Sub-pixel x of the run origin goes into the glyph position (swash has
+    // 4 horizontal bins), so text split across boxes (table cells) lines up
+    // with the same text in one run (QA10, table-anonymous-objects-200).
+    let frac_x = offset_x - ox as f32;
     paint_span_backgrounds(buffer, font_system, backgrounds, hidden, pixels, win_w, win_h, ox, oy, clip);
     let default_color = TextColor::rgb(0, 0, 0);
     // `buffer.draw()`'s own internals, copied out by hand (public:
@@ -910,7 +930,7 @@ pub(crate) fn paint_buffer(
         },
     };
     for (run_idx, run) in buffer.layout_runs().enumerate() {
-        let line_dx = if run_idx == 0 { first_line_dx } else { 0.0 };
+        let line_dx = frac_x + if run_idx == 0 { first_line_dx } else { 0.0 };
         for glyph in run.glyphs {
             if hidden.get(glyph.metadata).copied().unwrap_or(false) {
                 continue;
@@ -1917,8 +1937,10 @@ pub(crate) fn paint_inner(
     // *ambient* `clip`, not `child_clip`, same treatment the background/
     // border decoration above gets. `Scroll` always shows it; `Auto`
     // only once content actually overflows (see `paint_scrollbar`'s own
-    // docs for the real difference between the two keywords).
-    if let Some(info) = &laid.scroll {
+    // docs for the real difference between the two keywords). QY20: a
+    // `visibility: hidden` box paints no chrome, so its scrollbar is
+    // skipped too (its visible descendants still paint normally).
+    if let Some(info) = laid.scroll.as_ref().filter(|_| s.visibility == Visibility::Visible) {
         paint_scrollbar(
             info, own_scroll, s.overflow == Overflow::Scroll, pixels, win_w, win_h, laid.x, draw_y, laid.w, laid.h,
             clip,
@@ -2244,7 +2266,9 @@ pub(crate) fn hit_test_scroll_region(
         return None;
     }
     let inside = x >= laid.x && x < laid.x + laid.w && y >= laid.y && y < laid.y + laid.h;
-    let self_info = if inside { laid.scroll } else { None };
+    // QY20: a `visibility: hidden` box is not a hit-test target (CSS),
+    // so the wheel never lands on it; its visible descendants still do.
+    let self_info = if inside && laid.style.visibility == Visibility::Visible { laid.scroll } else { None };
     let (LaidContent::Blocks(children) | LaidContent::TableRow(children)) = &laid.content else {
         return self_info;
     };

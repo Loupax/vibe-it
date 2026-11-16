@@ -1099,6 +1099,24 @@ pub(crate) fn hover_idle_wait(
     (!left.is_zero()).then_some(left)
 }
 
+/// Q35b2: how long an arriving image's relayout is held back so a burst
+/// of arrivals collapses into one rebuild.
+pub(crate) const IMAGE_RELAYOUT_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(80);
+
+/// Q35b2: pure debounce decision for an image-triggered relayout.
+/// `pending_for` is how long the oldest unapplied arrival has waited
+/// (`None` = this is the first). Returns the remaining wait, or `None`
+/// to rebuild now (a rebuild is already queued, or the window passed).
+/// The window runs from the first arrival and is not extended by later
+/// ones, so an idle page waits at most `IMAGE_RELAYOUT_DEBOUNCE`.
+pub(crate) fn image_relayout_wait(pending_for: Option<std::time::Duration>, layout_dirty: bool) -> Option<std::time::Duration> {
+    if layout_dirty {
+        return None;
+    }
+    let left = IMAGE_RELAYOUT_DEBOUNCE.saturating_sub(pending_for.unwrap_or_default());
+    (!left.is_zero()).then_some(left)
+}
+
 thread_local! {
     /// Content-keyed shaping memo (R2.2), enabled only on the shaping
     /// worker thread. Paragraph ids are positional and restart at 0 for
@@ -5357,6 +5375,24 @@ fn walk_negative_z(l: &mut Laid, bag: &mut Vec<Laid>, is_owner: bool) {
             }
         }
         *children = kept;
+    }
+    // QW3: a `position:relative` inline-block/`<button>` (an `Embedded`
+    // inline item) is a positioned box like any in-flow relative child:
+    // it paints in its stacking context's positioned layer, not with the
+    // line's text, so a later z-auto positioned sibling cannot cover a
+    // `z-index:1` one.
+    if let LaidContent::MixedInline(items) = &mut l.content {
+        let old = std::mem::take(items);
+        let mut kept = Vec::with_capacity(old.len());
+        for item in old {
+            match item {
+                MixedPositioned::Embedded(e) if matches!(e.style.position, Position::Relative | Position::Sticky) => {
+                    hoist_into(*e, bag);
+                }
+                other => kept.push(other),
+            }
+        }
+        *items = kept;
     }
     for c in l.positioned.iter_mut() {
         visit_negative_z_child(c, bag);

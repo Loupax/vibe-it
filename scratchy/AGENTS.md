@@ -52,3 +52,51 @@
 - Before you finish, check for background shells you started and kill them
   (specific PIDs only; never the user's scratchy/compositor).
 - Don't spawn subagents from inside an agent task.
+
+## Off limits until the user says so (design first)
+Do NOT implement the real behaviour of these until the user has explicitly
+asked and the design has been agreed. The user wants to understand how they
+will work first (same stance as forms, Q30):
+- **Audio and video**: `<video>`, `<audio>`, `<source>`, `<track>`,
+  `HTMLMediaElement` playback (`play()`/`pause()`/`currentTime`/events),
+  codecs, MediaSource/EME, Web Audio, `<canvas>` capture/WebRTC, autoplay.
+- **Forms** (Q30 and children): live form state, text input widgets,
+  form submission. QA20/Q33d1 only added DOM reflections and event stubs.
+
+What IS allowed (placeholders so the rest of the page keeps working, and
+nothing more):
+- Render the element as an inert box (a poster image if it has one, else an
+  empty replaced box with its width/height) that does nothing.
+- Make the JS API exist but fail loudly and harmlessly: e.g. `video.play()`
+  logs a clear `not implemented` error line (QJ2 log format) and returns a
+  rejected promise / does nothing, instead of throwing `not a function` and
+  killing the surrounding script.
+No decoding, no audio output, no playback state machine, no controls UI.
+The same placeholder rule applies to FORMS: form controls (`<input>`,
+`<textarea>`, `<select>`, `<button>`) may render as inert boxes that do
+nothing (no text editing, no caret, no focus ring logic beyond what exists, no
+dropdown UI), and form JS APIs may exist as plain DOM reflections, no-ops or
+`not implemented` error logs (e.g. `form.submit()` logs and does nothing) so
+page scripts don't die. No live form state, no value editing, no validation,
+no submission/network POST, no cookies for forms (Q30/Q30e/Q30f wait for the
+user's design).
+If an item or page seems to need more than a placeholder, stop, write what it
+needs in TODO.txt as a `[ ]` item marked "WAITING FOR USER (design first)", and
+move on to something else.
+
+## Acid2 / Acid3 are information, not a merge gate
+The Acid2 and Acid3 results (including the saved per-test Acid3 harness and the
+live http://acid3.acidtests.org/ score) must NEVER block an item or its merge.
+Report the score in your PR/report for information, nothing more. Triage:
+1. A test fails because of a feature that is planned later (it has a `[ ]` item
+   in TODO.txt, e.g. Range QA19, real form state Q30, media): leave it alone
+   until that item is implemented. Do not work around it and do not chase it.
+2. A test fails because of a missing feature that is NOT yet listed anywhere:
+   do not guess a fix. Note it in your report ("Acid3 Tnn fails on <what you
+   saw>, not in TODO.txt") and the coordinator will have an Opus investigator
+   (read-only, docs only) audit it and file action items (as the QA1..QA21
+   audit did). Sonnet/Haiku agents then implement those items.
+3. The score DROPS because of a bug in your own change: that is a normal
+   regression; fix it before merging.
+The WPT subset rule (no pass->fail) is separate and still blocks merges.
+

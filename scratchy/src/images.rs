@@ -541,8 +541,34 @@ pub(crate) fn build_table_children(
     viewport_width: f32,
     image_cache: &HashMap<String, Arc<DecodedImage>>,
 ) -> Vec<LayoutBox> {
+    let nodes: Vec<Handle> = handle.children.borrow().clone();
+    build_table_nodes(&nodes, rules, inherited, decoration, href, viewport_width, image_cache)
+}
+
+/// `build_table_children`'s body over an explicit node list, so QA10's
+/// anonymous tables (a run of rows/cells that are siblings of arbitrary
+/// content, see `collect_children`) can reuse it. A run of consecutive
+/// `display: table-cell` nodes is wrapped in an anonymous row (CSS 2.1
+/// 17.2.1, "missing child" rule); any other element ends the run.
+pub(crate) fn build_table_nodes(
+    nodes: &[Handle],
+    rules: &[StyleRule],
+    inherited: InheritedStyle,
+    decoration: DecorationValue,
+    href: Option<&'static str>,
+    viewport_width: f32,
+    image_cache: &HashMap<String, Arc<DecodedImage>>,
+) -> Vec<LayoutBox> {
     let mut result = Vec::new();
-    for child in handle.children.borrow().iter() {
+    let mut anon_cells: Vec<LayoutBox> = Vec::new();
+    let flush_cells = |cells: &mut Vec<LayoutBox>, result: &mut Vec<LayoutBox>| {
+        if !cells.is_empty() {
+            let mut style = anonymous_style(inherited);
+            style.display = Display::TableRow;
+            result.push(LayoutBox { style, background_image: None, content: BoxContent::TableRow(std::mem::take(cells)) });
+        }
+    };
+    for child in nodes {
         let NodeData::Element { .. } = &child.data else { continue };
         let tag = element_tag(child);
         if tag == "script" || tag == "style" {
@@ -556,13 +582,32 @@ pub(crate) fn build_table_children(
         // since `build_box_for_element` already redoes this same
         // combine itself once it has the child's own `style`.
         let child_decoration = resolve_own_decoration(&style, decoration);
+        if style.display == Display::TableCell {
+            anon_cells.push(build_table_cell(child, rules, inherited, decoration, href, viewport_width, image_cache));
+            continue;
+        }
+        let joins_row = !anon_cells.is_empty()
+            && !style.table_caption
+            && matches!(style.display, Display::Block | Display::Flex | Display::Grid | Display::Table);
+        if style.display != Display::None && !joins_row {
+            flush_cells(&mut anon_cells, &mut result);
+        }
         match style.display {
             Display::None => {}
             Display::TableRow => {
                 let cells =
                     build_table_row_cells(child, rules, style.inherited(), child_decoration, href, viewport_width, image_cache);
                 let background_image = resolve_background_image(child, rules, viewport_width, style.custom_props, image_cache);
-                result.push(LayoutBox { style, background_image, content: BoxContent::TableRow(cells) });
+                // Q52c1 (CSS2.1 17.6): margin and padding do not apply to a row,
+                // and in the separated model neither does its border. Used
+                // values only: the computed ones still inherit to the cells.
+                let mut row_style = style;
+                row_style.margin = Default::default();
+                row_style.padding = Default::default();
+                if !style.border_collapse {
+                    row_style.border_width = [0.0; 4];
+                }
+                result.push(LayoutBox { style: row_style, background_image, content: BoxContent::TableRow(cells) });
             }
             Display::TableGroup => {
                 result.extend(build_table_children(
@@ -575,6 +620,16 @@ pub(crate) fn build_table_children(
                     image_cache,
                 ));
             }
+            Display::Block | Display::Flex | Display::Grid | Display::Table
+                if !anon_cells.is_empty() && !style.table_caption =>
+            {
+                // QA10: block-level content in a run of cells goes in its
+                // own anonymous cell of that same anonymous row.
+                let inner = build_box_for_element(child, rules, inherited, decoration, href, viewport_width, image_cache);
+                let mut cell_style = anonymous_style(inherited);
+                cell_style.display = Display::TableCell;
+                anon_cells.push(LayoutBox { style: cell_style, background_image: None, content: BoxContent::Blocks(vec![inner]) });
+            }
             Display::Block | Display::Flex | Display::Grid => {
                 // e.g. `caption`, or any other block-level content placed
                 // directly under `<table>` — a stray `display: flex`/
@@ -584,12 +639,33 @@ pub(crate) fn build_table_children(
                 // `measure_flex`/`measure_grid` for it).
                 result.push(build_box_for_element(child, rules, inherited, decoration, href, viewport_width, image_cache));
             }
-            // A stray `table-cell`/inline/`table` outside a row isn't
-            // real-world table markup — skip rather than guess at it.
+            // A stray inline/`table` here isn't real-world table markup —
+            // skip rather than guess at it.
             _ => {}
         }
     }
+    flush_cells(&mut anon_cells, &mut result);
     result
+}
+
+/// One `display: table-cell` element as a cell box, with its
+/// `colspan`/`rowspan` read from the attributes.
+fn build_table_cell(
+    child: &Handle,
+    rules: &[StyleRule],
+    inherited: InheritedStyle,
+    decoration: DecorationValue,
+    href: Option<&'static str>,
+    viewport_width: f32,
+    image_cache: &HashMap<String, Arc<DecodedImage>>,
+) -> LayoutBox {
+    let mut cell = build_box_for_element(child, rules, inherited, decoration, href, viewport_width, image_cache);
+    let span = |name: &str, max: usize| {
+        element_attr(child, name).and_then(|v| v.trim().parse::<usize>().ok()).map_or(1, |n| n.clamp(1, max))
+    };
+    cell.style.col_span = span("colspan", 1000);
+    cell.style.row_span = span("rowspan", 65534);
+    cell
 }
 
 /// A `tr`'s direct `td`/`th` children, each built as a normal box (its own
@@ -606,19 +682,56 @@ pub(crate) fn build_table_row_cells(
     image_cache: &HashMap<String, Arc<DecodedImage>>,
 ) -> Vec<LayoutBox> {
     let mut cells = Vec::new();
+    // QA10: a run of non-cell content (text, inline elements, blocks) in a
+    // row is wrapped in an anonymous cell; a whitespace-only run is dropped.
+    let mut run: Vec<Handle> = Vec::new();
+    let flush_run = |run: &mut Vec<Handle>, cells: &mut Vec<LayoutBox>| {
+        if run.is_empty() {
+            return;
+        }
+        let nodes = std::mem::take(run);
+        let visible = nodes.iter().any(|n| match &n.data {
+            NodeData::Text { contents } => !trim_css_ws(&contents.borrow()).is_empty(),
+            NodeData::Element { name, .. } => {
+                !matches!(name.local.as_ref(), "script" | "style")
+                    && resolve_style(n, rules, inherited, viewport_width).display != Display::None
+            }
+            _ => false,
+        });
+        if !visible {
+            return;
+        }
+        let mut pending: Vec<InlineItem> = Vec::new();
+        let mut result: Vec<LayoutBox> = Vec::new();
+        collect_real_nodes(
+            handle, &nodes, rules, inherited, None, decoration, href, VerticalAlign::default(), &mut pending, &mut result,
+            viewport_width, image_cache,
+        );
+        if collapses_ws(inherited.white_space) {
+            discard_if_collapsible_whitespace_only(&mut pending, true);
+        }
+        if !pending.is_empty() {
+            result.push(LayoutBox {
+                style: anonymous_style(inherited),
+                background_image: None,
+                content: BoxContent::Inline(pending),
+            });
+        }
+        let mut style = anonymous_style(inherited);
+        style.display = Display::TableCell;
+        cells.push(LayoutBox { style, background_image: None, content: BoxContent::Blocks(result) });
+    };
     for child in handle.children.borrow().iter() {
-        let NodeData::Element { .. } = &child.data else { continue };
-        let style = resolve_style(child, rules, inherited, viewport_width);
-        if style.display == Display::TableCell {
-            let mut cell = build_box_for_element(child, rules, inherited, decoration, href, viewport_width, image_cache);
-            let span = |name: &str, max: usize| {
-                element_attr(child, name).and_then(|v| v.trim().parse::<usize>().ok()).map_or(1, |n| n.clamp(1, max))
-            };
-            cell.style.col_span = span("colspan", 1000);
-            cell.style.row_span = span("rowspan", 65534);
-            cells.push(cell);
+        if let NodeData::Element { .. } = &child.data
+            && resolve_style(child, rules, inherited, viewport_width).display == Display::TableCell
+        {
+            flush_run(&mut run, &mut cells);
+            cells.push(build_table_cell(child, rules, inherited, decoration, href, viewport_width, image_cache));
+        } else {
+            run.push(child.clone());
         }
     }
+    flush_run(&mut run, &mut cells);
     cells
 }
 
@@ -1473,7 +1586,29 @@ pub(crate) fn collect_real_children(
     viewport_width: f32,
     image_cache: &HashMap<String, Arc<DecodedImage>>,
 ) {
-    for child in handle.children.borrow().iter() {
+    let kids: Vec<Handle> = handle.children.borrow().clone();
+    collect_real_nodes(handle, &kids, rules, inherited, bg, decoration, href, valign, pending, result, viewport_width, image_cache);
+}
+
+/// `collect_real_children` over an explicit node list (QA10: the nodes of
+/// an anonymous table cell are a slice of a row's children).
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn collect_real_nodes(
+    handle: &Handle,
+    kids: &[Handle],
+    rules: &[StyleRule],
+    inherited: InheritedStyle,
+    bg: Option<TextColor>,
+    decoration: DecorationValue,
+    href: Option<&'static str>,
+    valign: VerticalAlign,
+    pending: &mut Vec<InlineItem>,
+    result: &mut Vec<LayoutBox>,
+    viewport_width: f32,
+    image_cache: &HashMap<String, Arc<DecodedImage>>,
+) {
+    let mut iter = kids.iter().peekable();
+    while let Some(child) = iter.next() {
         match &child.data {
             NodeData::Text { contents } => {
                 let mut span: SpanStyle = inherited.into();
@@ -1600,6 +1735,42 @@ pub(crate) fn collect_real_children(
                     if let Some(image) = decoded {
                         pending.push(InlineItem::Image { image, style: svg_style, background_image });
                     }
+                } else if matches!(style.display, Display::TableRow | Display::TableCell | Display::TableGroup) {
+                    // QA10 (CSS 2.1 17.2.1): table parts outside a table get
+                    // an anonymous table around the whole run of sibling
+                    // parts (whitespace text and `display: none` /
+                    // script/style siblings stay inside the run).
+                    let mut run = vec![child.clone()];
+                    while let Some(next) = iter.peek() {
+                        let keep = match &next.data {
+                            NodeData::Text { contents } => trim_css_ws(&contents.borrow()).is_empty(),
+                            NodeData::Element { name, .. } => {
+                                matches!(name.local.as_ref(), "script" | "style")
+                                    || matches!(
+                                        resolve_style(next, rules, inherited, viewport_width).display,
+                                        Display::None | Display::TableRow | Display::TableCell | Display::TableGroup
+                                    )
+                            }
+                            _ => true,
+                        };
+                        if !keep {
+                            break;
+                        }
+                        run.push((*next).clone());
+                        iter.next();
+                    }
+                    discard_if_collapsible_whitespace_only(pending, collapses_ws(inherited.white_space));
+                    if !pending.is_empty() {
+                        result.push(LayoutBox {
+                            style: anonymous_style(inherited),
+                            background_image: None,
+                            content: BoxContent::Inline(std::mem::take(pending)),
+                        });
+                    }
+                    let mut table_style = anonymous_style(inherited);
+                    table_style.display = Display::Table;
+                    let rows = build_table_nodes(&run, rules, inherited, decoration, child_href, viewport_width, image_cache);
+                    result.push(LayoutBox { style: table_style, background_image: None, content: BoxContent::Blocks(rows) });
                 } else if matches!(style.display, Display::Block | Display::Table | Display::Flex | Display::Grid) {
                     discard_if_collapsible_whitespace_only(pending, collapses_ws(inherited.white_space));
                     if !pending.is_empty() {
@@ -1747,9 +1918,9 @@ pub(crate) fn build_layout_tree_with_resources(
             note_state_rule(*mask);
             return rules.clone();
         }
-        let mut rules = parse_stylesheet(DEFAULT_CSS);
+        let mut rules = parse_ua_stylesheet(DEFAULT_CSS);
         if js_enabled() {
-            rules.extend(parse_stylesheet("noscript { display: none; }"));
+            rules.extend(parse_ua_stylesheet("noscript { display: none; }"));
         }
         rules.extend(parse_stylesheet(&css_source));
         let rules = Rc::new(rules);

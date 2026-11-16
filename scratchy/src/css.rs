@@ -1059,6 +1059,17 @@ pub(crate) struct Declarations {
     /// value text)`, deferred until `resolve_style` knows the element's
     /// custom properties, then re-parsed with the calls substituted.
     pub(crate) var_decls: Vec<(String, String)>,
+    /// Q52b: for each `var_decls` entry, the number of `late` layers that
+    /// existed when it was declared (its source-order segment).
+    pub(crate) var_seg: Vec<usize>,
+    /// Q52b: copies of the plain (non-`var()`) declarations written after a
+    /// `var()` declaration, one layer per run. `var()` values are expanded
+    /// per element and slotted after the rule's own entries, which would let
+    /// them override a later plain declaration; the cascade re-applies each
+    /// layer right after the `var()` group it followed (`merge_var_matches`).
+    /// The plain values also stay in the main fields, so paths that do not
+    /// expand `var()` (pseudo-elements) still see them.
+    pub(crate) late: Vec<Declarations>,
     /// CSS-wide keywords (`inherit`/`initial`/`unset`/`revert`) declared
     /// for a property, keyed by `wide_key`. Mutually exclusive with that
     /// property's typed field on the same `Declarations`: whichever was
@@ -1169,6 +1180,8 @@ pub(crate) struct Declarations {
     /// into cosmic-text's own `Attrs`, unlike what `letter-spacing`
     /// (still reverted, see TODO.txt) tried.
     pub(crate) word_spacing: Option<Length>,
+    /// `border-collapse` (true = `collapse`).
+    pub(crate) border_collapse: Option<bool>,
     /// `text-indent` (QW2): a `<length>` only (`%` unsupported).
     pub(crate) text_indent: Option<Length>,
     pub(crate) visibility: Option<Visibility>,
@@ -1930,6 +1943,11 @@ pub(crate) struct StyleRule {
     /// independent of viewport width, exactly as before this existed.
     /// See `media_list_matches`.
     pub(crate) media: Vec<MediaQuery>,
+    /// QY17 cascade layer: 0 = unlayered, 1 = the user-agent sheet
+    /// (`parse_ua_stylesheet`), `n >= 2` = the author layer of order rank
+    /// `n - 2` (first-mention order, nested layers inside their parent,
+    /// CSS Cascade 5 §6.4). See `style::normal_key` / `important_key`.
+    pub(crate) layer: u32,
 }
 
 /// A real media type keyword this engine can evaluate. `screen` and
@@ -2960,6 +2978,25 @@ pub(crate) fn parse_pair<T: Copy>(input: &mut CssParser, mut one: impl FnMut(&mu
     Some([a, b])
 }
 
+/// `<line-width>`: a non-negative length or `thin`/`medium`/`thick`
+/// (1/3/5px).
+fn parse_border_width(input: &mut CssParser) -> Option<Length> {
+    let state = input.state();
+    if let Ok(Token::Ident(id)) = input.next() {
+        let px = match &**id {
+            x if x.eq_ignore_ascii_case("thin") => Some(1.0),
+            x if x.eq_ignore_ascii_case("medium") => Some(3.0),
+            x if x.eq_ignore_ascii_case("thick") => Some(5.0),
+            _ => None,
+        };
+        if let Some(px) = px {
+            return Some(Length::Px(px));
+        }
+    }
+    input.reset(&state);
+    parse_length(input).ok().filter(|v| !is_negative_length(v))
+}
+
 /// Handles `border`, `border-{width,color,style}` (box syntax),
 /// `border-{top,right,bottom,left}` shorthands and the 12 side longhands.
 /// Returns false for any other `border-*` name (e.g. `border-radius`).
@@ -2987,7 +3024,7 @@ pub(crate) fn parse_border_property(decls: &mut Declarations, name: &str, input:
             }
         }
         "-width" => {
-            if let Some(v) = parse_box4(input, |i| parse_length(i).ok().filter(|v| !is_negative_length(v))) {
+            if let Some(v) = parse_box4(input, |i| parse_border_width(i)) {
                 for (i, x) in v.into_iter().enumerate() {
                     decls.border_width[i] = Some(x);
                 }
@@ -3035,7 +3072,7 @@ pub(crate) fn parse_border_property(decls: &mut Declarations, name: &str, input:
                     }
                 }
                 Some("width") => {
-                    if let Some(v) = parse_length(input).ok().filter(|v| !is_negative_length(v)) {
+                    if let Some(v) = parse_border_width(input) {
                         decls.border_width[i] = Some(v);
                     }
                 }
@@ -3133,7 +3170,7 @@ pub(crate) fn parse_border_like_shorthand<'k>(
     let mut found = false;
     loop {
         let state = input.state();
-        if let Some(v) = parse_length(input).ok().filter(|v| !is_negative_length(v)) {
+        if let Some(v) = parse_border_width(input) {
             width = Some(v);
             found = true;
             continue;
@@ -3573,7 +3610,7 @@ fn first_url_layer(input: &mut CssParser) -> Option<String> {
 /// `background`'s grammar: a color, an image (`url()`, `none` or a
 /// gradient, which is accepted but not rendered), `<position> [/ <size>]`,
 /// a repeat style and the attachment/box keywords (parsed, ignored), in any
-/// order. Only the first layer of a comma list contributes the image,
+/// order. The first layer with a `url()` (else the first layer) supplies the image,
 /// position, size and repeat. With `strict` (QA4, the `background`
 /// property) any unrecognized token, a second colour, or a colour outside
 /// the last layer fails the whole value so the declaration is dropped;
@@ -3581,7 +3618,11 @@ fn first_url_layer(input: &mut CssParser) -> Option<String> {
 pub(crate) fn parse_background_shorthand(input: &mut CssParser, strict: bool) -> Result<BgShorthand, ()> {
     let mut out = BgShorthand { color: None, image: None, position: None, size: None, repeat: None, fixed: None };
     let mut found = false;
-    let mut first_layer = true;
+    // Q35b: image/position/size/repeat/fixed come from the first layer that
+    // has a `url()` (like `first_url_layer`), else from the first layer.
+    let mut lay = BgShorthand { color: None, image: None, position: None, size: None, repeat: None, fixed: None };
+    let mut chosen = false;
+    let mut first_attrs: Option<BgShorthand> = None;
     // In the current layer: saw an image / repeat / position.
     let (mut l_image, mut l_repeat, mut l_pos) = (false, false, false);
     loop {
@@ -3591,8 +3632,8 @@ pub(crate) fn parse_background_shorthand(input: &mut CssParser, strict: bool) ->
                 return Err(());
             }
             l_image = true;
-            if first_layer {
-                out.image = Some(url.to_string());
+            if lay.image.is_none() {
+                lay.image = Some(url.to_string());
             }
             found = true;
             continue;
@@ -3641,9 +3682,7 @@ pub(crate) fn parse_background_shorthand(input: &mut CssParser, strict: bool) ->
                 return Err(());
             }
             l_repeat = true;
-            if first_layer {
-                out.repeat = Some(r);
-            }
+            lay.repeat = Some(r);
             found = true;
             continue;
         }
@@ -3664,11 +3703,9 @@ pub(crate) fn parse_background_shorthand(input: &mut CssParser, strict: bool) ->
             } else {
                 input.reset(&st);
             }
-            if first_layer {
-                out.position = Some(p);
-                if size.is_some() {
-                    out.size = size;
-                }
+            lay.position = Some(p);
+            if size.is_some() {
+                lay.size = size;
             }
             found = true;
             continue;
@@ -3680,16 +3717,14 @@ pub(crate) fn parse_background_shorthand(input: &mut CssParser, strict: bool) ->
                 if strict && (out.color.is_some() || !(l_image || l_repeat || l_pos)) {
                     return Err(());
                 }
-                first_layer = false;
+                end_bg_layer(&mut lay, &mut out, &mut chosen, &mut first_attrs);
                 (l_image, l_repeat, l_pos) = (false, false, false);
             }
             Ok(Token::Ident(id)) if strict && is_bg_box_keyword(id) => {
-                if first_layer {
-                    if id.eq_ignore_ascii_case("fixed") {
-                        out.fixed = Some(true);
-                    } else if id.eq_ignore_ascii_case("scroll") || id.eq_ignore_ascii_case("local") {
-                        out.fixed = Some(false);
-                    }
+                if id.eq_ignore_ascii_case("fixed") {
+                    lay.fixed = Some(true);
+                } else if id.eq_ignore_ascii_case("scroll") || id.eq_ignore_ascii_case("local") {
+                    lay.fixed = Some(false);
                 }
             }
             Ok(Token::Ident(id)) if !strict && (id.eq_ignore_ascii_case("fixed") || id.eq_ignore_ascii_case("scroll") || id.eq_ignore_ascii_case("local")) => {}
@@ -3704,10 +3739,35 @@ pub(crate) fn parse_background_shorthand(input: &mut CssParser, strict: bool) ->
             Err(_) => break,
         }
     }
+    end_bg_layer(&mut lay, &mut out, &mut chosen, &mut first_attrs);
+    if let (false, Some(f)) = (chosen, first_attrs) {
+        out.position = f.position;
+        out.size = f.size;
+        out.repeat = f.repeat;
+        out.fixed = f.fixed;
+    }
     if found {
         Ok(out)
     } else {
         Err(())
+    }
+}
+
+/// Close one `background` layer: the first layer with a `url()` supplies the
+/// image and its position/size/repeat/attachment; the very first layer's
+/// attributes are kept as the fallback when no layer has a url.
+fn end_bg_layer(lay: &mut BgShorthand, out: &mut BgShorthand, chosen: &mut bool, first_attrs: &mut Option<BgShorthand>) {
+    let l = BgShorthand { color: None, image: lay.image.take(), position: lay.position.take(), size: lay.size.take(), repeat: lay.repeat.take(), fixed: lay.fixed.take() };
+    if first_attrs.is_none() {
+        *first_attrs = Some(BgShorthand { color: None, image: None, position: l.position, size: l.size, repeat: l.repeat, fixed: l.fixed });
+    }
+    if !*chosen && l.image.is_some() {
+        *chosen = true;
+        out.image = l.image;
+        out.position = l.position;
+        out.size = l.size;
+        out.repeat = l.repeat;
+        out.fixed = l.fixed;
     }
 }
 
@@ -4555,6 +4615,7 @@ impl DeclParser<'_> {
             let raw = input.slice_from(start.position()).trim();
             if raw.contains("var(") {
                 self.decls.var_decls.push((name.to_string(), raw.to_string()));
+                self.decls.var_seg.push(self.decls.late.len());
                 return;
             }
             input.reset(&start);
@@ -5252,7 +5313,8 @@ impl DeclParser<'_> {
             }
         } else if name.eq_ignore_ascii_case("white-space") {
             if let Ok(ident) = input.expect_ident() {
-                self.decls.white_space = if ident.eq_ignore_ascii_case("normal") {
+                // An invalid keyword drops the declaration (an earlier valid one stands).
+                let parsed = if ident.eq_ignore_ascii_case("normal") {
                     Some(WhiteSpace::Normal)
                 } else if ident.eq_ignore_ascii_case("pre") {
                     Some(WhiteSpace::Pre)
@@ -5265,6 +5327,9 @@ impl DeclParser<'_> {
                 } else {
                     None
                 };
+                if parsed.is_some() {
+                    self.decls.white_space = parsed;
+                }
             }
         } else if name.eq_ignore_ascii_case("word-break") {
             if let Ok(ident) = input.expect_ident() {
@@ -5292,6 +5357,14 @@ impl DeclParser<'_> {
                     "capitalize" => Some(TextTransform::Capitalize),
                     _ => None,
                 };
+            }
+        } else if name.eq_ignore_ascii_case("border-collapse") {
+            if let Ok(ident) = input.expect_ident() {
+                if ident.eq_ignore_ascii_case("collapse") {
+                    self.decls.border_collapse = Some(true);
+                } else if ident.eq_ignore_ascii_case("separate") {
+                    self.decls.border_collapse = Some(false);
+                }
             }
         } else if name.eq_ignore_ascii_case("list-style-type") {
             if let Ok(ident) = input.expect_ident() {
@@ -5438,7 +5511,19 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
             std::mem::swap(self.decls, self.important);
             return Ok(());
         }
+        let (nvar, plain_start) = (self.decls.var_decls.len(), input.state());
         self.apply(&name, input);
+        if !name.starts_with("--") && nvar > 0 && self.decls.var_decls.len() == nvar {
+            // Q52b: a plain declaration after a `var()` one also goes into a
+            // late layer, so it keeps beating the expanded value.
+            input.reset(&plain_start);
+            if self.decls.var_seg.last() == Some(&self.decls.late.len()) {
+                self.decls.late.push(Declarations::default());
+            }
+            let mut layer = self.decls.late.pop().unwrap_or_default();
+            DeclParser { decls: &mut layer, important: &mut Declarations::default() }.apply(&name, input);
+            self.decls.late.push(layer);
+        }
         if let (Some(before), Some(value_start)) = (before, value_start) {
             if *self.decls == before {
                 // Unchanged: either no branch accepted the value, or a
@@ -5503,6 +5588,74 @@ pub(crate) enum AtPrelude {
     Media(Vec<MediaQuery>),
     /// `@supports`: the condition's truth value, evaluated up front.
     Supports(bool),
+    /// `@layer`: the comma-separated dotted names (empty = anonymous).
+    Layer(Vec<Vec<String>>),
+}
+
+/// QY17: layers named so far in one stylesheet (every prefix of every
+/// mentioned path, in first-mention order) plus an anonymous-layer counter.
+#[derive(Default)]
+pub(crate) struct LayerState {
+    reg: Vec<Vec<String>>,
+    anon: u32,
+}
+
+impl LayerState {
+    /// Registers `path` and its prefixes; returns the registry index of `path`.
+    fn register(&mut self, path: &[String]) -> usize {
+        let mut idx = 0;
+        for j in 1..=path.len() {
+            idx = match self.reg.iter().position(|p| p[..] == path[..j]) {
+                Some(i) => i,
+                None => {
+                    self.reg.push(path[..j].to_vec());
+                    self.reg.len() - 1
+                }
+            };
+        }
+        idx
+    }
+
+    /// Order rank of every registry entry: lexicographic on the sibling
+    /// (= registry) indices of each prefix, with a trailing maximum so a
+    /// layer's own rules come after its sub-layers.
+    fn ranks(&self) -> Vec<u32> {
+        let key = |p: &Vec<String>| -> Vec<usize> {
+            let mut k: Vec<usize> =
+                (1..=p.len()).map(|j| self.reg.iter().position(|q| q[..] == p[..j]).unwrap_or(0)).collect();
+            k.push(usize::MAX);
+            k
+        };
+        let mut order: Vec<usize> = (0..self.reg.len()).collect();
+        order.sort_by_key(|&i| key(&self.reg[i]));
+        let mut ranks = vec![0; self.reg.len()];
+        for (pos, i) in order.into_iter().enumerate() {
+            ranks[i] = pos as u32;
+        }
+        ranks
+    }
+}
+
+/// Parses `a, b.c` after `@layer`; an empty prelude is one anonymous layer.
+fn parse_layer_names<'i>(input: &mut CssParser<'i>) -> Result<Vec<Vec<String>>, ParseError<CssError>> {
+    let mut names = Vec::new();
+    if input.is_exhausted() {
+        return Ok(names);
+    }
+    loop {
+        let mut path = vec![input.expect_ident()?.to_string()];
+        while input.try_parse(|i| i.expect_delim('.')).is_ok() {
+            path.push(input.expect_ident()?.to_string());
+        }
+        names.push(path);
+        if input.try_parse(|i| i.expect_comma()).is_err() {
+            break;
+        }
+    }
+    if !input.is_exhausted() {
+        return Err(input.new_error_for_next_token());
+    }
+    Ok(names)
 }
 
 /// `@supports` condition: `not <in-parens>` or `<in-parens> [and|or
@@ -5574,7 +5727,22 @@ pub(crate) fn parse_supports_in_parens<'i>(input: &mut CssParser<'i>) -> Result<
     }
 }
 
-pub(crate) struct TopLevelParser;
+#[derive(Default)]
+pub(crate) struct TopLevelParser {
+    layers: LayerState,
+    /// The enclosing `@layer` path (QY17).
+    prefix: Vec<String>,
+}
+
+impl TopLevelParser {
+    /// A parser for a block's contents (same layer registry, `prefix`).
+    fn nested(&mut self, prefix: Vec<String>) -> TopLevelParser {
+        TopLevelParser { layers: std::mem::take(&mut self.layers), prefix }
+    }
+    fn absorb(&mut self, nested: TopLevelParser) {
+        self.layers = nested.layers;
+    }
+}
 
 impl<'i> AtRuleParser<'i> for TopLevelParser {
     // Only `@media`'s own query-list grammar is parsed here — every
@@ -5604,8 +5772,25 @@ impl<'i> AtRuleParser<'i> for TopLevelParser {
             let holds = parse_supports_condition(input).unwrap_or(false);
             while input.next().is_ok() {}
             Ok(AtPrelude::Supports(holds))
+        } else if name.eq_ignore_ascii_case("layer") {
+            Ok(AtPrelude::Layer(parse_layer_names(input)?))
         } else {
             Err(input.new_error_for_next_token())
+        }
+    }
+
+    fn rule_without_block(&mut self, prelude: Self::Prelude, _start: &ParserState) -> Result<Self::AtRule, ()> {
+        // `@layer a, b.c;` fixes the layer order at first mention (QY17).
+        match prelude {
+            AtPrelude::Layer(names) if !names.is_empty() => {
+                for n in names {
+                    let mut path = self.prefix.clone();
+                    path.extend(n);
+                    self.layers.register(&path);
+                }
+                Ok(Vec::new())
+            }
+            _ => Err(()),
         }
     }
 
@@ -5615,10 +5800,30 @@ impl<'i> AtRuleParser<'i> for TopLevelParser {
         _start: &ParserState,
         input: &mut CssParser<'i>,
     ) -> Result<Self::AtRule, ParseError<Self::Error>> {
+        let mut layer_path: Option<Vec<String>> = None;
         let (prelude, supported) = match prelude {
             AtPrelude::Media(q) => (q, true),
             AtPrelude::Supports(b) => (Vec::new(), b),
+            AtPrelude::Layer(names) => {
+                if names.len() > 1 {
+                    return Err(input.new_error_for_next_token());
+                }
+                let mut path = self.prefix.clone();
+                match names.into_iter().next() {
+                    Some(n) => path.extend(n),
+                    None => {
+                        self.layers.anon += 1;
+                        path.push(format!("\u{0}anon{}", self.layers.anon));
+                    }
+                }
+                layer_path = Some(path);
+                (Vec::new(), true)
+            }
         };
+        let mut layer_id = 0;
+        if let Some(path) = &layer_path {
+            layer_id = self.layers.register(path) as u32 + 2;
+        }
         if !supported {
             // Consume the block; its rules never apply.
             while input.next().is_ok() {}
@@ -5629,7 +5834,7 @@ impl<'i> AtRuleParser<'i> for TopLevelParser {
         // a fresh `TopLevelParser` over this already block-delimited
         // `input` reuses the exact same rule-list parsing rather than a
         // second, parallel implementation.
-        let mut nested = TopLevelParser;
+        let mut nested = self.nested(layer_path.unwrap_or_else(|| self.prefix.clone()));
         let mut rules = Vec::new();
         let iter = StyleSheetParser::new(input, &mut nested);
         for result in iter {
@@ -5653,9 +5858,13 @@ impl<'i> AtRuleParser<'i> for TopLevelParser {
                 if rule.media.is_empty() {
                     rule.media = prelude.clone();
                 }
+                if rule.layer == 0 {
+                    rule.layer = layer_id;
+                }
                 rules.push(rule);
             }
         }
+        self.absorb(nested);
         Ok(rules)
     }
 }
@@ -5694,13 +5903,14 @@ impl<'i> QualifiedRuleParser<'i> for TopLevelParser {
             decls,
             important,
             media: Vec::new(),
+            layer: 0,
         }])
     }
 }
 
 pub(crate) fn parse_stylesheet(css: &str) -> Vec<StyleRule> {
     let mut input = CssParser::new(css);
-    let mut top = TopLevelParser;
+    let mut top = TopLevelParser::default();
     let mut rules = Vec::new();
     let mut stylesheet = StyleSheetParser::new(&mut input, &mut top);
     while let Some(result) = stylesheet.next() {
@@ -5708,6 +5918,24 @@ pub(crate) fn parse_stylesheet(css: &str) -> Vec<StyleRule> {
             Ok(rule_list) => rules.extend(rule_list),
             Err((_, slice, _)) => css_debug_report_dropped_rule(slice),
         }
+    }
+    // Rules carry registry index + 2; turn it into the order rank + 2.
+    if !top.layers.reg.is_empty() {
+        let ranks = top.layers.ranks();
+        for r in rules.iter_mut().filter(|r| r.layer >= 2) {
+            r.layer = ranks[(r.layer - 2) as usize] + 2;
+        }
+    }
+    rules
+}
+
+/// QY17: the user-agent sheet. Its rules sit in the user-agent origin
+/// (`layer` 1): below every author rule for normal declarations, above
+/// them for `!important` (CSS Cascade 5 §6.4).
+pub(crate) fn parse_ua_stylesheet(css: &str) -> Vec<StyleRule> {
+    let mut rules = parse_stylesheet(css);
+    for r in &mut rules {
+        r.layer = 1;
     }
     rules
 }
@@ -5740,11 +5968,11 @@ pub(crate) fn intern_custom_props(map: CustomProps) -> &'static CustomProps {
 /// against the combined table. A cycle makes the property invalid
 /// (removed, so a `var()` of it uses its fallback).
 pub(crate) fn compute_custom_props(
-    matches: &[(u32, &Declarations)],
+    matches: &[(u64, &Declarations)],
     inline: Option<&Declarations>,
     parent: Option<&'static CustomProps>,
 ) -> Option<&'static CustomProps> {
-    let mut own: HashMap<&str, (u32, &str)> = HashMap::new();
+    let mut own: HashMap<&str, (u64, &str)> = HashMap::new();
     for &(spec, decls) in matches {
         for (name, value) in &decls.custom_props {
             if own.get(name.as_str()).is_none_or(|(s, _)| spec >= *s) {
@@ -5754,7 +5982,7 @@ pub(crate) fn compute_custom_props(
     }
     if let Some(inl) = inline {
         for (name, value) in &inl.custom_props {
-            own.insert(name, (u32::MAX, value));
+            own.insert(name, (u64::MAX, value));
         }
     }
     if own.is_empty() {
@@ -5765,7 +5993,7 @@ pub(crate) fn compute_custom_props(
     let visiting: RefCell<(Vec<String>, HashSet<String>)> = RefCell::new((Vec::new(), HashSet::new()));
     fn lookup(
         name: &str,
-        own: &HashMap<&str, (u32, &str)>,
+        own: &HashMap<&str, (u64, &str)>,
         parent: Option<&'static CustomProps>,
         visiting: &RefCell<(Vec<String>, HashSet<String>)>,
     ) -> Option<String> {
@@ -6024,4 +6252,342 @@ pub(crate) fn to_text_color(color: &CssColor) -> Option<TextColor> {
         }
         _ => None,
     }
+}
+
+// ---------- QY10: `window.matchMedia(query)` ----------
+
+/// Splits media-query text into top-level parts: bare words and
+/// balanced `( ... )` groups (kept with their parens).
+fn media_text_parts(s: &str) -> Result<Vec<String>, ()> {
+    let mut parts = Vec::new();
+    let mut cur = String::new();
+    let mut depth = 0usize;
+    for c in s.chars() {
+        match c {
+            '(' => {
+                if depth == 0 && !cur.trim().is_empty() {
+                    parts.push(cur.trim().to_string());
+                    cur.clear();
+                }
+                depth += 1;
+                cur.push(c);
+            }
+            ')' => {
+                if depth == 0 {
+                    return Err(());
+                }
+                depth -= 1;
+                cur.push(c);
+                if depth == 0 {
+                    parts.push(std::mem::take(&mut cur));
+                }
+            }
+            c if c.is_whitespace() && depth == 0 => {
+                if !cur.trim().is_empty() {
+                    parts.push(cur.trim().to_string());
+                }
+                cur.clear();
+            }
+            c => cur.push(c),
+        }
+    }
+    if depth != 0 {
+        return Err(());
+    }
+    if !cur.trim().is_empty() {
+        parts.push(cur.trim().to_string());
+    }
+    Ok(parts)
+}
+
+fn media_len(text: &str) -> Result<f32, ()> {
+    let mut input = CssParser::new(text.trim());
+    media_feature_length_px(&mut input)
+}
+
+fn media_resolution_dppx(text: &str) -> Result<f32, ()> {
+    let t = text.trim().to_ascii_lowercase();
+    let (num, mul) = if let Some(n) = t.strip_suffix("dppx") {
+        (n, 1.0)
+    } else if let Some(n) = t.strip_suffix("dpcm") {
+        (n, 2.54 / 96.0)
+    } else if let Some(n) = t.strip_suffix("dpi") {
+        (n, 1.0 / 96.0)
+    } else if let Some(n) = t.strip_suffix('x') {
+        (n, 1.0)
+    } else {
+        return Err(());
+    };
+    num.trim().parse::<f32>().map(|v| v * mul).map_err(|_| ())
+}
+
+fn media_cmp(op: &str, lhs: f32, rhs: f32) -> Result<bool, ()> {
+    Ok(match op {
+        "<" => lhs < rhs,
+        "<=" => lhs <= rhs,
+        ">" => lhs > rhs,
+        ">=" => lhs >= rhs,
+        "=" => (lhs - rhs).abs() < 0.01,
+        _ => return Err(()),
+    })
+}
+
+/// Evaluates one `( ... )` feature body the way scratchy renders: a
+/// light-scheme, no-reduced-motion, hover-capable fine-pointer
+/// 1dppx screen of `w` x `h` CSS px. `Ok(None)` = an unknown feature
+/// (evaluates false, and stays unknown under `not`), `Err` = invalid.
+fn media_feature_eval(body: &str, w: f32, h: f32) -> Result<Option<bool>, ()> {
+    let b = body.trim();
+    // Level 4 range syntax: `width >= 600px`, `400px <= width <= 700px`.
+    if b.contains(['<', '>']) || (!b.contains(':') && b.contains('=')) {
+        let mut toks: Vec<String> = Vec::new();
+        let mut cur = String::new();
+        let mut chars = b.chars().peekable();
+        while let Some(c) = chars.next() {
+            if c == '<' || c == '>' || c == '=' {
+                if !cur.trim().is_empty() {
+                    toks.push(cur.trim().to_string());
+                }
+                cur.clear();
+                let mut op = c.to_string();
+                if c != '=' && chars.peek() == Some(&'=') {
+                    op.push('=');
+                    chars.next();
+                }
+                toks.push(op);
+            } else {
+                cur.push(c);
+            }
+        }
+        if !cur.trim().is_empty() {
+            toks.push(cur.trim().to_string());
+        }
+        let flip = |op: &str| match op {
+            "<" => ">",
+            "<=" => ">=",
+            ">" => "<",
+            ">=" => "<=",
+            o => o,
+        }
+        .to_string();
+        let is_op = |t: &str| matches!(t, "<" | "<=" | ">" | ">=" | "=");
+        let feat = |name: &str| match name.to_ascii_lowercase().as_str() {
+            "width" | "device-width" => Some(w),
+            "height" | "device-height" => Some(h),
+            "resolution" => Some(1.0),
+            _ => None,
+        };
+        let value_of = |name: &str, t: &str| -> Result<f32, ()> {
+            if name.eq_ignore_ascii_case("resolution") { media_resolution_dppx(t) } else { media_len(t) }
+        };
+        return match toks.len() {
+            3 if is_op(&toks[1]) => {
+                if let Some(f) = feat(&toks[0]) {
+                    media_cmp(&toks[1], f, value_of(&toks[0], &toks[2])?).map(Some)
+                } else if let Some(f) = feat(&toks[2]) {
+                    media_cmp(&flip(&toks[1]), f, value_of(&toks[2], &toks[0])?).map(Some)
+                } else {
+                    Ok(None)
+                }
+            }
+            5 if is_op(&toks[1]) && is_op(&toks[3]) => {
+                let Some(f) = feat(&toks[2]) else { return Ok(None) };
+                let a = media_cmp(&toks[1], value_of(&toks[2], &toks[0])?, f)?;
+                let c = media_cmp(&toks[3], f, value_of(&toks[2], &toks[4])?)?;
+                Ok(Some(a && c))
+            }
+            _ => Err(()),
+        };
+    }
+    let (name, value) = match b.split_once(':') {
+        Some((n, v)) => (n.trim().to_ascii_lowercase(), Some(v.trim().to_string())),
+        None => (b.to_ascii_lowercase(), None),
+    };
+    if name.is_empty() || name.contains(char::is_whitespace) {
+        return Err(());
+    }
+    let (prefix, base) = if let Some(r) = name.strip_prefix("min-") {
+        (1, r.to_string())
+    } else if let Some(r) = name.strip_prefix("max-") {
+        (2, r.to_string())
+    } else {
+        (0, name.clone())
+    };
+    // Numeric features: exact / min- / max-.
+    let numeric = match base.as_str() {
+        "width" | "device-width" => Some((w, true)),
+        "height" | "device-height" => Some((h, true)),
+        "resolution" => Some((1.0, false)),
+        "color" => Some((8.0, false)),
+        "color-index" | "monochrome" | "grid" => Some((0.0, false)),
+        "aspect-ratio" | "device-aspect-ratio" => Some((w / h.max(1.0), false)),
+        _ => None,
+    };
+    if let Some((cur, is_len)) = numeric {
+        let Some(v) = value else {
+            return Ok(Some(cur != 0.0)); // boolean context
+        };
+        let rhs = if is_len {
+            media_len(&v)?
+        } else if base == "resolution" {
+            media_resolution_dppx(&v)?
+        } else if base.ends_with("aspect-ratio") {
+            let (a, d) = v.split_once('/').ok_or(())?;
+            a.trim().parse::<f32>().map_err(|_| ())? / d.trim().parse::<f32>().map_err(|_| ())?
+        } else {
+            v.parse::<f32>().map_err(|_| ())?
+        };
+        return Ok(Some(match prefix {
+            1 => cur >= rhs,
+            2 => cur <= rhs,
+            _ => (cur - rhs).abs() < 0.01,
+        }));
+    }
+    if prefix != 0 {
+        return Ok(None);
+    }
+    let v = value.map(|s| s.to_ascii_lowercase());
+    let v = v.as_deref();
+    // Discrete features: (current value, the `none`-like value).
+    let (cur, none): (&str, &str) = match name.as_str() {
+        "prefers-color-scheme" => ("light", ""),
+        "prefers-reduced-motion" | "prefers-contrast" | "prefers-reduced-transparency" | "prefers-reduced-data" => {
+            ("no-preference", "no-preference")
+        }
+        "forced-colors" | "inverted-colors" => ("none", "none"),
+        "hover" | "any-hover" => ("hover", "none"),
+        "pointer" | "any-pointer" => ("fine", "none"),
+        "orientation" => (if w >= h { "landscape" } else { "portrait" }, ""),
+        "display-mode" => ("browser", ""),
+        "scripting" => ("enabled", "none"),
+        "update" => ("fast", "none"),
+        "overflow-block" | "overflow-inline" => ("scroll", "none"),
+        "color-gamut" => ("srgb", ""),
+        _ => return Ok(None),
+    };
+    Ok(Some(match v {
+        None => cur != none, // boolean context: true unless the `none` value
+        Some(v) => v == cur,
+    }))
+}
+
+fn media_condition_eval(text: &str, w: f32, h: f32) -> Result<Option<bool>, ()> {
+    let parts = media_text_parts(text)?;
+    let group = |p: &str| -> Result<Option<bool>, ()> {
+        let inner = p.strip_prefix('(').and_then(|x| x.strip_suffix(')')).ok_or(())?.trim();
+        let ip = media_text_parts(inner)?;
+        let nested = inner.starts_with('(') || ip.first().is_some_and(|f| f.eq_ignore_ascii_case("not") && ip.len() > 1);
+        if nested { media_condition_eval(inner, w, h) } else { media_feature_eval(inner, w, h) }
+    };
+    match parts.as_slice() {
+        [] => Err(()),
+        [n, g] if n.eq_ignore_ascii_case("not") => Ok(group(g)?.map(|b| !b)),
+        _ => {
+            if parts.len() % 2 == 0 {
+                return Err(());
+            }
+            let mut acc: Option<Option<bool>> = None;
+            let mut op: Option<String> = None;
+            for (i, p) in parts.iter().enumerate() {
+                if i % 2 == 0 {
+                    let v = group(p)?;
+                    acc = Some(match (&acc, &op) {
+                        (None, _) => v,
+                        (Some(a), Some(o)) if o == "and" => match (a, v) {
+                            (Some(false), _) | (_, Some(false)) => Some(false),
+                            (None, _) | (_, None) => None,
+                            _ => Some(true),
+                        },
+                        (Some(a), Some(_)) => match (a, v) {
+                            (Some(true), _) | (_, Some(true)) => Some(true),
+                            (None, _) | (_, None) => None,
+                            _ => Some(false),
+                        },
+                        _ => return Err(()),
+                    });
+                } else {
+                    let o = p.to_ascii_lowercase();
+                    if (o != "and" && o != "or") || op.as_ref().is_some_and(|prev| *prev != o) {
+                        return Err(());
+                    }
+                    op = Some(o);
+                }
+            }
+            Ok(acc.unwrap_or(None))
+        }
+    }
+}
+
+fn media_one_query_eval(text: &str, w: f32, h: f32) -> Result<bool, ()> {
+    let parts = media_text_parts(text)?;
+    let Some(first) = parts.first() else { return Err(()) };
+    let lc = first.to_ascii_lowercase();
+    // A bare condition (`(a) and (b)`, `not (a)`).
+    if first.starts_with('(') || (lc == "not" && parts.get(1).is_some_and(|p| p.starts_with('('))) {
+        return Ok(media_condition_eval(text, w, h)?.unwrap_or(false));
+    }
+    let mut i = 0;
+    let mut neg = false;
+    if lc == "not" {
+        neg = true;
+        i = 1;
+    } else if lc == "only" {
+        i = 1;
+    }
+    let ty = parts.get(i).ok_or(())?.to_ascii_lowercase();
+    if ty.starts_with('(') || matches!(ty.as_str(), "and" | "or" | "not" | "only" | "layer") {
+        return Err(());
+    }
+    let ty_ok = ty == "all" || ty == "screen";
+    i += 1;
+    let mut cond = Some(true);
+    if i < parts.len() {
+        if !parts[i].eq_ignore_ascii_case("and") || i + 1 >= parts.len() {
+            return Err(());
+        }
+        let rest = parts[i + 1..].join(" ");
+        if parts[i + 1..].iter().any(|t| t.eq_ignore_ascii_case("or")) {
+            return Err(());
+        }
+        cond = media_condition_eval(&rest, w, h)?;
+    }
+    let r = ty_ok && cond.unwrap_or(false);
+    Ok(if neg { !r } else { r })
+}
+
+/// QY10: evaluates a `matchMedia` query string for a `w` x `h` px
+/// screen. Returns `(matches, serialized media)`; an invalid query is
+/// `(false, "not all")`, and an invalid item inside a comma list
+/// becomes `not all` while the others still count.
+pub(crate) fn media_query_string_matches(query: &str, w: f32, h: f32) -> (bool, String) {
+    let q = query.trim();
+    if q.is_empty() {
+        return (true, String::new());
+    }
+    let mut items = Vec::new();
+    let (mut depth, mut start) = (0i32, 0usize);
+    for (i, c) in q.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => depth -= 1,
+            ',' if depth == 0 => {
+                items.push(&q[start..i]);
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    items.push(&q[start..]);
+    let mut any = false;
+    let mut out = Vec::new();
+    for it in items {
+        match media_one_query_eval(it, w, h) {
+            Ok(m) => {
+                any |= m;
+                out.push(it.split_whitespace().collect::<Vec<_>>().join(" ").to_ascii_lowercase());
+            }
+            Err(()) => out.push("not all".to_string()),
+        }
+    }
+    (any, out.join(", "))
 }

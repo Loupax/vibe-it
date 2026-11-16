@@ -68,9 +68,14 @@ mod layout;
 mod images;
 mod paint;
 mod net;
+#[allow(dead_code)] // nothing calls the policy until QF7/QF8
+mod net_policy;
 mod app;
 mod js;
+mod js_modules;
 mod js_dom;
+mod js_net;
+mod js_style;
 
 pub use dom::*;
 pub use css::*;
@@ -79,8 +84,10 @@ pub use layout::*;
 pub use images::*;
 pub(crate) use paint::*;
 pub(crate) use net::*;
+pub(crate) use net_policy::*;
 pub(crate) use app::*;
 pub(crate) use js::*;
+pub(crate) use js_net::{NetScheduler, WireExecutor};
 
 
 /// The actual entry point — `src/main.rs` is just `fn main() {
@@ -150,6 +157,7 @@ pub fn run() {
                     if app.base_url.is_none() {
                         app.base_url = url;
                     }
+                    js_style::set_js_extra_css(&css);
                     app.extra_css = css;
                     scripts
                 }

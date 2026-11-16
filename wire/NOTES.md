@@ -143,3 +143,108 @@ form submission has no transport of its own yet (scratchy has no
 `<button>`/focus/keyboard subsystem at all to drive one with), and
 `snag --serve` itself hasn't been removed now that `wire` supersedes it
 for live navigation — `snag`'s own, independent change to make.
+
+## The scratchy<->wire control channel (QF6, protocol version 2)
+
+Request headers scratchy MAY send (all optional; a request without them behaves
+exactly as before; none is ever forwarded upstream: every `X-Wire-*` request
+header is skipped in `is_request_header_to_skip`):
+
+- `X-Wire-Max-Bytes: N` - the response body may be at most N bytes. Headers
+  are already out once a body streams, so with this header wire buffers up to
+  N+1 bytes (memory is bounded by the cap itself); over the cap the answer is
+  `502` + `X-Wire-Error: too-large` and a short text/plain body.
+- `X-Wire-Timeout-Ms: N` - overall upstream timeout (default 20 s).
+- `X-Wire-Max-Redirects: N` - redirect limit (ureq default 5). A non-default
+  value builds a one-off agent (no connection reuse for that request). Going
+  over the limit is a transport error: the marked 502 below.
+- `X-Wire-Policy: public-only` - refuse non-public targets: the resolver drops
+  every non-public address BEFORE connecting (ureq connects only to the
+  addresses the resolver returns, so DNS rebinding cannot swap it afterwards)
+  and ureq resolves again for every redirect hop. Refusal is `403` +
+  `X-Wire-Error: policy`; `file:` URLs get the same 403. Without the header
+  wire connects to loopback/private/file targets (user decision: warn and
+  allow, scratchy does the warning from the class header below).
+
+Response headers wire ALWAYS adds (upstream copies of `X-Wire-*` are dropped so
+a server cannot spoof them):
+
+- `X-Wire-Version: 2` on every response, including errors and `file:` (an old
+  wire has none: this is the version probe scratchy uses before it relies on
+  the caps; a response without it means "restart wire").
+- `X-Wire-Final-Url` - the URL after redirects (the file URL for `file:`).
+- `X-Wire-Target-Class` - the worst class among the resolved addresses of all
+  hops (`public`, `loopback`, `private`, `link-local`, `cgnat`, `ula`,
+  `multicast`, `unspecified`, `reserved`; `file` for files) and
+  `X-Wire-Hop-Classes` - the comma list per hop. Same names as scratchy's
+  `net_policy::ip_class`; `is_public_ip`/`ip_class` are copies, keep in sync.
+  When a name resolves to a mix, the worst class is reported (conservative).
+- `X-Wire-Error` on wire-made errors: `1` (transport failure; body keeps the
+  old `wire: upstream request failed: ...` text), `too-large`, `policy`.
+- Duplicate upstream headers (`Set-Cookie`) are now written one line each.
+
+Per-request resolver state lives in a thread-local (`TRACKER`): each
+connection has its own thread and ureq resolves on the calling thread.
+
+## The cookie jar (QF14, protocol version 3)
+
+Design: `scratchy/TODO.txt` QF-D2a (user, FINAL). Code: `src/cookies.rs` (the
+jar, RFC 6265bis parsing/matching, its own unit tests) and `execute_with_jar`,
+`cookie_control` in `src/main.rs`.
+
+- **Header-gated, memory only.** The jar is ON unless wire runs with
+  `--no-cookies`, but a request uses it only with `X-Wire-Jar: scratchy` (and
+  not `X-Wire-Cookies: off`). One jar for all clients (`JAR_NAME`; a later
+  `--profile` changes that one value). Without the header (snag, other clients)
+  wire sends and stores nothing and behaves exactly as before, a client
+  `Cookie` header included. The jar lives in a `Mutex` inside `Shared`; it is
+  lost when wire restarts (QF-D7; `--cookie-file` is a later flag).
+- **Partitioned (Total Cookie Protection).** Key = (partition, domain, path,
+  name). `X-Wire-Top-Site` gives the partition (any URL or site; normalized to
+  `scheme://registrable-domain`; missing = the request's own site). A third
+  party sees only cookies it set under the same top site. `SameSite` as
+  declared; unspecified = None. Strict: only when the request is same-site with
+  the top site. Lax: also on a top-level navigation (`X-Wire-Nav: 1`, safe
+  methods only). Optional `X-Wire-Initiator-Site` (with Nav): scratchy sends the
+  destination as the top site for a navigation, which would make every
+  navigation same-site; with the initiator, a cross-site navigation sends Lax
+  but not Strict cookies. Sites compare scheme + registrable domain. The
+  registrable domain uses a SMALL embedded suffix list (single labels plus
+  ~100 common multi-label suffixes, no `psl` crate); a missing ccTLD second
+  level would let siblings share a super cookie. One function
+  (`is_public_suffix`) to replace.
+- **Rules:** name/value, Expires (lenient RFC date parser), Max-Age (wins),
+  400 day cap, Domain (IP hosts host-only, public suffix rejected unless equal
+  to the host), Path (default path), Secure (set only from a secure context;
+  sent over https or loopback), HttpOnly, SameSite, `Partitioned` ignored,
+  `__Secure-`/`__Host-` prefixes (case-insensitive), malformed lines ignored
+  (no `=`, empty name, control characters), plain http cannot overwrite a
+  Secure cookie. Limits in ONE struct (`Limits`): 4096 bytes name+value, 1024
+  per attribute value, 180 per (partition, domain), 3000 total; eviction =
+  expired first, then least recently accessed.
+- **Request path.** With the jar, wire follows redirects ITSELF (a second
+  agent with redirects off): before every hop (initial and each redirect) the
+  `Cookie` header is computed for that hop's URL (a client-supplied `Cookie` is
+  dropped: the jar is authoritative), after every hop every `Set-Cookie` line is
+  stored, and `Set-Cookie` lines are stripped from what scratchy gets back (the
+  jar belongs to wire). 303 and POST+301/302 become GET; 307/308 keep method and
+  body. `X-Wire-Final-Url`/hop classes behave as before; the timeout is per hop
+  on this path.
+- **Control channel for `document.cookie`:** `X-Wire-Cookie-Op: get` +
+  `X-Wire-Cookie-Url: <page url>` + `X-Wire-Top-Site` + `X-Wire-Jar: scratchy`
+  answers `200 text/plain` `name=value; name2=value2` (HttpOnly hidden; SameSite
+  by the top site), no upstream request. `set` takes the `document.cookie = ...`
+  string as the BODY and answers `204` (rejected cookies also answer 204, as a
+  browser silently ignores them; script cannot create or overwrite HttpOnly,
+  Secure only from https/loopback). Bad input: `400` + `X-Wire-Error:
+  cookie-control`. Disabled jar: `404` + `X-Wire-Cookies: off`. Hook for the
+  access token the user has not decided on: `control_authorized` (always true
+  today).
+- **Detection:** `X-Wire-Version: 3` = cookie-capable wire. Responses carry
+  `X-Wire-Cookies: on` when the jar was used for that request (control channel
+  included) and `X-Wire-Cookies: off` on every response when wire runs with
+  `--no-cookies` (the jar header is then ignored and `Set-Cookie` passes
+  through). A version >= 3 without the header on a request that did not ask for
+  the jar just means "available, not used".
+- **Logging:** names and values never reach a log line; `cookies::log_line`
+  prints host and counts only, and only under `WIRE_TIMING=1`.

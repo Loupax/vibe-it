@@ -1,5 +1,493 @@
 # scratchy — regressions
 
+## R23: Shadow DOM / template.content survey and design evidence (Opus investigator, 2026-11-16) — EVIDENCE for the TODO.txt "DESIGN MEMO (QSD)" block
+
+Investigation only, no code changed. Build: release build of `5ca5619`
+(origin/main after QY6g IO/RO), `target/release/scratchy` of an isolated
+worktree. Memo, user checklist (SD-D1..D4) and items (QSD0-QSD12, QY6f)
+are at the top of the TODO.txt QUEUE.
+
+### How this was measured (reusable)
+
+- Pages: `curl -sL --compressed -A '<Firefox 128 UA>'`, raw saved, then
+  a COPY with `<base href="<effective url>">` right after `<head>`. Run:
+  `scratchy --js-report --run-timers 5000 --socket /run/user/1001/wire.sock copy.html`.
+- Static: every first-level `<script src>` downloaded (module imports
+  not followed, except github's `f18-10a827ef5e40729a.js` chunk, which
+  the error stacks name) and counted for `attachShadow`, `shadowRoot`,
+  `adoptedStyleSheets`, `replaceSync`, `:host`, `::slotted`, `::part(`,
+  `<slot`, `assignedNodes/Elements`, `slotchange`, `composedPath`,
+  `getRootNode`, `attachInternals`, `shadowrootmode`, ShadyDOM, Lit.
+  Failing positions read by line:column in the minified files.
+- Stand-ins: a third copy with one inline `<script>` right after
+  `<base>` (scratchpad only), in levels, each API logging its first use
+  with `console.error('SD <api>')`:
+  1. `template.content` (lazy fragment holding the template's children),
+     template `innerHTML` get/set through it, deep `cloneNode` copying it.
+  2. `attachShadow` returning a detached DocumentFragment with `host`,
+     `mode`, `innerHTML`, `adoptedStyleSheets`, `getElementById`;
+     `Element.shadowRoot` (open only). NOT rendered (needed only to get
+     past startup; for REAL rendering this must become QSD6/QSD7).
+  3. `getRootNode({composed})`, `isConnected` (startup only; real ones
+     are QSD2, trivially correct).
+  4. `CSSStyleSheet` ctor + `replaceSync/replace/insertRule`,
+     `document.adoptedStyleSheets` (stored, not applied: real rendering
+     needs QSD4).
+  5. `attachInternals` (inert object). 6. slot `assignedNodes/Elements`
+     returning `[]` (real: QSD10).
+  q. work-around for the QSD0 bug: force `writable:true` when a page
+     defines a value on `DocumentFragment.prototype`.
+  x. non-shadow gaps: `document.domain`, `document.firstElementChild`,
+     `document.getElementsByName`, `document.importNode`.
+- Screenshots: `tools/nest.sh` nested dwl + `grim` after 15-20 s.
+
+### Error locations (verified in the fetched sources)
+
+| Page | Error | Source | What it needs |
+|---|---|---|---|
+| github (3 entries; repo page: 4) | `TypeError: cannot read property 'appendChild' of undefined` | f18-10a827ef5e40729a.js:223:27350, task-lists element module top level: `let f=document.createElement("template"); ... f.content.appendChild(p)` | `template.content` (QY6f), NOT shadow DOM |
+| github (12x) | `not implemented: Element.attachShadow` in `relative-time` constructor | f18 223:10665 `l.set(this,this.shadowRoot?this.shadowRoot:this.attachShadow?this.attachShadow({mode:"open"}):this)` via the command polyfill wrapper f18 136:166006 (`i=e.prototype.attachShadow; e.prototype.attachShadow=function(e){let n=i.call(this,e)...}`) and the popover polyfill wrapper f18 285:1468 | attachShadow + shadowRoot (QSD3); "absent" does not work because the command polyfill wraps it unconditionally |
+| github (1x) | same, in a connectedCallback | f18 136:687, `<tool-tip>`: `if(!this.shadowRoot){let e=this.attachShadow({mode:"open"}); e.appendChild(style).textContent=this.styles(), e.appendChild(slot)}` | QSD3 |
+| github (after template.content) | `TypeError: 'querySelectorAll' is read-only` (all 3 entries) | scratchy `wrap()` -> `queries(o)` assigns per fragment instance after f18's popover polyfill did `Object.defineProperty(DocumentFragment.prototype,"querySelectorAll",{value(e){...}})` | QSD0 (scratchy bug) |
+| github (next) | `Error: Unable to get document domain` | core-95dd3246eeba0b9e.js:136:26710 `let o=document.domain;if(null==o)throw` | QSD1 |
+| github (next) | `cannot read property 'classList' of undefined` | core 2:114409 `document.firstElementChild.classList` | QSD1 |
+| github (next) | `TypeError: not a function` | core 136:3547 `e.getElementById(t)\|\|e.getElementsByName(t)[0]` | QSD1 |
+| github (last) | exception in `react-app` connectedCallback | core 136:16274 `crypto.randomUUID()` | QSD1b |
+| youtube | `Failed to execute 'appendChild': parameter 1 is not of type 'Node'` | kevlar_base 10725:29 `document.head.appendChild(_.GZ().content)` (Polymer template) | QY6f |
+| youtube (after QY6f stand-in) | `stopped: exceeded the 5 s CPU-time page-load budget (9533 KB of source)` | the app script | not shadow DOM (ShadyDOM forced) |
+
+### github error count by stand-in level (`--js-report`, errors total)
+
+baseline 29 -> level 1 (template.content) 29 (the error just moves to
+QSD0) -> 1+q 32 -> 2+q 6 -> 9+q 6 -> 2+q+x 1 -> 9+q+x 1 (the remaining
+one is `crypto.randomUUID`; timers: one callback over the 500 ms budget,
+the collector POST blocked by CORS preflight). At 9+q+x the run logged
+every stand-in as used at startup: template.content, attachShadow(open),
+adoptedStyleSheets= (shadow root), new CSSStyleSheet + replaceSync,
+document.adoptedStyleSheets=, getRootNode, isConnected, document.domain,
+document.firstElementChild, document.getElementsByName.
+
+### Per-site table (2026-11-16)
+
+Counts: static (inline / first-level external scripts); errors =
+`--js-report` errors total, baseline -> with stand-ins 9+q+x.
+
+| Page | Needs shadow DOM at startup? | Static evidence | Errors | Notes |
+|---|---|---|---|---|
+| github.com | yes (imperative) | f18: attachShadow 14, shadowRoot 35, adoptedStyleSheets 4, `:host` 29, getRootNode 21, attachInternals 6, `.content` 44 | 29 -> 1 | relative-time x12 (no `datetime`: same text either way), tool-tip; template.content is the module killer |
+| github.com/rust-lang/rust | yes | same chunk | 7 -> 1 | next: run-time module import `primer-react-*.js` (QY15a) |
+| chromestatus.com | yes, entire UI | Lit + shoelace: `:host` 133, `::part(` 89, `::slotted` 46, `<slot` 125, slotchange 21 | 2 -> 0 | body is one `<chromedash-app>`; blank until shadow trees render (B2) and fetch data arrives |
+| developer.mozilla.org | yes (Lit + DSD) | 17 `<template shadowrootmode>` (mdn-dropdown x10, search-button x2, color-theme, language-switcher, switch, button, homepage-search); ext: attachShadow 1, adoptedStyleSheets 2 | 2 -> 0 | `--no-js` screenshot readable (menu as a plain list, no Search button); shadow content = "Search" label + widget styling (`:host(:not([loaded],:focus-within)) slot[name=dropdown]{display:none}`) |
+| salesforce.com (served /de/) | yes (LWC + DSD) | 185 DSD templates (hgf-button 104, nav panels 56, ...), 315 `<slot>`, ext: shadowRoot 148, `:host` 154, `::part(` 36, adoptedStyleSheets 15, attachInternals 7 | 43 -> 12 | 36% of body text is inside DSD (whole nav). `--no-js` window blank after 20 s: cause not isolated. Non-shadow errors: crypto.getRandomValues, consent/analytics objects |
+| youtube.com | no (ShadyDOM forced) | attachShadow 19, `<slot` 69, ShadyDOM 67, `.content.cloneNode` 1008 | 1 -> 1 | needs template.content; next wall CPU budget |
+| duckduckgo.com | no | inline polyfill `if(!Element.prototype.attachShadow) attachShadow=function(){let o=createElement("div");return this.appendChild(o),o}` | 0 | the flattened fallback never runs because scratchy's attachShadow exists (and throws) |
+| bbc.com/news | no | 1 feature test for the "toucan" video player | 0 | media: off limits |
+| theguardian.com | no | none | 0 | |
+| lobste.rs | no | none | 0 | |
+| en.wikipedia.org | no | none | 0 | |
+| news.ycombinator.com | no | none | 0 | |
+| web.dev | no | 1 `<template>` | 0 | |
+| reddit | n/a | www.reddit.com and /r/rust return an 8 KB bot wall to curl; old.reddit login page (saved by R22): attachShadow 3, Lit, getRootNode 4 | 1 (nonce, not shadow) | not representative |
+
+Score: 4 of 13 fetchable pages need Shadow DOM at startup (github,
+chromestatus, MDN, salesforce); 1 more (youtube) needs template.content.
+
+### Code facts used by the memo
+
+- `src/js_dom.rs`: `ElementProto.attachShadow` logs + throws
+  NotSupportedError; `ShadowRoot` is an `illegal()` interface object;
+  `HTMLTemplateElement` exists but has no `content`; no `getRootNode`,
+  `isConnected`, `document.importNode`, `document.domain`, Document
+  ParentNode, main-document `getElementsByName`; `CSSStyleSheet` ctor
+  throws TypeError; no `attachInternals`. `composedPath()` = the
+  parentNode path; `Event.composed` is stored.
+- `src/dom.rs` `impl SelectorsElement for El`: `parent_node_is_shadow_root`
+  false, `containing_shadow_host` None: the `selectors` 0.41 hooks for
+  `:host`/`::slotted`/`::part` exist but are off.
+- `src/images.rs` `collect_real_children` reads `handle.children`
+  (9 `children.borrow()` sites in images.rs, none in layout.rs/paint.rs):
+  the single place a composed-children function plugs in.
+  `collect_style_css` walks `children` only, so `<style>` inside
+  template content never leaks into the document today.
+- No `display: contents` (`Display` enum in css.rs).
+- html5ever 0.39 tree builder calls `sink.attach_declarative_shadow`;
+  markup5ever_rcdom 0.39 returns false (default trait method).
+
+### What could not be tested
+
+- Real rendering of any shadow tree (nothing renders one); all "visible
+  gain" statements come from reading the components' source and the
+  `--no-js` screenshots (MDN, salesforce).
+- Whether GitHub's React islands render anything new once the modules
+  run (they hit `crypto` and run-time imports next).
+- Logged-in GitHub (repo pages with `datetime` relative-time elements),
+  reddit (bot wall), salesforce's blank `--no-js` window (cause unknown).
+- Performance of a composed-tree walk and of per-tree rule filtering.
+
+## R22: fetch/XHR survey and design evidence (Opus investigator, 2026-11-16) — EVIDENCE for the TODO.txt "DESIGN MEMO (QF)" block
+
+Investigation only, no code changed. Build: release build of `faa1cbe`
+(origin/main, after QY15 ES modules), `target/release/scratchy` of an
+isolated worktree. The memo, user checklist (QF-D1..D9) and items
+(QF1-QF19) are at the top of the TODO.txt QUEUE.
+
+### How this was measured (reusable)
+
+- Pages: `curl -sL --compressed -A '<Firefox 128 UA>'` saved raw, then a
+  COPY with `<base href="<url>">` inserted right after `<head>` (for
+  old.reddit, the URL it redirected to). Runs:
+  `scratchy --js-report --run-timers 5000 --socket /run/user/1001/wire.sock copy.html`.
+- Stand-ins: a second copy with one `<script>` inserted right after
+  `<base>` (scratchpad only, never in the repo) that defines `fetch`,
+  `Headers`, `Request`, `Response` (with a fake `body` stream),
+  `XMLHttpRequest`, `Blob`, `File`, `FileReader`, `FormData`,
+  `TextEncoder`/`TextDecoder`, `ReadableStream`, `TransformStream`,
+  `WebSocket`, `EventSource`, `Worker`, `navigator.sendBeacon`. Each logs
+  every call with `console.error('FX ...')` plus the calling frame, so
+  the calls show up in the report. fetch/XHR answer after 50 ms (timer)
+  with status 200 and body `{}`. No real network from page JS.
+- Static: every inline script plus every first-level external
+  `<script src>` of each page downloaded and grepped for network API
+  patterns (module imports were not followed).
+- CORS: `curl -H 'Origin: <page origin>'` on each observed endpoint.
+- wire: raw requests written to `/run/user/1001/wire.sock` with a small
+  Python client (absolute-form request line, like scratchy).
+
+### What the pages call (stand-ins, `--run-timers 5000`)
+
+| site | plain run: scripts / errors | network calls at startup (stand-in run) | what the response is used for |
+|---|---|---|---|
+| theguardian.com/europe | 17 / 7 (+2 timers) `ActiveXObject is not defined` | `new Request('')` (polyfill.io feature test); 10 fetches: `GET api.nextgen.guardianapps.co.uk/geolocation` (no options), 9x `GET ophan.theguardian.com/img/{1,2}?...` with `mode:'no-cors', keepalive:true, credentials:'include'` (7 at load, 2 in timers) | geolocation `.json()` -> CMP country (the plain run's `CMP initialised without country` console.error is gone with the stand-in); ophan responses never read. With fetch present: 0 errors |
+| old.reddit.com (served `/login/?reason=lor2`) | 20 / 3 (customElements, a data: module, `fetch is not defined`) | 1 fetch `GET https://www.reddit.com/svc/events/preload-head?renderId=...&pageType=login` (no options) | not read in 5 s; `fetch is not defined` gone, customElements errors remain (QY6) |
+| youtube.com | 39 / 2 (MutationObserver, `polyfillWrapFlushCallback`) | none (dies first); `new TextEncoder()` at startup | (R21, with 16 shims: 1 call to `/youtubei/v1/player` + 336 icon fetches) |
+| github.com | 5 / 3 `TextEncoder is not defined` | none; with TextEncoder supplied the 3 errors become `customElements is not defined` | — |
+| duckduckgo.com | 35 / 0 (16 console.error in timers, same with and without stand-ins: `TypeError: not a function` x8 + Next.js "client-side exception" x4 + "Route did not complete loading: /_error" x4; not network-related: `isEqualNode`, fixed since by QY16b) | `new ReadableStream()` (feature test; the page polyfills ReadableStream/TextEncoder itself when missing); `GET /country.json` (same-origin); 4x `sendBeacon` to `improving.duckduckgo.com` (2 with a 315-char string body, 2 URL-only) | `/country.json` `.json()` |
+| bbc.com/news | 57 / 0 (+1 timer error `Route did not complete loading: /_error`, same with stand-ins) | 1 fetch `GET https://www.bbc.co.uk/userinfo` (no options) | `.json()` (signed-in state) |
+| lobste.rs | 1 / 0 | none (the one module only rewrites `<time>` texts) | — |
+| news.ycombinator.com | 1 / 0 | none at startup. On click (hn.js): vote = `XMLHttpRequest` `GET vote?id=..&how=up&auth=..`, collapse = XHR `GET collapse?id=..` (only when logged in), hide = `fetch('snip-story?..').then(r=>r.json())` | needs a session cookie; logged out there are no vote links |
+
+Not used at startup by any page: `XMLHttpRequest`, `FormData`, `Blob`,
+`File`, `FileReader`, `response.body`/`getReader`, `.text()`, `.blob()`,
+`.arrayBuffer()`, `AbortSignal` on a fetch, `WebSocket`, `EventSource`,
+`Worker`, sync XHR, any non-GET method. Every read used `.json()`.
+
+### Static counts (inline / first-level external scripts; grep, not proof of use)
+
+| pattern | guardian | old.reddit | youtube | github | ddg | bbc | hn |
+|---|---|---|---|---|---|---|---|
+| `fetch(` | 0/14 | 1/3 | 0/35 | 0/41 | 1/5 | 0/28 | 0/1 |
+| `XMLHttpRequest` | 0/13 | 0/1 | 0/17 | 0/2 | — | 0/11 | 0/1 |
+| `"POST"` | 0/6 | 0/6 | 0/47 | 0/12 | 0/1 | 0/33 | — |
+| `credentials:"include"` | 0/1 | — | 0/3 | 0/1 | — | 0/9 | — |
+| `mode:"no-cors"` | 0/2 | 0/2 | 0/3 | 0/1 | 0/1 | — | — |
+| `withCredentials` | 0/2 | 0/3 | 0/56 | 0/1 | — | 0/22 | — |
+| `getReader(` | — | — | 0/3 | — | 1/0 | 0/1 | — |
+| `signal:` | — | 0/3 | 0/41 | 0/19 | 0/1 | 0/3 | — |
+| `FormData` | 0/5 | 0/3 | 0/8 | 0/24 | 0/5 | 0/18 | — |
+| `sendBeacon` | 0/2 | 0/3 | 0/19 | — | 13/5 | 0/15 | — |
+| `EventSource` / `WebSocket` | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| sync `xhr.open(..., !1)` | 0/1 | — | — | — | — | — | — |
+
+Read at the source:
+- guardian's only sync XHR is polyfill.io's `navigator.sendBeacon`
+  polyfill: `r.open("POST",t,!1)`. It is installed only when
+  `sendBeacon` is missing.
+- youtube's innertube client: `method:"POST", postParams, postBody,
+  postBodyFormat:"JSON"` ("innertube xhrclient"), plus
+  `fetch(x.url,{method:x.requestType, ..., credentials:"include" (when
+  withCredentials), keepalive, signal})`. Its streaming reader is
+  feature-tested: `t.body && typeof t.body.getReader === "function"`,
+  else `handleResponse`.
+- lobste.rs `application.js` (1.9 KB, logged out): no network calls.
+
+### CORS headers of the observed endpoints (curl with `Origin:`)
+
+| request | status, type | CORS |
+|---|---|---|
+| `api.nextgen.guardianapps.co.uk/geolocation` from theguardian.com | 200 application/json | `ACAO: *`, `ACA-Credentials: true` |
+| `www.bbc.co.uk/userinfo` from www.bbc.com | 200 application/json | `ACAO: https://www.bbc.com`, `Vary: Origin` |
+| `www.reddit.com/svc/events/preload-head` from old.reddit.com | 200 text/plain | none (and 6 `Set-Cookie`s: loid, session_tracker, csrf_token, token_v2, csv, edgebucket) |
+| `duckduckgo.com/country.json` | 200 application/json | same-origin |
+| `fonts.gstatic.com/s/i/...` (youtube icon host; a made-up path) | 404 | `ACAO: *` |
+
+So browser CORS rules (QF-D1 option B) cost nothing on these pages.
+
+### wire's behaviour (raw requests on the socket)
+
+- `GET file:///etc/os-release` -> `200`, `application/octet-stream`,
+  the file's contents. wire serves ANY file the user can read to
+  anyone who can write to the socket. Page JS must never reach it with
+  a `file:` URL.
+- `GET http://127.0.0.1:1/` and `GET http://localhost:631/` -> `502`
+  "Connection refused": wire does connect to loopback.
+- `GET http://169.254.169.254/latest/meta-data/` -> no answer within 30
+  s (client timeout). wire's 20 s agent timeout did not end it within
+  30 s. scratchy's `fetch_raw_via_wire` has no read timeout at all.
+- `GET http://lobste.rs/` -> `200` with the https page (redirect
+  followed), but nothing in the response says the final URL.
+- `HEAD https://duckduckgo.com/country.json` -> `200`, headers only.
+  `OPTIONS https://www.bbc.co.uk/userinfo` with `Origin` -> `204` with
+  `access-control-allow-*` headers (a preflight would work).
+- Code read (wire/src/main.rs): every client header is forwarded except
+  Host/Content-Length/Connection (so a page could set `Cookie` or
+  `Host`-like headers if scratchy passed them through). Response
+  headers are all forwarded except Content-Length/Transfer-Encoding/
+  Content-Encoding (so `Set-Cookie` reaches scratchy). No cookie jar
+  (ureq without its `cookies` feature). ureq 2.12.1: 5 redirects,
+  POST->GET on 301/302/303, `Response::get_url()` has the final URL,
+  and `AgentBuilder::resolver` exists (ureq resolves on every redirect
+  hop, which is what QF6 relies on).
+
+### Not tested / caveats
+
+- No real network from page JS: each stand-in answered `{}` after 50
+  ms. What the pages do with real data (guardian's consent banner once
+  the CMP has a country, bbc with a signed-out `userinfo`) is unknown.
+- youtube and github stop before their first request (QY6), so their
+  real request pattern is static reading plus R21, not observation.
+- `--js-report` runs with the copy's file:// URL as `location`
+  (guardian's beacon carried `url=file:///tmp/...`). Origin-based
+  behaviour in the pages may differ from the live site (QF7 fixes the
+  report).
+- old.reddit served its login wall to curl (logged out). Logged-in
+  pages, HN voting and anything behind cookies were not exercised.
+- Only startup plus 5 s of simulated timers. No clicks, scrolling or
+  typing, so lazy-load and infinite-scroll requests are not in the
+  table.
+- Module imports below the first level were not grepped.
+- The ddg `TypeError: not a function` console.errors (x8, also without
+  stand-ins) were not traced here; QY16b (merged during this
+  investigation, 15526fd) found them to be the missing
+  `Node.isEqualNode` and fixed them. The survey build predates it.
+
+## R21: Web Components / YouTube decision and real-site JS survey (Opus investigator, 2026-11-16) — EVIDENCE for the TODO.txt "DECISION MEMO (QY6)" block
+
+Investigation only, no code changed. The decision memo and the filed
+items (QY8-QY20, plus re-split QY6) are the first block of the active
+TODO.txt QUEUE. Build: release build of `0735ddd` (origin/main at the
+start), `target/release/scratchy` of an isolated worktree.
+
+### How this was measured (reusable)
+
+- Pages: `curl -sL -A '<Chrome UA>' <url>` saved raw, then a COPY with
+  `<base href="<url>">` inserted after `<head>` and run with
+  `scratchy --js-report --socket /run/user/1001/wire.sock copy.html`
+  (QJ3). External scripts come through wire.
+- Missing-API chain: a shim `<script>` inserted right after `<base>` in
+  the copy (scratchpad only, never in the repo) defined each missing
+  API in JS; re-run; read the next first error at its source location
+  (`python3 -c` slice of the script at the reported line:col). Each
+  stub logged `USE <name>` the first time it was touched, so the report
+  also lists what is used without throwing.
+- `--js-report` drops the engine right after `load`, so timers,
+  `requestAnimationFrame` and anything after them never run there. To
+  see what an app does next, 60-200 copies of a "tail" script were
+  appended before `</body>`: the first replaces `__scratchy_now` with a
+  fake clock; each copy advances it 100 ms and calls
+  `__scratchy_timers_run_one()` until nothing is due. Separate
+  `<script>` elements matter: promise jobs only drain between scripts.
+  A DOM summary (element count, custom-element tag histogram, app text)
+  was logged via `console.error`. (QY14 makes this a real flag.)
+- Live: nested dwl (`tools/nest.sh`), one scratchy window at a time,
+  `grim` after 18-40 s, every screenshot viewed. Another agent started
+  a second nested dwl mid-run, so screenshots from lobste.rs on are
+  860x523 instead of 1052x1050.
+- Static counts: every classic script (inline + external) and every
+  `type=module` entry script (first level only, imports not followed)
+  of each page downloaded with curl and grepped for API names; every
+  linked stylesheet + inline `<style>` grepped for CSS features.
+
+### What scratchy's JS environment lacks today (probe page, `0735ddd`)
+
+Undefined globals: `customElements MutationObserver IntersectionObserver
+ResizeObserver matchMedia localStorage sessionStorage indexedDB fetch
+XMLHttpRequest requestIdleCallback MessageChannel AbortController URL
+URLSearchParams TextEncoder TextDecoder structuredClone BroadcastChannel
+crypto Worker postMessage history CSS DOMParser Intl SVGElement
+ShadowRoot HTMLTemplateElement PointerEvent FormData Blob File
+HTMLImageElement screen visualViewport HTMLScriptElement Range Selection
+getSelection DOMRect Headers Request Response ReadableStream WebSocket
+HTMLAnchorElement HTMLDivElement HTMLBodyElement HTMLUnknownElement
+NamedNodeMap DOMTokenList CSSStyleSheet MediaQueryList Window top
+parent frames opener origin isSecureContext open close alert confirm
+prompt print focus blur name`. QuickJS has no `Intl` at all
+(`(1234.5).toLocaleString()` is `1234.5`). Present: `WeakRef`,
+`FinalizationRegistry`, `queueMicrotask`, `Promise`, `Proxy`, `Reflect`,
+`Symbol`, `CustomEvent`, `HTMLElement`, `Element`, `Node`, `Event`,
+`EventTarget`, `KeyboardEvent`, `MouseEvent`, `Image`, `atob/btoa`,
+`getComputedStyle`, `requestAnimationFrame`, `performance`, `navigator`,
+`DocumentFragment`, `HTMLFormElement`, `HTMLInputElement`,
+`HTMLIFrameElement`. Elements lack `attachShadow getBoundingClientRect
+getClientRects animate insertAdjacentHTML insertAdjacentElement
+getAttributeNames attributes scrollIntoView dataset shadowRoot isConnected
+getRootNode compareDocumentPosition offsetWidth clientWidth scrollHeight
+tabIndex slot replaceChildren nextElementSibling`; `document` lacks
+`importNode adoptNode createRange elementFromPoint activeElement hasFocus
+fonts styleSheets scrollingElement`. `classList` has `add` etc. but is
+not iterable. `<template>` contents are invisible to JS: `childNodes` is
+empty, `innerHTML` is `''` and `outerHTML` is `<template id="t"></template>`
+(the parser puts them in `template_contents`, which nothing exposes).
+
+Performance: `nextSibling` is O(number of siblings) (it builds
+`parentNode.childNodes` and does `indexOf`), so walking a child list with
+`firstChild`/`nextSibling` is quadratic. Measured: 100 siblings 11 ms,
+300 siblings 93 ms, 1000 siblings 689 ms; indexing `childNodes` for the
+same 1000 is 0 ms. Every framework walks the DOM this way (QY8).
+
+### YouTube (www.youtube.com, logged-out, DE)
+
+Page today: 40 scripts run (R20 counted 43). The 7 external ones, in
+order: `web-animations-next-lite.min.js`, `webcomponents-sd.js` (the
+polyfill is now this one, not `webcomponents-all-noPatch.js`),
+`scheduler.js`, `www-i18n-constants.js`, `spf.js`, `network.js`, and the
+app script `kevlar_base` (9.8 MB); the rest are inline (`ytcfg`,
+`ytcsi` ticks, `ytInitialData` JSON, the `ShadyDOM` config, the
+`serverContract` that defines `getInitialData`). `--js-report`: 2 errors,
+`webcomponents-sd.js: ReferenceError: MutationObserver is not defined`
+and `kevlar_base…: ReferenceError: AbortController is not defined`.
+Live window, JS on and `--no-js`: identical grey skeleton (masthead
+line, 1-column grey video cards), no logo, no guide.
+
+Two facts that change the QY6 plan:
+1. The page sets `window.ShadyDOM={force:true,preferPerformance:true,
+   noPatch:true}` and `ShadyCSS={disableRuntime:true}` in an inline
+   script. YouTube never uses native Shadow DOM (`attachShadow`), even in
+   Chrome: ShadyDOM renders shadow content into the light DOM. Native
+   Shadow DOM / slots in the cascade are NOT needed for YouTube.
+2. `webcomponents-sd.js` contains ShadyDOM + ShadyCSS but NO
+   custom-elements polyfill: it reads `window.customElements.define`
+   unconditionally. So `customElements` must be provided by scratchy
+   (the old "polyfill path" in QY6 no longer exists).
+
+Ordered list of what had to be supplied (JS shims) until `kevlar_base`
+ran to its end without throwing, and its custom elements upgraded
+without throwing:
+
+| # | first error (script) | supplied | real-implementation size |
+|---|---|---|---|
+| 1 | `MutationObserver is not defined` (sd, load) | no-op MO that never fires | stub S / real M (QY6a) |
+| 2 | `AbortController is not defined` (kevlar, top level) | AbortController/AbortSignal | S (QY13) |
+| 3 | sd: `cannot read property 'prototype' of undefined` in `["Text","Comment","CDATASection","ProcessingInstruction"].forEach(...window[a].prototype)` | `CDATASection`, `ProcessingInstruction` interface objects | S (QY12) |
+| 4 | kevlar: `cannot read property 'polyfillWrapFlushCallback' of undefined` (= `window.customElements`) | a JS `customElements` (define/get/whenDefined/upgrade; `HTMLElement` constructor that returns the element being upgraded; upgrade on define, `createElement`, `cloneNode`, `innerHTML`; connected/disconnected/attributeChanged callbacks from wrapped `appendChild/insertBefore/replaceChild/removeChild/append/...`/`setAttribute`) | real M (QY6e) |
+| 5 | sd: `Window is not defined` | `Window` with `Window.prototype` holding `addEventListener/removeEventListener/dispatchEvent`, and `window`'s prototype set to it (first try with `Window.prototype = Object.prototype` polluted every object: kevlar then died on `'__shady___shady_dispatchEvent' is read-only`) | S (QY12) |
+| 6 | kevlar: `HTMLTemplateElement is not defined`, then Polymer needs `template.content` | `HTMLTemplateElement` + a JS-side `content` fragment per template, template-aware `innerHTML` get/set, `cloneNode`/`importNode` copying content | real M, native (QY6f) |
+| 7 | kevlar: `TypeError: not a function` at `window.matchMedia("(forced-colors: active)")` | `matchMedia` | S (QY10) |
+| 8 | kevlar: `cannot read property 'Symbol.iterator' of undefined` at `Array.from(fragment.children)` | `children/firstElementChild/lastElementChild/childElementCount/append/prepend` on `DocumentFragment` | S (QY12) |
+| 9 | kevlar: `HTMLDivElement is not defined` | `HTML<Tag>Element` interface objects | S (QY12) |
+| 10 | kevlar: `cannot read property 'pushState' of undefined` | `history` | S (QY13 / Q33f) |
+| 11 | kevlar: `Range is not defined` (TypeScript decorator metadata `design:paramtypes:[KeyboardEvent,Range]`) | value-only interface objects (Range, Selection, DOMRect, Event subclasses ...) | S (QY12) |
+| 12 | kevlar: `XMLHttpRequest is not defined` (`XMLHttpRequest.prototype.fetch` read at top level) | XHR/fetch stubs that log and fail | L (Q33f) |
+| 13 | kevlar: `cannot read property 'indexOf' of undefined` at `document.currentScript.src.indexOf(...)` | reflected `src`/`href`/... | S (QY11) |
+| — | kevlar top level now runs clean. Errors inside `ytd-app` upgrade/connect: | | |
+| 14 | `_parseTemplateChildNodes`: `cannot read property 'length' of undefined` (`node.attributes`) | `Element.attributes`, `getAttributeNames`, `hasAttributes` | S (QY11) |
+| 15 | `value is not iterable` (`for (z of el.classList)`) | iterable `classList` | S (QY11) |
+| 16 | `initVisibilityObserver`: `throw new TypeError("Fg")` when `window.IntersectionObserver` is missing | IntersectionObserver that reports every target as intersecting once | stub S / real M (needs `getBoundingClientRect`, Q33g) |
+
+Used without throwing (feature-detected or after the above):
+`MessageChannel` (scheduler), `window.postMessage`, `localStorage`,
+`sessionStorage`, `requestIdleCallback`, `document.importNode`,
+`Request`/`Response` constructors, `fetch`. Never touched at startup:
+`indexedDB`, `serviceWorker`, `WebSocket`, `Worker`, `attachShadow`.
+
+What it does next (fake clock, 20 s simulated, 805 timers run): calls
+`window.getInitialData()` (it has the `ytInitialData` browse response),
+stamps the app shell (1629 elements, 104 custom elements of ~40 types:
+`ytd-app`, `ytd-masthead`, `yt-searchbox`, `tp-yt-app-drawer`,
+`ytd-mini-guide-renderer`, `ytd-page-manager` holding a preloaded
+`ytd-watch-flexy` with `ytd-player`, `ytd-comments`, ...,
+`ytd-popup-container`), and starts 337 `fetch` calls: 1 to
+`/youtubei/v1/player` and 336 for icon SVGs on `fonts.gstatic.com`
+(`yt-icon` loads icons with `fetch`). It does NOT create `ytd-browse`,
+the video grid or the EU consent dialog within the 20 s; the app's text
+is `Zurück Suchen NaN / NaN`; three `Polymer::Attributes: couldn't decode
+Array as JSON: [[shownItems]]` warnings suggest some binding still goes
+wrong under the shims. The live window with ALL the shims (copy with
+`location` overridden to `https://www.youtube.com/`) looks exactly like
+`--no-js`: the grey skeleton. One extra live-only line: `Uncaught
+exception in a promise job` with no message (QY14).
+
+Conclusion: even with ~16 APIs supplied (two of them, customElements and
+template.content, with real semantics), YouTube gains nothing visible.
+The next walls are `fetch` (Q33f, L), a real MutationObserver, the
+quadratic DOM walking (QY8), and then whatever the browse page needs
+(unknown: layout of the stamped Polymer DOM was never reached).
+
+### Survey of other JS-heavy pages (same build, 2026-11-16)
+
+| site | scripts run / errors (`--js-report`) | first errors | live JS on | live `--no-js` |
+|---|---|---|---|---|
+| github.com | 0 / 0 | none: all 5 scripts are `type=module` (+ `importmap`, 2.7 MB first-level module code); scratchy skips modules | readable landing page; nav menus as a plain vertical list; the "You signed in with another tab or window" banner shows though it has `hidden` (Primer's `[hidden]{display:none!important}` is inside `@layer primer-css-base`, and scratchy drops `@layer` blocks); "Enter your email" placeholder overlaps "Sign up for GitHub" | identical to JS on |
+| www.reddit.com | 1 / 1 | `URLSearchParams is not defined` | curl/wire get an 8 KB bot-challenge page; its script needs `URLSearchParams`, an async function, then `form.requestSubmit()` (POST, needs Q30e + cookies Q30f). Shows an orange circle at the top-left and the logo, forever | identical |
+| old.reddit.com | 17 / 2 | inline #8 `customElements is not defined`; `fetch is not defined` | 302 to `/login/?reason=lor2` (logged-out visitors are sent to login). Logo + bubble background pattern; the login form (`faceplate-*`/`shreddit-*` custom elements) is missing. With shims: `could not load module 'data:...'` (dynamic `import()` from a classic script) | identical |
+| www.bbc.com/news | 57 / 0 | none (live: `NGAS load timeout`, BBC's own ad loader) | good: logo, nav, headlines, teasers; images are grey placeholders; a grey vertical scrollbar strip at x≈318 from the hidden nav drawer (`visibility:hidden; transform:translateX(-100%)` with an `overflow-y:scroll` child) | worse: the nav drawer's link tree is expanded over the left third |
+| duckduckgo.com | 35 / 4 | `matchMedia` not a function (theme script); `URL is not defined` x2 (turbopack runtime); `URLSearchParams is not defined`. With URL/matchMedia shims: `Intl is not defined` -> Next.js "client-side exception" (React app dies); with a stub Intl: `Intl.Locale(...).maximize` | logo, search box, but the settings side menu is permanently open on the right (`transform:translate(100%)` ignored) | BLANK: `<noscript><meta http-equiv=refresh content="0; url=https://html.duckduckgo.com/html"><style>body{display:none}</style></noscript>`; meta refresh is not implemented |
+| lobste.rs | 0 / 0 | the one script (`time ago` texts) is `type=module` | fine | fine |
+| theguardian.com | 15 / 1 | commercial bundle: `Automatic publicPath is not supported in this browser` (webpack reads `document.currentScript.src`; no reflected `src`) | fine (server-rendered); the 69 `gu-island` islands hydrate from `type=module` bundles that never run | identical |
+| en.wikipedia.org, news.ycombinator.com | 4/0, 1/0 | already clean | fine | fine |
+
+Static reference counts, classic/module code (grep, not proof of use):
+customElements yt 38, gh 0/2, oldreddit 4, bbc 2; MutationObserver yt
+32, gh 0/5, bbc 16, ddg 9, guardian 3; IntersectionObserver yt 46, gh
+0/20, bbc 16, ddg 14, guardian 11/3; matchMedia yt 56, gh 0/30, ddg 10,
+guardian 5; localStorage yt 34, bbc 87/40, ddg 30, guardian 9/22, wiki
+6; fetch yt 742, gh 0/75, bbc 181/18, ddg 77, guardian 7/16;
+URLSearchParams yt 11, gh 0/39, bbc 59/3, ddg 44, guardian 14/3, reddit
+1; Intl yt 12, gh 0/12, ddg 90, bbc 2; attachShadow yt 19 (ShadyDOM's own
+patch code), bbc 1, oldreddit 1, gh 0. No page uses declarative shadow
+DOM (`shadowrootmode`: 0 on all 10).
+
+CSS feature counts (linked + inline sheets): `@layer` gh 18 (others 0);
+`@container` yt 273, gh 83, oldreddit 9; `:has(` gh 330, yt 38,
+oldreddit 27, ddg 16, guardian 11, lobsters 8, wiki 4 (scratchy:
+`#a:has(b)` does not match, verified with getComputedStyle); CSS
+nesting (`&`) 0; `transform:` bbc 40, gh 843, yt 673 (unsupported,
+deliberately not queued in 2026-11-14's re-plan). Verified unsupported
+with a getComputedStyle probe: `:has()`, `@layer` (whole block dropped
+in `TopLevelParser::parse_prelude`), nesting, `@container`, `transform`.
+
+### Aggregate: what blocks the most sites
+
+JS (sites where it is the first error or demonstrably stops the page,
+of the 8 non-clean ones):
+1. ES modules incl. `importmap` and dynamic `import()`: 4 (github,
+   lobste.rs, guardian islands, old.reddit), plus bbc has 1 module.
+2. `URL`/`URLSearchParams`: 2 erroring (ddg, reddit challenge), used by
+   yt/gh/bbc/guardian.
+3. `customElements` (+ `template.content`): 2 erroring (yt, old.reddit),
+   gh's Catalyst elements behind modules.
+4. `fetch`/XHR: 2 erroring (old.reddit, yt after shims), referenced by
+   all big sites.
+5. `matchMedia`: 2 (ddg, yt). Reflected `src` (`currentScript.src`): 2
+   (guardian, yt). `Intl`: 1 erroring (ddg, kills the React app).
+6. YouTube-only so far: `MutationObserver` (sd), `AbortController`,
+   `Window`, `CDATASection`, HTML*Element interface objects, `Range` &
+   co., `Element.attributes`, iterable `classList`, IntersectionObserver.
+Layout/CSS (visible damage): `transform: translate` for off-canvas
+drawers (2: ddg, bbc), `@layer` (1: github, also hides `[hidden]`
+banners), `<meta http-equiv=refresh>` (ddg no-JS), scrollbar painted on
+a `visibility:hidden` box (bbc). `:has()` (7 pages) and `@container` (3)
+are widespread but their visible effect was not measured.
+
+### Not tested / caveats
+
+- Shims are not implementations: the YouTube chain is what a JS-level
+  stand-in got past; real code can hit more. My `customElements` shim
+  ran only through wrapped JS entry points (no parser-created upgrade
+  hook beyond `define`'s `querySelectorAll`).
+- The fake-clock pump runs timers in an order a real event loop would
+  not (all due timers of a 100 ms slice, promise jobs only between
+  slices); no input, no layout feedback (`getBoundingClientRect` absent).
+- No real network from JS: every `fetch`/XHR was answered with a network
+  error, so "what YouTube does with data" is unknown. The browse page /
+  consent dialog may well need a successful fetch.
+- No Chrome/Firefox on this machine; "what Chrome shows" is inferred.
+- reddit.com/old.reddit.com served a challenge/login page to this IP and
+  UA; a logged-in or non-challenged visitor gets different pages.
+- BBC grey image placeholders: cause not investigated (lazy images via JS
+  or `srcset`/`<picture>`).
+- `:has()`/`@container` visual impact and GitHub's module graph beyond
+  the first level were not measured.
+
 ## R20: www.youtube.com is a blank window (Opus investigator, 2026-11-15) — blank window FIXED by QY1 (ebea7ae)
 
 Investigation only, no code changed. Fix items are QY1–QY7 at the top of
@@ -286,6 +774,17 @@ pointing at a dead socket) scratchy panics at `run()`'s
 instead of printing one line; same shape as QB1, cheap to add to it.
 
 ### Acid3 (http://acid3.acidtests.org/)
+
+**2026-11-16 update (real page, live window):** the real flow already ran
+all 100 tests (instrumented copy: `update()` called for index 0..100 every
+~11 ms, `load` fired, no `js error:` lines, no CPU-budget message), but the
+page stayed on "JS ?": `Text.data = x` (`span.firstChild.data = score`)
+was a silent no-op because the getter-only `CharacterData.prototype.data`
+shadowed the settable `Node.prototype.data`. Fixed (branch
+`scratchy/acid3-real-page-runs`): the live page now shows the score
+(61/100 at that commit, bucket boxes coloured). Remaining: `Comment.data =`
+is still a no-op (`__d_settext` ignores comments); the score is the official
+flow's (some tests fail), not the harness's.
 
 Live, through wire, JS on: the page shows "Acid3", "JS ?", the
 instructions and "Scripting must be enabled to use this test." The score

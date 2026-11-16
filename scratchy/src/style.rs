@@ -34,6 +34,10 @@ pub(crate) struct InheritedStyle {
     /// `word-spacing`'s own grammar has no per-descendant-reinterpreted
     /// form the way `line-height: <number>` does.
     pub(crate) word_spacing: f32,
+    /// `border-collapse: collapse` (inherited). Only used to decide that a
+    /// `tr`'s own border is ignored in the separated model (Q52c1); there is
+    /// no real collapsed-border layout.
+    pub(crate) border_collapse: bool,
     /// `text-indent` (QW2), inherited, eagerly resolved to px. Only a
     /// negative value is honoured (painted as a first-line x shift, see
     /// `paint_buffer`); positive indents don't narrow the first line yet.
@@ -68,6 +72,7 @@ pub(crate) const ROOT_STYLE: InheritedStyle = InheritedStyle {
     visibility: Visibility::Visible,
     cursor: CursorStyle::Auto,
     word_spacing: 0.0,
+    border_collapse: false,
     text_indent: 0.0,
     background_color: None,
     display: Display::Inline,
@@ -313,6 +318,8 @@ pub(crate) struct ComputedStyle {
     /// never something cosmic-text's own internal wrap computation has
     /// to account for.
     pub(crate) word_spacing: f32,
+    /// Inherited `border-collapse: collapse` (see `InheritedStyle`).
+    pub(crate) border_collapse: bool,
     /// Inherited `text-indent` in px (see `InheritedStyle::text_indent`).
     pub(crate) text_indent: f32,
     /// Not inherited (same as `border_width`/`border_color`) and doesn't
@@ -488,6 +495,7 @@ impl ComputedStyle {
             visibility: self.visibility,
             cursor: self.cursor,
             word_spacing: self.word_spacing,
+            border_collapse: self.border_collapse,
             text_indent: self.text_indent,
             background_color: self.background_color,
             display: self.display,
@@ -500,11 +508,11 @@ impl ComputedStyle {
 
 
 pub(crate) fn cascade_property<T: Clone>(
-    matches: &[(u32, &Declarations)],
+    matches: &[(u64, &Declarations)],
     inline: Option<T>,
     get: impl Fn(&Declarations) -> Option<T>,
 ) -> Option<T> {
-    let mut best: Option<(u32, T)> = None;
+    let mut best: Option<(u64, T)> = None;
     for &(specificity, decls) in matches {
         if let Some(v) = get(decls) {
             if best.as_ref().map_or(true, |(s, _)| specificity >= *s) {
@@ -706,7 +714,9 @@ pub(crate) fn copy_prop(dst: &mut ComputedStyle, src: &ComputedStyle, key: &str)
         match kind {
             'w' => dst.border_width[i] = src.border_width[i],
             's' => dst.border_style[i] = src.border_style[i],
-            _ => dst.border_color[i] = src.border_color[i],
+            // An unset colour is `currentColor`; `inherit`/`initial` of it
+            // resolve against this element's own colour (border-color-011).
+            _ => dst.border_color[i] = src.border_color[i].or(Some(dst.color)),
         }
         return;
     }
@@ -772,7 +782,7 @@ pub(crate) fn copy_prop(dst: &mut ComputedStyle, src: &ComputedStyle, key: &str)
 /// inherited property) or the initial value.
 pub(crate) fn apply_rest_wide(
     cs: &mut ComputedStyle,
-    matches: &[(u32, &Declarations)],
+    matches: &[(u64, &Declarations)],
     inline: Option<&Declarations>,
     inherited: &InheritedStyle,
 ) {
@@ -811,7 +821,7 @@ pub(crate) enum Cascaded<T> {
 /// (`Declarations::wide`) competes at its own specificity, source order
 /// and `!important` tier exactly like a normal value.
 pub(crate) fn cascade_css<T: Clone>(
-    matches: &[(u32, &Declarations)],
+    matches: &[(u64, &Declarations)],
     inline: Option<&Declarations>,
     key: &str,
     get: impl Fn(&Declarations) -> Option<T>,
@@ -823,7 +833,7 @@ pub(crate) fn cascade_css<T: Clone>(
             get(d).map(Cascaded::Value)
         }
     };
-    let mut best: Option<(u32, Cascaded<T>)> = None;
+    let mut best: Option<(u64, Cascaded<T>)> = None;
     for &(specificity, decls) in matches {
         if let Some(c) = cand(decls)
             && best.as_ref().is_none_or(|(s, _)| specificity >= *s)
@@ -861,8 +871,34 @@ pub(crate) fn apply_wide<T, V>(
     }
 }
 
-/// Specificities are 30 bits; this bit marks the `!important` tier.
-pub(crate) const IMPORTANT_TIER: u32 = 1 << 31;
+/// Cascade sort key (QY17): bit 62 marks the `!important` tier, bits
+/// 32..61 hold the layer rank, bits 0..31 the specificity (30 bits).
+/// Compared as one integer, later source order wins ties (`>=`).
+pub(crate) const IMPORTANT_TIER: u64 = 1 << 62;
+/// Rank of unlayered author rules for normal declarations (the highest).
+const LAYER_MAX: u64 = (1 << 29) - 1;
+
+/// Key for a normal declaration of a rule in `layer` (`StyleRule::layer`:
+/// 0 unlayered, 1 user-agent, n >= 2 author layer): unlayered author rules
+/// beat every layer, later layers beat earlier ones, the UA is lowest.
+pub(crate) fn normal_key(spec: u32, layer: u32) -> u64 {
+    let rank = if layer == 0 { LAYER_MAX } else { layer as u64 };
+    (rank << 32) | spec as u64
+}
+
+/// Key for an `!important` declaration: the layer order is reversed
+/// (UA first, then earlier layers, unlayered last; CSS Cascade 5 §6.4).
+pub(crate) fn important_key(spec: u32, layer: u32) -> u64 {
+    to_important(normal_key(spec, layer))
+}
+
+/// The `!important` key of a rule whose normal key is `k`.
+pub(crate) fn to_important(k: u64) -> u64 {
+    if k & IMPORTANT_TIER != 0 {
+        return k;
+    }
+    IMPORTANT_TIER | ((LAYER_MAX - (k >> 32)) << 32) | (k & 0xFFFF_FFFF)
+}
 
 /// Every rule in `rules` whose selector matches `handle`, paired with its
 /// specificity — the real selector-matching work `resolve_style` itself
@@ -871,7 +907,7 @@ pub(crate) const IMPORTANT_TIER: u32 = 1 << 31;
 /// second time) rather than folding background-image into
 /// `ComputedStyle` itself — see `resolve_background_image`'s own docs
 /// for why it's resolved separately at all.
-pub(crate) fn matching_declarations<'a>(handle: &Handle, rules: &'a [StyleRule], viewport_width: f32) -> Vec<(u32, &'a Declarations)> {
+pub(crate) fn matching_declarations<'a>(handle: &Handle, rules: &'a [StyleRule], viewport_width: f32) -> Vec<(u64, &'a Declarations)> {
     matching_declarations_for(handle, rules, viewport_width, None)
 }
 
@@ -884,10 +920,10 @@ pub(crate) fn matching_declarations_for<'a>(
     rules: &'a [StyleRule],
     viewport_width: f32,
     pseudo: Option<&str>,
-) -> Vec<(u32, &'a Declarations)> {
+) -> Vec<(u64, &'a Declarations)> {
     let element = El(handle.clone());
     let mut caches = SelectorCaches::default();
-    let mut matches: Vec<(u32, &Declarations)> = Vec::new();
+    let mut matches: Vec<(u64, &Declarations)> = Vec::new();
     // R3.3: when an index was registered for exactly this rule slice,
     // only test the rules whose rightmost compound could match this
     // element (ascending rule order preserved, so cascade ties are
@@ -935,8 +971,8 @@ pub(crate) fn matching_declarations_for<'a>(
                 }
             }
             if let Some(specificity) = best {
-                matches.push((specificity, &rule.decls));
-                matches.push((specificity | IMPORTANT_TIER, &rule.important));
+                matches.push((normal_key(specificity, rule.layer), &rule.decls));
+                matches.push((important_key(specificity, rule.layer), &rule.important));
             }
             continue;
         }
@@ -957,8 +993,8 @@ pub(crate) fn matching_declarations_for<'a>(
                 .map(|s| s.specificity())
                 .max()
                 .unwrap_or(0);
-            matches.push((specificity, &rule.decls));
-            matches.push((specificity | IMPORTANT_TIER, &rule.important));
+            matches.push((normal_key(specificity, rule.layer), &rule.decls));
+            matches.push((important_key(specificity, rule.layer), &rule.important));
         }
     }
     matches
@@ -1009,7 +1045,7 @@ pub(crate) fn resolve_background_image(
         None => (None, None),
     };
     if let Some(i) = inline_important.as_ref() {
-        matches.push((u32::MAX, i));
+        matches.push((u64::MAX, i));
     }
     let bg = match cascade_css(&matches, inline_decls.as_ref(), "background-image", |d| d.background_image.clone()) {
         Cascaded::Value(BackgroundImageDecl::Url(url)) => lookup_css_image(&url, image_cache),
@@ -1100,45 +1136,63 @@ pub(crate) fn whiten_mask(mut img: DecodedImage) -> DecodedImage {
 /// Re-parses each matched rule's `var()`-bearing declarations with
 /// `lookup`'s custom properties substituted (Q13); one slot per match.
 pub(crate) fn expand_var_decls(
-    base: &[(u32, &Declarations)],
+    base: &[(u64, &Declarations)],
     lookup: &dyn Fn(&str) -> Option<String>,
-) -> Vec<Option<(Declarations, Declarations)>> {
+) -> Vec<Option<Vec<(Declarations, Declarations)>>> {
     base.iter()
         .map(|(_, d)| {
             if d.var_decls.is_empty() {
                 return None;
             }
-            let mut src = String::new();
-            for (name, raw) in &d.var_decls {
-                // Q57b: a value that is invalid at computed-value time makes
-                // the property `unset` instead of dropping the declaration.
-                let value = substitute_css_vars(raw, lookup).unwrap_or_default();
-                let one = format!("{name}:{value};");
-                let (n, i) = parse_declarations_split(&one);
-                if n == Declarations::default() && i == Declarations::default() {
-                    src.push_str(name);
-                    src.push_str(if strip_important(raw).is_some() { ":unset !important;" } else { ":unset;" });
-                } else {
-                    src.push_str(&one);
-                }
-            }
-            Some(parse_declarations_split(&src))
+            // One group per source-order segment (Q52b): the `var()`
+            // declarations between two runs of plain ones.
+            let groups = d.var_seg.iter().copied().max().map_or(1, |m| m + 1);
+            Some(
+                (0..groups)
+                    .map(|k| {
+                        let mut src = String::new();
+                        for (idx, (name, raw)) in d.var_decls.iter().enumerate() {
+                            if d.var_seg.get(idx).copied().unwrap_or(0) != k {
+                                continue;
+                            }
+                            // Q57b: a value that is invalid at computed-value time makes
+                            // the property `unset` instead of dropping the declaration.
+                            let value = substitute_css_vars(raw, lookup).unwrap_or_default();
+                            let one = format!("{name}:{value};");
+                            let (n, i) = parse_declarations_split(&one);
+                            if n == Declarations::default() && i == Declarations::default() {
+                                src.push_str(name);
+                                src.push_str(if strip_important(raw).is_some() { ":unset !important;" } else { ":unset;" });
+                            } else {
+                                src.push_str(&one);
+                            }
+                        }
+                        parse_declarations_split(&src)
+                    })
+                    .collect(),
+            )
         })
         .collect()
 }
 
 /// Slots each `expand_var_decls` result right after its rule's own
-/// entries, so source order still breaks specificity ties.
+/// entries, so source order still breaks specificity ties; the plain
+/// declarations written after a `var()` group follow it (`late`).
 pub(crate) fn merge_var_matches<'a>(
-    base: &[(u32, &'a Declarations)],
-    synth: &'a [Option<(Declarations, Declarations)>],
-) -> Vec<(u32, &'a Declarations)> {
+    base: &[(u64, &'a Declarations)],
+    synth: &'a [Option<Vec<(Declarations, Declarations)>>],
+) -> Vec<(u64, &'a Declarations)> {
     let mut matches = Vec::with_capacity(base.len() + 2);
     for (idx, &(spec, d)) in base.iter().enumerate() {
         matches.push((spec, d));
-        if let Some(Some((n, i))) = synth.get(idx) {
-            matches.push((spec, n));
-            matches.push((spec | IMPORTANT_TIER, i));
+        if let Some(Some(groups)) = synth.get(idx) {
+            for (k, (n, i)) in groups.iter().enumerate() {
+                matches.push((spec, n));
+                matches.push((to_important(spec), i));
+                if let Some(l) = d.late.get(k) {
+                    matches.push((spec, l));
+                }
+            }
         }
     }
     matches
@@ -1385,7 +1439,7 @@ pub(crate) fn resolve_style_for(
         None => (None, None),
     };
     if let Some(i) = inline_important.as_ref() {
-        matches.push((u32::MAX, i));
+        matches.push((u64::MAX, i));
     }
 
     let inl = inline_decls.as_ref();
@@ -1467,6 +1521,13 @@ pub(crate) fn resolve_style_for(
         }
     };
     let display = force_block(display, position, float);
+    // QW3: a `<button>` is never a plain inline box (browsers compute
+    // `display:inline` to `inline-block` for it); scratchy only paints
+    // border/outline/vertical padding on real boxes, so without this the
+    // wikipedia.org language button lost its white outline and the divider
+    // line showed through its text.
+    let button_inline_block = pseudo.is_none() && element_tag(handle) == "button";
+    let display = if button_inline_block && display == Display::Inline { Display::InlineBlock } else { display };
     // Resolved before margin/padding/border-width: an `em` on any of those
     // is relative to *this* element's own font-size (not its parent's),
     // so font-size has to be cascaded and resolved first. An `em` on
@@ -1584,14 +1645,18 @@ pub(crate) fn resolve_style_for(
         } else {
             cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.border_width[i]), |d| d.border_width[i])
                 .map(|l| l.resolve(font_size, inherited.root_font_size))
-                .unwrap_or(0.0)
+                .unwrap_or(3.0) // initial `medium`
         };
         border_color[i] = cascade_property(
             &matches,
             inline_decls.as_ref().and_then(|d| d.border_color[i]),
             |d| d.border_color[i],
         )
-        .and_then(|c| to_text_color(&c));
+        .and_then(|c| match c {
+            // An explicit `currentColor` is the element's own colour.
+            CssColor::CurrentColor => Some(color),
+            c => to_text_color(&c),
+        });
     }
     let font_weight = apply_wide(
         cascade_css(&matches, inl, "font-weight", |d| d.font_weight),
@@ -1686,6 +1751,12 @@ pub(crate) fn resolve_style_for(
     // just below (real CSS grammar is a plain `<length>`, no `%`, so
     // there's no layout-time basis to defer this against the way
     // `width`/`margin`/etc. need `BoxLength` for).
+    let border_collapse = cascade_property(
+        &matches,
+        inline_decls.as_ref().and_then(|d| d.border_collapse),
+        |d| d.border_collapse,
+    )
+    .unwrap_or(inherited.border_collapse);
     let word_spacing = cascade_property(
         &matches,
         inline_decls.as_ref().and_then(|d| d.word_spacing),
@@ -1980,6 +2051,7 @@ pub(crate) fn resolve_style_for(
         line_height,
         visibility,
         word_spacing,
+        border_collapse,
         text_indent,
         outline_width,
         outline_color,
@@ -2019,6 +2091,9 @@ pub(crate) fn resolve_style_for(
     if matches.iter().any(|(_, d)| !d.wide.is_empty()) || inl.is_some_and(|d| !d.wide.is_empty()) {
         apply_rest_wide(&mut cs, &matches, inl, &inherited);
         cs.display = force_block(display_declared, cs.position, cs.float);
+        if button_inline_block && cs.display == Display::Inline {
+            cs.display = Display::InlineBlock;
+        }
     }
     cs
 }
@@ -2090,6 +2165,7 @@ pub(crate) fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         line_height: inherited.line_height,
         visibility: inherited.visibility,
         word_spacing: inherited.word_spacing,
+        border_collapse: inherited.border_collapse,
         text_indent: inherited.text_indent,
         outline_width: 0.0,
         outline_color: None,
