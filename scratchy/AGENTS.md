@@ -72,6 +72,14 @@ nothing more):
   rejected promise / does nothing, instead of throwing `not a function` and
   killing the surrounding script.
 No decoding, no audio output, no playback state machine, no controls UI.
+The same placeholder rule applies to FORMS: form controls (`<input>`,
+`<textarea>`, `<select>`, `<button>`) may render as inert boxes that do
+nothing (no text editing, no caret, no focus ring logic beyond what exists, no
+dropdown UI), and form JS APIs may exist as plain DOM reflections, no-ops or
+`not implemented` error logs (e.g. `form.submit()` logs and does nothing) so
+page scripts don't die. No live form state, no value editing, no validation,
+no submission/network POST, no cookies for forms (Q30/Q30e/Q30f wait for the
+user's design).
 If an item or page seems to need more than a placeholder, stop, write what it
 needs in TODO.txt as a `[ ]` item marked "WAITING FOR USER (design first)", and
 move on to something else.
