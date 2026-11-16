@@ -1392,7 +1392,7 @@ into the commit message of every JS item.
 - [ ] QA19 [L] (P4, JS) DOM Range (`document.createRange`, boundary
       points, `extractContents`/`deleteContents`/`cloneContents`/
       `insertNode`, mutation fixups). Acid3 T7-T13. Only after QA18.
-- [x] QA20 (HASH) [M] (P4, JS) HTML element DOM interfaces Acid3 bucket 4 uses:
+- [x] QA20 (9bbd08b) [M] (P4, JS) HTML element DOM interfaces Acid3 bucket 4 uses:
       table (`tBodies`, `rows`, `cells`, `insertRow/deleteRow`,
       `createCaption/createTHead/createTFoot`), `form.elements` (named
       access), reflected `input.type/name/value/checked`, `button.type`
