@@ -10334,3 +10334,81 @@ fn qa20_input_value_property_is_separate_from_the_attribute_and_meta_http_equiv(
     );
     assert_eq!(log, ["log:false test ", "log:x false"], "{log:?}");
 }
+
+// ---------- Q35b2: image arrivals are debounced ----------
+
+#[test]
+fn q35b2_image_relayout_wait_is_pure_debounce() {
+    let ms = std::time::Duration::from_millis;
+    // First arrival on an idle page waits the whole window, no more.
+    assert_eq!(image_relayout_wait(None, false), Some(IMAGE_RELAYOUT_DEBOUNCE));
+    assert!(IMAGE_RELAYOUT_DEBOUNCE <= ms(100));
+    // Part-way through: the remainder, never extended by later arrivals.
+    assert_eq!(image_relayout_wait(Some(ms(30)), false), Some(IMAGE_RELAYOUT_DEBOUNCE - ms(30)));
+    // Window passed: rebuild now (the timer flushes even with no more events).
+    assert_eq!(image_relayout_wait(Some(IMAGE_RELAYOUT_DEBOUNCE), false), None);
+    assert_eq!(image_relayout_wait(Some(ms(5000)), false), None);
+    // A rebuild is already queued (first layout, chunk, resize): nothing to defer.
+    assert_eq!(image_relayout_wait(None, true), None);
+}
+
+#[test]
+fn q35b2_image_burst_collapses_and_flushes() {
+    use winit::platform::wayland::EventLoopBuilderExtWayland;
+    // Without a display, only the pure decision above can be checked.
+    let event_loop = match EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build() {
+        Ok(l) => l,
+        Err(_) => {
+            assert_eq!(image_relayout_wait(None, false), Some(IMAGE_RELAYOUT_DEBOUNCE));
+            return;
+        }
+    };
+    let mut app = App::new_static(parse_html("<html><body><img src=\"a.png\"><img src=\"b.png\"></body></html>"), event_loop.create_proxy(), None);
+    let img = || Some(DecodedImage { width: 1, height: 1, pixels: vec![TextColor::rgb(1, 2, 3)], svg: None, mask: None });
+    let generation = app.nav_generation;
+
+    // First layout still queued: arrivals add nothing extra and are not deferred.
+    assert!(app.layout_dirty);
+    app.handle_image_fetched(generation, "a.png".into(), img());
+    assert!(app.image_relayout_since.is_none());
+    assert!(app.image_cache.contains_key("a.png"));
+
+    // Idle page with a finished layout: the image is cached at once but the
+    // rebuild waits for the window.
+    app.layout_dirty = false;
+    app.layout_in_flight = false;
+    let before = app.layout_generation;
+    app.handle_image_fetched(generation, "b.png".into(), img());
+    assert!(app.image_cache.contains_key("b.png"));
+    assert!(!app.layout_dirty, "rebuild is deferred by the debounce window");
+    assert!(app.image_relayout_since.is_some());
+    assert_eq!(app.layout_generation, before, "no stale-making bump until the flush");
+
+    // A burst member inside the window does not rebuild either.
+    app.handle_image_fetched(generation, "c.png".into(), img());
+    assert!(!app.layout_dirty);
+
+    // Window passed but a pass is in flight: still deferred (QB2: no stale frame).
+    app.image_relayout_since = Some(std::time::Instant::now() - IMAGE_RELAYOUT_DEBOUNCE * 2);
+    app.layout_in_flight = true;
+    app.flush_image_relayout();
+    assert!(!app.layout_dirty);
+    // The pass completes (handle_shape_result calls flush): one rebuild.
+    app.layout_in_flight = false;
+    app.flush_image_relayout();
+    assert!(app.layout_dirty);
+    assert!(app.image_relayout_since.is_none());
+    assert_eq!(app.layout_generation, before + 1);
+
+    // A stale-generation image is dropped entirely (R7).
+    app.layout_dirty = false;
+    app.handle_image_fetched(generation + 1, "stale".into(), img());
+    assert!(!app.image_cache.contains_key("stale"));
+    assert!(app.image_relayout_since.is_none());
+
+    // A navigation clears any pending debounce.
+    app.handle_image_fetched(generation, "d.png".into(), img());
+    assert!(app.image_relayout_since.is_some());
+    app.replace_document(parse_html("<html></html>"), String::new());
+    assert!(app.image_relayout_since.is_none());
+}

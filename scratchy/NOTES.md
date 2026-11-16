@@ -3023,6 +3023,17 @@ until its complete `ShapeResult`; writes in that window only set
 `js_restyle_pending`, and the next rebuild starts when the pass completes.
 Without it a timer faster than a full pass made every pass stale.
 
+Image arrival (Q35b2): `handle_image_fetched` caches the image at once but
+no longer rebuilds per arrival. It records `image_relayout_since` and arms
+an `AppEvent::ImageFlush` timer for `IMAGE_RELAYOUT_DEBOUNCE` (80 ms, from
+the first arrival, not extended). `flush_image_relayout` (timer, and the
+complete `ShapeResult` in `handle_shape_result`) sets `layout_dirty` only
+when the window has passed and no pass is in flight (`layout_in_flight` /
+`hold_old_frame`), so a burst is one rebuild and no pass is made stale.
+An arrival while a rebuild is already queued (first layout) adds nothing.
+`replace_document` clears the pending state; stale-generation images are
+still dropped first (R7). Pure decision: `image_relayout_wait`.
+
 Main-thread stall limits (QB3, R8): the compositor drops a client that
 doesn't read its socket while input piles up. `hover_idle_wait` (layout.rs)
 makes a hover restyle wait for 150 ms of pointer stillness when the last

@@ -99,6 +99,9 @@ pub(crate) enum AppEvent {
     ShapeResult(u64, Box<Laid>, ShapeCache, bool),
     /// A deferred hover restyle (R2.3) is due; see `App::update_hover`.
     HoverFlush,
+    /// Q35b2: the image-relayout debounce window (`IMAGE_RELAYOUT_DEBOUNCE`)
+    /// has passed; see `App::flush_image_relayout`.
+    ImageFlush,
     /// `SIGUSR1`'s own background thread (`run()`) waking the event
     /// loop — the out-of-band bootstrap the vim-mode plan in TODO.txt
     /// settled on for turning vim mode back *on* once it's off: with
@@ -497,6 +500,11 @@ pub(crate) struct App {
     pub(crate) last_pointer_move: Option<std::time::Instant>,
     pub(crate) last_build_time: Option<std::time::Duration>,
     pub(crate) hover_flush_scheduled: bool,
+    /// Q35b2: when the first not-yet-applied image arrival of the current
+    /// burst landed. An image changes layout, but a burst of them is
+    /// collapsed into one rebuild (`image_relayout_wait`).
+    pub(crate) image_relayout_since: Option<std::time::Instant>,
+    pub(crate) image_flush_scheduled: bool,
     /// Lets a background navigation thread (`start_navigation`) get its
     /// result back onto this (the event-loop) thread — the exact same
     /// `thread::spawn` + `event_loop.create_proxy().send_event(..)`
@@ -741,6 +749,8 @@ impl App {
             last_pointer_move: None,
             last_build_time: None,
             hover_flush_scheduled: false,
+            image_relayout_since: None,
+            image_flush_scheduled: false,
             proxy,
             shaping_requests,
             base_url,
@@ -804,6 +814,8 @@ impl App {
             last_pointer_move: None,
             last_build_time: None,
             hover_flush_scheduled: false,
+            image_relayout_since: None,
+            image_flush_scheduled: false,
             proxy,
             shaping_requests,
             base_url: None,
@@ -1190,6 +1202,7 @@ impl App {
         self.hold_old_frame = false;
         self.js_restyle_pending = false;
         self.layout_in_flight = false;
+        self.image_relayout_since = None;
         self.shape_cache.clear();
         self.scroll_offsets.clear();
         self.scroll_offset = 0.0;
@@ -1248,6 +1261,8 @@ impl App {
             if self.js_restyle_pending {
                 self.request_js_restyle();
             }
+            // Q35b2: images that arrived during the pass rebuild now.
+            self.flush_image_relayout();
         }
         // Replaced wholesale on every tick this generation's
         // worker reports, not merged — see `App::shape_cache`'s
@@ -1423,11 +1438,48 @@ impl App {
         // A newly-arrived image can change this element's own
         // intrinsic size (no explicit CSS/HTML width/height —
         // see `resolve_img`), so the whole tree needs a real
-        // rebuild, not just a repaint — the same `layout_dirty`
-        // flag `redraw` already checks before deciding whether to
-        // call `build_layout_tree_with_resources` again.
+        // rebuild, not just a repaint. Q35b2: but a rebuild costs up to
+        // ~430 ms on big pages, so a burst of arrivals is collapsed:
+        // the rebuild is deferred by `IMAGE_RELAYOUT_DEBOUNCE` and, if
+        // a shaping pass is still in flight, until it completes.
+        if self.layout_dirty {
+            // A rebuild is already queued (first layout, chunk, resize...).
+            return;
+        }
+        let now = std::time::Instant::now();
+        let since = *self.image_relayout_since.get_or_insert(now);
+        if image_relayout_wait(Some(now.duration_since(since)), self.layout_dirty).is_some() && !self.image_flush_scheduled {
+            self.schedule_image_flush(IMAGE_RELAYOUT_DEBOUNCE);
+        }
+        self.flush_image_relayout();
+    }
+
+    /// Q35b2: applies the pending image relayout if its debounce window
+    /// has passed and no shaping pass is in flight (a completing pass
+    /// calls this again, so nothing is lost).
+    pub(crate) fn flush_image_relayout(&mut self) {
+        let Some(since) = self.image_relayout_since else { return };
+        if self.layout_in_flight || self.hold_old_frame {
+            return;
+        }
+        if image_relayout_wait(Some(since.elapsed()), self.layout_dirty).is_some() {
+            return;
+        }
+        self.image_relayout_since = None;
         self.layout_dirty = true;
         self.layout_generation += 1;
+        if let Some(w) = &self.window {
+            w.request_redraw();
+        }
+    }
+
+    pub(crate) fn schedule_image_flush(&mut self, delay: std::time::Duration) {
+        self.image_flush_scheduled = true;
+        let proxy = self.proxy.clone();
+        thread::spawn(move || {
+            thread::sleep(delay);
+            let _ = proxy.send_event(AppEvent::ImageFlush);
+        });
     }
 
     /// `:help` — built the same way `show_message` builds its own
@@ -2341,6 +2393,18 @@ impl ApplicationHandler<AppEvent> for App {
             AppEvent::NavResult(generation, result) => self.handle_nav_result(generation, result),
             AppEvent::ImageFetched(generation, src, image) => self.handle_image_fetched(generation, src, image),
             AppEvent::ShapeResult(generation, laid, shape_cache, incomplete) => self.handle_shape_result(generation, laid, shape_cache, incomplete),
+            AppEvent::ImageFlush => {
+                self.image_flush_scheduled = false;
+                if let Some(since) = self.image_relayout_since {
+                    // The burst this timer was armed for may have been
+                    // replaced (navigation); re-arm for the remainder.
+                    if let Some(left) = image_relayout_wait(Some(since.elapsed()), self.layout_dirty) {
+                        self.schedule_image_flush(left);
+                    } else {
+                        self.flush_image_relayout();
+                    }
+                }
+            }
             AppEvent::HoverFlush => {
                 self.hover_flush_scheduled = false;
                 if self.state_rules & STATE_HOVER != 0 {
