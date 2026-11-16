@@ -1503,7 +1503,7 @@ Phase 2 (big enablers, after phase 1):
       `import.meta.resolve`, JSON modules, worker modules,
       `modulepreload`. Today these reject with "module was not pre-fetched".
 - [x] QY15b [S] `TextEncoder`/`TextDecoder` (UTF-8) in the JS prelude: the
-      first error of every github module script. DONE (commit HASH_PENDING):
+      first error of every github module script. DONE (commit 99260d8):
       pure JS in src/globals_prelude.js. `TextEncoder` (encode, encodeInto,
       surrogate pairs, lone surrogate -> U+FFFD); `TextDecoder` for utf-8
       (WHATWG state machine kept between calls for `{stream}`, BOM stripped
