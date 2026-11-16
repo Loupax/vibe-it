@@ -2,6 +2,16 @@
 
 ## R23: Shadow DOM / template.content survey and design evidence (Opus investigator, 2026-11-16) — EVIDENCE for the TODO.txt "DESIGN MEMO (QSD)" block
 
+**Status (audit 2026-11-16): partly outdated.** Since this was measured,
+QY6f `template.content` (ac492ca), QSD0 (824954b), QSD1 (f704a73), QSD1b
+crypto (e2929d5), QSD2 (0239f7b) and QSD4 constructable stylesheets
+(ec80dfd) landed, so the github "appendChild of undefined", read-only
+`querySelectorAll`, `document.domain` and `crypto.randomUUID` walls below
+are gone. UNCHANGED: `attachShadow` still logs `not implemented` and
+throws NotSupportedError (QSD3 waits for SD-D1), `display: contents`
+(QSD5) and all rendering of shadow trees are missing. The per-site error
+counts below have not been re-measured (QSD12).
+
 Investigation only, no code changed. Build: release build of `5ca5619`
 (origin/main after QY6g IO/RO), `target/release/scratchy` of an isolated
 worktree. Memo, user checklist (SD-D1..D4) and items (QSD0-QSD12, QY6f)
@@ -125,6 +135,16 @@ chromestatus, MDN, salesforce); 1 more (youtube) needs template.content.
 - Performance of a composed-tree walk and of per-tree rule filtering.
 
 ## R22: fetch/XHR survey and design evidence (Opus investigator, 2026-11-16) — EVIDENCE for the TODO.txt "DESIGN MEMO (QF)" block
+
+**Status (audit 2026-11-16): outdated as a description of scratchy/wire.**
+The "wire's behaviour" section describes wire BEFORE QF6: wire now
+answers `X-Wire-Version: 3`, honours the `X-Wire-*` caps/policy headers,
+reports final URL and target class, and keeps an in-memory partitioned
+cookie jar (QF6 ce2175a, QF14 4d62f87; see wire/NOTES.md). fetch (QF8),
+XHR (QF9), preflight (QF13), sendBeacon (QF10) and cookies (QF14b
+bc2fb00) exist now; the user's answers (TODO.txt "USER ANSWERS
+2026-11-16") replaced the restrictive defaults. The page measurements
+are still the baseline; re-measure with QF12.
 
 Investigation only, no code changed. Build: release build of `faa1cbe`
 (origin/main, after QY15 ES modules), `target/release/scratchy` of an
@@ -261,6 +281,15 @@ So browser CORS rules (QF-D1 option B) cost nothing on these pages.
   `Node.isEqualNode` and fixed them. The survey build predates it.
 
 ## R21: Web Components / YouTube decision and real-site JS survey (Opus investigator, 2026-11-16) — EVIDENCE for the TODO.txt "DECISION MEMO (QY6)" block
+
+**Status (audit 2026-11-16): outdated.** Almost everything listed as
+missing below has been built: QY8-QY17, QY19, QY20, MutationObserver
+(QY6a), customElements (QY6e), template.content (QY6f), IO/RO (QY6g),
+fetch/XHR (QF8/QF9). Still missing from the lists here: translate
+`transform` (QY18, waits for the user), container queries (QY7), real
+layout geometry for JS (QY-IO-GEOMETRY). The memo's "no measured user
+for native Shadow DOM" was superseded by R23. The D0 gate was closed by
+the coordinator on 2026-11-16.
 
 Investigation only, no code changed. The decision memo and the filed
 items (QY8-QY20, plus re-split QY6) are the first block of the active
@@ -632,7 +661,12 @@ QA17/QA18-sized.
   real implementations can hit further errors.
 - Wall times are from a machine at load 9–26 (other agents' builds).
 
-## R12–R19: Acid2 / Acid3 audit (Opus investigator, 2026-11-15) — OPEN
+## R12–R19: Acid2 / Acid3 audit (Opus investigator, 2026-11-15) — ALL FIXED (R12 QA3 bd2945f, R13 QA1 10e4006, R14 QA2 80395ee, R15 QA4 065b61b, R16 QA5 e9232f3, R17 QY1 ebea7ae, R18 QA6 e8fb789, R19 QA7 00530a0)
+
+**Status (audit 2026-11-16):** every R12-R19 bug is fixed (hashes in the
+heading and in each entry). The Acid2/Acid3 sections below also list
+later QA items; their open leftovers (QA19 Range, QA21 `<object>`, QA*a
+items) are tracked in TODO.txt. Acid scores are not a merge gate.
 
 Investigation only, no code changed. Fix items are QA1–QA21 at the top of
 the TODO.txt QUEUE (R17/QA9 is now QY1, see R20). Build: release build of `e7a090d` (before QB8 merged).
@@ -700,7 +734,7 @@ absorb free space after subtracting fixed ones). Acid2 live: scalp bottom border
 now yellow (was red) and line 2 moved to its right place; the rest of the face is
 other items.
 
-### R13 — `border-style` defaults to `solid` (bug) — FIXED (QA1)
+### R13 — `border-style` defaults to `solid` (bug) — FIXED (QA1, 10e4006)
 
 `BorderStyle`'s `#[default]` variant is `Solid` and `compute_style` uses
 `unwrap_or_default()`, so `border: 1px blue` or a bare `border-width`
@@ -845,9 +879,13 @@ QA13 (+8 measured), QA14 and QA15 (about 9 tests by their messages, not
 measured), QA17 (T4/T5). Everything else waits on second documents
 (QA18), which gates about 35 tests.
 
-## R8–R11: build-test pass on `main` @ `f3b06a8` (Opus investigator, 2026-11-15) — OPEN
+## R8–R11: build-test pass on `main` @ `f3b06a8` (Opus investigator, 2026-11-15) — ALL FIXED
 
-**R11 DONE** (QB4), **R10 DONE** (QB6), see TODO.txt. R8, R9 still open.
+**Status (audit 2026-11-16):** R8 FIXED (QB1 637fef5 no panic, QB3
+dbf1610 bounded stalls; remaining cascade stalls are Q32), R9 FIXED (QB2
+d78587f), R10 FIXED (QB6 c150951), R11 FIXED (QB4 a29738f, part (c) QB5
+ac60599). (Older line: "R11 DONE (QB4), R10 DONE (QB6), see TODO.txt.
+R8, R9 still open.")
 
 Investigation only, no code changed. Fix items are QB1–QB10 at the top of
 the TODO.txt QUEUE. Everything below was seen in a real window and
@@ -893,7 +931,7 @@ portal, Main_Page, SoHo, JS on and off); stderr closed early. Not tested:
 `Ctrl+v` paste, `Tab` completion, `<select>`, keyboard focus with `Tab`,
 streaming stdin mode, HiDPI/fractional scale, X11.
 
-### R8 — Main-thread stalls get scratchy disconnected by the compositor, then it panics (bug) — OPEN
+### R8 — Main-thread stalls get scratchy disconnected by the compositor, then it panics (bug) — FIXED (QB1 637fef5 + QB3 dbf1610; leftover stalls: Q32)
 
 **User report:** stderr `Io error: Broken pipe (os error 32)` then
 `thread 'main' panicked at src/lib.rs:197:34: called Result::unwrap() on an
@@ -980,7 +1018,7 @@ after. 1000 ms timer: header+image but no paragraph text, ~190% before; full
 article, ~45-60% after. No-timer page: 0% idle. wikipedia.org renders with
 globe. The `squat` symptom above was not re-checked live.
 
-### R10 — The previous page's JS engine stays alive under `:help` (bug, Q33t `bec5507` / Q33d `46dfc45`) — DONE (QB6)
+### R10 — The previous page's JS engine stays alive under `:help` (bug, Q33t `bec5507` / Q33d `46dfc45`) — FIXED (QB6, c150951)
 
 **Repro:** a page with `document.addEventListener('keydown', …)` (logs each
 key, `preventDefault`s `j`) and a 500 ms `setInterval` writing a body
@@ -1002,7 +1040,7 @@ has no `js` field.
 
 **Fix:** QB6 (done): the engine now lives in `SavedPage.js` while help is shown.
 
-### R11 — User report: wikipedia.org "Thank you for donating recently!" dialog shows and Close does nothing — DONE (QB4; part (c) = QB5, fixed)
+### R11 — User report: wikipedia.org "Thank you for donating recently!" dialog shows and Close does nothing — FIXED (QB4 a29738f; part (c) = QB5 ac60599)
 
 **(a) Why the dialog was visible.** Not reproducible on `f3b06a8`, with JS
 on or off. A full-window screenshot of https://wikipedia.org shows no
@@ -1104,7 +1142,7 @@ Stale generations are still dropped by `ImageFetched`'s `nav_generation` check;
 bodies moved to `App::handle_nav_result`/`handle_image_fetched` so a test can
 drive them. Test: `r7_image_fetched_before_nav_result_survives_document_swap`.
 
-## R5–R6: Q33a script runner bugs seen on https://wikipedia.org — OPEN (2026-11-15)
+## R5–R6: Q33a script runner bugs seen on https://wikipedia.org — FIXED (R5 e76d162, R6 a56d276; 2026-11-15)
 
 **Discovered:** 2026-11-15, user report (stderr from visiting
 https://wikipedia.org with JS on, `main` @ `c1fb661`). Most of the reported

@@ -169,9 +169,10 @@ header is skipped in `is_request_header_to_skip`):
 Response headers wire ALWAYS adds (upstream copies of `X-Wire-*` are dropped so
 a server cannot spoof them):
 
-- `X-Wire-Version: 2` on every response, including errors and `file:` (an old
-  wire has none: this is the version probe scratchy uses before it relies on
-  the caps; a response without it means "restart wire").
+- `X-Wire-Version` on every response, including errors and `file:`: `2` for
+  this protocol, `3` since the cookie jar below (an old wire has none; a
+  response without it, or below 2, makes scratchy turn page networking off
+  and log "restart wire").
 - `X-Wire-Final-Url` - the URL after redirects (the file URL for `file:`).
 - `X-Wire-Target-Class` - the worst class among the resolved addresses of all
   hops (`public`, `loopback`, `private`, `link-local`, `cgnat`, `ula`,

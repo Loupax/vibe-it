@@ -5,6 +5,37 @@ picking the project back up later. `PROMPTS.md` stays the append-only
 record of exact feature prompts; this file is free-form and can be
 edited/pruned as the project evolves.
 
+## Index: source files added 2026-11-14..16 (audit 2026-11-16)
+
+The module list in "Source layout (Q38)" below predates these. Each is
+explained in its own section near the end of this file.
+
+- `src/js.rs`: the QuickJS engine, PRELUDE (window, events, timers,
+  Navigator, matchMedia, location, document.cookie accessor) and the
+  evaluation order of the JS preludes below.
+- `src/js_dom.rs`: DOM_PRELUDE and the `__d_*` natives (nodes, mutation
+  hooks, custom elements, MutationObserver, IO/RO, template.content,
+  second documents and iframes).
+- `src/js_style.rs`: `getComputedStyle` (QA16), cascade-only, no layout.
+- `src/js_modules.rs`: ES module graph pre-fetch and import maps (QY15).
+- `src/js_net.rs`: page-JS network queue `NetState`, `__net_send`,
+  CORS/preflight handling, cookie control natives (QF7, QF13, QF14b).
+- `src/net_policy.rs`: `RequestPolicy` (every network limit and policy
+  flag, `PrivatePolicy` for `private_targets`/`file_targets`), CORS
+  helpers, beacon log, wire cap and cookie header builders (QF5, QF14b).
+- `src/url_prelude.js`: `URL`/`URLSearchParams` over `__url_parse` (QY9).
+- `src/globals_prelude.js`: history, AbortController, MessageChannel,
+  Storage, structuredClone, TextEncoder/TextDecoder, rejection tracking
+  (QY13, QY14, QY15b).
+- `src/intl_prelude.js`: minimal en-US `Intl` (QY16).
+- `src/cssom_prelude.js`: constructable stylesheets,
+  `document.adoptedStyleSheets` (QSD4).
+- `src/fetch_prelude.js`: Blob/File/FileReader, FormData, Headers/
+  Request/Response/ReadableStream, `fetch`, `XMLHttpRequest`,
+  `sendBeacon` (QF2-QF4, QF8-QF10).
+- wire: `wire/src/cookies.rs` (the cookie jar) and the `X-Wire-*`
+  protocol in `wire/NOTES.md`.
+
 ## Where things stand
 
 v1 through v5 are built (static render → streaming stdin → CSS cascade →
@@ -3326,13 +3357,13 @@ so a multipart body rejects with TypeError (QF4a).
 
 ## Net policy and wire codec (QF5)
 
-`src/net_policy.rs` is pure (no I/O, no JS): `RequestPolicy` is the ONE place for every network number and open decision (limits, timeouts, redirect limit, `sync_xhr_timeout_ms`, `beacons_send`, `private_targets`/`file_targets` as `PrivatePolicy`). `check_request(page, url, method, has_body)` returns a `PolicyOutcome` whose `warning` class is logged with `format_net_warning`; same-origin never warns; schemes, bad ports, mixed content (loopback exempt) and method/body rules apply in every mode; `check_redirect_hop` re-runs it per hop. CORS helpers (`classify_fetch`, `needs_preflight`, `check_cors_response`, `check_preflight_response`) and the forbidden header lists (a test pins them to fetch_prelude.js) are pure. `classify_beacon` + `format_beacon_log` serve the suppressed-beacon log. `is_public_ip` is mirrored by hand in wire (QF6). The codec in net.rs (`build_wire_request`, `parse_wire_response_full`, `fetch_full_via_wire`) is not called by anything yet; it can carry `X-Wire-Policy/Max-Bytes/Timeout-Ms/Max-Redirects` (`wire_cap_headers`). Wire already supports every method and Content-Length bodies; what it lacks is listed under QF6.
+`src/net_policy.rs` is pure (no I/O, no JS): `RequestPolicy` is the ONE place for every network number and open decision (limits, timeouts, redirect limit, `sync_xhr_timeout_ms`, `beacons_send`, `private_targets`/`file_targets` as `PrivatePolicy`). `check_request(page, url, method, has_body)` returns a `PolicyOutcome` whose `warning` class is logged with `format_net_warning`; same-origin never warns; schemes, bad ports, mixed content (loopback exempt) and method/body rules apply in every mode; `check_redirect_hop` re-runs it per hop. CORS helpers (`classify_fetch`, `needs_preflight`, `check_cors_response`, `check_preflight_response`) and the forbidden header lists (a test pins them to fetch_prelude.js) are pure. `classify_beacon` + `format_beacon_log` serve the suppressed-beacon log. `is_public_ip` is mirrored by hand in wire (QF6). The codec in net.rs (`build_wire_request`, `parse_wire_response_full`, `fetch_full_via_wire`) was not called by anything when QF5 landed (QF7's `js_net.rs` uses it now); it can carry `X-Wire-Policy/Max-Bytes/Timeout-Ms/Max-Redirects` (`wire_cap_headers`). Wire already supports every method and Content-Length bodies; what it lacked then was added by QF6 (wire v2) and QF14 (v3).
 
 ## Page JS network queue (QF7)
 
 JS never does I/O and cannot touch `App`. The flow:
 
-1. `__net_send(desc) -> id` (native, src/js_net.rs `NetState::send`) checks, in order: page URL known, URL parses, `max_requests_per_page`, `check_request` (warning -> engine log level `net-warning`), `classify_fetch` (CORS kind), beacon classification (suppressed: logged in detail with level `net`, answered as an opaque empty response, never sent unless `beacons_send`), CORS preflight need (rejected, `not implemented (QF13 preflight)`), body vs `max_in_flight_bytes`. It serialises with `build_wire_request` plus `wire_cap_headers` (`X-Wire-Policy` only when `private_targets == Block`; `Origin` for cors) and pushes a `NetJob` to `JsRequests.net`. Refused requests and suppressed beacons go to `JsRequests.net_done` and are delivered asynchronously like any result. `__net_abort(id)` forgets the request (a late result is ignored) and cancels it if queued (`net_abort`).
+1. `__net_send(desc) -> id` (native, src/js_net.rs `NetState::send`) checks, in order: page URL known, URL parses, `max_requests_per_page`, `check_request` (warning -> engine log level `net-warning`), `classify_fetch` (CORS kind), beacon classification (suppressed: logged in detail with level `net`, answered as an opaque empty response, never sent unless `beacons_send`), CORS preflight need (rejected as `not implemented (QF13 preflight)` until QF13; now an OPTIONS job is sent first, see "CORS preflight (QF13)"), body vs `max_in_flight_bytes`. It serialises with `build_wire_request` plus `wire_cap_headers` (`X-Wire-Policy` only when `private_targets == Block`; `Origin` for cors) and pushes a `NetJob` to `JsRequests.net`. Refused requests and suppressed beacons go to `JsRequests.net_done` and are delivered asynchronously like any result. `__net_abort(id)` forgets the request (a late result is ignored) and cancels it if queued (`net_abort`).
 2. `App::js_sync` drains those into `App::net` (`NetScheduler`: `max_concurrent_requests` in flight, request bytes in flight under `max_in_flight_bytes`, FIFO) and `pump_net` starts one thread per job through the executor (`js_net::net_executor()`, a thread-local set by `App::new_*`/`--js-report`; tests inject a fake `NetExecutor`). The thread sends `AppEvent::JsNet(nav_generation, id, Result<WireResponse, NetError>)`. `handle_js_net` drops stale generations, frees the slot, pumps again, calls `JsEngine::deliver_net` and `js_sync`. While `:help` parks the engine results wait in `App::parked_net` and are delivered by `restore_saved_page`. `fetch_url_inner` resets the scheduler.
 3. `deliver_net` -> `NetState::finish`: cross-origin `cors` responses go through `check_cors_response` (failure = network error, logged with the reason) and header filtering (safelisted + `Access-Control-Expose-Headers`); no-cors = opaque. Then JS `__net_complete(result)` (src/fetch_prelude.js `__net_request`) runs under `CALLBACK_BUDGET`, promise jobs drain.
 4. `sync: true` runs the executor on the engine thread with `sync_xhr_timeout_ms` as the wire read timeout; the result is read with `__net_sync_result(id)`; the JS helper throws `NetworkError` on failure.
@@ -3342,14 +3373,14 @@ Every number comes from `RequestPolicy` (src/net_policy.rs).
 
 ## wire protocol version 2 (QF6)
 
-wire now answers `X-Wire-Version: 2` on every response; an old wire sends none. QF7/QF8 must send the `X-Wire-*` request headers only after seeing that header (a probe request, or fail closed with "wire is too old for page networking; restart it" when a response lacks it). Wire reports `X-Wire-Final-Url`, `X-Wire-Target-Class` (worst class over all hops), `X-Wire-Hop-Classes`, and marks its own errors with `X-Wire-Error` (`1` transport, `too-large`, `policy`; the `parse_wire_response_full` codec already consumes `x-wire-error`/`x-wire-final-url`, the class headers stay in `headers`). Over-cap bodies and redirect-limit overruns come back as a 502, not a truncated 200. Details: wire/NOTES.md.
+wire now answers `X-Wire-Version: 2` on every response (3 since QF14); an old wire sends none. As built (QF7a), there is no separate probe: page networking fails closed when an answer has no version or one below 2, and the cookie client stops sending jar headers when the version is below 3 (see "Old wire fails closed (QF7a)" and "Cookie client (QF14b-scratchy)"). Wire reports `X-Wire-Final-Url`, `X-Wire-Target-Class` (worst class over all hops), `X-Wire-Hop-Classes`, and marks its own errors with `X-Wire-Error` (`1` transport, `too-large`, `policy`; the `parse_wire_response_full` codec already consumes `x-wire-error`/`x-wire-final-url`, the class headers stay in `headers`). Over-cap bodies and redirect-limit overruns come back as a 502, not a truncated 200. Details: wire/NOTES.md.
 ## fetch (QF8)
 
-`window.fetch` is pure JS at the end of src/fetch_prelude.js, a thin layer over `__net_request` (QF7): `new Request(input, init)` validates, then `data:` is decoded in JS and `blob:` is read from the QF2 store (both local, no policy, no network); http(s)/`file:` go to `__net_request` (policy, CORS, beacons, opaque no-cors); any other scheme rejects with TypeError. Bodies are buffered through the Request (`arrayBuffer()`, FormData is multipart). `redirect:"error"` rejects on `response.redirected`; `"manual"` acts as follow. Ignored: cache, referrer, referrerPolicy, integrity, priority. Credentials are accepted; no cookies are sent until QF14 (`include` with ACAO `*` fails the CORS check in QF7). Failures reject with `TypeError("Failed to fetch")`; the real reason is the QF7 console line.
+`window.fetch` is pure JS at the end of src/fetch_prelude.js, a thin layer over `__net_request` (QF7): `new Request(input, init)` validates, then `data:` is decoded in JS and `blob:` is read from the QF2 store (both local, no policy, no network); http(s)/`file:` go to `__net_request` (policy, CORS, beacons, opaque no-cors); any other scheme rejects with TypeError. Bodies are buffered through the Request (`arrayBuffer()`, FormData is multipart). `redirect:"error"` rejects on `response.redirected`; `"manual"` acts as follow. Ignored: cache, referrer, referrerPolicy, integrity, priority. Credentials are accepted (`include` with ACAO `*` fails the CORS check in QF7); since QF14b the `credentials` mode decides whether the wire jar is used (see "Cookie client (QF14b-scratchy)"). Failures reject with `TypeError("Failed to fetch")`; the real reason is the QF7 console line.
 
 ## XMLHttpRequest (QF9)
 
-`XMLHttpRequest` (plus `XMLHttpRequestEventTarget`, `XMLHttpRequestUpload`) is JS at the end of src/fetch_prelude.js over `__net_request` (api `xhr`), so policy, CORS, limits and logs are fetch's. A hidden `__xhr_internals` (forbidden-header list, body extraction, UTF-8 decode, response bytes) is shared from the QF4/QF5 closure; the forbidden request header list is the Headers one. Events: readystatechange 1 after open; async send fires loadstart, then (rs2, rs3, one progress when the body is non-empty, rs4, load, loadend); network/CORS/policy failure is rs4, error, loadend with status 0; abort is rs4, abort, loadend then readyState 0; `timeout` is a JS timer that cancels the request (rs4, timeout, loadend). Non-simple cross-origin requests fail like fetch (QF13 preflight log + error). Sync (`open(..,false)`): `send()` blocks in `__net_request` with `sync_xhr_timeout_ms`, fires rs4/load/loadend, and throws a NetworkError DOMException on failure; `responseType` or `timeout` on a sync XHR throws InvalidAccessError (at open and on the setters, as browsers do on a window). Deviations: `responseType "document"` and `responseXML` are null (console.error once; no DOMParser yet); the body arrives whole; upload fires its events only at the end; open() user/password ignored; withCredentials stored only (cookies are QF14). `navigator.sendBeacon` is QF10 (below).
+`XMLHttpRequest` (plus `XMLHttpRequestEventTarget`, `XMLHttpRequestUpload`) is JS at the end of src/fetch_prelude.js over `__net_request` (api `xhr`), so policy, CORS, limits and logs are fetch's. A hidden `__xhr_internals` (forbidden-header list, body extraction, UTF-8 decode, response bytes) is shared from the QF4/QF5 closure; the forbidden request header list is the Headers one. Events: readystatechange 1 after open; async send fires loadstart, then (rs2, rs3, one progress when the body is non-empty, rs4, load, loadend); network/CORS/policy failure is rs4, error, loadend with status 0; abort is rs4, abort, loadend then readyState 0; `timeout` is a JS timer that cancels the request (rs4, timeout, loadend). Non-simple cross-origin requests get a CORS preflight like fetch (QF13; before QF13 they failed with a log line). Sync (`open(..,false)`): `send()` blocks in `__net_request` with `sync_xhr_timeout_ms`, fires rs4/load/loadend, and throws a NetworkError DOMException on failure; `responseType` or `timeout` on a sync XHR throws InvalidAccessError (at open and on the setters, as browsers do on a window). Deviations: `responseType "document"` and `responseXML` are null (console.error once; no DOMParser yet); the body arrives whole; upload fires its events only at the end; open() user/password ignored; `withCredentials` = credentials `include` for the wire jar since QF14b. `navigator.sendBeacon` is QF10 (below).
 
 ## navigator.sendBeacon (QF10)
 
@@ -3361,7 +3392,7 @@ wire now answers `X-Wire-Version: 2` on every response; an old wire sends none. 
 
 ## Cookie jar lives in wire (QF14, wire half)
 
-wire (version 3) owns a memory-only cookie jar, partitioned by top-level site and selected per request with `X-Wire-Jar: scratchy` (scratchy sends the headers in QF14b-scratchy; until then nothing changes). With the jar, wire strips `Set-Cookie` from answers and ignores a client `Cookie` header; `document.cookie` will go through wire's control channel (`X-Wire-Cookie-Op`). scratchy detects the jar by `X-Wire-Cookies: on|off` plus the version. Details and limits: wire/NOTES.md "The cookie jar".
+wire (version 3) owns a memory-only cookie jar, partitioned by top-level site and selected per request with `X-Wire-Jar: scratchy` (scratchy sends the headers since QF14b-scratchy, below). With the jar, wire strips `Set-Cookie` from answers and ignores a client `Cookie` header; `document.cookie` goes through wire's control channel (`X-Wire-Cookie-Op` + `X-Wire-Cookie-Url`). scratchy detects the jar by `X-Wire-Cookies: on|off` plus the version. Details and limits: wire/NOTES.md "The cookie jar".
 
 ## QSD0: query methods on prototypes only
 
