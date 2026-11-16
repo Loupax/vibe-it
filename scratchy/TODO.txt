@@ -50,6 +50,426 @@ dropped selectors summed across those pages. Caveats:
   be measured yet. Re-run this measurement after Tier 1 lands, and
   re-rank if the numbers move.
 
+--- DESIGN MEMO (QF): fetch / XMLHttpRequest / networking from page JS ----
+--- (Opus investigator, 2026-11-16; replaces the Q33f entries) ----------
+
+This block is next in the queue. It splits Q33f into QF1-QF19. The
+items marked READY implement the most restrictive defaults below and
+need no decision. The items marked "WAITING FOR USER (design first)"
+must be skipped until the user ticks the matching QF-D box and writes
+the chosen option next to it. Evidence for every number here: R22 in
+REGRESSIONS.md.
+
+What the survey found (curl'd pages + `<base href>`, `--js-report
+--run-timers 5000`, every network API replaced by a logging stand-in):
+- Startup traffic is small and read-only. guardian: 1 data GET
+  (`api.nextgen.guardianapps.co.uk/geolocation`, JSON, cross-origin,
+  `Access-Control-Allow-Origin: *`) plus 9 analytics GETs to
+  `ophan.theguardian.com` (`mode:'no-cors'`, `keepalive`,
+  `credentials:'include'`). bbc: 1 GET `www.bbc.co.uk/userinfo` (JSON,
+  cross-origin, ACAO echoes the origin). duckduckgo: 1 same-origin GET
+  `/country.json` and 4 `navigator.sendBeacon` calls. old.reddit (served
+  as the login page): 1 GET `www.reddit.com/svc/events/preload-head` (no
+  ACAO, so Chrome cannot read it either). HN and lobste.rs: none at
+  startup. github and youtube die before their first request
+  (customElements / MutationObserver, QY6); youtube's data API
+  ("innertube") is POST with a JSON body (static read of the 9.8 MB app
+  script; R21 saw it call `/youtubei/v1/player` plus 336 icon GETs).
+- Not one surveyed page used `XMLHttpRequest`, `FormData`, `Blob`,
+  `response.body.getReader()`, `EventSource`, `WebSocket` or sync XHR at
+  startup. Every network call went through `fetch`, and every response
+  was read with `.json()`.
+- guardian's 7 (+2 in timers) `ActiveXObject is not defined` errors
+  come from polyfill.io's fetch polyfill, which looks for
+  `XMLHttpRequest` and then `ActiveXObject`. With either `fetch` or
+  XHR present: 0 errors. polyfill.io also installs a SYNCHRONOUS XHR POST
+  as its `sendBeacon` fallback, so `sendBeacon` must exist.
+- github: `TextEncoder is not defined` in all 3 module entries (QY15b);
+  with it supplied, the next error is `customElements is not defined`.
+- HN votes and collapse are GET XHRs and `fetch(...).then(r=>r.json())`
+  on click, and only work when logged in (they need cookies). Note that
+  "GET only" does not mean "no side effects": HN's vote is a GET.
+- wire today: any method, forwards every request header from scratchy
+  except Host/Content-Length/Connection, follows redirects (ureq: 5
+  hops, POST->GET on 301/302/303) and does not say the final URL, no
+  cookie jar, forwards `Set-Cookie`, serves `file://` for ANY readable
+  file (measured: `GET file:///etc/os-release` -> 200 with the file),
+  connects to 127.0.0.1/localhost on request (measured: connection
+  refused = it tried), and a request to 169.254.169.254 hung for more
+  than 30 s (scratchy's `fetch_raw_via_wire` has no read timeout).
+  HEAD and OPTIONS work (bbc userinfo OPTIONS -> 204 with CORS headers).
+
+Recommended design (fits the engine as it is: JS on the main thread,
+App owns everything else, wire does the network):
+1. JS side, a new `src/fetch_prelude.js`: spec-faithful data classes
+   (Headers, Request, Response, Blob, File, FormData, TextEncoder/
+   TextDecoder, a minimal ReadableStream), plus `fetch` and
+   `XMLHttpRequest`, both thin layers over ONE native request queue.
+2. Native `__net_send(...)` checks the request policy in Rust right
+   away (a blocked request rejects at once with a clear log line) and
+   records it in `JsRequests.net` (the QB5 request pattern). The engine
+   never does I/O.
+3. `App::js_sync` drains the queue and runs each request on its own
+   thread (like image fetches, max 6 at a time per page). The result
+   comes back as `AppEvent::JsNet(nav_generation, id, result)`.
+   `JsEngine::deliver_net` resolves the promise or fires the XHR events,
+   then drains promise jobs and runs `js_sync`. Stale generations are
+   dropped, so a late response never reaches the next page.
+4. Bodies are buffered (cap 16 MiB per response, 30 s timeout).
+   `response.body` is a ReadableStream that delivers the whole body as
+   one chunk. That is legal, and youtube feature-tests `getReader`
+   anyway. Real streaming waits for a measured need (QF18).
+5. Policy (enforced twice): scratchy refuses non-http(s) targets
+   (`file:` always), non-GET/HEAD methods, mixed content and
+   private/loopback/link-local hosts by name. wire refuses to CONNECT to
+   a non-public address for requests marked `X-Wire-Policy:
+   public-only`, at DNS resolution time, so redirects and DNS rebinding
+   cannot get around it.
+6. CORS like a browser for reads: same-origin is free. Cross-origin is
+   readable only with a matching `Access-Control-Allow-Origin`, and only
+   simple requests (no preflight until QF13). `no-cors` requests are
+   answered with an opaque response WITHOUT being sent (the page cannot
+   read an opaque response, so it cannot tell the difference).
+7. No credentials of any kind: no cookie jar, `credentials` is
+   accepted and ignored, `Cookie` and other forbidden request headers
+   are dropped, `Set-Cookie` is hidden from JS. Nothing is persisted.
+8. XHR events and readyState follow the spec order. Sync XHR throws
+   `NetworkError`. `sendBeacon` returns true and sends nothing.
+   `WebSocket`, `EventSource` and `Worker` stay ABSENT, so pages take
+   their own fallback path.
+9. `--js-report` performs the requests too (synchronously, through
+   wire), prints a `--- network ---` section, and uses the copy's
+   `<base href>` as the page URL. Today it uses the file:// URL, so
+   origin checks would be wrong: guardian's beacon carried
+   `url=file:///tmp/...`.
+
+USER DECISIONS (READY items implement the first, most restrictive
+option; changing it later is a small change in QF5/QF8):
+- [ ] QF-D1 CORS stance. (B, default, recommended) browser rules for
+      reads as above. (A) ignore CORS: every response is readable. (C)
+      every cross-origin response is opaque. Security: with no cookies,
+      CORS mainly protects what only the user's machine can reach
+      (intranet, router admin pages, localhost dev servers). QF-D5
+      already blocks those, and B also keeps pages on the code paths
+      they were tested on in Chrome. Measured cost of B: none (guardian
+      and bbc send ACAO, reddit's events call fails in Chrome too).
+- [ ] QF-D2 Cookies/credentials. (default) none, as in point 7. Or Q30f
+      (an in-memory jar in wire): then every JS request also needs a
+      third-party-cookie rule (does a cross-site fetch send the
+      cross-site cookies?) and CORS credentials mode (ACAO `*` is
+      not allowed with credentials). Without cookies these break:
+      anything logged in (HN votes), youtube's EU consent (it comes
+      back on every load), CSRF-token forms, reddit's tokens.
+- [ ] QF-D3 Analytics. (default) drop `no-cors` fetches and
+      `sendBeacon` (measured: guardian 9 ophan beacons in 5 s, ddg 4).
+      Or send them like a browser does.
+- [ ] QF-D4 POST/PUT/PATCH/DELETE and request bodies (QF13). (default)
+      GET/HEAD only. Allowing POST is what youtube's content needs.
+      Without cookies a POST is anonymous, but it can still change
+      server state and send data.
+- [ ] QF-D5 SSRF policy. (default) http(s) only. No `file:`. No
+      localhost, loopback, private (RFC 1918), link-local (incl. the
+      169.254.169.254 cloud metadata address), CGNAT, ULA, multicast
+      or "bad ports" destinations, unless the target has the same
+      origin as the page itself. Blocked in scratchy by name and in wire
+      by resolved address (QF6). https pages cannot fetch http.
+      Alternatives: let a private page reach other private hosts; a
+      user allowlist (e.g. `:set netallow host`).
+- [ ] QF-D6 file:// pages. (default) their JS can fetch only public
+      http(s), never `file:`. Today wire would hand any page any file
+      (e.g. a saved HTML attachment reading ~/.ssh). Alternatives: the
+      page's own directory subtree; anything.
+- [ ] QF-D7 Persistence. (default) nothing on disk: no HTTP cache, no
+      cookies, no storage (QY13a is the localStorage half).
+- [ ] QF-D8 Sync XHR. (default) `send()` throws `NetworkError` with a
+      log line. Alternative: block the main thread up to N s (R8: the
+      compositor drops a client that stalls).
+- [ ] QF-D9 Limits. 16 MiB per response, 64 MiB in flight per page, 6
+      requests at a time, 1000 requests per page, 30 s per request.
+      youtube made 337 requests in R21.
+
+Items, in order. READY means: take it like any QUEUE item. Each lists
+its prerequisites. Tests go in src/tests.rs. "Payoff" is what the R22
+survey predicts; measure it with `--js-report --run-timers 5000` on the
+R22 copies and paste the before/after numbers in the commit.
+
+- [ ] QF1 [S] READY (= QY15b; tick both) `TextEncoder`/`TextDecoder`.
+      Natives over `encoding_rs`: `__te_encode(str) -> Uint8Array`
+      (UTF-8, lone surrogates -> U+FFFD) and `__td_decode(bytes, label,
+      fatal, ignoreBOM) -> string`, or an error the JS throws as
+      `TypeError`. Pass bytes as rquickjs `TypedArray<u8>`/`ArrayBuffer`.
+      JS: `TextEncoder` (`encoding`='utf-8', `encode`, `encodeInto`
+      returning `{read, written}`), `TextDecoder(label='utf-8', {fatal,
+      ignoreBOM})` (`Encoding::for_label`, unknown label -> RangeError;
+      `encoding` = the encoding_rs name lowercased, e.g. 'latin1' ->
+      'windows-1252'), `decode(BufferSource, {stream})`. For UTF-8 with
+      stream:true, hold back a trailing incomplete sequence for the next
+      call. For other encodings ignore `stream` (note it in the commit).
+      Tests: encode('€') = [226,130,172]; a round trip with an astral
+      character; fatal decode of [0xFF] throws TypeError; the BOM is
+      stripped unless ignoreBOM; encodeInto into a short buffer;
+      'latin1' label. Payoff: github's 3 module errors `TextEncoder is
+      not defined` -> next error `customElements is not defined` (QY6);
+      youtube uses TextEncoder at startup.
+- [ ] QF2 [S] READY `Blob`, `File`, blob: URLs (new
+      `src/fetch_prelude.js`, evaluated after `intl_prelude.js`; needs
+      QF1). `Blob(parts, {type, endings})`: parts are strings (UTF-8 via
+      QF1), ArrayBuffer, views, Blobs. Keep one internal Uint8Array.
+      `size`, `type` (lowercased; '' if not printable ASCII), `slice`
+      (negative indices, contentType), `text()`, `arrayBuffer()`,
+      `bytes()`, `stream()` (after QF4, else leave it out). `File`
+      extends Blob (`name`, `lastModified`, `webkitRelativePath`='').
+      `FileReader` (readAsText/ArrayBuffer/DataURL; `load`/`loadend`
+      events async via setTimeout 0; `result`, `readyState`).
+      `URL.createObjectURL(blob)` keeps the blob in an engine-local Map
+      (it already returns `blob:<origin>/<n>-scratchy`, url_prelude.js)
+      and `revokeObjectURL` removes it; QF8 reads that map. Tests: sizes
+      of mixed parts, slice(-3), text() of a UTF-8 part, File name, a
+      createObjectURL/revoke round trip. Payoff: prerequisite for
+      `response.blob()` and XHR `responseType='blob'` (Blob refs: yt 8,
+      bbc 9, guardian 4).
+- [ ] QF3 [S] READY `FormData` as a data class only (no submission:
+      forms rule in AGENTS.md). `new FormData()`, append/set (a Blob
+      value becomes a File named 'blob' unless a filename is given),
+      get/getAll/has/delete/keys/values/entries/forEach and iteration in
+      insertion order. `new FormData(form)` does NOT read the controls:
+      it returns an empty FormData and logs once
+      `FormData(form): not implemented (waits for Q30e)` in the QJ2
+      error format (it must not throw). Tests for each method and the
+      form log. Payoff: FormData refs gh 24, bbc 18, guardian 5. None
+      were used at startup, so it is cheap safety only.
+- [ ] QF4 [S] READY `Headers`, `Request`, `Response` data classes and a
+      minimal `ReadableStream` (fetch_prelude.js; needs QF1-QF3; no
+      network).
+      Headers: guards none/request/response/immutable. Name must be an
+      HTTP token and the value is trimmed, else TypeError. Repeated
+      names are combined with ', '. Iteration is sorted by lowercase
+      name. `getSetCookie()`. With the request guard, forbidden request
+      headers are silently dropped (accept-charset, accept-encoding,
+      access-control-request-*, connection, content-length, cookie,
+      cookie2, date, dnt, expect, host, keep-alive, origin, referer,
+      set-cookie, te, trailer, transfer-encoding, upgrade, via,
+      `proxy-*`, `sec-*`).
+      Body mixin: init from string (text/plain;charset=UTF-8),
+      URLSearchParams (application/x-www-form-urlencoded;charset=UTF-8),
+      Blob, ArrayBuffer/view, ReadableStream (read fully), null.
+      FormData bodies throw `TypeError('FormData bodies: not implemented
+      (QF13)')`. `text/json/arrayBuffer/bytes/blob/formData` (formData
+      only for urlencoded), `bodyUsed`, TypeError when a body is used
+      twice, `clone()`.
+      Response(body, {status 200-599 else RangeError, statusText,
+      headers}), `ok`, `type`, `url`, `redirected`, `Response.error()`,
+      `Response.redirect(url, status)`, `Response.json(data, init)`.
+      Request(input, init): URL resolved against `document.baseURI`
+      (TypeError if invalid or it has user:pass); method uppercased for
+      the standard names, CONNECT/TRACE/TRACK throw; a GET/HEAD with a
+      body throws; mode (default 'cors'), credentials ('same-origin'),
+      cache, redirect ('follow'), referrer, integrity, keepalive, signal
+      (follows init.signal); `clone()`.
+      ReadableStream: `new ReadableStream({start, pull, cancel})` with a
+      controller (enqueue/close/error/desiredSize), `getReader()`
+      (read/releaseLock/cancel/closed), `locked`, `cancel()`, and async
+      iteration. No tee/pipeTo/pipeThrough and no TransformStream: leave
+      them ABSENT (duckduckgo feature-tests ReadableStream and installs
+      its own polyfill when it is missing; a half-working one would
+      break that).
+      Tests: header combining and sort, forbidden-header drop, the body
+      used twice, Response.json(), Request with a relative URL against a
+      `<base href>`, a GET with a body throws, a ReadableStream
+      enqueue/read/close sequence.
+- [ ] QF5 [S] READY (Rust, pure functions in net.rs; no JS) The request
+      policy and the full wire codec.
+      (a) `js_request_policy(page: Option<&Url>, target: &Url, method:
+      &str) -> Result<(), String>` implementing QF-D5/D6 defaults:
+      target scheme http/https only; method GET/HEAD only (otherwise
+      Err "method POST from page JS is not enabled (QF13, waiting for
+      the user)"); no page URL -> Err; an https page cannot reach an http
+      target; the host is checked by name (`localhost`, `*.localhost`) and
+      as an IP literal (v4/v6, incl. IPv4-mapped v6): loopback,
+      unspecified, private 10/8 172.16/12 192.168/16, link-local
+      169.254/16 fe80::/10, CGNAT 100.64/10, ULA fc00::/7, multicast,
+      broadcast -> Err, unless `target.origin() == page.origin()`; the
+      Fetch spec "bad ports" list -> Err. Put the address test in a
+      `fn is_public_ip(IpAddr) -> bool` that QF6 copies into wire (two
+      crates, no shared code: keep the two lists identical and say so
+      in both).
+      (b) `build_request_text_full(method, url, headers, body)` (adds
+      Content-Length when there is a body; header values with CR/LF are
+      rejected).
+      (c) `parse_wire_response_full(bytes) -> WireResponse { status,
+      status_text, headers: Vec<(String, String)>, body }`. Keep
+      `parse_wire_response` as it is.
+      (d) `fetch_full_via_wire(path, text, max_bytes, timeout) ->
+      Result<WireResponse, NetError>` with `set_read_timeout`/
+      `set_write_timeout` and a capped read (`take(max_bytes+1)`;
+      over -> `NetError::TooLarge`). Also give `fetch_raw_via_wire` a
+      read timeout (60 s) so a hung wire request cannot pin a thread
+      forever (measured: 169.254.169.254 did not answer in 30 s).
+      Tests: a table of policy cases (each blocked range, same-origin
+      localhost allowed, https->http blocked, file: blocked, POST
+      blocked, port 25 blocked); a parse of a multi-header response; a
+      CR/LF header value refused.
+- [ ] QF6 [S] READY (in `wire`; log it in wire/PROMPTS.md and
+      wire/TODO.txt) Public-only connections and the final URL.
+      (a) A second `ureq::Agent` built with `.resolver(PublicOnly)`.
+      The resolver resolves with `ToSocketAddrs` and keeps only public
+      addresses (the same list as QF5's `is_public_ip`). If none are
+      left -> error "blocked: <host> resolves to a non-public address".
+      It is used when the request has `X-Wire-Policy: public-only`
+      (strip that header before forwarding: add it to
+      `is_request_header_to_skip`). ureq resolves on every redirect hop,
+      so this also covers redirects and DNS rebinding. With that
+      header, `file:` gets a 403.
+      (b) Add `X-Wire-Final-Url: <resp.get_url()>` to every upstream
+      response and `X-Wire-Error: 1` to the synthesized 502, so scratchy
+      can tell a network error from a real 502.
+      Tests (existing loopback fixtures): public-only to the 127.0.0.1
+      fixture -> 502 with X-Wire-Error and "blocked"; without the header
+      it works as before; after a 302 fixture the final URL header is
+      the target. The user must restart wire to get this. QF7 must
+      fail closed: a response without `X-Wire-Final-Url` means an old
+      wire, so the request fails with the log line "wire is too old for
+      page networking; restart it".
+- [ ] QF7 [M] READY (needs QF4, QF5, QF6) The engine/App plumbing.
+      `JsRequests.net: Vec<NetRequest { id, method, url, headers, body
+      }>` and `net_abort: Vec<u64>`. Native `__net_send(method, url,
+      headers, body) -> id or error string`: it runs
+      `js_request_policy(page_url(), ..)` right away; on Err the JS side
+      rejects/fails and logs `scratchy: js net: blocked <url>:
+      <reason>`. Native `__net_abort(id)`. `App::js_sync` drains `net`.
+      Each request gets a thread running `fetch_full_via_wire` with
+      `X-Wire-Policy: public-only`, 6 at a time per page (the rest
+      wait in an App queue), 1000 per page then refuse, 16 MiB per
+      response, 30 s timeout. The thread sends `AppEvent::JsNet(gen, id,
+      Result<WireResponse, String>)`. No `--socket` -> an immediate
+      error result. The handler drops stale generations. While `:help`
+      parks the engine (QB6), keep results in a Vec and deliver them on
+      restore. `JsEngine::deliver_net(id, result)` calls JS
+      `__net_done(id, status, statusText, flatHeaders, Uint8Array body,
+      finalUrl, error)`, drains jobs and then `App` runs `js_sync`. Aborted ids
+      are ignored in JS. `--js-report`: after load and after each timer
+      slice, drain `net` and run the requests synchronously through
+      wire in order, then deliver. Print `--- network (N requests, B
+      bytes) ---` with one line per request: `METHOD url -> status
+      bytes`, `-> blocked: reason` or `-> error: text`. The page URL
+      for the report is the copy's `<base href>` when it has one.
+      Tests: a fake transport seam (a closure in place of wire) drives
+      deliver_net; a stale generation is dropped; a blocked URL never
+      reaches the transport; the report lists a request.
+- [ ] QF8 [S] READY (needs QF7) `fetch()`.
+      `data:` URLs are decoded in JS (no network). `blob:` reads the
+      QF2 map. http(s): if the signal is already aborted, reject with
+      `signal.reason`. Same-origin is sent as is. Cross-origin: mode
+      'same-origin' -> TypeError. 'no-cors' (GET/HEAD) -> NOT sent
+      (QF-D3); resolve an opaque Response (type 'opaque', status 0, no
+      headers, null body). 'cors': only simple requests (GET/HEAD and
+      CORS-safelisted headers), else TypeError and the log
+      `needs a CORS preflight (QF13)`; send `Origin: <page origin>`.
+      Readable only if ACAO is `*` or equals the page origin, else
+      TypeError('Failed to fetch') and the log `CORS: no
+      Access-Control-Allow-Origin for <url>`. A 'cors' response
+      exposes only the safelisted headers plus
+      `Access-Control-Expose-Headers`. `Set-Cookie`/`Set-Cookie2` are
+      always removed. `credentials` and `keepalive` are ignored (QF-D2),
+      `cache` is ignored (no cache), and `integrity` -> TypeError plus a
+      log line (not implemented; never pretend it was checked).
+      `redirect:'error'` rejects when the final URL differs.
+      `redirect:'manual'` is treated as 'follow', with a log line.
+      `response.url`/`redirected` come from `X-Wire-Final-Url`. A
+      network error (X-Wire-Error, timeout, too large, unreachable)
+      -> TypeError('Failed to fetch'). Abort: reject with
+      `signal.reason` and call `__net_abort`. Body: QF4's buffered body;
+      `response.body` is a one-chunk ReadableStream.
+      Tests (fake transport): same-origin JSON round trip; a
+      cross-origin read without ACAO rejects; with `*` it resolves and
+      hides a non-exposed header; no-cors never reaches the transport;
+      abort before and after the response; Set-Cookie hidden; data: URL.
+      Payoff: guardian 9 `ActiveXObject` errors -> 0 and its geolocation
+      JSON (ACAO `*`) gives the CMP its country (`CMP initialised
+      without country` console.error gone); bbc `userinfo` (ACAO echo)
+      resolves signed-out; ddg `/country.json` works; old.reddit's
+      `fetch is not defined` is gone (its one request is unreadable,
+      as in Chrome).
+- [ ] QF9 [S] READY (needs QF8) `XMLHttpRequest` over the same queue
+      and the same CORS code. EventTarget with UNSENT..DONE, `open(method,
+      url, async=true)` (URL resolved against document.baseURI),
+      `setRequestHeader` (forbidden names dropped), `timeout` (a JS
+      timer -> abort the request, fire `timeout`), `withCredentials`
+      (stored, ignored), `responseType` ''/'text'/'json'/'arraybuffer'/
+      'blob' ('document' -> null plus a log line: not implemented),
+      `overrideMimeType` (charset for text), `send(body)` (body ignored
+      for GET/HEAD; other methods fail through the policy: `error`
+      event plus the log line), `abort()`, `status`, `statusText`,
+      `responseURL`, `response`, `responseText`, `getResponseHeader`,
+      `getAllResponseHeaders` (lowercase `name: value\r\n`, sorted,
+      CORS-filtered, no set-cookie), `upload` (an EventTarget that
+      never fires for GET). Event order on success: loadstart;
+      readystatechange(2); readystatechange(3); progress
+      (lengthComputable, loaded = total = body length);
+      readystatechange(4); load; loadend. On error: readystatechange(4),
+      error, loadend. On abort: readystatechange(4) if sent, abort,
+      loadend, then readyState 0. `open(.., false)` (sync): `send()`
+      throws DOMException 'NetworkError' plus a log line (QF-D8).
+      Tests: the event order, json responseType, a header lookup,
+      abort, timeout on the fake clock, sync throws. Payoff: youtube
+      reads `XMLHttpRequest.prototype` at top level (R21 row 12); HN
+      votes need it (but also cookies, QF14); refs: yt 17, bbc 11,
+      guardian 13.
+- [ ] QF10 [S] READY `navigator.sendBeacon(url, data)`: TypeError for an
+      invalid or non-http(s) URL, otherwise return true and send
+      nothing (QF-D3); log `sendBeacon: not sent` once per page.
+      `WebSocket`, `EventSource`, `Worker`, `SharedWorker` stay
+      undefined (write that in NOTES.md with the reason: feature
+      detection then takes the page's fallback; no surveyed page touched
+      them at startup). Test: it returns true, and the transport sees
+      nothing. Payoff: ddg's 4 beacons; polyfill.io (guardian) does not
+      install its sync-XHR-POST fallback.
+- [ ] QF11 [S] READY Navigation from JS (the other half of Q33f).
+      `location.assign(u)`, `location.replace(u)`, the `location.href`
+      setter, `location.reload()`, and setters for
+      hash/search/pathname/host build the new URL (against
+      document.baseURI) and set `JsRequests.nav` (the path `el.click()`
+      already uses). A hash-only change updates `location.hash` and
+      fires `hashchange` without a fetch. `javascript:` URLs are
+      ignored with a log line; an http(s) page cannot navigate to
+      `file:`. If App history has no "replace", `replace` behaves like
+      `assign` (note it). Tests: each call sets `nav`; a hash change does
+      not; a file: target from an http page is refused.
+- [ ] QF12 [S] READY (after QF10) Re-measure. Run the R22 corpus
+      (8 pages, `--js-report --run-timers 5000`, now with the network
+      section), record the new first errors and the request lists in
+      R22, and live-check guardian, bbc and ddg in a window (grim). File
+      what comes next as new items here.
+
+WAITING FOR USER (design first): skip these.
+
+- [ ] QF13 [M] WAITING FOR USER (design first, QF-D4) Non-GET methods
+      and request bodies: POST/PUT/PATCH/DELETE for fetch and XHR,
+      bodies from string/URLSearchParams/Blob/ArrayBuffer/FormData
+      (`multipart/form-data` encoder), and CORS preflight (OPTIONS
+      through wire works: measured 204 with CORS headers). Payoff:
+      youtube's innertube API (all its data) is POST JSON; POST refs gh
+      12, bbc 33, yt 47.
+- [ ] QF14 [S] WAITING FOR USER (design first, QF-D2; same as Q30f)
+      Cookies: an in-memory jar in wire, `credentials`
+      omit/same-origin/include, the third-party rule, CORS credentials
+      mode, and `document.cookie` (Q33g).
+- [ ] QF15 [S] WAITING FOR USER (design first, QF-D7; with QY13a)
+      Persistence: an HTTP cache, cookies or storage on disk.
+- [ ] QF16 [S] WAITING FOR USER (design first, QF-D8) Sync XHR that
+      blocks, only if the user prefers it to the default (throw).
+- [ ] QF17 [S] WAITING FOR USER (design first, QF-D6) Let file:// pages
+      fetch local files (directory subtree or everything).
+- [ ] QF18 [M] Streaming bodies (wire streams already: chunked
+      `AppEvent`s feeding a real ReadableStream). Not a user decision,
+      but only when a measured page needs incremental delivery.
+      Today none does.
+- [ ] QF19 [L] WAITING FOR USER (design first) WebSocket, EventSource,
+      Workers: out of scope. wire speaks one request and one response per
+      connection.
+Also: QY15a (run-time `import()` of a URL that was not pre-fetched) can
+reuse QF7's queue once it exists.
+
 --- Tier 0: tooling that makes every later measurement honest ---------
 
 - [x] Q1 [S] (287fdab) Make `SCRATCHY_CSS_DEBUG` tell different failures apart.
@@ -1080,7 +1500,8 @@ Phase 2 (big enablers, after phase 1):
       `import.meta.resolve`, JSON modules, worker modules,
       `modulepreload`. Today these reject with "module was not pre-fetched".
 - [ ] QY15b [S] `TextEncoder`/`TextDecoder` (UTF-8) in the JS prelude: the
-      first error of every github module script.
+      first error of every github module script. Now QF1 in the QF
+      DESIGN MEMO at the top of the QUEUE: do it there and tick both.
 - [ ] QY15c [S] old.reddit: its `data:text/javascript,` navigation module
       (`let navPromise=null,hasNativeNavigation=...`) dies on
       `ReferenceError: customElements is not defined` (same as its inline
@@ -1113,6 +1534,8 @@ Phase 2 (big enablers, after phase 1):
 - [ ] Q33f [L] fetch()/XHR (existing item, Tier 7; unchanged, it is the
       next wall for YouTube, old.reddit and everything after modules).
       Move it here in priority, do not duplicate it.
+      SPLIT 2026-11-16 into QF1-QF19: see "DESIGN MEMO (QF)" at the top
+      of the QUEUE (evidence R22). Do not implement Q33f itself.
 - [x] QY16 [M] (P3; duckduckgo; yt/gh/bbc reference it) ef90a15 A minimal `Intl`.
       QuickJS has none. Symptom: duckduckgo `ReferenceError: Intl is not
       defined` -> Next.js "A client-side exception has occurred" (the
@@ -2947,6 +3370,9 @@ with temporary `Instant` timing, and say the number in the commit.
       Memory only, nothing written to disk (say so in wire's NOTES).
       Without this, any form behind a login (CSRF token + session
       cookie) fails even though Q30e is correct.
+      Also decides cookies for page JS requests (QF-D2 / QF14 in the QF
+      DESIGN MEMO): a jar in wire would also be used by fetch/XHR, so it
+      needs a third-party rule before it lands.
 - [ ] Q30g [M] Open `<select>`. Click or Space/Enter opens a list painted
       above all page content (a top-layer overlay, closest in shape to
       the command bar's chrome painting, not to z-index stacking),
@@ -3116,6 +3542,8 @@ as the JS measurement corpus (same role the four CSS pages played).
       `location.href=` / `location.assign` navigate; `history.pushState/
       replaceState` update the URL and history stack without a fetch.
       This is what most "needs JS" sites actually wait on.
+      SPLIT 2026-11-16 into QF1-QF19 ("DESIGN MEMO (QF)" at the top of
+      the QUEUE; location navigation = QF11). Tick this when they are done.
 - [ ] Q33g (`getComputedStyle` done in QA16) later, only when a corpus page needs it: `localStorage`,
       `document.cookie`, `MutationObserver`, (getComputedStyle: done, QA16),
       `getBoundingClientRect` (needs layout results exposed to JS),
