@@ -937,7 +937,7 @@ Phase 1 (each S, independent; do in this order):
       `setAttributeNode/removeAttributeNode`, `createAttribute`,
       attribute-node identity); `a.relList`, `img.complete/naturalWidth`,
       `style` as a full `CSSStyleDeclaration` (Q33g).
-- [x] QY12 [S] (HASH) (P3; yt, plus `instanceof` checks everywhere) Interface
+- [x] QY12 [S] (2ca83db) (P3; yt, plus `instanceof` checks everywhere) Interface
       objects. Symptoms (YouTube chain, R21 rows 3, 5, 8, 9, 11; QY4a is
       the SVG part, do it here and tick QY4a): `Window is not defined`,
       `CDATASection`/`ProcessingInstruction` read as `window[a].prototype`,
@@ -1405,7 +1405,7 @@ Read REGRESSIONS.md "R20" before starting any QY item. Short version:
       RESULT: `createEvent` is fixed, but the polyfill now dies earlier
       than predicted, at `window.SVGElement.prototype` (webcomponents
       line 46, right after `mb(CharacterData)`): see QY4a.
-- [x] QY4a [S] (HASH, done in QY12) (P2, found by QY4) `SVGElement` global (and `SVGSVGElement`
+- [x] QY4a [S] (2ca83db, done in QY12) (P2, found by QY4) `SVGElement` global (and `SVGSVGElement`
       etc. as a hierarchy under `Element`); `createElementNS` with the SVG
       namespace should wrap with it. The webcomponents polyfill reads
       `window.SVGElement.prototype` at load. Then re-run `--js-report` on
