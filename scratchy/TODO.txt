@@ -2047,7 +2047,7 @@ Read REGRESSIONS.md "R20" before starting any QY item. Short version:
         from Rust (form state) do not notify (documented cut). Tests:
         appendChild + setAttribute in one script -> one callback with 2
         records in order; subtree observation; disconnect stops delivery.
-      - [x] QY6e [M] DONE (commit HASH_QY6E) `customElements` (define, get, getName,
+      - [x] QY6e [M] DONE (commit 1552381) `customElements` (define, get, getName,
         whenDefined, upgrade; `CustomElementRegistry`). `HTMLElement`
         (and QY12's subclasses) become constructors that, while an
         upgrade is in progress, return the element being upgraded (a
