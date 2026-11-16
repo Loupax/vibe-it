@@ -10333,6 +10333,7 @@ fn qa20_input_value_property_is_separate_from_the_attribute_and_meta_http_equiv(
          var m=document.createElement('meta'); m.setAttribute('http-equiv','x'); console.log(m.httpEquiv, m.hasAttribute('httpEquiv'));",
     );
     assert_eq!(log, ["log:false test ", "log:x false"], "{log:?}");
+}
 
 // ---------- Q35b2: image arrivals are debounced ----------
 
