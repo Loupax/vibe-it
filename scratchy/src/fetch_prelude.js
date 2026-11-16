@@ -1051,3 +1051,97 @@
     else p.resolve(build(res));
   });
 })(globalThis);
+
+// QF8: window.fetch(input, init), a thin layer over __net_request (QF7).
+// Request (QF4) validates and normalises the arguments; this layer only
+// routes: data: and blob: URLs are answered locally (no network, no policy);
+// http(s) (and file:, which the policy warns about) goes to __net_request,
+// which applies the request policy, CORS, beacon suppression and returns a
+// real Response. Other schemes reject with TypeError.
+// Ignored on purpose (documented in NOTES.md): cache, referrer,
+// referrerPolicy, integrity, priority; redirect:'manual' behaves as
+// 'follow'; credentials are accepted but no cookie jar exists yet (QF14).
+(function (g) {
+  'use strict';
+  function def(o, name, v) { Object.defineProperty(o, name, { value: v, writable: true, configurable: true, enumerable: true }); }
+  var te = function (m) { return new TypeError(m); };
+  function local(bytes, type, url) {
+    var h = [['content-type', type], ['content-length', String(bytes.length)]];
+    return g.__make_response(200, 'OK', h, bytes, url, false, 'basic');
+  }
+  function pctBytes(s) {
+    return s.replace(/%([0-9a-fA-F]{2})/g, function (_, h) { return String.fromCharCode(parseInt(h, 16)); });
+  }
+  function dataURL(url) {
+    var rest = url.slice(5), hash = rest.indexOf('#');
+    if (hash >= 0) rest = rest.slice(0, hash);
+    var comma = rest.indexOf(',');
+    if (comma < 0) return null;
+    var meta = rest.slice(0, comma), data = rest.slice(comma + 1), b64 = false;
+    var m = /;\s*base64\s*$/i.exec(meta);
+    if (m) { b64 = true; meta = meta.slice(0, m.index); }
+    meta = meta.trim();
+    var type = meta === '' || meta[0] === ';' ? 'text/plain' + (meta ? meta : ';charset=US-ASCII') : meta;
+    if (b64) {
+      var bin;
+      try { bin = g.atob(pctBytes(data).replace(/[\t\n\f\r ]/g, '')); } catch (e) { return null; }
+      var out = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+      return { bytes: out, type: type };
+    }
+    var bytes = [];
+    for (var j = 0; j < data.length; j++) {
+      var c = data.charCodeAt(j);
+      if (c === 37 && /^[0-9a-fA-F]{2}$/.test(data.substr(j + 1, 2))) { bytes.push(parseInt(data.substr(j + 1, 2), 16)); j += 2; }
+      else if (c < 128) bytes.push(c);
+      else {
+        var ch = data.charAt(j) + (c >= 0xD800 && c <= 0xDBFF ? data.charAt(++j) : '');
+        var u = new g.TextEncoder().encode(ch);
+        for (var k = 0; k < u.length; k++) bytes.push(u[k]);
+      }
+    }
+    return { bytes: new Uint8Array(bytes), type: type };
+  }
+  function fetch(input) {
+    var init = arguments[1];
+    var req;
+    if (arguments.length < 1) return Promise.reject(te("Failed to execute 'fetch' on 'Window': 1 argument required, but only 0 present."));
+    try { req = new g.Request(input, init); } catch (e) { return Promise.reject(e); }
+    var signal = req.signal;
+    if (signal.aborted) return Promise.reject(signal.reason);
+    var url = req.url, scheme = /^([a-z][a-z0-9+.-]*):/i.exec(url);
+    scheme = scheme ? scheme[1].toLowerCase() : '';
+    if (scheme === 'data' || scheme === 'blob') {
+      if (req.method !== 'GET') return Promise.reject(te('Failed to fetch'));
+      if (scheme === 'data') {
+        var d = dataURL(url);
+        if (!d) return Promise.reject(te('Failed to fetch'));
+        return Promise.resolve(local(d.bytes, d.type, url));
+      }
+      var blob = g.__blob_lookup(url);
+      if (!blob) return Promise.reject(te('Failed to fetch'));
+      return blob.arrayBuffer().then(function (ab) {
+        if (signal.aborted) throw signal.reason;
+        return local(new Uint8Array(ab), blob.type || '', url);
+      });
+    }
+    if (scheme !== 'http' && scheme !== 'https' && scheme !== 'file') return Promise.reject(te('Failed to fetch'));
+    var go = function (bytes) {
+      if (signal.aborted) throw signal.reason;
+      var hs = [];
+      req.headers.forEach(function (v, n) { hs.push([n, v]); });
+      var h = g.__net_request({
+        method: req.method, url: url, headers: hs, body: bytes, mode: req.mode, credentials: req.credentials,
+        keepalive: req.keepalive, api: 'fetch', signal: signal,
+      });
+      return h.promise.then(function (res) {
+        if (req.redirect === 'error' && res.redirected) throw te('Failed to fetch');
+        return res;
+      });
+    };
+    if (req.body === null) { try { return Promise.resolve(go(null)); } catch (e) { return Promise.reject(e); } }
+    return req.arrayBuffer().then(function (ab) { return go(new Uint8Array(ab)); });
+  }
+  Object.defineProperty(fetch, 'name', { value: 'fetch', configurable: true });
+  def(g, 'fetch', fetch);
+})(globalThis);

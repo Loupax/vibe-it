@@ -6826,3 +6826,8 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Implement TODO.txt QF6 [S] (the wire side of the fetch/XHR memo): per-request caps, per-hop target class, `X-Wire-Policy: public-only`, final URL, error marker, duplicate headers, version header. Backwards compatible; private test instance only.
 
 **What changed:** wire/src/main.rs (see wire/NOTES.md and wire/PROMPTS.md). No scratchy code changed.
+## fetch() (QF8)
+
+> Implement TODO.txt QF8: `window.fetch(input, init)` as a thin layer over QF7's `__net_request`: Request from input/init, signal, mode, redirect, keepalive/beacon, body types, local blob: and data: fetches, unsupported schemes -> TypeError, Response with url/redirected/type from the network layer. Re-measure the R22 survey.
+
+**What changed:** src/fetch_prelude.js (`fetch`, a JS data: decoder); tests `qf8_*` (11) in src/tests.rs with the QF7 fake executor (it now also records the raw request). Found by the tests: `fetch()` with no arguments must reject (it fetched `/undefined`). Full `cargo test`: 629 passed, 5 ignored. WPT subset: pass 264, no change. Survey: guardian 7 -> 0 errors (ActiveXObject and the CMP country error gone, geolocation 200, ophan beacons suppressed); github still 3 (`MutationObserver is not defined`, next blocker); ddg and bbc now make their GETs. Live check: api.github.com/zen, a text/plain POST to httpbin (through the current wire), blob and data fetches; JSON POST cross-origin is refused until the preflight item (QF13). Left out: preflight, cookies, `redirect:"manual"` opaque-redirect, XHR (QF9).

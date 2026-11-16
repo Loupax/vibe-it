@@ -495,7 +495,43 @@ R22 copies and paste the before/after numbers in the commit.
       Tests: a fake transport seam (a closure in place of wire) drives
       deliver_net; a stale generation is dropped; a blocked URL never
       reaches the transport; the report lists a request.
-- [ ] QF8 [S] READY (needs QF7) `fetch()`.
+- [x] QF8 HASH [S] DONE `fetch()`: pure JS in src/fetch_prelude.js over `__net_request`
+      (QF7). Request (QF4) validates; `data:` is decoded in JS and `blob:` read from
+      the QF2 store, both without the network or the policy; http(s)/file: go to
+      `__net_request` (policy, CORS, beacons, opaque no-cors, Set-Cookie hidden all
+      come from QF7); other schemes -> TypeError. Bodies are buffered with the
+      Request's `arrayBuffer()` (FormData = multipart from QF3). `redirect:'error'`
+      rejects when the response was redirected; `redirect:'manual'` acts as 'follow'
+      (no opaque-redirect, cheap enough later); `cache`, `referrer`,
+      `referrerPolicy`, `integrity`, `priority` are ignored (not rejected, unlike the
+      old sketch). `keepalive` is passed so QF7 classifies beacons. Left out:
+      CORS preflight (QF13), cookies/credentials (QF14), XHR (QF9).
+      MEASURED (--js-report --run-timers 5000, curl'd copies with <base href>;
+      before = the installed scratchy without fetch):
+        page        errors before->after  network after
+        guardian    7 -> 0   11 req: geolocation GET -> 200 (ACAO *, 21 B); 10 ophan
+                             beacons "suppressed (beacon, not sent)"; the 7+2
+                             ActiveXObject errors and the CMP `country` error are gone
+        github      3 -> 3   0 req. Next blocker: `ReferenceError: MutationObserver is
+                             not defined` (core, marketing-essentials, landing-pages js)
+        old.reddit  3 -> 2   1 req: GET /svc/events/preload-head -> blocked: CORS (no
+                             ACAO; fails in Chrome too); the rest is a nonce error
+        duckduckgo  0 -> 0   GET /country.json -> 200 OK 17 B (now actually requested)
+        bbc         0 -> 0   GET www.bbc.co.uk/userinfo -> 200 OK 85 B
+        youtube     2 -> 2   0 req. Blockers: `MutationObserver is not defined`
+                             (webcomponents-sd.js), then `TypeError: not a function`
+        lobste.rs, news.ycombinator.com, wikipedia.org, en.wikipedia.org Main_Page:
+                    0 -> 0   0 requests
+      Live (nested dwl): a temp page showed `api.github.com/zen` (200 cors),
+      a text/plain POST to httpbin.org/post (200 cors, so POST goes through the
+      CURRENT wire), blob: and data: fetches; an application/json POST to httpbin is
+      refused with "CORS preflight is not implemented (QF13 preflight)" (expected).
+      github.com, theguardian.com (images now load with JS on) and wikipedia.org
+      (language list collapsed as in a browser) look the same or better than --no-js.
+      Next blockers found: MutationObserver (github, youtube; named at QY6 and in the
+      older "next walls" note, no standalone item found: coordinator to file
+      one); preflight for JSON POSTs (QF13).
+      Original sketch follows (kept for reference):
       `data:` URLs are decoded in JS (no network). `blob:` reads the
       QF2 map. http(s): if the signal is already aborted, reject with
       `signal.reason`. Same-origin is sent as is. Cross-origin: mode
