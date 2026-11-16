@@ -4,7 +4,7 @@
 (function (g) {
   function def(o, name, v) { Object.defineProperty(o, name, { value: v, writable: true, configurable: true, enumerable: false }); }
   function tm(fn) { g.setTimeout(fn, 0); }
-  function report(e) { console.error('Uncaught ' + String(e) + (e && e.stack ? '\n' + e.stack : '')); }
+  function report(e) { __scratchy_err('Uncaught ' + String(e) + (e && e.stack ? '\n' + e.stack : '')); }
   function dom(msg, name) { return new g.DOMException(msg, name); }
   function sub(name, parent, init) {
     var f = new Function('init', 'return function ' + name + '() { if (init) init.apply(this, arguments); };')(init);
@@ -247,4 +247,45 @@
   def(H, 'back', function () { this.go(-1); });
   def(H, 'forward', function () { this.go(1); });
   def(g, 'history', new History(STOK));
+
+  // ---- QY14: unhandled promise rejections. The engine's rejection
+  // tracker calls __scratchy_rej_push(promise, reason, handled); after the
+  // promise jobs drain, __scratchy_rej_flush() reports each rejection
+  // still unhandled once (`unhandledrejection`, then the QJ2-format log
+  // line unless a listener called preventDefault) and fires
+  // `rejectionhandled` when a reported promise later gets a handler.
+  var rejQ = [], rejReported = [];
+  def(g, '__scratchy_rej_push', function (p, reason, handled) { rejQ.push([p, reason, handled]); });
+  def(g, '__scratchy_rej_flush', function () {
+    if (!rejQ.length) return false;
+    var q = rejQ; rejQ = [];
+    var fresh = [], handledLater = [], i, j;
+    for (i = 0; i < q.length; i++) {
+      var p = q[i][0];
+      if (!q[i][2]) { fresh.push(q[i]); continue; }
+      var found = false;
+      for (j = 0; j < fresh.length; j++) if (fresh[j][0] === p) { fresh.splice(j, 1); found = true; break; }
+      if (!found) for (j = 0; j < rejReported.length; j++) if (rejReported[j] === p) { rejReported.splice(j, 1); handledLater.push(q[i]); break; }
+    }
+    var fire = function (type, p, reason, cancelable) {
+      var ev;
+      try { ev = new g.PromiseRejectionEvent(type, { promise: p, reason: reason, cancelable: cancelable }); } catch (e) { return false; }
+      try { ev.promise = p; ev.reason = reason; g.dispatchEvent(ev); } catch (e) { report(e); }
+      var h = g['on' + type];
+      if (typeof h === 'function') { try { h.call(g, ev); } catch (e) { report(e); } }
+      return ev.defaultPrevented;
+    };
+    for (i = 0; i < fresh.length; i++) {
+      var r = fresh[i][1];
+      rejReported.push(fresh[i][0]);
+      if (rejReported.length > 1000) rejReported.shift();
+      if (!fire('unhandledrejection', fresh[i][0], r, true)) {
+        var text;
+        try { text = (r && r.name !== undefined && r.message !== undefined) ? r.name + ': ' + r.message : String(r); } catch (e) { text = '<unprintable value>'; }
+        __scratchy_err('Uncaught (in promise) ' + text + (r && r.stack ? '\n' + r.stack : ''));
+      }
+    }
+    for (i = 0; i < handledLater.length; i++) fire('rejectionhandled', handledLater[i][0], handledLater[i][1], false);
+    return true;
+  });
 })(globalThis);

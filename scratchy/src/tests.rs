@@ -11036,3 +11036,84 @@ fn qy13_storage_and_misc() {
     );
     assert_eq!(log, ["log:1 1 2 b null 1","log:0", "log:5 2 true 2", "log:DataCloneError", "log:sync", "log:micro", "log:idle false number"], "{log:?}");
 }
+
+// ---------- QY14: JS diagnostics ----------
+
+#[test]
+fn qy14_rejected_promise_job_and_unhandled_rejection_log_message() {
+    // A throw inside a `.then` job rejects the derived promise: one line.
+    let log = run_in_html("", "Promise.resolve().then(function () { throw new TypeError('job-boom'); });");
+    let hits: Vec<_> = log.iter().filter(|l| l.contains("job-boom")).collect();
+    assert_eq!(hits.len(), 1, "{log:?}");
+    assert!(hits[0].starts_with("error:Uncaught (in promise) TypeError: job-boom"), "{log:?}");
+    // Async function throwing, and a plain reject of a non-Error value.
+    let log = run_in_html("", "(async function () { throw new RangeError('async-boom'); })(); Promise.reject('plain-reason');");
+    assert!(log.iter().any(|l| l.starts_with("error:Uncaught (in promise) RangeError: async-boom")), "{log:?}");
+    assert!(log.iter().any(|l| l == "error:Uncaught (in promise) plain-reason"), "{log:?}");
+}
+
+#[test]
+fn qy14_handled_rejections_stay_silent_and_events_fire() {
+    let log = run_in_html("", "Promise.reject(new Error('quiet')).catch(function () {}); (async function () { try { await Promise.reject(1); } catch (e) {} })();");
+    assert!(!log.iter().any(|l| l.starts_with("error:")), "{log:?}");
+    let log = run_in_html(
+        "",
+        "var late = Promise.reject(new Error('later'));\
+         addEventListener('unhandledrejection', function (e) { console.log('unhandled', e.reason.message, e instanceof PromiseRejectionEvent); });\
+         addEventListener('rejectionhandled', function (e) { console.log('handled', e.reason.message); });\
+         setTimeout(function () { late.catch(function () {}); }, 0);\
+         Promise.reject(new Error('stopped'));",
+    );
+    assert!(log.iter().any(|l| l == "log:unhandled stopped true"), "{log:?}");
+    assert_eq!(log.iter().filter(|l| l.contains("Uncaught (in promise)")).count(), 2, "{log:?}");
+}
+
+#[test]
+fn qy14_prevent_default_suppresses_unhandled_rejection_log() {
+    let log = run_in_html("", "addEventListener('unhandledrejection', function (e) { e.preventDefault(); }); Promise.reject(new Error('muted'));");
+    assert!(!log.iter().any(|l| l.contains("muted")), "{log:?}");
+}
+
+#[test]
+fn qy14_js_report_run_timers_finds_timer_and_channel_errors() {
+    let html = "<html><body><script>\
+        setTimeout(function () { throw new Error('late-timer'); }, 1000);\
+        var ch = new MessageChannel(); ch.port1.onmessage = function () { throw new Error('chan-boom'); }; ch.port2.postMessage(1);\
+        requestIdleCallback(function () { throw new Error('idle-boom'); });\
+        setTimeout(function () { Promise.reject(new Error('timer-rejection')); }, 50);\
+        console.error('page-console-error');\
+        </script></body></html>";
+    // Default: unchanged format, nothing from the timer phase.
+    let plain = js::js_report_for_html(html, None, "none.html");
+    assert!(!plain.contains("late-timer") && !plain.contains("timers ("), "{plain}");
+    assert!(plain.contains("errors total: 0\n") && plain.contains("console.error calls: 1\n"), "{plain}");
+    let report = js::js_report_for_html_timers(html, None, "none.html", Some(2000));
+    for needle in ["late-timer", "chan-boom", "idle-boom", "timer-rejection"] {
+        assert!(report.contains(needle), "{needle}: {report}");
+    }
+    assert!(report.contains("js error (timers): "), "{report}");
+    assert!(report.contains("errors in timer phase: 4\n"), "{report}");
+    assert!(report.contains("errors total: 0\n"), "{report}");
+    let short = js::js_report_for_html_timers(html, None, "none.html", Some(500));
+    assert!(!short.contains("late-timer") && short.contains("chan-boom"), "{short}");
+}
+
+#[test]
+fn qy14_js_report_run_timers_is_bounded() {
+    let html = "<html><body><script>setInterval(function () { throw new Error('tick'); }, 1);</script></body></html>";
+    let report = js::js_report_for_html_timers(html, None, "none.html", Some(100000));
+    assert!(report.contains("errors in timer phase: 5000\n"), "{}", &report[report.len().saturating_sub(300)..]);
+}
+
+#[test]
+fn qy14_console_methods_exist() {
+    let log = run_in_html(
+        "",
+        "console.assert(true, 'no'); console.assert(false, 'yes'); console.group('g'); console.table([1]); console.trace('t'); console.groupEnd(); console.dir({a:1}); console.count(); console.time('x'); console.timeEnd('x'); console.error('e'); console.info('i'); console.debug('d'); console.warn('w');",
+    );
+    assert!(log.iter().any(|l| l == "console.error:Assertion failed: yes"), "{log:?}");
+    assert!(log.iter().any(|l| l == "console.error:e"), "{log:?}");
+    assert!(log.iter().any(|l| l.starts_with("log:Trace: t")), "{log:?}");
+    assert!(log.iter().any(|l| l == "log:default: 1") && log.iter().any(|l| l == "warn:w") && log.iter().any(|l| l == "info:i"), "{log:?}");
+    assert!(!log.iter().any(|l| l.contains(":no")), "{log:?}");
+}

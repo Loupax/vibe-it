@@ -2050,7 +2050,7 @@ const DOM_PRELUDE: &str = r#"
   // `not implemented` error and do nothing; no state, no events.
   var ens = function (n, tags, base) { return g[n] ? g[n].prototype : mkProto(n, tags, base); };
   var MEP = ens('HTMLMediaElement', []);
-  var nimp = function (what) { console.error('scratchy: js: not implemented: ' + what); };
+  var nimp = function (what) { __scratchy_err('scratchy: js: not implemented: ' + what); };
   ['load', 'pause', 'addTextTrack'].forEach(function (m) { MEP[m] = function () { nimp('HTMLMediaElement.' + m); }; });
   MEP.play = function () {
     nimp('HTMLMediaElement.play');
