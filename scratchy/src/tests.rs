@@ -8577,6 +8577,17 @@ fn q33c_text_create_append_insert_remove() {
     assert_eq!(body, "<ul id=\"l\"><li>first</li><li>1</li><li>new</li><li>clone</li></ul><p id=\"p\">plain</p><hr><br>");
 }
 
+// Acid3 (real page): `span.firstChild.data = score` must write the text node.
+#[test]
+fn acid3_text_node_data_setter_writes_the_tree() {
+    let (log, body) = mutate(
+        "<html><body><p id=p><span id=s>JS</span></p></body></html>",
+        "var t=document.getElementById('s').firstChild; t.data='42'; console.log(t.data, t.nodeValue, t.length);",
+    );
+    assert_eq!(log, ["log:42 42 2"], "{log:?}");
+    assert_eq!(body, "<p id=\"p\"><span id=\"s\">42</span></p>");
+}
+
 #[test]
 fn q33c_inner_html_and_remove() {
     let (log, body) = mutate(

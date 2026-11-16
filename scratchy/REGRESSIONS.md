@@ -515,6 +515,17 @@ instead of printing one line; same shape as QB1, cheap to add to it.
 
 ### Acid3 (http://acid3.acidtests.org/)
 
+**2026-11-16 update (real page, live window):** the real flow already ran
+all 100 tests (instrumented copy: `update()` called for index 0..100 every
+~11 ms, `load` fired, no `js error:` lines, no CPU-budget message), but the
+page stayed on "JS ?": `Text.data = x` (`span.firstChild.data = score`)
+was a silent no-op because the getter-only `CharacterData.prototype.data`
+shadowed the settable `Node.prototype.data`. Fixed (branch
+`scratchy/acid3-real-page-runs`): the live page now shows the score
+(61/100 at that commit, bucket boxes coloured). Remaining: `Comment.data =`
+is still a no-op (`__d_settext` ignores comments); the score is the official
+flow's (some tests fail), not the harness's.
+
 Live, through wire, JS on: the page shows "Acid3", "JS ?", the
 instructions and "Scripting must be enabled to use this test." The score
 never starts: the test is started by `<body onload="update()">`, and

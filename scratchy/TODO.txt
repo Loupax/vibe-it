@@ -1712,6 +1712,16 @@ into the commit message of every JS item.
       `.smile` gets negative clearance; in the REGRESSIONS.md "Acid2"
       repro the smile's top lands at y=168 instead of y=37). Tick Q48b and
       Q74 too.
+- [x] QA18d [S] (P2, JS) `Text.data = x` was a no-op (getter-only
+      `CharacterData.prototype.data` shadowed the Node setter), so the real
+      Acid3 page never showed its score. Fixed in js_dom.rs; test
+      `acid3_text_node_data_setter_writes_the_tree`. Real page: 61/100.
+      Commit b0b018b.
+- [ ] QA18e [S] (P3, JS) `Comment.data =`/`nodeValue =` and
+      CharacterData `appendData/insertData/deleteData/replaceData/
+      substringData` on comments: `__d_settext` ignores Comment nodes
+      (contents is not a RefCell). Test: createComment('a'), set data,
+      read back.
 - [x] QA12 [S] (P2, JS) Event-handler content attributes. `<body
       onload="update()">` never runs, so the real Acid3 page stays on
       "JS ?" forever even with every API present. Compile `on<type>`
