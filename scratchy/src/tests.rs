@@ -15931,6 +15931,52 @@ fn cli_options_are_documented_in_help() {
     }
 }
 
+/// Lays out an already-parsed (and possibly script-mutated) document; the
+/// returned height is the document height.
+fn qw5_doc_height(doc: &Handle) -> f32 {
+    let tree = build_layout_tree(doc, 1920.0);
+    let mut font_system = new_font_system();
+    let mut cache = ShapeCache::new();
+    let mut next_id = 0usize;
+    let mut incomplete = false;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    measure_document(&tree, &mut font_system, 500.0, 400.0, &mut next_id, &mut cache, deadline, &mut incomplete).h
+}
+
+#[test]
+fn qw5_hidden_attribute_is_display_none_author_display_wins() {
+    let h = |body: &str| qw5_doc_height(&parse_html(&format!("<html><body style=\"margin:0\">{body}</body></html>")));
+    let base = h("<div style=\"height:20px\"></div>");
+    assert!(base >= 20.0);
+    assert_eq!(h("<div style=\"height:20px\"></div><p hidden style=\"height:50px\">x</p>"), base, "hidden p is not laid out");
+    assert_eq!(h("<div style=\"height:20px\"></div><p hidden=\"\" id=a class=tags>x</p>"), base);
+    // author display wins over the UA rule
+    assert!(h("<div style=\"height:20px\"></div><p hidden style=\"display:block;height:50px;margin:0\">x</p>") >= base + 50.0);
+    // until-found is not display:none from this rule
+    assert!(h("<p hidden=\"until-found\" style=\"height:50px;margin:0\">x</p>") >= 50.0);
+    assert_eq!(h("<div style=\"height:20px\"></div><datalist><option>a</option></datalist><noembed>zz</noembed>"), base);
+}
+
+#[test]
+fn qw5_js_hidden_toggle_relayouts_and_node_stays_in_dom() {
+    let doc = parse_html("<html><body style=\"margin:0\"><p id=t hidden style=\"margin:0;height:40px\"><a href=\"/x\">x</a></p></body></html>");
+    let out = Rc::new(RefCell::new(Vec::new()));
+    let o = out.clone();
+    let engine = start_scripts(
+        &doc,
+        &[src("var t=document.getElementById('t'); console.log(t.hidden, document.querySelectorAll('#t a[href]').length);\
+                window.show=function(){t.hidden=false;}; window.hide=function(){t.hidden=true;};")],
+        Rc::new(move |level, text| o.borrow_mut().push(format!("{level}:{text}"))),
+    )
+    .expect("engine");
+    assert_eq!(out.borrow().as_slice(), ["log:true 1"]);
+    assert_eq!(qw5_doc_height(&doc), 0.0, "hidden: nothing laid out");
+    engine.eval("t", "show()");
+    assert!(qw5_doc_height(&doc) >= 40.0, "after hidden=false it is laid out");
+    engine.eval("t", "hide()");
+    assert_eq!(qw5_doc_height(&doc), 0.0);
+}
+
 /// QW4: horizontal margin/padding on non-replaced inline elements advance
 /// the line: three adjacent links differ in x by text width + margin +
 /// padding on both sides.
