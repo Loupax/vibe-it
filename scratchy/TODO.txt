@@ -243,7 +243,7 @@ Items (in order):
       Payoff (measured with a stand-in): github's 3 module entries (4 on a
       repo page) get past f18 223:27350; youtube gets past kevlar_base
       10725:29 (next: 5 s CPU page-load budget).
-- [ ] QSD1 [S] READY Document gaps github's modules hit right after
+- [x] QSD1 [S] (f704a73) READY Document gaps github's modules hit right after
       QY6f/QSD0 (measured in this order): `document.domain` (getter =
       the document URL's host, `""` for about:blank/file; setter throws
       SecurityError, no domain relaxation), Document as ParentNode
@@ -251,19 +251,22 @@ Items (in order):
       children`), `document.getElementsByName` on the MAIN document (only
       second documents have it today). Test each. Payoff: github core's
       `TV()` cookie helper (core 136:26710) and two promise errors.
-- [ ] QSD1b [S] READY `crypto.getRandomValues(typedArray)` (<= 65536
+- [x] QSD1b [S] (e2929d5) READY `crypto.getRandomValues(typedArray)` (<= 65536
       bytes, QuotaExceededError above) and `crypto.randomUUID()` (v4),
       from the OS RNG via a Rust native (`getrandom`), `crypto.subtle`
       absent. Measured users: github react-core (`randomUUID`),
       salesforce (`uuid` package: "crypto.getRandomValues() not
       supported").
-- [ ] QSD2 [S] READY `Node.getRootNode({composed})` and `Node.isConnected`
+- [x] QSD2 [S] (0239f7b) READY `Node.getRootNode({composed})` and `Node.isConnected`
       (neither exists today). Without shadow roots: the topmost ancestor
       (document, or a detached root/fragment). Written so QSD3 only adds
       "a ShadowRoot's host" as the composed step. Tests: detached element
       -> itself; element in a fragment -> the fragment; attached ->
       document; isConnected follows. Payoff: used by github f18 (21x),
       salesforce (24x), youtube (45x), chromestatus (11x).
+- [ ] QSD2b [S] READY `Node.prototype.lookupNamespaceURI(prefix)`/
+      `lookupPrefix`/`isDefaultNamespace` (left out of QSD2: need the
+      xmlns attribute walk and the element's namespace/prefix natives).
 - [ ] QSD3 [M] WAITING FOR USER (design first, SD-D1) B1: real ShadowRoot,
       not rendered. `Element.attachShadow({mode, delegatesFocus,
       slotAssignment, clonable, serializable})`: valid hosts only (custom

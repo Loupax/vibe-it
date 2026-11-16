@@ -15512,3 +15512,123 @@ fn qf13_navigator_send_beacon_exists_logs_and_returns_true() {
     assert!(fake.order().is_empty(), "beacons are suppressed by default");
     assert!(l.iter().any(|x| x.starts_with("net:beacon navigator.sendBeacon POST https://track.test/b")), "{l:?}");
 }
+
+// ---- QSD1: document.domain, Document as ParentNode, getElementsByName.
+
+#[test]
+fn qsd1_document_domain_and_parent_node() {
+    set_page_url(Url::parse("https://gist.github.com/a/b").ok().as_ref());
+    let log = run_in_html(
+        "<html><body><input name=n><p name=n></p><i name=m></i></body></html>",
+        r#"const r = [];
+         r.push(document.domain);
+         document.domain = 'gist.github.com'; r.push(document.domain);
+         document.domain = 'github.com'; r.push(document.domain);
+         for (const bad of ['com', 'example.org', 'ub.com']) {
+           try { document.domain = bad; r.push('no throw'); } catch (e) { r.push(e.name + ':' + (e instanceof DOMException)); }
+         }
+         r.push(document.firstElementChild.tagName, document.lastElementChild.tagName, document.childElementCount, document.children.length, document.children[0] === document.documentElement);
+         const g = document.getElementsByName('n');
+         r.push(g.length, g[0].tagName, document.getElementsByName('zz').length);
+         console.log(r.join('|'));"#,
+    );
+    set_page_url(None);
+    assert_eq!(
+        log,
+        ["log:gist.github.com|gist.github.com|github.com|SecurityError:true|SecurityError:true|SecurityError:true|HTML|HTML|1|1|true|2|INPUT|0"],
+        "{log:?}"
+    );
+}
+
+// ---- QSD1b: crypto.getRandomValues / randomUUID / subtle placeholder / isSecureContext.
+
+#[test]
+fn qsd1b_crypto_random_values_uuid_and_subtle_placeholder() {
+    set_page_url(Url::parse("https://github.com/").ok().as_ref());
+    let log = run_in_html(
+        "<html><body></body></html>",
+        r#"const r = [];
+         r.push(window.crypto === globalThis.crypto, crypto instanceof Crypto, crypto.subtle instanceof SubtleCrypto, isSecureContext);
+         const a = new Uint8Array(64); const b = crypto.getRandomValues(a);
+         r.push(a === b, a.some(function (x) { return x !== 0; }));
+         const u = new Uint32Array(4); crypto.getRandomValues(u); r.push(u.some(function (x) { return x !== 0; }));
+         const id1 = crypto.randomUUID(), id2 = crypto.randomUUID();
+         r.push(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(id1), id1 !== id2);
+         try { crypto.getRandomValues(new Float32Array(2)); r.push('no'); } catch (e) { r.push(e.name + ':' + (e instanceof DOMException)); }
+         try { crypto.getRandomValues(new Uint8Array(65537)); r.push('no'); } catch (e) { r.push(e.name); }
+         try { crypto.getRandomValues(new Uint8Array(65536)); r.push('ok'); } catch (e) { r.push(e.name); }
+         try { crypto.getRandomValues([1, 2]); r.push('no'); } catch (e) { r.push(e.name); }
+         console.log(r.join('|'));
+         crypto.subtle.digest('SHA-256', new Uint8Array(1)).then(function () { console.log('resolved'); }, function (e) { console.log('rejected:' + e.name); });"#,
+    );
+    set_page_url(None);
+    assert_eq!(log.len(), 3, "{log:?}");
+    assert_eq!(
+        log[0],
+        "log:true|true|true|true|true|true|true|true|true|TypeMismatchError:true|QuotaExceededError|ok|TypeMismatchError"
+    );
+    assert!(log[1].starts_with("error:") && log[1].contains("not implemented: SubtleCrypto.digest"), "{log:?}");
+    assert_eq!(log[2], "log:rejected:NotSupportedError");
+}
+
+#[test]
+fn qsd1b_is_secure_context_follows_scheme_and_loopback() {
+    let mut got = Vec::new();
+    for u in ["https://example.org/", "http://example.org/", "http://localhost:8080/", "http://127.0.0.1/", "http://[::1]/"] {
+        set_page_url(Url::parse(u).ok().as_ref());
+        got.push(run_in_html("<html><body></body></html>", "console.log(String(isSecureContext))").remove(0));
+    }
+    set_page_url(None);
+    assert_eq!(got, ["log:true", "log:false", "log:true", "log:true", "log:true"]);
+}
+
+// ---- QSD2: getRootNode, isConnected, compareDocumentPosition.
+
+#[test]
+fn qsd2_get_root_node_and_is_connected() {
+    let log = run_in_html(
+        "<html><body><div id=a><p id=b>x</p></div><template id=t><i id=ti></i></template></body></html>",
+        r#"const r = [];
+         const a = document.getElementById('a'), b = document.getElementById('b');
+         r.push(b.getRootNode() === document, b.getRootNode({ composed: true }) === document, document.getRootNode() === document, b.isConnected, document.isConnected);
+         const d = document.createElement('div'), s = document.createElement('span'); d.appendChild(s);
+         r.push(s.getRootNode() === d, d.getRootNode() === d, s.isConnected, d.isConnected);
+         const f = document.createDocumentFragment(), q = document.createElement('q'); f.appendChild(q);
+         r.push(q.getRootNode() === f, f.getRootNode() === f, q.isConnected, f.isConnected);
+         document.body.appendChild(d);
+         r.push(s.getRootNode() === document, s.isConnected);
+         const ti = document.getElementById('t').content.firstChild, tc = document.getElementById('t').content;
+         r.push(ti.getRootNode() === tc, ti.isConnected, document.getElementById('ti'));
+         const d2 = document.implementation.createHTMLDocument('t');
+         r.push(d2.body.getRootNode() === d2, d2.body.isConnected, d2.createElement('u').isConnected);
+         console.log(r.join('|'));"#,
+    );
+    assert_eq!(
+        log,
+        ["log:true|true|true|true|true|true|true|false|false|true|true|false|false|true|true|true|false||true|true|false"],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qsd2_compare_document_position() {
+    let log = run_in_html(
+        "<html><body><div id=a><p id=b>x</p><p id=c>y</p></div><span id=e></span></body></html>",
+        r#"const r = [], $ = function (i) { return document.getElementById(i); };
+         const a = $('a'), b = $('b'), c = $('c'), e = $('e');
+         r.push(a.compareDocumentPosition(a), a.compareDocumentPosition(b), b.compareDocumentPosition(a));
+         r.push(b.compareDocumentPosition(c), c.compareDocumentPosition(b), b.compareDocumentPosition(e), e.compareDocumentPosition(b));
+         r.push(document.compareDocumentPosition(b), b.compareDocumentPosition(document));
+         const x = document.createElement('x'), y = document.createElement('y');
+         const dx = x.compareDocumentPosition(y), dy = y.compareDocumentPosition(x);
+         r.push((dx & 1) !== 0, (dx & 32) !== 0, dx === 37 || dx === 35, (dx & 6) !== (dy & 6));
+         r.push(b.compareDocumentPosition(x) & 33, Node.DOCUMENT_POSITION_CONTAINED_BY, Node.prototype.DOCUMENT_POSITION_PRECEDING);
+         try { a.compareDocumentPosition(null); r.push('no'); } catch (err) { r.push(err.name); }
+         console.log(r.join('|'));"#,
+    );
+    assert_eq!(
+        log,
+        ["log:0|20|10|4|2|4|2|20|10|true|true|true|true|33|16|2|TypeError"],
+        "{log:?}"
+    );
+}

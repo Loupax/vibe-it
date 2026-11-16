@@ -578,6 +578,45 @@ const PRELUDE: &str = r#"
   });
   var env = g.__scratchy_env || {};
   delete g.__scratchy_env;
+  // QSD1b: `window.isSecureContext` (https and loopback hosts) and the Web Crypto
+  // subset: `crypto.getRandomValues` / `randomUUID` over the OS RNG (`getrandom(2)`),
+  // and a `crypto.subtle` placeholder whose methods log `not implemented` and reject.
+  var rndBytes = g.__scratchy_random;
+  delete g.__scratchy_random;
+  var secure = env.protocol === 'https:' || env.protocol === 'wss:' ||
+    /^(localhost|127(\.\d+){3}|\[?::1\]?)$/.test(env.hostname || '') || /\.localhost$/.test(env.hostname || '');
+  Object.defineProperty(g, 'isSecureContext', { value: secure, writable: true, configurable: true, enumerable: true });
+  var SubtleCrypto = ctor('SubtleCrypto', null, function () { throw new TypeError('Illegal constructor'); });
+  var Crypto = ctor('Crypto', null, function () { throw new TypeError('Illegal constructor'); });
+  var subtle = Object.create(SubtleCrypto.prototype);
+  ['encrypt', 'decrypt', 'sign', 'verify', 'digest', 'generateKey', 'deriveKey', 'deriveBits', 'importKey',
+    'exportKey', 'wrapKey', 'unwrapKey'].forEach(function (m) {
+    Object.defineProperty(SubtleCrypto.prototype, m, { value: function () {
+      g.__scratchy_err('scratchy: js: not implemented: SubtleCrypto.' + m);
+      return Promise.reject(new DOMException('SubtleCrypto.' + m + ' is not implemented', 'NotSupportedError'));
+    }, writable: true, configurable: true, enumerable: true });
+  });
+  var INT_ARRAYS = { Int8Array: 1, Uint8Array: 1, Uint8ClampedArray: 1, Int16Array: 1, Uint16Array: 1, Int32Array: 1,
+    Uint32Array: 1, BigInt64Array: 1, BigUint64Array: 1 };
+  var cryptoObj = Object.create(Crypto.prototype);
+  var cproto = Crypto.prototype;
+  Object.defineProperty(cproto, 'subtle', { get: function () { return subtle; }, configurable: true, enumerable: true });
+  Object.defineProperty(cproto, 'getRandomValues', { value: function getRandomValues(a) {
+    if (arguments.length < 1) throw new TypeError("Failed to execute 'getRandomValues' on 'Crypto': 1 argument required, but only 0 present.");
+    var tag = ArrayBuffer.isView(a) ? Object.prototype.toString.call(a).slice(8, -1) : '';
+    if (!INT_ARRAYS[tag]) throw new DOMException("Failed to execute 'getRandomValues' on 'Crypto': The provided ArrayBufferView is not an integer array type.", 'TypeMismatchError');
+    if (a.byteLength > 65536) throw new DOMException("Failed to execute 'getRandomValues' on 'Crypto': The ArrayBufferView's byte length (" + a.byteLength + ") exceeds the number of bytes of entropy available via this API (65536).", 'QuotaExceededError');
+    if (a.byteLength) new Uint8Array(a.buffer, a.byteOffset, a.byteLength).set(rndBytes(a.byteLength));
+    return a;
+  }, writable: true, configurable: true, enumerable: true });
+  Object.defineProperty(cproto, 'randomUUID', { value: function randomUUID() {
+    var b = rndBytes(16);
+    b[6] = (b[6] & 0x0f) | 0x40; b[8] = (b[8] & 0x3f) | 0x80;
+    var h = '';
+    for (var i = 0; i < 16; i++) h += (b[i] < 16 ? '0' : '') + b[i].toString(16);
+    return h.slice(0, 8) + '-' + h.slice(8, 12) + '-' + h.slice(12, 16) + '-' + h.slice(16, 20) + '-' + h.slice(20);
+  }, writable: true, configurable: true, enumerable: true });
+  Object.defineProperty(g, 'crypto', { get: function () { return cryptoObj; }, set: function () {}, configurable: true, enumerable: true });
   g.navigator = {
     userAgent: env.userAgent, appName: 'Netscape', appVersion: '5.0 (X11)', product: 'Gecko',
     platform: 'Linux x86_64', vendor: '', language: 'en-US', languages: ['en-US', 'en'],
@@ -675,6 +714,27 @@ pub(crate) fn thread_cpu_nanos() -> u64 {
         return 0;
     }
     ts.tv_sec as u64 * 1_000_000_000 + ts.tv_nsec as u64
+}
+
+/// QSD1b: `n` bytes from the kernel CSPRNG (`getrandom(2)`, via the `libc` crate that
+/// is already a dependency; no new crate). Falls back to `/dev/urandom`; if neither
+/// works the bytes stay zero and an error is logged to stderr rather than panicking.
+fn os_random_bytes(n: usize) -> Vec<u8> {
+    let mut buf = vec![0u8; n];
+    let mut off = 0;
+    while off < n {
+        // SAFETY: the pointer/length describe the unfilled tail of `buf`.
+        let r = unsafe { libc::getrandom(buf[off..].as_mut_ptr().cast(), n - off, 0) };
+        if r <= 0 {
+            use std::io::Read;
+            if std::fs::File::open("/dev/urandom").and_then(|mut f| f.read_exact(&mut buf[off..])).is_err() {
+                eprintln!("scratchy: no OS random source available");
+            }
+            break;
+        }
+        off += r as usize;
+    }
+    buf
 }
 
 const MEMORY_LIMIT: usize = 256 * 1024 * 1024;
@@ -1136,6 +1196,10 @@ pub(crate) fn start_scripts_clocked(
         });
         if let Ok(mm) = mm {
             let _ = ctx.globals().set("__scratchy_media", mm);
+        }
+        // QSD1b: OS CSPRNG for `crypto.getRandomValues`/`randomUUID` (<= 65536 bytes per call).
+        if let Ok(f) = Function::new(ctx.clone(), |n: i32| -> Vec<u8> { os_random_bytes(n.clamp(0, 65536) as usize) }) {
+            let _ = ctx.globals().set("__scratchy_random", f);
         }
         let now = Function::new(ctx.clone(), move || match &clock {
             Some(c) => c.get(),
