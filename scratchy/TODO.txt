@@ -1049,7 +1049,7 @@ Phase 1 (each S, independent; do in this order):
 Phase 2 (big enablers, after phase 1):
 
 - [x] QY15 [M] (P2; github, lobste.rs, guardian islands, old.reddit) ES
-      DONE (commit HASH_QY15): module scripts (inline/external), static
+      DONE (commit ccd14f6): module scripts (inline/external), static
       import/export graph pre-fetched through wire (src/js_modules.rs,
       `fetch_scripts_with`; caps 200 modules / 16 MB / depth 32; github's
       graph is > 5 MB), importmap (imports + scopes), `nomodule` skipped,
