@@ -967,3 +967,87 @@
   });
   def(g, 'Headers', Headers); def(g, 'Request', Request); def(g, 'Response', Response);
 })(globalThis);
+
+// QF7: the INTERNAL request helper fetch (QF8) and XMLHttpRequest (QF9) are
+// built on. Not part of the web platform; the names are non-enumerable.
+//
+//   __net_request(init) -> { id, promise, abort(reason) }          (async)
+//   __net_request(init) -> { id, response }                        (init.sync)
+//
+// init: { method, url (absolute), headers: [[name, value]...], body (Uint8Array
+// | null), mode: 'cors'|'no-cors'|'same-origin', credentials, keepalive,
+// api: 'fetch'|'xhr'|'beacon', sync, signal }.
+// The promise resolves with a Response (built by __make_response) or rejects
+// with TypeError('Failed to fetch') (policy, CORS, transport), the signal's
+// reason / an AbortError, or a TimeoutError DOMException. A sync request
+// throws a 'NetworkError' DOMException instead.
+// Native side: `__net_send(desc) -> id`, `__net_abort(id)`,
+// `__net_sync_result(id)`; the engine calls `__net_complete(result)`.
+(function (g) {
+  'use strict';
+  function def(o, name, v) { Object.defineProperty(o, name, { value: v, writable: true, configurable: true, enumerable: false }); }
+  function domErr(name, msg) {
+    if (typeof g.DOMException === 'function') return new g.DOMException(msg, name);
+    var e = new Error(msg); e.name = name; return e;
+  }
+  var pending = {};
+  function binary(b) {
+    if (b === null || b === undefined) return '';
+    var s = '', i = 0, CH = 8192;
+    for (; i < b.length; i += CH) s += String.fromCharCode.apply(null, b.subarray(i, i + CH));
+    return s;
+  }
+  function descOf(init) {
+    return {
+      method: String(init.method || 'GET'), url: String(init.url), headers: init.headers || [],
+      body: binary(init.body), mode: init.mode || 'cors', credentials: init.credentials || 'same-origin',
+      keepalive: !!init.keepalive, api: init.api || 'fetch', sync: !!init.sync,
+    };
+  }
+  function build(res) {
+    return g.__make_response(res.status, res.statusText, res.headers, res.body, res.finalUrl, res.redirected, res.type);
+  }
+  function failure(res) {
+    if (res.error === 'timeout') return domErr('TimeoutError', 'The request timed out.');
+    return new TypeError('Failed to fetch');
+  }
+  def(g, '__net_request', function (init) {
+    var signal = init.signal;
+    if (init.sync) {
+      var sid = g.__net_send(descOf(init));
+      var sres = g.__net_sync_result(sid);
+      if (!sres || sres.error) throw domErr('NetworkError', "Failed to execute 'send' on 'XMLHttpRequest': Failed to load '" + init.url + "'.");
+      return { id: sid, response: build(sres) };
+    }
+    if (signal && signal.aborted) {
+      return { id: 0, promise: Promise.reject(signal.reason), abort: function () {} };
+    }
+    var h = { id: 0 };
+    h.promise = new Promise(function (resolve, reject) {
+      var onabort = null;
+      var entry = { resolve: resolve, reject: reject, cleanup: function () { if (signal && onabort) signal.removeEventListener('abort', onabort); } };
+      h.id = g.__net_send(descOf(init));
+      pending[h.id] = entry;
+      h.abort = function (reason) {
+        if (!pending[h.id]) return;
+        delete pending[h.id];
+        entry.cleanup();
+        g.__net_abort(h.id);
+        reject(reason === undefined ? domErr('AbortError', 'The user aborted a request.') : reason);
+      };
+      if (signal) {
+        onabort = function () { h.abort(signal.reason); };
+        signal.addEventListener('abort', onabort);
+      }
+    });
+    return h;
+  });
+  def(g, '__net_complete', function (res) {
+    var p = pending[res.id];
+    if (!p) return;   // aborted
+    delete pending[res.id];
+    p.cleanup();
+    if (res.error) p.reject(failure(res));
+    else p.resolve(build(res));
+  });
+})(globalThis);

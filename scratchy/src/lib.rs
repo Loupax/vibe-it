@@ -74,6 +74,7 @@ mod app;
 mod js;
 mod js_modules;
 mod js_dom;
+mod js_net;
 mod js_style;
 
 pub use dom::*;
@@ -86,6 +87,7 @@ pub(crate) use net::*;
 pub(crate) use net_policy::*;
 pub(crate) use app::*;
 pub(crate) use js::*;
+pub(crate) use js_net::{NetScheduler, WireExecutor};
 
 
 /// The actual entry point — `src/main.rs` is just `fn main() {

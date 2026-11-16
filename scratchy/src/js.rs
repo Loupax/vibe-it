@@ -786,7 +786,7 @@ fn url_set_native(href: String, key: String, value: String) -> Option<Vec<String
     Some(url_parts(&u))
 }
 
-fn describe_error(ctx: &Ctx<'_>, err: JsError) -> String {
+pub(crate) fn describe_error(ctx: &Ctx<'_>, err: JsError) -> String {
     if matches!(err, JsError::Exception) {
         let value = ctx.catch();
         if let Some(ex) = value.as_object().and_then(|o| Exception::from_object(o.clone())) {
@@ -809,7 +809,7 @@ fn describe_error(ctx: &Ctx<'_>, err: JsError) -> String {
 /// Runs pending promise jobs, logging the message of any job that throws
 /// (QY14), then reports rejections that stayed unhandled via the prelude's
 /// `__scratchy_rej_flush` (which may queue more jobs: loop until quiet).
-fn drain_jobs(ctx: &Context, rt: &Runtime, log: &dyn Fn(&str, &str)) {
+pub(crate) fn drain_jobs(ctx: &Context, rt: &Runtime, log: &dyn Fn(&str, &str)) {
     loop {
         while rt.is_job_pending() {
             if let Err(job) = rt.execute_pending_job() {
@@ -841,9 +841,9 @@ fn drain_jobs(ctx: &Context, rt: &Runtime, log: &dyn Fn(&str, &str)) {
 /// discards every pending timer. Field order matters: the context must
 /// drop before the runtime.
 pub(crate) struct JsEngine {
-    ctx: Context,
-    rt: Runtime,
-    log: LogFn,
+    pub(crate) ctx: Context,
+    pub(crate) rt: Runtime,
+    pub(crate) log: LogFn,
     base: Instant,
     /// Interrupt deadline in thread-CPU nanoseconds (QY5); reset before
     /// every top-level evaluation so each timer callback gets its own
@@ -851,13 +851,15 @@ pub(crate) struct JsEngine {
     deadline: Arc<std::sync::atomic::AtomicU64>,
     /// QY5: set by the interrupt handler when it stops a script, so the
     /// caller can log a clear message instead of `InternalError: interrupted`.
-    tripped: Arc<std::sync::atomic::AtomicBool>,
+    pub(crate) tripped: Arc<std::sync::atomic::AtomicBool>,
     /// Q33c: set by every DOM write; the app drains it with `take_dirty`.
     dirty: Rc<std::cell::Cell<bool>>,
     /// Q33d: handle <-> JS id table, to address events at nodes.
     table: Rc<std::cell::RefCell<js_dom::DomTable>>,
     /// QB5: focus/blur/scroll requests for the App.
     reqs: Rc<std::cell::RefCell<js_dom::JsRequests>>,
+    /// QF7: page networking state (policy, pending requests, report log).
+    pub(crate) net: Rc<std::cell::RefCell<js_net::NetState>>,
 }
 
 /// One init field of a natively dispatched event (Q33d).
@@ -895,13 +897,13 @@ fn js_string_literal(s: &str) -> String {
 const MAX_TIMERS_PER_TURN: usize = 100;
 
 impl JsEngine {
-    fn arm_budget(&self, budget: Duration) {
+    pub(crate) fn arm_budget(&self, budget: Duration) {
         self.tripped.store(false, Ordering::Relaxed);
         self.deadline.store(thread_cpu_nanos() + budget.as_nanos() as u64, Ordering::Relaxed);
     }
 
     /// QY5: the one log line for a script stopped by the interrupt budget.
-    fn log_interrupted(&self, name: &str, what: &str, budget: Duration, size: usize) {
+    pub(crate) fn log_interrupted(&self, name: &str, what: &str, budget: Duration, size: usize) {
         let b = if budget.as_millis().is_multiple_of(1000) { format!("{} s", budget.as_secs()) } else { format!("{} ms", budget.as_millis()) };
         let kb = if size > 0 { format!(" ({} KB of source)", size.div_ceil(1024)) } else { String::new() };
         (self.log)("error", &format!("js: {name} stopped: exceeded the {b} CPU-time {what} budget{kb}"));
@@ -1057,6 +1059,7 @@ pub(crate) fn run_scripts_with(scripts: &[ScriptSource], log: LogFn) {
 
 /// `run_scripts_with` against a real document (Q33b DOM read API).
 /// The engine (and so every pending timer) is dropped on return.
+#[cfg(test)]
 pub(crate) fn run_scripts_in(document: &Handle, scripts: &[ScriptSource], log: LogFn) {
     drop(start_scripts(document, scripts, log));
 }
@@ -1136,7 +1139,9 @@ pub(crate) fn start_scripts_clocked(
     });
     let dirty = Rc::new(std::cell::Cell::new(false));
     let reqs: Rc<std::cell::RefCell<js_dom::JsRequests>> = Default::default();
-    let mut engine = JsEngine { ctx, rt, log, base, deadline, tripped, dirty: dirty.clone(), table: Default::default(), reqs: reqs.clone() };
+    let net = Rc::new(std::cell::RefCell::new(js_net::NetState::new(log.clone())));
+    ctx.with(|c| js_net::install_net(&c, net.clone(), reqs.clone()));
+    let mut engine = JsEngine { ctx, rt, log, base, deadline, tripped, dirty: dirty.clone(), table: Default::default(), reqs: reqs.clone(), net };
     engine.eval("prelude", PRELUDE);
     engine.eval("timers", TIMERS_PRELUDE);
     engine.eval("url", URL_PRELUDE);
@@ -1260,6 +1265,10 @@ pub(crate) fn run_page_scripts(document: &Handle, scripts: &[ScriptSource], page
         Rc::new(|level, text| {
             if level == "error" {
                 diag!("scratchy: js error: {text}");
+            } else if level == "net" {
+                diag!("scratchy: js net: {text}");
+            } else if level == "net-warning" {
+                diag!("{text}");
             } else if level.starts_with("console.") {
                 diag!("scratchy: {level}: {text}");
             } else {
@@ -1298,14 +1307,24 @@ pub(crate) fn js_report_for_scripts_timers(document: &Handle, scripts: &[ScriptS
         }
     });
     let mut pumped = None;
+    // QF7: the report has no App; it runs the page's network requests itself.
+    let exec = js_net::net_executor();
+    let mut sched = NetScheduler::new(&RequestPolicy::default());
+    let mut net_entries = Vec::new();
     match run_timers {
-        None => run_scripts_in(document, scripts, log),
+        None => {
+            if let Some(engine) = start_scripts(document, scripts, log) {
+                js_net::drive_report_net(&engine, &mut sched, &*exec);
+                net_entries = engine.net_entries();
+            }
+        }
         Some(limit) => {
             let clock = Rc::new(std::cell::Cell::new(0.0f64));
             let engine = start_scripts_clocked(document, scripts, log, Some(clock.clone()));
             phase.set(true);
             let mut callbacks = 0usize;
             if let Some(engine) = &engine {
+                js_net::drive_report_net(engine, &mut sched, &*exec);
                 while callbacks < REPORT_MAX_TIMER_CALLBACKS {
                     let Some(due) = engine.next_due_ms() else { break };
                     if due > limit as f64 {
@@ -1319,7 +1338,9 @@ pub(crate) fn js_report_for_scripts_timers(document: &Handle, scripts: &[ScriptS
                         break;
                     }
                     callbacks += n;
+                    js_net::drive_report_net(engine, &mut sched, &*exec);
                 }
+                net_entries = engine.net_entries();
             }
             pumped = Some((callbacks, clock.get()));
         }
@@ -1373,6 +1394,7 @@ pub(crate) fn js_report_for_scripts_timers(document: &Handle, scripts: &[ScriptS
             out.push_str(&format!("console.error calls in timer phase: {tce}\n"));
         }
     }
+    out.push_str(&js_net::format_net_report(&net_entries));
     out
 }
 
@@ -1417,7 +1439,11 @@ pub(crate) fn js_report_for_html(html: &str, socket: Option<&std::path::Path>, f
 
 pub(crate) fn js_report_for_html_timers(html: &str, socket: Option<&std::path::Path>, file: &str, run_timers: Option<u64>) -> String {
     let Ok(dom) = new_parser().read_from(&mut html.as_bytes()) else { return "could not parse page\n".into() };
-    set_page_url(file_page_url(file).as_ref());
+    // The page URL for origin checks is the copy's `<base href>`, not file://.
+    set_page_url(find_base_url(&dom.document).or_else(|| file_page_url(file)).as_ref());
+    if let Some(s) = socket {
+        js_net::set_net_executor(Arc::new(WireExecutor(s.to_path_buf())));
+    }
     let scripts = match (socket, file_page_url(file)) {
         (Some(socket), page_url) => {
             let base = find_base_url(&dom.document).or(page_url);
