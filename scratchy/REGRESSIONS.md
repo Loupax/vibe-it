@@ -1,5 +1,141 @@
 # scratchy — regressions
 
+## R22: fetch/XHR survey and design evidence (Opus investigator, 2026-11-16) — EVIDENCE for the TODO.txt "DESIGN MEMO (QF)" block
+
+Investigation only, no code changed. Build: release build of `faa1cbe`
+(origin/main, after QY15 ES modules), `target/release/scratchy` of an
+isolated worktree. The memo, user checklist (QF-D1..D9) and items
+(QF1-QF19) are at the top of the TODO.txt QUEUE.
+
+### How this was measured (reusable)
+
+- Pages: `curl -sL --compressed -A '<Firefox 128 UA>'` saved raw, then a
+  COPY with `<base href="<url>">` inserted right after `<head>` (for
+  old.reddit, the URL it redirected to). Runs:
+  `scratchy --js-report --run-timers 5000 --socket /run/user/1001/wire.sock copy.html`.
+- Stand-ins: a second copy with one `<script>` inserted right after
+  `<base>` (scratchpad only, never in the repo) that defines `fetch`,
+  `Headers`, `Request`, `Response` (with a fake `body` stream),
+  `XMLHttpRequest`, `Blob`, `File`, `FileReader`, `FormData`,
+  `TextEncoder`/`TextDecoder`, `ReadableStream`, `TransformStream`,
+  `WebSocket`, `EventSource`, `Worker`, `navigator.sendBeacon`. Each logs
+  every call with `console.error('FX ...')` plus the calling frame, so
+  the calls show up in the report. fetch/XHR answer after 50 ms (timer)
+  with status 200 and body `{}`. No real network from page JS.
+- Static: every inline script plus every first-level external
+  `<script src>` of each page downloaded and grepped for network API
+  patterns (module imports were not followed).
+- CORS: `curl -H 'Origin: <page origin>'` on each observed endpoint.
+- wire: raw requests written to `/run/user/1001/wire.sock` with a small
+  Python client (absolute-form request line, like scratchy).
+
+### What the pages call (stand-ins, `--run-timers 5000`)
+
+| site | plain run: scripts / errors | network calls at startup (stand-in run) | what the response is used for |
+|---|---|---|---|
+| theguardian.com/europe | 17 / 7 (+2 timers) `ActiveXObject is not defined` | `new Request('')` (polyfill.io feature test); 10 fetches: `GET api.nextgen.guardianapps.co.uk/geolocation` (no options), 9x `GET ophan.theguardian.com/img/{1,2}?...` with `mode:'no-cors', keepalive:true, credentials:'include'` (7 at load, 2 in timers) | geolocation `.json()` -> CMP country (the plain run's `CMP initialised without country` console.error is gone with the stand-in); ophan responses never read. With fetch present: 0 errors |
+| old.reddit.com (served `/login/?reason=lor2`) | 20 / 3 (customElements, a data: module, `fetch is not defined`) | 1 fetch `GET https://www.reddit.com/svc/events/preload-head?renderId=...&pageType=login` (no options) | not read in 5 s; `fetch is not defined` gone, customElements errors remain (QY6) |
+| youtube.com | 39 / 2 (MutationObserver, `polyfillWrapFlushCallback`) | none (dies first); `new TextEncoder()` at startup | (R21, with 16 shims: 1 call to `/youtubei/v1/player` + 336 icon fetches) |
+| github.com | 5 / 3 `TextEncoder is not defined` | none; with TextEncoder supplied the 3 errors become `customElements is not defined` | — |
+| duckduckgo.com | 35 / 0 (16 console.error in timers, same with and without stand-ins: `TypeError: not a function` x8 + Next.js "client-side exception" x4 + "Route did not complete loading: /_error" x4; not network-related: `isEqualNode`, fixed since by QY16b) | `new ReadableStream()` (feature test; the page polyfills ReadableStream/TextEncoder itself when missing); `GET /country.json` (same-origin); 4x `sendBeacon` to `improving.duckduckgo.com` (2 with a 315-char string body, 2 URL-only) | `/country.json` `.json()` |
+| bbc.com/news | 57 / 0 (+1 timer error `Route did not complete loading: /_error`, same with stand-ins) | 1 fetch `GET https://www.bbc.co.uk/userinfo` (no options) | `.json()` (signed-in state) |
+| lobste.rs | 1 / 0 | none (the one module only rewrites `<time>` texts) | — |
+| news.ycombinator.com | 1 / 0 | none at startup. On click (hn.js): vote = `XMLHttpRequest` `GET vote?id=..&how=up&auth=..`, collapse = XHR `GET collapse?id=..` (only when logged in), hide = `fetch('snip-story?..').then(r=>r.json())` | needs a session cookie; logged out there are no vote links |
+
+Not used at startup by any page: `XMLHttpRequest`, `FormData`, `Blob`,
+`File`, `FileReader`, `response.body`/`getReader`, `.text()`, `.blob()`,
+`.arrayBuffer()`, `AbortSignal` on a fetch, `WebSocket`, `EventSource`,
+`Worker`, sync XHR, any non-GET method. Every read used `.json()`.
+
+### Static counts (inline / first-level external scripts; grep, not proof of use)
+
+| pattern | guardian | old.reddit | youtube | github | ddg | bbc | hn |
+|---|---|---|---|---|---|---|---|
+| `fetch(` | 0/14 | 1/3 | 0/35 | 0/41 | 1/5 | 0/28 | 0/1 |
+| `XMLHttpRequest` | 0/13 | 0/1 | 0/17 | 0/2 | — | 0/11 | 0/1 |
+| `"POST"` | 0/6 | 0/6 | 0/47 | 0/12 | 0/1 | 0/33 | — |
+| `credentials:"include"` | 0/1 | — | 0/3 | 0/1 | — | 0/9 | — |
+| `mode:"no-cors"` | 0/2 | 0/2 | 0/3 | 0/1 | 0/1 | — | — |
+| `withCredentials` | 0/2 | 0/3 | 0/56 | 0/1 | — | 0/22 | — |
+| `getReader(` | — | — | 0/3 | — | 1/0 | 0/1 | — |
+| `signal:` | — | 0/3 | 0/41 | 0/19 | 0/1 | 0/3 | — |
+| `FormData` | 0/5 | 0/3 | 0/8 | 0/24 | 0/5 | 0/18 | — |
+| `sendBeacon` | 0/2 | 0/3 | 0/19 | — | 13/5 | 0/15 | — |
+| `EventSource` / `WebSocket` | 0 | 0 | 0 | 0 | 0 | 0 | 0 |
+| sync `xhr.open(..., !1)` | 0/1 | — | — | — | — | — | — |
+
+Read at the source:
+- guardian's only sync XHR is polyfill.io's `navigator.sendBeacon`
+  polyfill: `r.open("POST",t,!1)`. It is installed only when
+  `sendBeacon` is missing.
+- youtube's innertube client: `method:"POST", postParams, postBody,
+  postBodyFormat:"JSON"` ("innertube xhrclient"), plus
+  `fetch(x.url,{method:x.requestType, ..., credentials:"include" (when
+  withCredentials), keepalive, signal})`. Its streaming reader is
+  feature-tested: `t.body && typeof t.body.getReader === "function"`,
+  else `handleResponse`.
+- lobste.rs `application.js` (1.9 KB, logged out): no network calls.
+
+### CORS headers of the observed endpoints (curl with `Origin:`)
+
+| request | status, type | CORS |
+|---|---|---|
+| `api.nextgen.guardianapps.co.uk/geolocation` from theguardian.com | 200 application/json | `ACAO: *`, `ACA-Credentials: true` |
+| `www.bbc.co.uk/userinfo` from www.bbc.com | 200 application/json | `ACAO: https://www.bbc.com`, `Vary: Origin` |
+| `www.reddit.com/svc/events/preload-head` from old.reddit.com | 200 text/plain | none (and 6 `Set-Cookie`s: loid, session_tracker, csrf_token, token_v2, csv, edgebucket) |
+| `duckduckgo.com/country.json` | 200 application/json | same-origin |
+| `fonts.gstatic.com/s/i/...` (youtube icon host; a made-up path) | 404 | `ACAO: *` |
+
+So browser CORS rules (QF-D1 option B) cost nothing on these pages.
+
+### wire's behaviour (raw requests on the socket)
+
+- `GET file:///etc/os-release` -> `200`, `application/octet-stream`,
+  the file's contents. wire serves ANY file the user can read to
+  anyone who can write to the socket. Page JS must never reach it with
+  a `file:` URL.
+- `GET http://127.0.0.1:1/` and `GET http://localhost:631/` -> `502`
+  "Connection refused": wire does connect to loopback.
+- `GET http://169.254.169.254/latest/meta-data/` -> no answer within 30
+  s (client timeout). wire's 20 s agent timeout did not end it within
+  30 s. scratchy's `fetch_raw_via_wire` has no read timeout at all.
+- `GET http://lobste.rs/` -> `200` with the https page (redirect
+  followed), but nothing in the response says the final URL.
+- `HEAD https://duckduckgo.com/country.json` -> `200`, headers only.
+  `OPTIONS https://www.bbc.co.uk/userinfo` with `Origin` -> `204` with
+  `access-control-allow-*` headers (a preflight would work).
+- Code read (wire/src/main.rs): every client header is forwarded except
+  Host/Content-Length/Connection (so a page could set `Cookie` or
+  `Host`-like headers if scratchy passed them through). Response
+  headers are all forwarded except Content-Length/Transfer-Encoding/
+  Content-Encoding (so `Set-Cookie` reaches scratchy). No cookie jar
+  (ureq without its `cookies` feature). ureq 2.12.1: 5 redirects,
+  POST->GET on 301/302/303, `Response::get_url()` has the final URL,
+  and `AgentBuilder::resolver` exists (ureq resolves on every redirect
+  hop, which is what QF6 relies on).
+
+### Not tested / caveats
+
+- No real network from page JS: each stand-in answered `{}` after 50
+  ms. What the pages do with real data (guardian's consent banner once
+  the CMP has a country, bbc with a signed-out `userinfo`) is unknown.
+- youtube and github stop before their first request (QY6), so their
+  real request pattern is static reading plus R21, not observation.
+- `--js-report` runs with the copy's file:// URL as `location`
+  (guardian's beacon carried `url=file:///tmp/...`). Origin-based
+  behaviour in the pages may differ from the live site (QF7 fixes the
+  report).
+- old.reddit served its login wall to curl (logged out). Logged-in
+  pages, HN voting and anything behind cookies were not exercised.
+- Only startup plus 5 s of simulated timers. No clicks, scrolling or
+  typing, so lazy-load and infinite-scroll requests are not in the
+  table.
+- Module imports below the first level were not grepped.
+- The ddg `TypeError: not a function` console.errors (x8, also without
+  stand-ins) were not traced here; QY16b (merged during this
+  investigation, 15526fd) found them to be the missing
+  `Node.isEqualNode` and fixed them. The survey build predates it.
+
 ## R21: Web Components / YouTube decision and real-site JS survey (Opus investigator, 2026-11-16) — EVIDENCE for the TODO.txt "DECISION MEMO (QY6)" block
 
 Investigation only, no code changed. The decision memo and the filed
