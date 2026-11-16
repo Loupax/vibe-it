@@ -6879,3 +6879,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Merge PR #162 once QA11a landed: merge origin/main, rerun cargo test and WPT, visual check.
 
 **What changed:** TODO/PROMPTS conflicts resolved keeping both sides; QA11, Q48b, Q74 ticked. Full `cargo test` 680 passed, 2 ignored. WPT pass 270 fail 272, no change from wpt-expected.txt (absolute-replaced-height-009/-016/-022 pass again; block-in-inline-self-collapsing-only-child passes). en.wikipedia Main_Page header/cards shift up ~24px; HN, lobste.rs, guardian, bbc, wikipedia.org, duckduckgo, github otherwise identical (live-content differences only).
+
+## Cookie client in scratchy (QF14b-scratchy)
+
+> Implement the scratchy half of the cookie jar (design QF-D2a): send `X-Wire-Jar: scratchy` + `X-Wire-Top-Site` (+ Nav/Initiator for navigations) on all requests except Fetch-spec no-credentials ones, one header builder, `document.cookie` through wire's control channel (synchronous, short timeout), old-wire detection logged once, `--js-report` jar/cookie lines, tests with fakes, live check against a private wire.
+
+**What changed:** src/net_policy.rs (cookie section: `site_of`, `CookieSupport`, `CookieContext`, `wire_cookie_headers`, `cookie_control_headers`, `cookie_control_timeout_ms`), src/net.rs (`build_get_request_ctx`, `top` parameter on every sub-resource loader, learning from responses), src/js_net.rs (fetch/XHR credentials -> jar, `cookie_op`, natives, `jar` in the network report), src/js.rs (`document.cookie` on Document.prototype, `--- cookies ---` report line), src/app.rs (`nav_initiator`, `start_navigation_as`), tests `qf14b_*`, NOTES.md, TODO.txt.

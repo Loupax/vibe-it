@@ -6216,7 +6216,7 @@ fn q22_stylesheet_over_a_file_url_goes_through_wire() {
     let _ = std::fs::remove_file(&path);
     spawn_mock_wire_once(&path, b"HTTP/1.1 200 OK\r\nContent-Type: text/css\r\n\r\np{margin:0}");
     let url = Url::parse("file:///tmp/a.css").unwrap();
-    assert_eq!(fetch_stylesheet_via_wire(&path, &url), Some("p{margin:0}".to_string()));
+    assert_eq!(fetch_stylesheet_via_wire(&path, &url, &url), Some("p{margin:0}".to_string()));
     let _ = std::fs::remove_file(&path);
 }
 
@@ -6230,7 +6230,7 @@ fn q22b_streamed_page_stylesheets_resolve_against_its_base_href() {
     let mut res = ExternalResources::default();
     find_external_resources(&doc, &mut res);
     assert_eq!(resolve_href(Some(&base), &res.stylesheets[0]).unwrap().as_str(), "file:///tmp/site/a.css");
-    assert_eq!(fetch_stylesheets(&path, &base, &res.stylesheets), "h1{color:red}\n");
+    assert_eq!(fetch_stylesheets(&path, &base, &base, &res.stylesheets), "h1{color:red}\n");
     // And a page with no <base> has nothing to resolve against.
     assert!(find_base_url(&parse_html("<link rel=stylesheet href=a.css>")).is_none());
     let _ = std::fs::remove_file(&path);
@@ -6246,7 +6246,7 @@ fn fetch_stylesheet_via_wire_only_accepts_real_css() {
     // `fetch_sub_resource_via_wire`'s own internals — the same
     // "real I/O, not just the pure logic" bar `fetch_raw_via_wire`'s
     // own test already holds to.
-    assert_eq!(fetch_stylesheet_via_wire(&path, &url), Some("body{color:red}".to_string()));
+    assert_eq!(fetch_stylesheet_via_wire(&path, &url, &url), Some("body{color:red}".to_string()));
     let _ = std::fs::remove_file(&path);
 }
 
@@ -6297,7 +6297,7 @@ fn fetch_stylesheet_via_wire_rejects_a_non_css_content_type() {
     let _ = std::fs::remove_file(&path);
     spawn_mock_wire_once(&path, b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nContent-Length: 4\r\n\r\n<p/>");
     let url = Url::parse("https://example.com/not-css").unwrap();
-    assert_eq!(fetch_stylesheet_via_wire(&path, &url), None);
+    assert_eq!(fetch_stylesheet_via_wire(&path, &url, &url), None);
     let _ = std::fs::remove_file(&path);
 }
 
@@ -6313,7 +6313,7 @@ fn fetch_image_via_wire_decodes_a_real_fetched_png() {
     let _ = std::fs::remove_file(&path);
     spawn_mock_wire_once(&path, raw.leak());
     let url = Url::parse("https://example.com/pixel.png").unwrap();
-    let decoded = fetch_image_via_wire(&path, &url).expect("decode");
+    let decoded = fetch_image_via_wire(&path, &url, &url).expect("decode");
     assert_eq!((decoded.width, decoded.height), (2, 2));
     let _ = std::fs::remove_file(&path);
 }
@@ -6324,7 +6324,7 @@ fn fetch_image_via_wire_rejects_a_non_image_content_type() {
     let _ = std::fs::remove_file(&path);
     spawn_mock_wire_once(&path, b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 5\r\n\r\nhello");
     let url = Url::parse("https://example.com/not-an-image").unwrap();
-    assert!(fetch_image_via_wire(&path, &url).is_none());
+    assert!(fetch_image_via_wire(&path, &url, &url).is_none());
     let _ = std::fs::remove_file(&path);
 }
 
@@ -8368,10 +8368,10 @@ fn q33a_no_js_flag_and_set_command_toggle() {
     set_js_enabled(false);
     assert!(!js_enabled());
     let base = Url::parse("http://example.test/").unwrap();
-    assert!(fetch_scripts(std::path::Path::new("/nonexistent"), &base, vec![ScriptRef::Inline("1".into())]).is_empty());
+    assert!(fetch_scripts(std::path::Path::new("/nonexistent"), &base, &base, vec![ScriptRef::Inline("1".into())]).is_empty());
     set_js_enabled(true);
     assert!(js_enabled());
-    assert_eq!(fetch_scripts(std::path::Path::new("/nonexistent"), &base, vec![ScriptRef::Inline("1".into())]).len(), 1);
+    assert_eq!(fetch_scripts(std::path::Path::new("/nonexistent"), &base, &base, vec![ScriptRef::Inline("1".into())]).len(), 1);
 }
 
 #[test]
@@ -8972,6 +8972,7 @@ fn qb2_js_dom_writes_use_restyle_path() {
     qb5_app_applies_requests(&proxy);
     qb6_help_suspends_js(&proxy);
     qf7_app_net(&proxy);
+    qf14b_app_initiator(&proxy);
 }
 
 // ---------- QB6: `:help` suspends the page's JS ----------
@@ -9606,11 +9607,12 @@ fn qa5_data_script_and_stylesheet_are_decoded_locally() {
     let srcs = fetch_scripts(
         nowhere,
         &base,
+        &base,
         vec![ScriptRef::External("data:text/javascript;base64,%20ZD%20Qg%0D%0APS%20An%20Zm91cic%0D%0A%207%20".into())],
     );
     assert_eq!(srcs.len(), 1);
     assert_eq!(srcs[0].code, "d4 = 'four';");
-    let css = fetch_stylesheets(nowhere, &base, &["data:text/css,p%7Bcolor:red%7D".to_string()]);
+    let css = fetch_stylesheets(nowhere, &base, &base, &["data:text/css,p%7Bcolor:red%7D".to_string()]);
     assert!(css.contains("p{color:red}"), "{css:?}");
     // @import of a data: URL inside a stylesheet.
     let out = expand_css_imports("@import url(\"data:text/css,b%7Bx:y%7D\");a{}", &base, &mut vec![base.clone()], &mut |_| None);
@@ -14479,4 +14481,425 @@ fn qy6g_zero_cost_before_use() {
     .unwrap();
     assert!(engine.next_due_ms().is_none(), "{:?}", out.borrow());
     assert!(out.borrow().is_empty(), "{:?}", out.borrow());
+}
+
+// ---------- QF14b: the scratchy half of the cookie jar (fake wire, no network) ----------
+
+/// A fake wire on a unix socket that records every request (head + body) and
+/// answers by URL extension like a cookie-capable wire 3.
+fn qf14b_fake_wire(path: &std::path::Path) -> Arc<Mutex<Vec<String>>> {
+    use std::os::unix::net::UnixListener;
+    let _ = std::fs::remove_file(path);
+    let listener = UnixListener::bind(path).expect("bind fake wire");
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let s = seen.clone();
+    thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { return };
+            let s = s.clone();
+            thread::spawn(move || {
+                let mut buf = Vec::new();
+                let mut chunk = [0u8; 4096];
+                while !buf.windows(4).any(|w| w == b"\r\n\r\n") {
+                    match Read::read(&mut stream, &mut chunk) {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => buf.extend_from_slice(&chunk[..n]),
+                    }
+                }
+                let text = String::from_utf8_lossy(&buf).to_string();
+                let line = text.lines().next().unwrap_or("").to_string();
+                let (ct, body): (&str, &str) = if line.contains(".css") {
+                    ("text/css", "p{margin:0}")
+                } else if line.contains(".js") {
+                    ("application/javascript", "var a = 1;")
+                } else if line.contains(".png") {
+                    ("image/png", "not really a png")
+                } else {
+                    ("text/html", "<html><body>x</body></html>")
+                };
+                s.lock().unwrap().push(text);
+                let resp = format!("HTTP/1.1 200 OK\r\nContent-Type: {ct}\r\nX-Wire-Version: 3\r\nX-Wire-Cookies: on\r\n\r\n{body}");
+                let _ = stream.write_all(resp.as_bytes());
+            });
+        }
+    });
+    seen
+}
+
+fn qf14b_has(req: &str, header: &str) -> bool {
+    req.to_ascii_lowercase().contains(&format!("\r\n{}\r\n", header.to_ascii_lowercase()))
+}
+
+fn qf14b_wait(seen: &Arc<Mutex<Vec<String>>>, n: usize) -> Vec<String> {
+    for _ in 0..300 {
+        if seen.lock().unwrap().len() >= n {
+            break;
+        }
+        thread::sleep(std::time::Duration::from_millis(10));
+    }
+    seen.lock().unwrap().clone()
+}
+
+#[test]
+fn qf14b_site_of_is_scheme_plus_registrable_domain() {
+    let site = |s: &str| site_of(&Url::parse(s).unwrap());
+    assert_eq!(site("https://www.example.com/a?b").as_deref(), Some("https://example.com"));
+    assert_eq!(site("https://news.bbc.co.uk/").as_deref(), Some("https://bbc.co.uk"));
+    assert_eq!(site("http://127.0.0.1:8080/x").as_deref(), Some("http://127.0.0.1"));
+    assert_eq!(site("http://localhost:1/").as_deref(), Some("http://localhost"));
+    assert_eq!(site("https://a.b.github.io/").as_deref(), Some("https://b.github.io"));
+    assert_eq!(site("http://example.com/").as_deref(), Some("http://example.com"), "scheme is part of the site");
+    assert_eq!(site("file:///tmp/x.html"), None, "file: has no cookie origin");
+    assert_eq!(site("data:text/plain,hi"), None);
+}
+
+#[test]
+fn qf14b_cookie_headers_follow_the_fetch_spec_and_the_navigation_kind() {
+    let sup = CookieSupport::new(true);
+    let hs = |ctx: &CookieContext| wire_cookie_headers_with(&sup, ctx);
+    let has = |h: &[(String, String)], n: &str, v: &str| h.iter().any(|(a, b)| a == n && b == v);
+    let top = Url::parse("https://www.top.example/p").unwrap();
+    // Sub-resource: jar + the page's site, even for a third party.
+    let h = hs(&CookieContext::subresource(&top));
+    assert!(has(&h, "X-Wire-Jar", "scratchy") && has(&h, "X-Wire-Top-Site", "https://top.example"), "{h:?}");
+    assert!(!h.iter().any(|(n, _)| n == "X-Wire-Nav"));
+    // Navigation: Nav + (page-initiated) initiator; top site = destination.
+    let dest = Url::parse("https://shop.other.test/x").unwrap();
+    let h = hs(&CookieContext::navigation(&dest, Some(&top)));
+    assert!(has(&h, "X-Wire-Top-Site", "https://other.test") && has(&h, "X-Wire-Nav", "1"), "{h:?}");
+    assert!(has(&h, "X-Wire-Initiator-Site", "https://top.example"), "{h:?}");
+    let h = hs(&CookieContext::navigation(&dest, None));
+    assert!(has(&h, "X-Wire-Nav", "1") && !h.iter().any(|(n, _)| n == "X-Wire-Initiator-Site"), "browser-initiated: no initiator {h:?}");
+    // Fetch credentials modes.
+    let f = |c: CredentialsMode, same: bool| hs(&CookieContext::fetch(&top, c, same));
+    let off = vec![("X-Wire-Cookies".to_string(), "off".to_string())];
+    assert_eq!(f(CredentialsMode::Omit, true), off);
+    assert_eq!(f(CredentialsMode::SameOrigin, false), off, "cross-origin same-origin mode: no credentials");
+    assert!(has(&f(CredentialsMode::SameOrigin, true), "X-Wire-Jar", "scratchy"));
+    assert!(has(&f(CredentialsMode::Include, false), "X-Wire-Jar", "scratchy"));
+    assert_eq!(parse_credentials("omit"), CredentialsMode::Omit);
+    assert_eq!(parse_credentials(""), CredentialsMode::SameOrigin);
+    // No cookie origin (file: page): nothing at all.
+    let file = Url::parse("file:///tmp/p.html").unwrap();
+    assert!(hs(&CookieContext::subresource(&file)).is_empty());
+    assert!(hs(&CookieContext::fetch(&file, CredentialsMode::Include, true)).is_empty());
+}
+
+#[test]
+fn qf14b_old_wire_is_detected_once_and_stops_the_jar_headers() {
+    let top = Url::parse("https://top.example/").unwrap();
+    let ctx = CookieContext::subresource(&top);
+    // A pre-cookie wire: no X-Wire-Version.
+    let sup = CookieSupport::new(true);
+    assert!(!wire_cookie_headers_with(&sup, &ctx).is_empty(), "optimistic until proven otherwise");
+    assert_eq!(sup.observe(None, None).as_deref(), Some("scratchy: cookies unavailable: wire is too old (restart it)"));
+    assert_eq!(sup.observe(None, None), None, "logged ONCE");
+    assert_eq!(sup.observe(Some("2"), None), None);
+    assert!(wire_cookie_headers_with(&sup, &ctx).is_empty(), "no jar header to a wire that cannot use it");
+    // --no-cookies.
+    let sup = CookieSupport::new(true);
+    assert_eq!(sup.observe(Some("3"), Some("off")).as_deref(), Some("scratchy: cookies unavailable: wire has cookies disabled"));
+    assert!(!sup.usable());
+    // A good wire.
+    let sup = CookieSupport::new(true);
+    assert_eq!(sup.observe(Some("3"), Some("on")), None);
+    assert!(sup.usable());
+    // Over a real socket: an old fake wire (no version) switches it off.
+    let path = unique_test_socket_path("qf14b-old");
+    let _ = std::fs::remove_file(&path);
+    spawn_mock_wire_once(&path, b"HTTP/1.1 200 OK\r\nContent-Type: text/css\r\n\r\np{}");
+    let sup = CookieSupport::new(true);
+    let req = build_get_request_ctx(&Url::parse("https://cdn.test/a.css").unwrap(), &CookieContext::subresource(&top));
+    assert!(req.contains("X-Wire-Jar: scratchy"));
+    let _ = fetch_raw_via_wire_with_support(&path, &req, std::time::Duration::from_secs(5), &sup);
+    assert!(!sup.usable(), "learned from the first response");
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn qf14b_cookie_headers_are_built_in_one_place() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+    let mut checked = 0;
+    for e in std::fs::read_dir(dir).unwrap() {
+        let p = e.unwrap().path();
+        let name = p.file_name().unwrap().to_string_lossy().to_string();
+        if name == "net_policy.rs" || name == "tests.rs" || !name.ends_with(".rs") {
+            continue;
+        }
+        let text = std::fs::read_to_string(&p).unwrap().to_ascii_lowercase();
+        for lit in ["x-wire-jar", "x-wire-top-site", "x-wire-nav", "x-wire-initiator-site", "x-wire-cookie-op", "x-wire-cookie-url"] {
+            // Only comments may name them (those lines start with `//`).
+            let code_use = text.lines().any(|l| l.contains(lit) && !l.trim_start().starts_with("//") && !l.contains("`"));
+            assert!(!code_use, "{name} builds a cookie header ({lit}) outside net_policy.rs");
+        }
+        checked += 1;
+    }
+    assert!(checked > 5);
+}
+
+#[test]
+fn qf14b_every_loader_sends_the_jar_headers_with_the_pages_top_site() {
+    set_js_enabled(true);
+    let path = unique_test_socket_path("qf14b-loaders");
+    let seen = qf14b_fake_wire(&path);
+    let top = Url::parse("https://www.top.example/page").unwrap();
+    let third = |p: &str| Url::parse(&format!("https://cdn.third.test/{p}")).unwrap();
+    assert_eq!(fetch_stylesheet_via_wire(&path, &third("a.css"), &top).as_deref(), Some("p{margin:0}"));
+    assert_eq!(fetch_script_via_wire(&path, &third("b.js"), &top).as_deref(), Some("var a = 1;"));
+    let _ = fetch_image_via_wire(&path, &third("c.png"), &top);
+    assert_eq!(fetch_stylesheets(&path, &top, &top, &["https://cdn.third.test/d.css".to_string()]), "p{margin:0}\n");
+    let scripts = fetch_scripts(&path, &top, &top, vec![ScriptRef::ModuleExternal("https://cdn.third.test/e.js".into())]);
+    assert_eq!(scripts.len(), 1);
+    let doc = parse_html("<html><body><iframe src='https://www.top.example/f.html'></iframe></body></html>");
+    prefetch_iframes(&path, &top, &top, &doc);
+    let reqs = qf14b_wait(&seen, 6);
+    assert_eq!(reqs.len(), 6, "{reqs:?}");
+    for r in &reqs {
+        assert!(qf14b_has(r, "X-Wire-Jar: scratchy"), "no jar header: {r}");
+        assert!(qf14b_has(r, "X-Wire-Top-Site: https://top.example"), "wrong partition key: {r}");
+        assert!(!r.to_ascii_lowercase().contains("x-wire-nav"), "sub-resources are not navigations: {r}");
+    }
+    // The same third party under ANOTHER top site gets another partition key.
+    let top2 = Url::parse("https://other.example/").unwrap();
+    let _ = fetch_stylesheet_via_wire(&path, &third("a.css"), &top2);
+    let reqs = qf14b_wait(&seen, 7);
+    assert!(qf14b_has(reqs.last().unwrap(), "X-Wire-Top-Site: https://other.example"));
+    // A file: page has no cookie origin: no jar headers.
+    let file = Url::parse("file:///tmp/p.html").unwrap();
+    let _ = fetch_stylesheet_via_wire(&path, &third("a.css"), &file);
+    let reqs = qf14b_wait(&seen, 8);
+    assert!(!reqs.last().unwrap().to_ascii_lowercase().contains("x-wire-"), "{:?}", reqs.last());
+    let _ = std::fs::remove_file(&path);
+}
+
+#[test]
+fn qf14b_link_navigation_sends_nav_and_initiator_but_typed_go_does_not() {
+    let dest = Url::parse("https://www.shop.example/cart").unwrap();
+    let from = Url::parse("https://news.example/").unwrap();
+    let click = build_get_request_ctx(&dest, &CookieContext::navigation(&dest, Some(&from)));
+    assert!(click.starts_with("GET https://www.shop.example/cart HTTP/1.1\r\nHost: www.shop.example\r\n"), "{click}");
+    for h in ["X-Wire-Jar: scratchy", "X-Wire-Top-Site: https://shop.example", "X-Wire-Nav: 1", "X-Wire-Initiator-Site: https://news.example"] {
+        assert!(qf14b_has(&click, h), "{h} missing: {click}");
+    }
+    assert!(click.ends_with("\r\n\r\n"));
+    let typed = build_get_request_ctx(&dest, &CookieContext::navigation(&dest, None));
+    assert!(qf14b_has(&typed, "X-Wire-Nav: 1") && !typed.contains("Initiator"), "{typed}");
+}
+
+/// App side (needs a display like the other App tests): `start_navigation`
+/// (a link) sends the current page as the initiator, `:go` does not.
+fn qf14b_app_initiator(proxy: &winit::event_loop::EventLoopProxy<AppEvent>) {
+    let path = unique_test_socket_path("qf14b-app");
+    let seen = qf14b_fake_wire(&path);
+    let doc = parse_html("<html><body></body></html>");
+    let mut app = App::new_static(doc, proxy.clone(), Some(path.clone()));
+    app.base_url = Some(Url::parse("https://news.example/a").unwrap());
+    app.start_navigation("https://shop.example/x");
+    let reqs = qf14b_wait(&seen, 1);
+    assert!(qf14b_has(&reqs[0], "X-Wire-Initiator-Site: https://news.example"), "{reqs:?}");
+    app.dispatch_command("go", &["https://typed.example/y"]);
+    let reqs = qf14b_wait(&seen, 2);
+    let typed = reqs.iter().find(|r| r.contains("typed.example")).expect("typed request");
+    assert!(qf14b_has(typed, "X-Wire-Nav: 1") && !typed.contains("Initiator"), "{typed}");
+    let _ = std::fs::remove_file(&path);
+}
+
+/// A canned wire for the control channel: keeps a tiny jar (one HttpOnly
+/// cookie the page must never see) and records requests.
+struct JarFake {
+    cookies: Mutex<Vec<(String, String, bool)>>,
+    raw: Mutex<Vec<String>>,
+    timeouts: Mutex<Vec<std::time::Duration>>,
+    version: Option<&'static str>,
+}
+
+impl JarFake {
+    fn new(version: Option<&'static str>) -> Arc<Self> {
+        Arc::new(JarFake {
+            cookies: Mutex::new(vec![("sid".into(), "SECRET".into(), true), ("seen".into(), "1".into(), false)]),
+            raw: Mutex::new(Vec::new()),
+            timeouts: Mutex::new(Vec::new()),
+            version,
+        })
+    }
+}
+
+impl NetExecutor for JarFake {
+    fn execute(&self, job: &crate::js_net::NetJob) -> Result<WireResponse, NetError> {
+        let text = String::from_utf8_lossy(&job.request).to_string();
+        self.raw.lock().unwrap().push(text.clone());
+        self.timeouts.lock().unwrap().push(job.limits.read_timeout);
+        let mut headers = vec![];
+        if let Some(v) = self.version {
+            headers.push(("x-wire-version".to_string(), v.to_string()));
+            headers.push(("x-wire-cookies".to_string(), "on".to_string()));
+        }
+        let mk = |status: u16, body: String| Ok(WireResponse { status, headers: headers.clone(), body: body.into_bytes(), ..Default::default() });
+        if text.contains("X-Wire-Cookie-Op: get") {
+            let v: Vec<String> = self.cookies.lock().unwrap().iter().filter(|c| !c.2).map(|c| format!("{}={}", c.0, c.1)).collect();
+            return mk(200, v.join("; "));
+        }
+        if text.contains("X-Wire-Cookie-Op: set") {
+            let body = text.split("\r\n\r\n").nth(1).unwrap_or("").to_string();
+            if !body.to_ascii_lowercase().contains("httponly") {
+                if let Some((n, v)) = body.split(';').next().unwrap_or("").split_once('=') {
+                    self.cookies.lock().unwrap().push((n.trim().to_string(), v.trim().to_string(), false));
+                }
+            }
+            return mk(204, String::new());
+        }
+        mk(200, "ok".into())
+    }
+}
+
+fn qf14b_engine(page: &str, fake: &Arc<JarFake>) -> (JsEngine, Rc<RefCell<Vec<String>>>) {
+    set_page_url(Some(&Url::parse(page).unwrap()));
+    crate::js_net::set_net_executor(fake.clone());
+    let out = Rc::new(RefCell::new(Vec::new()));
+    let o = out.clone();
+    let engine = crate::js::start_scripts(&parse_html(""), &[src("")], Rc::new(move |l, t| o.borrow_mut().push(format!("{l}:{t}")))).unwrap();
+    (engine, out)
+}
+
+#[test]
+fn qf14b_document_cookie_round_trips_through_the_control_channel_and_hides_httponly() {
+    let fake = JarFake::new(Some("3"));
+    let (engine, log) = qf14b_engine("https://www.page.test/dir/x", &fake);
+    engine.eval(
+        "t",
+        "var d = Object.getOwnPropertyDescriptor(Document.prototype, 'cookie');\
+         console.log('proto', typeof d.get, typeof d.set, document.hasOwnProperty('cookie'));\
+         console.log('before', document.cookie);\
+         document.cookie = 'a=1; path=/';\
+         console.log('after', document.cookie);\
+         var second = document.implementation.createHTMLDocument('x');\
+         second.cookie = 'zzz=9';\
+         console.log('second', JSON.stringify(second.cookie));",
+    );
+    let l = log.borrow().clone();
+    assert!(l.contains(&"log:proto function function false".to_string()), "{l:?}");
+    assert!(l.contains(&"log:before seen=1".to_string()), "HttpOnly sid never reaches the page: {l:?}");
+    assert!(l.contains(&"log:after seen=1; a=1".to_string()), "{l:?}");
+    assert!(l.contains(&"log:second \"\"".to_string()), "second documents are inert: {l:?}");
+    let raw = fake.raw.lock().unwrap().clone();
+    assert_eq!(raw.len(), 3, "get, set, get; the second document made no request: {raw:?}");
+    let set = &raw[1];
+    for h in ["X-Wire-Jar: scratchy", "X-Wire-Top-Site: https://page.test", "X-Wire-Cookie-Op: set", "X-Wire-Cookie-Url: https://www.page.test/dir/x"] {
+        assert!(qf14b_has(set, h), "{h}: {set}");
+    }
+    assert!(set.ends_with("\r\n\r\na=1; path=/"), "the assigned string is the body: {set}");
+    assert!(fake.timeouts.lock().unwrap().iter().all(|t| *t == std::time::Duration::from_millis(2000)), "cookie_control_timeout_ms");
+    assert!(!l.iter().any(|x| x.starts_with("error:")), "{l:?}");
+}
+
+#[test]
+fn qf14b_document_cookie_is_inert_on_file_pages() {
+    let fake = JarFake::new(Some("3"));
+    let (engine, log) = qf14b_engine("file:///tmp/p.html", &fake);
+    engine.eval("t", "document.cookie = 'a=1'; console.log(JSON.stringify(document.cookie));");
+    assert!(log.borrow().contains(&"log:\"\"".to_string()), "{:?}", log.borrow());
+    assert!(fake.raw.lock().unwrap().is_empty(), "no control request without a cookie origin");
+}
+
+#[test]
+fn qf14b_document_cookie_failure_logs_once_and_reads_empty() {
+    let fake = QfFake::new(vec![]); // every request fails
+    let (engine, log) = qf7_engine("https://page.test/", &fake);
+    engine.eval("t", "document.cookie = 'a=1'; console.log(JSON.stringify(document.cookie)); console.log(JSON.stringify(document.cookie));");
+    let l = log.borrow().clone();
+    assert_eq!(l.iter().filter(|x| x.starts_with("net:document.cookie:")).count(), 1, "{l:?}");
+    assert_eq!(l.iter().filter(|x| *x == "log:\"\"").count(), 2, "{l:?}");
+    assert_eq!(fake.urls().len(), 1, "after a failure the engine thread never blocks on wire again");
+}
+
+#[test]
+fn qf14b_old_wire_for_document_cookie_logs_once_and_sends_no_more_jar_headers() {
+    let fake = JarFake::new(None); // no X-Wire-Version: pre-cookie wire
+    let (engine, log) = qf14b_engine("https://page.test/", &fake);
+    engine.set_cookie_support(Box::leak(Box::new(CookieSupport::new(true))));
+    engine.eval(
+        "t",
+        "document.cookie; document.cookie = 'a=1'; document.cookie;\
+         __net_request({method:'GET', url:'https://page.test/x', headers:[], body:null});",
+    );
+    qf14b_drive(&engine, &fake);
+    let l = log.borrow().clone();
+    let warn = "net-warning:scratchy: cookies unavailable: wire is too old (restart it)";
+    assert_eq!(l.iter().filter(|x| *x == warn).count(), 1, "{l:?}");
+    let raw = fake.raw.lock().unwrap().clone();
+    assert_eq!(raw.len(), 2, "one control probe, then the plain request: {raw:?}");
+    assert!(!raw[1].to_ascii_lowercase().contains("x-wire-jar"), "{}", raw[1]);
+}
+
+fn qf14b_drive(engine: &JsEngine, fake: &Arc<JarFake>) {
+    let mut sched = NetScheduler::new(&engine.net_policy());
+    crate::js_net::drive_report_net(engine, &mut sched, &**fake);
+}
+
+#[test]
+fn qf14b_fetch_and_xhr_credentials_decide_whether_the_jar_is_used() {
+    let ok = || qf7_ok("x", &[("access-control-allow-origin", "https://page.test"), ("access-control-allow-credentials", "true")]);
+    let fake = QfFake::new(vec![("/same", ok()), ("/cross", ok())]);
+    let (engine, _log) = qf7_engine("https://page.test/", &fake);
+    let go = |url: &str, cred: &str| qf7_go(url, &format!(",credentials:'{cred}'"));
+    engine.eval(
+        "t",
+        &[
+            go("https://page.test/same?default", "same-origin"),
+            go("https://page.test/same?omit", "omit"),
+            go("https://page.test/same?include", "include"),
+            go("https://other.test/cross?default", "same-origin"),
+            go("https://other.test/cross?omit", "omit"),
+            go("https://other.test/cross?include", "include"),
+        ]
+        .concat(),
+    );
+    qf7_drive(&engine, &fake);
+    let raw: Vec<String> = fake.raw.lock().unwrap().iter().map(|r| String::from_utf8_lossy(r).to_string()).collect();
+    let find = |needle: &str| raw.iter().find(|r| r.contains(needle)).unwrap_or_else(|| panic!("{needle} not sent: {raw:?}")).clone();
+    let jar = |r: &str| qf14b_has(r, "X-Wire-Jar: scratchy") && qf14b_has(r, "X-Wire-Top-Site: https://page.test");
+    let off = |r: &str| qf14b_has(r, "X-Wire-Cookies: off") && !r.to_ascii_lowercase().contains("x-wire-jar");
+    assert!(jar(&find("same?default")));
+    assert!(off(&find("same?omit")), "omit sends no jar and says off");
+    assert!(jar(&find("same?include")));
+    assert!(off(&find("cross?default")), "cross-origin with the default same-origin mode: no credentials");
+    assert!(off(&find("cross?omit")));
+    assert!(jar(&find("cross?include")));
+    let e = engine.net_entries();
+    assert_eq!(e.iter().map(|x| x.jar).collect::<Vec<_>>(), vec![true, false, true, false, false, true]);
+    assert!(raw.iter().all(|r| !r.to_ascii_lowercase().contains("\r\ncookie:")), "page JS never sets Cookie itself");
+    let report = crate::js_net::format_net_report(&e);
+    assert!(report.contains("jar: scratchy") && report.contains("jar: off"), "{report}");
+}
+
+#[test]
+fn qf14b_xhr_with_credentials_maps_to_include() {
+    let fake = QfFake::new(vec![("/x", qf7_ok("x", &[("access-control-allow-origin", "https://page.test"), ("access-control-allow-credentials", "true")]))]);
+    let (engine, _log) = qf7_engine("https://page.test/", &fake);
+    engine.eval(
+        "t",
+        "var a = new XMLHttpRequest(); a.open('GET', 'https://other.test/x?plain'); a.send();\
+         var b = new XMLHttpRequest(); b.open('GET', 'https://other.test/x?creds'); b.withCredentials = true; b.send();",
+    );
+    qf7_drive(&engine, &fake);
+    let raw: Vec<String> = fake.raw.lock().unwrap().iter().map(|r| String::from_utf8_lossy(r).to_string()).collect();
+    let plain = raw.iter().find(|r| r.contains("?plain")).unwrap();
+    let creds = raw.iter().find(|r| r.contains("?creds")).unwrap();
+    assert!(!plain.to_ascii_lowercase().contains("x-wire-jar"), "cross-origin XHR without withCredentials: no jar");
+    assert!(qf14b_has(creds, "X-Wire-Jar: scratchy"));
+}
+
+#[test]
+fn qf14b_js_report_has_a_cookie_smoke_line() {
+    let fake = QfFake::new(vec![("page.test/data", qf7_ok("12345", &[]))]);
+    crate::js_net::set_net_executor(fake.clone());
+    let html = "<html><head><base href='https://page.test/'></head><body><script>\
+        __net_request({method:'GET', url:'https://page.test/data', headers:[], body:null});\
+        </script></body></html>";
+    set_js_enabled(true);
+    let report = js::js_report_for_html(html, None, "/tmp/qf14b-none.html");
+    assert!(report.contains("GET https://page.test/data -> 200 OK 5 bytes"), "{report}");
+    assert!(report.contains("jar: scratchy"), "{report}");
+    assert!(report.contains("--- cookies ---\ndocument.cookie: "), "{report}");
+    assert!(report.contains("errors total: 0"), "{report}");
 }
