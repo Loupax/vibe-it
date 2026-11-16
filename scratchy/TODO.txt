@@ -1389,7 +1389,7 @@ into the commit message of every JS item.
       Split before starting: (a) DOMImplementation + detached documents,
       (b) iframe `contentDocument`/`contentWindow`, (c) styles for a
       second document.
-- [x] QA18a (HASH) [M] (P4, JS) `document.implementation` (createHTMLDocument,
+- [x] QA18a (ca191cd) [M] (P4, JS) `document.implementation` (createHTMLDocument,
       createDocument, createDocumentType, hasFeature) and detached second
       documents over a second rcdom root in the same DomTable (document
       ids registered in `DomTable.docs`; `__d_byid`/`__d_special` take the
