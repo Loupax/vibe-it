@@ -187,6 +187,8 @@ struct NetMeta {
     /// QF13: this request was preceded by a CORS preflight: wire is told not
     /// to follow redirects (a 3xx fails closed, see `finish`).
     preflighted: bool,
+    /// QF7a: `send()` already logged a policy warning for this target.
+    warned: bool,
 }
 
 /// QF13: a request that waits for its preflight (or is about to be sent).
@@ -313,6 +315,13 @@ pub(crate) struct NetState {
     /// QF14b: a `document.cookie` control call failed: `''` for the rest of
     /// the page (the engine thread must not keep blocking).
     cookie_broken: bool,
+    /// QF7a: refuse an answer from a wire older than protocol 2 (no
+    /// `X-Wire-Version`/`X-Wire-Final-Url`): off in test builds, because the
+    /// fake executors send no version header.
+    pub(crate) check_wire_version: bool,
+    /// QF7a: an old wire answered: page networking is off for the rest of
+    /// the page (one log line).
+    wire_disabled: bool,
     /// QF13: preflights in flight (by the preflight job's id), the cache, the
     /// actual requests a finished preflight released (the engine moves them
     /// into `JsRequests.net`) and the clock the cache expires on.
@@ -342,6 +351,15 @@ fn cors_filter_headers(headers: Vec<(String, String)>, credentials: bool) -> Vec
     headers.into_iter().filter(|(n, _)| allowed.iter().any(|a| a == n)).collect()
 }
 
+/// QF7a: the one log line when wire's protocol is older than 2.
+pub(crate) const WIRE_TOO_OLD_LINE: &str = "scratchy: page networking disabled: wire is too old (restart it)";
+const WIRE_TOO_OLD: &str = "page networking disabled: wire is too old (restart it)";
+
+/// `X-Wire-Version` of an answer; 0 when absent (a wire older than QF6).
+fn wire_version(resp: &WireResponse) -> u32 {
+    resp.header("x-wire-version").and_then(|v| v.trim().parse().ok()).unwrap_or(0)
+}
+
 impl NetState {
     pub(crate) fn new(log: LogFn) -> Self {
         NetState {
@@ -355,6 +373,8 @@ impl NetState {
             entries: Vec::new(),
             support: cookie_support(),
             cookie_broken: false,
+            check_wire_version: !cfg!(test),
+            wire_disabled: false,
             preflights: HashMap::new(),
             pf_cache: PreflightCache::default(),
             released: Vec::new(),
@@ -444,7 +464,9 @@ impl NetState {
     /// Records a refused request: logs it, and makes the page see a network
     /// error asynchronously (or immediately for sync mode).
     fn refuse(&mut self, id: u64, d: &SendDesc, entry: usize, reason: String, reqs: &mut js_dom::JsRequests) {
-        self.note(&format!("blocked {} {}: {reason}", d.method, d.url));
+        if !self.wire_disabled {
+            self.note(&format!("blocked {} {}: {reason}", d.method, d.url));
+        }
         self.entries[entry].outcome = format!("blocked: {reason}");
         self.entries[entry].elapsed_ms = Some(0);
         let url = Url::parse(&d.url).unwrap_or_else(|_| Url::parse("about:blank").unwrap());
@@ -461,6 +483,7 @@ impl NetState {
                 started: Instant::now(),
                 entry,
                 preflighted: false,
+                warned: false,
             },
         );
         self.queue_immediate(id, Err(NetError::BadRequest(reason)), d.sync, reqs);
@@ -491,6 +514,11 @@ impl NetState {
             jar: false,
         });
         let entry = self.entries.len() - 1;
+        if self.wire_disabled {
+            // The one log line was written when the old wire was found.
+            self.refuse(id, &d, entry, WIRE_TOO_OLD.into(), reqs);
+            return id;
+        }
         let Some(page) = page_url() else {
             self.refuse(id, &d, entry, "the page has no URL".into(), reqs);
             return id;
@@ -551,6 +579,7 @@ impl NetState {
             started: Instant::now(),
             entry,
             preflighted: false,
+            warned: outcome.warning.is_some(),
         };
         if self.policy.suppress_beacon(beacon) {
             let ct = headers.iter().find(|(n, _)| n.eq_ignore_ascii_case("content-type")).map(|(_, v)| v.as_str());
@@ -837,6 +866,25 @@ impl NetState {
     /// cross-origin response (opaque for `no-cors`), hides what the page may
     /// not read, logs failures. `None` when the page aborted the request.
     pub(crate) fn finish(&mut self, id: u64, result: Result<WireResponse, NetError>) -> Option<Completion> {
+        // QF7a: an answer without wire protocol >= 2 (`X-Wire-Version`; such a
+        // wire also sends no `X-Wire-Final-Url`, so redirects and the policy
+        // could not be checked) fails CLOSED instead of relaxing the policy.
+        // Only answers that really came from wire: refused requests and
+        // suppressed beacons are synthesized here (`immediate`) and carry no
+        // wire headers.
+        let from_wire = self.preflights.contains_key(&id) || self.meta.get(&id).is_some_and(|m| !m.immediate);
+        let result = match result {
+            // Requests already in flight when the old wire was found.
+            _ if from_wire && self.wire_disabled => Ok(WireResponse { error: Some(WIRE_TOO_OLD.into()), ..Default::default() }),
+            Ok(resp) if from_wire && self.check_wire_version && self.executor.has_wire() && wire_version(&resp) < 2 => {
+                if !self.wire_disabled {
+                    self.wire_disabled = true;
+                    (self.log)("net-warning", WIRE_TOO_OLD_LINE);
+                }
+                Ok(WireResponse { error: Some(WIRE_TOO_OLD.into()), ..Default::default() })
+            }
+            r => r,
+        };
         if self.preflights.contains_key(&id) {
             // QF13: the answer to a preflight, not to a page request.
             return match self.preflight_done(id, result, None) {
@@ -864,12 +912,36 @@ impl NetState {
                 let kind = if e == NetError::Timeout { "timeout" } else { "network" };
                 fail(self, kind, e.to_string(), &mut c);
             }
+            Ok(resp) if resp.error.as_deref() == Some(WIRE_TOO_OLD) => {
+                // Already logged once (QF7a): only record it.
+                self.entries[m.entry].outcome = format!("blocked: {WIRE_TOO_OLD}");
+                self.entries[m.entry].elapsed_ms = Some(elapsed);
+                c.error = Some("network");
+                c.rtype = "error";
+            }
             Ok(resp) if resp.error.is_some() => {
                 let msg = resp.error.clone().unwrap_or_default();
-                fail(self, "network", format!("wire: {msg}"), &mut c);
+                // QF7a: `private_targets: Block` makes scratchy send
+                // `X-Wire-Policy: public-only`; wire answers 403 `policy` when
+                // a DNS name resolved to a non-public address.
+                if self.policy.private_targets == PrivatePolicy::Block && resp.status == 403 && msg.contains("blocked") {
+                    fail(self, "network", format!("blocked: {} resolves to a non-public address (private_targets is block): {msg}", m.url.host_str().unwrap_or("")), &mut c);
+                } else {
+                    fail(self, "network", format!("wire: {msg}"), &mut c);
+                }
             }
             Ok(resp) => {
                 let bytes = resp.body.len();
+                // QF7a: wire resolved a DNS NAME to a non-public address (the
+                // URL check cannot know): the same warning `send()` writes for
+                // literal private hosts, once per request.
+                let by_name = !m.warned && !m.immediate && self.policy.private_targets == PrivatePolicy::Warn && matches!(m.url.host(), Some(url::Host::Domain(_)));
+                let class = resp.header("x-wire-target-class").filter(|c| by_name && !matches!(*c, "public" | "file" | ""));
+                if let Some(class) = class {
+                    let w = format_net_warning(&m.page, &m.url, class);
+                    (self.log)("net-warning", &w);
+                    self.entries[m.entry].warnings.push(w);
+                }
                 if m.preflighted && matches!(resp.status, 301 | 302 | 303 | 307 | 308) {
                     // wire was told not to follow it: the new target would
                     // need its own preflight (QF13a), so fail closed.
@@ -906,7 +978,9 @@ impl NetState {
                     c.rtype = rtype;
                     c.status = resp.status;
                     c.status_text = resp.status_text;
-                    c.headers = if rtype == "cors" { cors_filter_headers(resp.headers, m.credentials) } else { resp.headers };
+                    // wire's own control headers are not the page's business.
+                    let headers: Vec<(String, String)> = resp.headers.into_iter().filter(|(n, _)| !n.starts_with("x-wire-")).collect();
+                    c.headers = if rtype == "cors" { cors_filter_headers(headers, m.credentials) } else { headers };
                     c.body = resp.body;
                     if let Some(f) = resp.final_url {
                         c.redirected = f != m.url.as_str();
@@ -1034,6 +1108,11 @@ impl JsEngine {
     #[cfg(test)]
     pub(crate) fn set_cookie_support(&self, s: &'static CookieSupport) {
         self.net.borrow_mut().support = s;
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_check_wire_version(&self, on: bool) {
+        self.net.borrow_mut().check_wire_version = on;
     }
 
     #[cfg(test)]

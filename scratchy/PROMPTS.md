@@ -6926,3 +6926,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Implement QSD2: Node.getRootNode, isConnected, compareDocumentPosition and DOCUMENT_POSITION_* constants.
 
 **What changed:** src/js_dom.rs (rootId walk, NodeProto getRootNode/isConnected/compareDocumentPosition, Node.DOCUMENT_POSITION_* constants), tests qsd2_* in src/tests.rs; NOTES.md; TODO.txt (new QSD2b item for lookupNamespaceURI/isDefaultNamespace).
+
+## Fail closed on an old wire, target-class warnings (QF7a)
+
+> Implement QF7a: page networking fails closed with one log line on a wire older than protocol 2, X-Wire-Target-Class warnings for DNS names resolving privately, a clear Block-mode error, per-hop CORS only if cheap.
+
+**What changed:** src/js_net.rs (`check_wire_version`/`wire_disabled`, `WIRE_TOO_OLD_LINE`, target-class warning in `finish`, Block-mode error text, `x-wire-*` response headers hidden), tests qf7a_* in src/tests.rs; NOTES.md; TODO.txt (QF7b for per-hop CORS).

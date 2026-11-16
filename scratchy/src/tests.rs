@@ -15710,3 +15710,98 @@ fn qsd2_compare_document_position() {
         "{log:?}"
     );
 }
+
+// ---------- QF7a: fail closed on an old wire, target-class warnings ----------
+
+#[test]
+fn qf7a_old_wire_fails_closed_with_one_log_line() {
+    let fake = QfFake::new(vec![("/a", qf7_ok("AAA", &[])), ("/b", qf7_ok("BBB", &[]))]);
+    let (engine, log) = qf7_engine("https://page.test/", &fake);
+    engine.set_check_wire_version(true);
+    engine.eval("t", &format!("{}{}{}", qf7_go("https://page.test/a", ""), qf7_go("https://page.test/b", ""), qf7_go("https://page.test/c", "")));
+    qf7_drive(&engine, &fake);
+    let l = log.borrow().clone();
+    assert_eq!(l.iter().filter(|x| *x == "net-warning:scratchy: page networking disabled: wire is too old (restart it)").count(), 1, "{l:?}");
+    assert_eq!(l.iter().filter(|x| x.starts_with("log:err")).count(), 3, "every request fails: {l:?}");
+    assert!(!l.iter().any(|x| x.starts_with("log:ok")), "{l:?}");
+    assert!(!l.iter().any(|x| x.starts_with("net:")), "no further log lines: {l:?}");
+    // Requests sent in the same batch are already in flight; a later one is refused before the executor.
+    engine.eval("t2", &qf7_go("https://page.test/d", ""));
+    qf7_drive(&engine, &fake);
+    assert!(!fake.urls().iter().any(|u| u.ends_with("/d")), "nothing is sent after the old wire was found: {:?}", fake.urls());
+    assert_eq!(log.borrow().iter().filter(|x| x.starts_with("log:err")).count(), 4);
+    assert!(engine.net_entries().iter().all(|e| e.outcome.starts_with("blocked: page networking disabled")), "{:?}", engine.net_entries());
+}
+
+#[test]
+fn qf7a_wire_v2_and_v3_keep_networking_working() {
+    let fake = QfFake::new(vec![("/a", qf7_ok("AAA", &[("x-wire-version", "2")])), ("/b", qf7_ok("BBB", &[("x-wire-version", "3"), ("x-wire-cookies", "on")]))]);
+    let (engine, log) = qf7_engine("https://page.test/", &fake);
+    engine.set_check_wire_version(true);
+    engine.eval("t", &format!("{}{}", qf7_go("https://page.test/a", ""), qf7_go("https://page.test/b", "")));
+    qf7_drive(&engine, &fake);
+    let l = log.borrow().clone();
+    assert_eq!(l, vec!["log:ok 200 basic AAA", "log:ok 200 basic BBB"], "{l:?}");
+}
+
+#[test]
+fn qf7a_wire_control_headers_are_hidden_from_the_page() {
+    let fake = QfFake::new(vec![("/a", qf7_ok("x", &[("x-wire-version", "3"), ("x-wire-target-class", "public"), ("x-custom", "1")]))]);
+    let l = qf8_run("https://page.test/", &fake, "fetch('/a').then(function(r){ console.log('h', r.headers.get('x-wire-version'), r.headers.get('x-wire-target-class'), r.headers.get('x-custom')); });");
+    assert!(l.contains(&"log:h null null 1".to_string()), "{l:?}");
+}
+
+#[test]
+fn qf7a_dns_name_resolving_privately_warns_once() {
+    let fake = QfFake::new(vec![
+        ("rebind.test", qf7_ok("x", &[("x-wire-target-class", "private")])),
+        ("fine.test", qf7_ok("x", &[("x-wire-target-class", "public")])),
+        ("127.0.0.1", qf7_ok("x", &[("x-wire-target-class", "loopback")])),
+    ]);
+    let l = qf8_run(
+        "https://page.test/",
+        &fake,
+        "fetch('https://rebind.test/x'); fetch('https://fine.test/x'); fetch('http://127.0.0.1:8080/x');",
+    );
+    let w: Vec<&String> = l.iter().filter(|x| x.starts_with("net-warning:")).collect();
+    assert_eq!(w.len(), 2, "{l:?}");
+    assert!(w.iter().any(|x| x.contains("https://rebind.test/x (private) allowed by policy")), "{w:?}");
+    assert_eq!(w.iter().filter(|x| x.contains("127.0.0.1")).count(), 1, "a literal IP is warned about by the URL check only: {w:?}");
+}
+
+#[test]
+fn qf7a_block_mode_turns_wire_policy_refusal_into_a_clear_error() {
+    let refusal = Ok(WireResponse {
+        status: 403,
+        status_text: "Forbidden".into(),
+        error: Some("wire: blocked: rebind.test resolves to a non-public address (10.0.0.5)".into()),
+        ..Default::default()
+    });
+    let fake = QfFake::new(vec![("rebind.test", refusal)]);
+    let (engine, log) = qf7_engine("https://page.test/", &fake);
+    let mut p = RequestPolicy::default();
+    p.private_targets = PrivatePolicy::Block;
+    engine.set_net_policy(p);
+    engine.eval("t", &qf7_go("https://rebind.test/x", ""));
+    qf7_drive(&engine, &fake);
+    let l = log.borrow().clone();
+    assert!(l.iter().any(|x| x.starts_with("net:") && x.contains("rebind.test resolves to a non-public address (private_targets is block)")), "{l:?}");
+    assert!(l.contains(&"log:err TypeError Failed to fetch".to_string()), "{l:?}");
+}
+
+#[test]
+fn qf7a_suppressed_beacons_and_refusals_do_not_trip_the_old_wire_check() {
+    let fake = QfFake::new(vec![]);
+    let (engine, log) = qf7_engine("https://page.test/", &fake);
+    engine.set_check_wire_version(true);
+    engine.eval(
+        "t",
+        "navigator.sendBeacon('https://track.test/b', 'x'); fetch('ftp://x.test/').catch(function(){ console.log('refused'); });\
+         fetch('https://track.test/k', {method:'POST', keepalive:true, body:'y'}).then(function(r){ console.log('ka', r.type); });",
+    );
+    qf7_drive(&engine, &fake);
+    let l = log.borrow().clone();
+    assert!(!l.iter().any(|x| x.contains("page networking disabled")), "{l:?}");
+    assert!(l.contains(&"log:ka opaque".to_string()), "{l:?}");
+    assert_eq!(l.iter().filter(|x| x.starts_with("net:beacon")).count(), 2, "{l:?}");
+}
