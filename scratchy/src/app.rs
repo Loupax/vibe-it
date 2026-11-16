@@ -102,6 +102,10 @@ pub(crate) enum AppEvent {
     /// Q35b2: the image-relayout debounce window (`IMAGE_RELAYOUT_DEBOUNCE`)
     /// has passed; see `App::flush_image_relayout`.
     ImageFlush,
+    /// QY19: a `<meta http-equiv=refresh>` delay elapsed for the page of
+    /// navigation generation `.0`; follow `.1` unless the user has since
+    /// navigated (generation changed).
+    MetaRefresh(u64, Url),
     /// `SIGUSR1`'s own background thread (`run()`) waking the event
     /// loop — the out-of-band bootstrap the vim-mode plan in TODO.txt
     /// settled on for turning vim mode back *on* once it's off: with
@@ -470,6 +474,8 @@ pub(crate) struct App {
     /// QA6: fragment of the navigation in flight; becomes `pending_fragment`
     /// when its page arrives (not before: "Loading…" lays out first).
     pub(crate) nav_fragment: Option<String>,
+    /// QY19: meta-refresh redirects followed for the current user navigation.
+    pub(crate) meta_chain: u8,
     /// The next rebuild is a pure restyle (state change): keep the live
     /// per-element scroll offsets instead of clearing them.
     pub(crate) keep_scroll_on_rebuild: bool,
@@ -737,6 +743,7 @@ impl App {
             hover_node: 0,
             pending_fragment: None,
             nav_fragment: None,
+            meta_chain: 0,
             keep_scroll_on_rebuild: false,
             restyle_requested: false,
             hold_old_frame: false,
@@ -802,6 +809,7 @@ impl App {
             hover_node: 0,
             pending_fragment: None,
             nav_fragment: None,
+            meta_chain: 0,
             keep_scroll_on_rebuild: false,
             restyle_requested: false,
             hold_old_frame: false,
@@ -1426,16 +1434,63 @@ impl App {
             Ok(FetchedPage { html, extra_css, scripts, url }) => {
                 let dom = new_parser().read_from(&mut html.as_slice()).unwrap();
                 self.base_url = Some(resolve_page_base_url(&dom.document, url));
+                // QY19: an immediate meta redirect replaces this page: do not
+                // even install it (nor run its scripts).
+                let meta = meta_refresh_action(&dom.document, self.base_url.as_ref(), self.meta_chain);
+                if let Some((0, target)) = &meta {
+                    self.follow_meta_refresh(target.clone());
+                    return;
+                }
                 self.replace_document(dom.document, extra_css);
                 // QA6: only now is the document the one the fragment names.
                 self.pending_fragment = self.nav_fragment.take();
                 self.js = run_page_scripts(&self.document, &scripts, self.base_url.as_ref());
                 self.js_sync();
+                if let Some((delay, target)) = meta {
+                    let (proxy, generation) = (self.proxy.clone(), self.nav_generation);
+                    thread::spawn(move || {
+                        thread::sleep(std::time::Duration::from_secs(delay));
+                        let _ = proxy.send_event(AppEvent::MetaRefresh(generation, target));
+                    });
+                }
             }
             Err(message) => {
                 self.nav_fragment = None;
                 self.show_message(&message);
             }
+        }
+    }
+
+    /// QY19: follows a meta refresh to `target`. Counts against
+    /// `META_REFRESH_MAX_CHAIN`. A 0-second redirect (the page was never
+    /// installed) replaces the current history entry like an HTTP redirect;
+    /// a delayed one pushes normally (`self.meta_chain` is only reset by user
+    /// navigations).
+    pub(crate) fn follow_meta_refresh(&mut self, target: Url) {
+        self.meta_chain += 1;
+        self.push_or_replace_history(target.clone(), true);
+        self.fetch_url(target);
+    }
+
+    /// `AppEvent::MetaRefresh` handler: a delayed redirect pushes normally.
+    pub(crate) fn handle_meta_refresh(&mut self, generation: u64, target: Url) {
+        if generation == self.nav_generation {
+            self.meta_chain += 1;
+            self.push_history(target.clone());
+            self.fetch_url(target);
+        }
+    }
+
+    /// Replaces the current history entry with `url` (`replace`, no extra
+    /// back step) when there is one; with none yet nothing is recorded (the
+    /// next push seeds from `base_url`, which is then the target).
+    pub(crate) fn push_or_replace_history(&mut self, url: Url, replace: bool) {
+        if replace {
+            if let Some(slot) = self.history.get_mut(self.history_index) {
+                *slot = url;
+            }
+        } else {
+            self.push_history(url);
         }
     }
 
@@ -1901,6 +1956,7 @@ impl App {
     }
 
     pub(crate) fn start_navigation(&mut self, href: &str) {
+        self.meta_chain = 0;
         self.pre_help_page = None;
         if let (Some(frag), None) = (href.strip_prefix('#'), &self.base_url) {
             // No base to resolve against, but a bare fragment needs none.
@@ -1970,6 +2026,7 @@ impl App {
             return;
         };
         self.history_index = new_index;
+        self.meta_chain = 0;
         let url = self.history[new_index].clone();
         self.fetch_url(url);
     }
@@ -1989,6 +2046,7 @@ impl App {
     /// `base_url`-less page (a local file with no `<base href>` of its
     /// own) has truly nothing to refresh.
     pub(crate) fn refresh(&mut self) {
+        self.meta_chain = 0;
         let url = match self.history.get(self.history_index).cloned() {
             Some(url) => url,
             None => match self.base_url.clone() {
@@ -2449,6 +2507,7 @@ impl ApplicationHandler<AppEvent> for App {
             AppEvent::NavResult(generation, result) => self.handle_nav_result(generation, result),
             AppEvent::ImageFetched(generation, src, image) => self.handle_image_fetched(generation, src, image),
             AppEvent::ShapeResult(generation, laid, shape_cache, incomplete) => self.handle_shape_result(generation, laid, shape_cache, incomplete),
+            AppEvent::MetaRefresh(generation, target) => self.handle_meta_refresh(generation, target),
             AppEvent::ImageFlush => {
                 self.image_flush_scheduled = false;
                 if let Some(since) = self.image_relayout_since {

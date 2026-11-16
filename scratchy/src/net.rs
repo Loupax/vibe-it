@@ -143,6 +143,85 @@ pub(crate) fn find_base_href(handle: &Handle) -> Option<String> {
     None
 }
 
+/// QY19: longest delay (seconds) a `<meta http-equiv=refresh>` redirect is
+/// honoured with; larger values are clamped to this.
+pub(crate) const META_REFRESH_MAX_DELAY: u64 = 10;
+/// QY19: most chained meta redirects followed for one user navigation.
+pub(crate) const META_REFRESH_MAX_CHAIN: u8 = 3;
+
+/// QY19: parses a `<meta http-equiv=refresh content="...">` value into
+/// `(delay seconds, target URL)`. Only `url=` redirects are honoured: a bare
+/// `N` (reload the same page), a missing/negative number or an empty URL
+/// give `None`, so a page can never make scratchy reload itself in a loop.
+/// The delay is clamped to `META_REFRESH_MAX_DELAY`. Accepts `N; url=x`,
+/// `N, URL = 'x'`, `N;x` (HTML spec), quotes optional, resolved against `base`.
+pub(crate) fn parse_meta_refresh(content: &str, base: Option<&Url>) -> Option<(u64, Url)> {
+    let s = content.trim_start_matches(|c: char| c.is_ascii_whitespace());
+    let digits = s.bytes().take_while(u8::is_ascii_digit).count();
+    if digits == 0 {
+        return None;
+    }
+    let delay: u64 = s[..digits].parse().unwrap_or(u64::MAX);
+    let mut rest = &s[digits..];
+    // Optional fractional part is ignored.
+    if let Some(r) = rest.strip_prefix('.') {
+        rest = r.trim_start_matches(|c: char| c.is_ascii_digit());
+    }
+    let rest = rest.trim_start_matches(|c: char| c.is_ascii_whitespace() || c == ';' || c == ',');
+    let mut url_part = rest;
+    if rest.len() >= 3 && rest.is_char_boundary(3) && rest[..3].eq_ignore_ascii_case("url") {
+        let after = rest[3..].trim_start_matches(|c: char| c.is_ascii_whitespace());
+        if let Some(a) = after.strip_prefix('=') {
+            url_part = a.trim_start_matches(|c: char| c.is_ascii_whitespace());
+        }
+    }
+    let url_part = match url_part.chars().next() {
+        Some(q @ ('"' | '\'')) => {
+            let inner = &url_part[1..];
+            inner.split(q).next().unwrap_or("")
+        }
+        _ => url_part,
+    };
+    let url_part = url_part.trim();
+    if url_part.is_empty() {
+        return None;
+    }
+    let url = resolve_href(base, url_part).ok()?;
+    Some((delay.min(META_REFRESH_MAX_DELAY), url))
+}
+
+/// QY19: the `content` of the first `<meta http-equiv=refresh>` (value
+/// matched case-insensitively) in the tree. With scripts off, `<noscript>`
+/// children are real elements (see `new_parser`), so one inside it is
+/// found; with scripts on, noscript content is raw text and is not.
+pub(crate) fn find_meta_refresh_content(handle: &Handle) -> Option<String> {
+    if let NodeData::Element { name, .. } = &handle.data {
+        if name.local.as_ref() == "meta"
+            && element_attr(handle, "http-equiv").is_some_and(|v| v.trim().eq_ignore_ascii_case("refresh"))
+        {
+            if let Some(c) = element_attr(handle, "content") {
+                return Some(c.to_string());
+            }
+        }
+    }
+    for child in handle.children.borrow().iter() {
+        if let Some(found) = find_meta_refresh_content(child) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+/// QY19: what to do for a freshly loaded document: `(delay seconds, URL)`,
+/// or `None` when it has no usable meta refresh or `chain` redirects have
+/// already been followed for this navigation.
+pub(crate) fn meta_refresh_action(document: &Handle, base: Option<&Url>, chain: u8) -> Option<(u64, Url)> {
+    if chain >= META_REFRESH_MAX_CHAIN {
+        return None;
+    }
+    parse_meta_refresh(&find_meta_refresh_content(document)?, base)
+}
+
 /// Minimal HTML-escaping for `App::show_message`'s synthetic `<p>...
 /// </p>` wrapper — `text` can carry a clicked `href` or an OS/`io::
 /// Error` message, neither of which scratchy controls the contents of,
