@@ -750,6 +750,368 @@ rendering (Tier 5) -> forms (Tier 6) -> JavaScript (Tier 7). Status at this poin
 Q32 (parked); 320 tests pass, 2 ignored; lib.rs is ~27.4k lines.
 ========================================================================
 
+--- DECISION MEMO (QY6): Web Components / YouTube and the real-site JS roadmap
+--- (Opus investigator, 2026-11-16) — WAITING FOR THE USER ------------
+
+IMPLEMENTERS: do not start anything in this block until the user has
+ticked D0 below and written which option they chose. Until then skip
+this whole block and take the next unchecked item further down.
+Evidence for every claim here: REGRESSIONS.md "R21".
+
+What was measured (build `0735ddd`): YouTube plus 9 other pages
+(github, reddit, old.reddit, bbc news, duckduckgo, lobste.rs, guardian,
+en.wikipedia, HN), `--js-report` and live windows with JS on and off,
+and for YouTube an iterative chain of JS stand-ins until the app script
+ran clean.
+
+Key facts:
+- YouTube no longer ships a custom-elements polyfill
+  (`webcomponents-sd.js` = ShadyDOM + ShadyCSS only) and forces ShadyDOM
+  (`ShadyDOM={force:true,noPatch:true}`), so it needs a native
+  `customElements` and `template.content`, but NOT native Shadow DOM.
+  No page in the survey uses declarative shadow DOM either. Native
+  Shadow DOM + slots in the cascade/layout (the expensive part) has no
+  measured user today.
+- With 16 APIs supplied by JS shims (customElements and template.content
+  with real semantics, the rest stubs), YouTube's 9.8 MB app runs to the
+  end, upgrades ~100 custom elements and stamps a 1600-element app shell
+  in the DOM, then starts 337 `fetch`es (1 API call, 336 icon SVGs). On
+  screen nothing changes: the live window is the same grey skeleton as
+  `--no-js`. No browse grid, no consent dialog in 20 s simulated.
+  Next walls: fetch (Q33f, L), a real MutationObserver, quadratic DOM
+  walking (QY8), then unknown (layout of the stamped DOM never reached).
+- Across the other pages the most common blockers are NOT Web
+  Components: ES modules (4 pages: github runs zero scripts, lobste.rs,
+  guardian islands, old.reddit), `URL`/`URLSearchParams` (2 erroring,
+  4 more use it), `matchMedia` (2), reflected `src` (2), `Intl` (kills
+  duckduckgo's React app), `fetch` (2 erroring, everyone uses it). Visible
+  CSS damage: `transform:translate` off-canvas drawers shown open
+  (duckduckgo, bbc), `@layer` blocks dropped (github shows `hidden`
+  banners), `<meta http-equiv=refresh>` missing (duckduckgo `--no-js`
+  is blank).
+
+Options:
+A) Skip Web Components / YouTube for now. Cost 0. We lose: YouTube
+   stays the grey skeleton (= what Chrome shows without JS); old.reddit's
+   login form stays missing. We lose nothing else measurable today:
+   github's custom elements are behind ES modules anyway.
+B) Minimal stubs only (MutationObserver that never fires, AbortController,
+   MessageChannel, SVGElement hierarchy, Window, HTML*Element objects,
+   IntersectionObserver that says "visible", etc.). Measured: YouTube
+   gets past startup ONLY if customElements and template.content are
+   real; with them it builds its shell in the DOM and still shows
+   nothing new. Stubs that never fire are also a trap: ShadyDOM and
+   Polymer trust MutationObserver, so a silent stub turns into wrong
+   rendering later instead of a clear error. Cost: about 10 S items.
+   Payoff on YouTube: none visible.
+C) Real implementations, ordered by measured payoff across sites
+   (YouTube last). Phase 1 = cheap, correct, broad (QY8-QY14, all S).
+   Phase 2 = the big enablers (QY15 ES modules M, Q33f fetch L, QY16 Intl
+   M) plus four CSS fixes (QY17-QY20, S each; QY18 = translate-only
+   `transform`, which the 2026-11-14 re-plan deliberately did not queue,
+   so the user must OK it here). Phase 3 = Web Components for YouTube
+   (QY6a MutationObserver M, QY6e customElements M, QY6f template.content
+   M, QY6d re-measure), only if the user still wants YouTube after
+   Phase 2. Even then YouTube content is not promised: the
+   measurement stopped at fetch.
+
+RECOMMENDATION: C, phases 1 and 2 now; phase 3 (YouTube) deferred and
+re-decided after Q33f, with a fresh `--js-report` run (QY6d). Do NOT
+build native Shadow DOM/slots (no measured user). Do NOT ship B's
+never-firing stubs as the final state: every API added must do what the
+spec says for the cases it claims, or be absent (feature detection then
+takes the page's fallback path, which is usually better than a lie).
+Order rationale: Phase 1 items each unblock or help 2-5 of the surveyed
+pages for S effort; ES modules turn github/lobste.rs/guardian from "no
+JS" into "JS runs"; fetch is what everything waits on next.
+
+- [ ] D0 (USER) Pick A, B or C (or a mix) and write it here. Until this
+      is ticked, implementers skip this block.
+
+Phase 1 (each S, independent; do in this order):
+
+- [ ] QY8 [S] (P2, perf, all JS pages) `nextSibling`/`previousSibling`
+      in O(1). Symptom: walking a child list with `firstChild`/
+      `nextSibling` is quadratic: 100 siblings 11 ms, 300 93 ms, 1000
+      689 ms (R21; indexing `childNodes` is 0 ms). Cause: the `sib`
+      helper in `DOM_PRELUDE` (js_dom.rs) builds `parentNode.childNodes`
+      (a native `__d_children` call plus a wrapper per child) and does
+      `indexOf` for every step. Fix: natives `__d_next_sibling(id)` /
+      `__d_prev_sibling(id)` that look up the handle's parent and
+      position in Rust (`parent` weak ref + scan, or keep the index of
+      the child in the parent's `children` Vec) and return the sibling's
+      id (-1 if none); same for `firstChild`/`lastChild` without
+      building the whole `childNodes` array (`__d_child_at(id, i)` or
+      `__d_first_child`/`__d_last_child`). Test (tests.rs, via
+      `run_scripts_in` with a log collector): build 2000 spans, walk them
+      with nextSibling, count == 2000, and the walk takes < 50 ms
+      (assert loosely, or just assert the count and leave the timing to
+      the commit message with before/after numbers).
+- [ ] QY9 [S] (P2; ddg, reddit challenge, yt/gh/bbc/guardian use it)
+      `URL` and `URLSearchParams`. Symptom: `ReferenceError: URL is not
+      defined` (duckduckgo turbopack runtime, twice) and `URLSearchParams
+      is not defined` (duckduckgo, reddit's challenge page). Fix: natives
+      over the `url` crate (already a dependency, WHATWG parser):
+      `__url_parse(input, base) -> [href, protocol, username, password,
+      host, hostname, port, pathname, search, hash, origin]` or null, and
+      a JS `URL` class in `PRELUDE` (js.rs) with those getters, setters
+      that re-parse (`href`, `search`, `hash`, `pathname` at least),
+      `searchParams` (a live `URLSearchParams` that writes back to
+      `search`), `toString`/`toJSON`, `URL.canParse`; `createObjectURL`
+      returns `blob:` + a counter (no Blob store). `URLSearchParams` in JS
+      (string / record / sequence init, `get getAll has set append
+      delete sort forEach keys values entries toString size`,
+      `application/x-www-form-urlencoded` serialization with `+` for
+      spaces, iterable). Test: `new URL('../a?b=1#c','https://x.org/p/q').href
+      === 'https://x.org/a?b=1#c'`, `new URLSearchParams('a=1&a=2&b=%20')
+      .getAll('a').length === 2`, `u.searchParams.set('z','1')` changes
+      `u.search`, invalid URL throws TypeError. Re-run `--js-report` on
+      duckduckgo: the two URL errors and the URLSearchParams error are
+      gone (paste before/after).
+- [ ] QY10 [S] (P2; ddg, yt) `window.matchMedia(q)`. Symptom: duckduckgo's
+      theme script `TypeError: not a function` at `window.matchMedia(
+      "(prefers-color-scheme: dark)").matches`; YouTube's app script at
+      top level. Fix: a native `__media_matches(query) -> bool` that
+      parses with `css::parse_media_query_list` and evaluates with
+      `css::media_list_matches` against the current viewport width (the
+      JS env already knows it, see `innerWidth`); unknown features
+      (`prefers-color-scheme: dark`, `forced-colors: active`,
+      `prefers-reduced-motion: reduce`, `hover`, `pointer`) evaluate the
+      way scratchy renders: light, none, no-preference, hover/fine
+      pointer present. A JS `MediaQueryList` (EventTarget) with `media`,
+      `matches` (re-evaluated on each read), `onchange`,
+      `addListener/removeListener` (legacy aliases); `change` events can
+      wait (note it). Test: at the default viewport `(min-width: 1px)`
+      matches, `(max-width: 1px)` does not, `(prefers-color-scheme:
+      dark)` does not, `print` does not; `instanceof MediaQueryList`.
+- [ ] QY11 [S] (P2; guardian, yt, ddg, bbc; overlaps Q33c1's "reflected
+      properties" part: tick that part there) Reflected attributes and
+      attribute enumeration. Symptoms: guardian's commercial bundle
+      `Error: Automatic publicPath is not supported in this browser`
+      (webpack reads `document.currentScript.src`); YouTube
+      `currentScript.src.indexOf` of undefined; Polymer's template parser
+      reads `node.attributes.length`; `for (c of el.classList)` throws
+      "value is not iterable". Fix in `DOM_PRELUDE`: (1) URL-valued
+      reflections resolved against the document base (use QY9's
+      `__url_parse`, or a native that already resolves hrefs for link
+      navigation): `src` on script/img/iframe/source/video/audio/embed,
+      `href` on a/link/area/base, `action` on form; plain string
+      reflections `rel type name nonce crossOrigin media alt lang dir
+      title`, boolean `async defer hidden`; (2) `dataset` (a Proxy:
+      camelCase <-> `data-*`, `in`, `delete`); (3) native
+      `__d_attr_names(id) -> Vec<String>` (attribute order as stored)
+      and `getAttributeNames`, `hasAttributes`, and `attributes`
+      returning an array-like of `{name, localName, value, namespaceURI,
+      prefix, ownerElement}` with `item()`/`getNamedItem()`/`length`
+      (a full live `NamedNodeMap`/`Attr` node is not needed yet; say so
+      in the cut); (4) `classList` gets `[Symbol.iterator]`, `forEach`,
+      `value`, `entries/keys/values`. Test: `<script src=a.js>` in a
+      document with `<base href=https://x.org/d/>` has `.src ===
+      'https://x.org/d/a.js'`; `el.dataset.fooBar = 1` sets `data-foo-bar`;
+      `getAttributeNames()` order; `[...el.classList]` works.
+- [ ] QY12 [S] (P3; yt, plus `instanceof` checks everywhere) Interface
+      objects. Symptoms (YouTube chain, R21 rows 3, 5, 8, 9, 11; QY4a is
+      the SVG part, do it here and tick QY4a): `Window is not defined`,
+      `CDATASection`/`ProcessingInstruction` read as `window[a].prototype`,
+      `HTMLDivElement is not defined`, `Range is not defined`,
+      `Array.from(fragment.children)`. Fix in `PRELUDE`/`DOM_PRELUDE`:
+      (1) `Window` with `Window.prototype` = an object whose prototype is
+      `EventTarget.prototype`, holding `addEventListener/
+      removeEventListener/dispatchEvent` (move them off the global
+      object) and `Object.setPrototypeOf(globalThis, Window.prototype)`;
+      DO NOT alias `Window.prototype` to `Object.prototype` (measured:
+      that pollutes every object and breaks ShadyDOM); also
+      `window.top/parent/frames/self === window`, `opener === null`;
+      (2) an `HTML<Name>Element` constructor per common tag that does not
+      have one yet, made with the existing `mkProto(name, tags)` helper in
+      `DOM_PRELUDE` (it registers in `wrap`'s `tagProto` table; table,
+      form, input, select, ... already exist) (div span a img script
+      style link meta body head html p button select option textarea
+      label ul ol li table tr td th video audio source picture slot
+      template title base hr br form input iframe canvas dialog, plus
+      `HTMLUnknownElement` for unknown non-custom names), each with
+      `prototype` chained to `HTMLElement.prototype` and `constructor`
+      set; `SVGElement`/`SVGGraphicsElement`/`SVGSVGElement`/
+      `SVGPathElement`/`SVGGElement`/`SVGUseElement` under `Element` with
+      `createElementNS(svgns, ...)` wrapping into them (QY4a); (3)
+      `CDATASection`, `ProcessingInstruction` under `CharacterData`;
+      (4) value-only interface objects that throw "Illegal constructor"
+      when called: `Range Selection DOMRect DOMRectReadOnly NamedNodeMap
+      DOMTokenList StyleSheet CSSStyleSheet CSSRule CSSStyleDeclaration
+      Screen Storage NodeList HTMLCollection ShadowRoot`; Event
+      subclasses that construct real events: `UIEvent FocusEvent
+      PointerEvent WheelEvent InputEvent TouchEvent AnimationEvent
+      TransitionEvent ClipboardEvent DragEvent HashChangeEvent
+      PopStateEvent StorageEvent PromiseRejectionEvent ProgressEvent
+      MessageEvent CompositionEvent PageTransitionEvent SubmitEvent`
+      (copy init dict fields, `instanceof Event`); (5) ParentNode on
+      `DocumentFragment` (and `Document` if missing): `children
+      firstElementChild lastElementChild childElementCount append prepend
+      replaceChildren`. Test: `window instanceof Window`,
+      `document.createElement('div') instanceof HTMLDivElement`,
+      `createElementNS(svg,'svg') instanceof SVGElement`, `typeof Range
+      === 'function'`, `new FocusEvent('focus') instanceof Event`,
+      `frag.children.length`. Re-run YouTube `--js-report`: the
+      `webcomponents-sd.js` error must now be `MutationObserver` only.
+- [ ] QY13 [S] (P3; yt, ddg, bbc) Small spec-faithful globals:
+      `AbortController`/`AbortSignal` (EventTarget; `abort(reason)` sets
+      `aborted`/`reason`, fires `abort` once; `AbortSignal.abort()`,
+      `.timeout(ms)` via the timer table, `.any()`, `throwIfAborted`);
+      `MessageChannel`/`MessagePort` + `window.postMessage(data, origin)`
+      (delivery as a macrotask through the Q33t timer table with delay 0,
+      `MessageEvent` with `data/origin/source/ports`; `structuredClone`
+      of data via JSON for plain data and pass-through otherwise, say so);
+      `requestIdleCallback/cancelIdleCallback` (timer with a deadline
+      object, `timeRemaining()` from the real clock, honour `timeout`);
+      `localStorage`/`sessionStorage` (a `Storage` per origin held by the
+      `JsEngine` for the session; persistence to disk is a separate item:
+      file `[ ]` QY13a); `history.pushState/replaceState/state/length/
+      back/forward/go` (state stack only; URL changes belong to Q33f:
+      reference it, do not duplicate). Test per API in tests.rs
+      (AbortController fires once; postMessage arrives after the current
+      script, before a 10 ms timeout; storage survives across scripts of
+      the same page; pushState changes `history.length`).
+- [ ] QY14 [S] (P2, diagnostics; needed to measure everything above)
+      (1) `drain_jobs` (js.rs) logs `Uncaught exception in a promise job`
+      with no message: fetch the pending exception (`ctx.catch()`) and log
+      it like `describe_error` does (name, message, stack). (2) Unhandled
+      promise rejections are silent: install QuickJS's host rejection
+      tracker (rquickjs `Runtime::set_host_promise_rejection_tracker`, if
+      0.14 exposes it; else wrap in JS) and log `Uncaught (in promise)
+      <reason>`. (3) `scratchy --js-report --run-timers <ms>`: after
+      `load`, drive the engine's timers on a manual clock (the
+      `start_scripts_clocked` path) up to `<ms>` simulated, draining
+      promise jobs after each timer, then append a DOM summary (element
+      count, the 20 most frequent custom-element tag names). This is what
+      R21 had to fake with 200 appended scripts. Tests: a rejected
+      promise with no handler produces one `Uncaught (in promise)` line;
+      `--run-timers` report of `setTimeout(()=>{throw new
+      Error('late')},1000)` contains `late` with `--run-timers 2000` and
+      not with `--run-timers 500` (call the report function, not stdout).
+
+Phase 2 (big enablers, after phase 1):
+
+- [ ] QY15 [M] (P2; github, lobste.rs, guardian islands, old.reddit) ES
+      modules. Symptom: `scripts run: 0` on github.com (all 5 scripts are
+      `type=module` with an `importmap`); lobste.rs' only script is a
+      module; guardian hydrates its 69 `gu-island`s from modules;
+      old.reddit: `could not load module 'data:text/javascript,...'` from
+      a dynamic `import()`. Today `find_external_resources` skips
+      `type=module` and RUNS `nomodule` scripts. Fix: (1) collect module
+      scripts (inline and external) in document order with the classic
+      ones, and once modules are supported skip `nomodule`; (2) an
+      rquickjs module resolver + loader: specifiers resolved against the
+      importing module's URL, bare specifiers through the page's
+      `<script type=importmap>` (`imports` map, plus `scopes` if cheap),
+      sources fetched synchronously through `wire` (the same
+      `fetch_script_via_wire` path; prefetch the static import graph on
+      the fetch thread so the main thread does not block per import),
+      `data:` URLs decoded (QA5's decoder); (3) evaluate module scripts
+      after the classic scripts that precede them (defer semantics:
+      module scripts behave like `defer`), top-level `await` allowed;
+      (4) dynamic `import()` from classic and module code uses the same
+      loader. Cuts to file as narrower items: `import.meta.resolve`, JSON
+      modules, `modulepreload`. Test: a fixture with an inline module
+      importing `./b.js` (a file served via the test's fake fetch) that
+      sets `document.body.dataset.ok`; `nomodule` script does not run;
+      an importmap bare specifier resolves. Live: github.com `--js-report`
+      shows its modules running (record the new first errors; file them).
+- [ ] Q33f [L] fetch()/XHR (existing item, Tier 7; unchanged, it is the
+      next wall for YouTube, old.reddit and everything after modules).
+      Move it here in priority, do not duplicate it.
+- [ ] QY16 [M] (P3; duckduckgo; yt/gh/bbc reference it) A minimal `Intl`.
+      QuickJS has none. Symptom: duckduckgo `ReferenceError: Intl is not
+      defined` -> Next.js "A client-side exception has occurred" (the
+      React app dies); with a stub, it next calls `new Intl.Locale(e)
+      .maximize()`. Fix in `PRELUDE`, en-US only, honest about it:
+      `Intl.NumberFormat` (decimal/percent/currency with
+      `minimumFractionDigits/maximumFractionDigits`, grouping with `,`,
+      `compact` notation K/M/B, `formatToParts`), `Intl.DateTimeFormat`
+      (UTC or the TZ env, `dateStyle/timeStyle` and the common
+      component options, English month/day names, `formatToParts`,
+      `resolvedOptions().timeZone`), `Intl.PluralRules` (en: one/other;
+      ordinal one/two/few/other), `Intl.RelativeTimeFormat`,
+      `Intl.Collator` (code-point compare, `numeric` option),
+      `Intl.ListFormat`, `Intl.Locale` (`baseName language region
+      maximize minimize`), `Intl.Segmenter` (grapheme = code points, word
+      = split on spaces), `supportedLocalesOf` returning `['en-US']`;
+      `Number/Date.prototype.toLocale*String` routed through them. Test
+      per class with a few known outputs (`1234.5 -> '1,234.5'`,
+      `PluralRules('en').select(1) === 'one'`, a fixed date formatted).
+- [ ] QY17 [S] (P2, CSS; github) `@layer`. Symptom: github.com shows its
+      "You signed in with another tab or window" banners although they
+      carry `hidden`: Primer's `template,[hidden]{display:none!important}`
+      sits inside `@layer primer-css-base{...}`, and
+      `TopLevelParser::parse_prelude` (css.rs) rejects every at-rule but
+      `@media`/`@supports`, so the whole layer block is dropped (18
+      `@layer` rules on the page). Fix: accept `@layer <names>;`
+      (statement: records layer order) and `@layer [<name>] { rules }`
+      (block, nested layers become `outer.inner`); give each rule a
+      layer rank; in the cascade sort, for normal declarations
+      unlayered > later-declared layer > earlier layer, and for
+      `!important` the reverse (CSS Cascade 5 §6.4); `@import ...
+      layer(x)` (see `parse_import_prelude` in net.rs) wraps the imported
+      sheet in that layer instead of dropping it. Test: `@layer a{p{color:
+      red}} p{color:green}` is green; `@layer a,b; @layer b{p{color:
+      green}} @layer a{p{color:red}}` is green; `@layer a{[hidden]{display:
+      none!important}} .x{display:flex}` on `<p hidden class=x>` is none.
+      Live: github.com banners gone.
+- [ ] QY18 [S] (P2, CSS; NEEDS THE USER'S OK: `transform` was
+      deliberately not queued on 2026-11-14) Translate-only `transform`.
+      Symptom: off-canvas drawers are drawn open: duckduckgo's settings
+      menu (`position:fixed;right:0;transform:translate(100%)`) covers the
+      right side; bbc's nav drawer (`transform:translateX(-100%);
+      visibility:hidden`) leaves a scrollbar strip (see QY20). Fix: parse
+      `transform` values that are a list of `translate()/translateX()/
+      translateY()/translate3d(x,y,0)` (lengths and percentages of the
+      box's own border-box size) and `none`; anything else (rotate,
+      scale, matrix, ...) is ignored as today. Apply as a paint offset of
+      the box and its descendants and the same offset in
+      `hit_test_inner`; a non-`none` transform makes the box a stacking
+      context and a containing block for fixed/absolute descendants (QY1
+      machinery). Layout and scrollable overflow are unaffected (per
+      spec, transforms do not change layout). Test: `<div
+      style="position:fixed;right:0;width:100px;height:50px;
+      background:red;transform:translateX(100%)">` paints nothing inside
+      the viewport; `translate(10px,20px)` moves the paint and the hit
+      test by (10,20).
+- [ ] QY19 [S] (P3; duckduckgo with JS off) `<meta http-equiv=refresh
+      content="N; url=...">`. Symptom: duckduckgo.com with `--no-js` is
+      blank: its `<noscript>` holds `<meta http-equiv=refresh content="0;
+      url=&quot;https://html.duckduckgo.com/html&quot;">` and
+      `body{display:none}`. Fix: after a page is installed, find the first
+      `meta[http-equiv=refresh i]` in the document (with JS off the
+      noscript children are real elements, so this one is found; with JS
+      on it is not, which is right); parse `N` and the optional `url=`
+      (quotes optional, resolve against the base); after N seconds (cap
+      at, say, 3600, and only once per page load) navigate as a link
+      click would (replace the history entry when N is 0). Test: the
+      parser for `0; url='x'`, `5;URL=x`, `3` (reload) and junk; an
+      end-to-end test only if the navigation path is testable headless.
+- [ ] QY20 [S] (P3, paint; bbc) Do not paint scrollbars of boxes that
+      are `visibility:hidden`. Symptom: bbc.com/news shows a grey
+      vertical scrollbar strip with tick marks over the page at x≈318,
+      from its hidden nav drawer (`visibility:hidden` on the drawer,
+      inherited by an `overflow-y:scroll` child). Fix: in the paint code
+      that draws a scroll container's scrollbar, skip it when the box's
+      computed `visibility` is not `visible` (and skip hit-testing the
+      scrollbar likewise). Test: `<div style="visibility:hidden;
+      overflow-y:scroll;height:50px"><div style=height:500px></div></div>`
+      paints no scrollbar pixels.
+
+Phase 3 (Web Components; only after D0 says so AND after Q33f; see
+QY6 below for the re-split): QY6a MutationObserver (M), QY6e
+customElements (M), QY6f template.content (M), QY6d re-measure.
+Not recommended at all for now: native Shadow DOM (`attachShadow`,
+slots, `:host`/`::slotted` in the cascade). No measured page needs it.
+
+Candidates seen but NOT filed (measure first): `:has()` (330 uses on
+github, 38 yt, 27 old.reddit, 16 ddg, 11 guardian, 8 lobste.rs, 4
+wikipedia; does not match today), `@container` (QY7 exists),
+`getBoundingClientRect`/IntersectionObserver with real geometry (Q33g),
+bbc's grey image placeholders (cause not investigated), reddit.com's
+bot challenge (needs QY9 + `requestSubmit` POST = Q30e + cookies Q30f).
+
 --- TOP PRIORITY: wikipedia.org wordmark missing (coordinator, 2026-11-15) ---
 
 - [x] QW1 [S] (done, commit 89be128; PR #157 layer-list parse + Q35a url fetching; wordmark verified on a live window)
@@ -1020,7 +1382,9 @@ Read REGRESSIONS.md "R20" before starting any QY item. Short version:
       namespace should wrap with it. The webcomponents polyfill reads
       `window.SVGElement.prototype` at load. Then re-run `--js-report` on
       YouTube to find the next missing global (expected: `MutationObserver`,
-      QY6).
+      QY6). NOTE 2026-11-16 (R21): folded into QY12 in the DECISION MEMO
+      block; do it there and tick both. (YouTube now ships
+      `webcomponents-sd.js`, whose first error is `MutationObserver`.)
 - [x] QY5[S] (5a32839) (P3, R20 error 4) The page-load script budget is eaten by
       compiling a huge script, and the error says nothing useful.
       Error: `kevlar_base...: InternalError: interrupted` at a cheap loop
@@ -1062,6 +1426,55 @@ Read REGRESSIONS.md "R20" before starting any QY item. Short version:
       document-only half of QA18 (M), QY6d re-run `--js-report` and file
       what the app script hits next. Native `customElements`/Shadow DOM
       is a later, separate decision (the polyfill path is cheaper).
+      UPDATE 2026-11-16 (R21, DECISION MEMO block at the top of the
+      QUEUE): the "polyfill path" no longer exists. YouTube now ships
+      `webcomponents-sd.js` (ShadyDOM + ShadyCSS, NO custom-elements
+      polyfill; it reads `window.customElements.define` at load) and
+      forces ShadyDOM (`ShadyDOM={force:true,noPatch:true}`), so native
+      Shadow DOM is NOT needed but a native `customElements` and
+      `template.content` are. QY6b (= QA17) and QY6c (= QA18a) are done.
+      New split, gated on the memo's D0 and on Q33f:
+      - [ ] QY6a [M] MutationObserver with real records. All DOM writes go
+        through a few JS wrappers over natives in `DOM_PRELUDE`
+        (`__d_insert`, `__d_remove`, `__d_setattr`, `__d_rmattr`,
+        `__d_settext`, `__d_sethtml`, `__d_write`, plus `clone`-free
+        paths): queue `MutationRecord`s (`childList` with added/removed
+        nodes and siblings, `attributes` with `oldValue`,
+        `characterData`) for observers whose target or (with `subtree`)
+        an ancestor matches, deliver in one microtask per batch
+        (`queueMicrotask`), `takeRecords`, `disconnect`,
+        `attributeFilter`, `*OldValue`. Writes coming from the parser or
+        from Rust (form state) do not notify (documented cut). Tests:
+        appendChild + setAttribute in one script -> one callback with 2
+        records in order; subtree observation; disconnect stops delivery.
+      - [ ] QY6e [M] `customElements` (define, get, getName,
+        whenDefined, upgrade; `CustomElementRegistry`). `HTMLElement`
+        (and QY12's subclasses) become constructors that, while an
+        upgrade is in progress, return the element being upgraded (a
+        construction stack), else create a new element whose tag is the
+        registered name of `new.target`. Upgrade: on `define` (all
+        matching elements in the document, tree order), on `wrap` of an
+        element whose name is defined (hook the existing `tagProto`
+        lookup: set the prototype, then run the constructor), on
+        insertion. Reactions: `connectedCallback`/`disconnectedCallback`
+        from the insert/remove wrappers (tree-order walk of the inserted
+        subtree), `attributeChangedCallback` for `observedAttributes` from
+        set/removeAttribute, `adoptedCallback` from `adoptNode`.
+        Customized built-ins (`is=`) are a cut. Measured shim (R21) that
+        worked for YouTube is the reference design. Tests: define after
+        parse upgrades; `document.createElement('x-a')` is upgraded;
+        callbacks fire in order; `new XA()` works.
+      - [ ] QY6f [M] `<template>` content. html5ever puts template
+        children in `template_contents`, which nothing exposes: JS sees
+        an empty template and `outerHTML` drops the content. Expose the
+        contents node as a `DocumentFragment` id (`__d_template_content`),
+        make `innerHTML` get/set and serialization go through it,
+        `cloneNode(true)`/`importNode` copy it (`clone_node` in js_dom.rs),
+        `HTMLTemplateElement` with `content`. Tests: parsed template's
+        `content.childNodes.length`, innerHTML round trip, a cloned
+        template has its own content.
+      - [ ] QY6d re-run `--js-report --run-timers` (QY14) on YouTube after
+        QY6a/e/f and Q33f, and file what it hits next.
 - [ ] QY7 [M] (P4) CSS container queries: `container-type`/
       `container-name`, `@container (min-width|max-width|width: …)`.
       YouTube's CSS has 269 `@container` rules; its skeleton grid
