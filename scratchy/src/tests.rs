@@ -9852,6 +9852,36 @@ fn qa10_table_rows_in_a_block_get_an_anonymous_table() {
     assert!(b[0].y > a[0].y, "second row below the first");
 }
 
+// QA12: inline event-handler content attributes.
+#[test]
+fn qa12_inline_handlers_click_return_false_body_onload_and_errors() {
+    let (engine, doc, log) = events_engine(
+        "<html><body onload=\"console.log('L', this === document.body || this === window)\">\
+         <button id=a onclick=\"this.id='x'; console.log('c', event.type)\">b</button>\
+         <a id=r href=/x onclick=\"return false\">r</a>\
+         <p id=e onclick=\"nope.nothing()\" onmouseover=\"syntax error (\">e</p>\
+         <p id=s onclick=\"console.log('s1')\"><b id=t>t</b></p></body></html>",
+        "document.getElementById('s').addEventListener('click', function(){ console.log('listener') });\
+         document.getElementById('s').addEventListener('click', function(){ console.log('listener2') });",
+    );
+    // body onload ran on the window load event, after the page scripts.
+    assert_eq!(log.borrow()[0], "log:L true", "{:?}", log.borrow());
+    let init = [("bubbles", EventField::Bool(true)), ("cancelable", EventField::Bool(true))];
+    assert!(engine.dispatch_event(Some(&by_id(&doc, "a")), "click", &init));
+    assert!(log.borrow().contains(&"log:c click".to_string()), "{:?}", log.borrow());
+    assert!(!engine.dispatch_event(Some(&by_id(&doc, "r")), "click", &init), "return false cancels");
+    // A throwing handler is logged and does not stop later handlers.
+    log.borrow_mut().clear();
+    engine.dispatch_event(Some(&by_id(&doc, "e")), "click", &init);
+    engine.dispatch_event(Some(&by_id(&doc, "e")), "mouseover", &init);
+    assert!(log.borrow()[0].starts_with("error:Uncaught ReferenceError"), "{:?}", log.borrow());
+    assert!(log.borrow()[1].starts_with("error:Uncaught SyntaxError"), "{:?}", log.borrow());
+    // Listeners fire before the attribute handler's slot (registered earlier), bubbling too.
+    log.borrow_mut().clear();
+    engine.dispatch_event(Some(&by_id(&doc, "t")), "click", &init);
+    assert_eq!(*log.borrow(), ["log:listener", "log:listener2", "log:s1"]);
+}
+
 #[test]
 fn qa10_blocks_between_cells_of_a_table_get_anonymous_cells_in_the_same_row() {
     // The Acid2 line-14 shape: cell, nested table, cell, plain block, all
