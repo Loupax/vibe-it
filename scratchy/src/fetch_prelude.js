@@ -3,6 +3,9 @@
 // and intl preludes (see js.rs). If QF1 (TextEncoder) lands, its classes are
 // separate; the UTF-8 helpers below are private so this file needs nothing.
 //
+// QF3 adds FormData: a data class (no form reading, no submission). Request
+// and Response bodies from a FormData are serialised as multipart/form-data.
+//
 // QF4 adds ReadableStream (minimal), Headers, Request and Response: plain data
 // classes with no network (fetch/XHR are QF7/QF8). The network layer builds
 // real responses with the INTERNAL hook `__make_response(status, statusText,
@@ -431,6 +434,120 @@
 
   def(g, 'Blob', Blob); def(g, 'File', File); def(g, 'FileReader', FileReader);
 
+  // ---- QF3: FormData (data class only; no form reading, no submission) ----
+  // Entries live in a WeakMap: FormData -> array of [name, value], where a
+  // value is a string or a File. `new FormData(form)` never reads the form's
+  // controls (AGENTS.md forms rule): it logs once and stays empty.
+  var fdMap = new WeakMap();
+  function fdList(x) { var l = x !== null && typeof x === 'object' ? fdMap.get(x) : undefined; if (!l) throw new TypeError('Illegal invocation'); return l; }
+  // USVString: a lone surrogate becomes U+FFFD.
+  function usv(s) {
+    var out = '', n = s.length;
+    for (var i = 0; i < n; i++) {
+      var c = s.charCodeAt(i), d = i + 1 < n ? s.charCodeAt(i + 1) : 0;
+      if (c >= 0xD800 && c <= 0xDBFF && d >= 0xDC00 && d <= 0xDFFF) { out += s[i] + s[i + 1]; i++; }
+      else if (c >= 0xD800 && c <= 0xDFFF) out += '�';
+      else out += s[i];
+    }
+    return out;
+  }
+  // A Blob value becomes a File: a plain Blob gets `filename` or 'blob', a
+  // File keeps its name unless a filename is given. Anything else is a string.
+  function fdValue(value, filename) {
+    if (isBlob(value)) {
+      if (value instanceof File && filename === undefined) return value;
+      var nm = filename === undefined ? 'blob' : usv(String(filename));
+      return new File([value], nm, { type: value.type });
+    }
+    return usv(String(value));
+  }
+  function FormData(form, submitter) {
+    if (!new.target) throw new TypeError("Failed to construct 'FormData': Please use the 'new' operator, this DOM object constructor cannot be called as a function.");
+    fdMap.set(this, []);
+    if (form !== undefined && typeof g.__scratchy_err === 'function')
+      g.__scratchy_err('scratchy: js: not implemented: FormData(form) (waits for Q30e)');
+  }
+  var FP = FormData.prototype;
+  function fdArgs(n, args, name) {
+    if (args < n) throw new TypeError("Failed to execute '" + name + "' on 'FormData': " + n + ' arguments required, but only ' + args + ' present.');
+  }
+  def(FP, 'append', function append(name, value, filename) {
+    var l = fdList(this); fdArgs(2, arguments.length, 'append');
+    l.push([usv(String(name)), fdValue(value, filename)]);
+  });
+  def(FP, 'set', function set(name, value, filename) {
+    var l = fdList(this); fdArgs(2, arguments.length, 'set');
+    var n = usv(String(name)), v = fdValue(value, filename), done = false;
+    for (var i = 0; i < l.length;) {
+      if (l[i][0] !== n) { i++; continue; }
+      if (done) l.splice(i, 1);
+      else { l[i] = [n, v]; done = true; i++; }
+    }
+    if (!done) l.push([n, v]);
+  });
+  def(FP, 'delete', function (name) {
+    var l = fdList(this), n = usv(String(name)), j = 0;
+    for (var i = 0; i < l.length; i++) if (l[i][0] !== n) l[j++] = l[i];
+    l.length = j;
+  });
+  def(FP, 'get', function get(name) {
+    var l = fdList(this), n = usv(String(name));
+    for (var i = 0; i < l.length; i++) if (l[i][0] === n) return l[i][1];
+    return null;
+  });
+  def(FP, 'getAll', function getAll(name) {
+    var l = fdList(this), n = usv(String(name)), out = [];
+    for (var i = 0; i < l.length; i++) if (l[i][0] === n) out.push(l[i][1]);
+    return out;
+  });
+  def(FP, 'has', function has(name) {
+    var l = fdList(this), n = usv(String(name));
+    return l.some(function (e) { return e[0] === n; });
+  });
+  def(FP, 'forEach', function forEach(cb, thisArg) {
+    var l = fdList(this), self = this;
+    if (typeof cb !== 'function') throw new TypeError("Failed to execute 'forEach' on 'FormData': parameter 1 is not of type 'Function'.");
+    for (var i = 0; i < l.length; i++) cb.call(thisArg, l[i][1], l[i][0], self);
+  });
+  // Live iterators over the entry list, insertion order (a later append is seen).
+  function fdIter(fd, pick) {
+    var l = fdList(fd), i = 0, it = {};
+    def(it, 'next', function next() {
+      if (i < l.length) return { value: pick(l[i++]), done: false };
+      i = Infinity;
+      return { value: undefined, done: true };
+    });
+    def(it, Symbol.iterator, function () { return this; });
+    Object.defineProperty(it, Symbol.toStringTag, { value: 'FormData Iterator', configurable: true });
+    return it;
+  }
+  def(FP, 'entries', function entries() { return fdIter(this, function (e) { return [e[0], e[1]]; }); });
+  def(FP, 'keys', function keys() { return fdIter(this, function (e) { return e[0]; }); });
+  def(FP, 'values', function values() { return fdIter(this, function (e) { return e[1]; }); });
+  def(FP, Symbol.iterator, FP.entries);
+  Object.defineProperty(FP, Symbol.toStringTag, { value: 'FormData', configurable: true });
+  // Request/Response body from a FormData: multipart/form-data with a random
+  // boundary (serialisation only; formData() still parses urlencoded only).
+  function fdBody(fd) {
+    var boundary = '----scratchyBoundary' + hex(16), chunks = [], total = 0;
+    function put(u8) { chunks.push(u8); total += u8.length; }
+    function txt(s) { put(utf8(s)); }
+    function esc(s) { return s.replace(/\n/g, '%0A').replace(/\r/g, '%0D').replace(/"/g, '%22'); }
+    fdList(fd).forEach(function (e) {
+      var v = e[1];
+      txt('--' + boundary + '\r\nContent-Disposition: form-data; name="' + esc(e[0]) + '"');
+      if (typeof v === 'string') txt('\r\n\r\n' + v.replace(/\r\n|\r|\n/g, '\r\n'));
+      else {
+        txt('; filename="' + esc(v.name) + '"\r\nContent-Type: ' + (v.type || 'application/octet-stream') + '\r\n\r\n');
+        put(data(v));
+      }
+      txt('\r\n');
+    });
+    txt('--' + boundary + '--\r\n');
+    return { bytes: concat(chunks, total), type: 'multipart/form-data; boundary=' + boundary };
+  }
+  def(g, 'FormData', FormData);
+
   // ---- QF4: Headers, Request, Response (data classes, no network) ----
   var TOKEN_RE = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
   var FORBIDDEN_REQ = ['accept-charset', 'accept-encoding', 'access-control-request-headers', 'access-control-request-method', 'connection', 'content-length', 'cookie', 'cookie2', 'date', 'dnt', 'expect', 'host', 'keep-alive', 'origin', 'referer', 'set-cookie', 'te', 'trailer', 'transfer-encoding', 'upgrade', 'via'];
@@ -572,7 +689,7 @@
     if (g.URLSearchParams && x instanceof g.URLSearchParams) return newBody(utf8(x.toString()), null, 'application/x-www-form-urlencoded;charset=UTF-8');
     if (x instanceof ArrayBuffer) return newBody(new Uint8Array(x.slice(0)), null, null);
     if (ArrayBuffer.isView(x)) return newBody(new Uint8Array(x.buffer.slice(x.byteOffset, x.byteOffset + x.byteLength)), null, null);
-    if (typeof g.FormData === 'function' && x instanceof g.FormData) throw new TypeError('FormData bodies: not implemented (QF13)');
+    if (typeof g.FormData === 'function' && x instanceof g.FormData) { var mp = fdBody(x); return newBody(mp.bytes, null, mp.type); }
     if (x instanceof ReadableStream) {
       var s = rsSt(x);
       if (s.reader || s.disturbed) throw new TypeError('Response/Request body: the ReadableStream is locked or disturbed');
