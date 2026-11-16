@@ -1668,7 +1668,7 @@ Phase 2 (big enablers, after phase 1):
       background:red;transform:translateX(100%)">` paints nothing inside
       the viewport; `translate(10px,20px)` moves the paint and the hit
       test by (10,20).
-- [x] QY19 [S] (done, HASH; 0 s and <=10 s url= redirects, chain cap 3, bare N reload never; split: [ ] QY19b meta refresh for file/stdin inputs) (P3; duckduckgo with JS off) `<meta http-equiv=refresh
+- [x] QY19 [S] (done, bd86d6e; 0 s and <=10 s url= redirects, chain cap 3, bare N reload never; split: [ ] QY19b meta refresh for file/stdin inputs) (P3; duckduckgo with JS off) `<meta http-equiv=refresh
       content="N; url=...">`. Symptom: duckduckgo.com with `--no-js` is
       blank: its `<noscript>` holds `<meta http-equiv=refresh content="0;
       url=&quot;https://html.duckduckgo.com/html&quot;">` and
