@@ -70,6 +70,12 @@ READY, in recommended order (no user decision needed):
  13 QY15a [S] run-time dynamic import() through the QF7 queue.
  14 QF14b2 (a)-(c) [S] `crossorigin` credentials, same-origin-mode redirect
     hop, `cookieStore`.
+ NEW 2026-11-16 (Opus, R24/R25; block "YOUTUBE CPU BUDGET + SOCIAL VIM.JS"
+ below; the coordinator ranks them against the list above): QY21 [S]
+ (YouTube's 5 s wall: 86% of the time is QY6e's own define() scan), QY22 [S],
+ QY23 [S], QY24 [S], QY25 [S], QJ4 [M] (social.loupax.com/vim.js wall:
+ getBoundingClientRect), QJ5 [S], QJ6 [M], QJ7 [M], QJ8 [S], QJ9 [S], QW6 [S];
+ later QY26 [M], QJ10 [M], QY27 [S] re-measure. WAITING FOR USER: QJ11.
  Then P3/P4 leftovers in their blocks (QY*, QA*, Q40b/Q40c fix items).
 WAITING FOR USER (skip until answered):
 - SD-D1: OK to ship B1 (attachShadow works, JS sees a real shadow tree, but
@@ -89,6 +95,9 @@ WAITING FOR USER (skip until answered):
   until you design live state/editing/submission. Same for media.
 - QF19 WebSocket/EventSource/Workers; QY16a real localisation (ICU data?);
   persistence of jar/storage/cache (QF-D7: not now); Q26, Q32 (parked).
+- QJ11: which keys may page JS cancel? Once QJ4-QJ6 land, social.loupax.com's
+  vim.js cancels `:` `/` j k h l g G n N Enter Esc Ctrl-D/U/O/I, so scratchy's
+  own `:` command line and vim keys become unreachable on that site.
 Standing rules:
 - Acid2/Acid3 scores are information, never a merge gate.
 - WPT subset: no pass->fail; the only accepted failures are the two QA11a2
@@ -137,6 +146,231 @@ dropped selectors summed across those pages. Caveats:
 - Most of the sites the user browses require JavaScript, so they can't
   be measured yet. Re-run this measurement after Tier 1 lands, and
   re-rank if the numbers move.
+
+--- YOUTUBE CPU BUDGET + SOCIAL VIM.JS (Opus investigator, 2026-11-16) -------
+--- Evidence: REGRESSIONS.md R24 (YouTube) and R25 (social.loupax.com). ------
+--- All times are thread-CPU ms from a TEMPORARY local instrumentation of -----
+--- `JsEngine::eval` (compile-only JS_Eval, then JS_EvalFunction; every -------
+--- Rust `__*` native wrapped in a JS timer); none of it was committed. -------
+
+YouTube (kevlar_base variant, 10578 KB; youtube serves it about 2 times out
+of 3, the rest get `base_module_set`, 1184 KB, which loads in 0.2 s and
+dies on an unrelated `Symbol.iterator of undefined` at m=base:1934):
+compile 0.92-1.42 s, run 3.62 s before the trip (host 3.04 s, JS 0.59 s).
+Host = `__d_query` alone: 751 calls, 3027 ms. The budget is PER SCRIPT
+(`arm_budget` in every `eval`), but it is armed BEFORE compiling, so
+compile eats 20-28% of it. With the budget raised locally to 120 s the
+script finishes after 12.7 s of run (host 11.2 s = `__d_query` 1646 calls
+11.1 s; JS 1.6 s). Preludes cost ~45 ms compile + ~5 ms run per page;
+`getComputedStyle` 67 calls 7.6 ms; no relayout is ever triggered (JS has
+no geometry). So: not the engine, not our hooks in general, ONE hook.
+
+- [ ] QY21 [S] (P2, YouTube load wall) QY6e `define()` is quadratic. Root
+      cause: `CER.prototype.define` (js_dom.rs, QY6e f887f67) rebuilds
+      `ceSel` = every defined name joined with ',' and runs
+      `__d_query(0, ceSel)` over the whole document on EVERY define;
+      `ceScan`/`ceCollect` (run on every hooked insert/remove) use the same
+      ever-growing list. `__d_query` re-parses the list and matches every
+      element against every name: O(defines^2 x elements). YouTube defines
+      ~700 elements over 1227-1318 elements: 35 ms per late define.
+      Fix: (1) `define` queries only the new name (`ext + '[is]'` for a
+      customized built-in) - measured locally: kevlar run 12.7 s -> 1.55 s
+      (host 11.2 s -> 0.41 s), compile+run 2.9 s, the 5 s load error is GONE;
+      (2) `ceScan`/`ceCollect`: replace the selector with a native
+      `__d_ce_candidates(root)` that walks `root` once and keeps elements
+      whose local name (or `is` attribute) is in a Rust `HashSet` the
+      prelude updates on define (the remaining 325 ceScan calls cost 227 ms
+      at load and ~500 ms more in the first 5 s of timers). Do NOT cache
+      by selector string (the string changes on every define).
+      Test: define 600 names over a 1500-element document and insert 300
+      subtrees; assert `__d_query` is called O(defines) times with
+      one-name selectors (count via a test hook) and that upgrade order /
+      connectedCallback order is unchanged (existing QY6e tests pass).
+      Accept: `--js-report` on a saved kevlar_base youtube copy (R24
+      recipe) has no "exceeded the 5 s" line. Unblocks: YouTube load; any
+      Polymer/Lit page that defines many elements.
+- [ ] QY22 [S] (P2) Budget policy fixes, all measured on YouTube:
+      (a) arm the page-load budget AFTER compiling: compile with
+      `JS_EVAL_FLAG_COMPILE_ONLY`, then `JS_EvalFunction` (exactly what the
+      R24 instrumentation did; it ran fine), and log compile time apart in
+      the interrupt message (`compiled in 1.4 s, ran 3.6 s`). Compile is
+      bounded by source size (1.4 s per 10 MB here), not by page behaviour,
+      so it should not decide whether the script may run; keep a hard cap
+      (e.g. stop compiling sources > 32 MB with a clear log line) instead.
+      (b) the CASCADE: after a timer/event callback trips, `drain_jobs`
+      keeps executing the queued promise jobs under the already-expired
+      deadline, so each dies at once: a live window run logged 6684
+      `Uncaught (in promise job) InternalError: interrupted` lines in 40 s
+      (then QuickJS `out of memory` at the 256 MB limit, 4 times). Fix: one
+      log line per tripped drain (count the dropped jobs), and give
+      microtasks drained after a task one fresh CALLBACK_BUDGET of their
+      own instead of 0 ms. (c) keep CALLBACK_BUDGET = 500 ms (R8), but note
+      YouTube's two biggest timer callbacks measured 465 and 491 ms with
+      QY21(1) applied: re-measure after QY21(2) (QY27).
+      Test: a script whose promise chain of 1000 jobs follows a 600 ms busy
+      loop logs ONE interrupt line, not 1000; a 3 s compile-equivalent
+      script is not counted against the 5 s run budget (unit-test the
+      split eval with a fake clock). Unblocks: every big-bundle site.
+- [ ] QY23 [S] (P2, YouTube next error after QY21) `element.style = "..."`
+      throws `TypeError: no setter for property` in strict code (our
+      `style` accessor is getter-only; spec: [PutForwards=cssText]).
+      Polymer's `_attributeToProperty` (kevlar :8885:184) assigns
+      `this.style = <string>` from attributeChangedCallback. Fix: setter
+      that writes cssText (null -> ''). Test: `"use strict"; d.style =
+      'color: red'` sets the attribute and `d.style.color === 'red'`.
+- [ ] QY24 [S] (P2, YouTube) `classList` dies with `cannot read property
+      'split' of undefined` (prelude `classes`, called from kevlar
+      `RHo`): `classes(el)` reads `el.className`, a property pages and
+      frameworks shadow (ShadyDOM/Polymer elements); read the `class`
+      attribute through `__d_attr` instead (SVG `className` is a string
+      here today, so that is not the cause). Test: a custom element class
+      with `get className(){ return undefined; }` still supports
+      `classList.add/contains/toggle`.
+- [ ] QY25 [S] (P3, diagnostics) Custom element and MutationObserver
+      callback errors lose the message: `ceReport` (js_dom.rs) prints only
+      `e.stack`, and a QuickJS stack has no `Name: message` line, so the
+      user sees `uncaught exception in custom element callback:     at
+      <anonymous> ...`. Print `String(e)` then the stack (the R24 run did
+      exactly this to find QY23). Also the callback name is empty for
+      minified code: print the element's tag. Test: a connectedCallback
+      that throws `new TypeError('boom')` logs a line containing
+      `TypeError: boom` and the tag name.
+- [ ] QY26 [M] (P4, measured, optional) In-memory bytecode cache for big
+      scripts (key: final URL + content hash; session lifetime, no disk:
+      QF-D7). Measured on kevlar_base: `JS_WriteObject` 79 ms, the
+      bytecode is 32339 KB (3x the source), `JS_ReadObject` 79 ms and the
+      read-back function ran with 0 errors, vs 0.92-1.42 s to compile. So
+      a reload or revisit saves ~1.3 s per 10 MB, at 32 MB RAM per cached
+      script: cap the cache (e.g. 64 MB, LRU). QuickJS has no lazy
+      function compilation, so there is no cheaper first-load option short
+      of changing engines. Do only after QY21/QY22, and only if the user
+      reloads YouTube often.
+- [ ] QY27 [S] (P3) Re-measure YouTube after QY21-QY25 (live window + R24
+      `--js-report --run-timers 5000` recipe), incl. peak memory (the
+      window run hit `out of memory` at 256 MB, maybe only because of the
+      QY22(b) cascade). With QY21(1) and a 60 s callback budget locally:
+      548 timer callbacks in 5 s simulated, 96 requests (POST
+      /youtubei/v1/guide 200, ~80 icon SVGs, 6 googlevideo `videoplayback`
+      GETs: player prefetch through fetch(), not our media element), and
+      the window STILL shows only the static grey skeleton. Remaining
+      errors then: QY23 (2x), QY24 (3x), and `GET https://youtube.com/:
+      CORS: no Access-Control-Allow-Origin header` (initiator not found;
+      the app's beacons use `mode: "no-cors"` which must not be
+      CORS-checked: verify which request this is). File the next walls.
+
+social.loupax.com/discover (the user's own site; source read at
+/home/loupax/src/social, internal/web/js/vim.js): vim.js is NOT in the
+templates: egg.js (deferred, every page, guest or logged in, same scripts
+either way) does `if (!localStorage.vimOff) import("/vim.js")`, and our
+localStorage is memory-only, so vim.js always loads and `:set novim` cannot
+stick across loads. The ONE js error today: vim.js:104:63 `not a function`
+= `Element.getBoundingClientRect` does not exist (local repro: also
+`getClientRects`, `offset*`, `client*`, `scroll*`, documentElement
+`scrollHeight`, `scrollIntoView`, `Element.scroll/scrollTo/scrollBy`,
+`document.activeElement`, `elementFromPoint`, `caretPositionFromPoint`,
+`createRange`, `getSelection`, `CSS`, `Highlight`, `window.open/close`,
+`confirm`, `img.complete` are all undefined; `new Range()` throws
+NotSupportedError). With stand-ins for the first three walls (R25) the whole
+page loads with 0 errors and the vim UI works headless (j/k/G/gg/Ctrl-D/}/:tag
+picker/:feed/:help/search all respond; `:tag` reads #vimtags+#vimpagetags).
+IntersectionObserver and matchMedia are not used by any of the site's scripts.
+
+- [ ] QJ4 [M] (P2, first slice of QY-IO-GEOMETRY, no IO/RO) Geometry read
+      API: `getBoundingClientRect`/`getClientRects` (DOMRect/DOMRectList),
+      `offsetTop/Left/Width/Height/Parent`, `clientTop/Left/Width/Height`,
+      `scrollWidth/Height`, `scrollTop/Left` (getter AND setter: vim.js
+      does `helpEl.scrollTop = 0`; with a getter-only stand-in that threw
+      `no setter for property` at vim.js:1083), on documentElement too
+      (`scrollHeight` = page height, `clientHeight` = viewport).
+      DESIGN POINT (differs from QY-IO-GEOMETRY's "stale cache"): vim.js
+      measures DURING LOAD, before the App has laid the page out. A cache
+      filled only after layout would give all-zero rects at that moment,
+      so `buildGutter` makes 0 rows (`while (y < pageBottom)` with
+      pageBottom 0) and nothing fixes it until a resize. Browsers force a
+      synchronous layout on these reads; do the same: a read with a dirty
+      geometry generation runs style+layout for the current DOM at the
+      current viewport (also in `--js-report`, which today never lays out)
+      and caches until the next DOM write. Measure the cost on Wikipedia
+      (R3: layout ~1 s there) and on /discover; if a page reads geometry
+      in a write/read loop, log once per script ("N forced layouts, M ms").
+      Test: a 3-article fixture: tops strictly increase, height > 0,
+      documentElement.scrollHeight >= sum of heights, `scrollTop = 0`
+      does not throw. Accept: /discover `--js-report` past vim.js:104;
+      clamp.js no longer clamps short posts (today `b.scrollHeight` is
+      undefined, so `undefined <= n` is false and ALL 17/17 posts get
+      `max-height: 210px` + a "Read more" button: seen in the window).
+      Unblocks: social.loupax.com (vim.js gutter, clamp.js), lists.js
+      move, and any page that measures itself.
+- [ ] QJ5 [S] (P2, after QJ4) `Element.scrollIntoView(arg)`
+      (`{block: start|center|end|nearest}`, boolean) as a QB5 window
+      scroll request to the element's QJ4 rect. vim.js:260 `placeLine`
+      calls it on every cursor move (second wall, found with a QJ4
+      stand-in); embed.js's Ctrl+P playlist calls it too. Test: fixture
+      with a far-down element; after the call the QB5 request names its
+      top (center: top - (viewport - height)/2).
+- [ ] QJ6 [M] (P3, after QJ4) Element scrolling: `el.scroll/scrollTo/
+      scrollBy`, `scrollTop/Left` setters on overflow:auto/scroll boxes,
+      wired to the App's per-box scroll regions (the ones wheel scrolling
+      already picks). vim.js's :help buffer (#vimhelp, position:fixed,
+      overflow:auto) scrolls ONLY this way (j/k/Ctrl-D/U/gg/G in help).
+      Test: overflow box fixture, `scrollBy(0, 50)` moves its content
+      50 px in paint and reads back `scrollTop === 50`.
+- [ ] QJ7 [M] (P3, first slice of QA19) `new Range()`/`document.createRange`
+      with boundary points only (`setStart/setEnd/selectNodeContents/
+      collapse`, `startContainer/Offset`...) plus `getClientRects/
+      getBoundingClientRect` of the covered text runs from QJ4's layout; no
+      mutation fixups, no extract/clone (rest of QA19 unchanged). Third
+      vim.js wall (vim.js:309 `computeLineChars`, called by `go(0)` at
+      load): it measures EVERY character of the current line with a
+      one-character Range, so per-call cost matters: measure it (a long
+      line is ~80 calls). Test: a Range over "abc" in a 3-char text node:
+      3 one-char rects left to right, same top. NOTE: with fake geometry
+      the `w`/`e`/`b` word motions exceeded the 500 ms callback budget
+      (they call lineChars for many lines, each walking all text nodes):
+      re-test with real geometry before blaming the page.
+- [ ] QJ8 [S] (P3) `document.activeElement` (+ `document.hasFocus()`): the
+      App already tracks focus (`interaction.focus`); expose it (body when
+      none). vim.js's `line.focus()` then `document.activeElement === line`
+      is false today (undefined). Test: `i.focus(); document.activeElement
+      === i`, after `blur()` it is body.
+- [ ] QJ9 [S] (P3) `window.open(url, target)` and `window.close()`: no tabs,
+      so `open` navigates the current page (through QF11) or logs `not
+      implemented` and returns null; `close` logs and does nothing. vim.js
+      Enter on a post calls `window.open(href, "_blank", "noopener")`;
+      `:q!` calls `window.close()`; both are `not a function` today. Also
+      `alert/confirm/prompt` as log-and-return (`confirm` -> false, forms
+      placeholder rule; confirm.js uses it on submit only).
+      Test: `typeof window.open === 'function'`, the call logs one line.
+- [ ] QJ10 [M] (P4, after QJ7) CSS Custom Highlight API: `CSS.highlights`
+      (maplike), `Highlight` (setlike of Ranges), `::highlight(name)`
+      parsed and painted (background-color/color only) over the ranges'
+      text runs. vim.js feature-detects it, so today there is no error,
+      but its cursor (`cursor` highlight) and search hits (`find`) are
+      invisible; layout.html styles both. Also `caretPositionFromPoint`
+      (click-to-move-cursor; feature-detected, silently does nothing).
+- [ ] QW6 [S] (P2, CSS, visible on the user's site) The canvas background
+      does not come from `<body>`: CSS backgrounds 3 2.11.2 says when the
+      root element has no background, the body's background paints the
+      whole canvas. social.loupax.com's catppuccin theme sets
+      `html.vim.catppuccin body { background: #1e1e2e }` and the page
+      shows a dark 40rem column between white margins (window screenshot).
+      Repro: `<body style="background:#123;max-width:300px;margin:40px
+      auto">` paints only the body box today. Test: canvas pixel at (5,5)
+      has the body's color; with `html{background:red}` it stays red.
+- [ ] QJ11 WAITING FOR USER (design first) Page key handlers vs scratchy's
+      own keys. `js_key` (app.rs) gives the page every keydown first and
+      lets it cancel; only scratchy's own `:` command-line mode is exempt.
+      Once QJ4-QJ6 land, vim.js (document keydown, vim.js:1213) cancels
+      `:` `/` h j k l g G n N w b e 0 ^ $ { } * # Enter Esc and Ctrl-D/U/O/I,
+      so on social.loupax.com scratchy's `:` command line, `:go`, `:q` and
+      its own vim scrolling are unreachable. Also the page's own `:` line
+      is an `<input>`, and typing into inputs is forms-off-limits, so
+      `:Tag` cannot be TYPED (clicking the `:tag` link at the top of the
+      page opens the same picker without typing, and j/k/Enter/Esc work
+      in it). Options: (a) a reserved chord the page never sees (e.g.
+      Ctrl-`:` or Esc Esc) that opens scratchy's command line; (b) a
+      per-site "page keys off" toggle; (c) scratchy wins for a fixed key
+      set (breaks vim.js by design). Recommendation: (a).
 
 --- DESIGN MEMO (QSD): Shadow DOM, <template> content, GitHub's module wall --
 --- (Opus investigator, 2026-11-16; supersedes the QY6 memo's "no measured --
@@ -2883,7 +3117,9 @@ Read REGRESSIONS.md "R20" before starting any QY item. Short version:
         Node`, QY6a note); youtube does not reach IO. The other 6 pages:
         0 errors; bbc has the pre-existing timer-phase `Route did not
         complete loading: /_error`.
-      - [ ] QY-IO-GEOMETRY [L] the geometry bridge. Today JS cannot see
+      - [ ] QY-IO-GEOMETRY [L] (2026-11-16: first slice split out as QJ4,
+        then QJ5/QJ6/QJ7; QJ4 replaces the "stale cache" read below with a
+        forced synchronous layout, see why there) the geometry bridge. Today JS cannot see
         layout: `getBoundingClientRect/getClientRects`, `offsetWidth/Height/
         Left/Top/Parent`, `clientWidth/Height`, `scrollWidth/Height`,
         `scrollTop` and the window's real size/scroll (Q33b2) do not exist

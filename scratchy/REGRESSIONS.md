@@ -1,5 +1,111 @@
 # scratchy — regressions
 
+## R24: YouTube's 5 s CPU wall is QY6e's own `define()` scan (Opus investigator, 2026-11-16) — OPEN, items QY21-QY27 in TODO.txt
+
+**Status: open (perf bug introduced by QY6e f887f67, plus budget-policy
+gaps).** User report: `js error: ...k=ytmainappweb.kevlar_base...
+stopped: exceeded the 5 s CPU-time page-load budget (10578 KB of source)`.
+
+How it was measured (reusable; nothing committed):
+- Page: `curl --unix-socket $(wire --print-socket) --request-target
+  https://www.youtube.com/ http://x/` with `X-Wire-Jar: <own name>` (do
+  not use the user's `scratchy` jar). YouTube A/B-serves two front ends:
+  2 of 3 fetches got `kevlar_base` (10578 KB, the user's), 1 got
+  `base_module_set` (1184 KB; loads in 0.2 s, dies on `Symbol.iterator of
+  undefined` at m=base:1934:36). Saved copy with `<base
+  href="https://www.youtube.com/">` after `<head>`, run with
+  `scratchy --js-report --socket ... [--run-timers 5000] copy.html`.
+- Temporary instrumentation in the worktree, reverted after: in
+  `JsEngine::eval`, `JS_Eval(.., JS_EVAL_FLAG_COMPILE_ONLY)` then
+  `JS_EvalFunction`, thread-CPU time around each; every global Rust native
+  (`__d_*`, `__url_*`, `__cookie_*`, ...) re-wrapped in JS with a
+  `thread_cpu_nanos` timer (per-native and per-selector totals); env
+  overrides for SCRIPT_BUDGET / CALLBACK_BUDGET; per-timer-callback time.
+  No perf/gdb on the box (eu-stack exists but ptrace_scope=1).
+
+Numbers (thread CPU, load average 1-2, one run each unless noted):
+
+| run | compile | run | host (natives) | JS | result |
+|---|---|---|---|---|---|
+| main, 5 s budget | 1418 ms | 3623 ms | 3036 ms (`__d_query` 751 calls 3027 ms) | 588 ms | trips at 5 s |
+| main, budget 120 s | 1400 ms | 12748 ms | 11155 ms (`__d_query` 1646 calls 11109 ms) | 1592 ms | completes; 21 s wall for the report |
+| define() queries only the new name, 5 s | 1390 ms | 1550 ms | 411 ms (`__d_query` 367 ms, 325 ceScan calls 227 ms) | 1139 ms | NO load error |
+| same, bytecode round trip | 920 ms (+79 write +79 read) | 980 ms | 259 ms | 721 ms | bytecode 32339 KB, ran fine |
+
+Every slow query had the same selector: all defined names joined with ','
+(`dom-module,array-selector,custom-style,dom-bind,dom-if,dom-repeat,
+iron-a11y-keys,...`), from `CER.prototype.define` (`ceSel`), and later
+`ceScan`/`ceCollect`. 1227 elements at load, 1318 after kevlar, 1741 after
+5 s of timers. Preludes: ~45 ms compile + ~5 ms run per page. getComputedStyle
+(`__d_cs`) 67 calls 7.6 ms. No forced layouts exist (no geometry API).
+
+After the define fix, timer phase (`--run-timers 5000`): 7 callbacks over
+20 ms, the two biggest 465 and 491 ms (CALLBACK_BUDGET is 500 ms), so a
+few trip; in a live window (`tools/nest.sh`) the trip then CASCADES: 6684
+`Uncaught (in promise job) InternalError: interrupted` lines in 40 s
+(`drain_jobs` keeps running queued jobs under the expired deadline), plus 4
+`out of memory` (256 MB). With CALLBACK_BUDGET raised to 60 s locally: 548
+callbacks, 96 requests (POST /youtubei/v1/guide 200, icon SVGs, 6
+googlevideo `videoplayback` fetches), errors left: `no setter for property`
+(Polymer assigns `this.style = "..."`, kevlar :8885:184; found only after
+making `ceReport` print the message), `cannot read property 'split' of
+undefined` in our classList `classes()`, one CORS-blocked `GET
+https://youtube.com/`. The window still shows only the grey skeleton
+(screenshot viewed: two grey thumbnail boxes with grey text bars).
+
+## R25: social.loupax.com/discover: vim.js dies on getBoundingClientRect; clamp.js clamps every post; body background not on canvas (Opus investigator, 2026-11-16) — OPEN, items QJ4-QJ11, QW6 in TODO.txt
+
+**Status: open (missing features, not regressions).** User report:
+`Uncaught (in promise) TypeError: not a function at vim.js:104:63 (map,
+buildGutter vim.js:104:26, called at vim.js:176:1)`. Column 63 is
+`.getBoundingClientRect()`: `Element.prototype.getBoundingClientRect` does
+not exist (`querySelector` on `<article>` works).
+
+How: `curl` of /discover through wire (logged-out HTML; in the window the
+site gives scratchy's jar a guest account, same scripts), copy with
+`<base href>`, `--js-report --run-timers 5000`; a local fixture probing
+`typeof` of every API the site's 9 scripts use; then stand-in levels as
+inline scripts after `<base>` (scratchpad only): (1) fake geometry on
+Element.prototype (gBCR, getClientRects, offset*/client*/scroll*,
+documentElement.scrollHeight), (2) no-op `scrollIntoView`, (3) a minimal
+Range (setStart/setEnd/selectNodeContents/getClientRects/gBCR); then
+synthetic `KeyboardEvent` keydowns dispatched from a timer.
+
+Errors, today (clean build): exactly 1, vim.js:104:63 above. Other
+scripts load with 0 errors, but clamp.js silently clamps 17/17 posts
+(`b.scrollHeight` undefined), seen in the window as a "Read more" button
+under every post, even 3-line ones. Behind the first wall: level 1 ->
+`not a function` vim.js:260:29 (`scrollIntoView` in `placeLine`); level 2
+-> `NotSupportedError: Range is not implemented` vim.js:309
+(`computeLineChars`); level 3 -> 0 errors, load completes, gutter 148
+rows (fake geometry), #vimbar/#vimgutter present. Keys (headless): j, j,
+l, G, gg, Ctrl-D, }, n, `:`+"tag"+Enter (picker listed the tags), j, Esc,
+`/`+search, `:feed` ("No feeds yet" for the guest), `:help` (opened;
+with getter-only stand-in `scrollTop` it threw `no setter for property`
+at vim.js:1083), Esc: all handled and preventDefault'ed. Not reached /
+undefined: `window.open` (Enter on a post), `window.close` (`:q!`),
+`Element.scrollBy` (help j/k), `document.activeElement` (undefined; after
+`line.focus()` it is still undefined), `CSS.highlights`/`Highlight` and
+`caretPositionFromPoint` (feature-detected: no error, but the cursor and
+search highlights are invisible), `confirm` (submit only),
+`PublicKeyCredential` (passkey forms only; handled message).
+IntersectionObserver and matchMedia: not used by the site's scripts.
+`w`/`e`/`b` exceeded the 500 ms callback budget with fake geometry (not
+conclusive, re-test with QJ4/QJ7).
+
+How vim.js is included: not in any template; `egg.js` (deferred, in the
+layout, so every page, guest or logged in) runs `if
+(!localStorage.vimOff) import("/vim.js")`. localStorage is memory-only
+(QF-D7), so vim.js loads on every visit and `:set novim` never persists.
+
+Visual (window, `tools/nest.sh`, screenshot viewed): header and nav links
+run together (QW4), the hidden `#vimpagetags` tag list shows (QW5), every
+post has "Read more", the page is a dark 40rem column between WHITE side
+margins: the body background (`html.vim.catppuccin body {background:
+#1e1e2e}`) is not propagated to the canvas (QW6; reproduced with a
+one-line fixture), and an empty dark #vimbar strip at the bottom (its text
+is set by `normal()`, which never runs).
+
 ## R23: Shadow DOM / template.content survey and design evidence (Opus investigator, 2026-11-16) — EVIDENCE for the TODO.txt "DESIGN MEMO (QSD)" block
 
 **Status (audit 2026-11-16): partly outdated.** Since this was measured,
