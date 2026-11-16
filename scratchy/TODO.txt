@@ -617,7 +617,7 @@ Items (in order):
 - [ ] QSD2b [S] READY `Node.prototype.lookupNamespaceURI(prefix)`/
       `lookupPrefix`/`isDefaultNamespace` (left out of QSD2: need the
       xmlns attribute walk and the element's namespace/prefix natives).
-- [x] QSD3 [M] (HASH) READY (SD-D1 answered YES 2026-11-16) B1: real ShadowRoot,
+- [x] QSD3 [M] (49c65a4) READY (SD-D1 answered YES 2026-11-16) B1: real ShadowRoot,
       not rendered. `Element.attachShadow({mode, delegatesFocus,
       slotAssignment, clonable, serializable})`: valid hosts only (custom
       names + article aside blockquote body div footer h1-h6 header main
