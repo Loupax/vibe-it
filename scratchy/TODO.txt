@@ -981,7 +981,14 @@ Phase 1 (each S, independent; do in this order):
       === 'function'`, `new FocusEvent('focus') instanceof Event`,
       `frag.children.length`. Re-run YouTube `--js-report`: the
       `webcomponents-sd.js` error must now be `MutationObserver` only.
-- [ ] QY13 [S] (P3; yt, ddg, bbc) Small spec-faithful globals:
+- [x] QY13 [S] (P3; yt, ddg, bbc) HASH_QY13: done in src/globals_prelude.js
+      (pure JS): history (JS-side entry list, pushState/replaceState update
+      location + document.URL, back/forward/go async with popstate, no App
+      navigation), AbortController/Signal, MessageChannel/postMessage,
+      requestIdleCallback, in-memory Storage, structuredClone,
+      queueMicrotask, reportError. Filed QY13a (persistence) below.
+      Original spec:
+      Small spec-faithful globals:
       `AbortController`/`AbortSignal` (EventTarget; `abort(reason)` sets
       `aborted`/`reason`, fires `abort` once; `AbortSignal.abort()`,
       `.timeout(ms)` via the timer table, `.any()`, `throwIfAborted`);
@@ -999,6 +1006,11 @@ Phase 1 (each S, independent; do in this order):
       (AbortController fires once; postMessage arrives after the current
       script, before a 10 ms timeout; storage survives across scripts of
       the same page; pushState changes `history.length`).
+- [ ] QY13a [S] (PRODUCT DECISION, user) Persist `localStorage` to disk?
+      QY13 keeps it in memory per engine, lost on exit and not shared
+      between tabs/pages. Persisting needs a per-origin store location,
+      size limits and a privacy stance; also `history.back/forward` could
+      ask the App to navigate (`JsRequests.nav`) instead of staying JS-side.
 - [ ] QY14 [S] (P2, diagnostics; needed to measure everything above)
       (1) `drain_jobs` (js.rs) logs `Uncaught exception in a promise job`
       with no message: fetch the pending exception (`ctx.catch()`) and log

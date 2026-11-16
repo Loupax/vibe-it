@@ -10978,11 +10978,13 @@ fn qy12_media_interfaces_are_inert_placeholders() {
     assert!(out.iter().any(|l| l == "log:true true true function function true"), "{out:?}");
     assert!(out.iter().filter(|l| l.starts_with("error:") && l.contains("not implemented")).count() >= 3, "{out:?}");
     assert!(out.iter().any(|l| l == "log:rejected NotSupportedError"), "{out:?}");
+}
 
 // ---------- QY13: history, AbortController, MessageChannel, storage, ... ----------
 
 #[test]
 fn qy13_history_push_replace() {
+    set_page_url(Url::parse("https://page.test/dir/index.html").ok().as_ref());
     let log = run_with_timers(
         "var n0=history.length; history.pushState({a:1},'','/p?q=1#h');\
          console.log(n0, history.length, JSON.stringify(history.state), location.pathname, location.search, location.hash, document.URL.indexOf('/p?q=1#h')>0);\
@@ -10990,7 +10992,8 @@ fn qy13_history_push_replace() {
          window.addEventListener('popstate', function(e){ console.log('pop', e.state, location.pathname); });\
          history.back();",
     );
-    assert_eq!(log, ["log:1 2 {\"a\":1} /p ?q=1 #h true", "log:2 2 /r auto", "log:pop null /"], "{log:?}");
+    assert_eq!(log, ["log:1 2 {\"a\":1} /p ?q=1 #h true", "log:2 2 /r auto", "log:pop null /dir/index.html"], "{log:?}");
+    set_page_url(None);
 }
 
 #[test]

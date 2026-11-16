@@ -94,15 +94,7 @@
   def(AbortController.prototype, 'abort', function (reason) { fire(this.signal, reason); });
 
   // ---- MessageEvent / MessageChannel / MessagePort / window.postMessage ----
-  var MessageEvent = sub('MessageEvent', g.Event, function (type, init) {
-    g.Event.call(this, type, init);
-    init = init || {};
-    this.data = init.data === undefined ? null : init.data;
-    this.origin = init.origin === undefined ? '' : String(init.origin);
-    this.lastEventId = init.lastEventId === undefined ? '' : String(init.lastEventId);
-    this.source = init.source === undefined ? null : init.source;
-    this.ports = init.ports ? Array.prototype.slice.call(init.ports) : [];
-  });
+  var MessageEvent = g.MessageEvent; // defined by the main prelude (QY12)
   var PTOKEN = {};
   var MessagePort = sub('MessagePort', ET, function (tok) {
     if (tok !== PTOKEN) throw new TypeError('Illegal constructor');
@@ -203,6 +195,7 @@
   var loc = g.location, doc = g.document;
   var entries = [{ state: null, href: loc.href }], idx = 0, scrollRestoration = 'auto';
   function apply(href) {
+    if (!href) return; // no page URL (fixtures): nothing to mirror
     var u = new g.URL(href);
     loc.href = u.href; loc.protocol = u.protocol; loc.host = u.host; loc.hostname = u.hostname;
     loc.port = u.port; loc.pathname = u.pathname; loc.search = u.search; loc.hash = u.hash; loc.origin = u.origin;
@@ -236,18 +229,6 @@
     entries[idx] = { state: clone(state), href: href };
     apply(href);
   });
-  sub('PopStateEvent', g.Event, function (type, init) {
-    g.Event.call(this, type, init);
-    this.state = init && init.state !== undefined ? init.state : null;
-  });
-  if (typeof g.HashChangeEvent !== 'function') {
-    sub('HashChangeEvent', g.Event, function (type, init) {
-      g.Event.call(this, type, init);
-      init = init || {};
-      this.oldURL = init.oldURL === undefined ? '' : String(init.oldURL);
-      this.newURL = init.newURL === undefined ? '' : String(init.newURL);
-    });
-  }
   def(H, 'go', function (n) {
     n = Number(n) || 0;
     var to = idx + n;
