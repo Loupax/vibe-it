@@ -3366,3 +3366,7 @@ A border with a style but no width is `medium` (3px); `thin/medium/thick` are 1/
 ## QY6f: template.content
 
 html5ever fills `template_contents` (a Document-data node = kind 11 fragment); `template_content(h)` creates it on demand. `__d_template_content(id)` exposes it; the JS `content` getter maps it to ONE lazily made inert document (`makeDoc`, via `owners`), so ownerDocument is inert and custom elements in it are never upgraded (ceIsConn is false, and the cloneNode hook skips non-main documents). rcdom serializes only `children`, so `serialize_node` is our own walk that prints template content. innerHTML set parses into the content; deep clone copies it. appendChild on the template element itself still adds ordinary children (hidden by `template { display:none }`). Not done: shadowrootmode (QSD3/9).
+
+## QSD1: document.domain
+
+Getter is the location hostname. Setter accepts the same value or a dot-boundary suffix with at least one dot (no public suffix list: "co.uk" passes, "com" does not), remembers it for the getter, otherwise throws SecurityError. No origin relaxation happens. Document ParentNode accessors and getElementsByName live on the main `doc` object; created documents inherit them.

@@ -6891,3 +6891,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Implement template.content (inert second document, parser content wired, innerHTML/outerHTML/cloneNode go through it), document.importNode/adoptNode, template UA display:none; GitHub task-lists and YouTube head.appendChild(template.content) must stop throwing.
 
 **What changed:** src/js_dom.rs (template_content helper, own serializer printing template content, set_inner_html and clone_node via content, __d_template_content native, HTMLTemplateElement.content getter with one lazy inert document, doc.importNode/adoptNode, cloneNode keeps the node document and inert clones are never upgraded), src/default.css (template display:none), tests qy6f_* in src/tests.rs; NOTES.md; TODO.txt.
+
+## Document domain, ParentNode, getElementsByName (QSD1)
+
+> Implement QSD1: document.domain (getter hostname, spec-shaped setter), Document as ParentNode, getElementsByName on the main document.
+
+**What changed:** src/js_dom.rs (doc accessors children/firstElementChild/lastElementChild/childElementCount copied from Element, doc.getElementsByName, doc.domain with SecurityError DOMException setter), test qsd1_document_domain_and_parent_node in src/tests.rs; NOTES.md; TODO.txt.

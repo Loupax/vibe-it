@@ -243,7 +243,7 @@ Items (in order):
       Payoff (measured with a stand-in): github's 3 module entries (4 on a
       repo page) get past f18 223:27350; youtube gets past kevlar_base
       10725:29 (next: 5 s CPU page-load budget).
-- [ ] QSD1 [S] READY Document gaps github's modules hit right after
+- [x] QSD1 [S] (HASH) READY Document gaps github's modules hit right after
       QY6f/QSD0 (measured in this order): `document.domain` (getter =
       the document URL's host, `""` for about:blank/file; setter throws
       SecurityError, no domain relaxation), Document as ParentNode

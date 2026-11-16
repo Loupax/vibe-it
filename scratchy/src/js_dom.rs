@@ -1829,6 +1829,29 @@ const DOM_PRELUDE: &str = r#"
   def(doc, 'childNodes', Object.getOwnPropertyDescriptor(NodeProto, 'childNodes').get);
   doc.getElementById = function (id) { return wrap(__d_byid(String(id), this.__id)); };
   def(doc, 'documentElement', function () { return wrap(__d_special(0, this.__id)); });
+  // QSD1: Document as ParentNode (same accessors as Element/DocumentFragment).
+  ['children', 'firstElementChild', 'lastElementChild', 'childElementCount'].forEach(function (k) {
+    Object.defineProperty(doc, k, Object.getOwnPropertyDescriptor(ElementProto, k));
+  });
+  doc.getElementsByName = function (n) { return wrapAll(q(this.__id, '[name="' + String(n).replace(/["\\]/g, '\\$&') + '"]', false)); };
+  // QSD1: `document.domain`. The getter is the page's hostname ('' for an
+  // opaque origin). The setter follows the spec's shape: the same value or a
+  // dot-boundary suffix of it that is not a single label (no public suffix
+  // list: "com" is refused, "co.uk" is not) is accepted and remembered,
+  // anything else throws SecurityError. Origins are not actually relaxed.
+  var domainOv = null;
+  var isIpHost = function (h) { return /^[0-9.]+$/.test(h) || h.indexOf(':') >= 0 || h.charAt(0) === '['; };
+  Object.defineProperty(doc, 'domain', { configurable: true, enumerable: true,
+    get: function () { return domainOv !== null ? domainOv : (g.location && g.location.hostname) || ''; },
+    set: function (v) {
+      var cur = (g.location && g.location.hostname) || '', val = String(v).toLowerCase().replace(/\.$/, '');
+      if (cur === '') throw herr("Failed to set the 'domain' property on 'Document': Assignment is only allowed for documents with a tuple origin.", 'SecurityError');
+      var eff = this.domain;
+      var ok = val === eff || val === cur ||
+        (!isIpHost(cur) && val.indexOf('.') > 0 && (cur === val || cur.slice(-val.length - 1) === '.' + val));
+      if (!ok) throw herr("Failed to set the 'domain' property on 'Document': '" + String(v) + "' is not a suffix of '" + cur + "'.", 'SecurityError');
+      domainOv = val;
+    } });
   // QB8: `document.currentScript`: the executing classic <script>, else null.
   var curScript = null;
   var wlast = -1;
