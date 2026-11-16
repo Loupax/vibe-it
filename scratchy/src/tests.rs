@@ -7779,7 +7779,6 @@ fn q48_y_of(html: &str, h: f32) -> f32 {
 }
 
 #[test]
-#[ignore = "Q48b: needs margins to collapse through empty blocks (sibling rule is Q48a, done)"]
 fn margin_collapses_through_empty_auto_block() {
     let y = q48_y_of(
         r#"<html><body style="margin:0"><div style="height:10px"></div><div style="margin-bottom:50px"></div><div></div><div style="margin-top:30px;height:77px"></div></body></html>"#,
@@ -7789,7 +7788,6 @@ fn margin_collapses_through_empty_auto_block() {
 }
 
 #[test]
-#[ignore = "Q48b: needs margins to collapse through empty blocks (sibling rule is Q48a, done)"]
 fn margin_collapses_through_zero_height_block() {
     let y = q48_y_of(
         r#"<html><body style="margin:0"><div style="height:10px"></div><div style="margin-bottom:50px"></div><div style="height:0"></div><div style="margin-top:30px;height:77px"></div></body></html>"#,
@@ -7799,7 +7797,6 @@ fn margin_collapses_through_zero_height_block() {
 }
 
 #[test]
-#[ignore = "Q48b: needs margins to collapse through empty blocks (sibling rule is Q48a, done)"]
 fn margin_collapses_through_empty_block_own_margins() {
     // 20, 40, 10, 30 collapse to 40.
     let y = q48_y_of(
@@ -7807,6 +7804,27 @@ fn margin_collapses_through_empty_block_own_margins() {
         77.0,
     );
     assert_eq!(y, 50.0);
+}
+
+#[test]
+fn margin_collapse_through_mixed_signs_combines_max_pos_and_min_neg() {
+    // Acid2 .empty: 75, -72, 75 collapse to 75 + -72 = 3 (not 78).
+    let y = q48_y_of(
+        r#"<html><body style="margin:0"><div style="height:10px"></div><div style="margin:75px 0 -72px"></div><div style="margin-top:75px;height:77px"></div></body></html>"#,
+        77.0,
+    );
+    assert_eq!(y, 13.0);
+}
+
+#[test]
+fn clearance_prevents_collapse_through_empty_block() {
+    // A cleared empty block is not collapsed through: its margins stay
+    // separate from the next sibling's.
+    let y = q48_y_of(
+        r#"<html><body style="margin:0"><div style="float:left;height:50px;width:10px"></div><div style="clear:left;margin-bottom:20px"></div><div style="margin-top:30px;height:77px"></div></body></html>"#,
+        77.0,
+    );
+    assert_eq!(y, 80.0);
 }
 
 #[test]

@@ -60,7 +60,7 @@ PASS css/CSS2/box-display/block-in-inline-margin-with-line-break-then-block-in-i
 PASS css/CSS2/box-display/block-in-inline-margin-with-text-then-block-in-inline.html
 PASS css/CSS2/box-display/block-in-inline-negative-margin-with-intervening-float.html
 FAIL css/CSS2/box-display/block-in-inline-relpos-001.xht
-FAIL css/CSS2/box-display/block-in-inline-self-collapsing-only-child.html
+PASS css/CSS2/box-display/block-in-inline-self-collapsing-only-child.html
 PASS css/CSS2/box-display/block-in-inline-vertical-margins-on-span-ignored.html
 PASS css/CSS2/box-display/containing-block-001.xht
 PASS css/CSS2/box-display/containing-block-002.xht

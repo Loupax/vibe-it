@@ -6588,6 +6588,12 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Diagnose with evidence why the Q35a-loaded vote-arrow GIFs on news.ycombinator.com overlap the story titles; fix the smallest root cause.
 
 **What changed:** root cause in layout.rs `natural_width_impl`: HN's arrow is an *empty block* `div.votearrow{width:10px;margin:3px 2px}` inside `<td><center><a>`; a definite `width` counted toward a parent's intrinsic width only for floats, so the vote column measured 6px (margins only) and the 10px arrow overflowed into the title cell. Now an empty (zero natural width) plain block child also contributes its definite width. Non-empty plain blocks stay excluded (WPT fit-content-max-inline-size; `max-width: fit-content` is unparsed). Test `hn_vote_arrow_div_in_center_anchor_gets_its_own_column_wide_enough` (column was w=6 before the fix). WPT: 2 newly passing (margin-applies-to-013, abspos-auto-sizing-fit-content-percentage-001), no regressions.
+
+## QA11 margins collapse through empty blocks
+
+> Implement QA11 (Q48b then Q74): CSS 2.1 8.3.1 margins collapse through empty blocks, positive+negative as max(pos)+min(neg), disabled by clearance; verify Acid2 smile and real pages.
+
+**What changed:** layout.rs `measure_inner` Blocks loop: the pending margin is now a set `(largest positive, most negative)` (`margin_join`, `margin_overlap`) instead of one number, so 75, -72, 75 gives 3 (sequential pairwise collapse gave 78). An empty in-flow block (display:block, not a BFC root, border-box height 0, no laid children, not displaced by clearance/float avoidance) adds both its own margins to the set and leaves the cursor at base + sum(set). Tests `margin_collapses_through_*` un-ignored, plus `margin_collapse_through_mixed_signs_combines_max_pos_and_min_neg`, `clearance_prevents_collapse_through_empty_block`. Q74 turned out to be Q48d. WPT: block-in-inline-self-collapsing-only-child newly passes, but 3 absolute-replaced-height tests regress because they only passed through cancelling border-width bugs; branch left unmerged, see TODO.txt QA11a.
 ## QA10 anonymous table objects (CSS 2.1 17.2.1)
 
 > Implement QA10 (promotes Q50a): anonymous table cells/rows/tables for `display:table-cell` with no row, `display:table-row` outside a table (Acid2 line 14). Wrap runs of cells in an anonymous row, rows in an anonymous table, at tree-building time; keep real tables unchanged; do the safe subset and split the rest.
@@ -6873,3 +6879,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > GitHub popover polyfill makes DocumentFragment.prototype.querySelectorAll read-only; wrap() then assigns it onto each fragment wrapper and throws in strict mode. Define the query methods once on the prototype; test that freezing/overriding it does not break fragment wrappers.
 
 **What changed:** src/js_dom.rs (wrap no longer calls queries(o); queries(DocumentFragment.prototype) once), test qsd0_readonly_fragment_query_methods_do_not_break_wrappers in src/tests.rs; TODO.txt, NOTES.md.
+
+## QA11 merge (PR #162, after QA11a/PR #167)
+
+> Merge PR #162 once QA11a landed: merge origin/main, rerun cargo test and WPT, visual check.
+
+**What changed:** TODO/PROMPTS conflicts resolved keeping both sides; QA11, Q48b, Q74 ticked. Full `cargo test` 680 passed, 2 ignored. WPT pass 270 fail 272, no change from wpt-expected.txt (absolute-replaced-height-009/-016/-022 pass again; block-in-inline-self-collapsing-only-child passes). en.wikipedia Main_Page header/cards shift up ~24px; HN, lobste.rs, guardian, bbc, wikipedia.org, duckduckgo, github otherwise identical (live-content differences only).
