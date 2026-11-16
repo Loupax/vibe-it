@@ -975,6 +975,7 @@ pub(crate) fn apply_first_line_split(items: &[InlineItem], end: usize, fl: &Firs
                 out.push(InlineItem::Image { image: image.clone(), style: *style, background_image: background_image.clone() });
             }
             InlineItem::Embedded(_) => return items_clone_fallback(items),
+            InlineItem::Spacer { w, pad_w, bg, start } => out.push(InlineItem::Spacer { w: *w, pad_w: *pad_w, bg: *bg, start: *start }),
         }
     }
     out
@@ -1804,6 +1805,17 @@ pub(crate) fn collect_real_nodes(
                     } else {
                         style.vertical_align
                     };
+                    // QW4: horizontal margin/padding/border of a non-replaced
+                    // inline element advance the line before and after its
+                    // content (first/last fragment only, as in CSS).
+                    let start_pad = style.padding.left.px() + style.border_left();
+                    let end_pad = style.padding.right.px() + style.border_width[1];
+                    let start_w = style.margin.left.px() + start_pad;
+                    let end_w = style.margin.right.px() + end_pad;
+                    let own_bg = style.background_color;
+                    if start_w > 0.0 {
+                        pending.push(InlineItem::Spacer { w: start_w, pad_w: start_pad, bg: own_bg, start: true });
+                    }
                     collect_children(
                         child,
                         rules,
@@ -1817,6 +1829,9 @@ pub(crate) fn collect_real_nodes(
                         viewport_width,
                         image_cache,
                     );
+                    if end_w > 0.0 {
+                        pending.push(InlineItem::Spacer { w: end_w, pad_w: end_pad, bg: own_bg, start: false });
+                    }
                 }
             }
             _ => {}

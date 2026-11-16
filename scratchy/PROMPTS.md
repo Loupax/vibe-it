@@ -6956,3 +6956,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Investigator only (docs). (1) youtube.com: `kevlar_base ... stopped: exceeded the 5 s CPU-time page-load budget (10578 KB)`; find where the CPU goes (parse/compile/execute/host calls, per script and total), whether the budget is per script, try a longer budget locally, and file ranked, sized items with timings. (2) social.loupax.com/discover: `TypeError: not a function at vim.js:104:63`; find the missing call with a local fixture and the real page, list every error/warning of vim.js and the site's other scripts, how vim.js is included, and whether the vim UI becomes usable (keys reaching page handlers).
 
 **What changed:** TODO.txt (new block "YOUTUBE CPU BUDGET + SOCIAL VIM.JS": QY21-QY27, QJ4-QJ11, QW6; CURRENT STATUS lines; pointer from QY-IO-GEOMETRY), REGRESSIONS.md (R24 YouTube evidence and timings, R25 social site evidence). No source change committed: the timing instrumentation (compile-only eval split, JS-wrapped natives, budget env overrides) was local and reverted.
+
+## QW4: horizontal margin/padding/border on inline elements (2026-11-16)
+
+> Horizontal margin and padding on non-replaced INLINE elements are ignored, so adjacent inline links run together (social.loupax.com nav/tags). Add the element's own margin/padding/border width to the line advance before and after its content; a margin on a nowrap inline must not allow a break inside it.
+
+**What changed:** src/layout.rs (`InlineItem::Spacer`, `Measured::Spacer`: start spacer wraps with the following content, end spacer never wraps away from the preceding content; padding/border part paints the element background), src/images.rs (`collect_real_nodes` pushes spacers around a plain inline element's children; `items_clone_fallback` copy), tests `qw4_*` in src/tests.rs. Margin/padding apply at the first/last fragment only. Percent/auto margins count as 0.
