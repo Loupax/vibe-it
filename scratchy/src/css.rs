@@ -3586,7 +3586,7 @@ fn first_url_layer(input: &mut CssParser) -> Option<String> {
 /// `background`'s grammar: a color, an image (`url()`, `none` or a
 /// gradient, which is accepted but not rendered), `<position> [/ <size>]`,
 /// a repeat style and the attachment/box keywords (parsed, ignored), in any
-/// order. Only the first layer of a comma list contributes the image,
+/// order. The first layer with a `url()` (else the first layer) supplies the image,
 /// position, size and repeat. With `strict` (QA4, the `background`
 /// property) any unrecognized token, a second colour, or a colour outside
 /// the last layer fails the whole value so the declaration is dropped;
@@ -3594,7 +3594,11 @@ fn first_url_layer(input: &mut CssParser) -> Option<String> {
 pub(crate) fn parse_background_shorthand(input: &mut CssParser, strict: bool) -> Result<BgShorthand, ()> {
     let mut out = BgShorthand { color: None, image: None, position: None, size: None, repeat: None, fixed: None };
     let mut found = false;
-    let mut first_layer = true;
+    // Q35b: image/position/size/repeat/fixed come from the first layer that
+    // has a `url()` (like `first_url_layer`), else from the first layer.
+    let mut lay = BgShorthand { color: None, image: None, position: None, size: None, repeat: None, fixed: None };
+    let mut chosen = false;
+    let mut first_attrs: Option<BgShorthand> = None;
     // In the current layer: saw an image / repeat / position.
     let (mut l_image, mut l_repeat, mut l_pos) = (false, false, false);
     loop {
@@ -3604,8 +3608,8 @@ pub(crate) fn parse_background_shorthand(input: &mut CssParser, strict: bool) ->
                 return Err(());
             }
             l_image = true;
-            if first_layer {
-                out.image = Some(url.to_string());
+            if lay.image.is_none() {
+                lay.image = Some(url.to_string());
             }
             found = true;
             continue;
@@ -3654,9 +3658,7 @@ pub(crate) fn parse_background_shorthand(input: &mut CssParser, strict: bool) ->
                 return Err(());
             }
             l_repeat = true;
-            if first_layer {
-                out.repeat = Some(r);
-            }
+            lay.repeat = Some(r);
             found = true;
             continue;
         }
@@ -3677,11 +3679,9 @@ pub(crate) fn parse_background_shorthand(input: &mut CssParser, strict: bool) ->
             } else {
                 input.reset(&st);
             }
-            if first_layer {
-                out.position = Some(p);
-                if size.is_some() {
-                    out.size = size;
-                }
+            lay.position = Some(p);
+            if size.is_some() {
+                lay.size = size;
             }
             found = true;
             continue;
@@ -3693,16 +3693,14 @@ pub(crate) fn parse_background_shorthand(input: &mut CssParser, strict: bool) ->
                 if strict && (out.color.is_some() || !(l_image || l_repeat || l_pos)) {
                     return Err(());
                 }
-                first_layer = false;
+                end_bg_layer(&mut lay, &mut out, &mut chosen, &mut first_attrs);
                 (l_image, l_repeat, l_pos) = (false, false, false);
             }
             Ok(Token::Ident(id)) if strict && is_bg_box_keyword(id) => {
-                if first_layer {
-                    if id.eq_ignore_ascii_case("fixed") {
-                        out.fixed = Some(true);
-                    } else if id.eq_ignore_ascii_case("scroll") || id.eq_ignore_ascii_case("local") {
-                        out.fixed = Some(false);
-                    }
+                if id.eq_ignore_ascii_case("fixed") {
+                    lay.fixed = Some(true);
+                } else if id.eq_ignore_ascii_case("scroll") || id.eq_ignore_ascii_case("local") {
+                    lay.fixed = Some(false);
                 }
             }
             Ok(Token::Ident(id)) if !strict && (id.eq_ignore_ascii_case("fixed") || id.eq_ignore_ascii_case("scroll") || id.eq_ignore_ascii_case("local")) => {}
@@ -3717,10 +3715,35 @@ pub(crate) fn parse_background_shorthand(input: &mut CssParser, strict: bool) ->
             Err(_) => break,
         }
     }
+    end_bg_layer(&mut lay, &mut out, &mut chosen, &mut first_attrs);
+    if let (false, Some(f)) = (chosen, first_attrs) {
+        out.position = f.position;
+        out.size = f.size;
+        out.repeat = f.repeat;
+        out.fixed = f.fixed;
+    }
     if found {
         Ok(out)
     } else {
         Err(())
+    }
+}
+
+/// Close one `background` layer: the first layer with a `url()` supplies the
+/// image and its position/size/repeat/attachment; the very first layer's
+/// attributes are kept as the fallback when no layer has a url.
+fn end_bg_layer(lay: &mut BgShorthand, out: &mut BgShorthand, chosen: &mut bool, first_attrs: &mut Option<BgShorthand>) {
+    let l = BgShorthand { color: None, image: lay.image.take(), position: lay.position.take(), size: lay.size.take(), repeat: lay.repeat.take(), fixed: lay.fixed.take() };
+    if first_attrs.is_none() {
+        *first_attrs = Some(BgShorthand { color: None, image: None, position: l.position, size: l.size, repeat: l.repeat, fixed: l.fixed });
+    }
+    if !*chosen && l.image.is_some() {
+        *chosen = true;
+        out.image = l.image;
+        out.position = l.position;
+        out.size = l.size;
+        out.repeat = l.repeat;
+        out.fixed = l.fixed;
     }
 }
 

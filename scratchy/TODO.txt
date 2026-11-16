@@ -2157,16 +2157,24 @@ Not vendored; pass the path to the runner.
       relayout/repaint when it lands). Test: a stylesheet-supplied
       mask URL served via the image cache paints the masked shape, not a
       square.
-- [ ] Q35b [S] Leftovers from Q35a. (1) `background:`/`mask:` shorthand with a
-      gradient layer before the url layer still keeps only the first layer's
-      image. (2) Each arriving CSS image triggers a full relayout (like <img>);
-      a paint-only path or debounce would help pages with many icons.
+- [x] Q35b [S] (done, parts 1 and 3; part 2 split into Q35b2) Leftovers from Q35a.
+      (1) DONE (commit HASH): `background:`/`mask:` shorthand with a gradient
+      layer before the url layer now takes the first url layer's image and
+      its own position/size/repeat (QA4 strict parsing unchanged).
       (3) DONE (commit fc252c6): HN vote arrows overlapped titles because an
       empty block with a definite width did not widen its table column
       (natural_width_impl only honoured it for floats); fixed for empty
       blocks. Remaining: non-empty plain blocks with a definite width still
       use content-based intrinsic width (needs `max-width: fit-content`
-      parsed first), and HN's `triangle.svg` gradient-layer background.
+      parsed first).
+- [ ] Q35b2 [M] Each arriving CSS image sets `layout_dirty` (full relayout).
+      Measured 2026-11-16 on en.wikipedia.org/wiki/Main_Page: 28 images ->
+      8 rebuilds, the last 3 about 430 ms each. A background/mask image Arc is
+      baked into the laid boxes at build time, so a paint-only path needs a
+      pass patching `background_image`/`mask_image` into the cached laid
+      tree; the cheaper option is deferring the image-triggered rebuild while
+      `layout_in_flight` (like `js_restyle_pending`) plus a short debounce,
+      saving about one build on that page. Mind QB2 and R7 cache rules.
 - [x] Q36 [M] (done, commit 3a5df87; `rowspan="0"` is treated as 1, not
       "to end of row group"; row-group/`<col>` widths still ignored) (optional, user call: it was on the "not queued" list
       below) `colspan`/`rowspan` in `measure_table`. Suggested because
