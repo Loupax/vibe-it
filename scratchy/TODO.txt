@@ -849,7 +849,7 @@ Phase 1 (each S, independent; do in this order):
       the commit message with before/after numbers).
       DONE: natives `__d_sibling`/`__d_edge_child` with a verified index
       hint (no invalidation needed); also added `nextElementSibling`/
-      `previousElementSibling`. 1000 siblings 792 ms -> 1.7 ms. Commit HASH.
+      `previousElementSibling`. 1000 siblings 792 ms -> 1.7 ms. Commit ffd73ac.
 - [ ] QY9 [S] (P2; ddg, reddit challenge, yt/gh/bbc/guardian use it)
       `URL` and `URLSearchParams`. Symptom: `ReferenceError: URL is not
       defined` (duckduckgo turbopack runtime, twice) and `URLSearchParams
