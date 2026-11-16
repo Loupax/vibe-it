@@ -913,16 +913,19 @@ const DOM_PRELUDE: &str = r#"
       set: function () { return true; }
     });
   };
+  var afterIns = null; // QA18b: set below (iframe load events)
   var rmNode = function (n) { __d_remove(n.__id); };
   NodeProto.appendChild = function (c) {
     if (!c || c.__id === undefined) throw new TypeError("Failed to execute 'appendChild': parameter 1 is not of type 'Node'.");
     if (!__d_insert(this.__id, c.__id, -1)) throw herr('The new child element contains the parent.', 'HierarchyRequestError');
+    if (afterIns) afterIns(c);
     return c;
   };
   NodeProto.insertBefore = function (c, ref) {
     if (!c || c.__id === undefined) throw new TypeError("Failed to execute 'insertBefore': parameter 1 is not of type 'Node'.");
     if (ref && ref.parentNode !== this) throw herr('The node before which the new node is to be inserted is not a child of this node.', 'NotFoundError');
     if (!__d_insert(this.__id, c.__id, ref ? ref.__id : -1)) throw herr('The new child element contains the parent.', 'HierarchyRequestError');
+    if (afterIns) afterIns(c);
     return c;
   };
   NodeProto.removeChild = function (c) {
@@ -1579,6 +1582,40 @@ const DOM_PRELUDE: &str = r#"
     return d;
   };
   DOMImpl.prototype.hasFeature = function () { return true; };
+  // QA18b: `iframe.contentDocument`/`contentWindow` for iframes with an
+  // empty, about:blank or data: src: a fresh empty second document (made
+  // lazily, kept per iframe element), a minimal window-like object, and an
+  // asynchronous `load` event after insertion. Network iframes give null.
+  var IFP = mkProto('HTMLIFrameElement', ['iframe']);
+  var frames = {};
+  var inPage = function (n) { for (; n && n.parentNode; n = n.parentNode); return !!n && n.__id === 0; };
+  var frameSrcOk = function (el) {
+    var s = (__d_attr(el.__id, 'src') || '').replace(/^\s+|\s+$/g, '');
+    return s === '' || /^about:blank/i.test(s) || /^data:/i.test(s);
+  };
+  var frameOf = function (el) {
+    if (!inPage(el) || !frameSrcOk(el)) return null;
+    var f = frames[el.__id];
+    if (f) return f;
+    var d = makeDoc(true, 'text/html');
+    var html = d.createElement('html'); d.appendChild(html);
+    html.appendChild(d.createElement('head')); html.appendChild(d.createElement('body'));
+    var win = Object.create(null);
+    var props = { document: d, window: win, self: win, parent: g, top: g, frameElement: el, name: '', length: 0,
+      location: { href: 'about:blank', toString: function () { return 'about:blank'; } } };
+    Object.keys(props).forEach(function (k) { Object.defineProperty(win, k, { value: props[k], writable: true, configurable: true, enumerable: true }); });
+    win.getComputedStyle = function (e, p) { return g.getComputedStyle(e, p); };
+    Object.defineProperty(d, 'defaultView', { get: function () { return win; }, configurable: true, enumerable: true });
+    return (frames[el.__id] = { doc: d, win: win });
+  };
+  def(IFP, 'contentDocument', function () { var f = frameOf(this); return f ? f.doc : null; });
+  def(IFP, 'contentWindow', function () { var f = frameOf(this); return f ? f.win : null; });
+  IFP.getSVGDocument = function () { return this.contentDocument; };
+  rStr(IFP, 'src', 'src'); rStr(IFP, 'name', 'name'); rStr(IFP, 'width', 'width'); rStr(IFP, 'height', 'height');
+  afterIns = function (c) {
+    if (c.nodeType !== 1 || __d_tag(c.__id).toLowerCase() !== 'iframe' || !inPage(c)) return;
+    g.setTimeout(function () { if (inPage(c) && frameSrcOk(c)) c.dispatchEvent(new Event('load')); }, 0);
+  };
   def(doc, 'implementation', function () { return impl; });
 })(globalThis);
 "#;
