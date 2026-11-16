@@ -893,7 +893,7 @@ Phase 1 (each S, independent; do in this order):
       syntax, width/height/orientation/resolution/hover/pointer/
       prefers-*/forced-colors etc.; invalid query = `not all`. JS
       `MediaQueryList` + `matchMedia` in PRELUDE. Viewport is the fixed
-      1024x768 (see QY10a). Commit 73ce5cb.
+      1024x768 (see QY10a). Commit 4352eb6.
 - [ ] QY10a [S] (P3) matchMedia with the real window size and `change`
       events. `matchMedia` evaluates against `DEFAULT_VIEWPORT`
       (1024x768) like `innerWidth`, so `matches` never changes and
