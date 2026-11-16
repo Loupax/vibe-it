@@ -143,3 +143,45 @@ form submission has no transport of its own yet (scratchy has no
 `<button>`/focus/keyboard subsystem at all to drive one with), and
 `snag --serve` itself hasn't been removed now that `wire` supersedes it
 for live navigation — `snag`'s own, independent change to make.
+
+## The scratchy<->wire control channel (QF6, protocol version 2)
+
+Request headers scratchy MAY send (all optional; a request without them behaves
+exactly as before; none is ever forwarded upstream: every `X-Wire-*` request
+header is skipped in `is_request_header_to_skip`):
+
+- `X-Wire-Max-Bytes: N` - the response body may be at most N bytes. Headers
+  are already out once a body streams, so with this header wire buffers up to
+  N+1 bytes (memory is bounded by the cap itself); over the cap the answer is
+  `502` + `X-Wire-Error: too-large` and a short text/plain body.
+- `X-Wire-Timeout-Ms: N` - overall upstream timeout (default 20 s).
+- `X-Wire-Max-Redirects: N` - redirect limit (ureq default 5). A non-default
+  value builds a one-off agent (no connection reuse for that request). Going
+  over the limit is a transport error: the marked 502 below.
+- `X-Wire-Policy: public-only` - refuse non-public targets: the resolver drops
+  every non-public address BEFORE connecting (ureq connects only to the
+  addresses the resolver returns, so DNS rebinding cannot swap it afterwards)
+  and ureq resolves again for every redirect hop. Refusal is `403` +
+  `X-Wire-Error: policy`; `file:` URLs get the same 403. Without the header
+  wire connects to loopback/private/file targets (user decision: warn and
+  allow, scratchy does the warning from the class header below).
+
+Response headers wire ALWAYS adds (upstream copies of `X-Wire-*` are dropped so
+a server cannot spoof them):
+
+- `X-Wire-Version: 2` on every response, including errors and `file:` (an old
+  wire has none: this is the version probe scratchy uses before it relies on
+  the caps; a response without it means "restart wire").
+- `X-Wire-Final-Url` - the URL after redirects (the file URL for `file:`).
+- `X-Wire-Target-Class` - the worst class among the resolved addresses of all
+  hops (`public`, `loopback`, `private`, `link-local`, `cgnat`, `ula`,
+  `multicast`, `unspecified`, `reserved`; `file` for files) and
+  `X-Wire-Hop-Classes` - the comma list per hop. Same names as scratchy's
+  `net_policy::ip_class`; `is_public_ip`/`ip_class` are copies, keep in sync.
+  When a name resolves to a mix, the worst class is reported (conservative).
+- `X-Wire-Error` on wire-made errors: `1` (transport failure; body keeps the
+  old `wire: upstream request failed: ...` text), `too-large`, `policy`.
+- Duplicate upstream headers (`Set-Cookie`) are now written one line each.
+
+Per-request resolver state lives in a thread-local (`TRACKER`): each
+connection has its own thread and ureq resolves on the calling thread.

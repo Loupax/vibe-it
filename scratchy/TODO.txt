@@ -393,7 +393,23 @@ R22 copies and paste the before/after numbers in the commit.
       localhost allowed, https->http blocked, file: blocked, POST
       blocked, port 25 blocked); a parse of a multi-header response; a
       CR/LF header value refused.
-- [ ] QF6 [S] READY (in `wire`; log it in wire/PROMPTS.md and
+- [x] QF6 [S] DONE (commit HASH_QF6; wire/src/main.rs, wire/NOTES.md). All of (a)-(f)
+      below implemented, plus `X-Wire-Version: 2` on every response and
+      `X-Wire-Hop-Classes`. Deviations: the cap is a 502 `X-Wire-Error:
+      too-large` (body buffered up to N+1 bytes), the redirect-limit overrun
+      is the marked 502 (ureq error), `public-only` blocks answer 403
+      `X-Wire-Error: policy` (not 502 as (a) said). Details in wire/NOTES.md.
+      USER MUST (agents never restart wire): after the merge, from main:
+        cd ~/src/vibe-it/wire && cargo install --path . --force
+        kill <pid from `pgrep -x wire`>   # then start it as you usually do:
+        wire &
+      (check: a response now has `X-Wire-Version: 2`). Until then QF7/QF8 must
+      treat an old wire (no `X-Wire-Version`) as fail-closed. DEPENDS ON THIS:
+      QF7 (caps, class warnings, public-only Block mode, final URL), QF8, QF14
+      (every Set-Cookie line). Version probe: look for `X-Wire-Version` in the
+      first response (or send one cheap GET); send `X-Wire-*` headers only to a
+      v2 wire.
+      (original task text follows) Log it in wire/PROMPTS.md and
       wire/TODO.txt) Public-only connections and the final URL.
       (a) A second `ureq::Agent` built with `.resolver(PublicOnly)`.
       The resolver resolves with `ToSocketAddrs` and keeps only public

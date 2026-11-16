@@ -3288,3 +3288,6 @@ JS never does I/O and cannot touch `App`. The flow:
 5. `--js-report`: `drive_report_net` runs the same queue on the calling thread after load and after each timer slice; `NetState.entries` gives the `--- network (N requests, B bytes) ---` section. The report's page URL is the `<base href>`.
 
 Every number comes from `RequestPolicy` (src/net_policy.rs).
+## wire protocol version 2 (QF6)
+
+wire now answers `X-Wire-Version: 2` on every response; an old wire sends none. QF7/QF8 must send the `X-Wire-*` request headers only after seeing that header (a probe request, or fail closed with "wire is too old for page networking; restart it" when a response lacks it). Wire reports `X-Wire-Final-Url`, `X-Wire-Target-Class` (worst class over all hops), `X-Wire-Hop-Classes`, and marks its own errors with `X-Wire-Error` (`1` transport, `too-large`, `policy`; the `parse_wire_response_full` codec already consumes `x-wire-error`/`x-wire-final-url`, the class headers stay in `headers`). Over-cap bodies and redirect-limit overruns come back as a 502, not a truncated 200. Details: wire/NOTES.md.

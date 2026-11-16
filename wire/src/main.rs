@@ -1,4 +1,6 @@
+use std::cell::RefCell;
 use std::io::{BufRead, BufReader, Read, Write};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
@@ -98,10 +100,199 @@ fn main() {
 }
 
 fn build_agent() -> ureq::Agent {
+    agent_builder().build()
+}
+
+/// ureq's own default redirect limit; a request asking for exactly this
+/// (or sending no `X-Wire-Max-Redirects`) uses the shared agent.
+const DEFAULT_REDIRECTS: u32 = 5;
+const DEFAULT_TIMEOUT: Duration = Duration::from_secs(20);
+
+fn agent_builder() -> ureq::AgentBuilder {
     ureq::AgentBuilder::new()
-        .timeout(Duration::from_secs(20))
+        .timeout(DEFAULT_TIMEOUT)
+        .resolver(TrackingResolver)
         .user_agent("wire/0.1 (+https://github.com/Loupax/vibe-it) scratchy's real-networking daemon")
-        .build()
+}
+
+// ---------- target classes and the resolver ----------
+
+/// Bumped when the scratchy<->wire control protocol (`X-Wire-*`) grows;
+/// sent as `X-Wire-Version` on EVERY response so scratchy can tell an old
+/// wire (no such header) from a new one before relying on the caps.
+const WIRE_VERSION: &str = "2";
+
+/// Mirror of scratchy's `net_policy::is_public_ip`: keep both identical.
+fn is_public_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => is_public_v4(v4),
+        IpAddr::V6(v6) => is_public_v6(v6),
+    }
+}
+
+fn is_public_v4(a: Ipv4Addr) -> bool {
+    let o = a.octets();
+    !(a.is_loopback()
+        || a.is_private()
+        || a.is_link_local()
+        || a.is_unspecified()
+        || a.is_broadcast()
+        || a.is_multicast()
+        || a.is_documentation()
+        || o[0] == 0
+        || (o[0] == 100 && (o[1] & 0xc0) == 64) // CGNAT
+        || (o[0] == 192 && o[1] == 0 && o[2] == 0)
+        || (o[0] == 198 && (o[1] & 0xfe) == 18)
+        || o[0] >= 240)
+}
+
+fn is_public_v6(a: Ipv6Addr) -> bool {
+    let s = a.segments();
+    if let Some(v4) = a.to_ipv4_mapped() {
+        return is_public_v4(v4);
+    }
+    if s[..6].iter().all(|x| *x == 0) {
+        return false;
+    }
+    if s[0] == 0x64 && s[1] == 0xff9b && s[2..6].iter().all(|x| *x == 0) {
+        let v4 = Ipv4Addr::new((s[6] >> 8) as u8, s[6] as u8, (s[7] >> 8) as u8, s[7] as u8);
+        return is_public_v4(v4);
+    }
+    !(a.is_multicast() || (s[0] & 0xffc0) == 0xfe80 || (s[0] & 0xfe00) == 0xfc00 || (s[0] == 0x2001 && s[1] == 0x0db8))
+}
+
+/// Class name of an address: `public` or the same names as scratchy's
+/// `net_policy::ip_class` (`loopback`, `private`, `link-local`, `cgnat`,
+/// `ula`, `multicast`, `unspecified`, `reserved`).
+fn ip_class(ip: IpAddr) -> &'static str {
+    if is_public_ip(ip) {
+        return "public";
+    }
+    let v4 = match ip {
+        IpAddr::V4(a) => Some(a),
+        IpAddr::V6(a) => a.to_ipv4_mapped(),
+    };
+    if let Some(a) = v4 {
+        let o = a.octets();
+        return if a.is_loopback() {
+            "loopback"
+        } else if a.is_private() {
+            "private"
+        } else if a.is_link_local() {
+            "link-local"
+        } else if o[0] == 100 && (o[1] & 0xc0) == 64 {
+            "cgnat"
+        } else if a.is_multicast() {
+            "multicast"
+        } else if a.is_unspecified() || o[0] == 0 {
+            "unspecified"
+        } else {
+            "reserved"
+        };
+    }
+    let IpAddr::V6(a) = ip else { return "reserved" };
+    let s = a.segments();
+    if a.is_loopback() {
+        "loopback"
+    } else if (s[0] & 0xffc0) == 0xfe80 {
+        "link-local"
+    } else if (s[0] & 0xfe00) == 0xfc00 {
+        "ula"
+    } else if a.is_multicast() {
+        "multicast"
+    } else if a.is_unspecified() {
+        "unspecified"
+    } else {
+        "reserved"
+    }
+}
+
+/// How sensitive a class is, for picking the worst one of a set.
+fn class_rank(class: &str) -> u8 {
+    match class {
+        "public" => 0,
+        "cgnat" => 1,
+        "multicast" => 2,
+        "unspecified" | "reserved" => 3,
+        "ula" => 4,
+        "link-local" => 5,
+        "private" => 6,
+        "loopback" => 7,
+        _ => 8,
+    }
+}
+
+/// Per-request resolution record. Each request runs on its own thread and
+/// ureq resolves synchronously on the calling thread (also for every
+/// redirect hop), so a thread-local is enough to hand the shared agent's
+/// resolver per-request state without one agent per request.
+#[derive(Default)]
+struct Tracker {
+    public_only: bool,
+    /// Worst class among the addresses resolved for each hop, in order.
+    hops: Vec<&'static str>,
+    /// Set when `public_only` refused a host.
+    blocked: Option<String>,
+}
+
+thread_local! {
+    static TRACKER: RefCell<Tracker> = RefCell::new(Tracker::default());
+}
+
+/// The resolver every agent uses. Plain `ToSocketAddrs` resolution, plus:
+/// it records the class of what it resolved (ureq tries these very
+/// addresses, so the class describes what wire connects to: when a name
+/// resolves to a mix, the worst class is reported), and under
+/// `X-Wire-Policy: public-only` it drops non-public addresses BEFORE any
+/// connect and fails when none are left. ureq connects to the returned
+/// addresses only, so a DNS rebind between check and connect is impossible.
+struct TrackingResolver;
+
+impl ureq::Resolver for TrackingResolver {
+    fn resolve(&self, netloc: &str) -> std::io::Result<Vec<SocketAddr>> {
+        let addrs: Vec<SocketAddr> = netloc.to_socket_addrs()?.collect();
+        TRACKER.with(|t| {
+            let mut t = t.borrow_mut();
+            let worst = addrs.iter().map(|a| ip_class(a.ip())).max_by_key(|c| class_rank(c)).unwrap_or("public");
+            t.hops.push(worst);
+            if !t.public_only {
+                return Ok(addrs);
+            }
+            let kept: Vec<SocketAddr> = addrs.into_iter().filter(|a| is_public_ip(a.ip())).collect();
+            if kept.is_empty() {
+                let host = netloc.rsplit_once(':').map_or(netloc, |(h, _)| h);
+                let msg = format!("blocked: {host} resolves to a non-public address");
+                t.blocked = Some(msg.clone());
+                return Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, msg));
+            }
+            Ok(kept)
+        })
+    }
+}
+
+/// The control headers scratchy sends (all optional; an old scratchy sends
+/// none and gets exactly the old behaviour).
+#[derive(Default, Debug)]
+struct Caps {
+    public_only: bool,
+    max_bytes: Option<usize>,
+    timeout: Option<Duration>,
+    max_redirects: Option<u32>,
+}
+
+fn parse_caps(headers: &[(String, String)]) -> Caps {
+    let mut caps = Caps::default();
+    for (name, value) in headers {
+        let v = value.trim();
+        match name.to_ascii_lowercase().as_str() {
+            "x-wire-policy" => caps.public_only = v.eq_ignore_ascii_case("public-only"),
+            "x-wire-max-bytes" => caps.max_bytes = v.parse().ok(),
+            "x-wire-timeout-ms" => caps.timeout = v.parse().ok().map(Duration::from_millis),
+            "x-wire-max-redirects" => caps.max_redirects = v.parse().ok(),
+            _ => {}
+        }
+    }
+    caps
 }
 
 /// Same `$XDG_RUNTIME_DIR`-first, per-user-tmp-fallback convention
@@ -298,7 +489,10 @@ fn log_timing(method: &str, url: &Url, status: u16, headers_elapsed: Duration, b
 /// which only ever described the *scratchy-to-wire* leg, not the
 /// upstream one).
 fn is_request_header_to_skip(name: &str) -> bool {
-    matches!(name.to_ascii_lowercase().as_str(), "host" | "content-length" | "connection")
+    let n = name.to_ascii_lowercase();
+    // `X-Wire-*` is the scratchy<->wire control channel (caps, policy):
+    // never forwarded upstream.
+    matches!(n.as_str(), "host" | "content-length" | "connection") || n.starts_with("x-wire-")
 }
 
 /// Response header names this file strips before forwarding — each one
@@ -321,10 +515,25 @@ fn is_response_header_to_strip(name: &str) -> bool {
 /// now fail is writing to `w` itself (the client side), propagated to
 /// the caller exactly as `write_response` used to.
 fn execute_and_stream(agent: &ureq::Agent, request: &ParsedRequest, w: &mut impl Write) -> std::io::Result<()> {
+    let caps = parse_caps(&request.headers);
     if request.url.scheme() == "file" {
-        return serve_file(request, w);
+        return serve_file(request, &caps, w);
     }
+    TRACKER.with(|t| *t.borrow_mut() = Tracker { public_only: caps.public_only, ..Tracker::default() });
+    // Redirect limits are agent-level in ureq: only a request asking for a
+    // non-default limit pays for its own agent (and loses connection reuse).
+    let own_agent;
+    let agent = match caps.max_redirects {
+        Some(n) if n != DEFAULT_REDIRECTS => {
+            own_agent = agent_builder().redirects(n).build();
+            &own_agent
+        }
+        _ => agent,
+    };
     let mut req = agent.request(&request.method, request.url.as_str());
+    if let Some(t) = caps.timeout {
+        req = req.timeout(t);
+    }
     for (name, value) in &request.headers {
         if !is_request_header_to_skip(name) {
             req = req.set(name, value);
@@ -343,10 +552,16 @@ fn execute_and_stream(agent: &ureq::Agent, request: &ParsedRequest, w: &mut impl
         // other match arm.
         Ok(resp) | Err(ureq::Error::Status(_, resp)) => {
             let status = resp.status();
-            stream_response(resp, w)?;
+            stream_response(resp, &caps, w)?;
             status
         }
-        Err(ureq::Error::Transport(e)) => write_synthetic_error_response(w, &e.to_string())?,
+        Err(ureq::Error::Transport(e)) => {
+            let blocked = TRACKER.with(|t| t.borrow().blocked.clone());
+            match blocked {
+                Some(msg) => write_policy_response(w, &msg)?,
+                None => write_synthetic_error_response(w, &e.to_string())?,
+            }
+        }
     };
     log_timing(&request.method, &request.url, status, headers_elapsed, body_start.elapsed());
     Ok(())
@@ -371,9 +586,11 @@ fn content_type_for_path(path: &std::path::Path) -> &'static str {
 /// Serves a `file://` URL by reading the file: `200` with a guessed
 /// `Content-Type`, `404` if it can't be read, `405` for anything but
 /// `GET`/`HEAD`-less use. Local files never touch `ureq`.
-fn serve_file(request: &ParsedRequest, w: &mut impl Write) -> std::io::Result<()> {
+fn serve_file(request: &ParsedRequest, caps: &Caps, w: &mut impl Write) -> std::io::Result<()> {
     let text_plain = || vec![("Content-Type".to_string(), "text/plain".to_string())];
-    let status = if request.method != "GET" {
+    let status = if caps.public_only {
+        write_policy_response(w, "blocked: file: targets are not public")?
+    } else if request.method != "GET" {
         write_status_and_headers(w, 405, "Method Not Allowed", &text_plain())?;
         w.write_all(b"wire: file:// URLs only support GET")?;
         405
@@ -384,7 +601,16 @@ fn serve_file(request: &ParsedRequest, w: &mut impl Write) -> std::io::Result<()
         });
         match read {
             Ok((path, data)) => {
-                write_status_and_headers(w, 200, "OK", &[("Content-Type".to_string(), content_type_for_path(&path).to_string())])?;
+                write_status_and_headers(
+                    w,
+                    200,
+                    "OK",
+                    &[
+                        ("Content-Type".to_string(), content_type_for_path(&path).to_string()),
+                        ("X-Wire-Target-Class".to_string(), "file".to_string()),
+                        ("X-Wire-Final-Url".to_string(), request.url.to_string()),
+                    ],
+                )?;
                 w.write_all(&data)?;
                 200
             }
@@ -423,20 +649,66 @@ fn serve_file(request: &ParsedRequest, w: &mut impl Write) -> std::io::Result<()
 /// its own docs. A real HTTP/1.1 response with neither `Content-Length`
 /// nor `Transfer-Encoding`, read until the connection closes, is exactly
 /// this same rule, not an invented shortcut.
-fn stream_response(resp: ureq::Response, w: &mut impl Write) -> std::io::Result<()> {
+fn stream_response(resp: ureq::Response, caps: &Caps, w: &mut impl Write) -> std::io::Result<()> {
     let status = resp.status();
     let reason = resp.status_text().to_string();
     let mut headers = Vec::new();
+    let mut seen: Vec<String> = Vec::new();
     for name in resp.headers_names() {
-        if is_response_header_to_strip(&name) {
+        if is_response_header_to_strip(&name) || seen.contains(&name.to_ascii_lowercase()) {
             continue;
         }
-        if let Some(value) = resp.header(&name) {
-            headers.push((name, value.to_string()));
+        seen.push(name.to_ascii_lowercase());
+        // `all`, not `header`: a repeated header (two `Set-Cookie`s) must
+        // reach the client as separate lines.
+        for value in resp.all(&name) {
+            headers.push((name.clone(), value.to_string()));
         }
     }
+    // The control channel's own names must never be spoofed by upstream.
+    headers.retain(|(n, _)| !n.to_ascii_lowercase().starts_with("x-wire-"));
+    headers.push(("X-Wire-Final-Url".to_string(), resp.get_url().to_string()));
+    let hops = TRACKER.with(|t| t.borrow().hops.clone());
+    if let Some(worst) = hops.iter().copied().max_by_key(|c| class_rank(c)) {
+        headers.push(("X-Wire-Target-Class".to_string(), worst.to_string()));
+        headers.push(("X-Wire-Hop-Classes".to_string(), hops.join(",")));
+    }
+    let mut reader = resp.into_reader();
+    let Some(max) = caps.max_bytes else {
+        write_status_and_headers(w, status, &reason, &headers)?;
+        return copy_body(reader, w);
+    };
+    // `X-Wire-Max-Bytes`: headers are already out once streaming starts, so
+    // a cap needs the body buffered (at most max+1 bytes: the cap itself
+    // bounds memory). Over the cap -> 502 + `X-Wire-Error: too-large`.
+    let mut buf = Vec::new();
+    let _ = (&mut reader).take(max as u64 + 1).read_to_end(&mut buf);
+    if buf.len() > max {
+        let body = format!("wire: response too large (limit {max} bytes)");
+        write_status_and_headers(
+            w,
+            502,
+            "Bad Gateway",
+            &[("Content-Type".to_string(), "text/plain".to_string()), ("X-Wire-Error".to_string(), "too-large".to_string())],
+        )?;
+        w.write_all(body.as_bytes())?;
+        return w.flush();
+    }
     write_status_and_headers(w, status, &reason, &headers)?;
-    copy_body(resp.into_reader(), w)
+    w.write_all(&buf)
+}
+
+/// `X-Wire-Policy: public-only` refusal: 403 + `X-Wire-Error: policy`.
+fn write_policy_response(w: &mut impl Write, message: &str) -> std::io::Result<u16> {
+    write_status_and_headers(
+        w,
+        403,
+        "Forbidden",
+        &[("Content-Type".to_string(), "text/plain".to_string()), ("X-Wire-Error".to_string(), "policy".to_string())],
+    )?;
+    w.write_all(format!("wire: {message}").as_bytes())?;
+    w.flush()?;
+    Ok(403)
 }
 
 /// What gets sent back when the upstream request never got far enough
@@ -451,7 +723,12 @@ fn stream_response(resp: ureq::Response, w: &mut impl Write) -> std::io::Result<
 /// status written, purely so `execute_and_stream` has something to log.
 fn write_synthetic_error_response(w: &mut impl Write, message: &str) -> std::io::Result<u16> {
     let body = format!("wire: upstream request failed: {message}");
-    write_status_and_headers(w, 502, "Bad Gateway", &[("Content-Type".to_string(), "text/plain".to_string())])?;
+    write_status_and_headers(
+        w,
+        502,
+        "Bad Gateway",
+        &[("Content-Type".to_string(), "text/plain".to_string()), ("X-Wire-Error".to_string(), "1".to_string())],
+    )?;
     w.write_all(body.as_bytes())?;
     w.flush()?;
     Ok(502)
@@ -459,6 +736,7 @@ fn write_synthetic_error_response(w: &mut impl Write, message: &str) -> std::io:
 
 fn write_status_and_headers(w: &mut impl Write, status: u16, reason: &str, headers: &[(String, String)]) -> std::io::Result<()> {
     write!(w, "HTTP/1.1 {status} {reason}\r\n")?;
+    write!(w, "X-Wire-Version: {WIRE_VERSION}\r\n")?;
     for (name, value) in headers {
         write!(w, "{name}: {value}\r\n")?;
     }
@@ -751,5 +1029,262 @@ mod tests {
         let response = String::from_utf8(response).expect("utf8 response");
         assert!(response.starts_with("HTTP/1.1 200 OK\r\n"), "got: {response}");
         assert!(response.ends_with(body), "got: {response}");
+    }
+
+    // ---------- QF6: caps, class, policy, final URL, duplicate headers ----------
+
+    /// A fixture whose answer is built from the request text (so a
+    /// redirect can name its own address); every request text is also
+    /// sent down the returned channel.
+    fn spawn_dynamic(
+        make: impl Fn(&str, std::net::SocketAddr) -> Vec<u8> + Send + 'static,
+    ) -> (std::net::SocketAddr, std::sync::mpsc::Receiver<String>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().unwrap();
+        let (tx, rx) = std::sync::mpsc::channel();
+        thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { continue };
+                let mut buf = [0u8; 4096];
+                let n = Read::read(&mut stream, &mut buf).unwrap_or(0);
+                let text = String::from_utf8_lossy(&buf[..n]).to_string();
+                let _ = stream.write_all(&make(&text, addr));
+                let _ = tx.send(text);
+            }
+        });
+        (addr, rx)
+    }
+
+    fn ok_text(body: &str) -> Vec<u8> {
+        format!("HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len()).into_bytes()
+    }
+
+    fn with_headers(mut req: ParsedRequest, h: &[(&str, &str)]) -> ParsedRequest {
+        req.headers.extend(h.iter().map(|(n, v)| (n.to_string(), v.to_string())));
+        req
+    }
+
+    fn hdr<'a>(r: &'a TestResponse, name: &str) -> Option<&'a str> {
+        r.headers.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str())
+    }
+
+    #[test]
+    fn every_response_carries_the_wire_version() {
+        let addr = spawn_fixture(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
+        let agent = build_agent();
+        assert_eq!(hdr(&execute_for_test(&agent, &get_request(addr, "/")), "X-Wire-Version"), Some("2"));
+        let down = get_request("127.0.0.1:1".parse().unwrap(), "/");
+        assert_eq!(hdr(&execute_for_test(&agent, &down), "X-Wire-Version"), Some("2"));
+    }
+
+    #[test]
+    fn loopback_target_is_classified_and_final_url_reported() {
+        let addr = spawn_fixture(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
+        let agent = build_agent();
+        let r = execute_for_test(&agent, &get_request(addr, "/x"));
+        assert_eq!(r.status, 200);
+        assert_eq!(hdr(&r, "X-Wire-Target-Class"), Some("loopback"));
+        assert_eq!(hdr(&r, "X-Wire-Hop-Classes"), Some("loopback"));
+        assert_eq!(hdr(&r, "X-Wire-Final-Url"), Some(format!("http://{addr}/x").as_str()));
+    }
+
+    #[test]
+    fn ip_class_names_match_scratchy() {
+        let c = |s: &str| ip_class(s.parse().unwrap());
+        assert_eq!(c("127.0.0.1"), "loopback");
+        assert_eq!(c("::1"), "loopback");
+        assert_eq!(c("10.1.2.3"), "private");
+        assert_eq!(c("192.168.0.1"), "private");
+        assert_eq!(c("169.254.1.1"), "link-local");
+        assert_eq!(c("100.64.0.1"), "cgnat");
+        assert_eq!(c("fd00::1"), "ula");
+        assert_eq!(c("fe80::1"), "link-local");
+        assert_eq!(c("224.0.0.1"), "multicast");
+        assert_eq!(c("8.8.8.8"), "public");
+        assert_eq!(c("::ffff:127.0.0.1"), "loopback");
+    }
+
+    #[test]
+    fn redirect_reports_final_url_and_each_hop_class() {
+        let (addr, _rx) = spawn_dynamic(|req, addr| {
+            if req.starts_with("GET /start") {
+                format!("HTTP/1.1 302 Found\r\nLocation: http://{addr}/end\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").into_bytes()
+            } else {
+                ok_text("done")
+            }
+        });
+        let agent = build_agent();
+        let r = execute_for_test(&agent, &get_request(addr, "/start"));
+        assert_eq!(r.status, 200);
+        assert_eq!(r.body, b"done");
+        assert_eq!(hdr(&r, "X-Wire-Final-Url"), Some(format!("http://{addr}/end").as_str()));
+        assert_eq!(hdr(&r, "X-Wire-Hop-Classes"), Some("loopback,loopback"));
+    }
+
+    #[test]
+    fn max_redirects_header_limits_the_chain_and_is_not_forwarded() {
+        let (addr, rx) = spawn_dynamic(|req, addr| {
+            if req.starts_with("GET /a") {
+                format!("HTTP/1.1 302 Found\r\nLocation: http://{addr}/b\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").into_bytes()
+            } else if req.starts_with("GET /b") {
+                format!("HTTP/1.1 302 Found\r\nLocation: http://{addr}/c\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").into_bytes()
+            } else {
+                ok_text("c")
+            }
+        });
+        let agent = build_agent();
+        // Limit 1: /a -> /b is followed, /b -> /c is not: ureq fails the
+        // request, which wire reports as the usual marked 502.
+        let r = execute_for_test(&agent, &with_headers(get_request(addr, "/a"), &[("X-Wire-Max-Redirects", "1")]));
+        assert_eq!(r.status, 502);
+        assert_eq!(hdr(&r, "X-Wire-Error"), Some("1"));
+        assert!(String::from_utf8_lossy(&r.body).to_lowercase().contains("redirect"), "{:?}", r.body);
+        // Limit 5 follows all the way.
+        let r = execute_for_test(&agent, &with_headers(get_request(addr, "/a"), &[("X-Wire-Max-Redirects", "5")]));
+        assert_eq!(r.status, 200);
+        assert_eq!(r.body, b"c");
+        while let Ok(text) = rx.try_recv() {
+            assert!(!text.to_ascii_lowercase().contains("x-wire-"), "control header leaked upstream: {text}");
+        }
+    }
+
+    #[test]
+    fn control_headers_are_never_forwarded_upstream() {
+        let (addr, rx) = spawn_dynamic(|_, _| ok_text("hi"));
+        let agent = build_agent();
+        let req = with_headers(
+            get_request(addr, "/"),
+            &[
+                ("X-Wire-Max-Bytes", "100"),
+                ("X-Wire-Timeout-Ms", "5000"),
+                ("X-Wire-Max-Redirects", "3"),
+                ("X-Wire-Policy", "none"),
+                ("X-Custom", "kept"),
+            ],
+        );
+        assert_eq!(execute_for_test(&agent, &req).status, 200);
+        let text = rx.recv().unwrap().to_ascii_lowercase();
+        assert!(!text.contains("x-wire-"), "leaked: {text}");
+        assert!(text.contains("x-custom: kept"), "ordinary headers still forwarded: {text}");
+    }
+
+    #[test]
+    fn max_bytes_over_the_cap_is_502_too_large_and_under_is_unchanged() {
+        let body = "0123456789".repeat(10); // 100 bytes
+        let b2 = body.clone();
+        let (addr, _rx) = spawn_dynamic(move |_, _| ok_text(&b2));
+        let agent = build_agent();
+        let r = execute_for_test(&agent, &with_headers(get_request(addr, "/"), &[("X-Wire-Max-Bytes", "99")]));
+        assert_eq!(r.status, 502);
+        assert_eq!(hdr(&r, "X-Wire-Error"), Some("too-large"));
+        assert!(String::from_utf8_lossy(&r.body).contains("too large"));
+        // Exactly at the cap is fine.
+        let r = execute_for_test(&agent, &with_headers(get_request(addr, "/"), &[("X-Wire-Max-Bytes", "100")]));
+        assert_eq!(r.status, 200);
+        assert_eq!(r.body, body.as_bytes());
+        assert_eq!(hdr(&r, "X-Wire-Error"), None);
+        // No header: no cap at all.
+        assert_eq!(execute_for_test(&agent, &get_request(addr, "/")).body, body.as_bytes());
+    }
+
+    #[test]
+    fn timeout_header_overrides_the_default_timeout() {
+        // Accepts, never answers.
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        thread::spawn(move || {
+            let mut held = Vec::new();
+            for s in listener.incoming().flatten() {
+                held.push(s);
+            }
+        });
+        let agent = build_agent();
+        let start = Instant::now();
+        let r = execute_for_test(&agent, &with_headers(get_request(addr, "/"), &[("X-Wire-Timeout-Ms", "300")]));
+        assert!(start.elapsed() < Duration::from_secs(5), "took {:?}", start.elapsed());
+        assert_eq!(r.status, 502);
+        assert_eq!(hdr(&r, "X-Wire-Error"), Some("1"));
+    }
+
+    #[test]
+    fn duplicate_response_headers_are_written_as_separate_lines() {
+        let addr = spawn_fixture(b"HTTP/1.1 200 OK\r\nSet-Cookie: a=1\r\nSet-Cookie: b=2; Path=/\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
+        let agent = build_agent();
+        let r = execute_for_test(&agent, &get_request(addr, "/"));
+        let cookies: Vec<&str> = r.headers.iter().filter(|(n, _)| n.eq_ignore_ascii_case("set-cookie")).map(|(_, v)| v.as_str()).collect();
+        assert_eq!(cookies, vec!["a=1", "b=2; Path=/"]);
+    }
+
+    #[test]
+    fn public_only_refuses_a_loopback_target_with_403_policy() {
+        let (addr, rx) = spawn_dynamic(|_, _| ok_text("secret"));
+        let agent = build_agent();
+        let r = execute_for_test(&agent, &with_headers(get_request(addr, "/"), &[("X-Wire-Policy", "public-only")]));
+        assert_eq!(r.status, 403);
+        assert_eq!(hdr(&r, "X-Wire-Error"), Some("policy"));
+        assert!(String::from_utf8_lossy(&r.body).contains("blocked"));
+        assert!(rx.try_recv().is_err(), "the upstream must never have been contacted");
+        // The same request without the header still works.
+        let r = execute_for_test(&agent, &get_request(addr, "/"));
+        assert_eq!(r.status, 200);
+        assert_eq!(r.body, b"secret");
+        // A later request on the same thread is not affected by the earlier policy.
+        let r = execute_for_test(&agent, &with_headers(get_request(addr, "/"), &[("X-Wire-Policy", "something-else")]));
+        assert_eq!(r.status, 200);
+    }
+
+    #[test]
+    fn public_only_resolver_refuses_every_non_public_hop() {
+        // Public-only can never reach a loopback fixture, so the per-hop
+        // check (ureq calls the resolver again for every redirect hop) is
+        // exercised through the resolver directly.
+        TRACKER.with(|t| *t.borrow_mut() = Tracker { public_only: true, ..Tracker::default() });
+        assert!(ureq::Resolver::resolve(&TrackingResolver, "127.0.0.1:80").is_err());
+        assert!(ureq::Resolver::resolve(&TrackingResolver, "10.0.0.5:443").is_err());
+        let ok = ureq::Resolver::resolve(&TrackingResolver, "8.8.8.8:443").expect("public passes");
+        assert_eq!(ok.len(), 1);
+        TRACKER.with(|t| {
+            let t = t.borrow();
+            assert_eq!(t.hops, vec!["loopback", "private", "public"]);
+            assert!(t.blocked.as_deref().unwrap().contains("blocked"));
+        });
+        TRACKER.with(|t| *t.borrow_mut() = Tracker::default());
+    }
+
+    #[test]
+    fn file_urls_with_public_only_answer_403() {
+        let dir = std::env::temp_dir().join(format!("wire-file-policy-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("a.css");
+        std::fs::write(&f, "x").unwrap();
+        let agent = build_agent();
+        let mk = |h: &[(&str, &str)]| {
+            with_headers(ParsedRequest { method: "GET".into(), url: Url::from_file_path(&f).unwrap(), headers: vec![], body: vec![] }, h)
+        };
+        let r = execute_for_test(&agent, &mk(&[("X-Wire-Policy", "public-only")]));
+        assert_eq!(r.status, 403);
+        assert_eq!(hdr(&r, "X-Wire-Error"), Some("policy"));
+        let r = execute_for_test(&agent, &mk(&[]));
+        assert_eq!(r.status, 200);
+        assert_eq!(hdr(&r, "X-Wire-Target-Class"), Some("file"));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn transport_failure_keeps_the_old_text_and_adds_the_error_marker() {
+        let agent = build_agent();
+        let r = execute_for_test(&agent, &get_request("127.0.0.1:1".parse().unwrap(), "/"));
+        assert_eq!(r.status, 502);
+        assert_eq!(hdr(&r, "X-Wire-Error"), Some("1"));
+        assert!(String::from_utf8_lossy(&r.body).starts_with("wire: upstream request failed:"));
+    }
+
+    #[test]
+    fn upstream_cannot_spoof_control_headers() {
+        let addr = spawn_fixture(b"HTTP/1.1 200 OK\r\nX-Wire-Target-Class: public\r\nX-Wire-Error: policy\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
+        let agent = build_agent();
+        let r = execute_for_test(&agent, &get_request(addr, "/"));
+        assert_eq!(hdr(&r, "X-Wire-Target-Class"), Some("loopback"));
+        assert_eq!(hdr(&r, "X-Wire-Error"), None);
     }
 }
