@@ -3354,3 +3354,7 @@ wire now answers `X-Wire-Version: 2` on every response; an old wire sends none. 
 ## Cookie jar lives in wire (QF14, wire half)
 
 wire (version 3) owns a memory-only cookie jar, partitioned by top-level site and selected per request with `X-Wire-Jar: scratchy` (scratchy sends the headers in QF14b-scratchy; until then nothing changes). With the jar, wire strips `Set-Cookie` from answers and ignores a client `Cookie` header; `document.cookie` will go through wire's control channel (`X-Wire-Cookie-Op`). scratchy detects the jar by `X-Wire-Cookies: on|off` plus the version. Details and limits: wire/NOTES.md "The cookie jar".
+
+## QSD0: query methods on prototypes only
+
+querySelector/All and getElementsByTagName/ClassName are installed once on Element.prototype, DocumentFragment.prototype and document (queries(P)); wrap() assigns nothing per instance, so a page may redefine or freeze them (GitHub popover polyfill does) without breaking fragment wrappers.

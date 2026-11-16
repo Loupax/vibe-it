@@ -214,7 +214,7 @@ User decisions:
       `exportparts` and `:host-context` (parsed and dropped, logged).
 
 Items (in order):
-- [ ] QSD0 [S] READY Fragment wrappers must not assign query methods per
+- [x] QSD0 [S] (HASH) READY Fragment wrappers must not assign query methods per
       instance. `wrap()` in js_dom.rs calls `queries(o)` for every
       kind-11 node, i.e. `o.querySelectorAll = ...` on the instance; once
       a page has made `DocumentFragment.prototype.querySelectorAll`
