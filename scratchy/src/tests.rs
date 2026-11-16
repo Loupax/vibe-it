@@ -11425,3 +11425,79 @@ fn qy15_literal_dynamic_import_is_prefetched_only_from_entries() {
     );
     assert_eq!(log, ["log:L1", "log:lazy2 rejected"], "{log:?}");
 }
+
+// ---------- QY16b: Node.prototype.isEqualNode / isSameNode ----------
+
+#[test]
+fn qy16b_is_equal_node_compares_subtrees() {
+    let log = run_in_html(
+        "<html><body></body></html>",
+        "function mk(attrs, kids) {\
+           var e = document.createElement('div');\
+           attrs.forEach(function (p) { e.setAttribute(p[0], p[1]); });\
+           kids.forEach(function (k) { e.appendChild(k); });\
+           return e;\
+         }\
+         function p(word) {\
+           var q = document.createElement('p');\
+           q.appendChild(document.createTextNode('hi '));\
+           var b = document.createElement(word);\
+           b.appendChild(document.createTextNode('there'));\
+           q.appendChild(b);\
+           return q;\
+         }\
+         function tree(comment) {\
+           return mk([['class', 'x'], ['data-k', '1']], [p('b'), document.createComment(comment || 'c')]);\
+         }\
+         var a = tree();\
+         console.log(a.isEqualNode(tree()), a.isEqualNode(a), a.isEqualNode(a.firstChild));\
+         console.log(a.isEqualNode(mk([['class', 'x'], ['data-k', '2']], [p('b'), document.createComment('c')])));\
+         console.log(a.isEqualNode(tree('d')), a.isEqualNode(mk([['class', 'x'], ['data-k', '1']], [p('i'), document.createComment('c')])));\
+         console.log(a.isEqualNode(mk([['class', 'x'], ['data-k', '1']], [p('b'), document.createComment('c'), document.createElement('span')])));\
+         console.log(a.isEqualNode(mk([['class', 'x'], ['data-k', '1']], [p('b')])));\
+         console.log(document.createTextNode('x').isEqualNode(document.createTextNode('x')), document.createTextNode('x').isEqualNode(document.createTextNode('y')));\
+         console.log(document.createComment('x').isEqualNode(document.createTextNode('x')), document.createElement('a').isEqualNode(document.createElement('b')));\
+         console.log(a.isEqualNode(null), a.isEqualNode(undefined), document.createDocumentFragment().isEqualNode(document.createDocumentFragment()));\
+         var t1 = document.implementation.createDocumentType('html', '-//A', 's.dtd'), t2 = document.implementation.createDocumentType('html', '-//A', 't.dtd'), t3 = document.implementation.createDocumentType('html', '-//A', 's.dtd');\
+         console.log(t1.isEqualNode(t2), t1.isEqualNode(t3));\
+         console.log(a.isSameNode(a), a.isSameNode(tree()), a.isSameNode(null));",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:true true false",
+            "log:false",
+            "log:false false",
+            "log:false",
+            "log:false",
+            "log:true false",
+            "log:false false",
+            "log:false false true",
+            "log:false true",
+            "log:true false false",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy16b_is_equal_node_attributes_are_a_set() {
+    let log = run_in_html(
+        "<html><body></body></html>",
+        "function mk(attrs) {\
+           var e = document.createElement('a');\
+           attrs.forEach(function (p) { e.setAttribute(p[0], p[1]); });\
+           return e;\
+         }\
+         var a = mk([['href', 'x'], ['title', 't']]);\
+         console.log(a.isEqualNode(mk([['title', 't'], ['href', 'x']])), a.isEqualNode(mk([['href', 'y'], ['title', 't']])), a.isEqualNode(mk([['href', 'x']])));\
+         var e = mk([['href', 'x'], ['title', 't'], ['data-z', '1']]);\
+         console.log(e.isEqualNode(mk([['data-z', '1'], ['href', 'x'], ['title', 't']])), a.isEqualNode(e), a.isEqualNode(mk([['href', 'x'], ['alt', 't']])));\
+         console.log(document.createElementNS('http://www.w3.org/2000/svg', 'a').isEqualNode(document.createElement('a')));",
+    );
+    assert_eq!(
+        log,
+        ["log:true false false", "log:true false false", "log:false"],
+        "{log:?}"
+    );
+}
