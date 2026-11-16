@@ -12346,3 +12346,128 @@ fn qy19_meta_redirect_replaces_history_and_is_chained() {
     app.handle_meta_refresh(g, Url::parse("http://127.0.0.1:9/zzz").unwrap());
     assert_eq!(app.history.len(), 3);
 }
+
+// ---------- QF3: FormData (data class; no form reading, no submission) ----------
+
+#[test]
+fn qf3_formdata_append_get_getall_has_set_delete() {
+    let log = run_with_timers(
+        "var f = new FormData(); f.append('a', '1'); f.append('b', 2); f.append('a', true);\
+         console.log(f.get('a'), f.get('b'), f.get('zz'), f.getAll('a').join('|'), f.getAll('nope').length);\
+         console.log(f.has('a'), f.has('c'));\
+         f.set('a', 'x'); console.log(f.getAll('a').join('|'), f.get('b'));\
+         f.set('new', 'n'); console.log(f.get('new'));\
+         f.delete('a'); console.log(f.has('a'), f.getAll('a').length);\
+         f.append('wh\\ud800', 'v\\udc00'); console.log(f.get('wh\\ufffd'), f.get('wh\\ufffd').length, f.get('wh\\ud800') === 'v\\ufffd');\
+         try { f.append('only'); } catch (e) { console.log(e.name); }",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:1 2 null 1|true 0",
+            "log:true false",
+            "log:x 2",
+            "log:n",
+            "log:false 0",
+            "log:v\u{fffd} 2 true",
+            "log:TypeError",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qf3_formdata_iteration_order_and_for_each() {
+    let log = run_with_timers(
+        "var f = new FormData(); f.append('b', '1'); f.append('a', '2'); f.append('b', '3');\
+         console.log(Array.from(f.keys()).join(','), Array.from(f.values()).join(','));\
+         console.log(Array.from(f).map(function (e) { return e[0] + '=' + e[1]; }).join('&'));\
+         console.log(f[Symbol.iterator] === f.entries, Object.prototype.toString.call(f), Object.prototype.toString.call(f.entries()));\
+         var seen = []; f.forEach(function (v, k, fd) { seen.push(k + ':' + v + ':' + (fd === f)); }, null); console.log(seen.join(' '));\
+         var it = f.keys(); console.log(it.next().value, it.next().value, it.next().value, it.next().done, it.next().done);\
+         try { f.forEach(1); } catch (e) { console.log(e.name); }",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:b,a,b 1,2,3",
+            "log:b=1&a=2&b=3",
+            "log:true [object FormData] [object FormData Iterator]",
+            "log:b:1:true a:2:true b:3:true",
+            "log:b a b true true",
+            "log:TypeError",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qf3_formdata_blob_value_becomes_file() {
+    let log = run_with_timers(
+        "var fd = new FormData();\
+         fd.append('p', new Blob(['abc'], {type: 'text/plain'}));\
+         var v = fd.get('p'); console.log(v instanceof File, v.name, v.size, v.type);\
+         v.text().then(function (t) { console.log('text', t); });\
+         fd.append('q', new File(['xy'], 'orig.txt', {type: 'a/b'})); console.log(fd.get('q').name);\
+         fd.append('r', new File(['xy'], 'orig.txt'), 'renamed.txt'); console.log(fd.get('r').name, fd.get('r').size);\
+         fd.append('s', new Blob(['z']), 'named'); console.log(fd.get('s').name, fd.get('s') instanceof File);\
+         fd.append('t', 42, 'ignored'); console.log(typeof fd.get('t'), fd.get('t'));\
+         fd.append('u', new Blob(['w'])); console.log(fd.getAll('u')[0].name);",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:true blob 3 text/plain",
+            "log:orig.txt",
+            "log:renamed.txt 2",
+            "log:named true",
+            "log:string 42",
+            "log:blob",
+            "log:text abc",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qf3_formdata_form_argument_logs_and_is_empty() {
+    let log = run_with_timers(
+        "var none = new FormData();\
+         var fd = new FormData(document.createElement('form'), null);\
+         console.log(fd.has('x'), Array.from(fd).length, none.keys().next().done);",
+    );
+    assert_eq!(
+        log,
+        [
+            "error:scratchy: js: not implemented: FormData(form) (waits for Q30e)",
+            "log:false 0 true",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qf3_formdata_request_and_response_bodies() {
+    let log = run_with_timers(
+        "var fd = new FormData(); fd.append('a', 'x\\ny\"z'); fd.append('f', new File(['hi'], 'h.txt', {type: 'text/plain'}));\
+         var req = new Request('http://x.test/', {method: 'POST', body: fd}), ct = req.headers.get('content-type');\
+         req.text().then(function (t) {\
+           var bd = ct.split('boundary=')[1];\
+           console.log(ct.indexOf('multipart/form-data; boundary=----scratchyBoundary') === 0, t.indexOf('--' + bd + '\\r\\n') === 0,\
+             t.indexOf('name=\"a\"') > 0, t.indexOf('x\\r\\ny\"z') > 0,\
+             t.indexOf('name=\"f\"; filename=\"h.txt\"\\r\\nContent-Type: text/plain\\r\\n\\r\\nhi\\r\\n') > 0,\
+             t.endsWith('--' + bd + '--\\r\\n'), t.split('--' + bd).length === 4);\
+         });\
+         new Response(new URLSearchParams('a=1&a=2&b=%20')).formData().then(function (f) { console.log(f.getAll('a').join('|'), f.get('b').length, f instanceof FormData); });\
+         new Response(fd).formData().catch(function (e) { console.log(e.name); });",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:true true true true true true true",
+            "log:1|2 1 true",
+            "log:TypeError",
+        ],
+        "{log:?}"
+    );
+}

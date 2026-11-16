@@ -3256,3 +3256,15 @@ and throws NotSupportedError).
 ### Meta refresh (QY19)
 
 After a fetched page arrives, `handle_nav_result` looks for the first `meta[http-equiv=refresh]` (`meta_refresh_action`). With JS off `<noscript>` children are elements (`new_parser`), with JS on they are text, so only the right one is found. A 0 s `url=` redirect never installs the page: it replaces the current history entry and fetches the target (`follow_meta_refresh`). A delayed one (<=10 s) installs the page and a sleeping thread (same shape as `schedule_image_flush`) sends `AppEvent::MetaRefresh(generation, url)`; a changed `nav_generation` cancels it. `App::meta_chain` (reset by link/`:go`/history/`:refresh`) caps chains at 3.
+## FormData (QF3)
+
+Same file, after Blob/File. Entries are `[name, value]` pairs in a WeakMap
+(value: string or File). A Blob value becomes a File (name `blob` unless a
+filename is given). Names and values are USVString-normalised (lone
+surrogates to U+FFFD). Iteration (`entries/keys/values/Symbol.iterator`) is
+live over the list, in insertion order. `new FormData(form)` never reads the
+controls: it logs `scratchy: js: not implemented: FormData(form) (waits for
+Q30e)` and stays empty (forms rule, AGENTS.md). A FormData request/response
+body is serialised as multipart/form-data with a random boundary (QF13 partly
+done, serialisation only). `formData()` still parses urlencoded bodies only,
+so a multipart body rejects with TypeError (QF4a).
