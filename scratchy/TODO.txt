@@ -669,10 +669,42 @@ WAITING FOR USER (design first): skip these.
       through wire works: measured 204 with CORS headers). Payoff:
       youtube's innertube API (all its data) is POST JSON; POST refs gh
       12, bbc 33, yt 47.
-- [ ] QF14 [S] WAITING FOR USER (design first, QF-D2; same as Q30f)
-      Cookies: an in-memory jar in wire, `credentials`
-      omit/same-origin/include, the third-party rule, CORS credentials
-      mode, and `document.cookie` (Q33g).
+- [x] QF14 (wire half, HASH_QF14A) Cookie jar in WIRE (design QF-D2a). Done in
+      wire/src/cookies.rs + wire/src/main.rs: in-memory jar, RFC 6265bis,
+      partitioned by `X-Wire-Top-Site`, header-gated by `X-Wire-Jar: scratchy`,
+      per-hop store/send on redirects, `Set-Cookie` stripped from answers when
+      the jar was used, `document.cookie` control channel
+      (`X-Wire-Cookie-Op: get|set`), `X-Wire-Cookies: on|off`, `--no-cookies`,
+      `X-Wire-Version: 3`. Extra headers wire accepts: `X-Wire-Nav: 1`
+      (top-level navigation: Lax cookies sent) and optional
+      `X-Wire-Initiator-Site` (with Nav: the site the navigation came from, so
+      Strict is withheld on cross-site navigations; without it a navigation is
+      same-site because scratchy sends the destination as the top site). Not
+      done: the access token for the control channel (hook in
+      `control_authorized`, user has not answered), the real public suffix list
+      (embedded short list, see cookies.rs docs), persistence (QF15).
+      THE USER MUST REBUILD AND RESTART WIRE (nobody restarts it for them):
+        cd ~/src/vibe-it/wire && cargo build --release   (or cargo install --path .)
+        then stop the running wire (pgrep -x wire; kill <that PID>) and start it again
+        with the same command as before (e.g. `wire &`); add `--no-cookies` only
+        as a kill switch. The jar is memory only: it is lost on every restart.
+- [ ] QF14b-scratchy [S] The scratchy half of QF14 (needs the wire above,
+      version 3). (1) Send `X-Wire-Jar: scratchy` and
+      `X-Wire-Top-Site: <scheme://registrable-domain of the top-level page>` on
+      ALL requests through wire (navigations, images, stylesheets, scripts,
+      modules, iframes, fetch/XHR) except those with no credentials per the
+      Fetch spec (`credentials:'omit'`, cross-origin with mode `same-origin`):
+      those send no jar header. Top-level navigations also send `X-Wire-Nav: 1`
+      and (optional) `X-Wire-Initiator-Site` when a page-initiated navigation.
+      (2) Page JS must not send/read cookies itself: drop `Cookie` as before and
+      expect no `Set-Cookie` in answers when the jar was used. (3)
+      `document.cookie` get/set through the control channel
+      (`X-Wire-Cookie-Op` + `X-Wire-Cookie-Url` + `X-Wire-Top-Site` + `X-Wire-Jar`,
+      body = the assigned string for `set`). (4) Detect an old wire: no
+      `X-Wire-Version` >= 3 or no `X-Wire-Cookies: on` on a jar request means
+      cookies are unavailable (`off` = `--no-cookies`): log ONCE, send no jar
+      headers, keep working. (5) Tests with the fake executor. QF14b (separate,
+      later): Disconnect tracker-list blocking of Firefox standard mode.
 - [ ] QF15 [S] WAITING FOR USER (design first, QF-D7; with QY13a)
       Persistence: an HTTP cache, cookies or storage on disk.
 - [ ] QF16 [S] WAITING FOR USER (design first, QF-D8) Sync XHR that

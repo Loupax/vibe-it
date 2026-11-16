@@ -185,3 +185,66 @@ a server cannot spoof them):
 
 Per-request resolver state lives in a thread-local (`TRACKER`): each
 connection has its own thread and ureq resolves on the calling thread.
+
+## The cookie jar (QF14, protocol version 3)
+
+Design: `scratchy/TODO.txt` QF-D2a (user, FINAL). Code: `src/cookies.rs` (the
+jar, RFC 6265bis parsing/matching, its own unit tests) and `execute_with_jar`,
+`cookie_control` in `src/main.rs`.
+
+- **Header-gated, memory only.** The jar is ON unless wire runs with
+  `--no-cookies`, but a request uses it only with `X-Wire-Jar: scratchy` (and
+  not `X-Wire-Cookies: off`). One jar for all clients (`JAR_NAME`; a later
+  `--profile` changes that one value). Without the header (snag, other clients)
+  wire sends and stores nothing and behaves exactly as before, a client
+  `Cookie` header included. The jar lives in a `Mutex` inside `Shared`; it is
+  lost when wire restarts (QF-D7; `--cookie-file` is a later flag).
+- **Partitioned (Total Cookie Protection).** Key = (partition, domain, path,
+  name). `X-Wire-Top-Site` gives the partition (any URL or site; normalized to
+  `scheme://registrable-domain`; missing = the request's own site). A third
+  party sees only cookies it set under the same top site. `SameSite` as
+  declared; unspecified = None. Strict: only when the request is same-site with
+  the top site. Lax: also on a top-level navigation (`X-Wire-Nav: 1`, safe
+  methods only). Optional `X-Wire-Initiator-Site` (with Nav): scratchy sends the
+  destination as the top site for a navigation, which would make every
+  navigation same-site; with the initiator, a cross-site navigation sends Lax
+  but not Strict cookies. Sites compare scheme + registrable domain. The
+  registrable domain uses a SMALL embedded suffix list (single labels plus
+  ~100 common multi-label suffixes, no `psl` crate); a missing ccTLD second
+  level would let siblings share a super cookie. One function
+  (`is_public_suffix`) to replace.
+- **Rules:** name/value, Expires (lenient RFC date parser), Max-Age (wins),
+  400 day cap, Domain (IP hosts host-only, public suffix rejected unless equal
+  to the host), Path (default path), Secure (set only from a secure context;
+  sent over https or loopback), HttpOnly, SameSite, `Partitioned` ignored,
+  `__Secure-`/`__Host-` prefixes (case-insensitive), malformed lines ignored
+  (no `=`, empty name, control characters), plain http cannot overwrite a
+  Secure cookie. Limits in ONE struct (`Limits`): 4096 bytes name+value, 1024
+  per attribute value, 180 per (partition, domain), 3000 total; eviction =
+  expired first, then least recently accessed.
+- **Request path.** With the jar, wire follows redirects ITSELF (a second
+  agent with redirects off): before every hop (initial and each redirect) the
+  `Cookie` header is computed for that hop's URL (a client-supplied `Cookie` is
+  dropped: the jar is authoritative), after every hop every `Set-Cookie` line is
+  stored, and `Set-Cookie` lines are stripped from what scratchy gets back (the
+  jar belongs to wire). 303 and POST+301/302 become GET; 307/308 keep method and
+  body. `X-Wire-Final-Url`/hop classes behave as before; the timeout is per hop
+  on this path.
+- **Control channel for `document.cookie`:** `X-Wire-Cookie-Op: get` +
+  `X-Wire-Cookie-Url: <page url>` + `X-Wire-Top-Site` + `X-Wire-Jar: scratchy`
+  answers `200 text/plain` `name=value; name2=value2` (HttpOnly hidden; SameSite
+  by the top site), no upstream request. `set` takes the `document.cookie = ...`
+  string as the BODY and answers `204` (rejected cookies also answer 204, as a
+  browser silently ignores them; script cannot create or overwrite HttpOnly,
+  Secure only from https/loopback). Bad input: `400` + `X-Wire-Error:
+  cookie-control`. Disabled jar: `404` + `X-Wire-Cookies: off`. Hook for the
+  access token the user has not decided on: `control_authorized` (always true
+  today).
+- **Detection:** `X-Wire-Version: 3` = cookie-capable wire. Responses carry
+  `X-Wire-Cookies: on` when the jar was used for that request (control channel
+  included) and `X-Wire-Cookies: off` on every response when wire runs with
+  `--no-cookies` (the jar header is then ignored and `Set-Cookie` passes
+  through). A version >= 3 without the header on a request that did not ask for
+  the jar just means "available, not used".
+- **Logging:** names and values never reach a log line; `cookies::log_line`
+  prints host and counts only, and only under `WIRE_TIMING=1`.
