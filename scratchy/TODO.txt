@@ -193,7 +193,7 @@ its prerequisites. Tests go in src/tests.rs. "Payoff" is what the R22
 survey predicts; measure it with `--js-report --run-timers 5000` on the
 R22 copies and paste the before/after numbers in the commit.
 
-- [x] QF1 [S] DONE (= QY15b, commit HASH_PENDING; implemented as pure JS in
+- [x] QF1 [S] DONE (= QY15b, commit 148b6de; implemented as pure JS in
       src/globals_prelude.js, not the encoding_rs natives sketched here, so
       no new crate was needed; the behaviour list below is what the tests
       check). `TextEncoder`/`TextDecoder`.
@@ -1503,7 +1503,7 @@ Phase 2 (big enablers, after phase 1):
       `import.meta.resolve`, JSON modules, worker modules,
       `modulepreload`. Today these reject with "module was not pre-fetched".
 - [x] QY15b [S] `TextEncoder`/`TextDecoder` (UTF-8) in the JS prelude: the
-      first error of every github module script. DONE (commit 99260d8):
+      first error of every github module script. DONE (commit 148b6de):
       pure JS in src/globals_prelude.js. `TextEncoder` (encode, encodeInto,
       surrogate pairs, lone surrogate -> U+FFFD); `TextDecoder` for utf-8
       (WHATWG state machine kept between calls for `{stream}`, BOM stripped
