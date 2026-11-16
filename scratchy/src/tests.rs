@@ -10559,3 +10559,40 @@ fn qa18b_iframe_content_document_and_window() {
         "{log:?}"
     );
 }
+
+// ---------- QA18b1 / QA18c: iframe src documents, styles in second documents ----------
+
+#[test]
+fn qa18b1_iframe_src_document_is_loaded_and_styled() {
+    let mut pages = HashMap::new();
+    pages.insert(
+        "http://qa18b1.test/dir/empty.html".to_string(),
+        "<!doctype html><html><head><style>p{white-space:pre;color:#102030}</style><title>T</title></head><body><p id=a>hi</p></body></html>".to_string(),
+    );
+    crate::net::set_iframe_pages(pages);
+    crate::js::set_page_url(Url::parse("http://qa18b1.test/dir/page.html").ok().as_ref());
+    let (_e, _d, log) = events_engine(
+        "<html><body><iframe id=f src='empty.html'></iframe><iframe id=g src='missing.html'></iframe>\
+         <iframe id=h src='http://other.test/empty.html'></iframe></body></html>",
+        "var f=document.getElementById('f'), d=f.contentDocument, w=f.contentWindow;\
+         console.log(d!==null, d.title, d.getElementById('a').textContent, d.URL, w.location.href, d.defaultView===w, w.parent===window);\
+         var cs=getComputedStyle(d.getElementById('a'));\
+         console.log(cs.whiteSpace, cs.color, getComputedStyle(document.body).whiteSpace);\
+         console.log(document.getElementById('g').contentDocument, document.getElementById('h').contentDocument);\
+         console.log(document.getElementById('a'), document.getElementsByTagName('p').length);\
+         var e=d.createElement('div'); d.body.appendChild(e); e.style.whiteSpace='pre-wrap';\
+         console.log(getComputedStyle(e).whiteSpace);",
+    );
+    assert_eq!(
+        *log.borrow(),
+        [
+            "log:true T hi http://qa18b1.test/dir/empty.html http://qa18b1.test/dir/empty.html true true",
+            "log:pre rgb(16, 32, 48) normal",
+            "log:null null",
+            "log:null 0",
+            "log:pre-wrap",
+        ],
+        "{:?}",
+        log.borrow()
+    );
+}

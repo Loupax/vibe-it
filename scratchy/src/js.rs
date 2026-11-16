@@ -23,6 +23,10 @@ pub(crate) fn set_page_url(url: Option<&Url>) {
     PAGE_URL.with(|u| *u.borrow_mut() = url.cloned());
 }
 
+pub(crate) fn page_url() -> Option<Url> {
+    PAGE_URL.with(|u| u.borrow().clone())
+}
+
 /// Viewport reported as `window.innerWidth/innerHeight` until the real
 /// size is plumbed through (new item Q33b2).
 const DEFAULT_VIEWPORT: (u32, u32) = (1024, 768);
@@ -993,6 +997,7 @@ pub(crate) fn js_report_for_html(html: &str, socket: Option<&std::path::Path>, f
                 Some(base) => {
                     let mut res = ExternalResources::default();
                     find_external_resources(&dom.document, &mut res);
+                    prefetch_iframes(socket, &base, &dom.document);
                     fetch_scripts(socket, &base, res.scripts)
                 }
                 None => inline_scripts(&dom.document),

@@ -387,6 +387,83 @@ pub(crate) fn fetch_script_via_wire(path: &std::path::Path, url: &Url) -> Option
     Some(enc.decode_with_bom_removal(&body).0.into_owned())
 }
 
+/// QA18b1: bytes cap for a pre-fetched iframe document.
+const IFRAME_MAX_BYTES: usize = 1 << 20;
+/// QA18b1: at most this many iframes per page are pre-fetched.
+const IFRAME_MAX_COUNT: usize = 8;
+
+static IFRAME_PAGES: std::sync::Mutex<Option<HashMap<String, String>>> = std::sync::Mutex::new(None);
+
+/// QA18b1: the pre-fetched HTML of an iframe, by absolute URL (what
+/// `iframe.contentDocument` parses into its second document).
+pub(crate) fn iframe_page(url: &str) -> Option<String> {
+    IFRAME_PAGES.lock().ok()?.as_ref()?.get(url).cloned()
+}
+
+pub(crate) fn set_iframe_pages(pages: HashMap<String, String>) {
+    if let Ok(mut g) = IFRAME_PAGES.lock() {
+        *g = Some(pages);
+    }
+}
+
+/// Same origin as `base` (all `file:` URLs count as one origin).
+fn same_frame_origin(base: &Url, url: &Url) -> bool {
+    match url.scheme() {
+        "http" | "https" => url.origin() == base.origin(),
+        "file" => base.scheme() == "file",
+        _ => false,
+    }
+}
+
+/// QA18b1: fetches the `src` documents of the page's `<iframe>`s that are
+/// same-origin http(s)/file, concurrently, bounded by `IFRAME_MAX_COUNT`
+/// and `IFRAME_MAX_BYTES`, and stores them for the JS engine (which
+/// cannot touch the network). Scripts in them never run. Replaces the
+/// previous page's set. No-op with JS off.
+pub(crate) fn prefetch_iframes(path: &std::path::Path, base: &Url, document: &Handle) {
+    set_iframe_pages(HashMap::new());
+    if !js_enabled() {
+        return;
+    }
+    fn collect(h: &Handle, base: &Url, out: &mut Vec<Url>) {
+        if let NodeData::Element { name, .. } = &h.data
+            && name.local.as_ref() == "iframe"
+            && let Some(src) = element_attr(h, "src")
+            && let Ok(u) = resolve_href(Some(base), src.trim())
+            && same_frame_origin(base, &u)
+            && !out.contains(&u)
+            && out.len() < IFRAME_MAX_COUNT
+        {
+            out.push(u);
+        }
+        for c in h.children.borrow().iter() {
+            collect(c, base, out);
+        }
+    }
+    let mut urls = Vec::new();
+    collect(document, base, &mut urls);
+    if urls.is_empty() {
+        return;
+    }
+    let pages: HashMap<String, String> = thread::scope(|scope| {
+        let hs: Vec<_> = urls
+            .into_iter()
+            .map(|u| {
+                scope.spawn(move || {
+                    let WireFetchRaw::Responded { content_type, body } = fetch_raw_via_wire(path, &build_get_request_text(&u)) else { return None };
+                    let ct = content_type.unwrap_or_default().to_ascii_lowercase();
+                    if body.len() > IFRAME_MAX_BYTES || !(ct.trim_start().starts_with("text/html") || ct.trim().is_empty() && u.scheme() == "file") {
+                        return None;
+                    }
+                    Some((u.to_string(), decode_html_bytes(&body, None)))
+                })
+            })
+            .collect();
+        hs.into_iter().filter_map(|h| h.join().ok().flatten()).collect()
+    });
+    set_iframe_pages(pages);
+}
+
 /// What `process_external_resources` hands back: the concatenated
 /// stylesheets and the scripts ready to run, in document order.
 pub(crate) struct PageResources {
@@ -698,6 +775,7 @@ pub(crate) fn process_external_resources(
     let extra_css = fetch_stylesheets(path, &base, &resources.stylesheets);
     spawn_image_fetches(proxy, path, &base, resources.images, generation);
     let scripts = fetch_scripts(path, &base, resources.scripts);
+    prefetch_iframes(path, &base, &dom.document);
     PageResources { css: extra_css, scripts }
 }
 

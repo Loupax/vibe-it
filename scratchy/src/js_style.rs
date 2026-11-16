@@ -32,6 +32,8 @@ pub(crate) struct StyleCache {
     index: Option<RuleIndex>,
     map: HashMap<(usize, u8), ComputedStyle>,
     root_inherited: Option<InheritedStyle>,
+    /// QA18c: the document the cached rules/styles belong to.
+    root_ptr: usize,
 }
 
 /// Properties reported by `length`/`item(i)`; every other name returns `''`.
@@ -257,10 +259,12 @@ pub(crate) fn serialize(s: &ComputedStyle, prop: &str) -> String {
 
 impl StyleCache {
     /// Brings the rule set up to date for DOM generation `wgen`.
-    fn refresh(&mut self, root: &Handle, wgen: u64) {
-        if self.valid && self.wgen == wgen {
+    fn refresh(&mut self, root: &Handle, wgen: u64, page: bool) {
+        let rp = Rc::as_ptr(root) as usize;
+        if self.valid && self.wgen == wgen && self.root_ptr == rp {
             return;
         }
+        self.root_ptr = rp;
         self.wgen = wgen;
         self.valid = true;
         self.map.clear();
@@ -268,7 +272,10 @@ impl StyleCache {
         let mut src = String::new();
         collect_style_css(root, &mut src);
         src.push('\n');
-        EXTRA_CSS.with(|c| src.push_str(&c.borrow()));
+        // The fetched stylesheets belong to the page, not to a second document.
+        if page {
+            EXTRA_CSS.with(|c| src.push_str(&c.borrow()));
+        }
         if !js_enabled() {
             src.push_str("\n/* nojs */");
         }
@@ -286,8 +293,8 @@ impl StyleCache {
 
     /// Style of `h` (optionally its `::before`/`::after`), or `None` if it
     /// is not an element connected to `root` (CSSOM: all-empty values).
-    pub(crate) fn style_of(&mut self, root: &Handle, wgen: u64, h: &Handle, pseudo: Option<&str>) -> Option<ComputedStyle> {
-        self.refresh(root, wgen);
+    pub(crate) fn style_of(&mut self, root: &Handle, wgen: u64, h: &Handle, pseudo: Option<&str>, page: bool) -> Option<ComputedStyle> {
+        self.refresh(root, wgen, page);
         let rules = self.rules.clone()?;
         // Ancestor chain, outermost first; must end at the document.
         let mut chain = Vec::new();

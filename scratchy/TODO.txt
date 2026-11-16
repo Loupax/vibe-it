@@ -1404,15 +1404,30 @@ into the commit message of every JS item.
       insertion through appendChild/insertBefore. Network `src` gives
       null. Acid3 harness stays 54/100 (its iframe is `src=empty.html`);
       with the src removed it is 58, the rest blocked on QA18c/QA18b1.
-- [ ] QA18b1 [M] (P4, JS) Load same-origin iframe `src` (http/file, e.g.
-      Acid3 `empty.html`) into the second document: fetch through wire,
-      parse into the frame root, `readyState`/`load` after the fetch,
-      `location`/`URL`; also `load` for iframes inserted via innerHTML or
-      document.write and `window.frames`. Gates the Acid3 iframe tests.
-- [ ] QA18c [M] (P4, JS) Styles for a second document: `getComputedStyle`
-      and `__d_cs` use the page root (id 0); make the cascade take the
-      node's document. `createElement` on an XML document (case
-      preserved, non-HTML namespace) and `new Document()` also left out.
+- [x] QA18b1 (HASH) [M] (P4, JS) Same-origin iframe `src` (http(s)/file, e.g.
+      Acid3 `empty.html`): `prefetch_iframes` (net.rs; called from
+      `process_external_resources` and `--js-report`) fetches the `src` of
+      iframes present in the page markup through wire (same origin as the
+      base only, max 8 iframes, 1 MB each, text/html), stores them by
+      absolute URL (`iframe_page`); the JS `frameOf` parses the HTML into
+      the frame's second document (`__d_load_html`, `__d_iframe_page`),
+      sets `URL`/`location.href`. Scripts in the frame never run; the
+      frame is not laid out or painted. Limits: iframes created or whose
+      `src` is set after load (dynamic) and streamed (stdin) pages still
+      give null; no `load` for markup iframes; `window.frames` and
+      iframe `readyState` not done (split below).
+- [ ] QA18b2 [M] (P4, JS) Iframe loading beyond the pre-fetch: iframes
+      inserted/`src` set by script (needs a JsRequests-style fetch queue
+      drained by `App`), `load` for markup/innerHTML/document.write
+      iframes, `window.frames`, frame `readyState`.
+- [x] QA18c (HASH) [M] (P4, JS) Styles for a second document: `__d_cs`
+      runs the cascade in the node's own document (its `<style>` text;
+      the page's fetched CSS applies to the page only); the style cache
+      is keyed by document root. Left out: `createElement` on an XML
+      document (case preserved, non-HTML namespace) and `new Document()`
+      (see QA18c1).
+- [ ] QA18c1 [S] (P4, JS) `createElement` in XML documents keeps case and
+      the non-HTML namespace; `new Document()` constructor.
 - [ ] QA19 [L] (P4, JS) DOM Range (`document.createRange`, boundary
       points, `extractContents`/`deleteContents`/`cloneContents`/
       `insertNode`, mutation fixups). Acid3 T7-T13. Only after QA18.

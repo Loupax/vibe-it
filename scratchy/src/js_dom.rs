@@ -413,18 +413,30 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     let (t, gn) = (table.clone(), wgen.clone());
     let cache = Rc::new(RefCell::new(js_style::StyleCache::default()));
     native!("__d_cs", move |id: i32, pseudo: String, prop: String| -> String {
-        let (root, h) = {
+        let (page, h) = {
             let t = t.borrow();
             (t.get(0).unwrap(), t.get(id))
         };
         let Some(h) = h else { return String::new() };
+        // QA18c: the cascade runs in the node's own document.
+        let mut top = h.clone();
+        while let Some(p) = parent_handle(&top) {
+            top = p;
+        }
+        let is_page = Rc::ptr_eq(&top, &page);
+        let is_doc = is_page || {
+            let mut t = t.borrow_mut();
+            let tid = t.intern(&top);
+            t.docs.contains(&tid)
+        };
+        let root = if is_doc { top } else { page };
         let p = pseudo.trim_start_matches(':').to_ascii_lowercase();
         let p = match p.as_str() {
             "before" => Some("before"),
             "after" => Some("after"),
             _ => None,
         };
-        match cache.borrow_mut().style_of(&root, gn.get(), &h, p) {
+        match cache.borrow_mut().style_of(&root, gn.get(), &h, p, is_page) {
             Some(s) => js_style::serialize(&s, &prop),
             None => String::new(),
         }
@@ -506,6 +518,32 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         let id = t.intern(&Node::new(NodeData::Document));
         t.docs.insert(id);
         id
+    });
+    // QA18b1: [absolute url, html] of a pre-fetched iframe `src` (empty when
+    // the iframe's src was not pre-fetched); `__d_load_html` parses a full
+    // document into a second document's root.
+    let t = table.clone();
+    native!("__d_iframe_page", move |id: i32| -> Vec<String> {
+        let t = t.borrow();
+        let (Some(h), Some(root)) = (t.get(id), t.get(0)) else { return Vec::new() };
+        let Some(src) = element_attr(&h, "src") else { return Vec::new() };
+        let base = find_base_url(&root).or_else(crate::js::page_url);
+        let Ok(url) = resolve_href(base.as_ref(), src.trim()) else { return Vec::new() };
+        match crate::net::iframe_page(url.as_str()) {
+            Some(html) => vec![url.to_string(), html],
+            None => Vec::new(),
+        }
+    });
+    let t = table.clone();
+    native!("__d_load_html", move |id: i32, html: String| {
+        let Some(doc) = t.borrow().get(id) else { return };
+        let Ok(dom) = new_parser().read_from(&mut html.as_bytes()) else { return };
+        clear_children(&doc);
+        let kids: Vec<Handle> = dom.document.children.borrow_mut().drain(..).collect();
+        for k in kids {
+            k.parent.set(Some(Rc::downgrade(&doc)));
+            doc.children.borrow_mut().push(k);
+        }
     });
     let t = table.clone();
     native!("__d_create_doctype", move |name: String, public_id: String, system_id: String| -> i32 {
@@ -1646,18 +1684,25 @@ const DOM_PRELUDE: &str = r#"
   var inPage = function (n) { for (; n && n.parentNode; n = n.parentNode); return !!n && n.__id === 0; };
   var frameSrcOk = function (el) {
     var s = (__d_attr(el.__id, 'src') || '').replace(/^\s+|\s+$/g, '');
-    return s === '' || /^about:blank/i.test(s) || /^data:/i.test(s);
+    return s === '' || /^about:blank/i.test(s) || /^data:/i.test(s) || __d_iframe_page(el.__id).length > 0;
   };
   var frameOf = function (el) {
     if (!inPage(el) || !frameSrcOk(el)) return null;
     var f = frames[el.__id];
     if (f) return f;
     var d = makeDoc(true, 'text/html');
-    var html = d.createElement('html'); d.appendChild(html);
-    html.appendChild(d.createElement('head')); html.appendChild(d.createElement('body'));
+    var pg = __d_iframe_page(el.__id), href = 'about:blank';
+    if (pg.length) {
+      // QA18b1: pre-fetched same-origin document; scripts in it never run.
+      __d_load_html(d.__id, pg[1]); href = pg[0];
+      ['URL', 'documentURI', 'baseURI'].forEach(function (k) { Object.defineProperty(d, k, { value: href, writable: true, configurable: true, enumerable: true }); });
+    } else {
+      var html = d.createElement('html'); d.appendChild(html);
+      html.appendChild(d.createElement('head')); html.appendChild(d.createElement('body'));
+    }
     var win = Object.create(null);
     var props = { document: d, window: win, self: win, parent: g, top: g, frameElement: el, name: '', length: 0,
-      location: { href: 'about:blank', toString: function () { return 'about:blank'; } } };
+      location: { href: href, toString: function () { return href; } } };
     Object.keys(props).forEach(function (k) { Object.defineProperty(win, k, { value: props[k], writable: true, configurable: true, enumerable: true }); });
     win.getComputedStyle = function (e, p) { return g.getComputedStyle(e, p); };
     Object.defineProperty(d, 'defaultView', { get: function () { return win; }, configurable: true, enumerable: true });
