@@ -292,7 +292,7 @@ Items (in order):
       appended into a connected shadow root gets connectedCallback.
       Payoff (measured with a JS stand-in): github 12 relative-time + 1
       tool-tip errors gone; chromestatus and MDN Lit components start.
-- [x] QSD4 [M] (HASH) READY Constructable stylesheets: `new CSSStyleSheet()`
+- [x] QSD4 [M] (ec80dfd) READY Constructable stylesheets: `new CSSStyleSheet()`
       (today `illegal`), `replaceSync`, `replace` (Promise), `insertRule`/
       `deleteRule`/`cssRules` (minimal CSSRule with `cssText`), `@import`
       ignored with a log as in the spec, and `document.adoptedStyleSheets`
