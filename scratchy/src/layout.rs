@@ -823,7 +823,20 @@ pub(crate) fn shift_laid_tree(laid: &mut Laid, dx: f32, dy: f32) {
 /// `containing_height` parameter, same basis (and same `None`-means-
 /// "percentage computes to auto" rule — see `finalize_box_lengths`'s
 /// own docs) `height`'s own `%` already uses.
+pub(crate) fn apply_transform_offset(laid: &mut Laid) {
+    if let Some((tx, ty)) = laid.style.translate {
+        let (dx, dy) = (tx.px + tx.frac * laid.w, ty.px + ty.frac * laid.h);
+        shift_laid_tree(laid, dx, dy);
+    }
+}
+
 pub(crate) fn apply_relative_offset(laid: &mut Laid, s: &ComputedStyle, basis_w: f32, basis_h: Option<f32>) {
+    // QY18: translate-only `transform` is a paint/hit-test offset only (no
+    // layout effect). Out-of-flow boxes apply it in `resolve_positioned`,
+    // after their final position is solved.
+    if !matches!(s.position, Position::Absolute | Position::Fixed) {
+        apply_transform_offset(laid);
+    }
     if s.position != Position::Relative {
         return;
     }
@@ -1003,6 +1016,7 @@ pub(crate) fn resolve_positioned(
     };
     let (dx, dy) = (final_x - laid.x, final_y - laid.y);
     shift_laid_tree(&mut laid, dx, dy);
+    apply_transform_offset(&mut laid);
     laid.fixed = item.fixed;
     laid
 }

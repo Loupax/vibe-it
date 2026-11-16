@@ -1114,6 +1114,8 @@ pub(crate) struct Declarations {
     pub(crate) left: Option<Length>,
     pub(crate) z_index: Option<i32>,
     pub(crate) opacity: Option<f32>,
+    /// QY18: translate-only `transform`; empty = `none` (or ignored value).
+    pub(crate) transform: Option<Vec<(Length, Length)>>,
     /// `content` (Q19): only string content (and `none`/`normal`) parses.
     /// Only read for `::before`/`::after`.
     pub(crate) content: Option<ContentDecl>,
@@ -2391,6 +2393,55 @@ pub(crate) fn parse_opacity(input: &mut CssParser) -> Result<f32, ()> {
         Token::Percentage { unit_value, .. } => Ok(unit_value.clamp(0.0, 1.0)),
         _ => Err(()),
     }
+}
+
+/// QY18: `transform: none | <translate-fn>+`. Only `translate()`,
+/// `translateX()`, `translateY()` and `translate3d()` (z ignored) are
+/// honoured; any other function (rotate, scale, matrix, ...) makes the
+/// whole value count as `none`. Returns the (x, y) pairs to sum.
+pub(crate) fn parse_transform(input: &mut CssParser) -> Result<Vec<(Length, Length)>, ()> {
+    if input.try_parse(|i| i.expect_ident_matching("none")).is_ok() {
+        return if input.is_exhausted() { Ok(Vec::new()) } else { Err(()) };
+    }
+    let mut out = Vec::new();
+    let mut unsupported = false;
+    while !input.is_exhausted() {
+        let name = match input.next().map_err(|_| ())? {
+            Token::Function(n) => n.to_ascii_lowercase(),
+            _ => return Err(()),
+        };
+        let zero = Length::Px(0.0);
+        let parsed: Result<Option<(Length, Length)>, ParseError<()>> = input.parse_nested_block(|i| {
+            let bad = |i: &mut CssParser| i.new_error_for_next_token::<()>();
+            let mut args: Vec<Length> = Vec::new();
+            let known = matches!(name.as_str(), "translate" | "translatex" | "translatey" | "translate3d");
+            if !known {
+                while i.next().is_ok() {}
+                return Ok(None);
+            }
+            loop {
+                args.push(parse_length_percent(i).map_err(|_| bad(i))?);
+                if i.try_parse(|i| i.expect_comma()).is_err() {
+                    break;
+                }
+            }
+            i.expect_exhausted()?;
+            let r = match (name.as_str(), args.len()) {
+                ("translate", 1) | ("translatex", 1) => (args[0], zero),
+                ("translate", 2) => (args[0], args[1]),
+                ("translatey", 1) => (zero, args[0]),
+                ("translate3d", 3) => (args[0], args[1]),
+                _ => return Err(bad(i)),
+            };
+            Ok(Some(r))
+        });
+        match parsed {
+            Ok(Some(p)) => out.push(p),
+            Ok(None) => unsupported = true,
+            Err(_) => return Err(()),
+        }
+    }
+    if unsupported { Ok(Vec::new()) } else { Ok(out) }
 }
 
 pub(crate) fn parse_z_index(input: &mut CssParser) -> Result<i32, ()> {
@@ -4895,6 +4946,10 @@ impl DeclParser<'_> {
         } else if name.eq_ignore_ascii_case("opacity") {
             if let Ok(o) = parse_opacity(input) {
                 self.decls.opacity = Some(o);
+            }
+        } else if name.eq_ignore_ascii_case("transform") {
+            if let Ok(t) = parse_transform(input) {
+                self.decls.transform = Some(t);
             }
         } else if name.eq_ignore_ascii_case("width") {
             set_width_length(input, &mut self.decls.width);

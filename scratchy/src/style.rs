@@ -128,6 +128,13 @@ impl FirstLineStyle {
     }
 }
 
+/// One axis of a QY18 translate: `px` plus a fraction of the box's own size.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct TranslateAxis {
+    pub(crate) px: f32,
+    pub(crate) frac: f32,
+}
+
 #[derive(Clone, Copy)]
 pub(crate) struct ComputedStyle {
     /// Q31: `node_id` of the element this style was resolved for (0 for
@@ -175,6 +182,9 @@ pub(crate) struct ComputedStyle {
     /// overlapping semi-transparent children of one faded parent
     /// double-blend, unlike real group compositing.
     pub(crate) opacity: f32,
+    /// QY18: summed translate-only `transform`, applied as a paint/hit-test
+    /// offset (`apply_transform_offset`); no layout effect.
+    pub(crate) translate: Option<(TranslateAxis, TranslateAxis)>,
     /// Not inherited (see `Float`'s own docs). Forces `display` to
     /// `Block` the same way `position: absolute`/`fixed` does — applied
     /// in `resolve_style` right alongside that existing rule, so nothing
@@ -1590,6 +1600,23 @@ pub(crate) fn resolve_style_for(
     let opacity = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.opacity), |d| d.opacity)
         .unwrap_or(1.0)
         * inherited.parent.map_or(1.0, |p| p.opacity);
+    // QY18: sum the translate list as (px, fraction) per axis; BoxLength::
+    // Calc is not needed since `%` + `px` mixes are kept as a Calc-free pair
+    // by resolving lengths here and carrying percentages separately.
+    let translate = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.transform.clone()), |d| d.transform.clone())
+        .filter(|l| !l.is_empty())
+        .map(|list| {
+            let (mut px, mut py, mut fx, mut fy) = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
+            for (x, y) in list {
+                for (l, p, f) in [(x, &mut px, &mut fx), (y, &mut py, &mut fy)] {
+                    match l {
+                        Length::Percent(v) => *f += v,
+                        other => *p += other.resolve(font_size, inherited.root_font_size),
+                    }
+                }
+            }
+            (TranslateAxis { px, frac: fx }, TranslateAxis { px: py, frac: fy })
+        });
     let margin_auto = (
         matches!(cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.margin_left), |d| d.margin_left), Some(Length::Auto)),
         matches!(cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.margin_right), |d| d.margin_right), Some(Length::Auto)),
@@ -2003,6 +2030,7 @@ pub(crate) fn resolve_style_for(
         inset,
         z_index,
         opacity,
+        translate,
         float,
         clear,
         width,
@@ -2123,6 +2151,7 @@ pub(crate) fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         inset: Insets::default(),
         z_index: None,
         opacity: 1.0,
+        translate: None,
         float: Float::default(),
         clear: Clear::default(),
         width: None,

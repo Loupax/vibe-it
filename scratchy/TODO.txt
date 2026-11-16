@@ -2681,7 +2681,7 @@ Phase 2 (big enablers, after phase 1):
       green}} @layer a{p{color:red}}` is green; `@layer a{[hidden]{display:
       none!important}} .x{display:flex}` on `<p hidden class=x>` is none.
       Live: github.com banners gone.
-- [ ] QY18 [S] (P2, CSS; NEEDS THE USER'S OK: `transform` was
+- [x] QY18 [S] (DONE <hash>; user OK 2026-11-16; left out: static boxes are not stacking contexts, a transformed box is not a containing block for fixed descendants) (P2, CSS; was: NEEDS THE USER'S OK: `transform` was
       deliberately not queued on 2026-11-14) Translate-only `transform`.
       Symptom: off-canvas drawers are drawn open: duckduckgo's settings
       menu (`position:fixed;right:0;transform:translate(100%)`) covers the
