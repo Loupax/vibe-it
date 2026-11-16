@@ -146,6 +146,15 @@ App owns everything else, wire does the network):
 USER ANSWERS 2026-11-16 (these override the defaults listed below; the
 coordinator recorded them from the user's message):
 - QF-D1 CORS: DEFAULT (browser rules). DECIDED.
+- QF-D2a WHERE THE JAR LIVES (user, 2026-11-16): in WIRE, as an opt-in
+  client-side cookie engine like curl's (`-b/-c`): a request that names a jar
+  (e.g. request header `X-Wire-Jar: scratchy`) gets matching cookies attached and
+  its `Set-Cookie` responses stored in that named in-memory jar (domain, path,
+  Secure, HttpOnly, SameSite, expiry, third-party rule); requests without a jar
+  name (snag, other clients) send and store nothing. Scratchy reaches the jar for
+  `document.cookie` through a small query channel to wire (HttpOnly hidden).
+  Persistence later = one backend behind the jar name (QF-D7: memory only now).
+  A second jar name = a separate profile. Needs a wire rebuild and restart.
 - QF-D2 Cookies: an IN-MEMORY cookie jar for now (no disk). Making it
   persistent will be a separate later action item (see QF-D7). DECIDED.
   QF14 (= Q30f) is therefore READY as the in-memory jar; the third-party
