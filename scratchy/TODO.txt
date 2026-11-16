@@ -1397,7 +1397,7 @@ into the commit message of every JS item.
       doctype, DocumentType). Acid3 harness 51 -> 54/100 (T26, T27, T98).
       YouTube webcomponents polyfill still dies earlier on `.prototype of
       undefined`, unchanged.
-- [x] QA18b (HASH) [M] (P4, JS) `iframe.contentDocument`/`contentWindow` for
+- [x] QA18b (2fdcec8) [M] (P4, JS) `iframe.contentDocument`/`contentWindow` for
       empty / `about:blank` / `data:` src iframes: a lazily made empty
       second document per iframe (`makeDoc`), minimal window object
       (`parent`/`top` -> page window, `frameElement`), async `load` after
