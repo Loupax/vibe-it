@@ -14480,3 +14480,22 @@ fn qy6g_zero_cost_before_use() {
     assert!(engine.next_due_ms().is_none(), "{:?}", out.borrow());
     assert!(out.borrow().is_empty(), "{:?}", out.borrow());
 }
+
+// ---- QSD0: fragment wrappers must not assign query methods per instance.
+
+#[test]
+fn qsd0_readonly_fragment_query_methods_do_not_break_wrappers() {
+    let log = run_in_html(
+        "<html><body><div id=a><p class=c>x</p></div></body></html>",
+        r#"'use strict';
+         Object.defineProperty(DocumentFragment.prototype, 'querySelectorAll',
+           { value: function () { return ['page']; } });
+         Object.freeze(DocumentFragment.prototype);
+         const f = document.createDocumentFragment();
+         const p = document.createElement('p');
+         f.appendChild(p);
+         console.log(f.querySelectorAll('p')[0], f.querySelector('p') === p, f.getElementsByTagName('p').length);
+         console.log(document.querySelectorAll('p.c').length, document.getElementById('a').querySelector('.c').tagName);"#,
+    );
+    assert_eq!(log, ["log:page true 1", "log:1 P"], "{log:?}");
+}
