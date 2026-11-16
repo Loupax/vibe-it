@@ -3233,3 +3233,22 @@ headersPairs, bodyBytes, url, redirected, type)` builds a real Response
 `immutable` guard; for `basic`/`cors` Set-Cookie/Set-Cookie2 are dropped;
 `opaque`/`opaqueredirect`/`error` have status 0, no headers, no body, url ''.
 CORS-safelisted filtering of `cors` headers is the caller's job.
+
+## QY6e: Custom Elements hooks
+
+All in the QY6e block at the end of `DOM_PRELUDE` (js_dom.rs). The mutation
+natives are IIFE-local `var`s (`__d_insert/remove/sethtml/settext/setattr/
+rmattr/write`), so the first `customElements.define` can rebind them to hooked
+versions (and `createElement`/`createElementNS`/`cloneNode`); a page that never
+defines an element runs the bare natives (`__ce_stats.hooks` counts hook calls,
+0 until then). Hooks query the subtree with one selector built from the defined
+names (`ceSel`; `tag[is]` for customized built-ins) and only touch matches.
+Per-element state lives in `ceState[id]` (the definition, or -1 for a failed
+upgrade) and `ceConnFlag[id]`; `ceNConn` lets removals skip the subtree query
+when no custom element is connected. Upgrade runs `Reflect.construct(ctor)`
+with the element pushed on the definition's construction stack; `HTMLElement`
+(js.rs) forwards `new.target` to `ceNew`, which returns that element (or builds
+a new one for `new X()`). Reactions are synchronous after the API call, not
+microtask-queued. Only document id 0 is upgraded/connected. Not implemented:
+adoptedCallback, `:defined`, shadow DOM (`attachShadow` logs `not implemented`
+and throws NotSupportedError).
