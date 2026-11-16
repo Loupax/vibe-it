@@ -505,7 +505,13 @@ const PRELUDE: &str = r#"
     ev._stop = false; ev._stopNow = false;
     var path = [target];
     if (target && target.__id !== undefined) {
+      // QSD3: a composed event continues from a shadow root to its host (no retargeting yet, QSD8).
       for (var n = target.parentNode; n; n = n.parentNode) path.push(n);
+      for (var m = path[path.length - 1]; m && ev.composed && g.__scratchy_shadow_host && (m = g.__scratchy_shadow_host(m)); ) {
+        path.push(m);
+        for (n = m.parentNode; n; n = n.parentNode) path.push(n);
+        m = path[path.length - 1];
+      }
       if (path[path.length - 1] === g.document) path.push(g);
     }
     ev._path = path;
