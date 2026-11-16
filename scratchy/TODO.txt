@@ -227,7 +227,7 @@ Items (in order):
       'querySelectorAll', {value: function(){return []}})`,
       `document.createDocumentFragment()` does not throw and uses the
       page's method. Payoff: required before QY6f is useful on github.
-- [ ] QY6f [M] READY (moved here from the QY6 block; Detail: search
+- [x] QY6f [M] (HASH) READY (moved here from the QY6 block; Detail: search
       "QY6f [M] `<template>` content") `template.content`. Additions from
       R23: the content fragment's node document is an inert document
       (reuse QA18a's `makeDoc`, one per main document, created lazily);
@@ -2734,7 +2734,7 @@ Read REGRESSIONS.md "R20" before starting any QY item. Short version:
         webcomponents-all-noPatch.js (QY6a), then kevlar_base `TypeError:
         not a function` at line 8854:192 (unidentified). old.reddit could
         not be fetched (blocks curl). wikipedia/HN: 0 errors.
-      - [ ] QY6f [M] `<template>` content. html5ever puts template
+      - [x] QY6f [M] (HASH) `<template>` content. html5ever puts template
         children in `template_contents`, which nothing exposes: JS sees
         an empty template and `outerHTML` drops the content. Expose the
         contents node as a `DocumentFragment` id (`__d_template_content`),

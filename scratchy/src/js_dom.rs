@@ -110,6 +110,19 @@ fn html_name(local: &str) -> html5ever::QualName {
     html5ever::QualName::new(None, html5ever::ns!(html), html5ever::LocalName::from(local))
 }
 
+/// QY6f: the content fragment of an HTML `<template>` (created on demand);
+/// `None` for anything else. html5ever fills it while parsing.
+fn template_content(h: &Handle) -> Option<Handle> {
+    match &h.data {
+        NodeData::Element { name, template_contents, .. }
+            if name.local.as_ref() == "template" && name.ns == html5ever::ns!(html) =>
+        {
+            Some(template_contents.borrow_mut().get_or_insert_with(|| Node::new(NodeData::Document)).clone())
+        }
+        _ => None,
+    }
+}
+
 /// Removes `h` from its parent's child list (no-op when detached).
 fn detach(h: &Handle) {
     if let Some(p) = parent_handle(h) {
@@ -189,10 +202,12 @@ fn set_children_text(h: &Handle, text: &str) {
 
 /// `innerHTML = html`: fragment-parses in the context of `h`.
 fn set_inner_html(h: &Handle, html: &str) {
-    clear_children(h);
+    // QY6f: a template's innerHTML is its content's.
+    let target = template_content(h).unwrap_or_else(|| h.clone());
+    clear_children(&target);
     for k in parse_fragment_in(h, html) {
-        k.parent.set(Some(Rc::downgrade(h)));
-        h.children.borrow_mut().push(k);
+        k.parent.set(Some(Rc::downgrade(&target)));
+        target.children.borrow_mut().push(k);
     }
 }
 
@@ -232,13 +247,55 @@ fn write_after(after: &Handle, html: &str) -> Handle {
 }
 
 fn serialize_node(h: &Handle, outer: bool) -> String {
-    use html5ever::serialize::{serialize, SerializeOpts, TraversalScope};
+    use html5ever::serialize::{serialize, Serialize, SerializeOpts, Serializer, TraversalScope};
+    // QY6f: like rcdom's serializer, but a `<template>` prints its content.
+    struct Ser(Handle);
+    fn kids(h: &Handle) -> Vec<Handle> {
+        match template_content(h) {
+            Some(c) => c.children.borrow().clone(),
+            None => h.children.borrow().clone(),
+        }
+    }
+    fn node<S: Serializer>(s: &mut S, h: &Handle) -> std::io::Result<()> {
+        match &h.data {
+            NodeData::Element { name, attrs, .. } => {
+                s.start_elem(name.clone(), attrs.borrow().iter().map(|a| (&a.name, &a.value[..])))?;
+                for c in kids(h) {
+                    node(s, &c)?;
+                }
+                s.end_elem(name.clone())
+            }
+            NodeData::Doctype { name, .. } => s.write_doctype(name),
+            NodeData::Text { contents } => s.write_text(&contents.borrow()),
+            NodeData::Comment { contents } => s.write_comment(contents),
+            NodeData::ProcessingInstruction { target, contents } => s.write_processing_instruction(target, contents),
+            NodeData::Document => {
+                for c in h.children.borrow().clone() {
+                    node(s, &c)?;
+                }
+                Ok(())
+            }
+        }
+    }
+    impl Serialize for Ser {
+        fn serialize<S: Serializer>(&self, s: &mut S, scope: TraversalScope) -> std::io::Result<()> {
+            match scope {
+                TraversalScope::IncludeNode => node(s, &self.0),
+                TraversalScope::ChildrenOnly(_) => {
+                    for c in kids(&self.0) {
+                        node(s, &c)?;
+                    }
+                    Ok(())
+                }
+            }
+        }
+    }
     let mut out = Vec::new();
     let opts = SerializeOpts {
         traversal_scope: if outer { TraversalScope::IncludeNode } else { TraversalScope::ChildrenOnly(None) },
         ..Default::default()
     };
-    let _ = serialize(&mut out, &markup5ever_rcdom::SerializableHandle::from(h.clone()), opts);
+    let _ = serialize(&mut out, &Ser(h.clone()), opts);
     String::from_utf8_lossy(&out).into_owned()
 }
 
@@ -255,7 +312,11 @@ fn clone_node(h: &Handle, deep: bool) -> Handle {
         _ => NodeData::Document,
     };
     let n = Node::new(data);
+    // QY6f: cloning a template copies its content (deep clones only).
     if deep {
+        if let (Some(src), NodeData::Element { template_contents, .. }) = (template_content(h), &n.data) {
+            *template_contents.borrow_mut() = Some(clone_node(&src, true));
+        }
         for c in h.children.borrow().iter() {
             let cc = clone_node(c, true);
             cc.parent.set(Some(Rc::downgrade(&n)));
@@ -582,6 +643,16 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             _ => NodeData::Document,
         };
         t.borrow_mut().intern(&Node::new(data))
+    });
+    // QY6f: id of a template's content fragment (-1 when not a template).
+    let t = table.clone();
+    native!("__d_template_content", move |id: i32| -> i32 {
+        let mut t = t.borrow_mut();
+        let content = t.get(id).as_ref().and_then(template_content);
+        match content {
+            Some(c) => t.intern(&c),
+            None => -1,
+        }
     });
     // QA18a: a new detached Document root (its id is registered as a
     // document, not a fragment); a doctype node (name, public, system).
@@ -1133,7 +1204,12 @@ const DOM_PRELUDE: &str = r#"
     } finally { moEnd(own); }
     return old;
   };
-  NodeProto.cloneNode = function (deep) { return wrap(__d_clone(this.__id, !!deep)); };
+  // A clone keeps the node document of the original (matters for template content).
+  NodeProto.cloneNode = function (deep) {
+    var c = wrap(__d_clone(this.__id, !!deep)), od = this.ownerDocument;
+    if (od && od !== doc) owners[c.__id] = od;
+    return c;
+  };
   var many = function (args) { return Array.prototype.map.call(args, toNode); };
   ElementProto.append = function () {
     var s = this, own = moBegin();
@@ -1162,6 +1238,21 @@ const DOM_PRELUDE: &str = r#"
   ElementProto.replaceWith = function () {
     var own = moBegin();
     try { this.before.apply(this, arguments); this.remove(); } finally { moEnd(own); }
+  };
+  // QY6f: Document.importNode / adoptNode on the main document (second documents
+  // have their own in makeDoc). Imported clones are upgraded (if customElements
+  // is in use) like any node created in the main document.
+  doc.importNode = function (n, deep) {
+    if (!n || n.__id === undefined) throw new TypeError("Failed to execute 'importNode' on 'Document': parameter 1 is not of type 'Node'.");
+    if (n.nodeType === 9) throw herr("Failed to execute 'importNode' on 'Document': The node provided is a document.", 'NotSupportedError');
+    var c = wrap(__d_clone(n.__id, !!deep));
+    if (ceOn) ceScan(c.__id, true);
+    return c;
+  };
+  doc.adoptNode = function (n) {
+    if (!n || n.__id === undefined) throw new TypeError("Failed to execute 'adoptNode' on 'Document': parameter 1 is not of type 'Node'.");
+    if (n.nodeType === 9) throw herr("Failed to execute 'adoptNode' on 'Document': The node provided is a document.", 'NotSupportedError');
+    __d_remove(n.__id); delete owners[n.__id]; return n;
   };
   doc.createElement = function (t) { t = String(t); checkName('createElement', t); return wrap(__d_create(1, t)); };
   doc.createElementNS = function (ns, t) {
@@ -2135,6 +2226,16 @@ const DOM_PRELUDE: &str = r#"
     if (!g[r[0]]) mkProto(r[0], r.slice(1));
   });
   var HTMLUnknownElement = g.HTMLUnknownElement;
+  // QY6f: `template.content` is a DocumentFragment owned by ONE inert document (created
+  // lazily): it never renders, never upgrades custom elements, never runs scripts.
+  var inertDoc = null;
+  def(g.HTMLTemplateElement.prototype, 'content', function () {
+    var id = __d_template_content(this.__id);
+    if (id < 0) return undefined;
+    if (!inertDoc) inertDoc = makeDoc(true, 'text/html');
+    owners[id] = inertDoc;
+    return wrap(id);
+  });
   // Media: inert placeholders only (AGENTS.md "Off limits"): the methods log a
   // `not implemented` error and do nothing; no state, no events.
   var ens = function (n, tags, base) { return g[n] ? g[n].prototype : mkProto(n, tags, base); };
@@ -2376,7 +2477,7 @@ const DOM_PRELUDE: &str = r#"
     };
     NodeProto.cloneNode = function (deep) {
       var c = oClone.call(this, deep);
-      if (c && c.__id !== undefined) ceScan(c.__id, true);
+      if (c && c.__id !== undefined && c.ownerDocument === doc) ceScan(c.__id, true); // inert docs: never upgraded
       return c;
     };
   };
