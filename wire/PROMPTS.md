@@ -199,3 +199,11 @@ updated to use it instead of hand-expanding `$XDG_RUNTIME_DIR` directly.
 ## v-file — `file://` URLs (scratchy Q22)
 
 Added `serve_file`/`content_type_for_path` in `src/main.rs`: a `file://` request line is answered from disk (`200` + guessed `Content-Type`, `404` unreadable, `405` non-GET) without going through `ureq`. Test: `file_urls_are_served_from_disk_with_a_guessed_content_type`. Not done: directory listings, `HEAD`, `Content-Length`.
+
+---
+
+## v-qf6 — caps, class, public-only policy (scratchy QF6)
+
+> Implement TODO.txt item QF6 [S] from the fetch/XHR DESIGN MEMO: wire honours `X-Wire-Max-Bytes`, `X-Wire-Timeout-Ms`, `X-Wire-Max-Redirects`; writes every duplicate response header (Set-Cookie) on its own line; reports the class of the address it connected to (`X-Wire-Target-Class`, per hop); `X-Wire-Policy: public-only` refuses non-public resolved addresses at every hop (403 + `X-Wire-Error: policy`, `file:` too); `X-Wire-Final-Url`; `X-Wire-Error: 1` on the synthesized 502; `X-Wire-Version: 2` on every response. Backwards compatible. Tests with loopback fixtures, a private test instance, docs.
+
+Result: see wire/NOTES.md "The scratchy<->wire control channel". Tests: the QF6 block at the end of `src/main.rs`.
