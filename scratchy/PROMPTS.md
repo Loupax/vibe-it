@@ -6885,3 +6885,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Merge PR #162 once QA11a landed: merge origin/main, rerun cargo test and WPT, visual check.
 
 **What changed:** TODO/PROMPTS conflicts resolved keeping both sides; QA11, Q48b, Q74 ticked. Full `cargo test` 680 passed, 2 ignored. WPT pass 270 fail 272, no change from wpt-expected.txt (absolute-replaced-height-009/-016/-022 pass again; block-in-inline-self-collapsing-only-child passes). en.wikipedia Main_Page header/cards shift up ~24px; HN, lobste.rs, guardian, bbc, wikipedia.org, duckduckgo, github otherwise identical (live-content differences only).
+
+## template.content and importNode (QY6f)
+
+> Implement template.content (inert second document, parser content wired, innerHTML/outerHTML/cloneNode go through it), document.importNode/adoptNode, template UA display:none; GitHub task-lists and YouTube head.appendChild(template.content) must stop throwing.
+
+**What changed:** src/js_dom.rs (template_content helper, own serializer printing template content, set_inner_html and clone_node via content, __d_template_content native, HTMLTemplateElement.content getter with one lazy inert document, doc.importNode/adoptNode, cloneNode keeps the node document and inert clones are never upgraded), src/default.css (template display:none), tests qy6f_* in src/tests.rs; NOTES.md; TODO.txt.

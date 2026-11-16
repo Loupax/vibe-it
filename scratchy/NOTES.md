@@ -3362,3 +3362,7 @@ querySelector/All and getElementsByTagName/ClassName are installed once on Eleme
 ## Border width defaults (QA11a)
 
 A border with a style but no width is `medium` (3px); `thin/medium/thick` are 1/3/5px; an unset or inherited border colour paints as the element's own `color` (currentColor). Two WPT tests that only passed while unset colours painted nothing (`row-group-margin-border-padding`, `table-rules-rows-vertical`) are accepted failures until QA11a2 (real border-collapse).
+
+## QY6f: template.content
+
+html5ever fills `template_contents` (a Document-data node = kind 11 fragment); `template_content(h)` creates it on demand. `__d_template_content(id)` exposes it; the JS `content` getter maps it to ONE lazily made inert document (`makeDoc`, via `owners`), so ownerDocument is inert and custom elements in it are never upgraded (ceIsConn is false, and the cloneNode hook skips non-main documents). rcdom serializes only `children`, so `serialize_node` is our own walk that prints template content. innerHTML set parses into the content; deep clone copies it. appendChild on the template element itself still adds ordinary children (hidden by `template { display:none }`). Not done: shadowrootmode (QSD3/9).
