@@ -999,7 +999,7 @@ R22 copies and paste the before/after numbers in the commit.
 
 WAITING FOR USER (design first): skip these.
 
-- [x] QF13 (HASH) [M] DONE (QF-D4 decided: all methods) Non-GET methods
+- [x] QF13 (b7528ce) [M] DONE (QF-D4 decided: all methods) Non-GET methods
       and request bodies: POST/PUT/PATCH/DELETE for fetch and XHR,
       bodies from string/URLSearchParams/Blob/ArrayBuffer/FormData
       (`multipart/form-data` encoder), and CORS preflight (OPTIONS
