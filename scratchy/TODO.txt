@@ -900,7 +900,7 @@ Phase 1 (each S, independent; do in this order):
       `change` never fires. Do together with Q33b2: pass the live
       viewport into the JS env, and on resize re-evaluate each live
       MediaQueryList and dispatch `change` (needs a list of live MQLs).
-- [x] QY11 [S] (XXXXXXX) (P2; guardian, yt, ddg, bbc; overlaps Q33c1's "reflected
+- [x] QY11 [S] (ec87a8e) (P2; guardian, yt, ddg, bbc; overlaps Q33c1's "reflected
       properties" part: tick that part there) Reflected attributes and
       attribute enumeration. Symptoms: guardian's commercial bundle
       `Error: Automatic publicPath is not supported in this browser`
