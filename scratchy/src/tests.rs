@@ -13079,11 +13079,12 @@ struct QfFake {
     calls: Mutex<Vec<(String, thread::ThreadId, std::time::Duration)>>,
     answers: Vec<(&'static str, Result<WireResponse, NetError>)>,
     delay_ms: u64,
+    raw: Mutex<Vec<Vec<u8>>>,
 }
 
 impl QfFake {
     fn new(answers: Vec<(&'static str, Result<WireResponse, NetError>)>) -> Arc<Self> {
-        Arc::new(QfFake { calls: Mutex::new(Vec::new()), answers, delay_ms: 0 })
+        Arc::new(QfFake { calls: Mutex::new(Vec::new()), answers, delay_ms: 0, raw: Mutex::new(Vec::new()) })
     }
     fn urls(&self) -> Vec<String> {
         self.calls.lock().unwrap().iter().map(|c| c.0.clone()).collect()
@@ -13092,6 +13093,7 @@ impl QfFake {
 
 impl NetExecutor for QfFake {
     fn execute(&self, job: &crate::js_net::NetJob) -> Result<WireResponse, NetError> {
+        self.raw.lock().unwrap().push(job.request.clone());
         let line = String::from_utf8_lossy(&job.request).lines().next().unwrap_or("").to_string();
         let url = line.split(' ').nth(1).unwrap_or("").to_string();
         self.calls.lock().unwrap().push((url.clone(), thread::current().id(), job.limits.read_timeout));
@@ -13358,6 +13360,7 @@ fn qf7_sync_blocks_on_the_engine_thread_with_the_short_timeout() {
         calls: Mutex::new(Vec::new()),
         answers: vec![("/ok", qf7_ok("sync-body", &[])), ("/slow", Err(NetError::Timeout))],
         delay_ms: 60,
+        raw: Mutex::new(Vec::new()),
     });
     let (engine, log) = qf7_engine("https://page.test/", &fake);
     let t = std::time::Instant::now();
@@ -13422,4 +13425,199 @@ fn qf7_app_net(proxy: &winit::event_loop::EventLoopProxy<AppEvent>) {
     assert_eq!(done(&app).as_deref(), Some("undefined"));
     app.handle_js_net(app.nav_generation, id, qf7_ok("AAA", &[]));
     assert_eq!(done(&app).as_deref(), Some("AAA"));
+}
+
+// ---------- QF8: window.fetch over the QF7 queue (fake executor, no network) ----------
+
+fn qf8_run(page: &str, fake: &Arc<QfFake>, code: &str) -> Vec<String> {
+    let (engine, log) = qf7_engine(page, fake);
+    engine.eval("t", code);
+    qf7_drive(&engine, fake);
+    let l = log.borrow().clone();
+    l
+}
+
+#[test]
+fn qf8_fetch_exists_on_window_and_global_this() {
+    let fake = QfFake::new(vec![]);
+    let l = qf8_run(
+        "https://page.test/",
+        &fake,
+        "console.log(typeof fetch, typeof window.fetch, typeof globalThis.fetch, typeof self.fetch, fetch === window.fetch, fetch.length, fetch.name);",
+    );
+    assert_eq!(l, vec!["log:function function function function true 1 fetch"]);
+}
+
+#[test]
+fn qf8_get_text_and_json_round_trip() {
+    let fake = QfFake::new(vec![
+        ("/t", qf7_ok("hello", &[("content-type", "text/plain")])),
+        ("/j", qf7_ok("{\"a\":[1,2]}", &[("content-type", "application/json")])),
+    ]);
+    let l = qf8_run(
+        "https://page.test/",
+        &fake,
+        "fetch('/t').then(function(r){ console.log('r', r.status, r.ok, r.type, r.url, r.redirected, r.headers.get('content-type')); return r.text(); }).then(function(t){ console.log('text', t); });\
+         fetch('https://page.test/j').then(function(r){ return r.json(); }).then(function(j){ console.log('json', JSON.stringify(j)); });",
+    );
+    assert!(l.contains(&"log:r 200 true basic https://page.test/t false text/plain".to_string()), "{l:?}");
+    assert!(l.contains(&"log:text hello".to_string()), "{l:?}");
+    assert!(l.contains(&"log:json {\"a\":[1,2]}".to_string()), "{l:?}");
+}
+
+#[test]
+fn qf8_post_json_body_and_headers_reach_the_executor() {
+    let fake = QfFake::new(vec![("/p", qf7_ok("{}", &[]))]);
+    let _ = qf8_run(
+        "https://page.test/",
+        &fake,
+        "fetch('/p', {method:'post', headers:{'Content-Type':'application/json','X-Tok':'abc'}, body: JSON.stringify({k:1})});",
+    );
+    let raw = fake.raw.lock().unwrap().clone();
+    assert_eq!(raw.len(), 1);
+    let t = String::from_utf8_lossy(&raw[0]).to_string();
+    assert!(t.starts_with("POST https://page.test/p"), "{t}");
+    assert!(t.to_ascii_lowercase().contains("content-type: application/json"), "{t}");
+    assert!(t.to_ascii_lowercase().contains("x-tok: abc"), "{t}");
+    assert!(t.ends_with("{\"k\":1}"), "{t}");
+}
+
+#[test]
+fn qf8_form_data_body_is_multipart() {
+    let fake = QfFake::new(vec![("/u", qf7_ok("", &[]))]);
+    let _ = qf8_run(
+        "https://page.test/",
+        &fake,
+        "var fd = new FormData(); fd.append('a', 'one'); fd.append('f', new Blob(['xyz'], {type:'text/plain'}), 'n.txt'); fetch('/u', {method:'POST', body: fd});",
+    );
+    let raw = fake.raw.lock().unwrap().clone();
+    let t = String::from_utf8_lossy(&raw[0]).to_string();
+    assert!(t.to_ascii_lowercase().contains("content-type: multipart/form-data; boundary="), "{t}");
+    assert!(t.contains("name=\"a\"") && t.contains("one") && t.contains("filename=\"n.txt\"") && t.contains("xyz"), "{t}");
+}
+
+#[test]
+fn qf8_abort_before_and_after() {
+    let fake = QfFake::new(vec![("/a", qf7_ok("x", &[]))]);
+    let (engine, log) = qf7_engine("https://page.test/", &fake);
+    engine.eval(
+        "t",
+        "var c = new AbortController(); c.abort();\
+         fetch('/a', {signal: c.signal}).catch(function(e){ console.log('pre', e.name); });\
+         var c2 = new AbortController(); c2.abort('why');\
+         fetch('/a', {signal: c2.signal}).catch(function(e){ console.log('reason', e); });\
+         var c3 = new AbortController();\
+         fetch('/a', {signal: c3.signal}).then(function(){ console.log('B resolved'); }, function(e){ console.log('late', e.name); });\
+         Promise.resolve().then(function(){ return Promise.resolve(); }).then(function(){ c3.abort(); });",
+    );
+    qf7_drive(&engine, &fake);
+    let l = log.borrow().clone();
+    assert!(l.contains(&"log:pre AbortError".to_string()), "{l:?}");
+    assert!(l.contains(&"log:reason why".to_string()), "{l:?}");
+    assert!(l.contains(&"log:late AbortError".to_string()), "{l:?}");
+    assert!(!l.contains(&"log:B resolved".to_string()), "{l:?}");
+}
+
+#[test]
+fn qf8_cors_blocked_allowed_and_opaque() {
+    let fake = QfFake::new(vec![
+        ("/closed", qf7_ok("secret", &[])),
+        ("/open", qf7_ok("pub", &[("access-control-allow-origin", "*"), ("x-hidden", "1")])),
+        ("/cred", qf7_ok("c", &[("access-control-allow-origin", "*")])),
+    ]);
+    let l = qf8_run(
+        "https://page.test/",
+        &fake,
+        "fetch('https://o.test/closed').catch(function(e){ console.log('closed', e.name, e.message); });\
+         fetch('https://o.test/open').then(function(r){ console.log('open', r.type, r.headers.get('x-hidden')); return r.text(); }).then(function(t){ console.log('body', t); });\
+         fetch('https://o.test/cred', {credentials:'include'}).catch(function(e){ console.log('cred', e.name); });\
+         fetch('https://o.test/x', {mode:'no-cors'}).then(function(r){ console.log('nc', r.type, r.status, JSON.stringify(r.url)); });",
+    );
+    assert!(l.contains(&"log:closed TypeError Failed to fetch".to_string()), "{l:?}");
+    assert!(l.contains(&"log:open cors null".to_string()), "{l:?}");
+    assert!(l.contains(&"log:body pub".to_string()), "{l:?}");
+    assert!(l.contains(&"log:cred TypeError".to_string()), "credentials include rejects ACAO *: {l:?}");
+    assert!(l.contains(&"log:nc opaque 0 \"\"".to_string()), "{l:?}");
+}
+
+#[test]
+fn qf8_same_origin_mode_and_unsupported_schemes_reject() {
+    let fake = QfFake::new(vec![]);
+    let l = qf8_run(
+        "https://page.test/",
+        &fake,
+        "fetch('https://o.test/x', {mode:'same-origin'}).catch(function(e){ console.log('so', e.name); });\
+         ['ftp://h/x', 'about:blank', 'javascript:1'].forEach(function(u){ fetch(u).catch(function(e){ console.log('bad', e.name, u); }); });\
+         fetch().catch(function(e){ console.log('noargs', e.name); });",
+    );
+    assert!(fake.urls().is_empty(), "{:?} {l:?}", fake.urls());
+    assert!(l.contains(&"log:so TypeError".to_string()), "{l:?}");
+    assert!(l.contains(&"log:bad TypeError ftp://h/x".to_string()), "{l:?}");
+    assert!(l.contains(&"log:bad TypeError about:blank".to_string()), "{l:?}");
+    assert!(l.contains(&"log:bad TypeError javascript:1".to_string()), "{l:?}");
+    assert!(l.contains(&"log:noargs TypeError".to_string()), "{l:?}");
+}
+
+#[test]
+fn qf8_redirect_error_and_follow_report_final_url() {
+    let redirected = Ok(WireResponse {
+        status: 200,
+        status_text: "OK".into(),
+        headers: vec![],
+        body: b"final".to_vec(),
+        error: None,
+        final_url: Some("https://page.test/final".into()),
+    });
+    let fake = QfFake::new(vec![("/start", redirected)]);
+    let l = qf8_run(
+        "https://page.test/",
+        &fake,
+        "fetch('/start').then(function(r){ console.log('follow', r.url, r.redirected); });\
+         fetch('/start', {redirect:'error'}).catch(function(e){ console.log('error', e.name); });",
+    );
+    assert!(l.contains(&"log:follow https://page.test/final true".to_string()), "{l:?}");
+    assert!(l.contains(&"log:error TypeError".to_string()), "{l:?}");
+}
+
+#[test]
+fn qf8_blob_and_data_urls_resolve_locally() {
+    let fake = QfFake::new(vec![]);
+    let l = qf8_run(
+        "https://page.test/",
+        &fake,
+        "var u = URL.createObjectURL(new Blob(['blobby'], {type:'text/x-t'}));\
+         fetch(u).then(function(r){ console.log('blob', r.status, r.type, r.headers.get('content-type'), r.url === u); return r.text(); }).then(function(t){ console.log('bt', t); });\
+         fetch('data:text/plain;base64,aGk=').then(function(r){ return r.text(); }).then(function(t){ console.log('b64', t); });\
+         fetch('data:,a%20b%C3%A9').then(function(r){ console.log('ct', r.headers.get('content-type')); return r.text(); }).then(function(t){ console.log('pct', t); });\
+         var u3 = URL.createObjectURL(new Blob(['q'])); URL.revokeObjectURL(u3); fetch(u3).catch(function(e){ console.log('revoked', e.name); });\
+         var u2 = URL.createObjectURL(new Blob(['z'])); fetch(u2).then(function(r){ return r.arrayBuffer(); }).then(function(b){ console.log('ab', b.byteLength); });",
+    );
+    assert!(fake.urls().is_empty(), "local fetches never reach the network");
+    assert!(l.contains(&"log:blob 200 basic text/x-t true".to_string()), "{l:?}");
+    assert!(l.contains(&"log:bt blobby".to_string()), "{l:?}");
+    assert!(l.contains(&"log:b64 hi".to_string()), "{l:?}");
+    assert!(l.contains(&"log:ct text/plain;charset=US-ASCII".to_string()), "{l:?}");
+    assert!(l.contains(&"log:pct a b\u{e9}".to_string()), "{l:?}");
+    assert!(l.contains(&"log:revoked TypeError".to_string()), "{l:?}");
+    assert!(l.contains(&"log:ab 1".to_string()), "{l:?}");
+}
+
+#[test]
+fn qf8_keepalive_beacon_is_logged_not_sent() {
+    let fake = QfFake::new(vec![]);
+    let l = qf8_run(
+        "https://page.test/",
+        &fake,
+        "fetch('https://track.test/b', {method:'POST', keepalive:true, body:'x=1', headers:{'Content-Type':'text/plain'}}).then(function(r){ console.log('ka', r.type, r.status); });",
+    );
+    assert!(fake.urls().is_empty());
+    assert!(l.contains(&"log:ka opaque 0".to_string()), "{l:?}");
+    assert!(l.iter().any(|x| x.starts_with("net:") && x.contains("suppressed (not sent)")), "{l:?}");
+}
+
+#[test]
+fn qf8_network_failure_rejects_failed_to_fetch() {
+    let fake = QfFake::new(vec![]);
+    let l = qf8_run("https://page.test/", &fake, "fetch('/nothing').catch(function(e){ console.log('net', e.name, e.message); });");
+    assert!(l.contains(&"log:net TypeError Failed to fetch".to_string()), "{l:?}");
 }
