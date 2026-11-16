@@ -15021,3 +15021,30 @@ fn qsd0_readonly_fragment_query_methods_do_not_break_wrappers() {
     );
     assert_eq!(log, ["log:page true 1", "log:1 P"], "{log:?}");
 }
+
+// ---- QSD1: document.domain, Document as ParentNode, getElementsByName.
+
+#[test]
+fn qsd1_document_domain_and_parent_node() {
+    set_page_url(Url::parse("https://gist.github.com/a/b").ok().as_ref());
+    let log = run_in_html(
+        "<html><body><input name=n><p name=n></p><i name=m></i></body></html>",
+        r#"const r = [];
+         r.push(document.domain);
+         document.domain = 'gist.github.com'; r.push(document.domain);
+         document.domain = 'github.com'; r.push(document.domain);
+         for (const bad of ['com', 'example.org', 'ub.com']) {
+           try { document.domain = bad; r.push('no throw'); } catch (e) { r.push(e.name + ':' + (e instanceof DOMException)); }
+         }
+         r.push(document.firstElementChild.tagName, document.lastElementChild.tagName, document.childElementCount, document.children.length, document.children[0] === document.documentElement);
+         const g = document.getElementsByName('n');
+         r.push(g.length, g[0].tagName, document.getElementsByName('zz').length);
+         console.log(r.join('|'));"#,
+    );
+    set_page_url(None);
+    assert_eq!(
+        log,
+        ["log:gist.github.com|gist.github.com|github.com|SecurityError:true|SecurityError:true|SecurityError:true|HTML|HTML|1|1|true|2|INPUT|0"],
+        "{log:?}"
+    );
+}
