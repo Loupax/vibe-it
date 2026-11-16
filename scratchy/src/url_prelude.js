@@ -148,8 +148,6 @@
   Object.defineProperty(UU, Symbol.toStringTag, { value: 'URL', configurable: true });
   URL.canParse = function (u, b) { try { return !!parse(USVString(u), b === undefined ? undefined : USVString(b)); } catch (e) { return false; } };
   URL.parse = function (u, b) { try { return new URL(u, b); } catch (e) { return null; } };
-  var blobN = 0;
-  URL.createObjectURL = function () { return 'blob:' + (g.location && g.location.origin !== 'null' ? g.location.origin : 'null') + '/' + (++blobN) + '-scratchy'; };
-  URL.revokeObjectURL = function () {};
+  // createObjectURL / revokeObjectURL live in fetch_prelude.js (QF2: blob store).
   def('URL', URL); def('URLSearchParams', URLSearchParams);
 })(globalThis);

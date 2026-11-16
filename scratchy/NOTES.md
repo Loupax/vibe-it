@@ -3200,3 +3200,13 @@ that is also imported elsewhere is evaluated once, under the same 5 s CPU
 budget; rejections log once as `<module url>: <message>`; then
 DOMContentLoaded/load. Inline modules are named `<doc url>#inline-module-N`
 (`import.meta.url` strips the tag). Top-level await works (module promise).
+
+## QF2: Blob / File / FileReader / blob: store
+
+src/fetch_prelude.js (evaluated after intl in js.rs; the home of the QF fetch/XHR
+data classes). Blob bytes live in a WeakMap (Uint8Array, never mutated); File
+extends Blob; FileReader is an EventTarget whose events fire from one
+setTimeout(0). No I/O. The blob: URL store is a JS Map behind
+URL.createObjectURL/revokeObjectURL; QF8/QF9 read it with the global
+`__blob_lookup(url)` (Blob or undefined). `Blob.stream()` only exists if
+ReadableStream exists at load time (QF4). UTF-8 helpers are private to the file.
