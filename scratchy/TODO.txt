@@ -608,7 +608,7 @@ R22 copies and paste the before/after numbers in the commit.
       resolves signed-out; ddg `/country.json` works; old.reddit's
       `fetch is not defined` is gone (its one request is unreadable,
       as in Chrome).
-- [ ] QF9 [S] READY (needs QF8) `XMLHttpRequest` over the same queue
+- [x] QF9 HASH [S] DONE `XMLHttpRequest` over the same queue (sync mode included; see NOTES.md "XMLHttpRequest (QF9)")
       and the same CORS code. EventTarget with UNSENT..DONE, `open(method,
       url, async=true)` (URL resolved against document.baseURI),
       `setRequestHeader` (forbidden names dropped), `timeout` (a JS
@@ -633,6 +633,7 @@ R22 copies and paste the before/after numbers in the commit.
       reads `XMLHttpRequest.prototype` at top level (R21 row 12); HN
       votes need it (but also cookies, QF14); refs: yt 17, bbc 11,
       guardian 13.
+- [ ] QF9a [S] READY XHR responseType 'document' / responseXML: parse HTML/XML via DOMParser (does not exist yet; today the response is null plus a console.error). Also real upload progress and open() user/password if a page needs them.
 - [ ] QF10 [S] READY `navigator.sendBeacon(url, data)`: TypeError for an
       invalid or non-http(s) URL, otherwise return true and send
       nothing (QF-D3); log `sendBeacon: not sent` once per page.

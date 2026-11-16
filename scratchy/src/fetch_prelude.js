@@ -966,6 +966,11 @@
     return r;
   });
   def(g, 'Headers', Headers); def(g, 'Request', Request); def(g, 'Response', Response);
+  // Shared with the XMLHttpRequest layer (QF9) below; not part of the platform.
+  def(g, '__xhr_internals', {
+    forbiddenReq: forbiddenReq, extract: extract, unutf8: unutf8, tokenRe: TOKEN_RE,
+    resBytes: function (r) { var b = rp(r).body.bytes; return b === null ? new Uint8Array(0) : b; },
+  });
 })(globalThis);
 
 // QF7: the INTERNAL request helper fetch (QF8) and XMLHttpRequest (QF9) are
@@ -1144,4 +1149,327 @@
   }
   Object.defineProperty(fetch, 'name', { value: 'fetch', configurable: true });
   def(g, 'fetch', fetch);
+})(globalThis);
+
+// QF9: XMLHttpRequest, a thin layer over __net_request (QF7), so it shares
+// the request policy, CORS checks, size/time limits and logging with fetch.
+// Async: events fire from the promise the helper returns. Sync
+// (`open(.., false)`): `send()` BLOCKS the engine thread in __net_request
+// (logged by QF7; bounded by the policy's sync_xhr_timeout_ms) and throws a
+// NetworkError DOMException on failure. Documented deviations: `document`
+// responseType yields null (and logs) until a DOMParser exists; the body
+// arrives in one piece (one `progress`, state 3 once); no cookies
+// (withCredentials is stored only, QF14); `upload` fires loadstart/progress/
+// load/loadend at the end but never reports real upload progress; user and
+// password arguments of open() are ignored; as in browsers, responseType and
+// timeout on a sync XHR throw InvalidAccessError.
+(function (g) {
+  'use strict';
+  var H = g.__xhr_internals;
+  function def(o, name, v) { Object.defineProperty(o, name, { value: v, writable: true, configurable: true, enumerable: true }); }
+  function domErr(name, msg) {
+    if (typeof g.DOMException === 'function') return new g.DOMException(msg, name);
+    var e = new Error(msg); e.name = name; return e;
+  }
+  function inherit(Child, Parent) {
+    Child.prototype = Object.create(Parent.prototype, { constructor: { value: Child, writable: true, configurable: true } });
+    Object.setPrototypeOf(Child, Parent);
+  }
+  var map = new WeakMap();
+  function st(x) { var s = x !== null && typeof x === 'object' ? map.get(x) : undefined; if (!s) throw new TypeError('Illegal invocation'); return s; }
+  function XMLHttpRequestEventTarget() { throw new TypeError('Illegal constructor'); }
+  inherit(XMLHttpRequestEventTarget, g.EventTarget);
+  function XMLHttpRequestUpload() { throw new TypeError('Illegal constructor'); }
+  inherit(XMLHttpRequestUpload, XMLHttpRequestEventTarget);
+  function XMLHttpRequest() {
+    if (!new.target) throw new TypeError("Failed to construct 'XMLHttpRequest': Please use the 'new' operator, this DOM object constructor cannot be called as a function.");
+    var x = Reflect.construct(g.EventTarget, [], new.target);
+    var up = Reflect.construct(g.EventTarget, [], XMLHttpRequestUpload);
+    map.set(up, { h: {} });
+    map.set(x, {
+      state: 0, sent: false, async: true, method: 'GET', url: '', headers: [], timeout: 0, withCredentials: false,
+      responseType: '', status: 0, statusText: '', resHeaders: [], body: null, finalUrl: '', mime: null, gen: 0,
+      timer: 0, handle: null, hasBody: false, h: {}, upload: up, cache: undefined, docLogged: false,
+    });
+    return x;
+  }
+  inherit(XMLHttpRequest, XMLHttpRequestEventTarget);
+  var XP = XMLHttpRequest.prototype;
+  [['UNSENT', 0], ['OPENED', 1], ['HEADERS_RECEIVED', 2], ['LOADING', 3], ['DONE', 4]].forEach(function (p) {
+    Object.defineProperty(XMLHttpRequest, p[0], { value: p[1], enumerable: true });
+    Object.defineProperty(XP, p[0], { value: p[1], enumerable: true });
+  });
+  ['loadstart', 'progress', 'abort', 'error', 'load', 'timeout', 'loadend'].forEach(function (t) {
+    Object.defineProperty(XMLHttpRequestEventTarget.prototype, 'on' + t, {
+      get: function () { var h = st(this).h[t]; return h === undefined ? null : h; },
+      set: function (f) { st(this).h[t] = typeof f === 'function' ? f : null; },
+      enumerable: true, configurable: true,
+    });
+  });
+  Object.defineProperty(XP, 'onreadystatechange', {
+    get: function () { var h = st(this).h.readystatechange; return h === undefined ? null : h; },
+    set: function (f) { st(this).h.readystatechange = typeof f === 'function' ? f : null; },
+    enumerable: true, configurable: true,
+  });
+  function fire(target, type, loaded, total, lc) {
+    var e = type === 'readystatechange' ? new g.Event(type) : new g.ProgressEvent(type, { lengthComputable: !!lc, loaded: loaded || 0, total: total || 0 });
+    target.dispatchEvent(e);
+  }
+  function rsc(x) { fire(x, 'readystatechange'); }
+  function bad(what, name, msg) { throw domErr(name, "Failed to execute '" + what + "' on 'XMLHttpRequest': " + msg); }
+  function terminate(s) {
+    s.gen++;
+    if (s.timer) { g.clearTimeout(s.timer); s.timer = 0; }
+    var h = s.handle; s.handle = null;
+    if (h && h.abort) h.abort();
+  }
+  function resetResponse(s) {
+    s.status = 0; s.statusText = ''; s.resHeaders = []; s.body = null; s.finalUrl = ''; s.cache = undefined;
+  }
+  var METHODS = ['DELETE', 'GET', 'HEAD', 'OPTIONS', 'POST', 'PUT'];
+
+  def(XP, 'open', function open(method, url) {
+    var x = this, s = st(x);
+    if (arguments.length < 2) throw new TypeError("Failed to execute 'open' on 'XMLHttpRequest': 2 arguments required, but only " + arguments.length + ' present.');
+    method = String(method);
+    if (!H.tokenRe.test(method)) bad('open', 'SyntaxError', "'" + method + "' is not a valid HTTP method.");
+    var up = method.toUpperCase();
+    if (up === 'CONNECT' || up === 'TRACE' || up === 'TRACK') bad('open', 'SecurityError', "'" + method + "' HTTP method is unsupported.");
+    if (METHODS.indexOf(up) >= 0) method = up;
+    var base = (g.document && g.document.baseURI) || (g.location && g.location.href) || undefined, u;
+    try { u = new g.URL(String(url), base); } catch (e) { bad('open', 'SyntaxError', "Invalid URL '" + String(url) + "'"); }
+    var async = arguments.length > 2 ? !!arguments[2] : true;
+    if (!async && (s.timeout !== 0 || s.responseType !== '')) {
+      bad('open', 'InvalidAccessError', 'Synchronous requests must not set a timeout or responseType.');
+    }
+    terminate(s);
+    s.method = method; s.url = u.href; s.async = async; s.headers = []; s.sent = false; s.hasBody = false;
+    resetResponse(s);
+    var was = s.state;
+    s.state = 1;
+    if (was !== 1) rsc(x);
+  });
+  def(XP, 'setRequestHeader', function setRequestHeader(name, value) {
+    var s = st(this);
+    if (arguments.length < 2) throw new TypeError("Failed to execute 'setRequestHeader' on 'XMLHttpRequest': 2 arguments required, but only " + arguments.length + ' present.');
+    if (s.state !== 1 || s.sent) bad('setRequestHeader', 'InvalidStateError', "The object's state must be OPENED.");
+    name = String(name);
+    if (!H.tokenRe.test(name)) bad('setRequestHeader', 'SyntaxError', "'" + name + "' is not a valid HTTP header field name.");
+    value = String(value).replace(/^[\t\n\r ]+|[\t\n\r ]+$/g, '');
+    if (/[\0\r\n]/.test(value)) bad('setRequestHeader', 'SyntaxError', "'" + value + "' is not a valid HTTP header field value.");
+    var n = name.toLowerCase();
+    if (H.forbiddenReq(n)) return;
+    for (var i = 0; i < s.headers.length; i++) {
+      if (s.headers[i][0] === n) { s.headers[i][1] += ', ' + value; return; }
+    }
+    s.headers.push([n, value]);
+  });
+  function hasHeader(list, n) { return list.some(function (e) { return e[0] === n; }); }
+  function finishError(x, s, type) {
+    s.sent = false; s.state = 4; s.handle = null; resetResponse(s);
+    rsc(x);
+    if (s.hasBody) { fire(s.upload, type, 0, 0); fire(s.upload, 'loadend', 0, 0); }
+    fire(x, type, 0, 0);
+    fire(x, 'loadend', 0, 0);
+  }
+  function setResponse(s, res) {
+    s.status = res.status; s.statusText = res.statusText; s.finalUrl = String(res.url || '').replace(/#.*$/, '');
+    var list = [];
+    res.headers.forEach(function (v, n) { if (n !== 'set-cookie' && n !== 'set-cookie2') list.push([n, v]); });
+    s.resHeaders = list;
+    s.body = H.resBytes(res);
+  }
+  function headerVal(s, n) {
+    for (var i = 0; i < s.resHeaders.length; i++) if (s.resHeaders[i][0] === n) return s.resHeaders[i][1];
+    return null;
+  }
+  function handleResponse(x, s, gen, res) {
+    if (s.gen !== gen) return;
+    if (s.timer) { g.clearTimeout(s.timer); s.timer = 0; }
+    var bytes = H.resBytes(res);
+    if (s.hasBody) {
+      fire(s.upload, 'progress', 0, 0); fire(s.upload, 'load', 0, 0); fire(s.upload, 'loadend', 0, 0);
+      if (s.gen !== gen) return;
+    }
+    setResponse(s, res); s.body = null;
+    var cl = headerVal(s, 'content-length'), lc = cl !== null && /^\d+$/.test(cl);
+    var total = lc ? parseInt(cl, 10) : bytes.length;
+    s.state = 2; rsc(x);
+    if (s.gen !== gen) return;
+    s.body = bytes;
+    if (bytes.length) {
+      s.state = 3; rsc(x);
+      if (s.gen !== gen) return;
+      fire(x, 'progress', bytes.length, total, lc);
+      if (s.gen !== gen) return;
+    }
+    s.sent = false; s.handle = null; s.state = 4; rsc(x);
+    if (s.gen !== gen) return;
+    fire(x, 'load', bytes.length, total, lc);
+    fire(x, 'loadend', bytes.length, total, lc);
+  }
+  def(XP, 'send', function send(body) {
+    var x = this, s = st(x);
+    if (s.state !== 1 || s.sent) bad('send', 'InvalidStateError', "The object's state must be OPENED.");
+    var bytes = null, ctype = null;
+    if (body !== undefined && body !== null && s.method !== 'GET' && s.method !== 'HEAD') {
+      if (typeof body === 'object' && body.nodeType === 9) {
+        var dt = body.doctype;
+        bytes = new g.TextEncoder().encode((dt ? '<!DOCTYPE ' + (dt.name || 'html') + '>' : '') + (body.documentElement ? body.documentElement.outerHTML : ''));
+        ctype = 'text/html;charset=UTF-8';
+      } else {
+        var b = H.extract(body);
+        bytes = b.bytes; ctype = b.type;
+      }
+    }
+    var hs = s.headers.map(function (e) { return [e[0], e[1]]; });
+    if (ctype && !hasHeader(hs, 'content-type')) hs.push(['content-type', ctype]);
+    s.hasBody = bytes !== null;
+    resetResponse(s);
+    var init = {
+      method: s.method, url: s.url, headers: hs, body: bytes, mode: 'cors',
+      credentials: s.withCredentials ? 'include' : 'same-origin', api: 'xhr', sync: !s.async,
+    };
+    if (!s.async) {
+      s.sent = true;
+      var h;
+      try { h = g.__net_request(init); }
+      catch (e) { s.sent = false; s.state = 4; resetResponse(s); throw e; }
+      s.sent = false;
+      setResponse(s, h.response);
+      s.state = 4; rsc(x);
+      fire(x, 'load', s.body.length, s.body.length, true);
+      fire(x, 'loadend', s.body.length, s.body.length, true);
+      return;
+    }
+    s.sent = true;
+    s.gen++;
+    var gen = s.gen;
+    fire(x, 'loadstart', 0, 0);
+    if (s.gen !== gen) return;
+    if (s.hasBody) { fire(s.upload, 'loadstart', 0, bytes.length, true); if (s.gen !== gen) return; }
+    var hd = g.__net_request(init);
+    s.handle = hd;
+    if (s.timeout > 0) {
+      s.timer = g.setTimeout(function () {
+        if (s.gen !== gen) return;
+        s.timer = 0;
+        terminate(s);
+        finishError(x, s, 'timeout');
+      }, s.timeout);
+    }
+    hd.promise.then(function (res) { handleResponse(x, s, gen, res); }, function () {
+      if (s.gen !== gen) return;
+      if (s.timer) { g.clearTimeout(s.timer); s.timer = 0; }
+      s.handle = null;
+      finishError(x, s, 'error');
+    });
+  });
+  def(XP, 'abort', function abort() {
+    var x = this, s = st(x);
+    terminate(s);
+    if ((s.state === 1 && s.sent) || s.state === 2 || s.state === 3) finishError(x, s, 'abort');
+    if (s.state === 4) { s.state = 0; resetResponse(s); }
+  });
+  function isText(s) { return s.responseType === '' || s.responseType === 'text'; }
+  function charsetOf(s) {
+    var ct = s.mime || headerVal(s, 'content-type') || '', m = /charset\s*=\s*"?([^";\s]+)/i.exec(ct);
+    return m ? m[1] : 'utf-8';
+  }
+  function textOf(s) {
+    if (s.body === null) return '';
+    var cs = charsetOf(s);
+    if (/^utf-?8$/i.test(cs) || typeof g.TextDecoder !== 'function') return H.unutf8(s.body);
+    try { return new g.TextDecoder(cs).decode(s.body); } catch (e) { return H.unutf8(s.body); }
+  }
+  function responseValue(s) {
+    var t = s.responseType;
+    if (isText(s)) return s.state === 3 || s.state === 4 ? textOf(s) : '';
+    if (s.state !== 4) return null;
+    if (s.cache !== undefined) return s.cache;
+    var v = null;
+    if (t === 'arraybuffer') v = s.body.buffer.slice(s.body.byteOffset, s.body.byteOffset + s.body.length);
+    else if (t === 'blob') v = new g.Blob([s.body], { type: s.mime || headerVal(s, 'content-type') || '' });
+    else if (t === 'json') { try { v = JSON.parse(textOf(s)); } catch (e) { v = null; } }
+    else if (t === 'document') {
+      if (!s.docLogged && g.console) { s.docLogged = true; g.console.error('XMLHttpRequest: responseType "document" is not implemented (response is null)'); }
+    }
+    s.cache = v;
+    return v;
+  }
+  Object.defineProperties(XP, {
+    readyState: { get: function () { return st(this).state; }, enumerable: true, configurable: true },
+    status: { get: function () { return st(this).status; }, enumerable: true, configurable: true },
+    statusText: { get: function () { return st(this).statusText; }, enumerable: true, configurable: true },
+    responseURL: { get: function () { return st(this).finalUrl; }, enumerable: true, configurable: true },
+    upload: { get: function () { return st(this).upload; }, enumerable: true, configurable: true },
+    response: { get: function () { return responseValue(st(this)); }, enumerable: true, configurable: true },
+    responseText: {
+      get: function () {
+        var s = st(this);
+        if (!isText(s)) bad('responseText', 'InvalidStateError', "The value is only accessible if the object's 'responseType' is '' or 'text' (was '" + s.responseType + "').");
+        return responseValue(s);
+      }, enumerable: true, configurable: true,
+    },
+    responseXML: {
+      get: function () {
+        var s = st(this);
+        if (s.responseType !== '' && s.responseType !== 'document') bad('responseXML', 'InvalidStateError', "The value is only accessible if the object's 'responseType' is '' or 'document' (was '" + s.responseType + "').");
+        if (s.state === 4 && s.responseType === 'document') return responseValue(s);
+        return null;
+      }, enumerable: true, configurable: true,
+    },
+    responseType: {
+      get: function () { return st(this).responseType; },
+      set: function (v) {
+        var s = st(this);
+        v = String(v);
+        if (['', 'text', 'json', 'arraybuffer', 'blob', 'document'].indexOf(v) < 0) return;
+        if (s.state === 3 || s.state === 4) bad('responseType', 'InvalidStateError', "The response type cannot be set if the object's state is LOADING or DONE.");
+        if (!s.async && s.state === 1) bad('responseType', 'InvalidAccessError', 'The response type cannot be changed for synchronous requests made from a document.');
+        s.responseType = v;
+      }, enumerable: true, configurable: true,
+    },
+    timeout: {
+      get: function () { return st(this).timeout; },
+      set: function (v) {
+        var s = st(this);
+        if (!s.async && s.state === 1) bad('timeout', 'InvalidAccessError', 'Timeouts cannot be set for synchronous requests made from a document.');
+        v = Number(v);
+        s.timeout = Number.isFinite(v) && v > 0 ? Math.floor(v) : 0;
+      }, enumerable: true, configurable: true,
+    },
+    withCredentials: {
+      get: function () { return st(this).withCredentials; },
+      set: function (v) {
+        var s = st(this);
+        if ((s.state !== 0 && s.state !== 1) || s.sent) bad('withCredentials', 'InvalidStateError', "The value may only be set if the object's state is UNSENT or OPENED.");
+        s.withCredentials = !!v;
+      }, enumerable: true, configurable: true,
+    },
+  });
+  def(XP, 'getResponseHeader', function getResponseHeader(name) {
+    var s = st(this);
+    if (s.state < 2) return null;
+    return headerVal(s, String(name).toLowerCase());
+  });
+  def(XP, 'getAllResponseHeaders', function getAllResponseHeaders() {
+    var s = st(this), out = '';
+    if (s.state < 2) return '';
+    s.resHeaders.forEach(function (e) { out += e[0] + ': ' + e[1] + '\r\n'; });
+    return out;
+  });
+  def(XP, 'overrideMimeType', function overrideMimeType(mime) {
+    var s = st(this);
+    if (arguments.length < 1) throw new TypeError("Failed to execute 'overrideMimeType' on 'XMLHttpRequest': 1 argument required, but only 0 present.");
+    if (s.state === 3 || s.state === 4) bad('overrideMimeType', 'InvalidStateError', 'MimeType cannot be overridden when the state is LOADING or DONE.');
+    s.mime = String(mime);
+    s.cache = undefined;
+  });
+  Object.defineProperty(XMLHttpRequestEventTarget.prototype, Symbol.toStringTag, { value: 'XMLHttpRequestEventTarget', configurable: true });
+  Object.defineProperty(XP, Symbol.toStringTag, { value: 'XMLHttpRequest', configurable: true });
+  Object.defineProperty(XMLHttpRequestUpload.prototype, Symbol.toStringTag, { value: 'XMLHttpRequestUpload', configurable: true });
+  [['XMLHttpRequestEventTarget', XMLHttpRequestEventTarget], ['XMLHttpRequestUpload', XMLHttpRequestUpload], ['XMLHttpRequest', XMLHttpRequest]].forEach(function (p) {
+    Object.defineProperty(g, p[0], { value: p[1], writable: true, configurable: true, enumerable: false });
+  });
 })(globalThis);
