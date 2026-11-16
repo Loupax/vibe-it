@@ -1778,7 +1778,7 @@ Phase 2 (big enablers, after phase 1):
       click would (replace the history entry when N is 0). Test: the
       parser for `0; url='x'`, `5;URL=x`, `3` (reload) and junk; an
       end-to-end test only if the navigation path is testable headless.
-- [x] QY20 [S] (DONE HASH_PENDING; paint.rs `paint` and `hit_test_scroll_region` honour computed visibility; test qy20_visibility_hidden_scroll_container_paints_no_scrollbar_and_takes_no_wheel) (P3, paint; bbc) Do not paint scrollbars of boxes that
+- [x] QY20 [S] (DONE 922c32b; paint.rs `paint` and `hit_test_scroll_region` honour computed visibility; test qy20_visibility_hidden_scroll_container_paints_no_scrollbar_and_takes_no_wheel) (P3, paint; bbc) Do not paint scrollbars of boxes that
       are `visibility:hidden`. Symptom: bbc.com/news shows a grey
       vertical scrollbar strip with tick marks over the page at x≈318,
       from its hidden nav drawer (`visibility:hidden` on the drawer,
