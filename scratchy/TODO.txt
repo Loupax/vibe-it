@@ -2315,7 +2315,7 @@ Read REGRESSIONS.md "R20" before starting any QY item. Short version:
         yet; writes from the parser or Rust (form state, `load_html`) never
         notify; `attributeNamespace` is always null (no namespaced
         attributes); `normalize()`/`splitText()` are missing.
-      - [x] QY6g [M] (47e06f3) IntersectionObserver / ResizeObserver /
+      - [x] QY6g [M] (4c01526) IntersectionObserver / ResizeObserver /
         PerformanceObserver with HONEST MINIMAL semantics (NOTES.md "QY6g"):
         one initial entry per observed target (IO: visible once, ratio 1,
         unless detached or display:none; RO: width/height attribute size
