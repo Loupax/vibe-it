@@ -2315,6 +2315,54 @@ Read REGRESSIONS.md "R20" before starting any QY item. Short version:
         yet; writes from the parser or Rust (form state, `load_html`) never
         notify; `attributeNamespace` is always null (no namespaced
         attributes); `normalize()`/`splitText()` are missing.
+      - [x] QY6g [M] (4c01526) IntersectionObserver / ResizeObserver /
+        PerformanceObserver with HONEST MINIMAL semantics (NOTES.md "QY6g"):
+        one initial entry per observed target (IO: visible once, ratio 1,
+        unless detached or display:none; RO: width/height attribute size
+        else 0x0), rootBounds = fixed 1024x768, then NOTHING is ever
+        delivered again; PerformanceObserver is inert. Also minimal
+        `DOMRect`/`DOMRectReadOnly` (no DOMRectList/DOMPoint). Tests qy6g_*.
+        Risk (QY6 memo): "visible once" is a guess; lazy loaders load all
+        content, infinite-scroll sentinels fire once, "is it on screen"
+        analytics lie. SURVEY (--js-report --run-timers 5000): github's 3
+        IntersectionObserver errors are gone. NEXT BLOCKERS: (1) 13x
+        `not implemented: Element.attachShadow` (NotSupportedError thrown
+        into `relative-time` custom element constructors and one
+        connectedCallback in f18-*.js; needs the shadow DOM decision),
+        (2) core/marketing-essentials/landing-pages each die on
+        `TypeError: cannot read property 'appendChild' of undefined` at
+        f18-10a827ef5e40729a.js:223:27350 (called from webpack module
+        core-*.js:27:77453; unidentified, probably something that
+        attachShadow/shadowRoot would return). youtube: first error
+        unchanged (kevlar_base `appendChild: parameter 1 is not of type
+        Node`, QY6a note); youtube does not reach IO. The other 6 pages:
+        0 errors; bbc has the pre-existing timer-phase `Route did not
+        complete loading: /_error`.
+      - [ ] QY-IO-GEOMETRY [L] the geometry bridge. Today JS cannot see
+        layout: `getBoundingClientRect/getClientRects`, `offsetWidth/Height/
+        Left/Top/Parent`, `clientWidth/Height`, `scrollWidth/Height`,
+        `scrollTop` and the window's real size/scroll (Q33b2) do not exist
+        or return 0, so IO/RO cannot be real. Design: after each layout
+        (App's layout generation, the same place paint reads the layout
+        tree) the app walks the laid-out boxes and publishes
+        `Vec<(node_id, Rect)>` (border box in document coordinates, plus
+        content box) plus viewport size and scroll offset into the engine
+        (a shared `Rc<RefCell<GeometryCache>>` stamped with the layout
+        generation; the JS thread/engine reads it, never `App`). JS getters
+        read the cache (stale after DOM writes until the next layout:
+        document it; a write that needs fresh geometry marks it dirty and
+        returns the last known numbers). IO then recomputes intersections
+        per generation and on scroll against the cached rects (threshold
+        crossing, rootMargin, explicit roots with overflow clipping), RO
+        compares content/border boxes per generation, both delivered as
+        ordinary timer-0 callbacks after the layout event; observers with
+        no targets cost nothing, and a page that never calls these never
+        pays. Sizing: ~1 day for the cache + Rust publish +
+        getBoundingClientRect/offsetWidth family; ~1 day for real IO/RO on
+        top; hard part is the JS->App wake-up after a layout (callbacks
+        run only when the event loop turns) and iframes/transforms (cut).
+        NOT built here: the cache alone is small, but it needs the
+        layout-generation hook in app.rs that the Q33g/Q33b2 work owns.
       - [x] QY6e [M] DONE (commit f887f67) `customElements` (define, get, getName,
         whenDefined, upgrade; `CustomElementRegistry`). `HTMLElement`
         (and QY12's subclasses) become constructors that, while an

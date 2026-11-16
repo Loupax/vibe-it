@@ -6849,3 +6849,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Implement the wire half of QF14 (QF-D2a): an in-memory, partitioned cookie jar in wire with the `document.cookie` control channel, `--no-cookies`, `X-Wire-Cookies`, `X-Wire-Version: 3`.
 
 **What changed:** wire/src/cookies.rs (new), wire/src/main.rs, wire/NOTES.md. No scratchy code changed; the scratchy half is QF14b-scratchy in TODO.txt. The user must rebuild and restart wire (instructions in TODO.txt QF14).
+
+## IntersectionObserver / ResizeObserver / PerformanceObserver (QY6g)
+
+> Add IntersectionObserver and ResizeObserver (github's 3 module entries die on `IntersectionObserver is not defined`; youtube uses it too) plus an inert PerformanceObserver. JS cannot see layout, so implement HONEST MINIMAL semantics: one initial notification per observed target (IO: visible once unless detached / display:none; RO: attribute size else 0x0), argument validation per spec, DOMRect/DOMRectReadOnly, nothing afterwards; document the missing geometry bridge and file it (QY-IO-GEOMETRY).
+
+**What changed:** src/js_dom.rs (QY6g block after MutationRecord: `IntersectionObserver(Entry)`, `ResizeObserver(Entry/Size)`, `PerformanceObserver`, `DOMRect`/`DOMRectReadOnly`; one shared timer-0 batch, observers in creation order); tests `qy6g_*` in src/tests.rs; NOTES.md; TODO.txt.
