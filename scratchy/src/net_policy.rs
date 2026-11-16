@@ -279,6 +279,9 @@ pub(crate) struct RequestPolicy {
     /// QF-D3: when false (default) beacons / keepalive / no-cors analytics
     /// are LOGGED IN DETAIL (`format_beacon_log`) and NOT emitted.
     pub beacons_send: bool,
+    /// QF10: `sendBeacon` returns false when the bytes queued (not yet
+    /// finished) plus the new body exceed this (spec: 64 KiB).
+    pub beacon_queue_bytes: usize,
 }
 
 impl Default for RequestPolicy {
@@ -303,6 +306,7 @@ impl Default for RequestPolicy {
             sync_xhr_timeout_ms: 5000,
             cookie_control_timeout_ms: 2000,
             beacons_send: false,
+            beacon_queue_bytes: 64 * 1024,
         }
     }
 }

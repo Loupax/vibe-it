@@ -646,6 +646,10 @@ pub(crate) fn install_net<'js>(ctx: &Ctx<'js>, state: Rc<RefCell<NetState>>, req
         let _ = g.set("__net_abort", f);
     }
     let st = state.clone();
+    if let Ok(f) = Function::new(ctx.clone(), move || -> u32 { st.borrow().policy.beacon_queue_bytes as u32 }) {
+        let _ = g.set("__net_beacon_limit", f);
+    }
+    let st = state.clone();
     if let Ok(f) = Function::new(ctx.clone(), move || -> String { st.borrow_mut().cookie_op("get", "") }) {
         let _ = g.set("__cookie_get", f);
     }

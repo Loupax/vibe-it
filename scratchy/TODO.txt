@@ -971,15 +971,26 @@ R22 copies and paste the before/after numbers in the commit.
       votes need it (but also cookies, QF14); refs: yt 17, bbc 11,
       guardian 13.
 - [ ] QF9a [S] READY XHR responseType 'document' / responseXML: parse HTML/XML via DOMParser (does not exist yet; today the response is null plus a console.error). Also real upload progress and open() user/password if a page needs them.
-- [ ] QF10 [S] READY `navigator.sendBeacon(url, data)`: TypeError for an
-      invalid or non-http(s) URL, otherwise return true and send
-      nothing (QF-D3); log `sendBeacon: not sent` once per page.
+- [x] QF10 [S] DONE (commit HASH_QF10) `navigator.sendBeacon(url, data)`: TypeError for an
+      invalid or non-http(s) URL (resolved against document.baseURI), body from
+      string/Blob/ArrayBuffer/TypedArray/FormData/URLSearchParams/null (a
+      ReadableStream is a TypeError), `false` when the queued bytes would pass
+      `beacon_queue_bytes` (64 KiB, in RequestPolicy), else `true` after going
+      through `__net_request` (api 'beacon', POST, keepalive, credentials
+      include; mode no-cors for a CORS-safelisted Content-Type, cors
+      otherwise): policy warnings and the QF-D3 detailed `suppressed (not sent)`
+      log line come from `__net_send`; `beacons_send: true` sends it. `Navigator`
+      now exists (navigator inherits `Navigator.prototype.sendBeacon`).
       `WebSocket`, `EventSource`, `Worker`, `SharedWorker` stay
-      undefined (write that in NOTES.md with the reason: feature
-      detection then takes the page's fallback; no surveyed page touched
-      them at startup). Test: it returns true, and the transport sees
-      nothing. Payoff: ddg's 4 beacons; polyfill.io (guardian) does not
-      install its sync-XHR-POST fallback.
+      undefined (feature detection then takes the page's fallback; no
+      surveyed page touched them at startup). Left out: `<a ping>` log line
+      (the mouse click path only has the href, not the element; new item
+      QF10a); a policy refusal still returns true (it is logged, the request
+      fails async).
+- [ ] QF10a [S] READY `<a ping="urls">`: on a link click/activation log one line
+      `scratchy: a ping suppressed <urls>` (QF-D3). `activate_focus` has the
+      element; the mouse path (`hit_test_cursor`) returns only the href, so
+      it needs the hit element too.
 - [ ] QF11 [S] READY Navigation from JS (the other half of Q33f).
       `location.assign(u)`, `location.replace(u)`, the `location.href`
       setter, `location.reload()`, and setters for

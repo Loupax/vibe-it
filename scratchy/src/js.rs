@@ -617,11 +617,12 @@ const PRELUDE: &str = r#"
     return h.slice(0, 8) + '-' + h.slice(8, 12) + '-' + h.slice(12, 16) + '-' + h.slice(16, 20) + '-' + h.slice(20);
   }, writable: true, configurable: true, enumerable: true });
   Object.defineProperty(g, 'crypto', { get: function () { return cryptoObj; }, set: function () {}, configurable: true, enumerable: true });
-  g.navigator = {
+  var Navigator = ctor('Navigator');
+  g.navigator = Object.assign(Object.create(Navigator.prototype), {
     userAgent: env.userAgent, appName: 'Netscape', appVersion: '5.0 (X11)', product: 'Gecko',
     platform: 'Linux x86_64', vendor: '', language: 'en-US', languages: ['en-US', 'en'],
     onLine: true, cookieEnabled: false, hardwareConcurrency: 1, maxTouchPoints: 0,
-  };
+  });
   g.innerWidth = Number(env.innerWidth); g.innerHeight = Number(env.innerHeight);
   // QY10: MediaQueryList. `matches` is re-evaluated on every read;
   // `change` never fires (the viewport is fixed for the page's life

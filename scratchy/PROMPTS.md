@@ -6909,3 +6909,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Implement QSD1b: window.crypto (getRandomValues, randomUUID from the OS RNG), crypto.subtle placeholder, isSecureContext.
 
 **What changed:** src/js.rs (os_random_bytes native over libc::getrandom, already a dependency, no new crate; Crypto/SubtleCrypto interfaces, crypto getter on window, subtle methods log `not implemented` and reject NotSupportedError, window.isSecureContext true for https/wss and loopback hosts), tests qsd1b_* in src/tests.rs; NOTES.md; TODO.txt.
+
+## navigator.sendBeacon (QF10)
+
+> Implement QF10: navigator.sendBeacon (validation, 64 KiB limit, policy checks, QF-D3 log-only through __net_send unless beacons_send), Navigator.prototype, `<a ping>` log if trivial.
+
+**What changed:** src/fetch_prelude.js (`__beacon_body`, `sendBeacon`), src/js.rs (`Navigator` constructor, navigator inherits it), src/net_policy.rs (`beacon_queue_bytes`), src/js_net.rs (`__net_beacon_limit`), tests qf10_* in src/tests.rs; NOTES.md; TODO.txt (QF10a for `<a ping>`: not trivial).

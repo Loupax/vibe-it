@@ -761,6 +761,12 @@
     if (b.src) throw new TypeError("Failed to execute 'clone' on '" + cls + "': cloning a streamed body is not implemented (no tee)");
     return newBody(b.bytes, null, b.type);
   }
+  // QF10: synchronous body extraction for navigator.sendBeacon (internal).
+  Object.defineProperty(g, '__beacon_body', { value: function (x) {
+    if (x instanceof ReadableStream) throw new TypeError("Failed to execute 'sendBeacon' on 'Navigator': ReadableStream bodies are not supported.");
+    var b = extract(x);
+    return { bytes: b.bytes, type: b.type };
+  }, writable: true, configurable: true, enumerable: false });
   function baseURL() {
     var d = g.document, b = d && d.baseURI;
     return b && b !== 'about:blank' ? b : (g.location && g.location.href) || undefined;
@@ -1055,6 +1061,41 @@
     if (res.error) p.reject(failure(res));
     else p.resolve(build(res));
   });
+})(globalThis);
+
+// QF10: navigator.sendBeacon(url, data) over __net_request (api 'beacon').
+// Arguments are validated here (TypeError for a bad or non-http(s) URL),
+// the 64 KiB queue limit (policy `beacon_queue_bytes`, via
+// `__net_beacon_limit`) makes it return false; everything else, the policy
+// checks, the detailed log line and `beacons_send` (QF-D3: false = logged,
+// NOT sent) lives in the native `__net_send`. It returns true on queueing.
+(function (g) {
+  'use strict';
+  var queued = 0;
+  var SAFE = /^(text\/plain|multipart\/form-data|application\/x-www-form-urlencoded)\s*(;|$)/i;
+  function sendBeacon(url) {
+    if (arguments.length < 1) throw new TypeError("Failed to execute 'sendBeacon' on 'Navigator': 1 argument required, but only 0 present.");
+    var base = (g.document && g.document.baseURI) || (g.location && g.location.href) || undefined, u;
+    try { u = new g.URL(String(url), base); } catch (e) { throw new TypeError("Failed to execute 'sendBeacon' on 'Navigator': Invalid URL '" + url + "'."); }
+    if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new TypeError("Failed to execute 'sendBeacon' on 'Navigator': Beacons are only supported over HTTP(S).");
+    var data = arguments[1], bytes = null, type = null;
+    if (data !== undefined && data !== null) { var b = g.__beacon_body(data); bytes = b.bytes; type = b.type; }
+    var size = bytes ? bytes.length : 0;
+    var limit = typeof g.__net_beacon_limit === 'function' ? g.__net_beacon_limit() : 65536;
+    if (queued + size > limit) return false;
+    var hs = type ? [['Content-Type', type]] : [];
+    var h;
+    try {
+      h = g.__net_request({ method: 'POST', url: u.href, headers: hs, body: bytes, mode: type && !SAFE.test(type) ? 'cors' : 'no-cors',
+        credentials: 'include', keepalive: true, api: 'beacon' });
+    } catch (e) { return false; }
+    queued += size;
+    var done = function () { queued -= size; };
+    h.promise.then(done, done);
+    return true;
+  }
+  Object.defineProperty(sendBeacon, 'name', { value: 'sendBeacon', configurable: true });
+  Object.defineProperty(g.Navigator.prototype, 'sendBeacon', { value: sendBeacon, writable: true, configurable: true, enumerable: true });
 })(globalThis);
 
 // QF8: window.fetch(input, init), a thin layer over __net_request (QF7).

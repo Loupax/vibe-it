@@ -15090,3 +15090,81 @@ fn qsd1b_is_secure_context_follows_scheme_and_loopback() {
     set_page_url(None);
     assert_eq!(got, ["log:true", "log:false", "log:true", "log:true", "log:true"]);
 }
+
+// ---------- QF10: navigator.sendBeacon (fake executor, no network) ----------
+
+#[test]
+fn qf10_send_beacon_exists_on_navigator_and_prototype() {
+    let fake = QfFake::new(vec![]);
+    let l = qf8_run(
+        "https://page.test/",
+        &fake,
+        "console.log(typeof navigator.sendBeacon, typeof Navigator, Navigator.prototype.sendBeacon === navigator.sendBeacon, navigator instanceof Navigator, navigator.userAgent.length > 0);",
+    );
+    assert_eq!(l, vec!["log:function function true true true"], "{l:?}");
+}
+
+#[test]
+fn qf10_send_beacon_is_logged_not_sent_and_returns_true() {
+    let fake = QfFake::new(vec![]);
+    let l = qf8_run(
+        "https://page.test/dir/",
+        &fake,
+        "console.log('r', navigator.sendBeacon('t?x=1', 'hello'));\
+         console.log('u', navigator.sendBeacon('https://b.test/u', new URLSearchParams({a:'b c'})));\
+         console.log('n', navigator.sendBeacon('https://b.test/n'));\
+         console.log('a', navigator.sendBeacon('https://b.test/a', new Uint8Array([1,2,3])));\
+         console.log('b', navigator.sendBeacon('https://b.test/b', new Blob(['{}'], {type:'application/json'})));\
+         var fd = new FormData(); fd.append('k','v'); console.log('f', navigator.sendBeacon('https://b.test/f', fd));",
+    );
+    assert!(fake.urls().is_empty(), "suppressed beacons never reach the transport");
+    for t in ["r", "u", "n", "a", "b", "f"] {
+        assert!(l.contains(&format!("log:{t} true")), "{t}: {l:?}");
+    }
+    let net: Vec<&String> = l.iter().filter(|x| x.starts_with("net:beacon")).collect();
+    assert_eq!(net.len(), 6, "{l:?}");
+    assert!(net[0].contains("navigator.sendBeacon POST https://page.test/dir/t?x=1 content-type=text/plain;charset=UTF-8 body=5 bytes body[..200]=\"hello\" page=https://page.test/dir/"), "{}", net[0]);
+    assert!(net[0].ends_with("suppressed (not sent)"), "{}", net[0]);
+    assert!(net[1].contains("content-type=application/x-www-form-urlencoded;charset=UTF-8 body=5 bytes"), "{}", net[1]);
+    assert!(net[2].contains("body=0 bytes"), "{}", net[2]);
+    assert!(net[3].contains("body=3 bytes"), "{}", net[3]);
+    assert!(net[4].contains("content-type=application/json body=2 bytes"), "{}", net[4]);
+    assert!(net[5].contains("content-type=multipart/form-data; boundary="), "{}", net[5]);
+}
+
+#[test]
+fn qf10_send_beacon_validates_the_url_and_the_size() {
+    let fake = QfFake::new(vec![]);
+    let l = qf8_run(
+        "https://page.test/",
+        &fake,
+        "['ftp://x.test/', 'javascript:1', 'data:text/plain,hi', 'http://[bad'].forEach(function (u) {\
+           try { navigator.sendBeacon(u); console.log('no-throw', u); } catch (e) { console.log('thrown', e.name); }\
+         });\
+         try { navigator.sendBeacon(); } catch (e) { console.log('noarg', e.name); }\
+         console.log('big', navigator.sendBeacon('https://b.test/x', new Uint8Array(65 * 1024)));\
+         console.log('ok', navigator.sendBeacon('https://b.test/x', new Uint8Array(64 * 1024)));",
+    );
+    assert_eq!(l.iter().filter(|x| *x == "log:thrown TypeError").count(), 4, "{l:?}");
+    assert!(l.contains(&"log:noarg TypeError".to_string()), "{l:?}");
+    assert!(l.contains(&"log:big false".to_string()), "{l:?}");
+    assert!(l.contains(&"log:ok true".to_string()), "{l:?}");
+    assert_eq!(l.iter().filter(|x| x.starts_with("net:beacon")).count(), 1, "an oversized beacon is not even logged as sent: {l:?}");
+}
+
+#[test]
+fn qf10_send_beacon_goes_through_the_policy_and_the_beacons_send_flag() {
+    let fake = QfFake::new(vec![("track.test", qf7_ok("", &[])), ("127.0.0.1", qf7_ok("", &[]))]);
+    let (engine, log) = qf7_engine("https://page.test/", &fake);
+    let mut p = RequestPolicy::default();
+    p.beacons_send = true;
+    engine.set_net_policy(p);
+    engine.eval("t", "console.log(navigator.sendBeacon('https://track.test/b', 'hi')); console.log(navigator.sendBeacon('http://127.0.0.1:9/p', 'x'));");
+    qf7_drive(&engine, &fake);
+    let urls = fake.urls();
+    assert!(urls.iter().any(|u| u.contains("track.test/b")), "beacons_send sends through the same executor: {urls:?}");
+    let raw = String::from_utf8_lossy(&fake.raw.lock().unwrap()[0]).to_string();
+    assert!(raw.contains("POST") && raw.to_ascii_lowercase().contains("content-type: text/plain;charset=utf-8"), "{raw}");
+    let l = log.borrow().clone();
+    assert!(!l.iter().any(|x| x.starts_with("net:beacon")), "{l:?}");
+}
