@@ -797,7 +797,6 @@ const DOM_PRELUDE: &str = r#"
       : k === 3 ? Text.prototype : k === 8 ? Comment.prototype : k === 11 ? DocumentFragment.prototype
       : k === 10 ? DocumentType.prototype : Node.prototype);
     Object.defineProperty(o, '__id', { value: id });
-    if (__d_kind(id) === 11) { queries(o); }
     return (cache[id] = o);
   };
   var wrapAll = function (ids) { return ids.map(function (id) { return wrap(id); }); };
@@ -884,6 +883,9 @@ const DOM_PRELUDE: &str = r#"
   };
   var ElementProto = Element.prototype;
   queries(ElementProto);
+  // QSD0: ParentNode queries live on the prototype (zero per-wrapper cost), so a page
+  // may freeze or replace them without breaking fragment wrappers.
+  queries(DocumentFragment.prototype);
   def(ElementProto, 'tagName', function () { return __d_tag(this.__id); });
   def(ElementProto, 'localName', function () { return __d_tag(this.__id).toLowerCase(); });
   def(ElementProto, 'id', function () { var v = __d_attr(this.__id, 'id'); return v == null ? '' : v; });

@@ -3355,6 +3355,10 @@ wire now answers `X-Wire-Version: 2` on every response; an old wire sends none. 
 
 wire (version 3) owns a memory-only cookie jar, partitioned by top-level site and selected per request with `X-Wire-Jar: scratchy` (scratchy sends the headers in QF14b-scratchy; until then nothing changes). With the jar, wire strips `Set-Cookie` from answers and ignores a client `Cookie` header; `document.cookie` will go through wire's control channel (`X-Wire-Cookie-Op`). scratchy detects the jar by `X-Wire-Cookies: on|off` plus the version. Details and limits: wire/NOTES.md "The cookie jar".
 
+## QSD0: query methods on prototypes only
+
+querySelector/All and getElementsByTagName/ClassName are installed once on Element.prototype, DocumentFragment.prototype and document (queries(P)); wrap() assigns nothing per instance, so a page may redefine or freeze them (GitHub popover polyfill does) without breaking fragment wrappers.
+
 ## Border width defaults (QA11a)
 
 A border with a style but no width is `medium` (3px); `thin/medium/thick` are 1/3/5px; an unset or inherited border colour paints as the element's own `color` (currentColor). Two WPT tests that only passed while unset colours painted nothing (`row-group-margin-border-padding`, `table-rules-rows-vertical`) are accepted failures until QA11a2 (real border-collapse).

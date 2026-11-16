@@ -14579,3 +14579,22 @@ fn qy6f_template_is_not_rendered() {
     assert!(texts.iter().any(|(t, _)| t.contains("shown")), "{texts:?}");
     assert!(!texts.iter().any(|(t, _)| t.contains("TPLTEXT") || t.contains("OWNKID")), "{texts:?}");
 }
+
+// ---- QSD0: fragment wrappers must not assign query methods per instance.
+
+#[test]
+fn qsd0_readonly_fragment_query_methods_do_not_break_wrappers() {
+    let log = run_in_html(
+        "<html><body><div id=a><p class=c>x</p></div></body></html>",
+        r#"'use strict';
+         Object.defineProperty(DocumentFragment.prototype, 'querySelectorAll',
+           { value: function () { return ['page']; } });
+         Object.freeze(DocumentFragment.prototype);
+         const f = document.createDocumentFragment();
+         const p = document.createElement('p');
+         f.appendChild(p);
+         console.log(f.querySelectorAll('p')[0], f.querySelector('p') === p, f.getElementsByTagName('p').length);
+         console.log(document.querySelectorAll('p.c').length, document.getElementById('a').querySelector('.c').tagName);"#,
+    );
+    assert_eq!(log, ["log:page true 1", "log:1 P"], "{log:?}");
+}
