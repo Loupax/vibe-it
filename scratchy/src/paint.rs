@@ -316,6 +316,20 @@ pub(crate) fn in_rounded_rect(px: f32, py: f32, rx: f32, ry: f32, rw: f32, rh: f
     true
 }
 
+/// An unset `border-color` is `currentColor` (the box's own `color`); the
+/// computed value stays `None` so `inherit` passes the keyword on.
+fn with_current_border_color(s: &ComputedStyle) -> std::borrow::Cow<'_, ComputedStyle> {
+    if s.border_color.iter().zip(&s.border_width).any(|(c, w)| c.is_none() && *w > 0.0) {
+        let mut c = s.clone();
+        for bc in c.border_color.iter_mut() {
+            bc.get_or_insert(s.color);
+        }
+        std::borrow::Cow::Owned(c)
+    } else {
+        std::borrow::Cow::Borrowed(s)
+    }
+}
+
 /// Paints a border whose four sides differ (width, color or style),
 /// per pixel, hard-edged like the rest of the painters. Each border-band
 /// pixel belongs to the side it is proportionally closest to
@@ -339,6 +353,7 @@ pub(crate) fn paint_per_side_border(
     radius: f32,
     clip: Option<(f32, f32, f32, f32)>,
 ) {
+    let s = &*with_current_border_color(s);
     let [bt, br, bb, bl] = s.border_width;
     let widths = [bt, br, bb, bl];
     let visible = |i: usize| widths[i] > 0.0 && s.border_style[i] != BorderStyle::None && s.border_color[i].is_some();
@@ -531,6 +546,7 @@ pub(crate) fn paint_box_decoration(
     h: f32,
     clip: Option<(f32, f32, f32, f32)>,
 ) {
+    let s = &*with_current_border_color(s);
     // Outer shadows: behind this box's own background/border, first
     // listed on top (so paint last-to-first), and never drawn inside the
     // border box itself.

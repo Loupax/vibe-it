@@ -2973,6 +2973,25 @@ pub(crate) fn parse_pair<T: Copy>(input: &mut CssParser, mut one: impl FnMut(&mu
     Some([a, b])
 }
 
+/// `<line-width>`: a non-negative length or `thin`/`medium`/`thick`
+/// (1/3/5px).
+fn parse_border_width(input: &mut CssParser) -> Option<Length> {
+    let state = input.state();
+    if let Ok(Token::Ident(id)) = input.next() {
+        let px = match &**id {
+            x if x.eq_ignore_ascii_case("thin") => Some(1.0),
+            x if x.eq_ignore_ascii_case("medium") => Some(3.0),
+            x if x.eq_ignore_ascii_case("thick") => Some(5.0),
+            _ => None,
+        };
+        if let Some(px) = px {
+            return Some(Length::Px(px));
+        }
+    }
+    input.reset(&state);
+    parse_length(input).ok().filter(|v| !is_negative_length(v))
+}
+
 /// Handles `border`, `border-{width,color,style}` (box syntax),
 /// `border-{top,right,bottom,left}` shorthands and the 12 side longhands.
 /// Returns false for any other `border-*` name (e.g. `border-radius`).
@@ -3000,7 +3019,7 @@ pub(crate) fn parse_border_property(decls: &mut Declarations, name: &str, input:
             }
         }
         "-width" => {
-            if let Some(v) = parse_box4(input, |i| parse_length(i).ok().filter(|v| !is_negative_length(v))) {
+            if let Some(v) = parse_box4(input, |i| parse_border_width(i)) {
                 for (i, x) in v.into_iter().enumerate() {
                     decls.border_width[i] = Some(x);
                 }
@@ -3048,7 +3067,7 @@ pub(crate) fn parse_border_property(decls: &mut Declarations, name: &str, input:
                     }
                 }
                 Some("width") => {
-                    if let Some(v) = parse_length(input).ok().filter(|v| !is_negative_length(v)) {
+                    if let Some(v) = parse_border_width(input) {
                         decls.border_width[i] = Some(v);
                     }
                 }
@@ -3146,7 +3165,7 @@ pub(crate) fn parse_border_like_shorthand<'k>(
     let mut found = false;
     loop {
         let state = input.state();
-        if let Some(v) = parse_length(input).ok().filter(|v| !is_negative_length(v)) {
+        if let Some(v) = parse_border_width(input) {
             width = Some(v);
             found = true;
             continue;

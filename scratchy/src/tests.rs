@@ -7728,7 +7728,10 @@ fn q53_negative_sizes_are_dropped() {
     );
     let a = find_laid_by_margin_top(&laid, 1.0).expect("a");
     assert_eq!(a.w, 500.0);
-    assert_eq!(a.h, 40.0, "max-height:-1px / border-top-width:-4px dropped");
+    // The dropped `border-top-width:-4px` leaves the initial `medium` (3px) now that
+    // a style is set (QA11a), which the border-box height includes.
+    assert_eq!(a.style.border_width[0], 3.0, "border-top-width:-4px dropped -> medium");
+    assert_eq!(a.h, 43.0, "max-height:-1px dropped; 40px content + 3px medium border");
     let b = find_laid_by_margin_top(&laid, 2.0).expect("b");
     assert_eq!(b.w, 500.0, "width:-10px dropped -> auto");
 }
@@ -9976,4 +9979,39 @@ fn table_row_border_kept_with_border_collapse() {
     );
     let row = first_table_row(&laid).expect("row");
     assert_eq!(row.style.border_width, [4.0; 4], "collapse model keeps the row border (approximation)");
+}
+
+// ---------- QA11a: border width defaults, keywords, currentColor ----------
+
+#[test]
+fn border_width_defaults_to_medium_and_keywords_parse() {
+    let div_of = |style: &str, width: f32| {
+        let html = format!(r#"<html><body><div style="width: {width}px; {style}">x</div></body></html>"#);
+        let laid = measure_fixture(&html, 500.0);
+        find_by_width(&laid, width).expect("div not found").style
+    };
+    let s = div_of("border-top: solid black;", 311.0);
+    assert_eq!(s.border_width, [3.0, 0.0, 0.0, 0.0], "style without a width is medium (3px)");
+    let s = div_of("border: black solid medium;", 312.0);
+    assert_eq!(s.border_width, [3.0; 4], "`medium` is parsed, not dropped");
+    let s = div_of("border-style: solid; border-width: thin thick 7px medium;", 313.0);
+    assert_eq!(s.border_width, [1.0, 5.0, 7.0, 3.0]);
+    let s = div_of("border: 4px blue;", 314.0);
+    assert_eq!(s.border_width, [0.0; 4], "no style stays none");
+}
+
+#[test]
+fn border_color_current_color_resolves_to_own_color() {
+    let laid = measure_fixture(
+        r#"<html><head><style>
+        .p { color: red; border: none; }
+        .c { width: 315px; color: green; border-color: inherit; border-style: solid; }
+        .d { width: 316px; color: blue; border: 2px solid currentColor; }
+        </style></head><body><div class="p"><div class="c">x</div></div><div class="d">y</div></body></html>"#,
+        500.0,
+    );
+    let c = find_by_width(&laid, 315.0).expect("c").style;
+    assert_eq!(c.border_color[0], Some(TextColor::rgb(0, 0x80, 0)), "inherited currentColor uses the child's colour");
+    let d = find_by_width(&laid, 316.0).expect("d").style;
+    assert_eq!(d.border_color[0], Some(TextColor::rgb(0, 0, 0xff)));
 }
