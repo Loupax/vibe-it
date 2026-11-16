@@ -68,6 +68,7 @@ mod layout;
 mod images;
 mod paint;
 mod net;
+mod net_policy;
 mod app;
 mod js;
 mod js_modules;
@@ -81,6 +82,7 @@ pub use layout::*;
 pub use images::*;
 pub(crate) use paint::*;
 pub(crate) use net::*;
+pub(crate) use net_policy::*;
 pub(crate) use app::*;
 pub(crate) use js::*;
 

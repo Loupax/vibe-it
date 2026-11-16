@@ -12581,3 +12581,420 @@ fn qf3_formdata_request_and_response_bodies() {
         "{log:?}"
     );
 }
+
+// ---------- QF5: net policy + wire codec ----------
+
+fn qf5_url(s: &str) -> Url {
+    Url::parse(s).unwrap()
+}
+
+#[test]
+fn qf5_is_public_ip_classes() {
+    let no = [
+        "127.0.0.1", "127.9.9.9", "10.0.0.1", "172.16.0.1", "172.31.255.255", "192.168.1.1", "169.254.169.254", "169.254.0.1",
+        "100.64.0.1", "100.127.255.255", "0.0.0.0", "0.1.2.3", "224.0.0.1", "255.255.255.255", "192.0.2.1", "198.51.100.1",
+        "203.0.113.1", "198.18.0.1", "240.0.0.1", "::1", "::", "fe80::1", "febf::1", "fc00::1", "fd12::1", "ff02::1",
+        "2001:db8::1", "::ffff:127.0.0.1", "::ffff:10.1.2.3", "::ffff:169.254.169.254", "64:ff9b::7f00:1",
+    ];
+    for s in no {
+        assert!(!is_public_ip(s.parse().unwrap()), "{s} must not be public");
+    }
+    let yes = ["8.8.8.8", "1.1.1.1", "172.15.0.1", "172.32.0.1", "100.63.255.255", "100.128.0.1", "2606:4700::1111", "::ffff:8.8.8.8"];
+    for s in yes {
+        assert!(is_public_ip(s.parse().unwrap()), "{s} must be public");
+    }
+}
+
+fn qf5_block_policy() -> RequestPolicy {
+    let mut p = RequestPolicy::default();
+    p.private_targets = PrivatePolicy::Block;
+    p.file_targets = PrivatePolicy::Block;
+    p
+}
+
+#[test]
+fn qf5_warn_and_allow_modes_and_redirect_hops() {
+    let p = RequestPolicy::default();
+    assert_eq!((p.private_targets, p.file_targets), (PrivatePolicy::Warn, PrivatePolicy::Warn));
+    let page = qf5_url("https://example.com/a");
+    let cases = [
+        ("https://127.0.0.1/", "loopback"), ("https://localhost/", "loopback"), ("https://[::1]/", "loopback"),
+        ("https://10.0.0.5/", "private"), ("https://192.168.0.1/", "private"), ("https://172.20.1.1/", "private"),
+        ("https://169.254.169.254/", "link-local"), ("https://[fe80::1]/", "link-local"),
+        ("https://100.64.0.9/", "cgnat"), ("https://[fd00::1]/", "ula"), ("https://[::ffff:10.0.0.1]/", "private"),
+        ("https://nas.local/", "local-name"), ("https://db.internal/", "local-name"), ("file:///etc/os-release", "file"),
+    ];
+    for (u, class) in cases {
+        let out = p.check_request(&page, &qf5_url(u), "GET", false).unwrap_or_else(|e| panic!("{u}: {e}"));
+        assert_eq!(out.warning, Some(class), "{u}");
+    }
+    assert_eq!(p.check_request(&page, &qf5_url("https://example.org/"), "GET", false).unwrap().warning, None);
+    // same origin never warns
+    let dev = qf5_url("http://localhost:3000/");
+    assert_eq!(p.check_request(&dev, &qf5_url("http://localhost:3000/x"), "GET", false).unwrap().warning, None);
+    // still enforced in Warn mode: schemes, ports, mixed content (except loopback), methods
+    assert!(p.check_request(&page, &qf5_url("ftp://x.test/"), "GET", false).is_err());
+    assert_eq!(p.check_request(&page, &qf5_url("http://127.0.0.1:22/"), "GET", false), Err(PolicyError::BadPort(22)));
+    assert_eq!(p.check_request(&page, &qf5_url("http://10.0.0.1/"), "GET", false), Err(PolicyError::MixedContent));
+    assert_eq!(p.check_request(&page, &qf5_url("http://localhost:8080/"), "GET", false).unwrap().warning, Some("loopback"));
+    assert!(p.check_request(&page, &qf5_url("https://10.0.0.1/"), "TRACE", false).is_err());
+    // Allow: no warning
+    let mut a = RequestPolicy::default();
+    a.private_targets = PrivatePolicy::Allow;
+    a.file_targets = PrivatePolicy::Allow;
+    assert_eq!(a.check_request(&page, &qf5_url("https://10.0.0.1/"), "GET", false).unwrap().warning, None);
+    assert_eq!(a.check_request(&page, &qf5_url("file:///x"), "GET", false).unwrap().warning, None);
+    // the warning line
+    assert_eq!(
+        format_net_warning(&page, &qf5_url("https://10.0.0.1/x"), "private"),
+        "scratchy: net warning: https://example.com/a -> https://10.0.0.1/x (private) allowed by policy"
+    );
+    // redirect hops re-run the policy
+    let b = qf5_block_policy();
+    let (m, body, _) = b.check_redirect_hop(&page, &qf5_url("https://cdn.example.org/y"), 302, "POST", true, 1).unwrap();
+    assert_eq!((m.as_str(), body), ("GET", false));
+    let (m, body, _) = b.check_redirect_hop(&page, &qf5_url("https://cdn.example.org/y"), 307, "POST", true, 1).unwrap();
+    assert_eq!((m.as_str(), body), ("POST", true));
+    assert!(matches!(b.check_redirect_hop(&page, &qf5_url("http://169.254.169.254/"), 302, "GET", false, 1), Err(_)));
+    assert!(matches!(b.check_redirect_hop(&page, &qf5_url("https://10.0.0.1/"), 302, "GET", false, 2), Err(PolicyError::PrivateHost(_))));
+    assert_eq!(p.check_redirect_hop(&page, &qf5_url("https://10.0.0.1/"), 302, "GET", false, 2).unwrap().2.warning, Some("private"));
+    assert_eq!(p.check_redirect_hop(&page, &qf5_url("https://x.example/"), 302, "GET", false, 6).unwrap_err(), PolicyError::Redirects(5));
+}
+
+#[test]
+fn qf5_check_request_rules() {
+    let p = qf5_block_policy();
+    let page = qf5_url("https://example.com/a");
+    let ok = |u: &str, m: &str, body: bool| p.check_request(&page, &qf5_url(u), m, body);
+    assert!(ok("https://api.example.org/x", "GET", false).is_ok());
+    // address classes by IP literal and name
+    for u in [
+        "https://127.0.0.1/", "https://10.0.0.5/", "https://[::1]/", "https://169.254.169.254/latest", "https://[::ffff:7f00:1]/",
+        "https://localhost/", "https://a.localhost/", "https://printer.local/", "https://db.internal/", "https://LOCALHOST./",
+        "https://0x7f.1/",
+    ] {
+        assert!(matches!(ok(u, "GET", false), Err(PolicyError::PrivateHost(_))), "{u}");
+    }
+    // schemes
+    assert_eq!(ok("file:///etc/passwd", "GET", false), Err(PolicyError::FileNotAllowed));
+    assert!(matches!(ok("ftp://example.com/", "GET", false), Err(PolicyError::Scheme(_))));
+    assert!(matches!(ok("data:text/plain,hi", "GET", false), Err(PolicyError::Scheme(_))));
+    // ports
+    for port in [1, 22, 25, 101, 104, 513, 6000, 6667, 10080] {
+        assert_eq!(ok(&format!("https://example.org:{port}/"), "GET", false), Err(PolicyError::BadPort(port)));
+    }
+    assert!(ok("https://example.org:8443/", "GET", false).is_ok());
+    // mixed content
+    assert_eq!(ok("http://example.org/", "GET", false), Err(PolicyError::MixedContent));
+    assert!(p.check_request(&qf5_url("http://example.com/"), &qf5_url("http://example.org/"), "GET", false).is_ok());
+    // methods and bodies
+    for (m, body) in [("POST", true), ("PUT", true), ("PATCH", true), ("DELETE", true), ("OPTIONS", false), ("HEAD", false), ("post", true)] {
+        assert!(ok("https://example.org/", m, body).is_ok(), "{m}");
+    }
+    for m in ["CONNECT", "TRACE", "track", "TRACK"] {
+        assert!(matches!(ok("https://example.org/", m, false), Err(PolicyError::MethodForbidden(_))), "{m}");
+    }
+    assert!(matches!(ok("https://example.org/", "GET", true), Err(PolicyError::BodyNotAllowed(_))));
+    assert!(matches!(ok("https://example.org/", "HEAD", true), Err(PolicyError::BodyNotAllowed(_))));
+    assert!(matches!(ok("https://example.org/", "bad method", false), Err(PolicyError::MethodForbidden(_))));
+    // url length
+    let long = format!("https://example.org/{}", "a".repeat(p.max_url_len));
+    assert!(matches!(ok(&long, "GET", false), Err(PolicyError::UrlTooLong(_))));
+    // configurable
+    let mut q = qf5_block_policy();
+    q.private_targets = PrivatePolicy::Allow;
+    assert_eq!(q.check_request(&page, &qf5_url("https://localhost/"), "GET", false), Ok(PolicyOutcome::default()));
+}
+
+#[test]
+fn qf5_same_origin_exception_and_file_flag() {
+    let p = qf5_block_policy();
+    let dev = qf5_url("http://localhost:3000/app");
+    assert!(p.check_request(&dev, &qf5_url("http://localhost:3000/api"), "POST", true).is_ok());
+    assert!(p.check_request(&dev, &qf5_url("http://localhost:3001/api"), "GET", false).is_err());
+    assert!(p.check_request(&dev, &qf5_url("http://127.0.0.1:3000/api"), "GET", false).is_err());
+    // the bad-port check still applies to a same-origin private target
+    let bad = qf5_url("http://localhost:6000/");
+    assert_eq!(p.check_request(&bad, &bad, "GET", false), Err(PolicyError::BadPort(6000)));
+    // file:
+    let file_page = qf5_url("file:///home/u/a.html");
+    assert_eq!(p.check_request(&file_page, &qf5_url("file:///etc/passwd"), "GET", false), Err(PolicyError::FileNotAllowed));
+    let mut q = qf5_block_policy();
+    q.file_targets = PrivatePolicy::Warn;
+    assert_eq!(q.check_request(&file_page, &qf5_url("file:///home/u/b.json"), "GET", false).unwrap().warning, Some("file"));
+    // a file page is never same-origin, so private hosts stay blocked in Block mode
+    assert!(q.check_request(&file_page, &qf5_url("http://localhost/"), "GET", false).is_err());
+}
+
+fn qf5_h(v: &[(&str, &str)]) -> Vec<(String, String)> {
+    v.iter().map(|(a, b)| (a.to_string(), b.to_string())).collect()
+}
+
+#[test]
+fn qf5_cors_classification_and_preflight() {
+    let page = qf5_url("https://a.example/p");
+    let same = qf5_url("https://a.example/x");
+    let other = qf5_url("https://b.example/x");
+    assert_eq!(classify_fetch(RequestMode::SameOrigin, &page, &same, "GET", &[]), Ok(FetchKind::Basic));
+    assert!(classify_fetch(RequestMode::SameOrigin, &page, &other, "GET", &[]).is_err());
+    assert_eq!(classify_fetch(RequestMode::NoCors, &page, &other, "GET", &[]), Ok(FetchKind::Opaque));
+    assert!(classify_fetch(RequestMode::NoCors, &page, &other, "PUT", &[]).is_err());
+    assert_eq!(classify_fetch(RequestMode::Cors, &page, &other, "GET", &[]), Ok(FetchKind::Cors { preflight: false }));
+    assert_eq!(
+        classify_fetch(RequestMode::Cors, &page, &other, "POST", &qf5_h(&[("Content-Type", "text/plain;charset=UTF-8"), ("Accept", "*/*")])),
+        Ok(FetchKind::Cors { preflight: false })
+    );
+    assert_eq!(
+        classify_fetch(RequestMode::Cors, &page, &other, "POST", &qf5_h(&[("Content-Type", "application/json")])),
+        Ok(FetchKind::Cors { preflight: true })
+    );
+    assert!(needs_preflight("PUT", &[]) && needs_preflight("DELETE", &[]) && needs_preflight("PATCH", &[]));
+    assert!(needs_preflight("GET", &qf5_h(&[("X-Token", "1")])));
+    assert!(needs_preflight("GET", &qf5_h(&[("Authorization", "x")])));
+    assert!(!needs_preflight("get", &qf5_h(&[("accept-language", "en")])));
+    assert!(needs_preflight("GET", &qf5_h(&[("Accept", "a\"b")])));
+    assert_eq!(cors_unsafe_request_headers(&qf5_h(&[("X-B", "1"), ("x-a", "1"), ("X-B", "2"), ("Accept", "*/*")])), ["x-a", "x-b"]);
+}
+
+#[test]
+fn qf5_cors_response_decisions() {
+    let o = "https://a.example";
+    assert!(check_cors_response(o, false, &qf5_h(&[("Access-Control-Allow-Origin", "*")])).is_ok());
+    // `*` with credentials is refused
+    assert!(check_cors_response(o, true, &qf5_h(&[("Access-Control-Allow-Origin", "*")])).is_err());
+    assert!(check_cors_response(o, false, &qf5_h(&[("access-control-allow-origin", o)])).is_ok());
+    assert!(check_cors_response(o, false, &qf5_h(&[("Access-Control-Allow-Origin", "https://b.example")])).is_err());
+    assert!(check_cors_response(o, false, &[]).is_err());
+    assert!(check_cors_response(o, false, &qf5_h(&[("Access-Control-Allow-Origin", o), ("Access-Control-Allow-Origin", o)])).is_err());
+    // credentials need an exact origin plus Allow-Credentials: true
+    assert!(check_cors_response(o, true, &qf5_h(&[("Access-Control-Allow-Origin", o)])).is_err());
+    assert!(check_cors_response(o, true, &qf5_h(&[("Access-Control-Allow-Origin", o), ("Access-Control-Allow-Credentials", "true")])).is_ok());
+    // file pages send Origin: null
+    assert_eq!(origin_header(&qf5_url("file:///a.html")), "null");
+    assert_eq!(origin_header(&qf5_url("https://a.example:8443/x")), "https://a.example:8443");
+
+    let p = RequestPolicy::default();
+    let uh = vec!["x-token".to_string(), "content-type".to_string()];
+    let good = qf5_h(&[
+        ("Access-Control-Allow-Origin", o),
+        ("Access-Control-Allow-Methods", "GET, PUT"),
+        ("Access-Control-Allow-Headers", "X-Token, Content-Type"),
+        ("Access-Control-Max-Age", "99999"),
+    ]);
+    assert_eq!(p.check_preflight_response(o, false, "PUT", &uh, 204, &good).unwrap().max_age_secs, p.preflight_max_age_cap_secs);
+    assert!(p.check_preflight_response(o, false, "DELETE", &uh, 204, &good).is_err());
+    assert!(p.check_preflight_response(o, false, "PUT", &["x-other".to_string()], 204, &good).is_err());
+    assert!(p.check_preflight_response(o, false, "PUT", &uh, 404, &good).is_err());
+    let star = qf5_h(&[("Access-Control-Allow-Origin", "*"), ("Access-Control-Allow-Methods", "*"), ("Access-Control-Allow-Headers", "*")]);
+    let r = p.check_preflight_response(o, false, "PATCH", &uh, 200, &star).unwrap();
+    assert_eq!(r.max_age_secs, 5);
+    assert!(p.check_preflight_response(o, false, "PATCH", &["authorization".to_string()], 200, &star).is_err());
+    assert!(p.check_preflight_response(o, true, "PATCH", &uh, 200, &star).is_err());
+}
+
+#[test]
+fn qf5_forbidden_header_lists_match_js() {
+    let js = include_str!("fetch_prelude.js");
+    let start = js.find("var FORBIDDEN_REQ = [").unwrap() + "var FORBIDDEN_REQ = [".len();
+    let end = start + js[start..].find(']').unwrap();
+    let from_js: Vec<String> = js[start..end].split(',').map(|s| s.trim().trim_matches('\'').to_string()).collect();
+    let from_rust: Vec<String> = FORBIDDEN_REQUEST_HEADERS.iter().map(|s| s.to_string()).collect();
+    assert_eq!(from_js, from_rust);
+    assert!(is_forbidden_request_header("Proxy-Authorization") && is_forbidden_request_header("Sec-Fetch-Mode"));
+    assert!(is_forbidden_request_header("COOKIE") && !is_forbidden_request_header("X-Token"));
+    assert!(is_forbidden_response_header("Set-Cookie") && is_forbidden_response_header("set-cookie2") && !is_forbidden_response_header("etag"));
+    assert!(is_wire_reserved_header("X-Wire-Policy") && !is_wire_reserved_header("X-Token"));
+}
+
+#[test]
+fn qf5_beacon_classification_and_log() {
+    assert_eq!(classify_beacon(NetApi::SendBeacon, false, None), Some(BeaconKind::SendBeacon));
+    assert_eq!(classify_beacon(NetApi::Fetch, true, Some(FetchKind::Basic)), Some(BeaconKind::Keepalive));
+    assert_eq!(classify_beacon(NetApi::Fetch, false, Some(FetchKind::Opaque)), Some(BeaconKind::NoCorsOpaque));
+    assert_eq!(classify_beacon(NetApi::Fetch, false, Some(FetchKind::Cors { preflight: false })), None);
+    assert_eq!(classify_beacon(NetApi::Xhr, false, None), None);
+    let p = RequestPolicy::default();
+    assert!(!p.beacons_send && p.suppress_beacon(Some(BeaconKind::Keepalive)) && !p.suppress_beacon(None));
+    let body = "x".repeat(300);
+    let line = format_beacon_log(
+        BeaconKind::SendBeacon,
+        "POST",
+        &qf5_url("https://ophan.example/img?a=1"),
+        Some("text/plain"),
+        body.as_bytes(),
+        &qf5_url("https://page.example/"),
+        false,
+    );
+    assert!(line.contains("navigator.sendBeacon POST https://ophan.example/img?a=1 content-type=text/plain body=300 bytes"), "{line}");
+    assert!(line.contains(&format!("\"{}\"", "x".repeat(200))) && !line.contains(&"x".repeat(201)), "{line}");
+    assert!(line.ends_with("page=https://page.example/: suppressed (not sent)"), "{line}");
+    let bin = format_beacon_log(BeaconKind::Keepalive, "POST", &qf5_url("https://a.example/"), Some("image/png"), &[1, 2, 3], &qf5_url("https://p.example/"), false);
+    assert!(bin.contains("body=3 bytes page=") && !bin.contains("body[.."), "{bin}");
+}
+
+#[test]
+fn qf5_policy_defaults_are_the_user_numbers() {
+    let p = RequestPolicy::default();
+    assert_eq!(p.max_response_bytes, 16 << 20);
+    assert_eq!(p.max_in_flight_bytes, 64 << 20);
+    assert_eq!((p.max_concurrent_requests, p.max_requests_per_page), (6, 1000));
+    assert_eq!(p.read_timeout, std::time::Duration::from_secs(30));
+    assert_eq!(p.sync_xhr_timeout_ms, 5000);
+    assert_eq!(p.redirect_limit, 5);
+    let h = p.wire_cap_headers(Some(5000));
+    assert!(h.contains(&("X-Wire-Max-Bytes".to_string(), (16usize << 20).to_string())));
+    assert!(h.contains(&("X-Wire-Timeout-Ms".to_string(), "5000".to_string())));
+    assert!(h.contains(&("X-Wire-Policy".to_string(), "public-only".to_string())));
+    assert!(p.wire_cap_headers(None).contains(&("X-Wire-Timeout-Ms".to_string(), "30000".to_string())));
+}
+
+#[test]
+fn qf5_codec_build_and_parse() {
+    let url = qf5_url("https://example.org:8443/p?q=1");
+    let req = build_wire_request(
+        "POST",
+        &url,
+        &qf5_h(&[("Content-Type", "application/json"), ("Host", "evil"), ("Content-Length", "99"), ("Connection", "keep-alive"), ("X-A", "1")]),
+        b"{\"a\":1}",
+    )
+    .unwrap();
+    assert_eq!(
+        String::from_utf8(req).unwrap(),
+        "POST https://example.org:8443/p?q=1 HTTP/1.1\r\nHost: example.org:8443\r\nContent-Type: application/json\r\nX-A: 1\r\nContent-Length: 7\r\n\r\n{\"a\":1}"
+    );
+    let get = String::from_utf8(build_wire_request("GET", &url, &[], b"").unwrap()).unwrap();
+    assert!(!get.contains("Content-Length"));
+    let put = String::from_utf8(build_wire_request("PUT", &url, &[], b"").unwrap()).unwrap();
+    assert!(put.contains("Content-Length: 0\r\n"));
+    // CR/LF injection and bad names are refused
+    assert!(build_wire_request("GET", &url, &qf5_h(&[("X-A", "1\r\nX-B: 2")]), b"").is_err());
+    assert!(build_wire_request("GET", &url, &qf5_h(&[("X-A", "1\nX")]), b"").is_err());
+    assert!(build_wire_request("GET", &url, &qf5_h(&[("X A", "1")]), b"").is_err());
+    assert!(build_wire_request("GE T", &url, &[], b"").is_err());
+
+    let raw = b"HTTP/1.1 201 Created\r\nContent-Type: text/plain\r\nSet-Cookie: a=1\r\nSet-Cookie: b=2\r\nX-Wire-Final-Url: https://x.test/final\r\n\r\nhello\r\n\r\nworld";
+    let r = parse_wire_response_full(raw).unwrap();
+    assert_eq!((r.status, r.status_text.as_str()), (201, "Created"));
+    assert_eq!(r.body, b"hello\r\n\r\nworld");
+    assert_eq!(r.header("Content-Type"), Some("text/plain"));
+    let cookies: Vec<&str> = r.headers.iter().filter(|(n, _)| n == "set-cookie").map(|(_, v)| v.as_str()).collect();
+    assert_eq!(cookies, ["a=1", "b=2"]);
+    assert_eq!(r.final_url.as_deref(), Some("https://x.test/final"));
+    assert_eq!(r.error, None);
+    // today's synthesized 502 and the QF6 marker
+    let e = parse_wire_response_full(b"HTTP/1.1 502 Bad Gateway\r\nContent-Type: text/plain\r\n\r\nwire: upstream request failed: refused").unwrap();
+    assert_eq!(e.error.as_deref(), Some("wire: upstream request failed: refused"));
+    let e2 = parse_wire_response_full(b"HTTP/1.1 502 Bad Gateway\r\nX-Wire-Error: 1\r\n\r\nblocked: x").unwrap();
+    assert_eq!(e2.error.as_deref(), Some("blocked: x"));
+    let real502 = parse_wire_response_full(b"HTTP/1.1 502 Bad Gateway\r\n\r\nnginx says no").unwrap();
+    assert_eq!(real502.error, None);
+    assert!(parse_wire_response_full(b"HTTP/1.1 200 OK\r\nno terminator").is_err());
+    assert!(parse_wire_response_full(b"garbage\r\n\r\n").is_err());
+    assert!(parse_wire_response_full(b"HTTP/1.1 999 X\r\n\r\n").is_err());
+    assert_eq!(parse_wire_response_full(b"HTTP/1.1 204\r\n\r\n").unwrap().status_text, "");
+}
+
+/// In-memory fake wire: a thread on a temp unix socket. `respond` gets the
+/// full request bytes and writes the answer; the received request is sent back.
+fn qf5_fake_wire(
+    tag: &str,
+    respond: impl FnOnce(&[u8], &mut UnixStream) + Send + 'static,
+) -> (PathBuf, mpsc::Receiver<Vec<u8>>, thread::JoinHandle<()>) {
+    let dir = std::env::temp_dir().join(format!("scratchy-qf5-{}-{tag}", std::process::id()));
+    let _ = fs::create_dir_all(&dir);
+    let path = dir.join("wire.sock");
+    let _ = fs::remove_file(&path);
+    let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+    let (tx, rx) = mpsc::channel();
+    let h = thread::spawn(move || {
+        let (mut s, _) = listener.accept().unwrap();
+        let mut buf = Vec::new();
+        let mut chunk = [0u8; 4096];
+        loop {
+            let n = s.read(&mut chunk).unwrap_or(0);
+            if n == 0 {
+                break;
+            }
+            buf.extend_from_slice(&chunk[..n]);
+            if let Some(p) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                let head = String::from_utf8_lossy(&buf[..p]).to_ascii_lowercase();
+                let cl = head.split("content-length:").nth(1).and_then(|v| v.lines().next()).and_then(|v| v.trim().parse::<usize>().ok()).unwrap_or(0);
+                if buf.len() >= p + 4 + cl {
+                    break;
+                }
+            }
+        }
+        let _ = tx.send(buf.clone());
+        respond(&buf, &mut s);
+    });
+    (path, rx, h)
+}
+
+#[test]
+fn qf5_fake_wire_round_trip() {
+    let (path, rx, h) = qf5_fake_wire("rt", |_req, s| {
+        let _ = s.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nSet-Cookie: k=v\r\n\r\n{\"ok\":true}");
+    });
+    let url = qf5_url("https://example.org/api");
+    let mut headers = qf5_h(&[("Content-Type", "application/json")]);
+    headers.extend(RequestPolicy::default().wire_cap_headers(None));
+    let req = build_wire_request("POST", &url, &headers, b"{\"a\":1}").unwrap();
+    let resp = fetch_full_via_wire(&path, &req, &WireLimits::default()).unwrap();
+    h.join().unwrap();
+    let got = rx.recv().unwrap();
+    assert_eq!(got, req);
+    assert_eq!(resp.status, 200);
+    assert_eq!(resp.body, b"{\"ok\":true}");
+    assert_eq!(resp.header("set-cookie"), Some("k=v"));
+}
+
+#[test]
+fn qf5_fake_wire_size_cap() {
+    let (path, _rx, h) = qf5_fake_wire("cap", |_req, s| {
+        let _ = s.write_all(b"HTTP/1.1 200 OK\r\n\r\n");
+        let big = vec![b'a'; 1 << 20];
+        for _ in 0..4 {
+            if s.write_all(&big).is_err() {
+                break;
+            }
+        }
+    });
+    let req = build_wire_request("GET", &qf5_url("https://example.org/"), &[], b"").unwrap();
+    let mut limits = WireLimits::default();
+    limits.max_body_bytes = 1 << 20;
+    assert_eq!(fetch_full_via_wire(&path, &req, &limits), Err(NetError::TooLarge));
+    h.join().unwrap();
+    // exactly at the cap is fine
+    let (path, _rx, h) = qf5_fake_wire("cap2", |_req, s| {
+        let _ = s.write_all(b"HTTP/1.1 200 OK\r\n\r\n");
+        let _ = s.write_all(&vec![b'a'; 1000]);
+    });
+    limits.max_body_bytes = 1000;
+    assert_eq!(fetch_full_via_wire(&path, &req, &limits).unwrap().body.len(), 1000);
+    h.join().unwrap();
+}
+
+#[test]
+fn qf5_fake_wire_timeouts_and_connect_errors() {
+    let (path, _rx, h) = qf5_fake_wire("to", |_req, s| {
+        let _ = s.write_all(b"HTTP/1.1 200 OK\r\n\r\npartial");
+        thread::sleep(std::time::Duration::from_millis(1500));
+    });
+    let req = build_wire_request("GET", &qf5_url("https://example.org/"), &[], b"").unwrap();
+    let mut limits = WireLimits::default();
+    limits.read_timeout = std::time::Duration::from_millis(300);
+    let t = std::time::Instant::now();
+    assert_eq!(fetch_full_via_wire(&path, &req, &limits), Err(NetError::Timeout));
+    assert!(t.elapsed() < std::time::Duration::from_millis(1400));
+    h.join().unwrap();
+    // the legacy caller now has a read timeout too
+    let (path, _rx, h) = qf5_fake_wire("to2", |_req, _s| thread::sleep(std::time::Duration::from_millis(1200)));
+    let t = std::time::Instant::now();
+    let r = fetch_raw_via_wire_with_timeout(&path, "GET http://x.test/ HTTP/1.1\r\nHost: x.test\r\n\r\n", std::time::Duration::from_millis(250));
+    assert!(matches!(r, WireFetchRaw::Unreachable));
+    assert!(t.elapsed() < std::time::Duration::from_millis(1100));
+    h.join().unwrap();
+    // nothing listening
+    let missing = std::env::temp_dir().join(format!("scratchy-qf5-{}-none.sock", std::process::id()));
+    assert!(matches!(fetch_full_via_wire(&missing, &req, &WireLimits::default()), Err(NetError::Connect(_))));
+}
