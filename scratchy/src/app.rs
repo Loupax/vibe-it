@@ -543,6 +543,11 @@ pub(crate) struct App {
     /// at; an already-absolute `href` still resolves fine either way,
     /// same as a real browser.
     pub(crate) base_url: Option<Url>,
+    /// QF14b: the page that initiated the navigation about to start (a link
+    /// click, a script, a meta refresh); `None` = browser-initiated (`:go`,
+    /// startup, `:refresh`, history), which the jar treats as same-site.
+    /// Consumed (`take`) by `fetch_url_inner`.
+    pub(crate) nav_initiator: Option<Url>,
     /// Every URL navigated to via a real click or `:go`, oldest
     /// first — `:historyBack`/`:historyFront` (bound to `h`/`l` in vim
     /// Normal mode) move `history_index` through this instead of
@@ -772,6 +777,7 @@ impl App {
             proxy,
             shaping_requests,
             base_url,
+            nav_initiator: None,
             history: Vec::new(),
             history_index: 0,
             nav_generation: 0,
@@ -844,6 +850,7 @@ impl App {
             proxy,
             shaping_requests,
             base_url: None,
+            nav_initiator: None,
             history: Vec::new(),
             history_index: 0,
             nav_generation: 0,
@@ -1530,6 +1537,7 @@ impl App {
     pub(crate) fn follow_meta_refresh(&mut self, target: Url) {
         self.meta_chain += 1;
         self.push_or_replace_history(target.clone(), true);
+        self.nav_initiator = self.base_url.clone();
         self.fetch_url(target);
     }
 
@@ -1538,6 +1546,7 @@ impl App {
         if generation == self.nav_generation {
             self.meta_chain += 1;
             self.push_history(target.clone());
+            self.nav_initiator = self.base_url.clone();
             self.fetch_url(target);
         }
     }
@@ -2021,7 +2030,14 @@ impl App {
         }
     }
 
+    /// A page-initiated navigation (link click, script): the current page is
+    /// the initiator for the cookie jar's SameSite decision (QF14b).
     pub(crate) fn start_navigation(&mut self, href: &str) {
+        self.start_navigation_as(href, true);
+    }
+
+    /// `page_initiated` false = typed by the user (`:go`): no initiator.
+    pub(crate) fn start_navigation_as(&mut self, href: &str, page_initiated: bool) {
         self.meta_chain = 0;
         self.pre_help_page = None;
         if let (Some(frag), None) = (href.strip_prefix('#'), &self.base_url) {
@@ -2037,6 +2053,7 @@ impl App {
             }
         };
         self.push_history(url.clone());
+        self.nav_initiator = if page_initiated { self.base_url.clone() } else { None };
         self.fetch_url(url);
     }
 
@@ -2143,6 +2160,7 @@ impl App {
             };
             if strip(base) == strip(&url) {
                 let frag = frag.to_string();
+                self.nav_initiator = None;
                 self.apply_fragment(&frag);
                 return;
             }
@@ -2171,8 +2189,9 @@ impl App {
         self.show_message("Loading…");
         let proxy = self.proxy.clone();
         let socket_path = self.socket_path.clone();
+        let initiator = self.nav_initiator.take();
         thread::spawn(move || {
-            let request_text = build_get_request_text(&url);
+            let request_text = build_get_request_ctx(&url, &CookieContext::navigation(&url, initiator.as_ref()));
             let url_for_log = url.clone();
             let outcome: Result<FetchedPage, String> = match &socket_path {
                 Some(path) => {
@@ -2464,7 +2483,7 @@ impl App {
     /// left to fall back to.
     pub(crate) fn dispatch_command(&mut self, name: &str, args: &[&str]) {
         match (name, args) {
-            ("go", [url]) => self.start_navigation(url),
+            ("go", [url]) => self.start_navigation_as(url, false),
             ("historyBack", []) => self.navigate_history(-1),
             ("historyFront", []) => self.navigate_history(1),
             ("refresh", []) => self.refresh(),
@@ -2838,5 +2857,5 @@ pub(crate) fn fetch_wanted_css_images(
     }
     requested.extend(fresh.iter().cloned());
     let base = base.cloned().unwrap_or_else(|| Url::parse("about:blank").expect("static url"));
-    spawn_image_fetches(proxy, socket, &base, fresh, generation);
+    spawn_image_fetches(proxy, socket, &base, &base, fresh, generation);
 }

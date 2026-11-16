@@ -39,6 +39,11 @@ pub(crate) struct NetJob {
 /// Performs one request. The real one talks to wire; tests inject a fake.
 pub(crate) trait NetExecutor: Send + Sync {
     fn execute(&self, job: &NetJob) -> Result<WireResponse, NetError>;
+    /// False when there is no wire at all (no `--socket`): cookies are then
+    /// silently unavailable instead of a logged failure.
+    fn has_wire(&self) -> bool {
+        true
+    }
 }
 
 pub(crate) struct WireExecutor(pub PathBuf);
@@ -53,6 +58,10 @@ impl NetExecutor for WireExecutor {
 pub(crate) struct NoSocketExecutor;
 
 impl NetExecutor for NoSocketExecutor {
+    fn has_wire(&self) -> bool {
+        false
+    }
+
     fn execute(&self, _job: &NetJob) -> Result<WireResponse, NetError> {
         Err(NetError::Connect("no --socket was given".into()))
     }
@@ -188,6 +197,8 @@ pub(crate) struct NetEntry {
     pub bytes: usize,
     pub elapsed_ms: Option<u128>,
     pub warnings: Vec<String>,
+    /// QF14b: the request carried `X-Wire-Jar` (the cookie jar was used).
+    pub jar: bool,
 }
 
 /// What the JS side receives in `__net_complete`.
@@ -215,6 +226,11 @@ pub(crate) struct NetState {
     meta: HashMap<u64, NetMeta>,
     sync_results: HashMap<u64, Completion>,
     pub(crate) entries: Vec<NetEntry>,
+    /// QF14b: what wire told us about cookie support.
+    pub(crate) support: &'static CookieSupport,
+    /// QF14b: a `document.cookie` control call failed: `''` for the rest of
+    /// the page (the engine thread must not keep blocking).
+    cookie_broken: bool,
 }
 
 /// Response headers a `cors` response always exposes to the page.
@@ -247,6 +263,64 @@ impl NetState {
             meta: HashMap::new(),
             sync_results: HashMap::new(),
             entries: Vec::new(),
+            support: cookie_support(),
+            cookie_broken: false,
+        }
+    }
+
+    /// QF14b: one synchronous `document.cookie` control call (`get` returns
+    /// the cookie string, `set` sends `value` and returns ''). Blocks the
+    /// engine thread for at most `cookie_control_timeout_ms`. Every failure
+    /// (no wire, old wire, cookies off, timeout) is logged once and answers
+    /// '' from then on.
+    fn cookie_op(&mut self, op: &str, value: &str) -> String {
+        if self.cookie_broken || !self.support.usable() || !self.executor.has_wire() {
+            return String::new();
+        }
+        let Some(page) = page_url() else { return String::new() };
+        let Some(mut headers) = cookie_control_headers(op, &page) else { return String::new() };
+        let set = op == "set";
+        if set {
+            headers.push(("Content-Type".into(), "text/plain".into()));
+        }
+        let Ok(request) = build_wire_request(if set { "POST" } else { "GET" }, &page, &headers, value.as_bytes()) else {
+            return String::new();
+        };
+        let mut limits = self.policy.wire_limits();
+        let t = Duration::from_millis(self.policy.cookie_control_timeout_ms);
+        limits.read_timeout = t;
+        limits.connect_timeout = limits.connect_timeout.min(t);
+        let job = NetJob { id: 0, request, limits, reserve: 0 };
+        let fail = |this: &mut NetState, why: String| {
+            this.cookie_broken = true;
+            this.note(&format!("document.cookie: {why}; it reads '' for the rest of this page"));
+        };
+        match self.executor.execute(&job) {
+            Err(e) => {
+                fail(self, e.to_string());
+                String::new()
+            }
+            Ok(resp) => {
+                if let Some(line) = self.support.observe(resp.header("x-wire-version"), resp.header("x-wire-cookies")) {
+                    (self.log)("net-warning", &line);
+                }
+                if !self.support.usable() {
+                    self.cookie_broken = true;
+                    return String::new();
+                }
+                match resp.status {
+                    200 if !set => String::from_utf8_lossy(&resp.body).into_owned(),
+                    204 if set => String::new(),
+                    s => {
+                        if self.support.usable() {
+                            fail(self, format!("wire answered {s} to the cookie control request"));
+                        } else {
+                            self.cookie_broken = true;
+                        }
+                        String::new()
+                    }
+                }
+            }
         }
     }
 
@@ -293,7 +367,15 @@ impl NetState {
         self.next_id += 1;
         let mut d = d;
         d.method = normalize_method(&d.method);
-        self.entries.push(NetEntry { method: d.method.clone(), url: d.url.clone(), outcome: "pending".into(), bytes: 0, elapsed_ms: None, warnings: vec![] });
+        self.entries.push(NetEntry {
+            method: d.method.clone(),
+            url: d.url.clone(),
+            outcome: "pending".into(),
+            bytes: 0,
+            elapsed_ms: None,
+            warnings: vec![],
+            jar: false,
+        });
         let entry = self.entries.len() - 1;
         let Some(page) = page_url() else {
             self.refuse(id, &d, entry, "the page has no URL".into(), reqs);
@@ -390,6 +472,10 @@ impl NetState {
                 // want to reach them, and to hear the target class).
                 .filter(|(n, _)| n != WIRE_HEADER_POLICY || self.policy.private_targets == PrivatePolicy::Block),
         );
+        // QF14b: the Fetch spec's credentials mode decides whether the jar is used.
+        let cookie_headers = wire_cookie_headers_with(self.support, &CookieContext::fetch(&page, parse_credentials(&d.credentials), is_same_origin(&page, &url)));
+        self.entries[entry].jar = cookie_headers.iter().any(|(n, _)| n == WIRE_HEADER_JAR);
+        wire_headers.extend(cookie_headers);
         let request = match build_wire_request(&d.method, &url, &wire_headers, &d.body) {
             Ok(r) => r,
             Err(e) => {
@@ -559,6 +645,16 @@ pub(crate) fn install_net<'js>(ctx: &Ctx<'js>, state: Rc<RefCell<NetState>>, req
     }) {
         let _ = g.set("__net_abort", f);
     }
+    let st = state.clone();
+    if let Ok(f) = Function::new(ctx.clone(), move || -> String { st.borrow_mut().cookie_op("get", "") }) {
+        let _ = g.set("__cookie_get", f);
+    }
+    let st = state.clone();
+    if let Ok(f) = Function::new(ctx.clone(), move |v: String| {
+        st.borrow_mut().cookie_op("set", &v);
+    }) {
+        let _ = g.set("__cookie_set", f);
+    }
     let st = state;
     if let Ok(f) = Function::new(ctx.clone(), move |ctx: Ctx<'js>, id: u32| -> rquickjs::Result<Option<Object<'js>>> {
         let c = st.borrow_mut().sync_results.remove(&(id as u64));
@@ -588,6 +684,11 @@ impl JsEngine {
             }
         });
         drain_jobs(&self.ctx, &self.rt, &*self.log);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn set_cookie_support(&self, s: &'static CookieSupport) {
+        self.net.borrow_mut().support = s;
     }
 
     #[cfg(test)]
@@ -643,7 +744,8 @@ pub(crate) fn format_net_report(entries: &[NetEntry]) -> String {
     let mut out = format!("--- network ({} requests, {} bytes) ---\n", entries.len(), total);
     for e in entries {
         let ms = e.elapsed_ms.map(|m| format!(" {m} ms")).unwrap_or_default();
-        out.push_str(&format!("{} {} -> {} {} bytes{ms}\n", e.method, e.url, e.outcome, e.bytes));
+        let jar = if e.jar { "scratchy" } else { "off" };
+        out.push_str(&format!("{} {} -> {} {} bytes{ms} jar: {jar}\n", e.method, e.url, e.outcome, e.bytes));
         for w in &e.warnings {
             out.push_str(&format!("    {w}\n"));
         }

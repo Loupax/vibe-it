@@ -177,8 +177,8 @@ pub(crate) fn inline_scripts(document: &Handle) -> Vec<ScriptSource> {
 /// each, joined in order); one that fails to fetch is logged and skipped.
 /// QY15: module scripts and the import map are included, followed by the
 /// pre-fetched static import graph (`ModuleDep`s).
-pub(crate) fn fetch_scripts(path: &std::path::Path, base: &Url, refs: Vec<ScriptRef>) -> Vec<ScriptSource> {
-    fetch_scripts_with(base, refs, &|u: &Url| fetch_script_via_wire(path, u))
+pub(crate) fn fetch_scripts(path: &std::path::Path, base: &Url, top: &Url, refs: Vec<ScriptRef>) -> Vec<ScriptSource> {
+    fetch_scripts_with(base, refs, &|u: &Url| fetch_script_via_wire(path, u, top))
 }
 
 pub(crate) fn fetch_scripts_with(base: &Url, refs: Vec<ScriptRef>, fetch: js_modules::Fetcher<'_>) -> Vec<ScriptSource> {
@@ -608,9 +608,16 @@ const PRELUDE: &str = r#"
   var doc = ({ readyState: 'loading', title: env.title || '', URL: env.href, documentURI: env.href,
     baseURI: env.href, referrer: '', characterSet: 'UTF-8', contentType: 'text/html', compatMode: 'CSS1Compat',
     nodeType: 9, nodeName: '#document' });
-  // cookie: reads are empty, writes are ignored (until Q33g)
-  Object.defineProperty(doc, 'cookie', { get: function () { return ''; }, set: function () {}, configurable: true, enumerable: true });
   Object.setPrototypeOf(doc, Document.prototype);
+  // QF14b: cookies live in wire's jar; the natives talk to its control
+  // channel (synchronously). Second documents (they inherit from `doc`) and
+  // pages without a cookie origin (file:) read '' and ignore writes. A
+  // property of Document.prototype, like a browser's, so polyfills can
+  // inspect or override it.
+  Object.defineProperty(Document.prototype, 'cookie', {
+    get: function () { return (this === g.document && g.__cookie_get) ? String(g.__cookie_get()) : ''; },
+    set: function (v) { if (this === g.document && g.__cookie_set) g.__cookie_set(String(v)); },
+    configurable: true, enumerable: true });
   Object.defineProperty(doc, 'location', { get: function () { return g.location; }, configurable: true });
   // QY2: page visibility (the window is always shown).
   Object.defineProperty(doc, 'visibilityState', { get: function () { return 'visible'; }, configurable: true, enumerable: true });
@@ -1311,11 +1318,13 @@ pub(crate) fn js_report_for_scripts_timers(document: &Handle, scripts: &[ScriptS
     let exec = js_net::net_executor();
     let mut sched = NetScheduler::new(&RequestPolicy::default());
     let mut net_entries = Vec::new();
+    let mut cookie_smoke: Option<String> = None;
     match run_timers {
         None => {
             if let Some(engine) = start_scripts(document, scripts, log) {
                 js_net::drive_report_net(&engine, &mut sched, &*exec);
                 net_entries = engine.net_entries();
+                cookie_smoke = engine.eval_value::<String>("report", "document.cookie");
             }
         }
         Some(limit) => {
@@ -1341,6 +1350,7 @@ pub(crate) fn js_report_for_scripts_timers(document: &Handle, scripts: &[ScriptS
                     js_net::drive_report_net(engine, &mut sched, &*exec);
                 }
                 net_entries = engine.net_entries();
+                cookie_smoke = engine.eval_value::<String>("report", "document.cookie");
             }
             pumped = Some((callbacks, clock.get()));
         }
@@ -1395,6 +1405,7 @@ pub(crate) fn js_report_for_scripts_timers(document: &Handle, scripts: &[ScriptS
         }
     }
     out.push_str(&js_net::format_net_report(&net_entries));
+    out.push_str(&format!("--- cookies ---\ndocument.cookie: {:?}\n", cookie_smoke.unwrap_or_default()));
     out
 }
 
@@ -1451,8 +1462,8 @@ pub(crate) fn js_report_for_html_timers(html: &str, socket: Option<&std::path::P
                 Some(base) => {
                     let mut res = ExternalResources::default();
                     find_external_resources(&dom.document, &mut res);
-                    prefetch_iframes(socket, &base, &dom.document);
-                    fetch_scripts(socket, &base, res.scripts)
+                    prefetch_iframes(socket, &base, &base, &dom.document);
+                    fetch_scripts(socket, &base, &base, res.scripts)
                 }
                 None => inline_scripts(&dom.document),
             }

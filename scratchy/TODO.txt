@@ -1025,7 +1025,7 @@ WAITING FOR USER (design first): skip these.
         then stop the running wire (pgrep -x wire; kill <that PID>) and start it again
         with the same command as before (e.g. `wire &`); add `--no-cookies` only
         as a kill switch. The jar is memory only: it is lost on every restart.
-- [ ] QF14b-scratchy [S] The scratchy half of QF14 (needs the wire above,
+- [x] QF14b-scratchy (bc2fb00) [S] The scratchy half of QF14 (needs the wire above,
       version 3). (1) Send `X-Wire-Jar: scratchy` and
       `X-Wire-Top-Site: <scheme://registrable-domain of the top-level page>` on
       ALL requests through wire (navigations, images, stylesheets, scripts,
@@ -1042,6 +1042,20 @@ WAITING FOR USER (design first): skip these.
       cookies are unavailable (`off` = `--no-cookies`): log ONCE, send no jar
       headers, keep working. (5) Tests with the fake executor. QF14b (separate,
       later): Disconnect tracker-list blocking of Firefox standard mode.
+      DONE: see NOTES.md "Cookie client (QF14b-scratchy)". Old-wire decision:
+      wire v2 strips every X-Wire-* request header; only a pre-QF6 wire would
+      forward them, and the first request is the navigation (top site = its
+      own destination), so scratchy sends the headers until the first response
+      proves otherwise (no separate probe).
+- [ ] QF14b2 [S] Left out of QF14b-scratchy: (a) `crossorigin` attribute
+      credentials mode for img/script/link/module (today they always use the
+      jar; spec: `crossorigin=anonymous` and module scripts are same-origin
+      mode, so cross-origin ones should send none); (b) drop same-origin-mode
+      credentials on a cross-origin redirect hop of a fetch (wire follows
+      redirects itself); (c) `cookieStore` API; (d) `--profile` jar name;
+      (e) Disconnect tracker-list blocking (QF14b in the old numbering);
+      (f) the access token for the control channel (wire hook
+      `control_authorized`, waiting for the user).
 - [ ] QF15 [S] WAITING FOR USER (design first, QF-D7; with QY13a)
       Persistence: an HTTP cache, cookies or storage on disk.
 - [ ] QF16 [S] WAITING FOR USER (design first, QF-D8) Sync XHR that

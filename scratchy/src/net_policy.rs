@@ -272,6 +272,10 @@ pub(crate) struct RequestPolicy {
     pub redirect_limit: u32,
     /// QF-D8: sync XHR blocks the main thread, but at most this long.
     pub sync_xhr_timeout_ms: u64,
+    /// QF14b: `document.cookie` talks to wire's control channel SYNCHRONOUSLY
+    /// (the engine thread blocks): at most this long per call, 2 s. A
+    /// failure latches `document.cookie` to `''` for the rest of the page.
+    pub cookie_control_timeout_ms: u64,
     /// QF-D3: when false (default) beacons / keepalive / no-cors analytics
     /// are LOGGED IN DETAIL (`format_beacon_log`) and NOT emitted.
     pub beacons_send: bool,
@@ -297,6 +301,7 @@ impl Default for RequestPolicy {
             preflight_max_age_cap_secs: 7200,
             redirect_limit: 5,
             sync_xhr_timeout_ms: 5000,
+            cookie_control_timeout_ms: 2000,
             beacons_send: false,
         }
     }
@@ -646,4 +651,220 @@ impl RequestPolicy {
         let max_age = header_values(resp_headers, "access-control-max-age").first().and_then(|v| v.trim().parse::<u64>().ok()).unwrap_or(5);
         Ok(PreflightResult { max_age_secs: max_age.min(self.preflight_max_age_cap_secs) })
     }
+}
+
+// ------------------------------------------------------------ QF14b cookies
+//
+// The jar lives in wire (QF14, protocol version 3); scratchy only says, per
+// request, whether the jar is used and under which top-level site. ALL the
+// `X-Wire-Jar`/`X-Wire-Top-Site`/`X-Wire-Nav`/`X-Wire-Initiator-Site`/
+// `X-Wire-Cookies`/`X-Wire-Cookie-*` headers are built in this section
+// (`wire_cookie_headers`, `cookie_control_headers`) and nowhere else: a test
+// greps the sources for the literals.
+//
+// Old wire: wire 3's detection is `X-Wire-Version >= 3` and, for a request
+// that asked for the jar, `X-Wire-Cookies: on`. `CookieSupport` learns that
+// from the first jar response (the first request of a session is the top-level
+// navigation, whose top site is its own destination, so a pre-QF6 wire that
+// forwards unknown `X-Wire-*` headers upstream leaks nothing but the site
+// being visited; wire v2 strips every `X-Wire-*` request header, see
+// `is_request_header_to_skip`). Once learned "unavailable" no jar header is
+// sent any more and a single line is logged.
+//
+// Not done (documented): `cookieStore` (async cookie API), the
+// `crossorigin` attribute's credentials mode for images/scripts (they always
+// use the jar), same-origin-mode credentials dropped on a cross-origin
+// redirect hop (wire follows redirects itself), a `--profile` jar name.
+
+/// The jar name (QF-D2a: one shared jar; a later `--profile` changes this).
+pub(crate) const COOKIE_JAR_NAME: &str = "scratchy";
+pub(crate) const WIRE_HEADER_JAR: &str = "X-Wire-Jar";
+pub(crate) const WIRE_HEADER_TOP_SITE: &str = "X-Wire-Top-Site";
+pub(crate) const WIRE_HEADER_NAV: &str = "X-Wire-Nav";
+pub(crate) const WIRE_HEADER_INITIATOR: &str = "X-Wire-Initiator-Site";
+pub(crate) const WIRE_HEADER_COOKIES: &str = "X-Wire-Cookies";
+pub(crate) const WIRE_HEADER_COOKIE_OP: &str = "X-Wire-Cookie-Op";
+pub(crate) const WIRE_HEADER_COOKIE_URL: &str = "X-Wire-Cookie-Url";
+
+/// Common multi-label public suffixes. COPY of wire's `MULTI_SUFFIXES`
+/// (wire/src/cookies.rs): keep the two identical (same as `is_public_ip`).
+/// Not the full Public Suffix List: a missing ccTLD second level makes two
+/// unrelated sibling sites share a partition. wire normalizes the header
+/// again, so a mismatch can only make a partition coarser or finer, never
+/// leak a cookie across two sites wire itself separates.
+const MULTI_SUFFIXES: &[&str] = &[
+    "co.uk", "org.uk", "ac.uk", "gov.uk", "me.uk", "ltd.uk", "plc.uk", "net.uk", "sch.uk", "com.au", "net.au", "org.au",
+    "edu.au", "gov.au", "asn.au", "id.au", "co.nz", "org.nz", "net.nz", "govt.nz", "ac.nz", "co.jp", "ne.jp", "or.jp",
+    "ac.jp", "go.jp", "com.br", "net.br", "org.br", "gov.br", "com.cn", "net.cn", "org.cn", "gov.cn", "edu.cn", "co.in",
+    "net.in", "org.in", "ac.in", "gov.in", "co.za", "org.za", "com.mx", "com.ar", "com.tr", "com.tw", "com.hk", "com.sg",
+    "co.kr", "or.kr", "co.il", "com.ua", "com.pl", "co.id", "com.my", "com.ph", "com.vn", "com.co", "com.pe", "com.ng",
+    "co.th", "com.eg", "com.sa", "github.io", "gitlab.io", "herokuapp.com", "blogspot.com", "appspot.com", "netlify.app",
+    "vercel.app", "pages.dev", "workers.dev", "cloudfront.net", "s3.amazonaws.com", "azurewebsites.net", "web.app",
+    "firebaseapp.com", "myshopify.com", "wordpress.com", "fly.dev", "onrender.com",
+];
+
+fn registrable_domain(host: &str) -> String {
+    if host.parse::<IpAddr>().is_ok() || !host.contains('.') {
+        return host.to_string();
+    }
+    let labels: Vec<&str> = host.split('.').collect();
+    for i in 0..labels.len() {
+        let suffix = labels[i..].join(".");
+        if !suffix.contains('.') || MULTI_SUFFIXES.contains(&suffix.as_str()) {
+            return if i == 0 { host.to_string() } else { labels[i - 1..].join(".") };
+        }
+    }
+    host.to_string()
+}
+
+/// `scheme://registrable-domain` of an http(s) URL; `None` for everything
+/// else (`file:` has no cookie origin, `data:`/`about:` neither).
+pub(crate) fn site_of(url: &Url) -> Option<String> {
+    if !matches!(url.scheme(), "http" | "https") {
+        return None;
+    }
+    let host = url.host_str()?.trim_matches(['[', ']']).to_ascii_lowercase();
+    Some(format!("{}://{}", url.scheme(), registrable_domain(&host)))
+}
+
+/// What wire told us about cookie support (see the section comment).
+pub(crate) struct CookieSupport {
+    /// 0 unknown (assume yes), 1 available, 2 unavailable.
+    state: std::sync::atomic::AtomicU8,
+    warned: std::sync::atomic::AtomicBool,
+    /// False for the process-wide instance in test builds, so a fake wire
+    /// without a version header cannot switch cookies off for other tests.
+    learns: bool,
+}
+
+impl CookieSupport {
+    pub(crate) fn new(learns: bool) -> Self {
+        CookieSupport { state: std::sync::atomic::AtomicU8::new(0), warned: std::sync::atomic::AtomicBool::new(false), learns }
+    }
+
+    /// False once wire proved old or cookie-less.
+    pub(crate) fn usable(&self) -> bool {
+        self.state.load(std::sync::atomic::Ordering::Relaxed) != 2
+    }
+
+    /// Feeds one response to a request that asked for the jar (or used the
+    /// control channel). Returns the line to log, once, the first time wire
+    /// is found unable to do cookies.
+    pub(crate) fn observe(&self, version: Option<&str>, cookies: Option<&str>) -> Option<String> {
+        use std::sync::atomic::Ordering::Relaxed;
+        if !self.learns {
+            return None;
+        }
+        let v: u32 = version.and_then(|v| v.trim().parse().ok()).unwrap_or(0);
+        let off = cookies.is_some_and(|c| c.trim().eq_ignore_ascii_case("off"));
+        let on = cookies.is_some_and(|c| c.trim().eq_ignore_ascii_case("on"));
+        let why = if v < 3 {
+            "wire is too old (restart it)"
+        } else if off {
+            "wire has cookies disabled"
+        } else {
+            if on {
+                self.state.store(1, Relaxed);
+            }
+            return None;
+        };
+        self.state.store(2, Relaxed);
+        (!self.warned.swap(true, Relaxed)).then(|| format!("scratchy: cookies unavailable: {why}"))
+    }
+}
+
+static COOKIE_SUPPORT: std::sync::OnceLock<CookieSupport> = std::sync::OnceLock::new();
+
+pub(crate) fn cookie_support() -> &'static CookieSupport {
+    COOKIE_SUPPORT.get_or_init(|| CookieSupport::new(!cfg!(test)))
+}
+
+/// Why a request is made: decides which cookie headers it gets.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum CookieKind {
+    /// A top-level navigation. `initiator` = the site of the page that
+    /// started it (a link click or meta refresh); `None` for a browser-
+    /// initiated one (`:go`, startup, `:refresh`, history), which counts as
+    /// same-site because the user did it.
+    Navigation { initiator: Option<String> },
+    /// Image, stylesheet, script, module, iframe, favicon: always the jar.
+    Subresource,
+    /// Page `fetch`/XHR: the Fetch spec's credentials mode decides.
+    Fetch { credentials: CredentialsMode, same_origin: bool },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct CookieContext {
+    /// The top-level page's site (a navigation's own destination). `None`:
+    /// no cookie origin (`file:`/`about:`/`data:` page): no jar at all.
+    pub top_site: Option<String>,
+    pub kind: CookieKind,
+}
+
+impl CookieContext {
+    pub(crate) fn navigation(dest: &Url, initiator: Option<&Url>) -> Self {
+        CookieContext { top_site: site_of(dest), kind: CookieKind::Navigation { initiator: initiator.and_then(site_of) } }
+    }
+
+    pub(crate) fn subresource(top: &Url) -> Self {
+        CookieContext { top_site: site_of(top), kind: CookieKind::Subresource }
+    }
+
+    pub(crate) fn fetch(top: &Url, credentials: CredentialsMode, same_origin: bool) -> Self {
+        CookieContext { top_site: site_of(top), kind: CookieKind::Fetch { credentials, same_origin } }
+    }
+
+    /// Whether the Fetch spec allows credentials for this request.
+    pub(crate) fn sends_credentials(&self) -> bool {
+        match &self.kind {
+            CookieKind::Fetch { credentials, same_origin } => match credentials {
+                CredentialsMode::Omit => false,
+                CredentialsMode::SameOrigin => *same_origin,
+                CredentialsMode::Include => true,
+            },
+            _ => true,
+        }
+    }
+}
+
+/// `omit` / `same-origin` / `include` (anything else is the default,
+/// `same-origin`).
+pub(crate) fn parse_credentials(s: &str) -> CredentialsMode {
+    match s {
+        "omit" => CredentialsMode::Omit,
+        "include" => CredentialsMode::Include,
+        _ => CredentialsMode::SameOrigin,
+    }
+}
+
+/// THE one place the per-request cookie headers are built.
+pub(crate) fn wire_cookie_headers_with(support: &CookieSupport, ctx: &CookieContext) -> Vec<(String, String)> {
+    let Some(top) = ctx.top_site.as_ref().filter(|_| support.usable()) else { return Vec::new() };
+    if !ctx.sends_credentials() {
+        // Spec: no credentials. Nothing is sent and nothing is stored.
+        return vec![(WIRE_HEADER_COOKIES.to_string(), "off".to_string())];
+    }
+    let mut h = vec![(WIRE_HEADER_JAR.to_string(), COOKIE_JAR_NAME.to_string()), (WIRE_HEADER_TOP_SITE.to_string(), top.clone())];
+    if let CookieKind::Navigation { initiator } = &ctx.kind {
+        h.push((WIRE_HEADER_NAV.to_string(), "1".to_string()));
+        if let Some(i) = initiator {
+            h.push((WIRE_HEADER_INITIATOR.to_string(), i.clone()));
+        }
+    }
+    h
+}
+
+pub(crate) fn wire_cookie_headers(ctx: &CookieContext) -> Vec<(String, String)> {
+    wire_cookie_headers_with(cookie_support(), ctx)
+}
+
+/// Headers of a `document.cookie` control request (`op` = `get` | `set`).
+pub(crate) fn cookie_control_headers(op: &str, page: &Url) -> Option<Vec<(String, String)>> {
+    let top = site_of(page)?;
+    Some(vec![
+        (WIRE_HEADER_JAR.to_string(), COOKIE_JAR_NAME.to_string()),
+        (WIRE_HEADER_TOP_SITE.to_string(), top),
+        (WIRE_HEADER_COOKIE_OP.to_string(), op.to_string()),
+        (WIRE_HEADER_COOKIE_URL.to_string(), page.to_string()),
+    ])
 }

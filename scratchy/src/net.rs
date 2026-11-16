@@ -249,6 +249,44 @@ pub(crate) fn build_get_request_text(url: &Url) -> String {
     format!("GET {url} HTTP/1.1\r\nHost: {host_header}\r\n\r\n")
 }
 
+/// QF14b: `build_get_request_text` plus the cookie headers of `ctx` (the ONE
+/// builder is `wire_cookie_headers`; empty for a `file:` page or an old wire).
+pub(crate) fn build_get_request_ctx(url: &Url, ctx: &CookieContext) -> String {
+    let mut text = build_get_request_text(url);
+    let extra: String = wire_cookie_headers(ctx).iter().map(|(n, v)| format!("{n}: {v}\r\n")).collect();
+    // Insert before the terminating blank line.
+    text.truncate(text.len() - 2);
+    text.push_str(&extra);
+    text.push_str("\r\n");
+    text
+}
+
+/// QF14b: true when a request head asks for the jar (or is a control request).
+pub(crate) fn request_uses_jar(head: &[u8]) -> bool {
+    let end = head.windows(4).position(|w| w == b"\r\n\r\n").unwrap_or(head.len());
+    String::from_utf8_lossy(&head[..end]).to_ascii_lowercase().lines().any(|l| l.starts_with(&format!("{}:", WIRE_HEADER_JAR.to_ascii_lowercase())))
+}
+
+/// QF14b: learns cookie support from a response to a jar request; logs the
+/// one-time "unavailable" line.
+pub(crate) fn note_cookie_response(support: &CookieSupport, request_head: &[u8], version: Option<&str>, cookies: Option<&str>) {
+    if request_uses_jar(request_head) {
+        if let Some(line) = support.observe(version, cookies) {
+            diag!("{line}");
+        }
+    }
+}
+
+/// Reads one header value out of a raw response head.
+fn raw_response_header(bytes: &[u8], name: &str) -> Option<String> {
+    let end = bytes.windows(4).position(|w| w == b"\r\n\r\n")?;
+    let head = std::str::from_utf8(&bytes[..end]).ok()?;
+    head.split("\r\n").skip(1).find_map(|l| {
+        let (n, v) = l.split_once(':')?;
+        n.trim().eq_ignore_ascii_case(name).then(|| v.trim().to_string())
+    })
+}
+
 /// Splits a raw response buffer into its `Content-Type` (if any) and
 /// body — `wire` always frames its responses with a real `Content-
 /// Length` and never `Transfer-Encoding: chunked` (see `wire/NOTES.md`),
@@ -362,6 +400,15 @@ pub(crate) fn fetch_raw_via_wire(path: &std::path::Path, request_text: &str) -> 
 /// upstream (measured: 169.254.169.254) used to pin the thread forever.
 /// A timeout collapses to `Unreachable` like every other failure.
 pub(crate) fn fetch_raw_via_wire_with_timeout(path: &std::path::Path, request_text: &str, read_timeout: std::time::Duration) -> WireFetchRaw {
+    fetch_raw_via_wire_with_support(path, request_text, read_timeout, cookie_support())
+}
+
+pub(crate) fn fetch_raw_via_wire_with_support(
+    path: &std::path::Path,
+    request_text: &str,
+    read_timeout: std::time::Duration,
+    support: &CookieSupport,
+) -> WireFetchRaw {
     let Ok(mut stream) = UnixStream::connect(path) else { return WireFetchRaw::Unreachable };
     let _ = stream.set_read_timeout(Some(read_timeout));
     if stream.write_all(request_text.as_bytes()).is_err() {
@@ -372,7 +419,12 @@ pub(crate) fn fetch_raw_via_wire_with_timeout(path: &std::path::Path, request_te
         return WireFetchRaw::Unreachable;
     }
     match parse_wire_response(&buf) {
-        Ok((content_type, body)) => WireFetchRaw::Responded { content_type, body },
+        Ok((content_type, body)) => {
+            let version = raw_response_header(&buf, "x-wire-version");
+            let cookies = raw_response_header(&buf, "x-wire-cookies");
+            note_cookie_response(support, request_text.as_bytes(), version.as_deref(), cookies.as_deref());
+            WireFetchRaw::Responded { content_type, body }
+        }
         Err(_) => WireFetchRaw::Unreachable,
     }
 }
@@ -586,6 +638,7 @@ pub(crate) fn fetch_full_via_wire(path: &std::path::Path, request: &[u8], limits
         }
     }
     let resp = parse_wire_response_full(&buf)?;
+    note_cookie_response(cookie_support(), request, resp.header("x-wire-version"), resp.header("x-wire-cookies"));
     if resp.body.len() > limits.max_body_bytes {
         return Err(NetError::TooLarge);
     }
@@ -634,8 +687,8 @@ pub(crate) fn timing_enabled() -> bool {
 // itself for exactly that path.
 
 /// Mime-checked low-level fetch; returns the matched MIME and body.
-pub(crate) fn fetch_sub_resource_typed(path: &std::path::Path, url: &Url, accept: &[&str]) -> Option<(String, Vec<u8>)> {
-    let request_text = build_get_request_text(url);
+pub(crate) fn fetch_sub_resource_typed(path: &std::path::Path, url: &Url, top: &Url, accept: &[&str]) -> Option<(String, Vec<u8>)> {
+    let request_text = build_get_request_ctx(url, &CookieContext::subresource(top));
     let WireFetchRaw::Responded { content_type, body } = fetch_raw_via_wire(path, &request_text) else { return None };
     let content_type = content_type.unwrap_or_default();
     let mime = content_type.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
@@ -667,8 +720,8 @@ pub(crate) fn decode_css_bytes(bytes: &[u8], header: Option<&'static encoding_rs
 /// Fetches one external stylesheet — `None` on any failure (unreachable
 /// or not real CSS). Decoded per `decode_css_bytes` (Q8 follow-up: no
 /// longer UTF-8 only).
-pub(crate) fn fetch_stylesheet_via_wire(path: &std::path::Path, url: &Url) -> Option<String> {
-    let request_text = build_get_request_text(url);
+pub(crate) fn fetch_stylesheet_via_wire(path: &std::path::Path, url: &Url, top: &Url) -> Option<String> {
+    let request_text = build_get_request_ctx(url, &CookieContext::subresource(top));
     let WireFetchRaw::Responded { content_type, body } = fetch_raw_via_wire(path, &request_text) else { return None };
     let content_type = content_type.unwrap_or_default();
     if !content_type.split(';').next().unwrap_or("").trim().eq_ignore_ascii_case("text/css") {
@@ -679,8 +732,8 @@ pub(crate) fn fetch_stylesheet_via_wire(path: &std::path::Path, url: &Url) -> Op
 
 /// Fetches one external script (Q33a). `None` on failure or an HTML
 /// response (an error page is not a script).
-pub(crate) fn fetch_script_via_wire(path: &std::path::Path, url: &Url) -> Option<String> {
-    let request_text = build_get_request_text(url);
+pub(crate) fn fetch_script_via_wire(path: &std::path::Path, url: &Url, top: &Url) -> Option<String> {
+    let request_text = build_get_request_ctx(url, &CookieContext::subresource(top));
     let WireFetchRaw::Responded { content_type, body } = fetch_raw_via_wire(path, &request_text) else { return None };
     let content_type = content_type.unwrap_or_default();
     if content_type.trim_start().to_ascii_lowercase().starts_with("text/html") {
@@ -723,7 +776,7 @@ fn same_frame_origin(base: &Url, url: &Url) -> bool {
 /// and `IFRAME_MAX_BYTES`, and stores them for the JS engine (which
 /// cannot touch the network). Scripts in them never run. Replaces the
 /// previous page's set. No-op with JS off.
-pub(crate) fn prefetch_iframes(path: &std::path::Path, base: &Url, document: &Handle) {
+pub(crate) fn prefetch_iframes(path: &std::path::Path, base: &Url, top: &Url, document: &Handle) {
     set_iframe_pages(HashMap::new());
     if !js_enabled() {
         return;
@@ -753,7 +806,7 @@ pub(crate) fn prefetch_iframes(path: &std::path::Path, base: &Url, document: &Ha
             .into_iter()
             .map(|u| {
                 scope.spawn(move || {
-                    let WireFetchRaw::Responded { content_type, body } = fetch_raw_via_wire(path, &build_get_request_text(&u)) else { return None };
+                    let WireFetchRaw::Responded { content_type, body } = fetch_raw_via_wire(path, &build_get_request_ctx(&u, &CookieContext::subresource(top))) else { return None };
                     let ct = content_type.unwrap_or_default().to_ascii_lowercase();
                     if body.len() > IFRAME_MAX_BYTES || !(ct.trim_start().starts_with("text/html") || ct.trim().is_empty() && u.scheme() == "file") {
                         return None;
@@ -980,9 +1033,9 @@ pub(crate) const MAX_CSS_IMAGE_FETCHES: usize = 64;
 /// itself can't decode). Reuses `decode_image_bytes` verbatim — the
 /// exact same decoder `resolve_img` already uses for a `data:` URI
 /// `src`, so a live-fetched image and an inlined one decode identically.
-pub(crate) fn fetch_image_via_wire(path: &std::path::Path, url: &Url) -> Option<DecodedImage> {
+pub(crate) fn fetch_image_via_wire(path: &std::path::Path, url: &Url, top: &Url) -> Option<DecodedImage> {
     let (mime, body) =
-        fetch_sub_resource_typed(path, url, &["image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml"])?;
+        fetch_sub_resource_typed(path, url, top, &["image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml"])?;
     if mime == "image/svg+xml" {
         // Trust the wire Content-Type even when the bytes lack a
         // recognisable prefix.
@@ -1083,31 +1136,31 @@ pub(crate) fn process_external_resources(
     let base = find_base_url(&dom.document).unwrap_or_else(|| page_url.clone());
     let mut resources = ExternalResources::default();
     find_external_resources(&dom.document, &mut resources);
-    let extra_css = fetch_stylesheets(path, &base, &resources.stylesheets);
-    spawn_image_fetches(proxy, path, &base, resources.images, generation);
-    let scripts = fetch_scripts(path, &base, resources.scripts);
-    prefetch_iframes(path, &base, &dom.document);
+    let extra_css = fetch_stylesheets(path, &base, page_url, &resources.stylesheets);
+    spawn_image_fetches(proxy, path, &base, page_url, resources.images, generation);
+    let scripts = fetch_scripts(path, &base, page_url, resources.scripts);
+    prefetch_iframes(path, &base, page_url, &dom.document);
     PageResources { css: extra_css, scripts }
 }
 
 /// Fetch (and `@import`-expand) every stylesheet href against `base`,
 /// concatenated in document order.
-pub(crate) fn fetch_stylesheets(path: &std::path::Path, base: &Url, hrefs: &[String]) -> String {
+pub(crate) fn fetch_stylesheets(path: &std::path::Path, base: &Url, top: &Url, hrefs: &[String]) -> String {
     let mut extra_css = String::new();
     for href in hrefs {
         if let Some(css) = decode_data_uri_text(href.trim()) {
             // Local `data:` stylesheet (QA5); its `@import`s resolve like any other.
             let url = Url::parse("data:text/css,").expect("static url");
             let mut stack = vec![url.clone()];
-            let css = expand_css_imports(&css, base, &mut stack, &mut |u| fetch_stylesheet_via_wire(path, u));
+            let css = expand_css_imports(&css, base, &mut stack, &mut |u| fetch_stylesheet_via_wire(path, u, top));
             extra_css.push_str(&css);
             extra_css.push('\n');
             continue;
         }
         let Ok(url) = resolve_href(Some(base), href) else { continue };
-        if let Some(css) = fetch_stylesheet_via_wire(path, &url) {
+        if let Some(css) = fetch_stylesheet_via_wire(path, &url, top) {
             let mut stack = vec![url.clone()];
-            let css = expand_css_imports(&css, &url, &mut stack, &mut |u| fetch_stylesheet_via_wire(path, u));
+            let css = expand_css_imports(&css, &url, &mut stack, &mut |u| fetch_stylesheet_via_wire(path, u, top));
             extra_css.push_str(&css);
             extra_css.push('\n');
         }
@@ -1118,7 +1171,7 @@ pub(crate) fn fetch_stylesheets(path: &std::path::Path, base: &Url, hrefs: &[Str
 /// One background thread per distinct image `src` (a real page commonly
 /// repeats the same icon URL many times; one fetch and one `image_cache`
 /// entry keyed by the raw `src` covers every occurrence).
-pub(crate) fn spawn_image_fetches(proxy: &EventLoopProxy<AppEvent>, path: &std::path::Path, base: &Url, images: Vec<String>, generation: u64) {
+pub(crate) fn spawn_image_fetches(proxy: &EventLoopProxy<AppEvent>, path: &std::path::Path, base: &Url, top: &Url, images: Vec<String>, generation: u64) {
     let mut seen = HashSet::new();
     for src in images {
         if !seen.insert(src.clone()) {
@@ -1127,8 +1180,9 @@ pub(crate) fn spawn_image_fetches(proxy: &EventLoopProxy<AppEvent>, path: &std::
         let Ok(url) = resolve_href(Some(base), &src) else { continue };
         let path = path.to_path_buf();
         let proxy = proxy.clone();
+        let top = top.clone();
         thread::spawn(move || {
-            let image = fetch_image_via_wire(&path, &url);
+            let image = fetch_image_via_wire(&path, &url, &top);
             let _ = proxy.send_event(AppEvent::ImageFetched(generation, src, image));
         });
     }
@@ -1145,14 +1199,15 @@ pub(crate) fn start_stream_resources(proxy: &EventLoopProxy<AppEvent>, socket: &
     let Some(base) = find_base_url(document) else { return };
     let mut resources = ExternalResources::default();
     find_external_resources(document, &mut resources);
-    spawn_image_fetches(proxy, socket, &base, resources.images, generation);
+    spawn_image_fetches(proxy, socket, &base, &base, resources.images, generation);
     if resources.stylesheets.is_empty() && resources.scripts.is_empty() {
         return;
     }
+    let top = base.clone();
     let (proxy, socket, hrefs, refs) = (proxy.clone(), socket.to_path_buf(), resources.stylesheets, resources.scripts);
     thread::spawn(move || {
-        let css = fetch_stylesheets(&socket, &base, &hrefs);
-        let scripts = fetch_scripts(&socket, &base, refs);
+        let css = fetch_stylesheets(&socket, &base, &top, &hrefs);
+        let scripts = fetch_scripts(&socket, &base, &top, refs);
         let _ = proxy.send_event(AppEvent::StreamCss(generation, css, scripts));
     });
 }
