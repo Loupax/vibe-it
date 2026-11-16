@@ -10890,3 +10890,92 @@ fn qy11_style_string_reflection() {
     );
     assert_eq!(log, ["log:color: red; margin-top: 1px; | color: red; margin-top: 1px; | red"], "{log:?}");
 }
+
+#[test]
+fn qy12_window_interface_has_its_own_prototype() {
+    let out = run_collecting(&[src(
+        "console.log(window instanceof Window, window instanceof EventTarget, Window.prototype !== Object.prototype,\
+         Object.getPrototypeOf(Window.prototype) === EventTarget.prototype, ({}) instanceof Window,\
+         window.top === window, window.parent === window, window.frames === window, window.opener === null);\
+         try { new Window(); } catch (e) { console.log(e.name); }",
+    )]);
+    assert_eq!(out, vec!["log:true true true true false true true true true", "log:TypeError"]);
+}
+
+#[test]
+fn qy12_html_element_interfaces_and_instanceof() {
+    let out = run_in_html(
+        "<html><body><div id=d></div><span></span><a href=x></a><ul><li></li></ul><h3></h3><foo-bar></foo-bar><blink></blink><template></template><video></video></body></html>",
+        "var t = function (s) { return document.querySelector(s); };\
+         console.log(t('div') instanceof HTMLDivElement, t('span') instanceof HTMLSpanElement, t('a') instanceof HTMLAnchorElement,\
+           t('li') instanceof HTMLLIElement, t('ul') instanceof HTMLUListElement, t('h3') instanceof HTMLHeadingElement,\
+           document.body instanceof HTMLBodyElement, document.documentElement instanceof HTMLHtmlElement,\
+           document.createElement('img') instanceof HTMLImageElement, t('template') instanceof HTMLTemplateElement,\
+           t('div') instanceof HTMLElement, t('div') instanceof HTMLSpanElement);\
+         console.log(t('blink') instanceof HTMLUnknownElement, t('foo-bar') instanceof HTMLUnknownElement, t('foo-bar') instanceof HTMLElement,\
+           t('div') instanceof HTMLUnknownElement, t('div').constructor === HTMLDivElement);\
+         var c = [HTMLDivElement, HTMLScriptElement, HTMLStyleElement, HTMLLinkElement, HTMLMetaElement, HTMLTitleElement, HTMLHeadElement, HTMLSlotElement, HTMLParagraphElement, HTMLOListElement, HTMLButtonElement, HTMLInputElement, HTMLFormElement, HTMLLabelElement];\
+         var bad = 0; c.forEach(function (C) { try { C(); bad++; } catch (e) { if (!(e instanceof TypeError)) bad++; } try { new C(); bad++; } catch (e) {} });\
+         console.log(bad, Object.getPrototypeOf(HTMLDivElement.prototype) === HTMLElement.prototype);",
+    );
+    assert_eq!(out, vec!["log:true true true true true true true true true true true false", "log:true false true false true", "log:0 true"], "{out:?}");
+}
+
+#[test]
+fn qy12_svg_interfaces_by_namespace() {
+    let out = run_in_html(
+        "<html><body><svg id=s><path d='M0 0'></path><g></g></svg></body></html>",
+        "var svg = 'http://www.w3.org/2000/svg';\
+         var p = document.createElementNS(svg, 'path'), r = document.createElementNS(svg, 'rect'), x = document.createElementNS(svg, 'foo');\
+         var s = document.getElementById('s');\
+         console.log(s instanceof SVGSVGElement, s instanceof SVGGraphicsElement, s instanceof SVGElement, s instanceof Element, s instanceof HTMLElement,\
+           s.firstChild instanceof SVGPathElement, p instanceof SVGGeometryElement, r instanceof SVGRectElement, x instanceof SVGElement, x instanceof SVGGraphicsElement,\
+           document.createElement('div') instanceof SVGElement, typeof SVGUseElement, typeof SVGGElement);",
+    );
+    assert_eq!(out, vec!["log:true true true true false true true true true false false function function"], "{out:?}");
+}
+
+#[test]
+fn qy12_cdata_pi_range_and_fragment_children() {
+    let out = run_in_html(
+        "<html><body></body></html>",
+        "var f = document.createDocumentFragment(); var a = document.createElement('p'); f.appendChild(document.createTextNode('t')); f.appendChild(a); f.appendChild(document.createElement('i'));\
+         console.log(f.children.length, f.childElementCount, f.firstElementChild === a, f.lastElementChild.tagName, Array.from(f.children).length);\
+         f.prepend(document.createElement('b')); f.append(document.createElement('u')); console.log(f.children.length, f.firstElementChild.tagName);\
+         console.log(typeof CDATASection, typeof ProcessingInstruction, CDATASection.prototype instanceof Text, ProcessingInstruction.prototype instanceof CharacterData, typeof Range);\
+         try { new Range(); } catch (e) { console.log(e.name); }\
+         try { Selection(); } catch (e) { console.log(e.name); }",
+    );
+    assert_eq!(out, vec!["log:2 2 true I 2", "log:4 B", "log:function function true true function", "log:NotSupportedError", "log:TypeError"], "{out:?}");
+}
+
+#[test]
+fn qy12_event_subclasses_construct_with_init_dicts() {
+    let out = run_collecting(&[src(
+        "var p = new PointerEvent('pointerdown', { pointerId: 3, pointerType: 'mouse', clientX: 5, bubbles: true });\
+         var w = new WheelEvent('wheel', { deltaY: 100 }), h = new HashChangeEvent('hashchange', { oldURL: 'a', newURL: 'b' });\
+         var m = new MessageEvent('message', { data: { x: 1 }, origin: 'o' }), pr = new ProgressEvent('progress', { loaded: 2, total: 4, lengthComputable: true });\
+         var t = new TouchEvent('touchstart'), s = new StorageEvent('storage', { key: 'k' });\
+         console.log(p instanceof MouseEvent, p instanceof Event, p.pointerId, p.pointerType, p.clientX, p.bubbles, w.deltaY, w.deltaX, h.newURL, m.data.x, m.origin, pr.loaded, pr.total, pr.lengthComputable, t.touches.length, s.key, s.oldValue);\
+         var n = 0; ['TransitionEvent', 'AnimationEvent', 'PromiseRejectionEvent', 'PopStateEvent', 'ClipboardEvent', 'DragEvent', 'CompositionEvent'].forEach(function (k) { if (new window[k]('x') instanceof Event) n++; });\
+         console.log(n, new PopStateEvent('popstate', { state: 7 }).state, new TransitionEvent('transitionend', { propertyName: 'width' }).propertyName);",
+    )]);
+    assert_eq!(out[0], "log:true true 3 mouse 5 true 100 0 b 1 o 2 4 true 0 k null", "{out:?}");
+    assert_eq!(out[1], "log:7 7 width", "{out:?}");
+}
+
+#[test]
+fn qy12_media_interfaces_are_inert_placeholders() {
+    let out = run_in_html(
+        "<html><body><video id=v></video><audio></audio></body></html>",
+        "var v = document.getElementById('v');\
+         console.log(v instanceof HTMLVideoElement, v instanceof HTMLMediaElement, document.querySelector('audio') instanceof HTMLAudioElement,\
+           typeof HTMLSourceElement, typeof HTMLTrackElement, v.canPlayType('video/mp4') === '');\
+         v.pause(); v.load();\
+         var pr = v.play(); console.log(pr instanceof Promise);\
+         pr.catch(function (e) { console.log('rejected', e.name); });",
+    );
+    assert!(out.iter().any(|l| l == "log:true true true function function true"), "{out:?}");
+    assert!(out.iter().filter(|l| l.starts_with("error:") && l.contains("not implemented")).count() >= 3, "{out:?}");
+    assert!(out.iter().any(|l| l == "log:rejected NotSupportedError"), "{out:?}");
+}
