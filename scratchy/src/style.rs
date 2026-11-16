@@ -714,7 +714,9 @@ pub(crate) fn copy_prop(dst: &mut ComputedStyle, src: &ComputedStyle, key: &str)
         match kind {
             'w' => dst.border_width[i] = src.border_width[i],
             's' => dst.border_style[i] = src.border_style[i],
-            _ => dst.border_color[i] = src.border_color[i],
+            // An unset colour is `currentColor`; `inherit`/`initial` of it
+            // resolve against this element's own colour (border-color-011).
+            _ => dst.border_color[i] = src.border_color[i].or(Some(dst.color)),
         }
         return;
     }
@@ -1643,14 +1645,18 @@ pub(crate) fn resolve_style_for(
         } else {
             cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.border_width[i]), |d| d.border_width[i])
                 .map(|l| l.resolve(font_size, inherited.root_font_size))
-                .unwrap_or(0.0)
+                .unwrap_or(3.0) // initial `medium`
         };
         border_color[i] = cascade_property(
             &matches,
             inline_decls.as_ref().and_then(|d| d.border_color[i]),
             |d| d.border_color[i],
         )
-        .and_then(|c| to_text_color(&c));
+        .and_then(|c| match c {
+            // An explicit `currentColor` is the element's own colour.
+            CssColor::CurrentColor => Some(color),
+            c => to_text_color(&c),
+        });
     }
     let font_weight = apply_wide(
         cascade_css(&matches, inl, "font-weight", |d| d.font_weight),
