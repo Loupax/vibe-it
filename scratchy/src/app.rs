@@ -1304,6 +1304,9 @@ impl App {
                 }
                 None => {}
             }
+            if let Some(href) = reqs.nav {
+                self.start_navigation(&href);
+            }
             if let Some(sr) = reqs.scroll
                 && let Some(y) = sr.y
             {
@@ -1353,6 +1356,20 @@ impl App {
     /// Q33d: a `click` at window position `pos` on `target`; true if the
     /// default action (following a link) may proceed.
     pub(crate) fn js_click(&mut self, target: Option<&Handle>, pos: (f32, f32)) -> bool {
+        self.js_mouse("click", target, pos)
+    }
+
+    /// Q33d1: `mousedown`/`mouseup` at the element under `pos`.
+    fn js_mouse_at(&mut self, kind: &str, pos: (f32, f32)) {
+        if self.js.is_none() {
+            return;
+        }
+        let node = self.element_at(pos);
+        let target = if node == 0 { None } else { find_node_by_id(&self.document, node) };
+        self.js_mouse(kind, target.as_ref(), pos);
+    }
+
+    fn js_mouse(&mut self, kind: &str, target: Option<&Handle>, pos: (f32, f32)) -> bool {
         let m = &self.modifiers;
         let init = [
             ("bubbles", EventField::Bool(true)),
@@ -1365,7 +1382,7 @@ impl App {
             ("altKey", EventField::Bool(m.alt_key())),
             ("metaKey", EventField::Bool(m.super_key())),
         ];
-        self.js_dispatch(target, "click", &init)
+        self.js_dispatch(target, kind, &init)
     }
 
     /// Q33d: `keydown`/`keyup` at the focused element (else `<body>`);
@@ -1614,11 +1631,50 @@ impl App {
         find_node_by_id(&self.document, node).map(|h| ancestor_ids(&h).into_iter().collect()).unwrap_or_default()
     }
 
+    /// Q33d1: `mouseout` on the node the pointer left, `mouseover` on the
+    /// one it entered (both bubble; `relatedTarget` is the other). Runs only
+    /// on a change of the hit node and never restyles by itself, so it is
+    /// independent of the debounced `:hover` restyle machinery (QB3).
+    fn js_hover_events(&mut self, old: usize, new: usize) {
+        if self.js.is_none() {
+            return;
+        }
+        let pos = self.last_mouse_pos.unwrap_or((0.0, 0.0));
+        let m = &self.modifiers;
+        let hold = |n: usize| (n != 0).then(|| find_node_by_id(&self.document, n)).flatten();
+        let (old_h, new_h) = (hold(old), hold(new));
+        let mk = |related: &Option<Handle>| {
+            let mut v = vec![
+                ("bubbles", EventField::Bool(true)),
+                ("cancelable", EventField::Bool(true)),
+                ("clientX", EventField::Num(pos.0 as f64)),
+                ("clientY", EventField::Num(pos.1 as f64)),
+                ("ctrlKey", EventField::Bool(m.control_key())),
+                ("shiftKey", EventField::Bool(m.shift_key())),
+                ("altKey", EventField::Bool(m.alt_key())),
+                ("metaKey", EventField::Bool(m.super_key())),
+            ];
+            if let Some(r) = related {
+                v.push(("relatedTargetId", EventField::Node(r.clone())));
+            }
+            v
+        };
+        let (out_init, over_init) = (mk(&new_h), mk(&old_h));
+        if let Some(h) = &old_h {
+            self.js_dispatch(Some(h), "mouseout", &out_init);
+        }
+        if let Some(h) = &new_h {
+            self.js_dispatch(Some(h), "mouseover", &over_init);
+        }
+    }
+
     pub(crate) fn update_hover(&mut self, node: usize) {
         if node == self.hover_node {
             return;
         }
+        let old = self.hover_node;
         self.hover_node = node;
+        self.js_hover_events(old, node);
         if self.state_rules & STATE_HOVER == 0 {
             return;
         }
@@ -2541,10 +2597,14 @@ impl ApplicationHandler<AppEvent> for App {
                     ElementState::Pressed => {
                         self.mouse_down_pos = self.last_mouse_pos;
                         if let Some(pos) = self.last_mouse_pos {
+                            self.js_mouse_at("mousedown", pos);
                             self.press_state(pos);
                         }
                     }
                     ElementState::Released => {
+                        if let Some(pos) = self.last_mouse_pos {
+                            self.js_mouse_at("mouseup", pos);
+                        }
                         self.release_state();
                         // Computed into a plain, owned `Option<&'static
                         // str>` (not borrowed from `self`) *before*

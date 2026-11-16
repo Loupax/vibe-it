@@ -2507,11 +2507,20 @@ as the JS measurement corpus (same role the four CSS pages played).
       `focus/blur/focusin/focusout` from `set_focus_element`. Promise
       jobs drain after each dispatch; DOM writes sync via `js_sync`.
       `App::js_dispatch` -> `JsEngine::dispatch_event`.
-- [ ] Q33d1 [S] (inline `on*` handlers done in QA12, 51efed9) Left out of Q33d, needs Q30: native `input`/`change`/
+- [x] Q33d1 [S] (HASH) (inline `on*` handlers done in QA12, 51efed9) Left out of Q33d, needs Q30: native `input`/`change`/
       `submit` events (Q30c/d/e) with `preventDefault` cancelling the
       submission; `mousedown/mouseup/mouseover/mouseenter/scroll/resize`
       natives; inline `onclick="..."` attribute handlers; `el.click()`
       from JS. (`el.focus()`/`blur()` done in QB5, ac60599.)
+      DONE (HASH): `el.click()` with default actions, `form.requestSubmit()`
+      / submit-button `submit` event (default action stub), `mousedown`/
+      `mouseup`/`mouseover`/`mouseout` from Rust. Remainder in Q33d2.
+- [ ] Q33d2 [S] Leftovers of Q33d1: window `scroll` event (after the scroll
+      offset changes, coalesced once per frame) and `resize` (after a
+      window resize), `mousemove` (coalesced per frame, never from the
+      hover debounce), `mouseenter`/`mouseleave`, and real pointer clicks
+      on checkbox/radio/submit controls running the same activation
+      behavior as `click()` (needs Q30).
 - [ ] Q33e [S] Forms <-> JS: `.value`, `.checked`, `.selectedIndex`,
       `.disabled` read and write the Q30 live state; `form.submit()`,
       `form.elements`, `input`/`change` events fire from Q30d/Q30c.
