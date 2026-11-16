@@ -3294,7 +3294,12 @@ Not vendored; pass the path to the runner.
       attributes and `writing-mode: vertical-*`. Needed by two WPT tests that
       only pass today because unset border colours paint nothing:
       `table-rules-rows-vertical` and (collapse half) `row-group-margin-border-padding`.
-      BLOCKS QA11a, see QA11a.
+      DECISION (user, 2026-11-16): it NO LONGER BLOCKS QA11a (PR #167) or QA11
+      (PR #162). Those two WPT tests are ACCEPTED as known failures (they only
+      passed by accident) and are listed as `FAIL` in wpt-expected.txt with a
+      comment pointing here; they are the acceptance tests for this item: when
+      QA11a2 lands both must pass for the right reason. Do the proper fix
+      (real collapsed-border layout) as a normal queue item.
 - [ ] QA11a [M] (prerequisite of QA11/PR #162) `medium` default border width,
       `thin/medium/thick` keywords, unset border colour = currentColor.
       Patch on branch scratchy/qa11a-border-width-defaults (PR open, NOT merged):
