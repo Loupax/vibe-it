@@ -1059,6 +1059,17 @@ pub(crate) struct Declarations {
     /// value text)`, deferred until `resolve_style` knows the element's
     /// custom properties, then re-parsed with the calls substituted.
     pub(crate) var_decls: Vec<(String, String)>,
+    /// Q52b: for each `var_decls` entry, the number of `late` layers that
+    /// existed when it was declared (its source-order segment).
+    pub(crate) var_seg: Vec<usize>,
+    /// Q52b: copies of the plain (non-`var()`) declarations written after a
+    /// `var()` declaration, one layer per run. `var()` values are expanded
+    /// per element and slotted after the rule's own entries, which would let
+    /// them override a later plain declaration; the cascade re-applies each
+    /// layer right after the `var()` group it followed (`merge_var_matches`).
+    /// The plain values also stay in the main fields, so paths that do not
+    /// expand `var()` (pseudo-elements) still see them.
+    pub(crate) late: Vec<Declarations>,
     /// CSS-wide keywords (`inherit`/`initial`/`unset`/`revert`) declared
     /// for a property, keyed by `wide_key`. Mutually exclusive with that
     /// property's typed field on the same `Declarations`: whichever was
@@ -1169,6 +1180,8 @@ pub(crate) struct Declarations {
     /// into cosmic-text's own `Attrs`, unlike what `letter-spacing`
     /// (still reverted, see TODO.txt) tried.
     pub(crate) word_spacing: Option<Length>,
+    /// `border-collapse` (true = `collapse`).
+    pub(crate) border_collapse: Option<bool>,
     /// `text-indent` (QW2): a `<length>` only (`%` unsupported).
     pub(crate) text_indent: Option<Length>,
     pub(crate) visibility: Option<Visibility>,
@@ -4555,6 +4568,7 @@ impl DeclParser<'_> {
             let raw = input.slice_from(start.position()).trim();
             if raw.contains("var(") {
                 self.decls.var_decls.push((name.to_string(), raw.to_string()));
+                self.decls.var_seg.push(self.decls.late.len());
                 return;
             }
             input.reset(&start);
@@ -5293,6 +5307,14 @@ impl DeclParser<'_> {
                     _ => None,
                 };
             }
+        } else if name.eq_ignore_ascii_case("border-collapse") {
+            if let Ok(ident) = input.expect_ident() {
+                if ident.eq_ignore_ascii_case("collapse") {
+                    self.decls.border_collapse = Some(true);
+                } else if ident.eq_ignore_ascii_case("separate") {
+                    self.decls.border_collapse = Some(false);
+                }
+            }
         } else if name.eq_ignore_ascii_case("list-style-type") {
             if let Ok(ident) = input.expect_ident() {
                 self.decls.list_style_type = ListStyleType::from_keyword(ident);
@@ -5438,7 +5460,19 @@ impl<'i> DeclarationParser<'i> for DeclParser<'_> {
             std::mem::swap(self.decls, self.important);
             return Ok(());
         }
+        let (nvar, plain_start) = (self.decls.var_decls.len(), input.state());
         self.apply(&name, input);
+        if !name.starts_with("--") && nvar > 0 && self.decls.var_decls.len() == nvar {
+            // Q52b: a plain declaration after a `var()` one also goes into a
+            // late layer, so it keeps beating the expanded value.
+            input.reset(&plain_start);
+            if self.decls.var_seg.last() == Some(&self.decls.late.len()) {
+                self.decls.late.push(Declarations::default());
+            }
+            let mut layer = self.decls.late.pop().unwrap_or_default();
+            DeclParser { decls: &mut layer, important: &mut Declarations::default() }.apply(&name, input);
+            self.decls.late.push(layer);
+        }
         if let (Some(before), Some(value_start)) = (before, value_start) {
             if *self.decls == before {
                 // Unchanged: either no branch accepted the value, or a

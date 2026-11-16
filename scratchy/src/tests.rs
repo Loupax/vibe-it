@@ -9869,3 +9869,81 @@ fn qa10_blocks_between_cells_of_a_table_get_anonymous_cells_in_the_same_row() {
         assert!((w[1].x - (w[0].x + w[0].w)).abs() < 0.5, "cells abut horizontally");
     }
 }
+
+// ---------- Q52b: `var()` declarations respect source order ----------
+
+#[test]
+fn var_declaration_does_not_override_later_plain_declaration() {
+    // `border-style: var(--s)` is expanded per element; it used to land after
+    // every plain declaration of the rule, so it beat the later
+    // `border-top: none`.
+    let laid = measure_fixture(
+        r#"<html><head><style>
+        #a { --s: solid; width: 301px; border-style: var(--s); border-width: 2px; border-top: none; }
+        #b { --s: solid; width: 302px; border-top: none; border-style: var(--s); border-width: 2px; }
+        </style></head><body><div id="a">x</div><div id="b">y</div></body></html>"#,
+        900.0,
+    );
+    let a = find_by_width(&laid, 301.0).expect("a").style;
+    assert_eq!(a.border_width, [0.0, 2.0, 2.0, 2.0], "plain border-top:none comes after the var()");
+    let b = find_by_width(&laid, 302.0).expect("b").style;
+    assert_eq!(b.border_width, [2.0; 4], "var() after border-top:none re-enables the style");
+}
+
+#[test]
+fn var_declarations_interleave_with_plain_ones_in_source_order() {
+    // plain, var, plain, var, plain: each plain run beats the earlier var()
+    // and loses to the later one.
+    let laid = measure_fixture(
+        r#"<html><head><style>
+        #a { --w: 5px; --h: 7px; width: 1px; width: var(--w); height: 2px; width: 303px; height: var(--h); height: 9px; }
+        </style></head><body><div id="a">x</div></body></html>"#,
+        900.0,
+    );
+    let a = find_by_width(&laid, 303.0).expect("plain width after var() wins");
+    assert_eq!(a.style.height.map(BoxLength::px), Some(9.0), "plain height after the last var() wins");
+}
+
+// ---------- Q52c1: table rows (separated border model) ----------
+
+fn first_table_row(laid: &Laid) -> Option<&Laid> {
+    if matches!(laid.content, LaidContent::TableRow(_)) {
+        return Some(laid);
+    }
+    if let LaidContent::Blocks(children) = &laid.content {
+        return children.iter().find_map(first_table_row);
+    }
+    None
+}
+
+#[test]
+fn table_row_border_margin_padding_ignored_when_separated() {
+    let laid = measure_fixture(
+        r#"<html><head><style>
+        tr { border: 4px solid red; margin: 7px; padding: 5px; }
+        td { border: inherit; padding: inherit; }
+        </style></head><body><table><tr><td>x</td></tr></table></body></html>"#,
+        900.0,
+    );
+    let row = first_table_row(&laid).expect("row");
+    assert_eq!(row.style.border_width, [0.0; 4], "row border is ignored in the separated model");
+    assert_eq!(row.style.margin.top.px(), 0.0);
+    assert_eq!(row.style.padding.top.px(), 0.0);
+    // ...but the computed values still inherit to the cell.
+    let LaidContent::TableRow(cells) = &row.content else { unreachable!() };
+    assert_eq!(cells[0].style.border_width, [4.0; 4]);
+    assert_eq!(cells[0].style.padding.top.px(), 5.0);
+}
+
+#[test]
+fn table_row_border_kept_with_border_collapse() {
+    let laid = measure_fixture(
+        r#"<html><head><style>
+        table { border-collapse: collapse; }
+        tr { border: 4px solid red; }
+        </style></head><body><table><tr><td>x</td></tr></table></body></html>"#,
+        900.0,
+    );
+    let row = first_table_row(&laid).expect("row");
+    assert_eq!(row.style.border_width, [4.0; 4], "collapse model keeps the row border (approximation)");
+}
