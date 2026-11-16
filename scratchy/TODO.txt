@@ -1274,7 +1274,7 @@ into the commit message of every JS item.
       `.smile` gets negative clearance; in the REGRESSIONS.md "Acid2"
       repro the smile's top lands at y=168 instead of y=37). Tick Q48b and
       Q74 too.
-- [ ] QA12 [S] (P2, JS) Event-handler content attributes. `<body
+- [x] QA12 [S] (P2, JS) Event-handler content attributes. `<body
       onload="update()">` never runs, so the real Acid3 page stays on
       "JS ?" forever even with every API present. Compile `on<type>`
       attributes (body/frameset `onload` etc. forward to `window`) as
@@ -1282,8 +1282,13 @@ into the commit message of every JS item.
       (`new Function('event', code)` with a `with`-free scope is enough for
       now), lazily on first dispatch and when set via `setAttribute`.
       This is the "inline handlers" part of Q33d1 (tick that part there).
+      DONE (51efed9): lazy `attrHandler` in js.rs dispatch; no `with` scope chain, `el.onclick` property getter not reflecting the attribute (QA12a).
       Test: `<body onload="console.log('L')">` logs `L` after `load`;
       `<button onclick="this.id='x'">` gets id `x` on a dispatched click.
+- [ ] QA12a [S] (P3, JS) Leftovers of QA12: `el.onclick` / `window.onload`
+      getters reflecting the attribute text as a function, the spec's
+      `with(document){with(form){with(element)` scope chain, and the
+      `onerror(message, source, line, col, error)` window signature.
 - [ ] QA13 [S] (P2, JS) `document.write`/`writeln` during the page-load
       script run: parse the string as an HTML fragment in the context of
       the running script's parent and insert it right after
@@ -2407,7 +2412,7 @@ as the JS measurement corpus (same role the four CSS pages played).
       `focus/blur/focusin/focusout` from `set_focus_element`. Promise
       jobs drain after each dispatch; DOM writes sync via `js_sync`.
       `App::js_dispatch` -> `JsEngine::dispatch_event`.
-- [ ] Q33d1 [S] (inline `on*` handlers moved to QA12) Left out of Q33d, needs Q30: native `input`/`change`/
+- [ ] Q33d1 [S] (inline `on*` handlers done in QA12, 51efed9) Left out of Q33d, needs Q30: native `input`/`change`/
       `submit` events (Q30c/d/e) with `preventDefault` cancelling the
       submission; `mousedown/mouseup/mouseover/mouseenter/scroll/resize`
       natives; inline `onclick="..."` attribute handlers; `el.click()`

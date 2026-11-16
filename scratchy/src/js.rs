@@ -306,6 +306,35 @@ const PRELUDE: &str = r#"
     return { capture: !!o.capture, once: !!o.once, passive: !!o.passive };
   };
   var oops = function (e) { console.error('Uncaught ' + String(e) + (e && e.stack ? '\n' + e.stack : '')); };
+  // QA12: inline `on<type>="..."` content attributes. Compiled lazily on
+  // the first dispatch that reaches the element (recompiled when the
+  // attribute text changes) as `function (event) { code }`, so `this` is
+  // the element; the body's/frameset's window-forwarded handlers
+  // (`onload`, `onresize`, ...) are looked up from <body> when the event
+  // reaches the window. Compile errors are logged and remembered.
+  var fwd = { load: 1, unload: 1, beforeunload: 1, resize: 1, scroll: 1, hashchange: 1, popstate: 1,
+    pageshow: 1, pagehide: 1, online: 1, offline: 1, message: 1, storage: 1, error: 1, blur: 1, focus: 1 };
+  var compiled = new WeakMap();
+  var attrHandler = function (node, type) {
+    var el = node;
+    if (node === g) {
+      if (!fwd[type] || !g.document) return null;
+      el = g.document.body;
+    } else if (node.nodeType !== 1 || (fwd[type] && node.__id !== undefined && /^(BODY|FRAMESET)$/.test(node.tagName) && type !== 'focus' && type !== 'blur' && type !== 'error')) {
+      return null;
+    }
+    if (!el || el.__id === undefined) return null;
+    var src = __d_attr(el.__id, 'on' + type);
+    if (src == null) return null;
+    var m = compiled.get(el);
+    if (!m) { m = {}; compiled.set(el, m); }
+    var c = m[type];
+    if (!c || c.src !== src) {
+      c = m[type] = { src: src, fn: null };
+      try { c.fn = new Function('event', src); } catch (x) { oops(x); }
+    }
+    return c.fn;
+  };
   var dispatch = function (target, ev) {
     ev.target = target;
     ev._stop = false; ev._stopNow = false;
@@ -336,6 +365,7 @@ const PRELUDE: &str = r#"
       }
       if (!capFilter && !ev._stopNow) {
         var h = node['on' + ev.type];
+        if (typeof h !== 'function') h = attrHandler(node, ev.type);
         if (typeof h === 'function') {
           try { if (h.call(node, ev) === false) ev.preventDefault(); } catch (x) { oops(x); }
         }
