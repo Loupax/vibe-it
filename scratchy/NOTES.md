@@ -3271,6 +3271,39 @@ subtree registrations until the next delivery to that observer. Cuts: writes
 from the parser or Rust do not notify; `Comment.data =` is a native no-op
 (QA18e) so it makes no record; `attributeNamespace` is null.
 
+### QY6g: IntersectionObserver / ResizeObserver with honest minimal semantics
+
+js_dom.rs, right after `MutationRecord`. JS cannot see layout (no
+`getBoundingClientRect`, `offsetWidth`/`clientWidth` are 0, the window is a
+fixed 1024x768, Q33b2), so these APIs exist to keep scripts running and report
+only what can be said honestly:
+
+- `observe(el)` queues ONE initial entry; a single `setTimeout(0)` flushes all
+  pending observers (creation order, one callback per observer carrying all its
+  entries, `callback.call(observer, entries, observer)`). After that NOTHING is
+  ever delivered again (no scroll, resize or layout change fires anything).
+  `unobserve`/`disconnect` drop pending entries; `takeRecords` drains them.
+- IntersectionObserver: `isIntersecting: true`, ratio 1 ("visible once": a lazy
+  loader loads its content; a reader-friendly choice, NOT a measurement),
+  unless the target is detached or it or an ancestor has computed
+  `display:none` (then false, ratio 0). `rootBounds` is the fixed viewport for
+  an implicit root, zeros for an explicit one. Rects sit at (0,0) with the
+  element's `width`/`height` attribute size, else 0. Spec validation:
+  RangeError for thresholds outside 0..1, SyntaxError for a bad `rootMargin`,
+  TypeError for a bad root/callback/target. `root`, `rootMargin` (normalised to
+  4 values), `thresholds` (sorted, frozen).
+- ResizeObserver: one entry per observed element (re-observing re-queues),
+  sizes from the `width`/`height` attributes else 0x0 (a lie of omission; a
+  real RO would not even fire for a 0x0 element). `contentRect`,
+  `borderBoxSize`, `contentBoxSize`, `devicePixelContentBoxSize` carry the same
+  numbers; `box` is validated, otherwise ignored.
+- PerformanceObserver: inert. `observe()` validates its argument, nothing is
+  ever delivered, `takeRecords()` is `[]`, `supportedEntryTypes` is `[]`.
+- `DOMRectReadOnly` / `DOMRect` minimal (x/y/width/height, derived edges,
+  `fromRect`, `toJSON`); no `DOMRectList`, no `DOMPoint`.
+- Zero cost: no hooks, timers or state exist until the first `observe()`.
+- The missing piece is the geometry bridge (TODO.txt QY-IO-GEOMETRY).
+
 ### Meta refresh (QY19)
 
 After a fetched page arrives, `handle_nav_result` looks for the first `meta[http-equiv=refresh]` (`meta_refresh_action`). With JS off `<noscript>` children are elements (`new_parser`), with JS on they are text, so only the right one is found. A 0 s `url=` redirect never installs the page: it replaces the current history entry and fetches the target (`follow_meta_refresh`). A delayed one (<=10 s) installs the page and a sleeping thread (same shape as `schedule_image_flush`) sends `AppEvent::MetaRefresh(generation, url)`; a changed `nav_generation` cancels it. `App::meta_chain` (reset by link/`:go`/history/`:refresh`) caps chains at 3.
