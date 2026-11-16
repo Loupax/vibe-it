@@ -11686,3 +11686,98 @@ fn qy15b_atob_btoa_and_invalid_character() {
         "{log:?}"
     );
 }
+
+// ---------- QF2: Blob, File, FileReader, blob: URL store ----------
+
+#[test]
+fn qf2_blob_size_type_slice() {
+    let log = run_with_timers(
+        "var b = new Blob(['héllo ', new Uint8Array([1, 2, 3]), new ArrayBuffer(2), new DataView(new ArrayBuffer(4))], {type: 'Text/Plain'});\
+         console.log(b.size, b.type);\
+         console.log(new Blob([], {type: 'a\\u00e9'}).type === '', new Blob().size);\
+         var s = b.slice(-3); console.log(s.size, s.type === '');\
+         var t = new Blob(['abcdef']).slice(1, -1, 'X/Y'); console.log(t.size, t.type);\
+         console.log(new Blob(['abc']).slice(5).size, new Blob(['abc']).slice(2, 1).size);\
+         console.log(new Blob(['a\\r\\nb\\rc'], {endings: 'native'}).size, new Blob(['a\\r\\nb']).size);\
+         console.log(Object.prototype.toString.call(b), b instanceof Blob);",
+    );
+    assert_eq!(
+        log,
+        ["log:16 text/plain", "log:true 0", "log:3 true", "log:4 x/y", "log:0 0", "log:5 4", "log:[object Blob] true"],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qf2_blob_text_arraybuffer_and_nested() {
+    let log = run_with_timers(
+        "var inner = new Blob(['é', '€']);\
+         var outer = new Blob(['x', inner, new Uint8Array([0x41])]);\
+         outer.text().then(function (t) { console.log('text', t, outer.size); });\
+         outer.arrayBuffer().then(function (ab) { console.log('ab', Array.prototype.join.call(new Uint8Array(ab), ',')); });\
+         outer.bytes().then(function (u) { console.log('bytes', u.length); });\
+         new Blob([new Uint8Array([0xEF, 0xBB, 0xBF, 0x68, 0xFF])]).text().then(function (t) { console.log('bom', t.length, t.charCodeAt(1)); });",
+    );
+    assert_eq!(
+        log,
+        ["log:text xé€A 7", "log:ab 120,195,169,226,130,172,65", "log:bytes 7", "log:bom 2 65533"],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qf2_file_properties() {
+    let log = run_with_timers(
+        "var f = new File(['hi'], 'a.txt', {type: 'text/plain', lastModified: 1234});\
+         console.log(f.name, f.size, f.type, f.lastModified, JSON.stringify(f.webkitRelativePath), f instanceof Blob, f instanceof File);\
+         console.log(typeof new File([], 'x').lastModified, f.slice(1).size);\
+         try { new File([]); } catch (e) { console.log(e.name); }",
+    );
+    assert_eq!(log, ["log:a.txt 2 text/plain 1234 \"\" true true", "log:number 1", "log:TypeError"], "{log:?}");
+}
+
+#[test]
+fn qf2_filereader_events_and_results() {
+    let log = run_with_timers(
+        "var b = new Blob(['hé'], {type: 'text/plain'});\
+         var r = new FileReader(); var ev = [];\
+         console.log(r.readyState, r.result);\
+         ['loadstart', 'progress', 'load', 'loadend'].forEach(function (n) { r.addEventListener(n, function (e) { ev.push(n + ':' + r.readyState + ':' + e.loaded); }); });\
+         r.onload = function () { var res = r.result; setTimeout(function () { console.log('onload', res, ev.join(' ')); }, 1); };\
+         r.readAsText(b); console.log(r.readyState, ev.length);\
+         try { r.readAsText(b); } catch (e) { console.log(e.name); }\
+         var r2 = new FileReader(); r2.onloadend = function () { console.log(r2.result); }; r2.readAsDataURL(b);\
+         var r3 = new FileReader(); r3.onload = function () { console.log(r3.result.byteLength, r3.result instanceof ArrayBuffer); }; r3.readAsArrayBuffer(b);\
+         var r4 = new FileReader(); r4.onload = function () { console.log(r4.result.length); }; r4.readAsBinaryString(b);\
+         var r5 = new FileReader(); var e5 = []; r5.onabort = function () { e5.push('abort'); }; r5.onloadend = function () { e5.push('end'); }; r5.onload = function () { e5.push('load'); };\
+         r5.readAsText(b); r5.abort(); console.log(r5.readyState, r5.result);\
+         setTimeout(function () { console.log(e5.join(',')); }, 10);",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:0 null",
+            "log:1 0",
+            "log:InvalidStateError",
+            "log:2 null",
+            "log:data:text/plain;base64,aMOp",
+            "log:3 true",
+            "log:3",
+            "log:onload h\u{e9} loadstart:1:0 progress:1:3 load:2:3 loadend:2:3",
+            "log:abort,end",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qf2_object_url_registered_revoked_and_lookup() {
+    let log = run_with_timers(
+        "var b = new Blob(['zz']); var u = URL.createObjectURL(b); var v = URL.createObjectURL(b);\
+         console.log(/^blob:.*\\/[0-9a-f-]{36}$/.test(u) || u, u !== v);\
+         console.log(__blob_lookup(u) === b, __blob_lookup(u + '#frag') === b, __blob_lookup('blob:nope'));\
+         URL.revokeObjectURL(u); console.log(__blob_lookup(u), __blob_lookup(v) === b);\
+         try { URL.createObjectURL({}); } catch (e) { console.log(e.name); }",
+    );
+    assert_eq!(log, ["log:true true", "log:true true undefined", "log:undefined true", "log:TypeError"], "{log:?}");
+}
