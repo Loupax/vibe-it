@@ -1716,6 +1716,7 @@ into the commit message of every JS item.
       `CharacterData.prototype.data` shadowed the Node setter), so the real
       Acid3 page never showed its score. Fixed in js_dom.rs; test
       `acid3_text_node_data_setter_writes_the_tree`. Real page: 61/100.
+      Commit c8a02a3.
 - [ ] QA18e [S] (P3, JS) `Comment.data =`/`nodeValue =` and
       CharacterData `appendData/insertData/deleteData/replaceData/
       substringData` on comments: `__d_settext` ignores Comment nodes
