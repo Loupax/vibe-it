@@ -3272,3 +3272,7 @@ Q30e)` and stays empty (forms rule, AGENTS.md). A FormData request/response
 body is serialised as multipart/form-data with a random boundary (QF13 partly
 done, serialisation only). `formData()` still parses urlencoded bodies only,
 so a multipart body rejects with TypeError (QF4a).
+
+## Net policy and wire codec (QF5)
+
+`src/net_policy.rs` is pure (no I/O, no JS): `RequestPolicy` is the ONE place for every network number and open decision (limits, timeouts, redirect limit, `sync_xhr_timeout_ms`, `beacons_send`, `private_targets`/`file_targets` as `PrivatePolicy`). `check_request(page, url, method, has_body)` returns a `PolicyOutcome` whose `warning` class is logged with `format_net_warning`; same-origin never warns; schemes, bad ports, mixed content (loopback exempt) and method/body rules apply in every mode; `check_redirect_hop` re-runs it per hop. CORS helpers (`classify_fetch`, `needs_preflight`, `check_cors_response`, `check_preflight_response`) and the forbidden header lists (a test pins them to fetch_prelude.js) are pure. `classify_beacon` + `format_beacon_log` serve the suppressed-beacon log. `is_public_ip` is mirrored by hand in wire (QF6). The codec in net.rs (`build_wire_request`, `parse_wire_response_full`, `fetch_full_via_wire`) is not called by anything yet; it can carry `X-Wire-Policy/Max-Bytes/Timeout-Ms/Max-Redirects` (`wire_cap_headers`). Wire already supports every method and Content-Length bodies; what it lacks is listed under QF6.

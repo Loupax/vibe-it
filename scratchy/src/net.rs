@@ -355,7 +355,15 @@ pub(crate) enum WireFetchRaw {
 /// all exactly the same outcome: no usable response came back, for
 /// whatever reason.
 pub(crate) fn fetch_raw_via_wire(path: &std::path::Path, request_text: &str) -> WireFetchRaw {
+    fetch_raw_via_wire_with_timeout(path, request_text, RequestPolicy::default().legacy_idle_timeout)
+}
+
+/// `fetch_raw_via_wire` with an explicit per-read (idle) timeout: a hung
+/// upstream (measured: 169.254.169.254) used to pin the thread forever.
+/// A timeout collapses to `Unreachable` like every other failure.
+pub(crate) fn fetch_raw_via_wire_with_timeout(path: &std::path::Path, request_text: &str, read_timeout: std::time::Duration) -> WireFetchRaw {
     let Ok(mut stream) = UnixStream::connect(path) else { return WireFetchRaw::Unreachable };
+    let _ = stream.set_read_timeout(Some(read_timeout));
     if stream.write_all(request_text.as_bytes()).is_err() {
         return WireFetchRaw::Unreachable;
     }
@@ -368,6 +376,222 @@ pub(crate) fn fetch_raw_via_wire(path: &std::path::Path, request_text: &str) -> 
         Err(_) => WireFetchRaw::Unreachable,
     }
 }
+
+// ---------- QF5: full wire codec for page-JS networking ----------
+//
+// Pure building blocks (nothing calls them yet; QF7/QF8 will). What wire
+// does today (read from wire/src/main.rs): any method; request headers
+// forwarded except Host/Content-Length/Connection; request bodies read by
+// Content-Length (no chunked requests); redirects followed by ureq; the
+// response is `HTTP/1.1 <status> <reason>` + headers with NO Content-Length
+// and the body read until the connection closes; transport failures become a
+// `502` `text/plain` body starting `wire: upstream request failed:`.
+// Duplicate response headers (Set-Cookie) are collapsed by wire today and
+// the final URL / an error marker are not reported: QF6.
+
+#[allow(unused_imports)]
+pub(crate) use wire_codec::*;
+
+#[allow(dead_code)] // nothing calls the codec until QF7/QF8
+mod wire_codec {
+use super::*;
+
+/// Limits and timeouts for one request through the new path.
+#[derive(Debug, Clone)]
+pub(crate) struct WireLimits {
+    pub max_body_bytes: usize,
+    pub connect_timeout: std::time::Duration,
+    /// Total time allowed for sending the request and reading the whole response.
+    pub read_timeout: std::time::Duration,
+}
+
+impl Default for WireLimits {
+    fn default() -> Self {
+        RequestPolicy::default().wire_limits()
+    }
+}
+
+impl RequestPolicy {
+    pub(crate) fn wire_limits(&self) -> WireLimits {
+        WireLimits { max_body_bytes: self.max_response_bytes, connect_timeout: self.connect_timeout, read_timeout: self.read_timeout }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum NetError {
+    Connect(String),
+    Timeout,
+    Io(String),
+    TooLarge,
+    Malformed(String),
+    /// A header name/value or method the codec refuses to serialise.
+    BadRequest(String),
+}
+
+impl std::fmt::Display for NetError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            NetError::Connect(e) => write!(f, "cannot connect to wire: {e}"),
+            NetError::Timeout => write!(f, "request timed out"),
+            NetError::Io(e) => write!(f, "network I/O error: {e}"),
+            NetError::TooLarge => write!(f, "response is too large"),
+            NetError::Malformed(e) => write!(f, "malformed response from wire: {e}"),
+            NetError::BadRequest(e) => write!(f, "bad request: {e}"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub(crate) struct WireResponse {
+    pub status: u16,
+    pub status_text: String,
+    /// Lowercased names, trimmed values, wire order, duplicates kept
+    /// (`set-cookie` stays here: the cookie jar, QF14, needs it).
+    pub headers: Vec<(String, String)>,
+    pub body: Vec<u8>,
+    /// Set when this is wire's synthesized transport-failure response (the
+    /// `X-Wire-Error` header of QF6, or today's 502 text/plain marker).
+    pub error: Option<String>,
+    /// `X-Wire-Final-Url` (QF6), when wire sends it.
+    pub final_url: Option<String>,
+}
+
+impl WireResponse {
+    pub(crate) fn header(&self, name: &str) -> Option<&str> {
+        self.headers.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str())
+    }
+}
+
+fn is_header_token(s: &str) -> bool {
+    !s.is_empty() && s.bytes().all(|b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b))
+}
+
+/// Serialises one absolute-form HTTP/1.1 request for wire. Host,
+/// Content-Length, Connection and Transfer-Encoding in `headers` are dropped
+/// (wire/ureq own them). `Content-Length` is added for a non-empty body and
+/// for an empty POST/PUT/PATCH. CR/LF/NUL in a name or value, a non-token
+/// name or method are rejected. Header policy (forbidden names, `X-Wire-*`)
+/// is the caller's job: this codec is trusted and lets `X-Wire-Policy` through.
+pub(crate) fn build_wire_request(method: &str, url: &Url, headers: &[(String, String)], body: &[u8]) -> Result<Vec<u8>, NetError> {
+    if !is_header_token(method) {
+        return Err(NetError::BadRequest(format!("invalid method {method:?}")));
+    }
+    let host = url.host_str().unwrap_or("");
+    let host_header = match url.port() {
+        Some(port) => format!("{host}:{port}"),
+        None => host.to_string(),
+    };
+    let mut out = format!("{method} {url} HTTP/1.1\r\nHost: {host_header}\r\n").into_bytes();
+    for (name, value) in headers {
+        if !is_header_token(name) {
+            return Err(NetError::BadRequest(format!("invalid header name {name:?}")));
+        }
+        if value.bytes().any(|b| b == b'\r' || b == b'\n' || b == 0) {
+            return Err(NetError::BadRequest(format!("header {name} value contains CR, LF or NUL")));
+        }
+        if matches!(name.to_ascii_lowercase().as_str(), "host" | "content-length" | "connection" | "transfer-encoding") {
+            continue;
+        }
+        out.extend_from_slice(format!("{name}: {value}\r\n").as_bytes());
+    }
+    if !body.is_empty() || matches!(method.to_ascii_uppercase().as_str(), "POST" | "PUT" | "PATCH") {
+        out.extend_from_slice(format!("Content-Length: {}\r\n", body.len()).as_bytes());
+    }
+    out.extend_from_slice(b"\r\n");
+    out.extend_from_slice(body);
+    Ok(out)
+}
+
+/// Parses wire's full response (status line, headers, body to EOF).
+pub(crate) fn parse_wire_response_full(bytes: &[u8]) -> Result<WireResponse, NetError> {
+    let header_end = bytes
+        .windows(4)
+        .position(|w| w == b"\r\n\r\n")
+        .ok_or_else(|| NetError::Malformed("no header terminator found".into()))?;
+    let head = String::from_utf8_lossy(&bytes[..header_end]);
+    let mut lines = head.split("\r\n");
+    let status_line = lines.next().unwrap_or("");
+    let mut parts = status_line.splitn(3, ' ');
+    let version = parts.next().unwrap_or("");
+    if !version.starts_with("HTTP/") {
+        return Err(NetError::Malformed(format!("bad status line {status_line:?}")));
+    }
+    let status: u16 = parts
+        .next()
+        .and_then(|s| s.parse().ok())
+        .filter(|s| (100..600).contains(s))
+        .ok_or_else(|| NetError::Malformed(format!("bad status code in {status_line:?}")))?;
+    let status_text = parts.next().unwrap_or("").trim().to_string();
+    let mut headers = Vec::new();
+    let (mut wire_error, mut final_url) = (None, None);
+    for line in lines {
+        let (name, value) = line.split_once(':').ok_or_else(|| NetError::Malformed(format!("bad header line {line:?}")))?;
+        let (name, value) = (name.trim().to_ascii_lowercase(), value.trim().to_string());
+        match name.as_str() {
+            "x-wire-error" => wire_error = Some(value),
+            "x-wire-final-url" => final_url = Some(value),
+            _ => headers.push((name, value)),
+        }
+    }
+    let body = bytes[header_end + 4..].to_vec();
+    let mut error = wire_error;
+    // Today's wire (before QF6): the synthesized 502 text/plain body.
+    if error.is_none() && status == 502 && body.starts_with(b"wire: upstream request failed:") {
+        error = Some(String::new());
+    }
+    if let Some(e) = error.as_mut() {
+        *e = String::from_utf8_lossy(&body).trim().to_string();
+    }
+    Ok(WireResponse { status, status_text, headers, body, error, final_url })
+}
+
+/// Sends the request bytes to wire and reads the whole response with a
+/// connect timeout, a total read deadline and a body cap (over the cap ->
+/// `NetError::TooLarge`, without buffering more).
+pub(crate) fn fetch_full_via_wire(path: &std::path::Path, request: &[u8], limits: &WireLimits) -> Result<WireResponse, NetError> {
+    use std::time::Instant;
+    // Unix connect() has no timeout API: do it on a thread.
+    let (tx, rx) = mpsc::channel();
+    let p = path.to_path_buf();
+    thread::spawn(move || {
+        let _ = tx.send(UnixStream::connect(p));
+    });
+    let mut stream = match rx.recv_timeout(limits.connect_timeout) {
+        Ok(Ok(s)) => s,
+        Ok(Err(e)) => return Err(NetError::Connect(e.to_string())),
+        Err(_) => return Err(NetError::Timeout),
+    };
+    let deadline = Instant::now() + limits.read_timeout;
+    let remaining = |d: Instant| d.checked_duration_since(Instant::now()).filter(|r| !r.is_zero());
+    let io_err = |e: io::Error| match e.kind() {
+        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut => NetError::Timeout,
+        _ => NetError::Io(e.to_string()),
+    };
+    stream.set_write_timeout(remaining(deadline)).map_err(io_err)?;
+    stream.write_all(request).map_err(io_err)?;
+    // The head is not part of the body cap; allow it generous room.
+    let cap = limits.max_body_bytes.saturating_add(64 * 1024);
+    let mut buf = Vec::new();
+    let mut chunk = [0u8; 16 * 1024];
+    loop {
+        let left = remaining(deadline).ok_or(NetError::Timeout)?;
+        stream.set_read_timeout(Some(left)).map_err(io_err)?;
+        let n = stream.read(&mut chunk).map_err(io_err)?;
+        if n == 0 {
+            break;
+        }
+        buf.extend_from_slice(&chunk[..n]);
+        if buf.len() > cap {
+            return Err(NetError::TooLarge);
+        }
+    }
+    let resp = parse_wire_response_full(&buf)?;
+    if resp.body.len() > limits.max_body_bytes {
+        return Err(NetError::TooLarge);
+    }
+    Ok(resp)
+}
+} // mod wire_codec
 
 /// `start_navigation`'s own stdout fallback — per `scratchy/TODO.txt`'s
 /// own design, printed verbatim as the literal HTTP/1.1 wire text
