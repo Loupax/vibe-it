@@ -1305,7 +1305,7 @@ into the commit message of every JS item.
       parsing (a tag split across two `write` calls), execute `<script>`
       elements written by `document.write`, and `document.open()` /
       post-load `write` wiping the document (spec behaviour).
-- [ ] QA14 [S] (P3, JS) `DOMException` with the legacy `code` constants
+- [x] QA14 (43f568f) [S] (P3, JS) `DOMException` with the legacy `code` constants
       (`INDEX_SIZE_ERR`=1 … `HIERARCHY_REQUEST_ERR`=3 …
       `INVALID_CHARACTER_ERR`=5 … `NAMESPACE_ERR`=14) on the constructor
       and prototype, thrown by `createElement`/`createElementNS` for
@@ -1314,6 +1314,10 @@ into the commit message of every JS item.
       name's case for non-HTML namespaces (`PREFIX:LOCALNAME` bug). Acid3
       T19-T23, T25 (part). Test: `try{document.createElement('<a')}catch(e)
       {e.code===5}`.
+- [ ] QA14a [S] (P3, JS) Element `prefix`, `localName`, `namespaceURI`
+      (split from QA14): `createElementNS` keeps the qualified name as the
+      local name today; store the prefix/local/ns separately. Acid3 T21
+      ("wrong prefix"). T25 needs `document.implementation` (QA18).
 - [x] QA15 (f00ca10, done inside QY4) [S] (P3, JS; done inside QY4, tick both) `document.createEvent(iface)` with
       `initEvent`/`initUIEvent`/`initMouseEvent`/`initKeyboardEvent`
       (legacy init methods on the Q33d event classes; `detail` field).

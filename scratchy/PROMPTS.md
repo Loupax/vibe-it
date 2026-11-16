@@ -6612,6 +6612,12 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 
 **What changed:** js.rs `dispatch` now falls back to `attrHandler(node, type)` when the `on<type>` property is not a function: reads the attribute via `__d_attr`, compiles `new Function('event', src)` once per element/type/text (WeakMap), body/frameset forwarding for window events, compile errors logged via `oops`. Test `qa12_inline_handlers_click_return_false_body_onload_and_errors` (fails without the fix). Verified live in nested dwl: body onload, real injected clicks on a button and on a `return false` link. Left out: `with(document/form/element)` scope chain, reading `el.onclick` as a property from the attribute, `onerror` window signature.
 
+## QA14 DOMException with legacy codes
+
+> Implement QA14: `DOMException` (message, name, code, the numeric constants on constructor and prototype, inherits Error) and make createElement/createElementNS/setAttribute/appendChild/insertBefore/removeChild and invalid selectors throw the right DOMException; keep the QJ2 `Name: message` error log format.
+
+**What changed:** js.rs defines the `DOMException` global (a real Error re-prototyped so describe_error prints `Name: message`; code from the name). js_dom.rs: `herr`/`domErr`/selector `bad` now build DOMExceptions; XML-name validation in `createElement`/`createElementNS`/`setAttribute` (InvalidCharacterError 5), createElementNS namespace/prefix checks (NamespaceError 14) and a new `__d_create_ns` that keeps the qualified name's case outside XHTML (Acid3 T21); `removeChild` of a non-Node is a TypeError. Tests `qa14_domexception_constructor_and_constants`, `qa14_dom_methods_throw_domexception`. Left out: name validation is an ASCII-start approximation of the XML Name production; createElementNS does not store prefix/localName separately.
+
 ## QA13 document.write / writeln during page load
 
 > Implement QA13: `document.write`/`writeln` (and `open`/`close`) inside a classic script during load insert the parsed markup right after the running `<script>` element (html5ever fragment parse as in innerHTML); after load log and do nothing; mark DOM dirty; Acid3 throws `not a function` from this gap.

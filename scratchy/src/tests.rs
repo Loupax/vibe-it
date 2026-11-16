@@ -10026,3 +10026,44 @@ fn table_row_border_kept_with_border_collapse() {
     let row = first_table_row(&laid).expect("row");
     assert_eq!(row.style.border_width, [4.0; 4], "collapse model keeps the row border (approximation)");
 }
+
+#[test]
+fn qa14_domexception_constructor_and_constants() {
+    let (log, _) = mutate(
+        "<html><body></body></html>",
+        "var e=new DOMException('m','NotFoundError');\
+         console.log(e.name, e.message, e.code, e instanceof Error, e instanceof DOMException, String(e));\
+         console.log(DOMException.INVALID_CHARACTER_ERR, DOMException.prototype.HIERARCHY_REQUEST_ERR, DOMException.NAMESPACE_ERR, DOMException.DATA_CLONE_ERR);\
+         console.log(new DOMException('x').code, new DOMException('x').name);",
+    );
+    assert_eq!(log, ["log:NotFoundError m 8 true true NotFoundError: m", "log:5 3 14 25", "log:0 Error"], "{log:?}");
+}
+
+#[test]
+fn qa14_dom_methods_throw_domexception() {
+    let (log, _) = mutate(
+        "<html><body><div id=a><span id=s></span></div><p id=p></p></body></html>",
+        "var t=function(f){try{f();console.log('none')}catch(e){console.log(e.name+' '+e.code+' '+(e instanceof DOMException))}};\
+         var a=document.getElementById('a'), s=document.getElementById('s'), p=document.getElementById('p');\
+         t(function(){document.createElement('<bad>')});\
+         t(function(){document.createElement('')});\
+         t(function(){s.appendChild(a)});\
+         t(function(){a.removeChild(p)});\
+         t(function(){a.insertBefore(p, p)});\
+         t(function(){document.querySelector('a[')});\
+         t(function(){p.setAttribute('a b','x')});\
+         t(function(){document.createElementNS('http://www.w3.org/2000/svg','a:b:c')});\
+         t(function(){document.createElementNS(null,'a:b')});\
+         t(function(){document.createEvent('Bogus')});\
+         t(function(){document.createElement('ok-name')});\
+         console.log(document.createElementNS('http://www.example.org/ns','PREFIX:LOCALNAME').tagName);",
+    );
+    assert_eq!(
+        log,
+        ["log:InvalidCharacterError 5 true", "log:InvalidCharacterError 5 true", "log:HierarchyRequestError 3 true",
+         "log:NotFoundError 8 true", "log:NotFoundError 8 true", "log:SyntaxError 12 true",
+         "log:InvalidCharacterError 5 true", "log:NamespaceError 14 true", "log:NamespaceError 14 true",
+         "log:NotSupportedError 9 true", "log:none", "log:PREFIX:LOCALNAME"],
+        "{log:?}"
+    );
+}
