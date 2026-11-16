@@ -748,6 +748,10 @@ const DOM_PRELUDE: &str = r#"
     function (v) { if (this.nodeType === 3 || this.nodeType === 8) __d_settext(this.__id, String(v)); });
   defs(NodeProto, 'data', function () { return this.nodeType === 3 || this.nodeType === 8 ? __d_text(this.__id) : undefined; },
     function (v) { if (this.nodeType === 3 || this.nodeType === 8) __d_settext(this.__id, String(v)); });
+  // The getter-only CharacterData.prototype.data above shadows the Node one
+  // (Acid3's `span.firstChild.data = score` was silently a no-op).
+  defs(CharacterData.prototype, 'data', function () { return __d_text(this.__id); },
+    function (v) { __d_settext(this.__id, String(v)); });
   defs(ElementProto, 'innerText', function () { return __d_text(this.__id); },
     function (v) { __d_settext(this.__id, v == null ? '' : String(v)); });
   defs(ElementProto, 'innerHTML', function () { return __d_gethtml(this.__id, false); },
