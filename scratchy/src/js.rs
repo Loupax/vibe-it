@@ -331,6 +331,33 @@ const PRELUDE: &str = r#"
     this.inputType = init.inputType || '';
     this.isComposing = false;
   });
+  // QY12: the remaining Event subclasses: name, parent, init-dict defaults.
+  var evt = function (name, parent, dflt) {
+    var C = ctor(name, parent, function (type, init) {
+      parent.call(this, type, init);
+      init = init || {};
+      for (var k in dflt) this[k] = init[k] === undefined ? (Array.isArray(dflt[k]) ? [] : dflt[k]) : init[k];
+    });
+    return C;
+  };
+  var PE = evt('PointerEvent', MouseEvent, { pointerId: 0, width: 1, height: 1, pressure: 0, tangentialPressure: 0,
+    tiltX: 0, tiltY: 0, twist: 0, pointerType: '', isPrimary: false });
+  PE.prototype.getCoalescedEvents = PE.prototype.getPredictedEvents = function () { return []; };
+  evt('WheelEvent', MouseEvent, { deltaX: 0, deltaY: 0, deltaZ: 0, deltaMode: 0 });
+  evt('DragEvent', MouseEvent, { dataTransfer: null });
+  evt('TouchEvent', UIEvent, { touches: [], targetTouches: [], changedTouches: [], ctrlKey: false, shiftKey: false, altKey: false, metaKey: false });
+  evt('CompositionEvent', UIEvent, { data: '' });
+  evt('TransitionEvent', Event, { propertyName: '', elapsedTime: 0, pseudoElement: '' });
+  evt('AnimationEvent', Event, { animationName: '', elapsedTime: 0, pseudoElement: '' });
+  evt('PromiseRejectionEvent', Event, { promise: undefined, reason: undefined });
+  evt('HashChangeEvent', Event, { oldURL: '', newURL: '' });
+  evt('PopStateEvent', Event, { state: null });
+  evt('StorageEvent', Event, { key: null, oldValue: null, newValue: null, url: '', storageArea: null });
+  evt('MessageEvent', Event, { data: null, origin: '', lastEventId: '', source: null, ports: [] });
+  evt('ProgressEvent', Event, { lengthComputable: false, loaded: 0, total: 0 });
+  evt('ClipboardEvent', Event, { clipboardData: null });
+  evt('PageTransitionEvent', Event, { persisted: false });
+  evt('SubmitEvent', Event, { submitter: null });
   var normOpts = function (o) {
     if (typeof o === 'boolean') return { capture: o };
     o = o || {};
@@ -433,6 +460,12 @@ const PRELUDE: &str = r#"
   ['addEventListener', 'removeEventListener', 'dispatchEvent'].forEach(function (m) {
     Object.defineProperty(g, m, { value: function () { return ETP[m].apply(g, arguments); }, writable: true, configurable: true });
   });
+  // QY12: `Window` interface. `Window.prototype` is its own object under
+  // EventTarget.prototype (never Object.prototype: that pollutes every object
+  // and breaks ShadyDOM); the global object inherits from it.
+  var Window = ctor('Window', EventTarget, function () { throw new TypeError('Illegal constructor'); });
+  try { Object.setPrototypeOf(g, Window.prototype); } catch (e) {}
+  g.top = g.parent = g.frames = g; g.opener = null;
   var Image = ctor('Image', HTMLElement, function (w, h) {
     this.tagName = 'IMG'; this.src = ''; this.width = w || 0; this.height = h || 0;
   });
