@@ -1299,7 +1299,7 @@ into the commit message of every JS item.
       by hand the harness goes 28 -> 36 (T14-T17, T48, T55, T63, T65).
       Test: `<p id=a><script>document.write('<b id=w>x</b>')</script>`
       gives `#w` as the script's next sibling.
-- [x] QA14 (HASH) [S] (P3, JS) `DOMException` with the legacy `code` constants
+- [x] QA14 (43f568f) [S] (P3, JS) `DOMException` with the legacy `code` constants
       (`INDEX_SIZE_ERR`=1 … `HIERARCHY_REQUEST_ERR`=3 …
       `INVALID_CHARACTER_ERR`=5 … `NAMESPACE_ERR`=14) on the constructor
       and prototype, thrown by `createElement`/`createElementNS` for
