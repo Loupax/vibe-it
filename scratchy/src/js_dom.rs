@@ -871,6 +871,7 @@ const DOM_PRELUDE: &str = r#"
       set: function () { return true; }
     });
   };
+  var rmNode = function (n) { __d_remove(n.__id); };
   NodeProto.appendChild = function (c) {
     if (!c || c.__id === undefined) throw new TypeError("Failed to execute 'appendChild': parameter 1 is not of type 'Node'.");
     if (!__d_insert(this.__id, c.__id, -1)) throw herr('The new child element contains the parent.', 'HierarchyRequestError');
@@ -885,13 +886,13 @@ const DOM_PRELUDE: &str = r#"
   NodeProto.removeChild = function (c) {
     if (!c || c.__id === undefined) throw new TypeError("Failed to execute 'removeChild': parameter 1 is not of type 'Node'.");
     if (c.parentNode !== this) throw herr('The node to be removed is not a child of this node.', 'NotFoundError');
-    __d_remove(c.__id);
+    rmNode(c);
     return c;
   };
   NodeProto.replaceChild = function (n, old) {
     if (!old || old.parentNode !== this) throw herr('The node to be replaced is not a child of this node.', 'NotFoundError');
     this.insertBefore(n, old);
-    if (n !== old) __d_remove(old.__id);
+    if (n !== old) rmNode(old);
     return old;
   };
   NodeProto.cloneNode = function (deep) { return wrap(__d_clone(this.__id, !!deep)); };
@@ -901,7 +902,7 @@ const DOM_PRELUDE: &str = r#"
     var s = this, first = this.firstChild;
     many(arguments).forEach(function (n) { s.insertBefore(n, first); });
   };
-  ElementProto.remove = function () { __d_remove(this.__id); };
+  ElementProto.remove = function () { rmNode(this); };
   ElementProto.before = function () {
     var p = this.parentNode, s = this;
     if (p) many(arguments).forEach(function (n) { p.insertBefore(n, s); });
@@ -925,6 +926,189 @@ const DOM_PRELUDE: &str = r#"
   doc.createTextNode = function (s) { return wrap(__d_create(3, String(s))); };
   doc.createComment = function (s) { return wrap(__d_create(8, String(s))); };
   doc.createDocumentFragment = function () { return wrap(__d_create(11, '')); };
+  // QA17: DOM Traversal (NodeIterator, TreeWalker) in JS over the wrappers.
+  var NF = g.NodeFilter, liveIters = [];
+  var firstKid = function (n) { return n.childNodes[0] || null; };
+  var lastKid = function (n) { var c = n.childNodes; return c[c.length - 1] || null; };
+  var following = function (n, root) {
+    var c = firstKid(n); if (c) return c;
+    for (; n && n !== root; n = n.parentNode) { var s = n.nextSibling; if (s) return s; }
+    return null;
+  };
+  var lastIncl = function (n) { for (var c; (c = lastKid(n)); ) n = c; return n; };
+  var preceding = function (n, root) {
+    if (n === root) return null;
+    var s = n.previousSibling; if (s) return lastIncl(s);
+    return n.parentNode;
+  };
+  var travArgs = function (fn, root, what, filter) {
+    if (!root || root.__id === undefined) throw new TypeError("Failed to execute '" + fn + "' on 'Document': parameter 1 is not of type 'Node'.");
+    return { root: root, what: what === undefined ? 0xFFFFFFFF : what >>> 0,
+      filter: filter == null ? null : filter };
+  };
+  var runFilter = function (st, node) {
+    if (st.active) throw herr('The filter is already running.', 'InvalidStateError');
+    var bit = node.nodeType - 1;
+    if (!((st.what >>> bit) & 1)) return NF.FILTER_SKIP;
+    if (st.filter === null) return NF.FILTER_ACCEPT;
+    st.active = true;
+    try {
+      var f = st.filter;
+      var r = typeof f === 'function' ? f.call(undefined, node) : f.acceptNode(node);
+      return r & 0xFFFF;
+    } finally { st.active = false; }
+  };
+  var ST = '__trav';
+  var hid = function (o, st) { Object.defineProperty(o, ST, { value: st }); return o; };
+  var stOf = function (o) {
+    var s = o && o[ST];
+    if (!s) throw new TypeError('Illegal invocation');
+    return s;
+  };
+  var NodeIterator = function NodeIterator() { throw new TypeError('Illegal constructor'); };
+  var TreeWalker = function TreeWalker() { throw new TypeError('Illegal constructor'); };
+  g.NodeIterator = NodeIterator; g.TreeWalker = TreeWalker;
+  var acc = function (P, name, get, set) {
+    Object.defineProperty(P, name, { get: function () { return get(stOf(this)); },
+      set: set && function (v) { set(stOf(this), v); }, configurable: true, enumerable: true });
+  };
+  ['root', 'whatToShow', 'filter'].forEach(function (k) {
+    var f = function (s) { return k === 'whatToShow' ? s.what : s[k]; };
+    acc(NodeIterator.prototype, k, f); acc(TreeWalker.prototype, k, f);
+  });
+  acc(NodeIterator.prototype, 'referenceNode', function (s) { return s.ref; });
+  acc(NodeIterator.prototype, 'pointerBeforeReferenceNode', function (s) { return s.before; });
+  NodeIterator.prototype.detach = function () {
+    stOf(this);
+    var me = this;
+    liveIters = liveIters.filter(function (w) { var o = w.deref ? w.deref() : w; return o && o !== me; });
+  };
+  var iterStep = function (it, next) {
+    var s = stOf(it), node = s.ref, before = s.before;
+    for (;;) {
+      if (next) { if (!before) node = following(node, s.root); else before = false; }
+      else { if (before) node = preceding(node, s.root); else before = true; }
+      if (!node) return null;
+      if (runFilter(s, node) === NF.FILTER_ACCEPT) break;
+    }
+    s.ref = node; s.before = before;
+    return node;
+  };
+  NodeIterator.prototype.nextNode = function () { return iterStep(this, true); };
+  NodeIterator.prototype.previousNode = function () { return iterStep(this, false); };
+  doc.createNodeIterator = function (root, what, filter) {
+    var a = travArgs('createNodeIterator', root, what, filter);
+    var it = hid(Object.create(NodeIterator.prototype), { root: a.root, what: a.what, filter: a.filter, ref: a.root, before: true, active: false });
+    liveIters.push(typeof WeakRef === 'function' ? new WeakRef(it) : it);
+    return it;
+  };
+  // Spec "removing steps": fix up each live iterator before `n` leaves the tree.
+  var preRemove = function (n) {
+    liveIters.forEach(function (w) {
+      var it = w.deref ? w.deref() : w; if (!it) return;
+      var s = it[ST];
+      if (n === s.root || !n.contains(s.ref)) return;
+      if (s.before) {
+        var nx = null;
+        for (var t = n; t && t !== s.root && !nx; t = t.parentNode) nx = t.nextSibling;
+        if (nx && s.root.contains(nx)) { s.ref = nx; return; }
+        s.before = false;
+      }
+      var ps = n.previousSibling;
+      s.ref = ps ? lastIncl(ps) : n.parentNode;
+    });
+  };
+  rmNode = function (n) { if (liveIters.length) preRemove(n); __d_remove(n.__id); };
+  var twChildren = function (tw, first) {
+    var s = stOf(tw), node = first ? firstKid(s.cur) : lastKid(s.cur);
+    while (node) {
+      var r = runFilter(s, node);
+      if (r === NF.FILTER_ACCEPT) { s.cur = node; return node; }
+      if (r === NF.FILTER_SKIP) { var c = first ? firstKid(node) : lastKid(node); if (c) { node = c; continue; } }
+      while (node) {
+        var sb = first ? node.nextSibling : node.previousSibling;
+        if (sb) { node = sb; break; }
+        var p = node.parentNode;
+        if (!p || p === s.root || p === s.cur) return null;
+        node = p;
+      }
+    }
+    return null;
+  };
+  var twSiblings = function (tw, next) {
+    var s = stOf(tw), node = s.cur;
+    if (node === s.root) return null;
+    for (;;) {
+      var sb = next ? node.nextSibling : node.previousSibling;
+      while (sb) {
+        node = sb;
+        var r = runFilter(s, node);
+        if (r === NF.FILTER_ACCEPT) { s.cur = node; return node; }
+        sb = next ? firstKid(node) : lastKid(node);
+        if (r === NF.FILTER_REJECT || !sb) sb = next ? node.nextSibling : node.previousSibling;
+      }
+      node = node.parentNode;
+      if (!node || node === s.root) return null;
+      if (runFilter(s, node) === NF.FILTER_ACCEPT) return null;
+    }
+  };
+  var TW = TreeWalker.prototype;
+  acc(TW, 'currentNode', function (s) { return s.cur; }, function (s, v) {
+    if (!v || v.__id === undefined) throw new TypeError("Failed to set the 'currentNode' property on 'TreeWalker': The provided value is not of type 'Node'.");
+    s.cur = v;
+  });
+  TW.parentNode = function () {
+    var s = stOf(this), node = s.cur;
+    while (node && node !== s.root) {
+      node = node.parentNode;
+      if (node && runFilter(s, node) === NF.FILTER_ACCEPT) { s.cur = node; return node; }
+    }
+    return null;
+  };
+  TW.firstChild = function () { return twChildren(this, true); };
+  TW.lastChild = function () { return twChildren(this, false); };
+  TW.nextSibling = function () { return twSiblings(this, true); };
+  TW.previousSibling = function () { return twSiblings(this, false); };
+  TW.previousNode = function () {
+    var s = stOf(this), node = s.cur;
+    while (node !== s.root) {
+      var sb = node.previousSibling;
+      while (sb) {
+        node = sb;
+        var r = runFilter(s, node);
+        while (r !== NF.FILTER_REJECT && firstKid(node)) { node = lastKid(node); r = runFilter(s, node); }
+        if (r === NF.FILTER_ACCEPT) { s.cur = node; return node; }
+        sb = node.previousSibling;
+      }
+      if (node === s.root || !node.parentNode) return null;
+      node = node.parentNode;
+      if (runFilter(s, node) === NF.FILTER_ACCEPT) { s.cur = node; return node; }
+    }
+    return null;
+  };
+  TW.nextNode = function () {
+    var s = stOf(this), node = s.cur, r = NF.FILTER_ACCEPT;
+    for (;;) {
+      while (r !== NF.FILTER_REJECT && firstKid(node)) {
+        node = firstKid(node); r = runFilter(s, node);
+        if (r === NF.FILTER_ACCEPT) { s.cur = node; return node; }
+      }
+      var sb = null, t = node;
+      while (t) {
+        if (t === s.root) return null;
+        sb = t.nextSibling;
+        if (sb) { node = sb; break; }
+        t = t.parentNode;
+      }
+      if (!sb) return null;
+      r = runFilter(s, node);
+      if (r === NF.FILTER_ACCEPT) { s.cur = node; return node; }
+    }
+  };
+  doc.createTreeWalker = function (root, what, filter) {
+    var a = travArgs('createTreeWalker', root, what, filter);
+    return hid(Object.create(TreeWalker.prototype), { root: a.root, what: a.what, filter: a.filter, cur: a.root, active: false });
+  };
   def(doc, 'defaultView', function () { return g; });
   // QY4/QA15: legacy createEvent.
   doc.createEvent = function (iface) {

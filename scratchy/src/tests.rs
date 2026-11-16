@@ -9694,6 +9694,79 @@ fn qy4_create_event_and_constructor_globals() {
         "log:true", "log:mf345", "log:true,true,true", "log:true,true,true,true", "log:1,1,4294967295"]);
 }
 
+/// QA17 fixture: root div#R > a(span) > ["x", b], c(i), "t", d(p) > e(em).
+const QA17_TREE: &str = "var R=document.createElement('div');R.id='R';\
+    function mk(t,id){var e=document.createElement(t);e.id=id;return e}\
+    var a=mk('span','a'),b=mk('b','b'),c=mk('i','c'),d=mk('p','d'),e=mk('em','e');\
+    a.appendChild(document.createTextNode('x'));a.appendChild(b);R.appendChild(a);R.appendChild(c);\
+    R.appendChild(document.createTextNode('t'));d.appendChild(e);R.appendChild(d);\
+    function nm(n){return n?(n.id||('#'+n.nodeValue)):'null'}";
+
+#[test]
+fn qa17_tree_walker_show_element_walks_forward_and_back() {
+    let log = run_collecting(&[src(&format!(
+        "{QA17_TREE} var w=document.createTreeWalker(R,NodeFilter.SHOW_ELEMENT,null);\
+         var f=[],n;while((n=w.nextNode()))f.push(n.id);console.log(f.join(','));\
+         var r=[];while((n=w.previousNode()))r.push(n.id);console.log(r.join(','));\
+         console.log(w.root===R, w.whatToShow, w.filter===null, w.currentNode===R);"
+    ))]);
+    assert_eq!(log, ["log:a,b,c,d,e", "log:d,c,b,a,R", "log:true 1 true true"], "{log:?}");
+}
+
+#[test]
+fn qa17_tree_walker_filter_skip_vs_reject() {
+    let log = run_collecting(&[src(&format!(
+        "{QA17_TREE} function walk(code){{var w=document.createTreeWalker(R,NodeFilter.SHOW_ELEMENT,\
+           function(n){{return n.id==='a'?code:NodeFilter.FILTER_ACCEPT}});var o=[],n;while((n=w.nextNode()))o.push(n.id);return o.join(',')}}\
+         console.log(walk(NodeFilter.FILTER_SKIP));console.log(walk(NodeFilter.FILTER_REJECT));\
+         var w=document.createTreeWalker(R,NodeFilter.SHOW_ALL,{{acceptNode:function(n){{return n.nodeType===3?NodeFilter.FILTER_REJECT:NodeFilter.FILTER_ACCEPT}}}});\
+         var o=[],n;while((n=w.nextNode()))o.push(nm(n));console.log(o.join(','));"
+    ))]);
+    assert_eq!(log, ["log:b,c,d,e", "log:c,d,e", "log:a,b,c,d,e"], "{log:?}");
+}
+
+#[test]
+fn qa17_tree_walker_current_node_and_relatives() {
+    let log = run_collecting(&[src(&format!(
+        "{QA17_TREE} var w=document.createTreeWalker(R,NodeFilter.SHOW_ELEMENT);\
+         var o=[];o.push(nm(w.firstChild()));o.push(nm(w.nextSibling()));o.push(nm(w.nextSibling()));\
+         o.push(nm(w.nextSibling()));o.push(nm(w.previousSibling()));o.push(nm(w.lastChild()));o.push(nm(w.parentNode()));\
+         o.push(w.currentNode===d);w.currentNode=b;o.push(nm(w.nextNode()));o.push(nm(w.parentNode()));\
+         w.currentNode=R;o.push(nm(w.nextSibling()));o.push(nm(w.parentNode()));\
+         w.currentNode=d;o.push(nm(w.nextSibling()));w.currentNode=e;o.push(nm(w.nextNode()));\
+         console.log(o.join(','));"
+    ))]);
+    assert_eq!(log, ["log:a,c,d,null,c,null,R,false,c,R,null,null,null,null"], "{log:?}");
+}
+
+#[test]
+fn qa17_node_iterator_next_and_previous() {
+    let log = run_collecting(&[src(&format!(
+        "{QA17_TREE} var it=document.createNodeIterator(R,NodeFilter.SHOW_ELEMENT|NodeFilter.SHOW_TEXT);\
+         console.log(it.root===R, it.whatToShow, it.referenceNode===R, it.pointerBeforeReferenceNode);\
+         var f=[],n;while((n=it.nextNode()))f.push(nm(n));console.log(f.join(','));\
+         console.log(it.pointerBeforeReferenceNode, nm(it.referenceNode));\
+         var r=[];while((n=it.previousNode()))r.push(nm(n));console.log(r.join(','));\
+         console.log(typeof it.detach, it.detach());\
+         var o=document.createNodeIterator(R,NodeFilter.SHOW_ELEMENT,function(n){{return n.id==='b'?NodeFilter.FILTER_REJECT:NodeFilter.FILTER_ACCEPT}});\
+         var g=[];while((n=o.nextNode()))g.push(n.id);console.log(g.join(','));"
+    ))]);
+    assert_eq!(log, ["log:true 5 true true", "log:R,a,#x,b,c,#t,d,e", "log:false e",
+        "log:e,d,#t,c,b,#x,a,R", "log:function undefined", "log:R,a,c,d,e"], "{log:?}");
+}
+
+#[test]
+fn qa17_node_iterator_survives_removal_and_filter_reentry_throws() {
+    let log = run_collecting(&[src(&format!(
+        "{QA17_TREE} var it=document.createNodeIterator(R,NodeFilter.SHOW_ELEMENT);\
+         it.nextNode();it.nextNode();it.nextNode();console.log(nm(it.referenceNode));\
+         R.removeChild(a);console.log(nm(it.referenceNode),it.pointerBeforeReferenceNode,nm(it.nextNode()));\
+         var w;w=document.createTreeWalker(R,NodeFilter.SHOW_ALL,function(){{try{{w.nextNode()}}catch(x){{console.log(x.name)}}return 1}});w.nextNode();\
+         try{{document.createTreeWalker()}}catch(x){{console.log(x.name)}}"
+    ))]);
+    assert_eq!(log, ["log:b", "log:R false c", "log:InvalidStateError", "log:TypeError"], "{log:?}");
+}
+
 /// QY5: a runaway page-load script is stopped with one clear line naming
 /// the script and the budget, not a bare `InternalError: interrupted`.
 #[test]
