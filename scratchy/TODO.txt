@@ -1076,7 +1076,7 @@ Phase 2 (big enablers, after phase 1):
 - [ ] Q33f [L] fetch()/XHR (existing item, Tier 7; unchanged, it is the
       next wall for YouTube, old.reddit and everything after modules).
       Move it here in priority, do not duplicate it.
-- [ ] QY16 [M] (P3; duckduckgo; yt/gh/bbc reference it) A minimal `Intl`.
+- [x] QY16 [M] (P3; duckduckgo; yt/gh/bbc reference it) ef90a15 A minimal `Intl`.
       QuickJS has none. Symptom: duckduckgo `ReferenceError: Intl is not
       defined` -> Next.js "A client-side exception has occurred" (the
       React app dies); with a stub, it next calls `new Intl.Locale(e)
@@ -1095,6 +1095,33 @@ Phase 2 (big enablers, after phase 1):
       `Number/Date.prototype.toLocale*String` routed through them. Test
       per class with a few known outputs (`1234.5 -> '1,234.5'`,
       `PluralRules('en').select(1) === 'one'`, a fixed date formatted).
+- [ ] QY16a [S] (follow-up of QY16, src/intl_prelude.js) What the minimal
+      `Intl` deliberately does NOT do. Everything answers as en-US:
+      `resolvedOptions().locale` is always 'en-US' for any well-formed tag
+      (malformed tags such as 'en_US' or '' still throw RangeError);
+      `supportedLocalesOf` only returns the requested `en*` tags. No other
+      languages (month/day names, number separators, plural rules,
+      list/relative-time words, collation order), no time zones other than
+      UTC (a named zone is accepted and formatted as UTC;
+      `resolvedOptions().timeZone` is 'UTC'), no calendars or numbering
+      systems other than gregory/latn, no `era`/`dayPeriod` day-period
+      words, no ICU-exact compact/unit/currency-name tables, `Intl.Collator`
+      is a root-order approximation (punctuation < digits < letters, case-
+      insensitive first, accents second), `Intl.Segmenter` is regex based
+      (graphemes with combining marks/ZWJ/RI pairs, simple words and
+      sentences), `Intl.DisplayNames.of` returns the code,
+      `supportedValuesOf` returns [] (['UTC'] for timeZone), enumerated
+      options with unknown values silently fall back to the default instead
+      of throwing RangeError. 12-hour clock uses a plain space before AM/PM
+      (not U+202F). Needed only if a measured page wants real localisation:
+      then it is a product decision (ship ICU data or not).
+- [ ] QY16b [S] (P3; duckduckgo; found by QY16) `Node.prototype.isEqualNode`
+      is missing. With `Intl` present, duckduckgo's Next.js `updateHead`
+      (`next/head` dedupe) now dies at `e.isEqualNode(t)` ("TypeError: not
+      a function", 8 console.error lines in `--js-report --run-timers
+      5000`, then "A client-side exception has occurred" again). Implement
+      `isEqualNode` (same nodeType/name/attributes/children, recursively)
+      and `isSameNode`; re-run the duckduckgo report for the next error.
 - [ ] QY17 [S] (P2, CSS; github) `@layer`. Symptom: github.com shows its
       "You signed in with another tab or window" banners although they
       carry `hidden`: Primer's `template,[hidden]{display:none!important}`

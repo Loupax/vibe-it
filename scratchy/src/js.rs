@@ -1024,6 +1024,7 @@ pub(crate) fn start_scripts_clocked(
     engine.eval("timers", TIMERS_PRELUDE);
     engine.eval("url", URL_PRELUDE);
     engine.eval("globals", GLOBALS_PRELUDE);
+    engine.eval("intl", INTL_PRELUDE);
     engine.table = engine.ctx.with(|ctx| js_dom::install_dom(&ctx, document, dirty.clone(), reqs.clone()));
     let mut script_els = Vec::new();
     collect_script_elements(document, &mut script_els);
@@ -1048,6 +1049,10 @@ const URL_PRELUDE: &str = include_str!("url_prelude.js");
 /// QY13: history, AbortController, MessageChannel, requestIdleCallback,
 /// Storage, structuredClone, queueMicrotask (plain JS, see the file).
 const GLOBALS_PRELUDE: &str = include_str!("globals_prelude.js");
+
+/// QY16: a minimal en-US `Intl` (QuickJS has none) and the `toLocale*String`
+/// methods routed through it. See the file header and TODO.txt QY16a.
+const INTL_PRELUDE: &str = include_str!("intl_prelude.js");
 
 /// Q33t: `setTimeout` & co, as plain JS over a timer table; Rust only
 /// asks `__scratchy_timers_next()` (ms of the earliest due time on the

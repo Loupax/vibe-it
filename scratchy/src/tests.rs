@@ -11117,3 +11117,127 @@ fn qy14_console_methods_exist() {
     assert!(log.iter().any(|l| l == "log:default: 1") && log.iter().any(|l| l == "warn:w") && log.iter().any(|l| l == "info:i"), "{log:?}");
     assert!(!log.iter().any(|l| l.contains(":no")), "{log:?}");
 }
+
+// ---------- QY16: minimal en-US Intl ----------
+
+#[test]
+fn qy16_number_format() {
+    let log = run_with_timers(
+        "var nf=new Intl.NumberFormat('en-US');\
+         console.log(nf.format(1234.5), nf.format(1234567.891), nf.format(-0.5), new Intl.NumberFormat('en',{maximumFractionDigits:2}).format(1.005), nf.format(NaN));\
+         console.log(new Intl.NumberFormat('en',{minimumFractionDigits:2}).format(5), new Intl.NumberFormat('en',{maximumFractionDigits:0}).format(2.5), new Intl.NumberFormat('en',{useGrouping:false}).format(12345));\
+         console.log(new Intl.NumberFormat('en',{style:'percent'}).format(0.256), new Intl.NumberFormat('en',{style:'percent',maximumFractionDigits:1}).format(0.2567));\
+         var c=function(cur,v,o){return new Intl.NumberFormat('en-US',Object.assign({style:'currency',currency:cur},o)).format(v)};\
+         console.log(c('USD',1234.5), c('EUR',-3), c('GBP',0.5), c('JPY',1234.5), c('USD',-5,{currencySign:'accounting'}));\
+         var k=function(v,o){return new Intl.NumberFormat('en',Object.assign({notation:'compact'},o)).format(v)};\
+         console.log(k(999), k(1234), k(12345), k(1500000), k(2.5e9), k(999999), k(1234,{compactDisplay:'long'}));\
+         console.log(new Intl.NumberFormat('en',{maximumSignificantDigits:3}).format(123456), new Intl.NumberFormat('en',{minimumIntegerDigits:3}).format(5));\
+         console.log(JSON.stringify(nf.formatToParts(-1234.5).map(function(p){return p.type+'='+p.value})));\
+         var r=new Intl.NumberFormat('de-DE').resolvedOptions(); console.log(r.locale, r.minimumFractionDigits, r.maximumFractionDigits, r.style);\
+         var f=nf.format; console.log(f(7), typeof Intl, Object.prototype.toString.call(Intl));",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:1,234.5 1,234,567.891 -0.5 1.01 NaN",
+            "log:5.00 3 12345",
+            "log:26% 25.7%",
+            "log:$1,234.50 -€3.00 £0.50 ¥1,235 ($5.00)",
+            "log:999 1.2K 12K 1.5M 2.5B 1M 1.2 thousand",
+            "log:123,000 005",
+            "log:[\"minusSign=-\",\"integer=1\",\"group=,\",\"integer=234\",\"decimal=.\",\"fraction=5\"]",
+            "log:en-US 0 3 decimal",
+            "log:7 object [object Intl]",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy16_date_time_format() {
+    let log = run_with_timers(
+        "var t=Date.UTC(2024,0,2,15,4,5,67);\
+         var f=function(o,l){return new Intl.DateTimeFormat(l||'en-US',Object.assign({timeZone:'UTC'},o)).format(t)};\
+         console.log(f({}), f({dateStyle:'short'}), f({dateStyle:'medium'}), f({dateStyle:'long'}), f({dateStyle:'full'}));\
+         console.log(f({timeStyle:'short'}), f({timeStyle:'medium'}), f({timeStyle:'long'}), f({timeStyle:'full'}));\
+         console.log(f({dateStyle:'medium',timeStyle:'short'}), '|', f({dateStyle:'long',timeStyle:'short'}));\
+         console.log(f({year:'numeric',month:'long',day:'numeric'}), f({month:'short',day:'numeric'}), f({year:'numeric',month:'2-digit',day:'2-digit'}), f({weekday:'long'}), f({month:'long',year:'numeric'}));\
+         console.log(f({hour:'numeric',minute:'2-digit',hour12:false}), f({hour:'numeric',hour12:true}), f({hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false}));\
+         console.log(JSON.stringify(new Intl.DateTimeFormat('en-US',{timeZone:'UTC',month:'short',day:'numeric'}).formatToParts(t)));\
+         var r=new Intl.DateTimeFormat('fr-FR').resolvedOptions(); console.log(r.locale, r.timeZone, r.calendar);\
+         var d=new Date(t); console.log(d.toLocaleDateString('en-US',{timeZone:'UTC'}), '|', d.toLocaleTimeString('en-US',{timeZone:'UTC'}), '|', d.toLocaleString('en-US',{timeZone:'UTC'}), '|', d.toLocaleDateString(undefined,{month:'long',day:'numeric'}));\
+         console.log(new Date(NaN).toLocaleString(), (function(){try{new Intl.DateTimeFormat().format(NaN)}catch(e){return e.name}})());",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:1/2/2024 1/2/24 Jan 2, 2024 January 2, 2024 Tuesday, January 2, 2024",
+            "log:3:04 PM 3:04:05 PM 3:04:05 PM UTC 3:04:05 PM Coordinated Universal Time",
+            "log:Jan 2, 2024, 3:04 PM | January 2, 2024 at 3:04 PM",
+            "log:January 2, 2024 Jan 2 01/02/2024 Tuesday January 2024",
+            "log:15:04 3 PM 15:04:05",
+            "log:[{\"type\":\"month\",\"value\":\"Jan\"},{\"type\":\"literal\",\"value\":\" \"},{\"type\":\"day\",\"value\":\"2\"}]",
+            "log:en-US UTC gregory",
+            "log:1/2/2024 | 3:04:05 PM | 1/2/2024, 3:04:05 PM | January 2",
+            "log:Invalid Date RangeError",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy16_plural_relative_list_collator() {
+    let log = run_with_timers(
+        "var pr=new Intl.PluralRules('en'), po=new Intl.PluralRules('en-US',{type:'ordinal'});\
+         console.log(pr.select(0), pr.select(1), pr.select(2), pr.select(1.5), [1,2,3,4,11,12,13,21,22,23,101].map(function(n){return po.select(n)}).join());\
+         var rt=new Intl.RelativeTimeFormat('en'), ra=new Intl.RelativeTimeFormat('en',{numeric:'auto'});\
+         console.log(rt.format(3,'day'), rt.format(-3,'days'), rt.format(1,'hour'), rt.format(-1,'month'), rt.format(2,'year'));\
+         console.log(ra.format(-1,'day'), ra.format(1,'day'), ra.format(0,'day'), ra.format(1,'year'), ra.format(-2,'day'), ra.format(0,'second'));\
+         var lf=function(a,o){return new Intl.ListFormat('en',o).format(a)};\
+         console.log(lf(['a','b','c']), '|', lf(['a','b']), '|', lf(['a']), '|', lf(['a','b','c'],{type:'disjunction'}), '|', lf(['a','b','c'],{style:'short'}), '|', lf(['a','b','c'],{type:'unit',style:'narrow'}));\
+         var co=new Intl.Collator();\
+         console.log(['b','a','C','B','c','A'].sort(co.compare).join(''), co.compare('a','b'), co.compare('b','a'), co.compare('a','a'), 'a'.localeCompare('B'), 'résumé'.localeCompare('resume'));\
+         console.log(['a10','a2','a1'].sort(new Intl.Collator(undefined,{numeric:true}).compare).join(), ['a10','a2','a1'].sort(new Intl.Collator().compare).join(), new Intl.Collator('en',{sensitivity:'base'}).compare('a','Á'));",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:other one other other one,two,few,other,other,other,other,one,two,few,one",
+            "log:in 3 days 3 days ago in 1 hour 1 month ago in 2 years",
+            "log:yesterday tomorrow today next year 2 days ago now",
+            "log:a, b, and c | a and b | a | a, b, or c | a, b, & c | a b c",
+            "log:aAbBcC -1 1 0 -1 1",
+            "log:a1,a2,a10 a1,a10,a2 0",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy16_locale_fallback_and_misc_apis() {
+    let log = run_with_timers(
+        "var mk=[Intl.NumberFormat,Intl.DateTimeFormat,Intl.PluralRules,Intl.RelativeTimeFormat,Intl.ListFormat,Intl.Collator,Intl.Segmenter];\
+         console.log(mk.map(function(F){return new F('de-DE-u-nu-latn').resolvedOptions().locale}).join());\
+         console.log(mk.map(function(F){return new F(['xx','ja'],{bogusOption:1}).resolvedOptions().locale}).join());\
+         try { new Intl.NumberFormat('en_US') } catch (e) { console.log(e.name) }\
+         try { new Intl.NumberFormat('') } catch (e) { console.log(e.name) }\
+         console.log(Intl.getCanonicalLocales('EN-us').join(), JSON.stringify(Intl.supportedValuesOf('currency')), Intl.NumberFormat.supportedLocalesOf(['en-GB','de']).join());\
+         var l=new Intl.Locale('en-Latn-US'); console.log(l.language, l.script, l.region, l.baseName, String(l), new Intl.Locale('fr').maximize().toString(), new Intl.Locale('en-Latn-US').minimize().toString(), new Intl.Locale('en-US-u-hc-h23').hourCycle);\
+         console.log(new Intl.DisplayNames('en',{type:'region'}).of('US'), Array.from(new Intl.Segmenter('en').segment('a\\u0301b')).length, Array.from(new Intl.Segmenter('en',{granularity:'word'}).segment('Hi there!')).filter(function(s){return s.isWordLike}).map(function(s){return s.segment}).join());\
+         console.log((1234.5).toLocaleString(), (1234.5).toLocaleString('en-US',{style:'currency',currency:'USD'}), (0.5).toLocaleString(undefined,{style:'percent'}), [1234,5].toLocaleString(), (12345678901234567890n).toLocaleString());",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:en-US,en-US,en-US,en-US,en-US,en-US,en-US",
+            "log:en-US,en-US,en-US,en-US,en-US,en-US,en-US",
+            "log:RangeError",
+            "log:RangeError",
+            "log:en-US [] en-GB",
+            "log:en Latn US en-Latn-US en-Latn-US fr-Latn-FR en h23",
+            "log:US 2 Hi,there",
+            "log:1,234.5 $1,234.50 50% 1,234,5 12,345,678,901,234,567,890",
+        ],
+        "{log:?}"
+    );
+}
