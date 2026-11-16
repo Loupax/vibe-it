@@ -241,7 +241,7 @@ R22 copies and paste the before/after numbers in the commit.
       error format (it must not throw). Tests for each method and the
       form log. Payoff: FormData refs gh 24, bbc 18, guardian 5. None
       were used at startup, so it is cheap safety only.
-- [x] QF4 HASH [S] DONE `Headers`, `Request`, `Response` data classes and a
+- [x] QF4 3781057 [S] DONE `Headers`, `Request`, `Response` data classes and a
       minimal `ReadableStream` (fetch_prelude.js; needs QF1-QF3; no
       network).
       Headers: guards none/request/response/immutable. Name must be an
