@@ -10979,3 +10979,60 @@ fn qy12_media_interfaces_are_inert_placeholders() {
     assert!(out.iter().filter(|l| l.starts_with("error:") && l.contains("not implemented")).count() >= 3, "{out:?}");
     assert!(out.iter().any(|l| l == "log:rejected NotSupportedError"), "{out:?}");
 }
+
+// ---------- QY13: history, AbortController, MessageChannel, storage, ... ----------
+
+#[test]
+fn qy13_history_push_replace() {
+    set_page_url(Url::parse("https://page.test/dir/index.html").ok().as_ref());
+    let log = run_with_timers(
+        "var n0=history.length; history.pushState({a:1},'','/p?q=1#h');\
+         console.log(n0, history.length, JSON.stringify(history.state), location.pathname, location.search, location.hash, document.URL.indexOf('/p?q=1#h')>0);\
+         history.replaceState({b:2},'','/r'); console.log(history.length, history.state.b, location.pathname, history.scrollRestoration);\
+         window.addEventListener('popstate', function(e){ console.log('pop', e.state, location.pathname); });\
+         history.back();",
+    );
+    assert_eq!(log, ["log:1 2 {\"a\":1} /p ?q=1 #h true", "log:2 2 /r auto", "log:pop null /dir/index.html"], "{log:?}");
+    set_page_url(None);
+}
+
+#[test]
+fn qy13_abort_controller() {
+    let log = run_with_timers(
+        "var c=new AbortController(), n=0; c.signal.addEventListener('abort',()=>n++); c.signal.onabort=()=>n+=10;\
+         console.log(c.signal.aborted); c.abort('why'); c.abort('again');\
+         console.log(c.signal.aborted, c.signal.reason, n);\
+         try { c.signal.throwIfAborted(); } catch (e) { console.log('threw', e); }\
+         console.log(AbortSignal.abort().reason.name);\
+         var t=AbortSignal.timeout(5); t.onabort=()=>console.log('timeout', t.reason.name);\
+         var a=new AbortController(); var any=AbortSignal.any([a.signal]); a.abort(); console.log(any.aborted);",
+    );
+    assert_eq!(log, ["log:false", "log:true why 11", "log:threw why", "log:AbortError", "log:true", "log:timeout TimeoutError"], "{log:?}");
+}
+
+#[test]
+fn qy13_message_channel_and_post_message() {
+    let log = run_with_timers(
+        "var ch=new MessageChannel(); ch.port1.onmessage=function(e){console.log('port', e.data.x)};\
+         ch.port2.postMessage({x:5}); console.log('sync');\
+         window.addEventListener('message', function(e){ console.log('win', e.data, e.source===window); });\
+         window.postMessage('hi','*'); window.postMessage('no','http://other.example');\
+         setTimeout(()=>console.log('t10'),10);",
+    );
+    assert_eq!(log, ["log:sync", "log:port 5", "log:win hi true", "log:t10"], "{log:?}");
+}
+
+#[test]
+fn qy13_storage_and_misc() {
+    let log = run_with_timers(
+        "localStorage.setItem('a',1); localStorage.b='two'; sessionStorage.setItem('c','3');\
+         console.log(localStorage.getItem('a'), localStorage.a, localStorage.length, localStorage.key(1), localStorage.getItem('zz'), sessionStorage.length);\
+         delete localStorage.a; localStorage.removeItem('b'); console.log(localStorage.length); localStorage.clear();\
+         var o=structuredClone({d:new Date(5),m:new Map([[1,2]]),s:new Set([1]),arr:[1,{z:2}]}); console.log(o.d.getTime(), o.m.get(1), o.s.has(1), o.arr[1].z);\
+         try { structuredClone(function(){}) } catch(e) { console.log(e.name) }\
+         queueMicrotask(()=>console.log('micro')); console.log('sync');\
+         requestIdleCallback(function(d){ console.log('idle', d.didTimeout, typeof d.timeRemaining()); });\
+         var id=requestIdleCallback(function(){console.log('never')}); cancelIdleCallback(id);",
+    );
+    assert_eq!(log, ["log:1 1 2 b null 1","log:0", "log:5 2 true 2", "log:DataCloneError", "log:sync", "log:micro", "log:idle false number"], "{log:?}");
+}
