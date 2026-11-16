@@ -10466,3 +10466,42 @@ fn qa18a_import_and_adopt_node_and_create_document_type() {
         "{log:?}"
     );
 }
+
+// ---------- QA18b: iframe.contentDocument / contentWindow ----------
+
+#[test]
+fn qa18b_iframe_content_document_and_window() {
+    let log = run_with_timers(
+        "var f=document.createElement('iframe');\
+         console.log(f.contentDocument, f.contentWindow);\
+         f.onload=function(){ console.log('onload', this===f); };\
+         f.addEventListener('load', function(){ console.log('listener'); });\
+         document.body.appendChild(f);\
+         var d=f.contentDocument; var w=f.contentWindow;\
+         console.log(d!==document, d.nodeType, d.documentElement.tagName, d.body.tagName, d.head.tagName,\
+           w.document===d, d.defaultView===w, w.parent===window, w.top===window, w.frameElement===f, f.contentDocument===d);\
+         var e=d.createElement('p'); d.body.appendChild(e); console.log(d.getElementsByTagName('p').length, document.getElementsByTagName('p').length, e.ownerDocument===d);\
+         var n=document.createElement('iframe'); n.src='http://example.org/x.html'; document.body.appendChild(n);\
+         console.log(n.contentDocument, n.contentWindow);\
+         var u=document.createElement('iframe'); u.setAttribute('src','about:blank'); document.body.appendChild(u);\
+         var dd=document.createElement('iframe'); dd.src='data:text/html,hi'; document.body.appendChild(dd);\
+         console.log(u.contentDocument.nodeType, dd.contentDocument.nodeType, f instanceof HTMLIFrameElement);\
+         var r=document.createElement('iframe'); document.body.appendChild(r); document.body.removeChild(r); console.log(r.contentDocument);\
+         console.log('sync-end');",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:null null",
+            "log:true 9 HTML BODY HEAD true true true true true true",
+            "log:1 0 true",
+            "log:null null",
+            "log:9 9 true",
+            "log:null",
+            "log:sync-end",
+            "log:listener",
+            "log:onload true",
+        ],
+        "{log:?}"
+    );
+}
