@@ -348,6 +348,27 @@ IntersectionObserver and matchMedia are not used by any of the site's scripts.
       but its cursor (`cursor` highlight) and search hits (`find`) are
       invisible; layout.html styles both. Also `caretPositionFromPoint`
       (click-to-move-cursor; feature-detected, silently does nothing).
+- [ ] QW4 [M] (P1, user bug report 2026-11-16) Horizontal margin and padding on
+      INLINE (non-replaced) elements are ignored, so adjacent links run together
+      (social.loupax.com/discover: "HomeDiscover", tag cloud with no gaps; the
+      markup has no whitespace, spacing is CSS only: `nav a{margin-right:.75rem}`,
+      `.tags a{margin-right:.5rem;white-space:nowrap}`). Repro: `<style>a{margin-right:2rem;
+      padding:0 1rem;background:#cde}</style><p><a>one</a><a>two</a><a>three</a></p>`.
+      Look in src/layout.rs measure_mixed_inline / inline items and src/images.rs
+      collect_real_children: the element's own margin/padding/border width must
+      add to the line advance before and after its content (nowrap: no break
+      inside). Related: QW3a (inline borders/vertical padding paint), Q59q.
+      Acceptance: unit test with the repro, WPT no pass->fail, before/after
+      screenshots of social.loupax.com/discover, wikipedia.org, en.wikipedia
+      Main_Page, news.ycombinator.com.
+- [ ] QW5 [S] (P1, user bug report 2026-11-16) The HTML `hidden` attribute is not
+      honoured: src/default.css has no `[hidden]` rule. social.loupax.com marks its
+      tag list `<p class="tags" id="vimpagetags" hidden>` (never meant to show; vim.js
+      reads it via querySelectorAll, so it must stay in the DOM). Fix: UA rule
+      `[hidden]:not([hidden=until-found i]){display:none}` at UA origin (an author
+      `display:` still wins), `el.hidden=false` un-hides (restyle). Tests: hidden <p>
+      not laid out; author display overrides; JS toggle re-lays-out.
+
 - [ ] QW6 [S] (P2, CSS, visible on the user's site) The canvas background
       does not come from `<body>`: CSS backgrounds 3 2.11.2 says when the
       root element has no background, the body's background paints the
