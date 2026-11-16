@@ -495,7 +495,7 @@ R22 copies and paste the before/after numbers in the commit.
       Tests: a fake transport seam (a closure in place of wire) drives
       deliver_net; a stale generation is dropped; a blocked URL never
       reaches the transport; the report lists a request.
-- [x] QF8 HASH [S] DONE `fetch()`: pure JS in src/fetch_prelude.js over `__net_request`
+- [x] QF8 37b5621 [S] DONE `fetch()`: pure JS in src/fetch_prelude.js over `__net_request`
       (QF7). Request (QF4) validates; `data:` is decoded in JS and `blob:` read from
       the QF2 store, both without the network or the policy; http(s)/file: go to
       `__net_request` (policy, CORS, beacons, opaque no-cors, Set-Cookie hidden all
