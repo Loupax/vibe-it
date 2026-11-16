@@ -3152,3 +3152,5 @@ sibling table parts (plus whitespace/script/`display:none`) into a run and
 emits one anonymous `Display::Table` box around `build_table_nodes` of it.
 Real `<table>` markup takes the same paths unchanged. `paint_buffer` also
 adds the fractional part of the run's x origin to each glyph position.
+
+`document.write` (QA13): `__scratchy_cs` also resets a per-script insertion point; `document.write` parses its argument as a fragment in the context of the current script's parent (`parse_fragment_in`, shared with innerHTML) and splices the nodes after the script (then after the previous write's last node). Not stream-parsed: split tags across writes are not joined, written `<script>`s do not execute, after load it is a warned no-op.

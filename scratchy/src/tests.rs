@@ -9191,6 +9191,55 @@ fn qb9_write_line_to_writes_text_and_newline() {
     assert_eq!(buf, b"usage: scratchy [file|url]\n");
 }
 
+// ---------- QA13: document.write / writeln during page load ----------
+
+fn qa13_run(html: &str) -> Vec<String> {
+    let (_engine, out) = qb8_start(html);
+    let v = out.borrow().clone();
+    v
+}
+
+#[test]
+fn qa13_write_inserts_after_the_running_script() {
+    let out = qa13_run(
+        "<html><body><p id=a>x<script>document.write('<b id=w>hi</b>')</script><i id=z></i></p>\
+         <script>var s=document.getElementById('a').getElementsByTagName('script')[0];\
+         console.log(s.nextSibling.id, s.nextSibling.textContent, s.nextSibling.nextSibling.id);</script></body></html>",
+    );
+    assert_eq!(out, ["log:w hi z"]);
+}
+
+#[test]
+fn qa13_two_scripts_each_write_and_consecutive_writes_keep_order() {
+    let out = qa13_run(
+        "<html><body><script>document.write('<u id=a1></u>'); document.write('<u id=a2></u>', '<u id=a3></u>')</script>\
+         <script>document.write('<u id=b1></u>')</script>\
+         <script>console.log(Array.prototype.map.call(document.body.children, function(e){return e.id||e.tagName}).join())</script></body></html>",
+    );
+    assert_eq!(out, ["log:SCRIPT,a1,a2,a3,SCRIPT,b1,SCRIPT"]);
+}
+
+#[test]
+fn qa13_write_inside_head_and_writeln() {
+    let out = qa13_run(
+        "<html><head><script>document.writeln('<meta id=m name=k>'); document.write('<meta id=n>')</script></head>\
+         <body><script>var m=document.getElementById('m'); console.log(document.head.children.length, m.nextSibling.nodeType, m.nextSibling.data === '\\n');</script></body></html>",
+    );
+    assert_eq!(out, ["log:3 3 true"]);
+}
+
+#[test]
+fn qa13_write_after_load_is_ignored_with_a_warning() {
+    let (engine, out) = qb8_start(
+        "<body><script>setTimeout(function(){ document.write('<b id=late></b>'); console.log(String(document.getElementById('late'))); }, 0)</script></body>",
+    );
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    engine.run_due();
+    let out = out.borrow();
+    assert!(out.iter().any(|l| l.contains("ignored")), "{out:?}");
+    assert!(out.iter().any(|l| l == "log:null"), "{out:?}");
+}
+
 // ---------- QB8: document.currentScript, named eval frames ----------
 
 fn qb8_start(html: &str) -> (JsEngine, Rc<RefCell<Vec<String>>>) {
