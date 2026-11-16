@@ -2983,7 +2983,7 @@ into the commit message of every JS item.
 - [ ] QA10b [S] Leading block/inline content in a table before the first cell
       (no cell yet) is still stacked, not wrapped in an anonymous row+cell;
       `display:table-caption` and real `<caption>` keep their special path.
-- [ ] QA11 [M] Promoted for Acid2 lines 10-12: do Q48b then Q74 now (the
+- [x] QA11 [M] (DONE, PR #162, after QA11a/PR #167; Q74 was already done by Q48d; Acid2 smile moved up 60px, remaining offset is other items) Promoted for Acid2 lines 10-12: do Q48b then Q74 now (the
       `.empty` block collapses `75, -72, 75` margins through itself, then
       `.smile` gets negative clearance; in the REGRESSIONS.md "Acid2"
       repro the smile's top lands at y=168 instead of y=37). Tick Q48b and
@@ -3617,7 +3617,7 @@ Not vendored; pass the path to the runner.
       float bottom (CSS2.1 9.5.2); the engine moves the margin edge and then
       adds margin-top. Test `clearance_prevents_sibling_margin_collapse` pins
       the current 80 (correct is 50). WPT: `clear-clearance-calculation-*`.
-- [ ] Q48b [M] (promoted: QA11, Acid2) After Q48a: margins collapse through empty blocks (no height,
+- [x] Q48b [M] (DONE in PR #162/QA11) (promoted: QA11, Acid2) After Q48a: margins collapse through empty blocks (no height,
       padding, border, in-flow content, min-height; `height:auto` or `0`),
       including the empty block's own top and bottom margins. WPT:
       `margin-collapse-through-zero-height-block`, `margin-collapse-012`/`-022`.
@@ -3911,7 +3911,7 @@ Not vendored; pass the path to the runner.
 - [ ] Q73 [S] `display:inline-grid` / `inline-flex` are inline-level (W50): a
       following `inline-block` sits beside them (shrink-to-fit, baseline
       aligned). WPT: `grid-model/*-inline-*`, `display-inline-grid`.
-- [ ] Q74 [S] (promoted: QA11, Acid2) Clearance (W53): a cleared block's margin-top is absorbed by
+- [x] Q74 [S] (DONE, Q48d + QA11) (promoted: QA11, Acid2) Clearance (W53): a cleared block's margin-top is absorbed by
       clearance; its top border edge is the float's bottom (plus any
       excess margin). WPT: `clear-clearance-calculation-*` (needs Q48a for
       the collapsing cases).
