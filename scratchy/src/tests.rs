@@ -5509,6 +5509,74 @@ fn scrollbar_paints_for_scroll_even_when_not_overflowing_but_auto_only_paints_wh
     );
 }
 
+#[test]
+fn qy20_visibility_hidden_scroll_container_paints_no_scrollbar_and_takes_no_wheel() {
+    // bbc.com/news: a drawer with `visibility:hidden` holds an
+    // `overflow-y:scroll` child. Real CSS: the hidden box is painted
+    // as if transparent and is not a hit-test target, so its own
+    // scrollbar must not paint and the wheel must not scroll it. A
+    // descendant with `visibility:visible` still does both.
+    let mut font_system = new_font_system();
+    let mut swash_cache = SwashCache::new();
+    let mut cache = ShapeCache::new();
+    let (win_w, win_h) = (200u32, 260u32);
+    let has_scrollbar_pixel = |pixels: &[u32], box_right: f32, box_top: f32, box_bottom: f32| {
+        let x = (box_right - 4.0) as u32;
+        (box_top as u32..box_bottom as u32).any(|y| pixels[(y * win_w + x) as usize] != 0x00FFFFFF)
+    };
+    let mut paint_white = |laid: &Laid| {
+        let mut pixels = vec![0x00FFFFFFu32; (win_w * win_h) as usize];
+        paint(laid, &mut font_system, &mut swash_cache, &mut cache, &HashMap::new(), &mut pixels, win_w, win_h, 0.0, None);
+        pixels
+    };
+
+    // Control: the same box, visible, paints its scrollbar and takes the wheel.
+    let visible = measure_fixture(
+        r#"<html><body><div style="overflow-y: scroll; height: 200px; width: 100px;">short</div></body></html>"#,
+        400.0,
+    );
+    let vbox = find_laid_with_scroll(&visible).expect("overflow-y: scroll box not found");
+    let pixels = paint_white(&visible);
+    assert!(
+        has_scrollbar_pixel(&pixels, vbox.x + vbox.w, vbox.y, vbox.y + vbox.h),
+        "a visible overflow-y: scroll box must still paint its scrollbar"
+    );
+    assert!(
+        hit_test_scroll_region(&visible, vbox.x + 10.0, vbox.y + 10.0, &HashMap::new(), 0.0, 600.0).is_some(),
+        "a visible scroll box must still take the wheel under the cursor"
+    );
+
+    // The same box under `visibility: hidden` (inherited by its
+    // content): no scrollbar pixels, and the wheel does not land on it.
+    let hidden = measure_fixture(
+        r#"<html><body><div style="visibility: hidden; overflow-y: scroll; height: 200px; width: 100px;"><div style="height: 500px"></div></div></body></html>"#,
+        400.0,
+    );
+    let hbox = find_laid_with_scroll(&hidden).expect("hidden overflow-y: scroll box not found");
+    let pixels = paint_white(&hidden);
+    assert!(
+        !has_scrollbar_pixel(&pixels, hbox.x + hbox.w, hbox.y, hbox.y + hbox.h),
+        "a visibility:hidden scroll container must not paint its scrollbar"
+    );
+    assert!(
+        hit_test_scroll_region(&hidden, hbox.x + 10.0, hbox.y + 10.0, &HashMap::new(), 0.0, 600.0).is_none(),
+        "a visibility:hidden scroll container must not take the wheel"
+    );
+
+    // A `visibility: visible` scroll box nested inside the hidden one
+    // overrides the inherited value: its own scrollbar paints again.
+    let nested = measure_fixture(
+        r#"<html><body><div style="visibility: hidden; height: 200px; width: 100px;"><div style="visibility: visible; overflow-y: scroll; height: 200px; width: 100px;">short</div></div></body></html>"#,
+        400.0,
+    );
+    let nbox = find_laid_with_scroll(&nested).expect("nested overflow-y: scroll box not found");
+    let pixels = paint_white(&nested);
+    assert!(
+        has_scrollbar_pixel(&pixels, nbox.x + nbox.w, nbox.y, nbox.y + nbox.h),
+        "a visibility:visible scroll box inside a hidden ancestor must still paint its scrollbar"
+    );
+}
+
 // ---------- v64: `@media` (min-width/max-width, and/comma lists, print, viewport resize) ----------
 
 /// Walks the tree for the first box whose own resolved style declares

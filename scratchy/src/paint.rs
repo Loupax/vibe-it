@@ -1921,8 +1921,10 @@ pub(crate) fn paint_inner(
     // *ambient* `clip`, not `child_clip`, same treatment the background/
     // border decoration above gets. `Scroll` always shows it; `Auto`
     // only once content actually overflows (see `paint_scrollbar`'s own
-    // docs for the real difference between the two keywords).
-    if let Some(info) = &laid.scroll {
+    // docs for the real difference between the two keywords). QY20: a
+    // `visibility: hidden` box paints no chrome, so its scrollbar is
+    // skipped too (its visible descendants still paint normally).
+    if let Some(info) = laid.scroll.as_ref().filter(|_| s.visibility == Visibility::Visible) {
         paint_scrollbar(
             info, own_scroll, s.overflow == Overflow::Scroll, pixels, win_w, win_h, laid.x, draw_y, laid.w, laid.h,
             clip,
@@ -2248,7 +2250,9 @@ pub(crate) fn hit_test_scroll_region(
         return None;
     }
     let inside = x >= laid.x && x < laid.x + laid.w && y >= laid.y && y < laid.y + laid.h;
-    let self_info = if inside { laid.scroll } else { None };
+    // QY20: a `visibility: hidden` box is not a hit-test target (CSS),
+    // so the wheel never lands on it; its visible descendants still do.
+    let self_info = if inside && laid.style.visibility == Visibility::Visible { laid.scroll } else { None };
     let (LaidContent::Blocks(children) | LaidContent::TableRow(children)) = &laid.content else {
         return self_info;
     };
