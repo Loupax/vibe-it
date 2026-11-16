@@ -1025,7 +1025,7 @@ WAITING FOR USER (design first): skip these.
         then stop the running wire (pgrep -x wire; kill <that PID>) and start it again
         with the same command as before (e.g. `wire &`); add `--no-cookies` only
         as a kill switch. The jar is memory only: it is lost on every restart.
-- [x] QF14b-scratchy (HASH) [S] The scratchy half of QF14 (needs the wire above,
+- [x] QF14b-scratchy (bc2fb00) [S] The scratchy half of QF14 (needs the wire above,
       version 3). (1) Send `X-Wire-Jar: scratchy` and
       `X-Wire-Top-Site: <scheme://registrable-domain of the top-level page>` on
       ALL requests through wire (navigations, images, stylesheets, scripts,
