@@ -1299,7 +1299,7 @@ into the commit message of every JS item.
       by hand the harness goes 28 -> 36 (T14-T17, T48, T55, T63, T65).
       Test: `<p id=a><script>document.write('<b id=w>x</b>')</script>`
       gives `#w` as the script's next sibling.
-      DONE (HASH): each write parsed immediately (no concatenation); after
+      DONE (a37ac9d): each write parsed immediately (no concatenation); after
       load / outside a script: console.warn and ignored.
 - [ ] QA13a [S] (P3, JS) Leftovers of QA13: concatenate writes before
       parsing (a tag split across two `write` calls), execute `<script>`
