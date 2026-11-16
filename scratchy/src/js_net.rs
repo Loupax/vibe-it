@@ -184,6 +184,88 @@ struct NetMeta {
     immediate: bool,
     started: Instant,
     entry: usize,
+    /// QF13: this request was preceded by a CORS preflight: wire is told not
+    /// to follow redirects (a 3xx fails closed, see `finish`).
+    preflighted: bool,
+}
+
+/// QF13: a request that waits for its preflight (or is about to be sent).
+#[derive(Debug, Clone)]
+struct Prepared {
+    id: u64,
+    method: String,
+    url: Url,
+    /// Page headers plus `Origin`, the cap headers and the cookie headers.
+    headers: Vec<(String, String)>,
+    body: Vec<u8>,
+    sync_ms: Option<u64>,
+}
+
+/// QF13: a preflight in flight, keyed by the preflight job's id.
+struct PfPending {
+    actual: Prepared,
+    /// Its own `--js-report` line.
+    entry: usize,
+    key: String,
+    unsafe_headers: Vec<String>,
+    origin: String,
+    credentials: bool,
+}
+
+/// What to do after a preflight answered.
+enum PfStep {
+    /// Allowed: send this (the actual request).
+    Go(NetJob),
+    /// Denied or failed: the actual request's failure (`None`: the page had
+    /// already aborted it).
+    Fail(Option<Completion>),
+}
+
+/// QF13: the in-memory preflight cache. Key: origin, URL, method, sorted
+/// non-safelisted header names and the credentials flag (exactly, not by
+/// subset). Values are expiry times in milliseconds on the engine's clock
+/// (the manual clock in tests). Nothing is persisted (QF-D7).
+#[derive(Debug, Default)]
+pub(crate) struct PreflightCache {
+    map: HashMap<String, f64>,
+}
+
+impl PreflightCache {
+    pub(crate) fn key(origin: &str, url: &Url, method: &str, unsafe_headers: &[String], credentials: bool) -> String {
+        format!("{origin}\n{url}\n{method}\n{}\n{}", unsafe_headers.join(","), if credentials { "include" } else { "omit" })
+    }
+
+    pub(crate) fn hit(&mut self, key: &str, now_ms: f64) -> bool {
+        match self.map.get(key) {
+            Some(&exp) if exp > now_ms => true,
+            Some(_) => {
+                self.map.remove(key);
+                false
+            }
+            None => false,
+        }
+    }
+
+    /// `max_age_secs == 0` is not cached. A full cache first drops expired
+    /// entries, then the one that expires soonest.
+    pub(crate) fn insert(&mut self, key: String, now_ms: f64, max_age_secs: u64, max_entries: usize) {
+        if max_age_secs == 0 || max_entries == 0 {
+            return;
+        }
+        if !self.map.contains_key(&key) && self.map.len() >= max_entries {
+            self.map.retain(|_, exp| *exp > now_ms);
+            while self.map.len() >= max_entries {
+                let Some(oldest) = self.map.iter().min_by(|a, b| a.1.total_cmp(b.1)).map(|(k, _)| k.clone()) else { break };
+                self.map.remove(&oldest);
+            }
+        }
+        self.map.insert(key, now_ms + max_age_secs as f64 * 1000.0);
+    }
+
+    #[cfg(test)]
+    pub(crate) fn len(&self) -> usize {
+        self.map.len()
+    }
 }
 
 /// One line of the `--js-report` network section.
@@ -231,6 +313,14 @@ pub(crate) struct NetState {
     /// QF14b: a `document.cookie` control call failed: `''` for the rest of
     /// the page (the engine thread must not keep blocking).
     cookie_broken: bool,
+    /// QF13: preflights in flight (by the preflight job's id), the cache, the
+    /// actual requests a finished preflight released (the engine moves them
+    /// into `JsRequests.net`) and the clock the cache expires on.
+    preflights: HashMap<u64, PfPending>,
+    pub(crate) pf_cache: PreflightCache,
+    released: Vec<NetJob>,
+    clock: Option<Rc<std::cell::Cell<f64>>>,
+    base: Instant,
 }
 
 /// Response headers a `cors` response always exposes to the page.
@@ -265,7 +355,30 @@ impl NetState {
             entries: Vec::new(),
             support: cookie_support(),
             cookie_broken: false,
+            preflights: HashMap::new(),
+            pf_cache: PreflightCache::default(),
+            released: Vec::new(),
+            clock: None,
+            base: Instant::now(),
         }
+    }
+
+    /// Tests drive the preflight cache's expiry with the engine's manual clock.
+    pub(crate) fn with_clock(mut self, clock: Option<Rc<std::cell::Cell<f64>>>) -> Self {
+        self.clock = clock;
+        self
+    }
+
+    fn now_ms(&self) -> f64 {
+        match &self.clock {
+            Some(c) => c.get(),
+            None => self.base.elapsed().as_secs_f64() * 1000.0,
+        }
+    }
+
+    /// The actual requests that finished preflights released.
+    pub(crate) fn take_released(&mut self) -> Vec<NetJob> {
+        std::mem::take(&mut self.released)
     }
 
     /// QF14b: one synchronous `document.cookie` control call (`get` returns
@@ -347,6 +460,7 @@ impl NetState {
                 immediate: true,
                 started: Instant::now(),
                 entry,
+                preflighted: false,
             },
         );
         self.queue_immediate(id, Err(NetError::BadRequest(reason)), d.sync, reqs);
@@ -436,6 +550,7 @@ impl NetState {
             immediate: false,
             started: Instant::now(),
             entry,
+            preflighted: false,
         };
         if self.policy.suppress_beacon(beacon) {
             let ct = headers.iter().find(|(n, _)| n.eq_ignore_ascii_case("content-type")).map(|(_, v)| v.as_str());
@@ -449,48 +564,43 @@ impl NetState {
             self.queue_immediate(id, Ok(WireResponse::default()), d.sync, reqs);
             return id;
         }
-        if kind == (FetchKind::Cors { preflight: true }) {
-            self.refuse(id, &d, entry, "CORS preflight is not implemented (QF13 preflight)".into(), reqs);
-            return id;
-        }
         if d.body.len() > self.policy.max_in_flight_bytes {
             let msg = format!("request body is too large ({} bytes, limit {})", d.body.len(), self.policy.max_in_flight_bytes);
             self.refuse(id, &d, entry, msg, reqs);
             return id;
         }
+        let preflighted = kind == (FetchKind::Cors { preflight: true });
+        let unsafe_headers = cors_unsafe_request_headers(&headers);
         let mut wire_headers = headers;
         if matches!(kind, FetchKind::Cors { .. }) {
             wire_headers.push(("Origin".into(), origin_header(&page)));
         }
         let sync_ms = d.sync.then_some(self.policy.sync_xhr_timeout_ms);
-        wire_headers.extend(
-            self.policy
-                .wire_cap_headers(sync_ms)
-                .into_iter()
-                // wire refuses private targets outright with `public-only`:
-                // only ask for it when the policy blocks them (Warn/Allow
-                // want to reach them, and to hear the target class).
-                .filter(|(n, _)| n != WIRE_HEADER_POLICY || self.policy.private_targets == PrivatePolicy::Block),
-        );
+        wire_headers.extend(self.cap_headers(sync_ms));
+        if preflighted {
+            // wire must not follow a redirect of a preflighted request (it
+            // could not be re-preflighted): a 3xx comes back and fails closed.
+            wire_headers.retain(|(n, _)| n != WIRE_HEADER_MAX_REDIRECTS);
+            wire_headers.push((WIRE_HEADER_MAX_REDIRECTS.to_string(), "0".to_string()));
+        }
         // QF14b: the Fetch spec's credentials mode decides whether the jar is used.
         let cookie_headers = wire_cookie_headers_with(self.support, &CookieContext::fetch(&page, parse_credentials(&d.credentials), is_same_origin(&page, &url)));
         self.entries[entry].jar = cookie_headers.iter().any(|(n, _)| n == WIRE_HEADER_JAR);
         wire_headers.extend(cookie_headers);
-        let request = match build_wire_request(&d.method, &url, &wire_headers, &d.body) {
-            Ok(r) => r,
-            Err(e) => {
-                self.refuse(id, &d, entry, e.to_string(), reqs);
+        meta.preflighted = preflighted;
+        let prepared = Prepared { id, method: d.method.clone(), url: url.clone(), headers: wire_headers, body: d.body.clone(), sync_ms };
+        if preflighted {
+            self.meta.insert(id, meta);
+            self.start_preflight(prepared, entry, unsafe_headers, &page, credentials, &d, reqs);
+            return id;
+        }
+        let job = match self.release(&prepared, None) {
+            Ok(j) => j,
+            Err(msg) => {
+                self.refuse(id, &d, entry, msg, reqs);
                 return id;
             }
         };
-        let mut limits = self.policy.wire_limits();
-        if let Some(ms) = sync_ms {
-            let t = Duration::from_millis(ms);
-            limits.read_timeout = t;
-            limits.connect_timeout = limits.connect_timeout.min(t);
-        }
-        self.sent += 1;
-        let job = NetJob { id, request, limits, reserve: d.body.len() };
         self.meta.insert(id, meta);
         if d.sync {
             self.note(&format!("sync {} {url}: blocking the page for up to {} ms", d.method, self.policy.sync_xhr_timeout_ms));
@@ -504,8 +614,198 @@ impl NetState {
         id
     }
 
+    /// The cap headers of the policy (QF6). wire refuses private targets
+    /// outright with `public-only`: only ask for it when the policy blocks
+    /// them (Warn/Allow want to reach them, and to hear the target class).
+    fn cap_headers(&self, timeout_ms: Option<u64>) -> Vec<(String, String)> {
+        self.policy
+            .wire_cap_headers(timeout_ms)
+            .into_iter()
+            .filter(|(n, _)| n != WIRE_HEADER_POLICY || self.policy.private_targets == PrivatePolicy::Block)
+            .collect()
+    }
+
+    /// Builds the job of a prepared request and counts it toward the per-page
+    /// cap. `remaining_ms` (sync, after a preflight) shortens its timeout so
+    /// preflight + request stay within `sync_xhr_timeout_ms`.
+    fn release(&mut self, p: &Prepared, remaining_ms: Option<u64>) -> Result<NetJob, String> {
+        if self.sent >= self.policy.max_requests_per_page {
+            return Err(format!("too many requests from this page (limit {})", self.policy.max_requests_per_page));
+        }
+        let mut headers = p.headers.clone();
+        if let Some(ms) = remaining_ms {
+            headers.retain(|(n, _)| n != WIRE_HEADER_TIMEOUT_MS);
+            headers.push((WIRE_HEADER_TIMEOUT_MS.to_string(), ms.to_string()));
+        }
+        let request = build_wire_request(&p.method, &p.url, &headers, &p.body).map_err(|e| e.to_string())?;
+        let mut limits = self.policy.wire_limits();
+        if let Some(ms) = remaining_ms.or(p.sync_ms) {
+            let t = Duration::from_millis(ms);
+            limits.read_timeout = t;
+            limits.connect_timeout = limits.connect_timeout.min(t);
+        }
+        self.sent += 1;
+        Ok(NetJob { id: p.id, request, limits, reserve: p.body.len() })
+    }
+
+    /// QF13: the CORS preflight. Cache hit: the actual request goes at once.
+    /// Otherwise an `OPTIONS` job (no cookies, no body) is sent first and the
+    /// actual request is released by `preflight_done`. Sync requests do both
+    /// inside this call.
+    #[allow(clippy::too_many_arguments)]
+    fn start_preflight(
+        &mut self,
+        actual: Prepared,
+        actual_entry: usize,
+        unsafe_headers: Vec<String>,
+        page: &Url,
+        credentials: bool,
+        d: &SendDesc,
+        reqs: &mut js_dom::JsRequests,
+    ) {
+        let id = actual.id;
+        let origin = origin_header(page);
+        let key = PreflightCache::key(&origin, &actual.url, &actual.method, &unsafe_headers, credentials);
+        let hdrs = if unsafe_headers.is_empty() { "none".to_string() } else { unsafe_headers.join(",") };
+        let t0 = Instant::now();
+        if self.pf_cache.hit(&key, self.now_ms()) {
+            self.note(&format!("preflight cache hit: OPTIONS {} for {} (headers: {hdrs}), not sent", actual.url, actual.method));
+            self.entries.push(NetEntry {
+                method: "OPTIONS (preflight)".into(),
+                url: actual.url.to_string(),
+                outcome: "cache hit (not sent)".into(),
+                bytes: 0,
+                elapsed_ms: Some(0),
+                warnings: vec![],
+                jar: false,
+            });
+            match self.release(&actual, None) {
+                Ok(job) => {
+                    if d.sync {
+                        self.note(&format!("sync {} {}: blocking the page for up to {} ms", d.method, actual.url, self.policy.sync_xhr_timeout_ms));
+                        let r = self.executor.execute(&job);
+                        if let Some(c) = self.finish(id, r) {
+                            self.sync_results.insert(id, c);
+                        }
+                    } else {
+                        reqs.net.push(job);
+                    }
+                }
+                Err(msg) => self.refuse(id, d, actual_entry, msg, reqs),
+            }
+            return;
+        }
+        let pid = self.next_id;
+        self.next_id += 1;
+        let mut headers = vec![
+            ("Origin".to_string(), origin.clone()),
+            ("Access-Control-Request-Method".to_string(), actual.method.clone()),
+            ("Accept".to_string(), "*/*".to_string()),
+        ];
+        if !unsafe_headers.is_empty() {
+            headers.push(("Access-Control-Request-Headers".to_string(), unsafe_headers.join(",")));
+        }
+        headers.extend(self.cap_headers(actual.sync_ms));
+        headers.retain(|(n, _)| n != WIRE_HEADER_MAX_REDIRECTS);
+        headers.push((WIRE_HEADER_MAX_REDIRECTS.to_string(), "0".to_string()));
+        // A preflight never carries credentials.
+        headers.extend(wire_cookie_headers_with(self.support, &CookieContext::fetch(page, CredentialsMode::Omit, false)));
+        let pre = Prepared { id: pid, method: "OPTIONS".into(), url: actual.url.clone(), headers, body: vec![], sync_ms: actual.sync_ms };
+        // The preflight is a request of its own: it counts toward the cap.
+        let job = match self.release(&pre, None) {
+            Ok(j) => j,
+            Err(msg) => {
+                self.refuse(id, d, actual_entry, msg, reqs);
+                return;
+            }
+        };
+        self.note(&format!(
+            "preflight OPTIONS {} for {} (Access-Control-Request-Headers: {hdrs}) origin={origin}",
+            actual.url, actual.method
+        ));
+        self.entries.push(NetEntry {
+            method: "OPTIONS (preflight)".into(),
+            url: actual.url.to_string(),
+            outcome: "pending".into(),
+            bytes: 0,
+            elapsed_ms: None,
+            warnings: vec![],
+            jar: false,
+        });
+        let entry = self.entries.len() - 1;
+        let sync_ms = actual.sync_ms;
+        self.preflights.insert(pid, PfPending { actual, entry, key, unsafe_headers, origin, credentials });
+        if d.sync {
+            let total = self.policy.sync_xhr_timeout_ms;
+            self.note(&format!("sync {} {}: blocking the page for up to {total} ms (including its preflight)", d.method, d.url));
+            let r = self.executor.execute(&job);
+            let left = sync_ms.unwrap_or(total).saturating_sub(t0.elapsed().as_millis() as u64).max(1);
+            match self.preflight_done(pid, r, Some(left)) {
+                PfStep::Go(actual_job) => {
+                    let r = self.executor.execute(&actual_job);
+                    if let Some(c) = self.finish(id, r) {
+                        self.sync_results.insert(id, c);
+                    }
+                }
+                PfStep::Fail(Some(c)) => {
+                    self.sync_results.insert(id, c);
+                }
+                PfStep::Fail(None) => {}
+            }
+        } else {
+            reqs.net.push(job);
+        }
+    }
+
+    /// QF13: a preflight answered (or failed). Validates it with
+    /// `check_preflight_response`, caches it, and either releases the actual
+    /// request or fails it with a console line naming what was missing.
+    fn preflight_done(&mut self, pid: u64, result: Result<WireResponse, NetError>, remaining_ms: Option<u64>) -> PfStep {
+        let Some(pf) = self.preflights.remove(&pid) else { return PfStep::Fail(None) };
+        let id = pf.actual.id;
+        let elapsed = self.meta.get(&id).map(|m| m.started.elapsed().as_millis());
+        self.entries[pf.entry].elapsed_ms = elapsed;
+        let outcome: Result<(), String> = match result {
+            Err(e) => Err(e.to_string()),
+            Ok(resp) if resp.error.is_some() => Err(format!("wire: {}", resp.error.clone().unwrap_or_default())),
+            Ok(resp) => {
+                self.entries[pf.entry].outcome = format!("{} {}", resp.status, resp.status_text).trim().to_string();
+                self.entries[pf.entry].bytes = resp.body.len();
+                match self.policy.check_preflight_response(&pf.origin, pf.credentials, &pf.actual.method, &pf.unsafe_headers, resp.status, &resp.headers) {
+                    Ok(r) => {
+                        let now = self.now_ms();
+                        self.pf_cache.insert(pf.key.clone(), now, r.max_age_secs, self.policy.preflight_cache_max_entries);
+                        Ok(())
+                    }
+                    Err(PolicyError::Cors(m)) => Err(m),
+                    Err(e) => Err(e.to_string()),
+                }
+            }
+        };
+        // The page aborted the request while the preflight was in flight.
+        if !self.meta.contains_key(&id) {
+            return PfStep::Fail(None);
+        }
+        let fail = |this: &mut NetState, msg: String| {
+            let m = this.meta.remove(&id)?;
+            this.note(&format!("CORS preflight failed: {}: {msg}", m.url));
+            this.entries[pf.entry].outcome = format!("blocked: {msg}");
+            this.entries[m.entry].outcome = format!("blocked: CORS preflight failed: {msg}");
+            this.entries[m.entry].elapsed_ms = Some(m.started.elapsed().as_millis());
+            Some(Completion { id, final_url: m.url.to_string(), error: Some("network"), rtype: "error", ..Default::default() })
+        };
+        match outcome {
+            Err(msg) => PfStep::Fail(fail(self, msg)),
+            Ok(()) => match self.release(&pf.actual, remaining_ms) {
+                Ok(job) => PfStep::Go(job),
+                Err(msg) => PfStep::Fail(fail(self, msg)),
+            },
+        }
+    }
+
     /// The page gave up on `id`: forget it (a late result is ignored) and
-    /// cancel it if it is still queued.
+    /// cancel it if it is still queued. A preflight still in flight for it
+    /// is forgotten too.
     fn abort(&mut self, id: u64, reqs: &mut js_dom::JsRequests) {
         let Some(m) = self.meta.remove(&id) else { return };
         let e = &mut self.entries[m.entry];
@@ -513,6 +813,17 @@ impl NetState {
             e.outcome = "aborted".into();
             e.elapsed_ms = Some(m.started.elapsed().as_millis());
         }
+        let pf = self.preflights.iter().find(|(_, p)| p.actual.id == id).map(|(k, _)| *k);
+        if let Some(pid) = pf {
+            if let Some(p) = self.preflights.remove(&pid) {
+                self.entries[p.entry].outcome = "aborted".into();
+            }
+            Self::cancel_job(pid, reqs);
+        }
+        Self::cancel_job(id, reqs);
+    }
+
+    fn cancel_job(id: u64, reqs: &mut js_dom::JsRequests) {
         if let Some(i) = reqs.net.iter().position(|j| j.id == id) {
             reqs.net.remove(i);
         } else if let Some(i) = reqs.net_done.iter().position(|(i, _)| *i == id) {
@@ -526,6 +837,16 @@ impl NetState {
     /// cross-origin response (opaque for `no-cors`), hides what the page may
     /// not read, logs failures. `None` when the page aborted the request.
     pub(crate) fn finish(&mut self, id: u64, result: Result<WireResponse, NetError>) -> Option<Completion> {
+        if self.preflights.contains_key(&id) {
+            // QF13: the answer to a preflight, not to a page request.
+            return match self.preflight_done(id, result, None) {
+                PfStep::Go(job) => {
+                    self.released.push(job);
+                    None
+                }
+                PfStep::Fail(c) => c,
+            };
+        }
         let m = self.meta.remove(&id)?;
         let elapsed = m.started.elapsed().as_millis();
         let mut c = Completion { id, final_url: m.url.to_string(), rtype: "basic", ..Default::default() };
@@ -549,6 +870,13 @@ impl NetState {
             }
             Ok(resp) => {
                 let bytes = resp.body.len();
+                if m.preflighted && matches!(resp.status, 301 | 302 | 303 | 307 | 308) {
+                    // wire was told not to follow it: the new target would
+                    // need its own preflight (QF13a), so fail closed.
+                    let loc = resp.header("location").unwrap_or("").to_string();
+                    fail(self, "network", format!("redirect to {loc:?} of a preflighted request is not followed (blocked)"), &mut c);
+                    return Some(c);
+                }
                 if !m.immediate {
                     self.entries[m.entry].outcome = format!("{} {}", resp.status, resp.status_text).trim().to_string();
                     self.entries[m.entry].bytes = bytes;
@@ -560,7 +888,13 @@ impl NetState {
                 } else {
                     let mut rtype = "basic";
                     if let FetchKind::Cors { .. } = m.kind {
-                        if let Err(e) = check_cors_response(&origin_header(&m.page), m.credentials, &resp.headers) {
+                        // wire follows redirects itself, so only the FINAL answer
+                        // is checked (not each hop's headers). After a
+                        // cross-origin redirect a browser sends `Origin: null`
+                        // from then on: check against that.
+                        let crossed = resp.final_url.as_deref().and_then(|f| Url::parse(f).ok()).is_some_and(|f| f.origin() != m.url.origin());
+                        let origin = if crossed { "null".to_string() } else { origin_header(&m.page) };
+                        if let Err(e) = check_cors_response(&origin, m.credentials, &resp.headers) {
                             self.note(&format!("{} {}: {e} (blocked by CORS policy)", m.method, m.url));
                             self.entries[m.entry].outcome = format!("blocked: {e}");
                             c.error = Some("network");
@@ -668,7 +1002,14 @@ impl JsEngine {
     /// Delivers a transport result for request `id` (see the module docs).
     /// Unknown (aborted) ids are ignored.
     pub(crate) fn deliver_net(&self, id: u64, result: Result<WireResponse, NetError>) {
-        let Some(c) = self.net.borrow_mut().finish(id, result) else { return };
+        let (c, released) = {
+            let mut n = self.net.borrow_mut();
+            let c = n.finish(id, result);
+            (c, n.take_released())
+        };
+        // QF13: a preflight that passed released the actual request.
+        self.reqs.borrow_mut().net.extend(released);
+        let Some(c) = c else { return };
         self.arm_budget(CALLBACK_BUDGET);
         self.ctx.with(|ctx| {
             let f: Option<Function> = ctx.globals().get("__net_complete").ok();
