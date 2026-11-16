@@ -669,7 +669,7 @@ WAITING FOR USER (design first): skip these.
       through wire works: measured 204 with CORS headers). Payoff:
       youtube's innertube API (all its data) is POST JSON; POST refs gh
       12, bbc 33, yt 47.
-- [x] QF14 (wire half, HASH_QF14A) Cookie jar in WIRE (design QF-D2a). Done in
+- [x] QF14 (wire half, 6b198dd) Cookie jar in WIRE (design QF-D2a). Done in
       wire/src/cookies.rs + wire/src/main.rs: in-memory jar, RFC 6265bis,
       partitioned by `X-Wire-Top-Site`, header-gated by `X-Wire-Jar: scratchy`,
       per-hop store/send on redirects, `Set-Cookie` stripped from answers when
