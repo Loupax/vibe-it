@@ -2625,6 +2625,218 @@ const DOM_PRELUDE: &str = r#"
   });
   Object.defineProperty(MR.prototype, 'attributeNamespace', { get: function () { return null; }, configurable: true, enumerable: true });
   Object.defineProperty(MR.prototype, Symbol.toStringTag, { value: 'MutationRecord', configurable: true });
+  // ---- QY6g: IntersectionObserver / ResizeObserver / PerformanceObserver with
+  // HONEST MINIMAL semantics. JS cannot see layout (no geometry bridge yet,
+  // QY-IO-GEOMETRY): so every observed target gets ONE initial notification
+  // (timer 0, one batch per observer, observers in creation order) and then
+  // nothing more. IO reports "visible once" (isIntersecting true, ratio 1; a
+  // lazy loader loads its content) unless the target is detached or inside a
+  // `display:none` subtree (false, ratio 0). RO reports the size from the
+  // `width`/`height` attributes, else 0x0 (a lie of omission). Rects are at
+  // x=y=0 with the attribute size when present; the IO root bounds are the
+  // fixed viewport. No hooks or state exist until the first `observe()`.
+  var ROD = Symbol('DOMRectReadOnly');
+  var rectProps = ['x', 'y', 'width', 'height'];
+  var DRO = g.DOMRectReadOnly = function DOMRectReadOnly(x, y, w, h) {
+    if (!new.target) throw new TypeError("Failed to construct 'DOMRectReadOnly': Please use the 'new' operator, this DOM object constructor cannot be called as a function.");
+    this[ROD] = { x: +x || 0, y: +y || 0, width: +w || 0, height: +h || 0 };
+  };
+  DRO.fromRect = function (o) { o = o || {}; return new DRO(o.x, o.y, o.width, o.height); };
+  rectProps.forEach(function (k) {
+    Object.defineProperty(DRO.prototype, k, { get: function () {
+      var d = this[ROD]; if (!d) throw new TypeError('Illegal invocation'); return d[k];
+    }, configurable: true, enumerable: true });
+  });
+  var rdef = function (name, f) { Object.defineProperty(DRO.prototype, name, { get: function () { var d = this[ROD]; if (!d) throw new TypeError('Illegal invocation'); return f(d); }, configurable: true, enumerable: true }); };
+  rdef('top', function (d) { return Math.min(d.y, d.y + d.height); });
+  rdef('bottom', function (d) { return Math.max(d.y, d.y + d.height); });
+  rdef('left', function (d) { return Math.min(d.x, d.x + d.width); });
+  rdef('right', function (d) { return Math.max(d.x, d.x + d.width); });
+  DRO.prototype.toJSON = function () { var o = {}; rectProps.concat(['top', 'right', 'bottom', 'left']).forEach(function (k) { o[k] = this[k]; }, this); return o; };
+  Object.defineProperty(DRO.prototype, Symbol.toStringTag, { value: 'DOMRectReadOnly', configurable: true });
+  var DR = g.DOMRect = function DOMRect(x, y, w, h) {
+    if (!new.target) throw new TypeError("Failed to construct 'DOMRect': Please use the 'new' operator, this DOM object constructor cannot be called as a function.");
+    this[ROD] = { x: +x || 0, y: +y || 0, width: +w || 0, height: +h || 0 };
+  };
+  DR.prototype = Object.create(DRO.prototype, { constructor: { value: DR, writable: true, configurable: true } });
+  DR.fromRect = function (o) { o = o || {}; return new DR(o.x, o.y, o.width, o.height); };
+  rectProps.forEach(function (k) {
+    Object.defineProperty(DR.prototype, k, { get: function () { return this[ROD][k]; }, set: function (v) { this[ROD][k] = +v || 0; }, configurable: true, enumerable: true });
+  });
+  Object.defineProperty(DR.prototype, Symbol.toStringTag, { value: 'DOMRect', configurable: true });
+  var roRect = function (w, h) { return new DRO(0, 0, w, h); };
+  var attrPx = function (el, a) { var v = parseFloat(el.getAttribute(a)); return v >= 0 && isFinite(v) ? v : 0; };
+  // Connected and no `display:none` on the element or an ancestor.
+  var ioShown = function (el) {
+    var id = el.__id;
+    if (!ceIsConn(id)) return false;
+    try {
+      for (var n = id; n >= 0 && __d_kind(n) === 1; n = __d_parent(n)) if (__d_cs(n, '', 'display') === 'none') return false;
+    } catch (e) { /* no style info: assume shown */ }
+    return true;
+  };
+  var obsErr = function (what, e) {
+    __scratchy_err('scratchy: js: uncaught exception in ' + what + ' callback: ' + (e && e.stack ? String(e) + '\n' + e.stack : String(e)));
+  };
+  var obsSeq = 0, obsPending = [], obsQueued = false;
+  var obsFlush = function () {
+    obsQueued = false;
+    var list = obsPending; obsPending = [];
+    list.sort(function (a, b) { return a.id - b.id; });
+    for (var i = 0; i < list.length; i++) {
+      var st = list[i], recs = st.q;
+      st.pending = false; st.q = [];
+      if (recs.length) { try { st.cb.call(st.obs, recs, st.obs); } catch (e) { obsErr(st.name, e); } }
+    }
+  };
+  var obsSchedule = function (st) {
+    if (!st.pending) { st.pending = true; obsPending.push(st); }
+    if (!obsQueued) { obsQueued = true; g.setTimeout(obsFlush, 0); }
+  };
+  var defGetters = function (P, S, keys) {
+    keys.forEach(function (k) {
+      Object.defineProperty(P, k, { get: function () { var d = this[S]; if (!d) throw new TypeError('Illegal invocation'); return d[k]; }, configurable: true, enumerable: true });
+    });
+  };
+  // -- IntersectionObserver
+  var IO_S = Symbol('IntersectionObserver'), IE_S = Symbol('IntersectionObserverEntry');
+  var IE = g.IntersectionObserverEntry = function IntersectionObserverEntry() { throw new TypeError('Illegal constructor'); };
+  defGetters(IE.prototype, IE_S, ['time', 'rootBounds', 'boundingClientRect', 'intersectionRect', 'isIntersecting', 'intersectionRatio', 'target']);
+  Object.defineProperty(IE.prototype, Symbol.toStringTag, { value: 'IntersectionObserverEntry', configurable: true });
+  var ioMargin = function (s) {
+    var parts = String(s).trim().split(/\s+/);
+    if (parts.length === 1 && parts[0] === '') return '0px 0px 0px 0px';
+    if (parts.length > 4) throw domErr("Failed to construct 'IntersectionObserver': Failed to parse rootMargin: " + s, 'SyntaxError');
+    parts.forEach(function (p) {
+      if (!/^[+-]?(\d+\.?\d*|\.\d+)(px|%)$/.test(p)) throw domErr("Failed to construct 'IntersectionObserver': rootMargin must be specified in pixels or percent.", 'SyntaxError');
+    });
+    var a = parts[0], b = parts[1] !== undefined ? parts[1] : a, c = parts[2] !== undefined ? parts[2] : a, d = parts[3] !== undefined ? parts[3] : b;
+    return [a, b, c, d].join(' ');
+  };
+  var IO = g.IntersectionObserver = function IntersectionObserver(callback, options) {
+    var P = "Failed to construct 'IntersectionObserver': ";
+    if (!new.target) throw new TypeError(P + "Please use the 'new' operator, this DOM object constructor cannot be called as a function.");
+    if (arguments.length < 1) throw new TypeError(P + '1 argument required, but only 0 present.');
+    if (typeof callback !== 'function') throw new TypeError(P + 'The callback provided as parameter 1 is not a function.');
+    if (options != null && typeof options !== 'object' && typeof options !== 'function') throw new TypeError(P + "parameter 2 is not of type 'IntersectionObserverInit'.");
+    var o = options || {}, root = o.root === undefined ? null : o.root;
+    if (root !== null && (root.__id === undefined || (root.nodeType !== 1 && root.nodeType !== 9))) throw new TypeError(P + "Failed to read the 'root' property from 'IntersectionObserverInit': The provided value is not of type '(Document or Element)'.");
+    var margin = ioMargin(o.rootMargin === undefined ? '0px' : o.rootMargin);
+    var th = o.threshold === undefined ? [0] : (o.threshold !== null && typeof o.threshold === 'object' && typeof o.threshold[Symbol.iterator] === 'function' ? Array.from(o.threshold) : [o.threshold]);
+    th = th.map(function (t) {
+      t = Number(t);
+      if (!(t >= 0 && t <= 1)) throw new RangeError(P + 'Threshold values must be numbers between 0 and 1.');
+      return t;
+    }).sort(function (a, b) { return a - b; });
+    if (!th.length) th = [0];
+    this[IO_S] = { cb: callback, obs: this, id: ++obsSeq, q: [], targets: [], pending: false, name: 'IntersectionObserver', root: root, rootMargin: margin, thresholds: Object.freeze(th) };
+  };
+  var ioSt = function (o, fn) {
+    var st = o && o[IO_S];
+    if (!st) throw new TypeError("Failed to execute '" + fn + "' on 'IntersectionObserver': Illegal invocation");
+    return st;
+  };
+  var ioTarget = function (fn, t) {
+    if (!t || t.__id === undefined || t.nodeType !== 1) throw new TypeError("Failed to execute '" + fn + "' on 'IntersectionObserver': parameter 1 is not of type 'Element'.");
+  };
+  IO.prototype.observe = function (target) {
+    var st = ioSt(this, 'observe');
+    if (arguments.length < 1) throw new TypeError("Failed to execute 'observe' on 'IntersectionObserver': 1 argument required, but only 0 present.");
+    ioTarget('observe', target);
+    if (st.targets.indexOf(target) >= 0) return;
+    st.targets.push(target);
+    var shown = ioShown(target), w = shown ? attrPx(target, 'width') : 0, h = shown ? attrPx(target, 'height') : 0;
+    var e = Object.create(IE.prototype);
+    e[IE_S] = { time: g.performance && g.performance.now ? g.performance.now() : 0, target: target,
+      isIntersecting: shown, intersectionRatio: shown ? 1 : 0,
+      boundingClientRect: roRect(w, h), intersectionRect: roRect(w, h),
+      rootBounds: st.root ? roRect(0, 0) : roRect(Number(g.innerWidth) || 0, Number(g.innerHeight) || 0) };
+    st.q.push(e);
+    obsSchedule(st);
+  };
+  IO.prototype.unobserve = function (target) {
+    var st = ioSt(this, 'unobserve');
+    if (arguments.length < 1) throw new TypeError("Failed to execute 'unobserve' on 'IntersectionObserver': 1 argument required, but only 0 present.");
+    ioTarget('unobserve', target);
+    var k = st.targets.indexOf(target);
+    if (k >= 0) { st.targets.splice(k, 1); st.q = st.q.filter(function (e) { return e[IE_S].target !== target; }); }
+  };
+  IO.prototype.disconnect = function () { var st = ioSt(this, 'disconnect'); st.targets = []; st.q = []; };
+  IO.prototype.takeRecords = function () { var st = ioSt(this, 'takeRecords'), q = st.q; st.q = []; return q; };
+  defGetters(IO.prototype, IO_S, ['root', 'rootMargin', 'thresholds']);
+  Object.defineProperty(IO.prototype, Symbol.toStringTag, { value: 'IntersectionObserver', configurable: true });
+  // -- ResizeObserver
+  var RO_S = Symbol('ResizeObserver'), RE_S = Symbol('ResizeObserverEntry'), RZ_S = Symbol('ResizeObserverSize');
+  var RZ = g.ResizeObserverSize = function ResizeObserverSize() { throw new TypeError('Illegal constructor'); };
+  defGetters(RZ.prototype, RZ_S, ['inlineSize', 'blockSize']);
+  Object.defineProperty(RZ.prototype, Symbol.toStringTag, { value: 'ResizeObserverSize', configurable: true });
+  var rzSize = function (w, h) { var s = Object.create(RZ.prototype); s[RZ_S] = { inlineSize: w, blockSize: h }; return s; };
+  var RE = g.ResizeObserverEntry = function ResizeObserverEntry() { throw new TypeError('Illegal constructor'); };
+  defGetters(RE.prototype, RE_S, ['target', 'contentRect', 'borderBoxSize', 'contentBoxSize', 'devicePixelContentBoxSize']);
+  Object.defineProperty(RE.prototype, Symbol.toStringTag, { value: 'ResizeObserverEntry', configurable: true });
+  var RO = g.ResizeObserver = function ResizeObserver(callback) {
+    var P = "Failed to construct 'ResizeObserver': ";
+    if (!new.target) throw new TypeError(P + "Please use the 'new' operator, this DOM object constructor cannot be called as a function.");
+    if (arguments.length < 1) throw new TypeError(P + '1 argument required, but only 0 present.');
+    if (typeof callback !== 'function') throw new TypeError(P + 'The callback provided as parameter 1 is not a function.');
+    this[RO_S] = { cb: callback, obs: this, id: ++obsSeq, q: [], targets: [], pending: false, name: 'ResizeObserver' };
+  };
+  var roSt = function (o, fn) {
+    var st = o && o[RO_S];
+    if (!st) throw new TypeError("Failed to execute '" + fn + "' on 'ResizeObserver': Illegal invocation");
+    return st;
+  };
+  var roForget = function (st, target) {
+    var k = st.targets.indexOf(target);
+    if (k >= 0) { st.targets.splice(k, 1); st.q = st.q.filter(function (e) { return e[RE_S].target !== target; }); }
+  };
+  RO.prototype.observe = function (target, options) {
+    var st = roSt(this, 'observe'), P = "Failed to execute 'observe' on 'ResizeObserver': ";
+    if (arguments.length < 1) throw new TypeError(P + '1 argument required, but only 0 present.');
+    if (!target || target.__id === undefined || target.nodeType !== 1) throw new TypeError(P + "parameter 1 is not of type 'Element'.");
+    if (options != null && typeof options !== 'object' && typeof options !== 'function') throw new TypeError(P + "parameter 2 is not of type 'ResizeObserverOptions'.");
+    var box = options && options.box !== undefined ? String(options.box) : 'content-box';
+    if (box !== 'content-box' && box !== 'border-box' && box !== 'device-pixel-content-box')
+      throw new TypeError(P + "Failed to read the 'box' property from 'ResizeObserverOptions': The provided value '" + box + "' is not a valid enum value of type ResizeObserverBoxOptions.");
+    roForget(st, target);
+    st.targets.push(target);
+    var w = attrPx(target, 'width'), h = attrPx(target, 'height');
+    var e = Object.create(RE.prototype);
+    e[RE_S] = { target: target, contentRect: roRect(w, h), borderBoxSize: [rzSize(w, h)], contentBoxSize: [rzSize(w, h)], devicePixelContentBoxSize: [rzSize(w, h)] };
+    st.q.push(e);
+    obsSchedule(st);
+  };
+  RO.prototype.unobserve = function (target) {
+    var st = roSt(this, 'unobserve');
+    if (arguments.length < 1) throw new TypeError("Failed to execute 'unobserve' on 'ResizeObserver': 1 argument required, but only 0 present.");
+    if (!target || target.__id === undefined || target.nodeType !== 1) throw new TypeError("Failed to execute 'unobserve' on 'ResizeObserver': parameter 1 is not of type 'Element'.");
+    roForget(st, target);
+  };
+  RO.prototype.disconnect = function () { var st = roSt(this, 'disconnect'); st.targets = []; st.q = []; };
+  Object.defineProperty(RO.prototype, Symbol.toStringTag, { value: 'ResizeObserver', configurable: true });
+  // -- PerformanceObserver: inert (no performance entries are ever produced).
+  var PO_S = Symbol('PerformanceObserver');
+  var PO = g.PerformanceObserver = function PerformanceObserver(callback) {
+    var P = "Failed to construct 'PerformanceObserver': ";
+    if (!new.target) throw new TypeError(P + "Please use the 'new' operator, this DOM object constructor cannot be called as a function.");
+    if (arguments.length < 1) throw new TypeError(P + '1 argument required, but only 0 present.');
+    if (typeof callback !== 'function') throw new TypeError(P + 'The callback provided as parameter 1 is not a function.');
+    this[PO_S] = { cb: callback };
+  };
+  var poSt = function (o, fn) {
+    if (!o || !o[PO_S]) throw new TypeError("Failed to execute '" + fn + "' on 'PerformanceObserver': Illegal invocation");
+  };
+  PO.prototype.observe = function (options) {
+    poSt(this, 'observe');
+    var P = "Failed to execute 'observe' on 'PerformanceObserver': ";
+    if (options == null || typeof options !== 'object') throw new TypeError(P + "parameter 1 is not of type 'PerformanceObserverInit'.");
+    if (options.entryTypes === undefined && options.type === undefined) throw new TypeError(P + 'Required member is undefined.');
+    if (options.entryTypes !== undefined && options.type !== undefined) throw new TypeError(P + 'An observe() call must not include both entryTypes and type arguments.');
+  };
+  PO.prototype.disconnect = function () { poSt(this, 'disconnect'); };
+  PO.prototype.takeRecords = function () { poSt(this, 'takeRecords'); return []; };
+  Object.defineProperty(PO, 'supportedEntryTypes', { get: function () { return Object.freeze([]); }, configurable: true, enumerable: true });
+  Object.defineProperty(PO.prototype, Symbol.toStringTag, { value: 'PerformanceObserver', configurable: true });
   // No native Shadow DOM (QY6 memo): fail loudly and harmlessly.
   ElementProto.attachShadow = function () {
     __scratchy_err('scratchy: js: not implemented: Element.attachShadow');

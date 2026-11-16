@@ -14307,3 +14307,158 @@ fn qy6a_custom_elements_and_observers_share_the_hooks() {
     );
     assert_eq!(log, ["log:conn", "log:records 1"], "{log:?}");
 }
+
+// ---- QY6g: IntersectionObserver / ResizeObserver / PerformanceObserver ----
+
+/// Like `run_with_timers` but on a parsed document, so observers get targets.
+fn qy6g_run(code: &str) -> Vec<String> {
+    let out = Rc::new(RefCell::new(Vec::new()));
+    let o = out.clone();
+    let clock = Rc::new(std::cell::Cell::new(0.0));
+    let html = "<html><body><div id=a></div><img id=i width=40 height=30>\
+                <div id=hid style='display:none'><p id=inner></p></div><div id=b></div></body></html>";
+    let engine = crate::js::start_scripts_clocked(
+        &parse_html(html),
+        &[src(&format!("const $ = id => document.getElementById(id);\n{code}"))],
+        Rc::new(move |level, text| o.borrow_mut().push(format!("{level}:{text}"))),
+        Some(clock.clone()),
+    )
+    .unwrap();
+    for _ in 0..1000 {
+        let Some(due) = engine.next_due_ms() else { break };
+        clock.set(clock.get().max(due));
+        engine.run_due();
+    }
+    let v = out.borrow().clone();
+    v
+}
+
+#[test]
+fn qy6g_io_initial_entry_delivered_once_visible() {
+    let log = qy6g_run(
+        r#"const io = new IntersectionObserver(function (es, o) {
+             console.log('cb', es.length, this === io, o === io);
+             es.forEach(e => console.log(e.target.id, e.isIntersecting, e.intersectionRatio, e instanceof IntersectionObserverEntry,
+               e.boundingClientRect instanceof DOMRectReadOnly, e.rootBounds.width, e.rootBounds.height, typeof e.time));
+           });
+           io.observe($('a')); io.observe($('a')); io.observe($('i'));
+           console.log('sync');"#,
+    );
+    assert_eq!(
+        log,
+        ["log:sync", "log:cb 2 true true", "log:a true 1 true true 1024 768 number", "log:i true 1 true true 1024 768 number"],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy6g_io_hidden_and_detached_report_not_intersecting() {
+    let log = qy6g_run(
+        r#"const io = new IntersectionObserver(es => es.forEach(e => console.log(e.target.id || 'det', e.isIntersecting, e.intersectionRatio)));
+           io.observe($('inner')); io.observe($('hid')); io.observe(document.createElement('div')); io.observe($('b'));"#,
+    );
+    assert_eq!(log, ["log:inner false 0", "log:hid false 0", "log:det false 0", "log:b true 1"], "{log:?}");
+}
+
+#[test]
+fn qy6g_io_unobserve_disconnect_take_records() {
+    let log = qy6g_run(
+        r#"const io = new IntersectionObserver(es => console.log('A', es.map(e => e.target.id).join()));
+           io.observe($('a')); io.observe($('b')); io.unobserve($('a'));
+           const i2 = new IntersectionObserver(es => console.log('B'));
+           i2.observe($('a')); i2.disconnect();
+           const i3 = new IntersectionObserver(es => console.log('C'));
+           i3.observe($('a')); const r = i3.takeRecords(); console.log('took', r.length, i3.takeRecords().length);"#,
+    );
+    assert_eq!(log, ["log:took 1 0", "log:A b"], "{log:?}");
+}
+
+#[test]
+fn qy6g_io_arguments_and_properties() {
+    let log = qy6g_run(
+        r#"const t = f => { try { f(); return 'ok'; } catch (e) { return e.name; } };
+           console.log(t(() => new IntersectionObserver(() => {}, { threshold: 2 })),
+                       t(() => new IntersectionObserver(() => {}, { threshold: [0, -1] })),
+                       t(() => new IntersectionObserver(() => {}, { rootMargin: '5em' })),
+                       t(() => new IntersectionObserver(() => {}, { rootMargin: '1px 2px 3px 4px 5px' })),
+                       t(() => new IntersectionObserver()),
+                       t(() => new IntersectionObserver(1)),
+                       t(() => IntersectionObserver(() => {})),
+                       t(() => new IntersectionObserver(() => {}).observe({})),
+                       t(() => new IntersectionObserver(() => {}, { root: 5 })),
+                       t(() => new IntersectionObserver(() => {}, { threshold: [0.5, 0.25] })));
+           const o = new IntersectionObserver(() => {}, { root: $('a'), rootMargin: '10px 20%', threshold: [1, 0.5] });
+           console.log(o.root === $('a'), o.rootMargin, o.thresholds.join(), new IntersectionObserver(() => {}).thresholds.join(), new IntersectionObserver(() => {}).rootMargin,
+                       new IntersectionObserver(() => {}, { threshold: 0.3 }).thresholds[0]);
+           const r = new DOMRect(1, 2, 3, 4); console.log(r.right, r.bottom, JSON.stringify(DOMRectReadOnly.fromRect({ x: 5 })));"#,
+    );
+    assert_eq!(
+        log,
+        [
+            "log:RangeError RangeError SyntaxError SyntaxError TypeError TypeError TypeError TypeError TypeError ok",
+            "log:true 10px 20% 10px 20% 0.5,1 0 0px 0px 0px 0px 0.3",
+            "log:4 6 {\"x\":5,\"y\":0,\"width\":0,\"height\":0,\"top\":0,\"right\":5,\"bottom\":0,\"left\":5}",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy6g_io_one_batch_per_observer_in_creation_order() {
+    let log = qy6g_run(
+        r#"const x = new IntersectionObserver(es => console.log('x', es.length));
+           const y = new IntersectionObserver(es => console.log('y', es.length));
+           y.observe($('a')); x.observe($('a')); x.observe($('b')); y.observe($('b')); y.observe($('i'));"#,
+    );
+    assert_eq!(log, ["log:x 2", "log:y 3"], "{log:?}");
+}
+
+#[test]
+fn qy6g_resize_observer_one_initial_entry() {
+    let log = qy6g_run(
+        r#"const ro = new ResizeObserver(function (es, o) {
+             console.log('cb', es.length, this === ro, o === ro);
+             es.forEach(e => console.log(e.target.id, e.contentRect.width, e.contentRect.height, e instanceof ResizeObserverEntry,
+               e.borderBoxSize.length, e.contentBoxSize[0].inlineSize, e.contentBoxSize[0].blockSize, e.devicePixelContentBoxSize.length));
+           });
+           ro.observe($('a')); ro.observe($('i'), { box: 'border-box' }); ro.observe($('b')); ro.unobserve($('b'));
+           try { ro.observe($('a'), { box: 'bogus' }); } catch (e) { console.log(e.name); }
+           try { new ResizeObserver(); } catch (e) { console.log(e.name); }
+           const r2 = new ResizeObserver(() => console.log('NO')); r2.observe($('a')); r2.disconnect();"#,
+    );
+    assert_eq!(
+        log,
+        ["log:TypeError", "log:TypeError", "log:cb 2 true true", "log:a 0 0 true 1 0 0 1", "log:i 40 30 true 1 40 30 1"],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy6g_performance_observer_is_inert() {
+    let log = qy6g_run(
+        r#"let n = 0;
+           const po = new PerformanceObserver(() => n++);
+           po.observe({ entryTypes: ['longtask', 'resource'] }); po.observe({ type: 'paint', buffered: true });
+           const t = f => { try { f(); return 'ok'; } catch (e) { return e.name; } };
+           console.log(t(() => po.observe({})), t(() => po.observe({ entryTypes: [], type: 'x' })), t(() => new PerformanceObserver()),
+                       PerformanceObserver.supportedEntryTypes.length, po.takeRecords().length, typeof po.disconnect());
+           setTimeout(() => console.log('n', n), 5);"#,
+    );
+    assert_eq!(log, ["log:TypeError TypeError TypeError 0 0 undefined", "log:n 0"], "{log:?}");
+}
+
+#[test]
+fn qy6g_zero_cost_before_use() {
+    // No timer exists until the first observe().
+    let out = Rc::new(RefCell::new(Vec::new()));
+    let o = out.clone();
+    let engine = crate::js::start_scripts_clocked(
+        &parse_html("<div id=a></div>"),
+        &[src("new IntersectionObserver(() => {}); new ResizeObserver(() => {}); new PerformanceObserver(() => {}).observe({ entryTypes: ['mark'] });")],
+        Rc::new(move |level, text| o.borrow_mut().push(format!("{level}:{text}"))),
+        Some(Rc::new(std::cell::Cell::new(0.0))),
+    )
+    .unwrap();
+    assert!(engine.next_due_ms().is_none(), "{:?}", out.borrow());
+    assert!(out.borrow().is_empty(), "{:?}", out.borrow());
+}
