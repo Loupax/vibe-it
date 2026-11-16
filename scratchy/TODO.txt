@@ -1169,10 +1169,15 @@ Phase 2 (big enablers, after phase 1):
       hydration text mismatch) in the timer phase of `--js-report
       --run-timers 5000` on a curl'd duckduckgo.com with `<base href>`. First
       new error after QY16b; investigate which DOM/text behaviour differs.
-- [ ] QY16e [S] (P3; wikipedia.org) `SyntaxError: expecting ';'` for
+- [x] QY16e [S] (NOT REPRODUCIBLE, closed by the coordinator 2026-11-16) `SyntaxError: expecting ';'` for
       `portal/.../assets/js/index-*.js` and `gt-ie9-*.js` in
       `--js-report` (2 errors, present before and after QY16b, so not caused
       by isEqualNode). Find which syntax the parser rejects.
+      CLOSED: a fresh release build of main at 15526fd (merge of PR #191) and the
+      installed QY13 build both give `scripts run: 4, errors total: 0` for
+      https://www.wikipedia.org/ with a <base> tag via `--js-report --socket`.
+      The two errors came from that agent's own setup (likely a stale or partly
+      fetched script file), not from the engine. Reopen only with a repro.
 - [ ] QY17 [S] (P2, CSS; github) `@layer`. Symptom: github.com shows its
       "You signed in with another tab or window" banners although they
       carry `hidden`: Primer's `template,[hidden]{display:none!important}`
