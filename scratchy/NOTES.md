@@ -3252,3 +3252,7 @@ a new one for `new X()`). Reactions are synchronous after the API call, not
 microtask-queued. Only document id 0 is upgraded/connected. Not implemented:
 adoptedCallback, `:defined`, shadow DOM (`attachShadow` logs `not implemented`
 and throws NotSupportedError).
+
+### Meta refresh (QY19)
+
+After a fetched page arrives, `handle_nav_result` looks for the first `meta[http-equiv=refresh]` (`meta_refresh_action`). With JS off `<noscript>` children are elements (`new_parser`), with JS on they are text, so only the right one is found. A 0 s `url=` redirect never installs the page: it replaces the current history entry and fetches the target (`follow_meta_refresh`). A delayed one (<=10 s) installs the page and a sleeping thread (same shape as `schedule_image_flush`) sends `AppEvent::MetaRefresh(generation, url)`; a changed `nav_generation` cancels it. `App::meta_chain` (reset by link/`:go`/history/`:refresh`) caps chains at 3.

@@ -12265,3 +12265,84 @@ fn qy6e_document_write_upgrades() {
     );
     assert_eq!(out, ["log:w conn", "log:end"], "{out:?}");
 }
+
+// ---------- QY19: <meta http-equiv=refresh> ----------
+
+#[test]
+fn qy19_parse_meta_refresh() {
+    let base = Url::parse("https://example.com/a/b").unwrap();
+    let p = |c: &str| parse_meta_refresh(c, Some(&base)).map(|(d, u)| (d, u.to_string()));
+    assert_eq!(p("0; url='x'"), Some((0, "https://example.com/a/x".into())));
+    assert_eq!(p("5;URL=x"), Some((5, "https://example.com/a/x".into())));
+    assert_eq!(p("  2 , url = \"/y?z=1\""), Some((2, "https://example.com/y?z=1".into())));
+    assert_eq!(p("0;url=\"https://html.duckduckgo.com/html\""), Some((0, "https://html.duckduckgo.com/html".into())));
+    assert_eq!(p("1; x"), Some((1, "https://example.com/a/x".into())), "url= prefix optional");
+    assert_eq!(p("999;url=x").map(|r| r.0), Some(10), "delay clamped");
+    assert_eq!(p("0; url=x#frag"), Some((0, "https://example.com/a/x#frag".into())));
+    // Bare reload, junk, empty URL: never followed.
+    assert_eq!(p("3"), None);
+    assert_eq!(p("3;"), None);
+    assert_eq!(p("0; url="), None);
+    assert_eq!(p("url=x"), None);
+    assert_eq!(p("-1; url=x"), None);
+    assert_eq!(p(""), None);
+}
+
+#[test]
+fn qy19_find_meta_refresh_and_chain_cap() {
+    let base = Url::parse("https://example.com/").unwrap();
+    let doc = parse_html(r#"<html><head><meta HTTP-EQUIV="Refresh" content="0; url=/next"></head><body></body></html>"#);
+    let (d, u) = meta_refresh_action(&doc, Some(&base), 0).expect("found");
+    assert_eq!((d, u.as_str()), (0, "https://example.com/next"));
+    assert!(meta_refresh_action(&doc, Some(&base), META_REFRESH_MAX_CHAIN).is_none(), "chain capped");
+    let other = parse_html(r#"<html><head><meta http-equiv="content-type" content="0; url=/x"></head></html>"#);
+    assert!(meta_refresh_action(&other, Some(&base), 0).is_none());
+}
+
+#[test]
+fn qy19_noscript_meta_only_with_js_off() {
+    let html = r#"<html><head><noscript><meta http-equiv="refresh" content="0; url=/h"></noscript></head><body></body></html>"#;
+    let was = js_enabled();
+    set_js_enabled(false);
+    let off = new_parser().read_from(&mut html.as_bytes()).unwrap().document;
+    set_js_enabled(true);
+    let on = new_parser().read_from(&mut html.as_bytes()).unwrap().document;
+    set_js_enabled(was);
+    assert!(find_meta_refresh_content(&off).is_some(), "JS off: noscript meta is an element");
+    assert!(find_meta_refresh_content(&on).is_none(), "JS on: noscript meta ignored");
+}
+
+#[test]
+fn qy19_meta_redirect_replaces_history_and_is_chained() {
+    use winit::platform::wayland::EventLoopBuilderExtWayland;
+    let event_loop = match EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build() {
+        Ok(l) => l,
+        Err(_) => return, // no display available (headless CI)
+    };
+    let mut app = App::new_static(parse_html("<html></html>"), event_loop.create_proxy(), None);
+    app.history = vec![Url::parse("http://127.0.0.1:9/start").unwrap(), Url::parse("http://127.0.0.1:9/redir").unwrap()];
+    app.history_index = 1;
+    app.base_url = Some(Url::parse("http://127.0.0.1:9/redir").unwrap());
+    app.fetch_url(app.history[1].clone());
+    let generation = app.nav_generation;
+    let page = FetchedPage {
+        html: br#"<html><head><meta http-equiv="refresh" content="0; url=/final#sec"></head><body>old</body></html>"#.to_vec(),
+        extra_css: String::new(),
+        scripts: Vec::new(),
+        url: Url::parse("http://127.0.0.1:9/redir").unwrap(),
+    };
+    app.handle_nav_result(generation, Ok(page));
+    assert_eq!(app.history.len(), 2, "no extra back step");
+    assert_eq!(app.history[1].as_str(), "http://127.0.0.1:9/final#sec", "entry replaced");
+    assert_eq!(app.history_index, 1);
+    assert_eq!(app.meta_chain, 1);
+    assert!(app.nav_generation > generation, "a new fetch was started");
+    assert_eq!(app.nav_fragment.as_deref(), Some("sec"), "fragment of the target kept");
+    // A stale delayed refresh (user navigated meanwhile) is ignored.
+    let g = app.nav_generation;
+    app.handle_meta_refresh(g - 1, Url::parse("http://127.0.0.1:9/zzz").unwrap());
+    assert_eq!(app.nav_generation, g);
+    // A current one pushes a new entry.
+    app.handle_meta_refresh(g, Url::parse("http://127.0.0.1:9/zzz").unwrap());
+    assert_eq!(app.history.len(), 3);
+}
