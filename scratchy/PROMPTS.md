@@ -6932,3 +6932,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Implement QF7a: page networking fails closed with one log line on a wire older than protocol 2, X-Wire-Target-Class warnings for DNS names resolving privately, a clear Block-mode error, per-hop CORS only if cheap.
 
 **What changed:** src/js_net.rs (`check_wire_version`/`wire_disabled`, `WIRE_TOO_OLD_LINE`, target-class warning in `finish`, Block-mode error text, `x-wire-*` response headers hidden), tests qf7a_* in src/tests.rs; NOTES.md; TODO.txt (QF7b for per-hop CORS).
+
+## Constructable stylesheets and document.adoptedStyleSheets (QSD4)
+
+> Implement QSD4: new CSSStyleSheet, replaceSync/replace, insertRule/deleteRule/cssRules, document.adoptedStyleSheets applied to the document cascade after the page's own CSS, getComputedStyle sees it.
+
+**What changed:** src/cssom_prelude.js (new: CSSStyleSheet, StyleSheet, CSSRule, CSSStyleRule, CSSRuleList, MediaList, style declaration, adoptedStyleSheets proxy), src/js.rs (evaluates it), src/js_dom.rs (`__d_adopted` native, `JsRequests.adopted_css`), src/js_style.rs (adopted CSS in the getComputedStyle cascade), src/app.rs (`App::adopted_css` filled by `js_sync`, cleared on navigation), src/images.rs (`with_adopted_css`), tests qsd4_* in src/tests.rs; NOTES.md; TODO.txt (QSD4a/QSD4b left out).

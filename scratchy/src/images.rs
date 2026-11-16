@@ -1882,6 +1882,17 @@ pub fn build_layout_tree_sized(document: &Handle, viewport_width: f32, viewport_
     build_layout_tree_with_resources(document, viewport_width, Some(viewport_height), "", &HashMap::new())
 }
 
+/// QSD4: the page's external CSS followed by the adopted stylesheets (they
+/// come after every `<style>`/`<link>` sheet in the author cascade). Borrows
+/// when nothing is adopted (zero cost for pages that never use the API).
+pub(crate) fn with_adopted_css<'a>(extra_css: &'a str, adopted: &str) -> std::borrow::Cow<'a, str> {
+    if adopted.is_empty() {
+        std::borrow::Cow::Borrowed(extra_css)
+    } else {
+        std::borrow::Cow::Owned(format!("{extra_css}\n{adopted}"))
+    }
+}
+
 /// Same as `build_layout_tree`, but also takes CSS fetched (via `wire`)
 /// from this page's own `<link rel=stylesheet href>` references
 /// (`extra_css` — concatenated into the same stylesheet source

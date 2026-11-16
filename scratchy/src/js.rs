@@ -1222,6 +1222,7 @@ pub(crate) fn start_scripts_clocked(
     engine.eval("intl", INTL_PRELUDE);
     engine.eval("fetch", FETCH_PRELUDE);
     engine.table = engine.ctx.with(|ctx| js_dom::install_dom(&ctx, document, dirty.clone(), reqs.clone()));
+    engine.eval("cssom", CSSOM_PRELUDE);
     let mut script_els = Vec::new();
     collect_script_elements(document, &mut script_els);
     for s in scripts.iter().filter(|s| s.kind == ScriptKind::Classic) {
@@ -1258,6 +1259,9 @@ const GLOBALS_PRELUDE: &str = include_str!("globals_prelude.js");
 /// QY16: a minimal en-US `Intl` (QuickJS has none) and the `toLocale*String`
 /// methods routed through it. See the file header and TODO.txt QY16a.
 const INTL_PRELUDE: &str = include_str!("intl_prelude.js");
+
+/// QSD4: constructable stylesheets and `document.adoptedStyleSheets`.
+const CSSOM_PRELUDE: &str = include_str!("cssom_prelude.js");
 
 /// QF2: Blob, File, FileReader, blob: URL store (`__blob_lookup`); the
 /// home of the fetch/XHR data classes (QF memo in TODO.txt).
