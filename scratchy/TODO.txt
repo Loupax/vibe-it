@@ -15,6 +15,14 @@ QUEUE — ranked work order (reviewed 2026-11-12, re-planned 2026-11-14)
 ========================================================================
 
 --- CURRENT STATUS (2026-11-16, docs audit; READ THIS FIRST) -------------
+
+USER ANSWERS 2026-11-16 (evening): SD-D1 YES (B1 first), SD-D2 YES (basic event
+retargeting), SD-D3 YES (declarative shadow DOM only after QSD6/QSD7 render), SD-D4
+YES (style scoping cut: per-root sheets + :host/::slotted, ::part and :host-context
+dropped), QY18 YES (translate-only `transform`: paint + hit-test offset, no layout
+change). QSD3 and QY18 are READY now; QSD6-QSD10 follow in order. Cookie control
+token: still unanswered (user: not sure, asked what Firefox does; Firefox has no
+equivalent: its jar sits behind a private IPC channel).
 Built 2026-11-14..16 (~220 PRs; details in the blocks below and NOTES.md):
 - JS engine: QuickJS classic scripts (sloppy), ES modules + importmap with a
   pre-fetched graph (QY15), timers, CPU budgets (QY5), `--js-report
@@ -349,7 +357,7 @@ Items (in order):
 - [ ] QSD2b [S] READY `Node.prototype.lookupNamespaceURI(prefix)`/
       `lookupPrefix`/`isDefaultNamespace` (left out of QSD2: need the
       xmlns attribute walk and the element's namespace/prefix natives).
-- [ ] QSD3 [M] WAITING FOR USER (design first, SD-D1) B1: real ShadowRoot,
+- [ ] QSD3 [M] READY (SD-D1 answered YES 2026-11-16) B1: real ShadowRoot,
       not rendered. `Element.attachShadow({mode, delegatesFocus,
       slotAssignment, clonable, serializable})`: valid hosts only (custom
       names + article aside blockquote body div footer h1-h6 header main
@@ -400,7 +408,7 @@ Items (in order):
       red, no border; inside a flex container the children become flex
       items. Prerequisite for QSD6 (`slot{display:contents}`) and MDN's
       `:host{display:contents}`.
-- [ ] QSD6 [M] WAITING FOR USER (design first, SD-D1) B2 composed-tree
+- [ ] QSD6 [M] READY (SD-D1 answered YES 2026-11-16) B2 composed-tree
       rendering. One function `composed_children(handle)` (dom.rs) used
       by every layout/style walk that today reads `handle.children`
       (images.rs `collect_real_children`/`collect_real_nodes` and its 8
@@ -417,7 +425,7 @@ Items (in order):
       it leak into the document). Tests: host with shadow `<b>s</b><slot>`
       and light `<i>l</i>` renders "s" then "l"; `slot{display:none}`
       hides slotted nodes; a named slot gets only `slot=` children.
-- [ ] QSD7 [M] WAITING FOR USER (design first, SD-D4) Scoped styles.
+- [ ] QSD7 [M] READY after QSD6 (SD-D4 answered YES) Scoped styles.
       `StyleRule` gets a tree scope (document or shadow root id);
       `collect_style_css` and the `<link rel=stylesheet>` fetch walk also
       run per shadow root; adopted sheets per root (QSD3/QSD4). An element
@@ -436,7 +444,7 @@ Items (in order):
 - [ ] QSD7b [M] (later, only on measured need) `::part()` + `exportparts`,
       `:host-context()`. Users seen: salesforce (36 `::part(`),
       chromestatus (89, shoelace).
-- [ ] QSD8 [S] WAITING FOR USER (design first, SD-D2) Event retargeting
+- [ ] QSD8 [S] READY after QSD3 (SD-D2 answered YES) Event retargeting
       as chosen in SD-D2: in `dispatch` (js.rs) build the path through
       shadow roots to hosts for composed events (UA mouse/key/focus
       events are composed), stop non-composed events at the shadow root,
@@ -446,7 +454,7 @@ Items (in order):
       Tests: click on a shadow `<button>` -> document listener sees
       `target === host`, `composedPath()[0]` is the button (open);
       `new Event('x',{bubbles:true})` from inside does not reach document.
-- [ ] QSD9 [M] WAITING FOR USER (design first, SD-D3) Declarative shadow
+- [ ] QSD9 [M] READY after QSD6/QSD7 (SD-D3 answered YES) Declarative shadow
       DOM. Wrap `RcDom` in a TreeSink that delegates everything and
       implements `attach_declarative_shadow(host, template, attrs)`: the
       template's contents fragment becomes the host's shadow root (QSD3
