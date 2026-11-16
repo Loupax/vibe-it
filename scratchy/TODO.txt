@@ -1778,7 +1778,7 @@ Phase 2 (big enablers, after phase 1):
       click would (replace the history entry when N is 0). Test: the
       parser for `0; url='x'`, `5;URL=x`, `3` (reload) and junk; an
       end-to-end test only if the navigation path is testable headless.
-- [ ] QY20 [S] (P3, paint; bbc) Do not paint scrollbars of boxes that
+- [x] QY20 [S] (DONE HASH_PENDING; paint.rs `paint` and `hit_test_scroll_region` honour computed visibility; test qy20_visibility_hidden_scroll_container_paints_no_scrollbar_and_takes_no_wheel) (P3, paint; bbc) Do not paint scrollbars of boxes that
       are `visibility:hidden`. Symptom: bbc.com/news shows a grey
       vertical scrollbar strip with tick marks over the page at x≈318,
       from its hidden nav drawer (`visibility:hidden` on the drawer,
@@ -1788,6 +1788,12 @@ Phase 2 (big enablers, after phase 1):
       scrollbar likewise). Test: `<div style="visibility:hidden;
       overflow-y:scroll;height:50px"><div style=height:500px></div></div>`
       paints no scrollbar pixels.
+      - [ ] QY20b [S] bbc.com/news after QY20: the grey strip and its
+        track/thumb are gone, but small dark tick glyphs remain at the
+        same x≈318 (every ~45px down the page, next to the nav). They
+        are not the scrollbar (no track fill). Not root-caused: check
+        which hidden or clipped box paints them (the nav drawer's
+        content or an icon), then fix or file it.
 
 Phase 3 (Web Components; only after D0 says so AND after Q33f; see
 QY6 below for the re-split): QY6a MutationObserver (M), QY6e
