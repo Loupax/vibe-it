@@ -292,7 +292,7 @@ Items (in order):
       appended into a connected shadow root gets connectedCallback.
       Payoff (measured with a JS stand-in): github 12 relative-time + 1
       tool-tip errors gone; chromestatus and MDN Lit components start.
-- [ ] QSD4 [M] READY Constructable stylesheets: `new CSSStyleSheet()`
+- [x] QSD4 [M] (HASH) READY Constructable stylesheets: `new CSSStyleSheet()`
       (today `illegal`), `replaceSync`, `replace` (Promise), `insertRule`/
       `deleteRule`/`cssRules` (minimal CSSRule with `cssText`), `@import`
       ignored with a log as in the spec, and `document.adoptedStyleSheets`
@@ -302,6 +302,11 @@ Items (in order):
       Shadow-root `adoptedStyleSheets` are stored by QSD3 and applied by
       QSD7. Measured user: github core sets `document.adoptedStyleSheets`
       at startup; salesforce (15 uses), youtube (16), chromestatus.
+- [ ] QSD4a [S] READY `document.styleSheets` minimal read of the `<style>`/`<link>`
+      sheets (cssRules, insertRule), `CSSStyleSheet` baseURL url() rebasing and
+      `CSSMediaRule`/`CSSImportRule` subclasses (left out of QSD4).
+- [ ] QSD4b [S] WAITING (after QSD3/QSD7) `ShadowRoot.adoptedStyleSheets`: hook
+      is the `A`/`publish` pair in cssom_prelude.js (one list per root).
 - [ ] QSD5 [M] READY `display: contents` (general CSS, no shadow DOM
       needed): the element generates no box; its children are laid out
       as if they were the parent's children, inheriting from it.

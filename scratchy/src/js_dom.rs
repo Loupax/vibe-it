@@ -343,6 +343,9 @@ pub(crate) struct JsRequests {
     pub(crate) net_done: Vec<(u64, Result<WireResponse, NetError>)>,
     /// QF7: ids the page gave up on that may already be queued or running.
     pub(crate) net_abort: Vec<u64>,
+    /// QSD4: the document's adopted-stylesheet CSS text, set whenever it
+    /// changes (the App appends it after the page's own author CSS).
+    pub(crate) adopted_css: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -753,6 +756,13 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
                 r.borrow_mut().focus = Some(FocusReq::Blur(h));
             }
         }
+    });
+    let (r, d, gn) = (reqs.clone(), dirty.clone(), wgen.clone());
+    native!("__d_adopted", move |css: String| {
+        crate::js_style::set_js_adopted_css(&css);
+        r.borrow_mut().adopted_css = Some(css);
+        d.set(true);
+        gn.set(gn.get() + 1);
     });
     let r = reqs.clone();
     native!("__d_navigate", move |href: String| {

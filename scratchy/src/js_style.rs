@@ -23,6 +23,15 @@ pub(crate) fn set_js_extra_css(css: &str) {
     });
 }
 
+thread_local! {
+    static ADOPTED_CSS: RefCell<String> = const { RefCell::new(String::new()) };
+}
+
+/// QSD4: the document's adopted stylesheets (cascade after the page CSS).
+pub(crate) fn set_js_adopted_css(css: &str) {
+    ADOPTED_CSS.with(|c| *c.borrow_mut() = css.to_string());
+}
+
 #[derive(Default)]
 pub(crate) struct StyleCache {
     wgen: u64,
@@ -275,6 +284,8 @@ impl StyleCache {
         // The fetched stylesheets belong to the page, not to a second document.
         if page {
             EXTRA_CSS.with(|c| src.push_str(&c.borrow()));
+            src.push('\n');
+            ADOPTED_CSS.with(|c| src.push_str(&c.borrow()));
         }
         if !js_enabled() {
             src.push_str("\n/* nojs */");
