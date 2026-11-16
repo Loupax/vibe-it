@@ -14,6 +14,86 @@ these.
 QUEUE — ranked work order (reviewed 2026-11-12, re-planned 2026-11-14)
 ========================================================================
 
+--- CURRENT STATUS (2026-11-16, docs audit; READ THIS FIRST) -------------
+Built 2026-11-14..16 (~220 PRs; details in the blocks below and NOTES.md):
+- JS engine: QuickJS classic scripts (sloppy), ES modules + importmap with a
+  pre-fetched graph (QY15), timers, CPU budgets (QY5), `--js-report
+  --run-timers` diagnostics (QJ3, QY14), unhandled-rejection reporting.
+- DOM: read/write API, events, click()/focus(), MutationObserver (QY6a),
+  custom elements (QY6e), template.content/importNode/adoptNode (QY6f),
+  TreeWalker/NodeIterator (QA17), second documents + same-origin iframes
+  (QA18a-c), getRootNode/isConnected/compareDocumentPosition (QSD2).
+- Globals: Window/HTML*/SVG* interface objects (QY12), URL (QY9), matchMedia
+  (QY10), history/AbortController/MessageChannel/Storage (QY13, memory
+  only), Intl en-US (QY16), TextEncoder (QY15b), crypto (QSD1b),
+  IO/RO/PerformanceObserver honest-minimal (QY6g), getComputedStyle (QA16).
+- Network from page JS: fetch (QF8), XHR async + blocking sync (QF9), Blob/
+  File/FormData/Headers/Request/Response/ReadableStream (QF2-QF4), CORS +
+  preflight cache, all methods (QF7, QF13), sendBeacon logged not sent (QF10).
+- Policy: ONE `RequestPolicy` (src/net_policy.rs): private/file targets
+  warn-and-allow, mixed content/bad ports blocked, every limit (QF5).
+- wire v3: `X-Wire-Max-Bytes/-Timeout-Ms/-Max-Redirects/-Policy` caps,
+  `X-Wire-Final-Url/-Target-Class/-Hop-Classes/-Error/-Version` answers
+  (QF6); scratchy fails closed on a wire < v2 (QF7a).
+- Cookies: in-memory jar IN WIRE, partitioned by top site (`X-Wire-Jar`,
+  `X-Wire-Top-Site`, `X-Wire-Nav`, `X-Wire-Initiator-Site`), document.cookie
+  over `X-Wire-Cookie-Op`/`-Url`, `X-Wire-Cookies: on|off` (QF14, QF14b).
+- CSS: `@layer` (QY17), constructable sheets + adoptedStyleSheets (QSD4),
+  medium border default + currentColor (QA11a), margin collapsing (Q48a/b/d),
+  one stacking order per context (QY1), anonymous tables (QA10).
+- Pages: YouTube no longer blank (QY1), wikipedia wordmark (QW1-QW3), meta
+  refresh (QY19), hidden scrollbars (QY20), dialogs (QB4), text/plain (QB7).
+- Robustness: no panic on a lost Wayland connection or pipe (QB1, QB9),
+  input-stall limits (QB3), `:help` parks page JS (QB6).
+- Tooling: `tools/nest.sh` + `tools/inject` (QB10), WPT runner, Acid3 harness.
+- Evidence memos: REGRESSIONS.md R20-R23 (YouTube, JS survey, fetch, QSD).
+READY, in recommended order (no user decision needed):
+  1 QSD5 [M] `display: contents` (prerequisite for slots; general CSS).
+  2 QSD12 [S] re-measure the R23 corpus (absorbs QY6d; do with QF12).
+  3 QF12 [S] re-measure the R22 network corpus, file next walls.
+  4 QF11 [S] navigation from JS (`location.assign/replace/href=`: no-ops now).
+  5 Q33b1a [S] main `document.title` from `<title>` (reads '' today).
+  6 QSD2b [S] lookupNamespaceURI/lookupPrefix/isDefaultNamespace.
+  7 QSD4a [S] `document.styleSheets` minimal read.
+  8 QSD11 [S] attachInternals placeholder (forms parts log not implemented).
+  9 QF9a [S] DOMParser + XHR responseType 'document'.
+ 10 QF10a [S] `<a ping>` suppressed-log line.  11 QF4a [S] stream gaps.
+ 12 QF13a [S] / QF7b [M] per-hop redirects for CORS (scratchy follows hops).
+ 13 QY15a [S] run-time dynamic import() through the QF7 queue.
+ 14 QF14b2 (a)-(c) [S] `crossorigin` credentials, same-origin-mode redirect
+    hop, `cookieStore`.
+ Then P3/P4 leftovers in their blocks (QY*, QA*, Q40b/Q40c fix items).
+WAITING FOR USER (skip until answered):
+- SD-D1: OK to ship B1 (attachShadow works, JS sees a real shadow tree, but
+  only the host's light children render)? Gates QSD3, QSD6, QSD10.
+- SD-D2: accept "basic" event retargeting (no relatedTarget/focus
+  retargeting, no delegatesFocus)? Gates QSD8.
+- SD-D3: declarative shadow DOM, only after QSD6/QSD7 render? Gates QSD9.
+- SD-D4: style scoping = per-root sheets + :host/::slotted, ::part and
+  :host-context dropped? Gates QSD7.
+- QY18: OK to implement translate-only `transform` (paint + hit-test offset,
+  no layout change)? Left out on purpose in the 2026-11-14 re-plan.
+- Cookie control token: should wire require a token on the
+  `X-Wire-Cookie-Op` channel, and how is it shared? (hook
+  `control_authorized`; QF14b2 (f)). Also QF14b2 (d) `--profile` jar name
+  and (e) tracker-list blocking: want them, and which list?
+- Forms (Q30a-Q30e, Q30g, Q33e, QB11's form part): placeholder-only (AGENTS.md)
+  until you design live state/editing/submission. Same for media.
+- QF19 WebSocket/EventSource/Workers; QY16a real localisation (ICU data?);
+  persistence of jar/storage/cache (QF-D7: not now); Q26, Q32 (parked).
+Standing rules:
+- Acid2/Acid3 scores are information, never a merge gate.
+- WPT subset: no pass->fail; the only accepted failures are the two QA11a2
+  tests (table-rules-rows-vertical, row-group-margin-border-padding).
+- Opus investigates only (docs); Sonnet/Haiku implement.
+- Media and forms: placeholders only (AGENTS.md "Off limits").
+- Agents never `cargo install`; the coordinator installs from main.
+- No `pgrep -f` wait loops; kill only your own PIDs.
+NEEDS HUMAN CHECK (could not be verified by the audit):
+- QY20b (bbc tick glyphs) and QY15c (old.reddit after QY6e) not re-run live.
+- Current live Acid3 score and the R23 per-site numbers after QSD0-QSD4.
+- wire/NOTES.md "What's deliberately not here yet" (snag --serve) is old.
+
 Work through this queue top to bottom; it overrides the order of
 everything below it. Everything below the QUEUE is history and detail.
 An item here that says "Detail:" points at the longer entry further
@@ -178,6 +258,8 @@ C) Faithful implementation: B2 plus slotchange/re-slotting on mutation,
    L (another 5-8 M items on top of B2); no surveyed page needs any of it
    at startup.
 
+[STATUS 2026-11-16 audit: QY6f, QSD0, QSD1, QSD1b, QSD2, QSD4 DONE; QSD5
+is the remaining READY one. SD-D1..SD-D4 still unanswered.]
 RECOMMENDATION: do the READY items now (QY6f, QSD0, QSD1, QSD2, QSD4,
 QSD5); they are correct-by-spec, unblock github's module entries and
 youtube's first wall, and need no product decision. Then B1 (QSD3) as
@@ -388,7 +470,8 @@ Items (in order):
       `setFormValue`/`setValidity`/`form`/`labels` log `not implemented`
       and do nothing. NotSupportedError for non-custom elements or a
       second call. Users: salesforce (7), github (wraps it only).
-- [ ] QSD12 [S] READY after each of QY6f/QSD1/QSD3/QSD6 Re-measure the
+- [ ] QSD12 [S] READY (QY6f/QSD1 are done; absorbs QY6d: include the
+      YouTube re-run; run with QF12) Re-measure after each of QY6f/QSD1/QSD3/QSD6 the
       R23 corpus (`--js-report --run-timers 5000`, plus nested-dwl
       screenshots of MDN, salesforce, chromestatus, github) and file what
       it hits next. Known next walls: github `crypto` (QSD1b), github
@@ -444,6 +527,12 @@ What the survey found (curl'd pages + `<base href>`, `--js-report
   than 30 s (scratchy's `fetch_raw_via_wire` has no read timeout).
   HEAD and OPTIONS work (bbc userinfo OPTIONS -> 204 with CORS headers).
 
+[AUDIT 2026-11-16: points 5, 7 and 8 below are the pre-answer defaults.
+The USER ANSWERS block further down overrides them and is what was
+built: all methods with bodies (QF13), private/file targets warn and
+allow, an in-memory partitioned cookie jar in wire (QF14/QF14b), and a
+BLOCKING sync XHR with its own timeout (QF9). `sendBeacon` logs and does
+not send, as point 8 says.]
 Recommended design (fits the engine as it is: JS on the main thread,
 App owns everything else, wire does the network):
 1. JS side, a new `src/fetch_prelude.js`: spec-faithful data classes
@@ -513,7 +602,10 @@ coordinator recorded them from the user's message):
      site. SameSite is honoured as declared (Strict/Lax/None); a cookie with
      no SameSite attribute is treated as None (Firefox's current default).
      NOT done now (note as QF14b): the Disconnect tracker-list blocking of
-     Firefox standard mode.
+     Firefox standard mode. [BUILT (4d62f87, bc2fb00) with two extra
+     headers: `X-Wire-Nav: 1` on top-level navigations (Lax cookies sent)
+     and optional `X-Wire-Initiator-Site` (Strict withheld on a cross-site
+     navigation). The tracker list is QF14b2 (e).]
   4. Cookie rules otherwise per RFC 6265bis: Domain/Path matching, Secure
      (https only; loopback exempt), HttpOnly (hidden from document.cookie),
      Max-Age/Expires, session cookies, prefixes (__Secure-/__Host-), size and
@@ -523,13 +615,20 @@ coordinator recorded them from the user's message):
   5. `document.cookie` get/set and later `cookieStore` use a small control
      channel to wire (a control request header/URL, e.g.
      `X-Wire-Cookie-Op: get|set` with the page URL and top site): HttpOnly is
-     never returned; JS sets cannot create HttpOnly cookies.
+     never returned; JS sets cannot create HttpOnly cookies. [BUILT as
+     `X-Wire-Cookie-Op: get|set` + `X-Wire-Cookie-Url: <page url>` +
+     `X-Wire-Top-Site` + `X-Wire-Jar: scratchy`; `set` sends the assigned
+     string as the body and gets 204; `cookieStore` is QF14b2 (c).]
   6. MEMORY ONLY (QF-D7): wire keeps the jar in memory; it is lost when wire
      restarts. Persistence = a later wire flag (e.g. `--cookie-file PATH`).
      A kill switch flag `--no-cookies` is allowed.
   7. Scratchy must detect an old wire (`X-Wire-Version`, new response header
      `X-Wire-Cookies: on`) and log once that cookies are unavailable instead
-     of failing. The user must rebuild/restart wire for QF14.
+     of failing. The user must rebuild/restart wire for QF14. [BUILT: wire
+     answers `X-Wire-Version: 3`; scratchy logs once and sends no jar
+     headers if the version is < 3 or `X-Wire-Cookies` is not `on`
+     (`off` = wire runs with `--no-cookies`). Below v2 ALL page networking
+     is off (QF7a).]
   8. Open and NOT assumed: an access token for the cookie control channel
      (anything that can write to wire's socket could read non-HttpOnly cookies
      through it): the user was asked and has not answered: do not implement
@@ -541,6 +640,9 @@ coordinator recorded them from the user's message):
   need a sensible default (use: send cookies only for same-site requests
   with `credentials` 'include'/'same-origin' per the Fetch spec; third-party
   cookies are NOT sent; document it). Forms stay placeholder-only (AGENTS.md).
+  [SUPERSEDED by QF-D2a above: third parties DO get cookies, but only
+  from their own partition under the same top site (Firefox Total Cookie
+  Protection). That is what wire builds.]
 - QF-D3 Analytics beacons (`navigator.sendBeacon`, `fetch` with `keepalive`
   or `no-cors`, `<a ping>`): DECIDED (user, 2026-11-16): LOG IN DETAIL, DO NOT
   EMIT. Every beacon attempt writes one clear console line (QJ2 format) with
@@ -591,9 +693,9 @@ coordinator recorded them from the user's message):
   request headers such as `X-Wire-Max-Bytes` / `X-Wire-Timeout-Ms`) and keeps
   its own hard ceiling only as a backstop plus the resolved-IP public check.
 
-USER DECISIONS (READY items implement the first, most restrictive
-option; changing it later is a small change in QF5/QF8):
-- [ ] QF-D1 CORS stance. (B, default, recommended) browser rules for
+USER DECISIONS (ALL ANSWERED 2026-11-16, see USER ANSWERS above; the
+original option text below is kept for history):
+- [x] QF-D1 (DECIDED 2026-11-16: browser rules) CORS stance. (B, default, recommended) browser rules for
       reads as above. (A) ignore CORS: every response is readable. (C)
       every cross-origin response is opaque. Security: with no cookies,
       CORS mainly protects what only the user's machine can reach
@@ -601,21 +703,21 @@ option; changing it later is a small change in QF5/QF8):
       already blocks those, and B also keeps pages on the code paths
       they were tested on in Chrome. Measured cost of B: none (guardian
       and bbc send ACAO, reddit's events call fails in Chrome too).
-- [ ] QF-D2 Cookies/credentials. (default) none, as in point 7. Or Q30f
+- [x] QF-D2 (DECIDED 2026-11-16: QF-D2a in-memory partitioned jar in wire, built QF14/QF14b) Cookies/credentials. (default) none, as in point 7. Or Q30f
       (an in-memory jar in wire): then every JS request also needs a
       third-party-cookie rule (does a cross-site fetch send the
       cross-site cookies?) and CORS credentials mode (ACAO `*` is
       not allowed with credentials). Without cookies these break:
       anything logged in (HN votes), youtube's EU consent (it comes
       back on every load), CSRF-token forms, reddit's tokens.
-- [ ] QF-D3 Analytics. (default) drop `no-cors` fetches and
+- [x] QF-D3 (DECIDED 2026-11-16: log in detail, do not send; `beacons_send`) Analytics. (default) drop `no-cors` fetches and
       `sendBeacon` (measured: guardian 9 ophan beacons in 5 s, ddg 4).
       Or send them like a browser does.
-- [ ] QF-D4 POST/PUT/PATCH/DELETE and request bodies (QF13). (default)
+- [x] QF-D4 (DECIDED 2026-11-16: all methods, built QF13) POST/PUT/PATCH/DELETE and request bodies (QF13). (default)
       GET/HEAD only. Allowing POST is what youtube's content needs.
       Without cookies a POST is anonymous, but it can still change
       server state and send data.
-- [ ] QF-D5 SSRF policy. (default) http(s) only. No `file:`. No
+- [x] QF-D5 (DECIDED 2026-11-16: warn and allow, `private_targets: Warn`) SSRF policy. (default) http(s) only. No `file:`. No
       localhost, loopback, private (RFC 1918), link-local (incl. the
       169.254.169.254 cloud metadata address), CGNAT, ULA, multicast
       or "bad ports" destinations, unless the target has the same
@@ -623,16 +725,16 @@ option; changing it later is a small change in QF5/QF8):
       by resolved address (QF6). https pages cannot fetch http.
       Alternatives: let a private page reach other private hosts; a
       user allowlist (e.g. `:set netallow host`).
-- [ ] QF-D6 file:// pages. (default) their JS can fetch only public
+- [x] QF-D6 (DECIDED 2026-11-16: warn and allow, `file_targets: Warn`) file:// pages. (default) their JS can fetch only public
       http(s), never `file:`. Today wire would hand any page any file
       (e.g. a saved HTML attachment reading ~/.ssh). Alternatives: the
       page's own directory subtree; anything.
-- [ ] QF-D7 Persistence. (default) nothing on disk: no HTTP cache, no
+- [x] QF-D7 (DECIDED 2026-11-16: nothing persisted, memory only) Persistence. (default) nothing on disk: no HTTP cache, no
       cookies, no storage (QY13a is the localStorage half).
-- [ ] QF-D8 Sync XHR. (default) `send()` throws `NetworkError` with a
+- [x] QF-D8 (DECIDED 2026-11-16: log and block, `sync_xhr_timeout_ms`, built QF9) Sync XHR. (default) `send()` throws `NetworkError` with a
       log line. Alternative: block the main thread up to N s (R8: the
       compositor drops a client that stalls).
-- [ ] QF-D9 Limits. 16 MiB per response, 64 MiB in flight per page, 6
+- [x] QF-D9 (DECIDED 2026-11-16: these numbers, all in `RequestPolicy`) Limits. 16 MiB per response, 64 MiB in flight per page, 6
       requests at a time, 1000 requests per page, 30 s per request.
       youtube made 337 requests in R21.
 
@@ -662,7 +764,7 @@ R22 copies and paste the before/after numbers in the commit.
       'latin1' label. Payoff: github's 3 module errors `TextEncoder is
       not defined` -> next error `customElements is not defined` (QY6);
       youtube uses TextEncoder at startup.
-- [x] QF2 f09d472 [S] READY `Blob`, `File`, blob: URLs (new
+- [x] QF2 9e085ec [S] DONE `Blob`, `File`, blob: URLs (new
       `src/fetch_prelude.js`, evaluated after `intl_prelude.js`; needs
       QF1). `Blob(parts, {type, endings})`: parts are strings (UTF-8 via
       QF1), ArrayBuffer, views, Blobs. Keep one internal Uint8Array.
@@ -791,7 +893,7 @@ R22 copies and paste the before/after numbers in the commit.
         cd ~/src/vibe-it/wire && cargo install --path . --force
         kill <pid from `pgrep -x wire`>   # then start it as you usually do:
         wire &
-      (check: a response now has `X-Wire-Version: 2`). Until then QF7/QF8 must
+      (check: a response now has `X-Wire-Version: 2`; since QF14 it is 3). Until then QF7/QF8 must
       treat an old wire (no `X-Wire-Version`) as fail-closed. DEPENDS ON THIS:
       QF7 (caps, class warnings, public-only Block mode, final URL), QF8, QF14
       (every Set-Cookie line). Version probe: look for `X-Wire-Version` in the
@@ -876,7 +978,7 @@ R22 copies and paste the before/after numbers in the commit.
       each hop). The second is a scratchy-only change but costs one wire round
       trip per hop and needs the cookie jar rules per hop.
       Original QF7 text follows (kept for reference):
-- [ ] (QF7 original) READY (needs QF4, QF5, QF6) The engine/App plumbing.
+- [x] (QF7 original, kept for reference; built as QF7 da6a5c7) The engine/App plumbing.
       `JsRequests.net: Vec<NetRequest { id, method, url, headers, body
       }>` and `net_abort: Vec<u64>`. Native `__net_send(method, url,
       headers, body) -> id or error string`: it runs
@@ -972,7 +1074,7 @@ R22 copies and paste the before/after numbers in the commit.
       resolves signed-out; ddg `/country.json` works; old.reddit's
       `fetch is not defined` is gone (its one request is unreadable,
       as in Chrome).
-- [x] QF9 fdf3d0a [S] DONE `XMLHttpRequest` over the same queue (sync mode included; see NOTES.md "XMLHttpRequest (QF9)")
+- [x] QF9 b676a4a [S] DONE `XMLHttpRequest` over the same queue (sync mode included; see NOTES.md "XMLHttpRequest (QF9)")
       and the same CORS code. EventTarget with UNSENT..DONE, `open(method,
       url, async=true)` (URL resolved against document.baseURI),
       `setRequestHeader` (forbidden names dropped), `timeout` (a JS
@@ -992,6 +1094,9 @@ R22 copies and paste the before/after numbers in the commit.
       error, loadend. On abort: readystatechange(4) if sent, abort,
       loadend, then readyState 0. `open(.., false)` (sync): `send()`
       throws DOMException 'NetworkError' plus a log line (QF-D8).
+      [AS BUILT, per the QF-D8 answer: sync `send()` BLOCKS up to
+      `sync_xhr_timeout_ms` and throws NetworkError only on failure; non-GET
+      methods work (QF-D4, QF13). See NOTES.md "XMLHttpRequest (QF9)".]
       Tests: the event order, json responseType, a header lookup,
       abort, timeout on the fake clock, sync throws. Payoff: youtube
       reads `XMLHttpRequest.prototype` at top level (R21 row 12); HN
@@ -1035,7 +1140,8 @@ R22 copies and paste the before/after numbers in the commit.
       R22, and live-check guardian, bbc and ddg in a window (grim). File
       what comes next as new items here.
 
-WAITING FOR USER (design first): skip these.
+Later items (QF13/QF14 done; QF15-QF17 closed by the user's answers;
+QF13a, QF14b2, QF18 open; QF19 waits for the user):
 
 - [x] QF13 (b7528ce) [M] DONE (QF-D4 decided: all methods) Non-GET methods
       and request bodies: POST/PUT/PATCH/DELETE for fetch and XHR,
@@ -1048,7 +1154,7 @@ WAITING FOR USER (design first): skip these.
       in-memory preflight cache (Max-Age, policy cap), per-page cap and
       in-flight limits, sync XHR preflight, error lines, report lines,
       navigator.sendBeacon. Bodies/methods already worked (QF8/QF9).
-- [ ] QF13a [S] Redirects of a PREFLIGHTED request: today wire is told
+- [ ] QF13a [S] READY (same mechanism as QF7b: do them together) Redirects of a PREFLIGHTED request: today wire is told
       `X-Wire-Max-Redirects: 0` and a 3xx fails closed. Follow it by hand
       in scratchy (re-run the policy and a new preflight for the new URL,
       `Origin: null` after a cross-origin hop) instead. Plain cors requests
@@ -1095,7 +1201,8 @@ WAITING FOR USER (design first): skip these.
       forward them, and the first request is the navigation (top site = its
       own destination), so scratchy sends the headers until the first response
       proves otherwise (no separate probe).
-- [ ] QF14b2 [S] Left out of QF14b-scratchy: (a) `crossorigin` attribute
+- [ ] QF14b2 [S] (a)-(c) READY, no decision needed; (d)-(f) WAITING FOR
+      USER (see CURRENT STATUS) Left out of QF14b-scratchy: (a) `crossorigin` attribute
       credentials mode for img/script/link/module (today they always use the
       jar; spec: `crossorigin=anonymous` and module scripts are same-origin
       mode, so cross-origin ones should send none); (b) drop same-origin-mode
@@ -1104,12 +1211,14 @@ WAITING FOR USER (design first): skip these.
       (e) Disconnect tracker-list blocking (QF14b in the old numbering);
       (f) the access token for the control channel (wire hook
       `control_authorized`, waiting for the user).
-- [ ] QF15 [S] WAITING FOR USER (design first, QF-D7; with QY13a)
-      Persistence: an HTTP cache, cookies or storage on disk.
-- [ ] QF16 [S] WAITING FOR USER (design first, QF-D8) Sync XHR that
-      blocks, only if the user prefers it to the default (throw).
-- [ ] QF17 [S] WAITING FOR USER (design first, QF-D6) Let file:// pages
-      fetch local files (directory subtree or everything).
+- [x] QF15 [S] CLOSED 2026-11-16 (user, QF-D7: nothing persisted yet,
+      every store is mocked in memory; reopen when the user designs
+      persistence) Persistence: an HTTP cache, cookies or storage on disk.
+- [x] QF16 [S] CLOSED 2026-11-16 (user DECIDED QF-D8: log and block; built
+      in QF9 b676a4a) Sync XHR that blocks.
+- [x] QF17 [S] CLOSED 2026-11-16 (user DECIDED QF-D5/QF-D6: warn and allow
+      through `file_targets`/`private_targets` in `RequestPolicy`, QF5) Let
+      file:// pages fetch local files.
 - [ ] QF18 [M] Streaming bodies (wire streams already: chunked
       `AppEvent`s feeding a real ReadableStream). Not a user decision,
       but only when a measured page needs incremental delivery.
@@ -1118,7 +1227,7 @@ WAITING FOR USER (design first): skip these.
       Workers: out of scope. wire speaks one request and one response per
       connection.
 Also: QY15a (run-time `import()` of a URL that was not pre-fetched) can
-reuse QF7's queue once it exists.
+reuse QF7's queue (it exists now, da6a5c7).
 
 --- Tier 0: tooling that makes every later measurement honest ---------
 
@@ -1821,9 +1930,15 @@ Q32 (parked); 320 tests pass, 2 ignored; lib.rs is ~27.4k lines.
 ========================================================================
 
 --- DECISION MEMO (QY6): Web Components / YouTube and the real-site JS roadmap
---- (Opus investigator, 2026-11-16) — WAITING FOR THE USER ------------
+--- (Opus investigator, 2026-11-16) — D0 gate CLOSED 2026-11-16 ---------
 
-IMPLEMENTERS: do not start anything in this block until the user has
+[AUDIT 2026-11-16: the D0 gate below is closed. The coordinator went
+ahead with option C phases 1 and 2 on 2026-11-16 and told the user;
+phase 3 (QY6a/QY6e/QY6f/QY6g) was built too. Phases 1-3 are DONE except
+the leftovers still marked `[ ]` here (QY10a, QY11a, QY13b, QY15a,
+QY16a, QY16d, QY18 which waits for the user, QY20b). Native Shadow DOM
+moved to the QSD memo at the top.]
+IMPLEMENTERS (original text, no longer applies): do not start anything in this block until the user has
 ticked D0 below and written which option they chose. Until then skip
 this whole block and take the next unchecked item further down.
 Evidence for every claim here: REGRESSIONS.md "R21".
@@ -1897,7 +2012,8 @@ Order rationale: Phase 1 items each unblock or help 2-5 of the surveyed
 pages for S effort; ES modules turn github/lobste.rs/guardian from "no
 JS" into "JS runs"; fetch is what everything waits on next.
 
-- [ ] D0 (USER) Pick A, B or C (or a mix) and write it here. Until this
+- [x] D0 (USER) CLOSED 2026-11-16: the coordinator proceeded with C
+      (phases 1 and 2, then 3) and the user was told. Pick A, B or C (or a mix) and write it here. Until this
       is ticked, implementers skip this block.
 
 Phase 1 (each S, independent; do in this order):
@@ -2078,11 +2194,18 @@ Phase 1 (each S, independent; do in this order):
       (AbortController fires once; postMessage arrives after the current
       script, before a 10 ms timeout; storage survives across scripts of
       the same page; pushState changes `history.length`).
-- [ ] QY13a [S] (PRODUCT DECISION, user) Persist `localStorage` to disk?
+- [x] QY13a [S] CLOSED 2026-11-16 (user, QF-D7: nothing is persisted yet,
+      storage stays in memory; reopen with QF15 when persistence is
+      designed) Persist `localStorage` to disk?
       QY13 keeps it in memory per engine, lost on exit and not shared
       between tabs/pages. Persisting needs a per-origin store location,
       size limits and a privacy stance; also `history.back/forward` could
-      ask the App to navigate (`JsRequests.nav`) instead of staying JS-side.
+      ask the App to navigate (`JsRequests.nav`) instead of staying JS-side
+      (that half is QY13b).
+- [ ] QY13b [S] (P3; split from QY13a by the 2026-11-16 audit; do after
+      QF11) `history.back/forward/go` across real App history entries ask
+      the App to navigate (`JsRequests.nav`) instead of only replaying the
+      JS-side entry list.
 - [x] QY14 [S] (P2, diagnostics; needed to measure everything above) f50722d
       Done: (1) a throwing promise job logs `Uncaught (in promise job)
       <Name: message + stack>`; (2) the host rejection tracker feeds a JS
@@ -2169,7 +2292,9 @@ Phase 2 (big enablers, after phase 1):
       `ReferenceError: customElements is not defined` (QY6 memo: custom
       elements, QY6e), in core-*.js, marketing-essentials-*.js and
       landing-pages-*.js.
-- [ ] QY15c [S] old.reddit: its `data:text/javascript,` navigation module
+- [x] QY15c [S] CLOSED 2026-11-16 (audit: `customElements` exists since
+      QY6e f887f67; old.reddit itself was not re-run, that is part of
+      QSD12/QF12) old.reddit: its `data:text/javascript,` navigation module
       (`let navPromise=null,hasNativeNavigation=...`) dies on
       `ReferenceError: customElements is not defined` (same as its inline
       script #10): custom elements (QY6 memo) is the next wall there.
@@ -2198,7 +2323,7 @@ Phase 2 (big enablers, after phase 1):
       sets `document.body.dataset.ok`; `nomodule` script does not run;
       an importmap bare specifier resolves. Live: github.com `--js-report`
       shows its modules running (record the new first errors; file them).
-- [ ] Q33f [L] fetch()/XHR (existing item, Tier 7; unchanged, it is the
+- [x] Q33f [L] SUPERSEDED (pointer; the item itself is closed in Tier 7: replaced by QF1-QF19) fetch()/XHR (existing item, Tier 7; unchanged, it is the
       next wall for YouTube, old.reddit and everything after modules).
       Move it here in priority, do not duplicate it.
       SPLIT 2026-11-16 into QF1-QF19: see "DESIGN MEMO (QF)" at the top
@@ -2252,7 +2377,7 @@ Phase 2 (big enablers, after phase 1):
       already existed. Left out: `compareDocumentPosition` (not present;
       not trivial, filed as QY16c below). Duckduckgo's first error is now
       React #418 (hydration, timer phase), wikipedia unchanged.
-- [ ] QY16c [S] (P3; duckduckgo) `Node.prototype.compareDocumentPosition`
+- [x] QY16c [S] (DONE in QSD2, 0239f7b; tests in tests.rs) (P3; duckduckgo) `Node.prototype.compareDocumentPosition`
       is missing (left out of QY16b). Implement per DOM spec with
       ancestor/tree-order walks.
 - [ ] QY16d [M] (P3; duckduckgo) React #418 ("Minified React error #418",
@@ -2342,6 +2467,9 @@ QY6 below for the re-split): QY6a MutationObserver (M), QY6e
 customElements (M), QY6f template.content (M), QY6d re-measure.
 Not recommended at all for now: native Shadow DOM (`attachShadow`,
 slots, `:host`/`::slotted` in the cascade). No measured page needs it.
+[OUT OF DATE 2026-11-16: phase 3 is built (QY6a 6f4e412, QY6e f887f67,
+QY6f ac492ca, QY6g 4c01526); Shadow DOM now has measured users, see the
+QSD memo and R23.]
 
 Candidates seen but NOT filed (measure first): `:has()` (330 uses on
 github, 38 yt, 27 old.reddit, 16 ddg, 11 guardian, 8 lobste.rs, 4
@@ -2350,7 +2478,8 @@ wikipedia; does not match today), `@container` (QY7 exists),
 bbc's grey image placeholders (cause not investigated), reddit.com's
 bot challenge (needs QY9 + `requestSubmit` POST = Q30e + cookies Q30f).
 
---- TOP PRIORITY: wikipedia.org wordmark missing (coordinator, 2026-11-15) ---
+--- (DONE 2026-11-16) was TOP PRIORITY: wikipedia.org wordmark missing (coordinator, 2026-11-15) ---
+[QW1-QW3 done; QW3a and QW2b are P3 leftovers.]
 
 - [x] QW1 [S] (done, commit 89be128; PR #157 layer-list parse + Q35a url fetching; wordmark verified on a live window)
       The "Wikipedia" wordmark above the tagline on https://wikipedia.org
@@ -2407,7 +2536,7 @@ bot challenge (needs QY9 + `requestSubmit` POST = Q30e + cookies Q30f).
       an earlier float forces it) shift the first line by a NEGATIVE indent.
       Tests `negative_text_indent_{moves_the_label_off_the_icon,applies_on_
       the_mixed_inline_path_too}_qw2`.
-- [x] QW3 [S] (done, commit 79d338b) On https://wikipedia.org a horizontal line
+- [x] QW3 [S] (done, commit a0aa4e3; the old 79d338b was a pre-rebase hash) On https://wikipedia.org a horizontal line
       was drawn through the "Read Wikipedia in your language" text. ROOT CAUSE
       (2026-11-16, live portal HTML): the divider is a separate sibling
       `<div class="lang-list-border">` (block, position:relative, height:1px,
@@ -2443,9 +2572,12 @@ wait for those items. Failures caused by features nobody has listed get an Opus
 read-only audit that files new action items (the QA1..QA21 pattern). Nothing to
 implement under this heading.
 
---- TOP PRIORITY: www.youtube.com investigation (user report, 2026-11-15) ---
+--- (DONE 2026-11-16) was TOP PRIORITY: www.youtube.com investigation (user report, 2026-11-15) ---
+[QY0-QY5 done, the blank window is fixed (QY1). QY6 is split and built
+(QY6a/e/f/g). Open leftovers: QY1a, QY6a1, QY-IO-GEOMETRY, QY7 (all
+P3/P4). Does NOT override the queue any more.]
 
-Overrides everything else in the QUEUE. User report: visiting
+(Historical:) Overrides everything else in the QUEUE. User report: visiting
 https://www.youtube.com shows console errors and a BLANK window. Video
 playback is explicitly out of scope for now.
 
@@ -2650,7 +2782,10 @@ Read REGRESSIONS.md "R20" before starting any QY item. Short version:
       YouTube nothing visible depends on this script until QY6 exists.
       Test: a script `for(;;){}` produces exactly the new message (call
       the report helper, not stderr); a cheap script still runs.
-- [ ] QY6 [L] (P4, needs a user decision before starting) Web Components,
+- [x] QY6 [L] CLOSED AS AN UMBRELLA 2026-11-16 (audit): QY6a 6f4e412,
+      QY6b = QA17, QY6c = QA18a, QY6e f887f67, QY6f ac492ca, QY6g 4c01526
+      are done; the open children below (QY6a1, QY-IO-GEOMETRY) stay open
+      and QY6d is merged into QSD12. (P4, needs a user decision before starting) Web Components,
       the only path to real YouTube content (and to the EU consent dialog
       a logged-out visitor sees first). Everything visible on youtube.com
       is `ytd-*` Polymer custom elements built by the 10.8 MB app script
@@ -2713,7 +2848,7 @@ Read REGRESSIONS.md "R20" before starting any QY item. Short version:
       - [ ] QY6a1 [S] MutationObserver leftovers: `Comment.data =` is a
         native no-op (QA18e: Comment contents is not a RefCell), so it
         queues no record; `insertAdjacentHTML/Element/Text` do not exist
-        yet; writes from the parser or Rust (form state, `load_html`) never
+        yet (same gap as Q33c1: implement once, with records); writes from the parser or Rust (form state, `load_html`) never
         notify; `attributeNamespace` is always null (no namespaced
         attributes); `normalize()`/`splitText()` are missing.
       - [x] QY6g [M] (4c01526) IntersectionObserver / ResizeObserver /
@@ -2811,7 +2946,8 @@ Read REGRESSIONS.md "R20" before starting any QY item. Short version:
         kevlar_base `appendChild: parameter 1 is not of type Node`
         (10725:29); `document.importNode` is also missing and is added
         there.
-      - [ ] QY6d re-run `--js-report --run-timers` (QY14) on YouTube after
+      - [x] QY6d MERGED into QSD12 (2026-11-16 audit; its prerequisites
+        QY6a/e/f and the QF fetch/XHR items are done) re-run `--js-report --run-timers` (QY14) on YouTube after
         QY6a/e/f and Q33f, and file what it hits next.
 - [ ] QY7 [M] (P4) CSS container queries: `container-type`/
       `container-name`, `@container (min-width|max-width|width: …)`.
@@ -2826,9 +2962,14 @@ Read REGRESSIONS.md "R20" before starting any QY item. Short version:
       (min-width:600px){p{color:red}}` is red; at width 500 it is not.
       Only after QY1; low payoff until real content exists.
 
---- TOP PRIORITY: Acid2/Acid3 audit (Opus investigator, 2026-11-15) ----
+--- (TOP PART DONE 2026-11-16) was TOP PRIORITY: Acid2/Acid3 audit (Opus investigator, 2026-11-15) ----
+[QA1-QA17, QA18a-QA18d and QA20 done (R12-R19 fixed); QA19 (Range)
+and QA21 (`<object>`) are P4 and open. The open `[ ]` items left here are
+P3/P4 leftovers in normal queue order (QA11a2 is the proper
+border-collapse fix for the two accepted WPT failures). Acid is not a
+merge gate (AGENTS.md).]
 
-These override everything below, including the QB and JS blocks. Do
+(Historical:) These override everything below, including the QB and JS blocks. Do
 them top to bottom. Evidence, minimal repros and screenshots are in
 REGRESSIONS.md "R12–R19". Each item's repro is a few lines of HTML: make
 it the permanent test, then run `scratchy --wpt` (AGENTS.md step 4) and
@@ -3110,7 +3251,7 @@ into the commit message of every JS item.
       Acid3 T30-T32 ("not a function"). Test: `e=document.createEvent(
       'UIEvents'); e.initUIEvent('t',true,false,null,6)` dispatched to a
       listener sees `detail===6`.
-- [x] QA16 (37ca064, safe subset) [M] (P3, JS) `getComputedStyle(el, pseudo)` (moved up from
+- [x] QA16 (d899537, safe subset; the old 37ca064 was a pre-rebase hash) [M] (P3, JS) `getComputedStyle(el, pseudo)` (moved up from
       Q33g; also listed in Q33c1): a `CSSStyleDeclaration`-like object of
       the element's computed values from the cascade (`compute_style` on
       the current DOM; camelCase and `getPropertyValue`), at least
@@ -3140,7 +3281,9 @@ into the commit message of every JS item.
       replaceChild and Element.remove; also run it for moves through
       insertBefore/appendChild of an attached node, innerHTML/textContent
       replacement and replaceChildren.
-- [ ] QA18 [L] (P4, JS) Second documents: `iframe.contentDocument` for a
+- [x] QA18 [L] CLOSED AS AN UMBRELLA 2026-11-16 (audit): split into
+      QA18a f335250, QA18b 2fdcec8, QA18b1/QA18c 8475619, QA18d (all done);
+      QA18b2, QA18c1, QA18e stay open below. (P4, JS) Second documents: `iframe.contentDocument` for a
       same-origin `src` (start with a fresh empty HTML document; loading
       the real `src` through wire is a sub-item), `document.implementation`
       (`createDocument`, `createHTMLDocument`, `createDocumentType`,
@@ -3224,9 +3367,11 @@ Not filed (deliberately): Acid3 T74-T79 need SVG documents in
 iframes/objects (`getSVGDocument`, SMIL, SVG fonts); out of scope.
 Acid3 T81-T96 (ECMAScript) already pass on QuickJS.
 
---- TOP PRIORITY: build-test findings (Opus investigator, 2026-11-15) --
+--- (DONE 2026-11-15) was TOP PRIORITY: build-test findings (Opus investigator, 2026-11-15) --
+[QB1-QB10 and QB12 done; R8-R11 fixed. Only QB11 (P2, dialog backdrop/
+cancel; its `<form method=dialog>` part waits for forms) is open.]
 
-These override everything else in the QUEUE, including the JS block
+(Historical:) These override everything else in the QUEUE, including the JS block
 below. Do them in this order. Evidence, measurements and repro recipes
 are in REGRESSIONS.md "R8–R11". That section also has the nested-dwl +
 virtual-input recipe for driving real clicks, keys and scrolls without
@@ -3382,7 +3527,7 @@ touching the user's desktop: use it for the live check of each item.
       input/button/select/textarea; scrollX/scrollY are optimistic (not
       read back from the App); only the y axis scrolls (page has no x
       scroll). `click()` and live form state remain in Q33d1/Q33e.
-- [x] QB6 [S] (5f2dabf) (P1, R10) `:help` must suspend the current page's JS. Add
+- [x] QB6 [S] (c150951; the old 5f2dabf was a pre-rebase hash) (P1, R10) `:help` must suspend the current page's JS. Add
       `js: Option<JsEngine>` to `SavedPage`. `show_help` moves
       `self.js.take()` into it and `restore_saved_page` puts it back, then
       calls `js_sync`. Timers simply don't run while help is shown; their
@@ -3454,7 +3599,8 @@ touching the user's desktop: use it for the live check of each item.
       key handler. Live: HN, `scroll:20` then `gg` returns to the top and
       `G` reaches the bottom.
 
---- TOP PRIORITY: JS on real pages (user report, 2026-11-15) ----------
+--- (DONE 2026-11-15) was TOP PRIORITY: JS on real pages (user report, 2026-11-15) ----------
+[QJ1-QJ3 and the Q33b/Q33b1/Q33t items it promoted are done.]
 
 The user visited https://wikipedia.org with JS on (after Q33a, `2646dd1`)
 and got 12 `scratchy: js error:` lines. Investigation (fetched the portal
@@ -3523,7 +3669,9 @@ with JS on than with `--no-js` (compare `grim` screenshots of both).
 - [x] Next: Q33b, Q33b1, Q33t in Tier 7 (they're in that order there).
       Tick this line when Q33t is ticked.
 
---- TOP PRIORITY: WPT audit of "done" features (user, 2026-11-14) -----
+--- (DONE 2026-11-15) was TOP PRIORITY: WPT audit of "done" features (user, 2026-11-14) -----
+[Q40/Q40a/Q40b/Q40c done; their open fix items (Q41b..Q75) are normal
+queue items now.]
 
 Do not start Tier 5+ until Q40 is done. Purpose: find out how much of
 Q1-Q34 is actually correct before building forms on top of it.
@@ -3652,7 +3800,8 @@ Not vendored; pass the path to the runner.
       `align-self-002..016`.
 - [ ] Q47a [S] After Q47: `align-self-015/016` (column wrap with auto margins
       and per-column centring) still fail; auto margins in flex items.
-- [ ] Q48 [S] Margins collapse through empty blocks (W7), both `height:auto`
+- [x] Q48 [S] CLOSED AS AN UMBRELLA 2026-11-16 (audit): Q48a b55ccac,
+      Q48b (QA11, PR #162), Q48d 4ae204c done; Q48c stays open. Margins collapse through empty blocks (W7), both `height:auto`
       with no content and `height:0`. WPT:
       `margin-collapse-through-zero-height-block`,
       `margin-collapse-012`/`-022`.
@@ -3718,7 +3867,8 @@ Not vendored; pass the path to the runner.
 - [ ] Q51a [S] Table `height` is still content-box and rows ignore their cells'
       `height`; browsers treat table height as border-box with cell heights
       as a floor (kept authored sizing to avoid regressing `floats-038`).
-- [ ] Q52 [S] Border width defaults to `medium` (3px) when a style is set
+- [x] Q52 [S] (DONE in QA11a, 20c9e93, PR #167; test
+      `border_width_defaults_to_medium_and_keywords_parse`) Border width defaults to `medium` (3px) when a style is set
       without a width (W4): `border: solid black`, `border-style: solid`,
       `border-bottom: solid`. Wikipedia tables often rely on it.
       BLOCKED 2026-11-15: implemented (style.rs: width 3 when a style was
@@ -3753,7 +3903,8 @@ Not vendored; pass the path to the runner.
       `expand_var_decls` expands per segment, `merge_var_matches` re-applies
       each late layer after its group. Important var decls are still not
       expanded (pre-existing).
-- [ ] Q52c [S] `border-color: inherit` where the parent's color is unset
+- [x] Q52c [S] (DONE in QA11a, 20c9e93, PR #167: unset border colour =
+      currentColor; the two tests it broke are the accepted QA11a2 failures) `border-color: inherit` where the parent's color is unset
       resolves to the parent's currentColor keyword (`border-color-011`).
       BLOCKED 2026-11-15: root cause is NOT inherit: an unset/`currentColor`
       border colour is `None` in `ComputedStyle.border_color` and paint.rs
@@ -3912,7 +4063,8 @@ Not vendored; pass the path to the runner.
       pushes), abspos with insets, `margin: auto` vertical in flex, auto
       margin on `display:table` with shrink-to-fit width is only centred via
       the block path. Test: flex item `margin-left:auto` sits at the right edge.
-- [ ] Q60 [S] `hsl()`/`hsla()`, `hwb()`, `lab()`, `lch()`, `oklab()`,
+- [ ] Q60 [S] (PARTLY DONE: `hsl()`/`hsla()`/`hwb()` convert since Q33c3
+      5bd6b26, `to_text_color`; lab/lch/oklab/oklch/color() remain) `hsl()`/`hsla()`, `hwb()`, `lab()`, `lch()`, `oklab()`,
       `oklch()`, `color(srgb|display-p3|...)` (W38): cssparser-color parses
       them but `to_text_color` only handles `CssColor::Rgba`. Convert the
       other variants to sRGB (gamut-clip is fine). Test: `hsl(0 100% 50%)`
@@ -4052,6 +4204,10 @@ Not vendored; pass the path to the runner.
       (`@font-face`, `@keyframes`, transitions).
 
 --- Tier 6: forms (Q30, split 2026-11-14) ------------------------------
+[WAITING FOR USER (design first): AGENTS.md "Off limits" allows only
+placeholders (inert boxes, DOM reflections, `not implemented` logs) until
+the user designs live form state, editing and submission. Q30f (the
+cookie jar) is done as QF14.]
 
 Evidence: social.loupax.com has 30 forms, 33 buttons and 29 textareas;
 Wikipedia has a search form. What already exists and gets REUSED (don't
@@ -4136,7 +4292,10 @@ with temporary `Instant` timing, and say the number in the commit.
       `form=` attribute owners, validation (`required`, `pattern`).
       Tests: the pure encoder (checkbox off/on, radio group, select,
       submitter), GET URL building, POST request text.
-- [ ] Q30f [S] (in `wire`, not scratchy; log it in wire's own PROMPTS.md/
+- [x] Q30f [S] DONE as QF14 (wire half 4d62f87, wire/src/cookies.rs) +
+      QF14b-scratchy (bc2fb00): an in-memory, partitioned jar in wire used by
+      every scratchy request incl. navigations (design QF-D2a). Forms
+      themselves still wait (Tier 6 note). (in `wire`, not scratchy; log it in wire's own PROMPTS.md/
       TODO.txt) An in-memory cookie jar, so a login on
       social.loupax.com survives the next request. ureq 2's `cookies`
       feature gives one per `Agent`; `wire` already shares one agent.
@@ -4271,6 +4430,20 @@ as the JS measurement corpus (same role the four CSS pages played).
       elements inserted by JS never run, `template.content`, `style`
       iteration/`getComputedStyle`.
       Reflected URL properties and their setters: done in QY11.
+      AUDIT 2026-11-16: `template.content` done (QY6f ac492ca),
+      `getComputedStyle` done (QA16 d899537). Still open: insertAdjacent*
+      (also QY6a1: add MutationObserver records), script elements inserted
+      by JS never run, `style` iteration.
+- [ ] Q33b1a [S] READY (filed inline under Q33b1, promoted by the
+      2026-11-16 audit) the MAIN `document.title` reads '' (js.rs builds
+      `doc` from `env.title`, which nothing sets); second documents already
+      read their `<title>`. Getter/setter from the `<title>` element as
+      `makeDoc` documents do. Test: `<title> a  b </title>` -> 'a b'.
+- [ ] Q33b2 [S] (filed inline under Q33b1) real `innerWidth/innerHeight`
+      from the window (fixed 1024x768 now); the old note "`location` from
+      the page URL, not `<base href>`" was not re-checked by the audit:
+      verify before fixing. Same plumbing as QY10a. Element geometry is
+      QY-IO-GEOMETRY.
 - [x] Q33c2 [S] (1b02dd5) A `<dialog>` without `open` must be `display:none` (UA
       sheet). The portal's closed `frb-iad-dialog` shows as a modal box
       in flow today (visible with JS on at wikipedia.org; it is also
@@ -4309,7 +4482,9 @@ as the JS measurement corpus (same role the four CSS pages played).
 - [ ] Q33e [S] Forms <-> JS: `.value`, `.checked`, `.selectedIndex`,
       `.disabled` read and write the Q30 live state; `form.submit()`,
       `form.elements`, `input`/`change` events fire from Q30d/Q30c.
-- [ ] Q33f [L] Networking and location from JS: `fetch()` (and a minimal
+- [x] Q33f [L] SUPERSEDED 2026-11-16 by QF1-QF19 (fetch/XHR done: QF8,
+      QF9, QF13, QF14b; history done in QY13; location navigation is the
+      open QF11). Networking and location from JS: `fetch()` (and a minimal
       `XMLHttpRequest`) through `wire` on a background thread,
       resolving a Promise via `AppEvent`; `JSON` is built in;
       `location.href=` / `location.assign` navigate; `history.pushState/
@@ -4317,7 +4492,11 @@ as the JS measurement corpus (same role the four CSS pages played).
       This is what most "needs JS" sites actually wait on.
       SPLIT 2026-11-16 into QF1-QF19 ("DESIGN MEMO (QF)" at the top of
       the QUEUE; location navigation = QF11). Tick this when they are done.
-- [ ] Q33g (`getComputedStyle` done in QA16) later, only when a corpus page needs it: `localStorage`,
+- [ ] Q33g (AUDIT 2026-11-16: `localStorage` done QY13 9218dc9 (memory
+      only), `document.cookie` done QF14b bc2fb00, `MutationObserver` done
+      QY6a 6f4e412, `getComputedStyle` done QA16; `getBoundingClientRect` is
+      QY-IO-GEOMETRY; only the JS-scriptable `bind()` is left, and only on
+      request) later, only when a corpus page needs it: `localStorage`,
       `document.cookie`, `MutationObserver`, (getComputedStyle: done, QA16),
       `getBoundingClientRect` (needs layout results exposed to JS),
       the JS-scriptable `bind()` from the vim-keybindings item.
