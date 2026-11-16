@@ -967,6 +967,7 @@ pub(crate) fn start_scripts_clocked(
     engine.eval("prelude", PRELUDE);
     engine.eval("timers", TIMERS_PRELUDE);
     engine.eval("url", URL_PRELUDE);
+    engine.eval("globals", GLOBALS_PRELUDE);
     engine.table = engine.ctx.with(|ctx| js_dom::install_dom(&ctx, document, dirty.clone(), reqs.clone()));
     let mut script_els = Vec::new();
     collect_script_elements(document, &mut script_els);
@@ -987,6 +988,10 @@ pub(crate) fn start_scripts_clocked(
 /// QY9: `URL` and `URLSearchParams`; parsing and setters are Rust natives
 /// over the `url` crate, the list/serialization logic is plain JS.
 const URL_PRELUDE: &str = include_str!("url_prelude.js");
+
+/// QY13: history, AbortController, MessageChannel, requestIdleCallback,
+/// Storage, structuredClone, queueMicrotask (plain JS, see the file).
+const GLOBALS_PRELUDE: &str = include_str!("globals_prelude.js");
 
 /// Q33t: `setTimeout` & co, as plain JS over a timer table; Rust only
 /// asks `__scratchy_timers_next()` (ms of the earliest due time on the
