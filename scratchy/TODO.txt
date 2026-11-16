@@ -608,7 +608,7 @@ R22 copies and paste the before/after numbers in the commit.
       resolves signed-out; ddg `/country.json` works; old.reddit's
       `fetch is not defined` is gone (its one request is unreadable,
       as in Chrome).
-- [x] QF9 HASH [S] DONE `XMLHttpRequest` over the same queue (sync mode included; see NOTES.md "XMLHttpRequest (QF9)")
+- [x] QF9 fdf3d0a [S] DONE `XMLHttpRequest` over the same queue (sync mode included; see NOTES.md "XMLHttpRequest (QF9)")
       and the same CORS code. EventTarget with UNSENT..DONE, `open(method,
       url, async=true)` (URL resolved against document.baseURI),
       `setRequestHeader` (forbidden names dropped), `timeout` (a JS
