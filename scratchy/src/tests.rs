@@ -15710,3 +15710,101 @@ fn qsd2_compare_document_position() {
         "{log:?}"
     );
 }
+
+// ---------- QSD4: constructable stylesheets / adoptedStyleSheets ----------
+
+/// Runs `code`, then builds the layout tree the way the App does (page CSS
+/// plus the engine's published adopted CSS) and returns the first text colour.
+fn qsd4_color(html: &str, code: &str) -> (Option<TextColor>, Vec<String>, String) {
+    let (engine, doc, log) = events_engine(html, code);
+    let adopted = engine.take_requests().adopted_css.unwrap_or_default();
+    let css = crate::images::with_adopted_css("", &adopted).into_owned();
+    let tree = build_layout_tree_with_resources(&doc, 800.0, None, &css, &HashMap::new());
+    let l = log.borrow().clone();
+    (find_first_span_color(&tree), l, adopted)
+}
+
+const QSD4_HTML: &str = "<html><head><style>p{color:#0000ff}</style></head><body><p id=p>x</p></body></html>";
+
+#[test]
+fn qsd4_adopted_sheet_changes_used_colour_after_style() {
+    let (c, l, _) = qsd4_color(QSD4_HTML, "var s=new CSSStyleSheet(); s.replaceSync('p{color:#ff0000}'); document.adoptedStyleSheets=[s];");
+    assert_eq!(c, Some(TextColor::rgb(255, 0, 0)), "{l:?}");
+    let (c, _, a) = qsd4_color(QSD4_HTML, "");
+    assert_eq!(c, Some(TextColor::rgb(0, 0, 255)));
+    assert_eq!(a, "", "zero cost when unused");
+}
+
+#[test]
+fn qsd4_important_and_layer_interplay() {
+    let html = "<html><head><style>p{color:#0000ff !important}</style></head><body><p>x</p></body></html>";
+    let (c, ..) = qsd4_color(html, "var s=new CSSStyleSheet(); s.replaceSync('p{color:#ff0000}'); document.adoptedStyleSheets=[s];");
+    assert_eq!(c, Some(TextColor::rgb(0, 0, 255)));
+    let (c, ..) = qsd4_color(QSD4_HTML, "var s=new CSSStyleSheet(); s.replaceSync('p{color:#ff0000 !important}'); document.adoptedStyleSheets=[s];");
+    assert_eq!(c, Some(TextColor::rgb(255, 0, 0)));
+    let (c, ..) = qsd4_color(QSD4_HTML, "var s=new CSSStyleSheet(); s.replaceSync('@layer a { p{color:#ff0000} }'); document.adoptedStyleSheets=[s];");
+    assert_eq!(c, Some(TextColor::rgb(0, 0, 255)));
+}
+
+#[test]
+fn qsd4_adoption_order_insert_delete_and_clear() {
+    let (c, l, _) = qsd4_color(QSD4_HTML, "var a=new CSSStyleSheet(), b=new CSSStyleSheet(); a.replaceSync('p{color:#ff0000}'); b.replaceSync('p{color:#00ff00}'); document.adoptedStyleSheets=[a,b];");
+    assert_eq!(c, Some(TextColor::rgb(0, 255, 0)), "later adopted sheet wins: {l:?}");
+    let (c, l, _) = qsd4_color(QSD4_HTML, "var a=new CSSStyleSheet(); a.replaceSync('p{color:#ff0000}'); document.adoptedStyleSheets=[a]; a.insertRule('p{color:#00ff00}',1); console.log(a.cssRules.length);");
+    assert_eq!(c, Some(TextColor::rgb(0, 255, 0)), "{l:?}");
+    assert_eq!(l[0], "log:2");
+    let (c, ..) = qsd4_color(QSD4_HTML, "var a=new CSSStyleSheet(); a.replaceSync('p{color:#ff0000} p{color:#00ff00}'); document.adoptedStyleSheets=[a]; a.deleteRule(1);");
+    assert_eq!(c, Some(TextColor::rgb(255, 0, 0)));
+    let (c, _, a) = qsd4_color(QSD4_HTML, "var a=new CSSStyleSheet(); a.replaceSync('p{color:#ff0000}'); document.adoptedStyleSheets=[a]; document.adoptedStyleSheets=[];");
+    assert_eq!(c, Some(TextColor::rgb(0, 0, 255)));
+    assert_eq!(a, "");
+    let (c, ..) = qsd4_color(QSD4_HTML, "var a=new CSSStyleSheet(); a.replaceSync('p{color:#ff0000}'); document.adoptedStyleSheets.push(a); a.disabled=true;");
+    assert_eq!(c, Some(TextColor::rgb(0, 0, 255)), "disabled sheet does not apply");
+}
+
+#[test]
+fn qsd4_api_surface() {
+    let (_e, _d, log) = events_engine(
+        QSD4_HTML,
+        "var s=new CSSStyleSheet({media:'print',disabled:false});\
+         s.replaceSync('/*c*/ @import url(x.css); a, b { color: red; margin: 0 !important } @media (min-width:1px){p{top:0}}');\
+         var r=s.cssRules; console.log(r.length, r.item(0)===r[0], r[0].selectorText, r[0].type, r[0].style.color, r[0].style.getPropertyValue('margin'), r[0].style.getPropertyPriority('margin'));\
+         console.log(r[0].cssText, '|', r[1].type);\
+         console.log(s.media.mediaText, s.ownerNode, s.href, s.type, s.disabled, s.rules===s.cssRules);\
+         try { document.adoptedStyleSheets = [{}]; } catch (e) { console.log('te', e instanceof TypeError); }\
+         try { new CSSStyleSheet().insertRule('a{}', 5); } catch (e) { console.log(e.name); }\
+         try { new CSSStyleSheet().insertRule('@import url(a.css)'); } catch (e) { console.log(e.name); }\
+         try { new StyleSheet(); } catch (e) { console.log('ill', e instanceof TypeError); }\
+         console.log(typeof CSSRule, typeof CSSRuleList, typeof CSSStyleRule, typeof MediaList, s instanceof StyleSheet, r[0] instanceof CSSStyleRule, r instanceof CSSRuleList);\
+         var t=new CSSStyleSheet(); t.replace('p{color:red}').then(function(x){ console.log('rep', x===t, x.cssRules.length); });",
+    );
+    let l = log.borrow();
+    assert!(l[0].contains("@import rules are not allowed"), "{l:?}");
+    assert!(l[1].ends_with("2 true a, b 1 red 0 important"), "{l:?}");
+    assert!(l[2].ends_with("a, b { color: red; margin: 0 !important; } | 4"), "{l:?}");
+    assert!(l[3].ends_with("print null null text/css false true"), "{l:?}");
+    assert!(l[4].ends_with("te true"), "{l:?}");
+    assert!(l[5].ends_with("IndexSizeError"), "{l:?}");
+    assert!(l[6].ends_with("SyntaxError"), "{l:?}");
+    assert!(l[7].ends_with("ill true"), "{l:?}");
+    assert!(l[8].ends_with("function function function function true true true"), "{l:?}");
+    assert!(l[9].ends_with("rep true 1"), "{l:?}");
+}
+
+#[test]
+fn qsd4_get_computed_style_sees_adopted_sheets() {
+    let (_e, _d, log) = events_engine(
+        QSD4_HTML,
+        "var p=document.getElementById('p'); console.log(getComputedStyle(p).color);\
+         var s=new CSSStyleSheet(); s.replaceSync('p{color:#ff0000}'); document.adoptedStyleSheets=[s];\
+         console.log(getComputedStyle(p).color);\
+         s.replaceSync('p{color:#00ff00}'); console.log(getComputedStyle(p).color);\
+         document.adoptedStyleSheets=[]; console.log(getComputedStyle(p).color);",
+    );
+    let l = log.borrow();
+    assert_eq!(
+        *l,
+        ["log:rgb(0, 0, 255)", "log:rgb(255, 0, 0)", "log:rgb(0, 255, 0)", "log:rgb(0, 0, 255)"],
+        "{l:?}"
+    );
+}

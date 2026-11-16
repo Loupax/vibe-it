@@ -616,6 +616,8 @@ pub(crate) struct App {
     /// itself — cleared (to empty) on every navigation/`show_message`,
     /// never merged across pages.
     pub(crate) extra_css: String,
+    /// QSD4: `document.adoptedStyleSheets` CSS, appended after `extra_css`.
+    pub(crate) adopted_css: String,
     /// Already-decoded images fetched via `wire` for the current page's
     /// own non-`data:` `<img src>` references (v67), keyed by the exact,
     /// unresolved `src` attribute text — see `resolve_img`'s own docs
@@ -719,6 +721,8 @@ pub(crate) struct App {
 pub(crate) struct SavedPage {
     pub(crate) document: Handle,
     pub(crate) extra_css: String,
+    /// QSD4: `document.adoptedStyleSheets` CSS, appended after `extra_css`.
+    pub(crate) adopted_css: String,
     pub(crate) image_cache: HashMap<String, Arc<DecodedImage>>,
     pub(crate) scroll_offset: f32,
     pub(crate) scroll_offsets: HashMap<usize, f32>,
@@ -787,6 +791,7 @@ impl App {
             net: NetScheduler::new(&RequestPolicy::default()),
             parked_net: Vec::new(),
             extra_css: String::new(),
+            adopted_css: String::new(),
             image_cache: HashMap::new(),
             css_images_requested: HashSet::new(),
             vim_enabled: true,
@@ -860,6 +865,7 @@ impl App {
             net: NetScheduler::new(&RequestPolicy::default()),
             parked_net: Vec::new(),
             extra_css: String::new(),
+            adopted_css: String::new(),
             image_cache: HashMap::new(),
             css_images_requested: HashSet::new(),
             vim_enabled: true,
@@ -918,7 +924,7 @@ impl App {
             // tree this produces — plain owned data, no `Handle` left
             // inside it — gets handed off below.
             let build_started = std::time::Instant::now();
-            let tree = build_layout_tree_with_resources(&self.document, width as f32, Some(height as f32), &self.extra_css, &self.image_cache);
+            let tree = build_layout_tree_with_resources(&self.document, width as f32, Some(height as f32), &crate::images::with_adopted_css(&self.extra_css, &self.adopted_css), &self.image_cache);
             self.last_build_time = Some(build_started.elapsed());
             fetch_wanted_css_images(&self.proxy, self.socket_path.as_deref(), self.base_url.as_ref(), &mut self.css_images_requested, self.nav_generation);
             // Ids the worker is about to assign restart at `0` for this
@@ -1228,6 +1234,8 @@ impl App {
         set_interaction(&self.interaction);
         self.hover_node = 0;
         js_style::set_js_extra_css(&extra_css);
+        js_style::set_js_adopted_css("");
+        self.adopted_css.clear();
         self.extra_css = extra_css;
         self.layout_dirty = true;
         self.layout_generation += 1;
@@ -1325,7 +1333,10 @@ impl App {
     pub(crate) fn js_sync(&mut self) {
         // QB5: focus/blur and window.scroll* requests made by page script.
         if let Some(js) = &self.js {
-            let reqs = js.take_requests();
+            let mut reqs = js.take_requests();
+            if let Some(css) = reqs.adopted_css.take() {
+                self.adopted_css = css;
+            }
             match reqs.focus {
                 Some(crate::js_dom::FocusReq::Focus(h)) => {
                     self.set_focus_element(Some(&h), false);
@@ -1641,6 +1652,7 @@ impl App {
             self.pre_help_page = Some(SavedPage {
                 document: self.document.clone(),
                 extra_css: self.extra_css.clone(),
+                adopted_css: self.adopted_css.clone(),
                 image_cache: self.image_cache.clone(),
                 scroll_offset: self.scroll_offset,
                 scroll_offsets: self.scroll_offsets.clone(),
@@ -1669,6 +1681,8 @@ impl App {
     pub(crate) fn restore_saved_page(&mut self) {
         let Some(saved) = self.pre_help_page.take() else { return };
         self.replace_document(saved.document, saved.extra_css);
+        self.adopted_css = saved.adopted_css;
+        js_style::set_js_adopted_css(&self.adopted_css);
         self.image_cache = saved.image_cache;
         self.scroll_offsets = saved.scroll_offsets;
         self.scroll_offset = saved.scroll_offset;
