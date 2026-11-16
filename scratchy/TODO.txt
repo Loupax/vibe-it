@@ -1076,7 +1076,7 @@ Phase 2 (big enablers, after phase 1):
 - [ ] Q33f [L] fetch()/XHR (existing item, Tier 7; unchanged, it is the
       next wall for YouTube, old.reddit and everything after modules).
       Move it here in priority, do not duplicate it.
-- [x] QY16 [M] (P3; duckduckgo; yt/gh/bbc reference it) HASH A minimal `Intl`.
+- [x] QY16 [M] (P3; duckduckgo; yt/gh/bbc reference it) ef90a15 A minimal `Intl`.
       QuickJS has none. Symptom: duckduckgo `ReferenceError: Intl is not
       defined` -> Next.js "A client-side exception has occurred" (the
       React app dies); with a stub, it next calls `new Intl.Locale(e)
