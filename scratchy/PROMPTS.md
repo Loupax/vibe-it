@@ -6873,3 +6873,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Investigate (docs only) github's `attachShadow` and `appendChild of undefined` walls and youtube's kevlar_base `appendChild: not a Node`, survey which popular pages need Shadow DOM, size the options (throw / flattened composed tree / faithful), and write a design memo with user decisions and ordered items at the top of the QUEUE, evidence in REGRESSIONS.md.
 
 **What changed:** TODO.txt ("DESIGN MEMO (QSD)" block first in the QUEUE: SD-D1..D4, QSD0-QSD12, QY6f promoted; notes on the QY6 memo and QY6f/QY6g), REGRESSIONS.md (R23). Finding: both "appendChild" errors are `template.content` (QY6f), not shadow DOM; a scratchy fragment-wrapper bug (QSD0) is next; with stand-ins github's startup errors go 29 -> 1. No code changed.
+
+## QA11 merge (PR #162, after QA11a/PR #167)
+
+> Merge PR #162 once QA11a landed: merge origin/main, rerun cargo test and WPT, visual check.
+
+**What changed:** TODO/PROMPTS conflicts resolved keeping both sides; QA11, Q48b, Q74 ticked. Full `cargo test` 680 passed, 2 ignored. WPT pass 270 fail 272, no change from wpt-expected.txt (absolute-replaced-height-009/-016/-022 pass again; block-in-inline-self-collapsing-only-child passes). en.wikipedia Main_Page header/cards shift up ~24px; HN, lobste.rs, guardian, bbc, wikipedia.org, duckduckgo, github otherwise identical (live-content differences only).
