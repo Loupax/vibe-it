@@ -6903,3 +6903,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Implement QSD1: document.domain (getter hostname, spec-shaped setter), Document as ParentNode, getElementsByName on the main document.
 
 **What changed:** src/js_dom.rs (doc accessors children/firstElementChild/lastElementChild/childElementCount copied from Element, doc.getElementsByName, doc.domain with SecurityError DOMException setter), test qsd1_document_domain_and_parent_node in src/tests.rs; NOTES.md; TODO.txt.
+
+## crypto.getRandomValues / randomUUID (QSD1b)
+
+> Implement QSD1b: window.crypto (getRandomValues, randomUUID from the OS RNG), crypto.subtle placeholder, isSecureContext.
+
+**What changed:** src/js.rs (os_random_bytes native over libc::getrandom, already a dependency, no new crate; Crypto/SubtleCrypto interfaces, crypto getter on window, subtle methods log `not implemented` and reject NotSupportedError, window.isSecureContext true for https/wss and loopback hosts), tests qsd1b_* in src/tests.rs; NOTES.md; TODO.txt.

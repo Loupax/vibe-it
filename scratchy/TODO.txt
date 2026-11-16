@@ -251,7 +251,7 @@ Items (in order):
       children`), `document.getElementsByName` on the MAIN document (only
       second documents have it today). Test each. Payoff: github core's
       `TV()` cookie helper (core 136:26710) and two promise errors.
-- [ ] QSD1b [S] READY `crypto.getRandomValues(typedArray)` (<= 65536
+- [x] QSD1b [S] (e2929d5) READY `crypto.getRandomValues(typedArray)` (<= 65536
       bytes, QuotaExceededError above) and `crypto.randomUUID()` (v4),
       from the OS RNG via a Rust native (`getrandom`), `crypto.subtle`
       absent. Measured users: github react-core (`randomUUID`),

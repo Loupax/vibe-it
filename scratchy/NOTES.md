@@ -3378,3 +3378,7 @@ html5ever fills `template_contents` (a Document-data node = kind 11 fragment); `
 ## QSD1: document.domain
 
 Getter is the location hostname. Setter accepts the same value or a dot-boundary suffix with at least one dot (no public suffix list: "co.uk" passes, "com" does not), remembers it for the getter, otherwise throws SecurityError. No origin relaxation happens. Document ParentNode accessors and getElementsByName live on the main `doc` object; created documents inherit them.
+
+## QSD1b: crypto
+
+`crypto` is a window getter over one `Crypto` instance; `getRandomValues` accepts integer typed arrays only (TypeMismatchError otherwise, QuotaExceededError above 65536 bytes) and fills them from `os_random_bytes` (getrandom(2) via libc). `randomUUID` builds a v4 id from 16 such bytes. `crypto.subtle` is a `SubtleCrypto` placeholder: every method logs `not implemented` and rejects with NotSupportedError. `isSecureContext` is true for https/wss and loopback hosts.
