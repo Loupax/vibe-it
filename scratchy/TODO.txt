@@ -440,7 +440,7 @@ R22 copies and paste the before/after numbers in the commit.
       must 403. The synthesized 502 body today is `wire: upstream request
       failed: <e>` (scratchy's `parse_wire_response_full` recognises it even
       from an old wire).
-- [x] QF7 [M] DONE (commit 44db270; src/js_net.rs + glue in src/fetch_prelude.js;
+- [x] QF7 [M] DONE (commit da6a5c7; src/js_net.rs + glue in src/fetch_prelude.js;
       differs from the sketch below: policy is the QF5 `RequestPolicy`, the
       executor is injectable (`NetExecutor`), the native is `__net_send(desc)`,
       results come back through `__net_complete(result)`; CORS applied in
