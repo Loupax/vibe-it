@@ -10067,3 +10067,34 @@ fn qa14_dom_methods_throw_domexception() {
         "{log:?}"
     );
 }
+
+// ---------- QA16: getComputedStyle ----------
+
+#[test]
+fn qa16_get_computed_style_cascade_inheritance_and_unknowns() {
+    let (_e, _d, log) = events_engine(
+        "<html><head><style>#a{white-space:pre-wrap;position:relative;z-index:3;display:flex;clear:both}\
+         .c{color:#102030;font-size:2em;opacity:.5;margin-left:7px;border:2px solid red}\
+         #k{white-space:pre-line;white-space:x-bogus}</style></head>\
+         <body style='font-size:10px'><div id=a>x</div><p id=b class=c style='background-color:rgb(1,2,3)'>y<span id=s>z</span></p>\
+         <div id=h style='display:none'></div><i id=k></i></body></html>",
+        "var a=document.getElementById('a'), b=document.getElementById('b'), cs=getComputedStyle(a);\
+         console.log(cs.whiteSpace, cs.zIndex, cs.display, cs.cssFloat, cs['float'], cs.position, cs.getPropertyValue('white-space'));\
+         var cb=getComputedStyle(b);\
+         console.log(cb.color, cb.fontSize, cb.opacity, cb.marginLeft, cb.borderTopWidth, cb.getPropertyValue('border-top-style'), cb['background-color'], cb.zIndex, cb.display);\
+         console.log(getComputedStyle(document.getElementById('s')).color, getComputedStyle(document.getElementById('s')).fontSize);\
+         console.log(getComputedStyle(document.getElementById('h')).display, JSON.stringify(cs.bogus), JSON.stringify(cs.getPropertyValue('bogus')), cs.length > 10, typeof cs.item(0));\
+         b.style.display='none'; console.log(getComputedStyle(b).display);\
+         var d=document.createElement('div'); console.log(JSON.stringify(getComputedStyle(d).display), window.document.defaultView === window);\
+         console.log(getComputedStyle(document.getElementById('k')).whiteSpace); try { getComputedStyle(null) } catch (e) { console.log('te', e instanceof TypeError) }",
+    );
+    let l = log.borrow();
+    assert_eq!(l[0], "log:pre-wrap 3 flex none none relative pre-wrap", "{l:?}");
+    assert_eq!(l[1], "log:rgb(16, 32, 48) 20px 0.5 7px 2px solid rgb(1, 2, 3) auto block", "{l:?}");
+    assert_eq!(l[2], "log:rgb(16, 32, 48) 20px", "{l:?}");
+    assert_eq!(l[3], "log:none \"\" \"\" true string", "{l:?}");
+    assert_eq!(l[4], "log:none", "write invalidates the cache: {l:?}");
+    assert_eq!(l[5], "log:\"\" true", "{l:?}");
+    assert_eq!(l[6], "log:pre-line", "invalid later keyword must not override: {l:?}");
+    assert_eq!(l[7], "log:te true", "{l:?}");
+}

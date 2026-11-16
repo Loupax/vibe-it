@@ -5266,7 +5266,8 @@ impl DeclParser<'_> {
             }
         } else if name.eq_ignore_ascii_case("white-space") {
             if let Ok(ident) = input.expect_ident() {
-                self.decls.white_space = if ident.eq_ignore_ascii_case("normal") {
+                // An invalid keyword drops the declaration (an earlier valid one stands).
+                let parsed = if ident.eq_ignore_ascii_case("normal") {
                     Some(WhiteSpace::Normal)
                 } else if ident.eq_ignore_ascii_case("pre") {
                     Some(WhiteSpace::Pre)
@@ -5279,6 +5280,9 @@ impl DeclParser<'_> {
                 } else {
                     None
                 };
+                if parsed.is_some() {
+                    self.decls.white_space = parsed;
+                }
             }
         } else if name.eq_ignore_ascii_case("word-break") {
             if let Ok(ident) = input.expect_ident() {
