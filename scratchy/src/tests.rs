@@ -15903,3 +15903,30 @@ fn qsd4_get_computed_style_sees_adopted_sheets() {
         "{l:?}"
     );
 }
+
+/// Every command-line option a parser accepts must be documented on the
+/// `:help` page, and `CLI_OPTIONS` must list every `"--option"` literal the
+/// parsers (dom.rs `parse_args`, js.rs `--js-report`, wpt.rs `--wpt`, lib.rs
+/// dispatch) mention, so a new option cannot slip past this test.
+#[test]
+fn cli_options_are_documented_in_help() {
+    for opt in crate::dom::CLI_OPTIONS {
+        assert!(HELP_PAGE_HTML.contains(opt), "`{opt}` is a command-line option but is not documented in src/help.html");
+    }
+    for (file, src) in [
+        ("dom.rs", include_str!("dom.rs")),
+        ("js.rs", include_str!("js.rs")),
+        ("wpt.rs", include_str!("wpt.rs")),
+        ("lib.rs", include_str!("lib.rs")),
+    ] {
+        let mut rest = src;
+        while let Some(i) = rest.find("\"--") {
+            rest = &rest[i + 1..];
+            let lit: String = rest.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-').collect();
+            let closed = rest[lit.len()..].starts_with('"');
+            if closed && lit[2..].starts_with(|c: char| c.is_ascii_alphabetic()) {
+                assert!(crate::dom::CLI_OPTIONS.contains(&lit.as_str()), "{file} accepts `{lit}`, which is missing from dom::CLI_OPTIONS");
+            }
+        }
+    }
+}

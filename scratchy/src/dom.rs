@@ -48,6 +48,13 @@ pub(crate) struct Args {
     pub(crate) no_js: bool,
 }
 
+/// Every command-line option any of scratchy's parsers accepts (`parse_args`
+/// here, `js::js_report_main`, `wpt::main`). The `:help` page must document
+/// each one: `cli_options_are_documented_in_help` pins that, and also fails
+/// when a parser grows an option missing from this list.
+pub(crate) const CLI_OPTIONS: &[&str] =
+    &["--socket", "--no-js", "--js-report", "--run-timers", "--wpt", "--subset", "--expected", "--update", "--out", "-v"];
+
 pub(crate) fn parse_args() -> Args {
     let raw: Vec<String> = env::args().skip(1).collect();
     let mut socket = None;

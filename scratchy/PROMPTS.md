@@ -6938,3 +6938,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Implement QSD4: new CSSStyleSheet, replaceSync/replace, insertRule/deleteRule/cssRules, document.adoptedStyleSheets applied to the document cascade after the page's own CSS, getComputedStyle sees it.
 
 **What changed:** src/cssom_prelude.js (new: CSSStyleSheet, StyleSheet, CSSRule, CSSStyleRule, CSSRuleList, MediaList, style declaration, adoptedStyleSheets proxy), src/js.rs (evaluates it), src/js_dom.rs (`__d_adopted` native, `JsRequests.adopted_css`), src/js_style.rs (adopted CSS in the getComputedStyle cascade), src/app.rs (`App::adopted_css` filled by `js_sync`, cleared on navigation), src/images.rs (`with_adopted_css`), tests qsd4_* in src/tests.rs; NOTES.md; TODO.txt (QSD4a/QSD4b left out).
+
+## Command line and key table on the help page (help-cli-options)
+
+> Add a 'Command line' section to src/help.html listing the real options and the vim-style keys that exist now, a short 'Cookies and networking' note pointing to NETWORKING.md, and a permanent test that fails when a command-line option the parser accepts is missing from the help page.
+
+**What changed:** src/help.html (Command line and Cookies and networking sections, `h`/`l` rows in the key table), src/dom.rs (`CLI_OPTIONS`), test `cli_options_are_documented_in_help` in src/tests.rs.

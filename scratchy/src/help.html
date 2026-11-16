@@ -24,6 +24,8 @@ as any other page — and gets updated here as features are added.</p>
 <tr><td><code>Ctrl</code>+<code>u</code></td><td>Scroll up half a page</td></tr>
 <tr><td><code>g</code> <code>g</code> / <code>Home</code></td><td>Scroll to the top</td></tr>
 <tr><td><code>G</code> / <code>End</code></td><td>Scroll to the bottom</td></tr>
+<tr><td><code>h</code></td><td>Go back one page in history (same as <code>:historyBack</code>)</td></tr>
+<tr><td><code>l</code></td><td>Go forward one page in history (same as <code>:historyFront</code>)</td></tr>
 <tr><td><code>:</code></td><td>Enter the command bar</td></tr>
 </table>
 
@@ -47,6 +49,28 @@ cancels without running anything.</p>
 <tr><td><code>:help</code></td><td>Show this page</td></tr>
 <tr><td><code>:q</code> or <code>:quit</code></td><td>From this help page, go back to whatever you were looking at; otherwise close scratchy (vim's own "close the buffer, or quit if there's nothing left to close")</td></tr>
 </table>
+
+<h2>Command line</h2>
+<p><code>scratchy [--socket &lt;path&gt;] [--no-js] [file|url]</code> opens a
+file, a URL, or HTML read from stdin. The other modes are headless.</p>
+<table>
+<tr><th>Option</th><th>Effect</th></tr>
+<tr><td><code>--socket &lt;path&gt;</code></td><td>The <code>wire</code> daemon's Unix socket (<code>wire --print-socket</code> prints it). All networking goes through it: link clicks, page loads, sub-resources, and requests made by page scripts. Without it nothing is fetched</td></tr>
+<tr><td><code>--no-js</code></td><td>Never run scripts; show &lt;noscript&gt; content</td></tr>
+<tr><td><code>--js-report [--socket &lt;path&gt;] [--run-timers &lt;ms&gt;] &lt;file&gt;</code></td><td>Headless: run the page's scripts and print what happened (console, errors, network, cookies)</td></tr>
+<tr><td><code>--run-timers &lt;ms&gt;</code></td><td>With <code>--js-report</code>: also run timers due within that many milliseconds</td></tr>
+<tr><td><code>--wpt &lt;checkout&gt; [--subset FILE] [--expected FILE] [--update] [--out DIR] [-v]</code></td><td>Headless: run the web-platform-tests reftest subset and compare with the expected results (<code>--update</code> rewrites them)</td></tr>
+</table>
+
+<h2>Cookies and networking</h2>
+<p>Page scripts can use <code>fetch</code>, XMLHttpRequest and
+<code>sendBeacon</code>, under a request policy: browser CORS rules, no
+mixed content, bad ports blocked, and a warning line (not a block) for
+requests to loopback, private or <code>file:</code> targets. Beacons are
+logged in detail but not sent. Cookies live in <code>wire</code>'s memory
+(partitioned by top-level site, lost when it restarts; <code>wire
+--no-cookies</code> turns them off). Forms and media are placeholders only.
+See <code>scratchy/NETWORKING.md</code> in the source tree for the details.</p>
 
 <h2>Also demonstrated on this page</h2>
 <ul>
