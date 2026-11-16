@@ -6855,3 +6855,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Add IntersectionObserver and ResizeObserver (github's 3 module entries die on `IntersectionObserver is not defined`; youtube uses it too) plus an inert PerformanceObserver. JS cannot see layout, so implement HONEST MINIMAL semantics: one initial notification per observed target (IO: visible once unless detached / display:none; RO: attribute size else 0x0), argument validation per spec, DOMRect/DOMRectReadOnly, nothing afterwards; document the missing geometry bridge and file it (QY-IO-GEOMETRY).
 
 **What changed:** src/js_dom.rs (QY6g block after MutationRecord: `IntersectionObserver(Entry)`, `ResizeObserver(Entry/Size)`, `PerformanceObserver`, `DOMRect`/`DOMRectReadOnly`; one shared timer-0 batch, observers in creation order); tests `qy6g_*` in src/tests.rs; NOTES.md; TODO.txt.
+
+## Shadow DOM / template.content design memo (QSD, Opus investigator)
+
+> Investigate (docs only) github's `attachShadow` and `appendChild of undefined` walls and youtube's kevlar_base `appendChild: not a Node`, survey which popular pages need Shadow DOM, size the options (throw / flattened composed tree / faithful), and write a design memo with user decisions and ordered items at the top of the QUEUE, evidence in REGRESSIONS.md.
+
+**What changed:** TODO.txt ("DESIGN MEMO (QSD)" block first in the QUEUE: SD-D1..D4, QSD0-QSD12, QY6f promoted; notes on the QY6 memo and QY6f/QY6g), REGRESSIONS.md (R23). Finding: both "appendChild" errors are `template.content` (QY6f), not shadow DOM; a scratchy fragment-wrapper bug (QSD0) is next; with stand-ins github's startup errors go 29 -> 1. No code changed.

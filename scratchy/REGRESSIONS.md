@@ -1,5 +1,129 @@
 # scratchy — regressions
 
+## R23: Shadow DOM / template.content survey and design evidence (Opus investigator, 2026-11-16) — EVIDENCE for the TODO.txt "DESIGN MEMO (QSD)" block
+
+Investigation only, no code changed. Build: release build of `5ca5619`
+(origin/main after QY6g IO/RO), `target/release/scratchy` of an isolated
+worktree. Memo, user checklist (SD-D1..D4) and items (QSD0-QSD12, QY6f)
+are at the top of the TODO.txt QUEUE.
+
+### How this was measured (reusable)
+
+- Pages: `curl -sL --compressed -A '<Firefox 128 UA>'`, raw saved, then
+  a COPY with `<base href="<effective url>">` right after `<head>`. Run:
+  `scratchy --js-report --run-timers 5000 --socket /run/user/1001/wire.sock copy.html`.
+- Static: every first-level `<script src>` downloaded (module imports
+  not followed, except github's `f18-10a827ef5e40729a.js` chunk, which
+  the error stacks name) and counted for `attachShadow`, `shadowRoot`,
+  `adoptedStyleSheets`, `replaceSync`, `:host`, `::slotted`, `::part(`,
+  `<slot`, `assignedNodes/Elements`, `slotchange`, `composedPath`,
+  `getRootNode`, `attachInternals`, `shadowrootmode`, ShadyDOM, Lit.
+  Failing positions read by line:column in the minified files.
+- Stand-ins: a third copy with one inline `<script>` right after
+  `<base>` (scratchpad only), in levels, each API logging its first use
+  with `console.error('SD <api>')`:
+  1. `template.content` (lazy fragment holding the template's children),
+     template `innerHTML` get/set through it, deep `cloneNode` copying it.
+  2. `attachShadow` returning a detached DocumentFragment with `host`,
+     `mode`, `innerHTML`, `adoptedStyleSheets`, `getElementById`;
+     `Element.shadowRoot` (open only). NOT rendered (needed only to get
+     past startup; for REAL rendering this must become QSD6/QSD7).
+  3. `getRootNode({composed})`, `isConnected` (startup only; real ones
+     are QSD2, trivially correct).
+  4. `CSSStyleSheet` ctor + `replaceSync/replace/insertRule`,
+     `document.adoptedStyleSheets` (stored, not applied: real rendering
+     needs QSD4).
+  5. `attachInternals` (inert object). 6. slot `assignedNodes/Elements`
+     returning `[]` (real: QSD10).
+  q. work-around for the QSD0 bug: force `writable:true` when a page
+     defines a value on `DocumentFragment.prototype`.
+  x. non-shadow gaps: `document.domain`, `document.firstElementChild`,
+     `document.getElementsByName`, `document.importNode`.
+- Screenshots: `tools/nest.sh` nested dwl + `grim` after 15-20 s.
+
+### Error locations (verified in the fetched sources)
+
+| Page | Error | Source | What it needs |
+|---|---|---|---|
+| github (3 entries; repo page: 4) | `TypeError: cannot read property 'appendChild' of undefined` | f18-10a827ef5e40729a.js:223:27350, task-lists element module top level: `let f=document.createElement("template"); ... f.content.appendChild(p)` | `template.content` (QY6f), NOT shadow DOM |
+| github (12x) | `not implemented: Element.attachShadow` in `relative-time` constructor | f18 223:10665 `l.set(this,this.shadowRoot?this.shadowRoot:this.attachShadow?this.attachShadow({mode:"open"}):this)` via the command polyfill wrapper f18 136:166006 (`i=e.prototype.attachShadow; e.prototype.attachShadow=function(e){let n=i.call(this,e)...}`) and the popover polyfill wrapper f18 285:1468 | attachShadow + shadowRoot (QSD3); "absent" does not work because the command polyfill wraps it unconditionally |
+| github (1x) | same, in a connectedCallback | f18 136:687, `<tool-tip>`: `if(!this.shadowRoot){let e=this.attachShadow({mode:"open"}); e.appendChild(style).textContent=this.styles(), e.appendChild(slot)}` | QSD3 |
+| github (after template.content) | `TypeError: 'querySelectorAll' is read-only` (all 3 entries) | scratchy `wrap()` -> `queries(o)` assigns per fragment instance after f18's popover polyfill did `Object.defineProperty(DocumentFragment.prototype,"querySelectorAll",{value(e){...}})` | QSD0 (scratchy bug) |
+| github (next) | `Error: Unable to get document domain` | core-95dd3246eeba0b9e.js:136:26710 `let o=document.domain;if(null==o)throw` | QSD1 |
+| github (next) | `cannot read property 'classList' of undefined` | core 2:114409 `document.firstElementChild.classList` | QSD1 |
+| github (next) | `TypeError: not a function` | core 136:3547 `e.getElementById(t)\|\|e.getElementsByName(t)[0]` | QSD1 |
+| github (last) | exception in `react-app` connectedCallback | core 136:16274 `crypto.randomUUID()` | QSD1b |
+| youtube | `Failed to execute 'appendChild': parameter 1 is not of type 'Node'` | kevlar_base 10725:29 `document.head.appendChild(_.GZ().content)` (Polymer template) | QY6f |
+| youtube (after QY6f stand-in) | `stopped: exceeded the 5 s CPU-time page-load budget (9533 KB of source)` | the app script | not shadow DOM (ShadyDOM forced) |
+
+### github error count by stand-in level (`--js-report`, errors total)
+
+baseline 29 -> level 1 (template.content) 29 (the error just moves to
+QSD0) -> 1+q 32 -> 2+q 6 -> 9+q 6 -> 2+q+x 1 -> 9+q+x 1 (the remaining
+one is `crypto.randomUUID`; timers: one callback over the 500 ms budget,
+the collector POST blocked by CORS preflight). At 9+q+x the run logged
+every stand-in as used at startup: template.content, attachShadow(open),
+adoptedStyleSheets= (shadow root), new CSSStyleSheet + replaceSync,
+document.adoptedStyleSheets=, getRootNode, isConnected, document.domain,
+document.firstElementChild, document.getElementsByName.
+
+### Per-site table (2026-11-16)
+
+Counts: static (inline / first-level external scripts); errors =
+`--js-report` errors total, baseline -> with stand-ins 9+q+x.
+
+| Page | Needs shadow DOM at startup? | Static evidence | Errors | Notes |
+|---|---|---|---|---|
+| github.com | yes (imperative) | f18: attachShadow 14, shadowRoot 35, adoptedStyleSheets 4, `:host` 29, getRootNode 21, attachInternals 6, `.content` 44 | 29 -> 1 | relative-time x12 (no `datetime`: same text either way), tool-tip; template.content is the module killer |
+| github.com/rust-lang/rust | yes | same chunk | 7 -> 1 | next: run-time module import `primer-react-*.js` (QY15a) |
+| chromestatus.com | yes, entire UI | Lit + shoelace: `:host` 133, `::part(` 89, `::slotted` 46, `<slot` 125, slotchange 21 | 2 -> 0 | body is one `<chromedash-app>`; blank until shadow trees render (B2) and fetch data arrives |
+| developer.mozilla.org | yes (Lit + DSD) | 17 `<template shadowrootmode>` (mdn-dropdown x10, search-button x2, color-theme, language-switcher, switch, button, homepage-search); ext: attachShadow 1, adoptedStyleSheets 2 | 2 -> 0 | `--no-js` screenshot readable (menu as a plain list, no Search button); shadow content = "Search" label + widget styling (`:host(:not([loaded],:focus-within)) slot[name=dropdown]{display:none}`) |
+| salesforce.com (served /de/) | yes (LWC + DSD) | 185 DSD templates (hgf-button 104, nav panels 56, ...), 315 `<slot>`, ext: shadowRoot 148, `:host` 154, `::part(` 36, adoptedStyleSheets 15, attachInternals 7 | 43 -> 12 | 36% of body text is inside DSD (whole nav). `--no-js` window blank after 20 s: cause not isolated. Non-shadow errors: crypto.getRandomValues, consent/analytics objects |
+| youtube.com | no (ShadyDOM forced) | attachShadow 19, `<slot` 69, ShadyDOM 67, `.content.cloneNode` 1008 | 1 -> 1 | needs template.content; next wall CPU budget |
+| duckduckgo.com | no | inline polyfill `if(!Element.prototype.attachShadow) attachShadow=function(){let o=createElement("div");return this.appendChild(o),o}` | 0 | the flattened fallback never runs because scratchy's attachShadow exists (and throws) |
+| bbc.com/news | no | 1 feature test for the "toucan" video player | 0 | media: off limits |
+| theguardian.com | no | none | 0 | |
+| lobste.rs | no | none | 0 | |
+| en.wikipedia.org | no | none | 0 | |
+| news.ycombinator.com | no | none | 0 | |
+| web.dev | no | 1 `<template>` | 0 | |
+| reddit | n/a | www.reddit.com and /r/rust return an 8 KB bot wall to curl; old.reddit login page (saved by R22): attachShadow 3, Lit, getRootNode 4 | 1 (nonce, not shadow) | not representative |
+
+Score: 4 of 13 fetchable pages need Shadow DOM at startup (github,
+chromestatus, MDN, salesforce); 1 more (youtube) needs template.content.
+
+### Code facts used by the memo
+
+- `src/js_dom.rs`: `ElementProto.attachShadow` logs + throws
+  NotSupportedError; `ShadowRoot` is an `illegal()` interface object;
+  `HTMLTemplateElement` exists but has no `content`; no `getRootNode`,
+  `isConnected`, `document.importNode`, `document.domain`, Document
+  ParentNode, main-document `getElementsByName`; `CSSStyleSheet` ctor
+  throws TypeError; no `attachInternals`. `composedPath()` = the
+  parentNode path; `Event.composed` is stored.
+- `src/dom.rs` `impl SelectorsElement for El`: `parent_node_is_shadow_root`
+  false, `containing_shadow_host` None: the `selectors` 0.41 hooks for
+  `:host`/`::slotted`/`::part` exist but are off.
+- `src/images.rs` `collect_real_children` reads `handle.children`
+  (9 `children.borrow()` sites in images.rs, none in layout.rs/paint.rs):
+  the single place a composed-children function plugs in.
+  `collect_style_css` walks `children` only, so `<style>` inside
+  template content never leaks into the document today.
+- No `display: contents` (`Display` enum in css.rs).
+- html5ever 0.39 tree builder calls `sink.attach_declarative_shadow`;
+  markup5ever_rcdom 0.39 returns false (default trait method).
+
+### What could not be tested
+
+- Real rendering of any shadow tree (nothing renders one); all "visible
+  gain" statements come from reading the components' source and the
+  `--no-js` screenshots (MDN, salesforce).
+- Whether GitHub's React islands render anything new once the modules
+  run (they hit `crypto` and run-time imports next).
+- Logged-in GitHub (repo pages with `datetime` relative-time elements),
+  reddit (bot wall), salesforce's blank `--no-js` window (cause unknown).
+- Performance of a composed-tree walk and of per-tree rule filtering.
+
 ## R22: fetch/XHR survey and design evidence (Opus investigator, 2026-11-16) — EVIDENCE for the TODO.txt "DESIGN MEMO (QF)" block
 
 Investigation only, no code changed. Build: release build of `faa1cbe`
