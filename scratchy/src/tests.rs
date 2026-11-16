@@ -12348,7 +12348,7 @@ fn qy6e_upgrade_and_is_and_attach_shadow() {
          console.log(d.firstChild.up);
          customElements.upgrade(d);
          console.log(d.firstChild.up);
-         try { d.attachShadow({ mode: 'open' }); } catch (e) { console.log(e.name); }
+         try { d.attachShadow({ mode: 'open' }); console.log(d.shadowRoot.mode); } catch (e) { console.log(e.name); }
          try { new HTMLElement(); } catch (e) { console.log(e.name); }"#,
     );
     assert_eq!(
@@ -12358,8 +12358,8 @@ fn qy6e_upgrade_and_is_and_attach_shadow() {
             "log:true built",
             "log:undefined",
             "log:1",
-            "error:scratchy: js: not implemented: Element.attachShadow",
-            "log:NotSupportedError",
+            "error:scratchy: js: not implemented: shadow root rendering (QSD6); shadow content is not rendered, only the host's light children",
+            "log:open",
             "log:TypeError",
         ],
         "{log:?}"
@@ -16024,4 +16024,59 @@ fn qw4_inline_margin_wraps_only_at_outer_edges() {
     assert!((words[0].0 - 28.0).abs() < 0.5, "first fragment starts after margin-left: {words:?}");
     let second_line_x = words.iter().filter(|p| (p.1 - words[0].1).abs() > 1.0).map(|p| p.0).fold(f32::MAX, f32::min);
     assert!((second_line_x - 8.0).abs() < 0.5, "wrapped line has no margin at its start: {second_line_x} {words:?}");
+}
+
+// ---- QSD3: real ShadowRoot (not rendered).
+
+#[test]
+fn qsd3_attach_shadow_basics() {
+    let log = run_in_html(
+        "<html><body><div id=h><b id=l>light</b></div><i id=bad></i></body></html>",
+        r#"const r = [], h = document.getElementById('h');
+         const sr = h.attachShadow({ mode: 'open', delegatesFocus: true });
+         r.push(sr instanceof ShadowRoot, sr instanceof DocumentFragment, sr.nodeType, sr.host === h, sr.mode, sr.delegatesFocus, h.shadowRoot === sr, sr.activeElement);
+         try { h.attachShadow({ mode: 'open' }); r.push('no'); } catch (e) { r.push(e.name); }
+         try { document.getElementById('bad').attachShadow({ mode: 'open' }); r.push('no'); } catch (e) { r.push(e.name); }
+         try { h.attachShadow({ mode: 'x' }); r.push('no'); } catch (e) { r.push(e.name); }
+         const c = document.createElement('x-c'), cs = c.attachShadow({ mode: 'closed' });
+         r.push(c.shadowRoot, cs.mode, cs.host === c);
+         sr.innerHTML = '<p id=in>hi</p><span class=k>k</span>';
+         r.push(sr.getElementById('in').localName, sr.querySelector('.k').localName, sr.querySelectorAll('*').length);
+         r.push(document.querySelector('#in'), document.getElementById('in'), h.innerHTML, h.children.length, h.childNodes.length);
+         r.push(sr.getRootNode() === sr, sr.firstChild.getRootNode() === sr, sr.getRootNode({ composed: true }) === document, sr.firstChild.getRootNode({ composed: true }) === document);
+         r.push(sr.isConnected, sr.firstChild.isConnected, cs.isConnected);
+         r.push(sr.adoptedStyleSheets.length);
+         const sh = new CSSStyleSheet(); sr.adoptedStyleSheets = [sh]; r.push(sr.adoptedStyleSheets[0] === sh);
+         try { sr.adoptedStyleSheets = [{}]; r.push('no'); } catch (e) { r.push(e.name); }
+         console.log(r.join('|'));"#,
+    );
+    assert_eq!(
+        log.last().map(String::as_str),
+        Some("log:true|true|11|true|open|true|true||NotSupportedError|NotSupportedError|TypeError||closed|true|p|span|2|||<b id=\"l\">light</b>|1|1|true|true|true|true|true|true|false|0|true|TypeError"),
+        "{log:?}"
+    );
+    assert_eq!(log.iter().filter(|l| l.contains("shadow root rendering")).count(), 1, "{log:?}");
+}
+
+#[test]
+fn qsd3_custom_element_in_shadow_and_event() {
+    let log = run_in_html(
+        "<html><body><div id=h></div></body></html>",
+        r#"class XC extends HTMLElement { connectedCallback() { console.log('conn'); } disconnectedCallback() { console.log('disc'); } }
+         customElements.define('x-c', XC);
+         const h = document.getElementById('h'), sr = h.attachShadow({ mode: 'open' });
+         const x = document.createElement('x-c'); sr.appendChild(x);
+         const seen = [];
+         h.addEventListener('ping', function (e) { seen.push('host:' + e.target.localName); });
+         document.addEventListener('ping', function () { seen.push('doc'); });
+         x.dispatchEvent(new Event('ping', { bubbles: true, composed: true }));
+         x.dispatchEvent(new Event('ping', { bubbles: true }));
+         console.log(seen.join(','));
+         sr.removeChild(x);
+         const d = document.createElement('div'), ds = d.attachShadow({ mode: 'open' }), y = document.createElement('x-c');
+         ds.appendChild(y); document.body.appendChild(d);"#,
+    );
+    assert!(log.contains(&"log:host:x-c,doc".to_string()), "{log:?}");
+    assert!(log.contains(&"log:disc".to_string()), "{log:?}");
+    assert_eq!(log.iter().filter(|l| *l == "log:conn").count(), 2, "{log:?}");
 }

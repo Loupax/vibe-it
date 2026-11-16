@@ -12,6 +12,10 @@ pub(crate) struct DomTable {
     ids: HashMap<usize, i32>,
     /// QA18a: ids of extra (detached) `Document` roots; id 0 is the page.
     docs: std::collections::HashSet<i32>,
+    /// QSD3: shadow roots, host id -> root id and root id -> host id. Kept out
+    /// of rcdom (its `template_contents` field changes serialization).
+    shadow_of: HashMap<i32, i32>,
+    shadow_host: HashMap<i32, i32>,
 }
 
 impl DomTable {
@@ -657,6 +661,18 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             None => -1,
         }
     });
+    // QSD3: shadow-root side table. `__d_shadow_set(host, root)` registers,
+    // `__d_shadow_of(host)` -> root id or -1, `__d_shadow_host(root)` -> host id or -1.
+    let t = table.clone();
+    native!("__d_shadow_set", move |host: i32, root: i32| {
+        let mut t = t.borrow_mut();
+        t.shadow_of.insert(host, root);
+        t.shadow_host.insert(root, host);
+    });
+    let t = table.clone();
+    native!("__d_shadow_of", move |host: i32| -> i32 { t.borrow().shadow_of.get(&host).copied().unwrap_or(-1) });
+    let t = table.clone();
+    native!("__d_shadow_host", move |root: i32| -> i32 { t.borrow().shadow_host.get(&root).copied().unwrap_or(-1) });
     // QA18a: a new detached Document root (its id is registered as a
     // document, not a fragment); a doctype node (name, public, system).
     let t = table.clone();
@@ -888,8 +904,12 @@ const DOM_PRELUDE: &str = r#"
   // root). `composed` is accepted and ignored until shadow roots exist (QSD3 adds
   // "a ShadowRoot's host" as the next step of the composed walk).
   var rootId = function (id) { var p; while ((p = __d_parent(id)) >= 0) id = p; return id; };
-  NodeProto.getRootNode = function (options) { return wrap(rootId(this.__id)); };
-  def(NodeProto, 'isConnected', function () { return __d_kind(rootId(this.__id)) === 9; });
+  // QSD3: the shadow-including root: a ShadowRoot continues at its host.
+  var composedRootId = function (id) { var r = rootId(id), h; while ((h = __d_shadow_host(r)) >= 0) r = rootId(h); return r; };
+  NodeProto.getRootNode = function (options) {
+    return wrap(options && options.composed ? composedRootId(this.__id) : rootId(this.__id));
+  };
+  def(NodeProto, 'isConnected', function () { return __d_kind(composedRootId(this.__id)) === 9; });
   // QSD2: DOM spec "compare position". Different roots: DISCONNECTED |
   // IMPLEMENTATION_SPECIFIC plus a consistent PRECEDING/FOLLOWING (by node id).
   [['DISCONNECTED', 1], ['PRECEDING', 2], ['FOLLOWING', 4], ['CONTAINS', 8], ['CONTAINED_BY', 16], ['IMPLEMENTATION_SPECIFIC', 32]]
@@ -2344,7 +2364,7 @@ const DOM_PRELUDE: &str = r#"
   g.Range.prototype = {};
   Object.defineProperty(g.Range.prototype, 'constructor', { value: g.Range, writable: true, configurable: true });
   ['Selection', 'NamedNodeMap', 'DOMTokenList', 'StyleSheet', 'CSSStyleSheet', 'CSSRule', 'CSSStyleDeclaration',
-    'Screen', 'Storage', 'ShadowRoot'].forEach(function (n) { if (!g[n]) g[n] = illegal(n); });
+    'Screen', 'Storage'].forEach(function (n) { if (!g[n]) g[n] = illegal(n); });
   // ParentNode on DocumentFragment.
   ['children', 'firstElementChild', 'lastElementChild', 'childElementCount'].forEach(function (k) {
     Object.defineProperty(DocumentFragment.prototype, k, Object.getOwnPropertyDescriptor(ElementProto, k));
@@ -2375,7 +2395,7 @@ const DOM_PRELUDE: &str = r#"
     if (typeof fn !== 'function') return;
     try { fn.apply(el, args); } catch (e) { ceReport(e, fn.name || 'callback'); }
   };
-  var ceIsConn = function (id) { var p; while ((p = __d_parent(id)) >= 0) id = p; return id === 0; };
+  var ceIsConn = function (id) { return composedRootId(id) === 0; };
   var ceDefFor = function (id) {
     var raw = __d_tag(id);
     if (raw !== raw.toUpperCase()) return null; // not an HTML-namespace element
@@ -2388,10 +2408,27 @@ const DOM_PRELUDE: &str = r#"
     ceConnFlag[id] = 1; ceNConn++;
     var d = ceState[id]; ceCall(cache[id], d.connected, []);
   };
+  // QSD3: candidates under `id`, including those inside shadow trees whose host is under `id`.
+  var srHosts = [];
+  var srUnder = function (h, id) {
+    var x = h, p, hh;
+    for (;;) {
+      if (x === id) return true;
+      p = __d_parent(x);
+      if (p >= 0) x = p; else { hh = __d_shadow_host(x); if (hh < 0) return false; x = hh; }
+    }
+  };
+  var ceQueryDeep = function (id) {
+    var l = __d_query(id, ceSel, false);
+    for (var i = 0; i < srHosts.length; i++) {
+      if (srUnder(srHosts[i], id)) l = l.concat(__d_query(__d_shadow_of(srHosts[i]), ceSel, false));
+    }
+    return l;
+  };
   var ceCollect = function (id, self) {
     var out = [];
     if (self && ceConnFlag[id]) out.push(id);
-    var l = __d_query(id, ceSel, false);
+    var l = ceQueryDeep(id);
     for (var i = 0; i < l.length; i++) if (ceConnFlag[l[i]]) out.push(l[i]);
     return out;
   };
@@ -2433,7 +2470,7 @@ const DOM_PRELUDE: &str = r#"
   var ceScan = function (id, force) {
     var conn = ceIsConn(id);
     if (!conn && !force) return;
-    var l = __d_query(id, ceSel, false);
+    var l = ceQueryDeep(id);
     if (__d_kind(id) === 1) l.unshift(id);
     for (var i = 0; i < l.length; i++) ceProcess(l[i], conn);
   };
@@ -3000,10 +3037,65 @@ const DOM_PRELUDE: &str = r#"
   PO.prototype.takeRecords = function () { poSt(this, 'takeRecords'); return []; };
   Object.defineProperty(PO, 'supportedEntryTypes', { get: function () { return Object.freeze([]); }, configurable: true, enumerable: true });
   Object.defineProperty(PO.prototype, Symbol.toStringTag, { value: 'PerformanceObserver', configurable: true });
-  // No native Shadow DOM (QY6 memo): fail loudly and harmlessly.
-  ElementProto.attachShadow = function () {
-    __scratchy_err('scratchy: js: not implemented: Element.attachShadow');
-    throw new DOMException('Element.attachShadow is not implemented', 'NotSupportedError');
+  // QSD3 (B1): real ShadowRoot nodes that JS can see and use, NOT rendered: only the
+  // host's light children render (QSD6 will walk the composed tree). A shadow root is
+  // a detached kind-11 node registered in the Rust side table host <-> root.
+  var SR = function ShadowRoot() { throw new TypeError('Illegal constructor'); };
+  SR.prototype = Object.create(DocumentFragment.prototype, { constructor: { value: SR, writable: true, configurable: true } });
+  g.ShadowRoot = SR;
+  var srMode = {}, srOpts = {}, srAdopted = {}, srWarned = false;
+  var SRP = SR.prototype;
+  Object.defineProperty(SRP, Symbol.toStringTag, { value: 'ShadowRoot', configurable: true });
+  def(SRP, 'host', function () { return wrap(__d_shadow_host(this.__id)); });
+  def(SRP, 'mode', function () { return srMode[this.__id]; });
+  def(SRP, 'delegatesFocus', function () { return !!srOpts[this.__id].delegatesFocus; });
+  def(SRP, 'slotAssignment', function () { return srOpts[this.__id].slotAssignment; });
+  def(SRP, 'clonable', function () { return !!srOpts[this.__id].clonable; });
+  def(SRP, 'serializable', function () { return !!srOpts[this.__id].serializable; });
+  def(SRP, 'activeElement', function () { return null; });
+  def(SRP, 'pointerLockElement', function () { return null; });
+  def(SRP, 'fullscreenElement', function () { return null; });
+  def(SRP, 'styleSheets', function () { return []; });
+  defs(SRP, 'innerHTML', function () { return __d_gethtml(this.__id, false); },
+    function (v) { __d_sethtml(this.__id, v == null ? '' : String(v)); });
+  SRP.getElementById = function (i) { return wrap(__d_byid(String(i), this.__id)); };
+  if (!DocumentFragment.prototype.getElementById) DocumentFragment.prototype.getElementById = SRP.getElementById;
+  Object.defineProperty(g, '__scratchy_shadow_host', { value: function (n) { return n && n.__id !== undefined ? wrap(__d_shadow_host(n.__id)) : null; } });
+  SRP.getSelection = function () { return null; };
+  SRP.elementFromPoint = function () { return null; };
+  SRP.elementsFromPoint = function () { return []; };
+  defs(SRP, 'adoptedStyleSheets', function () { return srAdopted[this.__id] || (srAdopted[this.__id] = []); },
+    function (v) {
+      var m = "Failed to set the 'adoptedStyleSheets' property on 'ShadowRoot': ";
+      if (v == null || typeof v !== 'object' || typeof v.length !== 'number') throw new TypeError(m + 'The provided value cannot be converted to a sequence.');
+      var copy = Array.prototype.slice.call(v);
+      copy.forEach(function (x) { if (!(x instanceof g.CSSStyleSheet)) throw new TypeError(m + "Failed to convert value to 'CSSStyleSheet'."); });
+      srAdopted[this.__id] = copy; // stored only; applied by QSD7
+    });
+  var SHADOW_HOSTS = ['article', 'aside', 'blockquote', 'body', 'div', 'footer', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'header', 'main', 'nav', 'p', 'section', 'span'];
+  var validCustom = function (t) { return t.indexOf('-') > 0 && t === t.toLowerCase() && !/^(annotation-xml|color-profile|font-face|font-face-src|font-face-uri|font-face-format|font-face-name|missing-glyph)$/.test(t); };
+  ElementProto.attachShadow = function (init) {
+    var M = "Failed to execute 'attachShadow' on 'Element': ";
+    if (init == null || (typeof init !== 'object' && typeof init !== 'function')) throw new TypeError(M + '1 argument required, but only 0 present.');
+    var mode = init.mode === undefined ? undefined : String(init.mode);
+    if (mode !== 'open' && mode !== 'closed') throw new TypeError(M + "Failed to read the 'mode' property from 'ShadowRootInit': The provided value '" + mode + "' is not a valid enum value of type ShadowRootMode.");
+    var sa = init.slotAssignment === undefined ? 'named' : String(init.slotAssignment);
+    if (sa !== 'named' && sa !== 'manual') throw new TypeError(M + "Failed to read the 'slotAssignment' property from 'ShadowRootInit': The provided value '" + sa + "' is not a valid enum value of type SlotAssignmentMode.");
+    var raw = __d_tag(this.__id), tg = raw.toLowerCase();
+    if (raw !== raw.toUpperCase() || (SHADOW_HOSTS.indexOf(tg) < 0 && !validCustom(tg))) throw new DOMException(M + 'This element does not support attachShadow', 'NotSupportedError');
+    if (__d_shadow_of(this.__id) >= 0) throw new DOMException(M + 'Shadow root cannot be created on a host which already hosts a shadow tree.', 'NotSupportedError');
+    var root = wrap(__d_create(11, ''));
+    Object.setPrototypeOf(root, SRP);
+    __d_shadow_set(this.__id, root.__id); srHosts.push(this.__id);
+    srMode[root.__id] = mode;
+    srOpts[root.__id] = { delegatesFocus: !!init.delegatesFocus, slotAssignment: sa, clonable: !!init.clonable, serializable: !!init.serializable };
+    owners[root.__id] = this.ownerDocument;
+    if (!srWarned) { srWarned = true; __scratchy_err("scratchy: js: not implemented: shadow root rendering (QSD6); shadow content is not rendered, only the host's light children"); }
+    return root;
   };
+  def(ElementProto, 'shadowRoot', function () {
+    var r = __d_shadow_of(this.__id);
+    return r >= 0 && srMode[r] === 'open' ? wrap(r) : null;
+  });
 })(globalThis);
 "#;
