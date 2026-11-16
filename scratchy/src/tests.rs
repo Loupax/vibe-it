@@ -1764,6 +1764,34 @@ fn background_shorthand_url_sets_background_image() {
 }
 
 #[test]
+fn q35b_background_shorthand_takes_first_url_layer_after_gradient() {
+    let src = tiny_png_data_uri(4, 4);
+    for decl in [
+        format!("background: linear-gradient(transparent, transparent), url('{src}')"),
+        format!("background: url('{src}'), linear-gradient(red, blue)"),
+        format!("background: linear-gradient(red, blue) no-repeat, url('{src}') repeat-x #fff"),
+    ] {
+        let html = format!(r#"<html><body><div style="width: 13px; height: 13px; {decl};"></div></body></html>"#);
+        let laid = measure_fixture(&html, 200.0);
+        let div = find_by_width(&laid, 13.0).expect("div not found");
+        assert!(div.background_image.is_some(), "shorthand `{decl}` should keep the url layer's image");
+    }
+    // No url layer at all: gradient-only stays imageless; strict parsing still rejects junk.
+    let html = r#"<html><body><div style="width: 13px; height: 13px; background: linear-gradient(red, blue), linear-gradient(blue, red);"></div></body></html>"#;
+    let laid = measure_fixture(html, 200.0);
+    assert!(find_by_width(&laid, 13.0).expect("div").background_image.is_none());
+    let mut p = CssParser::new("linear-gradient(red,blue), url(x.png) repeat-x 3px 4px");
+    let bg = parse_background_shorthand(&mut p, true).ok().expect("parses");
+    assert_eq!(bg.image.as_deref(), Some("x.png"));
+    assert!(bg.repeat.is_some() && bg.position.is_some(), "position/repeat come from the url layer");
+    let mut p = CssParser::new("linear-gradient(red,blue) no-repeat, url(x.png)");
+    let bg = parse_background_shorthand(&mut p, true).ok().expect("parses");
+    assert!(bg.repeat.is_none(), "the gradient layer's repeat does not apply to the url layer");
+    let mut p = CssParser::new("linear-gradient(red,blue), url(x.png) bogus");
+    assert!(parse_background_shorthand(&mut p, true).is_err(), "QA4 strict parsing still drops junk");
+}
+
+#[test]
 fn background_shorthand_ignores_unrecognized_components_but_still_sets_color() {
     let html = r#"<html><body style="margin:0"><div style="width: 40px; height: 40px; background: #0000ff no-repeat center / cover;"></div></body></html>"#;
     let doc = parse_html(html);
