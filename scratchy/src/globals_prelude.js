@@ -288,4 +288,174 @@
     for (i = 0; i < handledLater.length; i++) fire('rejectionhandled', handledLater[i][0], handledLater[i][1], false);
     return true;
   });
+  // ---- QY15b: TextEncoder / TextDecoder (UTF-8, UTF-16LE, windows-1252)
+  // and atob/btoa. The UTF-8 decoder is the WHATWG state machine, kept on
+  // the instance between calls so `{stream: true}` can split a character
+  // across chunks. Output is built as UTF-16 code units.
+  var REPL = 0xFFFD;
+  var WS_RE = /^[\t\n\f\r ]+|[\t\n\f\r ]+$/g;
+  var priv = new WeakMap();
+  function newTarget(name, t) {
+    if (!t) throw new TypeError("Failed to construct '" + name + "': Please use the 'new' operator, this DOM object constructor cannot be called as a function.");
+  }
+  function toStr(v) { return v === undefined ? '' : String(v); }
+  function pushCp(u, cp) {
+    if (cp > 0xFFFF) { cp -= 0x10000; u.push(0xD800 + (cp >> 10), 0xDC00 + (cp & 0x3FF)); } else u.push(cp);
+  }
+  function unitsToString(u) {
+    var s = '';
+    for (var i = 0; i < u.length; i += 8192) s += String.fromCharCode.apply(null, u.slice(i, i + 8192));
+    return s;
+  }
+  // The code point at index i and how many code units it spans; a lone
+  // surrogate counts as one unit and as U+FFFD.
+  function cpAt(s, i) {
+    var c = s.charCodeAt(i);
+    if (c >= 0xD800 && c <= 0xDBFF && i + 1 < s.length) {
+      var d = s.charCodeAt(i + 1);
+      if (d >= 0xDC00 && d <= 0xDFFF) return [((c - 0xD800) << 10) + (d - 0xDC00) + 0x10000, 2];
+    }
+    if (c >= 0xD800 && c <= 0xDFFF) return [REPL, 1];
+    return [c, 1];
+  }
+  function utf8Push(cp, out) {
+    if (cp < 0x80) out.push(cp);
+    else if (cp < 0x800) out.push(0xC0 | (cp >> 6), 0x80 | (cp & 63));
+    else if (cp < 0x10000) out.push(0xE0 | (cp >> 12), 0x80 | ((cp >> 6) & 63), 0x80 | (cp & 63));
+    else out.push(0xF0 | (cp >> 18), 0x80 | ((cp >> 12) & 63), 0x80 | ((cp >> 6) & 63), 0x80 | (cp & 63));
+  }
+
+  function TextEncoder() { newTarget('TextEncoder', new.target); }
+  Object.defineProperty(TextEncoder.prototype, 'encoding', { get: function () { return 'utf-8'; }, enumerable: true, configurable: true });
+  def(TextEncoder.prototype, 'encode', function (input) {
+    var s = toStr(input), out = [], i = 0, r;
+    while (i < s.length) { r = cpAt(s, i); utf8Push(r[0], out); i += r[1]; }
+    return new Uint8Array(out);
+  });
+  def(TextEncoder.prototype, 'encodeInto', function (src, dest) {
+    if (!(dest instanceof Uint8Array)) throw new TypeError("Failed to execute 'encodeInto' on 'TextEncoder': parameter 2 is not of type 'Uint8Array'.");
+    var s = toStr(src), i = 0, written = 0, r, tmp, k;
+    while (i < s.length) {
+      r = cpAt(s, i);
+      tmp = [];
+      utf8Push(r[0], tmp);
+      if (written + tmp.length > dest.length) break;
+      for (k = 0; k < tmp.length; k++) dest[written++] = tmp[k];
+      i += r[1];
+    }
+    return { read: i, written: written };
+  });
+  Object.defineProperty(TextEncoder.prototype, Symbol.toStringTag, { value: 'TextEncoder', configurable: true });
+  def(g, 'TextEncoder', TextEncoder);
+
+  var DEC_LABELS = Object.create(null);
+  [['utf-8', 'utf-8', 'utf8', 'unicode-1-1-utf-8', 'unicode11utf8', 'unicode20utf8', 'x-unicode20utf8'],
+   ['utf-16le', 'utf-16le', 'utf-16', 'ucs-2', 'unicode', 'csunicode', 'iso-10646-ucs-2', 'unicodefeff'],
+   ['windows-1252', 'windows-1252', 'latin1', 'iso-8859-1', 'iso8859-1', 'iso_8859-1', 'ascii', 'us-ascii', 'l1', 'cp1252', 'x-cp1252', 'iso-ir-100', 'csisolatin1']
+  ].forEach(function (row) { for (var i = 1; i < row.length; i++) DEC_LABELS[row[i]] = row[0]; });
+  var W1252 = [0x20AC, 0x81, 0x201A, 0x192, 0x201E, 0x2026, 0x2020, 0x2021, 0x2C6, 0x2030, 0x160, 0x2039, 0x152, 0x8D, 0x17D, 0x8F,
+    0x90, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014, 0x2DC, 0x2122, 0x161, 0x203A, 0x153, 0x9D, 0x17E, 0x178];
+
+  function utf8Reset(st) { st.need = 0; st.seen = 0; st.cp = 0; st.lo = 0x80; st.hi = 0xBF; }
+  function decodeError(enc) { return new TypeError('The encoded data was not valid for encoding ' + enc + '.'); }
+  function utf8Feed(st, bytes, u, fatal) {
+    for (var i = 0; i < bytes.length; i++) {
+      var b = bytes[i];
+      if (st.need === 0) {
+        if (b < 0x80) { u.push(b); continue; }
+        if (b >= 0xC2 && b <= 0xDF) { st.need = 1; st.cp = b & 0x1F; }
+        else if (b >= 0xE0 && b <= 0xEF) { st.lo = b === 0xE0 ? 0xA0 : 0x80; st.hi = b === 0xED ? 0x9F : 0xBF; st.need = 2; st.cp = b & 0x0F; }
+        else if (b >= 0xF0 && b <= 0xF4) { st.lo = b === 0xF0 ? 0x90 : 0x80; st.hi = b === 0xF4 ? 0x8F : 0xBF; st.need = 3; st.cp = b & 0x07; }
+        else { if (fatal) throw decodeError('utf-8'); u.push(REPL); }
+        continue;
+      }
+      if (b < st.lo || b > st.hi) {
+        // Ill-formed: one U+FFFD for the bytes so far, then reprocess b.
+        utf8Reset(st);
+        if (fatal) throw decodeError('utf-8');
+        u.push(REPL);
+        i--;
+        continue;
+      }
+      st.lo = 0x80; st.hi = 0xBF;
+      st.cp = (st.cp << 6) | (b & 0x3F);
+      st.seen++;
+      if (st.seen === st.need) { pushCp(u, st.cp); utf8Reset(st); }
+    }
+  }
+  function utf16Feed(st, bytes, u, fatal) {
+    for (var i = 0; i < bytes.length; i++) {
+      if (st.odd < 0) { st.odd = bytes[i]; continue; }
+      var unit = st.odd | (bytes[i] << 8);
+      st.odd = -1;
+      if (st.high >= 0) {
+        if (unit >= 0xDC00 && unit <= 0xDFFF) { u.push(st.high, unit); st.high = -1; continue; }
+        if (fatal) throw decodeError('utf-16le');
+        u.push(REPL); st.high = -1;
+      }
+      if (unit >= 0xD800 && unit <= 0xDBFF) st.high = unit;
+      else if (unit >= 0xDC00 && unit <= 0xDFFF) { if (fatal) throw decodeError('utf-16le'); u.push(REPL); }
+      else u.push(unit);
+    }
+  }
+  // End of input (no `stream`): anything half-read is an error.
+  function utf16Finish(st, u, fatal) {
+    if (st.odd >= 0 || st.high >= 0) { if (fatal) throw decodeError('utf-16le'); u.push(REPL); }
+    st.odd = -1; st.high = -1;
+  }
+  function bytesOf(input) {
+    if (input === undefined) return new Uint8Array(0);
+    if (input instanceof ArrayBuffer) return new Uint8Array(input);
+    if (ArrayBuffer.isView(input)) return new Uint8Array(input.buffer, input.byteOffset, input.byteLength);
+    throw new TypeError("Failed to execute 'decode' on 'TextDecoder': The provided value is not of type '(ArrayBuffer or ArrayBufferView)'.");
+  }
+
+  function TextDecoder(label, options) {
+    newTarget('TextDecoder', new.target);
+    var name = label === undefined ? 'utf-8' : String(label).replace(WS_RE, '').toLowerCase();
+    var enc = Object.prototype.hasOwnProperty.call(DEC_LABELS, name) ? DEC_LABELS[name] : null;
+    if (!enc) throw new RangeError('The "' + toStr(label) + '" encoding is not supported.');
+    priv.set(this, {
+      enc: enc,
+      fatal: !!(options && options.fatal),
+      ignoreBOM: !!(options && options.ignoreBOM),
+      bom: false,
+      u8: { need: 0, seen: 0, cp: 0, lo: 0x80, hi: 0xBF },
+      u16: { odd: -1, high: -1 }
+    });
+  }
+  function decPriv(t) {
+    var p = t && typeof t === 'object' ? priv.get(t) : undefined;
+    if (!p) throw new TypeError('Illegal invocation');
+    return p;
+  }
+  Object.defineProperty(TextDecoder.prototype, 'encoding', { get: function () { return decPriv(this).enc; }, enumerable: true, configurable: true });
+  Object.defineProperty(TextDecoder.prototype, 'fatal', { get: function () { return decPriv(this).fatal; }, enumerable: true, configurable: true });
+  Object.defineProperty(TextDecoder.prototype, 'ignoreBOM', { get: function () { return decPriv(this).ignoreBOM; }, enumerable: true, configurable: true });
+  def(TextDecoder.prototype, 'decode', function (input, options) {
+    var p = decPriv(this), stream = !!(options && options.stream), bytes = bytesOf(input), u = [];
+    try {
+      if (p.enc === 'utf-8') {
+        utf8Feed(p.u8, bytes, u, p.fatal);
+        if (!stream && p.u8.need !== 0) { if (p.fatal) throw decodeError('utf-8'); u.push(REPL); }
+      } else if (p.enc === 'utf-16le') {
+        utf16Feed(p.u16, bytes, u, p.fatal);
+        if (!stream) utf16Finish(p.u16, u, p.fatal);
+      } else {
+        for (var i = 0; i < bytes.length; i++) u.push(bytes[i] >= 0x80 && bytes[i] < 0xA0 ? W1252[bytes[i] - 0x80] : bytes[i]);
+      }
+    } catch (e) {
+      utf8Reset(p.u8); p.u16.odd = -1; p.u16.high = -1; p.bom = false;
+      throw e;
+    }
+    if (!p.bom && u.length && (p.enc === 'utf-8' || p.enc === 'utf-16le')) {
+      if (u[0] === 0xFEFF && !p.ignoreBOM) u.shift();
+      p.bom = true;
+    }
+    if (!stream) { utf8Reset(p.u8); p.u16.odd = -1; p.u16.high = -1; p.bom = false; }
+    return unitsToString(u);
+  });
+  Object.defineProperty(TextDecoder.prototype, Symbol.toStringTag, { value: 'TextDecoder', configurable: true });
+  def(g, 'TextDecoder', TextDecoder);
+
 })(globalThis);

@@ -193,7 +193,10 @@ its prerequisites. Tests go in src/tests.rs. "Payoff" is what the R22
 survey predicts; measure it with `--js-report --run-timers 5000` on the
 R22 copies and paste the before/after numbers in the commit.
 
-- [ ] QF1 [S] READY (= QY15b; tick both) `TextEncoder`/`TextDecoder`.
+- [x] QF1 [S] DONE (= QY15b, commit HASH_PENDING; implemented as pure JS in
+      src/globals_prelude.js, not the encoding_rs natives sketched here, so
+      no new crate was needed; the behaviour list below is what the tests
+      check). `TextEncoder`/`TextDecoder`.
       Natives over `encoding_rs`: `__te_encode(str) -> Uint8Array`
       (UTF-8, lone surrogates -> U+FFFD) and `__td_decode(bytes, label,
       fatal, ignoreBOM) -> string`, or an error the JS throws as
@@ -1499,9 +1502,24 @@ Phase 2 (big enablers, after phase 1):
       modules, deliberately skipped so lazy chunks are not all pulled in),
       `import.meta.resolve`, JSON modules, worker modules,
       `modulepreload`. Today these reject with "module was not pre-fetched".
-- [ ] QY15b [S] `TextEncoder`/`TextDecoder` (UTF-8) in the JS prelude: the
-      first error of every github module script. Now QF1 in the QF
-      DESIGN MEMO at the top of the QUEUE: do it there and tick both.
+- [x] QY15b [S] `TextEncoder`/`TextDecoder` (UTF-8) in the JS prelude: the
+      first error of every github module script. DONE (commit HASH_PENDING):
+      pure JS in src/globals_prelude.js. `TextEncoder` (encode, encodeInto,
+      surrogate pairs, lone surrogate -> U+FFFD); `TextDecoder` for utf-8
+      (WHATWG state machine kept between calls for `{stream}`, BOM stripped
+      unless ignoreBOM, invalid bytes -> U+FFFD or TypeError when fatal),
+      utf-16le, windows-1252 (latin1/iso-8859-1 labels), unknown label
+      RangeError; ArrayBuffer/TypedArray/DataView input. `atob`/`btoa`
+      already existed in the engine (checked; not re-implemented, the tests
+      pin their behaviour). Tests `qy15b_*` (5; 4 of them fail on origin/main).
+      MEASURED `--js-report --run-timers 5000` (curl'd pages + <base>):
+      github 5 scripts / 3 errors -> 5 / 3 (the 3 TextEncoder errors are gone;
+      the same 3 modules now die on the next wall below). wikipedia.org 4/0
+      -> 4/0, en.wikipedia Main_Page 4/0 -> 4/0, news.ycombinator 1/0 -> 1/0.
+      NEXT BLOCKER on github (first new error):
+      `ReferenceError: customElements is not defined` (QY6 memo: custom
+      elements, QY6e), in core-*.js, marketing-essentials-*.js and
+      landing-pages-*.js.
 - [ ] QY15c [S] old.reddit: its `data:text/javascript,` navigation module
       (`let navPromise=null,hasNativeNavigation=...`) dies on
       `ReferenceError: customElements is not defined` (same as its inline
