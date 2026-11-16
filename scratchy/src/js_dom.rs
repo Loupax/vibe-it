@@ -872,6 +872,33 @@ const DOM_PRELUDE: &str = r#"
     return eqNode(this.__id, other.__id);
   };
   NodeProto.isSameNode = function (other) { return this === other; };
+  // QSD2: tree roots. A node's root is its topmost ancestor: the document for an
+  // attached node (or a node of a second QA18a document), the topmost element or
+  // DocumentFragment for a detached one (a `<template>` content fragment is its own
+  // root). `composed` is accepted and ignored until shadow roots exist (QSD3 adds
+  // "a ShadowRoot's host" as the next step of the composed walk).
+  var rootId = function (id) { var p; while ((p = __d_parent(id)) >= 0) id = p; return id; };
+  NodeProto.getRootNode = function (options) { return wrap(rootId(this.__id)); };
+  def(NodeProto, 'isConnected', function () { return __d_kind(rootId(this.__id)) === 9; });
+  // QSD2: DOM spec "compare position". Different roots: DISCONNECTED |
+  // IMPLEMENTATION_SPECIFIC plus a consistent PRECEDING/FOLLOWING (by node id).
+  [['DISCONNECTED', 1], ['PRECEDING', 2], ['FOLLOWING', 4], ['CONTAINS', 8], ['CONTAINED_BY', 16], ['IMPLEMENTATION_SPECIFIC', 32]]
+    .forEach(function (kv) { Node['DOCUMENT_POSITION_' + kv[0]] = NodeProto['DOCUMENT_POSITION_' + kv[0]] = kv[1]; });
+  var chainOf = function (id) { var c = [id], p; while ((p = __d_parent(id)) >= 0) { c.push(p); id = p; } return c.reverse(); };
+  NodeProto.compareDocumentPosition = function (other) {
+    if (arguments.length < 1) throw new TypeError("Failed to execute 'compareDocumentPosition' on 'Node': 1 argument required, but only 0 present.");
+    if (other == null || other.__id === undefined) throw new TypeError("Failed to execute 'compareDocumentPosition' on 'Node': parameter 1 is not of type 'Node'.");
+    var a = this.__id, b = other.__id;
+    if (a === b) return 0;
+    var ca = chainOf(a), cb = chainOf(b);
+    if (ca[0] !== cb[0]) return 1 | 32 | (b < a ? 2 : 4);
+    var i = 0;
+    while (i < ca.length && i < cb.length && ca[i] === cb[i]) i++;
+    if (i === cb.length) return 8 | 2;   // other is an ancestor of this
+    if (i === ca.length) return 16 | 4;  // other is a descendant of this
+    var kids = __d_children(ca[i - 1], false);
+    return kids.indexOf(cb[i]) < kids.indexOf(ca[i]) ? 2 : 4;
+  };
   queries = function (P) {
     P.querySelector = function (s) { return wrap(q(this.__id, s, true)[0]); };
     P.querySelectorAll = function (s) { return wrapAll(q(this.__id, s, false)); };
