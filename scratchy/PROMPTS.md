@@ -6843,3 +6843,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Implement TODO.txt QY6a: MutationObserver with real MutationRecords (childList/attributes/characterData, subtree, oldValue, attributeFilter, takeRecords/disconnect, transient observers), microtask-batch delivery in creation order, hooked through the same single mutation layer QY6e installs and only at the first observe() (zero cost before). Verify against github/youtube and the survey pages.
 
 **What changed:** src/js_dom.rs (`hookInstall` is now the one shared native-rebinding layer for custom elements and observers; `MutationObserver`/`MutationRecord`/`WebKitMutationObserver`; `moBegin/moEnd` batching so replaceChild/append/prepend/before/after/replaceWith/replaceChildren make one record; new `replaceChildren`, `outerHTML` setter, CharacterData `appendData/insertData/deleteData/replaceData/substringData`); tests `qy6a_*` (24) in src/tests.rs. Full `cargo test`: 653 passed, 5 ignored. WPT subset: pass 264, no change. Survey: github still 3 errors but now `IntersectionObserver is not defined`; youtube webcomponents-sd.js now loads, first error is kevlar_base `appendChild: parameter 1 is not of type Node`; the other 7 pages stay at 0. Left out (QY6a1): Comment.data (native no-op), insertAdjacent*, parser/Rust writes, attributeNamespace.
+
+## wire cookie jar (QF14, wire half)
+
+> Implement the wire half of QF14 (QF-D2a): an in-memory, partitioned cookie jar in wire with the `document.cookie` control channel, `--no-cookies`, `X-Wire-Cookies`, `X-Wire-Version: 3`.
+
+**What changed:** wire/src/cookies.rs (new), wire/src/main.rs, wire/NOTES.md. No scratchy code changed; the scratchy half is QF14b-scratchy in TODO.txt. The user must rebuild and restart wire (instructions in TODO.txt QF14).

@@ -1,9 +1,12 @@
-use std::cell::RefCell;
+mod cookies;
+
+use std::cell::{Cell, RefCell};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use url::Url;
@@ -37,13 +40,15 @@ use url::Url;
 // serially.
 
 fn print_usage() {
-    eprintln!("usage: wire [--socket <path>] [--print-socket]");
+    eprintln!("usage: wire [--socket <path>] [--print-socket] [--no-cookies]");
     eprintln!("  wire                 listen on $XDG_RUNTIME_DIR/wire.sock (falling back to");
     eprintln!("                       /tmp/wire-$UID.sock), serving real HTTP requests read");
     eprintln!("                       off that socket in the absolute-form proxy shape");
     eprintln!("                       (`GET https://example.com/path HTTP/1.1`), one request");
     eprintln!("                       per connection, concurrently. Must be started manually.");
     eprintln!("  wire --socket <path> listen on <path> instead of the default location.");
+    eprintln!("  wire --no-cookies    kill switch: disable the in-memory cookie jar entirely (the");
+    eprintln!("                       X-Wire-Jar header is ignored, responses carry X-Wire-Cookies: off).");
     eprintln!("  wire --print-socket  print the socket path wire would bind (honoring --socket,");
     eprintln!("                       if also given) to stdout and exit immediately — doesn't");
     eprintln!("                       bind or listen at all. Meant for scripting, so a caller");
@@ -55,6 +60,7 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let mut socket_path = None;
     let mut print_socket = false;
+    let mut cookies_enabled = true;
     let mut i = 1;
     while i < args.len() {
         match args[i].as_str() {
@@ -69,6 +75,10 @@ fn main() {
                 };
                 socket_path = Some(PathBuf::from(path));
                 i += 2;
+            }
+            "--no-cookies" => {
+                cookies_enabled = false;
+                i += 1;
             }
             "--print-socket" => {
                 print_socket = true;
@@ -96,7 +106,7 @@ fn main() {
     }
 
     let agent = build_agent();
-    run_server(&path, agent);
+    run_server(&path, agent, Arc::new(Shared::new(cookies_enabled)));
 }
 
 fn build_agent() -> ureq::Agent {
@@ -120,7 +130,45 @@ fn agent_builder() -> ureq::AgentBuilder {
 /// Bumped when the scratchy<->wire control protocol (`X-Wire-*`) grows;
 /// sent as `X-Wire-Version` on EVERY response so scratchy can tell an old
 /// wire (no such header) from a new one before relying on the caps.
-const WIRE_VERSION: &str = "2";
+const WIRE_VERSION: &str = "3";
+
+/// The one jar name scratchy may select with `X-Wire-Jar` (QF-D2a: ONE shared
+/// jar; a later `--profile NAME` changes this single value).
+const JAR_NAME: &str = "scratchy";
+
+/// Daemon-wide state shared by every connection thread.
+struct Shared {
+    /// `false` under `--no-cookies`.
+    enabled: bool,
+    jar: Mutex<cookies::Jar>,
+    /// Agent with redirects switched off: the jar path follows redirects
+    /// itself so it can store and re-send cookies on every hop.
+    manual_agent: ureq::Agent,
+}
+
+impl Shared {
+    fn new(enabled: bool) -> Shared {
+        Shared { enabled, jar: Mutex::new(cookies::Jar::default()), manual_agent: agent_builder().redirects(0).build() }
+    }
+
+    fn jar(&self) -> std::sync::MutexGuard<'_, cookies::Jar> {
+        self.jar.lock().unwrap_or_else(|e| e.into_inner())
+    }
+}
+
+thread_local! {
+    /// Value of the `X-Wire-Cookies` response header for the request this
+    /// thread is serving ("" = no header). Set at the start of each request.
+    static COOKIES_HDR: Cell<&'static str> = const { Cell::new("") };
+}
+
+fn now_unix() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64)
+}
+
+fn header<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
+    headers.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str())
+}
 
 /// Mirror of scratchy's `net_policy::is_public_ip`: keep both identical.
 fn is_public_ip(ip: IpAddr) -> bool {
@@ -313,7 +361,7 @@ fn current_uid() -> u32 {
     unsafe { getuid() }
 }
 
-fn run_server(path: &PathBuf, agent: ureq::Agent) {
+fn run_server(path: &PathBuf, agent: ureq::Agent, shared: Arc<Shared>) {
     if path.exists() {
         // Stale socket file left behind by a crashed/`kill -9`'d previous
         // run — same reasoning as `snag --serve`'s own cleanup: nothing
@@ -336,7 +384,8 @@ fn run_server(path: &PathBuf, agent: ureq::Agent) {
         match conn {
             Ok(stream) => {
                 let agent = agent.clone(); // cheap — `ureq::Agent` is an `Arc` handle
-                std::thread::spawn(move || handle_connection(stream, &agent));
+                let shared = Arc::clone(&shared);
+                std::thread::spawn(move || handle_connection(stream, &agent, &shared));
             }
             Err(e) => eprintln!("wire: accept error: {e}"),
         }
@@ -352,7 +401,7 @@ fn run_server(path: &PathBuf, agent: ureq::Agent) {
 /// leniency `snag --serve`'s own `handle_connection` already established
 /// for a different failure (there, a bad top-level fetch; here, a
 /// malformed client request).
-fn handle_connection(stream: UnixStream, agent: &ureq::Agent) {
+fn handle_connection(stream: UnixStream, agent: &ureq::Agent, shared: &Shared) {
     let mut reader = BufReader::new(match stream.try_clone() {
         Ok(s) => s,
         Err(e) => {
@@ -369,7 +418,7 @@ fn handle_connection(stream: UnixStream, agent: &ureq::Agent) {
             return;
         }
     };
-    if let Err(e) = execute_and_stream(agent, &request, &mut writer)
+    if let Err(e) = execute_with(agent, shared, &request, &mut writer)
         && e.kind() != std::io::ErrorKind::BrokenPipe
     {
         eprintln!("wire: failed to write response: {e}");
@@ -514,10 +563,87 @@ fn is_response_header_to_strip(name: &str) -> bool {
 /// dropped connection with nothing explained): the one thing that can
 /// now fail is writing to `w` itself (the client side), propagated to
 /// the caller exactly as `write_response` used to.
+#[cfg(test)]
 fn execute_and_stream(agent: &ureq::Agent, request: &ParsedRequest, w: &mut impl Write) -> std::io::Result<()> {
+    execute_with(agent, &Shared::new(true), request, w)
+}
+
+/// Placeholder for the access-token check on the cookie control channel
+/// (`X-Wire-Cookie-Op`): anything that can write to wire's socket could read
+/// non-HttpOnly cookies through it. The user was asked whether to require a
+/// token and has not answered, so NOTHING is enforced: when they decide, check
+/// e.g. an `X-Wire-Token` header here (the single call site is `cookie_control`).
+fn control_authorized(_headers: &[(String, String)]) -> bool {
+    true
+}
+
+/// The `document.cookie` control channel: `X-Wire-Cookie-Op: get|set` +
+/// `X-Wire-Cookie-Url` (the page URL) + `X-Wire-Top-Site` + `X-Wire-Jar`.
+/// Never makes an upstream request. `get` answers the non-HttpOnly cookie
+/// string as text/plain; `set` takes the `document.cookie = ...` string as the
+/// body and answers 204.
+fn cookie_control(shared: &Shared, request: &ParsedRequest, w: &mut impl Write) -> std::io::Result<()> {
+    let text_plain = || vec![("Content-Type".to_string(), "text/plain".to_string())];
+    let h = &request.headers;
+    if !shared.enabled {
+        write_status_and_headers(w, 404, "Not Found", &text_plain())?;
+        w.write_all(b"wire: cookies are disabled (--no-cookies)")?;
+        return w.flush();
+    }
+    COOKIES_HDR.with(|c| c.set("on"));
+    let mut bad = |msg: &str| -> std::io::Result<()> {
+        let mut hs = text_plain();
+        hs.push(("X-Wire-Error".to_string(), "cookie-control".to_string()));
+        write_status_and_headers(w, 400, "Bad Request", &hs)?;
+        w.write_all(format!("wire: {msg}").as_bytes())?;
+        w.flush()
+    };
+    if !control_authorized(h) {
+        return bad("cookie control not authorized");
+    }
+    if header(h, "x-wire-jar") != Some(JAR_NAME) {
+        return bad("missing or unknown X-Wire-Jar");
+    }
+    let Some(page) = header(h, "x-wire-cookie-url").and_then(|u| Url::parse(u).ok()).filter(|u| u.host_str().is_some()) else {
+        return bad("missing or invalid X-Wire-Cookie-Url");
+    };
+    let top = header(h, "x-wire-top-site");
+    let ctx = cookies::RequestCtx::new(&page, "GET", top, false, None, true);
+    match header(h, "x-wire-cookie-op").unwrap_or("") {
+        "get" => {
+            let value = shared.jar().document_cookie(&ctx, now_unix());
+            write_status_and_headers(w, 200, "OK", &text_plain())?;
+            w.write_all(value.as_bytes())?;
+            w.flush()
+        }
+        "set" => {
+            let line = String::from_utf8_lossy(&request.body).to_string();
+            let stored = shared.jar().store(&ctx, &line, now_unix());
+            if timing_enabled() {
+                eprintln!("{}", cookies::log_line(&ctx.host, 0, usize::from(stored)));
+            }
+            write_status_and_headers(w, 204, "No Content", &[])?;
+            w.flush()
+        }
+        _ => bad("X-Wire-Cookie-Op must be get or set"),
+    }
+}
+
+fn execute_with(agent: &ureq::Agent, shared: &Shared, request: &ParsedRequest, w: &mut impl Write) -> std::io::Result<()> {
+    COOKIES_HDR.with(|c| c.set(if shared.enabled { "" } else { "off" }));
     let caps = parse_caps(&request.headers);
+    if header(&request.headers, "x-wire-cookie-op").is_some() {
+        return cookie_control(shared, request, w);
+    }
     if request.url.scheme() == "file" {
         return serve_file(request, &caps, w);
+    }
+    let use_jar = shared.enabled
+        && header(&request.headers, "x-wire-jar") == Some(JAR_NAME)
+        && !header(&request.headers, "x-wire-cookies").is_some_and(|v| v.eq_ignore_ascii_case("off"));
+    if use_jar {
+        COOKIES_HDR.with(|c| c.set("on"));
+        return execute_with_jar(shared, request, &caps, w);
     }
     TRACKER.with(|t| *t.borrow_mut() = Tracker { public_only: caps.public_only, ..Tracker::default() });
     // Redirect limits are agent-level in ureq: only a request asking for a
@@ -552,7 +678,7 @@ fn execute_and_stream(agent: &ureq::Agent, request: &ParsedRequest, w: &mut impl
         // other match arm.
         Ok(resp) | Err(ureq::Error::Status(_, resp)) => {
             let status = resp.status();
-            stream_response(resp, &caps, w)?;
+            stream_response(resp, &caps, w, None, false)?;
             status
         }
         Err(ureq::Error::Transport(e)) => {
@@ -565,6 +691,102 @@ fn execute_and_stream(agent: &ureq::Agent, request: &ParsedRequest, w: &mut impl
     };
     log_timing(&request.method, &request.url, status, headers_elapsed, body_start.elapsed());
     Ok(())
+}
+
+/// The request path when the jar is used (`X-Wire-Jar: scratchy`). Redirects
+/// are followed HERE (the shared `manual_agent` never follows them) so that
+/// every hop gets its own `Cookie:` header computed from the jar and every
+/// hop's `Set-Cookie` lines are stored before the next hop is made.
+///
+/// The jar is authoritative: a client-supplied `Cookie` header is dropped.
+/// `Set-Cookie` lines are stripped from the answer (the jar is wire's;
+/// scratchy does not need them). Timeouts apply per hop in this path.
+fn execute_with_jar(shared: &Shared, request: &ParsedRequest, caps: &Caps, w: &mut impl Write) -> std::io::Result<()> {
+    TRACKER.with(|t| *t.borrow_mut() = Tracker { public_only: caps.public_only, ..Tracker::default() });
+    let h = &request.headers;
+    let top = header(h, "x-wire-top-site");
+    let nav = header(h, "x-wire-nav") == Some("1");
+    let initiator = header(h, "x-wire-initiator-site");
+    let limit = caps.max_redirects.unwrap_or(DEFAULT_REDIRECTS);
+    let (mut url, mut method, mut body) = (request.url.clone(), request.method.clone(), request.body.clone());
+    let (mut sent, mut stored) = (0usize, 0usize);
+    let mut hop = 0u32;
+    let headers_start = Instant::now();
+    let finish = |url: &Url, status: u16, sent: usize, stored: usize, start: Instant| {
+        if timing_enabled() {
+            eprintln!("{}", cookies::log_line(url.host_str().unwrap_or(""), sent, stored));
+        }
+        log_timing(&request.method, &request.url, status, start.elapsed(), Duration::ZERO);
+    };
+    loop {
+        let ctx = cookies::RequestCtx::new(&url, &method, top, nav, initiator, false);
+        let cookie = shared.jar().cookie_header(&ctx, now_unix());
+        if let Some(c) = &cookie {
+            sent += c.split("; ").count();
+        }
+        let mut req = shared.manual_agent.request(&method, url.as_str());
+        if let Some(t) = caps.timeout {
+            req = req.timeout(t);
+        }
+        let drop_body_headers = body.is_empty() && request.method != method;
+        for (name, value) in h {
+            if is_request_header_to_skip(name)
+                || name.eq_ignore_ascii_case("cookie")
+                || (drop_body_headers && name.eq_ignore_ascii_case("content-type"))
+            {
+                continue;
+            }
+            req = req.set(name, value);
+        }
+        if let Some(c) = &cookie {
+            req = req.set("Cookie", c);
+        }
+        let result = if body.is_empty() { req.call() } else { req.send_bytes(&body) };
+        let resp = match result {
+            Ok(r) | Err(ureq::Error::Status(_, r)) => r,
+            Err(ureq::Error::Transport(e)) => {
+                let blocked = TRACKER.with(|t| t.borrow().blocked.clone());
+                let status = match blocked {
+                    Some(msg) => write_policy_response(w, &msg)?,
+                    None => write_synthetic_error_response(w, &e.to_string())?,
+                };
+                finish(&url, status, sent, stored, headers_start);
+                return Ok(());
+            }
+        };
+        {
+            let mut jar = shared.jar();
+            for line in resp.all("set-cookie") {
+                if jar.store(&ctx, line, now_unix()) {
+                    stored += 1;
+                }
+            }
+        }
+        let status = resp.status();
+        let next = if matches!(status, 301 | 302 | 303 | 307 | 308) {
+            resp.header("location").and_then(|l| url.join(l).ok()).filter(|u| matches!(u.scheme(), "http" | "https"))
+        } else {
+            None
+        };
+        let Some(next) = next else {
+            stream_response(resp, caps, w, Some(url.as_str()), true)?;
+            finish(&url, status, sent, stored, headers_start);
+            return Ok(());
+        };
+        if hop >= limit {
+            let code = write_synthetic_error_response(w, &format!("too many redirects (limit {limit})"))?;
+            finish(&url, code, sent, stored, headers_start);
+            return Ok(());
+        }
+        hop += 1;
+        // 303 always becomes GET (HEAD stays); 301/302 turn POST into GET;
+        // 307/308 keep the method and body.
+        if (status == 303 && method != "HEAD") || (matches!(status, 301 | 302) && method == "POST") {
+            method = "GET".to_string();
+            body.clear();
+        }
+        url = next;
+    }
 }
 
 /// `Content-Type` guessed from a path's extension, for `file://` URLs
@@ -649,13 +871,13 @@ fn serve_file(request: &ParsedRequest, caps: &Caps, w: &mut impl Write) -> std::
 /// its own docs. A real HTTP/1.1 response with neither `Content-Length`
 /// nor `Transfer-Encoding`, read until the connection closes, is exactly
 /// this same rule, not an invented shortcut.
-fn stream_response(resp: ureq::Response, caps: &Caps, w: &mut impl Write) -> std::io::Result<()> {
+fn stream_response(resp: ureq::Response, caps: &Caps, w: &mut impl Write, final_url: Option<&str>, strip_set_cookie: bool) -> std::io::Result<()> {
     let status = resp.status();
     let reason = resp.status_text().to_string();
     let mut headers = Vec::new();
     let mut seen: Vec<String> = Vec::new();
     for name in resp.headers_names() {
-        if is_response_header_to_strip(&name) || seen.contains(&name.to_ascii_lowercase()) {
+        if is_response_header_to_strip(&name) || (strip_set_cookie && name.eq_ignore_ascii_case("set-cookie")) || seen.contains(&name.to_ascii_lowercase()) {
             continue;
         }
         seen.push(name.to_ascii_lowercase());
@@ -667,7 +889,7 @@ fn stream_response(resp: ureq::Response, caps: &Caps, w: &mut impl Write) -> std
     }
     // The control channel's own names must never be spoofed by upstream.
     headers.retain(|(n, _)| !n.to_ascii_lowercase().starts_with("x-wire-"));
-    headers.push(("X-Wire-Final-Url".to_string(), resp.get_url().to_string()));
+    headers.push(("X-Wire-Final-Url".to_string(), final_url.map_or_else(|| resp.get_url().to_string(), str::to_string)));
     let hops = TRACKER.with(|t| t.borrow().hops.clone());
     if let Some(worst) = hops.iter().copied().max_by_key(|c| class_rank(c)) {
         headers.push(("X-Wire-Target-Class".to_string(), worst.to_string()));
@@ -737,6 +959,10 @@ fn write_synthetic_error_response(w: &mut impl Write, message: &str) -> std::io:
 fn write_status_and_headers(w: &mut impl Write, status: u16, reason: &str, headers: &[(String, String)]) -> std::io::Result<()> {
     write!(w, "HTTP/1.1 {status} {reason}\r\n")?;
     write!(w, "X-Wire-Version: {WIRE_VERSION}\r\n")?;
+    let cookies_hdr = COOKIES_HDR.with(Cell::get);
+    if !cookies_hdr.is_empty() {
+        write!(w, "X-Wire-Cookies: {cookies_hdr}\r\n")?;
+    }
     for (name, value) in headers {
         write!(w, "{name}: {value}\r\n")?;
     }
@@ -1016,7 +1242,7 @@ mod tests {
         let server_agent = build_agent();
         let server = thread::spawn(move || {
             let (stream, _) = listener.accept().expect("accept");
-            handle_connection(stream, &server_agent);
+            handle_connection(stream, &server_agent, &Shared::new(true));
         });
 
         let mut client = UnixStream::connect(&socket_path).expect("connect unix socket");
@@ -1072,9 +1298,9 @@ mod tests {
     fn every_response_carries_the_wire_version() {
         let addr = spawn_fixture(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok");
         let agent = build_agent();
-        assert_eq!(hdr(&execute_for_test(&agent, &get_request(addr, "/")), "X-Wire-Version"), Some("2"));
+        assert_eq!(hdr(&execute_for_test(&agent, &get_request(addr, "/")), "X-Wire-Version"), Some("3"));
         let down = get_request("127.0.0.1:1".parse().unwrap(), "/");
-        assert_eq!(hdr(&execute_for_test(&agent, &down), "X-Wire-Version"), Some("2"));
+        assert_eq!(hdr(&execute_for_test(&agent, &down), "X-Wire-Version"), Some("3"));
     }
 
     #[test]
@@ -1286,5 +1512,291 @@ mod tests {
         let r = execute_for_test(&agent, &get_request(addr, "/"));
         assert_eq!(hdr(&r, "X-Wire-Target-Class"), Some("loopback"));
         assert_eq!(hdr(&r, "X-Wire-Error"), None);
+    }
+
+    // ---------- QF14: the cookie jar through the request path ----------
+
+    fn cookie_header_of(req_text: &str) -> Option<String> {
+        req_text.lines().find_map(|l| l.strip_prefix("Cookie: ").or_else(|| l.strip_prefix("cookie: "))).map(|v| v.trim().to_string())
+    }
+
+    /// `/set` answers two Set-Cookie lines (one HttpOnly); `/r1` -> `/r2` ->
+    /// `/r3` is a redirect chain that sets a cookie on each of the first two
+    /// hops; anything else echoes the request's Cookie header as the body.
+    fn cookie_server() -> (std::net::SocketAddr, std::sync::mpsc::Receiver<String>) {
+        spawn_dynamic(|req, addr| {
+            let path = req.split_whitespace().nth(1).unwrap_or("/").to_string();
+            let redirect = |to: &str, cookie: &str| {
+                format!("HTTP/1.1 302 Found\r\nLocation: http://{addr}{to}\r\nSet-Cookie: {cookie}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+                    .into_bytes()
+            };
+            match path.as_str() {
+                "/set" => b"HTTP/1.1 200 OK\r\nSet-Cookie: sid=abc123; HttpOnly\r\nSet-Cookie: pub=visible\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok"
+                    .to_vec(),
+                "/r1" => redirect("/r2", "a=1"),
+                "/r2" => redirect("/r3", "b=2"),
+                "/bad" => b"HTTP/1.1 200 OK\r\nSet-Cookie: novalue\r\nSet-Cookie: =x\r\nSet-Cookie: ok=1\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_vec(),
+                _ => ok_text(&cookie_header_of(req).unwrap_or_else(|| "<none>".to_string())),
+            }
+        })
+    }
+
+    const JAR: (&str, &str) = ("X-Wire-Jar", "scratchy");
+
+    fn run(shared: &Shared, req: ParsedRequest) -> TestResponse {
+        let mut raw = Vec::new();
+        execute_with(&build_agent(), shared, &req, &mut raw).expect("write into a Vec cannot fail");
+        let header_end = raw.windows(4).position(|w| w == b"\r\n\r\n").expect("header terminator");
+        let text = std::str::from_utf8(&raw[..header_end]).unwrap();
+        let mut lines = text.split("\r\n");
+        let status = lines.next().unwrap().split_whitespace().nth(1).unwrap().parse().unwrap();
+        let headers = lines
+            .filter_map(|l| l.split_once(':').map(|(n, v)| (n.trim().to_string(), v.trim().to_string())))
+            .collect();
+        TestResponse { status, headers, body: raw[header_end + 4..].to_vec() }
+    }
+
+    fn control(shared: &Shared, op: &str, page: &str, top: Option<&str>, body: &str) -> TestResponse {
+        let mut h = vec![("X-Wire-Cookie-Op", op), ("X-Wire-Cookie-Url", page), JAR];
+        if let Some(t) = top {
+            h.push(("X-Wire-Top-Site", t));
+        }
+        let mut req = with_headers(
+            ParsedRequest { method: "POST".into(), url: Url::parse("http://wire.invalid/cookies").unwrap(), headers: vec![], body: body.as_bytes().to_vec() },
+            &h,
+        );
+        req.method = if op == "get" { "GET".into() } else { "POST".into() };
+        run(shared, req)
+    }
+
+    #[test]
+    fn jar_stores_on_one_request_and_sends_on_the_next() {
+        let (addr, rx) = cookie_server();
+        let shared = Shared::new(true);
+        let r1 = run(&shared, with_headers(get_request(addr, "/set"), &[JAR]));
+        assert_eq!(r1.status, 200);
+        assert_eq!(hdr(&r1, "X-Wire-Cookies"), Some("on"));
+        assert_eq!(hdr(&r1, "X-Wire-Version"), Some("3"));
+        assert_eq!(hdr(&r1, "Set-Cookie"), None, "Set-Cookie is stripped when the jar was used");
+        assert_eq!(hdr(&r1, "X-Wire-Jar"), None);
+        assert_eq!(cookie_header_of(&rx.recv().unwrap()), None);
+        let r2 = run(&shared, with_headers(get_request(addr, "/echo"), &[JAR]));
+        assert_eq!(r2.body, b"sid=abc123; pub=visible");
+        assert_eq!(cookie_header_of(&rx.recv().unwrap()).as_deref(), Some("sid=abc123; pub=visible"));
+        // the jar header itself was never forwarded
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn no_jar_header_or_cookies_off_sends_and_stores_nothing() {
+        let (addr, rx) = cookie_server();
+        let shared = Shared::new(true);
+        // no jar header: Set-Cookie passes through untouched, nothing stored
+        let r = run(&shared, get_request(addr, "/set"));
+        assert_eq!(hdr(&r, "X-Wire-Cookies"), None);
+        assert_eq!(r.headers.iter().filter(|(n, _)| n.eq_ignore_ascii_case("set-cookie")).count(), 2);
+        let _ = rx.recv().unwrap();
+        // a request that does use the jar sees an empty jar
+        let r = run(&shared, with_headers(get_request(addr, "/echo"), &[JAR]));
+        assert_eq!(r.body, b"<none>");
+        let _ = rx.recv().unwrap();
+        // store something, then opt out with X-Wire-Cookies: off
+        run(&shared, with_headers(get_request(addr, "/set"), &[JAR]));
+        let _ = rx.recv().unwrap();
+        let r = run(&shared, with_headers(get_request(addr, "/echo"), &[JAR, ("X-Wire-Cookies", "off")]));
+        assert_eq!(r.body, b"<none>");
+        assert_eq!(hdr(&r, "X-Wire-Cookies"), None);
+        let _ = rx.recv().unwrap();
+        // and a client Cookie header is forwarded as before when the jar is not used
+        let r = run(&shared, with_headers(get_request(addr, "/echo"), &[("Cookie", "mine=1")]));
+        assert_eq!(r.body, b"mine=1");
+    }
+
+    #[test]
+    fn a_client_cookie_header_is_dropped_when_the_jar_is_used() {
+        let (addr, rx) = cookie_server();
+        let shared = Shared::new(true);
+        let r = run(&shared, with_headers(get_request(addr, "/echo"), &[JAR, ("Cookie", "evil=1")]));
+        assert_eq!(r.body, b"<none>");
+        assert!(!rx.recv().unwrap().to_ascii_lowercase().contains("evil"));
+        run(&shared, with_headers(get_request(addr, "/set"), &[JAR]));
+        let _ = rx.recv().unwrap();
+        let r = run(&shared, with_headers(get_request(addr, "/echo"), &[JAR, ("cookie", "evil=1")]));
+        assert_eq!(r.body, b"sid=abc123; pub=visible");
+    }
+
+    #[test]
+    fn no_cookies_flag_disables_the_jar_and_the_control_channel() {
+        let (addr, _rx) = cookie_server();
+        let shared = Shared::new(false);
+        let r = run(&shared, with_headers(get_request(addr, "/set"), &[JAR]));
+        assert_eq!(hdr(&r, "X-Wire-Cookies"), Some("off"));
+        assert_eq!(hdr(&r, "X-Wire-Version"), Some("3"));
+        assert_eq!(r.headers.iter().filter(|(n, _)| n.eq_ignore_ascii_case("set-cookie")).count(), 2, "Set-Cookie passes through untouched");
+        let r = run(&shared, with_headers(get_request(addr, "/echo"), &[JAR]));
+        assert_eq!(r.body, b"<none>");
+        let r = control(&shared, "get", &format!("http://{addr}/"), None, "");
+        assert_eq!(r.status, 404);
+        assert_eq!(hdr(&r, "X-Wire-Cookies"), Some("off"));
+        // errors and file: answers carry the marker too
+        let r = run(&shared, with_headers(get_request("127.0.0.1:1".parse().unwrap(), "/"), &[JAR]));
+        assert_eq!(hdr(&r, "X-Wire-Cookies"), Some("off"));
+    }
+
+    #[test]
+    fn httponly_is_hidden_from_the_control_channel_but_sent_in_requests() {
+        let (addr, rx) = cookie_server();
+        let shared = Shared::new(true);
+        run(&shared, with_headers(get_request(addr, "/set"), &[JAR]));
+        let _ = rx.recv().unwrap();
+        let page = format!("http://{addr}/page");
+        let r = control(&shared, "get", &page, None, "");
+        assert_eq!(r.status, 200);
+        assert_eq!(hdr(&r, "Content-Type"), Some("text/plain"));
+        assert_eq!(hdr(&r, "X-Wire-Cookies"), Some("on"));
+        assert_eq!(r.body, b"pub=visible");
+        let r = run(&shared, with_headers(get_request(addr, "/echo"), &[JAR]));
+        assert_eq!(r.body, b"sid=abc123; pub=visible");
+        // the control channel made no upstream request
+        let _ = rx.recv().unwrap();
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[test]
+    fn control_channel_set_then_get_and_requests_see_it() {
+        let (addr, rx) = cookie_server();
+        let shared = Shared::new(true);
+        let page = format!("http://{addr}/page");
+        let r = control(&shared, "set", &page, None, "js=1; Path=/");
+        assert_eq!(r.status, 204);
+        assert_eq!(hdr(&r, "X-Wire-Cookies"), Some("on"));
+        // a script cannot create an HttpOnly cookie
+        assert_eq!(control(&shared, "set", &page, None, "h=1; HttpOnly").status, 204);
+        assert_eq!(control(&shared, "get", &page, None, "").body, b"js=1");
+        let r = run(&shared, with_headers(get_request(addr, "/echo"), &[JAR]));
+        assert_eq!(r.body, b"js=1");
+        let _ = rx.recv().unwrap();
+        // bad controls
+        assert_eq!(control(&shared, "frob", &page, None, "").status, 400);
+        let mut req = get_request(addr, "/");
+        req.headers.push(("X-Wire-Cookie-Op".into(), "get".into()));
+        let r = run(&shared, req);
+        assert_eq!(r.status, 400, "the control channel needs the jar header");
+        assert_eq!(control(&shared, "get", "not a url", None, "").status, 400);
+    }
+
+    #[test]
+    fn partitioning_separates_the_same_host_under_two_top_sites() {
+        let (addr, rx) = cookie_server();
+        let shared = Shared::new(true);
+        run(&shared, with_headers(get_request(addr, "/set"), &[JAR, ("X-Wire-Top-Site", "https://a.example")]));
+        let _ = rx.recv().unwrap();
+        let echo = |top: Option<&str>| {
+            let mut h = vec![JAR];
+            if let Some(t) = top {
+                h.push(("X-Wire-Top-Site", t));
+            }
+            let r = run(&shared, with_headers(get_request(addr, "/echo"), &h));
+            let _ = rx.recv().unwrap();
+            String::from_utf8(r.body).unwrap()
+        };
+        assert_eq!(echo(Some("https://a.example")), "sid=abc123; pub=visible");
+        assert_eq!(echo(Some("https://www.a.example/page")), "sid=abc123; pub=visible", "same site = same partition");
+        assert_eq!(echo(Some("https://b.example")), "<none>");
+        assert_eq!(echo(Some("http://a.example")), "<none>", "the scheme is part of the site");
+        assert_eq!(echo(None), "<none>", "first-party partition is separate");
+        assert_eq!(control(&shared, "get", &format!("http://{addr}/"), Some("https://b.example"), "").body, b"");
+        assert_eq!(control(&shared, "get", &format!("http://{addr}/"), Some("https://a.example"), "").body, b"pub=visible");
+    }
+
+    #[test]
+    fn samesite_is_enforced_with_top_sites_and_navigations() {
+        let (addr, rx) = cookie_server();
+        let shared = Shared::new(true);
+        let top = ("X-Wire-Top-Site", "https://a.example");
+        let page = format!("http://{addr}/page");
+        for c in ["st=1; SameSite=Strict", "lx=1; SameSite=Lax", "nn=1; SameSite=None", "un=1"] {
+            control(&shared, "set", &page, Some("https://a.example"), c);
+        }
+        let echo = |h: &[(&str, &str)]| {
+            let mut all = vec![JAR, top];
+            all.extend_from_slice(h);
+            let r = run(&shared, with_headers(get_request(addr, "/echo"), &all));
+            let _ = rx.recv().unwrap();
+            String::from_utf8(r.body).unwrap()
+        };
+        // embedded under a.example: the request is cross-site with its top site
+        assert_eq!(echo(&[]), "nn=1; un=1");
+        // top-level navigation from another site: Lax is sent, Strict is not
+        assert_eq!(echo(&[("X-Wire-Nav", "1"), ("X-Wire-Initiator-Site", "https://evil.example")]), "lx=1; nn=1; un=1");
+        // a navigation that is same-site with its initiator gets everything
+        let me = format!("http://{addr}/");
+        assert_eq!(echo(&[("X-Wire-Nav", "1"), ("X-Wire-Initiator-Site", &me)]), "st=1; lx=1; nn=1; un=1");
+    }
+
+    #[test]
+    fn redirects_store_and_resend_cookies_on_every_hop() {
+        let (addr, rx) = cookie_server();
+        let shared = Shared::new(true);
+        let r = run(&shared, with_headers(get_request(addr, "/r1"), &[JAR]));
+        assert_eq!(r.status, 200);
+        assert_eq!(r.body, b"a=1; b=2", "the third hop carries both cookies");
+        assert_eq!(hdr(&r, "X-Wire-Final-Url"), Some(format!("http://{addr}/r3").as_str()));
+        assert_eq!(hdr(&r, "X-Wire-Hop-Classes"), Some("loopback,loopback,loopback"));
+        assert_eq!(hdr(&r, "Set-Cookie"), None);
+        let (h1, h2, h3) = (rx.recv().unwrap(), rx.recv().unwrap(), rx.recv().unwrap());
+        assert_eq!(cookie_header_of(&h1), None);
+        assert_eq!(cookie_header_of(&h2).as_deref(), Some("a=1"));
+        assert_eq!(cookie_header_of(&h3).as_deref(), Some("a=1; b=2"));
+        // the redirect limit still applies
+        let r = run(&shared, with_headers(get_request(addr, "/r1"), &[JAR, ("X-Wire-Max-Redirects", "1")]));
+        assert_eq!(r.status, 502);
+        assert_eq!(hdr(&r, "X-Wire-Error"), Some("1"));
+    }
+
+    #[test]
+    fn malformed_set_cookie_lines_are_ignored_through_the_wire() {
+        let (addr, rx) = cookie_server();
+        let shared = Shared::new(true);
+        run(&shared, with_headers(get_request(addr, "/bad"), &[JAR]));
+        let _ = rx.recv().unwrap();
+        let r = run(&shared, with_headers(get_request(addr, "/echo"), &[JAR]));
+        assert_eq!(r.body, b"ok=1");
+    }
+
+    #[test]
+    fn cookie_values_never_appear_in_wires_log_lines() {
+        // The only cookie log line wire can print carries a host and counts.
+        let line = cookies::log_line("127.0.0.1", 2, 1);
+        assert!(!line.contains("sid") && !line.contains("abc123") && !line.contains("visible"));
+        assert!(line.contains("sent=2") && line.contains("stored=1"));
+    }
+
+    #[test]
+    fn full_unix_socket_round_trip_with_the_jar() {
+        let (addr, _rx) = cookie_server();
+        let socket_path = unique_temp_socket_path();
+        let listener = UnixListener::bind(&socket_path).unwrap();
+        let shared = Shared::new(true);
+        let agent = build_agent();
+        let server = thread::spawn(move || {
+            for _ in 0..2 {
+                let (stream, _) = listener.accept().unwrap();
+                handle_connection(stream, &agent, &shared);
+            }
+        });
+        let ask = |path: &str| {
+            let mut c = UnixStream::connect(&socket_path).unwrap();
+            write!(c, "GET http://{addr}{path} HTTP/1.1\r\nX-Wire-Jar: scratchy\r\n\r\n").unwrap();
+            let mut out = String::new();
+            c.read_to_string(&mut out).unwrap();
+            out
+        };
+        let first = ask("/set");
+        assert!(first.contains("X-Wire-Cookies: on\r\n") && !first.contains("Set-Cookie"), "{first}");
+        let second = ask("/echo");
+        assert!(second.ends_with("sid=abc123; pub=visible"), "{second}");
+        server.join().unwrap();
+        let _ = std::fs::remove_file(&socket_path);
     }
 }

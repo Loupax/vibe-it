@@ -207,3 +207,11 @@ Added `serve_file`/`content_type_for_path` in `src/main.rs`: a `file://` request
 > Implement TODO.txt item QF6 [S] from the fetch/XHR DESIGN MEMO: wire honours `X-Wire-Max-Bytes`, `X-Wire-Timeout-Ms`, `X-Wire-Max-Redirects`; writes every duplicate response header (Set-Cookie) on its own line; reports the class of the address it connected to (`X-Wire-Target-Class`, per hop); `X-Wire-Policy: public-only` refuses non-public resolved addresses at every hop (403 + `X-Wire-Error: policy`, `file:` too); `X-Wire-Final-Url`; `X-Wire-Error: 1` on the synthesized 502; `X-Wire-Version: 2` on every response. Backwards compatible. Tests with loopback fixtures, a private test instance, docs.
 
 Result: see wire/NOTES.md "The scratchy<->wire control channel". Tests: the QF6 block at the end of `src/main.rs`.
+
+---
+
+## v-qf14a — in-memory cookie jar (scratchy QF14, wire half)
+
+> Implement the WIRE half of TODO.txt QF14 following QF-D2a exactly: `src/cookies.rs` (RFC 6265bis jar, partitioned by `X-Wire-Top-Site`, header-gated by `X-Wire-Jar: scratchy`, SameSite with `X-Wire-Nav`, limits struct, small embedded suffix list), per-hop store/send in the redirect loop (wire follows redirects itself when the jar is used), `Set-Cookie` stripped from answers when used, `document.cookie` control channel (`X-Wire-Cookie-Op get|set`), `X-Wire-Cookies: on|off`, `--no-cookies`, `X-Wire-Version: 3`, token hook only. Tests with loopback servers, a private instance on a temp socket.
+
+Result: see wire/NOTES.md "The cookie jar". Added `X-Wire-Initiator-Site` (optional) so cross-site navigations can withhold Strict cookies. Not done: access token, real public suffix list, persistence.
