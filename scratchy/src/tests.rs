@@ -13858,4 +13858,413 @@ fn qf9_form_data_urlsearchparams_and_arraybuffer_bodies() {
     assert!(raws[0].contains("content-type: multipart/form-data; boundary=") && raws[0].contains("name=\"k\""), "{}", raws[0]);
     assert!(raws[1].contains("application/x-www-form-urlencoded") && raws[1].ends_with("a=1"), "{}", raws[1]);
     assert!(raws[2].ends_with("ab") && !raws[2].contains("content-type"), "{}", raws[2]);
+
+// ---- QY6a: MutationObserver ----
+
+/// Shared JS helpers: `d(record)` summarises a record as
+/// `type|target|added|removed|prev|next|attr|old`; `watch(node, opts)` returns
+/// the observer and pushes one string per delivered callback (records joined
+/// by ` ; `) onto `out`; `step(f, g, ...)` runs each function in its own
+/// microtask turn, after the previous delivery.
+const QY6A_JS: &str = r#"
+const n = x => x ? (x.id || x.nodeName.toLowerCase()) : '-';
+const ns = l => Array.from(l).map(n).join(',') || '-';
+const d = r => [r.type, n(r.target), ns(r.addedNodes), ns(r.removedNodes), n(r.previousSibling), n(r.nextSibling), r.attributeName, r.oldValue].map(String).join('|');
+const out = [];
+function watch(t, o) { const mo = new MutationObserver(l => out.push(l.map(d).join(' ; '))); mo.observe(t, o); return mo; }
+function step() { const fs = Array.from(arguments); const run = () => { const f = fs.shift(); if (f) { f(); Promise.resolve().then(run); } else Promise.resolve().then(() => globalThis.__fin && __fin()); }; Promise.resolve().then(run); }
+const mk = (t, id) => { const e = document.createElement(t); if (id) e.id = id; return e; };
+const $ = id => document.getElementById(id);
+"#;
+
+fn qy6a_run(body: &str) -> Vec<String> {
+    run_in_html(
+        "<html><body><div id=h><i id=a></i><b id=b></b></div><span id=s>text</span><!--c--></body></html>",
+        &format!("{QY6A_JS}\n{body}"),
+    )
+}
+
+/// Runs `body` and returns the delivered callbacks (one entry each).
+fn qy6a_out(body: &str) -> Vec<String> {
+    let mut log = qy6a_run(&format!("globalThis.__fin = () => console.log(out.join('\\n'));\n{body}"));
+    assert_eq!(log.len(), 1, "{log:?}");
+    let l = log.remove(0);
+    let l = l.strip_prefix("log:").unwrap_or(&l).to_string();
+    if l.is_empty() {
+        Vec::new()
+    } else {
+        l.split('\n').map(String::from).collect()
+    }
+}
+
+#[test]
+fn qy6a_zero_cost_before_observe() {
+    let log = qy6a_run(
+        r#"const h = $('h');
+         for (let i = 0; i < 20; i++) { const e = mk('p'); e.setAttribute('a', i); h.appendChild(e); }
+         h.innerHTML = '<p></p>'; h.textContent = 'x'; h.removeChild(h.firstChild);
+         console.log(__ce_stats.hooks);
+         const mo = new MutationObserver(() => {});
+         console.log(__ce_stats.hooks);
+         mo.observe(h, { childList: true });
+         h.appendChild(mk('u'));
+         console.log(__ce_stats.hooks > 0);"#,
+    );
+    assert_eq!(log, ["log:0", "log:0", "log:true"], "{log:?}");
+}
+
+#[test]
+fn qy6a_child_list_write_paths() {
+    let o = qy6a_out(
+        r#"watch($('h'), { childList: true });
+         step(() => $('h').appendChild(mk('p', 'p1')),
+              () => $('h').insertBefore(mk('p', 'p2'), $('a')),
+              () => $('h').removeChild($('b')),
+              () => $('h').replaceChild(mk('p', 'p3'), $('a')),
+              () => $('p1').remove());"#,
+    );
+    assert_eq!(
+        o,
+        [
+            "childList|h|p1|-|b|-|null|null",
+            "childList|h|p2|-|-|a|null|null",
+            "childList|h|-|b|a|p1|null|null",
+            "childList|h|p3|a|p2|p1|null|null",
+            "childList|h|-|p1|p3|-|null|null",
+        ]
+    );
+}
+
+#[test]
+fn qy6a_multi_node_apis_make_one_record() {
+    let o = qy6a_out(
+        r#"watch($('h'), { childList: true });
+         step(() => $('h').append(mk('p', 'p1'), 'txt', mk('p', 'p2')),
+              () => $('h').prepend(mk('q', 'q1'), mk('q', 'q2')),
+              () => $('a').before(mk('r', 'r1'), mk('r', 'r2')),
+              () => $('b').after(mk('t', 't1'), mk('t', 't2')),
+              () => $('a').replaceWith(mk('u', 'u1'), mk('u', 'u2')),
+              () => $('h').replaceChildren(mk('v', 'v1')),
+              () => { const f = document.createDocumentFragment(); f.appendChild(mk('w', 'w1')); f.appendChild(mk('w', 'w2')); $('h').appendChild(f); });"#,
+    );
+    assert_eq!(
+        o,
+        [
+            "childList|h|p1,#text,p2|-|b|-|null|null",
+            "childList|h|q1,q2|-|-|a|null|null",
+            "childList|h|r1,r2|-|q2|a|null|null",
+            "childList|h|t1,t2|-|b|p1|null|null",
+            "childList|h|u1,u2|a|r2|b|null|null",
+            "childList|h|v1|q1,q2,r1,r2,u1,u2,b,t1,t2,p1,#text,p2|-|-|null|null",
+            "childList|h|w1,w2|-|v1|-|null|null",
+        ]
+    );
+}
+
+#[test]
+fn qy6a_inner_html_and_text_content_one_record() {
+    let o = qy6a_out(
+        r#"watch($('h'), { childList: true });
+         step(() => { $('h').innerHTML = '<p id=p1></p><p id=p2></p>'; },
+              () => { $('h').textContent = 'plain'; },
+              () => { $('h').textContent = ''; },
+              () => { $('h').innerHTML = ''; });"#,
+    );
+    // `#text` is the one text node textContent created; an empty -> empty write queues nothing.
+    assert_eq!(
+        o,
+        [
+            "childList|h|p1,p2|a,b|-|-|null|null",
+            "childList|h|#text|p1,p2|-|-|null|null",
+            "childList|h|-|#text|-|-|null|null",
+        ]
+    );
+}
+
+#[test]
+fn qy6a_outer_html_replaces_with_one_record() {
+    let o = qy6a_out(
+        r#"watch($('h'), { childList: true });
+         step(() => { $('a').outerHTML = '<p id=x1></p><p id=x2></p>'; });"#,
+    );
+    assert_eq!(o, ["childList|h|x1,x2|a|-|b|null|null"]);
+}
+
+#[test]
+fn qy6a_move_records_removal_and_insertion() {
+    let o = qy6a_out(
+        r#"const s = $('s'); watch($('h'), { childList: true }); watch(s, { childList: true });
+         step(() => s.appendChild($('a')));"#,
+    );
+    assert_eq!(o, ["childList|h|-|a|-|b|null|null", "childList|s|a|-|#text|-|null|null"]);
+}
+
+#[test]
+fn qy6a_attribute_records_and_old_value() {
+    let o = qy6a_out(
+        r#"const a = $('a'); watch(a, { attributes: true, attributeOldValue: true });
+         step(() => a.setAttribute('x', '1'),
+              () => a.setAttribute('x', '2'),
+              () => a.removeAttribute('x'),
+              () => a.removeAttribute('nope'),
+              () => a.toggleAttribute('hidden'),
+              () => { a.className = 'k'; },
+              () => { a.classList.add('m'); },
+              () => { a.id = 'a2'; },
+              () => { a.dataset.foo = 'bar'; },
+              () => { a.style.color = 'red'; });"#,
+    );
+    assert_eq!(
+        o,
+        [
+            "attributes|a|-|-|-|-|x|null",
+            "attributes|a|-|-|-|-|x|1",
+            "attributes|a|-|-|-|-|x|2",
+            "attributes|a|-|-|-|-|hidden|null",
+            "attributes|a|-|-|-|-|class|null",
+            "attributes|a|-|-|-|-|class|k",
+            "attributes|a2|-|-|-|-|id|a",
+            "attributes|a2|-|-|-|-|data-foo|null",
+            "attributes|a2|-|-|-|-|style|null",
+        ]
+    );
+}
+
+#[test]
+fn qy6a_old_value_only_when_requested() {
+    let o = qy6a_out(
+        r#"const a = $('a'); a.setAttribute('x', '1'); watch(a, { attributes: true });
+         step(() => a.setAttribute('x', '2'));"#,
+    );
+    assert_eq!(o, ["attributes|a|-|-|-|-|x|null"]);
+}
+
+#[test]
+fn qy6a_attribute_filter() {
+    let o = qy6a_out(
+        r#"const a = $('a'); watch(a, { attributeFilter: ['x', 'y'], attributeOldValue: true });
+         step(() => { a.setAttribute('z', '1'); a.setAttribute('x', '1'); a.setAttribute('w', '1'); a.setAttribute('y', '1'); });"#,
+    );
+    assert_eq!(o, ["attributes|a|-|-|-|-|x|null ; attributes|a|-|-|-|-|y|null"]);
+}
+
+#[test]
+fn qy6a_character_data_records() {
+    let o = qy6a_out(
+        r#"const t = $('s').firstChild; watch(t, { characterData: true, characterDataOldValue: true });
+         step(() => { t.data = 'one'; },
+              () => { t.nodeValue = 'two'; },
+              () => { t.textContent = 'three'; },
+              () => t.appendData('+'),
+              () => t.insertData(0, '>'),
+              () => t.deleteData(0, 1),
+              () => t.replaceData(0, 2, 'ZZ'));"#,
+    );
+    assert_eq!(
+        o,
+        [
+            "characterData|#text|-|-|-|-|null|text",
+            "characterData|#text|-|-|-|-|null|one",
+            "characterData|#text|-|-|-|-|null|two",
+            "characterData|#text|-|-|-|-|null|three",
+            "characterData|#text|-|-|-|-|null|three+",
+            "characterData|#text|-|-|-|-|null|>three+",
+            "characterData|#text|-|-|-|-|null|three+",
+        ]
+    );
+}
+
+#[test]
+fn qy6a_character_data_methods_edit_the_text() {
+    let log = qy6a_run(
+        r#"const t = document.createTextNode('hello');
+         t.appendData(' world'); t.insertData(0, '>'); t.deleteData(1, 2); t.replaceData(0, 1, '<<');
+         console.log(t.data, t.substringData(2, 3));
+         try { t.insertData(99, 'x'); } catch (e) { console.log(e.name); }"#,
+    );
+    assert_eq!(log, ["log:<<llo world llo", "log:IndexSizeError"], "{log:?}");
+}
+
+#[test]
+fn qy6a_document_write_records_insertions() {
+    let out = qa13_run(
+        "<html><body><p id=a>x<script id=sc>\
+         var mo = new MutationObserver(function (l) { l.forEach(function (r) { console.log(r.type, r.target.id, r.addedNodes[0].id, r.addedNodes.length, r.previousSibling.id, r.nextSibling && r.nextSibling.id); }); });\
+         mo.observe(document.getElementById('a'), { childList: true });\
+         document.write('<b id=w>hi</b><u id=v></u>');</script><i id=z></i></p></body></html>",
+    );
+    assert_eq!(out, ["log:childList a w 2 sc z"], "{out:?}");
+}
+
+#[test]
+fn qy6a_subtree_observation() {
+    let o = qy6a_out(
+        r#"const h = $('h'); const mo = watch(h, { subtree: true, childList: true, attributes: true });
+         step(() => $('a').appendChild(mk('p', 'p1')),
+              () => $('p1').setAttribute('q', '1'),
+              () => { $('s').appendChild(mk('z', 'z1')); });"#,
+    );
+    assert_eq!(o, ["childList|a|p1|-|-|-|null|null", "attributes|p1|-|-|-|-|q|null"]);
+}
+
+#[test]
+fn qy6a_without_subtree_only_direct_children() {
+    let o = qy6a_out(
+        r#"const h = $('h'); watch(h, { childList: true, attributes: true });
+         step(() => $('a').appendChild(mk('p', 'p1')), () => $('a').setAttribute('q', '1'), () => h.setAttribute('q', '1'));"#,
+    );
+    assert_eq!(o, ["attributes|h|-|-|-|-|q|null"]);
+}
+
+#[test]
+fn qy6a_transient_observers_for_removed_subtree() {
+    let o = qy6a_out(
+        r#"const h = $('h'), a = $('a'); watch(h, { subtree: true, attributes: true });
+         const kid = mk('p', 'p1'); a.appendChild(kid);
+         step(() => { h.removeChild(a); a.setAttribute('x', '1'); kid.setAttribute('y', '1'); },
+              () => { a.setAttribute('after', '1'); });"#,
+    );
+    // The removal inside the delivery turn: both writes still reach the observer
+    // (transient registrations); once delivered they are dropped.
+    assert_eq!(o, ["attributes|a|-|-|-|-|x|null ; attributes|p1|-|-|-|-|y|null"]);
+}
+
+#[test]
+fn qy6a_batching_microtask_order_and_this() {
+    let log = qy6a_run(
+        r#"const h = $('h');
+         const mo = new MutationObserver(function (recs, obs) { console.log('cb', recs.length, this === mo, obs === mo); });
+         mo.observe(h, { childList: true, attributes: true });
+         queueMicrotask(() => console.log('micro before'));
+         h.appendChild(mk('p')); h.setAttribute('x', '1'); h.appendChild(mk('p'));
+         console.log('sync done');
+         Promise.resolve().then(() => console.log('micro after'));"#,
+    );
+    assert_eq!(log, ["log:sync done", "log:micro before", "log:cb 3 true true", "log:micro after"], "{log:?}");
+}
+
+#[test]
+fn qy6a_observers_notified_in_creation_order() {
+    let log = qy6a_run(
+        r#"const h = $('h');
+         const m1 = new MutationObserver(() => console.log('first')), m2 = new MutationObserver(() => console.log('second'));
+         m2.observe(h, { childList: true }); m1.observe(h, { childList: true });
+         h.appendChild(mk('p'));"#,
+    );
+    assert_eq!(log, ["log:first", "log:second"], "{log:?}");
+}
+
+#[test]
+fn qy6a_records_made_in_a_callback_deliver_in_the_next_batch() {
+    let log = qy6a_run(
+        r#"const h = $('h'); let k = 0;
+         const mo = new MutationObserver(recs => { console.log('cb', recs.length); if (k++ === 0) h.appendChild(mk('q')); });
+         mo.observe(h, { childList: true });
+         h.appendChild(mk('p'));"#,
+    );
+    assert_eq!(log, ["log:cb 1", "log:cb 1"], "{log:?}");
+}
+
+#[test]
+fn qy6a_disconnect_and_take_records() {
+    let log = qy6a_run(
+        r#"const h = $('h');
+         const mo = new MutationObserver(recs => console.log('delivered', recs.length));
+         mo.observe(h, { childList: true });
+         h.appendChild(mk('p'));
+         const t = mo.takeRecords();
+         console.log('taken', t.length, t[0].type, mo.takeRecords().length);
+         h.appendChild(mk('p'));
+         mo.disconnect();
+         h.appendChild(mk('p'));
+         const m2 = new MutationObserver(recs => console.log('m2', recs.length));
+         m2.observe(h, { childList: true });
+         h.appendChild(mk('p'));
+         m2.disconnect();
+         Promise.resolve().then(() => console.log('end'));"#,
+    );
+    assert_eq!(log, ["log:taken 1 childList 0", "log:end"], "{log:?}");
+}
+
+#[test]
+fn qy6a_reobserve_replaces_options_and_other_targets_keep_theirs() {
+    let o = qy6a_out(
+        r#"const h = $('h'), a = $('a');
+         const mo = new MutationObserver(l => out.push(l.map(d).join(' ; ')));
+         mo.observe(h, { childList: true }); mo.observe(a, { attributes: true });
+         mo.observe(h, { attributes: true });
+         step(() => { h.appendChild(mk('p')); h.setAttribute('x', '1'); a.setAttribute('y', '1'); });"#,
+    );
+    assert_eq!(o, ["attributes|h|-|-|-|-|x|null ; attributes|a|-|-|-|-|y|null"]);
+}
+
+#[test]
+fn qy6a_observe_validates_options() {
+    let log = qy6a_run(
+        r#"const mo = new MutationObserver(() => {}), h = $('h');
+         const t = o => { try { mo.observe(h, o); console.log('ok'); } catch (e) { console.log(e.name); } };
+         t({}); t({ subtree: true }); t({ attributes: false });
+         t({ attributeOldValue: true }); t({ attributeFilter: ['a'] }); t({ characterDataOldValue: true });
+         t({ attributes: false, attributeOldValue: true }); t({ childList: true, attributeFilter: ['a'], attributes: false });
+         t({ characterData: false, characterDataOldValue: true, childList: true });
+         try { mo.observe(); } catch (e) { console.log(e.name); }
+         try { mo.observe({}, { childList: true }); } catch (e) { console.log(e.name); }
+         try { new MutationObserver(); } catch (e) { console.log(e.name); }
+         try { new MutationObserver(1); } catch (e) { console.log(e.name); }
+         try { MutationObserver(() => {}); } catch (e) { console.log(e.name); }"#,
+    );
+    assert_eq!(
+        log,
+        [
+            "log:TypeError", "log:TypeError", "log:TypeError", "log:ok", "log:ok", "log:ok", "log:TypeError", "log:TypeError",
+            "log:TypeError", "log:TypeError", "log:TypeError", "log:TypeError", "log:TypeError", "log:TypeError",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy6a_globals_and_record_shape() {
+    let log = qy6a_run(
+        r#"console.log(window.MutationObserver === MutationObserver, WebKitMutationObserver === MutationObserver, typeof MutationRecord);
+         console.log(Object.prototype.toString.call(new MutationObserver(() => {})), String(MutationRecord.prototype[Symbol.toStringTag]));
+         const mo = new MutationObserver(recs => {
+           const r = recs[0];
+           console.log(r instanceof MutationRecord, Object.prototype.toString.call(r), r.type, r.attributeNamespace, Array.isArray(r.addedNodes), r.removedNodes.length, r.target === $('a'));
+         });
+         mo.observe($('a'), { attributes: true }); $('a').setAttribute('k', 'v');"#,
+    );
+    assert_eq!(
+        log,
+        [
+            "log:true true function",
+            "log:[object MutationObserver] MutationRecord",
+            "log:true [object MutationRecord] attributes null true 0 true",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy6a_callback_error_does_not_stop_other_observers() {
+    let log = qy6a_run(
+        r#"const h = $('h');
+         const m1 = new MutationObserver(() => { throw new Error('boom'); }), m2 = new MutationObserver(() => console.log('second ran'));
+         m1.observe(h, { childList: true }); m2.observe(h, { childList: true });
+         h.appendChild(mk('p'));"#,
+    );
+    assert!(log.iter().any(|l| l == "log:second ran"), "{log:?}");
+    assert!(log.iter().any(|l| l.starts_with("error:") && l.contains("MutationObserver callback") && l.contains("boom")), "{log:?}");
+}
+
+#[test]
+fn qy6a_custom_elements_and_observers_share_the_hooks() {
+    let log = qy6a_run(
+        r#"class XQ extends HTMLElement { connectedCallback() { console.log('conn'); } }
+         customElements.define('x-q', XQ);
+         const mo = new MutationObserver(l => console.log('records', l.length));
+         mo.observe($('h'), { childList: true });
+         $('h').appendChild(mk('x-q'));"#,
+    );
+    assert_eq!(log, ["log:conn", "log:records 1"], "{log:?}");
 }

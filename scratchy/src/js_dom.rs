@@ -705,6 +705,11 @@ const DOM_PRELUDE: &str = r#"
   // first `customElements.define`); until then nothing is wrapped (zero cost).
   var __d_insert = g.__d_insert, __d_remove = g.__d_remove, __d_sethtml = g.__d_sethtml, __d_settext = g.__d_settext,
     __d_setattr = g.__d_setattr, __d_rmattr = g.__d_rmattr, __d_write = g.__d_write, ceNew;
+  // QY6a: live MutationObserver registrations (0 until the first `observe()`),
+  // and the childList batch used by multi-step APIs (replaceChild, append(...a, b)).
+  var moN = 0, moBatch = null, moFlush;
+  var moBegin = function () { if (moN > 0 && !moBatch) { moBatch = []; return true; } return false; };
+  var moEnd = function (own) { if (own) moFlush(); };
   var queries, svgProto = Object.create(null);
   var wrap = function (id) {
     if (id === undefined || id < 0) return null;
@@ -863,11 +868,37 @@ const DOM_PRELUDE: &str = r#"
   // (Acid3's `span.firstChild.data = score` was silently a no-op).
   defs(CharacterData.prototype, 'data', function () { return __d_text(this.__id); },
     function (v) { __d_settext(this.__id, String(v)); });
+  // QY6a: CharacterData editing (one __d_settext = one characterData record).
+  var cdRange = function (n, fn, off, cnt) {
+    var d = __d_text(n.__id);
+    off = off >>> 0;
+    if (off > d.length) throw herr("Failed to execute '" + fn + "' on 'CharacterData': The offset " + off + ' is greater than the node\'s length (' + d.length + ').', 'IndexSizeError');
+    return [d, off, Math.min(cnt >>> 0, d.length - off)];
+  };
+  var cdReplace = function (n, fn, off, cnt, ins) {
+    var r = cdRange(n, fn, off, cnt);
+    __d_settext(n.__id, r[0].slice(0, r[1]) + ins + r[0].slice(r[1] + r[2]));
+  };
+  CharacterData.prototype.appendData = function (s) { cdReplace(this, 'appendData', __d_text(this.__id).length, 0, String(s)); };
+  CharacterData.prototype.insertData = function (o, s) { cdReplace(this, 'insertData', o, 0, String(s)); };
+  CharacterData.prototype.deleteData = function (o, c) { cdReplace(this, 'deleteData', o, c, ''); };
+  CharacterData.prototype.replaceData = function (o, c, s) { cdReplace(this, 'replaceData', o, c, String(s)); };
+  CharacterData.prototype.substringData = function (o, c) { var r = cdRange(this, 'substringData', o, c); return r[0].substr(r[1], r[2]); };
   defs(ElementProto, 'innerText', function () { return __d_text(this.__id); },
     function (v) { __d_settext(this.__id, v == null ? '' : String(v)); });
   defs(ElementProto, 'innerHTML', function () { return __d_gethtml(this.__id, false); },
     function (v) { __d_sethtml(this.__id, v == null ? '' : String(v)); });
-  defs(ElementProto, 'outerHTML', function () { return __d_gethtml(this.__id, true); }, function () {});
+  // QY6a: the outerHTML setter parses in a `div` (the spec uses the parent as
+  // context) and swaps the nodes in as one replaceChild.
+  defs(ElementProto, 'outerHTML', function () { return __d_gethtml(this.__id, true); }, function (v) {
+    var p = this.parentNode;
+    if (!p) return;
+    if (p.nodeType === 9) throw herr("Failed to set the 'outerHTML' property on 'Element': Cannot set outerHTML on a child of a Document.", 'NoModificationAllowedError');
+    var tmp = wrap(__d_create(1, p.nodeType === 1 ? p.localName || 'div' : 'div')), f = wrap(__d_create(11, ''));
+    __d_sethtml(tmp.__id, v == null ? '' : String(v));
+    while (tmp.firstChild) f.appendChild(tmp.firstChild);
+    p.replaceChild(f, this);
+  });
   var reflect = function (prop, attr) {
     defs(ElementProto, prop, function () { var v = __d_attr(this.__id, attr); return v == null ? '' : v; },
       function (v) { __d_setattr(this.__id, attr, String(v)); });
@@ -1095,27 +1126,43 @@ const DOM_PRELUDE: &str = r#"
   };
   NodeProto.replaceChild = function (n, old) {
     if (!old || old.parentNode !== this) throw herr('The node to be replaced is not a child of this node.', 'NotFoundError');
-    this.insertBefore(n, old);
-    if (n !== old) rmNode(old);
+    var own = moBegin();
+    try {
+      this.insertBefore(n, old);
+      if (n !== old) rmNode(old);
+    } finally { moEnd(own); }
     return old;
   };
   NodeProto.cloneNode = function (deep) { return wrap(__d_clone(this.__id, !!deep)); };
   var many = function (args) { return Array.prototype.map.call(args, toNode); };
-  ElementProto.append = function () { var s = this; many(arguments).forEach(function (n) { s.appendChild(n); }); };
+  ElementProto.append = function () {
+    var s = this, own = moBegin();
+    try { many(arguments).forEach(function (n) { s.appendChild(n); }); } finally { moEnd(own); }
+  };
   ElementProto.prepend = function () {
-    var s = this, first = this.firstChild;
-    many(arguments).forEach(function (n) { s.insertBefore(n, first); });
+    var s = this, first = this.firstChild, own = moBegin();
+    try { many(arguments).forEach(function (n) { s.insertBefore(n, first); }); } finally { moEnd(own); }
+  };
+  ElementProto.replaceChildren = function () {
+    var s = this, nodes = many(arguments), own = moBegin();
+    try {
+      while (s.firstChild) rmNode(s.firstChild);
+      nodes.forEach(function (n) { s.appendChild(n); });
+    } finally { moEnd(own); }
   };
   ElementProto.remove = function () { rmNode(this); };
   ElementProto.before = function () {
-    var p = this.parentNode, s = this;
-    if (p) many(arguments).forEach(function (n) { p.insertBefore(n, s); });
+    var p = this.parentNode, s = this, own = moBegin();
+    try { if (p) many(arguments).forEach(function (n) { p.insertBefore(n, s); }); } finally { moEnd(own); }
   };
   ElementProto.after = function () {
-    var p = this.parentNode, nx = this.nextSibling;
-    if (p) many(arguments).forEach(function (n) { p.insertBefore(n, nx); });
+    var p = this.parentNode, nx = this.nextSibling, own = moBegin();
+    try { if (p) many(arguments).forEach(function (n) { p.insertBefore(n, nx); }); } finally { moEnd(own); }
   };
-  ElementProto.replaceWith = function () { this.before.apply(this, arguments); this.remove(); };
+  ElementProto.replaceWith = function () {
+    var own = moBegin();
+    try { this.before.apply(this, arguments); this.remove(); } finally { moEnd(own); }
+  };
   doc.createElement = function (t) { t = String(t); checkName('createElement', t); return wrap(__d_create(1, t)); };
   doc.createElementNS = function (ns, t) {
     ns = ns == null || ns === '' ? null : String(ns); t = String(t);
@@ -2227,59 +2274,91 @@ const DOM_PRELUDE: &str = r#"
     if (__d_kind(id) === 1) l.unshift(id);
     for (var i = 0; i < l.length; i++) ceProcess(l[i], conn);
   };
-  var ceInstall = function () {
+  // The ONE shared mutation layer (QY6e custom elements + QY6a MutationObserver):
+  // installed by the first `define()` or `observe()`, rebinding the natives to
+  // hooked versions. Each hook does the CE work when `ceOn` and the record
+  // work when observers exist (`moN > 0`); neither runs otherwise.
+  var hookOn = false;
+  var hookInstall = function () {
+    if (hookOn) return;
+    hookOn = true;
     var oIns = __d_insert, oRem = __d_remove, oHtml = __d_sethtml, oTxt = __d_settext, oSet = __d_setattr, oRm = __d_rmattr, oW = __d_write;
     __d_insert = function (p, c, b) {
       ceStats.hooks++;
-      var kids = __d_kind(c) === 11 ? __d_children(c, false) : [c];
+      var mo = moN > 0, frag = __d_kind(c) === 11, kids = frag ? __d_children(c, false) : [c];
+      var oldP = mo && !frag ? __d_parent(c) : -1, oPrev = -1, oNext = -1;
+      if (oldP >= 0) { oPrev = __d_sibling(c, -1, false); oNext = __d_sibling(c, 1, false); }
       var pre = ceNConn && __d_parent(c) >= 0 ? ceCollect(c, true) : null; // a move = disconnect + connect
       var ok = oIns(p, c, b);
+      if (ok && mo) {
+        if (oldP >= 0) moChild(oldP, [], [c], oPrev, oNext);
+        if (kids.length) moChild(p, kids, [], __d_sibling(kids[0], -1, false), __d_sibling(kids[kids.length - 1], 1, false));
+      }
       if (pre) ceFire(pre);
-      for (var i = 0; i < kids.length; i++) ceScan(kids[i], false);
+      if (ceOn) for (var i = 0; i < kids.length; i++) ceScan(kids[i], false);
       return ok;
     };
     __d_remove = function (id) {
       ceStats.hooks++;
+      var p = moN > 0 ? __d_parent(id) : -1, pv = -1, nx = -1;
+      if (p >= 0) { pv = __d_sibling(id, -1, false); nx = __d_sibling(id, 1, false); }
       var pre = ceNConn ? ceCollect(id, true) : null;
       oRem(id);
+      if (p >= 0) moChild(p, [], [id], pv, nx);
       if (pre) ceFire(pre);
     };
     __d_sethtml = function (id, html) {
       ceStats.hooks++;
+      var old = moN > 0 ? __d_children(id, false) : null;
       var pre = ceNConn ? ceCollect(id, false) : null;
       oHtml(id, html);
+      if (old) { var nw = __d_children(id, false); if (old.length || nw.length) moChild(id, nw, old, -1, -1); }
       if (pre) ceFire(pre);
-      ceScan(id, false);
+      if (ceOn) ceScan(id, false);
     };
     __d_settext = function (id, t) {
       ceStats.hooks++;
-      var k = __d_kind(id), pre = ceNConn && (k === 1 || k === 11) ? ceCollect(id, false) : null;
+      var k = __d_kind(id), mo = moN > 0, old = null, oldTxt = null;
+      if (mo) { if (k === 3) oldTxt = __d_text(id); else if (k !== 8) old = __d_children(id, false); }
+      var pre = ceNConn && (k === 1 || k === 11) ? ceCollect(id, false) : null;
       oTxt(id, t);
+      if (old) { var nw = __d_children(id, false); if (old.length || nw.length) moChild(id, nw, old, -1, -1); }
+      else if (oldTxt !== null) moChar(id, oldTxt);
       if (pre) ceFire(pre);
     };
     __d_write = function (a, h) {
       ceStats.hooks++;
-      var r = oW(a, h), p = __d_parent(a);
-      if (p >= 0) ceScan(p, false);
+      var p = __d_parent(a), nx = moN > 0 && p >= 0 ? __d_sibling(a, 1, false) : -2;
+      var r = oW(a, h);
+      if (nx !== -2) {
+        var added = [], c = __d_sibling(a, 1, false);
+        while (c >= 0 && c !== nx) { added.push(c); c = __d_sibling(c, 1, false); }
+        if (added.length) moChild(p, added, [], a, nx);
+      }
+      if (ceOn && p >= 0) ceScan(p, false);
       return r;
     };
     __d_setattr = function (id, n, v) {
       ceStats.hooks++;
-      var d = ceState[id];
-      if (!d || d === -1 || !d.observed.length) return oSet(id, n, v);
-      var ln = String(n).toLowerCase(), old = __d_attr(id, ln);
-      if (old == null) old = null;
+      var d = ceState[id], ce = d && d !== -1 && d.observed.length, mo = moN > 0, ln = '', old = null;
+      if (ce || mo) { ln = String(n).toLowerCase(); old = __d_attr(id, ln); if (old == null) old = null; }
       oSet(id, n, v);
-      if (d.observed.indexOf(ln) >= 0) ceCall(cache[id], d.changed, [ln, old, __d_attr(id, ln)]);
+      if (mo) moAttr(id, ln, old);
+      if (ce && d.observed.indexOf(ln) >= 0) ceCall(cache[id], d.changed, [ln, old, __d_attr(id, ln)]);
     };
     __d_rmattr = function (id, n) {
       ceStats.hooks++;
-      var d = ceState[id];
-      if (!d || d === -1 || !d.observed.length) return oRm(id, n);
-      var ln = String(n).toLowerCase(), old = __d_attr(id, ln);
+      var d = ceState[id], ce = d && d !== -1 && d.observed.length, mo = moN > 0, ln = '', old = null;
+      if (ce || mo) { ln = String(n).toLowerCase(); old = __d_attr(id, ln); }
       oRm(id, n);
-      if (old != null && d.observed.indexOf(ln) >= 0) ceCall(cache[id], d.changed, [ln, old, null]);
+      if (old != null) {
+        if (mo) moAttr(id, ln, old);
+        if (ce && d.observed.indexOf(ln) >= 0) ceCall(cache[id], d.changed, [ln, old, null]);
+      }
     };
+  };
+  var ceInstall = function () {
+    hookInstall();
     var oCE = doc.createElement, oCENS = doc.createElementNS, oClone = NodeProto.cloneNode;
     var created = function (el, opts, self) {
       if (self && self.__id > 0) return el; // second documents: never upgraded
@@ -2364,6 +2443,188 @@ const DOM_PRELUDE: &str = r#"
   };
   Object.defineProperty(CER.prototype, Symbol.toStringTag, { value: 'CustomElementRegistry', configurable: true });
   Object.defineProperty(g, 'customElements', { value: Object.create(CER.prototype), writable: true, configurable: true, enumerable: true });
+  // ---- QY6a: MutationObserver. Records are produced by the shared hooks above
+  // (`moChild`/`moAttr`/`moChar`) for observers registered on the target or, with
+  // `subtree`, on an ancestor; delivery is one Promise job per batch, observers
+  // in creation order, `callback.call(observer, records, observer)`.
+  // Transient registered observers: a node removed from an observed subtree
+  // inherits the (subtree) registrations of its old ancestors until the next
+  // delivery to that observer, so mutations inside the removed subtree still
+  // reach it. Cuts: writes from the parser or from Rust (form state, `load_html`)
+  // do not notify; `Comment.data = x` is a native no-op (QA18e) so it has no
+  // record either; `attributeNamespace` is always null.
+  var moReg = Object.create(null), moSeq = 0, moPending = [], moQueued = false;
+  var MO_S = Symbol('MutationObserver'), MR_S = Symbol('MutationRecord');
+  var moErr = function (e) {
+    __scratchy_err('scratchy: js: uncaught exception in MutationObserver callback: ' + (e && e.stack ? String(e) + '\n' + e.stack : String(e)));
+  };
+  // Observers interested in a mutation of `type` on node `id` -> [{st, old}] or null.
+  var moTargets = function (id, type, name) {
+    var out = null, n = id, rs, i, j, r, o, e;
+    while (n >= 0) {
+      rs = moReg[n];
+      if (rs) for (i = 0; i < rs.length; i++) {
+        r = rs[i]; o = r.opts;
+        if (n !== id && !o.subtree) continue;
+        if (type === 'childList' ? !o.childList
+          : type === 'attributes' ? (!o.attributes || (o.attributeFilter && o.attributeFilter.indexOf(name) < 0))
+          : !o.characterData) continue;
+        var want = type === 'attributes' ? o.attributeOldValue : type === 'characterData' ? o.characterDataOldValue : false;
+        if (!out) out = [];
+        for (j = 0, e = null; j < out.length; j++) if (out[j].st === r.st) { e = out[j]; break; }
+        if (e) e.old = e.old || want; else out.push({ st: r.st, old: want });
+      }
+      n = __d_parent(n);
+    }
+    return out;
+  };
+  var moEnqueue = function (list, mk) {
+    for (var i = 0; i < list.length; i++) {
+      var st = list[i].st;
+      st.q.push(mk(list[i].old));
+      if (!st.pending) { st.pending = true; moPending.push(st); }
+    }
+    if (!moQueued) { moQueued = true; Promise.resolve().then(moNotify); }
+  };
+  var moRec = function (type, target, added, removed, prev, next, name, old) {
+    var r = Object.create(MR.prototype);
+    r[MR_S] = { type: type, target: wrap(target), addedNodes: wrapAll(added), removedNodes: wrapAll(removed),
+      previousSibling: wrap(prev), nextSibling: wrap(next), attributeName: name, oldValue: old };
+    return r;
+  };
+  // Removed nodes inherit the subtree registrations of the ancestors of `parent`.
+  var moTrans = function (parent, removed) {
+    var n = parent, rs, i, j, t;
+    while (n >= 0) {
+      rs = moReg[n];
+      if (rs) for (i = 0; i < rs.length; i++) {
+        if (!rs[i].opts.subtree || rs[i].src) continue;
+        for (j = 0; j < removed.length; j++) {
+          t = { st: rs[i].st, opts: rs[i].opts, src: rs[i] };
+          (moReg[removed[j]] || (moReg[removed[j]] = [])).push(t);
+          rs[i].st.trans.push({ id: removed[j], reg: t });
+          moN++;
+        }
+      }
+      n = __d_parent(n);
+    }
+  };
+  var moChildNow = function (target, added, removed, prev, next, ts) {
+    if (removed.length) moTrans(target, removed);
+    if (!ts) return;
+    moEnqueue(ts, function () { return moRec('childList', target, added, removed, prev, next, null, null); });
+  };
+  var moChild = function (target, added, removed, prev, next) {
+    var ts = moTargets(target, 'childList', null);
+    if (moBatch) {
+      if (removed.length) moTrans(target, removed);
+      if (ts) moBatch.push({ ts: ts, target: target, added: added, removed: removed, prev: prev, next: next });
+    } else moChildNow(target, added, removed, prev, next, ts);
+  };
+  // Pieces of one API call (replaceChild, append(a, b)) on the same target become one record.
+  moFlush = function () {
+    var b = moBatch, i, j, m, first = [];
+    moBatch = null;
+    for (i = 0; i < b.length; i++) {
+      for (j = 0, m = null; j < first.length; j++) if (first[j].target === b[i].target) { m = first[j]; break; }
+      if (!m) { first.push(m = { ts: b[i].ts, target: b[i].target, added: [], removed: [], prev: b[i].prev, next: b[i].next }); }
+      m.added = m.added.concat(b[i].added); m.removed = m.removed.concat(b[i].removed); m.next = b[i].next;
+    }
+    first.forEach(function (m) {
+      moEnqueue(m.ts, function () { return moRec('childList', m.target, m.added, m.removed, m.prev, m.next, null, null); });
+    });
+  };
+  var moAttr = function (id, name, old) {
+    var ts = moTargets(id, 'attributes', name);
+    if (ts) moEnqueue(ts, function (w) { return moRec('attributes', id, [], [], -1, -1, name, w ? old : null); });
+  };
+  var moChar = function (id, old) {
+    var ts = moTargets(id, 'characterData', null);
+    if (ts) moEnqueue(ts, function (w) { return moRec('characterData', id, [], [], -1, -1, null, w ? old : null); });
+  };
+  var moClearTrans = function (st) {
+    for (var i = 0; i < st.trans.length; i++) {
+      var t = st.trans[i], rs = moReg[t.id], k = rs ? rs.indexOf(t.reg) : -1;
+      if (k >= 0) { rs.splice(k, 1); moN--; if (!rs.length) delete moReg[t.id]; }
+    }
+    st.trans = [];
+  };
+  var moNotify = function () {
+    moQueued = false;
+    var list = moPending;
+    moPending = [];
+    list.sort(function (a, b) { return a.id - b.id; });
+    for (var i = 0; i < list.length; i++) {
+      var st = list[i], recs = st.q;
+      st.pending = false; st.q = [];
+      moClearTrans(st);
+      if (recs.length) { try { st.cb.call(st.obs, recs, st.obs); } catch (e) { moErr(e); } }
+    }
+  };
+  var MO = g.MutationObserver = function MutationObserver(callback) {
+    if (!new.target) throw new TypeError("Failed to construct 'MutationObserver': Please use the 'new' operator, this DOM object constructor cannot be called as a function.");
+    if (arguments.length < 1) throw new TypeError("Failed to construct 'MutationObserver': 1 argument required, but only 0 present.");
+    if (typeof callback !== 'function') throw new TypeError("Failed to construct 'MutationObserver': The callback provided as parameter 1 is not a function.");
+    this[MO_S] = { cb: callback, obs: this, id: ++moSeq, q: [], nodes: [], trans: [], pending: false };
+  };
+  var moSt = function (o, fn) {
+    var st = o && o[MO_S];
+    if (!st) throw new TypeError("Failed to execute '" + fn + "' on 'MutationObserver': Illegal invocation");
+    return st;
+  };
+  MO.prototype.observe = function (target, options) {
+    var st = moSt(this, 'observe'), P = "Failed to execute 'observe' on 'MutationObserver': ";
+    if (arguments.length < 1) throw new TypeError(P + '1 argument required, but only 0 present.');
+    if (!target || target.__id === undefined) throw new TypeError(P + "parameter 1 is not of type 'Node'.");
+    if (options != null && typeof options !== 'object' && typeof options !== 'function') throw new TypeError(P + "parameter 2 is not of type 'MutationObserverInit'.");
+    var i = options == null ? {} : options;
+    var o = { childList: !!i.childList, subtree: !!i.subtree };
+    o.attributes = i.attributes !== undefined ? !!i.attributes : (i.attributeOldValue !== undefined || i.attributeFilter !== undefined);
+    o.characterData = i.characterData !== undefined ? !!i.characterData : i.characterDataOldValue !== undefined;
+    o.attributeOldValue = !!i.attributeOldValue; o.characterDataOldValue = !!i.characterDataOldValue;
+    if (i.attributeFilter !== undefined) o.attributeFilter = Array.prototype.map.call(Array.from(i.attributeFilter), String);
+    if (!o.childList && !o.attributes && !o.characterData)
+      throw new TypeError(P + "The options object must set at least one of 'attributes', 'characterData', or 'childList' to true.");
+    if (o.attributeOldValue && !o.attributes) throw new TypeError(P + "The options object may only set 'attributeOldValue' to true when 'attributes' is true or not present.");
+    if (o.attributeFilter && !o.attributes) throw new TypeError(P + "The options object may only set 'attributeFilter' when 'attributes' is true or not present.");
+    if (o.characterDataOldValue && !o.characterData) throw new TypeError(P + "The options object may only set 'characterDataOldValue' to true when 'characterData' is true or not present.");
+    hookInstall();
+    var id = target.__id, rs = moReg[id] || (moReg[id] = []), found = null, k;
+    for (k = 0; k < rs.length; k++) if (rs[k].st === st && !rs[k].src) { found = rs[k]; break; }
+    if (found) {
+      found.opts = o;
+      st.trans = st.trans.filter(function (t) {
+        if (t.reg.src !== found) return true;
+        var l = moReg[t.id], x = l ? l.indexOf(t.reg) : -1;
+        if (x >= 0) { l.splice(x, 1); moN--; if (!l.length) delete moReg[t.id]; }
+        return false;
+      });
+    } else { rs.push({ st: st, opts: o, src: null }); st.nodes.push(id); moN++; }
+  };
+  MO.prototype.disconnect = function () {
+    var st = moSt(this, 'disconnect');
+    st.nodes.forEach(function (id) {
+      var rs = moReg[id], k;
+      if (!rs) return;
+      for (k = rs.length - 1; k >= 0; k--) if (rs[k].st === st && !rs[k].src) { rs.splice(k, 1); moN--; }
+      if (!rs.length) delete moReg[id];
+    });
+    moClearTrans(st);
+    st.nodes = []; st.q = [];
+  };
+  MO.prototype.takeRecords = function () { var st = moSt(this, 'takeRecords'), q = st.q; st.q = []; return q; };
+  Object.defineProperty(MO.prototype, Symbol.toStringTag, { value: 'MutationObserver', configurable: true });
+  g.WebKitMutationObserver = MO;
+  var MR = g.MutationRecord = function MutationRecord() { throw new TypeError('Illegal constructor'); };
+  ['type', 'target', 'addedNodes', 'removedNodes', 'previousSibling', 'nextSibling', 'attributeName', 'oldValue'].forEach(function (k) {
+    Object.defineProperty(MR.prototype, k, { get: function () {
+      var d = this[MR_S];
+      if (!d) throw new TypeError('Illegal invocation');
+      return d[k];
+    }, configurable: true, enumerable: true });
+  });
+  Object.defineProperty(MR.prototype, 'attributeNamespace', { get: function () { return null; }, configurable: true, enumerable: true });
+  Object.defineProperty(MR.prototype, Symbol.toStringTag, { value: 'MutationRecord', configurable: true });
   // No native Shadow DOM (QY6 memo): fail loudly and harmlessly.
   ElementProto.attachShadow = function () {
     __scratchy_err('scratchy: js: not implemented: Element.attachShadow');

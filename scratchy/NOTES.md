@@ -3253,6 +3253,24 @@ microtask-queued. Only document id 0 is upgraded/connected. Not implemented:
 adoptedCallback, `:defined`, shadow DOM (`attachShadow` logs `not implemented`
 and throws NotSupportedError).
 
+### QY6a: MutationObserver on the same hook layer
+
+`hookInstall` (js_dom.rs, just before `ceInstall`) is the ONE place that rebinds
+the mutation natives; it runs at the first `customElements.define` or the first
+`MutationObserver.observe`, never otherwise (`__ce_stats.hooks` stays 0).
+Each hook does the custom-element work only when `ceOn` and the record work only
+when `moN > 0` (live registrations). Hooks call `moChild/moAttr/moChar`, which
+walk the target's ancestors through `moReg[id]` (registrations by node id),
+build per-observer `MutationRecord`s and queue ONE Promise job (`moNotify`,
+observers sorted by creation id, `callback.call(observer, records, observer)`).
+Multi-step APIs (`replaceChild`, `append/prepend/before/after/replaceWith/
+replaceChildren`, the `outerHTML` setter) wrap their natives in `moBegin/moEnd`
+so the pieces of one call merge into one childList record per target.
+Transient registered observers: a removed node inherits its old ancestors'
+subtree registrations until the next delivery to that observer. Cuts: writes
+from the parser or Rust do not notify; `Comment.data =` is a native no-op
+(QA18e) so it makes no record; `attributeNamespace` is null.
+
 ### Meta refresh (QY19)
 
 After a fetched page arrives, `handle_nav_result` looks for the first `meta[http-equiv=refresh]` (`meta_refresh_action`). With JS off `<noscript>` children are elements (`new_parser`), with JS on they are text, so only the right one is found. A 0 s `url=` redirect never installs the page: it replaces the current history entry and fetches the target (`follow_meta_refresh`). A delayed one (<=10 s) installs the page and a sleeping thread (same shape as `schedule_image_flush`) sends `AppEvent::MetaRefresh(generation, url)`; a changed `nav_generation` cancels it. `App::meta_chain` (reset by link/`:go`/history/`:refresh`) caps chains at 3.

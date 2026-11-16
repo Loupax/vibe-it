@@ -2246,7 +2246,7 @@ Read REGRESSIONS.md "R20" before starting any QY item. Short version:
       Shadow DOM is NOT needed but a native `customElements` and
       `template.content` are. QY6b (= QA17) and QY6c (= QA18a) are done.
       New split, gated on the memo's D0 and on Q33f:
-      - [ ] QY6a [M] MutationObserver with real records. All DOM writes go
+      - [x] QY6a [M] DONE (commit HASH_QY6A) MutationObserver with real records. All DOM writes go
         through a few JS wrappers over natives in `DOM_PRELUDE`
         (`__d_insert`, `__d_remove`, `__d_setattr`, `__d_rmattr`,
         `__d_settext`, `__d_sethtml`, `__d_write`, plus `clone`-free
@@ -2259,6 +2259,30 @@ Read REGRESSIONS.md "R20" before starting any QY item. Short version:
         from Rust (form state) do not notify (documented cut). Tests:
         appendChild + setAttribute in one script -> one callback with 2
         records in order; subtree observation; disconnect stops delivery.
+        DONE: one shared hook layer (`hookInstall`, also used by QY6e),
+        installed at the first `observe()`; childList/attributes/
+        characterData records with oldValue, attributeFilter, subtree,
+        transient observers for removed subtrees, microtask batch delivery
+        in creation order, takeRecords/disconnect, one record per call for
+        replaceChild/append/prepend/before/after/replaceWith/
+        replaceChildren/innerHTML/textContent/outerHTML (new setter),
+        CharacterData appendData/insertData/deleteData/replaceData/
+        substringData (new), `WebKitMutationObserver`. 5000
+        createElement/setAttribute/appendChild with no observer: unchanged
+        (~300 ms both); with one observer on body (subtree, childList +
+        attributes): ~1.2 s (5000 records). NEXT BLOCKERS (--js-report
+        --run-timers 5000): github core/marketing-essentials/landing-pages
+        now die on `ReferenceError: IntersectionObserver is not defined`
+        (3 errors, was MutationObserver); youtube webcomponents-sd.js is
+        past MutationObserver, the first error is now kevlar_base_module
+        `TypeError: Failed to execute 'appendChild': parameter 1 is not of
+        type 'Node'.` at script line 10725:29.
+      - [ ] QY6a1 [S] MutationObserver leftovers: `Comment.data =` is a
+        native no-op (QA18e: Comment contents is not a RefCell), so it
+        queues no record; `insertAdjacentHTML/Element/Text` do not exist
+        yet; writes from the parser or Rust (form state, `load_html`) never
+        notify; `attributeNamespace` is always null (no namespaced
+        attributes); `normalize()`/`splitText()` are missing.
       - [x] QY6e [M] DONE (commit f887f67) `customElements` (define, get, getName,
         whenDefined, upgrade; `CustomElementRegistry`). `HTMLElement`
         (and QY12's subclasses) become constructors that, while an
