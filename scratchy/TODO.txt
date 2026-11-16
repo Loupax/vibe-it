@@ -1011,7 +1011,7 @@ Phase 1 (each S, independent; do in this order):
       between tabs/pages. Persisting needs a per-origin store location,
       size limits and a privacy stance; also `history.back/forward` could
       ask the App to navigate (`JsRequests.nav`) instead of staying JS-side.
-- [x] QY14 [S] (P2, diagnostics; needed to measure everything above) HASH
+- [x] QY14 [S] (P2, diagnostics; needed to measure everything above) f50722d
       Done: (1) a throwing promise job logs `Uncaught (in promise job)
       <Name: message + stack>`; (2) the host rejection tracker feeds a JS
       queue (globals_prelude.js `__scratchy_rej_*`); once the jobs drain,

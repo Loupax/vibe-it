@@ -969,10 +969,8 @@ pub(crate) fn start_scripts_clocked(
     // QY14: forward every rejection event to the prelude's queue.
     rt.set_host_promise_rejection_tracker(Some(Box::new(|ctx, promise, reason, handled| {
         let f: Option<Function> = ctx.globals().get("__scratchy_rej_push").ok();
-        if let Some(f) = f {
-            if f.call::<_, ()>((promise, reason, handled)).is_err() {
-                let _ = ctx.catch();
-            }
+        if f.is_some_and(|f| f.call::<_, ()>((promise, reason, handled)).is_err()) {
+            let _ = ctx.catch();
         }
     })));
     let base = Instant::now();
