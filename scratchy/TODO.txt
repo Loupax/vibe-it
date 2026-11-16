@@ -1048,7 +1048,44 @@ Phase 1 (each S, independent; do in this order):
 
 Phase 2 (big enablers, after phase 1):
 
-- [ ] QY15 [M] (P2; github, lobste.rs, guardian islands, old.reddit) ES
+- [x] QY15 [M] (P2; github, lobste.rs, guardian islands, old.reddit) ES
+      DONE (commit ccd14f6): module scripts (inline/external), static
+      import/export graph pre-fetched through wire (src/js_modules.rs,
+      `fetch_scripts_with`; caps 200 modules / 16 MB / depth 32; github's
+      graph is > 5 MB), importmap (imports + scopes), `nomodule` skipped,
+      defer order after classic scripts, `import.meta.url`, `data:` modules,
+      literal dynamic `import('x')` pre-fetched from entry scripts only,
+      strict/`this` undefined, 5 s CPU budget, `--js-report` runs modules.
+      MEASURED (curl'd pages + <base>, `--run-timers 5000`), scripts run /
+      errors before -> after: github 0/0 -> 5/3, lobste.rs 0/0 -> 1/0
+      (its relative-time module now rewrites the timestamps, seen live),
+      guardian (www.theguardian.com/europe) 15/0 -> 17/7 (modules now run;
+      the 7 are new, unmasked by them), old.reddit 17/2 ->
+      20/3, duckduckgo 35 -> 35 (Intl, QY16), bbc 57 -> 57, youtube 43 ->
+      40 (page differs per fetch; same 2 errors), wikipedia x2 4 -> 4, HN
+      1 -> 1 (0 errors). FIRST NEW ERRORS (the measured next blockers):
+        - github.com: `ReferenceError: TextEncoder is not defined` in
+          app-runtime (all 3 module entries; see QY15b).
+        - lobste.rs: none.
+        - guardian: `Uncaught (in promise) ReferenceError: ActiveXObject is
+          not defined` x7 (a legacy IE sniff in the island loader), then
+          `console.error: CMP initialised without country property`.
+        - old.reddit: `customElements is not defined` (inline script, was
+          there before) and `fetch is not defined` (Q33f); the `data:`
+          dynamic-import modules now load (one of them errors, see QY15c).
+      Left out, split below: QY15a, QY15b, QY15c.
+- [ ] QY15a [S] Run-time fetching for dynamic `import()` of a URL that was
+      not pre-fetched (computed specifiers; literal ones inside non-entry
+      modules, deliberately skipped so lazy chunks are not all pulled in),
+      `import.meta.resolve`, JSON modules, worker modules,
+      `modulepreload`. Today these reject with "module was not pre-fetched".
+- [ ] QY15b [S] `TextEncoder`/`TextDecoder` (UTF-8) in the JS prelude: the
+      first error of every github module script.
+- [ ] QY15c [S] old.reddit: its `data:text/javascript,` navigation module
+      (`let navPromise=null,hasNativeNavigation=...`) dies on
+      `ReferenceError: customElements is not defined` (same as its inline
+      script #10): custom elements (QY6 memo) is the next wall there.
+      (Original QY15 text, kept for reference:) ES
       modules. Symptom: `scripts run: 0` on github.com (all 5 scripts are
       `type=module` with an `importmap`); lobste.rs' only script is a
       module; guardian hydrates its 69 `gu-island`s from modules;

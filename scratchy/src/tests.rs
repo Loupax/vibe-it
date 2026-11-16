@@ -8185,7 +8185,7 @@ fn run_collecting(scripts: &[ScriptSource]) -> Vec<String> {
 }
 
 fn src(code: &str) -> ScriptSource {
-    ScriptSource { name: "t".into(), code: code.into(), index: None }
+    ScriptSource { name: "t".into(), code: code.into(), index: None, ..Default::default() }
 }
 
 #[test]
@@ -8225,7 +8225,7 @@ fn qj1_classic_scripts_run_in_sloppy_mode() {
 fn qj2_error_lines_carry_name_message_and_script_number() {
     let log = run_collecting(&[
         src("window.addEventListener('load', function(){ throw new TypeError('boom'); });"),
-        ScriptSource { name: "inline script #2".into(), code: "throw new RangeError('r');".into(), index: None },
+        ScriptSource { name: "inline script #2".into(), code: "throw new RangeError('r');".into(), index: None, ..Default::default() },
         src("throw 'plain'"),
         src("throw {a: 1}"),
     ]);
@@ -8264,10 +8264,12 @@ fn q33a_classic_script_types_and_collection_order() {
         [
             ScriptRef::Inline("var a=1;".into()),
             ScriptRef::External("x.js".into()),
+            // QY15: module scripts are collected now.
+            ScriptRef::ModuleInline("import 'z';".into()),
             ScriptRef::Inline("var b=2;".into())
         ]
     );
-    assert_eq!(inline_scripts(&doc).len(), 2);
+    assert_eq!(inline_scripts(&doc).len(), 3);
 }
 
 #[test]
@@ -9782,7 +9784,7 @@ fn qa17_node_iterator_survives_removal_and_filter_reentry_throws() {
 /// the script and the budget, not a bare `InternalError: interrupted`.
 #[test]
 fn qy5_interrupted_page_script_logs_a_clear_message() {
-    let log = run_collecting(&[ScriptSource { name: "big.js".into(), code: "for(;;){}".into(), index: None }, src("console.log('after');")]);
+    let log = run_collecting(&[ScriptSource { name: "big.js".into(), code: "for(;;){}".into(), index: None, ..Default::default() }, src("console.log('after');")]);
     let errs: Vec<_> = log.iter().filter(|l| l.starts_with("error:")).collect();
     assert_eq!(errs.len(), 1, "{log:?}");
     assert!(errs[0].contains("big.js stopped: exceeded the 5 s"), "{log:?}");
@@ -11240,4 +11242,186 @@ fn qy16_locale_fallback_and_misc_apis() {
         ],
         "{log:?}"
     );
+}
+
+// ---- QY15: ES modules
+
+/// Runs `html` as a page whose module fetches are served from `files`
+/// (url -> source); returns the log lines.
+fn run_module_page(html: &str, files: &[(&str, &str)]) -> Vec<String> {
+    let _g = JS_FLAG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    set_js_enabled(true);
+    let dom = parse_html(html);
+    let mut res = ExternalResources::default();
+    find_external_resources(&dom, &mut res);
+    let base = Url::parse("https://example.test/dir/page.html").unwrap();
+    let files: Vec<(String, String)> = files.iter().map(|(u, s)| (u.to_string(), s.to_string())).collect();
+    let fetch = move |u: &Url| files.iter().find(|(k, _)| k == u.as_str()).map(|(_, s)| s.clone());
+    let scripts = fetch_scripts_with(&base, res.scripts, &fetch);
+    let out = Rc::new(RefCell::new(Vec::new()));
+    let o = out.clone();
+    run_scripts_in(&dom, &scripts, Rc::new(move |level, text| o.borrow_mut().push(format!("{level}:{text}"))));
+    let v = out.borrow().clone();
+    v
+}
+
+#[test]
+fn qy15_inline_module_imports_prefetched_module_default_and_named() {
+    let log = run_module_page(
+        "<script type=module>import d, { n } from './b.js'; console.log(d + n);</script>",
+        &[("https://example.test/dir/b.js", "export default 'D'; export const n = 'N';")],
+    );
+    assert_eq!(log, ["log:DN"], "{log:?}");
+}
+
+#[test]
+fn qy15_external_module_and_transitive_imports_and_import_meta_url() {
+    let log = run_module_page(
+        "<script type=module src=\"/m/a.js\"></script>",
+        &[
+            ("https://example.test/m/a.js", "import { b } from './b.js'; console.log(b, import.meta.url);"),
+            ("https://example.test/m/b.js", "export { c as b } from '../c.js';"),
+            ("https://example.test/c.js", "export const c = 'C';"),
+        ],
+    );
+    assert_eq!(log, ["log:C https://example.test/m/a.js"], "{log:?}");
+}
+
+#[test]
+fn qy15_inline_import_meta_url_is_document_url() {
+    let log = run_module_page("<script type=module>console.log(import.meta.url);</script>", &[]);
+    assert_eq!(log, ["log:https://example.test/dir/page.html"], "{log:?}");
+}
+
+#[test]
+fn qy15_nomodule_scripts_are_skipped_and_classic_runs_first() {
+    let log = run_module_page(
+        "<script type=module>console.log('module');</script>\
+         <script nomodule>console.log('nomodule');</script>\
+         <script>console.log('classic');</script>\
+         <script>document.addEventListener('DOMContentLoaded', function(){ console.log('dcl'); });</script>",
+        &[],
+    );
+    assert_eq!(log, ["log:classic", "log:module", "log:dcl"], "{log:?}");
+}
+
+#[test]
+fn qy15_module_scripts_run_in_document_order() {
+    let log = run_module_page(
+        "<script type=module src=a.js></script><script type=module>console.log('inline');</script><script type=module src=b.js></script>",
+        &[("https://example.test/dir/a.js", "console.log('a');"), ("https://example.test/dir/b.js", "console.log('b');")],
+    );
+    assert_eq!(log, ["log:a", "log:inline", "log:b"], "{log:?}");
+}
+
+#[test]
+fn qy15_importmap_resolves_bare_specifiers_and_prefixes() {
+    let log = run_module_page(
+        "<script type=importmap>{\"imports\":{\"lib\":\"/vendor/lib.js\",\"u/\":\"/utils/\"}}</script>\
+         <script type=module>import { l } from 'lib'; import { x } from 'u/x.js'; console.log(l + x);</script>",
+        &[("https://example.test/vendor/lib.js", "export const l = 'L';"), ("https://example.test/utils/x.js", "export const x = 'X';")],
+    );
+    assert_eq!(log, ["log:LX"], "{log:?}");
+}
+
+#[test]
+fn qy15_bare_specifier_without_importmap_is_an_error() {
+    let log = run_module_page("<script type=module>import 'nope';</script>", &[]);
+    assert_eq!(log.len(), 1, "{log:?}");
+    assert!(log[0].starts_with("error:") && log[0].contains("nope"), "{log:?}");
+}
+
+#[test]
+fn qy15_failed_fetch_logs_once_and_other_scripts_still_run() {
+    let log = run_module_page(
+        "<script type=module src=gone.js></script><script type=module>import './gone2.js';</script><script>console.log('classic');</script><script type=module>console.log('ok');</script>",
+        &[],
+    );
+    assert_eq!(log.iter().filter(|l| l.starts_with("error:") && l.contains("gone.js")).count(), 1, "{log:?}");
+    assert_eq!(log.iter().filter(|l| l.starts_with("error:") && l.contains("gone2.js")).count(), 1, "{log:?}");
+    assert!(log.contains(&"log:classic".to_string()) && log.contains(&"log:ok".to_string()), "{log:?}");
+}
+
+#[test]
+fn qy15_module_is_strict_scoped_and_this_is_undefined() {
+    let log = run_module_page(
+        "<script type=module>var leaked = 1; console.log(this === undefined, typeof globalThis.leaked, (function(){ return this; })() === undefined);</script>\
+         <script type=module>try { undeclared = 1; } catch (e) { console.log(e.name); }</script>",
+        &[],
+    );
+    assert_eq!(log, ["log:true undefined true", "log:ReferenceError"], "{log:?}");
+}
+
+#[test]
+fn qy15_dynamic_import_of_prefetched_and_data_modules() {
+    let log = run_module_page(
+        "<script>import('./d.js').then(function(m){ console.log('classic ' + m.v); });</script>\
+         <script type=module>const m = await import('data:text/javascript,export default 7'); console.log('data ' + m.default);</script>",
+        &[("https://example.test/dir/d.js", "export const v = 'V';")],
+    );
+    assert!(log.contains(&"log:data 7".to_string()), "{log:?}");
+    assert!(log.iter().any(|l| l == "log:classic V"), "{log:?}");
+}
+
+#[test]
+fn qy15_dynamic_import_of_unfetched_url_rejects_with_clear_error() {
+    let log = run_module_page(
+        "<script type=module>try { await import('https://other.test/' + 'x.js'); } catch (e) { console.log('rejected ' + /not pre-fetched/.test(String(e.message))); }</script>",
+        &[],
+    );
+    assert_eq!(log, ["log:rejected true"], "{log:?}");
+}
+
+#[test]
+fn qy15_module_syntax_error_and_throw_are_logged_with_url() {
+    let log = run_module_page(
+        "<script type=module src=bad.js></script><script type=module src=thrower.js></script>",
+        &[("https://example.test/dir/bad.js", "export const = ;"), ("https://example.test/dir/thrower.js", "throw new Error('boom');")],
+    );
+    assert_eq!(log.len(), 2, "{log:?}");
+    assert!(log[0].starts_with("error:https://example.test/dir/bad.js: "), "{log:?}");
+    assert!(log[1].starts_with("error:https://example.test/dir/thrower.js: ") && log[1].contains("boom"), "{log:?}");
+}
+
+#[test]
+fn qy15_module_runaway_loop_hits_the_cpu_budget() {
+    let log = run_module_page("<script type=module>for(;;){}</script><script type=module>console.log('after');</script>", &[]);
+    assert!(log[0].starts_with("error:js: ") && log[0].contains("stopped"), "{log:?}");
+    assert_eq!(log[1], "log:after", "{log:?}");
+}
+
+#[test]
+fn qy15_import_scanner_finds_specifiers_and_ignores_strings_and_comments() {
+    let src = "import a from 'a'; import {b as c, d} from \"b\"; import * as ns from './ns.js';\n\
+               export * from 'e'; export { x } from 'f'; import 'side';\n\
+               // import 'commented'\n/* import 'block' */ var s = \"import 'instr'\"; var t = `import 'tpl'`;\n\
+               var r = /import 're'/; import('dyn'); const u = import.meta.url; export const k = 1;";
+    assert_eq!(crate::js_modules::scan_import_specifiers(src), ["a", "b", "./ns.js", "e", "f", "side", "dyn"]);
+}
+
+#[test]
+fn qy15_graph_prefetch_terminates_on_import_cycles() {
+    let log = run_module_page(
+        "<script type=module>import './a.js'; console.log('done');</script>",
+        &[
+            ("https://example.test/dir/a.js", "import './b.js'; export const a = 1;"),
+            ("https://example.test/dir/b.js", "import './a.js'; export const b = 2;"),
+        ],
+    );
+    assert_eq!(log, ["log:done"], "{log:?}");
+}
+
+#[test]
+fn qy15_literal_dynamic_import_is_prefetched_only_from_entries() {
+    // The entry's own `import('./lazy1.js')` is pre-fetched; the one inside a
+    // statically imported module (a lazy chunk of a big app) is not.
+    let log = run_module_page(
+        "<script type=module>import './a.js'; const m = await import('./lazy1.js'); console.log(m.v); try { await import('./lazy' + '2.js'); } catch (e) { console.log('lazy2 rejected'); }</script>",
+        &[
+            ("https://example.test/dir/a.js", "export const a = 1; export const f = () => import('./lazy2.js');"),
+            ("https://example.test/dir/lazy1.js", "export const v = 'L1';"),
+            ("https://example.test/dir/lazy2.js", "export const v = 'L2';"),
+        ],
+    );
+    assert_eq!(log, ["log:L1", "log:lazy2 rejected"], "{log:?}");
 }

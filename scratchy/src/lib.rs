@@ -70,6 +70,7 @@ mod paint;
 mod net;
 mod app;
 mod js;
+mod js_modules;
 mod js_dom;
 mod js_style;
 
