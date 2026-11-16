@@ -1637,78 +1637,6 @@ const DOM_PRELUDE: &str = r#"
   rStr(METP, 'httpEquiv', 'http-equiv');
   var ARP = mkProto('HTMLAreaElement', ['area']);
   ['alt', 'coords', 'shape', 'href', 'target', 'rel'].forEach(function (p) { rStr(ARP, p, p); });
-  // QY12: interface objects, table driven. Tags without an interface above get an
-  // inert HTML<Name>Element (not callable, prototype under HTMLElement); never
-  // replaces one defined earlier.
-  var illegal = function (name) { return ({ [name]: function () { throw new TypeError('Illegal constructor'); } })[name]; };
-  [['HTMLDivElement', 'div'], ['HTMLSpanElement', 'span'], ['HTMLAnchorElement', 'a'], ['HTMLImageElement', 'img'],
-    ['HTMLScriptElement', 'script'], ['HTMLStyleElement', 'style'], ['HTMLLinkElement', 'link'],
-    ['HTMLBodyElement', 'body'], ['HTMLHeadElement', 'head'], ['HTMLHtmlElement', 'html'],
-    ['HTMLParagraphElement', 'p'], ['HTMLUListElement', 'ul'], ['HTMLOListElement', 'ol'], ['HTMLLIElement', 'li'],
-    ['HTMLTitleElement', 'title'], ['HTMLBaseElement', 'base'], ['HTMLHRElement', 'hr'], ['HTMLBRElement', 'br'],
-    ['HTMLPictureElement', 'picture'], ['HTMLSlotElement', 'slot'], ['HTMLTemplateElement', 'template'],
-    ['HTMLDListElement', 'dl'], ['HTMLQuoteElement', 'blockquote', 'q'], ['HTMLPreElement', 'pre'],
-    ['HTMLModElement', 'ins', 'del'], ['HTMLTimeElement', 'time'], ['HTMLDataElement', 'data'],
-    ['HTMLEmbedElement', 'embed'], ['HTMLObjectElement', 'object'], ['HTMLParamElement', 'param'],
-    ['HTMLMenuElement', 'menu'], ['HTMLDetailsElement', 'details'], ['HTMLProgressElement', 'progress'],
-    ['HTMLMeterElement', 'meter'], ['HTMLLegendElement', 'legend'], ['HTMLDataListElement', 'datalist'],
-    ['HTMLHeadingElement', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'], ['HTMLUnknownElement']].forEach(function (r) {
-    if (!g[r[0]]) mkProto(r[0], r.slice(1));
-  });
-  var HTMLUnknownElement = g.HTMLUnknownElement;
-  // Media: inert placeholders only (AGENTS.md "Off limits"): the methods log a
-  // `not implemented` error and do nothing; no state, no events.
-  var MEP = mkProto('HTMLMediaElement', []);
-  var nimp = function (what) { console.error('scratchy: js: not implemented: ' + what); };
-  ['load', 'pause', 'addTextTrack'].forEach(function (m) { MEP[m] = function () { nimp('HTMLMediaElement.' + m); }; });
-  MEP.play = function () {
-    nimp('HTMLMediaElement.play');
-    return Promise.reject(new DOMException('HTMLMediaElement.play is not implemented', 'NotSupportedError'));
-  };
-  MEP.canPlayType = function () { return ''; };
-  mkProto('HTMLVideoElement', ['video'], g.HTMLMediaElement); mkProto('HTMLAudioElement', ['audio'], g.HTMLMediaElement);
-  mkProto('HTMLSourceElement', ['source']); mkProto('HTMLTrackElement', ['track']);
-  // SVG: by local name in the SVG namespace (see `wrap`).
-  [['SVGElement', 'Element'], ['SVGGraphicsElement', 'SVGElement'], ['SVGGeometryElement', 'SVGGraphicsElement'],
-    ['SVGSVGElement', 'SVGGraphicsElement', 'svg'], ['SVGGElement', 'SVGGraphicsElement', 'g'],
-    ['SVGUseElement', 'SVGGraphicsElement', 'use'], ['SVGImageElement', 'SVGGraphicsElement', 'image'],
-    ['SVGTextContentElement', 'SVGGraphicsElement'], ['SVGTextPositioningElement', 'SVGTextContentElement'],
-    ['SVGTextElement', 'SVGTextPositioningElement', 'text'], ['SVGTSpanElement', 'SVGTextPositioningElement', 'tspan'],
-    ['SVGPathElement', 'SVGGeometryElement', 'path'], ['SVGRectElement', 'SVGGeometryElement', 'rect'],
-    ['SVGCircleElement', 'SVGGeometryElement', 'circle'], ['SVGEllipseElement', 'SVGGeometryElement', 'ellipse'],
-    ['SVGLineElement', 'SVGGeometryElement', 'line'], ['SVGPolygonElement', 'SVGGeometryElement', 'polygon'],
-    ['SVGPolylineElement', 'SVGGeometryElement', 'polyline'], ['SVGDefsElement', 'SVGElement', 'defs'],
-    ['SVGSymbolElement', 'SVGElement', 'symbol'], ['SVGStyleElement', 'SVGElement', 'style'],
-    ['SVGScriptElement', 'SVGElement', 'script'], ['SVGGradientElement', 'SVGElement'],
-    ['SVGLinearGradientElement', 'SVGGradientElement', 'linearGradient'],
-    ['SVGRadialGradientElement', 'SVGGradientElement', 'radialGradient'], ['SVGStopElement', 'SVGElement', 'stop'],
-    ['SVGClipPathElement', 'SVGElement', 'clipPath'], ['SVGMaskElement', 'SVGElement', 'mask'],
-    ['SVGForeignObjectElement', 'SVGGraphicsElement', 'foreignObject']].forEach(function (r) {
-    var P = r[1] === 'Element' ? Element : g[r[1]], C = illegal(r[0]);
-    C.prototype = Object.create(P.prototype, { constructor: { value: C, writable: true, configurable: true } });
-    g[r[0]] = C;
-    if (r[2]) svgProto[r[2]] = C.prototype;
-  });
-  var SVGElement = g.SVGElement;
-  // CDATASection / ProcessingInstruction exist as interfaces (the parser never produces them).
-  [['CDATASection', Text], ['ProcessingInstruction', CharacterData]].forEach(function (r) {
-    var C = illegal(r[0]);
-    C.prototype = Object.create(r[1].prototype, { constructor: { value: C, writable: true, configurable: true } });
-    g[r[0]] = C;
-  });
-  // Range is a stub until QA19: the interface object exists, using it throws.
-  g.Range = function Range() { throw new DOMException('Range is not implemented', 'NotSupportedError'); };
-  g.Range.prototype = {};
-  Object.defineProperty(g.Range.prototype, 'constructor', { value: g.Range, writable: true, configurable: true });
-  ['Selection', 'NamedNodeMap', 'DOMTokenList', 'StyleSheet', 'CSSStyleSheet', 'CSSRule', 'CSSStyleDeclaration',
-    'Screen', 'Storage', 'ShadowRoot'].forEach(function (n) { if (!g[n]) g[n] = illegal(n); });
-  // ParentNode on DocumentFragment.
-  ['children', 'firstElementChild', 'lastElementChild', 'childElementCount'].forEach(function (k) {
-    Object.defineProperty(DocumentFragment.prototype, k, Object.getOwnPropertyDescriptor(ElementProto, k));
-  });
-  ['append', 'prepend', 'replaceChildren'].forEach(function (k) {
-    if (ElementProto[k]) DocumentFragment.prototype[k] = ElementProto[k];
-  });
   cache[0] = doc;
   Object.defineProperty(doc, '__id', { value: 0 });
   Object.defineProperty(doc, 'nodeType', { value: 9 });
@@ -2099,5 +2027,78 @@ const DOM_PRELUDE: &str = r#"
   ElementProto.getAttributeNames = function () { return __d_attr_names(this.__id); };
   ElementProto.hasAttributes = function () { return __d_attr_names(this.__id).length > 0; };
   ElementProto.getAttributeNode = function (n) { return this.attributes.getNamedItem(n); };
+  // QY12: interface objects, table driven. Tags without an interface above get an
+  // inert HTML<Name>Element (not callable, prototype under HTMLElement); never
+  // replaces one defined earlier.
+  var illegal = function (name) { return ({ [name]: function () { throw new TypeError('Illegal constructor'); } })[name]; };
+  [['HTMLDivElement', 'div'], ['HTMLSpanElement', 'span'], ['HTMLAnchorElement', 'a'], ['HTMLImageElement', 'img'],
+    ['HTMLScriptElement', 'script'], ['HTMLStyleElement', 'style'], ['HTMLLinkElement', 'link'],
+    ['HTMLBodyElement', 'body'], ['HTMLHeadElement', 'head'], ['HTMLHtmlElement', 'html'],
+    ['HTMLParagraphElement', 'p'], ['HTMLUListElement', 'ul'], ['HTMLOListElement', 'ol'], ['HTMLLIElement', 'li'],
+    ['HTMLTitleElement', 'title'], ['HTMLBaseElement', 'base'], ['HTMLHRElement', 'hr'], ['HTMLBRElement', 'br'],
+    ['HTMLPictureElement', 'picture'], ['HTMLSlotElement', 'slot'], ['HTMLTemplateElement', 'template'],
+    ['HTMLDListElement', 'dl'], ['HTMLQuoteElement', 'blockquote', 'q'], ['HTMLPreElement', 'pre'],
+    ['HTMLModElement', 'ins', 'del'], ['HTMLTimeElement', 'time'], ['HTMLDataElement', 'data'],
+    ['HTMLEmbedElement', 'embed'], ['HTMLObjectElement', 'object'], ['HTMLParamElement', 'param'],
+    ['HTMLMenuElement', 'menu'], ['HTMLDetailsElement', 'details'], ['HTMLProgressElement', 'progress'],
+    ['HTMLMeterElement', 'meter'], ['HTMLLegendElement', 'legend'], ['HTMLDataListElement', 'datalist'],
+    ['HTMLHeadingElement', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'], ['HTMLUnknownElement']].forEach(function (r) {
+    if (!g[r[0]]) mkProto(r[0], r.slice(1));
+  });
+  var HTMLUnknownElement = g.HTMLUnknownElement;
+  // Media: inert placeholders only (AGENTS.md "Off limits"): the methods log a
+  // `not implemented` error and do nothing; no state, no events.
+  var ens = function (n, tags, base) { return g[n] ? g[n].prototype : mkProto(n, tags, base); };
+  var MEP = ens('HTMLMediaElement', []);
+  var nimp = function (what) { console.error('scratchy: js: not implemented: ' + what); };
+  ['load', 'pause', 'addTextTrack'].forEach(function (m) { MEP[m] = function () { nimp('HTMLMediaElement.' + m); }; });
+  MEP.play = function () {
+    nimp('HTMLMediaElement.play');
+    return Promise.reject(new DOMException('HTMLMediaElement.play is not implemented', 'NotSupportedError'));
+  };
+  MEP.canPlayType = function () { return ''; };
+  ens('HTMLVideoElement', ['video'], g.HTMLMediaElement); ens('HTMLAudioElement', ['audio'], g.HTMLMediaElement);
+  ens('HTMLSourceElement', ['source']); ens('HTMLTrackElement', ['track']);
+  // SVG: by local name in the SVG namespace (see `wrap`).
+  [['SVGElement', 'Element'], ['SVGGraphicsElement', 'SVGElement'], ['SVGGeometryElement', 'SVGGraphicsElement'],
+    ['SVGSVGElement', 'SVGGraphicsElement', 'svg'], ['SVGGElement', 'SVGGraphicsElement', 'g'],
+    ['SVGUseElement', 'SVGGraphicsElement', 'use'], ['SVGImageElement', 'SVGGraphicsElement', 'image'],
+    ['SVGTextContentElement', 'SVGGraphicsElement'], ['SVGTextPositioningElement', 'SVGTextContentElement'],
+    ['SVGTextElement', 'SVGTextPositioningElement', 'text'], ['SVGTSpanElement', 'SVGTextPositioningElement', 'tspan'],
+    ['SVGPathElement', 'SVGGeometryElement', 'path'], ['SVGRectElement', 'SVGGeometryElement', 'rect'],
+    ['SVGCircleElement', 'SVGGeometryElement', 'circle'], ['SVGEllipseElement', 'SVGGeometryElement', 'ellipse'],
+    ['SVGLineElement', 'SVGGeometryElement', 'line'], ['SVGPolygonElement', 'SVGGeometryElement', 'polygon'],
+    ['SVGPolylineElement', 'SVGGeometryElement', 'polyline'], ['SVGDefsElement', 'SVGElement', 'defs'],
+    ['SVGSymbolElement', 'SVGElement', 'symbol'], ['SVGStyleElement', 'SVGElement', 'style'],
+    ['SVGScriptElement', 'SVGElement', 'script'], ['SVGGradientElement', 'SVGElement'],
+    ['SVGLinearGradientElement', 'SVGGradientElement', 'linearGradient'],
+    ['SVGRadialGradientElement', 'SVGGradientElement', 'radialGradient'], ['SVGStopElement', 'SVGElement', 'stop'],
+    ['SVGClipPathElement', 'SVGElement', 'clipPath'], ['SVGMaskElement', 'SVGElement', 'mask'],
+    ['SVGForeignObjectElement', 'SVGGraphicsElement', 'foreignObject']].forEach(function (r) {
+    var P = r[1] === 'Element' ? Element : g[r[1]], C = illegal(r[0]);
+    C.prototype = Object.create(P.prototype, { constructor: { value: C, writable: true, configurable: true } });
+    g[r[0]] = C;
+    if (r[2]) svgProto[r[2]] = C.prototype;
+  });
+  var SVGElement = g.SVGElement;
+  // CDATASection / ProcessingInstruction exist as interfaces (the parser never produces them).
+  [['CDATASection', Text], ['ProcessingInstruction', CharacterData]].forEach(function (r) {
+    var C = illegal(r[0]);
+    C.prototype = Object.create(r[1].prototype, { constructor: { value: C, writable: true, configurable: true } });
+    g[r[0]] = C;
+  });
+  // Range is a stub until QA19: the interface object exists, using it throws.
+  g.Range = function Range() { throw new DOMException('Range is not implemented', 'NotSupportedError'); };
+  g.Range.prototype = {};
+  Object.defineProperty(g.Range.prototype, 'constructor', { value: g.Range, writable: true, configurable: true });
+  ['Selection', 'NamedNodeMap', 'DOMTokenList', 'StyleSheet', 'CSSStyleSheet', 'CSSRule', 'CSSStyleDeclaration',
+    'Screen', 'Storage', 'ShadowRoot'].forEach(function (n) { if (!g[n]) g[n] = illegal(n); });
+  // ParentNode on DocumentFragment.
+  ['children', 'firstElementChild', 'lastElementChild', 'childElementCount'].forEach(function (k) {
+    Object.defineProperty(DocumentFragment.prototype, k, Object.getOwnPropertyDescriptor(ElementProto, k));
+  });
+  ['append', 'prepend', 'replaceChildren'].forEach(function (k) {
+    if (ElementProto[k]) DocumentFragment.prototype[k] = ElementProto[k];
+  });
 })(globalThis);
 "#;
