@@ -1,0 +1,144 @@
+# Networking in scratchy
+
+scratchy does no networking itself. Every byte that comes from the network
+(page loads, sub-resources, requests made by page JavaScript) goes through
+[`wire`](../wire/), a separate daemon, over a Unix socket given with
+`--socket`. Without `--socket` nothing is fetched. This file is the overview;
+the code is `src/net_policy.rs` (the policy), `src/js_net.rs` (the queue and
+CORS) and `src/net.rs` (the wire codec). `../wire/NOTES.md` has wire's side.
+
+## Request flow (page JS)
+
+```
+fetch / XMLHttpRequest / sendBeacon
+  -> __net_send        RequestPolicy::check_request (blocked here, or warned)
+  -> job queue         CORS classified, beacon suppressed here, preflight cached
+  -> thread            at most 6 at once, 64 MiB of responses in flight
+  -> wire              one request per connection on the Unix socket
+  -> response          CORS check, headers filtered, body handed to the page
+```
+
+A refused request still answers the page asynchronously (a network error), so
+page code sees the same shape as a real failure. An aborted request is dropped
+from the queue or its answer is discarded.
+
+## What is allowed and blocked
+
+| Check | Default |
+| --- | --- |
+| Scheme | `http`, `https` and `file` only; anything else is blocked |
+| Methods | `CONNECT`, `TRACE`, `TRACK` blocked; a body on GET/HEAD blocked |
+| Mixed content | `http:` from an `https:` page blocked (loopback is exempt) |
+| Bad ports | the browser "restricted ports" list is blocked (e.g. 25, 6000) |
+| Private targets | loopback, private, link-local, CGNAT, ULA, multicast, unspecified, reserved, and names ending in `.localhost`, `.local`, `.internal`: allowed with one warning line (`private_targets`) |
+| `file:` targets | allowed with one warning line (`file_targets`) |
+| URL length | 32 KiB |
+
+`private_targets` and `file_targets` can each be `Block`, `Warn` (default) or
+`Allow`. A request to the page's own origin never warns. For a DNS name that
+resolves to a private address, wire reports the class in `X-Wire-Target-Class`
+and scratchy warns from that. Redirect hops are checked again. Page JS cannot
+set forbidden headers (`Cookie`, `Origin`, `Host`, `Sec-*`, ...) or any
+`X-Wire-*` header: that is the control channel.
+
+## CORS
+
+Browser rules. Same-origin requests are `basic` and fully readable. A
+cross-origin `cors` request is sent, then `Access-Control-Allow-Origin` (and
+`-Credentials` when credentials are included) must match or the page gets a
+network error. Non-simple requests send an `OPTIONS` preflight first; the
+result is cached (key: origin, URL, credentials) for `Access-Control-Max-Age`,
+capped at 2 h, 5 s when absent, 128 entries. A `no-cors` request gives an
+opaque response. `Access-Control-Expose-Headers` decides which response
+headers the page may read; `Set-Cookie` is never readable.
+
+## Cookies
+
+wire owns the jar. It is in memory, on by default, and lost when wire
+restarts. `wire --no-cookies` disables it. Partitioned by top-level site
+(Firefox's Total Cookie Protection): a third party sees only the cookies it set
+under the same top site. A request uses the jar only when scratchy asks for
+it, so snag and other clients are unaffected.
+
+| Header | Direction | Meaning |
+| --- | --- | --- |
+| `X-Wire-Jar: scratchy` | request | use the jar for this request |
+| `X-Wire-Top-Site` | request | the partition (top-level page's site) |
+| `X-Wire-Nav: 1` | request | top-level navigation (SameSite=Lax cookies may go) |
+| `X-Wire-Initiator-Site` | request | with Nav: who started the navigation (Strict) |
+| `X-Wire-Cookies: on/off` | response | jar used / jar disabled by `--no-cookies` |
+| `X-Wire-Cookie-Op: get/set` | request | the `document.cookie` channel (below) |
+
+`document.cookie` talks to wire synchronously: `get` returns the visible
+(non-HttpOnly) cookies, `set` takes the assignment string as the body. Each
+call blocks the page for at most 2 s; on a failure (no wire, old wire,
+cookies off, timeout) it logs once and reads `''` for the rest of the page.
+`Set-Cookie` never reaches the page. Names and values are never logged.
+
+## Beacons
+
+`navigator.sendBeacon`, `fetch(..., {keepalive: true})` and `no-cors` fetches
+are analytics-shaped: by default they are logged in detail and NOT sent
+(`beacons_send` is false). `sendBeacon` returns false when the queued bytes
+would pass 64 KiB.
+
+## Sync XHR
+
+`XMLHttpRequest` with `async=false` blocks the engine thread, but for at most
+5 s. It goes through the same policy.
+
+## Limits (`RequestPolicy::default()`)
+
+| Limit | Value |
+| --- | --- |
+| Response body | 16 MiB per request |
+| In flight | 64 MiB of reserved response bytes, 6 concurrent requests |
+| Requests per page | 1000 |
+| Connect / total timeout | 30 s / 30 s |
+| Legacy idle timeout (link clicks, sub-resources) | 60 s |
+| Redirects | 5 |
+| Sync XHR timeout | 5 s |
+| `document.cookie` control call | 2 s |
+| Preflight cache | 128 entries, max age cap 7200 s, default 5 s |
+| Beacon queue | 64 KiB |
+| URL length | 32 KiB |
+
+## Log lines
+
+On stderr:
+
+```
+scratchy: net warning: <page> -> <target> (<class>) allowed by policy
+beacon <api> <method> <url> content-type=<ct> body=<n> bytes body[..200]="..." page=<page>: suppressed (not sent)
+scratchy: page networking disabled: wire is too old (restart it)
+```
+
+`<class>` is `loopback`, `private`, `link-local`, `cgnat`, `ula`,
+`multicast`, `unspecified`, `reserved`, `local-name` or `file`; `<api>` is
+`navigator.sendBeacon`, `fetch keepalive` or `fetch no-cors`. `--js-report`
+prints a `--- network (N requests, B bytes) ---` section with one line per
+request: `METHOD url -> outcome bytes [ms] jar: scratchy|off`.
+
+## Restarting wire after a rebuild
+
+wire is started by hand and keeps running the old binary. After changing it:
+
+```sh
+cd wire && cargo install --path . --force
+kill <old wire pid>        # find it with: pgrep -x wire
+wire &
+```
+
+scratchy reads `X-Wire-Version` on every response. Version 2 added the policy
+caps, 3 the cookie jar. A wire with no such header (older than 2) makes
+scratchy fail closed: page networking is off for the rest of the page, with
+the one line `scratchy: page networking disabled: wire is too old (restart
+it)`. A wire older than 3 means cookies are unavailable (logged once).
+
+## Not implemented
+
+- Cookie persistence (the jar is memory only; a file is a later flag).
+- WebSocket, EventSource, Workers, Service Workers.
+- Form submission (forms are placeholders; scratchy has no input subsystem).
+- Media (`<video>`, `<audio>`): placeholders only.
+- `<a ping>`.

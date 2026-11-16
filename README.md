@@ -11,37 +11,51 @@ verbatim in that project's `PROMPTS.md`, in order.
 
 - [`scratchy/`](scratchy/) — a web browser built from composed, focused Rust
   crates (own HTML/CSS parsing, layout, and rendering) rather than an existing
-  browser engine.
+  browser engine. It runs page JavaScript (QuickJS) with a DOM, timers, ES
+  modules, and `fetch`/XHR/`sendBeacon`. Forms and media are placeholders only.
 - [`snag/`](snag/) — fetches a page and inlines everything it links to
-  (stylesheets, `@import`s, images) into one self-contained HTML file, so
-  `scratchy` (which never does networking itself) has something real to
-  render.
-- [`wire/`](wire/) — a small daemon that owns real networking for
-  `scratchy`'s live interactivity (link clicks, form submissions):
+  (stylesheets, `@import`s, images) into one self-contained HTML file, a
+  one-shot way to get a first page for `scratchy`.
+- [`wire/`](wire/) — a small daemon that owns all real networking:
   reads one HTTP request per connection off a Unix socket, executes it
   for real (TLS, redirects, decompression), and hands back one
-  normalized HTTP/1.1 response.
+  normalized HTTP/1.1 response. It also owns the cookie jar.
 
 ## How they fit together
 
+`scratchy` never does networking itself. Page loads, sub-resources, link
+clicks and every request made by page JavaScript go through `wire`, over the
+socket given with `--socket`, under a request policy (browser CORS rules, no
+mixed content, bad ports blocked, a warning for loopback/private/`file:`
+targets, size/time/count limits). Without `--socket` nothing is fetched.
+See [`scratchy/NETWORKING.md`](scratchy/NETWORKING.md).
+
+`wire` keeps an in-memory cookie jar, on by default (`--no-cookies` turns it
+off). A request uses it only when `scratchy` asks, the jar is partitioned by
+top-level site (like Firefox's Total Cookie Protection), and it is lost when
+`wire` restarts.
+
+## Usage
+
 ```sh
-# 1. start the networking daemon once (binds $XDG_RUNTIME_DIR/wire.sock
-#    by default)
+# start the networking daemon (binds $XDG_RUNTIME_DIR/wire.sock by default)
 wire &
 
-# 2. bundle a page with snag for the initial render, then open it in
-#    scratchy, passing wire's socket (via `wire --print-socket`, rather
-#    than hardcoding wire's own default-path logic a second time) so
-#    clicking a link navigates live
+# open a page; clicking links and page scripts fetch through wire
+scratchy --socket "$(wire --print-socket)" https://example.com/
+
+# a one-shot bundled first page from snag
 snag https://example.com/ | scratchy --socket "$(wire --print-socket)"
+
+# scripts off
+scratchy --no-js page.html
+
+# headless: run a file's scripts and print console, errors, network, cookies
+scratchy --js-report page.html
+scratchy --js-report --socket "$(wire --print-socket)" --run-timers 2000 page.html
+
+# headless: the web-platform-tests reftest subset (see scratchy/AGENTS.md)
+scratchy --wpt /path/to/wpt
 ```
 
-`snag` only produces the *first* page — it's a one-shot bundler, not
-involved in live clicks. With a reachable `wire` socket, clicking an
-`<a href>` inside `scratchy` builds a real HTTP/1.1 request and fetches
-it through `wire` directly, no `snag` involved — and, for a live-
-navigated page specifically, scratchy also fetches that page's own
-non-inlined images and external stylesheets the same way, since `snag`
-never touches a page reached by clicking a link. Without `--socket` (or
-if `wire` isn't reachable), a click just prints the request it would
-have sent to stdout instead of fetching anything.
+Inside `scratchy`, `:help` lists the keys and commands.
