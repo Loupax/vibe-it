@@ -11501,3 +11501,188 @@ fn qy16b_is_equal_node_attributes_are_a_set() {
         "{log:?}"
     );
 }
+
+// ---------- QY15b: TextEncoder / TextDecoder / atob / btoa ----------
+
+#[test]
+fn qy15b_text_encoder_utf8_bytes() {
+    let log = run_in_html(
+        "<html><body></body></html>",
+        r#"var e = new TextEncoder();
+         function b(s) { return Array.from(e.encode(s)).join(','); }
+         console.log(e.encoding, b('abc'), e.encode() instanceof Uint8Array, e.encode().length);
+         console.log(b('é€'));
+         console.log(b('😀'));
+         console.log(b('a\uD800b'), b('\uDC00'));"#,
+    );
+    assert_eq!(
+        log,
+        [
+            "log:utf-8 97,98,99 true 0",
+            "log:195,169,226,130,172",
+            "log:240,159,152,128",
+            "log:97,239,191,189,98 239,191,189",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy15b_text_encoder_encode_into_read_and_written() {
+    let log = run_in_html(
+        "<html><body></body></html>",
+        r#"var e = new TextEncoder();
+         var b4 = new Uint8Array(4), r = e.encodeInto('aéb', b4);
+         console.log(r.read, r.written, Array.from(b4).join(','));
+         var b3 = new Uint8Array(3);
+         r = e.encodeInto('aéb', b3);
+         console.log(r.read, r.written, Array.from(b3).join(','));
+         r = e.encodeInto('€', new Uint8Array(2));
+         console.log(r.read, r.written);
+         r = e.encodeInto('😀', new Uint8Array(3));
+         console.log(r.read, r.written);
+         r = e.encodeInto('x😀', new Uint8Array(5));
+         console.log(r.read, r.written);
+         try { e.encodeInto('a', 'nope'); console.log('no'); } catch (err) { console.log(err.name); }"#,
+    );
+    assert_eq!(
+        log,
+        [
+            "log:3 4 97,195,169,98",
+            "log:2 3 97,195,169",
+            "log:0 0",
+            "log:0 0",
+            "log:3 5",
+            "log:TypeError",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy15b_text_decoder_utf8_bom_invalid_and_fatal() {
+    let log = run_in_html(
+        "<html><body></body></html>",
+        r#"function cs(s) { return Array.prototype.map.call(s, function (c) { return c.charCodeAt(0); }).join(','); }
+         var d = new TextDecoder();
+         console.log(d.encoding, d.fatal, d.ignoreBOM);
+         console.log(d.decode(new Uint8Array([0xEF, 0xBB, 0xBF, 0x68, 0x69])));
+         console.log(new TextDecoder('utf-8', { ignoreBOM: true }).decode(new Uint8Array([0xEF, 0xBB, 0xBF, 0x68])).length);
+         console.log(cs(d.decode(new Uint8Array([0x61, 0xFF, 0x62]))));
+         console.log(cs(d.decode(new Uint8Array([0xE2, 0x82, 0x61]))));
+         console.log(cs(d.decode(new Uint8Array([0xED, 0xA0, 0x80]))));
+         console.log(cs(d.decode(new Uint8Array([0xC0, 0x80]))));
+         console.log(cs(d.decode(new Uint8Array([0xF0, 0x9F, 0x98, 0x80]))));
+         console.log(cs(d.decode(new Uint8Array([0xE2, 0x82]))));
+         var f = new TextDecoder('utf-8', { fatal: true });
+         console.log(f.fatal, f.decode(new Uint8Array([0xF0, 0x9F, 0x98, 0x80])).length);
+         try { f.decode(new Uint8Array([0x61, 0xFF])); console.log('no'); } catch (err) { console.log(err.name); }
+         var buf = new Uint8Array([0x78, 0x79, 0x7a, 0x7a]).buffer;
+         console.log(d.decode(buf), d.decode(new DataView(buf, 1, 2)), d.decode().length);"#,
+    );
+    assert_eq!(
+        log,
+        [
+            "log:utf-8 false false",
+            "log:hi",
+            "log:2",
+            "log:97,65533,98",
+            "log:65533,97",
+            "log:65533,65533,65533",
+            "log:65533,65533",
+            "log:55357,56832",
+            "log:65533",
+            "log:true 2",
+            "log:TypeError",
+            "log:xyzz yz 0",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy15b_text_decoder_streaming_splits_characters() {
+    let log = run_in_html(
+        "<html><body></body></html>",
+        r#"function cs(s) { return Array.prototype.map.call(s, function (c) { return c.charCodeAt(0); }).join(','); }
+         var s = new TextDecoder();
+         var a1 = s.decode(new Uint8Array([0x61, 0xE2, 0x82]), { stream: true });
+         var a2 = s.decode(new Uint8Array([0xAC, 0x62]));
+         console.log(cs(a1), cs(a2));
+         var t = new TextDecoder(), out = '';
+         [0xF0, 0x9F, 0x98, 0x80].forEach(function (x) { out += t.decode(new Uint8Array([x]), { stream: true }); });
+         out += t.decode();
+         console.log(cs(out));
+         var u = new TextDecoder();
+         var p = u.decode(new Uint8Array([0xEF]), { stream: true });
+         console.log(p.length, u.decode(new Uint8Array([0xBB, 0xBF, 0x78])));
+         var bad = new TextDecoder('utf-8', { fatal: true });
+         try { bad.decode(new Uint8Array([0xE2]), { stream: true }); bad.decode(new Uint8Array([0x61])); console.log('no'); } catch (err) { console.log(err.name); }
+         console.log(bad.decode(new Uint8Array([0x62])));"#,
+    );
+    assert_eq!(
+        log,
+        [
+            "log:97 8364,98",
+            "log:55357,56832",
+            "log:0 x",
+            "log:TypeError",
+            "log:b",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy15b_text_decoder_utf16le_windows1252_and_labels() {
+    let log = run_in_html(
+        "<html><body></body></html>",
+        r#"function cs(s) { return Array.prototype.map.call(s, function (c) { return c.charCodeAt(0); }).join(','); }
+         var u = new TextDecoder('utf-16le');
+         console.log(u.encoding, cs(u.decode(new Uint8Array([0x61, 0x00, 0x3d, 0xd8, 0x00, 0xde]))));
+         console.log(cs(u.decode(new Uint8Array([0xff, 0xfe, 0x62, 0x00]))));
+         console.log(cs(u.decode(new Uint8Array([0x61]))));
+         console.log(new TextDecoder('utf8').encoding, new TextDecoder('unicode-1-1-utf-8').encoding, new TextDecoder(' LATIN1 ').encoding, new TextDecoder('iso-8859-1').encoding, new TextDecoder('windows-1252').encoding);
+         console.log(cs(new TextDecoder('latin1').decode(new Uint8Array([0x41, 0xe9, 0x80]))));
+         try { new TextDecoder('klingon'); console.log('no'); } catch (err) { console.log(err.name); }
+         try { TextDecoder('utf-8'); console.log('no'); } catch (err) { console.log(err.name); }"#,
+    );
+    assert_eq!(
+        log,
+        [
+            "log:utf-16le 97,55357,56832",
+            "log:98",
+            "log:65533",
+            "log:utf-8 utf-8 windows-1252 windows-1252 windows-1252",
+            "log:65,233,8364",
+            "log:RangeError",
+            "log:TypeError",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy15b_atob_btoa_and_invalid_character() {
+    let log = run_in_html(
+        "<html><body></body></html>",
+        r#"console.log(btoa(''), btoa('f'), btoa('fo'), btoa('foo'), btoa('foob'), btoa('fooba'), btoa('foobar'));
+         console.log(btoa('ÿ'));
+         console.log(atob('Zm9vYmFy'), atob('Zm9vYg'), atob(' Zm9v YmE= '), atob('Zg'));
+         try { btoa('Ā'); console.log('no'); } catch (err) { console.log(err.name); }
+         try { atob('a'); console.log('no'); } catch (err) { console.log(err.name); }
+         try { atob('@@@@'); console.log('no'); } catch (err) { console.log(err.name); }"#,
+    );
+    assert_eq!(
+        log,
+        [
+            "log: Zg== Zm8= Zm9v Zm9vYg== Zm9vYmE= Zm9vYmFy",
+            "log:/w==",
+            "log:foobar foob fooba f",
+            "log:InvalidCharacterError",
+            "log:InvalidCharacterError",
+            "log:InvalidCharacterError",
+        ],
+        "{log:?}"
+    );
+}
