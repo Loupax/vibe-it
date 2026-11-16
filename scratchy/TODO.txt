@@ -1367,7 +1367,7 @@ into the commit message of every JS item.
       `Debug`), shorthands (`margin`, `border`, `font`), `::first-line`
       and other pseudo-elements (only `::before`/`::after`), and
       `float`+`display:flex` (blockified here).
-- [x] QA17 (4084030) [M] (P3, JS) DOM Traversal: `document.createNodeIterator`,
+- [x] QA17 (af82572) [M] (P3, JS) DOM Traversal: `document.createNodeIterator`,
       `createTreeWalker`, `NodeFilter` constants/`FILTER_*`, live
       reference-node fixups on removal (Acid3 T1-T6; T4/T5 fail today with
       "not a function" on the main document). Pure JS over the existing
