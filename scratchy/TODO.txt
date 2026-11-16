@@ -214,7 +214,7 @@ R22 copies and paste the before/after numbers in the commit.
       'latin1' label. Payoff: github's 3 module errors `TextEncoder is
       not defined` -> next error `customElements is not defined` (QY6);
       youtube uses TextEncoder at startup.
-- [x] QF2 (hash pending) [S] READY `Blob`, `File`, blob: URLs (new
+- [x] QF2 f09d472 [S] READY `Blob`, `File`, blob: URLs (new
       `src/fetch_prelude.js`, evaluated after `intl_prelude.js`; needs
       QF1). `Blob(parts, {type, endings})`: parts are strings (UTF-8 via
       QF1), ArrayBuffer, views, Blobs. Keep one internal Uint8Array.
