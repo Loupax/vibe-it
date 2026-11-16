@@ -10,6 +10,8 @@ use rquickjs::{Ctx, Function};
 pub(crate) struct DomTable {
     nodes: Vec<Handle>,
     ids: HashMap<usize, i32>,
+    /// QA18a: ids of extra (detached) `Document` roots; id 0 is the page.
+    docs: std::collections::HashSet<i32>,
 }
 
 impl DomTable {
@@ -22,6 +24,10 @@ impl DomTable {
         self.nodes.push(h.clone());
         self.ids.insert(key, id);
         id
+    }
+    /// A `Document`-data node that is a fragment (not a real document).
+    fn is_frag(&self, id: i32, h: &Handle) -> bool {
+        is_fragment(id, h) && !self.docs.contains(&id)
     }
     fn get(&self, id: i32) -> Option<Handle> {
         usize::try_from(id).ok().and_then(|i| self.nodes.get(i)).cloned()
@@ -297,9 +303,9 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         };
     }
     let t = table.clone();
-    native!("__d_byid", move |id: String| -> i32 {
+    native!("__d_byid", move |id: String, doc: i32| -> i32 {
         let mut t = t.borrow_mut();
-        let root = t.get(0).unwrap();
+        let Some(root) = t.get(doc) else { return -1 };
         let mut all = Vec::new();
         descendants(&root, &mut all);
         match all.iter().find(|h| element_attr(h, "id").as_deref() == Some(id.as_str())) {
@@ -332,7 +338,8 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     });
     let t = table.clone();
     native!("__d_kind", move |id: i32| -> i32 {
-        t.borrow().get(id).map_or(0, |h| if is_fragment(id, &h) { 11 } else { node_type(&h) })
+        let t = t.borrow();
+        t.get(id).map_or(0, |h| if t.is_frag(id, &h) { 11 } else { node_type(&h) })
     });
     let t = table.clone();
     native!("__d_tag", move |id: i32| -> String {
@@ -347,7 +354,8 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             }
             NodeData::Text { .. } => "#text".into(),
             NodeData::Comment { .. } => "#comment".into(),
-            NodeData::Document if id != 0 => "#document-fragment".into(),
+            NodeData::Doctype { name, .. } => name.to_string(),
+            NodeData::Document if id != 0 && !t.borrow().docs.contains(&id) => "#document-fragment".into(),
             NodeData::Document => "#document".into(),
             _ => String::new(),
         }
@@ -383,15 +391,18 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             None => -1,
         }
     });
-    // 0 = documentElement, 1 = head, 2 = body.
+    // 0 = documentElement, 1 = head, 2 = body, of document `doc`.
     let t = table.clone();
-    native!("__d_special", move |which: i32| -> i32 {
+    native!("__d_special", move |which: i32, doc: i32| -> i32 {
         let mut t = t.borrow_mut();
-        let root = t.get(0).unwrap();
+        let Some(root) = t.get(doc) else { return -1 };
         let mut all = Vec::new();
         descendants(&root, &mut all);
         let want = ["html", "head", "body"][which.clamp(0, 2) as usize];
-        match all.iter().find(|h| element_tag(h) == want) {
+        // The document element is the first element child of the root.
+        let first = root.children.borrow().iter().find(|c| is_element(c)).cloned();
+        let found = if which == 0 { first } else { all.iter().find(|h| element_tag(h) == want).cloned() };
+        match found.as_ref() {
             Some(h) => t.intern(h),
             None => -1,
         }
@@ -485,6 +496,27 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         };
         t.borrow_mut().intern(&Node::new(data))
     });
+    // QA18a: a new detached Document root (its id is registered as a
+    // document, not a fragment); a doctype node (name, public, system).
+    let t = table.clone();
+    native!("__d_newdoc", move || -> i32 {
+        let mut t = t.borrow_mut();
+        let id = t.intern(&Node::new(NodeData::Document));
+        t.docs.insert(id);
+        id
+    });
+    let t = table.clone();
+    native!("__d_create_doctype", move |name: String, public_id: String, system_id: String| -> i32 {
+        let data = NodeData::Doctype { name: name.as_str().into(), public_id: public_id.as_str().into(), system_id: system_id.as_str().into() };
+        t.borrow_mut().intern(&Node::new(data))
+    });
+    let t = table.clone();
+    native!("__d_doctype", move |id: i32| -> Vec<String> {
+        match t.borrow().get(id).as_deref().map(|h| &h.data) {
+            Some(NodeData::Doctype { name, public_id, system_id }) => vec![name.to_string(), public_id.to_string(), system_id.to_string()],
+            _ => Vec::new(),
+        }
+    });
     // QA14: createElementNS keeps the qualified name's case outside XHTML.
     let t = table.clone();
     native!("__d_create_ns", move |ns: String, name: String| -> i32 {
@@ -514,7 +546,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         if !matches!(p.data, NodeData::Element { .. } | NodeData::Document) {
             return false;
         }
-        let ok = insert_child(&p, &c, t.get(before).as_ref(), is_fragment(child, &c));
+        let ok = insert_child(&p, &c, t.get(before).as_ref(), t.is_frag(child, &c));
         d.set(true);
         gn.set(gn.get() + 1);
         ok
@@ -558,7 +590,8 @@ const DOM_PRELUDE: &str = r#"
     if (cache[id]) return cache[id];
     var k = __d_kind(id), tg = k === 1 ? __d_tag(id).toLowerCase() : '';
     var o = Object.create(k === 1 ? (tagProto[tg] || HTMLElement.prototype)
-      : k === 3 ? Text.prototype : k === 8 ? Comment.prototype : k === 11 ? DocumentFragment.prototype : Node.prototype);
+      : k === 3 ? Text.prototype : k === 8 ? Comment.prototype : k === 11 ? DocumentFragment.prototype
+      : k === 10 ? DocumentType.prototype : Node.prototype);
     Object.defineProperty(o, '__id', { value: id });
     if (__d_kind(id) === 11) { queries(o); }
     return (cache[id] = o);
@@ -580,7 +613,16 @@ const DOM_PRELUDE: &str = r#"
   def(NodeProto, 'nodeName', function () { return __d_tag(this.__id); });
   def(NodeProto, 'textContent', function () { return __d_text(this.__id); });
   def(NodeProto, 'nodeValue', function () { return this.nodeType === 1 ? null : __d_text(this.__id); });
-  def(NodeProto, 'ownerDocument', function () { return this.nodeType === 9 ? null : doc; });
+  // QA18a: a node's owner is the document it is attached under, else
+  // the document that created/adopted its tree's root (`owners`), else the page.
+  var owners = {};
+  def(NodeProto, 'ownerDocument', function () {
+    if (this.nodeType === 9) return null;
+    var r = this, p;
+    while ((p = __d_parent(r.__id)) >= 0) r = wrap(p);
+    if (r.nodeType === 9 && r !== this) return r;
+    return owners[r.__id] || owners[this.__id] || doc;
+  });
   def(CharacterData.prototype, 'data', function () { return __d_text(this.__id); });
   def(CharacterData.prototype, 'length', function () { return __d_text(this.__id).length; });
   def(NodeProto, 'parentNode', function () { return wrap(__d_parent(this.__id)); });
@@ -1433,8 +1475,8 @@ const DOM_PRELUDE: &str = r#"
   doc.hasChildNodes = NodeProto.hasChildNodes;
   doc.contains = NodeProto.contains;
   def(doc, 'childNodes', Object.getOwnPropertyDescriptor(NodeProto, 'childNodes').get);
-  doc.getElementById = function (id) { return wrap(__d_byid(String(id))); };
-  def(doc, 'documentElement', function () { return wrap(__d_special(0)); });
+  doc.getElementById = function (id) { return wrap(__d_byid(String(id), this.__id)); };
+  def(doc, 'documentElement', function () { return wrap(__d_special(0, this.__id)); });
   // QB8: `document.currentScript`: the executing classic <script>, else null.
   var curScript = null;
   var wlast = -1;
@@ -1456,7 +1498,87 @@ const DOM_PRELUDE: &str = r#"
   doc.open = function () { return doc; };
   doc.close = function () {};
   def(doc, 'currentScript', function () { return curScript; });
-  def(doc, 'head', function () { return wrap(__d_special(1)); });
-  def(doc, 'body', function () { return wrap(__d_special(2)); });
+  def(doc, 'head', function () { return wrap(__d_special(1, this.__id)); });
+  def(doc, 'body', function () { return wrap(__d_special(2, this.__id)); });
+  // QA18a: second documents. `Object.create(doc)` shares every method and
+  // getter (they are keyed by `this.__id`); what differs is overridden.
+  var DocumentType = g.DocumentType = function DocumentType() { throw new TypeError('Illegal constructor'); };
+  DocumentType.prototype = Object.create(Node.prototype, { constructor: { value: DocumentType, writable: true, configurable: true } });
+  ['name', 'publicId', 'systemId'].forEach(function (k, i) {
+    def(DocumentType.prototype, k, function () { return __d_doctype(this.__id)[i]; });
+  });
+  var DOMImpl = g.DOMImplementation = function DOMImplementation() { throw new TypeError('Illegal constructor'); };
+  var makeDoc = function (html, ct) {
+    var id = __d_newdoc();
+    var d = Object.create(doc);
+    cache[id] = d;
+    Object.defineProperty(d, '__id', { value: id });
+    var own = { readyState: 'complete', URL: 'about:blank', documentURI: 'about:blank', baseURI: 'about:blank',
+      contentType: ct, compatMode: html ? 'CSS1Compat' : 'CSS1Compat', characterSet: 'UTF-8', title: undefined };
+    Object.keys(own).forEach(function (k) {
+      if (own[k] !== undefined) Object.defineProperty(d, k, { value: own[k], writable: true, configurable: true, enumerable: true });
+    });
+    ['location', 'defaultView', 'currentScript'].forEach(function (k) { def(d, k, function () { return null; }); });
+    var mk = function (f) { return function () { var n = f.apply(d, arguments); owners[n.__id] = d; return n; }; };
+    ['createElement', 'createElementNS', 'createTextNode', 'createComment', 'createDocumentFragment'].forEach(function (k) {
+      d[k] = mk(doc[k]);
+    });
+    d.write = d.writeln = function () { console.warn('document.write on a created document ignored'); };
+    d.importNode = function (n, deep) {
+      if (!n || n.__id === undefined || n.nodeType === 9) throw herr("Failed to execute 'importNode' on 'Document': The node provided is a document.", 'NotSupportedError');
+      var c = wrap(__d_clone(n.__id, !!deep)); owners[c.__id] = d; return c;
+    };
+    d.adoptNode = function (n) {
+      if (!n || n.__id === undefined) throw new TypeError("Failed to execute 'adoptNode' on 'Document': parameter 1 is not of type 'Node'.");
+      if (n.nodeType === 9) throw herr("Failed to execute 'adoptNode' on 'Document': The node provided is a document.", 'NotSupportedError');
+      __d_remove(n.__id); owners[n.__id] = d; return n;
+    };
+    def(d, 'doctype', function () {
+      var c = this.childNodes; for (var i = 0; i < c.length; i++) if (c[i].nodeType === 10) return c[i];
+      return null;
+    });
+    d.getElementsByName = function (n) { return wrapAll(q(this.__id, '[name="' + String(n).replace(/["\\]/g, '\\$&') + '"]', false)); };
+    Object.defineProperty(d, 'title', { configurable: true, enumerable: true,
+      get: function () {
+        var t = this.getElementsByTagName('title')[0];
+        return t ? t.textContent.replace(/[ \t\n\f\r]+/g, ' ').replace(/^ | $/g, '') : '';
+      },
+      set: function (v) {
+        var t = this.getElementsByTagName('title')[0];
+        if (!t) {
+          var h = this.head; if (!h) return;
+          t = this.createElement('title'); h.appendChild(t);
+        }
+        t.textContent = String(v);
+      } });
+    return d;
+  };
+  var impl = Object.create(DOMImpl.prototype);
+  DOMImpl.prototype.createDocumentType = function (name, pub, sys) {
+    if (arguments.length < 3) throw new TypeError("Failed to execute 'createDocumentType' on 'DOMImplementation': 3 arguments required, but only " + arguments.length + " present.");
+    name = String(name); checkName('createDocumentType', name);
+    var n = wrap(__d_create_doctype(name, String(pub), String(sys)));
+    owners[n.__id] = doc; return n;
+  };
+  DOMImpl.prototype.createHTMLDocument = function (title) {
+    var d = makeDoc(true, 'text/html');
+    var dt = wrap(__d_create_doctype('html', '', '')); d.appendChild(dt);
+    var html = d.createElement('html'); d.appendChild(html);
+    var head = d.createElement('head'); html.appendChild(head);
+    if (title !== undefined) { var t = d.createElement('title'); t.textContent = String(title); head.appendChild(t); }
+    html.appendChild(d.createElement('body'));
+    return d;
+  };
+  DOMImpl.prototype.createDocument = function (ns, qname, dt) {
+    ns = ns == null || ns === '' ? null : String(ns);
+    qname = qname == null ? '' : String(qname);
+    var xml = ns === 'http://www.w3.org/1999/xhtml' ? 'application/xhtml+xml' : ns === 'http://www.w3.org/2000/svg' ? 'image/svg+xml' : 'application/xml';
+    var d = makeDoc(false, xml);
+    if (dt != null) { if (!dt || dt.nodeType !== 10) throw new TypeError("Failed to execute 'createDocument' on 'DOMImplementation': parameter 3 is not of type 'DocumentType'."); d.appendChild(dt); owners[dt.__id] = d; }
+    if (qname !== '') d.insertBefore(d.createElementNS(ns, qname), null);
+    return d;
+  };
+  DOMImpl.prototype.hasFeature = function () { return true; };
+  def(doc, 'implementation', function () { return impl; });
 })(globalThis);
 "#;
