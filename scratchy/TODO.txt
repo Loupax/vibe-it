@@ -257,7 +257,7 @@ Items (in order):
       absent. Measured users: github react-core (`randomUUID`),
       salesforce (`uuid` package: "crypto.getRandomValues() not
       supported").
-- [x] QSD2 [S] (HASH) READY `Node.getRootNode({composed})` and `Node.isConnected`
+- [x] QSD2 [S] (0239f7b) READY `Node.getRootNode({composed})` and `Node.isConnected`
       (neither exists today). Without shadow roots: the topmost ancestor
       (document, or a detached root/fragment). Written so QSD3 only adds
       "a ShadowRoot's host" as the composed step. Tests: detached element
