@@ -170,6 +170,15 @@ fn set_children_text(h: &Handle, text: &str) {
 /// `innerHTML = html`: fragment-parses in the context of `h`.
 fn set_inner_html(h: &Handle, html: &str) {
     clear_children(h);
+    for k in parse_fragment_in(h, html) {
+        k.parent.set(Some(Rc::downgrade(h)));
+        h.children.borrow_mut().push(k);
+    }
+}
+
+/// Fragment-parses `html` in the context of `h`; the returned nodes have
+/// no parent yet.
+fn parse_fragment_in(h: &Handle, html: &str) -> Vec<Handle> {
     let ctx = match &h.data {
         NodeData::Element { name, .. } => name.clone(),
         _ => html_name("div"),
@@ -179,13 +188,27 @@ fn set_inner_html(h: &Handle, html: &str) {
     let dom = html5ever::driver::parse_fragment(RcDom::default(), opts, ctx, Vec::new(), false).one(html);
     // The parser wraps the fragment in one synthetic root element.
     let root = dom.document.children.borrow().first().cloned();
-    if let Some(root) = root {
-        let kids: Vec<Handle> = root.children.borrow_mut().drain(..).collect();
-        for k in kids {
-            k.parent.set(Some(Rc::downgrade(h)));
-            h.children.borrow_mut().push(k);
-        }
+    match root {
+        Some(root) => root.children.borrow_mut().drain(..).collect(),
+        None => Vec::new(),
     }
+}
+
+/// QA13: `document.write`. Parses `html` in the context of `after`'s
+/// parent and inserts the nodes right after `after`. Returns the last
+/// inserted node (or `after` when nothing was produced) so the next
+/// write continues from there.
+fn write_after(after: &Handle, html: &str) -> Handle {
+    let Some(parent) = parent_handle(after) else { return after.clone() };
+    let kids = parse_fragment_in(&parent, html);
+    let last = kids.last().cloned().unwrap_or_else(|| after.clone());
+    let mut ch = parent.children.borrow_mut();
+    let at = ch.iter().position(|c| Rc::ptr_eq(c, after)).map_or(ch.len(), |i| i + 1);
+    for k in &kids {
+        k.parent.set(Some(Rc::downgrade(&parent)));
+    }
+    ch.splice(at..at, kids);
+    last
 }
 
 fn serialize_node(h: &Handle, outer: bool) -> String {
@@ -404,6 +427,15 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             set_inner_html(&h, &html);
             d.set(true);
         }
+    });
+    // QA13: returns the id of the last inserted node, or -1.
+    let (t, d) = (table.clone(), dirty.clone());
+    native!("__d_write", move |after: i32, html: String| -> i32 {
+        let mut t = t.borrow_mut();
+        let Some(a) = t.get(after) else { return -1 };
+        let last = write_after(&a, &html);
+        d.set(true);
+        t.intern(&last)
     });
     let t = table.clone();
     native!("__d_gethtml", move |id: i32, outer: bool| -> String {
@@ -843,7 +875,24 @@ const DOM_PRELUDE: &str = r#"
   def(doc, 'documentElement', function () { return wrap(__d_special(0)); });
   // QB8: `document.currentScript`: the executing classic <script>, else null.
   var curScript = null;
-  Object.defineProperty(g, '__scratchy_cs', { value: function (id) { curScript = id < 0 ? null : wrap(id); } });
+  var wlast = -1;
+  Object.defineProperty(g, '__scratchy_cs', { value: function (id) { curScript = id < 0 ? null : wrap(id); wlast = id; } });
+  // QA13: only while a classic script element runs: insert after it (and
+  // after what earlier writes of the same script inserted). Otherwise the
+  // spec would wipe the document; we log and ignore. <script> in the
+  // written markup is inserted but not executed.
+  function dwrite(nl) {
+    return function () {
+      if (!curScript || wlast < 0) { console.warn('document.' + (nl ? 'writeln' : 'write') + ' after page load ignored'); return; }
+      var s = Array.prototype.join.call(arguments, '') + (nl ? '\n' : '');
+      var r = __d_write(wlast, s);
+      if (r >= 0) wlast = r;
+    };
+  }
+  doc.write = dwrite(false);
+  doc.writeln = dwrite(true);
+  doc.open = function () { return doc; };
+  doc.close = function () {};
   def(doc, 'currentScript', function () { return curScript; });
   def(doc, 'head', function () { return wrap(__d_special(1)); });
   def(doc, 'body', function () { return wrap(__d_special(2)); });

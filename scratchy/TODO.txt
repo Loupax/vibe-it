@@ -1289,7 +1289,7 @@ into the commit message of every JS item.
       getters reflecting the attribute text as a function, the spec's
       `with(document){with(form){with(element)` scope chain, and the
       `onerror(message, source, line, col, error)` window signature.
-- [ ] QA13 [S] (P2, JS) `document.write`/`writeln` during the page-load
+- [x] QA13 [S] (P2, JS) `document.write`/`writeln` during the page-load
       script run: parse the string as an HTML fragment in the context of
       the running script's parent and insert it right after
       `document.currentScript` (QB8 landed); concatenate consecutive writes
@@ -1299,6 +1299,12 @@ into the commit message of every JS item.
       by hand the harness goes 28 -> 36 (T14-T17, T48, T55, T63, T65).
       Test: `<p id=a><script>document.write('<b id=w>x</b>')</script>`
       gives `#w` as the script's next sibling.
+      DONE (HASH): each write parsed immediately (no concatenation); after
+      load / outside a script: console.warn and ignored.
+- [ ] QA13a [S] (P3, JS) Leftovers of QA13: concatenate writes before
+      parsing (a tag split across two `write` calls), execute `<script>`
+      elements written by `document.write`, and `document.open()` /
+      post-load `write` wiping the document (spec behaviour).
 - [ ] QA14 [S] (P3, JS) `DOMException` with the legacy `code` constants
       (`INDEX_SIZE_ERR`=1 … `HIERARCHY_REQUEST_ERR`=3 …
       `INVALID_CHARACTER_ERR`=5 … `NAMESPACE_ERR`=14) on the constructor
