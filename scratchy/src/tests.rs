@@ -10035,6 +10035,60 @@ fn qa12_inline_handlers_click_return_false_body_onload_and_errors() {
     assert_eq!(*log.borrow(), ["log:listener", "log:listener2", "log:s1"]);
 }
 
+// Q33d1: element.click(), form submit events, mouseover/out relatedTarget.
+#[test]
+fn q33d1_click_toggles_checkbox_fires_submit_and_follows_links() {
+    let (engine, doc, log) = events_engine(
+        "<html><body><form id=f onsubmit=\"console.log('submit', event.submitter && event.submitter.id); return false\">\
+         <input id=c type=checkbox><input id=r1 type=radio name=g checked><input id=r2 type=radio name=g>\
+         <input id=d type=checkbox disabled><button id=b>go</button></form>\
+         <a id=l href=/next>l</a><a id=l2 href=/no>n</a><form id=g><button id=gb>x</button></form></body></html>",
+        "var $=function(i){return document.getElementById(i)};\
+         $('c').addEventListener('click', function(e){ console.log('c', e.isTrusted, $('c').checked) });\
+         $('c').addEventListener('change', function(){ console.log('change') });\
+         $('c').click(); console.log('after', $('c').checked); $('c').click(); console.log('again', $('c').checked);\
+         $('d').click(); console.log('disabled', $('d').checked);\
+         $('r2').click(); console.log('radio', $('r1').checked, $('r2').checked);\
+         $('b').click();\
+         $('l2').addEventListener('click', function(e){ e.preventDefault(); });\
+         $('l2').click();\
+         $('g').addEventListener('submit', function(){ console.log('g submit'); });\
+         $('g').submit(); console.log('submit() fires none');\
+         $('g').requestSubmit(); $('l').click();",
+    );
+    let _ = doc;
+    let l = log.borrow().clone();
+    assert_eq!(
+        l,
+        [
+            "log:c false true", "log:change", "log:after true", "log:c false false", "log:change", "log:again false",
+            "log:disabled false", "log:radio false true", "log:submit b", "log:submit() fires none", "log:g submit",
+        ],
+        "{l:?}"
+    );
+    assert_eq!(engine.take_requests().nav.as_deref(), Some("/next"), "only the uncancelled link navigates");
+}
+
+#[test]
+fn q33d1_cancelled_checkbox_click_reverts_and_mouseover_has_related_target() {
+    let (engine, doc, log) = events_engine(
+        "<html><body><input id=c type=checkbox><p id=a>a</p><p id=b>b</p></body></html>",
+        "var $=function(i){return document.getElementById(i)};\
+         $('c').addEventListener('click', function(e){ e.preventDefault(); });\
+         $('c').click(); console.log('checked', $('c').checked);\
+         $('b').addEventListener('mouseover', function(e){ console.log('over', e.relatedTarget && e.relatedTarget.id, e.isTrusted, e.bubbles); });\
+         $('a').addEventListener('mouseout', function(e){ console.log('out', e.relatedTarget && e.relatedTarget.id); });",
+    );
+    assert_eq!(log.borrow()[0], "log:checked false");
+    let a = by_id(&doc, "a");
+    let b = by_id(&doc, "b");
+    let init = |rel: &markup5ever_rcdom::Handle| vec![("bubbles", EventField::Bool(true)), ("relatedTargetId", EventField::Node(rel.clone()))];
+    engine.dispatch_event(Some(&a), "mouseout", &init(&b));
+    engine.dispatch_event(Some(&b), "mouseover", &init(&a));
+    let l = log.borrow().clone();
+    assert_eq!(l[1..], ["log:out b", "log:over a true true"], "{l:?}");
+}
+
 #[test]
 fn qa10_blocks_between_cells_of_a_table_get_anonymous_cells_in_the_same_row() {
     // The Acid2 line-14 shape: cell, nested table, cell, plain block, all

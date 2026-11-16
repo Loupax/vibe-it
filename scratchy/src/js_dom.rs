@@ -259,6 +259,8 @@ pub(crate) struct JsRequests {
     pub(crate) focus: Option<FocusReq>,
     /// `window.scroll*`: target axes (`None` = keep), `relative` = scrollBy.
     pub(crate) scroll: Option<ScrollReq>,
+    /// Q33d1: `el.click()` on a link asks the App to follow it.
+    pub(crate) nav: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -569,6 +571,10 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
                 r.borrow_mut().focus = Some(FocusReq::Blur(h));
             }
         }
+    });
+    let r = reqs.clone();
+    native!("__d_navigate", move |href: String| {
+        r.borrow_mut().nav = Some(href);
     });
     let r = reqs;
     native!("__d_scroll", move |x: f64, y: f64, relative: bool| {
@@ -1172,11 +1178,49 @@ const DOM_PRELUDE: &str = r#"
     var t = id === -2 ? (doc.body || doc) : wrap(id);
     if (!t) return true;
     var C = { click: MouseEvent, mousedown: MouseEvent, mouseup: MouseEvent, keydown: KeyboardEvent,
-      keyup: KeyboardEvent, focus: FocusEvent, blur: FocusEvent, focusin: FocusEvent, focusout: FocusEvent }[type] || Event;
+      keyup: KeyboardEvent, mouseover: MouseEvent, mouseout: MouseEvent, focus: FocusEvent, blur: FocusEvent, focusin: FocusEvent, focusout: FocusEvent }[type] || Event;
+    if (init && init.relatedTargetId !== undefined) init.relatedTarget = wrap(init.relatedTargetId);
     var ev = new C(type, init);
     ev.isTrusted = true;
     return __scratchy_dispatch(t, ev);
   } });
+  // Q33d1: `el.click()`: a synthetic (untrusted) click, then the activation
+  // behavior unless a handler cancelled it. Checkbox/radio state is the
+  // `checked` attribute for now (Q33e), toggled before dispatch and
+  // reverted on cancel, as browsers do.
+  var clicking = false;
+  HTMLElement.prototype.click = function () {
+    var tag = this.localName;
+    if (clicking || ((tag === 'input' || tag === 'button' || tag === 'select' || tag === 'textarea') && this.disabled)) return;
+    clicking = true;
+    try {
+      var type = tag === 'input' ? this.type : '';
+      var undo = null;
+      if (type === 'checkbox') {
+        var was = __d_attr(this.__id, 'checked') != null;
+        this.checked = !was;
+        undo = function (el) { el.checked = was; };
+      } else if (type === 'radio' && __d_attr(this.__id, 'checked') == null) {
+        var form = formOf(this), prevs = [], me = this, nm = ga(this, 'name');
+        if (nm) doc.querySelectorAll('input').forEach(function (o) {
+          if (o !== me && o.type === 'radio' && ga(o, 'name') === nm && formOf(o) === form && __d_attr(o.__id, 'checked') != null) prevs.push(o);
+        });
+        prevs.forEach(function (o) { o.checked = false; });
+        this.checked = true;
+        undo = function (el) { el.checked = false; prevs.forEach(function (o) { o.checked = true; }); };
+      }
+      var ev = new MouseEvent('click', { bubbles: true, cancelable: true });
+      if (!__scratchy_dispatch(this, ev)) { if (undo) undo(this); return; }
+      if (undo) {
+        __scratchy_dispatch(this, new Event('input', { bubbles: true }));
+        __scratchy_dispatch(this, new Event('change', { bubbles: true }));
+      }
+      var href = (tag === 'a' || tag === 'area') ? __d_attr(this.__id, 'href') : null;
+      if (href != null) { __d_navigate(href); return; }
+      var submit = (tag === 'button' && this.type === 'submit') || (tag === 'input' && (type === 'submit' || type === 'image'));
+      if (submit) { var f = formOf(this); if (f) f.requestSubmit(this); }
+    } finally { clicking = false; }
+  };
   // QA20: table and form element interfaces, as reflections of attributes and
   // of the tree (live form state is Q33e). Collections are plain arrays with
   // `item`/`namedItem` and name/id properties added.
@@ -1346,7 +1390,18 @@ const DOM_PRELUDE: &str = r#"
   };
   def(FP, 'elements', function () { return coll(formControls(this)); });
   def(FP, 'length', function () { return formControls(this).length; });
+  // Q33d1: there is no form submission yet (Q30), so the default action of
+  // a submit is a no-op once `submit` has not been cancelled. `submit()`
+  // fires no event; `requestSubmit()` and a submit-button click do.
   FP.submit = function () {};
+  FP.requestSubmit = function (submitter) {
+    if (submitter !== undefined && submitter !== null && (!submitter || submitter.form !== this)) {
+      throw herr('The specified element is not a submit button of this form.', 'NotFoundError');
+    }
+    var ev = new Event('submit', { bubbles: true, cancelable: true });
+    ev.submitter = submitter || null;
+    __scratchy_dispatch(this, ev);
+  };
   FP.reset = function () {};
   ['name', 'action', 'method', 'target', 'enctype', 'encoding', 'acceptCharset', 'autocomplete'].forEach(function (p) {
     rStr(FP, p, p === 'acceptCharset' ? 'accept-charset' : p === 'encoding' ? 'enctype' : p);

@@ -598,6 +598,8 @@ pub(crate) enum EventField {
     Bool(bool),
     Num(f64),
     Str(String),
+    /// A node, passed as its JS table id (read back as an element).
+    Node(Handle),
 }
 
 /// `s` as a JS string literal (everything outside printable ASCII is
@@ -708,6 +710,7 @@ impl JsEngine {
                 EventField::Bool(b) => obj.push_str(&b.to_string()),
                 EventField::Num(n) => obj.push_str(&n.to_string()),
                 EventField::Str(s) => obj.push_str(&js_string_literal(s)),
+                EventField::Node(h) => obj.push_str(&self.table.borrow_mut().intern(h).to_string()),
             }
             obj.push(',');
         }
