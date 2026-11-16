@@ -1305,7 +1305,7 @@ into the commit message of every JS item.
       parsing (a tag split across two `write` calls), execute `<script>`
       elements written by `document.write`, and `document.open()` /
       post-load `write` wiping the document (spec behaviour).
-
+- [x] QA14 (43f568f) [S] (P3, JS) `DOMException` with the legacy `code` constants
       (`INDEX_SIZE_ERR`=1 … `HIERARCHY_REQUEST_ERR`=3 …
       `INVALID_CHARACTER_ERR`=5 … `NAMESPACE_ERR`=14) on the constructor
       and prototype, thrown by `createElement`/`createElementNS` for
