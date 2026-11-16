@@ -5338,6 +5338,24 @@ fn walk_negative_z(l: &mut Laid, bag: &mut Vec<Laid>, is_owner: bool) {
         }
         *children = kept;
     }
+    // QW3: a `position:relative` inline-block/`<button>` (an `Embedded`
+    // inline item) is a positioned box like any in-flow relative child:
+    // it paints in its stacking context's positioned layer, not with the
+    // line's text, so a later z-auto positioned sibling cannot cover a
+    // `z-index:1` one.
+    if let LaidContent::MixedInline(items) = &mut l.content {
+        let old = std::mem::take(items);
+        let mut kept = Vec::with_capacity(old.len());
+        for item in old {
+            match item {
+                MixedPositioned::Embedded(e) if matches!(e.style.position, Position::Relative | Position::Sticky) => {
+                    hoist_into(*e, bag);
+                }
+                other => kept.push(other),
+            }
+        }
+        *items = kept;
+    }
     for c in l.positioned.iter_mut() {
         visit_negative_z_child(c, bag);
     }

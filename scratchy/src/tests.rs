@@ -419,8 +419,11 @@ fn max_height_clamps_reported_height_but_children_still_fully_laid_out() {
 fn find_all_span_colors(b: &LayoutBox, out: &mut Vec<TextColor>) {
     if let BoxContent::Inline(items) = &b.content {
         for item in items {
-            if let InlineItem::Text(_, s) = item {
-                out.push(s.color);
+            match item {
+                InlineItem::Text(_, s) => out.push(s.color),
+                // QW3: `<button>` is an inline-block (embedded box).
+                InlineItem::Embedded(e) => find_all_span_colors(e, out),
+                _ => {}
             }
         }
     } else if let BoxContent::Blocks(children) = &b.content {
@@ -10125,4 +10128,33 @@ fn qa16_get_computed_style_cascade_inheritance_and_unknowns() {
     assert_eq!(l[5], "log:\"\" true", "{l:?}");
     assert_eq!(l[6], "log:pre-line", "invalid later keyword must not override: {l:?}");
     assert_eq!(l[7], "log:te true", "{l:?}");
+}
+
+// QW3: wikipedia.org language-button divider. A later z-auto relative 1px
+// line pulled up by a negative margin must be hidden by the earlier
+// z-index:1 inline button's white background / outline, not drawn over it.
+#[test]
+fn qw3_divider_line_is_hidden_behind_z_indexed_inline_button() {
+    let html = r#"<html><body style="margin:0;background:#fff"><div style="text-align:center;font-size:14px"><button style="display:inline;position:relative;z-index:1;margin:0 auto;padding:10px 20px;outline:20px solid #fff;border:2px solid #0000ff;font-family:inherit;background-color:#f8f9fa;font-size:14px;line-height:1"><i style="display:inline-block;vertical-align:middle;width:10px;height:10px"></i><span style="padding:0 6px;vertical-align:middle">Read</span><i style="display:inline-block;vertical-align:middle;width:10px;height:10px"></i></button></div><div style="background-color:#ff0000;display:block;position:relative;width:80%;margin:-20px auto 20px;height:1px"></div></body></html>"#;
+    let (pixels, win_w, _) = paint_fixture(html);
+    let mut red_in_button = 0;
+    for x in 50..150u32 {
+        for y in 0..40u32 {
+            if px_at(&pixels, win_w, x, y) == 0x00FF_0000 {
+                red_in_button += 1;
+            }
+        }
+    }
+    assert_eq!(red_in_button, 0, "divider must not paint over the button");
+    // A `<button>` with `display:inline` computes to inline-block, so its
+    // border paints (a plain inline box paints none).
+    let mut blue = 0;
+    for x in 0..200u32 {
+        for y in 0..60u32 {
+            if px_at(&pixels, win_w, x, y) == 0x0000_00FF {
+                blue += 1;
+            }
+        }
+    }
+    assert!(blue > 20, "button border must paint, got {blue} blue pixels");
 }
