@@ -420,7 +420,7 @@ PASS css/css-position/position-fixed-video-controls-print.html
 FAIL css/css-position/position-relative-empty-inline.html
 FAIL css/css-position/position-relative-table-tfoot-top.html
 FAIL css/css-position/static-position/htb-ltr-rtl.tentative.html
-FAIL css/css-position/static-position/inline-level-absolute-in-block-level-context-009.html
+PASS css/css-position/static-position/inline-level-absolute-in-block-level-context-009.html
 FAIL css/css-position/static-position/vrl-ltr-rtl.tentative.html
 PASS css/css-position/sticky/position-sticky-left-003.html
 FAIL css/css-pseudo/before-as-flex-container.html

@@ -16026,6 +16026,77 @@ fn qw4_inline_margin_wraps_only_at_outer_edges() {
     assert!((second_line_x - 8.0).abs() < 0.5, "wrapped line has no margin at its start: {second_line_x} {words:?}");
 }
 
+fn qy18_find_box(l: &Laid, w: f32, h: f32) -> Option<(f32, f32)> {
+    if (l.w - w).abs() < 0.01 && (l.h - h).abs() < 0.01 {
+        return Some((l.x, l.y));
+    }
+    let kids: Vec<&Laid> = match &l.content {
+        LaidContent::Blocks(c) | LaidContent::TableRow(c) => c.iter().collect(),
+        _ => Vec::new(),
+    };
+    kids.into_iter().chain(l.positioned.iter()).find_map(|k| qy18_find_box(k, w, h))
+}
+
+#[test]
+fn qy18_transform_parses_translate_only() {
+    let t = |s: &str| parse_declarations(s).transform;
+    assert!(t("transform: none") == Some(vec![]));
+    assert!(t("transform: translateX(100%)") == Some(vec![(Length::Percent(1.0), Length::Px(0.0))]));
+    assert!(t("transform: translate(10px, 20px)") == Some(vec![(Length::Px(10.0), Length::Px(20.0))]));
+    assert!(t("transform: translate(5px)") == Some(vec![(Length::Px(5.0), Length::Px(0.0))]));
+    assert!(t("transform: translateY(-50%)") == Some(vec![(Length::Px(0.0), Length::Percent(-0.5))]));
+    assert!(t("transform: translate3d(1px, 2px, 3px)") == Some(vec![(Length::Px(1.0), Length::Px(2.0))]));
+    // Anything with an unsupported function is treated as none.
+    assert!(t("transform: rotate(45deg)") == Some(vec![]));
+    assert!(t("transform: translateX(10px) scale(2)") == Some(vec![]));
+    assert!(t("transform: bogus").is_none());
+}
+
+#[test]
+fn qy18_translate_offsets_paint_position_and_hit_test() {
+    let base = measure_fixture(
+        r#"<html><body style="margin:0"><div style="position:relative;width:400px;height:200px"><div style="position:absolute;right:0;top:0;width:100px;height:50px;background:red">x</div></div></body></html>"#,
+        400.0,
+    );
+    let (bx, by) = qy18_find_box(&base, 100.0, 50.0).expect("box");
+    // 100% of its own width pushes it fully off the right edge of the 400px viewport.
+    let moved = measure_fixture(
+        r#"<html><body style="margin:0"><div style="position:relative;width:400px;height:200px"><div style="position:absolute;right:0;top:0;width:100px;height:50px;background:red;transform:translateX(100%)">x</div></div></body></html>"#,
+        400.0,
+    );
+    let (mx, my) = qy18_find_box(&moved, 100.0, 50.0).expect("box");
+    assert!((mx - (bx + 100.0)).abs() < 0.01 && (my - by).abs() < 0.01, "{bx},{by} -> {mx},{my}");
+    assert!(mx >= 400.0, "drawer is off-screen");
+    // translate(10px,20px) on an in-flow box moves it by exactly (10,20) and not the flow.
+    let html = |t: &str| format!(
+        r#"<html><body style="margin:0"><div id="a" style="width:100px;height:50px;{t}">a</div><div id="b" style="width:60px;height:30px">b</div></body></html>"#
+    );
+    let plain = measure_fixture(&html(""), 400.0);
+    let tr = measure_fixture(&html("transform:translate(10px,20px)"), 400.0);
+    let (px, py) = qy18_find_box(&plain, 100.0, 50.0).unwrap();
+    let (tx, ty) = qy18_find_box(&tr, 100.0, 50.0).unwrap();
+    assert!((tx - px - 10.0).abs() < 0.01 && (ty - py - 20.0).abs() < 0.01);
+    let (p2x, p2y) = qy18_find_box(&plain, 60.0, 30.0).unwrap();
+    let (t2x, t2y) = qy18_find_box(&tr, 60.0, 30.0).unwrap();
+    assert!((p2x - t2x).abs() < 0.01 && (p2y - t2y).abs() < 0.01, "layout of siblings is unchanged");
+    // Hit test follows the offset: the new spot hits <a>, the old corner no longer does.
+    let doc = parse_html(&html("transform:translate(10px,20px)"));
+    let tree = build_layout_tree(&doc, 1920.0);
+    let mut fc = new_font_system();
+    let mut cache = ShapeCache::new();
+    let (mut next_id, mut inc) = (0usize, false);
+    let laid = measure(
+        &tree, &mut fc, 0.0, 0.0, 400.0, None, &mut next_id, &mut cache,
+        std::time::Instant::now() + std::time::Duration::from_secs(5), &mut inc, &mut Vec::new(),
+        &Floats::default(), None,
+    );
+    let a = find_by_tag(&doc, "div").unwrap();
+    let hit_new = hit_test_element(&laid, 10.0 + 90.0, 20.0 + 40.0, &cache, &HashMap::new(), 0.0, 600.0);
+    assert_eq!(hit_new, node_id(&a), "the translated position hits the element");
+    let hit_old = hit_test_element(&laid, 3.0, 3.0, &cache, &HashMap::new(), 0.0, 600.0);
+    assert_ne!(hit_old, node_id(&a), "the original top-left corner no longer hits it");
+}
+
 // ---- QSD3: real ShadowRoot (not rendered).
 
 #[test]
