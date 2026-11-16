@@ -393,7 +393,7 @@ R22 copies and paste the before/after numbers in the commit.
       localhost allowed, https->http blocked, file: blocked, POST
       blocked, port 25 blocked); a parse of a multi-header response; a
       CR/LF header value refused.
-- [x] QF6 [S] DONE (commit HASH_QF6; wire/src/main.rs, wire/NOTES.md). All of (a)-(f)
+- [x] QF6 [S] DONE (commit ce2175a; wire/src/main.rs, wire/NOTES.md). All of (a)-(f)
       below implemented, plus `X-Wire-Version: 2` on every response and
       `X-Wire-Hop-Classes`. Deviations: the cap is a 502 `X-Wire-Error:
       too-large` (body buffered up to N+1 bytes), the redirect-limit overrun
@@ -462,7 +462,7 @@ R22 copies and paste the before/after numbers in the commit.
       results come back through `__net_complete(result)`; CORS applied in
       `NetState::finish`; beacons logged and not sent; sync mode and the
       `--js-report` network section are in. Left out: see QF7a.) The engine/App plumbing.
-- [ ] QF7a [S] READY (needs QF6) Gaps left by QF7: fail closed when a wire response
+- [ ] QF7a [S] READY (needs QF6, DONE in ce2175a; the user must restart wire first) Gaps left by QF7: fail closed when a wire response
       has no `X-Wire-Final-Url` ("wire is too old for page networking; restart
       it": today a missing header falls back to the request URL, because the
       user's wire is not updated yet); CORS checks on redirect hops
