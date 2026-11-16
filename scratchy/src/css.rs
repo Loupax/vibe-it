@@ -1943,6 +1943,11 @@ pub(crate) struct StyleRule {
     /// independent of viewport width, exactly as before this existed.
     /// See `media_list_matches`.
     pub(crate) media: Vec<MediaQuery>,
+    /// QY17 cascade layer: 0 = unlayered, 1 = the user-agent sheet
+    /// (`parse_ua_stylesheet`), `n >= 2` = the author layer of order rank
+    /// `n - 2` (first-mention order, nested layers inside their parent,
+    /// CSS Cascade 5 §6.4). See `style::normal_key` / `important_key`.
+    pub(crate) layer: u32,
 }
 
 /// A real media type keyword this engine can evaluate. `screen` and
@@ -5564,6 +5569,74 @@ pub(crate) enum AtPrelude {
     Media(Vec<MediaQuery>),
     /// `@supports`: the condition's truth value, evaluated up front.
     Supports(bool),
+    /// `@layer`: the comma-separated dotted names (empty = anonymous).
+    Layer(Vec<Vec<String>>),
+}
+
+/// QY17: layers named so far in one stylesheet (every prefix of every
+/// mentioned path, in first-mention order) plus an anonymous-layer counter.
+#[derive(Default)]
+pub(crate) struct LayerState {
+    reg: Vec<Vec<String>>,
+    anon: u32,
+}
+
+impl LayerState {
+    /// Registers `path` and its prefixes; returns the registry index of `path`.
+    fn register(&mut self, path: &[String]) -> usize {
+        let mut idx = 0;
+        for j in 1..=path.len() {
+            idx = match self.reg.iter().position(|p| p[..] == path[..j]) {
+                Some(i) => i,
+                None => {
+                    self.reg.push(path[..j].to_vec());
+                    self.reg.len() - 1
+                }
+            };
+        }
+        idx
+    }
+
+    /// Order rank of every registry entry: lexicographic on the sibling
+    /// (= registry) indices of each prefix, with a trailing maximum so a
+    /// layer's own rules come after its sub-layers.
+    fn ranks(&self) -> Vec<u32> {
+        let key = |p: &Vec<String>| -> Vec<usize> {
+            let mut k: Vec<usize> =
+                (1..=p.len()).map(|j| self.reg.iter().position(|q| q[..] == p[..j]).unwrap_or(0)).collect();
+            k.push(usize::MAX);
+            k
+        };
+        let mut order: Vec<usize> = (0..self.reg.len()).collect();
+        order.sort_by_key(|&i| key(&self.reg[i]));
+        let mut ranks = vec![0; self.reg.len()];
+        for (pos, i) in order.into_iter().enumerate() {
+            ranks[i] = pos as u32;
+        }
+        ranks
+    }
+}
+
+/// Parses `a, b.c` after `@layer`; an empty prelude is one anonymous layer.
+fn parse_layer_names<'i>(input: &mut CssParser<'i>) -> Result<Vec<Vec<String>>, ParseError<CssError>> {
+    let mut names = Vec::new();
+    if input.is_exhausted() {
+        return Ok(names);
+    }
+    loop {
+        let mut path = vec![input.expect_ident()?.to_string()];
+        while input.try_parse(|i| i.expect_delim('.')).is_ok() {
+            path.push(input.expect_ident()?.to_string());
+        }
+        names.push(path);
+        if input.try_parse(|i| i.expect_comma()).is_err() {
+            break;
+        }
+    }
+    if !input.is_exhausted() {
+        return Err(input.new_error_for_next_token());
+    }
+    Ok(names)
 }
 
 /// `@supports` condition: `not <in-parens>` or `<in-parens> [and|or
@@ -5635,7 +5708,22 @@ pub(crate) fn parse_supports_in_parens<'i>(input: &mut CssParser<'i>) -> Result<
     }
 }
 
-pub(crate) struct TopLevelParser;
+#[derive(Default)]
+pub(crate) struct TopLevelParser {
+    layers: LayerState,
+    /// The enclosing `@layer` path (QY17).
+    prefix: Vec<String>,
+}
+
+impl TopLevelParser {
+    /// A parser for a block's contents (same layer registry, `prefix`).
+    fn nested(&mut self, prefix: Vec<String>) -> TopLevelParser {
+        TopLevelParser { layers: std::mem::take(&mut self.layers), prefix }
+    }
+    fn absorb(&mut self, nested: TopLevelParser) {
+        self.layers = nested.layers;
+    }
+}
 
 impl<'i> AtRuleParser<'i> for TopLevelParser {
     // Only `@media`'s own query-list grammar is parsed here — every
@@ -5665,8 +5753,25 @@ impl<'i> AtRuleParser<'i> for TopLevelParser {
             let holds = parse_supports_condition(input).unwrap_or(false);
             while input.next().is_ok() {}
             Ok(AtPrelude::Supports(holds))
+        } else if name.eq_ignore_ascii_case("layer") {
+            Ok(AtPrelude::Layer(parse_layer_names(input)?))
         } else {
             Err(input.new_error_for_next_token())
+        }
+    }
+
+    fn rule_without_block(&mut self, prelude: Self::Prelude, _start: &ParserState) -> Result<Self::AtRule, ()> {
+        // `@layer a, b.c;` fixes the layer order at first mention (QY17).
+        match prelude {
+            AtPrelude::Layer(names) if !names.is_empty() => {
+                for n in names {
+                    let mut path = self.prefix.clone();
+                    path.extend(n);
+                    self.layers.register(&path);
+                }
+                Ok(Vec::new())
+            }
+            _ => Err(()),
         }
     }
 
@@ -5676,10 +5781,30 @@ impl<'i> AtRuleParser<'i> for TopLevelParser {
         _start: &ParserState,
         input: &mut CssParser<'i>,
     ) -> Result<Self::AtRule, ParseError<Self::Error>> {
+        let mut layer_path: Option<Vec<String>> = None;
         let (prelude, supported) = match prelude {
             AtPrelude::Media(q) => (q, true),
             AtPrelude::Supports(b) => (Vec::new(), b),
+            AtPrelude::Layer(names) => {
+                if names.len() > 1 {
+                    return Err(input.new_error_for_next_token());
+                }
+                let mut path = self.prefix.clone();
+                match names.into_iter().next() {
+                    Some(n) => path.extend(n),
+                    None => {
+                        self.layers.anon += 1;
+                        path.push(format!("\u{0}anon{}", self.layers.anon));
+                    }
+                }
+                layer_path = Some(path);
+                (Vec::new(), true)
+            }
         };
+        let mut layer_id = 0;
+        if let Some(path) = &layer_path {
+            layer_id = self.layers.register(path) as u32 + 2;
+        }
         if !supported {
             // Consume the block; its rules never apply.
             while input.next().is_ok() {}
@@ -5690,7 +5815,7 @@ impl<'i> AtRuleParser<'i> for TopLevelParser {
         // a fresh `TopLevelParser` over this already block-delimited
         // `input` reuses the exact same rule-list parsing rather than a
         // second, parallel implementation.
-        let mut nested = TopLevelParser;
+        let mut nested = self.nested(layer_path.unwrap_or_else(|| self.prefix.clone()));
         let mut rules = Vec::new();
         let iter = StyleSheetParser::new(input, &mut nested);
         for result in iter {
@@ -5714,9 +5839,13 @@ impl<'i> AtRuleParser<'i> for TopLevelParser {
                 if rule.media.is_empty() {
                     rule.media = prelude.clone();
                 }
+                if rule.layer == 0 {
+                    rule.layer = layer_id;
+                }
                 rules.push(rule);
             }
         }
+        self.absorb(nested);
         Ok(rules)
     }
 }
@@ -5755,13 +5884,14 @@ impl<'i> QualifiedRuleParser<'i> for TopLevelParser {
             decls,
             important,
             media: Vec::new(),
+            layer: 0,
         }])
     }
 }
 
 pub(crate) fn parse_stylesheet(css: &str) -> Vec<StyleRule> {
     let mut input = CssParser::new(css);
-    let mut top = TopLevelParser;
+    let mut top = TopLevelParser::default();
     let mut rules = Vec::new();
     let mut stylesheet = StyleSheetParser::new(&mut input, &mut top);
     while let Some(result) = stylesheet.next() {
@@ -5769,6 +5899,24 @@ pub(crate) fn parse_stylesheet(css: &str) -> Vec<StyleRule> {
             Ok(rule_list) => rules.extend(rule_list),
             Err((_, slice, _)) => css_debug_report_dropped_rule(slice),
         }
+    }
+    // Rules carry registry index + 2; turn it into the order rank + 2.
+    if !top.layers.reg.is_empty() {
+        let ranks = top.layers.ranks();
+        for r in rules.iter_mut().filter(|r| r.layer >= 2) {
+            r.layer = ranks[(r.layer - 2) as usize] + 2;
+        }
+    }
+    rules
+}
+
+/// QY17: the user-agent sheet. Its rules sit in the user-agent origin
+/// (`layer` 1): below every author rule for normal declarations, above
+/// them for `!important` (CSS Cascade 5 §6.4).
+pub(crate) fn parse_ua_stylesheet(css: &str) -> Vec<StyleRule> {
+    let mut rules = parse_stylesheet(css);
+    for r in &mut rules {
+        r.layer = 1;
     }
     rules
 }
@@ -5801,11 +5949,11 @@ pub(crate) fn intern_custom_props(map: CustomProps) -> &'static CustomProps {
 /// against the combined table. A cycle makes the property invalid
 /// (removed, so a `var()` of it uses its fallback).
 pub(crate) fn compute_custom_props(
-    matches: &[(u32, &Declarations)],
+    matches: &[(u64, &Declarations)],
     inline: Option<&Declarations>,
     parent: Option<&'static CustomProps>,
 ) -> Option<&'static CustomProps> {
-    let mut own: HashMap<&str, (u32, &str)> = HashMap::new();
+    let mut own: HashMap<&str, (u64, &str)> = HashMap::new();
     for &(spec, decls) in matches {
         for (name, value) in &decls.custom_props {
             if own.get(name.as_str()).is_none_or(|(s, _)| spec >= *s) {
@@ -5815,7 +5963,7 @@ pub(crate) fn compute_custom_props(
     }
     if let Some(inl) = inline {
         for (name, value) in &inl.custom_props {
-            own.insert(name, (u32::MAX, value));
+            own.insert(name, (u64::MAX, value));
         }
     }
     if own.is_empty() {
@@ -5826,7 +5974,7 @@ pub(crate) fn compute_custom_props(
     let visiting: RefCell<(Vec<String>, HashSet<String>)> = RefCell::new((Vec::new(), HashSet::new()));
     fn lookup(
         name: &str,
-        own: &HashMap<&str, (u32, &str)>,
+        own: &HashMap<&str, (u64, &str)>,
         parent: Option<&'static CustomProps>,
         visiting: &RefCell<(Vec<String>, HashSet<String>)>,
     ) -> Option<String> {

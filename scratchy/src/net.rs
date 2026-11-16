@@ -555,7 +555,7 @@ pub(crate) const MAX_IMPORT_DEPTH: usize = 8;
 
 /// Splits the leading `@charset`/`@import` rules off `css`. Returns the
 /// imports as `(target, media)` pairs and the remaining stylesheet text.
-pub(crate) fn split_leading_imports(css: &str) -> (Vec<(String, String)>, &str) {
+pub(crate) fn split_leading_imports(css: &str) -> (Vec<(String, String, Option<String>)>, &str) {
     let mut rest = css.trim_start_matches('\u{feff}');
     let mut imports = Vec::new();
     loop {
@@ -581,8 +581,8 @@ pub(crate) fn split_leading_imports(css: &str) -> (Vec<(String, String)>, &str) 
         if is_charset {
             continue;
         }
-        if let Some((target, media)) = parse_import_prelude(body) {
-            imports.push((target, media));
+        if let Some((target, media, layer)) = parse_import_prelude(body) {
+            imports.push((target, media, layer));
         }
     }
 }
@@ -607,9 +607,11 @@ pub(crate) fn find_rule_end(s: &str) -> Option<usize> {
     None
 }
 
-/// `url(x) screen` / `"x" screen` -> (`x`, `screen`). `None` for forms we
-/// don't follow (`supports(...)`, `layer(...)`, an empty target).
-pub(crate) fn parse_import_prelude(body: &str) -> Option<(String, String)> {
+/// `url(x) layer(a.b) screen` / `"x" screen` -> (`x`, `screen`, layer).
+/// The layer is `Some(name)` for `layer(name)` and `Some("")` for a bare
+/// `layer` (QY17: the importer wraps the sheet in `@layer`). `None` for
+/// forms we don't follow (`supports(...)`, an empty target).
+pub(crate) fn parse_import_prelude(body: &str) -> Option<(String, String, Option<String>)> {
     let body = body.trim();
     let (target, rest) = if body.len() >= 4 && body[..4].eq_ignore_ascii_case("url(") {
         let close = body.find(')')?;
@@ -622,18 +624,19 @@ pub(crate) fn parse_import_prelude(body: &str) -> Option<(String, String)> {
     };
     let mut media = rest.trim();
     let lower = media.to_ascii_lowercase();
-    if lower.contains("supports(") || lower.contains("layer(") {
+    let mut layer = None;
+    if lower.starts_with("layer(") {
+        let close = media.find(')')?;
+        layer = Some(media[6..close].split_whitespace().collect::<String>());
+        media = media[close + 1..].trim();
+    } else if lower == "layer" || lower.starts_with("layer ") {
+        layer = Some(String::new());
+        media = media[5..].trim();
+    }
+    if media.to_ascii_lowercase().contains("supports(") || target.is_empty() {
         return None;
     }
-    if lower == "layer" {
-        media = "";
-    } else if let Some(m) = lower.strip_prefix("layer ") {
-        media = media[media.len() - m.len()..].trim();
-    }
-    if target.is_empty() {
-        return None;
-    }
-    Some((target, media.to_string()))
+    Some((target, media.to_string(), layer))
 }
 
 /// Expands the leading `@import` rules of a fetched stylesheet in place
@@ -650,14 +653,10 @@ pub(crate) fn expand_css_imports(
     let (imports, rest) = split_leading_imports(css);
     let mut out = String::new();
     if stack.len() < MAX_IMPORT_DEPTH {
-        for (target, media) in imports {
+        for (target, media, layer) in imports {
             if let Some(text) = decode_data_uri_text(target.trim()) {
                 let expanded = expand_css_imports(&text, sheet_url, stack, fetch);
-                if media.is_empty() {
-                    out.push_str(&expanded);
-                } else {
-                    out.push_str(&format!("@media {media} {{\n{expanded}\n}}"));
-                }
+                out.push_str(&wrap_import(expanded, &media, layer.as_deref()));
                 out.push('\n');
                 continue;
             }
@@ -669,16 +668,25 @@ pub(crate) fn expand_css_imports(
             stack.push(url.clone());
             let expanded = expand_css_imports(&text, &url, stack, fetch);
             stack.pop();
-            if media.is_empty() {
-                out.push_str(&expanded);
-            } else {
-                out.push_str(&format!("@media {media} {{\n{expanded}\n}}"));
-            }
+            out.push_str(&wrap_import(expanded, &media, layer.as_deref()));
             out.push('\n');
         }
     }
     out.push_str(&absolutize_css_urls(rest, sheet_url));
     out
+}
+
+/// Wraps an imported sheet's text in `@media` (when it has a media list)
+/// and `@layer name`/`@layer` (QY17, `layer(name)` / bare `layer`).
+fn wrap_import(expanded: String, media: &str, layer: Option<&str>) -> String {
+    let mut text = expanded;
+    if !media.is_empty() {
+        text = format!("@media {media} {{\n{text}\n}}");
+    }
+    if let Some(name) = layer {
+        text = format!("@layer{}{name} {{\n{text}\n}}", if name.is_empty() { "" } else { " " });
+    }
+    text
 }
 
 /// Q35a: rewrites every relative `url(...)` in a fetched stylesheet's text

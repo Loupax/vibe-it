@@ -1682,7 +1682,9 @@ Phase 2 (big enablers, after phase 1):
       https://www.wikipedia.org/ with a <base> tag via `--js-report --socket`.
       The two errors came from that agent's own setup (likely a stale or partly
       fetched script file), not from the engine. Reopen only with a repro.
-- [ ] QY17 [S] (P2, CSS; github) `@layer`. Symptom: github.com shows its
+- [x] QY17 [S] (DONE 3825da6: `@layer` block/nested/anonymous/statement
+      order, `@import layer()`, layer-aware cascade key (u64), UA origin
+      below author. Left out: `revert-layer`, `@import supports()`.) (P2, CSS; github) `@layer`. Symptom: github.com shows its
       "You signed in with another tab or window" banners although they
       carry `hidden`: Primer's `template,[hidden]{display:none!important}`
       sits inside `@layer primer-css-base{...}`, and

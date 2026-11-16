@@ -508,11 +508,11 @@ impl ComputedStyle {
 
 
 pub(crate) fn cascade_property<T: Clone>(
-    matches: &[(u32, &Declarations)],
+    matches: &[(u64, &Declarations)],
     inline: Option<T>,
     get: impl Fn(&Declarations) -> Option<T>,
 ) -> Option<T> {
-    let mut best: Option<(u32, T)> = None;
+    let mut best: Option<(u64, T)> = None;
     for &(specificity, decls) in matches {
         if let Some(v) = get(decls) {
             if best.as_ref().map_or(true, |(s, _)| specificity >= *s) {
@@ -780,7 +780,7 @@ pub(crate) fn copy_prop(dst: &mut ComputedStyle, src: &ComputedStyle, key: &str)
 /// inherited property) or the initial value.
 pub(crate) fn apply_rest_wide(
     cs: &mut ComputedStyle,
-    matches: &[(u32, &Declarations)],
+    matches: &[(u64, &Declarations)],
     inline: Option<&Declarations>,
     inherited: &InheritedStyle,
 ) {
@@ -819,7 +819,7 @@ pub(crate) enum Cascaded<T> {
 /// (`Declarations::wide`) competes at its own specificity, source order
 /// and `!important` tier exactly like a normal value.
 pub(crate) fn cascade_css<T: Clone>(
-    matches: &[(u32, &Declarations)],
+    matches: &[(u64, &Declarations)],
     inline: Option<&Declarations>,
     key: &str,
     get: impl Fn(&Declarations) -> Option<T>,
@@ -831,7 +831,7 @@ pub(crate) fn cascade_css<T: Clone>(
             get(d).map(Cascaded::Value)
         }
     };
-    let mut best: Option<(u32, Cascaded<T>)> = None;
+    let mut best: Option<(u64, Cascaded<T>)> = None;
     for &(specificity, decls) in matches {
         if let Some(c) = cand(decls)
             && best.as_ref().is_none_or(|(s, _)| specificity >= *s)
@@ -869,8 +869,34 @@ pub(crate) fn apply_wide<T, V>(
     }
 }
 
-/// Specificities are 30 bits; this bit marks the `!important` tier.
-pub(crate) const IMPORTANT_TIER: u32 = 1 << 31;
+/// Cascade sort key (QY17): bit 62 marks the `!important` tier, bits
+/// 32..61 hold the layer rank, bits 0..31 the specificity (30 bits).
+/// Compared as one integer, later source order wins ties (`>=`).
+pub(crate) const IMPORTANT_TIER: u64 = 1 << 62;
+/// Rank of unlayered author rules for normal declarations (the highest).
+const LAYER_MAX: u64 = (1 << 29) - 1;
+
+/// Key for a normal declaration of a rule in `layer` (`StyleRule::layer`:
+/// 0 unlayered, 1 user-agent, n >= 2 author layer): unlayered author rules
+/// beat every layer, later layers beat earlier ones, the UA is lowest.
+pub(crate) fn normal_key(spec: u32, layer: u32) -> u64 {
+    let rank = if layer == 0 { LAYER_MAX } else { layer as u64 };
+    (rank << 32) | spec as u64
+}
+
+/// Key for an `!important` declaration: the layer order is reversed
+/// (UA first, then earlier layers, unlayered last; CSS Cascade 5 §6.4).
+pub(crate) fn important_key(spec: u32, layer: u32) -> u64 {
+    to_important(normal_key(spec, layer))
+}
+
+/// The `!important` key of a rule whose normal key is `k`.
+pub(crate) fn to_important(k: u64) -> u64 {
+    if k & IMPORTANT_TIER != 0 {
+        return k;
+    }
+    IMPORTANT_TIER | ((LAYER_MAX - (k >> 32)) << 32) | (k & 0xFFFF_FFFF)
+}
 
 /// Every rule in `rules` whose selector matches `handle`, paired with its
 /// specificity — the real selector-matching work `resolve_style` itself
@@ -879,7 +905,7 @@ pub(crate) const IMPORTANT_TIER: u32 = 1 << 31;
 /// second time) rather than folding background-image into
 /// `ComputedStyle` itself — see `resolve_background_image`'s own docs
 /// for why it's resolved separately at all.
-pub(crate) fn matching_declarations<'a>(handle: &Handle, rules: &'a [StyleRule], viewport_width: f32) -> Vec<(u32, &'a Declarations)> {
+pub(crate) fn matching_declarations<'a>(handle: &Handle, rules: &'a [StyleRule], viewport_width: f32) -> Vec<(u64, &'a Declarations)> {
     matching_declarations_for(handle, rules, viewport_width, None)
 }
 
@@ -892,10 +918,10 @@ pub(crate) fn matching_declarations_for<'a>(
     rules: &'a [StyleRule],
     viewport_width: f32,
     pseudo: Option<&str>,
-) -> Vec<(u32, &'a Declarations)> {
+) -> Vec<(u64, &'a Declarations)> {
     let element = El(handle.clone());
     let mut caches = SelectorCaches::default();
-    let mut matches: Vec<(u32, &Declarations)> = Vec::new();
+    let mut matches: Vec<(u64, &Declarations)> = Vec::new();
     // R3.3: when an index was registered for exactly this rule slice,
     // only test the rules whose rightmost compound could match this
     // element (ascending rule order preserved, so cascade ties are
@@ -943,8 +969,8 @@ pub(crate) fn matching_declarations_for<'a>(
                 }
             }
             if let Some(specificity) = best {
-                matches.push((specificity, &rule.decls));
-                matches.push((specificity | IMPORTANT_TIER, &rule.important));
+                matches.push((normal_key(specificity, rule.layer), &rule.decls));
+                matches.push((important_key(specificity, rule.layer), &rule.important));
             }
             continue;
         }
@@ -965,8 +991,8 @@ pub(crate) fn matching_declarations_for<'a>(
                 .map(|s| s.specificity())
                 .max()
                 .unwrap_or(0);
-            matches.push((specificity, &rule.decls));
-            matches.push((specificity | IMPORTANT_TIER, &rule.important));
+            matches.push((normal_key(specificity, rule.layer), &rule.decls));
+            matches.push((important_key(specificity, rule.layer), &rule.important));
         }
     }
     matches
@@ -1017,7 +1043,7 @@ pub(crate) fn resolve_background_image(
         None => (None, None),
     };
     if let Some(i) = inline_important.as_ref() {
-        matches.push((u32::MAX, i));
+        matches.push((u64::MAX, i));
     }
     let bg = match cascade_css(&matches, inline_decls.as_ref(), "background-image", |d| d.background_image.clone()) {
         Cascaded::Value(BackgroundImageDecl::Url(url)) => lookup_css_image(&url, image_cache),
@@ -1108,7 +1134,7 @@ pub(crate) fn whiten_mask(mut img: DecodedImage) -> DecodedImage {
 /// Re-parses each matched rule's `var()`-bearing declarations with
 /// `lookup`'s custom properties substituted (Q13); one slot per match.
 pub(crate) fn expand_var_decls(
-    base: &[(u32, &Declarations)],
+    base: &[(u64, &Declarations)],
     lookup: &dyn Fn(&str) -> Option<String>,
 ) -> Vec<Option<Vec<(Declarations, Declarations)>>> {
     base.iter()
@@ -1151,16 +1177,16 @@ pub(crate) fn expand_var_decls(
 /// entries, so source order still breaks specificity ties; the plain
 /// declarations written after a `var()` group follow it (`late`).
 pub(crate) fn merge_var_matches<'a>(
-    base: &[(u32, &'a Declarations)],
+    base: &[(u64, &'a Declarations)],
     synth: &'a [Option<Vec<(Declarations, Declarations)>>],
-) -> Vec<(u32, &'a Declarations)> {
+) -> Vec<(u64, &'a Declarations)> {
     let mut matches = Vec::with_capacity(base.len() + 2);
     for (idx, &(spec, d)) in base.iter().enumerate() {
         matches.push((spec, d));
         if let Some(Some(groups)) = synth.get(idx) {
             for (k, (n, i)) in groups.iter().enumerate() {
                 matches.push((spec, n));
-                matches.push((spec | IMPORTANT_TIER, i));
+                matches.push((to_important(spec), i));
                 if let Some(l) = d.late.get(k) {
                     matches.push((spec, l));
                 }
@@ -1411,7 +1437,7 @@ pub(crate) fn resolve_style_for(
         None => (None, None),
     };
     if let Some(i) = inline_important.as_ref() {
-        matches.push((u32::MAX, i));
+        matches.push((u64::MAX, i));
     }
 
     let inl = inline_decls.as_ref();
