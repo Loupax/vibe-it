@@ -10412,3 +10412,57 @@ fn q35b2_image_burst_collapses_and_flushes() {
     app.replace_document(parse_html("<html></html>"), String::new());
     assert!(app.image_relayout_since.is_none());
 }
+
+#[test]
+fn qa18a_create_html_document_has_skeleton_and_own_tree() {
+    let log = run_in_html(
+        "<html><head><title>P</title></head><body><p id=x>page</p></body></html>",
+        "var d=document.implementation.createHTMLDocument('T');\
+         console.log(d.nodeType, d.nodeName, d!==document, d instanceof Document, d.title, d.documentElement.tagName,\
+           d.head.tagName, d.body.tagName, d.doctype.name, d.contentType, d.URL, d.defaultView, d.location);\
+         var e=d.createElement('div'); e.id='in'; d.body.appendChild(e);\
+         console.log(d.getElementById('in')===e, document.getElementById('in'), d.getElementById('x'),\
+           d.querySelector('#in')===e, d.querySelectorAll('div').length, document.querySelectorAll('div').length);\
+         console.log(e.ownerDocument===d, document.body.ownerDocument===document, d.createElement('b').ownerDocument===d, document.createElement('b').ownerDocument===document);\
+         d.title='N'; console.log(d.title, document.title, d.body.parentNode===d.documentElement, d.parentNode, d.childNodes.length);",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:9 #document true true T HTML HEAD BODY html text/html about:blank null null",
+            "log:true null null true 1 0",
+            "log:true true true true",
+            "log:N  true null 2"
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qa18a_import_and_adopt_node_and_create_document_type() {
+    let log = run_in_html(
+        "<html><body><div id=s><b>x</b></div></body></html>",
+        "var d=document.implementation.createHTMLDocument('');\
+         var s=document.getElementById('s'); var c=d.importNode(s,true);\
+         console.log(c.ownerDocument===d, c.parentNode, c.innerHTML, s.ownerDocument===document, c!==s);\
+         var u=document.createElement('u'); var a=d.adoptNode(u); d.body.appendChild(a);\
+         console.log(a===u, u.ownerDocument===d, d.body.firstChild===u, u.parentNode===d.body);\
+         var dt=document.implementation.createDocumentType('svg','pub','sys');\
+         console.log(dt.nodeType, dt.name, dt.publicId, dt.systemId, dt.nodeName, dt instanceof DocumentType);\
+         var x=document.implementation.createDocument('http://www.w3.org/2000/svg','svg',null);\
+         console.log(x.documentElement.tagName, x.contentType, x.body, document.implementation.hasFeature('x','1.0'));\
+         var thrown=''; try { document.implementation.createDocumentType('1 bad','','') } catch (e) { thrown=e.name }\
+         console.log(thrown);",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:true null <b>x</b> true true",
+            "log:true true true true",
+            "log:10 svg pub sys svg true",
+            "log:svg image/svg+xml null true",
+            "log:InvalidCharacterError"
+        ],
+        "{log:?}"
+    );
+}
