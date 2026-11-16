@@ -1011,23 +1011,40 @@ Phase 1 (each S, independent; do in this order):
       between tabs/pages. Persisting needs a per-origin store location,
       size limits and a privacy stance; also `history.back/forward` could
       ask the App to navigate (`JsRequests.nav`) instead of staying JS-side.
-- [ ] QY14 [S] (P2, diagnostics; needed to measure everything above)
-      (1) `drain_jobs` (js.rs) logs `Uncaught exception in a promise job`
-      with no message: fetch the pending exception (`ctx.catch()`) and log
-      it like `describe_error` does (name, message, stack). (2) Unhandled
-      promise rejections are silent: install QuickJS's host rejection
-      tracker (rquickjs `Runtime::set_host_promise_rejection_tracker`, if
-      0.14 exposes it; else wrap in JS) and log `Uncaught (in promise)
-      <reason>`. (3) `scratchy --js-report --run-timers <ms>`: after
-      `load`, drive the engine's timers on a manual clock (the
-      `start_scripts_clocked` path) up to `<ms>` simulated, draining
-      promise jobs after each timer, then append a DOM summary (element
-      count, the 20 most frequent custom-element tag names). This is what
-      R21 had to fake with 200 appended scripts. Tests: a rejected
-      promise with no handler produces one `Uncaught (in promise)` line;
-      `--run-timers` report of `setTimeout(()=>{throw new
-      Error('late')},1000)` contains `late` with `--run-timers 2000` and
-      not with `--run-timers 500` (call the report function, not stdout).
+- [x] QY14 [S] (P2, diagnostics; needed to measure everything above) f50722d
+      Done: (1) a throwing promise job logs `Uncaught (in promise job)
+      <Name: message + stack>`; (2) the host rejection tracker feeds a JS
+      queue (globals_prelude.js `__scratchy_rej_*`); once the jobs drain,
+      each still-unhandled rejection fires `unhandledrejection` on window
+      (cancelable PromiseRejectionEvent, `onunhandledrejection`) and, unless
+      prevented, logs `Uncaught (in promise) Name: message` + stack once;
+      `rejectionhandled` fires when a reported promise later gets a
+      handler; (3) `scratchy --js-report --run-timers <ms>` pumps timers on
+      a manual clock (simulated time, <= 5000 callbacks, per-callback CPU
+      budget) and reports timer-phase errors separately (`js error
+      (timers):` lines, `--- timers (...) ---` section); without the flag
+      the report is unchanged except for (4): `console.error` from the page
+      now has level `console.error` (stderr `scratchy: console.error:`) and
+      the report counts it apart (`console.error calls: N`); engine errors
+      use `__scratchy_err` (level `error`); console gained assert, trace,
+      table, dir, group*, count, time* no-ops.
+      MEASURED NEXT BLOCKERS (curl'd pages + <base>, `--run-timers 5000`;
+      none of these showed without the flag):
+        - bbc.com/news: `Uncaught (in promise) Error: Route did not
+          complete loading: /_error` (1, next.js); preceded by console.error
+          `TypeError: cannot read property 'length' of undefined` (no
+          useful stack) and `NGAS load timeout`.
+        - duckduckgo.com: console.error `ReferenceError: Intl is not
+          defined` (x4 in the timer phase) then `A client-side exception
+          has occurred` (next.js): `Intl` global missing.
+        - youtube.com: still the 2 load-phase errors (MutationObserver not
+          defined, `polyfillWrapFlushCallback` of undefined, QY6); timers
+          add nothing (4 callbacks).
+        - wikipedia (both), HN, guardian: 0 errors with and without timers.
+      Left out: DOM summary (element count / custom-element names) in the
+      report; `PromiseRejectionEvent` is dispatched to window listeners
+      only (no `window.onunhandledrejection` setter wiring beyond a plain
+      property read).
 
 Phase 2 (big enablers, after phase 1):
 
