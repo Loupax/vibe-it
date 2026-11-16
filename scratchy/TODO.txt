@@ -352,7 +352,16 @@ R22 copies and paste the before/after numbers in the commit.
       Guardian after QF4: `new Request('')` succeeds and the next failure is
       `ActiveXObject is not defined` (the polyfill.io fetch polyfill falls
       back to XHR; expected until QF8).
-- [ ] QF5 [S] READY (Rust, pure functions in net.rs; no JS) The request
+- [x] QF5 [S] DONE (commit HASH_QF5; src/net_policy.rs + codec in src/net.rs;
+      implemented with the later user answers D3/D5/D6/D8/D9: ONE
+      `RequestPolicy` struct holds every number; `private_targets`/
+      `file_targets: PrivatePolicy` default Warn; `check_request` returns a
+      `PolicyOutcome {warning}`; `check_redirect_hop`; CORS helpers; beacon
+      classifier + log formatter; `wire_cap_headers`. Function names differ
+      from the sketch below: `RequestPolicy::check_request`,
+      `build_wire_request`, `parse_wire_response_full`, `fetch_full_via_wire(
+      path, request_bytes, &WireLimits)`. `fetch_raw_via_wire` has a 60 s idle
+      read timeout. Nothing is wired to JS yet (QF7/QF8).) The request
       policy and the full wire codec.
       (a) `js_request_policy(page: Option<&Url>, target: &Url, method:
       &str) -> Result<(), String>` implementing QF-D5/D6 defaults:
@@ -405,6 +414,32 @@ R22 copies and paste the before/after numbers in the commit.
       fail closed: a response without `X-Wire-Final-Url` means an old
       wire, so the request fails with the log line "wire is too old for
       page networking; restart it".
+      QF5 FINDINGS (wire/src/main.rs read 2026-11-16; QF6 must ALSO do):
+      wire already supports every method and `Content-Length` request
+      bodies (ureq `send_bytes`; an empty body uses `call()`), forwards all
+      request headers except Host/Content-Length/Connection, and has no
+      chunked REQUEST support. It lacks: (c) the cap headers scratchy's
+      codec now sends (`RequestPolicy::wire_cap_headers`): `X-Wire-Max-Bytes`
+      (stop the body at N bytes; answer 502 + `X-Wire-Error: 1` "response too
+      large" instead of streaming more), `X-Wire-Timeout-Ms` (per-request
+      timeout; today fixed `.timeout(20s)` in `build_agent`, shorter than
+      scratchy's 30 s default and independent of sync XHR's 5 s),
+      `X-Wire-Max-Redirects` (ureq `.redirects(n)`); all three plus
+      `X-Wire-Policy` go into `is_request_header_to_skip` (never forwarded
+      upstream). (d) DUPLICATE response headers: `stream_response` uses
+      `resp.headers_names()` + `resp.header(name)`, which collapses repeated
+      names (two `Set-Cookie` lines become one): iterate `resp.all(name)` and
+      write every value (the in-memory jar, QF14, needs each Set-Cookie).
+      (e) with the user's WARN default, scratchy sends `X-Wire-Policy:
+      public-only` only when `private_targets == Block`; in Warn/Allow mode
+      wire must instead REPORT the class of the address it connected to
+      (e.g. `X-Wire-Target-Class: loopback|private|link-local|cgnat|ula`,
+      same class names as `net_policy.rs::ip_class`) so scratchy can log the
+      warning for names that resolve privately (DNS) and for redirect hops.
+      (f) `file:` already answers 405 for non-GET; with `public-only` it
+      must 403. The synthesized 502 body today is `wire: upstream request
+      failed: <e>` (scratchy's `parse_wire_response_full` recognises it even
+      from an old wire).
 - [ ] QF7 [M] READY (needs QF4, QF5, QF6) The engine/App plumbing.
       `JsRequests.net: Vec<NetRequest { id, method, url, headers, body
       }>` and `net_abort: Vec<u64>`. Native `__net_send(method, url,

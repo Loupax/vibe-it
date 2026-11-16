@@ -68,6 +68,7 @@ mod layout;
 mod images;
 mod paint;
 mod net;
+#[allow(dead_code)] // nothing calls the policy until QF7/QF8
 mod net_policy;
 mod app;
 mod js;

@@ -389,6 +389,13 @@ pub(crate) fn fetch_raw_via_wire_with_timeout(path: &std::path::Path, request_te
 // Duplicate response headers (Set-Cookie) are collapsed by wire today and
 // the final URL / an error marker are not reported: QF6.
 
+#[allow(unused_imports)]
+pub(crate) use wire_codec::*;
+
+#[allow(dead_code)] // nothing calls the codec until QF7/QF8
+mod wire_codec {
+use super::*;
+
 /// Limits and timeouts for one request through the new path.
 #[derive(Debug, Clone)]
 pub(crate) struct WireLimits {
@@ -584,6 +591,7 @@ pub(crate) fn fetch_full_via_wire(path: &std::path::Path, request: &[u8], limits
     }
     Ok(resp)
 }
+} // mod wire_codec
 
 /// `start_navigation`'s own stdout fallback — per `scratchy/TODO.txt`'s
 /// own design, printed verbatim as the literal HTTP/1.1 wire text
