@@ -231,7 +231,7 @@ R22 copies and paste the before/after numbers in the commit.
       createObjectURL/revoke round trip. Payoff: prerequisite for
       `response.blob()` and XHR `responseType='blob'` (Blob refs: yt 8,
       bbc 9, guardian 4).
-- [x] QF3 [S] DONE `FormData` as a data class only (no submission:
+- [x] QF3 bfd2fe7 [S] DONE `FormData` as a data class only (no submission:
       forms rule in AGENTS.md). `new FormData()`, append/set (a Blob
       value becomes a File named 'blob' unless a filename is given),
       get/getAll/has/delete/keys/values/entries/forEach and iteration in
