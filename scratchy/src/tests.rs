@@ -10748,3 +10748,45 @@ fn qy9_search_params_encoding_and_iteration() {
         "{log:?}"
     );
 }
+
+// ---------- QY10: window.matchMedia ----------
+
+#[test]
+fn qy10_match_media_features_and_combinations() {
+    let out = run_collecting(&[src(
+        "var q = function (s) { return window.matchMedia(s).matches ? 1 : 0; };\
+         console.log([q('(min-width: 1px)'), q('(max-width: 1px)'), q('(min-width: 1024px)'), q('(max-width: 1023px)'),\
+           q('(min-width: 600px) and (max-width: 2000px)'), q('(min-width: 600px) and (max-width: 800px)'),\
+           q('(prefers-color-scheme: light)'), q('(prefers-color-scheme: dark)'), q('print'), q('screen'),\
+           q('not all'), q('not print'), q('(min-height: 700px)'), q('(orientation: landscape)'), q('(orientation: portrait)'),\
+           q('(hover: hover)'), q('(pointer: coarse)'), q('(prefers-reduced-motion: reduce)'), q('(min-resolution: 2dppx)'),\
+           q('(min-resolution: 1dppx)'), q('print, (min-width: 1px)'), q('(width >= 600px)'), q('(width < 600px)'),\
+           q('screen and (min-width: 1px)'), q('(forced-colors: active)'), q('')].join(','));",
+    )]);
+    assert_eq!(out, vec!["log:1,0,1,0,1,0,1,0,0,1,0,1,1,1,0,1,0,0,0,1,1,1,0,1,0,1"]);
+}
+
+#[test]
+fn qy10_match_media_invalid_is_not_all_and_media_is_reported() {
+    let out = run_collecting(&[src(
+        "var a = matchMedia('(((garbage'), b = matchMedia('(MIN-WIDTH: 10px)'), c = matchMedia('screen and');\
+         console.log(a.matches, a.media, b.matches, b.media, c.matches, c.media, matchMedia('').media === '');",
+    )]);
+    assert_eq!(out, vec!["log:false not all true (min-width: 10px) false not all true"]);
+}
+
+#[test]
+fn qy10_match_media_listeners_and_class() {
+    let out = run_collecting(&[src(
+        "var m = matchMedia('(min-width: 1px)'), n = 0, f = function () { n++; };\
+         var k = 0, g2 = function () { k++; }; m.addListener(g2);\
+         m.addListener(f); m.addEventListener('change', f); m.removeListener(f);\
+         m.dispatchEvent(new Event('change')); if (k !== 1) n += 100; m.removeListener(g2);\
+         m.dispatchEvent(new Event('change')); if (k !== 1) n += 1000;\
+         m.removeEventListener('change', f);\
+         m.dispatchEvent(new Event('change'));\
+         m.onchange = function () { n += 10; }; m.dispatchEvent(new Event('change'));\
+         console.log(m instanceof MediaQueryList, m instanceof EventTarget, typeof m.addListener, m.onchange !== undefined, n);",
+    )]);
+    assert_eq!(out, vec!["log:true true function true 10"]);
+}
