@@ -756,6 +756,36 @@ const DOM_PRELUDE: &str = r#"
     for (; n; n = n.parentNode) if (n === this) return true;
     return false;
   };
+  // QY16b: DOM spec "equals" over node ids. Attributes compare as sets (order
+  // ignored); children compare pairwise in order.
+  var eqNode = function (a, b) {
+    var k = __d_kind(a);
+    if (k !== __d_kind(b)) return false;
+    if (k === 1) {
+      if (__d_tag(a) !== __d_tag(b) || __d_ns(a) !== __d_ns(b)) return false;
+      var na = __d_attr_names(a), nb = __d_attr_names(b);
+      if (na.length !== nb.length) return false;
+      for (var i = 0; i < na.length; i++) {
+        var v = __d_attr(b, na[i]);
+        if (v == null || v !== __d_attr(a, na[i])) return false;
+      }
+    } else if (k === 10) {
+      var da = __d_doctype(a), db = __d_doctype(b);
+      if (da[0] !== db[0] || da[1] !== db[1] || da[2] !== db[2]) return false;
+    } else if (k === 3 || k === 8) {
+      if (__d_text(a) !== __d_text(b)) return false;
+    }
+    var ca = __d_children(a, false), cb = __d_children(b, false);
+    if (ca.length !== cb.length) return false;
+    for (var j = 0; j < ca.length; j++) if (!eqNode(ca[j], cb[j])) return false;
+    return true;
+  };
+  NodeProto.isEqualNode = function (other) {
+    if (other == null) return false;
+    if (other.__id === undefined) throw new TypeError("Failed to execute 'isEqualNode' on 'Node': parameter 1 is not of type 'Node'.");
+    return eqNode(this.__id, other.__id);
+  };
+  NodeProto.isSameNode = function (other) { return this === other; };
   queries = function (P) {
     P.querySelector = function (s) { return wrap(q(this.__id, s, true)[0]); };
     P.querySelectorAll = function (s) { return wrapAll(q(this.__id, s, false)); };
