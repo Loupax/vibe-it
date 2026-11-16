@@ -268,6 +268,11 @@ pub(crate) struct RequestPolicy {
     pub legacy_idle_timeout: Duration,
     /// CORS preflight cache lifetime cap (Chrome: 2 h).
     pub preflight_max_age_cap_secs: u64,
+    /// QF13: lifetime of a preflight cache entry when the response has no
+    /// `Access-Control-Max-Age` (the Fetch spec default, 5 s).
+    pub preflight_default_max_age_secs: u64,
+    /// QF13: the in-memory preflight cache keeps at most this many entries.
+    pub preflight_cache_max_entries: usize,
     /// Redirects wire may follow (ureq default is 5). Sent as `X-Wire-Max-Redirects` (QF6).
     pub redirect_limit: u32,
     /// QF-D8: sync XHR blocks the main thread, but at most this long.
@@ -302,6 +307,8 @@ impl Default for RequestPolicy {
             read_timeout: Duration::from_secs(30),
             legacy_idle_timeout: Duration::from_secs(60),
             preflight_max_age_cap_secs: 7200,
+            preflight_default_max_age_secs: 5,
+            preflight_cache_max_entries: 128,
             redirect_limit: 5,
             sync_xhr_timeout_ms: 5000,
             cookie_control_timeout_ms: 2000,
@@ -641,7 +648,7 @@ impl RequestPolicy {
         let wildcard_ok = !credentials;
         let method_ok = methods.iter().any(|m| m == &method) || (wildcard_ok && methods.iter().any(|m| m == "*")) || is_cors_safelisted_method(&method);
         if !method_ok {
-            return Err(PolicyError::Cors(format!("method {method} is not in Access-Control-Allow-Methods")));
+            return Err(PolicyError::Cors(format!("Access-Control-Allow-Methods missing '{method}'")));
         }
         let allowed: Vec<String> = list_items(resp_headers, "access-control-allow-headers").iter().map(|s| s.to_ascii_lowercase()).collect();
         let star = wildcard_ok && allowed.iter().any(|h| h == "*");
@@ -649,10 +656,10 @@ impl RequestPolicy {
             // `*` never covers Authorization.
             let ok = allowed.contains(h) || (star && h != "authorization");
             if !ok {
-                return Err(PolicyError::Cors(format!("header {h} is not in Access-Control-Allow-Headers")));
+                return Err(PolicyError::Cors(format!("Access-Control-Allow-Headers missing '{h}'")));
             }
         }
-        let max_age = header_values(resp_headers, "access-control-max-age").first().and_then(|v| v.trim().parse::<u64>().ok()).unwrap_or(5);
+        let max_age = header_values(resp_headers, "access-control-max-age").first().and_then(|v| v.trim().parse::<u64>().ok()).unwrap_or(self.preflight_default_max_age_secs);
         Ok(PreflightResult { max_age_secs: max_age.min(self.preflight_max_age_cap_secs) })
     }
 }

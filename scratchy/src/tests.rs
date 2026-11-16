@@ -13318,9 +13318,9 @@ fn qf7_preflight_is_rejected_with_a_clear_log() {
         "__net_request({method:'PUT', url:'https://other.test/x', headers:[], body:null}).promise.catch(function(e){ console.log('err', e.name); });",
     );
     qf7_drive(&engine, &fake);
-    assert!(fake.urls().is_empty());
+    assert_eq!(fake.urls(), vec!["https://other.test/x"], "QF13: only the preflight (which got no canned answer) was sent");
     let l = log.borrow().clone();
-    assert!(l.iter().any(|x| x.starts_with("net:blocked PUT https://other.test/x:") && x.contains("not implemented (QF13 preflight)")), "{l:?}");
+    assert!(l.iter().any(|x| x.starts_with("net:CORS preflight failed: https://other.test/x:")), "{l:?}");
     assert!(l.contains(&"log:err TypeError".to_string()), "{l:?}");
 }
 
@@ -13847,7 +13847,7 @@ fn qf9_cors_failure_is_an_error_event_with_status_0() {
     assert!(l.contains(&"log:end 0 \"\"".to_string()), "{l:?}");
     assert!(l.contains(&"log:pf error".to_string()), "{l:?}");
     assert!(l.iter().any(|x| x.contains("GET https://other.test/closed: CORS: no Access-Control-Allow-Origin")), "{l:?}");
-    assert!(l.iter().any(|x| x.contains("QF13 preflight")), "{l:?}");
+    assert!(l.iter().any(|x| x.contains("CORS preflight failed: https://other.test/pf")), "{l:?}");
 }
 
 #[test]
@@ -15022,6 +15022,497 @@ fn qsd0_readonly_fragment_query_methods_do_not_break_wrappers() {
     assert_eq!(log, ["log:page true 1", "log:1 P"], "{log:?}");
 }
 
+
+// ---------- QF13: all methods with bodies, CORS preflight + cache ----------
+
+type PfHandler = Box<dyn Fn(&str, &str, &str) -> Result<WireResponse, NetError> + Send + Sync>;
+
+/// Method-aware fake wire: records every raw request (in order) with its
+/// read timeout; `handler(method, url, raw)` answers.
+struct PfFake {
+    seen: Mutex<Vec<(String, String, String, std::time::Duration)>>,
+    handler: PfHandler,
+}
+
+impl PfFake {
+    fn new(handler: impl Fn(&str, &str, &str) -> Result<WireResponse, NetError> + Send + Sync + 'static) -> Arc<Self> {
+        Arc::new(PfFake { seen: Mutex::new(Vec::new()), handler: Box::new(handler) })
+    }
+    /// `METHOD url` per request, in order.
+    fn order(&self) -> Vec<String> {
+        self.seen.lock().unwrap().iter().map(|(m, u, _, _)| format!("{m} {u}")).collect()
+    }
+    fn raw(&self, i: usize) -> String {
+        self.seen.lock().unwrap()[i].2.clone()
+    }
+}
+
+impl NetExecutor for PfFake {
+    fn execute(&self, job: &crate::js_net::NetJob) -> Result<WireResponse, NetError> {
+        let raw = String::from_utf8_lossy(&job.request).to_string();
+        let mut it = raw.lines().next().unwrap_or("").split(' ');
+        let (m, u) = (it.next().unwrap_or("").to_string(), it.next().unwrap_or("").to_string());
+        self.seen.lock().unwrap().push((m.clone(), u.clone(), raw.clone(), job.limits.read_timeout));
+        (self.handler)(&m, &u, &raw)
+    }
+}
+
+fn pf_resp(status: u16, headers: &[(&str, &str)], body: &str) -> Result<WireResponse, NetError> {
+    Ok(WireResponse {
+        status,
+        status_text: if status == 204 { "No Content".into() } else { "OK".into() },
+        headers: headers.iter().map(|(a, b)| (a.to_string(), b.to_string())).collect(),
+        body: body.as_bytes().to_vec(),
+        error: None,
+        final_url: None,
+    })
+}
+
+/// A cooperative CORS server for `https://page.test`: the preflight carries
+/// `pre` (extra/override headers), everything else answers 200 with ACAO.
+fn pf_server(pre: &'static [(&'static str, &'static str)]) -> impl Fn(&str, &str, &str) -> Result<WireResponse, NetError> + Send + Sync + 'static {
+    move |m, _u, _raw| {
+        if m == "OPTIONS" {
+            pf_resp(204, pre, "")
+        } else {
+            pf_resp(200, &[("access-control-allow-origin", "https://page.test"), ("content-type", "text/plain")], "done")
+        }
+    }
+}
+
+const PF_ALLOW_ALL: &[(&str, &str)] = &[
+    ("access-control-allow-origin", "https://page.test"),
+    ("access-control-allow-methods", "POST, PUT, PATCH, DELETE"),
+    ("access-control-allow-headers", "content-type, x-foo"),
+];
+
+fn pf_engine(page: &str, fake: &Arc<PfFake>, clock: Option<Rc<std::cell::Cell<f64>>>) -> (JsEngine, Rc<RefCell<Vec<String>>>) {
+    set_page_url(Some(&Url::parse(page).unwrap()));
+    crate::js_net::set_net_executor(fake.clone());
+    let out = Rc::new(RefCell::new(Vec::new()));
+    let o = out.clone();
+    let engine = crate::js::start_scripts_clocked(&parse_html(""), &[src("")], Rc::new(move |l, t| o.borrow_mut().push(format!("{l}:{t}"))), clock).unwrap();
+    (engine, out)
+}
+
+fn pf_drive(engine: &JsEngine, fake: &Arc<PfFake>) {
+    let mut sched = NetScheduler::new(&engine.net_policy());
+    crate::js_net::drive_report_net(engine, &mut sched, &**fake);
+}
+
+const PF_JSON_POST: &str = "fetch('https://api.test/x', {method:'POST', headers:{'Content-Type':'application/json','X-Foo':'1'}, body:'{\"k\":1}'})\
+    .then(function(r){ return r.text(); }).then(function(t){ console.log('ok', t); }, function(e){ console.log('err', e.name, e.message); });";
+
+#[test]
+fn qf13_preflight_precedes_a_cross_origin_json_post_without_cookies() {
+    let fake = PfFake::new(pf_server(PF_ALLOW_ALL));
+    let (engine, log) = pf_engine("https://page.test/", &fake, None);
+    engine.eval("t", &PF_JSON_POST.replace("headers:", "credentials:'omit', headers:"));
+    pf_drive(&engine, &fake);
+    assert_eq!(fake.order(), vec!["OPTIONS https://api.test/x", "POST https://api.test/x"]);
+    let pre = fake.raw(0);
+    assert!(pre.contains("Origin: https://page.test\r\n"), "{pre}");
+    assert!(pre.contains("Access-Control-Request-Method: POST\r\n"), "{pre}");
+    assert!(pre.contains("Access-Control-Request-Headers: content-type,x-foo\r\n"), "lowercased and sorted: {pre}");
+    assert!(pre.contains("X-Wire-Cookies: off"), "{pre}");
+    assert!(!pre.to_ascii_lowercase().contains("x-wire-jar"), "{pre}");
+    assert!(!pre.to_ascii_lowercase().contains("content-length") && pre.ends_with("\r\n\r\n"), "no body: {pre}");
+    let act = fake.raw(1);
+    assert!(act.contains("{\"k\":1}") && act.contains("Origin: https://page.test"), "{act}");
+    let l = log.borrow().clone();
+    assert!(l.contains(&"log:ok done".to_string()), "{l:?}");
+    assert!(l.iter().any(|x| x.starts_with("net:preflight OPTIONS https://api.test/x for POST (Access-Control-Request-Headers: content-type,x-foo)")), "{l:?}");
+    let e = engine.net_entries();
+    assert!(e.iter().any(|x| x.method == "OPTIONS (preflight)" && x.outcome.starts_with("204")), "{e:?}");
+    let report = crate::js_net::format_net_report(&e);
+    assert!(report.contains("OPTIONS (preflight) https://api.test/x -> 204"), "{report}");
+}
+
+
+#[test]
+fn qf13_preflight_never_sends_the_jar_but_the_credentialed_request_does() {
+    let fake = PfFake::new(pf_server(&[
+        ("access-control-allow-origin", "https://page.test"),
+        ("access-control-allow-credentials", "true"),
+        ("access-control-allow-methods", "PUT"),
+        ("access-control-allow-headers", "x-foo"),
+    ]));
+    let (engine, _log) = pf_engine("https://page.test/", &fake, None);
+    engine.eval(
+        "t",
+        "fetch('https://api.test/x', {method:'PUT', credentials:'include', headers:{'X-Foo':'1'}, body:'b'}).catch(function(e){ console.log('err', e.message); });",
+    );
+    pf_drive(&engine, &fake);
+    assert_eq!(fake.order(), vec!["OPTIONS https://api.test/x", "PUT https://api.test/x"], "{:?}", fake.order());
+    assert!(!fake.raw(0).to_ascii_lowercase().contains("x-wire-jar"), "{}", fake.raw(0));
+    assert!(fake.raw(0).contains("X-Wire-Cookies: off"));
+    assert!(fake.raw(1).contains("X-Wire-Jar: scratchy"), "{}", fake.raw(1));
+}
+
+fn qf13_denied(pre: &'static [(&'static str, &'static str)], status: u16, code: &str) -> (Vec<String>, Vec<String>) {
+    let fake = PfFake::new(move |m, _u, _r| {
+        if m == "OPTIONS" {
+            pf_resp(status, pre, "")
+        } else {
+            pf_resp(200, &[("access-control-allow-origin", "https://page.test")], "SECRET")
+        }
+    });
+    let (engine, log) = pf_engine("https://page.test/", &fake, None);
+    engine.eval("t", code);
+    pf_drive(&engine, &fake);
+    let l = log.borrow().clone();
+    (fake.order(), l)
+}
+
+#[test]
+fn qf13_each_missing_piece_denies_the_preflight_and_sends_nothing_else() {
+    let cases: Vec<(&'static [(&'static str, &'static str)], u16, &str, &str)> = vec![
+        // header missing
+        (&[("access-control-allow-origin", "https://page.test"), ("access-control-allow-methods", "POST"), ("access-control-allow-headers", "content-type")], 204, PF_JSON_POST, "Access-Control-Allow-Headers missing 'x-foo'"),
+        // method missing
+        (&[("access-control-allow-origin", "https://page.test"), ("access-control-allow-methods", "GET"), ("access-control-allow-headers", "content-type, x-foo")], 204, "fetch('https://api.test/x', {method:'PUT', headers:{'X-Foo':'1'}, body:'b'}).catch(function(e){ console.log('err', e.name, e.message); });", "Access-Control-Allow-Methods missing 'PUT'"),
+        // origin missing / wrong
+        (&[("access-control-allow-methods", "POST"), ("access-control-allow-headers", "content-type, x-foo")], 204, PF_JSON_POST, "no Access-Control-Allow-Origin header"),
+        (&[("access-control-allow-origin", "https://evil.test"), ("access-control-allow-methods", "POST"), ("access-control-allow-headers", "content-type, x-foo")], 204, PF_JSON_POST, "does not match the page origin"),
+        // bad status
+        (&[("access-control-allow-origin", "https://page.test"), ("access-control-allow-methods", "POST"), ("access-control-allow-headers", "content-type, x-foo")], 403, PF_JSON_POST, "preflight response has status 403"),
+        // wildcard never covers Authorization
+        (&[("access-control-allow-origin", "*"), ("access-control-allow-methods", "*"), ("access-control-allow-headers", "*")], 204, "fetch('https://api.test/x', {headers:{'Authorization':'t'}}).catch(function(e){ console.log('err', e.name, e.message); });", "Access-Control-Allow-Headers missing 'authorization'"),
+        // credentials: ACAO * with credentials, and ACAC missing
+        (&[("access-control-allow-origin", "*"), ("access-control-allow-methods", "POST"), ("access-control-allow-headers", "x-foo,content-type")], 204, "fetch('https://api.test/x', {method:'POST', credentials:'include', headers:{'X-Foo':'1'}, body:'b'}).catch(function(e){ console.log('err', e.name, e.message); });", "Access-Control-Allow-Origin is * but the request includes credentials"),
+        (&[("access-control-allow-origin", "https://page.test"), ("access-control-allow-methods", "POST"), ("access-control-allow-headers", "x-foo")], 204, "fetch('https://api.test/x', {method:'POST', credentials:'include', headers:{'X-Foo':'1'}, body:'b'}).catch(function(e){ console.log('err', e.name, e.message); });", "Access-Control-Allow-Credentials is not true"),
+    ];
+    for (pre, status, code, what) in cases {
+        let (order, l) = qf13_denied(pre, status, code);
+        assert_eq!(order, vec!["OPTIONS https://api.test/x"], "only the preflight is sent ({what}): {l:?}");
+        assert!(l.iter().any(|x| x.starts_with("net:CORS preflight failed: https://api.test/x: ") && x.contains(what)), "{what}: {l:?}");
+        assert!(l.contains(&"log:err TypeError Failed to fetch".to_string()), "{what}: {l:?}");
+        assert!(!l.iter().any(|x| x.contains("SECRET")), "{l:?}");
+    }
+}
+
+#[test]
+fn qf13_a_preflight_transport_error_fails_the_request_too() {
+    let fake = PfFake::new(|_m, _u, _r| Err(NetError::Io("boom".into())));
+    let (engine, log) = pf_engine("https://page.test/", &fake, None);
+    engine.eval("t", PF_JSON_POST);
+    pf_drive(&engine, &fake);
+    assert_eq!(fake.order(), vec!["OPTIONS https://api.test/x"]);
+    let l = log.borrow().clone();
+    assert!(l.iter().any(|x| x.starts_with("net:CORS preflight failed: https://api.test/x: ") && x.contains("boom")), "{l:?}");
+    assert!(l.contains(&"log:err TypeError Failed to fetch".to_string()), "{l:?}");
+}
+
+#[test]
+fn qf13_cache_hit_skips_the_second_preflight_and_max_age_expires_on_the_clock() {
+    let fake = PfFake::new(pf_server(&[
+        ("access-control-allow-origin", "https://page.test"),
+        ("access-control-allow-methods", "POST"),
+        ("access-control-allow-headers", "content-type, x-foo"),
+        ("access-control-max-age", "10"),
+    ]));
+    let clock = Rc::new(std::cell::Cell::new(0.0f64));
+    let (engine, log) = pf_engine("https://page.test/", &fake, Some(clock.clone()));
+    engine.eval("t", PF_JSON_POST);
+    pf_drive(&engine, &fake);
+    clock.set(9_000.0);
+    engine.eval("t", PF_JSON_POST);
+    pf_drive(&engine, &fake);
+    assert_eq!(fake.order().iter().filter(|x| x.starts_with("OPTIONS")).count(), 1, "second request used the cache: {:?}", fake.order());
+    assert_eq!(fake.order().iter().filter(|x| x.starts_with("POST")).count(), 2);
+    assert!(log.borrow().iter().any(|x| x.starts_with("net:preflight cache hit: OPTIONS https://api.test/x for POST")), "{:?}", log.borrow());
+    let report = crate::js_net::format_net_report(&engine.net_entries());
+    assert!(report.contains("OPTIONS (preflight) https://api.test/x -> cache hit"), "{report}");
+    clock.set(10_500.0);
+    engine.eval("t", PF_JSON_POST);
+    pf_drive(&engine, &fake);
+    assert_eq!(fake.order().iter().filter(|x| x.starts_with("OPTIONS")).count(), 2, "expired after Max-Age: {:?}", fake.order());
+}
+
+#[test]
+fn qf13_default_max_age_is_five_seconds_and_the_cap_comes_from_the_policy() {
+    let fake = PfFake::new(pf_server(PF_ALLOW_ALL));
+    let clock = Rc::new(std::cell::Cell::new(0.0f64));
+    let (engine, _log) = pf_engine("https://page.test/", &fake, Some(clock.clone()));
+    engine.eval("t", PF_JSON_POST);
+    pf_drive(&engine, &fake);
+    clock.set(4_900.0);
+    engine.eval("t", PF_JSON_POST);
+    pf_drive(&engine, &fake);
+    assert_eq!(fake.order().iter().filter(|x| x.starts_with("OPTIONS")).count(), 1);
+    clock.set(5_100.0);
+    engine.eval("t", PF_JSON_POST);
+    pf_drive(&engine, &fake);
+    assert_eq!(fake.order().iter().filter(|x| x.starts_with("OPTIONS")).count(), 2, "default 5 s");
+    // a huge Max-Age is capped by the policy
+    let fake = PfFake::new(pf_server(&[
+        ("access-control-allow-origin", "https://page.test"),
+        ("access-control-allow-methods", "POST"),
+        ("access-control-allow-headers", "content-type, x-foo"),
+        ("access-control-max-age", "999999"),
+    ]));
+    let clock = Rc::new(std::cell::Cell::new(0.0f64));
+    let (engine, _log) = pf_engine("https://page.test/", &fake, Some(clock.clone()));
+    let mut p = RequestPolicy::default();
+    p.preflight_max_age_cap_secs = 20;
+    engine.set_net_policy(p);
+    engine.eval("t", PF_JSON_POST);
+    pf_drive(&engine, &fake);
+    clock.set(21_000.0);
+    engine.eval("t", PF_JSON_POST);
+    pf_drive(&engine, &fake);
+    assert_eq!(fake.order().iter().filter(|x| x.starts_with("OPTIONS")).count(), 2, "cap of 20 s applied");
+}
+
+#[test]
+fn qf13_cache_is_keyed_by_url_method_headers_and_credentials_and_bounded() {
+    let fake = PfFake::new(pf_server(&[
+        ("access-control-allow-origin", "https://page.test"),
+        ("access-control-allow-credentials", "true"),
+        ("access-control-allow-methods", "POST, PUT"),
+        ("access-control-allow-headers", "content-type, x-foo"),
+        ("access-control-max-age", "100"),
+    ]));
+    let (engine, _log) = pf_engine("https://page.test/", &fake, Some(Rc::new(std::cell::Cell::new(0.0))));
+    let go = |url: &str, method: &str, cred: &str| {
+        format!("fetch('{url}', {{method:'{method}', credentials:'{cred}', headers:{{'X-Foo':'1'}}, body:'b'}}).catch(function(){{}});")
+    };
+    engine.eval(
+        "t",
+        &[
+            go("https://api.test/a", "POST", "omit"),
+            go("https://api.test/a", "POST", "omit"),
+            go("https://api.test/a", "PUT", "omit"),
+            go("https://api.test/a", "POST", "include"),
+            go("https://api.test/b", "POST", "omit"),
+        ]
+        .concat(),
+    );
+    pf_drive(&engine, &fake);
+    // The first two POSTs are issued before the first preflight returns, so both
+    // preflight; then PUT, include and /b are different keys.
+    let pre = fake.order().iter().filter(|x| x.starts_with("OPTIONS")).count();
+    assert_eq!(pre, 5, "{:?}", fake.order());
+    engine.eval("t", &go("https://api.test/a", "POST", "omit"));
+    pf_drive(&engine, &fake);
+    assert_eq!(fake.order().iter().filter(|x| x.starts_with("OPTIONS")).count(), 5, "now cached");
+    let mut c = crate::js_net::PreflightCache::default();
+    let u = Url::parse("https://a.test/").unwrap();
+    for i in 0..10 {
+        let k = crate::js_net::PreflightCache::key("o", &u, &format!("M{i}"), &[], false);
+        c.insert(k, 0.0, 10 + i, 4);
+    }
+    assert_eq!(c.len(), 4, "bounded by the policy's max entries");
+    c.insert("zero".into(), 0.0, 0, 4);
+    assert_eq!(c.len(), 4, "Max-Age 0 is not cached");
+}
+
+#[test]
+fn qf13_put_patch_delete_with_bodies_reach_the_executor_after_their_preflights() {
+    let fake = PfFake::new(pf_server(PF_ALLOW_ALL));
+    let (engine, log) = pf_engine("https://page.test/", &fake, None);
+    engine.eval(
+        "t",
+        "fetch('https://api.test/r', {method:'PUT', body:'put-body'}).catch(function(e){ console.log('e1', e.message); });\
+         fetch('https://api.test/r', {method:'PATCH', body:'patch-body'}).catch(function(e){ console.log('e2', e.message); });\
+         fetch('https://api.test/r', {method:'DELETE', body:'del-body'}).catch(function(e){ console.log('e3', e.message); });\
+         var x = new XMLHttpRequest(); x.open('PUT', 'https://api.test/x'); x.send('xhr-body');",
+    );
+    pf_drive(&engine, &fake);
+    let seen = fake.seen.lock().unwrap().clone();
+    for (m, body) in [("PUT", "put-body"), ("PATCH", "patch-body"), ("DELETE", "del-body")] {
+        let (_, _, raw, _) = seen.iter().find(|(mm, u, _, _)| mm == m && u.ends_with("/r")).unwrap_or_else(|| panic!("{m} not sent: {seen:?}"));
+        assert!(raw.ends_with(body), "{raw}");
+    }
+    assert!(seen.iter().any(|(m, u, r, _)| m == "PUT" && u.ends_with("/x") && r.ends_with("xhr-body")), "{seen:?}");
+    // every actual request came after an OPTIONS for the same URL+method
+    let opts = seen.iter().filter(|s| s.0 == "OPTIONS").count();
+    assert!(opts >= 4, "{:?}", fake.order());
+    assert!(!log.borrow().iter().any(|x| x.contains("blocked")), "{:?}", log.borrow());
+}
+
+#[test]
+fn qf13_forbidden_methods_are_still_refused_before_any_preflight() {
+    let fake = PfFake::new(pf_server(PF_ALLOW_ALL));
+    let (engine, log) = pf_engine("https://page.test/", &fake, None);
+    engine.eval("t", "__net_request({method:'TRACE', url:'https://api.test/x', headers:[], body:null}).promise.catch(function(e){ console.log('err', e.name); });");
+    pf_drive(&engine, &fake);
+    assert!(fake.order().is_empty(), "{:?}", fake.order());
+    assert!(log.borrow().iter().any(|x| x.starts_with("net:blocked TRACE")), "{:?}", log.borrow());
+}
+
+#[test]
+fn qf13_same_origin_and_simple_requests_never_preflight() {
+    let fake = PfFake::new(|_m, _u, _r| pf_resp(200, &[("access-control-allow-origin", "https://page.test")], "x"));
+    let (engine, _log) = pf_engine("https://page.test/", &fake, None);
+    engine.eval(
+        "t",
+        "fetch('/same', {method:'PUT', headers:{'Content-Type':'application/json','X-Foo':'1'}, body:'{}'});\
+         fetch('https://api.test/simple', {method:'POST', headers:{'Content-Type':'text/plain'}, body:'a'});\
+         fetch('https://api.test/get');\
+         var x = new XMLHttpRequest(); x.open('POST', 'https://api.test/form'); x.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded'); x.send('a=b');",
+    );
+    pf_drive(&engine, &fake);
+    let o = fake.order();
+    assert_eq!(o.len(), 4, "{o:?}");
+    assert!(o.iter().all(|x| !x.starts_with("OPTIONS")), "{o:?}");
+}
+
+#[test]
+fn qf13_the_preflight_counts_toward_the_page_cap_and_the_in_flight_limits() {
+    let fake = PfFake::new(pf_server(PF_ALLOW_ALL));
+    let (engine, log) = pf_engine("https://page.test/", &fake, None);
+    let mut p = RequestPolicy::default();
+    p.max_requests_per_page = 3;
+    engine.set_net_policy(p);
+    engine.eval(
+        "t",
+        "for (var i = 0; i < 3; i++) fetch('https://api.test/c' + i, {method:'PUT', body:'b'}).then(function(){ console.log('ok'); }, function(e){ console.log('err', e.message); });",
+    );
+    pf_drive(&engine, &fake);
+    let o = fake.order();
+    assert_eq!(o.len(), 3, "cap of 3 requests counts OPTIONS too: {o:?}");
+    let l = log.borrow().clone();
+    assert!(l.iter().any(|x| x.contains("too many requests from this page (limit 3)")), "{l:?}");
+    // in flight: a preflight is an ordinary job for the scheduler
+    let mut sched = NetScheduler::new(&engine.net_policy());
+    let (engine2, _l2) = pf_engine("https://page.test/", &fake, None);
+    engine2.eval("t", "fetch('https://api.test/z', {method:'PUT', body:'b'});");
+    let reqs = engine2.take_requests();
+    assert_eq!(reqs.net.len(), 1, "only the preflight is queued first");
+    for j in reqs.net {
+        assert_eq!(j.reserve, 0, "a preflight reserves no body bytes");
+        sched.enqueue(j);
+    }
+    assert_eq!(sched.counts().0, 1);
+}
+
+#[test]
+fn qf13_aborting_during_the_preflight_sends_nothing() {
+    let fake = PfFake::new(pf_server(PF_ALLOW_ALL));
+    let (engine, log) = pf_engine("https://page.test/", &fake, None);
+    engine.eval("t", "var c = new AbortController(); fetch('https://api.test/a', {method:'PUT', body:'b', signal:c.signal}).catch(function(e){ console.log('err', e.name); }); c.abort();");
+    pf_drive(&engine, &fake);
+    assert!(fake.order().is_empty(), "{:?}", fake.order());
+    assert!(log.borrow().contains(&"log:err AbortError".to_string()), "{:?}", log.borrow());
+}
+
+#[test]
+fn qf13_xhr_fires_error_when_the_preflight_is_denied() {
+    let fake = PfFake::new(pf_server(&[("access-control-allow-origin", "https://page.test"), ("access-control-allow-methods", "GET")]));
+    let (engine, log) = pf_engine("https://page.test/", &fake, None);
+    engine.eval(
+        "t",
+        "var x = new XMLHttpRequest(); x.open('PUT', 'https://api.test/x');\
+         ['load','error','loadend'].forEach(function(t){ x.addEventListener(t, function(){ console.log('ev', t, x.status, x.readyState); }); });\
+         x.send('b');",
+    );
+    pf_drive(&engine, &fake);
+    assert_eq!(fake.order(), vec!["OPTIONS https://api.test/x"]);
+    let l = log.borrow().clone();
+    assert!(l.contains(&"log:ev error 0 4".to_string()) && !l.contains(&"log:ev load 0 4".to_string()), "{l:?}");
+    assert!(l.iter().any(|x| x.contains("CORS preflight failed: https://api.test/x: Access-Control-Allow-Methods missing 'PUT'")), "{l:?}");
+}
+
+#[test]
+fn qf13_sync_xhr_preflights_inside_the_blocking_call_within_the_sync_budget() {
+    let fake = PfFake::new(pf_server(PF_ALLOW_ALL));
+    let (engine, log) = pf_engine("https://page.test/", &fake, None);
+    engine.eval(
+        "t",
+        "var x = new XMLHttpRequest(); x.open('POST', 'https://api.test/s', false); x.setRequestHeader('X-Foo', '1');\
+         x.send('sync-body'); console.log('after', x.status, x.responseText);",
+    );
+    // no driving at all: everything happened inside send()
+    assert_eq!(fake.order(), vec!["OPTIONS https://api.test/s", "POST https://api.test/s"]);
+    let l = log.borrow().clone();
+    assert!(l.contains(&"log:after 200 done".to_string()), "{l:?}");
+    assert!(l.iter().any(|x| x.contains("blocking the page for up to 5000 ms (including its preflight)")), "{l:?}");
+    let seen = fake.seen.lock().unwrap().clone();
+    assert!(seen[0].3 <= std::time::Duration::from_millis(5000) && seen[1].3 <= std::time::Duration::from_millis(5000), "{seen:?}");
+    assert!(seen[1].2.contains("X-Wire-Timeout-Ms: "), "{}", seen[1].2);
+    // denied: throws NetworkError, only the preflight was sent
+    let fake = PfFake::new(pf_server(&[("access-control-allow-origin", "https://page.test")]));
+    let (engine, log) = pf_engine("https://page.test/", &fake, None);
+    engine.eval(
+        "t",
+        "var x = new XMLHttpRequest(); x.open('PUT', 'https://api.test/s', false);\
+         try { x.send('b'); console.log('no throw'); } catch (e) { console.log('thrown', e.name); }",
+    );
+    assert_eq!(fake.order(), vec!["OPTIONS https://api.test/s"]);
+    assert!(log.borrow().contains(&"log:thrown NetworkError".to_string()), "{:?}", log.borrow());
+}
+
+#[test]
+fn qf13_a_redirect_of_a_preflighted_request_fails_closed_and_wire_is_told_not_to_follow() {
+    let fake = PfFake::new(|m, _u, _r| {
+        if m == "OPTIONS" {
+            pf_resp(204, PF_ALLOW_ALL, "")
+        } else {
+            pf_resp(307, &[("location", "https://evil.test/steal"), ("access-control-allow-origin", "https://page.test")], "")
+        }
+    });
+    let (engine, log) = pf_engine("https://page.test/", &fake, None);
+    engine.eval("t", PF_JSON_POST);
+    pf_drive(&engine, &fake);
+    assert!(fake.raw(0).contains("X-Wire-Max-Redirects: 0") && fake.raw(1).contains("X-Wire-Max-Redirects: 0"));
+    let l = log.borrow().clone();
+    assert!(l.iter().any(|x| x.contains("of a preflighted request is not followed")), "{l:?}");
+    assert!(l.contains(&"log:err TypeError Failed to fetch".to_string()), "{l:?}");
+}
+
+#[test]
+fn qf13_a_preflight_that_redirects_fails() {
+    let fake = PfFake::new(|_m, _u, _r| pf_resp(302, &[("location", "https://other.test/"), ("access-control-allow-origin", "*")], ""));
+    let (engine, log) = pf_engine("https://page.test/", &fake, None);
+    engine.eval("t", PF_JSON_POST);
+    pf_drive(&engine, &fake);
+    assert_eq!(fake.order(), vec!["OPTIONS https://api.test/x"]);
+    assert!(log.borrow().iter().any(|x| x.contains("preflight response has status 302")), "{:?}", log.borrow());
+}
+
+#[test]
+fn qf13_a_simple_cors_request_redirected_cross_origin_is_checked_against_origin_null() {
+    // A GET that wire redirected from api.test to cdn.test: the final answer
+    // only allows the page origin, which a browser (Origin: null after the
+    // hop) would not accept.
+    let mk = |acao: &'static str| {
+        PfFake::new(move |_m, _u, _r| {
+            Ok(WireResponse {
+                status: 200,
+                status_text: "OK".into(),
+                headers: vec![("access-control-allow-origin".into(), acao.into())],
+                body: b"x".to_vec(),
+                error: None,
+                final_url: Some("https://cdn.test/y".into()),
+            })
+        })
+    };
+    for (acao, ok) in [("https://page.test", false), ("null", true), ("*", true)] {
+        let fake = mk(acao);
+        let (engine, log) = pf_engine("https://page.test/", &fake, None);
+        engine.eval("t", "fetch('https://api.test/x').then(function(){ console.log('ok'); }, function(e){ console.log('err', e.message); });");
+        pf_drive(&engine, &fake);
+        let l = log.borrow().clone();
+        assert_eq!(l.contains(&"log:ok".to_string()), ok, "{acao}: {l:?}");
+    }
+}
+
+#[test]
+fn qf13_navigator_send_beacon_exists_logs_and_returns_true() {
+    let fake = PfFake::new(pf_server(PF_ALLOW_ALL));
+    let (engine, log) = pf_engine("https://page.test/", &fake, None);
+    engine.eval(
+        "t",
+        "console.log('t', typeof navigator.sendBeacon, navigator.sendBeacon('https://track.test/b', 'hi'), (function () { try { navigator.sendBeacon('ftp://x.test/'); return 'no-throw'; } catch (e) { return e.name; } })());",
+    );
+    pf_drive(&engine, &fake);
+    let l = log.borrow().clone();
+    assert!(l.contains(&"log:t function true TypeError".to_string()), "{l:?}");
+    assert!(fake.order().is_empty(), "beacons are suppressed by default");
+    assert!(l.iter().any(|x| x.starts_with("net:beacon navigator.sendBeacon POST https://track.test/b")), "{l:?}");
+}
+
 // ---- QSD1: document.domain, Document as ParentNode, getElementsByName.
 
 #[test]
@@ -15167,4 +15658,55 @@ fn qf10_send_beacon_goes_through_the_policy_and_the_beacons_send_flag() {
     assert!(raw.contains("POST") && raw.to_ascii_lowercase().contains("content-type: text/plain;charset=utf-8"), "{raw}");
     let l = log.borrow().clone();
     assert!(!l.iter().any(|x| x.starts_with("net:beacon")), "{l:?}");
+}
+
+// ---- QSD2: getRootNode, isConnected, compareDocumentPosition.
+
+#[test]
+fn qsd2_get_root_node_and_is_connected() {
+    let log = run_in_html(
+        "<html><body><div id=a><p id=b>x</p></div><template id=t><i id=ti></i></template></body></html>",
+        r#"const r = [];
+         const a = document.getElementById('a'), b = document.getElementById('b');
+         r.push(b.getRootNode() === document, b.getRootNode({ composed: true }) === document, document.getRootNode() === document, b.isConnected, document.isConnected);
+         const d = document.createElement('div'), s = document.createElement('span'); d.appendChild(s);
+         r.push(s.getRootNode() === d, d.getRootNode() === d, s.isConnected, d.isConnected);
+         const f = document.createDocumentFragment(), q = document.createElement('q'); f.appendChild(q);
+         r.push(q.getRootNode() === f, f.getRootNode() === f, q.isConnected, f.isConnected);
+         document.body.appendChild(d);
+         r.push(s.getRootNode() === document, s.isConnected);
+         const ti = document.getElementById('t').content.firstChild, tc = document.getElementById('t').content;
+         r.push(ti.getRootNode() === tc, ti.isConnected, document.getElementById('ti'));
+         const d2 = document.implementation.createHTMLDocument('t');
+         r.push(d2.body.getRootNode() === d2, d2.body.isConnected, d2.createElement('u').isConnected);
+         console.log(r.join('|'));"#,
+    );
+    assert_eq!(
+        log,
+        ["log:true|true|true|true|true|true|true|false|false|true|true|false|false|true|true|true|false||true|true|false"],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qsd2_compare_document_position() {
+    let log = run_in_html(
+        "<html><body><div id=a><p id=b>x</p><p id=c>y</p></div><span id=e></span></body></html>",
+        r#"const r = [], $ = function (i) { return document.getElementById(i); };
+         const a = $('a'), b = $('b'), c = $('c'), e = $('e');
+         r.push(a.compareDocumentPosition(a), a.compareDocumentPosition(b), b.compareDocumentPosition(a));
+         r.push(b.compareDocumentPosition(c), c.compareDocumentPosition(b), b.compareDocumentPosition(e), e.compareDocumentPosition(b));
+         r.push(document.compareDocumentPosition(b), b.compareDocumentPosition(document));
+         const x = document.createElement('x'), y = document.createElement('y');
+         const dx = x.compareDocumentPosition(y), dy = y.compareDocumentPosition(x);
+         r.push((dx & 1) !== 0, (dx & 32) !== 0, dx === 37 || dx === 35, (dx & 6) !== (dy & 6));
+         r.push(b.compareDocumentPosition(x) & 33, Node.DOCUMENT_POSITION_CONTAINED_BY, Node.prototype.DOCUMENT_POSITION_PRECEDING);
+         try { a.compareDocumentPosition(null); r.push('no'); } catch (err) { r.push(err.name); }
+         console.log(r.join('|'));"#,
+    );
+    assert_eq!(
+        log,
+        ["log:0|20|10|4|2|4|2|20|10|true|true|true|true|33|16|2|TypeError"],
+        "{log:?}"
+    );
 }

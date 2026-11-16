@@ -925,7 +925,7 @@ pub(crate) struct JsEngine {
     /// Q33d: handle <-> JS id table, to address events at nodes.
     table: Rc<std::cell::RefCell<js_dom::DomTable>>,
     /// QB5: focus/blur/scroll requests for the App.
-    reqs: Rc<std::cell::RefCell<js_dom::JsRequests>>,
+    pub(crate) reqs: Rc<std::cell::RefCell<js_dom::JsRequests>>,
     /// QF7: page networking state (policy, pending requests, report log).
     pub(crate) net: Rc<std::cell::RefCell<js_net::NetState>>,
 }
@@ -1159,6 +1159,7 @@ pub(crate) fn start_scripts_clocked(
             let _ = ctx.catch();
         }
     })));
+    let net_clock = clock.clone();
     let base = Instant::now();
     let deadline = Arc::new(std::sync::atomic::AtomicU64::new(thread_cpu_nanos() + SCRIPT_BUDGET.as_nanos() as u64));
     let tripped = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -1211,7 +1212,7 @@ pub(crate) fn start_scripts_clocked(
     });
     let dirty = Rc::new(std::cell::Cell::new(false));
     let reqs: Rc<std::cell::RefCell<js_dom::JsRequests>> = Default::default();
-    let net = Rc::new(std::cell::RefCell::new(js_net::NetState::new(log.clone())));
+    let net = Rc::new(std::cell::RefCell::new(js_net::NetState::new(log.clone()).with_clock(net_clock)));
     ctx.with(|c| js_net::install_net(&c, net.clone(), reqs.clone()));
     let mut engine = JsEngine { ctx, rt, log, base, deadline, tripped, dirty: dirty.clone(), table: Default::default(), reqs: reqs.clone(), net };
     engine.eval("prelude", PRELUDE);

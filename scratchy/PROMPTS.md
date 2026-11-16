@@ -6898,6 +6898,11 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 
 **What changed:** src/js_dom.rs (template_content helper, own serializer printing template content, set_inner_html and clone_node via content, __d_template_content native, HTMLTemplateElement.content getter with one lazy inert document, doc.importNode/adoptNode, cloneNode keeps the node document and inert clones are never upgraded), src/default.css (template display:none), tests qy6f_* in src/tests.rs; NOTES.md; TODO.txt.
 
+## CORS preflight, all methods with bodies, navigator.sendBeacon (QF13)
+
+> Implement QF13: the CORS preflight (OPTIONS through wire, no credentials, Access-Control-Request-* headers, validated by check_preflight_response), an in-memory preflight cache honouring Max-Age (policy default 5 s, cap and max entries from RequestPolicy), PUT/PATCH/DELETE/POST with bodies through the same path, per-hop redirect handling that stays honest, errors naming what the preflight lacked, report lines, sync XHR preflight inside the blocking call, and navigator.sendBeacon (it did not exist). Tests with fakes and the manual clock; live check against a private wire and a python CORS server.
+
+**What changed:** src/js_net.rs (`PreflightCache`, `Prepared`, `PfPending`, `start_preflight`, `preflight_done`, `release`, abort of a pending preflight, redirect fail-closed, Origin null after a cross-origin redirect), src/net_policy.rs (preflight default Max-Age and cache size in `RequestPolicy`, error texts name the missing header/method), src/js.rs (clock for the cache, `reqs` visible to js_net), src/fetch_prelude.js (`navigator.sendBeacon`), tests `qf13_*` in src/tests.rs (qf7 preflight test updated), NOTES.md, TODO.txt.
 ## Document domain, ParentNode, getElementsByName (QSD1)
 
 > Implement QSD1: document.domain (getter hostname, spec-shaped setter), Document as ParentNode, getElementsByName on the main document.
@@ -6915,3 +6920,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Implement QF10: navigator.sendBeacon (validation, 64 KiB limit, policy checks, QF-D3 log-only through __net_send unless beacons_send), Navigator.prototype, `<a ping>` log if trivial.
 
 **What changed:** src/fetch_prelude.js (`__beacon_body`, `sendBeacon`), src/js.rs (`Navigator` constructor, navigator inherits it), src/net_policy.rs (`beacon_queue_bytes`), src/js_net.rs (`__net_beacon_limit`), tests qf10_* in src/tests.rs; NOTES.md; TODO.txt (QF10a for `<a ping>`: not trivial).
+
+## getRootNode, isConnected, compareDocumentPosition (QSD2)
+
+> Implement QSD2: Node.getRootNode, isConnected, compareDocumentPosition and DOCUMENT_POSITION_* constants.
+
+**What changed:** src/js_dom.rs (rootId walk, NodeProto getRootNode/isConnected/compareDocumentPosition, Node.DOCUMENT_POSITION_* constants), tests qsd2_* in src/tests.rs; NOTES.md; TODO.txt (new QSD2b item for lookupNamespaceURI/isDefaultNamespace).

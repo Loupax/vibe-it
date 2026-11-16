@@ -257,13 +257,16 @@ Items (in order):
       absent. Measured users: github react-core (`randomUUID`),
       salesforce (`uuid` package: "crypto.getRandomValues() not
       supported").
-- [ ] QSD2 [S] READY `Node.getRootNode({composed})` and `Node.isConnected`
+- [x] QSD2 [S] (0239f7b) READY `Node.getRootNode({composed})` and `Node.isConnected`
       (neither exists today). Without shadow roots: the topmost ancestor
       (document, or a detached root/fragment). Written so QSD3 only adds
       "a ShadowRoot's host" as the composed step. Tests: detached element
       -> itself; element in a fragment -> the fragment; attached ->
       document; isConnected follows. Payoff: used by github f18 (21x),
       salesforce (24x), youtube (45x), chromestatus (11x).
+- [ ] QSD2b [S] READY `Node.prototype.lookupNamespaceURI(prefix)`/
+      `lookupPrefix`/`isDefaultNamespace` (left out of QSD2: need the
+      xmlns attribute walk and the element's namespace/prefix natives).
 - [ ] QSD3 [M] WAITING FOR USER (design first, SD-D1) B1: real ShadowRoot,
       not rendered. `Element.attachShadow({mode, delegatesFocus,
       slotAssignment, clonable, serializable})`: valid hosts only (custom
@@ -1010,13 +1013,23 @@ R22 copies and paste the before/after numbers in the commit.
 
 WAITING FOR USER (design first): skip these.
 
-- [ ] QF13 [M] WAITING FOR USER (design first, QF-D4) Non-GET methods
+- [x] QF13 (b7528ce) [M] DONE (QF-D4 decided: all methods) Non-GET methods
       and request bodies: POST/PUT/PATCH/DELETE for fetch and XHR,
       bodies from string/URLSearchParams/Blob/ArrayBuffer/FormData
       (`multipart/form-data` encoder), and CORS preflight (OPTIONS
       through wire works: measured 204 with CORS headers). Payoff:
       youtube's innertube API (all its data) is POST JSON; POST refs gh
       12, bbc 33, yt 47.
+      DONE: preflight (OPTIONS, no cookies, Access-Control-Request-*),
+      in-memory preflight cache (Max-Age, policy cap), per-page cap and
+      in-flight limits, sync XHR preflight, error lines, report lines,
+      navigator.sendBeacon. Bodies/methods already worked (QF8/QF9).
+- [ ] QF13a [S] Redirects of a PREFLIGHTED request: today wire is told
+      `X-Wire-Max-Redirects: 0` and a 3xx fails closed. Follow it by hand
+      in scratchy (re-run the policy and a new preflight for the new URL,
+      `Origin: null` after a cross-origin hop) instead. Plain cors requests
+      are only checked on the final answer (against `Origin: null` after a
+      cross-origin redirect); per-hop ACAO needs the same manual follow.
 - [x] QF14 (wire half, 4d62f87) Cookie jar in WIRE (design QF-D2a). Done in
       wire/src/cookies.rs + wire/src/main.rs: in-memory jar, RFC 6265bis,
       partitioned by `X-Wire-Top-Site`, header-gated by `X-Wire-Jar: scratchy`,
