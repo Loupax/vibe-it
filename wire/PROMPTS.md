@@ -227,3 +227,9 @@ Result: `Shared::public_agent`/`public_manual_agent`, `CLASS_MAP`, `reconcile_ho
 > QY39a (user decision 2026-11-17): let scratchy override wire's UA per request. The request's own `User-Agent` is forwarded; `X-Wire-User-Agent` (control header, never forwarded) takes precedence; neither -> wire's honest default. Validate (printable ASCII, max 512, no CR/LF -> 400 `X-Wire-Error: bad-user-agent`), apply on every hop, the jar path and the public-only pool. Additive `X-Wire-Features: ua` response header (version stays 3). Loopback-fixture tests, own socket only, no cargo install.
 
 Result: `resolve_user_agent`, `write_bad_ua_response`, `WIRE_FEATURES` in `src/main.rs`; README header table; scratchy/NETWORKING.md line. Not done: the public-only test cannot reach a public host, so it checks the refusal and the shared request-builder path only; scratchy side is QY39b.
+
+## qf19w1 — WebSocket pipe (scratchy QF19w1)
+
+> QF19w1 (wire; design DECIDED 2026-11-17: wire is a pipe): a request with `X-Wire-Upgrade: websocket` goes through the same checks as any request (public-only W-POOL1-safe fresh connection, class headers, jar, UA, Origin/Sec-WebSocket-* passed), wire connects (TLS for wss), sends the handshake; on 101 returns the head and copies bytes both ways until either side closes; any other status is a buffered response, no redirects; not pooled; timeout covers the handshake only, no idle limit; `X-Wire-Features: ua,ws`. Tests over a std-only echo server; real check with a python3 client on my own socket; no cargo install.
+
+Result: `src/ws.rs`, `src/ws_tests.rs`, NOTES.md "The WebSocket pipe". Direct deps `rustls`/`webpki-roots` (already locked). Not done: scratchy side (QF19w2).

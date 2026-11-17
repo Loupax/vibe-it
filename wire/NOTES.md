@@ -262,3 +262,43 @@ jar, RFC 6265bis parsing/matching, its own unit tests) and `execute_with_jar`,
   the jar just means "available, not used".
 - **Logging:** names and values never reach a log line; `cookies::log_line`
   prints host and counts only, and only under `WIRE_TIMING=1`.
+
+## The WebSocket pipe (QF19w1, `X-Wire-Features: ws`)
+
+Design: scratchy/TODO.txt QF19 (user, 2026-11-17: "wire as a pipe"). Code:
+`src/ws.rs`, routed from `handle_connection` when a request carries
+`X-Wire-Upgrade` (never for the cookie control channel; without the header an
+Upgrade request is an ordinary request, as before). The framing lives in
+scratchy (QF19w2); wire only does DNS/TCP/TLS/policy/cookies and copies bytes.
+
+- **Own connection, never a pool.** `ureq` cannot hand back the raw stream of
+  a `101`, so ws.rs resolves with `TrackingResolver` (public-only drops
+  non-public addresses before connecting, W-POOL1-safe: no pooled connection can
+  skip it), connects with `TcpStream`, and for `wss:` (and `https:`) wraps it in
+  `rustls` (webpki roots, the same stack ureq uses; `rustls`/`webpki-roots` are
+  direct dependencies now, same locked versions, ring provider, no new crate in
+  the lock). `ws:`/`wss:` are mapped to `http:`/`https:` for the jar.
+- **Handshake.** Same checks as a fetch: 403 policy, bad `X-Wire-User-Agent`
+  400, jar `Cookie` computed for the handshake URL (client `Cookie` dropped,
+  jar authoritative) and every `Set-Cookie` of the answer stored (also for a
+  non-101) and stripped from what scratchy gets. `Origin` and `Sec-WebSocket-*`
+  pass through; `Host`, `User-Agent` (X-Wire-User-Agent > own > default),
+  `Connection: Upgrade`, `Upgrade: websocket` are set by wire; `X-Wire-*` never
+  forwarded and upstream `X-Wire-*` dropped. Errors: 400 + `X-Wire-Error:
+  bad-upgrade` (value not `websocket`, not GET, other scheme), 502 `1` for
+  connect/TLS/handshake failure.
+- **Not 101:** buffered answer (Content-Length, chunked decoded, or to EOF; cap
+  `X-Wire-Max-Bytes` else 4 MiB, over it `502 too-large`), status and headers
+  as upstream sent them minus `Content-Length`/`Transfer-Encoding`, no redirect
+  following (`X-Wire-Max-Redirects` is ignored), connection closed.
+- **Pipe.** Plain `ws:`: two threads, blocking copies, 16 KiB buffer; a slow
+  reader blocks the writer (no unbounded buffering). `wss:`: rustls buffers
+  plaintext, so one thread owns the TLS stream and polls (10 ms socket read
+  timeout) while a second thread reads the client into a bounded channel (8
+  chunks); idle cost is ~100 wakeups/s per open wss socket and client->upstream
+  latency up to 10 ms. Closing: client EOF -> `close_notify`/write shutdown
+  upstream, then up to 5 s grace for upstream to finish; upstream EOF/error ->
+  both sockets shut down at once.
+- **Caps:** `X-Wire-Timeout-Ms` (default 20 s) bounds connect + handshake only;
+  no idle limit. Test coverage in `src/ws_tests.rs`, incl. a wss echo over a
+  throwaway openssl-made certificate (skipped when `openssl` is missing).
