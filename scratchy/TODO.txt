@@ -5846,7 +5846,7 @@ with temporary `Instant` timing, and say the number in the commit.
       preedit/composition events (today only committed UTF-8 text via winit's `logical_key`),
       `type=number` stepping/validation, editable date/time inputs (still static boxes), RTL caret
       placement (the caret/selection geometry assumes left-to-right glyph order).
-- [x] Q30e [M] DONE (hash: 06e5f40) Form submission. Build the form data set per the HTML spec
+- [x] Q30e [M] DONE (hash: f164a2b) Form submission. Build the form data set per the HTML spec
       as a pure function (successful controls only: named, enabled,
       checked boxes/radios, selected options, textarea text, hidden
       inputs, plus the submitter button's name/value), encoded as

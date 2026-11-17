@@ -19137,7 +19137,6 @@ fn q30d_page_keydown_preventdefault_is_reported_and_pages_see_the_focused_target
     clear_text_state();
 }
 
-<<<<<<< HEAD
 // ---------- QY39b: --user-agent ----------
 
 fn qy39b_args(a: &[&str]) -> Vec<String> {
@@ -19225,7 +19224,8 @@ fn qy39b_navigator_agrees_with_the_flag() {
     let fake = QfFake::new(vec![]);
     let l = qf8_run("https://page.test/", &fake, "console.log(navigator.userAgent, '|', navigator.appVersion);");
     assert_eq!(l, vec![format!("log:{} | {}", navigator_user_agent(), navigator_app_version())], "{l:?}");
-=======
+}
+
 // ---- Q30e: form submission ------------------------------------------------
 
 fn q30e_form(html: &str) -> (Handle, Handle) {
@@ -19527,5 +19527,4 @@ fn q30e_formdata_of_a_form_reads_the_data_set() {
     let js = run_page_scripts(&doc, &[src("var f=document.getElementById('f'); var d=new FormData(f); var e=new FormData(f, f.querySelector('button')); window.out=[Array.from(d.keys()).join(','), Array.from(e.keys()).join(','), d.get('t')].join('|');")], None).expect("js");
     let got: String = js.eval_value("t", "window.out").expect("out");
     assert_eq!(got, "a,c,t|a,c,t,b|x");
->>>>>>> 06e5f40 (scratchy: Q30e: form submission (data set, GET/POST/multipart/text-plain, submit events, implicit submission, dialog, FormData(form), final-URL tracking))
 }
