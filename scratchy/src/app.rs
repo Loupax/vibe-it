@@ -1800,6 +1800,13 @@ impl App {
         if old.target != new.target {
             changed |= STATE_TARGET;
         }
+        if changed & STATE_FOCUS != 0 && changed & self.state_rules == 0 {
+            // No stylesheet rule depends on focus: only the painted focus
+            // ring changes, so repaint without a restyle.
+            if let Some(w) = &self.window {
+                w.request_redraw();
+            }
+        }
         if changed & self.state_rules != 0 {
             self.layout_dirty = true;
             self.restyle_requested = true;
@@ -1984,16 +1991,34 @@ impl App {
         let mut focus = None;
         let mut cur = target.clone();
         while let Some(n) = cur {
-            if is_focusable(&n) {
+            if is_click_focusable(&n) {
                 focus = Some(n);
+                break;
+            }
+            // Q30b: a press inside a disabled control focuses nothing.
+            if is_disabled_control(&n) {
                 break;
             }
             cur = parent_handle(&n);
         }
+        let visible = focus.as_ref().is_some_and(click_focus_is_visible);
         let mut st = self.interaction.clone();
         st.active = target.map(|h| ancestor_ids(&h).into_iter().collect()).unwrap_or_default();
         self.set_interaction_state(st);
-        self.set_focus_element(focus.as_ref(), false);
+        self.set_focus_element(focus.as_ref(), visible);
+    }
+
+    /// Q30b: a click on `<label>` is forwarded to its control: the control
+    /// takes focus and gets its own click event (checkbox/radio toggling is
+    /// Q30c). Returns whether a control was found.
+    pub(crate) fn forward_label_click(&mut self, label: &Handle, pos: (f32, f32)) -> bool {
+        let Some(control) = label_control(&self.document, label) else { return false };
+        if is_disabled_control(&control) {
+            return true;
+        }
+        self.set_focus_element(Some(&control), click_focus_is_visible(&control));
+        self.js_click(Some(&control), pos);
+        true
     }
 
     pub(crate) fn release_state(&mut self) {
@@ -2836,11 +2861,30 @@ impl ApplicationHandler<AppEvent> for App {
                         };
                         // Q33d: a page's click handler runs first and can
                         // cancel the navigation with `preventDefault`.
+                        // Q30b: a click inside a disabled control does
+                        // nothing at all; a click inside any control (or on
+                        // a label forwarding to one) never follows a link
+                        // around it ("the control wins").
+                        let mut in_control = false;
                         let allowed = match clicked {
-                            Some(up) if self.js.is_some() => {
+                            Some(up) => {
                                 let node = self.element_at(up);
                                 let target = if node == 0 { None } else { find_node_by_id(&self.document, node) };
-                                self.js_click(target.as_ref(), up)
+                                let control = target.as_ref().and_then(enclosing_control);
+                                in_control = control.is_some();
+                                if control.as_ref().is_some_and(is_disabled_control) {
+                                    in_control = true;
+                                    false
+                                } else {
+                                    let ok = self.js_click(target.as_ref(), up);
+                                    if ok
+                                        && control.is_none()
+                                        && let Some(label) = target.as_ref().and_then(enclosing_label)
+                                    {
+                                        in_control = self.forward_label_click(&label, up);
+                                    }
+                                    ok
+                                }
                             }
                             _ => true,
                         };
@@ -2857,7 +2901,7 @@ impl ApplicationHandler<AppEvent> for App {
                             _ => None,
                         };
                         self.mouse_down_pos = None;
-                        if let (Some(href), true) = (href, allowed) {
+                        if let (Some(href), true, false) = (href, allowed, in_control) {
                             self.start_navigation(href);
                         }
                     }
