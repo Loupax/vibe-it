@@ -5715,7 +5715,7 @@ must not rebuild the whole layout tree (R2/R3 lesson; full rebuild is
 ~0.4s on Wikipedia). Measure keystroke-to-paint latency on a real page
 with temporary `Instant` timing, and say the number in the commit.
 
-- [x] Q30a [M] DONE (hash: PENDING) Form controls get real boxes and UA styles (render only,
+- [x] Q30a [M] DONE (hash: 433da13) Form controls get real boxes and UA styles (render only,
       no interaction yet). `default.css` rules for `input`, `button`,
       `select`, `textarea`, `fieldset`, `legend`, `label` (cross-check
       the WHATWG rendering chapter, hand-curate, don't copy html.css).
