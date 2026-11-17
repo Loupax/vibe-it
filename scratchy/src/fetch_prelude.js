@@ -1271,7 +1271,7 @@
     if (h && h.abort) h.abort();
   }
   function resetResponse(s) {
-    s.status = 0; s.statusText = ''; s.resHeaders = []; s.body = null; s.finalUrl = ''; s.cache = undefined;
+    s.status = 0; s.statusText = ''; s.resHeaders = []; s.body = null; s.finalUrl = ''; s.cache = undefined; s.xcache = undefined;
   }
   var METHODS = ['DELETE', 'GET', 'HEAD', 'OPTIONS', 'POST', 'PUT'];
 
@@ -1429,6 +1429,20 @@
     if (/^utf-?8$/i.test(cs) || typeof g.TextDecoder !== 'function') return H.unutf8(s.body);
     try { return new g.TextDecoder(cs).decode(s.body); } catch (e) { return H.unutf8(s.body); }
   }
+  // QF9a: the response as an inert Document through DOMParser's machinery.
+  function docOf(s, htmlOk) {
+    if (s.xcache !== undefined) return s.xcache;
+    var ct = (s.mime || headerVal(s, 'content-type') || '').split(';')[0].replace(/^\s+|\s+$/g, '').toLowerCase();
+    var d = null;
+    if (typeof g.__parseDocument === 'function') {
+      if (ct === 'text/html') { if (htmlOk && s.async) d = g.__parseDocument(textOf(s), 'text/html'); }
+      else if (ct === '') d = g.__parseDocument(textOf(s), 'text/xml');
+      else if (ct === 'text/xml' || ct === 'application/xml' || ct === 'application/xhtml+xml' || ct === 'image/svg+xml') d = g.__parseDocument(textOf(s), ct);
+      else if (/\+xml$/.test(ct)) d = g.__parseDocument(textOf(s), 'application/xml');
+    }
+    s.xcache = d;
+    return d;
+  }
   function responseValue(s) {
     var t = s.responseType;
     if (isText(s)) return s.state === 3 || s.state === 4 ? textOf(s) : '';
@@ -1439,7 +1453,7 @@
     else if (t === 'blob') v = new g.Blob([s.body], { type: s.mime || headerVal(s, 'content-type') || '' });
     else if (t === 'json') { try { v = JSON.parse(textOf(s)); } catch (e) { v = null; } }
     else if (t === 'document') {
-      if (!s.docLogged && g.console) { s.docLogged = true; g.console.error('XMLHttpRequest: responseType "document" is not implemented (response is null)'); }
+      v = docOf(s, true);
     }
     s.cache = v;
     return v;
@@ -1462,8 +1476,8 @@
       get: function () {
         var s = st(this);
         if (s.responseType !== '' && s.responseType !== 'document') bad('responseXML', 'InvalidStateError', "The value is only accessible if the object's 'responseType' is '' or 'document' (was '" + s.responseType + "').");
-        if (s.state === 4 && s.responseType === 'document') return responseValue(s);
-        return null;
+        if (s.state !== 4) return null;
+        return s.responseType === 'document' ? responseValue(s) : docOf(s, false);
       }, enumerable: true, configurable: true,
     },
     responseType: {
