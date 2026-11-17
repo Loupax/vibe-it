@@ -504,7 +504,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       `comment.data` is still a no-op (`__d_settext` ignores Comment nodes; the
       Rust NodeData::Comment contents are not mutable). Probe on the saved copy:
       skeleton=1/grid=0 at 20 ms, skeleton=0/grid=1 at 60 and 95 ms (simulated).
-- [x] QY30 [S] (P2, R26) DONE 2026-11-17 (HASH_PLACEHOLDER) rAF due time can equal "now": TIMERS_PRELUDE `add()` (js.rs)
+- [x] QY30 [S] (P2, R26) DONE 2026-11-17 (c803318) rAF due time can equal "now": TIMERS_PRELUDE `add()` (js.rs)
       `if (raf) delay = FRAME - (t % FRAME)`; at t = 100 ms (FRAME = 1000/60)
       `t % FRAME` is 16.666666666666657, delay 1.1e-14, `t + delay` rounds back
       to 100, so a self-rescheduling rAF (YouTube's web-animations polyfill) runs
