@@ -54,7 +54,7 @@ pub(crate) struct Args {
 /// when a parser grows an option missing from this list.
 #[cfg(test)]
 pub(crate) const CLI_OPTIONS: &[&str] =
-    &["--socket", "--no-js", "--js-report", "--run-timers", "--wpt", "--subset", "--expected", "--update", "--out", "-v"];
+    &["--socket", "--no-js", "--user-agent", "--js-report", "--run-timers", "--wpt", "--subset", "--expected", "--update", "--out", "-v"];
 
 pub(crate) fn parse_args() -> Args {
     let raw: Vec<String> = env::args().skip(1).collect();
@@ -73,6 +73,9 @@ pub(crate) fn parse_args() -> Args {
         } else if raw[i] == "--no-js" {
             no_js = true;
             i += 1;
+        } else if raw[i] == "--user-agent" {
+            // Validated and installed by `run` (QY39b); skip flag and value.
+            i += 2;
         } else {
             rest.push(raw[i].clone());
             i += 1;
@@ -82,7 +85,7 @@ pub(crate) fn parse_args() -> Args {
         0 => Input::Stdin,
         1 => classify_input(&rest[0]),
         _ => {
-            diag!("usage: scratchy [--socket <path>] [--no-js] [file|url]");
+            diag!("usage: scratchy [--socket <path>] [--no-js] [--user-agent <string>] [file|url]");
             std::process::exit(1);
         }
     };

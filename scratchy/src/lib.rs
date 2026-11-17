@@ -75,6 +75,7 @@ mod paint;
 mod net;
 #[allow(dead_code)] // nothing calls the policy until QF7/QF8
 mod net_policy;
+mod user_agent;
 #[allow(dead_code)] // QM1e: the libmpv glue (QM1f/QM1g) is the first caller
 mod media_net;
 mod app;
@@ -98,6 +99,7 @@ pub(crate) use forms_text::*;
 pub(crate) use paint::*;
 pub(crate) use net::*;
 pub(crate) use net_policy::*;
+pub(crate) use user_agent::*;
 pub(crate) use app::*;
 pub(crate) use js::*;
 pub(crate) use js_net::{NetScheduler, WireExecutor};
@@ -113,6 +115,8 @@ pub(crate) use js_net::{NetScheduler, WireExecutor};
 pub fn run() {
     // Headless WPT reftest runner: no window, no event loop.
     let raw_args: Vec<String> = env::args().skip(1).collect();
+    // QY39b: `--user-agent <string>` / SCRATCHY_USER_AGENT, validated before anything runs.
+    init_from_process(&raw_args);
     if raw_args.first().map(String::as_str) == Some("--wpt") {
         std::process::exit(wpt::main(&raw_args[1..]));
     }

@@ -49,6 +49,7 @@ snag https://example.com/ | scratchy --socket "$(wire --print-socket)"
 
 # scripts off
 scratchy --no-js page.html
+scratchy --socket "$(wire --print-socket)" --user-agent 'Mozilla/5.0 (X11; Linux x86_64; rv:130.0) Gecko/20100101 Firefox/130.0' https://example.com/   # or SCRATCHY_USER_AGENT; needs a current wire
 
 # headless: run a file's scripts and print console, errors, network, cookies
 scratchy --js-report page.html

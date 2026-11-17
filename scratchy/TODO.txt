@@ -1309,7 +1309,7 @@ IntersectionObserver and matchMedia are not used by any of the site's scripts.
       Bump the protocol note, never forward other X-Wire-* headers upstream. Test: a request
       with the override reaches a local test server with that exact UA; without it the
       default UA. Lives in wire/ (see wire/TODO.txt).
-- [ ] QY39b [S] (user 2026-11-17, after QY39a) scratchy `--user-agent <string>` flag (and
+- [x] (DONE 2026-11-17, hash 97c3d8e; named presets deliberately skipped, strings go stale) QY39b [S] (user 2026-11-17, after QY39a) scratchy `--user-agent <string>` flag (and
       the help page / CLI_OPTIONS list) that sets the User-Agent sent through wire for
       page loads, sub-resources, fetch/XHR; default unchanged (wire's own). Also expose it
       as `navigator.userAgent` consistently (today the prelude's value should match what

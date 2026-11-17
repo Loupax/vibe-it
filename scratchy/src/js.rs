@@ -625,7 +625,7 @@ const PRELUDE: &str = r#"
   Object.defineProperty(g, 'crypto', { get: function () { return cryptoObj; }, set: function () {}, configurable: true, enumerable: true });
   var Navigator = ctor('Navigator');
   g.navigator = Object.assign(Object.create(Navigator.prototype), {
-    userAgent: env.userAgent, appName: 'Netscape', appVersion: '5.0 (X11)', product: 'Gecko',
+    userAgent: env.userAgent, appName: 'Netscape', appVersion: env.appVersion, product: 'Gecko',
     platform: 'Linux x86_64', vendor: '', language: 'en-US', languages: ['en-US', 'en'],
     onLine: true, cookieEnabled: false, hardwareConcurrency: 1, maxTouchPoints: 0,
   });
@@ -830,7 +830,8 @@ fn install_env(ctx: &Ctx<'_>) -> rquickjs::Result<()> {
     env.set("search", url.query().filter(|q| !q.is_empty()).map(|q| format!("?{q}")).unwrap_or_default())?;
     env.set("hash", url.fragment().filter(|f| !f.is_empty()).map(|f| format!("#{f}")).unwrap_or_default())?;
     env.set("origin", origin)?;
-    env.set("userAgent", format!("Mozilla/5.0 (X11; Linux x86_64) scratchy/{}", env!("CARGO_PKG_VERSION")))?;
+    env.set("userAgent", navigator_user_agent())?;
+    env.set("appVersion", navigator_app_version())?;
     env.set("innerWidth", DEFAULT_VIEWPORT.0)?;
     env.set("innerHeight", DEFAULT_VIEWPORT.1)?;
     ctx.globals().set("__scratchy_env", env)
@@ -1795,6 +1796,8 @@ pub(crate) fn js_report_main(args: &[String]) -> i32 {
     while let Some(a) = it.next() {
         if a == "--socket" {
             socket = it.next().map(std::path::PathBuf::from);
+        } else if a == "--user-agent" {
+            it.next(); // installed by `run` (QY39b)
         } else if a == "--run-timers" {
             run_timers = it.next().and_then(|v| v.parse::<u64>().ok());
         } else {
@@ -1802,7 +1805,7 @@ pub(crate) fn js_report_main(args: &[String]) -> i32 {
         }
     }
     let Some(file) = file else {
-        diag!("usage: scratchy --js-report [--socket <path>] [--run-timers <ms>] <file>");
+        diag!("usage: scratchy --js-report [--socket <path>] [--user-agent <string>] [--run-timers <ms>] <file>");
         return 2;
     };
     let bytes = match fs::read(&file) {

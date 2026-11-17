@@ -19138,3 +19138,92 @@ fn q30d_page_keydown_preventdefault_is_reported_and_pages_see_the_focused_target
     assert_eq!(got, "i:a|i::|kp:a", "keydown targets the focused control; keypress follows it");
     clear_text_state();
 }
+
+// ---------- QY39b: --user-agent ----------
+
+fn qy39b_args(a: &[&str]) -> Vec<String> {
+    a.iter().map(|s| s.to_string()).collect()
+}
+
+#[test]
+fn qy39b_flag_parsing_and_env() {
+    assert_eq!(user_agent_from_args(&qy39b_args(&["--no-js", "x"])), Ok(None));
+    assert_eq!(resolve_user_agent(&qy39b_args(&["--user-agent", "x-test/1.0", "u"]), None), Ok(Some("x-test/1.0".into())));
+    // The flag wins over the environment; an empty variable is unset.
+    assert_eq!(resolve_user_agent(&qy39b_args(&["--user-agent", "f"]), Some("e".into())), Ok(Some("f".into())));
+    assert_eq!(resolve_user_agent(&[], Some("e".into())), Ok(Some("e".into())));
+    assert_eq!(resolve_user_agent(&[], Some(String::new())), Ok(None));
+    assert!(resolve_user_agent(&qy39b_args(&["--user-agent"]), None).unwrap_err().contains("needs a string"));
+}
+
+#[test]
+fn qy39b_validation_errors() {
+    assert!(validate_user_agent("Mozilla/5.0 (X11; Linux x86_64) Firefox/130.0").is_ok());
+    assert!(validate_user_agent("").is_err());
+    assert!(validate_user_agent("bad\r\nX: y").is_err());
+    assert!(validate_user_agent("caf\u{e9}").is_err());
+    assert!(validate_user_agent("tab\there").is_err());
+    assert!(validate_user_agent(&"a".repeat(512)).is_ok());
+    assert!(validate_user_agent(&"a".repeat(513)).is_err());
+    assert!(resolve_user_agent(&qy39b_args(&["--user-agent", "bad\nx"]), None).is_err());
+    assert!(resolve_user_agent(&[], Some("\u{7f}".into())).is_err());
+}
+
+fn qy39b_count(req: &[u8]) -> usize {
+    String::from_utf8_lossy(req).lines().filter(|l| l.to_ascii_lowercase().starts_with("x-wire-user-agent:")).count()
+}
+
+#[test]
+fn qy39b_header_added_once_per_request_kind_and_never_without_flag() {
+    let url = Url::parse("https://page.test/a.png").unwrap();
+    let on = UaOverride::new(Some("x-test/1.0".into()));
+    let off = UaOverride::new(None);
+    // Navigation / sub-resource builder (the ctx builder appends cookie headers to this text).
+    let t = build_get_request_text_with(&url, &on);
+    assert_eq!(qy39b_count(t.as_bytes()), 1, "{t}");
+    assert!(t.contains("X-Wire-User-Agent: x-test/1.0\r\n") && t.ends_with("\r\n\r\n"));
+    assert_eq!(qy39b_count(build_get_request_text_with(&url, &off).as_bytes()), 0);
+    // fetch/XHR/beacon/media builder, even if a caller smuggled the header in.
+    let smuggled = vec![("X-Wire-User-Agent".to_string(), "evil".to_string()), ("Accept".to_string(), "*/*".to_string())];
+    for method in ["GET", "POST"] {
+        let r = build_wire_request_with(method, &url, &smuggled, b"", &on).unwrap();
+        assert_eq!(qy39b_count(&r), 1);
+        let s = String::from_utf8_lossy(&r).to_string();
+        assert!(s.contains("X-Wire-User-Agent: x-test/1.0\r\n") && !s.contains("evil") && s.contains("Accept: */*"), "{s}");
+        assert_eq!(qy39b_count(&build_wire_request_with(method, &url, &[], b"", &off).unwrap()), 0);
+    }
+    // The global (no flag in tests) adds nothing anywhere.
+    assert_eq!(qy39b_count(build_get_request_ctx(&url, &CookieContext::subresource(&url)).as_bytes()), 0);
+    assert_eq!(qy39b_count(&build_wire_request("GET", &url, &[], b"").unwrap()), 0);
+}
+
+#[test]
+fn qy39b_old_wire_warns_once_and_stops_sending() {
+    let url = Url::parse("https://page.test/").unwrap();
+    let ua = UaOverride::new(Some("x-test/1.0".into()));
+    assert!(ua.header().is_some(), "sent until wire says otherwise");
+    assert_eq!(ua.observe(None), Some(OLD_WIRE_WARNING));
+    assert!(OLD_WIRE_WARNING.contains("wire does not support a User-Agent override (restart wire from a current build)"));
+    assert_eq!(ua.observe(Some("")), None, "warned once");
+    assert_eq!(qy39b_count(build_get_request_text_with(&url, &ua).as_bytes()), 0);
+    // A current wire: nothing logged, still sent.
+    let ok = UaOverride::new(Some("x".into()));
+    assert_eq!(ok.observe(Some("foo, ua")), None);
+    assert!(ok.header().is_some());
+    // Without the flag nothing is ever learned or warned.
+    assert_eq!(UaOverride::new(None).observe(None), None);
+}
+
+#[test]
+fn qy39b_navigator_agrees_with_the_flag() {
+    assert_eq!(navigator_user_agent_for(Some("Mozilla/5.0 (X11; Linux x86_64) Firefox/130.0")), "Mozilla/5.0 (X11; Linux x86_64) Firefox/130.0");
+    assert_eq!(navigator_app_version_for(Some("Mozilla/5.0 (X11; Linux x86_64) Firefox/130.0")), "5.0 (X11; Linux x86_64) Firefox/130.0");
+    assert_eq!(navigator_app_version_for(Some("x-test/1.0")), "x-test/1.0");
+    // Unchanged without the flag.
+    assert!(navigator_user_agent_for(None).starts_with("Mozilla/5.0 (X11; Linux x86_64) scratchy/"));
+    assert_eq!(navigator_app_version_for(None), "5.0 (X11)");
+    // And the JS prelude reads both from the environment.
+    let fake = QfFake::new(vec![]);
+    let l = qf8_run("https://page.test/", &fake, "console.log(navigator.userAgent, '|', navigator.appVersion);");
+    assert_eq!(l, vec![format!("log:{} | {}", navigator_user_agent(), navigator_app_version())], "{l:?}");
+}

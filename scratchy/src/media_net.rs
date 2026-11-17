@@ -446,6 +446,7 @@ impl MediaStream {
             parsed.error = None;
         }
         note_cookie_response(self.support, &req, parsed.header("x-wire-version"), parsed.header("x-wire-cookies"));
+        crate::user_agent::note_ua_response(parsed.header("x-wire-features"));
         if timing_enabled() {
             eprintln!(
                 "media range {} bytes={start}-{end} status {} bytes {} {} ms",
@@ -561,6 +562,7 @@ impl MediaStream {
         let (head, pending) = self.read_head(&mut conn)?;
         let resp = parse_wire_response_full(&head).map_err(|e| MediaNetError::Network(e.to_string()))?;
         note_cookie_response(self.support, &req, resp.header("x-wire-version"), resp.header("x-wire-cookies"));
+        crate::user_agent::note_ua_response(resp.header("x-wire-features"));
         if timing_enabled() {
             eprintln!("media stream {} (forward-only) status {}", self.pinned, resp.status);
         }
