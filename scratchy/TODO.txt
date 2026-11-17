@@ -6259,7 +6259,7 @@ as the JS measurement corpus (same role the four CSS pages played).
       full rebuild, frame pacing tied to the compositor. Measure before and after
       (AGENTS.md: numbers, not reasoning). Unpark when the user asks.
 
-- [ ] Q26 [S] `letter-spacing` (n=8). The user decided 2026-11-12: first
+- [ ] Q26 [S] READY (unblocked 2026-11-17, see below) `letter-spacing` (n=8). The user decided 2026-11-12: first
       bump cosmic-text to the latest release and re-run the recorded
       repro ("Wide letter spacing " at 900px, 0-8px spacing, count the
       lines). If the early wrapping is fixed, ship the feature. If not,
@@ -6270,6 +6270,25 @@ as the JS measurement corpus (same role the four CSS pages played).
       wrap bug can't be re-tested against a fix. Not shipped. Options
       for the user: test upstream git HEAD (pop-os/cosmic-text), file an
       upstream issue, or sign off on a limitation.
+      UNBLOCKED 2026-11-17 (review): NOT a cosmic-text bug. `Attrs::letter_spacing`
+      is documented "in EM" (attrs.rs: "Set letter spacing (tracking) in EM"); it
+      is added to the em-normalised glyph advance and multiplied by the font size
+      for both wrapping and drawing. The reverted attempt passed CSS PIXELS, so
+      2px became 2em = 32px per glyph at 16px. Standalone repro against
+      cosmic-text =0.19.0 ("Wide letter spacing ", 16px, 900px, WordOrGlyph):
+      raw px 1/2/3/4/5/8 -> 1/1/2/2/3/4 lines (exactly the recorded "bug" numbers),
+      px/font_size -> 1 line each, width 160 + 20 x spacing px (correct).
+      Upstream git HEAD (b07cb90, 2026-10-27) has the same em semantics, so no
+      bump or upstream PR is needed. Per the user's 2026-11-12 rule ("if the early
+      wrapping is fixed, ship the feature"): READY. Implement: parse `letter-spacing`
+      (`normal` = 0, lengths incl. em; inherited, computed to px per element), pass
+      `px / font_size` (the span's own font size) to `Attrs::letter_spacing`, keep
+      the shape-cache key in sync. Known upstream nit: spacing is also added after
+      the LAST glyph (pop-os/cosmic-text issue 542, open), which shifts
+      centered/right-aligned text by one spacing; note it, don't work around it.
+      Tests: line count and width of the repro above; inheritance; `normal`; em
+      units. WPT: run css-text letter-spacing reftests once and add the eligible
+      ones to the subset.
 - [ ] Q32 Scrollbar drag-to-scroll; precise float placement and hit-test
       order; negative-`z-index` hit-test order; moving DOM building and
       cascade off the main thread. See their own Detail entries. Revisit
