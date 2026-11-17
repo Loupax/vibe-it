@@ -1174,7 +1174,7 @@ const DOM_PRELUDE: &str = r#"
   CP.getContext = function () { return null; };
   CP.toDataURL = function () { return 'data:,'; };
   CP.toBlob = function (cb) { if (typeof cb === 'function') setTimeout(function () { cb(null); }, 0); };
-  var classes = function (el) { return el.className.split(/\s+/).filter(Boolean); };
+  var classes = function (el) { var v = __d_attr(el.__id, 'class'); return (v == null ? '' : v).split(/\s+/).filter(Boolean); };
   def(ElementProto, 'classList', function () {
     var el = this;
     var put = function (c) { el.className = c.join(' '); };
@@ -2199,7 +2199,8 @@ const DOM_PRELUDE: &str = r#"
     return t;
   };
   var toks = function (l) { return classes(l._el); };
-  var putToks = function (l, c) { l._el.className = c.join(' '); };
+  var putToks = function (l, c) { __d_setattr(l._el.__id, 'class', c.join(' ')); };
+  var clsAttr = function (l) { var v = __d_attr(l._el.__id, 'class'); return v == null ? '' : v; };
   DTP.contains = function (c) { return toks(this).indexOf(String(c)) >= 0; };
   DTP.add = function () {
     var c = toks(this), a = Array.prototype.map.call(arguments, function (x) { return tokcheck('add', x); });
@@ -2225,14 +2226,14 @@ const DOM_PRELUDE: &str = r#"
   };
   DTP.item = function (i) { var c = toks(this); return c[i] === undefined ? null : c[i]; };
   DTP.supports = function () { return true; };
-  DTP.toString = function () { return this._el.className; };
+  DTP.toString = function () { return clsAttr(this); };
   DTP.forEach = function (f, t) { toks(this).forEach(function (x, i) { f.call(t, x, i, this); }, this); };
   DTP.keys = function () { return toks(this).keys(); };
   DTP.values = function () { return toks(this).values(); };
   DTP.entries = function () { return toks(this).entries(); };
   DTP[Symbol.iterator] = DTP.values;
   def(DTP, 'length', function () { return toks(this).length; });
-  defs(DTP, 'value', function () { return this._el.className; }, function (v) { this._el.className = String(v); });
+  defs(DTP, 'value', function () { return clsAttr(this); }, function (v) { __d_setattr(this._el.__id, 'class', String(v)); });
   Object.defineProperty(DTP, Symbol.toStringTag, { value: 'DOMTokenList', configurable: true });
   var tlists = {};
   var isIdx = function (k) { return typeof k === 'string' && /^(0|[1-9][0-9]*)$/.test(k); };

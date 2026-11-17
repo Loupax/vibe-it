@@ -411,7 +411,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       `this.style = <string>` from attributeChangedCallback. Fix: setter
       that writes cssText (null -> ''). Test: `"use strict"; d.style =
       'color: red'` sets the attribute and `d.style.color === 'red'`.
-- [ ] QY24 [S] (P2, YouTube) `classList` dies with `cannot read property
+- [x] QY24 [S] (done HASH) (P2, YouTube) `classList` dies with `cannot read property
       'split' of undefined` (prelude `classes`, called from kevlar
       `RHo`): `classes(el)` reads `el.className`, a property pages and
       frameworks shadow (ShadyDOM/Polymer elements); read the `class`
