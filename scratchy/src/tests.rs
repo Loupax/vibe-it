@@ -17544,6 +17544,7 @@ fn qm1e_other_status_is_a_plain_error() {
     });
     let e = MediaStream::open(path, qm1e_src(QM1E_URL, QM1E_PAGE, MediaMode::NoCors), RequestPolicy::default()).err().unwrap();
     assert_eq!(e, MediaNetError::Status(404));
+}
 
 // ---- QAN1a: @keyframes + animation longhands (parse only) ----
 
