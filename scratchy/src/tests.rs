@@ -21222,3 +21222,53 @@ fn qy46_ten_300ms_jobs_stop_at_the_cap_and_resume_without_kills() {
     // timer that logs runs between the capped drain and its resumption.
     assert!(log.iter().any(|l| l == "log:n=7"), "{log:?}");
 }
+
+// ---------- QY47a: JS stack limit ----------
+
+fn qy47a_run(code: &str) -> String {
+    let doc = parse_html("");
+    let out = Rc::new(RefCell::new(Vec::new()));
+    let o = out.clone();
+    let _e = start_scripts(&doc, &[src(code)], Rc::new(move |l, t| o.borrow_mut().push(format!("{l}:{t}"))));
+    out.borrow().join("|")
+}
+
+#[test]
+fn qy47a_deep_recursion_works_and_runaway_is_catchable() {
+    let h = std::thread::Builder::new()
+        .stack_size(8 << 20)
+        .spawn(|| {
+            let deep = qy47a_run("function f(n){return n?1+f(n-1):0} console.log(String(f(1500)))");
+            let run = qy47a_run("function g(){g()} var r; try{g()}catch(e){r=e.name} console.log(r)");
+            (deep, run)
+        })
+        .unwrap();
+    let (deep, run) = h.join().unwrap();
+    assert!(deep.contains("1500"), "{deep}");
+    assert!(run.contains("RangeError"), "{run}");
+}
+
+#[test]
+fn qy47a_runaway_recursion_catchable_on_2mb_thread() {
+    let h = std::thread::Builder::new()
+        .stack_size(2 << 20)
+        .spawn(|| qy47a_run("function g(){g()} var r; try{g()}catch(e){r=e.name} console.log(r)"))
+        .unwrap();
+    assert!(h.join().unwrap().contains("RangeError"));
+}
+
+#[test]
+fn qy47a_limit_never_exceeds_half_thread_stack() {
+    // glibc may reuse a cached larger stack, so compare against the size the
+    // thread really reports, not the size requested.
+    for mb in [1usize, 2, 8, 16] {
+        let h = std::thread::Builder::new()
+            .stack_size(mb << 20)
+            .spawn(|| (crate::js::js_stack_limit(), crate::js::thread_stack_size()))
+            .unwrap();
+        let (l, real) = h.join().unwrap();
+        let real = real.expect("pthread_getattr_np works on Linux");
+        assert!(real >= mb << 20, "{mb} MB thread reports {real}");
+        assert!(l > 0 && l <= real / 2 && l <= 4 << 20, "{mb} MB -> {l} (real {real})");
+    }
+}
