@@ -1,6 +1,6 @@
 # scratchy — regressions
 
-## R36: YouTube search: Enter and the search button "do nothing". The page's SPA navigation runs, then a CPU-budget trip kills it (wall 1); with the budget raised, the results page renders no results (wall 2). NOT QF11, NOT form submission (Opus investigator, 2026-11-17) — OPEN: QY46, QY47, QJ12, QF11 (refined), QY48 filed
+## R36: YouTube search: Enter and the search button "do nothing". The page's SPA navigation runs, then a CPU-budget trip kills it (wall 1); with the budget raised, the results page renders no results (wall 2). NOT QF11, NOT form submission (Opus investigator, 2026-11-17) — OPEN: QY46, QJ12, QF11 (refined), QY48 filed; wall 2 ROOT CAUSE FOUND (QY47 addendum below: QuickJS 1 MB stack limit, RangeError swallowed by YouTube) — OPEN: QY47a-d
 
 **Status: investigation only, docs only.** User report 2026-11-17: `scratchy --socket "$(wire
 --print-socket)" --user-agent '<Firefox 140 UA>' https://youtube.com`: autocomplete works
@@ -107,7 +107,8 @@ Access-Control-Allow-Origin "https://www.youtube.com" does not match the page or
 `/youtubei/v1/search` response (render of `ytd-search`, set-page-offset, finish) needs more than
 what is left of that shared budget on this machine; the uncatchable interrupt kills the job
 mid-way (QY44a) and the router never fires `yt-navigate-finish`. Same mechanism as QY33/R28 (the
-kebab icon), now with a user-visible casualty. **Root cause, wall 2:** unknown (QY47).
+kebab icon), now with a user-visible casualty. **Root cause, wall 2:** unknown (QY47). [Found later: QuickJS's 1 MB stack limit; see the
+QY47 addendum at the end of R36.]
 
 **What a browser does that we do not, still unverified:** whether the per-job cost here is
 mostly scratchy's own prelude (R29 found `ceIsConn`/`ceScan`/`isConnected`/`ioShown`
@@ -122,6 +123,82 @@ b97054e + probes); any page after the results page (clicking a result).
 investigate (`yt-lockup-view-model` renders nothing), QJ12 [S] (trusted KeyboardEvent
 `keyCode/which/code` are 0/''), QF11 refined (not the cause; `apply()` trap; size), QY48 [S]
 (pushState never reaches the App's URL/history).
+
+### R36 addendum (QY47, Opus investigator, 2026-11-17): wall 2 = QuickJS's 1 MB stack limit; YouTube swallows the RangeError
+
+**Root cause (measured): the JS stack runs out.** QuickJS's default max stack size is 1 MB
+(`JS_DEFAULT_STACK_SIZE`; scratchy never calls `set_max_stack_size`, js.rs `start_scripts_clocked`).
+Rendering a YouTube result item nests custom-element constructors synchronously (Polymer stamper
+`stampDomArray_` -> `createComponent_` -> `document.createElement` -> scratchy `created` ->
+`ceUpgrade` -> `Reflect.construct` -> YouTube "PolySi" wrapper constructor -> `mountComponent` ->
+Wiz `render`/`Ct`/`W6y` -> `cTP` -> `document.createElement` -> ...) and needs about **1.15 MB** of
+C stack on this page. Past 1 MB QuickJS throws `RangeError: Maximum call stack size exceeded`.
+YouTube's Wiz wrapper (kevlar `r10`, and the PolySi `createElement()` try/catch) catches it, reports
+it through `_.S$` (an error beacon; it logs to the console only when the `console_log_js_exceptions`
+flag is on or the server is dev/staging, so scratchy prints NOTHING), leaves the wrapper empty
+(`r10` returns its default `[[this], noop]`, which passes the "single root element" check, so
+`hasRendered = true`, 0 children: exactly the R36 state), and `W7` rethrows when there is no owner
+error boundary, which aborts the item-section stamping job: every item after the failing one is
+never created.
+
+**Setup.** This worktree at fda4bbc (main), release build, plus TEMPORARY never-committed patches
+in js.rs: `SCRIPT_BUDGET` 60 s and `CALLBACK_BUDGET` 20 s (so QY46 does not mask it), an env var
+that evaluates a probe JS file right after the media prelude, and env overrides for
+`set_max_stack_size` / `set_memory_limit`. Own wire on a scratchpad socket, Firefox 140 UA.
+Page: https://www.youtube.com/results?search_query=rust saved with `<base>` (headless
+`--js-report --run-timers`) and loaded live in a nested dwl (window, 60 s, grim). Load average
+~2 (idle machine), everything `nice -n 19`.
+
+**How the swallowed error was found** (reusable trick): YouTube's catch handlers do
+`e.args || (e.args = [])` before reporting, so a probe that defines an `args` accessor on
+`Error.prototype` sees every error YouTube catches and reports, with its stack
+(`Error.stackTraceLimit` raised; QuickJS caps a captured trace at 64 frames). First and only one
+on this page: `RangeError Maximum call stack size exceeded`, args `["Error in web component
+wrapper","video-summary-content-view-model"]` (the "Zusammenfassung" summary box inside the first
+`ytd-video-renderer`); top frames `apply (native)` <- media prelude `document.createElement`
+wrapper <- DOM prelude `created` wrapper <- kevlar `cTP` <- `W6y` <- `render` <- `Ct` x3 ...
+
+**Measurements** (`depth()` = how many trivial self-recursive JS calls still fit = remaining stack
+in "trivial frames"; one trivial QuickJS frame = about 1.75 KB of C stack on this build):
+
+| run | stack limit | trivial frames at top level | min. remaining inside createElement of a `*-*` tag | swallowed RangeErrors | `grid-shelf-view-model` (empty) | `ytd-video-renderer` | elements |
+|---|---|---|---|---|---|---|---|
+| headless | 1 MB (default) | 599 | 196 | 1 | 1 (1) | 3 | 2848 |
+| headless | 1.5 MB | ~900 | 221 | 0 | 11 (0) | 123 | 23732 |
+| headless | 4 MB, heap 1 GB | 2402 | - | 0 | 11 (0) | 123 | 24397 |
+| window 60 s | 1 MB (default) | 599 | 244 | 1 | 1 (1) | 3 | 2845 |
+| window 60 s | 4 MB | 2402 | 1725 | 0 | 4 (0) | 16 | 5212 |
+
+Peak use is therefore ~677 trivial frames = ~1.15-1.2 MB in both the window and headless runs, a
+few percent over the limit. Screenshots (viewed): default stack = one result ("DAS NEUE
+FORCE-WIPE-UPDATE ...") and nothing below it, no chip bar; 4 MB = chip bar ("Alle", "Weitere
+Informationen zu diesen Ergebnissen", "Filter"), three results with titles, channel, description,
+chapter/summary boxes, then the "Shorts" shelf (the `grid-shelf-view-model`) with its "Neu" badges.
+The depth at top level is the same in the window and headless (599), so it is not a deep Rust
+caller stack: rquickjs re-arms the stack top on every `ctx.with` entry.
+
+**Data variant.** On 2026-11-17 evening YouTube served `videoRenderer` items (20) + 2
+`gridShelfViewModel` (Shorts); R36's earlier run got `yt-lockup-view-model` items. The empty
+`yt-lockup-view-model` state in R36 (`hasRendered = true`, `_numRenders = 1`, 0 children, no
+error) is exactly what `r10`'s catch path leaves, and in this run the empty grid shelf after the
+abort is `queuingData = true`, `hasRendered = false` (never reached). The lockup variant itself was
+NOT reproduced today (not served), so "same cause for lockups" is strongly supported, not proven.
+
+**Also seen with the 4 MB stack (not investigated):** (a) every result thumbnail is blank with
+the literal text `true` at its top centre (a boolean rendered as text, or an `<img>`/`yt-image`
+attribute reflection problem); (b) the masthead's right side ("Anmelden" button, settings kebab)
+turns into three grey circles (placeholder/loading shapes); (c) headless (`--js-report`) keeps
+loading continuations (30 item sections, 24k elements) and hits the 256 MB QuickJS heap limit
+(`InternalError: out of memory`, then `Uncaught null` lines) with the stack at 2-4 MB; RSS
+reached 1 GB with a 1 GB heap limit. The window loaded only 2 sections in 60 s, no OOM.
+
+**Not verified:** the default 500 ms `CALLBACK_BUDGET` together with a bigger stack (QY46 not
+merged); the SPA search path (only the direct load was run this time); the lockup data variant;
+watch-page related items and the home feed; per-frame C stack cost on other compilers/opt levels.
+
+**Filed:** QY47a [S] P1 (stack limit, Sonnet), QY47b [S] P3 (fewer createElement wrapper
+frames, Sonnet, measure first), QY47c [S] P2 (Opus: `true` thumbnails + grey masthead circles),
+QY47d [S] P3 (Opus/Sonnet: headless continuation runaway / 256 MB heap). QY47 ticked.
 
 ## R35: QCI0 (`flex: <number>` basis `auto` -> `0%`) on real pages: no visible change on 10 of 11 pages, BBC better; but the automatic minimum size is now 0 for every `flex: N` item (Opus investigator, 2026-11-17) — OPEN: QCI0b filed
 

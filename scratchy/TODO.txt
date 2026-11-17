@@ -50,6 +50,11 @@ older and were only partly corrected in place):
   QY47 [M] (Opus: `yt-lockup-view-model` results render nothing even when the
   navigation finishes), then QJ12 [S] (KeyboardEvent keyCode/code), QF11 (refined),
   QY48 [S] (pushState -> App URL). Block "NEW 2026-11-17 (Opus, R36 ...)" after QY44e.
+- NEW 2026-11-17 (Opus, QY47 DONE, R36 addendum): YouTube results render nothing because
+  QuickJS's default 1 MB JS stack is too small (~1.15 MB needed); YouTube swallows the
+  RangeError. QY47a [S] READY P1 (Sonnet: raise the limit, clamped to the thread stack),
+  then QY47c [S] P2 (Opus: `true` thumbnails, grey masthead), QY47b/QY47d P3. Block
+  "NEW 2026-11-17 (Opus, QY47 ...)" right after QY48.
 
 USER ANSWERS 2026-11-17 (late night): (a) PR #232 (QW6, body background on the canvas)
 KEEP, despite its accepted WPT pass->fail `css/css-backgrounds/animations/background-color-
@@ -1478,7 +1483,16 @@ Evidence and the probe recipe: REGRESSIONS.md R36.
       "Startseite" guide icon turns to its outline form in a grim shot, R36), with no
       `promise jobs stopped` line between the submit and the finish. Results will
       still be invisible until QY47.
-- [ ] QY47 [M] READY (Opus, investigate only; R36 wall 2) `yt-lockup-view-model`
+- [x] QY47 [M] DONE 2026-11-17 (Opus investigation, docs only; R36 "QY47 addendum").
+      ROOT CAUSE: QuickJS's default 1 MB stack limit. Rendering one result item nests
+      custom-element constructors synchronously and needs ~1.15 MB; the RangeError is
+      caught and reported silently by YouTube's Wiz wrapper (`r10`/PolySi), the wrapper
+      stays empty (`hasRendered = true`, 0 children) and the rethrow aborts the item
+      section's stamping (nothing after the failing item is created). With a 1.5 MB or
+      4 MB limit (local patch) the results page renders (window screenshot viewed).
+      Follow-ups: QY47a (P1), QY47c (P2), QY47b, QY47d (P3), right below QY48.
+      Original item text:
+      `yt-lockup-view-model`
       (YouTube's new result/feed item; also `grid-shelf-view-model`) renders NOTHING:
       on https://www.youtube.com/results?search_query=rust (direct load, and after a
       SPA search with the budget raised) `ytd-item-section-renderer #contents` holds 3
@@ -1535,6 +1549,67 @@ Evidence and the probe recipe: REGRESSIONS.md R36.
       (the full back/forward bridge is QY13b). Tests: pushState from a script
       changes the App URL and history length, replaceState does not add an entry,
       no network request is made.
+
+--- NEW 2026-11-17 (Opus, QY47: YouTube results render nothing = JS stack limit; R36 addendum) ---
+Ranked: QY47a (P1, Sonnet; independent of QY46, either order) -> QY47c (P2, Opus,
+after QY47a) -> QY47b (P3, Sonnet) -> QY47d (P3).
+
+- [ ] QY47a [S] READY (P1, R36/QY47, Sonnet) Raise QuickJS's max stack size from the
+      1 MB default, clamped to the real stack of the thread that runs JS. js.rs
+      `start_scripts_clocked` creates the `Runtime` and never calls
+      `rt.set_max_stack_size`, so QuickJS uses `JS_DEFAULT_STACK_SIZE` (1 MB) = ~600
+      trivial JS frames (one QuickJS frame is ~1.75 KB of C stack on this build; V8
+      gives ~10k). YouTube needs ~1.15 MB to render one result item (R36 addendum
+      table) and silently swallows the RangeError. JS runs on the MAIN thread (8 MB
+      by `ulimit -s` here; rquickjs re-arms the stack top on every `ctx.with`, so the
+      limit counts from the entry point and the Rust frames below it must fit in the
+      rest). Fix: one helper `js_stack_limit()` = min(4 MB, half of the current
+      thread's stack size) where the thread's size comes from
+      `pthread_getattr_np` + `pthread_attr_getstack` (libc is already a dependency;
+      on failure keep 1 MB), and `rt.set_max_stack_size(js_stack_limit())` after
+      `set_memory_limit`. The clamp matters: `cargo test` threads have 2 MB stacks
+      (RUST_MIN_STACK), and a limit above the real stack turns a catchable RangeError
+      into a SIGSEGV. Do NOT raise `ulimit`/spawn a big-stack thread (the engine is
+      `Rc`-based and lives on the winit main thread).
+      Tests (src/tests.rs): (1) a page script `function f(n){return n?1+f(n-1):0}`
+      `f(1500)` returns 1500 on the main test path (today it throws RangeError at ~600);
+      run it inside a `std::thread::Builder::new().stack_size(8<<20)` thread so the
+      result does not depend on the test harness's 2 MB thread; (2) unbounded
+      recursion `function g(){g()} try{g()}catch(e){r=e.name}` gives 'RangeError'
+      (no crash) both in that 8 MB thread and in a default 2 MB test thread
+      (proves the clamp); (3) the helper returns <= half the thread stack.
+      Accept: in a nested dwl, https://www.youtube.com/results?search_query=rust
+      (Firefox UA, direct load, 60 s) shows the chip bar, several results with
+      titles and the "Shorts" shelf (R36 addendum screenshot), and the Error.prototype
+      `args` probe recipe (R36 addendum) sees 0 RangeErrors. If QY46 is not merged
+      yet, run the acceptance with a local raised CALLBACK_BUDGET and say so.
+- [ ] QY47c [S] (P2, Opus investigate, after QY47a) On the YouTube results page with
+      the stack fixed, every thumbnail is blank with the literal text `true` at its
+      top centre, and the masthead's "Anmelden" button and kebab turn into three
+      grey circles (R36 addendum "Also seen"). Find which element/attribute prints
+      `true` (likely a boolean data binding rendered as a text node, or `yt-image`/
+      `<img>` reflection) and why the masthead falls back to placeholders. Output:
+      REGRESSIONS entry and Sonnet items.
+- [ ] QY47b [S] (P3, Sonnet, measure first) Fewer JS frames per `document.createElement`:
+      today a page call goes through three JS wrappers (js_dom.rs custom-elements
+      `doc.createElement` -> `created`, media_prelude.js `document.createElement`
+      wrapper with `ce.apply`, DOM prelude `doc.createElement`) plus `ceUpgrade` and
+      `Reflect.construct`, each nested custom element pays them again. Fold the media
+      check (`video`/`audio` -> `observe()`) into the DOM prelude's createElement path
+      so the media wrapper goes away (keep behaviour: the media observer still starts
+      when the first video/audio is created). STEP 1: measure remaining stack (the
+      R36 addendum `depth()` probe) inside createElement on the YouTube results page
+      before/after; ship only if it saves something measurable. Test: creating a
+      `<video>` via `document.createElement('VIDEO')` still starts the media observer
+      (existing QM1f tests stay green).
+- [ ] QY47d [S] (P3, Opus measure then Sonnet) Headless `--js-report --run-timers` on the
+      YouTube results page with a working stack keeps loading continuations (30 item
+      sections, 24k elements in 4.5 simulated s) and hits the 256 MB QuickJS heap
+      (`InternalError: out of memory`, then `Uncaught null` lines); the window loaded
+      2 sections in 60 s. Check (a) what headless IntersectionObserver reports for
+      off-screen continuation items (should be not intersecting below the
+      simulated viewport) and (b) QuickJS heap per element (1 GB RSS at 24k elements
+      = ~40 KB each, high). Output: numbers in R36 and a fix item if (a) is wrong.
 
 social.loupax.com/discover (the user's own site; source read at
 /home/loupax/src/social, internal/web/js/vim.js): vim.js is NOT in the
