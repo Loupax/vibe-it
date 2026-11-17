@@ -711,10 +711,30 @@ const SCRIPT_BUDGET: Duration = Duration::from_secs(5);
 /// socket for long enough (R8), so it gets a tenth of that.
 pub(crate) const CALLBACK_BUDGET: Duration = Duration::from_millis(500);
 
+/// QY22 test seam: `(now, step)` replaces the thread CPU clock; every read
+/// returns `now` and then advances it by `step` ns.
+#[cfg(test)]
+thread_local! {
+    pub(crate) static FAKE_CLOCK: std::cell::Cell<Option<(u64, u64)>> = const { std::cell::Cell::new(None) };
+    /// Runs between the compile and the run of a page-load script.
+    pub(crate) static AFTER_COMPILE: std::cell::Cell<Option<fn()>> = const { std::cell::Cell::new(None) };
+}
+
+/// QY22: a source larger than this is not compiled at all (compile time
+/// grows with size, not with page behaviour; 1.4 s per 10 MB measured).
+pub(crate) const MAX_SCRIPT_BYTES: usize = 32 * 1024 * 1024;
+
 /// QY5: CPU time this thread has used, in nanoseconds. The interrupt
 /// budgets are measured in this, not wall-clock time, so a loaded machine
 /// (or a script that merely waits) does not eat a script's budget.
 pub(crate) fn thread_cpu_nanos() -> u64 {
+    #[cfg(test)]
+    if let Some(t) = FAKE_CLOCK.with(|f| f.get().map(|(now, step)| {
+        f.set(Some((now + step, step)));
+        now
+    })) {
+        return t;
+    }
     let mut ts = libc::timespec { tv_sec: 0, tv_nsec: 0 };
     // SAFETY: `ts` is a valid out-pointer for the duration of the call.
     if unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut ts) } != 0 {
@@ -883,13 +903,19 @@ pub(crate) fn describe_error(ctx: &Ctx<'_>, err: JsError) -> String {
 /// Runs pending promise jobs, logging the message of any job that throws
 /// (QY14), then reports rejections that stayed unhandled via the prelude's
 /// `__scratchy_rej_flush` (which may queue more jobs: loop until quiet).
-pub(crate) fn drain_jobs(ctx: &Context, rt: &Runtime, log: &dyn Fn(&str, &str)) {
+pub(crate) fn drain_jobs(ctx: &Context, rt: &Runtime, log: &dyn Fn(&str, &str), tripped: &std::sync::atomic::AtomicBool) {
+    // QY22: jobs that die on an expired budget are counted, not logged one by one.
+    let mut dropped = 0usize;
     loop {
         while rt.is_job_pending() {
             if let Err(job) = rt.execute_pending_job() {
                 job.0.with(|c| {
                     let msg = describe_error(&c, JsError::Exception);
-                    log("error", &format!("Uncaught (in promise job) {msg}"));
+                    if tripped.load(Ordering::Relaxed) {
+                        dropped += 1;
+                    } else {
+                        log("error", &format!("Uncaught (in promise job) {msg}"));
+                    }
                 });
             }
         }
@@ -907,6 +933,9 @@ pub(crate) fn drain_jobs(ctx: &Context, rt: &Runtime, log: &dyn Fn(&str, &str)) 
         if !more && !rt.is_job_pending() {
             break;
         }
+    }
+    if dropped > 0 {
+        log("error", &format!("js: promise jobs stopped: exceeded the {} ms CPU-time callback budget ({dropped} jobs dropped)", CALLBACK_BUDGET.as_millis()));
     }
 }
 
@@ -983,24 +1012,77 @@ impl JsEngine {
         (self.log)("error", &format!("js: {name} stopped: exceeded the {b} CPU-time {what} budget{kb}"));
     }
 
+    /// QY22: runs the pending promise jobs of a finished task under one
+    /// fresh `CALLBACK_BUDGET` of their own (an expired task deadline must
+    /// not kill every queued job at once).
+    pub(crate) fn drain_after_task(&self) {
+        self.arm_budget(CALLBACK_BUDGET);
+        drain_jobs(&self.ctx, &self.rt, &*self.log, &self.tripped);
+    }
+
     pub(crate) fn eval(&self, name: &str, code: &str) {
+        if code.len() > MAX_SCRIPT_BYTES {
+            (self.log)("error", &format!("js: {name} not compiled: {} MB of source exceeds the {} MB cap", code.len().div_ceil(1 << 20), MAX_SCRIPT_BYTES >> 20));
+            return;
+        }
+        // QY22: the page-load budget is armed AFTER compiling (compile time
+        // follows source size, not page behaviour). The first arm only keeps
+        // a runaway compile finite.
         self.arm_budget(SCRIPT_BUDGET);
+        let t0 = thread_cpu_nanos();
         self.ctx.with(|ctx| {
-            // HTML classic scripts are sloppy unless they opt in; rquickjs
-            // defaults to strict, so build the options explicitly (R5).
-            let mut opts = EvalOptions::default();
-            opts.strict = false;
-            opts.filename = Some(name.to_string());
-            if let Err(e) = ctx.eval_with_options::<(), _>(code, opts) {
-                let msg = describe_error(&ctx, e);
+            use rquickjs::qjs;
+            // HTML classic scripts are sloppy (R5): global code, not strict.
+            let (Ok(src), Ok(file)) = (std::ffi::CString::new(code), std::ffi::CString::new(name)) else {
+                (self.log)("error", &format!("{name}: source contains a NUL byte"));
+                return;
+            };
+            let raw = ctx.as_raw().as_ptr();
+            // SAFETY: `raw` is this live context; the source is NUL-terminated
+            // and `len` excludes the terminator; the compiled function value
+            // is consumed by `JS_EvalFunction`, whose result we own and free.
+            let func = unsafe { qjs::JS_Eval(raw, src.as_ptr(), code.len() as _, file.as_ptr(), (qjs::JS_EVAL_TYPE_GLOBAL | qjs::JS_EVAL_FLAG_COMPILE_ONLY) as i32) };
+            let failed = |msg: String, compile: u64, run: u64| {
                 if self.tripped.load(Ordering::Relaxed) {
-                    self.log_interrupted(name, "page-load", SCRIPT_BUDGET, code.len());
+                    let ms = |n: u64| format!("{:.1} s", n as f64 / 1e9);
+                    (self.log)(
+                        "error",
+                        &format!(
+                            "js: {name} stopped: exceeded the {} s CPU-time page-load budget ({} KB of source; compiled in {}, ran {})",
+                            SCRIPT_BUDGET.as_secs(),
+                            code.len().div_ceil(1024),
+                            ms(compile),
+                            ms(run)
+                        ),
+                    );
                 } else {
                     (self.log)("error", &format!("{name}: {msg}"));
                 }
+            };
+            // SAFETY: `func` is a value returned by JS_Eval above.
+            if unsafe { qjs::JS_IsException(func) } {
+                let msg = describe_error(&ctx, JsError::Exception);
+                let now = thread_cpu_nanos();
+                failed(msg, now.saturating_sub(t0), 0);
+                return;
+            }
+            #[cfg(test)]
+            if let Some(f) = AFTER_COMPILE.with(|c| c.get()) {
+                f();
+            }
+            let t1 = thread_cpu_nanos();
+            self.arm_budget(SCRIPT_BUDGET);
+            // SAFETY: consumes `func`; the result is wrapped so it is freed.
+            let res = unsafe { qjs::JS_EvalFunction(raw, func) };
+            if unsafe { qjs::JS_IsException(res) } {
+                let msg = describe_error(&ctx, JsError::Exception);
+                failed(msg, t1.saturating_sub(t0), thread_cpu_nanos().saturating_sub(t1));
+            } else {
+                // SAFETY: `res` is an owned value.
+                drop(unsafe { rquickjs::Value::from_raw(ctx.clone(), res) });
             }
         });
-        drain_jobs(&self.ctx, &self.rt, &*self.log);
+        drain_jobs(&self.ctx, &self.rt, &*self.log, &self.tripped);
     }
 
     /// QY15: runs the entry module registered under `name` (its source is
@@ -1047,7 +1129,7 @@ impl JsEngine {
                 }
             }
         });
-        drain_jobs(&self.ctx, &self.rt, &*self.log);
+        self.drain_after_task();
         v
     }
 

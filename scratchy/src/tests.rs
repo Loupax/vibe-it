@@ -16188,3 +16188,69 @@ fn qy21_define_is_linear_and_upgrade_order_unchanged() {
     assert_eq!(log[1], "log:601 n299", "{log:?}");
     assert_eq!(log[2], "log:h1,h2", "{log:?}");
 }
+
+/// QY22(a): compile time is not charged to the page-load run budget. A fake
+/// clock makes the compile "take" 4.99 s of a 5 s budget; a script that then
+/// needs a few ms of run time still completes.
+#[test]
+fn qy22_compile_time_is_not_counted_against_the_run_budget() {
+    use crate::js::{AFTER_COMPILE, FAKE_CLOCK};
+    FAKE_CLOCK.with(|f| f.set(Some((1_000_000_000, 1_000_000))));
+    AFTER_COMPILE.with(|c| c.set(Some(|| FAKE_CLOCK.with(|f| f.set(f.get().map(|(n, s)| (n + 4_990_000_000, s)))))));
+    let log = run_collecting(&[src("var s=0;for(var i=0;i<300000;i++){s+=i}console.log('done');")]);
+    FAKE_CLOCK.with(|f| f.set(None));
+    AFTER_COMPILE.with(|c| c.set(None));
+    assert!(log.iter().any(|l| l == "log:done"), "{log:?}");
+    assert!(!log.iter().any(|l| l.starts_with("error:")), "{log:?}");
+}
+
+/// QY22(a): a trip in the run phase reports compile and run time apart.
+#[test]
+fn qy22_interrupt_message_splits_compile_and_run_time() {
+    use crate::js::{AFTER_COMPILE, FAKE_CLOCK};
+    FAKE_CLOCK.with(|f| f.set(Some((1_000_000_000, 1_000_000))));
+    AFTER_COMPILE.with(|c| c.set(Some(|| FAKE_CLOCK.with(|f| f.set(f.get().map(|(n, s)| (n + 3_000_000_000, s)))))));
+    let log = run_collecting(&[src("for(;;){}")]);
+    FAKE_CLOCK.with(|f| f.set(None));
+    AFTER_COMPILE.with(|c| c.set(None));
+    let errs: Vec<_> = log.iter().filter(|l| l.starts_with("error:")).collect();
+    assert_eq!(errs.len(), 1, "{log:?}");
+    assert!(errs[0].contains("compiled in 3.0 s, ran 5.0 s"), "{log:?}");
+    assert!(errs[0].contains("5 s CPU-time page-load budget"), "{log:?}");
+}
+
+/// QY22(a): hard cap on the source size.
+#[test]
+fn qy22_oversized_script_is_not_compiled() {
+    let big = format!("console.log('ran');/*{}*/", "x".repeat(33 * 1024 * 1024));
+    let log = run_collecting(&[src(&big), src("console.log('after');")]);
+    assert!(log.iter().any(|l| l.contains("not compiled") && l.contains("32 MB cap")), "{log:?}");
+    assert!(!log.iter().any(|l| l == "log:ran"), "{log:?}");
+    assert!(log.iter().any(|l| l == "log:after"), "{log:?}");
+}
+
+/// QY22(b): 1000 promise jobs queued behind a tripped busy loop log ONE
+/// interrupt line (the task's), and the jobs get a fresh budget and run.
+#[test]
+fn qy22_promise_jobs_after_a_tripped_task_get_a_fresh_budget() {
+    let log = run_with_timers(
+        "var n=0;setTimeout(()=>{for(var i=0;i<1000;i++)Promise.resolve().then(()=>{n++});\
+         for(;;){}},0);setTimeout(()=>console.log('n='+n),1);",
+    );
+    let errs: Vec<_> = log.iter().filter(|l| l.starts_with("error:")).collect();
+    assert_eq!(errs.len(), 1, "{log:?}");
+    assert!(errs[0].contains("timer stopped: exceeded the 500 ms"), "{log:?}");
+    assert!(log.iter().any(|l| l == "log:n=1000"), "{log:?}");
+}
+
+/// QY22(b): jobs that themselves overrun the fresh budget are counted in
+/// one line, not logged once each.
+#[test]
+fn qy22_tripped_job_drain_logs_one_line_with_a_count() {
+    let log = run_with_timers(
+        "setTimeout(()=>{for(var i=0;i<1000;i++)Promise.resolve().then(()=>{var e=Date.now()+8;while(Date.now()<e){}});},0);",
+    );
+    let errs: Vec<_> = log.iter().filter(|l| l.starts_with("error:")).collect();
+    assert_eq!(errs.len(), 1, "{log:?}");
+    assert!(errs[0].contains("promise jobs stopped") && errs[0].contains("jobs dropped"), "{log:?}");
+}

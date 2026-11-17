@@ -1102,7 +1102,7 @@ impl JsEngine {
                 }
             }
         });
-        drain_jobs(&self.ctx, &self.rt, &*self.log);
+        self.drain_after_task();
     }
 
     #[cfg(test)]
