@@ -747,7 +747,7 @@ IntersectionObserver and matchMedia are not used by any of the site's scripts.
       box is not a stacking context; a transformed box is not a containing block for
       fixed descendants; `transform: inherit/initial` and `-webkit-transform` are
       ignored; transforms do not affect scrollable overflow.
-- [x] QW6 [S] DONE 2026-11-17 commit 666bddb (P2, CSS, visible on the user's site) The canvas background
+- [x] QW6 [S] DONE 2026-11-17 commit dba5942 (P2, CSS, visible on the user's site) The canvas background
       does not come from `<body>`: CSS backgrounds 3 2.11.2 says when the
       root element has no background, the body's background paints the
       whole canvas. social.loupax.com's catppuccin theme sets
