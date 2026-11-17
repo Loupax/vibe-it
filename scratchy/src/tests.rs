@@ -11250,6 +11250,19 @@ fn qy14_js_report_run_timers_finds_timer_and_channel_errors() {
 }
 
 #[test]
+fn qy31_js_report_keeps_pumping_after_a_tripped_callback() {
+    let html = "<html><body><script>\
+        setTimeout(function () { for (;;) {} }, 10);\
+        setTimeout(function () { console.error('after-trip-1000'); }, 1000);\
+        setTimeout(function () { throw new Error('after-trip-3000'); }, 3000);\
+        </script></body></html>";
+    let report = js::js_report_for_html_timers(html, None, "none.html", Some(5000));
+    assert!(report.contains("CPU-time callback budget"), "{report}");
+    assert!(report.contains("after-trip-1000") && report.contains("after-trip-3000"), "{report}");
+    assert!(report.contains("--- timers (simulated 3000 ms, 3 callbacks) ---\n"), "{report}");
+}
+
+#[test]
 fn qy14_js_report_run_timers_is_bounded() {
     let html = "<html><body><script>setInterval(function () { throw new Error('tick'); }, 1);</script></body></html>";
     let report = js::js_report_for_html_timers(html, None, "none.html", Some(100000));
