@@ -18050,6 +18050,7 @@ fn q30b_label_click_focuses_control_and_disabled_is_ignored() {
     let mut app2 = App::new_static(d_doc.clone(), event_loop.create_proxy(), None);
     assert!(app2.forward_label_click(&q30b_by_id(&d_doc, "ld").unwrap(), (0.0, 0.0)));
     assert!(app2.interaction.focus.is_none(), "a disabled control is never focused by a label");
+}
 
 #[test]
 fn qp2_js_thread_shape_memo_is_safe_and_cleared_on_resize() {
