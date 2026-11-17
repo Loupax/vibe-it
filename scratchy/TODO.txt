@@ -1275,7 +1275,7 @@ IntersectionObserver and matchMedia are not used by any of the site's scripts.
       translate-only), filter/backdrop-filter/clip-path/box-shadow interpolation,
       `animation-composition`, additive keyframes, `transition-behavior`, SVG/SMIL,
       the full Web Animations model (groups, timelines, setKeyframes).
-- [x] QAN1-0 [S] (do FIRST, before any QAN1 code) Guard the WPT accidental passes:
+- [x] QAN1-0 [S] DONE e2dbdf5 (do FIRST, before any QAN1 code) Guard the WPT accidental passes:
       add the 73 no-script `@keyframes` reftests (list in R31 / recompute: reftests under
       css/ with `rel=match|mismatch`, `@keyframes`, no `<script>`, no `reftest-wait`)
       and the 2 no-script `transition` reftests to `wpt-subset.txt`, `--update` the
