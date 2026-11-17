@@ -276,7 +276,7 @@ FAIL css/CSS2/tables/table-anonymous-objects-095.xht
 PASS css/CSS2/tables/table-anonymous-objects-200.xht
 PASS css/CSS2/tables/table-height-algorithm-008a.xht
 PASS css/CSS2/visuren/fixed-pos-stacking-001.xht
-PASS css/css-backgrounds/animations/background-color-animation-in-body.html
+FAIL css/css-backgrounds/animations/background-color-animation-in-body.html
 FAIL css/css-backgrounds/background-clip/clip-border-area-border-shape.html
 PASS css/css-backgrounds/background-clip/clip-text-transform.html
 FAIL css/css-backgrounds/background-origin-005.html
@@ -310,7 +310,7 @@ FAIL css/css-color/oklch-007.html
 PASS css/css-color/prophoto-rgb-004.html
 PASS css/css-color/rgb-003.html
 FAIL css/css-color/t32-opacity-offscreen-b.xht
-FAIL css/css-color/t422-rgba-func-whitespace-b.xht
+PASS css/css-color/t422-rgba-func-whitespace-b.xht
 PASS css/css-color/t425-hsla-values-b.xht
 FAIL css/css-conditional/at-media-001.html
 PASS css/css-conditional/at-supports-004.html

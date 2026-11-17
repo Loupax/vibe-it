@@ -7022,3 +7022,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Item QY24. `classList` (DOMTokenList) must read/write the `class` attribute through `__d_attr`/`__d_setattr` instead of `el.className`, which Polymer/ShadyDOM elements shadow (`cannot read property 'split' of undefined`). Test: custom element with `get className(){ return undefined; }` still supports classList.add/contains/toggle.
 
 **What changed:** src/js_dom.rs (`classes`, `putToks`, `clsAttr`, DTP `toString`/`value`), test `qy24_*` in src/tests.rs. The saved youtube kevlar copies did not hit the `split` error in either the before or after run (only the 2 CPU-budget trips), so it was not reproduced on the real page; the unit test covers the failure.
+
+## QW6: canvas background propagation (2026-11-17)
+
+> Item QW6 (CSS Backgrounds 3 2.11.2). When html has no background the body background (colour, image, position, repeat) paints the whole canvas and the body paints none of its own; when html has one it is the canvas and the body keeps its own. Test: canvas pixel (5,5) takes the body colour. Check social.loupax.com/discover, wikipedia, HN with screenshots.
+
+**What changed:** src/style.rs (`ComputedStyle.canvas_src`: 1 html, 2 body), src/images.rs (`propagate_canvas_background` moves colour/layout/image from html or body to the anonymous document root box), src/app.rs (window pre-filled with the canvas colour, so it extends past a short document and in overscroll), tests `*_qw6` in src/tests.rs. Limits: a propagated background image is positioned against the document root rect (viewport width x document height), not the window on short pages; the source element border-radius/shadow are unaffected.

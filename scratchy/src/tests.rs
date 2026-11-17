@@ -16437,3 +16437,34 @@ fn qj7_range_client_rects_come_from_layout_per_character_and_line() {
     assert!(has("log:detached 0"), "{log:?}");
     assert!(has("log:mutated true"), "{log:?}");
 }
+
+// ---------- QW6: canvas background propagation ----------
+
+fn qw6_pixels(html: &str) -> Vec<u32> {
+    let doc = parse_html(html);
+    let tree = build_layout_tree(&doc, 400.0);
+    let mut font_system = new_font_system();
+    let mut cache = ShapeCache::new();
+    let mut next_id = 0usize;
+    let mut incomplete = false;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let laid = measure_document(&tree, &mut font_system, 400.0, 300.0, &mut next_id, &mut cache, deadline, &mut incomplete);
+    let mut swash_cache = SwashCache::new();
+    let mut pixels = vec![0xFFFFFFu32; 400 * 300];
+    paint(&laid, &mut font_system, &mut swash_cache, &mut cache, &HashMap::new(), &mut pixels, 400, 300, 0.0, None);
+    pixels
+}
+
+#[test]
+fn body_background_paints_the_canvas_qw6() {
+    let px = qw6_pixels(r#"<html><body style="background:#123;max-width:300px;margin:40px auto"><p>x</p></body></html>"#);
+    assert_eq!(px[5 * 400 + 5] & 0xFFFFFF, 0x112233, "canvas corner takes the body's colour");
+    assert_eq!(px[5 * 400 + 395] & 0xFFFFFF, 0x112233, "also outside the body's column");
+}
+
+#[test]
+fn html_background_wins_and_body_keeps_its_own_qw6() {
+    let px = qw6_pixels(r#"<html style="background:red"><body style="background:#123;max-width:300px;margin:40px auto"><p>x</p></body></html>"#);
+    assert_eq!(px[5 * 400 + 5] & 0xFFFFFF, 0xFF0000, "canvas stays red");
+    assert_eq!(px[50 * 400 + 200] & 0xFFFFFF, 0x112233, "body paints its own background");
+}

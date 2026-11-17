@@ -976,6 +976,13 @@ impl App {
         // call's own first partial result used to take. Either way,
         // paint a blank frame rather than stall on it.
         if let Some(laid) = self.cached.as_ref() {
+            // QW6: the canvas colour covers the whole window, also past a
+            // short document's end.
+            if let Some(c) = laid.style.background_color {
+                for pixel in pixels.iter_mut() {
+                    *pixel = crate::paint::blend(*pixel, c);
+                }
+            }
             let max_scroll = (laid.h - height as f32).max(0.0);
             self.scroll_offset = self.scroll_offset.clamp(0.0, max_scroll);
 
