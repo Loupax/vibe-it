@@ -144,11 +144,25 @@ struct Shared {
     /// Agent with redirects switched off: the jar path follows redirects
     /// itself so it can store and re-send cookies on every hop.
     manual_agent: ureq::Agent,
+    /// Own agents (own connection pools) for `X-Wire-Policy: public-only`
+    /// requests (W-POOL1). ureq only calls the resolver when it opens a NEW
+    /// connection, so a pooled connection skips the public-only check. These
+    /// pools only ever hold connections that went through the checking
+    /// resolver under public-only, so reuse inside them is safe, and no plain
+    /// request can leave a non-public connection in them.
+    public_agent: ureq::Agent,
+    public_manual_agent: ureq::Agent,
 }
 
 impl Shared {
     fn new(enabled: bool) -> Shared {
-        Shared { enabled, jar: Mutex::new(cookies::Jar::default()), manual_agent: agent_builder().redirects(0).build() }
+        Shared {
+            enabled,
+            jar: Mutex::new(cookies::Jar::default()),
+            manual_agent: agent_builder().redirects(0).build(),
+            public_agent: agent_builder().build(),
+            public_manual_agent: agent_builder().redirects(0).build(),
+        }
     }
 
     fn jar(&self) -> std::sync::MutexGuard<'_, cookies::Jar> {
@@ -277,8 +291,8 @@ fn class_rank(class: &str) -> u8 {
 #[derive(Default)]
 struct Tracker {
     public_only: bool,
-    /// Worst class among the addresses resolved for each hop, in order.
-    hops: Vec<&'static str>,
+    /// (netloc key, worst class among its addresses) for each hop, in order.
+    hops: Vec<(String, &'static str)>,
     /// Set when `public_only` refused a host.
     blocked: Option<String>,
 }
@@ -296,13 +310,84 @@ thread_local! {
 /// addresses only, so a DNS rebind between check and connect is impossible.
 struct TrackingResolver;
 
+/// Class of every (host, port) the resolver has resolved, so a request that
+/// reuses a pooled connection (the resolver is not called) still reports
+/// `X-Wire-Target-Class` / `X-Wire-Hop-Classes` (W-POOL1). Bounded and
+/// expiring; looking an entry up refreshes it, so it lives as long as the
+/// host keeps being used. A miss only means the class headers are omitted.
+/// The key is `host:port` (ureq's netloc; the scheme is implied by the port
+/// for the default ports).
+const CLASS_MAP_MAX: usize = 1024;
+const CLASS_MAP_TTL: Duration = Duration::from_secs(600);
+
+type ClassEntry = (String, &'static str, Instant);
+static CLASS_MAP: Mutex<Vec<ClassEntry>> = Mutex::new(Vec::new());
+
+fn class_map() -> std::sync::MutexGuard<'static, Vec<ClassEntry>> {
+    CLASS_MAP.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+fn class_map_put(key: &str, class: &'static str) {
+    let now = Instant::now();
+    let mut m = class_map();
+    m.retain(|e| now.duration_since(e.2) < CLASS_MAP_TTL);
+    if let Some(e) = m.iter_mut().find(|e| e.0 == key) {
+        e.1 = class;
+        e.2 = now;
+        return;
+    }
+    if m.len() >= CLASS_MAP_MAX
+        && let Some(i) = m.iter().enumerate().min_by_key(|(_, e)| e.2).map(|(i, _)| i)
+    {
+        m.remove(i);
+    }
+    m.push((key.to_string(), class, now));
+}
+
+fn class_map_get(key: &str) -> Option<&'static str> {
+    let now = Instant::now();
+    let mut m = class_map();
+    let e = m.iter_mut().find(|e| e.0 == key && now.duration_since(e.2) < CLASS_MAP_TTL)?;
+    e.2 = now;
+    Some(e.1)
+}
+
+/// The key ureq passes to the resolver for `url`: `host:port`.
+fn netloc_key(url: &Url) -> String {
+    format!("{}:{}", url.host_str().unwrap_or(""), url.port_or_known_default().unwrap_or(0)).to_ascii_lowercase()
+}
+
+/// Make sure the first and last hops of this request are represented in the
+/// tracker, filling from the class map the hops that reused a pooled
+/// connection (no resolution happened). An intermediate redirect hop on a
+/// pooled connection is not visible to wire when ureq follows redirects
+/// itself (see NOTES.md); the jar path follows them itself and is exact.
+fn reconcile_hops(first: &Url, final_url: &Url) {
+    TRACKER.with(|t| {
+        let mut t = t.borrow_mut();
+        let (a, b) = (netloc_key(first), netloc_key(final_url));
+        if t.hops.first().map(|h| &h.0) != Some(&a)
+            && let Some(c) = class_map_get(&a)
+        {
+            t.hops.insert(0, (a, c));
+        }
+        if t.hops.last().map(|h| &h.0) != Some(&b)
+            && let Some(c) = class_map_get(&b)
+        {
+            t.hops.push((b, c));
+        }
+    });
+}
+
 impl ureq::Resolver for TrackingResolver {
     fn resolve(&self, netloc: &str) -> std::io::Result<Vec<SocketAddr>> {
         let addrs: Vec<SocketAddr> = netloc.to_socket_addrs()?.collect();
         TRACKER.with(|t| {
             let mut t = t.borrow_mut();
             let worst = addrs.iter().map(|a| ip_class(a.ip())).max_by_key(|c| class_rank(c)).unwrap_or("public");
-            t.hops.push(worst);
+            let key = netloc.to_ascii_lowercase();
+            class_map_put(&key, worst);
+            t.hops.push((key, worst));
             if !t.public_only {
                 return Ok(addrs);
             }
@@ -654,6 +739,8 @@ fn execute_with(agent: &ureq::Agent, shared: &Shared, request: &ParsedRequest, w
             own_agent = agent_builder().redirects(n).build();
             &own_agent
         }
+        // public-only never shares a pool with plain requests (W-POOL1).
+        _ if caps.public_only => &shared.public_agent,
         _ => agent,
     };
     let mut req = agent.request(&request.method, request.url.as_str());
@@ -678,6 +765,9 @@ fn execute_with(agent: &ureq::Agent, shared: &Shared, request: &ParsedRequest, w
         // other match arm.
         Ok(resp) | Err(ureq::Error::Status(_, resp)) => {
             let status = resp.status();
+            if let Ok(final_url) = Url::parse(resp.get_url()) {
+                reconcile_hops(&request.url, &final_url);
+            }
             stream_response(resp, &caps, w, None, false)?;
             status
         }
@@ -724,7 +814,9 @@ fn execute_with_jar(shared: &Shared, request: &ParsedRequest, caps: &Caps, w: &m
         if let Some(c) = &cookie {
             sent += c.split("; ").count();
         }
-        let mut req = shared.manual_agent.request(&method, url.as_str());
+        let hops_before = TRACKER.with(|t| t.borrow().hops.len());
+        let manual = if caps.public_only { &shared.public_manual_agent } else { &shared.manual_agent };
+        let mut req = manual.request(&method, url.as_str());
         if let Some(t) = caps.timeout {
             req = req.timeout(t);
         }
@@ -754,6 +846,13 @@ fn execute_with_jar(shared: &Shared, request: &ParsedRequest, caps: &Caps, w: &m
                 return Ok(());
             }
         };
+        // A pooled connection skips the resolver: fill this hop's class from the map.
+        if TRACKER.with(|t| t.borrow().hops.len()) == hops_before {
+            let key = netloc_key(&url);
+            if let Some(c) = class_map_get(&key) {
+                TRACKER.with(|t| t.borrow_mut().hops.push((key, c)));
+            }
+        }
         {
             let mut jar = shared.jar();
             for line in resp.all("set-cookie") {
@@ -890,7 +989,7 @@ fn stream_response(resp: ureq::Response, caps: &Caps, w: &mut impl Write, final_
     // The control channel's own names must never be spoofed by upstream.
     headers.retain(|(n, _)| !n.to_ascii_lowercase().starts_with("x-wire-"));
     headers.push(("X-Wire-Final-Url".to_string(), final_url.map_or_else(|| resp.get_url().to_string(), str::to_string)));
-    let hops = TRACKER.with(|t| t.borrow().hops.clone());
+    let hops: Vec<&'static str> = TRACKER.with(|t| t.borrow().hops.iter().map(|h| h.1).collect());
     if let Some(worst) = hops.iter().copied().max_by_key(|c| class_rank(c)) {
         headers.push(("X-Wire-Target-Class".to_string(), worst.to_string()));
         headers.push(("X-Wire-Hop-Classes".to_string(), hops.join(",")));
@@ -1471,7 +1570,7 @@ mod tests {
         assert_eq!(ok.len(), 1);
         TRACKER.with(|t| {
             let t = t.borrow();
-            assert_eq!(t.hops, vec!["loopback", "private", "public"]);
+            assert_eq!(t.hops.iter().map(|h| h.1).collect::<Vec<_>>(), vec!["loopback", "private", "public"]);
             assert!(t.blocked.as_deref().unwrap().contains("blocked"));
         });
         TRACKER.with(|t| *t.borrow_mut() = Tracker::default());
@@ -1798,5 +1897,124 @@ mod tests {
         assert!(second.ends_with("sid=abc123; pub=visible"), "{second}");
         server.join().unwrap();
         let _ = std::fs::remove_file(&socket_path);
+    }
+
+    // ---------- W-POOL1: policy and class headers on pooled connections ----------
+
+    /// Keep-alive fixture: serves many requests per connection (so ureq pools
+    /// the socket). `/redir` answers 302 to `/end`; the counter counts accepted
+    /// TCP connections.
+    fn spawn_keepalive() -> (std::net::SocketAddr, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().unwrap();
+        let conns = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let c2 = conns.clone();
+        thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut stream) = stream else { continue };
+                c2.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                thread::spawn(move || {
+                    let mut buf = [0u8; 4096];
+                    loop {
+                        let n = Read::read(&mut stream, &mut buf).unwrap_or(0);
+                        if n == 0 {
+                            return;
+                        }
+                        let text = String::from_utf8_lossy(&buf[..n]).to_string();
+                        let resp = if text.starts_with("GET /redir") {
+                            format!("HTTP/1.1 302 Found\r\nLocation: http://{addr}/end\r\nContent-Length: 0\r\n\r\n")
+                        } else {
+                            "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok".to_string()
+                        };
+                        if stream.write_all(resp.as_bytes()).is_err() {
+                            return;
+                        }
+                    }
+                });
+            }
+        });
+        (addr, conns)
+    }
+
+    fn run_on(agent: &ureq::Agent, shared: &Shared, req: ParsedRequest) -> TestResponse {
+        let mut raw = Vec::new();
+        execute_with(agent, shared, &req, &mut raw).expect("write into a Vec cannot fail");
+        let header_end = raw.windows(4).position(|w| w == b"\r\n\r\n").expect("header terminator");
+        let text = std::str::from_utf8(&raw[..header_end]).unwrap();
+        let mut lines = text.split("\r\n");
+        let status = lines.next().unwrap().split_whitespace().nth(1).unwrap().parse().unwrap();
+        let headers = lines.filter_map(|l| l.split_once(':').map(|(n, v)| (n.trim().to_string(), v.trim().to_string()))).collect();
+        TestResponse { status, headers, body: raw[header_end + 4..].to_vec() }
+    }
+
+    const PO: &[(&str, &str)] = &[("X-Wire-Policy", "public-only")];
+
+    #[test]
+    fn public_only_is_refused_after_a_plain_request_pooled_the_connection() {
+        let (addr, conns) = spawn_keepalive();
+        let (agent, shared) = (build_agent(), Shared::new(true));
+        let r = run_on(&agent, &shared, with_headers(get_request(addr, "/"), PO));
+        assert_eq!((r.status, hdr(&r, "X-Wire-Error")), (403, Some("policy")), "cold pool");
+        let r = run_on(&agent, &shared, get_request(addr, "/"));
+        assert_eq!(r.status, 200);
+        let r = run_on(&agent, &shared, with_headers(get_request(addr, "/"), PO));
+        assert_eq!((r.status, hdr(&r, "X-Wire-Error")), (403, Some("policy")), "warm plain pool must not bypass the check");
+        assert_eq!(conns.load(std::sync::atomic::Ordering::SeqCst), 1, "only the plain request ever connected");
+    }
+
+    #[test]
+    fn pooled_plain_requests_still_report_the_target_class() {
+        let (addr, conns) = spawn_keepalive();
+        let (agent, shared) = (build_agent(), Shared::new(true));
+        for _ in 0..3 {
+            let r = run_on(&agent, &shared, get_request(addr, "/"));
+            assert_eq!(hdr(&r, "X-Wire-Target-Class"), Some("loopback"));
+            assert_eq!(hdr(&r, "X-Wire-Hop-Classes"), Some("loopback"));
+        }
+        assert_eq!(conns.load(std::sync::atomic::Ordering::SeqCst), 1, "the connection really was reused");
+    }
+
+    #[test]
+    fn pooled_redirect_reports_a_class_per_hop() {
+        let (addr, conns) = spawn_keepalive();
+        let (agent, shared) = (build_agent(), Shared::new(true));
+        let _ = run_on(&agent, &shared, get_request(addr, "/"));
+        let r = run_on(&agent, &shared, get_request(addr, "/redir"));
+        assert_eq!(r.status, 200);
+        assert_eq!(hdr(&r, "X-Wire-Final-Url"), Some(format!("http://{addr}/end").as_str()));
+        assert_eq!(hdr(&r, "X-Wire-Target-Class"), Some("loopback"));
+        assert_eq!(conns.load(std::sync::atomic::Ordering::SeqCst), 1);
+        // public-only follows the same rule through a redirect: refused at the first hop.
+        let r = run_on(&agent, &shared, with_headers(get_request(addr, "/redir"), PO));
+        assert_eq!((r.status, hdr(&r, "X-Wire-Error")), (403, Some("policy")));
+    }
+
+    #[test]
+    fn jar_path_checks_policy_and_reports_classes_on_pooled_connections() {
+        let (addr, conns) = spawn_keepalive();
+        let (agent, shared) = (build_agent(), Shared::new(true));
+        let jar = [("X-Wire-Jar", "scratchy")];
+        for _ in 0..2 {
+            let r = run_on(&agent, &shared, with_headers(get_request(addr, "/"), &jar));
+            assert_eq!(r.status, 200);
+            assert_eq!(hdr(&r, "X-Wire-Target-Class"), Some("loopback"));
+        }
+        let r = run_on(&agent, &shared, with_headers(get_request(addr, "/redir"), &jar));
+        assert_eq!(hdr(&r, "X-Wire-Hop-Classes"), Some("loopback,loopback"), "exact per hop on the jar path");
+        assert_eq!(conns.load(std::sync::atomic::Ordering::SeqCst), 1, "the manual agent pooled");
+        let both = [("X-Wire-Jar", "scratchy"), ("X-Wire-Policy", "public-only")];
+        let r = run_on(&agent, &shared, with_headers(get_request(addr, "/"), &both));
+        assert_eq!((r.status, hdr(&r, "X-Wire-Error")), (403, Some("policy")));
+    }
+
+    #[test]
+    fn class_map_is_bounded_and_expires_by_lookup() {
+        for i in 0..(CLASS_MAP_MAX + 50) {
+            class_map_put(&format!("bound-test-{i}.invalid:1"), "public");
+        }
+        assert!(class_map().len() <= CLASS_MAP_MAX);
+        class_map_put("lookup-test.invalid:1", "private");
+        assert_eq!(class_map_get("lookup-test.invalid:1"), Some("private"));
+        assert_eq!(class_map_get("never-seen.invalid:1"), None);
     }
 }

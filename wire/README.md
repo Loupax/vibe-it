@@ -36,6 +36,10 @@ never forwarded upstream. Without them wire behaves as a plain proxy.
 | `X-Wire-Error` | response | on wire-made errors (`1`, `too-large`, `policy`, `cookie-control`) |
 | `X-Wire-Cookies: on/off` | response | jar used / disabled |
 
+`public-only` requests use their own connection pool, so reusing a pooled
+connection can never skip the check; class headers are remembered per
+host:port so reused connections still report them.
+
 After rebuilding, restart wire: `cargo install --path . --force`, kill the old
 process, start it again. scratchy detects an old wire by `X-Wire-Version`.
 

@@ -215,3 +215,9 @@ Result: see wire/NOTES.md "The scratchy<->wire control channel". Tests: the QF6 
 > Implement the WIRE half of TODO.txt QF14 following QF-D2a exactly: `src/cookies.rs` (RFC 6265bis jar, partitioned by `X-Wire-Top-Site`, header-gated by `X-Wire-Jar: scratchy`, SameSite with `X-Wire-Nav`, limits struct, small embedded suffix list), per-hop store/send in the redirect loop (wire follows redirects itself when the jar is used), `Set-Cookie` stripped from answers when used, `document.cookie` control channel (`X-Wire-Cookie-Op get|set`), `X-Wire-Cookies: on|off`, `--no-cookies`, `X-Wire-Version: 3`, token hook only. Tests with loopback servers, a private instance on a temp socket.
 
 Result: see wire/NOTES.md "The cookie jar". Added `X-Wire-Initiator-Site` (optional) so cross-site navigations can withhold Strict cookies. Not done: access token, real public suffix list, persistence.
+
+## w-pool1 — policy and class headers on pooled connections
+
+> W-POOL1 (security): `X-Wire-Policy: public-only` and class headers live in the resolver, which ureq skips on pooled connections. Implement (b) a separate agent/pool for public-only requests and (a) a bounded, expiring per-host:port class map filled by the resolver, correct for redirects and the jar path manual agent. Tests with a keep-alive loopback fixture; no protocol bump; no cargo install, own socket only.
+
+Result: `Shared::public_agent`/`public_manual_agent`, `CLASS_MAP`, `reconcile_hops`; see wire/NOTES.md. Not done: intermediate pooled redirect hops on the non-jar path are not listed in `X-Wire-Hop-Classes` (ureq exposes no history); scheme is not part of the map key (resolver only sees host:port).

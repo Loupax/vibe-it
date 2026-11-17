@@ -101,7 +101,7 @@ the commit it came up during.
 
 - [x] `file://` URLs are served (scratchy Q22). Open: no directory listings, no HEAD.
 
-- [ ] **W-POOL1 [S, security] `X-Wire-Policy: public-only` and `X-Wire-Target-Class`
+- [x] **W-POOL1 [S, security] `X-Wire-Policy: public-only` and `X-Wire-Target-Class`
       are skipped on a pooled connection** (found by scratchy QM1d, REGRESSIONS.md
       R30, 2026-11-17). Both come from `TrackingResolver`, which only runs when ureq
       opens a NEW connection. When the agent reuses a pooled one, nothing resolves:
@@ -125,6 +125,12 @@ the commit it came up during.
       the same host:port -> 403 `policy`; two plain requests -> both carry
       `X-Wire-Target-Class: loopback`. Acceptance: the two-step sequence above
       against a rebuilt wire answers 403 on the second step.
+      DONE (HASH): separate public-only pools + CLASS_MAP; see NOTES.md.
+
+- [ ] **W-POOL2 [S] Intermediate redirect hops on pooled connections are missing from
+      `X-Wire-Hop-Classes` on the non-jar path** (ureq follows redirects itself and
+      exposes no history; first and last hop are reported, security is unaffected).
+      Fix by following redirects in wire for all paths. Low priority.
 
 - [ ] **W-MEDIA1 [S] `file:` URLs: honour `Range` and name media types** (scratchy
       QM1e needs it for local `<video src=clip.mp4>` pages and fixtures; R30).
