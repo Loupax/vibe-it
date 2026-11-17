@@ -1,5 +1,126 @@
 # scratchy — regressions
 
+## R32: Every shaped paragraph wipes cosmic-text's font-match cache (`db_mut()` in `shape_spans`): 10-37x slower shaping everywhere, seen as "1 forced layouts, 2198 ms" on social.loupax.com/u/loupax (Opus investigator, 2026-11-17) — OPEN, items QP1 (P1), QP2, QP3 in TODO.txt
+
+**Status: root cause found and measured, nothing committed.** User report:
+`scratchy --socket $(wire --print-socket) https://social.loupax.com/u/loupax`
+prints `scratchy: js: 1 forced layouts, 2198 ms (script reads geometry after
+DOM writes)`. The page is only 9.7 KB of HTML (29 posts, 2 inline `<style>`
+blocks, no external CSS), so 2 s for ONE layout is far out of proportion.
+
+### Who forces the layout
+
+vim.js (loaded by egg.js `import("/vim.js")`) runs `buildGutter()` at load:
+`document.documentElement.scrollHeight` plus one `getBoundingClientRect()` per
+post (vim.js:99-104). The first read forces a layout (QJ4, `GeomCache::refresh`
+in src/js_geom.rs); later reads hit the cache until the next DOM write. vim.js
+then adds its gutter rows (a DOM write), and the next read lays out again. On
+this page clamp.js does nothing (no `.skim` container); on /discover it reads
+`scrollHeight` after each clamp write, which is one forced layout per clamped
+post. The log line fires once at 20 layouts OR 1000 ms (`GeomCache::refresh`),
+so the "1 forced layouts" in the report means a single slow layout, not a
+read/write loop in the page.
+
+### How this was measured (reusable)
+
+- The sandbox could not run wire against the site (wire dials out directly; the
+  sandbox only allows its HTTPS proxy), so: `curl` the page and its 9 scripts
+  (vimflag, confirm, embed, clamp, egg, passkey, lists, upload, vim), then make
+  `inlined.html`: `<base href="https://social.loupax.com/u/loupax">` after
+  `<head>`, vimflag inlined in place, the 7 deferred scripts inlined at the
+  end of `<body>` in order, and egg.js REPLACED by vim.js wrapped in
+  `(function(){ ... })();` (it is a module; unwrapped, its top-level `bar`
+  collides with another script's). Run `target/release/scratchy --js-report
+  --socket <unused> inlined.html`: 8 scripts, 0 errors, and the report prints
+  `3 forced layouts, 1549-1672 ms` (headless 1024x768; the user's window got 1
+  layout of 2198 ms).
+- TEMPORARY `Instant` timing in `GeomCache::refresh` (removed): tree build
+  8-15 ms, glyph walk ~1 ms, `measure_document` 367-502 ms per layout (a third
+  layout with vim.js's 325 gutter rows needed 2 deadline passes, 500 + 256 ms).
+- TEMPORARY timing around `buffer.shape_until_scroll` in `shape_spans`
+  (removed): 695 paragraphs, 359 ms of shaping. Even `"31"` (a gutter number,
+  DejaVu Sans Mono, which IS installed) took 0.41-0.47 ms; the slowest were
+  2.6-2.9 ms. `set_rich_text` is ~2 us. HarfBuzz-class shaping of 2 glyphs
+  should take microseconds.
+- `valgrind --tool=callgrind` of the same run: only 1.46 G instructions for the
+  whole process (well under a second of CPU), so most of the wall time is
+  syscalls. 4,814 `FontSystem::get_font_matches` calls, of which **1,387
+  missed** the cache and rebuilt the full match list: **98,490
+  `FontMatchKey::new`** calls (~71 faces per miss, 119 fonts installed in the
+  sandbox). Each one with a weight different from the request calls
+  `fontdb::Database::with_face_data`, and with fontdb's `memmap` feature (which
+  cosmic-text enables) that is `File::open` + `mmap` + skrifa parse + `munmap` +
+  close on the font FILE (fontdb-0.23.0 src/lib.rs `Source::with_data`).
+  `try_statx`, `read_fonts::FileRef::new` and the `FontMatchKey` sort were all
+  in the self-cost top 20.
+- Logging every distinct `AttrsOwned` the page shapes (TEMPORARY, removed):
+  only **16**, far under the cache's 256-entry limit, so the cache was not
+  overflowing. It was being wiped.
+
+### Root cause
+
+`shape_spans` (src/layout.rs) resolves each span's family with
+`span.font_family.resolve(font_system.db_mut(), attrs.weight, attrs.style)`.
+cosmic-text 0.19's `FontSystem::db_mut()` is
+
+```rust
+pub fn db_mut(&mut self) -> &mut fontdb::Database {
+    self.font_matches_cache.clear();
+    &mut self.db
+}
+```
+
+(cosmic-text-0.19.0 src/font/system.rs). It clears the cache because a caller
+holding `&mut Database` may add or remove fonts. `FontFamily::resolve`
+(src/css.rs) only needs `&fontdb::Database` (it calls `db.query`, and caches
+its own answers in a thread-local). So EVERY span of EVERY paragraph wipes the
+font-match cache, and the next shape rebuilds it from scratch, opening and
+mmapping ~71 font files. It is the only `db_mut()` call in src/ outside tests.
+
+### Measured fix (one word: `font_system.db_mut()` -> `font_system.db()`)
+
+Applied locally, measured, then reverted:
+
+| measurement | before | after |
+|---|---|---|
+| social /u/loupax forced layout, `measure_document`, headless | 367-502 ms | 6-12 ms |
+| social /u/loupax, report line | `3 forced layouts, 1549-1672 ms` | not printed (all 4 layouts ~40 ms total) |
+| `cargo bench --bench layout -- "measure, cold"`: 200 paragraphs + list + table | 810 ms [792-835] | 34.2 ms [33.5-35.0] |
+| same: 200 paragraphs each with one inline icon | 348 ms [341-355] | 38.7 ms [37.7-39.8] |
+
+The benches drive the same `measure` and `shape_spans` code the App's shaping
+worker (`spawn_shaping_worker`) uses, so the fix speeds up EVERY page load,
+resize and restyle in the window, not only geometry reads: a 9-24x faster cold
+measure. It is very likely a large part of QY33's YouTube callback cost
+(forced layouts of 1130-1511 ms) and of QJ4b's "~3.4 s on a 1.4 MB page"
+note. Both need re-measuring after QP1.
+
+### Secondary findings
+
+1. **The JS thread does not use the content-keyed shape memo.**
+   `SHAPE_MEMO_ENABLED` (src/layout.rs) is only set on the shaping worker
+   thread (`spawn_shaping_worker`, src/app.rs). `GeomCache::refresh` builds a
+   fresh id-keyed `ShapeCache` per layout, so each forced layout reshapes every
+   paragraph. Enabling the memo on the JS thread (TEMPORARY) made a repeated
+   layout of the same DOM 1.6-2.3 ms instead of 367 ms (before QP1), or
+   1.7-2.5 ms instead of 6.4-6.6 ms (after QP1). After QP1 this matters only
+   for pages that read geometry in a write/read loop (clamp.js on /discover).
+   NOTE: do NOT persist the id-keyed `ShapeCache` across refreshes instead.
+   Its keys are positional paragraph ids with no content check, so any DOM
+   insert shifts the ids and serves the wrong text's shape (tried TEMPORARILY:
+   faster, but unsafe).
+2. **The memo would grow without bound on the JS thread.** The worker clears
+   `SHAPE_MEMO` whenever a request has `reuse_shaping == false`; the JS thread
+   has no such point. Keys include the width, so a resize leaves old entries
+   behind. Clear it when `GeomCache`'s viewport key changes, or cap it.
+3. **A cache miss is still expensive after QP1**: about 71 file
+   open/mmap/munmap calls. Misses are rare once the cache is no longer wiped
+   (16 distinct attrs on this page), but the first shape per distinct attrs on
+   each `FontSystem` (the App's, the worker's, the JS thread's) still pays it.
+   Not measured separately; see QP3.
+
+---
+
 ## R31: CSS animations, transitions, Web Animations and `@font-face` do not exist; survey and design evidence (Opus investigator QAN1, 2026-11-17) — OPEN, items QAN1-0, QAN1a-QAN1i, QFF1a-QFF1c in TODO.txt
 
 **Status: evidence memo, nothing built.** Today `TopLevelParser::parse_prelude`
