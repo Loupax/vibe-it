@@ -31,8 +31,10 @@ D5 autoplay: never, except muted autoplay and a `play()` that follows a user ges
 (click/key) in the page; D6 controls: scratchy paints a simple bar (play/pause, seek, time,
 volume), mpv's own OSC/Lua stays off, keys only while the video is focused (space pause,
 left/right seek, up/down volume), a page may cancel them (QJ11 rule); D7 `<audio>` yes, same
-backend, at most 2 players at once (starting a third pauses the oldest). D8 (MSE) open: the
-user asked for an explanation (plain <video src> will play; MediaSource sites will not).
+backend, at most 2 players at once (starting a third pauses the oldest). D8 DECIDED 2026-11-17:
+accept NO MSE for now (plain <video src>/<source> mp4/webm plays; MediaSource sites keep a
+placeholder with a `not supported` log); the MSE investigation and plan are QM1k, to be
+done WITH THE USER PRESENT.
 Forms stay open: to be designed together.
 USER ANSWERS 2026-11-17 (night): QJ11 DECIDED: pages may override the user-agent
 defaults, so page JS may cancel ANY key (no reserved set); the user will turn vim
@@ -305,7 +307,8 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       page console/status logs "media: mpv"; an extra "open in mpv" action is not asked
       for), D4 = all bytes through wire, always. D2 = libmpv in-process, D3 = optional
       dependency, D5-D7 = coordinator defaults (decided 2026-11-17, see the status block).
-      STILL WAITING FOR USER: D8 (MSE yes/no/later). Media is still "Off limits" in AGENTS.md until the design is
+      D8 = no MSE for now (QM1j/QM1k).
+      MEDIA DESIGN COMPLETE 2026-11-17 (D1-D8): QM1b/QM1e/QM1f/QM1g may now be built in order. Media is still "Off limits" in AGENTS.md until the design is
       agreed; QM1b/QM1e/QM1f/QM1g stay gated on D2/D3/D5-D7.
       (design first; media is "Off limits" in AGENTS.md)
       product questions, answers gate everything below except QM1a/QM1c/QM1d:
@@ -328,6 +331,19 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
          (same backend, no video), and how many players at once (each ~100 MB RSS;
          suggest 2, pause the oldest). D8 Accept "no MSE/EME" (YouTube stays
          without video), or ask for a separate MSE investigation later.
+- [ ] QM1k [L, Opus investigate, then PLAN WITH THE USER PRESENT] WAITING FOR USER (user
+      2026-11-17: "create action item for investigating the MSE and planning it with me
+      present") MediaSource Extensions for libmpv (QM1j): how a `blob:` URL from
+      `URL.createObjectURL(mediaSource)` could be backed by the appended SourceBuffer
+      segments (fragmented mp4 / webm), one growing byte stream per track fed to libmpv
+      via stream_cb (audio and video are separate SourceBuffers on most sites; mpv
+      needs them merged or `--audio-file`-style external tracks), buffered ranges,
+      seeking/`remove()`, `endOfStream`, codec strings and `isTypeSupported`, timing
+      (`timeupdate`, `waiting`, `canplay`), memory caps, what YouTube/Twitch/Vimeo
+      actually need (DASH/HLS pages, botguard, EME/DRM which is out of scope), and
+      what a minimal spike would look like (a local fragmented-mp4 page whose JS
+      appends segments). DO NOT start this autonomously: when the user asks, do the
+      Opus investigation first, then walk through the plan together before any build.
 - [ ] QM1a [S, Opus, investigate only] READY (no design needed) On the user's REAL
       dwl (GPU renderer) check that zwp_linux_dmabuf_v1 is offered and that
       `mpv --no-config --ao=null --vo=gpu` / `--vo=dmabuf-wayland` work; only the

@@ -64,7 +64,15 @@
 Do NOT implement the real behaviour of these until the user has explicitly
 asked and the design has been agreed. The user wants to understand how they
 will work first (same stance as forms, Q30):
-- **Audio and video**: `<video>`, `<audio>`, `<source>`, `<track>`,
+- **MEDIA DESIGN AGREED 2026-11-17 (QM1-D D1-D8 in TODO.txt)**: in-page `<video>`/
+  `<audio>` through libmpv IN-PROCESS as an OPTIONAL dependency (without it the
+  inert placeholder stays), ALL bytes through wire (never the player's own network),
+  scratchy-painted controls, no autoplay except muted or after a user gesture, at most
+  2 players, NO MediaSource/EME for now (QM1j/QM1k, to be planned with the user). Only
+  the QM1b..QM1i items may be built, in TODO.txt order and each with its own approval
+  in the item; anything beyond them still follows the rules below. FORMS are still
+  undecided.
+- **Audio and video** (rules below apply except as agreed above): `<video>`, `<audio>`, `<source>`, `<track>`,
   `HTMLMediaElement` playback (`play()`/`pause()`/`currentTime`/events),
   codecs, MediaSource/EME, Web Audio, `<canvas>` capture/WebRTC, autoplay.
 - **Forms** (Q30 and children): live form state, text input widgets,
