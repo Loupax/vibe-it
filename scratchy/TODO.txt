@@ -3048,7 +3048,7 @@ QF13a, QF14b2, QF18 open; QF19 waits for the user):
       agent must FIRST check whether a buffered poll-style implementation is
       honest enough; if it needs a wire protocol change, STOP and report (that is
       a design question for the user), do not change wire's protocol on its own.
-- [x] QWU1 [S] DONE 2026-11-17 (Sonnet; hash 1e9fbae; one line after a 400 ms quiet period, see NETWORKING.md) (user 2026-11-17) Say when wire is unreachable. Today, with
+- [x] QWU1 [S] DONE 2026-11-17 (Sonnet; hash 75b330b; one line after a 400 ms quiet period, see NETWORKING.md) (user 2026-11-17) Say when wire is unreachable. Today, with
       wire down, a page's stylesheets and images are dropped SILENTLY (the
       `fetch_*_via_wire` helpers in net.rs turn `WireFetchRaw::Unreachable` into
       `None`), so a page looks broken with no hint why. Add ONE stderr line per page
