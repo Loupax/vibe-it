@@ -114,6 +114,13 @@ READY, in recommended order (no user decision needed):
  (report stops after a trip), QY37 [S] (report uses the user's jar), QY38 [S/M]
  (report ignores stylesheets), QY36 [S], QY33 [M] (callback cost, measure),
  QY34 [M] (script-inserted scripts), then QY35 (Opus bisect) and QY27.
+ NEW 2026-11-17 (Opus QP0, R32: "1 forced layouts, 2198 ms" on
+ social.loupax.com/u/loupax), in this order: QP1 [S] P1 TOP (`shape_spans` calls
+ `font_system.db_mut()`, which wipes cosmic-text's font-match cache on EVERY span:
+ cold measure 9-24x slower on every page, forced layout 367-502 ms -> 6-12 ms; a
+ one-word fix, do it before any other perf item), then QP2 [S] P3 (shape memo on the
+ JS thread, bounded) and QP3 [S] P3 (measure the remaining cost of a cache miss).
+ After QP1, re-measure QY33 and QJ4b's perf note.
  NEW 2026-11-17 (Opus QY35, R28: the remaining YouTube masthead/guide paint gaps),
  in this order: QY40 [S] P1 DONE (`document.all` missing -> polymer-resin turns EVERY
  falsy property binding into "zClosurez": mini-guide icons hidden, and more),
@@ -231,6 +238,71 @@ dropped selectors summed across those pages. Caveats:
 - Most of the sites the user browses require JavaScript, so they can't
   be measured yet. Re-run this measurement after Tier 1 lands, and
   re-rank if the numbers move.
+
+--- SHAPING PERF: font-match cache wiped per span (Opus investigator QP0, ----
+--- 2026-11-17). Evidence: REGRESSIONS.md R32. All numbers from TEMPORARY ----
+--- `Instant` timing, callgrind and `cargo bench`; none of it was committed. --
+
+- [x] QP0 [Opus, investigate only] (DONE 2026-11-17, evidence REGRESSIONS.md R32;
+      items QP1-QP3) (user report 2026-11-17) `scratchy: js: 1 forced layouts,
+      2198 ms (script reads geometry after DOM writes)` on social.loupax.com/u/loupax.
+      ANSWER: a performance warning, not an error. vim.js `buildGutter` reads post
+      geometry once at load; that ONE layout was slow because every shaped span
+      wiped cosmic-text's font-match cache (QP1).
+- [ ] QP1 [S] (P1, TOP of the perf items, R32) One-word fix in `shape_spans`
+      (src/layout.rs; find it with `grep -n 'db_mut()' src/layout.rs`, the only
+      hit outside tests): `span.font_family.resolve(font_system.db_mut(), ...)` ->
+      `span.font_family.resolve(font_system.db(), ...)`. `FontFamily::resolve`
+      (src/css.rs) already takes `&fontdb::Database`, so nothing else changes.
+      WHY: cosmic-text 0.19's `FontSystem::db_mut()` calls
+      `self.font_matches_cache.clear()`, so every span forced the next shape to
+      rebuild the font-match list for all ~119 installed faces, opening and mmapping
+      ~71 font files each time (98,490 `FontMatchKey::new` calls for one page load).
+      MEASURED (fix applied locally, then reverted): `cargo bench --bench layout --
+      "measure, cold"` 810 ms -> 34.2 ms (200 paragraphs + list + table) and 348 ms ->
+      38.7 ms (200 paragraphs + inline icon); social /u/loupax forced layout
+      `measure_document` 367-502 ms -> 6-12 ms, and the report line no longer prints
+      (repro recipe in R32 "How this was measured").
+      Test (permanent, src/tests.rs): a guard that no non-test code calls `db_mut()`
+      on a `FontSystem` during shaping, since the cache cannot be read from outside
+      cosmic-text. Simplest deterministic form:
+      `assert!(!include_str!("layout.rs").contains(".db_mut()"))` with a comment
+      pointing at R32 (verified 2026-11-17: `new_font_system_with` builds its own
+      `fontdb::Database` and never calls `db_mut`, so only the bug trips the guard). Also add a doc comment
+      on `FontFamily::resolve` saying callers must pass `font_system.db()`, NEVER
+      `db_mut()` (it clears cosmic-text's font-match cache).
+      Accept: the bench numbers above (quote before/after from your machine); the
+      R32 recipe (or the real window) no longer logs the forced-layout line on
+      /u/loupax; screenshots of /u/loupax and en.wikipedia.org Main_Page unchanged
+      (shaping results must be identical: only the cache changed); WPT subset
+      unchanged. Then add the new numbers to QY33 and to QJ4b's perf note.
+- [ ] QP2 [S] (P3, after QP1, R32 secondary 1-2) Let forced layouts on the JS thread
+      use the content-keyed shape memo: in `GeomCache::refresh` (src/js_geom.rs) set
+      `crate::layout::SHAPE_MEMO_ENABLED` to true once per thread (next to the
+      `FONTS` init), and clear `SHAPE_MEMO` whenever the viewport part of the cache
+      key (vw, vh) differs from the previous refresh, so a resize does not leave old
+      widths behind. Do NOT keep the id-keyed `ShapeCache` across refreshes: its ids
+      are positional with no content check, so a DOM insert serves the wrong shapes.
+      Measured before QP1: a repeated layout of the same DOM went 367 ms -> 1.6-2.3 ms;
+      after QP1: 6.4-6.6 ms -> 1.7-2.5 ms. Matters for write/read loops (clamp.js on
+      social.loupax.com/discover reads `scrollHeight` after every clamp write).
+      Test: two `__d_rect` reads with a DOM write between them, where the write does
+      not change any text, give the same rects, and `SHAPE_MEMO` is not empty after
+      the first; a viewport change clears it. Accept: /discover `--js-report` forced-
+      layout total before/after quoted.
+- [ ] QP3 [S] (P3, measure first, after QP1) Cost of a font-match cache MISS: each
+      miss runs `FontMatchKey::new` for every face, and for each face whose weight
+      differs it calls `fontdb::Database::with_face_data`, which with the memmap
+      feature opens and mmaps the font file every time. After QP1 misses happen once
+      per distinct attrs per `FontSystem` (16 on /u/loupax; scratchy has 3
+      FontSystems: App, shaping worker, JS thread). Measure the first-paint cost on
+      a page with many attrs (Wikipedia, YouTube) with `Instant` around
+      `get_font_matches` misses (cosmic-text is not vendored: time it from
+      `shape_spans`, or count with callgrind as in R32). If it is > 20 ms per page,
+      consider calling `db.make_shared_face_data(id)` for each face once in
+      `new_font_system_with` (the faces stay mmapped, so `with_face_data` stops
+      touching the disk) and measure memory (RSS) before/after. Else close as
+      not worth it, with the numbers.
 
 --- YOUTUBE CPU BUDGET + SOCIAL VIM.JS (Opus investigator, 2026-11-16) -------
 --- Evidence: REGRESSIONS.md R24 (YouTube) and R25 (social.loupax.com). ------
@@ -826,7 +898,8 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       500 ms CALLBACK_BUDGET on main: first callback 764-1416 ms thread CPU, then
       several 500-684 ms (budget raised locally to see them); default budget =>
       1-2 `timer stopped` + 2-4 `promise jobs stopped` per load. QJ4's forced
-      layout costs 1130-1511 ms per layout in the window (`N forced layouts, M
+      layout costs 1130-1511 ms per layout in the window (R32 2026-11-17: most of
+      that is probably QP1's font-match cache wipe; re-measure after QP1) (`N forced layouts, M
       ms` line) on this ~1600-element DOM. The window still painted the card
       with the trips, but what the dropped work was is unknown. Do: profile
       the >500 ms callbacks after QY29/QY32 (R26 recipe: per-callback timer +
@@ -1171,7 +1244,8 @@ IntersectionObserver and matchMedia are not used by any of the site's scripts.
       save the page with <base href>, `--js-report --run-timers 5000`
       (stderr shows the panic); minimise the grid that has an item spanning
       more columns than the resolved tracks. Also: that forced layout costs
-      ~3.4 s on a 1.4 MB page (github 1.8 s): a perf item if pages read
+      ~3.4 s on a 1.4 MB page (github 1.8 s; R32: re-measure after QP1, which made
+      cold measure 9-24x faster): a perf item if pages read
       geometry at load.
 - [x] QJ5 [S] (DONE 2026-11-17, commit 8229ae6; DOM_PRELUDE scrollIntoView
       in src/js_dom.rs: window scroll to the QJ4 rect, block/inline

@@ -7161,3 +7161,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 **Prompt:** The media BYTE CHANNEL only (new module src/media_net.rs): chunk cache + ranged GETs through wire, header/policy/CORS/credentials rules, 206/200/416/other handling, Content-Range and length checks with one retry, redirect pinning, fallback single streaming GET, cancel, plain Rust error type for the later QM1f layer. No libmpv dependency, always compiled, unit-tested against a fake wire socket.
 
 **What changed:** new src/media_net.rs (`MediaStream` open/read/seek/size plus stream_cb-shaped `read_cb`/`seek_cb`/`size_cb`, `CancelHandle`, `MediaNetError`, `MediaMode`, the QM1b mpv option list as `MPV_OPTIONS`), `mod media_net` in lib.rs, 14 `qm1e_*` tests in tests.rs (fake wire on a unix socket). NOT done: libmpv/libloading glue and the `media` cargo feature (left for QM1f/QM1g), MediaError mapping, `file:` Range (W-MEDIA1). Nothing else changed; page-JS fetch queues untouched.
+
+## QP0: "1 forced layouts, 2198 ms" on social.loupax.com/u/loupax (Opus investigator, 2026-11-17)
+
+**Prompt:** The user asked whether `scratchy: js: 1 forced layouts, 2198 ms (script reads geometry after DOM writes)` on social.loupax.com/u/loupax is a performance issue; no TODO covered it, so: investigate thoroughly enough that a cheaper agent can fix it later.
+
+**What changed:** docs only (REGRESSIONS.md R32, TODO.txt QP0-QP3 plus cross-references in QY33 and QJ4b). Root cause: `shape_spans` calls `font_system.db_mut()` for every span, and cosmic-text's `db_mut()` clears its font-match cache, so every paragraph re-scans all faces and mmaps ~71 font files. Switching to `db()` (measured locally, then reverted) took cold measure from 810 ms to 34 ms on the layout bench and the forced layout from ~400 ms to ~10 ms. All timing code and experiments were removed; no source file changed.
