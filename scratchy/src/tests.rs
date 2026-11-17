@@ -16152,6 +16152,66 @@ fn qsd3_custom_element_in_shadow_and_event() {
     assert_eq!(log.iter().filter(|l| *l == "log:conn").count(), 2, "{log:?}");
 }
 
+// ---------- QJ4: geometry reads (getBoundingClientRect, offset*, client*, scroll*) ----------
+
+#[test]
+fn qj4_geometry_reads_layout_backed_rects() {
+    let log = run_in_html(
+        "<html><head><style>body{margin:0} article{display:block;height:100px;margin:0;border:2px solid red;padding:5px;width:300px}\
+         #p{padding:0;border:0;height:0;position:relative;top:0}</style></head>\
+         <body><article id=a1><p class=meta id=m1>one</p></article><article id=a2>two</article><article id=a3>three</article>\
+         <div id=n style='display:none'><b id=nb>x</b></div><div id=p><i id=ch style='display:block;height:10px;margin-top:20px'></i></div></body></html>",
+        r#"var a = ['a1','a2','a3'].map(function (i) { return document.getElementById(i).getBoundingClientRect(); });
+         console.log('tops', a[0].top < a[1].top && a[1].top < a[2].top, a[0].height, a[0].width, a[0].top, a[0].left);
+         console.log('sh', document.documentElement.scrollHeight >= a[0].height + a[1].height + a[2].height, document.documentElement.clientHeight === innerHeight, document.documentElement.clientWidth === innerWidth);
+         var e1 = document.getElementById('a1');
+         console.log('off', e1.offsetWidth, e1.offsetHeight, e1.clientWidth, e1.clientHeight, e1.clientLeft, e1.clientTop, e1.scrollHeight);
+         var n = document.getElementById('n'), z = n.getBoundingClientRect();
+         console.log('none', z.width, z.height, z.top, document.getElementById('nb').getBoundingClientRect().height, n.offsetHeight, n.getClientRects().length);
+         var d = document.createElement('div'); console.log('det', d.getBoundingClientRect().height, d.offsetWidth, d.getClientRects().length, d.offsetParent);
+         console.log('offp', document.getElementById('ch').offsetParent.id, document.getElementById('ch').offsetTop);
+         document.documentElement.scrollTop = 0; e1.scrollTop = 7; console.log('st', e1.scrollTop, document.documentElement.scrollTop, e1.scrollLeft);
+         console.log('rect', e1.getBoundingClientRect() instanceof DOMRect, e1.getClientRects().item(0).height);
+         e1.style.height = '300px';
+         console.log('after', e1.getBoundingClientRect().height);
+         scrollTo(0, 50); console.log('scrolled', document.getElementById('a1').getBoundingClientRect().top);"#,
+    );
+    let has = |s: &str| log.iter().any(|l| l == s);
+    assert!(has("log:tops true 114 314 0 0"), "{log:?}");
+    assert!(has("log:sh true true true"), "{log:?}");
+    assert!(has("log:off 314 114 310 110 2 2 110"), "{log:?}");
+    assert!(has("log:none 0 0 0 0 0 0"), "{log:?}");
+    assert!(has("log:det 0 0 0 null"), "{log:?}");
+    assert!(has("log:offp p 20"), "{log:?}");
+    assert!(has("log:st 7 0 0"), "{log:?}");
+    assert!(has("log:rect true 114"), "{log:?}");
+    assert!(has("log:after 314"), "{log:?}");
+    assert!(has("log:scrolled -50"), "{log:?}");
+}
+
+#[test]
+fn qj4_forced_layout_time_is_not_charged_to_the_script_budget() {
+    let before = crate::js::script_clock_nanos();
+    let start = crate::js::thread_cpu_nanos();
+    let mut x = 0u64;
+    while crate::js::thread_cpu_nanos() - start < 20_000_000 {
+        x = x.wrapping_add(1);
+    }
+    std::hint::black_box(x);
+    crate::js::pause_budget_since(start);
+    let charged = crate::js::script_clock_nanos() - before;
+    assert!(charged < 10_000_000, "paused work still charged {charged} ns");
+}
+
+#[test]
+fn qj4_scroll_height_sees_overflowing_content() {
+    let log = run_in_html(
+        "<html><body style='margin:0'><div id=b style='height:50px;overflow:hidden;width:200px'><div style='height:400px'></div></div></body></html>",
+        "var b = document.getElementById('b'); console.log('s', b.clientHeight, b.scrollHeight);",
+    );
+    assert!(log.contains(&"log:s 50 400".to_string()), "{log:?}");
+}
+
 // ---- QY21: define() looks up only the new name; scans use the native candidate walk.
 
 #[test]

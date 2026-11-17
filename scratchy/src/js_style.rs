@@ -32,6 +32,20 @@ pub(crate) fn set_js_adopted_css(css: &str) {
     ADOPTED_CSS.with(|c| *c.borrow_mut() = css.to_string());
 }
 
+/// The page's external plus adopted CSS (what the layout build receives as
+/// `extra_css`).
+pub(crate) fn page_css() -> String {
+    let mut s = EXTRA_CSS.with(|c| c.borrow().clone());
+    ADOPTED_CSS.with(|c| {
+        let c = c.borrow();
+        if !c.is_empty() {
+            s.push('\n');
+            s.push_str(&c);
+        }
+    });
+    s
+}
+
 #[derive(Default)]
 pub(crate) struct StyleCache {
     wgen: u64,
