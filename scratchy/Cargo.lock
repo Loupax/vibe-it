@@ -2343,6 +2343,7 @@ dependencies = [
  "html5ever",
  "image",
  "libc",
+ "libloading",
  "markup5ever_rcdom",
  "precomputed-hash",
  "resvg",

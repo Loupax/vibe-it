@@ -3475,3 +3475,27 @@ reader's happens. Numbers and the mpv option list: TODO.txt QM1b RESULTS.
 ## Form controls: live state and painting (Q30c, Q30d)
 
 Checkbox/radio state (`CHECK_LIVE`, forms.rs) and text state (`TEXT_LIVE`, forms_text.rs) are thread-local maps keyed by `node_id`, cleared on navigation. Neither is in the layout tree: the box only carries `ComputedStyle::check_widget` / `text_widget` and the painter (`paint_checkable`, `paint_text_control`) draws from the live state, so toggling or typing is a repaint. A text control is "dirty" once script or the user set its value; until then the `value` attribute (textarea: its text) rules. While an enabled text control is focused, `App::text_control_key` owns the keys after the page keydown handlers; Esc blurs and returns the keys to the vim bindings. `TextEditBuffer` (app.rs) is shared with the `:` command bar.
+
+## QM1f: HTMLMediaElement (2026-11-17)
+
+Three layers. `src/media_el.rs`: `MediaCore` is the HTML media element state
+machine (resource selection from `src`/`<source>` with `type` filtering,
+networkState/readyState, play()/pause()/seek/ended/loop, volume/muted/rate, the
+event order, MediaError codes, D5 autoplay = muted or a user gesture, canPlayType)
+over the `MediaBackend` trait; it emits `Out` items (events, promise settlements)
+and never touches JS. `FakeBackend` (deterministic, scripted by tests) and
+`UnavailableBackend` (placeholder: loadstart + `error` code 4, play() rejects
+NotSupportedError, ONE `not implemented: media (libmpv not available)` line) live
+there too, as does `MediaHost` (all elements of a page, D7: at most 2 playing, the
+once-only log lines). `src/js_media.rs` + `src/media_prelude.js`: natives
+`__media_*` and the thin JS wrapper (attribute reflection, `<source>` candidates,
+MutationObserver hooks for src/child changes, events always dispatched from a timer
+task, play() promises by token, `Audio`, `TimeRanges`, `MediaError`). The page JS
+keeps a `setTimeout` pump while any backend is live. `src/media_mpv.rs` (cargo
+feature `media`, libloading dlopen of `libmpv.so.2`): the QM1b options, `vo=null`
+`ao=null` (env SCRATCHY_MEDIA_AO), `stream_cb` protocol `scratchy-media://` backed
+by `media_net::MediaStream` (mpv never opens a URL itself), `eof-reached`/
+`playback-restart`/`file-loaded`/`time-pos` mapped to `BackendEvent`s, seeks
+`absolute+exact`. First real load logs `media: mpv`. Default builds have no libmpv
+code and no libloading dependency. `--js-report --run-timers` sets
+`__media_wait=20` so the simulated clock still lets a real player advance.
