@@ -27,7 +27,7 @@ fn fmt_out(id: i32, o: Out) -> Option<String> {
     })
 }
 
-pub(crate) fn install_media<'js>(ctx: &Ctx<'js>, ctxb: BackendCtx, log: Rc<dyn Fn(&str, &str)>) -> Rc<RefCell<MediaHost>> {
+pub(crate) fn install_media<'js>(ctx: &Ctx<'js>, ctxb: BackendCtx, log: crate::media_el::MediaLog) -> Rc<RefCell<MediaHost>> {
     let host = Rc::new(RefCell::new(MediaHost::new(ctxb, log)));
     let queue: Queue = Default::default();
     let g = ctx.globals();

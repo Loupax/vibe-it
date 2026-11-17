@@ -512,7 +512,7 @@ impl MediaCore {
     }
 
     pub(crate) fn set_rate(&mut self, r: f64) -> Result<(), &'static str> {
-        if !(r >= 0.0625 && r <= 16.0) {
+        if !(0.0625..=16.0).contains(&r) {
             return Err("NotSupportedError");
         }
         if r != self.rate {
@@ -792,6 +792,9 @@ pub(crate) fn default_factory() -> BackendFactory {
     }
 }
 
+/// Where the host writes its log lines: (level, text).
+pub(crate) type MediaLog = Rc<dyn Fn(&str, &str)>;
+
 /// One `(element id, thing for the page)` pair.
 pub(crate) type HostOut = (i32, Out);
 
@@ -805,12 +808,12 @@ pub(crate) struct MediaHost {
     seq: u64,
     logged_unavailable: bool,
     logged_backend: bool,
-    log: Rc<dyn Fn(&str, &str)>,
+    log: MediaLog,
     avail: Option<bool>,
 }
 
 impl MediaHost {
-    pub(crate) fn new(ctx: BackendCtx, log: Rc<dyn Fn(&str, &str)>) -> Self {
+    pub(crate) fn new(ctx: BackendCtx, log: MediaLog) -> Self {
         MediaHost {
             els: HashMap::new(),
             factory: default_factory(),
@@ -863,10 +866,8 @@ impl MediaHost {
         let r = f(c);
         let now_paused = c.paused;
         let outs = c.take_outs();
-        if was_paused && !now_paused {
-            if let Some(e) = self.els.get_mut(&id) {
-                e.1 = seq;
-            }
+        if let (true, Some(e)) = (was_paused && !now_paused, self.els.get_mut(&id)) {
+            e.1 = seq;
         }
         let mut all = self.absorb(id, outs);
         all.extend(self.enforce_cap());

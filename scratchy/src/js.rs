@@ -1658,9 +1658,7 @@ pub(crate) fn run_page_scripts(document: &Handle, scripts: &[ScriptSource], page
                 diag!("scratchy: js error: {text}");
             } else if level == "net" {
                 diag!("scratchy: js net: {text}");
-            } else if level == "media" {
-                diag!("{text}");
-            } else if level == "net-warning" {
+            } else if level == "net-warning" || level == "media" {
                 diag!("{text}");
             } else if level.starts_with("console.") {
                 diag!("scratchy: {level}: {text}");
