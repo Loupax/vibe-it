@@ -516,7 +516,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       10 times advances the clock 10 frames. Accept: R26 probe run gets past
       simulated 100 ms with QY29 applied. Unblocks: headless YouTube runs, any
       rAF animation loop in `--js-report`.
-- [x] QY31 [S] (done HASH) (P2, tooling, R26) `--js-report --run-timers` stops pumping at the first
+- [x] QY31 [S] (done 419b856) (P2, tooling, R26) `--js-report --run-timers` stops pumping at the first
       tripped callback: `run_due_counted` (js.rs) returns 0 when its FIRST eval
       returns None (tripped/failed), and `js_report_for_scripts_timers` treats
       0 as "nothing due" (`if n == 0 { break }`). On main the YouTube report
