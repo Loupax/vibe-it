@@ -635,7 +635,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       playback, which must be none); the same page with `crossorigin=anonymous`
       on a server without ACAO shows a MediaError and fetches nothing beyond the
       first range.
-- [x] QM1f [M] DONE 2026-11-17 (Sonnet; hash HASH_QM1F; src/media_el.rs state machine + fake backend, src/js_media.rs + src/media_prelude.js element layer, src/media_mpv.rs real backend behind OFF-by-default cargo feature `media`; vo=null, ao=null unless SCRATCHY_MEDIA_AO; no painting = QM1g; leftovers = QM1f1) (after D1-D3, D5-D7) HTMLMediaElement on top of mpv events, replacing
+- [x] QM1f [M] DONE 2026-11-17 (Sonnet; hash 242e468; src/media_el.rs state machine + fake backend, src/js_media.rs + src/media_prelude.js element layer, src/media_mpv.rs real backend behind OFF-by-default cargo feature `media`; vo=null, ao=null unless SCRATCHY_MEDIA_AO; no painting = QM1g; leftovers = QM1f1) (after D1-D3, D5-D7) HTMLMediaElement on top of mpv events, replacing
       (QM1b: seeks MUST use `absolute+exact`/`relative+exact`; plain relative
       seeks land on keyframes, up to 8 s away on a keyint-250 file.)
       the QA20 `not implemented` stubs in js_dom.rs: src/currentSrc and `<source>`
