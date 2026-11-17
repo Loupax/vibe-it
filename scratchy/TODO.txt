@@ -55,6 +55,11 @@ older and were only partly corrected in place):
   RangeError. QY47a [S] READY P1 (Sonnet: raise the limit, clamped to the thread stack),
   then QY47c [S] P2 (Opus: `true` thumbnails, grey masthead), QY47b/QY47d P3. Block
   "NEW 2026-11-17 (Opus, QY47 ...)" right after QY48.
+- NEW 2026-11-17 (Opus, QY49 DONE, R37): DuckDuckGo answered with a BOT CHALLENGE page
+  (plus one `timer stopped` trip); YouTube now serves a new front-end that dies on a
+  missing `document.scripts`. QY50 [S] READY P1, QY51 [S] READY P1, QY49-D (budget
+  policy: WAITING FOR USER, trade-off in R37 section 3), QY52-QY54 P2, QY55 P3 (with the
+  user). Block "NEW 2026-11-17 (Opus, QY49 ...)" right after QY47d.
 
 USER ANSWERS 2026-11-17 (late night): (a) PR #232 (QW6, body background on the canvas)
 KEEP, despite its accepted WPT pass->fail `css/css-backgrounds/animations/background-color-
@@ -1182,6 +1187,11 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       R36 (2026-11-17): user-visible casualty: YouTube's SPA search navigation is
       killed in the promise drain after the /youtubei/v1/search response (one drain
       shares one 500 ms budget: 377 ms job + 114 ms killed job). Fix filed as QY46.
+      R37 (2026-11-17, QY49): new YouTube front-end (ytmainappweb). Thread-CPU
+      distribution with the budget raised: timers max 494 ms budget clock (rAF tick),
+      promise jobs up to 1647 ms; default budget kills one 1659 ms job (no results).
+      Cost: `__d_cs` ~50 ms/call, `__d_special` full walks, `__d_parent` walks (24-87k
+      calls per callback), Shady DOM polyfill. Items QY51-QY53, policy QY49-D.
 - [x] QY34 [M] (done 281d281) (P3, R26) Script-inserted `<script>` elements never run. Fixture:
       `createElement('script')` with `textContent` appended to head, and one
       with `src` + onload/onerror: neither runs, no network request, no event
@@ -1495,7 +1505,18 @@ Evidence and the probe recipe: REGRESSIONS.md R36.
       results chrome shown; the one failing button run had a 501 ms single job killed,
       not a shared-budget kill). The accept criterion's `yt-navigate-finish` was NOT
       probed directly (proxy: no kill line + results page chrome in grim).
-- [ ] QY49 [S] (from QY46, user report: DuckDuckGo search shows no results and prints
+- [x] QY49 [S] DONE 2026-11-17 (Opus investigation, docs only; REGRESSIONS.md R37).
+      DuckDuckGo answered the direct /?q=rust load with its BOT CHALLENGE ("Select all
+      squares containing a duck", empty grid): investigation of DuckDuckGo stopped there
+      (rule). In that run: timer 436 ms budget clock (769.5 raw, 333 forced layout) ran,
+      one timer killed at 500 ms -> `timer stopped`. YouTube comparison: new
+      "ytmainappweb" front-end dies on missing `document.scripts`; with a shim, one
+      1659 ms promise job is killed (no results); costs: `__d_cs` ~50 ms/call,
+      `__d_special` full-tree walk per `document.body`, `__d_parent` walks; forced layout
+      (not budgeted) stalls the main thread up to 2.5 s (timer) / 3.9 s (job).
+      Follow-ups: QY50-QY55 + QY49-D, block "NEW 2026-11-17 (Opus, QY49 ...)" below.
+      Original item text:
+- QY49 [S] (from QY46, user report: DuckDuckGo search shows no results and prints
       twice "js: timer stopped: exceeded the 500 ms CPU-time callback budget") TIMER
       callbacks are a SEPARATE path from the promise drain: `run_due` ->
       `eval_value("timer", ...)` arms ONE CALLBACK_BUDGET for the whole callback and the
@@ -1632,6 +1653,66 @@ after QY47a) -> QY47b (P3, Sonnet) -> QY47d (P3).
       off-screen continuation items (should be not intersecting below the
       simulated viewport) and (b) QuickJS heap per element (1 GB RSS at 24k elements
       = ~40 KB each, high). Output: numbers in R36 and a fix item if (a) is wrong.
+
+--- NEW 2026-11-17 (Opus, QY49: DuckDuckGo bot challenge; YouTube ytmainappweb; callback cost; R37) ---
+Ranked: QY50 (P1) -> QY51 (P1) -> QY49-D (user decision, can be asked now) -> QY52 (P2)
+-> QY53 (P2) -> QY54 (P2, Opus) -> QY55 (P3, with the user). Evidence: REGRESSIONS.md R37.
+
+- [ ] QY50 [S] READY (P1, R37, Sonnet/Haiku) `document.scripts` is missing. YouTube's new
+      "ytmainappweb" front-end (served now for the default AND the Firefox UA) does
+      `Array.from(document.scripts)` at startup (`cFU`/`W7_`) and dies with "cannot read
+      property 'Symbol.iterator' of undefined": white page with three grey circles. Add
+      `document.scripts` next to `forms`/`images`/`links` in js_dom.rs (a live
+      HTMLCollection of `script` elements, same `coll(...)` helper); while there,
+      `document.embeds`/`plugins` (`embed`) and `anchors` (`a[name]`), per HTML.
+      Test: a page with two scripts: `document.scripts.length === 2`, `Array.from` works,
+      a script appended later shows up. Accept: YouTube /results?search_query=rust with
+      a 20 s local budget renders results (R37 screenshot state); with the default budget
+      expect the R37 1659 ms job kill until QY49-D is decided.
+- [ ] QY51 [S] READY (P1, R37, Sonnet) `document.body`/`head` walk the whole tree on every
+      read: js_dom.rs `__d_special` calls `descendants(&root, &mut all)` for every call
+      (0.4-1.6 ms per call on YouTube; 69 calls = 102 ms of a 525 ms rAF callback, 158
+      calls = 255 ms of a job). Find `html` as the first element child of the document,
+      then `head`/`body` among ITS children (HTML's definition: the body element is the
+      first `body` or `frameset` child of the html element), no full walk. Test: body/head
+      of a normal page, of a page whose body was replaced, of a document without html
+      (null), `frameset`. Measure (temporary timing) before/after on a 10k-element page.
+- [ ] QY49-D WAITING FOR USER (budget policy; R37 section 3 has the trade-off). Real pages
+      need 0.5-1.7 s of budget clock in single callbacks (YouTube 1659 ms promise job,
+      DuckDuckGo a killed 500+ ms timer), all during page load. R8/QB3: a long stall while
+      the pointer moves gets scratchy disconnected by the compositor. Options: (a) only
+      reduce costs; (b) a larger timer/job budget always (e.g. 2 s); (c) a larger budget
+      (e.g. 2-5 s) only while loading, 500 ms after (RECOMMENDED); (d) input-aware (large
+      unless input arrived in the last ~250 ms). Note: forced layout is already excluded
+      and stalls reach 3.9 s, so today's 500 ms is not a bound on the stall anyway (QY53/QY54).
+      After the decision: one Sonnet item [S] in js.rs (`eval_value`/`drain_jobs` arm the
+      chosen budget), fake-clock tests.
+- [ ] QY52 [M] (P2, R37, Sonnet, measure first) `getComputedStyle` costs ~50 ms per call
+      after a DOM write on YouTube (`__d_cs`: 10 calls = 503 ms in one job, counted
+      against the callback budget). The QA16 `StyleCache` is keyed on the write generation,
+      so every write+read pair re-cascades. STEP 1: time `style_of` (cascade vs. selector
+      matching vs. serialize) on the YouTube results DOM. Then either a narrower
+      invalidation (style-relevant writes only: attribute/class/style/insert/remove under
+      the element's ancestors, not text writes) or a cascade of the element + ancestors
+      only. Accept: the R37 probe shows `__d_cs` < 5 ms per call on that page.
+- [ ] QY53 [M] (P2, R37, Opus investigate) Forced layout (excluded from the budget, QJ4)
+      stalls the main thread for up to 2.5 s in one timer (our own `obsFlush` observer
+      delivery, where the page's IntersectionObserver/ResizeObserver callbacks read
+      geometry) and 3.9 s in one promise job (`__d_rect` 3 calls); 31 s of forced layout
+      in 60 s of YouTube results. Find why each forced layout costs ~0.4-1.3 s here
+      (QP1's cache? the full relayout per write generation?) and whether reads in one
+      callback reuse one layout. Output: numbers + fix items (R3/QJ4b).
+- [ ] QY54 [S] (P2, R37, Opus measure) Re-run the R8 recipe (nested dwl, pointer motion
+      every 2 ms via tools/inject) on YouTube results (QY50 shim or merged) and on a fixture
+      with a 3 s forced layout inside a timer: does the compositor still disconnect
+      scratchy with today's stalls? Decides whether QY49-D option (d) is needed and
+      whether forced layout needs its own cap. Record in R37.
+- [ ] QY55 [S] (P3, R37, WITH THE USER) DuckDuckGo: the investigator's one direct load got
+      the bot challenge, so the timer that trips (and the empty duck grid) was not
+      profiled. Ask the user whether they see the challenge in scratchy (and in a normal
+      browser on the same IP). If DuckDuckGo shows results for them, profile the tripping
+      timer in THEIR session (the R37 probe recipe) instead of sending more automated
+      searches. Never solve or disguise the challenge.
 
 social.loupax.com/discover (the user's own site; source read at
 /home/loupax/src/social, internal/web/js/vim.js): vim.js is NOT in the

@@ -1,5 +1,124 @@
 # scratchy — regressions
 
+## R37: DuckDuckGo search = a bot-challenge page plus a timer budget trip; YouTube now serves a new app that dies on a missing `document.scripts`; where callback CPU really goes (Opus investigator QY49, 2026-11-17) — OPEN: QY50-QY55, QY49-D (budget policy, WAITING FOR USER)
+
+**Status: investigation only, docs only.** Main b3120dd (QY46 + QY47a merged), release build
+in an own worktree with TEMPORARY never-committed probes: `CALLBACK_BUDGET` overridable by an
+env var; thread-CPU logging of every `eval_value` callback and every promise job >= 30 ms, with
+the forced-layout share (the QJ4 `PAUSED_NANOS` delta) shown separately; a JS profiler loaded
+before the DOM prelude that wraps the `__d_*` natives, every DOM prototype method/accessor,
+`RegExp.exec/test`, `String.replace/split/match`, `JSON.*` with EXCLUSIVE CPU accounting, and
+the timer prelude recording which timer function ran. Own wire on a scratchpad socket (all
+traffic); nested dwl 1052x1050; un-niced scratchy; load average 0.4-1.0 on 8 cores (idle).
+"Budget clock" below = thread CPU minus forced layout, which is what the 500 ms budget counts.
+
+### 1. DuckDuckGo: a bot challenge, then investigation stopped
+Run: direct load of https://duckduckgo.com/?q=rust (scratchy's default UA, NO override), 40 s,
+default budget. DuckDuckGo answered with its anomaly page over the grey SERP shell:
+"Unfortunately, bots use DuckDuckGo too. Please complete the following challenge to confirm
+this search was made by a human. Select all squares containing a duck:" with an EMPTY grid (no
+squares painted) and a Submit button (grim screenshot viewed). Per the task rules the
+investigation of DuckDuckGo stopped here: no home -> type -> Enter run, no /html/ run, no
+retries, no other UA, no attempt to solve or work around the challenge.
+Callbacks measured in that one run (thread CPU):
+
+| what | raw CPU | forced layout | budget clock | result |
+|---|---|---|---|---|
+| timer 1 | 769.5 ms | 333.2 ms | 436 ms | ran (64 ms under the line) |
+| timer 2 | 159.4 ms | 151.0 ms | 8 ms | ran |
+| timer 3 | 500.3 ms | 0 | 500 ms | **killed**: `js: timer stopped: exceeded the 500 ms CPU-time callback budget` |
+| 2 promise jobs | 94, 132 ms | 0 | 94, 132 ms | ran |
+
+So the user's "no results + two `timer stopped`" is very probably this challenge page (one
+trip here, two in the user's run: timer 1 sits 64 ms under the line, machine load decides).
+**Not measured** (would need more DuckDuckGo traffic): which DuckDuckGo function the killed
+timer ran, what inside it is expensive, how much it really needs, and whether the empty duck
+grid is caused by the killed timer or by something else (images, canvas). Whether the user also
+gets the challenge in a normal browser on the same IP is unknown.
+
+### 2. YouTube (comparison, QY33): a new front-end, and a missing `document.scripts`
+YouTube now serves "ytmainappweb" (`/s/_/ytmainappweb/_/js/k=ytmainappweb.base_module_set...`,
+plus `webcomponents-sd` = the Shady DOM polyfill), not the kevlar/Polymer app of R26/R36, for
+both scratchy's default UA and the Firefox 140 UA (own wire). On main it dies at startup:
+`Uncaught (in promise) TypeError: cannot read property 'Symbol.iterator' of undefined at from
+(native) at cFU ... at W7_`: `cFU` does `for (let l of Array.from(document.scripts))` and
+scratchy has no `document.scripts` (js_dom.rs defines `forms`, `images`, `links`, not
+`scripts`). The window shows a white page with three grey circles (the QY47c "grey masthead
+circles"). With a local `document.scripts` shim (`getElementsByTagName('script')`):
+- budget 20 s: the results page renders (chip bar "Alle", "Weitere Informationen ...", "Filter",
+  four results with titles, channels, descriptions, summary/chapter boxes; thumbnails still the
+  literal `true`, QY47c). Screenshot viewed.
+- default 500 ms: masthead fine (kebab, "Anmelden"), content area EMPTY: one promise job of
+  **1659 ms** budget clock is killed (`promise jobs stopped ... 1 job killed`). So YouTube results
+  are again blocked by the budget, now by a single job (QY46's per-job budget does not help).
+
+Distribution, YouTube /results?search_query=rust, 60 s window, shim, no profiler (callbacks >= 30 ms CPU):
+
+| run | kind | n | budget clock max / p50 | >= 400 / >= 500 ms | raw CPU max | forced-layout total |
+|---|---|---|---|---|---|---|
+| 20 s budget | timers | 56 | 494 / 56 | 1 / 0 | 2480 ms | 31.0 s of 35.6 s |
+| 20 s budget | promise jobs | 44 | 1647 / 53 | 5 / 3 (1647, 936, 573) | 4440 ms | 6.1 s of 13.3 s |
+| 500 ms | timers | 10 | 347 / 35 | 0 / 0 | 421 ms | 1.3 s |
+| 500 ms | promise jobs | 23 | 1659 (killed) / 56 | 2 / 2 (1659, 501) | 1996 ms | 0.8 s |
+
+Timer callbacks by function (20 s run): `d` = a requestAnimationFrame tick of an animation
+polyfill (`u._animations.sort ...`), 29 calls, up to 494 ms (525 ms in the profiled run);
+scratchy's OWN `obsFlush` (observer delivery timer, js_dom.rs prelude) 25 calls, up to 120 ms
+budget clock but up to **2480 ms raw** CPU, almost all forced layout from the page's observer
+callbacks reading geometry. Forced layout is excluded from the budget (QJ4), so these callbacks
+never trip, but **the main thread stalls 2.5 s in one timer and up to 3.9 s in one promise job**
+(`__d_rect` 3 calls = 3882 ms): exactly the R8 condition (compositor drops a client that
+stops reading its socket) that QB3's 500 ms was meant to bound. Untested whether it disconnects.
+
+**Where the budget clock goes** (profiled run, wrapper profiler; adds overhead, so read
+proportions, not absolute ms). Biggest jobs/timers:
+- `__d_cs` (getComputedStyle native): **~50 ms per call** right after DOM writes (10 calls =
+  503 ms in one job; 199 calls = 316 ms in another). Counted against the budget. The QA16 cache
+  is keyed on the DOM write generation, so every write followed by a read re-cascades.
+- `__d_special` (`document.body`/`head`): collects ALL descendants of the document per call
+  (js_dom.rs `__d_special`: `descendants(&root, &mut all)` even for `body`), 0.4-1.6 ms per call
+  on this DOM: 69 calls = 102 ms of the 525 ms rAF tick; 462 calls = 116 ms; 158 calls = 255 ms.
+- `__d_parent`: 24k-87k calls per callback (`isConnected`, our `moAttr` mutation-record parent
+  walk under `__d_setattr` <- `writeStyle` <- `styleSet` for every style write, and the Shady
+  DOM polyfill), 35-126 ms per callback.
+- Page JS: the Shady DOM polyfill (`webcomponents-sd`) `insertBefore` 803 ms inclusive in a
+  1037 ms job; ytmainappweb `renderImpl`/`GpG`/`QOC` tree walks (`nextSibling`, `tagName`,
+  `nodeType`, `children` filters). RegExp/String/JSON were small (RegExp.exec 24-50 ms per job).
+- A script-inserted external script (`__scratchy_run_global`, 1031 ms) runs under its own
+  `SCRIPT_BUDGET` (top = true): not a budget problem.
+
+### 3. Budget policy: the trade-off, plainly
+R8/QB3: a page that stalls the main thread while the pointer moves gets scratchy disconnected
+by the compositor (1.5 s busy loop + 400 motion events = disconnect; 2 ms pointer motion on
+Wikipedia = 4/4 crashes before QB3). QB3 bounded every timer/event callback to 500 ms and
+after it 7/7 survived. Raising the callback budget re-opens that window by the same amount.
+Measured today: real sites need 0.5-1.7 s of budget clock in single callbacks (YouTube 1659 ms
+job, DuckDuckGo 500+ ms timer); AND the 500 ms bound is already not a bound on the stall,
+because forced layout (excluded) adds up to 3.9 s. Options:
+(a) Reduce cost only (QY51-QY53): needed in any case, but no evidence it brings YouTube's
+    1.6 s job under 500 ms; DuckDuckGo's cost is unmeasured.
+(b) A separate larger timer/job budget (e.g. 2 s): sites work, but every stall up to 2 s is
+    allowed at any time, including while the user moves the pointer (R8 risk back).
+(c) A larger budget only while loading (e.g. 2-5 s until N s after the `load` event): covers
+    both cases seen today (every trip measured happened while the page was still loading, in
+    the first ~30 s after navigation); a slow callback after load still dies.
+(d) Input-aware: the larger budget only while no input arrived in the last ~250 ms, 500 ms
+    otherwise: targets R8's actual trigger (stall + input flood). More code; needs QY54's
+    measurement to be worth it.
+Recommendation: (c) now (smallest, matches every trip measured), plus QY51/QY52/QY53 to lower
+costs, plus QY54 to measure whether the forced-layout stalls already disconnect; (d) only if
+QY54 shows disconnects. This is a USER DECISION (QY49-D): it changes the R8 protection.
+
+**Not verified:** DuckDuckGo beyond one direct load (see 1); the user's exact DuckDuckGo flow and
+UA; what the YouTube 1659 ms job is (killed job not profiled; the profiled run's biggest pure
+jobs were 1847/1752/1124 ms with profiler overhead); YouTube SPA search (only direct loads);
+whether the stalls above disconnect from a real compositor under pointer motion (QY54).
+
+**Filed:** QY50 [S] P1 (`document.scripts`), QY51 [S] P1 (`__d_special` without a full walk),
+QY52 [M] P2 (`__d_cs` cost), QY53 [M] P2 (forced-layout stalls in observer callbacks), QY54 [S]
+P2 (R8 re-test with today's stalls), QY55 [S] P3 (DuckDuckGo, with the user), QY49-D (budget
+policy, WAITING FOR USER). QY49 ticked (investigation).
+
 ## R36: YouTube search: Enter and the search button "do nothing". The page's SPA navigation runs, then a CPU-budget trip kills it (wall 1); with the budget raised, the results page renders no results (wall 2). NOT QF11, NOT form submission (Opus investigator, 2026-11-17) — OPEN: QY46, QJ12, QF11 (refined), QY48 filed; wall 2 ROOT CAUSE FOUND (QY47 addendum below: QuickJS 1 MB stack limit, RangeError swallowed by YouTube) — OPEN: QY47a-d
 
 **Status: investigation only, docs only.** User report 2026-11-17: `scratchy --socket "$(wire
