@@ -1,0 +1,13 @@
+[package]
+name = "mpvspike"
+version = "0.1.0"
+edition = "2021"
+
+# QM1b spike, OUTSIDE scratchy's crate (like tools/inject). Same winit and
+# softbuffer versions as scratchy; libloading only to dlopen libmpv.
+[dependencies]
+libloading = "0.8"
+softbuffer = "0.4.8"
+winit = "0.30.13"
+
+[workspace]

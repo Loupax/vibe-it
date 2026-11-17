@@ -3457,3 +3457,17 @@ through wire (wire already forwards `Range` and passes 206/Content-Range; no
 protocol change), served to libmpv's stream_cb from a 1 MiB chunk cache
 (TODO.txt QM1e has the design). A full `App::redraw` is 67-101 ms on Wikipedia
 pages, so video frames get their own rect-only redraw (QM1g1).
+
+## Media spike QM1b (tools/mpvspike, 2026-11-17)
+
+Own Cargo project (like tools/inject; nothing in scratchy/src, not in
+scratchy's Cargo.toml). Build: `cd tools/mpvspike && cargo build --release
+--offline`; run `mpvspike FILE` or `mpvspike http://127.0.0.1:PORT/NAME.mp4`
+(the http form feeds mpv ONLY through `scratchy-media://1` stream_cb with 1 MiB
+ranged GETs; `rangeserver.py DIR PORT` is a loopback Range server;
+`connectlog.c` is an LD_PRELOAD connect() logger since strace is missing).
+Keys: space, l/h (+-5 s), s (seek 12.5), j/k and wheel (scroll), left/right.
+It proved: libmpv SW render (bgr0) into a rect of a softbuffer page, wheel
+scroll plus window-edge clipping, exact seeks (use `+exact`), 0.7-0.8 core and
+90-96 MB RSS for 720p in 640x360, and that no connect() other than our own
+reader's happens. Numbers and the mpv option list: TODO.txt QM1b RESULTS.
