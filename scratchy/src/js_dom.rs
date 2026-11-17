@@ -1045,10 +1045,8 @@ const DOM_PRELUDE: &str = r#"
     function (v) { __d_settext(this.__id, v == null ? '' : String(v)); });
   defs(NodeProto, 'nodeValue', function () { return this.nodeType === 1 ? null : __d_text(this.__id); },
     function (v) { if (this.nodeType === 3 || this.nodeType === 8) __d_settext(this.__id, String(v)); });
-  defs(NodeProto, 'data', function () { return this.nodeType === 3 || this.nodeType === 8 ? __d_text(this.__id) : undefined; },
-    function (v) { if (this.nodeType === 3 || this.nodeType === 8) __d_settext(this.__id, String(v)); });
-  // The getter-only CharacterData.prototype.data above shadows the Node one
-  // (Acid3's `span.firstChild.data = score` was silently a no-op).
+  // QY29: `data` lives on CharacterData only (never Node/Element: polymer-resin
+  // treats `'data' in element` as a native property and blanks bound values).
   defs(CharacterData.prototype, 'data', function () { return __d_text(this.__id); },
     function (v) { __d_settext(this.__id, String(v)); });
   // QY6a: CharacterData editing (one __d_settext = one characterData record).
@@ -1094,8 +1092,9 @@ const DOM_PRELUDE: &str = r#"
     defs(ElementProto, prop, function () { return __d_attr(this.__id, attr) != null; },
       function (v) { if (v) __d_setattr(this.__id, attr, ''); else __d_rmattr(this.__id, attr); });
   };
-  reflectBool('autofocus', 'autofocus'); reflectBool('disabled', 'disabled');
-  reflectBool('required', 'required'); reflectBool('checked', 'checked');
+  // QY29: `disabled`/`required`/`checked` are defined on the specific form
+  // interfaces further down, not on every element.
+  reflectBool('autofocus', 'autofocus');
   // QB5: focus/blur record a request the App applies in `js_sync`.
   HTMLElement.prototype.focus = function () { __d_focus(this.__id, true); };
   HTMLElement.prototype.blur = function () { __d_focus(this.__id, false); };
@@ -1918,9 +1917,11 @@ const DOM_PRELUDE: &str = r#"
   def(FSP, 'elements', function () { return coll(this.querySelectorAll(CTL.join(','))); });
   var OUP = mkProto('HTMLOutputElement', ['output']); formProp(OUP); rStr(OUP, 'name', 'name');
   def(OUP, 'type', function () { return 'output'; });
-  ['input', 'select', 'textarea', 'button', 'fieldset', 'output'].forEach(function (t) {
+  ['input', 'select', 'textarea', 'button', 'fieldset', 'option', 'optgroup'].forEach(function (t) {
     rBool(tagProto[t], 'disabled', 'disabled');
   });
+  ['input', 'select', 'textarea'].forEach(function (t) { rBool(tagProto[t], 'required', 'required'); });
+  rBool(IP, 'checked', 'checked');
   // ---- image maps
   var MP = mkProto('HTMLMapElement', ['map']);
   rStr(MP, 'name', 'name');
@@ -2367,6 +2368,7 @@ const DOM_PRELUDE: &str = r#"
     if (!g[r[0]]) mkProto(r[0], r.slice(1));
   });
   var HTMLUnknownElement = g.HTMLUnknownElement;
+  rBool(g.HTMLStyleElement.prototype, 'disabled', 'disabled');
   // QY6f: `template.content` is a DocumentFragment owned by ONE inert document (created
   // lazily): it never renders, never upgrades custom elements, never runs scripts.
   var inertDoc = null;

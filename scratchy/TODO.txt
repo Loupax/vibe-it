@@ -469,7 +469,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       too (the 301 has no ACAO); ~1 MB is downloaded for nothing (QF7b/QF13a
       per-hop handling would stop at the 301). Keep QY27 for the re-measure
       after QY29-QY32 (window + peak memory).
-- [ ] QY29 [S] (P1, THE YouTube blocker; R26) `data` must not exist on every node.
+- [x] QY29 [S] (done HASH) (P1, THE YouTube blocker; R26) `data` must not exist on every node.
       Root cause: js_dom.rs DOM_PRELUDE `defs(NodeProto, 'data', ...)` puts `data`
       on Node.prototype, so `'data' in document.createElement('div')` (and in an
       HTMLUnknownElement) is true; in browsers only CharacterData (Text, Comment,
@@ -497,6 +497,13 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       headless `--js-report` probe (R26 recipe): `#home-page-skeleton` removed,
       `ytd-rich-grid-renderer` present. Unblocks: YouTube's whole UI, any
       Polymer app that uses polymer-resin (Google properties).
+      DONE notes: `HTMLDataElement` has `value` (not `data`) in browsers, so only
+      CharacterData and HTMLObjectElement keep `data`; also moved `disabled` to
+      input/select/textarea/button/fieldset/option/optgroup/link/style, `required`
+      to input/select/textarea, `checked` to input. Known gap (not new): setting
+      `comment.data` is still a no-op (`__d_settext` ignores Comment nodes; the
+      Rust NodeData::Comment contents are not mutable). Probe on the saved copy:
+      skeleton=1/grid=0 at 20 ms, skeleton=0/grid=1 at 60 and 95 ms (simulated).
 - [ ] QY30 [S] (P2, R26) rAF due time can equal "now": TIMERS_PRELUDE `add()` (js.rs)
       `if (raf) delay = FRAME - (t % FRAME)`; at t = 100 ms (FRAME = 1000/60)
       `t % FRAME` is 16.666666666666657, delay 1.1e-14, `t + delay` rounds back
