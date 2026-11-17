@@ -1572,6 +1572,9 @@ pub(crate) enum BoxSizing {
 pub(crate) enum MaxLen {
     None,
     Len(Length),
+    /// QY42: `max-content|min-content|fit-content` (not implemented as a
+    /// clamp; only recorded so intrinsic sizing can tell).
+    Intrinsic,
 }
 
 impl MaxLen {
@@ -1584,7 +1587,7 @@ impl MaxLen {
     /// finalized later in `measure`.
     pub(crate) fn resolve(self, font_size: f32, root_font_size: f32) -> Option<BoxLength> {
         match self {
-            MaxLen::None => None,
+            MaxLen::None | MaxLen::Intrinsic => None,
             MaxLen::Len(l) => Some(BoxLength::from_length(l, font_size, root_font_size)),
         }
     }
@@ -2370,6 +2373,13 @@ pub(crate) fn set_max_length(input: &mut CssParser, target: &mut Option<MaxLen>)
     });
     if none_keyword.is_some() {
         *target = Some(MaxLen::None);
+        return;
+    }
+    input.reset(&state);
+    let intrinsic = matches!(input.next(), Ok(Token::Ident(id))
+        if ["max-content", "min-content", "fit-content"].iter().any(|k| id.eq_ignore_ascii_case(k)));
+    if intrinsic {
+        *target = Some(MaxLen::Intrinsic);
         return;
     }
     input.reset(&state);

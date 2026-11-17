@@ -98,7 +98,7 @@ READY, in recommended order (no user decision needed):
  in this order: QY40 [S] P1 DONE (`document.all` missing -> polymer-resin turns EVERY
  falsy property binding into "zClosurez": mini-guide icons hidden, and more),
  QY41 [S] P1 DONE (`width:%` inline-block inside a fixed-width box -> max-content
- 1 000 000 px: search field 0 px wide, "Anmelden" at x = 1 000 129), QY42 [S] P2
+ 1 000 000 px: search field 0 px wide, "Anmelden" at x = 1 000 129), QY42 [S] P2 DONE
  (a non-empty descendant's definite `width` is ignored by max-content: kebab
  button 18 px, "Anmelden" clipped), QY43 [S] P2 (pre-wrap newline + inline-block
  overprints: the nudge subtitle). QY33 got R28 evidence (the budget trip drops
@@ -710,7 +710,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       Test: the fixture rows read back 40 (max-content) and the inner box
       still lays out at 100% of 40 in real layout. Accept: YouTube masthead
       shows a wide search field and the kebab + "Anmelden" (with QY42 unclipped).
-- [ ] QY42 [S] (P2, R28, after QY41) A non-empty descendant's definite px `width` is
+- [x] QY42 [S] (P2, R28, after QY41) (done, commit HASH; also row flex containers now SUM their items' max-content, `max-width: fit-content|min-content|max-content` is parsed into `max_width_intrinsic`) A non-empty descendant's definite px `width` is
       ignored by max-content sizing: `natural_width_impl` (layout.rs) uses a
       child's own `width: Npx` (`as_child`) only when it is a float or EMPTY;
       otherwise its content is measured. Fixture: `flex:none; display:flex`

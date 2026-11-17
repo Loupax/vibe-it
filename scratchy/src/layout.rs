@@ -3364,6 +3364,32 @@ fn natural_width_impl(
             }
             (mn, mx)
         }
+        // QY42: a row flex container's items sit side by side, so its
+        // max-content (and, unless it wraps, min-content) is the SUM of its
+        // in-flow items' contributions plus the gaps (YouTube's `#buttons`).
+        BoxContent::Blocks(children)
+            if matches!(cell.style.display, Display::Flex | Display::InlineFlex) && cell.style.flex_direction.is_row() =>
+        {
+            let (mut mn, mut mx) = (0.0f32, 0.0f32);
+            let mut n = 0usize;
+            for child in children {
+                if child.style.display == Display::None
+                    || matches!(child.style.position, Position::Absolute | Position::Fixed)
+                {
+                    continue;
+                }
+                let (cmn, cmx) = natural_width_impl(child, font_system, next_id, cache, deadline, incomplete, true);
+                n += 1;
+                mx += cmx;
+                if cell.style.flex_wrap == FlexWrap::NoWrap {
+                    mn += cmn;
+                } else {
+                    mn = mn.max(cmn);
+                }
+            }
+            let gaps = cell.style.column_gap * n.saturating_sub(1) as f32;
+            (mn + if cell.style.flex_wrap == FlexWrap::NoWrap { gaps } else { 0.0 }, mx + gaps)
+        }
         BoxContent::Blocks(children) => {
             let (mut mn, mut mx) = (0.0f32, 0.0f32);
             // QA7: consecutive floats sit side by side on one line in the
@@ -3423,22 +3449,29 @@ fn natural_width_impl(
     // `width` is the box's own contribution), instead of whatever its
     // (possibly empty) content measures. Percent/calc widths can't resolve
     // without a containing block, so they keep the content-based figures.
-    // Q35b3: an *empty* plain block (HN's `div.votearrow{width:10px}` in a
-    // `<center><a>`) also contributes its definite width, else its column
-    // collapses to the margins. Non-empty plain blocks are still excluded:
-    // `max-width: fit-content` (unparsed today) must clamp them, WPT
-    // fit-content-max-inline-size.
+    // Q35b3/QY42: a descendant with a definite pixel `width` contributes
+    // exactly that width (clamped by its own px min/max-width), whether or
+    // not its content is empty (YouTube's 40 px kebab button around a 18 px
+    // icon). Only `max-width: fit-content` (WPT fit-content-max-inline-size,
+    // recorded as `max_width_intrinsic`) must keep measuring the content.
     if as_child
-        && (cell.style.float != Float::None || (content_max == 0.0 && content_min == 0.0))
-        && !matches!(cell.style.display, Display::TableCell | Display::Table)
+        && !matches!(cell.style.display, Display::TableCell | Display::Table | Display::Inline)
         && !matches!(cell.content, BoxContent::Image(_) | BoxContent::TableRow(_))
         && cell.style.width_kw.is_none()
+        && !cell.style.max_width_intrinsic
         && let Some(BoxLength::Px(w)) = cell.style.width
     {
-        let w = match s.box_sizing {
-            BoxSizing::ContentBox => w.max(0.0),
-            BoxSizing::BorderBox => (w - (extra_w - s.margin.left.px() - s.margin.right.px())).max(0.0),
+        let to_content = |v: f32| match s.box_sizing {
+            BoxSizing::ContentBox => v.max(0.0),
+            BoxSizing::BorderBox => (v - (extra_w - s.margin.left.px() - s.margin.right.px())).max(0.0),
         };
+        let mut w = to_content(w);
+        if let Some(BoxLength::Px(mx)) = cell.style.max_width {
+            w = w.min(to_content(mx));
+        }
+        if let Some(BoxLength::Px(mn)) = cell.style.min_width {
+            w = w.max(to_content(mn));
+        }
         content_min = w;
         content_max = w;
     }

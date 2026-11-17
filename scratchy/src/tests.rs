@@ -16794,3 +16794,32 @@ fn qy34_runaway_fetched_script_hits_the_cpu_budget_and_later_scripts_still_run()
     assert!(l.iter().any(|x| x.starts_with("error:js: https://page.test/loop.js stopped: exceeded the 5 s CPU-time page-load budget")), "{l:?}");
     assert!(l.contains(&"log:ok after".to_string()), "{l:?}");
 }
+
+/// QY42: a non-empty descendant's definite px `width` is its max-content
+/// contribution (YouTube's 40 px kebab button around a 20 px icon).
+#[test]
+fn qy42_definite_width_descendant_non_empty() {
+    let mk = |inner: &str| {
+        format!(
+            r#"<html><body style="margin:0"><div style="display:flex;width:500px"><div style="flex:none;display:flex">{inner}</div><div style="width:10px;height:5px"></div></div></body></html>"#
+        )
+    };
+    let marker_x = |html: &str| {
+        let laid = measure_fixture(html, 600.0);
+        find_by_width(&laid, 10.0).expect("marker item").x
+    };
+    let base = r#"<span style="display:inline-block;width:40px"><span style="display:inline-block;width:20px;height:3px"></span></span>"#;
+    assert!((marker_x(&mk(base)) - 40.0).abs() < 1.0);
+    let bb = r#"<span style="display:inline-block;width:40px;box-sizing:border-box;padding:0 5px"><span style="display:inline-block;width:20px;height:3px"></span></span>"#;
+    assert!((marker_x(&mk(bb)) - 40.0).abs() < 1.0);
+    let mx = r#"<span style="display:inline-block;width:40px;max-width:30px"><span style="display:inline-block;width:20px;height:3px"></span></span>"#;
+    assert!((marker_x(&mk(mx)) - 30.0).abs() < 1.0);
+    let mn = r#"<span style="display:inline-block;width:40px;min-width:50px"><span style="display:inline-block;width:20px;height:3px"></span></span>"#;
+    assert!((marker_x(&mk(mn)) - 50.0).abs() < 1.0);
+    // YouTube chain: flex wrapper > flex > inline-flex > flex a > inline-block 40px > inline-block 100% > inline-block 24px
+    let yt = r#"<div style="display:flex"><span style="display:inline-flex"><a style="display:flex"><span style="display:inline-block;width:40px;height:40px"><span style="display:inline-block;width:100%"><span style="display:inline-block;width:24px;height:24px"></span></span></span></a></span><span style="display:inline-block;width:95px">x</span></div>"#;
+    assert!((marker_x(&mk(yt)) - 135.0).abs() < 1.0, "yt chain {}", marker_x(&mk(yt)));
+    // max-width: fit-content must keep measuring the content (WPT).
+    let fc = r#"<span style="display:inline-block;width:40px;max-width:fit-content"><span style="display:inline-block;width:20px;height:3px"></span></span>"#;
+    assert!((marker_x(&mk(fc)) - 20.0).abs() < 1.0);
+}
