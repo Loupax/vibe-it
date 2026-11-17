@@ -16,7 +16,10 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::time::Duration;
+
+use crate::media_video::{VideoFrame, VideoTarget};
 
 use crate::media_net::MediaMode;
 use crate::net_policy::RequestPolicy;
@@ -147,6 +150,18 @@ pub(crate) trait MediaBackend {
     fn seekable(&self) -> Vec<(f64, f64)>;
     /// True while the backend has something loaded and the host should poll it.
     fn active(&self) -> bool;
+    /// QM1g: what to render (the visible video box's size), or None when the
+    /// video is not on screen (stop rendering, and decoding where possible).
+    fn set_video_target(&mut self, _t: Option<VideoTarget>) {}
+    /// QM1g: true when a new frame is waiting (set from another thread).
+    fn frame_pending(&self) -> bool {
+        false
+    }
+    /// QM1g: renders the newest frame into a fresh buffer of the target size
+    /// (None: nothing new, or no target; a pending frame is still consumed).
+    fn take_frame(&mut self) -> Option<Arc<VideoFrame>> {
+        None
+    }
 }
 
 /// Context a backend factory gets (the wire socket and the page's policy).
@@ -239,6 +254,9 @@ pub(crate) struct MediaCore {
     announced: bool,
     /// D5: set by the host from the page's user activation before each call.
     pub activated: bool,
+    /// QM1g: the newest rendered frame and the size the backend was asked for.
+    pub last_frame: Option<Arc<VideoFrame>>,
+    pub target: Option<VideoTarget>,
 }
 
 impl MediaCore {
@@ -275,6 +293,30 @@ impl MediaCore {
             loaded: false,
             announced: false,
             activated: false,
+            last_frame: None,
+            target: None,
+        }
+    }
+
+    /// QM1g: tells the backend the on-screen size (None = not visible).
+    pub(crate) fn set_target(&mut self, t: Option<VideoTarget>) {
+        if self.target != t {
+            self.target = t;
+            self.backend.set_video_target(t);
+        }
+    }
+    /// QM1g: a frame is waiting in the backend.
+    pub(crate) fn frame_pending(&self) -> bool {
+        self.backend.frame_pending()
+    }
+    /// QM1g: renders the waiting frame; true when `last_frame` is new.
+    pub(crate) fn render_frame(&mut self) -> bool {
+        match self.backend.take_frame() {
+            Some(f) => {
+                self.last_frame = Some(f);
+                true
+            }
+            None => false,
         }
     }
 
@@ -330,6 +372,7 @@ impl MediaCore {
             self.duration = f64::NAN;
             self.video_width = 0;
             self.video_height = 0;
+            self.last_frame = None;
         }
         self.error = None;
         self.playing_fired = false;
@@ -654,6 +697,10 @@ pub(crate) struct FakeState {
     pub seekable: Vec<(f64, f64)>,
     /// A seek answers with `Restart` right away (default true via `fake_new`).
     pub auto_restart: bool,
+    /// QM1g: the last target given, a pending frame flag and the frames rendered.
+    pub target: Option<VideoTarget>,
+    pub pending_frame: bool,
+    pub renders: u32,
 }
 
 pub(crate) type FakeHandle = Rc<RefCell<FakeState>>;
@@ -754,6 +801,24 @@ impl MediaBackend for FakeBackend {
     fn poll(&mut self, _: Duration) -> Vec<BackendEvent> {
         std::mem::take(&mut self.0.borrow_mut().queue)
     }
+    fn set_video_target(&mut self, t: Option<VideoTarget>) {
+        let mut s = self.0.borrow_mut();
+        s.calls.push(format!("target {:?}", t.map(|t| (t.w, t.h))));
+        s.target = t;
+    }
+    fn frame_pending(&self) -> bool {
+        self.0.borrow().pending_frame
+    }
+    fn take_frame(&mut self) -> Option<Arc<VideoFrame>> {
+        let mut s = self.0.borrow_mut();
+        if !std::mem::take(&mut s.pending_frame) {
+            return None;
+        }
+        let t = s.target?;
+        s.renders += 1;
+        let v = 0x0010_0000 + s.renders;
+        Some(Arc::new(VideoFrame { w: t.w, h: t.h, px: vec![v; t.w as usize * t.h as usize] }))
+    }
     fn buffered(&self) -> Vec<(f64, f64)> {
         self.0.borrow().buffered.clone()
     }
@@ -810,6 +875,7 @@ pub(crate) struct MediaHost {
     logged_backend: bool,
     log: MediaLog,
     avail: Option<bool>,
+    sizes_seen: HashMap<i32, (u32, u32)>,
 }
 
 impl MediaHost {
@@ -824,6 +890,7 @@ impl MediaHost {
             logged_backend: false,
             log,
             avail: None,
+            sizes_seen: HashMap::new(),
         }
     }
 
@@ -850,6 +917,37 @@ impl MediaHost {
         if let Some((mut c, _)) = self.els.remove(&id) {
             c.backend.unload();
         }
+    }
+
+    /// QM1g: sets the render target of every element (ids absent from `t`
+    /// are not visible: no rendering).
+    pub(crate) fn set_targets(&mut self, t: &HashMap<i32, VideoTarget>) {
+        for (id, (c, _)) in self.els.iter_mut() {
+            c.set_target(t.get(id).copied());
+        }
+    }
+
+    /// QM1g: renders every waiting frame (also draining invisible ones);
+    /// returns the ids that got a new frame.
+    pub(crate) fn render_frames(&mut self) -> Vec<i32> {
+        let mut ids: Vec<i32> = self.els.iter().filter(|(_, (c, _))| c.frame_pending()).map(|(i, _)| *i).collect();
+        ids.sort();
+        ids.retain(|id| self.els.get_mut(id).is_some_and(|(c, _)| c.render_frame()));
+        ids
+    }
+
+    /// QM1g: `(id, newest frame, intrinsic size)` of every element that has one.
+    pub(crate) fn video_state(&self) -> Vec<(i32, Option<Arc<VideoFrame>>, (u32, u32))> {
+        self.els.iter().map(|(i, (c, _))| (*i, c.last_frame.clone(), (c.video_width, c.video_height))).collect()
+    }
+
+    /// QM1g: true once when some element's video size changed since the last
+    /// call (the page layout must be rebuilt: the box takes the video size).
+    pub(crate) fn take_size_changed(&mut self) -> bool {
+        let now: HashMap<i32, (u32, u32)> = self.els.iter().filter(|(_, (c, _))| c.video_width > 0).map(|(i, (c, _))| (*i, (c.video_width, c.video_height))).collect();
+        let changed = now != self.sizes_seen;
+        self.sizes_seen = now;
+        changed
     }
 
     /// True while some element has live backend work to poll.

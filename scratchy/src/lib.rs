@@ -83,6 +83,7 @@ mod media_net;
 // Parts are only used by the `media` feature (media_mpv) and tests.
 #[allow(dead_code)]
 mod media_el;
+mod media_video;
 mod js_media;
 #[cfg(feature = "media")]
 mod media_mpv;

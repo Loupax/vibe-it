@@ -304,10 +304,16 @@ impl StyleCache {
         if !js_enabled() {
             src.push_str("\n/* nojs */");
         }
+        if crate::media_video::boxes_enabled() {
+            src.push_str("\n/* video-box */");
+        }
         if self.rules.is_none() || self.css_source != src {
             let mut rules = parse_ua_stylesheet(DEFAULT_CSS);
             if js_enabled() {
                 rules.extend(parse_ua_stylesheet("noscript { display: none; }"));
+            }
+            if crate::media_video::boxes_enabled() {
+                rules.extend(parse_ua_stylesheet("video { display: inline-block; object-fit: contain; }"));
             }
             rules.extend(parse_stylesheet(&src));
             self.index = Some(RuleIndex::build(&rules));

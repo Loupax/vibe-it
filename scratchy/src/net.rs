@@ -1115,6 +1115,14 @@ pub(crate) fn find_external_resources(handle: &Handle, out: &mut ExternalResourc
                     out.images.push(src.to_string());
                 }
             }
+            "video" if crate::media_video::boxes_enabled() => {
+                // QM1g: the poster shows until the first frame.
+                if let Some(src) = element_attr(handle, "poster")
+                    && !src.starts_with("data:")
+                {
+                    out.images.push(src.to_string());
+                }
+            }
             _ => {}
         }
     }

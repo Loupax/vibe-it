@@ -32,6 +32,12 @@ impl DomTable {
         self.ids.insert(key, id);
         id
     }
+    pub(crate) fn id_of_ptr(&self, p: usize) -> Option<i32> {
+        self.ids.get(&p).copied()
+    }
+    pub(crate) fn ptr_of(&self, id: i32) -> Option<usize> {
+        self.get(id).map(|h| Rc::as_ptr(&h) as usize)
+    }
     /// A `Document`-data node that is a fragment (not a real document).
     fn is_frag(&self, id: i32, h: &Handle) -> bool {
         is_fragment(id, h) && !self.docs.contains(&id)

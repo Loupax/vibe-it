@@ -1307,7 +1307,7 @@ pub(crate) fn blit_image(
     h: f32,
     clip: Option<(f32, f32, f32, f32)>,
 ) {
-    if image.width == 0 || image.height == 0 || w <= 0.0 || h <= 0.0 {
+    if image.width == 0 || image.height == 0 || image.pixels.is_empty() || w <= 0.0 || h <= 0.0 {
         return;
     }
     // Where the picture lands inside the content box (`object-fit`,
@@ -1536,7 +1536,7 @@ pub(crate) fn paint_background_image(
     radius: f32,
     clip: Option<(f32, f32, f32, f32)>,
 ) {
-    if image.width == 0 || image.height == 0 || w <= 0.0 || h <= 0.0 {
+    if image.width == 0 || image.height == 0 || image.pixels.is_empty() || w <= 0.0 || h <= 0.0 {
         return;
     }
     let (iw, ih) = (image.width as f32, image.height as f32);
@@ -2043,7 +2043,13 @@ pub(crate) fn paint_inner(
             let content_y = draw_y + s.border_top() + s.padding.top.px();
             let content_w = (laid.w - s.border_h() - s.padding.left.px() - s.padding.right.px()).max(0.0);
             let content_h = (laid.h - s.border_v() - s.padding.top.px() - s.padding.bottom.px()).max(0.0);
-            blit_image(image, s.object_fit, s.object_pos, pixels, win_w, win_h, content_x, content_y, content_w, content_h, child_clip);
+            if image.pixels.is_empty() && image.width > 0 {
+                // QM1g: a `<video>` box (the empty-pixel placeholder).
+                let opaque = PAINT_OPACITY.with(|o| o.get()) >= 1.0;
+                crate::media_video::paint_box(image, s.node, s.object_fit, s.object_pos, pixels, win_w, win_h, content_x, content_y, content_w, content_h, child_clip, opaque);
+            } else {
+                blit_image(image, s.object_fit, s.object_pos, pixels, win_w, win_h, content_x, content_y, content_w, content_h, child_clip);
+            }
         }
         LaidContent::MixedInline(positioned) => {
             // Don't reveal this run's text word by word as each one
