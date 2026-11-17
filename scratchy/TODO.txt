@@ -172,8 +172,8 @@ WAITING FOR USER (skip until answered):
 - (ANSWERED 2026-11-17: no token for now, see wire/TODO.txt) Cookie control token: should wire require a token on the
   `X-Wire-Cookie-Op` channel, and how is it shared? (hook
   `control_authorized`; QF14b2 (f)). Also QF14b2 (d) `--profile` jar name
-  and (e) tracker-list blocking (e: WANTED 2026-11-17, mode B = requests not
-  made; list source and categories still open, see QF14b2).
+  and (e) tracker-list blocking (e: DECIDED 2026-11-17, items QCFG1 -> QTB1,
+  own list parked as QTB2).
 - (DECIDED 2026-11-17: scratchy may override wire's UA, QY39a/QY39b) QY39-D (R26): wire sends `User-Agent: wire/0.1 (+https://github.com/Loupax/vibe-it)
   scratchy's real-networking daemon`; YouTube classifies it as a bot (`cbrand=robot,
   cmodel=bot or crawler`) and serves its ES5 + polyfills variant. Keep the honest UA,
@@ -2807,14 +2807,57 @@ QF13a, QF14b2, QF18 open; QF19 waits for the user):
       prioritised; mode = B: third-party requests to listed tracker domains are
       NOT MADE AT ALL (not just cookie-less), checked in scratchy's
       `RequestPolicy` (src/net_policy.rs), which knows the top-level site.
-      Still open for (e): where the list comes from (Disconnect's
-      `services.json` is CC BY-NC-SA 4.0, ~4.5k domains in 11 categories;
-      recommended: downloaded at RUN time through wire on request, not at
-      compile time, plus the user's own entries in a config file) and which
-      categories to block (recommended: Advertising, Analytics, Social,
-      FingerprintingInvasive, Cryptomining; NOT Content (ytimg.com,
-      googlevideo.com, gstatic.com are there), Anti-fraud (recaptcha),
-      Email, ConsentManagers, FingerprintingGeneral).
+      (e) FULLY DECIDED 2026-11-17 (user accepted the recommendation): list =
+      Disconnect `services.json`, downloaded at RUN time through wire on an
+      explicit command (never at compile time, never committed), plus the
+      user's own block/allow entries in the config file; categories =
+      Advertising, Analytics, Social, FingerprintingInvasive, Cryptomining.
+      Split out as QCFG1 (config file) -> QTB1 (blocking); own curated list
+      parked as QTB2. (d) `--profile`: still later, a `profile` key in the
+      QCFG1 file when it is built.
+- [ ] QCFG1 [S] (when prioritised; prerequisite of QTB1) A user config file:
+      `$XDG_CONFIG_HOME/scratchy/config.toml` (default `~/.config/scratchy/
+      config.toml`), read once at startup with the `toml` crate. Command-line
+      flags and `:set` override it. Missing file = today's defaults, silently.
+      Unreadable or invalid file = ONE `scratchy: config: <path>: <error>` line
+      and defaults, never a panic. Unknown keys: one warning line each, ignored.
+      First keys: `[trackers] block = [..]`, `allow = [..]` (for QTB1), plus
+      only keys whose feature already exists (`vim`, `js`, `user_agent`;
+      `motion` once QAN1d0 lands). Document the file in `:help` and NOTES.md.
+      Tests: missing file, valid file, bad TOML, unknown key, flag overrides file.
+- [ ] QTB1 [M] (after QCFG1; user decisions QF14b2 (e) 2026-11-17) Tracker blocking,
+      mode B: a THIRD-PARTY sub-resource request to a listed tracker is not made.
+      List: `scratchy --update-trackers` and `:update-trackers` download
+      https://raw.githubusercontent.com/disconnectme/disconnect-tracking-protection/master/services.json
+      through wire (normal request path, no `X-Wire-Jar` header), check it parses,
+      and write it atomically to `$XDG_DATA_HOME/scratchy/disconnect-services.json`
+      (default `~/.local/share/scratchy/`). Never downloaded automatically, never
+      at build time, never committed to the repo (licence CC BY-NC-SA 4.0: credit
+      Disconnect in `:help` and NOTES.md). At startup: load it; if missing log
+      once `scratchy: trackers: no list, run --update-trackers`; if older than
+      30 days log once that it is stale. Without the file, behaviour is today's.
+      Categories blocked: Advertising, Analytics, Social, FingerprintingInvasive,
+      Cryptomining (NOT Content, Anti-fraud, Email, EmailAggressive,
+      ConsentManagers, FingerprintingGeneral). Match host == domain or host ends
+      with `.domain`. Config `[trackers] block` adds domains, `allow` removes
+      them (allow wins).
+      Third-party = the request's site differs from the top-level site (the
+      `X-Wire-Top-Site` value) AND they are not the same Disconnect entity (the
+      organisation grouping inside services.json, as Firefox does: a google.com
+      page may load Google domains). Top-level navigations are never blocked.
+      Where: `RequestPolicy` (src/net_policy.rs), so it covers images, CSS,
+      scripts, modules, iframes, fetch/XHR, sendBeacon, media bytes. A blocked
+      request fails like a network error (fetch rejects with TypeError, img/
+      script fire `error`), with one log line per blocked host per page:
+      `scratchy: tracker blocked: <host> (<category>) on <top site>`; count them
+      in `--js-report`. `:set notrackers` / `:set trackers` switch it for the
+      session.
+      Tests: a small inline JSON fixture in services.json's shape (never the real
+      list): third-party ad domain blocked; same domain first-party allowed; same
+      entity allowed; Content category allowed; allow/block config overrides;
+      navigation not blocked; missing/stale file messages. Real page: count
+      blocked hosts on github.com, youtube.com and bbc.com and check each still
+      renders (grim); report any breakage instead of widening the allow list.
 - [x] QF15 [S] CLOSED 2026-11-16 (user, QF-D7: nothing persisted yet,
       every store is mocked in memory; reopen when the user designs
       persistence) Persistence: an HTTP cache, cookies or storage on disk.
@@ -6196,6 +6239,13 @@ as the JS measurement corpus (same role the four CSS pages played).
       the JS-scriptable `bind()` from the vim-keybindings item.
 
 --- Parked (not blocking the queue; each needs a user decision) --------
+
+- [ ] QTB2 [S] (parked 2026-11-17 by the user: "if that ends up being not good
+      enough we can also introduce a custom list which we can populate
+      separately") Our own curated tracker list, maintained separately from
+      Disconnect's (own file, own format or the same shape so QTB1's loader reads
+      it), used instead of or on top of services.json. Unpark when QTB1's list
+      proves too broad, too narrow or breaks pages.
 
 - [ ] QAN1p [M] (parked 2026-11-17 by the user when accepting the QAN1-D defaults
       "for now") Make animation cheap enough to relax the QAN1-D limits: let
