@@ -43,6 +43,10 @@
 - Cross-references in tracking files use commit hashes, not `vN` labels.
 - `PROMPTS.md` is append-only.
 - Don't vendor third-party source (WPT, browser UA sheets). Use it as reference.
+- scratchy never talks to the internet itself: no network crates, no TCP/UDP/DNS,
+  only unix sockets to wire (user rule 2026-11-17, enforced by TODO.txt QNET1). New
+  protocols (WebSocket, EventSource, media) go through wire. A dependency or
+  library that wants its own network access needs the user's OK first.
 
 ## Background shells and waiting (don't leak processes)
 - Never wait for a process with `while/until pgrep -f "<pattern>"; do sleep N; done`.
