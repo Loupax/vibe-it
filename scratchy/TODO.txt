@@ -862,7 +862,7 @@ behaviour checked fine (R29 fixture). Do in this order:
       Test: `typeof screen === 'object'`, `screen.width >= innerWidth`,
       `screen instanceof Screen`, `screen.orientation.type` is a string.
       Accept: old.reddit cached copy (R29) has no `'height' of undefined`.
-- [ ] QY44c [S] (P1, R29; = QSD4a with real-page acceptance, do them as one)
+- [x] QY44c (HASH) [S] (P1, R29; = QSD4a with real-page acceptance, do them as one)
       `document.styleSheets` is undefined and `<style>.sheet` /
       `<link>.sheet` are undefined. CSS-in-JS dies on it: BBC's
       styled-components (`_next/.../13ad5orspgznk.js`: `document.styleSheets`
@@ -1370,7 +1370,7 @@ Items (in order):
       Shadow-root `adoptedStyleSheets` are stored by QSD3 and applied by
       QSD7. Measured user: github core sets `document.adoptedStyleSheets`
       at startup; salesforce (15 uses), youtube (16), chromestatus.
-- [ ] QSD4a [S] READY `document.styleSheets` minimal read of the `<style>`/`<link>`
+- [x] QSD4a (HASH, with QY44c; baseURL url() rebasing and CSSMediaRule/CSSImportRule subclasses and link-sheet cssRules still open) `document.styleSheets` minimal read of the `<style>`/`<link>`
       sheets (cssRules, insertRule), `CSSStyleSheet` baseURL url() rebasing and
       `CSSMediaRule`/`CSSImportRule` subclasses (left out of QSD4).
       R29 (2026-11-17): raised to P1 as QY44c (real pages: BBC

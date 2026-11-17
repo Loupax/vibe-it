@@ -89,7 +89,7 @@
   var sdProto = CSSSD.prototype;
   var CSSStyleSheet = function CSSStyleSheet(opts) {
     if (!(this instanceof CSSStyleSheet)) throw new TypeError("Failed to construct 'CSSStyleSheet': Please use the 'new' operator, this DOM object constructor cannot be called as a function.");
-    var st = { rules: [], list: Object.create(CSSRuleList.prototype), disabled: false, media: null, base: null, owner: null };
+    var st = { rules: [], list: Object.create(CSSRuleList.prototype), disabled: false, media: null, base: null, owner: null, node: null, orig: '', last: null };
     if (opts != null && typeof opts !== 'object' && typeof opts !== 'function') throw new TypeError("Failed to construct 'CSSStyleSheet': The provided value is not of type 'CSSStyleSheetInit'.");
     var ml = Object.create(MediaList.prototype);
     S.set(ml, { text: '', owner: st });
@@ -114,7 +114,7 @@
   };
 
   // ---- publishing ----
-  function ruleText(r) { return r.text(); }
+  function ruleText(r) { return r.kind === 'style' && !r.dirty ? r.raw : r.text(); }
   function sheetText(sh) {
     var st = S.get(sh);
     if (st.disabled) return '';
@@ -129,7 +129,19 @@
     lastText = t;
     g.__d_adopted(t);
   }
-  function touch(st) { if (A.length) { for (var i = 0; i < A.length; i++) if (S.get(A[i]) === st) { publish(); return; } } }
+  function touch(st) {
+    if (st.node) { publishNode(st); return; }
+    if (A.length) { for (var i = 0; i < A.length; i++) if (S.get(A[i]) === st) { publish(); return; } } }
+  // QY44c: a `<style>` element's own sheet: its effective CSS (all rules,
+  // media-wrapped, [] when disabled) goes to the engine, which uses it in place
+  // of the element's text while that text is unchanged since the sheet was made.
+  function publishNode(st) {
+    if (st.kind !== 'style') return;
+    var t = sheetText(st.obj);
+    if (t === st.last) return;
+    st.last = t;
+    g.__d_sheet_text(st.node.__id, st.orig, t);
+  }
   function syncList(st) {
     var l = st.list, old = l.length, n = st.rules.length;
     for (var i = n; i < old; i++) delete l[i];
@@ -160,6 +172,7 @@
   }
   function getProp(rule, name) { for (var i = 0; i < rule.decls.length; i++) if (rule.decls[i][0] === name) return rule.decls[i][1]; return ''; }
   function setProp(rule, name, val, prio) {
+    rule.dirty = true;
     if (name.slice(0, 2) !== '--') name = name.toLowerCase();
     for (var i = 0; i < rule.decls.length; i++) if (rule.decls[i][0] === name) { rule.decls.splice(i, 1); break; }
     if (val !== '') rule.decls.push([name, val, /^important$/i.test(prio || '')]);
@@ -168,7 +181,7 @@
   Object.defineProperties(sdProto, {
     cssText: {
       get: function () { return S.get(this).rule.declText(); },
-      set: function (v) { var r = S.get(this).rule; r.decls = parseDecls(String(v)); touch(r.sheet); }, configurable: true, enumerable: true },
+      set: function (v) { var r = S.get(this).rule; r.dirty = true; r.decls = parseDecls(String(v)); touch(r.sheet); }, configurable: true, enumerable: true },
     length: { get: function () { return S.get(this).rule.decls.length; }, configurable: true, enumerable: true },
     parentRule: { get: function () { return S.get(this).rule.obj; }, configurable: true, enumerable: true }
   });
@@ -187,7 +200,7 @@
 
   function newRule(sheet, raw) {
     raw = raw.trim();
-    var r = { sheet: sheet, raw: raw, decls: null, selector: '', kind: 'other' };
+    var r = { sheet: sheet, raw: raw, decls: null, selector: '', kind: 'other', dirty: false };
     var brace = raw.indexOf('{');
     if (raw[0] !== '@' && brace > 0 && raw[raw.length - 1] === '}') {
       r.kind = 'style';
@@ -223,7 +236,7 @@
   Object.defineProperties(CSSStyleRule.prototype, {
     selectorText: {
       get: function () { return S.get(this).selector; },
-      set: function (v) { var r = S.get(this); v = String(v).trim(); if (v && v.indexOf('{') < 0 && v.indexOf('}') < 0) { r.selector = v; touch(r.sheet); } },
+      set: function (v) { var r = S.get(this); v = String(v).trim(); if (v && v.indexOf('{') < 0 && v.indexOf('}') < 0) { r.selector = v; r.dirty = true; touch(r.sheet); } },
       configurable: true, enumerable: true },
     style: { get: function () { return S.get(this).style; }, configurable: true, enumerable: true }
   });
@@ -247,12 +260,12 @@
 
   // ---- CSSStyleSheet ----
   function importWarn() { if (g.console && console.warn) console.warn('@import rules are not allowed here. See https://github.com/WICG/construct-stylesheets/issues/119#issuecomment-588352418.'); }
-  function load(sheet, text) {
+  function load(sheet, text, owned) {
     var st = S.get(sheet);
     st.rules = [];
     var warned = false;
     splitRules(String(text)).forEach(function (raw) {
-      if (/^@import\b/i.test(raw)) { if (!warned) { warned = true; importWarn(); } return; }
+      if (/^@import\b/i.test(raw) && !owned) { if (!warned) { warned = true; importWarn(); } return; }
       if (/^@charset\b/i.test(raw)) return;
       var r = newRule(st, raw); st.rules.push(r);
     });
@@ -261,10 +274,10 @@
   }
   Object.defineProperties(StyleSheet.prototype, {
     type: { get: function () { return 'text/css'; }, configurable: true, enumerable: true },
-    href: { get: function () { return null; }, configurable: true, enumerable: true },
-    ownerNode: { get: function () { return null; }, configurable: true, enumerable: true },
+    href: { get: function () { var n = st_(this).node; return n && st_(this).kind === 'link' ? (n.href || null) : null; }, configurable: true, enumerable: true },
+    ownerNode: { get: function () { return st_(this).node; }, configurable: true, enumerable: true },
     parentStyleSheet: { get: function () { return null; }, configurable: true, enumerable: true },
-    title: { get: function () { return null; }, configurable: true, enumerable: true },
+    title: { get: function () { var n = st_(this).node; return n && n.getAttribute('title') || null; }, configurable: true, enumerable: true },
     media: { get: function () { return st_(this).media; }, set: function (v) { S.get(st_(this).media).text = String(v); touch(st_(this)); }, configurable: true, enumerable: true },
     disabled: {
       get: function () { return st_(this).disabled; },
@@ -290,7 +303,7 @@
     if (index > st.rules.length) throw DE("Failed to execute 'insertRule' on 'CSSStyleSheet': The index provided (" + index + ") is larger than the maximum index (" + st.rules.length + ').', 'IndexSizeError');
     var parts = splitRules(String(rule));
     if (parts.length !== 1) throw DE("Failed to execute 'insertRule' on 'CSSStyleSheet': Failed to parse the rule '" + rule + "'.", 'SyntaxError');
-    if (/^@import\b/i.test(parts[0])) throw DE("Failed to execute 'insertRule' on 'CSSStyleSheet': Can't insert @import rules into a constructed stylesheet.", 'SyntaxError');
+    if (!st.node && /^@import\b/i.test(parts[0])) throw DE("Failed to execute 'insertRule' on 'CSSStyleSheet': Can't insert @import rules into a constructed stylesheet.", 'SyntaxError');
     var r = newRule(st, parts[0]);
     st.rules.splice(index, 0, r);
     syncList(st); touch(st);
@@ -308,6 +321,47 @@
     return this.insertRule(String(sel) + ' { ' + String(style === undefined ? '' : style) + ' }', index === undefined ? st.rules.length : index), -1;
   };
   CSSStyleSheet.prototype.removeRule = function (index) { this.deleteRule(index === undefined ? 0 : index); };
+
+  // ---- element sheets (QY44c) ----
+  var NS = new WeakMap();
+  function elSheet(el) {
+    var kind = el.localName === 'style' ? 'style' : 'link';
+    if (!el.isConnected) return null;
+    if (kind === 'link') {
+      var rel = (el.getAttribute('rel') || '').toLowerCase().split(/\s+/);
+      if (rel.indexOf('stylesheet') < 0) return null;
+    } else {
+      var ty = (el.getAttribute('type') || '').trim().toLowerCase();
+      if (ty && ty !== 'text/css') return null;
+    }
+    var text = kind === 'style' ? el.textContent : '';
+    var sh = NS.get(el);
+    if (sh && S.get(sh).orig === text) return sh;
+    sh = new CSSStyleSheet();
+    var st = S.get(sh);
+    st.kind = kind; st.orig = text;
+    var mt = el.getAttribute('media');
+    if (mt) S.get(st.media).text = mt;
+    if (kind === 'style') load(sh, text, true);
+    st.node = el; st.last = sheetText(sh);
+    NS.set(el, sh);
+    return sh;
+  }
+  Object.defineProperty(g.HTMLStyleElement.prototype, 'sheet', { get: function () { return elSheet(this); }, configurable: true, enumerable: true });
+  Object.defineProperty(g.HTMLLinkElement.prototype, 'sheet', { get: function () { return elSheet(this); }, configurable: true, enumerable: true });
+  var StyleSheetList = illegalCtor('StyleSheetList');
+  StyleSheetList.prototype.item = function (i) { return this[i] || null; };
+  StyleSheetList.prototype[Symbol.iterator] = Array.prototype[Symbol.iterator];
+  Object.defineProperty(g.document, 'styleSheets', {
+    configurable: true, enumerable: true,
+    get: function () {
+      var l = Object.create(StyleSheetList.prototype), n = 0;
+      var els = g.document.querySelectorAll('style, link');
+      for (var i = 0; i < els.length; i++) { var sh = elSheet(els[i]); if (sh) l[n++] = sh; }
+      Object.defineProperty(l, 'length', { value: n });
+      return l;
+    }
+  });
 
   // ---- document.adoptedStyleSheets ----
   function check(v) {
@@ -335,7 +389,7 @@
   });
 
   [['StyleSheet', StyleSheet], ['CSSStyleSheet', CSSStyleSheet], ['CSSRule', CSSRule], ['CSSStyleRule', CSSStyleRule],
-    ['CSSGroupingRule', CSSGroupingRule], ['CSSRuleList', CSSRuleList], ['MediaList', MediaList]].forEach(function (p) {
+    ['CSSGroupingRule', CSSGroupingRule], ['CSSRuleList', CSSRuleList], ['StyleSheetList', StyleSheetList], ['MediaList', MediaList]].forEach(function (p) {
     Object.defineProperty(g, p[0], { value: p[1], writable: true, configurable: true, enumerable: false });
   });
 })(globalThis);

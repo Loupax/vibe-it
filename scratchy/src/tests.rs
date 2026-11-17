@@ -16978,4 +16978,60 @@ fn qj8_active_element_follows_focus_blur_and_removal() {
         ["log:true true", "log:true", "log:true", "log:true", "log:true", "log:true", "log:true true"],
         "{log:?}"
     );
+
+// ---------- QY44c: document.styleSheets, style/link .sheet, insertRule reaches the cascade ----------
+
+const QY44C_HTML: &str = "<html><head><style id=s>p{color:#0000ff}</style><link rel=stylesheet href=x.css id=l></head><body><p id=p>x</p></body></html>";
+
+#[test]
+fn qy44c_insert_rule_into_empty_style_changes_colour() {
+    let html = "<html><head><style id=s></style></head><body><p id=p>x</p></body></html>";
+    let (c, l, _) = qsd4_color(html, "var sh=document.getElementById('s').sheet; sh.insertRule('p{color:#ff0000}',0); console.log(sh.cssRules.length, getComputedStyle(document.getElementById('p')).color);");
+    assert_eq!(c, Some(TextColor::rgb(255, 0, 0)), "{l:?}");
+    assert_eq!(l[0], "log:1 rgb(255, 0, 0)");
+}
+
+#[test]
+fn qy44c_delete_rule_and_text_unchanged() {
+    let (c, l, _) = qsd4_color(QY44C_HTML, "var e=document.getElementById('s'),sh=e.sheet; sh.insertRule('p{color:#ff0000}',1); console.log(sh.cssRules.length, e.textContent); sh.deleteRule(1);");
+    assert_eq!(c, Some(TextColor::rgb(0, 0, 255)), "{l:?}");
+    assert_eq!(l[0], "log:2 p{color:#0000ff}");
+    let (c, _, _) = qsd4_color(QY44C_HTML, "var sh=document.getElementById('s').sheet; sh.deleteRule(0);");
+    assert_ne!(c, Some(TextColor::rgb(0, 0, 255)));
+    let (c, l, _) = qsd4_color(QY44C_HTML, "var sh=document.getElementById('s').sheet; sh.insertRule('p{color:#00ff00}'); sh.removeRule(1); sh.addRule('p','color:#ff0000'); console.log(sh.cssRules.length);");
+    assert_eq!(c, Some(TextColor::rgb(255, 0, 0)), "{l:?}");
+}
+
+#[test]
+fn qy44c_text_content_change_replaces_sheet() {
+    let (c, l, _) = qsd4_color(
+        QY44C_HTML,
+        "var e=document.getElementById('s'),a=e.sheet; a.insertRule('p{color:#ff0000}',1); e.textContent='p{color:#00ff00}'; var b=e.sheet; console.log(a===b, b.cssRules.length, b.cssRules[0].selectorText);",
+    );
+    assert_eq!(c, Some(TextColor::rgb(0, 255, 0)), "{l:?}");
+    assert_eq!(l[0], "log:false 1 p");
+}
+
+#[test]
+fn qy44c_style_sheets_list_and_owner() {
+    let (_e, _d, l) = events_engine(
+        QY44C_HTML,
+        "var ss=document.styleSheets; var s=document.getElementById('s'),k=document.getElementById('l');\
+         console.log(ss.length, ss[0].ownerNode===s, ss.item(1).ownerNode===k, ss[1].cssRules.length, s.sheet===ss[0], ss[0] instanceof CSSStyleSheet, ss.item(5));\
+         var d=document.createElement('style'); console.log(d.sheet); document.head.appendChild(d); console.log(document.styleSheets.length, d.sheet.cssRules.length);\
+         var c=new CSSStyleSheet(); document.adoptedStyleSheets=[c]; console.log(document.styleSheets.length, ss[0].disabled, ss[0].type);",
+    );
+    let l = l.borrow();
+    assert_eq!(l[0], "log:2 true true 0 true true null", "{l:?}");
+    assert_eq!(l[1], "log:null");
+    assert_eq!(l[2], "log:3 0");
+    assert_eq!(l[3], "log:3 false text/css");
+}
+
+#[test]
+fn qy44c_disabled_sheet_and_rule_style_mutation() {
+    let (c, _, _) = qsd4_color(QY44C_HTML, "var sh=document.getElementById('s').sheet; sh.disabled=true;");
+    assert_ne!(c, Some(TextColor::rgb(0, 0, 255)));
+    let (c, l, _) = qsd4_color(QY44C_HTML, "var sh=document.getElementById('s').sheet; sh.cssRules[0].style.color='#ff0000'; console.log(sh.cssRules[0].cssText);");
+    assert_eq!(c, Some(TextColor::rgb(255, 0, 0)), "{l:?}");
 }
