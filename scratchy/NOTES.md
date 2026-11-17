@@ -3432,3 +3432,20 @@ Getter is the location hostname. Setter accepts the same value or a dot-boundary
 ## QSD4: constructable stylesheets
 
 `src/cssom_prelude.js` keeps each constructed sheet's rules as text (rule splitter + declaration parser in JS; `@import`/`@charset` dropped with a console warning). `document.adoptedStyleSheets` is a Proxy over a plain array (index writes are type-checked and republish; the setter validates every item and copies). The adopted sheets' text (adoption order, disabled sheets skipped, `media` wrapped in `@media`) is published through `__d_adopted(text)` only when it changes: it sets `JsRequests.adopted_css`, the js_style thread-local (getComputedStyle) and bumps the DOM write generation. `App::js_sync` copies it to `App::adopted_css`; the layout build appends it after `extra_css` (`images::with_adopted_css`, borrowed when empty), so adopted rules are unlayered author rules that come after every `<style>`/`<link>` sheet. Cleared by `replace_document`. `baseURL` is stored but url() is not rebased. No ShadowRoot yet (QSD3/QSD7).
+
+## Media via mpv (QM1 investigation, 2026-11-17; nothing built)
+
+Design memo only; media stays placeholder-only until the user agrees a design
+(AGENTS.md "Off limits"). Evidence: REGRESSIONS.md R27; questions and items:
+TODO.txt QM1-D, QM1a-QM1j. An mpv process cannot be embedded on Wayland
+(`--wid` is X11 only and compiled out of this mpv; a wl_subsurface must belong
+to our own client connection; a second toplevel is tiled by dwl and cannot
+place itself). The route that fits scratchy's CPU paint model is libmpv
+in-process: software render (`MPV_RENDER_API_TYPE_SW`) of each frame into a
+buffer sized to the `<video>` box, painted like an `<img>`, so scroll,
+clipping, z-order and QY18 translate need no new machinery. Bytes come from
+wire through libmpv's stream_cb (seekable reads, so the media channel needs
+Range requests), which keeps the request policy, cookie partitioning and CORS.
+`App::redraw` repaints and presents the whole page on every frame today, so
+video needs a damage-only redraw (QM1c). MSE/EME are out of reach (YouTube
+needs MSE).
