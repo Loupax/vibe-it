@@ -1292,7 +1292,7 @@ pub(crate) fn start_scripts_clocked(
         over
     })));
     let store = Rc::new(js_modules::ModuleStore::from_scripts(scripts, &*log));
-    rt.set_loader(js_modules::PageResolver(store.clone()), js_modules::PageLoader(store));
+    rt.set_loader(js_modules::PageResolver(store.clone()), js_modules::PageLoader(store.clone()));
     let Ok(ctx) = Context::full(&rt) else {
         log("error", "could not create the JS context");
         return None;
@@ -1335,6 +1335,10 @@ pub(crate) fn start_scripts_clocked(
     let net = Rc::new(std::cell::RefCell::new(js_net::NetState::new(log.clone()).with_clock(net_clock)));
     ctx.with(|c| js_net::install_net(&c, net.clone(), reqs.clone()));
     let mut engine = JsEngine { ctx, rt, log, base, deadline, tripped, dirty: dirty.clone(), table: Default::default(), reqs: reqs.clone(), net };
+    {
+        let (dl, tr, lg) = (engine.deadline.clone(), engine.tripped.clone(), engine.log.clone());
+        engine.ctx.with(|c| install_script_natives(&c, dl, tr, lg, store));
+    }
     engine.eval("prelude", PRELUDE);
     engine.eval("timers", TIMERS_PRELUDE);
     engine.eval("url", URL_PRELUDE);
@@ -1366,6 +1370,128 @@ pub(crate) fn start_scripts_clocked(
     engine.eval("DOMContentLoaded", FIRE_DOM_CONTENT_LOADED);
     engine.eval("load", FIRE_LOAD);
     Some(engine)
+}
+
+/// QY34: natives for script-inserted `<script>` elements (the JS side lives
+/// in js_dom.rs). `__scratchy_run_global(code, name, top) -> bool` runs
+/// `code` as sloppy global code (like the page-load path), logging a failure
+/// itself; `top` (a script delivered by a network task, nothing else on the
+/// stack) arms the `SCRIPT_BUDGET` after compiling exactly as page-load
+/// scripts get it, a nested inline run stays under its caller's budget (a
+/// trip there propagates, uncatchable, to the caller that logs it).
+/// `__scratchy_utf8(bytes)` decodes a response body; `__mod_*` feed the
+/// module loader's source map (the inserted module's graph is fetched by
+/// the page-side code through the request queue before `import()`).
+fn install_script_natives<'js>(
+    ctx: &Ctx<'js>,
+    deadline: Arc<std::sync::atomic::AtomicU64>,
+    tripped: Arc<AtomicBool>,
+    log: LogFn,
+    store: Rc<js_modules::ModuleStore>,
+) {
+    let g = ctx.globals();
+    let run = Function::new(ctx.clone(), move |ctx: Ctx<'js>, code: String, name: String, top: bool| -> rquickjs::Result<bool> {
+        use rquickjs::qjs;
+        if code.len() > MAX_SCRIPT_BYTES {
+            log("error", &format!("js: {name} not compiled: {} MB of source exceeds the {} MB cap", code.len().div_ceil(1 << 20), MAX_SCRIPT_BYTES >> 20));
+            return Ok(false);
+        }
+        let arm = |b: Duration| {
+            tripped.store(false, Ordering::Relaxed);
+            deadline.store(script_clock_nanos() + b.as_nanos() as u64, Ordering::Relaxed);
+        };
+        let (Ok(src), Ok(file)) = (std::ffi::CString::new(code.as_str()), std::ffi::CString::new(name.as_str())) else {
+            log("error", &format!("{name}: source contains a NUL byte"));
+            return Ok(false);
+        };
+        let t0 = thread_cpu_nanos();
+        if top {
+            arm(SCRIPT_BUDGET);
+        }
+        let raw = ctx.as_raw().as_ptr();
+        // SAFETY: `raw` is this live context; the source is NUL-terminated and
+        // `len` excludes the terminator; the compiled function is consumed by
+        // JS_EvalFunction below, whose result we own and free.
+        let func = unsafe { qjs::JS_Eval(raw, src.as_ptr(), code.len() as _, file.as_ptr(), (qjs::JS_EVAL_TYPE_GLOBAL | qjs::JS_EVAL_FLAG_COMPILE_ONLY) as i32) };
+        let fail = |ctx: &Ctx<'js>, t1: u64| -> rquickjs::Result<bool> {
+            if tripped.load(Ordering::Relaxed) {
+                if !top {
+                    return Err(JsError::Exception);
+                }
+                let _ = ctx.catch();
+                let ms = |n: u64| format!("{:.1} s", n as f64 / 1e9);
+                log(
+                    "error",
+                    &format!(
+                        "js: {name} stopped: exceeded the {} s CPU-time page-load budget ({} KB of source; compiled in {}, ran {})",
+                        SCRIPT_BUDGET.as_secs(),
+                        code.len().div_ceil(1024),
+                        ms(t1.saturating_sub(t0)),
+                        ms(thread_cpu_nanos().saturating_sub(t1))
+                    ),
+                );
+                arm(CALLBACK_BUDGET);
+            } else {
+                let msg = describe_error(ctx, JsError::Exception);
+                log("error", &format!("{name}: {msg}"));
+            }
+            Ok(false)
+        };
+        // SAFETY: `func` came from JS_Eval above.
+        if unsafe { qjs::JS_IsException(func) } {
+            return fail(&ctx, thread_cpu_nanos());
+        }
+        let t1 = thread_cpu_nanos();
+        if top {
+            arm(SCRIPT_BUDGET);
+        }
+        // SAFETY: consumes `func`; the result is wrapped so it is freed.
+        let res = unsafe { qjs::JS_EvalFunction(raw, func) };
+        if unsafe { qjs::JS_IsException(res) } {
+            return fail(&ctx, t1);
+        }
+        drop(unsafe { rquickjs::Value::from_raw(ctx.clone(), res) });
+        Ok(true)
+    });
+    if let Ok(f) = run {
+        let _ = g.set("__scratchy_run_global", f);
+    }
+    if let Ok(f) = Function::new(ctx.clone(), |ta: rquickjs::TypedArray<'js, u8>| -> String {
+        // SAFETY: the slice is copied out before any JS can run again.
+        let b = unsafe { ta.as_bytes() }.unwrap_or(&[]);
+        let b = b.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(b);
+        String::from_utf8_lossy(b).into_owned()
+    }) {
+        let _ = g.set("__scratchy_utf8", f);
+    }
+    let st = store.clone();
+    if let Ok(f) = Function::new(ctx.clone(), move |name: String| -> bool { st.sources.borrow().contains_key(&name) }) {
+        let _ = g.set("__mod_has", f);
+    }
+    let st = store.clone();
+    if let Ok(f) = Function::new(ctx.clone(), move |name: String, code: String| {
+        st.sources.borrow_mut().entry(name).or_insert(code);
+    }) {
+        let _ = g.set("__mod_register", f);
+    }
+    // The module specifiers of `code` (as module `name`) that are not in the
+    // store yet, resolved to URLs (the graph the page-side code still fetches).
+    let st = store;
+    if let Ok(f) = Function::new(ctx.clone(), move |name: String, code: String| -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        for (spec, _) in js_modules::scan_imports(&code) {
+            if let Ok(u) = js_modules::resolve_specifier(&spec, &name, &st.map, &st.doc_base)
+                && !is_data_url(&u)
+                && !st.sources.borrow().contains_key(&u)
+                && !out.contains(&u)
+            {
+                out.push(u);
+            }
+        }
+        out
+    }) {
+        let _ = g.set("__mod_deps", f);
+    }
 }
 
 /// QY9: `URL` and `URLSearchParams`; parsing and setters are Rust natives

@@ -2172,6 +2172,142 @@ const DOM_PRELUDE: &str = r#"
   var SCP = mkProto('HTMLScriptElement', ['script']);
   rUrl(SCP, 'src', 'src'); rStrs(SCP, ['type', 'charset', 'nonce', 'crossOrigin', 'integrity', 'referrerPolicy']); rBools(SCP, ['async', 'defer', 'noModule']);
   defs(SCP, 'text', function () { return this.textContent; }, function (v) { this.textContent = String(v); });
+  // ---- QY34: script-inserted <script> elements (HTML "prepare the script
+  // element"). Only scripts made by createElement/createElementNS (or cloned
+  // from a not-yet-started one) are eligible: parser-made, innerHTML, document.
+  // write and DOMParser scripts never run through here (they are "parser
+  // inserted"/"already started"). A script stays eligible until it is connected
+  // AND has something to run, then it is marked started (never re-run when moved).
+  // Inline code runs synchronously inside the inserting call; `src` goes through
+  // the QF7 queue (api 'script': RequestPolicy, mixed content, CORS apply) and
+  // runs as its own task (async), or in insertion order after `async = false`.
+  var sEl = {}, sN = 0, sOrd = {}, sCr = {}, sQ = [], sNames = 0, sTimeout = g.setTimeout;
+  var sFire = function (el, type) { sTimeout.call(g, function () { el.dispatchEvent(new g.Event(type)); }, 0); };
+  var sMark = function (el) { if (el && el.__id !== undefined) { sCr[el.__id] = 1; if (!sEl[el.__id]) { sEl[el.__id] = 1; sN++; } } return el; };
+  var sOCreate = doc.createElement, sOCreateNS = doc.createElementNS, sOClone = NodeProto.cloneNode;
+  doc.createElement = function (t) {
+    var e = sOCreate.apply(this, arguments);
+    if (String(t).toLowerCase() === 'script') sMark(e);
+    return e;
+  };
+  doc.createElementNS = function (ns, t) {
+    var e = sOCreateNS.apply(this, arguments);
+    if (ns === 'http://www.w3.org/1999/xhtml' && String(t).toLowerCase() === 'script') sMark(e);
+    return e;
+  };
+  var sCopy = function (a, b) {
+    if (a.__id === undefined || b.__id === undefined) return;
+    if (sEl[a.__id]) sMark(b);
+    var ka = a.childNodes, kb = b.childNodes;
+    for (var i = 0; i < ka.length && i < kb.length; i++) sCopy(ka[i], kb[i]);
+  };
+  NodeProto.cloneNode = function () {
+    var c = sOClone.apply(this, arguments);
+    if (sN > 0 && c) sCopy(this, c);
+    return c;
+  };
+  var sCur = function (el, f) {
+    var prev = curScript, pw = wlast;
+    curScript = el; wlast = -1;
+    try { return f(); } finally { curScript = prev; wlast = pw; }
+  };
+  var sErrText = function (e) { return (e && e.name ? e.name + ': ' + e.message : 'Uncaught ' + String(e)) + (e && e.stack ? '\n' + e.stack : ''); };
+  // One request through the QF7 queue; ok(text) / bad(message) run as promise jobs.
+  var sFetch = function (url, cors, cred, ok, bad) {
+    var h;
+    try {
+      h = g.__net_request({ method: 'GET', url: url, headers: [], body: null, mode: cors ? 'cors' : 'no-cors',
+        credentials: cred, api: 'script', raw: true });
+    } catch (e) { bad(String(e)); return; }
+    h.promise.then(function (res) {
+      if (res.status < 200 || res.status > 299) { __scratchy_err(url + ': failed to load script (HTTP ' + res.status + ')'); bad('HTTP ' + res.status); return; }
+      ok(__scratchy_utf8(res.body));
+    }, function (e) { bad(String(e)); });
+  };
+  var sModuleGraph = function (name, code, budget, ok, bad) {
+    var deps = __mod_deps(name, code), left = deps.length, failed = false;
+    if (!left) { ok(); return; }
+    deps.forEach(function (u) {
+      if (failed) return;
+      if (__mod_has(u)) { if (--left === 0) ok(); return; }
+      if (--budget.n < 0) { failed = true; __scratchy_err(u + ': module graph over 200 modules; not fetching more'); bad(); return; }
+      sFetch(u, true, 'same-origin', function (text) {
+        if (failed) return;
+        __mod_register(u, text);
+        sModuleGraph(u, text, budget, function () { if (--left === 0) ok(); }, function () { if (!failed) { failed = true; bad(); } });
+      }, function () { if (!failed) { failed = true; bad(); } });
+    });
+  };
+  var sImport = function (el, name, fireLoad) {
+    import(name).then(function () { if (fireLoad) el.dispatchEvent(new g.Event('load')); }, function (e) {
+      __scratchy_err(name + ': ' + sErrText(e));
+      if (fireLoad) el.dispatchEvent(new g.Event('load'));
+    });
+  };
+  var sExternal = function (el, id, src, mod) {
+    var url;
+    try { url = new g.URL(src, doc.baseURI).href; } catch (e) {
+      __scratchy_err('scratchy: js: <script src=' + JSON.stringify(src) + '>: invalid URL'); sFire(el, 'error'); return;
+    }
+    var cors = __d_attr(id, 'crossorigin'), cred;
+    if (mod) cred = cors != null && cors.toLowerCase() === 'use-credentials' ? 'include' : 'same-origin';
+    else cred = cors == null || cors.toLowerCase() === 'use-credentials' ? 'include' : 'same-origin';
+    var slot = sOrd[id] ? { done: false, fn: null } : null;
+    if (slot) sQ.push(slot);
+    var settle = function (fn) {
+      if (!slot) { fn(); return; }
+      slot.fn = fn; slot.done = true;
+      while (sQ.length && sQ[0].done) sQ.shift().fn();
+    };
+    var fail = function () { settle(function () { el.dispatchEvent(new g.Event('error')); }); };
+    sFetch(url, mod || cors != null, cred, function (text) {
+      if (mod) {
+        if (!__mod_has(url)) __mod_register(url, text);
+        sModuleGraph(url, text, { n: 200 }, function () { settle(function () { sImport(el, url, true); }); }, fail);
+      } else {
+        settle(function () {
+          sCur(el, function () { __scratchy_run_global(text, url, true); });
+          el.dispatchEvent(new g.Event('load'));
+        });
+      }
+    }, fail);
+  };
+  var JSMIME = /^(text\/javascript|application\/javascript|application\/x-javascript|text\/ecmascript|application\/ecmascript|text\/jscript|text\/livescript|text\/x-javascript|text\/x-ecmascript)$/;
+  var sPrepare = function (id) {
+    var ty = __d_attr(id, 'type'), lang = __d_attr(id, 'language'), src = __d_attr(id, 'src'), t;
+    if (ty != null) t = ty.trim() === '' ? 'text/javascript' : ty.trim().toLowerCase();
+    else if (lang != null && lang.trim() !== '') t = 'text/' + lang.trim().toLowerCase();
+    else t = 'text/javascript';
+    var mod = t === 'module';
+    if (!mod && !JSMIME.test(t)) return;
+    if (!mod && __d_attr(id, 'nomodule') != null) return;
+    var el = wrap(id), text = src == null ? el.textContent : '';
+    if (src == null && text === '') return; // empty: stays eligible (text or src may come later)
+    delete sEl[id]; sN--;
+    if (src != null) {
+      if (src.trim() === '') { sFire(el, 'error'); return; }
+      sExternal(el, id, src, mod);
+    } else if (mod) {
+      var name = String(g.location.href).split('#')[0] + '#inline-module-s' + (++sNames);
+      __mod_register(name, text);
+      sModuleGraph(name, text, { n: 200 }, function () { sImport(el, name, false); }, function () {});
+    } else {
+      sCur(el, function () { __scratchy_run_global(text, 'inline script (inserted)', false); });
+    }
+  };
+  var sSweep = function () {
+    var ids = Object.keys(sEl);
+    for (var i = 0; i < ids.length; i++) {
+      var id = +ids[i];
+      if (sEl[id] && composedRootId(id) === 0) sPrepare(id);
+    }
+  };
+  var sOAfter = afterIns, sOTxt = __d_settext, sOSet = __d_setattr;
+  afterIns = function (c) { if (sOAfter) sOAfter(c); if (sN > 0) sSweep(); };
+  __d_settext = function (id, t) { sOTxt(id, t); if (sN > 0 && sEl[id]) sSweep(); };
+  __d_setattr = function (id, n, v) { sOSet(id, n, v); if (sN > 0 && sEl[id] && String(n).toLowerCase() === 'src') sSweep(); };
+  defs(SCP, 'async', function () { return __d_attr(this.__id, 'async') != null || (!!sCr[this.__id] && !sOrd[this.__id]); },
+    function (v) { if (v) { delete sOrd[this.__id]; __d_setattr(this.__id, 'async', ''); } else { sOrd[this.__id] = 1; __d_rmattr(this.__id, 'async'); } });
   var IMP = mkProto('HTMLImageElement', ['img']);
   rUrl(IMP, 'src', 'src'); rStrs(IMP, ['alt', 'srcset', 'sizes', 'crossOrigin', 'useMap', 'decoding', 'loading', 'referrerPolicy', 'name', 'align']);
   rBool(IMP, 'isMap', 'ismap');

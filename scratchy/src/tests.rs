@@ -16621,3 +16621,176 @@ fn qy41_definite_px_width_inline_block_still_sizes_max_content() {
     let marker = find_by_width(&laid, 10.0).expect("marker item");
     assert!((marker.x - 70.0).abs() < 1.0, "marker x = {}", marker.x);
 }
+
+// ---------- QY34: script-inserted <script> elements ----------
+
+fn qy34_status(status: u16, body: &str) -> Result<WireResponse, NetError> {
+    Ok(WireResponse { status, status_text: String::new(), headers: vec![], body: body.as_bytes().to_vec(), error: None, final_url: None })
+}
+
+fn qy34_run(page: &str, answers: Vec<(&'static str, Result<WireResponse, NetError>)>, code: &str) -> (Vec<String>, Arc<QfFake>) {
+    let fake = QfFake::new(answers);
+    let (engine, log) = qf7_engine(page, &fake);
+    engine.eval("t", code);
+    qf7_drive(&engine, &fake);
+    engine.run_due();
+    qf7_drive(&engine, &fake);
+    engine.run_due();
+    let l = log.borrow().clone();
+    (l, fake)
+}
+
+#[test]
+fn qy34_inline_script_runs_synchronously_with_current_script_in_insertion_order() {
+    let (l, fake) = qy34_run(
+        "https://page.test/",
+        vec![],
+        "var a = document.createElement('script'); a.id = 'a'; a.textContent = \"console.log('run a', document.currentScript && document.currentScript.id);\";\
+         var b = document.createElement('script'); b.id = 'b'; b.text = \"console.log('run b', document.currentScript.id);\";\
+         document.head.appendChild(a); console.log('between'); document.body.appendChild(b); console.log('after', document.currentScript);",
+    );
+    assert_eq!(l, vec!["log:run a a", "log:between", "log:run b b", "log:after null"], "{l:?}");
+    assert!(fake.urls().is_empty());
+}
+
+#[test]
+fn qy34_src_script_goes_through_the_queue_runs_async_and_fires_load() {
+    let (l, fake) = qy34_run(
+        "https://page.test/dir/",
+        vec![("/x.js", qy34_status(200, "console.log('x ran', document.currentScript.id);"))],
+        "var s = document.createElement('script'); s.id = 'sx'; s.src = 'x.js';\
+         s.onload = function () { console.log('load', this.id); }; s.addEventListener('error', function () { console.log('error'); });\
+         document.head.appendChild(s); console.log('appended');",
+    );
+    assert_eq!(l, vec!["log:appended", "log:x ran sx", "log:load sx"], "{l:?}");
+    assert_eq!(fake.urls(), vec!["https://page.test/dir/x.js"]);
+}
+
+#[test]
+fn qy34_http_error_and_policy_refusal_fire_error_and_log() {
+    let (l, fake) = qy34_run(
+        "https://page.test/",
+        vec![("/missing.js", qy34_status(404, "nope"))],
+        "['/missing.js', 'ftp://page.test/p.js'].forEach(function (u) {\
+           var s = document.createElement('script'); s.src = u;\
+           s.onload = function () { console.log('load', u); }; s.onerror = function () { console.log('error', u); };\
+           document.head.appendChild(s); });",
+    );
+    assert!(l.contains(&"log:error /missing.js".to_string()), "{l:?}");
+    assert!(l.contains(&"log:error ftp://page.test/p.js".to_string()), "{l:?}");
+    assert!(!l.iter().any(|x| x.starts_with("log:load")), "{l:?}");
+    assert!(l.iter().any(|x| x.starts_with("error:https://page.test/missing.js: failed to load script (HTTP 404)")), "{l:?}");
+    assert!(l.iter().any(|x| x.starts_with("net:blocked GET ftp://page.test/p.js")), "{l:?}");
+    assert_eq!(fake.urls(), vec!["https://page.test/missing.js"]);
+}
+
+#[test]
+fn qy34_a_moved_script_is_not_run_again_and_innerhtml_scripts_never_run() {
+    let (l, _) = qy34_run(
+        "https://page.test/",
+        vec![],
+        "var s = document.createElement('script'); s.textContent = \"console.log('once');\";\
+         document.head.appendChild(s); document.body.appendChild(s); document.head.insertBefore(s, null);\
+         var c = s.cloneNode(true); document.body.appendChild(c);\
+         var d = document.createElement('div'); d.innerHTML = '<script>console.log(\"inner\")<\\/script>'; document.body.appendChild(d);\
+         var late = document.createElement('script'); document.body.appendChild(late); late.textContent = \"console.log('late');\";\
+         var det = document.createElement('div'); var ds = document.createElement('script'); ds.text = \"console.log('detached');\"; det.appendChild(ds);\
+         console.log('before attach'); document.body.appendChild(det);",
+    );
+    assert_eq!(l, vec!["log:once", "log:late", "log:before attach", "log:detached"], "{l:?}");
+}
+
+#[test]
+fn qy34_type_nomodule_and_language_checks() {
+    let (l, _) = qy34_run(
+        "https://page.test/",
+        vec![],
+        "function add(attrs) { var s = document.createElement('script'); for (var k in attrs) s.setAttribute(k, attrs[k]); s.textContent = \"console.log('ran', '\" + JSON.stringify(attrs) + \"');\"; document.head.appendChild(s); }\
+         add({type: 'text/plain'}); add({type: 'application/json'}); add({nomodule: ''}); add({type: ''}); add({type: ' Text/JavaScript '});\
+         add({language: 'javascript'}); add({language: 'vbscript'}); add({type: '', language: 'vbscript'});",
+    );
+    let ran: Vec<&str> = l.iter().map(String::as_str).collect();
+    assert_eq!(
+        ran,
+        vec![
+            "log:ran {\"type\":\"\"}",
+            "log:ran {\"type\":\" Text/JavaScript \"}",
+            "log:ran {\"language\":\"javascript\"}",
+            "log:ran {\"type\":\"\",\"language\":\"vbscript\"}",
+        ],
+        "{l:?}"
+    );
+}
+
+#[test]
+fn qy34_async_false_scripts_run_in_insertion_order() {
+    let fake = QfFake::new(vec![("/slow.js", qy34_status(200, "console.log('slow');")), ("/fast.js", qy34_status(200, "console.log('fast');"))]);
+    let (engine, log) = qf7_engine("https://page.test/", &fake);
+    engine.eval(
+        "t",
+        "['slow', 'fast'].forEach(function (n) { var s = document.createElement('script'); s.async = false; s.src = '/' + n + '.js';\
+         s.onload = function () { console.log('load', n); }; document.head.appendChild(s); });",
+    );
+    qf7_drive(&engine, &fake);
+    assert_eq!(*log.borrow(), vec!["log:slow", "log:load slow", "log:fast", "log:load fast"]);
+}
+
+#[test]
+fn qy34_module_script_inline_and_src_with_import() {
+    let (l, fake) = qy34_run(
+        "https://page.test/",
+        vec![
+            ("/m.js", qy34_status(200, "import { v } from './dep.js'; console.log('m', v, document.currentScript);")),
+            ("/dep.js", qy34_status(200, "export const v = 42;")),
+        ],
+        "var s = document.createElement('script'); s.type = 'module'; s.src = '/m.js'; s.onload = function () { console.log('load m'); };\
+         document.head.appendChild(s);\
+         var i = document.createElement('script'); i.type = 'module'; i.textContent = \"console.log('inline module', typeof import.meta.url);\"; document.head.appendChild(i);",
+    );
+    assert!(l.contains(&"log:m 42 null".to_string()), "{l:?}");
+    assert!(l.contains(&"log:load m".to_string()), "{l:?}");
+    assert!(l.contains(&"log:inline module string".to_string()), "{l:?}");
+    assert_eq!(fake.urls(), vec!["https://page.test/m.js", "https://page.test/dep.js"]);
+}
+
+#[test]
+fn qy34_script_errors_are_logged_and_do_not_break_the_inserter() {
+    let (l, _) = qy34_run(
+        "https://page.test/",
+        vec![("/bad.js", qy34_status(200, "throw new Error('boom');"))],
+        "var s = document.createElement('script'); s.textContent = 'null.x'; document.head.appendChild(s); console.log('still here');\
+         var t = document.createElement('script'); t.src = '/bad.js'; t.onload = function () { console.log('load bad'); }; document.head.appendChild(t);",
+    );
+    assert!(l.iter().any(|x| x.starts_with("error:inline script (inserted): TypeError")), "{l:?}");
+    assert!(l.contains(&"log:still here".to_string()), "{l:?}");
+    assert!(l.iter().any(|x| x.starts_with("error:https://page.test/bad.js: Error: boom")), "{l:?}");
+    assert!(l.contains(&"log:load bad".to_string()), "{l:?}");
+}
+
+#[test]
+fn qy34_cross_origin_script_runs_without_cors_and_is_not_a_suppressed_beacon() {
+    let (l, fake) = qy34_run(
+        "https://page.test/",
+        vec![("cdn.test/a.js", qy34_status(200, "console.log('cdn ran');")), ("cdn.test/c.js", qy34_status(200, "console.log('cors ran');"))],
+        "var s = document.createElement('script'); s.src = 'https://cdn.test/a.js'; s.onload = function () { console.log('load a'); }; document.head.appendChild(s);\
+         var c = document.createElement('script'); c.src = 'https://cdn.test/c.js'; c.crossOrigin = 'anonymous'; c.onerror = function () { console.log('cors error'); }; document.head.appendChild(c);",
+    );
+    assert!(l.contains(&"log:cdn ran".to_string()), "{l:?}");
+    assert!(l.contains(&"log:load a".to_string()), "{l:?}");
+    // crossorigin=anonymous is a CORS request: no Access-Control-Allow-Origin, so it is blocked.
+    assert!(l.contains(&"log:cors error".to_string()), "{l:?}");
+    assert!(!l.contains(&"log:cors ran".to_string()), "{l:?}");
+    assert!(!l.iter().any(|x| x.contains("beacon")), "{l:?}");
+    assert_eq!(fake.urls().len(), 2);
+}
+
+#[test]
+fn qy34_runaway_fetched_script_hits_the_cpu_budget_and_later_scripts_still_run() {
+    let (l, _) = qy34_run(
+        "https://page.test/",
+        vec![("/loop.js", qy34_status(200, "for(;;){}")), ("/ok.js", qy34_status(200, "console.log('ok after');"))],
+        "['loop', 'ok'].forEach(function (n) { var s = document.createElement('script'); s.src = '/' + n + '.js'; document.head.appendChild(s); });",
+    );
+    assert!(l.iter().any(|x| x.starts_with("error:js: https://page.test/loop.js stopped: exceeded the 5 s CPU-time page-load budget")), "{l:?}");
+    assert!(l.contains(&"log:ok after".to_string()), "{l:?}");
+}
