@@ -1203,6 +1203,8 @@ pub(crate) struct Declarations {
     /// `overflow-y` (Q21); the `overflow` shorthand sets it as well.
     pub(crate) overflow_y: Option<Overflow>,
     pub(crate) text_overflow: Option<TextOverflow>,
+    /// `appearance` (also `-webkit-`/`-moz-`): `Some(true)` for `none`.
+    pub(crate) appearance_none: Option<bool>,
     pub(crate) cursor: Option<CursorStyle>,
     pub(crate) flex_direction: Option<FlexDirection>,
     pub(crate) flex_wrap: Option<FlexWrap>,
@@ -2504,7 +2506,7 @@ pub(crate) fn unprefixed_property(name: &str) -> &str {
     const ALIASED: &[&str] = &[
         "box-sizing", "flex", "flex-direction", "flex-wrap", "flex-flow", "flex-grow",
         "flex-shrink", "flex-basis", "box-shadow", "justify-content", "align-items",
-        "align-self", "order", "border-radius", "opacity",
+        "align-self", "order", "border-radius", "opacity", "appearance",
         "animation", "animation-name", "animation-duration", "animation-timing-function",
         "animation-delay", "animation-iteration-count", "animation-direction",
         "animation-fill-mode", "animation-play-state",
@@ -5128,6 +5130,10 @@ impl DeclParser<'_> {
                 } else if ident.eq_ignore_ascii_case("clip") {
                     self.decls.text_overflow = Some(TextOverflow::Clip);
                 }
+            }
+        } else if name.eq_ignore_ascii_case("appearance") {
+            if let Ok(ident) = input.expect_ident() {
+                self.decls.appearance_none = Some(ident.eq_ignore_ascii_case("none"));
             }
         } else if name.eq_ignore_ascii_case("cursor") {
             if let Ok(ident) = input.expect_ident() {

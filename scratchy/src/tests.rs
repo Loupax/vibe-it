@@ -17704,3 +17704,225 @@ fn qan1a_computed_style_stays_small() {
     is_copy::<ComputedStyle>();
     eprintln!("size_of ComputedStyle = {}", std::mem::size_of::<ComputedStyle>());
 }
+
+// ---------- Q30a: form controls get real boxes ----------
+
+fn q30a_tree(html: &str) -> LayoutBox {
+    let doc = parse_html(&format!("<html><body style=\"margin:0\">{html}</body></html>"));
+    build_layout_tree(&doc, 1000.0)
+}
+
+fn q30a_texts(b: &LayoutBox, out: &mut Vec<(String, TextColor)>) {
+    match &b.content {
+        BoxContent::Blocks(c) | BoxContent::TableRow(c) => c.iter().for_each(|k| q30a_texts(k, out)),
+        BoxContent::Inline(items) => {
+            for i in items {
+                match i {
+                    InlineItem::Text(t, s) => out.push((t.clone(), s.color)),
+                    InlineItem::Embedded(e) => q30a_texts(e, out),
+                    _ => {}
+                }
+            }
+        }
+        BoxContent::Image(_) => {}
+    }
+}
+
+fn q30a_all_text(html: &str) -> Vec<(String, TextColor)> {
+    let mut v = Vec::new();
+    q30a_texts(&q30a_tree(html), &mut v);
+    v
+}
+
+/// (w, h) of every laid-out box under the body (inline-blocks included).
+fn q30a_sizes(html: &str) -> Vec<(f32, f32)> {
+    fn collect(l: &Laid, out: &mut Vec<(f32, f32)>) {
+        out.push((l.w, l.h));
+        match &l.content {
+            LaidContent::Blocks(c) | LaidContent::TableRow(c) => c.iter().for_each(|k| collect(k, out)),
+            LaidContent::MixedInline(items) => {
+                for it in items {
+                    if let MixedPositioned::Embedded(e) = it {
+                        collect(e, out);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    let tree = q30a_tree(html);
+    let mut fs = new_font_system_with(&[]);
+    let mut cache = ShapeCache::new();
+    let (mut next_id, mut incomplete) = (0usize, false);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let laid = measure(&tree, &mut fs, 0.0, 0.0, 1000.0, None, &mut next_id, &mut cache, deadline, &mut incomplete, &mut Vec::new(), &Floats::default(), None);
+    let mut v = Vec::new();
+    collect(&laid, &mut v);
+    v
+}
+
+#[test]
+fn q30a_text_input_box_size_follows_size_attr_and_css() {
+    // 20 chars default: 20 * 13.3333 * 0.55 content + 2*2 padding + 2*1 border.
+    let default = q30a_sizes("<input>");
+    let w20 = 20.0 * 13.3333 * 0.55 + 4.0 + 2.0;
+    assert!(default.iter().any(|&(w, h)| (w - w20).abs() < 0.2 && h > 14.0 && h < 30.0), "{default:?} want w {w20}");
+    let s10 = q30a_sizes("<input size=10>");
+    let w10 = 10.0 * 13.3333 * 0.55 + 6.0;
+    assert!(s10.iter().any(|&(w, _)| (w - w10).abs() < 0.2), "{s10:?}");
+    let css = q30a_sizes("<input style=\"width:100px\">");
+    assert!(css.iter().any(|&(w, _)| (w - 106.0).abs() < 0.2), "{css:?}");
+    let bb = q30a_sizes("<input style=\"width:100px;box-sizing:border-box\">");
+    assert!(bb.iter().any(|&(w, _)| (w - 100.0).abs() < 0.2), "{bb:?}");
+    for ty in ["text", "search", "email", "url", "tel", "password", "number"] {
+        let v = q30a_sizes(&format!("<input type={ty}>"));
+        assert!(v.iter().any(|&(w, _)| (w - w20).abs() < 0.2), "{ty}: {v:?}");
+    }
+}
+
+#[test]
+fn q30a_value_placeholder_and_password_text_in_the_tree() {
+    let v = q30a_all_text("<input value=\"hello\">");
+    assert!(v.iter().any(|(t, c)| t == "hello" && *c == TextColor::rgb(0, 0, 0)), "{v:?}");
+    let p = q30a_all_text("<input placeholder=\"Search me\">");
+    assert!(p.iter().any(|(t, c)| t == "Search me" && *c == TextColor::rgb(117, 117, 117)), "{p:?}");
+    let both = q30a_all_text("<input value=\"v\" placeholder=\"ph\">");
+    assert!(both.iter().any(|(t, _)| t == "v") && !both.iter().any(|(t, _)| t == "ph"), "{both:?}");
+    let pw = q30a_all_text("<input type=password value=\"secret\">");
+    assert!(pw.iter().any(|(t, _)| t == "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}"), "{pw:?}");
+    assert!(!pw.iter().any(|(t, _)| t.contains("secret")), "{pw:?}");
+}
+
+fn q30a_dot_count(b: &LayoutBox, n: &mut usize) {
+    if let BoxContent::Blocks(c) = &b.content {
+        for k in c {
+            if matches!(k.style.width, Some(BoxLength::Px(w)) if w == 5.0) && k.style.background_color.is_some() {
+                *n += 1;
+            }
+            q30a_dot_count(k, n);
+        }
+    }
+    if let BoxContent::Inline(items) = &b.content {
+        for i in items {
+            if let InlineItem::Embedded(e) = i {
+                q30a_dot_count(e, n);
+            }
+        }
+    }
+}
+
+#[test]
+fn q30a_checkbox_and_radio_are_13px_and_checked_paints_a_mark() {
+    for ty in ["checkbox", "radio"] {
+        let v = q30a_sizes(&format!("<input type={ty}>"));
+        assert!(v.contains(&(13.0, 13.0)), "{ty}: {v:?}");
+    }
+    assert!(!q30a_all_text("<input type=checkbox>").iter().any(|(t, _)| t == "\u{2713}"));
+    let on = q30a_all_text("<input type=checkbox checked>");
+    assert!(on.iter().any(|(t, c)| t == "\u{2713}" && *c == TextColor::rgb(255, 255, 255)), "{on:?}");
+    let (mut a, mut b) = (0, 0);
+    q30a_dot_count(&q30a_tree("<input type=radio checked>"), &mut a);
+    q30a_dot_count(&q30a_tree("<input type=radio>"), &mut b);
+    assert_eq!((a, b), (1, 0));
+    let none = q30a_all_text("<input type=checkbox checked style=\"appearance:none\">");
+    assert!(!none.iter().any(|(t, _)| t == "\u{2713}"), "{none:?}");
+    let webkit = q30a_all_text("<input type=checkbox checked style=\"-webkit-appearance:none\">");
+    assert!(!webkit.iter().any(|(t, _)| t == "\u{2713}"), "{webkit:?}");
+}
+
+#[test]
+fn q30a_buttons_show_their_label() {
+    let t = q30a_all_text("<input type=submit value=\"Go\"><input type=submit><input type=reset><input type=button value=\"Press\"><button>Label</button>");
+    for want in ["Go", "Submit", "Reset", "Press", "Label"] {
+        assert!(t.iter().any(|(s, _)| s == want), "missing {want}: {t:?}");
+    }
+    let v = q30a_sizes("<input type=submit value=\"Go\">");
+    assert!(v.iter().any(|&(w, h)| w > 20.0 && w < 60.0 && h > 15.0 && h < 30.0), "{v:?}");
+}
+
+#[test]
+fn q30a_hidden_input_is_not_laid_out() {
+    let none = q30a_sizes("<input type=hidden value=\"x\">");
+    let with = q30a_sizes("<input type=text>");
+    assert!(with.len() > none.len(), "{none:?} vs {with:?}");
+    let upper = q30a_sizes("<input type=HIDDEN>");
+    assert_eq!(upper.len(), none.len());
+    assert!(q30a_all_text("<input type=hidden value=\"secret\">").iter().all(|(t, _)| !t.contains("secret")));
+}
+
+#[test]
+fn q30a_textarea_rows_cols_text_and_placeholder() {
+    // content: cols * 13.3333*0.6, rows * round(13.3333*1.15)=15; + padding 4 + border 2.
+    let v = q30a_sizes("<textarea rows=3 cols=30>hi</textarea>");
+    let (w, h) = (30.0 * 13.3333 * 0.6 + 6.0, 45.0 + 6.0);
+    assert!(v.iter().any(|&(a, b)| (a - w).abs() < 0.2 && (b - h).abs() < 0.2), "{v:?} want {w}x{h}");
+    let d = q30a_sizes("<textarea></textarea>");
+    let (w, h) = (20.0 * 13.3333 * 0.6 + 6.0, 30.0 + 6.0);
+    assert!(d.iter().any(|&(a, b)| (a - w).abs() < 0.2 && (b - h).abs() < 0.2), "{d:?}");
+    assert!(q30a_all_text("<textarea>Line one\nLine two</textarea>").iter().any(|(t, _)| t == "Line one\nLine two"));
+    let p = q30a_all_text("<textarea placeholder=\"Write\"></textarea>");
+    assert!(p.iter().any(|(t, c)| t == "Write" && *c == TextColor::rgb(117, 117, 117)), "{p:?}");
+}
+
+#[test]
+fn q30a_select_shows_selected_option_and_arrow_not_the_others() {
+    let t = q30a_all_text("<select><option>Alpha<option selected>Beta<option>Gamma</select>");
+    assert!(t.iter().any(|(s, _)| s == "Beta"), "{t:?}");
+    assert!(!t.iter().any(|(s, _)| s == "Alpha" || s == "Gamma"), "{t:?}");
+    assert!(t.iter().any(|(s, _)| s.contains('\u{2304}')), "arrow: {t:?}");
+    let first = q30a_all_text("<select><option>One<option>Two</select>");
+    assert!(first.iter().any(|(s, _)| s == "One") && !first.iter().any(|(s, _)| s == "Two"));
+    let none = q30a_all_text("<select style=\"appearance:none\"><option>One</select>");
+    assert!(none.iter().any(|(s, _)| s == "One") && !none.iter().any(|(s, _)| s.contains('\u{2304}')));
+    let lb = q30a_all_text("<select multiple size=3><option>A<option>B<option>C</select>");
+    for o in ["A", "B", "C"] {
+        assert!(lb.iter().any(|(s, _)| s == o), "{lb:?}");
+    }
+}
+
+fn q30a_embedded_styles(b: &LayoutBox, out: &mut Vec<ComputedStyle>) {
+    match &b.content {
+        BoxContent::Blocks(c) => c.iter().for_each(|k| q30a_embedded_styles(k, out)),
+        BoxContent::Inline(items) => {
+            for i in items {
+                if let InlineItem::Embedded(e) = i {
+                    out.push(e.style);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+#[test]
+fn q30a_disabled_style_and_appearance_none_keep_author_border() {
+    let tree = q30a_tree("<input disabled><input style=\"border:0;appearance:none\">");
+    let mut v = Vec::new();
+    q30a_embedded_styles(&tree, &mut v);
+    assert_eq!(v.len(), 2);
+    // The :disabled rule in default.css greys the text.
+    assert_eq!(v[0].color, TextColor::rgb(0x6d, 0x6d, 0x6d));
+    assert_eq!(v[0].border_width, [1.0; 4]);
+    // The author's border:0 beats the UA border: no double border.
+    assert_eq!(v[1].border_width, [0.0; 4]);
+    assert!(v[1].appearance_none);
+}
+
+#[test]
+fn q30a_inline_form_row_shares_a_line() {
+    let v = q30a_sizes("<p style=\"margin:0\">Search <input> <button>Go</button></p>");
+    let tallest = v.iter().map(|&(_, h)| h).fold(0.0f32, f32::max);
+    assert!(tallest < 40.0, "a one-line form row must stay one line high: {v:?}");
+}
+
+#[test]
+fn q30a_rounded_border_keeps_its_bottom_row_at_fractional_height() {
+    // Regression found by Q30a: a 1px bottom border of a rounded box vanished
+    // when y/h were fractional (the last row was classed as an inner row).
+    let (w, h) = (40u32, 30u32);
+    let mut px = vec![0xFFFFFFFFu32; (w * h) as usize];
+    fill_rounded_ring(&mut px, w, h, 2.0, 3.4, 30.0, 19.6, 2.0, 1.0, TextColor::rgb(0, 0, 0), None);
+    let bottom_row = (3.4f32 + 19.6).round() as u32 - 1;
+    let idx = (bottom_row * w + 15) as usize;
+    assert_ne!(px[idx], 0xFFFFFFFF, "bottom border row {bottom_row} missing");
+}

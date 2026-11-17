@@ -175,3 +175,76 @@ td, th { display: table-cell; vertical-align: inherit; padding: 1px; }
 th { font-weight: bold; }
 
 iframe { display: inline-block; }
+
+/* ---- forms (Q30a) ----
+   UA styles of form controls. Hand-curated to look like Chrome's defaults; the
+   user will redesign this block. forms.rs only builds the content a control
+   paints (value/placeholder text, marks, arrow); EVERY visual default lives
+   here so an author rule (lower specificity here) always wins. */
+
+input, button, select, textarea {
+  display: inline-block;
+  font-size: 13.3333px;
+  line-height: normal;
+  color: #000;
+  text-align: left;
+  text-indent: 0;
+  margin: 0;
+  cursor: text;
+}
+input[type=hidden i] { display: none; }
+input, textarea, select {
+  background-color: #fff;
+  border: 1px solid #767676;
+}
+input, select { padding: 1px 2px; }
+textarea { padding: 2px; font-family: monospace; vertical-align: text-bottom; }
+select { box-sizing: border-box; cursor: default; padding: 1px 4px; }
+button, input[type=button i], input[type=submit i], input[type=reset i], input[type=image i], input[type=file i] {
+  box-sizing: border-box;
+  background-color: #efefef;
+  border: 1px solid #767676;
+  padding: 1px 6px;
+  text-align: center;
+  cursor: default;
+}
+input[type=checkbox i], input[type=radio i] {
+  box-sizing: border-box;
+  width: 13px;
+  height: 13px;
+  padding: 0;
+  margin: 3px 3px 3px 4px;
+  cursor: default;
+}
+input[type=radio i] { border-radius: 50%; }
+input::placeholder, textarea::placeholder { color: #757575; }
+input[type=color i] { box-sizing: border-box; padding: 1px 2px; cursor: default; }
+input[type=range i] { border: 0; background-color: transparent; padding: 0; margin: 2px; cursor: default; }
+input[type=image i] { background-color: transparent; border: 0; padding: 0; }
+/* disabled: grey text, dimmer face (the :disabled pseudo-class matches via dom.rs) */
+input:disabled, select:disabled, textarea:disabled { color: #6d6d6d; background-color: #ebebeb; border-color: #c4c4c4; }
+button:disabled, input[type=button i]:disabled, input[type=submit i]:disabled, input[type=reset i]:disabled {
+  color: #6d6d6d; background-color: #efefef; border-color: #c4c4c4;
+}
+input[type=checkbox i]:disabled, input[type=radio i]:disabled { background-color: #ebebeb; }
+fieldset {
+  display: block;
+  margin-left: 2px;
+  margin-right: 2px;
+  padding: 5px 10px 8px;
+  border: 2px groove #c0c0c0;
+}
+legend { display: block; padding: 0 2px; }
+label { cursor: default; }
+progress, meter {
+  display: inline-block;
+  box-sizing: border-box;
+  width: 160px;
+  height: 16px;
+  border: 1px solid #bbb;
+  border-radius: 8px;
+  background-color: #e6e6e6;
+  vertical-align: middle;
+  overflow: hidden;
+}
+meter { width: 80px; height: 14px; }
