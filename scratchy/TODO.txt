@@ -119,7 +119,7 @@ READY, in recommended order (no user decision needed):
   6 QSD2b [S] lookupNamespaceURI/lookupPrefix/isDefaultNamespace.
   7 (DONE as QY44c) QSD4a [S] `document.styleSheets` minimal read.
   8 QSD11 [S] attachInternals placeholder (forms parts log not implemented).
-  9 QF9a [S] DOMParser + XHR responseType 'document'.
+  9 QF9a [S] DONE DOMParser + XHR responseType 'document'.
  10 QF10a [S] `<a ping>` suppressed-log line.  11 QF4a [S] stream gaps.
  12 QF13a [S] / QF7b [M] per-hop redirects for CORS (scratchy follows hops).
  13 QY15a [S] run-time dynamic import() through the QF7 queue.
@@ -2758,7 +2758,7 @@ R22 copies and paste the before/after numbers in the commit.
       reads `XMLHttpRequest.prototype` at top level (R21 row 12); HN
       votes need it (but also cookies, QF14); refs: yt 17, bbc 11,
       guardian 13.
-- [ ] QF9a [S] READY XHR responseType 'document' / responseXML: parse HTML/XML via DOMParser (does not exist yet; today the response is null plus a console.error). Also real upload progress and open() user/password if a page needs them.
+- [x] QF9a [S] DONE (commit HASH_QF9A) XHR responseType 'document' / responseXML: parse HTML/XML via DOMParser (does not exist yet; today the response is null plus a console.error). Also real upload progress and open() user/password if a page needs them.
 - [x] QF10 [S] DONE (commit 67b71f2) `navigator.sendBeacon(url, data)`: TypeError for an
       invalid or non-http(s) URL (resolved against document.baseURI), body from
       string/Blob/ArrayBuffer/TypedArray/FormData/URLSearchParams/null (a

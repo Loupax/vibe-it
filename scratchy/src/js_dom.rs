@@ -192,6 +192,59 @@ fn remove_attr(h: &Handle, name: &str) {
     }
 }
 
+/// QF9a: converts one roxmltree node (and its subtree) into DOM nodes.
+fn xml_to_dom(x: roxmltree::Node) -> Option<Handle> {
+    use html5ever::{LocalName, Namespace, QualName};
+    match x.node_type() {
+        roxmltree::NodeType::Element => {
+            let tn = x.tag_name();
+            let ns = Namespace::from(tn.namespace().unwrap_or(""));
+            let mut attrs: Vec<html5ever::Attribute> = Vec::new();
+            let parent_ns: Vec<(Option<&str>, &str)> =
+                x.parent().map(|p| p.namespaces().map(|n| (n.name(), n.uri())).collect()).unwrap_or_default();
+            for n in x.namespaces() {
+                if parent_ns.contains(&(n.name(), n.uri())) || n.name() == Some("xml") {
+                    continue;
+                }
+                let local = match n.name() {
+                    Some(p) => format!("xmlns:{p}"),
+                    None => "xmlns".to_string(),
+                };
+                attrs.push(html5ever::Attribute {
+                    name: QualName::new(None, Namespace::from(""), LocalName::from(local.as_str())),
+                    value: n.uri().into(),
+                });
+            }
+            for a in x.attributes() {
+                let local = match a.namespace().and_then(|u| x.lookup_prefix(u)) {
+                    Some(p) if !p.is_empty() => format!("{p}:{}", a.name()),
+                    _ => a.name().to_string(),
+                };
+                attrs.push(html5ever::Attribute {
+                    name: QualName::new(None, Namespace::from(""), LocalName::from(local.as_str())),
+                    value: a.value().into(),
+                });
+            }
+            let n = Node::new(NodeData::Element {
+                name: QualName::new(None, ns, LocalName::from(tn.name())),
+                attrs: RefCell::new(attrs),
+                template_contents: RefCell::new(None),
+                mathml_annotation_xml_integration_point: false,
+            });
+            for c in x.children() {
+                if let Some(cc) = xml_to_dom(c) {
+                    cc.parent.set(Some(Rc::downgrade(&n)));
+                    n.children.borrow_mut().push(cc);
+                }
+            }
+            Some(n)
+        }
+        roxmltree::NodeType::Text => Some(Node::new(NodeData::Text { contents: RefCell::new(x.text().unwrap_or("").into()) })),
+        roxmltree::NodeType::Comment => Some(Node::new(NodeData::Comment { contents: x.text().unwrap_or("").into() })),
+        _ => None,
+    }
+}
+
 fn clear_children(h: &Handle) {
     for c in h.children.borrow_mut().drain(..) {
         c.parent.set(None);
@@ -788,6 +841,45 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             doc.children.borrow_mut().push(k);
         }
     });
+    // QF9a: DOMParser text/html: a full parse with scripting DISABLED (so
+    // `<noscript>` content is real elements). Scripts made here are never
+    // marked eligible to run.
+    let t = table.clone();
+    native!("__d_parse_html", move |id: i32, html: String| {
+        let Some(doc) = t.borrow().get(id) else { return };
+        let mut opts = ParseOpts::default();
+        opts.tree_builder.scripting_enabled = false;
+        let Ok(dom) = parse_document(RcDom::default(), opts).from_utf8().read_from(&mut html.as_bytes()) else { return };
+        clear_children(&doc);
+        let kids: Vec<Handle> = dom.document.children.borrow_mut().drain(..).collect();
+        for k in kids {
+            k.parent.set(Some(Rc::downgrade(&doc)));
+            doc.children.borrow_mut().push(k);
+        }
+    });
+    // QF9a: DOMParser / XHR XML: a well-formedness-checking parse (roxmltree)
+    // into the document's root. Returns "" on success, else "message\nline\ncol".
+    let t = table.clone();
+    native!("__d_load_xml", move |id: i32, text: String| -> String {
+        let Some(doc) = t.borrow().get(id) else { return String::new() };
+        let opts = roxmltree::ParsingOptions { allow_dtd: true, ..Default::default() };
+        match roxmltree::Document::parse_with_options(&text, opts) {
+            Ok(x) => {
+                clear_children(&doc);
+                for c in x.root().children() {
+                    if let Some(n) = xml_to_dom(c) {
+                        n.parent.set(Some(Rc::downgrade(&doc)));
+                        doc.children.borrow_mut().push(n);
+                    }
+                }
+                String::new()
+            }
+            Err(e) => {
+                let p = e.pos();
+                format!("{}\n{}\n{}", e.to_string().split(" at ").next().unwrap_or(""), p.row, p.col)
+            }
+        }
+    });
     let t = table.clone();
     native!("__d_create_doctype", move |name: String, public_id: String, system_id: String| -> i32 {
         let data = NodeData::Doctype { name: name.as_str().into(), public_id: public_id.as_str().into(), system_id: system_id.as_str().into() };
@@ -1153,6 +1245,7 @@ const DOM_PRELUDE: &str = r#"
   // may freeze or replace them without breaking fragment wrappers.
   queries(DocumentFragment.prototype);
   def(ElementProto, 'tagName', function () { return __d_tag(this.__id); });
+  def(ElementProto, 'namespaceURI', function () { return __d_ns(this.__id) || null; });
   def(ElementProto, 'localName', function () { return __d_tag(this.__id).toLowerCase(); });
   def(ElementProto, 'id', function () { var v = __d_attr(this.__id, 'id'); return v == null ? '' : v; });
   def(ElementProto, 'className', function () { var v = __d_attr(this.__id, 'class'); return v == null ? '' : v; });
@@ -1846,10 +1939,10 @@ const DOM_PRELUDE: &str = r#"
   var kidsOf = function (el, tags) { return el.children.filter(function (c) { return tags.indexOf(c.localName) >= 0; }); };
   var newEl = function (t) { return doc.createElement(t); };
   var idxErr = function (m) { return herr(m, 'IndexSizeError'); };
-  def(doc, 'forms', function () { return coll(doc.querySelectorAll('form')); });
-  def(doc, 'images', function () { return coll(doc.querySelectorAll('img')); });
-  def(doc, 'links', function () { return coll(doc.querySelectorAll('a[href], area[href]')); });
-  def(doc, 'anchors', function () { return coll(doc.querySelectorAll('a[name]')); });
+  def(doc, 'forms', function () { return coll(this.querySelectorAll('form')); });
+  def(doc, 'images', function () { return coll(this.querySelectorAll('img')); });
+  def(doc, 'links', function () { return coll(this.querySelectorAll('a[href], area[href]')); });
+  def(doc, 'anchors', function () { return coll(this.querySelectorAll('a[name]')); });
 
   // ---- tables
   var secRows = function (sec) { return kidsOf(sec, ['tr']); };
@@ -2300,6 +2393,41 @@ const DOM_PRELUDE: &str = r#"
     return d;
   };
   DOMImpl.prototype.hasFeature = function () { return true; };
+  // QF9a: DOMParser. The result is an inert second document (scripts never
+  // run, nothing loads, defaultView null, URL about:blank).
+  var parseXmlInto = function (d, text) {
+    var r = __d_load_xml(d.__id, text);
+    if (r === '') return true;
+    var p = r.split('\n');
+    while (d.firstChild) d.removeChild(d.firstChild);
+    var NS = 'http://www.mozilla.org/newlayout/xml/parsererror.xml';
+    var pe = d.createElementNS(NS, 'parsererror');
+    pe.appendChild(d.createTextNode('XML Parsing Error: ' + p[0] + '\nLocation: ' + d.URL + '\nLine Number ' + p[1] + ', Column ' + p[2] + ':'));
+    var st = d.createElementNS(NS, 'sourcetext'); st.appendChild(d.createTextNode(String(text).split('\n')[(+p[1] || 1) - 1] || ''));
+    pe.appendChild(st); d.appendChild(pe);
+    return false;
+  };
+  g.__parseDocument = function (text, type) {
+    text = String(text);
+    if (type === 'text/html') {
+      var h = makeDoc(true, 'text/html'); __d_parse_html(h.__id, text); return h;
+    }
+    var d = makeDoc(false, type);
+    parseXmlInto(d, text);
+    return d;
+  };
+  var DOMParser = g.DOMParser = function DOMParser() {
+    if (!(this instanceof DOMParser)) throw new TypeError("Failed to construct 'DOMParser': Please use the 'new' operator, this DOM object constructor cannot be called as a function.");
+  };
+  DOMParser.prototype.parseFromString = function parseFromString(str, type) {
+    if (arguments.length < 2) throw new TypeError("Failed to execute 'parseFromString' on 'DOMParser': 2 arguments required, but only " + arguments.length + " present.");
+    type = String(type);
+    if (['text/html', 'text/xml', 'application/xml', 'application/xhtml+xml', 'image/svg+xml'].indexOf(type) < 0)
+      throw new TypeError("Failed to execute 'parseFromString' on 'DOMParser': The provided value '" + type + "' is not a valid enum value of type DOMParserSupportedType.");
+    return g.__parseDocument(str, type);
+  };
+  Object.defineProperty(DOMParser.prototype, Symbol.toStringTag, { value: 'DOMParser', configurable: true });
+  Object.defineProperty(g, '__parseDocument', { enumerable: false });
   // QA18b: `iframe.contentDocument`/`contentWindow` for iframes with an
   // empty, about:blank or data: src: a fresh empty second document (made
   // lazily, kept per iframe element), a minimal window-like object, and an

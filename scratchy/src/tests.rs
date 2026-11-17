@@ -20479,3 +20479,85 @@ fn q30g_listbox_arrows_and_space_toggle() {
     assert_eq!(selected_indices(&m), Vec::<usize>::new(), "space toggles the cursor option of a multiple");
     clear_select_state();
 }
+
+// ---------- QF9a: DOMParser + XHR responseType 'document' ----------
+
+#[test]
+fn qf9a_domparser_html_is_an_inert_second_document() {
+    let log = run_in_html(
+        "<html><body><p id=x>page</p></body></html>",
+        "var d=new DOMParser().parseFromString('<!doctype html><title>T</title><div id=a class=c>hi <b>there</b></div><form id=f><a href=/z>l</a></form><script>window.__ran=1</script><noscript><i>ns</i></noscript>','text/html');\
+         console.log(d!==document, d.contentType, d.URL, d.defaultView, d.title, d.documentElement.tagName, d.head.tagName, d.body.tagName);\
+         console.log(d.getElementById('a').textContent, d.querySelector('.c b').textContent, d.querySelectorAll('div').length, d.getElementById('x'), d.getElementById('a').innerHTML);\
+         console.log(d.forms.length, d.links.length, d.querySelector('noscript i').textContent, typeof window.__ran);\
+         var n=document.importNode(d.getElementById('a'),true); document.body.appendChild(n);\
+         console.log(n.ownerDocument===document, document.getElementById('a').textContent, d.getElementById('a')!==null);\
+         var m=d.querySelector('a'); document.body.appendChild(document.adoptNode(m)); console.log(m.ownerDocument===document, d.links.length);",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:true text/html about:blank null T HTML HEAD BODY",
+            "log:hi there there 1 null hi <b>there</b>",
+            "log:1 1 ns undefined",
+            "log:true hi there true",
+            "log:true 0"
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qf9a_domparser_xml_svg_and_parsererror() {
+    let log = run_in_html(
+        "<html><body></body></html>",
+        "var p=new DOMParser();\
+         var x=p.parseFromString('<?xml version=\"1.0\"?><root a=\"1\"><item>one</item><item>two<![CDATA[<&>]]></item></root>','application/xml');\
+         console.log(x.contentType, x.documentElement.tagName, x.documentElement.getAttribute('a'), x.getElementsByTagName('item').length, x.querySelectorAll('item')[1].textContent, x.documentElement.firstChild.textContent);\
+         var s=p.parseFromString('<svg xmlns=\"http://www.w3.org/2000/svg\"><rect width=\"3\"/></svg>','image/svg+xml');\
+         console.log(s.contentType, s.documentElement.namespaceURI, s.querySelector('rect').getAttribute('width'));\
+         var h=p.parseFromString('<html xmlns=\"http://www.w3.org/1999/xhtml\"><body><p id=\"q\">t</p></body></html>','application/xhtml+xml');\
+         console.log(h.contentType, h.getElementById('q').textContent);\
+         var b=p.parseFromString('<a><b></a>','text/xml');\
+         console.log(b.contentType, b.getElementsByTagName('parsererror').length, b.documentElement.tagName);\
+         try { p.parseFromString('x','text/plain'); } catch (e) { console.log(e.name); }\
+         try { p.parseFromString('x'); } catch (e) { console.log(e.name); }",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:application/xml root 1 2 two<&> one",
+            "log:image/svg+xml http://www.w3.org/2000/svg 3",
+            "log:application/xhtml+xml t",
+            "log:text/xml 1 parsererror",
+            "log:TypeError",
+            "log:TypeError"
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qf9a_xhr_response_type_document_and_response_xml() {
+    let fake = QfFake::new(vec![
+        ("/h", qf7_ok("<html><body><p id=k>hello</p><script>window.__ran=1</script></body></html>", &[("content-type", "text/html; charset=utf-8")])),
+        ("/x", qf7_ok("<r><i>1</i></r>", &[("content-type", "application/xml")])),
+        ("/t", qf7_ok("plain", &[("content-type", "text/plain")])),
+        ("/e", qf7_ok("<r><i></r>", &[("content-type", "text/xml")])),
+    ]);
+    let l = qf9_run(
+        "https://page.test/",
+        &fake,
+        "function get(u, rt, tag) { var x = new XMLHttpRequest(); x.open('GET', u); if (rt) x.responseType = rt;\
+           x.onload = function () { var d = rt === 'document' ? x.response : x.responseXML;\
+             console.log(tag, d === null ? 'null' : d.contentType + ' ' + d.documentElement.tagName + ' ' + (d.getElementById && d.getElementById('k') ? d.getElementById('k').textContent : d.textContent), x.responseXML === d, typeof window.__ran); }; x.send(); }\
+         get('/h', 'document', 'html'); get('/x', 'document', 'xml'); get('/x', '', 'xml2'); get('/h', '', 'htmlplain'); get('/t', 'document', 'txt'); get('/t', '', 'txt2'); get('/e', '', 'bad');",
+    );
+    assert!(l.contains(&"log:html text/html HTML hello true undefined".to_string()), "{l:?}");
+    assert!(l.contains(&"log:xml application/xml r 1 true undefined".to_string()), "{l:?}");
+    assert!(l.contains(&"log:xml2 application/xml r 1 true undefined".to_string()), "{l:?}");
+    assert!(l.contains(&"log:htmlplain null true undefined".to_string()), "{l:?}");
+    assert!(l.contains(&"log:txt null true undefined".to_string()), "{l:?}");
+    assert!(l.contains(&"log:txt2 null true undefined".to_string()), "{l:?}");
+    assert!(l.iter().any(|s| s.starts_with("log:bad text/xml parsererror")), "{l:?}");
+}
