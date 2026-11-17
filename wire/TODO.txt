@@ -125,7 +125,7 @@ the commit it came up during.
       the same host:port -> 403 `policy`; two plain requests -> both carry
       `X-Wire-Target-Class: loopback`. Acceptance: the two-step sequence above
       against a rebuilt wire answers 403 on the second step.
-      DONE (HASH): separate public-only pools + CLASS_MAP; see NOTES.md.
+      DONE (ca5e6c7): separate public-only pools + CLASS_MAP; see NOTES.md.
 
 - [ ] **W-POOL2 [S] Intermediate redirect hops on pooled connections are missing from
       `X-Wire-Hop-Classes` on the non-jar path** (ureq follows redirects itself and
