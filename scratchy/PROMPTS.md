@@ -6987,6 +6987,12 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 
 **What changed:** TODO.txt (QM1 ticked with the answer and recommendation; new QM1-D product questions D1-D8 and items QM1a-QM1j; a Media line under WAITING FOR USER), REGRESSIONS.md (R27: installed versions and build flags, dwl globals, measured decode/software-output CPU and RSS, IPC, `--wid`, separate-toplevel and pipe tests, options table, security, what was not verified), NOTES.md (short "Media via mpv" memo). Tests used throwaway files in the scratchpad, `--ao=null`, and a nested dwl only; nothing in src/ changed.
 
+## QY22: budget policy (2026-11-17)
+
+> Arm the page-load budget after compiling (compile-only eval, then JS_EvalFunction; interrupt message splits compile and run time; 32 MB source cap). Promise jobs drained after a task get a fresh CALLBACK_BUDGET, and a tripped drain logs one line with a dropped-job count instead of one line per job.
+
+**What changed:** src/js.rs (`JsEngine::eval`, `drain_after_task`, `drain_jobs`, `MAX_SCRIPT_BYTES`, test clock seam), src/js_net.rs, tests `qy22_*` in src/tests.rs.
+
 ## QJ5: Element.scrollIntoView (2026-11-17)
 
 > Item QJ5. Implement `Element.scrollIntoView(arg)` as a window scroll request from the element's QJ4 layout rect (block start/center/end/nearest, boolean arg, no smooth animation). Verify social.loupax.com/discover with `--js-report --run-timers 5000` before/after and report which vim.js error comes next without fixing it. No QJ6-QJ11.
@@ -6998,3 +7004,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Item QJ7 (first slice of QA19). `new Range()` / `document.createRange` with spec boundary-point rules (setStart/setEnd/setStartBefore/After/setEndBefore/After, selectNode(Contents), collapse, cloneRange, compareBoundaryPoints, comparePoint, isPointInRange, intersectsNode, toString) plus `getClientRects`/`getBoundingClientRect` from the laid-out glyphs of each text node. Needed by social.loupax.com vim.js:309 `computeLineChars`. Verify with `--js-report --run-timers 5000` and report the next vim.js error without fixing it. No QJ6/QJ8-QJ10.
 
 **What changed:** src/layout.rs (`SpanStyle.tnode`, third element of the per-span tuple in `ShapedParagraph`), src/images.rs (sets `tnode` on text spans), src/paint.rs (tuple pattern), src/js_geom.rs (`walk_glyphs`, `align_text`, `GeomCache::text_rects`: per-UTF-16-unit glyph rects aligned to the collapsed layout text), src/js_dom.rs (`__d_textrects`, `__d_wgen`, the JS `Range` replacing the QA19 stub), tests `qj7_*` in src/tests.rs (qy12's "stub throws" expectation updated). Limits: no mutation fixups (ranges are not live), no extract/clone/insert/surroundContents/deleteContents (rest of QA19), text only (selected elements' own rects are not included), RTL glyph order and text-transform length changes are not handled, one rect per line per text node.
+
+## QY23: element.style setter (2026-11-17)
+
+> Item QY23. `element.style = "..."` acts as [PutForwards=cssText]: the setter writes the style attribute (null/'' removes it), strict mode no longer throws `no setter for property`. Verify with `--js-report --run-timers 5000` on a saved youtube kevlar copy before/after.
+
+**What changed:** src/js_dom.rs (`styleSetter` on `ElementProto.style`), test `qy23_*` in src/tests.rs. YouTube copy: 4 errors -> 2 (the 2 custom element callback errors from Polymer `_attributeToProperty` are gone; remaining: promise-jobs and timer 500 ms budget trips).
