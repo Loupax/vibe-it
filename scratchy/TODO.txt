@@ -249,7 +249,7 @@ dropped selectors summed across those pages. Caveats:
       ANSWER: a performance warning, not an error. vim.js `buildGutter` reads post
       geometry once at load; that ONE layout was slow because every shaped span
       wiped cosmic-text's font-match cache (QP1).
-- [x] QP1 [S] (DONE 2026-11-17, commit 5e099bf; P1, TOP of the perf items, R32) One-word fix in `shape_spans`
+- [x] QP1 [S] (DONE 2026-11-17, commit 6c1ae4e; P1, TOP of the perf items, R32) One-word fix in `shape_spans`
       (src/layout.rs; find it with `grep -n 'db_mut()' src/layout.rs`, the only
       hit outside tests): `span.font_family.resolve(font_system.db_mut(), ...)` ->
       `span.font_family.resolve(font_system.db(), ...)`. `FontFamily::resolve`
