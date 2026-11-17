@@ -79,6 +79,11 @@ mod net_policy;
 mod user_agent;
 #[allow(dead_code)] // QM1e: the libmpv glue (QM1f/QM1g) is the first caller
 mod media_net;
+#[cfg_attr(not(any(feature = "media", test)), allow(dead_code))]
+mod media_el;
+mod js_media;
+#[cfg(feature = "media")]
+mod media_mpv;
 mod app;
 mod js;
 mod js_modules;

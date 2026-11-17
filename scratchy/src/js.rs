@@ -1005,6 +1005,9 @@ pub(crate) struct JsEngine {
     /// QY5: set by the interrupt handler when it stops a script, so the
     /// caller can log a clear message instead of `InternalError: interrupted`.
     pub(crate) tripped: Arc<std::sync::atomic::AtomicBool>,
+    /// QM1f: the page's media elements (kept alive with the engine).
+    #[allow(dead_code)]
+    media: Option<Rc<std::cell::RefCell<media_el::MediaHost>>>,
     /// Q33c: set by every DOM write; the app drains it with `take_dirty`.
     dirty: Rc<std::cell::Cell<bool>>,
     /// Q33d: handle <-> JS id table, to address events at nodes.
@@ -1385,7 +1388,7 @@ pub(crate) fn start_scripts_clocked(
     let reqs: Rc<std::cell::RefCell<js_dom::JsRequests>> = Default::default();
     let net = Rc::new(std::cell::RefCell::new(js_net::NetState::new(log.clone()).with_clock(net_clock)));
     ctx.with(|c| js_net::install_net(&c, net.clone(), reqs.clone()));
-    let mut engine = JsEngine { ctx, rt, log, base, deadline, tripped, dirty: dirty.clone(), table: Default::default(), reqs: reqs.clone(), net };
+    let mut engine = JsEngine { ctx, rt, log, base, deadline, tripped, media: None, dirty: dirty.clone(), table: Default::default(), reqs: reqs.clone(), net };
     {
         let (dl, tr, lg) = (engine.deadline.clone(), engine.tripped.clone(), engine.log.clone());
         engine.ctx.with(|c| install_script_natives(&c, dl, tr, lg, store));
@@ -1398,6 +1401,14 @@ pub(crate) fn start_scripts_clocked(
     engine.eval("fetch", FETCH_PRELUDE);
     engine.table = engine.ctx.with(|ctx| js_dom::install_dom(&ctx, document, dirty.clone(), reqs.clone()));
     engine.eval("cssom", CSSOM_PRELUDE);
+    {
+        // QM1f: the media element layer (state machine in media_el.rs).
+        let ctxb = media_el::BackendCtx { socket: js_net::net_executor().socket(), policy: engine.net.borrow().policy.clone() };
+        let lg = engine.log.clone();
+        let host = engine.ctx.with(|c| js_media::install_media(&c, ctxb, Rc::new(move |l, t| lg(l, t))));
+        engine.media = Some(host);
+        engine.eval("media", js_media::MEDIA_PRELUDE);
+    }
     let mut script_els = Vec::new();
     collect_script_elements(document, &mut script_els);
     for s in scripts.iter().filter(|s| s.kind == ScriptKind::Classic) {
@@ -1647,6 +1658,8 @@ pub(crate) fn run_page_scripts(document: &Handle, scripts: &[ScriptSource], page
                 diag!("scratchy: js error: {text}");
             } else if level == "net" {
                 diag!("scratchy: js net: {text}");
+            } else if level == "media" {
+                diag!("{text}");
             } else if level == "net-warning" {
                 diag!("{text}");
             } else if level.starts_with("console.") {
@@ -1706,6 +1719,8 @@ pub(crate) fn js_report_for_scripts_timers(document: &Handle, scripts: &[ScriptS
             phase.set(true);
             let mut callbacks = 0usize;
             if let Some(engine) = &engine {
+                // QM1f: the clock is simulated, so media polls wait a little in real time.
+                engine.eval("media-wait", "globalThis.__media_wait = 20");
                 js_net::drive_report_net(engine, &mut sched, &*exec);
                 while callbacks < REPORT_MAX_TIMER_CALLBACKS {
                     let Some(due) = engine.next_due_ms() else { break };

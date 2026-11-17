@@ -635,7 +635,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       playback, which must be none); the same page with `crossorigin=anonymous`
       on a server without ACAO shows a MediaError and fetches nothing beyond the
       first range.
-- [ ] QM1f [M] (after D1-D3, D5-D7) HTMLMediaElement on top of mpv events, replacing
+- [x] QM1f [M] DONE 2026-11-17 (Sonnet; hash HASH_QM1F; src/media_el.rs state machine + fake backend, src/js_media.rs + src/media_prelude.js element layer, src/media_mpv.rs real backend behind OFF-by-default cargo feature `media`; vo=null, ao=null unless SCRATCHY_MEDIA_AO; no painting = QM1g; leftovers = QM1f1) (after D1-D3, D5-D7) HTMLMediaElement on top of mpv events, replacing
       (QM1b: seeks MUST use `absolute+exact`/`relative+exact`; plain relative
       seeks land on keyframes, up to 8 s away on a keyint-250 file.)
       the QA20 `not implemented` stubs in js_dom.rs: src/currentSrc and `<source>`
@@ -650,6 +650,15 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       one per frame), waiting, ended, volumechange, ratechange, error, emptied.
       canPlayType: 'maybe'/'probably' only for codecs ffmpeg here decodes.
       Not included: MediaSource, EME, captureStream, Web Audio, TextTrack cues.
+- [ ] QM1f1 [S] (from QM1f) Leftovers: (a) cap on live mpv HANDLES (D7 is only enforced
+      on PLAYING: a 3rd play() pauses the oldest, but paused elements keep their libmpv
+      instance; drop the oldest paused backend and reload on next play/seek);
+      (b) removing a playing element only pauses it (no backend drop until the engine
+      goes); (c) `networkState` goes LOADING -> IDLE at first frame (no `progress`/
+      `suspend`/`stalled` events); (d) no `ratechange` for `defaultPlaybackRate` effects,
+      `played` ranges are always empty, `srcObject`/`captureStream` stubs, no TextTracks;
+      (e) audio is `ao=null` unless SCRATCHY_MEDIA_AO is set: QM1g chooses the real default;
+      (f) user activation is "sticky" (any trusted click/key/mouse press once per page).
 - [ ] QM1g [M] (after QM1b-QM1f) Paint: (QM1b measured: 720p source into 640x360
       costs 0.7-0.8 core on the SW path, so cap players/sizes and pause when hidden.) the `<video>` replaced box draws the newest
       mpv frame (object-fit default `contain`, letterbox black), rendered at the box
