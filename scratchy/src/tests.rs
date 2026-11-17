@@ -17939,4 +17939,4 @@ fn layout_shaping_never_wipes_font_cache() {
     let src = include_str!("layout.rs");
     let needle = concat!(".db", "_mut()");
     assert!(!src.contains(needle), "layout.rs calls `{needle}`, which clears cosmic-text's font-match cache (R32): use `font_system.db()`");
->}
+}
