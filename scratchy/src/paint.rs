@@ -2301,3 +2301,32 @@ pub(crate) fn hit_test_scroll_region(
     }
     self_info
 }
+
+/// QJ6: the scroll region of DOM node `node` in a laid-out tree (any depth,
+/// including `position: fixed` / absolute boxes).
+pub(crate) fn find_scroll_node(laid: &Laid, node: usize) -> Option<ScrollInfo> {
+    if let Some(i) = laid.scroll
+        && i.node == node
+    {
+        return Some(i);
+    }
+    let kids: &[Laid] = match &laid.content {
+        LaidContent::Blocks(c) | LaidContent::TableRow(c) => c,
+        _ => &[],
+    };
+    kids.iter().chain(laid.positioned.iter()).find_map(|c| find_scroll_node(c, node))
+}
+
+/// QJ6: `region id -> offset` for every scroll region whose node has a stored offset.
+pub(crate) fn collect_scroll_regions(laid: &Laid, by_node: &HashMap<usize, f32>, out: &mut HashMap<usize, f32>) {
+    if let Some(i) = laid.scroll
+        && let Some(v) = by_node.get(&i.node)
+    {
+        out.insert(i.id, *v);
+    }
+    let kids: &[Laid] = match &laid.content {
+        LaidContent::Blocks(c) | LaidContent::TableRow(c) => c,
+        _ => &[],
+    };
+    kids.iter().chain(laid.positioned.iter()).for_each(|c| collect_scroll_regions(c, by_node, out));
+}

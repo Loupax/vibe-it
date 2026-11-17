@@ -508,16 +508,19 @@ pub(crate) struct ScrollInfo {
     /// visible` would let the extra content spill out instead — see
     /// v42's own height-overflow note).
     pub(crate) client_h: f32,
+    /// QJ6: the DOM node (`Style::node`) this region belongs to (0 = anonymous),
+    /// so script's `scrollTop` and the wheel agree across relayouts.
+    pub(crate) node: usize,
 }
 
 /// `Some(ScrollInfo)` (with a fresh id) for an `overflow: scroll`/`auto`
 /// box, `None` otherwise. Shared by the ordinary `Blocks` arm of `measure`
 /// and the table/flex/grid container tails (Q24).
-pub(crate) fn make_scroll_info(overflow: Overflow, next_id: &mut usize, content_h: f32, border_h: f32, extra_h: f32) -> Option<ScrollInfo> {
+pub(crate) fn make_scroll_info(overflow: Overflow, node: usize, next_id: &mut usize, content_h: f32, border_h: f32, extra_h: f32) -> Option<ScrollInfo> {
     matches!(overflow, Overflow::Scroll | Overflow::Auto).then(|| {
         let id = *next_id;
         *next_id += 1;
-        ScrollInfo { id, content_h: content_h.max(0.0), client_h: (border_h - extra_h).max(0.0) }
+        ScrollInfo { id, content_h: content_h.max(0.0), client_h: (border_h - extra_h).max(0.0), node }
     })
 }
 
@@ -2220,7 +2223,7 @@ fn measure_inner<'a>(
             // + padding) already subtracted everywhere else in this
             // function — the content-box height `content_h` is actually
             // visible through, before any scrolling moves it.
-            let scroll = make_scroll_info(s.overflow, next_id, content_h, border_h, extra_h);
+            let scroll = make_scroll_info(s.overflow, s.node, next_id, content_h, border_h, extra_h);
             // Only now — `border_h` just above is the first point this
             // box's own final size is known — can `own_pending` (this
             // box's *own* direct out-of-flow children, plus anything
@@ -3977,7 +3980,7 @@ pub(crate) fn measure_table<'a>(
         fixed: false,
         ink: Ink::UNKNOWN,
         sticky: None,
-        scroll: make_scroll_info(s.overflow, next_id, content_h, border_h, entry.extra_h),
+        scroll: make_scroll_info(s.overflow, s.node, next_id, content_h, border_h, entry.extra_h),
     };
     apply_relative_offset(&mut laid, &s, width, containing_height);
     capture_sticky_info(&mut laid, &s, containing_height);
@@ -4228,7 +4231,7 @@ pub(crate) fn measure_flex<'a>(
         fixed: false,
         ink: Ink::UNKNOWN,
         sticky: None,
-        scroll: make_scroll_info(s.overflow, next_id, content_h, border_h, entry.extra_h),
+        scroll: make_scroll_info(s.overflow, s.node, next_id, content_h, border_h, entry.extra_h),
     };
     apply_relative_offset(&mut laid, &s, width, containing_height);
     capture_sticky_info(&mut laid, &s, containing_height);
@@ -5352,7 +5355,7 @@ pub(crate) fn measure_grid<'a>(
         fixed: false,
         ink: Ink::UNKNOWN,
         sticky: None,
-        scroll: make_scroll_info(s.overflow, next_id, content_h, border_h, entry.extra_h),
+        scroll: make_scroll_info(s.overflow, s.node, next_id, content_h, border_h, entry.extra_h),
     };
     apply_relative_offset(&mut laid, &s, width, containing_height);
     capture_sticky_info(&mut laid, &s, containing_height);

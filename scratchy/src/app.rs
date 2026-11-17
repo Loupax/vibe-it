@@ -445,6 +445,11 @@ pub(crate) struct App {
     /// entries), but clearing keeps this from growing unboundedly across
     /// many stdin chunks in streaming mode.
     pub(crate) scroll_offsets: HashMap<usize, f32>,
+    /// QJ6: the same offsets keyed by DOM node (survive relayouts, which
+    /// renumber `ScrollInfo::id`); script's `scrollTop` reads these.
+    pub(crate) node_scroll: HashMap<usize, f32>,
+    /// QJ6: the wheel changed `node_scroll`; tell the script engine next time.
+    pub(crate) node_scroll_dirty: bool,
     /// The last `CursorMoved` position, window/screen space — `winit`'s
     /// own `MouseWheel` event carries no position at all, so routing a
     /// wheel tick to the right scroll region (`hit_test_scroll_region`)
@@ -756,6 +761,8 @@ impl App {
             pending_width: None,
             last_cursor: Some(CursorIcon::Default),
             scroll_offsets: HashMap::new(),
+            node_scroll: HashMap::new(),
+            node_scroll_dirty: false,
             last_mouse_pos: None,
             mouse_down_pos: None,
             interaction: InteractionState::default(),
@@ -830,6 +837,8 @@ impl App {
             pending_width: None,
             last_cursor: Some(CursorIcon::Default),
             scroll_offsets: HashMap::new(),
+            node_scroll: HashMap::new(),
+            node_scroll_dirty: false,
             last_mouse_pos: None,
             mouse_down_pos: None,
             interaction: InteractionState::default(),
@@ -1255,6 +1264,8 @@ impl App {
         self.image_relayout_since = None;
         self.shape_cache.clear();
         self.scroll_offsets.clear();
+        self.node_scroll.clear();
+        self.node_scroll_dirty = false;
         self.scroll_offset = 0.0;
         if let Some(window) = &self.window {
             window.request_redraw();
@@ -1321,6 +1332,7 @@ impl App {
         // generation, same underlying tree).
         self.shape_cache = shape_cache;
         self.cached = Some(*laid);
+        self.restore_node_scroll();
         // Q31b: a fragment from a cross-page navigation waits for
         // the first layout that contains its target.
         // QA6: a target that does not exist yet (page still shaping) keeps
@@ -1334,6 +1346,26 @@ impl App {
                 self.pending_fragment = None;
             }
         }
+    }
+
+    /// QJ6: after a layout install, node-keyed element scroll offsets become
+    /// the per-region offsets of the new tree (region ids change per layout).
+    fn restore_node_scroll(&mut self) {
+        if self.node_scroll.is_empty() {
+            return;
+        }
+        let Some(l) = &self.cached else { return };
+        let mut out = HashMap::new();
+        crate::paint::collect_scroll_regions(l, &self.node_scroll, &mut out);
+        self.scroll_offsets = out;
+    }
+
+    /// QJ6: the wheel-scrolled element offsets script has not seen yet.
+    fn sync_node_scroll(&mut self) -> Option<Vec<(usize, f32)>> {
+        if !std::mem::take(&mut self.node_scroll_dirty) {
+            return None;
+        }
+        Some(self.node_scroll.iter().map(|(k, v)| (*k, *v)).collect())
     }
 
     /// Q33c: if page scripts wrote to the DOM, request one layout
@@ -1372,6 +1404,18 @@ impl App {
                 let _ = self.proxy.send_event(AppEvent::JsNet(self.nav_generation, id, result));
             }
             self.pump_net();
+            for (h, y) in reqs.el_scroll {
+                let node = node_id(&h);
+                let mut v = (y as f32).max(0.0);
+                if let Some(info) = self.cached.as_ref().and_then(|l| crate::paint::find_scroll_node(l, node)) {
+                    v = v.min(info.max_scroll());
+                    self.scroll_offsets.insert(info.id, v);
+                }
+                self.node_scroll.insert(node, v);
+                if let Some(w) = &self.window {
+                    w.request_redraw();
+                }
+            }
             if let Some(sr) = reqs.scroll
                 && let Some(y) = sr.y
             {
@@ -1442,8 +1486,9 @@ impl App {
     /// Returns false if a handler cancelled the default action. Free for
     /// pages with no engine.
     pub(crate) fn js_dispatch(&mut self, target: Option<&Handle>, kind: &str, init: &[(&str, EventField)]) -> bool {
+        let els = self.sync_node_scroll();
         let Some(js) = &self.js else { return true };
-        js.set_scroll(self.scroll_offset);
+        js.set_scroll(self.scroll_offset, els);
         let ok = js.dispatch_event(target, kind, init);
         self.js_sync();
         ok
@@ -2553,8 +2598,9 @@ impl ApplicationHandler<AppEvent> for App {
     /// indefinitely when none are pending, so timer-less pages never
     /// wake up on their own).
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        let els = self.sync_node_scroll();
         if let Some(js) = &self.js {
-            js.set_scroll(self.scroll_offset);
+            js.set_scroll(self.scroll_offset, els);
             js.run_due();
         }
         self.js_sync();
@@ -2840,6 +2886,10 @@ impl ApplicationHandler<AppEvent> for App {
                         let current = self.scroll_offsets.get(&info.id).copied().unwrap_or(0.0);
                         let next = (current - dy).clamp(0.0, info.max_scroll());
                         self.scroll_offsets.insert(info.id, next);
+                        if info.node != 0 {
+                            self.node_scroll.insert(info.node, next);
+                            self.node_scroll_dirty = true;
+                        }
                     }
                     None => {
                         self.scroll_offset -= dy;

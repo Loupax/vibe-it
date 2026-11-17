@@ -1190,9 +1190,14 @@ impl JsEngine {
     /// QJ4: the App owns the real scroll offset; mirror it into
     /// `window.scrollY` so rect reads are viewport-relative to what the
     /// user sees.
-    pub(crate) fn set_scroll(&self, y: f32) {
+    pub(crate) fn set_scroll(&self, y: f32, els: Option<Vec<(usize, f32)>>) {
         let y = (y as f64).round();
-        let code = format!("if(globalThis.scrollY!=={y}){{globalThis.scrollY=globalThis.pageYOffset={y};}}true");
+        // QJ6: element offsets the wheel changed, as `{nodeId: y}`.
+        let m = els.map_or(String::new(), |v| {
+            let body: Vec<String> = v.iter().map(|(k, y)| format!("\"{k}\":{}", y.round())).collect();
+            format!("globalThis.__scratchy_elscroll({{{}}});", body.join(","))
+        });
+        let code = format!("{m}if(globalThis.scrollY!=={y}){{globalThis.scrollY=globalThis.pageYOffset={y};}}true");
         let _ = self.eval_value::<bool>("scroll-sync", &code);
     }
 

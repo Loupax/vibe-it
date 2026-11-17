@@ -16218,7 +16218,8 @@ fn qj4_geometry_reads_layout_backed_rects() {
     assert!(has("log:none 0 0 0 0 0 0"), "{log:?}");
     assert!(has("log:det 0 0 0 null"), "{log:?}");
     assert!(has("log:offp p 20"), "{log:?}");
-    assert!(has("log:st 7 0 0"), "{log:?}");
+    // QJ6: a non-scrolling (overflow: visible) box keeps scrollTop 0, as in a browser.
+    assert!(has("log:st 0 0 0"), "{log:?}");
     assert!(has("log:rect true 114"), "{log:?}");
     assert!(has("log:after 314"), "{log:?}");
     assert!(has("log:scrolled -50"), "{log:?}");
@@ -17060,4 +17061,91 @@ fn qj9_window_open_close_dialogs_are_inert_and_log_once() {
     assert_eq!(log[8], "log:undefined false null", "{log:?}");
     assert_eq!(log[9], "log:still running", "{log:?}");
     assert_eq!(log.len(), 10, "{log:?}");
+}
+
+// ---------- QJ6: element scrolling ----------
+
+const QJ6_DOC: &str = "<html><head><style>body{margin:0} #box{height:100px;overflow:auto;position:relative;border:0}\
+    .row{height:40px} #plain{height:100px;overflow:hidden}</style></head><body>\
+    <div id=box><div class=row id=r0></div><div class=row id=r1></div><div class=row id=r2></div><div class=row id=r3></div><div class=row id=r4></div></div>\
+    <div id=plain><div style='height:300px'></div></div></body></html>";
+
+fn qj6_log(code: &str) -> Vec<String> {
+    run_in_html(QJ6_DOC, &format!("var box=document.getElementById('box'), r4=document.getElementById('r4'); {code}"))
+}
+
+#[test]
+fn qj6_scroll_top_set_clamps_and_reads_back() {
+    // content 200 px, client 100 px: max scrollTop 100
+    let log = qj6_log(
+        "console.log(box.scrollHeight, box.clientHeight, box.scrollTop);\
+         box.scrollTop = 50; console.log(box.scrollTop);\
+         box.scrollTop = 9999; console.log(box.scrollTop);\
+         box.scrollTop = -5; console.log(box.scrollTop);\
+         var p=document.getElementById('plain'); p.scrollTop = 20; console.log('hidden', p.scrollTop);",
+    );
+    assert_eq!(log, ["log:200 100 0", "log:50", "log:100", "log:0", "log:hidden 0"], "{log:?}");
+}
+
+#[test]
+fn qj6_scroll_methods_move_children_rects() {
+    let log = qj6_log(
+        "var y0=r4.getBoundingClientRect().top;\
+         box.scrollBy(0, 30); console.log(box.scrollTop, y0 - r4.getBoundingClientRect().top);\
+         box.scrollTo(0, 70); console.log(box.scrollTop, y0 - r4.getBoundingClientRect().top);\
+         box.scroll({top: 10}); console.log(box.scrollTop);\
+         box.scrollBy({top: 500}); console.log(box.scrollTop);\
+         box.scrollTop = 0; console.log(y0 - r4.getBoundingClientRect().top);",
+    );
+    assert_eq!(log, ["log:30 30", "log:70 70", "log:10", "log:100", "log:0"], "{log:?}");
+}
+
+#[test]
+fn qj6_scroll_event_fires_on_change_only() {
+    let doc = parse_html(QJ6_DOC);
+    let out = Rc::new(RefCell::new(Vec::new()));
+    let o = out.clone();
+    let clock = Rc::new(std::cell::Cell::new(0.0));
+    let engine = crate::js::start_scripts_clocked(
+        &doc,
+        &[src("var box=document.getElementById('box'); var n=0; box.addEventListener('scroll', function(){ n++; console.log('scroll', box.scrollTop); });\
+               box.scrollTop = 40; box.scrollTop = 40; box.scrollBy(0, 0);")],
+        Rc::new(move |level, text| o.borrow_mut().push(format!("{level}:{text}"))),
+        Some(clock.clone()),
+    )
+    .unwrap();
+    for _ in 0..100 {
+        let Some(due) = engine.next_due_ms() else { break };
+        clock.set(clock.get().max(due));
+        engine.run_due();
+    }
+    assert_eq!(*out.borrow(), ["log:scroll 40"]);
+}
+
+#[test]
+fn qj6_scroll_into_view_scrolls_ancestor_then_window() {
+    let doc = "<html><head><style>body{margin:0} .s{height:2000px} #box{height:100px;overflow:auto;position:relative}\
+        .row{height:40px}</style></head><body><div class=s></div>\
+        <div id=box><div class=row></div><div class=row></div><div class=row></div><div class=row></div><div class=row id=t></div></div>\
+        <div class=s></div></body></html>";
+    let log = run_in_html(doc, "var box=document.getElementById('box'), t=document.getElementById('t');\
+        t.scrollIntoView({block:'start'}); console.log(box.scrollTop, scrollY);\
+        console.log(t.getBoundingClientRect().top);");
+    // the row starts at 160 inside a box that can scroll 100: clamped; the
+    // window then brings the box's scrolled row to the top: 2000 + 160 - 100.
+    assert_eq!(log, ["log:100 2060", "log:0"], "{log:?}");
+}
+
+#[test]
+fn qj6_app_applies_element_scroll_request() {
+    use winit::platform::wayland::EventLoopBuilderExtWayland;
+    let event_loop = match EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build() {
+        Ok(l) => l,
+        Err(_) => return, // no display available (headless CI)
+    };
+    let doc = parse_html(QJ6_DOC);
+    let mut app = App::new_static(doc.clone(), event_loop.create_proxy(), None);
+    app.js = run_page_scripts(&doc, &[src("document.getElementById('box').scrollBy(0, 50);")], None);
+    app.js_sync();
+    assert_eq!(app.node_scroll.values().copied().collect::<Vec<_>>(), [50.0]);
 }

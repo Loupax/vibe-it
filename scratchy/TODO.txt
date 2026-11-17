@@ -1184,7 +1184,14 @@ IntersectionObserver and matchMedia are not used by any of the site's scripts.
       stand-in); embed.js's Ctrl+P playlist calls it too. Test: fixture
       with a far-down element; after the call the QB5 request names its
       top (center: top - (viewport - height)/2).
-- [ ] QJ6 [M] (P3, after QJ4) Element scrolling: `el.scroll/scrollTo/
+- [ ] QJ6b [S] (P3, left out by QJ6) scrollLeft/horizontal scroll regions (ScrollInfo is vertical
+      only), overflow:hidden boxes programmatically scrollable, wheel routing into
+      position:fixed/absolute scroll boxes (hit_test_scroll_region skips positioned
+      children: #vimhelp is fixed, so the wheel does not scroll it, keys do), `scroll`
+      events for wheel scrolls, scroll-behavior: smooth.
+- [x] QJ6 [M] (DONE 2026-11-17, commit HASH; ScrollInfo::node + App::node_scroll, js_dom
+      Element.scroll/scrollTo/scrollBy, scrollTop clamp, scroll event, rect offsets,
+      scrollIntoView through ancestors; limits in QJ6b) Element scrolling: `el.scroll/scrollTo/
       scrollBy`, `scrollTop/Left` setters on overflow:auto/scroll boxes,
       wired to the App's per-box scroll regions (the ones wheel scrolling
       already picks). vim.js's :help buffer (#vimhelp, position:fixed,
