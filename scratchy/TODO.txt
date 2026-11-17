@@ -3116,7 +3116,7 @@ QF13a, QF14b2, QF18 open; QF19 waits for the user):
       `X-Wire-Features: ws`. Tests over a local echo server: 101 + echo both ways,
       non-101 answer, policy-blocked target, close from each side. Log in wire's
       PROMPTS.md/NOTES.md/TODO.txt.
-- [x] (DONE 2026-11-17, hash HASH) QF19w2 [M] (after QF19w1; the framing lives in scratchy, over wire's unix socket only) scratchy `WebSocket` for page JS on top of the
+- [x] (DONE 2026-11-17, hash 9a9a475) QF19w2 [M] (after QF19w1; the framing lives in scratchy, over wire's unix socket only) scratchy `WebSocket` for page JS on top of the
       QF19w1 pipe. Framing in scratchy (`tungstenite` over the unix-socket stream,
       client role: masking, ping/pong replies, fragmentation, close handshake), one
       background reader thread per socket feeding `AppEvent`s; JS API on the JS
