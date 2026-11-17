@@ -51,12 +51,13 @@ cancels without running anything.</p>
 </table>
 
 <h2>Command line</h2>
-<p><code>scratchy [--socket &lt;path&gt;] [--no-js] [file|url]</code> opens a
+<p><code>scratchy [--socket &lt;path&gt;] [--no-js] [--user-agent &lt;string&gt;] [file|url]</code> opens a
 file, a URL, or HTML read from stdin. The other modes are headless.</p>
 <table>
 <tr><th>Option</th><th>Effect</th></tr>
 <tr><td><code>--socket &lt;path&gt;</code></td><td>The <code>wire</code> daemon's Unix socket (<code>wire --print-socket</code> prints it). All networking goes through it: link clicks, page loads, sub-resources, and requests made by page scripts. Without it nothing is fetched</td></tr>
 <tr><td><code>--no-js</code></td><td>Never run scripts; show &lt;noscript&gt; content</td></tr>
+<tr><td><code>--user-agent &lt;string&gt;</code></td><td>Send this <code>User-Agent</code> for page loads, sub-resources, <code>fetch</code>/XHR and media requests (through <code>wire</code>'s <code>X-Wire-User-Agent</code>) and report it as <code>navigator.userAgent</code>. Printable ASCII, at most 512 bytes, otherwise scratchy exits with an error. The <code>SCRATCHY_USER_AGENT</code> environment variable does the same (the flag wins). Without it wire's own User-Agent is used. An old <code>wire</code> cannot honour it (one warning line is logged)</td></tr>
 <tr><td><code>--js-report [--socket &lt;path&gt;] [--run-timers &lt;ms&gt;] &lt;file&gt;</code></td><td>Headless: run the page's scripts and print what happened (console, errors, network, cookies)</td></tr>
 <tr><td><code>--run-timers &lt;ms&gt;</code></td><td>With <code>--js-report</code>: also run timers due within that many milliseconds</td></tr>
 <tr><td><code>--wpt &lt;checkout&gt; [--subset FILE] [--expected FILE] [--update] [--out DIR] [-v]</code></td><td>Headless: run the web-platform-tests reftest subset and compare with the expected results (<code>--update</code> rewrites them)</td></tr>

@@ -241,12 +241,18 @@ pub(crate) fn escape_html(s: &str) -> String {
 /// `scratchy/TODO.txt`'s own "Form elements — sequencing plan" item);
 /// this is purely what a clicked `<a href>` needs.
 pub(crate) fn build_get_request_text(url: &Url) -> String {
+    build_get_request_text_with(url, user_agent_state())
+}
+
+/// `build_get_request_text` with an explicit User-Agent override (QY39b).
+pub(crate) fn build_get_request_text_with(url: &Url, ua: &UaOverride) -> String {
     let host = url.host_str().unwrap_or("");
     let host_header = match url.port() {
         Some(port) => format!("{host}:{port}"),
         None => host.to_string(),
     };
-    format!("GET {url} HTTP/1.1\r\nHost: {host_header}\r\n\r\n")
+    let ua_line = ua.header().map(|(n, v)| format!("{n}: {v}\r\n")).unwrap_or_default();
+    format!("GET {url} HTTP/1.1\r\nHost: {host_header}\r\n{ua_line}\r\n")
 }
 
 /// QF14b: `build_get_request_text` plus the cookie headers of `ctx` (the ONE
@@ -423,6 +429,7 @@ pub(crate) fn fetch_raw_via_wire_with_support(
             let version = raw_response_header(&buf, "x-wire-version");
             let cookies = raw_response_header(&buf, "x-wire-cookies");
             note_cookie_response(support, request_text.as_bytes(), version.as_deref(), cookies.as_deref());
+            note_ua_response(raw_response_header(&buf, "x-wire-features").as_deref());
             WireFetchRaw::Responded { content_type, body }
         }
         Err(_) => WireFetchRaw::Unreachable,
@@ -525,6 +532,12 @@ fn is_header_token(s: &str) -> bool {
 /// name or method are rejected. Header policy (forbidden names, `X-Wire-*`)
 /// is the caller's job: this codec is trusted and lets `X-Wire-Policy` through.
 pub(crate) fn build_wire_request(method: &str, url: &Url, headers: &[(String, String)], body: &[u8]) -> Result<Vec<u8>, NetError> {
+    build_wire_request_with(method, url, headers, body, user_agent_state())
+}
+
+/// `build_wire_request` with an explicit User-Agent override (QY39b): adds
+/// `X-Wire-User-Agent` exactly once when `ua` has one.
+pub(crate) fn build_wire_request_with(method: &str, url: &Url, headers: &[(String, String)], body: &[u8], ua: &UaOverride) -> Result<Vec<u8>, NetError> {
     if !is_header_token(method) {
         return Err(NetError::BadRequest(format!("invalid method {method:?}")));
     }
@@ -534,7 +547,14 @@ pub(crate) fn build_wire_request(method: &str, url: &Url, headers: &[(String, St
         None => host.to_string(),
     };
     let mut out = format!("{method} {url} HTTP/1.1\r\nHost: {host_header}\r\n").into_bytes();
+    let ua_header = ua.header();
+    if let Some((n, v)) = &ua_header {
+        out.extend_from_slice(format!("{n}: {v}\r\n").as_bytes());
+    }
     for (name, value) in headers {
+        if ua_header.is_some() && name.eq_ignore_ascii_case(WIRE_HEADER_USER_AGENT) {
+            continue;
+        }
         if !is_header_token(name) {
             return Err(NetError::BadRequest(format!("invalid header name {name:?}")));
         }
@@ -639,6 +659,7 @@ pub(crate) fn fetch_full_via_wire(path: &std::path::Path, request: &[u8], limits
     }
     let resp = parse_wire_response_full(&buf)?;
     note_cookie_response(cookie_support(), request, resp.header("x-wire-version"), resp.header("x-wire-cookies"));
+    note_ua_response(resp.header("x-wire-features"));
     if resp.body.len() > limits.max_body_bytes {
         return Err(NetError::TooLarge);
     }
