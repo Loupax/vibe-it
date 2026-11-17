@@ -3386,7 +3386,7 @@ wire now answers `X-Wire-Version: 2` on every response (3 since QF14); an old wi
 
 ## navigator.sendBeacon (QF10)
 
-`Navigator` exists (js.rs; `navigator` inherits from `Navigator.prototype`); `sendBeacon` is JS in src/fetch_prelude.js over `__net_request` (api `beacon`), body from the hidden `__beacon_body` (the Request body extractor, synchronous). TypeError for a bad or non-http(s) URL; `false` when queued bytes + body exceed `RequestPolicy.beacon_queue_bytes` (read through `__net_beacon_limit`); otherwise `true`. The native `__net_send` does policy warnings and, with `beacons_send` false (default), only logs the beacon in detail and answers opaque; with it true the request goes out like any keepalive POST (same path, no second sender). `WebSocket`, `EventSource`, `Worker`, `SharedWorker` stay undefined on purpose: feature detection then takes the page's fallback, and no surveyed page used them at startup. `<a ping>` is QF10a.
+`Navigator` exists (js.rs; `navigator` inherits from `Navigator.prototype`); `sendBeacon` is JS in src/fetch_prelude.js over `__net_request` (api `beacon`), body from the hidden `__beacon_body` (the Request body extractor, synchronous). TypeError for a bad or non-http(s) URL; `false` when queued bytes + body exceed `RequestPolicy.beacon_queue_bytes` (read through `__net_beacon_limit`); otherwise `true`. The native `__net_send` does policy warnings and, with `beacons_send` false (default), only logs the beacon in detail and answers opaque; with it true the request goes out like any keepalive POST (same path, no second sender). `WebSocket` exists since QF19w2 (NOTES section "WebSocket (QF19w2)"); `EventSource`, `Worker`, `SharedWorker` stay undefined on purpose: feature detection then takes the page's fallback, and no surveyed page used them at startup. `<a ping>` is QF10a.
 
 ## Old wire fails closed (QF7a)
 
@@ -3582,3 +3582,23 @@ Verify from outside: `unshare -rn scratchy --socket /path/to/wire.sock URL` with
 started OUTSIDE the namespace (filesystem unix sockets cross network namespaces):
 it must behave exactly as before; `file://` pages need no wire at all. For a connect
 log use `tools/mpvspike/connectlog.c` with LD_PRELOAD: only AF_UNIX connects appear.
+
+
+## WebSocket (QF19w2)
+
+Files: src/ws_frames.rs (SHA-1 for the accept key, masked frame encoder, incremental decoder, fragment
+assembler with the RFC close codes 1002/1007/1009; cap 16 MiB), src/js_ws.rs (handshake, threads,
+queue, natives, `JsEngine::pump_ws`), src/ws_prelude.js (the class). Design: wire is a pipe
+(TODO QF19); scratchy frames. One reader thread per socket (handshake, then frames, with a 250 ms
+read timeout to notice an abort or the 5 s wait for the server's close frame) and one writer thread
+(masks with a fresh `getrandom` key, coalesces `Flushed` events for `bufferedAmount`). Events go
+through `WsShared` (queue + one outstanding wake-up, `AppEvent::JsWs`) and `pump_ws` hands them to
+JS 64 at a time, each as its own task under the callback budget (`__ws_ev` / `__ws_ev_bin`).
+The engine owns the socket handles (`WsState`): dropping it (navigation, page replacement) sends
+close 1001; a page parked behind `:help` keeps its sockets and its queued events (pumped on
+restore). `--js-report` has no App: `drive_report_net` calls `drive_report_ws`, which waits up to
+3 s for sockets still connecting. Tests: src/tests/qf19w2_tests.rs (framing units, and a REAL wire
+built from ../wire into target/wire-for-tests with a local echo server; they skip when wire cannot
+be built; `SCRATCHY_TEST_WIRE=/path/to/wire` overrides). Known limits: no extensions
+(`extensions` is always ''), `on*` handlers run after the `addEventListener` ones, a message is
+delivered whole (no streaming), sending is unbounded (no limit on queued outgoing bytes).

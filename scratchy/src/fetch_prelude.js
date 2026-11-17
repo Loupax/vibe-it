@@ -431,6 +431,8 @@
   };
   g.URL.revokeObjectURL = function revokeObjectURL(u) { store.delete(key(u)); };
   def(g, '__blob_lookup', function (u) { return store.get(key(u)); });
+  // QF19w2: the bytes of a Blob (undefined for anything else), for WebSocket.send.
+  def(g, '__blob_bytes', function (b) { return isBlob(b) ? bytesOf.get(b) : undefined; });
 
   def(g, 'Blob', Blob); def(g, 'File', File); def(g, 'FileReader', FileReader);
 

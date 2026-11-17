@@ -406,6 +406,16 @@ impl NetState {
         }
     }
 
+    /// QF19w2: what a WebSocket handshake needs from the page networking state:
+    /// the policy, the cookie support and wire's socket.
+    pub(crate) fn ws_context(&self) -> (RequestPolicy, &'static CookieSupport, Option<PathBuf>) {
+        (self.policy.clone(), self.support, self.executor.socket())
+    }
+
+    pub(crate) fn ws_cap_headers(&self) -> Vec<(String, String)> {
+        self.cap_headers(None)
+    }
+
     /// The actual requests that finished preflights released.
     pub(crate) fn take_released(&mut self) -> Vec<NetJob> {
         std::mem::take(&mut self.released)
@@ -1170,6 +1180,15 @@ pub(crate) fn drive_report_net(engine: &JsEngine, sched: &mut NetScheduler, exec
         let mut started = Vec::new();
         sched.pump(&mut |j| started.push(j));
         if nothing && started.is_empty() {
+            // QF19w2: sockets that are connecting, and the events they queued.
+            crate::js_ws::drive_report_ws(engine);
+            let more = {
+                let r = engine.reqs.borrow();
+                !r.net.is_empty() || !r.net_done.is_empty() || !r.net_abort.is_empty()
+            };
+            if more {
+                continue;
+            }
             break;
         }
         for job in started {

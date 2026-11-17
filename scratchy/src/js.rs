@@ -461,6 +461,7 @@ const PRELUDE: &str = r#"
   evt('PopStateEvent', Event, { state: null });
   evt('StorageEvent', Event, { key: null, oldValue: null, newValue: null, url: '', storageArea: null });
   evt('MessageEvent', Event, { data: null, origin: '', lastEventId: '', source: null, ports: [] });
+  evt('CloseEvent', Event, { wasClean: false, code: 0, reason: '' });
   evt('ProgressEvent', Event, { lengthComputable: false, loaded: 0, total: 0 });
   evt('ClipboardEvent', Event, { clipboardData: null });
   evt('PageTransitionEvent', Event, { persisted: false });
@@ -1016,6 +1017,8 @@ pub(crate) struct JsEngine {
     pub(crate) reqs: Rc<std::cell::RefCell<js_dom::JsRequests>>,
     /// QF7: page networking state (policy, pending requests, report log).
     pub(crate) net: Rc<std::cell::RefCell<js_net::NetState>>,
+    /// QF19w2: the page's WebSockets (closed with code 1001 when the engine drops).
+    pub(crate) ws: Rc<std::cell::RefCell<js_ws::WsState>>,
 }
 
 /// One init field of a natively dispatched event (Q33d).
@@ -1428,7 +1431,9 @@ pub(crate) fn start_scripts_clocked(
     let reqs: Rc<std::cell::RefCell<js_dom::JsRequests>> = Default::default();
     let net = Rc::new(std::cell::RefCell::new(js_net::NetState::new(log.clone()).with_clock(net_clock)));
     ctx.with(|c| js_net::install_net(&c, net.clone(), reqs.clone()));
-    let mut engine = JsEngine { ctx, rt, log, base, deadline, tripped, media: None, dirty: dirty.clone(), table: Default::default(), reqs: reqs.clone(), net };
+    let ws = Rc::new(std::cell::RefCell::new(js_ws::WsState::new(net.clone(), log.clone())));
+    ctx.with(|c| js_ws::install_ws(&c, ws.clone()));
+    let mut engine = JsEngine { ctx, rt, log, base, deadline, tripped, media: None, dirty: dirty.clone(), table: Default::default(), reqs: reqs.clone(), net, ws };
     {
         let (dl, tr, lg) = (engine.deadline.clone(), engine.tripped.clone(), engine.log.clone());
         engine.ctx.with(|c| install_script_natives(&c, dl, tr, lg, store));
@@ -1439,6 +1444,7 @@ pub(crate) fn start_scripts_clocked(
     engine.eval("globals", GLOBALS_PRELUDE);
     engine.eval("intl", INTL_PRELUDE);
     engine.eval("fetch", FETCH_PRELUDE);
+    engine.eval("websocket", WS_PRELUDE);
     engine.table = engine.ctx.with(|ctx| js_dom::install_dom(&ctx, document, dirty.clone(), reqs.clone()));
     engine.eval("cssom", CSSOM_PRELUDE);
     {
@@ -1614,6 +1620,9 @@ const CSSOM_PRELUDE: &str = include_str!("cssom_prelude.js");
 /// QF2: Blob, File, FileReader, blob: URL store (`__blob_lookup`); the
 /// home of the fetch/XHR data classes (QF memo in TODO.txt).
 const FETCH_PRELUDE: &str = include_str!("fetch_prelude.js");
+
+/// QF19w2: `WebSocket` (the class; connection and framing are js_ws.rs).
+const WS_PRELUDE: &str = include_str!("ws_prelude.js");
 
 /// Q33t: `setTimeout` & co, as plain JS over a timer table; Rust only
 /// asks `__scratchy_timers_next()` (ms of the earliest due time on the
