@@ -152,13 +152,14 @@ READY, in recommended order (no user decision needed):
  polyfill risk), QAN1h [S, Opus] GitHub restyle 15-18 s, QAN1i [S] runner canvas
  fill; QAN1f [S] only if events are wanted before frames. Separately QFF1a [M]
  @font-face ttf/otf/woff, QFF1b [M] woff2, QFF1c [S] document.fonts.
- QAN1-D (reduced motion, infinite animations, frame cap) waits for the user.
+ QAN1-D DECIDED 2026-11-17 (user accepted the recommendation "for now"): new
+ QAN1d0 [S] READY (answer `prefers-reduced-motion: reduce` by default, `:set motion`),
+ then QAN1d with the decided defaults. Perf follow-up parked: QAN1p.
  Then P3/P4 leftovers in their blocks (QY*, QA*, Q40b/Q40c fix items).
 WAITING FOR USER (skip until answered):
-- QAN1-D (2026-11-17, R31): answer `prefers-reduced-motion: reduce`? What to do with
-  infinite CSS animations (animate at a cap / freeze after N s / freeze)? Frame cap
-  30 fps and no animation while the window is hidden? Gates only the frame loop
-  (QAN1d) defaults, not QAN1-0/a/b/c.
+- (DECIDED 2026-11-17, see QAN1-D: reduce by default, freeze infinite after 5 s,
+  30 fps and none hidden/unfocused; perf follow-up parked as QAN1p) QAN1-D (R31):
+  motion defaults for the frame loop (QAN1d).
 - SD-D1: OK to ship B1 (attachShadow works, JS sees a real shadow tree, but
   only the host's light children render)? Gates QSD3, QSD6, QSD10.
 - SD-D2: accept "basic" event retargeting (no relatedTarget/focus
@@ -1518,6 +1519,24 @@ IntersectionObserver and matchMedia are not used by any of the site's scripts.
       (spinner) and github.com (marquee) in a nested dwl, CPU % over 30 s. Acceptance:
       two grims 200 ms apart of a fixture with an infinite opacity animation differ only
       in the animated box; CPU numbers recorded. Unblocks: smooth fades/slides, QAN1e.
+      QAN1-D defaults (decided 2026-11-17): infinite (or > 5 s) animations freeze 5 s
+      after they start (D2; test with the fake clock: frames requested until 5 s, none
+      after, value held); 30 fps; none while hidden/unfocused (D3). With QAN1d0's
+      default `reduce`, measure the duckduckgo/github CPU numbers both with the default
+      and with `:set motion`.
+- [ ] QAN1d0 [S] READY (QAN1-D D1, before QAN1d) Answer `prefers-reduced-motion: reduce`
+      by default. Today the media-query evaluation (css.rs, `prefers-reduced-motion`
+      in the media feature matching next to `prefers-color-scheme`) always answers
+      `no-preference`. Make it a runtime setting like `js_enabled`: default reduce;
+      `:set motion` -> no-preference, `:set nomotion` -> reduce (add both to
+      `SET_ARGS`, `:help`), and a `--motion` command-line flag. The same value must
+      drive the cascade AND JS `matchMedia('(prefers-reduced-motion: reduce)')`
+      (QY10) so CSS and script agree; a `:set` change applies from the next restyle
+      (or next load, if a live change is hard: say which in the PR). Tests: a
+      `@media (prefers-reduced-motion: reduce){p{color:red}}` fixture is red by
+      default and not after `:set motion`; matchMedia agrees in both states. WPT: no
+      pass->fail (check the subset for reduced-motion tests: their expectations may
+      flip; a pass->fail caused only by the new default needs the user's OK).
 - [ ] QAN1e [M] (after QAN1d) CSS transitions. Parse `transition-property/-duration/
       -timing-function/-delay` + shorthand + `-webkit-` (`all`, comma lists). On a
       restyle (hover/focus/active from `set_interaction_state`, JS writes), compare
@@ -1580,7 +1599,17 @@ IntersectionObserver and matchMedia are not used by any of the site's scripts.
       band where a browser shows a full olive 800x600. Share the fill (one helper used
       by both). Acceptance: full `--wpt`; record every flip (both directions) in the
       PR, do not assume.
-- [ ] QAN1-D WAITING FOR USER (design first; QAN1a/b/c/0/h/i do not depend on it):
+- [x] QAN1-D DECIDED 2026-11-17 (user: "I accept your recommendations for now. Leave a
+      parked todo of improving their performance later" -> QAN1p in Parked). Answers:
+      D1 YES: answer `prefers-reduced-motion: reduce` by default; `:set motion` /
+         `:set nomotion` (and a `--motion` flag) switch to `no-preference`. Item QAN1d0.
+      D2 Infinite animations (iteration-count `infinite`, or total active duration
+         > 5 s) animate at the frame cap, then FREEZE 5 s after they start at their
+         current value (no more frames, no more `animationiteration`); a restyle that
+         restarts the animation (new name/element) starts a new 5 s window. In QAN1d.
+      D3 30 fps cap (constant), no frames while the window is hidden or unfocused
+         (when winit reports it; check on dwl), as already written in QAN1d.
+      Original questions:
       D1 Should scratchy answer `prefers-reduced-motion: reduce` (today always
          `no-preference`)? GitHub has 97 and YouTube 49 such queries; with `reduce`
          most decorative motion switches itself off (battery), while UI feedback
@@ -6154,6 +6183,18 @@ as the JS measurement corpus (same role the four CSS pages played).
       the JS-scriptable `bind()` from the vim-keybindings item.
 
 --- Parked (not blocking the queue; each needs a user decision) --------
+
+- [ ] QAN1p [M] (parked 2026-11-17 by the user when accepting the QAN1-D defaults
+      "for now") Make animation cheap enough to relax the QAN1-D limits: let
+      infinite animations run without the 5 s freeze, raise the 30 fps cap (60 fps =
+      16.7 ms per frame), and consider `no-preference` as the default again. Starts
+      from R31's numbers (full restyle 0.01-18 s per frame, damage-rect paint 10-30 ms
+      per frame = 30-90 % of a core at 30 fps) and QAN1d's measured CPU. Candidates:
+      incremental restyle of only the animated elements (QAN1h's GitHub 15-18 s
+      restyle first), paint caching per stacking context / layer so a frame
+      re-composites instead of re-painting, layout-affecting animations without a
+      full rebuild, frame pacing tied to the compositor. Measure before and after
+      (AGENTS.md: numbers, not reasoning). Unpark when the user asks.
 
 - [ ] Q26 [S] `letter-spacing` (n=8). The user decided 2026-11-12: first
       bump cosmic-text to the latest release and re-run the recorded
