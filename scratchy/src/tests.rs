@@ -17035,6 +17035,7 @@ fn qy44c_disabled_sheet_and_rule_style_mutation() {
     assert_ne!(c, Some(TextColor::rgb(0, 0, 255)));
     let (c, l, _) = qsd4_color(QY44C_HTML, "var sh=document.getElementById('s').sheet; sh.cssRules[0].style.color='#ff0000'; console.log(sh.cssRules[0].cssText);");
     assert_eq!(c, Some(TextColor::rgb(255, 0, 0)), "{l:?}");
+}
 
 // ---------- QJ9: window.open / close / alert / confirm / prompt ----------
 
