@@ -16,6 +16,24 @@ QUEUE — ranked work order (reviewed 2026-11-12, re-planned 2026-11-14)
 
 --- CURRENT STATUS (2026-11-16, docs audit; READ THIS FIRST) -------------
 
+AUDIT 2026-11-17 (review of main @ e4993c3; READ BEFORE THE LISTS BELOW, which are
+older and were only partly corrected in place):
+- DONE although older text below still lists them as pending: everything in the
+  three "NEW 2026-11-16/17" blocks except QY25-QY27, QY33, QY36-QY38, QY44d/e,
+  QJ4b/QJ6b/QJ10, QAN1d-QAN1i, QFF1a-c and QP3; QSD3, QSD4a (= QY44c), QY18;
+  forms Q30a-Q30e (Q30f = QF14); media QM1b, QM1c, QM1d, QM1e, QM1f.
+- ANSWERED although listed under WAITING FOR USER: SD-D1..SD-D4 and QY18
+  (2026-11-16, all YES), QJ11, QY39-D, the cookie token (no), QM1-D D1-D8,
+  QAN1-D (2026-11-17), QF14b2 (e) tracker blocking (QCFG1 -> QTB1).
+- NEWLY READY (2026-11-17): QCI0 then QCI1 (CI), QT1 (split tests.rs, quiet
+  window), Q26 (letter-spacing: unit bug on our side, see R33), QSB1 (scrollbar
+  drag, split out of Q32), QAN1d0 (reduced motion default), Q30g + Q33e (forms
+  rest), QCFG1 -> QTB1 (when prioritised).
+- Still WAITING FOR USER: QM1k (MSE, plan together), QF19 WebSocket design (Opus
+  measurement QF19m first), QCI2 (WPT in CI), QF14b2 (d) `--profile` (later),
+  Q32 remainder (parked), QAN1p/QTB2 (parked).
+- Known red test on a clean checkout: R33 / QCI0.
+
 USER ANSWERS 2026-11-17 (late night): (a) PR #232 (QW6, body background on the canvas)
 KEEP, despite its accepted WPT pass->fail `css/css-backgrounds/animations/background-color-
 animation-in-body.html` (accidental pass; the test needs CSS animations, which scratchy
@@ -93,7 +111,7 @@ READY, in recommended order (no user decision needed):
   4 QF11 [S] navigation from JS (`location.assign/replace/href=`: no-ops now).
   5 Q33b1a [S] main `document.title` from `<title>` (reads '' today).
   6 QSD2b [S] lookupNamespaceURI/lookupPrefix/isDefaultNamespace.
-  7 QSD4a [S] `document.styleSheets` minimal read.
+  7 (DONE as QY44c) QSD4a [S] `document.styleSheets` minimal read.
   8 QSD11 [S] attachInternals placeholder (forms parts log not implemented).
   9 QF9a [S] DOMParser + XHR responseType 'document'.
  10 QF10a [S] `<a ping>` suppressed-log line.  11 QF4a [S] stream gaps.
@@ -160,15 +178,9 @@ WAITING FOR USER (skip until answered):
 - (DECIDED 2026-11-17, see QAN1-D: reduce by default, freeze infinite after 5 s,
   30 fps and none hidden/unfocused; perf follow-up parked as QAN1p) QAN1-D (R31):
   motion defaults for the frame loop (QAN1d).
-- SD-D1: OK to ship B1 (attachShadow works, JS sees a real shadow tree, but
-  only the host's light children render)? Gates QSD3, QSD6, QSD10.
-- SD-D2: accept "basic" event retargeting (no relatedTarget/focus
-  retargeting, no delegatesFocus)? Gates QSD8.
-- SD-D3: declarative shadow DOM, only after QSD6/QSD7 render? Gates QSD9.
-- SD-D4: style scoping = per-root sheets + :host/::slotted, ::part and
-  :host-context dropped? Gates QSD7.
-- QY18: OK to implement translate-only `transform` (paint + hit-test offset,
-  no layout change)? Left out on purpose in the 2026-11-14 re-plan.
+- (ANSWERED 2026-11-16: all YES; QSD3 and QY18 are built) SD-D1 (B1 first),
+  SD-D2 (basic retargeting), SD-D3 (declarative after QSD6/QSD7), SD-D4 (per-root
+  sheets + :host/::slotted), QY18 (translate-only transform).
 - (ANSWERED 2026-11-17: no token for now, see wire/TODO.txt) Cookie control token: should wire require a token on the
   `X-Wire-Cookie-Op` channel, and how is it shared? (hook
   `control_authorized`; QF14b2 (f)). Also QF14b2 (d) `--profile` jar name
@@ -181,7 +193,8 @@ WAITING FOR USER (skip until answered):
 - (GO-AHEAD 2026-11-17: forms are READY, see Tier 6 / Q30a-Q30g) Forms (Q30a-Q30e,
   Q30g, Q33e, QB11's form part): were placeholder-only until the user designed them; the
   user will redesign after the functionality exists.
-- Media (QM1 done 2026-11-17, R27): an mpv process cannot be embedded on Wayland;
+- (DESIGN COMPLETE 2026-11-17, QM1-D D1-D8; QM1b/e/f built; only QM1k MSE waits)
+  Media (QM1 done 2026-11-17, R27): an mpv process cannot be embedded on Wayland;
   libmpv in-process (software render into the `<video>` box, bytes from wire) is
   the recommended route. Questions QM1-D D1-D8 (in-page vs "open in mpv",
   in-process vs helper, optional dependency, network via wire, autoplay,
@@ -191,8 +204,11 @@ WAITING FOR USER (skip until answered):
   Wikipedia, so video needs the rect-only redraw QM1g1. wire/TODO.txt W-POOL1
   (security: `public-only` skipped on pooled connections) should be fixed first;
   W-MEDIA1 (`file:` Range) before QM1e's local-file case.
-- QF19 WebSocket/EventSource/Workers; QY16a real localisation (ICU data?);
-  persistence of jar/storage/cache (QF-D7: not now); Q26, Q32 (parked).
+- QF19 WebSocket (recommendation 2026-11-17: wire as a byte pipe after the
+  upgrade, scratchy does the framing; measure first with QF19m), Workers (no);
+  EventSource is QF19a (READY). QY16a real localisation (ICU data?); persistence
+  of jar/storage/cache (QF-D7: not now). Q26 UNBLOCKED (READY, R33); Q32's
+  scrollbar drag split out as QSB1 (READY), the rest of Q32 stays parked.
 - (ANSWERED 2026-11-17: pages may cancel any key) QJ11: which keys may page JS cancel? Once QJ4-QJ6 land, social.loupax.com's
   vim.js cancels `:` `/` j k h l g G n N Enter Esc Ctrl-D/U/O/I, so scratchy's
   own `:` command line and vim keys become unreachable on that site.
@@ -402,7 +418,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       control protocol), E (vlc, gstreamer: not installed; GStreamer waylandsink
       has the same in-process constraint and is a heavier dependency).
       Children (WAITING FOR USER unless marked READY):
-- [ ] QM1-D PARTLY ANSWERED 2026-11-17: D1 = in-page video using mpv (libmpv A1; the
+- [x] QM1-D ANSWERED (D1-D8 all decided 2026-11-17; MSE is QM1k): D1 = in-page video using mpv (libmpv A1; the
       page console/status logs "media: mpv"; an extra "open in mpv" action is not asked
       for), D4 = all bytes through wire, always. D2 = libmpv in-process, D3 = optional
       dependency, D5-D7 = coordinator defaults (decided 2026-11-17, see the status block).
@@ -1872,23 +1888,23 @@ DSD content from "hidden template" into "hidden shadow root" with no
 gain.
 
 User decisions:
-- [ ] SD-D1 (USER) Is B1 acceptable as a first step: `attachShadow`
+- [x] SD-D1 (USER; ANSWERED YES 2026-11-16) Is B1 acceptable as a first step: `attachShadow`
       works and the JS sees a real shadow tree, but scratchy keeps
       rendering the host's light children and NOT the shadow content
       (logged once per page as `not implemented: shadow root rendering`)?
       (Recommended: yes, with B2 queued right behind it.) Or A (keep
       throwing until B2 is ready), or go straight to B2.
-- [ ] SD-D2 (USER) Event retargeting fidelity. (Recommended) basic:
+- [x] SD-D2 (USER; ANSWERED YES 2026-11-16) Event retargeting fidelity. (Recommended) basic:
       composed events (all UA input events, `composed:true` custom
       events) continue from a shadow root to its host; `event.target`
       is retargeted to the host for listeners outside the shadow tree;
       `composedPath()` omits nodes inside closed roots; non-composed
       events stop at the shadow root. Cut: `relatedTarget` retargeting,
       focus/blur retargeting, `delegatesFocus`.
-- [ ] SD-D3 (USER) Declarative shadow DOM (`<template shadowrootmode>`,
+- [x] SD-D3 (USER; ANSWERED YES 2026-11-16) Declarative shadow DOM (`<template shadowrootmode>`,
       parsed by html5ever via a sink wrapper). (Recommended) yes, but
       only after QSD6/QSD7 render shadow trees.
-- [ ] SD-D4 (USER) Style scoping scope for B2. (Recommended) `<style>`,
+- [x] SD-D4 (USER; ANSWERED YES 2026-11-16) Style scoping scope for B2. (Recommended) `<style>`,
       `<link rel=stylesheet>` and `adoptedStyleSheets` per shadow root,
       `:host`, `:host(<sel>)`, `::slotted(<compound>)`; CUT `::part`/
       `exportparts` and `:host-context` (parsed and dropped, logged).
@@ -2886,8 +2902,19 @@ QF13a, QF14b2, QF18 open; QF19 waits for the user):
       agent must FIRST check whether a buffered poll-style implementation is
       honest enough; if it needs a wire protocol change, STOP and report (that is
       a design question for the user), do not change wire's protocol on its own.
-- [ ] QF19 [L] WAITING FOR USER (design first) WebSocket (later, own design;
-      user 2026-11-17), Workers (no until a measured page needs them), (EventSource is
+- [ ] QF19m [S, Opus, investigate only] READY Who needs WebSocket? Run the user's
+      sites (social.loupax.com, YouTube, GitHub, reddit, the R21/R22 corpus) with a
+      logging `WebSocket` stub (constructor records url + protocols, then fails
+      like today) and `--js-report --run-timers 5000`; report per site: does it
+      open one, at which point (load / user action), and does the page degrade or
+      break without it. Output: a REGRESSIONS.md entry and a go/no-go for QF19.
+- [ ] QF19 [L] WAITING FOR USER (design first; after QF19m) WebSocket. Recommended
+      design (2026-11-17, not yet approved): wire forwards the HTTP Upgrade and,
+      after `101 Switching Protocols`, becomes a plain two-way byte pipe on that
+      connection (same policy/caps checks on the handshake); scratchy does the
+      WebSocket framing itself (e.g. `tungstenite`), events on the JS thread.
+      Alternative: wire speaks WebSocket and passes whole messages (more wire
+      work). (later, own design; user 2026-11-17), Workers (no until a measured page needs them), (EventSource is
       QF19a), EventSource,
       Workers: out of scope. wire speaks one request and one response per
       connection.
@@ -6040,8 +6067,8 @@ with temporary `Instant` timing, and say the number in the commit.
       document URL (not `<base href>`) when missing, `formnovalidate`, `<output>`/`<object>` in the data set.
 - [x] Q30f [S] DONE as QF14 (wire half 4d62f87, wire/src/cookies.rs) +
       QF14b-scratchy (bc2fb00): an in-memory, partitioned jar in wire used by
-      every scratchy request incl. navigations (design QF-D2a). Forms
-      themselves still wait (Tier 6 note). (in `wire`, not scratchy; log it in wire's own PROMPTS.md/
+      every scratchy request incl. navigations (design QF-D2a). Forms got
+      the go-ahead 2026-11-17 (Q30a-Q30e done). (in `wire`, not scratchy; log it in wire's own PROMPTS.md/
       TODO.txt) An in-memory cookie jar, so a login on
       social.loupax.com survives the next request. ureq 2's `cookies`
       feature gives one per `Agent`; `wire` already shares one agent.
@@ -6064,7 +6091,8 @@ Wikipedia search from the search box lands on a results page.
 
 --- Tier 7: JavaScript (Q33, split 2026-11-14; user ordered it last) ----
 
-Detail: "JavaScript — engine choice" (boa_engine recommended). Expect
+Detail: "JavaScript — engine choice" (boa_engine recommended at the time; the user
+chose rquickjs on 2026-11-15, Q33-0/Q33a, `rquickjs = "=0.14.0"`). Expect
 pages that enhance server-rendered HTML to become usable first; full
 SPA frameworks need a much larger API surface and are a long shot.
 Before Q33a, the user picks 2-3 JS-needing sites they actually browse
@@ -6298,10 +6326,24 @@ as the JS measurement corpus (same role the four CSS pages played).
       Tests: line count and width of the repro above; inheritance; `normal`; em
       units. WPT: run css-text letter-spacing reftests once and add the eligible
       ones to the subset.
-- [ ] Q32 Scrollbar drag-to-scroll; precise float placement and hit-test
-      order; negative-`z-index` hit-test order; moving DOM building and
-      cascade off the main thread. See their own Detail entries. Revisit
-      the hit-test-order part if Q30b clicks land on the wrong control.
+- [ ] QSB1 [S] READY (split out of Q32 2026-11-17, user) Scrollbar drag-to-scroll.
+      Today only the wheel/keys scroll; the painted indicator is display-only.
+      Press on the thumb and drag: scroll position follows the pointer (thumb
+      offset kept, so the thumb does not jump to the pointer); press on the track
+      above/below the thumb: page up/down; for the window AND for element scroll
+      regions (QJ6 `ScrollInfo`). The pointer grab survives leaving the window.
+      Use the same scroll paths the wheel uses (element `scroll` events once
+      Q33d2 exists). No relayout per motion event: scrolling is already
+      paint-only, keep it that way and measure frame time on en.wikipedia
+      United_States while dragging (report it). Tests: hit-test of thumb/track,
+      drag maths (pointer delta -> scroll delta with the content/track ratio),
+      clamping at both ends. Real check: nested dwl + tools/inject drag, grim.
+- [ ] Q32 (parked; scrollbar drag split out as QSB1 2026-11-17) Precise float
+      placement and hit-test order; negative-`z-index` hit-test order; moving DOM
+      building and cascade off the main thread. See their own Detail entries.
+      Revisit the hit-test-order part if form-control clicks land on the wrong
+      control, and the off-main-thread part when JS-driven restyles measurably
+      stall input.
 
 Measured but deliberately NOT queued (each seen on the pages above;
 revisit only on request): `transform` (n=22), `filter` (28),
@@ -7240,7 +7282,8 @@ session can pick a coherent slice rather than one property at a time.
       the property's most common real use), or the invasive
       fully-correct plumbing.
 
-- [ ] **`letter-spacing` was attempted and reverted (no commit) after
+- [ ] (2026-11-17: the "cosmic-text bug" below was OUR unit mismatch, px passed to an EM
+      API; see R33 and the QUEUE item Q26, now READY) **`letter-spacing` was attempted and reverted (no commit) after
       finding what looks like a real cosmic-text 0.19.0 bug**, not a
       scratchy bug: `Attrs::letter_spacing()` is a real, documented
       API and wiring it in was mechanically straightforward (parsing,
