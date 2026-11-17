@@ -525,7 +525,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       a page with a 600 ms busy timer at t=10 and a console.error timer at
       t=1000 reports both the trip line and the t=1000 line. Unblocks:
       every headless measurement of a heavy page.
-- [ ] QY32 [S] (P1, R26) `position: fixed` inside an absolutely positioned box is never
+- [x] QY32 [S] (done 1f6e003) (P1, R26) `position: fixed` inside an absolutely positioned box is never
       laid out or painted. Root cause: layout.rs `resolve_positioned` measures
       the abs/fixed box with a fresh `nested_pending`; `resolve_or_bubble_
       positioned` always bubbles `fixed` entries, so they land in

@@ -7033,3 +7033,10 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Item QY29. Remove `data` from Node.prototype (polymer-resin treats `'data' in element` as a native property and blanks every bound renderer value); move `checked`/`disabled`/`required` off Element.prototype onto the interfaces that have them. Tests: `'data' in div === false`, `'disabled' in div === false`, `'disabled' in button === true`, Text data get/set. Accept: YouTube skeleton replaced (headless probe + window screenshot).
 
 **What changed:** src/js_dom.rs (NodeProto `data` removed; `disabled`/`required`/`checked` defined per interface), test `qy29_*` in src/tests.rs. Real youtube.com in a nested dwl now shows the "Der YouTube-Verlauf ist deaktiviert" card instead of the grey skeleton (some overlapping text in the card remains, other items). Headless probe: `#home-page-skeleton` removed, `ytd-rich-grid-renderer` present.
+
+
+## QY32: fixed boxes inside an absolute box (2026-11-17)
+
+> Item QY32 (R26). A `position: fixed` box inside a `position: absolute` one was never laid out or painted: `resolve_positioned` only `debug_assert!`ed its nested pending list empty, so release builds dropped the entries. Test: 3-box fixture (plain, z-index, translateY(0)) lays out all three at their viewport `top`.
+
+**What changed:** src/layout.rs (`resolve_positioned` takes `bubble_out` and hands nested `fixed` entries to its caller, shifting their static positions with the box; `resolve_or_bubble_positioned` passes its own list; `measure_document` drains a worklist so nested entries reach the viewport resolution and the root stacking order; `debug_assert!` removed), test `fixed_inside_absolute_is_laid_out_at_viewport_position_qy32`. Verified: fixture and live YouTube window show the fixed boxes / hamburger, search button and mini-guide labels; wikipedia.org, en.wikipedia Main_Page, HN 0 js errors; WPT no change. Limit: a fixed box with no insets inside a transformed ancestor still resolves against the viewport (no transform containing block).

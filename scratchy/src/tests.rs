@@ -16486,3 +16486,38 @@ fn qy29_data_and_form_props_live_on_their_interfaces() {
         "{log:?}"
     );
 }
+
+fn find_any_by_width(laid: &Laid, w: f32) -> Option<&Laid> {
+    if laid.style.width.map(BoxLength::px) == Some(w) {
+        return Some(laid);
+    }
+    if let LaidContent::Blocks(cs) = &laid.content {
+        for c in cs {
+            if let Some(f) = find_any_by_width(c, w) {
+                return Some(f);
+            }
+        }
+    }
+    laid.positioned.iter().find_map(|c| find_any_by_width(c, w))
+}
+
+// QY32: `position: fixed` inside an absolutely positioned box used to be
+// dropped (the nested pending list was only debug_assert!ed empty).
+#[test]
+fn fixed_inside_absolute_is_laid_out_at_viewport_position_qy32() {
+    let laid = measure_document_fixture(
+        r#"<html><body style="margin:0">
+<div style="position:absolute;top:200px;left:50px;width:300px;height:100px">
+<div style="position:fixed;top:7px;left:9px;width:11px;height:10px"></div>
+<div style="position:fixed;top:8px;left:9px;width:12px;height:10px;z-index:5"></div>
+<div style="position:fixed;top:6px;left:9px;width:13px;height:10px;transform:translateY(0)"></div>
+</div></body></html>"#,
+        400.0,
+        600.0,
+    );
+    for (w, top) in [(11.0, 7.0), (12.0, 8.0), (13.0, 6.0)] {
+        let f = find_any_by_width(&laid, w).unwrap_or_else(|| panic!("fixed box of width {w} was dropped"));
+        assert!(f.fixed, "width {w} must be flagged fixed");
+        assert_eq!((f.x, f.y), (9.0, top), "fixed box of width {w} stays at its viewport position, not the absolute parent's");
+    }
+}
