@@ -69,6 +69,12 @@ pub(crate) const MPV_OPTIONS: &[(&str, &str)] = &[
     ("vo", "libmpv"),
     ("ao", "null"),
     ("keep-open", "yes"),
+    // QNET1: defence in depth. ffmpeg (HLS/DASH playlists, mov external refs) may
+    // not open any nested URL itself: only `crypto`/`data` are whitelisted, so no
+    // http/tcp/udp/file/... protocol exists for it (the seccomp network lock in
+    // netlock.rs is the hard stop). `%11%` = length-prefixed value (it holds a comma).
+    ("demuxer-lavf-o", "protocol_whitelist=%11%crypto,data"),
+    ("stream-lavf-o", "protocol_whitelist=%11%crypto,data"),
     ("demuxer-max-bytes", "32MiB"),
     ("demuxer-max-back-bytes", "16MiB"),
 ];

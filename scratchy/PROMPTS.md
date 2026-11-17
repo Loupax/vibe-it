@@ -7262,3 +7262,10 @@ Done: js_dom.rs `DOMParser` + `g.__parseDocument` (non-enumerable) over `makeDoc
 ## QCI0: flex test fails on a clean checkout (scratchy/qci0-flex-test-font)
 Prompt (coordinator, 2026-11-17): QCI0: find out whether `inline_flex_lays_its_children_out_side_by_side_not_stacked` (49.87 vs 50) is a flex bug or font-dependent, fix, run the suite under 2-3 other sans-serif configurations, make font-dependent tests independent or file them, add a how-to-reproduce note.
 Done: real bug. `flex: <number>` now has basis `0%` (css.rs `parse_flex_shorthand`), was `auto`. Test `flex_number_shorthand_has_zero_basis_so_split_ignores_glyph_widths`; `q30d_paint_value_...` compares 3 lines against 1 line instead of `> 30` inked rows; QCI0a filed for the propo table wrap. Fonts matrix (full `cargo test --release`, FONTCONFIG_FILE forcing sans-serif, system fonts kept): system Liberation Sans 932 pass; Liberation (forced) pass; Lato: 1 fail (q30d, fixed); Noto Sans CJK JP pass; 0xProto Propo: 1 fail (QCI0a). Before the flex fix Lato and Noto CJK failed the original test. WPT unchanged. Recipe in tools/README and AGENTS.md rules.
+
+## QNET1 (scratchy/qnet1-unix-sockets-only)
+
+**Prompt:** Enforce "scratchy without wire cannot physically speak to the internet": a seccomp-BPF filter at startup (socket/socketpair fail with EAFNOSUPPORT except AF_UNIX), libmpv/ffmpeg protocol whitelist, tests (child-process filter probe, dependency and source guards, HLS-with-http-segment), help page and NOTES.md instructions for verifying with `unshare -rn`.
+
+**What changed:** new src/netlock.rs (hand-assembled BPF over `libc`, no seccompiler: not in the registry), called first in src/main.rs; MPV_OPTIONS `demuxer-lavf-o`/`stream-lavf-o` = `protocol_whitelist=%11%crypto,data`; src/tests/qnet1_tests.rs (child module of tests.rs); help.html section; NOTES.md and NETWORKING.md sections.
+
