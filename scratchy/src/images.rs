@@ -1945,19 +1945,23 @@ pub(crate) fn build_layout_tree_with_resources(
     // Parsing also records which state pseudo-classes appear
     // (`note_state_rule`), so that mask is cached with the rules.
     let rules: Rc<Vec<StyleRule>> = RULES_CACHE.with(|c| {
-        if let Some((src, rules, mask)) = c.borrow().as_ref()
+        if let Some((src, rules, mask, kf)) = c.borrow().as_ref()
             && *src == css_source
         {
             note_state_rule(*mask);
+            set_keyframes(kf.clone());
             return rules.clone();
         }
         let mut rules = parse_ua_stylesheet(DEFAULT_CSS);
         if js_enabled() {
             rules.extend(parse_ua_stylesheet("noscript { display: none; }"));
         }
-        rules.extend(parse_stylesheet(&css_source));
+        let (author, kf) = parse_stylesheet_with_keyframes(&css_source);
+        rules.extend(author);
         let rules = Rc::new(rules);
-        *c.borrow_mut() = Some((css_source.clone(), rules.clone(), state_rules_mask()));
+        let kf = Rc::new(kf);
+        set_keyframes(kf.clone());
+        *c.borrow_mut() = Some((css_source.clone(), rules.clone(), state_rules_mask(), kf));
         rules
     });
     HOVER_KEYS.with(|k| *k.borrow_mut() = HoverKeys::build(&rules));

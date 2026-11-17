@@ -22,3 +22,9 @@
 > Item QY44c (= QSD4a): CSS-in-JS (BBC styled-components, Guardian emotion speedy) needs `document.styleSheets`, `HTMLStyleElement.sheet`/`HTMLLinkElement.sheet` with cssRules/insertRule/deleteRule/ownerNode/disabled, and insertRule on a `<style>` sheet must restyle the page.
 
 **What changed:** cssom_prelude.js: per-element CSSStyleSheet (WeakMap, rules parsed from the element text, ownerNode/href/title/media/disabled), `document.styleSheets` (fresh StyleSheetList of connected style and rel=stylesheet link elements in tree order, constructed/adopted sheets excluded), edits publish the sheet's effective CSS with `__d_sheet_text(id, origText, css)`; unmutated rules keep their raw text so nesting or odd syntax survives. images.rs: `STYLE_OVERRIDES` consulted by `collect_style_css` only while the element text still equals the text the sheet was made from (a later textContent change replaces the sheet and wins); cleared on navigation. Link sheets have empty cssRules and do not reach the cascade (open). Tests: qy44c_* in tests.rs. Measured: BBC headless loses the "client-side exception" and `length of undefined` errors; the next one is the 500 ms CPU budget trip in the timer phase.
+
+## QAN1a: parse @keyframes and the animation longhands (no evaluation)
+
+> Item QAN1a: parse `@keyframes`/`-webkit-keyframes` into a side registry honouring @media/@supports, the eight animation longhands and the shorthand with -webkit- aliases and inherit/initial, timing functions; store per element as an interned list. No evaluation, no behaviour change.
+
+**What changed:** new src/animation.rs (types, parsers, interner, KeyframeBlockParser, registry); css.rs `AtPrelude::Keyframes`, `Declarations::anim`, `parse_stylesheet_with_keyframes`; style.rs `ComputedStyle::animations` (one interned pointer), cascade + `copy_prop` for inherit/initial; images.rs caches the registry next to RULES_CACHE. Tests `qan1a_*`.

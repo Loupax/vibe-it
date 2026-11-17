@@ -17544,4 +17544,162 @@ fn qm1e_other_status_is_a_plain_error() {
     });
     let e = MediaStream::open(path, qm1e_src(QM1E_URL, QM1E_PAGE, MediaMode::NoCors), RequestPolicy::default()).err().unwrap();
     assert_eq!(e, MediaNetError::Status(404));
+
+// ---- QAN1a: @keyframes + animation longhands (parse only) ----
+
+fn qan1a_anims(css: &str, body: &str) -> Vec<Animation> {
+    let doc = parse_html(&format!("<html><body>{body}</body></html>"));
+    let rules = parse_stylesheet(css);
+    let d = find_element_by_tag(&doc, "div").expect("div");
+    let st = resolve_style(&d, &rules, ROOT_STYLE, 800.0);
+    st.animations.map(|a| a.resolve()).unwrap_or_default()
+}
+
+#[test]
+fn qan1a_shorthand_token_order() {
+    let a = qan1a_anims("div{animation: 2s ease-in 500ms 3 alternate both paused foo}", "<div></div>");
+    assert_eq!(a.len(), 1);
+    let a = &a[0];
+    assert_eq!(a.name.as_deref(), Some("foo"));
+    assert_eq!(a.duration, 2000.0);
+    assert_eq!(a.delay, 500.0);
+    assert_eq!(a.iterations, 3.0);
+    assert_eq!(a.direction, AnimDirection::Alternate);
+    assert_eq!(a.fill, AnimFill::Both);
+    assert_eq!(a.play_state, AnimPlayState::Paused);
+    assert_eq!(a.timing, TimingFunction::CubicBezier(0.42, 0.0, 1.0, 1.0));
+    // Name first, negative delay, infinite, cubic-bezier.
+    let a = qan1a_anims("div{animation: bar 1s cubic-bezier(0,1,1,0) -500s infinite}", "<div></div>");
+    assert_eq!(a[0].name.as_deref(), Some("bar"));
+    assert_eq!(a[0].delay, -500000.0);
+    assert!(a[0].iterations.is_infinite());
+    assert_eq!(a[0].timing, TimingFunction::CubicBezier(0.0, 1.0, 1.0, 0.0));
+    // Defaults.
+    let a = qan1a_anims("div{animation: foo}", "<div></div>");
+    assert_eq!(a[0].duration, 0.0);
+    assert_eq!(a[0].timing, TimingFunction::EASE);
+    assert_eq!(a[0].iterations, 1.0);
+    assert_eq!(a[0].fill, AnimFill::None);
+    // `none` and a keyword-like name.
+    assert_eq!(qan1a_anims("div{animation: none}", "<div></div>")[0].name, None);
+    assert_eq!(qan1a_anims("div{animation: foo none}", "<div></div>")[0].fill, AnimFill::None);
+}
+
+#[test]
+fn qan1a_comma_lists_and_longhand_cycling() {
+    let a = qan1a_anims("div{animation: a 1s, b 2s linear 1s}", "<div></div>");
+    assert_eq!(a.len(), 2);
+    assert_eq!((a[0].name.as_deref(), a[0].duration), (Some("a"), 1000.0));
+    assert_eq!((a[1].name.as_deref(), a[1].duration, a[1].delay), (Some("b"), 2000.0, 1000.0));
+    assert_eq!(a[1].timing, TimingFunction::Linear);
+    let a = qan1a_anims(
+        "div{animation-name: a, b, c; animation-duration: 1s, 2s; animation-direction: reverse}",
+        "<div></div>",
+    );
+    assert_eq!(a.len(), 3);
+    assert_eq!(a.iter().map(|x| x.duration).collect::<Vec<_>>(), [1000.0, 2000.0, 1000.0]);
+    assert!(a.iter().all(|x| x.direction == AnimDirection::Reverse));
+}
+
+#[test]
+fn qan1a_webkit_aliases_and_invalid_dropped() {
+    let a = qan1a_anims("div{-webkit-animation: foo 1s; -webkit-animation-delay: 2s}", "<div></div>");
+    assert_eq!((a[0].duration, a[0].delay), (1000.0, 2000.0));
+    // Invalid declarations are dropped, the rest of the sheet survives.
+    let a = qan1a_anims(
+        "div{animation: foo 1s; animation-duration: -1s; animation-timing-function: cubic-bezier(2,0,1,1); animation: 1s 2s 3s x}",
+        "<div></div>",
+    );
+    assert_eq!((a[0].name.as_deref(), a[0].duration), (Some("foo"), 1000.0));
+    assert_eq!(a[0].timing, TimingFunction::EASE);
+}
+
+#[test]
+fn qan1a_timing_functions() {
+    let t = |v: &str| parse_animation_value("animation-timing-function", v).map(|d| d.timing.unwrap()[0]);
+    assert_eq!(t("linear"), Ok(TimingFunction::Linear));
+    assert_eq!(t("ease-out"), Ok(TimingFunction::CubicBezier(0.0, 0.0, 0.58, 1.0)));
+    assert_eq!(t("ease-in-out"), Ok(TimingFunction::CubicBezier(0.42, 0.0, 0.58, 1.0)));
+    assert_eq!(t("steps(4)"), Ok(TimingFunction::Steps(4, StepPos::JumpEnd)));
+    assert_eq!(t("steps(2, start)"), Ok(TimingFunction::Steps(2, StepPos::JumpStart)));
+    assert_eq!(t("steps(3, jump-both)"), Ok(TimingFunction::Steps(3, StepPos::JumpBoth)));
+    assert_eq!(t("steps(1, jump-none)"), Err(()));
+    assert_eq!(t("steps(0)"), Err(()));
+    assert_eq!(t("step-start"), Ok(TimingFunction::Steps(1, StepPos::JumpStart)));
+    assert_eq!(t("step-end"), Ok(TimingFunction::Steps(1, StepPos::JumpEnd)));
+    assert_eq!(t("cubic-bezier(0.1, 0.7, 1, 0.1)"), Ok(TimingFunction::CubicBezier(0.1, 0.7, 1.0, 0.1)));
+}
+
+#[test]
+fn qan1a_inherit_initial_per_longhand() {
+    let doc = parse_html("<html><body><section><div></div></section></body></html>");
+    let rules = parse_stylesheet(
+        "section{animation: a 3s linear 2s} div{animation-name: inherit; animation-duration: inherit; animation-delay: initial; animation-timing-function: inherit}",
+    );
+    let s = find_element_by_tag(&doc, "section").unwrap();
+    let ss = resolve_style(&s, &rules, ROOT_STYLE, 800.0);
+    let d = find_element_by_tag(&doc, "div").unwrap();
+    let inh = InheritedStyle { parent: Some(ss), ..ROOT_STYLE };
+    let ds = resolve_style(&d, &rules, inh, 800.0);
+    let a = ds.animations.unwrap().resolve();
+    assert_eq!(a[0].name.as_deref(), Some("a"));
+    assert_eq!(a[0].duration, 3000.0);
+    assert_eq!(a[0].delay, 0.0);
+    assert_eq!(a[0].timing, TimingFunction::Linear);
+    assert_eq!(a[0].iterations, 1.0);
+    // Not inherited by default.
+    let rules = parse_stylesheet("section{animation: a 3s}");
+    let ds = resolve_style(&d, &rules, InheritedStyle { parent: Some(ss), ..ROOT_STYLE }, 800.0);
+    assert!(ds.animations.is_none());
+}
+
+#[test]
+fn qan1a_keyframes_registry() {
+    let (_, kf) = parse_stylesheet_with_keyframes(
+        "@keyframes a { from { opacity: 0 } 0%, 50% { opacity: .5 } to { opacity: 1 !important; color: red } }
+         @-webkit-keyframes w { 100% { opacity: 1 } }
+         @keyframes \"s\" { to { opacity: 1 } }
+         @keyframes none { to { opacity: 1 } }
+         @keyframes bad { 150% { opacity: 1 } 10% { opacity: 1 } }
+         @keyframes dup { to { opacity: 0.1 } } @keyframes dup { to { opacity: 0.9 } }
+         p { color: red }",
+    );
+    let a = registry_get(&kf, "a", 800.0).expect("a");
+    assert_eq!(a.iter().map(|k| k.offset).collect::<Vec<_>>(), [0.0, 0.0, 0.5, 1.0]);
+    assert!(a[3].decls.opacity.is_none(), "!important inside a keyframe is dropped");
+    assert!(a[3].decls.color.is_some());
+    assert_eq!(a[2].decls.opacity, Some(0.5));
+    assert!(registry_get(&kf, "w", 800.0).is_some() && registry_get(&kf, "s", 800.0).is_some());
+    assert!(registry_get(&kf, "none", 800.0).is_none());
+    assert_eq!(registry_get(&kf, "dup", 800.0).unwrap()[0].decls.opacity, Some(0.9), "last definition wins");
+}
+
+#[test]
+fn qan1a_keyframes_inside_media_and_supports() {
+    let (rules, kf) = parse_stylesheet_with_keyframes(
+        "@media all { @keyframes yes { to { opacity: 1 } } }
+         @media not all { @keyframes no { to { opacity: 1 } } }
+         @supports (display: grid) { @keyframes sy { to { opacity: 1 } } }
+         @supports (foo: bar) { @keyframes sn { to { opacity: 1 } } }
+         div { color: blue }",
+    );
+    assert!(registry_get(&kf, "yes", 800.0).is_some() && registry_get(&kf, "sy", 800.0).is_some());
+    assert!(registry_get(&kf, "no", 800.0).is_none() && registry_get(&kf, "sn", 800.0).is_none());
+    assert_eq!(rules.len(), 1, "the sheet after the keyframes still parses");
+}
+
+#[test]
+fn qan1a_registry_reaches_the_cascade_cache() {
+    let doc = parse_html("<html><head><style>@keyframes k { to { opacity: 1 } } div { animation: k 1s }</style></head><body><div></div></body></html>");
+    let _ = build_layout_tree(&doc, 800.0);
+    assert!(lookup_keyframes("k", 800.0).is_some());
+    let _ = build_layout_tree(&doc, 800.0);
+    assert!(lookup_keyframes("k", 800.0).is_some(), "cache hit keeps the registry");
+}
+
+#[test]
+fn qan1a_computed_style_stays_small() {
+    fn is_copy<T: Copy>() {}
+    is_copy::<ComputedStyle>();
+    eprintln!("size_of ComputedStyle = {}", std::mem::size_of::<ComputedStyle>());
 }
