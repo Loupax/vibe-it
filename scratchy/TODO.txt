@@ -87,6 +87,13 @@ READY, in recommended order (no user decision needed):
  QY23 [S], QY24 [S], QY25 [S], QJ4 [M] (social.loupax.com/vim.js wall:
  getBoundingClientRect), QJ5 [S], QJ6 [M], QJ7 [M], QJ8 [S], QJ9 [S], QW6 [S];
  later QY26 [M], QJ10 [M], QY27 [S] re-measure. QJ11 DECIDED 2026-11-17 (nothing to do).
+ NEW 2026-11-17 (Opus QY28, R26: why YouTube is still grey), in this order:
+ QY29 [S] P1 (Node.prototype.data -> polymer-resin blanks every renderer: THE
+ blocker), QY24 [S] P1 (raised: hides YouTube's text), QY32 [S] P1 (fixed inside
+ absolute dropped: masthead/guide), QY30 [S] (rAF same-instant loop), QY31 [S]
+ (report stops after a trip), QY37 [S] (report uses the user's jar), QY38 [S/M]
+ (report ignores stylesheets), QY36 [S], QY33 [M] (callback cost, measure),
+ QY34 [M] (script-inserted scripts), then QY35 (Opus bisect) and QY27.
  Then P3/P4 leftovers in their blocks (QY*, QA*, Q40b/Q40c fix items).
 WAITING FOR USER (skip until answered):
 - SD-D1: OK to ship B1 (attachShadow works, JS sees a real shadow tree, but
@@ -102,6 +109,10 @@ WAITING FOR USER (skip until answered):
   `X-Wire-Cookie-Op` channel, and how is it shared? (hook
   `control_authorized`; QF14b2 (f)). Also QF14b2 (d) `--profile` jar name
   and (e) tracker-list blocking: want them, and which list?
+- QY39-D (R26): wire sends `User-Agent: wire/0.1 (+https://github.com/Loupax/vibe-it)
+  scratchy's real-networking daemon`; YouTube classifies it as a bot (`cbrand=robot,
+  cmodel=bot or crawler`) and serves its ES5 + polyfills variant. Keep the honest UA,
+  or send a browser-like one for pages (and which)? Nothing is blocked on it today.
 - Forms (Q30a-Q30e, Q30g, Q33e, QB11's form part): placeholder-only (AGENTS.md)
   until you design live state/editing/submission. Same for media.
 - Media (QM1 done 2026-11-17, R27): an mpv process cannot be embedded on Wayland;
@@ -181,13 +192,24 @@ script finishes after 12.7 s of run (host 11.2 s = `__d_query` 1646 calls
 `getComputedStyle` 67 calls 7.6 ms; no relayout is ever triggered (JS has
 no geometry). So: not the engine, not our hooks in general, ONE hook.
 
-- [ ] QY28 [Opus, investigate only] (user request 2026-11-17: "why is youtube still a
+- [x] QY28 [Opus, investigate only] (DONE 2026-11-17, evidence REGRESSIONS.md R26;
+      items QY29-QY38, question QY39-D) (user request 2026-11-17: "why is youtube still a
       gray page") YouTube end-to-end status after QY21/QJ4: run the real page headless
       and in a nested dwl, list every error/missing feature in the order it blocks
       the UI (script errors, missing DOM/CSS features, shadow DOM, timers, fetch
       policy), say what the first non-gray paint needs, and file ranked Sonnet
       action items (sizes, tests, acceptance). Docs-only change to TODO.txt and
       REGRESSIONS.md. Depends on QY21 being merged (else it re-measures the 5 s wall).
+      ANSWER: since QY21/QY22 the app loads (no 5 s trip on main ee6240d in 8/8
+      runs: 5 headless, 3 window) and stamps its shell, but every Polymer renderer's `data` binding is
+      replaced by YouTube's polymer-resin sanitizer with the string "zClosurez"
+      because scratchy puts `data` on Node.prototype (QY29), so the browse page
+      never renders and the static grey skeleton stays. Measured with local
+      patches on main: QY29 + QY24 (+ QY30 for the headless tool) => the grey
+      skeleton is replaced by the logged-out "Der YouTube-Verlauf ist
+      deaktiviert" card (the only content YouTube serves this visitor; no videos
+      even in Chrome); + QY32 => hamburger, search button and mini-guide labels.
+      Remaining paint gaps: QY35. Our CSS/layout draws the card correctly.
 - [x] QM1 [Opus, investigate only] (user request 2026-11-17) Can scratchy EMBED an
       already installed external video player (mpv or similar) instead of decoding
       media itself? Survey: mpv `--wid` / libmpv render API (Wayland: no X11 window
@@ -397,6 +419,18 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       here today, so that is not the cause). Test: a custom element class
       with `get className(){ return undefined; }` still supports
       `classList.add/contains/toggle`.
+      REFINED 2026-11-17 (R26, raise to P1 with QY29): main ee6240d's window logs
+      3x `uncaught exception in custom element callback: at classes` on
+      `<yt-formatted-string>`; the visible effect is that YouTube's text
+      components keep `is-empty` (CSS `yt-formatted-string[is-empty]
+      :not(.use-shadow){display:none}`) and `<yt-attributed-string
+      hidden="true">`, e.g. the nudge title is invisible. The WRITE side has the
+      same bug: `put` does `el.className = ...`, which a framework `className`
+      property swallows; read AND write the `class` attribute (`__d_attr` /
+      the prelude-local `__d_setattr`, so MO/CE attribute hooks still fire).
+      Measured with that local fix: the title renders as text. Extra test: a
+      class whose `className` setter is a no-op still gets the attribute from
+      `classList.add('x')`.
 - [ ] QY25 [S] (P3, diagnostics) Custom element and MutationObserver
       callback errors lose the message: `ceReport` (js_dom.rs) prints only
       `e.stack`, and a QuickJS stack has no `Name: message` line, so the
@@ -428,6 +462,143 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       CORS: no Access-Control-Allow-Origin header` (initiator not found;
       the app's beacons use `mode: "no-cors"` which must not be
       CORS-checked: verify which request this is). File the next walls.
+      PARTLY DONE by QY28 (R26): the walls are filed as QY29-QY38. The CORS
+      line is `GET https://youtube.com/` (the APEX): wire follows its 301 to
+      www, the crossed-redirect check compares `Origin: null` with ACAO
+      `https://www.youtube.com`; nothing waits for it and a browser fails it
+      too (the 301 has no ACAO); ~1 MB is downloaded for nothing (QF7b/QF13a
+      per-hop handling would stop at the 301). Keep QY27 for the re-measure
+      after QY29-QY32 (window + peak memory).
+- [ ] QY29 [S] (P1, THE YouTube blocker; R26) `data` must not exist on every node.
+      Root cause: js_dom.rs DOM_PRELUDE `defs(NodeProto, 'data', ...)` puts `data`
+      on Node.prototype, so `'data' in document.createElement('div')` (and in an
+      HTMLUnknownElement) is true; in browsers only CharacterData (Text, Comment,
+      ProcessingInstruction, CDATASection), HTMLObjectElement and HTMLDataElement
+      have it. YouTube's polymer-resin (kevlar `XBv`: `case "property": if (t in
+      O)` with `O = document.createElement(tag)` / `polyresinuncustomized`) then
+      treats every `data="[[...]]"` property binding as a security-sensitive
+      native property with no safe contract and replaces the value with its
+      INNOCUOUS_STRING `"zClosurez"`: no renderer gets data, the browse page never
+      renders, the skeleton stays. Fix: drop the NodeProto definition (keep the
+      CharacterData one, which already shadows it: Acid3 `span.firstChild.data =
+      score` must keep working); check `HTMLObjectElement.data` (reflected URL,
+      `rUrl(OBP,'data','data')`) and `HTMLDataElement.value` are unaffected. In
+      the same item audit Element.prototype for properties browsers only have on
+      specific interfaces: today `checked`, `disabled`, `required` sit on
+      Element.prototype (browsers: input/button/select/textarea/fieldset/
+      option/optgroup/link/style...); move them to those interfaces (resin uses
+      the same test for `disabled="[[...]]"` bindings on custom elements).
+      Test: `'data' in div === false`, `'data' in createElement('x-foo') ===
+      false`, `'data' in createTextNode('a') && 'data' in createComment('a')`,
+      text.data get/set, `'disabled' in div === false`, `'disabled' in
+      createElement('button') === true`; existing Acid3/QA tests pass. Accept
+      (window, real URL, with QY24): the grey skeleton is replaced by the
+      "Der YouTube-Verlauf ist deaktiviert" card (screenshot viewed);
+      headless `--js-report` probe (R26 recipe): `#home-page-skeleton` removed,
+      `ytd-rich-grid-renderer` present. Unblocks: YouTube's whole UI, any
+      Polymer app that uses polymer-resin (Google properties).
+- [ ] QY30 [S] (P2, R26) rAF due time can equal "now": TIMERS_PRELUDE `add()` (js.rs)
+      `if (raf) delay = FRAME - (t % FRAME)`; at t = 100 ms (FRAME = 1000/60)
+      `t % FRAME` is 16.666666666666657, delay 1.1e-14, `t + delay` rounds back
+      to 100, so a self-rescheduling rAF (YouTube's web-animations polyfill) runs
+      forever at one instant: 200 040 callbacks at simulated 100 ms in
+      `--js-report` (live clock: not reproduced, not ruled out). Fix: due = the
+      next frame boundary STRICTLY greater than t (`(floor(t/FRAME)+1)*FRAME`,
+      +FRAME if it is still <= t). Test: fake clock at 0, 100, 1000/60*6 and
+      1e6: a rAF scheduled there is due > t, and a rAF that reschedules itself
+      10 times advances the clock 10 frames. Accept: R26 probe run gets past
+      simulated 100 ms with QY29 applied. Unblocks: headless YouTube runs, any
+      rAF animation loop in `--js-report`.
+- [ ] QY31 [S] (P2, tooling, R26) `--js-report --run-timers` stops pumping at the first
+      tripped callback: `run_due_counted` (js.rs) returns 0 when its FIRST eval
+      returns None (tripped/failed), and `js_report_for_scripts_timers` treats
+      0 as "nothing due" (`if n == 0 { break }`). On main the YouTube report
+      covers 51-101 ms of 20000 ms (34-44 callbacks). Fix: report "ran but
+      failed" separately from "no due timer" (enum/tuple), keep pumping. Test:
+      a page with a 600 ms busy timer at t=10 and a console.error timer at
+      t=1000 reports both the trip line and the t=1000 line. Unblocks:
+      every headless measurement of a heavy page.
+- [ ] QY32 [S] (P1, R26) `position: fixed` inside an absolutely positioned box is never
+      laid out or painted. Root cause: layout.rs `resolve_positioned` measures
+      the abs/fixed box with a fresh `nested_pending`; `resolve_or_bubble_
+      positioned` always bubbles `fixed` entries, so they land in
+      `nested_pending`, which is only `debug_assert!`ed to be empty: release
+      builds silently drop them (debug builds would panic). Fixture (viewed):
+      fixed boxes inside a static or relative parent paint; inside
+      `position:absolute` they vanish (with or without z-index/translateY(0)).
+      YouTube: `ytd-app` is absolute; the masthead (`#masthead-container.ytd-app`
+      fixed, z 2020) and `ytd-mini-guide-renderer` (fixed, z 2028) are inside
+      it. Fix: let `resolve_positioned` hand nested fixed entries back to its
+      caller (a `bubble_out` param, as `resolve_or_bubble_positioned` has) so
+      they reach `measure_document`'s viewport resolution and the root stacking
+      order; their position must not move with the abs ancestor
+      (`shift_laid_tree` already skips `fixed`). A local patch resolving them in
+      place against the viewport made the fixture and YouTube's masthead
+      buttons/mini guide appear (R26). Test: the 3-box fixture (fixed inside
+      absolute, with z-index, with translateY(0)) lays out all 3 at their
+      `top`, and a fixed box inside a scrolled absolute box stays at its
+      viewport position; remove the debug_assert. Accept: YouTube window shows
+      the hamburger, search button and mini-guide labels. Unblocks: YouTube
+      masthead/guide, any app shell with an absolute root (dialogs, toasts).
+- [ ] QY33 [M] (P3, R26, measure first) YouTube's post-load timer callbacks exceed the
+      500 ms CALLBACK_BUDGET on main: first callback 764-1416 ms thread CPU, then
+      several 500-684 ms (budget raised locally to see them); default budget =>
+      1-2 `timer stopped` + 2-4 `promise jobs stopped` per load. QJ4's forced
+      layout costs 1130-1511 ms per layout in the window (`N forced layouts, M
+      ms` line) on this ~1600-element DOM. The window still painted the card
+      with the trips, but what the dropped work was is unknown. Do: profile
+      the >500 ms callbacks after QY29/QY32 (R26 recipe: per-callback timer +
+      wrapped natives; is it forced layout, `__d_query`, or JS?) and file the
+      fix (layout cost = QJ4b's perf note; R3 for the layout pipeline). Also
+      record: thread-CPU cost per run of the SAME binary/page varied ~2.5x with
+      machine load (kevlar compile-only 1080 ms vs 2676 ms), so budgets tuned
+      on an idle machine trip on a busy one; consider that when choosing
+      limits. Accept: numbers in R26 updated; no callback > 500 ms on an idle
+      machine, or an item explaining why not.
+- [ ] QY34 [M] (P3, R26) Script-inserted `<script>` elements never run. Fixture:
+      `createElement('script')` with `textContent` appended to head, and one
+      with `src` + onload/onerror: neither runs, no network request, no event
+      (`--js-report`, 0 requests). Spec "prepare the script element" when a
+      script element becomes connected (not parser-inserted): inline runs
+      synchronously, `src` fetched through the QF7 queue and run async
+      (`async` defaults true for script-inserted), then `load`/`error`;
+      `document.currentScript` set during the run; `type=module` via the QY15
+      loader. Today's hooks: the QY6e/QY6a insert hook layer (js_dom.rs
+      `hookInstall`) sees every insert. YouTube inserts 3 (lazy kevlar chunk
+      `exm=...m=QlbBce,De8mUc` 518 B, botguard, player `base.js`); adding the
+      chunk statically changed nothing on the home page, so this is not the
+      grey-page cause, but GA/ads/lazy loaders on most sites rely on it.
+      The player script loading is fine (it is JS); its media stays
+      placeholder-only (AGENTS.md). Test: both fixture scripts run once, in
+      order of insertion for inline, `load` fires for src, `error` for a 404,
+      a script moved again is not re-run. Unblocks: lazy-loaded bundles
+      everywhere.
+- [ ] QY35 [S] (P3, Opus bisect first, after QY29+QY32+QY24) Remaining YouTube masthead/
+      guide paint gaps seen with local patches (R26 screenshot): no logo graphic
+      (only "DE"), the search field collapsed to a stub, no "Anmelden" sign-in
+      button, mini-guide icons have computed `display:none` (yt-icon#icon in
+      ytd-mini-guide-entry-renderer), the nudge subtitle overprints one line
+      (`yt-formatted-string[split-lines]` with "\n\n" and a link; a plain
+      `white-space:pre-wrap` fixture renders correctly). Bisect each to a
+      fixture against the real kevlar CSS, then file Sonnet items.
+- [ ] QY36 [S] (P3, R26) getComputedStyle serialises percentages as fractions:
+      `width:50%` -> "0.5%", `100%` -> "1%" (js_style.rs, `__d_cs` value
+      formatting). Test: 50%/100%/12.5% widths and a `calc()`-free max-width
+      read back exactly. Unblocks: scripts that read percentage styles.
+- [ ] QY37 [S] (P3, tooling, R26) `--js-report` uses the user's cookie jar: every
+      credentialed request carries `X-Wire-Jar: scratchy` (`COOKIE_JAR_NAME`,
+      net_policy.rs), so diagnostics write into the user's in-memory wire jar
+      (R26's runs did, for youtube.com). Use a separate jar for the report
+      (e.g. `scratchy-report`, or `--jar NAME`), print it in the report header.
+      Test: the report's requests carry the report jar name.
+- [ ] QY38 [S/M] (P3, tooling, R26) `--js-report` never loads `<link rel=stylesheet>`,
+      so getComputedStyle and QJ4's forced layout see UA + inline styles only
+      (YouTube's `ytd-app` is `display:inline` headless, `block` with its CSS):
+      headless geometry differs from the window (with QJ4 the window rendered
+      the nudge, the headless run did not). Fetch linked sheets through wire as
+      the App does (same `ExternalResources` path) when a socket is given.
+      Test: a copy with an external sheet that sets `display:flex` reads back
+      `flex` in the report.
 
 social.loupax.com/discover (the user's own site; source read at
 /home/loupax/src/social, internal/web/js/vim.js): vim.js is NOT in the

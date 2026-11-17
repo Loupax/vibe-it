@@ -1,5 +1,214 @@
 # scratchy — regressions
 
+## R26: YouTube is still a grey page: `Node.prototype.data` makes polymer-resin blank every renderer's data (Opus investigator, 2026-11-17) — OPEN, items QY29-QY39 in TODO.txt
+
+**Status: open (bugs and missing features, no regression).** User question:
+"why is youtube still a gray page? I don't expect videos to play, but I'd
+expect to see more UI." Answer: since QY21/QY22 the app script loads without
+the 5 s trip and the app shell is stamped, but NO Polymer renderer ever
+receives its `data`, so the home page is never rendered and the static grey
+skeleton is never removed. Cause: scratchy defines `data` on
+`Node.prototype` (every element has a `data` property). YouTube's
+polymer-resin sanitizer (kevlar `XBv`) checks `name in <a plain element of
+that tag>` for every property binding; for `data` that is true here (false
+in browsers, where only CharacterData/`<object>`/`<data>` have it), so it
+replaces every bound `data` value with its innocuous string `"zClosurez"`.
+With that one property moved (stand-in), the browse page renders, the
+skeleton is removed and the logged-out nudge appears. Two more paint bugs
+then hide the masthead and the guide (QY32: a `position: fixed` box inside
+an absolutely positioned box is dropped by layout) and the nudge title
+(QY24: classList on `<yt-formatted-string>`).
+
+### How this was measured (reusable; nothing committed)
+
+- Page: `curl --unix-socket /run/user/1001/wire.sock -H 'X-Wire-Jar:
+  qy28-investigator' --request-target https://www.youtube.com/ http://x/`,
+  3 fetches 01:01, all three `kevlar_base` (10613 KB app script, the user's
+  variant; no `base_module_set` this time), copy with `<base
+  href="https://www.youtube.com/">` after `<head>`. Probes are inline
+  `<script>`s after `<base>` that log with `console.error` from timers
+  (element counts, custom element tags, `ytd-app` textContent, a full
+  `outerHTML` dump at the end). Stand-ins (scratchpad only) are inline
+  scripts in the copy; experiments are LOCAL, never-committed source
+  patches in the investigator worktree (reverted).
+- Builds, in this order: (a) the installed main binary (00:48); (b)
+  41b07ea + a local QY21(1) patch (define() queries only the new name), as
+  R24 did, because QY21 was not merged when this started; (c) main ee6240d
+  after QY21 (959cd39), QJ4 (674231c), QJ5 and QY22 (ecd463a) merged
+  mid-investigation; QY23 (5fee1a6) and QJ7 merged after (c) was measured.
+- Temporary instrumentation (local only): per-eval and per-timer-callback
+  thread-CPU ms, every global `__*` native wrapped in a JS timer, env
+  overrides for SCRIPT_BUDGET/CALLBACK_BUDGET, a histogram of the timer
+  callback sources, `ceReport` printing `String(e)` + tag + args.
+- Window: `tools/nest.sh` + `grim` (screenshots viewed), one scratchy at a
+  time, 60 s after start. Static check of the post-JS DOM: the probe's
+  `outerHTML` dump, scripts stripped, rendered with `--no-js` (same
+  stylesheets through wire).
+- Machine: 8 cores, load average 9-21 (other agents' builds) throughout.
+
+### Measurements
+
+Load phase (`--js-report --run-timers`, page-load errors):
+
+| build | load trips 5 s? | kevlar eval CPU | notes |
+|---|---|---|---|
+| (a) installed main | yes, 1/1 | - | 595 elements, 4 custom tags, 17 timer callbacks |
+| (b) QY21(1) only | 2 of 3 runs trip, 1 of 3 not | 2139 ms (compile-only pass 1080 ms) at one time; 5035 ms (trip) / 6082-6679 ms with budget raised (compile-only 2676-2678 ms) at another | SAME binary, SAME page: thread-CPU cost per run varied ~2.5x with machine load (SMT/frequency contention), so a CPU-time budget is not machine-independent |
+| (c) main ee6240d | no, 2/2 headless + 3/3 window | - | QY21 + QY22 removed the load wall |
+
+Natives after load with (b): `__d_query` 1038-1647 calls, 372-1054 ms; the
+`dom-module,array-selector,...` ce selector alone 53-383 calls, 25-582 ms;
+after 5 s of timers 3101 calls 2613 ms (ce selector 1344 calls 2107 ms):
+that is what QY21(2) (merged) removed.
+
+Timer callbacks with main (c), CALLBACK_BUDGET raised to 60 s to see them:
+first callback after load 1416 ms (764 ms in a later run), then 311, 684,
+646, 505, 518, 501 ms (thread CPU). With the default 500 ms budget: 1-2
+`timer stopped` + 2-4 `promise jobs stopped` lines per load (QY22's one-line
+form; no cascade, no `out of memory`). QJ4's forced layout logged `11 forced
+layouts, 1198 ms` headless and `2 forced layouts, 1511 ms` / `1 forced
+layouts, 1130 ms` in the window.
+
+The first ~2000 timer callbacks run ~500 different callbacks; the web
+animations polyfill (`web-animations-next-lite.min.js`, rAF loop `function
+d(q){...u._animations...}`) starts a rAF loop once renderers stamp.
+
+### The chain, in the order it blocks the UI
+
+1. (DONE, QY21+QY22) 5 s load trip. Gone on main (c).
+2. **`data` on every element -> polymer-resin -> `"zClosurez"` (QY29).**
+   Evidence: on (b)+60 s budgets, `ytd-browse.data` has the whole browse
+   response (`responseContext,contents,header,...`), the bound child
+   `ytd-two-column-browse-results-renderer` (template binding
+   `data="[[data.contents.twoColumnBrowseResultsRenderer]]"`, node 12 of the
+   browse template) has `polymerController.__data` with every OTHER bound
+   property (`pageSubtype`, `isConstrainedList`, ...) but no `data`;
+   re-assigning `browse.data` from a probe set the child's `data` to the
+   string `"zClosurez"`. kevlar: `Uog` creates the polymer_resin policy
+   whose `createHTML` returns `"zClosurez"` (`INNOCUOUS_STRING`); `XBv`'s
+   `case "property": if (t in O) {...}` with `O =
+   document.createElement(tag)` (or `polyresinuncustomized` for custom
+   elements). In scratchy `'data' in document.createElement('div')` and
+   `in` an HTMLUnknownElement are `true` (`Node.prototype.data`, js_dom.rs
+   `defs(NodeProto, 'data', ...)`). Element.prototype also carries
+   `checked`, `disabled`, `required` (browsers: only on form-control
+   interfaces), the same trap for `disabled="[[...]]"` bindings.
+   Stand-in (move the descriptor to CharacterData/Text/Comment): the
+   skeleton is removed (`#home-page-skeleton` gone), `ytd-rich-grid-renderer`
+   is stamped, the masthead gets "Navigation überspringen", "Anmelden";
+   with geometry (fake stand-in on (b), or QJ4 on main in the window) the
+   `ytd-feed-nudge-renderer` appears with the text YouTube serves this
+   logged-out EU visitor.
+3. **QY30: rAF loop spins at one instant in `--js-report`.** `add()` in
+   TIMERS_PRELUDE: `delay = FRAME - (t % FRAME)` with FRAME = 1000/60; at
+   t = 100 ms, `100 % FRAME` = 16.666666666666657, delay 1.1e-14, `t +
+   delay` rounds to 100: the polyfill's rAF loop ran 200 040 callbacks at
+   simulated 100 ms (sampled every 20000: always `raf 100 function
+   d(q){...}`), so the report never got past 100 ms. Not reproduced live
+   (real clock), not ruled out either.
+4. **QY31: `--js-report` stops pumping after one tripped callback.**
+   On main the timer phase ends at simulated 51-101 ms (34-44 callbacks of
+   20000 ms) because `run_due_counted` returns 0 when its first eval trips
+   and the pump treats 0 as "no due timer" (`if n == 0 { break }`).
+5. **QY24 (existing, now confirmed visible):** 3x `cannot read property
+   'split' of undefined at classes` on `<yt-formatted-string>` in the window
+   (main c). With it, the nudge title keeps `is-empty` (CSS
+   `yt-formatted-string[is-empty]:not(.use-shadow){display:none}`) and its
+   `<yt-attributed-string hidden="true">`; with a local fix (read and WRITE
+   the `class` attribute) the title is plain text and renders.
+6. **QY32: `position: fixed` inside an absolutely positioned box is never
+   laid out.** YouTube: `ytd-app` is `position:absolute`, the masthead
+   (`#masthead-container.ytd-app{position:fixed;top:0;width:100%;
+   z-index:2020;transform:translateY(0)}`) and `ytd-mini-guide-renderer`
+   (fixed, z 2028) are inside it. Fixture (viewed): fixed boxes inside a
+   static / relative parent paint, inside an absolute parent they vanish.
+   `resolve_positioned` (layout.rs) measures the abs box with a fresh
+   `nested_pending`; `resolve_or_bubble_positioned` always bubbles `fixed`
+   entries, so they end up in `nested_pending`, which is only
+   `debug_assert!`ed empty: release builds drop them (debug builds would
+   panic). A local patch resolving them against the viewport made the
+   fixture and YouTube's hamburger, search button and mini-guide appear.
+7. Callback budget (QY33): see the numbers above; the window still painted
+   the nudge with 1-2 trips, what the dropped work was is unknown.
+8. Not blocking the home page: dynamically inserted `<script>` elements
+   never run (QY34; YouTube inserts 3: the lazy kevlar chunk
+   `exm=...m=QlbBce,De8mUc` (518 bytes), botguard `www.google.com/js/th/...`
+   and the player `base.js`; adding the chunk statically changed nothing on
+   the home page); `GET https://youtube.com/` CORS-blocked (QY27 asked:
+   it is the apex URL, wire follows its 301 to www, the crossed-origin
+   check compares `Origin: null` with ACAO `https://www.youtube.com`;
+   ~1 MB fetched, nothing waits for it; a browser would fail it too because
+   the 301 has no ACAO); 6 `googlevideo.com/videoplayback?itag=18` fetch()es
+   (403 / upstream error; the player's prefetch, not a `<video>`); one POST
+   `/youtubei/v1/feedback` 400 once the nudge renders.
+
+What Chrome shows for this visitor: `ytInitialData` holds no videos; its
+only content is a `feedNudgeRenderer` ("Der YouTube-Verlauf ist
+deaktiviert", subtitle, "Weitere Informationen", button "Einstellung
+aktualisieren") plus masthead and guide. So "more UI" = masthead, guide and
+that card; videos would not appear even in Chrome without watch history.
+
+### Screens (viewed)
+
+- main (c), real URL, 60 s: white page, a thin empty masthead strip (two
+  light horizontal lines), two big grey thumbnail boxes with a grey avatar
+  circle and two grey text bars: the static `#home-page-skeleton`; no
+  logo, no text. Same on (b) at ~20 s and ~28 s (that run: 2954
+  `interrupted` promise-job lines in 36 s, 27 s CPU, RSS 444 MB, before
+  QY22).
+- Post-JS DOM of a stand-in run rendered `--no-js` without any stylesheet:
+  "Zurück", hamburger, a huge YouTube logo, "DE", "Navigation
+  überspringen", search and kebab icons, a huge account icon: the DOM
+  content exists.
+- Same DOM with YouTube's CSS: blank white except a search-box frame while
+  the title still had `is-empty`; after the QY24 local fix: the nudge card
+  (bold title, grey subtitle, blue "Weitere Informationen", grey pill
+  button "Einstellung aktualisieren", thin border), nothing else.
+- main (c) + local QY29/QY24/QY23/QY30 patches, real URL, default budgets:
+  the grey skeleton is GONE, the nudge card is painted; no masthead, no
+  guide. Adding the local QY32 patch: top-left hamburger, "DE" (no logo
+  graphic), a collapsed search field stub with a search button, mini-guide
+  labels "Startseite", "Shorts", "Abos", "Mein YouTube" without icons, no
+  "Anmelden" button; the nudge subtitle has one line where words overprint
+  ("relevanten Videos zu erhalten." followed by overlapping text, then
+  "Wenn" alone on a line before the link). A plain `white-space: pre-wrap`
+  fixture with the same text renders correctly, so that glitch is not a
+  plain pre-wrap bug (QY35 bisects it).
+
+### Other findings
+
+- wire's User-Agent is `wire/0.1 (+https://github.com/Loupax/vibe-it)
+  scratchy's real-networking daemon` (wire/src/main.rs); YouTube classifies
+  it `cbrand=robot, cmodel=bot or crawler` (ytcfg `DEVICE`) and serves the
+  ES5 bundle with `webcomponents-all-noPatch.js`, `fetch-polyfill.js`,
+  `intersection-observer.min.js`. Everything above is about that variant.
+  Whether to send a browser-like UA is a product question (QY39-D).
+- `getComputedStyle` serialises percentages as fractions: `width:50%` ->
+  `"0.5%"`, `100%` -> `"1%"` (QY36).
+- `--js-report` sends the user's cookie jar name `scratchy`
+  (`COOKIE_JAR_NAME`, net_policy.rs; report lines say `jar: scratchy`), so a
+  diagnostic run writes into the user's in-memory wire jar (QY37). This
+  investigation's headless and window runs did that for youtube.com.
+- `--js-report` does not load `<link rel=stylesheet>`: getComputedStyle and
+  QJ4's forced layout there see only UA + inline styles (ytd-app computes
+  `display:inline` headless, `block` with the CSS inlined), so headless
+  geometry differs from the window: with QJ4 on main the headless run did
+  NOT stamp the nudge while the window did (QY38).
+
+### Not verified
+
+- Which of the four local patches the window needed: they were measured
+  together (QY29 alone headless shows the grid; the live rAF effect is
+  unknown).
+- The QY32 local patch resolves nested fixed boxes against the viewport at
+  the abs box; paint order/stacking against siblings was not checked.
+- Logo, search width, sign-in button, mini-guide icons, subtitle overlap:
+  causes not bisected (QY35).
+- No Chrome on this machine: "what Chrome shows" is from ytInitialData.
+- Logged-in YouTube, /watch, /results, `base_module_set` variant, and a
+  browser UA were not tried. Video playback is out of scope (placeholders
+  only); no `<video>` element exists on the home page.
+
 ## R27: Can scratchy embed mpv for `<video>`? (Opus investigator, 2026-11-17) — EVIDENCE for TODO.txt QM1 / QM1-D / QM1a-QM1j
 
 **Status: investigation only, nothing implemented (media is "Off limits" in

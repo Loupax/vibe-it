@@ -7010,3 +7010,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Item QY23. `element.style = "..."` acts as [PutForwards=cssText]: the setter writes the style attribute (null/'' removes it), strict mode no longer throws `no setter for property`. Verify with `--js-report --run-timers 5000` on a saved youtube kevlar copy before/after.
 
 **What changed:** src/js_dom.rs (`styleSetter` on `ElementProto.style`), test `qy23_*` in src/tests.rs. YouTube copy: 4 errors -> 2 (the 2 custom element callback errors from Polymer `_attributeToProperty` are gone; remaining: promise-jobs and timer 500 ms budget trips).
+
+## Investigation: why YouTube is still a grey page (QY28, R26; 2026-11-17)
+
+> Investigator only (docs). User: "why is youtube still a gray page? I don't expect videos to play, but I'd expect to see more UI." Run the real youtube.com headless (`--js-report --run-timers`) and in a nested dwl with the worktree's release build (QY21 applied locally while unmerged), list every error/missing feature in the order it blocks the UI, say what the first non-grey paint needs and whether our CSS/layout can draw YouTube's chrome, file ranked Sonnet items and an evidence memo.
+
+**What changed:** TODO.txt (QY28 ticked with the answer; new QY29-QY38 and question QY39-D; QY24 refined and raised; QY27 partly answered; QUEUE "NEW 2026-11-17" line), REGRESSIONS.md (R26). No source changes: all instrumentation, stand-ins and the four experimental fixes (QY29, QY24, QY30, QY32) were local and reverted.
