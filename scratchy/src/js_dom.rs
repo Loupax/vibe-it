@@ -582,6 +582,17 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             None => String::new(),
         }
     });
+    // QJ4: layout rect of element `id` (document space), see js_geom.rs.
+    let (t, gn) = (table.clone(), wgen.clone());
+    let geom = Rc::new(RefCell::new(crate::js_geom::GeomCache::default()));
+    native!("__d_rect", move |id: i32, vw: f64, vh: f64| -> Vec<f64> {
+        let (page, h) = {
+            let t = t.borrow();
+            (t.get(0), t.get(id))
+        };
+        let (Some(page), Some(h)) = (page, h) else { return Vec::new() };
+        geom.borrow_mut().rect_of(&page, gn.get(), &h, vw as f32, vh as f32)
+    });
     native!("__d_csprops", move || -> Vec<String> { js_style::PROPS.iter().map(|s| s.to_string()).collect() });
     // ---- Q33c mutation. Every write marks the page dirty; the event
     // loop rebuilds layout once per turn, not once per call.
@@ -2875,6 +2886,88 @@ const DOM_PRELUDE: &str = r#"
     } catch (e) { /* no style info: assume shown */ }
     return true;
   };
+  // QJ4: geometry reads. `__d_rect` lays the page out for the current DOM
+  // (cached until the next DOM write) and returns the element's document-
+  // space box [x, y, w, h, fixed, inkR, inkB, pageW, pageH], or [] when the
+  // element has no box. Detached / display:none elements read as zeros.
+  var gRect = function (el) {
+    if (!ioShown(el)) return null;
+    var r = __d_rect(el.__id, Number(g.innerWidth) || 0, Number(g.innerHeight) || 0);
+    return r.length ? r : null;
+  };
+  var gRoot = function (el) { return el === document.documentElement; };
+  var gPx = function (el, p) { return parseFloat(__d_cs(el.__id, '', p)) || 0; };
+  var gClient = function (el) {
+    if (gRoot(el)) return [Number(g.innerWidth) || 0, Number(g.innerHeight) || 0];
+    var r = gRect(el);
+    if (!r || __d_cs(el.__id, '', 'display') === 'inline') return [0, 0];
+    return [Math.max(0, r[2] - gPx(el, 'border-left-width') - gPx(el, 'border-right-width')),
+            Math.max(0, r[3] - gPx(el, 'border-top-width') - gPx(el, 'border-bottom-width'))];
+  };
+  var gViewRect = function (el) {
+    var r = gRect(el);
+    if (!r) return null;
+    return new DR(r[0] - (r[4] ? 0 : (g.scrollX || 0)), r[1] - (r[4] ? 0 : (g.scrollY || 0)), r[2], r[3]);
+  };
+  ElementProto.getBoundingClientRect = function () { return gViewRect(this) || new DR(0, 0, 0, 0); };
+  ElementProto.getClientRects = function () {
+    var v = gViewRect(this), l = v ? [v] : [];
+    Object.defineProperty(l, 'item', { value: function (i) { return this[i] || null; } });
+    return l;
+  };
+  defs(ElementProto, 'offsetWidth', function () { var r = gRect(this); return r ? Math.round(r[2]) : 0; });
+  defs(ElementProto, 'offsetHeight', function () { var r = gRect(this); return r ? Math.round(r[3]) : 0; });
+  var gOffParent = function (el) {
+    var r = gRect(el);
+    if (!r || r[4] || gRoot(el) || el === document.body) return null;
+    for (var n = el.parentNode; n && n.nodeType === 1; n = n.parentNode) {
+      if (n === document.body) return n;
+      var t = n.localName;
+      if (t === 'td' || t === 'th' || t === 'table' || __d_cs(n.__id, '', 'position') !== 'static') return n;
+    }
+    return document.body;
+  };
+  var gOffset = function (el, axis) {
+    var r = gRect(el);
+    if (!r) return 0;
+    var p = gOffParent(el), v = r[axis];
+    if (p && p !== document.body) {
+      var pr = gRect(p);
+      if (pr) v -= pr[axis] + gPx(p, axis ? 'border-top-width' : 'border-left-width');
+    }
+    return Math.round(v);
+  };
+  defs(ElementProto, 'offsetParent', function () { return gOffParent(this); });
+  defs(ElementProto, 'offsetLeft', function () { return gOffset(this, 0); });
+  defs(ElementProto, 'offsetTop', function () { return gOffset(this, 1); });
+  defs(ElementProto, 'clientWidth', function () { return Math.round(gClient(this)[0]); });
+  defs(ElementProto, 'clientHeight', function () { return Math.round(gClient(this)[1]); });
+  defs(ElementProto, 'clientLeft', function () { return gRect(this) ? Math.round(gPx(this, 'border-left-width')) : 0; });
+  defs(ElementProto, 'clientTop', function () { return gRect(this) ? Math.round(gPx(this, 'border-top-width')) : 0; });
+  var gScrollSize = function (el, axis) {
+    var c = gClient(el)[axis], r = gRect(el);
+    if (!r) return 0;
+    if (gRoot(el)) return Math.round(Math.max(c, r[7 + axis]));
+    if (axis ? r[6] <= r[1] + r[3] : r[5] <= r[0] + r[2]) return Math.round(c);
+    var extent = axis ? r[6] - r[1] - gPx(el, 'border-top-width') : r[5] - r[0] - gPx(el, 'border-left-width');
+    return Math.round(Math.max(c, extent));
+  };
+  defs(ElementProto, 'scrollWidth', function () { return gScrollSize(this, 0); });
+  defs(ElementProto, 'scrollHeight', function () { return gScrollSize(this, 1); });
+  // scrollTop/Left: the root element reads/writes the window offset; other
+  // elements only remember the number (no per-element scrolling yet: QJ6).
+  var gScrolled = new WeakMap();
+  var gScrollProp = function (name, axis) {
+    defs(ElementProto, name, function () {
+      if (gRoot(this)) return (axis ? g.scrollY : g.scrollX) || 0;
+      var s = gScrolled.get(this); return s ? s[axis] : 0;
+    }, function (v) {
+      v = Math.max(0, Number(v) || 0);
+      if (gRoot(this)) { if (axis) g.scrollTo(g.scrollX, v); else g.scrollTo(v, g.scrollY); return; }
+      var s = gScrolled.get(this) || [0, 0]; s[axis] = v; gScrolled.set(this, s);
+    });
+  };
+  gScrollProp('scrollLeft', 0); gScrollProp('scrollTop', 1);
   var obsErr = function (what, e) {
     __scratchy_err('scratchy: js: uncaught exception in ' + what + ' callback: ' + (e && e.stack ? String(e) + '\n' + e.stack : String(e)));
   };

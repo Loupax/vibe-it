@@ -1435,6 +1435,7 @@ impl App {
     /// pages with no engine.
     pub(crate) fn js_dispatch(&mut self, target: Option<&Handle>, kind: &str, init: &[(&str, EventField)]) -> bool {
         let Some(js) = &self.js else { return true };
+        js.set_scroll(self.scroll_offset);
         let ok = js.dispatch_event(target, kind, init);
         self.js_sync();
         ok
@@ -2544,6 +2545,7 @@ impl ApplicationHandler<AppEvent> for App {
     /// wake up on their own).
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         if let Some(js) = &self.js {
+            js.set_scroll(self.scroll_offset);
             js.run_due();
         }
         self.js_sync();

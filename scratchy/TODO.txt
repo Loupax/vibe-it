@@ -275,7 +275,13 @@ page loads with 0 errors and the vim UI works headless (j/k/G/gg/Ctrl-D/}/:tag
 picker/:feed/:help/search all respond; `:tag` reads #vimtags+#vimpagetags).
 IntersectionObserver and matchMedia are not used by any of the site's scripts.
 
-- [ ] QJ4 [M] (P2, first slice of QY-IO-GEOMETRY, no IO/RO) Geometry read
+- [x] QJ4 [M] (DONE 2026-11-17, commit HASH_QJ4; src/js_geom.rs forced
+      layout on the JS thread cached per DOM write generation, App scroll
+      mirrored into window.scrollY. Left out: images laid out without decoded
+      size, inline elements = descendant union/nearest box, element
+      scrollTop/Left only remembered (QJ6), no nested-scroller/sticky
+      adjustment; /discover now stops at vim.js:260 scrollIntoView = QJ5.)
+      (P2, first slice of QY-IO-GEOMETRY, no IO/RO) Geometry read
       API: `getBoundingClientRect`/`getClientRects` (DOMRect/DOMRectList),
       `offsetTop/Left/Width/Height/Parent`, `clientTop/Left/Width/Height`,
       `scrollWidth/Height`, `scrollTop/Left` (getter AND setter: vim.js
@@ -301,6 +307,17 @@ IntersectionObserver and matchMedia are not used by any of the site's scripts.
       `max-height: 210px` + a "Read more" button: seen in the window).
       Unblocks: social.loupax.com (vim.js gutter, clamp.js), lists.js
       move, and any page that measures itself.
+- [ ] QJ4b [S] (P3, found by QJ4) Layout PANIC in `measure_grid`
+      (src/layout.rs, `col_widths[p.col_start..p.col_end]`: "range end index 2
+      out of range for slice of length 1") on theguardian.com/international
+      when laid out after its scripts ran (headless forced layout, 1024x768).
+      QJ4 catches it (rects read 0, one log line) but the same DOM would
+      panic the App's shaping worker too (abandons the page). Reproduce:
+      save the page with <base href>, `--js-report --run-timers 5000`
+      (stderr shows the panic); minimise the grid that has an item spanning
+      more columns than the resolved tracks. Also: that forced layout costs
+      ~3.4 s on a 1.4 MB page (github 1.8 s): a perf item if pages read
+      geometry at load.
 - [ ] QJ5 [S] (P2, after QJ4) `Element.scrollIntoView(arg)`
       (`{block: start|center|end|nearest}`, boolean) as a QB5 window
       scroll request to the element's QJ4 rect. vim.js:260 `placeLine`
