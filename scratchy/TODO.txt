@@ -29,8 +29,10 @@ older and were only partly corrected in place):
   window), Q26 (letter-spacing: unit bug on our side, see R33), QSB1 (scrollbar
   drag, split out of Q32), QAN1d0 (reduced motion default), Q30g + Q33e (forms
   rest), QCFG1 -> QTB1 (when prioritised).
-- WebSocket UNDER DISCUSSION 2026-11-17: proposal QF19w1 (wire) -> QF19w2
-  (scratchy), NOT ready; QF19m (who uses it) is READY.
+- WebSocket DECIDED 2026-11-17 (wire as a pipe): QF19w1 (wire) -> QF19w2
+  (scratchy) READY; QF19m lists test sites.
+- USER RULE 2026-11-17: "scratchy without wire can't physically speak to the
+  internet" (safe for offline reading). Enforced by QNET1 (READY, P1).
 - Still WAITING FOR USER: QM1k (MSE, plan together), QCI2 (WPT in CI), QF14b2 (d) `--profile` (later),
   Q32 remainder (parked), QAN1p/QTB2 (parked).
 - Known red test on a clean checkout: R33 / QCI0.
@@ -205,7 +207,7 @@ WAITING FOR USER (skip until answered):
   Wikipedia, so video needs the rect-only redraw QM1g1. wire/TODO.txt W-POOL1
   (security: `public-only` skipped on pooled connections) should be fixed first;
   W-MEDIA1 (`file:` Range) before QM1e's local-file case.
-- (UNDER DISCUSSION 2026-11-17: proposal = wire as a pipe, QF19w1 -> QF19w2) QF19 WebSocket,
+- (DECIDED 2026-11-17: wire as a pipe, QF19w1 -> QF19w2 READY) QF19 WebSocket,
   Workers (no);
   EventSource is QF19a (READY). QY16a real localisation (ICU data?); persistence
   of jar/storage/cache (QF-D7: not now). Q26 UNBLOCKED (READY, R33); Q32's
@@ -2903,7 +2905,42 @@ QF13a, QF14b2, QF18 open; QF19 waits for the user):
       agent must FIRST check whether a buffered poll-style implementation is
       honest enough; if it needs a wire protocol change, STOP and report (that is
       a design question for the user), do not change wire's protocol on its own.
-- [ ] QF19w1 [M] WAITING FOR USER (PROPOSAL, under discussion 2026-11-17; do NOT build) (wire) Upgrade passthrough.
+- [ ] QNET1 [S] READY (P1; user rule 2026-11-17: "as long as I can guarantee that
+      scratchy without wire can't physically speak to the internet I'm happy. We can
+      safely use it for offline reading") Make the rule enforced, not just true.
+      Audit 2026-11-17 (main @ e4993c3): TRUE in scratchy's own code today: no
+      network crate in `[dependencies]` (no ureq/reqwest/hyper/rustls/tokio), no
+      TcpStream/UdpSocket/DNS in src/ (std::net is only `Shutdown` and IP types for
+      the policy); every request is `UnixStream::connect` to wire's socket (net.rs,
+      media_net.rs). (tools/mpvspike uses TcpStream but is its own crate, never in
+      the scratchy binary.) What could break it: a future dependency, a library
+      scratchy dlopens (the optional `media` feature loads libmpv + ffmpeg, which
+      have full network stacks: mpv is only given `scratchy-media://` with
+      `ytdl=no`, but ffmpeg demuxers (HLS/DASH playlists, mov external refs) can
+      open nested URLs themselves), or a C library's own sockets.
+      Build:
+      (1) At startup, before any thread or library loads, install a seccomp-BPF
+      filter (Linux; `libc` prctl/seccomp, or the `seccompiler` crate) that makes
+      `socket()`/`socketpair()` fail with EAFNOSUPPORT for every address family
+      except AF_UNIX (and AF_NETLINK only if winit/fontconfig measurably need it;
+      check, don't guess). Inherited by every thread and by libmpv. Log once:
+      `scratchy: network: unix sockets only (wire)`. An escape hatch is NOT added.
+      If seccomp is unavailable, log a warning and continue (say so in the PR).
+      (2) libmpv defence in depth: add `demuxer-lavf-o=protocol_whitelist=...`
+      (or the mpv equivalent) so ffmpeg can only read mpv's own stream; a test
+      feeding an HLS playlist with an http:// URL through stream_cb must not open
+      a socket (it would hit (1) anyway).
+      (3) A test that fails if `cargo tree -e normal` gains a known network crate
+      or src/ gains `TcpStream`/`UdpSocket`/`to_socket_addrs` (grep-based is fine).
+      (4) A test that `socket(AF_INET, ...)` fails after the filter is installed
+      (run in a child process, the filter is irreversible).
+      (5) Document in NOTES.md and `:help` how to verify it from outside: run
+      scratchy under `unshare -rn` (no network namespace): it must work exactly as
+      before with a wire started outside the namespace (filesystem unix sockets
+      cross network namespaces), and reading `file://` pages needs no wire at all.
+      Real check: `strace -f -e trace=socket,connect` on a page load with media on:
+      only AF_UNIX connects, to wire's socket and the Wayland/fontconfig sockets.
+- [ ] QF19w1 [M] READY (wire; design DECIDED 2026-11-17 after discussion: wire is a pipe) Upgrade passthrough.
       A request with `Connection: Upgrade` + `Upgrade: websocket` (scratchy marks it
       with `X-Wire-Upgrade: websocket` so ordinary clients are unaffected) goes
       through the SAME checks as any request (`X-Wire-Policy`, target class, bad
@@ -2919,7 +2956,7 @@ QF13a, QF14b2, QF18 open; QF19 waits for the user):
       `X-Wire-Features: ws`. Tests over a local echo server: 101 + echo both ways,
       non-101 answer, policy-blocked target, close from each side. Log in wire's
       PROMPTS.md/NOTES.md/TODO.txt.
-- [ ] QF19w2 [M] WAITING FOR USER (PROPOSAL, under discussion; after QF19w1) scratchy `WebSocket` for page JS on top of the
+- [ ] QF19w2 [M] READY (after QF19w1; the framing lives in scratchy, over wire's unix socket only) scratchy `WebSocket` for page JS on top of the
       QF19w1 pipe. Framing in scratchy (`tungstenite` over the unix-socket stream,
       client role: masking, ping/pong replies, fragmentation, close handshake), one
       background reader thread per socket feeding `AppEvent`s; JS API on the JS
@@ -2939,8 +2976,10 @@ QF13a, QF14b2, QF18 open; QF19 waits for the user):
       like today) and `--js-report --run-timers 5000`; report per site: does it
       open one, at which point (load / user action), and does the page degrade or
       break without it. Output: a REGRESSIONS.md entry and a go/no-go for QF19.
-- [ ] QF19 [L] UNDER DISCUSSION 2026-11-17 (user leaned to "wire as a pipe", then asked to
-      talk it through before locking it in); proposal split into
+- [ ] QF19 [L] DESIGN DECIDED 2026-11-17 (user, after discussion: "wire as a pipe"; wire
+      does DNS/TCP/TLS/policy/cookies, scratchy only frames bytes on wire's unix
+      socket; the user's rule: scratchy without wire cannot reach the internet,
+      see QNET1); split into
       QF19w1 -> QF19w2 below. QF19m (who uses it) is the test-target list for
       QF19w2, not a gate. Rejected alternative: wire speaking WebSocket itself.
       Original entry: (later, own design; user 2026-11-17), Workers (no until a measured page needs them), (EventSource is

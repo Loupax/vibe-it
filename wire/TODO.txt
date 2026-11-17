@@ -173,7 +173,8 @@ the commit it came up during.
       nothing needs this; if it ever matters: a 64 KiB `copy_body` buffer and a
       `BufWriter` around the header writes. Measure before and after.
 
-- [ ] **QF19w1 [M] WebSocket upgrade passthrough** (PROPOSAL under discussion 2026-11-17,
-      do NOT build yet: wire as a pipe, scratchy does the framing). Full spec in scratchy/TODO.txt QF19w1:
+- [ ] **QF19w1 [M] WebSocket upgrade passthrough** (DECIDED 2026-11-17: wire is a
+      pipe, scratchy does the framing; wire stays the ONLY process that talks to the
+      internet, scratchy/TODO.txt QNET1). Full spec in scratchy/TODO.txt QF19w1:
       same policy/jar checks on the handshake, after `101` copy bytes both ways on
       the connection, no pooling, `X-Wire-Features: ws`.
