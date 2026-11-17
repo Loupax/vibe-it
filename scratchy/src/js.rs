@@ -1205,7 +1205,7 @@ impl JsEngine {
     }
 
     /// QM1g: the newest frames and intrinsic sizes by node id (for `paint`/layout).
-    pub(crate) fn media_video_state(&self) -> (std::collections::HashMap<usize, std::sync::Arc<crate::media_video::VideoFrame>>, std::collections::HashMap<usize, (u32, u32)>) {
+    pub(crate) fn media_video_state(&self) -> (crate::media_video::FrameMap, crate::media_video::SizeMap) {
         let mut frames = std::collections::HashMap::new();
         let mut sizes = std::collections::HashMap::new();
         let Some(m) = &self.media else { return (frames, sizes) };
@@ -1685,8 +1685,19 @@ const TIMERS_PRELUDE: &str = r#"
 /// The real entry point: runs a page's scripts (no-op with JS off or
 /// nothing to run) with console output going to stderr.
 /// Returns the live engine (Q33t) for the caller to keep for the page.
+fn has_media_element(h: &Handle) -> bool {
+    if let NodeData::Element { name, .. } = &h.data
+        && matches!(name.local.as_ref(), "video" | "audio")
+    {
+        return true;
+    }
+    h.children.borrow().iter().any(has_media_element)
+}
+
 pub(crate) fn run_page_scripts(document: &Handle, scripts: &[ScriptSource], page_url: Option<&Url>) -> Option<JsEngine> {
-    if !js_enabled() || scripts.is_empty() {
+    // QM1g: a page with media elements needs the engine (the element layer) even
+    // without scripts: `<video autoplay muted>` and `onclick="v.play()"` need it.
+    if !js_enabled() || (scripts.is_empty() && !(crate::media_video::boxes_enabled() && has_media_element(document))) {
         return None;
     }
     set_page_url(page_url);

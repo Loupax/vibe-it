@@ -32,6 +32,9 @@ use crate::layout::DecodedImage;
 pub(crate) const SENTINEL: u32 = 0xFE0A_0B0C;
 const BLACK: u32 = 0;
 
+pub(crate) type FrameMap = HashMap<usize, Arc<VideoFrame>>;
+pub(crate) type SizeMap = HashMap<usize, (u32, u32)>;
+
 /// One decoded video frame in the page buffer's pixel layout (0RGB).
 pub(crate) struct VideoFrame {
     pub w: u32,
@@ -262,8 +265,16 @@ pub(crate) fn composite(src: &Src, rect: IRect, vis: IRect, mask: Option<&[bool]
             Src::Poster(p) => Some(&p[sy * rw + sx0..sy * rw + sx0 + vis.2 as usize]),
             Src::Black => None,
         };
+        // Fast path: a row nothing covers is one memcpy.
+        if mrow.is_none_or(|m| m.iter().all(|&b| b)) {
+            match srow {
+                Some(sr) => drow.copy_from_slice(sr),
+                None => drow.fill(BLACK),
+            }
+            continue;
+        }
         for (i, d) in drow.iter_mut().enumerate() {
-            if mrow.is_none_or(|m| m[i]) {
+            if mrow.is_some_and(|m| m[i]) {
                 *d = srow.map_or(BLACK, |s| s[i]);
             }
         }

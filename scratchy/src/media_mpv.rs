@@ -45,7 +45,8 @@ struct Shared {
     ready: AtomicBool,
 }
 unsafe extern "C" fn rc_update_cb(d: *mut c_void) {
-    (*(d as *const Shared)).ready.store(true, Ordering::SeqCst);
+    // SAFETY: `d` is the `Shared` leaked by `ensure`, freed after the render context.
+    unsafe { (*(d as *const Shared)).ready.store(true, Ordering::SeqCst) };
     crate::media_video::wake();
 }
 

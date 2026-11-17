@@ -775,14 +775,14 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       `played` ranges are always empty, `srcObject`/`captureStream` stubs, no TextTracks;
       (e) audio is `ao=null` unless SCRATCHY_MEDIA_AO is set: QM1g chooses the real default;
       (f) user activation is "sticky" (any trusted click/key/mouse press once per page).
-- [ ] QM1g [M] (after QM1b-QM1f) Paint: (QM1b measured: 720p source into 640x360
+- [x] QM1g [M] DONE 2026-11-17 (Sonnet; hash HASH_QM1G; src/media_video.rs, media_mpv.rs vo=libmpv SW render; feature `media` only, default build unchanged; limits = QM1g2; QM1g1 below) (after QM1b-QM1f) Paint: (QM1b measured: 720p source into 640x360
       costs 0.7-0.8 core on the SW path, so cap players/sizes and pause when hidden.) the `<video>` replaced box draws the newest
       mpv frame (object-fit default `contain`, letterbox black), rendered at the box
       size in device pixels; no rendering when the box is off screen or the page
       is hidden (`:help`, navigation); one mpv handle per playing element, capped
       per D7; audio via mpv `ao=pulse` (this build has no native pipewire output;
       pipewire-pulse 1.6.7 is running).
-- [ ] QM1g1 [M] (part of QM1g; from QM1c, R30) Video-rect-only redraw: a full
+- [x] QM1g1 [M] DONE 2026-11-17 (Sonnet; hash HASH_QM1G; overlay mask via sentinel pixels, App::video_tick, present_with_damage; rect-only composite+present median ~3 ms at 640x360 on a loaded machine) (part of QM1g; from QM1c, R30) Video-rect-only redraw: a full
       `App::redraw` costs 67-101 ms on Wikipedia pages (QM1c), so a new mpv frame
       must NOT repaint the page. Keep the last fully painted page buffer (the
       frame without video pixels, or with the previous frame) and on a "video
@@ -799,6 +799,14 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       on en.wikipedia-sized content; temporary timing shows a video-only redraw
       under 5 ms at 640x360 and the main thread stays responsive (scroll latency
       unchanged while playing).
+- [ ] QM1g2 [M] (from QM1g) Leftovers: (a) mpv frames are rendered on the MAIN thread (33-39 ms per
+      720p->640x360 frame at load average 14-20; a worker thread owning the render context
+      would keep scroll/hover responsive); (b) a `<video>` inside a mask-image or opacity
+      layer paints black (no frame substitution) and forces a full redraw per frame;
+      (c) no rounded-corner clipping (`border-radius`) of the video; (d) `controls` are not
+      drawn (QM1h-ish item) and there is no fullscreen; (e) QM1f1 (a) paused elements still
+      hold a libmpv handle; (f) webm/vp9 was not tested (no encoder on this machine);
+      (g) `vid=no` is only used for files with an audio track.
 - [ ] QM1h [L] (only if D2 = separate process) media helper process: owns libmpv,
       renders frames into a memfd shared with scratchy, talks the same commands
       over a socket, crash kills only the helper.

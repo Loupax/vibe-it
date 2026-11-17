@@ -1357,7 +1357,9 @@ impl App {
             .iter()
             .filter_map(|r| Some(softbuffer::Rect { x: r.0 as u32, y: r.1 as u32, width: NonZeroU32::new(r.2)?, height: NonZeroU32::new(r.3)? }))
             .collect();
-        window.pre_present_notify();
+        // No `pre_present_notify` here: it arms winit's frame-callback gate, and a
+        // damage present every ~33 ms would keep the next full redraw (a scroll)
+        // waiting for a callback that the compositor delays.
         if let Err(e) = buf.present_with_damage(&rects) {
             log_redraw_error_once("present the video damage", &e);
         }

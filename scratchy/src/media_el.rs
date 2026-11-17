@@ -832,6 +832,9 @@ impl MediaBackend for FakeBackend {
 
 // ------------------------------------------------------------ the host
 
+/// QM1g: `(element id, newest frame, intrinsic video size)`.
+pub(crate) type VideoStateRow = (i32, Option<Arc<VideoFrame>>, (u32, u32));
+
 pub(crate) type BackendFactory = Rc<dyn Fn(&BackendCtx) -> Box<dyn MediaBackend>>;
 
 thread_local! {
@@ -937,7 +940,7 @@ impl MediaHost {
     }
 
     /// QM1g: `(id, newest frame, intrinsic size)` of every element that has one.
-    pub(crate) fn video_state(&self) -> Vec<(i32, Option<Arc<VideoFrame>>, (u32, u32))> {
+    pub(crate) fn video_state(&self) -> Vec<VideoStateRow> {
         self.els.iter().map(|(i, (c, _))| (*i, c.last_frame.clone(), (c.video_width, c.video_height))).collect()
     }
 

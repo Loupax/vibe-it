@@ -3458,6 +3458,61 @@ protocol change), served to libmpv's stream_cb from a 1 MiB chunk cache
 (TODO.txt QM1e has the design). A full `App::redraw` is 67-101 ms on Wikipedia
 pages, so video frames get their own rect-only redraw (QM1g1).
 
+## QM1g/QM1g1: video paint and the rect-only redraw (2026-11-17)
+
+Enabled only when `media_video::boxes_enabled()` (cargo feature `media` AND a
+loadable libmpv); otherwise the default build lays `<video>` out exactly as before
+(inline, fallback content). Enabled: a UA rule `video { display: inline-block;
+object-fit: contain }` and `images::build_video_box` give a replaced box, built as an
+`<img>`-like `BoxContent::Image` whose "image" is an EMPTY-pixel `DecodedImage` (the
+sentinel `paint` recognises; its `mask` field carries the poster). Size: CSS or
+`width`/`height` attributes, else the video's own size (`media_video::intrinsic`, set
+from the engine before each layout build; `JsEngine::media_size_changed` makes
+`js_sync` restyle when a size becomes known), else the poster's, else 300x150.
+Posters are fetched like `<img>` (`net::find_external_resources`). A page with a
+`<video>`/`<audio>` starts the JS engine even with no scripts (`run_page_scripts`).
+
+Painting (`src/media_video.rs`): `paint` calls `paint_box`. During a full
+`App::redraw` it fills the visible (clipped) part of the box with SENTINEL (top byte
+0xFE; `blend` always writes a top byte of 0, so any later paint over a pixel
+destroys it). After everything else is painted `finish` scans each rect: pixels still
+equal to the sentinel are exactly the video pixels no other content covers (z-order,
+overflow, clipping, scroll come free). That is the cached OVERLAY MASK (`Vec<bool>`
+over the visible rect); the newest frame (or the poster composed to the box size, or
+black) is copied through it (whole rows with one memcpy). `VideoBoxInfo` keeps rect,
+mask, bounding rect. A box painted into another buffer (mask-image layer) or under
+opacity is drawn black and flagged `layered` (no frame substitution, no rect-only
+update: the app falls back to a full redraw for it).
+
+Frames: `vo=libmpv` + `mpv_render_context` type `sw`, format `bgr0` (= 0RGB), size =
+the box's content size in device pixels (mpv letterboxes: `keepaspect`, `panscan`,
+`video-unscaled` per `object-fit`). The render-update callback runs on an mpv thread:
+it sets `Shared.ready` and calls `media_video::wake()`, a coalesced
+`AppEvent::VideoFrame` posted through the winit proxy; `MpvBackend::take_frame` runs
+on the MAIN thread (`update`, then `render`), producing an `Arc<VideoFrame>`. With no
+visible box (`MediaHost::set_targets` gets only boxes with unobstructed pixels, empty
+while `:help` parks the page) frames are consumed with SKIP_RENDERING (vo=libmpv
+stalls playback if they pile up) and, once metadata is known and the file has an audio
+track, `vid=no` stops decoding (a video-only file keeps decoding: `vid=no` ends it at
+once). Audio: `ao=null` in tests, else `SCRATCHY_MEDIA_AO` or `pulse,null`; mpv only
+opens the device while an element plays (D5 still blocks unmuted autoplay).
+
+QM1g1 (`App::video_tick`): on `VideoFrame` it renders the waiting frames; when the
+page is unchanged (no `layout_dirty`, same surface size, `AppVideo.page_buf` = a copy of
+the last presented page, kept only while a video box is visible) it copies the frame
+through each box's mask into `page_buf` and, when `buffer.age() == 1`, also into the
+softbuffer buffer (else copies `page_buf` whole, ~4 MB), then
+`present_with_damage(bounding rects)`. Anything else (frame of another size, layered
+box, dirty layout) returns false and the normal full redraw runs. NO `pre_present_notify`
+on this path: it arms winit's frame-callback gate, and a damage present every ~33 ms
+starved the next full redraw (a scroll waited ~9 s in the nested dwl).
+
+Limits (TODO QM1g2): rendering is on the main thread (a 720p source into 640x360 costs
+33-39 ms per frame on the loaded machine, load average 14-20, so scroll shares the
+thread with it); a `<video>` inside a mask-image/opacity layer paints black; no
+rounded-corner clip; `controls` are not drawn (QM1h-ish); paused elements keep their
+libmpv handle (QM1f1 a); `webm`/`vp9` could not be tested (no encoder here).
+
 ## Media spike QM1b (tools/mpvspike, 2026-11-17)
 
 Own Cargo project (like tools/inject; nothing in scratchy/src, not in
