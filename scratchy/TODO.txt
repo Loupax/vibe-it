@@ -26,7 +26,14 @@ log it in the console/status as "media: mpv" when a <video> is attached. D4 DECI
 media bytes go through wire, always (the player never fetches on its own). D2 DECIDED
 2026-11-17: libmpv IN-PROCESS (no helper process). D3 DECIDED: libmpv is an OPTIONAL
 dependency (cargo feature or dlopen; without it `<video>` stays the inert placeholder and
-scratchy builds/runs without mpv). D5-D8 and forms stay open: to be discussed with the user.
+scratchy builds/runs without mpv). D5-D7 DECIDED 2026-11-17 (user: "pick your defaults"):
+D5 autoplay: never, except muted autoplay and a `play()` that follows a user gesture
+(click/key) in the page; D6 controls: scratchy paints a simple bar (play/pause, seek, time,
+volume), mpv's own OSC/Lua stays off, keys only while the video is focused (space pause,
+left/right seek, up/down volume), a page may cancel them (QJ11 rule); D7 `<audio>` yes, same
+backend, at most 2 players at once (starting a third pauses the oldest). D8 (MSE) open: the
+user asked for an explanation (plain <video src> will play; MediaSource sites will not).
+Forms stay open: to be designed together.
 USER ANSWERS 2026-11-17 (night): QJ11 DECIDED: pages may override the user-agent
 defaults, so page JS may cancel ANY key (no reserved set); the user will turn vim
 mode off on social.loupax.com for themself (localStorage.vimOff). Cookie control
@@ -297,7 +304,8 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
 - [ ] QM1-D PARTLY ANSWERED 2026-11-17: D1 = in-page video using mpv (libmpv A1; the
       page console/status logs "media: mpv"; an extra "open in mpv" action is not asked
       for), D4 = all bytes through wire, always. D2 = libmpv in-process, D3 = optional
-      dependency (decided 2026-11-17). STILL WAITING FOR USER: D5-D8 (discuss together). Media is still "Off limits" in AGENTS.md until the design is
+      dependency, D5-D7 = coordinator defaults (decided 2026-11-17, see the status block).
+      STILL WAITING FOR USER: D8 (MSE yes/no/later). Media is still "Off limits" in AGENTS.md until the design is
       agreed; QM1b/QM1e/QM1f/QM1g stay gated on D2/D3/D5-D7.
       (design first; media is "Off limits" in AGENTS.md)
       product questions, answers gate everything below except QM1a/QM1c/QM1d:
