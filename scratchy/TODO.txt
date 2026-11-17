@@ -172,7 +172,8 @@ WAITING FOR USER (skip until answered):
 - (ANSWERED 2026-11-17: no token for now, see wire/TODO.txt) Cookie control token: should wire require a token on the
   `X-Wire-Cookie-Op` channel, and how is it shared? (hook
   `control_authorized`; QF14b2 (f)). Also QF14b2 (d) `--profile` jar name
-  and (e) tracker-list blocking: want them, and which list?
+  and (e) tracker-list blocking (e: WANTED 2026-11-17, mode B = requests not
+  made; list source and categories still open, see QF14b2).
 - (DECIDED 2026-11-17: scratchy may override wire's UA, QY39a/QY39b) QY39-D (R26): wire sends `User-Agent: wire/0.1 (+https://github.com/Loupax/vibe-it)
   scratchy's real-networking daemon`; YouTube classifies it as a bot (`cbrand=robot,
   cmodel=bot or crawler`) and serves its ES5 + polyfills variant. Keep the honest UA,
@@ -2801,7 +2802,19 @@ QF13a, QF14b2, QF18 open; QF19 waits for the user):
       redirects itself); (c) `cookieStore` API; (d) `--profile` jar name;
       (e) Disconnect tracker-list blocking (QF14b in the old numbering);
       (f) the access token for the control channel (wire hook
-      `control_authorized`, waiting for the user).
+      `control_authorized`). ANSWERED (f) 2026-11-17: no token for now
+      (wire/TODO.txt). (e) USER 2026-11-17: WANTED, build it when it gets
+      prioritised; mode = B: third-party requests to listed tracker domains are
+      NOT MADE AT ALL (not just cookie-less), checked in scratchy's
+      `RequestPolicy` (src/net_policy.rs), which knows the top-level site.
+      Still open for (e): where the list comes from (Disconnect's
+      `services.json` is CC BY-NC-SA 4.0, ~4.5k domains in 11 categories;
+      recommended: downloaded at RUN time through wire on request, not at
+      compile time, plus the user's own entries in a config file) and which
+      categories to block (recommended: Advertising, Analytics, Social,
+      FingerprintingInvasive, Cryptomining; NOT Content (ytimg.com,
+      googlevideo.com, gstatic.com are there), Anti-fraud (recaptcha),
+      Email, ConsentManagers, FingerprintingGeneral).
 - [x] QF15 [S] CLOSED 2026-11-16 (user, QF-D7: nothing persisted yet,
       every store is mocked in memory; reopen when the user designs
       persistence) Persistence: an HTTP cache, cookies or storage on disk.
