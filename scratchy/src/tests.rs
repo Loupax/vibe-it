@@ -21182,8 +21182,7 @@ fn qy46_run(code: &str, step: u64, rounds: usize) -> Vec<String> {
         engine.run_due();
     }
     FAKE_CLOCK.with(|f| f.set(None));
-    let v = out.borrow().clone();
-    v
+    out.take()
 }
 
 #[test]
