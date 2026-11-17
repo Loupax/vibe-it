@@ -40,8 +40,8 @@ USER ANSWERS 2026-11-17 (night): QJ11 DECIDED: pages may override the user-agent
 defaults, so page JS may cancel ANY key (no reserved set); the user will turn vim
 mode off on social.loupax.com for themself (localStorage.vimOff). Cookie control
 token: DEFAULT = no token for now (hardening item filed in wire/TODO.txt). Forms
-(Q30) and media: the user wants to DESIGN THEM TOGETHER with the coordinator; no
-implementation until a design is agreed (AGENTS.md "Off limits" still holds). The
+(Q30) and media: the user wanted to design them together; media design was agreed
+2026-11-17 (QM1-D); FORMS GO-AHEAD 2026-11-17 (build Tier 6 now, redesign later). The
 suggested form order (text input/textarea, checkbox/radio, select, GET submit via
 wire, POST/file later) is only the opening proposal for that conversation.
 Persistence: no (in-memory). EventSource: yes soon (QF19a, below). WebSocket: later,
@@ -165,8 +165,9 @@ WAITING FOR USER (skip until answered):
   scratchy's real-networking daemon`; YouTube classifies it as a bot (`cbrand=robot,
   cmodel=bot or crawler`) and serves its ES5 + polyfills variant. Keep the honest UA,
   or send a browser-like one for pages (and which)? Nothing is blocked on it today.
-- Forms (Q30a-Q30e, Q30g, Q33e, QB11's form part): placeholder-only (AGENTS.md)
-  until you design live state/editing/submission. Same for media.
+- (GO-AHEAD 2026-11-17: forms are READY, see Tier 6 / Q30a-Q30g) Forms (Q30a-Q30e,
+  Q30g, Q33e, QB11's form part): were placeholder-only until the user designed them; the
+  user will redesign after the functionality exists.
 - Media (QM1 done 2026-11-17, R27): an mpv process cannot be embedded on Wayland;
   libmpv in-process (software render into the `<video>` box, bytes from wire) is
   the recommended route. Questions QM1-D D1-D8 (in-page vs "open in mpv",
@@ -187,7 +188,7 @@ Standing rules:
 - WPT subset: no pass->fail; the only accepted failures are the two QA11a2
   tests (table-rules-rows-vertical, row-group-margin-border-padding).
 - Opus investigates only (docs); Sonnet/Haiku implement.
-- Media and forms: placeholders only (AGENTS.md "Off limits").
+- Media: only the agreed QM1b..QM1i items (AGENTS.md). Forms: READY, Tier 6 (go-ahead 2026-11-17).
 - Agents never `cargo install`; the coordinator installs from main.
 - No `pgrep -f` wait loops; kill only your own PIDs.
 NEEDS HUMAN CHECK (could not be verified by the audit):
@@ -5615,10 +5616,13 @@ Not vendored; pass the path to the runner.
       (`@font-face`, `@keyframes`, transitions).
 
 --- Tier 6: forms (Q30, split 2026-11-14) ------------------------------
-[WAITING FOR USER (design first): AGENTS.md "Off limits" allows only
-placeholders (inert boxes, DOM reflections, `not implemented` logs) until
-the user designs live form state, editing and submission. Q30f (the
-cookie jar) is done as QF14.]
+[GO-AHEAD 2026-11-17 (user): "the only reason I wanted to be present for the form
+elements is for design purposes but we can redesign once the functionality is in
+place. Feel free to start working on those items." Tier 6 is READY, build it for
+real in order Q30a, Q30b, Q30c, Q30d, Q30e, Q30g; the user will redesign the look and
+behaviour afterwards (keep UA styles and widget code easy to change). The old
+"WAITING FOR USER (design first)" stance and AGENTS.md's forms placeholder rule are
+superseded. Q30f (the cookie jar) is done as QF14.]
 
 Evidence: social.loupax.com has 30 forms, 33 buttons and 29 textareas;
 Wikipedia has a search form. What already exists and gets REUSED (don't
@@ -5637,7 +5641,7 @@ must not rebuild the whole layout tree (R2/R3 lesson; full rebuild is
 ~0.4s on Wikipedia). Measure keystroke-to-paint latency on a real page
 with temporary `Instant` timing, and say the number in the commit.
 
-- [ ] Q30a [M] Form controls get real boxes and UA styles (render only,
+- [ ] Q30a [M] READY (go-ahead 2026-11-17) Form controls get real boxes and UA styles (render only,
       no interaction yet). `default.css` rules for `input`, `button`,
       `select`, `textarea`, `fieldset`, `legend`, `label` (cross-check
       the WHATWG rendering chapter, hand-curate, don't copy html.css).
@@ -5657,7 +5661,7 @@ with temporary `Instant` timing, and say the number in the commit.
       per control type for box size; `:checked`/`:disabled` already
       match (Q2), check the UA styles use them. Screenshot
       social.loupax.com/u/loupax and the Wikipedia search box.
-- [ ] Q30b [S] Controls are focusable and clickable. `is_focusable`
+- [ ] Q30b [S] READY (go-ahead 2026-11-17) Controls are focusable and clickable. `is_focusable`
       includes enabled `input` (not hidden), `button`, `select`,
       `textarea`; `disabled` ones are skipped by Tab and clicks. A
       click on a control focuses it (`:focus` + focus ring apply).
@@ -5665,7 +5669,7 @@ with temporary `Instant` timing, and say the number in the commit.
       control. Hit-testing must return the control for clicks on its
       box (today only text spans carry an href; controls need their
       own hit target, cf. the `<img>`-wrapped-link scope cut).
-- [ ] Q30c [S] Checkbox/radio live state. A per-element map on `App`
+- [ ] Q30c [S] READY (go-ahead 2026-11-17) Checkbox/radio live state. A per-element map on `App`
       (key it the way `scroll_offsets`/`InteractionState` key elements,
       and make sure it survives relayouts and is cleared on
       navigation), seeded from the `checked` attribute, flipped by
@@ -5674,7 +5678,7 @@ with temporary `Instant` timing, and say the number in the commit.
       This also makes the Wikipedia/Vector "checkbox hack" menus
       (`:checked ~ .menu`) work; REGRESSIONS.md notes a
       `.vector-dropdown-content` subtree they keep hidden.
-- [ ] Q30d [M] Text editing in `input` and `textarea`. When a text control
+- [ ] Q30d [M] READY (go-ahead 2026-11-17) Text editing in `input` and `textarea`. When a text control
       is focused, key events go to it, not to `resolve_binding`: this
       is the automatic vim-mode suspension the vim-keybindings item
       left open. `Esc` blurs and returns to normal mode. One
@@ -5686,7 +5690,7 @@ with temporary `Instant` timing, and say the number in the commit.
       Repaint/re-shape only the control (see the perf rule). Tests on
       the pure buffer ops plus one "type into input updates its painted
       text" headless test.
-- [ ] Q30e [M] Form submission. Build the form data set per the HTML spec
+- [ ] Q30e [M] READY (go-ahead 2026-11-17) Form submission. Build the form data set per the HTML spec
       as a pure function (successful controls only: named, enabled,
       checked boxes/radios, selected options, textarea text, hidden
       inputs, plus the submitter button's name/value), encoded as
@@ -5716,7 +5720,7 @@ with temporary `Instant` timing, and say the number in the commit.
       Also decides cookies for page JS requests (QF-D2 / QF14 in the QF
       DESIGN MEMO): a jar in wire would also be used by fetch/XHR, so it
       needs a third-party rule before it lands.
-- [ ] Q30g [M] Open `<select>`. Click or Space/Enter opens a list painted
+- [ ] Q30g [M] READY (go-ahead 2026-11-17) Open `<select>`. Click or Space/Enter opens a list painted
       above all page content (a top-layer overlay, closest in shape to
       the command bar's chrome painting, not to z-index stacking),
       j/k/arrows move, Enter/click picks, Esc closes. The chosen

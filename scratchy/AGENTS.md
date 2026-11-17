@@ -70,8 +70,15 @@ will work first (same stance as forms, Q30):
   scratchy-painted controls, no autoplay except muted or after a user gesture, at most
   2 players, NO MediaSource/EME for now (QM1j/QM1k, to be planned with the user). Only
   the QM1b..QM1i items may be built, in TODO.txt order and each with its own approval
-  in the item; anything beyond them still follows the rules below. FORMS are still
-  undecided.
+  in the item; anything beyond them still follows the rules below.
+- **FORMS: GO-AHEAD 2026-11-17 (user)**: the user only wanted to be present for the
+  DESIGN of form controls, and will redesign once the functionality exists. Implement
+  Tier 6 (Q30a-Q30e, Q30g, and the form parts of Q33e/QB11/QSD11) as REAL behaviour,
+  in TODO.txt order, each item with its own tests: real boxes and UA styles, focus and
+  click, checkbox/radio state, text editing in input/textarea, GET and POST
+  submission through wire, `<select>`. Keep the perf rule in Tier 6 (no whole-layout
+  rebuild per keystroke). The Forms bullet and the forms placeholder paragraph below
+  are SUPERSEDED by this go-ahead (media rules still apply as agreed above).
 - **Audio and video** (rules below apply except as agreed above): `<video>`, `<audio>`, `<source>`, `<track>`,
   `HTMLMediaElement` playback (`play()`/`pause()`/`currentTime`/events),
   codecs, MediaSource/EME, Web Audio, `<canvas>` capture/WebRTC, autoplay.
