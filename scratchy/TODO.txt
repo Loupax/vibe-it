@@ -5896,7 +5896,7 @@ with temporary `Instant` timing, and say the number in the commit.
       Also decides cookies for page JS requests (QF-D2 / QF14 in the QF
       DESIGN MEMO): a jar in wire would also be used by fetch/XHR, so it
       needs a third-party rule before it lands.
-- [x] Q30g [M] DONE (hash: TBD) (go-ahead 2026-11-17) Open `<select>`. Click or Space/Enter opens a list painted
+- [x] Q30g [M] DONE (hash: 2836959) (go-ahead 2026-11-17) Open `<select>`. Click or Space/Enter opens a list painted
       above all page content (a top-layer overlay, closest in shape to
       the command bar's chrome painting, not to z-index stacking),
       j/k/arrows move, Enter/click picks, Esc closes. The chosen
