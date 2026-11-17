@@ -734,6 +734,9 @@ const SCRIPT_BUDGET: Duration = Duration::from_secs(5);
 /// flowing, and the compositor drops a client that doesn't read its
 /// socket for long enough (R8), so it gets a tenth of that.
 pub(crate) const CALLBACK_BUDGET: Duration = Duration::from_millis(500);
+/// QY46: one promise-job drain stops starting new jobs after this much CPU
+/// (4 x `CALLBACK_BUDGET`); the rest stay queued for the next turn.
+pub(crate) const DRAIN_CAP: Duration = Duration::from_millis(2000);
 
 // QY22 test seam: `(now, step)` replaces the thread CPU clock; every read
 // returns `now` and then advances it by `step` ns.
@@ -947,7 +950,16 @@ pub(crate) fn describe_error(ctx: &Ctx<'_>, err: JsError) -> String {
 /// Runs pending promise jobs, logging the message of any job that throws
 /// (QY14), then reports rejections that stayed unhandled via the prelude's
 /// `__scratchy_rej_flush` (which may queue more jobs: loop until quiet).
-pub(crate) fn drain_jobs(ctx: &Context, rt: &Runtime, log: &dyn Fn(&str, &str), tripped: &std::sync::atomic::AtomicBool) {
+pub(crate) fn drain_jobs(ctx: &Context, rt: &Runtime, log: &dyn Fn(&str, &str), tripped: &std::sync::atomic::AtomicBool, deadline: &std::sync::atomic::AtomicU64) {
+    // QY46: every job gets its own `CALLBACK_BUDGET` (a runaway job is still
+    // killed at 500 ms) and the whole drain stops starting jobs at `DRAIN_CAP`;
+    // the rest stay queued and `next_deadline` reports them as due.
+    let drain_start = script_clock_nanos();
+    // `tripped` stays sticky across jobs on purpose: a module entry's trip is
+    // caught into a rejection and reported by the caller after the drain.
+    let arm = || {
+        deadline.store(script_clock_nanos() + CALLBACK_BUDGET.as_nanos() as u64, Ordering::Relaxed);
+    };
     // QY22/QY44a: a job killed by the budget is uncatchable (skips `finally`),
     // so once one trips we STOP: later jobs must not start on an expired
     // deadline (they would be killed part-way and leave library state stale).
@@ -955,6 +967,10 @@ pub(crate) fn drain_jobs(ctx: &Context, rt: &Runtime, log: &dyn Fn(&str, &str), 
     let mut killed = 0usize;
     'drain: loop {
         while rt.is_job_pending() {
+            if script_clock_nanos().saturating_sub(drain_start) >= DRAIN_CAP.as_nanos() as u64 {
+                break 'drain;
+            }
+            arm();
             if let Err(job) = rt.execute_pending_job() {
                 job.0.with(|c| {
                     let msg = describe_error(&c, JsError::Exception);
@@ -969,6 +985,7 @@ pub(crate) fn drain_jobs(ctx: &Context, rt: &Runtime, log: &dyn Fn(&str, &str), 
                 }
             }
         }
+        arm();
         let more = ctx.with(|c| {
             let f: Option<Function> = c.globals().get("__scratchy_rej_flush").ok();
             let Some(f) = f else { return false };
@@ -1073,7 +1090,7 @@ impl JsEngine {
     /// not kill every queued job at once).
     pub(crate) fn drain_after_task(&self) {
         self.arm_budget(CALLBACK_BUDGET);
-        drain_jobs(&self.ctx, &self.rt, &*self.log, &self.tripped);
+        drain_jobs(&self.ctx, &self.rt, &*self.log, &self.tripped, &self.deadline);
     }
 
     pub(crate) fn eval(&self, name: &str, code: &str) {
@@ -1138,7 +1155,7 @@ impl JsEngine {
                 drop(unsafe { rquickjs::Value::from_raw(ctx.clone(), res) });
             }
         });
-        drain_jobs(&self.ctx, &self.rt, &*self.log, &self.tripped);
+        drain_jobs(&self.ctx, &self.rt, &*self.log, &self.tripped, &self.deadline);
     }
 
     /// QY15: runs the entry module registered under `name` (its source is
@@ -1399,6 +1416,10 @@ pub(crate) fn start_scripts_clocked(
         let native = Function::new(ctx.clone(), move |level: String, text: String| l(&level, &text));
         if let Ok(native) = native {
             let _ = ctx.globals().set("__scratchy_log", native);
+        }
+        #[cfg(test)]
+        if let Ok(f) = Function::new(ctx.clone(), |ms: u64| FAKE_CLOCK.with(|c| c.set(c.get().map(|(n, st)| (n + ms * 1_000_000, st))))) {
+            let _ = ctx.globals().set("__test_burn", f);
         }
         let _ = install_env(&ctx);
         if let Ok(f) = Function::new(ctx.clone(), url_parse_native) {
