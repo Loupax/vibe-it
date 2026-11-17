@@ -11032,6 +11032,17 @@ fn qy23_style_assignment_puts_forward_to_css_text() {
 }
 
 #[test]
+fn qy24_class_list_reads_the_class_attribute_not_class_name() {
+    let log = run_in_html(
+        "<html><body><x-q id=a class='p q'></x-q></body></html>",
+        "'use strict'; class XQ extends HTMLElement { get className() { return undefined; } set className(v) {} }\
+         customElements.define('x-q', XQ); var d=document.getElementById('a');\
+         d.classList.add('r'); console.log(d.classList.contains('p'), d.classList.toggle('p'), d.getAttribute('class'), d.classList.length, String(d.classList));",
+    );
+    assert_eq!(log, ["log:true false q r 2 q r"], "{log:?}");
+}
+
+#[test]
 fn qy12_window_interface_has_its_own_prototype() {
     let out = run_collecting(&[src(
         "console.log(window instanceof Window, window instanceof EventTarget, Window.prototype !== Object.prototype,\

@@ -7016,3 +7016,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Investigator only (docs). User: "why is youtube still a gray page? I don't expect videos to play, but I'd expect to see more UI." Run the real youtube.com headless (`--js-report --run-timers`) and in a nested dwl with the worktree's release build (QY21 applied locally while unmerged), list every error/missing feature in the order it blocks the UI, say what the first non-grey paint needs and whether our CSS/layout can draw YouTube's chrome, file ranked Sonnet items and an evidence memo.
 
 **What changed:** TODO.txt (QY28 ticked with the answer; new QY29-QY38 and question QY39-D; QY24 refined and raised; QY27 partly answered; QUEUE "NEW 2026-11-17" line), REGRESSIONS.md (R26). No source changes: all instrumentation, stand-ins and the four experimental fixes (QY29, QY24, QY30, QY32) were local and reverted.
+
+## QY24: classList reads the class attribute (2026-11-17)
+
+> Item QY24. `classList` (DOMTokenList) must read/write the `class` attribute through `__d_attr`/`__d_setattr` instead of `el.className`, which Polymer/ShadyDOM elements shadow (`cannot read property 'split' of undefined`). Test: custom element with `get className(){ return undefined; }` still supports classList.add/contains/toggle.
+
+**What changed:** src/js_dom.rs (`classes`, `putToks`, `clsAttr`, DTP `toString`/`value`), test `qy24_*` in src/tests.rs. The saved youtube kevlar copies did not hit the `split` error in either the before or after run (only the 2 CPU-budget trips), so it was not reproduced on the real page; the unit test covers the failure.
