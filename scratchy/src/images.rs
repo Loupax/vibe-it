@@ -415,7 +415,12 @@ pub(crate) fn build_box_for_element(
     viewport_width: f32,
     image_cache: &HashMap<String, Arc<DecodedImage>>,
 ) -> LayoutBox {
-    let style = resolve_style(handle, rules, inherited, viewport_width);
+    let mut style = resolve_style(handle, rules, inherited, viewport_width);
+    style.canvas_src = match element_tag(handle) {
+        "html" => 1,
+        "body" => 2,
+        _ => 0,
+    };
     // Resolved once here (cheap to carry further — just an `Arc` clone —
     // vs. re-running `resolve_background_image`'s own selector-matching
     // pass again in every branch below).
@@ -1988,10 +1993,42 @@ pub(crate) fn build_layout_tree_with_resources(
         )),
     };
     RULE_INDEX.with(|ri| *ri.borrow_mut() = None);
+    let mut tree = tree;
+    propagate_canvas_background(&mut tree);
     if tree_reads_viewport_height(&tree, false) {
         note_viewport_height_read();
     }
     tree
+}
+
+/// QW6 (CSS Backgrounds 3 2.11.2): the canvas takes the root element's
+/// background; when that is transparent (no colour, no image) it takes
+/// `<body>`'s instead. The source box then paints no background of its own.
+/// The (anonymous) document root box carries the canvas background, so it
+/// paints over the whole document.
+fn propagate_canvas_background(tree: &mut LayoutBox) {
+    type Bg = (Option<TextColor>, BgLayout, Option<Arc<DecodedImage>>);
+    fn has_bg(b: &LayoutBox) -> bool {
+        b.style.background_color.is_some() || b.background_image.is_some()
+    }
+    fn take(b: &mut LayoutBox) -> Bg {
+        (b.style.background_color.take(), b.style.bg_layout, b.background_image.take())
+    }
+    let canvas: Option<Bg> = (|| {
+        let BoxContent::Blocks(top) = &mut tree.content else { return None };
+        let html = top.iter_mut().find(|b| b.style.canvas_src == 1)?;
+        if has_bg(html) {
+            return Some(take(html));
+        }
+        let BoxContent::Blocks(kids) = &mut html.content else { return None };
+        let body = kids.iter_mut().find(|b| b.style.canvas_src == 2)?;
+        has_bg(body).then(|| take(body))
+    })();
+    if let Some((color, layout, image)) = canvas {
+        tree.style.background_color = color;
+        tree.style.bg_layout = layout;
+        tree.background_image = image;
+    }
 }
 
 pub(crate) fn collect_text_only(handle: &Handle, out: &mut String) {

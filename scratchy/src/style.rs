@@ -345,6 +345,10 @@ pub(crate) struct ComputedStyle {
     /// `background-position`/`-size`/`-repeat` (Q16), applied by
     /// `paint_background_image`. Not inherited.
     pub(crate) bg_layout: BgLayout,
+    /// QW6: 1 for the `<html>` element's box, 2 for `<body>`'s, else 0.
+    /// Lets `build_layout_tree_with_resources` propagate the root/body
+    /// background to the canvas (CSS Backgrounds 3 2.11.2). Not inherited.
+    pub(crate) canvas_src: u8,
     /// `mask-position`/`-size`/`-repeat` (Q29), same shape as `bg_layout`.
     pub(crate) mask_layout: BgLayout,
     /// `object-fit` and `object-position` (Q28), applied by `blit_image`.
@@ -2085,6 +2089,7 @@ pub(crate) fn resolve_style_for(
         outline_color,
         box_shadow,
         bg_layout,
+        canvas_src: 0,
         mask_layout,
         object_fit,
         object_pos,
@@ -2200,6 +2205,7 @@ pub(crate) fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         outline_color: None,
         box_shadow: [None; MAX_SHADOWS],
         bg_layout: BgLayout::default(),
+        canvas_src: 0,
         mask_layout: BgLayout::default(),
         object_fit: ObjectFit::Fill,
         object_pos: ((0.5, 0.0), (0.5, 0.0)),
