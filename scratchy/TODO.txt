@@ -1485,6 +1485,18 @@ IntersectionObserver and matchMedia are not used by any of the site's scripts.
       currentTime pause reverse ...` check); run YouTube `--js-report --run-timers` and
       a nested-dwl window before/after. Test: animate() opacity 0->1 200 ms, fake
       clock: finished resolves at 200, getAnimations() length 1 then 0.
+- [x] QAN1j [S] DONE HASHPLACEHOLDER (noise, no code change) Is the DuckDuckGo restyle 4-5x slower after QAN1b
+      (11-15 ms -> 53-74 ms per the QAN1b agent)? Measured 2026-11-17 with a temporary,
+      uncommitted `#[ignore]` test timing `build_layout_tree_with_resources` (12 runs, median)
+      on a saved DuckDuckGo copy (+<base href>), en.wikipedia and HN, old build 08ae74e (parent
+      of the QAN1b merge) vs main 139ad76, alternating, 3 rounds (machine load ~20):
+      DuckDuckGo 8.8 / 8.8 / 8.9 ms old vs 9.4 / 9.4 / 9.3 ms new (+0.5 ms, ~6 %; the QAN1b
+      agent's own saved copy: 11.2 / 11.0 old vs 10.9 / 11.6 new, i.e. noise); en.wikipedia
+      44.9 / 44.8 / 46.0 old vs 42.3 / 42.3 / 42.0 new; HN 4.2 / 4.2 / 4.2 old vs 4.4 / 4.2 /
+      4.2 new. Only about 5 DuckDuckGo elements declare an animation, so `evaluate` (3
+      cascades each) cannot cost more than a fraction of a ms. Verdict: the 53-74 ms was load
+      noise (or a one-off), no fix needed. Not measured: the live App with the spinner
+      running (animations are not driven until QAN1c).
 - [ ] QAN1h [S, Opus, investigate only] (P2) Why does a restyle of the static
       github.com copy take 15-18 s with cached rules (R31 section 4: 2 077 elements,
       16 192 rules; en.wikipedia 1.6-2.9 s, BBC 1.7 s, Guardian 1.1 s)? Profile
