@@ -1,6 +1,29 @@
 # scratchy — regressions
 
-## R32: Every shaped paragraph wipes cosmic-text's font-match cache (`db_mut()` in `shape_spans`): 10-37x slower shaping everywhere, seen as "1 forced layouts, 2198 ms" on social.loupax.com/u/loupax (Opus investigator, 2026-11-17) — OPEN, items QP1 (P1), QP2, QP3 in TODO.txt
+## R33: A test fails on a clean checkout of main: `inline_flex_lays_its_children_out_side_by_side_not_stacked` (review, 2026-11-17) — OPEN, item QCI0 in TODO.txt
+
+**Status: open.** Found by the 2026-11-17 review of main (ec6a0e6, again at
+7e007e6) in a fresh Linux container: `cargo test --release` -> 877 passed,
+1 failed, 2 ignored. The failing assertion: two `flex: 1` items in a 100 px
+`inline-flex` box, `children[0].w` = 49.871094, expected 50.0. The container's
+`fc-match sans-serif` is Inter; the test (244a8f4, 2026-11-11) presumably passes
+on the user's machine with other fonts, and the repo has no CI, so nothing ran it
+elsewhere. The 0.13 px is about the width difference of "x" and "y", which
+suggests `flex: 1` (basis 0) is not resolving from a zero basis, or the
+automatic minimum leaks in; not root-caused. Repro: `cargo test --release --lib
+inline_flex_lays`. Fix or make font-independent in QCI0, then CI (QCI1).
+
+### Not a regression, recorded here for agents: Q26 `letter-spacing` "cosmic-text bug"
+
+The 2026-11-12/13 finding that cosmic-text 0.19.0 wraps far too early with
+letter-spacing was a unit mismatch on scratchy's side: `Attrs::letter_spacing`
+takes EM ("Set letter spacing (tracking) in EM", attrs.rs), the attempt passed
+px. Standalone repro (cosmic-text =0.19.0, "Wide letter spacing ", 16 px font,
+900 px, `Wrap::WordOrGlyph`): spacing 1/2/3/4/5/8 passed raw -> 1/1/2/2/3/4
+lines (the recorded numbers exactly); passed as px/16 -> 1 line each, width
+160.27 + 20 x spacing. Q26 is READY in TODO.txt.
+
+## R32: Every shaped paragraph wipes cosmic-text's font-match cache (`db_mut()` in `shape_spans`): 10-37x slower shaping everywhere, seen as "1 forced layouts, 2198 ms" on social.loupax.com/u/loupax (Opus investigator, 2026-11-17) — FIXED (QP1 6c1ae4e, QP2 d5fe517); QP3 (measurement) open
 
 **Status: FIXED 2026-11-17: QP1 (6c1ae4e, the `db_mut()` fix: bench 3.4 s -> 42 ms, the forced-layout line is gone) and QP2 (d5fe517, shape memo on the JS thread); QP3 (cost of a font-match cache miss) is still open.** Original status: root cause found and measured, nothing committed. User report:
 `scratchy --socket $(wire --print-socket) https://social.loupax.com/u/loupax`
@@ -121,7 +144,9 @@ note. Both need re-measuring after QP1.
 
 ---
 
-## R31: CSS animations, transitions, Web Animations and `@font-face` do not exist; survey and design evidence (Opus investigator QAN1, 2026-11-17) — OPEN, items QAN1-0, QAN1a-QAN1i, QFF1a-QFF1c in TODO.txt
+## R31: CSS animations, transitions, Web Animations and `@font-face` do not exist; survey and design evidence (Opus investigator QAN1, 2026-11-17) — PARTLY BUILT (QAN1-0, QAN1a-c done); QAN1d0, QAN1d-i, QFF1a-c open in TODO.txt
+
+**Status (audit 2026-11-17, main @ e4993c3):** QAN1-0, QAN1a (parse), QAN1b (f965c9a, evaluate; 9 more WPT passes, the PR #232 body test passes again) and QAN1c (4c45340, start/end restyles + events, settle-first, no frames) are DONE. QAN1-D DECIDED 2026-11-17 (reduce motion by default via new QAN1d0, infinite animations freeze after 5 s, 30 fps, none while hidden). Open: QAN1d0, QAN1d-QAN1i, QFF1a-QFF1c; perf follow-up parked as QAN1p. The "nothing built" status below is the original one.
 
 **Status: evidence memo, nothing built.** Today `TopLevelParser::parse_prelude`
 (css.rs) accepts only `@media`/`@supports`/`@layer`; `@keyframes` and
@@ -351,7 +376,9 @@ Conclusions:
 - Why GitHub's restyle takes 15 s (QAN1h).
 - Which woff2 decoder crate fits (QFF1b).
 
-## R30: Media bytes through wire: Range works unchanged; pooled connections skip `public-only` (Opus investigator QM1d/QM1c, 2026-11-17) — EVIDENCE for TODO.txt QM1d/QM1e (and QM1c); wire items W-POOL1, W-MEDIA1, W-MEDIA2, W-PERF1 OPEN
+## R30: Media bytes through wire: Range works unchanged; pooled connections skip `public-only` (Opus investigator QM1d/QM1c, 2026-11-17) — EVIDENCE for QM1c/QM1d/QM1e (all done); wire W-POOL1 FIXED (#248); W-POOL2, W-MEDIA1, W-MEDIA2, W-PERF1 OPEN
+
+**Status (audit 2026-11-17, main @ e4993c3):** QM1e (93148a4, media byte channel through wire) and QM1f (242e468, HTMLMediaElement + libmpv backend behind the off-by-default `media` feature) are BUILT; wire W-POOL1 is FIXED (PR #248). Still open: QM1g/QM1g1 (paint, video-rect redraw), wire W-POOL2, W-MEDIA1, W-MEDIA2, W-PERF1. The "nothing implemented" status below is the original one.
 
 **Status: investigation only, nothing implemented.** Verdict: the QM1e media
 channel can be built on repeated ranged GETs over today's wire protocol (no
@@ -467,7 +494,9 @@ range with `Content-Encoding: gzip` (the test server compressed a slice, which
 is not what real servers do); mixed-content and CORS behaviour of real media
 sites.
 
-## R29: new errors after QY34 (script-inserted scripts) are newly exposed gaps, plus a budget-trip amplifier in `drain_jobs` (Opus investigator QY44, 2026-11-17) — OPEN, items QY44a-QY44e in TODO.txt
+## R29: new errors after QY34 (script-inserted scripts) are newly exposed gaps, plus a budget-trip amplifier in `drain_jobs` (Opus investigator QY44, 2026-11-17) — MOSTLY FIXED (QY44a-c done); QY44d, QY44e open
+
+**Status (audit 2026-11-17, main @ e4993c3):** QY44a (budget trip no longer kills the drain), QY44b (`window.screen`) and QY44c (= QSD4a, CSSOM insertRule) are DONE. Open: QY44d (media textTracks placeholder), QY44e (blob:/data: script src).
 
 **Status: open (no QY34 regression; fix forward, do not revert).** The QY34 agent
 reported more errors after 281d281 (old.reddit 2 -> 103, guardian 0 -> 2, bbc a
@@ -619,7 +648,9 @@ the code QY34 unlocks dies on QY44b/QY44c/QY44d.
   note).
 - Other measured pages (wikipedia, HN, github, ddg, lobste.rs) were not re-run.
 
-## R28: YouTube's remaining masthead/guide paint gaps: `document.all`, a 1e6 px max-content, pre-wrap newlines (Opus investigator QY35, 2026-11-17) — OPEN, items QY40-QY43 in TODO.txt
+## R28: YouTube's remaining masthead/guide paint gaps: `document.all`, a 1e6 px max-content, pre-wrap newlines (Opus investigator QY35, 2026-11-17) — FIXED (QY40-QY43 done); the kebab icon is QY33 (open)
+
+**Status (audit 2026-11-17, main @ e4993c3):** QY40 (fefde2b, `document.all`), QY41, QY42 and QY43 are all DONE. The one remaining gap (section 4, kebab icon dropped by the callback budget) is QY33, still open.
 
 **Status: open (bugs, no regression).** QY35 asked for the cause of each
 paint gap R26 listed once QY29/QY24/QY32 were merged. Measured on main
@@ -803,7 +834,9 @@ as merged code; not bisected which one fixed it.)
   reads ''); probably the file-copy origin or the local jar name; not
   investigated.
 
-## R26: YouTube is still a grey page: `Node.prototype.data` makes polymer-resin blank every renderer's data (Opus investigator, 2026-11-17) — OPEN, items QY29-QY39 in TODO.txt
+## R26: YouTube is still a grey page: `Node.prototype.data` makes polymer-resin blank every renderer's data (Opus investigator, 2026-11-17) — MOSTLY FIXED; QY33, QY36, QY37, QY38 open
+
+**Status (audit 2026-11-17, main @ e4993c3):** DONE: QY29 (7b48596, the blocker), QY30, QY31, QY32, QY34, QY35 (became R28), QY39a/b (User-Agent override). Open: QY33 (post-load callback budget, measure first), QY36 (getComputedStyle percentages), QY37 and QY38 (`--js-report` jar and stylesheets).
 
 **Status: open (bugs and missing features, no regression).** User question:
 "why is youtube still a gray page? I don't expect videos to play, but I'd
@@ -1012,7 +1045,9 @@ that card; videos would not appear even in Chrome without watch history.
   browser UA were not tried. Video playback is out of scope (placeholders
   only); no `<video>` element exists on the home page.
 
-## R27: Can scratchy embed mpv for `<video>`? (Opus investigator, 2026-11-17) — EVIDENCE for TODO.txt QM1 / QM1-D / QM1a-QM1j
+## R27: Can scratchy embed mpv for `<video>`? (Opus investigator, 2026-11-17) — EVIDENCE for QM1; design DECIDED (QM1-D D1-D8), QM1b/QM1e/QM1f built
+
+**Status (audit 2026-11-17, main @ e4993c3):** The media design is COMPLETE (QM1-D D1-D8, 2026-11-17): libmpv in-process, optional `media` feature, all bytes through wire, no MSE for now. Built: QM1b spike (6cab99c, tools/mpvspike), QM1e (93148a4), QM1f (242e468). Open: QM1a, QM1g, QM1g1; MSE is QM1k (with the user). The "investigation only" status below is the original one.
 
 **Status: investigation only, nothing implemented (media is "Off limits" in
 AGENTS.md until the user agrees a design).** Conclusion: an mpv *process*
@@ -1126,7 +1161,9 @@ scratchy's full-page repaint time per frame (QM1c); any webm/vp9/av1 file
 (decoders are listed, not played); that `load-unsafe-playlists=no` plus
 stream_cb alone stops every ffmpeg protocol (QM1e's strace test must show it).
 
-## R24: YouTube's 5 s CPU wall is QY6e's own `define()` scan (Opus investigator, 2026-11-16) — OPEN, items QY21-QY27 in TODO.txt
+## R24: YouTube's 5 s CPU wall is QY6e's own `define()` scan (Opus investigator, 2026-11-16) — MOSTLY FIXED (QY21-QY24 done); QY25, QY26, QY27 open
+
+**Status (audit 2026-11-17, main @ e4993c3):** DONE: QY21 (959cd39, the quadratic define() scan), QY22, QY23, QY24. Open: QY25 (diagnostics), QY26 (bytecode cache, optional), QY27 (re-measure YouTube).
 
 **Status: open (perf bug introduced by QY6e f887f67, plus budget-policy
 gaps).** User report: `js error: ...k=ytmainappweb.kevlar_base...
@@ -1179,7 +1216,9 @@ undefined` in our classList `classes()`, one CORS-blocked `GET
 https://youtube.com/`. The window still shows only the grey skeleton
 (screenshot viewed: two grey thumbnail boxes with grey text bars).
 
-## R25: social.loupax.com/discover: vim.js dies on getBoundingClientRect; clamp.js clamps every post; body background not on canvas (Opus investigator, 2026-11-16) — OPEN, items QJ4-QJ11, QW6 in TODO.txt
+## R25: social.loupax.com/discover: vim.js dies on getBoundingClientRect; clamp.js clamps every post; body background not on canvas (Opus investigator, 2026-11-16) — MOSTLY FIXED (QJ4-QJ9, QW6 done, QJ11 decided); QJ4b, QJ6b, QJ10 open
+
+**Status (audit 2026-11-17, main @ e4993c3):** DONE: QJ4 (getBoundingClientRect), QJ5, QJ6, QJ7 (d48951f, Range text geometry), QJ8, QJ9, QW6; QJ11 DECIDED (pages may cancel any key). social /discover loads with 0 JS errors headless. Open: QJ4b (layout panic in `measure_grid`), QJ6b (horizontal scroll), QJ10 (Custom Highlight API).
 
 **Status: open (missing features, not regressions).** User report:
 `Uncaught (in promise) TypeError: not a function at vim.js:104:63 (map,

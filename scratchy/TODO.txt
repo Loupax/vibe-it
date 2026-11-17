@@ -16,6 +16,30 @@ QUEUE — ranked work order (reviewed 2026-11-12, re-planned 2026-11-14)
 
 --- CURRENT STATUS (2026-11-16, docs audit; READ THIS FIRST) -------------
 
+AUDIT 2026-11-17 (review of main @ e4993c3; READ BEFORE THE LISTS BELOW, which are
+older and were only partly corrected in place):
+- DONE although older text below still lists them as pending: everything in the
+  three "NEW 2026-11-16/17" blocks except QY25-QY27, QY33, QY36-QY38, QY44d/e,
+  QJ4b/QJ6b/QJ10, QAN1d-QAN1i, QFF1a-c and QP3; QSD3, QSD4a (= QY44c), QY18;
+  forms Q30a-Q30e (Q30f = QF14); media QM1b, QM1c, QM1d, QM1e, QM1f.
+- ANSWERED although listed under WAITING FOR USER: SD-D1..SD-D4 and QY18
+  (2026-11-16, all YES), QJ11, QY39-D, the cookie token (no), QM1-D D1-D8,
+  QAN1-D (2026-11-17), QF14b2 (e) tracker blocking (QCFG1 -> QTB1).
+- NEWLY READY (2026-11-17): QCI0 then QCI1 (CI), QT1 (split tests.rs, quiet
+  window), Q26 (letter-spacing: unit bug on our side, see R33), QSB1 (scrollbar
+  drag, split out of Q32), QAN1d0 (reduced motion default), Q30g + Q33e (forms
+  rest), QCFG1 -> QTB1 (when prioritised).
+- WebSocket DECIDED 2026-11-17 (wire as a pipe): QF19w1 (wire) -> QF19w2
+  (scratchy) READY; QF19m lists test sites.
+- USER RULE 2026-11-17: "scratchy without wire can't physically speak to the
+  internet" (safe for offline reading). Enforced by QNET1 (READY, P1); QWU1
+  (READY) makes a down wire visible on stderr.
+- MSE 2026-11-17 (user): goal = video on all sites except DRM (YouTube, Reddit
+  first); measure first: QM1k-m READY (Opus, on the user's machine); QM1i DROPPED.
+- Still WAITING FOR USER: QM1k (MSE build plan, after QM1k-m, together), QCI2 (WPT in CI), QF14b2 (d) `--profile` (later),
+  Q32 remainder (parked), QAN1p/QTB2 (parked).
+- Known red test on a clean checkout: R33 / QCI0.
+
 USER ANSWERS 2026-11-17 (late night): (a) PR #232 (QW6, body background on the canvas)
 KEEP, despite its accepted WPT pass->fail `css/css-backgrounds/animations/background-color-
 animation-in-body.html` (accidental pass; the test needs CSS animations, which scratchy
@@ -93,7 +117,7 @@ READY, in recommended order (no user decision needed):
   4 QF11 [S] navigation from JS (`location.assign/replace/href=`: no-ops now).
   5 Q33b1a [S] main `document.title` from `<title>` (reads '' today).
   6 QSD2b [S] lookupNamespaceURI/lookupPrefix/isDefaultNamespace.
-  7 QSD4a [S] `document.styleSheets` minimal read.
+  7 (DONE as QY44c) QSD4a [S] `document.styleSheets` minimal read.
   8 QSD11 [S] attachInternals placeholder (forms parts log not implemented).
   9 QF9a [S] DOMParser + XHR responseType 'document'.
  10 QF10a [S] `<a ping>` suppressed-log line.  11 QF4a [S] stream gaps.
@@ -101,6 +125,10 @@ READY, in recommended order (no user decision needed):
  13 QY15a [S] run-time dynamic import() through the QF7 queue.
  14 QF14b2 (a)-(c) [S] `crossorigin` credentials, same-origin-mode redirect
     hop, `cookieStore`.
+ NEW 2026-11-17 (review of main @ ec6a0e6; block "CI AND TEST LAYOUT" below), in
+ this order: QCI0 [S] (a test fails on a clean checkout: flex 49.87 px vs 50),
+ QCI1 [S] (GitHub Actions: build + test + clippy count, after QCI0), QT1 [M]
+ (split src/tests.rs per area; pure move, quiet window). QCI2 later/optional.
  NEW 2026-11-16 (Opus, R24/R25; block "YOUTUBE CPU BUDGET + SOCIAL VIM.JS"
  below; the coordinator ranks them against the list above): QY21 [S]
  (YouTube's 5 s wall: 86% of the time is QY6e's own define() scan), QY22 [S],
@@ -148,26 +176,22 @@ READY, in recommended order (no user decision needed):
  polyfill risk), QAN1h [S, Opus] GitHub restyle 15-18 s, QAN1i [S] runner canvas
  fill; QAN1f [S] only if events are wanted before frames. Separately QFF1a [M]
  @font-face ttf/otf/woff, QFF1b [M] woff2, QFF1c [S] document.fonts.
- QAN1-D (reduced motion, infinite animations, frame cap) waits for the user.
+ QAN1-D DECIDED 2026-11-17 (user accepted the recommendation "for now"): new
+ QAN1d0 [S] READY (answer `prefers-reduced-motion: reduce` by default, `:set motion`),
+ then QAN1d with the decided defaults. Perf follow-up parked: QAN1p.
  Then P3/P4 leftovers in their blocks (QY*, QA*, Q40b/Q40c fix items).
 WAITING FOR USER (skip until answered):
-- QAN1-D (2026-11-17, R31): answer `prefers-reduced-motion: reduce`? What to do with
-  infinite CSS animations (animate at a cap / freeze after N s / freeze)? Frame cap
-  30 fps and no animation while the window is hidden? Gates only the frame loop
-  (QAN1d) defaults, not QAN1-0/a/b/c.
-- SD-D1: OK to ship B1 (attachShadow works, JS sees a real shadow tree, but
-  only the host's light children render)? Gates QSD3, QSD6, QSD10.
-- SD-D2: accept "basic" event retargeting (no relatedTarget/focus
-  retargeting, no delegatesFocus)? Gates QSD8.
-- SD-D3: declarative shadow DOM, only after QSD6/QSD7 render? Gates QSD9.
-- SD-D4: style scoping = per-root sheets + :host/::slotted, ::part and
-  :host-context dropped? Gates QSD7.
-- QY18: OK to implement translate-only `transform` (paint + hit-test offset,
-  no layout change)? Left out on purpose in the 2026-11-14 re-plan.
+- (DECIDED 2026-11-17, see QAN1-D: reduce by default, freeze infinite after 5 s,
+  30 fps and none hidden/unfocused; perf follow-up parked as QAN1p) QAN1-D (R31):
+  motion defaults for the frame loop (QAN1d).
+- (ANSWERED 2026-11-16: all YES; QSD3 and QY18 are built) SD-D1 (B1 first),
+  SD-D2 (basic retargeting), SD-D3 (declarative after QSD6/QSD7), SD-D4 (per-root
+  sheets + :host/::slotted), QY18 (translate-only transform).
 - (ANSWERED 2026-11-17: no token for now, see wire/TODO.txt) Cookie control token: should wire require a token on the
   `X-Wire-Cookie-Op` channel, and how is it shared? (hook
   `control_authorized`; QF14b2 (f)). Also QF14b2 (d) `--profile` jar name
-  and (e) tracker-list blocking: want them, and which list?
+  and (e) tracker-list blocking (e: DECIDED 2026-11-17, items QCFG1 -> QTB1,
+  own list parked as QTB2).
 - (DECIDED 2026-11-17: scratchy may override wire's UA, QY39a/QY39b) QY39-D (R26): wire sends `User-Agent: wire/0.1 (+https://github.com/Loupax/vibe-it)
   scratchy's real-networking daemon`; YouTube classifies it as a bot (`cbrand=robot,
   cmodel=bot or crawler`) and serves its ES5 + polyfills variant. Keep the honest UA,
@@ -175,7 +199,8 @@ WAITING FOR USER (skip until answered):
 - (GO-AHEAD 2026-11-17: forms are READY, see Tier 6 / Q30a-Q30g) Forms (Q30a-Q30e,
   Q30g, Q33e, QB11's form part): were placeholder-only until the user designed them; the
   user will redesign after the functionality exists.
-- Media (QM1 done 2026-11-17, R27): an mpv process cannot be embedded on Wayland;
+- (DESIGN COMPLETE 2026-11-17, QM1-D D1-D8; QM1b/e/f built; only QM1k MSE waits)
+  Media (QM1 done 2026-11-17, R27): an mpv process cannot be embedded on Wayland;
   libmpv in-process (software render into the `<video>` box, bytes from wire) is
   the recommended route. Questions QM1-D D1-D8 (in-page vs "open in mpv",
   in-process vs helper, optional dependency, network via wire, autoplay,
@@ -185,8 +210,11 @@ WAITING FOR USER (skip until answered):
   Wikipedia, so video needs the rect-only redraw QM1g1. wire/TODO.txt W-POOL1
   (security: `public-only` skipped on pooled connections) should be fixed first;
   W-MEDIA1 (`file:` Range) before QM1e's local-file case.
-- QF19 WebSocket/EventSource/Workers; QY16a real localisation (ICU data?);
-  persistence of jar/storage/cache (QF-D7: not now); Q26, Q32 (parked).
+- (DECIDED 2026-11-17: wire as a pipe, QF19w1 -> QF19w2 READY) QF19 WebSocket,
+  Workers (no);
+  EventSource is QF19a (READY). QY16a real localisation (ICU data?); persistence
+  of jar/storage/cache (QF-D7: not now). Q26 UNBLOCKED (READY, R33); Q32's
+  scrollbar drag split out as QSB1 (READY), the rest of Q32 stays parked.
 - (ANSWERED 2026-11-17: pages may cancel any key) QJ11: which keys may page JS cancel? Once QJ4-QJ6 land, social.loupax.com's
   vim.js cancels `:` `/` j k h l g G n N Enter Esc Ctrl-D/U/O/I, so scratchy's
   own `:` command line and vim keys become unreachable on that site.
@@ -396,7 +424,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       control protocol), E (vlc, gstreamer: not installed; GStreamer waylandsink
       has the same in-process constraint and is a heavier dependency).
       Children (WAITING FOR USER unless marked READY):
-- [ ] QM1-D PARTLY ANSWERED 2026-11-17: D1 = in-page video using mpv (libmpv A1; the
+- [x] QM1-D ANSWERED (D1-D8 all decided 2026-11-17; MSE is QM1k): D1 = in-page video using mpv (libmpv A1; the
       page console/status logs "media: mpv"; an extra "open in mpv" action is not asked
       for), D4 = all bytes through wire, always. D2 = libmpv in-process, D3 = optional
       dependency, D5-D7 = coordinator defaults (decided 2026-11-17, see the status block).
@@ -424,6 +452,38 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
          (same backend, no video), and how many players at once (each ~100 MB RSS;
          suggest 2, pause the oldest). D8 Accept "no MSE/EME" (YouTube stays
          without video), or ask for a separate MSE investigation later.
+         [D8 REVISED 2026-11-17 by the user: goal = video on all sites except DRM;
+         YouTube and Reddit first; measure first (QM1k-m), then plan (QM1k).]
+- [ ] QM1k-m [M, Opus, investigate only] READY (user 2026-11-17: "measure first")
+      MSE/streaming survey, run on the USER'S machine (this needs real youtube.com /
+      reddit access through the user's wire and the `media` feature with libmpv; the
+      cloud review container cannot reach youtube.com). GOAL (user 2026-11-17): video
+      should play on ALL sites except DRM; priority YouTube, Reddit, then X and news
+      embeds (bbc, guardian); add Twitch and Vimeo for coverage. D8 ("no MSE") is
+      REPLACED by this goal; EME/DRM stays out.
+      Per site, with a temporary logging layer (nothing committed; same habit as R21-R31):
+      (1) WITHOUT MediaSource (`window.MediaSource` undefined, as today): what does the
+          player do: progressive mp4 via `<video src>` (which itag/URL), native HLS,
+          an error message, nothing? Does the video then actually play through QM1f?
+      (2) With a LOGGING MediaSource stub (exists, never plays): every
+          `MediaSource.isTypeSupported`/`canPlayType` query (note HLS
+          `application/vnd.apple.mpegurl`/`application/x-mpegURL` and DASH), each
+          `addSourceBuffer` mime/codec, each `appendBuffer` (size, first box/element:
+          ftyp/moov/moof/mdat or EBML/Segment/Cluster), `timestampOffset`,
+          `remove()`, `duration`, `endOfStream`, `changeType`, and any EME call
+          (`requestMediaKeySystemAccess`) = DRM, out of scope.
+      (3) The segment fetches themselves through wire: URL pattern, method, Range vs
+          `range=` query, response status (R26 saw `googlevideo ... itag=18` -> 403),
+          content type (YouTube `application/vnd.yt-ump` = UMP/SABR, its own container
+          around the media), sizes. Does YouTube serve segments to wire at all, with
+          and without `--user-agent` (QY39b)? Is botguard/PoToken involved?
+      (4) A seek and a quality switch on one YouTube and one Reddit video: what the
+          stub sees (remove + append from a new position, new init segment).
+      Output: REGRESSIONS.md entry (R34) with a per-site table, and a recommended route
+      per site: native HLS (scratchy fetches playlist + segments via wire, one stream
+      to mpv), full MSE (SourceBuffer bytes -> stream_cb; audio as a second stream),
+      progressive fallback, or impossible (DRM / server refuses). Then STOP: QM1k's
+      planning session with the user decides what gets built.
 - [ ] QM1k [L, Opus investigate, then PLAN WITH THE USER PRESENT] WAITING FOR USER (user
       2026-11-17: "create action item for investigating the MSE and planning it with me
       present") MediaSource Extensions for libmpv (QM1j): how a `blob:` URL from
@@ -686,10 +746,11 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
 - [ ] QM1h [L] (only if D2 = separate process) media helper process: owns libmpv,
       renders frames into a memfd shared with scratchy, talks the same commands
       over a socket, crash kills only the helper.
-- [ ] QM1i [S] (only if D1 includes C) "open in mpv" on the placeholder: spawn
+- [x] QM1i DROPPED 2026-11-17 (user): a standalone mpv fetches by itself, which breaks
+      the rule that only wire talks to the internet (QNET1). Original: [S] (only if D1 includes C) "open in mpv" on the placeholder: spawn
       `mpv --no-config --ytdl=no --load-scripts=no <url>` as its own tile; per D4
       either feed it a loopback URL served from wire or accept the direct fetch.
-- [ ] QM1j (not planned; D8) MediaSource: in theory SourceBuffer segments could be
+- [x] QM1j SUPERSEDED 2026-11-17 by QM1k/QM1k-m (MSE is now a goal). Original: (not planned; D8) MediaSource: in theory SourceBuffer segments could be
       appended to a growing stream_cb buffer, but timestamp offsets, codec
       switches, removal and YouTube's player logic make this a large project.
 - [x] QY21 [S] (959cd39) (P2, YouTube load wall) QY6e `define()` is quadratic. Root
@@ -860,6 +921,72 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       left alone: collapsible_if/let_and_return are cosmetic edits across many files that
       would conflict with the concurrent agents' branches (js.rs, layout.rs, tests.rs).
       Do it in one quiet window as a mechanical `cargo clippy --fix` pass, test + WPT.
+
+--- CI AND TEST LAYOUT (review of main @ ec6a0e6, 2026-11-17) ---------------
+--- The repo has no CI (.github/ does not exist), so a failing test can sit ---
+--- on main unnoticed; and every branch edits the one src/tests.rs. ----------
+
+- [ ] QCI0 [S] READY (P1, do before QCI1) A test fails on a clean checkout of main:
+      `inline_flex_lays_its_children_out_side_by_side_not_stacked` (tests.rs) gets
+      `children[0].w == 49.871094`, expects 50.0 (`cargo test --release --lib
+      inline_flex_lays`, reproduced at ec6a0e6 and 7e007e6 in a fresh Linux
+      container whose `fc-match sans-serif` is Inter; 1 failed, 2 ignored, rest pass).
+      The test dates from 244a8f4 (2026-11-11) and presumably passes on the user's
+      machine with other fonts. Find out which it is, with a measurement:
+      (a) a real flex bug: two `flex: 1` items (basis 0) in a 100 px inline-flex
+      box should each be exactly 50 px whatever their glyphs, since a single
+      glyph's min-content is far below 50; the ~0.13 px gap looks like the width
+      difference of "x" vs "y", so check whether `flex: 1` really resolves to a
+      zero basis (`parse_flex_shorthand`, the `basis_from_decl` / free-space code
+      in layout.rs) or the automatic minimum leaks in. Fix it, keep the test.
+      (b) a font-dependent test: make it font-independent (e.g. Ahem, as the WPT
+      runner loads it, or assert the equal split rather than a font-specific
+      number). Never delete or `#[ignore]` the test (AGENTS.md step 2).
+      Also run the full suite once with ONLY the CI font set from QCI1 installed
+      and fix/file any other font-dependent test. WPT: no pass->fail.
+- [ ] QCI1 [S] READY (after QCI0; user asked for it 2026-11-17) GitHub Actions CI,
+      `.github/workflows/ci.yml` at the repo root. On every PR and on push to
+      main. Per crate (scratchy, wire, snag; each has its own Cargo.lock, no
+      workspace): `cargo build --release --all-targets` and `cargo test --release`.
+      scratchy only: `tools/clippy-count.sh` and fail if the TOTAL is above the
+      QC1/QC2 baseline (78 today; keep the number in ONE place the workflow reads,
+      so lowering it is a one-line change).
+      Fonts: tests shape real text through the system fontconfig, so results
+      depend on installed fonts. Install one pinned set (Ubuntu runner, apt; name
+      the packages in the workflow and in tools/README) and make sure the suite
+      is green with exactly that set (QCI0). System packages: whatever winit/
+      softbuffer and rquickjs (C build via cc) need on a headless runner; find
+      them by building in a clean container, not by guessing.
+      Cache: `actions/cache` or `Swatinem/rust-cache`, pinned to a release tag.
+      Out of scope: WPT (needs /home/loupax/src/wpt, see QCI2), Acid2/3 (info
+      only), grim screenshots, anything that needs Wayland.
+      An agent cannot see a workflow run before merge: say so in the PR; the
+      coordinator checks the first run on main and files fixes. Then add to
+      AGENTS.md step 3: "CI must be green on the PR before merge".
+- [ ] QCI2 [S] (P4, optional, after QCI1; ask the user first: download size)
+      WPT subset in CI: sparse-checkout only the directories `wpt-subset.txt`
+      references, pinned to the WPT commit the user's ~/src/wpt is at (record it
+      next to wpt-expected.txt), then `scratchy --wpt <dir>`. Headless already
+      (the runner renders to PNG without a window).
+- [ ] QT1 [M] READY (do in a quiet window; the coordinator holds or rebases
+      every open branch, since all of them touch tests.rs) Split `src/tests.rs`
+      (19.5k lines, ~1080 fns, 108 `// ----------` section banners, one
+      `mod tests;` in lib.rs with `use super::*;`) into `src/tests/mod.rs`
+      (shared helpers only: `measure_fixture`, `find_mixed_inline`,
+      `mixed_items`, `find_embedded`, ... and the `use super::*;`) plus one file
+      per area, following the existing banners: e.g. css_parse, cascade,
+      layout_block, layout_inline, flex_grid, tables, paint, images, interaction,
+      forms, js_core, js_dom, js_net, net_policy, animation, media, wpt. Keep
+      each file under ~3k lines.
+      Why: since 72c352d, 13 commits exist only to restore a test's closing
+      brace that a rebase dropped in this one file (e.g. 828a6eb QP2, 8a4f3f0
+      QAN1c, 1207ac8 QAN1a, cc2f3c5 QJ9, 860c83c QY44c, 727f087 QY6a).
+      Pure move like Q38 (38ca872): no test renamed, changed, merged or dropped.
+      Proof in the PR: `cargo test --release -- --list` before and after; the
+      sorted test names, with the new module prefix stripped, diff empty, and the
+      pass/fail/ignored counts are identical. clippy count not above baseline.
+      Afterwards add to AGENTS.md step 2: "add the test to the area file in
+      src/tests/; a new area gets a new file", so branches stop colliding.
 - [x] QY30 [S] (P2, R26) DONE 2026-11-17 (f9900b8) rAF due time can equal "now": TIMERS_PRELUDE `add()` (js.rs)
       `if (raf) delay = FRAME - (t % FRAME)`; at t = 100 ms (FRAME = 1000/60)
       `t % FRAME` is 16.666666666666657, delay 1.1e-14, `t + delay` rounds back
@@ -1457,6 +1584,24 @@ IntersectionObserver and matchMedia are not used by any of the site's scripts.
       (spinner) and github.com (marquee) in a nested dwl, CPU % over 30 s. Acceptance:
       two grims 200 ms apart of a fixture with an infinite opacity animation differ only
       in the animated box; CPU numbers recorded. Unblocks: smooth fades/slides, QAN1e.
+      QAN1-D defaults (decided 2026-11-17): infinite (or > 5 s) animations freeze 5 s
+      after they start (D2; test with the fake clock: frames requested until 5 s, none
+      after, value held); 30 fps; none while hidden/unfocused (D3). With QAN1d0's
+      default `reduce`, measure the duckduckgo/github CPU numbers both with the default
+      and with `:set motion`.
+- [ ] QAN1d0 [S] READY (QAN1-D D1, before QAN1d) Answer `prefers-reduced-motion: reduce`
+      by default. Today the media-query evaluation (css.rs, `prefers-reduced-motion`
+      in the media feature matching next to `prefers-color-scheme`) always answers
+      `no-preference`. Make it a runtime setting like `js_enabled`: default reduce;
+      `:set motion` -> no-preference, `:set nomotion` -> reduce (add both to
+      `SET_ARGS`, `:help`), and a `--motion` command-line flag. The same value must
+      drive the cascade AND JS `matchMedia('(prefers-reduced-motion: reduce)')`
+      (QY10) so CSS and script agree; a `:set` change applies from the next restyle
+      (or next load, if a live change is hard: say which in the PR). Tests: a
+      `@media (prefers-reduced-motion: reduce){p{color:red}}` fixture is red by
+      default and not after `:set motion`; matchMedia agrees in both states. WPT: no
+      pass->fail (check the subset for reduced-motion tests: their expectations may
+      flip; a pass->fail caused only by the new default needs the user's OK).
 - [ ] QAN1e [M] (after QAN1d) CSS transitions. Parse `transition-property/-duration/
       -timing-function/-delay` + shorthand + `-webkit-` (`all`, comma lists). On a
       restyle (hover/focus/active from `set_interaction_state`, JS writes), compare
@@ -1519,7 +1664,17 @@ IntersectionObserver and matchMedia are not used by any of the site's scripts.
       band where a browser shows a full olive 800x600. Share the fill (one helper used
       by both). Acceptance: full `--wpt`; record every flip (both directions) in the
       PR, do not assume.
-- [ ] QAN1-D WAITING FOR USER (design first; QAN1a/b/c/0/h/i do not depend on it):
+- [x] QAN1-D DECIDED 2026-11-17 (user: "I accept your recommendations for now. Leave a
+      parked todo of improving their performance later" -> QAN1p in Parked). Answers:
+      D1 YES: answer `prefers-reduced-motion: reduce` by default; `:set motion` /
+         `:set nomotion` (and a `--motion` flag) switch to `no-preference`. Item QAN1d0.
+      D2 Infinite animations (iteration-count `infinite`, or total active duration
+         > 5 s) animate at the frame cap, then FREEZE 5 s after they start at their
+         current value (no more frames, no more `animationiteration`); a restyle that
+         restarts the animation (new name/element) starts a new 5 s window. In QAN1d.
+      D3 30 fps cap (constant), no frames while the window is hidden or unfocused
+         (when winit reports it; check on dwl), as already written in QAN1d.
+      Original questions:
       D1 Should scratchy answer `prefers-reduced-motion: reduce` (today always
          `no-preference`)? GitHub has 97 and YouTube 49 such queries; with `reduce`
          most decorative motion switches itself off (battery), while UI feedback
@@ -1772,23 +1927,23 @@ DSD content from "hidden template" into "hidden shadow root" with no
 gain.
 
 User decisions:
-- [ ] SD-D1 (USER) Is B1 acceptable as a first step: `attachShadow`
+- [x] SD-D1 (USER; ANSWERED YES 2026-11-16) Is B1 acceptable as a first step: `attachShadow`
       works and the JS sees a real shadow tree, but scratchy keeps
       rendering the host's light children and NOT the shadow content
       (logged once per page as `not implemented: shadow root rendering`)?
       (Recommended: yes, with B2 queued right behind it.) Or A (keep
       throwing until B2 is ready), or go straight to B2.
-- [ ] SD-D2 (USER) Event retargeting fidelity. (Recommended) basic:
+- [x] SD-D2 (USER; ANSWERED YES 2026-11-16) Event retargeting fidelity. (Recommended) basic:
       composed events (all UA input events, `composed:true` custom
       events) continue from a shadow root to its host; `event.target`
       is retargeted to the host for listeners outside the shadow tree;
       `composedPath()` omits nodes inside closed roots; non-composed
       events stop at the shadow root. Cut: `relatedTarget` retargeting,
       focus/blur retargeting, `delegatesFocus`.
-- [ ] SD-D3 (USER) Declarative shadow DOM (`<template shadowrootmode>`,
+- [x] SD-D3 (USER; ANSWERED YES 2026-11-16) Declarative shadow DOM (`<template shadowrootmode>`,
       parsed by html5ever via a sink wrapper). (Recommended) yes, but
       only after QSD6/QSD7 render shadow trees.
-- [ ] SD-D4 (USER) Style scoping scope for B2. (Recommended) `<style>`,
+- [x] SD-D4 (USER; ANSWERED YES 2026-11-16) Style scoping scope for B2. (Recommended) `<style>`,
       `<link rel=stylesheet>` and `adoptedStyleSheets` per shadow root,
       `:host`, `:host(<sel>)`, `::slotted(<compound>)`; CUT `::part`/
       `exportparts` and `:host-context` (parsed and dropped, logged).
@@ -2711,7 +2866,62 @@ QF13a, QF14b2, QF18 open; QF19 waits for the user):
       redirects itself); (c) `cookieStore` API; (d) `--profile` jar name;
       (e) Disconnect tracker-list blocking (QF14b in the old numbering);
       (f) the access token for the control channel (wire hook
-      `control_authorized`, waiting for the user).
+      `control_authorized`). ANSWERED (f) 2026-11-17: no token for now
+      (wire/TODO.txt). (e) USER 2026-11-17: WANTED, build it when it gets
+      prioritised; mode = B: third-party requests to listed tracker domains are
+      NOT MADE AT ALL (not just cookie-less), checked in scratchy's
+      `RequestPolicy` (src/net_policy.rs), which knows the top-level site.
+      (e) FULLY DECIDED 2026-11-17 (user accepted the recommendation): list =
+      Disconnect `services.json`, downloaded at RUN time through wire on an
+      explicit command (never at compile time, never committed), plus the
+      user's own block/allow entries in the config file; categories =
+      Advertising, Analytics, Social, FingerprintingInvasive, Cryptomining.
+      Split out as QCFG1 (config file) -> QTB1 (blocking); own curated list
+      parked as QTB2. (d) `--profile`: still later, a `profile` key in the
+      QCFG1 file when it is built.
+- [ ] QCFG1 [S] (when prioritised; prerequisite of QTB1) A user config file:
+      `$XDG_CONFIG_HOME/scratchy/config.toml` (default `~/.config/scratchy/
+      config.toml`), read once at startup with the `toml` crate. Command-line
+      flags and `:set` override it. Missing file = today's defaults, silently.
+      Unreadable or invalid file = ONE `scratchy: config: <path>: <error>` line
+      and defaults, never a panic. Unknown keys: one warning line each, ignored.
+      First keys: `[trackers] block = [..]`, `allow = [..]` (for QTB1), plus
+      only keys whose feature already exists (`vim`, `js`, `user_agent`;
+      `motion` once QAN1d0 lands). Document the file in `:help` and NOTES.md.
+      Tests: missing file, valid file, bad TOML, unknown key, flag overrides file.
+- [ ] QTB1 [M] (after QCFG1; user decisions QF14b2 (e) 2026-11-17) Tracker blocking,
+      mode B: a THIRD-PARTY sub-resource request to a listed tracker is not made.
+      List: `scratchy --update-trackers` and `:update-trackers` download
+      https://raw.githubusercontent.com/disconnectme/disconnect-tracking-protection/master/services.json
+      through wire (normal request path, no `X-Wire-Jar` header), check it parses,
+      and write it atomically to `$XDG_DATA_HOME/scratchy/disconnect-services.json`
+      (default `~/.local/share/scratchy/`). Never downloaded automatically, never
+      at build time, never committed to the repo (licence CC BY-NC-SA 4.0: credit
+      Disconnect in `:help` and NOTES.md). At startup: load it; if missing log
+      once `scratchy: trackers: no list, run --update-trackers`; if older than
+      30 days log once that it is stale. Without the file, behaviour is today's.
+      Categories blocked: Advertising, Analytics, Social, FingerprintingInvasive,
+      Cryptomining (NOT Content, Anti-fraud, Email, EmailAggressive,
+      ConsentManagers, FingerprintingGeneral). Match host == domain or host ends
+      with `.domain`. Config `[trackers] block` adds domains, `allow` removes
+      them (allow wins).
+      Third-party = the request's site differs from the top-level site (the
+      `X-Wire-Top-Site` value) AND they are not the same Disconnect entity (the
+      organisation grouping inside services.json, as Firefox does: a google.com
+      page may load Google domains). Top-level navigations are never blocked.
+      Where: `RequestPolicy` (src/net_policy.rs), so it covers images, CSS,
+      scripts, modules, iframes, fetch/XHR, sendBeacon, media bytes. A blocked
+      request fails like a network error (fetch rejects with TypeError, img/
+      script fire `error`), with one log line per blocked host per page:
+      `scratchy: tracker blocked: <host> (<category>) on <top site>`; count them
+      in `--js-report`. `:set notrackers` / `:set trackers` switch it for the
+      session.
+      Tests: a small inline JSON fixture in services.json's shape (never the real
+      list): third-party ad domain blocked; same domain first-party allowed; same
+      entity allowed; Content category allowed; allow/block config overrides;
+      navigation not blocked; missing/stale file messages. Real page: count
+      blocked hosts on github.com, youtube.com and bbc.com and check each still
+      renders (grim); report any breakage instead of widening the allow list.
 - [x] QF15 [S] CLOSED 2026-11-16 (user, QF-D7: nothing persisted yet,
       every store is mocked in memory; reopen when the user designs
       persistence) Persistence: an HTTP cache, cookies or storage on disk.
@@ -2731,8 +2941,101 @@ QF13a, QF14b2, QF18 open; QF19 waits for the user):
       agent must FIRST check whether a buffered poll-style implementation is
       honest enough; if it needs a wire protocol change, STOP and report (that is
       a design question for the user), do not change wire's protocol on its own.
-- [ ] QF19 [L] WAITING FOR USER (design first) WebSocket (later, own design;
-      user 2026-11-17), Workers (no until a measured page needs them), (EventSource is
+- [ ] QWU1 [S] READY (user 2026-11-17) Say when wire is unreachable. Today, with
+      wire down, a page's stylesheets and images are dropped SILENTLY (the
+      `fetch_*_via_wire` helpers in net.rs turn `WireFetchRaw::Unreachable` into
+      `None`), so a page looks broken with no hint why. Add ONE stderr line per page
+      load (per navigation generation, not per resource), through `diag!`:
+      `scratchy: wire not reachable at <path> (<os error>): N sub-resources skipped`
+      (`no --socket given` instead of the path when none was given), printed when the
+      first sub-resource fails and the count updated/printed once the load settles
+      (pick one and say which in the PR; no line per image). Covers stylesheets,
+      `@import`, images, background images, iframes, fonts later; page-JS
+      fetch/XHR and media already report their own errors, count them too but
+      don't print them twice. Navigation's own message and the stdout request dump
+      stay as they are. Also: keep the os error (ENOENT = no socket file, ECONNREFUSED
+      = stale socket file, wire died) instead of collapsing it, so the line says which.
+      Not for `file://` pages without `--socket` (they need no wire). Tests: a
+      fixture with 3 images + 1 stylesheet and a missing socket -> exactly one line
+      with N=4; a working socket -> no line; `file://` without `--socket` -> no line.
+- [ ] QNET1 [S] READY (P1; user rule 2026-11-17: "as long as I can guarantee that
+      scratchy without wire can't physically speak to the internet I'm happy. We can
+      safely use it for offline reading") Make the rule enforced, not just true.
+      Audit 2026-11-17 (main @ e4993c3): TRUE in scratchy's own code today: no
+      network crate in `[dependencies]` (no ureq/reqwest/hyper/rustls/tokio), no
+      TcpStream/UdpSocket/DNS in src/ (std::net is only `Shutdown` and IP types for
+      the policy); every request is `UnixStream::connect` to wire's socket (net.rs,
+      media_net.rs). (tools/mpvspike uses TcpStream but is its own crate, never in
+      the scratchy binary.) What could break it: a future dependency, a library
+      scratchy dlopens (the optional `media` feature loads libmpv + ffmpeg, which
+      have full network stacks: mpv is only given `scratchy-media://` with
+      `ytdl=no`, but ffmpeg demuxers (HLS/DASH playlists, mov external refs) can
+      open nested URLs themselves), or a C library's own sockets.
+      Build:
+      (1) At startup, before any thread or library loads, install a seccomp-BPF
+      filter (Linux; `libc` prctl/seccomp, or the `seccompiler` crate) that makes
+      `socket()`/`socketpair()` fail with EAFNOSUPPORT for every address family
+      except AF_UNIX (and AF_NETLINK only if winit/fontconfig measurably need it;
+      check, don't guess). Inherited by every thread and by libmpv. Log once:
+      `scratchy: network: unix sockets only (wire)`. An escape hatch is NOT added.
+      If seccomp is unavailable, log a warning and continue (say so in the PR).
+      (2) libmpv defence in depth: add `demuxer-lavf-o=protocol_whitelist=...`
+      (or the mpv equivalent) so ffmpeg can only read mpv's own stream; a test
+      feeding an HLS playlist with an http:// URL through stream_cb must not open
+      a socket (it would hit (1) anyway).
+      (3) A test that fails if `cargo tree -e normal` gains a known network crate
+      or src/ gains `TcpStream`/`UdpSocket`/`to_socket_addrs` (grep-based is fine).
+      (4) A test that `socket(AF_INET, ...)` fails after the filter is installed
+      (run in a child process, the filter is irreversible).
+      (5) Document in NOTES.md and `:help` how to verify it from outside: run
+      scratchy under `unshare -rn` (no network namespace): it must work exactly as
+      before with a wire started outside the namespace (filesystem unix sockets
+      cross network namespaces), and reading `file://` pages needs no wire at all.
+      Real check: `strace -f -e trace=socket,connect` on a page load with media on:
+      only AF_UNIX connects, to wire's socket and the Wayland/fontconfig sockets.
+- [ ] QF19w1 [M] READY (wire; design DECIDED 2026-11-17 after discussion: wire is a pipe) Upgrade passthrough.
+      A request with `Connection: Upgrade` + `Upgrade: websocket` (scratchy marks it
+      with `X-Wire-Upgrade: websocket` so ordinary clients are unaffected) goes
+      through the SAME checks as any request (`X-Wire-Policy`, target class, bad
+      ports, mixed content: `ws:` from an https page is blocked in scratchy), with
+      the cookie jar (`X-Wire-Jar`/`X-Wire-Top-Site`, cookies on the handshake as
+      for a fetch) and `Origin` passed through. wire connects (TLS for `wss:`),
+      sends the handshake, and if upstream answers `101 Switching Protocols`
+      returns that 101 head to scratchy and then copies bytes both ways on that
+      unix-socket connection until either side closes (no framing, no buffering
+      beyond the copy). Any other status: a normal buffered response, connection
+      closed. Not pooled. Caps: `X-Wire-Timeout-Ms` applies to the handshake only;
+      an idle limit is NOT applied (pages keep sockets open for hours). Advertise
+      `X-Wire-Features: ws`. Tests over a local echo server: 101 + echo both ways,
+      non-101 answer, policy-blocked target, close from each side. Log in wire's
+      PROMPTS.md/NOTES.md/TODO.txt.
+- [ ] QF19w2 [M] READY (after QF19w1; the framing lives in scratchy, over wire's unix socket only) scratchy `WebSocket` for page JS on top of the
+      QF19w1 pipe. Framing in scratchy (`tungstenite` over the unix-socket stream,
+      client role: masking, ping/pong replies, fragmentation, close handshake), one
+      background reader thread per socket feeding `AppEvent`s; JS API on the JS
+      thread: constructor (url, protocols; `ws:`/`wss:` only, mixed-content and
+      `RequestPolicy` checks), `readyState`, `send` (string, Blob, ArrayBuffer,
+      views), `bufferedAmount`, `binaryType` ('blob' | 'arraybuffer'), `close(code,
+      reason)`, `protocol`, `extensions` (''), events open/message/error/close
+      (`CloseEvent` code/reason/wasClean) and the `on*` handlers. Old wire without
+      `X-Wire-Features: ws`: the constructor works but fails asynchronously with
+      error + close 1006 and one log line (fail closed, like QF7a). Cap: 16 open
+      sockets per page; navigating away closes them (code 1001). Tests: a local
+      echo server through a real wire (text, binary, close codes, protocol
+      negotiation, old-wire failure). Real page: one of the sites QF19m found.
+- [ ] QF19m [S, Opus, investigate only] READY Who needs WebSocket? Run the user's
+      sites (social.loupax.com, YouTube, GitHub, reddit, the R21/R22 corpus) with a
+      logging `WebSocket` stub (constructor records url + protocols, then fails
+      like today) and `--js-report --run-timers 5000`; report per site: does it
+      open one, at which point (load / user action), and does the page degrade or
+      break without it. Output: a REGRESSIONS.md entry and a go/no-go for QF19.
+- [ ] QF19 [L] DESIGN DECIDED 2026-11-17 (user, after discussion: "wire as a pipe"; wire
+      does DNS/TCP/TLS/policy/cookies, scratchy only frames bytes on wire's unix
+      socket; the user's rule: scratchy without wire cannot reach the internet,
+      see QNET1); split into
+      QF19w1 -> QF19w2 below. QF19m (who uses it) is the test-target list for
+      QF19w2, not a gate. Rejected alternative: wire speaking WebSocket itself.
+      Original entry: (later, own design; user 2026-11-17), Workers (no until a measured page needs them), (EventSource is
       QF19a), EventSource,
       Workers: out of scope. wire speaks one request and one response per
       connection.
@@ -5885,8 +6188,8 @@ with temporary `Instant` timing, and say the number in the commit.
       document URL (not `<base href>`) when missing, `formnovalidate`, `<output>`/`<object>` in the data set.
 - [x] Q30f [S] DONE as QF14 (wire half 4d62f87, wire/src/cookies.rs) +
       QF14b-scratchy (bc2fb00): an in-memory, partitioned jar in wire used by
-      every scratchy request incl. navigations (design QF-D2a). Forms
-      themselves still wait (Tier 6 note). (in `wire`, not scratchy; log it in wire's own PROMPTS.md/
+      every scratchy request incl. navigations (design QF-D2a). Forms got
+      the go-ahead 2026-11-17 (Q30a-Q30e done). (in `wire`, not scratchy; log it in wire's own PROMPTS.md/
       TODO.txt) An in-memory cookie jar, so a login on
       social.loupax.com survives the next request. ureq 2's `cookies`
       feature gives one per `Agent`; `wire` already shares one agent.
@@ -5915,7 +6218,8 @@ Wikipedia search from the search box lands on a results page.
 
 --- Tier 7: JavaScript (Q33, split 2026-11-14; user ordered it last) ----
 
-Detail: "JavaScript — engine choice" (boa_engine recommended). Expect
+Detail: "JavaScript — engine choice" (boa_engine recommended at the time; the user
+chose rquickjs on 2026-11-15, Q33-0/Q33a, `rquickjs = "=0.14.0"`). Expect
 pages that enhance server-rendered HTML to become usable first; full
 SPA frameworks need a much larger API surface and are a long shot.
 Before Q33a, the user picks 2-3 JS-needing sites they actually browse
@@ -6100,7 +6404,26 @@ as the JS measurement corpus (same role the four CSS pages played).
 
 --- Parked (not blocking the queue; each needs a user decision) --------
 
-- [ ] Q26 [S] `letter-spacing` (n=8). The user decided 2026-11-12: first
+- [ ] QTB2 [S] (parked 2026-11-17 by the user: "if that ends up being not good
+      enough we can also introduce a custom list which we can populate
+      separately") Our own curated tracker list, maintained separately from
+      Disconnect's (own file, own format or the same shape so QTB1's loader reads
+      it), used instead of or on top of services.json. Unpark when QTB1's list
+      proves too broad, too narrow or breaks pages.
+
+- [ ] QAN1p [M] (parked 2026-11-17 by the user when accepting the QAN1-D defaults
+      "for now") Make animation cheap enough to relax the QAN1-D limits: let
+      infinite animations run without the 5 s freeze, raise the 30 fps cap (60 fps =
+      16.7 ms per frame), and consider `no-preference` as the default again. Starts
+      from R31's numbers (full restyle 0.01-18 s per frame, damage-rect paint 10-30 ms
+      per frame = 30-90 % of a core at 30 fps) and QAN1d's measured CPU. Candidates:
+      incremental restyle of only the animated elements (QAN1h's GitHub 15-18 s
+      restyle first), paint caching per stacking context / layer so a frame
+      re-composites instead of re-painting, layout-affecting animations without a
+      full rebuild, frame pacing tied to the compositor. Measure before and after
+      (AGENTS.md: numbers, not reasoning). Unpark when the user asks.
+
+- [ ] Q26 [S] READY (unblocked 2026-11-17, see below) `letter-spacing` (n=8). The user decided 2026-11-12: first
       bump cosmic-text to the latest release and re-run the recorded
       repro ("Wide letter spacing " at 900px, 0-8px spacing, count the
       lines). If the early wrapping is fixed, ship the feature. If not,
@@ -6111,10 +6434,43 @@ as the JS measurement corpus (same role the four CSS pages played).
       wrap bug can't be re-tested against a fix. Not shipped. Options
       for the user: test upstream git HEAD (pop-os/cosmic-text), file an
       upstream issue, or sign off on a limitation.
-- [ ] Q32 Scrollbar drag-to-scroll; precise float placement and hit-test
-      order; negative-`z-index` hit-test order; moving DOM building and
-      cascade off the main thread. See their own Detail entries. Revisit
-      the hit-test-order part if Q30b clicks land on the wrong control.
+      UNBLOCKED 2026-11-17 (review): NOT a cosmic-text bug. `Attrs::letter_spacing`
+      is documented "in EM" (attrs.rs: "Set letter spacing (tracking) in EM"); it
+      is added to the em-normalised glyph advance and multiplied by the font size
+      for both wrapping and drawing. The reverted attempt passed CSS PIXELS, so
+      2px became 2em = 32px per glyph at 16px. Standalone repro against
+      cosmic-text =0.19.0 ("Wide letter spacing ", 16px, 900px, WordOrGlyph):
+      raw px 1/2/3/4/5/8 -> 1/1/2/2/3/4 lines (exactly the recorded "bug" numbers),
+      px/font_size -> 1 line each, width 160 + 20 x spacing px (correct).
+      Upstream git HEAD (b07cb90, 2026-10-27) has the same em semantics, so no
+      bump or upstream PR is needed. Per the user's 2026-11-12 rule ("if the early
+      wrapping is fixed, ship the feature"): READY. Implement: parse `letter-spacing`
+      (`normal` = 0, lengths incl. em; inherited, computed to px per element), pass
+      `px / font_size` (the span's own font size) to `Attrs::letter_spacing`, keep
+      the shape-cache key in sync. Known upstream nit: spacing is also added after
+      the LAST glyph (pop-os/cosmic-text issue 542, open), which shifts
+      centered/right-aligned text by one spacing; note it, don't work around it.
+      Tests: line count and width of the repro above; inheritance; `normal`; em
+      units. WPT: run css-text letter-spacing reftests once and add the eligible
+      ones to the subset.
+- [ ] QSB1 [S] READY (split out of Q32 2026-11-17, user) Scrollbar drag-to-scroll.
+      Today only the wheel/keys scroll; the painted indicator is display-only.
+      Press on the thumb and drag: scroll position follows the pointer (thumb
+      offset kept, so the thumb does not jump to the pointer); press on the track
+      above/below the thumb: page up/down; for the window AND for element scroll
+      regions (QJ6 `ScrollInfo`). The pointer grab survives leaving the window.
+      Use the same scroll paths the wheel uses (element `scroll` events once
+      Q33d2 exists). No relayout per motion event: scrolling is already
+      paint-only, keep it that way and measure frame time on en.wikipedia
+      United_States while dragging (report it). Tests: hit-test of thumb/track,
+      drag maths (pointer delta -> scroll delta with the content/track ratio),
+      clamping at both ends. Real check: nested dwl + tools/inject drag, grim.
+- [ ] Q32 (parked; scrollbar drag split out as QSB1 2026-11-17) Precise float
+      placement and hit-test order; negative-`z-index` hit-test order; moving DOM
+      building and cascade off the main thread. See their own Detail entries.
+      Revisit the hit-test-order part if form-control clicks land on the wrong
+      control, and the off-main-thread part when JS-driven restyles measurably
+      stall input.
 
 Measured but deliberately NOT queued (each seen on the pages above;
 revisit only on request): `transform` (n=22), `filter` (28),
@@ -7053,7 +7409,8 @@ session can pick a coherent slice rather than one property at a time.
       the property's most common real use), or the invasive
       fully-correct plumbing.
 
-- [ ] **`letter-spacing` was attempted and reverted (no commit) after
+- [ ] (2026-11-17: the "cosmic-text bug" below was OUR unit mismatch, px passed to an EM
+      API; see R33 and the QUEUE item Q26, now READY) **`letter-spacing` was attempted and reverted (no commit) after
       finding what looks like a real cosmic-text 0.19.0 bug**, not a
       scratchy bug: `Attrs::letter_spacing()` is a real, documented
       API and wiring it in was mechanically straightforward (parsing,

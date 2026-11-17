@@ -14,7 +14,8 @@ the commit it came up during.
       hasn't been removed, even though nothing calls it anymore —
       `snag`'s own change to make, not this crate's.
 
-- [ ] **Form submission has no transport yet.** `scratchy` has no
+- [x] (2026-11-17: scratchy Q30e, f164a2b, now submits GET and POST forms through
+      wire; the text below is the original note) **Form submission has no transport yet.** `scratchy` has no
       `<button>`/focus/keyboard subsystem at all (see its own
       `TODO.txt`'s "Form elements — sequencing plan" item), so nothing
       can drive a POST through `wire` yet even though the daemon itself
@@ -42,7 +43,8 @@ the commit it came up during.
       wide margin and nothing real has hit a brotli-only server yet —
       revisit if one does.
 
-- [ ] **No request timeout tuning, no per-request override** — every
+- [x] (DONE in scratchy QF6: `X-Wire-Timeout-Ms` per request, with `X-Wire-Max-Bytes`/
+      `-Max-Redirects`/`-Policy`; the text below is the original note) **No request timeout tuning, no per-request override** — every
       request shares one fixed 20s agent-level timeout (same default
       `snag`'s own `build_agent` already uses), with no way for a
       particular request (e.g. a user explicitly waiting on a known-slow
@@ -170,3 +172,9 @@ the commit it came up during.
       spawn, one unbuffered `write!` per header line). Video needs ~1-4 MB/s, so
       nothing needs this; if it ever matters: a 64 KiB `copy_body` buffer and a
       `BufWriter` around the header writes. Measure before and after.
+
+- [ ] **QF19w1 [M] WebSocket upgrade passthrough** (DECIDED 2026-11-17: wire is a
+      pipe, scratchy does the framing; wire stays the ONLY process that talks to the
+      internet, scratchy/TODO.txt QNET1). Full spec in scratchy/TODO.txt QF19w1:
+      same policy/jar checks on the handshake, after `101` copy bytes both ways on
+      the connection, no pooling, `X-Wire-Features: ws`.
