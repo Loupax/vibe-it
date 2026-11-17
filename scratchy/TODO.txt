@@ -370,7 +370,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       nested pixman dwl was tested here (no linux_dmabuf there, dmabuf-wayland
       failed). Needs the user's permission to open a window on their session, or
       the user runs it. Only matters for option A2/B, not A1.
-- [ ] QM1b [M] (after D1-D3) Spike, OUTSIDE scratchy's crate (like tools/inject: own
+- [x] QM1b [M] DONE 2026-11-17 (Sonnet; hash 6cab99c) Spike, OUTSIDE scratchy's crate (like tools/inject: own
       Cargo project tools/mpvspike, nothing in scratchy/src): winit + softbuffer
       window, white "page", libmpv SW render of a local test file into a 640x360
       rect at (100,100), wheel scroll moves the rect and the window edge clips it,
@@ -382,6 +382,56 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       edge; a seek to 12.5 reads time-pos 12.5 +-0.1; report user+sys CPU for 10 s
       (target: under one core total) and RSS; `strace -f -e trace=connect` shows no
       connect() from libmpv threads when the file is fed through stream_cb.
+      RESULTS (tools/mpvspike, own Cargo project, `cargo build --offline` works;
+      winit 0.30.13 + softbuffer 0.4.8 + libloading 0.8.9 from the registry; libmpv
+      dlopen'ed ("libmpv.so.2": without it the window stays white = optional dep
+      works at run time; the missing-library path itself was NOT exercised).
+      Nested dwl 1048x1046, release build, 1280x720 H.264 into 640x360, ao=null:
+      - Two grims 2 s apart: diff bbox = exactly the rect (102,102)-(742,462) in
+        grim coords (window coords + 2 px dwl border), everything outside is pure
+        white (checked by bbox of non-white pixels, border cropped); viewed: colour
+        bars + testsrc2 timer, white page. Same in file mode and stream_cb mode.
+      - Scroll (inject): 2 notches (40 px each) moved the rect up 80 px; 7 notches
+        clipped it at the top (180 of 360 rows visible, viewed); pushed to the
+        bottom-right it was clipped at both edges (148x106 visible, viewed).
+      - Seek: `seek 12.5 absolute+exact` paused -> time-pos exactly 12.5, playing ->
+        12.53 at playback-restart (also in stream mode); l/h from 13.8: 18.8 / 13.8.
+        Space toggles pause. FINDING: plain `seek 5 relative` jumps to KEYFRAMES
+        (13.6 -> 0.0; 0.6 -> 8.37 on this file with keyint 250), so seeks must use
+        `relative+exact` / `absolute+exact` (QM1f currentTime setter).
+      - CPU for 10 s (user+sys, /proc/PID/stat): file mode 7.05 s (0.70 core),
+        stream_cb mode 7.66 s (0.77 core); 31 fps delivered (window repainted fully
+        each frame: white fill + blit, trivial next to decode+scale); RSS 89 MB (file),
+        96 MB (stream); 18 threads. Machine load average ~8-9 from other agents, so
+        treat as an upper bound. Target (under one core) met, but one 720p stream
+        costs most of a core: QM1g1 matters, and `sw-fast` / smaller sizes untested.
+      - stream_cb (mpv_stream_cb_add_ro "scratchy-media", our own reader, plain
+        HTTP/1.1 Range GET, one connection each, 1 MiB chunks, 4-chunk cache) from a
+        loopback python3 Range server: 23 GETs (moov at the end: bytes 0..1 MiB then
+        the last 7 KiB, then sequential), ~5-17 ms each; server saw exactly the 23
+        reader GETs. mpv open_fn runs on mpv's "opener" thread and read_fn on its
+        "demux" thread, so the wire request code must be callable from any thread.
+        Seek back after loop re-fetched chunk 0 (cache holds only 4 chunks).
+      - connect() check (strace not installed): LD_PRELOAD shim
+        tools/mpvspike/connectlog.c logs every connect(). File mode: only the 2
+        AF_UNIX connects to the Wayland socket, no inet at all. Stream mode: 23 inet
+        connects, all to 127.0.0.1:PORT, all from our reader (thread names
+        opener/demux), count == reader GETs == server requests; nothing else.
+        `unshare -rn` WORKS here: file mode plays normally in a network namespace
+        with no network (ns run: 31 fps, time-pos advancing).
+      - mpv options set: config=no ytdl=no load-scripts=no osc=no
+        input-default-bindings=no input-vo-keyboard=no input-terminal=no terminal=no
+        load-unsafe-playlists=no load-auto-profiles=no load-stats-overlay=no
+        load-console=no load-select=no audio-display=no cover-art-auto=no sub-auto=no
+        audio-file-auto=no save-position-on-quit=no watch-later-directory=/nonexistent
+        vo=libmpv ao=null keep-open=yes loop-file=inf demuxer-max-bytes=32MiB
+        demuxer-max-back-bytes=16MiB (no option rejected). QM1e should adopt this
+        full list.
+      - API notes for QM1g: render params SIZE=int[2], FORMAT "bgr0" (matches
+        softbuffer's 0RGB u32), STRIDE=size_t, POINTER; mpv_render_context_update
+        must be called from the update callback's handoff or mpv blocks; both the
+        wakeup and update callbacks fire on mpv threads and only post an
+        EventLoopProxy event, rendering happens on the main thread.
 - [x] QM1c [S, Opus, investigate only] READY Measure `App::redraw` (src/app.rs) full
       repaint + present time on real pages (en.wikipedia Main_Page, youtube.com,
       a long article) to decide whether 30 fps video can repaint the whole page or
@@ -444,7 +494,8 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
         `loadfile scratchy-media://<id>`; `<id>` maps to (absolute URL, page URL,
         top site, crossorigin mode) held by scratchy. mpv options: `config=no`,
         `ytdl=no`, `load-scripts=no`, `osc=no`, `input-default-bindings=no`,
-        `load-unsafe-playlists=no`, `terminal=no`, plus a bounded demuxer cache
+        `load-unsafe-playlists=no`, `terminal=no` (the full tested list is in the QM1b
+        RESULTS above), plus a bounded demuxer cache
         (`demuxer-max-bytes=32MiB`, `demuxer-max-back-bytes=16MiB`).
       - Chunk cache per stream: read_fn(n) is served from a cached chunk; a miss
         fetches `Range: bytes=pos-(pos+CHUNK-1)`, CHUNK = 1 MiB (4 MiB after two
@@ -512,6 +563,8 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       on a server without ACAO shows a MediaError and fetches nothing beyond the
       first range.
 - [ ] QM1f [M] (after D1-D3, D5-D7) HTMLMediaElement on top of mpv events, replacing
+      (QM1b: seeks MUST use `absolute+exact`/`relative+exact`; plain relative
+      seeks land on keyframes, up to 8 s away on a keyint-250 file.)
       the QA20 `not implemented` stubs in js_dom.rs: src/currentSrc and `<source>`
       selection, play() promise, pause(), paused, ended, currentTime get/set
       (seek), duration (NaN until metadata), volume, muted, playbackRate (mpv
@@ -524,7 +577,8 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       one per frame), waiting, ended, volumechange, ratechange, error, emptied.
       canPlayType: 'maybe'/'probably' only for codecs ffmpeg here decodes.
       Not included: MediaSource, EME, captureStream, Web Audio, TextTrack cues.
-- [ ] QM1g [M] (after QM1b-QM1f) Paint: the `<video>` replaced box draws the newest
+- [ ] QM1g [M] (after QM1b-QM1f) Paint: (QM1b measured: 720p source into 640x360
+      costs 0.7-0.8 core on the SW path, so cap players/sizes and pause when hidden.) the `<video>` replaced box draws the newest
       mpv frame (object-fit default `contain`, letterbox black), rendered at the box
       size in device pixels; no rendering when the box is off screen or the page
       is hidden (`:help`, navigation); one mpv handle per playing element, capped
