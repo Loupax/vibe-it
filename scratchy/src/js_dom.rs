@@ -374,15 +374,7 @@ pub(crate) struct ScrollReq {
 /// QB5: what `focus()` accepts. Form controls count even though Tab
 /// navigation skips them until Q30 makes them real controls.
 fn js_focusable(h: &Handle) -> bool {
-    if is_focusable(h) {
-        return true;
-    }
-    let control = match element_tag(h) {
-        "input" => !element_attr(h, "type").is_some_and(|t| t.eq_ignore_ascii_case("hidden")),
-        "button" | "select" | "textarea" => true,
-        _ => false,
-    };
-    control && element_attr(h, "disabled").is_none()
+    is_click_focusable(h)
 }
 
 thread_local! {

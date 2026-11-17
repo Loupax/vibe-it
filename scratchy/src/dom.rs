@@ -426,16 +426,136 @@ pub(crate) fn find_node_by_id(root: &Handle, id: usize) -> Option<Handle> {
     None
 }
 
-/// Whether Tab / a click can focus `h`: links and `tabindex` elements.
-/// (Form controls are Q30's job: add them here.)
+/// Q30b: the form controls that take focus: `input` (not `type=hidden`),
+/// `button`, `select`, `textarea`. (Whether they are enabled is separate:
+/// `is_disabled_control`.)
+pub(crate) fn is_focusable_control_tag(h: &Handle) -> bool {
+    match element_tag(h) {
+        "input" => !element_attr(h, "type").is_some_and(|t| t.trim().eq_ignore_ascii_case("hidden")),
+        "button" | "select" | "textarea" => true,
+        _ => false,
+    }
+}
+
+/// Q30b: a control that is disabled: its own `disabled` attribute, or inside
+/// a `<fieldset disabled>` (except inside that fieldset's first `<legend>`).
+pub(crate) fn is_disabled_control(h: &Handle) -> bool {
+    if !is_form_control(h) {
+        return false;
+    }
+    if element_attr(h, "disabled").is_some() && element_tag(h) != "option" {
+        return true;
+    }
+    let mut child = h.clone();
+    while let Some(p) = parent_handle(&child) {
+        if element_tag(&p) == "fieldset" && element_attr(&p, "disabled").is_some() {
+            let first_legend = p
+                .children
+                .borrow()
+                .iter()
+                .find(|c| element_tag(c) == "legend")
+                .cloned();
+            if !first_legend.is_some_and(|l| Rc::ptr_eq(&l, &child)) {
+                return true;
+            }
+        }
+        child = p;
+    }
+    false
+}
+
+/// Whether Tab / a click can focus `h`: links, `tabindex` elements and
+/// enabled form controls (Q30b; `tabindex=-1` keeps a control out of Tab).
 pub(crate) fn is_focusable(h: &Handle) -> bool {
     if !matches!(h.data, NodeData::Element { .. }) {
         return false;
+    }
+    if is_focusable_control_tag(h) {
+        if is_disabled_control(h) {
+            return false;
+        }
+        if let Some(n) = element_attr(h, "tabindex").and_then(|t| t.trim().parse::<i32>().ok()) {
+            return n >= 0;
+        }
+        return true;
     }
     if let Some(n) = element_attr(h, "tabindex").and_then(|t| t.trim().parse::<i32>().ok()) {
         return n >= 0;
     }
     matches!(element_tag(h), "a" | "area") && element_attr(h, "href").is_some()
+}
+
+/// Q30b: whether a mouse click or `focus()` can focus `h` (Tab-focusable, or
+/// an enabled control with `tabindex=-1`).
+pub(crate) fn is_click_focusable(h: &Handle) -> bool {
+    is_focusable(h) || (is_focusable_control_tag(h) && !is_disabled_control(h))
+}
+
+/// Q30b: the control a `<label>` forwards clicks to: its `for` target, else
+/// its first labelable descendant. `None` when there is none.
+pub(crate) fn label_control(root: &Handle, label: &Handle) -> Option<Handle> {
+    fn by_id(h: &Handle, id: &str) -> Option<Handle> {
+        if element_attr(h, "id").is_some_and(|v| *v == *id) {
+            return Some(h.clone());
+        }
+        h.children.borrow().iter().find_map(|c| by_id(c, id))
+    }
+    fn first_labelable(h: &Handle) -> Option<Handle> {
+        for c in h.children.borrow().iter() {
+            if is_focusable_control_tag(c) {
+                return Some(c.clone());
+            }
+            if let Some(f) = first_labelable(c) {
+                return Some(f);
+            }
+        }
+        None
+    }
+    if element_tag(label) != "label" {
+        return None;
+    }
+    if let Some(id) = element_attr(label, "for").map(|v| v.to_string()) {
+        return by_id(root, &id).filter(is_focusable_control_tag);
+    }
+    first_labelable(label)
+}
+
+/// The nearest ancestor-or-self of `h` that is a focusable-kind form control.
+pub(crate) fn enclosing_control(h: &Handle) -> Option<Handle> {
+    let mut cur = Some(h.clone());
+    while let Some(n) = cur {
+        if is_focusable_control_tag(&n) {
+            return Some(n);
+        }
+        cur = parent_handle(&n);
+    }
+    None
+}
+
+/// The nearest ancestor-or-self `<label>` of `h`.
+pub(crate) fn enclosing_label(h: &Handle) -> Option<Handle> {
+    let mut cur = Some(h.clone());
+    while let Some(n) = cur {
+        if element_tag(&n) == "label" {
+            return Some(n);
+        }
+        cur = parent_handle(&n);
+    }
+    None
+}
+
+/// Whether a click focus on `h` shows the `:focus-visible` ring like a
+/// keyboard focus does: text-entry controls always do (as in browsers),
+/// buttons, checkboxes and links do not.
+pub(crate) fn click_focus_is_visible(h: &Handle) -> bool {
+    match element_tag(h) {
+        "textarea" | "select" => true,
+        "input" => !matches!(
+            element_attr(h, "type").map(|t| t.trim().to_ascii_lowercase()).as_deref(),
+            Some("checkbox" | "radio" | "button" | "submit" | "reset" | "image" | "color" | "file" | "range")
+        ),
+        _ => false,
+    }
 }
 
 /// The element a URL fragment names (Q31b): `id == frag`, else an
@@ -962,8 +1082,8 @@ impl SelectorsElement for El {
                 "option" => element_attr(&self.0, "selected").is_some(),
                 _ => false,
             },
-            OurPseudoClass::Disabled => is_form_control(&self.0) && element_attr(&self.0, "disabled").is_some(),
-            OurPseudoClass::Enabled => is_form_control(&self.0) && element_attr(&self.0, "disabled").is_none(),
+            OurPseudoClass::Disabled => is_disabled_control(&self.0),
+            OurPseudoClass::Enabled => is_form_control(&self.0) && !is_disabled_control(&self.0),
             OurPseudoClass::Dir(ltr) => *ltr,
             OurPseudoClass::Lang(want) => {
                 let mut cur = Some(self.0.clone());

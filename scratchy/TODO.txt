@@ -5751,7 +5751,7 @@ with temporary `Instant` timing, and say the number in the commit.
       baseline), `<select>` width from real option text widths (now an estimate of
       0.55em per char), `type=image` with a loaded `src`, focus-visible/`:checked`
       styling for the native look. Needs a real baseline in `measure_mixed_inline`.
-- [ ] Q30b [S] READY (go-ahead 2026-11-17) Controls are focusable and clickable. `is_focusable`
+- [x] Q30b [S] DONE (hash: a7bc403) Controls are focusable and clickable. `is_focusable`
       includes enabled `input` (not hidden), `button`, `select`,
       `textarea`; `disabled` ones are skipped by Tab and clicks. A
       click on a control focuses it (`:focus` + focus ring apply).
@@ -5759,6 +5759,19 @@ with temporary `Instant` timing, and say the number in the commit.
       control. Hit-testing must return the control for clicks on its
       box (today only text spans carry an href; controls need their
       own hit target, cf. the `<img>`-wrapped-link scope cut).
+      Q30b notes: dom.rs `is_focusable`/`is_click_focusable`/`is_disabled_control`
+      (own `disabled` or inside `<fieldset disabled>` except its first legend; `:disabled`
+      uses it too)/`label_control`/`click_focus_is_visible` (text-like input, textarea,
+      select get the ring on click like browsers; buttons/checkboxes do not, Tab always
+      does). Hit-testing needed no change (the box's node id is the control's).
+      App: `press_state` focuses the nearest click-focusable ancestor, a press in a
+      disabled control focuses nothing; release: disabled = no click event, no
+      navigation; label click -> `forward_label_click` (focus + click event on the
+      control, Q30c adds toggling); a click inside any control never follows an
+      enclosing `<a>` (the control wins, also for buttons-in-links). Focus changes
+      now request a repaint even when no stylesheet has :focus rules (the ring is
+      painted). Click-to-first-present: ~70ms duckduckgo, ~220ms wikipedia.org (restyle
+      for its :focus rules is the existing async path).
 - [ ] Q30c [S] READY (go-ahead 2026-11-17) Checkbox/radio live state. A per-element map on `App`
       (key it the way `scroll_offsets`/`InteractionState` key elements,
       and make sure it survives relayouts and is cleared on

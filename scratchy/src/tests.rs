@@ -17940,3 +17940,114 @@ fn layout_shaping_never_wipes_font_cache() {
     let needle = concat!(".db", "_mut()");
     assert!(!src.contains(needle), "layout.rs calls `{needle}`, which clears cosmic-text's font-match cache (R32): use `font_system.db()`");
 }
+
+/// Q30b helper: lay out `doc` at width 600 and return the pieces a hit test needs.
+fn q30b_layout(doc: &Handle) -> (Laid, ShapeCache) {
+    let tree = build_layout_tree(doc, 600.0);
+    let mut fc = new_font_system();
+    let mut cache = ShapeCache::new();
+    let (mut next_id, mut inc) = (0usize, false);
+    let laid = measure(
+        &tree, &mut fc, 0.0, 0.0, 600.0, None, &mut next_id, &mut cache,
+        std::time::Instant::now() + std::time::Duration::from_secs(5), &mut inc, &mut Vec::new(),
+        &Floats::default(), None,
+    );
+    (laid, cache)
+}
+
+fn q30b_by_id(h: &Handle, id: &str) -> Option<Handle> {
+    if element_attr(h, "id").is_some_and(|v| *v == *id) {
+        return Some(h.clone());
+    }
+    h.children.borrow().iter().find_map(|c| q30b_by_id(c, id))
+}
+
+#[test]
+fn q30b_focusable_controls_and_tab_order() {
+    let doc = parse_html(
+        r#"<html><body><input id=a><input type=hidden id=h><input disabled id=d><button id=b>x</button>
+        <select id=s><option>1</option></select><textarea id=t></textarea><input tabindex=-1 id=m>
+        <fieldset disabled><legend><input id=lg></legend><input id=fs><button id=fb>y</button></fieldset>
+        <a href=/x id=l>l</a></body></html>"#,
+    );
+    let ids: Vec<String> =
+        focusable_in_tab_order(&doc).iter().map(|h| element_attr(h, "id").unwrap().to_string()).collect();
+    assert_eq!(ids, ["a", "b", "s", "t", "lg", "l"], "disabled, hidden, tabindex=-1 and disabled-fieldset controls skipped");
+    let m = q30b_by_id(&doc, "m").unwrap();
+    assert!(!is_focusable(&m) && is_click_focusable(&m), "tabindex=-1: click-focusable only");
+    assert!(is_disabled_control(&q30b_by_id(&doc, "fs").unwrap()));
+    assert!(!is_click_focusable(&q30b_by_id(&doc, "d").unwrap()));
+}
+
+#[test]
+fn q30b_label_forwarding_targets() {
+    let doc = parse_html(
+        r#"<html><body><label for=a id=l1>x</label><input id=a>
+        <label id=l2><span id=sp>y</span><input id=b></label><label for=nope id=l3>z</label></body></html>"#,
+    );
+    let tgt = |l: &str| {
+        label_control(&doc, &q30b_by_id(&doc, l).unwrap()).and_then(|h| element_attr(&h, "id").map(|v| v.to_string()))
+    };
+    assert_eq!(tgt("l1").as_deref(), Some("a"));
+    assert_eq!(tgt("l2").as_deref(), Some("b"));
+    assert_eq!(tgt("l3"), None);
+    let sp = q30b_by_id(&doc, "sp").unwrap();
+    assert!(enclosing_label(&sp).is_some());
+}
+
+#[test]
+fn q30b_hit_test_returns_the_control_for_its_box() {
+    let doc = parse_html(
+        r#"<html><body><p>text</p><input id=i placeholder="search here"><button id=b>Go</button><textarea id=t>hello</textarea></body></html>"#,
+    );
+    let (laid, cache) = q30b_layout(&doc);
+    for id in ["i", "b", "t"] {
+        let h = q30b_by_id(&doc, id).unwrap();
+        let geom = node_geometry(&laid, &cache, node_id(&h));
+        let &(x, y, w, hh) = geom.rects.first().unwrap_or_else(|| panic!("no geometry for {id}"));
+        for (px, py) in [(x + w / 2.0, y + hh / 2.0), (x + 2.0, y + 2.0)] {
+            let hit = hit_test_element(&laid, px, py, &cache, &HashMap::new(), 0.0, 600.0);
+            let hit_h = find_node_by_id(&doc, hit).unwrap_or_else(|| panic!("{id}: nothing at {px},{py}"));
+            let c = enclosing_control(&hit_h).unwrap_or_else(|| panic!("{id}: hit {}", element_tag(&hit_h)));
+            assert_eq!(node_id(&c), node_id(&h), "{id} at {px},{py}");
+        }
+    }
+}
+
+#[test]
+fn q30b_label_click_focuses_control_and_disabled_is_ignored() {
+    use winit::platform::wayland::EventLoopBuilderExtWayland;
+    let event_loop = match EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build() {
+        Ok(l) => l,
+        Err(_) => return, // no display available (headless CI)
+    };
+    let doc = parse_html(
+        r#"<html><body><input id=i><label for=i id=l>name</label>
+        <label id=w>wrap <input id=wi></label><button id=b>Go</button></body></html>"#,
+    );
+    let mut app = App::new_static(doc.clone(), event_loop.create_proxy(), None);
+    app.js = run_page_scripts(
+        &doc,
+        &[src("window.log=[]; ['i','wi','l','b'].forEach(function(n){var e=document.getElementById(n); e.addEventListener('click',function(){log.push('click:'+n)}); e.addEventListener('focus',function(){log.push('focus:'+n)}); e.addEventListener('blur',function(){log.push('blur:'+n)});});")],
+        None,
+    );
+    let id_of = |app: &App| {
+        app.interaction.focus.and_then(|f| find_node_by_id(&doc, f)).and_then(|h| element_attr(&h, "id").map(|v| v.to_string()))
+    };
+    let by = |id: &str| q30b_by_id(&doc, id).unwrap();
+    assert!(click_focus_is_visible(&by("i")), "a text input click-focus matches :focus-visible");
+    assert!(!click_focus_is_visible(&by("b")), "a button click-focus has no ring");
+    assert!(app.forward_label_click(&by("l"), (0.0, 0.0)));
+    assert_eq!(id_of(&app).as_deref(), Some("i"));
+    assert!(app.interaction.focus_visible);
+    assert!(app.forward_label_click(&by("w"), (0.0, 0.0)));
+    assert_eq!(id_of(&app).as_deref(), Some("wi"));
+    let log: String = app.js.as_ref().unwrap().eval_value("t", "log.join(',')").expect("log");
+    for want in ["click:i", "click:wi", "blur:i", "focus:wi"] {
+        assert!(log.contains(want), "{want} in {log}");
+    }
+    let d_doc = parse_html(r#"<html><body><label for=d id=ld>x</label><input id=d disabled></body></html>"#);
+    let mut app2 = App::new_static(d_doc.clone(), event_loop.create_proxy(), None);
+    assert!(app2.forward_label_click(&q30b_by_id(&d_doc, "ld").unwrap(), (0.0, 0.0)));
+    assert!(app2.interaction.focus.is_none(), "a disabled control is never focused by a label");
+}
