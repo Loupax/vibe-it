@@ -35,8 +35,9 @@ older and were only partly corrected in place):
   internet" (safe for offline reading). Enforced by QNET1 (READY, P1); QWU1
   (READY) makes a down wire visible on stderr.
 - MSE 2026-11-17 (user): goal = video on all sites except DRM (YouTube, Reddit
-  first); measure first: QM1k-m READY (Opus, on the user's machine); QM1i DROPPED.
-- Still WAITING FOR USER: QM1k (MSE build plan, after QM1k-m, together), QCI2 (WPT in CI), QF14b2 (d) `--profile` (later),
+  first); QM1k-m DONE (R34): YouTube needs MSE (+PoToken after ~60 s), Reddit feed
+  already plays (progressive); QY45 and QM1k5 READY; QM1i DROPPED.
+- Still WAITING FOR USER: QM1k (MSE build plan, QM1k-m done: R34; children QM1k1-QM1k4, QM1k6), QCI2 (WPT in CI), QF14b2 (d) `--profile` (later),
   Q32 remainder (parked), QAN1p/QTB2 (parked).
 - Known red test on a clean checkout: R33 / QCI0.
 
@@ -454,7 +455,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
          without video), or ask for a separate MSE investigation later.
          [D8 REVISED 2026-11-17 by the user: goal = video on all sites except DRM;
          YouTube and Reddit first; measure first (QM1k-m), then plan (QM1k).]
-- [ ] QM1k-m [M, Opus, investigate only] READY (user 2026-11-17: "measure first")
+- [x] QM1k-m [M, Opus, investigate only] DONE 2026-11-17 (R34; docs only): YouTube = MSE only (SABR/UMP, no progressive), served ~60 s then PoToken attestation required; Reddit feed plays today via progressive mp4 + QM1f; Vimeo/BBC/Twitch/X players never booted (non-media blockers); no EME anywhere. Items QY45, QM1k1-QM1k6. (user 2026-11-17: "measure first")
       MSE/streaming survey, run on the USER'S machine (this needs real youtube.com /
       reddit access through the user's wire and the `media` feature with libmpv; the
       cloud review container cannot reach youtube.com). GOAL (user 2026-11-17): video
@@ -497,6 +498,61 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       what a minimal spike would look like (a local fragmented-mp4 page whose JS
       appends segments). DO NOT start this autonomously: when the user asks, do the
       Opus investigation first, then walk through the plan together before any build.
+      REFINED 2026-11-17 by QM1k-m (R34), what the plan must cover:
+      - YouTube is the only measured site that NEEDS MSE; its own base.js does SABR/UMP
+        (POST videoplayback, application/vnd.yt-ump) through fetch, so scratchy needs only
+        MediaSource/SourceBuffer + `blob:` attach, not a UMP parser. Two SourceBuffers:
+        default answers give AV1-in-fMP4 video + Opus-in-WebM audio; refusing webm gives
+        avc1 + mp4a, both fMP4 (one container to support first). Appends: init (ftyp+moov
+        700 B / EBML+Tracks 259 B) then moof+mdat 4-7 s or one Cluster per 10 s. In 2 min
+        no remove(), timestampOffset, mode, changeType or endOfStream; a quality switch
+        builds a NEW MediaSource (revoke + re-add both buffers); a seek is a new SABR POST.
+      - isTypeSupported must reject YouTube's invalid probes (QM1k4).
+      - PoToken (QM1k2) decides whether YouTube plays past ~60 s.
+      - Reddit needs nothing (progressive); Vimeo/BBC/Twitch/X are blocked before media
+        (QY15a, QM1k5, Workers/WebAssembly, login).
+      - Product questions 1-6 in R34 "Open product questions".
+- [ ] QM1k1 [L] WAITING FOR USER (QM1k plan decides; from R34) MSE core: `MediaSource`,
+      `SourceBuffer(List)`, `URL.createObjectURL(ms)` / `srcObject`, `sourceopen`/
+      `updateend`, `buffered` from the appended fMP4 (`tfdt`/`trun`) or WebM (Cluster
+      timecode + last SimpleBlock) timing, each SourceBuffer = one growing in-memory byte
+      stream served to libmpv by stream_cb (`scratchy-mse://<id>/<track>`), audio as a
+      second stream; playback state from mpv like QM1f. Test on the YouTube watch page of
+      R34 (first 60 s) and a local fMP4 page.
+- [ ] QM1k2 [M, Opus, investigate only] WAITING FOR USER (is it worth it?) YouTube
+      attestation: with the R34 stub YouTube served 0-60 s, then UMP
+      STREAM_PROTECTION_STATUS 2 -> 3 (attestation required, max retries 10) and only
+      ~123-byte responses. BotGuard ran (`www.google.com/js/th/*.js` 200, POST
+      `/api/jnn/v1/GenerateIT` 200, 128 B, body 2443 B) under `--run-timers`' simulated
+      clock. Find out in a LIVE window (real clock) whether status reaches 1/OK, and if not,
+      which JS gap breaks the token (no login, no hand-made tokens, no third-party
+      PoToken services).
+- [ ] QM1k3 [M] WAITING FOR USER (QM1k decides) Native HLS: `canPlayType` 'maybe' for
+      `application/vnd.apple.mpegurl`/`x-mpegURL`, scratchy fetches master + media
+      playlists and segments through wire and feeds ONE stream_cb stream per track (TS
+      muxed: BBC; CMAF with `EXT-X-MAP`/BYTERANGE and a separate AUDIO group: Reddit,
+      Vimeo, Guardian). No measured page asked canPlayType for HLS (R34), so only build
+      it if the plan wants it.
+- [ ] QM1k4 [S] (part of QM1k1) `isTypeSupported`/`canPlayType` parameter validation
+      like Chrome: YouTube probes `eotf=catavision`, `width=99999`, `height=99999`,
+      `framerate=9999`, `bitrate=2000000000`, `channels=99`, `cryptoblockformat=
+      invalidformat`, `decode-to-texture=nope`, `experimental=invalid`, `codecs=av99...`;
+      all must answer false/'' while the valid twins answer true (today's canPlayType says
+      'probably' to all of them).
+- [ ] QM1k5 [M, Opus, investigate only] READY (not media-gated) BBC News video pages: the
+      SMP player area stays empty (bbc.com/news/videos/c6grew79p7qdo; bump-4.js loads,
+      no mediaselector request, no `<video>` with a src). Find the JS gap. Its media then
+      exists as progressive mp4 (mediaset mobile-tablet-main), HLS (TS) and DASH (R34).
+- [ ] QM1k6 [S] WAITING FOR USER (Workers rule, TODO line "Workers: no until a measured
+      page needs them") Twitch needs `Worker` + `WebAssembly` (Amazon IVS player:
+      amazon-ivs-wasmworker.min.js/.wasm or amazon-ivs-worker.min.js); measured R34:
+      both undefined, no player. Also `Path2D` missing (polyfills.js ReferenceError).
+- [ ] QY45 [S] READY (from R34) `Element.prototype.setAttributeNS`, `getAttributeNS`,
+      `hasAttributeNS`, `removeAttributeNS` do not exist: YouTube's player throws in its
+      controls builder (`q.setAttributeNS("http://www.w3.org/1999/xlink","href",...)`,
+      base.js ad8d59ae line 10024) during `playerBootstrap`, so the watch page never even
+      reaches its "can't play" card; with a local polyfill it does. Implement with real
+      namespaces (at least xlink/svg/xml), qualified names, and a test with an SVG `<use>`.
 - [ ] QM1a [S, Opus, investigate only] READY (no design needed) On the user's REAL
       dwl (GPU renderer) check that zwp_linux_dmabuf_v1 is offered and that
       `mpv --no-config --ao=null --vo=gpu` / `--vo=dmabuf-wayland` work; only the

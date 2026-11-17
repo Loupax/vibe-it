@@ -1,5 +1,112 @@
 # scratchy — regressions
 
+## R34: MSE / streaming survey on real sites (YouTube, Reddit, Vimeo, BBC, Guardian, Twitch, X) (Opus investigator QM1k-m, 2026-11-17) — EVIDENCE for QM1k (plan with the user); QY45 READY; QM1k1-QM1k6 filed
+
+**Status: investigation only, nothing committed except docs.** Run on the user's machine through
+the user's wire (`/run/user/1001/wire.sock`, `X-Wire-Features: ua`), never logged in, all audio
+`ao=null`. Main @ b717e31 (QM1f built; QM1g frame painting NOT merged, so no screenshot can show
+video pixels: the Reddit screenshots below show the poster).
+
+**Headline:**
+1. **YouTube needs MSE, nothing else.** The watch page's player response has NO `formats`
+   (no progressive itag 18 any more) and `adaptiveFormats` WITHOUT `url`/`signatureCipher`: only
+   `serverAbrStreamingUrl` (SABR). Same with and without `--user-agent` (Chrome 131 string).
+   Without MediaSource the player shows "Dieses Video kann in deinem Browser nicht abgespielt
+   werden" (`errorCode fmt.noneavailable`) and fetches no media at all.
+2. **With MSE, YouTube DOES serve media to wire** (POST `videoplayback`, `application/vnd.yt-ump`,
+   200), for both UAs, but **only ~60 s**: then UMP `STREAM_PROTECTION_STATUS` goes 2
+   (attestation pending) -> 3 (attestation REQUIRED) and every further response is ~123 bytes
+   with no media. BotGuard runs (`www.google.com/js/th/...js` 200, `POST /api/jnn/v1/GenerateIT`
+   200, 128 bytes, request body 2443 bytes) but its token is not accepted (or not attached). This is
+   PoToken: the open risk for YouTube (QM1k2).
+3. **Reddit plays TODAY, without MSE, through QM1f**: the feed's `shreddit-player` picks the
+   progressive muxed mp4 from its `packaged-media-json` (`packaged-media.redd.it/<id>/pb/m2-res_854p.mp4?...`),
+   `<video src>`, muted autoplay: loadedmetadata, playing, ran 30.9 s to `ended`, seek to 20 ->
+   `seeked` 62 ms later, `media: mpv`. It did this even with a MediaSource stub present.
+4. **Most other players never reached media code in scratchy** (non-media blockers): Vimeo (dynamic
+   `import()`, QY15a), Twitch (no `Worker`/`WebAssembly`), BBC (SMP player never renders, cause not
+   found), X (no video in the logged-out profile), Guardian (click-to-play; long videos are YouTube).
+5. **No EME call on any page measured** (`requestMediaKeySystemAccess` never called). DRM seen
+   only in Vimeo's manifests (some videos: Widevine/PlayReady `cenc` DASH + FairPlay `SAMPLE-AES`
+   HLS; others clear).
+
+### Method (all throwaway, in the session scratchpad; nothing of it committed)
+- Own worktree `cargo build --release --features media` with a LOCAL js.rs patch (reverted right
+  after the build, binary copied to the scratchpad): when `QMKM_STUB` is set, two natives
+  (`__qmkm_log` -> stderr, `__qmkm_env`) and a JS file evaluated right after media_prelude.js,
+  before page scripts. The JS (`qmkm_stub.js`) has modes: `net` (logs fetch/XHR to media-ish URLs,
+  canPlayType, EME, `<video>` creation/src/events; `window.MediaSource` stays undefined = today),
+  `mse` (plus a logging MediaSource/SourceBuffer/SourceBufferList stub, `blob:` URLs for it,
+  video element state for an attached MediaSource, appendBuffer sniffing: fMP4 top boxes + `tfdt`/
+  `trun` time range, WebM EBML ids + Cluster timecode + last SimpleBlock time, TS sync byte; UMP part
+  decoding of `application/vnd.yt-ump` responses via `Response.clone()`), `mse-mp4` (refuses webm),
+  `QMKM_PLAY=1` (advance `currentTime` while buffered, so the player keeps buffering as if playing),
+  `QMKM_ACT` (timed JS snippets: seek, quality switch, DOM dumps). It also polyfilled the missing
+  `Element.setAttributeNS` family (YouTube's player dies without it, QY45).
+- Headless: `--js-report --socket <wire> --run-timers N` on saved copies (with `<base>`), default
+  UA and `--user-agent <Chrome 131>`. Live: one window at a time in a nested dwl (tools/nest.sh),
+  tools/inject for clicks, grim screenshots (viewed). Plain GETs with a tiny Python wire client for
+  manifests/segments (DASH/HLS playlists, Range checks). A Python reimplementation of Reddit's
+  `js_challenge` was refused by the session's safety classifier and NOT pursued; Reddit was only
+  ever loaded by scratchy itself.
+
+### Per-site table
+| Site (page) | Needs | Without MSE (today) | Formats / containers | Segment URLs, method, status | DRM | Seek / quality |
+| --- | --- | --- | --- | --- | --- | --- |
+| YouTube watch (aqz-KE-bpKQ, Big Buck Bunny) | MSE + UMP/SABR client (the page's own base.js does SABR; scratchy only needs MSE) + PoToken? | error card "can't be played in your browser" (`fmt.noneavailable`), no media request | MSE: 2 SourceBuffers, audio `audio/webm; codecs="opus"` (WebM: EBML/Segment/Info/Tracks init 259 B, then one ~160 KB Cluster per 10 s) + video `video/mp4; codecs="av01.0.01M.08"` (fMP4 ftyp+moov 700 B, then moof+mdat 4-7 s each); refusing webm gives `mp4a.40.2` + `avc1.4D401E` (all fMP4) | `POST https://rrN---sn-....googlevideo.com/videoplayback?...&sabr=1&rqh=1&c=WEB&n=...` (protobuf body, `fetch(Request)`), no Range, no `range=`; 200 `application/vnd.yt-ump`; first response 1,077,374 B (8 MEDIA_HEADER, 37 MEDIA, init metadata) = 0-20 s of both tracks; then 655 KB, 449 KB, 417 KB, 94 KB up to 60 s; then 121-123 B (status 3) forever. Plain GET of the same URL: 403 (empty UMP) | none (no EME call, no drm fields) | seek to 300 s: `currentTime` set, a new SABR POST, but status 3 -> no media (behaviour with a valid token unknown). Quality (`setPlaybackQualityRange('hd1080')`): the player made a NEW MediaSource, revoked the old blob URL, re-added both SourceBuffers (no `changeType`, no `remove`). No `remove()`, `timestampOffset`, `mode`, `endOfStream` in 2 min |
+| Reddit feed (r/oddlysatisfying) | nothing new: `<video src>` progressive | PLAYS (QM1f + libmpv), muted autoplay, 3 players created, seek works | packaged muxed mp4 (`ftyp`, H.264+AAC, 4.79 MB/30 s at 854p), permutations by height; also DASH (`DASHPlaylist.mpd`, `SegmentBase` single-file CMAF per rep `CMAF_220..480.mp4`, separate `audio/mp4` mp4a.40.2) and HLS (`cf.v.redd.it/.../HLSPlaylist.m3u8`, CMAF, separate AUDIO group, subtitles) | packaged mp4: Range -> 206 (signed `e=`/`s=` query); `v.redd.it/<id>/DASHPlaylist.mpd` 200 unsigned; `v.redd.it/<id>/HLSPlaylist.m3u8` 403 without the `a=` token, 200 on `cf.v.redd.it` with `f=..&v=1` | none | seek: `seeking`->`seeked` 62 ms (QM1f). Quality: not triggered (feed player picks one permutation by size) |
+| Reddit post page | — | NOT MEASURED: scratchy got a reCAPTCHA page ("Could not connect to the reCAPTCHA service") on `/comments/<id>/`; not attempted further | — | — | — | — |
+| Vimeo player (player.vimeo.com/video/22439234 "The Mountain"; 76979871) | its player module (dynamic `import()`) | blank: the player never boots (`import(playerConfig.request.urls.js_module)` / `CSSLayerBlockRule` gate; QY15a); only Cloudflare's challenge "precursor" ran | config has `dash`, `hls`, `progressive: []` (no progressive); HLS: fMP4 (`EXT-X-MAP` init 803 B + moof segments ~1.7-1.9 MB/6 s, byte ranges encoded in the path `range/prot/<b64>` plus `range=` query), separate audio rendition; DASH mpd (64 KB) | GET, 200 `video/mp4`, Range 206 works | 76979871 ("The New Vimeo Player"): YES, DASH `cenc` with Widevine+PlayReady ContentProtection, HLS `#EXT-X-KEY:METHOD=SAMPLE-AES,URI="skd://drm"` (FairPlay), init has `encv/sinf/tenc` = impossible. 22439234: clear | not measured |
+| BBC News video (bbc.com/news/videos/c6grew79p7qdo, vpid p0pncywd) | SMP (bump-4.js + requirejs) | the player area is empty (screenshot); no `<video>` media, no mediaselector request | mediaselector JSON: HLS (USP, MPEG-TS segments `video/MP2T`, ~300 KB/7.68 s, muxed AAC), DASH (clear, `avc3` + separate `mp4a.40.5`), and in mediaset `mobile-tablet-main` PROGRESSIVE mp4 (`vod-pro-ww-live.akamaized.net/...`, Range 206, 2.08 MB) | all GET 200/206 | none (`availableTerritories` uk+nonUk) | not measured |
+| Guardian video pages | click-to-play | headless: nothing until a click (not clicked); `/commentisfree/video/...` main media is a YouTube atom (`assetId N79jV1waf4g`, `hasYouTubeAtom`) = the YouTube route; short self-hosted clips on `/video` list HLS + mp4 sources | self-hosted: `uploads.guim.co.uk/...m3u8` (CMAF fMP4, single file with `EXT-X-MAP ... BYTERANGE`, separate audio) and two progressive `video/mp4` (16.0 MB, 13.8 MB, Range 206) | GET 200/206 | none | not measured |
+| Twitch | Amazon IVS player in a `Worker` (`amazon-ivs-wasmworker.min.js` + `.wasm`, or `amazon-ivs-worker.min.js`) | `Worker=undefined WebAssembly=undefined`; no player (directory page; a live channel page not tested); also `ReferenceError: Path2D is not defined` in polyfills.js | (HLS, not measured) | `spade.twitch.tv/track` -> wire "Connection refused" | not measured | — |
+| X (x.com/NASA, logged out) | — | profile header renders; no `<video>` created in 50 s; timelines need login | not measured | not measured | not measured | — |
+
+### What YouTube asked (MSE mode, 35 distinct queries)
+`MediaSource.isTypeSupported` for `video/webm; codecs="vp9"` (11x), with probe parameters
+`width/height/framerate/bitrate/eotf/channels/cryptoblockformat/decode-to-texture/experimental/
+tunnelmode` each once VALID and once INVALID (`eotf=catavision`, `width=99999`, `channels=99`,
+`bitrate=2000000000`, `codecs=av99...`), plus vp09 HDR strings, av01 (0.04M, 0.05M, 0.13M), avc1
+(42001E, 4D401F, 64002A), mp4a.40.2, opus. Chrome answers the invalid ones `false`; a real
+isTypeSupported must do the same or the player believes in impossible formats (QM1k4).
+`canPlayType` was only called with mp4/avc1 strings (all "probably" today), never with an HLS type.
+
+### Recommended route per site
+| Site | Route | Size / notes |
+| --- | --- | --- |
+| YouTube | FULL MSE (two SourceBuffers -> two stream_cb streams, fMP4 video + WebM-or-fMP4 audio; mpv `audio-files`/external track or one demuxer per stream) + the PoToken question | MSE core is the L item QM1k; whether more than ~60 s plays depends on PoToken (QM1k2). If attestation cannot be passed, YouTube = first minute only. Prefer answering mp4-only first (`mse-mp4`: avc1 + mp4a, both fMP4) so the first build needs only one container |
+| Reddit feed | PROGRESSIVE (already works) | nothing to build for the feed; QM1g painting makes it visible. Post page: blocked by reCAPTCHA, not media |
+| Vimeo | after QY15a: full MSE (DASH, clear) or native HLS (fMP4 + separate audio); IMPOSSIBLE for DRM videos | which one Vimeo's player picks was not observable (player never booted) |
+| BBC | progressive mp4 exists (mobile mediaset) or native HLS (TS, muxed: simplest HLS case, one stream) | the SMP player must boot first (QM1k5) |
+| Guardian | YouTube atoms = YouTube route; self-hosted: progressive mp4 (`<source>` list) works with QM1f if the player uses it | click needed; not verified |
+| Twitch | impossible today (needs Workers + WebAssembly, a much larger decision) | its streams are HLS; a native-HLS route would still need the IVS player to run |
+| X | unknown (logged out shows no video) | not measured |
+
+Native HLS (scratchy fetches playlist + segments through wire and concatenates into ONE stream for
+mpv) fits BBC (TS, muxed) directly; CMAF/fMP4 HLS with a separate AUDIO rendition (Reddit, Vimeo,
+Guardian) needs two streams, the same as MSE. No measured page asked `canPlayType` for HLS, so a
+native-HLS answer would only help players that check it (Twitch's error path does; BBC/Guardian
+not observed).
+
+### Open product questions (for the QM1k session)
+1. PoToken: accept "YouTube plays ~60 s" as a first milestone, or require attestation research
+   (QM1k2) before building MSE?
+2. Codecs to admit in isTypeSupported: mp4-only (avc1/mp4a, simplest: both tracks fMP4) or also
+   WebM/Opus/VP9/AV1 (YouTube's default choice was AV1 video + Opus/WebM audio)?
+3. Audio: second stream to mpv (`audio-files` on a second stream_cb URL) vs remux both tracks into
+   one container in scratchy (more code, one demuxer)?
+4. Memory cap for appended data (YouTube appended 3.4 MB for 60 s at 360p; 1080p60 AV1 is ~10x).
+5. Native HLS at all (BBC is the only measured case that would use plain TS HLS)?
+6. Workers/WebAssembly for Twitch: out of scope for media, or a separate decision?
+
+### NOT verified
+Real video pixels (QM1g not merged); audio (always `ao=null`); YouTube with a real-time clock in a
+live window (BotGuard may behave differently than under `--run-timers`' simulated clock); what
+YouTube does after a VALID PoToken; the request body (protobuf) of SABR POSTs; YouTube live
+streams/Shorts; Reddit post-page/HLS player (reCAPTCHA), Reddit quality switch; Vimeo, BBC, Twitch,
+X players' actual MSE use (none booted); Guardian clicks; any EME on a page that needs it (none
+seen); seek/quality on anything but YouTube (stub) and Reddit feed (seek only).
+
 ## R33: A test fails on a clean checkout of main: `inline_flex_lays_its_children_out_side_by_side_not_stacked` (review, 2026-11-17) — OPEN, item QCI0 in TODO.txt
 
 **Status: open.** Found by the 2026-11-17 review of main (ec6a0e6, again at
