@@ -886,7 +886,7 @@ pub(crate) fn resolve_or_bubble_positioned<'a>(
             bubble_out.push(item);
         } else {
             resolved.push(resolve_positioned(
-                item, pad_x, pad_y, pad_w, pad_h, font_system, next_id, cache, deadline, incomplete,
+                item, pad_x, pad_y, pad_w, pad_h, font_system, next_id, cache, deadline, incomplete, bubble_out,
             ));
         }
     }
@@ -928,8 +928,8 @@ pub(crate) fn resolve_or_bubble_positioned<'a>(
 /// disposable, always-empty-on-return `Vec` handed to `measure` here
 /// reflects exactly that.
 #[allow(clippy::too_many_arguments)]
-pub(crate) fn resolve_positioned(
-    item: PendingPositioned,
+pub(crate) fn resolve_positioned<'a>(
+    item: PendingPositioned<'a>,
     cb_x: f32,
     cb_y: f32,
     cb_w: f32,
@@ -939,6 +939,7 @@ pub(crate) fn resolve_positioned(
     cache: &mut ShapeCache,
     deadline: std::time::Instant,
     incomplete: &mut bool,
+    bubble_out: &mut Vec<PendingPositioned<'a>>,
 ) -> Laid {
     let s = item.b.style;
     let left = s.inset.left.map(|v| v.resolve(cb_w));
@@ -979,7 +980,11 @@ pub(crate) fn resolve_positioned(
         item.b, font_system, provisional_x, provisional_y, cb_w, Some(cb_h), next_id, cache, deadline, incomplete,
         &mut nested_pending, &no_floats, auto_override,
     );
-    debug_assert!(nested_pending.is_empty(), "an absolute/fixed box is itself always a positioned ancestor");
+    // QY32: a nested `fixed` box always keeps bubbling (its containing
+    // block is the viewport), so it comes back here; hand it to the caller
+    // (ultimately `measure_document`) instead of dropping it.
+    let first_nested = bubble_out.len();
+    bubble_out.append(&mut nested_pending);
     // QA3 (CSS2.1 §10.3.7 / §10.6.4): `left`/`top`/`right`/`bottom` locate
     // the *margin* edge, so the used margins (already resolved on the laid
     // box, `auto` = 0) are added to the border-box position. A static
@@ -1020,6 +1025,13 @@ pub(crate) fn resolve_positioned(
     };
     let (dx, dy) = (final_x - laid.x, final_y - laid.y);
     shift_laid_tree(&mut laid, dx, dy);
+    // The bubbled-out entries' static positions were captured at the
+    // provisional position; they move with this box (their `top`/`left`,
+    // when set, are viewport-relative and unaffected).
+    for n in &mut bubble_out[first_nested..] {
+        n.static_x += dx;
+        n.static_y += dy;
+    }
     apply_transform_offset(&mut laid);
     laid.fixed = item.fixed;
     laid
@@ -5327,10 +5339,19 @@ pub fn measure_document(
         b, font_system, 0.0, 0.0, width, None, next_id, cache, deadline, incomplete, &mut pending, &root_floats, None,
     );
     if !pending.is_empty() {
-        let mut resolved: Vec<Laid> = pending
-            .into_iter()
-            .map(|item| resolve_positioned(item, 0.0, 0.0, width, viewport_h, font_system, next_id, cache, deadline, incomplete))
-            .collect();
+        // Resolving a box can hand further (nested `fixed`) entries back
+        // (QY32): keep draining until none remain.
+        let mut resolved: Vec<Laid> = Vec::new();
+        let mut work = pending;
+        while !work.is_empty() {
+            let mut next = Vec::new();
+            for item in work {
+                resolved.push(resolve_positioned(
+                    item, 0.0, 0.0, width, viewport_h, font_system, next_id, cache, deadline, incomplete, &mut next,
+                ));
+            }
+            work = next;
+        }
         laid.positioned.append(&mut resolved);
         // Re-sort the combined list — the document root is always
         // `Position::Static` in practice (see `build_layout_tree`), so
