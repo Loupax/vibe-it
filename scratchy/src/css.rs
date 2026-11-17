@@ -1258,7 +1258,7 @@ pub(crate) struct Declarations {
 /// `true`) — a mixed run with an inline `<img>`/inline-block doesn't
 /// look at `white_space` at all yet, same pre-existing gap `white-space:
 /// pre` already has there (see TODO.txt).
-#[derive(Clone, Copy, PartialEq, Default)]
+#[derive(Clone, Copy, PartialEq, Default, Debug)]
 pub(crate) enum WhiteSpace {
     #[default]
     Normal,

@@ -748,7 +748,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       Test: the fixture = 40; existing QA7/Q35b3 tests unchanged; WPT subset
       no pass->fail. Accept: YouTube masthead kebab 40 px, "Anmelden" fully
       inside the window.
-- [ ] QY43 [S] (P2, R28) Preserved newlines overprint in a paragraph that takes the
+- [x] QY43 [S] DONE 2026-11-17 (HASH) (P2, R28) Preserved newlines overprint in a paragraph that takes the
       per-word path. `measure_mixed_inline` (layout.rs) is used whenever a run
       has an Image/Embedded/Spacer item (inline-block, padded inline, `<img>`),
       a float nearby or word-spacing. Its `InlineItem::Text` arm splits words
