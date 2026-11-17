@@ -1,5 +1,157 @@
 # scratchy — regressions
 
+## R29: new errors after QY34 (script-inserted scripts) are newly exposed gaps, plus a budget-trip amplifier in `drain_jobs` (Opus investigator QY44, 2026-11-17) — OPEN, items QY44a-QY44e in TODO.txt
+
+**Status: open (no QY34 regression; fix forward, do not revert).** The QY34 agent
+reported more errors after 281d281 (old.reddit 2 -> 103, guardian 0 -> 2, bbc a
+different next.js exception, one YouTube run with 86 errors). Each was
+reproduced and traced to the API the newly running code hits:
+
+| page | before -> after (headless) | what the new code hits | QY34's fault? | item |
+|---|---|---|---|---|
+| old.reddit (cached "Welcome to Reddit" copy) | 1+2 -> 1+103 errors, 1 -> 6 requests | `window.screen` undefined: `Jp={height:window?.screen.height,...}` at module level in the `js/concat?...BMlnvMqNfR,...` chunk; every dependent SML module rejects (101x) | no | QY44b |
+| guardian /international | 0 -> 2 timer errors, 10 -> 45 requests | `video.textTracks` undefined (SelfHostedVideo island, `3030.client.web...js:1:15283`); window also: `document.styleSheets.length` (emotion speedy, `frameworks.client.web...js:2:1107`) | no | QY44d, QY44c |
+| bbc.com | 1 -> 1 timer error, 1 -> 11 requests | the SAME styled-components failure as before (`document.styleSheets`/`style.sheet` undefined, `13ad5orspgznk.js:1:13734`); before, the `/_error` route chunk never loaded ("Route did not complete loading"), now it loads and dies the same way | no | QY44c |
+| youtube (cached copy) | 0 -> 85-86 errors (84x ``Error: sb`kCcqO``) in 4/4 plain runs at load 4-25 | a CPU-budget trip in one promise job kills every LATER job of the drain mid-way; kevlar's signal library loses its `finally` and stays "inside a reactive context" | no (pre-existing engine behaviour; QY34 adds CPU: player base.js, lazy chunks) | QY44a (+ QY33) |
+| youtube (fresh copy) | 1 -> 2 trips, 0 `sb` errors in 4 runs | player `base.js` (3 MB) now executes | no | - |
+
+QY34's own behaviour checked with a fixture (`qy34_semantics.html`, headless,
+real wire): inline inserted script runs synchronously with
+`document.currentScript` = itself, its exception is logged (`inline script
+(inserted): Error: ...`) and the inserting script continues; a moved script is
+not re-run; `src` runs later (async) and `load` fires after it ran
+(`importShim` defined in onload); a 404 fires `error` and logs `failed to load
+script (HTTP 404)`. No wrong order, no load-before-run, no swallowed errors.
+
+### How this was measured (reusable; nothing committed)
+
+- Binaries: this worktree's release builds of e6ad8b3 (QY34 merge, "after") and
+  c17fb97 (its first parent, "before"), each with a LOCAL never-committed
+  `COOKIE_JAR_NAME = "qy44-investigator"` (net_policy.rs). The report still
+  prints `jar: scratchy` because that label is hard-coded (QY37 note); the
+  wire header carried the investigator jar. A third local build (reverted)
+  logged the stack of every budget-tripped job/callback (js.rs `drain_jobs`
+  and `eval_value`, `QY44EXP ... trip stack`).
+- Pages: fresh copies via `curl --unix-socket /run/user/1001/wire.sock -H
+  'X-Wire-Jar: qy44-investigator' --request-target <url> http://x/` with a
+  `<base href>` (guardian /international, www.bbc.com/, www.youtube.com/);
+  old.reddit now answers wire with a 403 "blocked by network security" page
+  and www.reddit.com with a JS challenge form, so the QY34 agent's cached
+  copies (scratchpad `pages/https___old_reddit_com_.html`, 2026-11-16 23:53,
+  and `pages/https___www_youtube_com_.html`) were reused. Reddit's concat
+  chunks still answer scratchy (200) but 404 to a bare curl (headers differ;
+  not investigated).
+- Runs: `scratchy --js-report --run-timers 5000 --socket
+  /run/user/1001/wire.sock copy.html`; probes injected right after `<base>`:
+  a `__net_request` wrapper printing the reddit chunk around line 42 col
+  67620; a `__scratchy_run_global` / `__mod_register` wrapper listing every
+  inserted script run (YouTube: botguard `th/...js` 64 KB, player `base.js`
+  2.7-3.0 MB 0.4-1.3 s wall, two kevlar lazy chunks); a `__net_request`
+  filter blocking botguard (sb errors still in 1 of 2 runs).
+- Windows: `tools/nest.sh` + `grim`, one scratchy window at a time on the
+  file copies, 45-120 s. Machine load 4-25 (other agents' builds).
+- Fixtures (scratchpad `qy44/fx/`): `trip_finally.html`, `trip_jobs_big.html`,
+  `styledc.html`, `texttracks.html`, `screen.html`, `qy34_semantics.html`.
+
+### 1. YouTube `sb\`kCcqO`: a trip kills the rest of the drain mid-way (QY44a)
+
+kevlar `J3e` (signal write): ``ui[0]?.consumerAllowSignalWrites!==!1||Ko_(q)``,
+`Ko_ = q => { throw Error("sb`" + q.debugName) }`; `kCcqO` is the
+`disableTemplateUpdate` signal written by every `JSC$19014_renderImpl` (stack:
+`moNotify` -> `N1W` -> `renderImpl` -> `AvP` -> `J3e` -> `Ko_`). A
+MutationObserver microtask starts with an empty consumer stack in any browser,
+so `ui[0]` must be a stale consumer left by an aborted computation.
+
+Trip stacks (local logging build, cached copy): the second drain logs
+`promise jobs stopped ... (5 jobs dropped)`; its jobs were interrupted in
+`rootId`/`composedRootId` (`ceIsConn`, `ceScan`, `__d_insert`), `ioShown`,
+an insert hook and, last, inside kevlar `producerRecomputeValue` -> `MF`; the
+84 `sb` errors follow immediately. Mechanism, both parts shown with fixtures:
+
+- QuickJS's interrupt is uncatchable and unwinds without running `catch` OR
+  `finally` (quickjs.c, interpreter `exception:` label: the
+  `JS_TAG_CATCH_OFFSET` scan is skipped for uncatchable errors).
+  `trip_finally.html`: a timer `push; try { for(;;); } finally { pop }` leaves
+  the stack at length 1. Unavoidable for the one job that really overruns.
+- `drain_jobs` keeps executing queued jobs after a trip while the deadline is
+  already expired, so EVERY following job (an unrelated page task) dies at its
+  first interrupt poll. `trip_jobs_big.html` (job1 `for(;;)`, job2/job3 a
+  200 000-iteration loop inside try/finally): main prints `jobs completed: []`,
+  stale stack `[job2,job3]`, `(3 jobs dropped)`. With 2 000 iterations the
+  jobs finish before the next poll and survive, which is why the damage is
+  random.
+
+Why only since QY34: before, the cached copy ran with 0 trips (0 errors, 99
+requests); with QY34 the player `base.js` and kevlar's lazy chunks execute in
+the same session and the timeline gets the extra CPU (trip stacks show mostly
+scratchy prelude walks: QY33 note). 4/4 plain runs gave 84 `sb` errors at
+load 4-25; with the run-listing probe 0/2 (timing). The fresh copy (different
+build of the page) tripped twice per run and never hit a signal `finally`.
+
+### 2. old.reddit: `window.screen` (QY44b)
+
+Probe output, chunk `js/concat?prefix=en-US/&chunks=BMlnvMqNfR,C9D1KpOVTC,DGPisoaFEk`
+line 42 around col 67620: `...,Jp={height:window?.screen.height,width:window?.screen.width},Yp=...`.
+`screen.html`: `typeof screen` = undefined, `visualViewport` undefined. The
+pre-QY34 `'width' of undefined` (data: module `buildEvent`:
+`width:window.screen.width`) is the same gap. Also seen, harmless: the
+always-loaded es-module-shims polyfill probes with `<script src=blob:...>`
+(blocked: QY34's fetch path does not do blob:/data:) and finds no
+`HTMLScriptElement.supports` (QY44e).
+
+### 3. bbc / guardian: CSSOM and media placeholders (QY44c, QY44d)
+
+`styledc.html`: `typeof document.styleSheets` = undefined, `style.sheet` =
+undefined, `document.styleSheets.length` throws. BBC: styled-components'
+`eq` sheet constructor (`e.sheet` or a `document.styleSheets` scan, else
+`throw e_(17)`) runs on first render: the console.error `'length' of
+undefined` + next.js "client-side exception" are in BOTH builds; QY34 only
+lets the `/_error` route chunk load (headless) so the final error moves from
+"Route did not complete loading" to the same TypeError. Guardian window
+(120 s, after): emotion speedy `document.styleSheets.length` in an island.
+`texttracks.html`: `textTracks`/`audioTracks`/`videoTracks` undefined.
+
+### Screens (nested dwl, file copies, viewed)
+
+- old.reddit (45 s): before and after pixel-identical: Reddit logo top left,
+  a grey speech-bubble background pattern, no login form (shadow content is
+  not rendered, QSD6).
+- guardian (50 s; after also 120 s): pixel-identical: blue "You are viewing the
+  International homepage / View the Europe homepage" bar with an X, "News"
+  heading, the Live headline with a large protest photo, a row of four links,
+  then two story cards (Nvidia, Microsoft). No Guardian masthead/logo at the
+  top in either.
+- bbc (50 s): same page in both (empty grey ad slot, BBC blocks, Home/News
+  nav, three story columns); BEFORE has BBC's own dark cookie banner at the
+  bottom ("Let us know you agree to cookies", "Yes, I agree", "No, take me to
+  settings"); AFTER has no banner. After, the Sourcepoint CMP (inserted
+  `wrapperMessagingWithoutDetection.js`) runs ("Messaging without detection
+  successfully executed"); its message is not visible. Why the static banner
+  goes away was not traced.
+- youtube fresh copy (75 s): before and after the same: hamburger, logo + DE,
+  wide search field, kebab, "An..." pill at the edge, mini guide with 4 icons
+  and labels, the "Der YouTube-Verlauf ist deaktiviert" card with the
+  overprinted subtitle line (QY43).
+
+So: no page renders worse except the BBC consent banner change (arguably a
+behaviour change, not a breakage); none renders better yet either, because
+the code QY34 unlocks dies on QY44b/QY44c/QY44d.
+
+### Not verified
+
+- QY44a-QY44e fixes were not implemented locally (only the trip-stack logging).
+- Whether YouTube's other lost work (kebab/icon jobs, QY33) also comes back
+  with QY44a alone.
+- Why reddit's concat chunks 404 to curl but 200 to scratchy, and whether the
+  101 module rejections are the only shreddit failure (the login form needs
+  shadow DOM rendering anyway).
+- Why the BBC static cookie banner disappears with the CMP running, and
+  whether a cross-origin consent iframe should be shown.
+- Window logs show `wire answered 400 to the cookie control request` with a
+  non-default jar name in both builds (also in R28); not investigated (QY37
+  note).
+- Other measured pages (wikipedia, HN, github, ddg, lobste.rs) were not re-run.
+
 ## R28: YouTube's remaining masthead/guide paint gaps: `document.all`, a 1e6 px max-content, pre-wrap newlines (Opus investigator QY35, 2026-11-17) — OPEN, items QY40-QY43 in TODO.txt
 
 **Status: open (bugs, no regression).** QY35 asked for the cause of each

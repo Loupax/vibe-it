@@ -103,6 +103,14 @@ READY, in recommended order (no user decision needed):
  button 18 px, "Anmelden" clipped), QY43 [S] P2 (pre-wrap newline + inline-block
  overprints: the nudge subtitle). QY33 got R28 evidence (the budget trip drops
  YouTube's icon jobs: no kebab icon).
+ NEW 2026-11-17 (Opus QY44, R29: the new errors after QY34; QY34 stays, fix
+ forward), in this order: QY44a [S] P1 (a budget trip in one promise job kills
+ every later job of the drain mid-way, skipping `finally`: YouTube's signal
+ state is left corrupt -> 84 x `sb\`kCcqO`), QY44b [S] P1 (`window.screen`
+ missing: reddit's module chunks die, 101 errors), QY44c [S] P1 (= QSD4a:
+ `document.styleSheets`/`style.sheet` + insertRule into the cascade; BBC
+ styled-components, Guardian emotion), QY44d [S] P3 (media textTracks
+ placeholder), QY44e [S] P3 (blob:/data: script src, HTMLScriptElement.supports).
  Then P3/P4 leftovers in their blocks (QY*, QA*, Q40b/Q40c fix items).
 WAITING FOR USER (skip until answered):
 - SD-D1: OK to ship B1 (attachShadow works, JS sees a real shadow tree, but
@@ -592,6 +600,13 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       (fetch wrapper: only search/menu/logo icons requested, 3 fetches); with
       CALLBACK_BUDGET raised to 30 s locally ~90 icon SVGs are fetched and the
       kebab paints. YouTube's scheduler/icon job is the dropped work.
+      R29 (2026-11-17, QY44): local trip-stack logging (never committed) put the
+      interrupted jobs inside scratchy's own prelude as often as inside kevlar:
+      `rootId`/`composedRootId` parent walks from `ceIsConn`/`ceScan`
+      (custom-element insert hook), `isConnected`, `ioShown`
+      (IntersectionObserver), and `URL` parsing in `new Request`. Profile those
+      first. Since QY34 the player `base.js` (2.7-3 MB) and two kevlar lazy
+      chunks also execute (0.4-1.3 s wall each), so trips are likelier.
 - [x] QY34 [M] (done 281d281) (P3, R26) Script-inserted `<script>` elements never run. Fixture:
       `createElement('script')` with `textContent` appended to head, and one
       with `src` + onload/onerror: neither runs, no network request, no event
@@ -653,6 +668,13 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       (R26's runs did, for youtube.com). Use a separate jar for the report
       (e.g. `scratchy-report`, or `--jar NAME`), print it in the report header.
       Test: the report's requests carry the report jar name.
+      R29: the report's network lines print `jar: scratchy` from a hard-coded
+      string (js_net.rs report formatting, `let jar = if e.jar { "scratchy" }`),
+      not `COOKIE_JAR_NAME`: a build with another jar name still prints
+      "scratchy". Print the real jar name. Also seen (R28, R29): with a non-default
+      jar name the WINDOW logs `wire answered 400 to the cookie control
+      request` (document.cookie reads ''), headless does not: find out why
+      before choosing the report jar.
 - [ ] QY38 [S/M] (P3, tooling, R26) `--js-report` never loads `<link rel=stylesheet>`,
       so getComputedStyle and QJ4's forced layout see UA + inline styles only
       (YouTube's `ytd-app` is `display:inline` headless, `block` with its CSS):
@@ -747,6 +769,107 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       inline-block). Test: the fixture lays out as line 1/2 wrap, an empty
       line, then "Wenn du ... Weitere Informationen" with no two word boxes
       overlapping on a line. Accept: YouTube subtitle readable, three blocks.
+
+--- QY44: new errors after QY34 (Opus investigator, 2026-11-17, R29) ---------
+QY34 (281d281) is NOT reverted: every new error is code that never ran before
+hitting an existing gap; QY34's own order/timing/currentScript/load/error
+behaviour checked fine (R29 fixture). Do in this order:
+- [ ] QY44a [S] (P1, R29) A CPU-budget trip in one promise job kills EVERY later
+      job of the same drain mid-way, skipping their `finally` blocks. js.rs
+      `drain_jobs`: after `rt.execute_pending_job()` fails with `tripped` set,
+      the loop keeps calling `execute_pending_job()` while the deadline is
+      already expired, so each following job (a separate page task) is
+      interrupted at its first interrupt poll; QuickJS's uncatchable interrupt
+      unwinds without running catch OR finally (quickjs.c interpreter
+      `exception:` label skips `JS_TAG_CATCH_OFFSET` for uncatchable errors).
+      YouTube: kevlar's signals library resets its active-consumer slot in a
+      `finally` (`producerRecomputeValue`); a job killed there leaves a stale
+      consumer, and from then on every signal write throws `Error: sb\`kCcqO`
+      (kevlar `J3e` -> `Ko_`, "write inside a reactive context"): 84 errors per
+      run on the cached copy, 4/4 runs at load 4-25 (R29). Fix: stop draining
+      after a tripped job and leave the remaining jobs pending for the next
+      turn (they are not lost: QuickJS keeps its job queue), so no job ever
+      STARTS on an expired deadline; make sure both callers (`drain_after_task`
+      and the page-load drain after `eval`) and the App/`--run-timers` loops
+      come back for pending jobs (`rt.is_job_pending()`) on the next turn with
+      a fresh `CALLBACK_BUDGET`. Count/log "N jobs deferred" instead of
+      "dropped". Only the one job that really exceeded the budget is killed
+      (unavoidable; note it in NOTES.md "Main-thread stall limits").
+      Fixture (R29 `trip_jobs_big.html`): in a timer queue job1 `for(;;){}`,
+      then job2/job3 each `stack.push(t); try { loop 200000 } finally {
+      stack.pop() }`; a timer at 50 ms prints completed jobs and the stack.
+      Main prints `jobs completed: []`, stale stack `[job2,job3]`; expected
+      `[job2,job3]` and `[]`. Test: that fixture in src/tests.rs (FAKE_CLOCK
+      seam) + the existing QY22 tests stay green. Accept: cached YouTube copy
+      (R29 recipe) 0 `sb\`` errors in 3 `--js-report --run-timers 5000` runs.
+- [ ] QY44b [S] (P1, R29) `window.screen` does not exist. Shreddit's concat chunk
+      evaluates `Jp={height:window?.screen.height,width:window?.screen.width}`
+      at module level (`?.` guards only `window`), so the module factory
+      throws `cannot read property 'height' of undefined` and the
+      ShredditModuleLoader (`_evaluateModule`) rejects every module that
+      depends on it: 101 errors on the old.reddit copy since QY34 started
+      loading its `<script type=module>` chunks (before: 1 `'width' of
+      undefined` from `buildEvent`'s `window.screen.width`, same cause).
+      Fix (globals_prelude.js or js_dom.rs window setup): `Screen` interface +
+      `window.screen` with width/height/availWidth/availHeight = the layout
+      viewport size the engine already knows (innerWidth/innerHeight;
+      screen >= viewport), availLeft/availTop 0, colorDepth/pixelDepth 24,
+      `orientation` {type 'landscape-primary' or 'portrait-primary', angle 0,
+      addEventListener/removeEventListener/onchange no-ops}; also
+      `window.screenX/screenY/screenLeft/screenTop` = 0 if missing. Optional
+      in the same item: `window.visualViewport` (width/height/scale 1/offset*
+      0/pageLeft/pageTop = scroll, EventTarget) since it is also undefined.
+      Test: `typeof screen === 'object'`, `screen.width >= innerWidth`,
+      `screen instanceof Screen`, `screen.orientation.type` is a string.
+      Accept: old.reddit cached copy (R29) has no `'height' of undefined`.
+- [ ] QY44c [S] (P1, R29; = QSD4a with real-page acceptance, do them as one)
+      `document.styleSheets` is undefined and `<style>.sheet` /
+      `<link>.sheet` are undefined. CSS-in-JS dies on it: BBC's
+      styled-components (`_next/.../13ad5orspgznk.js`: `document.styleSheets`
+      loop, `throw e_(17)`) gives the next.js "client-side exception"
+      (there before QY34; since QY34 the `/_error` route chunk also loads and
+      dies the same way), the Guardian's emotion in speedy mode
+      (`frameworks.client.web...js` line 2: `document.styleSheets.length`)
+      dies in islands that QY34 now loads. Needs more than a read: speedy
+      emotion/styled-components put ALL their rules in via
+      `sheet.insertRule()` into an EMPTY `<style>`, so rules inserted through
+      `HTMLStyleElement.sheet` must reach the cascade (same restyle path the
+      QSD4 constructable sheets use for adoptedStyleSheets; cssom_prelude.js
+      `CSSStyleSheet`). Fix: `HTMLStyleElement.prototype.sheet` (and link's,
+      read-only rules for link) returning a per-element CSSStyleSheet whose
+      cssRules parse the element's text and whose insertRule/deleteRule
+      mutate the element's effective CSS (not its text content);
+      `document.styleSheets` = live list of those
+      for connected style/link elements in tree order, `ownerNode` set.
+      Fixture (R29 `styledc.html`). Test: insertRule('p{color:red}') on an
+      empty `<style>` turns a `<p>` red in the computed style; styleSheets
+      length/ownerNode; deleteRule removes it. Accept: BBC copy without the
+      "client-side exception" console.error; Guardian window log without
+      `'length' of undefined` at frameworks...js:2:1107.
+- [ ] QY44d [S] (P3, R29, media PLACEHOLDER only, AGENTS.md) `video.textTracks`,
+      `audioTracks`, `videoTracks` are undefined; the Guardian's
+      SelfHostedVideo island (3030.client.web...js `e=t.textTracks; e[0]`)
+      throws `cannot read property '0' of undefined` (2 errors, new since
+      QY34 loads islands). Add inert empty lists on HTMLMediaElement
+      (js_dom.rs media placeholder block next to `play`/`canPlayType`):
+      `length` 0, index access undefined, `getTrackById` null,
+      add/removeEventListener + `onaddtrack`/`onchange` that never fire. No
+      playback state, no events (off-limits rule). Test: `v.textTracks.length
+      === 0`, `v.textTracks[0] === undefined`, addEventListener does not
+      throw. Accept: Guardian copy report without `'0' of undefined`.
+- [ ] QY44e [S] (P3, R29, QY34 follow-up) Script-inserted `<script src>` with a
+      `blob:` or `data:` URL is refused: js_dom.rs QY34 block `sFetch` calls
+      `__net_request` directly, which only does http(s) ("scheme blob: is not
+      allowed from page JS"), while `fetch()` answers data:/blob: locally
+      (fetch_prelude.js `local`/`dataURL` + the QF2 blob store). Seen:
+      es-module-shims (old.reddit) probes with `<script src=blob:...>`.
+      Route data:/blob: through the same local helpers for classic and
+      module scripts (and module graph deps). While there:
+      `HTMLScriptElement.supports(type)` (static; true for 'classic',
+      'module', 'importmap'; false otherwise) so es-module-shims sees native
+      import maps. Test: a script with `src = URL.createObjectURL(new
+      Blob(["window.x=1"]))` runs and fires load; data: likewise;
+      `HTMLScriptElement.supports('importmap') === true`.
 
 social.loupax.com/discover (the user's own site; source read at
 /home/loupax/src/social, internal/web/js/vim.js): vim.js is NOT in the
@@ -1180,6 +1303,9 @@ Items (in order):
 - [ ] QSD4a [S] READY `document.styleSheets` minimal read of the `<style>`/`<link>`
       sheets (cssRules, insertRule), `CSSStyleSheet` baseURL url() rebasing and
       `CSSMediaRule`/`CSSImportRule` subclasses (left out of QSD4).
+      R29 (2026-11-17): raised to P1 as QY44c (real pages: BBC
+      styled-components, Guardian emotion speedy); insertRule into a `<style>`'s
+      sheet must reach the cascade. Do QSD4a and QY44c as one change.
 - [ ] QSD4b [S] WAITING (after QSD3/QSD7) `ShadowRoot.adoptedStyleSheets`: hook
       is the `A`/`publish` pair in cssom_prelude.js (one list per root).
 - [ ] QSD5 [M] READY `display: contents` (general CSS, no shadow DOM
