@@ -16569,3 +16569,27 @@ fn qy30_raf_due_time_strictly_after_now() {
     }
     assert!(clock.get() - 100.0 >= frame * 8.0, "clock advanced {}", clock.get());
 }
+
+#[test]
+fn qy40_document_all_is_htmldda() {
+    let doc = parse_html("<html><head></head><body><div id=a></div><form name=f></form></body></html>");
+    let o = Rc::new(RefCell::new(Vec::<String>::new()));
+    let o2 = o.clone();
+    let code = "var out=[]; var t=function(n,v){out.push(n+':'+v)};
+      t('typeof', typeof document.all === 'undefined'); t('falsy', !document.all); t('eqnull', document.all == null);
+      t('notundef', document.all !== undefined);
+      t('len', document.all.length > 0 && document.all.length === document.getElementsByTagName('*').length);
+      t('idx0', document.all[0] === document.documentElement); t('item0', document.all.item(0) === document.documentElement);
+      t('named', document.all.namedItem('a') === document.getElementById('a'));
+      t('namedname', document.all.namedItem('f') === document.forms[0]);
+      t('call', document.all('a') === document.getElementById('a'));
+      var n = document.all.length; document.body.appendChild(document.createElement('p')); t('live', document.all.length === n + 1);
+      function f(T){ if(!T && T!==document.all) return T; return 'zClosurez'; }
+      t('resin', f(undefined) === undefined && f(null) === null && f(document.all) === 'zClosurez' && f(document.body) === 'zClosurez');
+      var r='no'; if (document.all) r='ie'; t('sniff', r === 'no');
+      console.log(out.join(','));";
+    let _e = start_scripts(&doc, &[src(code)], Rc::new(move |level, text| o2.borrow_mut().push(format!("{level}:{text}"))));
+    let log = o.borrow().join("\n");
+    assert!(log.contains("log:") && !log.contains(":false") && !log.contains("error:"), "{log}");
+    assert!(log.contains("sniff:true") && log.contains("resin:true") && log.contains("live:true"), "{log}");
+}

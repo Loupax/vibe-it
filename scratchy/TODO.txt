@@ -95,7 +95,7 @@ READY, in recommended order (no user decision needed):
  (report ignores stylesheets), QY36 [S], QY33 [M] (callback cost, measure),
  QY34 [M] (script-inserted scripts), then QY35 (Opus bisect) and QY27.
  NEW 2026-11-17 (Opus QY35, R28: the remaining YouTube masthead/guide paint gaps),
- in this order: QY40 [S] P1 (`document.all` missing -> polymer-resin turns EVERY
+ in this order: QY40 [S] P1 DONE (`document.all` missing -> polymer-resin turns EVERY
  falsy property binding into "zClosurez": mini-guide icons hidden, and more),
  QY41 [S] P1 (`width:%` inline-block inside a fixed-width box -> max-content
  1 000 000 px: search field 0 px wide, "Anmelden" at x = 1 000 129), QY42 [S] P2
@@ -661,7 +661,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       the App does (same `ExternalResources` path) when a socket is given.
       Test: a copy with an external sheet that sets `display:flex` reads back
       `flex` in the report.
-- [ ] QY40 [S] (P1, R28) `document.all` does not exist, so polymer-resin turns every
+- [x] QY40 [S] DONE 2026-11-17 (HASH_QY40) (P1, R28) `document.all` does not exist, so polymer-resin turns every
       FALSY property binding into the string "zClosurez". kevlar `XBv` returns
       the value unchanged only `if (!T && T !== document.all)`; in scratchy
       `document.all` is undefined, so for T = undefined the test is false and
