@@ -415,15 +415,25 @@ pub(crate) fn fetch_raw_via_wire_with_support(
     read_timeout: std::time::Duration,
     support: &CookieSupport,
 ) -> WireFetchRaw {
-    let Ok(mut stream) = UnixStream::connect(path) else { return WireFetchRaw::Unreachable };
+    fetch_raw_detailed(path, request_text, read_timeout, support).unwrap_or(WireFetchRaw::Unreachable)
+}
+
+/// `fetch_raw_via_wire_with_support` that keeps WHY it failed (QWU1): the
+/// `Err` text is the OS error for a connect/IO failure (`No such file or
+/// directory, os error 2` = no socket file, `Connection refused, os error
+/// 111` = stale socket file), or a short description. `Ok` is always
+/// `WireFetchRaw::Responded`.
+fn fetch_raw_detailed(
+    path: &std::path::Path,
+    request_text: &str,
+    read_timeout: std::time::Duration,
+    support: &CookieSupport,
+) -> Result<WireFetchRaw, String> {
+    let mut stream = UnixStream::connect(path).map_err(|e| describe_os_error(&e))?;
     let _ = stream.set_read_timeout(Some(read_timeout));
-    if stream.write_all(request_text.as_bytes()).is_err() {
-        return WireFetchRaw::Unreachable;
-    }
+    stream.write_all(request_text.as_bytes()).map_err(|e| describe_os_error(&e))?;
     let mut buf = Vec::new();
-    if stream.read_to_end(&mut buf).is_err() {
-        return WireFetchRaw::Unreachable;
-    }
+    stream.read_to_end(&mut buf).map_err(|e| describe_os_error(&e))?;
     match parse_wire_response(&buf) {
         Ok((content_type, body)) => {
             let version = raw_response_header(&buf, "x-wire-version");
@@ -431,10 +441,153 @@ pub(crate) fn fetch_raw_via_wire_with_support(
             note_cookie_response(support, request_text.as_bytes(), version.as_deref(), cookies.as_deref());
             note_ua_response(raw_response_header(&buf, "x-wire-features").as_deref());
             let final_url = raw_response_header(&buf, "x-wire-final-url");
-            WireFetchRaw::Responded { content_type, body, final_url }
+            Ok(WireFetchRaw::Responded { content_type, body, final_url })
         }
-        Err(_) => WireFetchRaw::Unreachable,
+        Err(_) => Err("unreadable reply from wire".to_string()),
     }
+}
+
+/// `io::Error` as `<text>, os error N` (the std Display is
+/// `<text> (os error N)`, which would nest parentheses in the QWU1 line).
+pub(crate) fn describe_os_error(e: &io::Error) -> String {
+    let t = e.to_string();
+    match t.strip_suffix(')').and_then(|x| x.rsplit_once(" (os error ")) {
+        Some((text, n)) => format!("{text}, os error {n}"),
+        None => t,
+    }
+}
+
+/// A sub-resource fetch (stylesheet, script, image, iframe): same as
+/// `fetch_raw_via_wire`, but a failure is counted for the QWU1 "wire not
+/// reachable" line of the current page load.
+pub(crate) fn fetch_raw_sub(path: &std::path::Path, request_text: &str) -> WireFetchRaw {
+    match fetch_raw_detailed(path, request_text, RequestPolicy::default().legacy_idle_timeout, cookie_support()) {
+        Ok(r) => r,
+        Err(e) => {
+            note_wire_skip(Some(path), &e);
+            WireFetchRaw::Unreachable
+        }
+    }
+}
+
+// ---------- QWU1: "wire not reachable" line ----------
+//
+// One stderr line per page load when sub-resources could not be fetched
+// because wire could not be reached (before, a page just looked broken).
+// Approach (the entry allowed "print at the first failure and update" OR
+// "print once the load settles"; this is the second): every failed
+// sub-resource fetch (stylesheet, @import, script, image, CSS image,
+// iframe, page-JS fetch/XHR, media) calls `note_wire_skip`; the first one
+// of a load starts a watcher thread which prints the line once no new
+// failure arrived for `WIRE_QUIET_MS` (the load has settled). Failures
+// are instant (ENOENT/ECONNREFUSED), so a quiet period is a reliable
+// "settled" signal. Stragglers after the line are still counted but not
+// printed (one line per load). `begin_wire_load(generation)` (called when
+// a navigation starts and for a static page opened with `--socket`)
+// resets the count; failures only count after a load has begun, so
+// `file://` pages without `--socket` (no wire needed) never print.
+// Page JS and media report their own errors; they are counted here too
+// and not printed twice. A fetch from a previous navigation that is
+// still running when a new one begins counts toward the new load (the
+// fetch helpers carry no generation); harmless since both failed for the
+// same reason.
+#[derive(Default)]
+struct WireDown {
+    armed: bool,
+    generation: u64,
+    count: usize,
+    first: Option<(String, String)>,
+    reported: bool,
+    watcher: bool,
+}
+
+static WIRE_DOWN: std::sync::Mutex<WireDown> = std::sync::Mutex::new(WireDown { armed: false, generation: 0, count: 0, first: None, reported: false, watcher: false });
+static WIRE_QUIET_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(400);
+static WIRE_CAPTURE: std::sync::Mutex<Option<Vec<String>>> = std::sync::Mutex::new(None);
+
+/// Starts a page load: resets the count and arms the tracker.
+pub(crate) fn begin_wire_load(generation: u64) {
+    if let Ok(mut g) = WIRE_DOWN.lock() {
+        *g = WireDown { armed: true, generation, ..WireDown::default() };
+    }
+}
+
+/// Counts one sub-resource skipped because wire could not be reached.
+pub(crate) fn note_wire_skip(path: Option<&std::path::Path>, err: &str) {
+    let Ok(mut g) = WIRE_DOWN.lock() else { return };
+    if !g.armed {
+        return;
+    }
+    g.count += 1;
+    if g.first.is_none() {
+        let target = path.map_or_else(|| "no --socket given".to_string(), |p| format!("at {}", p.display()));
+        g.first = Some((target, err.to_string()));
+    }
+    if !g.watcher && !g.reported {
+        g.watcher = true;
+        let generation = g.generation;
+        thread::spawn(move || loop {
+            let before = WIRE_DOWN.lock().map_or(0, |g| g.count);
+            thread::sleep(std::time::Duration::from_millis(WIRE_QUIET_MS.load(std::sync::atomic::Ordering::Relaxed)));
+            let Ok(mut g) = WIRE_DOWN.lock() else { return };
+            if g.generation != generation || g.reported {
+                return;
+            }
+            if g.count == before {
+                report_wire_down(&mut g);
+                return;
+            }
+        });
+    }
+}
+
+fn report_wire_down(g: &mut WireDown) {
+    if g.reported || g.count == 0 {
+        return;
+    }
+    g.reported = true;
+    let (target, err) = g.first.clone().unwrap_or_default();
+    let line = if target.starts_with("at ") {
+        format!("scratchy: wire not reachable {target} ({err}): {} sub-resources skipped", g.count)
+    } else {
+        format!("scratchy: wire not reachable, {target}: {} sub-resources skipped", g.count)
+    };
+    if let Ok(mut c) = WIRE_CAPTURE.lock()
+        && let Some(v) = c.as_mut()
+    {
+        v.push(line);
+        return;
+    }
+    diag!("{line}");
+}
+
+/// Prints the line now if any skip is pending (what the watcher does after
+/// the quiet period). For tests.
+#[cfg(test)]
+pub(crate) fn flush_wire_report() {
+    if let Ok(mut g) = WIRE_DOWN.lock() {
+        report_wire_down(&mut g);
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn wire_report_test_setup(quiet_ms: u64) {
+    WIRE_QUIET_MS.store(quiet_ms, std::sync::atomic::Ordering::Relaxed);
+    if let Ok(mut c) = WIRE_CAPTURE.lock() {
+        *c = Some(Vec::new());
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn wire_report_test_disarm() {
+    if let Ok(mut g) = WIRE_DOWN.lock() {
+        *g = WireDown::default();
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn wire_report_test_take() -> Vec<String> {
+    WIRE_CAPTURE.lock().ok().and_then(|mut c| c.as_mut().map(std::mem::take)).unwrap_or_default()
 }
 
 // ---------- QF5: full wire codec for page-JS networking ----------
@@ -631,7 +784,11 @@ pub(crate) fn fetch_full_via_wire(path: &std::path::Path, request: &[u8], limits
     });
     let mut stream = match rx.recv_timeout(limits.connect_timeout) {
         Ok(Ok(s)) => s,
-        Ok(Err(e)) => return Err(NetError::Connect(e.to_string())),
+        Ok(Err(e)) => {
+            let d = describe_os_error(&e);
+            note_wire_skip(Some(path), &d);
+            return Err(NetError::Connect(e.to_string()));
+        }
         Err(_) => return Err(NetError::Timeout),
     };
     let deadline = Instant::now() + limits.read_timeout;
@@ -711,7 +868,7 @@ pub(crate) fn timing_enabled() -> bool {
 /// Mime-checked low-level fetch; returns the matched MIME and body.
 pub(crate) fn fetch_sub_resource_typed(path: &std::path::Path, url: &Url, top: &Url, accept: &[&str]) -> Option<(String, Vec<u8>)> {
     let request_text = build_get_request_ctx(url, &CookieContext::subresource(top));
-    let WireFetchRaw::Responded { content_type, body, .. } = fetch_raw_via_wire(path, &request_text) else { return None };
+    let WireFetchRaw::Responded { content_type, body, .. } = fetch_raw_sub(path, &request_text) else { return None };
     let content_type = content_type.unwrap_or_default();
     let mime = content_type.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
     if !accept.contains(&mime.as_str()) {
@@ -744,7 +901,7 @@ pub(crate) fn decode_css_bytes(bytes: &[u8], header: Option<&'static encoding_rs
 /// longer UTF-8 only).
 pub(crate) fn fetch_stylesheet_via_wire(path: &std::path::Path, url: &Url, top: &Url) -> Option<String> {
     let request_text = build_get_request_ctx(url, &CookieContext::subresource(top));
-    let WireFetchRaw::Responded { content_type, body, .. } = fetch_raw_via_wire(path, &request_text) else { return None };
+    let WireFetchRaw::Responded { content_type, body, .. } = fetch_raw_sub(path, &request_text) else { return None };
     let content_type = content_type.unwrap_or_default();
     if !content_type.split(';').next().unwrap_or("").trim().eq_ignore_ascii_case("text/css") {
         return None;
@@ -756,7 +913,7 @@ pub(crate) fn fetch_stylesheet_via_wire(path: &std::path::Path, url: &Url, top: 
 /// response (an error page is not a script).
 pub(crate) fn fetch_script_via_wire(path: &std::path::Path, url: &Url, top: &Url) -> Option<String> {
     let request_text = build_get_request_ctx(url, &CookieContext::subresource(top));
-    let WireFetchRaw::Responded { content_type, body, .. } = fetch_raw_via_wire(path, &request_text) else { return None };
+    let WireFetchRaw::Responded { content_type, body, .. } = fetch_raw_sub(path, &request_text) else { return None };
     let content_type = content_type.unwrap_or_default();
     if content_type.trim_start().to_ascii_lowercase().starts_with("text/html") {
         return None;
@@ -828,7 +985,7 @@ pub(crate) fn prefetch_iframes(path: &std::path::Path, base: &Url, top: &Url, do
             .into_iter()
             .map(|u| {
                 scope.spawn(move || {
-                    let WireFetchRaw::Responded { content_type, body, .. } = fetch_raw_via_wire(path, &build_get_request_ctx(&u, &CookieContext::subresource(top))) else { return None };
+                    let WireFetchRaw::Responded { content_type, body, .. } = fetch_raw_sub(path, &build_get_request_ctx(&u, &CookieContext::subresource(top))) else { return None };
                     let ct = content_type.unwrap_or_default().to_ascii_lowercase();
                     if body.len() > IFRAME_MAX_BYTES || !(ct.trim_start().starts_with("text/html") || ct.trim().is_empty() && u.scheme() == "file") {
                         return None;
@@ -1227,6 +1384,7 @@ pub(crate) fn spawn_image_fetches(proxy: &EventLoopProxy<AppEvent>, path: &std::
 /// first layout has happened) and arrive as `AppEvent::StreamCss`.
 pub(crate) fn start_stream_resources(proxy: &EventLoopProxy<AppEvent>, socket: &std::path::Path, document: &Handle, generation: u64) {
     let Some(base) = find_base_url(document) else { return };
+    begin_wire_load(generation);
     let mut resources = ExternalResources::default();
     find_external_resources(document, &mut resources);
     spawn_image_fetches(proxy, socket, &base, &base, resources.images, generation);
@@ -1258,6 +1416,7 @@ pub(crate) fn file_page_url(path: &str) -> Option<Url> {
 /// `AppEvent::ImageFetched` (generation 0, the app's initial one).
 pub(crate) fn load_file_resources(proxy: &EventLoopProxy<AppEvent>, socket: &std::path::Path, path: &str, html: &[u8]) -> (Option<Url>, String, Vec<ScriptSource>) {
     let Some(url) = file_page_url(path) else { return (None, String::new(), Vec::new()) };
+    begin_wire_load(0);
     let res = process_external_resources(proxy, socket, &url, html, 0);
     (Some(url), res.css, res.scripts)
 }

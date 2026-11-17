@@ -164,3 +164,7 @@ must see `ua` there before relying on a UA override (an older wire ignores it).
 scratchy installs a seccomp filter at startup: only AF_UNIX sockets can be created,
 so it cannot reach the network except through wire. See NOTES.md "QNET1" and the
 `:help` page for how to verify it with `unshare -rn`.
+
+## Wire unreachable (QWU1)
+
+When wire cannot be reached, sub-resources (stylesheets, @import, scripts, images, CSS images, iframes, page-JS fetch/XHR, media) are skipped. Scratchy prints ONE stderr line per page load: `scratchy: wire not reachable at <path> (<os error>): N sub-resources skipped`. The OS error tells why: `No such file or directory, os error 2` = no socket file; `Connection refused, os error 111` = stale socket file (wire died). Approach: failures are counted (`note_wire_skip`); a watcher prints the line once no new failure arrived for 400 ms (the load settled), so N is the final count; later stragglers are not printed again. `begin_wire_load` starts a count per navigation; file:// pages without --socket never begin one, so never print. Page JS and media still log their own errors; they are only counted in N.
