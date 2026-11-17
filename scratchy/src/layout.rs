@@ -55,6 +55,9 @@ pub(crate) struct SpanStyle {
     /// Q31: `node_id` of the element whose text this is (0 = unknown), for
     /// hover/active hit testing of inline text.
     pub(crate) node: usize,
+    /// QJ7: `node_id` of the DOM text node this span's text came from (0 =
+    /// not DOM text), so `Range` geometry can find a node's glyphs.
+    pub(crate) tnode: usize,
 }
 
 impl From<InheritedStyle> for SpanStyle {
@@ -76,6 +79,7 @@ impl From<InheritedStyle> for SpanStyle {
             word_break: s.word_break,
             href: None,
             node: 0,
+            tnode: 0,
         }
     }
 }
@@ -1074,7 +1078,7 @@ pub type ShapedParagraph = (
     Vec<bool>,
     Vec<CursorStyle>,
     Vec<DecorationStyle>,
-    Vec<(Option<&'static str>, usize)>,
+    Vec<(Option<&'static str>, usize, usize)>,
 );
 
 /// Each entry wrapped in `Arc<Mutex<_>>` — not for real concurrent
@@ -1313,7 +1317,7 @@ pub(crate) fn shape_spans(
     let hidden = spans.iter().map(|(_, span)| span.visibility == Visibility::Hidden).collect();
     let cursors = spans.iter().map(|(_, span)| span.cursor).collect();
     let decoration_styles = spans.iter().map(|(_, span)| span.decoration_style).collect();
-    let hrefs = spans.iter().map(|(_, span)| (span.href, span.node)).collect();
+    let hrefs = spans.iter().map(|(_, span)| (span.href, span.node, span.tnode)).collect();
     (buffer, height, backgrounds, valigns, hidden, cursors, decoration_styles, hrefs)
 }
 

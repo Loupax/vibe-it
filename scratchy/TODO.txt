@@ -508,7 +508,12 @@ IntersectionObserver and matchMedia are not used by any of the site's scripts.
       overflow:auto) scrolls ONLY this way (j/k/Ctrl-D/U/gg/G in help).
       Test: overflow box fixture, `scrollBy(0, 50)` moves its content
       50 px in paint and reads back `scrollTop === 50`.
-- [ ] QJ7 [M] (P3, first slice of QA19) `new Range()`/`document.createRange`
+- [x] QJ7 [M] (DONE 2026-11-17, commit d48951f; spec boundary points, compare*/
+      isPointInRange/intersectsNode/toString, client rects from per-text-node
+      glyphs (SpanStyle.tnode, js_geom text_rects), one rect per line; text
+      only, no live fixups; extract/clone/insert/delete stay in QA19. After it
+      social /discover loads with 0 js errors headless; vim.js's key-driven
+      walls remain QJ6/QJ8/QJ9/QJ10.) Original entry: `new Range()`/`document.createRange`
       with boundary points only (`setStart/setEnd/selectNodeContents/
       collapse`, `startContainer/Offset`...) plus `getClientRects/
       getBoundingClientRect` of the covered text runs from QJ4's layout; no

@@ -613,6 +613,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     // QJ4: layout rect of element `id` (document space), see js_geom.rs.
     let (t, gn) = (table.clone(), wgen.clone());
     let geom = Rc::new(RefCell::new(crate::js_geom::GeomCache::default()));
+    let geom2 = geom.clone();
     native!("__d_rect", move |id: i32, vw: f64, vh: f64| -> Vec<f64> {
         let (page, h) = {
             let t = t.borrow();
@@ -621,6 +622,19 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         let (Some(page), Some(h)) = (page, h) else { return Vec::new() };
         geom.borrow_mut().rect_of(&page, gn.get(), &h, vw as f32, vh as f32)
     });
+    // QJ7: per-UTF-16-unit glyph rects of text node `id` (js_geom::text_rects),
+    // plus the write generation so script can cache them between DOM writes.
+    let (t, gn) = (table.clone(), wgen.clone());
+    native!("__d_textrects", move |id: i32, vw: f64, vh: f64| -> Vec<f64> {
+        let (page, h) = {
+            let t = t.borrow();
+            (t.get(0), t.get(id))
+        };
+        let (Some(page), Some(h)) = (page, h) else { return Vec::new() };
+        geom2.borrow_mut().text_rects(&page, gn.get(), &h, vw as f32, vh as f32)
+    });
+    let gn = wgen.clone();
+    native!("__d_wgen", move || -> f64 { gn.get() as f64 });
     native!("__d_csprops", move || -> Vec<String> { js_style::PROPS.iter().map(|s| s.to_string()).collect() });
     // ---- Q33c mutation. Every write marks the page dirty; the event
     // loop rebuilds layout once per turn, not once per call.
@@ -2403,10 +2417,6 @@ const DOM_PRELUDE: &str = r#"
     C.prototype = Object.create(r[1].prototype, { constructor: { value: C, writable: true, configurable: true } });
     g[r[0]] = C;
   });
-  // Range is a stub until QA19: the interface object exists, using it throws.
-  g.Range = function Range() { throw new DOMException('Range is not implemented', 'NotSupportedError'); };
-  g.Range.prototype = {};
-  Object.defineProperty(g.Range.prototype, 'constructor', { value: g.Range, writable: true, configurable: true });
   ['Selection', 'NamedNodeMap', 'DOMTokenList', 'StyleSheet', 'CSSStyleSheet', 'CSSRule', 'CSSStyleDeclaration',
     'Screen', 'Storage'].forEach(function (n) { if (!g[n]) g[n] = illegal(n); });
   // ParentNode on DocumentFragment.
@@ -2976,6 +2986,227 @@ const DOM_PRELUDE: &str = r#"
     var x = pick(r[0], r[2], vw, g.scrollX || 0, inline, r[7]);
     if (x !== (g.scrollX || 0) || y !== (g.scrollY || 0)) g.scrollTo(x, y);
   };
+  // QJ7: DOM Range, first slice of QA19: boundary points (spec rules: IndexSizeError,
+  // InvalidNodeTypeError, root change collapses, start/end ordering), comparisons,
+  // toString and client rects from the laid-out glyphs of each text node. Not yet:
+  // extract/clone/insert/surroundContents, live fixups on DOM mutation (QA19).
+  (function () {
+    var RS = Symbol('range'), ST = Symbol('rangeStates');
+    var nlen = function (n) {
+      var t = n.nodeType;
+      return t === 3 || t === 4 || t === 7 || t === 8 ? n.length : n.childNodes.length;
+    };
+    var checkNode = function (fn, n) {
+      if (n == null || n.__id === undefined) throw new TypeError("Failed to execute '" + fn + "' on 'Range': parameter 1 is not of type 'Node'.");
+      if (n.nodeType === 10) throw herr("Failed to execute '" + fn + "' on 'Range': The node provided is a doctype.", 'InvalidNodeTypeError');
+    };
+    var checkOff = function (fn, n, o) {
+      if (o > nlen(n)) throw herr("Failed to execute '" + fn + "' on 'Range': The offset " + o + " is larger than the node's length (" + nlen(n) + ').', 'IndexSizeError');
+    };
+    var idxOf = function (n) { return Array.prototype.indexOf.call(n.parentNode.childNodes, n); };
+    // -1 before, 0 equal, 1 after: spec "position of a boundary point relative to another".
+    var cmp = function (na, oa, nb, ob) {
+      if (na === nb) return oa === ob ? 0 : (oa < ob ? -1 : 1);
+      var p = na.compareDocumentPosition(nb);
+      if (p & 4 && !(p & 16)) return -1;          // nb follows na, not inside it
+      if (p & 2 && !(p & 8)) return 1;            // nb precedes na, not around it
+      if (p & 16) {                                // na is an ancestor of nb
+        var c = nb;
+        while (c.parentNode !== na) c = c.parentNode;
+        return idxOf(c) < oa ? 1 : -1;
+      }
+      // nb is an ancestor of na: compare reversed
+      var c2 = na;
+      while (c2.parentNode !== nb) c2 = c2.parentNode;
+      return idxOf(c2) < ob ? -1 : 1;
+    };
+    var rootOf = function (n) { return n.getRootNode(); };
+    var set = function (r, which, n, o) {
+      var s = r[RS];
+      if (which === 'start') {
+        if (rootOf(n) !== rootOf(s.sc) || cmp(n, o, s.ec, s.eo) > 0) { s.ec = n; s.eo = o; }
+        s.sc = n; s.so = o;
+      } else {
+        if (rootOf(n) !== rootOf(s.sc) || cmp(n, o, s.sc, s.so) < 0) { s.sc = n; s.so = o; }
+        s.ec = n; s.eo = o;
+      }
+    };
+    var Range = g.Range = function Range() {
+      if (!new.target) throw new TypeError("Failed to construct 'Range': Please use the 'new' operator, this DOM object constructor cannot be called as a function.");
+      this[RS] = { sc: doc, so: 0, ec: doc, eo: 0 };
+    };
+    Range.prototype = {};
+    Object.defineProperty(Range.prototype, 'constructor', { value: Range, writable: true, configurable: true });
+    Object.defineProperty(Range.prototype, Symbol.toStringTag, { value: 'Range', configurable: true });
+    var st = function (r) {
+      var s = r && r[RS];
+      if (!s) throw new TypeError('Illegal invocation');
+      return s;
+    };
+    [['START_TO_START', 0], ['START_TO_END', 1], ['END_TO_END', 2], ['END_TO_START', 3]].forEach(function (kv) {
+      Range[kv[0]] = Range.prototype[kv[0]] = kv[1];
+    });
+    var getter = function (name, f) {
+      Object.defineProperty(Range.prototype, name, { get: function () { return f(st(this)); }, configurable: true, enumerable: true });
+    };
+    getter('startContainer', function (s) { return s.sc; });
+    getter('startOffset', function (s) { return s.so; });
+    getter('endContainer', function (s) { return s.ec; });
+    getter('endOffset', function (s) { return s.eo; });
+    getter('collapsed', function (s) { return s.sc === s.ec && s.so === s.eo; });
+    var commonAnc = function (s) {
+      var c = s.sc;
+      while (c && !(c === s.ec || c.contains(s.ec))) c = c.parentNode;
+      return c;
+    };
+    getter('commonAncestorContainer', commonAnc);
+    var meth = function (name, len, f) {
+      var m = { [name]: function () {
+        if (arguments.length < len) throw new TypeError("Failed to execute '" + name + "' on 'Range': " + len + ' argument' + (len > 1 ? 's' : '') + ' required, but only ' + arguments.length + ' present.');
+        st(this);
+        return f.apply(this, arguments);
+      } }[name];
+      Object.defineProperty(m, 'length', { value: len });
+      Object.defineProperty(Range.prototype, name, { value: m, writable: true, configurable: true, enumerable: true });
+    };
+    var off = function (v) { v = Number(v); return v !== v || !isFinite(v) ? 0 : (v < 0 ? Math.ceil(v) % 4294967296 + 4294967296 : Math.floor(v) % 4294967296); };
+    meth('setStart', 2, function (n, o) { checkNode('setStart', n); o = off(o); checkOff('setStart', n, o); set(this, 'start', n, o); });
+    meth('setEnd', 2, function (n, o) { checkNode('setEnd', n); o = off(o); checkOff('setEnd', n, o); set(this, 'end', n, o); });
+    var beforeAfter = function (name, which, after) {
+      meth(name, 1, function (n) {
+        checkNode(name, n);
+        if (!n.parentNode) throw herr("Failed to execute '" + name + "' on 'Range': the given Node has no parent.", 'InvalidNodeTypeError');
+        set(this, which, n.parentNode, idxOf(n) + (after ? 1 : 0));
+      });
+    };
+    beforeAfter('setStartBefore', 'start', false); beforeAfter('setStartAfter', 'start', true);
+    beforeAfter('setEndBefore', 'end', false); beforeAfter('setEndAfter', 'end', true);
+    meth('collapse', 0, function (toStart) {
+      var s = st(this);
+      if (toStart) { s.ec = s.sc; s.eo = s.so; } else { s.sc = s.ec; s.so = s.eo; }
+    });
+    meth('selectNode', 1, function (n) {
+      checkNode('selectNode', n);
+      if (!n.parentNode) throw herr("Failed to execute 'selectNode' on 'Range': the given Node has no parent.", 'InvalidNodeTypeError');
+      var s = st(this), i = idxOf(n);
+      s.sc = s.ec = n.parentNode; s.so = i; s.eo = i + 1;
+    });
+    meth('selectNodeContents', 1, function (n) {
+      checkNode('selectNodeContents', n);
+      var s = st(this);
+      s.sc = s.ec = n; s.so = 0; s.eo = nlen(n);
+    });
+    meth('cloneRange', 0, function () {
+      var s = st(this), r = new Range(), d = r[RS];
+      d.sc = s.sc; d.so = s.so; d.ec = s.ec; d.eo = s.eo;
+      return r;
+    });
+    meth('detach', 0, function () {});
+    meth('compareBoundaryPoints', 2, function (how, other) {
+      var a = st(this), b = st(other);
+      how = how >>> 0;
+      if (how > 3) throw herr("Failed to execute 'compareBoundaryPoints' on 'Range': The comparison method provided must be one of 'START_TO_START', 'START_TO_END', 'END_TO_END', or 'END_TO_START'.", 'NotSupportedError');
+      if (rootOf(a.sc) !== rootOf(b.sc)) throw herr("Failed to execute 'compareBoundaryPoints' on 'Range': The two Ranges are not in the same tree.", 'WrongDocumentError');
+      var an, ao, bn, bo;
+      if (how === 0) { an = a.sc; ao = a.so; bn = b.sc; bo = b.so; }
+      else if (how === 1) { an = a.ec; ao = a.eo; bn = b.sc; bo = b.so; }
+      else if (how === 2) { an = a.ec; ao = a.eo; bn = b.ec; bo = b.eo; }
+      else { an = a.sc; ao = a.so; bn = b.ec; bo = b.eo; }
+      return cmp(an, ao, bn, bo);
+    });
+    meth('isPointInRange', 2, function (n, o) {
+      checkNode('isPointInRange', n); o = off(o);
+      var s = st(this);
+      if (rootOf(n) !== rootOf(s.sc)) return false;
+      checkOff('isPointInRange', n, o);
+      return cmp(n, o, s.sc, s.so) >= 0 && cmp(n, o, s.ec, s.eo) <= 0;
+    });
+    meth('comparePoint', 2, function (n, o) {
+      checkNode('comparePoint', n); o = off(o);
+      var s = st(this);
+      if (rootOf(n) !== rootOf(s.sc)) throw herr("Failed to execute 'comparePoint' on 'Range': The node provided and the Range are not in the same tree.", 'WrongDocumentError');
+      checkOff('comparePoint', n, o);
+      if (cmp(n, o, s.sc, s.so) < 0) return -1;
+      if (cmp(n, o, s.ec, s.eo) > 0) return 1;
+      return 0;
+    });
+    meth('intersectsNode', 1, function (n) {
+      checkNode('intersectsNode', n);
+      var s = st(this);
+      if (rootOf(n) !== rootOf(s.sc)) return false;
+      var p = n.parentNode;
+      if (!p) return true;
+      var i = idxOf(n);
+      return cmp(p, i, s.ec, s.eo) < 0 && cmp(p, i + 1, s.sc, s.so) > 0;
+    });
+    // Text nodes covered by the range, each with its [from, to) slice, in tree order.
+    var covered = function (s, cb) {
+      var root = s.sc === s.ec ? s.sc : commonAnc(s);
+      var visit = function (n) {
+        if (n.nodeType === 3 || n.nodeType === 4) {
+          var a = n === s.sc ? s.so : 0, b = n === s.ec ? s.eo : n.length;
+          if (b > a) cb(n, a, b);
+          return;
+        }
+        if (n.nodeType === 8 || n.nodeType === 7) return;
+        var k = n.childNodes;
+        for (var i = 0; i < k.length; i++) {
+          var c = k[i];
+          // Skip subtrees entirely before the start or after the end.
+          if (cmp(n, i + 1, s.sc, s.so) <= 0 && c !== s.sc && !c.contains(s.sc)) continue;
+          if (cmp(n, i, s.ec, s.eo) >= 0 && c !== s.ec && !c.contains(s.ec)) break;
+          visit(c);
+        }
+      };
+      visit(root);
+    };
+    meth('toString', 0, function () {
+      var s = st(this), out = '';
+      covered(s, function (n, a, b) { out += n.data.slice(a, b); });
+      return out;
+    });
+    // Per-text-node glyph rects, cached until the next DOM write or resize.
+    var cacheGen = -1, cacheKey = '', tcache = Object.create(null);
+    var glyphs = function (n) {
+      var vw = Number(g.innerWidth) || 0, vh = Number(g.innerHeight) || 0;
+      var gen = __d_wgen(), key = vw + 'x' + vh;
+      if (gen !== cacheGen || key !== cacheKey) { cacheGen = gen; cacheKey = key; tcache = Object.create(null); }
+      var e = tcache[n.__id];
+      if (!e) e = tcache[n.__id] = __d_textrects(n.__id, vw, vh);
+      return e;
+    };
+    var rectsOf = function (s) {
+      var out = [], sx = g.scrollX || 0, sy = g.scrollY || 0;
+      covered(s, function (n, a, b) {
+        if (!ioShown(n.parentNode || n)) return;
+        var e = glyphs(n), cur = null;
+        for (var i = a; i < b; i++) {
+          if (!e[i * 5]) continue;
+          var x = e[i * 5 + 1], y = e[i * 5 + 2], w = e[i * 5 + 3], h = e[i * 5 + 4];
+          if (cur && Math.abs(cur.y - y) < 0.5) { cur.r = Math.max(cur.r, x + w); cur.x = Math.min(cur.x, x); }
+          else { cur = { x: x, y: y, r: x + w, h: h }; out.push(cur); }
+        }
+      });
+      return out.map(function (c) { return new DR(c.x - sx, c.y - sy, c.r - c.x, c.h); });
+    };
+    meth('getClientRects', 0, function () {
+      var l = rectsOf(st(this));
+      Object.defineProperty(l, 'item', { value: function (i) { return this[i] || null; } });
+      return l;
+    });
+    meth('getBoundingClientRect', 0, function () {
+      var l = rectsOf(st(this));
+      if (!l.length) return new DR(0, 0, 0, 0);
+      var x = Infinity, y = Infinity, r = -Infinity, b = -Infinity;
+      l.forEach(function (q) { x = Math.min(x, q.left); y = Math.min(y, q.top); r = Math.max(r, q.right); b = Math.max(b, q.bottom); });
+      return new DR(x, y, r - x, b - y);
+    });
+    doc.createRange = function () {
+      var r = new Range(), s = r[RS];
+      s.sc = s.ec = this;
+      return r;
+    };
+  })();
   defs(ElementProto, 'offsetWidth', function () { var r = gRect(this); return r ? Math.round(r[2]) : 0; });
   defs(ElementProto, 'offsetHeight', function () { var r = gRect(this); return r ? Math.round(r[3]) : 0; });
   var gOffParent = function (el) {

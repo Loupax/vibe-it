@@ -43,6 +43,53 @@ pub(crate) struct GeomCache {
     forced: u32,
     forced_ms: u128,
     logged: bool,
+    /// QJ7: every laid-out glyph by the DOM text node it came from, in
+    /// layout order: `(char, x, y, w, h)`, document space, `y`/`h` of the line.
+    glyphs: HashMap<usize, Vec<Glyph>>,
+}
+
+/// One laid-out character: `(char, x, y, w, h)` in document space.
+type Glyph = (char, f32, f32, f32, f32);
+
+/// QJ7: records the glyphs of every paragraph under `l`, keyed by DOM text node.
+fn walk_glyphs(l: &Laid, cache: &ShapeCache, out: &mut HashMap<usize, Vec<Glyph>>) {
+    fn para(cache: &ShapeCache, id: usize, ox: f32, oy: f32, out: &mut HashMap<usize, Vec<Glyph>>) {
+        let Some(entry) = cache.get(&id) else { return };
+        let guard = entry.lock().unwrap();
+        let (buffer, _, _, _, _, _, _, spans) = &*guard;
+        for run in buffer.layout_runs() {
+            for g in run.glyphs {
+                let tnode = spans.get(g.metadata).map_or(0, |s| s.2);
+                if tnode == 0 {
+                    continue;
+                }
+                let Some(text) = run.text.get(g.start..g.end) else { continue };
+                let n = text.chars().count().max(1) as f32;
+                let v = out.entry(tnode).or_default();
+                for (i, c) in text.chars().enumerate() {
+                    v.push((c, ox + g.x + g.w * i as f32 / n, oy + run.line_top, g.w / n, run.line_height));
+                }
+            }
+        }
+    }
+    match &l.content {
+        LaidContent::Blocks(c) | LaidContent::TableRow(c) => c.iter().for_each(|c| walk_glyphs(c, cache, out)),
+        LaidContent::Text(id) => {
+            let cx = l.x + l.style.border_left() + l.style.padding.left.px();
+            let cy = l.y + l.style.border_top() + l.style.padding.top.px();
+            para(cache, *id, cx, cy, out);
+        }
+        LaidContent::MixedInline(items) => {
+            for it in items {
+                match it {
+                    MixedPositioned::Embedded(b) => walk_glyphs(b, cache, out),
+                    MixedPositioned::Word { id, x, y, .. } => para(cache, *id, *x, *y, out),
+                }
+            }
+        }
+        LaidContent::Image(_) => {}
+    }
+    l.positioned.iter().for_each(|p| walk_glyphs(p, cache, out));
 }
 
 /// Records every element box under `l`; returns the (right, bottom) of the
@@ -116,7 +163,11 @@ impl GeomCache {
                     }
                 }
             });
-            laid
+            let mut glyphs = HashMap::new();
+            if let Some(l) = &laid {
+                walk_glyphs(l, &cache, &mut glyphs);
+            }
+            (laid, glyphs)
         }));
         set_viewport(prev_vp.0, prev_vp.1);
         // The layout is the browser's work, not the script's: don't charge it
@@ -124,12 +175,14 @@ impl GeomCache {
         crate::js::pause_budget_since(cpu0);
         self.rects.clear();
         self.page = (0.0, 0.0);
+        self.glyphs.clear();
         match done {
-            Ok(Some(l)) => {
+            Ok((Some(l), glyphs)) => {
                 self.page = (l.w, l.h);
                 walk(&l, false, &mut self.rects);
+                self.glyphs = glyphs;
             }
-            Ok(None) => {}
+            Ok((None, _)) => {}
             Err(_) => diag!("scratchy: js: layout panicked while reading geometry; element rects read as zero"),
         }
         self.key = Some(key);
@@ -207,5 +260,60 @@ impl GeomCache {
             }
         }
         acc
+    }
+}
+
+/// Aligns a DOM text node's UTF-16 units with the glyphs laid out for it
+/// (whitespace is collapsed in layout, `text-transform` may change case).
+/// Returns 5 numbers per UTF-16 unit: `[valid, x, y, w, h]`; units with no
+/// glyph (collapsed or trimmed whitespace) have `valid = 0`.
+fn align_text(data: &str, g: &[Glyph]) -> Vec<f64> {
+    let mut out = Vec::with_capacity(data.len() * 5);
+    let mut j = 0usize;
+    let ws = |c: char| matches!(c, ' ' | '\t' | '\n' | '\r' | '\u{c}');
+    for c in data.chars() {
+        let mut hit = None;
+        if ws(c) {
+            if j < g.len() && ws(g[j].0) {
+                hit = Some(j);
+                j += 1;
+            }
+        } else {
+            let lc = c.to_lowercase().next().unwrap_or(c);
+            for k in j..(j + 4).min(g.len()) {
+                if g[k].0 == c || g[k].0.to_lowercase().next().unwrap_or(g[k].0) == lc {
+                    hit = Some(k);
+                    j = k + 1;
+                    break;
+                }
+            }
+        }
+        for _ in 0..c.len_utf16() {
+            match hit {
+                Some(k) => out.extend([1.0, g[k].1 as f64, g[k].2 as f64, g[k].3 as f64, g[k].4 as f64]),
+                None => out.extend([0.0; 5]),
+            }
+        }
+    }
+    out
+}
+
+impl GeomCache {
+    /// QJ7: `[valid, x, y, w, h]` per UTF-16 unit of text node `h` (document
+    /// space); empty when it is detached or has no laid-out text.
+    pub(crate) fn text_rects(&mut self, page: &Handle, wgen: u64, h: &Handle, vw: f32, vh: f32) -> Vec<f64> {
+        let mut top = h.clone();
+        while let Some(p) = parent_handle(&top) {
+            top = p;
+        }
+        let NodeData::Text { contents } = &h.data else { return Vec::new() };
+        if !Rc::ptr_eq(&top, page) {
+            return Vec::new();
+        }
+        self.refresh(page, wgen, vw, vh);
+        match self.glyphs.get(&node_id(h)) {
+            Some(g) => align_text(&contents.borrow(), g),
+            None => Vec::new(),
+        }
     }
 }

@@ -2166,7 +2166,7 @@ pub(crate) fn hit_test_inner(
                     }
                     for glyph in run.glyphs {
                         if local_x >= glyph.x && local_x < glyph.x + glyph.w {
-                            let (href, node) = hrefs.get(glyph.metadata).copied().unwrap_or((None, 0));
+                            let (href, node, _) = hrefs.get(glyph.metadata).copied().unwrap_or((None, 0, 0));
                             return Some((
                                 cursors.get(glyph.metadata).copied().unwrap_or(laid.style.cursor),
                                 href,
@@ -2210,7 +2210,7 @@ pub(crate) fn hit_test_inner(
                                 }
                                 for glyph in run.glyphs {
                                     if local_x >= glyph.x && local_x < glyph.x + glyph.w {
-                                        let (href, node) = hrefs.get(glyph.metadata).copied().unwrap_or((None, 0));
+                                        let (href, node, _) = hrefs.get(glyph.metadata).copied().unwrap_or((None, 0, 0));
                                         return Some((
                                             cursors.get(glyph.metadata).copied().unwrap_or(laid.style.cursor),
                                             href,
