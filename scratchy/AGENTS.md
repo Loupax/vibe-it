@@ -72,8 +72,10 @@ will work first (same stance as forms, Q30):
   `<audio>` through libmpv IN-PROCESS as an OPTIONAL dependency (without it the
   inert placeholder stays), ALL bytes through wire (never the player's own network),
   scratchy-painted controls, no autoplay except muted or after a user gesture, at most
-  2 players, NO MediaSource/EME for now (QM1j/QM1k, to be planned with the user). Only
-  the QM1b..QM1i items may be built, in TODO.txt order and each with its own approval
+  2 players. MediaSource: GOAL since 2026-11-17 = video on all sites except DRM (EME
+  stays out); only the QM1k-m measurement may run now, the MSE build waits for the
+  QM1k plan with the user. QM1i ("open in mpv") is DROPPED. Only
+  the QM1b..QM1h items may be built, in TODO.txt order and each with its own approval
   in the item; anything beyond them still follows the rules below.
 - **FORMS: GO-AHEAD 2026-11-17 (user)**: the user only wanted to be present for the
   DESIGN of form controls, and will redesign once the functionality exists. Implement

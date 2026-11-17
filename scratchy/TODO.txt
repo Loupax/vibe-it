@@ -34,7 +34,9 @@ older and were only partly corrected in place):
 - USER RULE 2026-11-17: "scratchy without wire can't physically speak to the
   internet" (safe for offline reading). Enforced by QNET1 (READY, P1); QWU1
   (READY) makes a down wire visible on stderr.
-- Still WAITING FOR USER: QM1k (MSE, plan together), QCI2 (WPT in CI), QF14b2 (d) `--profile` (later),
+- MSE 2026-11-17 (user): goal = video on all sites except DRM (YouTube, Reddit
+  first); measure first: QM1k-m READY (Opus, on the user's machine); QM1i DROPPED.
+- Still WAITING FOR USER: QM1k (MSE build plan, after QM1k-m, together), QCI2 (WPT in CI), QF14b2 (d) `--profile` (later),
   Q32 remainder (parked), QAN1p/QTB2 (parked).
 - Known red test on a clean checkout: R33 / QCI0.
 
@@ -450,6 +452,38 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
          (same backend, no video), and how many players at once (each ~100 MB RSS;
          suggest 2, pause the oldest). D8 Accept "no MSE/EME" (YouTube stays
          without video), or ask for a separate MSE investigation later.
+         [D8 REVISED 2026-11-17 by the user: goal = video on all sites except DRM;
+         YouTube and Reddit first; measure first (QM1k-m), then plan (QM1k).]
+- [ ] QM1k-m [M, Opus, investigate only] READY (user 2026-11-17: "measure first")
+      MSE/streaming survey, run on the USER'S machine (this needs real youtube.com /
+      reddit access through the user's wire and the `media` feature with libmpv; the
+      cloud review container cannot reach youtube.com). GOAL (user 2026-11-17): video
+      should play on ALL sites except DRM; priority YouTube, Reddit, then X and news
+      embeds (bbc, guardian); add Twitch and Vimeo for coverage. D8 ("no MSE") is
+      REPLACED by this goal; EME/DRM stays out.
+      Per site, with a temporary logging layer (nothing committed; same habit as R21-R31):
+      (1) WITHOUT MediaSource (`window.MediaSource` undefined, as today): what does the
+          player do: progressive mp4 via `<video src>` (which itag/URL), native HLS,
+          an error message, nothing? Does the video then actually play through QM1f?
+      (2) With a LOGGING MediaSource stub (exists, never plays): every
+          `MediaSource.isTypeSupported`/`canPlayType` query (note HLS
+          `application/vnd.apple.mpegurl`/`application/x-mpegURL` and DASH), each
+          `addSourceBuffer` mime/codec, each `appendBuffer` (size, first box/element:
+          ftyp/moov/moof/mdat or EBML/Segment/Cluster), `timestampOffset`,
+          `remove()`, `duration`, `endOfStream`, `changeType`, and any EME call
+          (`requestMediaKeySystemAccess`) = DRM, out of scope.
+      (3) The segment fetches themselves through wire: URL pattern, method, Range vs
+          `range=` query, response status (R26 saw `googlevideo ... itag=18` -> 403),
+          content type (YouTube `application/vnd.yt-ump` = UMP/SABR, its own container
+          around the media), sizes. Does YouTube serve segments to wire at all, with
+          and without `--user-agent` (QY39b)? Is botguard/PoToken involved?
+      (4) A seek and a quality switch on one YouTube and one Reddit video: what the
+          stub sees (remove + append from a new position, new init segment).
+      Output: REGRESSIONS.md entry (R34) with a per-site table, and a recommended route
+      per site: native HLS (scratchy fetches playlist + segments via wire, one stream
+      to mpv), full MSE (SourceBuffer bytes -> stream_cb; audio as a second stream),
+      progressive fallback, or impossible (DRM / server refuses). Then STOP: QM1k's
+      planning session with the user decides what gets built.
 - [ ] QM1k [L, Opus investigate, then PLAN WITH THE USER PRESENT] WAITING FOR USER (user
       2026-11-17: "create action item for investigating the MSE and planning it with me
       present") MediaSource Extensions for libmpv (QM1j): how a `blob:` URL from
@@ -712,10 +746,11 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
 - [ ] QM1h [L] (only if D2 = separate process) media helper process: owns libmpv,
       renders frames into a memfd shared with scratchy, talks the same commands
       over a socket, crash kills only the helper.
-- [ ] QM1i [S] (only if D1 includes C) "open in mpv" on the placeholder: spawn
+- [x] QM1i DROPPED 2026-11-17 (user): a standalone mpv fetches by itself, which breaks
+      the rule that only wire talks to the internet (QNET1). Original: [S] (only if D1 includes C) "open in mpv" on the placeholder: spawn
       `mpv --no-config --ytdl=no --load-scripts=no <url>` as its own tile; per D4
       either feed it a loopback URL served from wire or accept the direct fetch.
-- [ ] QM1j (not planned; D8) MediaSource: in theory SourceBuffer segments could be
+- [x] QM1j SUPERSEDED 2026-11-17 by QM1k/QM1k-m (MSE is now a goal). Original: (not planned; D8) MediaSource: in theory SourceBuffer segments could be
       appended to a growing stream_cb buffer, but timestamp offsets, codec
       switches, removal and YouTube's player logic make this a large project.
 - [x] QY21 [S] (959cd39) (P2, YouTube load wall) QY6e `define()` is quadratic. Root
