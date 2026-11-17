@@ -5751,7 +5751,7 @@ with temporary `Instant` timing, and say the number in the commit.
       baseline), `<select>` width from real option text widths (now an estimate of
       0.55em per char), `type=image` with a loaded `src`, focus-visible/`:checked`
       styling for the native look. Needs a real baseline in `measure_mixed_inline`.
-- [x] Q30b [S] DONE (hash: PENDING) Controls are focusable and clickable. `is_focusable`
+- [x] Q30b [S] DONE (hash: a7bc403) Controls are focusable and clickable. `is_focusable`
       includes enabled `input` (not hidden), `button`, `select`,
       `textarea`; `disabled` ones are skipped by Tab and clicks. A
       click on a control focuses it (`:focus` + focus ring apply).
