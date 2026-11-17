@@ -373,7 +373,10 @@ impl MediaStream {
         if self.cancel.is_cancelled() {
             return Err(MediaNetError::Cancelled);
         }
-        let conn = UnixStream::connect(&self.socket).map_err(|e| MediaNetError::Network(format!("cannot connect to wire: {e}")))?;
+        let conn = UnixStream::connect(&self.socket).map_err(|e| {
+            crate::note_wire_skip(Some(&self.socket), &crate::describe_os_error(&e));
+            MediaNetError::Network(format!("cannot connect to wire: {e}"))
+        })?;
         *self.cancel.0.conn.lock().unwrap() = conn.try_clone().ok();
         if self.cancel.is_cancelled() {
             let _ = conn.shutdown(std::net::Shutdown::Both);

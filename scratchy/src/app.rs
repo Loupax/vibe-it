@@ -2784,6 +2784,7 @@ impl App {
             let url_for_log = url.clone();
             let outcome: Result<FetchedPage, String> = match &socket_path {
                 Some(path) => {
+                    begin_wire_load(generation);
                     let fetch_start = std::time::Instant::now();
                     let wire_result = fetch_raw_via_wire(path, &request_text);
                     if timing_enabled() {

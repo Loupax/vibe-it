@@ -7284,3 +7284,10 @@ Done: R35 (10 of 11 pages identical, bbc.com logo now centred = better, YouTube 
 **Prompt:** Implement the namespaced attribute family (setAttributeNS, getAttributeNS, hasAttributeNS, removeAttributeNS, Attr nodes, createAttribute(NS), Element.prefix/localName) so YouTube player bootstrap no longer dies on the missing Element.setAttributeNS (R34).
 
 **What changed:** js_dom.rs: natives __d_attr_list/__d_getq/__d_getns/__d_setq/__d_rmq/__d_setns/__d_rmns over the stored QualName {prefix, ns, local} (no parallel store); public get/has/set/removeAttribute now match the qualified name (HTML elements lowercase, others keep case); Attr views carry ns/prefix/localName, detached Attrs (createAttribute(NS), removeAttributeNode) hold their own value; setAttributeNode(NS), removeAttributeNode, NamedNodeMap *NS methods; DOM validate-and-extract (InvalidCharacterError/NamespaceError, xml/xmlns rules); XML documents store attribute prefix/namespace properly; outerHTML prints prefix:local. Hooks (MutationObserver, custom elements) cover the new setters. 5 tests qy45_*.
+
+
+## QWU1 (scratchy/qwu1-wire-unreachable-line)
+
+**Prompt:** Say when wire is unreachable: one stderr line per page load through `diag!` (`scratchy: wire not reachable at <path> (<os error>): N sub-resources skipped`), keeping the OS error, covering stylesheets, @import, images, CSS images, iframes, scripts, page-JS fetch/XHR and media (counted, not printed twice), not for file:// pages without --socket.
+
+**What changed:** src/net.rs: `fetch_raw_detailed` keeps the OS error, `fetch_raw_sub` + `note_wire_skip` count failures, `begin_wire_load(generation)` resets per load (navigation, static page with --socket, stdin page), a watcher thread prints once after 400 ms without a new failure (the "print once the load settles" option); media_net.rs and fetch_full_via_wire (page JS) also count. Tests in src/tests/qwu1_tests.rs. NETWORKING.md section.
