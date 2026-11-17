@@ -1141,6 +1141,21 @@ const DOM_PRELUDE: &str = r#"
   // QB5: focus/blur record a request the App applies in `js_sync`.
   HTMLElement.prototype.focus = function () { __d_focus(this.__id, true); };
   HTMLElement.prototype.blur = function () { __d_focus(this.__id, false); };
+  // QJ9: window.open/close and alert/confirm/prompt: no tabs, no dialogs. Each call
+  // logs one `not implemented` line (argument truncated) and returns the inert value.
+  var qj9 = function (what, arg) {
+    var t = String(arg === undefined ? '' : arg);
+    if (t.length > 120) t = t.slice(0, 120) + '...';
+    __scratchy_err('scratchy: js: not implemented: ' + what + (t ? ' ' + JSON.stringify(t) : ''));
+  };
+  g.open = function open(url, target, features) {
+    qj9('window.open', url === undefined ? '' : url + (target ? ' target=' + target : '') + (features ? ' features=' + features : ''));
+    return null;
+  };
+  g.close = function close() { qj9('window.close'); };
+  g.alert = function alert(m) { qj9('window.alert', m); };
+  g.confirm = function confirm(m) { qj9('window.confirm', m); return false; };
+  g.prompt = function prompt(m) { qj9('window.prompt', m); return null; };
   // QB5: window.scroll/scrollTo/scrollBy(x, y | {top, left}); NaN = keep axis.
   // scrollX/scrollY follow optimistically (the App owns the real offset).
   var scrollArgs = function (a, b) {

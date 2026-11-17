@@ -7125,3 +7125,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 
 **What changed:** TODO.txt (QM1c and QM1d ticked with answers; QM1e rewritten with the ranked design, chunking, fallbacks, CORS/cookie/policy rules, tests and acceptance; new QM1g1 video-rect-only redraw; QUEUE media line), wire/TODO.txt (connection reuse measured; new W-POOL1 security gap: `public-only` and target-class headers skipped on pooled upstream connections; W-MEDIA1 `file:` Range + media types; W-MEDIA2 truncation not signalled; W-PERF1 optional throughput), REGRESSIONS.md (R30), NOTES.md (media section pointer). Verdict: no wire protocol change; repeated ranged GETs (proved with a throwaway libmpv stream_cb script fed only by wire). Local experiments (Python Range server, clients, ctypes libmpv, redraw timing in app.rs) not committed; app.rs reverted.
 
+
+## QJ9 (scratchy/qj9-window-open-close)
+
+**Prompt:** `window.open`, `window.close`, `alert`, `confirm`, `prompt` as log-and-return placeholders (no tabs, no dialogs, no navigation; QF11 is not on main).
+
+**What changed:** js_dom.rs: `window.open(url, target, features)` logs one `not implemented: window.open "<url> target=.. features=.."` line (argument truncated to 120 chars) and returns null (so noopener also gives null); `close()` logs and does nothing; `alert` logs and returns undefined, `confirm` logs and returns false, `prompt` logs and returns null. Nothing throws. Test `qj9_window_open_close_dialogs_are_inert_and_log_once`.
