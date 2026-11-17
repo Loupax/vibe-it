@@ -7046,3 +7046,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Item QY30. TIMERS_PRELUDE `add()`: a requestAnimationFrame due time can round back to "now" at t=100 ms (modulo-based delay), so a self-rescheduling rAF loop ran 200,040 callbacks at one simulated instant. Due = next frame boundary strictly greater than t. Test: fake clock at several instants, due > t, a 10-frame rAF loop advances 10 frames with strictly increasing timestamps.
 
 **What changed:** src/js.rs (`add()` raf branch), test `qy30_raf_due_time_strictly_after_now` in src/tests.rs. Headless saved youtube copy (`--js-report --run-timers 20000`) now reaches simulated 118 ms / 48 callbacks instead of spinning at 100 ms (it then stops at a CPU-budget trip: QY31).
+
+## QY31: --run-timers keeps pumping after a tripped callback (2026-11-17)
+
+> Item QY31 (R26). `--js-report --run-timers` stopped at the first callback that tripped its CPU budget: `run_due_counted` returned 0 when its eval returned None and the report loop treated 0 as "nothing due". Fix: only `Some(false)` ("no due timer") ends a turn; a tripped or failed callback counts as run. Test: 10 ms `for(;;){}` timer, then a console.error at 1000 ms and a throw at 3000 ms: the report has the trip line and both later lines, `simulated 3000 ms, 3 callbacks`. Report format unchanged.
+
+**What changed:** src/js.rs (`run_due_counted`), test `qy31_js_report_keeps_pumping_after_a_tripped_callback` in src/tests.rs.
