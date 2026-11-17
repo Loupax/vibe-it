@@ -32,7 +32,8 @@ older and were only partly corrected in place):
 - WebSocket DECIDED 2026-11-17 (wire as a pipe): QF19w1 (wire) -> QF19w2
   (scratchy) READY; QF19m lists test sites.
 - USER RULE 2026-11-17: "scratchy without wire can't physically speak to the
-  internet" (safe for offline reading). Enforced by QNET1 (READY, P1).
+  internet" (safe for offline reading). Enforced by QNET1 (READY, P1); QWU1
+  (READY) makes a down wire visible on stderr.
 - Still WAITING FOR USER: QM1k (MSE, plan together), QCI2 (WPT in CI), QF14b2 (d) `--profile` (later),
   Q32 remainder (parked), QAN1p/QTB2 (parked).
 - Known red test on a clean checkout: R33 / QCI0.
@@ -2905,6 +2906,23 @@ QF13a, QF14b2, QF18 open; QF19 waits for the user):
       agent must FIRST check whether a buffered poll-style implementation is
       honest enough; if it needs a wire protocol change, STOP and report (that is
       a design question for the user), do not change wire's protocol on its own.
+- [ ] QWU1 [S] READY (user 2026-11-17) Say when wire is unreachable. Today, with
+      wire down, a page's stylesheets and images are dropped SILENTLY (the
+      `fetch_*_via_wire` helpers in net.rs turn `WireFetchRaw::Unreachable` into
+      `None`), so a page looks broken with no hint why. Add ONE stderr line per page
+      load (per navigation generation, not per resource), through `diag!`:
+      `scratchy: wire not reachable at <path> (<os error>): N sub-resources skipped`
+      (`no --socket given` instead of the path when none was given), printed when the
+      first sub-resource fails and the count updated/printed once the load settles
+      (pick one and say which in the PR; no line per image). Covers stylesheets,
+      `@import`, images, background images, iframes, fonts later; page-JS
+      fetch/XHR and media already report their own errors, count them too but
+      don't print them twice. Navigation's own message and the stdout request dump
+      stay as they are. Also: keep the os error (ENOENT = no socket file, ECONNREFUSED
+      = stale socket file, wire died) instead of collapsing it, so the line says which.
+      Not for `file://` pages without `--socket` (they need no wire). Tests: a
+      fixture with 3 images + 1 stylesheet and a missing socket -> exactly one line
+      with N=4; a working socket -> no line; `file://` without `--socket` -> no line.
 - [ ] QNET1 [S] READY (P1; user rule 2026-11-17: "as long as I can guarantee that
       scratchy without wire can't physically speak to the internet I'm happy. We can
       safely use it for offline reading") Make the rule enforced, not just true.
