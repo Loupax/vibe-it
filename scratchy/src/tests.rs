@@ -16248,3 +16248,29 @@ fn qy21_define_is_linear_and_upgrade_order_unchanged() {
     assert_eq!(log[1], "log:601 n299", "{log:?}");
     assert_eq!(log[2], "log:h1,h2", "{log:?}");
 }
+
+// ---------- QJ5: Element.scrollIntoView ----------
+
+#[test]
+fn qj5_scroll_into_view_requests_window_scroll_from_layout_rect() {
+    let doc = "<html><head><style>body{margin:0} div.s{height:2000px} #t{height:100px;background:red} #f{position:fixed;top:0;height:10px}</style></head>\
+               <body><div class=s></div><div id=t></div><div class=s></div><div id=f></div></body></html>";
+    let num = |log: &[String], key: &str| -> f64 { log.iter().find_map(|l| l.strip_prefix(key)).unwrap_or("NaN").parse().unwrap() };
+    let vh = num(&run_in_html(doc, "console.log('vh', innerHeight);"), "log:vh ");
+    let y = |js: &str| num(&run_in_html(doc, &format!("var t = document.getElementById('t'); {js}; console.log('y', scrollY);")), "log:y ");
+    let top = 2000.0;
+    assert_eq!(y("t.scrollIntoView()"), top);
+    assert_eq!(y("t.scrollIntoView(true)"), top);
+    assert_eq!(y("t.scrollIntoView({block:'start'})"), top);
+    assert_eq!(y("t.scrollIntoView(false)"), top + 100.0 - vh);
+    assert_eq!(y("t.scrollIntoView({block:'end'})"), top + 100.0 - vh);
+    assert_eq!(y("t.scrollIntoView({block:'center'})"), top - (vh - 100.0) / 2.0);
+    // nearest: below the viewport aligns the end; already visible does not move.
+    assert_eq!(y("t.scrollIntoView({block:'nearest'})"), top + 100.0 - vh);
+    assert_eq!(y("scrollTo(0, 2000); t.scrollIntoView({block:'nearest'})"), top);
+    assert_eq!(y("scrollTo(0, 1950); t.scrollIntoView({block:'nearest'})"), 1950.0, "fully visible: no move");
+    assert_eq!(y("scrollTo(0, 2050); t.scrollIntoView({block:'nearest'})"), top, "cut at the top: align start");
+    // fixed and detached elements do nothing
+    assert_eq!(y("document.getElementById('f').scrollIntoView()"), 0.0);
+    assert_eq!(y("document.createElement('p').scrollIntoView()"), 0.0);
+}

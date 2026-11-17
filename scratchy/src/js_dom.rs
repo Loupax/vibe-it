@@ -2943,6 +2943,34 @@ const DOM_PRELUDE: &str = r#"
     Object.defineProperty(l, 'item', { value: function (i) { return this[i] || null; } });
     return l;
   };
+  // QJ5: scrollIntoView as a window scroll to the element's layout rect (no
+  // smooth animation; ancestor scroll boxes are not scrolled: QJ6).
+  ElementProto.scrollIntoView = function (arg) {
+    var r = gRect(this);
+    if (!r || r[4]) return;
+    var block = 'start', inline = 'nearest';
+    if (arg === false) block = 'end';
+    else if (arg !== null && typeof arg === 'object') {
+      if (arg.block) block = String(arg.block);
+      if (arg.inline) inline = String(arg.inline);
+    }
+    var vw = Number(g.innerWidth) || 0, vh = Number(g.innerHeight) || 0;
+    var pick = function (pos, size, view, cur, mode, page) {
+      var t;
+      if (mode === 'center') t = pos - (view - size) / 2;
+      else if (mode === 'end') t = pos + size - view;
+      else if (mode === 'nearest') {
+        var s = pos - cur, e = s + size;
+        if (s >= 0 && e <= view) return cur;
+        if (s < 0 && e > view) return cur;
+        t = (s < 0 || (size > view)) ? pos : pos + size - view;
+      } else t = pos;
+      return Math.max(0, Math.min(t, Math.max(0, page - view)));
+    };
+    var y = pick(r[1], r[3], vh, g.scrollY || 0, block, r[8]);
+    var x = pick(r[0], r[2], vw, g.scrollX || 0, inline, r[7]);
+    if (x !== (g.scrollX || 0) || y !== (g.scrollY || 0)) g.scrollTo(x, y);
+  };
   defs(ElementProto, 'offsetWidth', function () { var r = gRect(this); return r ? Math.round(r[2]) : 0; });
   defs(ElementProto, 'offsetHeight', function () { var r = gRect(this); return r ? Math.round(r[3]) : 0; });
   var gOffParent = function (el) {
