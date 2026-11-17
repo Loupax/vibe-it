@@ -37,6 +37,9 @@ pub(crate) struct TextState {
     pub(crate) focus_value: Option<String>,
 }
 
+/// (node, time, position) of the previous press.
+type LastClick = (usize, std::time::Instant, (f32, f32));
+
 thread_local! {
     static TEXT_LIVE: RefCell<HashMap<usize, TextState>> = RefCell::new(HashMap::new());
     /// Internal clipboard, used when no system clipboard is reachable.
@@ -46,7 +49,7 @@ thread_local! {
     /// The node a mouse drag-selection started in (0 = none).
     static DRAG_NODE: Cell<usize> = const { Cell::new(0) };
     /// Last press for double-click detection: (node, time, position).
-    static LAST_CLICK: Cell<Option<(usize, std::time::Instant, (f32, f32))>> = const { Cell::new(None) };
+    static LAST_CLICK: Cell<Option<LastClick>> = const { Cell::new(None) };
 }
 
 pub(crate) fn clear_text_state() {

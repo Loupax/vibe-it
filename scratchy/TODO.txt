@@ -5797,7 +5797,7 @@ with temporary `Instant` timing, and say the number in the commit.
       paint have no App), mark painted from live state (`check_widget` style bits +
       `paint_checkable`), restyle only when CSS uses :checked. Toggle-to-present ~1.5 ms
       (repaint), ~124 ms on en.wikipedia (restyle). Left out: radio arrow keys, cloneNode state.
-- [ ] Q30d [M] READY (go-ahead 2026-11-17) Text editing in `input` and `textarea`. When a text control
+- [x] Q30d [M] DONE (hash: HASH30D) Text editing in `input` and `textarea`. When a text control
       is focused, key events go to it, not to `resolve_binding`: this
       is the automatic vim-mode suspension the vim-keybindings item
       left open. `Esc` blurs and returns to normal mode. One
@@ -5809,6 +5809,43 @@ with temporary `Instant` timing, and say the number in the commit.
       Repaint/re-shape only the control (see the perf rule). Tests on
       the pure buffer ops plus one "type into input updates its painted
       text" headless test.
+      Q30d notes: src/forms_text.rs (state, editing, key handling, mouse) + paint::paint_text_control.
+      The text of an editable control is NOT in the layout tree (the box is one blank line or the
+      `rows` height and carries `ComputedStyle::text_widget`); the painter shapes the LIVE value
+      (or the placeholder, resolved with `::placeholder` at build time), selection highlight and a
+      solid 1px caret itself, so a keystroke is a repaint only. Live value/caret/selection in the
+      thread-local `TEXT_LIVE` keyed by node_id (dirty flag: until dirty the `value` attribute /
+      textarea text rules and is re-read), cleared on navigation. `TextEditBuffer` (the command
+      bar's buffer) got an `anchor` (selection), delete, word/line/vertical moves; the command bar
+      is unchanged. Keys: while an enabled text control is focused every key goes to it after the
+      page's `keydown` (preventDefault wins, QJ11), Tab still moves focus (selects all on Tab
+      focus), ESC blurs and hands the keys back to scratchy (vim keys, `:`), unused keys (PageUp,
+      F5, Ctrl+other letter) fall through. Printable, Backspace/Delete (+Ctrl word), arrows
+      (+Ctrl word, +Shift select), Home/End, Ctrl-A/C/X/V (system clipboard via arboard, internal
+      fallback), textarea Enter/Up/Down; Enter in an input only fires keydown/keypress and `change`
+      (submission = Q30e). Events: keydown, keypress, beforeinput (cancelable), input, change (on
+      blur and Enter when the value differs from focus time), keyup. maxlength, readonly,
+      disabled, placeholder only when empty, password bullets, input scrolls horizontally and a
+      textarea vertically to keep the caret visible. Mouse: click places the caret, Shift-click
+      extends, double click selects a word, drag selects. JS: `value` (dirty, caret to end),
+      `selectionStart/End` (UTF-16), `setSelectionRange`, `select()`, `form.reset()`.
+      Measured keystroke-to-present (temporary Instant timing, not committed): ~8-11 ms on
+      wikipedia.org (whole-page repaint), ~26-30 ms on duckduckgo.com (its typeahead JS runs
+      per input event). Verified live (nested dwl + tools/inject + grim): fixture (text, password,
+      maxlength, textarea wrap/scroll, label click, double click, Esc then `:` command bar),
+      wikipedia.org search box, duckduckgo.com search box, social.loupax.com/discover's vim
+      `:` line (colons typed as text). NOT verified live: mouse drag selection (inject has no
+      drag), clipboard copy/paste between apps (tested via the App only).
+- [ ] Q30d2 [S] READY Text control polish left out of Q30d: Up/Down by VISUAL line in a wrapped
+      textarea (today by logical line), triple click selects the line/paragraph, PageUp/PageDown
+      in a textarea, wheel scrolling of an overflowing textarea (QJ6 element scroll), caret blink
+      (a solid caret today; if added use the timer deadline path, no repaint when unfocused),
+      `selectionDirection`, `setRangeText`, the `select` event, scrollTop/scrollHeight of a
+      textarea, auto-grow textareas (JS reads scrollHeight).
+- [ ] Q30d3 [S] READY Undo/redo (Ctrl-Z / Ctrl-Shift-Z / Ctrl-Y) for text controls, IME
+      preedit/composition events (today only committed UTF-8 text via winit's `logical_key`),
+      `type=number` stepping/validation, editable date/time inputs (still static boxes), RTL caret
+      placement (the caret/selection geometry assumes left-to-right glyph order).
 - [ ] Q30e [M] READY (go-ahead 2026-11-17) Form submission. Build the form data set per the HTML spec
       as a pure function (successful controls only: named, enabled,
       checked boxes/radios, selected options, textarea text, hidden
