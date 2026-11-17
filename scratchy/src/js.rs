@@ -1187,6 +1187,46 @@ impl JsEngine {
     }
 
     /// Whether JS wrote to the DOM since the last call (clears the flag).
+    /// QM1g: which video boxes are on screen (node id -> size to render);
+    /// every other media element stops rendering. Empty = page hidden.
+    pub(crate) fn media_set_targets(&self, targets: &[(usize, crate::media_video::VideoTarget)]) {
+        let Some(m) = &self.media else { return };
+        let t = self.table.borrow();
+        let map: std::collections::HashMap<i32, _> = targets.iter().filter_map(|(n, v)| t.id_of_ptr(*n).map(|i| (i, *v))).collect();
+        m.borrow_mut().set_targets(&map);
+    }
+
+    /// QM1g: renders waiting frames; the node ids that got a new one.
+    pub(crate) fn media_render(&self) -> Vec<usize> {
+        let Some(m) = &self.media else { return Vec::new() };
+        let ids = m.borrow_mut().render_frames();
+        let t = self.table.borrow();
+        ids.into_iter().filter_map(|i| t.ptr_of(i)).collect()
+    }
+
+    /// QM1g: the newest frames and intrinsic sizes by node id (for `paint`/layout).
+    pub(crate) fn media_video_state(&self) -> (crate::media_video::FrameMap, crate::media_video::SizeMap) {
+        let mut frames = std::collections::HashMap::new();
+        let mut sizes = std::collections::HashMap::new();
+        let Some(m) = &self.media else { return (frames, sizes) };
+        let t = self.table.borrow();
+        for (id, f, sz) in m.borrow().video_state() {
+            let Some(p) = t.ptr_of(id) else { continue };
+            if let Some(f) = f {
+                frames.insert(p, f);
+            }
+            if sz.0 > 0 {
+                sizes.insert(p, sz);
+            }
+        }
+        (frames, sizes)
+    }
+
+    /// QM1g: true once when a video's size became known/changed (relayout).
+    pub(crate) fn media_size_changed(&self) -> bool {
+        self.media.as_ref().is_some_and(|m| m.borrow_mut().take_size_changed())
+    }
+
     pub(crate) fn take_dirty(&self) -> bool {
         self.dirty.replace(false)
     }
@@ -1645,8 +1685,19 @@ const TIMERS_PRELUDE: &str = r#"
 /// The real entry point: runs a page's scripts (no-op with JS off or
 /// nothing to run) with console output going to stderr.
 /// Returns the live engine (Q33t) for the caller to keep for the page.
+fn has_media_element(h: &Handle) -> bool {
+    if let NodeData::Element { name, .. } = &h.data
+        && matches!(name.local.as_ref(), "video" | "audio")
+    {
+        return true;
+    }
+    h.children.borrow().iter().any(has_media_element)
+}
+
 pub(crate) fn run_page_scripts(document: &Handle, scripts: &[ScriptSource], page_url: Option<&Url>) -> Option<JsEngine> {
-    if !js_enabled() || scripts.is_empty() {
+    // QM1g: a page with media elements needs the engine (the element layer) even
+    // without scripts: `<video autoplay muted>` and `onclick="v.play()"` need it.
+    if !js_enabled() || (scripts.is_empty() && !(crate::media_video::boxes_enabled() && has_media_element(document))) {
         return None;
     }
     set_page_url(page_url);

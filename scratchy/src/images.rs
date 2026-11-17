@@ -397,6 +397,33 @@ pub(crate) fn build_img_box(
     }
 }
 
+/// QM1g: the replaced box of a `<video>`: an `<img>`-like box whose
+/// "image" is an EMPTY-pixel placeholder (paint recognises it and draws the
+/// newest frame, see `media_video`). Its `mask` field carries the poster.
+/// Size: CSS/attributes, else the video's own size, else the poster's, else 300x150.
+pub(crate) fn build_video_box(
+    handle: &Handle,
+    mut style: ComputedStyle,
+    background_image: Option<Arc<DecodedImage>>,
+    image_cache: &HashMap<String, Arc<DecodedImage>>,
+) -> LayoutBox {
+    if style.width.is_none() {
+        style.width = img_size_length(handle, "width");
+    }
+    if style.height.is_none() {
+        style.height = img_size_length(handle, "height");
+    }
+    let poster = element_attr(handle, "poster").and_then(|src| match decode_data_uri(&src) {
+        Some(bytes) => decode_image_bytes(&bytes).map(Arc::new),
+        None => image_cache.get(&*src).cloned(),
+    });
+    let (w, h) = crate::media_video::intrinsic(node_id(handle))
+        .or_else(|| poster.as_ref().map(|p| (p.width, p.height)))
+        .unwrap_or((crate::media_video::DEFAULT_W, crate::media_video::DEFAULT_H));
+    let placeholder = Arc::new(DecodedImage { width: w.max(1), height: h.max(1), pixels: Vec::new(), svg: None, mask: poster });
+    LayoutBox { style, background_image, content: BoxContent::Image(placeholder) }
+}
+
 /// `decoration` is the *ambient* text-decoration this element inherited
 /// from whatever called it — a block boundary alone doesn't interrupt
 /// propagation (see `collect_children`'s own docs on why it's ambient,
@@ -437,6 +464,9 @@ pub(crate) fn build_box_for_element(
     // `LayoutBox` directly too, rather than delegating further down).
     if element_tag(handle) == "img" {
         return build_img_box(handle, style, background_image, image_cache);
+    }
+    if element_tag(handle) == "video" && crate::media_video::boxes_enabled() {
+        return build_video_box(handle, style, background_image, image_cache);
     }
     if is_form_control_tag(element_tag(handle))
         && let Some(b) = build_form_control_box(handle, style, background_image.clone(), &FormCtx { rules, viewport_width })
@@ -1943,6 +1973,9 @@ pub(crate) fn build_layout_tree_with_resources(
     if !js_enabled() {
         css_source.push_str("\n/* nojs */");
     }
+    if crate::media_video::boxes_enabled() {
+        css_source.push_str("\n/* video-box */");
+    }
     let html_handle = find_html_element(document);
     STATE_RULES.with(|m| m.set(0));
     VIEWPORT_H_READ.with(|m| m.set(false));
@@ -1960,6 +1993,9 @@ pub(crate) fn build_layout_tree_with_resources(
         let mut rules = parse_ua_stylesheet(DEFAULT_CSS);
         if js_enabled() {
             rules.extend(parse_ua_stylesheet("noscript { display: none; }"));
+        }
+        if crate::media_video::boxes_enabled() {
+            rules.extend(parse_ua_stylesheet("video { display: inline-block; object-fit: contain; }"));
         }
         let (author, kf) = parse_stylesheet_with_keyframes(&css_source);
         rules.extend(author);

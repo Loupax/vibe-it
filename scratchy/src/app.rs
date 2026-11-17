@@ -29,6 +29,8 @@ pub(crate) struct FetchedPage {
 }
 
 pub(crate) enum AppEvent {
+    /// QM1g: mpv has a new video frame (posted from its render-update thread).
+    VideoFrame,
     Chunk(Vec<u8>),
     Eof,
     /// The result of a background navigation fetch (`App::start_
@@ -927,6 +929,25 @@ pub(crate) struct App {
     /// should quit instead, not resurrect a page from before `:help`
     /// was ever opened.
     pub(crate) pre_help_page: Option<SavedPage>,
+    /// QM1g/QM1g1: `<video>` boxes of the last full redraw and the kept page pixels.
+    pub(crate) video: AppVideo,
+}
+
+/// QM1g1: what the video-rect-only redraw keeps between full redraws.
+#[derive(Default)]
+pub(crate) struct AppVideo {
+    pub(crate) boxes: Vec<crate::media_video::VideoBoxInfo>,
+    /// The last presented page (video included); only kept while a video box is visible.
+    pub(crate) page_buf: Vec<u32>,
+    pub(crate) size: (u32, u32),
+}
+
+/// Installs the thread-safe "video frame ready" poster for this event loop.
+fn install_video_wake(proxy: &EventLoopProxy<AppEvent>) {
+    let p = Mutex::new(proxy.clone());
+    crate::media_video::set_wake(Some(Box::new(move || {
+        let _ = p.lock().unwrap().send_event(AppEvent::VideoFrame);
+    })));
 }
 
 /// `App::pre_help_page`'s own snapshot — every piece of per-page state
@@ -954,6 +975,7 @@ pub(crate) struct SavedPage {
 
 impl App {
     pub(crate) fn new_static(document: Handle, proxy: EventLoopProxy<AppEvent>, socket_path: Option<PathBuf>) -> Self {
+        install_video_wake(&proxy);
         crate::js_net::set_net_executor(match &socket_path {
             Some(p) => Arc::new(WireExecutor(p.clone())),
             None => Arc::new(crate::js_net::NoSocketExecutor),
@@ -1030,10 +1052,12 @@ impl App {
             swallow_release: false,
             select_ahead: TypeAhead::default(),
             pre_help_page: None,
+            video: AppVideo::default(),
         }
     }
 
     pub(crate) fn new_streaming(proxy: EventLoopProxy<AppEvent>, socket_path: Option<PathBuf>) -> Self {
+        install_video_wake(&proxy);
         crate::js_net::set_net_executor(match &socket_path {
             Some(p) => Arc::new(WireExecutor(p.clone())),
             None => Arc::new(crate::js_net::NoSocketExecutor),
@@ -1111,6 +1135,7 @@ impl App {
             swallow_release: false,
             select_ahead: TypeAhead::default(),
             pre_help_page: None,
+            video: AppVideo::default(),
         }
     }
 
@@ -1141,6 +1166,13 @@ impl App {
         // a tick later; building at the wrong one and then immediately
         // discarding it when the real size arrives was wasting real time
         // (measured: ~600ms of duplicate shaping on a small page).
+        let video_on = crate::media_video::boxes_enabled();
+        if video_on {
+            // QM1g: layout reads the videos' sizes, paint their newest frames.
+            let (frames, sizes) = self.js.as_ref().map(|j| j.media_video_state()).unwrap_or_default();
+            crate::media_video::set_frames(frames);
+            crate::media_video::set_intrinsic(sizes);
+        }
         let width_matches_pending = self.pending_width == Some(width);
         self.pending_width = Some(width);
         // R4: a height-only change only needs a rebuild if the layout
@@ -1204,6 +1236,9 @@ impl App {
             *pixel = 0x00FFFFFF;
         }
 
+        if video_on {
+            crate::media_video::begin_paint(&pixels);
+        }
         // `None` on the very first tick or two, while we're still
         // waiting to see whether the width is about to change again
         // (see `pending_width`); also `None` until the background
@@ -1258,10 +1293,77 @@ impl App {
             paint_command_bar(&self.command_line, &mut self.font_system, &mut self.swash_cache, &mut pixels, width, height);
         }
 
+        // QM1g: video pixels go in last, through the overlay mask of whatever
+        // was painted above them; the finished page is kept for QM1g1.
+        let painted = if video_on { crate::media_video::end_paint() } else { Vec::new() };
+        let boxes = crate::media_video::finish(painted, &mut pixels, width);
+        self.video.page_buf.clear();
+        if !boxes.is_empty() {
+            self.video.page_buf.extend_from_slice(&pixels);
+            self.video.size = (width, height);
+        }
+        let targets: Vec<_> = boxes.iter().filter(|b| crate::media_video::wants_render(b.visible_pixels(), b.layered, false)).map(|b| (b.node, b.target())).collect();
+        self.video.boxes = boxes;
+
         window.pre_present_notify();
         if let Err(e) = pixels.present() {
             log_redraw_error_once("present the frame", &e);
         }
+        if video_on && let Some(js) = &self.js {
+            js.media_set_targets(&targets);
+        }
+    }
+
+    /// QM1g1: an mpv frame is ready. Renders it and, when the page itself is
+    /// unchanged, copies it into the video's visible rect only (through the
+    /// overlay mask, so content above it stays) and presents just that damage.
+    /// False = a full redraw is needed (the caller requests it).
+    fn video_tick(&mut self) -> bool {
+        let Some(js) = &self.js else { return true };
+        let changed = js.media_render();
+        if changed.is_empty() {
+            return true;
+        }
+        let (frames, _) = js.media_video_state();
+        let (w, h) = self.surface_size;
+        let ok = !self.layout_dirty && self.video.size == (w, h) && self.video.page_buf.len() == w as usize * h as usize;
+        crate::media_video::set_frames(frames.clone());
+        let (Some(window), Some(surface)) = (&self.window, &mut self.surface) else { return true };
+        if !ok || window.inner_size().width != w || window.inner_size().height != h {
+            return false;
+        }
+        let mut damage = Vec::new();
+        for node in &changed {
+            let (Some(info), Some(frame)) = (self.video.boxes.iter().find(|b| b.node == *node), frames.get(node)) else { continue };
+            match crate::media_video::update_box(info, frame, &mut self.video.page_buf, w) {
+                Some(r) => damage.push(r),
+                None => return false,
+            }
+        }
+        if damage.is_empty() {
+            return true;
+        }
+        let Ok(mut buf) = surface.buffer_mut() else { return false };
+        if buf.age() == 1 {
+            for node in &changed {
+                if let (Some(info), Some(frame)) = (self.video.boxes.iter().find(|b| b.node == *node), frames.get(node)) {
+                    crate::media_video::update_box(info, frame, &mut buf, w);
+                }
+            }
+        } else {
+            buf.copy_from_slice(&self.video.page_buf);
+        }
+        let rects: Vec<softbuffer::Rect> = damage
+            .iter()
+            .filter_map(|r| Some(softbuffer::Rect { x: r.0 as u32, y: r.1 as u32, width: NonZeroU32::new(r.2)?, height: NonZeroU32::new(r.3)? }))
+            .collect();
+        // No `pre_present_notify` here: it arms winit's frame-callback gate, and a
+        // damage present every ~33 ms would keep the next full redraw (a scroll)
+        // waiting for a callback that the compositor delays.
+        if let Err(e) = buf.present_with_damage(&rects) {
+            log_redraw_error_once("present the video damage", &e);
+        }
+        true
     }
 
     /// Queues a fresh `LayoutBox` tree for the persistent background
@@ -1675,7 +1777,7 @@ impl App {
                 }
             }
         }
-        if self.js.as_ref().is_some_and(|js| js.take_dirty()) {
+        if self.js.as_ref().is_some_and(|js| js.take_dirty() | js.media_size_changed()) {
             // QB2: a DOM write is a restyle of the same document. While a
             // layout is still being shaped, don't start another (it would
             // make the in-flight result stale, so no complete frame would
@@ -2009,6 +2111,10 @@ impl App {
                 scroll_offsets: self.scroll_offsets.clone(),
                 js: self.js.take(),
             });
+            // QM1g: the parked page is hidden: its videos stop rendering.
+            if let Some(js) = self.pre_help_page.as_ref().and_then(|p| p.js.as_ref()) {
+                js.media_set_targets(&[]);
+            }
         }
         // QB6: help has no JS; a page's engine is parked in `pre_help_page`
         // (or already dropped when re-running `:help`).
@@ -2038,6 +2144,9 @@ impl App {
         self.scroll_offsets = saved.scroll_offsets;
         self.scroll_offset = saved.scroll_offset;
         self.js = saved.js;
+        // QM1g: mpv's frame callback fires once until a frame is taken; frames that
+        // arrived while the page was parked were dropped, so ask for one again.
+        crate::media_video::wake();
         for (id, result) in std::mem::take(&mut self.parked_net) {
             if let Some(js) = &self.js {
                 js.deliver_net(id, result);
@@ -3032,6 +3141,12 @@ impl ApplicationHandler<AppEvent> for App {
 
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: AppEvent) {
         match event {
+            AppEvent::VideoFrame => {
+                crate::media_video::wake_handled();
+                if self.video_tick() {
+                    return;
+                }
+            }
             AppEvent::Chunk(bytes) => {
                 if let Some(decoder) = &mut self.decoder {
                     decoder.process(ByteTendril::from_slice(&bytes));

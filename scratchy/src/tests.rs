@@ -20561,3 +20561,317 @@ fn qf9a_xhr_response_type_document_and_response_xml() {
     assert!(l.contains(&"log:txt2 null true undefined".to_string()), "{l:?}");
     assert!(l.iter().any(|s| s.starts_with("log:bad text/xml parsererror")), "{l:?}");
 }
+
+// QM1g/QM1g1: video painting and the video-rect-only redraw. The pure parts and the
+// host plumbing run in the default build (no libmpv).
+mod qm1g_video {
+    use super::*;
+    use crate::css::ObjectFit;
+    use crate::media_video::*;
+    use std::sync::Arc;
+
+    fn frame(w: u32, h: u32, v: u32) -> Arc<VideoFrame> {
+        Arc::new(VideoFrame { w, h, px: vec![v; (w * h) as usize] })
+    }
+
+    #[test]
+    fn clip_rect_cuts_at_window_and_ancestor_clip() {
+        assert_eq!(clip_rect((10, 10, 100, 50), None, 200, 200), Some((10, 10, 100, 50)));
+        // scrolled partly above the window and past the right edge
+        assert_eq!(clip_rect((150, -20, 100, 50), None, 200, 200), Some((150, 0, 50, 30)));
+        // an ancestor's overflow clip
+        assert_eq!(clip_rect((10, 10, 100, 50), Some((0.0, 0.0, 60.0, 30.0)), 200, 200), Some((10, 10, 50, 20)));
+        // fully outside
+        assert_eq!(clip_rect((10, 300, 100, 50), None, 200, 200), None);
+        assert_eq!(clip_rect((10, 10, 100, 50), Some((120.0, 0.0, 10.0, 10.0)), 200, 200), None);
+    }
+
+    #[test]
+    fn letterbox_math_16x9_in_4x3() {
+        // contain: full width, bars above and below (the black letterbox)
+        let (x, y, w, h) = fit_rect(400.0, 300.0, 1280.0, 720.0, ObjectFit::Contain);
+        assert_eq!((x, y, w, h), (0.0, 37.5, 400.0, 225.0));
+        // fill stretches, cover crops (wider than the box), none keeps the size
+        assert_eq!(fit_rect(400.0, 300.0, 1280.0, 720.0, ObjectFit::Fill), (0.0, 0.0, 400.0, 300.0));
+        let (x, _, w, h) = fit_rect(400.0, 300.0, 1280.0, 720.0, ObjectFit::Cover);
+        assert!((h - 300.0).abs() < 0.01 && w > 400.0 && x < 0.0);
+        assert_eq!(fit_rect(400.0, 300.0, 100.0, 50.0, ObjectFit::None), (150.0, 125.0, 100.0, 50.0));
+        // scale-down never enlarges
+        assert_eq!(fit_rect(400.0, 300.0, 100.0, 50.0, ObjectFit::ScaleDown), (150.0, 125.0, 100.0, 50.0));
+        assert_eq!(fit_rect(0.0, 300.0, 100.0, 50.0, ObjectFit::Contain), (0.0, 0.0, 0.0, 0.0));
+    }
+
+    #[test]
+    fn visibility_rules() {
+        assert!(wants_render(10, false, false));
+        assert!(!wants_render(0, false, false), "scrolled away or fully covered: no rendering");
+        assert!(!wants_render(10, false, true), "the page is hidden (:help)");
+        assert!(wants_render(0, true, false), "a layered box is on screen");
+    }
+
+    /// A 20x10 window with a sentinel video rect (4,2) 10x6 and an overlay at (8,2) 3x6.
+    fn sentinel_page() -> (Vec<u32>, IRect) {
+        let mut px = vec![0x00FF_FFFFu32; 20 * 10];
+        let vis: IRect = (4, 2, 10, 6);
+        fill(&mut px, 20, vis, SENTINEL);
+        for y in 2..8 {
+            for x in 8..11 {
+                px[y * 20 + x] = 0x0000_FF00; // content painted above the video
+            }
+        }
+        (px, vis)
+    }
+
+    #[test]
+    fn overlay_mask_marks_only_untouched_video_pixels() {
+        let (px, vis) = sentinel_page();
+        let m = overlay_mask(&px, 20, vis);
+        assert_eq!(m.len(), 60);
+        assert_eq!(m.iter().filter(|&&b| b).count(), 60 - 18);
+        assert!(m[0] && !m[4] && !m[6] && m[7]);
+        assert_eq!(mask_bbox(&m, vis), Some(vis));
+        // a half-transparent paint over a sentinel pixel also kills it (blend writes top byte 0)
+        let mut p2 = px.clone();
+        p2[2 * 20 + 4] = crate::paint::blend(p2[2 * 20 + 4], TextColor::rgba(255, 0, 0, 128));
+        assert!(!overlay_mask(&p2, 20, vis)[0]);
+    }
+
+    #[test]
+    fn finish_composites_frame_through_mask_and_leaves_the_rest() {
+        let (mut px, vis) = sentinel_page();
+        let before = px.clone();
+        set_frames([(7usize, frame(10, 6, 0x0012_3456))].into_iter().collect());
+        let b = PaintedBox { node: 7, rect: vis, vis: Some(vis), layered: false, fit: ObjectFit::Contain, pos: ((0.5, 0.0), (0.5, 0.0)), poster: None };
+        let infos = finish(vec![b], &mut px, 20);
+        assert_eq!(infos.len(), 1);
+        for y in 0..10usize {
+            for x in 0..20usize {
+                let i = y * 20 + x;
+                let in_video = (4..14).contains(&x) && (2..8).contains(&y);
+                let covered = (8..11).contains(&x) && (2..8).contains(&y);
+                if in_video && !covered {
+                    assert_eq!(px[i], 0x0012_3456, "({x},{y})");
+                } else {
+                    assert_eq!(px[i], before[i], "outside the video or above it ({x},{y})");
+                }
+            }
+        }
+        // a new frame: only the unobstructed pixels change, damage = bounding rect
+        let f2 = frame(10, 6, 0x0065_4321);
+        let d = update_box(&infos[0], &f2, &mut px, 20);
+        assert_eq!(d, Some(vis));
+        assert_eq!(px[2 * 20 + 4], 0x0065_4321);
+        assert_eq!(px[2 * 20 + 8], 0x0000_FF00, "the overlay stays");
+        // a frame of another size is refused (full redraw)
+        assert_eq!(update_box(&infos[0], &frame(9, 6, 1), &mut px, 20), None);
+        set_frames(Default::default());
+    }
+
+    #[test]
+    fn no_frame_paints_black_and_obstruction_shrinks_the_damage() {
+        set_frames(Default::default());
+        let mut px = vec![0x00FF_FFFFu32; 20 * 10];
+        let vis: IRect = (0, 0, 10, 4);
+        fill(&mut px, 20, vis, SENTINEL);
+        // cover the whole right half: the damage rect shrinks to the left half
+        for y in 0..4 {
+            for x in 5..10 {
+                px[y * 20 + x] = 0x00AA_AAAA;
+            }
+        }
+        let b = PaintedBox { node: 1, rect: vis, vis: Some(vis), layered: false, fit: ObjectFit::Contain, pos: ((0.5, 0.0), (0.5, 0.0)), poster: None };
+        let infos = finish(vec![b], &mut px, 20);
+        assert_eq!(px[0], 0, "black while there is no frame and no poster");
+        assert_eq!(infos[0].bbox, Some((0, 0, 5, 4)));
+        assert_eq!(infos[0].visible_pixels(), 20);
+    }
+
+    #[test]
+    fn fully_covered_box_is_not_wanted_and_has_no_damage() {
+        let mut px = vec![0u32; 20 * 10];
+        let vis: IRect = (0, 0, 4, 4);
+        fill(&mut px, 20, vis, SENTINEL);
+        fill(&mut px, 20, vis, 0x0011_1111); // something opaque on top
+        let b = PaintedBox { node: 2, rect: vis, vis: Some(vis), layered: false, fit: ObjectFit::Fill, pos: ((0.5, 0.0), (0.5, 0.0)), poster: None };
+        let infos = finish(vec![b], &mut px, 20);
+        assert_eq!(infos[0].bbox, None);
+        assert!(!wants_render(infos[0].visible_pixels(), infos[0].layered, false));
+        assert_eq!(update_box(&infos[0], &frame(4, 4, 9), &mut px, 20), None);
+    }
+
+    fn find_tag(h: &Handle, tag: &str) -> Option<Handle> {
+        if let NodeData::Element { name, .. } = &h.data
+            && name.local.as_ref() == tag
+        {
+            return Some(h.clone());
+        }
+        h.children.borrow().iter().find_map(|c| find_tag(c, tag))
+    }
+
+    /// Lays out and paints `html` into a 200x200 window like `App::redraw` does.
+    fn paint_video_page(html: &str, scroll: f32, with_frame: bool) -> (Vec<u32>, Vec<VideoBoxInfo>) {
+        let doc = parse_html(html);
+        let node = node_id(&find_tag(&doc, "video").unwrap());
+        set_boxes_enabled(Some(true));
+        set_frames(if with_frame { [(node, frame(100, 50, 0x00AB_CDEF))].into_iter().collect() } else { Default::default() });
+        let tree = build_layout_tree_sized(&doc, 200.0, 200.0);
+        let mut font_system = new_font_system();
+        let mut cache = ShapeCache::new();
+        let mut next_id = 0usize;
+        let mut incomplete = false;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let laid = measure_document(&tree, &mut font_system, 200.0, 200.0, &mut next_id, &mut cache, deadline, &mut incomplete);
+        let mut swash = SwashCache::new();
+        let mut pixels = vec![0x00FF_FFFFu32; 200 * 200];
+        begin_paint(&pixels);
+        paint(&laid, &mut font_system, &mut swash, &mut cache, &HashMap::new(), &mut pixels, 200, 200, scroll, None);
+        let painted = end_paint();
+        let infos = finish(painted, &mut pixels, 200);
+        set_boxes_enabled(None);
+        set_frames(Default::default());
+        (pixels, infos)
+    }
+
+    const VIDEO_PAGE: &str = "<html><head><style>body{margin:0}video{display:block}\
+        #o{position:absolute;left:20px;top:30px;width:30px;height:20px;background:#00ff00}</style></head>\
+        <body><div style='height:20px'></div><video width=100 height=50></video><div id=o></div><div style='height:400px'></div></body></html>";
+
+    #[test]
+    fn video_box_is_a_replaced_box_and_obeys_paint_order() {
+        let (px, infos) = paint_video_page(VIDEO_PAGE, 0.0, true);
+        assert_eq!(infos.len(), 1);
+        let i = &infos[0];
+        assert_eq!(i.rect, (0, 20, 100, 50), "attributes size the box, below the 20px spacer");
+        // the video shows, the absolutely positioned green box paints ABOVE it
+        assert_eq!(px_at(&px, 200, 5, 25), 0x00AB_CDEF);
+        assert_eq!(px_at(&px, 200, 30, 40), 0x0000_FF00, "above the video: the overlay");
+        assert_eq!(px_at(&px, 200, 150, 25), 0x00FF_FFFF, "outside the video: untouched");
+        assert_eq!(i.visible_pixels(), 5000 - 30 * 20);
+        assert_eq!(i.target(), VideoTarget { w: 100, h: 50, fit: ObjectFit::Contain });
+    }
+
+    #[test]
+    fn scrolling_moves_and_clips_the_video_like_an_image() {
+        let (_, infos) = paint_video_page(VIDEO_PAGE, 45.0, false);
+        let i = &infos[0];
+        assert_eq!(i.rect, (0, -25, 100, 50));
+        assert_eq!(i.vis, (0, 0, 100, 25), "clipped at the top edge of the window");
+        let (_, gone) = paint_video_page(VIDEO_PAGE, 100.0, false);
+        assert!(gone.is_empty(), "scrolled out of view: no box, so no rendering");
+    }
+
+    #[test]
+    fn without_the_feature_video_is_not_a_box() {
+        // The default build never enables video boxes: fallback content stays inline.
+        set_boxes_enabled(Some(false));
+        let doc = parse_html("<video width=100 height=50>fallback text</video>");
+        let tree = build_layout_tree_sized(&doc, 200.0, 200.0);
+        fn has_image(b: &LayoutBox) -> bool {
+            match &b.content {
+                BoxContent::Image(_) => true,
+                BoxContent::Blocks(c) | BoxContent::TableRow(c) => c.iter().any(has_image),
+                BoxContent::Inline(items) => items.iter().any(|i| matches!(i, InlineItem::Embedded(b) if has_image(b))),
+            }
+        }
+        assert!(!has_image(&tree));
+        set_boxes_enabled(None);
+        #[cfg(not(feature = "media"))]
+        assert!(!boxes_enabled());
+    }
+
+    #[test]
+    fn host_hands_targets_to_backends_and_renders_only_wanted_frames() {
+        use crate::media_el::*;
+        let h = fake_new();
+        let h2 = h.clone();
+        set_backend_factory(Some(Rc::new(move |_: &BackendCtx| -> Box<dyn MediaBackend> { Box::new(FakeBackend(h2.clone())) })));
+        let mut host = MediaHost::new(BackendCtx { socket: None, policy: Default::default() }, Rc::new(|_, _| {}));
+        set_backend_factory(None);
+        host.core(5);
+        host.set_targets(&[(5, VideoTarget { w: 320, h: 180, fit: ObjectFit::Contain })].into_iter().collect());
+        assert!(h.borrow().calls.contains(&"target Some((320, 180))".to_string()));
+        h.borrow_mut().pending_frame = true;
+        assert_eq!(host.render_frames(), vec![5]);
+        let st = host.video_state();
+        let f = st[0].1.as_ref().unwrap();
+        assert_eq!((f.w, f.h), (320, 180));
+        // same target again: no second call; no pending frame: nothing rendered
+        let n = h.borrow().calls.len();
+        host.set_targets(&[(5, VideoTarget { w: 320, h: 180, fit: ObjectFit::Contain })].into_iter().collect());
+        assert_eq!(h.borrow().calls.len(), n);
+        assert!(host.render_frames().is_empty());
+        // hidden: the target goes away, a queued frame is consumed but not rendered
+        host.set_targets(&Default::default());
+        assert_eq!(h.borrow().calls.last().unwrap(), "target None");
+        h.borrow_mut().pending_frame = true;
+        let renders = h.borrow().renders;
+        assert!(host.render_frames().is_empty());
+        assert!(!h.borrow().pending_frame && h.borrow().renders == renders);
+    }
+}
+
+// QM1g real backend (feature `media`): a frame comes out of libmpv's SW render at the
+// requested size. SKIPS without libmpv or ffmpeg.
+#[cfg(feature = "media")]
+mod qm1g_real {
+    use super::*;
+    use crate::media_el::*;
+    use crate::media_net::MediaMode;
+    use crate::media_video::VideoTarget;
+
+    #[test]
+    fn mpv_renders_a_frame_at_the_target_size_and_skips_when_hidden() {
+        if !crate::media_mpv::libmpv_available() {
+            eprintln!("SKIP: libmpv.so.2 not available");
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("qm1g-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join("c.mp4");
+        let ok = std::process::Command::new("ffmpeg")
+            .args(["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x240:rate=25", "-t", "2", "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart"])
+            .arg(&p)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        let Some(file) = ok.then(|| std::fs::read(&p).ok()).flatten() else {
+            eprintln!("SKIP: ffmpeg could not make a test clip");
+            return;
+        };
+        let w = qm1e_wire(Qm1eCfg { file, ..Default::default() });
+        let backend = crate::media_mpv::MpvBackend::new(BackendCtx { socket: Some(w.path.clone()), policy: Default::default() });
+        let mut c = MediaCore::new(Box::new(backend));
+        c.muted = true;
+        c.set_target(Some(VideoTarget { w: 160, h: 120, fit: crate::css::ObjectFit::Contain }));
+        c.load(vec![Candidate { url: "https://cdn.test/c.mp4".into(), mime: String::new() }], true, MediaMode::NoCors, "https://cdn.test/".into());
+        let mut now = 0.0;
+        let mut got = false;
+        for _ in 0..300 {
+            now += 20.0;
+            c.pump(now, std::time::Duration::from_millis(20));
+            c.take_outs();
+            if c.frame_pending() && c.render_frame() {
+                got = true;
+                break;
+            }
+        }
+        assert!(got, "no frame rendered");
+        let f = c.last_frame.clone().unwrap();
+        assert_eq!((f.w, f.h), (160, 120));
+        assert!(f.px.iter().any(|&p| p & 0x00FF_FFFF != 0), "all black");
+        assert!(f.px.iter().all(|&p| p >> 24 == 0), "top byte must stay clear");
+        // hidden: no target, frames are consumed without a render
+        c.set_target(None);
+        c.play(1);
+        for _ in 0..40 {
+            now += 20.0;
+            c.pump(now, std::time::Duration::from_millis(20));
+            c.take_outs();
+            if c.frame_pending() {
+                assert!(!c.render_frame());
+            }
+        }
+        drop(c);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

@@ -4,9 +4,15 @@
 //! (tools/mpvspike); bytes only ever come through `media_net` (D4): mpv is
 //! given `scratchy-media://1` and our `stream_cb` reader, never a real URL.
 //!
-//! QM1f runs mpv with `vo=null` (no frames are painted yet, that is QM1g) and
-//! `ao=null` unless `SCRATCHY_MEDIA_AO` names an audio output (QM1g wires the
-//! real audio). Seeks use `absolute+exact` (QM1b: plain seeks land on keyframes).
+//! QM1g: mpv runs with `vo=libmpv` and a SOFTWARE render context (`sw`, format
+//! `bgr0` = the page buffer's 0RGB). The render-update callback fires on an mpv
+//! thread and only flags + posts a user event (`media_video::wake`); the frame is
+//! rendered on the main thread by `take_frame`, at the visible box's size. With no
+//! visible box the video track is switched off (`vid=no`) once metadata is known
+//! (audio keeps playing) and any frame mpv still queues is consumed with
+//! SKIP_RENDERING. Audio: `ao=null` unless `SCRATCHY_MEDIA_AO` names an output
+//! (e.g. `pulse`); an element only opens it while it plays. Seeks use
+//! `absolute+exact` (QM1b: plain seeks land on keyframes).
 
 use std::ffi::{c_char, c_int, c_void, CStr, CString};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -16,6 +22,33 @@ use std::time::Duration;
 use crate::media_el::{BackendCtx, BackendEvent, LoadError, LoadReq, MediaBackend, MEDIA_ERR_DECODE, MEDIA_ERR_NETWORK, MEDIA_ERR_SRC_NOT_SUPPORTED};
 use crate::media_net::{CancelHandle, MediaNetError, MediaSource, MediaStream, MPV_OPTIONS};
 use crate::net_policy::RequestPolicy;
+use std::sync::Arc;
+
+use crate::css::ObjectFit;
+use crate::media_video::{VideoFrame, VideoTarget};
+
+#[repr(C)]
+struct RenderParam {
+    ty: c_int,
+    data: *mut c_void,
+}
+const RP_API_TYPE: c_int = 1;
+const RP_SKIP_RENDERING: c_int = 13;
+const RP_SW_SIZE: c_int = 17;
+const RP_SW_FORMAT: c_int = 18;
+const RP_SW_STRIDE: c_int = 19;
+const RP_SW_POINTER: c_int = 20;
+const RENDER_UPDATE_FRAME: u64 = 1;
+
+/// Set by mpv's render-update callback (any thread).
+struct Shared {
+    ready: AtomicBool,
+}
+unsafe extern "C" fn rc_update_cb(d: *mut c_void) {
+    // SAFETY: `d` is the `Shared` leaked by `ensure`, freed after the render context.
+    unsafe { (*(d as *const Shared)).ready.store(true, Ordering::SeqCst) };
+    crate::media_video::wake();
+}
 
 #[repr(C)]
 struct MpvEvent {
@@ -78,6 +111,11 @@ struct Lib {
     observe: unsafe extern "C" fn(*mut c_void, u64, *const c_char, c_int) -> c_int,
     stream_add: unsafe extern "C" fn(*mut c_void, *const c_char, *mut c_void, OpenFn) -> c_int,
     destroy: unsafe extern "C" fn(*mut c_void),
+    rc_create: unsafe extern "C" fn(*mut *mut c_void, *mut c_void, *mut RenderParam) -> c_int,
+    rc_cb: unsafe extern "C" fn(*mut c_void, unsafe extern "C" fn(*mut c_void), *mut c_void),
+    rc_update: unsafe extern "C" fn(*mut c_void) -> u64,
+    rc_render: unsafe extern "C" fn(*mut c_void, *mut RenderParam) -> c_int,
+    rc_free: unsafe extern "C" fn(*mut c_void),
 }
 
 fn load_lib() -> Option<Lib> {
@@ -99,6 +137,11 @@ fn load_lib() -> Option<Lib> {
             observe: sym!("mpv_observe_property"),
             stream_add: sym!("mpv_stream_cb_add_ro"),
             destroy: sym!("mpv_terminate_destroy"),
+            rc_create: sym!("mpv_render_context_create"),
+            rc_cb: sym!("mpv_render_context_set_update_callback"),
+            rc_update: sym!("mpv_render_context_update"),
+            rc_render: sym!("mpv_render_context_render"),
+            rc_free: sym!("mpv_render_context_free"),
             _lib: lib,
         })
     }
@@ -206,11 +249,15 @@ pub(crate) struct MpvBackend {
     cache_end: f64,
     seekable: bool,
     duration: f64,
+    rc: *mut c_void,
+    shared: *const Shared,
+    target: Option<VideoTarget>,
+    vid_off: bool,
 }
 
 impl MpvBackend {
     pub(crate) fn new(ctx: BackendCtx) -> Self {
-        MpvBackend { ctx, h: std::ptr::null_mut(), reg: std::ptr::null_mut(), loaded_file: false, meta_sent: false, cache_end: 0.0, seekable: false, duration: f64::NAN }
+        MpvBackend { ctx, h: std::ptr::null_mut(), reg: std::ptr::null_mut(), loaded_file: false, meta_sent: false, cache_end: 0.0, seekable: false, duration: f64::NAN, rc: std::ptr::null_mut(), shared: std::ptr::null(), target: None, vid_off: false }
     }
 
     fn cs(s: &str) -> CString {
@@ -227,11 +274,11 @@ impl MpvBackend {
             if h.is_null() {
                 return Err(LoadError::Unavailable);
             }
-            let ao = std::env::var("SCRATCHY_MEDIA_AO").unwrap_or_else(|_| "null".into());
+            let ao = std::env::var("SCRATCHY_MEDIA_AO").unwrap_or_else(|_| if cfg!(test) { "null" } else { "pulse,null" }.into());
             for (k, v) in MPV_OPTIONS.iter().filter(|(k, _)| *k != "vo" && *k != "ao") {
                 (l.set_opt)(h, Self::cs(k).as_ptr(), Self::cs(v).as_ptr());
             }
-            for (k, v) in [("vo", "null"), ("ao", ao.as_str()), ("pause", "yes"), ("idle", "yes")] {
+            for (k, v) in [("vo", "libmpv"), ("ao", ao.as_str()), ("pause", "yes"), ("idle", "yes")] {
                 (l.set_opt)(h, Self::cs(k).as_ptr(), Self::cs(v).as_ptr());
             }
             if (l.init)(h) < 0 {
@@ -247,6 +294,19 @@ impl MpvBackend {
                 opened: AtomicBool::new(false),
             }));
             (l.stream_add)(h, Self::cs("scratchy-media").as_ptr(), reg as *mut c_void, st_open);
+            // QM1g: the software render context (frames are rendered by `take_frame`).
+            let mut rc: *mut c_void = std::ptr::null_mut();
+            let sw = Self::cs("sw");
+            let mut p = [RenderParam { ty: RP_API_TYPE, data: sw.as_ptr() as *mut c_void }, RenderParam { ty: 0, data: std::ptr::null_mut() }];
+            if (l.rc_create)(&mut rc, h, p.as_mut_ptr()) < 0 {
+                drop(Box::from_raw(reg));
+                (l.destroy)(h);
+                return Err(LoadError::Unavailable);
+            }
+            let shared = Arc::into_raw(Arc::new(Shared { ready: AtomicBool::new(false) }));
+            (l.rc_cb)(rc, rc_update_cb, shared as *mut c_void);
+            self.rc = rc;
+            self.shared = shared;
             for (id, name, fmt) in [
                 (P_TIME, "time-pos", FMT_DOUBLE),
                 (P_DURATION, "duration", FMT_DOUBLE),
@@ -289,6 +349,40 @@ impl MpvBackend {
         let mut v = 0i64;
         let r = unsafe { (l.get_prop)(self.h, Self::cs(name).as_ptr(), FMT_INT64, &mut v as *mut i64 as *mut c_void) };
         (r >= 0).then_some(v)
+    }
+
+    /// Applies the target (video on/off and how the picture fits the box).
+    fn apply_target(&mut self) {
+        if self.h.is_null() {
+            return;
+        }
+        match self.target {
+            Some(t) => {
+                let (keep, pan, unscaled) = match t.fit {
+                    ObjectFit::Fill => ("no", "0", "no"),
+                    ObjectFit::Cover => ("yes", "1", "no"),
+                    ObjectFit::None => ("yes", "0", "yes"),
+                    ObjectFit::ScaleDown => ("yes", "0", "downscale-big"),
+                    ObjectFit::Contain => ("yes", "0", "no"),
+                };
+                self.set("keepaspect", keep);
+                self.set("panscan", pan);
+                self.set("video-unscaled", unscaled);
+                if self.vid_off {
+                    self.set("vid", "auto");
+                    self.vid_off = false;
+                }
+            }
+            None => {
+                // Only once the file is open (the size is read from the video) and only
+                // when there is audio to keep playing: a video-only file with `vid=no`
+                // would end at once.
+                if self.meta_sent && !self.vid_off && self.get_i64("current-tracks/audio/id").is_some() {
+                    self.set("vid", "no");
+                    self.vid_off = true;
+                }
+            }
+        }
     }
 
     fn reg(&self) -> Option<&Reg> {
@@ -335,6 +429,10 @@ impl MediaBackend for MpvBackend {
         self.seekable = false;
         self.duration = f64::NAN;
         self.set("pause", "yes");
+        if self.vid_off {
+            self.set("vid", "auto");
+            self.vid_off = false;
+        }
         self.cmd(&["loadfile", "scratchy-media://1", "replace"]);
         Ok(())
     }
@@ -368,6 +466,11 @@ impl MediaBackend for MpvBackend {
         if self.h.is_null() {
             return out;
         }
+        // Nobody wants the picture: still consume mpv's frames (vo=libmpv stalls
+        // playback, audio included, when they pile up).
+        if self.target.is_none() {
+            self.take_frame();
+        }
         let mut w = wait.as_secs_f64();
         loop {
             let ev = unsafe { &*(l.wait_event)(self.h, w) };
@@ -380,6 +483,8 @@ impl MediaBackend for MpvBackend {
                     let height = self.get_i64("height").unwrap_or(0).max(0) as u32;
                     self.duration = duration;
                     self.meta_sent = true;
+                    self.vid_off = false;
+                    self.apply_target();
                     out.push(BackendEvent::Loaded { duration, width, height });
                 }
                 EV_PLAYBACK_RESTART => out.push(BackendEvent::Restart),
@@ -418,6 +523,50 @@ impl MediaBackend for MpvBackend {
         }
         out
     }
+    fn set_video_target(&mut self, t: Option<VideoTarget>) {
+        self.target = t;
+        self.apply_target();
+    }
+    fn frame_pending(&self) -> bool {
+        !self.shared.is_null() && unsafe { (*self.shared).ready.load(Ordering::SeqCst) }
+    }
+    fn take_frame(&mut self) -> Option<Arc<VideoFrame>> {
+        let l = lib()?;
+        if self.rc.is_null() || self.shared.is_null() || !unsafe { (*self.shared).ready.swap(false, Ordering::SeqCst) } {
+            return None;
+        }
+        unsafe {
+            if (l.rc_update)(self.rc) & RENDER_UPDATE_FRAME == 0 {
+                return None;
+            }
+            let Some(t) = self.target.filter(|t| t.w > 0 && t.h > 0 && t.w <= 8192 && t.h <= 8192) else {
+                // Nobody looks at it: consume the frame without rendering.
+                let mut one: c_int = 1;
+                let mut p = [RenderParam { ty: RP_SKIP_RENDERING, data: &mut one as *mut c_int as *mut c_void }, RenderParam { ty: 0, data: std::ptr::null_mut() }];
+                (l.rc_render)(self.rc, p.as_mut_ptr());
+                return None;
+            };
+            let mut px = vec![0u32; t.w as usize * t.h as usize];
+            let mut size = [t.w as c_int, t.h as c_int];
+            let fmt = Self::cs("bgr0");
+            let mut stride: usize = t.w as usize * 4;
+            let mut p = [
+                RenderParam { ty: RP_SW_SIZE, data: size.as_mut_ptr() as *mut c_void },
+                RenderParam { ty: RP_SW_FORMAT, data: fmt.as_ptr() as *mut c_void },
+                RenderParam { ty: RP_SW_STRIDE, data: &mut stride as *mut usize as *mut c_void },
+                RenderParam { ty: RP_SW_POINTER, data: px.as_mut_ptr() as *mut c_void },
+                RenderParam { ty: 0, data: std::ptr::null_mut() },
+            ];
+            if (l.rc_render)(self.rc, p.as_mut_ptr()) < 0 {
+                return None;
+            }
+            // `bgr0` leaves the pad byte 0; keep the top byte clear (the page sentinel is 0xFE).
+            for v in px.iter_mut() {
+                *v &= 0x00FF_FFFF;
+            }
+            Some(Arc::new(VideoFrame { w: t.w, h: t.h, px }))
+        }
+    }
     fn buffered(&self) -> Vec<(f64, f64)> {
         if self.cache_end > 0.0 { vec![(0.0, self.cache_end)] } else { Vec::new() }
     }
@@ -436,7 +585,16 @@ impl Drop for MpvBackend {
         }
         self.cancel_streams();
         if let Some(l) = lib() {
-            unsafe { (l.destroy)(self.h) };
+            unsafe {
+                // The render context must go before the core.
+                if !self.rc.is_null() {
+                    (l.rc_free)(self.rc);
+                }
+                (l.destroy)(self.h);
+            }
+        }
+        if !self.shared.is_null() {
+            unsafe { drop(Arc::from_raw(self.shared)) };
         }
         if !self.reg.is_null() {
             unsafe { drop(Box::from_raw(self.reg)) };
