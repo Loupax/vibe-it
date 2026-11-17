@@ -249,7 +249,7 @@ dropped selectors summed across those pages. Caveats:
       ANSWER: a performance warning, not an error. vim.js `buildGutter` reads post
       geometry once at load; that ONE layout was slow because every shaped span
       wiped cosmic-text's font-match cache (QP1).
-- [ ] QP1 [S] (P1, TOP of the perf items, R32) One-word fix in `shape_spans`
+- [x] QP1 [S] (DONE 2026-11-17, commit 6c1ae4e; P1, TOP of the perf items, R32) One-word fix in `shape_spans`
       (src/layout.rs; find it with `grep -n 'db_mut()' src/layout.rs`, the only
       hit outside tests): `span.font_family.resolve(font_system.db_mut(), ...)` ->
       `span.font_family.resolve(font_system.db(), ...)`. `FontFamily::resolve`
@@ -899,7 +899,9 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       several 500-684 ms (budget raised locally to see them); default budget =>
       1-2 `timer stopped` + 2-4 `promise jobs stopped` per load. QJ4's forced
       layout costs 1130-1511 ms per layout in the window (R32 2026-11-17: most of
-      that is probably QP1's font-match cache wipe; re-measure after QP1) (`N forced layouts, M
+      that is probably QP1's font-match cache wipe; re-measured after QP1, 2026-11-17:
+      social /u/loupax forced layout 1220-1401 ms -> line not printed; cold measure
+      42.2 ms [41.6-42.9] (was 3.40 s [3.06-3.77] on the same loaded machine) (`N forced layouts, M
       ms` line) on this ~1600-element DOM. The window still painted the card
       with the trips, but what the dropped work was is unknown. Do: profile
       the >500 ms callbacks after QY29/QY32 (R26 recipe: per-callback timer +
@@ -1245,7 +1247,10 @@ IntersectionObserver and matchMedia are not used by any of the site's scripts.
       (stderr shows the panic); minimise the grid that has an item spanning
       more columns than the resolved tracks. Also: that forced layout costs
       ~3.4 s on a 1.4 MB page (github 1.8 s; R32: re-measure after QP1, which made
-      cold measure 9-24x faster): a perf item if pages read
+      cold measure 9-24x faster). QP1 re-measure 2026-11-17 (loaded machine, bench
+      `measure, cold`): 200 paragraphs + inline icon 964 ms [948-981] -> 39.3 ms
+      [39.1-39.6]; 200 paragraphs + list + table 3.40 s [3.06-3.77] -> 42.2 ms
+      [41.6-42.9]. The 1.4 MB page itself was not re-measured here: a perf item if pages read
       geometry at load.
 - [x] QJ5 [S] (DONE 2026-11-17, commit 8229ae6; DOM_PRELUDE scrollIntoView
       in src/js_dom.rs: window scroll to the QJ4 rect, block/inline
