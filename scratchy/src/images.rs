@@ -814,6 +814,7 @@ pub(crate) fn build_flex_children(
             span.decoration_style = decoration.style;
             span.href = href;
             span.node = node_id(handle);
+            span.tnode = node_id(child);
             pending.push(InlineItem::Text(
                 inline_text(&contents.borrow(), inherited.white_space, inherited.text_transform),
                 span,
@@ -1619,6 +1620,7 @@ pub(crate) fn collect_real_nodes(
                 span.vertical_align = valign;
                 span.href = href;
                 span.node = node_id(handle);
+                span.tnode = node_id(child);
                 // `white-space: pre` preserves the text byte-for-byte
                 // (literal newlines, runs of spaces, no fabricated
                 // trailing space) instead of collapsing it.

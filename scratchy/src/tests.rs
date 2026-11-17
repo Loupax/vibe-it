@@ -11075,7 +11075,7 @@ fn qy12_cdata_pi_range_and_fragment_children() {
          try { new Range(); } catch (e) { console.log(e.name); }\
          try { Selection(); } catch (e) { console.log(e.name); }",
     );
-    assert_eq!(out, vec!["log:2 2 true I 2", "log:4 B", "log:function function true true function", "log:NotSupportedError", "log:TypeError"], "{out:?}");
+    assert_eq!(out, vec!["log:2 2 true I 2", "log:4 B", "log:function function true true function", "log:TypeError"], "{out:?}");
 }
 
 #[test]
@@ -16273,4 +16273,79 @@ fn qj5_scroll_into_view_requests_window_scroll_from_layout_rect() {
     // fixed and detached elements do nothing
     assert_eq!(y("document.getElementById('f').scrollIntoView()"), 0.0);
     assert_eq!(y("document.createElement('p').scrollIntoView()"), 0.0);
+}
+
+// ---------- QJ7: DOM Range (boundary points + client rects) ----------
+
+#[test]
+fn qj7_range_boundary_points_follow_the_spec() {
+    let log = run_in_html(
+        "<html><body><div id=d>ab<b id=b>cd</b>ef</div><p id=p></p></body></html>",
+        r#"var d = document.getElementById('d'), b = document.getElementById('b'), t0 = d.firstChild, t1 = b.firstChild, t2 = d.lastChild;
+         var r = document.createRange(), s = new Range();
+         console.log('init', r.startContainer === document, r.startOffset, r.collapsed, s.endOffset, String(r));
+         r.setStart(t0, 1); r.setEnd(t2, 1);
+         console.log('set', r.startOffset, r.endOffset, r.collapsed, r.commonAncestorContainer === d, r.toString());
+         r.selectNodeContents(b); console.log('snc', r.startContainer === b, r.endOffset, r.toString());
+         r.selectNode(b); console.log('sn', r.startContainer === d, r.startOffset, r.endOffset, r.toString());
+         r.collapse(true); console.log('col', r.collapsed, r.endOffset);
+         r.setStart(t2, 2); console.log('after-end', r.startContainer === t2, r.endContainer === t2, r.endOffset, r.collapsed);
+         var q = r.cloneRange(); q.setEnd(d, 3); console.log('clone', r.endContainer === t2, q.endContainer === d);
+         var e = []; [function () { r.setStart(t0, 1); }, function () { r.setEnd(t0, 99); }, function () { r.setStart(document.implementation.createDocumentType('html', '', ''), 0); }, function () { r.selectNode(document); }].forEach(function (f) { try { f(); e.push('ok'); } catch (x) { e.push(x.name); } });
+         console.log('err', e.join());
+         var a = document.createRange(), c = document.createRange(); a.setStart(t0, 0); a.setEnd(t1, 1); c.setStart(t1, 0); c.setEnd(t2, 2);
+         console.log('cmp', a.compareBoundaryPoints(Range.START_TO_START, c), a.compareBoundaryPoints(Range.END_TO_START, c), a.compareBoundaryPoints(Range.END_TO_END, c), c.compareBoundaryPoints(Range.START_TO_END, a));
+         console.log('pt', a.isPointInRange(t0, 1), a.isPointInRange(t2, 0), a.comparePoint(t2, 0), a.comparePoint(t0, 0), a.intersectsNode(b), a.intersectsNode(document.getElementById('p')));
+         var det = document.createElement('i'); det.appendChild(document.createTextNode('xy'));
+         a.setStart(t0, 0); a.setEnd(det.firstChild, 1); console.log('root', a.startContainer === det.firstChild, a.collapsed);
+         var w = document.createRange(); w.setStartBefore(b); w.setEndAfter(b); console.log('ba', w.startOffset, w.endOffset, w.toString());"#,
+    );
+    let has = |s: &str| log.iter().any(|l| l == s);
+    assert!(has("log:init true 0 true 0 "), "{log:?}");
+    assert!(has("log:set 1 1 false true bcde"), "{log:?}");
+    assert!(has("log:snc true 1 cd"), "{log:?}");
+    assert!(has("log:sn true 1 2 cd"), "{log:?}");
+    assert!(has("log:col true 1"), "{log:?}");
+    assert!(has("log:after-end true true 2 true"), "{log:?}");
+    assert!(has("log:clone true true"), "{log:?}");
+    assert!(has("log:err ok,IndexSizeError,InvalidNodeTypeError,InvalidNodeTypeError"), "{log:?}");
+    assert!(has("log:cmp -1 -1 -1 1"), "{log:?}");
+    assert!(has("log:pt true false 1 0 true false"), "{log:?}");
+    assert!(has("log:root true true"), "{log:?}");
+    assert!(has("log:ba 1 2 cd"), "{log:?}");
+}
+
+#[test]
+fn qj7_range_client_rects_come_from_layout_per_character_and_line() {
+    let log = run_in_html(
+        "<html><head><style>body{margin:0} #t{font:20px monospace;width:2000px;margin:0;padding:0} #w{font:20px monospace;width:60px;margin:0}\
+         #c{font:20px monospace;margin:0;position:absolute;left:100px;top:300px}</style></head>\
+         <body><p id=t>abc</p><p id=w>aaa bbb ccc</p><div id=c>x<b>yz</b></div><div id=n style='display:none'>hid</div></body></html>",
+        r#"var t = document.getElementById('t').firstChild, r = document.createRange(), rc = [];
+         for (var i = 0; i < 3; i++) { r.setStart(t, i); r.setEnd(t, i + 1); rc.push(r.getBoundingClientRect()); }
+         var same = rc[0].top === rc[1].top && rc[1].top === rc[2].top && rc[0].height > 0;
+         var order = rc[0].left < rc[1].left && rc[1].left < rc[2].left && rc[0].width > 5 && Math.abs(rc[0].width - rc[1].width) < 0.5;
+         console.log('chars', same, order);
+         r.selectNodeContents(t); var all = r.getClientRects(), bb = r.getBoundingClientRect();
+         console.log('all', all.length, Math.abs(bb.width - (rc[0].width + rc[1].width + rc[2].width)) < 0.5, bb.left === rc[0].left, all.item(0).width === bb.width, all.item(5));
+         var w = document.getElementById('w').firstChild; r.selectNodeContents(w);
+         var lines = r.getClientRects(); console.log('wrap', lines.length >= 2, lines[0].top < lines[1].top);
+         r.setStart(w, 4); r.setEnd(w, 7); console.log('part', r.getClientRects().length >= 1, r.getBoundingClientRect().width > 0);
+         r.collapse(true); console.log('collapsed', r.getClientRects().length, r.getBoundingClientRect().width);
+         var c = document.getElementById('c'); r.selectNodeContents(c); var cb = r.getBoundingClientRect();
+         console.log('abs', Math.round(cb.left), Math.round(cb.top), cb.width > 25);
+         r.selectNodeContents(document.getElementById('n')); console.log('hidden', r.getClientRects().length, r.getBoundingClientRect().height);
+         var d = document.createTextNode('zz'), q = document.createRange(); q.selectNodeContents(d); console.log('detached', q.getClientRects().length);
+         t.data = 'abcdef'; r.setStart(t, 0); r.setEnd(t, 6); console.log('mutated', r.getBoundingClientRect().width > rc[0].width * 5.5);"#,
+    );
+    let has = |s: &str| log.iter().any(|l| l == s);
+    assert!(has("log:chars true true"), "{log:?}");
+    assert!(has("log:all 1 true true true null"), "{log:?}");
+    assert!(has("log:wrap true true"), "{log:?}");
+    assert!(has("log:part true true"), "{log:?}");
+    assert!(has("log:collapsed 0 0"), "{log:?}");
+    assert!(has("log:abs 100 300 true"), "{log:?}");
+    assert!(has("log:hidden 0 0"), "{log:?}");
+    assert!(has("log:detached 0"), "{log:?}");
+    assert!(has("log:mutated true"), "{log:?}");
 }
