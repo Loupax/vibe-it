@@ -275,7 +275,7 @@ page loads with 0 errors and the vim UI works headless (j/k/G/gg/Ctrl-D/}/:tag
 picker/:feed/:help/search all respond; `:tag` reads #vimtags+#vimpagetags).
 IntersectionObserver and matchMedia are not used by any of the site's scripts.
 
-- [x] QJ4 [M] (DONE 2026-11-17, commit HASH_QJ4; src/js_geom.rs forced
+- [x] QJ4 [M] (DONE 2026-11-17, commit 674231c; src/js_geom.rs forced
       layout on the JS thread cached per DOM write generation, App scroll
       mirrored into window.scrollY. Left out: images laid out without decoded
       size, inline elements = descendant union/nearest box, element
