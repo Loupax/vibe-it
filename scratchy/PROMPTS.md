@@ -7306,3 +7306,11 @@ Done: R35 (10 of 11 pages identical, bbc.com logo now centred = better, YouTube 
 **Prompt:** Implement the page `WebSocket` on top of wire's QF19w1 upgrade pipe: handshake built in scratchy (random key, Origin, subprotocols, cookie partition headers, X-Wire-Upgrade), RFC 6455 framing in scratchy over wire's unix socket only (tungstenite is not in the offline registry, so by hand), one reader and one writer thread per socket, JS class with readyState/send/bufferedAmount/binaryType/close/protocol/extensions/events, policy and mixed-content checks, old-wire fail-closed, 16 sockets per page, close 1001 on navigation, tests through a real wire built from source plus a local echo server.
 
 **What changed:** new src/ws_frames.rs (SHA-1, accept key, encoder, decoder, assembler), src/js_ws.rs (WsState, socket threads, `JsEngine::pump_ws`, `AppEvent::JsWs` wake-up), src/ws_prelude.js, `CloseEvent` in js.rs, `__blob_bytes` in fetch_prelude.js, `JsEngine.ws`, report-mode driver, tests in src/tests/qf19w2_tests.rs; NOTES.md and NETWORKING.md sections.
+
+## QCI0a (scratchy/qci0a-table-shrink-to-fit)
+
+**Prompt:** `shrink_to_fit_table_is_sum_of_column_maxima_so_no_cell_wraps` fails under sans-serif = 0xProto Nerd Font Propo (row 1 wraps, h=42): find the real cause by measurement and fix it, not the test.
+
+**What changed:** Measured: the column max-content (111.12 for "Santa Clara") equals the width the cell is shaped at (content_w 109.11999 plus padding), but cosmic-text wrapped "Santa Clara" onto two lines at exactly that width: its running sum of 11 x 9.92px advances lands a few f32 ulps above the separately-measured word-extent sum, and it wraps on any overflow. Font-dependent luck (fractional advances), not a different font or feature set. Fix: layout.rs `shape_spans` wraps against `width + WRAP_SLACK` (0.001px). Test `shrink_to_fit_table_cell_never_wraps_whatever_the_fractional_glyph_advances` (tests.rs) sweeps 1..12-word cells in a shrink-to-fit table and asserts the row stays one line. (A first attempt rounding intrinsic widths up to 1/64px broke exact-width Ahem tests q43/q59 and was dropped.)
+
+**Verified:** full `cargo test --release` 965 passed under system default, CI Liberation-only config, 0xProto Nerd Font Propo and Noto Sans CJK JP (Lato not installed here); clippy TOTAL 78; WPT no change.
