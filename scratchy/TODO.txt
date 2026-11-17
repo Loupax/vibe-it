@@ -1015,7 +1015,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       max-content versus the width it is then laid out at. Passes with Liberation
       Sans, Lato and Noto Sans CJK JP. A real layout bug, not a test bug; measure
       the cell's `cell_natural_width` max vs the shaped width, fix, keep the test.
-- [ ] QCI1 [S] READY (after QCI0; user asked for it 2026-11-17) GitHub Actions CI,
+- [x] QCI1 [S] DONE (74239ec, PR #272; pinned Rust 1.96.1 added later, baseline in tools/clippy-baseline.txt) (after QCI0; user asked for it 2026-11-17) GitHub Actions CI,
       `.github/workflows/ci.yml` at the repo root. On every PR and on push to
       main. Per crate (scratchy, wire, snag; each has its own Cargo.lock, no
       workspace): `cargo build --release --all-targets` and `cargo test --release`.
