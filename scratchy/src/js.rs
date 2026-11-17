@@ -1213,10 +1213,14 @@ impl JsEngine {
 
     /// Runs every timer that is due now (bounded per turn), each under
     /// its own interrupt budget, draining promise jobs after each.
+    ///
+    /// QY31: a callback that tripped its budget (or whose eval failed) is
+    /// counted as run, not as "nothing due": the timer was already consumed
+    /// or rescheduled before it ran, so the caller keeps pumping.
     pub(crate) fn run_due_counted(&self) -> usize {
         let mut n = 0;
         for _ in 0..MAX_TIMERS_PER_TURN {
-            if self.eval_value::<bool>("timer", "__scratchy_timers_run_one()") != Some(true) {
+            if self.eval_value::<bool>("timer", "__scratchy_timers_run_one()") == Some(false) {
                 break;
             }
             n += 1;
@@ -1536,6 +1540,8 @@ pub(crate) fn js_report_for_scripts_timers(document: &Handle, scripts: &[ScriptS
                     }
                     let n = engine.run_due_counted();
                     if n == 0 {
+                        // The queue said something was due but nothing ran
+                        // (stale due time): stop rather than spin.
                         break;
                     }
                     callbacks += n;
