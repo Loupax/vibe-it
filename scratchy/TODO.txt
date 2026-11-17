@@ -469,7 +469,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       too (the 301 has no ACAO); ~1 MB is downloaded for nothing (QF7b/QF13a
       per-hop handling would stop at the 301). Keep QY27 for the re-measure
       after QY29-QY32 (window + peak memory).
-- [x] QY29 [S] (done HASH) (P1, THE YouTube blocker; R26) `data` must not exist on every node.
+- [x] QY29 [S] (done 911c38f) (P1, THE YouTube blocker; R26) `data` must not exist on every node.
       Root cause: js_dom.rs DOM_PRELUDE `defs(NodeProto, 'data', ...)` puts `data`
       on Node.prototype, so `'data' in document.createElement('div')` (and in an
       HTMLUnknownElement) is true; in browsers only CharacterData (Text, Comment,
