@@ -330,7 +330,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
 - [ ] QM1j (not planned; D8) MediaSource: in theory SourceBuffer segments could be
       appended to a growing stream_cb buffer, but timestamp offsets, codec
       switches, removal and YouTube's player logic make this a large project.
-- [ ] QY21 [S] (P2, YouTube load wall) QY6e `define()` is quadratic. Root
+- [x] QY21 [S] (959cd39) (P2, YouTube load wall) QY6e `define()` is quadratic. Root
       cause: `CER.prototype.define` (js_dom.rs, QY6e f887f67) rebuilds
       `ceSel` = every defined name joined with ',' and runs
       `__d_query(0, ceSel)` over the whole document on EVERY define;

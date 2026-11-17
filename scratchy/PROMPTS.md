@@ -6969,6 +6969,12 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 
 **What changed:** src/css.rs (`parse_transform`, `Declarations::transform`), src/style.rs (`TranslateAxis`, `ComputedStyle::translate`, summed at cascade), src/layout.rs (`apply_transform_offset`: baked into laid-out geometry with `shift_laid_tree`, so paint, hit test, hover and click follow; in-flow boxes via `apply_relative_offset`, absolute/fixed in `resolve_positioned` after their final position), tests `qy18_*`, wpt-expected.txt (one newly passing test). Limits: static boxes are not stacking contexts; a transformed box is not a containing block for fixed descendants; `transform: inherit/initial` and `-webkit-transform` ignored; no scrollable-overflow effect.
 
+## QY21: custom-element define() is linear (2026-11-17)
+
+> QY6e `define()` rebuilt an ever-growing all-names selector and ran `__d_query` over the whole document on every define (86% of YouTube's CPU, R24). Query only the new name in `define`; replace the selector in `ceScan`/`ceCollect` with a native `__d_ce_candidates(root)` backed by a Rust name set. Measure youtube before/after.
+
+**What changed:** src/js_dom.rs (`__d_ce_add`, `__d_ce_candidates`, `DomTable::ce_names/ce_exts`, `define` one-name lookup, `__ce_stats.defineQueries` test hook), test `qy21_*` in src/tests.rs.
+
 ## Investigation: embedding an external video player (QM1, R27; 2026-11-17)
 
 > Investigator only (docs). Can scratchy embed an already installed external video player (mpv; ffplay also installed; vlc and gstreamer are not) instead of decoding media itself? Test where cheap (mpv --version/--vo=help/--hwdec=help, libmpv presence, render API SW vs --wid, second toplevel vs subsurface, IPC control, dwl subsurface/viewporter support, SW render cost vs dmabuf). Cover geometry/scroll/clipping/z-order/transform mapping, audio routing, the HTMLMediaElement surface (MSE/EME: say what is realistic), security (a player fetching directly bypasses wire), cost/size, a minimal spike and its acceptance test, a recommendation and the open product questions. Write findings and ranked items (WAITING FOR USER where design is needed) into TODO.txt (QM1 + QM1a..) and a memo (NOTES.md / REGRESSIONS.md R27). No source code, no playback.
