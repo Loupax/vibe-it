@@ -7291,3 +7291,10 @@ Done: R35 (10 of 11 pages identical, bbc.com logo now centred = better, YouTube 
 **Prompt:** Say when wire is unreachable: one stderr line per page load through `diag!` (`scratchy: wire not reachable at <path> (<os error>): N sub-resources skipped`), keeping the OS error, covering stylesheets, @import, images, CSS images, iframes, scripts, page-JS fetch/XHR and media (counted, not printed twice), not for file:// pages without --socket.
 
 **What changed:** src/net.rs: `fetch_raw_detailed` keeps the OS error, `fetch_raw_sub` + `note_wire_skip` count failures, `begin_wire_load(generation)` resets per load (navigation, static page with --socket, stdin page), a watcher thread prints once after 400 ms without a new failure (the "print once the load settles" option); media_net.rs and fetch_full_via_wire (page JS) also count. Tests in src/tests/qwu1_tests.rs. NETWORKING.md section.
+## QCI0b (scratchy/qci0b-flex-auto-min-size)
+
+**Prompt:** Fix the flex automatic minimum size (R35): row = 0 for scroll containers (overflow not visible), else min-content capped by a definite `width`; column = drop the `.min(basis)`; five font-independent tests; no WPT pass->fail.
+
+**What changed:** layout.rs (row Prep.min, column ColItem min); tests.rs: four `qci0b_*` tests (long word stays whole and overflows, column 3-line items do not overlap, `width:50px` caps the floor, ellipsis pattern floor 0) and the QCI0 50/50 test now uses single glyphs ("i" | "W"): the old "iiii" | "wwwwww" in 100px cannot stay 50/50 under the spec floor (an unbreakable 6-glyph word is wider than 50px); wpt-expected.txt: css/css-flexbox/flexbox-min-width-auto-003.html FAIL -> PASS.
+
+**Verified:** full `cargo test --release` green under the system fonts and under the CI font config (958 passed); clippy TOTAL 78; WPT no pass->fail (1 newly passing); fixtures fx/fx2 viewed (long word whole, column no overlap); bbc, github, youtube, en.wikipedia Main_Page, hn, duckduckgo, guardian screenshots byte-identical before/after (and baseline vs baseline).

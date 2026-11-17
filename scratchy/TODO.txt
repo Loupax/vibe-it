@@ -1018,7 +1018,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       max-content versus the width it is then laid out at. Passes with Liberation
       Sans, Lato and Noto Sans CJK JP. A real layout bug, not a test bug; measure
       the cell's `cell_natural_width` max vs the shaped width, fix, keep the test.
-- [ ] QCI0b [S] READY (P1, Sonnet; ranked first in this block, before QCI0a and QT1)
+- [x] QCI0b [S] DONE (HASH, PR pending) (P1, Sonnet; ranked first in this block, before QCI0a and QT1)
       Flex automatic minimum size is clamped to the flex basis, so since QCI0
       (`flex: N` = `N 1 0%`) every `flex: N` item can shrink to 0 (R35).
       Root cause, layout.rs: row path `(min_mb - margin_left - margin_right).max(0.0)
