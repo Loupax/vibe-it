@@ -29,8 +29,8 @@ older and were only partly corrected in place):
   window), Q26 (letter-spacing: unit bug on our side, see R33), QSB1 (scrollbar
   drag, split out of Q32), QAN1d0 (reduced motion default), Q30g + Q33e (forms
   rest), QCFG1 -> QTB1 (when prioritised).
-- WebSocket DECIDED 2026-11-17 (wire as a pipe): QF19w1 (wire) -> QF19w2
-  (scratchy) READY, QF19m lists test sites.
+- WebSocket UNDER DISCUSSION 2026-11-17: proposal QF19w1 (wire) -> QF19w2
+  (scratchy), NOT ready; QF19m (who uses it) is READY.
 - Still WAITING FOR USER: QM1k (MSE, plan together), QCI2 (WPT in CI), QF14b2 (d) `--profile` (later),
   Q32 remainder (parked), QAN1p/QTB2 (parked).
 - Known red test on a clean checkout: R33 / QCI0.
@@ -205,7 +205,7 @@ WAITING FOR USER (skip until answered):
   Wikipedia, so video needs the rect-only redraw QM1g1. wire/TODO.txt W-POOL1
   (security: `public-only` skipped on pooled connections) should be fixed first;
   W-MEDIA1 (`file:` Range) before QM1e's local-file case.
-- (DECIDED 2026-11-17: wire as a pipe, items QF19w1 -> QF19w2) QF19 WebSocket,
+- (UNDER DISCUSSION 2026-11-17: proposal = wire as a pipe, QF19w1 -> QF19w2) QF19 WebSocket,
   Workers (no);
   EventSource is QF19a (READY). QY16a real localisation (ICU data?); persistence
   of jar/storage/cache (QF-D7: not now). Q26 UNBLOCKED (READY, R33); Q32's
@@ -2903,7 +2903,7 @@ QF13a, QF14b2, QF18 open; QF19 waits for the user):
       agent must FIRST check whether a buffered poll-style implementation is
       honest enough; if it needs a wire protocol change, STOP and report (that is
       a design question for the user), do not change wire's protocol on its own.
-- [ ] QF19w1 [M] READY (wire; design QF19 decided 2026-11-17) Upgrade passthrough.
+- [ ] QF19w1 [M] WAITING FOR USER (PROPOSAL, under discussion 2026-11-17; do NOT build) (wire) Upgrade passthrough.
       A request with `Connection: Upgrade` + `Upgrade: websocket` (scratchy marks it
       with `X-Wire-Upgrade: websocket` so ordinary clients are unaffected) goes
       through the SAME checks as any request (`X-Wire-Policy`, target class, bad
@@ -2919,7 +2919,7 @@ QF13a, QF14b2, QF18 open; QF19 waits for the user):
       `X-Wire-Features: ws`. Tests over a local echo server: 101 + echo both ways,
       non-101 answer, policy-blocked target, close from each side. Log in wire's
       PROMPTS.md/NOTES.md/TODO.txt.
-- [ ] QF19w2 [M] READY (after QF19w1) scratchy `WebSocket` for page JS on top of the
+- [ ] QF19w2 [M] WAITING FOR USER (PROPOSAL, under discussion; after QF19w1) scratchy `WebSocket` for page JS on top of the
       QF19w1 pipe. Framing in scratchy (`tungstenite` over the unix-socket stream,
       client role: masking, ping/pong replies, fragmentation, close handshake), one
       background reader thread per socket feeding `AppEvent`s; JS API on the JS
@@ -2939,7 +2939,8 @@ QF13a, QF14b2, QF18 open; QF19 waits for the user):
       like today) and `--js-report --run-timers 5000`; report per site: does it
       open one, at which point (load / user action), and does the page degrade or
       break without it. Output: a REGRESSIONS.md entry and a go/no-go for QF19.
-- [ ] QF19 [L] DESIGN DECIDED 2026-11-17 (user: "use wire as a pipe"); split into
+- [ ] QF19 [L] UNDER DISCUSSION 2026-11-17 (user leaned to "wire as a pipe", then asked to
+      talk it through before locking it in); proposal split into
       QF19w1 -> QF19w2 below. QF19m (who uses it) is the test-target list for
       QF19w2, not a gate. Rejected alternative: wire speaking WebSocket itself.
       Original entry: (later, own design; user 2026-11-17), Workers (no until a measured page needs them), (EventSource is
