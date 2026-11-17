@@ -76,6 +76,7 @@ mod js_modules;
 mod js_dom;
 mod js_net;
 mod js_style;
+mod js_geom;
 
 pub use dom::*;
 pub use css::*;

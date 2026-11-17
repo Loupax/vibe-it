@@ -743,6 +743,25 @@ pub(crate) fn thread_cpu_nanos() -> u64 {
     ts.tv_sec as u64 * 1_000_000_000 + ts.tv_nsec as u64
 }
 
+thread_local! {
+    /// QJ4: CPU time spent in host work that must not count against a
+    /// script's budget (a forced layout for a geometry read).
+    static PAUSED_NANOS: Cell<u64> = const { Cell::new(0) };
+}
+
+/// The clock the interrupt budgets run on: thread CPU time minus the time
+/// `pause_budget` was told about.
+pub(crate) fn script_clock_nanos() -> u64 {
+    thread_cpu_nanos().saturating_sub(PAUSED_NANOS.with(Cell::get))
+}
+
+/// QJ4: excludes `start..now` (thread CPU nanoseconds from `thread_cpu_nanos`)
+/// from the running script's budget.
+pub(crate) fn pause_budget_since(start: u64) {
+    let d = thread_cpu_nanos().saturating_sub(start);
+    PAUSED_NANOS.with(|p| p.set(p.get() + d));
+}
+
 /// QSD1b: `n` bytes from the kernel CSPRNG (`getrandom(2)`, via the `libc` crate that
 /// is already a dependency; no new crate). Falls back to `/dev/urandom`; if neither
 /// works the bytes stay zero and an error is logged to stderr rather than panicking.
@@ -1002,7 +1021,7 @@ const MAX_TIMERS_PER_TURN: usize = 100;
 impl JsEngine {
     pub(crate) fn arm_budget(&self, budget: Duration) {
         self.tripped.store(false, Ordering::Relaxed);
-        self.deadline.store(thread_cpu_nanos() + budget.as_nanos() as u64, Ordering::Relaxed);
+        self.deadline.store(script_clock_nanos() + budget.as_nanos() as u64, Ordering::Relaxed);
     }
 
     /// QY5: the one log line for a script stopped by the interrupt budget.
@@ -1138,6 +1157,15 @@ impl JsEngine {
         self.dirty.replace(false)
     }
 
+    /// QJ4: the App owns the real scroll offset; mirror it into
+    /// `window.scrollY` so rect reads are viewport-relative to what the
+    /// user sees.
+    pub(crate) fn set_scroll(&self, y: f32) {
+        let y = (y as f64).round();
+        let code = format!("if(globalThis.scrollY!=={y}){{globalThis.scrollY=globalThis.pageYOffset={y};}}true");
+        let _ = self.eval_value::<bool>("scroll-sync", &code);
+    }
+
     /// QB5: drains pending focus/blur/scroll requests.
     pub(crate) fn take_requests(&self) -> js_dom::JsRequests {
         std::mem::take(&mut *self.reqs.borrow_mut())
@@ -1249,11 +1277,11 @@ pub(crate) fn start_scripts_clocked(
     })));
     let net_clock = clock.clone();
     let base = Instant::now();
-    let deadline = Arc::new(std::sync::atomic::AtomicU64::new(thread_cpu_nanos() + SCRIPT_BUDGET.as_nanos() as u64));
+    let deadline = Arc::new(std::sync::atomic::AtomicU64::new(script_clock_nanos() + SCRIPT_BUDGET.as_nanos() as u64));
     let tripped = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let (dl, tr) = (deadline.clone(), tripped.clone());
     rt.set_interrupt_handler(Some(Box::new(move || {
-        let over = thread_cpu_nanos() > dl.load(Ordering::Relaxed);
+        let over = script_clock_nanos() > dl.load(Ordering::Relaxed);
         if over {
             tr.store(true, Ordering::Relaxed);
         }

@@ -6969,6 +6969,12 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 
 **What changed:** src/css.rs (`parse_transform`, `Declarations::transform`), src/style.rs (`TranslateAxis`, `ComputedStyle::translate`, summed at cascade), src/layout.rs (`apply_transform_offset`: baked into laid-out geometry with `shift_laid_tree`, so paint, hit test, hover and click follow; in-flow boxes via `apply_relative_offset`, absolute/fixed in `resolve_positioned` after their final position), tests `qy18_*`, wpt-expected.txt (one newly passing test). Limits: static boxes are not stacking contexts; a transformed box is not a containing block for fixed descendants; `transform: inherit/initial` and `-webkit-transform` ignored; no scrollable-overflow effect.
 
+## QJ4: geometry reads (2026-11-17)
+
+> Item QJ4. `Element.getBoundingClientRect` does not exist, so social.loupax.com/vim.js:104 dies. Implement layout-backed rects (viewport-relative with the current scroll, zero rect for display:none/detached), plus getClientRects, offset*/client*/scroll* with a forced synchronous layout cached until the next DOM write. No QJ5-QJ11.
+
+**What changed:** src/js_geom.rs (new: `GeomCache`, builds + measures the page on the JS thread with its own FontSystem, records each element box by node id, logs "N forced layouts, M ms" once), src/js_dom.rs (`__d_rect`, DOM_PRELUDE geometry block: getBoundingClientRect/getClientRects/offset*/client*/scroll*), src/js.rs `JsEngine::set_scroll` + src/app.rs (App scroll offset mirrored into `window.scrollY` before events and timers), src/js_style.rs `page_css`, tests `qj4_*`. Limits: images laid out without decoded size, inline elements use descendant union / nearest box ancestor, non-root `scrollTop/Left` only remember the number (QJ6), nested scroll containers and sticky not applied to rects.
+
 ## QY21: custom-element define() is linear (2026-11-17)
 
 > QY6e `define()` rebuilt an ever-growing all-names selector and ran `__d_query` over the whole document on every define (86% of YouTube's CPU, R24). Query only the new name in `define`; replace the selector in `ceScan`/`ceCollect` with a native `__d_ce_candidates(root)` backed by a Rust name set. Measure youtube before/after.
