@@ -232,6 +232,8 @@ pub(crate) struct ComputedStyle {
     pub(crate) height: Option<BoxLength>,
     pub(crate) min_width: Option<BoxLength>,
     pub(crate) max_width: Option<BoxLength>,
+    /// QY42: `max-width` was an intrinsic keyword (`fit-content` etc.).
+    pub(crate) max_width_intrinsic: bool,
     pub(crate) min_height: Option<BoxLength>,
     pub(crate) max_height: Option<BoxLength>,
     /// Not inherited (same as `overflow`/`border_width`). See
@@ -1575,7 +1577,9 @@ pub(crate) fn resolve_style_for(
         .map(|l| BoxLength::from_length(l, font_size, inherited.root_font_size));
     let min_height = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.min_height), |d| d.min_height)
         .map(|l| BoxLength::from_length(l, font_size, inherited.root_font_size));
-    let max_width = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.max_width), |d| d.max_width)
+    let max_width_raw = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.max_width), |d| d.max_width);
+    let max_width_intrinsic = max_width_raw == Some(MaxLen::Intrinsic);
+    let max_width = max_width_raw
         .and_then(|l| l.resolve(font_size, inherited.root_font_size));
     let max_height = cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.max_height), |d| d.max_height)
         .and_then(|l| l.resolve(font_size, inherited.root_font_size));
@@ -2043,6 +2047,7 @@ pub(crate) fn resolve_style_for(
         width_kw,
         min_width_kw,
         max_width,
+        max_width_intrinsic,
         min_height,
         max_height,
         box_sizing,
@@ -2165,6 +2170,7 @@ pub(crate) fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         width_kw: None,
         min_width_kw: None,
         max_width: None,
+        max_width_intrinsic: false,
         min_height: None,
         max_height: None,
         box_sizing: BoxSizing::default(),
