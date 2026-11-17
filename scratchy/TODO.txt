@@ -157,6 +157,11 @@ WAITING FOR USER (skip until answered):
   the recommended route. Questions QM1-D D1-D8 (in-page vs "open in mpv",
   in-process vs helper, optional dependency, network via wire, autoplay,
   controls/keys, `<audio>` and player cap, MSE = no) gate QM1b and later.
+  QM1c/QM1d DONE 2026-11-17 (R30): media bytes = repeated ranged GETs through
+  today's wire (no protocol change; QM1e refined); a full redraw is 67-101 ms on
+  Wikipedia, so video needs the rect-only redraw QM1g1. wire/TODO.txt W-POOL1
+  (security: `public-only` skipped on pooled connections) should be fixed first;
+  W-MEDIA1 (`file:` Range) before QM1e's local-file case.
 - QF19 WebSocket/EventSource/Workers; QY16a real localisation (ICU data?);
   persistence of jar/storage/cache (QF-D7: not now); Q26, Q32 (parked).
 - (ANSWERED 2026-11-17: pages may cancel any key) QJ11: which keys may page JS cancel? Once QJ4-QJ6 land, social.loupax.com's
@@ -362,25 +367,135 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       edge; a seek to 12.5 reads time-pos 12.5 +-0.1; report user+sys CPU for 10 s
       (target: under one core total) and RSS; `strace -f -e trace=connect` shows no
       connect() from libmpv threads when the file is fed through stream_cb.
-- [ ] QM1c [S, Opus, investigate only] READY Measure `App::redraw` (src/app.rs) full
+- [x] QM1c [S, Opus, investigate only] READY Measure `App::redraw` (src/app.rs) full
       repaint + present time on real pages (en.wikipedia Main_Page, youtube.com,
       a long article) to decide whether 30 fps video can repaint the whole page or
       needs a video-rect-only redraw: keep the last page pixels, re-blit only the
       video rect, softbuffer `present_with_damage`. Temporary `Instant` timing,
       not committed.
-- [ ] QM1d [S, Opus, investigate only] READY Does wire pass `Range` through and
+      DONE 2026-11-17 (Opus, docs only; R30). ANSWER: a video-rect-only redraw IS
+      needed. Temporary timing in `App::redraw` (reverted), release build, nested
+      dwl 1048x1046, live pages through wire, wheel scrolls via tools/inject, per
+      full redraw after load (median / p90): en.wikipedia Main_Page 67 / 81 ms
+      (paint() 55 ms, n=27); en.wikipedia United_States 101 / 108 ms (paint() 89 ms,
+      n=28). White fill ~1 ms, present ~2-4 ms (max 11), the rest is `paint`
+      plus ~7 ms outside paint() (the QW6 canvas-colour blend loop over the whole
+      buffer; not timed on its own). So a full
+      repaint is 10-15 fps at best, and would eat the main thread. The machine
+      was loaded (load average 15-21 from other agents' builds), so these are
+      upper bounds; even halved they miss a 33 ms frame budget. New item QM1g1.
+- [x] QM1d [S, Opus, investigate only] READY Does wire pass `Range` through and
       return 206 bodies, and can a non-page-JS channel read bodies above the 16 MiB
       page-JS cap (`RequestPolicy` limits) in chunks? Media needs seekable reads:
       tested here, `cat t720.mp4 | mpv -` fails ("Stream is not seekable",
       "Cannot seek backward in linear streams"), so a plain pipe is not enough.
-- [ ] QM1e [M] (after D4) Media byte channel: libmpv `mpv_stream_cb_add_ro` for
-      `scratchy-media://<id>`; read/seek/size answered by wire Range requests with
-      the page's partition headers (`X-Wire-Jar`, `X-Wire-Top-Site`) and the
-      element's `crossorigin` mode; mpv options so it never touches the network
-      itself (`config=no`, `ytdl=no`, `load-scripts=no`, `osc=no`,
-      `input-default-bindings=no`, only ever `loadfile scratchy-media://...`,
-      `load-unsafe-playlists=no`); test: page with `<video src>` on a loopback
-      server, wire log shows every byte range, strace shows no mpv connect().
+      DONE 2026-11-17 (Opus, docs only; evidence REGRESSIONS.md R30). ANSWER: YES,
+      with NO wire protocol change. wire forwards `Range` upstream (only Host,
+      Content-Length, Connection and `X-Wire-*` are dropped) and passes `206`,
+      `Content-Range`, `Accept-Ranges` and `416` through unchanged; it strips
+      `Content-Length`, so the total size comes from `Content-Range: .../TOTAL`.
+      ureq sends no `Accept-Encoding` when `Range` is set, so ranged bodies are never
+      gzip-decoded behind Content-Range's back. Redirects (both the shared agent and
+      the jar path) keep the Range header on every hop; the jar sends and stores
+      cookies on ranged requests and keeps the top-site partition. wire itself does
+      NOT buffer: without `X-Wire-Max-Bytes` it streams (a 64 MiB 200 came through
+      in 1.1-1.4 s); with the header it buffers at most N+1 bytes and answers `502
+      too-large` above N (a 64 MiB body with a 16 MiB cap: 502 after 0.28 s). The
+      16 MiB/64 MiB limits are scratchy's page-JS `RequestPolicy`, not wire's: a
+      media channel built outside the page-JS queue reads any size in ranged
+      chunks. Measured through the user's running wire, loopback Python server
+      (median per request): 1-byte range 9-10 ms (direct 4-6 ms), 256 KiB 12-14 ms
+      (~19-23 MB/s), 1 MiB 19-26 ms (~37-52 MB/s), 4 MiB 48-60 ms (~60-90 MB/s);
+      jar + caps headers cost nothing measurable. 1080p H.264 needs ~1 MB/s, so
+      1 MiB chunks use ~2% of wall time. PROOF OF CONCEPT (throwaway ctypes
+      script): libmpv `mpv_stream_cb_add_ro` fed ONLY by 1 MiB ranged GETs
+      through wire played a 7 MB moov-at-END mp4 (vo=null, ao=null): 9 requests,
+      file-loaded at 0.27 s after open, seek to 12.5 -> playback-restart 0.78 s
+      later at 12.53, seek back to 1.0 works; mpv asks read_fn for 64-128 KiB at a
+      time, so the channel must keep its own chunk cache. Gaps found: W-POOL1
+      (security: `public-only` and the target-class headers are skipped on a
+      pooled upstream connection), W-MEDIA1 (`file:` ignores Range and reads the
+      whole file), W-MEDIA2 (a truncated body looks complete), W-PERF1 (optional)
+      in wire/TODO.txt. Recommendation and the refined QM1e below.
+- [ ] QM1e [M] (after D4; refined by QM1d 2026-11-17, R30) Media byte channel.
+      DESIGN (ranked; option 1 is the plan, NO wire protocol change):
+      1. Repeated ranged GETs, one wire connection each (exactly what was
+         measured). Rejected for now: 2. a streaming/long-lived media endpoint in
+         wire (saves ~5 ms per request = <1% at 1 MiB chunks, costs a protocol
+         version and a second framing); 3. a `X-Wire-Range`-style control header
+         (plain `Range` already works end to end).
+      BUILD (new module, e.g. src/media_net.rs; nothing in js_net's page-JS queue):
+      - libmpv `mpv_stream_cb_add_ro("scratchy-media", open_fn)`; mpv only ever gets
+        `loadfile scratchy-media://<id>`; `<id>` maps to (absolute URL, page URL,
+        top site, crossorigin mode) held by scratchy. mpv options: `config=no`,
+        `ytdl=no`, `load-scripts=no`, `osc=no`, `input-default-bindings=no`,
+        `load-unsafe-playlists=no`, `terminal=no`, plus a bounded demuxer cache
+        (`demuxer-max-bytes=32MiB`, `demuxer-max-back-bytes=16MiB`).
+      - Chunk cache per stream: read_fn(n) is served from a cached chunk; a miss
+        fetches `Range: bytes=pos-(pos+CHUNK-1)`, CHUNK = 1 MiB (4 MiB after two
+        sequential misses, back to 1 MiB after a seek); keep the last 2-4 chunks
+        (mpv seeks to the moov at the end and back at load). Every request ALWAYS
+        carries `Range` (also the first: `bytes=0-1048575`), never a plain GET.
+      - First response: `206` -> total from `Content-Range` (size_fn), seekable.
+        `200` (server ignores Range) or `502 too-large`: the server is not
+        range-capable; fall back to ONE streaming GET without `X-Wire-Max-Bytes`
+        with a long `X-Wire-Timeout-Ms` (wire's timeout includes the body), read
+        forward only; seek_fn forward = discard, backward = restart the GET
+        from 0 (or return an error: mpv then plays non-seekably). Faststart
+        files play; moov-at-end files fail in this mode (log it).
+        `416` = past the end (return 0 = EOF). Any other status / `X-Wire-Error`
+        -> read_fn returns -1 and the element gets a MediaError (QM1f).
+      - Every 206: check `Content-Range` start == requested start and body
+        length == range length (W-MEDIA2: wire cannot signal truncation); a short
+        body is retried once from the new position.
+      - Headers per request: `X-Wire-Max-Bytes: CHUNK` (guards against a server
+        that ignores Range and sends gigabytes), `X-Wire-Timeout-Ms: 30000`,
+        partition headers from `wire_cookie_headers` (`X-Wire-Jar`,
+        `X-Wire-Top-Site`), and the element's mode: no `crossorigin` attribute =
+        no-cors with credentials (jar on; the response is opaque to page JS but
+        playable), `crossorigin=anonymous` = CORS, `X-Wire-Cookies: off`,
+        `Origin` sent, `Access-Control-Allow-Origin` checked on the FIRST
+        response, `use-credentials` = CORS with the jar and ACAC checked. `Range`
+        with one `bytes=` range is CORS-safelisted (no preflight).
+      - Policy: run `RequestPolicy::check_request` on the media URL (scheme,
+        bad ports, mixed content: an `http:` media URL from an `https:` page is
+        BLOCKED like other subresources, private-target warning once per
+        element); send `X-Wire-Policy: public-only` only under
+        `private_targets = Block` (and that needs W-POOL1 fixed first to mean
+        anything for repeat requests).
+      - Redirects: wire follows them; pin later requests to the first
+        response's `X-Wire-Final-Url` (fewer hops). If a later response's final
+        URL has a different origin than the first, fail the element (the HTML
+        spec forbids mixing responses from different origins in one resource).
+      - Threads: read_fn runs on mpv's demux thread and may block on wire (that is
+        what stream_cb expects); cancel_fn closes the in-flight UnixStream so
+        `stop`/navigation do not wait up to 30 s. At most one request in flight per
+        stream; budget at most 2 players (D7).
+      - `file:` media pages: needs W-MEDIA1 in wire first (Range for file:). Until
+        it lands, `file:` media falls back to the forward-only mode above.
+      - Log under `SCRATCHY_TIMING=1`: one line per range (status, bytes, ms).
+      TESTS (src/tests.rs, no network): a fake wire on a temp Unix socket that
+      answers from an in-memory file: (a) sequential reads of 3 MiB return the
+      exact bytes with 3 requests (1 MiB chunks) and size_fn = file length from
+      Content-Range; (b) seek to the last 4 KiB then back to 0 = 2 extra requests
+      and exact bytes; (c) the server answers 200 with the whole body -> forward-
+      only mode, backward seek restarts from 0; (d) a short 206 body is retried
+      once; (e) 416 -> EOF; (f) crossorigin=anonymous sends `X-Wire-Cookies: off`
+      and fails without a matching ACAO; no attribute sends the jar headers; (g)
+      every request carries `Range` and `X-Wire-Max-Bytes`; (h) a final URL with a
+      different origin on the 2nd request fails the stream. These test the byte
+      channel without libmpv (pure Rust over the fake socket).
+      ACCEPTANCE (with libmpv): a loopback server page with `<video
+      src=t720.mp4>` (moov at the end, 7 MB) and the QM1b test file: wire's
+      `WIRE_TIMING=1` log (or the server log) shows ONLY ranged GETs, total bytes
+      fetched <= 1.5x the file for a straight play, and every range accounted for
+      in scratchy's timing log; seek to 12.5 reaches time-pos 12.5 +-0.1 in under
+      1.5 s on loopback; no connect() from scratchy other than to wire.sock
+      (`strace` is NOT installed on this machine: install it, or check
+      `/proc/<pid>/net/tcp` / `ss -tp` for scratchy-owned TCP sockets during
+      playback, which must be none); the same page with `crossorigin=anonymous`
+      on a server without ACAO shows a MediaError and fetches nothing beyond the
+      first range.
 - [ ] QM1f [M] (after D1-D3, D5-D7) HTMLMediaElement on top of mpv events, replacing
       the QA20 `not implemented` stubs in js_dom.rs: src/currentSrc and `<source>`
       selection, play() promise, pause(), paused, ended, currentTime get/set
@@ -400,6 +515,23 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       is hidden (`:help`, navigation); one mpv handle per playing element, capped
       per D7; audio via mpv `ao=pulse` (this build has no native pipewire output;
       pipewire-pulse 1.6.7 is running).
+- [ ] QM1g1 [M] (part of QM1g; from QM1c, R30) Video-rect-only redraw: a full
+      `App::redraw` costs 67-101 ms on Wikipedia pages (QM1c), so a new mpv frame
+      must NOT repaint the page. Keep the last fully painted page buffer (the
+      frame without video pixels, or with the previous frame) and on a "video
+      frame ready" event only: copy the new frame into the `<video>` box's
+      visible, clipped rect (respecting page content painted ABOVE the video:
+      if anything overlaps the rect in paint order, fall back to a full redraw
+      for that frame, or cache an overlay mask), then
+      `buffer.present_with_damage(&[rect])`. softbuffer 0.4 keeps buffer age;
+      when `buffer.age()` is not 1 the buffer contents are stale and the whole
+      page must be copied from the kept page pixels first (a ~4 MB memcpy, <1 ms)
+      rather than repainted. Scroll, hover, layout and any page change still do
+      the full redraw. Test: unit-test the rect clipping/overlap decision; nested
+      dwl + grim + inject: two grims 1 s apart differ only inside the video rect
+      on en.wikipedia-sized content; temporary timing shows a video-only redraw
+      under 5 ms at 640x360 and the main thread stays responsive (scroll latency
+      unchanged while playing).
 - [ ] QM1h [L] (only if D2 = separate process) media helper process: owns libmpv,
       renders frames into a memfd shared with scratchy, talks the same commands
       over a socket, crash kills only the helper.

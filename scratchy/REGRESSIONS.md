@@ -1,5 +1,121 @@
 # scratchy — regressions
 
+## R30: Media bytes through wire: Range works unchanged; pooled connections skip `public-only` (Opus investigator QM1d/QM1c, 2026-11-17) — EVIDENCE for TODO.txt QM1d/QM1e (and QM1c); wire items W-POOL1, W-MEDIA1, W-MEDIA2, W-PERF1 OPEN
+
+**Status: investigation only, nothing implemented.** Verdict: the QM1e media
+channel can be built on repeated ranged GETs over today's wire protocol (no
+protocol change). One security gap in wire was found on the way (W-POOL1).
+
+Setup (all throwaway, in the session scratchpad, nothing committed): a tiny
+Range-capable Python server (`python3 -I`, `ThreadingHTTPServer`, HTTP/1.1
+keep-alive, `TCP_NODELAY`, bound to 127.0.0.1 on a free port, killed by PID)
+serving a 64 MiB random file and the QM1b test mp4 (7.0 MB, 1280x720 H.264, moov
+at the END as ffmpeg writes by default); extra paths `/redir` (302),
+`/setck` (302 + `Set-Cookie`), `/norange.bin` (ignores Range), `/gz.bin`
+(compresses anyway). Python clients spoke raw HTTP to the user's running wire
+(`/run/user/1001/wire.sock`, X-Wire-Version 3), one request per connection, GETs
+only. The server logged client port, Range, Cookie and Accept-Encoding of every
+upstream request. Other agents were compiling at the same time (8 threads busy),
+so absolute times are pessimistic.
+
+What wire does with a ranged request (source: `is_request_header_to_skip`,
+`stream_response`, `execute_with_jar`; confirmed live):
+| Case | Result through wire |
+| --- | --- |
+| `Range: bytes=0-1023`, `1000000-1262143`, `N-`, `-4096` | `206`, exact bytes, `Content-Range` and `Accept-Ranges` passed through, `Content-Length` stripped |
+| range past the end | `416` + `Content-Range: bytes */67108864` |
+| `HEAD` | `200`, no `Content-Length` (stripped), so HEAD cannot give the size: use `Content-Range` |
+| plain GET 64 MiB, no caps | `200`, streamed (not buffered), 1.1-1.4 s |
+| plain GET 64 MiB + `X-Wire-Max-Bytes: 16777216` | `502` `X-Wire-Error: too-large` after 0.28 s |
+| 4 MiB range + 16 MiB cap (+ jar) | `206`, fine (the cap is per response, buffered up to N+1) |
+| redirect + Range (shared agent and jar path) | Range re-sent on every hop, `206`, `X-Wire-Final-Url` = target |
+| `/setck` + Range with the jar | cookie stored; next ranged GET with the same top site sends `mediack=1`; with another `X-Wire-Top-Site` sends none (partition kept) |
+| server ignores Range | `200` with the whole 64 MiB |
+| Accept-Encoding | none sent upstream when `Range` is set (ureq `add_accept_encoding` skips it), `gzip` otherwise: ranged bodies are never decompressed behind `Content-Range` |
+| `file:` URL + Range | `200`, the WHOLE file (`serve_file` uses `std::fs::read`), `application/octet-stream` for media (W-MEDIA1) |
+
+Latency and throughput, median per request (one new Unix connection each;
+upstream connection reused by ureq's pool):
+| Request | direct, keep-alive | direct, new TCP | via wire, plain | via wire, jar + caps |
+| --- | --- | --- | --- | --- |
+| 1 byte | 4.2 ms | 6.2 ms | 9.0 ms (p90 15.4) | 10.1 ms (p90 16.5) |
+| 256 KiB | 6.3 ms, 41 MB/s | 9.3 ms, 30 MB/s | 11.7-14.0 ms, 19-23 MB/s | 12.9-13.4 ms, 19 MB/s |
+| 1 MiB | 9.4 ms, 106 MB/s | 11.4 ms, 92 MB/s | 25.7-25.9 ms, 37 MB/s | 19.2-19.6 ms, 46-52 MB/s |
+| 4 MiB | 16.9 ms, 200 MB/s | 27.5 ms, 145 MB/s | 49-60 ms, 59-83 MB/s | 48-52 ms, 69-75 MB/s |
+Sequential and random offsets gave the same numbers (no seek penalty on a
+ranged server). Wire adds ~5 ms per request and roughly halves bulk throughput
+(8 KiB `copy_body` loop; W-PERF1, optional). A 1080p H.264 stream needs ~1 MB/s:
+with 1 MiB chunks that is one request per second, ~2% of wall time, so a
+persistent/streaming media endpoint is not worth a protocol change. On a real
+remote server the request time is dominated by RTT (+ TLS only for a new pooled
+connection); the first-byte delay per chunk is one RTT.
+
+Connection reuse (an open wire/TODO item): ten ranged GETs arrived from ONE
+upstream client port per agent (the shared agent and `manual_agent` each keep
+their own pool), and a pooled connection was still reused after 65 s idle.
+**W-POOL1 (security):** because the policy check and the target class live in
+`TrackingResolver`, and ureq only resolves when it opens a new connection, a
+reused connection skips both. Sequence on `http://localhost:<port>/`: cold pool
++ `X-Wire-Policy: public-only` -> `403 policy`; one plain request; the same
+`public-only` request -> `206`, and no `X-Wire-Target-Class` on any repeat
+request (shared agent and jar path alike). scratchy only sends `public-only`
+with `private_targets = Block`; in the default Warn mode the effect is a missing
+"resolves to a private address" warning on repeat requests.
+
+Proof of concept, libmpv fed only by wire (throwaway ctypes script, `vo=null`,
+`ao=null`, `config=no ytdl=no load-scripts=no osc=no input-default-bindings=no
+load-unsafe-playlists=no`): `mpv_stream_cb_add_ro("scratchy-media")`, read_fn
+served from a 1 MiB chunk cache, a miss = one ranged GET through wire with the
+jar headers and `X-Wire-Max-Bytes`. Timeline: open -> GET 0-1 MiB (61 ms) ->
+mpv seeks to 6978642 (the moov at the end, 7446 bytes) -> back to 48 ->
+file-loaded 0.27 s after open, first frame (playback-restart) 0.54 s after open;
+seek 12.5 -> two 1 MiB GETs (20, 24 ms) -> playback-restart at 12.533 0.78 s
+later (decode from the previous keyframe: x264 default GOP 250 = 8.3 s); seek back
+to 1.0 -> playback-restart 1.033. 9 requests / 8.4 MB for a 7.0 MB file with two
+seeks; mpv asked read_fn for 131072 or 65536 bytes per call (79 calls), so a
+per-stream chunk cache is needed. strace is not installed, so "no connect()
+from mpv" was NOT checked (no network URL was ever given to mpv, only
+`scratchy-media://1`).
+
+QM1c, full-page repaint cost (temporary `Instant` timing around the fill,
+`paint()` and `present()` in `App::redraw`, release build, reverted right after
+the build; nested dwl from tools/nest.sh, window 1048x1046; live pages through
+wire; wheel scrolls from tools/inject; rows after the page finished shaping):
+| Page | redraws | total median / p90 / max | `paint()` median | white fill | present median / max |
+| --- | --- | --- | --- | --- | --- |
+| en.wikipedia Main_Page | 27 | 67.1 / 81.5 / 100.1 ms | 55.2 ms | 1.0 ms | 3.9 / 10.8 ms |
+| en.wikipedia United_States | 28 | 101.2 / 107.6 / 109.8 ms | 89.2 ms | 1.0 ms | 4.1 / 7.9 ms |
+About 7 ms per frame sits between the fill and `paint()` (the QW6 canvas-colour
+blend over the whole buffer; not timed on its own). Load average was 15-21 on 8
+threads (other agents compiling), so the numbers are upper bounds, but even at
+half they are over a 33 ms (30 fps) budget and the redraw runs on the main
+thread. Verdict: a video frame must not repaint the page; QM1g1 (keep the page
+pixels, blit the video rect, `present_with_damage`; softbuffer 0.4.8 has
+`Buffer::age()` and `present_with_damage`). United_States was blank in the text
+column for the first ~45 s while shaping (screenshot), then complete; those
+early redraws were excluded.
+
+Recommendation (ranked; details and tests in TODO.txt QM1e):
+1. Repeated ranged GETs, one wire connection each, 1 MiB chunks (4 MiB while
+   reading sequentially), always with `Range` and `X-Wire-Max-Bytes: CHUNK`,
+   validated against `Content-Range`; forward-only streaming fallback for
+   servers that ignore Range. No wire protocol change.
+2. (rejected for now) a streaming media endpoint / long-lived connection in wire:
+   saves ~5 ms per request (<1% at 1 MiB chunks), costs a protocol version.
+3. (rejected) a `X-Wire-Range` control header: the real `Range` header already
+   works end to end, including redirects and the jar.
+wire items filed (wire/TODO.txt): W-POOL1 (fix first, independent of media),
+W-MEDIA1 (`file:` Range + media types; QM1e needs it for local media pages),
+W-MEDIA2 (truncated bodies look complete; QM1e works around it with
+Content-Range), W-PERF1 (optional throughput).
+
+NOT verified: a real remote (TLS, CDN) media server and its RTT; mpv over a
+slow link (stalls, `cancel_fn`); webm/vp9/av1; audio (every run used
+`ao=null`); that mpv makes no connect() (no strace); a server that answers a
+range with `Content-Encoding: gzip` (the test server compressed a slice, which
+is not what real servers do); mixed-content and CORS behaviour of real media
+sites.
+
 ## R29: new errors after QY34 (script-inserted scripts) are newly exposed gaps, plus a budget-trip amplifier in `drain_jobs` (Opus investigator QY44, 2026-11-17) — OPEN, items QY44a-QY44e in TODO.txt
 
 **Status: open (no QY34 regression; fix forward, do not revert).** The QY34 agent

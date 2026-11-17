@@ -73,7 +73,12 @@ the commit it came up during.
       real site's cert fails to validate for a reason that isn't the
       site's own fault" — nothing like that has come up.
 
-- [ ] **No connection reuse/pooling across requests to the same remote
+- [x] (MEASURED 2026-11-17, scratchy QM1d / REGRESSIONS.md R30: reuse is real.
+      Ten ranged GETs to one loopback server through the running wire all
+      arrived from the SAME upstream client port, one port for the shared agent
+      and one for `manual_agent` (the jar path); a pooled connection was still
+      reused after 65 s idle. Side effect found: W-POOL1 below.)
+      **No connection reuse/pooling across requests to the same remote
       host** — `ureq::Agent` does do its own internal connection pooling
       per `Agent` instance already (confirmed by its own docs), and
       `wire` uses exactly one shared, cloned `Agent` across every
@@ -95,3 +100,67 @@ the commit it came up during.
       sent one of these yet.
 
 - [x] `file://` URLs are served (scratchy Q22). Open: no directory listings, no HEAD.
+
+- [ ] **W-POOL1 [S, security] `X-Wire-Policy: public-only` and `X-Wire-Target-Class`
+      are skipped on a pooled connection** (found by scratchy QM1d, REGRESSIONS.md
+      R30, 2026-11-17). Both come from `TrackingResolver`, which only runs when ureq
+      opens a NEW connection. When the agent reuses a pooled one, nothing resolves:
+      measured against the running wire with a loopback server, `public-only` to
+      `http://localhost:<port>/` answered `403 policy` on a cold pool, then, after one
+      plain request to the same host:port, the SAME `public-only` request answered
+      `206` with no `X-Wire-Target-Class` / `X-Wire-Hop-Classes` (also on the jar
+      path's `manual_agent`, and for every plain repeat request). Impact: scratchy
+      sends `public-only` only with `private_targets = Block` (not the default), so
+      the default Warn mode just loses the "DNS name resolved to a private address"
+      warning on repeat requests; in Block mode a page-JS request to a private host
+      gets through whenever an earlier request without the header (a sub-resource,
+      an `<img>`, a media range read) pooled a connection to that host:port.
+      Fix options: (a) remember the class per pooled (scheme, host, port) when the
+      resolver runs and look it up on reuse (a map in `Shared`, filled by the
+      resolver; entries live as long as ureq's pool may keep the socket), or (b) use
+      a separate agent (own pool) for `public-only` requests so they always connect
+      through the checking resolver, and report the class from the map in (a).
+      (b) alone is the smallest secure fix; (a) also fixes the missing headers.
+      Tests: unit test with a loopback fixture: plain request, then `public-only` to
+      the same host:port -> 403 `policy`; two plain requests -> both carry
+      `X-Wire-Target-Class: loopback`. Acceptance: the two-step sequence above
+      against a rebuilt wire answers 403 on the second step.
+
+- [ ] **W-MEDIA1 [S] `file:` URLs: honour `Range` and name media types** (scratchy
+      QM1e needs it for local `<video src=clip.mp4>` pages and fixtures; R30).
+      Today `serve_file` reads the WHOLE file into memory (`std::fs::read`) and
+      answers `200` with no `Accept-Ranges`, ignoring `Range` (measured: a 64 MiB
+      file came back whole for `Range: bytes=0-1023`), and `.mp4/.webm/.ogg/.mp3/
+      .m4a/.opus/.wav` are `application/octet-stream`. Do: parse one
+      `bytes=a-b` / `bytes=a-` / `bytes=-n` range, answer `206` +
+      `Content-Range: bytes a-b/total` + `Accept-Ranges: bytes` reading only that
+      slice (seek + read_exact), `416` + `Content-Range: bytes */total` when out of
+      range, `Accept-Ranges: bytes` on plain `200`; stream large files instead of
+      `std::fs::read`; add the media types (video/mp4, video/webm, audio/ogg,
+      audio/mpeg, audio/mp4, audio/opus, audio/wav). Multi-range requests: answer
+      the full `200` (allowed by RFC 9110). Not a protocol change (HTTP semantics).
+      Tests: a temp file: `bytes=0-9`, `bytes=5-`, `bytes=-3`, past-end 416, no
+      Range -> 200 with Accept-Ranges; memory: a 64 MiB file with `bytes=0-1023`
+      returns 1024 bytes.
+
+- [ ] **W-MEDIA2 [S] A truncated body is indistinguishable from a complete one.**
+      `copy_body` returns `Ok` on an upstream read error, and the
+      `X-Wire-Max-Bytes` path ignores `read_to_end`'s error (`let _ =`); since wire
+      strips `Content-Length`, the client cannot tell a dropped upstream (or the
+      ureq total timeout, which INCLUDES reading the body: 20 s default) from the
+      real end. For ranged media reads the client can compare with `Content-Range`
+      (QM1e must), but other large bodies cannot. Option: when upstream sent a
+      `Content-Length` (and no compression was undone), pass it on as
+      `X-Wire-Upstream-Length: N` (protocol version 4); or, on the buffered
+      `X-Wire-Max-Bytes` path, which knows the whole body before writing headers,
+      answer `502` + `X-Wire-Error: truncated` instead of a short 2xx. Tests: a
+      fixture that announces 1000 bytes, sends 10 and closes. Low priority: nothing
+      has hit it yet.
+
+- [ ] **W-PERF1 [S, optional] Streaming copy is the throughput limit through wire.**
+      Measured (R30, loopback Python server, Python client): 4 MiB ranged GETs
+      ~60-90 MB/s through wire vs ~145-200 MB/s direct; 1-byte ranges ~9 ms vs
+      ~4-6 ms direct (about 5 ms of wire overhead per request: Unix accept, thread
+      spawn, one unbuffered `write!` per header line). Video needs ~1-4 MB/s, so
+      nothing needs this; if it ever matters: a 64 KiB `copy_body` buffer and a
+      `BufWriter` around the header writes. Measure before and after.

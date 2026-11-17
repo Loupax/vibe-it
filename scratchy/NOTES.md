@@ -3451,3 +3451,9 @@ Range requests), which keeps the request policy, cookie partitioning and CORS.
 `App::redraw` repaints and presents the whole page on every frame today, so
 video needs a damage-only redraw (QM1c). MSE/EME are out of reach (YouTube
 needs MSE).
+
+QM1c/QM1d (2026-11-17, R30): the media byte channel is repeated ranged GETs
+through wire (wire already forwards `Range` and passes 206/Content-Range; no
+protocol change), served to libmpv's stream_cb from a 1 MiB chunk cache
+(TODO.txt QM1e has the design). A full `App::redraw` is 67-101 ms on Wikipedia
+pages, so video frames get their own rect-only redraw (QM1g1).
