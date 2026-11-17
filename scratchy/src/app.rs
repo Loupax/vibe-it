@@ -2144,6 +2144,9 @@ impl App {
         self.scroll_offsets = saved.scroll_offsets;
         self.scroll_offset = saved.scroll_offset;
         self.js = saved.js;
+        // QM1g: mpv's frame callback fires once until a frame is taken; frames that
+        // arrived while the page was parked were dropped, so ask for one again.
+        crate::media_video::wake();
         for (id, result) in std::mem::take(&mut self.parked_net) {
             if let Some(js) = &self.js {
                 js.deliver_net(id, result);
