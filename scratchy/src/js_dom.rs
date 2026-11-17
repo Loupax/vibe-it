@@ -16,6 +16,9 @@ pub(crate) struct DomTable {
     /// of rcdom (its `template_contents` field changes serialization).
     shadow_of: HashMap<i32, i32>,
     shadow_host: HashMap<i32, i32>,
+    // QY21: defined custom element names / customized-built-in tags.
+    ce_names: std::collections::HashSet<String>,
+    ce_exts: std::collections::HashSet<String>,
 }
 
 impl DomTable {
@@ -420,6 +423,31 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             }
         }
         Some(out)
+    });
+    // QY21: `__d_ce_add(name, ext)` registers a definition (`ext` = the
+    // extended built-in tag or ""); `__d_ce_candidates(root)` walks `root`
+    // ONCE and returns, in tree order, the elements whose local name is a
+    // defined name, or that carry `is` and whose local name is an extended tag.
+    let t = table.clone();
+    native!("__d_ce_add", move |name: String, ext: String| {
+        let mut t = t.borrow_mut();
+        if ext.is_empty() { t.ce_names.insert(name); } else { t.ce_exts.insert(ext); }
+    });
+    let t = table.clone();
+    native!("__d_ce_candidates", move |root: i32| -> Vec<i32> {
+        let mut t = t.borrow_mut();
+        let Some(root) = t.get(root) else { return Vec::new() };
+        let mut all = Vec::new();
+        descendants(&root, &mut all);
+        let mut out = Vec::new();
+        for h in &all {
+            let NodeData::Element { name, .. } = &h.data else { continue };
+            let local = name.local.as_ref();
+            if t.ce_names.contains(local) || (t.ce_exts.contains(local) && element_attr(h, "is").is_some()) {
+                out.push(t.intern(h));
+            }
+        }
+        out
     });
     let t = table.clone();
     native!("__d_matches", move |id: i32, sel: String| -> Option<bool> {
@@ -2385,8 +2413,8 @@ const DOM_PRELUDE: &str = r#"
   // the CEReactions stack). Only the main document (id 0) is ever upgraded.
   // Cuts: adoptedCallback, `:defined`, no shadow DOM (attachShadow throws).
   var ceOn = false, ceByName = Object.create(null), ceByCtor = new Map(), ceWhen = Object.create(null);
-  var ceState = Object.create(null), ceConnFlag = Object.create(null), ceNConn = 0, ceSel = '';
-  var ceStats = { hooks: 0 };
+  var ceState = Object.create(null), ceConnFlag = Object.create(null), ceNConn = 0;
+  var ceStats = { hooks: 0, defineQueries: 0 };
   Object.defineProperty(g, '__ce_stats', { value: ceStats });
   var ceReport = function (e, what) {
     __scratchy_err('scratchy: js: uncaught exception in custom element ' + what + ': ' + (e && e.stack ? e.stack : String(e)));
@@ -2419,9 +2447,9 @@ const DOM_PRELUDE: &str = r#"
     }
   };
   var ceQueryDeep = function (id) {
-    var l = __d_query(id, ceSel, false);
+    var l = __d_ce_candidates(id);
     for (var i = 0; i < srHosts.length; i++) {
-      if (srUnder(srHosts[i], id)) l = l.concat(__d_query(__d_shadow_of(srHosts[i]), ceSel, false));
+      if (srUnder(srHosts[i], id)) l = l.concat(__d_ce_candidates(__d_shadow_of(srHosts[i])));
     }
     return l;
   };
@@ -2621,10 +2649,10 @@ const DOM_PRELUDE: &str = r#"
       connected: P.connectedCallback, disconnected: P.disconnectedCallback, changed: observed.length ? P.attributeChangedCallback : undefined };
     if (!ceOn) { ceOn = true; ceInstall(); }
     ceByName[name] = d; ceByCtor.set(ctor, d);
-    var names = Object.keys(ceByName);
-    ceSel = names.some(function (k) { return k.indexOf('.') >= 0; }) ? '*'
-      : names.map(function (k) { return ceByName[k].ext ? ceByName[k].ext + '[is]' : k; }).join(',');
-    var l = __d_query(0, ceSel, false);
+    __d_ce_add(name, ext || '');
+    // QY21: only the NEW name is looked up (the old all-names selector made define() quadratic).
+    ceStats.defineQueries++;
+    var l = __d_query(0, name.indexOf('.') >= 0 ? '*' : ext ? ext + '[is]' : name, false);
     for (var i = 0; i < l.length; i++) { if (!ceState[l[i]] && ceDefFor(l[i]) === d) ceUpgrade(l[i], d, true); }
     if (ceWhen[name]) { var w = ceWhen[name]; delete ceWhen[name]; w.resolve(ctor); }
   };

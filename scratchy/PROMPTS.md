@@ -6968,3 +6968,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > User said YES (2026-11-16) to translate-only `transform`: `translate()/translateX()/translateY()/translate3d()` (z ignored), percentages of the element's own border box, `none`; applied as a paint and hit-test offset only, no layout change; rotate/scale/matrix ignored. Check duckduckgo's settings drawer and bbc's nav drawer, plus wikipedia.org, en.wikipedia Main_Page and HN unchanged.
 
 **What changed:** src/css.rs (`parse_transform`, `Declarations::transform`), src/style.rs (`TranslateAxis`, `ComputedStyle::translate`, summed at cascade), src/layout.rs (`apply_transform_offset`: baked into laid-out geometry with `shift_laid_tree`, so paint, hit test, hover and click follow; in-flow boxes via `apply_relative_offset`, absolute/fixed in `resolve_positioned` after their final position), tests `qy18_*`, wpt-expected.txt (one newly passing test). Limits: static boxes are not stacking contexts; a transformed box is not a containing block for fixed descendants; `transform: inherit/initial` and `-webkit-transform` ignored; no scrollable-overflow effect.
+
+## QY21: custom-element define() is linear (2026-11-17)
+
+> QY6e `define()` rebuilt an ever-growing all-names selector and ran `__d_query` over the whole document on every define (86% of YouTube's CPU, R24). Query only the new name in `define`; replace the selector in `ceScan`/`ceCollect` with a native `__d_ce_candidates(root)` backed by a Rust name set. Measure youtube before/after.
+
+**What changed:** src/js_dom.rs (`__d_ce_add`, `__d_ce_candidates`, `DomTable::ce_names/ce_exts`, `define` one-name lookup, `__ce_stats.defineQueries` test hook), test `qy21_*` in src/tests.rs.

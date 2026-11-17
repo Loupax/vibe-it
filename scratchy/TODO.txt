@@ -165,7 +165,7 @@ script finishes after 12.7 s of run (host 11.2 s = `__d_query` 1646 calls
 `getComputedStyle` 67 calls 7.6 ms; no relayout is ever triggered (JS has
 no geometry). So: not the engine, not our hooks in general, ONE hook.
 
-- [ ] QY21 [S] (P2, YouTube load wall) QY6e `define()` is quadratic. Root
+- [x] QY21 [S] (P2, YouTube load wall) QY6e `define()` is quadratic. Root
       cause: `CER.prototype.define` (js_dom.rs, QY6e f887f67) rebuilds
       `ceSel` = every defined name joined with ',' and runs
       `__d_query(0, ceSel)` over the whole document on EVERY define;

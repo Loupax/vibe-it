@@ -16151,3 +16151,40 @@ fn qsd3_custom_element_in_shadow_and_event() {
     assert!(log.contains(&"log:disc".to_string()), "{log:?}");
     assert_eq!(log.iter().filter(|l| *l == "log:conn").count(), 2, "{log:?}");
 }
+
+// ---- QY21: define() looks up only the new name; scans use the native candidate walk.
+
+#[test]
+fn qy21_define_is_linear_and_upgrade_order_unchanged() {
+    let mut html = String::from("<html><body><div id=root>");
+    for i in 0..1500 {
+        if i % 5 == 0 {
+            html.push_str(&format!("<x-n{} id=e{}></x-n{}>", i % 600, i, i % 600));
+        } else {
+            html.push_str(&format!("<span id=e{}></span>", i));
+        }
+    }
+    html.push_str("<button id=b is=x-btn></button></div></body></html>");
+    let log = run_in_html(
+        &html,
+        r#"const order = [];
+         for (let i = 0; i < 600; i++) {
+           customElements.define('x-n' + i, class extends HTMLElement { connectedCallback() { order.push(this.id); } });
+         }
+         customElements.define('x-btn', class extends HTMLButtonElement { connectedCallback() { order.push('btn'); } }, { extends: 'button' });
+         console.log(__ce_stats.defineQueries, order.length);
+         const root = document.getElementById('root');
+         const frag = document.createElement('div');
+         for (let i = 0; i < 300; i++) { const e = document.createElement('x-n' + i); e.id = 'n' + i; frag.appendChild(e); }
+         root.appendChild(frag);
+         console.log(order.length, order[order.length - 1]);
+         const t = document.createElement('div');
+         t.innerHTML = '<x-n1 id=h1></x-n1><p><x-n2 id=h2></x-n2></p>';
+         root.appendChild(t);
+         console.log(order.slice(-2).join(','));"#,
+    );
+    // 601 defines -> exactly 601 one-name queries (not 601 growing selectors).
+    assert_eq!(log[0], "log:601 301", "{log:?}");
+    assert_eq!(log[1], "log:601 n299", "{log:?}");
+    assert_eq!(log[2], "log:h1,h2", "{log:?}");
+}
