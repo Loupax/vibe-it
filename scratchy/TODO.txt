@@ -1301,7 +1301,7 @@ IntersectionObserver and matchMedia are not used by any of the site's scripts.
       none). vim.js's `line.focus()` then `document.activeElement === line`
       is false today (undefined). Test: `i.focus(); document.activeElement
       === i`, after `blur()` it is body.
-- [ ] QY39a [S] (user 2026-11-17) wire: let scratchy override wire's User-Agent. Add a
+- [x] (DONE 2026-11-17, hash 27ce684; wire reinstall + restart needed, scratchy checks `X-Wire-Features: ua`) QY39a [S] (user 2026-11-17) wire: let scratchy override wire's User-Agent. Add a
       request header (e.g. `X-Wire-User-Agent: <ua>`, header-gated like the other
       X-Wire-* controls and documented in wire/README.md) or honour the request's own
       `User-Agent` when scratchy sends one; wire's honest default

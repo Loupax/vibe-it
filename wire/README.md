@@ -31,10 +31,18 @@ never forwarded upstream. Without them wire behaves as a plain proxy.
 | `X-Wire-Jar: scratchy` | request | use the cookie jar |
 | `X-Wire-Top-Site`, `X-Wire-Nav`, `X-Wire-Initiator-Site` | request | cookie partition and SameSite context |
 | `X-Wire-Cookie-Op`, `X-Wire-Cookie-Url` | request | the `document.cookie` control channel |
+| `X-Wire-User-Agent: <ua>` | request | upstream `User-Agent` for this request (takes precedence over the request's own `User-Agent`); never forwarded as such |
+| `User-Agent` | request | forwarded upstream when no `X-Wire-User-Agent` is given; with neither, wire sends its honest default `wire/0.1 (+https://github.com/Loupax/vibe-it) ...` |
+| `X-Wire-Features: ua` | response | comma-separated optional features, on every response (absent on an older wire); `ua` = the User-Agent override above |
 | `X-Wire-Version` | response | protocol version (currently 3), on every response |
 | `X-Wire-Final-Url`, `X-Wire-Target-Class`, `X-Wire-Hop-Classes` | response | URL after redirects, address classes |
-| `X-Wire-Error` | response | on wire-made errors (`1`, `too-large`, `policy`, `cookie-control`) |
+| `X-Wire-Error` | response | on wire-made errors (`1`, `too-large`, `policy`, `cookie-control`, `bad-user-agent`) |
 | `X-Wire-Cookies: on/off` | response | jar used / disabled |
+
+The chosen User-Agent must be printable ASCII (space allowed), at most 512
+bytes; anything else is `400` + `X-Wire-Error: bad-user-agent` and is never
+sent. It is applied on every redirect hop, on the jar path and on the
+`public-only` pool.
 
 `public-only` requests use their own connection pool, so reusing a pooled
 connection can never skip the check; class headers are remembered per

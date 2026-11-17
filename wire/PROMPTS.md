@@ -221,3 +221,9 @@ Result: see wire/NOTES.md "The cookie jar". Added `X-Wire-Initiator-Site` (optio
 > W-POOL1 (security): `X-Wire-Policy: public-only` and class headers live in the resolver, which ureq skips on pooled connections. Implement (b) a separate agent/pool for public-only requests and (a) a bounded, expiring per-host:port class map filled by the resolver, correct for redirects and the jar path manual agent. Tests with a keep-alive loopback fixture; no protocol bump; no cargo install, own socket only.
 
 Result: `Shared::public_agent`/`public_manual_agent`, `CLASS_MAP`, `reconcile_hops`; see wire/NOTES.md. Not done: intermediate pooled redirect hops on the non-jar path are not listed in `X-Wire-Hop-Classes` (ureq exposes no history); scheme is not part of the map key (resolver only sees host:port).
+
+## qy39a — per-request User-Agent override
+
+> QY39a (user decision 2026-11-17): let scratchy override wire's UA per request. The request's own `User-Agent` is forwarded; `X-Wire-User-Agent` (control header, never forwarded) takes precedence; neither -> wire's honest default. Validate (printable ASCII, max 512, no CR/LF -> 400 `X-Wire-Error: bad-user-agent`), apply on every hop, the jar path and the public-only pool. Additive `X-Wire-Features: ua` response header (version stays 3). Loopback-fixture tests, own socket only, no cargo install.
+
+Result: `resolve_user_agent`, `write_bad_ua_response`, `WIRE_FEATURES` in `src/main.rs`; README header table; scratchy/NETWORKING.md line. Not done: the public-only test cannot reach a public host, so it checks the refusal and the shared request-builder path only; scratchy side is QY39b.

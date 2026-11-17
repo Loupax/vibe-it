@@ -132,6 +132,11 @@ fn agent_builder() -> ureq::AgentBuilder {
 /// wire (no such header) from a new one before relying on the caps.
 const WIRE_VERSION: &str = "3";
 
+/// Comma-separated optional features, sent as `X-Wire-Features` on every
+/// response (additive; absent on an older wire). `ua`: per-request User-Agent
+/// override (`X-Wire-User-Agent` / the request's own `User-Agent`).
+const WIRE_FEATURES: &str = "ua";
+
 /// The one jar name scratchy may select with `X-Wire-Jar` (QF-D2a: ONE shared
 /// jar; a later `--profile NAME` changes this single value).
 const JAR_NAME: &str = "scratchy";
@@ -626,7 +631,39 @@ fn is_request_header_to_skip(name: &str) -> bool {
     let n = name.to_ascii_lowercase();
     // `X-Wire-*` is the scratchy<->wire control channel (caps, policy):
     // never forwarded upstream.
-    matches!(n.as_str(), "host" | "content-length" | "connection") || n.starts_with("x-wire-")
+    // `User-Agent` is set separately from `resolve_user_agent` (QY39a).
+    matches!(n.as_str(), "host" | "content-length" | "connection" | "user-agent") || n.starts_with("x-wire-")
+}
+
+/// Longest accepted per-request User-Agent (QY39a).
+const MAX_UA_LEN: usize = 512;
+
+/// The upstream User-Agent for a request (QY39a): `X-Wire-User-Agent` wins, then
+/// the request's own `User-Agent`; `Ok(None)` keeps wire's honest default.
+/// Printable ASCII (space allowed), at most `MAX_UA_LEN` bytes; anything else
+/// (CR/LF, controls, non-ASCII, oversize) is `Err` and is never sent upstream.
+fn resolve_user_agent(headers: &[(String, String)]) -> Result<Option<String>, ()> {
+    let find = |n: &str| headers.iter().find(|(h, _)| h.eq_ignore_ascii_case(n)).map(|(_, v)| v.trim());
+    let Some(ua) = find("x-wire-user-agent").or_else(|| find("user-agent")).filter(|v| !v.is_empty()) else {
+        return Ok(None);
+    };
+    if ua.len() > MAX_UA_LEN || !ua.bytes().all(|b| (0x20..=0x7e).contains(&b)) {
+        return Err(());
+    }
+    Ok(Some(ua.to_string()))
+}
+
+/// 400 + `X-Wire-Error: bad-user-agent`.
+fn write_bad_ua_response(w: &mut impl Write) -> std::io::Result<u16> {
+    write_status_and_headers(
+        w,
+        400,
+        "Bad Request",
+        &[("Content-Type".to_string(), "text/plain".to_string()), ("X-Wire-Error".to_string(), "bad-user-agent".to_string())],
+    )?;
+    w.write_all(b"wire: invalid User-Agent (printable ASCII, max 512 bytes)")?;
+    w.flush()?;
+    Ok(400)
 }
 
 /// Response header names this file strips before forwarding — each one
@@ -723,12 +760,16 @@ fn execute_with(agent: &ureq::Agent, shared: &Shared, request: &ParsedRequest, w
     if request.url.scheme() == "file" {
         return serve_file(request, &caps, w);
     }
+    let Ok(ua) = resolve_user_agent(&request.headers) else {
+        write_bad_ua_response(w)?;
+        return Ok(());
+    };
     let use_jar = shared.enabled
         && header(&request.headers, "x-wire-jar") == Some(JAR_NAME)
         && !header(&request.headers, "x-wire-cookies").is_some_and(|v| v.eq_ignore_ascii_case("off"));
     if use_jar {
         COOKIES_HDR.with(|c| c.set("on"));
-        return execute_with_jar(shared, request, &caps, w);
+        return execute_with_jar(shared, request, &caps, ua.as_deref(), w);
     }
     TRACKER.with(|t| *t.borrow_mut() = Tracker { public_only: caps.public_only, ..Tracker::default() });
     // Redirect limits are agent-level in ureq: only a request asking for a
@@ -746,6 +787,9 @@ fn execute_with(agent: &ureq::Agent, shared: &Shared, request: &ParsedRequest, w
     let mut req = agent.request(&request.method, request.url.as_str());
     if let Some(t) = caps.timeout {
         req = req.timeout(t);
+    }
+    if let Some(ua) = &ua {
+        req = req.set("User-Agent", ua);
     }
     for (name, value) in &request.headers {
         if !is_request_header_to_skip(name) {
@@ -791,7 +835,7 @@ fn execute_with(agent: &ureq::Agent, shared: &Shared, request: &ParsedRequest, w
 /// The jar is authoritative: a client-supplied `Cookie` header is dropped.
 /// `Set-Cookie` lines are stripped from the answer (the jar is wire's;
 /// scratchy does not need them). Timeouts apply per hop in this path.
-fn execute_with_jar(shared: &Shared, request: &ParsedRequest, caps: &Caps, w: &mut impl Write) -> std::io::Result<()> {
+fn execute_with_jar(shared: &Shared, request: &ParsedRequest, caps: &Caps, ua: Option<&str>, w: &mut impl Write) -> std::io::Result<()> {
     TRACKER.with(|t| *t.borrow_mut() = Tracker { public_only: caps.public_only, ..Tracker::default() });
     let h = &request.headers;
     let top = header(h, "x-wire-top-site");
@@ -819,6 +863,9 @@ fn execute_with_jar(shared: &Shared, request: &ParsedRequest, caps: &Caps, w: &m
         let mut req = manual.request(&method, url.as_str());
         if let Some(t) = caps.timeout {
             req = req.timeout(t);
+        }
+        if let Some(ua) = ua {
+            req = req.set("User-Agent", ua);
         }
         let drop_body_headers = body.is_empty() && request.method != method;
         for (name, value) in h {
@@ -1058,6 +1105,7 @@ fn write_synthetic_error_response(w: &mut impl Write, message: &str) -> std::io:
 fn write_status_and_headers(w: &mut impl Write, status: u16, reason: &str, headers: &[(String, String)]) -> std::io::Result<()> {
     write!(w, "HTTP/1.1 {status} {reason}\r\n")?;
     write!(w, "X-Wire-Version: {WIRE_VERSION}\r\n")?;
+    write!(w, "X-Wire-Features: {WIRE_FEATURES}\r\n")?;
     let cookies_hdr = COOKIES_HDR.with(Cell::get);
     if !cookies_hdr.is_empty() {
         write!(w, "X-Wire-Cookies: {cookies_hdr}\r\n")?;
@@ -2016,5 +2064,133 @@ mod tests {
         class_map_put("lookup-test.invalid:1", "private");
         assert_eq!(class_map_get("lookup-test.invalid:1"), Some("private"));
         assert_eq!(class_map_get("never-seen.invalid:1"), None);
+    }
+
+    // ---- QY39a: per-request User-Agent override ----
+
+    const DEFAULT_UA: &str = "wire/0.1 (+https://github.com/Loupax/vibe-it) scratchy's real-networking daemon";
+
+    /// The User-Agent line a fixture saw (`None` when it got none).
+    fn ua_of(req_text: &str) -> Option<String> {
+        req_text.lines().find_map(|l| {
+            let (n, v) = l.split_once(':')?;
+            n.eq_ignore_ascii_case("user-agent").then(|| v.trim().to_string())
+        })
+    }
+
+    /// Fixture that redirects /r -> /end and answers everything else 200.
+    fn ua_server() -> (std::net::SocketAddr, std::sync::mpsc::Receiver<String>) {
+        spawn_dynamic(|text, addr| {
+            if text.starts_with("GET /r ") {
+                format!("HTTP/1.1 302 Found\r\nLocation: http://{addr}/end\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").into_bytes()
+            } else {
+                ok_text("ok")
+            }
+        })
+    }
+
+    #[test]
+    fn user_agent_default_when_nothing_is_sent() {
+        let (addr, rx) = ua_server();
+        let r = execute_for_test(&build_agent(), &get_request(addr, "/"));
+        assert_eq!(r.status, 200);
+        assert_eq!(ua_of(&rx.recv().unwrap()).as_deref(), Some(DEFAULT_UA));
+    }
+
+    #[test]
+    fn requests_own_user_agent_is_forwarded() {
+        let (addr, rx) = ua_server();
+        execute_for_test(&build_agent(), &with_headers(get_request(addr, "/"), &[("User-Agent", "Mozilla/5.0 scratchy")]));
+        assert_eq!(ua_of(&rx.recv().unwrap()).as_deref(), Some("Mozilla/5.0 scratchy"));
+    }
+
+    #[test]
+    fn x_wire_user_agent_wins_and_no_x_wire_header_reaches_upstream() {
+        let (addr, rx) = ua_server();
+        let r = execute_for_test(
+            &build_agent(),
+            &with_headers(get_request(addr, "/"), &[("User-Agent", "plain"), ("X-Wire-User-Agent", "Override/9 (X11)")]),
+        );
+        assert_eq!(r.status, 200);
+        let text = rx.recv().unwrap();
+        assert_eq!(ua_of(&text).as_deref(), Some("Override/9 (X11)"));
+        assert_eq!(text.to_ascii_lowercase().matches("user-agent").count(), 1, "exactly one UA line: {text}");
+        assert!(!text.to_ascii_lowercase().contains("x-wire-"), "leaked: {text}");
+        // alone, without a plain User-Agent
+        execute_for_test(&build_agent(), &with_headers(get_request(addr, "/"), &[("x-wire-user-agent", "Only/1")]));
+        assert_eq!(ua_of(&rx.recv().unwrap()).as_deref(), Some("Only/1"));
+    }
+
+    #[test]
+    fn invalid_user_agents_are_400_and_never_sent() {
+        let (addr, rx) = ua_server();
+        let long = "a".repeat(MAX_UA_LEN + 1);
+        let ok_max = "a".repeat(MAX_UA_LEN);
+        for bad in ["evil\r\nX-Injected: 1", "evil\nx", "tab\there", "caf\u{e9}", long.as_str()] {
+            for name in ["X-Wire-User-Agent", "User-Agent"] {
+                let r = execute_for_test(&build_agent(), &with_headers(get_request(addr, "/"), &[(name, bad)]));
+                assert_eq!((r.status, hdr(&r, "X-Wire-Error")), (400, Some("bad-user-agent")), "{name}: {bad:?}");
+                assert_eq!(hdr(&r, "X-Wire-Version"), Some("3"));
+            }
+        }
+        assert!(rx.try_recv().is_err(), "an invalid UA must never reach upstream");
+        let r = execute_for_test(&build_agent(), &with_headers(get_request(addr, "/"), &[("X-Wire-User-Agent", &ok_max)]));
+        assert_eq!(r.status, 200);
+        assert_eq!(ua_of(&rx.recv().unwrap()).as_deref(), Some(ok_max.as_str()));
+    }
+
+    #[test]
+    fn user_agent_is_kept_on_every_redirect_hop() {
+        let (addr, rx) = ua_server();
+        let r = execute_for_test(&build_agent(), &with_headers(get_request(addr, "/r"), &[("X-Wire-User-Agent", "Hop/1")]));
+        assert_eq!(hdr(&r, "X-Wire-Final-Url"), Some(format!("http://{addr}/end").as_str()));
+        assert_eq!(ua_of(&rx.recv().unwrap()).as_deref(), Some("Hop/1"));
+        assert_eq!(ua_of(&rx.recv().unwrap()).as_deref(), Some("Hop/1"));
+        // a non-default redirect limit uses its own agent: still honoured
+        execute_for_test(&build_agent(), &with_headers(get_request(addr, "/r"), &[("User-Agent", "Own/2"), ("X-Wire-Max-Redirects", "2")]));
+        assert_eq!(ua_of(&rx.recv().unwrap()).as_deref(), Some("Own/2"));
+        assert_eq!(ua_of(&rx.recv().unwrap()).as_deref(), Some("Own/2"));
+    }
+
+    #[test]
+    fn jar_path_honours_the_user_agent_on_every_hop() {
+        let (addr, rx) = ua_server();
+        let shared = Shared::new(true);
+        run(&shared, with_headers(get_request(addr, "/r"), &[JAR, ("X-Wire-User-Agent", "Jar/1")]));
+        assert_eq!(ua_of(&rx.recv().unwrap()).as_deref(), Some("Jar/1"));
+        assert_eq!(ua_of(&rx.recv().unwrap()).as_deref(), Some("Jar/1"));
+        run(&shared, with_headers(get_request(addr, "/"), &[JAR, ("User-Agent", "Jar/2")]));
+        assert_eq!(ua_of(&rx.recv().unwrap()).as_deref(), Some("Jar/2"));
+        run(&shared, with_headers(get_request(addr, "/"), &[JAR]));
+        assert_eq!(ua_of(&rx.recv().unwrap()).as_deref(), Some(DEFAULT_UA));
+        let r = run(&shared, with_headers(get_request(addr, "/"), &[JAR, ("User-Agent", "bad\r\nx")]));
+        assert_eq!((r.status, hdr(&r, "X-Wire-Error")), (400, Some("bad-user-agent")));
+    }
+
+    #[test]
+    fn public_only_pool_path_would_honour_the_user_agent() {
+        // public-only refuses the loopback fixture, so check the request
+        // builder indirectly: the refusal must not depend on the UA, and the
+        // plain pool with the same UA still works afterwards.
+        let (addr, rx) = ua_server();
+        let shared = Shared::new(true);
+        let mut h = PO.to_vec();
+        h.push(("X-Wire-User-Agent", "Pub/1"));
+        let r = run_on(&build_agent(), &shared, with_headers(get_request(addr, "/"), &h));
+        assert_eq!((r.status, hdr(&r, "X-Wire-Error")), (403, Some("policy")));
+        assert!(rx.try_recv().is_err());
+        let r = run_on(&build_agent(), &shared, with_headers(get_request(addr, "/"), &[("X-Wire-User-Agent", "Pub/1")]));
+        assert_eq!(r.status, 200);
+        assert_eq!(ua_of(&rx.recv().unwrap()).as_deref(), Some("Pub/1"));
+    }
+
+    #[test]
+    fn every_response_advertises_the_ua_feature() {
+        let (addr, _rx) = ua_server();
+        assert_eq!(hdr(&execute_for_test(&build_agent(), &get_request(addr, "/")), "X-Wire-Features"), Some("ua"));
+        let down = get_request("127.0.0.1:1".parse().unwrap(), "/");
+        assert_eq!(hdr(&execute_for_test(&build_agent(), &down), "X-Wire-Features"), Some("ua"));
+        let bad = with_headers(get_request(addr, "/"), &[("X-Wire-User-Agent", "a\r\nb")]);
+        assert_eq!(hdr(&execute_for_test(&build_agent(), &bad), "X-Wire-Features"), Some("ua"));
     }
 }

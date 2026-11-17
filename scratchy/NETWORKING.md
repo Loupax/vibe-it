@@ -133,7 +133,10 @@ scratchy reads `X-Wire-Version` on every response. Version 2 added the policy
 caps, 3 the cookie jar. A wire with no such header (older than 2) makes
 scratchy fail closed: page networking is off for the rest of the page, with
 the one line `scratchy: page networking disabled: wire is too old (restart
-it)`. A wire older than 3 means cookies are unavailable (logged once).
+it)`. A wire older than 3 means cookies are unavailable (logged once). Every response
+also carries `X-Wire-Features` (comma list; `ua` = per-request User-Agent
+override via `X-Wire-User-Agent` or the request's own `User-Agent`); scratchy
+must see `ua` there before relying on a UA override (an older wire ignores it).
 
 ## Not implemented
 
