@@ -689,7 +689,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       f(undefined) === undefined). Accept (window, real URL): mini-guide
       shows the Startseite/Shorts/Abos/Mein YouTube icons (R28 stand-in
       screenshot). Unblocks: every falsy Polymer binding on Google sites.
-- [x] QY41 [S] (P1, R28) (done, commit HASH_QY41) max-content of a box whose content holds an inline-block
+- [x] QY41 [S] (P1, R28) (done, commit 0880d95) max-content of a box whose content holds an inline-block
       (or any `Embedded` inline item) with a percentage `width` is 1 000 000 px.
       Root cause: layout.rs `measure_mixed_inline`, `InlineItem::Embedded` arm
       in `trial` mode resolves the item's `width: N%` against `content_w`,
