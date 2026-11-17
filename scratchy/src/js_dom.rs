@@ -843,6 +843,11 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         r.borrow_mut().scroll = Some(ScrollReq { x: f(x), y: f(y), relative });
     });
     let _ = ctx.eval::<(), _>(DOM_PRELUDE);
+    // QY40: give `document.all` the [[IsHTMLDDA]] slot (falsy, typeof 'undefined').
+    if let Ok(v) = ctx.globals().get::<_, rquickjs::Value>("__d_all") {
+        unsafe { rquickjs::qjs::JS_SetIsHTMLDDA(ctx.as_raw().as_ptr(), v.as_raw()) };
+    }
+    let _ = ctx.globals().remove("__d_all");
     table
 }
 
@@ -1945,6 +1950,35 @@ const DOM_PRELUDE: &str = r#"
   def(doc, 'childNodes', Object.getOwnPropertyDescriptor(NodeProto, 'childNodes').get);
   doc.getElementById = function (id) { return wrap(__d_byid(String(id), this.__id)); };
   def(doc, 'documentElement', function () { return wrap(__d_special(0, this.__id)); });
+  // QY40: `document.all`, an HTMLAllCollection with [[IsHTMLDDA]] (marked from Rust
+  // right after the prelude: falsy, typeof 'undefined', == null). A Proxy over a
+  // function so it is callable; every read lists the elements afresh (live).
+  var allList = function () { return wrapAll(q(doc.__id, '*', false)); };
+  var allItem = function (i) { var l = allList(); i = Number(i); return (i >= 0 && i < l.length && i % 1 === 0 ? l[i] : null); };
+  var allNamed = function (n) {
+    n = String(n);
+    var l = allList().filter(function (e) {
+      return e.getAttribute('id') === n || (/^(a|applet|button|embed|form|iframe|img|input|map|meta|object|select|textarea|frame|frameset)$/i.test(e.localName) && e.getAttribute('name') === n);
+    });
+    return l.length === 0 ? null : l.length === 1 ? l[0] : l;
+  };
+  var isIdx = function (k) { return typeof k === 'string' && /^\d+$/.test(k); };
+  var allColl = new Proxy(function all() {}, {
+    apply: function (t, th, a) { return a.length ? (typeof a[0] === 'string' && !isIdx(a[0]) ? allNamed(a[0]) : allItem(a[0])) : null; },
+    get: function (t, k) {
+      if (k === 'length') return allList().length;
+      if (k === 'item') return function (i) { return typeof i === 'string' && !isIdx(i) ? allNamed(i) : allItem(i); };
+      if (k === 'namedItem') return allNamed;
+      if (k === Symbol.iterator) return function () { return allList()[Symbol.iterator](); };
+      if (k === Symbol.toStringTag) return 'HTMLAllCollection';
+      if (isIdx(k)) return allItem(k) || undefined;
+      if (typeof k === 'string') { var n = allNamed(k); if (n !== null) return n; }
+      return Reflect.get(t, k);
+    },
+    has: function (t, k) { return isIdx(k) ? allItem(k) !== null : k in t || k === 'length' || k === 'item' || k === 'namedItem'; },
+  });
+  Object.defineProperty(doc, 'all', { get: function () { return allColl; }, configurable: true, enumerable: true });
+  Object.defineProperty(g, '__d_all', { value: allColl, configurable: true });
   // QSD1: Document as ParentNode (same accessors as Element/DocumentFragment).
   ['children', 'firstElementChild', 'lastElementChild', 'childElementCount'].forEach(function (k) {
     Object.defineProperty(doc, k, Object.getOwnPropertyDescriptor(ElementProto, k));

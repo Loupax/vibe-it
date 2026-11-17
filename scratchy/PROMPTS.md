@@ -7064,3 +7064,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Item QC1. Agents quote different clippy warning counts (48, 49, 83) and nobody diffed against a baseline. Define one reproducible command and counting method, measure at d024bef and the merged PRs since, find which PRs added warnings, fix the cheap ones.
 
 **What changed:** new `tools/clippy-count.sh` (distinct lint + file:line:col from `cargo clippy --release --all-targets --message-format=json`), AGENTS.md checklist step 3. Baseline d024bef 78; main 81; the +3 came from #220 (dead_code CLI_OPTIONS), #228 (unused_doc_comments on a cfg(test) thread_local), #230 (needless_range_loop in js_geom.rs); fixed all three without behaviour change (78 now). Remaining 78 are old style lints: TODO QC2.
+
+## QY40: `document.all` as an [[IsHTMLDDA]] HTMLAllCollection (2026-11-17)
+
+> Item QY40 (R28). `document.all` must exist as an HTMLAllCollection with [[IsHTMLDDA]] behaviour (falsy, typeof 'undefined', == null, still indexable/callable/`item`/`namedItem`/`length`) so polymer-resin's `if(!T && T!==document.all)` passes undefined bindings through instead of "zClosurez".
+
+**What changed:** js_dom.rs: DOM_PRELUDE builds `document.all` as a Proxy over a function (live: every read re-queries `*`; `length`, `item`, `namedItem`, index, call, iterator), exposed once as a temporary global that Rust marks with `JS_SetIsHTMLDDA` right after the prelude and then removes. Test `qy40_document_all_is_htmldda`. Real YouTube: mini-guide entries are no longer `display:none` (rows laid out taller), but the icon glyphs still do not paint (icon render jobs hit the 500 ms callback budget, QY33). wikipedia/en.wikipedia/HN: 0 js errors, screenshots pixel-identical.
