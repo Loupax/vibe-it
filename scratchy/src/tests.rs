@@ -17035,4 +17035,28 @@ fn qy44c_disabled_sheet_and_rule_style_mutation() {
     assert_ne!(c, Some(TextColor::rgb(0, 0, 255)));
     let (c, l, _) = qsd4_color(QY44C_HTML, "var sh=document.getElementById('s').sheet; sh.cssRules[0].style.color='#ff0000'; console.log(sh.cssRules[0].cssText);");
     assert_eq!(c, Some(TextColor::rgb(255, 0, 0)), "{l:?}");
+
+// ---------- QJ9: window.open / close / alert / confirm / prompt ----------
+
+#[test]
+fn qj9_window_open_close_dialogs_are_inert_and_log_once() {
+    let log = run_in_html(
+        "<html><body></body></html>",
+        "console.log(typeof window.open, typeof window.close, typeof alert, typeof confirm, typeof prompt);\
+         console.log(window.open('/x', '_blank', 'noopener'));\
+         console.log(window.close());\
+         console.log(alert('hi'), confirm('sure?'), prompt('name?'));\
+         console.log('still running');",
+    );
+    assert_eq!(log[0], "log:function function function function function", "{log:?}");
+    assert_eq!(log[1], "error:scratchy: js: not implemented: window.open \"/x target=_blank features=noopener\"", "{log:?}");
+    assert_eq!(log[2], "log:null", "{log:?}");
+    assert_eq!(log[3], "error:scratchy: js: not implemented: window.close", "{log:?}");
+    assert_eq!(log[4], "log:undefined", "{log:?}");
+    assert!(log[5].contains("window.alert \"hi\""), "{log:?}");
+    assert!(log[6].contains("window.confirm"), "{log:?}");
+    assert!(log[7].contains("window.prompt"), "{log:?}");
+    assert_eq!(log[8], "log:undefined false null", "{log:?}");
+    assert_eq!(log[9], "log:still running", "{log:?}");
+    assert_eq!(log.len(), 10, "{log:?}");
 }

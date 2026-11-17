@@ -1175,7 +1175,7 @@ IntersectionObserver and matchMedia are not used by any of the site's scripts.
       the 500 ms callback budget), what can be skipped (compositor-only, scroll-driven,
       view timelines), and ranked Sonnet items with sizes/tests/acceptance. Also check
       `@font-face` (web fonts) in the same survey as a separate item. Docs only.
-- [ ] QJ9 [S] (P3) `window.open(url, target)` and `window.close()`: no tabs,
+- [x] QJ9 [S] DONE HASH_QJ9 (log-only; `open` _self navigation waits for QF11) (P3) `window.open(url, target)` and `window.close()`: no tabs,
       so `open` navigates the current page (through QF11) or logs `not
       implemented` and returns null; `close` logs and does nothing. vim.js
       Enter on a post calls `window.open(href, "_blank", "noopener")`;
