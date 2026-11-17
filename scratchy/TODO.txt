@@ -16,6 +16,15 @@ QUEUE — ranked work order (reviewed 2026-11-12, re-planned 2026-11-14)
 
 --- CURRENT STATUS (2026-11-16, docs audit; READ THIS FIRST) -------------
 
+USER ANSWERS 2026-11-17 (late night): (a) PR #232 (QW6, body background on the canvas)
+KEEP, despite its accepted WPT pass->fail `css/css-backgrounds/animations/background-color-
+animation-in-body.html` (accidental pass; the test needs CSS animations, which scratchy
+lacks: investigation QAN1 filed). (b) QY39-D DECIDED: scratchy must be able to override
+wire's User-Agent: QY39a (wire accepts a per-request UA) + QY39b (scratchy `--user-agent`
+flag, default unchanged). (c) QM1-D D1 DECIDED: in-page video, using mpv (libmpv, A1);
+log it in the console/status as "media: mpv" when a <video> is attached. D4 DECIDED: ALL
+media bytes go through wire, always (the player never fetches on its own). D2, D3, D5-D8
+and forms stay open: to be discussed with the user.
 USER ANSWERS 2026-11-17 (night): QJ11 DECIDED: pages may override the user-agent
 defaults, so page JS may cancel ANY key (no reserved set); the user will turn vim
 mode off on social.loupax.com for themself (localStorage.vimOff). Cookie control
@@ -126,7 +135,7 @@ WAITING FOR USER (skip until answered):
   `X-Wire-Cookie-Op` channel, and how is it shared? (hook
   `control_authorized`; QF14b2 (f)). Also QF14b2 (d) `--profile` jar name
   and (e) tracker-list blocking: want them, and which list?
-- QY39-D (R26): wire sends `User-Agent: wire/0.1 (+https://github.com/Loupax/vibe-it)
+- (DECIDED 2026-11-17: scratchy may override wire's UA, QY39a/QY39b) QY39-D (R26): wire sends `User-Agent: wire/0.1 (+https://github.com/Loupax/vibe-it)
   scratchy's real-networking daemon`; YouTube classifies it as a bot (`cbrand=robot,
   cmodel=bot or crawler`) and serves its ES5 + polyfills variant. Keep the honest UA,
   or send a browser-like one for pages (and which)? Nothing is blocked on it today.
@@ -283,7 +292,12 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       control protocol), E (vlc, gstreamer: not installed; GStreamer waylandsink
       has the same in-process constraint and is a heavier dependency).
       Children (WAITING FOR USER unless marked READY):
-- [ ] QM1-D WAITING FOR USER (design first; media is "Off limits" in AGENTS.md)
+- [ ] QM1-D PARTLY ANSWERED 2026-11-17: D1 = in-page video using mpv (libmpv A1; the
+      page console/status logs "media: mpv"; an extra "open in mpv" action is not asked
+      for), D4 = all bytes through wire, always. STILL WAITING FOR USER: D2, D3, D5-D8
+      (discuss together). Media is still "Off limits" in AGENTS.md until the design is
+      agreed; QM1b/QM1e/QM1f/QM1g stay gated on D2/D3/D5-D7.
+      (design first; media is "Off limits" in AGENTS.md)
       product questions, answers gate everything below except QM1a/QM1c/QM1d:
       D1 In-page video (A1) at all, or first only a "open in mpv" action on the
          placeholder (C: own dwl tile, mpv does its own networking unless D4 says
@@ -973,6 +987,36 @@ IntersectionObserver and matchMedia are not used by any of the site's scripts.
       none). vim.js's `line.focus()` then `document.activeElement === line`
       is false today (undefined). Test: `i.focus(); document.activeElement
       === i`, after `blur()` it is body.
+- [ ] QY39a [S] (user 2026-11-17) wire: let scratchy override wire's User-Agent. Add a
+      request header (e.g. `X-Wire-User-Agent: <ua>`, header-gated like the other
+      X-Wire-* controls and documented in wire/README.md) or honour the request's own
+      `User-Agent` when scratchy sends one; wire's honest default
+      (`wire/0.1 (+https://github.com/Loupax/vibe-it ...)`) stays when nothing is sent.
+      Bump the protocol note, never forward other X-Wire-* headers upstream. Test: a request
+      with the override reaches a local test server with that exact UA; without it the
+      default UA. Lives in wire/ (see wire/TODO.txt).
+- [ ] QY39b [S] (user 2026-11-17, after QY39a) scratchy `--user-agent <string>` flag (and
+      the help page / CLI_OPTIONS list) that sets the User-Agent sent through wire for
+      page loads, sub-resources, fetch/XHR; default unchanged (wire's own). Also expose it
+      as `navigator.userAgent` consistently (today the prelude's value should match what
+      is sent). Test: parse the flag, header present on the request builder, navigator.
+      userAgent equals it. Consider a few named presets later (not now).
+- [ ] QAN1 [Opus, investigate only] (user 2026-11-17: "make sure the feature is in the
+      todo, if not create an action item for Opus") CSS animations and transitions:
+      `@keyframes`, `animation-*` and `transition-*` longhands, `animation` /
+      `transition` shorthands, computed-value interpolation, timing functions,
+      fill-mode, `animationstart/end/iteration` and `transitionend` events, and Web
+      Animations (`element.animate`, `getAnimations`) as far as sites need them. Today
+      every at-rule except @media/@supports/@import/@layer is dropped, so none of it
+      exists (the only trace was an untracked note near "`@font-face`, `@keyframes`").
+      The WPT test css/css-backgrounds/animations/background-color-animation-in-body.html
+      flipped to FAIL in PR #232 only because of that. Survey: how many WPT subset/other
+      tests and real pages (youtube, github, bbc, guardian, wikipedia) depend on it, a
+      minimal design that fits scratchy's style/layout/paint pipeline and the timers
+      (requestAnimationFrame, simulated clock in --js-report, repaint cost per frame,
+      the 500 ms callback budget), what can be skipped (compositor-only, scroll-driven,
+      view timelines), and ranked Sonnet items with sizes/tests/acceptance. Also check
+      `@font-face` (web fonts) in the same survey as a separate item. Docs only.
 - [ ] QJ9 [S] (P3) `window.open(url, target)` and `window.close()`: no tabs,
       so `open` navigates the current page (through QF11) or logs `not
       implemented` and returns null; `close` logs and does nothing. vim.js

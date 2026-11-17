@@ -59,6 +59,14 @@ the commit it came up during.
       startup dependency between the two). Firefox has no equivalent: its jar
       sits behind a private IPC channel. Do this only if the user asks.
 
+- [ ] **User-Agent override from scratchy** (user decision 2026-11-17; scratchy/TODO.txt
+      QY39a/QY39b). wire sends a fixed honest UA
+      (`wire/0.1 (+https://github.com/Loupax/vibe-it ...)`), which YouTube classifies as a
+      bot (ES5 + polyfills variant). Let scratchy override it per request (an
+      `X-Wire-User-Agent` request header, or the request's own `User-Agent`), keep the
+      default when absent, document it in README.md, never forward other `X-Wire-*`
+      headers upstream. Pair with scratchy's `--user-agent` flag (QY39b).
+
 - [ ] **No TLS certificate pinning/custom root-CA support** — `ureq`'s
       own default TLS config (via `rustls`, the default backend) is
       used as-is. A real need for this would most likely surface as "a
