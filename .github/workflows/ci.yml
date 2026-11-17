@@ -41,7 +41,7 @@ jobs:
             pkg-config clang libfontconfig1-dev libfreetype-dev \
             libxkbcommon-dev libwayland-dev libx11-dev libxcb1-dev \
             fonts-liberation
-      - name: Rust toolchain (pinned: the clippy count depends on the version)
+      - name: Rust toolchain (pinned, the clippy count depends on the version)
         run: |
           rustup toolchain install 1.96.1 --profile minimal --component clippy
           rustup default 1.96.1
