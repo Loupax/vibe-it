@@ -277,9 +277,9 @@ PASS css/CSS2/tables/table-anonymous-objects-200.xht
 PASS css/CSS2/tables/table-height-algorithm-008a.xht
 PASS css/CSS2/visuren/fixed-pos-stacking-001.xht
 FAIL css/compositing/mix-blend-mode/mix-blend-mode-animation.html
-FAIL css/css-animations/animate-font-size-with-margin-override.html
-FAIL css/css-animations/animation-delay-011.html
-FAIL css/css-animations/animation-delay-012.html
+PASS css/css-animations/animate-font-size-with-margin-override.html
+PASS css/css-animations/animation-delay-011.html
+PASS css/css-animations/animation-delay-012.html
 PASS css/css-animations/animation-duration-infinite.html
 FAIL css/css-animations/animation-important-002.html
 FAIL css/css-animations/animation-name-in-nested-shadow.html
@@ -293,7 +293,7 @@ FAIL css/css-animations/svg-transform-animation.html
 FAIL css/css-animations/transform-animation-under-large-scale.html
 PASS css/css-animations/translation-animation-on-important-property.html
 FAIL css/css-animations/translation-animation-subpixel-offset.html
-FAIL css/css-backgrounds/animations/background-color-animation-in-body.html
+PASS css/css-backgrounds/animations/background-color-animation-in-body.html
 FAIL css/css-backgrounds/animations/background-color-animation-with-images.html
 PASS css/css-backgrounds/animations/background-color-animation-with-table1.html
 PASS css/css-backgrounds/animations/background-color-animation-with-table2.html
@@ -317,7 +317,7 @@ FAIL css/css-cascade/all-prop-001.html
 PASS css/css-cascade/all-prop-initial-color.html
 PASS css/css-cascade/all-prop-revert-visited.html
 FAIL css/css-cascade/import-conditional-001.html
-FAIL css/css-cascade/important-prop.html
+PASS css/css-cascade/important-prop.html
 PASS css/css-cascade/layer-stylesheet-sharing.html
 FAIL css/css-cascade/revert-layer-002.html
 FAIL css/css-cascade/revert-layer-007.html
@@ -341,13 +341,13 @@ FAIL css/css-color/t32-opacity-offscreen-b.xht
 PASS css/css-color/t422-rgba-func-whitespace-b.xht
 PASS css/css-color/t425-hsla-values-b.xht
 FAIL css/css-conditional/at-media-001.html
-FAIL css/css-conditional/at-media-content-003.html
+PASS css/css-conditional/at-media-content-003.html
 PASS css/css-conditional/at-supports-004.html
 PASS css/css-conditional/at-supports-016.html
 PASS css/css-conditional/at-supports-028.html
 PASS css/css-conditional/at-supports-043.html
 FAIL css/css-conditional/at-supports-content-002.html
-FAIL css/css-conditional/at-supports-content-003.html
+PASS css/css-conditional/at-supports-content-003.html
 FAIL css/css-conditional/at-supports-selector-details-content.html
 FAIL css/css-conditional/container-queries/display-in-container.html
 PASS css/css-conditional/container-queries/size-container-with-quotes.html
@@ -587,8 +587,8 @@ PASS css/mediaqueries/mq-invalid-media-type-003.html
 FAIL css/mediaqueries/mq-negative-range-001.html
 FAIL css/mediaqueries/negation-002.html
 PASS css/mediaqueries/prefers-color-scheme-svg-image-normal-with-meta-dark.html
-FAIL css/printing/animations-print.html
-FAIL css/printing/pseudo-animations-print.html
+PASS css/printing/animations-print.html
+PASS css/printing/pseudo-animations-print.html
 PASS css/printing/transition-in-media-print.tentative.html
 PASS css/selectors/child-indexed-no-parent.html
 FAIL css/selectors/featureless-001.html

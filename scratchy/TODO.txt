@@ -1387,7 +1387,7 @@ IntersectionObserver and matchMedia are not used by any of the site's scripts.
       (`linear()` optional). `inherit`/`initial` per longhand. No evaluation yet.
       Test: parse units (shorthand order, comma lists, -webkit-, keyframes inside
       `@media all` vs `@media not all`, a percent list `0%,50%`). WPT: none flips.
-- [ ] QAN1b [M] (after QAN1a) Evaluate CSS animations at a document time in
+- [x] QAN1b [M] DONE f965c9a (after QAN1a) Evaluate CSS animations at a document time in
       `resolve_style` (style.rs). A thread-local document clock (ms) set by the caller
       before `build_layout_tree_with_resources`: the WPT runner uses 0, the App uses
       the JS engine's `performance.now()` origin (or navigation start without JS).

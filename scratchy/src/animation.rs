@@ -99,7 +99,6 @@ fn cyc<T: Clone>(v: &[T], i: usize, default: T) -> T {
 impl AnimLonghands {
     /// CSS Animations 1 §3: the list is as long as `animation-name`'s, every
     /// other longhand repeats (or is truncated) to that length.
-    #[allow(dead_code)] // QAN1b evaluates
     pub(crate) fn resolve(&self) -> Vec<Animation> {
         (0..self.name.len())
             .map(|i| Animation {
@@ -537,7 +536,6 @@ pub(crate) fn set_keyframes(r: Rc<KeyframesRegistry>) {
     KEYFRAMES.with(|k| *k.borrow_mut() = r);
 }
 
-#[allow(dead_code)] // QAN1b evaluates
 pub(crate) fn lookup_keyframes(name: &str, viewport_width: f32) -> Option<Rc<Vec<Keyframe>>> {
     KEYFRAMES.with(|k| registry_get(&k.borrow(), name, viewport_width))
 }

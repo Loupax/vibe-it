@@ -201,6 +201,7 @@ impl Renderer {
                 images.insert(src.clone(), Arc::new(img));
             }
         }
+        set_document_clock(0.0);
         let tree = build_layout_tree_with_resources(&dom.document, WIN_W as f32, Some(WIN_H as f32), &extra_css, &images);
         let mut shape_cache = ShapeCache::new();
         let mut next_id = 0usize;
