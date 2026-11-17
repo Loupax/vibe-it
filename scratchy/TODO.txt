@@ -104,6 +104,11 @@ WAITING FOR USER (skip until answered):
   and (e) tracker-list blocking: want them, and which list?
 - Forms (Q30a-Q30e, Q30g, Q33e, QB11's form part): placeholder-only (AGENTS.md)
   until you design live state/editing/submission. Same for media.
+- Media (QM1 done 2026-11-17, R27): an mpv process cannot be embedded on Wayland;
+  libmpv in-process (software render into the `<video>` box, bytes from wire) is
+  the recommended route. Questions QM1-D D1-D8 (in-page vs "open in mpv",
+  in-process vs helper, optional dependency, network via wire, autoplay,
+  controls/keys, `<audio>` and player cap, MSE = no) gate QM1b and later.
 - QF19 WebSocket/EventSource/Workers; QY16a real localisation (ICU data?);
   persistence of jar/storage/cache (QF-D7: not now); Q26, Q32 (parked).
 - (ANSWERED 2026-11-17: pages may cancel any key) QJ11: which keys may page JS cancel? Once QJ4-QJ6 land, social.loupax.com's
@@ -183,7 +188,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       policy), say what the first non-gray paint needs, and file ranked Sonnet
       action items (sizes, tests, acceptance). Docs-only change to TODO.txt and
       REGRESSIONS.md. Depends on QY21 being merged (else it re-measures the 5 s wall).
-- [ ] QM1 [Opus, investigate only] (user request 2026-11-17) Can scratchy EMBED an
+- [x] QM1 [Opus, investigate only] (user request 2026-11-17) Can scratchy EMBED an
       already installed external video player (mpv or similar) instead of decoding
       media itself? Survey: mpv `--wid` / libmpv render API (Wayland: no X11 window
       id; subsurface/dmabuf options), mpv IPC socket control, a separate Wayland
@@ -195,6 +200,136 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       option and what a minimal spike would look like. PRODUCT DESIGN STAYS WITH THE
       USER (AGENTS.md Off limits: media waits for the agreed design); this item only
       writes the findings and recommendations into TODO.txt/NOTES.md. No source edits.
+      DONE 2026-11-17 (Opus, docs only). Evidence and measurements: REGRESSIONS.md
+      R27. Short version:
+      ANSWER: an mpv PROCESS cannot be embedded in scratchy's window on Wayland.
+      `--wid` is X11-only (this mpv is built with x11=disabled; tested: with
+      `--wid=12345` it still opened its own xdg_toplevel), and Wayland has no
+      cross-client embedding: a wl_subsurface can only be made by the client that
+      owns the parent surface (dwl has no xdg-foreign either, which would only
+      parent toplevels anyway). A second toplevel is tiled by dwl (tested in a
+      nested dwl: mpv took the whole output), cannot place itself, and would not
+      follow scroll. What DOES work is mpv as a LIBRARY in scratchy's process:
+      libmpv 2.5 is installed (/usr/lib64/libmpv.so.2.5.0, 2.4 MB, headers
+      client.h, render.h, render_gl.h, stream_cb.h). Its render API draws each frame
+      into memory WE own (MPV_RENDER_API_TYPE_SW: rgb0/bgr0 + stride + pointer) or
+      into a GL FBO, its stream_cb API lets us be the ONLY byte source
+      (`scratchy-media://<id>` with read/seek/size callbacks), and its client API
+      gives the same commands/properties/events as the IPC socket (tested over
+      IPC: loadfile, duration 20.0, width/height, seekable, pause, seek to 12.5 ->
+      time-pos 12.5, volume, per-frame time-pos events, file-loaded/
+      playback-restart/seek events).
+      RECOMMENDATION (for the user to accept or change): option A1 = libmpv
+      in-process, software render of each frame into a scratchy buffer the size of
+      the `<video>` box, painted like an `<img>` whose pixels change. Geometry,
+      scroll, overflow clipping, z-order (page content over the video) and QY18
+      translate all come from the existing paint path for free. All bytes come
+      from wire through stream_cb (policy, cookie jar, CORS kept; mpv's own
+      network unused). Plain `<video src>` / `<source>` with mp4 (h264/hevc/aac)
+      and webm (vp8/vp9/av1 + opus/vorbis) is realistic: ffmpeg here decodes all
+      of them. MediaSource (MSE) and EME are NOT realistic: YouTube, Twitch and
+      most big video sites need MSE, so they stay without video. Cost measured
+      here (Ryzen 5 PRO 2500U, software decode only: this mpv/ffmpeg has no
+      VA-API): 720p30 h264 ~24% of one core, 1080p30 ~43%; software scaling to a
+      ~1048x589 shm buffer (vo=wlshm, the closest CLI proxy for SW render) added
+      ~23% of a core at 720p; mpv RSS 117 MB / 23 threads while playing 1080p.
+      Today `App::redraw` repaints the whole page and presents without damage on
+      every frame, so 30 fps video needs a video-rect-only redraw path (QM1c).
+      Rejected or later: A2 (own wl_subsurface + wp_viewporter: compositor scales,
+      but clipping and page content above the video become hard), B (libmpv
+      OpenGL: needs an EGL context scratchy does not have; later optimisation),
+      C (spawn mpv as its own tiled window: not embedding, but a cheap "open this
+      video in mpv" action if the user wants one), D (ffmpeg/ffplay subprocess
+      writing raw frames: we would rebuild A/V sync and audio; ffplay has no
+      control protocol), E (vlc, gstreamer: not installed; GStreamer waylandsink
+      has the same in-process constraint and is a heavier dependency).
+      Children (WAITING FOR USER unless marked READY):
+- [ ] QM1-D WAITING FOR USER (design first; media is "Off limits" in AGENTS.md)
+      product questions, answers gate everything below except QM1a/QM1c/QM1d:
+      D1 In-page video (A1) at all, or first only a "open in mpv" action on the
+         placeholder (C: own dwl tile, mpv does its own networking unless D4 says
+         otherwise)? Or both, C first because it is a day of work?
+      D2 libmpv inside scratchy's process (simplest; ffmpeg parses untrusted media
+         next to the JS engine and page state) or a separate media helper process
+         that renders frames into shared memory (memfd) for scratchy (isolation,
+         about 2x the work)?
+      D3 Hard dependency on libmpv, or optional (cargo feature or dlopen at run
+         time; without it `<video>` stays the inert placeholder)? Recommended:
+         optional, so scratchy still builds and runs without mpv.
+      D4 All media bytes through wire (recommended: same policy, cookies, CORS as
+         everything else; needs a Range-capable media channel, QM1d/QM1e), or may
+         the player fetch directly (bypasses wire's policy and jar)?
+      D5 Autoplay: never / muted only / allowed. D6 Controls: who draws them
+         (scratchy paints a simple bar; mpv's OSC is a Lua script and would be off),
+         which keys (vim-mode conflicts: space, j/k, arrows). D7 `<audio>` too
+         (same backend, no video), and how many players at once (each ~100 MB RSS;
+         suggest 2, pause the oldest). D8 Accept "no MSE/EME" (YouTube stays
+         without video), or ask for a separate MSE investigation later.
+- [ ] QM1a [S, Opus, investigate only] READY (no design needed) On the user's REAL
+      dwl (GPU renderer) check that zwp_linux_dmabuf_v1 is offered and that
+      `mpv --no-config --ao=null --vo=gpu` / `--vo=dmabuf-wayland` work; only the
+      nested pixman dwl was tested here (no linux_dmabuf there, dmabuf-wayland
+      failed). Needs the user's permission to open a window on their session, or
+      the user runs it. Only matters for option A2/B, not A1.
+- [ ] QM1b [M] (after D1-D3) Spike, OUTSIDE scratchy's crate (like tools/inject: own
+      Cargo project tools/mpvspike, nothing in scratchy/src): winit + softbuffer
+      window, white "page", libmpv SW render of a local test file into a 640x360
+      rect at (100,100), wheel scroll moves the rect and the window edge clips it,
+      keys: space pause, l/h seek +-5 s; ao=null unless asked. Test file:
+      `ffmpeg -f lavfi -i testsrc2=size=1280x720:rate=30 -t 20 -c:v libx264
+      -pix_fmt yuv420p t720.mp4`. Acceptance (nested dwl + grim + inject): two
+      grims 2 s apart differ ONLY inside the rect and are pure white outside it;
+      after a scroll the rect moved by the scrolled amount and is clipped at the
+      edge; a seek to 12.5 reads time-pos 12.5 +-0.1; report user+sys CPU for 10 s
+      (target: under one core total) and RSS; `strace -f -e trace=connect` shows no
+      connect() from libmpv threads when the file is fed through stream_cb.
+- [ ] QM1c [S, Opus, investigate only] READY Measure `App::redraw` (src/app.rs) full
+      repaint + present time on real pages (en.wikipedia Main_Page, youtube.com,
+      a long article) to decide whether 30 fps video can repaint the whole page or
+      needs a video-rect-only redraw: keep the last page pixels, re-blit only the
+      video rect, softbuffer `present_with_damage`. Temporary `Instant` timing,
+      not committed.
+- [ ] QM1d [S, Opus, investigate only] READY Does wire pass `Range` through and
+      return 206 bodies, and can a non-page-JS channel read bodies above the 16 MiB
+      page-JS cap (`RequestPolicy` limits) in chunks? Media needs seekable reads:
+      tested here, `cat t720.mp4 | mpv -` fails ("Stream is not seekable",
+      "Cannot seek backward in linear streams"), so a plain pipe is not enough.
+- [ ] QM1e [M] (after D4) Media byte channel: libmpv `mpv_stream_cb_add_ro` for
+      `scratchy-media://<id>`; read/seek/size answered by wire Range requests with
+      the page's partition headers (`X-Wire-Jar`, `X-Wire-Top-Site`) and the
+      element's `crossorigin` mode; mpv options so it never touches the network
+      itself (`config=no`, `ytdl=no`, `load-scripts=no`, `osc=no`,
+      `input-default-bindings=no`, only ever `loadfile scratchy-media://...`,
+      `load-unsafe-playlists=no`); test: page with `<video src>` on a loopback
+      server, wire log shows every byte range, strace shows no mpv connect().
+- [ ] QM1f [M] (after D1-D3, D5-D7) HTMLMediaElement on top of mpv events, replacing
+      the QA20 `not implemented` stubs in js_dom.rs: src/currentSrc and `<source>`
+      selection, play() promise, pause(), paused, ended, currentTime get/set
+      (seek), duration (NaN until metadata), volume, muted, playbackRate (mpv
+      `speed`), loop, autoplay (per D5), poster, preload, readyState (file-loaded
+      -> HAVE_METADATA, playback-restart -> HAVE_ENOUGH_DATA), networkState,
+      buffered/seekable TimeRanges (`demuxer-cache-state`, `seekable`),
+      videoWidth/videoHeight, error (MediaError codes), events loadstart,
+      durationchange, loadedmetadata, loadeddata, canplay, canplaythrough, play,
+      playing, pause, seeking, seeked, timeupdate (throttled to ~4 Hz; mpv sends
+      one per frame), waiting, ended, volumechange, ratechange, error, emptied.
+      canPlayType: 'maybe'/'probably' only for codecs ffmpeg here decodes.
+      Not included: MediaSource, EME, captureStream, Web Audio, TextTrack cues.
+- [ ] QM1g [M] (after QM1b-QM1f) Paint: the `<video>` replaced box draws the newest
+      mpv frame (object-fit default `contain`, letterbox black), rendered at the box
+      size in device pixels; no rendering when the box is off screen or the page
+      is hidden (`:help`, navigation); one mpv handle per playing element, capped
+      per D7; audio via mpv `ao=pulse` (this build has no native pipewire output;
+      pipewire-pulse 1.6.7 is running).
+- [ ] QM1h [L] (only if D2 = separate process) media helper process: owns libmpv,
+      renders frames into a memfd shared with scratchy, talks the same commands
+      over a socket, crash kills only the helper.
+- [ ] QM1i [S] (only if D1 includes C) "open in mpv" on the placeholder: spawn
+      `mpv --no-config --ytdl=no --load-scripts=no <url>` as its own tile; per D4
+      either feed it a loopback URL served from wire or accept the direct fetch.
+- [ ] QM1j (not planned; D8) MediaSource: in theory SourceBuffer segments could be
+      appended to a growing stream_cb buffer, but timestamp offsets, codec
+      switches, removal and YouTube's player logic make this a large project.
 - [ ] QY21 [S] (P2, YouTube load wall) QY6e `define()` is quadratic. Root
       cause: `CER.prototype.define` (js_dom.rs, QY6e f887f67) rebuilds
       `ceSel` = every defined name joined with ',' and runs
