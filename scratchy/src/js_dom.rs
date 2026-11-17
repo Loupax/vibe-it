@@ -341,6 +341,8 @@ pub(crate) struct JsRequests {
     pub(crate) focus: Option<FocusReq>,
     /// `window.scroll*`: target axes (`None` = keep), `relative` = scrollBy.
     pub(crate) scroll: Option<ScrollReq>,
+    /// QJ6: `el.scrollTop = y` on a scroll container: (element, absolute y).
+    pub(crate) el_scroll: Vec<(Handle, f64)>,
     /// Q33d1: `el.click()` on a link asks the App to follow it.
     pub(crate) nav: Option<String>,
     /// QF7: validated page-network requests for the App's scheduler.
@@ -875,10 +877,22 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     native!("__d_navigate", move |href: String| {
         r.borrow_mut().nav = Some(href);
     });
-    let r = reqs;
+    let r = reqs.clone();
     native!("__d_scroll", move |x: f64, y: f64, relative: bool| {
         let f = |v: f64| if v.is_finite() { Some(v) } else { None };
         r.borrow_mut().scroll = Some(ScrollReq { x: f(x), y: f(y), relative });
+    });
+    // QJ6: element scrolling. `__d_nid` is the layout/App node id of a JS
+    // wrapper id (what the App keys its per-box scroll offsets by).
+    let t = table.clone();
+    native!("__d_nid", move |id: i32| -> f64 { t.borrow().get(id).map_or(0.0, |h| node_id(&h) as f64) });
+    let (t, r) = (table.clone(), reqs.clone());
+    native!("__d_scrollel", move |id: i32, y: f64| {
+        if let Some(h) = t.borrow().get(id) {
+            let mut r = r.borrow_mut();
+            r.el_scroll.retain(|(e, _)| !Rc::ptr_eq(e, &h));
+            r.el_scroll.push((h, y));
+        }
     });
     let _ = ctx.eval::<(), _>(DOM_PRELUDE);
     // QY40: give `document.all` the [[IsHTMLDDA]] slot (falsy, typeof 'undefined').
@@ -3170,6 +3184,7 @@ const DOM_PRELUDE: &str = r#"
     var r = __d_rect(el.__id, Number(g.innerWidth) || 0, Number(g.innerHeight) || 0);
     return r.length ? r : null;
   };
+  var gElScroll = new Map(), gScrollable, gNid, gAncestorScroll, gSetScroll, gScrollEvent;
   var gRoot = function (el) { return el === document.documentElement; };
   var gPx = function (el, p) { return parseFloat(__d_cs(el.__id, '', p)) || 0; };
   var gClient = function (el) {
@@ -3182,7 +3197,10 @@ const DOM_PRELUDE: &str = r#"
   var gViewRect = function (el) {
     var r = gRect(el);
     if (!r) return null;
-    return new DR(r[0] - (r[4] ? 0 : (g.scrollX || 0)), r[1] - (r[4] ? 0 : (g.scrollY || 0)), r[2], r[3]);
+    // QJ6: scrolled ancestors move their content (only walked once some
+    // element has actually been scrolled, so pages that never scroll pay nothing).
+    var dy = gElScroll.size ? gAncestorScroll(el, null) : 0;
+    return new DR(r[0] - (r[4] ? 0 : (g.scrollX || 0)), r[1] - dy - (r[4] ? 0 : (g.scrollY || 0)), r[2], r[3]);
   };
   ElementProto.getBoundingClientRect = function () { return gViewRect(this) || new DR(0, 0, 0, 0); };
   ElementProto.getClientRects = function () {
@@ -3190,11 +3208,11 @@ const DOM_PRELUDE: &str = r#"
     Object.defineProperty(l, 'item', { value: function (i) { return this[i] || null; } });
     return l;
   };
-  // QJ5: scrollIntoView as a window scroll to the element's layout rect (no
-  // smooth animation; ancestor scroll boxes are not scrolled: QJ6).
+  // QJ5/QJ6: scrollIntoView scrolls each scrollable ancestor (nearest first),
+  // then the window; no smooth animation.
   ElementProto.scrollIntoView = function (arg) {
     var r = gRect(this);
-    if (!r || r[4]) return;
+    if (!r) return;
     var block = 'start', inline = 'nearest';
     if (arg === false) block = 'end';
     else if (arg !== null && typeof arg === 'object') {
@@ -3214,7 +3232,22 @@ const DOM_PRELUDE: &str = r#"
       } else t = pos;
       return Math.max(0, Math.min(t, Math.max(0, page - view)));
     };
-    var y = pick(r[1], r[3], vh, g.scrollY || 0, block, r[8]);
+    // Ancestors, nearest first: only real scroll containers matter.
+    var inner = 0;
+    for (var a = this.parentNode; a && a.nodeType === 1; a = a.parentNode) {
+      if (gRoot(a) || !gScrollable(a)) continue;
+      var ar = gRect(a);
+      if (!ar) continue;
+      var c = gClient(a), top = ar[1] + gPx(a, 'border-top-width');
+      var cur = gElScroll.get(gNid(a)) || 0;
+      var ny = pick(r[1] - inner - top, r[3], c[1], cur, block, gScrollSize(a, 1));
+      if (ny !== cur) gSetScroll(a, ny);
+      inner += ny;
+      // `inner` = scroll of the containers already handled (inside the next one).
+    }
+    if (r[4]) return;
+    var wy = r[1] - gAncestorScroll(this, null);
+    var y = pick(wy, r[3], vh, g.scrollY || 0, block, r[8]);
     var x = pick(r[0], r[2], vw, g.scrollX || 0, inline, r[7]);
     if (x !== (g.scrollX || 0) || y !== (g.scrollY || 0)) g.scrollTo(x, y);
   };
@@ -3478,20 +3511,59 @@ const DOM_PRELUDE: &str = r#"
   };
   defs(ElementProto, 'scrollWidth', function () { return gScrollSize(this, 0); });
   defs(ElementProto, 'scrollHeight', function () { return gScrollSize(this, 1); });
-  // scrollTop/Left: the root element reads/writes the window offset; other
-  // elements only remember the number (no per-element scrolling yet: QJ6).
-  var gScrolled = new WeakMap();
+  // scrollTop/Left: the root element reads/writes the window offset. Other
+  // elements scroll for real when they are overflow:auto/scroll boxes (QJ6):
+  // the offset is clamped to scrollHeight - clientHeight, handed to the App
+  // (`__d_scrollel`) and a `scroll` event follows. Vertical only: scratchy has
+  // no horizontal scroll regions, so scrollLeft stays 0 (QJ6b).
+  gScrollable = function (el) {
+    var o = __d_cs(el.__id, '', 'overflow-y');
+    return o === 'auto' || o === 'scroll';
+  };
+  gNid = function (el) { return __d_nid(el.__id); };
+  gAncestorScroll = function (el, stop) {
+    var sum = 0;
+    for (var a = el.parentNode; a && a.nodeType === 1 && a !== stop; a = a.parentNode) sum += gElScroll.get(gNid(a)) || 0;
+    return sum;
+  };
+  gSetScroll = function (el, v) {
+    if (!gScrollable(el)) return;
+    var max = Math.max(0, gScrollSize(el, 1) - Math.round(gClient(el)[1]));
+    v = Math.max(0, Math.min(Number(v) || 0, max));
+    var nid = gNid(el), cur = gElScroll.get(nid) || 0;
+    if (v === cur) return;
+    if (v) gElScroll.set(nid, v); else gElScroll.delete(nid);
+    __d_scrollel(el.__id, v);
+    gScrollEvent(el);
+  };
+  gScrollEvent = function (el) {
+    sTimeout.call(g, function () { el.dispatchEvent(new g.Event('scroll')); }, 0);
+  };
   var gScrollProp = function (name, axis) {
     defs(ElementProto, name, function () {
       if (gRoot(this)) return (axis ? g.scrollY : g.scrollX) || 0;
-      var s = gScrolled.get(this); return s ? s[axis] : 0;
+      return axis ? (gElScroll.get(gNid(this)) || 0) : 0;
     }, function (v) {
-      v = Math.max(0, Number(v) || 0);
-      if (gRoot(this)) { if (axis) g.scrollTo(g.scrollX, v); else g.scrollTo(v, g.scrollY); return; }
-      var s = gScrolled.get(this) || [0, 0]; s[axis] = v; gScrolled.set(this, s);
+      if (gRoot(this)) { v = Math.max(0, Number(v) || 0); if (axis) g.scrollTo(g.scrollX, v); else g.scrollTo(v, g.scrollY); return; }
+      if (axis) gSetScroll(this, v);
     });
   };
   gScrollProp('scrollLeft', 0); gScrollProp('scrollTop', 1);
+  // Element.scroll/scrollTo/scrollBy(x, y | {top, left}); NaN keeps the axis.
+  var gElScrollTo = function (el, a, rel) {
+    if (gRoot(el)) { rel ? g.scrollBy.apply(g, a) : g.scrollTo.apply(g, a); return; }
+    var t = scrollArgs(a[0], a[1])[1];
+    if (t !== t) return;
+    gSetScroll(el, rel ? (gElScroll.get(gNid(el)) || 0) + t : t);
+  };
+  ElementProto.scroll = ElementProto.scrollTo = function () { gElScrollTo(this, arguments, false); };
+  ElementProto.scrollBy = function () { gElScrollTo(this, arguments, true); };
+  // The App scrolled boxes itself (wheel): `{nodeId: y}` replaces what script
+  // reads back (no scroll event for these yet: QJ6b).
+  g.__scratchy_elscroll = function (m) {
+    gElScroll.clear();
+    for (var k in m) if (m[k]) gElScroll.set(Number(k), m[k]);
+  };
   var obsErr = function (what, e) {
     __scratchy_err('scratchy: js: uncaught exception in ' + what + ' callback: ' + (e && e.stack ? String(e) + '\n' + e.stack : String(e)));
   };
