@@ -276,7 +276,7 @@ dropped selectors summed across those pages. Caveats:
       /u/loupax; screenshots of /u/loupax and en.wikipedia.org Main_Page unchanged
       (shaping results must be identical: only the cache changed); WPT subset
       unchanged. Then add the new numbers to QY33 and to QJ4b's perf note.
-- [ ] QP2 [S] (P3, after QP1, R32 secondary 1-2) Let forced layouts on the JS thread
+- [x] QP2 [S] DONE 2026-11-17 (c39ff47) (P3, after QP1, R32 secondary 1-2) Let forced layouts on the JS thread
       use the content-keyed shape memo: in `GeomCache::refresh` (src/js_geom.rs) set
       `crate::layout::SHAPE_MEMO_ENABLED` to true once per thread (next to the
       `FONTS` init), and clear `SHAPE_MEMO` whenever the viewport part of the cache
