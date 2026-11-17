@@ -1413,7 +1413,7 @@ IntersectionObserver and matchMedia are not used by any of the site's scripts.
       no pass->fail in the QAN1-0 set. Unblocks: content hidden until an animation
       fills it (GitHub `.anim-fade-up`, YouTube tooltips) shows its final state on the
       next restyle.
-- [ ] QAN1c [M] (after QAN1b) Drive animations in the App, settle-first. App: after
+- [x] QAN1c [M] (after QAN1b) Drive animations in the App, settle-first. App: after
       each build, know the set of running animations and the next time a value
       changes (or ends); merge that deadline into `about_to_wait`'s
       `ControlFlow::WaitUntil` next to `js.next_deadline()`, tick right after

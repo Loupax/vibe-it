@@ -513,6 +513,8 @@ pub(crate) struct App {
     /// `build_layout_tree_with_resources` took (the hover idle gate).
     pub(crate) last_pointer_move: Option<std::time::Instant>,
     pub(crate) last_build_time: Option<std::time::Duration>,
+    /// QAN1c: running CSS animations and their pending events.
+    pub(crate) anim: AnimTracker,
     pub(crate) hover_flush_scheduled: bool,
     /// Q35b2: when the first not-yet-applied image arrival of the current
     /// burst landed. An image changes layout, but a burst of them is
@@ -782,6 +784,7 @@ impl App {
             last_wheel: None,
             last_pointer_move: None,
             last_build_time: None,
+            anim: AnimTracker::default(),
             hover_flush_scheduled: false,
             image_relayout_since: None,
             image_flush_scheduled: false,
@@ -858,6 +861,7 @@ impl App {
             last_wheel: None,
             last_pointer_move: None,
             last_build_time: None,
+            anim: AnimTracker::default(),
             hover_flush_scheduled: false,
             image_relayout_since: None,
             image_flush_scheduled: false,
@@ -936,6 +940,7 @@ impl App {
             let build_started = std::time::Instant::now();
             let tree = build_layout_tree_with_resources(&self.document, width as f32, Some(height as f32), &crate::images::with_adopted_css(&self.extra_css, &self.adopted_css), &self.image_cache);
             self.last_build_time = Some(build_started.elapsed());
+            self.anim.after_build(self.nav_generation, take_animation_report(), document_clock_ms());
             fetch_wanted_css_images(&self.proxy, self.socket_path.as_deref(), self.base_url.as_ref(), &mut self.css_images_requested, self.nav_generation);
             // Ids the worker is about to assign restart at `0` for this
             // new tree (see `spawn_shaping_worker`'s own docs) — stale
@@ -1497,6 +1502,33 @@ impl App {
         let ok = js.dispatch_event(target, kind, init);
         self.js_sync();
         ok
+    }
+
+    /// QAN1c: dispatches the animation events due at app clock `now` (ms),
+    /// queues one restyle if an animation started or ended since the last
+    /// build, and returns the app-clock time of the next change.
+    pub(crate) fn anim_tick(&mut self, now: f64) -> Option<f64> {
+        if self.anim.is_idle() {
+            return None;
+        }
+        let t = self.anim.tick(now);
+        for ev in t.events {
+            let init = [
+                ("bubbles", EventField::Bool(true)),
+                ("animationName", EventField::Str(ev.name)),
+                ("elapsedTime", EventField::Num(ev.elapsed_s)),
+                ("pseudoElement", EventField::Str(ev.pseudo)),
+            ];
+            self.js_dispatch(ev.node.as_ref(), ev.kind, &init);
+        }
+        if t.restyle {
+            if self.layout_in_flight && !self.layout_dirty {
+                self.js_restyle_pending = true;
+            } else {
+                self.request_js_restyle();
+            }
+        }
+        t.next
     }
 
     /// Q33d: a `click` at window position `pos` on `target`; true if the
@@ -2698,14 +2730,13 @@ impl ApplicationHandler<AppEvent> for App {
             js.run_due();
         }
         self.js_sync();
-        let flow = match &self.js {
-            Some(js) => {
-                match js.next_deadline() {
-                    Some(at) => ControlFlow::WaitUntil(at),
-                    None => ControlFlow::Wait,
-                }
-            }
-            None => ControlFlow::Wait,
+        let now_ms = app_clock_ms();
+        let anim_at = self.anim_tick(now_ms).map(|ms| std::time::Instant::now() + std::time::Duration::from_secs_f64(((ms - now_ms).max(0.0) + 1.0) / 1000.0));
+        let js_at = self.js.as_ref().and_then(|js| js.next_deadline());
+        let flow = match (js_at, anim_at) {
+            (Some(a), Some(b)) => ControlFlow::WaitUntil(a.min(b)),
+            (Some(a), None) | (None, Some(a)) => ControlFlow::WaitUntil(a),
+            (None, None) => ControlFlow::Wait,
         };
         event_loop.set_control_flow(flow);
     }

@@ -18576,4 +18576,165 @@ fn q30c_user_click_space_label_and_reset_button_through_the_app() {
     assert!(!live_checked(&by("a")) && live_checked(&by("r1")) && !live_checked(&by("r2")));
     assert!(live_checked(&by("w")), "outside the form: untouched");
     clear_check_state();
+
+// ---- QAN1c: animation start/end events and the settle-first restyles ----
+
+struct Qan1c {
+    rules: Vec<StyleRule>,
+    div: Handle,
+    tracker: AnimTracker,
+    engine: JsEngine,
+    log: Rc<RefCell<Vec<String>>>,
+    builds: usize,
+    last: ComputedStyle,
+}
+
+impl Qan1c {
+    fn new(css: &str, body: &str, script: &str) -> Qan1c {
+        let doc = parse_html(&format!("<html><body>{body}</body></html>"));
+        let (rules, kf) = parse_stylesheet_with_keyframes(css);
+        set_keyframes(Rc::new(kf));
+        let div = find_element_by_tag(&doc, "div").expect("div");
+        let log = Rc::new(RefCell::new(Vec::new()));
+        let l = log.clone();
+        let engine = start_scripts(&doc, &[src(script)], Rc::new(move |level, text| l.borrow_mut().push(format!("{level}:{text}")))).expect("engine");
+        set_app_clock_override(Some(0.0));
+        set_app_clock(7);
+        let last = resolve_style(&div, &rules, ROOT_STYLE, 800.0);
+        let mut q = Qan1c { rules, div, tracker: AnimTracker::default(), engine, log, builds: 1, last };
+        q.build(0.0);
+        q
+    }
+    /// One restyle at app clock `ms` (what the App does in `redraw`).
+    fn build(&mut self, ms: f64) {
+        set_app_clock_override(Some(ms));
+        set_app_clock(7);
+        self.last = resolve_style(&self.div, &self.rules, ROOT_STYLE, 800.0);
+        finish_animation_pass();
+        self.tracker.after_build(7, take_animation_report(), document_clock_ms());
+    }
+    /// What `App::anim_tick` does at `ms`: dispatch, restyle if asked.
+    fn tick(&mut self, ms: f64) -> Option<f64> {
+        let t = self.tracker.tick(ms);
+        for ev in t.events {
+            let init = [
+                ("bubbles", EventField::Bool(true)),
+                ("animationName", EventField::Str(ev.name)),
+                ("elapsedTime", EventField::Num(ev.elapsed_s)),
+                ("pseudoElement", EventField::Str(ev.pseudo)),
+            ];
+            self.engine.dispatch_event(ev.node.as_ref(), ev.kind, &init);
+        }
+        if t.restyle {
+            self.builds += 1;
+            self.build(ms);
+        }
+        t.next
+    }
+    fn events(&self) -> Vec<String> {
+        self.log.borrow().iter().filter(|l| l.contains("ev:")).cloned().collect()
+    }
+}
+
+const QAN1C_LISTEN: &str = "['start','iteration','end','cancel'].forEach(function (k) { document.addEventListener('animation' + k, function (e) { console.log('ev:' + e.type + ':' + e.animationName + ':' + e.elapsedTime + ':' + e.pseudoElement + ':' + (e.target.tagName)); }); });";
+
+#[test]
+fn qan1c_fade_in_forwards_restyles_twice_and_ends_once() {
+    let css = "@keyframes a{from{opacity:0}to{opacity:1}} div{animation:a 200ms forwards}";
+    let mut q = Qan1c::new(css, "<div>x</div>", QAN1C_LISTEN);
+    assert_eq!(q.last.opacity, 0.0);
+    // Starts at once (no delay): the event, no extra restyle, deadline at 200 ms.
+    assert_eq!(q.tick(0.0), Some(200.0));
+    assert_eq!(q.builds, 1);
+    assert_eq!(q.events(), vec!["log:ev:animationstart:a:0::DIV"]);
+    // Nothing happens before the end.
+    assert_eq!(q.tick(100.0), Some(200.0));
+    assert_eq!(q.builds, 1);
+    assert_eq!(q.tick(200.0), None);
+    assert_eq!(q.builds, 2, "initial build + one restyle at the end");
+    assert_eq!(q.last.opacity, 1.0, "final state painted");
+    assert_eq!(q.events(), vec!["log:ev:animationstart:a:0::DIV", "log:ev:animationend:a:0.2::DIV"]);
+    // Later ticks are silent and cause no restyle.
+    assert_eq!(q.tick(5000.0), None);
+    assert_eq!(q.builds, 2);
+    assert_eq!(q.events().len(), 2);
+    set_app_clock_override(None);
+}
+
+#[test]
+fn qan1c_delay_restyles_at_start_and_at_end() {
+    let css = "@keyframes a{from{opacity:0}to{opacity:1}} div{animation:a 200ms 300ms forwards}";
+    let mut q = Qan1c::new(css, "<div>x</div>", QAN1C_LISTEN);
+    assert_eq!(q.tick(0.0), Some(300.0));
+    assert!(q.events().is_empty());
+    assert_eq!(q.tick(300.0), Some(500.0));
+    assert_eq!(q.builds, 2, "restyle when the delay elapses");
+    assert_eq!(q.events(), vec!["log:ev:animationstart:a:0::DIV"]);
+    assert_eq!(q.tick(500.0), None);
+    assert_eq!(q.builds, 3);
+    assert_eq!(q.last.opacity, 1.0);
+    assert_eq!(q.events().len(), 2);
+    set_app_clock_override(None);
+}
+
+#[test]
+fn qan1c_name_change_cancels_the_animation() {
+    let css = "@keyframes a{from{opacity:0}to{opacity:1}} div{animation:a 1s}";
+    let mut q = Qan1c::new(css, "<div>x</div>", QAN1C_LISTEN);
+    q.tick(0.0);
+    // The page changed the animation name: the next build no longer styles it.
+    let (rules, _) = parse_stylesheet_with_keyframes("div{animation:none}");
+    q.rules = rules;
+    q.build(300.0);
+    assert_eq!(q.tick(300.0), None);
+    assert_eq!(q.events(), vec!["log:ev:animationstart:a:0::DIV", "log:ev:animationcancel:a:0.3::DIV"]);
+    // A cancelled animation never ends.
+    q.tick(5000.0);
+    assert_eq!(q.events().len(), 2);
+    set_app_clock_override(None);
+}
+
+#[test]
+fn qan1c_infinite_gives_start_only_and_paused_never_ends() {
+    let css = "@keyframes a{from{opacity:0}to{opacity:1}} div{animation:a 100ms infinite}";
+    let mut q = Qan1c::new(css, "<div>x</div>", QAN1C_LISTEN);
+    assert_eq!(q.tick(0.0), None, "no deadline for an infinite animation");
+    q.tick(10_000.0);
+    assert_eq!(q.builds, 1);
+    assert_eq!(q.events(), vec!["log:ev:animationstart:a:0::DIV"]);
+    let css = "@keyframes a{from{opacity:0}to{opacity:1}} div{animation:a 100ms paused}";
+    let mut q = Qan1c::new(css, "<div>x</div>", QAN1C_LISTEN);
+    assert_eq!(q.tick(0.0), None);
+    q.tick(10_000.0);
+    assert_eq!(q.builds, 1);
+    assert_eq!(q.events(), vec!["log:ev:animationstart:a:0::DIV"]);
+    set_app_clock_override(None);
+}
+
+#[test]
+fn qan1c_iteration_events_are_capped_to_one_per_second() {
+    let css = "@keyframes a{from{opacity:0}to{opacity:1}} div{animation:a 100ms 40 forwards}";
+    let mut q = Qan1c::new(css, "<div>x</div>", QAN1C_LISTEN);
+    let mut t = q.tick(0.0);
+    let mut n = 0;
+    while let Some(at) = t {
+        t = q.tick(at);
+        n += 1;
+        assert!(n < 100, "deadline loop must terminate");
+    }
+    let it = q.events().iter().filter(|e| e.contains("animationiteration")).count();
+    // 4 s of animation: about one per second, never one per 100 ms iteration.
+    assert!((3..=5).contains(&it), "{:?}", q.events());
+    assert_eq!(q.events().iter().filter(|e| e.contains("animationend")).count(), 1);
+    set_app_clock_override(None);
+}
+
+#[test]
+fn qan1c_onanimation_attribute_and_property_handlers_run() {
+    let css = "@keyframes a{from{opacity:0}to{opacity:1}} div{animation:a 50ms forwards}";
+    let mut q = Qan1c::new(css, "<div onanimationstart=\"console.log('ev:attr-start')\">x</div>", "document.querySelector('div').onanimationend = function (e) { console.log('ev:prop-end:' + e.animationName); };");
+    q.tick(0.0);
+    q.tick(50.0);
+    assert_eq!(q.events(), vec!["log:ev:attr-start", "log:ev:prop-end:a"]);
+    set_app_clock_override(None);
 }
