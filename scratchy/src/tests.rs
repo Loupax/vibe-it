@@ -16593,3 +16593,31 @@ fn qy40_document_all_is_htmldda() {
     assert!(log.contains("log:") && !log.contains(":false") && !log.contains("error:"), "{log}");
     assert!(log.contains("sniff:true") && log.contains("resin:true") && log.contains("live:true"), "{log}");
 }
+
+/// QY41: a `%` width inside an intrinsic (max-content) probe is cyclic and
+/// behaves as `auto`; it must not resolve against the 1e6 probe width.
+#[test]
+fn qy41_percent_width_inline_block_does_not_inflate_max_content() {
+    for (parent, pct) in [
+        ("display:inline-block", "100%"),
+        ("display:block", "100%"),
+        ("display:inline-block", "50%"),
+        ("display:inline-block", "calc(100% - 4px)"),
+    ] {
+        let html = format!(
+            r#"<html><body style="margin:0"><div style="display:flex;width:500px"><div style="flex:none"><span style="{parent};width:40px"><span style="display:inline-block;width:{pct}"></span></span></div><div style="width:10px;height:5px"></div></div></body></html>"#
+        );
+        let laid = measure_fixture(&html, 600.0);
+        let marker = find_by_width(&laid, 10.0).expect("marker item");
+        assert!(marker.x <= 41.0 && marker.x >= 39.0, "{parent} {pct}: marker x = {}, expected 40", marker.x);
+    }
+}
+
+/// QY41 regression guard: definite px widths still size max-content.
+#[test]
+fn qy41_definite_px_width_inline_block_still_sizes_max_content() {
+    let html = r#"<html><body style="margin:0"><div style="display:flex;width:500px"><div style="flex:none"><span style="display:inline-block;width:70px;height:3px"></span></div><div style="width:10px;height:5px"></div></div></body></html>"#;
+    let laid = measure_fixture(html, 600.0);
+    let marker = find_by_width(&laid, 10.0).expect("marker item");
+    assert!((marker.x - 70.0).abs() < 1.0, "marker x = {}", marker.x);
+}

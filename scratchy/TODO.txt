@@ -97,7 +97,7 @@ READY, in recommended order (no user decision needed):
  NEW 2026-11-17 (Opus QY35, R28: the remaining YouTube masthead/guide paint gaps),
  in this order: QY40 [S] P1 DONE (`document.all` missing -> polymer-resin turns EVERY
  falsy property binding into "zClosurez": mini-guide icons hidden, and more),
- QY41 [S] P1 (`width:%` inline-block inside a fixed-width box -> max-content
+ QY41 [S] P1 DONE (`width:%` inline-block inside a fixed-width box -> max-content
  1 000 000 px: search field 0 px wide, "Anmelden" at x = 1 000 129), QY42 [S] P2
  (a non-empty descendant's definite `width` is ignored by max-content: kebab
  button 18 px, "Anmelden" clipped), QY43 [S] P2 (pre-wrap newline + inline-block
@@ -689,7 +689,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       f(undefined) === undefined). Accept (window, real URL): mini-guide
       shows the Startseite/Shorts/Abos/Mein YouTube icons (R28 stand-in
       screenshot). Unblocks: every falsy Polymer binding on Google sites.
-- [ ] QY41 [S] (P1, R28) max-content of a box whose content holds an inline-block
+- [x] QY41 [S] (P1, R28) (done, commit HASH_QY41) max-content of a box whose content holds an inline-block
       (or any `Embedded` inline item) with a percentage `width` is 1 000 000 px.
       Root cause: layout.rs `measure_mixed_inline`, `InlineItem::Embedded` arm
       in `trial` mode resolves the item's `width: N%` against `content_w`,

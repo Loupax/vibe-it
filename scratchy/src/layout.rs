@@ -2846,7 +2846,11 @@ pub(crate) fn measure_mixed_inline<'a>(
                 // entirely, so skipping the (otherwise pointless) `cell_
                 // natural_width` call when `width` is already set is a
                 // pure optimization, not a correctness branch.
-                let auto_override = if embedded_box.style.width.is_none() {
+                // QY41: in a trial pass the containing width is a probe
+                // (0 or UNBOUNDED), so a `%`/`calc(%)` width is cyclic and
+                // behaves as `auto` for the intrinsic contribution.
+                let cyclic_pct = trial && matches!(embedded_box.style.width, Some(BoxLength::Percent(_)) | Some(BoxLength::Calc(..)));
+                let auto_override = if embedded_box.style.width.is_none() || cyclic_pct {
                     let (min_mb, max_mb) =
                         cell_natural_width(embedded_box, font_system, next_id, cache, deadline, incomplete);
                     // Both modes use the CSS2.1 10.3.5 form (see
@@ -2864,6 +2868,9 @@ pub(crate) fn measure_mixed_inline<'a>(
                     // `measure()` call, keeping this exactly as cheap as
                     // every other `cell_natural_width` arm already is.
                     let mut trial_style = embedded_box.style;
+                    if cyclic_pct {
+                        trial_style.width = None;
+                    }
                     let entry = box_model_entry(&mut trial_style, 0.0, 0.0, content_w, containing_height, auto_override);
                     let advance_w = entry.border_w + trial_style.margin.left.px() + trial_style.margin.right.px();
                     measured.push(Measured::Embedded { laid: None, own_pending: Vec::new(), advance_w, h: 0.0, style: trial_style });
