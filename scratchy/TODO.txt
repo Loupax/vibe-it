@@ -1485,7 +1485,7 @@ IntersectionObserver and matchMedia are not used by any of the site's scripts.
       currentTime pause reverse ...` check); run YouTube `--js-report --run-timers` and
       a nested-dwl window before/after. Test: animate() opacity 0->1 200 ms, fake
       clock: finished resolves at 200, getAnimations() length 1 then 0.
-- [x] QAN1j [S] DONE HASHPLACEHOLDER (noise, no code change) Is the DuckDuckGo restyle 4-5x slower after QAN1b
+- [x] QAN1j [S] DONE e1fd29b (noise, no code change) Is the DuckDuckGo restyle 4-5x slower after QAN1b
       (11-15 ms -> 53-74 ms per the QAN1b agent)? Measured 2026-11-17 with a temporary,
       uncommitted `#[ignore]` test timing `build_layout_tree_with_resources` (12 runs, median)
       on a saved DuckDuckGo copy (+<base href>), en.wikipedia and HN, old build 08ae74e (parent
