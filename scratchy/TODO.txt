@@ -3100,7 +3100,7 @@ QF13a, QF14b2, QF18 open; QF19 waits for the user):
       cross network namespaces), and reading `file://` pages needs no wire at all.
       Real check: `strace -f -e trace=socket,connect` on a page load with media on:
       only AF_UNIX connects, to wire's socket and the Wayland/fontconfig sockets.
-- [x] (DONE 2026-11-17, hash HASH_PLACEHOLDER; wire reinstall + restart needed, scratchy checks `X-Wire-Features: ws`) QF19w1 [M] (wire; design DECIDED 2026-11-17 after discussion: wire is a pipe) Upgrade passthrough.
+- [x] (DONE 2026-11-17, hash 35ad5f8; wire reinstall + restart needed, scratchy checks `X-Wire-Features: ws`) QF19w1 [M] (wire; design DECIDED 2026-11-17 after discussion: wire is a pipe) Upgrade passthrough.
       A request with `Connection: Upgrade` + `Upgrade: websocket` (scratchy marks it
       with `X-Wire-Upgrade: websocket` so ordinary clients are unaffected) goes
       through the SAME checks as any request (`X-Wire-Policy`, target class, bad
