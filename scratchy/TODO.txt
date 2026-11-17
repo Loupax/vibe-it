@@ -1576,7 +1576,7 @@ Evidence and the probe recipe: REGRESSIONS.md R36.
 Ranked: QY47a (P1, Sonnet; independent of QY46, either order) -> QY47c (P2, Opus,
 after QY47a) -> QY47b (P3, Sonnet) -> QY47d (P3).
 
-- [ ] QY47a [S] READY (P1, R36/QY47, Sonnet) Raise QuickJS's max stack size from the
+- [x] QY47a [S] DONE 064a664 (P1, R36/QY47, Sonnet) Raise QuickJS's max stack size from the
       1 MB default, clamped to the real stack of the thread that runs JS. js.rs
       `start_scripts_clocked` creates the `Runtime` and never calls
       `rt.set_max_stack_size`, so QuickJS uses `JS_DEFAULT_STACK_SIZE` (1 MB) = ~600

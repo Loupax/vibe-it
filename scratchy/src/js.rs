@@ -1372,6 +1372,34 @@ pub(crate) fn start_scripts(document: &Handle, scripts: &[ScriptSource], log: Lo
     start_scripts_clocked(document, scripts, log, None)
 }
 
+/// QY47a: QuickJS's max JS stack: min(4 MB, half of this thread's real
+/// stack); 1 MB (the engine default) if the size cannot be read. The clamp
+/// keeps a runaway recursion a catchable RangeError instead of a SIGSEGV
+/// on small (2 MB test) threads.
+pub(crate) fn js_stack_limit() -> usize {
+    const DEFAULT: usize = 1 << 20;
+    let size = thread_stack_size().unwrap_or(0);
+    if size == 0 {
+        return DEFAULT;
+    }
+    (size / 2).min(4 << 20)
+}
+
+pub(crate) fn thread_stack_size() -> Option<usize> {
+    // SAFETY: pthread_getattr_np fills an attr we init/destroy ourselves.
+    unsafe {
+        let mut attr: libc::pthread_attr_t = std::mem::zeroed();
+        if libc::pthread_getattr_np(libc::pthread_self(), &mut attr) != 0 {
+            return None;
+        }
+        let mut addr: *mut libc::c_void = std::ptr::null_mut();
+        let mut size: libc::size_t = 0;
+        let rc = libc::pthread_attr_getstack(&attr, &mut addr, &mut size);
+        libc::pthread_attr_destroy(&mut attr);
+        (rc == 0).then_some(size)
+    }
+}
+
 /// `start_scripts` with an optional manual clock (milliseconds) that
 /// replaces the real one behind `__scratchy_now`; tests use it to drive
 /// timers deterministically. `None` is the real, monotonic clock.
@@ -1386,6 +1414,7 @@ pub(crate) fn start_scripts_clocked(
         return None;
     };
     rt.set_memory_limit(MEMORY_LIMIT);
+    rt.set_max_stack_size(js_stack_limit()); // QY47a
     // QY14: forward every rejection event to the prelude's queue.
     rt.set_host_promise_rejection_tracker(Some(Box::new(|ctx, promise, reason, handled| {
         let f: Option<Function> = ctx.globals().get("__scratchy_rej_push").ok();
