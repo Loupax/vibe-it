@@ -101,6 +101,10 @@ READY, in recommended order (no user decision needed):
  13 QY15a [S] run-time dynamic import() through the QF7 queue.
  14 QF14b2 (a)-(c) [S] `crossorigin` credentials, same-origin-mode redirect
     hop, `cookieStore`.
+ NEW 2026-11-17 (review of main @ ec6a0e6; block "CI AND TEST LAYOUT" below), in
+ this order: QCI0 [S] (a test fails on a clean checkout: flex 49.87 px vs 50),
+ QCI1 [S] (GitHub Actions: build + test + clippy count, after QCI0), QT1 [M]
+ (split src/tests.rs per area; pure move, quiet window). QCI2 later/optional.
  NEW 2026-11-16 (Opus, R24/R25; block "YOUTUBE CPU BUDGET + SOCIAL VIM.JS"
  below; the coordinator ranks them against the list above): QY21 [S]
  (YouTube's 5 s wall: 86% of the time is QY6e's own define() scan), QY22 [S],
@@ -851,6 +855,72 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       left alone: collapsible_if/let_and_return are cosmetic edits across many files that
       would conflict with the concurrent agents' branches (js.rs, layout.rs, tests.rs).
       Do it in one quiet window as a mechanical `cargo clippy --fix` pass, test + WPT.
+
+--- CI AND TEST LAYOUT (review of main @ ec6a0e6, 2026-11-17) ---------------
+--- The repo has no CI (.github/ does not exist), so a failing test can sit ---
+--- on main unnoticed; and every branch edits the one src/tests.rs. ----------
+
+- [ ] QCI0 [S] READY (P1, do before QCI1) A test fails on a clean checkout of main:
+      `inline_flex_lays_its_children_out_side_by_side_not_stacked` (tests.rs) gets
+      `children[0].w == 49.871094`, expects 50.0 (`cargo test --release --lib
+      inline_flex_lays`, reproduced at ec6a0e6 and 7e007e6 in a fresh Linux
+      container whose `fc-match sans-serif` is Inter; 1 failed, 2 ignored, rest pass).
+      The test dates from 244a8f4 (2026-11-11) and presumably passes on the user's
+      machine with other fonts. Find out which it is, with a measurement:
+      (a) a real flex bug: two `flex: 1` items (basis 0) in a 100 px inline-flex
+      box should each be exactly 50 px whatever their glyphs, since a single
+      glyph's min-content is far below 50; the ~0.13 px gap looks like the width
+      difference of "x" vs "y", so check whether `flex: 1` really resolves to a
+      zero basis (`parse_flex_shorthand`, the `basis_from_decl` / free-space code
+      in layout.rs) or the automatic minimum leaks in. Fix it, keep the test.
+      (b) a font-dependent test: make it font-independent (e.g. Ahem, as the WPT
+      runner loads it, or assert the equal split rather than a font-specific
+      number). Never delete or `#[ignore]` the test (AGENTS.md step 2).
+      Also run the full suite once with ONLY the CI font set from QCI1 installed
+      and fix/file any other font-dependent test. WPT: no pass->fail.
+- [ ] QCI1 [S] READY (after QCI0; user asked for it 2026-11-17) GitHub Actions CI,
+      `.github/workflows/ci.yml` at the repo root. On every PR and on push to
+      main. Per crate (scratchy, wire, snag; each has its own Cargo.lock, no
+      workspace): `cargo build --release --all-targets` and `cargo test --release`.
+      scratchy only: `tools/clippy-count.sh` and fail if the TOTAL is above the
+      QC1/QC2 baseline (78 today; keep the number in ONE place the workflow reads,
+      so lowering it is a one-line change).
+      Fonts: tests shape real text through the system fontconfig, so results
+      depend on installed fonts. Install one pinned set (Ubuntu runner, apt; name
+      the packages in the workflow and in tools/README) and make sure the suite
+      is green with exactly that set (QCI0). System packages: whatever winit/
+      softbuffer and rquickjs (C build via cc) need on a headless runner; find
+      them by building in a clean container, not by guessing.
+      Cache: `actions/cache` or `Swatinem/rust-cache`, pinned to a release tag.
+      Out of scope: WPT (needs /home/loupax/src/wpt, see QCI2), Acid2/3 (info
+      only), grim screenshots, anything that needs Wayland.
+      An agent cannot see a workflow run before merge: say so in the PR; the
+      coordinator checks the first run on main and files fixes. Then add to
+      AGENTS.md step 3: "CI must be green on the PR before merge".
+- [ ] QCI2 [S] (P4, optional, after QCI1; ask the user first: download size)
+      WPT subset in CI: sparse-checkout only the directories `wpt-subset.txt`
+      references, pinned to the WPT commit the user's ~/src/wpt is at (record it
+      next to wpt-expected.txt), then `scratchy --wpt <dir>`. Headless already
+      (the runner renders to PNG without a window).
+- [ ] QT1 [M] READY (do in a quiet window; the coordinator holds or rebases
+      every open branch, since all of them touch tests.rs) Split `src/tests.rs`
+      (19.5k lines, ~1080 fns, 108 `// ----------` section banners, one
+      `mod tests;` in lib.rs with `use super::*;`) into `src/tests/mod.rs`
+      (shared helpers only: `measure_fixture`, `find_mixed_inline`,
+      `mixed_items`, `find_embedded`, ... and the `use super::*;`) plus one file
+      per area, following the existing banners: e.g. css_parse, cascade,
+      layout_block, layout_inline, flex_grid, tables, paint, images, interaction,
+      forms, js_core, js_dom, js_net, net_policy, animation, media, wpt. Keep
+      each file under ~3k lines.
+      Why: since 72c352d, 13 commits exist only to restore a test's closing
+      brace that a rebase dropped in this one file (e.g. 828a6eb QP2, 8a4f3f0
+      QAN1c, 1207ac8 QAN1a, cc2f3c5 QJ9, 860c83c QY44c, 727f087 QY6a).
+      Pure move like Q38 (38ca872): no test renamed, changed, merged or dropped.
+      Proof in the PR: `cargo test --release -- --list` before and after; the
+      sorted test names, with the new module prefix stripped, diff empty, and the
+      pass/fail/ignored counts are identical. clippy count not above baseline.
+      Afterwards add to AGENTS.md step 2: "add the test to the area file in
+      src/tests/; a new area gets a new file", so branches stop colliding.
 - [x] QY30 [S] (P2, R26) DONE 2026-11-17 (f9900b8) rAF due time can equal "now": TIMERS_PRELUDE `add()` (js.rs)
       `if (raf) delay = FRAME - (t % FRAME)`; at t = 100 ms (FRAME = 1000/60)
       `t % FRAME` is 16.666666666666657, delay 1.1e-14, `t + delay` rounds back
