@@ -15,8 +15,12 @@
    warnings = unique (lint name, file:line:col), so per-target duplicates and the
    "N warnings emitted" lines don't inflate it; `--all-targets` so test code and
    benches are included). Quote that TOTAL, never a raw output line count. Your change
-   must not raise it above the baseline recorded in TODO.txt QC1 (the list of
-   warnings goes to `outfile`; diff it against main's to find new ones).
+   must not raise it above the baseline, which lives in ONE file,
+   `tools/clippy-baseline.txt` (a single number; CI reads it, and lowering it is a
+   one-line change; the list of warnings goes to `outfile`, diff it against
+   main's to find new ones). CI (`.github/workflows/ci.yml`: build, test, clippy
+   count for scratchy; build + test for wire and snag) must be green on the PR
+   before merge.
 4. WPT subset (once Q40a lands): `scratchy --wpt /home/loupax/src/wpt` (run from `scratchy/`; reads
    `wpt-subset.txt`, compares with `wpt-expected.txt`, exits 1 on any change;
    `--update` rewrites expectations; `--out DIR` saves failing PNGs). A new failure is a
