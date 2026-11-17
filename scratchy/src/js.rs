@@ -646,6 +646,29 @@ const PRELUDE: &str = r#"
     return m;
   };
   g.outerWidth = g.innerWidth; g.outerHeight = g.innerHeight; g.devicePixelRatio = 1;
+  // QY44b: window.screen / visualViewport. The screen is the viewport
+  // (headless: no separate monitor), read live so it stays >= innerWidth.
+  var Screen = ctor('Screen'), ScreenOrientation = ctor('ScreenOrientation', EventTarget), VisualViewport = ctor('VisualViewport', EventTarget);
+  var orient = Object.create(ScreenOrientation.prototype);
+  Object.defineProperty(orient, 'type', { get: function () { return g.innerHeight > g.innerWidth ? 'portrait-primary' : 'landscape-primary'; }, configurable: true, enumerable: true });
+  orient.angle = 0; orient.onchange = null;
+  orient.lock = function () { return Promise.reject(new Error('screen.orientation.lock() is not supported')); };
+  orient.unlock = function () {};
+  var scr = Object.create(Screen.prototype);
+  [['width', 'innerWidth'], ['availWidth', 'innerWidth'], ['height', 'innerHeight'], ['availHeight', 'innerHeight']].forEach(function (p) {
+    Object.defineProperty(scr, p[0], { get: function () { return Number(g[p[1]]) || 0; }, configurable: true, enumerable: true });
+  });
+  scr.availLeft = 0; scr.availTop = 0; scr.colorDepth = 24; scr.pixelDepth = 24; scr.orientation = orient; scr.isExtended = false;
+  Object.defineProperty(g, 'screen', { value: scr, writable: true, configurable: true, enumerable: true });
+  g.screenX = g.screenLeft = 0; g.screenY = g.screenTop = 0;
+  var vv = Object.create(VisualViewport.prototype);
+  [['width', 'innerWidth'], ['height', 'innerHeight']].forEach(function (p) {
+    Object.defineProperty(vv, p[0], { get: function () { return Number(g[p[1]]) || 0; }, configurable: true, enumerable: true });
+  });
+  vv.scale = 1; vv.offsetLeft = 0; vv.offsetTop = 0; vv.onresize = null; vv.onscroll = null;
+  Object.defineProperty(vv, 'pageLeft', { get: function () { return Number(g.scrollX) || 0; }, configurable: true, enumerable: true });
+  Object.defineProperty(vv, 'pageTop', { get: function () { return Number(g.scrollY) || 0; }, configurable: true, enumerable: true });
+  Object.defineProperty(g, 'visualViewport', { value: vv, writable: true, configurable: true, enumerable: true });
   var loc = { href: env.href, protocol: env.protocol, host: env.host, hostname: env.hostname,
     port: env.port, pathname: env.pathname, search: env.search, hash: env.hash, origin: env.origin };
   loc.toString = function () { return this.href; };

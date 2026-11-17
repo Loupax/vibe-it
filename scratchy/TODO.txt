@@ -802,7 +802,7 @@ behaviour checked fine (R29 fixture). Do in this order:
       `[job2,job3]` and `[]`. Test: that fixture in src/tests.rs (FAKE_CLOCK
       seam) + the existing QY22 tests stay green. Accept: cached YouTube copy
       (R29 recipe) 0 `sb\`` errors in 3 `--js-report --run-timers 5000` runs.
-- [ ] QY44b [S] (P1, R29) `window.screen` does not exist. Shreddit's concat chunk
+- [x] QY44b [S] (21e27b9) (P1, R29) `window.screen` does not exist. Shreddit's concat chunk
       evaluates `Jp={height:window?.screen.height,width:window?.screen.width}`
       at module level (`?.` guards only `window`), so the module factory
       throws `cannot read property 'height' of undefined` and the
