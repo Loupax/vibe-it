@@ -661,7 +661,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       the App does (same `ExternalResources` path) when a socket is given.
       Test: a copy with an external sheet that sets `display:flex` reads back
       `flex` in the report.
-- [x] QY40 [S] DONE 2026-11-17 (HASH_QY40) (P1, R28) `document.all` does not exist, so polymer-resin turns every
+- [x] QY40 [S] DONE 2026-11-17 (fefde2b) (P1, R28) `document.all` does not exist, so polymer-resin turns every
       FALSY property binding into the string "zClosurez". kevlar `XBv` returns
       the value unchanged only `if (!T && T !== document.all)`; in scratchy
       `document.all` is undefined, so for T = undefined the test is false and
