@@ -7143,3 +7143,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 **Prompt:** Spike outside scratchy's crate (tools/mpvspike): winit + softbuffer window, libmpv SW render of a local test file into a 640x360 rect at (100,100), wheel scroll and edge clipping, space/l/h keys; also feed the file via stream_cb from ranged reads of a local Range server; verify with nested dwl + grim + inject, measure CPU/RSS, check connect() calls; record in TODO.txt and NOTES.md.
 
 **What changed:** new tools/mpvspike (Cargo project, main.rs, rangeserver.py, connectlog.c), TODO.txt QM1b ticked with results and QM1e/QM1f/QM1g notes, NOTES.md section. Nothing under scratchy/src.
+
+## QAN1-0 (scratchy/qan1-0-wpt-animation-guard)
+
+**Prompt:** Guard the WPT accidental passes before any animation code: add the no-script `@keyframes` reftests (recomputed with the R31 criteria) and the 2 no-script `transition` reftests to wpt-subset.txt, `--update` wpt-expected.txt on unchanged main keeping the existing comment lines, `--wpt` must report no change. No source changes.
+
+**What changed:** wpt-subset.txt +72 tests (70 `@keyframes` + 2 `transition`; 3 of the 73 `@keyframes` tests were already in the subset), wpt-expected.txt +72 lines (38 PASS, 34 FAIL), TODO.txt QAN1-0 ticked. No existing line changed status.
