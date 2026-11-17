@@ -5797,7 +5797,7 @@ with temporary `Instant` timing, and say the number in the commit.
       paint have no App), mark painted from live state (`check_widget` style bits +
       `paint_checkable`), restyle only when CSS uses :checked. Toggle-to-present ~1.5 ms
       (repaint), ~124 ms on en.wikipedia (restyle). Left out: radio arrow keys, cloneNode state.
-- [x] Q30d [M] DONE (hash: HASH30D) Text editing in `input` and `textarea`. When a text control
+- [x] Q30d [M] DONE (hash: 04ae508) Text editing in `input` and `textarea`. When a text control
       is focused, key events go to it, not to `resolve_binding`: this
       is the automatic vim-mode suspension the vim-keybindings item
       left open. `Esc` blurs and returns to normal mode. One
