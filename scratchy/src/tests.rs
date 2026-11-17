@@ -16497,7 +16497,8 @@ fn qy22_promise_jobs_after_a_tripped_task_get_a_fresh_budget() {
 #[test]
 fn qy22_tripped_job_drain_logs_one_line_with_a_count() {
     let log = run_with_timers(
-        "setTimeout(()=>{for(var i=0;i<1000;i++)Promise.resolve().then(()=>{var e=Date.now()+8;while(Date.now()<e){}});},0);",
+        // QY46: each job has its own 500 ms budget now, so each must overrun it by itself.
+        "setTimeout(()=>{for(var i=0;i<4;i++)Promise.resolve().then(()=>{var e=Date.now()+700;while(Date.now()<e){}});},0);",
     );
     // QY44a: a trip stops the drain and defers the rest, so one line per
     // turn that tripped (each names the kill and the deferral), never one per job.
@@ -21157,4 +21158,68 @@ fn qy45_element_prefix_local_name_and_xml_doc() {
         ["log:svg:linearGradient|linearGradient|svg|http://www.w3.org/2000/svg|rect|rect||DIV|div||http://www.w3.org/1999/xhtml|1|1|2|q|k|urn:q|xmlns,xmlns:q|urn:q"],
         "{log:?}"
     );
+}
+
+// ---- QY46: each promise job gets its own budget; the drain is capped at 2 s and defers the rest.
+
+/// Runs `code` with the fake CPU clock `(1 s, step)`, pumping timers up to `rounds` times.
+fn qy46_run(code: &str, step: u64, rounds: usize) -> Vec<String> {
+    use crate::js::FAKE_CLOCK;
+    let out = Rc::new(RefCell::new(Vec::new()));
+    let o = out.clone();
+    FAKE_CLOCK.with(|f| f.set(Some((1_000_000_000, step))));
+    let clock = Rc::new(std::cell::Cell::new(0.0));
+    let engine = crate::js::start_scripts_clocked(
+        &parse_html(""),
+        &[src(code)],
+        Rc::new(move |level, text| o.borrow_mut().push(format!("{level}:{text}"))),
+        Some(clock.clone()),
+    )
+    .unwrap();
+    for _ in 0..rounds {
+        let Some(due) = engine.next_due_ms() else { break };
+        clock.set(clock.get().max(due));
+        engine.run_due();
+    }
+    FAKE_CLOCK.with(|f| f.set(None));
+    let v = out.borrow().clone();
+    v
+}
+
+#[test]
+fn qy46_three_300ms_jobs_all_complete_in_one_drain() {
+    // The reporting timer is queued AFTER the jobs' timer, so if it ran before
+    // all three jobs finished, n would be < 3.
+    let log = qy46_run(
+        "var n=0;setTimeout(()=>{for(var i=0;i<3;i++)Promise.resolve().then(()=>{__test_burn(300);n++});},0);\
+         setTimeout(()=>console.log('n='+n),0);",
+        0,
+        10,
+    );
+    assert!(!log.iter().any(|l| l.starts_with("error:")), "{log:?}");
+    assert!(log.iter().any(|l| l == "log:n=3"), "{log:?}");
+}
+
+#[test]
+fn qy46_runaway_job_is_still_killed() {
+    let log = qy46_run("setTimeout(()=>{Promise.resolve().then(()=>{for(;;){}});},0);", 1_000, 5);
+    let errs: Vec<_> = log.iter().filter(|l| l.starts_with("error:")).collect();
+    assert_eq!(errs.len(), 1, "{log:?}");
+    assert!(errs[0].contains("promise jobs stopped") && errs[0].contains("1 job killed"), "{log:?}");
+}
+
+#[test]
+fn qy46_ten_300ms_jobs_stop_at_the_cap_and_resume_without_kills() {
+    // A marker job queued behind the ten records how many ran before the
+    // first drain ended (a timer can only run between drains).
+    let log = qy46_run(
+        "var n=0;setTimeout(()=>{for(var i=0;i<10;i++)Promise.resolve().then(()=>{__test_burn(300);n++});},0);\
+         setTimeout(()=>console.log('n='+n),0);",
+        0,
+        20,
+    );
+    assert!(!log.iter().any(|l| l.starts_with("error:")), "{log:?}");
+    // 7 jobs start before 2 s of CPU is spent (the 7th starts at 1.8 s); the
+    // timer that logs runs between the capped drain and its resumption.
+    assert!(log.iter().any(|l| l == "log:n=7"), "{log:?}");
 }
