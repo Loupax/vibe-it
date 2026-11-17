@@ -165,6 +165,19 @@ header is skipped in `is_request_header_to_skip`):
   `X-Wire-Error: policy`; `file:` URLs get the same 403. Without the header
   wire connects to loopback/private/file targets (user decision: warn and
   allow, scratchy does the warning from the class header below).
+  **Pooling (W-POOL1):** ureq calls the resolver only when it opens a NEW
+  connection, so a pooled connection would skip the check. `public-only`
+  requests therefore use their own agents (`Shared::public_agent` /
+  `public_manual_agent`, own pools holding only connections the checking
+  resolver approved); plain requests never share a pool with them. A request
+  with a non-default `X-Wire-Max-Redirects` already uses a fresh one-off agent.
+  The class headers survive reuse via `CLASS_MAP` (`host:port` -> class, filled
+  by the resolver, max 1024 entries, 10 min TTL refreshed on lookup; a miss just
+  omits the headers). Known limit: on the non-jar path ureq follows redirects
+  itself and exposes no history, so an INTERMEDIATE redirect hop served from a
+  pooled connection is not listed in `X-Wire-Hop-Classes` (first and last hop
+  always are; the jar path follows redirects itself and is exact). The
+  `public-only` check is not affected: its pool only has checked connections.
 
 Response headers wire ALWAYS adds (upstream copies of `X-Wire-*` are dropped so
 a server cannot spoof them):
