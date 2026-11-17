@@ -698,6 +698,103 @@ pub(crate) fn paint_checkable(
     stroke((5.6, 9.0), (10.0, 4.2));
 }
 
+/// Q30d: the content box `(x, y, w, h)` of a control whose border box is `(x, y, w, h)`.
+pub(crate) fn control_content_box(s: &ComputedStyle, x: f32, y: f32, w: f32, h: f32) -> (f32, f32, f32, f32) {
+    let (cx, cy) = (x + s.border_left() + s.padding.left.px(), y + s.border_top() + s.padding.top.px());
+    let cw = (w - s.border_h() - s.padding.left.px() - s.padding.right.px()).max(0.0);
+    let ch = (h - s.border_v() - s.padding.top.px() - s.padding.bottom.px()).max(0.0);
+    (cx, cy, cw, ch)
+}
+
+/// Q30d: the laid-out box of DOM node `node` (any depth, inline-blocks included).
+pub(crate) fn find_laid_node(laid: &Laid, node: usize) -> Option<&Laid> {
+    if laid.style.node == node {
+        return Some(laid);
+    }
+    let kids: &[Laid] = match &laid.content {
+        LaidContent::Blocks(c) | LaidContent::TableRow(c) => c,
+        _ => &[],
+    };
+    if let Some(f) = kids.iter().chain(laid.positioned.iter()).find_map(|c| find_laid_node(c, node)) {
+        return Some(f);
+    }
+    if let LaidContent::MixedInline(items) = &laid.content {
+        return items.iter().find_map(|i| match i {
+            MixedPositioned::Embedded(l) => find_laid_node(l, node),
+            _ => None,
+        });
+    }
+    None
+}
+
+/// Q30d: the text of an editable `<input>`/`<textarea>`, painted from its LIVE
+/// state (forms_text.rs) so typing only needs a repaint: the selection
+/// highlight, the value (or the dimmer placeholder), then, when focused, a
+/// solid 1px caret. A single-line control scrolls horizontally and a textarea
+/// vertically to keep the caret visible. All the look is here, easy to redesign.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn paint_text_control(
+    s: &ComputedStyle,
+    font_system: &mut FontSystem,
+    swash_cache: &mut SwashCache,
+    pixels: &mut [u32],
+    win_w: u32,
+    win_h: u32,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    clip: Option<(f32, f32, f32, f32)>,
+) {
+    let password = s.text_widget & TEXT_PASSWORD != 0;
+    let multi = s.text_widget & TEXT_MULTI != 0;
+    let Some(info) = text_paint_info(s.node, password) else { return };
+    let focused = interaction_has(|st| st.focus == Some(s.node));
+    let (cx, cy, cw, ch) = control_content_box(s, x, y, w, h);
+    if cw <= 0.0 || ch <= 0.0 {
+        return;
+    }
+    let color = if info.placeholder { info.ph_color.unwrap_or(TextColor::rgb(117, 117, 117)) } else { s.color };
+    let (mut buffer, line_h) = shape_control(font_system, s, &info.display, color, multi, cw);
+    let (text_w, text_h) = text_extent(&buffer);
+    let (mut sx, mut sy) = (info.scroll_x, info.scroll_y);
+    let (caret_x, caret_y, caret_h) = caret_geometry(&buffer, &info.display, info.caret);
+    if !focused {
+        (sx, sy) = (0.0, 0.0);
+    } else if multi {
+        if caret_y < sy {
+            sy = caret_y;
+        } else if caret_y + caret_h > sy + ch {
+            sy = caret_y + caret_h - ch;
+        }
+        sy = sy.clamp(0.0, (text_h - ch).max(0.0));
+    } else {
+        if caret_x < sx {
+            sx = caret_x;
+        } else if caret_x > sx + cw - 1.0 {
+            sx = caret_x - cw + 1.0;
+        }
+        sx = sx.clamp(0.0, (text_w + 1.0 - cw).max(0.0));
+    }
+    if (sx, sy) != (info.scroll_x, info.scroll_y) {
+        set_text_scroll(s.node, sx, sy);
+    }
+    let top = if multi { cy } else { cy + ((ch - line_h) / 2.0).max(0.0).floor() };
+    let (ox, oy) = (cx - sx, top - sy);
+    let text_clip = Some(intersect_clip(x + s.border_left(), y + s.border_top(), (w - s.border_h()).max(0.0), (h - s.border_v()).max(0.0), clip));
+    if focused && !info.placeholder && let Some(sel) = info.selection {
+        let hl = TextColor::rgba(ACCENT.0, ACCENT.1, ACCENT.2, 90);
+        for (rx, ry, rw, rh) in selection_rects(&buffer, &info.display, sel) {
+            fill_rect(pixels, win_w, win_h, ox + rx, oy + ry, rw, rh, hl, text_clip);
+        }
+    }
+    let (backgrounds, valigns, hidden, decos) = ([None], [VerticalAlign::default()], [false], [DecorationStyle::default()]);
+    paint_buffer(&mut buffer, font_system, swash_cache, &backgrounds, &valigns, &hidden, &decos, pixels, win_w, win_h, ox, oy, text_clip, 0.0);
+    if focused {
+        fill_rect(pixels, win_w, win_h, (ox + caret_x).floor(), oy + caret_y, 1.0, caret_h, s.color, text_clip);
+    }
+}
+
 /// Blurs `mask` (`mw` x `mh`, alpha 0..1) in place with three box-blur
 /// passes per axis approximating a Gaussian of standard deviation `sigma`.
 pub(crate) fn blur_mask(mask: &mut [f32], mw: usize, mh: usize, sigma: f32) {
@@ -1881,6 +1978,10 @@ pub(crate) fn paint_inner(
         neg_positioned, &neg_stacking_children, font_system, swash_cache, cache, scroll_offsets, pixels, win_w,
         win_h, content_scroll_offset, child_clip,
     );
+
+    if s.text_widget != 0 && s.visibility == Visibility::Visible {
+        paint_text_control(&s, font_system, swash_cache, pixels, win_w, win_h, laid.x, draw_y, laid.w, laid.h, child_clip);
+    }
 
     match &laid.content {
         LaidContent::Blocks(children) | LaidContent::TableRow(children) => {

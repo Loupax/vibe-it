@@ -55,7 +55,7 @@ fn sized(style: &ComputedStyle, content: f32, horizontal: bool) -> BoxLength {
     BoxLength::Px(content + extra)
 }
 
-fn attr_string(handle: &Handle, name: &str) -> Option<String> {
+pub(crate) fn attr_string(handle: &Handle, name: &str) -> Option<String> {
     element_attr(handle, name).map(|a| a.to_string())
 }
 
@@ -109,7 +109,7 @@ fn collapse_ws(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-fn input_type(handle: &Handle) -> String {
+pub(crate) fn input_type(handle: &Handle) -> String {
     attr_string(handle, "type").map(|t| t.trim().to_ascii_lowercase()).unwrap_or_default()
 }
 
@@ -155,20 +155,37 @@ fn build_text_like(handle: &Handle, mut style: ComputedStyle, ctx: &FormCtx) -> 
         style.width = Some(sized(&style, chars * avg_char_w(&style, false), true));
     }
     style.overflow = Overflow::Hidden;
+    if let Some(kind) = text_control_kind(handle) {
+        return build_editable(handle, style, kind, ctx);
+    }
     let value = attr_string(handle, "value").unwrap_or_default();
     let item = if !value.is_empty() {
-        // `value` has newlines stripped (sanitization algorithm).
         let value: String = value.chars().filter(|c| *c != '\n' && *c != '\r').collect();
-        let shown = if ty == "password" { "\u{2022}".repeat(value.chars().count()) } else { value };
-        text_item(&style, shown, WhiteSpace::Pre)
-    } else if let Some(ph) = attr_string(handle, "placeholder").filter(|p| !p.is_empty()) {
-        placeholder_item(handle, ctx, &style, ph.replace(['\n', '\r'], " "), WhiteSpace::Pre)
+        text_item(&style, value, WhiteSpace::Pre)
     } else if let Some(fmt) = date_placeholder(&ty) {
         placeholder_item(handle, ctx, &style, fmt.to_string(), WhiteSpace::Pre)
     } else {
         text_item(&style, BLANK_LINE.to_string(), WhiteSpace::Pre)
     };
     (style, BoxContent::Inline(vec![item]))
+}
+
+/// Q30d: an editable text control. The box holds only one blank line (its
+/// height) or nothing (a textarea has its `rows` height); the value, the
+/// placeholder, the caret and the selection are painted from the live state
+/// (`forms_text.rs`, `paint::paint_text_control`), so editing never rebuilds
+/// the layout.
+fn build_editable(handle: &Handle, mut style: ComputedStyle, kind: u8, ctx: &FormCtx) -> (ComputedStyle, BoxContent) {
+    let ph = resolve_style_for(handle, ctx.rules, style.inherited(), ctx.viewport_width, Some("placeholder")).color;
+    let placeholder = attr_string(handle, "placeholder").unwrap_or_default().replace(['\n', '\r'], " ");
+    register_text_control(handle, placeholder, ph);
+    style.text_widget = kind;
+    let content = if kind & TEXT_MULTI != 0 {
+        BoxContent::Inline(Vec::new())
+    } else {
+        BoxContent::Inline(vec![text_item(&style, BLANK_LINE.to_string(), WhiteSpace::Pre)])
+    };
+    (style, content)
 }
 
 /// The empty-state text of the native date/time pickers.
@@ -290,7 +307,7 @@ fn find_by_id_attr(h: &Handle, id: &str) -> Option<Handle> {
 }
 
 fn all_inputs(h: &Handle, out: &mut Vec<Handle>) {
-    if element_tag(h) == "input" {
+    if matches!(element_tag(h), "input" | "textarea") {
         out.push(h.clone());
     }
     for c in h.children.borrow().iter() {
@@ -351,7 +368,7 @@ pub(crate) fn set_indeterminate(h: &Handle, v: bool) {
 pub(crate) fn reset_form_state(form: &Handle) -> bool {
     let mut all = Vec::new();
     all_inputs(&tree_root(form), &mut all);
-    let mut any = false;
+    let mut any = reset_text_state(form, &all);
     for c in all {
         if element_tag(&c) == "input" && form_owner(&c).is_some_and(|f| Rc::ptr_eq(&f, form)) {
             any |= CHECK_LIVE.with(|m| m.borrow_mut().remove(&node_id(&c))).is_some();
@@ -458,17 +475,7 @@ fn build_textarea(handle: &Handle, mut style: ComputedStyle, ctx: &FormCtx) -> (
     if style.height.is_none() {
         style.height = Some(sized(&style, rows * line_h(&style), false));
     }
-    let mut text = String::new();
-    collect_text_only(handle, &mut text);
-    let text = text.replace("\r\n", "\n").replace('\r', "\n");
-    let item = if !text.is_empty() {
-        Some(text_item(&style, text, WhiteSpace::PreWrap))
-    } else {
-        attr_string(handle, "placeholder")
-            .filter(|p| !p.is_empty())
-            .map(|ph| placeholder_item(handle, ctx, &style, ph, WhiteSpace::PreWrap))
-    };
-    (style, BoxContent::Inline(item.into_iter().collect()))
+    build_editable(handle, style, TEXT_MULTI, ctx)
 }
 
 /// The `option` elements of a `<select>` (also inside `<optgroup>`), as

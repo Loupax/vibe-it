@@ -358,6 +358,8 @@ pub(crate) struct JsRequests {
     /// Q30c: script changed a checkbox/radio's live state (repaint, or restyle
     /// when a stylesheet uses `:checked`).
     pub(crate) check_changed: bool,
+    /// Q30d: script changed a text control's live value/selection (repaint only).
+    pub(crate) text_changed: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -877,6 +879,29 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         {
             r_rf.borrow_mut().check_changed = true;
             gn_rf.set(gn_rf.get() + 1);
+        }
+    });
+    // Q30d: live text value / selection of input and textarea (forms_text.rs).
+    let t_tv = table.clone();
+    native!("__d_tvalue", move |id: i32| -> String { t_tv.borrow().get(id).map(|h| crate::text_value(&h)).unwrap_or_default() });
+    let (t_stv, r_stv, gn_stv) = (table.clone(), reqs.clone(), wgen.clone());
+    native!("__d_settvalue", move |id: i32, v: String| {
+        if let Some(h) = t_stv.borrow().get(id) {
+            crate::set_text_value(&h, &v);
+            r_stv.borrow_mut().text_changed = true;
+            gn_stv.set(gn_stv.get() + 1);
+        }
+    });
+    let t_sg = table.clone();
+    native!("__d_selget", move |id: i32, end: bool| -> i32 {
+        t_sg.borrow().get(id).map_or(0, |h| crate::text_selection(&h, end) as i32)
+    });
+    let (t_ss, r_ss, gn_ss) = (table.clone(), reqs.clone(), wgen.clone());
+    native!("__d_selset", move |id: i32, a: i32, b: i32| {
+        if let Some(h) = t_ss.borrow().get(id) {
+            crate::set_text_selection(&h, a.max(0) as usize, b.max(0) as usize);
+            r_ss.borrow_mut().text_changed = true;
+            gn_ss.set(gn_ss.get() + 1);
         }
     });
     // QB5: focus()/blur() only record a request; the App applies it.
@@ -1692,7 +1717,7 @@ const DOM_PRELUDE: &str = r#"
   Object.defineProperty(g, '__scratchy_dn', { value: function (id, type, init) {
     var t = id === -2 ? (doc.body || doc) : wrap(id);
     if (!t) return true;
-    var C = { click: MouseEvent, mousedown: MouseEvent, mouseup: MouseEvent, keydown: KeyboardEvent,
+    var C = { click: MouseEvent, mousedown: MouseEvent, mouseup: MouseEvent, keydown: KeyboardEvent, keypress: KeyboardEvent,
       keyup: KeyboardEvent, mouseover: MouseEvent, mouseout: MouseEvent, focus: FocusEvent, blur: FocusEvent, focusin: FocusEvent, focusout: FocusEvent,
       animationstart: AnimationEvent, animationend: AnimationEvent, animationiteration: AnimationEvent, animationcancel: AnimationEvent }[type] || Event;
     if (init && init.relatedTargetId !== undefined) init.relatedTarget = wrap(init.relatedTargetId);
@@ -1936,8 +1961,22 @@ const DOM_PRELUDE: &str = r#"
   ['name', 'alt', 'src', 'accept', 'placeholder', 'min', 'max', 'step', 'pattern', 'autocomplete', 'align', 'useMap'].forEach(function (p) { rStr(IP, p, p.toLowerCase()); });
   // The value property is a dirty value held on the wrapper (the attribute
   // is the default); wiring it to live widget state is Q33e.
-  defs(IP, 'value', function () { return this.__v !== undefined ? this.__v : ga(this, 'value'); },
-    function (v) { this.__v = String(v); });
+  // Q30d: text-like inputs read/write the live value (forms_text.rs); other
+  // types keep a dirty value on the wrapper.
+  var TEXTY = ['text', 'search', 'tel', 'url', 'email', 'password', 'number'];
+  var isTexty = function (el) { return TEXTY.indexOf(el.type) >= 0; };
+  defs(IP, 'value', function () { return isTexty(this) ? __d_tvalue(this.__id) : (this.__v !== undefined ? this.__v : ga(this, 'value')); },
+    function (v) { v = v === null ? '' : String(v); if (isTexty(this)) __d_settvalue(this.__id, v); else this.__v = v; });
+  var selProps = function (P, ok) {
+    defs(P, 'selectionStart', function () { return ok(this) ? __d_selget(this.__id, false) : null; },
+      function (v) { if (ok(this)) __d_selset(this.__id, Math.floor(Number(v)) || 0, __d_selget(this.__id, true)); });
+    defs(P, 'selectionEnd', function () { return ok(this) ? __d_selget(this.__id, true) : null; },
+      function (v) { if (ok(this)) { var e = Math.floor(Number(v)) || 0; __d_selset(this.__id, Math.min(__d_selget(this.__id, false), e), e); } });
+    defs(P, 'selectionDirection', function () { return ok(this) ? 'forward' : null; }, function () {});
+    P.setSelectionRange = function (s, e) { if (ok(this)) __d_selset(this.__id, Math.max(0, Math.floor(Number(s)) || 0), Math.max(0, Math.floor(Number(e)) || 0)); };
+    P.select = function () { if (ok(this)) __d_selset(this.__id, 0, this.value.length); };
+  };
+  selProps(IP, isTexty);
   defs(IP, 'defaultValue', function () { return ga(this, 'value'); }, function (v) { __d_setattr(this.__id, 'value', String(v)); });
   defs(IP, 'defaultChecked', function () { return __d_attr(this.__id, 'checked') != null; },
     function (v) { if (v) __d_setattr(this.__id, 'checked', ''); else __d_rmattr(this.__id, 'checked'); });
@@ -1957,7 +1996,8 @@ const DOM_PRELUDE: &str = r#"
   formProp(TAP);
   def(TAP, 'type', function () { return 'textarea'; });
   ['name', 'placeholder', 'wrap'].forEach(function (p) { rStr(TAP, p, p); });
-  defs(TAP, 'value', function () { return __d_text(this.__id); }, function (v) { __d_settext(this.__id, String(v)); });
+  defs(TAP, 'value', function () { return __d_tvalue(this.__id); }, function (v) { __d_settvalue(this.__id, v === null ? '' : String(v)); });
+  selProps(TAP, function () { return true; });
   defs(TAP, 'defaultValue', function () { return __d_text(this.__id); }, function (v) { __d_settext(this.__id, String(v)); });
   rInt(TAP, 'rows', 'rows', 2, 1); rInt(TAP, 'cols', 'cols', 20, 1); rBool(TAP, 'readOnly', 'readonly');
   var optionsOf = function (s) {

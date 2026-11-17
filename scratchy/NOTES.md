@@ -3471,3 +3471,7 @@ It proved: libmpv SW render (bgr0) into a rect of a softbuffer page, wheel
 scroll plus window-edge clipping, exact seeks (use `+exact`), 0.7-0.8 core and
 90-96 MB RSS for 720p in 640x360, and that no connect() other than our own
 reader's happens. Numbers and the mpv option list: TODO.txt QM1b RESULTS.
+
+## Form controls: live state and painting (Q30c, Q30d)
+
+Checkbox/radio state (`CHECK_LIVE`, forms.rs) and text state (`TEXT_LIVE`, forms_text.rs) are thread-local maps keyed by `node_id`, cleared on navigation. Neither is in the layout tree: the box only carries `ComputedStyle::check_widget` / `text_widget` and the painter (`paint_checkable`, `paint_text_control`) draws from the live state, so toggling or typing is a repaint. A text control is "dirty" once script or the user set its value; until then the `value` attribute (textarea: its text) rules. While an enabled text control is focused, `App::text_control_key` owns the keys after the page keydown handlers; Esc blurs and returns the keys to the vim bindings. `TextEditBuffer` (app.rs) is shared with the `:` command bar.

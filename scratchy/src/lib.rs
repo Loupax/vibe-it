@@ -70,6 +70,7 @@ mod style;
 mod layout;
 mod images;
 mod forms;
+mod forms_text;
 mod paint;
 mod net;
 #[allow(dead_code)] // nothing calls the policy until QF7/QF8
@@ -93,6 +94,7 @@ pub(crate) use style::*;
 pub use layout::*;
 pub use images::*;
 pub(crate) use forms::*;
+pub(crate) use forms_text::*;
 pub(crate) use paint::*;
 pub(crate) use net::*;
 pub(crate) use net_policy::*;
