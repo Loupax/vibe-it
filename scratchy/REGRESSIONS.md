@@ -2,7 +2,7 @@
 
 ## R32: Every shaped paragraph wipes cosmic-text's font-match cache (`db_mut()` in `shape_spans`): 10-37x slower shaping everywhere, seen as "1 forced layouts, 2198 ms" on social.loupax.com/u/loupax (Opus investigator, 2026-11-17) — OPEN, items QP1 (P1), QP2, QP3 in TODO.txt
 
-**Status: root cause found and measured, nothing committed.** User report:
+**Status: FIXED 2026-11-17: QP1 (6c1ae4e, the `db_mut()` fix: bench 3.4 s -> 42 ms, the forced-layout line is gone) and QP2 (d5fe517, shape memo on the JS thread); QP3 (cost of a font-match cache miss) is still open.** Original status: root cause found and measured, nothing committed. User report:
 `scratchy --socket $(wire --print-socket) https://social.loupax.com/u/loupax`
 prints `scratchy: js: 1 forced layouts, 2198 ms (script reads geometry after
 DOM writes)`. The page is only 9.7 KB of HTML (29 posts, 2 inline `<style>`
