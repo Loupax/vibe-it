@@ -18576,6 +18576,7 @@ fn q30c_user_click_space_label_and_reset_button_through_the_app() {
     assert!(!live_checked(&by("a")) && live_checked(&by("r1")) && !live_checked(&by("r2")));
     assert!(live_checked(&by("w")), "outside the form: untouched");
     clear_check_state();
+}
 
 // ---- QAN1c: animation start/end events and the settle-first restyles ----
 
