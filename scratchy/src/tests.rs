@@ -6136,7 +6136,7 @@ fn fetch_raw_via_wire_round_trips_a_real_response_over_a_real_unix_socket() {
     server.join().expect("mock server thread panicked");
     let _ = std::fs::remove_file(&path);
     match result {
-        WireFetchRaw::Responded { content_type, body } => {
+        WireFetchRaw::Responded { content_type, body, .. } => {
             assert_eq!(content_type, Some("text/html".to_string()));
             assert_eq!(body, b"<html><body>hi</body></html>");
         }
@@ -12703,6 +12703,7 @@ fn qf3_formdata_blob_value_becomes_file() {
 
 #[test]
 fn qf3_formdata_form_argument_logs_and_is_empty() {
+    // Q30e: FormData(form) now reads the form (an empty form gives an empty set, no log).
     let log = run_with_timers(
         "var none = new FormData();\
          var fd = new FormData(document.createElement('form'), null);\
@@ -12710,10 +12711,7 @@ fn qf3_formdata_form_argument_logs_and_is_empty() {
     );
     assert_eq!(
         log,
-        [
-            "error:scratchy: js: not implemented: FormData(form) (waits for Q30e)",
-            "log:false 0 true",
-        ],
+        ["log:false 0 true"],
         "{log:?}"
     );
 }
@@ -19226,4 +19224,307 @@ fn qy39b_navigator_agrees_with_the_flag() {
     let fake = QfFake::new(vec![]);
     let l = qf8_run("https://page.test/", &fake, "console.log(navigator.userAgent, '|', navigator.appVersion);");
     assert_eq!(l, vec![format!("log:{} | {}", navigator_user_agent(), navigator_app_version())], "{l:?}");
+}
+
+// ---- Q30e: form submission ------------------------------------------------
+
+fn q30e_form(html: &str) -> (Handle, Handle) {
+    clear_check_state();
+    clear_text_state();
+    let doc = parse_html(&format!("<html><body>{html}</body></html>"));
+    let f = q30c_by(&doc, "f");
+    (doc, f)
+}
+
+fn q30e_set(f: &Handle, submitter: Option<&Handle>) -> String {
+    encode_urlencoded(&form_data_set(f, submitter))
+}
+
+#[test]
+fn q30e_data_set_every_control_type() {
+    let (doc, f) = q30e_form(
+        r#"<form id=f>
+        <input name=t value="a b&c"><input type=password name=pw value=s3><input type=hidden name=h value=hid>
+        <input type=checkbox name=c1 checked><input type=checkbox name=c2><input type=checkbox name=c3 value=yes checked>
+        <input type=radio name=r value=1><input type=radio name=r value=2 checked><input type=radio name=r value=3>
+        <input name=off disabled value=x><input value=nameless><input name=empty>
+        <textarea name=ta>l1
+l2</textarea>
+        <select name=s><option value=a>A<option value=b selected>B<option value=c>C</select>
+        <select name=s1><option disabled>D<option>Second one</select>
+        <select name=m multiple><option selected>x<option>y<option selected value=z>Z</select>
+        <input type=file name=fl><input type=range name=rg><input type=color name=co>
+        <input id=sb type=submit name=go value=Go><button id=bb name=b value=bv>B</button><button type=button name=nb>N</button>
+        <input type=reset name=rs><input type=image name=im>
+        <fieldset disabled><input name=infs value=1></fieldset>
+        </form>"#,
+    );
+    assert_eq!(
+        q30e_set(&f, None),
+        "t=a+b%26c&pw=s3&h=hid&c1=on&c3=yes&r=2&empty=&ta=l1%0D%0Al2&s=b&s1=Second+one&m=x&m=z&fl=&rg=50&co=%23000000"
+    );
+    let bb = q30c_by(&doc, "bb");
+    assert!(q30e_set(&f, Some(&bb)).ends_with("&b=bv"));
+    let sb = q30c_by(&doc, "sb");
+    assert!(q30e_set(&f, Some(&sb)).ends_with("&go=Go"), "{}", q30e_set(&f, Some(&sb)));
+    clear_check_state();
+    clear_text_state();
+}
+
+#[test]
+fn q30e_live_values_radio_groups_and_form_owner() {
+    let (doc, f) = q30e_form(
+        r#"<form id=f><input id=a name=a value=old><textarea id=t name=t></textarea>
+        <input id=r1 type=radio name=r value=1 checked><input id=r2 type=radio name=r value=2></form>
+        <input name=ext form=f value=outside><form id=g><input name=other form=f value=moved></form>
+        <input name=nope value=no>"#,
+    );
+    set_text_value(&q30c_by(&doc, "a"), "new value");
+    set_text_value(&q30c_by(&doc, "t"), "x\ny\r\nz");
+    set_checked(&q30c_by(&doc, "r2"), true);
+    assert_eq!(q30e_set(&f, None), "a=new+value&t=x%0D%0Ay%0D%0Az&r=2&ext=outside&other=moved");
+    assert_eq!(q30e_set(&q30c_by(&doc, "g"), None), "");
+    clear_check_state();
+    clear_text_state();
+}
+
+#[test]
+fn q30e_image_submitter_adds_xy() {
+    let (_d, f) = q30e_form("<form id=f><input type=image name=im id=i><input type=image id=j></form>");
+    let i = find_element_by_tag(&f, "input").unwrap();
+    assert_eq!(q30e_set(&f, Some(&i)), "im.x=0&im.y=0");
+}
+
+fn q30e_plan(html: &str, submitter_id: Option<&str>, page: &str) -> SubmitPlan {
+    let (doc, f) = q30e_form(html);
+    let s = submitter_id.map(|id| q30c_by(&doc, id));
+    plan_submission(&f, s.as_ref(), Some(&Url::parse(page).unwrap())).expect("plan")
+}
+
+#[test]
+fn q30e_get_replaces_query_keeps_fragment_and_resolves_action() {
+    let p = q30e_plan("<form id=f action='/w/index.php?old=1#frag'><input name=search value='Rust programming language'><input type=hidden name=go value=Go></form>", None, "https://en.example.org/wiki/Main");
+    assert_eq!(p.method, SubmitMethod::Get);
+    assert_eq!(p.url.as_str(), "https://en.example.org/w/index.php?search=Rust+programming+language&go=Go#frag");
+    assert!(p.post.is_none());
+    let p = q30e_plan("<form id=f><input name=q value=1></form>", None, "https://e.org/p?a=b");
+    assert_eq!(p.url.as_str(), "https://e.org/p?q=1");
+    let p = q30e_plan("<form id=f action=s><input name=q value=1></form>", None, "https://e.org/dir/p");
+    assert_eq!(p.url.as_str(), "https://e.org/dir/s?q=1");
+    assert!(plan_submission(&q30e_form("<form id=f action='mailto:a@b.c'></form>").1, None, None).is_err());
+}
+
+#[test]
+fn q30e_post_urlencoded_multipart_and_text_plain_bodies() {
+    let form = |enc: &str| format!("<form id=f method=post action=/p {enc}><input name=a value='x y'><input type=file name=up><textarea name=t>l1\nl2</textarea></form>");
+    let p = q30e_plan(&form(""), None, "https://e.org/");
+    assert_eq!(p.url.as_str(), "https://e.org/p");
+    let post = p.post.unwrap();
+    assert_eq!(post.content_type, "application/x-www-form-urlencoded");
+    assert_eq!(String::from_utf8(post.body).unwrap(), "a=x+y&up=&t=l1%0D%0Al2");
+    let post = q30e_plan(&form("enctype=text/plain"), None, "https://e.org/").post.unwrap();
+    assert_eq!(post.content_type, "text/plain");
+    assert_eq!(String::from_utf8(post.body).unwrap(), "a=x y\r\nup=\r\nt=l1\r\nl2\r\n");
+    let post = q30e_plan(&form("enctype=multipart/form-data"), None, "https://e.org/").post.unwrap();
+    let b = post.content_type.strip_prefix("multipart/form-data; boundary=").expect("boundary").to_string();
+    let want = format!(
+        "--{b}\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\nx y\r\n--{b}\r\nContent-Disposition: form-data; name=\"up\"; filename=\"\"\r\nContent-Type: application/octet-stream\r\n\r\n\r\n--{b}\r\nContent-Disposition: form-data; name=\"t\"\r\n\r\nl1\r\nl2\r\n--{b}--\r\n"
+    );
+    assert_eq!(String::from_utf8(post.body).unwrap(), want);
+    let again = q30e_plan(&form("enctype=multipart/form-data"), None, "https://e.org/").post.unwrap();
+    assert_ne!(again.content_type, format!("multipart/form-data; boundary={b}"), "a fresh boundary per submission");
+}
+
+#[test]
+fn q30e_formaction_formmethod_formenctype_overrides_and_unknown_values() {
+    let html = "<form id=f action=/a method=get><input name=q value=1><button id=b formaction=/b formmethod=post formenctype=text/plain formtarget=_blank name=n value=v>X</button><button id=c>Y</button></form>";
+    let p = q30e_plan(html, Some("b"), "https://e.org/");
+    assert_eq!((p.method, p.url.as_str(), p.target.as_str()), (SubmitMethod::Post, "https://e.org/b", "_blank"));
+    let post = p.post.unwrap();
+    assert_eq!((post.content_type.as_str(), String::from_utf8(post.body).unwrap().as_str()), ("text/plain", "q=1\r\nn=v\r\n"));
+    let p = q30e_plan(html, Some("c"), "https://e.org/");
+    assert_eq!((p.method, p.url.as_str()), (SubmitMethod::Get, "https://e.org/a?q=1"));
+    let p = q30e_plan("<form id=f method=PoSt enctype=bogus></form>", None, "https://e.org/");
+    assert_eq!(p.post.unwrap().content_type, "application/x-www-form-urlencoded");
+    let p = q30e_plan("<form id=f method=nonsense></form>", None, "https://e.org/");
+    assert_eq!(p.method, SubmitMethod::Get);
+    assert_eq!(submit_method_of(&q30e_form("<form id=f method=dialog></form>").1, None), SubmitMethod::Dialog);
+}
+
+#[test]
+fn q30e_default_button_and_implicit_submission_rules() {
+    let (_d, f) = q30e_form("<form id=f><input name=a><input name=b></form>");
+    assert!(default_button(&f).is_none() && !implicit_submission_ok(&f), "two text fields and no button: no implicit submit");
+    let (_d, f) = q30e_form("<form id=f><input name=a><input type=checkbox name=c></form>");
+    assert!(implicit_submission_ok(&f), "one text field (a checkbox does not block)");
+    let (_d, f) = q30e_form("<form id=f><input name=a><input name=b><button type=button>no</button><button id=s>go</button></form>");
+    assert_eq!(attr_string(&default_button(&f).unwrap(), "id").as_deref(), Some("s"));
+}
+
+#[test]
+fn q30e_post_request_text_headers_cookies_and_samesite_method() {
+    let url = Url::parse("https://shop.test/login").unwrap();
+    let page = Url::parse("https://shop.test/form").unwrap();
+    let post = PostBody { content_type: "application/x-www-form-urlencoded".into(), body: b"a=1&b=2".to_vec() };
+    let ctx = CookieContext::navigation(&url, Some(&page));
+    let t = build_post_request_ctx(&url, &ctx, &post, Some(&page));
+    assert!(t.starts_with("POST https://shop.test/login HTTP/1.1\r\nHost: shop.test\r\n"), "{t}");
+    assert!(t.contains("Content-Type: application/x-www-form-urlencoded\r\n"));
+    assert!(t.contains("Origin: https://shop.test\r\n"));
+    assert!(t.contains("Content-Length: 7\r\n"));
+    assert!(t.ends_with("\r\n\r\na=1&b=2"));
+    // Cookie partition headers as for any navigation (X-Wire-Nav + initiator) when the jar is usable.
+    let support = CookieSupport::new(false);
+    let hs = wire_cookie_headers_with(&support, &ctx);
+    if !hs.is_empty() {
+        let names: Vec<&str> = hs.iter().map(|(n, _)| n.as_str()).collect();
+        assert!(names.contains(&"X-Wire-Nav") && names.contains(&"X-Wire-Initiator-Site"), "{names:?}");
+    }
+    let t = build_post_request_ctx(&url, &CookieContext::navigation(&url, None), &post, Some(&Url::parse("file:///x.html").unwrap()));
+    assert!(t.contains("Origin: null\r\n"), "{t}");
+}
+
+#[test]
+fn q30e_post_reaches_a_fake_wire_with_exact_bytes_and_final_url_is_read() {
+    use std::os::unix::net::UnixListener;
+    let path = unique_test_socket_path("q30e-post");
+    let _ = std::fs::remove_file(&path);
+    let listener = UnixListener::bind(&path).expect("bind");
+    let url = Url::parse("http://127.0.0.1:9/p").unwrap();
+    let post = PostBody { content_type: "text/plain".into(), body: b"k=v\r\n".to_vec() };
+    let text = build_post_request_ctx(&url, &CookieContext::navigation(&url, None), &post, None);
+    let want = text.clone().into_bytes();
+    let server = thread::spawn(move || {
+        let (mut s, _) = listener.accept().expect("accept");
+        let mut got = Vec::new();
+        let mut buf = [0u8; 4096];
+        while got.len() < want.len() {
+            match Read::read(&mut s, &mut buf) {
+                Ok(0) | Err(_) => break,
+                Ok(n) => got.extend_from_slice(&buf[..n]),
+            }
+        }
+        assert_eq!(got, want);
+        s.write_all(b"HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nX-Wire-Final-Url: http://127.0.0.1:9/done\r\n\r\n<p>ok</p>").unwrap();
+    });
+    let r = fetch_raw_via_wire(&path, &text);
+    server.join().unwrap();
+    let _ = std::fs::remove_file(&path);
+    match r {
+        WireFetchRaw::Responded { body, final_url, .. } => {
+            assert_eq!(body, b"<p>ok</p>");
+            assert_eq!(final_url.as_deref(), Some("http://127.0.0.1:9/done"));
+        }
+        WireFetchRaw::Unreachable => panic!("unreachable"),
+    }
+}
+
+fn q30e_app(html: &str, script: &str) -> Option<(App, Handle)> {
+    use winit::platform::wayland::EventLoopBuilderExtWayland;
+    let event_loop = EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build().ok()?;
+    clear_check_state();
+    clear_text_state();
+    let doc = parse_html(&format!("<html><body>{html}</body></html>"));
+    let mut app = App::new_static(doc.clone(), event_loop.create_proxy(), None);
+    app.base_url = Some(Url::parse("https://e.org/page").unwrap());
+    app.js = run_page_scripts(&doc, &[src(script)], app.base_url.as_ref());
+    Some((app, doc))
+}
+
+fn q30e_log(app: &App) -> String {
+    app.js.as_ref().unwrap().eval_value("t", "window.L.join('|')").unwrap_or_default()
+}
+
+#[test]
+fn q30e_click_submit_event_preventdefault_requestsubmit_vs_submit_and_history() {
+    // A navigation drops the page's JS (as for any page): the script is reinstalled after each one.
+    let script = "window.L=[]; var f=document.getElementById('f'); f.addEventListener('submit',function(e){L.push('submit:'+(e.submitter&&e.submitter.id)+':'+(e instanceof SubmitEvent)); if(window.cancel)e.preventDefault();});";
+    let Some((mut app, doc)) = q30e_app(
+        "<form id=f action=/s><input id=i name=q value=1><button id=b name=bn value=BV>Go</button></form>",
+        script,
+    ) else {
+        return;
+    };
+    let b = q30c_by(&doc, "b");
+    app.js.as_ref().unwrap().eval_value::<bool>("t", "window.cancel=true");
+    app.click_activate(Some(&b), (0.0, 0.0));
+    assert_eq!(q30e_log(&app), "submit:b:true");
+    assert!(app.history.is_empty() && app.nav_generation == 0, "preventDefault stops the submission");
+    app.js.as_ref().unwrap().eval_value::<bool>("t", "window.cancel=false,L.length=0,true");
+    app.click_activate(Some(&b), (0.0, 0.0));
+    assert_eq!(app.history.last().map(Url::as_str), Some("https://e.org/s?q=1&bn=BV"));
+    assert_eq!(app.nav_generation, 1);
+    app.js = run_page_scripts(&doc, &[src(script)], app.base_url.as_ref());
+    app.js.as_ref().unwrap().eval_value::<bool>("t", "document.getElementById('f').submit(),true");
+    let log = q30e_log(&app);
+    app.js_sync();
+    assert_eq!(log, "", "submit() fires no submit event");
+    assert_eq!(app.nav_generation, 2);
+    assert_eq!(app.history.last().map(Url::as_str), Some("https://e.org/s?q=1"));
+    app.js = run_page_scripts(&doc, &[src(script)], app.base_url.as_ref());
+    app.js.as_ref().unwrap().eval_value::<bool>("t", "document.getElementById('f').requestSubmit(document.getElementById('b')),true");
+    let log = q30e_log(&app);
+    app.js_sync();
+    assert_eq!(log, "submit:b:true");
+    assert_eq!(app.nav_generation, 3);
+    assert_eq!(app.history.last().map(Url::as_str), Some("https://e.org/s?q=1&bn=BV"));
+    clear_check_state();
+    clear_text_state();
+}
+
+#[test]
+fn q30e_enter_in_a_text_field_submits_implicitly_and_post_goes_into_history() {
+    let Some((mut app, doc)) = q30e_app(
+        "<form id=f method=post action=/login><input id=u name=user><input id=p type=password name=pw></form><form id=g action=/one><input id=o name=q><input type=checkbox name=c checked></form><form id=h><input id=h1 name=a><input id=h2 name=b></form>",
+        "window.L=[]; document.addEventListener('submit',function(e){L.push(e.target.id)});",
+    ) else {
+        return;
+    };
+    let h1 = q30c_by(&doc, "h1");
+    app.set_focus_element(Some(&h1), false);
+    app.text_control_key(&h1, &Key::Named(NamedKey::Enter), false);
+    assert_eq!(app.nav_generation, 0);
+    let o = q30c_by(&doc, "o");
+    app.set_focus_element(Some(&o), false);
+    for c in ["h", "i"] {
+        app.text_control_key(&o, &Key::Character(c.into()), false);
+    }
+    app.text_control_key(&o, &Key::Named(NamedKey::Enter), false);
+    assert_eq!(app.history.last().map(Url::as_str), Some("https://e.org/one?q=hi&c=on"));
+    let u = q30c_by(&doc, "u");
+    app.set_focus_element(Some(&u), false);
+    app.text_control_key(&u, &Key::Character("a".into()), false);
+    app.text_control_key(&u, &Key::Named(NamedKey::Enter), false);
+    assert_eq!(app.history.last().map(Url::as_str), Some("https://e.org/login"));
+    assert!(app.pending_post.is_none(), "the POST body is consumed by that one navigation");
+    app.navigate_history(-1);
+    assert!(app.pending_post.is_none());
+    clear_check_state();
+    clear_text_state();
+}
+
+#[test]
+fn q30e_mixed_content_form_action_is_blocked_and_dialog_closes() {
+    let Some((mut app, doc)) = q30e_app(
+        "<form id=f action='http://example.com/x'><input name=q></form><dialog id=d open><form id=m method=dialog><button id=ok value=yes>OK</button></form></dialog>",
+        "window.L=[]; document.getElementById('d').addEventListener('close',function(){L.push('closed:'+this.returnValue)});",
+    ) else {
+        return;
+    };
+    app.base_url = Some(Url::parse("https://secure.example/").unwrap());
+    app.form_navigate(&q30c_by(&doc, "f"), None);
+    assert_eq!(app.nav_generation, 0, "https page -> http action is blocked");
+    app.click_activate(Some(&q30c_by(&doc, "ok")), (0.0, 0.0));
+    assert_eq!(q30e_log(&app), "closed:yes");
+    assert_eq!(app.nav_generation, 0, "method=dialog never navigates");
+}
+
+#[test]
+fn q30e_formdata_of_a_form_reads_the_data_set() {
+    clear_check_state();
+    clear_text_state();
+    let doc = parse_html("<html><body><form id=f><input name=a value=1><input type=checkbox name=c checked><textarea name=t>x</textarea><button name=b value=bv>B</button></form></body></html>");
+    let js = run_page_scripts(&doc, &[src("var f=document.getElementById('f'); var d=new FormData(f); var e=new FormData(f, f.querySelector('button')); window.out=[Array.from(d.keys()).join(','), Array.from(e.keys()).join(','), d.get('t')].join('|');")], None).expect("js");
+    let got: String = js.eval_value("t", "window.out").expect("out");
+    assert_eq!(got, "a,c,t|a,c,t,b|x");
 }

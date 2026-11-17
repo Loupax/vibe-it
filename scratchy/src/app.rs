@@ -760,6 +760,9 @@ pub(crate) struct App {
     /// startup, `:refresh`, history), which the jar treats as same-site.
     /// Consumed (`take`) by `fetch_url_inner`.
     pub(crate) nav_initiator: Option<Url>,
+    /// Q30e: the body of the form POST the next `fetch_url_inner` sends
+    /// (taken there; back/forward/refresh never have one: they re-GET).
+    pub(crate) pending_post: Option<PostBody>,
     /// Every URL navigated to via a real click or `:go`, oldest
     /// first — `:historyBack`/`:historyFront` (bound to `h`/`l` in vim
     /// Normal mode) move `history_index` through this instead of
@@ -997,6 +1000,7 @@ impl App {
             shaping_requests,
             base_url,
             nav_initiator: None,
+            pending_post: None,
             history: Vec::new(),
             history_index: 0,
             nav_generation: 0,
@@ -1074,6 +1078,7 @@ impl App {
             shaping_requests,
             base_url: None,
             nav_initiator: None,
+            pending_post: None,
             history: Vec::new(),
             history_index: 0,
             nav_generation: 0,
@@ -1613,6 +1618,9 @@ impl App {
             if let Some(href) = reqs.nav {
                 self.start_navigation(&href);
             }
+            if let Some((form, submitter)) = reqs.submit {
+                self.form_navigate(&form, submitter.as_ref());
+            }
             // QF7: page network requests (enqueue before abort, so a request
             // made and aborted in one turn never starts).
             for job in reqs.net {
@@ -1820,6 +1828,20 @@ impl App {
         match result {
             Ok(FetchedPage { html, extra_css, scripts, url }) => {
                 let dom = new_parser().read_from(&mut html.as_slice()).unwrap();
+                // Q30e: the history entry is where the page really is (after
+                // redirects), so back/refresh re-GET the result, never a POST.
+                if let Some(slot) = self.history.get_mut(self.history_index) {
+                    let strip = |u: &Url| {
+                        let mut u = u.clone();
+                        u.set_fragment(None);
+                        u
+                    };
+                    if matches!(url.scheme(), "http" | "https") && strip(slot) != url {
+                        let frag = slot.fragment().map(str::to_string);
+                        *slot = url.clone();
+                        slot.set_fragment(frag.as_deref());
+                    }
+                }
                 self.base_url = Some(resolve_page_base_url(&dom.document, url));
                 // QY19: an immediate meta redirect replaces this page: do not
                 // even install it (nor run its scripts).
@@ -2401,6 +2423,10 @@ impl App {
             if ok && is_reset {
                 self.reset_owner_form(&control);
             }
+            // Q30e: a submit button submits its form owner.
+            if ok && is_submit_button(&control) && !is_disabled_control(&control) && let Some(form) = form_owner(&control) {
+                self.request_submit(&form, Some(&control));
+            }
             return ok;
         };
         let (was, was_ind) = (live_checked(&control), live_indeterminate(&control));
@@ -2612,8 +2638,14 @@ impl App {
         let proxy = self.proxy.clone();
         let socket_path = self.socket_path.clone();
         let initiator = self.nav_initiator.take();
+        let post = self.pending_post.take();
+        let page_for_origin = self.base_url.clone();
         thread::spawn(move || {
-            let request_text = build_get_request_ctx(&url, &CookieContext::navigation(&url, initiator.as_ref()));
+            let ctx = CookieContext::navigation(&url, initiator.as_ref());
+            let request_text = match &post {
+                Some(p) => build_post_request_ctx(&url, &ctx, p, page_for_origin.as_ref()),
+                None => build_get_request_ctx(&url, &ctx),
+            };
             let url_for_log = url.clone();
             let outcome: Result<FetchedPage, String> = match &socket_path {
                 Some(path) => {
@@ -2626,7 +2658,7 @@ impl App {
                         );
                     }
                     match wire_result {
-                        WireFetchRaw::Responded { content_type, body } => match dispatch_wire_response(content_type, body) {
+                        WireFetchRaw::Responded { content_type, body, final_url } => match dispatch_wire_response(content_type, body) {
                             Ok(html) => {
                                 // Sub-resources (v67): fetched from *this*
                                 // background thread, not the event-loop one —
@@ -2644,6 +2676,10 @@ impl App {
                                         css_start.elapsed().as_secs_f64() * 1000.0
                                     );
                                 }
+                                // Q30e: a redirect (a form POST's 303, Wikipedia's
+                                // search 302) moves the page: relative links
+                                // resolve against where it ended up.
+                                let url = final_url.and_then(|f| Url::parse(&f).ok()).filter(|f| matches!(f.scheme(), "http" | "https")).map(|mut f| { f.set_fragment(None); f }).unwrap_or(url);
                                 Ok(FetchedPage { html, extra_css, scripts, url })
                             }
                             Err(e) => Err(e),
@@ -3109,6 +3145,16 @@ impl ApplicationHandler<AppEvent> for App {
                                     && !self.modifiers.alt_key()
                                     && let Some(h) = self.interaction.focus.and_then(|f| find_node_by_id(&self.document, f))
                                     && checkable_kind(&h).is_some()
+                                    && !is_disabled_control(&h) =>
+                            {
+                                self.click_activate(Some(&h), (0.0, 0.0));
+                                return;
+                            }
+                            // Q30e: Enter/Space presses a focused button.
+                            Key::Named(NamedKey::Enter | NamedKey::Space)
+                                if !event.repeat
+                                    && let Some(h) = self.interaction.focus.and_then(|f| find_node_by_id(&self.document, f))
+                                    && (element_tag(&h) == "button" || (element_tag(&h) == "input" && matches!(input_type(&h).as_str(), "submit" | "image" | "reset" | "button")))
                                     && !is_disabled_control(&h) =>
                             {
                                 self.click_activate(Some(&h), (0.0, 0.0));
