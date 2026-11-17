@@ -968,7 +968,7 @@ IntersectionObserver and matchMedia are not used by any of the site's scripts.
       the `w`/`e`/`b` word motions exceeded the 500 ms callback budget
       (they call lineChars for many lines, each walking all text nodes):
       re-test with real geometry before blaming the page.
-- [ ] QJ8 [S] (P3) `document.activeElement` (+ `document.hasFocus()`): the
+- [x] QJ8 [S] (P3) DONE (hash pending) `document.activeElement` (+ `document.hasFocus()`): the
       App already tracks focus (`interaction.focus`); expose it (body when
       none). vim.js's `line.focus()` then `document.activeElement === line`
       is false today (undefined). Test: `i.focus(); document.activeElement

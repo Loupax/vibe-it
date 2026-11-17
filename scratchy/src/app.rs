@@ -1913,6 +1913,7 @@ impl App {
             }
         }
         let (old_focus, new_focus) = (self.interaction.focus, st.focus);
+        crate::js_dom::set_active_element(h);
         self.set_interaction_state(st);
         if old_focus != new_focus && self.js.is_some() {
             // Q33d: blur/focusout on the old element, focus/focusin on the

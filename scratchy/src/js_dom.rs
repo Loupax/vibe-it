@@ -383,6 +383,21 @@ fn js_focusable(h: &Handle) -> bool {
     control && element_attr(h, "disabled").is_none()
 }
 
+thread_local! {
+    /// QJ8: the element focus is on (set by `focus()`/`blur()` at once and by
+    /// the App for click/Tab focus), weak so a dropped node never lingers.
+    static ACTIVE_ELEMENT: RefCell<Option<std::rc::Weak<Node>>> = const { RefCell::new(None) };
+}
+
+/// QJ8: the App's focus changed (`None` = blurred).
+pub(crate) fn set_active_element(h: Option<&Handle>) {
+    ACTIVE_ELEMENT.with(|a| *a.borrow_mut() = h.map(Rc::downgrade));
+}
+
+fn active_element() -> Option<Handle> {
+    ACTIVE_ELEMENT.with(|a| a.borrow().as_ref().and_then(|w| w.upgrade()))
+}
+
 pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>>, reqs: Rc<RefCell<JsRequests>>) -> Rc<RefCell<DomTable>> {
     let table = Rc::new(RefCell::new(DomTable::default()));
     table.borrow_mut().intern(document);
@@ -577,6 +592,17 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             Some(h) => t.intern(h),
             None => -1,
         }
+    });
+    // QJ8: id of the focused element when it is inside document `doc`, else -1.
+    let t = table.clone();
+    native!("__d_active", move |doc: i32| -> i32 {
+        let mut t = t.borrow_mut();
+        let (Some(root), Some(a)) = (t.get(doc), active_element()) else { return -1 };
+        let mut top = a.clone();
+        while let Some(p) = parent_handle(&top) {
+            top = p;
+        }
+        if Rc::ptr_eq(&top, &root) { t.intern(&a) } else { -1 }
     });
     // QA16: serialised computed value of `prop` (dashed) for element `id`.
     let (t, gn) = (table.clone(), wgen.clone());
@@ -820,8 +846,12 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     native!("__d_focus", move |id: i32, focus: bool| {
         if let Some(h) = t.borrow().get(id) {
             if focus && js_focusable(&h) {
+                set_active_element(Some(&h));
                 r.borrow_mut().focus = Some(FocusReq::Focus(h));
             } else if !focus {
+                if active_element().is_some_and(|a| Rc::ptr_eq(&a, &h)) {
+                    set_active_element(None);
+                }
                 r.borrow_mut().focus = Some(FocusReq::Blur(h));
             }
         }
@@ -2025,6 +2055,12 @@ const DOM_PRELUDE: &str = r#"
   def(doc, 'currentScript', function () { return curScript; });
   def(doc, 'head', function () { return wrap(__d_special(1, this.__id)); });
   def(doc, 'body', function () { return wrap(__d_special(2, this.__id)); });
+  // QJ8: the focused element, else body (null only without a body).
+  def(doc, 'activeElement', function () {
+    var a = __d_active(this.__id);
+    return a >= 0 ? wrap(a) : wrap(__d_special(2, this.__id));
+  });
+  doc.hasFocus = function () { return true; };
   // QA18a: second documents. `Object.create(doc)` shares every method and
   // getter (they are keyed by `this.__id`); what differs is overridden.
   var DocumentType = g.DocumentType = function DocumentType() { throw new TypeError('Illegal constructor'); };
