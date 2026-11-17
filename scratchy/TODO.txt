@@ -94,6 +94,15 @@ READY, in recommended order (no user decision needed):
  (report stops after a trip), QY37 [S] (report uses the user's jar), QY38 [S/M]
  (report ignores stylesheets), QY36 [S], QY33 [M] (callback cost, measure),
  QY34 [M] (script-inserted scripts), then QY35 (Opus bisect) and QY27.
+ NEW 2026-11-17 (Opus QY35, R28: the remaining YouTube masthead/guide paint gaps),
+ in this order: QY40 [S] P1 (`document.all` missing -> polymer-resin turns EVERY
+ falsy property binding into "zClosurez": mini-guide icons hidden, and more),
+ QY41 [S] P1 (`width:%` inline-block inside a fixed-width box -> max-content
+ 1 000 000 px: search field 0 px wide, "Anmelden" at x = 1 000 129), QY42 [S] P2
+ (a non-empty descendant's definite `width` is ignored by max-content: kebab
+ button 18 px, "Anmelden" clipped), QY43 [S] P2 (pre-wrap newline + inline-block
+ overprints: the nudge subtitle). QY33 got R28 evidence (the budget trip drops
+ YouTube's icon jobs: no kebab icon).
  Then P3/P4 leftovers in their blocks (QY*, QA*, Q40b/Q40c fix items).
 WAITING FOR USER (skip until answered):
 - SD-D1: OK to ship B1 (attachShadow works, JS sees a real shadow tree, but
@@ -562,6 +571,11 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       on an idle machine trip on a busy one; consider that when choosing
       limits. Accept: numbers in R26 updated; no callback > 500 ms on an idle
       machine, or an item explaining why not.
+      R28 (2026-11-17): one visible casualty of the trip: the masthead kebab
+      (MORE_VERT) icon never renders on main: its SVG is never even fetched
+      (fetch wrapper: only search/menu/logo icons requested, 3 fetches); with
+      CALLBACK_BUDGET raised to 30 s locally ~90 icon SVGs are fetched and the
+      kebab paints. YouTube's scheduler/icon job is the dropped work.
 - [ ] QY34 [M] (P3, R26) Script-inserted `<script>` elements never run. Fixture:
       `createElement('script')` with `textContent` appended to head, and one
       with `src` + onload/onerror: neither runs, no network request, no event
@@ -580,7 +594,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       order of insertion for inline, `load` fires for src, `error` for a 404,
       a script moved again is not re-run. Unblocks: lazy-loaded bundles
       everywhere.
-- [ ] QY35 [S] (P3, Opus bisect first, after QY29+QY32+QY24) Remaining YouTube masthead/
+- [x] QY35 [S] (P3, Opus bisect first, after QY29+QY32+QY24) Remaining YouTube masthead/
       guide paint gaps seen with local patches (R26 screenshot): no logo graphic
       (only "DE"), the search field collapsed to a stub, no "Anmelden" sign-in
       button, mini-guide icons have computed `display:none` (yt-icon#icon in
@@ -588,6 +602,31 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       (`yt-formatted-string[split-lines]` with "\n\n" and a link; a plain
       `white-space:pre-wrap` fixture renders correctly). Bisect each to a
       fixture against the real kevlar CSS, then file Sonnet items.
+      DONE 2026-11-17 (Opus, docs only; evidence REGRESSIONS.md R28; items
+      QY40-QY43, QY33 note). Main 6249835 (QY29+QY24+QY32), real page, window:
+      - Logo: NOT reproduced on main: the YouTube logo SVG paints (fetched from
+        www.gstatic.com, inline `<svg>` 93x20). Nothing to do.
+      - Search stub + no "Anmelden": ONE layout bug. `#end.ytd-masthead`
+        (`flex:none`) measures 1 000 024 px wide because the kebab button
+        (`yt-icon-button`, 40 px, containing `<button>` with `width:100%`,
+        `display:inline-block`) has a max-content of ~1e6: the `%` resolves
+        against the UNBOUNDED trial width (QY41). `#center` shrinks to 0 px
+        (search box overflows to a 61 px stub), "Anmelden" sits at x =
+        1 000 129. With QY41 patched locally: full-width search field, kebab
+        and sign-in pill visible, pill clipped by 26 px (QY42).
+      - Mini-guide icons: NOT CSS. polymer-resin sets `hidden = "zClosurez"`
+        on `yt-icon#icon` (binding `hidden="[[data.thumbnail]]"`, value
+        undefined): its fast path `if(!T && T!==document.all) return T` fails
+        because scratchy has no `document.all` (undefined === undefined).
+        Page-level stand-in `document.all = <object>`: all four icons paint
+        (QY40). Every falsy property binding on every Polymer element is hit.
+      - Subtitle overprint: fixture reproduces it without YouTube: pre-wrap
+        text with "\n\n" plus ANY inline-block/padded inline in the same
+        paragraph (the `<a>` in yt-formatted-string is inline-block) takes
+        `measure_mixed_inline`, which never breaks at a preserved "\n" (QY43).
+      - Also: kebab (MORE_VERT) icon never fetched on main; with
+        CALLBACK_BUDGET raised locally it paints: the 500 ms trip drops
+        YouTube's icon render job (QY33 note).
 - [ ] QY36 [S] (P3, R26) getComputedStyle serialises percentages as fractions:
       `width:50%` -> "0.5%", `100%` -> "1%" (js_style.rs, `__d_cs` value
       formatting). Test: 50%/100%/12.5% widths and a `calc()`-free max-width
@@ -606,6 +645,92 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       the App does (same `ExternalResources` path) when a socket is given.
       Test: a copy with an external sheet that sets `display:flex` reads back
       `flex` in the report.
+- [ ] QY40 [S] (P1, R28) `document.all` does not exist, so polymer-resin turns every
+      FALSY property binding into the string "zClosurez". kevlar `XBv` returns
+      the value unchanged only `if (!T && T !== document.all)`; in scratchy
+      `document.all` is undefined, so for T = undefined the test is false and
+      undefined/null/false/0/"" go through the sanitizer and come out as
+      "zClosurez" (truthy). Seen: `yt-icon#icon` in every
+      ytd-mini-guide-entry-renderer gets `hidden = "zClosurez"` from
+      `hidden="[[data.thumbnail]]"` (thumbnail undefined) -> `[hidden]` ->
+      `display:none`. Any `hidden="[[x]]"`, `disabled="[[x]]"`... binding with a
+      falsy x on any Google Polymer page is inverted the same way.
+      Fix: js_dom.rs DOM_PRELUDE: `document.all` = an HTMLAllCollection (live
+      collection of all elements in tree order: `length`, `item(i)`,
+      `namedItem(name)`, indexing, callable `all(i)` is optional) and give it
+      the [[IsHTMLDDA]] slot so it is falsy, `typeof document.all ===
+      'undefined'`, `document.all == null` but `document.all !== undefined`.
+      rquickjs-sys 0.14 exports `qjs::JS_SetIsHTMLDDA(ctx, obj)` (js.rs
+      already calls raw `qjs::` with `ctx.as_raw()`): create the object in
+      the prelude, then mark it from Rust right after the prelude runs (a
+      native `__d_mark_htmldda(obj)` or a post-prelude eval). Do NOT ship a
+      plain truthy object (breaks `if (document.all)` IE sniffing). Test:
+      `typeof document.all === 'undefined'`, `!document.all`, `document.all
+      == null`, `document.all !== undefined`, `document.all.length ===
+      document.getElementsByTagName('*').length`, `document.all[0] ===
+      document.documentElement`; a resin-shaped fixture (`function f(T){ if
+      (!T && T !== document.all) return T; return 'zClosurez'; }` ->
+      f(undefined) === undefined). Accept (window, real URL): mini-guide
+      shows the Startseite/Shorts/Abos/Mein YouTube icons (R28 stand-in
+      screenshot). Unblocks: every falsy Polymer binding on Google sites.
+- [ ] QY41 [S] (P1, R28) max-content of a box whose content holds an inline-block
+      (or any `Embedded` inline item) with a percentage `width` is 1 000 000 px.
+      Root cause: layout.rs `measure_mixed_inline`, `InlineItem::Embedded` arm
+      in `trial` mode resolves the item's `width: N%` against `content_w`,
+      which `natural_width_impl` passes as `UNBOUNDED` (1e6) for the max
+      trial. css-sizing-3 5.2.1: a cyclic percentage width is treated as
+      `auto` for the min/max-content contribution. Fix: in the trial branch, a
+      `Percent`/`Calc` width counts as `auto` (shrink-to-fit of its content,
+      as when `width` is none); real layout unchanged. Fixture (R28,
+      headless `--js-report` getBoundingClientRect of a `flex:none;
+      display:flex` box): `<span style="display:inline-block;width:40px">
+      <span style="display:inline-block;width:100%"></span></span>` -> 1e6
+      today, 40 expected; same with a `display:block;width:40px` parent; 50%
+      -> 500 000 today. YouTube: `ytd-topbar-menu-button-renderer` ->
+      `yt-icon-button` (40 px) -> `<button>` (`width:100%`, inline-block) makes
+      `#end.ytd-masthead` 1 000 024 px wide, `#center` 0 px (search field stub)
+      and "Anmelden" at x = 1 000 129. A local patch of exactly this made the
+      search field full width and kebab + sign-in pill appear (screenshot).
+      Test: the fixture rows read back 40 (max-content) and the inner box
+      still lays out at 100% of 40 in real layout. Accept: YouTube masthead
+      shows a wide search field and the kebab + "Anmelden" (with QY42 unclipped).
+- [ ] QY42 [S] (P2, R28, after QY41) A non-empty descendant's definite px `width` is
+      ignored by max-content sizing: `natural_width_impl` (layout.rs) uses a
+      child's own `width: Npx` (`as_child`) only when it is a float or EMPTY;
+      otherwise its content is measured. Fixture: `flex:none; display:flex`
+      box > `display:inline-block; width:40px` > `width:20px` inline-block ->
+      20 today, 40 expected. YouTube (with QY41 patched): the kebab
+      `yt-icon-button` (`width:40px`) gets 18 px, `#buttons` is 26 px too
+      narrow, the "Anmelden" pill overflows `#end` and is clipped at the
+      window edge. Fix: a definite px `width` (box-sizing aware, plus margins)
+      is the contribution of any non-table descendant, not only floats and
+      empty blocks; the code comment says non-empty plain blocks were left out
+      for WPT fit-content-max-inline-size (`max-width: fit-content`): keep that
+      test passing (exclude only the case it needs, or parse the keyword).
+      Test: the fixture = 40; existing QA7/Q35b3 tests unchanged; WPT subset
+      no pass->fail. Accept: YouTube masthead kebab 40 px, "Anmelden" fully
+      inside the window.
+- [ ] QY43 [S] (P2, R28) Preserved newlines overprint in a paragraph that takes the
+      per-word path. `measure_mixed_inline` (layout.rs) is used whenever a run
+      has an Image/Embedded/Spacer item (inline-block, padded inline, `<img>`),
+      a float nearby or word-spacing. Its `InlineItem::Text` arm splits words
+      only on ' ' (`word_byte_ranges`) and reads widths from the FIRST layout
+      run only (`word_widths_from_buffer`), so with `white-space:
+      pre/pre-wrap/pre-line` a "\n" inside a text item is neither a forced
+      break nor measured: words after it get wrong/zero widths and paint on top
+      of each other, then the rest wraps oddly ("Wenn" alone on a line). The
+      plain-text fast path (whole Buffer) is fine, which is why a plain
+      pre-wrap fixture renders. Fix: for preserving white-space, split the
+      text at '\n' and emit `Measured::Break` between the segments (each
+      segment its own chunk), exactly like the BR_TEXT arm. Fixture (viewed,
+      R28): `<div style="white-space:pre-wrap;width:400px">Aktiviere ...
+      erhalten.\n\nWenn du mehr wissen willst, <a style="padding:0 2px">
+      Weitere Informationen</a></div>` overprints; same with an inline-block
+      `<span>`; without padding it is fine. YouTube: nudge subtitle
+      (`yt-formatted-string[split-lines]{white-space:pre-wrap}` whose `<a>` is
+      inline-block). Test: the fixture lays out as line 1/2 wrap, an empty
+      line, then "Wenn du ... Weitere Informationen" with no two word boxes
+      overlapping on a line. Accept: YouTube subtitle readable, three blocks.
 
 social.loupax.com/discover (the user's own site; source read at
 /home/loupax/src/social, internal/web/js/vim.js): vim.js is NOT in the

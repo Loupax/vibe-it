@@ -1,5 +1,189 @@
 # scratchy — regressions
 
+## R28: YouTube's remaining masthead/guide paint gaps: `document.all`, a 1e6 px max-content, pre-wrap newlines (Opus investigator QY35, 2026-11-17) — OPEN, items QY40-QY43 in TODO.txt
+
+**Status: open (bugs, no regression).** QY35 asked for the cause of each
+paint gap R26 listed once QY29/QY24/QY32 were merged. Measured on main
+6249835 (QY29 + QY24 + QY32 merged; QY30/QY31 merged after the build, they
+change only rAF due times and the headless report). Short answer:
+
+| gap (R26) | on main | cause | item |
+|---|---|---|---|
+| no logo graphic | NOT reproduced: logo paints | - | - |
+| search field a stub | yes | `width:100%` inline-block in the 40 px kebab button => max-content 1e6 => `#end` 1 000 024 px, `#center` 0 px | QY41 |
+| no "Anmelden" | yes (at x = 1 000 129) | same as above; then clipped by 26 px (definite width ignored) | QY41, QY42 |
+| mini-guide icons `display:none` | yes | no `document.all` => polymer-resin sets `hidden = "zClosurez"` | QY40 |
+| subtitle overprint | yes | `measure_mixed_inline` never breaks at a preserved "\n" | QY43 |
+| (new) kebab icon missing | yes | 500 ms callback-budget trip drops YouTube's icon job | QY33 note |
+
+### How this was measured (reusable; nothing committed)
+
+- Page: `curl --unix-socket /run/user/1001/wire.sock -H 'X-Wire-Jar:
+  qy35-investigator' --request-target https://www.youtube.com/ http://x/`
+  (kevlar_base es5 variant, as R26), copy with `<base
+  href="https://www.youtube.com/">` and an inline probe `<script>` right
+  after `<head>`; run as `scratchy --socket /run/user/1001/wire.sock
+  copy.html` in `tools/nest.sh` (one window, 50-100 s, `grim`, screenshots
+  viewed). Probe output = `console.error` lines on stderr.
+- The binary was this worktree's release build with a LOCAL never-committed
+  `COOKIE_JAR_NAME = "qy35-investigator"` (net_policy.rs) so the window runs
+  did not write into the user's `scratchy` jar (QY37 is only for the
+  report). Experiments (all reverted): `CALLBACK_BUDGET` 500 ms -> 30 s
+  (js.rs); the QY41 patch (Embedded `%` width = auto in `trial`).
+- Probes: (1) a tree dumper: tag/id/class, computed `display/position/
+  width/height/min-width/white-space`, `getBoundingClientRect()`, for
+  `ytd-topbar-logo-renderer`, `#center`/`#end.ytd-masthead`, the first
+  `ytd-mini-guide-entry-renderer`, `ytd-feed-nudge-renderer`; (2) yt-icon
+  controller state (`polymerController.icon/iconType/iconShapeData/...`);
+  (3) a `window.fetch` wrapper logging icon SVG requests and a rAF counter;
+  (4) a wrapped `hidden` setter / `setAttribute` on `yt-icon#icon` with
+  `new Error().stack`, mapped back to kevlar.js lines.
+- Fixtures (scratchpad): `prewrap.html` (window), `maxc.html` /
+  `maxc2.html` / `docall.html` (headless `--js-report`, QJ4 geometry).
+- Machine load average 9-12 throughout (other agents' builds).
+
+### 1. Search field stub + no "Anmelden": max-content of 1 000 000 px (QY41, QY42)
+
+Probe on main (t = 50 s):
+
+```
+div#center.ytd-masthead   disp=flex  rect=200,8 0x40
+  yt-searchbox            disp=flex  rect=240,8 61x40      (overflows #center)
+div#end.ytd-masthead      disp=flex  minw=225px rect=200,8 1000024x40
+  div#buttons             disp=flex  rect=200,8 1000024x40
+    ytd-topbar-menu-button-renderer  rect=200,8 999921x40
+      a.yt-simple-endpoint (flex)    rect=200,8 999921x40
+        yt-icon-button#button  w=40px rect=200,8 40x40
+          button#button  inline-block w=100%  rect=208,16 24x24
+    ytd-button-renderer ("Anmelden")  rect=1000129,8 95x40
+```
+
+`#end` is `flex:none`, so its width is its max-content, which comes out as
+~1e6. Headless fixture, `flex:none; display:flex` wrapper, width read back:
+
+| content | width |
+|---|---|
+| inline-block 40 px, empty | 40 |
+| + absolute children (yt-interaction shape) | 40 |
+| + inline-block child `width:100%` | **1 000 000** |
+| block 40 px + inline-block child `width:100%` | **1 000 000** |
+| inline-block child `width:50%` | **500 000** |
+| inline-block child `width:20px` | **20** (should be 40) |
+| wrapper not flex (`flex:none` block) | 40 |
+
+Cause: `natural_width_impl` (layout.rs) runs `measure_mixed_inline` with
+`UNBOUNDED` (1e6) for the max trial; its `Embedded` arm resolves the
+inline-block's `width: N%` against that width (QY41). Separately, the
+40 px box's own definite width is ignored because it is not empty and not a
+float (`as_child` branch), so its content wins (QY42: 20 instead of 40).
+
+Local QY41 patch (in `trial`, a `%`/calc width is `auto`): the fixture rows
+read 40 (the `20px` row still 20); YouTube: `#center` 583 px, search box
+543 px, `#end` 225 px; kebab `yt-icon-button` 18 px wide (QY42) so
+`#buttons` is 95 px and "Anmelden" (95 px at x = 939) overflows `#end`
+(783..1008) by 26 px. Screenshot: wide rounded search field + search
+button, three-dot kebab, sign-in pill with a person icon and "An" cut at the
+window edge. Media queries are not involved (`@media(max-width:656px)`
+without a space parses and does not apply at 1024 px; fixture checked).
+
+### 2. Mini-guide icons `display:none`: no `document.all` (QY40)
+
+`yt-icon#icon.guide-icon` carries `hidden=""` while its entry's
+`data.thumbnail` is undefined (`data` keys: navigationEndpoint, icon,
+trackingParams, formattedTitle, accessibility, isPrimary). Template:
+`<yt-icon id="icon" ... hidden="[[data.thumbnail]]" icon="[[data.icon.iconType]]">`.
+The wrapped `hidden` setter received the STRING `"zClosurez"`, stack:
+`_setUnmanagedPropertyToNode` <- `U2s` (Polymer binding effect, which calls
+the sanitizer `$T(value, target, kind, node)` first) <- `gvv` <-
+`_runEffectsForTemplate`. polymer-resin (`XBv`) returns a value unchanged
+only `if (!T && T !== document.all)`. Fixture: `typeof document.all` =
+"undefined", `'all' in document` = false, `undefined !== document.all` =
+false. So for T = undefined resin falls through to the contract lookup and
+returns its innocuous string; `hidden = "zClosurez"` => `[hidden]` =>
+`display:none`. This hits EVERY falsy (undefined/null/false/0/"") property
+binding through resin on every element, not only `hidden`.
+
+Stand-in (page script before everything: `Object.defineProperty(document,
+'all', {value: document.getElementsByTagName('*')})`, i.e. a TRUTHY object,
+not the real fix): `hidden` stays false and the mini guide paints a house
+(Startseite), the Shorts logo, Abos and Mein YouTube icons (viewed). The
+real fix needs [[IsHTMLDDA]] (falsy, typeof "undefined"):
+`JS_SetIsHTMLDDA` is in rquickjs-sys 0.14 (`quickjs.h`, x86_64 bindings).
+
+### 3. Subtitle overprint: preserved newline on the per-word path (QY43)
+
+The subtitle is `yt-formatted-string#subtitle[split-lines]`
+(`white-space: pre-wrap`) with a `<span>` holding "... erhalten.\n\nWenn du
+die Einstellung ändern möchtest, ... zuzustimmen. " and an
+`<a class="yt-simple-endpoint">` "Weitere Informationen" whose computed
+display is `inline-block`. Fixture (window, viewed), 400 px wide pre-wrap
+div with the same text:
+
+- A: link without padding: correct (two lines, empty line, last line).
+- B: link with `padding:0 2px` (a Spacer item): line 1, a blank band,
+  then "erhalten." with the following words painted on top of each other
+  and the link right after, then "Wenn" alone on the last line: the same
+  picture as YouTube.
+- C: an inline-block `<span>` instead of the link: same overprint.
+- D: no newline, padded link: correct.
+
+So any paragraph that takes `measure_mixed_inline` (inline-block/padded
+inline/`<img>`/float/word-spacing) breaks on preserved newlines. In its
+`InlineItem::Text` arm the text is split only at ' ' (`word_byte_ranges`)
+and widths are read from the first layout run only
+(`word_widths_from_buffer`); a "\n" inside a word is never turned into a
+`Measured::Break` (only a `<br>`'s BR_TEXT item is). Code reading; the fix
+was not patched locally.
+
+### 4. Kebab icon: dropped by the callback budget (QY33)
+
+`yt-icon` (legacy wrapper, `kevlar_use_wil_icons` = true) resolves an icon
+shape and, unless the SVG is in its cache, fetches it
+(`https://fonts.gstatic.com/s/i/youtube_outline_experimental/<name>/vN/24px.svg`,
+`credentials:"same-origin"`, after one rAF). On main the fetch wrapper saw
+exactly three icon requests (search, menu, logo; all 200, text read fine,
+`caches` undefined so no Cache Storage path); MORE_VERT and the mini-guide
+icons were never requested (their controllers had `iconShapeData` but an
+empty `span.yt-icon-shape`). Each run logged one `timer stopped` and one
+`promise jobs stopped` (500 ms). With CALLBACK_BUDGET = 30 s (local): ~90
+icon SVGs fetched and the kebab paints. With the budget raised AND the
+`document.all` stand-in, the mini-guide icons paint too.
+
+### 5. Logo: not reproduced
+
+`ytd-logo > yt-icon#logo-icon` (93x20) > `span.yt-icon-shape` > `div` >
+`svg#yt-ringo2-svg_yt6` with 7 paths: rect 72,18 93x20; screenshot shows the
+red play button + "YouTube" wordmark + "DE". (R26's build lacked QY24/QY32
+as merged code; not bisected which one fixed it.)
+
+### Screens (viewed)
+
+- main, 58 s: hamburger, logo, "DE", a tiny rounded search stub + search
+  button at x ~280-325, nothing on the right; nudge card with the
+  overprinted subtitle line; no mini guide yet (it stamps ~60-80 s in).
+- main, 85 s: + mini-guide labels Startseite/Shorts/Abos/Mein YouTube, no
+  icons.
+- budget 30 s: + three-dot kebab at x ~222 (left, because `#end` starts at
+  200 and is 1e6 wide).
+- budget 30 s + `document.all` stand-in: + mini-guide icons.
+- + local QY41 patch: wide search field, kebab and "Anmelden" pill at the
+  right edge (clipped by ~26 px).
+
+### Not verified
+
+- QY40/QY42/QY43 fixes were not implemented locally (QY40: page stand-in
+  only; QY43: code reading + fixture); QY41 was.
+- Whether the kebab icon also paints with only a faster machine (no
+  budget change) or after QY33's profiling.
+- Layout viewport is 1024 px (`innerWidth`, `documentElement.clientWidth`)
+  while the grim shot of the nested window is 1052 px wide, and the clipped
+  pill drew past x = 1024: not investigated.
+- Other `"zClosurez"` casualties of QY40 beyond the mini guide (not
+  enumerated); YouTube logged-in, /watch and /results not tried.
+- The wire cookie-control request answered 400 in these runs (`document.cookie`
+  reads ''); probably the file-copy origin or the local jar name; not
+  investigated.
+
 ## R26: YouTube is still a grey page: `Node.prototype.data` makes polymer-resin blank every renderer's data (Opus investigator, 2026-11-17) — OPEN, items QY29-QY39 in TODO.txt
 
 **Status: open (bugs and missing features, no regression).** User question:

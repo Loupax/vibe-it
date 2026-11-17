@@ -7052,3 +7052,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Item QY31 (R26). `--js-report --run-timers` stopped at the first callback that tripped its CPU budget: `run_due_counted` returned 0 when its eval returned None and the report loop treated 0 as "nothing due". Fix: only `Some(false)` ("no due timer") ends a turn; a tripped or failed callback counts as run. Test: 10 ms `for(;;){}` timer, then a console.error at 1000 ms and a throw at 3000 ms: the report has the trip line and both later lines, `simulated 3000 ms, 3 callbacks`. Report format unchanged.
 
 **What changed:** src/js.rs (`run_due_counted`), test `qy31_js_report_keeps_pumping_after_a_tripped_callback` in src/tests.rs.
+
+## QY35: bisect the remaining YouTube paint gaps (Opus investigator, 2026-11-17)
+
+> Item QY35 (R26). With current main, bisect the remaining YouTube paint gaps: no/odd logo graphic, search field collapsed to a stub, no "Anmelden" sign-in button, mini-guide icons computed display:none, one subtitle line with overprinting words. For each gap find the exact cause with minimal fixtures and evidence (computed styles, layout rects, screenshots viewed in a nested dwl), file ranked Sonnet items (QY40+), extend REGRESSIONS.md with R28, tick QY35. Docs only; no source changes committed.
+
+**What changed:** TODO.txt (QY35 ticked with per-gap answers; new QY40 `document.all` / polymer-resin "zClosurez" for falsy bindings, QY41 cyclic `%` width => 1e6 max-content, QY42 definite width ignored by max-content, QY43 pre-wrap newline overprint on the per-word path; R28 note under QY33; QUEUE line), REGRESSIONS.md (R28 memo). Logo not reproduced on main. Local experiments (jar name, callback budget, QY41 patch) reverted.
