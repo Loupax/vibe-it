@@ -1011,7 +1011,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       number). Never delete or `#[ignore]` the test (AGENTS.md step 2).
       Also run the full suite once with ONLY the CI font set from QCI1 installed
       and fix/file any other font-dependent test. WPT: no pass->fail.
-- [x] QCI0a [S] DONE (HASH) (P3) `shrink_to_fit_table_is_sum_of_column_maxima_so_no_cell_wraps`
+- [x] QCI0a [S] DONE (4c5b8e7) (P3) `shrink_to_fit_table_is_sum_of_column_maxima_so_no_cell_wraps`
       (tests.rs) fails when `sans-serif` is "0xProto Nerd Font Propo" (recipe in
       tools/README; row 1 `HQ | Santa Clara` gets h=42, i.e. wraps to two lines,
       table w=182.56): the shrink-to-fit table width under-measures that cell's
