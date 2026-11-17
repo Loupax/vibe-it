@@ -518,7 +518,9 @@ pub(crate) fn prefetch_graph(entries: &[(String, String)], map: &ImportMap, doc_
 
 /// Everything the engine's resolver and loader need.
 pub(crate) struct ModuleStore {
-    pub(crate) sources: HashMap<String, String>,
+    /// QY34: grows at run time (script-inserted modules register their
+    /// fetched sources before `import()`).
+    pub(crate) sources: std::cell::RefCell<HashMap<String, String>>,
     pub(crate) map: ImportMap,
     pub(crate) doc_base: Url,
 }
@@ -546,7 +548,7 @@ impl ModuleStore {
                 _ => {}
             }
         }
-        ModuleStore { sources, map: map.unwrap_or_default(), doc_base }
+        ModuleStore { sources: std::cell::RefCell::new(sources), map: map.unwrap_or_default(), doc_base }
     }
 }
 
@@ -561,8 +563,9 @@ impl Resolver for PageResolver {
 
 impl Loader for PageLoader {
     fn load<'js>(&mut self, ctx: &Ctx<'js>, name: &str, _attrs: Option<rquickjs::loader::ImportAttributes<'js>>) -> rquickjs::Result<Module<'js, rquickjs::module::Declared>> {
-        let src = match self.0.sources.get(name) {
-            Some(s) => s.clone(),
+        let known = self.0.sources.borrow().get(name).cloned();
+        let src = match known {
+            Some(s) => s,
             None if is_data_url(name) => decode_data_uri_text(name).ok_or_else(|| JsError::new_loading_message(name, "malformed data: URL"))?,
             None => {
                 return Err(JsError::new_loading_message(name, "module was not pre-fetched (the fetch failed, or it is a run-time import of an unlisted URL: QY15a)"));

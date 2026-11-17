@@ -189,6 +189,9 @@ struct NetMeta {
     preflighted: bool,
     /// QF7a: `send()` already logged a policy warning for this target.
     warned: bool,
+    /// QY34: a `<script src>` load (`api: "script"`): an opaque (no-cors)
+    /// answer keeps its status and body for the engine, never for page JS.
+    script: bool,
 }
 
 /// QF13: a request that waits for its preflight (or is about to be sent).
@@ -484,6 +487,7 @@ impl NetState {
                 entry,
                 preflighted: false,
                 warned: false,
+                script: false,
             },
         );
         self.queue_immediate(id, Err(NetError::BadRequest(reason)), d.sync, reqs);
@@ -563,7 +567,8 @@ impl NetState {
         };
         let api = match d.api.as_str() {
             "beacon" => NetApi::SendBeacon,
-            "xhr" => NetApi::Xhr,
+            // A script load is a read, never a beacon (QY34).
+            "xhr" | "script" => NetApi::Xhr,
             _ => NetApi::Fetch,
         };
         let beacon = classify_beacon(api, d.keepalive, Some(kind));
@@ -580,6 +585,7 @@ impl NetState {
             entry,
             preflighted: false,
             warned: outcome.warning.is_some(),
+            script: d.api == "script",
         };
         if self.policy.suppress_beacon(beacon) {
             let ct = headers.iter().find(|(n, _)| n.eq_ignore_ascii_case("content-type")).map(|(_, v)| v.as_str());
@@ -957,6 +963,11 @@ impl NetState {
                 if m.force_opaque || m.kind == FetchKind::Opaque {
                     c.rtype = "opaque";
                     c.final_url = String::new();
+                    if m.script && !m.force_opaque {
+                        // The engine (not page JS) runs the body of a classic script.
+                        c.status = resp.status;
+                        c.body = resp.body;
+                    }
                 } else {
                     let mut rtype = "basic";
                     if let FetchKind::Cors { .. } = m.kind {

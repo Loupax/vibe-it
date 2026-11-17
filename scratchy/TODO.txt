@@ -592,7 +592,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       (fetch wrapper: only search/menu/logo icons requested, 3 fetches); with
       CALLBACK_BUDGET raised to 30 s locally ~90 icon SVGs are fetched and the
       kebab paints. YouTube's scheduler/icon job is the dropped work.
-- [ ] QY34 [M] (P3, R26) Script-inserted `<script>` elements never run. Fixture:
+- [x] QY34 [M] (done HASH) (P3, R26) Script-inserted `<script>` elements never run. Fixture:
       `createElement('script')` with `textContent` appended to head, and one
       with `src` + onload/onerror: neither runs, no network request, no event
       (`--js-report`, 0 requests). Spec "prepare the script element" when a

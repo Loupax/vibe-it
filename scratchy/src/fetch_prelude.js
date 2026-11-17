@@ -1036,7 +1036,7 @@
     var h = { id: 0 };
     h.promise = new Promise(function (resolve, reject) {
       var onabort = null;
-      var entry = { resolve: resolve, reject: reject, cleanup: function () { if (signal && onabort) signal.removeEventListener('abort', onabort); } };
+      var entry = { raw: !!init.raw, resolve: resolve, reject: reject, cleanup: function () { if (signal && onabort) signal.removeEventListener('abort', onabort); } };
       h.id = g.__net_send(descOf(init));
       pending[h.id] = entry;
       h.abort = function (reason) {
@@ -1059,7 +1059,7 @@
     delete pending[res.id];
     p.cleanup();
     if (res.error) p.reject(failure(res));
-    else p.resolve(build(res));
+    else p.resolve(p.raw ? res : build(res));
   });
 })(globalThis);
 
