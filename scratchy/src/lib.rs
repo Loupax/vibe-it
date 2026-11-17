@@ -63,6 +63,7 @@ macro_rules! out {
 mod wpt;
 mod dom;
 mod css;
+mod animation;
 mod style;
 mod layout;
 mod images;
@@ -82,6 +83,7 @@ mod js_geom;
 
 pub use dom::*;
 pub use css::*;
+pub(crate) use animation::*;
 pub(crate) use style::*;
 pub use layout::*;
 pub use images::*;

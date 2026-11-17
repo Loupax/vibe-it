@@ -373,6 +373,8 @@ pub(crate) struct ComputedStyle {
     /// `text-overflow` (Q21). Not inherited; `build_box_for_element` copies
     /// an `Ellipsis` onto the anonymous inline runs of a clipping box.
     pub(crate) text_overflow: TextOverflow,
+    /// QAN1a: the interned animation lists (parse only, not evaluated yet).
+    pub(crate) animations: Option<&'static AnimLonghands>,
     /// Only ever `Some` on the synthetic document-root box: the window
     /// height, i.e. the initial containing block's definite height. It
     /// feeds `child_containing_height` (so `html{height:100%}` resolves)
@@ -622,7 +624,9 @@ pub(crate) fn wide_keys(name: &str) -> Option<&'static [&'static str]> {
         "align-self", "order", "flex-grow", "flex-shrink", "flex-basis", "row-gap",
         "column-gap", "grid-template-columns", "grid-template-rows",
         "grid-template-areas", "grid-area", "font-style", "list-style-type",
-        "word-spacing",
+        "word-spacing", "animation-name", "animation-duration", "animation-timing-function",
+        "animation-delay", "animation-iteration-count", "animation-direction",
+        "animation-fill-mode", "animation-play-state",
     ];
     let l = name.to_ascii_lowercase();
     let l = l.as_str();
@@ -635,6 +639,7 @@ pub(crate) fn wide_keys(name: &str) -> Option<&'static [&'static str]> {
         return Some(std::slice::from_ref(&BORDER_WIDE_KEYS[k]));
     }
     Some(match l {
+        "animation" => &ANIMATION_KEYS,
         "background" => &[
             "background-color", "background-image", "background-position",
             "background-size", "background-repeat",
@@ -787,6 +792,7 @@ pub(crate) fn copy_prop(dst: &mut ComputedStyle, src: &ComputedStyle, key: &str)
         "list-style-type" => dst.list_style_type = src.list_style_type,
         "word-spacing" => dst.word_spacing = src.word_spacing,
         "text-indent" => dst.text_indent = src.text_indent,
+        k if k.starts_with("animation-") => copy_animation_longhand(&mut dst.animations, src.animations, k),
         _ => {}
     }
 }
@@ -1320,7 +1326,7 @@ impl RuleIndex {
 }
 
 /// `(css source, parsed rules, STATE_* mask seen while parsing)`.
-pub(crate) type ParsedRules = (String, Rc<Vec<StyleRule>>, u8);
+pub(crate) type ParsedRules = (String, Rc<Vec<StyleRule>>, u8, Rc<KeyframesRegistry>);
 
 /// Which elements a `:hover` rule can possibly restyle (R2.4): for every
 /// selector compound containing `:hover`, the id / class / tag it
@@ -2101,6 +2107,7 @@ pub(crate) fn resolve_style_for(
         border_radius,
         overflow,
         text_overflow,
+        animations: cascade_animations(&matches, inl),
         icb_height: None,
         first_line: None,
         cursor,
@@ -2218,6 +2225,7 @@ pub(crate) fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         border_radius: BoxLength::default(),
         overflow: Overflow::default(),
         text_overflow: TextOverflow::default(),
+        animations: None,
         icb_height: None,
         first_line: None,
         cursor: inherited.cursor,

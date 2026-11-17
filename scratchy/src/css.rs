@@ -1046,6 +1046,8 @@ pub(crate) fn parse_quotes(input: &mut CssParser) -> Result<Vec<(String, String)
 
 #[derive(Clone, Default, PartialEq)]
 pub(crate) struct Declarations {
+    /// QAN1a: `animation` and its longhands (parse only).
+    pub(crate) anim: Option<Box<AnimDecls>>,
     /// `--name: <raw text>` custom-property declarations on this rule,
     /// in source order, name kept exactly as written (custom property
     /// names are case-*sensitive*, unlike every other property this file
@@ -2503,6 +2505,9 @@ pub(crate) fn unprefixed_property(name: &str) -> &str {
         "box-sizing", "flex", "flex-direction", "flex-wrap", "flex-flow", "flex-grow",
         "flex-shrink", "flex-basis", "box-shadow", "justify-content", "align-items",
         "align-self", "order", "border-radius", "opacity",
+        "animation", "animation-name", "animation-duration", "animation-timing-function",
+        "animation-delay", "animation-iteration-count", "animation-direction",
+        "animation-fill-mode", "animation-play-state",
     ];
     let lower = name.to_ascii_lowercase();
     for prefix in ["-webkit-", "-moz-"] {
@@ -4604,6 +4609,9 @@ impl Declarations {
                 match key {
                     $($k => self.$f = None,)*
                     _ => {
+                        if key.starts_with("animation-") {
+                            self.clear_animation(key);
+                        }
                         if let Some((i, kind)) = border_key(key) {
                             match kind {
                                 'w' => self.border_width[i] = None,
@@ -5111,6 +5119,8 @@ impl DeclParser<'_> {
                     self.decls.overflow_y = Some(v);
                 }
             }
+        } else if is_animation_property(name) {
+            self.apply_animation(name, input);
         } else if name.eq_ignore_ascii_case("text-overflow") {
             if let Ok(ident) = input.expect_ident() {
                 if ident.eq_ignore_ascii_case("ellipsis") {
@@ -5655,6 +5665,8 @@ pub(crate) enum AtPrelude {
     Supports(bool),
     /// `@layer`: the comma-separated dotted names (empty = anonymous).
     Layer(Vec<Vec<String>>),
+    /// `@keyframes` / `@-webkit-keyframes` (QAN1a): the animation name.
+    Keyframes(String),
 }
 
 /// QY17: layers named so far in one stylesheet (every prefix of every
@@ -5797,15 +5809,18 @@ pub(crate) struct TopLevelParser {
     layers: LayerState,
     /// The enclosing `@layer` path (QY17).
     prefix: Vec<String>,
+    /// `@keyframes` seen so far, in source order (QAN1a).
+    keyframes: Vec<KeyframesDef>,
 }
 
 impl TopLevelParser {
     /// A parser for a block's contents (same layer registry, `prefix`).
     fn nested(&mut self, prefix: Vec<String>) -> TopLevelParser {
-        TopLevelParser { layers: std::mem::take(&mut self.layers), prefix }
+        TopLevelParser { layers: std::mem::take(&mut self.layers), prefix, keyframes: Vec::new() }
     }
     fn absorb(&mut self, nested: TopLevelParser) {
         self.layers = nested.layers;
+        self.keyframes.extend(nested.keyframes);
     }
 }
 
@@ -5839,6 +5854,8 @@ impl<'i> AtRuleParser<'i> for TopLevelParser {
             Ok(AtPrelude::Supports(holds))
         } else if name.eq_ignore_ascii_case("layer") {
             Ok(AtPrelude::Layer(parse_layer_names(input)?))
+        } else if name.eq_ignore_ascii_case("keyframes") || name.eq_ignore_ascii_case("-webkit-keyframes") {
+            Ok(AtPrelude::Keyframes(parse_keyframes_name(input)?))
         } else {
             Err(input.new_error_for_next_token())
         }
@@ -5867,6 +5884,11 @@ impl<'i> AtRuleParser<'i> for TopLevelParser {
     ) -> Result<Self::AtRule, ParseError<Self::Error>> {
         let mut layer_path: Option<Vec<String>> = None;
         let (prelude, supported) = match prelude {
+            AtPrelude::Keyframes(name) => {
+                let kf = parse_keyframes_block(input);
+                self.keyframes.push((name, Vec::new(), kf));
+                return Ok(Vec::new());
+            }
             AtPrelude::Media(q) => (q, true),
             AtPrelude::Supports(b) => (Vec::new(), b),
             AtPrelude::Layer(names) => {
@@ -5929,6 +5951,9 @@ impl<'i> AtRuleParser<'i> for TopLevelParser {
                 rules.push(rule);
             }
         }
+        for k in nested.keyframes.iter_mut().filter(|k| k.1.is_empty()) {
+            k.1 = prelude.clone();
+        }
         self.absorb(nested);
         Ok(rules)
     }
@@ -5974,6 +5999,11 @@ impl<'i> QualifiedRuleParser<'i> for TopLevelParser {
 }
 
 pub(crate) fn parse_stylesheet(css: &str) -> Vec<StyleRule> {
+    parse_stylesheet_with_keyframes(css).0
+}
+
+/// `parse_stylesheet` plus the `@keyframes` registry (QAN1a).
+pub(crate) fn parse_stylesheet_with_keyframes(css: &str) -> (Vec<StyleRule>, KeyframesRegistry) {
     let mut input = CssParser::new(css);
     let mut top = TopLevelParser::default();
     let mut rules = Vec::new();
@@ -5991,7 +6021,7 @@ pub(crate) fn parse_stylesheet(css: &str) -> Vec<StyleRule> {
             r.layer = ranks[(r.layer - 2) as usize] + 2;
         }
     }
-    rules
+    (rules, build_registry(top.keyframes))
 }
 
 /// QY17: the user-agent sheet. Its rules sit in the user-agent origin
