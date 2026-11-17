@@ -376,7 +376,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       loop logs ONE interrupt line, not 1000; a 3 s compile-equivalent
       script is not counted against the 5 s run budget (unit-test the
       split eval with a fake clock). Unblocks: every big-bundle site.
-      DONE (hash HASH): measured on a saved kevlar_base youtube copy, `--js-report
+      DONE (hash ecd463a): measured on a saved kevlar_base youtube copy, `--js-report
       --run-timers 5000`: before (installed main binary) 6 timer-phase error
       lines (3x `Uncaught (in promise job) InternalError: interrupted`, 1 timer
       trip, 2 QY23); after 4 (1 timer trip, 1 `promise jobs stopped ... (1 jobs
