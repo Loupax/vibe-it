@@ -7040,3 +7040,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Item QY32 (R26). A `position: fixed` box inside a `position: absolute` one was never laid out or painted: `resolve_positioned` only `debug_assert!`ed its nested pending list empty, so release builds dropped the entries. Test: 3-box fixture (plain, z-index, translateY(0)) lays out all three at their viewport `top`.
 
 **What changed:** src/layout.rs (`resolve_positioned` takes `bubble_out` and hands nested `fixed` entries to its caller, shifting their static positions with the box; `resolve_or_bubble_positioned` passes its own list; `measure_document` drains a worklist so nested entries reach the viewport resolution and the root stacking order; `debug_assert!` removed), test `fixed_inside_absolute_is_laid_out_at_viewport_position_qy32`. Verified: fixture and live YouTube window show the fixed boxes / hamburger, search button and mini-guide labels; wikipedia.org, en.wikipedia Main_Page, HN 0 js errors; WPT no change. Limit: a fixed box with no insets inside a transformed ancestor still resolves against the viewport (no transform containing block).
+
+## QY30: rAF due time strictly after now (2026-11-17)
+
+> Item QY30. TIMERS_PRELUDE `add()`: a requestAnimationFrame due time can round back to "now" at t=100 ms (modulo-based delay), so a self-rescheduling rAF loop ran 200,040 callbacks at one simulated instant. Due = next frame boundary strictly greater than t. Test: fake clock at several instants, due > t, a 10-frame rAF loop advances 10 frames with strictly increasing timestamps.
+
+**What changed:** src/js.rs (`add()` raf branch), test `qy30_raf_due_time_strictly_after_now` in src/tests.rs. Headless saved youtube copy (`--js-report --run-timers 20000`) now reaches simulated 118 ms / 48 callbacks instead of spinning at 100 ms (it then stops at a CPU-budget trip: QY31).

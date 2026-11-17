@@ -1402,8 +1402,14 @@ const TIMERS_PRELUDE: &str = r#"
     }
     if (repeat || level > 5) delay = Math.max(delay, 4);
     var t = __scratchy_now();
-    if (raf) delay = FRAME - (t % FRAME);
-    timers.push({ id: id, fn: fn, args: args, due: t + delay, rep: repeat ? delay : -1, lvl: level + 1, raf: raf });
+    var due = t + delay;
+    if (raf) {
+      // QY30: the next frame boundary STRICTLY after t (a modulo-based
+      // delay can round back to t, e.g. at t = 100 ms).
+      due = (Math.floor(t / FRAME) + 1) * FRAME;
+      while (due <= t) due += FRAME;
+    }
+    timers.push({ id: id, fn: fn, args: args, due: due, rep: repeat ? delay : -1, lvl: level + 1, raf: raf });
     return id;
   };
   var clear = function (id) {
