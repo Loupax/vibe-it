@@ -1189,7 +1189,7 @@ IntersectionObserver and matchMedia are not used by any of the site's scripts.
       position:fixed/absolute scroll boxes (hit_test_scroll_region skips positioned
       children: #vimhelp is fixed, so the wheel does not scroll it, keys do), `scroll`
       events for wheel scrolls, scroll-behavior: smooth.
-- [x] QJ6 [M] (DONE 2026-11-17, commit HASH; ScrollInfo::node + App::node_scroll, js_dom
+- [x] QJ6 [M] (DONE 2026-11-17, commit 2e01172; ScrollInfo::node + App::node_scroll, js_dom
       Element.scroll/scrollTo/scrollBy, scrollTop clamp, scroll event, rect offsets,
       scrollIntoView through ancestors; limits in QJ6b) Element scrolling: `el.scroll/scrollTo/
       scrollBy`, `scrollTop/Left` setters on overflow:auto/scroll boxes,
