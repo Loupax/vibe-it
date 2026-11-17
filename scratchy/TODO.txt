@@ -382,7 +382,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       trip, 2 QY23); after 4 (1 timer trip, 1 `promise jobs stopped ... (1 jobs
       dropped)`, 2 QY23); page-load errors 0 both; process CPU 6.46 s -> 6.54 s
       user (noise). Headless run never reproduced the 6684-line live cascade.
-- [x] QY23 [S] (P2, YouTube next error after QY21) `element.style = "..."`
+- [x] QY23 [S] (done 5fee1a6) (P2, YouTube next error after QY21) `element.style = "..."`
       throws `TypeError: no setter for property` in strict code (our
       `style` accessor is getter-only; spec: [PutForwards=cssText]).
       Polymer's `_attributeToProperty` (kevlar :8885:184) assigns
