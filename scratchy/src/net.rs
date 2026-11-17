@@ -380,7 +380,7 @@ pub(crate) fn wrap_text_as_html(text: &str) -> Vec<u8> {
 /// top-level page only — a sub-resource fetch has nothing worth printing
 /// since the user never directly asked for *it*).
 pub(crate) enum WireFetchRaw {
-    Responded { content_type: Option<String>, body: Vec<u8> },
+    Responded { content_type: Option<String>, body: Vec<u8>, final_url: Option<String> },
     Unreachable,
 }
 
@@ -430,7 +430,8 @@ pub(crate) fn fetch_raw_via_wire_with_support(
             let cookies = raw_response_header(&buf, "x-wire-cookies");
             note_cookie_response(support, request_text.as_bytes(), version.as_deref(), cookies.as_deref());
             note_ua_response(raw_response_header(&buf, "x-wire-features").as_deref());
-            WireFetchRaw::Responded { content_type, body }
+            let final_url = raw_response_header(&buf, "x-wire-final-url");
+            WireFetchRaw::Responded { content_type, body, final_url }
         }
         Err(_) => WireFetchRaw::Unreachable,
     }
@@ -710,7 +711,7 @@ pub(crate) fn timing_enabled() -> bool {
 /// Mime-checked low-level fetch; returns the matched MIME and body.
 pub(crate) fn fetch_sub_resource_typed(path: &std::path::Path, url: &Url, top: &Url, accept: &[&str]) -> Option<(String, Vec<u8>)> {
     let request_text = build_get_request_ctx(url, &CookieContext::subresource(top));
-    let WireFetchRaw::Responded { content_type, body } = fetch_raw_via_wire(path, &request_text) else { return None };
+    let WireFetchRaw::Responded { content_type, body, .. } = fetch_raw_via_wire(path, &request_text) else { return None };
     let content_type = content_type.unwrap_or_default();
     let mime = content_type.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
     if !accept.contains(&mime.as_str()) {
@@ -743,7 +744,7 @@ pub(crate) fn decode_css_bytes(bytes: &[u8], header: Option<&'static encoding_rs
 /// longer UTF-8 only).
 pub(crate) fn fetch_stylesheet_via_wire(path: &std::path::Path, url: &Url, top: &Url) -> Option<String> {
     let request_text = build_get_request_ctx(url, &CookieContext::subresource(top));
-    let WireFetchRaw::Responded { content_type, body } = fetch_raw_via_wire(path, &request_text) else { return None };
+    let WireFetchRaw::Responded { content_type, body, .. } = fetch_raw_via_wire(path, &request_text) else { return None };
     let content_type = content_type.unwrap_or_default();
     if !content_type.split(';').next().unwrap_or("").trim().eq_ignore_ascii_case("text/css") {
         return None;
@@ -755,7 +756,7 @@ pub(crate) fn fetch_stylesheet_via_wire(path: &std::path::Path, url: &Url, top: 
 /// response (an error page is not a script).
 pub(crate) fn fetch_script_via_wire(path: &std::path::Path, url: &Url, top: &Url) -> Option<String> {
     let request_text = build_get_request_ctx(url, &CookieContext::subresource(top));
-    let WireFetchRaw::Responded { content_type, body } = fetch_raw_via_wire(path, &request_text) else { return None };
+    let WireFetchRaw::Responded { content_type, body, .. } = fetch_raw_via_wire(path, &request_text) else { return None };
     let content_type = content_type.unwrap_or_default();
     if content_type.trim_start().to_ascii_lowercase().starts_with("text/html") {
         return None;
@@ -827,7 +828,7 @@ pub(crate) fn prefetch_iframes(path: &std::path::Path, base: &Url, top: &Url, do
             .into_iter()
             .map(|u| {
                 scope.spawn(move || {
-                    let WireFetchRaw::Responded { content_type, body } = fetch_raw_via_wire(path, &build_get_request_ctx(&u, &CookieContext::subresource(top))) else { return None };
+                    let WireFetchRaw::Responded { content_type, body, .. } = fetch_raw_via_wire(path, &build_get_request_ctx(&u, &CookieContext::subresource(top))) else { return None };
                     let ct = content_type.unwrap_or_default().to_ascii_lowercase();
                     if body.len() > IFRAME_MAX_BYTES || !(ct.trim_start().starts_with("text/html") || ct.trim().is_empty() && u.scheme() == "file") {
                         return None;

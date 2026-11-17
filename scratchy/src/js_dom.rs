@@ -345,6 +345,8 @@ pub(crate) struct JsRequests {
     pub(crate) el_scroll: Vec<(Handle, f64)>,
     /// Q33d1: `el.click()` on a link asks the App to follow it.
     pub(crate) nav: Option<String>,
+    /// Q30e: `form.submit()` / an uncancelled `requestSubmit()`: (form, submitter).
+    pub(crate) submit: Option<(Handle, Option<Handle>)>,
     /// QF7: validated page-network requests for the App's scheduler.
     pub(crate) net: Vec<crate::js_net::NetJob>,
     /// QF7: results known at once (refused requests, suppressed beacons);
@@ -937,6 +939,20 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     let r = reqs.clone();
     native!("__d_navigate", move |href: String| {
         r.borrow_mut().nav = Some(href);
+    });
+    let t_fd = table.clone();
+    native!("__d_formdata", move |form: i32, submitter: i32| -> String {
+        let f = t_fd.borrow().get(form);
+        let s = if submitter >= 0 { t_fd.borrow().get(submitter) } else { None };
+        f.map(|f| crate::encode_urlencoded(&crate::form_data_set(&f, s.as_ref()))).unwrap_or_default()
+    });
+    let (t, r) = (table.clone(), reqs.clone());
+    native!("__d_submit", move |form: i32, submitter: i32| {
+        let f = t.borrow().get(form);
+        let s = if submitter >= 0 { t.borrow().get(submitter) } else { None };
+        if let Some(f) = f {
+            r.borrow_mut().submit = Some((f, s));
+        }
     });
     let r = reqs.clone();
     native!("__d_scroll", move |x: f64, y: f64, relative: bool| {
@@ -1720,6 +1736,9 @@ const DOM_PRELUDE: &str = r#"
     var C = { click: MouseEvent, mousedown: MouseEvent, mouseup: MouseEvent, keydown: KeyboardEvent, keypress: KeyboardEvent,
       keyup: KeyboardEvent, mouseover: MouseEvent, mouseout: MouseEvent, focus: FocusEvent, blur: FocusEvent, focusin: FocusEvent, focusout: FocusEvent,
       animationstart: AnimationEvent, animationend: AnimationEvent, animationiteration: AnimationEvent, animationcancel: AnimationEvent }[type] || Event;
+    if (type === '__dialogclose') { t.close(init && init.rv !== undefined ? init.rv : undefined); return true; }
+    if (type === 'submit') C = SubmitEvent;
+    if (init && init.submitterId !== undefined) init.submitter = wrap(init.submitterId);
     if (init && init.relatedTargetId !== undefined) init.relatedTarget = wrap(init.relatedTargetId);
     var ev = new C(type, init);
     ev.isTrusted = true;
@@ -1933,14 +1952,14 @@ const DOM_PRELUDE: &str = r#"
   // Q33d1: there is no form submission yet (Q30), so the default action of
   // a submit is a no-op once `submit` has not been cancelled. `submit()`
   // fires no event; `requestSubmit()` and a submit-button click do.
-  FP.submit = function () {};
+  FP.submit = function () { __d_submit(this.__id, -1); };
   FP.requestSubmit = function (submitter) {
     if (submitter !== undefined && submitter !== null && (!submitter || submitter.form !== this)) {
       throw herr('The specified element is not a submit button of this form.', 'NotFoundError');
     }
     var ev = new Event('submit', { bubbles: true, cancelable: true });
     ev.submitter = submitter || null;
-    __scratchy_dispatch(this, ev);
+    if (__scratchy_dispatch(this, ev)) __d_submit(this.__id, submitter ? submitter.__id : -1);
   };
   // Q30c: reset restores the checkbox/radio defaults (text values wait for Q30d).
   FP.reset = function () {

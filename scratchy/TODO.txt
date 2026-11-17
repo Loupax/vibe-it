@@ -5846,7 +5846,7 @@ with temporary `Instant` timing, and say the number in the commit.
       preedit/composition events (today only committed UTF-8 text via winit's `logical_key`),
       `type=number` stepping/validation, editable date/time inputs (still static boxes), RTL caret
       placement (the caret/selection geometry assumes left-to-right glyph order).
-- [ ] Q30e [M] READY (go-ahead 2026-11-17) Form submission. Build the form data set per the HTML spec
+- [x] Q30e [M] DONE (hash: pending) Form submission. Build the form data set per the HTML spec
       as a pure function (successful controls only: named, enabled,
       checked boxes/radios, selected options, textarea text, hidden
       inputs, plus the submitter button's name/value), encoded as
@@ -5863,6 +5863,17 @@ with temporary `Instant` timing, and say the number in the commit.
       `form=` attribute owners, validation (`required`, `pattern`).
       Tests: the pure encoder (checkbox off/on, radio group, select,
       submitter), GET URL building, POST request text.
+      Q30e notes: src/forms_submit.rs (pure data set/encoders/plan + the App glue); see its PROMPTS.md entry
+      and NETWORKING.md "Form submission". Done beyond the entry text: multipart/text-plain, file inputs as
+      empty parts, formaction/formmethod/formenctype/formtarget, `form=` owners, method=dialog, requestSubmit,
+      submit()/SubmitEvent, FormData(form), Enter/Space on a button, final-URL tracking for top-level navs.
+      NO validation of any kind (required/pattern/novalidate ignored). Verified live: wikipedia.org search
+      (Enter and button), local echo server POST (exact body/cookies/content type), back does not re-POST.
+- [ ] Q30e2 [S] READY Form submission leftovers: constraint validation (`required`, `pattern`, `min/max`, `type=email`,
+      `novalidate`, `checkValidity/reportValidity/setCustomValidity`, `:invalid` styling, a validation bubble),
+      `type=image` click coordinates, `accept-charset`, real file bodies (needs the file chooser), `target=_blank`
+      in a new tab (no tabs), keeping a POST result's document in history instead of re-GET, `action` against the
+      document URL (not `<base href>`) when missing, `formnovalidate`, `<output>`/`<object>` in the data set.
 - [x] Q30f [S] DONE as QF14 (wire half 4d62f87, wire/src/cookies.rs) +
       QF14b-scratchy (bc2fb00): an in-memory, partitioned jar in wire used by
       every scratchy request incl. navigations (design QF-D2a). Forms

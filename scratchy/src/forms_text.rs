@@ -519,8 +519,9 @@ impl App {
                     if multi && editable {
                         self.insert_text(h, "\n", "insertLineBreak");
                     } else if !multi {
-                        // Implicit submission is Q30e; Enter only commits the value.
+                        // Enter commits the value, then implicit submission (Q30e).
                         self.fire_change(h);
+                        self.implicit_submit(h);
                     }
                 }
                 true

@@ -464,8 +464,14 @@
   function FormData(form, submitter) {
     if (!new.target) throw new TypeError("Failed to construct 'FormData': Please use the 'new' operator, this DOM object constructor cannot be called as a function.");
     fdMap.set(this, []);
-    if (form !== undefined && typeof g.__scratchy_err === 'function')
-      g.__scratchy_err('scratchy: js: not implemented: FormData(form) (waits for Q30e)');
+    if (form !== undefined) {
+      // Q30e: the form's data set (no submitter), through the same code as a submission.
+      if (form === null || typeof form !== 'object' || form.localName !== 'form' || typeof form.__id !== 'number')
+        throw new TypeError("Failed to construct 'FormData': parameter 1 is not of type 'HTMLFormElement'.");
+      var sid = submitter && typeof submitter.__id === 'number' ? submitter.__id : -1;
+      var l = fdMap.get(this), sp = new g.URLSearchParams(g.__d_formdata(form.__id, sid));
+      sp.forEach(function (v, k) { l.push([k, v]); });
+    }
   }
   var FP = FormData.prototype;
   function fdArgs(n, args, name) {

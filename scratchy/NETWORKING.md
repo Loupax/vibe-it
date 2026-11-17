@@ -75,6 +75,19 @@ call blocks the page for at most 2 s; on a failure (no wire, old wire,
 cookies off, timeout) it logs once and reads `''` for the rest of the page.
 `Set-Cookie` never reaches the page. Names and values are never logged.
 
+## Form submission (Q30e)
+
+A form GET or POST is a top-level navigation of the current tab (`App::form_navigate`
+in `src/forms_submit.rs`): `RequestPolicy::check_request` runs on the action URL first
+(https page -> http action is blocked with a log line, loopback exempt; a private target
+warns), then the request goes through the same path as a link click with the cookie
+headers of `CookieContext::navigation` (`X-Wire-Nav: 1`, `X-Wire-Initiator-Site` = the
+page, so wire's SameSite rules see a POST as not "safe": Lax cookies are withheld on a
+cross-site POST). A POST also sends `Content-Type`, `Content-Length` and `Origin`. wire
+follows redirects (303/302 after POST become GET) and reports `X-Wire-Final-Url`, which
+scratchy now reads for every top-level navigation: the page's base URL and its history
+entry become the final URL, so back/refresh re-GET the result and never re-POST.
+
 ## Beacons
 
 `navigator.sendBeacon`, `fetch(..., {keepalive: true})` and `no-cors` fetches
@@ -142,6 +155,6 @@ must see `ua` there before relying on a UA override (an older wire ignores it).
 
 - Cookie persistence (the jar is memory only; a file is a later flag).
 - WebSocket, EventSource, Workers, Service Workers.
-- Form submission (forms are placeholders; scratchy has no input subsystem).
+- Form submission is implemented (Q30e, below) except file contents, validation and `target` other than this tab.
 - Media (`<video>`, `<audio>`): placeholders only.
 - `<a ping>`.
