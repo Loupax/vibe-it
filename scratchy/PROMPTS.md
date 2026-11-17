@@ -7277,3 +7277,10 @@ Done: `.github/workflows/ci.yml` (matrix, rust-cache, concurrency, permissions c
 Prompt (coordinator, 2026-11-17): measure the real-page effect of 752aaa1: build its parent and main, count `flex: N` uses on 11 saved pages, screenshot both in a nested dwl, view every differing pair, WPT with both; REGRESSIONS entry with a table; file a ranked Sonnet item if anything got worse. No source changes.
 Done: R35 (10 of 11 pages identical, bbc.com logo now centred = better, YouTube diffs are JS-budget noise, WPT PNGs byte-identical), QCI0b filed (automatic minimum size clamped to the new 0 basis: fixtures show mid-word breaks and overlapping column items).
 
+
+
+## QY45 (scratchy/qy45-set-attribute-ns)
+
+**Prompt:** Implement the namespaced attribute family (setAttributeNS, getAttributeNS, hasAttributeNS, removeAttributeNS, Attr nodes, createAttribute(NS), Element.prefix/localName) so YouTube player bootstrap no longer dies on the missing Element.setAttributeNS (R34).
+
+**What changed:** js_dom.rs: natives __d_attr_list/__d_getq/__d_getns/__d_setq/__d_rmq/__d_setns/__d_rmns over the stored QualName {prefix, ns, local} (no parallel store); public get/has/set/removeAttribute now match the qualified name (HTML elements lowercase, others keep case); Attr views carry ns/prefix/localName, detached Attrs (createAttribute(NS), removeAttributeNode) hold their own value; setAttributeNode(NS), removeAttributeNode, NamedNodeMap *NS methods; DOM validate-and-extract (InvalidCharacterError/NamespaceError, xml/xmlns rules); XML documents store attribute prefix/namespace properly; outerHTML prints prefix:local. Hooks (MutationObserver, custom elements) cover the new setters. 5 tests qy45_*.
