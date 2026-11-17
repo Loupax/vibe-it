@@ -923,19 +923,25 @@ pub(crate) fn describe_error(ctx: &Ctx<'_>, err: JsError) -> String {
 /// (QY14), then reports rejections that stayed unhandled via the prelude's
 /// `__scratchy_rej_flush` (which may queue more jobs: loop until quiet).
 pub(crate) fn drain_jobs(ctx: &Context, rt: &Runtime, log: &dyn Fn(&str, &str), tripped: &std::sync::atomic::AtomicBool) {
-    // QY22: jobs that die on an expired budget are counted, not logged one by one.
-    let mut dropped = 0usize;
-    loop {
+    // QY22/QY44a: a job killed by the budget is uncatchable (skips `finally`),
+    // so once one trips we STOP: later jobs must not start on an expired
+    // deadline (they would be killed part-way and leave library state stale).
+    // They stay queued in QuickJS and run in the next turn's fresh budget.
+    let mut killed = 0usize;
+    'drain: loop {
         while rt.is_job_pending() {
             if let Err(job) = rt.execute_pending_job() {
                 job.0.with(|c| {
                     let msg = describe_error(&c, JsError::Exception);
                     if tripped.load(Ordering::Relaxed) {
-                        dropped += 1;
+                        killed += 1;
                     } else {
                         log("error", &format!("Uncaught (in promise job) {msg}"));
                     }
                 });
+                if killed > 0 {
+                    break 'drain;
+                }
             }
         }
         let more = ctx.with(|c| {
@@ -953,8 +959,9 @@ pub(crate) fn drain_jobs(ctx: &Context, rt: &Runtime, log: &dyn Fn(&str, &str), 
             break;
         }
     }
-    if dropped > 0 {
-        log("error", &format!("js: promise jobs stopped: exceeded the {} ms CPU-time callback budget ({dropped} jobs dropped)", CALLBACK_BUDGET.as_millis()));
+    if killed > 0 {
+        let deferred = if rt.is_job_pending() { ", remaining jobs deferred to the next turn" } else { "" };
+        log("error", &format!("js: promise jobs stopped: exceeded the {} ms CPU-time callback budget ({killed} job killed{deferred})", CALLBACK_BUDGET.as_millis()));
     }
 }
 
@@ -1200,15 +1207,25 @@ impl JsEngine {
     /// When the earliest pending timer is due, `None` if there are none
     /// (the event loop then sleeps with no wake-up at all).
     pub(crate) fn next_deadline(&self) -> Option<Instant> {
+        if self.rt.is_job_pending() {
+            return Some(Instant::now());
+        }
         let ms: f64 = self.eval_value("timer", "__scratchy_timers_next()")?;
+        if self.rt.is_job_pending() {
+            return Some(Instant::now());
+        }
         (ms >= 0.0).then(|| self.base + Duration::from_secs_f64(ms / 1000.0))
     }
 
     /// Test seam: the earliest pending timer's due time in ms on the
     /// `__scratchy_now` clock.
     pub(crate) fn next_due_ms(&self) -> Option<f64> {
-        let ms: f64 = self.eval_value("timer", "__scratchy_timers_next()")?;
-        (ms >= 0.0).then_some(ms)
+        let ms: Option<f64> = self.eval_value("timer", "__scratchy_timers_next()");
+        // QY44a: jobs deferred by a budget trip are due right now.
+        if self.rt.is_job_pending() {
+            return Some(0.0);
+        }
+        ms.filter(|m| *m >= 0.0)
     }
 
     /// Runs every timer that is due now (bounded per turn), each under
@@ -1219,11 +1236,16 @@ impl JsEngine {
     /// or rescheduled before it ran, so the caller keeps pumping.
     pub(crate) fn run_due_counted(&self) -> usize {
         let mut n = 0;
+        let jobs_waiting = self.rt.is_job_pending();
         for _ in 0..MAX_TIMERS_PER_TURN {
             if self.eval_value::<bool>("timer", "__scratchy_timers_run_one()") == Some(false) {
                 break;
             }
             n += 1;
+        }
+        // QY44a: deferred promise jobs ran in that call's drain: progress.
+        if n == 0 && jobs_waiting {
+            n = 1;
         }
         n
     }

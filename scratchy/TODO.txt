@@ -774,7 +774,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
 QY34 (281d281) is NOT reverted: every new error is code that never ran before
 hitting an existing gap; QY34's own order/timing/currentScript/load/error
 behaviour checked fine (R29 fixture). Do in this order:
-- [ ] QY44a [S] (P1, R29) A CPU-budget trip in one promise job kills EVERY later
+- [x] QY44a [S] (1972dbd) (P1, R29) A CPU-budget trip in one promise job kills EVERY later
       job of the same drain mid-way, skipping their `finally` blocks. js.rs
       `drain_jobs`: after `rt.execute_pending_job()` fails with `tripped` set,
       the loop keeps calling `execute_pending_job()` while the deadline is

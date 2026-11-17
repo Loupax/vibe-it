@@ -16345,9 +16345,33 @@ fn qy22_tripped_job_drain_logs_one_line_with_a_count() {
     let log = run_with_timers(
         "setTimeout(()=>{for(var i=0;i<1000;i++)Promise.resolve().then(()=>{var e=Date.now()+8;while(Date.now()<e){}});},0);",
     );
+    // QY44a: a trip stops the drain and defers the rest, so one line per
+    // turn that tripped (each names the kill and the deferral), never one per job.
+    let errs: Vec<_> = log.iter().filter(|l| l.starts_with("error:")).collect();
+    assert!(!errs.is_empty() && errs.len() < 100, "{log:?}");
+    assert!(errs.iter().all(|e| e.contains("promise jobs stopped") && e.contains("1 job killed")), "{log:?}");
+    assert!(errs[0].contains("deferred to the next turn"), "{log:?}");
+}
+
+/// QY44a (R29): after one promise job is killed by the budget the drain stops
+/// and the later jobs run in a later turn with a fresh budget, so their
+/// `finally` blocks run (none starts on an expired deadline).
+#[test]
+fn qy44a_tripped_job_does_not_kill_later_jobs() {
+    let log = run_with_timers(
+        "var stack=[],ran=[];\
+         function withConsumer(tag,f){stack.push(tag);try{return f();}finally{stack.pop();}}\
+         setTimeout(function(){\
+           Promise.resolve().then(function(){var x=0;for(;;){x++;}});\
+           Promise.resolve().then(function(){withConsumer('job2',function(){var s=0;for(var i=0;i<200000;i++)s+=i;ran.push('job2');});});\
+           Promise.resolve().then(function(){withConsumer('job3',function(){var s=0;for(var i=0;i<200000;i++)s+=i;ran.push('job3');});});\
+         },0);\
+         setTimeout(function(){console.log('completed:['+ran.join(',')+'] stack:['+stack.join(',')+']');},50);",
+    );
+    assert!(log.iter().any(|l| l == "log:completed:[job2,job3] stack:[]"), "{log:?}");
     let errs: Vec<_> = log.iter().filter(|l| l.starts_with("error:")).collect();
     assert_eq!(errs.len(), 1, "{log:?}");
-    assert!(errs[0].contains("promise jobs stopped") && errs[0].contains("jobs dropped"), "{log:?}");
+    assert!(errs[0].contains("1 job killed, remaining jobs deferred"), "{log:?}");
 }
 
 // ---------- QJ5: Element.scrollIntoView ----------
