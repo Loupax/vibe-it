@@ -16521,3 +16521,38 @@ fn fixed_inside_absolute_is_laid_out_at_viewport_position_qy32() {
         assert_eq!((f.x, f.y), (9.0, top), "fixed box of width {w} stays at its viewport position, not the absolute parent's");
     }
 }
+
+/// QY30: a rAF is always due strictly after "now", and a self-rescheduling
+/// rAF loop advances one frame per callback with monotonic timestamps.
+#[test]
+fn qy30_raf_due_time_strictly_after_now() {
+    let clock = Rc::new(std::cell::Cell::new(0.0f64));
+    let engine = crate::js::start_scripts_clocked(&parse_html(""), &[src("")], Rc::new(|_, _| {}), Some(clock.clone())).unwrap();
+    let frame = 1000.0 / 60.0;
+    for t in [0.0, 100.0, frame * 6.0, 1e6, 16.666666666666668, 33.333333333333336] {
+        clock.set(t);
+        engine.eval_value::<bool>("t", "requestAnimationFrame(function(){}); true");
+        let due = engine.next_due_ms().unwrap();
+        assert!(due > t, "rAF at {t} due {due}");
+        clock.set(due);
+        engine.run_due();
+    }
+    // A self-rescheduling loop, pumped like the report does.
+    clock.set(100.0);
+    engine.eval_value::<bool>(
+        "t",
+        "globalThis.__ts=[]; (function f(ts){ __ts.push(ts); if (__ts.length<10) requestAnimationFrame(f); })(0); true",
+    );
+    for _ in 0..50 {
+        let Some(due) = engine.next_due_ms() else { break };
+        clock.set(clock.get().max(due));
+        engine.run_due();
+    }
+    let ts: String = engine.eval_value("t", "__ts.join(',')").unwrap();
+    let v: Vec<f64> = ts.split(',').map(|x| x.parse().unwrap()).collect();
+    assert_eq!(v.len(), 10, "{ts}");
+    for w in v[1..].windows(2) {
+        assert!(w[1] > w[0], "timestamps must strictly advance: {ts}");
+    }
+    assert!(clock.get() - 100.0 >= frame * 8.0, "clock advanced {}", clock.get());
+}
