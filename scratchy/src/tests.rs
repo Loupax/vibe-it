@@ -20560,6 +20560,7 @@ fn qf9a_xhr_response_type_document_and_response_xml() {
     assert!(l.contains(&"log:txt null true undefined".to_string()), "{l:?}");
     assert!(l.contains(&"log:txt2 null true undefined".to_string()), "{l:?}");
     assert!(l.iter().any(|s| s.starts_with("log:bad text/xml parsererror")), "{l:?}");
+}
 
 // QM1g/QM1g1: video painting and the video-rect-only redraw. The pure parts and the
 // host plumbing run in the default build (no libmpv).
