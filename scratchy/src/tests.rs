@@ -11021,6 +11021,17 @@ fn qy11_style_string_reflection() {
 }
 
 #[test]
+fn qy23_style_assignment_puts_forward_to_css_text() {
+    let log = run_in_html(
+        "<html><body><div id=a></div></body></html>",
+        "'use strict'; var d=document.getElementById('a'); d.style='color: red';\
+         console.log(d.getAttribute('style'), '|', d.style.color);\
+         d.style=null; console.log(d.getAttribute('style'), '|', d.style.cssText === '');",
+    );
+    assert_eq!(log, ["log:color: red | red", "log:null | true"], "{log:?}");
+}
+
+#[test]
 fn qy12_window_interface_has_its_own_prototype() {
     let out = run_collecting(&[src(
         "console.log(window instanceof Window, window instanceof EventTarget, Window.prototype !== Object.prototype,\

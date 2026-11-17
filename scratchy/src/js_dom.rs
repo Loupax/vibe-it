@@ -1218,6 +1218,10 @@ const DOM_PRELUDE: &str = r#"
     writeStyle(el, d);
   };
   var styles = {};
+  // QY23: [PutForwards=cssText]: `el.style = "..."` writes cssText.
+  var styleSetter = function (v) {
+    if (v == null || v === '') __d_rmattr(this.__id, 'style'); else __d_setattr(this.__id, 'style', String(v));
+  };
   def(ElementProto, 'style', function () {
     var el = this;
     if (styles[el.__id]) return styles[el.__id];
@@ -1243,6 +1247,7 @@ const DOM_PRELUDE: &str = r#"
     });
     return (styles[el.__id] = proxy);
   });
+  Object.defineProperty(ElementProto, 'style', { get: Object.getOwnPropertyDescriptor(ElementProto, 'style').get, set: styleSetter, configurable: true, enumerable: true });
   // QA16: getComputedStyle (cascade only, no layout; see js_style.rs).
   var csProps = __d_csprops();
   var camel = function (p) { return p.replace(/-([a-z])/g, function (m, c) { return c.toUpperCase(); }); };

@@ -6998,3 +6998,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Item QJ5. Implement `Element.scrollIntoView(arg)` as a window scroll request from the element's QJ4 layout rect (block start/center/end/nearest, boolean arg, no smooth animation). Verify social.loupax.com/discover with `--js-report --run-timers 5000` before/after and report which vim.js error comes next without fixing it. No QJ6-QJ11.
 
 **What changed:** src/js_dom.rs (`ElementProto.scrollIntoView` in the geometry block of DOM_PRELUDE, goes through `window.scrollTo`), test `qj5_*` in src/tests.rs. Limits: ancestor scroll containers are not scrolled (QJ6), fixed/detached elements are no-ops, `inline` handled the same way for the x axis, no smooth behaviour. Next vim.js wall: `new Range()` at vim.js:309 (QJ7).
+
+## QY23: element.style setter (2026-11-17)
+
+> Item QY23. `element.style = "..."` acts as [PutForwards=cssText]: the setter writes the style attribute (null/'' removes it), strict mode no longer throws `no setter for property`. Verify with `--js-report --run-timers 5000` on a saved youtube kevlar copy before/after.
+
+**What changed:** src/js_dom.rs (`styleSetter` on `ElementProto.style`), test `qy23_*` in src/tests.rs. YouTube copy: 4 errors -> 2 (the 2 custom element callback errors from Polymer `_attributeToProperty` are gone; remaining: promise-jobs and timer 500 ms budget trips).
