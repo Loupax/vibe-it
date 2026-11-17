@@ -4103,7 +4103,13 @@ pub(crate) fn parse_flex_shorthand(input: &mut CssParser) -> Result<(f32, f32, F
     }
     let grow = numbers.first().copied().unwrap_or(1.0);
     let shrink = numbers.get(1).copied().unwrap_or(1.0);
-    Ok((grow, shrink, basis.unwrap_or(FlexBasis::Auto)))
+    // CSS Flexbox §7.1.1: an omitted `flex-basis` in the shorthand is `0%`
+    // (not `auto`): `flex: 1` is `1 1 0%`, so the free space is shared by
+    // grow factor alone and the items' glyphs cannot skew the split (R33).
+    // `0%` (not `0px`) so a column container with an indefinite height
+    // still falls back to the content height, as the column path does for
+    // any percentage basis.
+    Ok((grow, shrink, basis.unwrap_or(FlexBasis::Len(Length::Percent(0.0)))))
 }
 
 /// One `minmax()` argument's own narrower grammar — see
