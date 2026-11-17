@@ -7273,3 +7273,7 @@ Done: `.github/workflows/ci.yml` (matrix, rust-cache, concurrency, permissions c
 
 **What changed:** new src/netlock.rs (hand-assembled BPF over `libc`, no seccompiler: not in the registry), called first in src/main.rs; MPV_OPTIONS `demuxer-lavf-o`/`stream-lavf-o` = `protocol_whitelist=%11%crypto,data`; src/tests/qnet1_tests.rs (child module of tests.rs); help.html section; NOTES.md and NETWORKING.md sections.
 
+## R35 / QCI0b: real-page effect of QCI0's `flex: <number>` basis 0% (Opus investigator, docs only)
+Prompt (coordinator, 2026-11-17): measure the real-page effect of 752aaa1: build its parent and main, count `flex: N` uses on 11 saved pages, screenshot both in a nested dwl, view every differing pair, WPT with both; REGRESSIONS entry with a table; file a ranked Sonnet item if anything got worse. No source changes.
+Done: R35 (10 of 11 pages identical, bbc.com logo now centred = better, YouTube diffs are JS-budget noise, WPT PNGs byte-identical), QCI0b filed (automatic minimum size clamped to the new 0 basis: fixtures show mid-word breaks and overlapping column items).
+

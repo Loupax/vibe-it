@@ -1,5 +1,59 @@
 # scratchy — regressions
 
+## R35: QCI0 (`flex: <number>` basis `auto` -> `0%`) on real pages: no visible change on 10 of 11 pages, BBC better; but the automatic minimum size is now 0 for every `flex: N` item (Opus investigator, 2026-11-17) — OPEN: QCI0b filed
+
+**Status: investigation only, docs only.** BEFORE = fcfa57e (parent of 752aaa1), AFTER = a91dee3
+(QCI0 merged), both release builds in their own target dirs. Pages saved 2026-11-17 with
+`scratchpad/gate/fetch.py` through the user's wire (GET only, `<base>` added) and opened as files
+(`--socket`, so stylesheets/images/scripts load live). Each page shot BEFORE, AFTER, BEFORE again in
+a nested dwl (1052x1050, 20 s, then `pgdn pgdn`, second shot); BEFORE-vs-BEFORE2 is the noise
+check. `flex: N` count = `flex:` followed by one or two bare numbers and no basis, in `<style>`,
+`style=""` and linked sheets (fetched; `@import` and script-inserted CSS NOT counted).
+Load average was 15-18 (other agents' builds) during the runs.
+
+| page | `flex: N` uses | before = after? | difference seen | verdict |
+|---|---|---|---|---|
+| www.wikipedia.org | 0 | identical | - | - |
+| en.wikipedia Main_Page | 1 (`flex:1 0`) | identical (BEFORE2 differs by 882 px: noise) | - | - |
+| news.ycombinator.com | 0 | identical | - | - |
+| github.com | 64 (`flex:1` x59, `flex:1!important` x5) | identical (AFTER = BEFORE2; only the first BEFORE run differs: load timing) | - | - |
+| duckduckgo.com | 3 inline | identical | - | - |
+| youtube.com | 528 (`flex:1` x509) | not conclusive -> no flex effect seen | first pair: AFTER lost every icon (guide, kebab, account glyph). A BEFORE re-run produced the SAME icon-less image byte for byte, and both binaries otherwise land on the same blank/partial states; logs show 2-6 "exceeded the 500 ms CPU-time callback budget" trips per run (load 17). JS budget noise, not layout. | same |
+| bbc.com | 4 inline | DIFFERS (deterministic: BEFORE = BEFORE2) | masthead BBC logo moves 25 px left: BEFORE x 481-621 (25 px right of centre), AFTER 456-596 (centred in the 1052 px window). The real bbc.com centres the logo; the old `auto` basis gave the left flex:1 column (menu+search icon) more room than the empty right one. | **better** |
+| theguardian.com/international | 4 inline | identical (AFTER = BEFORE2; first BEFORE differs: load timing) | - | - |
+| lobste.rs | 2 (`flex: 1`) | identical | - | - |
+| old.reddit.com (fetched, 200) | 7 | identical | - | - |
+| social.loupax.com/discover | 1 inline | identical (BEFORE2 differs: noise) | - | - |
+| repo fixtures | none use `flex:` (only src/help.html, no flex) | - | - | - |
+
+WPT subset, both binaries (`--wpt /home/loupax/src/wpt --out`): pass 320 / fail 294 each, "no change
+from wpt-expected.txt", and every one of the 588 written PNGs is byte-identical between the two.
+
+**But a real regression exists that these pages do not show (fixtures `qci0b/pages/fx.html`,
+`fx2.html` in the investigator's scratchpad; same in QCI0b):** layout.rs clamps a flex item's
+automatic minimum size to its own flex basis (row: `(min_mb - margins).max(0.0).min(basis)`,
+~line 4377; column: `lc.h.min(basis)`, ~line 4633). With basis `auto` that clamp was a no-op
+(basis >= min-content); with QCI0's `0%` it makes the floor 0 for EVERY `flex: N` item, so
+- row, 300 px box, `flex:1` items "Pneumonoultramicroscopicsilicovolcanoconiosis" | "short text
+  here": BEFORE 342 px word + "short" column overflowing the box (what Chrome/Firefox draw: the
+  word's min-content is the floor); AFTER 150/150, the word is broken mid-letters over 3 lines.
+- column, `height:100px`, two `flex:1` items of 3 lines each: BEFORE 60+60 px, overflowing (real
+  browsers: same, `min-height:auto` = content height); AFTER 50+50, "three" is overdrawn by "four"
+  and "six" spills out of the box.
+- row, `flex:1; width:50px` beside a `flex:none; width:280px` item in 300 px: BEFORE 50 px (real
+  browsers: the specified-size suggestion caps the floor at 50), AFTER 20 px.
+CSS Flexbox 4.5: the content-based minimum is min(content size suggestion, specified size
+suggestion = the item's `width`/`height` if definite); `flex-basis` is not part of it. It also
+applies only when the item is not a scroll container: `overflow` other than `visible` gives 0.
+The row path ignores `overflow`, which QCI0 accidentally papered over: fixture `flex:1;
+overflow:hidden; white-space:nowrap; text-overflow:ellipsis` + a 100 px item in a 300 px row was
+WRONG before (item kept its full nowrap width, row overflowed by ~290 px) and is RIGHT after
+(clipped with "..." at 200 px). So the fix must not simply drop the clamp. Fix: QCI0b.
+
+Not verified: pages below the second viewport; logged-in pages; youtube under low load
+(blocked by budget noise); script-inserted and `@import`ed CSS in the count; no real browser was
+run (the "real browser" columns are from knowledge of the spec and of how these sites look).
+
 ## R34: MSE / streaming survey on real sites (YouTube, Reddit, Vimeo, BBC, Guardian, Twitch, X) (Opus investigator QM1k-m, 2026-11-17) — EVIDENCE for QM1k (plan with the user); QY45 READY; QM1k1-QM1k6 filed
 
 **Status: investigation only, nothing committed except docs.** Run on the user's machine through

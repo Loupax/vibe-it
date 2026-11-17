@@ -40,6 +40,9 @@ older and were only partly corrected in place):
 - Still WAITING FOR USER: QM1k (MSE build plan, QM1k-m done: R34; children QM1k1-QM1k4, QM1k6), QCI2 (WPT in CI), QF14b2 (d) `--profile` (later),
   Q32 remainder (parked), QAN1p/QTB2 (parked).
 - Known red test on a clean checkout: R33 / QCI0.
+- NEW 2026-11-17 (Opus, R35): QCI0b [S] READY, P1 (Sonnet): QCI0's `flex: 1` =
+  `1 1 0%` made every `flex: N` item's automatic minimum size 0 (min clamped to the
+  basis): long words break mid-letter, column items overlap. Do it next in the CI block.
 
 USER ANSWERS 2026-11-17 (late night): (a) PR #232 (QW6, body background on the canvas)
 KEEP, despite its accepted WPT pass->fail `css/css-backgrounds/animations/background-color-
@@ -1015,6 +1018,39 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       max-content versus the width it is then laid out at. Passes with Liberation
       Sans, Lato and Noto Sans CJK JP. A real layout bug, not a test bug; measure
       the cell's `cell_natural_width` max vs the shaped width, fix, keep the test.
+- [ ] QCI0b [S] READY (P1, Sonnet; ranked first in this block, before QCI0a and QT1)
+      Flex automatic minimum size is clamped to the flex basis, so since QCI0
+      (`flex: N` = `N 1 0%`) every `flex: N` item can shrink to 0 (R35).
+      Root cause, layout.rs: row path `(min_mb - margin_left - margin_right).max(0.0)
+      .min(basis)` (~line 4377), column path `lc.h.min(basis)` (~line 4633). CSS
+      Flexbox 4.5: content-based minimum = min(content size suggestion = min-content,
+      specified size suggestion = the item's definite `width` (row) / `height`
+      (column)); `flex-basis` is NOT part of it; and it is 0 when the item is a
+      scroll container (`overflow` not `visible`; `clip` counts as visible).
+      Fix, row: `min = if overflow != Visible {0} else {min_content.min(width if set)}`,
+      explicit `min-width` unchanged. Column: drop the `.min(basis)`, keep the
+      existing overflow/explicit-height conditions. Do NOT just delete the clamp in
+      the row path without the `overflow` check: QCI0 accidentally fixed the very
+      common `flex:1; overflow:hidden; white-space:nowrap; text-overflow:ellipsis`
+      pattern (it overflowed the row before QCI0; it must keep clipping).
+      Minimal fixture / tests (tests.rs, next to
+      `flex_number_shorthand_has_zero_basis_so_split_ignores_glyph_widths`, keep
+      that test; font-independent: compare against measured widths, not constants):
+      (1) row: `display:flex;width:300px` with `flex:1` "Pneumonoultramicroscopic-
+      silicovolcanoconiosis" | `flex:1` "short text here": item 0 w == its
+      unbroken word's width (> 300, one line, h == one line height), item 1 w ==
+      width of "short" (its min-content), both > 0, no mid-word break.
+      (2) column: `display:flex;flex-direction:column;height:100px` with two
+      `flex:1` items "one<br>two<br>three" | "four<br>five<br>six": each item h ==
+      its 3-line content height, item 1 y == item 0 y + item 0 h (overflows the 100).
+      (3) row 300px: `flex:1;width:50px` long word + `flex:none;width:280px`: item 0
+      w == 50 (specified size suggestion caps the floor).
+      (4) row 300px: `flex:1;overflow:hidden;white-space:nowrap` long text +
+      `flex:none;width:100px`: item 0 w == 200 (scroll container: floor 0).
+      (5) unchanged: two `flex:1` items "iiii" | "wwwwww" in 100 px stay 50/50.
+      Acceptance: the five tests pass; full `cargo test --release` green; WPT
+      subset no pass->fail; screenshots of bbc.com (logo stays centred, R35),
+      github.com, youtube.com, en.wikipedia Main_Page before/after, VIEWED, no worse.
 - [x] QCI1 [S] DONE (74239ec, PR #272; pinned Rust 1.96.1 added later, baseline in tools/clippy-baseline.txt) (after QCI0; user asked for it 2026-11-17) GitHub Actions CI,
       `.github/workflows/ci.yml` at the repo root. On every PR and on push to
       main. Per crate (scratchy, wire, snag; each has its own Cargo.lock, no
