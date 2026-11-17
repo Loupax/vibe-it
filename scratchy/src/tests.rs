@@ -3206,6 +3206,32 @@ fn shrink_to_fit_table_is_sum_of_column_maxima_so_no_cell_wraps() {
 }
 
 #[test]
+fn shrink_to_fit_table_cell_never_wraps_whatever_the_fractional_glyph_advances() {
+    // QCI0a: a column sized to exactly its max-content must hold the text
+    // on one line even when cosmic-text's running glyph sum lands one f32
+    // ulp above the separately-measured extent (font-dependent luck, seen
+    // with 9.92px monospace-ish advances). Sweep many lengths so the
+    // relation is exercised under any installed sans-serif.
+    let one = |t: &str| {
+        let html = format!(
+            r#"<html><body style="margin:0"><div style="width:900px"><table><tr><td>{t}</td><td>x</td></tr></table></div></body></html>"#
+        );
+        let laid = measure_fixture(&html, 1000.0);
+        let c = find_by_width(&laid, 900.0).expect("container not found");
+        let LaidContent::Blocks(cs) = &c.content else { panic!("expected Blocks") };
+        let LaidContent::Blocks(rows) = &cs[0].content else { panic!("expected rows") };
+        rows[0].h
+    };
+    let single = one("a");
+    let words = ["Santa", "Clara", "mmm", "iii", "Wqj", "1993", "HQ", "ffi"];
+    for n in 1..=12 {
+        let text = (0..n).map(|i| words[(i * 3 + n) % words.len()]).collect::<Vec<_>>().join(" ");
+        let h = one(&text);
+        assert!(h <= single + 0.01, "cell {text:?} wrapped: h={h} vs {single}");
+    }
+}
+
+#[test]
 fn table_caption_does_not_widen_a_shrink_to_fit_table_and_wraps_below() {
     // Q34c: caption adds only its min-content width.
     let cap = "word ".repeat(30);

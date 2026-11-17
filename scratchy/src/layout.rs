@@ -1272,6 +1272,8 @@ pub(crate) fn new_font_system_with(extra_fonts: &[PathBuf]) -> FontSystem {
 /// synthesized one-word slice in `measure_mixed_inline`'s per-word
 /// shaping — see its own docs for why that path shapes word-by-word
 /// instead of calling this once over the whole mixed run).
+const WRAP_SLACK: f32 = 0.001;
+
 pub(crate) fn shape_spans(
     font_system: &mut FontSystem,
     items: &[InlineItem],
@@ -1292,7 +1294,12 @@ pub(crate) fn shape_spans(
         .collect();
     let metrics = Metrics::new(16.0, 20.0);
     let mut buffer = Buffer::new(font_system, metrics);
-    buffer.set_size(Some(width.max(0.0)), None);
+    // QCI0a: a box sized to exactly its max-content (shrink-to-fit, table
+    // columns) must not wrap because cosmic-text's running glyph sum lands a
+    // few f32 ulps above the separately-measured extent (fractional
+    // advances, e.g. 9.92px monospace-ish glyphs). Wrap against a width that
+    // is 1/1000px more generous; far below anything visible.
+    buffer.set_size(Some(width.max(0.0) + WRAP_SLACK), None);
     if pre {
         // `white-space: pre`/`nowrap` both disable wrapping — content
         // overflows its box rather than breaking mid-line; literal `\n`s
