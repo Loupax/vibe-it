@@ -1,5 +1,128 @@
 # scratchy — regressions
 
+## R36: YouTube search: Enter and the search button "do nothing". The page's SPA navigation runs, then a CPU-budget trip kills it (wall 1); with the budget raised, the results page renders no results (wall 2). NOT QF11, NOT form submission (Opus investigator, 2026-11-17) — OPEN: QY46, QY47, QJ12, QF11 (refined), QY48 filed
+
+**Status: investigation only, docs only.** User report 2026-11-17: `scratchy --socket "$(wire
+--print-socket)" --user-agent '<Firefox 140 UA>' https://youtube.com`: autocomplete works
+(suggestions appear while typing), but Enter in the search box and clicking the search button
+do nothing.
+
+**Verdict: a known class of problem (QY33: YouTube callbacks over the 500 ms CPU callback
+budget), with a NEW concrete casualty, plus a second, unrelated wall behind it.** Hypotheses
+from the task, in order:
+1. `location.assign/href=` no-op (QF11): **ruled out.** YouTube never calls
+   `location.assign/replace/reload`, never sets `location.href`, never calls `window.open` on
+   submit. The only `location.href` writes seen came from scratchy's own `history` mirror
+   (globals_prelude.js `apply()`, called by `pushState`/`replaceState`). QF11 is still a real gap
+   (other sites), and that `apply()` detail is a trap for QF11 (see the item).
+2. The SPA path runs and is killed by a budget: **CONFIRMED (wall 1).**
+3. Q30e implicit submission never reaches YouTube: **ruled out.** Enter reaches the page and
+   YouTube handles the submit; the button click is handled by YouTube before any submit.
+4. YouTube refusing the UA: **ruled out for the Firefox UA**: `/youtubei/v1/search` answered 200
+   and the result data reached the DOM. (Not run with wire's default UA.)
+
+**Setup.** This worktree at b97054e (main), release build, default features, plus TEMPORARY
+never-committed logging (a JS prelude evaluated after the media prelude in js.rs
+`start_scripts`, wrapping `location.href/assign/replace/reload`, `history.pushState/
+replaceState`, `window.open`, `fetch` (and its completion for search/browse/next URLs),
+`XMLHttpRequest.open`, `Event.prototype.preventDefault` for submit/key/click,
+`EventTarget.prototype.dispatchEvent` for types matching `navigat|search|submit|yt-action`,
+window capture + bubble listeners for keydown/keypress/submit/click, and a DOM dump 3 s and
+12 s after each `yt-navigate-finish`; Rust `diag!` lines in `text_control_key` (Enter),
+`implicit_submit`, `request_submit`, `form_navigate` and the `reqs.nav` consumer; a per-promise-
+job wall timer in `drain_jobs`; and `CALLBACK_BUDGET` made overridable by an env var). Nested
+dwl (tools/nest.sh, 1052x1050) + tools/inject + grim, `nice -n 19`, user's wire, Firefox 140 UA,
+https://www.youtube.com. Load: the machine was busy (user testing, other agents), so the job
+times below are WALL ms of a niced process, not thread CPU.
+
+**Run 1/2 (default budget): Enter.** Click into the box, `type:rust`, wait 5 s, `key:ret`:
+```
+PROBE capture keydown key=Enter keyCode=0 code= target=input.ytSearchboxComponentInput   (trusted)
+PROBE rust Enter reached text_control_key (keydown not cancelled)
+PROBE capture keypress key=Enter keyCode=0 ...   bubble-end keypress defaultPrevented=false
+PROBE rust implicit_submit: default_button=None implicit_ok=true
+PROBE capture submit target=form.ytSearchboxComponentSearchForm trusted=true
+PROBE preventDefault submit on form.ytSearchboxComponentSearchForm @ w (kevlar_base ...:28878:19)
+PROBE dispatchEvent yt-navigate on ytd-app
+PROBE fetch https://www.youtube.com/youtubei/v1/search?prettyPrint=false
+PROBE dispatchEvent yt-navigate-start ... "url":"/results?search_query=rust" ...
+PROBE history.replaceState https://www.youtube.com/
+PROBE history.pushState /results?search_query=rust
+PROBE rust request_submit: submit event not cancelled = false      (so form_navigate is skipped: correct)
+PROBE fetch done https://www.youtube.com/youtubei/v1/search?prettyPrint=false status=200
+PROBE job took 355 ms (ok=true)
+PROBE dispatchEvent yt-navigate-set-page-offset on ytd-page-manager#page-manager
+PROBE job took 496 ms (ok=false)
+scratchy: js error: js: promise jobs stopped: exceeded the 500 ms CPU-time callback budget (1 job killed, remaining jobs deferred to the next turn)
+```
+`yt-navigate-finish` never fires afterwards (it did fire for the initial home load). Screenshot
+(viewed): the home page's "Der YouTube-Verlauf ist deaktiviert" card is gone, the content area is
+white, the masthead still shows "rust" in the box, "Startseite" still highlighted. That is the
+user's "nothing happens".
+
+**Run 8 (default budget): the search BUTTON** (`move:772,22 click`): YouTube's own click handler
+on `button.ytSearchboxComponentSearchButton` preventDefaults the click (no submit event at all,
+correct for a JS-handled button) and starts the same path: `yt-navigate`, the search fetch,
+`pushState /results?search_query=rust`, `fetch done ... status=200`, `PROBE job took 377 ms
+(ok=true)`, `PROBE job took 114 ms (ok=false)`, `promise jobs stopped: exceeded the 500 ms
+CPU-time callback budget (1 job killed ...)`. Screenshot (viewed): the suggestion dropdown (14
+"rust ..." suggestions) stays open over a white content area; "Startseite" still selected.
+Note the 377 + 114 ms: the jobs of ONE drain share ONE 500 ms budget (js.rs `drain_after_task`
+arms `CALLBACK_BUDGET` once, then `drain_jobs` runs every pending job under it), so the job
+that dies is whichever one crosses the line, not necessarily an expensive one.
+
+**Run 3/4 (`CALLBACK_BUDGET` = 20 s via the temporary env var): wall 2.** Enter now reaches
+`yt-navigate-finish` (url `/results?search_query=rust`, jobs 351 ms and 533 ms wall) and the
+guide's "Startseite" icon switches to its outline (inactive) form, but the results area stays
+white (screenshot viewed: only a small dark bar at about x 548-576, y 91 under the masthead).
+DOM dump 3 s and 12 s after finish (identical): `ytd-search` 1 (rect 72,56 952x92), `ytd-browse`
+hidden (`display:none`, `hidden`), `ytd-two-column-search-results-renderer` 904x60,
+`ytd-section-list-renderer` text " ", `ytd-item-section-renderer` height 0 with children
+`#header` (0 kids), `#spinner-container` (a paper spinner), `#contents` with **3
+`yt-lockup-view-model` + 1 `grid-shelf-view-model`, each with 0 children**, `#continuations`
+(0 kids); `ytd-video-renderer` count 0; `#secondary` (`ytd-secondary-search-container-renderer`)
+holds the "Rust Videospiel ..." watch card text but is `display:none` at this width (expected).
+So the search DATA arrived and was bound; the new "view model" result items render nothing.
+
+**Run 5-7 (direct load of https://www.youtube.com/results?search_query=rust, 20 s budget):**
+the SAME empty state without any submission: wall 2 is independent of search submission (it
+will also hit the home feed when history is on and any other page whose items are
+`yt-lockup-view-model`). On the first `yt-lockup-view-model`: custom element defined (class `Q`;
+`grid-shelf-view-model`, `yt-thumbnail-view-model` also defined, `yt-lockup-metadata-view-model`
+NOT defined), no `shadowRoot`, attrs `class="ytd-item-section-renderer lockup ..."`, own props
+`rawProps, queuingData, owner, dispose, isWebComponentWrapper, isReparenting, hasRendered,
+isLazyComponentFn, componentProps, setters, slotProps, _numRenders, _signalProps,
+_signalValues`, `hasRendered = true`, `_numRenders = 1`, `queuingData = false`,
+`isLazyComponentFn = false`, `rawProps` has `data` and 16 other keys, `innerHTML` length 0. No
+`js error`, no `console.error`, no `Uncaught` line in the whole run (other than the probe's own
+lines). So YouTube's component wrapper believes it rendered once and produced no DOM, silently.
+Globals at that time: `scheduler` undefined, `requestIdleCallback` a function.
+
+**Also seen (not investigated):** on every direct load `js net: GET https://youtube.com/: CORS:
+Access-Control-Allow-Origin "https://www.youtube.com" does not match the page origin "null"`
+(some context with an opaque origin fetches the bare host).
+
+**Root cause, wall 1:** js.rs `drain_jobs` under one `CALLBACK_BUDGET` (500 ms CPU) per drain
+(`drain_after_task`, also after `deliver_net`): YouTube's navigation continuation after the
+`/youtubei/v1/search` response (render of `ytd-search`, set-page-offset, finish) needs more than
+what is left of that shared budget on this machine; the uncatchable interrupt kills the job
+mid-way (QY44a) and the router never fires `yt-navigate-finish`. Same mechanism as QY33/R28 (the
+kebab icon), now with a user-visible casualty. **Root cause, wall 2:** unknown (QY47).
+
+**What a browser does that we do not, still unverified:** whether the per-job cost here is
+mostly scratchy's own prelude (R29 found `ceIsConn`/`ceScan`/`isConnected`/`ioShown`
+walks inside killed jobs) or YouTube's code. The job times above are wall ms under nice 19 on a
+loaded machine, NOT thread CPU; QY46 starts by measuring thread CPU.
+
+**Not verified:** wire's default UA (only the Firefox UA was run); an un-niced run on an idle
+machine (the trip may be marginal there: 377 + 114 ms); the user's exact binary (this was main
+b97054e + probes); any page after the results page (clicking a result).
+
+**Filed:** QY46 [S] P1 (per-job budget in the promise drain, measure first), QY47 [M] Opus
+investigate (`yt-lockup-view-model` renders nothing), QJ12 [S] (trusted KeyboardEvent
+`keyCode/which/code` are 0/''), QF11 refined (not the cause; `apply()` trap; size), QY48 [S]
+(pushState never reaches the App's URL/history).
+
 ## R35: QCI0 (`flex: <number>` basis `auto` -> `0%`) on real pages: no visible change on 10 of 11 pages, BBC better; but the automatic minimum size is now 0 for every `flex: N` item (Opus investigator, 2026-11-17) — OPEN: QCI0b filed
 
 **Status: investigation only, docs only.** BEFORE = fcfa57e (parent of 752aaa1), AFTER = a91dee3
