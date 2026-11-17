@@ -4369,12 +4369,22 @@ pub(crate) fn measure_flex_row<'a>(
                 // nav tabs (`Article`/`Talk`, `Read`/`Edit`/`View
                 // history`), each an auto-width, `white-space: nowrap`
                 // flex item competing for space with its siblings.
-                // Clamped to this item's own `basis` so an explicit
-                // `width`/`flex-basis` narrower than its min-content
-                // isn't forced wider by this fallback.
                 None => {
                     let (min_mb, _) = natural_mb.expect("min_width.is_none() (this branch's own guard) guarantees natural_mb is Some");
-                    (min_mb - margin_left - margin_right).max(0.0).min(basis)
+                    // Flexbox 4.5: a scroll container (overflow not visible)
+                    // has floor 0; otherwise min(content size suggestion,
+                    // specified size suggestion = its own definite `width`).
+                    // `flex-basis` plays no part (R35/QCI0b).
+                    if item_style.overflow != Overflow::Visible {
+                        0.0
+                    } else {
+                        let content = (min_mb - margin_left - margin_right).max(0.0);
+                        if item_style.width.is_some() {
+                            content.min(clamp_box_dim(item_style.width, None, None, 0.0, item_style.box_sizing, extra_w))
+                        } else {
+                            content
+                        }
+                    }
                 }
             };
             Prep {
@@ -4624,13 +4634,13 @@ pub(crate) fn measure_flex_column<'a>(
             };
             // Automatic minimum size (CSS Flexbox 4.5), column axis: with no
             // `min-height` and `overflow: visible`, the floor is the item's
-            // content height (its measured height when `height` is auto),
-            // clamped to the basis. An explicit `height` makes the content
+            // content height (its measured height when `height` is auto);
+            // the basis plays no part (QCI0b). An explicit `height` makes the content
             // height unknown without a second measure, so that case keeps a
             // floor of 0 (documented approximation).
             let min = match lc.style.min_height {
                 Some(v) => v.px(),
-                None if item.style.height.is_none() && lc.style.overflow == Overflow::Visible => lc.h.min(basis),
+                None if item.style.height.is_none() && lc.style.overflow == Overflow::Visible => lc.h,
                 None => 0.0,
             };
             let max = lc.style.max_height.map(|v| v.px()).unwrap_or(f32::INFINITY);

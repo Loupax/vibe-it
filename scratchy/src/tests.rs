@@ -7043,15 +7043,108 @@ fn inline_flex_lays_its_children_out_side_by_side_not_stacked() {
 
 /// R33/QCI0: `flex: 1` is `1 1 0%`, so two items with very different content
 /// widths must still split the box exactly, whatever the system sans-serif.
+/// (Single glyphs: since QCI0b an unbreakable word wider than half the box
+/// legitimately keeps its min-content width, as in browsers.)
 #[test]
 fn flex_number_shorthand_has_zero_basis_so_split_ignores_glyph_widths() {
     let laid = measure_fixture(
-        r#"<html><body style="margin: 0"><div style="display: flex; width: 100px;"><div style="flex: 1;">iiii</div><div style="flex: 1;">wwwwww</div></div></body></html>"#,
+        r#"<html><body style="margin: 0"><div style="display: flex; width: 100px;"><div style="flex: 1;">i</div><div style="flex: 1;">W</div></div></body></html>"#,
         500.0,
     );
     let row = find_embedded_or_block_with_two_children(&laid);
     assert_eq!(row[0].w, 50.0);
     assert_eq!(row[1].w, 50.0);
+}
+
+/// First `Blocks` node with exactly two children side by side (same y), or
+/// stacked (`stacked`), anywhere in the tree.
+fn qci0b_pair(l: &Laid, stacked: bool) -> Option<&Vec<Laid>> {
+    if let LaidContent::Blocks(c) = &l.content {
+        if c.len() == 2 && (c[0].y == c[1].y) != stacked {
+            return Some(c);
+        }
+        return c.iter().find_map(|k| qci0b_pair(k, stacked));
+    }
+    None
+}
+
+/// Width and height of `text` as a shrink-to-fit float, font-independent.
+fn qci0b_natural(text: &str) -> (f32, f32) {
+    let laid = measure_fixture(
+        &format!(r#"<html><body style="margin:0"><div style="float:left">{text}</div></body></html>"#),
+        3000.0,
+    );
+    let div = qci0b_float(&laid).expect("float");
+    (div.w, div.h)
+}
+
+fn qci0b_float(l: &Laid) -> Option<&Laid> {
+    if let LaidContent::Blocks(c) = &l.content {
+        for k in c {
+            if k.w > 0.0 && k.w < 2999.0 && k.h > 0.0 {
+                return Some(k);
+            }
+            if let Some(r) = qci0b_float(k) {
+                return Some(r);
+            }
+        }
+    }
+    None
+}
+
+const QCI0B_WORD: &str = "Pneumonoultramicroscopicsilicovolcanoconiosis";
+
+/// R35/QCI0b: automatic minimum size is min-content, not clamped to the basis.
+#[test]
+fn qci0b_flex_number_item_keeps_long_word_whole_and_overflows() {
+    let (word_w, word_h) = qci0b_natural(QCI0B_WORD);
+    let short_w = ["short", "text", "here"].iter().map(|w| qci0b_natural(w).0).fold(0.0f32, f32::max);
+    assert!(word_w > 300.0);
+    let laid = measure_fixture(
+        &format!(r#"<html><body style="margin:0"><div style="display:flex;width:300px;align-items:flex-start"><div style="flex:1">{QCI0B_WORD}</div><div style="flex:1">short text here</div></div></body></html>"#),
+        1000.0,
+    );
+    let row = qci0b_pair(&laid, false).expect("row");
+    assert!((row[0].w - word_w).abs() < 0.5, "item0 {} vs word {}", row[0].w, word_w);
+    assert!((row[0].h - word_h).abs() < 0.5, "one line: {} vs {}", row[0].h, word_h);
+    // min-content of "short text here" is its widest word (the engine adds
+    // about one space width of slack, so allow a few px, but far below 300/2).
+    assert!(row[1].w >= short_w - 0.5 && row[1].w < short_w + 10.0, "item1 {} vs widest word {}", row[1].w, short_w);
+}
+
+#[test]
+fn qci0b_column_flex_items_keep_content_height() {
+    let (_, h3) = qci0b_natural("one<br>two<br>three");
+    let laid = measure_fixture(
+        r#"<html><body style="margin:0"><div style="display:flex;flex-direction:column;height:100px"><div style="flex:1">one<br>two<br>three</div><div style="flex:1">four<br>five<br>six</div></div></body></html>"#,
+        500.0,
+    );
+    let col = qci0b_pair(&laid, true).expect("column");
+    assert!((col[0].h - h3).abs() < 0.5, "item0 h {} vs {}", col[0].h, h3);
+    assert!((col[1].h - h3).abs() < 0.5, "item1 h {} vs {}", col[1].h, h3);
+    assert!((col[1].y - (col[0].y + col[0].h)).abs() < 0.5, "no overlap");
+}
+
+#[test]
+fn qci0b_specified_width_caps_the_automatic_minimum() {
+    let laid = measure_fixture(
+        &format!(r#"<html><body style="margin:0"><div style="display:flex;width:300px"><div style="flex:1;width:50px">{QCI0B_WORD}</div><div style="flex:none;width:280px">x</div></div></body></html>"#),
+        1000.0,
+    );
+    let row = qci0b_pair(&laid, false).expect("row");
+    assert_eq!(row[0].w, 50.0);
+    assert_eq!(row[1].w, 280.0);
+}
+
+#[test]
+fn qci0b_scroll_container_item_has_zero_floor_ellipsis_pattern() {
+    let laid = measure_fixture(
+        &format!(r#"<html><body style="margin:0"><div style="display:flex;width:300px"><div style="flex:1;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">{QCI0B_WORD} {QCI0B_WORD}</div><div style="flex:none;width:100px">x</div></div></body></html>"#),
+        1000.0,
+    );
+    let row = qci0b_pair(&laid, false).expect("row");
+    assert_eq!(row[0].w, 200.0);
+    assert_eq!(row[1].w, 100.0);
 }
 
 fn find_embedded_or_block_with_two_children(l: &Laid) -> &Vec<Laid> {
