@@ -24,6 +24,12 @@ softbuffer = "0.4.8"
 sys-locale = "0.3.2"
 url = "2"
 winit = "0.30.13"
+libloading = { version = "0.8", optional = true }
+
+[features]
+# QM1f: the real media backend (libmpv by dlopen). Off by default: without it
+# <video>/<audio> keep the inert placeholder.
+media = ["dep:libloading"]
 
 [dev-dependencies]
 criterion = "0.5"

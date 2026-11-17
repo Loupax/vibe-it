@@ -44,11 +44,18 @@ pub(crate) trait NetExecutor: Send + Sync {
     fn has_wire(&self) -> bool {
         true
     }
+    /// The wire socket, for the media byte channel (None: no wire).
+    fn socket(&self) -> Option<PathBuf> {
+        None
+    }
 }
 
 pub(crate) struct WireExecutor(pub PathBuf);
 
 impl NetExecutor for WireExecutor {
+    fn socket(&self) -> Option<PathBuf> {
+        Some(self.0.clone())
+    }
     fn execute(&self, job: &NetJob) -> Result<WireResponse, NetError> {
         fetch_full_via_wire(&self.0, &job.request, &job.limits)
     }

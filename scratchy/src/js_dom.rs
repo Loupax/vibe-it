@@ -1740,6 +1740,7 @@ const DOM_PRELUDE: &str = r#"
     if (type === 'submit') C = SubmitEvent;
     if (init && init.submitterId !== undefined) init.submitter = wrap(init.submitterId);
     if (init && init.relatedTargetId !== undefined) init.relatedTarget = wrap(init.relatedTargetId);
+    if (g.__media_activate && (type === 'click' || type === 'keydown' || type === 'mousedown' || type === 'mouseup' || type === 'keyup')) g.__media_activate();
     var ev = new C(type, init);
     ev.isTrusted = true;
     return __scratchy_dispatch(t, ev);
@@ -2722,17 +2723,12 @@ const DOM_PRELUDE: &str = r#"
     owners[id] = inertDoc;
     return wrap(id);
   });
-  // Media: inert placeholders only (AGENTS.md "Off limits"): the methods log a
-  // `not implemented` error and do nothing; no state, no events.
+  // Media: the real API is `media_prelude.js` (QM1f); only the not-yet-built
+  // pieces stay `not implemented` stubs here.
   var ens = function (n, tags, base) { return g[n] ? g[n].prototype : mkProto(n, tags, base); };
   var MEP = ens('HTMLMediaElement', []);
   var nimp = function (what) { __scratchy_err('scratchy: js: not implemented: ' + what); };
-  ['load', 'pause', 'addTextTrack'].forEach(function (m) { MEP[m] = function () { nimp('HTMLMediaElement.' + m); }; });
-  MEP.play = function () {
-    nimp('HTMLMediaElement.play');
-    return Promise.reject(new DOMException('HTMLMediaElement.play is not implemented', 'NotSupportedError'));
-  };
-  MEP.canPlayType = function () { return ''; };
+  MEP.addTextTrack = function () { nimp('HTMLMediaElement.addTextTrack'); };
   ens('HTMLVideoElement', ['video'], g.HTMLMediaElement); ens('HTMLAudioElement', ['audio'], g.HTMLMediaElement);
   ens('HTMLSourceElement', ['source']); ens('HTMLTrackElement', ['track']);
   // SVG: by local name in the SVG namespace (see `wrap`).
