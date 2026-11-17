@@ -16955,3 +16955,27 @@ fn qy43_plain_pre_wrap_blank_line_and_normal_collapse_unchanged() {
     );
     assert!(words.iter().all(|w| (w.1 - words[0].1).abs() < 0.5), "{words:?}");
 }
+
+// ---------- QJ8: document.activeElement / hasFocus ----------
+
+#[test]
+fn qj8_active_element_follows_focus_blur_and_removal() {
+    crate::js_dom::set_active_element(None);
+    let log = run_in_html(
+        "<html><body><input id=i><button id=b>x</button><div id=d></div></body></html>",
+        "var i=document.getElementById('i'), b=document.getElementById('b');\
+         console.log(document.activeElement===document.body, document.hasFocus());\
+         i.focus(); console.log(document.activeElement===i);\
+         b.focus(); console.log(document.activeElement===b);\
+         i.blur(); console.log(document.activeElement===b);\
+         b.blur(); console.log(document.activeElement===document.body);\
+         i.focus(); i.remove(); console.log(document.activeElement===document.body);\
+         var d2=document.implementation.createHTMLDocument('x'); var e=d2.createElement('input'); d2.body.appendChild(e);\
+         b.focus(); console.log(d2.activeElement===d2.body, document.activeElement===b);",
+    );
+    assert_eq!(
+        log,
+        ["log:true true", "log:true", "log:true", "log:true", "log:true", "log:true", "log:true true"],
+        "{log:?}"
+    );
+}
