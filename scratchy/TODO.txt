@@ -131,8 +131,23 @@ READY, in recommended order (no user decision needed):
  `document.styleSheets`/`style.sheet` + insertRule into the cascade; BBC
  styled-components, Guardian emotion), QY44d [S] P3 (media textTracks
  placeholder), QY44e [S] P3 (blob:/data: script src, HTMLScriptElement.supports).
+ NEW 2026-11-17 (Opus QAN1, R31: CSS animations/transitions/@font-face survey), in
+ this order: QAN1-0 [S] (add the 73 no-script @keyframes reftests to the subset
+ FIRST: 36 pass by accident), QAN1a [M] parse, QAN1b [M] evaluate (flips the
+ PR #232 body test back to PASS), QAN1c [M] App start/end + events, QAN1d [M]
+ paint-only damage-rect frames (full restyle per frame is 0.01-18 s; a full live
+ redraw 67-101 ms per QM1c, so share QM1g1's damage redraw), QAN1e
+ [M] transitions, QAN1g [M] element.animate (GitHub calls it unguarded; YouTube
+ polyfill risk), QAN1h [S, Opus] GitHub restyle 15-18 s, QAN1i [S] runner canvas
+ fill; QAN1f [S] only if events are wanted before frames. Separately QFF1a [M]
+ @font-face ttf/otf/woff, QFF1b [M] woff2, QFF1c [S] document.fonts.
+ QAN1-D (reduced motion, infinite animations, frame cap) waits for the user.
  Then P3/P4 leftovers in their blocks (QY*, QA*, Q40b/Q40c fix items).
 WAITING FOR USER (skip until answered):
+- QAN1-D (2026-11-17, R31): answer `prefers-reduced-motion: reduce`? What to do with
+  infinite CSS animations (animate at a cap / freeze after N s / freeze)? Frame cap
+  30 fps and no animation while the window is hidden? Gates only the frame loop
+  (QAN1d) defaults, not QAN1-0/a/b/c.
 - SD-D1: OK to ship B1 (attachShadow works, JS sees a real shadow tree, but
   only the host's light children render)? Gates QSD3, QSD6, QSD10.
 - SD-D2: accept "basic" event retargeting (no relatedTarget/focus
@@ -1159,7 +1174,7 @@ IntersectionObserver and matchMedia are not used by any of the site's scripts.
       as `navigator.userAgent` consistently (today the prelude's value should match what
       is sent). Test: parse the flag, header present on the request builder, navigator.
       userAgent equals it. Consider a few named presets later (not now).
-- [ ] QAN1 [Opus, investigate only] (user 2026-11-17: "make sure the feature is in the
+- [x] QAN1 [Opus, investigate only] (user 2026-11-17: "make sure the feature is in the
       todo, if not create an action item for Opus") CSS animations and transitions:
       `@keyframes`, `animation-*` and `transition-*` longhands, `animation` /
       `transition` shorthands, computed-value interpolation, timing functions,
@@ -1175,6 +1190,209 @@ IntersectionObserver and matchMedia are not used by any of the site's scripts.
       the 500 ms callback budget), what can be skipped (compositor-only, scroll-driven,
       view timelines), and ranked Sonnet items with sizes/tests/acceptance. Also check
       `@font-face` (web fonts) in the same survey as a separate item. Docs only.
+      DONE 2026-11-17 (Opus, docs only). Evidence: REGRESSIONS.md R31. Short version:
+      the body test needs only QAN1a+QAN1b (parse + evaluate at the runner's time 0).
+      Subset: 3 animation tests (1 reachable), 2 inline @font-face. Whole css/: 73
+      no-script @keyframes reftests, 36 of them ALREADY PASS by accident (they can flip
+      pass->fail once animations run: QAN1-0 first). Real pages: YouTube 254 @keyframes
+      / ~1300 animation+transition decls, GitHub 85 / ~620, DDG 4 / 20, Wikipedia,
+      Guardian, BBC transitions only (their animations are CSS-in-JS), HN none.
+      Mostly opacity, transform/translate and colours. Running at load: GitHub's
+      infinite logo marquee + a 4 s particle burst, DDG's infinite spinner. 15 rules
+      (GitHub 4, YouTube 11) keep content at opacity:0/hidden until an animation
+      fills it. MEASURED per-frame cost (static copies, 1280x800): a full restyle is
+      12 ms (HN) to 1.1-3 s (Guardian, BBC, en.wiki) and 15-18 s (GitHub); paint is
+      2-31 ms headless, but a full LIVE redraw is 67-101 ms on en.wikipedia (QM1c,
+      R30). So paint-only properties must patch the laid tree and repaint only the
+      damaged rects (QAN1d), never rebuild per frame. @font-face: 88 faces on 6 of 9 pages, mostly
+      woff2; 1 023 no-script WPT reftests use one (QFF1a-c).
+      DESIGN (ranked items below; the coordinator ranks them against the queue):
+      animation origin = an override applied at the end of `resolve_style` from a
+      per-element animation list (interned in `ComputedStyle`, like custom props),
+      keyframes in a registry cached with `RULES_CACHE`, values computed by
+      applying each keyframe's `Declarations` to the element's base style (reuses
+      the whole existing property code) and interpolating the two `ComputedStyle`s
+      field by field (discrete fields flip at 50 %); one document clock (runner 0,
+      App = the JS engine's `performance.now` origin); frames driven by the App
+      next to the JS timers, paint-only fast path, throttled/skip for layout
+      properties, events through `js_dispatch`. Skipped on purpose: compositor
+      threads, scroll-driven and view timelines (`animation-timeline`, 4 GitHub
+      decls), `@property` interpolation, rotate/scale/matrix transforms (QY18 is
+      translate-only), filter/backdrop-filter/clip-path/box-shadow interpolation,
+      `animation-composition`, additive keyframes, `transition-behavior`, SVG/SMIL,
+      the full Web Animations model (groups, timelines, setKeyframes).
+- [ ] QAN1-0 [S] (do FIRST, before any QAN1 code) Guard the WPT accidental passes:
+      add the 73 no-script `@keyframes` reftests (list in R31 / recompute: reftests under
+      css/ with `rel=match|mismatch`, `@keyframes`, no `<script>`, no `reftest-wait`)
+      and the 2 no-script `transition` reftests to `wpt-subset.txt`, `--update` the
+      expectations on unchanged main (expected 36 PASS / 37 FAIL for the 73). No code.
+      Acceptance: `--wpt` clean; the commit lists the counts. Unblocks: every QAN1
+      item can then see a pass->fail it causes (e.g. the 22 filter-effects animation
+      tests that pass only because the animation does nothing).
+- [ ] QAN1a [M] Parse `@keyframes` and the animation longhands. css.rs: a
+      `Keyframes` arm in `TopLevelParser::parse_prelude` (`keyframes` and
+      `-webkit-keyframes`, name = ident or string), block parsed as a list of keyframe
+      selectors (`from`, `to`, `N%`, comma lists) each with a `Declarations` filled by
+      the existing `DeclParser` (`!important` inside a keyframe is dropped, per spec);
+      the result goes to a side registry (name -> keyframes, last definition wins,
+      honouring an enclosing `@media`/`@supports`), cached together with the rules in
+      `RULES_CACHE` (images.rs `build_layout_tree_with_resources`). Longhands
+      `animation-name/-duration/-timing-function/-delay/-iteration-count/-direction/
+      -fill-mode/-play-state`, the `animation` shorthand (comma list, the spec's
+      token-assignment order) and `-webkit-` aliases; values kept as a list per
+      element, interned to `&'static` (ComputedStyle is Copy, same trick as
+      `custom_props`/`FontFamily`). Timing functions: linear, ease, ease-in, -out,
+      -in-out, `cubic-bezier()`, `steps(n, jump-*|start|end)`, step-start/-end
+      (`linear()` optional). `inherit`/`initial` per longhand. No evaluation yet.
+      Test: parse units (shorthand order, comma lists, -webkit-, keyframes inside
+      `@media all` vs `@media not all`, a percent list `0%,50%`). WPT: none flips.
+- [ ] QAN1b [M] (after QAN1a) Evaluate CSS animations at a document time in
+      `resolve_style` (style.rs). A thread-local document clock (ms) set by the caller
+      before `build_layout_tree_with_resources`: the WPT runner uses 0, the App uses
+      the JS engine's `performance.now()` origin (or navigation start without JS).
+      Start time per (node_id, animation index, name) remembered in a thread-local map
+      the first time the element is styled with it (removed when the name changes or
+      the node goes away). Per animation: delay (negative allowed), iteration count
+      (incl. infinite), direction, fill-mode, play-state paused (time frozen at the
+      start => negative delay alone decides), timing function on the overall progress
+      and per keyframe interval. Value: apply keyframe A's and B's `Declarations` to
+      the element's base style (missing 0 %/100 % = the base style), interpolate the
+      two ComputedStyles: colours per channel in premultiplied sRGB; opacity; lengths
+      in px (`BoxLength` same unit, else discrete); `TranslateAxis` px+frac; font-size;
+      z-index (integer); visibility (visible if either end is visible inside the
+      interval); every other field discrete at 50 %. Applied after the cascade but
+      below author `!important` (cascade order: animations beat normal declarations
+      only). Pseudo-elements (`::before/::after`) too. Test: unit tests for timing
+      functions (cubic-bezier(0,1,1,0) at 0.5 = 0.5, steps), interpolation, fill
+      modes, !important. Acceptance: css/css-backgrounds/animations/background-color-
+      animation-in-body.html PASS (back to the pre-#232 status, for the right reason);
+      try the R31 candidate list (animation-delay-011/012, animation-important-002,
+      animate-font-size-with-margin-override, important-prop, at-media-content-003,
+      at-supports-content-003, vh-interpolate-*, -with-images) and record which flip;
+      no pass->fail in the QAN1-0 set. Unblocks: content hidden until an animation
+      fills it (GitHub `.anim-fade-up`, YouTube tooltips) shows its final state on the
+      next restyle.
+- [ ] QAN1c [M] (after QAN1b) Drive animations in the App, settle-first. App: after
+      each build, know the set of running animations and the next time a value
+      changes (or ends); merge that deadline into `about_to_wait`'s
+      `ControlFlow::WaitUntil` next to `js.next_deadline()`, tick right after
+      `run_due`. FIRST version: no in-between frames: one restyle when an animation
+      starts and one when it ends (fill applied), plus `animationstart`,
+      `animationiteration` (only if it would be dispatched rarely: cap 1 per second
+      per element) and `animationend` / `animationcancel` through `App::js_dispatch`
+      (`AnimationEvent` with animationName, elapsedTime, pseudoElement). Infinite
+      animations: start event only. Test: a page with `animation: a 200ms forwards` on
+      a fade-in: two restyles, final state painted, `animationend` fired once with
+      elapsedTime 0.2 (fake clock seam like the timers tests). Acceptance: nested
+      dwl + grim of github.com before/after (the `.anim-fade-up` content visible),
+      `--wpt` no pass->fail, CPU of an idle github.com window over 30 s unchanged
+      (no frame loop). Unblocks: pages that wait for animationend.
+- [ ] QAN1d [M] (after QAN1c and QM1g1's damage-redraw helper, or build that helper
+      here and let QM1g1 reuse it) Paint-only animation frames. A full live redraw is
+      67-101 ms on en.wikipedia (QM1c, R30), so frames must repaint only the damage:
+      keep the last frame's pixels (softbuffer `Buffer::age()`), repaint the union of
+      the animated boxes' old and new rects (paint clipped to that rect, everything
+      that overlaps it in paint order) and `present_with_damage`. When every animated
+      property of a frame is paint-only (opacity, color, background-color,
+      border-*-color, translate/transform translate (QY18), visibility), do NOT
+      rebuild: recompute those values and patch `App::cached` (`Laid` boxes by
+      `ComputedStyle::node`; text runs carry their colour in `SpanStyle`, patch by
+      `SpanStyle::node`; the canvas copy made by `propagate_canvas_background` when
+      the source is html/body) and `request_redraw`. Frame cap 30 fps (constant),
+      none while the window is hidden/unfocused if winit reports it (check on dwl),
+      and none while a rebuild is in flight. Layout-affecting animations: a throttled
+      full restyle at most every max(100 ms, 2 x last build time), and none at all
+      (start/end only, as QAN1c) when the last build took > 50 ms (`HOVER_SLOW_BUILD`).
+      Measure (temporary Instant, report in the PR): frame time on duckduckgo.com
+      (spinner) and github.com (marquee) in a nested dwl, CPU % over 30 s. Acceptance:
+      two grims 200 ms apart of a fixture with an infinite opacity animation differ only
+      in the animated box; CPU numbers recorded. Unblocks: smooth fades/slides, QAN1e.
+- [ ] QAN1e [M] (after QAN1d) CSS transitions. Parse `transition-property/-duration/
+      -timing-function/-delay` + shorthand + `-webkit-` (`all`, comma lists). On a
+      restyle (hover/focus/active from `set_interaction_state`, JS writes), compare
+      each element's new style with its previous one (keep node_id -> previous
+      ComputedStyle from the last build, or the current animated value if a transition
+      is running: reversing shortens per spec, a simple restart is fine first) and start
+      a transition for each changed interpolable property listed; it overrides the new
+      value (paint-only frames as QAN1d; layout properties only to the end state).
+      Events: transitionrun/transitionstart/transitionend/transitioncancel. Note the
+      hover restyle itself stays throttled (150 ms, QB3). Test: fake clock, hover a
+      `a{transition:color 1s} a:hover{color:red}` box: halfway colour at 500 ms,
+      `transitionend` once. Acceptance: nested dwl + tools/inject hover on
+      en.wikipedia (Codex buttons) and duckduckgo: grims during and after. WPT: the 2
+      no-script transition reftests (record).
+- [ ] QAN1f [S] (P2, independent of QAN1b-e, can go first) `transitionend` /
+      `animationend` fallback while frames do not exist: when a transition or an
+      animation WOULD run (QAN1a parse + a style change / a new animation name), fire
+      its end event at its end time (setTimeout-like, through `js_dispatch`). Only if
+      the coordinator wants pages unblocked before QAN1c/QAN1e; retire it when they
+      land. Test: a page that removes a node on `transitionend` removes it.
+- [ ] QAN1g [M] (after QAN1b; measure YouTube first) Minimal Web Animations:
+      `Element.prototype.animate(keyframes, options)` (array or object keyframes,
+      number or options {duration, delay, easing, iterations, direction, fill, id}),
+      returning an `Animation` (playState, currentTime, startTime, play/pause/cancel/
+      finish/reverse, `finished`/`ready` promises, onfinish/oncancel + events, id),
+      `Element.getAnimations()`, `document.getAnimations()` (CSS animations too),
+      `document.timeline.currentTime` (= `__scratchy_now`, so `--js-report` simulated
+      time works), `Animation`/`KeyframeEffect`/`DocumentTimeline` constructors.
+      Effect values feed the QAN1b engine (keyframe objects converted to
+      `Declarations` via camelCase -> kebab). GitHub calls `.animate(` unguarded (16
+      sites, e.g. `t.animate([{height:..}],..)`, `o.animate([{opacity:0},{opacity:1}],
+      {duration:200})`) and awaits `.finished`: today `not a function`. RISK: YouTube
+      loads web-animations-next-lite, which only installs itself when the native API
+      is missing or incomplete (`document.documentElement.animate([],0)` + `play
+      currentTime pause reverse ...` check); run YouTube `--js-report --run-timers` and
+      a nested-dwl window before/after. Test: animate() opacity 0->1 200 ms, fake
+      clock: finished resolves at 200, getAnimations() length 1 then 0.
+- [ ] QAN1h [S, Opus, investigate only] (P2) Why does a restyle of the static
+      github.com copy take 15-18 s with cached rules (R31 section 4: 2 077 elements,
+      16 192 rules; en.wikipedia 1.6-2.9 s, BBC 1.7 s, Guardian 1.1 s)? Profile
+      `build_layout_tree_with_resources` (RuleIndex::build, HoverKeys::build,
+      precompute_generated, matching, var() expansion) with temporary Instant timing;
+      file fix items. Every hover/JS restyle on these pages pays it today, and
+      layout-affecting animations/transitions (QAN1d/QAN1e) depend on it.
+- [ ] QAN1i [S] (P3) The WPT runner does not do the QW6 whole-window canvas fill
+      (`wpt::Renderer::render` paints `Laid` onto white; `App::redraw` fills the window
+      with the canvas colour first). R31: the in-body reference renders an 8 px olive
+      band where a browser shows a full olive 800x600. Share the fill (one helper used
+      by both). Acceptance: full `--wpt`; record every flip (both directions) in the
+      PR, do not assume.
+- [ ] QAN1-D WAITING FOR USER (design first; QAN1a/b/c/0/h/i do not depend on it):
+      D1 Should scratchy answer `prefers-reduced-motion: reduce` (today always
+         `no-preference`)? GitHub has 97 and YouTube 49 such queries; with `reduce`
+         most decorative motion switches itself off (battery), while UI feedback
+         stays. Or a `--reduced-motion` flag / `:set` option.
+      D2 Infinite animations (GitHub's logo marquee, DDG's spinner): animate them at
+         the 30 fps cap, freeze them after N seconds, or freeze them always?
+      D3 Frame cap (proposed 30 fps), and stop animating when the window is hidden or
+         not focused?
+- [ ] QFF1a [M] (P2) `@font-face` web fonts, ttf/otf/woff first. Parse `@font-face`
+      (font-family, `src` list with `url()` + `format()` and `local()`, font-weight /
+      font-style (single values and ranges), `unicode-range`; ignore `font-display`
+      (always swap), `size-adjust`/`ascent-override` etc. for now) including inside
+      `@media`/`@supports` (at-supports-content-002). Fetch each used face's first
+      supported url through wire like CSS images (`fetch_wanted_css_images` pattern,
+      page partition headers, CORS anonymous mode per spec, same cache rules), decode
+      ttf/otf directly and woff (zlib; flate2 is already in the dependency tree via
+      png) and load the bytes into BOTH font systems (main `App::font_system` for
+      paint, the shaping worker's own one: a new `ShapingRequest` field or message)
+      under a per-page mangled family name that `FontFamilyItem::Name` resolution maps
+      to (so faces do not leak across pages; fontdb `remove_face` on navigation), then
+      a restyle. `local()` = look the name up in the system fontdb. Test: a page with
+      `@font-face{font-family:X;src:url(Ahem.ttf)}` served by a local server lays
+      text out with Ahem metrics; navigation away removes it. Acceptance: WPT
+      at-supports-content-002 (record); github/guardian (Guardian has ttf/woff too)
+      nested-dwl grims before/after. Pages: 88 faces on 6 of 9 surveyed pages (BBC
+      35, Guardian 30, YouTube 11, GitHub 6, DDG 6); 1 023 no-script WPT reftests.
+- [ ] QFF1b [M] (after QFF1a) woff2: needs Brotli plus the glyf/loca transform
+      reconstruction. Pick a pure-Rust crate (check what exists and its size/licence
+      first; do not vendor), or skip woff2 faces whose `src` list has no other format
+      (most real pages list woff2 first and woff/ttf after it only sometimes: BBC and
+      GitHub ship woff2 only). Test: ic-unit-003 (woff2) and a woff2 copy of Ahem.
+      Unblocks the 298 css/WOFF2 reftests (record how many run).
+- [ ] QFF1c [S] (after QFF1a) `document.fonts` / `FontFace` minimal (`ready` promise
+      resolved after the faces loaded, `check()`, `load()`, `add()`): GitHub
+      references `FontFace`/`document.fonts` (2); keep it honest (QY6g style).
 - [x] QJ9 [S] DONE b3fbf60 (log-only; `open` _self navigation waits for QF11) (P3) `window.open(url, target)` and `window.close()`: no tabs,
       so `open` navigates the current page (through QF11) or logs `not
       implemented` and returns null; `close` logs and does nothing. vim.js
@@ -6736,6 +6954,8 @@ session can pick a coherent slice rather than one property at a time.
       a4f4d91) and `@import` for wire-fetched stylesheets (Q18, 3a7054b).
       Still open: `@font-face` (web fonts), `@keyframes`, transitions and
       animations; none block responsive layout.
+      2026-11-17: surveyed by QAN1 (R31); now tracked as QAN1-0, QAN1a-QAN1i and
+      QFF1a-QFF1c in the QUEUE section.
 
 - [x] (a4b93c4, Q31: hover/active/focus/focus-visible/focus-within done, see
       NOTES.md "Interaction state"; `:target` done as Q31b (9552b38); the text

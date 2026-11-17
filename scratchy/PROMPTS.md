@@ -7131,3 +7131,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 **Prompt:** `window.open`, `window.close`, `alert`, `confirm`, `prompt` as log-and-return placeholders (no tabs, no dialogs, no navigation; QF11 is not on main).
 
 **What changed:** js_dom.rs: `window.open(url, target, features)` logs one `not implemented: window.open "<url> target=.. features=.."` line (argument truncated to 120 chars) and returns null (so noopener also gives null); `close()` logs and does nothing; `alert` logs and returns undefined, `confirm` logs and returns false, `prompt` logs and returns null. Nothing throws. Test `qj9_window_open_close_dialogs_are_inert_and_log_once`.
+
+## QAN1: CSS animations, transitions and @font-face survey (Opus investigator, 2026-11-17)
+
+> Item QAN1. Survey what exists, which WPT subset/other tests and real pages (youtube, github, bbc, guardian, wikipedia, duckduckgo, lobste.rs, HN) depend on @keyframes, animation/transition, Web Animations and @font-face; measure (counts from saved copies through wire, per-frame cost); design a minimal implementation that fits the style/layout/paint pipeline, timers/rAF, the 500 ms budget and the --js-report clock; explain background-color-animation-in-body (PR #232); file ranked Sonnet items and an R30 memo. Docs only.
+
+**What changed:** REGRESSIONS.md R31 (why the body test flipped: an accidental pass, both sides white before QW6; counts per page; 73 no-script @keyframes reftests in css/, 36 passing by accident; restyle/relayout/paint cost per frame on 9 static copies: restyle 12 ms to 15-18 s, paint 2-31 ms; content hidden until an animation fills it; the runner lacks the QW6 canvas fill). TODO.txt: QAN1 ticked with the design; new QAN1-0, QAN1a-QAN1i, QAN1-D (waiting for user), QFF1a-QFF1c; status-block and WAITING FOR USER lines. Local experiments (a `#[cfg(test)] mod qan1_exp` timing/selector-matching test, jar `qan1-investigator`) removed; only docs committed.

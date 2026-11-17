@@ -1,5 +1,235 @@
 # scratchy — regressions
 
+## R31: CSS animations, transitions, Web Animations and `@font-face` do not exist; survey and design evidence (Opus investigator QAN1, 2026-11-17) — OPEN, items QAN1-0, QAN1a-QAN1i, QFF1a-QFF1c in TODO.txt
+
+**Status: evidence memo, nothing built.** Today `TopLevelParser::parse_prelude`
+(css.rs) accepts only `@media`/`@supports`/`@layer`; `@keyframes` and
+`@font-face` blocks are dropped, and `DeclParser` has no `animation*` or
+`transition*` arm, so those declarations are dropped too. The JS side has the
+`AnimationEvent`/`TransitionEvent` constructors (js.rs) but no
+`Element.prototype.animate`, `getAnimations` or `document.timeline`.
+`prefers-reduced-motion` is parsed and always answers `no-preference`.
+
+### 1. Why `css/css-backgrounds/animations/background-color-animation-in-body.html` flipped in PR #232
+
+The test puts `animation: bgcolor 1000000s cubic-bezier(0,1,1,0) -500000s` on
+an EMPTY `<body>` (keyframes rgb(0,200,0) -> rgb(200,0,0)); the reference is
+`body { background-color: rgb(100,100,0) }`. The negative delay puts the
+animation at 50 % of its duration; cubic-bezier(0,1,1,0) at x = 0.5 gives
+y = 0.5 with slope 0, so the value is rgb(100,100,0) and stays there.
+
+- Before QW6 (dba5942): body background painted only on the body box, which
+  is 0 px tall, so test and reference were both all white: an accidental PASS.
+- After QW6: `propagate_canvas_background` (images.rs) moves the REFERENCE's
+  body colour to the document root box; the test has no colour (animation
+  dropped), so it stays white: FAIL. Seen in the runner's PNGs (`--out`,
+  viewed): test = all white 800x600; reference = an olive rgb(100,100,0) band
+  at y 0..7 (pixel-probed: y=7 olive, y=8 white), white below.
+- Side finding: the band is only 8 px because the WPT runner
+  (`wpt::Renderer::render`) paints the `Laid` tree onto a white buffer and does
+  NOT do the whole-window canvas fill that `App::redraw` does since QW6. A real
+  browser paints the whole 800x600 olive. It does not matter for this test
+  (both sides would paint the same band), but the runner and the app disagree
+  (item QAN1i).
+- To pass: parse `@keyframes` + the `animation` shorthand (name, duration,
+  `cubic-bezier()`, negative delay), evaluate the animation at document time 0
+  in `resolve_style` (the runner's clock), interpolate `background-color` in
+  sRGB, and let `propagate_canvas_background` take the animated body colour as
+  it already does for a declared one. QAN1a + QAN1b are enough; no frames, no
+  App changes.
+
+### 2. WPT
+
+- Subset (550 tests, `wpt-subset.txt`): 3 tests use `@keyframes`/`animation`:
+  `background-color-animation-in-body` (FAIL; flips with QAN1a+b),
+  `css-cascade/revert-layer-011` (FAIL; needs `@property` + `revert-layer`
+  in a keyframe: out of scope), `css-masking/animations/clip-path-interpolation-
+  shape-arc-direction-agnostic-radius` (FAIL; needs `clip-path: shape()`: out of
+  scope). 2 tests have an inline `@font-face` (`css-values/ic-unit-003`,
+  woff2; `css-conditional/at-supports-content-002`, Ahem.ttf inside
+  `@supports`). About 60 more subset tests link `/fonts/ahem.css`, but the
+  runner preloads `fonts/Ahem.ttf` into the fontdb (`new_font_system_with`), so
+  they do not depend on `@font-face`.
+- Whole checkout (`css/`, 25 767 reftests, scratchpad script): 233 reftests use
+  `@keyframes`, only 73 of them without script/`reftest-wait` (the runner skips
+  the rest). 33 use `transition`, 2 without script. Directories of the 73:
+  filter-effects 22, css-animations 16, css-backgrounds 8, css-transforms 4,
+  css-values 4, css-viewport 4, others 1-3. Properties animated in them:
+  background-color 28, transform 22, filter 22, backdrop-filter 22,
+  background 13, rotate/height/width 10, scale/translate 8, clip-path 6.
+- Ran all 73 with main 70edcad (release, `--subset`, empty expectations):
+  **36 PASS today, 37 FAIL.** The PASSes are accidental in the same way as the
+  body test was (e.g. 22 filter-effects animation tests, the `with-table1..4`
+  and `transparent-animation-in-body` background tests: the animation does
+  nothing and the reference happens to match). Implementing animations can turn
+  any of them into a pass->fail, so QAN1-0 adds all 73 to the subset FIRST.
+- Candidates likely to flip FAIL->PASS with QAN1a+b (read, NOT run with an
+  implementation): background-color-animation-in-body, -with-images,
+  css-animations/animation-delay-011/012 (`::after`, `steps`/`step-end`,
+  paused, `animation-delay: inherit`), animation-important-002 (steps(2,end)),
+  animate-font-size-with-margin-override (fill both), css-cascade/important-prop
+  (author !important beats the animation; `!important` inside a keyframe is
+  ignored), css-conditional/at-media-content-003 and at-supports-content-003
+  (`@keyframes` inside `@media`/`@supports`), css-values/vh-interpolate-px/
+  -pct/-vh (width/height in vh and %), min-max-percentage-length-interpolation
+  (needs `min()`/`max()` interpolation: maybe not).
+- `@font-face` is a much larger WPT lever: 1 023 no-script reftests in `css/`
+  declare an inline `@font-face` (css-text 321, WOFF2 298, css-fonts 227,
+  css-writing-modes 105, css-values 21, ...). Formats referenced in `src: url()`
+  across css/: .woff 1 019, .woff2 458, .ttf 449, .otf 291.
+
+### 3. Real pages (fresh copies through the user's wire, jar `qan1-investigator`, harmless GETs)
+
+Static CSS only: `<style>` blocks, `style=""` attributes and `<link
+rel=stylesheet>` files (one `@import` level); CSS that page JS injects later
+(YouTube's Polymer templates, BBC styled-components, Guardian emotion) is NOT
+counted, so JS-heavy pages are under-counted.
+
+| page | CSS bytes | `@keyframes` | `animation*` decls | `transition*` decls | `@font-face` (formats) | `prefers-reduced-motion` | JS mentions |
+|---|---|---|---|---|---|---|---|
+| youtube | 3.86 MB (5 files) | 254 (130 + 124 `-webkit-` duplicates, all in `ytmainappweb.base_module_set`) | 300 + 279 `-webkit-` | 458 + 281 `-webkit-` | 11 (truetype, Google Fonts css2: Roboto/YouTube Sans) | 49 | `.animate(` 3, `getAnimations` 7 (the web-animations polyfill), rAF 24 |
+| github | 3.47 MB (30 files) | 85 | 226 | 398 | 6 (woff2, woff2-variations: Mona Sans, Hubot Sans, fallbacks) | 97 | `.animate(` 16 (several unguarded), `getAnimations` 3, `transitionend` 3, `FontFace`/`document.fonts` 2 |
+| bbc | 82 KB inline | 0 (3 in JS) | 0 | 7 | 35 (woff2: BBC Reith Sans/Serif, `-fallback` local() faces) | 0 | rAF 4 |
+| guardian | 711 KB (1 file + inline) | 0 (2 in JS) | 0 | 38 (19 `-webkit-`) | 30 (woff2/woff/truetype: Guardian Egyptian/Headline/Text Sans) | 0 | rAF 11 |
+| wikipedia.org | 58 KB inline | 0 | 0 | 14 | 0 | 0 | 0 |
+| en.wikipedia Main_Page | 220 KB | 0 | 3 | 22 | 0 | 1 | rAF 1 |
+| duckduckgo | 65 KB inline | 4 | 8 | 12 | 6 (eot/woff2/woff/ttf/svg: DuckSans Product/Display) | 5 | `transitionend`/`animationend`/`animationstart` 3 each |
+| lobste.rs | 47 KB (6 files) | 0 | 0 | 1 | 0 | 0 | 0 |
+| news.ycombinator.com | 8 KB | 0 | 0 | 0 | 0 | 0 | 0 |
+
+What is animated: inside `@keyframes`, YouTube `transform` 358 / `-webkit-
+transform` 352 / `opacity` 320 / `scale` 22 / `rotate` 18; GitHub `opacity` 86,
+`transform` 77, `clip-path` 18, `color` 6. Transitioned properties: YouTube
+`opacity` 201, `transform` 246 (incl. prefixed), `background-color` 57,
+`width` 50, `visibility` 43; GitHub `transform` 83, `opacity` 81,
+`background-color` 57, `border-color` 32, `color` 29; Wikipedia/en.wiki/DDG
+`color`, `background-color`, `border-color`, `box-shadow`, `max-height`,
+`opacity`. Timing functions: `cubic-bezier()` dominates YouTube (467) and
+GitHub (129), then `ease`, `linear`, `ease-in-out`; `steps()` 3, `step-end` 6.
+So opacity + translate/transform + colours cover the bulk; layout properties
+(`width`, `height`, `max-height`, `top`, `right`) are a minority.
+
+Active at load (scratchy's own selector matcher run over the STATIC DOM of each
+copy, temporary local test, `@media` conditions ignored, so an upper bound for
+the static DOM and a lower bound for JS-built DOMs):
+- duckduckgo: 4 elements, the loading spinner, `animation: .6s infinite`
+  (transform/opacity).
+- github: 8 elements: 6 `MonaHead__particle` (4 s, once) and 2
+  `LogoSuite logobar-marqueeGroup` (`animation-iteration-count: infinite`,
+  linear, `transform: translate(...)`: an endless logo marquee, i.e. a page
+  that would never stop asking for frames).
+- youtube static skeleton: 0 (its animations live on JS-built elements).
+- bbc, guardian, en.wikipedia, wikipedia.org, lobste.rs, HN: 0.
+- Elements matched by a non-zero `transition`: bbc 15, duckduckgo 5,
+  github 103, guardian 23, wikipedia.org 21, en.wikipedia 2 335 (every element;
+  a broad rule), HN/lobste.rs 0. Those only animate when a hover/focus/JS
+  restyle changes a transitioned property.
+
+Content that is hidden until an animation runs (a rule with an animation AND
+`opacity:0`/`visibility:hidden` in the same block): github 4 (`.anim-fade-up`,
+`.lp-Intro:before`, checkbox `:before`s), youtube 11 (paper-tooltip fade/slide,
+reaction control panel, promo-panel hero/scrim). Today such content stays
+invisible forever (the fill never applies). Same for code that waits for
+`transitionend`/`animationend` to continue (DDG, GitHub, YouTube reference
+them): those events never fire today.
+
+### 4. Cost per frame (temporary local `Instant` test, reverted)
+
+`build_layout_tree_with_resources` (DOM walk + cascade; `RULES_CACHE` hit) +
+`measure_document` (shape memo on, as in the worker) + `paint` at 1280x800, on
+the static copies (no JS, no images), median of 5 warm repeats, release build,
+machine load 9-20 from other agents' builds (wall times are inflated, the
+ratios hold):
+
+| page | elements | restyle (build) | relayout (memo) | paint |
+|---|---|---|---|---|
+| github | 2 077 | 14 745 / 17 863 ms (2 runs) | 53-55 ms | 10-14 ms |
+| en.wikipedia Main_Page | 2 335 | 1 594 / 2 934 ms | 157-244 ms | 9-21 ms |
+| bbc | 2 635 | 1 728 ms | 74 ms | 16 ms |
+| guardian | 4 964 | 1 107 ms | 68 ms | 4 ms |
+| youtube (skeleton) | 417 | 266 ms | 0.4 ms | 3 ms |
+| duckduckgo | 261 | 58 ms | 6 ms | 31 ms |
+| lobste.rs | 838 | 54 ms | 15 ms | 3 ms |
+| wikipedia.org | 1 196 | 33 ms | 21 ms | 5 ms |
+| news.ycombinator.com | 814 | 12 ms | 44 ms | 2 ms |
+
+Conclusions:
+- A full restyle per animation frame is impossible on real pages (60 fps =
+  16.7 ms; even HN's relayout is 44 ms). Today EVERY style change, including a
+  hover, goes through that full rebuild (`App::redraw` -> `build_layout_tree_
+  with_resources` -> worker `measure_document`); hover restyles are already
+  throttled to one per 150 ms (`HOVER_RESTYLE_INTERVAL`) and wait for the
+  pointer to stop when a build took > 50 ms (QB3).
+- Headless paint of the whole frame is 2-31 ms here, but QM1c (R30, measured
+  in the live app on the same day, 1048x1046 window, JS-built DOM, images)
+  found a full `App::redraw` of en.wikipedia Main_Page at 67 ms median
+  (`paint()` 55 ms, present ~4 ms) and United_States at 101 ms. So even a
+  paint-only full repaint is 10-15 fps on Wikipedia. Animations of paint-only
+  properties (opacity, colours, translate) must patch the already-laid tree
+  AND repaint only the animated boxes' damage rects, keeping the rest of the
+  last frame (the same mechanism QM1g1 needs for video: `Buffer::age()` +
+  `present_with_damage`), never rebuild (QAN1d). Layout-affecting animations
+  get at most a throttled rebuild, or jump straight to their end state on slow
+  pages.
+- GitHub's 15-18 s restyle with cached rules is itself a problem (hover,
+  JS writes, any restyle) and is not explained here (QAN1h measures it).
+- Not measured here: the live app's JS-built DOMs (bigger than these copies);
+  for the live redraw/present cost see QM1c in R30.
+- CPU risk: GitHub's infinite marquee and DDG's spinner would ask for frames
+  forever. Even the paint-only path at 10-30 ms per frame is 30-90 % of a core
+  at 30 fps. Needs a frame cap, a stop when the window is hidden/unfocused and
+  a user decision on `prefers-reduced-motion` (QAN1-D).
+
+### 5. Timers, rAF and budgets
+
+- rAF is a JS timer due on the next 1000/60 ms boundary of `__scratchy_now`
+  (TIMERS_PRELUDE, QY30); the App runs due timers in `about_to_wait` and sleeps
+  with `ControlFlow::WaitUntil(js.next_deadline())`. Nothing ties rAF to an
+  actual painted frame. CSS animations would be driven from Rust, not JS: they
+  need their own next-frame deadline merged into that `WaitUntil`, and a tick
+  right after `run_due` so a rAF style write and an animation step land in the
+  same redraw.
+- The 500 ms `CALLBACK_BUDGET` only applies to JS. The animation engine runs in
+  Rust; only the events it fires (`animationend`, `transitionend`, ...) run JS,
+  each under the normal budget via `App::js_dispatch`.
+- `--js-report --run-timers` has a simulated clock and no style system; CSS
+  animations do not exist there. Only the Web Animations JS surface (QAN1g)
+  would need the clock (`document.timeline.currentTime` = `__scratchy_now`),
+  so `finished` promises resolve in simulated time.
+- YouTube already loads `web-animations-next-lite.min.js` (R20/R21), which
+  implements `element.animate` with a rAF loop writing inline styles: each
+  write is a JS DOM write and therefore a full restyle today. A native
+  `animate` changes which code runs there: the polyfill checks
+  `document.documentElement.animate([],0)` and for `play currentTime pause
+  reverse ...`; a partial native API that passes that check would switch the
+  polyfill off (QAN1g risk, measure YouTube before/after).
+
+### How this was measured (reusable; nothing committed)
+
+- Pages: `curl --unix-socket /run/user/1001/wire.sock -H 'X-Wire-Jar:
+  qan1-investigator' --request-target <url> http://x/` for the page, every
+  `<link rel=stylesheet>` (and one `@import` level) and up to 30 `<script
+  src>`; scratchpad `qan1/fetch_pages.py`, counts `qan1/analyze.py`,
+  `qan1/hidden_until_anim.py`.
+- WPT: `qan1/scan_subset.py`, `qan1/scan_wpt.py` (static scans);
+  `scratchy --wpt /home/loupax/src/wpt --subset <73 tests> --expected <empty>
+  -v` and `--out` for the PNGs.
+- Timing and "active at load": a temporary `#[cfg(test)] mod qan1_exp`
+  (`qan1_frame_cost`, `qan1_active_at_load`, run with `cargo test --release
+  --lib -- --ignored --nocapture`), deleted afterwards.
+
+### Not verified
+
+- No implementation was tried, so the FAIL->PASS candidate list in section 2 is
+  read from the test sources, not run.
+- Live app frame cost of my own (R30/QM1c has en.wikipedia only) and the JS-built DOMs of YouTube,
+  GitHub, BBC and Guardian; no nested-dwl screenshots were taken (nothing
+  visual changed, the only image evidence is the runner PNGs).
+- Whether winit reports `Occluded`/focus loss on dwl (needed for the "stop
+  animating when hidden" rule).
+- Why GitHub's restyle takes 15 s (QAN1h).
+- Which woff2 decoder crate fits (QFF1b).
+
 ## R30: Media bytes through wire: Range works unchanged; pooled connections skip `public-only` (Opus investigator QM1d/QM1c, 2026-11-17) — EVIDENCE for TODO.txt QM1d/QM1e (and QM1c); wire items W-POOL1, W-MEDIA1, W-MEDIA2, W-PERF1 OPEN
 
 **Status: investigation only, nothing implemented.** Verdict: the QM1e media
