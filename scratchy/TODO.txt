@@ -370,7 +370,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       nested pixman dwl was tested here (no linux_dmabuf there, dmabuf-wayland
       failed). Needs the user's permission to open a window on their session, or
       the user runs it. Only matters for option A2/B, not A1.
-- [x] QM1b [M] DONE 2026-11-17 (Sonnet; hash HASHQM1B) Spike, OUTSIDE scratchy's crate (like tools/inject: own
+- [x] QM1b [M] DONE 2026-11-17 (Sonnet; hash 9ae82bd) Spike, OUTSIDE scratchy's crate (like tools/inject: own
       Cargo project tools/mpvspike, nothing in scratchy/src): winit + softbuffer
       window, white "page", libmpv SW render of a local test file into a 640x360
       rect at (100,100), wheel scroll moves the rect and the window edge clips it,
