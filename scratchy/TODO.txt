@@ -23,8 +23,10 @@ lacks: investigation QAN1 filed). (b) QY39-D DECIDED: scratchy must be able to o
 wire's User-Agent: QY39a (wire accepts a per-request UA) + QY39b (scratchy `--user-agent`
 flag, default unchanged). (c) QM1-D D1 DECIDED: in-page video, using mpv (libmpv, A1);
 log it in the console/status as "media: mpv" when a <video> is attached. D4 DECIDED: ALL
-media bytes go through wire, always (the player never fetches on its own). D2, D3, D5-D8
-and forms stay open: to be discussed with the user.
+media bytes go through wire, always (the player never fetches on its own). D2 DECIDED
+2026-11-17: libmpv IN-PROCESS (no helper process). D3 DECIDED: libmpv is an OPTIONAL
+dependency (cargo feature or dlopen; without it `<video>` stays the inert placeholder and
+scratchy builds/runs without mpv). D5-D8 and forms stay open: to be discussed with the user.
 USER ANSWERS 2026-11-17 (night): QJ11 DECIDED: pages may override the user-agent
 defaults, so page JS may cancel ANY key (no reserved set); the user will turn vim
 mode off on social.loupax.com for themself (localStorage.vimOff). Cookie control
@@ -294,8 +296,8 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       Children (WAITING FOR USER unless marked READY):
 - [ ] QM1-D PARTLY ANSWERED 2026-11-17: D1 = in-page video using mpv (libmpv A1; the
       page console/status logs "media: mpv"; an extra "open in mpv" action is not asked
-      for), D4 = all bytes through wire, always. STILL WAITING FOR USER: D2, D3, D5-D8
-      (discuss together). Media is still "Off limits" in AGENTS.md until the design is
+      for), D4 = all bytes through wire, always. D2 = libmpv in-process, D3 = optional
+      dependency (decided 2026-11-17). STILL WAITING FOR USER: D5-D8 (discuss together). Media is still "Off limits" in AGENTS.md until the design is
       agreed; QM1b/QM1e/QM1f/QM1g stay gated on D2/D3/D5-D7.
       (design first; media is "Off limits" in AGENTS.md)
       product questions, answers gate everything below except QM1a/QM1c/QM1d:
