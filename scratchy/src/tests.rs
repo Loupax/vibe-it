@@ -20907,3 +20907,133 @@ mod qm1g_real {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+// ---- QY45: namespaced attributes (setAttributeNS family), Attr nodes, prefix/localName.
+#[test]
+fn qy45_xlink_href_round_trip_and_use() {
+    let log = run_in_html(
+        "<html><body><svg id=s xmlns='http://www.w3.org/2000/svg' viewBox='0 0 4 4'><use id=u xlink:href='#a'/></svg></body></html>",
+        "var X='http://www.w3.org/1999/xlink', S='http://www.w3.org/2000/svg', r=[];\
+         var u=document.getElementById('u');\
+         r.push(u.getAttribute('xlink:href'), u.getAttributeNS(X,'href'), u.hasAttributeNS(X,'href'), u.getAttribute('href'));\
+         var n=document.createElementNS(S,'use'); n.setAttributeNS(X,'xlink:href','#b');\
+         r.push(n.getAttribute('xlink:href'), n.getAttributeNS(X,'href'), n.getAttribute('href'), n.hasAttribute('xlink:href'));\
+         r.push(n.attributes[0].name, n.attributes[0].localName, n.attributes[0].prefix, n.attributes[0].namespaceURI);\
+         n.setAttributeNS(X,'xlink:href','#c'); r.push(n.attributes.length, n.getAttribute('xlink:href'));\
+         var sv=document.getElementById('s'); r.push(sv.getAttribute('viewBox'), sv.getAttribute('viewbox'));\
+         sv.setAttribute('viewBox','0 0 8 8'); r.push(sv.getAttribute('viewBox'), sv.attributes.length);\
+         r.push(document.createElement('div').appendChild(n).outerHTML);\
+         console.log(r.join('|'));",
+    );
+    assert_eq!(
+        log,
+        ["log:#a|#a|true||#b|#b||true|xlink:href|href|xlink|http://www.w3.org/1999/xlink|1|#c|0 0 4 4||0 0 8 8|3|<use xlink:href=\"#c\"></use>"],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy45_remove_and_order_and_case() {
+    let log = run_in_html(
+        "<html><body><div id=d a=1></div></body></html>",
+        "var X='http://www.w3.org/1999/xlink', r=[], d=document.getElementById('d');\
+         d.setAttributeNS(X,'xlink:b','2'); d.setAttributeNS(null,'c','3'); d.setAttributeNS('', 'e', '4');\
+         r.push(d.getAttributeNames().join(','), d.getAttributeNS(null,'c'), d.getAttributeNS(X,'c'), d.getAttributeNS(X,'nope'));\
+         d.removeAttributeNS(X,'b'); r.push(d.getAttributeNames().join(','), d.hasAttributeNS(X,'b'));\
+         d.removeAttributeNS(null,'c'); r.push(d.getAttributeNames().join(','));\
+         d.setAttribute('MixedCase','v'); r.push(d.getAttribute('mixedcase'), d.getAttribute('MIXEDCASE'), d.getAttributeNames().join(','));\
+         d.setAttributeNS(null,'CamelNS','w'); r.push(d.getAttributeNS(null,'CamelNS'), d.getAttribute('camelns'), d.getAttribute('CamelNS'));\
+         var s=document.createElementNS('http://www.w3.org/2000/svg','svg'); s.setAttribute('viewBox','1 2 3 4'); s.setAttribute('ViewBox','x');\
+         r.push(s.getAttribute('viewBox'), s.getAttribute('ViewBox'), s.attributes.length);\
+         d.setAttribute('x','1'); d.setAttribute('a','one'); r.push(d.getAttributeNames().join(','), d.getAttribute('a'));\
+         console.log(r.join('|'));",
+    );
+    assert_eq!(
+        log,
+        ["log:id,a,xlink:b,c,e|3|||id,a,c,e|false|id,a,e|v|v|id,a,e,mixedcase|w|||1 2 3 4|x|2|id,a,e,mixedcase,CamelNS,x|one"],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy45_validation_errors() {
+    let log = run_in_html(
+        "<html><body><div id=d></div></body></html>",
+        "var d=document.getElementById('d'), r=[];\
+         var t=function(f){ try { f(); r.push('ok'); } catch(e){ r.push(e.name); } };\
+         var X='http://www.w3.org/XML/1998/namespace', N='http://www.w3.org/2000/xmlns/';\
+         t(function(){ d.setAttributeNS(null,'a:b','v'); });\
+         t(function(){ d.setAttributeNS('urn:x','a b','v'); });\
+         t(function(){ d.setAttributeNS('urn:x','a:b:c','v'); });\
+         t(function(){ d.setAttributeNS('urn:x',':b','v'); });\
+         t(function(){ d.setAttributeNS('urn:x','a:','v'); });\
+         t(function(){ d.setAttributeNS('urn:x','xml:lang','v'); });\
+         t(function(){ d.setAttributeNS(X,'xml:lang','en'); });\
+         t(function(){ d.setAttributeNS('urn:x','xmlns','v'); });\
+         t(function(){ d.setAttributeNS('urn:x','xmlns:a','v'); });\
+         t(function(){ d.setAttributeNS(N,'xmlns:a','urn:a'); });\
+         t(function(){ d.setAttributeNS(N,'xmlns','urn:d'); });\
+         t(function(){ d.setAttributeNS(N,'foo:bar','v'); });\
+         t(function(){ d.setAttributeNS('urn:x','p:q','v'); });\
+         t(function(){ document.createAttributeNS('urn:x','a b'); });\
+         t(function(){ document.createAttributeNS(null,'p:q'); });\
+         t(function(){ document.createAttribute('1a b'); });\
+         t(function(){ d.setAttribute('a b','v'); });\
+         r.push(d.getAttributeNS(X,'lang'), d.getAttribute('xml:lang'), d.getAttribute('xmlns:a'), d.getAttribute('xmlns'), d.getAttributeNames().join(','));\
+         console.log(r.join('|'));",
+    );
+    assert_eq!(
+        log,
+        ["log:NamespaceError|InvalidCharacterError|InvalidCharacterError|InvalidCharacterError|InvalidCharacterError|NamespaceError|ok|NamespaceError|NamespaceError|ok|ok|NamespaceError|ok|InvalidCharacterError|NamespaceError|InvalidCharacterError|InvalidCharacterError|en|en|urn:a|urn:d|id,xml:lang,xmlns:a,xmlns,p:q"],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy45_attr_nodes() {
+    let log = run_in_html(
+        "<html><body><div id=d a=1></div><p id=p></p></body></html>",
+        "var X='http://www.w3.org/1999/xlink', r=[], d=document.getElementById('d'), p=document.getElementById('p');\
+         var a=document.createAttributeNS(X,'xlink:href'); a.value='#z';\
+         r.push(a.name, a.localName, a.prefix, a.namespaceURI, a.ownerElement, a.value);\
+         r.push(d.setAttributeNodeNS(a), a.ownerElement===d, d.getAttribute('xlink:href'));\
+         r.push(d.getAttributeNodeNS(X,'href').value, d.getAttributeNodeNS(X,'zip'), d.getAttributeNode('xlink:href').namespaceURI);\
+         var b=document.createAttributeNS(X,'xlink:href'); b.value='#y';\
+         var old=d.setAttributeNode(b); r.push(old.value, old.ownerElement, d.getAttribute('xlink:href'));\
+         var inUse; try { p.setAttributeNode(b); } catch(e){ inUse=e.name; } r.push(inUse);\
+         var rem=d.removeAttributeNode(b); r.push(rem.value, rem.ownerElement, d.hasAttribute('xlink:href'), rem===b);\
+         var nf; try { d.removeAttributeNode(b); } catch(e){ nf=e.name; } r.push(nf);\
+         var c=document.createAttribute('Title'); c.value='T'; d.setAttributeNode(c); r.push(d.getAttribute('title'), c.name);\
+         r.push(d.attributes.getNamedItemNS(null,'title').value, d.attributes.removeNamedItem('title').value, d.hasAttribute('title'));\
+         var a2=document.createAttributeNS(X,'xlink:href'); a2.value='#w'; d.attributes.setNamedItemNS(a2); r.push(d.attributes.length, d.attributes.getNamedItemNS(X,'href').value);\
+         d.toggleAttribute('hidden'); r.push(d.hasAttribute('hidden')); d.toggleAttribute('hidden'); r.push(d.hasAttribute('hidden'));\
+         console.log(r.join('|'));",
+    );
+    assert_eq!(
+        log,
+        ["log:xlink:href|href|xlink|http://www.w3.org/1999/xlink||#z||true|#z|#z||http://www.w3.org/1999/xlink|#z||#y|InUseAttributeError|#y||false|true|NotFoundError|T|title|T|T|false|3|#w|true|false"],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy45_element_prefix_local_name_and_xml_doc() {
+    let log = run_in_html(
+        "<html><body><div id=d></div></body></html>",
+        "var S='http://www.w3.org/2000/svg', r=[];\
+         var e=document.createElementNS(S,'svg:linearGradient');\
+         r.push(e.tagName, e.localName, e.prefix, e.namespaceURI);\
+         var f=document.createElementNS(S,'rect'); r.push(f.tagName, f.localName, f.prefix);\
+         var h=document.createElement('DIV'); r.push(h.tagName, h.localName, h.prefix, h.namespaceURI);\
+         var x=new DOMParser().parseFromString('<r xmlns=\"urn:a\" xmlns:q=\"urn:q\"><c q:k=\"1\" z=\"2\"/></r>','application/xml');\
+         var c=x.documentElement.firstElementChild;\
+         r.push(c.getAttribute('q:k'), c.getAttributeNS('urn:q','k'), c.getAttributeNS(null,'z'), c.attributes[0].prefix, c.attributes[0].localName, c.attributes[0].namespaceURI);\
+         r.push(x.documentElement.getAttributeNames().join(','), x.documentElement.getAttributeNS('http://www.w3.org/2000/xmlns/','q'));\
+         console.log(r.join('|'));",
+    );
+    assert_eq!(
+        log,
+        ["log:svg:linearGradient|linearGradient|svg|http://www.w3.org/2000/svg|rect|rect||DIV|div||http://www.w3.org/1999/xhtml|1|1|2|q|k|urn:q|xmlns,xmlns:q|urn:q"],
+        "{log:?}"
+    );
+}

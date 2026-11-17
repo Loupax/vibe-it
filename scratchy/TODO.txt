@@ -550,7 +550,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       page needs them") Twitch needs `Worker` + `WebAssembly` (Amazon IVS player:
       amazon-ivs-wasmworker.min.js/.wasm or amazon-ivs-worker.min.js); measured R34:
       both undefined, no player. Also `Path2D` missing (polyfills.js ReferenceError).
-- [ ] QY45 [S] READY (from R34) `Element.prototype.setAttributeNS`, `getAttributeNS`,
+- [x] QY45 [S] DONE 2026-11-17 (Sonnet; hash 77101f3) (from R34) `Element.prototype.setAttributeNS`, `getAttributeNS`,
       `hasAttributeNS`, `removeAttributeNS` do not exist: YouTube's player throws in its
       controls builder (`q.setAttributeNS("http://www.w3.org/1999/xlink","href",...)`,
       base.js ad8d59ae line 10024) during `playerBootstrap`, so the watch page never even

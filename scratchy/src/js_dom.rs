@@ -192,6 +192,32 @@ pub(crate) fn set_attr(h: &Handle, name: &str, value: &str) {
     }
 }
 
+/// QY45: does the attribute's qualified name (`prefix:local`, or `local`) equal `n`?
+fn attr_qname_eq(a: &html5ever::Attribute, n: &str) -> bool {
+    match &a.name.prefix {
+        Some(p) if !p.is_empty() => {
+            let l = a.name.local.as_ref();
+            n.len() == p.len() + 1 + l.len() && n.starts_with(p.as_ref()) && n[p.len()..].starts_with(':') && n.ends_with(l)
+        }
+        _ => a.name.local.as_ref() == n,
+    }
+}
+
+fn attr_find(h: &Handle, f: impl Fn(&html5ever::Attribute) -> bool) -> Option<String> {
+    match &h.data {
+        NodeData::Element { attrs, .. } => attrs.borrow().iter().find(|a| f(a)).map(|a| a.value.to_string()),
+        _ => None,
+    }
+}
+
+/// QY45: the name HTML lookups use: lowercased on an HTML-namespace element.
+fn attr_lookup_name(h: &Handle, n: &str) -> String {
+    match &h.data {
+        NodeData::Element { name, .. } if name.ns.as_ref() == "http://www.w3.org/1999/xhtml" => n.to_ascii_lowercase(),
+        _ => n.to_string(),
+    }
+}
+
 fn remove_attr(h: &Handle, name: &str) {
     if let NodeData::Element { attrs, .. } = &h.data {
         attrs.borrow_mut().retain(|a| a.name.local.as_ref() != name);
@@ -212,22 +238,23 @@ fn xml_to_dom(x: roxmltree::Node) -> Option<Handle> {
                 if parent_ns.contains(&(n.name(), n.uri())) || n.name() == Some("xml") {
                     continue;
                 }
-                let local = match n.name() {
-                    Some(p) => format!("xmlns:{p}"),
-                    None => "xmlns".to_string(),
+                let (prefix, local) = match n.name() {
+                    Some(p) => (Some(html5ever::Prefix::from("xmlns")), p),
+                    None => (None, "xmlns"),
                 };
                 attrs.push(html5ever::Attribute {
-                    name: QualName::new(None, Namespace::from(""), LocalName::from(local.as_str())),
+                    name: QualName::new(prefix, Namespace::from("http://www.w3.org/2000/xmlns/"), LocalName::from(local)),
                     value: n.uri().into(),
                 });
             }
             for a in x.attributes() {
-                let local = match a.namespace().and_then(|u| x.lookup_prefix(u)) {
-                    Some(p) if !p.is_empty() => format!("{p}:{}", a.name()),
-                    _ => a.name().to_string(),
-                };
+                let prefix = a.namespace().and_then(|u| x.lookup_prefix(u)).filter(|p| !p.is_empty());
                 attrs.push(html5ever::Attribute {
-                    name: QualName::new(None, Namespace::from(""), LocalName::from(local.as_str())),
+                    name: QualName::new(
+                        prefix.map(html5ever::Prefix::from),
+                        Namespace::from(a.namespace().unwrap_or("")),
+                        LocalName::from(a.name()),
+                    ),
                     value: a.value().into(),
                 });
             }
@@ -325,7 +352,20 @@ fn serialize_node(h: &Handle, outer: bool) -> String {
     fn node<S: Serializer>(s: &mut S, h: &Handle) -> std::io::Result<()> {
         match &h.data {
             NodeData::Element { name, attrs, .. } => {
-                s.start_elem(name.clone(), attrs.borrow().iter().map(|a| (&a.name, &a.value[..])))?;
+                // QY45: html5ever's writer ignores attribute prefixes (it prints
+                // `unknown_namespace:`); print `prefix:local` as a plain name.
+                let list: Vec<(html5ever::QualName, String)> = attrs
+                    .borrow()
+                    .iter()
+                    .map(|a| match &a.name.prefix {
+                        Some(p) if !p.is_empty() => (
+                            html5ever::QualName::new(None, html5ever::ns!(), html5ever::LocalName::from(format!("{p}:{}", a.name.local).as_str())),
+                            a.value.to_string(),
+                        ),
+                        _ => (a.name.clone(), a.value.to_string()),
+                    })
+                    .collect();
+                s.start_elem(name.clone(), list.iter().map(|(n, v)| (n, &v[..])))?;
                 for c in kids(h) {
                     node(s, &c)?;
                 }
@@ -740,6 +780,96 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             gn.set(gn.get() + 1);
         }
     });
+    // QY45: qualified-name / namespaced attribute access over the stored
+    // QualName {prefix, ns, local}. Namespace "" = no namespace.
+    let t = table.clone();
+    native!("__d_attr_list", move |id: i32| -> Vec<String> {
+        let Some(h) = t.borrow().get(id) else { return Vec::new() };
+        match &h.data {
+            NodeData::Element { attrs, .. } => attrs
+                .borrow()
+                .iter()
+                .flat_map(|a| {
+                    [
+                        a.name.ns.as_ref().to_string(),
+                        a.name.prefix.as_ref().map(|p| p.as_ref().to_string()).unwrap_or_default(),
+                        a.name.local.as_ref().to_string(),
+                        a.value.to_string(),
+                    ]
+                })
+                .collect(),
+            _ => Vec::new(),
+        }
+    });
+    let t = table.clone();
+    native!("__d_getq", move |id: i32, name: String| -> Option<String> {
+        let h = t.borrow().get(id)?;
+        let n = attr_lookup_name(&h, &name);
+        attr_find(&h, |a| attr_qname_eq(a, &n))
+    });
+    let t = table.clone();
+    native!("__d_getns", move |id: i32, ns: String, local: String| -> Option<String> {
+        let h = t.borrow().get(id)?;
+        attr_find(&h, |a| a.name.ns.as_ref() == ns && a.name.local.as_ref() == local)
+    });
+    let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
+    native!("__d_setq", move |id: i32, name: String, val: String| {
+        if let Some(h) = t.borrow().get(id) {
+            let n = attr_lookup_name(&h, &name);
+            if let NodeData::Element { attrs, .. } = &h.data {
+                let mut attrs = attrs.borrow_mut();
+                if let Some(a) = attrs.iter_mut().find(|a| attr_qname_eq(a, &n)) {
+                    a.value = val.as_str().into();
+                } else {
+                    let qn = html5ever::QualName::new(None, html5ever::ns!(), html5ever::LocalName::from(n.as_str()));
+                    attrs.push(html5ever::Attribute { name: qn, value: val.as_str().into() });
+                }
+            }
+            d.set(true);
+            gn.set(gn.get() + 1);
+        }
+    });
+    let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
+    native!("__d_rmq", move |id: i32, name: String| {
+        if let Some(h) = t.borrow().get(id) {
+            let n = attr_lookup_name(&h, &name);
+            if let NodeData::Element { attrs, .. } = &h.data {
+                attrs.borrow_mut().retain(|a| !attr_qname_eq(a, &n));
+            }
+            d.set(true);
+            gn.set(gn.get() + 1);
+        }
+    });
+    let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
+    native!("__d_setns", move |id: i32, ns: String, prefix: String, local: String, val: String| {
+        if let Some(h) = t.borrow().get(id) {
+            if let NodeData::Element { attrs, .. } = &h.data {
+                let mut attrs = attrs.borrow_mut();
+                if let Some(a) = attrs.iter_mut().find(|a| a.name.ns.as_ref() == ns && a.name.local.as_ref() == local) {
+                    a.value = val.as_str().into();
+                } else {
+                    let qn = html5ever::QualName::new(
+                        if prefix.is_empty() { None } else { Some(html5ever::Prefix::from(prefix.as_str())) },
+                        html5ever::Namespace::from(ns.as_str()),
+                        html5ever::LocalName::from(local.as_str()),
+                    );
+                    attrs.push(html5ever::Attribute { name: qn, value: val.as_str().into() });
+                }
+            }
+            d.set(true);
+            gn.set(gn.get() + 1);
+        }
+    });
+    let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
+    native!("__d_rmns", move |id: i32, ns: String, local: String| {
+        if let Some(h) = t.borrow().get(id) {
+            if let NodeData::Element { attrs, .. } = &h.data {
+                attrs.borrow_mut().retain(|a| !(a.name.ns.as_ref() == ns && a.name.local.as_ref() == local));
+            }
+            d.set(true);
+            gn.set(gn.get() + 1);
+        }
+    });
     let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
     native!("__d_settext", move |id: i32, text: String| {
         if let Some(h) = t.borrow().get(id) {
@@ -1108,7 +1238,7 @@ const DOM_PRELUDE: &str = r#"
   // QY6e: the mutation natives the custom-element hooks rebind (once, at the
   // first `customElements.define`); until then nothing is wrapped (zero cost).
   var __d_insert = g.__d_insert, __d_remove = g.__d_remove, __d_sethtml = g.__d_sethtml, __d_settext = g.__d_settext,
-    __d_setattr = g.__d_setattr, __d_rmattr = g.__d_rmattr, __d_write = g.__d_write, ceNew;
+    __d_setattr = g.__d_setattr, __d_rmattr = g.__d_rmattr, __d_setq = g.__d_setq, __d_rmq = g.__d_rmq, __d_setns = g.__d_setns, __d_rmns = g.__d_rmns, __d_write = g.__d_write, ceNew;
   // QY6a: live MutationObserver registrations (0 until the first `observe()`),
   // and the childList batch used by multi-step APIs (replaceChild, append(...a, b)).
   var moN = 0, moBatch = null, moFlush;
@@ -1252,7 +1382,11 @@ const DOM_PRELUDE: &str = r#"
   queries(DocumentFragment.prototype);
   def(ElementProto, 'tagName', function () { return __d_tag(this.__id); });
   def(ElementProto, 'namespaceURI', function () { return __d_ns(this.__id) || null; });
-  def(ElementProto, 'localName', function () { return __d_tag(this.__id).toLowerCase(); });
+  // QY45: createElementNS keeps `prefix:local` in the stored local name (QA14), so
+  // outside XHTML the prefix is the part before ':'. Case is kept outside XHTML.
+  var elQ = function (el) { var t = __d_tag(el.__id), i = t.indexOf(':'); return __d_ns(el.__id) === 'http://www.w3.org/1999/xhtml' || i <= 0 ? ['', t] : [t.slice(0, i), t.slice(i + 1)]; };
+  def(ElementProto, 'localName', function () { var q = elQ(this)[1]; return __d_ns(this.__id) === 'http://www.w3.org/1999/xhtml' ? q.toLowerCase() : q; });
+  def(ElementProto, 'prefix', function () { return elQ(this)[0] || null; });
   def(ElementProto, 'id', function () { var v = __d_attr(this.__id, 'id'); return v == null ? '' : v; });
   def(ElementProto, 'className', function () { var v = __d_attr(this.__id, 'class'); return v == null ? '' : v; });
   def(ElementProto, 'children', function () { return wrapAll(__d_children(this.__id, true)); });
@@ -1270,8 +1404,10 @@ const DOM_PRELUDE: &str = r#"
       toString: function () { return cls.join(' '); }
     };
   });
-  ElementProto.getAttribute = function (n) { var v = __d_attr(this.__id, String(n)); return v == null ? null : v; };
-  ElementProto.hasAttribute = function (n) { return __d_attr(this.__id, String(n)) != null; };
+  // QY45: public attribute access matches the QUALIFIED name (`xlink:href`), per
+  // DOM; HTML-namespace elements lowercase the name, others keep its case.
+  ElementProto.getAttribute = function (n) { var v = __d_getq(this.__id, String(n)); return v == null ? null : v; };
+  ElementProto.hasAttribute = function (n) { return __d_getq(this.__id, String(n)) != null; };
   ElementProto.matches = function (s) {
     var r = __d_matches(this.__id, String(s));
     if (r === undefined || r === null) throw bad(s);
@@ -1387,8 +1523,8 @@ const DOM_PRELUDE: &str = r#"
     if (a[0] === a[0]) g.scrollX = g.pageXOffset = Math.max(0, g.scrollX + a[0]);
     if (a[1] === a[1]) g.scrollY = g.pageYOffset = Math.max(0, g.scrollY + a[1]);
   };
-  ElementProto.setAttribute = function (n, v) { checkName('setAttribute', String(n)); __d_setattr(this.__id, String(n), String(v)); };
-  ElementProto.removeAttribute = function (n) { __d_rmattr(this.__id, String(n)); };
+  ElementProto.setAttribute = function (n, v) { checkName('setAttribute', String(n)); __d_setq(this.__id, String(n), String(v)); };
+  ElementProto.removeAttribute = function (n) { __d_rmq(this.__id, String(n)); };
   ElementProto.toggleAttribute = function (n, force) {
     var has = this.hasAttribute(n), want = force === undefined ? !has : !!force;
     if (want && !has) this.setAttribute(n, ''); else if (!want && has) this.removeAttribute(n);
@@ -2782,43 +2918,80 @@ const DOM_PRELUDE: &str = r#"
     return (dsets[el.__id] = p);
   });
   // attributes: a live NamedNodeMap-like Proxy; Attr objects are lightweight
-  // views whose `value` reads/writes through (not nodes in the tree).
+  // views (not nodes in the tree) whose `value` reads/writes through. QY45: an
+  // attached Attr is (element, qualified name); a detached one (createAttribute,
+  // after removeAttributeNode) carries its own {ns, prefix, local, value}.
   var AttrP = g.Attr.prototype;
+  var XML_NS = 'http://www.w3.org/XML/1998/namespace', XMLNS_NS = 'http://www.w3.org/2000/xmlns/';
+  var ncName = /^[A-Za-z_À-￿][-A-Za-z0-9_.·-￿]*$/;
+  var nsArg = function (ns) { return ns == null || ns === '' ? '' : String(ns); };
   var mkAttr = function (el, name) {
     var a = Object.create(AttrP);
-    Object.defineProperty(a, '_el', { value: el });
-    Object.defineProperty(a, '_n', { value: name });
+    Object.defineProperty(a, '_el', { value: el, writable: true, configurable: true });
+    Object.defineProperty(a, '_n', { value: name, writable: true, configurable: true });
+    Object.defineProperty(a, '_d', { value: null, writable: true, configurable: true });
     return a;
   };
-  def(AttrP, 'name', function () { return this._n; });
-  def(AttrP, 'localName', function () { return this._n; });
-  def(AttrP, 'nodeName', function () { return this._n; });
+  var mkDetached = function (ns, prefix, local, value) {
+    var a = mkAttr(null, null);
+    a._d = { ns: ns, prefix: prefix, local: local, value: value };
+    return a;
+  };
+  var qn = function (prefix, local) { return prefix ? prefix + ':' + local : local; };
+  // {ns, prefix, local, value} of an attribute view, or null once it is gone.
+  var aInfo = function (a) {
+    if (!a._el) return a._d;
+    var l = __d_attr_list(a._el.__id);
+    for (var i = 0; i < l.length; i += 4) if (qn(l[i + 1], l[i + 2]) === a._n) return { ns: l[i], prefix: l[i + 1], local: l[i + 2], value: l[i + 3] };
+    return null;
+  };
+  var htmlEl = function (el) { return __d_ns(el.__id) === 'http://www.w3.org/1999/xhtml'; };
+  var findQ = function (el, n) { n = String(n); if (htmlEl(el)) n = n.toLowerCase(); return __d_getq(el.__id, n) == null ? null : n; };
+  var findNS = function (el, ns, local) {
+    var l = __d_attr_list(el.__id);
+    for (var i = 0; i < l.length; i += 4) if (l[i] === ns && l[i + 2] === local) return qn(l[i + 1], l[i + 2]);
+    return null;
+  };
+  def(AttrP, 'name', function () { if (this._el) return this._n; var d = this._d; return qn(d.prefix, d.local); });
+  def(AttrP, 'localName', function () { var i = aInfo(this); return i ? i.local : this._n; });
+  def(AttrP, 'nodeName', function () { return this.name; });
   def(AttrP, 'nodeType', function () { return 2; });
-  def(AttrP, 'namespaceURI', function () { return null; });
-  def(AttrP, 'prefix', function () { return null; });
+  def(AttrP, 'namespaceURI', function () { var i = aInfo(this); return i && i.ns ? i.ns : null; });
+  def(AttrP, 'prefix', function () { var i = aInfo(this); return i && i.prefix ? i.prefix : null; });
   def(AttrP, 'specified', function () { return true; });
-  def(AttrP, 'ownerElement', function () { return this._el; });
-  defs(AttrP, 'value', function () { var v = __d_attr(this._el.__id, this._n); return v == null ? '' : v; },
-    function (v) { __d_setattr(this._el.__id, this._n, String(v)); });
+  def(AttrP, 'ownerElement', function () { return this._el || null; });
+  defs(AttrP, 'value', function () { if (!this._el) return this._d.value; var v = __d_getq(this._el.__id, this._n); return v == null ? '' : v; },
+    function (v) { if (this._el) __d_setq(this._el.__id, this._n, String(v)); else this._d.value = String(v); });
   defs(AttrP, 'nodeValue', function () { return this.value; }, function (v) { this.value = v; });
   defs(AttrP, 'textContent', function () { return this.value; }, function (v) { this.value = v; });
   var NNM = g.NamedNodeMap = function NamedNodeMap() { throw new TypeError('Illegal constructor'); };
   var NP = NNM.prototype;
-  var attrList = function (el) { return __d_attr_names(el.__id).map(function (n) { return mkAttr(el, n); }); };
-  NP.item = function (i) { return attrList(this._el)[i] || null; };
-  NP.getNamedItem = function (n) {
-    n = String(n).toLowerCase();
-    return __d_attr(this._el.__id, n) == null ? null : mkAttr(this._el, n);
+  var attrNames = function (el) {
+    var l = __d_attr_list(el.__id), out = [];
+    for (var i = 0; i < l.length; i += 4) out.push(qn(l[i + 1], l[i + 2]));
+    return out;
   };
-  NP.getNamedItemNS = function (ns, n) { return this.getNamedItem(n); };
+  var attrList = function (el) { return attrNames(el).map(function (n) { return mkAttr(el, n); }); };
+  NP.item = function (i) { return attrList(this._el)[i] || null; };
+  NP.getNamedItem = function (n) { var q = findQ(this._el, n); return q === null ? null : mkAttr(this._el, q); };
+  NP.getNamedItemNS = function (ns, n) { var q = findNS(this._el, nsArg(ns), String(n)); return q === null ? null : mkAttr(this._el, q); };
   NP.removeNamedItem = function (n) {
     var a = this.getNamedItem(n);
     if (!a) throw herr("Failed to execute 'removeNamedItem' on 'NamedNodeMap': No item with name '" + n + "' was found.", 'NotFoundError');
-    __d_rmattr(this._el.__id, a.name); return a;
+    return this._el.removeAttributeNode(a);
   };
-  NP.setNamedItem = function (a) { __d_setattr(this._el.__id, a.name, a.value); return null; };
+  NP.removeNamedItemNS = function (ns, n) {
+    var a = this.getNamedItemNS(ns, n);
+    if (!a) throw herr("Failed to execute 'removeNamedItemNS' on 'NamedNodeMap': No item with name '" + n + "' in namespace '" + ns + "' was found.", 'NotFoundError');
+    return this._el.removeAttributeNode(a);
+  };
+  NP.setNamedItem = function (a) {
+    if (AttrP.isPrototypeOf(a)) return this._el.setAttributeNode(a);
+    __d_setq(this._el.__id, a.name, a.value); return null;
+  };
+  NP.setNamedItemNS = NP.setNamedItem;
   NP[Symbol.iterator] = function () { return attrList(this._el)[Symbol.iterator](); };
-  def(NP, 'length', function () { return __d_attr_names(this._el.__id).length; });
+  def(NP, 'length', function () { return __d_attr_list(this._el.__id).length / 4; });
   Object.defineProperty(NP, Symbol.toStringTag, { value: 'NamedNodeMap', configurable: true });
   var amaps = {};
   def(ElementProto, 'attributes', function () {
@@ -2836,9 +3009,9 @@ const DOM_PRELUDE: &str = r#"
       },
       has: function (t, k) {
         if (typeof k !== 'string') return k in t;
-        return isIdx(k) ? +k < t.length : (k in t || __d_attr(el.__id, k.toLowerCase()) != null);
+        return isIdx(k) ? +k < t.length : (k in t || __d_getq(el.__id, k) != null);
       },
-      ownKeys: function () { var n = __d_attr_names(el.__id); return n.map(function (x, i) { return String(i); }).concat(n); },
+      ownKeys: function () { var n = attrNames(el); return n.map(function (x, i) { return String(i); }).concat(n); },
       getOwnPropertyDescriptor: function (t, k) {
         if (typeof k !== 'string') return undefined;
         var ix = isIdx(k), v = ix ? t.item(+k) : t.getNamedItem(k);
@@ -2846,9 +3019,57 @@ const DOM_PRELUDE: &str = r#"
       }
     }));
   });
-  ElementProto.getAttributeNames = function () { return __d_attr_names(this.__id); };
-  ElementProto.hasAttributes = function () { return __d_attr_names(this.__id).length > 0; };
+  ElementProto.getAttributeNames = function () { return attrNames(this); };
+  ElementProto.hasAttributes = function () { return __d_attr_list(this.__id).length > 0; };
   ElementProto.getAttributeNode = function (n) { return this.attributes.getNamedItem(n); };
+  // QY45: the namespaced family. "validate and extract" per the DOM spec.
+  var extractName = function (fn, owner, ns, q) {
+    ns = ns == null || ns === '' ? null : String(ns); q = String(q);
+    var P = "Failed to execute '" + fn + "' on '" + owner + "': ";
+    if (!validName(q)) throw herr(P + 'The string contains invalid characters.', 'InvalidCharacterError');
+    var i = q.indexOf(':'), pre = i < 0 ? null : q.slice(0, i), loc = i < 0 ? q : q.slice(i + 1);
+    if (i >= 0 && !(ncName.test(pre) && ncName.test(loc))) throw herr(P + 'The qualified name provided is not a valid XML name.', 'InvalidCharacterError');
+    if ((pre !== null && ns === null) || (pre === 'xml' && ns !== XML_NS) ||
+      ((q === 'xmlns' || pre === 'xmlns') && ns !== XMLNS_NS) || (ns === XMLNS_NS && q !== 'xmlns' && pre !== 'xmlns'))
+      throw herr(P + 'The namespace provided is invalid for the qualified name.', 'NamespaceError');
+    return [ns === null ? '' : ns, pre || '', loc];
+  };
+  ElementProto.setAttributeNS = function (ns, q, v) {
+    var x = extractName('setAttributeNS', 'Element', ns, q);
+    __d_setns(this.__id, x[0], x[1], x[2], String(v));
+  };
+  ElementProto.getAttributeNS = function (ns, l) { var v = __d_getns(this.__id, nsArg(ns), String(l)); return v == null ? null : v; };
+  ElementProto.hasAttributeNS = function (ns, l) { return __d_getns(this.__id, nsArg(ns), String(l)) != null; };
+  ElementProto.removeAttributeNS = function (ns, l) { __d_rmns(this.__id, nsArg(ns), String(l)); };
+  ElementProto.getAttributeNodeNS = function (ns, l) { return this.attributes.getNamedItemNS(ns, l); };
+  ElementProto.setAttributeNode = function (a) {
+    if (!a || !AttrP.isPrototypeOf(a)) throw new TypeError("Failed to execute 'setAttributeNode' on 'Element': parameter 1 is not of type 'Attr'.");
+    if (a._el === this) return a;
+    if (a._el) throw herr("Failed to execute 'setAttributeNode' on 'Element': The node provided is an attribute node that is already an attribute of another Element; attribute nodes must be explicitly cloned.", 'InUseAttributeError');
+    var d = a._d, oq = findNS(this, d.ns, d.local), old = null;
+    if (oq !== null) { var oi = aInfo(mkAttr(this, oq)); old = mkDetached(oi.ns, oi.prefix, oi.local, oi.value); }
+    __d_setns(this.__id, d.ns, d.prefix, d.local, d.value);
+    a._el = this; a._n = oq !== null ? oq : qn(d.prefix, d.local); a._d = null;
+    return old;
+  };
+  ElementProto.setAttributeNodeNS = ElementProto.setAttributeNode;
+  ElementProto.removeAttributeNode = function (a) {
+    if (!a || !AttrP.isPrototypeOf(a)) throw new TypeError("Failed to execute 'removeAttributeNode' on 'Element': parameter 1 is not of type 'Attr'.");
+    var i = a._el === this ? aInfo(a) : null;
+    if (!i) throw herr("Failed to execute 'removeAttributeNode' on 'Element': The node provided is not an attribute of this element.", 'NotFoundError');
+    __d_rmns(this.__id, i.ns, i.local);
+    a._d = i; a._el = null; a._n = null;
+    return a;
+  };
+  doc.createAttribute = function (n) {
+    n = String(n);
+    if (!validName(n)) throw herr("Failed to execute 'createAttribute' on 'Document': String contains an invalid character.", 'InvalidCharacterError');
+    return mkDetached('', '', n.toLowerCase(), '');
+  };
+  doc.createAttributeNS = function (ns, q) {
+    var x = extractName('createAttributeNS', 'Document', ns, q);
+    return mkDetached(x[0], x[1], x[2], '');
+  };
   // QY12: interface objects, table driven. Tags without an interface above get an
   // inert HTML<Name>Element (not callable, prototype under HTMLElement); never
   // replaces one defined earlier.
@@ -3098,6 +3319,34 @@ const DOM_PRELUDE: &str = r#"
       if (mo) moAttr(id, ln, old);
       if (ce && d.observed.indexOf(ln) >= 0) ceCall(cache[id], d.changed, [ln, old, __d_attr(id, ln)]);
     };
+    // QY45: the qualified-name / namespaced variants share the same hook work.
+    var attrHook = function (oSetter, oRemover, getOld, key) {
+      return [function (id, a, b, c, d) {
+        ceStats.hooks++;
+        var st = ceState[id], ce = st && st !== -1 && st.observed.length, mo = moN > 0, old = null, nm = key(id, a, b);
+        if (ce || mo) { old = getOld(id, a, b); if (old == null) old = null; }
+        oSetter(id, a, b, c, d);
+        if (mo) moAttr(id, nm, old);
+        if (ce && st.observed.indexOf(nm) >= 0) ceCall(cache[id], st.changed, [nm, old, getOld(id, a, b)]);
+      }, function (id, a, b) {
+        ceStats.hooks++;
+        var st = ceState[id], ce = st && st !== -1 && st.observed.length, mo = moN > 0, old = null, nm = key(id, a, b);
+        if (ce || mo) old = getOld(id, a, b);
+        oRemover(id, a, b);
+        if (old != null) {
+          if (mo) moAttr(id, nm, old);
+          if (ce && st.observed.indexOf(nm) >= 0) ceCall(cache[id], st.changed, [nm, old, null]);
+        }
+      }];
+    };
+    var oSetq = __d_setq, oRmq = __d_rmq, oSetns = __d_setns, oRmns = __d_rmns;
+    var hq = attrHook(oSetq, oRmq, function (id, n) { return __d_getq(id, n); }, function (id, n) { return __d_ns(id) === 'http://www.w3.org/1999/xhtml' ? String(n).toLowerCase() : String(n); });
+    __d_setq = function (id, n, v) { hq[0](id, n, v); };
+    __d_rmq = function (id, n) { hq[1](id, n); };
+    var hn = attrHook(function (id, ns, loc, pre, v) { oSetns(id, ns, pre, loc, v); }, oRmns,
+      function (id, ns, loc) { return __d_getns(id, ns, loc); }, function (id, ns, loc) { return loc; });
+    __d_setns = function (id, ns, pre, loc, v) { hn[0](id, ns, loc, pre, v); };
+    __d_rmns = function (id, ns, loc) { hn[1](id, ns, loc); };
     __d_rmattr = function (id, n) {
       ceStats.hooks++;
       var d = ceState[id], ce = d && d !== -1 && d.observed.length, mo = moN > 0, ln = '', old = null;
