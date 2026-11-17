@@ -1693,7 +1693,8 @@ const DOM_PRELUDE: &str = r#"
     var t = id === -2 ? (doc.body || doc) : wrap(id);
     if (!t) return true;
     var C = { click: MouseEvent, mousedown: MouseEvent, mouseup: MouseEvent, keydown: KeyboardEvent,
-      keyup: KeyboardEvent, mouseover: MouseEvent, mouseout: MouseEvent, focus: FocusEvent, blur: FocusEvent, focusin: FocusEvent, focusout: FocusEvent }[type] || Event;
+      keyup: KeyboardEvent, mouseover: MouseEvent, mouseout: MouseEvent, focus: FocusEvent, blur: FocusEvent, focusin: FocusEvent, focusout: FocusEvent,
+      animationstart: AnimationEvent, animationend: AnimationEvent, animationiteration: AnimationEvent, animationcancel: AnimationEvent }[type] || Event;
     if (init && init.relatedTargetId !== undefined) init.relatedTarget = wrap(init.relatedTargetId);
     var ev = new C(type, init);
     ev.isTrusted = true;

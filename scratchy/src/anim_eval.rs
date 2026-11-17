@@ -26,6 +26,70 @@ thread_local! {
     static ANIM_STARTS: RefCell<HashMap<StartKey, StartEntry>> = RefCell::new(HashMap::new());
     static ANIM_PASS: Cell<u64> = const { Cell::new(1) };
     static APP_NAV: Cell<Option<(u64, std::time::Instant)>> = const { Cell::new(None) };
+    /// QAN1c: test seam, a fixed app clock in ms (`None` = the real one).
+    static APP_CLOCK_OVERRIDE: Cell<Option<f64>> = const { Cell::new(None) };
+    /// QAN1c: the animations styled in the current pass / in the last finished pass.
+    static ANIM_REPORT: RefCell<Vec<AnimRecord>> = const { RefCell::new(Vec::new()) };
+    static ANIM_LAST: RefCell<Vec<AnimRecord>> = const { RefCell::new(Vec::new()) };
+}
+
+/// Identity of one running animation: node address, pseudo-element name,
+/// index in the `animation` list, `@keyframes` name.
+pub(crate) type AnimKey = (usize, Option<String>, usize, String);
+
+/// One animation styled by a build (QAN1c): what the App needs to time
+/// its start, iteration and end events.
+#[derive(Clone)]
+pub(crate) struct AnimRecord {
+    pub(crate) key: AnimKey,
+    pub(crate) node: std::rc::Weak<markup5ever_rcdom::Node>,
+    pub(crate) anim: Animation,
+    /// Document clock (ms) at which the animation started.
+    pub(crate) start: f64,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum AnimPhase {
+    Before,
+    Running,
+    After,
+}
+
+/// Where an animation is `elapsed` ms after its start.
+pub(crate) fn phase_of(a: &Animation, elapsed: f64) -> AnimPhase {
+    let active = elapsed - a.delay as f64;
+    let (dur, iters) = (a.duration as f64, a.iterations as f64);
+    if active < 0.0 {
+        AnimPhase::Before
+    } else if dur <= 0.0 || iters <= 0.0 || (iters.is_finite() && active >= dur * iters) {
+        AnimPhase::After
+    } else {
+        AnimPhase::Running
+    }
+}
+
+/// The animations the last finished build styled (replaced every pass).
+pub(crate) fn take_animation_report() -> Vec<AnimRecord> {
+    ANIM_LAST.with(|l| std::mem::take(&mut *l.borrow_mut()))
+}
+
+/// The document clock set for the current/last build.
+pub(crate) fn document_clock_ms() -> f64 {
+    DOC_CLOCK.with(|c| c.get())
+}
+
+/// Test seam: freeze the app clock at `ms` (`None` restores the real one).
+#[cfg(test)]
+pub(crate) fn set_app_clock_override(ms: Option<f64>) {
+    APP_CLOCK_OVERRIDE.with(|c| c.set(ms));
+}
+
+/// Milliseconds since the current navigation's first build (0 before one).
+pub(crate) fn app_clock_ms() -> f64 {
+    if let Some(ms) = APP_CLOCK_OVERRIDE.with(|c| c.get()) {
+        return ms;
+    }
+    APP_NAV.with(|n| n.get()).map_or(0.0, |(_, t)| t.elapsed().as_secs_f64() * 1000.0)
 }
 
 /// The document clock in milliseconds. The caller sets it before
@@ -37,6 +101,16 @@ pub(crate) fn set_document_clock(ms: f64) {
 /// App clock: milliseconds since the navigation `generation` first built
 /// (navigation start for now; no frame loop, one evaluation per restyle).
 pub(crate) fn set_app_clock(generation: u64) {
+    if let Some(ms) = APP_CLOCK_OVERRIDE.with(|c| c.get()) {
+        APP_NAV.with(|n| {
+            if n.get().is_none_or(|(g, _)| g != generation) {
+                n.set(Some((generation, std::time::Instant::now())));
+                ANIM_STARTS.with(|s| s.borrow_mut().clear());
+            }
+        });
+        set_document_clock(ms);
+        return;
+    }
     let now = std::time::Instant::now();
     let start = APP_NAV.with(|n| match n.get() {
         Some((g, t)) if g == generation => t,
@@ -55,6 +129,12 @@ pub(crate) fn finish_animation_pass() {
     let pass = ANIM_PASS.with(|p| p.get());
     ANIM_STARTS.with(|s| s.borrow_mut().retain(|_, e| e.seen == pass));
     ANIM_PASS.with(|p| p.set(pass + 1));
+    let mut rep = ANIM_REPORT.with(|r| std::mem::take(&mut *r.borrow_mut()));
+    let mut seen = std::collections::HashSet::new();
+    rep.reverse();
+    rep.retain(|r| seen.insert(r.key.clone()));
+    rep.reverse();
+    ANIM_LAST.with(|l| *l.borrow_mut() = rep);
 }
 
 fn start_time(handle: &Handle, pseudo: bool, idx: usize, name: &str) -> f64 {
@@ -386,6 +466,14 @@ pub(crate) fn evaluate(
             continue;
         }
         let start = start_time(handle, pseudo.is_some(), idx, name);
+        ANIM_REPORT.with(|r| {
+            r.borrow_mut().push(AnimRecord {
+                key: (node_id(handle), pseudo.map(|p| format!("::{}", p.trim_start_matches(':'))), idx, name.to_string()),
+                node: Rc::downgrade(handle),
+                anim: a.clone(),
+                start,
+            })
+        });
         let elapsed = if a.play_state == AnimPlayState::Paused { 0.0 } else { now - start };
         let Some(p) = directed_progress(&a, elapsed) else { continue };
         let (lo, from, hi, to) = interval(&kf, p);
