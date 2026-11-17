@@ -990,7 +990,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
 --- The repo has no CI (.github/ does not exist), so a failing test can sit ---
 --- on main unnoticed; and every branch edits the one src/tests.rs. ----------
 
-- [ ] QCI0 [S] READY (P1, do before QCI1) A test fails on a clean checkout of main:
+- [x] QCI0 [S] DONE (752aaa1) (P1, do before QCI1) A test fails on a clean checkout of main:
       `inline_flex_lays_its_children_out_side_by_side_not_stacked` (tests.rs) gets
       `children[0].w == 49.871094`, expects 50.0 (`cargo test --release --lib
       inline_flex_lays`, reproduced at ec6a0e6 and 7e007e6 in a fresh Linux
@@ -1008,6 +1008,13 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       number). Never delete or `#[ignore]` the test (AGENTS.md step 2).
       Also run the full suite once with ONLY the CI font set from QCI1 installed
       and fix/file any other font-dependent test. WPT: no pass->fail.
+- [ ] QCI0a [S] READY (P3) `shrink_to_fit_table_is_sum_of_column_maxima_so_no_cell_wraps`
+      (tests.rs) fails when `sans-serif` is "0xProto Nerd Font Propo" (recipe in
+      tools/README; row 1 `HQ | Santa Clara` gets h=42, i.e. wraps to two lines,
+      table w=182.56): the shrink-to-fit table width under-measures that cell's
+      max-content versus the width it is then laid out at. Passes with Liberation
+      Sans, Lato and Noto Sans CJK JP. A real layout bug, not a test bug; measure
+      the cell's `cell_natural_width` max vs the shaped width, fix, keep the test.
 - [ ] QCI1 [S] READY (after QCI0; user asked for it 2026-11-17) GitHub Actions CI,
       `.github/workflows/ci.yml` at the repo root. On every PR and on push to
       main. Per crate (scratchy, wire, snag; each has its own Cargo.lock, no

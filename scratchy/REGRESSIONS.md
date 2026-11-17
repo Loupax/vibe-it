@@ -107,9 +107,9 @@ streams/Shorts; Reddit post-page/HLS player (reCAPTCHA), Reddit quality switch; 
 X players' actual MSE use (none booted); Guardian clicks; any EME on a page that needs it (none
 seen); seek/quality on anything but YouTube (stub) and Reddit feed (seek only).
 
-## R33: A test fails on a clean checkout of main: `inline_flex_lays_its_children_out_side_by_side_not_stacked` (review, 2026-11-17) — OPEN, item QCI0 in TODO.txt
+## R33: A test fails on a clean checkout of main: `inline_flex_lays_its_children_out_side_by_side_not_stacked` (review, 2026-11-17) — FIXED (QCI0)
 
-**Status: open.** Found by the 2026-11-17 review of main (ec6a0e6, again at
+**Status: FIXED by QCI0.** Root cause (a REAL flex bug, found by forcing another sans-serif: Lato and Noto Sans CJK JP reproduce it here, Liberation Sans and 0xProto Propo happen to pass): `parse_flex_shorthand` defaulted an omitted basis to `auto`, so `flex: 1` was `1 1 auto` and the split depended on each item's max-content width (the 0.13 px was "x" vs "y"). Per CSS Flexbox the omitted basis is `0%`: now `FlexBasis::Len(Percent(0))`. New test `flex_number_shorthand_has_zero_basis_so_split_ignores_glyph_widths`; font-dependent `q30d_paint_value_placeholder_password_caret_selection` made relative; `shrink_to_fit_table...` under 0xProto Propo filed as QCI0a. Original report: Found by the 2026-11-17 review of main (ec6a0e6, again at
 7e007e6) in a fresh Linux container: `cargo test --release` -> 877 passed,
 1 failed, 2 ignored. The failing assertion: two `flex: 1` items in a 100 px
 `inline-flex` box, `children[0].w` = 49.871094, expected 50.0. The container's

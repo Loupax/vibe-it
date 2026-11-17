@@ -7037,6 +7037,32 @@ fn inline_flex_lays_its_children_out_side_by_side_not_stacked() {
     assert_eq!(children[1].x, children[0].x + children[0].w, "the second flex item should start exactly where the first ends");
 }
 
+/// R33/QCI0: `flex: 1` is `1 1 0%`, so two items with very different content
+/// widths must still split the box exactly, whatever the system sans-serif.
+#[test]
+fn flex_number_shorthand_has_zero_basis_so_split_ignores_glyph_widths() {
+    let laid = measure_fixture(
+        r#"<html><body style="margin: 0"><div style="display: flex; width: 100px;"><div style="flex: 1;">iiii</div><div style="flex: 1;">wwwwww</div></div></body></html>"#,
+        500.0,
+    );
+    let row = find_embedded_or_block_with_two_children(&laid);
+    assert_eq!(row[0].w, 50.0);
+    assert_eq!(row[1].w, 50.0);
+}
+
+fn find_embedded_or_block_with_two_children(l: &Laid) -> &Vec<Laid> {
+    fn go(l: &Laid) -> Option<&Vec<Laid>> {
+        if let LaidContent::Blocks(c) = &l.content {
+            if c.len() == 2 && c[0].y == c[1].y && c[0].w + c[1].w == 100.0 {
+                return Some(c);
+            }
+            return c.iter().find_map(go);
+        }
+        None
+    }
+    go(l).expect("flex row with two items")
+}
+
 #[test]
 fn q7_css_wide_keywords_inherit_initial_unset_revert() {
     // Resolves <div> then its <p> child.
@@ -18955,9 +18981,12 @@ fn q30d_paint_value_placeholder_password_caret_selection() {
     assert_ne!(q30d_render(&p, TEXT_SINGLE | TEXT_PASSWORD, false, 200, 24), p2);
     // A textarea wraps: text longer than one line paints on more than one row.
     set_text_value(&t, "line one\nline two\nline three");
+    // Compared with one line rather than a pixel count: line height differs per font (R33).
+    let ink = |px: &[u32]| (0..80usize).filter(|y| (0..120usize).any(|x| px[y * 120 + x] != 0x00FFFFFF)).count();
     let rows = q30d_render(&t, TEXT_MULTI, false, 120, 80);
-    let ink_rows = (0..80usize).filter(|y| (0..120usize).any(|x| rows[y * 120 + x] != 0x00FFFFFF)).count();
-    assert!(ink_rows > 30, "three lines of text, got {ink_rows} inked rows");
+    set_text_value(&t, "line one");
+    let one = q30d_render(&t, TEXT_MULTI, false, 120, 80);
+    assert!(ink(&rows) > 2 * ink(&one), "three lines of text paint on more rows than one, got {} vs {}", ink(&rows), ink(&one));
     clear_text_state();
 }
 

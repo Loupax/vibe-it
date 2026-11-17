@@ -36,6 +36,13 @@
 9. Commit, then a separate "fill in the hash" commit. Never amend.
 
 ## Rules
+- Tests must not depend on the system sans-serif (R33): `new_font_system()`
+  resolves `sans-serif` through `fc-match`, so a font-specific number (a glyph
+  width) fails on another machine. Assert relations, or load Ahem. To try a
+  different font set locally: make a directory with only that font, write a
+  minimal `fonts.conf` (`<dir>` to it and a private `<cachedir>`), and run
+  `FONTCONFIG_FILE=/path/fonts.conf cargo test --release` (check with
+  `FONTCONFIG_FILE=... fc-match sans-serif`). Recipe in tools/README.
 - Performance claims need measurements (temporary `Instant` timing or
   `cargo bench`), not reasoning. Remove timing code before committing.
 - Before killing a scratchy process, `pgrep -fa scratchy` and kill

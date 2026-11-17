@@ -43,3 +43,22 @@ Known quirks:
   repeats the last position once before each `wait:` and at exit.
 - `key:g key:g` is vim `gg` (QB12). A pending `g` persists across separate
   `inject` runs, so end a test with a non-`g` key if the next run starts with `g`.
+
+Testing with a different system font set (R33)
+----------------------------------------------
+Tests shape real text through fontconfig, so a test that hard-codes a glyph
+width fails on a machine whose `sans-serif` differs. To reproduce, keep the
+system fonts (some tests need a distinct monospace) and force the generic:
+     mkdir -p $D/fonts $D/cache && cp SomeSans.ttf $D/fonts/
+     cat > $D/fonts.conf <<EOF
+     <?xml version="1.0"?><!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+     <fontconfig><include ignore_missing="yes">/etc/fonts/fonts.conf</include>
+     <dir>$D/fonts</dir><cachedir>$D/cache</cachedir>
+     <match target="pattern"><test name="family" qual="any"><string>sans-serif</string></test>
+     <edit name="family" mode="prepend" binding="strong"><string>Some Sans</string></edit></match>
+     </fontconfig>
+     EOF
+     FONTCONFIG_FILE=$D/fonts.conf fc-match sans-serif     # must name Some Sans
+     FONTCONFIG_FILE=$D/fonts.conf cargo test --release
+Only the generic families (`new_font_system`) follow `fc-match`; fontdb still
+lists everything under /usr/share/fonts.
