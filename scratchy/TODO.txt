@@ -46,7 +46,7 @@ older and were only partly corrected in place):
 - NEW 2026-11-17 (Opus, R36, user report): YouTube search Enter/button "does nothing".
   NOT QF11 and NOT form submission: YouTube's SPA navigation runs (yt-navigate,
   /youtubei/v1/search 200, pushState) and the 500 ms per-drain promise-job budget
-  kills it. QY46 [S] DONE (733eb86) P1 (Sonnet: per-job budget + drain cap, measure first),
+  kills it. QY46 [S] DONE (a2b8454) P1 (Sonnet: per-job budget + drain cap, measure first),
   QY47 [M] (Opus: `yt-lockup-view-model` results render nothing even when the
   navigation finishes), then QJ12 [S] (KeyboardEvent keyCode/code), QF11 (refined),
   QY48 [S] (pushState -> App URL). Block "NEW 2026-11-17 (Opus, R36 ...)" after QY44e.
@@ -1451,7 +1451,7 @@ Ranked: QY46 (P1, Sonnet) -> QY47 (Opus, investigate; can run in parallel with
 QY46) -> QJ12 (P2) -> QF11 (refined, P2; general, NOT the YouTube cause) -> QY48 (P3).
 Evidence and the probe recipe: REGRESSIONS.md R36.
 
-- [x] QY46 [S] DONE (733eb86) (P1, R36, Sonnet; concrete casualty of QY33) The promise-job drain
+- [x] QY46 [S] DONE (a2b8454) (P1, R36, Sonnet; concrete casualty of QY33) The promise-job drain
       gives ALL jobs of one drain ONE 500 ms CPU budget, so YouTube's SPA search
       navigation is killed mid-way and never finishes. js.rs: `drain_after_task`
       arms `CALLBACK_BUDGET` once and `drain_jobs` runs every pending job under that
@@ -1483,7 +1483,7 @@ Evidence and the probe recipe: REGRESSIONS.md R36.
       "Startseite" guide icon turns to its outline form in a grim shot, R36), with no
       `promise jobs stopped` line between the submit and the finish. Results will
       still be invisible until QY47.
-      DONE (733eb86): `drain_jobs` arms a fresh CALLBACK_BUDGET per job and per
+      DONE (a2b8454): `drain_jobs` arms a fresh CALLBACK_BUDGET per job and per
       rejection flush, stops starting jobs at DRAIN_CAP (2 s CPU) and leaves the rest
       queued (next_deadline already reports queued jobs as due). Tests qy46_*.
       Measured (thread CPU per promise job, un-niced, load ~2 on 8 cores, YouTube via
