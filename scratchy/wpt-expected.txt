@@ -613,5 +613,5 @@ PASS html/rendering/non-replaced-elements/the-page/body-margin-2b.html
 PASS html/rendering/replaced-elements/attributes-for-embedded-content-and-images/number-placeholder-right-aligned.html
 FAIL html/rendering/replaced-elements/the-select-element/customizable-select/min-size-empty-002.html
 PASS html/rendering/the-details-element/details-page-break-after-2-print.html
-FAIL html/rendering/widgets/button-layout/centering-002.html
-FAIL html/rendering/widgets/input-date-baseline.html
+PASS html/rendering/widgets/button-layout/centering-002.html
+PASS html/rendering/widgets/input-date-baseline.html

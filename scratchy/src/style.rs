@@ -375,6 +375,9 @@ pub(crate) struct ComputedStyle {
     pub(crate) text_overflow: TextOverflow,
     /// QAN1a: the interned animation lists (parse only, not evaluated yet).
     pub(crate) animations: Option<&'static AnimLonghands>,
+    /// `appearance: none` (Q30a): form controls keep their text but get no
+    /// widget decorations (check mark, select arrow, bar fill). Not inherited.
+    pub(crate) appearance_none: bool,
     /// Only ever `Some` on the synthetic document-root box: the window
     /// height, i.e. the initial containing block's definite height. It
     /// feeds `child_containing_height` (so `html{height:100%}` resolves)
@@ -1548,7 +1551,8 @@ pub(crate) fn resolve_style_for(
     // border/outline/vertical padding on real boxes, so without this the
     // wikipedia.org language button lost its white outline and the divider
     // line showed through its text.
-    let button_inline_block = pseudo.is_none() && element_tag(handle) == "button";
+    let button_inline_block =
+        pseudo.is_none() && matches!(element_tag(handle), "button" | "input" | "select" | "textarea" | "progress" | "meter");
     let display = if button_inline_block && display == Display::Inline { Display::InlineBlock } else { display };
     // Resolved before margin/padding/border-width: an `em` on any of those
     // is relative to *this* element's own font-size (not its parent's),
@@ -2108,6 +2112,8 @@ pub(crate) fn resolve_style_for(
         overflow,
         text_overflow,
         animations: cascade_animations(&matches, inl),
+        appearance_none: cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.appearance_none), |d| d.appearance_none)
+            .unwrap_or(false),
         icb_height: None,
         first_line: None,
         cursor,
@@ -2226,6 +2232,7 @@ pub(crate) fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         overflow: Overflow::default(),
         text_overflow: TextOverflow::default(),
         animations: None,
+        appearance_none: false,
         icb_height: None,
         first_line: None,
         cursor: inherited.cursor,

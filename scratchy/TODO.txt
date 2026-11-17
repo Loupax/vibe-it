@@ -5715,7 +5715,7 @@ must not rebuild the whole layout tree (R2/R3 lesson; full rebuild is
 ~0.4s on Wikipedia). Measure keystroke-to-paint latency on a real page
 with temporary `Instant` timing, and say the number in the commit.
 
-- [ ] Q30a [M] READY (go-ahead 2026-11-17) Form controls get real boxes and UA styles (render only,
+- [x] Q30a [M] DONE (hash: PENDING) Form controls get real boxes and UA styles (render only,
       no interaction yet). `default.css` rules for `input`, `button`,
       `select`, `textarea`, `fieldset`, `legend`, `label` (cross-check
       the WHATWG rendering chapter, hand-curate, don't copy html.css).
@@ -5735,6 +5735,17 @@ with temporary `Instant` timing, and say the number in the commit.
       per control type for box size; `:checked`/`:disabled` already
       match (Q2), check the UA styles use them. Screenshot
       social.loupax.com/u/loupax and the Wikipedia search box.
+      Q30a notes: all UA styles are the "forms (Q30a)" block at the end of
+      default.css; widget content is src/forms.rs (one fn per widget). Done: text-like
+      inputs, password bullets, checkbox/radio (13px, mark when `checked`), button-like
+      inputs, color/file/range simple faces, textarea, select (closed + listbox),
+      progress/meter, hidden, `appearance:none`, `::placeholder`. WPT +2 passing
+      (button-layout/centering-002, input-date-baseline). Left out -> Q30a2.
+- [ ] Q30a2 [S] READY Form controls: real inline baseline alignment (inline-blocks are
+      still bottom-aligned, so a control's text sits 2-3px off the surrounding text
+      baseline), `<select>` width from real option text widths (now an estimate of
+      0.55em per char), `type=image` with a loaded `src`, focus-visible/`:checked`
+      styling for the native look. Needs a real baseline in `measure_mixed_inline`.
 - [ ] Q30b [S] READY (go-ahead 2026-11-17) Controls are focusable and clickable. `is_focusable`
       includes enabled `input` (not hidden), `button`, `select`,
       `textarea`; `disabled` ones are skipped by Tab and clicks. A

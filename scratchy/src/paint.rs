@@ -176,6 +176,10 @@ pub(crate) fn fill_rounded_ring(
     color: TextColor,
     clip: Option<(f32, f32, f32, f32)>,
 ) {
+    // Snap the vertical extent to whole rows first: with a fractional `y`/`h`
+    // the last row (`row >= inner_y + inner_h`) was classed as an inner row,
+    // so a 1px bottom border of a rounded box could vanish (form controls).
+    let (y, h) = (y.round(), (y + h).round() - y.round());
     let r_outer = radius.min(w / 2.0).min(h / 2.0).max(0.0);
     let (inner_x, inner_y) = (x + border_width, y + border_width);
     let (inner_w, inner_h) = (w - 2.0 * border_width, h - 2.0 * border_width);

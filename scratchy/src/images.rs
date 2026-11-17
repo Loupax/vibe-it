@@ -438,6 +438,11 @@ pub(crate) fn build_box_for_element(
     if element_tag(handle) == "img" {
         return build_img_box(handle, style, background_image, image_cache);
     }
+    if is_form_control_tag(element_tag(handle))
+        && let Some(b) = build_form_control_box(handle, style, background_image.clone(), &FormCtx { rules, viewport_width })
+    {
+        return b;
+    }
     if element_tag(handle) == "iframe" {
         // Q52a: a replaced box with no nested browsing context: default
         // 300x150, `width`/`height` attributes next, CSS wins; paints
