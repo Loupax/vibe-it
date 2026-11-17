@@ -16978,6 +16978,7 @@ fn qj8_active_element_follows_focus_blur_and_removal() {
         ["log:true true", "log:true", "log:true", "log:true", "log:true", "log:true", "log:true true"],
         "{log:?}"
     );
+}
 
 // ---------- QY44c: document.styleSheets, style/link .sheet, insertRule reaches the cascade ----------
 
