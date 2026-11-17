@@ -36,6 +36,9 @@ pub(crate) struct SpanStyle {
     pub(crate) word_spacing: f32,
     /// `word-break: break-all` (Q20d) switches the run to glyph wrapping.
     pub(crate) word_break: WordBreak,
+    /// The `white-space` of the element this text sits in (QY43): an inline
+    /// element can preserve newlines inside a block whose own value is `normal`.
+    pub(crate) white_space: WhiteSpace,
     /// The absolute-or-relative `href` text of the nearest enclosing
     /// `a`/`area` with an `href` attribute, if any — not a CSS property
     /// at all, so it's carried the same *ambient* way `background_color`/
@@ -77,6 +80,7 @@ impl From<InheritedStyle> for SpanStyle {
             cursor: s.cursor,
             word_spacing: s.word_spacing,
             word_break: s.word_break,
+            white_space: s.white_space,
             href: None,
             node: 0,
             tnode: 0,
@@ -2742,77 +2746,90 @@ pub(crate) fn measure_mixed_inline<'a>(
                 } else {
                     text
                 };
-                if text.is_empty() {
-                    continue;
-                }
-                if trim_css_ws(text).is_empty() && !matches!(s.white_space, WhiteSpace::Pre | WhiteSpace::PreWrap) {
-                    hang.insert(measured.len());
-                }
-                if span.word_spacing != 0.0 {
-                    for word in text.split_inclusive(' ') {
-                        if word.is_empty() {
-                            continue;
-                        }
+                // QY43: a preserved newline is a forced line break. Split the
+                // text at '\n' and emit a `Break` between the segments, like
+                // the BR_TEXT arm (blank lines give empty lines).
+                let preserves_nl = text.contains('\n') && !matches!(span.white_space, WhiteSpace::Normal | WhiteSpace::Nowrap);
+                let segments: Vec<&str> = if preserves_nl { text.split('\n').collect() } else { vec![text] };
+                for (seg_idx, text) in segments.into_iter().enumerate() {
+                    if seg_idx > 0 {
                         let id = *next_id;
                         *next_id += 1;
-                        let (width, height) = shape_or_resume_word(font_system, cache, id, word, *span, WORD_MEASURE_WIDTH, deadline, incomplete);
-                        // Real CSS adds extra space after each word-
-                        // separator space character, so only a token
-                        // that actually carries its own trailing space
-                        // (a real boundary — not the very last word in
-                        // the whole run, which never got one) gets any.
-                        // Baked straight into `width` rather than a new
-                        // field — every consumer of a word's width here
-                        // already wants the bigger number for free.
-                        let extra = if word.ends_with(' ') { span.word_spacing } else { 0.0 };
-                        measured.push(Measured::Word { source: WordSource::Cached(id), width: width + extra, height });
+                        let (_, height) = shape_or_resume_word(font_system, cache, id, " ", *span, WORD_MEASURE_WIDTH, deadline, incomplete);
+                        measured.push(Measured::Break { height });
                     }
-                    continue;
-                }
-                // The common case: shape this whole text item as one
-                // `Buffer` — see this function's own docs for why that's
-                // ~135x cheaper in practice than one `Buffer` per word —
-                // then read each word's own width back out of it
-                // (`word_widths_from_buffer`). `word-spacing` is zero
-                // here (checked above), so nothing needs repositioning
-                // relative to this buffer's own natural spacing.
-                let ranges = word_byte_ranges(text);
-                if ranges.is_empty() {
-                    continue;
-                }
-                let chunk_id = *next_id;
-                *next_id += 1;
-                let (widths, height) = if let Some(entry) = cache.get(&chunk_id) {
-                    let guard = entry.lock().unwrap();
-                    (word_widths_from_buffer(&guard.0, &ranges), guard.1)
-                } else if std::time::Instant::now() < deadline {
-                    let synth = [InlineItem::Text(text.to_string(), *span)];
-                    let mkey = memo_key(2, &synth, WORD_MEASURE_WIDTH, true, None);
-                    if let Some(hit) = memo_get(mkey) {
-                        let r = {
-                            let g = hit.lock().unwrap();
-                            (word_widths_from_buffer(&g.0, &ranges), g.1)
-                        };
-                        cache.insert(chunk_id, hit);
-                        r
-                    } else {
-                        let (buffer, height, backgrounds, valigns, hidden, cursors, decoration_styles, hrefs) =
-                            shape_spans(font_system, &synth, WORD_MEASURE_WIDTH, true, None);
-                        let widths = word_widths_from_buffer(&buffer, &ranges);
-                        let entry = Arc::new(Mutex::new((buffer, height, backgrounds, valigns, hidden, cursors, decoration_styles, hrefs)));
-                        memo_put(mkey, &entry);
-                        cache.insert(chunk_id, entry);
-                        (widths, height)
+                    if text.is_empty() {
+                        continue;
                     }
-                } else {
-                    *incomplete = true;
-                    (vec![0.0; ranges.len()], PLACEHOLDER_LINE_HEIGHT)
-                };
-                chunk_text.insert(chunk_id, (text, *span));
-                for (range, width) in ranges.into_iter().zip(widths) {
-                    let word_id = *next_id;
+                    if trim_css_ws(text).is_empty() && !matches!(s.white_space, WhiteSpace::Pre | WhiteSpace::PreWrap) {
+                        hang.insert(measured.len());
+                    }
+                    if span.word_spacing != 0.0 {
+                        for word in text.split_inclusive(' ') {
+                            if word.is_empty() {
+                                continue;
+                            }
+                            let id = *next_id;
+                            *next_id += 1;
+                            let (width, height) = shape_or_resume_word(font_system, cache, id, word, *span, WORD_MEASURE_WIDTH, deadline, incomplete);
+                            // Real CSS adds extra space after each word-
+                            // separator space character, so only a token
+                            // that actually carries its own trailing space
+                            // (a real boundary — not the very last word in
+                            // the whole run, which never got one) gets any.
+                            // Baked straight into `width` rather than a new
+                            // field — every consumer of a word's width here
+                            // already wants the bigger number for free.
+                            let extra = if word.ends_with(' ') { span.word_spacing } else { 0.0 };
+                            measured.push(Measured::Word { source: WordSource::Cached(id), width: width + extra, height });
+                        }
+                        continue;
+                    }
+                    // The common case: shape this whole text item as one
+                    // `Buffer` — see this function's own docs for why that's
+                    // ~135x cheaper in practice than one `Buffer` per word —
+                    // then read each word's own width back out of it
+                    // (`word_widths_from_buffer`). `word-spacing` is zero
+                    // here (checked above), so nothing needs repositioning
+                    // relative to this buffer's own natural spacing.
+                    let ranges = word_byte_ranges(text);
+                    if ranges.is_empty() {
+                        continue;
+                    }
+                    let chunk_id = *next_id;
                     *next_id += 1;
-                    measured.push(Measured::Word { source: WordSource::Chunk { chunk_id, range, word_id }, width, height });
+                    let (widths, height) = if let Some(entry) = cache.get(&chunk_id) {
+                        let guard = entry.lock().unwrap();
+                        (word_widths_from_buffer(&guard.0, &ranges), guard.1)
+                    } else if std::time::Instant::now() < deadline {
+                        let synth = [InlineItem::Text(text.to_string(), *span)];
+                        let mkey = memo_key(2, &synth, WORD_MEASURE_WIDTH, true, None);
+                        if let Some(hit) = memo_get(mkey) {
+                            let r = {
+                                let g = hit.lock().unwrap();
+                                (word_widths_from_buffer(&g.0, &ranges), g.1)
+                            };
+                            cache.insert(chunk_id, hit);
+                            r
+                        } else {
+                            let (buffer, height, backgrounds, valigns, hidden, cursors, decoration_styles, hrefs) =
+                                shape_spans(font_system, &synth, WORD_MEASURE_WIDTH, true, None);
+                            let widths = word_widths_from_buffer(&buffer, &ranges);
+                            let entry = Arc::new(Mutex::new((buffer, height, backgrounds, valigns, hidden, cursors, decoration_styles, hrefs)));
+                            memo_put(mkey, &entry);
+                            cache.insert(chunk_id, entry);
+                            (widths, height)
+                        }
+                    } else {
+                        *incomplete = true;
+                        (vec![0.0; ranges.len()], PLACEHOLDER_LINE_HEIGHT)
+                    };
+                    chunk_text.insert(chunk_id, (text, *span));
+                    for (range, width) in ranges.into_iter().zip(widths) {
+                        let word_id = *next_id;
+                        *next_id += 1;
+                        measured.push(Measured::Word { source: WordSource::Chunk { chunk_id, range, word_id }, width, height });
+                    }
                 }
             }
             InlineItem::Image { image, style, background_image } => {

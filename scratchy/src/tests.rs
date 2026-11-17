@@ -16869,3 +16869,89 @@ fn qy44b_window_screen_and_visual_viewport() {
         vec!["log:object|true|true|true|true|true|true|0|0|24|24|string|0|function|true|0|0|0|0|true|true|1|0|0|0|0"]
     );
 }
+
+/// QY43: a preserved newline inside a paragraph on the per-word path
+/// (inline-block / padded inline present) is a forced break; a blank line
+/// ("\n\n") is an empty line; no two word boxes on a line overlap.
+type Qy43Words = Vec<(f32, f32, f32)>;
+fn qy43_items(html: &str) -> (Qy43Words, Option<(f32, f32)>) {
+    let laid = measure_fixture(html, 800.0);
+    let run = find_mixed_inline(&laid).expect("mixed-inline path");
+    let items = mixed_items(run);
+    let words: Vec<(f32, f32, f32)> = items
+        .iter()
+        .filter_map(|i| match i {
+            MixedPositioned::Word { x, y, w, .. } => Some((*x, *y, *w)),
+            _ => None,
+        })
+        .collect();
+    let emb = items.iter().find_map(|i| match i {
+        MixedPositioned::Embedded(l) => Some((l.x, l.y)),
+        _ => None,
+    });
+    (words, emb)
+}
+
+fn qy43_assert_no_overlap(words: &[(f32, f32, f32)]) {
+    for (i, a) in words.iter().enumerate() {
+        for b in &words[i + 1..] {
+            if (a.1 - b.1).abs() < 0.5 {
+                assert!(a.0 + a.2 <= b.0 + 0.5 || b.0 + b.2 <= a.0 + 0.5, "overlap {a:?} {b:?}");
+            }
+        }
+    }
+}
+
+#[test]
+fn qy43_pre_wrap_newlines_with_inline_block_do_not_overprint() {
+    let (words, emb) = qy43_items(
+        "<html><body style=\"margin:0\"><div style=\"white-space:pre-wrap;width:400px\">Aaa bbb.\n\nWenn du mehr <span style=\"display:inline-block\">Info</span> ccc</div></body></html>",
+    );
+    qy43_assert_no_overlap(&words);
+    let first_y = words[0].1;
+    let last_y = words.last().unwrap().1;
+    // Line 1, an empty line, line 3: the last word sits two line heights down.
+    let step = (last_y - first_y) / 2.0;
+    assert!(step > 5.0, "blank line missing: {first_y} {last_y}");
+    let (_, ey) = emb.expect("inline-block");
+    assert!(ey > first_y + step, "inline-block on the third block: {ey}");
+}
+
+#[test]
+fn qy43_pre_wrap_pre_line_pre_with_padded_inline_break_at_newline() {
+    for ws in ["pre-wrap", "pre-line", "pre"] {
+        let (words, _) = qy43_items(&format!(
+            "<html><body style=\"margin:0\"><div style=\"white-space:{ws}\">one two\nthree <span style=\"padding:0 3px\">four</span></div></body></html>"
+        ));
+        qy43_assert_no_overlap(&words);
+        let ys: Vec<f32> = words.iter().map(|w| w.1).collect();
+        // A chunk that stays on one line is one merged word box.
+        assert!(words.len() >= 2, "{ws}: {ys:?}");
+        assert!(ys[1] > ys[0] + 5.0, "{ws}: second line lower {ys:?}");
+        assert!((ys[1] - ys[2]).abs() < 0.5 || ys.len() == 2, "{ws}: three/four share a line {ys:?}");
+    }
+}
+
+#[test]
+fn qy43_inline_pre_wrap_span_in_normal_block_breaks_at_newline() {
+    // YouTube: `yt-formatted-string{white-space:pre-wrap}` is an inline
+    // element in a block whose own white-space is `normal`.
+    let (words, emb) = qy43_items(
+        "<html><body style=\"margin:0\"><div style=\"width:300px\"><span style=\"white-space:pre-wrap\">Aaa bbb.\n\nWenn du die Einstellung aendern moechtest, schalte den YouTube-Verlauf ein und bestaetige alles, </span><a style=\"display:inline-block\">Info</a></div></body></html>",
+    );
+    qy43_assert_no_overlap(&words);
+    let first_y = words[0].1;
+    assert!(words.iter().skip(1).all(|w| w.1 >= first_y + 2.0 * 10.0), "text after the blank line stays below: {words:?}");
+    assert!(emb.unwrap().1 > words.last().unwrap().1 - 1.0);
+}
+
+#[test]
+fn qy43_plain_pre_wrap_blank_line_and_normal_collapse_unchanged() {
+    let two = measure_fixture("<html><body style=\"margin:0\"><div style=\"white-space:pre-wrap\">a\n\nb</div></body></html>", 800.0);
+    let one = measure_fixture("<html><body style=\"margin:0\"><div style=\"white-space:pre-wrap\">a\nb</div></body></html>", 800.0);
+    assert!(two.h > one.h + 5.0, "blank line adds height: {} vs {}", two.h, one.h);
+    let (words, _) = qy43_items(
+        "<html><body style=\"margin:0\"><div>one\ntwo <span style=\"display:inline-block\">x</span></div></body></html>",
+    );
+    assert!(words.iter().all(|w| (w.1 - words[0].1).abs() < 0.5), "{words:?}");
+}
