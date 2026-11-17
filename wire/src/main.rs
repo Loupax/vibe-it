@@ -1,4 +1,5 @@
 mod cookies;
+mod ws;
 
 use std::cell::{Cell, RefCell};
 use std::io::{BufRead, BufReader, Read, Write};
@@ -122,8 +123,11 @@ fn agent_builder() -> ureq::AgentBuilder {
     ureq::AgentBuilder::new()
         .timeout(DEFAULT_TIMEOUT)
         .resolver(TrackingResolver)
-        .user_agent("wire/0.1 (+https://github.com/Loupax/vibe-it) scratchy's real-networking daemon")
+        .user_agent(DEFAULT_UA)
 }
+
+/// wire's honest default User-Agent (QY39a: overridable per request).
+const DEFAULT_UA: &str = "wire/0.1 (+https://github.com/Loupax/vibe-it) scratchy's real-networking daemon";
 
 // ---------- target classes and the resolver ----------
 
@@ -134,8 +138,9 @@ const WIRE_VERSION: &str = "3";
 
 /// Comma-separated optional features, sent as `X-Wire-Features` on every
 /// response (additive; absent on an older wire). `ua`: per-request User-Agent
-/// override (`X-Wire-User-Agent` / the request's own `User-Agent`).
-const WIRE_FEATURES: &str = "ua";
+/// override (`X-Wire-User-Agent` / the request's own `User-Agent`). `ws`: the
+/// WebSocket pipe (`X-Wire-Upgrade: websocket`, QF19w1, see `ws.rs`).
+const WIRE_FEATURES: &str = "ua,ws";
 
 /// The one jar name scratchy may select with `X-Wire-Jar` (QF-D2a: ONE shared
 /// jar; a later `--profile NAME` changes this single value).
@@ -508,6 +513,18 @@ fn handle_connection(stream: UnixStream, agent: &ureq::Agent, shared: &Shared) {
             return;
         }
     };
+    // QF19w1: an explicit `X-Wire-Upgrade` opts into the WebSocket pipe (never
+    // for the cookie control channel); without it an Upgrade request is an
+    // ordinary request, exactly as before.
+    if header(&request.headers, "x-wire-upgrade").is_some() && header(&request.headers, "x-wire-cookie-op").is_none() {
+        COOKIES_HDR.with(|c| c.set(if shared.enabled { "" } else { "off" }));
+        if let Err(e) = ws::handle(shared, &request, reader, &mut writer)
+            && e.kind() != std::io::ErrorKind::BrokenPipe
+        {
+            eprintln!("wire: websocket: {e}");
+        }
+        return;
+    }
     if let Err(e) = execute_with(agent, shared, &request, &mut writer)
         && e.kind() != std::io::ErrorKind::BrokenPipe
     {
@@ -2187,10 +2204,10 @@ mod tests {
     #[test]
     fn every_response_advertises_the_ua_feature() {
         let (addr, _rx) = ua_server();
-        assert_eq!(hdr(&execute_for_test(&build_agent(), &get_request(addr, "/")), "X-Wire-Features"), Some("ua"));
+        assert_eq!(hdr(&execute_for_test(&build_agent(), &get_request(addr, "/")), "X-Wire-Features"), Some("ua,ws"));
         let down = get_request("127.0.0.1:1".parse().unwrap(), "/");
-        assert_eq!(hdr(&execute_for_test(&build_agent(), &down), "X-Wire-Features"), Some("ua"));
+        assert_eq!(hdr(&execute_for_test(&build_agent(), &down), "X-Wire-Features"), Some("ua,ws"));
         let bad = with_headers(get_request(addr, "/"), &[("X-Wire-User-Agent", "a\r\nb")]);
-        assert_eq!(hdr(&execute_for_test(&build_agent(), &bad), "X-Wire-Features"), Some("ua"));
+        assert_eq!(hdr(&execute_for_test(&build_agent(), &bad), "X-Wire-Features"), Some("ua,ws"));
     }
 }

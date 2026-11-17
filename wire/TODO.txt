@@ -178,3 +178,9 @@ the commit it came up during.
       internet, scratchy/TODO.txt QNET1). Full spec in scratchy/TODO.txt QF19w1:
       same policy/jar checks on the handshake, after `101` copy bytes both ways on
       the connection, no pooling, `X-Wire-Features: ws`.
+
+- [x] (DONE 2026-11-17, QF19w1, hash 35ad5f8; the user must reinstall and restart wire) **WebSocket pipe**: `X-Wire-Upgrade: websocket` -> handshake
+      through the usual checks on a fresh connection, 101 head then a byte pipe,
+      `X-Wire-Features: ua,ws`. See NOTES.md "The WebSocket pipe". Not done:
+      scratchy side (QF19w2); idle/keepalive limits (none by design); the wss pipe
+      polls at 10 ms instead of using readiness.

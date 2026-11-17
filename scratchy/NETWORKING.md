@@ -148,7 +148,7 @@ scratchy fail closed: page networking is off for the rest of the page, with
 the one line `scratchy: page networking disabled: wire is too old (restart
 it)`. A wire older than 3 means cookies are unavailable (logged once). Every response
 also carries `X-Wire-Features` (comma list; `ua` = per-request User-Agent
-override via `X-Wire-User-Agent` or the request's own `User-Agent`); scratchy
+override via `X-Wire-User-Agent` or the request's own `User-Agent`; `ws` = the WebSocket pipe, `X-Wire-Upgrade: websocket`, QF19w1); scratchy
 must see `ua` there before relying on a UA override (an older wire ignores it).
 
 ## Not implemented
