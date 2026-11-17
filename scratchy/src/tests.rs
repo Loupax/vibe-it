@@ -17903,18 +17903,23 @@ fn q30a_textarea_rows_cols_text_and_placeholder() {
 
 #[test]
 fn q30a_select_shows_selected_option_and_arrow_not_the_others() {
-    let t = q30a_all_text("<select><option>Alpha<option selected>Beta<option>Gamma</select>");
-    assert!(t.iter().any(|(s, _)| s == "Beta"), "{t:?}");
-    assert!(!t.iter().any(|(s, _)| s == "Alpha" || s == "Gamma"), "{t:?}");
-    assert!(t.iter().any(|(s, _)| s.contains('\u{2304}')), "arrow: {t:?}");
-    let first = q30a_all_text("<select><option>One<option>Two</select>");
-    assert!(first.iter().any(|(s, _)| s == "One") && !first.iter().any(|(s, _)| s == "Two"));
-    let none = q30a_all_text("<select style=\"appearance:none\"><option>One</select>");
-    assert!(none.iter().any(|(s, _)| s == "One") && !none.iter().any(|(s, _)| s.contains('\u{2304}')));
-    let lb = q30a_all_text("<select multiple size=3><option>A<option>B<option>C</select>");
-    for o in ["A", "B", "C"] {
-        assert!(lb.iter().any(|(s, _)| s == o), "{lb:?}");
+    // Q30g: the closed text, the arrow and the listbox rows are painted from the
+    // live selection (forms_select.rs); the tree only sizes the box.
+    fn shown(html: &str) -> (String, bool, Vec<String>) {
+        clear_select_state();
+        let doc = parse_html(&format!("<html><body style=\"margin:0\">{html}</body></html>"));
+        let _ = build_layout_tree(&doc, 1000.0);
+        let h = find_element_by_tag(&doc, "select").expect("select");
+        let i = select_paint_info(node_id(&h)).expect("registered by the build");
+        (i.shown_text(), i.snap.listbox, i.snap.rows.iter().map(|r| r.label.clone()).collect())
     }
+    let a = shown("<select><option>Alpha<option selected>Beta<option>Gamma</select>");
+    assert_eq!((a.0.as_str(), a.1), ("Beta", false));
+    assert_eq!(shown("<select><option>One<option>Two</select>").0, "One");
+    assert_eq!(shown("<select style=\"appearance:none\"><option>One</select>").0, "One");
+    let lb = shown("<select multiple size=3><option>A<option>B<option>C</select>");
+    assert_eq!((lb.1, lb.2), (true, vec!["A".to_string(), "B".to_string(), "C".to_string()]));
+    clear_select_state();
 }
 
 fn q30a_embedded_styles(b: &LayoutBox, out: &mut Vec<ComputedStyle>) {
@@ -20180,4 +20185,297 @@ mod qm1f_real {
         assert_eq!(c.error.as_ref().map(|e| e.0), Some(4));
         assert_eq!(c.network_state, NETWORK_NO_SOURCE);
     }
+}
+
+// ---- Q30g: live <select> state, popup state machine, keyboard --------------
+
+fn q30g_doc(html: &str) -> Handle {
+    clear_select_state();
+    clear_check_state();
+    clear_text_state();
+    parse_html(&format!("<html><body>{html}</body></html>"))
+}
+
+fn q30g_selects(h: &Handle, out: &mut Vec<Handle>) {
+    if element_tag(h) == "select" {
+        out.push(h.clone());
+    }
+    for c in h.children.borrow().iter() {
+        q30g_selects(c, out);
+    }
+}
+
+#[test]
+fn q30g_defaults_single_multiple_listbox_optgroup_disabled() {
+    let doc = q30g_doc(
+        r#"<select id=a><option>x<option selected>y<option selected>z</select>
+        <select id=b><option disabled>d<option>e<option>f</select>
+        <select id=c multiple><option selected>1<option>2<option selected>3</select>
+        <select id=d size=3><option>1<option>2</select>
+        <select id=e><optgroup label=G disabled><option>g1<option>g2</optgroup><optgroup label=H><option>h1</optgroup></select>
+        <select id=f></select>"#,
+    );
+    let idx = |id: &str| selected_indices(&q30c_by(&doc, id));
+    assert_eq!(idx("a"), vec![2], "last selected attribute wins");
+    assert_eq!(idx("b"), vec![1], "first non-disabled");
+    assert_eq!(idx("c"), vec![0, 2]);
+    assert!(idx("d").is_empty(), "single listbox selects nothing by default");
+    assert_eq!(idx("e"), vec![2], "options of a disabled optgroup are disabled");
+    assert!(idx("f").is_empty());
+    let rows = select_rows(&q30c_by(&doc, "e"));
+    assert_eq!(rows.len(), 5);
+    assert!(rows[0].opt.is_none() && rows[0].disabled && rows[0].label == "G");
+    assert!(rows[1].grouped && rows[1].disabled && !rows[4].disabled);
+    clear_select_state();
+}
+
+#[test]
+fn q30g_live_selection_option_selected_and_reset() {
+    let doc = q30g_doc(
+        r#"<form id=f><select id=s name=s><option id=o0 value=a>A<option id=o1 value=b selected>B<option id=o2 value=c>C</select>
+        <select id=m name=m multiple><option id=m0>1<option id=m1>2<option id=m2>3</select></form>"#,
+    );
+    let (s, f) = (q30c_by(&doc, "s"), q30c_by(&doc, "f"));
+    let (o0, o1, o2) = (q30c_by(&doc, "o0"), q30c_by(&doc, "o1"), q30c_by(&doc, "o2"));
+    assert!(option_is_selected(&o1) && !option_is_selected(&o0));
+    assert!(set_selected_indices(&s, &[2]));
+    assert!(!set_selected_indices(&s, &[2]), "unchanged selection reports false");
+    assert!(option_is_selected(&o2) && !option_is_selected(&o1));
+    assert_eq!(selected_index(&s), 2);
+    assert_eq!(q30e_set(&f, None), "s=c");
+    assert!(set_option_selected(&o0, true));
+    assert_eq!(selected_indices(&s), vec![0]);
+    set_option_selected(&o0, false);
+    assert_eq!(selected_indices(&s), vec![0], "deselecting the only selection resets to the first enabled option");
+    set_selected_indices(&s, &[]);
+    assert_eq!(selected_index(&s), -1);
+    assert_eq!(q30e_set(&f, None), "", "a select with no selection submits nothing");
+    let m = q30c_by(&doc, "m");
+    set_option_selected(&q30c_by(&doc, "m0"), true);
+    set_option_selected(&q30c_by(&doc, "m2"), true);
+    assert_eq!(selected_indices(&m), vec![0, 2]);
+    assert_eq!(q30e_set(&f, None), "m=1&m=3");
+    set_option_selected(&q30c_by(&doc, "m0"), false);
+    assert_eq!(selected_indices(&m), vec![2]);
+    assert!(reset_form_state(&f));
+    assert_eq!(selected_indices(&s), vec![1]);
+    assert!(selected_indices(&m).is_empty());
+    assert_eq!(q30e_set(&f, None), "s=b");
+    clear_select_state();
+}
+
+#[test]
+fn q30g_removed_selected_option_falls_back_to_default() {
+    let doc = q30g_doc("<select id=s><option id=a>A<option id=b>B</select>");
+    let s = q30c_by(&doc, "s");
+    set_selected_indices(&s, &[1]);
+    let b = q30c_by(&doc, "b");
+    s.children.borrow_mut().retain(|c| !Rc::ptr_eq(c, &b));
+    assert_eq!(selected_indices(&s), vec![0]);
+    clear_select_state();
+}
+
+#[test]
+fn q30g_data_set_uses_live_selection() {
+    let doc = q30g_doc(
+        r#"<form id=f><select name=s><option value=1>a<option value=2 selected>b</select>
+        <select name=d><option value=x>x<option value=y disabled>y</select></form>"#,
+    );
+    let f = q30c_by(&doc, "f");
+    assert_eq!(q30e_set(&f, None), "s=2&d=x");
+    let mut sels = Vec::new();
+    q30g_selects(&doc, &mut sels);
+    set_selected_indices(&sels[0], &[0]);
+    set_selected_indices(&sels[1], &[1]);
+    assert_eq!(q30e_set(&f, None), "s=1", "a disabled option is never submitted");
+    clear_select_state();
+}
+
+#[test]
+fn q30g_javascript_round_trips() {
+    let doc = q30g_doc(
+        r#"<form id=f><select id=s name=s><option value=a>A<option value=b selected>B<option value=c>C</select>
+        <select id=m multiple><optgroup label=G><option>1<option selected>2</optgroup><option>3</select></form>"#,
+    );
+    let js = run_page_scripts(
+        &doc,
+        &[src(
+            "var s=document.getElementById('s'),m=document.getElementById('m'),o=[];\
+             o.push(s.value,s.selectedIndex,s.length,s.options.length,s.selectedOptions.length,s.type,m.type);\
+             s.value='c'; o.push(s.value,s.selectedIndex,s.options[2].selected,s.options[1].selected,s.options[1].defaultSelected);\
+             s.selectedIndex=0; o.push(s.value);\
+             s.value='nope'; o.push(s.selectedIndex,'['+s.value+']');\
+             s.options[1].selected=true; o.push(s.value,s.selectedIndex);\
+             var n=document.createElement('option'); n.value='z'; n.text='Z'; s.add(n); o.push(s.length); n.selected=true; o.push(s.value);\
+             s.remove(3); o.push(s.length);\
+             s.length=1; o.push(s.length);\
+             o.push(m.selectedOptions.length, m.options[1].selected, m.options[0].selected);\
+             m.options[0].selected=true; o.push(m.selectedOptions.length);\
+             m.selectedIndex=2; o.push(m.selectedOptions.length, m.selectedIndex);\
+             s.value='a'; document.getElementById('f').reset(); o.push(s.value, m.selectedIndex);\
+             window.out=o.join('|');",
+        )],
+        None,
+    )
+    .expect("js");
+    let got: String = js.eval_value("t", "window.out").expect("out");
+    assert_eq!(got, "b|1|3|3|1|select-one|select-multiple|c|2|true|false|true|a|-1|[]|b|1|4|z|3|1|1|true|false|2|1|2|a|1");
+    clear_select_state();
+}
+
+#[test]
+fn q30g_step_typeahead_and_click_selection_are_pure() {
+    let dis = [true, false, false, true, false];
+    assert_eq!(step_index(&dis, None, Step::Next), Some(1));
+    assert_eq!(step_index(&dis, None, Step::Prev), Some(4));
+    assert_eq!(step_index(&dis, Some(1), Step::Next), Some(2));
+    assert_eq!(step_index(&dis, Some(2), Step::Next), Some(4), "skips the disabled option");
+    assert_eq!(step_index(&dis, Some(4), Step::Next), Some(4), "stays at the end");
+    assert_eq!(step_index(&dis, Some(1), Step::Prev), Some(1));
+    assert_eq!(step_index(&dis, Some(2), Step::First), Some(1));
+    assert_eq!(step_index(&dis, Some(1), Step::Last), Some(4));
+    assert_eq!(step_index(&dis, Some(1), Step::PageNext(10)), Some(4));
+    assert_eq!(step_index(&dis, Some(4), Step::PagePrev(2)), Some(1));
+    let opts: Vec<(String, bool)> =
+        [("Apple", false), ("Avocado", false), ("Banana", false), ("Blue", true), ("Berry", false)].iter().map(|(a, b)| (a.to_string(), *b)).collect();
+    assert_eq!(typeahead_find(&opts, None, "b"), Some(2));
+    assert_eq!(typeahead_find(&opts, Some(2), "b"), Some(4), "repeating a letter cycles, skipping disabled");
+    assert_eq!(typeahead_find(&opts, Some(4), "b"), Some(2), "and wraps");
+    assert_eq!(typeahead_find(&opts, Some(0), "av"), Some(1));
+    assert_eq!(typeahead_find(&opts, Some(0), "AP"), Some(0), "case-insensitive, search starts at the current option");
+    assert_eq!(typeahead_find(&opts, None, "zz"), None);
+    let mut ta = TypeAhead::default();
+    assert_eq!(ta.push('a', 0.0), "a");
+    assert_eq!(ta.push('v', 0.5), "av");
+    assert_eq!(ta.push('x', 2.0), "x", "a pause starts a new word");
+    let d = [false, false, true, false, false];
+    assert_eq!(click_selection(false, &[0], None, 3, true, true, &d), vec![3]);
+    assert_eq!(click_selection(true, &[1], None, 3, false, false, &d), vec![3]);
+    assert_eq!(click_selection(true, &[1], None, 3, true, false, &d), vec![1, 3]);
+    assert_eq!(click_selection(true, &[1, 3], None, 3, true, false, &d), vec![1]);
+    assert_eq!(click_selection(true, &[1], Some(1), 4, false, true, &d), vec![1, 3, 4], "range skips disabled");
+}
+
+fn q30g_rows(n: usize) -> Vec<SelRow> {
+    (0..n).map(|i| SelRow { opt: Some(i), label: format!("Option {i}"), disabled: i == 2, grouped: false }).collect()
+}
+
+#[test]
+fn q30g_popup_open_close_state_machine() {
+    assert!(popup_next_open(false, PopupEvent::Activate));
+    for e in [PopupEvent::Escape, PopupEvent::ClickAway, PopupEvent::Blur, PopupEvent::Tab, PopupEvent::Choose, PopupEvent::Activate] {
+        assert!(!popup_next_open(true, e), "{e:?} closes an open popup");
+    }
+    for e in [PopupEvent::Escape, PopupEvent::ClickAway, PopupEvent::Blur, PopupEvent::Tab, PopupEvent::Choose] {
+        assert!(!popup_next_open(false, e), "{e:?} never opens a closed popup");
+    }
+}
+
+#[test]
+fn q30g_popup_keys_move_choose_and_close() {
+    let rows = q30g_rows(30);
+    let mut st = PopupState { node: 1, highlight: Some(0), scroll: 0, ahead: TypeAhead::default() };
+    assert_eq!(popup_key(&mut st, &rows, 10, PopupKey::Down, 0.0), PopupAct::Stay);
+    assert_eq!(st.highlight, Some(1));
+    popup_key(&mut st, &rows, 10, PopupKey::Down, 0.0);
+    assert_eq!(st.highlight, Some(3), "disabled option 2 is skipped");
+    popup_key(&mut st, &rows, 10, PopupKey::End, 0.0);
+    assert_eq!((st.highlight, st.scroll), (Some(29), 20), "End scrolls the last row into view");
+    popup_key(&mut st, &rows, 10, PopupKey::Home, 0.0);
+    assert_eq!((st.highlight, st.scroll), (Some(0), 0));
+    popup_key(&mut st, &rows, 10, PopupKey::PageDown, 0.0);
+    assert_eq!(st.highlight, Some(10), "a page = visible-1 enabled options (option 2 is disabled)");
+    popup_key(&mut st, &rows, 10, PopupKey::PageUp, 0.0);
+    assert_eq!(st.highlight, Some(0));
+    for _ in 0..15 {
+        popup_key(&mut st, &rows, 10, PopupKey::Down, 0.0);
+    }
+    let h = st.highlight.unwrap();
+    assert!(h >= st.scroll && h < st.scroll + 10, "highlight {h} stays inside the window starting at {}", st.scroll);
+    popup_key(&mut st, &rows, 10, PopupKey::Home, 6.0);
+    for c in "option 1".chars() {
+        popup_key(&mut st, &rows, 10, PopupKey::Char(c), 7.0);
+    }
+    assert_eq!(st.highlight, Some(1), "type-ahead of the typed word");
+    assert_eq!(popup_key(&mut st, &rows, 10, PopupKey::Enter, 9.0), PopupAct::Choose(1));
+    assert_eq!(popup_key(&mut st, &rows, 10, PopupKey::Space, 9.0), PopupAct::Choose(1));
+    assert_eq!(popup_key(&mut st, &rows, 10, PopupKey::Escape, 9.0), PopupAct::Close);
+    assert_eq!(popup_key(&mut st, &rows, 10, PopupKey::Tab, 9.0), PopupAct::CloseAndPass);
+    assert_eq!(popup_key(&mut st, &rows, 10, PopupKey::Other, 9.0), PopupAct::Stay);
+    st.highlight = Some(2);
+    assert_eq!(popup_key(&mut st, &rows, 10, PopupKey::Enter, 9.0), PopupAct::Close, "a disabled option cannot be chosen");
+}
+
+#[test]
+fn q30g_popup_geometry_below_flip_shrink_scroll_and_hit() {
+    let win = (800.0, 600.0);
+    let g = popup_geometry((100.0, 100.0, 120.0, 20.0), 5, 18.0, 60.0, win);
+    assert!(!g.above && g.y == 120.0 && g.x == 100.0 && g.w == 120.0 && g.visible == 5 && g.h == 5.0 * 18.0 + 2.0);
+    let g = popup_geometry((700.0, 100.0, 80.0, 20.0), 5, 18.0, 200.0, win);
+    assert_eq!((g.w, g.x), (200.0, 600.0));
+    let g = popup_geometry((100.0, 100.0, 120.0, 20.0), 30, 18.0, 60.0, win);
+    assert_eq!(g.visible, POPUP_MAX_ROWS);
+    let g = popup_geometry((100.0, 570.0, 120.0, 20.0), 8, 18.0, 60.0, win);
+    assert!(g.above && g.visible == 8 && g.y + g.h == 570.0, "{g:?}");
+    let g = popup_geometry((100.0, 90.0, 120.0, 20.0), 10, 18.0, 60.0, (800.0, 200.0));
+    assert!(g.visible < 10 && g.y + g.h <= 200.0 && g.y >= 0.0, "{g:?}");
+    let g = popup_geometry((100.0, 100.0, 120.0, 20.0), 30, 18.0, 60.0, win);
+    assert_eq!(popup_hit(&g, 0, 30, (110.0, g.y + 1.0 + 5.0)), PopupHit::Row(0));
+    assert_eq!(popup_hit(&g, 7, 30, (110.0, g.y + 1.0 + 18.0 * 2.0 + 1.0)), PopupHit::Row(9));
+    assert_eq!(popup_hit(&g, 0, 30, (110.0, g.y + 0.5)), PopupHit::Border);
+    assert_eq!(popup_hit(&g, 0, 30, (10.0, 10.0)), PopupHit::Outside);
+    assert_eq!(popup_hit(&g, 0, 30, (110.0, g.y + g.h + 1.0)), PopupHit::Outside);
+}
+
+fn q30g_app(html: &str, script: &str) -> Option<(App, Handle)> {
+    use winit::platform::wayland::EventLoopBuilderExtWayland;
+    let event_loop = EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build().ok()?;
+    let doc = q30g_doc(html);
+    let mut app = App::new_static(doc.clone(), event_loop.create_proxy(), None);
+    app.js = run_page_scripts(&doc, &[src(script)], None);
+    Some((app, doc))
+}
+
+#[test]
+fn q30g_keyboard_on_a_closed_select_changes_it_and_fires_events() {
+    let Some((mut app, doc)) = q30g_app(
+        "<select id=s><option>Apple<option>Avocado<option disabled>Berry<option>Banana</select>",
+        "window.L=[]; var s=document.getElementById('s'); ['input','change'].forEach(function(k){s.addEventListener(k,function(e){L.push(k+':'+s.value+':'+e.bubbles)})});",
+    ) else {
+        return;
+    };
+    let s = q30c_by(&doc, "s");
+    let log = |app: &App| -> String { app.js.as_ref().unwrap().eval_value("t", "L.join('|')").expect("log") };
+    app.set_focus_element(Some(&s), true);
+    assert!(app.focused_select().is_some());
+    assert!(app.select_control_key(&s, &Key::Named(NamedKey::ArrowDown)));
+    assert_eq!(selected_indices(&s), vec![1]);
+    assert_eq!(log(&app), "input:Avocado:true|change:Avocado:true");
+    assert!(app.select_control_key(&s, &Key::Named(NamedKey::ArrowDown)));
+    assert_eq!(selected_indices(&s), vec![3], "the disabled option is skipped");
+    assert!(app.select_control_key(&s, &Key::Named(NamedKey::Home)));
+    assert_eq!(selected_indices(&s), vec![0]);
+    assert!(app.select_control_key(&s, &Key::Character("b".into())));
+    assert_eq!(selected_indices(&s), vec![3], "type-ahead jumps to the first enabled match");
+    let n = log(&app);
+    assert!(app.select_control_key(&s, &Key::Named(NamedKey::End)));
+    assert_eq!(log(&app), n, "no change, no event");
+    assert!(!app.select_control_key(&s, &Key::Named(NamedKey::F5)));
+    assert!(app.select_control_key(&s, &Key::Named(NamedKey::Escape)));
+    assert!(app.interaction.focus.is_none());
+    clear_select_state();
+}
+
+#[test]
+fn q30g_listbox_arrows_and_space_toggle() {
+    let Some((mut app, doc)) = q30g_app("<select id=m multiple size=4><option>1<option>2<option>3<option>4</select>", "") else { return };
+    let m = q30c_by(&doc, "m");
+    app.set_focus_element(Some(&m), true);
+    assert!(app.select_control_key(&m, &Key::Named(NamedKey::ArrowDown)));
+    assert_eq!(selected_indices(&m), vec![0]);
+    assert!(app.select_control_key(&m, &Key::Named(NamedKey::ArrowDown)));
+    assert_eq!(selected_indices(&m), vec![1], "arrows move a single selection");
+    assert!(app.select_control_key(&m, &Key::Named(NamedKey::Space)));
+    assert_eq!(selected_indices(&m), Vec::<usize>::new(), "space toggles the cursor option of a multiple");
+    clear_select_state();
 }

@@ -1983,6 +1983,10 @@ pub(crate) fn paint_inner(
         paint_text_control(&s, font_system, swash_cache, pixels, win_w, win_h, laid.x, draw_y, laid.w, laid.h, child_clip);
     }
 
+    if s.select_widget != 0 && s.visibility == Visibility::Visible {
+        paint_select_control(&s, font_system, swash_cache, pixels, win_w, win_h, laid.x, draw_y, laid.w, laid.h, child_clip);
+    }
+
     match &laid.content {
         LaidContent::Blocks(children) | LaidContent::TableRow(children) => {
             // Layers 3/4/5: ordinary in-flow content, in document order

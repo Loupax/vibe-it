@@ -1093,7 +1093,7 @@ impl SelectorsElement for El {
             OurPseudoClass::FocusWithin => interaction_has(|st| st.focus_within.contains(&node_id(&self.0))),
             OurPseudoClass::Checked => match element_tag(&self.0) {
                 "input" if checkable_kind(&self.0).is_some() => live_checked(&self.0),
-                "option" => element_attr(&self.0, "selected").is_some(),
+                "option" => option_is_selected(&self.0),
                 _ => false,
             },
             OurPseudoClass::Indeterminate => checkable_kind(&self.0) == Some(false) && live_indeterminate(&self.0),

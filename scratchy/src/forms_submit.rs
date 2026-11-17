@@ -83,25 +83,11 @@ fn select_options_all(select: &Handle) -> Vec<(Handle, bool)> {
     out
 }
 
-/// The selected options of a `<select>`. SINGLE POINT for Q30g (the live
-/// popup selection replaces this): today the `selected` attribute decides.
-/// A closed single select shows the LAST `selected` option, else the first
-/// non-disabled one (the "ask for a reset" rule); a multiple select submits
-/// every `selected` option.
+/// The selected options of a `<select>`: the ONE place that reads the live
+/// selection (Q30g, forms_select.rs): the user's/script's choice, else the
+/// `selected` attributes with the single-select default rules.
 pub(crate) fn selected_options(select: &Handle) -> Vec<Handle> {
-    let opts = select_options_all(select);
-    let multiple = element_attr(select, "multiple").is_some();
-    let size = attr_string(select, "size").and_then(|s| s.trim().parse::<u32>().ok()).unwrap_or(1);
-    if multiple {
-        return opts.into_iter().filter(|(o, _)| element_attr(o, "selected").is_some()).map(|(o, _)| o).collect();
-    }
-    if let Some((o, _)) = opts.iter().rev().find(|(o, _)| element_attr(o, "selected").is_some()) {
-        return vec![o.clone()];
-    }
-    if size <= 1 {
-        return opts.into_iter().find(|(_, dis)| !*dis).map(|(o, _)| vec![o]).unwrap_or_default();
-    }
-    Vec::new()
+    selected_option_handles(select)
 }
 
 /// The submittable elements owned by `form`, in tree order.

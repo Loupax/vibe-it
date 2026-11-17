@@ -883,6 +883,28 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             gn_rf.set(gn_rf.get() + 1);
         }
     });
+    // Q30g: live select state (forms_select.rs).
+    let t_si2 = table.clone();
+    native!("__d_selidx", move |id: i32| -> i32 { t_si2.borrow().get(id).map_or(-1, |h| crate::selected_index(&h)) });
+    let (t_ssi, r_ssi, gn_ssi) = (table.clone(), reqs.clone(), wgen.clone());
+    native!("__d_setselidx", move |id: i32, v: i32| {
+        if let Some(h) = t_ssi.borrow().get(id) {
+            let idx: Vec<usize> = if v >= 0 { vec![v as usize] } else { Vec::new() };
+            crate::set_selected_indices(&h, &idx);
+            r_ssi.borrow_mut().check_changed = true;
+            gn_ssi.set(gn_ssi.get() + 1);
+        }
+    });
+    let t_os = table.clone();
+    native!("__d_optsel", move |id: i32| -> bool { t_os.borrow().get(id).is_some_and(|h| crate::option_is_selected(&h)) });
+    let (t_sos, r_sos, gn_sos) = (table.clone(), reqs.clone(), wgen.clone());
+    native!("__d_setoptsel", move |id: i32, v: bool| {
+        if let Some(h) = t_sos.borrow().get(id) {
+            crate::set_option_selected(&h, v);
+            r_sos.borrow_mut().check_changed = true;
+            gn_sos.set(gn_sos.get() + 1);
+        }
+    });
     // Q30d: live text value / selection of input and textarea (forms_text.rs).
     let t_tv = table.clone();
     native!("__d_tvalue", move |id: i32| -> String { t_tv.borrow().get(id).map(|h| crate::text_value(&h)).unwrap_or_default() });
@@ -2031,19 +2053,18 @@ const DOM_PRELUDE: &str = r#"
   var SEP = mkProto('HTMLSelectElement', ['select']);
   formProp(SEP);
   def(SEP, 'options', function () { return coll(optionsOf(this)); });
-  def(SEP, 'length', function () { return optionsOf(this).length; });
+  defs(SEP, 'length', function () { return optionsOf(this).length; }, function (v) {
+    v = Math.max(0, Math.floor(Number(v)) || 0);
+    var o = optionsOf(this);
+    while (o.length > v) { var x = o.pop(); x.parentNode.removeChild(x); }
+    while (o.length < v) { this.appendChild(doc.createElement('option')); o.push(0); }
+  });
   def(SEP, 'type', function () { return this.multiple ? 'select-multiple' : 'select-one'; });
   rBool(SEP, 'multiple', 'multiple'); rStr(SEP, 'name', 'name');
   rInt(SEP, 'size', 'size', 0, 1);
-  defs(SEP, 'selectedIndex', function () {
-    var o = optionsOf(this);
-    for (var i = 0; i < o.length; i++) if (__d_attr(o[i].__id, 'selected') != null) return i;
-    if (!this.multiple && this.size <= 1) for (i = 0; i < o.length; i++) if (!o[i].disabled) return i;
-    return -1;
-  }, function (v) {
-    var o = optionsOf(this); v = Math.floor(Number(v));
-    o.forEach(function (x, i) { if (i === v) __d_setattr(x.__id, 'selected', ''); else __d_rmattr(x.__id, 'selected'); });
-  });
+  // Q30g: the selection is live state (forms_select.rs), not the `selected` attributes.
+  defs(SEP, 'selectedIndex', function () { return __d_selidx(this.__id); },
+    function (v) { v = Math.floor(Number(v)); __d_setselidx(this.__id, isNaN(v) ? -1 : v); });
   defs(SEP, 'value', function () { var o = optionsOf(this)[this.selectedIndex]; return o ? o.value : ''; },
     function (v) {
       v = String(v);
@@ -2072,7 +2093,8 @@ const DOM_PRELUDE: &str = r#"
     function (v) { __d_settext(this.__id, String(v)); });
   defs(OP, 'label', function () { var v = __d_attr(this.__id, 'label'); return v == null ? this.text : v; },
     function (v) { __d_setattr(this.__id, 'label', String(v)); });
-  rBool(OP, 'selected', 'selected'); rBool(OP, 'defaultSelected', 'selected');
+  defs(OP, 'selected', function () { return __d_optsel(this.__id); }, function (v) { __d_setoptsel(this.__id, !!v); });
+  rBool(OP, 'defaultSelected', 'selected');
   def(OP, 'index', function () {
     for (var s = this.parentNode; s; s = s.parentNode) if (s.localName === 'select') return optionsOf(s).indexOf(this);
     return 0;
