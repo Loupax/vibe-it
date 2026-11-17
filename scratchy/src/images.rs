@@ -2040,10 +2040,38 @@ pub(crate) fn collect_text_only(handle: &Handle, out: &mut String) {
     }
 }
 
+thread_local! {
+    /// QY44c: `<style>` elements whose `sheet` was edited through the CSSOM
+    /// (`insertRule`/`deleteRule`): node address -> (the element's text when
+    /// the sheet was created, the sheet's effective CSS). Used only while the
+    /// element's text still equals the first string, so a later textContent
+    /// change wins (spec: it replaces the sheet).
+    static STYLE_OVERRIDES: std::cell::RefCell<HashMap<usize, (String, String)>> = std::cell::RefCell::new(HashMap::new());
+}
+
+pub(crate) fn set_style_override(node: usize, orig: String, css: String) {
+    STYLE_OVERRIDES.with(|m| {
+        m.borrow_mut().insert(node, (orig, css));
+    });
+}
+
+pub(crate) fn clear_style_overrides() {
+    STYLE_OVERRIDES.with(|m| m.borrow_mut().clear());
+}
+
 pub(crate) fn collect_style_css(handle: &Handle, out: &mut String) {
     if let NodeData::Element { name, .. } = &handle.data {
         if name.local.as_ref() == "style" {
-            collect_text_only(handle, out);
+            let mut text = String::new();
+            collect_text_only(handle, &mut text);
+            let key = std::rc::Rc::as_ptr(handle) as usize;
+            STYLE_OVERRIDES.with(|m| {
+                let m = m.borrow();
+                match m.get(&key) {
+                    Some((orig, css)) if *orig == text => out.push_str(css),
+                    _ => out.push_str(&text),
+                }
+            });
             out.push('\n');
             return;
         }

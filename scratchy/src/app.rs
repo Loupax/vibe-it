@@ -1242,6 +1242,7 @@ impl App {
         self.hover_node = 0;
         js_style::set_js_extra_css(&extra_css);
         js_style::set_js_adopted_css("");
+        crate::images::clear_style_overrides();
         self.adopted_css.clear();
         self.extra_css = extra_css;
         self.layout_dirty = true;

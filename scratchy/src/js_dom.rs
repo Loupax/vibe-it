@@ -863,6 +863,14 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         d.set(true);
         gn.set(gn.get() + 1);
     });
+    let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
+    native!("__d_sheet_text", move |id: i32, orig: String, css: String| {
+        if let Some(h) = t.borrow().get(id) {
+            crate::images::set_style_override(std::rc::Rc::as_ptr(&h) as usize, orig, css);
+            d.set(true);
+            gn.set(gn.get() + 1);
+        }
+    });
     let r = reqs.clone();
     native!("__d_navigate", move |href: String| {
         r.borrow_mut().nav = Some(href);
