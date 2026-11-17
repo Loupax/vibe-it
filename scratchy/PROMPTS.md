@@ -6992,3 +6992,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Arm the page-load budget after compiling (compile-only eval, then JS_EvalFunction; interrupt message splits compile and run time; 32 MB source cap). Promise jobs drained after a task get a fresh CALLBACK_BUDGET, and a tripped drain logs one line with a dropped-job count instead of one line per job.
 
 **What changed:** src/js.rs (`JsEngine::eval`, `drain_after_task`, `drain_jobs`, `MAX_SCRIPT_BYTES`, test clock seam), src/js_net.rs, tests `qy22_*` in src/tests.rs.
+
+## QJ5: Element.scrollIntoView (2026-11-17)
+
+> Item QJ5. Implement `Element.scrollIntoView(arg)` as a window scroll request from the element's QJ4 layout rect (block start/center/end/nearest, boolean arg, no smooth animation). Verify social.loupax.com/discover with `--js-report --run-timers 5000` before/after and report which vim.js error comes next without fixing it. No QJ6-QJ11.
+
+**What changed:** src/js_dom.rs (`ElementProto.scrollIntoView` in the geometry block of DOM_PRELUDE, goes through `window.scrollTo`), test `qj5_*` in src/tests.rs. Limits: ancestor scroll containers are not scrolled (QJ6), fixed/detached elements are no-ops, `inline` handled the same way for the x axis, no smooth behaviour. Next vim.js wall: `new Range()` at vim.js:309 (QJ7).

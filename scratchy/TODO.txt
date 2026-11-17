@@ -489,7 +489,12 @@ IntersectionObserver and matchMedia are not used by any of the site's scripts.
       more columns than the resolved tracks. Also: that forced layout costs
       ~3.4 s on a 1.4 MB page (github 1.8 s): a perf item if pages read
       geometry at load.
-- [ ] QJ5 [S] (P2, after QJ4) `Element.scrollIntoView(arg)`
+- [x] QJ5 [S] (DONE 2026-11-17, commit 8229ae6; DOM_PRELUDE scrollIntoView
+      in src/js_dom.rs: window scroll to the QJ4 rect, block/inline
+      start|center|end|nearest, boolean arg; fixed/detached = no-op; ancestor
+      scroll boxes not scrolled (QJ6). After it social /discover stops at
+      vim.js:309 computeLineChars: `new Range()` NotSupportedError = QJ7.)
+      Original entry: `Element.scrollIntoView(arg)`
       (`{block: start|center|end|nearest}`, boolean) as a QB5 window
       scroll request to the element's QJ4 rect. vim.js:260 `placeLine`
       calls it on every cursor move (second wall, found with a QJ4
