@@ -2422,11 +2422,18 @@ pub(crate) fn parse_opacity(input: &mut CssParser) -> Result<f32, ()> {
 /// whole value count as `none`. Returns the (x, y) pairs to sum.
 pub(crate) fn parse_transform(input: &mut CssParser) -> Result<Vec<(Length, Length)>, ()> {
     if input.try_parse(|i| i.expect_ident_matching("none")).is_ok() {
-        return if input.is_exhausted() { Ok(Vec::new()) } else { Err(()) };
+        return if only_important_left(input) { Ok(Vec::new()) } else { Err(()) };
     }
     let mut out = Vec::new();
     let mut unsupported = false;
     while !input.is_exhausted() {
+        // QAN1b: a trailing `!important` ends the list (the declaration
+        // parser detects it separately); before this `transform: none
+        // !important` and `translate(..) !important` were dropped.
+        if input.try_parse(|i| i.expect_delim('!')).is_ok() {
+            while input.next().is_ok() {}
+            break;
+        }
         let name = match input.next().map_err(|_| ())? {
             Token::Function(n) => n.to_ascii_lowercase(),
             _ => return Err(()),

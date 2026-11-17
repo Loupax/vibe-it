@@ -18092,3 +18092,193 @@ fn qp2_js_thread_shape_memo_is_safe_and_cleared_on_resize() {
     assert!(SHAPE_MEMO.with(|m| !m.borrow().contains_key(&0xdead)), "resize must clear the memo");
     SHAPE_MEMO_ENABLED.with(|m| m.set(false));
 }
+
+// ---- QAN1b: evaluating animations ----
+
+/// Style of the first `div` at document time `now` ms (a fresh start-time
+/// map each call, so the animation starts at `now`'s own zero).
+fn qan1b_style(css: &str, now: f64, body: &str) -> ComputedStyle {
+    let doc = parse_html(&format!("<html><body>{body}</body></html>"));
+    let (rules, kf) = parse_stylesheet_with_keyframes(css);
+    set_keyframes(Rc::new(kf));
+    set_document_clock(0.0);
+    let d = find_element_by_tag(&doc, "div").expect("div");
+    let _ = resolve_style(&d, &rules, ROOT_STYLE, 800.0); // records the start at 0
+    set_document_clock(now);
+    let st = resolve_style(&d, &rules, ROOT_STYLE, 800.0);
+    set_document_clock(0.0);
+    finish_animation_pass();
+    finish_animation_pass();
+    st
+}
+
+#[test]
+fn qan1b_timing_functions() {
+    let f = TimingFunction::CubicBezier(0.0, 1.0, 1.0, 0.0);
+    assert!((f.ease(0.5) - 0.5).abs() < 1e-3);
+    assert!((TimingFunction::Linear.ease(0.3) - 0.3).abs() < 1e-6);
+    assert!((TimingFunction::EASE.ease(0.5) - 0.8024).abs() < 1e-2);
+    let end = TimingFunction::Steps(4, StepPos::JumpEnd);
+    assert_eq!(end.ease(0.0), 0.0);
+    assert_eq!(end.ease(0.3), 0.25);
+    assert_eq!(end.ease(0.99), 0.75);
+    assert_eq!(end.ease(1.0), 1.0);
+    let start = TimingFunction::Steps(2, StepPos::JumpStart);
+    assert_eq!(start.ease(0.0), 0.5);
+    assert_eq!(start.ease(0.6), 1.0);
+}
+
+#[test]
+fn qan1b_color_interpolates_in_premultiplied_srgb() {
+    let st = qan1b_style(
+        "@keyframes k{from{background-color:rgb(0,200,0)}to{background-color:rgb(200,0,0)}} div{animation:k 1000s linear 0s}",
+        500_000.0,
+        "<div></div>",
+    );
+    assert_eq!(st.background_color, Some(TextColor::rgba(100, 100, 0, 255)));
+    // transparent -> red: premultiplied keeps the colour red, alpha halves
+    let st = qan1b_style(
+        "@keyframes k{from{background-color:transparent}to{background-color:rgb(200,0,0)}} div{animation:k 1000s linear}",
+        500_000.0,
+        "<div></div>",
+    );
+    assert_eq!(st.background_color, Some(TextColor::rgba(200, 0, 0, 128)));
+}
+
+#[test]
+fn qan1b_negative_delay_and_cubic_bezier_body_case() {
+    let st = qan1b_style(
+        "@keyframes k{from{background-color:rgb(0,200,0)}to{background-color:rgb(200,0,0)}} div{animation:k 1000000s cubic-bezier(0,1,1,0) -500000s}",
+        0.0,
+        "<div></div>",
+    );
+    let c = st.background_color.unwrap();
+    assert!((c.r() as i32 - 100).abs() <= 1 && (c.g() as i32 - 100).abs() <= 1);
+}
+
+#[test]
+fn qan1b_opacity_length_and_discrete_fields() {
+    let st = qan1b_style(
+        "@keyframes k{from{opacity:0;width:100px;margin-left:10px;display:block;z-index:0}to{opacity:1;width:200px;margin-left:20px;display:none;z-index:10}} div{animation:k 1s linear}",
+        250.0,
+        "<div></div>",
+    );
+    assert!((st.opacity - 0.25).abs() < 1e-3);
+    assert!(matches!(st.width, Some(BoxLength::Px(w)) if (w - 125.0).abs() < 1e-3));
+    assert!(matches!(st.margin.left, BoxLength::Px(m) if (m - 12.5).abs() < 1e-3));
+    assert!(st.display != Display::None, "display is discrete: still A at 25 %");
+    let st = qan1b_style(
+        "@keyframes k{from{display:block}to{display:none}} div{animation:k 1s linear}",
+        600.0,
+        "<div></div>",
+    );
+    assert_eq!(st.display, Display::None);
+}
+
+#[test]
+fn qan1b_mixed_units_are_discrete() {
+    let st = qan1b_style(
+        "@keyframes k{from{width:100px}to{width:50%}} div{animation:k 1s linear}",
+        250.0,
+        "<div></div>",
+    );
+    assert!(matches!(st.width, Some(BoxLength::Px(_))));
+}
+
+#[test]
+fn qan1b_fill_modes() {
+    let css = |fill: &str| {
+        format!("@keyframes k{{from{{opacity:0.2}}to{{opacity:0.8}}}} div{{animation:k 1s linear 1s {fill}}}")
+    };
+    // before the delay
+    assert_eq!(qan1b_style(&css("none"), 500.0, "<div></div>").opacity, 1.0);
+    assert!((qan1b_style(&css("backwards"), 500.0, "<div></div>").opacity - 0.2).abs() < 1e-3);
+    assert!((qan1b_style(&css("both"), 500.0, "<div></div>").opacity - 0.2).abs() < 1e-3);
+    // after the end
+    assert_eq!(qan1b_style(&css("none"), 3000.0, "<div></div>").opacity, 1.0);
+    assert_eq!(qan1b_style(&css("backwards"), 3000.0, "<div></div>").opacity, 1.0);
+    assert!((qan1b_style(&css("forwards"), 3000.0, "<div></div>").opacity - 0.8).abs() < 1e-3);
+}
+
+#[test]
+fn qan1b_iterations_direction_and_paused() {
+    let css = |extra: &str| format!("@keyframes k{{from{{opacity:0}}to{{opacity:1}}}} div{{animation:k 1s linear {extra}}}");
+    // second iteration of an alternate animation runs backwards
+    let st = qan1b_style(&css("2 alternate"), 1250.0, "<div></div>");
+    assert!((st.opacity - 0.75).abs() < 1e-3);
+    let st = qan1b_style(&css("infinite"), 10_250.0, "<div></div>");
+    assert!((st.opacity - 0.25).abs() < 1e-3);
+    let st = qan1b_style(&css("reverse"), 250.0, "<div></div>");
+    assert!((st.opacity - 0.75).abs() < 1e-3);
+    // paused: time is frozen at the start
+    let st = qan1b_style(&css("paused"), 5000.0, "<div></div>");
+    assert_eq!(st.opacity, 0.0);
+}
+
+#[test]
+fn qan1b_per_keyframe_timing_and_steps() {
+    let st = qan1b_style(
+        "@keyframes k{0%{opacity:0;animation-timing-function:steps(2,end)}100%{opacity:1}} div{animation:k 1s linear}",
+        600.0,
+        "<div></div>",
+    );
+    assert!((st.opacity - 0.5).abs() < 1e-3);
+}
+
+#[test]
+fn qan1b_missing_endpoint_uses_the_base_style() {
+    let st = qan1b_style(
+        "@keyframes k{to{opacity:0}} div{opacity:0.5;animation:k 1s linear}",
+        500.0,
+        "<div></div>",
+    );
+    assert!((st.opacity - 0.25).abs() < 1e-3);
+}
+
+#[test]
+fn qan1b_animation_beats_inline_but_not_important() {
+    let css = "@keyframes k{from{width:100px}to{width:100px}} div{animation:k 1s linear}";
+    let st = qan1b_style(css, 500.0, r#"<div style="width:10px"></div>"#);
+    assert!(matches!(st.width, Some(BoxLength::Px(w)) if w == 100.0));
+    let css = "@keyframes k{from{width:100px}to{width:100px}} div{width:10px !important;animation:k 1s linear}";
+    let st = qan1b_style(css, 500.0, "<div></div>");
+    assert!(matches!(st.width, Some(BoxLength::Px(w)) if w == 10.0));
+}
+
+#[test]
+fn qan1b_important_in_keyframe_is_ignored() {
+    let css = "@keyframes k{from{width:100px !important}to{width:100px !important}} div{width:10px;animation:k 1s linear}";
+    let st = qan1b_style(css, 500.0, "<div></div>");
+    assert!(matches!(st.width, Some(BoxLength::Px(w)) if w == 10.0));
+}
+
+#[test]
+fn qan1b_pseudo_elements_animate() {
+    let doc = parse_html("<html><body><div></div></body></html>");
+    let (rules, kf) = parse_stylesheet_with_keyframes(
+        "@keyframes k{from{opacity:0}to{opacity:1}} div::after{content:'x';animation:k 1s linear -500ms both}",
+    );
+    set_keyframes(Rc::new(kf));
+    set_document_clock(0.0);
+    let d = find_element_by_tag(&doc, "div").expect("div");
+    let st = resolve_style_for(&d, &rules, ROOT_STYLE, 800.0, Some("after"));
+    assert!((st.opacity - 0.5).abs() < 1e-3);
+    finish_animation_pass();
+}
+
+#[test]
+fn qan1b_no_animation_means_no_start_bookkeeping() {
+    let doc = parse_html("<html><body><div></div></body></html>");
+    let rules = parse_stylesheet("div{opacity:0.5}");
+    let d = find_element_by_tag(&doc, "div").expect("div");
+    let st = resolve_style(&d, &rules, ROOT_STYLE, 800.0);
+    assert!(st.animations.is_none());
+    assert_eq!(st.opacity, 0.5);
+}
+
+#[test]
+fn qan1b_computed_style_stays_copy_report_size() {
+    fn is_copy<T: Copy>() {}
+    is_copy::<ComputedStyle>();
+    eprintln!("size_of::<ComputedStyle>() = {}", std::mem::size_of::<ComputedStyle>());
+}

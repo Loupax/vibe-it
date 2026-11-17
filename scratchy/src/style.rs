@@ -544,7 +544,7 @@ pub(crate) fn cascade_property<T: Clone>(
     match best {
         // An `!important` declaration (rule or inline) beats an inline
         // normal one.
-        Some((s, v)) if s >= IMPORTANT_TIER => Some(v),
+        Some((s, v)) if s >= IMPORTANT_TIER || s == ANIM_KEY => Some(v),
         Some((_, v)) => inline.or(Some(v)),
         None => inline,
     }
@@ -868,7 +868,7 @@ pub(crate) fn cascade_css<T: Clone>(
     }
     let inline = inline.and_then(cand);
     match best {
-        Some((s, c)) if s >= IMPORTANT_TIER => c,
+        Some((s, c)) if s >= IMPORTANT_TIER || s == ANIM_KEY => c,
         Some((_, c)) => inline.unwrap_or(c),
         None => inline.unwrap_or(Cascaded::Unset),
     }
@@ -900,6 +900,9 @@ pub(crate) fn apply_wide<T, V>(
 /// 32..61 hold the layer rank, bits 0..31 the specificity (30 bits).
 /// Compared as one integer, later source order wins ties (`>=`).
 pub(crate) const IMPORTANT_TIER: u64 = 1 << 62;
+/// QAN1b: the cascade key of animation (keyframe) declarations: above every
+/// normal declaration (inline included), below every `!important` one.
+pub(crate) const ANIM_KEY: u64 = IMPORTANT_TIER - 1;
 /// Rank of unlayered author rules for normal declarations (the highest).
 const LAYER_MAX: u64 = (1 << 29) - 1;
 
@@ -1437,6 +1440,25 @@ pub(crate) fn resolve_style_for(
     viewport_width: f32,
     pseudo: Option<&str>,
 ) -> ComputedStyle {
+    let base = resolve_style_core(handle, rules, inherited, viewport_width, pseudo, &[]);
+    // QAN1b: no `animation` declared (the overwhelmingly common case) costs
+    // exactly this one test.
+    match base.animations {
+        None => base,
+        Some(a) => evaluate(base, a, handle, rules, inherited, viewport_width, pseudo),
+    }
+}
+
+/// The cascade proper. `over` are keyframe declarations of running
+/// animations, entered at `ANIM_KEY` (QAN1b); empty for the base style.
+pub(crate) fn resolve_style_core<'a>(
+    handle: &Handle,
+    rules: &'a [StyleRule],
+    inherited: InheritedStyle,
+    viewport_width: f32,
+    pseudo: Option<&str>,
+    over: &[&'a Declarations],
+) -> ComputedStyle {
     let base_matches = matching_declarations_for(handle, rules, viewport_width, pseudo);
     // Q13: re-parse each matched rule's `var()`-bearing declarations with
     // this element's custom properties substituted, slotting the result
@@ -1465,6 +1487,9 @@ pub(crate) fn resolve_style_for(
     };
     if let Some(i) = inline_important.as_ref() {
         matches.push((u64::MAX, i));
+    }
+    for d in over {
+        matches.push((ANIM_KEY, d));
     }
 
     let inl = inline_decls.as_ref();
@@ -2150,11 +2175,11 @@ pub(crate) fn resolve_style_for(
 }
 
 thread_local! {
-    static STYLE_ORDER: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    pub(crate) static STYLE_ORDER: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 /// Next value of the monotonically increasing tree-order counter (QY1).
-fn next_style_order() -> usize {
+pub(crate) fn next_style_order() -> usize {
     STYLE_ORDER.with(|c| {
         let v = c.get() + 1;
         c.set(v);

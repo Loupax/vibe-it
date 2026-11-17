@@ -932,6 +932,7 @@ impl App {
             // `spawn_shaping_worker`'s own docs). Only the `LayoutBox`
             // tree this produces — plain owned data, no `Handle` left
             // inside it — gets handed off below.
+            set_app_clock(self.nav_generation);
             let build_started = std::time::Instant::now();
             let tree = build_layout_tree_with_resources(&self.document, width as f32, Some(height as f32), &crate::images::with_adopted_css(&self.extra_css, &self.adopted_css), &self.image_cache);
             self.last_build_time = Some(build_started.elapsed());

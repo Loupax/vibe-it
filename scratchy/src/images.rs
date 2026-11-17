@@ -2003,6 +2003,7 @@ pub(crate) fn build_layout_tree_with_resources(
     };
     RULE_INDEX.with(|ri| *ri.borrow_mut() = None);
     let mut tree = tree;
+    finish_animation_pass();
     propagate_canvas_background(&mut tree);
     if tree_reads_viewport_height(&tree, false) {
         note_viewport_height_read();
