@@ -640,6 +640,64 @@ pub(crate) fn paint_box_decoration(
     }
 }
 
+/// Q30c: a checkbox/radio is painted from its LIVE state (`CHECK_LIVE`), not
+/// from the layout tree, so toggling one only needs a repaint. A checked or
+/// indeterminate box gets the accent border (and, for a checkbox, fill) and
+/// the mark drawn on top. All the look lives here: easy to redesign.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn paint_checkable(
+    s: &ComputedStyle,
+    background_image: Option<&DecodedImage>,
+    pixels: &mut [u32],
+    win_w: u32,
+    win_h: u32,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    clip: Option<(f32, f32, f32, f32)>,
+) {
+    let radio = s.check_widget & CHECK_RADIO != 0;
+    let checked = live_checked_node(s.node, s.check_widget & CHECK_ATTR != 0);
+    let indeterminate = !radio && live_indeterminate_node(s.node);
+    let on = checked || indeterminate;
+    let accent = TextColor::rgb(ACCENT.0, ACCENT.1, ACCENT.2);
+    let mut st = *s;
+    if on {
+        st.border_color = [Some(accent); 4];
+        if !radio {
+            st.background_color = Some(accent);
+        }
+    }
+    paint_box_decoration(&st, background_image, pixels, win_w, win_h, x, y, w, h, clip);
+    if !on {
+        return;
+    }
+    let k = w.min(h) / 13.0;
+    if radio {
+        let d = 5.0 * k;
+        fill_rounded_rect(pixels, win_w, win_h, x + (w - d) / 2.0, y + (h - d) / 2.0, d, d, d / 2.0, accent, clip);
+        return;
+    }
+    let white = TextColor::rgb(255, 255, 255);
+    if indeterminate {
+        fill_rect(pixels, win_w, win_h, x + 3.0 * k, y + (h - 2.0 * k) / 2.0, w - 6.0 * k, (2.0 * k).max(1.0), white, clip);
+        return;
+    }
+    // The check: two strokes, (3,6.5)-(5.5,9) and (5.5,9)-(10,4) in 13px units.
+    let t = (1.6 * k).max(1.0);
+    let mut stroke = |(x0, y0): (f32, f32), (x1, y1): (f32, f32)| {
+        let steps = (((x1 - x0).abs().max((y1 - y0).abs())) * k * 2.0).ceil().max(1.0) as i32;
+        for i in 0..=steps {
+            let f = i as f32 / steps as f32;
+            let (px, py) = (x + (x0 + (x1 - x0) * f) * k, y + (y0 + (y1 - y0) * f) * k);
+            fill_rect(pixels, win_w, win_h, (px - t / 2.0).round(), (py - t / 2.0).round(), t.round().max(1.0), t.round().max(1.0), white, clip);
+        }
+    };
+    stroke((3.2, 6.6), (5.6, 9.0));
+    stroke((5.6, 9.0), (10.0, 4.2));
+}
+
 /// Blurs `mask` (`mw` x `mh`, alpha 0..1) in place with three box-blur
 /// passes per axis approximating a Gaussian of standard deviation `sigma`.
 pub(crate) fn blur_mask(mask: &mut [f32], mw: usize, mh: usize, sigma: f32) {
@@ -1806,7 +1864,11 @@ pub(crate) fn paint_inner(
         // own `overflow` only clips its descendants' overflowing
         // content, never its own background/border/outline/shadow,
         // same as real CSS.
-        paint_box_decoration(&s, laid.background_image.as_deref(), pixels, win_w, win_h, laid.x, draw_y, laid.w, laid.h, clip);
+        if s.check_widget != 0 {
+            paint_checkable(&s, laid.background_image.as_deref(), pixels, win_w, win_h, laid.x, draw_y, laid.w, laid.h, clip);
+        } else {
+            paint_box_decoration(&s, laid.background_image.as_deref(), pixels, win_w, win_h, laid.x, draw_y, laid.w, laid.h, clip);
+        }
     }
 
     // Layer 2: negative stacking contexts — above this box's own

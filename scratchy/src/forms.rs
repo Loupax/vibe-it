@@ -22,7 +22,7 @@ const AVG_CHAR_EM_MONO: f32 = 0.6;
 const LINE_EM: f32 = 1.15;
 
 /// Fill of a checked checkbox/radio, and of a progress/meter bar.
-const ACCENT: (u8, u8, u8) = (0, 117, 255);
+pub(crate) const ACCENT: (u8, u8, u8) = (0, 117, 255);
 
 fn rgb((r, g, b): (u8, u8, u8)) -> TextColor {
     TextColor::rgb(r, g, b)
@@ -183,36 +183,181 @@ fn date_placeholder(ty: &str) -> Option<&'static str> {
     })
 }
 
-/// checkbox / radio: a 13x13 box (UA CSS) with a check mark or a dot when the
-/// `checked` attribute is present. `appearance:none` paints nothing extra.
+/// checkbox / radio: a 13x13 box (UA CSS). The check mark / dot is NOT part of
+/// the layout tree: the box only carries `style.check_widget` and the painter
+/// draws the mark from the LIVE state (`CHECK_LIVE`, Q30c), so a toggle repaints
+/// without rebuilding the layout. `appearance:none` marks nothing.
 fn build_checkable(handle: &Handle, mut style: ComputedStyle, radio: bool) -> (ComputedStyle, BoxContent) {
-    let checked = element_attr(handle, "checked").is_some();
-    if !checked || style.appearance_none {
-        return (style, BoxContent::Inline(Vec::new()));
+    if !style.appearance_none {
+        style.check_widget = if radio { CHECK_RADIO } else { CHECK_BOX };
+        if element_attr(handle, "checked").is_some() {
+            style.check_widget |= CHECK_ATTR;
+        }
     }
-    let accent = rgb(ACCENT);
-    style.border_color = [Some(accent); 4];
-    if radio {
-        // A white disc with an accent ring and dot, like the native radio.
-        let mut dot = anonymous_style(style.inherited());
-        dot.display = Display::Block;
-        dot.width = Some(BoxLength::Px(5.0));
-        dot.height = Some(BoxLength::Px(5.0));
-        let m = BoxLength::Px(3.0);
-        dot.margin = Sides { top: m, right: m, bottom: m, left: m };
-        dot.background_color = Some(accent);
-        dot.border_radius = BoxLength::Percent(0.5);
-        return (style, BoxContent::Blocks(vec![empty_block(dot)]));
+    (style, BoxContent::Inline(Vec::new()))
+}
+
+// ---- Q30c: live checkbox/radio state -------------------------------------
+//
+// DESIGN NOTE (easy to change): the state lives in one thread-local map keyed
+// by `node_id` (like `INTERACTION`), NOT on `App`, because the three readers
+// (selector matching in `dom.rs`, the JS natives in `js_dom.rs`, the painter)
+// all run on the main thread without access to the `App`. An entry exists only
+// once the user or a script touched the element ("dirty"); until then the
+// `checked` attribute controls it. The `App` clears the map on navigation.
+
+pub(crate) const CHECK_BOX: u8 = 1;
+pub(crate) const CHECK_RADIO: u8 = 2;
+/// The `checked` attribute was present when the box was built.
+pub(crate) const CHECK_ATTR: u8 = 4;
+
+/// What the user/script set. `checked: None` = not dirty (attribute rules).
+#[derive(Clone, Copy, Default)]
+pub(crate) struct CheckLive {
+    pub(crate) checked: Option<bool>,
+    pub(crate) indeterminate: bool,
+}
+
+thread_local! {
+    static CHECK_LIVE: RefCell<HashMap<usize, CheckLive>> = RefCell::new(HashMap::new());
+}
+
+pub(crate) fn clear_check_state() {
+    CHECK_LIVE.with(|m| m.borrow_mut().clear());
+}
+
+/// `Some(is_radio)` for an `<input type=checkbox|radio>`.
+pub(crate) fn checkable_kind(h: &Handle) -> Option<bool> {
+    if element_tag(h) != "input" {
+        return None;
     }
-    style.background_color = Some(accent);
-    style.text_align = TextAlign::Center;
-    style.overflow = Overflow::Hidden;
-    let mut span = text_span(&style, WhiteSpace::Pre);
-    span.color = TextColor::rgb(255, 255, 255);
-    span.font_size = 11.0;
-    span.font_weight = FontWeight::BOLD;
-    span.line_height = 11.0;
-    (style, BoxContent::Inline(vec![InlineItem::Text("\u{2713}".to_string(), span)]))
+    match input_type(h).as_str() {
+        "checkbox" => Some(false),
+        "radio" => Some(true),
+        _ => None,
+    }
+}
+
+/// The live `checked` of a checkable (the attribute while not dirty).
+pub(crate) fn live_checked(h: &Handle) -> bool {
+    let dirty = CHECK_LIVE.with(|m| m.borrow().get(&node_id(h)).and_then(|l| l.checked));
+    dirty.unwrap_or_else(|| element_attr(h, "checked").is_some())
+}
+
+/// Painter's view: `attr` is the `CHECK_ATTR` bit of the built box.
+pub(crate) fn live_checked_node(node: usize, attr: bool) -> bool {
+    CHECK_LIVE.with(|m| m.borrow().get(&node).and_then(|l| l.checked)).unwrap_or(attr)
+}
+
+pub(crate) fn live_indeterminate(h: &Handle) -> bool {
+    live_indeterminate_node(node_id(h))
+}
+
+pub(crate) fn live_indeterminate_node(node: usize) -> bool {
+    CHECK_LIVE.with(|m| m.borrow().get(&node).is_some_and(|l| l.indeterminate))
+}
+
+fn tree_root(h: &Handle) -> Handle {
+    let mut top = h.clone();
+    while let Some(p) = parent_handle(&top) {
+        top = p;
+    }
+    top
+}
+
+/// The form owner of a control: the `form` attribute's id, else the nearest
+/// `<form>` ancestor.
+pub(crate) fn form_owner(h: &Handle) -> Option<Handle> {
+    if let Some(id) = element_attr(h, "form").map(|v| v.to_string()) {
+        let root = tree_root(h);
+        return find_by_id_attr(&root, &id).filter(|f| element_tag(f) == "form");
+    }
+    let mut cur = parent_handle(h);
+    while let Some(n) = cur {
+        if element_tag(&n) == "form" {
+            return Some(n);
+        }
+        cur = parent_handle(&n);
+    }
+    None
+}
+
+fn find_by_id_attr(h: &Handle, id: &str) -> Option<Handle> {
+    if element_attr(h, "id").is_some_and(|v| *v == *id) {
+        return Some(h.clone());
+    }
+    h.children.borrow().iter().find_map(|c| find_by_id_attr(c, id))
+}
+
+fn all_inputs(h: &Handle, out: &mut Vec<Handle>) {
+    if element_tag(h) == "input" {
+        out.push(h.clone());
+    }
+    for c in h.children.borrow().iter() {
+        all_inputs(c, out);
+    }
+}
+
+/// The other radios in `h`'s group: same tree, same form owner, same
+/// non-empty `name`.
+fn radio_peers(h: &Handle) -> Vec<Handle> {
+    let Some(name) = element_attr(h, "name").map(|v| v.to_string()).filter(|n| !n.is_empty()) else {
+        return Vec::new();
+    };
+    let owner = form_owner(h).map(|f| node_id(&f));
+    let mut all = Vec::new();
+    all_inputs(&tree_root(h), &mut all);
+    all.into_iter()
+        .filter(|o| !Rc::ptr_eq(o, h) && checkable_kind(o) == Some(true))
+        .filter(|o| element_attr(o, "name").is_some_and(|n| *n == *name))
+        .filter(|o| form_owner(o).map(|f| node_id(&f)) == owner)
+        .collect()
+}
+
+/// The checked radio of `h`'s group other than `h`, if any.
+pub(crate) fn checked_radio_peer(h: &Handle) -> Option<Handle> {
+    radio_peers(h).into_iter().find(live_checked)
+}
+
+/// Sets the live `checked` (making it dirty). Checking a radio unchecks its
+/// group. Returns whether anything changed.
+pub(crate) fn set_checked(h: &Handle, v: bool) -> bool {
+    if element_tag(h) != "input" {
+        return false;
+    }
+    let radio = checkable_kind(h) == Some(true);
+    let mut changed = live_checked(h) != v;
+    CHECK_LIVE.with(|m| m.borrow_mut().entry(node_id(h)).or_default().checked = Some(v));
+    if radio && v {
+        for o in radio_peers(h) {
+            if live_checked(&o) {
+                CHECK_LIVE.with(|m| m.borrow_mut().entry(node_id(&o)).or_default().checked = Some(false));
+                changed = true;
+            }
+        }
+    }
+    changed
+}
+
+pub(crate) fn set_indeterminate(h: &Handle, v: bool) {
+    if element_tag(h) == "input" {
+        CHECK_LIVE.with(|m| m.borrow_mut().entry(node_id(h)).or_default().indeterminate = v);
+    }
+}
+
+/// `form.reset()`: every control owned by `form` goes back to its defaults
+/// (the attribute controls again, not indeterminate). Returns whether any
+/// live state was dropped.
+pub(crate) fn reset_form_state(form: &Handle) -> bool {
+    let mut all = Vec::new();
+    all_inputs(&tree_root(form), &mut all);
+    let mut any = false;
+    for c in all {
+        if element_tag(&c) == "input" && form_owner(&c).is_some_and(|f| Rc::ptr_eq(&f, form)) {
+            any |= CHECK_LIVE.with(|m| m.borrow_mut().remove(&node_id(&c))).is_some();
+        }
+    }
+    any
 }
 
 /// submit / reset / button / image inputs: a button face (UA CSS) with the

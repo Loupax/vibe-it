@@ -378,6 +378,9 @@ pub(crate) struct ComputedStyle {
     /// `appearance: none` (Q30a): form controls keep their text but get no
     /// widget decorations (check mark, select arrow, bar fill). Not inherited.
     pub(crate) appearance_none: bool,
+    /// Q30c: `CHECK_*` bits of a checkbox/radio box (the painter draws its mark
+    /// from the live state), 0 otherwise. Not inherited.
+    pub(crate) check_widget: u8,
     /// Only ever `Some` on the synthetic document-root box: the window
     /// height, i.e. the initial containing block's definite height. It
     /// feeds `child_containing_height` (so `html{height:100%}` resolves)
@@ -2139,6 +2142,7 @@ pub(crate) fn resolve_style_core<'a>(
         animations: cascade_animations(&matches, inl),
         appearance_none: cascade_property(&matches, inline_decls.as_ref().and_then(|d| d.appearance_none), |d| d.appearance_none)
             .unwrap_or(false),
+        check_widget: 0,
         icb_height: None,
         first_line: None,
         cursor,
@@ -2258,6 +2262,7 @@ pub(crate) fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         text_overflow: TextOverflow::default(),
         animations: None,
         appearance_none: false,
+        check_widget: 0,
         icb_height: None,
         first_line: None,
         cursor: inherited.cursor,
