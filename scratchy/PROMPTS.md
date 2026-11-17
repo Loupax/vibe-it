@@ -6974,3 +6974,15 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Item QJ4. `Element.getBoundingClientRect` does not exist, so social.loupax.com/vim.js:104 dies. Implement layout-backed rects (viewport-relative with the current scroll, zero rect for display:none/detached), plus getClientRects, offset*/client*/scroll* with a forced synchronous layout cached until the next DOM write. No QJ5-QJ11.
 
 **What changed:** src/js_geom.rs (new: `GeomCache`, builds + measures the page on the JS thread with its own FontSystem, records each element box by node id, logs "N forced layouts, M ms" once), src/js_dom.rs (`__d_rect`, DOM_PRELUDE geometry block: getBoundingClientRect/getClientRects/offset*/client*/scroll*), src/js.rs `JsEngine::set_scroll` + src/app.rs (App scroll offset mirrored into `window.scrollY` before events and timers), src/js_style.rs `page_css`, tests `qj4_*`. Limits: images laid out without decoded size, inline elements use descendant union / nearest box ancestor, non-root `scrollTop/Left` only remember the number (QJ6), nested scroll containers and sticky not applied to rects.
+
+## QY21: custom-element define() is linear (2026-11-17)
+
+> QY6e `define()` rebuilt an ever-growing all-names selector and ran `__d_query` over the whole document on every define (86% of YouTube's CPU, R24). Query only the new name in `define`; replace the selector in `ceScan`/`ceCollect` with a native `__d_ce_candidates(root)` backed by a Rust name set. Measure youtube before/after.
+
+**What changed:** src/js_dom.rs (`__d_ce_add`, `__d_ce_candidates`, `DomTable::ce_names/ce_exts`, `define` one-name lookup, `__ce_stats.defineQueries` test hook), test `qy21_*` in src/tests.rs.
+
+## Investigation: embedding an external video player (QM1, R27; 2026-11-17)
+
+> Investigator only (docs). Can scratchy embed an already installed external video player (mpv; ffplay also installed; vlc and gstreamer are not) instead of decoding media itself? Test where cheap (mpv --version/--vo=help/--hwdec=help, libmpv presence, render API SW vs --wid, second toplevel vs subsurface, IPC control, dwl subsurface/viewporter support, SW render cost vs dmabuf). Cover geometry/scroll/clipping/z-order/transform mapping, audio routing, the HTMLMediaElement surface (MSE/EME: say what is realistic), security (a player fetching directly bypasses wire), cost/size, a minimal spike and its acceptance test, a recommendation and the open product questions. Write findings and ranked items (WAITING FOR USER where design is needed) into TODO.txt (QM1 + QM1a..) and a memo (NOTES.md / REGRESSIONS.md R27). No source code, no playback.
+
+**What changed:** TODO.txt (QM1 ticked with the answer and recommendation; new QM1-D product questions D1-D8 and items QM1a-QM1j; a Media line under WAITING FOR USER), REGRESSIONS.md (R27: installed versions and build flags, dwl globals, measured decode/software-output CPU and RSS, IPC, `--wid`, separate-toplevel and pipe tests, options table, security, what was not verified), NOTES.md (short "Media via mpv" memo). Tests used throwaway files in the scratchpad, `--ao=null`, and a nested dwl only; nothing in src/ changed.

@@ -1,5 +1,119 @@
 # scratchy — regressions
 
+## R27: Can scratchy embed mpv for `<video>`? (Opus investigator, 2026-11-17) — EVIDENCE for TODO.txt QM1 / QM1-D / QM1a-QM1j
+
+**Status: investigation only, nothing implemented (media is "Off limits" in
+AGENTS.md until the user agrees a design).** Conclusion: an mpv *process*
+cannot draw inside scratchy's window on Wayland; libmpv *inside* scratchy can,
+by rendering each frame into a buffer scratchy owns. Recommendation and the
+user's open questions are in TODO.txt QM1.
+
+What is installed (checked 2026-11-17):
+- mpv 0.41.0, libplacebo 7.360.1, FFmpeg 8.1.2. mpv build flags (from `mpv -v`):
+  `x11=disabled`, `vaapi=disabled`, `vdpau=disabled`, `pipewire=disabled`,
+  `pulse=enabled`, `wayland=enabled`, `vulkan=enabled`, `egl=enabled`,
+  `zimg=disabled`, `libmpv=true`.
+- libmpv: `pkg-config --modversion mpv` = 2.5.0, `/usr/lib64/libmpv.so.2.5.0`
+  (2,423,368 bytes), headers `/usr/include/mpv/{client,render,render_gl,stream_cb}.h`
+  (`MPV_CLIENT_API_VERSION` 2.5). render.h has `MPV_RENDER_API_TYPE_SW`
+  (formats rgb0/bgr0/0bgr/0rgb, stride and pointer 64-byte aligned
+  recommended, "extremely simple (but slow)") and `MPV_RENDER_API_TYPE_OPENGL`.
+  stream_cb.h: `mpv_stream_cb_add_ro(protocol, open_fn)` with read/seek/size
+  callbacks.
+- `mpv --vo=help`: gpu-next, gpu, wlshm, dmabuf-wayland, libmpv, null, image,
+  drm, kitty, tct. `--gpu-context=help`: waylandvk, wayland (EGL), drm,
+  displayvk. `--hwdec=help`: only v4l2m2m-copy (no VA-API in mpv or ffmpeg:
+  `--disable-vaapi`), so decoding is software on this machine.
+- ffmpeg decoders: h264, hevc, vp8, vp9, av1 (native and libdav1d), aac, opus
+  (native and libopus), vorbis, mp3, flac.
+- ffplay 8.1.2 (SDL2 window, keyboard only, no control socket). vlc,
+  gst-launch-1.0: not installed. Audio: `pactl info` = PulseAudio on PipeWire
+  1.6.7; mpv `--ao=help`: pulse, alsa, null, pcm.
+- CPU: AMD Ryzen 5 PRO 2500U, 8 threads.
+- dwl 0.8-dev on wlroots 0.19. Globals it creates (symbols in /usr/bin/dwl,
+  confirmed by mpv's registry log in a nested dwl): wl_compositor 6,
+  wl_subcompositor 1, wp_viewporter 1, wp_single_pixel_buffer 1,
+  wp_presentation 2, wp_fractional_scale 1, xdg_wm_base 6, xdg_activation,
+  idle_inhibit, cursor_shape, layer_shell, xwayland, linux_dmabuf (created
+  with the renderer). Not offered: xdg-foreign, color management, content-type.
+  The nested pixman dwl from tools/nest.sh does NOT offer zwp_linux_dmabuf_v1
+  v4 (`mpv --vo=dmabuf-wayland`: "Compositor doesn't support the
+  zwp_linux_dmabuf_v1 (ver. 4) protocol!", VO init failed).
+- scratchy: winit 0.30 + softbuffer 0.4, one wl_surface, no EGL/GL. `App::redraw`
+  (src/app.rs) fills the buffer white, repaints the whole page and calls
+  `present()` (no damage) on every redraw.
+
+Tests run (throwaway files in the session scratchpad, nothing committed; every
+mpv with `--no-config --ao=null`; windows only in a nested dwl from
+`tools/nest.sh`, killed by its PID afterwards):
+1. Test media: `ffmpeg -f lavfi -i testsrc2=size=1280x720:rate=30 -f lavfi -i
+   sine=frequency=440 -t 20 -c:v libx264 -preset veryfast -pix_fmt yuv420p
+   -c:a libopus -shortest t720.mp4` (7.2 MB) and the same at 1920x1080 without
+   audio (13.5 MB).
+2. Decode cost, `mpv --vo=null --length=10` (real time), bash `time`:
+   720p30: wall 11.2 s, user 2.39 s, sys 0.24 s (~24% of one core);
+   1080p30: wall 11.4 s, user 4.32 s, sys 0.25 s (~43%).
+   1080p playing: mpv RSS 117 MB, 23 threads.
+3. Software output cost, `WAYLAND_DISPLAY=<nested> mpv --vo=wlshm --length=10
+   t720.mp4`: the window was tiled to 1048x1046, video scaled 1280x720 ->
+   1048x589 in software: wall 12.0 s, user 4.67 s, sys 0.24 s, i.e. ~2.3 s
+   (~23% of a core) more than vo=null. wlshm is the closest command-line proxy
+   for libmpv's SW render (both scale and convert on the CPU into shared
+   memory); the real SW render API was NOT measured (needs a program: QM1b).
+4. Separate toplevel: in the nested dwl, mpv's window took the whole output
+   (tiled; grim showed the letterboxed video filling the screen). A Wayland
+   client cannot position its own toplevel; dwl only floats windows by
+   compile-time rules (app_id) and the client still cannot place itself, so a
+   second toplevel cannot sit over a `<video>` box or follow scrolling.
+5. `--wid`: `mpv --vo=wlshm --wid=12345` under Wayland logs
+   `Setting option 'wid' = '12345'` and then opens its own xdg_toplevel anyway
+   (X11 support is compiled out). Wayland has no window ids; a wl_subsurface
+   must be created on the parent's own client connection, so another process
+   cannot become our subsurface. (mpv's own Wayland VOs use a subsurface +
+   viewporter inside mpv's own toplevel, which shows dwl supports those for a
+   single client.)
+6. IPC (`mpv --idle --pause --vo=null --input-ipc-server=<sock>`, JSON lines from
+   a small Python client): `observe_property time-pos`, `loadfile` -> events
+   start-file, audio-reconfig, file-loaded, video-reconfig, playback-restart;
+   get_property duration 20.0, width 1280, height 720, pause true, volume 100,
+   seekable true, file-format mov/mp4, video-params/pixelformat yuv420p,
+   eof-reached false; `set pause false` -> one time-pos event per frame
+   (0.0333 s steps), time-pos 1.03 after 1 s; `seek 12.5 absolute` -> seek
+   event, time-pos 12.5; `set volume 30` ok; `quit`. libmpv's client API exposes
+   the same commands/properties/events in-process.
+7. Pipe input: `cat t720.mp4 | mpv -` (moov atom at the end of the file, as
+   ffmpeg writes by default) -> "Stream is not seekable", "Cannot seek backward
+   in linear streams!", "error reading packet: Invalid data". A seekable byte
+   source (Range reads) is required: stream_cb seek_fn, or an HTTP endpoint
+   with Range.
+
+Options (cost and size; ranking and reasons in TODO.txt QM1):
+| Option | What | New code / deps | CPU per playing video (measured proxies) | Embeds? |
+| --- | --- | --- | --- | --- |
+| A1 | libmpv in-process, SW render into the `<video>` box, painted by scratchy | FFI to ~20 libmpv functions (or a -sys crate), dynamic link to the system libmpv (2.4 MB, already installed; ffmpeg libs shared), optional at build or run time | decode 24-43% of a core + SW scale ~23% + page blit/present (QM1c) | yes, with clipping/z-order/transform from the paint path |
+| A2 | libmpv SW render into scratchy's own wl_subsurface + wp_viewporter | A1 + raw Wayland objects on winit's connection | decode + convert (compositor scales) | above or below the whole page only; clipping via viewport crop |
+| B | libmpv OpenGL render into an EGL subsurface | A2 + EGL/GL context, GPU paths (not testable in the pixman nested dwl) | lowest | as A2 |
+| C | spawn mpv as its own window (+ IPC) | spawn + optional socket | decode + GPU output | no: own dwl tile |
+| D | ffmpeg/ffplay subprocess writing raw frames | our own A/V sync, audio, seeking | decode + pipe copy | as A1, much more code |
+| E | vlc / GStreamer | not installed; GStreamer waylandsink embeds in-process too | n/a | n/a |
+
+Security notes: a player handed a page URL fetches by itself: no wire policy
+(private targets, bad ports, mixed content), no partitioned cookie jar, no
+CORS, and mpv's ytdl hook would run youtube-dl/yt-dlp on it. With libmpv the
+fix is to be the only byte source (stream_cb) and turn off mpv's extras
+(`config=no`, `ytdl=no`, `load-scripts=no`, `osc=no`, default bindings off,
+`load-unsafe-playlists=no`). For a separate mpv process (option C) the
+equivalent is a loopback URL with a random token served by scratchy from wire,
+plus the same flags. In-process libmpv means ffmpeg's demuxers/decoders parse
+untrusted bytes in scratchy's process (QM1-D D2: helper process QM1h).
+
+NOT verified: the libmpv SW render API's own cost (only the wlshm proxy); the
+real (GPU) dwl's linux_dmabuf, `--vo=gpu`/`dmabuf-wayland` (QM1a); audio output
+(every test used `--ao=null`); whether wire forwards `Range`/206 (QM1d);
+scratchy's full-page repaint time per frame (QM1c); any webm/vp9/av1 file
+(decoders are listed, not played); that `load-unsafe-playlists=no` plus
+stream_cb alone stops every ffmpeg protocol (QM1e's strace test must show it).
+
 ## R24: YouTube's 5 s CPU wall is QY6e's own `define()` scan (Opus investigator, 2026-11-16) — OPEN, items QY21-QY27 in TODO.txt
 
 **Status: open (perf bug introduced by QY6e f887f67, plus budget-policy
