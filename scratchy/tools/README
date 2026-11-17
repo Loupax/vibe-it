@@ -72,4 +72,6 @@ exposes only that directory and maps sans-serif/serif/monospace to it. Same
 thing locally (the dir may differ, e.g. /usr/share/fonts/liberation-fonts):
      FONTCONFIG_FILE=$(tools/ci-fontconfig.sh /usr/share/fonts/truetype/liberation /tmp/libfonts) \
        cargo test --release --locked
-The clippy baseline CI enforces is the number in tools/clippy-baseline.txt.
+The clippy baseline CI enforces is the number in tools/clippy-baseline.txt. CI pins
+the Rust toolchain (rustup 1.96.1 in ci.yml) because the clippy count changes with
+the clippy version; bump it deliberately together with the baseline.
