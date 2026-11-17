@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: ${{ matrix.crate }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        crate: [scratchy, wire, snag]
+    defaults:
+      run:
+        working-directory: ${{ matrix.crate }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: System packages
+        if: matrix.crate == 'scratchy'
+        # Headless runner. Dev packages for winit/softbuffer/arboard (X11 and
+        # Wayland client libs, xkbcommon), fontconfig/freetype, clang and
+        # pkg-config for C builds (rquickjs). The ONE pinned font set is
+        # fonts-liberation (see scratchy/tools/README).
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config clang libfontconfig1-dev libfreetype-dev \
+            libxkbcommon-dev libwayland-dev libx11-dev libxcb1-dev \
+            fonts-liberation
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: ${{ matrix.crate }}
+      - name: Build
+        run: cargo build --release --locked --all-targets
+      - name: Test (scratchy, only the Liberation fonts visible)
+        if: matrix.crate == 'scratchy'
+        run: |
+          export FONTCONFIG_FILE="$(tools/ci-fontconfig.sh /usr/share/fonts/truetype/liberation "$RUNNER_TEMP/fc")"
+          fc-match sans-serif
+          fc-match monospace
+          cargo test --release --locked
+      - name: Test
+        if: matrix.crate != 'scratchy'
+        run: cargo test --release --locked
+      - name: Clippy warning count vs baseline
+        if: matrix.crate == 'scratchy'
+        run: |
+          out="$(tools/clippy-count.sh)"
+          echo "$out"
+          total="$(echo "$out" | awk '/^TOTAL/ {print $2}')"
+          base="$(tr -d '[:space:]' < tools/clippy-baseline.txt)"
+          echo "clippy total=$total baseline=$base"
+          test -n "$total" && [ "$total" -le "$base" ]
