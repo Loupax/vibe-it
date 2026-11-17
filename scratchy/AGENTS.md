@@ -9,7 +9,14 @@
 ## Per-item checklist
 1. Implement.
 2. Add a permanent test in `src/tests.rs` (the `#[cfg(test)] mod tests`). Never delete tests.
-3. `cargo check`, `cargo clippy`, `cargo test` — all clean.
+3. `cargo check`, `cargo clippy`, `cargo test` — all clean. Clippy warnings are
+   counted ONLY with `tools/clippy-count.sh [outfile]` (run from `scratchy/`; it runs
+   `cargo clippy --release --all-targets --message-format=json` and counts DISTINCT
+   warnings = unique (lint name, file:line:col), so per-target duplicates and the
+   "N warnings emitted" lines don't inflate it; `--all-targets` so test code and
+   benches are included). Quote that TOTAL, never a raw output line count. Your change
+   must not raise it above the baseline recorded in TODO.txt QC1 (the list of
+   warnings goes to `outfile`; diff it against main's to find new ones).
 4. WPT subset (once Q40a lands): `scratchy --wpt /home/loupax/src/wpt` (run from `scratchy/`; reads
    `wpt-subset.txt`, compares with `wpt-expected.txt`, exits 1 on any change;
    `--update` rewrites expectations; `--out DIR` saves failing PNGs). A new failure is a

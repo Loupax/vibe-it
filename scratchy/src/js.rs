@@ -711,8 +711,8 @@ const SCRIPT_BUDGET: Duration = Duration::from_secs(5);
 /// socket for long enough (R8), so it gets a tenth of that.
 pub(crate) const CALLBACK_BUDGET: Duration = Duration::from_millis(500);
 
-/// QY22 test seam: `(now, step)` replaces the thread CPU clock; every read
-/// returns `now` and then advances it by `step` ns.
+// QY22 test seam: `(now, step)` replaces the thread CPU clock; every read
+// returns `now` and then advances it by `step` ns.
 #[cfg(test)]
 thread_local! {
     pub(crate) static FAKE_CLOCK: std::cell::Cell<Option<(u64, u64)>> = const { std::cell::Cell::new(None) };

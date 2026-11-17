@@ -513,6 +513,22 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       `comment.data` is still a no-op (`__d_settext` ignores Comment nodes; the
       Rust NodeData::Comment contents are not mutable). Probe on the saved copy:
       skeleton=1/grid=0 at 20 ms, skeleton=0/grid=1 at 60 and 95 ms (simulated).
+- [x] QC1 [S] DONE 2026-11-17 (HASH) clippy baseline: ONE counting method, `tools/clippy-count.sh`
+      (`cargo clippy --release --all-targets`, distinct (lint, file:line:col) from the JSON
+      diagnostics; AGENTS.md checklist step 3). Measured (distinct warnings): d024bef (docs audit)
+      78; #220 help-cli-options 79 (+1 dead_code `dom::CLI_OPTIONS` only used by a test); #227
+      081f562 79; #228 QY22 budget-policy 80 (+1 unused_doc_comments on the `///` before a
+      `#[cfg(test)] thread_local!` in js.rs); #230 QJ7 range 81 (+1 needless_range_loop in
+      js_geom.rs); every other PR (#222 #221 #224 #223 #225 #226 #229 #231 #232 #233 #234 #235)
+      +0. Main before QC1: 81. Fixed those 3 (cfg(test) on CLI_OPTIONS, `//` instead of `///`,
+      enumerate().take().skip()): now 78 = the d024bef baseline. The other 78 are
+      pre-existing style lints (25 collapsible_if, 13 field_reassign_with_default, 7
+      let_and_return, 7 too_many_arguments, ...); see QC2.
+- [ ] QC2 [M] clippy: the remaining 78 warnings are pre-existing style lints (collapsible_if x25,
+      field_reassign_with_default x13, let_and_return x7, too_many_arguments x7, ...) and were
+      left alone: collapsible_if/let_and_return are cosmetic edits across many files that
+      would conflict with the concurrent agents' branches (js.rs, layout.rs, tests.rs).
+      Do it in one quiet window as a mechanical `cargo clippy --fix` pass, test + WPT.
 - [x] QY30 [S] (P2, R26) DONE 2026-11-17 (f9900b8) rAF due time can equal "now": TIMERS_PRELUDE `add()` (js.rs)
       `if (raf) delay = FRAME - (t % FRAME)`; at t = 100 ms (FRAME = 1000/60)
       `t % FRAME` is 16.666666666666657, delay 1.1e-14, `t + delay` rounds back
