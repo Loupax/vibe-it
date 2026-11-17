@@ -16847,3 +16847,25 @@ fn qy42_definite_width_descendant_non_empty() {
     let fc = r#"<span style="display:inline-block;width:40px;max-width:fit-content"><span style="display:inline-block;width:20px;height:3px"></span></span>"#;
     assert!((marker_x(&mk(fc)) - 20.0).abs() < 1.0);
 }
+
+// ---------- QY44b: window.screen / visualViewport ----------
+
+#[test]
+fn qy44b_window_screen_and_visual_viewport() {
+    let out = run_collecting(&[src(
+        "var r = [];\
+         r.push(typeof screen, screen instanceof Screen, screen === window.screen, screen.width >= innerWidth, screen.height >= innerHeight);\
+         r.push(screen.availWidth > 0, screen.availHeight > 0, screen.availLeft, screen.availTop, screen.colorDepth, screen.pixelDepth);\
+         r.push(typeof screen.orientation.type, screen.orientation.angle, typeof screen.orientation.addEventListener);\
+         screen.orientation.addEventListener('change', function () {}); screen.orientation.removeEventListener('change', function () {});\
+         var Jp = { height: window?.screen.height, width: window?.screen.width }; r.push(Jp.height === innerHeight);\
+         r.push(screenX, screenY, screenLeft, screenTop);\
+         r.push(visualViewport.width === innerWidth, visualViewport.height === innerHeight, visualViewport.scale, visualViewport.offsetLeft, visualViewport.offsetTop, visualViewport.pageLeft, visualViewport.pageTop);\
+         visualViewport.addEventListener('resize', function () {}); visualViewport.removeEventListener('resize', function () {});\
+         console.log(r.join('|'));",
+    )]);
+    assert_eq!(
+        out,
+        vec!["log:object|true|true|true|true|true|true|0|0|24|24|string|0|function|true|0|0|0|0|true|true|1|0|0|0|0"]
+    );
+}
