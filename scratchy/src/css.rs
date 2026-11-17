@@ -1910,6 +1910,13 @@ impl FontFamily {
     /// assumption every `new_font_system()` call already makes, reading
     /// the same system font directories regardless of which thread or
     /// instance asks.
+    ///
+    /// **Callers must pass `font_system.db()`, never `db_mut()`.**
+    /// cosmic-text's `FontSystem::db_mut()` clears its font-match cache on
+    /// every call, so a `db_mut()` caller makes every following shape
+    /// rebuild the match list for all installed faces (about 71 font files
+    /// opened and mmapped per span). That was R32 (~10-37x slower shaping
+    /// on every page); the guard test is `layout_shaping_never_wipes_font_cache`.
     pub(crate) fn resolve(self, db: &fontdb::Database, weight: FontWeight, style: FontStyle) -> CosmicFamily<'static> {
         thread_local! {
             static CACHE: RefCell<HashMap<(FontFamily, FontWeight, FontStyle), CosmicFamily<'static>>> =

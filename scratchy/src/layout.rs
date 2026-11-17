@@ -1310,7 +1310,7 @@ pub(crate) fn shape_spans(
             attrs.color_opt = Some(span.color);
             attrs.weight = span.font_weight;
             attrs.style = span.font_style;
-            attrs.family = span.font_family.resolve(font_system.db_mut(), attrs.weight, attrs.style);
+            attrs.family = span.font_family.resolve(font_system.db(), attrs.weight, attrs.style);
             attrs.text_decoration = span.text_decoration;
             attrs.metadata = i;
             // cosmic-text's `shape_until_scroll` hangs forever (confirmed: a genuine

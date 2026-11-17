@@ -17926,3 +17926,17 @@ fn q30a_rounded_border_keeps_its_bottom_row_at_fractional_height() {
     let idx = (bottom_row * w + 15) as usize;
     assert_ne!(px[idx], 0xFFFFFFFF, "bottom border row {bottom_row} missing");
 }
+
+/// R32 / QP1: `shape_spans` must resolve font families with
+/// `font_system.db()`, never `db_mut()`. cosmic-text's `db_mut()` clears the
+/// font-match cache on every call (the cache cannot be read from outside
+/// cosmic-text), so one `db_mut()` per span made every shape rebuild the
+/// match list and reopen ~71 font files. `new_font_system_with` never calls
+/// `db_mut`, so only that bug trips this guard. The needle is split so this
+/// test's own source does not contain it (the guard reads layout.rs only).
+#[test]
+fn layout_shaping_never_wipes_font_cache() {
+    let src = include_str!("layout.rs");
+    let needle = concat!(".db", "_mut()");
+    assert!(!src.contains(needle), "layout.rs calls `{needle}`, which clears cosmic-text's font-match cache (R32): use `font_system.db()`");
+>}
