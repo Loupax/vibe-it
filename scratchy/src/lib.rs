@@ -70,6 +70,8 @@ mod paint;
 mod net;
 #[allow(dead_code)] // nothing calls the policy until QF7/QF8
 mod net_policy;
+#[allow(dead_code)] // QM1e: the libmpv glue (QM1f/QM1g) is the first caller
+mod media_net;
 mod app;
 mod js;
 mod js_modules;

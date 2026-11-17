@@ -483,7 +483,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       pooled upstream connection), W-MEDIA1 (`file:` ignores Range and reads the
       whole file), W-MEDIA2 (a truncated body looks complete), W-PERF1 (optional)
       in wire/TODO.txt. Recommendation and the refined QM1e below.
-- [ ] QM1e [M] (after D4; refined by QM1d 2026-11-17, R30) Media byte channel.
+- [x] QM1e [M] DONE 2026-11-17 (hash: see next commit; byte channel only, src/media_net.rs, 14 qm1e_* tests over a fake wire; the libmpv/libloading glue and `media` feature are NOT built, left for QM1f/QM1g) (after D4; refined by QM1d 2026-11-17, R30) Media byte channel.
       DESIGN (ranked; option 1 is the plan, NO wire protocol change):
       1. Repeated ranged GETs, one wire connection each (exactly what was
          measured). Rejected for now: 2. a streaming/long-lived media endpoint in

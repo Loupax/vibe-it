@@ -17149,3 +17149,399 @@ fn qj6_app_applies_element_scroll_request() {
     app.js_sync();
     assert_eq!(app.node_scroll.values().copied().collect::<Vec<_>>(), [50.0]);
 }
+
+// ---------- QM1e: the media byte channel over a fake wire (no libmpv, no network) ----------
+
+use crate::media_net::{MediaMode, MediaNetError, MediaSource, MediaStream, CHUNK_LARGE, CHUNK_SMALL};
+
+#[derive(Default, Clone)]
+struct Qm1eCfg {
+    file: Vec<u8>,
+    ignore_range: bool,
+    /// Drop the second half of the body of the answer to request #1.
+    truncate_once: bool,
+    /// Report `Content-Range` starting this many bytes late.
+    shift_start: u64,
+    /// `X-Wire-Final-Url` per request index (0-based), else none.
+    final_urls: Vec<(usize, String)>,
+    acao: Option<String>,
+    acac: bool,
+    /// Accept requests and never answer.
+    hold: bool,
+}
+
+struct Qm1eWire {
+    path: std::path::PathBuf,
+    seen: Arc<Mutex<Vec<String>>>,
+    cfg: Arc<Mutex<Qm1eCfg>>,
+}
+
+fn qm1e_wire(cfg: Qm1eCfg) -> Qm1eWire {
+    use std::os::unix::net::UnixListener;
+    static N: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let path = std::env::temp_dir().join(format!("qm1e-{}-{}.sock", std::process::id(), N.fetch_add(1, std::sync::atomic::Ordering::SeqCst)));
+    let _ = std::fs::remove_file(&path);
+    let listener = UnixListener::bind(&path).expect("bind fake wire");
+    let seen = Arc::new(Mutex::new(Vec::<String>::new()));
+    let cfg = Arc::new(Mutex::new(cfg));
+    let (s, c) = (seen.clone(), cfg.clone());
+    thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else { return };
+            let (s, c) = (s.clone(), c.clone());
+            thread::spawn(move || {
+                let mut buf = Vec::new();
+                let mut chunk = [0u8; 4096];
+                while !buf.windows(4).any(|w| w == b"\r\n\r\n") {
+                    match Read::read(&mut stream, &mut chunk) {
+                        Ok(0) | Err(_) => return,
+                        Ok(n) => buf.extend_from_slice(&chunk[..n]),
+                    }
+                }
+                let text = String::from_utf8_lossy(&buf).to_string();
+                let idx = {
+                    let mut g = s.lock().unwrap();
+                    g.push(text.clone());
+                    g.len() - 1
+                };
+                let cfg = c.lock().unwrap().clone();
+                if cfg.hold {
+                    thread::sleep(std::time::Duration::from_secs(20));
+                    return;
+                }
+                let hdr = |n: &str| {
+                    text.lines().find_map(|l| l.split_once(':').filter(|(k, _)| k.eq_ignore_ascii_case(n)).map(|(_, v)| v.trim().to_string()))
+                };
+                let mut extra = String::from("X-Wire-Version: 3\r\n");
+                if let Some((_, u)) = cfg.final_urls.iter().find(|(i, _)| *i == idx) {
+                    extra += &format!("X-Wire-Final-Url: {u}\r\n");
+                }
+                if let Some(a) = &cfg.acao {
+                    extra += &format!("Access-Control-Allow-Origin: {a}\r\n");
+                }
+                if cfg.acac {
+                    extra += "Access-Control-Allow-Credentials: true\r\n";
+                }
+                let max: Option<usize> = hdr("x-wire-max-bytes").and_then(|v| v.parse().ok());
+                let total = cfg.file.len() as u64;
+                let range = hdr("range").and_then(|r| {
+                    let r = r.strip_prefix("bytes=")?.to_string();
+                    let (a, b) = r.split_once('-')?;
+                    Some((a.parse::<u64>().ok()?, b.parse::<u64>().ok()?))
+                });
+                let (head, body): (String, Vec<u8>) = match range {
+                    Some((a, b)) if !cfg.ignore_range => {
+                        if a >= total {
+                            (format!("HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */{total}\r\n{extra}"), vec![])
+                        } else {
+                            let b = b.min(total - 1);
+                            let mut body = cfg.file[a as usize..=b as usize].to_vec();
+                            if cfg.truncate_once && idx == 1 {
+                                body.truncate(body.len() / 2);
+                            }
+                            (
+                                format!("HTTP/1.1 206 Partial Content\r\nContent-Range: bytes {}-{b}/{total}\r\n{extra}", a + cfg.shift_start),
+                                body,
+                            )
+                        }
+                    }
+                    _ => match max {
+                        Some(m) if cfg.file.len() > m => (
+                            format!("HTTP/1.1 502 Bad Gateway\r\nContent-Type: text/plain\r\nX-Wire-Error: too-large\r\n{extra}"),
+                            b"wire: response too large".to_vec(),
+                        ),
+                        _ => (format!("HTTP/1.1 200 OK\r\n{extra}"), cfg.file.clone()),
+                    },
+                };
+                let _ = stream.write_all(format!("{head}\r\n").as_bytes());
+                let _ = stream.write_all(&body);
+            });
+        }
+    });
+    Qm1eWire { path, seen, cfg }
+}
+
+fn qm1e_file(n: usize) -> Vec<u8> {
+    (0..n).map(|i| ((i * 7 + i / 251) % 256) as u8).collect()
+}
+
+fn qm1e_src(url: &str, page: &str, mode: MediaMode) -> MediaSource {
+    MediaSource { url: Url::parse(url).unwrap(), page: Url::parse(page).unwrap(), mode }
+}
+
+fn qm1e_open(w: &Qm1eWire, url: &str, page: &str, mode: MediaMode) -> Result<MediaStream, MediaNetError> {
+    MediaStream::open(w.path.clone(), qm1e_src(url, page, mode), RequestPolicy::default())
+}
+
+fn qm1e_read_all(s: &mut MediaStream, mut want: usize) -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut buf = vec![0u8; 65536];
+    while want > 0 {
+        let n = s.read(&mut buf[..want.min(65536)]).expect("read");
+        if n == 0 {
+            break;
+        }
+        out.extend_from_slice(&buf[..n]);
+        want -= n;
+    }
+    out
+}
+
+const QM1E_URL: &str = "https://cdn.example/v.mp4";
+const QM1E_PAGE: &str = "https://page.example/";
+
+#[test]
+fn qm1e_206_gives_total_from_content_range_and_exact_sequential_bytes() {
+    let file = qm1e_file(3 * 1024 * 1024 - 100);
+    let w = qm1e_wire(Qm1eCfg { file: file.clone(), ..Default::default() });
+    let mut s = qm1e_open(&w, QM1E_URL, QM1E_PAGE, MediaMode::NoCors).unwrap();
+    assert_eq!(s.size(), Some(file.len() as u64));
+    assert!(s.seekable());
+    let got = qm1e_read_all(&mut s, file.len() + 10);
+    assert!(got == file, "bytes differ");
+    assert_eq!(s.requests, 3, "1 MiB chunks: 3 requests for ~3 MiB");
+    assert_eq!(s.read_cb(&mut [0u8; 8]), 0, "EOF");
+    for r in w.seen.lock().unwrap().iter() {
+        assert!(r.contains("\r\nRange: bytes="), "{r}");
+        assert!(r.contains("\r\nX-Wire-Max-Bytes: "), "{r}");
+        assert!(r.contains("\r\nX-Wire-Timeout-Ms: 30000\r\n"), "{r}");
+    }
+    assert!(qf14b_has(&w.seen.lock().unwrap()[0], "Range: bytes=0-1048575"));
+}
+
+#[test]
+fn qm1e_200_fallback_is_forward_only_and_backward_seek_restarts() {
+    let file = qm1e_file(3 * 1024 * 1024);
+    let w = qm1e_wire(Qm1eCfg { file: file.clone(), ignore_range: true, ..Default::default() });
+    let mut s = qm1e_open(&w, QM1E_URL, QM1E_PAGE, MediaMode::NoCors).unwrap();
+    assert!(s.is_forward_only() && !s.seekable());
+    assert_eq!(s.size(), None);
+    assert_eq!(s.size_cb(), -1);
+    // request 0: capped attempt (502 too-large), request 1: the streaming GET
+    {
+        let seen = w.seen.lock().unwrap();
+        assert_eq!(seen.len(), 2);
+        assert!(!seen[1].contains("X-Wire-Max-Bytes"), "{}", seen[1]);
+        assert!(seen[1].contains("X-Wire-Timeout-Ms: 3600000"), "{}", seen[1]);
+    }
+    assert!(qm1e_read_all(&mut s, 1000) == file[..1000]);
+    s.seek(2_000_000).unwrap();
+    assert!(qm1e_read_all(&mut s, 500) == file[2_000_000..2_000_500], "forward seek discards");
+    s.seek(10).unwrap();
+    assert!(qm1e_read_all(&mut s, 100) == file[10..110], "backward seek restarts from 0");
+    assert_eq!(w.seen.lock().unwrap().len(), 3);
+}
+
+#[test]
+fn qm1e_small_200_body_is_served_whole_and_seekable() {
+    let file = qm1e_file(5000);
+    let w = qm1e_wire(Qm1eCfg { file: file.clone(), ignore_range: true, ..Default::default() });
+    let mut s = qm1e_open(&w, QM1E_URL, QM1E_PAGE, MediaMode::NoCors).unwrap();
+    assert!(s.seekable());
+    assert_eq!(s.size(), Some(5000));
+    s.seek(4000).unwrap();
+    assert!(qm1e_read_all(&mut s, 5000) == file[4000..]);
+    s.seek(0).unwrap();
+    assert!(qm1e_read_all(&mut s, 10) == file[..10]);
+    assert_eq!(w.seen.lock().unwrap().len(), 1);
+}
+
+#[test]
+fn qm1e_416_is_eof_even_when_the_file_shrinks() {
+    let w = qm1e_wire(Qm1eCfg { file: vec![], ..Default::default() });
+    let mut s = qm1e_open(&w, QM1E_URL, QM1E_PAGE, MediaMode::NoCors).unwrap();
+    assert_eq!(s.size(), Some(0));
+    assert_eq!(s.read(&mut [0u8; 16]).unwrap(), 0);
+
+    let w = qm1e_wire(Qm1eCfg { file: qm1e_file(3 * 1024 * 1024), ..Default::default() });
+    let mut s = qm1e_open(&w, QM1E_URL, QM1E_PAGE, MediaMode::NoCors).unwrap();
+    w.cfg.lock().unwrap().file = qm1e_file(100);
+    s.seek(2 * 1024 * 1024).unwrap();
+    assert_eq!(s.size(), Some(3 * 1024 * 1024));
+    // The file shrank: the next fetch answers 416 `bytes */100`.
+    assert_eq!(s.read(&mut [0u8; 16]).unwrap(), 0);
+    assert_eq!(s.size(), Some(100));
+}
+
+#[test]
+fn qm1e_short_206_body_is_retried_once_from_the_new_position() {
+    let big = qm1e_file(2 * 1024 * 1024);
+    let w = qm1e_wire(Qm1eCfg { file: big.clone(), truncate_once: true, ..Default::default() });
+    let mut s = qm1e_open(&w, QM1E_URL, QM1E_PAGE, MediaMode::NoCors).unwrap();
+    let got = qm1e_read_all(&mut s, big.len());
+    assert!(got == big, "short body healed by one retry");
+    // open + short second chunk + its retry
+    assert_eq!(w.seen.lock().unwrap().len(), 3);
+    let retry = w.seen.lock().unwrap()[2].clone();
+    let line = retry.lines().find(|l| l.starts_with("Range:")).unwrap().to_string();
+    let start: u64 = line["Range: bytes=".len()..].split('-').next().unwrap().parse().unwrap();
+    assert!(start > CHUNK_SMALL && start < 2 * CHUNK_SMALL, "retry continues after the bytes that arrived: {line}");
+}
+
+#[test]
+fn qm1e_short_206_on_a_seek_miss_also_heals() {
+    // Every ranged answer from request #1 on is short: #1 truncated, retry (#2) also short.
+    let big = qm1e_file(2 * 1024 * 1024);
+    let w = qm1e_wire(Qm1eCfg { file: big.clone(), truncate_once: true, ..Default::default() });
+    let mut s = qm1e_open(&w, QM1E_URL, QM1E_PAGE, MediaMode::NoCors).unwrap();
+    s.seek(CHUNK_SMALL).unwrap();
+    // idx 1 is truncated, its retry (idx 2) is whole: heals. A third miss is whole too.
+    assert!(qm1e_read_all(&mut s, 10) == big[CHUNK_SMALL as usize..CHUNK_SMALL as usize + 10]);
+}
+
+#[test]
+fn qm1e_wrong_content_range_start_fails() {
+    let w = qm1e_wire(Qm1eCfg { file: qm1e_file(5000), shift_start: 1, ..Default::default() });
+    let e = qm1e_open(&w, QM1E_URL, QM1E_PAGE, MediaMode::NoCors).err().expect("must fail");
+    assert!(matches!(e, MediaNetError::BadRange(_)), "{e:?}");
+}
+
+#[test]
+fn qm1e_redirect_is_pinned_and_a_cross_origin_later_final_url_fails() {
+    let file = qm1e_file(3 * 1024 * 1024);
+    let w = qm1e_wire(Qm1eCfg {
+        file: file.clone(),
+        final_urls: vec![(0, "https://cdn2.example/real.mp4".into()), (1, "https://cdn2.example/real.mp4".into()), (2, "https://evil.example/x.mp4".into())],
+        ..Default::default()
+    });
+    let mut s = qm1e_open(&w, QM1E_URL, QM1E_PAGE, MediaMode::NoCors).unwrap();
+    let mut buf = vec![0u8; 1024 * 1024];
+    let mut got = 0;
+    while got < CHUNK_SMALL as usize {
+        got += s.read(&mut buf[..CHUNK_SMALL as usize - got]).unwrap();
+    }
+    got = 0;
+    while got < 10 {
+        got += s.read(&mut buf[..10 - got]).unwrap();
+    }
+    // chunk 2 (request 1) is pinned to the first final URL
+    let r1 = w.seen.lock().unwrap()[1].clone();
+    assert!(r1.starts_with("GET https://cdn2.example/real.mp4 "), "{r1}");
+    // chunk 3 (request 2) comes back from another origin
+    let e = loop {
+        match s.read(&mut buf) {
+            Ok(0) => panic!("EOF before the failing chunk"),
+            Ok(_) => {}
+            Err(e) => break e,
+        }
+    };
+    assert!(matches!(e, MediaNetError::MixedOrigin { .. }), "{e:?}");
+}
+
+#[test]
+fn qm1e_no_cors_sends_the_jar_and_anonymous_sends_cookies_off_and_origin() {
+    let w = qm1e_wire(Qm1eCfg { file: qm1e_file(100), ..Default::default() });
+    qm1e_open(&w, QM1E_URL, QM1E_PAGE, MediaMode::NoCors).unwrap();
+    let r = w.seen.lock().unwrap()[0].clone();
+    assert!(qf14b_has(&r, "X-Wire-Jar: scratchy") && qf14b_has(&r, "X-Wire-Top-Site: https://page.example"), "{r}");
+    assert!(!r.contains("X-Wire-Cookies: off") && !r.contains("\r\nOrigin:"), "{r}");
+
+    // CORS without ACAO: fails after the first response.
+    let e = qm1e_open(&w, QM1E_URL, QM1E_PAGE, MediaMode::Anonymous).err().expect("no ACAO must fail");
+    assert!(matches!(e, MediaNetError::Cors(_)), "{e:?}");
+    let r = w.seen.lock().unwrap()[1].clone();
+    assert!(qf14b_has(&r, "X-Wire-Cookies: off") && qf14b_has(&r, "Origin: https://page.example"), "{r}");
+    assert!(!r.contains("X-Wire-Jar"), "{r}");
+
+    w.cfg.lock().unwrap().acao = Some("*".into());
+    qm1e_open(&w, QM1E_URL, QM1E_PAGE, MediaMode::Anonymous).expect("ACAO * is fine without credentials");
+    // use-credentials: the jar is on, `*` is not enough, exact origin + ACAC is.
+    let e = qm1e_open(&w, QM1E_URL, QM1E_PAGE, MediaMode::UseCredentials).err().unwrap();
+    assert!(matches!(e, MediaNetError::Cors(_)), "{e:?}");
+    {
+        let mut c = w.cfg.lock().unwrap();
+        c.acao = Some("https://page.example".into());
+        c.acac = true;
+    }
+    qm1e_open(&w, QM1E_URL, QM1E_PAGE, MediaMode::UseCredentials).expect("exact ACAO + ACAC");
+    let r = w.seen.lock().unwrap().last().unwrap().clone();
+    assert!(qf14b_has(&r, "X-Wire-Jar: scratchy") && qf14b_has(&r, "Origin: https://page.example"), "{r}");
+}
+
+#[test]
+fn qm1e_mixed_content_and_bad_ports_are_blocked_before_any_request() {
+    let w = qm1e_wire(Qm1eCfg { file: qm1e_file(100), ..Default::default() });
+    let e = qm1e_open(&w, "http://media.example/v.mp4", QM1E_PAGE, MediaMode::NoCors).err().unwrap();
+    assert!(matches!(e, MediaNetError::Blocked(_)), "{e:?}");
+    let e = qm1e_open(&w, "https://media.example:25/v.mp4", QM1E_PAGE, MediaMode::NoCors).err().unwrap();
+    assert!(matches!(e, MediaNetError::Blocked(_)), "{e:?}");
+    let e = qm1e_open(&w, "ftp://media.example/v.mp4", QM1E_PAGE, MediaMode::NoCors).err().unwrap();
+    assert!(matches!(e, MediaNetError::Blocked(_)), "{e:?}");
+    assert!(w.seen.lock().unwrap().is_empty(), "nothing reached wire");
+}
+
+#[test]
+fn qm1e_chunks_grow_from_1_to_4_mib_and_shrink_back_after_a_seek() {
+    let file = qm1e_file(12 * 1024 * 1024);
+    let w = qm1e_wire(Qm1eCfg { file: file.clone(), ..Default::default() });
+    let mut s = qm1e_open(&w, QM1E_URL, QM1E_PAGE, MediaMode::NoCors).unwrap();
+    assert_eq!(s.last_chunk_len, CHUNK_SMALL);
+    qm1e_read_all(&mut s, CHUNK_SMALL as usize + 1); // second chunk fetched
+    assert_eq!(s.last_chunk_len, CHUNK_SMALL);
+    qm1e_read_all(&mut s, CHUNK_SMALL as usize); // third contiguous miss
+    assert_eq!(s.last_chunk_len, CHUNK_LARGE, "4 MiB after two contiguous fetches");
+    let r = w.seen.lock().unwrap().last().unwrap().clone();
+    assert!(r.contains(&format!("Range: bytes={}-{}", 2 * CHUNK_SMALL, 2 * CHUNK_SMALL + CHUNK_LARGE - 1)), "{r}");
+    // a seek far away -> back to 1 MiB
+    s.seek(11 * 1024 * 1024).unwrap();
+    let mut b = [0u8; 100];
+    s.read(&mut b).unwrap();
+    assert_eq!(s.last_chunk_len, CHUNK_SMALL);
+    assert!(b == file[11 * 1024 * 1024..11 * 1024 * 1024 + 100]);
+}
+
+#[test]
+fn qm1e_cache_hit_serves_without_a_request() {
+    let file = qm1e_file(6 * 1024 * 1024);
+    let w = qm1e_wire(Qm1eCfg { file: file.clone(), ..Default::default() });
+    let mut s = qm1e_open(&w, QM1E_URL, QM1E_PAGE, MediaMode::NoCors).unwrap();
+    assert_eq!(w.seen.lock().unwrap().len(), 1);
+    // tail (moov-at-end), then back to 0: chunk 0 is still cached
+    s.seek(file.len() as u64 - 4096).unwrap();
+    assert!(qm1e_read_all(&mut s, 4096) == file[file.len() - 4096..]);
+    assert_eq!(w.seen.lock().unwrap().len(), 2);
+    s.seek(0).unwrap();
+    assert!(qm1e_read_all(&mut s, 70000) == file[..70000]);
+    s.seek(500_000).unwrap();
+    assert!(qm1e_read_all(&mut s, 1000) == file[500_000..501_000]);
+    assert_eq!(w.seen.lock().unwrap().len(), 2, "cache hits made no request");
+}
+
+#[test]
+fn qm1e_cancel_stops_a_blocked_read_at_once() {
+    let w = qm1e_wire(Qm1eCfg { file: qm1e_file(3 * 1024 * 1024), ..Default::default() });
+    let mut s = qm1e_open(&w, QM1E_URL, QM1E_PAGE, MediaMode::NoCors).unwrap();
+    w.cfg.lock().unwrap().hold = true;
+    s.seek(2 * 1024 * 1024).unwrap();
+    let h = s.cancel_handle();
+    let t0 = std::time::Instant::now();
+    let th = thread::spawn(move || {
+        let r = s.read(&mut [0u8; 16]);
+        (r, s)
+    });
+    thread::sleep(std::time::Duration::from_millis(300));
+    h.cancel();
+    let (r, mut s) = th.join().unwrap();
+    assert_eq!(r, Err(MediaNetError::Cancelled));
+    assert!(t0.elapsed() < std::time::Duration::from_secs(5));
+    assert_eq!(s.read_cb(&mut [0u8; 16]), -1, "later reads fail without a request");
+    assert_eq!(w.seen.lock().unwrap().len(), 2);
+}
+
+#[test]
+fn qm1e_other_status_is_a_plain_error() {
+    use std::os::unix::net::UnixListener;
+    let path = std::env::temp_dir().join(format!("qm1e-{}-status.sock", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    let l = UnixListener::bind(&path).unwrap();
+    thread::spawn(move || {
+        for st in l.incoming() {
+            let Ok(mut st) = st else { return };
+            let mut b = [0u8; 4096];
+            let _ = Read::read(&mut st, &mut b);
+            let _ = st.write_all(b"HTTP/1.1 404 Not Found\r\n\r\nnope");
+        }
+    });
+    let e = MediaStream::open(path, qm1e_src(QM1E_URL, QM1E_PAGE, MediaMode::NoCors), RequestPolicy::default()).err().unwrap();
+    assert_eq!(e, MediaNetError::Status(404));
+}
