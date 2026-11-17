@@ -7266,3 +7266,10 @@ Done: real bug. `flex: <number>` now has basis `0%` (css.rs `parse_flex_shorthan
 ## QCI1: GitHub Actions CI (scratchy/qci1-github-actions-ci)
 Prompt (coordinator, 2026-11-17): QCI1: `.github/workflows/ci.yml` at the repo root, on every PR and push to main; per crate (scratchy, wire, snag) `cargo build --release --locked --all-targets` + `cargo test --release --locked`; scratchy also `tools/clippy-count.sh` against a one-file baseline; one pinned apt font set; actions pinned to full SHAs; no branch protection.
 Done: `.github/workflows/ci.yml` (matrix, rust-cache, concurrency, permissions contents: read), `scratchy/tools/clippy-baseline.txt` (78, the only place the number lives), `scratchy/tools/ci-fontconfig.sh` (fontconfig exposing only Liberation, generics mapped to it), AGENTS.md step 3 and tools/README updated.
+
+## QNET1 (scratchy/qnet1-unix-sockets-only)
+
+**Prompt:** Enforce "scratchy without wire cannot physically speak to the internet": a seccomp-BPF filter at startup (socket/socketpair fail with EAFNOSUPPORT except AF_UNIX), libmpv/ffmpeg protocol whitelist, tests (child-process filter probe, dependency and source guards, HLS-with-http-segment), help page and NOTES.md instructions for verifying with `unshare -rn`.
+
+**What changed:** new src/netlock.rs (hand-assembled BPF over `libc`, no seccompiler: not in the registry), called first in src/main.rs; MPV_OPTIONS `demuxer-lavf-o`/`stream-lavf-o` = `protocol_whitelist=%11%crypto,data`; src/tests/qnet1_tests.rs (child module of tests.rs); help.html section; NOTES.md and NETWORKING.md sections.
+

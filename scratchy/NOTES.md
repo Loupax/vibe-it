@@ -3554,3 +3554,31 @@ by `media_net::MediaStream` (mpv never opens a URL itself), `eof-reached`/
 `absolute+exact`. First real load logs `media: mpv`. Default builds have no libmpv
 code and no libloading dependency. `--js-report --run-timers` sets
 `__media_wait=20` so the simulated clock still lets a real player advance.
+
+## QNET1: scratchy cannot reach the internet (seccomp network lock)
+
+`src/netlock.rs`, installed first thing in `main()` (the real binary only; library
+and test code never install it, the filter is irreversible), before any thread or
+library load. A hand-assembled seccomp-BPF program (libc `prctl`, PR_SET_NO_NEW_PRIVS
+first): `socket()`/`socketpair()` with any domain other than AF_UNIX fail with
+EAFNOSUPPORT; `io_uring_setup` fails with ENOSYS (io_uring can create sockets);
+any other ABI (32-bit compat, x32) kills the process. x86_64 and aarch64 numbers.
+Inherited by all threads and by libmpv/ffmpeg. No escape hatch. stderr line:
+`scratchy: network: unix sockets only (wire)`. If the kernel refuses (or the OS/arch
+is not Linux x86_64/aarch64) a warning is logged and scratchy continues unfiltered.
+AF_NETLINK is NOT allowed (see TODO.txt QNET1 for the measurement). Installed for
+every mode of the binary: windowed, `--js-report` and `--wpt` (they only use wire's
+unix socket).
+
+mpv defence in depth (media_net.rs `MPV_OPTIONS`): `demuxer-lavf-o` and
+`stream-lavf-o` = `protocol_whitelist=%11%crypto,data` so ffmpeg cannot open nested
+http/tcp/file URLs from an HLS playlist.
+
+Guards (normal tests, src/tests/qnet1_tests.rs): `no_network_crate_in_normal_dependencies`
+(`cargo tree -e normal`), `sources_do_not_use_inet_sockets` (src/ outside tests), and
+the child-process probe `socket_filter_allows_only_unix_sockets`.
+
+Verify from outside: `unshare -rn scratchy --socket /path/to/wire.sock URL` with wire
+started OUTSIDE the namespace (filesystem unix sockets cross network namespaces):
+it must behave exactly as before; `file://` pages need no wire at all. For a connect
+log use `tools/mpvspike/connectlog.c` with LD_PRELOAD: only AF_UNIX connects appear.

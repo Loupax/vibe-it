@@ -158,3 +158,9 @@ must see `ua` there before relying on a UA override (an older wire ignores it).
 - Form submission is implemented (Q30e, below) except file contents, validation and `target` other than this tab.
 - Media (`<video>`, `<audio>`): placeholders only.
 - `<a ping>`.
+
+## Enforcement (QNET1)
+
+scratchy installs a seccomp filter at startup: only AF_UNIX sockets can be created,
+so it cannot reach the network except through wire. See NOTES.md "QNET1" and the
+`:help` page for how to verify it with `unshare -rn`.

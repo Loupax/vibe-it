@@ -73,6 +73,17 @@ logged in detail but not sent. Cookies live in <code>wire</code>'s memory
 --no-cookies</code> turns them off). Forms and media are placeholders only.
 See <code>scratchy/NETWORKING.md</code> in the source tree for the details.</p>
 
+<h2>Offline guarantee: unix sockets only</h2>
+<p>At startup scratchy installs a seccomp filter so that <code>socket()</code>
+fails for every address family except unix sockets (stderr says
+<code>scratchy: network: unix sockets only (wire)</code>). It cannot reach the
+internet by itself, only through <code>wire</code>, and this is inherited by
+every thread and by libmpv/ffmpeg. To verify from outside, run it with no
+network at all: <code>unshare -rn scratchy --socket /path/to/wire.sock URL</code>
+with <code>wire</code> started outside that namespace (filesystem unix sockets
+cross network namespaces); it must behave exactly as before. Reading
+<code>file://</code> pages needs no <code>wire</code> at all.</p>
+
 <h2>Also demonstrated on this page</h2>
 <ul>
 <li>Headings, a bulleted list, and two tables, all styled only by
