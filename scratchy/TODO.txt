@@ -5784,7 +5784,7 @@ with temporary `Instant` timing, and say the number in the commit.
       now request a repaint even when no stylesheet has :focus rules (the ring is
       painted). Click-to-first-present: ~70ms duckduckgo, ~220ms wikipedia.org (restyle
       for its :focus rules is the existing async path).
-- [ ] Q30c [S] READY (go-ahead 2026-11-17) Checkbox/radio live state. A per-element map on `App`
+- [x] Q30c [S] DONE (hash: PENDING) Checkbox/radio live state. A per-element map on `App`
       (key it the way `scroll_offsets`/`InteractionState` key elements,
       and make sure it survives relayouts and is cleared on
       navigation), seeded from the `checked` attribute, flipped by
@@ -5793,6 +5793,10 @@ with temporary `Instant` timing, and say the number in the commit.
       This also makes the Wikipedia/Vector "checkbox hack" menus
       (`:checked ~ .menu`) work; REGRESSIONS.md notes a
       `.vector-dropdown-content` subtree they keep hidden.
+      Q30c notes: state is a thread-local map in forms.rs (not on App: matching, JS natives and
+      paint have no App), mark painted from live state (`check_widget` style bits +
+      `paint_checkable`), restyle only when CSS uses :checked. Toggle-to-present ~1.5 ms
+      (repaint), ~124 ms on en.wikipedia (restyle). Left out: radio arrow keys, cloneNode state.
 - [ ] Q30d [M] READY (go-ahead 2026-11-17) Text editing in `input` and `textarea`. When a text control
       is focused, key events go to it, not to `resolve_binding`: this
       is the automatic vim-mode suspension the vim-keybindings item

@@ -16520,7 +16520,7 @@ fn qy29_data_and_form_props_live_on_their_interfaces() {
     );
     assert_eq!(
         log,
-        ["log:false false true true", "log:zz b zz", "log:false true false true false true false", "log:true true true true"],
+        ["log:false false true true", "log:zz b zz", "log:false true false true false true false", "log:false true true true"],
         "{log:?}"
     );
 }
@@ -17817,17 +17817,38 @@ fn q30a_checkbox_and_radio_are_13px_and_checked_paints_a_mark() {
         let v = q30a_sizes(&format!("<input type={ty}>"));
         assert!(v.contains(&(13.0, 13.0)), "{ty}: {v:?}");
     }
-    assert!(!q30a_all_text("<input type=checkbox>").iter().any(|(t, _)| t == "\u{2713}"));
-    let on = q30a_all_text("<input type=checkbox checked>");
-    assert!(on.iter().any(|(t, c)| t == "\u{2713}" && *c == TextColor::rgb(255, 255, 255)), "{on:?}");
-    let (mut a, mut b) = (0, 0);
-    q30a_dot_count(&q30a_tree("<input type=radio checked>"), &mut a);
-    q30a_dot_count(&q30a_tree("<input type=radio>"), &mut b);
-    assert_eq!((a, b), (1, 0));
-    let none = q30a_all_text("<input type=checkbox checked style=\"appearance:none\">");
-    assert!(!none.iter().any(|(t, _)| t == "\u{2713}"), "{none:?}");
-    let webkit = q30a_all_text("<input type=checkbox checked style=\"-webkit-appearance:none\">");
-    assert!(!webkit.iter().any(|(t, _)| t == "\u{2713}"), "{webkit:?}");
+    // Q30c: the mark is painted from live state, so the tree only carries the
+    // `check_widget` bits (kind + whether the `checked` attribute was set).
+    fn bits(html: &str) -> Vec<u8> {
+        fn walk(b: &LayoutBox, out: &mut Vec<u8>) {
+            if b.style.check_widget != 0 {
+                out.push(b.style.check_widget);
+            }
+            match &b.content {
+                BoxContent::Blocks(c) | BoxContent::TableRow(c) => c.iter().for_each(|k| walk(k, out)),
+                BoxContent::Inline(items) => {
+                    for i in items {
+                        if let InlineItem::Embedded(e) = i {
+                            walk(e, out);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+        let mut out = Vec::new();
+        walk(&q30a_tree(html), &mut out);
+        out
+    }
+    assert_eq!(bits("<input type=checkbox>"), vec![CHECK_BOX]);
+    assert_eq!(bits("<input type=checkbox checked>"), vec![CHECK_BOX | CHECK_ATTR]);
+    assert_eq!(bits("<input type=radio checked>"), vec![CHECK_RADIO | CHECK_ATTR]);
+    assert_eq!(bits("<input type=radio>"), vec![CHECK_RADIO]);
+    let mut dots = 0;
+    q30a_dot_count(&q30a_tree("<input type=radio checked>"), &mut dots);
+    assert_eq!(dots, 0, "the radio dot is painted from live state, not built into the tree");
+    assert!(bits("<input type=checkbox checked style=\"appearance:none\">").is_empty());
+    assert!(bits("<input type=checkbox checked style=\"-webkit-appearance:none\">").is_empty());
 }
 
 #[test]
@@ -18281,4 +18302,278 @@ fn qan1b_computed_style_stays_copy_report_size() {
     fn is_copy<T: Copy>() {}
     is_copy::<ComputedStyle>();
     eprintln!("size_of::<ComputedStyle>() = {}", std::mem::size_of::<ComputedStyle>());
+}
+
+// ---- Q30c: checkbox/radio live state ----
+
+fn q30c_by(doc: &Handle, id: &str) -> Handle {
+    q30b_by_id(doc, id).unwrap_or_else(|| panic!("no #{id}"))
+}
+
+#[test]
+fn q30c_state_is_seeded_from_the_attribute_then_dirty() {
+    clear_check_state();
+    let doc = parse_html("<html><body><input id=a type=checkbox checked><input id=b type=checkbox><input id=t type=text checked></body></html>");
+    let (a, b) = (q30c_by(&doc, "a"), q30c_by(&doc, "b"));
+    assert!(live_checked(&a) && !live_checked(&b));
+    assert!(set_checked(&a, false), "a change is reported");
+    assert!(!live_checked(&a), "once dirty the attribute no longer controls it");
+    assert!(!set_checked(&a, false), "no change, no report");
+    // While not dirty the attribute still controls it.
+    crate::js_dom::set_attr(&b, "checked", "");
+    assert!(live_checked(&b));
+    set_checked(&b, false);
+    crate::js_dom::set_attr(&b, "checked", "");
+    assert!(!live_checked(&b), "dirty: the attribute is ignored");
+    assert_eq!(checkable_kind(&q30c_by(&doc, "t")), None);
+    set_checked(&q30c_by(&doc, "t"), true);
+    assert!(live_checked(&q30c_by(&doc, "t")), "the property round-trips on any input");
+    // Indeterminate is independent of checked.
+    set_indeterminate(&a, true);
+    assert!(live_indeterminate(&a) && !live_checked(&a));
+    clear_check_state();
+    assert!(live_checked(&a) && !live_indeterminate(&a), "navigation clears live state");
+}
+
+#[test]
+fn q30c_radio_groups_are_per_form_and_name() {
+    clear_check_state();
+    let doc = parse_html(
+        r#"<html><body>
+        <form id=f1><input type=radio name=x id=a checked><input type=radio name=x id=b><input type=radio name=y id=c checked></form>
+        <form id=f2><input type=radio name=x id=d checked></form>
+        <input type=radio name=x id=e checked><input type=radio id=n1 checked><input type=radio id=n2 checked>
+        <input type=radio name=x form=f1 id=g></body></html>"#,
+    );
+    let by = |i: &str| q30c_by(&doc, i);
+    assert!(set_checked(&by("b"), true));
+    assert!(!live_checked(&by("a")) && live_checked(&by("b")), "same form+name unchecks the old one");
+    assert!(live_checked(&by("c")), "a different name is a different group");
+    assert!(live_checked(&by("d")), "a different form is a different group");
+    assert!(live_checked(&by("e")), "no form owner is its own group");
+    assert!(live_checked(&by("n1")) && live_checked(&by("n2")), "nameless radios are not grouped");
+    // `form=f1` joins f1's group from outside the element.
+    set_checked(&by("g"), true);
+    assert!(!live_checked(&by("b")) && live_checked(&by("g")));
+    assert_eq!(node_id(&checked_radio_peer(&by("b")).unwrap()), node_id(&by("g")));
+    clear_check_state();
+}
+
+#[test]
+fn q30c_reset_restores_defaults_for_that_form_only() {
+    clear_check_state();
+    let doc = parse_html(
+        r#"<html><body><form id=f><input type=checkbox id=a checked><input type=checkbox id=b></form>
+        <input type=checkbox id=out></body></html>"#,
+    );
+    let (a, b, out, f) = (q30c_by(&doc, "a"), q30c_by(&doc, "b"), q30c_by(&doc, "out"), q30c_by(&doc, "f"));
+    set_checked(&a, false);
+    set_checked(&b, true);
+    set_indeterminate(&b, true);
+    set_checked(&out, true);
+    assert!(reset_form_state(&f));
+    assert!(live_checked(&a) && !live_checked(&b) && !live_indeterminate(&b));
+    assert!(live_checked(&out), "a control outside the form is untouched");
+    clear_check_state();
+}
+
+#[test]
+fn q30c_checked_pseudo_class_uses_live_state() {
+    clear_check_state();
+    let doc = parse_html(
+        "<html><head><style>input:checked{width:40px;height:20px} input:indeterminate{width:30px}</style></head><body style='margin:0'>\
+         <input id=a type=checkbox checked><input id=b type=checkbox><input id=c type=radio></body></html>",
+    );
+    let width = |id: &str| {
+        let (laid, cache) = q30b_layout(&doc);
+        node_geometry(&laid, &cache, node_id(&q30c_by(&doc, id))).rects[0].2
+    };
+    assert_eq!(width("a"), 40.0);
+    assert_ne!(width("b"), 40.0);
+    set_checked(&q30c_by(&doc, "b"), true);
+    set_checked(&q30c_by(&doc, "a"), false);
+    assert_eq!(width("b"), 40.0, ":checked reads the live state");
+    assert_ne!(width("a"), 40.0);
+    set_indeterminate(&q30c_by(&doc, "a"), true);
+    assert_eq!(width("a"), 30.0, ":indeterminate reads the live state");
+    set_checked(&q30c_by(&doc, "c"), true);
+    assert_eq!(width("c"), 40.0);
+    // The stylesheet is what makes a toggle need a restyle.
+    assert_ne!(state_rules_mask() & STATE_CHECKED, 0);
+    clear_check_state();
+}
+
+#[test]
+fn q30c_checked_state_is_not_part_of_the_layout_tree() {
+    clear_check_state();
+    fn shape(b: &LayoutBox) -> String {
+        match &b.content {
+            BoxContent::Blocks(c) | BoxContent::TableRow(c) => c.iter().map(shape).collect::<Vec<_>>().join(","),
+            BoxContent::Inline(i) => format!("i{}", i.len()),
+            _ => "o".into(),
+        }
+    }
+    // Checked or not, the tree is identical (the painter draws the mark), which
+    // is why a toggle needs no layout rebuild when no stylesheet uses :checked.
+    let t1 = q30a_tree("<html><body><input type=checkbox><input type=radio></body></html>");
+    let t2 = q30a_tree("<html><body><input type=checkbox checked><input type=radio checked></body></html>");
+    assert_eq!(shape(&t1), shape(&t2));
+}
+
+#[test]
+fn q30c_paint_uses_live_state() {
+    clear_check_state();
+    let doc = parse_html("<html><body><input id=a type=checkbox></body></html>");
+    let a = q30c_by(&doc, "a");
+    let mut st = anonymous_style(ROOT_STYLE);
+    st.node = node_id(&a);
+    st.check_widget = CHECK_BOX;
+    st.border_width = [1.0; 4];
+    st.border_style = [BorderStyle::Solid; 4];
+    st.border_color = [Some(TextColor::rgb(118, 118, 118)); 4];
+    st.background_color = Some(TextColor::rgb(255, 255, 255));
+    let render = |st: &ComputedStyle| {
+        let mut px = vec![0x00FFFFFFu32; 13 * 13];
+        crate::paint::paint_checkable(st, None, &mut px, 13, 13, 0.0, 0.0, 13.0, 13.0, None);
+        px
+    };
+    let accent = blend(0x00FFFFFF, TextColor::rgb(ACCENT.0, ACCENT.1, ACCENT.2));
+    let off = render(&st);
+    assert!(!off.contains(&accent));
+    set_checked(&a, true);
+    let on = render(&st);
+    assert_ne!(off, on, "a live toggle changes the pixels with no layout involved");
+    assert!(on.contains(&accent), "accent fill");
+    assert!(on.iter().filter(|p| **p == 0x00FFFFFF).count() > 3, "white check mark");
+    set_checked(&a, false);
+    set_indeterminate(&a, true);
+    let ind = render(&st);
+    assert!(ind.contains(&accent) && ind != on, "indeterminate dash differs from the check");
+    set_indeterminate(&a, false);
+    assert_eq!(render(&st), off);
+    // A radio paints a dot in its middle, no fill.
+    st.check_widget = CHECK_RADIO;
+    st.border_radius = BoxLength::Percent(0.5);
+    set_checked(&a, true);
+    let radio = render(&st);
+    assert_eq!(radio[6 * 13 + 6], accent, "dot in the middle");
+    assert_ne!(radio[3 * 13 + 3], accent, "no fill around the dot");
+    clear_check_state();
+}
+
+#[test]
+fn q30c_js_reflections_events_preventdefault_and_reset() {
+    clear_check_state();
+    let doc = parse_html(
+        r#"<html><body><form id=f><input id=a type=checkbox checked><input id=r1 type=radio name=g checked><input id=r2 type=radio name=g></form>
+        <input id=o type=radio name=g></body></html>"#,
+    );
+    let js = run_page_scripts(
+        &doc,
+        &[src(
+            r#"var L=[], $=function(i){return document.getElementById(i)};
+            ['a','r1','r2'].forEach(function(n){ ['click','input','change'].forEach(function(t){ $(n).addEventListener(t,function(e){L.push(n+':'+t+':'+e.bubbles+':'+$(n).checked)}); }); });
+            var out=[];
+            out.push($('a').checked+','+$('a').defaultChecked);
+            $('a').checked=false; out.push($('a').checked+','+$('a').defaultChecked+','+$('a').hasAttribute('checked'));
+            $('a').click(); out.push('click1:'+$('a').checked);
+            out.push('ev:'+L.join('|')); L.length=0;
+            $('r2').click(); out.push('r:'+$('r1').checked+$('r2').checked+$('o').checked);
+            out.push('revents:'+L.join('|')); L.length=0;
+            $('o').checked=true; out.push('o:'+$('r2').checked+$('o').checked);
+            $('r1').checked=true; out.push('set:'+$('r1').checked+$('r2').checked+$('o').checked);
+            L.length=0;
+            $('a').addEventListener('click',function(e){e.preventDefault()});
+            $('a').click(); out.push('pd:'+$('a').checked+':'+L.join('|')); L.length=0;
+            $('r2').addEventListener('click',function(e){e.preventDefault()});
+            $('r2').click(); out.push('pdr:'+$('r1').checked+$('r2').checked+':'+L.join('|'));
+            $('a').indeterminate=true; out.push('ind:'+$('a').indeterminate+$('a').matches(':indeterminate'));
+            out.push('m:'+$('a').matches(':checked')+$('r1').matches(':checked'));
+            $('a').checked=true; $('r2').checked=true;
+            $('f').reset();
+            out.push('reset:'+$('a').checked+$('a').indeterminate+$('r1').checked+$('r2').checked+$('o').checked);
+            window.out=out.join(';');"#,
+        )],
+        None,
+    )
+    .expect("engine");
+    let got: String = js.eval_value("t", "window.out").expect("out");
+    let want = [
+        "true,true",
+        "false,true,true",
+        "click1:true",
+        "ev:a:click:true:true|a:input:true:true|a:change:true:true",
+        "r:falsetruefalse",
+        "revents:r2:click:true:true|r2:input:true:true|r2:change:true:true",
+        "o:truetrue",
+        "set:truefalsetrue",
+        "pd:true:a:click:true:false",
+        "pdr:truefalse:r2:click:true:true",
+        "ind:truetrue",
+        "m:truetrue",
+        "reset:truefalsetruefalsetrue",
+    ]
+    .join(";");
+    assert_eq!(got, want);
+    clear_check_state();
+}
+
+#[test]
+fn q30c_user_click_space_label_and_reset_button_through_the_app() {
+    use winit::platform::wayland::EventLoopBuilderExtWayland;
+    let event_loop = match EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build() {
+        Ok(l) => l,
+        Err(_) => return, // no display available (headless CI)
+    };
+    clear_check_state();
+    let doc = parse_html(
+        r#"<html><body><form id=f><input id=a type=checkbox><input id=r1 type=radio name=g checked><input id=r2 type=radio name=g>
+        <input id=b type=reset></form><label for=a id=la>text</label><label id=lw>wrap <input id=w type=checkbox></label>
+        <input id=d type=checkbox disabled></body></html>"#,
+    );
+    let mut app = App::new_static(doc.clone(), event_loop.create_proxy(), None);
+    app.js = run_page_scripts(
+        &doc,
+        &[src(
+            "window.L=[]; ['a','r1','r2','w'].forEach(function(n){var e=document.getElementById(n); ['click','input','change'].forEach(function(t){e.addEventListener(t,function(ev){L.push(n+':'+t+':'+ev.bubbles+':'+e.checked)})})});\
+             document.addEventListener('change',function(e){L.push('doc:change:'+e.target.id)});",
+        )],
+        None,
+    );
+    let by = |id: &str| q30c_by(&doc, id);
+    let log = |app: &App| -> String { app.js.as_ref().unwrap().eval_value("t", "L.join('|')").expect("log") };
+    // A click toggles, fires click, input, change (bubbling to the document).
+    assert!(app.click_activate(Some(&by("a")), (0.0, 0.0)));
+    assert!(live_checked(&by("a")));
+    assert_eq!(log(&app), "a:click:true:true|a:input:true:true|a:change:true:true|doc:change:a");
+    app.js.as_ref().unwrap().eval_value::<bool>("t", "L.length=0,true");
+    // Space on the focused checkbox is the same activation (key path calls click_activate).
+    app.click_activate(Some(&by("a")), (0.0, 0.0));
+    assert!(!live_checked(&by("a")));
+    // Radios: selecting one unchecks the other, once; clicking the checked one changes nothing.
+    app.js.as_ref().unwrap().eval_value::<bool>("t", "L.length=0,true");
+    app.click_activate(Some(&by("r2")), (0.0, 0.0));
+    assert!(live_checked(&by("r2")) && !live_checked(&by("r1")));
+    app.js.as_ref().unwrap().eval_value::<bool>("t", "L.length=0,true");
+    app.click_activate(Some(&by("r2")), (0.0, 0.0));
+    assert!(live_checked(&by("r2")));
+    assert_eq!(log(&app), "r2:click:true:true", "no input/change when nothing changed");
+    // A label click toggles its control (for= and wrapping).
+    assert!(app.forward_label_click(&by("la"), (0.0, 0.0)));
+    assert!(live_checked(&by("a")));
+    assert!(app.forward_label_click(&by("lw"), (0.0, 0.0)));
+    assert!(live_checked(&by("w")));
+    // A disabled control never toggles through its label.
+    crate::js_dom::set_attr(&by("la"), "for", "d");
+    assert!(app.forward_label_click(&by("la"), (0.0, 0.0)));
+    assert!(!live_checked(&by("d")));
+    // preventDefault on click restores the state.
+    app.js.as_ref().unwrap().eval_value::<bool>("t", "document.getElementById('w').addEventListener('click',function(e){e.preventDefault()}),true");
+    app.click_activate(Some(&by("w")), (0.0, 0.0));
+    assert!(live_checked(&by("w")), "cancelled click keeps the old state");
+    // The reset button restores the defaults of its form (r1 checked, a unchecked).
+    app.click_activate(Some(&by("b")), (0.0, 0.0));
+    assert!(!live_checked(&by("a")) && live_checked(&by("r1")) && !live_checked(&by("r2")));
+    assert!(live_checked(&by("w")), "outside the form: untouched");
+    clear_check_state();
 }

@@ -174,7 +174,7 @@ fn insert_child(parent: &Handle, child: &Handle, before: Option<&Handle>, frag: 
     true
 }
 
-fn set_attr(h: &Handle, name: &str, value: &str) {
+pub(crate) fn set_attr(h: &Handle, name: &str, value: &str) {
     if let NodeData::Element { attrs, .. } = &h.data {
         let mut attrs = attrs.borrow_mut();
         if let Some(a) = attrs.iter_mut().find(|a| a.name.local.as_ref() == name) {
@@ -355,6 +355,9 @@ pub(crate) struct JsRequests {
     /// QSD4: the document's adopted-stylesheet CSS text, set whenever it
     /// changes (the App appends it after the page's own author CSS).
     pub(crate) adopted_css: Option<String>,
+    /// Q30c: script changed a checkbox/radio's live state (repaint, or restyle
+    /// when a stylesheet uses `:checked`).
+    pub(crate) check_changed: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -833,6 +836,47 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             detach(&h);
             d.set(true);
             gn.set(gn.get() + 1);
+        }
+    });
+    let ct = table.clone();
+    let (t_sc, r_sc, gn_sc) = (table.clone(), reqs.clone(), wgen.clone());
+    let t_i = table.clone();
+    let (t_si, r_si, gn_si) = (table.clone(), reqs.clone(), wgen.clone());
+    let t_rp = table.clone();
+    let (t_rf, r_rf, gn_rf) = (table.clone(), reqs.clone(), wgen.clone());
+    // Q30c: live checkbox/radio state (forms.rs CHECK_LIVE). Writes only ask the
+    // App for a repaint/restyle (`check_changed`), never a DOM-dirty rebuild.
+    native!("__d_checked", move |id: i32| -> bool { ct.borrow().get(id).is_some_and(|h| crate::live_checked(&h)) });
+    native!("__d_setchecked", move |id: i32, v: bool| {
+        if let Some(h) = t_sc.borrow().get(id)
+            && crate::set_checked(&h, v)
+        {
+            r_sc.borrow_mut().check_changed = true;
+            gn_sc.set(gn_sc.get() + 1);
+        }
+    });
+    native!("__d_indet", move |id: i32| -> bool { t_i.borrow().get(id).is_some_and(|h| crate::live_indeterminate(&h)) });
+    native!("__d_setindet", move |id: i32, v: bool| {
+        if let Some(h) = t_si.borrow().get(id) {
+            crate::set_indeterminate(&h, v);
+            r_si.borrow_mut().check_changed = true;
+            gn_si.set(gn_si.get() + 1);
+        }
+    });
+    // The other checked radio of `id`'s group, or -1.
+    native!("__d_radiopeer", move |id: i32| -> i32 {
+        let h = t_rp.borrow().get(id);
+        match h.and_then(|h| crate::checked_radio_peer(&h)) {
+            Some(p) => t_rp.borrow_mut().intern(&p),
+            None => -1,
+        }
+    });
+    native!("__d_resetform", move |id: i32| {
+        if let Some(h) = t_rf.borrow().get(id)
+            && crate::reset_form_state(&h)
+        {
+            r_rf.borrow_mut().check_changed = true;
+            gn_rf.set(gn_rf.get() + 1);
         }
     });
     // QB5: focus()/blur() only record a request; the App applies it.
@@ -1656,9 +1700,9 @@ const DOM_PRELUDE: &str = r#"
     return __scratchy_dispatch(t, ev);
   } });
   // Q33d1: `el.click()`: a synthetic (untrusted) click, then the activation
-  // behavior unless a handler cancelled it. Checkbox/radio state is the
-  // `checked` attribute for now (Q33e), toggled before dispatch and
-  // reverted on cancel, as browsers do.
+  // behavior unless a handler cancelled it. Checkbox/radio use the live state
+  // (Q30c), toggled before dispatch and reverted on cancel (legacy
+  // pre-activation), exactly like a real user click in the App.
   var clicking = false;
   HTMLElement.prototype.click = function () {
     var tag = this.localName;
@@ -1668,17 +1712,14 @@ const DOM_PRELUDE: &str = r#"
       var type = tag === 'input' ? this.type : '';
       var undo = null;
       if (type === 'checkbox') {
-        var was = __d_attr(this.__id, 'checked') != null;
-        this.checked = !was;
-        undo = function (el) { el.checked = was; };
-      } else if (type === 'radio' && __d_attr(this.__id, 'checked') == null) {
-        var form = formOf(this), prevs = [], me = this, nm = ga(this, 'name');
-        if (nm) doc.querySelectorAll('input').forEach(function (o) {
-          if (o !== me && o.type === 'radio' && ga(o, 'name') === nm && formOf(o) === form && __d_attr(o.__id, 'checked') != null) prevs.push(o);
-        });
-        prevs.forEach(function (o) { o.checked = false; });
-        this.checked = true;
-        undo = function (el) { el.checked = false; prevs.forEach(function (o) { o.checked = true; }); };
+        var was = __d_checked(this.__id), wasInd = __d_indet(this.__id);
+        __d_setindet(this.__id, false);
+        __d_setchecked(this.__id, !was);
+        undo = function (el) { __d_setchecked(el.__id, was); __d_setindet(el.__id, wasInd); };
+      } else if (type === 'radio' && !__d_checked(this.__id)) {
+        var pid = __d_radiopeer(this.__id), prev = pid >= 0 ? wrap(pid) : null;
+        __d_setchecked(this.__id, true);
+        undo = function (el) { __d_setchecked(el.__id, false); if (prev) __d_setchecked(prev.__id, true); };
       }
       var ev = new MouseEvent('click', { bubbles: true, cancelable: true });
       if (!__scratchy_dispatch(this, ev)) { if (undo) undo(this); return; }
@@ -1690,6 +1731,7 @@ const DOM_PRELUDE: &str = r#"
       if (href != null) { __d_navigate(href); return; }
       var submit = (tag === 'button' && this.type === 'submit') || (tag === 'input' && (type === 'submit' || type === 'image'));
       if (submit) { var f = formOf(this); if (f) f.requestSubmit(this); }
+      if ((tag === 'button' && this.type === 'reset') || (tag === 'input' && type === 'reset')) { var rf = formOf(this); if (rf) rf.reset(); }
     } finally { clicking = false; }
   };
   // QA20: table and form element interfaces, as reflections of attributes and
@@ -1874,7 +1916,11 @@ const DOM_PRELUDE: &str = r#"
     ev.submitter = submitter || null;
     __scratchy_dispatch(this, ev);
   };
-  FP.reset = function () {};
+  // Q30c: reset restores the checkbox/radio defaults (text values wait for Q30d).
+  FP.reset = function () {
+    var ev = new Event('reset', { bubbles: true, cancelable: true });
+    if (__scratchy_dispatch(this, ev)) __d_resetform(this.__id);
+  };
   ['name', 'action', 'method', 'target', 'enctype', 'encoding', 'acceptCharset', 'autocomplete'].forEach(function (p) {
     rStr(FP, p, p === 'acceptCharset' ? 'accept-charset' : p === 'encoding' ? 'enctype' : p);
   });
@@ -1894,7 +1940,10 @@ const DOM_PRELUDE: &str = r#"
   defs(IP, 'defaultValue', function () { return ga(this, 'value'); }, function (v) { __d_setattr(this.__id, 'value', String(v)); });
   defs(IP, 'defaultChecked', function () { return __d_attr(this.__id, 'checked') != null; },
     function (v) { if (v) __d_setattr(this.__id, 'checked', ''); else __d_rmattr(this.__id, 'checked'); });
-  ['readOnly', 'multiple', 'indeterminate'].forEach(function (p) { rBool(IP, p, p.toLowerCase()); });
+  // Q30c: `checked`/`indeterminate` are live state, not attributes.
+  defs(IP, 'checked', function () { return __d_checked(this.__id); }, function (v) { __d_setchecked(this.__id, !!v); });
+  defs(IP, 'indeterminate', function () { return __d_indet(this.__id); }, function (v) { __d_setindet(this.__id, !!v); });
+  ['readOnly', 'multiple'].forEach(function (p) { rBool(IP, p, p.toLowerCase()); });
   rInt(IP, 'size', 'size', 20, 1); rInt(IP, 'maxLength', 'maxlength', -1, 0);
   var BP = mkProto('HTMLButtonElement', ['button']);
   defs(BP, 'type', function () {
@@ -1985,7 +2034,6 @@ const DOM_PRELUDE: &str = r#"
     rBool(tagProto[t], 'disabled', 'disabled');
   });
   ['input', 'select', 'textarea'].forEach(function (t) { rBool(tagProto[t], 'required', 'required'); });
-  rBool(IP, 'checked', 'checked');
   // ---- image maps
   var MP = mkProto('HTMLMapElement', ['map']);
   rStr(MP, 'name', 'name');

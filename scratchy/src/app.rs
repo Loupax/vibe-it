@@ -1249,6 +1249,7 @@ impl App {
         self.document = document;
         self.interaction = InteractionState::default();
         set_interaction(&self.interaction);
+        clear_check_state();
         self.hover_node = 0;
         js_style::set_js_extra_css(&extra_css);
         js_style::set_js_adopted_css("");
@@ -1389,6 +1390,9 @@ impl App {
                     }
                 }
                 None => {}
+            }
+            if reqs.check_changed {
+                self.check_state_changed();
             }
             if let Some(href) = reqs.nav {
                 self.start_navigation(&href);
@@ -2018,7 +2022,7 @@ impl App {
             return true;
         }
         self.set_focus_element(Some(&control), click_focus_is_visible(&control));
-        self.js_click(Some(&control), pos);
+        self.click_activate(Some(&control), pos);
         true
     }
 
@@ -2107,6 +2111,70 @@ impl App {
             cur = parent_handle(&n);
         }
         false
+    }
+
+    /// Q30c: a toggle of checkbox/radio live state changed what is painted.
+    /// Pages whose stylesheets use `:checked`/`:indeterminate` get a restyle
+    /// (the same async path as `:hover`); otherwise only a repaint, since the
+    /// mark is drawn from the live state at paint time (no layout rebuild).
+    pub(crate) fn check_state_changed(&mut self) {
+        if self.state_rules & STATE_CHECKED != 0 {
+            self.layout_dirty = true;
+            self.restyle_requested = true;
+            self.keep_scroll_on_rebuild = true;
+        }
+        if let Some(w) = &self.window {
+            w.request_redraw();
+        }
+    }
+
+    /// Q30c: a click on `target` (None = body). A checkbox/radio toggles BEFORE
+    /// the click event (legacy pre-activation) and is restored when a handler
+    /// cancels it; `input` then `change` bubble from it when the state really
+    /// changed. A reset button resets its form's live state. Returns whether
+    /// the click was not cancelled.
+    pub(crate) fn click_activate(&mut self, target: Option<&Handle>, pos: (f32, f32)) -> bool {
+        let Some(control) = target.and_then(enclosing_control) else { return self.js_click(target, pos) };
+        let Some(radio) = checkable_kind(&control) else {
+            let ok = self.js_click(target, pos);
+            let is_reset = matches!(element_tag(&control), "button" | "input")
+                && element_attr(&control, "type").is_some_and(|t| t.trim().eq_ignore_ascii_case("reset"));
+            if ok && is_reset {
+                self.reset_owner_form(&control);
+            }
+            return ok;
+        };
+        let (was, was_ind) = (live_checked(&control), live_indeterminate(&control));
+        if radio && was {
+            return self.js_click(target, pos);
+        }
+        let peer = if radio { checked_radio_peer(&control) } else { None };
+        set_indeterminate(&control, false);
+        set_checked(&control, if radio { true } else { !was });
+        self.check_state_changed();
+        if !self.js_click(target, pos) {
+            set_checked(&control, was);
+            set_indeterminate(&control, was_ind);
+            if let Some(p) = peer {
+                set_checked(&p, true);
+            }
+            self.check_state_changed();
+            return false;
+        }
+        let ev = [("bubbles", EventField::Bool(true))];
+        self.js_dispatch(Some(&control), "input", &ev);
+        self.js_dispatch(Some(&control), "change", &ev);
+        true
+    }
+
+    /// Q30c: the `reset` event (cancelable) at the form owning `control`, then
+    /// its checkbox/radio state goes back to the defaults.
+    pub(crate) fn reset_owner_form(&mut self, control: &Handle) {
+        let Some(form) = form_owner(control) else { return };
+        let ev = [("bubbles", EventField::Bool(true)), ("cancelable", EventField::Bool(true))];
+        if self.js_dispatch(Some(&form), "reset", &ev) && reset_form_state(&form) {
+            self.check_state_changed();
+        }
     }
 
     /// Enter on a focused link follows it.
@@ -2767,6 +2835,18 @@ impl ApplicationHandler<AppEvent> for App {
                                 }
                                 return;
                             }
+                            // Q30c: Space toggles a focused checkbox/radio.
+                            Key::Named(NamedKey::Space)
+                                if !event.repeat
+                                    && !self.modifiers.control_key()
+                                    && !self.modifiers.alt_key()
+                                    && let Some(h) = self.interaction.focus.and_then(|f| find_node_by_id(&self.document, f))
+                                    && checkable_kind(&h).is_some()
+                                    && !is_disabled_control(&h) =>
+                            {
+                                self.click_activate(Some(&h), (0.0, 0.0));
+                                return;
+                            }
                             Key::Named(NamedKey::Enter) if self.interaction.focus.is_some() => {
                                 self.activate_focus();
                                 return;
@@ -2877,7 +2957,7 @@ impl ApplicationHandler<AppEvent> for App {
                                     in_control = true;
                                     false
                                 } else {
-                                    let ok = self.js_click(target.as_ref(), up);
+                                    let ok = self.click_activate(target.as_ref(), up);
                                     if ok
                                         && control.is_none()
                                         && let Some(label) = target.as_ref().and_then(enclosing_label)

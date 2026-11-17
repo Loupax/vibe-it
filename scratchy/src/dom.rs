@@ -262,6 +262,7 @@ pub(crate) enum OurPseudoClass {
     FocusVisible,
     FocusWithin,
     Checked,
+    Indeterminate,
     Disabled,
     Enabled,
     /// `:dir(ltr)` (true) / `:dir(rtl)` (false). Engine is LTR-only.
@@ -283,6 +284,7 @@ impl cssparser::ToCss for OurPseudoClass {
             OurPseudoClass::FocusVisible => ":focus-visible",
             OurPseudoClass::FocusWithin => ":focus-within",
             OurPseudoClass::Checked => ":checked",
+            OurPseudoClass::Indeterminate => ":indeterminate",
             OurPseudoClass::Disabled => ":disabled",
             OurPseudoClass::Enabled => ":enabled",
             OurPseudoClass::Dir(ltr) => {
@@ -329,6 +331,8 @@ pub(crate) const STATE_HOVER: u8 = 1;
 pub(crate) const STATE_ACTIVE: u8 = 2;
 pub(crate) const STATE_FOCUS: u8 = 4;
 pub(crate) const STATE_TARGET: u8 = 8;
+/// Q30c: `:checked` / `:indeterminate` appear in a stylesheet, so a toggle needs a restyle.
+pub(crate) const STATE_CHECKED: u8 = 16;
 
 thread_local! {
     pub(crate) static INTERACTION: RefCell<InteractionState> = RefCell::new(InteractionState::default());
@@ -792,7 +796,14 @@ impl<'i> SelectorsParser<'i> for OurSelectorParser {
                 note_state_rule(STATE_TARGET);
                 return Ok(OurPseudoClass::Target);
             },
-            "checked" => return Ok(OurPseudoClass::Checked),
+            "checked" => {
+                note_state_rule(STATE_CHECKED);
+                return Ok(OurPseudoClass::Checked);
+            },
+            "indeterminate" => {
+                note_state_rule(STATE_CHECKED);
+                return Ok(OurPseudoClass::Indeterminate);
+            },
             "disabled" => return Ok(OurPseudoClass::Disabled),
             "enabled" => return Ok(OurPseudoClass::Enabled),
             _ => {}
@@ -1078,10 +1089,11 @@ impl SelectorsElement for El {
             }
             OurPseudoClass::FocusWithin => interaction_has(|st| st.focus_within.contains(&node_id(&self.0))),
             OurPseudoClass::Checked => match element_tag(&self.0) {
-                "input" => element_attr(&self.0, "checked").is_some(),
+                "input" if checkable_kind(&self.0).is_some() => live_checked(&self.0),
                 "option" => element_attr(&self.0, "selected").is_some(),
                 _ => false,
             },
+            OurPseudoClass::Indeterminate => checkable_kind(&self.0) == Some(false) && live_indeterminate(&self.0),
             OurPseudoClass::Disabled => is_disabled_control(&self.0),
             OurPseudoClass::Enabled => is_form_control(&self.0) && !is_disabled_control(&self.0),
             OurPseudoClass::Dir(ltr) => *ltr,
