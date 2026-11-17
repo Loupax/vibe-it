@@ -5896,13 +5896,19 @@ with temporary `Instant` timing, and say the number in the commit.
       Also decides cookies for page JS requests (QF-D2 / QF14 in the QF
       DESIGN MEMO): a jar in wire would also be used by fetch/XHR, so it
       needs a third-party rule before it lands.
-- [ ] Q30g [M] READY (go-ahead 2026-11-17) Open `<select>`. Click or Space/Enter opens a list painted
+- [x] Q30g [M] DONE (hash: 2836959) (go-ahead 2026-11-17) Open `<select>`. Click or Space/Enter opens a list painted
       above all page content (a top-layer overlay, closest in shape to
       the command bar's chrome painting, not to z-index stacking),
       j/k/arrows move, Enter/click picks, Esc closes. The chosen
       option updates the closed box (Q30a) and the data set (Q30e).
       `multiple`/`size>1` list boxes: render as a scrolled list, out of
       scope for picking until a page needs it.
+      Q30g notes: src/forms_select.rs (state, pure popup machine + geometry, painters, App glue); see its PROMPTS.md
+      entry. Listbox picking was done too (click/Ctrl/Shift/arrows).
+- [ ] Q30g2 [S] READY Select leftovers: wheel scrolling inside a listbox, real label widths for the popup (now 0.55em
+      per char), `new Option()`, `select.options.add/length=`, Ctrl/Shift-click only unit-tested (tools/inject has no held
+      modifiers), popup anchoring inside inner scroll containers / position:fixed ancestors, a `selected` attribute on an
+      option inserted into an already-dirty select.
 Done when: on social.loupax.com the user can log in (with Q30f), write
 a reply in a textarea and submit it, using only scratchy; and a
 Wikipedia search from the search box lands on a results page.

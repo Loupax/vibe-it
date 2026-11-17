@@ -384,6 +384,9 @@ pub(crate) struct ComputedStyle {
     /// Q30d: `TEXT_*` bits of an editable `<input>`/`<textarea>` box; the painter
     /// draws its live value, caret and selection (forms_text.rs). Not inherited.
     pub(crate) text_widget: u8,
+    /// Q30g: `SEL_*` bits of a `<select>` box; the painter draws the live selection
+    /// (forms_select.rs). Not inherited.
+    pub(crate) select_widget: u8,
     /// Only ever `Some` on the synthetic document-root box: the window
     /// height, i.e. the initial containing block's definite height. It
     /// feeds `child_containing_height` (so `html{height:100%}` resolves)
@@ -2147,6 +2150,7 @@ pub(crate) fn resolve_style_core<'a>(
             .unwrap_or(false),
         check_widget: 0,
         text_widget: 0,
+        select_widget: 0,
         icb_height: None,
         first_line: None,
         cursor,
@@ -2268,6 +2272,7 @@ pub(crate) fn anonymous_style(inherited: InheritedStyle) -> ComputedStyle {
         appearance_none: false,
         check_widget: 0,
         text_widget: 0,
+        select_widget: 0,
         icb_height: None,
         first_line: None,
         cursor: inherited.cursor,

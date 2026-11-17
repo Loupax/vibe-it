@@ -67,11 +67,11 @@ fn attr_f32(handle: &Handle, name: &str) -> Option<f32> {
     attr_string(handle, name)?.trim().parse::<f32>().ok().filter(|v| v.is_finite())
 }
 
-fn avg_char_w(style: &ComputedStyle, mono: bool) -> f32 {
+pub(crate) fn avg_char_w(style: &ComputedStyle, mono: bool) -> f32 {
     style.font_size * if mono { AVG_CHAR_EM_MONO } else { AVG_CHAR_EM }
 }
 
-fn line_h(style: &ComputedStyle) -> f32 {
+pub(crate) fn line_h(style: &ComputedStyle) -> f32 {
     (style.font_size * LINE_EM).round()
 }
 
@@ -104,10 +104,6 @@ fn placeholder_item(handle: &Handle, ctx: &FormCtx, style: &ComputedStyle, text:
 /// An empty single-line box still needs one line of height: a no-break space
 /// gives it the font's natural line box without painting anything.
 const BLANK_LINE: &str = "\u{a0}";
-
-fn collapse_ws(s: &str) -> String {
-    s.split_whitespace().collect::<Vec<_>>().join(" ")
-}
 
 pub(crate) fn input_type(handle: &Handle) -> String {
     attr_string(handle, "type").map(|t| t.trim().to_ascii_lowercase()).unwrap_or_default()
@@ -369,6 +365,7 @@ pub(crate) fn reset_form_state(form: &Handle) -> bool {
     let mut all = Vec::new();
     all_inputs(&tree_root(form), &mut all);
     let mut any = reset_text_state(form, &all);
+    any |= reset_select_state(form);
     for c in all {
         if element_tag(&c) == "input" && form_owner(&c).is_some_and(|f| Rc::ptr_eq(&f, form)) {
             any |= CHECK_LIVE.with(|m| m.borrow_mut().remove(&node_id(&c))).is_some();
@@ -478,47 +475,19 @@ fn build_textarea(handle: &Handle, mut style: ComputedStyle, ctx: &FormCtx) -> (
     build_editable(handle, style, TEXT_MULTI, ctx)
 }
 
-/// The `option` elements of a `<select>` (also inside `<optgroup>`), as
-/// (label, selected, disabled).
-fn select_options(select: &Handle) -> Vec<(String, bool, bool)> {
-    fn walk(h: &Handle, out: &mut Vec<(String, bool, bool)>) {
-        for c in h.children.borrow().iter() {
-            if !matches!(c.data, NodeData::Element { .. }) {
-                continue;
-            }
-            match element_tag(c) {
-                "option" => {
-                    let label = match attr_string(c, "label").filter(|l| !l.is_empty()) {
-                        Some(l) => l,
-                        None => {
-                            let mut t = String::new();
-                            collect_text_only(c, &mut t);
-                            collapse_ws(&t)
-                        }
-                    };
-                    out.push((label, element_attr(c, "selected").is_some(), element_attr(c, "disabled").is_some()));
-                }
-                "optgroup" => walk(c, out),
-                _ => {}
-            }
-        }
-    }
-    let mut out = Vec::new();
-    walk(select, &mut out);
-    out
-}
-
-/// `<select>`: closed state shows the selected (else first) option's text and
-/// a drop arrow; `multiple`/`size>1` render a listbox of `size` rows (4 by
-/// default). The options themselves are never laid out in flow.
+/// `<select>`: the box is only SIZED here (one blank line, or `size` rows for a
+/// listbox); the selected text, the arrow and the listbox rows are painted from
+/// the live selection (forms_select.rs, `paint_select_control`), so choosing an
+/// option never rebuilds the layout. `register_select` snapshots the options for
+/// the painter.
 fn build_select(handle: &Handle, mut style: ComputedStyle) -> (ComputedStyle, BoxContent) {
-    let options = select_options(handle);
+    let snap = register_select(handle);
     let size = attr_count(handle, "size");
-    let listbox = element_attr(handle, "multiple").is_some() || size.is_some_and(|s| s > 1);
     style.white_space = WhiteSpace::Pre;
-    let widest = options.iter().map(|(l, _, _)| l.chars().count()).max().unwrap_or(0) as f32;
-    if listbox {
+    let widest = snap.widest_label_chars() as f32;
+    if snap.listbox {
         let rows = size.unwrap_or(4).max(1) as f32;
+        style.select_widget = SEL_LIST;
         style.overflow = Overflow::Hidden;
         if style.height.is_none() {
             style.height = Some(sized(&style, rows * line_h(&style), false));
@@ -526,40 +495,15 @@ fn build_select(handle: &Handle, mut style: ComputedStyle) -> (ComputedStyle, Bo
         if style.width.is_none() && style.width_kw.is_none() {
             style.width = Some(sized(&style, widest.max(4.0) * avg_char_w(&style, false) + 16.0, true));
         }
-        let mut row_boxes = Vec::new();
-        for (label, selected, _) in &options {
-            let mut row = anonymous_style(style.inherited());
-            row.display = Display::Block;
-            if *selected {
-                row.background_color = Some(TextColor::rgb(206, 206, 206));
-            }
-            let text = if label.is_empty() { BLANK_LINE.to_string() } else { label.clone() };
-            row_boxes.push(LayoutBox {
-                style: row,
-                background_image: None,
-                content: BoxContent::Inline(vec![text_item(&style, text, WhiteSpace::Pre)]),
-            });
-        }
-        return (style, BoxContent::Blocks(row_boxes));
+        return (style, BoxContent::Inline(Vec::new()));
     }
-    let shown = options
-        .iter()
-        .rev()
-        .find(|(_, sel, _)| *sel)
-        .or_else(|| options.iter().find(|(_, _, dis)| !*dis))
-        .or_else(|| options.first())
-        .map(|(l, _, _)| l.clone())
-        .unwrap_or_default();
+    style.select_widget = SEL_DROP;
     if style.width.is_none() && style.width_kw.is_none() && style.min_width.is_none() {
-        // Chrome sizes a closed select to its widest option.
-        style.min_width = Some(sized(&style, widest * avg_char_w(&style, false), true));
+        // Chrome sizes a closed select to its widest option (+ the arrow).
+        let arrow = if style.appearance_none { 0.0 } else { SELECT_ARROW_W };
+        style.min_width = Some(sized(&style, widest * avg_char_w(&style, false) + arrow, true));
     }
-    let shown = if shown.is_empty() { BLANK_LINE.to_string() } else { shown };
-    let mut items = vec![text_item(&style, shown, WhiteSpace::Pre)];
-    if !style.appearance_none {
-        items.push(text_item(&style, "\u{a0}\u{2304}".to_string(), WhiteSpace::Pre));
-    }
-    (style, BoxContent::Inline(items))
+    (style, BoxContent::Inline(vec![text_item(&style, BLANK_LINE.to_string(), WhiteSpace::Pre)]))
 }
 
 /// `<progress>` and `<meter>`: a track (UA CSS) with a filled bar child.

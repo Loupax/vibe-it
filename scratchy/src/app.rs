@@ -903,6 +903,12 @@ pub(crate) struct App {
     /// exiting, so there's no later point where un-setting it would mean
     /// anything.
     pub(crate) should_quit: bool,
+    /// Q30g: the open `<select>` dropdown (painted last, above the page).
+    pub(crate) select_popup: Option<SelectPopup>,
+    /// Q30g: the release that ends a press the popup consumed is not a click.
+    pub(crate) swallow_release: bool,
+    /// Q30g: type-ahead buffer of a focused closed select.
+    pub(crate) select_ahead: TypeAhead,
     /// The page that was showing right before `:help` opened, if any —
     /// `App::show_help`'s own snapshot, popped by `:q`/`:quit`
     /// (`App::restore_saved_page`) instead of quitting, the same way
@@ -1020,6 +1026,9 @@ impl App {
             modifiers: ModifiersState::empty(),
             completion: None,
             should_quit: false,
+            select_popup: None,
+            swallow_release: false,
+            select_ahead: TypeAhead::default(),
             pre_help_page: None,
         }
     }
@@ -1098,6 +1107,9 @@ impl App {
             modifiers: ModifiersState::empty(),
             completion: None,
             should_quit: false,
+            select_popup: None,
+            swallow_release: false,
+            select_ahead: TypeAhead::default(),
             pre_help_page: None,
         }
     }
@@ -1233,6 +1245,13 @@ impl App {
                     }
                 }
             }
+        }
+
+        // Q30g: the open select dropdown is the top layer, above the page.
+        if let (Some(p), Some(laid)) = (&self.select_popup, self.cached.as_ref())
+            && let Some(view) = popup_view(&p.st, &self.document, laid, &self.shape_cache, self.scroll_offset, (width as f32, height as f32))
+        {
+            paint_select_popup(&view, &p.st, &mut self.font_system, &mut self.swash_cache, &mut pixels, width, height);
         }
 
         if self.vim_mode == VimMode::Command {
@@ -1466,6 +1485,8 @@ impl App {
         set_interaction(&self.interaction);
         clear_check_state();
         clear_text_state();
+        clear_select_state();
+        self.select_popup = None;
         self.hover_node = 0;
         js_style::set_js_extra_css(&extra_css);
         js_style::set_js_adopted_css("");
@@ -2245,6 +2266,7 @@ impl App {
         crate::js_dom::set_active_element(h);
         self.set_interaction_state(st);
         if old_focus != new_focus {
+            self.select_popup_close(PopupEvent::Blur);
             // Q30d: `change` fires before `blur`; the value is remembered at focus.
             if let Some(h) = old_focus.and_then(|f| find_node_by_id(&self.document, f)) {
                 self.text_focus_lost(&h);
@@ -2422,6 +2444,10 @@ impl App {
                 && element_attr(&control, "type").is_some_and(|t| t.trim().eq_ignore_ascii_case("reset"));
             if ok && is_reset {
                 self.reset_owner_form(&control);
+            }
+            // Q30g: a click on a select opens its dropdown / picks a listbox row.
+            if ok && element_tag(&control) == "select" {
+                self.select_click(&control, pos);
             }
             // Q30e: a submit button submits its form owner.
             if ok && is_submit_button(&control) && !is_disabled_control(&control) && let Some(form) = form_owner(&control) {
@@ -3120,6 +3146,18 @@ impl ApplicationHandler<AppEvent> for App {
                     }
                 }
                 if event.state == ElementState::Pressed {
+                    // Q30g: an open select dropdown owns every key (Tab closes it, then moves focus).
+                    if self.vim_mode != VimMode::Command && self.select_popup.is_some() && self.select_popup_key(&event.logical_key) {
+                        return;
+                    }
+                    // Q30g: a focused closed select / listbox owns the keys like a text control.
+                    if self.vim_mode != VimMode::Command
+                        && !matches!(event.logical_key, Key::Named(NamedKey::Tab))
+                        && let Some(h) = self.focused_select()
+                        && self.select_control_key(&h, &event.logical_key)
+                    {
+                        return;
+                    }
                     // Q30d: a focused text control owns the keys (Tab and
                     // the page's own keydown handlers excepted).
                     if self.vim_mode != VimMode::Command
@@ -3190,6 +3228,9 @@ impl ApplicationHandler<AppEvent> for App {
                 // so the same `+ scroll_offset` adjustment `paint` itself
                 // makes (in reverse) is needed here too.
                 self.text_mouse_drag((position.x as f32, position.y as f32));
+                if self.select_popup_hover((position.x as f32, position.y as f32)) {
+                    return;
+                }
                 let hovered = self.element_at((position.x as f32, position.y as f32));
                 self.update_hover(hovered);
                 if let (Some(laid), Some(window)) = (&self.cached, &self.window) {
@@ -3233,6 +3274,12 @@ impl ApplicationHandler<AppEvent> for App {
                 }
                 match state {
                     ElementState::Pressed => {
+                        if let Some(pos) = self.last_mouse_pos
+                            && self.select_popup_press(pos)
+                        {
+                            self.mouse_down_pos = None;
+                            return;
+                        }
                         self.mouse_down_pos = self.last_mouse_pos;
                         if let Some(pos) = self.last_mouse_pos {
                             self.js_mouse_at("mousedown", pos);
@@ -3241,6 +3288,10 @@ impl ApplicationHandler<AppEvent> for App {
                         }
                     }
                     ElementState::Released => {
+                        if std::mem::take(&mut self.swallow_release) {
+                            self.mouse_down_pos = None;
+                            return;
+                        }
                         self.text_mouse_release();
                         if let Some(pos) = self.last_mouse_pos {
                             self.js_mouse_at("mouseup", pos);
@@ -3310,6 +3361,9 @@ impl ApplicationHandler<AppEvent> for App {
                     MouseScrollDelta::LineDelta(_, y) => y * 40.0,
                     MouseScrollDelta::PixelDelta(pos) => pos.y as f32,
                 };
+                if self.select_popup_wheel(dy) {
+                    return;
+                }
                 // Routes to the deepest `overflow: scroll`/`auto` region
                 // under the last known mouse position, if any — falls
                 // through to the page's own top-level scroll (the
