@@ -16468,3 +16468,21 @@ fn html_background_wins_and_body_keeps_its_own_qw6() {
     assert_eq!(px[5 * 400 + 5] & 0xFFFFFF, 0xFF0000, "canvas stays red");
     assert_eq!(px[50 * 400 + 200] & 0xFFFFFF, 0x112233, "body paints its own background");
 }
+
+#[test]
+fn qy29_data_and_form_props_live_on_their_interfaces() {
+    let log = run_in_html(
+        "<html><body><div id=d></div></body></html>",
+        "var d = document.getElementById('d'), t = document.createTextNode('a'), c = document.createComment('b');\
+         console.log('data' in d, 'data' in document.createElement('x-foo'), 'data' in document.createElement('object'), 'data' in t && 'data' in c);\
+         t.data = 'zz'; console.log(t.data, c.data, t.nodeValue);\
+         var b = document.createElement('button'), i = document.createElement('input');\
+         console.log('disabled' in d, 'disabled' in b, 'required' in d, 'required' in i, 'checked' in d, 'checked' in i, 'disabled' in document.createElement('x-foo'));\
+         i.checked = true; i.required = true; b.disabled = true; console.log(i.hasAttribute('checked'), i.hasAttribute('required'), b.hasAttribute('disabled'), i.checked);",
+    );
+    assert_eq!(
+        log,
+        ["log:false false true true", "log:zz b zz", "log:false true false true false true false", "log:true true true true"],
+        "{log:?}"
+    );
+}
