@@ -513,7 +513,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       `comment.data` is still a no-op (`__d_settext` ignores Comment nodes; the
       Rust NodeData::Comment contents are not mutable). Probe on the saved copy:
       skeleton=1/grid=0 at 20 ms, skeleton=0/grid=1 at 60 and 95 ms (simulated).
-- [x] QC1 [S] DONE 2026-11-17 (e28fe6a) clippy baseline: ONE counting method, `tools/clippy-count.sh`
+- [x] QC1 [S] DONE 2026-11-17 (22b98d2) clippy baseline: ONE counting method, `tools/clippy-count.sh`
       (`cargo clippy --release --all-targets`, distinct (lint, file:line:col) from the JSON
       diagnostics; AGENTS.md checklist step 3). Measured (distinct warnings): d024bef (docs audit)
       78; #220 help-cli-options 79 (+1 dead_code `dom::CLI_OPTIONS` only used by a test); #227
