@@ -3029,7 +3029,7 @@ QF13a, QF14b2, QF18 open; QF19 waits for the user):
       Not for `file://` pages without `--socket` (they need no wire). Tests: a
       fixture with 3 images + 1 stylesheet and a missing socket -> exactly one line
       with N=4; a working socket -> no line; `file://` without `--socket` -> no line.
-- [ ] QNET1 [S] READY (P1; user rule 2026-11-17: "as long as I can guarantee that
+- [x] QNET1 [S] DONE 2026-11-17 (Sonnet; hash HASH_QNET1; src/netlock.rs hand-assembled seccomp-BPF over libc, no seccompiler; AF_NETLINK measured NOT needed: only AF_UNIX socket() calls were made by winit/fontconfig/libmpv/wire in a nested dwl under `unshare -rn`; tests in src/tests/qnet1_tests.rs) (P1; user rule 2026-11-17: "as long as I can guarantee that
       scratchy without wire can't physically speak to the internet I'm happy. We can
       safely use it for offline reading") Make the rule enforced, not just true.
       Audit 2026-11-17 (main @ e4993c3): TRUE in scratchy's own code today: no

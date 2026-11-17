@@ -60,6 +60,7 @@ macro_rules! out {
     ($($arg:tt)*) => { $crate::write_line_to(&mut io::stdout().lock(), format_args!($($arg)*)) };
 }
 
+pub mod netlock;
 mod wpt;
 mod dom;
 mod css;

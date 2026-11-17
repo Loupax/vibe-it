@@ -1,5 +1,8 @@
 use super::*;
 
+// QNET1 tests live in src/tests/qnet1_tests.rs (a child module: sees this file's helpers).
+mod qnet1_tests;
+
 // ---------- v36: `rem` resolves against `<html>`'s real font-size ----------
 
 fn find_deepest_nonzero_margin_top(b: &LayoutBox) -> Option<&LayoutBox> {
