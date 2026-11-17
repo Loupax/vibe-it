@@ -1365,7 +1365,7 @@ IntersectionObserver and matchMedia are not used by any of the site's scripts.
       Acceptance: `--wpt` clean; the commit lists the counts. Unblocks: every QAN1
       item can then see a pass->fail it causes (e.g. the 22 filter-effects animation
       tests that pass only because the animation does nothing).
-- [x] QAN1a [M] DONE HASH_QAN1A Parse `@keyframes` and the animation longhands. css.rs: a
+- [x] QAN1a [M] DONE e5da906 Parse `@keyframes` and the animation longhands. css.rs: a
       `Keyframes` arm in `TopLevelParser::parse_prelude` (`keyframes` and
       `-webkit-keyframes`, name = ident or string), block parsed as a list of keyframe
       selectors (`from`, `to`, `N%`, comma lists) each with a `Declarations` filled by
