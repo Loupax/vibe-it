@@ -154,7 +154,7 @@ must see `ua` there before relying on a UA override (an older wire ignores it).
 ## Not implemented
 
 - Cookie persistence (the jar is memory only; a file is a later flag).
-- WebSocket, EventSource, Workers, Service Workers.
+- EventSource, Workers, Service Workers (WebSocket exists since QF19w2, below).
 - Form submission is implemented (Q30e, below) except file contents, validation and `target` other than this tab.
 - Media (`<video>`, `<audio>`): placeholders only.
 - `<a ping>`.
@@ -168,3 +168,18 @@ so it cannot reach the network except through wire. See NOTES.md "QNET1" and the
 ## Wire unreachable (QWU1)
 
 When wire cannot be reached, sub-resources (stylesheets, @import, scripts, images, CSS images, iframes, page-JS fetch/XHR, media) are skipped. Scratchy prints ONE stderr line per page load: `scratchy: wire not reachable at <path> (<os error>): N sub-resources skipped`. The OS error tells why: `No such file or directory, os error 2` = no socket file; `Connection refused, os error 111` = stale socket file (wire died). Approach: failures are counted (`note_wire_skip`); a watcher prints the line once no new failure arrived for 400 ms (the load settled), so N is the final count; later stragglers are not printed again. `begin_wire_load` starts a count per navigation; file:// pages without --socket never begin one, so never print. Page JS and media still log their own errors; they are only counted in N.
+
+## WebSocket (QF19w2)
+
+`new WebSocket(url, protocols)` goes through wire's upgrade pipe (QF19w1). scratchy builds the
+handshake (random `Sec-WebSocket-Key`, version 13, `Sec-WebSocket-Protocol`, `Origin`, `Upgrade`/`Connection`
+headers, `X-Wire-Upgrade: websocket`, the cap headers, the cookie headers of a credentialed fetch,
+`X-Wire-User-Agent` when set) and sends it to wire's unix socket. wire dials (DNS/TCP/TLS/policy/jar),
+answers `101` and copies bytes; the RFC 6455 framing (src/ws_frames.rs, by hand: `tungstenite` is not
+in the offline registry) runs in scratchy over that unix socket only. The URL passes the same
+`RequestPolicy` as a fetch (http(s) twin): an https page may not open `ws:` (loopback excepted), bad
+ports, private targets. Every refusal still shows the page an `error` then `close` 1006 event
+asynchronously, with one log line. An old wire (no `ws` in `X-Wire-Features`): the first socket fails
+with one log line (`wire is too old for WebSocket`), later sockets fail at once without sending. Caps:
+16 open sockets per page, 16 MiB per frame/message, 64 MiB of undelivered messages (then the reader
+waits). Dropping the page's engine (navigation) sends close 1001 and shuts the sockets.

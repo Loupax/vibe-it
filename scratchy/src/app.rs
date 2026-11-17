@@ -53,6 +53,8 @@ pub(crate) enum AppEvent {
     /// QF7: a page-JS network request finished (or was refused at once):
     /// `(nav_generation, request id, result)`. Stale generations are dropped.
     JsNet(u64, u64, Result<WireResponse, NetError>),
+    /// QF19w2: WebSocket events are queued for the current page's engine.
+    JsWs,
     /// One non-`data:` `<img src>` reference's own fetch finishing (v67)
     /// — `String` is the exact, unresolved `src` attribute text
     /// `process_external_resources` found it under (see `App::image_
@@ -948,6 +950,11 @@ fn install_video_wake(proxy: &EventLoopProxy<AppEvent>) {
     crate::media_video::set_wake(Some(Box::new(move || {
         let _ = p.lock().unwrap().send_event(AppEvent::VideoFrame);
     })));
+    // QF19w2: the WebSocket threads wake the loop the same way.
+    let p = Mutex::new(proxy.clone());
+    crate::js_ws::set_ws_wake(Some(Box::new(move || {
+        let _ = p.lock().unwrap().send_event(AppEvent::JsWs);
+    })));
 }
 
 /// `App::pre_help_page`'s own snapshot — every piece of per-page state
@@ -1821,6 +1828,18 @@ impl App {
         }
     }
 
+    /// QF19w2: `AppEvent::JsWs`. Events of a page that is parked behind
+    /// `:help` stay queued in its engine (`restore_saved_page` pumps them);
+    /// events of a dropped engine are never read.
+    pub(crate) fn handle_js_ws(&mut self) {
+        let Some(js) = &self.js else { return };
+        let more = js.pump_ws();
+        if more {
+            let _ = self.proxy.send_event(AppEvent::JsWs);
+        }
+        self.js_sync();
+    }
+
     /// QB2: queue a restyle rebuild for JS DOM writes (the old complete
     /// frame stays up until the new one is fully shaped).
     fn request_js_restyle(&mut self) {
@@ -2152,6 +2171,8 @@ impl App {
                 js.deliver_net(id, result);
             }
         }
+        // QF19w2: WebSocket events that arrived while the page was parked.
+        self.handle_js_ws();
         self.js_sync();
     }
 
@@ -3194,6 +3215,7 @@ impl ApplicationHandler<AppEvent> for App {
             }
             AppEvent::NavResult(generation, result) => self.handle_nav_result(generation, result),
             AppEvent::JsNet(generation, id, result) => self.handle_js_net(generation, id, result),
+            AppEvent::JsWs => self.handle_js_ws(),
             AppEvent::ImageFetched(generation, src, image) => self.handle_image_fetched(generation, src, image),
             AppEvent::ShapeResult(generation, laid, shape_cache, incomplete) => self.handle_shape_result(generation, laid, shape_cache, incomplete),
             AppEvent::MetaRefresh(generation, target) => self.handle_meta_refresh(generation, target),

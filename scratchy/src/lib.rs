@@ -93,6 +93,8 @@ mod js;
 mod js_modules;
 mod js_dom;
 mod js_net;
+mod ws_frames;
+mod js_ws;
 mod js_style;
 mod js_geom;
 

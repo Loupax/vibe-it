@@ -3,6 +3,7 @@ use super::*;
 // QNET1 tests live in src/tests/qnet1_tests.rs (a child module: sees this file's helpers).
 mod qnet1_tests;
 mod qwu1_tests;
+mod qf19w2_tests;
 
 // ---------- v36: `rem` resolves against `<html>`'s real font-size ----------
 

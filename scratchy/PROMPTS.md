@@ -7298,3 +7298,11 @@ Done: R35 (10 of 11 pages identical, bbc.com logo now centred = better, YouTube 
 **What changed:** layout.rs (row Prep.min, column ColItem min); tests.rs: four `qci0b_*` tests (long word stays whole and overflows, column 3-line items do not overlap, `width:50px` caps the floor, ellipsis pattern floor 0) and the QCI0 50/50 test now uses single glyphs ("i" | "W"): the old "iiii" | "wwwwww" in 100px cannot stay 50/50 under the spec floor (an unbreakable 6-glyph word is wider than 50px); wpt-expected.txt: css/css-flexbox/flexbox-min-width-auto-003.html FAIL -> PASS.
 
 **Verified:** full `cargo test --release` green under the system fonts and under the CI font config (958 passed); clippy TOTAL 78; WPT no pass->fail (1 newly passing); fixtures fx/fx2 viewed (long word whole, column no overlap); bbc, github, youtube, en.wikipedia Main_Page, hn, duckduckgo, guardian screenshots byte-identical before/after (and baseline vs baseline).
+
+
+
+## QF19w2 (scratchy/qf19w2-websocket)
+
+**Prompt:** Implement the page `WebSocket` on top of wire's QF19w1 upgrade pipe: handshake built in scratchy (random key, Origin, subprotocols, cookie partition headers, X-Wire-Upgrade), RFC 6455 framing in scratchy over wire's unix socket only (tungstenite is not in the offline registry, so by hand), one reader and one writer thread per socket, JS class with readyState/send/bufferedAmount/binaryType/close/protocol/extensions/events, policy and mixed-content checks, old-wire fail-closed, 16 sockets per page, close 1001 on navigation, tests through a real wire built from source plus a local echo server.
+
+**What changed:** new src/ws_frames.rs (SHA-1, accept key, encoder, decoder, assembler), src/js_ws.rs (WsState, socket threads, `JsEngine::pump_ws`, `AppEvent::JsWs` wake-up), src/ws_prelude.js, `CloseEvent` in js.rs, `__blob_bytes` in fetch_prelude.js, `JsEngine.ws`, report-mode driver, tests in src/tests/qf19w2_tests.rs; NOTES.md and NETWORKING.md sections.
