@@ -319,15 +319,61 @@ pub(crate) struct CommandCompletion {
 pub(crate) struct TextEditBuffer {
     pub(crate) text: String,
     pub(crate) cursor: usize,
+    /// Q30d: the selection's fixed end (a byte offset on a `char` boundary);
+    /// `None` = no selection. The command bar never sets it, so its
+    /// behaviour is unchanged; form controls use it for Shift+arrows, mouse
+    /// selection and select-all. The selection is `anchor..cursor`, either order.
+    pub(crate) anchor: Option<usize>,
+}
+
+/// Q30d: the three classes a Ctrl+arrow word move distinguishes.
+fn word_class(c: char) -> u8 {
+    if c.is_whitespace() {
+        0
+    } else if c.is_alphanumeric() || c == '_' {
+        1
+    } else {
+        2
+    }
 }
 
 impl TextEditBuffer {
     pub(crate) fn clear(&mut self) {
         self.text.clear();
         self.cursor = 0;
+        self.anchor = None;
+    }
+
+    /// The ordered selection `(start, end)`, or `None` when empty.
+    pub(crate) fn selection(&self) -> Option<(usize, usize)> {
+        let a = self.anchor?.min(self.text.len());
+        let c = self.cursor.min(self.text.len());
+        (a != c).then(|| (a.min(c), a.max(c)))
+    }
+
+    pub(crate) fn selected_text(&self) -> Option<&str> {
+        self.selection().map(|(a, b)| &self.text[a..b])
+    }
+
+    /// Removes the selected text (cursor lands at its start). True if any.
+    pub(crate) fn delete_selection(&mut self) -> bool {
+        let Some((a, b)) = self.selection() else {
+            self.anchor = None;
+            return false;
+        };
+        self.text.replace_range(a..b, "");
+        self.cursor = a;
+        self.anchor = None;
+        true
+    }
+
+    pub(crate) fn select_all(&mut self) {
+        self.anchor = Some(0);
+        self.cursor = self.text.len();
     }
 
     pub(crate) fn insert(&mut self, c: char) {
+        self.delete_selection();
         self.text.insert(self.cursor, c);
         self.cursor += c.len_utf8();
     }
@@ -346,10 +392,32 @@ impl TextEditBuffer {
         }
     }
 
+    /// Q30d: a `<textarea>` insert: `\r\n`/`\r` become `\n`, which is kept;
+    /// other control characters are dropped.
+    pub(crate) fn insert_multiline(&mut self, s: &str) {
+        let s = s.replace("\r\n", "\n").replace('\r', "\n");
+        for c in s.chars().filter(|c| *c == '\n' || !c.is_control()) {
+            self.insert(c);
+        }
+    }
+
     pub(crate) fn backspace(&mut self) {
+        if self.delete_selection() {
+            return;
+        }
         let Some(prev) = self.text[..self.cursor].chars().next_back() else { return };
         self.cursor -= prev.len_utf8();
         self.text.remove(self.cursor);
+    }
+
+    /// Forward delete (the Delete key).
+    pub(crate) fn delete_forward(&mut self) {
+        if self.delete_selection() {
+            return;
+        }
+        if self.cursor < self.text.len() {
+            self.text.remove(self.cursor);
+        }
     }
 
     pub(crate) fn move_left(&mut self) {
@@ -362,6 +430,143 @@ impl TextEditBuffer {
         if let Some(next) = self.text[self.cursor..].chars().next() {
             self.cursor += next.len_utf8();
         }
+    }
+
+    /// Q30d: moves the cursor to `pos` (clamped to a `char` boundary), keeping
+    /// the anchor when `extend` (Shift held), else dropping the selection.
+    pub(crate) fn move_to(&mut self, pos: usize, extend: bool) {
+        let mut pos = pos.min(self.text.len());
+        while !self.text.is_char_boundary(pos) {
+            pos -= 1;
+        }
+        if extend {
+            if self.anchor.is_none() {
+                self.anchor = Some(self.cursor);
+            }
+        } else {
+            self.anchor = None;
+        }
+        self.cursor = pos;
+    }
+
+    /// Left/Right arrow: without Shift a selection collapses to its edge.
+    pub(crate) fn nav_horizontal(&mut self, right: bool, extend: bool) {
+        if !extend && let Some((a, b)) = self.selection() {
+            self.move_to(if right { b } else { a }, false);
+            return;
+        }
+        let saved = self.cursor;
+        if right {
+            self.move_right();
+        } else {
+            self.move_left();
+        }
+        let pos = std::mem::replace(&mut self.cursor, saved);
+        self.move_to(pos, extend);
+    }
+
+    /// Start of the word before the cursor (Ctrl+Left).
+    pub(crate) fn word_left_pos(&self) -> usize {
+        let mut it = self.text[..self.cursor].char_indices().rev().peekable();
+        let mut pos = self.cursor;
+        while let Some(&(i, c)) = it.peek() {
+            if word_class(c) != 0 {
+                break;
+            }
+            pos = i;
+            it.next();
+        }
+        let Some(&(_, first)) = it.peek() else { return pos };
+        let class = word_class(first);
+        for (i, c) in it {
+            if word_class(c) != class {
+                break;
+            }
+            pos = i;
+        }
+        pos
+    }
+
+    /// End of the word after the cursor (Ctrl+Right).
+    pub(crate) fn word_right_pos(&self) -> usize {
+        let mut it = self.text[self.cursor..].char_indices().peekable();
+        let mut pos = self.cursor;
+        while let Some(&(i, c)) = it.peek() {
+            if word_class(c) != 0 {
+                break;
+            }
+            pos = self.cursor + i + c.len_utf8();
+            it.next();
+        }
+        let Some(&(_, first)) = it.peek() else { return pos };
+        let class = word_class(first);
+        for (i, c) in it {
+            if word_class(c) != class {
+                break;
+            }
+            pos = self.cursor + i + c.len_utf8();
+        }
+        pos
+    }
+
+    /// Byte range `(start, end)` of the word (or whitespace/punctuation run)
+    /// containing `pos`: what a double click selects.
+    pub(crate) fn word_at(&self, pos: usize) -> (usize, usize) {
+        let pos = pos.min(self.text.len());
+        let class = self.text[pos..]
+            .chars()
+            .next()
+            .or_else(|| self.text[..pos].chars().next_back())
+            .map(word_class)
+            .unwrap_or(0);
+        let mut a = pos;
+        for (i, c) in self.text[..pos].char_indices().rev() {
+            if word_class(c) != class {
+                break;
+            }
+            a = i;
+        }
+        let mut b = pos;
+        for (i, c) in self.text[pos..].char_indices() {
+            if word_class(c) != class {
+                break;
+            }
+            b = pos + i + c.len_utf8();
+        }
+        (a, b)
+    }
+
+    /// Start of the logical line (after the previous `\n`) holding the cursor.
+    pub(crate) fn line_start_pos(&self) -> usize {
+        self.text[..self.cursor].rfind('\n').map_or(0, |i| i + 1)
+    }
+
+    /// End of the logical line holding the cursor (before its `\n`).
+    pub(crate) fn line_end_pos(&self) -> usize {
+        self.text[self.cursor..].find('\n').map_or(self.text.len(), |i| self.cursor + i)
+    }
+
+    /// Up/Down in a multi-line buffer by LOGICAL line (a soft-wrapped line is
+    /// one line here), keeping the column in chars. `None` at the first/last line.
+    pub(crate) fn vertical_pos(&self, down: bool) -> Option<usize> {
+        let start = self.line_start_pos();
+        let col = self.text[start..self.cursor].chars().count();
+        let (ls, le) = if down {
+            let end = self.line_end_pos();
+            if end >= self.text.len() {
+                return None;
+            }
+            let ls = end + 1;
+            (ls, self.text[ls..].find('\n').map_or(self.text.len(), |i| ls + i))
+        } else {
+            if start == 0 {
+                return None;
+            }
+            let le = start - 1;
+            (self.text[..le].rfind('\n').map_or(0, |i| i + 1), le)
+        };
+        let line = &self.text[ls..le];
+        Some(ls + line.char_indices().nth(col).map_or(line.len(), |(i, _)| i))
     }
 }
 
@@ -1255,6 +1460,7 @@ impl App {
         self.interaction = InteractionState::default();
         set_interaction(&self.interaction);
         clear_check_state();
+        clear_text_state();
         self.hover_node = 0;
         js_style::set_js_extra_css(&extra_css);
         js_style::set_js_adopted_css("");
@@ -1398,6 +1604,11 @@ impl App {
             }
             if reqs.check_changed {
                 self.check_state_changed();
+            }
+            if reqs.text_changed
+                && let Some(w) = &self.window
+            {
+                w.request_redraw();
             }
             if let Some(href) = reqs.nav {
                 self.start_navigation(&href);
@@ -1566,10 +1777,16 @@ impl App {
     /// Q33d: `keydown`/`keyup` at the focused element (else `<body>`);
     /// true if the page did not cancel it.
     pub(crate) fn js_key(&mut self, kind: &str, event: &KeyEvent) -> bool {
+        self.js_key_for(kind, &event.logical_key, event.repeat)
+    }
+
+    /// `js_key` for a bare logical key (Q30d: the text-control path and its
+    /// tests have no winit `KeyEvent`, which cannot be constructed by hand).
+    pub(crate) fn js_key_for(&mut self, kind: &str, logical_key: &Key, repeat: bool) -> bool {
         if self.js.is_none() {
             return true;
         }
-        let key = match &event.logical_key {
+        let key = match logical_key {
             Key::Character(s) => s.to_string(),
             Key::Named(NamedKey::Space) => " ".to_string(),
             Key::Named(n) => format!("{n:?}"),
@@ -1580,7 +1797,7 @@ impl App {
             ("bubbles", EventField::Bool(true)),
             ("cancelable", EventField::Bool(true)),
             ("key", EventField::Str(key)),
-            ("repeat", EventField::Bool(event.repeat)),
+            ("repeat", EventField::Bool(repeat)),
             ("ctrlKey", EventField::Bool(m.control_key())),
             ("shiftKey", EventField::Bool(m.shift_key())),
             ("altKey", EventField::Bool(m.alt_key())),
@@ -2005,6 +2222,15 @@ impl App {
         let (old_focus, new_focus) = (self.interaction.focus, st.focus);
         crate::js_dom::set_active_element(h);
         self.set_interaction_state(st);
+        if old_focus != new_focus {
+            // Q30d: `change` fires before `blur`; the value is remembered at focus.
+            if let Some(h) = old_focus.and_then(|f| find_node_by_id(&self.document, f)) {
+                self.text_focus_lost(&h);
+            }
+            if let Some(h) = new_focus.and_then(|f| find_node_by_id(&self.document, f)) {
+                self.text_focus_gained(&h);
+            }
+        }
         if old_focus != new_focus && self.js.is_some() {
             // Q33d: blur/focusout on the old element, focus/focusin on the
             // new one (focus and blur do not bubble; the *in/out* pair do).
@@ -2080,6 +2306,7 @@ impl App {
             (Some(i), true) => (i + order.len() - 1) % order.len(),
         };
         self.set_focus_element(Some(&order[next]), true);
+        self.text_focus_by_tab(&order[next]);
         self.scroll_focus_into_view();
     }
 
@@ -2857,6 +3084,15 @@ impl ApplicationHandler<AppEvent> for App {
                     }
                 }
                 if event.state == ElementState::Pressed {
+                    // Q30d: a focused text control owns the keys (Tab and
+                    // the page's own keydown handlers excepted).
+                    if self.vim_mode != VimMode::Command
+                        && !matches!(event.logical_key, Key::Named(NamedKey::Tab))
+                        && let Some(h) = self.focused_text_control()
+                        && self.text_control_key(&h, &event.logical_key, event.repeat)
+                    {
+                        return;
+                    }
                     if self.vim_mode != VimMode::Command {
                         match event.logical_key {
                             Key::Named(NamedKey::Tab) => {
@@ -2907,6 +3143,7 @@ impl ApplicationHandler<AppEvent> for App {
                 // document space (scroll isn't applied until paint time),
                 // so the same `+ scroll_offset` adjustment `paint` itself
                 // makes (in reverse) is needed here too.
+                self.text_mouse_drag((position.x as f32, position.y as f32));
                 let hovered = self.element_at((position.x as f32, position.y as f32));
                 self.update_hover(hovered);
                 if let (Some(laid), Some(window)) = (&self.cached, &self.window) {
@@ -2954,9 +3191,11 @@ impl ApplicationHandler<AppEvent> for App {
                         if let Some(pos) = self.last_mouse_pos {
                             self.js_mouse_at("mousedown", pos);
                             self.press_state(pos);
+                            self.text_mouse_press(pos);
                         }
                     }
                     ElementState::Released => {
+                        self.text_mouse_release();
                         if let Some(pos) = self.last_mouse_pos {
                             self.js_mouse_at("mouseup", pos);
                         }

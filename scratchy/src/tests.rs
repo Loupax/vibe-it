@@ -17780,17 +17780,29 @@ fn q30a_text_input_box_size_follows_size_attr_and_css() {
     }
 }
 
+/// Q30d: the text of an editable control is no longer in the layout tree; the
+/// painter reads what it shows (live value, placeholder, bullets) from forms_text.rs.
+/// What `PaintText` would draw for the first `<input>`/`<textarea>` of `html` after a layout build.
+fn q30a_shown(html: &str, password: bool) -> (String, bool, Option<TextColor>) {
+    clear_text_state();
+    let doc = parse_html(&format!("<html><body style=\"margin:0\">{html}</body></html>"));
+    let _ = build_layout_tree(&doc, 1000.0);
+    let h = find_element_by_tag(&doc, "input").or_else(|| find_element_by_tag(&doc, "textarea")).expect("control");
+    let i = text_paint_info(node_id(&h), password).expect("registered by the build");
+    (i.display, i.placeholder, i.ph_color)
+}
+
 #[test]
 fn q30a_value_placeholder_and_password_text_in_the_tree() {
-    let v = q30a_all_text("<input value=\"hello\">");
-    assert!(v.iter().any(|(t, c)| t == "hello" && *c == TextColor::rgb(0, 0, 0)), "{v:?}");
-    let p = q30a_all_text("<input placeholder=\"Search me\">");
-    assert!(p.iter().any(|(t, c)| t == "Search me" && *c == TextColor::rgb(117, 117, 117)), "{p:?}");
-    let both = q30a_all_text("<input value=\"v\" placeholder=\"ph\">");
-    assert!(both.iter().any(|(t, _)| t == "v") && !both.iter().any(|(t, _)| t == "ph"), "{both:?}");
-    let pw = q30a_all_text("<input type=password value=\"secret\">");
-    assert!(pw.iter().any(|(t, _)| t == "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}"), "{pw:?}");
-    assert!(!pw.iter().any(|(t, _)| t.contains("secret")), "{pw:?}");
+    let v = q30a_shown("<input value=\"hello\">", false);
+    assert_eq!((v.0.as_str(), v.1), ("hello", false));
+    let p = q30a_shown("<input placeholder=\"Search me\">", false);
+    assert_eq!((p.0.as_str(), p.1, p.2), ("Search me", true, Some(TextColor::rgb(117, 117, 117))));
+    let both = q30a_shown("<input value=\"v\" placeholder=\"ph\">", false);
+    assert_eq!((both.0.as_str(), both.1), ("v", false));
+    let pw = q30a_shown("<input type=password value=\"secret\">", true);
+    assert_eq!(pw.0, "\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}\u{2022}");
+    clear_text_state();
 }
 
 fn q30a_dot_count(b: &LayoutBox, n: &mut usize) {
@@ -17880,9 +17892,10 @@ fn q30a_textarea_rows_cols_text_and_placeholder() {
     let d = q30a_sizes("<textarea></textarea>");
     let (w, h) = (20.0 * 13.3333 * 0.6 + 6.0, 30.0 + 6.0);
     assert!(d.iter().any(|&(a, b)| (a - w).abs() < 0.2 && (b - h).abs() < 0.2), "{d:?}");
-    assert!(q30a_all_text("<textarea>Line one\nLine two</textarea>").iter().any(|(t, _)| t == "Line one\nLine two"));
-    let p = q30a_all_text("<textarea placeholder=\"Write\"></textarea>");
-    assert!(p.iter().any(|(t, c)| t == "Write" && *c == TextColor::rgb(117, 117, 117)), "{p:?}");
+    assert_eq!(q30a_shown("<textarea>Line one\nLine two</textarea>", false).0, "Line one\nLine two");
+    let p = q30a_shown("<textarea placeholder=\"Write\"></textarea>", false);
+    assert_eq!((p.0.as_str(), p.1, p.2), ("Write", true, Some(TextColor::rgb(117, 117, 117))));
+    clear_text_state();
 }
 
 #[test]
@@ -18738,4 +18751,390 @@ fn qan1c_onanimation_attribute_and_property_handlers_run() {
     q.tick(50.0);
     assert_eq!(q.events(), vec!["log:ev:attr-start", "log:ev:prop-end:a"]);
     set_app_clock_override(None);
+}
+
+// ---- Q30d: text editing in input / textarea ----
+
+fn q30d_buf(text: &str, cursor: usize) -> TextEditBuffer {
+    TextEditBuffer { text: text.into(), cursor, anchor: None }
+}
+
+#[test]
+fn q30d_buffer_insert_backspace_delete() {
+    let mut b = TextEditBuffer::default();
+    b.insert('a');
+    b.insert('\u{e9}');
+    assert_eq!((b.text.as_str(), b.cursor), ("a\u{e9}", 3));
+    b.backspace();
+    assert_eq!((b.text.as_str(), b.cursor), ("a", 1));
+    b.delete_forward();
+    assert_eq!(b.text, "a", "Delete at the end does nothing");
+    b.move_left();
+    b.delete_forward();
+    assert_eq!((b.text.as_str(), b.cursor), ("", 0));
+    b.backspace();
+    assert_eq!(b.text, "", "Backspace at the start does nothing");
+}
+
+#[test]
+fn q30d_buffer_selection_replace_collapse_and_extend() {
+    let mut b = q30d_buf("hello world", 0);
+    b.move_to(5, true);
+    assert_eq!(b.selection(), Some((0, 5)));
+    assert_eq!(b.selected_text(), Some("hello"));
+    b.insert('X');
+    assert_eq!((b.text.as_str(), b.cursor, b.anchor), ("X world", 1, None), "typing replaces the selection");
+    b.select_all();
+    b.backspace();
+    assert_eq!(b.text, "", "Backspace deletes the selection");
+    // Left/Right without Shift collapse to the selection edge.
+    let mut b = q30d_buf("abcdef", 4);
+    b.move_to(2, true);
+    b.nav_horizontal(true, false);
+    assert_eq!((b.cursor, b.selection()), (4, None));
+    b.move_to(2, true);
+    b.nav_horizontal(false, false);
+    assert_eq!((b.cursor, b.selection()), (2, None));
+    // Shift+Right extends from the anchor.
+    b.nav_horizontal(true, true);
+    b.nav_horizontal(true, true);
+    assert_eq!(b.selection(), Some((2, 4)));
+    b.nav_horizontal(false, true);
+    assert_eq!(b.selection(), Some((2, 3)));
+    // Pasting multi-line text into a single-line buffer drops the newlines.
+    let mut b = TextEditBuffer::default();
+    b.insert_str("a\nb");
+    assert_eq!(b.text, "ab");
+    let mut b = TextEditBuffer::default();
+    b.insert_multiline("a\r\nb\rc\u{7}");
+    assert_eq!(b.text, "a\nb\nc");
+}
+
+#[test]
+fn q30d_buffer_word_home_end_and_lines() {
+    let b = q30d_buf("foo bar  baz", 12);
+    assert_eq!(b.word_left_pos(), 9);
+    assert_eq!(q30d_buf("foo bar  baz", 9).word_left_pos(), 4);
+    assert_eq!(q30d_buf("foo bar  baz", 4).word_left_pos(), 0);
+    assert_eq!(q30d_buf("foo bar  baz", 0).word_right_pos(), 3);
+    assert_eq!(q30d_buf("foo bar  baz", 3).word_right_pos(), 7);
+    assert_eq!(q30d_buf("foo bar  baz", 7).word_right_pos(), 12);
+    assert_eq!(q30d_buf("foo bar", 0).word_at(5), (4, 7));
+    let t = "ab\ncdef\ng";
+    assert_eq!((q30d_buf(t, 5).line_start_pos(), q30d_buf(t, 5).line_end_pos()), (3, 7));
+    assert_eq!(q30d_buf(t, 5).vertical_pos(false), Some(2), "up keeps the column, clamped to the line");
+    assert_eq!(q30d_buf(t, 5).vertical_pos(true), Some(9));
+    assert_eq!(q30d_buf(t, 1).vertical_pos(false), None);
+    assert_eq!(q30d_buf(t, 8).vertical_pos(true), None);
+    assert_eq!(q30d_buf(t, 1).vertical_pos(true), Some(4));
+}
+
+#[test]
+fn q30d_state_seed_dirty_selection_and_sanitizing() {
+    clear_text_state();
+    let doc = parse_html("<html><body><input id=a value=hi><textarea id=t>x&#10;y</textarea></body></html>");
+    let (a, t) = (q30c_by(&doc, "a"), q30c_by(&doc, "t"));
+    assert_eq!((text_value(&a), text_value(&t)), ("hi".into(), "x\ny".into()));
+    // While not dirty the attribute still controls the live value.
+    crate::js_dom::set_attr(&a, "value", "yo");
+    assert_eq!(text_value(&a), "yo");
+    assert!(set_text_value(&a, "zz"), "a change is reported");
+    crate::js_dom::set_attr(&a, "value", "late");
+    assert_eq!(text_value(&a), "zz", "dirty: the attribute is ignored");
+    assert_eq!((text_selection(&a, false), text_selection(&a, true)), (2, 2), "setting .value puts the caret at the end");
+    assert!(!set_text_value(&a, "zz"));
+    // `value` never holds a newline in an input; a textarea keeps them (CRLF normalized).
+    set_text_value(&a, "a\nb");
+    assert_eq!(text_value(&a), "ab");
+    set_text_value(&t, "p\r\nq");
+    assert_eq!(text_value(&t), "p\nq");
+    // Selection offsets are UTF-16 code units.
+    set_text_value(&a, "a\u{1F600}b");
+    set_text_selection(&a, 1, 3);
+    assert_eq!((text_selection(&a, false), text_selection(&a, true)), (1, 3));
+    set_text_selection(&a, 3, 4);
+    assert!(text_paint_info(node_id(&a), false).is_some());
+    clear_text_state();
+    assert!(text_paint_info(node_id(&a), false).is_none());
+    assert_eq!(text_value(&a), "late", "navigation clears the live value: the attribute rules again");
+}
+
+#[test]
+fn q30d_text_is_not_in_the_layout_tree() {
+    clear_text_state();
+    fn find(b: &LayoutBox, out: &mut Vec<(u8, usize)>) {
+        if b.style.text_widget != 0 {
+            let n = match &b.content {
+                BoxContent::Inline(i) => i.len(),
+                _ => 99,
+            };
+            out.push((b.style.text_widget, n));
+        }
+        match &b.content {
+            BoxContent::Blocks(c) | BoxContent::TableRow(c) => c.iter().for_each(|k| find(k, out)),
+            BoxContent::Inline(items) => items.iter().for_each(|i| {
+                if let InlineItem::Embedded(e) = i {
+                    find(e, out)
+                }
+            }),
+            _ => {}
+        }
+    }
+    let shape = |html: &str| {
+        let mut v = Vec::new();
+        find(&q30a_tree(html), &mut v);
+        v
+    };
+    let a = shape("<input value=a><input type=password value=secret><textarea>t</textarea>");
+    let b = shape("<input value='a much longer value'><input type=password><textarea>\n\nlots\nof\ntext</textarea>");
+    let c = shape("<input placeholder=hint><input type=password placeholder=pw><textarea placeholder=ph></textarea>");
+    assert_eq!(a, b, "the value is not part of the tree");
+    assert_eq!(a, c, "neither is the placeholder");
+    assert_eq!(a, vec![(TEXT_SINGLE, 1), (TEXT_SINGLE | TEXT_PASSWORD, 1), (TEXT_MULTI, 0)]);
+    // Date pickers and buttons stay static.
+    assert!(shape("<input type=date><input type=checkbox><input type=submit>").is_empty());
+}
+
+fn q30d_render(h: &Handle, kind: u8, focused: bool, w: u32, hgt: u32) -> Vec<u32> {
+    let mut st = anonymous_style(ROOT_STYLE);
+    st.node = node_id(h);
+    st.text_widget = kind;
+    set_interaction(&InteractionState { focus: focused.then(|| node_id(h)), ..Default::default() });
+    let mut fs = new_font_system();
+    let mut sc = SwashCache::new();
+    let mut px = vec![0x00FFFFFFu32; (w * hgt) as usize];
+    crate::paint::paint_text_control(&st, &mut fs, &mut sc, &mut px, w, hgt, 0.0, 0.0, w as f32, hgt as f32, None);
+    set_interaction(&InteractionState::default());
+    px
+}
+
+#[test]
+fn q30d_paint_value_placeholder_password_caret_selection() {
+    clear_text_state();
+    let doc = parse_html("<html><body><input id=a placeholder=hint><input id=p type=password><textarea id=t></textarea></body></html>");
+    let (a, p, t) = (q30c_by(&doc, "a"), q30c_by(&doc, "p"), q30c_by(&doc, "t"));
+    for h in [&a, &p, &t] {
+        register_text_control(h, if node_id(h) == node_id(&a) { "hint".into() } else { String::new() }, TextColor::rgb(117, 117, 117));
+    }
+    let blank = vec![0x00FFFFFFu32; 200 * 24];
+    let empty_unfocused = q30d_render(&a, TEXT_SINGLE, false, 200, 24);
+    assert_ne!(empty_unfocused, blank, "the placeholder shows while the value is empty");
+    set_text_value(&a, "x");
+    let typed = q30d_render(&a, TEXT_SINGLE, false, 200, 24);
+    assert_ne!(typed, empty_unfocused, "the placeholder is replaced by the typed value");
+    assert!(typed.iter().filter(|p| **p != 0x00FFFFFF).count() < empty_unfocused.iter().filter(|p| **p != 0x00FFFFFF).count());
+    set_text_value(&a, "xy");
+    let more = q30d_render(&a, TEXT_SINGLE, false, 200, 24);
+    assert_ne!(more, typed, "typing repaints with the new text, no layout involved");
+    // The caret is painted only while focused; a selection adds a highlight.
+    let focused = q30d_render(&a, TEXT_SINGLE, true, 200, 24);
+    assert_ne!(focused, more);
+    let accent_hl = blend(0x00FFFFFF, TextColor::rgba(ACCENT.0, ACCENT.1, ACCENT.2, 90));
+    assert!(!focused.contains(&accent_hl));
+    text_select_all(&a);
+    let selected = q30d_render(&a, TEXT_SINGLE, true, 200, 24);
+    assert!(selected.contains(&accent_hl), "selection highlight");
+    let unfocused_selected = q30d_render(&a, TEXT_SINGLE, false, 200, 24);
+    assert!(!unfocused_selected.contains(&accent_hl), "no highlight when unfocused");
+    // A password shows bullets: the same length paints the same pixels for any text.
+    set_text_value(&p, "abc");
+    let p1 = q30d_render(&p, TEXT_SINGLE | TEXT_PASSWORD, false, 200, 24);
+    set_text_value(&p, "xyz");
+    let p2 = q30d_render(&p, TEXT_SINGLE | TEXT_PASSWORD, false, 200, 24);
+    assert_eq!(p1, p2);
+    assert_ne!(p1, blank);
+    set_text_value(&p, "xyzw");
+    assert_ne!(q30d_render(&p, TEXT_SINGLE | TEXT_PASSWORD, false, 200, 24), p2);
+    // A textarea wraps: text longer than one line paints on more than one row.
+    set_text_value(&t, "line one\nline two\nline three");
+    let rows = q30d_render(&t, TEXT_MULTI, false, 120, 80);
+    let ink_rows = (0..80usize).filter(|y| (0..120usize).any(|x| rows[y * 120 + x] != 0x00FFFFFF)).count();
+    assert!(ink_rows > 30, "three lines of text, got {ink_rows} inked rows");
+    clear_text_state();
+}
+
+#[test]
+fn q30d_js_value_selection_roundtrip() {
+    clear_text_state();
+    let doc = parse_html(
+        "<html><body><input id=a value=hi><textarea id=t>ab</textarea><input id=c type=checkbox><input id=d type=date></body></html>",
+    );
+    let js = run_page_scripts(
+        &doc,
+        &[src(
+            "var a=document.getElementById('a'),t=document.getElementById('t'),c=document.getElementById('c'),o=[];\
+             o.push(a.value,t.value);\
+             a.value='hello'; o.push(a.value,a.selectionStart,a.selectionEnd);\
+             a.setSelectionRange(1,3); o.push(a.selectionStart,a.selectionEnd);\
+             a.select(); o.push(a.selectionStart,a.selectionEnd);\
+             a.selectionStart=2; o.push(a.selectionStart,a.selectionEnd);\
+             a.setAttribute('value','zz'); o.push(a.value,a.defaultValue);\
+             t.value='l1\\nl2'; o.push(t.value.length,t.selectionEnd,t.defaultValue);\
+             t.select(); o.push(t.selectionStart,t.selectionEnd);\
+             a.value=null; o.push('['+a.value+']');\
+             o.push(c.selectionStart===null);\
+             window.out=o.join('|');",
+        )],
+        None,
+    )
+    .expect("js");
+    let got: String = js.eval_value("t", "window.out").expect("out");
+    assert_eq!(got, "hi|ab|hello|5|5|1|3|0|5|2|5|hello|zz|5|5|ab|0|5|[]|true");
+    clear_text_state();
+}
+
+fn q30d_key(app: &mut App, h: &Handle, key: Key) -> bool {
+    app.text_control_key(h, &key, false)
+}
+
+fn q30d_chr(app: &mut App, h: &Handle, s: &str) {
+    q30d_key(app, h, Key::Character(s.into()));
+}
+
+#[test]
+fn q30d_typing_through_the_app_events_maxlength_readonly_escape() {
+    use winit::platform::wayland::EventLoopBuilderExtWayland;
+    let event_loop = match EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build() {
+        Ok(l) => l,
+        Err(_) => return, // no display available (headless CI)
+    };
+    clear_text_state();
+    let doc = parse_html(
+        r#"<html><body><input id=i maxlength=5><textarea id=t></textarea><input id=ro readonly value=ab><input id=pw type=password>
+        <input id=off disabled value=x></body></html>"#,
+    );
+    let mut app = App::new_static(doc.clone(), event_loop.create_proxy(), None);
+    app.js = run_page_scripts(
+        &doc,
+        &[src(
+            "window.L=[]; ['i','t','ro'].forEach(function(n){var e=document.getElementById(n);\
+              ['beforeinput','input','change','blur'].forEach(function(k){e.addEventListener(k,function(ev){L.push(n+':'+k+':'+(ev.inputType||'')+':'+(ev.data===undefined?'':ev.data)+':'+e.value)})})});",
+        )],
+        None,
+    );
+    let by = |id: &str| q30c_by(&doc, id);
+    let log = |app: &App| -> String { app.js.as_ref().unwrap().eval_value("t", "L.join('|')").expect("log") };
+    let clear = |app: &App| {
+        app.js.as_ref().unwrap().eval_value::<bool>("t", "L.length=0,true");
+    };
+    let i = by("i");
+    app.set_focus_element(Some(&i), false);
+    assert!(app.focused_text_control().is_some());
+    q30d_chr(&mut app, &i, "a");
+    assert_eq!(text_value(&i), "a");
+    assert_eq!(log(&app), "i:beforeinput:insertText:a:|i:input:insertText:a:a", "beforeinput then one input per edit");
+    clear(&app);
+    // Space comes as a named key; ':' and uppercase are plain characters.
+    q30d_key(&mut app, &i, Key::Named(NamedKey::Space));
+    q30d_chr(&mut app, &i, ":");
+    q30d_chr(&mut app, &i, "B");
+    assert_eq!(text_value(&i), "a :B");
+    // maxlength 5.
+    q30d_chr(&mut app, &i, "c");
+    q30d_chr(&mut app, &i, "d");
+    assert_eq!(text_value(&i), "a :Bc");
+    // Caret moves: Home, Right, Delete, End, Backspace.
+    clear(&app);
+    q30d_key(&mut app, &i, Key::Named(NamedKey::Home));
+    q30d_key(&mut app, &i, Key::Named(NamedKey::ArrowRight));
+    q30d_key(&mut app, &i, Key::Named(NamedKey::Delete));
+    assert_eq!(text_value(&i), "a:Bc");
+    q30d_key(&mut app, &i, Key::Named(NamedKey::End));
+    q30d_key(&mut app, &i, Key::Named(NamedKey::Backspace));
+    assert_eq!(text_value(&i), "a:B");
+    assert_eq!(log(&app).matches(":input:").count(), 2, "one input event per edit, none for moves");
+    // Backspace at the start changes nothing and fires no input.
+    clear(&app);
+    q30d_key(&mut app, &i, Key::Named(NamedKey::Home));
+    q30d_key(&mut app, &i, Key::Named(NamedKey::Backspace));
+    assert!(!log(&app).contains(":input:"), "no input event when nothing changed");
+    // Ctrl+A then typing replaces everything; Ctrl+Backspace deletes a word.
+    app.modifiers = ModifiersState::CONTROL;
+    q30d_chr(&mut app, &i, "a");
+    app.modifiers = ModifiersState::empty();
+    q30d_chr(&mut app, &i, "z");
+    assert_eq!(text_value(&i), "z");
+    // Enter in an input is not a newline and only commits `change`.
+    clear(&app);
+    q30d_key(&mut app, &i, Key::Named(NamedKey::Enter));
+    assert_eq!(text_value(&i), "z");
+    assert_eq!(log(&app), "i:change:::z", "Enter commits: change since focus");
+    // Shift+Left selects, copy then paste duplicates (internal or system clipboard).
+    app.modifiers = ModifiersState::SHIFT;
+    q30d_key(&mut app, &i, Key::Named(NamedKey::ArrowLeft));
+    app.modifiers = ModifiersState::CONTROL;
+    q30d_chr(&mut app, &i, "c");
+    q30d_key(&mut app, &i, Key::Named(NamedKey::End));
+    q30d_chr(&mut app, &i, "v");
+    app.modifiers = ModifiersState::empty();
+    assert_eq!(text_value(&i), "zz");
+    // Escape blurs the control (back to scratchy's own keys) and fires `blur`.
+    clear(&app);
+    q30d_chr(&mut app, &i, "q");
+    clear(&app);
+    q30d_key(&mut app, &i, Key::Named(NamedKey::Escape));
+    assert!(app.interaction.focus.is_none() && app.focused_text_control().is_none());
+    assert_eq!(log(&app), "i:change:::zzq|i:blur:::zzq", "change fires before blur");
+    // A textarea: Enter inserts a newline, Up/Down move by line.
+    let t = by("t");
+    app.set_focus_element(Some(&t), false);
+    q30d_chr(&mut app, &t, "a");
+    q30d_key(&mut app, &t, Key::Named(NamedKey::Enter));
+    q30d_chr(&mut app, &t, "b");
+    assert_eq!(text_value(&t), "a\nb");
+    q30d_key(&mut app, &t, Key::Named(NamedKey::ArrowUp));
+    q30d_chr(&mut app, &t, "X");
+    assert_eq!(text_value(&t), "aX\nb");
+    // readonly: no edits, but the selection still works; Ctrl+A selects.
+    let ro = by("ro");
+    app.set_focus_element(Some(&ro), false);
+    clear(&app);
+    q30d_chr(&mut app, &ro, "z");
+    q30d_key(&mut app, &ro, Key::Named(NamedKey::Backspace));
+    assert_eq!(text_value(&ro), "ab");
+    assert_eq!(log(&app), "", "readonly fires no input events");
+    app.modifiers = ModifiersState::CONTROL;
+    q30d_chr(&mut app, &ro, "a");
+    app.modifiers = ModifiersState::empty();
+    assert_eq!((text_selection(&ro, false), text_selection(&ro, true)), (0, 2));
+    // disabled controls take no focus-owning keys at all.
+    app.set_focus_element(Some(&by("off")), false);
+    assert!(app.focused_text_control().is_none());
+    // A password edits like any input (its bullets are only painted).
+    let pw = by("pw");
+    app.set_focus_element(Some(&pw), false);
+    q30d_chr(&mut app, &pw, "s");
+    q30d_chr(&mut app, &pw, "3");
+    assert_eq!(text_value(&pw), "s3");
+    clear_text_state();
+}
+
+#[test]
+fn q30d_page_keydown_preventdefault_is_reported_and_pages_see_the_focused_target() {
+    use winit::platform::wayland::EventLoopBuilderExtWayland;
+    let event_loop = match EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build() {
+        Ok(l) => l,
+        Err(_) => return,
+    };
+    clear_text_state();
+    let doc = parse_html("<html><body><input id=i></body></html>");
+    let mut app = App::new_static(doc.clone(), event_loop.create_proxy(), None);
+    app.js = run_page_scripts(
+        &doc,
+        &[src(
+            "window.T=[]; document.addEventListener('keydown',function(e){T.push(e.target.id+':'+e.key); if(e.key===':')e.preventDefault()});\
+             document.getElementById('i').addEventListener('keypress',function(e){T.push('kp:'+e.key)});",
+        )],
+        None,
+    );
+    let i = q30c_by(&doc, "i");
+    app.set_focus_element(Some(&i), false);
+    // The App's KeyboardInput handler runs `js_key_for("keydown")` first and stops when the
+    // page cancels; the text path only runs for keys the page left alone.
+    assert!(app.js_key_for("keydown", &Key::Character("a".into()), false));
+    assert!(!app.js_key_for("keydown", &Key::Character(":".into()), false), "preventDefault cancels the key");
+    q30d_chr(&mut app, &i, "a");
+    let got: String = app.js.as_ref().unwrap().eval_value("t", "T.join('|')").expect("log");
+    assert_eq!(got, "i:a|i::|kp:a", "keydown targets the focused control; keypress follows it");
+    clear_text_state();
 }
