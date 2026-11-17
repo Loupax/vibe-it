@@ -18050,4 +18050,44 @@ fn q30b_label_click_focuses_control_and_disabled_is_ignored() {
     let mut app2 = App::new_static(d_doc.clone(), event_loop.create_proxy(), None);
     assert!(app2.forward_label_click(&q30b_by_id(&d_doc, "ld").unwrap(), (0.0, 0.0)));
     assert!(app2.interaction.focus.is_none(), "a disabled control is never focused by a label");
+
+#[test]
+fn qp2_js_thread_shape_memo_is_safe_and_cleared_on_resize() {
+    use crate::js_geom::GeomCache;
+    let doc = parse_html("<html><body style='margin:0'><p id=a>First paragraph of text</p><p id=b>Second paragraph</p></body></html>");
+    fn find(h: &Handle, id: &str) -> Option<Handle> {
+        let is_it = match &h.data {
+            NodeData::Element { attrs, .. } => attrs.borrow().iter().any(|a| &*a.name.local == "id" && &*a.value == id),
+            _ => false,
+        };
+        if is_it {
+            return Some(h.clone());
+        }
+        h.children.borrow().iter().find_map(|c| find(c, id))
+    }
+    SHAPE_MEMO.with(|m| m.borrow_mut().clear());
+    let mut g = GeomCache::default();
+    let (a, b) = (find(&doc, "a").unwrap(), find(&doc, "b").unwrap());
+    let r1 = g.rect_of(&doc, 1, &b, 400.0, 300.0);
+    assert!(SHAPE_MEMO.with(|m| !m.borrow().is_empty()), "forced layout must fill the memo");
+    // A write that changes no text: same rects, still memoised.
+    let r2 = g.rect_of(&doc, 2, &b, 400.0, 300.0);
+    assert_eq!(r1, r2);
+    assert!(SHAPE_MEMO.with(|m| !m.borrow().is_empty()));
+    // A text change must show up (no stale shapes): b moves down.
+    let a_text = a.children.borrow()[0].clone();
+    if let NodeData::Text { contents } = &a_text.data {
+        *contents.borrow_mut() = "First paragraph of text that is now long enough to wrap onto several lines when laid out in a narrow viewport of four hundred pixels wide, and then some more words to be sure".into();
+    }
+    let r3 = g.rect_of(&doc, 3, &b, 400.0, 300.0);
+    assert!(r3[1] > r1[1] + 10.0, "b must move down: {r1:?} -> {r3:?}");
+    // A viewport change clears the memo.
+    SHAPE_MEMO.with(|m| {
+        let mut m = m.borrow_mut();
+        let any = m.values().next().unwrap().clone();
+        m.insert(0xdead, any);
+    });
+    g.rect_of(&doc, 4, &b, 300.0, 300.0);
+    assert!(SHAPE_MEMO.with(|m| !m.borrow().contains_key(&0xdead)), "resize must clear the memo");
+    SHAPE_MEMO_ENABLED.with(|m| m.set(false));
 }

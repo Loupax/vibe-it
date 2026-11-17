@@ -37,6 +37,8 @@ thread_local! {
 #[derive(Default)]
 pub(crate) struct GeomCache {
     key: Option<(u64, u32, u32, usize)>,
+    /// QP2: viewport of the previous refresh; a change clears the shape memo.
+    last_vp: Option<(u32, u32)>,
     rects: HashMap<usize, GeomRect>,
     /// Size of the laid-out document (the root box).
     page: (f32, f32),
@@ -127,6 +129,9 @@ fn walk(l: &Laid, fixed: bool, out: &mut HashMap<usize, GeomRect>) -> (f32, f32)
     ext
 }
 
+/// QP2: most shaped paragraphs the JS thread's memo keeps (checked per refresh).
+const SHAPE_MEMO_CAP: usize = 4096;
+
 impl GeomCache {
     /// Lays the page out again unless nothing changed since the last read.
     fn refresh(&mut self, page: &Handle, wgen: u64, vw: f32, vh: f32) {
@@ -139,6 +144,15 @@ impl GeomCache {
         FONTS.with(|f| {
             f.borrow_mut().get_or_insert_with(new_font_system);
         });
+        // QP2: content-keyed shape memo on this thread (enabled once). Entries
+        // are keyed by text + styles + width, so a DOM write can never serve a
+        // stale shape; a resize drops them (old widths), and the size is capped.
+        crate::layout::SHAPE_MEMO_ENABLED.with(|m| m.set(true));
+        let vp = (vw as u32, vh as u32);
+        if self.last_vp != Some(vp) || crate::layout::SHAPE_MEMO.with(|m| m.borrow().len() > SHAPE_MEMO_CAP) {
+            crate::layout::SHAPE_MEMO.with(|m| m.borrow_mut().clear());
+        }
+        self.last_vp = Some(vp);
         let t0 = std::time::Instant::now();
         let cpu0 = crate::js::thread_cpu_nanos();
         let prev_vp = current_viewport();
@@ -187,8 +201,7 @@ impl GeomCache {
         }
         self.key = Some(key);
         self.forced += 1;
-        self.forced_ms += t0.elapsed().as_millis();
-        if !self.logged && (self.forced >= 20 || self.forced_ms >= 1000) {
+        self.forced_ms += t0.elapsed().as_millis();        if !self.logged && (self.forced >= 20 || self.forced_ms >= 1000) {
             self.logged = true;
             diag!("scratchy: js: {} forced layouts, {} ms (script reads geometry after DOM writes)", self.forced, self.forced_ms);
         }
