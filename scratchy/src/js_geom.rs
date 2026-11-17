@@ -280,8 +280,8 @@ fn align_text(data: &str, g: &[Glyph]) -> Vec<f64> {
             }
         } else {
             let lc = c.to_lowercase().next().unwrap_or(c);
-            for k in j..(j + 4).min(g.len()) {
-                if g[k].0 == c || g[k].0.to_lowercase().next().unwrap_or(g[k].0) == lc {
+            for (k, gk) in g.iter().enumerate().take((j + 4).min(g.len())).skip(j) {
+                if gk.0 == c || gk.0.to_lowercase().next().unwrap_or(gk.0) == lc {
                     hit = Some(k);
                     j = k + 1;
                     break;

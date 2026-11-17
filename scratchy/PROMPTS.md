@@ -7058,3 +7058,9 @@ Clicks, keys and scrolling were driven in a nested dwl through the virtual-point
 > Item QY35 (R26). With current main, bisect the remaining YouTube paint gaps: no/odd logo graphic, search field collapsed to a stub, no "Anmelden" sign-in button, mini-guide icons computed display:none, one subtitle line with overprinting words. For each gap find the exact cause with minimal fixtures and evidence (computed styles, layout rects, screenshots viewed in a nested dwl), file ranked Sonnet items (QY40+), extend REGRESSIONS.md with R28, tick QY35. Docs only; no source changes committed.
 
 **What changed:** TODO.txt (QY35 ticked with per-gap answers; new QY40 `document.all` / polymer-resin "zClosurez" for falsy bindings, QY41 cyclic `%` width => 1e6 max-content, QY42 definite width ignored by max-content, QY43 pre-wrap newline overprint on the per-word path; R28 note under QY33; QUEUE line), REGRESSIONS.md (R28 memo). Logo not reproduced on main. Local experiments (jar name, callback budget, QY41 patch) reverted.
+
+## QC1: clippy baseline and warning bisect (2026-11-17)
+
+> Item QC1. Agents quote different clippy warning counts (48, 49, 83) and nobody diffed against a baseline. Define one reproducible command and counting method, measure at d024bef and the merged PRs since, find which PRs added warnings, fix the cheap ones.
+
+**What changed:** new `tools/clippy-count.sh` (distinct lint + file:line:col from `cargo clippy --release --all-targets --message-format=json`), AGENTS.md checklist step 3. Baseline d024bef 78; main 81; the +3 came from #220 (dead_code CLI_OPTIONS), #228 (unused_doc_comments on a cfg(test) thread_local), #230 (needless_range_loop in js_geom.rs); fixed all three without behaviour change (78 now). Remaining 78 are old style lints: TODO QC2.

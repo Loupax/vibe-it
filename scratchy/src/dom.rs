@@ -52,6 +52,7 @@ pub(crate) struct Args {
 /// here, `js::js_report_main`, `wpt::main`). The `:help` page must document
 /// each one: `cli_options_are_documented_in_help` pins that, and also fails
 /// when a parser grows an option missing from this list.
+#[cfg(test)]
 pub(crate) const CLI_OPTIONS: &[&str] =
     &["--socket", "--no-js", "--js-report", "--run-timers", "--wpt", "--subset", "--expected", "--update", "--out", "-v"];
 
