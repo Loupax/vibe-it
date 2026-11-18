@@ -1,5 +1,109 @@
 # scratchy — regressions
 
+## R40: justinwhitney.com/HTML5Example: on current main all four `<video controls>` boxes are drawn (640x360, first frame each) but there is no controls bar and nothing starts playback; the "no video box" report was a `~/v8-target` binary built WITHOUT `media`; NEW: the V8 startup-snapshot bake races page isolates and crashes scratchy on fast (local) page loads (Opus investigator QM1n, 2026-11-19) — OPEN: QV8-4a (crash, blocker), QM1n1, QM1n2, QM1g2d, QM1g2e
+
+**Status: investigation only, docs only.** Main 6583b38 (QV8-5b merged; V8 + media default),
+release build (`nice -n 19 cargo build --release -j2`, own worktree, RUSTY_V8_ARCHIVE = a local
+copy of the already-built librusty_v8.a, 15 min 54 s). The page fetched with one plain GET through
+the user's wire (`/run/user/1001/wire.sock`, no UA override) into a local copy with
+`<base href="https://justinwhitney.com/HTML5Example/">`; also loaded live. Nested dwl 1052x1050
+(tools/nest.sh), grim, tools/inject. libmpv 2.5.0 (/usr/lib64/libmpv.so.2) present. Each run
+`SCRATCHY_TIMING=1` (media range log lines). The page has NO scripts and no CSS beyond a font rule:
+four `<video width=640 height=360 preload controls>`, 1-3 = one untyped `<source>` each (.mov,
+.ogv, .webm), 4 = three typed `<source>`s (mp4 `avc1.42E01E, mp4a.40.2`, ogg `theora, vorbis`,
+webm `vp8, vorbis`).
+
+### 1. What current main draws (seen in the screenshots)
+- Live URL, 12 s after start: video 1 (H.264) and video 2 (Ogg) are 640x360 boxes, each showing the
+  first frame (trees against a blue sky, a translucent band with the label `H.264` / `Ogg`).
+  Scrolled down: video 3 shows the `WebM`-labelled frame, video 4 the H.264 frame. No controls
+  bar, no play button, no poster overlay, no focus ring on any of them.
+- Click in the middle of video 3, wait 2 s, `space`, wait 2 s: the three grims are pixel-identical
+  (PIL difference bbox `None`); nothing starts. As expected: no page script calls `play()`, and
+  scratchy has no UI that does (QM1g2 (d)).
+- The ranges in the log: each file's first 1 MiB (`bytes=0-1048575`, 206), video 1 and video 4
+  both fetch the .mov (two elements = two players, correct), Ogg fetches its last 65307 bytes
+  (duration seek), WebM its last 1386 bytes (cues) once its box is scrolled into view. Nothing
+  else; no error lines.
+- Per video:
+
+| # | box | frame | source chosen | canPlayType for its type | ffmpeg here |
+|---|---|---|---|---|---|
+| 1 | 640x360 | yes | `.mov` (untyped, only one) | n/a (no type) | h264 + pcm_s16le (ffprobe on the first 300 KB: the .mov's audio is PCM, not the `mp4a.40.2` that video 4's type claims; harmless) |
+| 2 | 640x360 | yes | `.ogv` | n/a | theora + vorbis (+ a skeleton stream) |
+| 3 | 640x360 | yes (after scrolling it into view) | `.webm` | n/a | vp8 + vorbis |
+| 4 | 640x360 | yes | `.mov` = the first candidate, as in Firefox/Chrome | `video/mp4; codecs="avc1.42E01E, mp4a.40.2"` = `probably` (`can_play_type`, media_el.rs); ogg `theora, vorbis` and webm `vp8, vorbis` also `probably` | all three decodable |
+
+  `ffmpeg -decoders` here: h264, theora, vp8, vp9, vorbis, aac all present; demuxers mov, ogg,
+  matroska/webm. So canPlayType's table matches what mpv can decode for this page.
+
+### 2. Why the user's `~/v8-target` build drew NO box (root cause: built without `media`)
+- The cargo fingerprints in `~/v8-target/release/.fingerprint` show the build history: the
+  `bin-scratchy` built at **19:16:59** (2026-11-18) had features `["engine-v8"]` only; the
+  report was committed at 19:21:53 (3d7fa0e) and the user's answer at 19:24:39 (00c1f34); the
+  binary was rebuilt at **19:26:53** with `["engine-v8", "media"]` (what is there now).
+- Without `media`, `media_video::boxes_enabled()` is false, `images.rs` never builds the video
+  replaced box (`build_video_box` is only reached when it is true), and `<video>` lays out as a
+  plain inline element whose content is whitespace and `<source>` elements: zero size. That is
+  exactly "the elements take no space".
+- The CURRENT `~/v8-target/release/scratchy` (V8 + media, 103ff22-era) on the same page, local
+  copy and live: four 640x360 boxes, frames drawn (one local run showed box 1 black until the
+  first scroll; not seen again in 3 local runs of main, so not filed).
+- So it does not reproduce on main and no later commit "fixed" it; QV8-5 (21f8b6c) made `media`
+  a default feature, so a plain build can no longer miss it. What remains true: with `media`
+  OFF or with libmpv NOT INSTALLED, `<video width height>` still takes no space. AGENTS.md says
+  the inert placeholder is "an empty replaced box with its width/height" (or the poster): today
+  there is no placeholder at all in that case. Item QM1n1.
+
+### 3. NEW, serious: main crashes on fast page loads (V8 snapshot bake races page isolates)
+- Loading the LOCAL copy with main: the window often never appears; the process dies within
+  1-5 s. 10 runs each (`timeout 5`, exit 124 = still alive = OK):
+
+| page | default | `SCRATCHY_V8_SNAPSHOT=0` |
+|---|---|---|
+| local copy of this page | 8/10 crashed (exit 133 trap, 134 abort, 139 SIGSEGV) | 0/10 |
+| 1-line page with one inline script | 1/10 (another batch: 2/6) | 0/10 |
+| live URL (page fetch 190-920 ms) | 0/2 | not run |
+
+- Messages: `vector.h:434: libc++ Hardening assertion !empty() failed: front() called on an empty
+  vector` (abort), `# Fatal error # Check failed: IsFreeSpaceOrFiller(filler).` (trap), or a bare
+  SIGSEGV. Symbolized (llvm-symbolizer on the release binary): (a) thread `v8-snapshot`:
+  `ReadOnlyPage::ShrinkToHighWaterMark <- ReadOnlySpace::ShrinkPages <-
+  ReadOnlyHeap::OnCreateHeapObjectsComplete <- SnapshotCreatorImpl::CreateBlob <-
+  scratchy::js_engine::Engine::finish_bake`; (b) `MemoryAllocator::AllocateAlignedMemory <-
+  AllocateReadOnlyPage <- ReadOnlySpace::EnsureSpaceForAllocation <- ... StringTable::LookupKey`.
+- Cause: QV8-4 (f62d0b0) builds the startup snapshot on a background thread (`js_engine_v8.rs`
+  `warm_up` -> `build_snapshot`, a `snapshot_creator` isolate), and a page engine created BEFORE
+  the bake finishes starts "the slow way" with `v8::Isolate::new` on the main thread AT THE SAME
+  TIME. V8's read-only heap is shared process-wide; the snapshot creator shrinks/rewrites
+  read-only pages while the page isolate allocates from them. A network page loads after the
+  ~60 ms bake is done (it waits for wire), so live pages rarely hit it; local files, `snag |
+  scratchy`, `:help`, fast servers do. The 103ff22 binary (no snapshot) never crashed here.
+- Tests do not see it because `snapshot_for_engine` calls the BLOCKING `ensure_snapshot` under
+  `cfg(test)`, but engines with `page: None` skip `snapshot_for_engine` and can still be made on
+  another test thread while one bakes (possible rare test flake; not observed).
+- Item QV8-4a. Workaround until fixed: `SCRATCHY_V8_SNAPSHOT=0`.
+
+### 4. Controls (QM1g2 (d), D6)
+- `grep -rn controls src/` finds no handling of the `controls` attribute anywhere (only forms
+  code); `media_video::paint_box` fills the box with the frame (or the SENTINEL for the
+  video-only redraw) and nothing else. Click and space on a video do nothing (above). D6
+  (decided 2026-11-17) says scratchy paints a simple bar (play/pause, seek, time, volume), mpv's
+  OSC stays off, keys only while the video is focused (space pause, left/right seek, up/down
+  volume), the page may cancel them (QJ11). Items QM1g2d (bar), QM1n2 (interim click toggle),
+  QM1g2e (fullscreen, needs the user).
+- Interim worth it? Yes, as a tiny item (QM1n2): Firefox and Chrome both toggle play/pause on a
+  click on the picture of a `controls` video, so it is not throwaway (QM1g2d keeps it), it needs
+  ~20 lines in the existing trusted-click path, and today a script-less `controls` video (this
+  page, most old demo pages, many blogs) can never be started.
+
+### Not determined
+- Whether the WebM first frame was drawn before it was scrolled into view (off-screen boxes are
+  not rendered by design; the tail range was fetched when it became visible).
+- The user's QuickJS install not showing the WebM frame (their report): not reproduced; main
+  showed it. Not chased (QuickJS goes away with QV8-6).
+- Audio: not checked (nothing plays).
+
 ## R39: V8 fits scratchy: QV8-1 spike (v8 =152.2.0, V8 15.2.124.1) behind `engine-v8`: builds reproducibly, JIT runs under the QNET1 filter with NO filter change, CPU loops 6-15x faster, corpus load 2.2x; budget/stack/modules all workable; promise-job semantics change (Opus investigator QV8-1, 2026-11-18) — VERDICT: GO WITH CONDITIONS (QV8-2/QV8-3 text adjusted; conditions C1-C6 below)
 
 **Status: investigation only.** Spike code on branch `scratchy/qv8-1-v8-spike` (commit bb90047,

@@ -7481,3 +7481,9 @@ Done: R38. The `true` is `<img alt="true">` (YouTube calls `setAttribute('alt', 
 **Prompt:** Implement exactly QM1k4: one MIME parser shared by `can_play_type` and a new pure `mse_type_supported`, probing params (width/height/framerate/bitrate/channels/eotf/cryptoblockformat/decode-to-texture/experimental/tunnelmode) validated like Chrome, ONE `MSE_CODECS` table (avc1/avc3/mp4a enabled; webm/vp9/av01/opus listed but off), table-driven tests in media_tests.rs, no MSE machinery.
 
 **What changed:** src/media_el.rs, src/tests/media_tests.rs (3 qm1k4_* tests), TODO.txt. Not wired to JS (no MediaSource global yet).
+
+## QM1n investigation: justinwhitney.com/HTML5Example videos (Opus, docs only, straight to main)
+
+**Prompt:** Investigator for QM1n: reproduce on a fresh build of main (nested dwl, grim, inject, plain GET through the user's wire into a local copy with `<base>`); per video: box, frame, log, `<source>` selection, canPlayType vs what ffmpeg decodes; why the `~/v8-target` build (103ff22) drew no boxes and whether it still reproduces; confirm `controls` is not painted and file a READY controls-bar item (D6) plus fullscreen; decide on an interim click-to-play item; file bugs for other defects.
+
+**What changed:** docs only. REGRESSIONS.md R40 (main draws all four boxes and first frames, no controls; the no-box build was `engine-v8` without `media` per cargo fingerprints; NEW crash: the QV8-4 snapshot bake races page isolates, 8/10 local runs vs 0/10 with SCRATCHY_V8_SNAPSHOT=0, symbolized stacks). TODO.txt: QM1n marked investigated; new items QV8-4a (blocker, first), QM1n1 (placeholder box without libmpv), QM1n2 (click toggles a `controls` video), QM1g2d (controls bar, READY), QM1g2e (fullscreen, WAITING FOR USER); QM1g2 (d) cross-referenced; blocker note at the top of the queue.

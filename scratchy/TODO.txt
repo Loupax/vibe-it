@@ -16,6 +16,9 @@ QUEUE — ranked work order (reviewed 2026-11-12, re-planned 2026-11-14)
 
 --- TOP PRIORITY (user, 2026-11-18): SWITCH THE JS ENGINE TO V8; DRAIN, THEN FREEZE [DONE; FREEZE LIFTED 2026-11-18 after QV8-m; only QV8-6 (remove QuickJS, needs user OK) remains] ---
 --- READ THIS BEFORE EVERYTHING ELSE IN THIS FILE, INCLUDING CURRENT STATUS BELOW. ---
+>>> BLOCKER (Opus QM1n, 2026-11-19, R40 section 3): main CRASHES on fast/local page loads (V8
+>>> snapshot bake races page isolates; 8/10 runs on a local page). QV8-4a (below QM1n) goes FIRST,
+>>> before any other queue item. Workaround until merged: SCRATCHY_V8_SNAPSHOT=0.
 
 DECISION (user, 2026-11-18): scratchy moves from QuickJS (rquickjs 0.14) to V8 (the `v8`
 crate, i.e. rusty_v8, maintained by Deno). Reason: the most popular sites (YouTube,
@@ -220,6 +223,125 @@ Order: (drain) -> QT1 -> QV8-0 -> QV8-1 -> QV8-2 -> QV8-3 -> QV8-4 -> QV8-5 -> Q
       elements take no space (V8 media/layout bug or build without `media`; to be investigated).
       box? Repro: plain GET through wire. Needs an investigator first (Opus, docs only), then a fix.
       PAUSED by the V8 freeze unless the user asks for it earlier.
+      INVESTIGATED 2026-11-19 (Opus, R40, docs only; main 6583b38): current main draws all four
+      640x360 boxes with their first frame (live and local copy); `<source>` selection and
+      canPlayType are right (video 4 picks the mp4, all `probably`; ffmpeg here decodes h264,
+      theora, vp8, vorbis). The "no box" build was `~/v8-target` built at 19:16:59 with
+      `engine-v8` ONLY (no `media`; cargo fingerprints), rebuilt with media at 19:26:53; without
+      `media`/libmpv a `<video>` takes no space at all (QM1n1). Controls: not painted, nothing
+      starts a script-less `controls` video (QM1n2 interim, QM1g2d bar, QM1g2e fullscreen).
+      FOUND ON THE WAY, BLOCKER: main crashes on fast (local) page loads, 8/10 runs on this page,
+      0/10 with SCRATCHY_V8_SNAPSHOT=0: QV8-4a. Close QM1n when QV8-4a, QM1n1, QM1n2 are done.
+- [ ] QV8-4a [S] READY, BLOCKER, DO FIRST (found by QM1n, R40 section 3; regression from QV8-4 f62d0b0)
+      The V8 startup-snapshot bake runs on a background thread (`js_engine_v8.rs` `warm_up` ->
+      `build_snapshot`, a `v8::Isolate::snapshot_creator`) while the main thread may already make a
+      page engine with `v8::Isolate::new` (`Engine::new`: "made before it is ready starts the slow
+      way"). V8's read-only heap is shared by all isolates of the process; the creator's
+      `CreateBlob` -> `ReadOnlySpace::ShrinkPages` races the other isolate's read-only allocations:
+      `Check failed: IsFreeSpaceOrFiller(filler)` (trap), libc++ `front() called on an empty
+      vector` (abort) or SIGSEGV. Measured: local copy of justinwhitney.com/HTML5Example 8/10 runs
+      crash within 5 s, a 1-line page with one script 1/10 and 2/6, both 0/10 with
+      `SCRATCHY_V8_SNAPSHOT=0`; live pages mostly escape because wire takes longer than the ~60 ms
+      bake. FIX (recommended, simplest): never let a V8 isolate exist next to a baking one. In
+      `Engine::new` (every engine, not only `page.is_some()`), when not `baking`, call
+      `ensure_snapshot()` first: `OnceLock::get_or_init` blocks until the bake (started by
+      `warm_up`) is done, then use the snapshot. Cost: the first page waits for the rest of the
+      bake (at most ~60 ms CPU, PERF.md QV8-4) instead of building its context the slow way (~30-50
+      ms), so roughly +10-30 ms on the FIRST page only; measure it with `--perf-report` (PERF.md
+      rule) and record it. Keep `SCRATCHY_V8_SNAPSHOT=0` working (no bake, no wait). Do NOT
+      solve it with a mutex around only isolate creation: the creator also mutates read-only
+      space during `CreateBlob`, while an existing isolate may allocate (strings, GC).
+      TESTS (src/tests/, engine-v8 only): (a) a test that starts the bake on one thread and, at the
+      same time, makes and drops 20 page engines (with and without `page`) on another thread,
+      running a small script in each; repeat the whole thing 10 times in the test; it must not
+      crash (today it would; check that it DOES crash or assert-fail before the fix by running it
+      on main once, and say so in the PR); since the snapshot is a process-wide OnceLock, run it in
+      a child process (`std::process::Command` on the test binary with an env var selecting the
+      scenario) so it really starts from an unbaked state; (b) the existing QV8-4 snapshot tests
+      stay green. ACCEPTANCE: nested dwl, the R40 local copy 20 runs (`timeout 5`) with 0 crashes,
+      plus a grim of one run showing the four boxes.
+- [ ] QM1n1 [S] READY (found by QM1n, R40 section 2) Inert `<video>` placeholder when media is
+      unavailable: with the `media` feature OFF or libmpv not loadable,
+      `media_video::boxes_enabled()` is false and `<video width=640 height=360>` lays out as an
+      inline element with only whitespace/`<source>` children = NO space (what the user saw in the
+      no-media V8 build). AGENTS.md: the placeholder is "a poster image if it has one, else an
+      empty replaced box with its width/height". Fix: always build a replaced box for `<video>`
+      (images.rs: split "is a replaced box" from "frames can be painted"): size from CSS/attributes,
+      else the poster's size, else 300x150; paint the poster if any (object-fit), else a plain
+      dark box (no frame, no sentinel); `<source>`/fallback children are NOT rendered (as with a
+      real box). `<audio>` without `controls` stays `display:none`-like (no box); `<audio
+      controls>` is out of scope here. TESTS: with `set_boxes_enabled(Some(false))`: (a) `<video
+      width=640 height=360><source src=a.mp4></video>` gives a 640x360 box; (b) `<video
+      poster=p.png>` without size takes the poster's size; (c) `<video>` alone = 300x150; (d) the
+      fallback text inside `<video>` is not laid out. Screenshot: the R40 page with
+      `--no-default-features --features engine-v8` (no media) shows four 640x360 boxes.
+- [ ] QM1n2 [S] READY (found by QM1n, R40 section 4; D5/D6 allow it; interim before QM1g2d and KEPT
+      by it) Click toggles a `controls` video: a trusted `click` whose target is a `<video>` with
+      the `controls` attribute, and that no handler cancelled, toggles it: paused -> `play()`
+      (allowed: the click is a user gesture, D5; `__media_activate` already runs first in
+      `__scratchy_dn`, js_dom.rs), playing -> `pause()`. Firefox and Chrome do the same on the
+      picture area. Put it in the default action after dispatch (where `__scratchy_dn`'s result
+      is known), NOT as a page-visible listener; `el.click()` from script (untrusted) must NOT
+      toggle; a `<video>` WITHOUT `controls` must not toggle (pages with their own UI listen for
+      clicks themselves). TESTS (media tests, fake backend): (a) trusted click on `<video
+      controls src=..>` -> `play` event and `paused === false`; second click -> `pause`; (b) a
+      listener calling `preventDefault()` -> no toggle; (c) no `controls` -> no toggle; (d)
+      `v.click()` from script -> no toggle. Acceptance: nested dwl + inject click on the R40 page
+      (after QV8-4a): two grims 1 s apart differ inside the clicked box (it plays), a second click
+      stops it.
+- [ ] QM1g2d [M] READY (D6 decided 2026-11-17; from QM1g2 (d); after QM1n2) scratchy's own controls
+      bar for `<video controls>` (and `<audio controls>`, which gets a bar-only box 300x32 by
+      default, like Firefox's 300x40-ish): painted by scratchy, mpv's OSC stays off.
+      LOOK: a 32 px (CSS px, times the scale) bar along the bottom edge INSIDE the video's content
+      box, semi-transparent dark background (rgba(0,0,0,0.6)), white glyphs drawn as simple shapes
+      (no icon font): play triangle / pause bars at the left, then the time text
+      `m:ss / m:ss` (current / duration; `--:--` while duration is NaN; `h:mm:ss` from 1 h), a seek
+      track that takes the remaining width (buffered ranges in a lighter grey, played part white,
+      a round thumb), then a speaker glyph (crossed when muted) and a 60 px volume track. When
+      paused and nothing played yet, also a big centred play triangle in a circle over the
+      picture. VISIBILITY: always shown while paused; while playing, shown for 2 s after the
+      pointer moves over the box or a key acts on it, then hidden (a timer, no per-frame cost).
+      INPUT: click play/pause glyph or the big centred button = toggle; click/drag on the seek track
+      = seek (`currentTime =` fraction x duration, exact seek as QM1f does); click speaker = toggle
+      `muted`; click/drag on the volume track = `volume`; click elsewhere on the picture = toggle
+      (QM1n2). All of these are user activation (D5). Pointer events on the bar are NOT delivered
+      to the page as clicks on the video (the bar is UA chrome); clicks on the picture are.
+      KEYS (D6): only while the video is FOCUSED: make `video[controls]`/`audio[controls]`
+      focusable (dom.rs focusable set, Tab order, click focuses it; focus ring = the existing one);
+      space = toggle, left/right = seek -5 s/+5 s, up/down = volume +-0.1 (exactly D6); the
+      page sees the keydown first and may cancel it (QJ11 rule: a cancelled key does nothing here);
+      vim-mode keys keep working when no video is focused.
+      PAINT/PERF: the bar is drawn in the normal paint pass AFTER `media_video::paint_box`, as
+      ordinary pixels over the sentinel area, so the video-only redraw (QM1g1 overlay mask) never
+      overwrites it and needs no change. The time/seek part changes at most 4 Hz while playing
+      (timeupdate rate): redraw only the bar's rect then (same damage path as a frame: draw the bar
+      into `page_buf` and present that rect), never a full page redraw per second; a hover/show/
+      hide is also bar-rect only. State the bar reads (paused, currentTime, duration, buffered,
+      volume, muted, ended) comes from the element core (media_el.rs), not from JS.
+      Not included: fullscreen (QM1g2e), playback-rate menu, captions/tracks menu, picture-in-
+      picture, download, the `controlsList` attribute (later item if wanted).
+      TESTS (unit, no libmpv: fake backend + headless paint): (a) a `controls` video paints a bar
+      in its bottom 32 px (pixels differ from the frame there) and a video without `controls` does
+      not; (b) the bar's hit-testing: a click at the play glyph toggles, a click at 75% of the seek
+      track seeks to 0.75 x duration (fake duration 20 s -> 15 s), the speaker toggles muted, the
+      volume track sets volume; (c) keys only when focused: space on a focused `controls` video
+      toggles; space with focus elsewhere does not; a keydown listener with `preventDefault()`
+      stops it; (d) time text formatting (0, 59.9, 61, 3600+, NaN); (e) the bar damage rect is the
+      bar only (no full redraw requested) on a timeupdate. ACCEPTANCE (nested dwl, libmpv, R40
+      page): grim shows a bar on all four boxes; inject click on the play glyph of video 1, grims
+      1 s apart differ in the picture and the time text; drag on the seek track moves currentTime
+      (time text changes accordingly); Tab focuses a video and `space` pauses it; scroll latency
+      while one plays is unchanged (QM1g1 numbers).
+- [ ] QM1g2e [S] WAITING FOR USER (design first: fullscreen is not in D1-D8) Fullscreen for
+      `<video controls>`: a fullscreen button at the right end of the QM1g2d bar, `f` key and
+      double-click toggle it, `Escape` leaves. Proposal for the user: scratchy paints ONLY that
+      video (letterboxed, object-fit contain) over the whole window, with the same bar, and asks
+      dwl for a fullscreen window (`window.set_fullscreen(Some(Fullscreen::Borderless(None)))`,
+      winit) while it lasts; JS `element.requestFullscreen()` / `document.exitFullscreen()` /
+      `fullscreenchange` (needed by most custom players, e.g. YouTube) map onto the same state and
+      require user activation. Questions: OK to make the scratchy WINDOW fullscreen (it leaves the
+      dwl tiling for the duration), or fullscreen only within the window? Should page JS be able
+      to request it (with a gesture), or only the user via the bar?
 - [x] QV8-4 [M] DONE 2026-11-18 (commit f62d0b0; PERF.md "QV8-4": startup CPU 30-53 ms -> 8-13 ms per page start, KEPT; in-process snapshot, no files; engine-v8 1038 tests pass, default 1034, clippy 78, WPT no change) (after QV8-3) Startup snapshot: the JS preludes (DOM, fetch, globals, intl,
       url, cssom, media, ws) baked into a V8 snapshot (built in-process, not at build time); measure page-start CPU
       before/after with `--perf-report`. Drop it if the gain is < 10 ms per page.
@@ -1383,7 +1505,8 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       would keep scroll/hover responsive); (b) a `<video>` inside a mask-image or opacity
       layer paints black (no frame substitution) and forces a full redraw per frame;
       (c) no rounded-corner clipping (`border-radius`) of the video; (d) `controls` are not
-      drawn (QM1h-ish item) and there is no fullscreen; (e) QM1f1 (a) paused elements still
+      drawn (QM1h-ish item) and there is no fullscreen [filed 2026-11-19 by QM1n: QM1n2 click
+      toggle, QM1g2d controls bar, QM1g2e fullscreen (waiting for user)]; (e) QM1f1 (a) paused elements still
       hold a libmpv handle; (f) webm/vp9 was not tested (no encoder on this machine);
       (g) `vid=no` is only used for files with an audio track.
 - [ ] QM1h [L] (only if D2 = separate process) media helper process: owns libmpv,
