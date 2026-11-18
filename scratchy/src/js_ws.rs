@@ -626,7 +626,9 @@ impl JsEngine {
             let s = self.ws.borrow_mut().sockets.remove(&id);
             drop(s);
         }
-        self.arm_budget(CALLBACK_BUDGET);
+        let budget = crate::perf::callback_budget();
+        self.arm_budget(budget);
+        let span = crate::perf::begin(Some(crate::perf::Kind::NetCallback));
         self.ctx.with(|ctx| {
             let res = (|| -> rquickjs::Result<()> {
                 let g = ctx.globals();
@@ -652,12 +654,13 @@ impl JsEngine {
             if let Err(e) = res {
                 let msg = describe_error(&ctx, e);
                 if self.tripped.load(Ordering::Relaxed) {
-                    self.log_interrupted("websocket", "callback", CALLBACK_BUDGET, 0);
+                    self.log_interrupted("websocket", "callback", budget, 0);
                 } else {
                     (self.log)("error", &format!("websocket: {msg}"));
                 }
             }
         });
+        crate::perf::end(span, self.tripped.load(Ordering::Relaxed));
         self.drain_after_task();
     }
 
