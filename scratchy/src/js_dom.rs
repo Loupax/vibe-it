@@ -2085,6 +2085,9 @@ const DOM_PRELUDE: &str = r#"
   def(doc, 'images', function () { return coll(this.querySelectorAll('img')); });
   def(doc, 'links', function () { return coll(this.querySelectorAll('a[href], area[href]')); });
   def(doc, 'anchors', function () { return coll(this.querySelectorAll('a[name]')); });
+  def(doc, 'scripts', function () { return coll(this.querySelectorAll('script')); });
+  def(doc, 'embeds', function () { return coll(this.querySelectorAll('embed')); });
+  def(doc, 'plugins', function () { return coll(this.querySelectorAll('embed')); });
 
   // ---- tables
   var secRows = function (sec) { return kidsOf(sec, ['tr']); };

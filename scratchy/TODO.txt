@@ -1658,7 +1658,7 @@ after QY47a) -> QY47b (P3, Sonnet) -> QY47d (P3).
 Ranked: QY50 (P1) -> QY51 (P1) -> QY49-D (user decision, can be asked now) -> QY52 (P2)
 -> QY53 (P2) -> QY54 (P2, Opus) -> QY55 (P3, with the user). Evidence: REGRESSIONS.md R37.
 
-- [ ] QY50 [S] READY (P1, R37, Sonnet/Haiku) `document.scripts` is missing. YouTube's new
+- [x] QY50 [S] DONE 5409a4a (YouTube nested-dwl run: no Symbol.iterator error; results still blank at 500 ms, QY49-D) (P1, R37, Sonnet/Haiku) `document.scripts` is missing. YouTube's new
       "ytmainappweb" front-end (served now for the default AND the Firefox UA) does
       `Array.from(document.scripts)` at startup (`cFU`/`W7_`) and dies with "cannot read
       property 'Symbol.iterator' of undefined": white page with three grey circles. Add

@@ -21272,3 +21272,22 @@ fn qy47a_limit_never_exceeds_half_thread_stack() {
         assert!(l > 0 && l <= real / 2 && l <= 4 << 20, "{mb} MB -> {l} (real {real})");
     }
 }
+
+#[test]
+fn qy50_document_scripts_embeds_plugins_anchors() {
+    let log = run_in_html(
+        "<html><body><script>1</script><a name=top>t</a><a href=/x>nn</a><embed id=e1><script id=s2>2</script></body></html>",
+        "var s=document.scripts;\
+         console.log(s.length, Array.from(s).length, s[1].id, typeof s.item, document.embeds.length, document.plugins.length, document.plugins[0]===document.embeds[0]);\
+         console.log(document.anchors.length, document.anchors[0].name);\
+         var n=document.createElement('script'); document.body.appendChild(n);\
+         console.log(document.scripts.length, [...document.scripts].indexOf(n));\
+         var m=document.createElement('script'); m.textContent='var q=document.createElement(\"script\");document.body.appendChild(q);';\
+         document.body.appendChild(m);\
+         console.log(document.scripts.length);",
+    );
+    assert_eq!(log[0], "log:2 2 s2 function 1 1 true", "{log:?}");
+    assert_eq!(log[1], "log:1 top", "{log:?}");
+    assert_eq!(log[2], "log:3 2", "{log:?}");
+    assert_eq!(log[3], "log:5", "{log:?}");
+}
