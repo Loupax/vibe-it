@@ -21732,3 +21732,142 @@ fn qy48_page_initiated_back_moves_app_index() {
     assert_eq!(app.base_url.as_ref().map(Url::as_str), Some("https://e.org/a"));
     assert_eq!(app.nav_generation, 0);
 }
+
+// ---------- QY56: images that appear after load ----------
+
+const QY56_PIXEL: &str = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+
+#[test]
+fn qy56_script_set_and_created_imgs_are_requested_with_state_and_events() {
+    set_page_url(Url::parse("https://page.test/dir/").ok().as_ref());
+    let (engine, _doc, log) = events_engine(
+        "<html><body><img id=s></body></html>",
+        "var s=document.getElementById('s');
+         s.onload=function(){console.log('s-load '+s.complete+' '+s.naturalWidth+'x'+s.naturalHeight)};
+         s.onerror=function(){console.log('s-error')};
+         s.src='a.png';
+         var c=new Image();
+         if(!(c instanceof HTMLImageElement)) throw new Error('not an img');
+         c.addEventListener('load',function(){console.log('c-load '+c.complete)});
+         c.addEventListener('error',function(){console.log('c-error '+c.complete+' '+c.naturalWidth)});
+         c.setAttribute('src','b.png');
+         document.body.appendChild(c);
+         console.log('before '+s.complete+' '+s.naturalWidth+' '+c.complete);",
+    );
+    let reqs = engine.take_requests();
+    assert_eq!(reqs.imgs, ["a.png", "b.png"]);
+    assert_eq!(log.borrow().iter().filter(|l| l.contains("before false 0 false")).count(), 1, "{:?}", log.borrow());
+    crate::js_dom::note_image_state("a.png", Some((7, 5)));
+    engine.eval("done-a", "__scratchy_img_done('a.png')");
+    crate::js_dom::note_image_state("b.png", None);
+    engine.eval("done-b", "__scratchy_img_done('b.png')");
+    // A second notification must not fire again.
+    engine.eval("done-a2", "__scratchy_img_done('a.png')");
+    let l = log.borrow().clone();
+    assert_eq!(l.iter().filter(|x| x.contains("s-load true 7x5")).count(), 1, "{l:?}");
+    assert_eq!(l.iter().filter(|x| x.contains("c-error true 0")).count(), 1, "{l:?}");
+    assert!(!l.iter().any(|x| x.contains("s-error") || x.contains("c-load")), "{l:?}");
+    crate::js_dom::clear_image_states();
+}
+
+#[test]
+fn qy56_data_url_image_is_complete_at_once_and_loads_as_a_task() {
+    let (engine, _doc, log) = events_engine(
+        "<html><body></body></html>",
+        &format!(
+            "var i=new Image(); i.onload=function(){{console.log('load '+i.naturalWidth)}};
+             i.src='{QY56_PIXEL}';
+             console.log('now '+i.complete+' '+i.naturalWidth+' '+i.naturalHeight);
+             i.decode().then(function(){{console.log('decoded')}});
+             var bad=new Image(); bad.src='data:image/png;base64,AAAA';
+             bad.decode().catch(function(e){{console.log('rejected '+e.name)}});"
+        ),
+    );
+    assert!(engine.take_requests().imgs.is_empty(), "data: URLs need no fetch");
+    assert!(log.borrow().iter().any(|l| l.contains("now true 1 1")), "{:?}", log.borrow());
+    assert!(!log.borrow().iter().any(|l| l.contains("load 1")), "load is asynchronous");
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    engine.run_due();
+    let l = log.borrow().clone();
+    assert_eq!(l.iter().filter(|x| x.contains("load 1")).count(), 1, "{l:?}");
+    assert!(l.iter().any(|x| x.contains("decoded")), "{l:?}");
+    assert!(l.iter().any(|x| x.contains("rejected EncodingError")), "{l:?}");
+}
+
+#[test]
+fn qy56_decode_waits_for_the_fetch_and_img_without_src_is_complete() {
+    let (engine, _doc, log) = events_engine(
+        "<html><body><img id=n></body></html>",
+        "var n=document.getElementById('n'); console.log('nosrc '+n.complete);
+         var i=new Image(); i.src='late.png'; i.decode().then(function(){console.log('decode-ok '+i.naturalWidth)});",
+    );
+    assert!(log.borrow().iter().any(|l| l.contains("nosrc true")));
+    assert!(!log.borrow().iter().any(|l| l.contains("decode-ok")));
+    crate::js_dom::note_image_state("late.png", Some((3, 2)));
+    engine.eval("d", "__scratchy_img_done('late.png')");
+    engine.drain_after_task();
+    assert!(log.borrow().iter().any(|l| l.contains("decode-ok 3")), "{:?}", log.borrow());
+    crate::js_dom::clear_image_states();
+}
+
+#[test]
+fn qy56_inserted_and_parsed_imgs_get_events_via_the_sweep() {
+    let (engine, _doc, log) = events_engine(
+        "<html><body><img id=p src=static.png></body></html>",
+        "var d=document.createElement('div');
+         d.innerHTML='<img id=h src=\"html.png\" onload=\"console.log(\\'h-load\\')\">';
+         document.body.appendChild(d);
+         document.getElementById('p').addEventListener('load',function(){console.log('p-load')});",
+    );
+    assert!(engine.take_requests().imgs.is_empty(), "parser and innerHTML images are fetched via the layout path");
+    crate::js_dom::note_image_state("static.png", Some((2, 2)));
+    engine.eval("d1", "__scratchy_img_done('static.png')");
+    crate::js_dom::note_image_state("html.png", Some((2, 2)));
+    engine.eval("d2", "__scratchy_img_done('html.png')");
+    let l = log.borrow().clone();
+    assert_eq!(l.iter().filter(|x| x.contains("p-load")).count(), 1, "{l:?}");
+    assert_eq!(l.iter().filter(|x| x.contains("h-load")).count(), 1, "{l:?}");
+    crate::js_dom::clear_image_states();
+}
+
+#[test]
+fn qy56_layout_build_records_missed_img_srcs_once() {
+    let _ = crate::images::take_wanted_img_srcs();
+    let doc = parse_html(&format!(
+        "<html><body><img src=\"x/one.png\"><img src=\"x/one.png\"><img src=\"two.png\"><img src=\"{QY56_PIXEL}\"><img></body></html>"
+    ));
+    let mut cache = HashMap::new();
+    cache.insert("two.png".to_string(), Arc::new(DecodedImage { width: 1, height: 1, pixels: vec![TextColor::rgb(1, 2, 3)], svg: None, mask: None }));
+    let _ = build_layout_tree_with_resources(&doc, 800.0, Some(600.0), "", &cache);
+    assert_eq!(crate::images::take_wanted_img_srcs(), ["x/one.png"]);
+    assert!(crate::images::take_wanted_img_srcs().is_empty(), "drained");
+}
+
+#[test]
+fn qy56_image_fetch_claims_dedupe_per_generation() {
+    let g = 9_100_001;
+    assert!(crate::net::claim_image_fetch(g, "a.png"));
+    assert!(!crate::net::claim_image_fetch(g, "a.png"), "the same URL is fetched once");
+    assert!(crate::net::claim_image_fetch(g, "b.png"));
+    assert!(crate::net::image_fetch_claimed(g, "b.png"));
+    assert!(crate::net::claim_image_fetch(g + 1, "a.png"), "a new page starts over");
+    assert!(!crate::net::claim_image_fetch(g, "zzz.png"), "a stale generation claims nothing");
+}
+
+#[test]
+fn qy56_late_image_cap_is_honoured_and_extra_images_error() {
+    use winit::platform::wayland::EventLoopBuilderExtWayland;
+    let Ok(event_loop) = EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build() else { return };
+    let mut app = App::new_static(parse_html("<html><body></body></html>"), event_loop.create_proxy(), Some(PathBuf::from("/nonexistent/qy56.sock")));
+    app.nav_generation = 9_200_001;
+    let srcs: Vec<String> = (0..MAX_LATE_IMAGE_FETCHES + 10).map(|i| format!("cap{i}.png")).collect();
+    let (p, s2) = (app.proxy.clone(), app.socket_path.clone());
+    let go = |app: &mut App, v: Vec<String>| fetch_late_images(&p, s2.as_deref(), None, &mut app.late_images_requested, &mut app.late_image_errors, 9_200_001, v);
+    go(&mut app, srcs.clone());
+    assert_eq!(app.late_images_requested, MAX_LATE_IMAGE_FETCHES + 1, "cap reached, logged once");
+    assert_eq!(app.late_image_errors.len(), 10, "the capped ones fail with error");
+    // Repeating the same URLs requests nothing new.
+    go(&mut app, srcs);
+    assert_eq!(app.late_images_requested, MAX_LATE_IMAGE_FETCHES + 1);
+    crate::js_dom::clear_image_states();
+}

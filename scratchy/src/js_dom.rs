@@ -446,6 +446,8 @@ pub(crate) enum UrlEv {
 /// scroll offset); drained by `App::js_sync` through `take_requests`.
 #[derive(Default, Debug, Clone)]
 pub(crate) struct JsRequests {
+    /// QY56: raw `<img src>` values script set (the App fetches them once).
+    pub(crate) imgs: Vec<String>,
     pub(crate) focus: Option<FocusReq>,
     /// `window.scroll*`: target axes (`None` = keep), `relative` = scrollBy.
     pub(crate) scroll: Option<ScrollReq>,
@@ -497,6 +499,34 @@ pub(crate) struct ScrollReq {
 /// navigation skips them until Q30 makes them real controls.
 fn js_focusable(h: &Handle) -> bool {
     is_click_focusable(h)
+}
+
+thread_local! {
+    /// QY56: outcome of every image fetch this page, by raw `src`: the decoded
+    /// size, or `None` for a failed one. Read by `img.complete` / `naturalWidth`.
+    static IMAGE_STATES: RefCell<HashMap<String, Option<(u32, u32)>>> = RefCell::new(HashMap::new());
+}
+
+/// QY56: records that the fetch of `src` ended (`None` = failed).
+pub(crate) fn note_image_state(src: &str, size: Option<(u32, u32)>) {
+    IMAGE_STATES.with(|m| m.borrow_mut().insert(src.to_string(), size));
+}
+
+/// QY56: forgets the previous page's image outcomes.
+pub(crate) fn clear_image_states() {
+    IMAGE_STATES.with(|m| m.borrow_mut().clear());
+}
+
+/// QY56: `""` while unknown, `"e"` for a failed image, else `"w,h"`.
+fn image_state_text(src: &str) -> String {
+    if let Some(bytes) = crate::images::decode_data_uri(src) {
+        return crate::images::decode_image_bytes(&bytes).map(|d| format!("{},{}", d.width, d.height)).unwrap_or_else(|| "e".to_string());
+    }
+    IMAGE_STATES.with(|m| match m.borrow().get(src) {
+        None => String::new(),
+        Some(None) => "e".to_string(),
+        Some(Some((w, h))) => format!("{w},{h}"),
+    })
 }
 
 thread_local! {
@@ -1214,6 +1244,11 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             d.set(true);
             gn.set(gn.get() + 1);
         }
+    });
+    native!("__d_img_state", move |src: String| -> String { image_state_text(&src) });
+    let r = reqs.clone();
+    native!("__d_img_req", move |src: String| {
+        r.borrow_mut().imgs.push(src);
     });
     let r = reqs.clone();
     native!("__d_navigate", move |href: String| {
@@ -2833,6 +2868,87 @@ const DOM_PRELUDE: &str = r#"
   rUrl(IMP, 'src', 'src'); rStrs(IMP, ['alt', 'srcset', 'sizes', 'crossOrigin', 'useMap', 'decoding', 'loading', 'referrerPolicy', 'name', 'align']);
   rBool(IMP, 'isMap', 'ismap');
   def(IMP, 'currentSrc', function () { return absUrl(this, 'src'); });
+  // ---- QY56: image loading state. The App fetches every `src` (load-time parse,
+  // layout misses, `__d_img_req` for elements that may never be laid out) and
+  // records the outcome natively (`__d_img_state`: '' unknown, 'e' failed, 'w,h');
+  // `complete`/`naturalWidth`/`naturalHeight`/`decode()` read it and `load`/`error`
+  // fire once per element and `src` (as a task: from the App when the fetch ends,
+  // or a timer when the outcome was already known).
+  var imRaw = function (el) { var s = __d_attr(el.__id, 'src'); return (s == null || /^[ \t\n\f\r]*$/.test(s)) ? null : s; };
+  var imSt = function (raw) { var t = __d_img_state(raw); return t === '' ? undefined : t === 'e' ? 0 : t.split(',').map(Number); };
+  var imW = {}, imTimeout = g.setTimeout;
+  var imFire = function (el, raw) {
+    if (el.__imF === raw || imRaw(el) !== raw) return;
+    var st = imSt(raw);
+    if (st === undefined) return;
+    el.__imF = raw;
+    var ds = el.__imD; el.__imD = null;
+    g.__scratchy_dispatch(el, new g.Event(st ? 'load' : 'error'));
+    if (ds) ds.forEach(function (d) {
+      if (st) d[0](); else d[1](typeof g.DOMException === 'function' ? new g.DOMException('The source image cannot be decoded.', 'EncodingError') : new Error('EncodingError'));
+    });
+  };
+  var imSweep = function (raw) {
+    var els = [], k;
+    for (k in imW) if ((raw === undefined || k === raw) && imSt(k) !== undefined) { els = els.concat(imW[k]); delete imW[k]; }
+    var all = doc.querySelectorAll('img');
+    for (var i = 0; i < all.length; i++) els.push(all[i]);
+    els.forEach(function (el) { var r = imRaw(el); if (r !== null && (raw === undefined || r === raw)) imFire(el, r); });
+  };
+  Object.defineProperty(g, '__scratchy_img_done', { value: function (raw) { imSweep(raw); } });
+  Object.defineProperty(g, '__scratchy_img_sweep', { value: function () { imSweep(); } });
+  var imSrcSet = function (el) {
+    el.__imF = undefined;
+    var raw = imRaw(el);
+    if (raw === null) return;
+    if (imSt(raw) !== undefined) { imTimeout(function () { imFire(el, raw); }, 0); return; }
+    var w = imW[raw] || (imW[raw] = []);
+    if (w.indexOf(el) < 0) w.push(el);
+    __d_img_req(raw);
+  };
+  var imOSet = __d_setattr;
+  __d_setattr = function (id, n, v) {
+    imOSet(id, n, v);
+    if (String(n).toLowerCase() !== 'src') return;
+    var el = wrap(id);
+    if (el && el.tagName === 'IMG') imSrcSet(el);
+  };
+  var imOSetq = __d_setq;
+  __d_setq = function (id, n, v) {
+    imOSetq(id, n, v);
+    if (String(n).toLowerCase() !== 'src') return;
+    var el = wrap(id);
+    if (el && el.tagName === 'IMG') imSrcSet(el);
+  };
+  def(IMP, 'complete', function () { var r = imRaw(this); return r === null || imSt(r) !== undefined; });
+  def(IMP, 'naturalWidth', function () { var r = imRaw(this), st = r !== null && imSt(r); return st ? st[0] : 0; });
+  def(IMP, 'naturalHeight', function () { var r = imRaw(this), st = r !== null && imSt(r); return st ? st[1] : 0; });
+  ['width', 'height'].forEach(function (a, ix) {
+    defs(IMP, a, function () {
+      var v = parseInt(__d_attr(this.__id, a), 10);
+      if (v >= 0) return v;
+      var r = imRaw(this), st = r !== null && imSt(r);
+      return st ? st[ix] : 0;
+    }, function (v) { __d_setattr(this.__id, a, String(Math.max(0, Math.floor(Number(v)) || 0))); });
+  });
+  Object.defineProperty(IMP, 'decode', { configurable: true, writable: true, enumerable: true, value: function () {
+    var el = this;
+    return new Promise(function (res, rej) {
+      var r = imRaw(el), st = r === null ? undefined : imSt(r);
+      var err = function () { return typeof g.DOMException === 'function' ? new g.DOMException('The source image cannot be decoded.', 'EncodingError') : new Error('EncodingError'); };
+      if (r === null) return rej(err());
+      if (st !== undefined) return st ? res() : rej(err());
+      (el.__imD || (el.__imD = [])).push([res, rej]);
+    });
+  } });
+  var ImageCtor = ({ Image: function (w, h) {
+    var e = doc.createElement('img');
+    if (w !== undefined) e.setAttribute('width', String(w));
+    if (h !== undefined) e.setAttribute('height', String(h));
+    return e;
+  } }).Image;
+  ImageCtor.prototype = IMP;
+  try { Object.defineProperty(g, 'Image', { value: ImageCtor, writable: true, configurable: true }); } catch (e) {}
   var LKP = mkProto('HTMLLinkElement', ['link']);
   rUrl(LKP, 'href', 'href'); rStrs(LKP, ['rel', 'type', 'media', 'as', 'hreflang', 'charset', 'nonce', 'crossOrigin', 'integrity', 'referrerPolicy', 'sizes']);
   rBool(LKP, 'disabled', 'disabled');

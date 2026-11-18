@@ -1207,6 +1207,10 @@ pub(crate) fn absolutize_css_urls(css: &str, sheet_url: &Url) -> String {
 /// Upper bound on distinct CSS `background-image`/`mask-image` urls fetched per page (Q35a).
 pub(crate) const MAX_CSS_IMAGE_FETCHES: usize = 64;
 
+/// QY56: upper bound on images fetched after load per page (script-set `src`,
+/// created or inserted `<img>`), separate from the load-time images.
+pub(crate) const MAX_LATE_IMAGE_FETCHES: usize = 256;
+
 /// Fetches and decodes one external image — `None` on any failure
 /// (unreachable, not a supported image content type, or bytes `image`
 /// itself can't decode). Reuses `decode_image_bytes` verbatim — the
@@ -1359,12 +1363,43 @@ pub(crate) fn fetch_stylesheets(path: &std::path::Path, base: &Url, top: &Url, h
 /// repeats the same icon URL many times; one fetch and one `image_cache`
 /// entry keyed by the raw `src` covers every occurrence).
 pub(crate) fn spawn_image_fetches(proxy: &EventLoopProxy<AppEvent>, path: &std::path::Path, base: &Url, top: &Url, images: Vec<String>, generation: u64) {
-    let mut seen = HashSet::new();
+    let fresh: Vec<String> = images.into_iter().filter(|src| claim_image_fetch(generation, src)).collect();
+    spawn_claimed_image_fetches(proxy, path, base, top, fresh, generation);
+}
+
+/// QY56: the `(generation, raw src)` pairs already fetched or in flight, so
+/// the load-time fetch, CSS `url()` misses and images that appear later
+/// (script-set `src`, created or inserted `<img>`) never fetch one URL twice.
+/// A newer generation starts an empty set; a stale generation claims nothing.
+static IMAGE_CLAIMS: Mutex<(u64, Option<HashSet<String>>)> = Mutex::new((0, None));
+
+/// True when `src` was not claimed yet for `generation` (and is now).
+pub(crate) fn claim_image_fetch(generation: u64, src: &str) -> bool {
+    let mut g = IMAGE_CLAIMS.lock().unwrap_or_else(|e| e.into_inner());
+    if generation < g.0 {
+        return false;
+    }
+    if generation > g.0 {
+        *g = (generation, None);
+    }
+    g.1.get_or_insert_with(HashSet::new).insert(src.to_string())
+}
+
+/// QY56: whether `src` is already claimed for `generation`.
+#[cfg(test)]
+pub(crate) fn image_fetch_claimed(generation: u64, src: &str) -> bool {
+    let g = IMAGE_CLAIMS.lock().unwrap_or_else(|e| e.into_inner());
+    generation == g.0 && g.1.as_ref().is_some_and(|s| s.contains(src))
+}
+
+/// Starts one fetch thread per src (callers already claimed them). A src
+/// that cannot be resolved reports a failed fetch at once.
+pub(crate) fn spawn_claimed_image_fetches(proxy: &EventLoopProxy<AppEvent>, path: &std::path::Path, base: &Url, top: &Url, images: Vec<String>, generation: u64) {
     for src in images {
-        if !seen.insert(src.clone()) {
+        let Ok(url) = resolve_href(Some(base), &src) else {
+            let _ = proxy.send_event(AppEvent::ImageFetched(generation, src, None));
             continue;
-        }
-        let Ok(url) = resolve_href(Some(base), &src) else { continue };
+        };
         let path = path.to_path_buf();
         let proxy = proxy.clone();
         let top = top.clone();

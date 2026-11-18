@@ -269,10 +269,45 @@ pub(crate) fn resolve_img(handle: &Handle, mut style: ComputedStyle, image_cache
     }
     let decoded = element_attr(handle, "src").and_then(|src| match decode_data_uri(&src) {
         Some(bytes) => decode_image_bytes(&bytes).map(Arc::new),
-        None => image_cache.get(&*src).cloned(),
+        None => {
+            let hit = image_cache.get(&*src).cloned();
+            if hit.is_none() {
+                note_wanted_img_src(&src);
+            }
+            hit
+        }
     });
     let decoded = decoded.map(|d| svg_at_css_size(d, &style));
     (style, decoded)
+}
+
+thread_local! {
+    /// QY56: `<img src>` values the layout build met and found in no cache,
+    /// in first-seen order (the second field dedupes). Includes the initial
+    /// parse's images (already claimed by the load-time fetch, so the App's
+    /// drain skips them) and those a script set or inserted later.
+    static WANTED_IMG_SRCS: RefCell<(Vec<String>, HashSet<String>)> = RefCell::new((Vec::new(), HashSet::new()));
+}
+
+fn note_wanted_img_src(src: &str) {
+    if src.trim().is_empty() {
+        return;
+    }
+    WANTED_IMG_SRCS.with(|w| {
+        let mut w = w.borrow_mut();
+        if w.1.insert(src.to_string()) {
+            w.0.push(src.to_string());
+        }
+    });
+}
+
+/// QY56: drains the `<img src>` values the last layout build(s) missed.
+pub(crate) fn take_wanted_img_srcs() -> Vec<String> {
+    WANTED_IMG_SRCS.with(|w| {
+        let mut w = w.borrow_mut();
+        w.1.clear();
+        std::mem::take(&mut w.0)
+    })
 }
 
 /// Serializes an inline `<svg>` subtree back to standalone XML (html5ever

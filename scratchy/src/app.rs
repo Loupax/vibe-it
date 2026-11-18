@@ -862,6 +862,11 @@ pub(crate) struct App {
     /// this page (success or failure), so a rebuild never refetches. Cleared
     /// with `image_cache`.
     pub(crate) css_images_requested: HashSet<String>,
+    /// QY56: images requested after load (script-set `src`, created or
+    /// inserted `<img>`) this page, against `MAX_LATE_IMAGE_FETCHES`.
+    pub(crate) late_images_requested: usize,
+    /// QY56: late images refused by the cap, to settle as `error` in `js_sync`.
+    pub(crate) late_image_errors: Vec<String>,
     /// Whether vim-mode key interception is on at all — `:set vim`/
     /// `:set novim`'s own stored state (plus `AppEvent::ToggleVimMode`'s
     /// own flip). `false` means `resolve_binding` is never even reached
@@ -1061,6 +1066,8 @@ impl App {
             adopted_css: String::new(),
             image_cache: HashMap::new(),
             css_images_requested: HashSet::new(),
+            late_images_requested: 0,
+            late_image_errors: Vec::new(),
             vim_enabled: true,
             vim_mode: VimMode::Normal,
             pending_g: false,
@@ -1146,6 +1153,8 @@ impl App {
             adopted_css: String::new(),
             image_cache: HashMap::new(),
             css_images_requested: HashSet::new(),
+            late_images_requested: 0,
+            late_image_errors: Vec::new(),
             vim_enabled: true,
             vim_mode: VimMode::Normal,
             pending_g: false,
@@ -1218,6 +1227,8 @@ impl App {
             self.last_build_time = Some(build_started.elapsed());
             self.anim.after_build(self.nav_generation, take_animation_report(), document_clock_ms());
             fetch_wanted_css_images(&self.proxy, self.socket_path.as_deref(), self.base_url.as_ref(), &mut self.css_images_requested, self.nav_generation);
+            let late = crate::images::take_wanted_img_srcs();
+            fetch_late_images(&self.proxy, self.socket_path.as_deref(), self.base_url.as_ref(), &mut self.late_images_requested, &mut self.late_image_errors, self.nav_generation, late);
             // Ids the worker is about to assign restart at `0` for this
             // new tree (see `spawn_shaping_worker`'s own docs) — stale
             // entries keyed by an old tree's ids would just be harmless
@@ -1734,6 +1745,9 @@ impl App {
     /// Q33c: if page scripts wrote to the DOM, request one layout
     /// rebuild (never one per write) and a redraw.
     pub(crate) fn js_sync(&mut self) {
+        for src in std::mem::take(&mut self.late_image_errors) {
+            self.image_settled(&src, None);
+        }
         // QB5: focus/blur and window.scroll* requests made by page script.
         if let Some(js) = &self.js {
             let mut reqs = js.take_requests();
@@ -1783,6 +1797,8 @@ impl App {
                 let _ = self.proxy.send_event(AppEvent::JsNet(self.nav_generation, id, result));
             }
             self.pump_net();
+            let imgs = std::mem::take(&mut reqs.imgs);
+            fetch_late_images(&self.proxy, self.socket_path.as_deref(), self.base_url.as_ref(), &mut self.late_images_requested, &mut self.late_image_errors, self.nav_generation, imgs);
             for (h, y) in reqs.el_scroll {
                 let node = node_id(&h);
                 let mut v = (y as f32).max(0.0);
@@ -2092,8 +2108,15 @@ impl App {
         if generation != self.nav_generation {
             return;
         }
-        let Some(image) = image else { return };
-        self.image_cache.insert(src, Arc::new(image));
+        let Some(image) = image else {
+            // QY56: a failed fetch still ends the image's loading: `complete`
+            // turns true and `error` fires.
+            self.image_settled(&src, None);
+            return;
+        };
+        let size = (image.width, image.height);
+        self.image_cache.insert(src.clone(), Arc::new(image));
+        self.image_settled(&src, Some(size));
         // A newly-arrived image can change this element's own
         // intrinsic size (no explicit CSS/HTML width/height —
         // see `resolve_img`), so the whole tree needs a real
@@ -2111,6 +2134,17 @@ impl App {
             self.schedule_image_flush(IMAGE_RELAYOUT_DEBOUNCE);
         }
         self.flush_image_relayout();
+    }
+
+    /// QY56: records the outcome of fetching `src` for page script
+    /// (`complete`, `naturalWidth`) and fires `load` / `error` at the images
+    /// that use it.
+    pub(crate) fn image_settled(&mut self, src: &str, size: Option<(u32, u32)>) {
+        crate::js_dom::note_image_state(src, size);
+        if let Some(js) = &self.js {
+            js.eval("img-done", &format!("__scratchy_img_done({})", js_string_literal(src)));
+            self.js_sync();
+        }
     }
 
     /// Q35b2: applies the pending image relayout if its debounce window
@@ -2930,6 +2964,8 @@ impl App {
         self.parked_net.clear();
         self.image_cache.clear();
         self.css_images_requested.clear();
+        self.late_images_requested = 0;
+        crate::js_dom::clear_image_states();
         let generation = self.nav_generation;
         self.show_message("Loading…");
         let proxy = self.proxy.clone();
@@ -3710,6 +3746,45 @@ pub(crate) fn fetch_wanted_css_images(
     requested.extend(fresh.iter().cloned());
     let base = base.cloned().unwrap_or_else(|| Url::parse("about:blank").expect("static url"));
     spawn_image_fetches(proxy, socket, &base, &base, fresh, generation);
+}
+
+/// QY56: starts fetches for `<img>` sources that turned up after load (the
+/// layout build missed them in `image_cache`, or a script set a `src` on an
+/// element that may never be laid out). Each URL is fetched once per page
+/// (`claim_image_fetch`, shared with the load-time fetch), at most
+/// `MAX_LATE_IMAGE_FETCHES` late ones; the rest land in `errors` (they fail
+/// with `error`).
+pub(crate) fn fetch_late_images(
+    proxy: &EventLoopProxy<AppEvent>,
+    socket: Option<&std::path::Path>,
+    base: Option<&Url>,
+    count: &mut usize,
+    errors: &mut Vec<String>,
+    generation: u64,
+    srcs: Vec<String>,
+) {
+    let Some(socket) = socket else { return };
+    let mut fresh = Vec::new();
+    for src in srcs {
+        if src.trim().is_empty() || crate::images::decode_data_uri(&src).is_some() || !claim_image_fetch(generation, &src) {
+            continue;
+        }
+        if *count >= MAX_LATE_IMAGE_FETCHES {
+            if *count == MAX_LATE_IMAGE_FETCHES {
+                *count += 1;
+                diag!("scratchy: image fetch cap ({MAX_LATE_IMAGE_FETCHES} late images) reached; further script-added images are not loaded");
+            }
+            errors.push(src);
+            continue;
+        }
+        *count += 1;
+        fresh.push(src);
+    }
+    if fresh.is_empty() {
+        return;
+    }
+    let base = base.cloned().unwrap_or_else(|| Url::parse("about:blank").expect("static url"));
+    spawn_claimed_image_fetches(proxy, socket, &base, &base, fresh, generation);
 }
 
 /// QJ12: the legacy and physical-key fields of a KeyboardEvent.
