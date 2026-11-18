@@ -1784,6 +1784,7 @@ const TIMERS_PRELUDE: &str = r#"
     return m;
   } });
   Object.defineProperty(g, '__scratchy_timers_run_one', { value: function () {
+    if (g.__scratchy_ioTick) g.__scratchy_ioTick();
     var now = __scratchy_now(), best = -1;
     for (var i = 0; i < timers.length; i++) {
       if (timers[i].due <= now && (best < 0 || timers[i].due < timers[best].due)) best = i;
@@ -1796,6 +1797,7 @@ const TIMERS_PRELUDE: &str = r#"
     try { t.fn.apply(g, t.raf ? [now] : t.args); }
     catch (e) { __scratchy_err('Uncaught ' + String(e) + (e && e.stack ? '\n' + e.stack : '')); }
     level = saved;
+    if (g.__scratchy_ioTick) g.__scratchy_ioTick();
     return true;
   } });
 })(globalThis);

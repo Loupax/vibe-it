@@ -14672,6 +14672,143 @@ fn qy6g_zero_cost_before_use() {
     assert!(out.borrow().is_empty(), "{:?}", out.borrow());
 }
 
+// ---- QY57: IntersectionObserver with real geometry ----
+
+/// Like `qy6g_run` with a caller-supplied body (viewport 1024x768).
+fn qy57_run(body: &str, code: &str) -> Vec<String> {
+    let out = Rc::new(RefCell::new(Vec::new()));
+    let o = out.clone();
+    let clock = Rc::new(std::cell::Cell::new(0.0));
+    let html = format!("<html><body style='margin:0'>{body}</body></html>");
+    let engine = crate::js::start_scripts_clocked(
+        &parse_html(&html),
+        &[src(&format!("const $ = id => document.getElementById(id);\n{code}"))],
+        Rc::new(move |level, text| o.borrow_mut().push(format!("{level}:{text}"))),
+        Some(clock.clone()),
+    )
+    .unwrap();
+    for _ in 0..1000 {
+        let Some(due) = engine.next_due_ms() else { break };
+        clock.set(clock.get().max(due));
+        engine.run_due();
+    }
+    out.borrow().clone()
+}
+
+#[test]
+fn qy57_css_sized_target_without_attributes_has_real_rects() {
+    let log = qy57_run(
+        "<div style='height:40px'></div><div id=t style='width:200px;height:100px'></div>",
+        r#"const io = new IntersectionObserver(es => es.forEach(e => {
+             const b = e.boundingClientRect, i = e.intersectionRect;
+             console.log(e.isIntersecting, e.intersectionRatio, b.x, b.y, b.width, b.height, i.y, i.width, i.height, e.rootBounds.width, e.rootBounds.height);
+           }));
+           io.observe($('t'));"#,
+    );
+    assert_eq!(log, ["log:true 1 0 40 200 100 40 200 100 1024 768"], "{log:?}");
+}
+
+#[test]
+fn qy57_offscreen_becomes_visible_after_document_scroll() {
+    let log = qy57_run(
+        "<div style='height:2000px'></div><div id=t style='height:100px'></div><div style='height:2000px'></div>",
+        r#"const io = new IntersectionObserver(es => es.forEach(e =>
+             console.log(e.isIntersecting, e.intersectionRatio, Math.round(e.boundingClientRect.top), e.intersectionRect.height)));
+           io.observe($('t'));
+           setTimeout(() => window.scrollTo(0, 1900), 50);
+           setTimeout(() => window.scrollTo(0, 1950), 100);
+           setTimeout(() => window.scrollTo(0, 0), 150);"#,
+    );
+    // initial: below the fold; 1900: fully visible; 1950: no crossing (still ratio 1, so no entry); 0: gone.
+    assert_eq!(log, ["log:false 0 2000 0", "log:true 1 100 100", "log:false 0 2000 0"], "{log:?}");
+}
+
+#[test]
+fn qy57_scrolling_container_and_explicit_root() {
+    let body = "<div id=box style='height:200px;overflow:auto'><div style='height:600px'></div><div id=t style='height:50px'></div><div style='height:900px'></div></div>";
+    // Implicit root: the overflow ancestor clips the target while it is scrolled out.
+    let log = qy57_run(
+        body,
+        r#"const io = new IntersectionObserver(es => es.forEach(e => console.log('imp', e.isIntersecting, e.intersectionRatio)));
+           io.observe($('t'));
+           setTimeout(() => { $('box').scrollTop = 500; }, 50);"#,
+    );
+    assert_eq!(log, ["log:imp false 0", "log:imp true 1"], "{log:?}");
+    // Explicit root: the root's own box is the bounds (200px high).
+    let log = qy57_run(
+        body,
+        r#"const io = new IntersectionObserver(es => es.forEach(e => console.log('root', e.isIntersecting, e.rootBounds.height)), { root: $('box') });
+           io.observe($('t'));
+           setTimeout(() => { $('box').scrollTop = 500; }, 50);"#,
+    );
+    assert_eq!(log, ["log:root false 200", "log:root true 200"], "{log:?}");
+}
+
+#[test]
+fn qy57_root_margin_extends_the_root() {
+    let body = "<div style='height:800px'></div><div id=t style='height:100px'></div>";
+    let log = qy57_run(
+        body,
+        r#"new IntersectionObserver(es => es.forEach(e => console.log('none', e.isIntersecting))).observe($('t'));
+           new IntersectionObserver(es => es.forEach(e => console.log('px', e.isIntersecting, e.rootBounds.top, e.rootBounds.bottom)), { rootMargin: '50px' }).observe($('t'));
+           new IntersectionObserver(es => es.forEach(e => console.log('pct', e.isIntersecting, e.rootBounds.bottom)), { rootMargin: '10%' }).observe($('t'));"#,
+    );
+    assert_eq!(log, ["log:none false", "log:px true -50 818", "log:pct true 844.8"], "{log:?}");
+}
+
+#[test]
+fn qy57_thresholds_fire_at_crossings() {
+    let log = qy57_run(
+        "<div style='height:2000px'></div><div id=t style='height:100px'></div><div style='height:2000px'></div>",
+        r#"const io = new IntersectionObserver(es => es.forEach(e => console.log(e.isIntersecting, e.intersectionRatio.toFixed(2))), { threshold: [0, 0.5, 1] });
+           io.observe($('t'));
+           const at = (ms, y) => setTimeout(() => window.scrollTo(0, y), ms);
+           at(50, 1250);   // top at 750: 18px visible (0.18): crosses 0
+           at(100, 1280);  // top at 720: 48px (0.48): same band, no entry
+           at(150, 1330);  // top at 670: 98px (0.98): crosses 0.5
+           at(200, 1400);  // fully visible: crosses 1
+           at(250, 0);     // gone"#,
+    );
+    assert_eq!(log, ["log:false 0.00", "log:true 0.18", "log:true 0.98", "log:true 1.00", "log:false 0.00"], "{log:?}");
+}
+
+#[test]
+fn qy57_unobserve_and_disconnect_stop_delivery() {
+    let log = qy57_run(
+        "<div style='height:2000px'></div><div id=t style='height:100px'></div><div id=u style='height:100px'></div><div style='height:2000px'></div>",
+        r#"const a = new IntersectionObserver(es => es.forEach(e => console.log('a', e.target.id, e.isIntersecting)));
+           const b = new IntersectionObserver(es => es.forEach(e => console.log('b', e.target.id, e.isIntersecting)));
+           a.observe($('t')); a.observe($('u')); b.observe($('t'));
+           setTimeout(() => { a.unobserve($('t')); b.disconnect(); window.scrollTo(0, 1900); }, 50);"#,
+    );
+    // Both get the initial (false) entries; after unobserve/disconnect only `u` reports.
+    assert_eq!(log, ["log:a t false", "log:a u false", "log:b t false", "log:a u true"], "{log:?}");
+}
+
+#[test]
+fn qy57_take_records_and_dom_writes_recheck() {
+    let log = qy57_run(
+        "<div id=t style='height:100px'></div>",
+        r#"const io = new IntersectionObserver(es => es.forEach(e => console.log('cb', e.isIntersecting, e.boundingClientRect.height)));
+           io.observe($('t'));
+           const r = io.takeRecords();
+           console.log('took', r.length, r[0].isIntersecting, io.takeRecords().length);
+           setTimeout(() => { $('t').style.marginTop = '900px'; }, 50);
+           setTimeout(() => { $('t').style.marginTop = '0'; }, 100);"#,
+    );
+    // A layout change moves the target out of and back into view.
+    assert_eq!(log, ["log:took 1 true 0", "log:cb false 100", "log:cb true 100"], "{log:?}");
+}
+
+#[test]
+fn qy57_zero_area_target_touching_the_root_intersects() {
+    let log = qy57_run(
+        "<div style='height:768px'></div><div id=t style='height:0'></div><div style='height:100px'></div>",
+        r#"new IntersectionObserver(es => es.forEach(e => console.log(e.isIntersecting, e.intersectionRatio))).observe($('t'));"#,
+    );
+    assert_eq!(log, ["log:true 1"], "{log:?}");
+}
+
 // ---------- QF14b: the scratchy half of the cookie jar (fake wire, no network) ----------
 
 /// A fake wire on a unix socket that records every request (head + body) and

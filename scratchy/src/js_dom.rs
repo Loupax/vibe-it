@@ -1603,12 +1603,14 @@ const DOM_PRELUDE: &str = r#"
     __d_scroll(a[0], a[1], false);
     if (a[0] === a[0]) g.scrollX = g.pageXOffset = Math.max(0, a[0]);
     if (a[1] === a[1]) g.scrollY = g.pageYOffset = Math.max(0, a[1]);
+    if (g.__scratchy_ioNudge) g.__scratchy_ioNudge();
   };
   g.scrollBy = function () {
     var a = scrollArgs(arguments[0], arguments[1]);
     __d_scroll(a[0] === a[0] ? a[0] : 0, a[1] === a[1] ? a[1] : 0, true);
     if (a[0] === a[0]) g.scrollX = g.pageXOffset = Math.max(0, g.scrollX + a[0]);
     if (a[1] === a[1]) g.scrollY = g.pageYOffset = Math.max(0, g.scrollY + a[1]);
+    if (g.__scratchy_ioNudge) g.__scratchy_ioNudge();
   };
   ElementProto.setAttribute = function (n, v) { checkName('setAttribute', String(n)); __d_setq(this.__id, String(n), String(v)); };
   ElementProto.removeAttribute = function (n) { __d_rmq(this.__id, String(n)); };
@@ -3797,16 +3799,16 @@ const DOM_PRELUDE: &str = r#"
   });
   Object.defineProperty(MR.prototype, 'attributeNamespace', { get: function () { return null; }, configurable: true, enumerable: true });
   Object.defineProperty(MR.prototype, Symbol.toStringTag, { value: 'MutationRecord', configurable: true });
-  // ---- QY6g: IntersectionObserver / ResizeObserver / PerformanceObserver with
-  // HONEST MINIMAL semantics. JS cannot see layout (no geometry bridge yet,
-  // QY-IO-GEOMETRY): so every observed target gets ONE initial notification
-  // (timer 0, one batch per observer, observers in creation order) and then
-  // nothing more. IO reports "visible once" (isIntersecting true, ratio 1; a
-  // lazy loader loads its content) unless the target is detached or inside a
-  // `display:none` subtree (false, ratio 0). RO reports the size from the
-  // `width`/`height` attributes, else 0x0 (a lie of omission). Rects are at
-  // x=y=0 with the attribute size when present; the IO root bounds are the
-  // fixed viewport. No hooks or state exist until the first `observe()`.
+  // ---- QY6g: IntersectionObserver / ResizeObserver / PerformanceObserver.
+  // IO (QY57) uses the real layout rects (the QJ4 `gRect`/`gViewRect`
+  // geometry): rootBounds = viewport (or the explicit root's padding box)
+  // grown by rootMargin, the target rect clipped by overflow ancestors and
+  // the root, thresholds per the spec's previous-threshold-index rule. Entries
+  // are computed at delivery time (one flush per timer turn, one cached
+  // layout shared by every observer) and queued only when the crossing state
+  // changes; re-checks follow scrolling, DOM writes and viewport resizes.
+  // RO still reports the size from the `width`/`height` attributes, else 0x0
+  // (a lie of omission). No hooks or state exist until the first `observe()`.
   var ROD = Symbol('DOMRectReadOnly');
   var rectProps = ['x', 'y', 'width', 'height'];
   var DRO = g.DOMRectReadOnly = function DOMRectReadOnly(x, y, w, h) {
@@ -3836,7 +3838,7 @@ const DOM_PRELUDE: &str = r#"
     Object.defineProperty(DR.prototype, k, { get: function () { return this[ROD][k]; }, set: function (v) { this[ROD][k] = +v || 0; }, configurable: true, enumerable: true });
   });
   Object.defineProperty(DR.prototype, Symbol.toStringTag, { value: 'DOMRect', configurable: true });
-  var roRect = function (w, h) { return new DRO(0, 0, w, h); };
+  var roRect = function (x, y, w, h) { return new DRO(x, y, w, h); };
   var attrPx = function (el, a) { var v = parseFloat(el.getAttribute(a)); return v >= 0 && isFinite(v) ? v : 0; };
   // Connected and no `display:none` on the element or an ancestor.
   var ioShown = function (el) {
@@ -3856,7 +3858,7 @@ const DOM_PRELUDE: &str = r#"
     var r = __d_rect(el.__id, Number(g.innerWidth) || 0, Number(g.innerHeight) || 0);
     return r.length ? r : null;
   };
-  var gElScroll = new Map(), gScrollable, gNid, gAncestorScroll, gSetScroll, gScrollEvent;
+  var gElScroll = new Map(), gScrollGen = 0, gScrollable, gNid, gAncestorScroll, gSetScroll, gScrollEvent;
   var gRoot = function (el) { return el === document.documentElement; };
   var gPx = function (el, p) { return parseFloat(__d_cs(el.__id, '', p)) || 0; };
   var gClient = function (el) {
@@ -4206,6 +4208,7 @@ const DOM_PRELUDE: &str = r#"
     if (v === cur) return;
     if (v) gElScroll.set(nid, v); else gElScroll.delete(nid);
     __d_scrollel(el.__id, v);
+    gScrollGen++;
     gScrollEvent(el);
   };
   gScrollEvent = function (el) {
@@ -4234,6 +4237,7 @@ const DOM_PRELUDE: &str = r#"
   // reads back (no scroll event for these yet: QJ6b).
   g.__scratchy_elscroll = function (m) {
     gElScroll.clear();
+    gScrollGen++;
     for (var k in m) if (m[k]) gElScroll.set(Number(k), m[k]);
   };
   var obsErr = function (what, e) {
@@ -4245,8 +4249,10 @@ const DOM_PRELUDE: &str = r#"
     var list = obsPending; obsPending = [];
     list.sort(function (a, b) { return a.id - b.id; });
     for (var i = 0; i < list.length; i++) {
-      var st = list[i], recs = st.q;
-      st.pending = false; st.q = [];
+      var st = list[i];
+      st.pending = false;
+      if (st.need) ioEval(st);
+      var recs = st.q; st.q = [];
       if (recs.length) { try { st.cb.call(st.obs, recs, st.obs); } catch (e) { obsErr(st.name, e); } }
     }
   };
@@ -4290,7 +4296,7 @@ const DOM_PRELUDE: &str = r#"
       return t;
     }).sort(function (a, b) { return a - b; });
     if (!th.length) th = [0];
-    this[IO_S] = { cb: callback, obs: this, id: ++obsSeq, q: [], targets: [], pending: false, name: 'IntersectionObserver', root: root, rootMargin: margin, thresholds: Object.freeze(th) };
+    this[IO_S] = { cb: callback, obs: this, id: ++obsSeq, q: [], targets: [], prev: new Map(), need: false, pending: false, name: 'IntersectionObserver', root: root, rootMargin: margin, thresholds: Object.freeze(th) };
   };
   var ioSt = function (o, fn) {
     var st = o && o[IO_S];
@@ -4300,19 +4306,88 @@ const DOM_PRELUDE: &str = r#"
   var ioTarget = function (fn, t) {
     if (!t || t.__id === undefined || t.nodeType !== 1) throw new TypeError("Failed to execute '" + fn + "' on 'IntersectionObserver': parameter 1 is not of type 'Element'.");
   };
+  // QY57: observers with targets, re-checked when the page scrolls, writes
+  // the DOM or resizes (cheap signature compare, only while one exists).
+  var ioActive = new Set(), ioSig = '', ioTickQ = false;
+  var ioSigOf = function () { return __d_wgen() + ':' + g.innerWidth + 'x' + g.innerHeight + ':' + g.scrollX + ',' + g.scrollY + ':' + gScrollGen; };
+  var ioRecheck = function () {
+    ioTickQ = false;
+    ioSig = ioSigOf();
+    ioActive.forEach(function (st) { st.need = true; obsSchedule(st); });
+  };
+  var ioNudge = function () {
+    if (!ioActive.size || ioTickQ) return;
+    ioTickQ = true;
+    sTimeout.call(g, ioRecheck, 0);
+  };
+  g.__scratchy_ioNudge = ioNudge;
+  g.__scratchy_ioTick = function () { if (ioActive.size && !ioTickQ && ioSigOf() !== ioSig) ioNudge(); };
+  var ioPx = function (v, size) { var n = parseFloat(v) || 0; return v.slice(-1) === '%' ? size * n / 100 : n; };
+  // [l, t, r, b] viewport-space padding box of an overflow ancestor / root.
+  var ioPad = function (el) {
+    var v = gViewRect(el);
+    if (!v) return null;
+    var bl = gPx(el, 'border-left-width'), bt = gPx(el, 'border-top-width');
+    return [v.x + bl, v.y + bt, v.x + v.width - gPx(el, 'border-right-width'), v.y + v.height - gPx(el, 'border-bottom-width')];
+  };
+  var ioThIdx = function (th, ratio) {
+    for (var i = 0; i < th.length; i++) if (th[i] > ratio) return i;
+    return th.length;
+  };
+  var ioEval = function (st) {
+    st.need = false;
+    var rootEl = st.root && st.root.nodeType === 1 && !gRoot(st.root) ? st.root : null;
+    var base = rootEl ? ioPad(rootEl) : [0, 0, Number(g.innerWidth) || 0, Number(g.innerHeight) || 0];
+    var rb = null;
+    if (base) {
+      var m = st.rootMargin.split(' '), bw = base[2] - base[0], bh = base[3] - base[1];
+      rb = [base[0] - ioPx(m[3], bw), base[1] - ioPx(m[0], bh), base[2] + ioPx(m[1], bw), base[3] + ioPx(m[2], bh)];
+    }
+    var clips = new Map();
+    var now = g.performance && g.performance.now ? g.performance.now() : 0;
+    for (var i = 0; i < st.targets.length; i++) {
+      var t = st.targets[i], v = rb ? gViewRect(t) : null;
+      var l = 0, tp = 0, r = 0, b = 0, inRoot = !rootEl, isInt = false, il = 0, it = 0, ir = 0, ib = 0;
+      if (v) {
+        l = v.x; tp = v.y; r = l + v.width; b = tp + v.height;
+        il = l; it = tp; ir = r; ib = b;
+        isInt = true;
+        // Clip by overflow ancestors between the target and the root.
+        for (var a = t.parentNode; a && a.nodeType === 1; a = a.parentNode) {
+          if (a === rootEl) { inRoot = true; break; }
+          if (gRoot(a)) continue;
+          var c = clips.get(a);
+          if (c === undefined) {
+            var cs = __d_cs(a.__id, '', 'overflow-x') + __d_cs(a.__id, '', 'overflow-y');
+            c = cs.indexOf('hidden') >= 0 || cs.indexOf('auto') >= 0 || cs.indexOf('scroll') >= 0 || cs.indexOf('clip') >= 0 ? ioPad(a) : null;
+            clips.set(a, c);
+          }
+          if (c) { il = Math.max(il, c[0]); it = Math.max(it, c[1]); ir = Math.min(ir, c[2]); ib = Math.min(ib, c[3]); }
+        }
+        il = Math.max(il, rb[0]); it = Math.max(it, rb[1]); ir = Math.min(ir, rb[2]); ib = Math.min(ib, rb[3]);
+        isInt = inRoot && ir >= il && ib >= it;
+      }
+      var ratio = 0, area = (r - l) * (b - tp);
+      if (isInt) ratio = area > 0 ? Math.min(1, (ir - il) * (ib - it) / area) : 1;
+      else { il = it = ir = ib = 0; }
+      var idx = ioThIdx(st.thresholds, ratio), pv = st.prev.get(t);
+      if (pv && pv.idx === idx && pv.int === isInt) continue;
+      st.prev.set(t, { idx: idx, int: isInt });
+      var e = Object.create(IE.prototype);
+      e[IE_S] = { time: now, target: t, isIntersecting: isInt, intersectionRatio: ratio,
+        boundingClientRect: roRect(l, tp, r - l, b - tp), intersectionRect: new DRO(il, it, ir - il, ib - it),
+        rootBounds: rb ? new DRO(rb[0], rb[1], rb[2] - rb[0], rb[3] - rb[1]) : null };
+      st.q.push(e);
+    }
+  };
   IO.prototype.observe = function (target) {
     var st = ioSt(this, 'observe');
     if (arguments.length < 1) throw new TypeError("Failed to execute 'observe' on 'IntersectionObserver': 1 argument required, but only 0 present.");
     ioTarget('observe', target);
     if (st.targets.indexOf(target) >= 0) return;
     st.targets.push(target);
-    var shown = ioShown(target), w = shown ? attrPx(target, 'width') : 0, h = shown ? attrPx(target, 'height') : 0;
-    var e = Object.create(IE.prototype);
-    e[IE_S] = { time: g.performance && g.performance.now ? g.performance.now() : 0, target: target,
-      isIntersecting: shown, intersectionRatio: shown ? 1 : 0,
-      boundingClientRect: roRect(w, h), intersectionRect: roRect(w, h),
-      rootBounds: st.root ? roRect(0, 0) : roRect(Number(g.innerWidth) || 0, Number(g.innerHeight) || 0) };
-    st.q.push(e);
+    ioActive.add(st);
+    st.need = true;
     obsSchedule(st);
   };
   IO.prototype.unobserve = function (target) {
@@ -4320,10 +4395,14 @@ const DOM_PRELUDE: &str = r#"
     if (arguments.length < 1) throw new TypeError("Failed to execute 'unobserve' on 'IntersectionObserver': 1 argument required, but only 0 present.");
     ioTarget('unobserve', target);
     var k = st.targets.indexOf(target);
-    if (k >= 0) { st.targets.splice(k, 1); st.q = st.q.filter(function (e) { return e[IE_S].target !== target; }); }
+    if (k >= 0) {
+      st.targets.splice(k, 1); st.prev.delete(target);
+      st.q = st.q.filter(function (e) { return e[IE_S].target !== target; });
+      if (!st.targets.length) ioActive.delete(st);
+    }
   };
-  IO.prototype.disconnect = function () { var st = ioSt(this, 'disconnect'); st.targets = []; st.q = []; };
-  IO.prototype.takeRecords = function () { var st = ioSt(this, 'takeRecords'), q = st.q; st.q = []; return q; };
+  IO.prototype.disconnect = function () { var st = ioSt(this, 'disconnect'); st.targets = []; st.q = []; st.prev.clear(); st.need = false; ioActive.delete(st); };
+  IO.prototype.takeRecords = function () { var st = ioSt(this, 'takeRecords'); if (st.need) ioEval(st); var q = st.q; st.q = []; return q; };
   defGetters(IO.prototype, IO_S, ['root', 'rootMargin', 'thresholds']);
   Object.defineProperty(IO.prototype, Symbol.toStringTag, { value: 'IntersectionObserver', configurable: true });
   // -- ResizeObserver
@@ -4363,7 +4442,7 @@ const DOM_PRELUDE: &str = r#"
     st.targets.push(target);
     var w = attrPx(target, 'width'), h = attrPx(target, 'height');
     var e = Object.create(RE.prototype);
-    e[RE_S] = { target: target, contentRect: roRect(w, h), borderBoxSize: [rzSize(w, h)], contentBoxSize: [rzSize(w, h)], devicePixelContentBoxSize: [rzSize(w, h)] };
+    e[RE_S] = { target: target, contentRect: roRect(0, 0, w, h), borderBoxSize: [rzSize(w, h)], contentBoxSize: [rzSize(w, h)], devicePixelContentBoxSize: [rzSize(w, h)] };
     st.q.push(e);
     obsSchedule(st);
   };
