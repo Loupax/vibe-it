@@ -1585,7 +1585,7 @@ Evidence and the probe recipe: REGRESSIONS.md R36.
       with a unit test. Tests: dispatch Enter through `js_key_for("keydown")` on a
       focused input whose listener records `[e.key, e.keyCode, e.which]` ->
       `Enter,13,13`; `keypress` for 'a' -> `charCode` 97; Escape -> 27.
-- [x] QY48 [S] DONE HASH0 (P3, R36; do with or after QF11, before QY13b) `history.pushState`/
+- [x] QY48 [S] DONE 1a21475 (P3, R36; do with or after QF11, before QY13b) `history.pushState`/
       `replaceState` never reach the App: after YouTube's SPA search the page's
       `location.href` is `/results?search_query=rust`, but the App's current URL,
       title/status line, `:` command-line URL, reload and App history still say
