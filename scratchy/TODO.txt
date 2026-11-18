@@ -159,6 +159,11 @@ Order: (drain) -> QT1 -> QV8-0 -> QV8-1 -> QV8-2 -> QV8-3 -> QV8-4 -> QV8-5 -> Q
       (R39: empty isolate+context 2.3-2.6 ms CPU vs QuickJS 0.4-0.6 ms; a TRIVIAL snapshot
       gained nothing; the ~198 KB of prelude JS is the real test.)
 - [ ] QV8-5 [S] (after QV8-3) Make V8 the default engine: `engine-v8` on by default, QuickJS
+      USER (2026-11-18): JS and video must be ALWAYS ON in a plain `cargo install --path .`:
+      no feature flag the user has to remember. QV8-5 makes V8 the default; ALSO add `media`
+      to `default` features in Cargo.toml (libmpv is loaded by dlopen, so no build-time dep;
+      without libmpv installed the inert placeholder stays at run time). Update CI/AGENTS.md/
+      install commands (drop `--features media`). QuickJS stays behind a flag until QV8-6.
       behind `engine-quickjs` for one round as a fallback; CI default job on V8. Nested-dwl
       check of YouTube results, Wikipedia, social.loupax.com (grim screenshots).
 - [ ] QV8-m [M] (after QV8-5, Opus measure) AFTER numbers: run `tools/perf-suite.sh` exactly as
