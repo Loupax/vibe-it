@@ -1099,7 +1099,7 @@ pub(crate) enum EventField {
 
 /// `s` as a JS string literal (everything outside printable ASCII is
 /// `\u`-escaped, so it is safe in any source).
-fn js_string_literal(s: &str) -> String {
+pub(crate) fn js_string_literal(s: &str) -> String {
     let mut out = String::from('"');
     for c in s.chars() {
         match c {
@@ -1585,6 +1585,7 @@ pub(crate) fn start_scripts_clocked(
         }
     }
     engine.eval("DOMContentLoaded", FIRE_DOM_CONTENT_LOADED);
+    engine.eval("img-sweep", "__scratchy_img_sweep()");
     engine.eval("load", FIRE_LOAD);
     Some(engine)
 }

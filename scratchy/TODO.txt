@@ -63,7 +63,7 @@ older and were only partly corrected in place):
 - NEW 2026-11-18 (Opus, QY47c DONE, R38): YouTube `true` thumbnails = src-less `<img
   alt="true">`: IntersectionObserver rects come from width/height attributes (0x0), so
   YouTube's lazy loader never sets src; and a script-set `img.src` is never fetched anyway.
-  QY56 [M] READY P1 (fetch late images + complete/naturalWidth/load), QY57 [M] READY P1 (IO
+  QY56 [M] DONE (42c5ffa) (fetch late images + complete/naturalWidth/load), QY57 [M] READY P1 (IO
   with real geometry), QY60 [S] P2 (Opus: rAF ~0.6/s on YouTube; grey masthead circles are
   YouTube's skeleton waiting for that), QY58/QY59 P3. Block "NEW 2026-11-18 (Opus, QY47c ...)"
   right after QY55.
@@ -1728,7 +1728,7 @@ Ranked: QY50 (P1) -> QY51 (P1) -> QY49-D (user decision, can be asked now) -> QY
 --- NEW 2026-11-18 (Opus, QY47c: YouTube `true` thumbnails, grey masthead circles; R38) ---
 Ranked: QY56 (P1) and QY57 (P1, either order; BOTH are needed before a YouTube thumbnail
 shows) -> QY60 (P2, Opus) -> QY58 (P3) -> QY59 (P3). Evidence: REGRESSIONS.md R38.
-- [ ] QY56 [M] (P1, R38, Sonnet) Load `<img>` sources that appear after page load. Today
+- [x] QY56 [M] DONE (42c5ffa) (P1, R38, Sonnet) Load `<img>` sources that appear after page load. Today
       only the initial parse's `<img src>` (net.rs `find_external_resources`) and CSS
       `url()` misses (`WANTED_CSS_IMAGES`, Q35a) are fetched: `img.src = u` from a script,
       `setAttribute('src')`, a `createElement('img')`/innerHTML-inserted img, and `srcset`
