@@ -261,3 +261,34 @@ of this is the interpreter" number from another engine; QV8-m's V8 run is the fi
 
 Filled in by QV8-m: the same two tables for V8 at the merged hash, side by side with the
 baseline above, with the ratio per row.
+
+### QV8-3b interim (V8 15.2.124.1 behind `engine-v8`, 103ff22 + QV8-3b, 2026-11-18)
+
+Interim, NOT the final table (QV8-m writes that). `tools/perf-suite.sh` with
+`SCRATCHY=target/v8/release/scratchy` (release, 7 pages x 3 runs x 2 budgets + corpus), run on a quiet
+machine (load ~1.3 at the end, nothing else started by me), un-niced, same wire and pages as the
+baseline. Modules are NOT implemented yet on V8 (QV8-3c): github.com and old.reddit.com use module
+scripts and ran only 1 ms / 26 ms of callbacks (js errors 6 and 6 vs 4 and 8 on QuickJS; the individual
+errors were not inspected), so their rows are not comparable.
+Median of 3; ms of CPU unless noted.
+
+| page | pass | kills (QuickJS) | max callback budget clock (QuickJS) | all callbacks raw CPU total (QuickJS) | forced layout total | load CPU | RSS MB | JS errors |
+|---|---|---|---|---|---|---|---|---|
+| YouTube results | true cost | 0 | 494 (515) | 23100 | 18555 | 2056 | 474 | 0 |
+| YouTube results | default | 0 (1) | 554 (502 killed) | 22325 | 17958 | 2413 | 465 | 0 (1) |
+| YouTube home | true cost | 0 | 499 (412) | 6725 | 4359 | 2229 | 469 | 0 |
+| en.wikipedia Rust | default | 0 | 230 (195) | 12561 | 11683 | 165 | 240 | 1 (media) |
+| bbc.com/news | true cost | 0 | 558 (1354) | 3705 | 2592 | 453 | 173 | 3 |
+| bbc.com/news | default | 0 (1) | 395 (500 killed) | 2894 | 2061 | 310 | 174 | 3 (1) |
+
+(Other rows are in the raw JSON, not committed.) Reading: the script-only part got cheaper where there is
+no forced layout (bbc timer max 1354 -> 558, no kill at the default budget), but YouTube and Wikipedia are
+dominated by forced layout (YouTube results 18.0 s of the 22 s), which the engine does not change, so
+total CPU and load CPU did not improve on those pages. Corpus (bare engine; compile / first run CPU ms,
+QuickJS in brackets): d3 13.1 / 10.4 (37.6 / 3.22), jquery 2.2 / 5.6 (8.71 / 0.97), lodash 2.6 / 6.4
+(9.26 / 1.60), moment 1.6 / 2.0 (5.59 / 0.52), react 0.33 / 0.32 (1.16 / 0.05), react-dom 3.5 / 3.9
+(13.04 / 1.76), three 15.2 / 5.8 (59.5 / 3.67), fib(25) 0.03 / 1.5 (0.04 / 21.4), sort 200k objects
+0.05 / 99 (0.05 / 613), JSON round trip 0.06 / 47 (0.08 / 328). So parsing and CPU loops are 3-14x cheaper
+(V8 compiles lazily, so first run of big libraries costs more than QuickJS' 0.5-3.7 ms), as in R39.
+Single run per row for the corpus numbers here (the suite's median of 3). Not measured: the standalone
+corpus run, Chrome reference, drawn output.

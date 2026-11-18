@@ -1104,7 +1104,10 @@ fn qy46_three_300ms_jobs_all_complete_in_one_drain() {
 
 #[test]
 fn qy46_runaway_job_is_still_killed() {
-    let log = qy46_run("setTimeout(()=>{Promise.resolve().then(()=>{for(;;){}});},0);", 1_000, 5);
+    // QV8-3b: the fake clock advances per READ. QuickJS reads it every few thousand ops; V8's
+    // watchdog reads it once per 2 ms tick, so the step is 100 ms there (the same 5 reads).
+    let step = if cfg!(feature = "engine-v8") { 100_000_000 } else { 1_000 };
+    let log = qy46_run("setTimeout(()=>{Promise.resolve().then(()=>{for(;;){}});},0);", step, 5);
     let errs: Vec<_> = log.iter().filter(|l| l.starts_with("error:")).collect();
     assert_eq!(errs.len(), 1, "{log:?}");
     assert!(errs[0].contains("promise jobs stopped") && errs[0].contains("1 job killed"), "{log:?}");
@@ -1120,10 +1123,23 @@ fn qy46_ten_300ms_jobs_stop_at_the_cap_and_resume_without_kills() {
         0,
         20,
     );
-    assert!(!log.iter().any(|l| l.starts_with("error:")), "{log:?}");
     // 7 jobs start before 2 s of CPU is spent (the 7th starts at 1.8 s); the
     // timer that logs runs between the capped drain and its resumption.
-    assert!(log.iter().any(|l| l == "log:n=7"), "{log:?}");
+    #[cfg(not(feature = "engine-v8"))]
+    {
+        assert!(!log.iter().any(|l| l.starts_with("error:")), "{log:?}");
+        assert!(log.iter().any(|l| l == "log:n=7"), "{log:?}");
+    }
+    // QV8-3b (R39 C2): V8 cannot resume a cut-short drain; it drops the rest of the queue and
+    // says so in one line. Jobs 8-10 never finish, and job 8 may or may not have run its body
+    // before the termination landed, so n is 7 or 8, never 10.
+    #[cfg(feature = "engine-v8")]
+    {
+        let errs: Vec<_> = log.iter().filter(|l| l.starts_with("error:")).collect();
+        assert_eq!(errs.len(), 1, "{log:?}");
+        assert!(errs[0].contains("promise jobs stopped") && errs[0].contains("remaining jobs dropped"), "{log:?}");
+        assert!(log.iter().any(|l| l == "log:n=7" || l == "log:n=8"), "{log:?}");
+    }
 }
 
 // ---------- QY47a: JS stack limit ----------

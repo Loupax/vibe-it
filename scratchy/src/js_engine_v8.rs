@@ -20,8 +20,21 @@
 //!   while a callback is armed; the interrupt runs on the JS thread, reads the budget clock
 //!   and terminates the script.
 //!
-//! 3a minimal stubs (QV8-3b/3c): no per-job promise budget, no OOM callback, no module
-//! loading (`import` and module scripts fail with a clear "not implemented in 3a" error).
+//! QV8-3b: the budget, promise jobs, stack and heap limits (R39 C1-C4):
+//! - promise jobs run in ONE `perform_microtask_checkpoint` (V8 cannot run a single job). A
+//!   COUNTER-ONLY `PromiseHook` bumps `JOBS` at the start of every reaction job; the watchdog
+//!   interrupt sees the counter move and re-arms the per-job deadline, so every job gets its own
+//!   budget while a runaway job (no counter movement) is killed. The hook never reads the clock.
+//!   A killed job or a tripped drain cap drops the rest of the queue (V8 clears it when the
+//!   script is terminated): the log says "remaining jobs dropped". `PENDING` (any promise created
+//!   or resolved since the last drain) stands in for `is_job_pending`, which V8 cannot answer.
+//! - the stack limit is `sp - min(4 MB, half the thread stack)` (`js::js_stack_limit`).
+//! - a near-heap-limit callback terminates the script (and gives V8 a little room to unwind)
+//!   instead of letting V8 abort the process; the error reads `InternalError: out of memory`.
+//! - `document.all` (QY40) is an undetectable object made from an `ObjectTemplate`.
+//!
+//! Still a stub (QV8-3c): module loading (`import` and module scripts fail with a clear
+//! "not implemented" error).
 use super::*;
 use std::cell::{Cell, UnsafeCell};
 use std::ffi::c_void;
@@ -30,6 +43,17 @@ use std::ptr::NonNull;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Once;
 use std::time::Duration;
+
+thread_local! {
+    /// Promise reaction jobs started on this thread (fed by the promise hook).
+    static JOBS: Cell<u64> = const { Cell::new(0) };
+    /// A promise was created or resolved since the last drain (a job may be queued).
+    static PENDING: Cell<bool> = const { Cell::new(false) };
+    /// The near-heap-limit callback fired and terminated the script.
+    static OOM: Cell<bool> = const { Cell::new(false) };
+    /// The page engine's watchdog state, for the synchronous budget polls (tests).
+    static CUR_WATCH: std::cell::RefCell<Option<Arc<Watch>>> = const { std::cell::RefCell::new(None) };
+}
 
 type Sc = v8::PinScope<'static, 'static>;
 type L<T> = v8::Local<'static, T>;
@@ -306,6 +330,8 @@ struct State {
     pending: Option<v8::Global<v8::Value>>,
     /// The script was stopped by `terminate_execution` (no JS exception exists then).
     terminated: bool,
+    /// ... because the heap limit was hit (read by `describe_error`).
+    oom: bool,
 }
 
 fn state<'a>(ctx: &Ctx<'_>) -> &'a mut State {
@@ -319,6 +345,7 @@ fn stash(ctx: &Ctx<'_>, tc: &mut v8::PinnedRef<'_, v8::TryCatch<v8::HandleScope>
     let st_ = state(ctx);
     if tc.has_terminated() {
         st_.terminated = true;
+        st_.oom = OOM.with(Cell::take);
         st_.pending = None;
         return;
     }
@@ -538,10 +565,72 @@ pub(crate) fn eval_quiet(ctx: &Ctx<'_>, code: &str) {
     }
 }
 
-/// QY40: gives the global `name` the [[IsHTMLDDA]] slot. NOT IMPLEMENTED on V8 (3a):
-/// V8 marks objects undetectable only through an `ObjectTemplate`, so `document.all` stays
-/// an ordinary (truthy) function. Tracked in TODO.txt (QV8-3a2).
-pub(crate) fn mark_htmldda(_ctx: &Ctx<'_>, _name: &str) {}
+unsafe extern "C" {
+    /// `v8::ObjectTemplate::MarkAsUndetectable()`: in V8's public API (and so in the prebuilt
+    /// library) but not bound by the `v8` crate. It takes only `this`, so the Itanium-mangled
+    /// name carries no libc++ types.
+    #[link_name = "_ZN2v814ObjectTemplate18MarkAsUndetectableEv"]
+    fn v8_object_template_mark_as_undetectable(this: *const v8::ObjectTemplate);
+}
+
+/// The stand-in's handlers forward to the JS Proxy kept as the handler data.
+fn all_named_get<'s>(scope: &mut v8::PinScope<'s, '_>, key: v8::Local<'s, v8::Name>, args: v8::PropertyCallbackArguments<'s>, mut rv: v8::ReturnValue<v8::Value>) -> v8::Intercepted {
+    let Ok(proxy) = v8::Local::<v8::Object>::try_from(args.data()) else { return v8::Intercepted::kNo };
+    match proxy.get(scope, key.into()) {
+        Some(v) => {
+            rv.set(v);
+            v8::Intercepted::kYes
+        }
+        None => v8::Intercepted::kNo,
+    }
+}
+
+fn all_indexed_get<'s>(scope: &mut v8::PinScope<'s, '_>, index: u32, args: v8::PropertyCallbackArguments<'s>, mut rv: v8::ReturnValue<v8::Value>) -> v8::Intercepted {
+    let Ok(proxy) = v8::Local::<v8::Object>::try_from(args.data()) else { return v8::Intercepted::kNo };
+    match proxy.get_index(scope, index) {
+        Some(v) => {
+            rv.set(v);
+            v8::Intercepted::kYes
+        }
+        None => v8::Intercepted::kNo,
+    }
+}
+
+fn all_call<'s>(scope: &mut v8::PinScope<'s, '_>, args: v8::FunctionCallbackArguments<'s>, mut rv: v8::ReturnValue<'s, v8::Value>) {
+    let Ok(f) = v8::Local::<v8::Function>::try_from(args.data()) else { return };
+    let argv: Vec<v8::Local<v8::Value>> = (0..args.length()).map(|i| args.get(i)).collect();
+    if let Some(v) = f.call(scope, args.this().into(), &argv) {
+        rv.set(v);
+    }
+}
+
+/// QY40: gives `document.all` the [[IsHTMLDDA]] slot (falsy, `typeof` 'undefined', `== null`).
+/// V8 can only mark an object undetectable through an `ObjectTemplate`, so the page's
+/// `document.all` (a callable JS Proxy, kept in the global `name` until now) is wrapped in an
+/// undetectable instance whose named/indexed/call handlers forward to it, and `document.all`
+/// is redefined to return the wrapper.
+pub(crate) fn mark_htmldda(ctx: &Ctx<'_>, name: &str) {
+    let sc = ctx.sc();
+    let Ok(k) = name.into_js(ctx) else { return };
+    let Some(proxy) = ctx.global().get(sc, k) else { return };
+    if !proxy.is_function() {
+        return;
+    }
+    let tmpl = v8::ObjectTemplate::new(sc);
+    // SAFETY: `tmpl` is a live template; the call only sets a flag on it (before any instance).
+    unsafe { v8_object_template_mark_as_undetectable(&*tmpl) };
+    tmpl.set_named_property_handler(v8::NamedPropertyHandlerConfiguration::new().getter(all_named_get).data(proxy));
+    tmpl.set_indexed_property_handler(v8::IndexedPropertyHandlerConfiguration::new().getter(all_indexed_get).data(proxy));
+    tmpl.set_call_as_function_handler(all_call, Some(proxy));
+    let Some(inst) = tmpl.new_instance(sc) else { return };
+    if set_global(ctx, "__d_all_w", RawValue(st(inst.into()))).is_ok() {
+        eval_quiet(
+            ctx,
+            "(function () { var w = globalThis.__d_all_w; delete globalThis.__d_all_w; \
+             Object.defineProperty(document, 'all', { get: function () { return w; }, configurable: true, enumerable: true }); })();",
+        );
+    }
+}
 
 // ---------------------------------------------------------------- errors
 
@@ -566,8 +655,15 @@ pub(crate) fn describe_error(ctx: &Ctx<'_>, err: JsError) -> String {
     }
     let st_ = state(ctx);
     let was_terminated = std::mem::take(&mut st_.terminated);
+    let was_oom = std::mem::take(&mut st_.oom);
     let Some(g) = st_.pending.take() else {
-        return if was_terminated { "InternalError: interrupted".into() } else { "Uncaught undefined".into() };
+        return if was_oom {
+            "InternalError: out of memory".into()
+        } else if was_terminated {
+            "InternalError: interrupted".into()
+        } else {
+            "Uncaught undefined".into()
+        };
     };
     let sc = ctx.sc();
     let value = v8::Local::new(sc, &g);
@@ -594,7 +690,13 @@ pub(crate) fn describe_error(ctx: &Ctx<'_>, err: JsError) -> String {
 pub(crate) fn discard_exception(ctx: &Ctx<'_>) {
     let s = state(ctx);
     s.pending = None;
-    s.terminated = false;
+    // A swallowed termination must end here: V8 keeps terminating every script on the stack
+    // (and the next ones in this `with`) until `cancel_terminate_execution`.
+    if std::mem::take(&mut s.terminated) {
+        ctx.sc().cancel_terminate_execution();
+    }
+    s.oom = false;
+    OOM.with(|o| o.set(false));
 }
 
 /// The engine's name and version for the perf report (a V8 backend fills the same pair).
@@ -687,6 +789,14 @@ pub(crate) struct Budget {
     tripped: Arc<AtomicBool>,
     /// A callback is armed and JS may be running: the watchdog interrupts only then.
     active: Arc<AtomicBool>,
+    /// A promise drain is running: a moving `JOBS` counter re-arms `deadline` (one budget per job).
+    per_job: Arc<AtomicBool>,
+    /// The drain cap on the script clock (0 = no drain running).
+    drain_deadline: Arc<AtomicU64>,
+    /// The drain cap (not a job's own budget) stopped the script.
+    cap_hit: Arc<AtomicBool>,
+    /// `JOBS` as the last check saw it.
+    last_jobs: Arc<AtomicU64>,
 }
 
 impl Budget {
@@ -695,19 +805,36 @@ impl Budget {
             deadline: Arc::new(AtomicU64::new(script_clock_nanos() + initial.as_nanos() as u64)),
             tripped: Arc::new(AtomicBool::new(false)),
             active: Arc::new(AtomicBool::new(false)),
+            per_job: Arc::new(AtomicBool::new(false)),
+            drain_deadline: Arc::new(AtomicU64::new(0)),
+            cap_hit: Arc::new(AtomicBool::new(false)),
+            last_jobs: Arc::new(AtomicU64::new(0)),
         }
     }
 
     /// Clears the tripped flag and starts a fresh `budget`.
     pub(crate) fn arm(&self, budget: Duration) {
         self.tripped.store(false, Ordering::Relaxed);
-        self.deadline.store(script_clock_nanos() + budget.as_nanos() as u64, Ordering::Relaxed);
+        self.set_deadline(budget);
         self.active.store(true, Ordering::Release);
+    }
+
+    /// An explicit arm wins over the watchdog's per-job re-arm: the job that moved the counter
+    /// before this call is already covered, and a drain's cap must not cut a budget the caller
+    /// asked for (a page-load script delivered from inside a job keeps its own, longer budget,
+    /// as on QuickJS).
+    fn set_deadline(&self, budget: Duration) {
+        let d = script_clock_nanos() + budget.as_nanos() as u64;
+        self.deadline.store(d, Ordering::Relaxed);
+        self.last_jobs.store(JOBS.with(Cell::get), Ordering::Relaxed);
+        if self.drain_deadline.load(Ordering::Relaxed) != 0 {
+            self.drain_deadline.fetch_max(d, Ordering::Relaxed);
+        }
     }
 
     /// Starts a fresh `budget` but keeps the tripped flag (a drain's per-job deadline).
     pub(crate) fn rearm_keep_tripped(&self, budget: Duration) {
-        self.deadline.store(script_clock_nanos() + budget.as_nanos() as u64, Ordering::Relaxed);
+        self.set_deadline(budget);
         self.active.store(true, Ordering::Release);
     }
 
@@ -726,14 +853,77 @@ struct Watch {
 
 const TICK: Duration = Duration::from_millis(2);
 
+/// The budget check (JS thread only: the clock and the job counter are thread-local). Runs from
+/// the watchdog's interrupt every tick, and synchronously from the test seams.
+fn poll_budget(w: &Watch) {
+    let b = &w.budget;
+    if !b.active.load(Ordering::Acquire) {
+        return;
+    }
+    let now = script_clock_nanos();
+    if b.per_job.load(Ordering::Relaxed) {
+        // A job started since the last check: it gets a fresh budget (QY46). Checked BEFORE the
+        // deadline so a job that starts just as the old one expires is not blamed for it.
+        let jobs = JOBS.with(Cell::get);
+        if jobs != b.last_jobs.load(Ordering::Relaxed) {
+            b.last_jobs.store(jobs, Ordering::Relaxed);
+            b.deadline.store(now + perf::callback_budget().as_nanos() as u64, Ordering::Relaxed);
+        }
+    }
+    let cap = b.drain_deadline.load(Ordering::Relaxed);
+    // The job's own budget is checked first: a job that overruns it is "killed", and only a
+    // drain of many well-behaved jobs is "capped".
+    if now > b.deadline.load(Ordering::Relaxed) {
+        b.tripped.store(true, Ordering::Relaxed);
+        w.handle.terminate_execution();
+    } else if cap != 0 && now > cap {
+        b.cap_hit.store(true, Ordering::Relaxed);
+        w.handle.terminate_execution();
+    }
+}
+
 unsafe extern "C" fn on_interrupt(_iso: v8::UnsafeRawIsolatePtr, data: *mut c_void) {
     // SAFETY: `data` is the `Watch` owned by the Engine, which joins the watchdog thread
     // (and so outlives every interrupt it posted) before the isolate goes away.
     let w = unsafe { &*(data as *const Watch) };
-    if w.budget.active.load(Ordering::Acquire) && script_clock_nanos() > w.budget.deadline.load(Ordering::Relaxed) {
-        w.budget.tripped.store(true, Ordering::Relaxed);
-        w.handle.terminate_execution();
+    poll_budget(w);
+}
+
+/// QV8-3b test seam: the budget check, right now, on this thread's page engine (so a fake-clock
+/// test is exact instead of waiting for the watchdog's 2 ms tick).
+#[cfg(test)]
+pub(crate) fn poll_budget_now() {
+    CUR_WATCH.with(|w| {
+        if let Some(w) = &*w.borrow() {
+            poll_budget(w);
+        }
+    });
+}
+
+/// The counter-only promise hook (R39 C2): never reads the clock.
+unsafe extern "C" fn promise_hook(ty: v8::PromiseHookType, _promise: v8::Local<v8::Promise>, _parent: v8::Local<v8::Value>) {
+    match ty {
+        v8::PromiseHookType::Before => {
+            JOBS.with(|j| j.set(j.get().wrapping_add(1)));
+            // Fake-clock tests: the job's budget must be re-armed before its body spends fake CPU.
+            #[cfg(test)]
+            if crate::js::FAKE_CLOCK.with(|f| f.get().is_some()) {
+                poll_budget_now();
+            }
+        }
+        v8::PromiseHookType::Init | v8::PromiseHookType::Resolve => PENDING.with(|p| p.set(true)),
+        v8::PromiseHookType::After => {}
     }
+}
+
+/// C4: the heap is nearly full. Stop the script (an uncatchable termination, like the CPU budget)
+/// and give V8 a little more room to unwind, instead of letting it abort the whole process.
+unsafe extern "C" fn near_heap_limit(data: *mut c_void, current: usize, _initial: usize) -> usize {
+    // SAFETY: `data` is the Engine's boxed handle, alive as long as the isolate.
+    let h = unsafe { &*(data as *const v8::IsolateHandle) };
+    OOM.with(|o| o.set(true));
+    h.terminate_execution();
+    current + (32 << 20)
 }
 
 fn start_watchdog(w: Arc<Watch>) -> std::thread::JoinHandle<()> {
@@ -847,6 +1037,8 @@ pub(crate) struct Engine {
     watchdog: Option<(Arc<Watch>, std::thread::JoinHandle<()>)>,
     context: v8::Global<v8::Context>,
     isolate: UnsafeCell<v8::OwnedIsolate>,
+    /// What `near_heap_limit` points at (dropped after the isolate).
+    _oom_handle: Box<v8::IsolateHandle>,
     pub(crate) budget: Budget,
     /// Nesting depth of `with` (the outermost one ends a termination).
     depth: Cell<u32>,
@@ -857,6 +1049,7 @@ impl Drop for Engine {
         if let Some((w, h)) = self.watchdog.take() {
             w.stop.store(true, Ordering::Relaxed);
             let _ = h.join();
+            CUR_WATCH.with(|c| *c.borrow_mut() = None);
         }
     }
 }
@@ -874,13 +1067,20 @@ impl Engine {
         let params = unsafe { params.set_stack_limit(limit as *mut u32) };
         let mut isolate = v8::Isolate::new(params);
         isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
-        isolate.set_slot(State { arena: Vec::new(), pending: None, terminated: false });
+        isolate.set_slot(State { arena: Vec::new(), pending: None, terminated: false, oom: false });
+        JOBS.with(|j| j.set(0));
+        PENDING.with(|p| p.set(false));
+        OOM.with(|o| o.set(false));
+        isolate.set_promise_hook(promise_hook);
+        let oom_handle = Box::new(isolate.thread_safe_handle());
+        isolate.add_near_heap_limit_callback(near_heap_limit, &*oom_handle as *const v8::IsolateHandle as *mut c_void);
         let budget = Budget::new(SCRIPT_BUDGET);
         let mut watchdog = None;
         if opts.page.is_some() {
             isolate.set_promise_reject_callback(reject_callback);
             let w = Arc::new(Watch { budget: budget.clone(), stop: AtomicBool::new(false), handle: isolate.thread_safe_handle() });
             let h = start_watchdog(w.clone());
+            CUR_WATCH.with(|c| *c.borrow_mut() = Some(w.clone()));
             watchdog = Some((w, h));
         }
         let context = {
@@ -888,11 +1088,11 @@ impl Engine {
             let c = v8::Context::new(hs, Default::default());
             v8::Global::new(hs, c)
         };
-        let eng = Engine { watchdog, context, isolate: UnsafeCell::new(isolate), budget, depth: Cell::new(0) };
+        let eng = Engine { watchdog, context, isolate: UnsafeCell::new(isolate), _oom_handle: oom_handle, budget, depth: Cell::new(0) };
         // QuickJS ships atob/btoa and no `Intl`; V8 is the other way round. Match QuickJS:
         // the page's own en-US `Intl` shim (intl_prelude.js) only installs when `Intl` is absent.
         eng.with(|ctx| {
-            eval_quiet(&ctx, "delete globalThis.Intl;");
+            eval_quiet(&ctx, "delete globalThis.Intl; delete globalThis.queueMicrotask;");
             eval_quiet(&ctx, BASE64_JS);
         });
         Ok(eng)
@@ -927,12 +1127,16 @@ impl Engine {
         let iso = self.iso();
         if iso.is_execution_terminating() {
             iso.cancel_terminate_execution();
+            OOM.with(|o| o.set(false));
         }
     }
 
-    /// V8 keeps no queue length to ask for: jobs are drained (`drain_jobs`) after every task.
+    /// V8 keeps no queue length to ask for. The promise hook notes every promise created or
+    /// resolved since the last drain: if none, nothing can be queued; if some, a job may be
+    /// (the next drain answers and clears it). Never true after a drain, even a cut-short one
+    /// (the queue is dropped then).
     pub(crate) fn is_job_pending(&self) -> bool {
-        false
+        PENDING.with(Cell::get)
     }
 
     /// Bytes the engine reports as in use (the perf report's JS heap).
@@ -943,28 +1147,49 @@ impl Engine {
     /// Runs every queued promise job, ignoring failures and the budget (the bare corpus eval).
     pub(crate) fn run_all_jobs(&self) {
         self.iso().perform_microtask_checkpoint();
+        PENDING.with(|p| p.set(false));
     }
 
     /// Runs the pending promise jobs, then reports rejections that stayed unhandled via the
     /// prelude's `__scratchy_rej_flush` (which may queue more jobs: loop until quiet).
-    /// 3a: one budget for the whole checkpoint (the per-job budget is QV8-3b).
+    ///
+    /// QY46 on V8: every job has its own callback budget (the watchdog re-arms it when the hook's
+    /// counter moves) and the drain stops at `DRAIN_CAP`. A killed job or a tripped cap drops the
+    /// rest of the queue (V8 clears it on termination): one log line says so.
     pub(crate) fn drain_jobs(&self, log: &dyn Fn(&str, &str)) {
+        let b = &self.budget;
         let drain_start = script_clock_nanos();
-        'drain: loop {
-            self.budget.rearm_keep_tripped(perf::callback_budget());
+        let cap = perf::drain_cap().as_nanos() as u64;
+        b.cap_hit.store(false, Ordering::Relaxed);
+        b.drain_deadline.store(drain_start + cap, Ordering::Relaxed);
+        b.last_jobs.store(JOBS.with(Cell::get), Ordering::Relaxed);
+        b.per_job.store(true, Ordering::Relaxed);
+        let mut stop: Option<String> = None;
+        let cap_line = || format!("js: promise jobs stopped: the drain used more than {} ms of CPU time (remaining jobs dropped)", perf::drain_cap().as_millis());
+        loop {
+            b.rearm_keep_tripped(perf::callback_budget());
             let span = perf::begin(Some(perf::job_kind()));
             self.iso().perform_microtask_checkpoint();
-            self.budget.active.store(false, Ordering::Release);
+            b.active.store(false, Ordering::Release);
             // `tripped` is sticky across jobs (an earlier script's trip): the termination
             // flag says THIS checkpoint was stopped.
-            let killed = self.iso().is_execution_terminating();
-            perf::end(span, killed);
+            let terminating = self.iso().is_execution_terminating();
+            let oom = terminating && OOM.with(Cell::take);
+            let capped = terminating && !oom && b.cap_hit.load(Ordering::Relaxed);
+            perf::end(span, terminating && !capped);
             self.finish_termination();
-            if killed {
-                log("error", &format!("js: promise jobs stopped: exceeded the {} ms CPU-time callback budget (remaining jobs dropped)", perf::callback_budget().as_millis()));
-                break 'drain;
+            if terminating {
+                stop = Some(if oom {
+                    "js: promise jobs stopped: out of memory (1 job killed, remaining jobs dropped)".to_string()
+                } else if capped {
+                    cap_line()
+                } else {
+                    format!("js: promise jobs stopped: exceeded the {} ms CPU-time callback budget (1 job killed, remaining jobs dropped)", perf::callback_budget().as_millis())
+                });
+                break;
             }
-            self.budget.rearm_keep_tripped(perf::callback_budget());
+            PENDING.with(|p| p.set(false));
+            b.rearm_keep_tripped(perf::callback_budget());
             let more = self.with(|c| match call_global::<_, bool>(&c, "__scratchy_rej_flush", ()) {
                 None => false,
                 Some(Ok(b)) => b,
@@ -973,9 +1198,19 @@ impl Engine {
                     false
                 }
             });
-            if !more || script_clock_nanos().saturating_sub(drain_start) >= perf::drain_cap().as_nanos() as u64 {
+            if !more && !PENDING.with(Cell::get) {
                 break;
             }
+            if script_clock_nanos().saturating_sub(drain_start) >= cap {
+                stop = Some(cap_line());
+                break;
+            }
+        }
+        b.per_job.store(false, Ordering::Relaxed);
+        b.drain_deadline.store(0, Ordering::Relaxed);
+        if let Some(line) = stop {
+            PENDING.with(|p| p.set(false));
+            log("error", &line);
         }
     }
 }

@@ -154,9 +154,21 @@ Order: (drain) -> QT1 -> QV8-0 -> QV8-1 -> QV8-2 -> QV8-3 -> QV8-4 -> QV8-5 -> Q
           through an ObjectTemplate; build `document.all` from one).
       Known QuickJS/V8 differences handled in the seam: `Intl` is deleted so intl_prelude.js's en-US shim runs
       (a real V8 Intl is a later decision), atob/btoa shimmed in JS, V8 `stack` header stripped to QuickJS' frames.
-- [ ] QV8-3a2 [S] (after QV8-3a) `document.all` IsHTMLDDA on V8 (undetectable object via ObjectTemplate) and any
+- [x] QV8-3a2 [S] DONE 2026-11-18 (commit 9c03194; src/js_engine_v8.rs mark_htmldda) (after QV8-3a) `document.all` IsHTMLDDA on V8 (undetectable object via ObjectTemplate) and any
       engine-v8 test not covered by 3b/3c; the watchdog granularity vs the fake-clock budget tests.
-- [ ] QV8-3b [M] (after QV8-3a) Budget watchdog + promise jobs + stack + OOM (R39 C1-C4):
+- [x] QV8-3b [M] DONE 2026-11-18 (commit 9c03194; src/js_engine_v8.rs; engine-v8: 1017/1033 tests pass, the 16 failures are all module tests = 3c; default build 1033/1033, clippy 78, WPT no change) (after QV8-3a)
+      Result: per-job budget = counter-only PromiseHook + the 2 ms watchdog interrupt (an explicit
+      `Budget::arm` wins over the re-arm and extends the drain cap); a kill or the drain cap drops the queue
+      and logs "(1 job killed, remaining jobs dropped)"; `is_job_pending` = promise created/resolved since
+      the last drain (PENDING); stack limit unchanged from 3a (already sp - min(4 MB, half the thread stack));
+      near-heap-limit callback terminates the script (`InternalError: out of memory`, engine reusable);
+      `document.all` = ObjectTemplate instance marked undetectable via the exported C++ symbol
+      `v8::ObjectTemplate::MarkAsUndetectable` (not bound by the v8 crate), forwarding to the JS Proxy.
+      Test determinism: `__test_burn` and the hook poll the budget synchronously under the fake clock
+      (`js_engine::poll_budget_now`), so no test waits for the 2 ms tick; V8-specific expectations in
+      qy46/qy22/qy44a are cfg'd with comments. Found and fixed: a swallowed termination (page-load script
+      killed inside a job) now calls `cancel_terminate_execution`, otherwise it killed the rest of the
+      `with` (flaky qy34_runaway_fetched_script_hits_the_cpu_budget_and_later_scripts_still_run). Budget watchdog + promise jobs + stack + OOM (R39 C1-C4):
       C1 budget = a watchdog thread that, while a callback is armed, calls
          `IsolateHandle::request_interrupt` every 2 ms; the interrupt (on the JS thread) reads
          `script_clock_nanos()` and calls `terminate_execution()`; the caller then
