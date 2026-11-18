@@ -109,6 +109,10 @@ pub(crate) fn eval_quiet(ctx: &Ctx<'_>, code: &str) {
     let _ = ctx.eval::<(), _>(code);
 }
 
+/// QV8-3b test seam: run the budget check now (the V8 watchdog's tick; QuickJS checks by itself).
+#[cfg(test)]
+pub(crate) fn poll_budget_now() {}
+
 /// QY40: gives the global `name` the [[IsHTMLDDA]] slot (falsy, `typeof` 'undefined').
 pub(crate) fn mark_htmldda(ctx: &Ctx<'_>, name: &str) {
     if let Ok(v) = ctx.globals().get::<_, Value>(name) {

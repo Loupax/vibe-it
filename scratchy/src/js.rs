@@ -1423,7 +1423,13 @@ pub(crate) fn start_scripts_clocked(
         let l = log.clone();
         native!(&ctx, "__scratchy_log", move |level: String, text: String| l(&level, &text));
         #[cfg(test)]
-        native!(&ctx, "__test_burn", |ms: u64| FAKE_CLOCK.with(|c| c.set(c.get().map(|(n, st)| (n + ms * 1_000_000, st)))));
+        native!(&ctx, "__test_burn", |ms: u64| {
+            FAKE_CLOCK.with(|c| c.set(c.get().map(|(n, st)| (n + ms * 1_000_000, st))));
+            // QV8-3b: a budget check right after the fake CPU is spent (a no-op on QuickJS, whose
+            // interrupt handler runs by itself), so the fake-clock tests do not wait for the
+            // V8 watchdog's 2 ms tick.
+            js_engine::poll_budget_now();
+        });
         let _ = install_env(&ctx);
         if perf::enabled() {
             // QV8-0: observer deliveries report their own spans (see perf.rs).

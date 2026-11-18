@@ -1594,7 +1594,11 @@ fn qy22_tripped_job_drain_logs_one_line_with_a_count() {
     let errs: Vec<_> = log.iter().filter(|l| l.starts_with("error:")).collect();
     assert!(!errs.is_empty() && errs.len() < 100, "{log:?}");
     assert!(errs.iter().all(|e| e.contains("promise jobs stopped") && e.contains("1 job killed")), "{log:?}");
+    // QV8-3b: V8 drops the rest of the queue instead of deferring it (R39 C2).
+    #[cfg(not(feature = "engine-v8"))]
     assert!(errs[0].contains("deferred to the next turn"), "{log:?}");
+    #[cfg(feature = "engine-v8")]
+    assert!(errs[0].contains("remaining jobs dropped"), "{log:?}");
 }
 
 /// QY44a (R29): after one promise job is killed by the budget the drain stops
@@ -1612,8 +1616,16 @@ fn qy44a_tripped_job_does_not_kill_later_jobs() {
          },0);\
          setTimeout(function(){console.log('completed:['+ran.join(',')+'] stack:['+stack.join(',')+']');},50);",
     );
+    // QV8-3b: on V8 the killed job takes the rest of the queue with it (R39 C2): job2 and job3
+    // are dropped (never started, so no `finally` is skipped: the stack is still clean).
+    #[cfg(not(feature = "engine-v8"))]
     assert!(log.iter().any(|l| l == "log:completed:[job2,job3] stack:[]"), "{log:?}");
+    #[cfg(feature = "engine-v8")]
+    assert!(log.iter().any(|l| l == "log:completed:[] stack:[]"), "{log:?}");
     let errs: Vec<_> = log.iter().filter(|l| l.starts_with("error:")).collect();
     assert_eq!(errs.len(), 1, "{log:?}");
+    #[cfg(not(feature = "engine-v8"))]
     assert!(errs[0].contains("1 job killed, remaining jobs deferred"), "{log:?}");
+    #[cfg(feature = "engine-v8")]
+    assert!(errs[0].contains("1 job killed, remaining jobs dropped"), "{log:?}");
 }

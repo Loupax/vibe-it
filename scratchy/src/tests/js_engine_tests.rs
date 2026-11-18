@@ -77,3 +77,47 @@ fn qv8_2_source_rejects_nul_and_jobs_drain() {
     assert!(!eng.is_job_pending());
     eng.with(|ctx| assert_eq!(js_engine::eval_sloppy::<i32>(&ctx, "t", "hit").ok(), Some(1)));
 }
+
+// ---- QV8-3b: budget, promise jobs, stack and heap limits (R39 C1-C4)
+
+#[test]
+fn qv8_3b_runaway_allocation_is_a_logged_kill_not_an_abort() {
+    // C4: a small heap limit; the loop would take the process down if the limit aborted it.
+    let eng = Engine::new(EngineOpts { memory_limit: 48 << 20, stack_limit: crate::js::js_stack_limit(), page: None }).ok().unwrap();
+    let err = run(&eng, "var a=[]; for(;;){ a.push(new Array(10000).fill(1)); }").unwrap_err();
+    assert!(err.contains("out of memory"), "{err}");
+    // The engine is still usable afterwards, and the garbage can go.
+    assert_eq!(run(&eng, "a = null; 1+1"), Ok(()));
+    let err = run(&eng, "var b=[]; for(;;){ b.push('x'.repeat(100000) + b.length); }").unwrap_err();
+    assert!(err.contains("out of memory"), "{err}");
+    assert_eq!(run(&eng, "b = null; 2+2"), Ok(()));
+}
+
+#[test]
+fn qv8_3b_stack_limit_follows_the_thread_stack() {
+    // C3: the limit comes from the real thread stack (js_stack_limit), not a constant.
+    let h = std::thread::Builder::new()
+        .stack_size(16 << 20)
+        .spawn(|| {
+            let eng = bare();
+            let deep = run(&eng, "function f(n){return n?1+f(n-1):0} if (f(1500) !== 1500) throw new Error('bad')");
+            let runaway = run(&eng, "function g(){g()} var n; try{g()}catch(e){n=e.name} if (n !== 'RangeError') throw new Error('got '+n)");
+            let again = run(&eng, "1+1");
+            (deep, runaway, again)
+        })
+        .unwrap();
+    let (deep, runaway, again) = h.join().unwrap();
+    assert_eq!(deep, Ok(()));
+    assert_eq!(runaway, Ok(()));
+    assert_eq!(again, Ok(()));
+}
+
+#[test]
+fn qv8_3b_drain_runs_the_queue_and_clears_pending() {
+    let eng = bare();
+    run(&eng, "var hit = 0; Promise.resolve().then(function () { hit++; return Promise.resolve(); }).then(function () { hit++; });").unwrap();
+    assert!(eng.is_job_pending());
+    eng.drain_jobs(&|_, _| {});
+    assert!(!eng.is_job_pending());
+    eng.with(|ctx| assert_eq!(js_engine::eval_sloppy::<i32>(&ctx, "t", "hit").ok(), Some(2)));
+}
