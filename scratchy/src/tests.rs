@@ -21291,3 +21291,123 @@ fn qy50_document_scripts_embeds_plugins_anchors() {
     assert_eq!(log[2], "log:3 2", "{log:?}");
     assert_eq!(log[3], "log:5", "{log:?}");
 }
+
+// ---------- QJ12: KeyboardEvent code / keyCode / which / charCode / location ----------
+
+#[test]
+fn qj12_key_codes_table() {
+    use winit::keyboard::KeyCode as KC;
+    let ch = |s: &str| Key::Character(s.into());
+    // (logical, physical, code, keyCode, location)
+    let rows: Vec<(Key, Option<KC>, &str, u32, u32)> = vec![
+        (Key::Named(NamedKey::Enter), Some(KC::Enter), "Enter", 13, 0),
+        (Key::Named(NamedKey::Escape), Some(KC::Escape), "Escape", 27, 0),
+        (Key::Named(NamedKey::Tab), Some(KC::Tab), "Tab", 9, 0),
+        (Key::Named(NamedKey::Backspace), Some(KC::Backspace), "Backspace", 8, 0),
+        (Key::Named(NamedKey::Space), Some(KC::Space), "Space", 32, 0),
+        (Key::Named(NamedKey::Delete), Some(KC::Delete), "Delete", 46, 0),
+        (Key::Named(NamedKey::ArrowLeft), Some(KC::ArrowLeft), "ArrowLeft", 37, 0),
+        (Key::Named(NamedKey::ArrowUp), Some(KC::ArrowUp), "ArrowUp", 38, 0),
+        (Key::Named(NamedKey::ArrowRight), Some(KC::ArrowRight), "ArrowRight", 39, 0),
+        (Key::Named(NamedKey::ArrowDown), Some(KC::ArrowDown), "ArrowDown", 40, 0),
+        (Key::Named(NamedKey::Home), Some(KC::Home), "Home", 36, 0),
+        (Key::Named(NamedKey::End), Some(KC::End), "End", 35, 0),
+        (Key::Named(NamedKey::PageUp), Some(KC::PageUp), "PageUp", 33, 0),
+        (Key::Named(NamedKey::PageDown), Some(KC::PageDown), "PageDown", 34, 0),
+        (Key::Named(NamedKey::F1), Some(KC::F1), "F1", 112, 0),
+        (Key::Named(NamedKey::F12), Some(KC::F12), "F12", 123, 0),
+        (ch("a"), Some(KC::KeyA), "KeyA", 65, 0),
+        (ch("A"), Some(KC::KeyA), "KeyA", 65, 0),
+        (ch("z"), Some(KC::KeyZ), "KeyZ", 90, 0),
+        (ch("1"), Some(KC::Digit1), "Digit1", 49, 0),
+        (ch("!"), Some(KC::Digit1), "Digit1", 49, 0),
+        (ch("0"), Some(KC::Digit0), "Digit0", 48, 0),
+        (ch(";"), Some(KC::Semicolon), "Semicolon", 186, 0),
+        (ch("/"), Some(KC::Slash), "Slash", 191, 0),
+        (ch("]"), Some(KC::BracketRight), "BracketRight", 221, 0),
+        (Key::Named(NamedKey::Shift), Some(KC::ShiftLeft), "ShiftLeft", 16, 1),
+        (Key::Named(NamedKey::Shift), Some(KC::ShiftRight), "ShiftRight", 16, 2),
+        (Key::Named(NamedKey::Control), Some(KC::ControlLeft), "ControlLeft", 17, 1),
+        (Key::Named(NamedKey::Alt), Some(KC::AltRight), "AltRight", 18, 2),
+        (ch("5"), Some(KC::Numpad5), "Numpad5", 101, 3),
+        (Key::Named(NamedKey::Enter), Some(KC::NumpadEnter), "NumpadEnter", 13, 3),
+        // No physical key (text-control path): derived from the logical key.
+        (ch("q"), None, "KeyQ", 81, 0),
+        (ch("7"), None, "Digit7", 55, 0),
+        (Key::Named(NamedKey::Enter), None, "Enter", 13, 0),
+        (Key::Named(NamedKey::Space), None, "Space", 32, 0),
+        (ch(":"), None, "", 0, 0),
+    ];
+    for (logical, phys, code, kcode, loc) in rows {
+        let got = key_codes(&logical, phys.map(PhysicalKey::Code), false);
+        assert_eq!(
+            got,
+            KeyCodes { code: code.to_string(), key_code: kcode, char_code: 0, location: loc },
+            "{logical:?} {phys:?}"
+        );
+    }
+    // keypress: charCode = code point, keyCode the same.
+    let kp = key_codes(&ch("a"), Some(PhysicalKey::Code(KC::KeyA)), true);
+    assert_eq!((kp.char_code, kp.key_code, kp.code.as_str()), (97, 97, "KeyA"));
+    let kp = key_codes(&ch("A"), Some(PhysicalKey::Code(KC::KeyA)), true);
+    assert_eq!((kp.char_code, kp.key_code), (65, 65));
+    let kp = key_codes(&Key::Named(NamedKey::Enter), None, true);
+    assert_eq!((kp.char_code, kp.key_code), (13, 13));
+}
+
+#[test]
+fn qj12_page_sees_codes_and_can_still_cancel() {
+    use winit::keyboard::KeyCode as KC;
+    use winit::platform::wayland::EventLoopBuilderExtWayland;
+    let event_loop = match EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build() {
+        Ok(l) => l,
+        Err(_) => return,
+    };
+    clear_text_state();
+    let doc = parse_html("<html><body><input id=i></body></html>");
+    let mut app = App::new_static(doc.clone(), event_loop.create_proxy(), None);
+    app.js = run_page_scripts(
+        &doc,
+        &[src(
+            "window.T=[]; var f=function(e){T.push([e.type,e.key,e.code,e.keyCode,e.which,e.charCode,e.location,e.shiftKey,e.repeat].join(','));\
+             if(e.key==='x')e.preventDefault()};\
+             document.addEventListener('keydown',f);document.addEventListener('keypress',f);document.addEventListener('keyup',f);",
+        )],
+        None,
+    );
+    let i = q30c_by(&doc, "i");
+    app.set_focus_element(Some(&i), false);
+    let enter = Key::Named(NamedKey::Enter);
+    assert!(app.js_key_codes("keydown", &enter, Some(PhysicalKey::Code(KC::Enter)), false));
+    assert!(app.js_key_for("keypress", &enter, false));
+    assert!(app.js_key_codes("keyup", &enter, Some(PhysicalKey::Code(KC::Enter)), false));
+    assert!(app.js_key_codes("keydown", &Key::Named(NamedKey::Escape), Some(PhysicalKey::Code(KC::Escape)), true));
+    assert!(app.js_key_codes("keydown", &Key::Named(NamedKey::ArrowLeft), Some(PhysicalKey::Code(KC::ArrowLeft)), false));
+    assert!(app.js_key_for("keypress", &Key::Character("a".into()), false));
+    // preventDefault still cancels any key.
+    assert!(!app.js_key_codes("keydown", &Key::Character("x".into()), Some(PhysicalKey::Code(KC::KeyX)), false));
+    let got: String = app.js.as_ref().unwrap().eval_value("t", "T.join('|')").expect("log");
+    assert_eq!(
+        got,
+        "keydown,Enter,Enter,13,13,0,0,false,false|keypress,Enter,Enter,13,13,13,0,false,false|keyup,Enter,Enter,13,13,0,0,false,false|\
+         keydown,Escape,Escape,27,27,0,0,false,true|keydown,ArrowLeft,ArrowLeft,37,37,0,0,false,false|\
+         keypress,a,KeyA,97,97,97,0,false,false|keydown,x,KeyX,88,88,0,0,false,false"
+    );
+    clear_text_state();
+}
+
+#[test]
+fn qj12_keyboardevent_ctor_fields_and_modifiers() {
+    let doc = parse_html("<html><body></body></html>");
+    let js = run_page_scripts(
+        &doc,
+        &[src(
+            "var e=new KeyboardEvent('keydown',{key:'a',code:'KeyA',keyCode:65,charCode:0,location:2,shiftKey:true,ctrlKey:true,altKey:true,metaKey:true});\
+             var d=new KeyboardEvent('keydown',{key:'b'});\
+             window.R=[e.key,e.code,e.keyCode,e.which,e.charCode,e.location,e.shiftKey,e.ctrlKey,e.altKey,e.metaKey,d.keyCode,d.which,d.location].join(',');",
+        )],
+        None,
+    );
+    let got: String = js.as_ref().unwrap().eval_value("t", "R").expect("r");
+    assert_eq!(got, "a,KeyA,65,65,0,2,true,true,true,true,0,0,0");
+}

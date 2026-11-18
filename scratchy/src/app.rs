@@ -1927,12 +1927,16 @@ impl App {
     /// Q33d: `keydown`/`keyup` at the focused element (else `<body>`);
     /// true if the page did not cancel it.
     pub(crate) fn js_key(&mut self, kind: &str, event: &KeyEvent) -> bool {
-        self.js_key_for(kind, &event.logical_key, event.repeat)
+        self.js_key_codes(kind, &event.logical_key, Some(event.physical_key), event.repeat)
+    }
+
+    pub(crate) fn js_key_for(&mut self, kind: &str, logical_key: &Key, repeat: bool) -> bool {
+        self.js_key_codes(kind, logical_key, None, repeat)
     }
 
     /// `js_key` for a bare logical key (Q30d: the text-control path and its
     /// tests have no winit `KeyEvent`, which cannot be constructed by hand).
-    pub(crate) fn js_key_for(&mut self, kind: &str, logical_key: &Key, repeat: bool) -> bool {
+    pub(crate) fn js_key_codes(&mut self, kind: &str, logical_key: &Key, physical: Option<PhysicalKey>, repeat: bool) -> bool {
         if self.js.is_none() {
             return true;
         }
@@ -1942,11 +1946,16 @@ impl App {
             Key::Named(n) => format!("{n:?}"),
             _ => "Unidentified".to_string(),
         };
+        let kc = key_codes(logical_key, physical, kind == "keypress");
         let m = &self.modifiers;
         let init = [
             ("bubbles", EventField::Bool(true)),
             ("cancelable", EventField::Bool(true)),
             ("key", EventField::Str(key)),
+            ("code", EventField::Str(kc.code)),
+            ("keyCode", EventField::Num(f64::from(kc.key_code))),
+            ("charCode", EventField::Num(f64::from(kc.char_code))),
+            ("location", EventField::Num(f64::from(kc.location))),
             ("repeat", EventField::Bool(repeat)),
             ("ctrlKey", EventField::Bool(m.control_key())),
             ("shiftKey", EventField::Bool(m.shift_key())),
@@ -3566,4 +3575,147 @@ pub(crate) fn fetch_wanted_css_images(
     requested.extend(fresh.iter().cloned());
     let base = base.cloned().unwrap_or_else(|| Url::parse("about:blank").expect("static url"));
     spawn_image_fetches(proxy, socket, &base, &base, fresh, generation);
+}
+
+/// QJ12: the legacy and physical-key fields of a KeyboardEvent.
+#[derive(Debug, PartialEq)]
+pub(crate) struct KeyCodes {
+    pub code: String,
+    pub key_code: u32,
+    pub char_code: u32,
+    pub location: u32,
+}
+
+/// DOM `code` for a logical key when there is no physical key (text-control path).
+fn code_from_logical(k: &Key) -> String {
+    match k {
+        Key::Character(s) => {
+            let mut it = s.chars();
+            match (it.next(), it.next()) {
+                (Some(c), None) if c.is_ascii_alphabetic() => format!("Key{}", c.to_ascii_uppercase()),
+                (Some(c), None) if c.is_ascii_digit() => format!("Digit{c}"),
+                (Some(' '), None) => "Space".to_string(),
+                _ => String::new(),
+            }
+        }
+        Key::Named(NamedKey::Space) => "Space".to_string(),
+        Key::Named(n) => {
+            let s = format!("{n:?}");
+            if s.starts_with('F') || matches!(s.as_str(), "Enter" | "Escape" | "Tab" | "Backspace" | "Delete" | "Home" | "End" | "PageUp" | "PageDown" | "Insert" | "ArrowLeft" | "ArrowRight" | "ArrowUp" | "ArrowDown") {
+                s
+            } else {
+                String::new()
+            }
+        }
+        _ => String::new(),
+    }
+}
+
+/// Legacy `keyCode` (Windows virtual-key values) for a DOM `code`.
+fn vk_from_code(code: &str) -> u32 {
+    if let Some(l) = code.strip_prefix("Key")
+        && let [c @ b'A'..=b'Z'] = l.as_bytes()
+    {
+        return u32::from(*c);
+    }
+    if let Some(d) = code.strip_prefix("Digit")
+        && let [c @ b'0'..=b'9'] = d.as_bytes()
+    {
+        return u32::from(*c);
+    }
+    if let Some(d) = code.strip_prefix("Numpad")
+        && let [c @ b'0'..=b'9'] = d.as_bytes()
+    {
+        return 96 + u32::from(c - b'0');
+    }
+    if let Some(n) = code.strip_prefix('F').and_then(|n| n.parse::<u32>().ok())
+        && (1..=24).contains(&n)
+    {
+        return 111 + n;
+    }
+    match code {
+        "Backspace" => 8,
+        "Tab" => 9,
+        "Enter" | "NumpadEnter" => 13,
+        "ShiftLeft" | "ShiftRight" => 16,
+        "ControlLeft" | "ControlRight" => 17,
+        "AltLeft" | "AltRight" => 18,
+        "Pause" => 19,
+        "CapsLock" => 20,
+        "Escape" => 27,
+        "Space" => 32,
+        "PageUp" => 33,
+        "PageDown" => 34,
+        "End" => 35,
+        "Home" => 36,
+        "ArrowLeft" => 37,
+        "ArrowUp" => 38,
+        "ArrowRight" => 39,
+        "ArrowDown" => 40,
+        "Insert" => 45,
+        "Delete" => 46,
+        "MetaLeft" => 91,
+        "MetaRight" => 92,
+        "ContextMenu" => 93,
+        "NumpadMultiply" => 106,
+        "NumpadAdd" => 107,
+        "NumpadSubtract" => 109,
+        "NumpadDecimal" => 110,
+        "NumpadDivide" => 111,
+        "NumLock" => 144,
+        "ScrollLock" => 145,
+        "Semicolon" => 186,
+        "Equal" => 187,
+        "Comma" => 188,
+        "Minus" => 189,
+        "Period" => 190,
+        "Slash" => 191,
+        "Backquote" => 192,
+        "BracketLeft" => 219,
+        "Backslash" => 220,
+        "BracketRight" => 221,
+        "Quote" => 222,
+        _ => 0,
+    }
+}
+
+/// QJ12: `code`, `keyCode`, `charCode`, `location` for a key event. `physical`
+/// is the winit physical key when there is one; without it `code` is derived
+/// from the logical key. `keypress` has `charCode` = the code point (13 for
+/// Enter) and `keyCode` the same; keydown/keyup have `charCode` 0.
+pub(crate) fn key_codes(logical: &Key, physical: Option<PhysicalKey>, keypress: bool) -> KeyCodes {
+    let mut code = match physical {
+        Some(PhysicalKey::Code(c)) => format!("{c:?}"),
+        _ => String::new(),
+    };
+    if code.is_empty() {
+        code = code_from_logical(logical);
+    }
+    let location = if code.starts_with("Numpad") {
+        3
+    } else if code.ends_with("Left") && !code.starts_with("Arrow") && !code.starts_with("Bracket") {
+        1
+    } else if code.ends_with("Right") && !code.starts_with("Arrow") && !code.starts_with("Bracket") {
+        2
+    } else {
+        0
+    };
+    let mut key_code = vk_from_code(&code);
+    if key_code == 0
+        && let Key::Character(s) = logical
+        && let Some(c) = s.chars().next().filter(|_| s.chars().count() == 1)
+        && c.is_ascii_alphanumeric()
+    {
+        key_code = u32::from(c.to_ascii_uppercase());
+    }
+    if keypress {
+        let ch = match logical {
+            Key::Character(s) => s.chars().next().map_or(0, |c| c as u32),
+            Key::Named(NamedKey::Space) => 32,
+            Key::Named(NamedKey::Enter) => 13,
+            _ => 0,
+        };
+        return KeyCodes { code, key_code: ch, char_code: ch, location };
+    }
+    KeyCodes { code, key_code, char_code: 0, location }
 }

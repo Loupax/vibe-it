@@ -7344,3 +7344,9 @@ Done: R37. DuckDuckGo's direct /?q=rust load returned its bot challenge ("Select
 **Prompt:** scratchy has no `document.scripts`; YouTube's ytmainappweb calls `Array.from(document.scripts)` at startup and dies. Add `document.scripts`, `embeds`, `plugins`, `anchors` as live collections following `forms`/`images`/`links`; tests for Array.from, live insertion (incl. script-inserted scripts), order, plugins aliasing embeds, anchors = `a[name]`. Acceptance: YouTube no longer fails with the Symbol.iterator error.
 
 **What changed:** js_dom.rs: `document.scripts` (`script`), `embeds` and `plugins` (`embed`) next to the existing `anchors` (already present). Test qy50_document_scripts_embeds_plugins_anchors. The YouTube nested-dwl acceptance run was blocked by the permission classifier and NOT done by this agent.
+
+## QJ12 (scratchy/qj12-key-codes)
+
+**Prompt:** Trusted key events dispatched to page JS carry only `key`; keyCode/which are 0 and code is ''. Fill in `code`, legacy `keyCode`/`which`, `charCode` (keypress), `location`; tests for the common keys, shift letters, numpad, modifiers, unchanged `key`, and preventDefault (QJ11) still working.
+
+**What changed:** app.rs `key_codes()` (pure mapping: winit physical key -> DOM `code` -> Windows VK keyCode; without a physical key `code` is derived from the logical key; keypress gets charCode = code point and keyCode the same; location 1/2/3 from Left/Right/Numpad) and `js_key_codes` (`js_key` passes the physical key, `js_key_for` keeps its signature). js.rs KeyboardEvent ctor now reads charCode, which, location, isComposing. Tests qj12_*. Nested-dwl check on a local page: Enter, a, A, 1, Escape, ArrowLeft, Space showed the right key/code/keyCode/which/charCode in the DOM.

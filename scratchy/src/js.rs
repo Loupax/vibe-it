@@ -393,7 +393,9 @@ const PRELUDE: &str = r#"
     this.key = init.key === undefined ? '' : String(init.key);
     this.code = init.code === undefined ? '' : String(init.code);
     this.repeat = !!init.repeat;
-    this.keyCode = Number(init.keyCode) || 0; this.which = this.keyCode;
+    this.keyCode = Number(init.keyCode) || 0; this.charCode = Number(init.charCode) || 0;
+    this.which = init.which === undefined ? (this.keyCode || this.charCode) : (Number(init.which) || 0);
+    this.location = Number(init.location) || 0; this.isComposing = !!init.isComposing;
     var self = this;
     ['ctrlKey', 'shiftKey', 'altKey', 'metaKey'].forEach(function (k) { self[k] = !!init[k]; });
   });
