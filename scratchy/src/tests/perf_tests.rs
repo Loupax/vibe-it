@@ -167,7 +167,8 @@ fn qv8_0_perf_report_json_shape() {
     for k in ["schema", "engine", "engine_version", "commit", "target", "budget_ms", "seconds", "outcome", "challenge", "page_bytes", "title"] {
         j.get(k);
     }
-    assert_eq!(j.get("engine"), &PJ::Str("QuickJS".into()));
+    // QV8-3a: the report names whichever engine this build uses.
+    assert_eq!(j.get("engine"), &PJ::Str(crate::js_engine::engine_info().0.into()));
     assert_eq!(j.get("outcome"), &PJ::Str("ok".into()));
     assert_eq!(j.get("budget_ms").num(), 500.0);
     assert_eq!(j.get("title"), &PJ::Str("qv8 fixture".into()));
@@ -295,7 +296,8 @@ fn qv8_0_perf_corpus_json_shape_on_a_tiny_script() {
     let json = crate::perf::perf_corpus(dir.to_str().unwrap()).unwrap();
     let _ = std::fs::remove_dir_all(&dir);
     let j = pj_parse(&json);
-    assert_eq!(j.get("engine"), &PJ::Str("QuickJS".into()));
+    // QV8-3a: the report names whichever engine this build uses.
+    assert_eq!(j.get("engine"), &PJ::Str(crate::js_engine::engine_info().0.into()));
     let PJ::Arr(scripts) = j.get("scripts") else { panic!() };
     let names: Vec<_> = scripts.iter().map(|s| s.get("name").clone()).collect();
     assert_eq!(names, [PJ::Str("broken.js".into()), PJ::Str("jquery-0.0.min.js".into()), PJ::Str("tiny-1.0.min.js".into())]);
