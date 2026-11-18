@@ -29,8 +29,11 @@
    `tools/clippy-baseline.txt` (a single number; CI reads it, and lowering it is a
    one-line change; the list of warnings goes to `outfile`, diff it against
    main's to find new ones). CI (`.github/workflows/ci.yml`: build, test, clippy
-   count for scratchy; build + test for wire and snag) must be green on the PR
-   before merge.
+   count for scratchy; build + test for wire and snag; plus `scratchy-v8`, scratchy built
+   and tested with `--features engine-v8`, V8 archive cached and sha256-pinned) must be green
+   on the PR before merge. `scratchy-v8` is NOT yet in the repo's required-check set (the
+   user decides that); until it is, still check it in `statusCheckRollup` and treat red as a
+   real failure (all tests must pass on both engines). It has no clippy count.
 4. WPT subset (once Q40a lands): `scratchy --wpt /home/loupax/src/wpt` (run from `scratchy/`; reads
    `wpt-subset.txt`, compares with `wpt-expected.txt`, exits 1 on any change;
    `--update` rewrites expectations; `--out DIR` saves failing PNGs). A new failure is a
