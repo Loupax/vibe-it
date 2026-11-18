@@ -499,21 +499,35 @@ struct WireDown {
     first: Option<(String, String)>,
     reported: bool,
     watcher: bool,
+    /// Bumped by every `begin_wire_load`: a watcher thread of an earlier load
+    /// (same generation number, e.g. two loads of generation 1) must not
+    /// report the new load's count (QY61).
+    epoch: u64,
 }
 
-static WIRE_DOWN: std::sync::Mutex<WireDown> = std::sync::Mutex::new(WireDown { armed: false, generation: 0, count: 0, first: None, reported: false, watcher: false });
+static WIRE_DOWN: std::sync::Mutex<WireDown> = std::sync::Mutex::new(WireDown { armed: false, generation: 0, count: 0, first: None, reported: false, watcher: false, epoch: 0 });
+static WIRE_EPOCH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 static WIRE_QUIET_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(400);
 static WIRE_CAPTURE: std::sync::Mutex<Option<Vec<String>>> = std::sync::Mutex::new(None);
 
 /// Starts a page load: resets the count and arms the tracker.
 pub(crate) fn begin_wire_load(generation: u64) {
+    #[cfg(test)]
+    if !wire_test_scope_allows_begin() {
+        return;
+    }
     if let Ok(mut g) = WIRE_DOWN.lock() {
-        *g = WireDown { armed: true, generation, ..WireDown::default() };
+        let epoch = WIRE_EPOCH.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+        *g = WireDown { armed: true, generation, epoch, ..WireDown::default() };
     }
 }
 
 /// Counts one sub-resource skipped because wire could not be reached.
 pub(crate) fn note_wire_skip(path: Option<&std::path::Path>, err: &str) {
+    #[cfg(test)]
+    if !wire_test_scope_allows_skip(path) {
+        return;
+    }
     let Ok(mut g) = WIRE_DOWN.lock() else { return };
     if !g.armed {
         return;
@@ -525,12 +539,12 @@ pub(crate) fn note_wire_skip(path: Option<&std::path::Path>, err: &str) {
     }
     if !g.watcher && !g.reported {
         g.watcher = true;
-        let generation = g.generation;
+        let (generation, epoch) = (g.generation, g.epoch);
         thread::spawn(move || loop {
             let before = WIRE_DOWN.lock().map_or(0, |g| g.count);
             thread::sleep(std::time::Duration::from_millis(WIRE_QUIET_MS.load(std::sync::atomic::Ordering::Relaxed)));
             let Ok(mut g) = WIRE_DOWN.lock() else { return };
-            if g.generation != generation || g.reported {
+            if g.generation != generation || g.epoch != epoch || g.reported {
                 return;
             }
             if g.count == before {
@@ -570,8 +584,35 @@ pub(crate) fn flush_wire_report() {
     }
 }
 
+// QY61: the tracker is process-global and `cargo test` runs tests in parallel.
+// Other tests (JS fetch/XHR, load pipeline) fail wire fetches against bogus
+// sockets and start loads, which landed in a QWU1 test's count. Once a QWU1
+// test has set up, only the QWU1 test threads may begin a load, and only
+// skips on a `scratchy-test-qwu1*` socket (or the explicit no-socket skip)
+// count.
+#[cfg(test)]
+static WIRE_TEST_SCOPE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+#[cfg(test)]
+thread_local! {
+    static WIRE_TEST_OWNER: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+#[cfg(test)]
+fn wire_test_scope_allows_begin() -> bool {
+    !WIRE_TEST_SCOPE.load(std::sync::atomic::Ordering::SeqCst) || WIRE_TEST_OWNER.with(std::cell::Cell::get)
+}
+
+#[cfg(test)]
+fn wire_test_scope_allows_skip(path: Option<&std::path::Path>) -> bool {
+    !WIRE_TEST_SCOPE.load(std::sync::atomic::Ordering::SeqCst)
+        || path.is_none_or(|p| p.to_string_lossy().contains("scratchy-test-qwu1"))
+}
+
 #[cfg(test)]
 pub(crate) fn wire_report_test_setup(quiet_ms: u64) {
+    WIRE_TEST_SCOPE.store(true, std::sync::atomic::Ordering::SeqCst);
+    WIRE_TEST_OWNER.with(|o| o.set(true));
+    wire_report_test_disarm();
     WIRE_QUIET_MS.store(quiet_ms, std::sync::atomic::Ordering::Relaxed);
     if let Ok(mut c) = WIRE_CAPTURE.lock() {
         *c = Some(Vec::new());
@@ -581,7 +622,7 @@ pub(crate) fn wire_report_test_setup(quiet_ms: u64) {
 #[cfg(test)]
 pub(crate) fn wire_report_test_disarm() {
     if let Ok(mut g) = WIRE_DOWN.lock() {
-        *g = WireDown::default();
+        *g = WireDown { epoch: WIRE_EPOCH.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1, ..WireDown::default() };
     }
 }
 
