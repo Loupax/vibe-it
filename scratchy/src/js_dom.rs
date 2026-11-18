@@ -1850,6 +1850,31 @@ const DOM_PRELUDE: &str = r#"
     var own = moBegin();
     try { this.before.apply(this, arguments); this.remove(); } finally { moEnd(own); }
   };
+  // QY61: insertAdjacentElement / insertAdjacentText / insertAdjacentHTML
+  // (skins.vector.js movePinnableElement died on the missing method).
+  var adjacent = function (self, where, node, fn) {
+    var w = String(where).toLowerCase(), p = self.parentNode, own = moBegin();
+    try {
+      if (w === 'beforebegin') { if (!p) return null; p.insertBefore(node, self); }
+      else if (w === 'afterbegin') self.insertBefore(node, self.firstChild);
+      else if (w === 'beforeend') self.appendChild(node);
+      else if (w === 'afterend') { if (!p) return null; p.insertBefore(node, self.nextSibling); }
+      else throw herr("Failed to execute '" + fn + "' on 'Element': The value provided ('" + where + "') is not one of 'beforeBegin', 'afterBegin', 'beforeEnd', or 'afterEnd'.", 'SyntaxError');
+    } finally { moEnd(own); }
+    return node;
+  };
+  ElementProto.insertAdjacentElement = function (where, el) {
+    if (!el || el.__id === undefined) throw new TypeError("Failed to execute 'insertAdjacentElement' on 'Element': parameter 2 is not of type 'Element'.");
+    return adjacent(this, where, el, 'insertAdjacentElement');
+  };
+  ElementProto.insertAdjacentText = function (where, text) {
+    adjacent(this, where, doc.createTextNode(String(text)), 'insertAdjacentText');
+  };
+  ElementProto.insertAdjacentHTML = function (where, html) {
+    var t = doc.createElement('template');
+    t.innerHTML = String(html);
+    adjacent(this, where, t.content, 'insertAdjacentHTML');
+  };
   // QY6f: Document.importNode / adoptNode on the main document (second documents
   // have their own in makeDoc). Imported clones are upgraded (if customElements
   // is in use) like any node created in the main document.

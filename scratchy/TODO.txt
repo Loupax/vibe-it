@@ -1899,7 +1899,10 @@ shows) -> QY60 (P2, Opus) -> QY58 (P3) -> QY59 (P3). Evidence: REGRESSIONS.md R3
       inside it; with no size and non-empty alt it is inline text (current behaviour). Tests:
       `<img alt="x" width=240 height=180>` without src lays out 240x180; CSS `width:100%`
       likewise; no size keeps today's inline text.
-- [ ] QY61 [S] (P2, coordinator 2026-11-18, from the QY56 report) INVESTIGATE
+- [x] QY61 [S] (DONE 2026-11-18, commit HASH; both parts. Part 1: NOT a regression, same line on
+      dd2dde8; cause = Element.insertAdjacentElement/Text/HTML missing (movePinnableElement),
+      added in js_dom.rs. Part 2: tracker shared with other parallel tests, see PROMPTS.md.)
+      (P2, coordinator 2026-11-18, from the QY56 report) INVESTIGATE
       "Exception in module-execute in module skins.vector.js: TypeError: not a function"
       printed on a live en.wikipedia Main_Page window run after QY56 (fa4bd23). The
       `--js-report` gate (saved copy, build before QY56, dd2dde8) shows 0 errors and no such

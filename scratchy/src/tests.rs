@@ -22008,3 +22008,26 @@ fn qy56_late_image_cap_is_honoured_and_extra_images_error() {
     assert_eq!(app.late_images_requested, MAX_LATE_IMAGE_FETCHES + 1);
     crate::js_dom::clear_image_states();
 }
+
+// QY61: Element.insertAdjacentElement/Text/HTML (en.wikipedia skins.vector.js
+// movePinnableElement died with "TypeError: not a function").
+#[test]
+fn qy61_insert_adjacent_element_text_and_html() {
+    let (_engine, _doc, log) = events_engine(
+        "<html><body><div id=p><b id=m>m</b></div><div id=q></div></body></html>",
+        "var p=document.getElementById('p'), m=document.getElementById('m'), q=document.getElementById('q');
+         var r=q.insertAdjacentElement('beforeend', m);
+         console.log('ret '+(r===m)+' q='+q.innerHTML+' p='+p.innerHTML);
+         p.insertAdjacentText('afterbegin','a'); p.insertAdjacentText('beforeEnd','z');
+         p.insertAdjacentHTML('beforebegin','<i>x</i>'); p.insertAdjacentHTML('afterend','<u>y</u><s>w</s>');
+         console.log('p='+p.innerHTML+' body='+document.body.innerHTML);
+         var d=document.createElement('div'); console.log('orphan '+d.insertAdjacentElement('afterend', m));
+         try { p.insertAdjacentText('bogus','t'); } catch (e) { console.log('err '+e.name); }",
+    );
+    let l = log.borrow().join("\n");
+    assert!(l.contains("ret true q=<b id=\"m\">m</b> p="), "{l}");
+    assert!(l.contains("p=az "), "{l}");
+    assert!(l.contains("<i>x</i><div id=\"p\">az</div><u>y</u><s>w</s><div id=\"q\">"), "{l}");
+    assert!(l.contains("orphan null"), "{l}");
+    assert!(l.contains("err SyntaxError"), "{l}");
+}
