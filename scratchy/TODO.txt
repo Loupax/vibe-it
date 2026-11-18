@@ -1633,7 +1633,7 @@ after QY47a) -> QY47b (P3, Sonnet) -> QY47d (P3).
       titles and the "Shorts" shelf (R36 addendum screenshot), and the Error.prototype
       `args` probe recipe (R36 addendum) sees 0 RangeErrors. If QY46 is not merged
       yet, run the acceptance with a local raised CALLBACK_BUDGET and say so.
-- [x] QY47c DONE 2026-11-18 (R38: `true` = `<img alt="true">` (YouTube sets alt to the
+- [x] QY47c DONE 2026-11-18 c9e048c (R38: `true` = `<img alt="true">` (YouTube sets alt to the
       boolean true) whose src is never set because IntersectionObserver reports a 0x0
       intersectionRect, and never fetched when set because script-set img src is not loaded;
       grey circles = YouTube's own masthead skeleton, hidden by `masthead-finish` 47-53 s in
