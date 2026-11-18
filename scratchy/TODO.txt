@@ -184,7 +184,7 @@ Order: (drain) -> QT1 -> QV8-0 -> QV8-1 -> QV8-2 -> QV8-3 -> QV8-4 -> QV8-5 -> Q
          a test with a runaway allocation.
       (The unhandled-rejection tracker (QY14: `__scratchy_rej_push` from
       `set_promise_reject_callback`) already landed in 3a.)
-- [x] QV8-3c [M] DONE 2026-11-18 (commit HASH; src/js_engine_v8.rs modules section; engine-v8: all tests pass, default build all pass, clippy 78, WPT no change) (after QV8-3a) Modules, dynamic import(), importmap via V8's resolve callback and
+- [x] QV8-3c [M] DONE 2026-11-18 (commit 4bff254; src/js_engine_v8.rs modules section; engine-v8: all tests pass, default build all pass, clippy 78, WPT no change) (after QV8-3a) Modules, dynamic import(), importmap via V8's resolve callback and
       `HostImportModuleDynamically` (js_modules.rs's ModuleStore/resolve_specifier), `import.meta.url`.
       Result: resolve callback + dynamic-import callback + import.meta callback call scratchy's own
       `resolve_specifier` and read the ModuleStore sources (data: URLs too); compiled modules cached by
