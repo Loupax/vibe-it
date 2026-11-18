@@ -1748,7 +1748,7 @@ shows) -> QY60 (P2, Opus) -> QY58 (P3) -> QY59 (P3). Evidence: REGRESSIONS.md R3
       `complete`/`naturalWidth` before and after, `load` and `error` fire once each.
       Accept: the R38 fixture (dyn.html shape: static, script-set, created) shows three images
       in a nested dwl; with QY57 merged, YouTube results show real thumbnails (grim).
-- [ ] QY57 [M] (P1, R38, Sonnet; a slice of QY-IO-GEOMETRY) IntersectionObserver with real
+- [x] QY57 [M] (P1, R38, Sonnet; a slice of QY-IO-GEOMETRY) IntersectionObserver with real
       geometry. js_dom.rs IO builds `boundingClientRect` and `intersectionRect` from the
       target's `width`/`height` ATTRIBUTES (0x0 for almost every element) and reports once
       at observe time. YouTube's lazy image loader drops entries with `intersectionRect.height
