@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(gh pr merge:*)"
+      "Bash(gh pr merge:*)",
+      "Bash(tools/nest.sh:*)",
+      "Bash(grim:*)",
+      "Bash(WAYLAND_DISPLAY=*:*)"
     ]
   }
 }
