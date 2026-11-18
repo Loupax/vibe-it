@@ -7,6 +7,10 @@ need your input. Evidence for each is in the file/section named.
 
 ## Q1. CPU budget policy for scripts (QY49-D; REGRESSIONS.md R37 section 3)
 **DEFERRED (user, 2026-11-18): decided after the V8 migration, from the QV8-m numbers.**
+**QV8-m numbers are in (PERF.md "QV8-m", 2026-11-18):** on V8 only bbc.com/news still loses a timer at
+500 ms (it needs 520-536 ms); YouTube results now fits (worst job 446-460 ms, 8-11% margin); every kill
+was during the measured load window. Forced layout (outside the budget) still stalls 1.5-2.9 s.
+Recommendation unchanged: (c), with 2 s while loading (largest V8 callback 536 ms).
 Real pages need 0.5-1.7 s of CPU in a single callback, always while the page loads (YouTube: a
 1.66 s promise job; DuckDuckGo: a 500+ ms timer). Today every callback gets 500 ms and is then
 killed (after QY46 each promise job has its own 500 ms; timers have one 500 ms for the whole

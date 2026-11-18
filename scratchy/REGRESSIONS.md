@@ -263,7 +263,9 @@ Conditions (written into QV8-3's TODO text):
 - The normal-priority build timing is one run, slower than -j2 (laptop thermals/SMT).
 - aarch64 (the filter supports it; a V8 prebuilt exists; not built).
 
-## R38: YouTube results: every thumbnail shows `true` = an `<img>` whose src is never set (IntersectionObserver reports a 0x0 intersectionRect) and, once set, never fetched (script-set `img.src` is not loaded at all); the grey masthead circles are YouTube's own loading skeleton, shown until a slow main thread gets to stamp the buttons (Opus investigator QY47c, 2026-11-18) — OPEN: QY56, QY57, QY58, QY59, QY60
+## R38: YouTube results: every thumbnail shows `true` = an `<img>` whose src is never set (IntersectionObserver reports a 0x0 intersectionRect) and, once set, never fetched (script-set `img.src` is not loaded at all); the grey masthead circles are YouTube's own loading skeleton, shown until a slow main thread gets to stamp the buttons (Opus investigator QY47c, 2026-11-18) — OPEN: QY56, QY57, QY58, QY59, QY60 — QV8-m (8dfe2f9, V8 default): main thread cheaper (load CPU 2.63 -> 2.04 s, script budget clock -26%) but forced layout unchanged (14.6 s, 70% of JS CPU); thumbnails/images not re-tested
+
+**QV8-m addendum (Opus, 2026-11-18, PERF.md "QV8-m"):** on V8 at 8dfe2f9 YouTube results load CPU is 2005-2035 ms (QuickJS 2591-2629, same hash, interleaved), compile 1.03-1.37 s -> 0.38 s, no budget kill at the default budget (QuickJS: 1 promise job), largest budget-clock callback 446-460 ms (a promise job; 8-11% under 500). Forced layout is NOT changed by the engine: 13.4-17.5 s per 10 s window, single layouts 1.1-1.5 s, single observer deliveries 1.5-1.9 s raw; its share of the JS thread rose to 70%. So the "slow main thread" behind the grey masthead circles (section 3) is now mostly forced layout (QY53, QY60). The `true` thumbnails (QY56/QY57) are not engine-related and were not re-tested (headless harness).
 
 **Status: investigation only, docs only.** Main 3ba1d8e (QY47a, QY50, QY51, QY52 merged), release
 build in an own worktree with TEMPORARY never-committed probes: an env var that evaluates a probe
@@ -392,7 +394,9 @@ QY57 [M] P1 (IntersectionObserver with layout rects and re-evaluation), QY58 [S]
 (computed-style percent), QY59 [S] P3 (alt-text box keeps the img's size), QY60 [S] P2 (Opus:
 where a YouTube results turn's time goes; rAF at 0.6/s). QY47c ticked.
 
-## R37: DuckDuckGo search = a bot-challenge page plus a timer budget trip; YouTube now serves a new app that dies on a missing `document.scripts`; where callback CPU really goes (Opus investigator QY49, 2026-11-17) — OPEN: QY50-QY55, QY49-D (budget policy, WAITING FOR USER)
+## R37: DuckDuckGo search = a bot-challenge page plus a timer budget trip; YouTube now serves a new app that dies on a missing `document.scripts`; where callback CPU really goes (Opus investigator QY49, 2026-11-17) — OPEN: QY50-QY55, QY49-D (budget policy, WAITING FOR USER) — QV8-m (8dfe2f9, V8 default): YouTube results no longer trips at 500 ms (worst job 446-460 ms), bbc still trips (timer 520-536 ms, was 1335-1353); forced layout still 63-94% of JS CPU; QY49-D recommendation re-made from these numbers in PERF.md (still (c), 2 s while loading)
+
+**QV8-m addendum (Opus, 2026-11-18, PERF.md "QV8-m"):** both engines measured at 8dfe2f9, interleaved, 7 pages x 3 runs x 2 budgets. Budget kills at the default 500 ms: QuickJS 2 pages (YouTube results promise job 623-655 ms, bbc timer 1335-1353 ms), V8 1 page (bbc timer 520-536 ms). V8 makes the budget clock 0.5-0.9x of QuickJS' per page and CPU loops 6-14x faster, but YouTube's largest page-load scripts got slightly slower (420/430 -> 488/497 ms, under their 5 s budget; not attributed). Section 2's forced-layout stalls are unchanged by the engine (Wikipedia 93-94% of JS CPU, 2.7-2.9 s single observer deliveries raw; YouTube results 70%). The natives listed in section 2 run in Rust, so V8 does not speed them up. DuckDuckGo was not measured (not in the suite). Section 3 recommendation re-made with V8 numbers in PERF.md: (c) with 2 s (largest V8 callback 536 ms), plus QY53 as the real lever for stalls.
 
 **Status: investigation only, docs only.** Main b3120dd (QY46 + QY47a merged), release build
 in an own worktree with TEMPORARY never-committed probes: `CALLBACK_BUDGET` overridable by an
@@ -511,7 +515,9 @@ QY52 [M] P2 (`__d_cs` cost), QY53 [M] P2 (forced-layout stalls in observer callb
 P2 (R8 re-test with today's stalls), QY55 [S] P3 (DuckDuckGo, with the user), QY49-D (budget
 policy, WAITING FOR USER). QY49 ticked (investigation).
 
-## R36: YouTube search: Enter and the search button "do nothing". The page's SPA navigation runs, then a CPU-budget trip kills it (wall 1); with the budget raised, the results page renders no results (wall 2). NOT QF11, NOT form submission (Opus investigator, 2026-11-17) — OPEN: QY46, QJ12, QF11 (refined), QY48 filed; wall 2 ROOT CAUSE FOUND (QY47 addendum below: QuickJS 1 MB stack limit, RangeError swallowed by YouTube) — OPEN: QY47a-d
+## R36: YouTube search: Enter and the search button "do nothing". The page's SPA navigation runs, then a CPU-budget trip kills it (wall 1); with the budget raised, the results page renders no results (wall 2). NOT QF11, NOT form submission (Opus investigator, 2026-11-17) — OPEN: QY46, QJ12, QF11 (refined), QY48 filed; wall 2 ROOT CAUSE FOUND (QY47 addendum below: QuickJS 1 MB stack limit, RangeError swallowed by YouTube) — OPEN: QY47a-d — QV8-m (8dfe2f9, V8 default): on V8 the stack limit comes from the real thread stack (QV8-3b), so wall 2's QuickJS 1 MB limit does not apply; the direct results load has no budget kill and 0 JS errors (no RangeError check beyond that); the SPA search flow (wall 1) was NOT re-tested
+
+**QV8-m addendum (Opus, 2026-11-18, PERF.md "QV8-m"):** headless `--perf-report` of the DIRECT results URL on V8: 0 kills at the default budget (QuickJS same hash: 1 promise job killed), 0 JS errors, worst budget-clock callback 446-460 ms. Not re-tested: the user's flow (home -> type -> Enter, SPA navigation, wall 1) and whether results are DRAWN (headless; no screenshot in QV8-m). The QuickJS fallback still has the 1 MB stack limit until QV8-6 removes it.
 
 **Status: investigation only, docs only.** User report 2026-11-17: `scratchy --socket "$(wire
 --print-socket)" --user-agent '<Firefox 140 UA>' https://youtube.com`: autocomplete works

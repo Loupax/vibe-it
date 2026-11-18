@@ -237,7 +237,15 @@ Order: (drain) -> QT1 -> QV8-0 -> QV8-1 -> QV8-2 -> QV8-3 -> QV8-4 -> QV8-5 -> Q
       clippy reports 12 warnings there (11x E0133 unsafe op in unsafe fn, 1x missing_transmute_annotations;
       measured QV8-5: no-media 78, media 90). Fix them, then move the clippy count job to the default
       config and re-measure the baseline.
-- [ ] QV8-m [M] (after QV8-5, Opus measure) AFTER numbers: run `tools/perf-suite.sh` exactly as
+- [x] QV8-m [M] DONE 2026-11-18 (measured at 8dfe2f9, docs commit HASH_PENDING; PERF.md "QV8-m")
+      >>> RESULT (V8 vs QuickJS, same hash, interleaved, 7 pages x 3 x 2 budgets): default-budget kills
+          2 pages -> 1 (bbc timer still needs 520-536 ms, was 1335-1353; YouTube results worst job
+          446-460 ms, was 623-655 killed); load CPU 0.55-0.95x; compile 0.26-0.43x; startup 32-65 ->
+          5.5-38 ms (QV8-4 snapshot); corpus compile+first run 0.50x, CPU loops 6-14x faster; RSS +15-70 MB;
+          forced layout unchanged (Wikipedia 93-94%, YouTube results 70% of JS CPU; 1.5-2.9 s single
+          stalls) = QY53 is now the biggest lever. YouTube page-load scripts slightly slower (420/430 ->
+          488/497 ms budget clock, not attributed). QY49-D recommendation: still (c), 2 s while loading.
+      (after QV8-5, Opus measure) AFTER numbers: run `tools/perf-suite.sh` exactly as
       QV8-0 did (same pages, same corpus bytes by sha256, same flags) on V8 at the merged
       hash, and the QuickJS fallback build at the same hash. PERF.md gets a "QuickJS vs V8"
       table per page and for the corpus (both budgets), with the deltas, plus what is still

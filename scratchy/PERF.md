@@ -259,8 +259,186 @@ of this is the interpreter" number from another engine; QV8-m's V8 run is the fi
 
 ## QuickJS vs V8
 
-Filled in by QV8-m: the same two tables for V8 at the merged hash, side by side with the
-baseline above, with the ratio per row.
+### QV8-m: final comparison at 8dfe2f9 (both engines, same checkout, 2026-11-18 22:38-22:55 CET)
+
+Taken by the QV8-m measurement step (Opus).
+
+- **Binaries:** main 8dfe2f9 (PR #302, QV8-5), clean tree, rustc 1.96.1, both built from the same
+  checkout with `nice -n 19 ... -j2` into separate target dirs BEFORE any measurement (builds finished
+  22:38; nothing was built while measuring):
+  V8 = `cargo build --release` (default = `engine-v8` + `media`), reports `"engine":"V8"`,
+  `"engine_version":"15.2.124.1-rusty (v8 crate 152.2.0)"`, `"commit":"8dfe2f9392"`;
+  QuickJS = `CARGO_TARGET_DIR=target/qjs cargo build --release --no-default-features --features
+  engine-quickjs,media`, reports `"QuickJS"`, `"0.16.2 (rquickjs 0.14.0)"`, `"8dfe2f9392"`. No `-dirty`.
+  Note: both builds have `media` (the QV8-0 baseline did not), so Wikipedia's `not implemented: media`
+  error is gone on both.
+- **Machine:** the same Ryzen 5 PRO 2500U (8 threads), schedutil. Measurements un-niced (as QV8-0). No
+  other agent, build or test ran during the measurement (the last other commit on main, 4228de2, landed
+  22:24). Firefox was open and idle (~1% CPU); a user scratchy that was busy at 22:15 had exited by 22:38.
+- **Load average (1/5/15 min):** start 22:38:20 `1.64, 2.01, 1.80` (the tail of the two release builds,
+  decaying), 22:44 1.39, 22:49 0.96, page runs end 22:53:22 `0.60, 0.82, 1.21`, corpus 22:53:23-22:53:29
+  `0.60-0.63`. Highest 1-min value seen in the run 1.76 (includes the measurement itself, one busy core).
+  Higher than the baseline's 0.3-0.5 in the first ~10 min; the interleaving below puts both engines in the
+  same conditions, which is why the QuickJS column is re-measured here instead of reusing 2437284's.
+- **Commands:** the exact `tools/perf-suite.sh` per-run invocation (`--perf-report --socket
+  /run/user/1001/wire.sock [--budget-ms 20000] --seconds 10 <url>`, `timeout 250`, same 7 pages in the same
+  order, RUNS=3, both budgets) from a scratchpad driver that runs every (page, budget, run) on BOTH binaries
+  back to back, alternating which goes first, and keeps all 84 per-run JSON files. Corpus: the pinned
+  files fetched by `FETCH_ONLY=1 tools/perf-corpus.sh` (all 7 sha256 match the table in the script), then
+  `--perf-corpus` 3 times per engine interleaved (the suite's corpus runs) plus one standalone
+  `SCRATCHY=<bin> tools/perf-corpus.sh` per engine = 4 runs per engine, as QV8-0. Raw files not committed.
+- **No page answered with a bot/JS challenge** (`challenge:false`, `outcome:"ok"` in all 84 runs).
+  old.reddit.com again served the new Reddit app (`Welcome to Reddit`).
+- Each cell: median of 3 runs, (min-max) when they differ. The CPU still bounces between a fast and a
+  slow state; with medians of interleaved runs this shows up only as the ranges.
+
+#### Per page
+
+"largest callback" = the largest single callback in the BUDGET clock that the 500 ms callback budget
+applies to (timer, promise job, observer delivery, event, network callback; kind in brackets); the
+largest classic/module page script is listed separately because a page-load script has its own 5 s
+budget (never killed here). Ratio = V8 / QuickJS (below 1 = V8 cheaper). ms of CPU unless noted.
+
+| page | pass | kills QJS -> V8 | largest callback, budget clock QJS -> V8 | largest page script QJS -> V8 | load wall QJS -> V8 | load CPU QJS -> V8 (ratio) | forced layout total QJS -> V8 (count) | JS errors QJS / V8 | RSS MB QJS -> V8 |
+|---|---|---|---|---|---|---|---|---|---|
+| YouTube results | true cost | 0 -> 0 | 647 (623-655) promise -> 446 (440-447) promise | 420 -> 488 (471-515) | 4324 -> 3834 | 2629 -> 2035 (0.77) | 14091 (24) -> 14561 (25) | 0 / 0 | 463 -> 485 |
+| YouTube results | default | **1 (promise job) -> 0** | 501 killed -> 454 (453-460) promise | 400 -> 475 (469-476) | 3867 -> 3614 | 2591 -> 2005 (0.77) | 4111 (18) -> 14569 (23) (QJS lost the killed job's work) | 1 / 0 | 421 -> 483 |
+| YouTube home | true cost | 0 -> 0 | 322 promise -> 143 timer | 430 -> 497 (491-497) | 3704 -> 3456 | 2740 -> 2210 (0.81) | 3974 (18) -> 3937 (19) | 0 / 0 | 399 -> 470 |
+| YouTube home | default | 0 -> 0 | 342 promise -> 149 observer | 422 -> 497 (493-507) | 3819 -> 3223 | 2752 -> 2236 (0.81) | 4122 (19) -> 3808 (18) | 0 / 0 | 400 -> 467 |
+| en.wikipedia Rust | true cost | 0 -> 0 | 198 timer -> 177 timer | - | 249 -> 232 | 157 -> 141 (0.90) | 12137 (8) -> 10230 (7) | 0 / 0 | 220 -> 264 |
+| en.wikipedia Rust | default | 0 -> 0 | 205 timer -> 176 timer | - | 266 -> 249 | 172 -> 150 (0.87) | 11986 (8) -> 11189 (8) | 0 / 0 | 219 -> 265 |
+| social.loupax.com/discover | true cost | 0 -> 0 | 50 promise -> <40 | 39 (V8) | 427 -> 433 | 252 -> 220 (0.87) | 126 (10) -> 129 (10) | 0 / 0 | 51 -> 79 |
+| social.loupax.com/discover | default | 0 -> 0 | 51 promise -> <40 | 54 (V8) | 409 -> 390 | 252 -> 240 (0.95) | 125 (10) -> 124 (10) | 0 / 0 | 51 -> 77 |
+| github.com/Loupax/vibe-it | true cost | 0 -> 0 | < 40 both | module 181 -> 118 | 954 -> 727 | 525 -> 291 (0.55) | 0 -> 0 | 4 / 4 | 51 -> 66 |
+| github.com/Loupax/vibe-it | default | 0 -> 0 | < 40 both | module 187 -> 117 | 893 -> 741 | 530 -> 292 (0.55) | 0 -> 0 | 4 / 4 | 51 -> 67 |
+| old.reddit.com (new Reddit) | true cost | 0 -> 0 | 215 promise -> 113 promise | 90 -> 102 | 392 -> 364 | 87 -> 51 (0.59) | 75 (1) -> 71 (1) | 8 / 8 | 126 -> 152 |
+| old.reddit.com (new Reddit) | default | 0 -> 0 | 215 promise -> 92 promise | 89 -> 103 | 698 (378-902) -> 455 | 87 -> 51 (0.59) | 74 (1) -> 74 (1) | 8 / 8 | 126 -> 151 |
+| bbc.com/news | true cost | 0 -> 0 | **1345 (1335-1353) timer -> 535 (520-536) timer** (0.40) | - | 777 -> 1401 (512-2087, network: fetch wall 272 -> 1121) | 526 -> 297 (0.56) | 2054 (15) -> 2113 (16) | 0 / 0 | 153 -> 205 |
+| bbc.com/news | default | **1 (timer) -> 1 (timer)** | 500 killed -> 501 killed | - | 746 -> 538 | 525 -> 311 (0.59) | 2039 (16) -> 2103 (16) | 1 / 1 (the kill) | 144 -> 196 |
+
+Whole-run totals (all callbacks; median of 3):
+
+| page | pass | budget clock total QJS -> V8 | raw CPU total QJS -> V8 | forced layout share QJS -> V8 | compile CPU QJS -> V8 | engine startup QJS -> V8 |
+|---|---|---|---|---|---|---|
+| YouTube results | true cost | 8395 -> 6242 (0.74) | 22522 -> 20803 (0.92) | 63% -> 70% | 1033 -> 386 (0.37) | 32 -> 5.5 |
+| YouTube results | default | 4676 -> 6170 (QJS killed work) | 8764 -> 20739 | 47% -> 70% | 1369 -> 379 | 32 -> 5.6 |
+| YouTube home | true cost | 3496 -> 2380 (0.68) | 7382 -> 6316 (0.86) | 53% -> 63% | 1274 -> 495 (0.39) | 32 -> 5.6 |
+| YouTube home | default | 3705 -> 2261 (0.61) | 8041 -> 6069 (0.75) | 52% -> 63% | 1286 -> 497 (0.39) | 32 -> 5.5 |
+| en.wikipedia Rust | true cost | 835 -> 748 (0.90) | 12985 -> 10964 (0.84, one layout fewer) | 93% -> 93% | 110 -> 47 (0.43) | 51 -> 25 |
+| en.wikipedia Rust | default | 823 -> 765 (0.93) | 12809 -> 11954 (0.93) | 94% -> 94% | 107 -> 43 | 65 -> 38 |
+| social.loupax.com | true cost | 84 -> 77 | 209 -> 205 | 60% -> 63% | 0.9 -> 0.7 | 37 -> 8.2 |
+| github | true cost | 442 -> 248 (0.56) | 442 -> 248 (0.56) | 0% | (modules) | 35 -> 8.5 |
+| old.reddit.com | true cost | 601 -> 534 (0.89) | 677 -> 605 (0.89) | 11% -> 12% | 219 -> 65 (0.30) | 63 -> 12 |
+| bbc.com/news | true cost | 2897 -> 1449 (0.50) | 4949 -> 3546 (0.72) | 41% -> 59% | 475 -> 124 (0.26) | 36 -> 8.3 |
+| bbc.com/news | default | 1128 -> 1116 (both killed) | 3177 -> 3214 | 64% -> 65% | 487 -> 118 | 37 -> 8.0 |
+
+Callback COUNTS are not comparable between the engines: V8 reports far fewer `promise_job`s (YouTube
+results 447 vs 5149, reddit 169 vs 2365) because its promise hook counts jobs differently from QuickJS'
+one-job-at-a-time loop (QV8-3b); totals and maxima are comparable, counts are not.
+
+QuickJS today vs its own 2437284 baseline: same shape, but the YouTube results promise job grew from
+514-520 to 623-655 ms (page drift and/or the QV8 seam; not separated), still killed at 500.
+
+#### Corpus (`--perf-corpus`, 4 runs per engine, identical bytes by sha256, no `error` on either)
+
+`--perf-corpus` has no budget (both "budgets" are the same run). ms of CPU, median (range).
+
+| script | mode | bytes | compile QJS -> V8 | first run QJS -> V8 | compile + first run, ratio |
+|---|---|---|---|---|---|
+| moment 2.31.0 | bare | 60887 | 5.61 -> 1.59 | 0.51 -> 2.05 | 6.12 -> 3.64 (0.59) |
+| d3 7.9.2 | bare | 280622 | 36.6 (34.6-48.1) -> 12.5 | 3.17 -> 10.8 | 39.8 -> 23.3 (0.59) |
+| lodash 4.18.1 | bare | 73234 | 9.35 -> 2.64 | 1.59 -> 6.46 | 10.9 -> 9.10 (0.83) |
+| three 0.159.0 | bare | 668024 | 59.5 -> 15.4 | 3.67 -> 5.81 | 63.2 -> 21.2 (0.34) |
+| jquery 4.1.0 | dom prelude | 78965 | 8.81 -> 2.22 | 0.96 -> 5.45 | 9.77 -> 7.67 (0.79) |
+| react 18.3.1 | bare | 10751 | 1.18 -> 0.33 | 0.05 -> 0.32 | 1.23 -> 0.65 (0.53) |
+| react-dom 18.3.1 | dom prelude | 131835 | 13.2 -> 3.53 | 1.75 -> 3.92 | 14.9 -> 7.45 (0.50) |
+| all 7 libraries | | | 134.3 -> 38.2 (0.28) | 11.7 -> 34.8 (2.97) | 146.0 -> 73.0 (**0.50**) |
+| fib(25) | bare | 91 | 0.04 -> 0.03 | **21.4 -> 1.56 (13.7x faster)** | |
+| sort 200k objects | bare | 208 | 0.05 | **614 -> 103 (6.0x)** | |
+| JSON round trip | bare | 235 | 0.08 -> 0.06 | **329 -> 47.4 (6.9x)** | |
+
+"Steady state": the harness runs each library once (compile + first run); there is no repeated-run
+steady-state mode. The three CPU loops are the steady-state proxy (they run long enough for V8's JIT
+tiers): 6-14x faster. V8 compiles lazily, so a library's first run costs MORE than on QuickJS (it
+compiles the functions it calls then); compile + first run together is 2x cheaper.
+
+#### QV8-4 snapshot effect on startup (V8 build, `SCRATCHY_V8_SNAPSHOT=0` vs default)
+
+`engine_startup_cpu_ms` (isolate + context + natives + preludes) in the suite: V8 5.4-13.7 ms per page
+(Wikipedia 25-41) vs QuickJS 32-70 ms. Direct A/B on the V8 binary, `--seconds 0`, 3 interleaved runs,
+22:54 (load 0.33-1.0): Wikipedia 25.7 / 25.8 / 47.4 with snapshot vs 46.6 / 52.1 / 68.5 without; bbc
+7.5 / 8.3 / 8.6 vs 53.3 / 29.0 / 28.8. So the snapshot saves ~20-45 ms per page start (as QV8-4
+measured) and makes V8's startup 4-6x cheaper than QuickJS' on most pages. Why Wikipedia's startup is
+25 ms with the snapshot when other pages take 8 ms was NOT investigated. RSS with/without the snapshot:
+within 3 MB.
+
+#### What is still slow, and why
+
+1. **Forced layout, unchanged by the engine (as predicted).** Share of the JS thread's CPU on V8:
+   Wikipedia 93-94%, YouTube results 70%, YouTube home 63%, bbc 59-65%. Single layouts of 1.1-1.5 s
+   (YouTube results) and 1.56-1.75 s (Wikipedia); single callbacks of 1.6-1.9 s raw (YouTube results
+   observer delivery), 2.7-2.9 s raw (Wikipedia observer delivery), 1.56 s (bbc observer delivery).
+   These are outside the budget clock, so they never kill, but they are main-thread stalls 3-6x longer
+   than the 500 ms budget. Because V8 made script cheaper, forced layout's share went UP on every heavy
+   page. This is QY53's list from R37: our own `obsFlush` observer-delivery timer running the page's
+   IntersectionObserver/ResizeObserver callbacks that read geometry after DOM writes; `__d_rect`
+   (getBoundingClientRect, 3 calls = 3.9 s in one job in R37); a full relayout per write generation
+   (does one callback's series of reads reuse one layout?). Natives in the budget clock from R37:
+   `__d_cs` (fixed by QY52), `__d_special` (fixed by QY51), `__d_parent` (24k-87k calls per callback
+   through `isConnected`, the `moAttr` parent walk for every style write, the Shady DOM polyfill), the
+   Shady DOM `insertBefore`. These natives are Rust, so V8 does not make them faster; the harness cannot
+   split native from JS time inside the budget clock.
+2. **YouTube's big page scripts got slightly SLOWER on V8** in the budget clock: largest classic script
+   420 -> 488 (YouTube results), 430 -> 497 (YouTube home). They run under the 5 s page-load budget, so
+   they are not killed, but each is a ~0.5 s stall. Not attributed (no profiler in the harness): likely
+   candidates are lazy compilation of a 1 MB+ script's functions on first call (the corpus shows the same
+   first-run increase) and per-call native overhead through the V8 binding; this needs a profile.
+3. **YouTube results' worst promise job is 446-460 ms on V8**: no kill now, but only 40-55 ms (8-11%)
+   under the 500 ms budget on this CPU; a slower machine, the slow CPU state or more page code tips it.
+4. **bbc.com/news still loses one timer at the default budget on V8** in 3/3 runs: it needs 520-536 ms
+   of budget clock (was 1335-1353 on QuickJS, 2.5x cheaper, but still 4-7% over the line).
+
+#### Memory
+
+RSS at the end, V8 vs QuickJS: +15 to +70 MB per page (YouTube results +22/+62, YouTube home +68-71,
+Wikipedia +44-46, social.loupax.com +26-28, github +15-16, reddit +25-26, bbc +52). JS heap at the end
+is similar (YouTube 96-105 MB on both; Wikipedia 12.5 -> 20 MB; bbc 31-38 MB on both). GC time is not
+separated from script time by the harness (not measured).
+
+#### Recommendation for QY49-D (QUESTIONS.md Q1), from these numbers
+
+**(c): a larger budget only while the page is loading, 2 s, until `load` + 2 s; 500 ms afterwards.**
+- (a) alone is not enough: on V8 bbc still loses a timer (needs 520-536 ms) and YouTube results' worst
+  job sits 8-11% under the line. The harness only covers navigation + 10 s after `load`, so every kill
+  in the 84 runs is inside that window (the exact second of bbc's timer was not recorded); R37 found
+  every trip it measured during the load too.
+- 2 s (not 5 s) is enough: the largest single budget-clock callback measured on V8 is 536 ms, so 2 s is
+  a ~4x margin; on QuickJS it would have been 1.35 s (still under 2 s), so the same value also covers the
+  fallback build while it exists.
+- (b) (2 s always) is not supported by any measurement: no trip has been seen after a page finished
+  loading (but the harness does not watch long-lived pages or interaction, so this is unmeasured).
+- (d) only if QY54 shows the compositor disconnects scratchy during these stalls. Note the R8 premise has
+  weakened: forced layout (excluded from the budget) already stalls 1.5-2.9 s in one callback on V8, so
+  the 500 ms budget is not what bounds stalls today; QY53 (forced layout) is the bigger lever for
+  responsiveness than any budget value.
+Caveat: whether bbc's timer runs before `load` + 2 s was not recorded (the kill log line has no time);
+whoever implements (c) must check it on bbc and widen the window (e.g. `load` + 5 s) if it falls later.
+This stays a user decision (it changes the R8 protection); the numbers no longer require (c), but
+without it bbc keeps losing a timer and YouTube results is one slow day from losing its results again.
+
+#### What QV8-m did NOT measure
+
+| not measured | why |
+|---|---|
+| drawn output (whether the page's content appears) | headless harness; no nested-dwl screenshots in this step |
+| interpreter vs native time in the budget clock; which function is slow in YouTube's 0.5 s scripts / bbc's timer | no profiler in the harness, no probes added (docs-only step) |
+| GC time | not separated by the harness |
+| steady-state runs of the corpus libraries | the harness has compile + first run only; CPU loops are the proxy |
+| Chrome / jitless reference | Chrome not installed (as in QV8-0) |
+| why V8 counts fewer promise jobs; why Wikipedia's V8 startup is 25 ms | not investigated |
+| R8 disconnect under stall (QY54) | not in scope |
+| DuckDuckGo | not in the suite (bot challenge, R37) |
+| the baseline's quiet-machine conditions in the first ~10 min | load 1.0-1.76 while the build load decayed; mitigated by interleaving both engines |
 
 ### QV8-3b interim (V8 15.2.124.1 behind `engine-v8`, 103ff22 + QV8-3b, 2026-11-18)
 
