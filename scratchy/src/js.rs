@@ -1316,6 +1316,15 @@ impl JsEngine {
     }
 
     /// QB5: drains pending focus/blur/scroll requests.
+    /// QY48: the App stepped to a same-document history entry `delta` away
+    /// whose URL is `href`: schedules `popstate` (with that entry's state).
+    /// False when the page's own entry list does not line up (the App then
+    /// falls back to loading the URL).
+    pub(crate) fn history_traverse(&self, delta: isize, href: &str) -> bool {
+        let code = format!("__hist_to({delta},{})", js_string_literal(href));
+        self.eval_value::<bool>("history", &code).unwrap_or(false)
+    }
+
     pub(crate) fn take_requests(&self) -> js_dom::JsRequests {
         std::mem::take(&mut *self.reqs.borrow_mut())
     }
