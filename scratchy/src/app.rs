@@ -260,7 +260,7 @@ pub(crate) const COMMAND_NAMES: &[&str] = &["go", "help", "historyBack", "histor
 
 /// `:set`'s own one valid argument, completed the same way `COMMAND_
 /// NAMES` completes a command name itself — see `command_completions`.
-pub(crate) const SET_ARGS: &[&str] = &["js", "nojs", "novim", "vim"];
+pub(crate) const SET_ARGS: &[&str] = &["js", "motion", "nojs", "nomotion", "novim", "vim"];
 
 /// Candidate completions for the token the command line's cursor is
 /// currently positioned at the end of (`token_start..cursor`, from
@@ -3116,6 +3116,9 @@ impl App {
             // Takes effect from the next page load (`:refresh`).
             ("set", ["js"]) => set_js_enabled(true),
             ("set", ["nojs"]) => set_js_enabled(false),
+            // QAN1d0: takes effect from the next page load (`:refresh`).
+            ("set", ["motion"]) => set_reduced_motion(false),
+            ("set", ["nomotion"]) => set_reduced_motion(true),
             ("help", []) => self.show_help(),
             ("q", []) | ("quit", []) => {
                 if self.pre_help_page.is_some() {

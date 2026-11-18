@@ -2052,6 +2052,20 @@ impl Default for MediaQuery {
     }
 }
 
+static REDUCED_MOTION: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+
+/// QAN1d0: whether `prefers-reduced-motion` answers `reduce` (the default).
+/// `--motion` / `:set motion` turn real motion on, `:set nomotion` back off;
+/// a `:set` change applies from the next page load (`:refresh`). One value
+/// drives both the cascade's `@media` and script `matchMedia`.
+pub(crate) fn reduced_motion() -> bool {
+    REDUCED_MOTION.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub(crate) fn set_reduced_motion(on: bool) {
+    REDUCED_MOTION.store(on, std::sync::atomic::Ordering::Relaxed);
+}
+
 impl MediaQuery {
     /// Whether this one query currently holds, given the live viewport
     /// width (in CSS px) — re-evaluated fresh every time this is
@@ -2081,7 +2095,12 @@ impl MediaQuery {
             return false;
         }
         if let Some(prm) = self.prefers_reduced_motion
-            && prm != PrefersReducedMotion::NoPreference
+            && prm
+                != (if reduced_motion() {
+                    PrefersReducedMotion::Reduce
+                } else {
+                    PrefersReducedMotion::NoPreference
+                })
         {
             return false;
         }
@@ -6572,7 +6591,8 @@ fn media_feature_eval(body: &str, w: f32, h: f32) -> Result<Option<bool>, ()> {
     // Discrete features: (current value, the `none`-like value).
     let (cur, none): (&str, &str) = match name.as_str() {
         "prefers-color-scheme" => ("light", ""),
-        "prefers-reduced-motion" | "prefers-contrast" | "prefers-reduced-transparency" | "prefers-reduced-data" => {
+        "prefers-reduced-motion" => (if reduced_motion() { "reduce" } else { "no-preference" }, "no-preference"),
+        "prefers-contrast" | "prefers-reduced-transparency" | "prefers-reduced-data" => {
             ("no-preference", "no-preference")
         }
         "forced-colors" | "inverted-colors" => ("none", "none"),
