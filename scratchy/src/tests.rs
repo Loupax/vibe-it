@@ -21411,3 +21411,47 @@ fn qj12_keyboardevent_ctor_fields_and_modifiers() {
     let got: String = js.as_ref().unwrap().eval_value("t", "R").expect("r");
     assert_eq!(got, "a,KeyA,65,65,0,2,true,true,true,true,0,0,0");
 }
+
+#[test]
+fn qy51_document_special_no_walk() {
+    // Normal page, script-inserted element, body replacement, removal, re-insertion.
+    let log = run_in_html(
+        "<html><head><title>t</title></head><body><p id=a>x</p></body></html>",
+        "var h=document.documentElement;\
+         console.log(h.tagName, document.head.tagName, document.body.tagName, document.body===h.lastElementChild);\
+         var d=document.createElement('div'); document.body.appendChild(d);\
+         console.log(document.body===d.parentNode);\
+         var nb=document.createElement('body'); nb.id='nb'; h.replaceChild(nb, document.body);\
+         console.log(document.body.id, document.body===nb);\
+         h.removeChild(nb); console.log(document.body===null);\
+         h.appendChild(nb); console.log(document.body===nb);\
+         h.removeChild(document.head); console.log(document.head===null);\
+         h.insertBefore(document.createElement('head'), nb); console.log(document.head.tagName);\
+         h.parentNode.removeChild(h); console.log(document.documentElement===null, document.body===null, document.head===null);",
+    );
+    assert_eq!(log[0], "log:HTML HEAD BODY true", "{log:?}");
+    assert_eq!(log[1], "log:true", "{log:?}");
+    assert_eq!(log[2], "log:nb true", "{log:?}");
+    assert_eq!(log[3], "log:true", "{log:?}");
+    assert_eq!(log[4], "log:true", "{log:?}");
+    assert_eq!(log[5], "log:true", "{log:?}");
+    assert_eq!(log[6], "log:HEAD", "{log:?}");
+    assert_eq!(log[7], "log:true true true", "{log:?}");
+}
+
+#[test]
+fn qy51_document_special_duplicates_and_frameset() {
+    // First matching child of html wins; a body inside head is not the body.
+    let log = run_in_html(
+        "<html><head id=h1></head><body id=b1></body></html>",
+        "var h=document.documentElement;\
+         var h2=document.createElement('head'); h2.id='h2'; h.appendChild(h2);\
+         var b2=document.createElement('body'); b2.id='b2'; h.appendChild(b2);\
+         console.log(document.head.id, document.body.id);\
+         var fs=document.createElement('frameset'); fs.id='fs';\
+         h.replaceChild(fs, document.body); h.removeChild(b2);\
+         console.log(document.body.id);",
+    );
+    assert_eq!(log[0], "log:h1 b1", "{log:?}");
+    assert_eq!(log[1], "log:fs", "{log:?}");
+}

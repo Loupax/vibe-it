@@ -682,12 +682,25 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     native!("__d_special", move |which: i32, doc: i32| -> i32 {
         let mut t = t.borrow_mut();
         let Some(root) = t.get(doc) else { return -1 };
-        let mut all = Vec::new();
-        descendants(&root, &mut all);
-        let want = ["html", "head", "body"][which.clamp(0, 2) as usize];
-        // The document element is the first element child of the root.
+        // QY51: no whole-tree walk. The document element is the first element
+        // child of the root; head/body are the first matching child of it
+        // (body: the first `body` or `frameset` child).
         let first = root.children.borrow().iter().find(|c| is_element(c)).cloned();
-        let found = if which == 0 { first } else { all.iter().find(|h| element_tag(h) == want).cloned() };
+        let found = match (which, first) {
+            (0, f) => f,
+            (w, Some(html)) => {
+                let kids = html.children.borrow();
+                kids.iter()
+                    .find(|c| {
+                        is_element(c) && {
+                            let t = element_tag(c);
+                            if w == 1 { t == "head" } else { t == "body" || t == "frameset" }
+                        }
+                    })
+                    .cloned()
+            }
+            _ => None,
+        };
         match found.as_ref() {
             Some(h) => t.intern(h),
             None => -1,
