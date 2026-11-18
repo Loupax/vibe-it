@@ -21493,6 +21493,8 @@ fn qan1d0_reduced_motion_default_and_set_motion_flip() {
     assert_eq!(qan1d0_match("(prefers-reduced-motion: no-preference)"), "log:true");
     set_reduced_motion(true);
     assert_eq!(qan1d0_match("(prefers-reduced-motion: reduce)"), "log:true");
+}
+
 // ---------- QY52: getComputedStyle reuses styles across unrelated writes ----------
 
 #[test]

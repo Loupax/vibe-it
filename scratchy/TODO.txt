@@ -1687,7 +1687,7 @@ Ranked: QY50 (P1) -> QY51 (P1) -> QY49-D (user decision, can be asked now) -> QY
       and stalls reach 3.9 s, so today's 500 ms is not a bound on the stall anyway (QY53/QY54).
       After the decision: one Sonnet item [S] in js.rs (`eval_value`/`drain_jobs` arm the
       chosen budget), fake-clock tests.
-- [x] QY52 [M] DONE (see git log for the hash; YouTube __d_cs 1.1-3.4 ms per call after writes, was ~50; CSS change 25 ms, was 350) (P2, R37, Sonnet, measure first) `getComputedStyle` costs ~50 ms per call
+- [x] QY52 [M] DONE b41787b (YouTube __d_cs 1.1-3.4 ms per call after writes, was ~50; CSS change 25 ms, was 350) (P2, R37, Sonnet, measure first) `getComputedStyle` costs ~50 ms per call
       after a DOM write on YouTube (`__d_cs`: 10 calls = 503 ms in one job, counted
       against the callback budget). The QA16 `StyleCache` is keyed on the write generation,
       so every write+read pair re-cascades. STEP 1: time `style_of` (cascade vs. selector
