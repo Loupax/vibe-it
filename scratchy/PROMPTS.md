@@ -7356,3 +7356,9 @@ Done: R37. DuckDuckGo's direct /?q=rust load returned its bot challenge ("Select
 **Prompt:** `__d_special` (document.body/head/documentElement) walked every element on each call (R37: 69 calls = 102 ms in one YouTube rAF tick). Stop the whole-tree walk; measure before/after; tests for replacement, removal, re-insertion, duplicates.
 
 **What changed:** js_dom.rs `__d_special`: html = first element child of the document; head = first `head` child of html; body = first `body` or `frameset` child of html. No tree walk, so no cache or invalidation is needed. Behaviour difference from the old walk: a head/body nested deeper than a child of html (never produced by the parser) is no longer found; `frameset` now counts as body (spec). Measured with a temporary test (10k divs+spans page, 200 x document.body + document.head = 400 calls, release): 557 ms before, 135 ms after (parse and setup are the remaining 135 ms), i.e. about 1 ms per call to about 0. Tests qy51_document_special_no_walk, qy51_document_special_duplicates_and_frameset. Timing code removed.
+
+## QAN1d0 (scratchy/qan1d0-reduced-motion)
+
+**Prompt:** Answer `prefers-reduced-motion: reduce` by default (QAN1-D D1) in the cascade @media and JS matchMedia; `:set motion` / `:set nomotion` and `--motion` to change it; tests for both states.
+
+**What changed:** css.rs `reduced_motion()`/`set_reduced_motion()` (atomic, default reduce) read by `MediaQuery::matches` (cascade) and `media_feature_eval` (matchMedia), so both agree. app.rs `:set motion`/`:set nomotion` + SET_ARGS; dom.rs `--motion`; help.html row. A `:set` change applies from the next page load (`:refresh`), like `:set js`. qy10 expectation for `(prefers-reduced-motion: reduce)` flipped 0 -> 1. Test qan1d0_reduced_motion_default_and_set_motion_flip. WPT subset: no change. Nested-dwl: local page red/pink by default, blue/lavender with `--motion`; en.wikipedia and news.ycombinator.com render normally.

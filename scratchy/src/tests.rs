@@ -11032,6 +11032,7 @@ fn qy9_search_params_encoding_and_iteration() {
 
 #[test]
 fn qy10_match_media_features_and_combinations() {
+    let _m = MOTION_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let out = run_collecting(&[src(
         "var q = function (s) { return window.matchMedia(s).matches ? 1 : 0; };\
          console.log([q('(min-width: 1px)'), q('(max-width: 1px)'), q('(min-width: 1024px)'), q('(max-width: 1023px)'),\
@@ -11042,7 +11043,7 @@ fn qy10_match_media_features_and_combinations() {
            q('(min-resolution: 1dppx)'), q('print, (min-width: 1px)'), q('(width >= 600px)'), q('(width < 600px)'),\
            q('screen and (min-width: 1px)'), q('(forced-colors: active)'), q('')].join(','));",
     )]);
-    assert_eq!(out, vec!["log:1,0,1,0,1,0,1,0,0,1,0,1,1,1,0,1,0,0,0,1,1,1,0,1,0,1"]);
+    assert_eq!(out, vec!["log:1,0,1,0,1,0,1,0,0,1,0,1,1,1,0,1,0,1,0,1,1,1,0,1,0,1"]);
 }
 
 #[test]
@@ -21454,4 +21455,42 @@ fn qy51_document_special_duplicates_and_frameset() {
     );
     assert_eq!(log[0], "log:h1 b1", "{log:?}");
     assert_eq!(log[1], "log:fs", "{log:?}");
+}
+
+// ---------- QAN1d0: prefers-reduced-motion defaults to reduce ----------
+
+static MOTION_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn qan1d0_red_p(html_css: &str) -> bool {
+    let doc = parse_html(&format!("<html><body><style>{html_css}</style><p>x</p></body></html>"));
+    let tree = build_layout_tree(&doc, 800.0);
+    let mut v = Vec::new();
+    find_all_span_colors(&tree, &mut v);
+    v.contains(&TextColor::rgb(255, 0, 0))
+}
+
+fn qan1d0_match(q: &str) -> String {
+    let out = run_collecting(&[src(&format!("console.log(matchMedia('{q}').matches);"))]);
+    out[0].clone()
+}
+
+#[test]
+fn qan1d0_reduced_motion_default_and_set_motion_flip() {
+    let _m = MOTION_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    assert!(SET_ARGS.contains(&"motion") && SET_ARGS.contains(&"nomotion"));
+    set_reduced_motion(true);
+    assert!(reduced_motion());
+    let reduce_css = "@media (prefers-reduced-motion: reduce){p{color:#f00}}";
+    let nopref_css = "@media (prefers-reduced-motion: no-preference){p{color:#f00}}";
+    assert!(qan1d0_red_p(reduce_css), "reduce block applies by default");
+    assert!(!qan1d0_red_p(nopref_css), "no-preference block does not apply by default");
+    assert_eq!(qan1d0_match("(prefers-reduced-motion: reduce)"), "log:true");
+    assert_eq!(qan1d0_match("(prefers-reduced-motion: no-preference)"), "log:false");
+    set_reduced_motion(false);
+    assert!(!qan1d0_red_p(reduce_css), "reduce block off after :set motion");
+    assert!(qan1d0_red_p(nopref_css), "no-preference block applies after :set motion");
+    assert_eq!(qan1d0_match("(prefers-reduced-motion: reduce)"), "log:false");
+    assert_eq!(qan1d0_match("(prefers-reduced-motion: no-preference)"), "log:true");
+    set_reduced_motion(true);
+    assert_eq!(qan1d0_match("(prefers-reduced-motion: reduce)"), "log:true");
 }
