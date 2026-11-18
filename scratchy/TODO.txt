@@ -76,8 +76,7 @@ Order: (drain) -> QT1 -> QV8-0 -> QV8-1 -> QV8-2 -> QV8-3 -> QV8-4 -> QV8-5 -> Q
       load, RSS) and the corpus table, plus exact commands. Tests: the JSON shape and the
       budget flag (fixture page with a known 50 ms busy loop shows up as one timer >= 50 ms).
       >>> harness code DONE 93faf68 (--perf-report, --perf-corpus, --budget-ms, tools/perf-suite.sh,
-          tools/perf-corpus.sh, PERF.md skeleton; tests qv8_0_* are appended at the end of src/tests.rs:
-          QT1 must move them with the rest); BASELINE numbers still to be taken at the drained hash
+          tools/perf-corpus.sh, PERF.md skeleton; tests qv8_0_* live in src/tests/perf_tests.rs after QT1); BASELINE numbers still to be taken at the drained hash
           (Opus step). Corpus pins: moment 2.31.0, d3 7.9.2, lodash 4.18.1, three 0.159.0, jquery 4.1.0,
           react+react-dom 18.3.1 (sha256 in tools/perf-corpus.sh). QV8-0 itself NOT ticked.
 - [ ] QV8-1 [M] (P0, after QV8-0, Opus spike) Prove V8 fits scratchy before porting. Behind a
@@ -1212,7 +1211,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       references, pinned to the WPT commit the user's ~/src/wpt is at (record it
       next to wpt-expected.txt), then `scratchy --wpt <dir>`. Headless already
       (the runner renders to PNG without a window).
-- [ ] QT1 [M] READY, P0 (user 2026-11-18: do it in the V8 drain window, right after the
+- [x] QT1 [M] DONE 2026-11-18 (HASH_TBD; src/tests.rs split into src/tests/mod.rs + 21 area files, 1029 tests before and after, names diff empty) P0 (user 2026-11-18: do it in the V8 drain window, right after the
       drain and before QV8-0; see the TOP PRIORITY block. tests.rs is ~22k lines now and the
       V8 port (QV8-3) will touch hundreds of JS tests, so split first.) (do in a quiet window; the coordinator holds or rebases
       every open branch, since all of them touch tests.rs) Split `src/tests.rs`
