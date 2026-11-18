@@ -201,7 +201,7 @@ Order: (drain) -> QT1 -> QV8-0 -> QV8-1 -> QV8-2 -> QV8-3 -> QV8-4 -> QV8-5 -> Q
 - [x] QV8-3d [S] (after QV8-3b/3c) CI job (R39 C5): a fourth scratchy job with `--features engine-v8`;
       it caches the V8 archive (actions/cache) and pins it with RUSTY_V8_ARCHIVE +
       RUSTY_V8_ARCHIVE_SHA256 (sha in R39). The three existing jobs must not need the V8 download.
-      DONE: job `scratchy-v8` (HASH). Clippy count has NO engine-v8 variant: it would lint
+      DONE: job `scratchy-v8` (689cffc). Clippy count has NO engine-v8 variant: it would lint
       js_engine_v8.rs plus the v8 crate graph (a second cold lint run) against a baseline
       (tools/clippy-baseline.txt, 78, default build) that does not model it; a v8 variant needs its
       own baseline file + a script flag, not trivial. Revisit if js_engine_v8.rs accrues warnings:
