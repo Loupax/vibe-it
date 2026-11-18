@@ -135,7 +135,7 @@ READY, in recommended order (no user decision needed):
   1 QSD5 [M] `display: contents` (prerequisite for slots; general CSS).
   2 QSD12 [S] re-measure the R23 corpus (absorbs QY6d; do with QF12).
   3 QF12 [S] re-measure the R22 network corpus, file next walls.
-  4 QF11 [S] navigation from JS (`location.assign/replace/href=`: no-ops now).
+  4 QF11 [S] DONE 81b3c6e navigation from JS (`location.assign/replace/href=`: no-ops now).
   5 Q33b1a [S] main `document.title` from `<title>` (reads '' today).
   6 QSD2b [S] lookupNamespaceURI/lookupPrefix/isDefaultNamespace.
   7 (DONE as QY44c) QSD4a [S] `document.styleSheets` minimal read.
@@ -3169,7 +3169,7 @@ R22 copies and paste the before/after numbers in the commit.
       `scratchy: a ping suppressed <urls>` (QF-D3). `activate_focus` has the
       element; the mouse path (`hit_test_cursor`) returns only the href, so
       it needs the hit element too.
-- [ ] QF11 [S] READY Navigation from JS (the other half of Q33f).
+- [x] QF11 [S] DONE 81b3c6e Navigation from JS (the other half of Q33f).
       `location.assign(u)`, `location.replace(u)`, the `location.href`
       setter, `location.reload()`, and setters for
       hash/search/pathname/host build the new URL (against

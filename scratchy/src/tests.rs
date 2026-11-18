@@ -21554,3 +21554,77 @@ fn qy52_unrelated_writes_keep_cached_styles_and_stylesheets_invalidate() {
     assert_eq!(ev("st.textContent='.t{color:rgb(2,2,2)}'; rd()"), "rgb(2, 2, 2)");
     assert_eq!(crate::js_style::parse_count() - p0, 2);
 }
+
+// ---------- QF11: navigation from JS (location.href/assign/replace/reload) ----------
+
+/// Runs `code` on a page at https://page.test/dir/index.html and returns the
+/// requests it made of the App plus the log.
+fn qf11_run(code: &str) -> (crate::js_dom::JsRequests, Vec<String>) {
+    set_page_url(Url::parse("https://page.test/dir/index.html").ok().as_ref());
+    let (engine, _doc, log) = events_engine("<html><body></body></html>", code);
+    let reqs = engine.take_requests();
+    let l = log.borrow().clone();
+    (reqs, l)
+}
+
+#[test]
+fn qf11_href_assign_replace_reload_request_navigation() {
+    let (r, l) = qf11_run("location.href = 'next.html';");
+    assert_eq!(r.nav.as_deref(), Some("https://page.test/dir/next.html"), "{l:?}");
+    assert!(!r.nav_replace && !r.reload);
+    let (r, _) = qf11_run("location.assign('/abs?x=1');");
+    assert_eq!(r.nav.as_deref(), Some("https://page.test/abs?x=1"));
+    assert!(!r.nav_replace);
+    let (r, _) = qf11_run("location.replace('//other.test/p');");
+    assert_eq!(r.nav.as_deref(), Some("https://other.test/p"));
+    assert!(r.nav_replace, "replace must not add a history entry");
+    let (r, _) = qf11_run("location.reload();");
+    assert!(r.reload && r.nav.is_none());
+    let (r, _) = qf11_run("window.location = '/w';");
+    assert_eq!(r.nav.as_deref(), Some("https://page.test/w"));
+    let (r, _) = qf11_run("document.location = '/d';");
+    assert_eq!(r.nav.as_deref(), Some("https://page.test/d"));
+    let (r, _) = qf11_run("location.pathname = '/np';");
+    assert_eq!(r.nav.as_deref(), Some("https://page.test/np"));
+    let (r, _) = qf11_run("location.search = 'q=2';");
+    assert_eq!(r.nav.as_deref(), Some("https://page.test/dir/index.html?q=2"));
+    let (r, _) = qf11_run("window.open('/self', '_self');");
+    assert_eq!(r.nav.as_deref(), Some("https://page.test/self"));
+}
+
+#[test]
+fn qf11_fragment_change_stays_in_document_and_fires_hashchange() {
+    set_page_url(Url::parse("https://page.test/dir/index.html").ok().as_ref());
+    let log = run_with_timers(
+        "window.addEventListener('hashchange', function(e){ console.log('hc', e.oldURL, e.newURL); });\
+         var n = history.length; location.hash = 'sec'; console.log(location.href, history.length - n);\
+         location.assign('#two'); console.log(location.hash);\
+         location.replace('#three'); console.log(location.hash, history.length - n);",
+    );
+    assert_eq!(log[0], "log:https://page.test/dir/index.html#sec 1", "{log:?}");
+    assert_eq!(log[1], "log:#two", "{log:?}");
+    assert_eq!(log[2], "log:#three 2", "{log:?}");
+    assert!(log.iter().any(|l| l == "log:hc https://page.test/dir/index.html https://page.test/dir/index.html#sec"), "{log:?}");
+    assert_eq!(log.iter().filter(|l| l.starts_with("log:hc ")).count(), 3, "{log:?}");
+}
+
+#[test]
+fn qf11_push_replace_state_do_not_navigate() {
+    let (r, l) = qf11_run("history.pushState({}, '', '/x'); history.replaceState({}, '', '/y?z=1'); console.log(location.href);");
+    assert!(r.nav.is_none() && !r.reload, "{r:?}");
+    assert_eq!(l[0], "log:https://page.test/y?z=1");
+}
+
+#[test]
+fn qf11_javascript_urls_invalid_urls_and_file_targets() {
+    let (r, l) = qf11_run("location.href = 'javascript:alert(1)'; console.log('alive');");
+    assert!(r.nav.is_none());
+    assert!(l[0].contains("javascript: URL navigation"), "{l:?}");
+    assert_eq!(l[1], "log:alive");
+    let (r, l) = qf11_run("try { location.assign('http://'); } catch (e) { console.log(e.name); }");
+    assert!(r.nav.is_none());
+    assert_eq!(l[0], "log:SyntaxError");
+    let (r, l) = qf11_run("location.href = 'file:///etc/passwd';");
+    assert!(r.nav.is_none());
+    assert!(l[0].contains("refused: file:"), "{l:?}");
+}

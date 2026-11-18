@@ -1746,7 +1746,9 @@ impl App {
                 w.request_redraw();
             }
             if let Some(href) = reqs.nav {
-                self.start_navigation(&href);
+                self.navigate_to(&href, true, reqs.nav_replace);
+            } else if reqs.reload {
+                self.refresh();
             }
             if let Some((form, submitter)) = reqs.submit {
                 self.form_navigate(&form, submitter.as_ref());
@@ -2651,6 +2653,12 @@ impl App {
 
     /// `page_initiated` false = typed by the user (`:go`): no initiator.
     pub(crate) fn start_navigation_as(&mut self, href: &str, page_initiated: bool) {
+        self.navigate_to(href, page_initiated, false);
+    }
+
+    /// QF11: `replace` (location.replace) overwrites the current history
+    /// entry instead of pushing one.
+    pub(crate) fn navigate_to(&mut self, href: &str, page_initiated: bool, replace: bool) {
         self.meta_chain = 0;
         self.pre_help_page = None;
         if let (Some(frag), None) = (href.strip_prefix('#'), &self.base_url) {
@@ -2665,7 +2673,7 @@ impl App {
                 return;
             }
         };
-        self.push_history(url.clone());
+        self.push_or_replace_history(url.clone(), replace);
         self.nav_initiator = if page_initiated { self.base_url.clone() } else { None };
         self.fetch_url(url);
     }

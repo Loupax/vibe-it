@@ -444,6 +444,10 @@ pub(crate) struct JsRequests {
     pub(crate) el_scroll: Vec<(Handle, f64)>,
     /// Q33d1: `el.click()` on a link asks the App to follow it.
     pub(crate) nav: Option<String>,
+    /// QF11: `nav` came from `location.replace` (no new history entry).
+    pub(crate) nav_replace: bool,
+    /// QF11: `location.reload()`.
+    pub(crate) reload: bool,
     /// Q30e: `form.submit()` / an uncancelled `requestSubmit()`: (form, submitter).
     pub(crate) submit: Option<(Handle, Option<Handle>)>,
     /// QF7: validated page-network requests for the App's scheduler.
@@ -1203,6 +1207,16 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     native!("__d_navigate", move |href: String| {
         r.borrow_mut().nav = Some(href);
     });
+    let r = reqs.clone();
+    native!("__d_nav_replace", move |href: String| {
+        let mut r = r.borrow_mut();
+        r.nav = Some(href);
+        r.nav_replace = true;
+    });
+    let r = reqs.clone();
+    native!("__d_reload", move || {
+        r.borrow_mut().reload = true;
+    });
     let t_fd = table.clone();
     native!("__d_formdata", move |form: i32, submitter: i32| -> String {
         let f = t_fd.borrow().get(form);
@@ -1510,6 +1524,11 @@ const DOM_PRELUDE: &str = r#"
     __scratchy_err('scratchy: js: not implemented: ' + what + (t ? ' ' + JSON.stringify(t) : ''));
   };
   g.open = function open(url, target, features) {
+    // QF11: no tabs, so the self-like targets navigate this page.
+    if (url !== undefined && url !== '' && /^(_self|_top|_parent)$/i.test(String(target === undefined ? '' : target))) {
+      g.__loc_nav(url, false);
+      return null;
+    }
     qj9('window.open', url === undefined ? '' : url + (target ? ' target=' + target : '') + (features ? ' features=' + features : ''));
     return null;
   };
