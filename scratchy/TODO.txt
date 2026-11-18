@@ -872,7 +872,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       really decode here, or the player fails after the first append. (g) segment-granular
       remove/overlap (not frame-exact) can leave `buffered` slightly larger than Chrome's.
 
-- [ ] QM1k4 [S] READY after the V8 freeze (FIRST of the MSE build; pure function, no mpv)
+- [x] QM1k4 [S] DONE 2026-11-18 (commit c292223; src/media_el.rs parse_mime+params_valid+MSE_CODECS+mse_type_supported, tests qm1k4_*; mse_type_supported has no JS caller yet: no MediaSource global exists, QM1k1+ wires it) (FIRST of the MSE build; pure function, no mpv)
       (moved up 2026-11-18) `isTypeSupported`/`canPlayType` parameter validation
       like Chrome: YouTube probes `eotf=catavision`, `width=99999`, `height=99999`,
       `framerate=9999`, `bitrate=2000000000`, `channels=99`, `cryptoblockformat=

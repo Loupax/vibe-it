@@ -46,17 +46,82 @@ pub(crate) const MAX_PLAYERS: usize = 2;
 
 // ------------------------------------------------------------ canPlayType
 
+/// A parsed MIME type: lowercase `type/subtype` and its `name=value` parameters
+/// (names lowercased, quotes stripped; `;` inside quotes does not split).
+struct ParsedMime {
+    mime: String,
+    params: Vec<(String, String)>,
+}
+
+fn parse_mime(t: &str) -> ParsedMime {
+    let mut parts: Vec<String> = vec![String::new()];
+    let mut quote: Option<char> = None;
+    for ch in t.trim().chars() {
+        match quote {
+            Some(q) => {
+                if ch == q {
+                    quote = None;
+                }
+                parts.last_mut().unwrap().push(ch);
+            }
+            None if ch == '"' || ch == '\'' => {
+                quote = Some(ch);
+                parts.last_mut().unwrap().push(ch);
+            }
+            None if ch == ';' => parts.push(String::new()),
+            None => parts.last_mut().unwrap().push(ch),
+        }
+    }
+    let mime = parts[0].trim().to_ascii_lowercase();
+    let params = parts[1..]
+        .iter()
+        .filter_map(|p| {
+            let (k, v) = p.split_once('=')?;
+            let v = v.trim().trim_matches(|c| c == '"' || c == '\'');
+            Some((k.trim().to_ascii_lowercase(), v.to_string()))
+        })
+        .collect();
+    ParsedMime { mime, params }
+}
+
+/// Chrome-like validation of the probing parameters (YouTube sends each one valid and
+/// invalid). Unknown parameters are ignored; `codecs` is checked by the callers.
+fn params_valid(params: &[(String, String)]) -> bool {
+    params.iter().all(|(k, v)| {
+        let in_range = |lo: f64, hi: f64| v.parse::<f64>().is_ok_and(|n| n.is_finite() && n >= lo && n <= hi);
+        let v = v.to_ascii_lowercase();
+        match k.as_str() {
+            "width" | "height" => in_range(1.0, 8192.0),
+            "framerate" => in_range(1.0, 480.0),
+            "bitrate" => in_range(1.0, 200_000_000.0),
+            // `2`, `6`, or `5.1` style: the leading count must be 1..=8
+            "channels" => v.parse::<f64>().is_ok() && v.split('.').next().is_some_and(|c| c.parse::<f64>().is_ok_and(|n| (1.0..=8.0).contains(&n))),
+            "eotf" => matches!(v.as_str(), "bt709" | "smpte2084" | "arib-std-b67"),
+            "cryptoblockformat" => matches!(v.as_str(), "subsample" | "sample"),
+            "decode-to-texture" | "tunnelmode" => matches!(v.as_str(), "true" | "false"),
+            "experimental" => v == "allowed",
+            _ => true,
+        }
+    })
+}
+
+fn codecs_of(params: &[(String, String)]) -> Option<Vec<String>> {
+    let (_, v) = params.iter().find(|(k, _)| k == "codecs")?;
+    Some(v.split(',').map(|s| s.trim().to_ascii_lowercase()).collect())
+}
+
+fn codec_matches(c: &str, prefix: &str) -> bool {
+    c == prefix || (c.starts_with(prefix) && c.as_bytes()[prefix.len()] == b'.')
+}
+
 /// `canPlayType`: `maybe`/`probably` only for what ffmpeg here decodes
 /// (mp4/h264/aac, webm/vp8/vp9/opus/vorbis, ogg, mp3, flac, wav); `` otherwise.
+/// Invalid probing parameters (width=99999, eotf=catavision, ...) answer ``.
 /// The caller returns `` for everything when no backend is available.
 pub(crate) fn can_play_type(t: &str) -> &'static str {
-    let t = t.trim();
-    let (mime, params) = match t.split_once(';') {
-        Some((m, p)) => (m.trim().to_ascii_lowercase(), p.trim()),
-        None => (t.to_ascii_lowercase(), ""),
-    };
+    let p = parse_mime(t);
     // codecs known per container family
-    let allowed: &[&str] = match mime.as_str() {
+    let allowed: &[&str] = match p.mime.as_str() {
         "video/mp4" | "audio/mp4" | "audio/x-m4a" | "audio/aac" | "video/x-m4v" => &["avc1", "avc3", "mp4a.40", "mp4a.69", "mp4a.6b", "mp3", "flac", "opus", "vp09", "vp9"],
         "video/webm" | "audio/webm" => &["vp8", "vp8.0", "vp9", "vp09", "opus", "vorbis"],
         "video/ogg" | "audio/ogg" | "application/ogg" => &["theora", "vorbis", "opus", "flac"],
@@ -65,29 +130,67 @@ pub(crate) fn can_play_type(t: &str) -> &'static str {
         "audio/wav" | "audio/wave" | "audio/x-wav" => &["1"],
         _ => return "",
     };
-    let Some(codecs) = codecs_param(params) else { return "maybe" };
-    if codecs.is_empty() {
+    if !params_valid(&p.params) {
+        return "";
+    }
+    let Some(codecs) = codecs_of(&p.params) else { return "maybe" };
+    if codecs.iter().all(|c| c.is_empty()) {
         return "maybe";
     }
-    for c in codecs {
-        let c = c.trim().to_ascii_lowercase();
-        if c.is_empty() || !allowed.iter().any(|a| c == *a || c.starts_with(&format!("{a}."))) {
-            return "";
-        }
+    if codecs.iter().all(|c| !c.is_empty() && allowed.iter().any(|a| codec_matches(c, a))) {
+        "probably"
+    } else {
+        ""
     }
-    "probably"
 }
 
-fn codecs_param(params: &str) -> Option<Vec<String>> {
-    for p in params.split(';') {
-        let p = p.trim();
-        let (k, v) = p.split_once('=')?;
-        if k.trim().eq_ignore_ascii_case("codecs") {
-            let v = v.trim().trim_matches(|c| c == '"' || c == '\'');
-            return Some(v.split(',').map(|s| s.to_string()).collect());
-        }
+/// QM1k4: the ONE table behind `MediaSource.isTypeSupported`: (container MIME, codec
+/// prefix, enabled). A codec is switched on by flipping its flag (QM1k1j) and adding its
+/// test; listed-but-off entries document what is planned. An empty prefix = the
+/// container itself (what a type without `codecs` asks about).
+pub(crate) const MSE_CODECS: &[(&str, &str, bool)] = &[
+    ("video/mp4", "", true),
+    ("audio/mp4", "", true),
+    ("video/mp4", "avc1", true),
+    ("video/mp4", "avc3", true),
+    ("video/mp4", "mp4a.40.2", true),
+    ("video/mp4", "mp4a.40.5", true),
+    ("video/mp4", "mp4a.40.29", true),
+    ("audio/mp4", "mp4a.40.2", true),
+    ("audio/mp4", "mp4a.40.5", true),
+    ("audio/mp4", "mp4a.40.29", true),
+    ("video/mp4", "vp09", false),
+    ("video/mp4", "av01", false),
+    ("video/mp4", "opus", false),
+    ("video/mp4", "flac", false),
+    ("audio/mp4", "opus", false),
+    ("audio/mp4", "flac", false),
+    ("video/webm", "", false),
+    ("audio/webm", "", false),
+    ("video/webm", "vp8", false),
+    ("video/webm", "vp9", false),
+    ("video/webm", "vp09", false),
+    ("video/webm", "av01", false),
+    ("video/webm", "opus", false),
+    ("video/webm", "vorbis", false),
+    ("audio/webm", "opus", false),
+    ("audio/webm", "vorbis", false),
+];
+
+/// `MediaSource.isTypeSupported(t)`: pure, no backend. True only when the container and
+/// every listed codec are enabled in `MSE_CODECS` and the probing parameters are valid.
+#[allow(dead_code)] // the MediaSource global that calls it comes with the MSE build (QM1k1+)
+pub(crate) fn mse_type_supported(t: &str) -> bool {
+    let p = parse_mime(t);
+    if !params_valid(&p.params) {
+        return false;
     }
-    None
+    let enabled = |prefix: &str| MSE_CODECS.iter().any(|(m, c, on)| *on && *m == p.mime && *c == prefix);
+    let enabled_codec = |codec: &str| MSE_CODECS.iter().any(|(m, c, on)| *on && *m == p.mime && !c.is_empty() && codec_matches(codec, c));
+    match codecs_of(&p.params) {
+        None => enabled(""),
+        Some(codecs) => enabled("") && codecs.iter().all(|c| !c.is_empty() && enabled_codec(c)),
+    }
 }
 
 // ------------------------------------------------------------ backend
