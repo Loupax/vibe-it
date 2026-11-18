@@ -44,7 +44,12 @@ DRAIN RULE (coordinator and every agent, from 2026-11-18):
 Order: (drain) -> QT1 -> QV8-0 -> QV8-1 -> QV8-2 -> QV8-3 -> QV8-4 -> QV8-5 -> QV8-m -> QV8-6. One at a time
 (each touches js*.rs); QV8-4 may overlap QV8-5 if the coordinator wants.
 
-- [ ] QV8-0 [M] READY (P0, Opus measure + Sonnet harness; FIRST) Performance baseline on
+- [x] QV8-0 [M] DONE 2026-11-18 (baseline taken at 2437284; numbers in PERF.md, commit <hash>; harness 93faf68)
+      >>> BASELINE (QuickJS, default 500 ms budget): YouTube results and bbc.com/news lose one
+          callback each in 3/3 runs (YT promise job 514-520 ms budget clock, bbc timer ~1350 ms);
+          forced layout is 73% (YT results), 93% (Wikipedia) of JS-thread CPU and is outside the
+          budget; no Chrome on this machine, so no jitless reference. See PERF.md.
+      (P0, Opus measure + Sonnet harness; FIRST) Performance baseline on
       QuickJS, committed as a repeatable tool so QV8-m can run the exact same thing.
       COORDINATOR 2026-11-18: drain finished and QT1 merged. BASELINE HASH = 2437284
       (main after PR #295; main-after-QT1 is the hash the baseline numbers are taken at).
