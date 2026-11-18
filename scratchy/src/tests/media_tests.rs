@@ -601,6 +601,103 @@ mod qm1f {
     }
 
     #[test]
+    fn qm1k4_mse_is_type_supported_table() {
+        for (t, want) in [
+            // valid
+            ("video/mp4", true),
+            ("audio/mp4", true),
+            ("video/mp4; codecs=\"avc1.640028\"", true),
+            ("video/mp4; codecs=\"avc1.42001E, mp4a.40.2\"", true),
+            ("video/mp4; codecs=\"avc3.4D401F\"", true),
+            ("audio/mp4; codecs=\"mp4a.40.2\"", true),
+            ("audio/mp4; codecs=\"mp4a.40.5\"", true),
+            ("audio/mp4; codecs=\"mp4a.40.29\"", true),
+            // valid twins of YouTube's probes
+            ("video/mp4; codecs=\"avc1.640028\"; width=1920", true),
+            ("video/mp4; codecs=\"avc1.640028\"; height=1080", true),
+            ("video/mp4; codecs=\"avc1.640028\"; framerate=60", true),
+            ("video/mp4; codecs=\"avc1.640028\"; bitrate=2000000", true),
+            ("video/mp4; codecs=\"avc1.640028\"; eotf=bt709", true),
+            ("video/mp4; codecs=\"avc1.640028\"; eotf=smpte2084", true),
+            ("video/mp4; codecs=\"avc1.640028\"; cryptoblockformat=subsample", true),
+            ("video/mp4; codecs=\"avc1.640028\"; decode-to-texture=true", true),
+            ("video/mp4; codecs=\"avc1.640028\"; experimental=allowed", true),
+            ("video/mp4; codecs=\"avc1.640028\"; tunnelmode=true", true),
+            ("audio/mp4; codecs=\"mp4a.40.2\"; channels=2", true),
+            ("audio/mp4; codecs=\"mp4a.40.2\"; channels=5.1", true),
+            ("VIDEO/MP4 ; Codecs = \"avc1.640028\" ; unknownparam=whatever", true),
+            // invalid probes
+            ("video/mp4; codecs=\"avc1.640028\"; width=99999", false),
+            ("video/mp4; codecs=\"avc1.640028\"; height=99999", false),
+            ("video/mp4; codecs=\"avc1.640028\"; width=0", false),
+            ("video/mp4; codecs=\"avc1.640028\"; width=abc", false),
+            ("video/mp4; codecs=\"avc1.640028\"; framerate=9999", false),
+            ("video/mp4; codecs=\"avc1.640028\"; bitrate=2000000000", false),
+            ("video/mp4; codecs=\"avc1.640028\"; eotf=catavision", false),
+            ("video/mp4; codecs=\"avc1.640028\"; cryptoblockformat=invalidformat", false),
+            ("video/mp4; codecs=\"avc1.640028\"; decode-to-texture=nope", false),
+            ("video/mp4; codecs=\"avc1.640028\"; experimental=invalid", false),
+            ("video/mp4; codecs=\"avc1.640028\"; tunnelmode=nope", false),
+            ("audio/mp4; codecs=\"mp4a.40.2\"; channels=99", false),
+            ("audio/mp4; codecs=\"mp4a.40.2\"; channels=0", false),
+            ("video/mp4; codecs=\"av99.0.0\"", false),
+            ("video/mp4; codecs=\"avc1.640028, av99\"", false),
+            ("video/mp4; codecs=\"avc1.640028,\"", false),
+            ("video/mp4; codecs=\"mp4a.40.3\"", false),
+            ("video/mp4; codecs=\"avc10\"", false),
+            // listed but switched off
+            ("video/mp4; codecs=\"vp09.00.10.08\"", false),
+            ("video/mp4; codecs=\"av01.0.05M.08\"", false),
+            ("audio/mp4; codecs=\"opus\"", false),
+            ("audio/mp4; codecs=\"flac\"", false),
+            ("video/webm", false),
+            ("video/webm; codecs=\"vp9\"", false),
+            ("video/webm; codecs=\"vp09.00.10.08\"", false),
+            ("video/webm; codecs=\"vp8\"", false),
+            ("audio/webm; codecs=\"opus\"", false),
+            ("audio/webm; codecs=\"vorbis\"", false),
+            // not MSE at all
+            ("audio/mpeg", false),
+            ("application/x-mpegURL", false),
+            ("", false),
+        ] {
+            assert_eq!(mse_type_supported(t), want, "{t}");
+        }
+    }
+
+    #[test]
+    fn qm1k4_mse_codec_table_is_one_list_with_webm_off() {
+        assert!(MSE_CODECS.iter().any(|(m, c, on)| *m == "video/webm" && *c == "vp9" && !on));
+        assert!(MSE_CODECS.iter().any(|(m, c, on)| *m == "video/mp4" && *c == "av01" && !on));
+        assert!(MSE_CODECS.iter().filter(|(_, _, on)| *on).all(|(m, _, _)| m.ends_with("/mp4")));
+    }
+
+    #[test]
+    fn qm1k4_can_play_type_rejects_invalid_probe_params() {
+        let base = "video/mp4; codecs=\"avc1.640028\"";
+        for (suffix, want) in [
+            ("", "probably"),
+            ("; width=1920", "probably"),
+            ("; framerate=60", "probably"),
+            ("; eotf=bt709", "probably"),
+            ("; unknown=x", "probably"),
+            ("; width=99999", ""),
+            ("; height=99999", ""),
+            ("; framerate=9999", ""),
+            ("; bitrate=2000000000", ""),
+            ("; eotf=catavision", ""),
+            ("; cryptoblockformat=invalidformat", ""),
+            ("; decode-to-texture=nope", ""),
+            ("; experimental=invalid", ""),
+        ] {
+            assert_eq!(can_play_type(&format!("{base}{suffix}")), want, "{suffix}");
+        }
+        assert_eq!(can_play_type("audio/mp4; codecs=\"mp4a.40.2\"; channels=99"), "");
+        assert_eq!(can_play_type("audio/mp4; codecs=\"mp4a.40.2\"; channels=2"), "probably");
+        assert_eq!(can_play_type("video/mp4; codecs=\"avc1.42E01E, mp4a.40.2\"; bad=1; width=99999"), "");
+    }
+
+    #[test]
     fn placeholder_backend_fails_loudly_but_harmlessly() {
         let mut c = MediaCore::new(Box::new(UnavailableBackend));
         c.muted = true;
