@@ -1211,7 +1211,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       references, pinned to the WPT commit the user's ~/src/wpt is at (record it
       next to wpt-expected.txt), then `scratchy --wpt <dir>`. Headless already
       (the runner renders to PNG without a window).
-- [x] QT1 [M] DONE 2026-11-18 (HASH_TBD; src/tests.rs split into src/tests/mod.rs + 21 area files, 1029 tests before and after, names diff empty) P0 (user 2026-11-18: do it in the V8 drain window, right after the
+- [x] QT1 [M] DONE 2026-11-18 (365a515; src/tests.rs split into src/tests/mod.rs + 21 area files, 1029 tests before and after, names diff empty) P0 (user 2026-11-18: do it in the V8 drain window, right after the
       drain and before QV8-0; see the TOP PRIORITY block. tests.rs is ~22k lines now and the
       V8 port (QV8-3) will touch hundreds of JS tests, so split first.) (do in a quiet window; the coordinator holds or rebases
       every open branch, since all of them touch tests.rs) Split `src/tests.rs`
