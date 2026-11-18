@@ -133,7 +133,7 @@ Order: (drain) -> QT1 -> QV8-0 -> QV8-1 -> QV8-2 -> QV8-3 -> QV8-4 -> QV8-5 -> Q
       working; where V8 text differs (error messages, stack frames), normalise in the seam
       or adapt the test with a comment. ALL tests green on both engines; WPT subset no new
       failures under V8. R39 conditions C1-C6 are repeated verbatim in 3b (C1-C4), 3d (C5), 3a (C6).
-- [x] QV8-3a [L] DONE 2026-11-18 (commit HASH; src/js_engine_v8.rs; engine-v8: 1008/1030 tests pass, default build unchanged) (after QV8-2) V8 backend core behind the cargo feature `engine-v8` (v8 =152.2.0, optional,
+- [x] QV8-3a [L] DONE 2026-11-18 (commit f392003; src/js_engine_v8.rs; engine-v8: 1008/1030 tests pass, default build unchanged) (after QV8-2) V8 backend core behind the cargo feature `engine-v8` (v8 =152.2.0, optional,
       off by default; src/js_engine_v8.rs replaces src/js_engine.rs when the feature is on):
       Ctx/JsResult/JsError, `native!`/register with a per-isolate closure arena, call_global,
       Bytes/BytesRef, JsObject, classic-script eval (Source/Compiled/eval_sloppy), console, all
