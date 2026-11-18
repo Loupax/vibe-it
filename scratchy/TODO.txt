@@ -60,6 +60,13 @@ older and were only partly corrected in place):
   missing `document.scripts`. QY50 [S] READY P1, QY51 [S] READY P1, QY49-D (budget
   policy: WAITING FOR USER, trade-off in R37 section 3), QY52-QY54 P2, QY55 P3 (with the
   user). Block "NEW 2026-11-17 (Opus, QY49 ...)" right after QY47d.
+- NEW 2026-11-18 (Opus, QY47c DONE, R38): YouTube `true` thumbnails = src-less `<img
+  alt="true">`: IntersectionObserver rects come from width/height attributes (0x0), so
+  YouTube's lazy loader never sets src; and a script-set `img.src` is never fetched anyway.
+  QY56 [M] READY P1 (fetch late images + complete/naturalWidth/load), QY57 [M] READY P1 (IO
+  with real geometry), QY60 [S] P2 (Opus: rAF ~0.6/s on YouTube; grey masthead circles are
+  YouTube's skeleton waiting for that), QY58/QY59 P3. Block "NEW 2026-11-18 (Opus, QY47c ...)"
+  right after QY55.
 
 USER ANSWERS 2026-11-17 (late night): (a) PR #232 (QW6, body background on the canvas)
 KEEP, despite its accepted WPT pass->fail `css/css-backgrounds/animations/background-color-
@@ -1626,7 +1633,11 @@ after QY47a) -> QY47b (P3, Sonnet) -> QY47d (P3).
       titles and the "Shorts" shelf (R36 addendum screenshot), and the Error.prototype
       `args` probe recipe (R36 addendum) sees 0 RangeErrors. If QY46 is not merged
       yet, run the acceptance with a local raised CALLBACK_BUDGET and say so.
-- [ ] QY47c [S] (P2, Opus investigate, after QY47a) On the YouTube results page with
+- [x] QY47c DONE 2026-11-18 (R38: `true` = `<img alt="true">` (YouTube sets alt to the
+      boolean true) whose src is never set because IntersectionObserver reports a 0x0
+      intersectionRect, and never fetched when set because script-set img src is not loaded;
+      grey circles = YouTube's own masthead skeleton, hidden by `masthead-finish` 47-53 s in
+      because the main thread runs rAF ~0.6/s. Filed QY56-QY60.) [S] (P2, Opus investigate, after QY47a) On the YouTube results page with
       the stack fixed, every thumbnail is blank with the literal text `true` at its
       top centre, and the masthead's "Anmelden" button and kebab turn into three
       grey circles (R36 addendum "Also seen"). Find which element/attribute prints
@@ -1713,6 +1724,71 @@ Ranked: QY50 (P1) -> QY51 (P1) -> QY49-D (user decision, can be asked now) -> QY
       browser on the same IP). If DuckDuckGo shows results for them, profile the tripping
       timer in THEIR session (the R37 probe recipe) instead of sending more automated
       searches. Never solve or disguise the challenge.
+
+--- NEW 2026-11-18 (Opus, QY47c: YouTube `true` thumbnails, grey masthead circles; R38) ---
+Ranked: QY56 (P1) and QY57 (P1, either order; BOTH are needed before a YouTube thumbnail
+shows) -> QY60 (P2, Opus) -> QY58 (P3) -> QY59 (P3). Evidence: REGRESSIONS.md R38.
+- [ ] QY56 [M] (P1, R38, Sonnet) Load `<img>` sources that appear after page load. Today
+      only the initial parse's `<img src>` (net.rs `find_external_resources`) and CSS
+      `url()` misses (`WANTED_CSS_IMAGES`, Q35a) are fetched: `img.src = u` from a script,
+      `setAttribute('src')`, a `createElement('img')`/innerHTML-inserted img, and `srcset`
+      changes are never requested, so the alt text paints forever (R38 fixture: "SCRIPT-ALT",
+      "CREATED-ALT"). (a) Record a `src` (and the chosen `srcset` candidate, if srcset is
+      supported) that misses `image_cache` during the layout build (like
+      `lookup_css_image` does for CSS) and fetch it through `spawn_image_fetches`, deduped
+      per page, with its own per-page cap (YouTube results: 40+ thumbnails in 40 s; e.g.
+      256, log once when hit); relative URLs against the document base. Keep Q35b2's
+      debounced relayout. (b) Image state in JS: `img.complete` (true when no src, or
+      fetched/failed), `naturalWidth/naturalHeight` (0 until decoded), and a `load` / `error`
+      event dispatched to the element when its fetch ends (also for the initial-parse images,
+      after `DOMContentLoaded`); `decode()` returning a promise that resolves on load. Both
+      are needed: YouTube's core image component checks `complete` and sets its loaded class
+      in `on:load`. Tests: script-set src is requested and drawn (fixture through the test
+      net executor), created+inserted img likewise, the same URL is fetched once, cap honoured,
+      `complete`/`naturalWidth` before and after, `load` and `error` fire once each.
+      Accept: the R38 fixture (dyn.html shape: static, script-set, created) shows three images
+      in a nested dwl; with QY57 merged, YouTube results show real thumbnails (grim).
+- [ ] QY57 [M] (P1, R38, Sonnet; a slice of QY-IO-GEOMETRY) IntersectionObserver with real
+      geometry. js_dom.rs IO builds `boundingClientRect` and `intersectionRect` from the
+      target's `width`/`height` ATTRIBUTES (0x0 for almost every element) and reports once
+      at observe time. YouTube's lazy image loader drops entries with `intersectionRect.height
+      == 0`, so no thumbnail ever gets a `src`. (a) At delivery time compute the target's
+      rect with the QJ4 geometry (`gRect`, same coordinates as `getBoundingClientRect`),
+      the root bounds = viewport (or the explicit root's padding box) grown by `rootMargin`
+      (px and %; % of the root size), `intersectionRect` = clipped rect (non-empty-or-edge-
+      adjacent rule: a 0-area target touching the root counts as intersecting),
+      `intersectionRatio`, `isIntersecting`, thresholds respected. (b) Re-evaluate observed
+      targets after a layout and after scroll (window and the explicit root), and deliver an
+      entry only when the threshold index or isIntersecting changes (spec "previous
+      threshold index"); the cost must stay O(observed targets) per layout, nothing when no
+      observer exists. Tests: target with no width/height attributes but a CSS-sized box
+      gets a non-zero intersectionRect; a target below the fold is not intersecting, then
+      intersecting after `scrollTo`; rootMargin "10%" extends the viewport; unobserve stops
+      delivery; detached/display:none targets report not intersecting. Accept: the R38 probe
+      sees non-zero `intersectionRect` for YouTube thumbnails and `img.src` gets set
+      (IMGSET lines) on load and for lower thumbnails after scrolling (tools/inject scroll).
+- [ ] QY60 [S] (P2, R38, Opus measure; coordinate with QY53/R37) Main-thread throughput on
+      YouTube results: with a 20 s budget rAF fired ~0.6-0.7 times per second (max latency
+      3.6 s; rIC 3.35 s; timers up to 4.1 s late), so YouTube's scheduler needs 47-53 s to
+      stamp the masthead buttons (the three grey circles = YouTube's skeleton until then) and
+      draws results slowly. Measure per event-loop turn on this page: timer callbacks
+      (MAX_TIMERS_PER_TURN), promise drains, forced layouts, the App's own relayout/paint
+      between turns, and which one dominates; whether a relayout runs between every timer
+      batch. Output: numbers in R38 and fix items (no budget change: that is QY49-D).
+- [ ] QY58 [S] (P3, R38, Sonnet/Haiku) `getComputedStyle` percent lengths: js_style.rs
+      `box_len` prints the stored fraction (`width:100%` -> "1%", `50%` -> "0.5%"). Print
+      `v * 100` at minimum; for `width`/`height` (and the other properties CSSOM resolves to
+      the used value: margins, padding, insets) of an element that has a box, return the
+      used value in px from layout (QJ4 geometry), as browsers do. Tests: `100%`/`50%`
+      inside a 300px parent read "300px"/"150px" with a box, a percent on a `display:none`
+      element reads the percent ("100%").
+- [ ] QY59 [S] (P3, R38, Sonnet/Haiku) A src-less or failed `<img>` paints its alt text as
+      a bare inline run (images.rs `build_img_box` fallback): its `width`/`height`
+      attributes and CSS size are ignored (R38 fixture: 240x180 img -> one text line).
+      Browsers keep the replaced box at its specified size and draw the alt text (clipped)
+      inside it; with no size and non-empty alt it is inline text (current behaviour). Tests:
+      `<img alt="x" width=240 height=180>` without src lays out 240x180; CSS `width:100%`
+      likewise; no size keeps today's inline text.
 
 social.loupax.com/discover (the user's own site; source read at
 /home/loupax/src/social, internal/web/js/vim.js): vim.js is NOT in the

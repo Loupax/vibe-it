@@ -1,5 +1,134 @@
 # scratchy — regressions
 
+## R38: YouTube results: every thumbnail shows `true` = an `<img>` whose src is never set (IntersectionObserver reports a 0x0 intersectionRect) and, once set, never fetched (script-set `img.src` is not loaded at all); the grey masthead circles are YouTube's own loading skeleton, shown until a slow main thread gets to stamp the buttons (Opus investigator QY47c, 2026-11-18) — OPEN: QY56, QY57, QY58, QY59, QY60
+
+**Status: investigation only, docs only.** Main 3ba1d8e (QY47a, QY50, QY51, QY52 merged), release
+build in an own worktree with TEMPORARY never-committed probes: an env var that evaluates a probe
+JS file right after the media prelude (js.rs `start_scripts_clocked`), `--js-report` echoing
+`PROBE` console lines to stderr, and `CALLBACK_BUDGET` overridable by an env var. Own wire on a
+scratchpad socket for all traffic (pages POST), scratchy's default UA, nested dwl 1052x1050,
+grim, `nice -n 19`. Page: https://www.youtube.com/results?search_query=rust (kevlar_base
+`ytmainappweb` app, Shady DOM), headless (`--js-report --run-timers`, saved copy with `<base>`)
+and live in the window. Probe = the R36 `Error.prototype.args` recipe plus setter/method hooks
+for every way a `true` can become text (createTextNode, textContent/nodeValue/data/innerText/
+innerHTML setters, append/prepend/before/after/replaceWith/insertAdjacentText, appendChild/
+insertBefore of a `"true"` text node), `img.alt/src/srcset` setters and `setAttribute` on
+`ytCoreImage` imgs, a wrapped `IntersectionObserver`, rAF/rIC/setTimeout latency counters, and
+DOM dumps at 8/20/40 s.
+
+### 1. The `true` is an `<img alt="true">` that never gets a `src`
+- **No text node `true` exists.** A full walk of the document (and shadow roots) at 8, 20 and
+  40 s found 0 text nodes whose text is `true`; none of the text hooks fired.
+- The thumbnail DOM (outerHTML of the first `ytd-thumbnail`): `<a id="thumbnail" ...><yt-image
+  class="style-scope ytd-thumbnail"><img class="ytCoreImageHost ytCoreImageFillParentHeight
+  ytCoreImageFillParentWidth ytCoreImageContentModeScaleAspectFill" alt="true"
+  style="background-color: transparent;"></yt-image>` + overlays (`41:33` badge, now-playing).
+  **No `src` attribute.** Headless: 6 of 6 `ytCoreImage` imgs without src; window (20 s budget):
+  9 of 9 at 8 s.
+- `alt="true"` comes from YouTube: `setAttribute('alt', true)` with a BOOLEAN (stack: kevlar
+  `yTP` <- `GFB`, the Wiz/idom attribute setter, for the `alt:function(){return
+  q.config().alt}` binding of the core image component). A browser stringifies it the same
+  way, so `alt="true"` exists in Chrome too; it is hidden there because the image loads.
+- scratchy paints a src-less `<img>` as its alt text (images.rs `build_img_box`: no decoded image
+  -> `InlineItem::Text(alt)`), so each thumbnail shows `true` at its top centre. Correct per se
+  for a broken image, but the box ignores the img's own size (QY59).
+
+**Why src is never set (measured).** The core image component loads lazily: `Fql(img, ...)`
+does `removeAttribute("src")` and, when lazy, `$50(img, U)` = `img.onViewportEntered = U;
+R3W.observe(img)`, where R3W is `new IntersectionObserver(cb, {rootMargin: "10%", threshold:
+.01})` and `cb` does `entries.filter(e => e.intersectionRect.height > 0).forEach(e =>
+e.target.onViewportEntered())`. `U` computes the URL (`_.m5o`, picks a source by
+`getBoundingClientRect().width`) and sets `img.src`. The wrapped observer saw every img entry
+with **`intersectionRect` = 0,0,0,0** (and `boundingClientRect` 0,0,0,0), `isIntersecting`
+true for imgs connected and shown at observe time, false for the rest. Cause: js_dom.rs
+IntersectionObserver (QY6g "honest minimal") builds both rects from the target's `width`/
+`height` ATTRIBUTES (`roRect(attrPx(target,'width'), attrPx(target,'height'))`); these imgs
+have none, so the height is 0, YouTube's filter drops every entry, `onViewportEntered` never
+runs. The same img really has a box (`getBoundingClientRect` via QJ4: 17x249 at 309,112 in the
+window, the alt-text box). Also: entries are delivered ONCE at observe time; a target that is
+not shown then (false) is never re-reported when it becomes visible or is scrolled to, so even
+with real rects, below-the-fold thumbnails could never load.
+
+**Fix check (probe only).** A probe variant that rewrites each entry from the target's
+`getBoundingClientRect()` (intersecting = height > 0 and within 1.1 x the viewport) made
+YouTube set `src` on every visible img (7 `IMGSET src=https://i.ytimg.com/vi/<id>/hq720...jpg`
+/ `oar2.jpg` lines; at 8 s 13 imgs, 6 without src = the below-the-fold ones). **The thumbnails
+still painted `true`** (screenshot viewed, 120 s): the src was set but never fetched (section 2).
+
+### 2. A `src` set (or an `<img>` inserted) by script is never fetched
+The App fetches `<img src>` only from the initial parse (net.rs `find_external_resources` ->
+`spawn_image_fetches` at load) plus CSS `url()` images the layout missed (`WANTED_CSS_IMAGES`,
+Q35a). `resolve_img` only looks `src` up in `image_cache`; nothing records a miss, so a src
+that appears later is never requested. Fixture (`<base href="https://i.ytimg.com/">`, own wire,
+window 12 s, screenshot viewed): a static `<img src=.../hqdefault.jpg width=240 height=180>`
+shows the thumbnail; the same markup without src plus `img.src = ...` in a script shows its alt
+text "SCRIPT-ALT"; an img created by `createElement` + `src` + `appendChild` 500 ms later shows
+"CREATED-ALT". Both alt boxes ignore `width=240 height=180` (QY59). The JS side also lacks the
+image state pages check: `img.complete` and `naturalWidth` are `undefined` (probe dump), and no
+`load`/`error` event reaches the page (`handle_image_fetched` only fills `image_cache`).
+YouTube's `WqD` reads `img.complete`, its `on:load` handler sets the loaded class and
+telemetry. Every lazy-loading site and every SPA that renders images from JSON hits this.
+
+### 3. Grey masthead circles = YouTube's skeleton until the buttons are stamped
+The three circles are YouTube's own placeholder: `<div id="masthead-skeleton-icons"
+slot="masthead-skeleton">` with three `.masthead-skeleton-icon` (32x32, radius 50%,
+`#e3e3e3`), served in the HTML; the inline CSS `ytd-masthead.masthead-finish
+#masthead-skeleton-icons{display:none}` hides it once kevlar's masthead
+`onRendererStamperFinished` adds `masthead-finish` (after the `#buttons` renderers are stamped).
+scratchy matches the rule correctly: before the class `display=flex` (rect 783,12 225x32),
+after it `display=none` (`matches()` true). The icons are inline `<svg>` in `yt-icon`
+(kebab `M12 4a2 2 0 ...`, the Anmelden avatar path) and paint fine once stamped (screenshots).
+So nothing is wrong with the masthead itself; the stamping comes LATE (probe, `#buttons`
+children and the class change):
+
+| run | budget | masthead-finish at | results |
+|---|---|---|---|
+| window 60 s | 500 ms (default) | between 8 and 20 s | none (1 promise job killed, QY49-D) |
+| window 60 s | 20 s (local) | not by 40 s (screenshot at 60 s: 3 circles) | 4 results, `true` thumbnails |
+| window 120 s, IO probe fix | 20 s | 52.8 s | chip bar, 2 results, Shorts shelf |
+| window 90 s, IO probe fix | 20 s | 47.3 s (`#buttons` 0 -> 2 children) | 4 results |
+
+Why late: YouTube's job scheduler (`_.NU`) runs its jobs from rAF/rIC/setTimeout ticks, and
+the masthead buttons are a later, lower-priority job behind the result renders. Measured in
+the 90 s run (20 s budget): rAF fired 16 times in the first 30 s and 61 times in 87 s (about
+0.6-0.7 per second), max rAF latency 3619 ms; rIC max latency 3350 ms; setTimeout callbacks
+up to 4101 ms late; the probe's own 5 s ticker ran every 5.1-7.4 s. In scratchy rAF is a 0 ms
+timer (js.rs timers prelude) and rIC a 1 ms timer (globals_prelude.js), so these latencies are
+the main thread being busy, not a rAF/rIC design problem. Where that time goes is R37's
+territory (forced layout inside callbacks, QY53; layout per turn) and is NOT measured here.
+In the 90 s screenshot (viewed) the circles were gone but the "Anmelden" icon, the kebab and
+the guide icons (Startseite, Shorts, Abos, Mein YouTube) were missing while their labels were
+there; in the 120 s run all of them were drawn. `yt-icon` fetches its SVGs
+(`fonts.gstatic.com/s/i/youtube_outline_experimental/<name>/v*/24px.svg`) and inlines them, so
+this is most likely the same lateness, **not verified** (the icon DOM was not dumped in that
+run).
+
+### 4. Also seen (not investigated)
+- `getComputedStyle(el).width` for `width:100%` returns `"1%"` and for `50%` returns `"0.5%"`
+  (fixture, `--js-report`): js_style.rs `box_len` prints the stored fraction with a `%`. A
+  browser returns the used value in px for width/height of a laid-out element (`"300px"`).
+- 4 swallowed errors (args recipe): `Error: Can't construct url for endpoint` with
+  `keys:clickTrackingParams,commandMetadata,showDialogCommand` (the "Collab-Partner" dialog
+  command of collab results). Probably harmless (a URL for a dialog command); unknown in Chrome.
+
+**Root causes, ranked:** (1) script-set/inserted `<img src>` is never fetched, and images have
+no `complete`/`naturalWidth`/`load` (QY56); (2) IntersectionObserver rects come from
+attributes, not layout, and are never re-evaluated (QY57); together they make every lazy
+thumbnail show its alt text `true`. (3) The masthead circles are a symptom of main-thread
+throughput (QY60, with R37/QY53), not a masthead bug.
+
+**Not verified:** the user's exact run (results drawn at the default budget; here the default
+budget still kills one promise job, QY49-D); the real thumbnail images with both fixes (needs
+QY56 + QY57 built: the probe can fake IO but not the fetch); the lockup/`yt-thumbnail-view-model`
+data variant (this run served `ytd-video-renderer` + `ytd-thumbnail`; the core image component
+is shared, so the same path is expected); whether the 90 s missing icons are lateness;
+Chrome's behaviour for the `Can't construct url` errors.
+
+**Filed:** QY56 [M] P1 (fetch script-set images + `complete`/`naturalWidth`/`load`/`error`),
+QY57 [M] P1 (IntersectionObserver with layout rects and re-evaluation), QY58 [S] P3
+(computed-style percent), QY59 [S] P3 (alt-text box keeps the img's size), QY60 [S] P2 (Opus:
+where a YouTube results turn's time goes; rAF at 0.6/s). QY47c ticked.
+
 ## R37: DuckDuckGo search = a bot-challenge page plus a timer budget trip; YouTube now serves a new app that dies on a missing `document.scripts`; where callback CPU really goes (Opus investigator QY49, 2026-11-17) — OPEN: QY50-QY55, QY49-D (budget policy, WAITING FOR USER)
 
 **Status: investigation only, docs only.** Main b3120dd (QY46 + QY47a merged), release build
@@ -306,7 +435,8 @@ NOT reproduced today (not served), so "same cause for lockups" is strongly suppo
 **Also seen with the 4 MB stack (not investigated):** (a) every result thumbnail is blank with
 the literal text `true` at its top centre (a boolean rendered as text, or an `<img>`/`yt-image`
 attribute reflection problem); (b) the masthead's right side ("Anmelden" button, settings kebab)
-turns into three grey circles (placeholder/loading shapes); (c) headless (`--js-report`) keeps
+turns into three grey circles (placeholder/loading shapes) [(a) and (b): root causes in R38,
+QY47c]; (c) headless (`--js-report`) keeps
 loading continuations (30 item sections, 24k elements) and hits the 256 MB QuickJS heap limit
 (`InternalError: out of memory`, then `Uncaught null` lines) with the stack at 2-4 MB; RSS
 reached 1 GB with a 1 GB heap limit. The window loaded only 2 sections in 60 s, no OOM.
