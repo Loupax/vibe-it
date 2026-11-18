@@ -46,6 +46,9 @@ Order: (drain) -> QT1 -> QV8-0 -> QV8-1 -> QV8-2 -> QV8-3 -> QV8-4 -> QV8-5 -> Q
 
 - [ ] QV8-0 [M] READY (P0, Opus measure + Sonnet harness; FIRST) Performance baseline on
       QuickJS, committed as a repeatable tool so QV8-m can run the exact same thing.
+      COORDINATOR 2026-11-18: drain finished and QT1 merged. BASELINE HASH = 2437284
+      (main after PR #295; main-after-QT1 is the hash the baseline numbers are taken at).
+      Harness is merged (93faf68, PR #294); the remaining step is the Opus baseline run.
       Harness (permanent, NOT temporary timing code; this item is the AGENTS.md exception):
       - `scratchy --perf-report [--socket S] [--budget-ms N] [--seconds T] <url|file>`, headless
         like `--js-report`, prints ONE JSON object: engine name+version, commit, per callback
