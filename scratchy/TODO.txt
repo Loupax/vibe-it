@@ -29,17 +29,19 @@ DRAIN RULE (coordinator and every agent, from 2026-11-18):
 1. Work already started (an agent running, a branch with commits, an open PR) is FINISHED
    and merged normally: tests, clippy count, CI green, PROMPTS entry, tick. Do not abandon it.
 2. Do NOT start any new item from the queue below or from QUESTIONS.md "What I do while you
-   are away", EXCEPT: (a) the QV8 items in this block, in order; (b) a fix for a red CI or a
+   are away", EXCEPT: (a) QT1 and then the QV8 items in this block, in order; (b) a fix for a red CI or a
    crash/panic/regression on main that an in-flight merge caused; (c) docs-only tracking
-   fixes. Everything else (QY53, QY54, QY57, QY58-QY61, QAN1*, QSD*, Q30* polish, QM1*, QT1,
+   fixes. Everything else (QY53, QY54, QY57, QY58-QY61, QAN1*, QSD*, Q30* polish, QM1*,
    QC2, ...) is PAUSED until QV8-m is ticked. Paused items keep their READY marks; nothing
    is deleted.
-3. When nothing from step 1 is in flight, the coordinator records the drained main hash in
-   QV8-0 and the migration begins. QV8-0 may be prepared (harness code) while the drain runs,
-   but its BASELINE numbers are taken at the drained hash.
+3. When nothing from step 1 is in flight, main is quiet: the coordinator runs QT1 (split
+   src/tests.rs, pure move) in that window (user, 2026-11-18), alone, before any QV8 branch
+   exists. Once QT1 is merged, the coordinator records that hash in QV8-0 and the migration
+   begins. QV8-0's harness code may be prepared during the drain, but its tests go into the
+   new src/tests/ layout (after QT1), and its BASELINE numbers are taken at the post-QT1 hash.
 4. QY49-D (CPU budget policy) is deferred: decide it from the QV8-m numbers, not today's.
 
-Order: QV8-0 -> QV8-1 -> QV8-2 -> QV8-3 -> QV8-4 -> QV8-5 -> QV8-m -> QV8-6. One at a time
+Order: (drain) -> QT1 -> QV8-0 -> QV8-1 -> QV8-2 -> QV8-3 -> QV8-4 -> QV8-5 -> QV8-m -> QV8-6. One at a time
 (each touches js*.rs); QV8-4 may overlap QV8-5 if the coordinator wants.
 
 - [ ] QV8-0 [M] READY (P0, Opus measure + Sonnet harness; FIRST) Performance baseline on
@@ -1205,7 +1207,9 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       references, pinned to the WPT commit the user's ~/src/wpt is at (record it
       next to wpt-expected.txt), then `scratchy --wpt <dir>`. Headless already
       (the runner renders to PNG without a window).
-- [ ] QT1 [M] READY (do in a quiet window; the coordinator holds or rebases
+- [ ] QT1 [M] READY, P0 (user 2026-11-18: do it in the V8 drain window, right after the
+      drain and before QV8-0; see the TOP PRIORITY block. tests.rs is ~22k lines now and the
+      V8 port (QV8-3) will touch hundreds of JS tests, so split first.) (do in a quiet window; the coordinator holds or rebases
       every open branch, since all of them touch tests.rs) Split `src/tests.rs`
       (19.5k lines, ~1080 fns, 108 `// ----------` section banners, one
       `mod tests;` in lib.rs with `use super::*;`) into `src/tests/mod.rs`
