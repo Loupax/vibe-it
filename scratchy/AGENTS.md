@@ -104,8 +104,7 @@ will work first (same stance as forms, Q30):
   inert placeholder stays), ALL bytes through wire (never the player's own network),
   scratchy-painted controls, no autoplay except muted or after a user gesture, at most
   2 players. MediaSource: GOAL since 2026-11-17 = video on all sites except DRM (EME
-  stays out); only the QM1k-m measurement may run now, the MSE build waits for the
-  QM1k plan with the user. QM1i ("open in mpv") is DROPPED. Only
+  stays out); the MSE build follows QM1k-PLAN in TODO.txt (user answered Q4 2026-11-18). QM1i ("open in mpv") is DROPPED. Only
   the QM1b..QM1h items may be built, in TODO.txt order and each with its own approval
   in the item; anything beyond them still follows the rules below.
 - **FORMS: GO-AHEAD 2026-11-17 (user)**: the user only wanted to be present for the
