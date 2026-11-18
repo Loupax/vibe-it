@@ -61,6 +61,8 @@ macro_rules! out {
 }
 
 pub mod netlock;
+#[cfg(feature = "engine-v8")]
+mod v8_spike;
 mod wpt;
 mod dom;
 mod css;
@@ -135,6 +137,10 @@ pub fn run() {
     perf::init_from_process(&raw_args);
     if raw_args.first().map(String::as_str) == Some("--perf-report") {
         std::process::exit(perf::perf_report_main(&raw_args[1..]));
+    }
+    #[cfg(feature = "engine-v8")]
+    if raw_args.first().map(String::as_str) == Some("--v8-spike") {
+        std::process::exit(v8_spike::main(&raw_args[1..]));
     }
     if raw_args.first().map(String::as_str) == Some("--perf-corpus") {
         std::process::exit(perf::perf_corpus_main(&raw_args[1..]));

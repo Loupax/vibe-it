@@ -917,6 +917,50 @@ mod qm1f_real {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// QV8-1 spike: V8 (JIT, platform worker threads) and libmpv in one process under the
+    /// QNET1 seccomp filter (installed on this test thread first, so V8's and mpv's threads
+    /// inherit it), then the same play/seek/end sequence as above.
+    #[cfg(feature = "engine-v8")]
+    #[test]
+    fn v8_spike_libmpv_plays_next_to_v8_under_netlock() {
+        if !crate::media_mpv::libmpv_available() {
+            eprintln!("SKIP: libmpv.so.2 not available");
+            return;
+        }
+        assert_eq!(crate::netlock::install(), crate::netlock::Status::Installed);
+        let (r, cpu, tasks) = crate::v8_spike::jit_smoke();
+        assert_eq!(r, "832040");
+        eprintln!("v8 fib(30) {cpu} ms; threads {tasks:?}");
+        let dir = std::env::temp_dir().join(format!("qv81-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let Some(file) = make_clip(&dir) else {
+            eprintln!("SKIP: ffmpeg could not make a test clip");
+            return;
+        };
+        let w = qm1e_wire(Qm1eCfg { file, ..Default::default() });
+        let backend = crate::media_mpv::MpvBackend::new(BackendCtx { socket: Some(w.path.clone()), policy: Default::default() });
+        let mut c = MediaCore::new(Box::new(backend));
+        c.muted = true;
+        c.load(vec![Candidate { url: "https://cdn.test/c.mp4".into(), mime: String::new() }], true, MediaMode::NoCors, "https://cdn.test/".into());
+        let (mut now, mut names) = (0.0, Vec::new());
+        run(&mut c, &mut now, &mut names, |c| c.ready_state >= HAVE_ENOUGH_DATA);
+        assert_eq!((c.video_width, c.video_height), (320, 240));
+        c.play(1);
+        run(&mut c, &mut now, &mut names, |c| c.current_time > 0.3);
+        c.set_current_time(1.5);
+        run(&mut c, &mut now, &mut names, |c| !c.seeking);
+        run(&mut c, &mut now, &mut names, |c| c.ended());
+        assert!(names.contains(&"ended".to_string()), "{names:?}");
+        // V8 still fine after mpv ran, and still no internet socket on this thread
+        assert_eq!(crate::v8_spike::jit_smoke().0, "832040");
+        let fd = unsafe { libc::socket(libc::AF_INET, libc::SOCK_STREAM, 0) };
+        assert_eq!(fd, -1);
+        let all: Vec<_> = std::fs::read_dir("/proc/self/task").unwrap().flatten().map(|e| std::fs::read_to_string(e.path().join("comm")).unwrap_or_default().trim().to_string()).collect();
+        eprintln!("threads with mpv + V8: {all:?}");
+        drop(c);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn mpv_without_wire_is_a_media_error_not_a_hang() {
         if !crate::media_mpv::libmpv_available() {

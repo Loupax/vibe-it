@@ -560,7 +560,7 @@ pub(crate) fn perf_report_main(args: &[String]) -> i32 {
 // ---------------------------------------------------------------- corpus
 
 /// A bare QuickJS context (no DOM prelude): `(compile_cpu_ns, run_cpu_ns, error)`.
-fn bare_eval(code: &str, preamble: &[&str]) -> (u64, u64, Option<String>) {
+pub(crate) fn bare_eval(code: &str, preamble: &[&str]) -> (u64, u64, Option<String>) {
     use rquickjs::qjs;
     let Ok(rt) = Runtime::new() else { return (0, 0, Some("no runtime".into())) };
     rt.set_memory_limit(1 << 30);
