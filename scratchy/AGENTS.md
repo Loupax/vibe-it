@@ -3,7 +3,7 @@
 ## Before starting
 - **FREEZE IN FORCE (user, 2026-11-18): V8 migration first.** Read the "TOP PRIORITY ... V8"
   block at the top of `TODO.txt` QUEUE. Finish and merge work already in flight. Start nothing
-  new except QT1 (split src/tests.rs, right after the drain) and then the QV8 items (in
+  new except the QV8 items (QT1, the src/tests.rs split, is done) (in
   order), a fix for red CI or a crash/regression on main, or a
   docs-only tracking fix. Everything else waits until QV8-m is ticked and the coordinator lifts
   the freeze.
@@ -15,7 +15,10 @@
 
 ## Per-item checklist
 1. Implement.
-2. Add a permanent test in `src/tests.rs` (the `#[cfg(test)] mod tests`). Never delete tests.
+2. Add a permanent test in the matching area file of `src/tests/` (the `#[cfg(test)] mod tests`;
+   e.g. `cascade_tests.rs`, `box_layout_tests.rs`, `js_dom_tests.rs`, `fetch_tests.rs`, `forms_tests.rs`;
+   shared helpers live in `src/tests/mod.rs`). A new area gets a new `src/tests/<area>_tests.rs` plus a
+   `mod <area>_tests;` line in `src/tests/mod.rs`. Never delete tests.
 3. `cargo check`, `cargo clippy`, `cargo test` — all clean. Clippy warnings are
    counted ONLY with `tools/clippy-count.sh [outfile]` (run from `scratchy/`; it runs
    `cargo clippy --release --all-targets --message-format=json` and counts DISTINCT

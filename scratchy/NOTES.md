@@ -772,7 +772,7 @@ modules, moved verbatim (no behavior change). Find code with
 - `paint.rs`: `paint`, backgrounds, borders, hit testing.
 - `net.rs`: link navigation (`wire`) and external stylesheet/image resources.
 - `app.rs`: the winit `App`, key bindings, command line, event loop handler.
-- `tests.rs`: the `#[cfg(test)] mod tests` (never delete tests); `wpt.rs`: the WPT runner.
+- `tests/`: the `#[cfg(test)] mod tests` (`tests/mod.rs` = shared helpers, one `<area>_tests.rs` per area; never delete tests); `wpt.rs`: the WPT runner.
 
 Every module starts with `use super::*;` and the root re-exports each
 module with a glob, so all modules (and `tests.rs`) see each other's items
@@ -783,7 +783,7 @@ statics are `pub(crate)` for the same reason.
 
 ## Working notes for next session
 
-- **Verification tests are now kept permanently**, in `src/tests.rs` (was `src/lib.rs`'s
+- **Verification tests are now kept permanently**, in `src/tests/` (QT1 split the old single `src/tests.rs`; was `src/lib.rs`'s
   `#[cfg(test)] mod tests` — reversed as of v41. Every version from
   v13 through v40 wrote a temporary `#[cfg(test)]` module, verified,
   then deleted it before committing, on a self-justification v13 wrote

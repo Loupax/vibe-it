@@ -1,0 +1,1162 @@
+#[allow(unused_imports)]
+use super::*;
+
+#[test]
+fn q33c_class_attribute_and_classlist_writes_reach_the_tree() {
+    let (log, body) = mutate(
+        "<html class=no-js><body><div id=a class=x>t</div></body></html>",
+        "var a=document.getElementById('a'); a.setAttribute('data-k','v'); a.id='b';\
+         a.classList.add('y','z'); a.classList.remove('x'); console.log(a.classList.toggle('q'), a.classList.toggle('q'), a.className);\
+         a.removeAttribute('data-k'); a.title='T';",
+    );
+    assert_eq!(log, ["log:true false y z"], "{log:?}");
+    assert_eq!(body, "<div id=\"b\" class=\"y z\" title=\"T\">t</div>");
+    let doc = parse_html("<html class=no-js><body></body></html>");
+    let _ = start_scripts(&doc, &[src("document.documentElement.className = 'js-enabled'")], Rc::new(|_, _| {}));
+    let html = doc.children.borrow().iter().find(|c| element_tag(c) == "html").cloned().unwrap();
+    assert_eq!(element_attr(&html, "class").as_deref(), Some("js-enabled"));
+}
+
+#[test]
+fn q33c_text_create_append_insert_remove() {
+    let (log, body) = mutate(
+        "<html><body><ul id=l><li>1</li><li id=two>2</li></ul><p id=p>old <b>x</b></p></body></html>",
+        "var l=document.getElementById('l');\
+         var n=document.createElement('LI'); n.textContent='new'; l.appendChild(n);\
+         var f=document.createElement('li'); f.appendChild(document.createTextNode('first')); l.insertBefore(f, l.firstChild);\
+         l.removeChild(document.getElementById('two'));\
+         document.getElementById('p').textContent='plain';\
+         var c=n.cloneNode(true); c.textContent='clone'; l.append(c);\
+         try { n.appendChild(l); } catch (e) { console.log(e.name); }\
+         var fr=document.createDocumentFragment(); fr.appendChild(document.createElement('hr')); fr.appendChild(document.createElement('br'));\
+         document.body.appendChild(fr); console.log(fr.childNodes.length, l.children.length, n.parentNode===l);",
+    );
+    assert_eq!(log, ["log:HierarchyRequestError", "log:0 4 true"], "{log:?}");
+    assert_eq!(body, "<ul id=\"l\"><li>first</li><li>1</li><li>new</li><li>clone</li></ul><p id=\"p\">plain</p><hr><br>");
+}
+
+// Acid3 (real page): `span.firstChild.data = score` must write the text node.
+#[test]
+fn acid3_text_node_data_setter_writes_the_tree() {
+    let (log, body) = mutate(
+        "<html><body><p id=p><span id=s>JS</span></p></body></html>",
+        "var t=document.getElementById('s').firstChild; t.data='42'; console.log(t.data, t.nodeValue, t.length);",
+    );
+    assert_eq!(log, ["log:42 42 2"], "{log:?}");
+    assert_eq!(body, "<p id=\"p\"><span id=\"s\">42</span></p>");
+}
+
+#[test]
+fn q33c_inner_html_and_remove() {
+    let (log, body) = mutate(
+        "<html><body><div id=d>gone</div><span id=s>x</span></body></html>",
+        "var d=document.getElementById('d'); d.innerHTML='<p class=k>a<b>b</b></p><i>c</i>';\
+         console.log(d.innerHTML, d.firstChild.className, d.outerHTML.slice(0,15));\
+         document.getElementById('s').remove();",
+    );
+    assert_eq!(log, ["log:<p class=\"k\">a<b>b</b></p><i>c</i> k <div id=\"d\"><p "], "{log:?}");
+    assert_eq!(body, "<div id=\"d\"><p class=\"k\">a<b>b</b></p><i>c</i></div>");
+}
+
+#[test]
+fn q33c_style_property_writes_the_style_attribute() {
+    let (log, body) = mutate(
+        "<html><body><div id=a style='color: red'>t</div></body></html>",
+        "var a=document.getElementById('a'); a.style.backgroundColor='blue'; a.style.color='';\
+         a.style.setProperty('margin-top','3px'); console.log(a.style.backgroundColor, a.style.marginTop, JSON.stringify(a.style.color));\
+         a.style.display='none';",
+    );
+    assert_eq!(log, ["log:blue 3px \"\""], "{log:?}");
+    assert_eq!(body, "<div id=\"a\" style=\"background-color: blue; margin-top: 3px; display: none;\">t</div>");
+}
+
+#[test]
+fn q33c_many_writes_mark_dirty_once_and_reads_stay_clean() {
+    let doc = parse_html("<html><body><div id=a></div></body></html>");
+    let engine = start_scripts(
+        &doc,
+        &[src("var a=document.getElementById('a'); for (var i=0;i<50;i++) a.className='c'+i;")],
+        Rc::new(|_, _| {}),
+    )
+    .unwrap();
+    assert!(engine.take_dirty());
+    assert!(!engine.take_dirty(), "the flag clears once drained");
+    let clean = start_scripts(
+        &parse_html("<html><body><div id=a></div></body></html>"),
+        &[src("document.getElementById('a').className")],
+        Rc::new(|_, _| {}),
+    )
+    .unwrap();
+    assert!(!clean.take_dirty(), "reads never dirty the page");
+}
+
+#[test]
+fn q33c2_closed_dialog_is_not_rendered_open_dialog_is() {
+    // QB4: an open dialog is now out of flow (UA `position: absolute`), so
+    // it shows up in `positioned` and with its own height rather than
+    // growing the document.
+    let p = |d: &str| measure_document_fixture(&format!("<html><body><p>a</p>{d}</body></html>"), 500.0, 400.0).positioned.len();
+    assert_eq!(p("<dialog><div style=\"height:100px\">x</div></dialog>"), 0, "closed dialog renders nothing");
+    let laid = measure_document_fixture("<html><body><p>a</p><dialog open><div style=\"height:100px\">x</div></dialog></body></html>", 500.0, 400.0);
+    let d = laid.positioned.first().expect("open dialog still renders");
+    assert!(d.h >= 100.0, "open dialog renders its content, h {}", d.h);
+}
+
+#[test]
+fn q33c3_select_color_transparent_paints_no_option_text() {
+    // Wikipedia portal: `.styled-select.js-enabled select` overlays a
+    // `color:transparent` select on a visible label; the select's option
+    // text must not paint.
+    let (pixels, _, _) = paint_fixture(
+        r#"<html><head><style>.s select{background:transparent;border:0;margin:0;padding:0 24px;font-size:40px;color:transparent;color:hsla(0,0%,100%,0)}</style></head><body style="margin:0;background:#fff"><div class="s"><select><option selected>Afrikaans</option><option>English</option></select></div></body></html>"#,
+    );
+    // Unpainted pixels are 0, the white body fill is ffffff; any anti-aliased
+    // glyph pixel is something else.
+    let stray = pixels.iter().filter(|&&p| p & 0x00FF_FFFF != 0 && p & 0x00FF_FFFF != 0x00FF_FFFF).count();
+    assert_eq!(stray, 0, "transparent select text must not paint");
+    assert_eq!(
+        to_text_color(&parse_declarations("color: hsl(120, 100%, 50%)").color.unwrap()),
+        Some(TextColor::rgb(0, 255, 0))
+    );
+    assert_eq!(
+        to_text_color(&parse_declarations("color: hsla(0,0%,100%,0)").color.unwrap()),
+        Some(TextColor::rgba(255, 255, 255, 0))
+    );
+    // Partial alpha text is scaled, not painted opaque.
+    let (half, _, _) = paint_fixture(
+        r#"<html><body style="margin:0;background:#fff"><p style="margin:0;font-size:40px;color:rgba(0,0,0,0.2)">HHHH</p></body></html>"#,
+    );
+    let darkest = half.iter().filter(|&&p| p != 0).map(|&p| p & 0xFF).min().unwrap();
+    assert!(darkest > 0xA0, "20% black text must stay light, darkest channel {darkest:#x}");
+}
+
+#[test]
+fn q33c3_option_in_select_uses_the_selects_colour() {
+    // The portal's `select option{color:grey}` must not paint the closed
+    // select's text when the select itself is transparent.
+    let (pixels, _, _) = paint_fixture(
+        r#"<html><head><style>select{color:transparent;font-size:40px;border:0}select option{color:#777}</style></head><body style="margin:0;background:#fff"><select><option selected>Afrikaans</option></select></body></html>"#,
+    );
+    let stray = pixels.iter().filter(|&&p| p & 0x00FF_FFFF != 0 && p & 0x00FF_FFFF != 0x00FF_FFFF).count();
+    assert_eq!(stray, 0, "option colour must not override the select's transparent text");
+}
+
+#[test]
+fn q33d_capture_target_bubble_order_and_stop_propagation() {
+    let (_e, _d, log) = events_engine(
+        "<html><body><div id=o><p id=i>x</p></div></body></html>",
+        "var o=document.getElementById('o'), i=document.getElementById('i');\
+         window.addEventListener('click', function(e){ console.log('w-cap', e.eventPhase) }, true);\
+         o.addEventListener('click', function(e){ console.log('o-cap', e.eventPhase) }, true);\
+         i.addEventListener('click', function(e){ console.log('i-bub', e.eventPhase, e.target===i, e.currentTarget===i) });\
+         i.addEventListener('click', function(e){ console.log('i-cap') }, {capture:true});\
+         o.addEventListener('click', function(e){ console.log('o-bub', e.eventPhase) });\
+         document.addEventListener('click', function(e){ console.log('doc'); e.stopPropagation(); });\
+         window.addEventListener('click', function(e){ console.log('w-bub') });\
+         i.dispatchEvent(new Event('click', {bubbles:true}));",
+    );
+    assert_eq!(
+        *log.borrow(),
+        ["log:w-cap 1", "log:o-cap 1", "log:i-cap", "log:i-bub 2 true true", "log:o-bub 3", "log:doc"]
+    );
+}
+
+#[test]
+fn q33d_prevent_default_once_remove_passive_onprop_and_throwing_listener() {
+    let (_e, _d, log) = events_engine(
+        "<html><body><div id=o><p id=i>x</p></div></body></html>",
+        "var o=document.getElementById('o'), i=document.getElementById('i');\
+         o.addEventListener('ping', function(){ console.log('o') });\
+         var f=function(){ console.log('f') }; i.addEventListener('ping', f); i.removeEventListener('ping', f);\
+         i.addEventListener('ping', function(e){ console.log('once'); e.preventDefault(); }, {once:true});\
+         console.log(i.dispatchEvent(new Event('ping')));\
+         console.log(i.dispatchEvent(new Event('ping', {cancelable:true})));\
+         i.addEventListener('pong', function(e){ e.preventDefault(); console.log(e.defaultPrevented) }, {passive:true});\
+         i.dispatchEvent(new Event('pong', {cancelable:true}));\
+         i.onclick = function(){ console.log('onclick'); return false; };\
+         console.log(i.dispatchEvent(new Event('click', {cancelable:true})));\
+         i.addEventListener('boom', function(){ throw new Error('x') });\
+         i.addEventListener('boom', function(){ console.log('after boom') });\
+         i.dispatchEvent(new Event('boom'));",
+    );
+    let log = log.borrow();
+    assert_eq!(log[..5], ["log:once", "log:true", "log:true", "log:false", "log:onclick"]);
+    assert_eq!(log[5], "log:false");
+    assert!(log[6].starts_with("error:Uncaught Error: x"), "{log:?}");
+    assert_eq!(log[7], "log:after boom");
+}
+
+#[test]
+fn q33d_native_click_reaches_page_handler_and_prevent_default_is_reported() {
+    let (engine, doc, log) = events_engine(
+        "<html><body><a id=a href='/x'><b id=b>t</b></a></body></html>",
+        "document.getElementById('a').addEventListener('click', function(e){\
+           console.log('click', e.target.id, e.isTrusted, e.clientX, e.button, e.ctrlKey); e.preventDefault(); });",
+    );
+    let b = by_id(&doc, "b");
+    let init = [
+        ("bubbles", EventField::Bool(true)),
+        ("cancelable", EventField::Bool(true)),
+        ("clientX", EventField::Num(12.0)),
+        ("button", EventField::Num(0.0)),
+    ];
+    assert!(!engine.dispatch_event(Some(&b), "click", &init), "handler cancelled the click");
+    assert_eq!(*log.borrow(), ["log:click b true 12 0 false"]);
+    // A page with no handler lets the default action proceed.
+    let (engine2, doc2, _) = events_engine("<html><body><a id=a href='/x'>t</a></body></html>", "1");
+    assert!(engine2.dispatch_event(Some(&by_id(&doc2, "a")), "click", &init));
+}
+
+#[test]
+fn q33d_native_key_and_focus_events_carry_their_fields() {
+    let (engine, doc, log) = events_engine(
+        "<html><body><a id=a href='/x'>t</a></body></html>",
+        "var a=document.getElementById('a');\
+         document.addEventListener('keydown', function(e){ console.log('kd', e.key, e.repeat, e.shiftKey, e.target.id); });\
+         a.addEventListener('focus', function(e){ console.log('focus', e.type, e.bubbles); });\
+         document.addEventListener('focusin', function(e){ console.log('focusin', e.target.id); });\
+         a.addEventListener('blur', function(e){ console.log('blur'); });\
+         document.body.addEventListener('keyup', function(e){ console.log('ku', e.key, e.target.tagName); e.preventDefault(); });",
+    );
+    let a = by_id(&doc, "a");
+    let key = |k: &str, shift: bool| {
+        [
+            ("bubbles", EventField::Bool(true)),
+            ("cancelable", EventField::Bool(true)),
+            ("key", EventField::Str(k.to_string())),
+            ("shiftKey", EventField::Bool(shift)),
+        ]
+    };
+    assert!(engine.dispatch_event(Some(&a), "keydown", &key("\u{e9}", true)));
+    assert!(!engine.dispatch_event(None, "keyup", &key("Enter", false)), "None targets <body>");
+    engine.dispatch_event(Some(&a), "focus", &[("bubbles", EventField::Bool(false))]);
+    engine.dispatch_event(Some(&a), "focusin", &[("bubbles", EventField::Bool(true))]);
+    engine.dispatch_event(Some(&a), "blur", &[]);
+    assert_eq!(
+        *log.borrow(),
+        ["log:kd \u{e9} false true a", "log:ku Enter BODY", "log:focus focus false", "log:focusin a", "log:blur"]
+    );
+}
+
+#[test]
+fn q33d_load_events_and_event_target_subclass() {
+    let log = run_collecting(&[src(
+        "document.addEventListener('DOMContentLoaded', function(e){ console.log('dcl', e.target===document, e.bubbles); });\
+         window.addEventListener('DOMContentLoaded', function(e){ console.log('dcl-window'); });\
+         window.addEventListener('load', function(e){ console.log('load', e.target===window); });\
+         var t = new EventTarget(); t.addEventListener('x', function(e){ console.log('x', e instanceof CustomEvent, e.detail); });\
+         t.dispatchEvent(new CustomEvent('x', {detail: 7}));\
+         addEventListener('y', function(){ console.log('global y'); }); dispatchEvent(new Event('y'));",
+    )]);
+    assert_eq!(
+        log,
+        ["log:x true 7", "log:global y", "log:dcl true true", "log:dcl-window", "log:load true"]
+    );
+}
+
+#[test]
+fn qb1_event_loop_exit_message() {
+    use winit::error::EventLoopError;
+    assert_eq!(event_loop_exit_message(&Ok(())), None);
+    let m = event_loop_exit_message(&Err(EventLoopError::ExitFailure(1))).unwrap();
+    assert!(m.contains("Wayland compositor"), "{m}");
+    assert!(!m.contains(char::from(10)));
+}
+
+// Q49a: a float's shrink-to-fit width is min(max(min-content, available),
+// max-content), so a float in a container narrower than its longest word is
+// as wide as the word, not squeezed to the container.
+#[test]
+fn q49a_float_in_narrow_container_is_at_least_min_content() {
+    let laid = measure_fixture(
+        r#"<html><body style="margin:0"><div style="width:5px"><div style="float:left;height:0">WWWWWWWWWW</div></div></body></html>"#,
+        500.0,
+    );
+    fn find_float(l: &Laid) -> Option<&Laid> {
+        if l.style.float != Float::None {
+            return Some(l);
+        }
+        match &l.content {
+            LaidContent::Blocks(cs) => cs.iter().find_map(find_float),
+            _ => None,
+        }
+    }
+    let f = find_float(&laid).expect("float");
+    assert!(f.w > 20.0, "float w {} should be >= min-content, not the 5px container", f.w);
+    assert!(shrink_to_fit(30.0, 80.0, 5.0) == 30.0 && shrink_to_fit(30.0, 80.0, 50.0) == 50.0 && shrink_to_fit(30.0, 80.0, 500.0) == 80.0);
+}
+
+// ---------- QB2: JS DOM writes use the restyle path ----------
+
+/// An `App` with a complete cached frame and a JS engine whose script has
+/// already written the DOM (engine dirty). `None` without a display.
+fn qb2_app(proxy: &winit::event_loop::EventLoopProxy<AppEvent>) -> App {
+    let doc = parse_html("<html><body><p>hello</p></body></html>");
+    let mut app = App::new_static(doc.clone(), proxy.clone(), None);
+    app.js = run_page_scripts(&doc, &[src("document.body.setAttribute('data-tick', '1')")], None);
+    app.cached = Some(measure_fixture("<p>hello</p>", 400.0));
+    app.layout_dirty = false;
+    app.restyle_requested = false;
+    app.keep_scroll_on_rebuild = false;
+    app
+}
+
+/// One process can build only one event loop, so both scenarios share it.
+#[test]
+fn qb2_js_dom_writes_use_restyle_path() {
+    use winit::platform::wayland::EventLoopBuilderExtWayland;
+    let event_loop = match EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build() {
+        Ok(l) => l,
+        Err(_) => return, // no display available (headless CI)
+    };
+    let proxy = event_loop.create_proxy();
+    qb2_restyle_and_keep_old_frame(qb2_app(&proxy));
+    qb2_coalesce_into_one_rebuild(qb2_app(&proxy));
+    qb2_first_layout_not_made_stale(qb2_app(&proxy));
+    qb5_app_applies_requests(&proxy);
+    qb6_help_suspends_js(&proxy);
+    qf7_app_net(&proxy);
+    qf14b_app_initiator(&proxy);
+}
+
+// ---------- QB6: `:help` suspends the page's JS ----------
+
+fn qb6_counter(app: &App) -> f64 {
+    app.js.as_ref().unwrap().eval_value::<f64>("t", "window.__n").unwrap()
+}
+
+fn qb6_help_suspends_js(proxy: &winit::event_loop::EventLoopProxy<AppEvent>) {
+    let doc = parse_html("<html><body><p>page</p></body></html>");
+    let mut app = App::new_static(doc.clone(), proxy.clone(), None);
+    app.js = run_page_scripts(
+        &doc,
+        &[src("window.__n = 0; setInterval(function(){ window.__n++; document.body.setAttribute('data-n', window.__n); }, 1);")],
+        None,
+    );
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    app.js.as_ref().unwrap().run_due();
+    let before = qb6_counter(&app);
+    assert!(before >= 1.0, "interval should have fired");
+
+    app.show_help();
+    assert!(app.js.is_none(), "help page must have no JS engine");
+    assert!(app.pre_help_page.as_ref().unwrap().js.is_some(), "engine parked in SavedPage");
+    // Key dispatch and sync reach nothing: the old page's listeners are gone.
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    assert!(app.js_dispatch(None, "keydown", &[]), "no engine: dispatch returns true");
+    app.js_sync();
+    // Re-running :help keeps the parked engine.
+    app.show_help();
+    assert!(app.pre_help_page.as_ref().unwrap().js.is_some());
+
+    app.restore_saved_page();
+    assert!(app.js.is_some(), "engine restored");
+    assert_eq!(qb6_counter(&app), before, "timers did not run while help was shown");
+    app.js.as_ref().unwrap().run_due();
+    assert!(qb6_counter(&app) > before, "overdue timer fires after return");
+
+    // show_message also drops the engine.
+    app.show_message("oops");
+    assert!(app.js.is_none());
+}
+
+fn qb2_restyle_and_keep_old_frame(mut app: App) {
+    let generation = app.layout_generation;
+    app.js_sync();
+    assert!(app.layout_dirty && app.restyle_requested && app.keep_scroll_on_rebuild);
+    assert_eq!(app.layout_generation, generation, "redraw bumps the generation, not js_sync");
+    // Simulate what redraw does when it queues the rebuild.
+    app.restyle_requested = false;
+    app.hold_old_frame = true;
+    app.layout_in_flight = true;
+    app.layout_dirty = false;
+    app.layout_generation += 1;
+    let h_before = app.cached.as_ref().unwrap().h;
+    let partial = measure_fixture("<p>hello</p><p>world</p><p>more</p><p>text</p>", 400.0);
+    app.handle_shape_result(app.layout_generation, Box::new(partial), ShapeCache::new(), true);
+    assert_eq!(app.cached.as_ref().unwrap().h, h_before, "incomplete pass must not replace the old frame");
+    assert!(app.hold_old_frame);
+}
+
+fn qb2_coalesce_into_one_rebuild(mut app: App) {
+    app.hold_old_frame = true;
+    app.layout_in_flight = true;
+    let generation = app.layout_generation;
+    app.js_sync();
+    assert!(!app.layout_dirty && !app.restyle_requested, "no rebuild queued while a restyle is in flight");
+    assert!(app.js_restyle_pending);
+    assert_eq!(app.layout_generation, generation, "in-flight result must not go stale");
+    // A second write while still holding changes nothing more.
+    app.js_sync();
+    assert!(!app.layout_dirty && app.js_restyle_pending);
+    // The complete pass lands: exactly one follow-up rebuild is requested.
+    app.handle_shape_result(generation, Box::new(measure_fixture("<p>hello</p>", 400.0)), ShapeCache::new(), false);
+    assert!(!app.hold_old_frame);
+    assert!(!app.js_restyle_pending);
+    assert!(app.layout_dirty && app.restyle_requested && app.keep_scroll_on_rebuild);
+    assert!(!app.layout_in_flight);
+}
+
+/// A write while the very first layout is still being shaped (no complete
+/// frame yet) must not make that pass stale either.
+fn qb2_first_layout_not_made_stale(mut app: App) {
+    app.cached = None;
+    app.layout_in_flight = true;
+    let generation = app.layout_generation;
+    app.js_sync();
+    assert!(app.js_restyle_pending && !app.layout_dirty);
+    assert_eq!(app.layout_generation, generation);
+    app.handle_shape_result(generation, Box::new(measure_fixture("<p>hello</p>", 400.0)), ShapeCache::new(), false);
+    assert!(app.cached.is_some());
+    assert!(app.layout_dirty && app.restyle_requested);
+}
+
+// ---------- QB4: HTMLDialogElement ----------
+
+#[test]
+fn qb4_dialog_show_modal_close_return_value_and_event() {
+    let (log, body) = mutate(
+        "<html><body><dialog id=d><button id=b>x</button></dialog></body></html>",
+        "var d=document.getElementById('d'); var b=document.getElementById('b');\
+         console.log(typeof d.showModal, typeof d.close, d.open, JSON.stringify(d.returnValue));\
+         d.addEventListener('close', function(e){ console.log('closed', d.open, d.returnValue, e.type); });\
+         b.addEventListener('click', function(){ d.close('x'); });\
+         d.showModal(); console.log(d.open, d.hasAttribute('open'));\
+         b.dispatchEvent(new Event('click',{bubbles:true}));\
+         console.log(d.open, d.returnValue, d instanceof HTMLDialogElement);\
+         d.show(); console.log(d.open); d.open = false; console.log(d.open);",
+    );
+    assert_eq!(
+        log,
+        ["log:function function false \"\"", "log:true true", "log:closed false x close", "log:false x true", "log:true", "log:false"],
+        "{log:?}"
+    );
+    assert!(!body.contains("open") && !body.contains("modal"), "{body}");
+}
+
+#[test]
+fn qb4_modal_dialog_is_centred_in_the_viewport() {
+    let w = |attrs: &str| {
+        measure_document_fixture(
+            &format!("<html><body style=\"margin:0\"><dialog {attrs} style=\"width:100px;height:50px;padding:0;border:0\">x</dialog></body></html>"),
+            400.0,
+            300.0,
+        )
+    };
+    let closed = w("");
+    assert!(closed.positioned.is_empty(), "closed dialog renders nothing");
+    let laid = w("open data-scratchy-modal");
+    let d = laid.positioned.first().expect("modal dialog is out of flow");
+    assert_eq!((d.x, d.y), (150.0, 125.0), "centred in 400x300");
+}
+
+#[test]
+fn qb4_clicks_inside_a_modal_dialog_hit_its_content() {
+    let html = "<html><body style=\"margin:0\"><p>outer</p><dialog open data-scratchy-modal style=\"width:100px;height:50px;padding:0;border:0\"><div style=\"height:50px\">in</div></dialog></body></html>";
+    let doc = parse_html(html);
+    let tree = build_layout_tree(&doc, 1920.0);
+    let mut font_system = new_font_system();
+    let mut cache = ShapeCache::new();
+    let (mut next_id, mut incomplete) = (0usize, false);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    let laid = measure_document(&tree, &mut font_system, 400.0, 300.0, &mut next_id, &mut cache, deadline, &mut incomplete);
+    let so = HashMap::new();
+    let node = hit_test_element(&laid, 200.0, 150.0, &cache, &so, 0.0, 300.0);
+    let h = crate::dom::find_node_by_id(&doc, node).unwrap_or_else(|| panic!("hit node {node}"));
+    assert_eq!(element_tag(&h), "div", "click at the dialog's centre lands on its content");
+}
+
+/// App side: `js_sync` applies a scroll request and a focus request.
+fn qb5_app_applies_requests(proxy: &winit::event_loop::EventLoopProxy<AppEvent>) {
+    let doc = parse_html("<html><body><input id=i><p>hello</p></body></html>");
+    let mut app = App::new_static(doc.clone(), proxy.clone(), None);
+    app.js = run_page_scripts(
+        &doc,
+        &[src("window.scrollTo(0, 120); document.getElementById('i').focus();")],
+        None,
+    );
+    app.js_sync();
+    assert_eq!(app.scroll_offset, 120.0);
+    let i = crate::dom::find_node_by_id(&doc, app.interaction.focus.expect("focused")).unwrap();
+    assert_eq!(element_attr(&i, "id").as_deref(), Some("i"));
+    app.js.as_ref().unwrap().eval("t", "window.scrollBy(0, -500); document.getElementById('i').blur();");
+    app.js_sync();
+    assert_eq!(app.scroll_offset, 0.0, "clamped at the top");
+    assert!(app.interaction.focus.is_none(), "blur() of the focused element clears focus");
+}
+
+#[test]
+fn qa13_write_inserts_after_the_running_script() {
+    let out = qa13_run(
+        "<html><body><p id=a>x<script>document.write('<b id=w>hi</b>')</script><i id=z></i></p>\
+         <script>var s=document.getElementById('a').getElementsByTagName('script')[0];\
+         console.log(s.nextSibling.id, s.nextSibling.textContent, s.nextSibling.nextSibling.id);</script></body></html>",
+    );
+    assert_eq!(out, ["log:w hi z"]);
+}
+
+#[test]
+fn qa13_two_scripts_each_write_and_consecutive_writes_keep_order() {
+    let out = qa13_run(
+        "<html><body><script>document.write('<u id=a1></u>'); document.write('<u id=a2></u>', '<u id=a3></u>')</script>\
+         <script>document.write('<u id=b1></u>')</script>\
+         <script>console.log(Array.prototype.map.call(document.body.children, function(e){return e.id||e.tagName}).join())</script></body></html>",
+    );
+    assert_eq!(out, ["log:SCRIPT,a1,a2,a3,SCRIPT,b1,SCRIPT"]);
+}
+
+#[test]
+fn qa13_write_inside_head_and_writeln() {
+    let out = qa13_run(
+        "<html><head><script>document.writeln('<meta id=m name=k>'); document.write('<meta id=n>')</script></head>\
+         <body><script>var m=document.getElementById('m'); console.log(document.head.children.length, m.nextSibling.nodeType, m.nextSibling.data === '\\n');</script></body></html>",
+    );
+    assert_eq!(out, ["log:3 3 true"]);
+}
+
+#[test]
+fn qa13_write_after_load_is_ignored_with_a_warning() {
+    let (engine, out) = qb8_start(
+        "<body><script>setTimeout(function(){ document.write('<b id=late></b>'); console.log(String(document.getElementById('late'))); }, 0)</script></body>",
+    );
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    engine.run_due();
+    let out = out.borrow();
+    assert!(out.iter().any(|l| l.contains("ignored")), "{out:?}");
+    assert!(out.iter().any(|l| l == "log:null"), "{out:?}");
+}
+
+// ---------- QA16: getComputedStyle ----------
+
+#[test]
+fn qa16_get_computed_style_cascade_inheritance_and_unknowns() {
+    let (_e, _d, log) = events_engine(
+        "<html><head><style>#a{white-space:pre-wrap;position:relative;z-index:3;display:flex;clear:both}\
+         .c{color:#102030;font-size:2em;opacity:.5;margin-left:7px;border:2px solid red}\
+         #k{white-space:pre-line;white-space:x-bogus}</style></head>\
+         <body style='font-size:10px'><div id=a>x</div><p id=b class=c style='background-color:rgb(1,2,3)'>y<span id=s>z</span></p>\
+         <div id=h style='display:none'></div><i id=k></i></body></html>",
+        "var a=document.getElementById('a'), b=document.getElementById('b'), cs=getComputedStyle(a);\
+         console.log(cs.whiteSpace, cs.zIndex, cs.display, cs.cssFloat, cs['float'], cs.position, cs.getPropertyValue('white-space'));\
+         var cb=getComputedStyle(b);\
+         console.log(cb.color, cb.fontSize, cb.opacity, cb.marginLeft, cb.borderTopWidth, cb.getPropertyValue('border-top-style'), cb['background-color'], cb.zIndex, cb.display);\
+         console.log(getComputedStyle(document.getElementById('s')).color, getComputedStyle(document.getElementById('s')).fontSize);\
+         console.log(getComputedStyle(document.getElementById('h')).display, JSON.stringify(cs.bogus), JSON.stringify(cs.getPropertyValue('bogus')), cs.length > 10, typeof cs.item(0));\
+         b.style.display='none'; console.log(getComputedStyle(b).display);\
+         var d=document.createElement('div'); console.log(JSON.stringify(getComputedStyle(d).display), window.document.defaultView === window);\
+         console.log(getComputedStyle(document.getElementById('k')).whiteSpace); try { getComputedStyle(null) } catch (e) { console.log('te', e instanceof TypeError) }",
+    );
+    let l = log.borrow();
+    assert_eq!(l[0], "log:pre-wrap 3 flex none none relative pre-wrap", "{l:?}");
+    assert_eq!(l[1], "log:rgb(16, 32, 48) 20px 0.5 7px 2px solid rgb(1, 2, 3) auto block", "{l:?}");
+    assert_eq!(l[2], "log:rgb(16, 32, 48) 20px", "{l:?}");
+    assert_eq!(l[3], "log:none \"\" \"\" true string", "{l:?}");
+    assert_eq!(l[4], "log:none", "write invalidates the cache: {l:?}");
+    assert_eq!(l[5], "log:\"\" true", "{l:?}");
+    assert_eq!(l[6], "log:pre-line", "invalid later keyword must not override: {l:?}");
+    assert_eq!(l[7], "log:te true", "{l:?}");
+}
+
+// QW3: wikipedia.org language-button divider. A later z-auto relative 1px
+// line pulled up by a negative margin must be hidden by the earlier
+// z-index:1 inline button's white background / outline, not drawn over it.
+#[test]
+fn qw3_divider_line_is_hidden_behind_z_indexed_inline_button() {
+    let html = r#"<html><body style="margin:0;background:#fff"><div style="text-align:center;font-size:14px"><button style="display:inline;position:relative;z-index:1;margin:0 auto;padding:10px 20px;outline:20px solid #fff;border:2px solid #0000ff;font-family:inherit;background-color:#f8f9fa;font-size:14px;line-height:1"><i style="display:inline-block;vertical-align:middle;width:10px;height:10px"></i><span style="padding:0 6px;vertical-align:middle">Read</span><i style="display:inline-block;vertical-align:middle;width:10px;height:10px"></i></button></div><div style="background-color:#ff0000;display:block;position:relative;width:80%;margin:-20px auto 20px;height:1px"></div></body></html>"#;
+    let (pixels, win_w, _) = paint_fixture(html);
+    let mut red_in_button = 0;
+    for x in 50..150u32 {
+        for y in 0..40u32 {
+            if px_at(&pixels, win_w, x, y) == 0x00FF_0000 {
+                red_in_button += 1;
+            }
+        }
+    }
+    assert_eq!(red_in_button, 0, "divider must not paint over the button");
+    // A `<button>` with `display:inline` computes to inline-block, so its
+    // border paints (a plain inline box paints none).
+    let mut blue = 0;
+    for x in 0..200u32 {
+        for y in 0..60u32 {
+            if px_at(&pixels, win_w, x, y) == 0x0000_00FF {
+                blue += 1;
+            }
+        }
+    }
+    assert!(blue > 20, "button border must paint, got {blue} blue pixels");
+}
+
+// ---------- QA20: table and form DOM interfaces ----------
+
+#[test]
+fn qa20_table_rows_cells_and_sections() {
+    let log = run_in_html(
+        "<html><body><table id=t><caption>c</caption><thead><tr><th>h</th></tr></thead>\
+         <tbody><tr id=r1><td>a</td><td colspan=3 rowspan=2>b</td></tr><tr id=r2><td>c</td></tr></tbody>\
+         <tfoot><tr><td>f</td></tr></tfoot></table></body></html>",
+        "var t=document.getElementById('t'), r2=document.getElementById('r2'), r1=document.getElementById('r1');\
+         console.log(t.rows.length, t.tBodies.length, t.tHead.tagName, t.tFoot.tagName, t.caption.tagName);\
+         console.log(r2.rowIndex, r2.sectionRowIndex, r1.cells.length, r1.cells[1].cellIndex, r1.cells[1].colSpan, r1.cells[1].rowSpan, r1.cells[0].colSpan);\
+         console.log(t.rows[0].parentNode.tagName, t.rows[3].parentNode.tagName, t.rows.item(1)===r1, t instanceof HTMLTableElement, r1 instanceof HTMLTableRowElement, r1.cells[0] instanceof HTMLTableCellElement);",
+    );
+    assert_eq!(log, ["log:4 1 THEAD TFOOT CAPTION", "log:2 1 2 1 3 2 1", "log:THEAD TFOOT true true true true"], "{log:?}");
+}
+
+#[test]
+fn qa20_table_insert_delete_and_create() {
+    let log = run_in_html(
+        "<html><body><table id=t></table></body></html>",
+        "var t=document.getElementById('t');\
+         var r=t.insertRow(); var c=r.insertCell(); c.textContent='x'; r.insertCell(0).textContent='y';\
+         console.log(t.rows.length, t.tBodies.length, r.cells.length, r.cells[0].textContent, r.cells[1].textContent);\
+         t.insertRow(0); console.log(t.rows.length, t.rows[1]===r);\
+         t.deleteRow(0); console.log(t.rows.length, t.rows[0]===r); r.deleteCell(-1); console.log(r.cells.length);\
+         var h=t.createTHead(); console.log(h===t.createTHead(), t.tHead===h, t.firstChild===h);\
+         var cap=t.createCaption(); console.log(t.firstChild===cap, t.caption===cap);\
+         var f=t.createTFoot(); console.log(t.lastChild===f); t.deleteTHead(); t.deleteCaption(); t.deleteTFoot();\
+         console.log(t.tHead, t.caption, t.tFoot);\
+         try { t.insertRow(9); } catch (e) { console.log(e.name); }\
+         try { t.deleteRow(9); } catch (e) { console.log(e.name); }",
+    );
+    assert_eq!(
+        log,
+        ["log:1 1 2 y x", "log:2 true", "log:1 true", "log:1", "log:true true true", "log:true true", "log:true", "log:null null null", "log:IndexSizeError", "log:IndexSizeError"],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qa20_forms_collection_and_elements_named_access() {
+    let log = run_in_html(
+        "<html><body><form id=f1 name=first action=/go method=post><input name=a value=1><select name=s><option>x<option selected value=v>y</select>\
+         <textarea name=ta>hi</textarea><button name=b>go</button><input type=image name=img></form>\
+         <form id=f2><input id=z></form></body></html>",
+        "var f=document.forms[0];\
+         console.log(document.forms.length, f.id, document.forms.f2.id, document.forms.namedItem('first')===f, f.length, f.elements.length);\
+         console.log(f.elements.a.value, f.elements.namedItem('s').tagName, f.elements[2].name, f.elements.img, f.action, f.method);\
+         console.log(document.forms.f2.elements.z.form===document.forms.f2, typeof f.submit, typeof f.reset);",
+    );
+    assert_eq!(log, ["log:2 f1 f2 true 4 4", "log:1 SELECT ta undefined /go post", "log:true function function"], "{log:?}");
+}
+
+#[test]
+fn qa20_form_control_reflections() {
+    let log = run_in_html(
+        "<html><body><form id=f><input id=i name=n value=v><input id=c type=checkbox checked><input id=bad type=bogus>\
+         <button id=b></button><button id=b2 type=button></button>\
+         <select id=s><option id=o1>one</option><option id=o2 value=2 selected>two</option></select>\
+         <label id=l for=i>L</label><textarea id=ta>t</textarea><input id=d disabled></form></body></html>",
+        "var $=function(i){return document.getElementById(i)};\
+         console.log($('i').type, $('i').name, $('i').value, $('c').type, $('c').checked, $('bad').type, $('d').disabled, $('i').form===$('f'));\
+         console.log($('b').type, $('b2').type, $('s').type, $('s').options.length, $('s').selectedIndex, $('s').value, $('o1').value, $('o2').value, $('o2').selected, $('o2').defaultSelected, $('o2').index);\
+         $('s').selectedIndex=0; console.log($('s').value, $('o2').selected);\
+         $('i').type='password'; $('i').name='m'; $('c').checked=false; console.log($('i').getAttribute('type'), $('i').name, $('c').checked);\
+         console.log($('l').htmlFor, $('l').control===$('i'), $('ta').value, $('ta').type);\
+         var o=document.createElement('option'); o.text='three'; $('s').add(o); console.log($('s').length, $('s').options[2].value);",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:text n v checkbox true text true true",
+            "log:submit button select-one 2 1 2 one 2 true true 1",
+            "log:one false",
+            "log:password m false",
+            "log:i true t textarea",
+            "log:3 three"
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qa20_map_areas_and_form_global_constructors() {
+    let log = run_in_html(
+        "<html><body><map id=m name=mm><area id=a1 shape=rect coords='0,0,1,1' href=x><area id=a2></map><img usemap='#mm'></body></html>",
+        "var m=document.getElementById('m');\
+         console.log(m.areas.length, m.areas[0].shape, m.areas[0].coords, m.name, m.images.length, m instanceof HTMLMapElement, m instanceof HTMLElement, typeof HTMLFormElement);",
+    );
+    assert_eq!(log, ["log:2 rect 0,0,1,1 mm 1 true true function"], "{log:?}");
+}
+
+#[test]
+fn qa20_input_value_property_is_separate_from_the_attribute_and_meta_http_equiv() {
+    let log = run_in_html(
+        "<html><body></body></html>",
+        "var i=document.createElement('input'); i.value='test';\
+         console.log(i.hasAttribute('value'), i.value, i.defaultValue);\
+         var m=document.createElement('meta'); m.setAttribute('http-equiv','x'); console.log(m.httpEquiv, m.hasAttribute('httpEquiv'));",
+    );
+    assert_eq!(log, ["log:false test ", "log:x false"], "{log:?}");
+}
+
+// ---------- QA18b: iframe.contentDocument / contentWindow ----------
+
+#[test]
+fn qa18b_iframe_content_document_and_window() {
+    let log = run_with_timers(
+        "var f=document.createElement('iframe');\
+         console.log(f.contentDocument, f.contentWindow);\
+         f.onload=function(){ console.log('onload', this===f); };\
+         f.addEventListener('load', function(){ console.log('listener'); });\
+         document.body.appendChild(f);\
+         var d=f.contentDocument; var w=f.contentWindow;\
+         console.log(d!==document, d.nodeType, d.documentElement.tagName, d.body.tagName, d.head.tagName,\
+           w.document===d, d.defaultView===w, w.parent===window, w.top===window, w.frameElement===f, f.contentDocument===d);\
+         var e=d.createElement('p'); d.body.appendChild(e); console.log(d.getElementsByTagName('p').length, document.getElementsByTagName('p').length, e.ownerDocument===d);\
+         var n=document.createElement('iframe'); n.src='http://example.org/x.html'; document.body.appendChild(n);\
+         console.log(n.contentDocument, n.contentWindow);\
+         var u=document.createElement('iframe'); u.setAttribute('src','about:blank'); document.body.appendChild(u);\
+         var dd=document.createElement('iframe'); dd.src='data:text/html,hi'; document.body.appendChild(dd);\
+         console.log(u.contentDocument.nodeType, dd.contentDocument.nodeType, f instanceof HTMLIFrameElement);\
+         var r=document.createElement('iframe'); document.body.appendChild(r); document.body.removeChild(r); console.log(r.contentDocument);\
+         console.log('sync-end');",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:null null",
+            "log:true 9 HTML BODY HEAD true true true true true true",
+            "log:1 0 true",
+            "log:null null",
+            "log:9 9 true",
+            "log:null",
+            "log:sync-end",
+            "log:listener",
+            "log:onload true",
+        ],
+        "{log:?}"
+    );
+}
+
+// ---------- QA18b1 / QA18c: iframe src documents, styles in second documents ----------
+
+#[test]
+fn qa18b1_iframe_src_document_is_loaded_and_styled() {
+    let mut pages = HashMap::new();
+    pages.insert(
+        "http://qa18b1.test/dir/empty.html".to_string(),
+        "<!doctype html><html><head><style>p{white-space:pre;color:#102030}</style><title>T</title></head><body><p id=a>hi</p></body></html>".to_string(),
+    );
+    crate::net::set_iframe_pages(pages);
+    crate::js::set_page_url(Url::parse("http://qa18b1.test/dir/page.html").ok().as_ref());
+    let (_e, _d, log) = events_engine(
+        "<html><body><iframe id=f src='empty.html'></iframe><iframe id=g src='missing.html'></iframe>\
+         <iframe id=h src='http://other.test/empty.html'></iframe></body></html>",
+        "var f=document.getElementById('f'), d=f.contentDocument, w=f.contentWindow;\
+         console.log(d!==null, d.title, d.getElementById('a').textContent, d.URL, w.location.href, d.defaultView===w, w.parent===window);\
+         var cs=getComputedStyle(d.getElementById('a'));\
+         console.log(cs.whiteSpace, cs.color, getComputedStyle(document.body).whiteSpace);\
+         console.log(document.getElementById('g').contentDocument, document.getElementById('h').contentDocument);\
+         console.log(document.getElementById('a'), document.getElementsByTagName('p').length);\
+         var e=d.createElement('div'); d.body.appendChild(e); e.style.whiteSpace='pre-wrap';\
+         console.log(getComputedStyle(e).whiteSpace);",
+    );
+    assert_eq!(
+        *log.borrow(),
+        [
+            "log:true T hi http://qa18b1.test/dir/empty.html http://qa18b1.test/dir/empty.html true true",
+            "log:pre rgb(16, 32, 48) normal",
+            "log:null null",
+            "log:null 0",
+            "log:pre-wrap",
+        ],
+        "{:?}",
+        log.borrow()
+    );
+}
+
+// ---------- QY8: O(1) sibling access ----------
+
+#[test]
+fn qy8_walk_counts_and_stays_correct_after_mutations() {
+    let log = run_in_html(
+        "<div id=p></div>",
+        "var p=document.getElementById('p');
+         for(var i=0;i<50;i++){var s=document.createElement('span');s.id='s'+i;p.appendChild(s);}
+         var w=function(){var o=[];for(var n=p.firstChild;n;n=n.nextSibling)o.push(n.id||'#');return o.join(',');};
+         var b=function(){var o=[];for(var n=p.lastChild;n;n=n.previousSibling)o.push(n.id||'#');return o.join(',');};
+         var s5=document.getElementById('s5');
+         console.log(s5.nextSibling.id+' '+s5.previousSibling.id);
+         p.insertBefore(document.createElement('i'),s5);
+         console.log(s5.previousSibling.tagName+' '+s5.nextSibling.id);
+         p.removeChild(document.getElementById('s6'));
+         console.log(s5.nextSibling.id);
+         s5.before(document.createTextNode('t'));
+         console.log(s5.previousSibling.nodeType+' '+s5.previousElementSibling.tagName+' '+s5.nextElementSibling.id);
+         s5.replaceWith(document.createElement('b'));
+         console.log(s5.nextSibling+' '+s5.parentNode);
+         var c=0;for(var n=p.firstChild;n;n=n.nextSibling)c++;
+         console.log(c+' '+(w().split(',').length)+' '+(b().split(',').reverse().join(',')===w()));
+         p.innerHTML='<a></a><b></b>';
+         console.log(p.firstChild.tagName+p.lastChild.tagName+p.firstChild.nextSibling.tagName+p.lastElementChild.previousElementSibling.tagName);
+         var x=document.createElement('div');console.log(x.nextSibling+' '+x.firstChild+' '+x.nextElementSibling);",
+    );
+    assert_eq!(
+        log,
+        vec![
+            "log:s6 s4",
+            "log:I s6",
+            "log:s7",
+            "log:3 I s7",
+            "log:null null",
+            "log:51 51 true",
+            "log:ABBA",
+            "log:null null null",
+        ]
+    );
+}
+
+#[test]
+fn qy8_sibling_hint_is_o1_when_walking() {
+    use markup5ever_rcdom::Node;
+    let kids: Vec<_> = (0..2000).map(|_| Node::new(markup5ever_rcdom::NodeData::Comment { contents: "x".into() })).collect();
+    let mut steps = 0;
+    let mut hint = 0;
+    for (i, k) in kids.iter().enumerate() {
+        let got = crate::js_dom::child_index(&kids, k, hint, &mut steps);
+        assert_eq!(got, Some(i));
+        hint = i + 1; // the native stores the sibling's index when it returns it
+    }
+    // One probe per step when the hint is right (a scan would be ~2M).
+    assert!(steps <= 2 * 2000, "steps = {steps}");
+    // A stale hint still gives the right answer (falls back to a scan).
+    assert_eq!(crate::js_dom::child_index(&kids, &kids[10], 1999, &mut steps), Some(10));
+    assert_eq!(crate::js_dom::child_index(&kids, &kids[10], 99999, &mut steps), Some(10));
+}
+
+// ---------- QY11: reflected URL attributes, dataset, attributes, classList ----------
+
+#[test]
+fn qy11_url_reflection_is_absolute_and_honours_base() {
+    set_page_url(Url::parse("https://page.test/dir/index.html?q=1").ok().as_ref());
+    let log = run_in_html(
+        "<html><head><base href=https://x.org/d/></head><body><script src=a.js id=s></script><img src=../p.png id=i>\
+         <a href='sub/x?y#z' id=a></a><form action=go id=f></form><link rel=stylesheet href=/c.css id=l>\
+         <iframe src=about:blank id=fr></iframe><a id=n></a></body></html>",
+        "var g=function(i){return document.getElementById(i)};\
+         var r=[g('s').src,g('i').src,g('i').currentSrc,g('a').href,g('f').action,g('l').href,g('fr').src,g('n').href,document.baseURI];\
+         g('i').src='/z.png'; r.push(g('i').getAttribute('src'), g('i').src);\
+         var a=g('a'); r.push(a.origin,a.protocol,a.host,a.hostname,a.port,a.pathname,a.search,a.hash);\
+         a.pathname='/new'; r.push(a.href);\
+         console.log(r.join('|'));",
+    );
+    assert_eq!(
+        log,
+        ["log:https://x.org/d/a.js|https://x.org/p.png|https://x.org/p.png|https://x.org/d/sub/x?y#z|https://x.org/d/go|https://x.org/c.css|about:blank||https://x.org/d/|/z.png|https://x.org/z.png|https://x.org|https:|x.org|x.org||/d/sub/x|?y|#z|https://x.org/new?y#z"],
+        "{log:?}"
+    );
+    set_page_url(None);
+}
+
+#[test]
+fn qy11_url_reflection_without_base_uses_page_url() {
+    set_page_url(Url::parse("https://page.test/dir/index.html").ok().as_ref());
+    let log = run_in_html(
+        "<html><body><script src=a.js id=s></script></body></html>",
+        "console.log(document.getElementById('s').src, document.baseURI)",
+    );
+    assert_eq!(log, ["log:https://page.test/dir/a.js https://page.test/dir/index.html"], "{log:?}");
+    set_page_url(None);
+}
+
+#[test]
+fn qy11_dataset_roundtrip() {
+    let log = run_in_html(
+        "<html><body><div id=a data-foo-bar=1 data-x=2></div></body></html>",
+        "var e=document.getElementById('a'), d=e.dataset, r=[];\
+         r.push(d.fooBar, d.x, d.nope, 'fooBar' in d, 'zip' in d);\
+         d.newThing=5; r.push(e.getAttribute('data-new-thing'));\
+         e.setAttribute('data-late','L'); r.push(d.late);\
+         delete d.x; r.push(e.hasAttribute('data-x'), 'x' in d);\
+         r.push(Object.keys(d).join(','));\
+         var k=[]; for (var p in d) k.push(p); r.push(k.join(','));\
+         console.log(r.join('|'));",
+    );
+    assert_eq!(log, ["log:1|2||true|false|5|L|false|false|fooBar,newThing,late|fooBar,newThing,late"], "{log:?}");
+}
+
+#[test]
+fn qy11_attributes_and_attribute_names() {
+    let log = run_in_html(
+        "<html><body><p id=a class='c d' title=t></p><p id=e></p></body></html>",
+        "var e=document.getElementById('a'), m=e.attributes, r=[];\
+         r.push(m.length, m[0].name, m.item(1).value, m.item(9), m.getNamedItem('title').value, m.title.name, m.id.specified, m.id.ownerElement===e, m[2].nodeName);\
+         r.push(e.getAttributeNames().join(','), e.hasAttributes(), document.createElement('i').hasAttributes());\
+         var n=[]; for (var x of m) n.push(x.name+'='+x.value); r.push(n.join(';'));\
+         m.title.value='T2'; r.push(e.getAttribute('title'), e.getAttributeNode('id').value, e.getAttributeNode('zz'));\
+         e.setAttribute('lang','en'); r.push(m.length, e.getAttributeNames().pop());\
+         console.log(r.join('|'));",
+    );
+    assert_eq!(
+        log,
+        ["log:3|id|c d||t|title|true|true|title|id,class,title|true|false|id=a;class=c d;title=t|T2|a||4|lang"],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy11_classlist_iterable_and_consistent() {
+    let log = run_in_html(
+        "<html><body><div id=a class='x y'></div></body></html>",
+        "var e=document.getElementById('a'), l=e.classList, r=[];\
+         r.push([...l].join(','), l.length, l.item(1), l[0], l.value, l.supports('x'), e.classList===l);\
+         var f=[]; l.forEach(function(v,i){f.push(i+v)}); r.push(f.join(','));\
+         r.push([...l.keys()].join(','), [...l.values()].join(','), [...l.entries()].join(';'));\
+         for (var c of l) r.push('c'+c);\
+         l.add('z'); r.push(e.className); e.className='q'; r.push(l.value, l.length);\
+         l.value='m n'; r.push(e.getAttribute('class'), l.toggle('n'), e.className);\
+         console.log(r.join('|'));",
+    );
+    assert_eq!(
+        log,
+        ["log:x,y|2|y|x|x y|true|true|0x,1y|0,1|x,y|0,x;1,y|cx|cy|x y z|q|1|m n|false|m"],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy11_style_string_reflection() {
+    let log = run_in_html(
+        "<html><body><div id=a></div></body></html>",
+        "var e=document.getElementById('a'); e.style.color='red'; e.style.marginTop='1px';\
+         console.log(e.getAttribute('style'), '|', e.style.cssText, '|', e.style.color);",
+    );
+    assert_eq!(log, ["log:color: red; margin-top: 1px; | color: red; margin-top: 1px; | red"], "{log:?}");
+}
+
+#[test]
+fn qy23_style_assignment_puts_forward_to_css_text() {
+    let log = run_in_html(
+        "<html><body><div id=a></div></body></html>",
+        "'use strict'; var d=document.getElementById('a'); d.style='color: red';\
+         console.log(d.getAttribute('style'), '|', d.style.color);\
+         d.style=null; console.log(d.getAttribute('style'), '|', d.style.cssText === '');",
+    );
+    assert_eq!(log, ["log:color: red | red", "log:null | true"], "{log:?}");
+}
+
+#[test]
+fn qy24_class_list_reads_the_class_attribute_not_class_name() {
+    let log = run_in_html(
+        "<html><body><x-q id=a class='p q'></x-q></body></html>",
+        "'use strict'; class XQ extends HTMLElement { get className() { return undefined; } set className(v) {} }\
+         customElements.define('x-q', XQ); var d=document.getElementById('a');\
+         d.classList.add('r'); console.log(d.classList.contains('p'), d.classList.toggle('p'), d.getAttribute('class'), d.classList.length, String(d.classList));",
+    );
+    assert_eq!(log, ["log:true false q r 2 q r"], "{log:?}");
+}
+
+#[test]
+fn qy12_window_interface_has_its_own_prototype() {
+    let out = run_collecting(&[src(
+        "console.log(window instanceof Window, window instanceof EventTarget, Window.prototype !== Object.prototype,\
+         Object.getPrototypeOf(Window.prototype) === EventTarget.prototype, ({}) instanceof Window,\
+         window.top === window, window.parent === window, window.frames === window, window.opener === null);\
+         try { new Window(); } catch (e) { console.log(e.name); }",
+    )]);
+    assert_eq!(out, vec!["log:true true true true false true true true true", "log:TypeError"]);
+}
+
+#[test]
+fn qy12_html_element_interfaces_and_instanceof() {
+    let out = run_in_html(
+        "<html><body><div id=d></div><span></span><a href=x></a><ul><li></li></ul><h3></h3><foo-bar></foo-bar><blink></blink><template></template><video></video></body></html>",
+        "var t = function (s) { return document.querySelector(s); };\
+         console.log(t('div') instanceof HTMLDivElement, t('span') instanceof HTMLSpanElement, t('a') instanceof HTMLAnchorElement,\
+           t('li') instanceof HTMLLIElement, t('ul') instanceof HTMLUListElement, t('h3') instanceof HTMLHeadingElement,\
+           document.body instanceof HTMLBodyElement, document.documentElement instanceof HTMLHtmlElement,\
+           document.createElement('img') instanceof HTMLImageElement, t('template') instanceof HTMLTemplateElement,\
+           t('div') instanceof HTMLElement, t('div') instanceof HTMLSpanElement);\
+         console.log(t('blink') instanceof HTMLUnknownElement, t('foo-bar') instanceof HTMLUnknownElement, t('foo-bar') instanceof HTMLElement,\
+           t('div') instanceof HTMLUnknownElement, t('div').constructor === HTMLDivElement);\
+         var c = [HTMLDivElement, HTMLScriptElement, HTMLStyleElement, HTMLLinkElement, HTMLMetaElement, HTMLTitleElement, HTMLHeadElement, HTMLSlotElement, HTMLParagraphElement, HTMLOListElement, HTMLButtonElement, HTMLInputElement, HTMLFormElement, HTMLLabelElement];\
+         var bad = 0; c.forEach(function (C) { try { C(); bad++; } catch (e) { if (!(e instanceof TypeError)) bad++; } try { new C(); bad++; } catch (e) {} });\
+         console.log(bad, Object.getPrototypeOf(HTMLDivElement.prototype) === HTMLElement.prototype);",
+    );
+    assert_eq!(out, vec!["log:true true true true true true true true true true true false", "log:true false true false true", "log:0 true"], "{out:?}");
+}
+
+#[test]
+fn qy12_svg_interfaces_by_namespace() {
+    let out = run_in_html(
+        "<html><body><svg id=s><path d='M0 0'></path><g></g></svg></body></html>",
+        "var svg = 'http://www.w3.org/2000/svg';\
+         var p = document.createElementNS(svg, 'path'), r = document.createElementNS(svg, 'rect'), x = document.createElementNS(svg, 'foo');\
+         var s = document.getElementById('s');\
+         console.log(s instanceof SVGSVGElement, s instanceof SVGGraphicsElement, s instanceof SVGElement, s instanceof Element, s instanceof HTMLElement,\
+           s.firstChild instanceof SVGPathElement, p instanceof SVGGeometryElement, r instanceof SVGRectElement, x instanceof SVGElement, x instanceof SVGGraphicsElement,\
+           document.createElement('div') instanceof SVGElement, typeof SVGUseElement, typeof SVGGElement);",
+    );
+    assert_eq!(out, vec!["log:true true true true false true true true true false false function function"], "{out:?}");
+}
+
+#[test]
+fn qy12_cdata_pi_range_and_fragment_children() {
+    let out = run_in_html(
+        "<html><body></body></html>",
+        "var f = document.createDocumentFragment(); var a = document.createElement('p'); f.appendChild(document.createTextNode('t')); f.appendChild(a); f.appendChild(document.createElement('i'));\
+         console.log(f.children.length, f.childElementCount, f.firstElementChild === a, f.lastElementChild.tagName, Array.from(f.children).length);\
+         f.prepend(document.createElement('b')); f.append(document.createElement('u')); console.log(f.children.length, f.firstElementChild.tagName);\
+         console.log(typeof CDATASection, typeof ProcessingInstruction, CDATASection.prototype instanceof Text, ProcessingInstruction.prototype instanceof CharacterData, typeof Range);\
+         try { new Range(); } catch (e) { console.log(e.name); }\
+         try { Selection(); } catch (e) { console.log(e.name); }",
+    );
+    assert_eq!(out, vec!["log:2 2 true I 2", "log:4 B", "log:function function true true function", "log:TypeError"], "{out:?}");
+}
+
+#[test]
+fn qy12_event_subclasses_construct_with_init_dicts() {
+    let out = run_collecting(&[src(
+        "var p = new PointerEvent('pointerdown', { pointerId: 3, pointerType: 'mouse', clientX: 5, bubbles: true });\
+         var w = new WheelEvent('wheel', { deltaY: 100 }), h = new HashChangeEvent('hashchange', { oldURL: 'a', newURL: 'b' });\
+         var m = new MessageEvent('message', { data: { x: 1 }, origin: 'o' }), pr = new ProgressEvent('progress', { loaded: 2, total: 4, lengthComputable: true });\
+         var t = new TouchEvent('touchstart'), s = new StorageEvent('storage', { key: 'k' });\
+         console.log(p instanceof MouseEvent, p instanceof Event, p.pointerId, p.pointerType, p.clientX, p.bubbles, w.deltaY, w.deltaX, h.newURL, m.data.x, m.origin, pr.loaded, pr.total, pr.lengthComputable, t.touches.length, s.key, s.oldValue);\
+         var n = 0; ['TransitionEvent', 'AnimationEvent', 'PromiseRejectionEvent', 'PopStateEvent', 'ClipboardEvent', 'DragEvent', 'CompositionEvent'].forEach(function (k) { if (new window[k]('x') instanceof Event) n++; });\
+         console.log(n, new PopStateEvent('popstate', { state: 7 }).state, new TransitionEvent('transitionend', { propertyName: 'width' }).propertyName);",
+    )]);
+    assert_eq!(out[0], "log:true true 3 mouse 5 true 100 0 b 1 o 2 4 true 0 k null", "{out:?}");
+    assert_eq!(out[1], "log:7 7 width", "{out:?}");
+}
+
+#[test]
+fn qy12_media_interfaces_are_inert_placeholders() {
+    // QM1f: with no backend (libmpv missing / built without `media`) the element API
+    // is still the harmless placeholder: one `not implemented` line, play() rejects.
+    crate::media_el::set_backend_factory(Some(Rc::new(|_| Box::new(crate::media_el::UnavailableBackend))));
+    let out = run_in_html(
+        "<html><body><video id=v></video><audio></audio></body></html>",
+        "var v = document.getElementById('v');\
+         console.log(v instanceof HTMLVideoElement, v instanceof HTMLMediaElement, document.querySelector('audio') instanceof HTMLAudioElement,\
+           typeof HTMLSourceElement, typeof HTMLTrackElement, v.canPlayType('video/mp4') === '');\
+         v.pause(); v.load();\
+         var pr = v.play(); console.log(pr instanceof Promise);\
+         pr.catch(function (e) { console.log('rejected', e.name); });",
+    );
+    crate::media_el::set_backend_factory(None);
+    assert!(out.iter().any(|l| l == "log:true true true function function true"), "{out:?}");
+    assert_eq!(out.iter().filter(|l| l.starts_with("error:") && l.contains("not implemented: media (libmpv not available)")).count(), 1, "{out:?}");
+    // (the rejection itself is delivered from a timer now: see qm1f::js_placeholder_path)
+    assert!(out.iter().any(|l| l == "log:true"), "{out:?}");
+}
+
+// ---------- QY16b: Node.prototype.isEqualNode / isSameNode ----------
+
+#[test]
+fn qy16b_is_equal_node_compares_subtrees() {
+    let log = run_in_html(
+        "<html><body></body></html>",
+        "function mk(attrs, kids) {\
+           var e = document.createElement('div');\
+           attrs.forEach(function (p) { e.setAttribute(p[0], p[1]); });\
+           kids.forEach(function (k) { e.appendChild(k); });\
+           return e;\
+         }\
+         function p(word) {\
+           var q = document.createElement('p');\
+           q.appendChild(document.createTextNode('hi '));\
+           var b = document.createElement(word);\
+           b.appendChild(document.createTextNode('there'));\
+           q.appendChild(b);\
+           return q;\
+         }\
+         function tree(comment) {\
+           return mk([['class', 'x'], ['data-k', '1']], [p('b'), document.createComment(comment || 'c')]);\
+         }\
+         var a = tree();\
+         console.log(a.isEqualNode(tree()), a.isEqualNode(a), a.isEqualNode(a.firstChild));\
+         console.log(a.isEqualNode(mk([['class', 'x'], ['data-k', '2']], [p('b'), document.createComment('c')])));\
+         console.log(a.isEqualNode(tree('d')), a.isEqualNode(mk([['class', 'x'], ['data-k', '1']], [p('i'), document.createComment('c')])));\
+         console.log(a.isEqualNode(mk([['class', 'x'], ['data-k', '1']], [p('b'), document.createComment('c'), document.createElement('span')])));\
+         console.log(a.isEqualNode(mk([['class', 'x'], ['data-k', '1']], [p('b')])));\
+         console.log(document.createTextNode('x').isEqualNode(document.createTextNode('x')), document.createTextNode('x').isEqualNode(document.createTextNode('y')));\
+         console.log(document.createComment('x').isEqualNode(document.createTextNode('x')), document.createElement('a').isEqualNode(document.createElement('b')));\
+         console.log(a.isEqualNode(null), a.isEqualNode(undefined), document.createDocumentFragment().isEqualNode(document.createDocumentFragment()));\
+         var t1 = document.implementation.createDocumentType('html', '-//A', 's.dtd'), t2 = document.implementation.createDocumentType('html', '-//A', 't.dtd'), t3 = document.implementation.createDocumentType('html', '-//A', 's.dtd');\
+         console.log(t1.isEqualNode(t2), t1.isEqualNode(t3));\
+         console.log(a.isSameNode(a), a.isSameNode(tree()), a.isSameNode(null));",
+    );
+    assert_eq!(
+        log,
+        [
+            "log:true true false",
+            "log:false",
+            "log:false false",
+            "log:false",
+            "log:false",
+            "log:true false",
+            "log:false false",
+            "log:false false true",
+            "log:false true",
+            "log:true false false",
+        ],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qy16b_is_equal_node_attributes_are_a_set() {
+    let log = run_in_html(
+        "<html><body></body></html>",
+        "function mk(attrs) {\
+           var e = document.createElement('a');\
+           attrs.forEach(function (p) { e.setAttribute(p[0], p[1]); });\
+           return e;\
+         }\
+         var a = mk([['href', 'x'], ['title', 't']]);\
+         console.log(a.isEqualNode(mk([['title', 't'], ['href', 'x']])), a.isEqualNode(mk([['href', 'y'], ['title', 't']])), a.isEqualNode(mk([['href', 'x']])));\
+         var e = mk([['href', 'x'], ['title', 't'], ['data-z', '1']]);\
+         console.log(e.isEqualNode(mk([['data-z', '1'], ['href', 'x'], ['title', 't']])), a.isEqualNode(e), a.isEqualNode(mk([['href', 'x'], ['alt', 't']])));\
+         console.log(document.createElementNS('http://www.w3.org/2000/svg', 'a').isEqualNode(document.createElement('a')));",
+    );
+    assert_eq!(
+        log,
+        ["log:true false false", "log:true false false", "log:false"],
+        "{log:?}"
+    );
+}
+
+/// App side: queued requests are started by `js_sync`, results of a
+/// superseded page are dropped, current ones reach the page.
+fn qf7_app_net(proxy: &winit::event_loop::EventLoopProxy<AppEvent>) {
+    let fake = QfFake::new(vec![("/a", qf7_ok("AAA", &[]))]);
+    let doc = parse_html("<html><body></body></html>");
+    let mut app = App::new_static(doc.clone(), proxy.clone(), None);
+    crate::js_net::set_net_executor(fake.clone());
+    let page = Url::parse("https://page.test/").unwrap();
+    let code = format!("{} h.promise.then(function(r){{ return r.text(); }}).then(function(t){{ window.__done = t; }});", qf7_go("https://page.test/a", ""));
+    app.js = run_page_scripts(&doc, &[src(&code)], Some(&page));
+    app.js_sync();
+    for _ in 0..200 {
+        if !fake.urls().is_empty() {
+            break;
+        }
+        thread::sleep(std::time::Duration::from_millis(10));
+    }
+    assert_eq!(fake.urls(), vec!["https://page.test/a"], "js_sync started the request on a thread");
+    let done = |app: &App| app.js.as_ref().unwrap().eval_value::<String>("t", "String(window.__done)");
+    let id = app.js.as_ref().unwrap().eval_value::<f64>("t", "h.id").unwrap() as u64;
+    // A stale generation is dropped: the promise stays pending.
+    app.handle_js_net(app.nav_generation + 1, id, qf7_ok("STALE", &[]));
+    assert_eq!(done(&app).as_deref(), Some("undefined"));
+    app.handle_js_net(app.nav_generation, id, qf7_ok("AAA", &[]));
+    assert_eq!(done(&app).as_deref(), Some("AAA"));
+}
+
+/// App side (needs a display like the other App tests): `start_navigation`
+/// (a link) sends the current page as the initiator, `:go` does not.
+fn qf14b_app_initiator(proxy: &winit::event_loop::EventLoopProxy<AppEvent>) {
+    let path = unique_test_socket_path("qf14b-app");
+    let seen = qf14b_fake_wire(&path);
+    let doc = parse_html("<html><body></body></html>");
+    let mut app = App::new_static(doc, proxy.clone(), Some(path.clone()));
+    app.base_url = Some(Url::parse("https://news.example/a").unwrap());
+    app.start_navigation("https://shop.example/x");
+    let reqs = qf14b_wait(&seen, 1);
+    assert!(qf14b_has(&reqs[0], "X-Wire-Initiator-Site: https://news.example"), "{reqs:?}");
+    app.dispatch_command("go", &["https://typed.example/y"]);
+    let reqs = qf14b_wait(&seen, 2);
+    let typed = reqs.iter().find(|r| r.contains("typed.example")).expect("typed request");
+    assert!(qf14b_has(typed, "X-Wire-Nav: 1") && !typed.contains("Initiator"), "{typed}");
+    let _ = std::fs::remove_file(&path);
+}
