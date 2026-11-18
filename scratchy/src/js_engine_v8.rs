@@ -33,8 +33,12 @@
 //!   instead of letting V8 abort the process; the error reads `InternalError: out of memory`.
 //! - `document.all` (QY40) is an undetectable object made from an `ObjectTemplate`.
 //!
-//! Still a stub (QV8-3c): module loading (`import` and module scripts fail with a clear
-//! "not implemented" error).
+//! QV8-3c: modules. V8 has no import-map or loader of its own: the resolve callback and
+//! `HostImportModuleDynamically` call scratchy's `js_modules::resolve_specifier` and read the
+//! pre-fetched `ModuleStore` sources (the same seam the QuickJS loader uses). Compiled modules
+//! are cached by URL in the engine state; `import.meta.url` is the URL minus any
+//! `#inline-module-N` tag. A module entry runs through `import()` (js.rs `eval_module`), so the
+//! dynamic-import callback is the one place that instantiates and evaluates.
 use super::*;
 use std::cell::{Cell, UnsafeCell};
 use std::ffi::c_void;
@@ -332,6 +336,11 @@ struct State {
     terminated: bool,
     /// ... because the heap limit was hit (read by `describe_error`).
     oom: bool,
+    /// QV8-3c: the page's module sources and import map (`None` on a bare engine).
+    modules: Option<Rc<js_modules::ModuleStore>>,
+    /// QV8-3c: compiled modules by URL, and URL by module identity hash.
+    mod_cache: std::collections::HashMap<String, v8::Global<v8::Module>>,
+    mod_names: std::collections::HashMap<i32, String>,
 }
 
 fn state<'a>(ctx: &Ctx<'_>) -> &'a mut State {
@@ -940,6 +949,135 @@ fn start_watchdog(w: Arc<Watch>) -> std::thread::JoinHandle<()> {
         .expect("watchdog thread")
 }
 
+// ---------------------------------------------------------------- modules
+
+/// QuickJS reports a module resolve/load failure as a `ReferenceError`; so does this.
+fn throw_module_error(scope: &mut v8::PinScope<'_, '_>, m: &str) {
+    let Some(s) = v8::String::new(scope, m) else { return };
+    let e = v8::Exception::reference_error(scope, s);
+    scope.throw_exception(e);
+}
+
+/// The compiled module for `url` (cached), loading its source like the QuickJS `PageLoader`.
+/// A failure leaves an exception thrown in `scope` and returns `None`.
+fn load_module<'s>(scope: &mut v8::PinScope<'s, '_>, url: &str) -> Option<v8::Local<'s, v8::Module>> {
+    let ctx = Ctx::<'static>::new(scope);
+    let stt = state(&ctx);
+    if let Some(g) = stt.mod_cache.get(url) {
+        return Some(v8::Local::new(scope, g));
+    }
+    let store = stt.modules.clone()?;
+    let known = store.sources.borrow().get(url).cloned();
+    let src = match known {
+        Some(s) => s,
+        None if crate::images::is_data_url(url) => match crate::images::decode_data_uri_text(url) {
+            Some(s) => s,
+            None => {
+                throw_module_error(scope, &format!("Error loading module '{url}': malformed data: URL"));
+                return None;
+            }
+        },
+        None => {
+            throw_module_error(scope, &format!("Error loading module '{url}': module was not pre-fetched (the fetch failed, or it is a run-time import of an unlisted URL: QY15a)"));
+            return None;
+        }
+    };
+    let code = v8::String::new(scope, &src)?;
+    let name = v8::String::new(scope, url)?;
+    let origin = v8::ScriptOrigin::new(scope, name.into(), 0, 0, false, 0, None, false, false, true, None);
+    let mut source = v8::script_compiler::Source::new(code, Some(&origin));
+    let m = v8::script_compiler::compile_module(scope, &mut source)?;
+    let g = v8::Global::new(scope, m);
+    let stt = state(&ctx);
+    stt.mod_cache.insert(url.to_string(), g);
+    stt.mod_names.insert(m.get_identity_hash().get(), url.to_string());
+    Some(m)
+}
+
+/// Resolves `spec` against `base` with scratchy's resolver; a failure throws and returns `None`.
+fn resolve_to_url(scope: &mut v8::PinScope<'_, '_>, base: &str, spec: &str) -> Option<String> {
+    let ctx = Ctx::<'static>::new(scope);
+    let store = state(&ctx).modules.clone()?;
+    match js_modules::resolve_specifier(spec, base, &store.map, &store.doc_base) {
+        Ok(u) => Some(u),
+        Err(m) => {
+            throw_module_error(scope, &format!("Error resolving module '{spec}' from '{base}': {m}"));
+            None
+        }
+    }
+}
+
+fn resolve_cb<'s>(context: v8::Local<'s, v8::Context>, spec: v8::Local<'s, v8::String>, _attrs: v8::Local<'s, v8::FixedArray>, referrer: v8::Local<'s, v8::Module>) -> Option<v8::Local<'s, v8::Module>> {
+    v8::callback_scope!(unsafe scope, context);
+    let ctx = Ctx::<'static>::new(scope);
+    let base = state(&ctx).mod_names.get(&referrer.get_identity_hash().get()).cloned().unwrap_or_default();
+    let spec = spec.to_rust_string_lossy(scope);
+    let url = resolve_to_url(scope, &base, &spec)?;
+    load_module(scope, &url)
+}
+
+/// The promise reaction that turns the evaluation promise into the namespace (its data).
+fn ns_callback<'s>(scope: &mut v8::PinScope<'s, '_>, args: v8::FunctionCallbackArguments<'s>, mut rv: v8::ReturnValue<'s, v8::Value>) {
+    rv.set(args.data());
+    let _ = scope;
+}
+
+/// `import(spec)`: load, instantiate and evaluate the module, resolve with its namespace (after
+/// top-level await). Every failure is a rejection, except termination, which propagates.
+fn dyn_import_cb<'s>(scope: &mut v8::PinScope<'s, '_>, _opts: v8::Local<'s, v8::Data>, resource: v8::Local<'s, v8::Value>, spec: v8::Local<'s, v8::String>, _attrs: v8::Local<'s, v8::FixedArray>) -> Option<v8::Local<'s, v8::Promise>> {
+    let resolver = v8::PromiseResolver::new(scope)?;
+    let promise = resolver.get_promise(scope);
+    let ctx = Ctx::<'static>::new(scope);
+    let store = state(&ctx).modules.clone();
+    let base = if resource.is_string() { resource.to_rust_string_lossy(scope) } else { store.as_ref().map(|s| s.doc_base.to_string()).unwrap_or_default() };
+    let spec = spec.to_rust_string_lossy(scope);
+    let mut terminated = false;
+    let mut failure: Option<v8::Local<'s, v8::Value>> = None;
+    let mut ns_promise: Option<v8::Local<'s, v8::Promise>> = None;
+    {
+        v8::tc_scope!(let tc, scope);
+        let step = (|| {
+            let url = resolve_to_url(tc, &base, &spec)?;
+            let m = load_module(tc, &url)?;
+            if m.get_status() == v8::ModuleStatus::Uninstantiated {
+                m.instantiate_module(tc, resolve_cb)?;
+            }
+            let ev = m.evaluate(tc)?;
+            let ev = v8::Local::<v8::Promise>::try_from(ev).ok()?;
+            let ns = m.get_module_namespace();
+            let f = v8::Function::builder(ns_callback).data(ns).build(tc)?;
+            ev.then(tc, f)
+        })();
+        match step {
+            Some(p) => ns_promise = Some(p),
+            None if tc.has_terminated() => terminated = true,
+            None => failure = tc.exception(),
+        }
+    }
+    if terminated {
+        return None;
+    }
+    if let Some(p) = ns_promise {
+        // Forward the chained promise's outcome (a fulfilled namespace or the TLA/evaluation error).
+        resolver.resolve(scope, p.into());
+    } else {
+        let e = failure.unwrap_or_else(|| v8::undefined(scope).into());
+        resolver.reject(scope, e);
+    }
+    Some(promise)
+}
+
+extern "C" fn import_meta_cb(context: v8::Local<v8::Context>, module: v8::Local<v8::Module>, meta: v8::Local<v8::Object>) {
+    v8::callback_scope!(unsafe scope, context);
+    let ctx = Ctx::<'static>::new(scope);
+    let name = state(&ctx).mod_names.get(&module.get_identity_hash().get()).cloned().unwrap_or_default();
+    // An inline module's name carries a `#inline-module-N` tag.
+    let url = name.rsplit_once("#inline-module-").map_or(name.as_str(), |(u, _)| u);
+    if let (Some(k), Some(v)) = (v8::String::new(scope, "url"), v8::String::new(scope, url)) {
+        meta.create_data_property(scope, k.into(), v.into());
+    }
+}
+
 // ---------------------------------------------------------------- engine
 
 /// What `Engine::new` wires up.
@@ -1067,7 +1205,9 @@ impl Engine {
         let params = unsafe { params.set_stack_limit(limit as *mut u32) };
         let mut isolate = v8::Isolate::new(params);
         isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
-        isolate.set_slot(State { arena: Vec::new(), pending: None, terminated: false, oom: false });
+        isolate.set_host_import_module_dynamically_callback(dyn_import_cb);
+        isolate.set_host_initialize_import_meta_object_callback(import_meta_cb);
+        isolate.set_slot(State { arena: Vec::new(), pending: None, terminated: false, oom: false, modules: opts.page.clone(), mod_cache: Default::default(), mod_names: Default::default() });
         JOBS.with(|j| j.set(0));
         PENDING.with(|p| p.set(false));
         OOM.with(|o| o.set(false));
