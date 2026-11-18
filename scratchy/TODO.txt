@@ -198,7 +198,7 @@ READY, in recommended order (no user decision needed):
  fill; QAN1f [S] only if events are wanted before frames. Separately QFF1a [M]
  @font-face ttf/otf/woff, QFF1b [M] woff2, QFF1c [S] document.fonts.
  QAN1-D DECIDED 2026-11-17 (user accepted the recommendation "for now"): new
- QAN1d0 [S] DONE (HASH) (answer `prefers-reduced-motion: reduce` by default, `:set motion`),
+ QAN1d0 [S] DONE (ba9954a) (answer `prefers-reduced-motion: reduce` by default, `:set motion`),
  then QAN1d with the decided defaults. Perf follow-up parked: QAN1p.
  Then P3/P4 leftovers in their blocks (QY*, QA*, Q40b/Q40c fix items).
 WAITING FOR USER (skip until answered):
@@ -1979,7 +1979,7 @@ IntersectionObserver and matchMedia are not used by any of the site's scripts.
       after, value held); 30 fps; none while hidden/unfocused (D3). With QAN1d0's
       default `reduce`, measure the duckduckgo/github CPU numbers both with the default
       and with `:set motion`.
-- [x] QAN1d0 (HASH) [S] READY (QAN1-D D1, before QAN1d) Answer `prefers-reduced-motion: reduce`
+- [x] QAN1d0 (ba9954a) [S] READY (QAN1-D D1, before QAN1d) Answer `prefers-reduced-motion: reduce`
       by default. Today the media-query evaluation (css.rs, `prefers-reduced-motion`
       in the media feature matching next to `prefers-color-scheme`) always answers
       `no-preference`. Make it a runtime setting like `js_enabled`: default reduce;
