@@ -34,11 +34,11 @@ duck", the grid empty). You earlier said it did not show the challenge for you.
 If you get results, I will have an agent profile the tripping timer in a session you run (no
 more automated searches, never solving the challenge).
 
-## Q4. MSE for video (QM1k) - ANSWERED 2026-11-18 (user), except item 3
+## Q4. MSE for video (QM1k) - ANSWERED 2026-11-18 (user), all items
 1. ~60 s of YouTube playback is OK as the first milestone (PoToken research later).
 2. Start with mp4 (avc1/mp4a), but PLAN to enable the others (WebM/Opus/VP9/AV1) later: keep the
    design codec-agnostic (mpv does the demuxing).
-3. Audio into mpv: PENDING (user asked for an explanation). Coordinator recommends (A) a second
+3. Audio into mpv: ANSWERED, option A (user 2026-11-18; revisit with B if desyncs appear). (A) a second
    input stream (`audio-files`) because mpv does all container work and new codecs cost nothing;
    (B) remuxing in scratchy is the fallback if A has sync/seek problems; the plan must include an
    early test that decides it.
