@@ -270,7 +270,12 @@ older and were only partly corrected in place):
 - MSE 2026-11-17 (user): goal = video on all sites except DRM (YouTube, Reddit
   first); QM1k-m DONE (R34): YouTube needs MSE (+PoToken after ~60 s), Reddit feed
   already plays (progressive); QY45 and QM1k5 READY; QM1i DROPPED.
-- Still WAITING FOR USER: QM1k (MSE build plan, QM1k-m done: R34; children QM1k1-QM1k4, QM1k6), QCI2 (WPT in CI), QF14b2 (d) `--profile` (later),
+- MSE PLAN DONE 2026-11-18 (user answered QUESTIONS.md Q4; Opus plan = QM1k-PLAN in the
+  QM1 block): after the V8 freeze and QV8-5b, build in order QM1k4 -> QM1k1a -> QM1k1b ->
+  QM1k-AB (decides audio option A vs B) -> QM1k1c -> QM1k1d -> QM1k1e -> QM1k-m2 (YouTube
+  first minute) -> QM1k1f..j; then the lower-priority Workers/WebAssembly chain QWK0-QWK-m.
+  QM1k2 (PoToken) and QM1k3 (native HLS) PARKED by the user. Open: QUESTIONS.md Q7.
+- Still WAITING FOR USER: QCI2 (WPT in CI), QF14b2 (d) `--profile` (later),
   Q32 remainder (parked), QAN1p/QTB2 (parked).
 - Known red test on a clean checkout: R33 / QCI0.
 - NEW 2026-11-17 (Opus, R35): QCI0b [S] READY, P1 (Sonnet): QCI0's `flex: 1` =
@@ -330,7 +335,8 @@ token: DEFAULT = no token for now (hardening item filed in wire/TODO.txt). Forms
 suggested form order (text input/textarea, checkbox/radio, select, GET submit via
 wire, POST/file later) is only the opening proposal for that conversation.
 Persistence: no (in-memory). EventSource: yes soon (QF19a, below). WebSocket: later,
-own design. Workers: no until a measured page needs them. The coordinator may
+own design. Workers: no until a measured page needs them [SUPERSEDED 2026-11-18, QUESTIONS.md
+Q4.6: Workers/WebAssembly IN SCOPE at lower priority than MSE, chain QWK0-QWK-m]. The coordinator may
 implement the agreed defaults when there are no other tasks.
 USER ANSWERS 2026-11-16 (evening): SD-D1 YES (B1 first), SD-D2 YES (basic event
 retargeting), SD-D3 YES (declarative shadow DOM only after QSD6/QSD7 render), SD-D4
@@ -460,7 +466,8 @@ WAITING FOR USER (skip until answered):
 - (GO-AHEAD 2026-11-17: forms are READY, see Tier 6 / Q30a-Q30g) Forms (Q30a-Q30e,
   Q30g, Q33e, QB11's form part): were placeholder-only until the user designed them; the
   user will redesign after the functionality exists.
-- (DESIGN COMPLETE 2026-11-17, QM1-D D1-D8; QM1b/e/f built; only QM1k MSE waits)
+- (DESIGN COMPLETE 2026-11-17, QM1-D D1-D8; QM1b/e/f built; QM1k MSE PLANNED 2026-11-18,
+  items READY after the V8 freeze, see QM1k-PLAN)
   Media (QM1 done 2026-11-17, R27): an mpv process cannot be embedded on Wayland;
   libmpv in-process (software render into the `<video>` box, bytes from wire) is
   the recommended route. Questions QM1-D D1-D8 (in-page vs "open in mpv",
@@ -745,7 +752,10 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       to mpv), full MSE (SourceBuffer bytes -> stream_cb; audio as a second stream),
       progressive fallback, or impossible (DRM / server refuses). Then STOP: QM1k's
       planning session with the user decides what gets built.
-- [ ] QM1k [L, Opus investigate, then PLAN WITH THE USER PRESENT] WAITING FOR USER (user
+- [x] QM1k [L, Opus investigate, then PLAN WITH THE USER PRESENT] PLANNED 2026-11-18 (user
+      answered QUESTIONS.md Q4 the same day; plan = the QM1k-PLAN block right below; the build
+      items start AFTER the V8 freeze is lifted, QV8-m, and after QV8-5b because they touch
+      media_mpv.rs). Original text: (user
       2026-11-17: "create action item for investigating the MSE and planning it with me
       present") MediaSource Extensions for libmpv (QM1j): how a `blob:` URL from
       `URL.createObjectURL(mediaSource)` could be backed by the appended SourceBuffer
@@ -772,14 +782,241 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       - Reddit needs nothing (progressive); Vimeo/BBC/Twitch/X are blocked before media
         (QY15a, QM1k5, Workers/WebAssembly, login).
       - Product questions 1-6 in R34 "Open product questions".
-- [ ] QM1k1 [L] WAITING FOR USER (QM1k plan decides; from R34) MSE core: `MediaSource`,
-      `SourceBuffer(List)`, `URL.createObjectURL(ms)` / `srcObject`, `sourceopen`/
-      `updateend`, `buffered` from the appended fMP4 (`tfdt`/`trun`) or WebM (Cluster
-      timecode + last SimpleBlock) timing, each SourceBuffer = one growing in-memory byte
-      stream served to libmpv by stream_cb (`scratchy-mse://<id>/<track>`), audio as a
-      second stream; playback state from mpv like QM1f. Test on the YouTube watch page of
-      R34 (first 60 s) and a local fMP4 page.
-- [ ] QM1k2 [M, Opus, investigate only] WAITING FOR USER (is it worth it?) YouTube
+
+      QM1k-PLAN (Opus, 2026-11-18; evidence R34 + the "QM1k plan" addendum under it; user
+      decisions = QUESTIONS.md Q4, all answered 2026-11-18):
+      USER DECISIONS: (1) ~60 s of YouTube is the first milestone, PoToken later (QM1k2);
+      (2) mp4 first (avc1/avc3 + mp4a, fragmented mp4), design CODEC-AGNOSTIC: mpv demuxes and
+      decodes, scratchy never parses codecs or samples (it reads only container box headers for
+      timing, see Q7); WebM/Opus/VP9/AV1 = a table flip + a WebM box reader later (QM1k1h/i);
+      (3) audio = a SECOND mpv input stream (option A); remux in scratchy (B, QM1k-B) only if
+      the early test QM1k-AB fails; (4) 64 MiB of appended media per player, tunable;
+      (5) native HLS later (QM1k3 parked); (6) Workers/WebAssembly in scope, LOWER priority
+      than MSE (chain QWK0-QWK6 below, after QM1k-m2).
+      ARCHITECTURE (one paragraph per layer; names are proposals, implementers may rename):
+      - `src/mse_store.rs` (pure Rust, no JS, no mpv): per SourceBuffer a byte-stream reader
+        behind a trait (`ByteStreamFormat`: feed bytes -> Init(bytes) | Media(bytes, t0, t1) |
+        Error), first impl fMP4 (top-level boxes split across appends; ftyp+moov = init;
+        styp/sidx/emsg/prft/moof+mdat = media; timescale from moov/trak/mdia/mdhd, start from
+        traf/tfdt, length from trun sample durations or tfhd/trex defaults), and a segment store
+        sorted by start time (segment granularity: an overlapping append replaces whole
+        segments; `buffered` = merged segment ranges with a 0.1 s gap tolerance; `remove(a,b)`
+        drops segments fully inside [a,b]; byte accounting for the cap).
+      - Shared state `MseFeed` = Arc<Mutex<..>> + Condvar per MediaSource: the JS thread
+        appends (never waits on mpv), mpv's demux threads read. A GENERATION = one mpv load:
+        a start time and the contiguous run of segments from the one covering it; its bytes
+        are init + those segments in time order (a virtual, growing file per track). New
+        segments that continue the run are appended to the live generation; others are only
+        stored (used by the next generation). A new init segment (quality switch,
+        changeType) or a seek outside the live generation = a NEW generation (a reload with
+        `start=<t>`, ~0.3-0.5 s, R30 open timings; measured in QM1k-AB).
+      - mpv: a second stream_cb protocol `scratchy-mse://<feed>/<gen>/<v|a>` (D4 holds: the
+        bytes came from page fetches through wire; mpv still gets no network URL). read_fn
+        blocks on the Condvar until bytes, endOfStream (then 0 = EOF), cancel or unload;
+        seek_fn within the generation's still-held bytes; size_fn unsupported (growing).
+        Load: `loadfile scratchy-mse://F/G/v replace -1 start=<t>,rebase-start-time=no,
+        demuxer-max-bytes=16MiB,demuxer-max-back-bytes=8MiB` with the audio stream added as an
+        external track (mpv 0.41 here: `audio-files` is a PATH LIST split on ':' and the URL
+        has one, so set it with `change-list audio-files append <url>` / a NODE array, and
+        clear it before every load; or `audio-add <url> select` after file-loaded; QM1k1b
+        picks the one that works and tests it). One SourceBuffer (muxed, or audio-only) = one
+        stream, no external track. The load is issued only when every SourceBuffer has its
+        init segment (mpv opens external tracks synchronously; a missing audio init would block
+        it).
+      - Element: `MediaBackend::load_mse(feed, start)` (default: Err "MSE not supported"; Fake
+        and Mpv implement it); `MediaCore` gets an MSE attachment: duration = MediaSource
+        duration (mpv's DurationChanged ignored), buffered = intersection of the active
+        SourceBuffers' buffered, seekable = [0, duration], `progress` (350 ms throttle) on
+        appends, `ended` only after endOfStream, seek inside the live generation = mpv seek,
+        outside = `waiting` until both tracks cover t, then a new generation.
+      - JS: a new `mse_prelude.js` (evaluated after media_prelude.js; zero cost until the
+        first `new MediaSource`, QY6 rule) + natives in js_media.rs registered with
+        `js_engine::native!`; bytes cross with `js_engine::Bytes`, which takes a `Uint8Array`
+        ONLY (V8 backend: `v8::Uint8Array`, copy honours the view offset), so the prelude
+        normalises ArrayBuffer / DataView / other views to `new Uint8Array(buf, off, len)`.
+        Must pass on BOTH configs (default V8 and `engine-quickjs`). `URL.createObjectURL`
+        (fetch_prelude.js, today TypeError for a non-Blob) also accepts a MediaSource and
+        stores it in the same blob store; media_prelude.js `doLoad` resolves a `blob:` src
+        through `__blob_lookup` and calls `__media_load_mse` instead of `__media_load`.
+      - Memory: MSE_MAX_BYTES = 64 MiB per MediaSource (all its SourceBuffers), env override
+        `SCRATCHY_MSE_MAX_BYTES`; coded-frame eviction at each appendBuffer: drop segments
+        that mpv has read past and that end before currentTime - 10 s, then (if still over)
+        segments more than 60 s ahead of currentTime that the live generation has not reached;
+        still over -> `QuotaExceededError` (YouTube removes and retries). mpv's own demuxer
+        cache is lowered for MSE loads (above), so the worst case per player is ~64 + 24 MiB
+        plus decoders; D7's 2-player cap bounds the total.
+      ORDER (each item its own PR, own tests in `src/tests/`; mse tests go in a new
+      `src/tests/mse_tests.rs` + `mod mse_tests;`; real-mpv tests skip without libmpv/ffmpeg
+      like `qm1f_real`): QM1k4 [S] -> QM1k1a [M] -> QM1k1b [M] -> QM1k-AB [M, Opus: DECIDES A
+      vs B] -> (QM1k-B [L] only if A fails) -> QM1k1c [M] -> QM1k1d [M] -> QM1k1e [M] ->
+      QM1k-m2 [M, Opus: YouTube first minute, live] -> QM1k1f [S] -> QM1k1g [S] -> QM1k1h [M]
+      -> QM1k1i [S] -> QM1k1j [S]. Then, LOWER priority: QWK0 [M, Opus] -> QWK1 [S] -> QWK2 [S]
+      -> QWK3 [L] -> QWK4 [M] -> QWK5 [M] -> QWK-m [M, Opus: Twitch]. Total MSE to the first
+      YouTube minute: 1 S + 5 M + 2 Opus M (~6 PRs); +1 L if B is needed.
+      RISKS: (a) mpv/lavf behaviour on a growing, unsized, time-ordered fMP4 stream (EOF,
+      probing seeks back to 0, `rebase-start-time=no` giving true media times): checked first
+      by QM1k1b's real-mpv test. (b) A/V sync with two demuxers (QM1k-AB decides). (c) reload
+      per out-of-buffer seek costs ~0.3-0.5 s (acceptable for the milestone; YouTube itself
+      starts a new SABR request on a seek, R34). (d) YouTube still stops at ~60 s (PoToken,
+      QM1k2, accepted). (e) the page clock: headless `--run-timers` uses a simulated clock while
+      mpv plays in real time, so YouTube can only be judged in a LIVE window (QM1k-m2).
+      (f) `isTypeSupported` answers steer YouTube's format choice: anything answered true must
+      really decode here, or the player fails after the first append. (g) segment-granular
+      remove/overlap (not frame-exact) can leave `buffered` slightly larger than Chrome's.
+
+- [ ] QM1k4 [S] READY after the V8 freeze (FIRST of the MSE build; pure function, no mpv)
+      (moved up 2026-11-18) `isTypeSupported`/`canPlayType` parameter validation
+      like Chrome: YouTube probes `eotf=catavision`, `width=99999`, `height=99999`,
+      `framerate=9999`, `bitrate=2000000000`, `channels=99`, `cryptoblockformat=
+      invalidformat`, `decode-to-texture=nope`, `experimental=invalid`, `codecs=av99...`;
+      all must answer false/'' while the valid twins answer true (today's canPlayType says
+      'probably' to all of them). PLAN 2026-11-18: one MIME parser in media_el.rs (type,
+      subtype, params with quoted values) shared by `can_play_type` and a new
+      `mse_type_supported(t) -> bool`; known params validated against sane limits (width/
+      height 1..=8192, framerate 1..=480, bitrate 1..=200 Mbit/s, channels 1..=8, eotf in
+      {bt709, smpte2084, arib-std-b67}, cryptoblockformat/decode-to-texture/experimental/
+      tunnelmode: anything other than the values Chrome accepts = false); an unknown param is
+      ignored. MSE codec table = ONE const list (`MSE_CODECS`: container + codec prefix +
+      enabled flag): enabled now `video/mp4`+`audio/mp4` with avc1/avc3/mp4a.40.(2|5|29);
+      listed but DISABLED: webm (vp8/vp9/vp09/opus/vorbis), mp4 vp09/av01/opus/flac; so
+      enabling a codec later is one flag + its test (QM1k1j). `isTypeSupported` without a
+      codecs param: true for an enabled container, like Chrome. Tests (media_tests.rs): every
+      R34 probe string from the "What YouTube asked" list with its expected answer, valid and
+      invalid twins, the disabled codecs false, canPlayType unchanged for the progressive
+      table except the invalid params.
+- [ ] QM1k1a [M] READY after QM1k4 (Sonnet) `src/mse_store.rs`: the fMP4 byte-stream reader
+      and the per-SourceBuffer segment store of the QM1k-PLAN (no JS, no mpv). Includes:
+      boxes split across appends (pending input buffer), init vs media segment, timing from
+      mdhd timescale + tfdt + trun/tfhd/trex durations (container headers only, never sample
+      data), `buffered` ranges, `remove(a,b)`, overlap replacement, a second init segment
+      flagged (-> new generation), parse errors -> `Error` (the element maps it to the MSE
+      append error / MEDIA_ERR_DECODE), byte accounting + the eviction policy + the 64 MiB cap
+      (`MSE_MAX_BYTES`, env `SCRATCHY_MSE_MAX_BYTES`), the generation model (start time,
+      contiguous run, virtual byte offsets, a base offset that survives eviction). Tests
+      (new src/tests/mse_tests.rs): hand-built synthetic fMP4 boxes (no ffmpeg needed:
+      ftyp/moov with mdhd timescale 90000, moof/tfdt/trun with explicit and default
+      durations), appends split at every byte offset of a segment, buffered after each, remove,
+      overlap, eviction order, QuotaExceeded at the cap, generation bytes = init + run; plus
+      one ffmpeg-made fMP4 (skip without ffmpeg) whose buffered matches ffprobe's duration
+      within one frame.
+- [ ] QM1k1b [M] READY after QM1k1a and QV8-5b (Sonnet) mpv feed + a FAKE MSE DRIVER (Rust,
+      no JS): `scratchy-mse://<feed>/<gen>/<track>` stream_cb in media_mpv.rs (blocking read
+      on the Condvar, EOF after endOfStream, cancel_fn wakes the reader), `MediaBackend::
+      load_mse` (Mpv + Fake; default Err), the loadfile line of the QM1k-PLAN with the audio
+      as an external track (option A), `rebase-start-time=no` so `time-pos` is media time.
+      Test fixtures made by ffmpeg at test time (like `make_clip`): one source clip with SYNC
+      MARKERS (video: a white frame at every whole second, black otherwise, e.g. lavfi
+      `color=black` + `drawbox` enabled by `lt(mod(t,1),0.04)`; audio: a 10 ms 1 kHz beep at
+      every whole second, `aevalsrc`/`sine` gated the same way), x264 + AAC, then split into
+      VIDEO-ONLY and AUDIO-ONLY fragmented mp4 (`-map 0:v` / `-map 0:a`, `-movflags
+      frag_keyframe+empty_moov+default_base_moof`, video fragments ~4 s, audio ~10 s like
+      R34). The fake driver appends init + fragments on a schedule (video first, audio up to
+      2 s late, YouTube's order) and calls endOfStream at the end. Permanent tests: (1) a 10 s
+      clip plays to `ended` through MediaCore with ao=null, `time-pos` starts at the first
+      tfdt (a fixture whose first fragment starts at 30 s proves no rebase), |`avsync`| <
+      0.1 s at the end, every byte served from memory (no wire request); (2) an in-generation
+      seek and an out-of-generation seek (new generation) both reach `seeked`; (3) cancel/
+      unload while a read is blocked returns at once (no hang). Plus ONE `#[ignore]` test
+      `mse_ab_drift_60s` (run with `cargo test --release -- --ignored mse_ab_drift_60s
+      --nocapture`) that plays a 60 s fixture in real time with scenarios (linear; 5 seeks
+      inside the buffer; 2 seeks outside; audio 10 s / video 4 s fragments; audio appended 2 s
+      late) and prints, every 250 ms, mpv `avsync`, `total-avsync-change`, `frame-drop-count`,
+      `decoder-frame-drop-count`, `audio-pts` - `time-pos`, and the reload latency of each new
+      generation, as a table; it asserts nothing beyond "played to the end" (QM1k-AB judges).
+- [ ] QM1k-AB [M, Opus, measure only] READY after QM1k1b. THE EARLY TEST THAT DECIDES A vs B
+      (user Q4.3). Run `mse_ab_drift_60s` 3 times on the user's machine (quiet machine, release
+      build, ao=null; ao=pulse once only if the user is present and agrees, audio is audible).
+      PASS for option A = all of: |avsync| <= 40 ms in every sample from 1 s after each (re)start;
+      settles to <= 40 ms within 500 ms after each seek; drop counters grow by < 1% of frames;
+      no `paused-for-cache` while both tracks cover the position; reload latency of a new
+      generation < 1 s median. Write the table + verdict as an R34 addendum ("QM1k-AB"). PASS ->
+      tick QM1k-B as DROPPED (not needed) and continue with QM1k1c. FAIL -> say which scenario
+      failed and make QM1k-B READY before QM1k1c (QM1k1c..e do not depend on A vs B except in
+      QM1k1b's load call).
+- [ ] QM1k-B [L] ONLY IF QM1k-AB FAILS (Sonnet) Option B: remux both tracks into ONE fMP4 in
+      scratchy (init: one moov with both traks, renumbered track ids; media: per time slice
+      one moof with two trafs + one mdat, data offsets rewritten; container-only, still no
+      codec parsing) and feed that single stream. Costs: WebM would need its own muxer (or a
+      WebM->fMP4 remux) before QM1k1h; seeks need slice alignment. Tests: the QM1k1b fixtures
+      through the remuxer (ffprobe sees 2 streams, durations match), `mse_ab_drift_60s` with
+      B passes QM1k-AB's criteria.
+- [ ] QM1k1c [M] READY after QM1k-AB (Sonnet) MSE in the element core (media_el.rs): the
+      MSE attachment of the QM1k-PLAN "Element" paragraph (duration, buffered intersection,
+      seekable, `progress`, ended after endOfStream, in/out-of-generation seeks with `waiting`,
+      a `MseHost` per page that owns the feeds, attach/detach -> sourceopen/sourceended/
+      sourceclose outs, detach on a new src/load()/element removal). FakeBackend records
+      `load_mse <feed> <start>` and lets tests drive the store directly. Tests (mse_tests.rs):
+      event order on attach (loadstart ... loadedmetadata after both init segments ... canplay),
+      buffered intersection of two tracks with different ends, a seek outside the buffer waits
+      then reloads at t, `ended` only after endOfStream, a quality switch (new MediaSource on
+      the same element: sourceclose on the old one, a fresh load), duration change events.
+- [ ] QM1k1d [M] READY after QM1k1c (Sonnet) JS `MediaSource` + `SourceBufferList` +
+      attachment (`mse_prelude.js`, natives via `js_engine::native!`): constructor,
+      `readyState` closed/open/ended, `duration` get/set (InvalidStateError while any
+      SourceBuffer is updating; NaN until set), `sourceBuffers`/`activeSourceBuffers`,
+      `addSourceBuffer(type)` (NotSupportedError if `!mse_type_supported`, InvalidStateError
+      unless open, QuotaExceededError for a 3rd buffer), `removeSourceBuffer`, `endOfStream(
+      ''|'network'|'decode')`, `setLiveSeekableRange`/`clearLiveSeekableRange`, static
+      `isTypeSupported` and `canConstructInDedicatedWorker = false`, EventTarget + `onX`
+      handlers, `URL.createObjectURL(ms)` / revoke, `video.src = blobUrl` and `srcObject = ms`
+      (srcObject getter returns it), sourceopen fired from a task after attach. Events always
+      from a timer task (like media_prelude.js). Tests (js tests with FakeBackend, both
+      engines): sourceopen order, readyState transitions, errors thrown by each method in the
+      wrong state, revoke before attach = load error, revoke after attach keeps playing, a page
+      with no MediaSource use pays nothing (no MSE state created).
+- [ ] QM1k1e [M] READY after QM1k1d (Sonnet) JS `SourceBuffer`: `appendBuffer(BufferSource)`
+      (normalised to Uint8Array, copied to Rust at once), the `updating` state machine (sync:
+      InvalidStateError if updating or removed, ended -> open + sourceopen, eviction ->
+      QuotaExceededError; async: updatestart, then update + updateend from a task; parse error
+      -> error + updateend + endOfStream('decode')), `abort()` (abort + updateend, resets the
+      parser input), `remove(start, end)` (TypeError/InvalidStateError rules, async events),
+      `buffered`, `mode` ('segments'; 'sequence' stored and logged `not implemented` until
+      QM1k1i), `timestampOffset`, `appendWindowStart/End` (stored; applied in QM1k1i),
+      `changeType(type)` (validated; next init = new generation), `audioTracks`/`videoTracks`
+      absent like Chrome without the flag. Tests (both engines): the full event order of two
+      appends, updating true between updatestart and updateend, appendBuffer while updating
+      throws, ArrayBuffer/DataView/subarray views append the right bytes (a subarray with a
+      non-zero byteOffset), quota error at a lowered `SCRATCHY_MSE_MAX_BYTES`, remove + buffered,
+      a LOCAL TEST PAGE (fixture html + the QM1k1b fMP4 files served by the test fake wire) whose
+      own JS fetches and appends segments and plays to `ended` with the real mpv (skip without
+      libmpv), the end-to-end proof before YouTube.
+- [ ] QM1k-m2 [M, Opus, measure only] READY after QM1k1e. YouTube FIRST MINUTE, live window on
+      the user's machine (nested dwl, real clock, `--user-agent` if needed; R34's watch page):
+      does the player choose avc1 + mp4a with our isTypeSupported answers, attach, append, and
+      play 0-60 s with picture (grim screenshots) and A/V in sync; then what happens at the
+      PoToken stop (a clean `waiting`, not a crash). Also: Reddit feed still plays (progressive,
+      no regression), the QM1k1e local page in the live window. Record in an R34 addendum; file
+      each gap as an item (expected small ones: `getVideoPlaybackQuality`, `played`,
+      `stalled`/`suspend`, `webkitDecodedFrameCount`, MSE-in-Worker probes) into QM1k1f.
+- [ ] QM1k1f [S] READY after QM1k-m2 (Sonnet) the YouTube gaps QM1k-m2 files. Known now from
+      source: `HTMLVideoElement.getVideoPlaybackQuality()` does not exist (grep: nothing) and
+      players use it for dropped-frame ABR (mpv `frame-drop-count` + `decoder-frame-drop-count`
+      -> droppedVideoFrames, frames shown -> totalVideoFrames; creationTime =
+      performance.now()); `played` always empty; no `progress`/`stalled`/`suspend` events for
+      progressive media either. Tests per gap.
+- [ ] QM1k1g [S] READY after QM1k1e (Sonnet) Blob media: `video.src = URL.createObjectURL(
+      blob)` for a real Blob (players that fetch a whole clip into a Blob) served from memory by
+      the same in-memory stream_cb (one generation, size known, seekable). Test: a Blob of the
+      make_clip mp4 plays to `ended` without any wire request.
+- [ ] QM1k1h [M] READY after QM1k-m2 (Sonnet) WebM byte-stream reader for mse_store (user
+      Q4.2 "enable the others later"): EBML header + Segment (unknown size) + Info
+      (TimecodeScale) + Tracks = init; each Cluster (Timecode; unknown size ends at the next
+      Cluster/Cues) = one media segment, end = last SimpleBlock/BlockGroup time (+ its
+      BlockDuration if present); still header-only. Tests: synthetic EBML, split appends, a
+      ffmpeg-made WebM (skip without ffmpeg) with buffered within one frame. No table flip here.
+- [ ] QM1k1i [S] READY after QM1k1e (Sonnet) `mode = 'sequence'`, `timestampOffset`,
+      `appendWindowStart/End` with spec semantics at segment granularity (sequence mode moves a
+      segment to the group end; the offset shifts store times AND the generation needs mpv to
+      see the shifted times: if mpv cannot, restrict to segments mode + log, decided by a test
+      with the real mpv). hls.js-style players (Twitch IVS, Vimeo) may need it. Tests.
+- [ ] QM1k1j [S] READY after QM1k1h (Sonnet, one PR per codec family) Enable codecs in
+      `MSE_CODECS`: webm vp9/vp09 + opus/vorbis, mp4 vp09/opus, av01 (ffmpeg here has dav1d
+      and opus; libmpv 0.41, ffmpeg 8.1). Each needs a real-mpv test that the codec plays
+      through the MSE path (fixture made by ffmpeg; skip if the local ffmpeg cannot encode it)
+      and a QM1k-AB-style drift check for WebM audio + mp4 video (YouTube's default pair).
+      Then re-run QM1k-m2 without the mp4-only answers.
+- [ ] QM1k2 [M, Opus, investigate only] PARKED (user 2026-11-18, Q4.1: ~60 s is the first
+      milestone; PoToken research LATER, after QM1k-m2) YouTube
       attestation: with the R34 stub YouTube served 0-60 s, then UMP
       STREAM_PROTECTION_STATUS 2 -> 3 (attestation required, max retries 10) and only
       ~123-byte responses. BotGuard ran (`www.google.com/js/th/*.js` 200, POST
@@ -787,26 +1024,92 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       clock. Find out in a LIVE window (real clock) whether status reaches 1/OK, and if not,
       which JS gap breaks the token (no login, no hand-made tokens, no third-party
       PoToken services).
-- [ ] QM1k3 [M] WAITING FOR USER (QM1k decides) Native HLS: `canPlayType` 'maybe' for
+- [ ] QM1k3 [M] PARKED (user 2026-11-18, Q4.5: native HLS later, not in the first plan)
+      Native HLS: `canPlayType` 'maybe' for
       `application/vnd.apple.mpegurl`/`x-mpegURL`, scratchy fetches master + media
       playlists and segments through wire and feeds ONE stream_cb stream per track (TS
       muxed: BBC; CMAF with `EXT-X-MAP`/BYTERANGE and a separate AUDIO group: Reddit,
       Vimeo, Guardian). No measured page asked canPlayType for HLS (R34), so only build
-      it if the plan wants it.
-- [ ] QM1k4 [S] (part of QM1k1) `isTypeSupported`/`canPlayType` parameter validation
-      like Chrome: YouTube probes `eotf=catavision`, `width=99999`, `height=99999`,
-      `framerate=9999`, `bitrate=2000000000`, `channels=99`, `cryptoblockformat=
-      invalidformat`, `decode-to-texture=nope`, `experimental=invalid`, `codecs=av99...`;
-      all must answer false/'' while the valid twins answer true (today's canPlayType says
-      'probably' to all of them).
+      it if the plan wants it. (2026-11-18: when it is built it reuses the MSE generation/feed
+      machinery: playlist segments become store segments.)
 - [ ] QM1k5 [M, Opus, investigate only] READY (not media-gated) BBC News video pages: the
       SMP player area stays empty (bbc.com/news/videos/c6grew79p7qdo; bump-4.js loads,
       no mediaselector request, no `<video>` with a src). Find the JS gap. Its media then
       exists as progressive mp4 (mediaset mobile-tablet-main), HLS (TS) and DASH (R34).
-- [ ] QM1k6 [S] WAITING FOR USER (Workers rule, TODO line "Workers: no until a measured
-      page needs them") Twitch needs `Worker` + `WebAssembly` (Amazon IVS player:
+- [x] QM1k6 [S] REPLACED 2026-11-18 by the QWK chain below (user Q4.6: Workers/WebAssembly
+      IN SCOPE, lower priority than MSE; the TODO line "Workers: no until a measured page needs
+      them" is superseded). Original: Twitch needs `Worker` + `WebAssembly` (Amazon IVS player:
       amazon-ivs-wasmworker.min.js/.wasm or amazon-ivs-worker.min.js); measured R34:
       both undefined, no player. Also `Path2D` missing (polyfills.js ReferenceError).
+
+      WORKERS / WEBASSEMBLY CHAIN (lower priority than every QM1k item up to QM1k-m2; start
+      after QM1k-m2 unless the coordinator has nothing else). Twitch's IVS player runs its
+      HLS/transmux/ABR in a dedicated Worker (wasm build `amazon-ivs-wasmworker` or the JS
+      build `amazon-ivs-worker`) and appends fMP4 (avc1 + mp4a) to MSE on the main thread, so
+      Twitch needs QM1k1e + (probably) QM1k1i + this chain. What exists: V8 is the default
+      engine and ships `WebAssembly` unless disabled (no `--no-expose-wasm` in init_v8; NOT yet
+      verified by a test); the QuickJS fallback has none (fine, QV8-6 removes it). What does
+      not: any Worker, `Path2D` (canvas `getContext` returns null today, js_dom.rs), wasm
+      streaming APIs (V8 needs an embedder callback for `compileStreaming`/
+      `instantiateStreaming`).
+- [ ] QWK0 [M, Opus, investigate only] READY after QM1k-m2. Worker design memo (REGRESSIONS.md
+      entry) from source only, no site loads unless on the user's machine: (1) a worker = its
+      own OS thread + its own V8 isolate (isolates are single-thread; the platform is shared;
+      startup snapshot or none, measured cost per worker); (2) its event loop: timers, promise
+      jobs, message delivery, `terminate()` via `terminate_execution` from the page thread;
+      (3) messages: structured clone through V8's ValueSerializer/ValueDeserializer (bytes
+      cross threads), ArrayBuffer transfer as copy-then-detach first; how page-thread delivery
+      wakes the page loop (as `media_video::wake` does); (4) network: QNET1's seccomp filter is
+      process-wide and inherited by worker threads, AF_UNIX is allowed, so a worker may talk to
+      wire from its own thread; js_net's executor is thread_local (`set_net_executor`), so the
+      plan is one NetState/NetScheduler per worker with the PAGE's policy, top site and cookie
+      partition (no new network path, no policy bypass); `importScripts` = a blocking plain
+      GET through wire on the worker thread; (5) script source: same-origin URL through wire,
+      or `blob:`/`data:` resolved on the page thread at `new Worker()` time (the blob store is
+      page-JS state); module workers later; (6) budgets: a worker does not stall the UI
+      thread, so the 500 ms callback budget does not apply, but a runaway worker needs a cap
+      (heap limit, max 4 workers per page, terminate on navigation); (7) which globals the
+      IVS worker touches (from its published script if the user fetches it for us, else from
+      a live run in QWK-m). Output: the memo + final sizes of QWK3-QWK5.
+- [ ] QWK1 [S] READY after QWK0 (Sonnet) WebAssembly on V8: a test that `typeof WebAssembly
+      === 'object'` and that a hand-written tiny module (add two i32) compiles and runs via
+      `WebAssembly.instantiate(bytes)`; `instantiateStreaming`/`compileStreaming` as prelude
+      polyfills over `Response.arrayBuffer()` (check `application/wasm`, TypeError otherwise);
+      the CPU budget still kills a wasm infinite loop (test); trap handler decision recorded
+      (default off = explicit bounds checks; enabling V8's trap handler needs a SIGSEGV handler
+      and is a separate perf item). QuickJS build: `WebAssembly` stays undefined (test cfg'd).
+- [ ] QWK2 [S] READY (independent, small) `Path2D` constructor + methods (moveTo, lineTo,
+      rect, arc, closePath, addPath, ...) that record and do nothing visible (canvas has no 2D
+      context yet), so polyfills.js-style scripts do not die. Test: construct, call each method,
+      no throw; `typeof Path2D === 'function'`.
+- [ ] QWK3 [L] READY after QWK0 (Sonnet) dedicated `Worker`: `new Worker(url, {type:
+      'classic'})`, `postMessage`/`onmessage`/`message`/`messageerror`/`error` events on both
+      sides, `terminate()`, `self.close()`, worker globals (self, location, navigator,
+      console, timers, queueMicrotask, performance.now, TextEncoder/Decoder, URL, Blob, crypto,
+      atob/btoa, WebAssembly, EventTarget), structured clone via ValueSerializer; V8 only.
+      Tests: echo worker, a worker that throws (error event with message/filename/lineno),
+      terminate stops a busy loop, timers inside the worker, a blob: URL worker, page unload
+      terminates all workers (no thread leak: join with a timeout).
+- [ ] QWK4 [M] READY after QWK3 (Sonnet) worker network: `importScripts` (sync) and `fetch`/
+      XHR from the worker through wire on the worker thread with the page's policy, top site and
+      cookie partition (QWK0 plan). Tests with the test fake wire: importScripts order and
+      errors, a fetch from a worker carries the same cookie partition headers as the page's.
+- [ ] QWK5 [M] READY after QWK3 (Sonnet) transfer lists (ArrayBuffer transfer: detach on the
+      sender), `MessageChannel` ports passed to a worker, `SharedArrayBuffer`/Atomics only if
+      QWK0/QWK-m shows the IVS player needs them (needs cross-origin isolation rules: a separate
+      decision). Tests.
+- [ ] QWK-m [M, Opus, measure only] READY after QWK4 and QM1k1e. Twitch live channel page in a
+      live window on the user's machine: does the IVS worker start, which build (wasm/JS), what
+      it appends (container/codecs, `mode`, timestampOffset), does it play; file the next items.
+- [x] QM1k1 [L] SPLIT 2026-11-18 into QM1k1a-QM1k1j + QM1k-AB/QM1k-B/QM1k-m2 (QM1k-PLAN above;
+      the build items carry its content). Original text: (QM1k plan decides; from R34) MSE
+      core: `MediaSource`,
+      `SourceBuffer(List)`, `URL.createObjectURL(ms)` / `srcObject`, `sourceopen`/
+      `updateend`, `buffered` from the appended fMP4 (`tfdt`/`trun`) or WebM (Cluster
+      timecode + last SimpleBlock) timing, each SourceBuffer = one growing in-memory byte
+      stream served to libmpv by stream_cb (`scratchy-mse://<id>/<track>`), audio as a
+      second stream; playback state from mpv like QM1f. Test on the YouTube watch page of
+      R34 (first 60 s) and a local fMP4 page.
 - [x] QY45 [S] DONE 2026-11-17 (Sonnet; hash 77101f3) (from R34) `Element.prototype.setAttributeNS`, `getAttributeNS`,
       `hasAttributeNS`, `removeAttributeNS` do not exist: YouTube's player throws in its
       controls builder (`q.setAttributeNS("http://www.w3.org/1999/xlink","href",...)`,

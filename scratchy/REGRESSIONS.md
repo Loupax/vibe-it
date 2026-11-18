@@ -766,7 +766,7 @@ Not verified: pages below the second viewport; logged-in pages; youtube under lo
 (blocked by budget noise); script-inserted and `@import`ed CSS in the count; no real browser was
 run (the "real browser" columns are from knowledge of the spec and of how these sites look).
 
-## R34: MSE / streaming survey on real sites (YouTube, Reddit, Vimeo, BBC, Guardian, Twitch, X) (Opus investigator QM1k-m, 2026-11-17) — EVIDENCE for QM1k (plan with the user); QY45 READY; QM1k1-QM1k6 filed
+## R34: MSE / streaming survey on real sites (YouTube, Reddit, Vimeo, BBC, Guardian, Twitch, X) (Opus investigator QM1k-m, 2026-11-17) — EVIDENCE for QM1k (plan with the user); QY45 READY; QM1k1-QM1k6 filed; QM1k PLANNED 2026-11-18 (addendum at the end; items QM1k4, QM1k1a-j, QM1k-AB, QWK0-QWK-m)
 
 **Status: investigation only, nothing committed except docs.** Run on the user's machine through
 the user's wire (`/run/user/1001/wire.sock`, `X-Wire-Features: ua`), never logged in, all audio
@@ -872,6 +872,53 @@ YouTube does after a VALID PoToken; the request body (protobuf) of SABR POSTs; Y
 streams/Shorts; Reddit post-page/HLS player (reCAPTCHA), Reddit quality switch; Vimeo, BBC, Twitch,
 X players' actual MSE use (none booted); Guardian clicks; any EME on a page that needs it (none
 seen); seek/quality on anything but YouTube (stub) and Reddit feed (seek only).
+
+### Addendum 2026-11-18: the QM1k plan (Opus, source reading only; nothing built, run or loaded)
+User answers (QUESTIONS.md Q4): 60 s of YouTube is the first milestone; mp4 (avc1/mp4a fMP4) first
+but codec-agnostic; audio as a second mpv input (A), remux (B) only if an early test fails; 64 MiB
+per player; native HLS later; Workers/WebAssembly in scope at lower priority. The plan and its
+ordered items are in TODO.txt (QM1k-PLAN, QM1k4 -> QM1k1a..j, QM1k-AB, QM1k-B, QM1k-m2, QWK0..QWK-m).
+Facts established from the tree and the machine (no process started):
+- Byte path today: `media_mpv.rs` registers ONE stream_cb protocol (`scratchy-media`), and
+  `st_open` opens a `media_net::MediaStream` (ranged GETs through wire, 1-4 MiB chunk cache) for
+  the single `MediaSource {url,page,mode}` held in `Reg`; read/seek/size/cancel map 1:1 to it.
+  MSE needs a second protocol whose reader is an in-memory, GROWING stream (blocking read on a
+  Condvar, EOF only after endOfStream, size unknown). No wire/protocol change: MSE bytes already
+  came through wire as page fetches (R34: SABR POSTs via `fetch`).
+- `MpvBackend::load` always does `loadfile scratchy-media://1 replace`; mpv runs with
+  `keep-open=yes`, `demuxer-max-bytes=32MiB`, `demuxer-max-back-bytes=16MiB` (MPV_OPTIONS), so an
+  MSE player would hold its data twice: the plan lowers mpv's cache for MSE loads (16/8 MiB).
+- Installed: libmpv 0.41 (`libmpv.so.2.5.0`; `loadfile` has the index argument since 0.38),
+  ffmpeg 8.1.2 with dav1d and opus (AV1, Opus and the native VP9 decoder are available for the
+  later codec flip, QM1k1j). `audio-files` is a path LIST option split on ':' and a
+  `scratchy-mse://...` URL contains one, so the external audio track must be added with
+  `change-list ... append`, a NODE array or `audio-add` (QM1k1b decides by test).
+- mpv rebases timestamps to start at 0 by default (`rebase-start-time=yes`); MSE needs media time
+  (YouTube seeks to 300 s and appends fragments with tfdt = 300 s), so MSE loads set
+  `rebase-start-time=no` and `start=<t>` (to be confirmed by QM1k1b's test).
+- JS seam: natives go through `js_engine::native!` on both engines; `js_engine::Bytes` accepts a
+  `Uint8Array` only (V8: `v8::Uint8Array::copy_contents`, view offset honoured), so
+  `appendBuffer(ArrayBuffer|DataView|view)` must be normalised in JS first.
+- `URL.createObjectURL` (fetch_prelude.js) throws TypeError for anything but a Blob; the blob
+  store (`__blob_lookup`) can hold a MediaSource too. `media_prelude.js` sends every src to
+  `__media_load` as a URL; `srcObject` is a no-op getter/setter today.
+- Not present today: `getVideoPlaybackQuality`, `progress`/`stalled`/`suspend` events, `played`
+  ranges (always empty), canvas 2D (`getContext` returns null), `Path2D`, any Worker. V8's
+  `init_v8` passes no flag that hides `WebAssembly` (`SCRATCHY_V8_FLAGS` only), so it should exist
+  on the default build: NOT verified (QWK1 adds the test). Wasm streaming APIs need an embedder
+  callback in V8; the plan polyfills them over `Response.arrayBuffer()`.
+- `buffered` must be right at `updateend` (players decide what to fetch from it), so it cannot
+  come from mpv's demuxer cache (asynchronous). The plan reads container box headers only (fMP4
+  mdhd/tfdt/trun/tfhd/trex; WebM Info/Cluster/Block times later), never codec data: user
+  confirmation asked in QUESTIONS.md Q7.
+- Seeks: an MSE "file" is not one byte stream once the page seeks (YouTube appends fragments for
+  t=300 s after those for 0-60 s). The plan's GENERATIONS (one mpv load = init + the contiguous
+  run of segments from the seek point) avoid lavf seeking in an unsized fragmented stream; the
+  cost is one reload per out-of-buffer seek, measured by QM1k-AB.
+How option A vs B is decided: QM1k1b ships an `#[ignore]` test `mse_ab_drift_60s` (sync-marker
+fixtures made by ffmpeg, split into video-only and audio-only fMP4, appended by a Rust fake MSE
+driver in YouTube's order) that prints mpv `avsync`/drop counters/reload latency every 250 ms;
+QM1k-AB (Opus) runs it 3x on a quiet machine and applies the pass criteria in TODO.txt.
 
 ## R33: A test fails on a clean checkout of main: `inline_flex_lays_its_children_out_side_by_side_not_stacked` (review, 2026-11-17) — FIXED (QCI0)
 

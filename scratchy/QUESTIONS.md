@@ -46,7 +46,17 @@ more automated searches, never solving the challenge).
 5. Native HLS: later.
 6. Workers/WebAssembly (Twitch): INCLUDE, at lower priority than the MSE work.
 Timing: the V8 freeze still applies; the QM1k plan (Opus, docs only) starts after QV8-m unless the
-user says to run it earlier.
+user says to run it earlier. **PLAN WRITTEN 2026-11-18** (TODO.txt QM1k-PLAN, R34 addendum); the
+build items start after the freeze. One follow-up: Q7.
+
+## Q7. MSE: may scratchy read container TIMING headers? (QM1k1a; R34 addendum)
+`SourceBuffer.buffered` must be correct the moment `updateend` fires (YouTube decides what to fetch
+from it), so it cannot wait for mpv. The plan reads only box headers of the appended fMP4 (timescale,
+fragment start `tfdt`, sample durations in `trun`; later WebM cluster times): no codec data, no
+samples, mpv still does all demuxing and decoding. New codecs still cost nothing; a new CONTAINER
+(WebM) costs a small header reader (QM1k1h).
+- (a) Yes, read the timing headers. **RECOMMENDED**
+- (b) No: take `buffered` from mpv (it lags behind `updateend`; players may refetch or stall).
 
 ## Q5. WPT in CI (QCI2)
 Run the WPT subset in GitHub Actions: sparse-checkout only the directories `wpt-subset.txt`
