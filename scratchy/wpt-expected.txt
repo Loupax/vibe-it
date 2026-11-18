@@ -475,7 +475,7 @@ FAIL css/css-sizing/aspect-ratio/block-aspect-ratio-016.html
 FAIL css/css-sizing/aspect-ratio/flex-aspect-ratio-006.html
 FAIL css/css-sizing/aspect-ratio/flex-aspect-ratio-055.html
 FAIL css/css-sizing/aspect-ratio/intrinsic-size-005.html
-FAIL css/css-sizing/aspect-ratio/replaced-element-026.html
+PASS css/css-sizing/aspect-ratio/replaced-element-026.html
 PASS css/css-sizing/box-sizing-border-box-001.xht
 PASS css/css-sizing/div-fit-content-auto-margin.tentative.html
 PASS css/css-sizing/fit-content-max-inline-size.tentative.html

@@ -16,14 +16,21 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  # QV8-5: the default build is V8 + media. The scratchy leg downloads the V8 static library at
+  # build time; the archive is cached with actions/cache (keyed on the v8 crate version) and
+  # pinned by sha256 (the v8 build script refuses any other archive).
   test:
     name: ${{ matrix.crate }}
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
         crate: [scratchy, wire, snag]
+    env:
+      V8_VERSION: "152.2.0"
+      V8_ARCHIVE_NAME: librusty_v8_release_x86_64-unknown-linux-gnu.a.gz
+      RUSTY_V8_ARCHIVE_SHA256: b6683e9afcb77fbd8cb2c3acf45d34d52029ab216b332522c95179c12f0fed3c
     defaults:
       run:
         working-directory: ${{ matrix.crate }}
@@ -33,7 +40,7 @@ jobs:
         if: matrix.crate == 'scratchy'
         # Headless runner. Dev packages for winit/softbuffer/arboard (X11 and
         # Wayland client libs, xkbcommon), fontconfig/freetype, clang and
-        # pkg-config for C builds (rquickjs). The ONE pinned font set is
+        # pkg-config for C builds (rquickjs, QuickJS job). The ONE pinned font set is
         # fonts-liberation (see scratchy/tools/README).
         run: |
           sudo apt-get update
@@ -47,6 +54,25 @@ jobs:
           rustup default 1.96.1
           rustc --version
           cargo clippy --version
+      - name: V8 archive cache
+        if: matrix.crate == 'scratchy'
+        id: v8cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/v8-archive
+          key: v8-archive-${{ env.V8_VERSION }}-${{ env.RUSTY_V8_ARCHIVE_SHA256 }}
+      - name: V8 archive (download on cache miss, verify the pin always)
+        if: matrix.crate == 'scratchy'
+        run: |
+          d="$RUNNER_TEMP/v8-archive"
+          mkdir -p "$d"
+          f="$d/$V8_ARCHIVE_NAME"
+          if [ ! -f "$f" ]; then
+            curl -fsSL --retry 5 -o "$f" \
+              "https://github.com/denoland/rusty_v8/releases/download/v${V8_VERSION}/${V8_ARCHIVE_NAME}"
+          fi
+          echo "$RUSTY_V8_ARCHIVE_SHA256  $f" | sha256sum -c -
+          echo "RUSTY_V8_ARCHIVE=$f" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: ${{ matrix.crate }}
@@ -72,18 +98,14 @@ jobs:
           echo "clippy total=$total baseline=$base"
           test -n "$total" && [ "$total" -le "$base" ]
 
-  # QV8-3d (R39 C5): scratchy built and tested with the V8 engine backend. A separate job so the
-  # three jobs above never need the V8 download. The ~40 MB V8 static library archive is cached
-  # with actions/cache (keyed on the v8 crate version) and pinned by sha256 (supply-chain pin;
-  # the v8 build script refuses any other archive). No clippy count here: see TODO.txt QV8-3d note.
-  scratchy-v8:
-    name: scratchy-v8
+  # QV8-5: the QuickJS fallback config (until QV8-6 removes it): scratchy built and tested with
+  # `--no-default-features --features engine-quickjs,media`. The clippy count (baseline 78) was
+  # measured on QuickJS WITHOUT media (the pre-QV8-5 default); media_mpv.rs adds 12 more warnings
+  # (11x E0133, 1x missing_transmute_annotations) that the count does not cover, see TODO QV8-5b.
+  scratchy-quickjs:
+    name: scratchy-quickjs
     runs-on: ubuntu-latest
     timeout-minutes: 60
-    env:
-      V8_VERSION: "152.2.0"
-      V8_ARCHIVE_NAME: librusty_v8_release_x86_64-unknown-linux-gnu.a.gz
-      RUSTY_V8_ARCHIVE_SHA256: b6683e9afcb77fbd8cb2c3acf45d34d52029ab216b332522c95179c12f0fed3c
     defaults:
       run:
         working-directory: scratchy
@@ -101,32 +123,25 @@ jobs:
           rustup toolchain install 1.96.1 --profile minimal --component clippy
           rustup default 1.96.1
           rustc --version
-      - name: V8 archive cache
-        id: v8cache
-        uses: actions/cache@v4
-        with:
-          path: ${{ runner.temp }}/v8-archive
-          key: v8-archive-${{ env.V8_VERSION }}-${{ env.RUSTY_V8_ARCHIVE_SHA256 }}
-      - name: V8 archive (download on cache miss, verify the pin always)
-        run: |
-          d="$RUNNER_TEMP/v8-archive"
-          mkdir -p "$d"
-          f="$d/$V8_ARCHIVE_NAME"
-          if [ ! -f "$f" ]; then
-            curl -fsSL --retry 5 -o "$f" \
-              "https://github.com/denoland/rusty_v8/releases/download/v${V8_VERSION}/${V8_ARCHIVE_NAME}"
-          fi
-          echo "$RUSTY_V8_ARCHIVE_SHA256  $f" | sha256sum -c -
-          echo "RUSTY_V8_ARCHIVE=$f" >> "$GITHUB_ENV"
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: scratchy
-          key: engine-v8
-      - name: Build (engine-v8)
-        run: cargo build --release --locked --all-targets --features engine-v8
-      - name: Test (engine-v8, only the Liberation fonts visible)
+          key: engine-quickjs
+      - name: Build (engine-quickjs)
+        run: cargo build --release --locked --all-targets --no-default-features --features engine-quickjs,media
+      - name: Test (engine-quickjs, only the Liberation fonts visible)
         run: |
           export FONTCONFIG_FILE="$(tools/ci-fontconfig.sh /usr/share/fonts/truetype/liberation "$RUNNER_TEMP/fc")"
           fc-match sans-serif
           fc-match monospace
-          cargo test --release --locked --features engine-v8
+          cargo test --release --locked --no-default-features --features engine-quickjs,media
+      - name: Clippy warning count vs baseline (QuickJS config)
+        env:
+          CLIPPY_FLAGS: --no-default-features --features engine-quickjs
+        run: |
+          out="$(tools/clippy-count.sh)"
+          echo "$out"
+          total="$(echo "$out" | awk '/^TOTAL/ {print $2}')"
+          base="$(tr -d '[:space:]' < tools/clippy-baseline.txt)"
+          echo "clippy total=$total baseline=$base"
+          test -n "$total" && [ "$total" -le "$base" ]

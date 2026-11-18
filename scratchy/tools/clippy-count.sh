@@ -6,8 +6,10 @@
 # is reported once per target (lib/bin/test) is counted once, and the
 # "N warnings emitted" summary lines are ignored. Prints a per-lint breakdown
 # and a final "TOTAL <n>". The list itself goes to $1 (default: stdout skipped).
+# QV8-5: CLIPPY_FLAGS (e.g. "--no-default-features --features engine-quickjs,media") selects the
+# config; the baseline 78 was measured on the QuickJS config.
 out="${1:-/dev/null}"
-cargo clippy --release --all-targets --message-format=json 2>/dev/null | python3 -c '
+cargo clippy --release --all-targets $CLIPPY_FLAGS --message-format=json 2>/dev/null | python3 -c '
 import sys, json, collections
 seen = {}
 for line in sys.stdin:

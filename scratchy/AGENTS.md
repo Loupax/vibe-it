@@ -28,12 +28,17 @@
    must not raise it above the baseline, which lives in ONE file,
    `tools/clippy-baseline.txt` (a single number; CI reads it, and lowering it is a
    one-line change; the list of warnings goes to `outfile`, diff it against
-   main's to find new ones). CI (`.github/workflows/ci.yml`: build, test, clippy
-   count for scratchy; build + test for wire and snag; plus `scratchy-v8`, scratchy built
-   and tested with `--features engine-v8`, V8 archive cached and sha256-pinned) must be green
-   on the PR before merge. `scratchy-v8` is NOT yet in the repo's required-check set (the
-   user decides that); until it is, still check it in `statusCheckRollup` and treat red as a
-   real failure (all tests must pass on both engines). It has no clippy count.
+   main's to find new ones). CI (`.github/workflows/ci.yml`: `scratchy` = the DEFAULT build, V8 + media, V8 archive cached and
+   sha256-pinned; `wire`, `snag`: build + test; `scratchy-quickjs` = the QuickJS fallback,
+   `--no-default-features --features engine-quickjs,media`, until QV8-6 removes it; it also
+   runs the clippy count with `CLIPPY_FLAGS="--no-default-features --features engine-quickjs"`,
+   the config baseline 78 was measured on; media_mpv.rs adds 12 uncounted warnings, QV8-5b) must be
+   green on the PR before merge. Check all four in `statusCheckRollup`. All tests must pass on
+   BOTH configs (run the second with its own target dir:
+   `CARGO_TARGET_DIR=... cargo test --release --no-default-features --features engine-quickjs,media`).
+   A plain `cargo build --release` / `cargo install --path .` gives V8 + media (libmpv is loaded
+   by dlopen; without it installed the inert placeholder stays). Exactly one of `engine-v8` /
+   `engine-quickjs` must be on (compile_error! otherwise). The first clean V8 build takes ~15 min.
 4. WPT subset (once Q40a lands): `scratchy --wpt /home/loupax/src/wpt` (run from `scratchy/`; reads
    `wpt-subset.txt`, compares with `wpt-expected.txt`, exits 1 on any change;
    `--update` rewrites expectations; `--out DIR` saves failing PNGs). A new failure is a
