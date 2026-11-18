@@ -26,6 +26,7 @@ mod qnet1_tests;
 mod qwu1_tests;
 mod tables_tests;
 mod wpt_tests;
+mod js_snapshot_tests;
 mod xhr_tests;
 
 // ---------- v37: `:link`/`:visited` pseudo-classes ----------
@@ -579,6 +580,8 @@ fn qa13_run(html: &str) -> Vec<String> {
 // ---------- QB8: document.currentScript, named eval frames ----------
 
 fn qb8_start(html: &str) -> (JsEngine, Rc<RefCell<Vec<String>>>) {
+    // `inline_scripts` reads the process-wide JS flag, which the noscript tests flip under this lock.
+    let _g = JS_FLAG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let doc = parse_html(html);
     let out = Rc::new(RefCell::new(Vec::new()));
     let o = out.clone();

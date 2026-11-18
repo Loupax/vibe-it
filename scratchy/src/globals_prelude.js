@@ -194,6 +194,8 @@
   // stay JS-side (they never ask the App to navigate: that is Q33f's job).
   var loc = g.location, doc = g.document;
   var entries = [{ state: null, href: loc.href }], idx = 0, scrollRestoration = 'auto';
+  // QV8-4: the first history entry is the page's URL, known only after the startup snapshot's env is applied.
+  if (g.__scratchy_env_hooks) g.__scratchy_env_hooks.push(function () { entries[0].href = loc.href; });
   function apply(href) {
     if (!href) return; // no page URL (fixtures): nothing to mirror
     var u = new g.URL(href);

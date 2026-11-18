@@ -220,8 +220,8 @@ Order: (drain) -> QT1 -> QV8-0 -> QV8-1 -> QV8-2 -> QV8-3 -> QV8-4 -> QV8-5 -> Q
       elements take no space (V8 media/layout bug or build without `media`; to be investigated).
       box? Repro: plain GET through wire. Needs an investigator first (Opus, docs only), then a fix.
       PAUSED by the V8 freeze unless the user asks for it earlier.
-- [ ] QV8-4 [M] (after QV8-3) Startup snapshot: the JS preludes (DOM, fetch, globals, intl,
-      url, cssom, media, ws) baked into a V8 snapshot at build time; measure page-start CPU
+- [x] QV8-4 [M] DONE 2026-11-18 (commit HASH_QV84; PERF.md "QV8-4": startup CPU 30-53 ms -> 8-13 ms per page start, KEPT; in-process snapshot, no files; engine-v8 1038 tests pass, default 1034, clippy 78, WPT no change) (after QV8-3) Startup snapshot: the JS preludes (DOM, fetch, globals, intl,
+      url, cssom, media, ws) baked into a V8 snapshot (built in-process, not at build time); measure page-start CPU
       before/after with `--perf-report`. Drop it if the gain is < 10 ms per page.
       (R39: empty isolate+context 2.3-2.6 ms CPU vs QuickJS 0.4-0.6 ms; a TRIVIAL snapshot
       gained nothing; the ~198 KB of prelude JS is the real test.)

@@ -765,6 +765,30 @@ const PRELUDE: &str = r#"
     toJSON: function () { return { timeOrigin: t0, timing: timing }; },
   };
   Object.defineProperty(g, 'performance', { value: perf, writable: true, configurable: true, enumerable: true });
+  // QV8-4: everything above that came from the page (`env`) or the clock, as one function. The V8
+  // startup snapshot bakes this prelude over an about:blank env; a page engine then calls
+  // `__scratchy_apply_env(its env)` (the same values the code above computed from `env`).
+  var navObj = g.navigator, envHooks = [];
+  Object.defineProperty(g, '__scratchy_env_hooks', { value: envHooks, configurable: true });
+  Object.defineProperty(g, '__scratchy_apply_env', { value: function (e) {
+    var sec = e.protocol === 'https:' || e.protocol === 'wss:' ||
+      /^(localhost|127(\.\d+){3}|\[?::1\]?)$/.test(e.hostname || '') || /\.localhost$/.test(e.hostname || '');
+    Object.defineProperty(g, 'isSecureContext', { value: sec, writable: true, configurable: true, enumerable: true });
+    navObj.userAgent = e.userAgent; navObj.appVersion = e.appVersion;
+    g.innerWidth = Number(e.innerWidth); g.innerHeight = Number(e.innerHeight);
+    g.outerWidth = g.innerWidth; g.outerHeight = g.innerHeight;
+    Object.keys(locSt).forEach(function (k) { locSt[k] = e[k]; });
+    [['title', e.title || ''], ['URL', e.href], ['documentURI', e.href], ['baseURI', e.href]].forEach(function (p) {
+      var d = Object.getOwnPropertyDescriptor(doc, p[0]);
+      if (d && 'value' in d) d.value = p[1], Object.defineProperty(doc, p[0], d); // data properties only (baseURI became an accessor)
+    });
+    t0 = Date.now();
+    Object.keys(timing).forEach(function (k) {
+      timing[k] = (k === 'unloadEventStart' || k === 'unloadEventEnd' || k === 'redirectStart' || k === 'redirectEnd') ? 0 : t0;
+    });
+    perf.timeOrigin = t0;
+    envHooks.forEach(function (h) { h(); });
+  }, configurable: true });
 })(globalThis);
 "#;
 
@@ -1409,9 +1433,39 @@ pub(crate) fn start_scripts_clocked(
     clock: Option<Rc<std::cell::Cell<f64>>>,
 ) -> Option<JsEngine> {
     perf::mark("engine_start");
+    let store = Rc::new(js_modules::ModuleStore::from_scripts(scripts, &*log));
+    let engine = startup_engine(document, store, log, clock)?;
+    perf::mark("engine_ready");
+    run_page(engine, document, scripts)
+}
+
+/// QV8-4: the V8 startup snapshot's source: scratchy's own startup over an empty document (the
+/// engine is returned for `Engine::finish_bake`). `None` if anything logged an error.
+#[cfg(feature = "engine-v8")]
+pub(crate) fn bake_engine() -> Option<Engine> {
+    let document = crate::dom::parse_html("<html><head></head><body></body></html>");
+    let failed = Rc::new(Cell::new(false));
+    let f = failed.clone();
+    let log: LogFn = Rc::new(move |level, text| {
+        if level == "error" {
+            diag!("scratchy: startup snapshot: {text}");
+            f.set(true);
+        }
+    });
+    let store = Rc::new(js_modules::ModuleStore::from_scripts(&[], &*log));
+    let engine = startup_engine(&document, store, log, None)?;
+    if failed.get() {
+        return None;
+    }
+    let JsEngine { eng, .. } = engine;
+    Some(eng)
+}
+
+/// Engine, natives and preludes: everything before the page's own scripts. With the V8 startup
+/// snapshot the preludes are already in the context (`prebuilt`) and only the page's state is applied.
+fn startup_engine(document: &Handle, store: Rc<js_modules::ModuleStore>, log: LogFn, clock: Option<Rc<std::cell::Cell<f64>>>) -> Option<JsEngine> {
     let net_clock = clock.clone();
     let base = Instant::now();
-    let store = Rc::new(js_modules::ModuleStore::from_scripts(scripts, &*log));
     let eng = match Engine::new(EngineOpts { memory_limit: MEMORY_LIMIT, stack_limit: js_stack_limit(), page: Some(store.clone()) }) {
         Ok(e) => e,
         Err(msg) => {
@@ -1461,24 +1515,39 @@ pub(crate) fn start_scripts_clocked(
         let (budget, lg) = (engine.eng.budget.clone(), engine.log.clone());
         engine.eng.with(|c| install_script_natives(&c, budget, lg, store));
     }
-    engine.eval("prelude", PRELUDE);
-    engine.eval("timers", TIMERS_PRELUDE);
-    engine.eval("url", URL_PRELUDE);
-    engine.eval("globals", GLOBALS_PRELUDE);
-    engine.eval("intl", INTL_PRELUDE);
-    engine.eval("fetch", FETCH_PRELUDE);
-    engine.eval("websocket", WS_PRELUDE);
+    let prebuilt = engine.eng.prebuilt();
+    if !prebuilt {
+        engine.eval("prelude", PRELUDE);
+        engine.eval("timers", TIMERS_PRELUDE);
+        engine.eval("url", URL_PRELUDE);
+        engine.eval("globals", GLOBALS_PRELUDE);
+        engine.eval("intl", INTL_PRELUDE);
+        engine.eval("fetch", FETCH_PRELUDE);
+        engine.eval("websocket", WS_PRELUDE);
+    }
     engine.table = engine.eng.with(|ctx| js_dom::install_dom(&ctx, document, dirty.clone(), reqs.clone()));
-    engine.eval("cssom", CSSOM_PRELUDE);
+    if !prebuilt {
+        engine.eval("cssom", CSSOM_PRELUDE);
+    }
     {
         // QM1f: the media element layer (state machine in media_el.rs).
         let ctxb = media_el::BackendCtx { socket: js_net::net_executor().socket(), policy: engine.net.borrow().policy.clone() };
         let lg = engine.log.clone();
         let host = engine.eng.with(|c| js_media::install_media(&c, ctxb, Rc::new(move |l, t| lg(l, t))));
         engine.media = Some(host);
-        engine.eval("media", js_media::MEDIA_PRELUDE);
+        if !prebuilt {
+            engine.eval("media", js_media::MEDIA_PRELUDE);
+        }
     }
-    perf::mark("engine_ready");
+    if prebuilt {
+        // QV8-4: the page's state, over the baked preludes (see PRELUDE's `__scratchy_apply_env`).
+        engine.eval("env", "__scratchy_apply_env(__scratchy_env); delete globalThis.__scratchy_env; __media_sweep();");
+    }
+    Some(engine)
+}
+
+/// The page's own scripts and lifecycle events, over a started engine.
+fn run_page(engine: JsEngine, document: &Handle, scripts: &[ScriptSource]) -> Option<JsEngine> {
     let mut script_els = Vec::new();
     collect_script_elements(document, &mut script_els);
     for s in scripts.iter().filter(|s| s.kind == ScriptKind::Classic) {
@@ -1877,6 +1946,7 @@ pub(crate) fn js_report_main(args: &[String]) -> i32 {
             file = Some(a.clone());
         }
     }
+    js_engine::ensure_snapshot(); // QV8-4: one-shot mode: build the startup snapshot first (V8)
     let Some(file) = file else {
         diag!("usage: scratchy --js-report [--socket <path>] [--user-agent <string>] [--run-timers <ms>] [--budget-ms <ms>] <file>");
         return 2;

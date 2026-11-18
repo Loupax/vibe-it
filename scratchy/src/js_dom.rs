@@ -1295,10 +1295,16 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             r.el_scroll.push((h, y));
         }
     });
-    js_engine::eval_quiet(ctx, DOM_PRELUDE);
-    // QY40: give `document.all` the [[IsHTMLDDA]] slot (falsy, typeof 'undefined').
-    js_engine::mark_htmldda(ctx, "__d_all");
-    js_engine::remove_global(ctx, "__d_all");
+    // QV8-4: a startup-snapshot engine already ran the DOM prelude; the snapshot BUILD keeps the
+    // plain `__d_all` global (the undetectable wrapper cannot be baked) and each page engine makes it.
+    if !js_engine::prebuilt(ctx) {
+        js_engine::eval_quiet(ctx, DOM_PRELUDE);
+    }
+    if !js_engine::baking() {
+        // QY40: give `document.all` the [[IsHTMLDDA]] slot (falsy, typeof 'undefined').
+        js_engine::mark_htmldda(ctx, "__d_all");
+        js_engine::remove_global(ctx, "__d_all");
+    }
     table
 }
 

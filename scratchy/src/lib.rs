@@ -153,6 +153,9 @@ pub fn run() {
     }
     let Args { input, socket, no_js } = parse_args();
     set_js_enabled(!no_js);
+    if !no_js {
+        js_engine::warm_up(); // QV8-4: V8 startup snapshot, built in the background
+    }
 
     let event_loop = EventLoop::<AppEvent>::with_user_event().build().unwrap();
     // Needed unconditionally now, not just for `Input::Stdin`'s own

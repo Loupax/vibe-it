@@ -18,6 +18,7 @@ explained in its own section near the end of this file.
   second documents and iframes).
 - `src/js_style.rs`: `getComputedStyle` (QA16), cascade-only, no layout.
 - `src/js_engine.rs`: the engine seam (QV8-2). The only file that names `rquickjs`: natives (`native!`), values (`Bytes`, `JsObject`), compile/run, `Engine` (budget, job drain, module loader), error formatting.
+- V8 startup snapshot (QV8-4, `js_engine_v8.rs` `Snapshot`, `js::bake_engine`, `js::startup_engine`): page engines are deserialized from a snapshot of scratchy's own startup over an empty document, built in-process on a background thread (`warm_up`; blocking `ensure_snapshot` in tests and the one-shot report modes; `SCRATCHY_V8_SNAPSHOT=0` disables). Natives are baked as functions whose data is their arena index (`register` re-attaches the closure by name); per-page state is applied by `__scratchy_apply_env` (+ `__scratchy_env_hooks`, `__media_sweep`) after attaching. A prelude must NOT read page state (env, document, clock) at top level except through those hooks.
 - `src/js_modules.rs`: ES module graph pre-fetch and import maps (QY15).
 - `src/js_net.rs`: page-JS network queue `NetState`, `__net_send`,
   CORS/preflight handling, cookie control natives (QF7, QF13, QF14b).

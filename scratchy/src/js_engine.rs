@@ -54,6 +54,18 @@ where
     }
 }
 
+/// QV8-4: the QuickJS backend has no startup snapshot: the preludes always run.
+pub(crate) fn prebuilt(_ctx: &Ctx<'_>) -> bool {
+    false
+}
+
+/// QV8-4: no-ops here (V8 builds its startup snapshot in the background).
+pub(crate) fn warm_up() {}
+pub(crate) fn baking() -> bool {
+    false
+}
+pub(crate) fn ensure_snapshot() {}
+
 /// `native!(ctx, "__name", |a: i32, b: String| -> String { .. })`.
 macro_rules! native {
     ($ctx:expr, $name:expr, $f:expr) => {
@@ -457,5 +469,12 @@ impl Loader for PageLoader {
         };
         m.meta()?.set("url", url)?;
         Ok(m)
+    }
+}
+
+impl Engine {
+    /// QV8-4: QuickJS has no startup snapshot.
+    pub(crate) fn prebuilt(&self) -> bool {
+        false
     }
 }
