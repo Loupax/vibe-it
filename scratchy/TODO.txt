@@ -154,9 +154,9 @@ Order: (drain) -> QT1 -> QV8-0 -> QV8-1 -> QV8-2 -> QV8-3 -> QV8-4 -> QV8-5 -> Q
           through an ObjectTemplate; build `document.all` from one).
       Known QuickJS/V8 differences handled in the seam: `Intl` is deleted so intl_prelude.js's en-US shim runs
       (a real V8 Intl is a later decision), atob/btoa shimmed in JS, V8 `stack` header stripped to QuickJS' frames.
-- [x] QV8-3a2 [S] DONE 2026-11-18 (commit HASH3B; src/js_engine_v8.rs mark_htmldda) (after QV8-3a) `document.all` IsHTMLDDA on V8 (undetectable object via ObjectTemplate) and any
+- [x] QV8-3a2 [S] DONE 2026-11-18 (commit 9c03194; src/js_engine_v8.rs mark_htmldda) (after QV8-3a) `document.all` IsHTMLDDA on V8 (undetectable object via ObjectTemplate) and any
       engine-v8 test not covered by 3b/3c; the watchdog granularity vs the fake-clock budget tests.
-- [x] QV8-3b [M] DONE 2026-11-18 (commit HASH3B; src/js_engine_v8.rs; engine-v8: 1017/1033 tests pass, the 16 failures are all module tests = 3c; default build 1033/1033, clippy 78, WPT no change) (after QV8-3a)
+- [x] QV8-3b [M] DONE 2026-11-18 (commit 9c03194; src/js_engine_v8.rs; engine-v8: 1017/1033 tests pass, the 16 failures are all module tests = 3c; default build 1033/1033, clippy 78, WPT no change) (after QV8-3a)
       Result: per-job budget = counter-only PromiseHook + the 2 ms watchdog interrupt (an explicit
       `Budget::arm` wins over the re-arm and extends the drain cap); a kill or the drain cap drops the queue
       and logs "(1 job killed, remaining jobs dropped)"; `is_job_pending` = promise created/resolved since
