@@ -6,6 +6,7 @@ Everything else in the queue is being worked on without you; these are the only 
 need your input. Evidence for each is in the file/section named.
 
 ## Q1. CPU budget policy for scripts (QY49-D; REGRESSIONS.md R37 section 3)
+**DEFERRED (user, 2026-11-18): decided after the V8 migration, from the QV8-m numbers.**
 Real pages need 0.5-1.7 s of CPU in a single callback, always while the page loads (YouTube: a
 1.66 s promise job; DuckDuckGo: a 500+ ms timer). Today every callback gets 500 ms and is then
 killed (after QY46 each promise job has its own 500 ms; timers have one 500 ms for the whole
@@ -54,9 +55,11 @@ Cookie jars are in memory and named `scratchy` today. Do you want a `--profile N
 different windows use separate jars, or skip it for now? (my default: skip)
 
 ## What I do while you are away (no answer needed)
-Queue, one agent at a time, docs and PRs verified by me: QY51 (running), QY52 (getComputedStyle
-cost), QJ12 (keyCode/code on key events), QAN1d0 (reduced motion by default), QY48
-(pushState/replaceState reach the URL), QF11 (navigation via location.href), QY53/QY54 (Opus
-investigations), QY47c (thumbnails show the text `true`), QAN1e, QM1k5, QY15a, QY33, Q30e2/Q30d2/
-Q30d3/Q30g2/Q30a2, QM1f1/QM1g2, QY44d/e, QSD5, QC2/QT1 in a quiet window. Reinstall scratchy
-after merges; I will not restart your wire.
+**Changed 2026-11-18 (user): V8 migration first.** Finish and merge what is already running,
+then start nothing else from the old queue. Next: QV8-0 (QuickJS baseline with a permanent
+`--perf-report` harness), QV8-1 (V8 spike, stop-and-report gates), QV8-2 (engine seam),
+QV8-3 (V8 backend), QV8-4 (snapshot), QV8-5 (V8 default), QV8-m (same measurements on V8,
+before/after table in PERF.md), then lift the freeze. Details: TODO.txt top block.
+Paused until then (kept READY): QY53, QY54, QY57-QY61, QAN1e, QM1k5, QY15a, QY33, Q30e2/Q30d2/
+Q30d3/Q30g2/Q30a2, QM1f1/QM1g2, QY44d/e, QSD5, QC2/QT1. Q3-Q6 above still stand.
+Reinstall scratchy after merges; I will not restart your wire.

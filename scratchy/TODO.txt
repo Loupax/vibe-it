@@ -14,7 +14,113 @@ these.
 QUEUE — ranked work order (reviewed 2026-11-12, re-planned 2026-11-14)
 ========================================================================
 
---- CURRENT STATUS (2026-11-16, docs audit; READ THIS FIRST) -------------
+--- TOP PRIORITY (user, 2026-11-18): SWITCH THE JS ENGINE TO V8; DRAIN, THEN FREEZE ---
+--- READ THIS BEFORE EVERYTHING ELSE IN THIS FILE, INCLUDING CURRENT STATUS BELOW. ---
+
+DECISION (user, 2026-11-18): scratchy moves from QuickJS (rquickjs 0.14) to V8 (the `v8`
+crate, i.e. rusty_v8, maintained by Deno). Reason: the most popular sites (YouTube,
+DuckDuckGo) are unusable; their single callbacks need 0.5-1.7 s of QuickJS CPU (R36, R37),
+and QuickJS is an interpreter with no JIT. This supersedes the 2026-11-14 engine note
+("V8 ruled out: its speed solves a problem scratchy doesn't have", Tier 7 detail) and the
+2026-11-15 "Go with rquickjs" choice. The user also wants before/after numbers, so the
+migration starts and ends with the same measurement (QV8-0, QV8-m).
+
+DRAIN RULE (coordinator and every agent, from 2026-11-18):
+1. Work already started (an agent running, a branch with commits, an open PR) is FINISHED
+   and merged normally: tests, clippy count, CI green, PROMPTS entry, tick. Do not abandon it.
+2. Do NOT start any new item from the queue below or from QUESTIONS.md "What I do while you
+   are away", EXCEPT: (a) the QV8 items in this block, in order; (b) a fix for a red CI or a
+   crash/panic/regression on main that an in-flight merge caused; (c) docs-only tracking
+   fixes. Everything else (QY53, QY54, QY57, QY58-QY61, QAN1*, QSD*, Q30* polish, QM1*, QT1,
+   QC2, ...) is PAUSED until QV8-m is ticked. Paused items keep their READY marks; nothing
+   is deleted.
+3. When nothing from step 1 is in flight, the coordinator records the drained main hash in
+   QV8-0 and the migration begins. QV8-0 may be prepared (harness code) while the drain runs,
+   but its BASELINE numbers are taken at the drained hash.
+4. QY49-D (CPU budget policy) is deferred: decide it from the QV8-m numbers, not today's.
+
+Order: QV8-0 -> QV8-1 -> QV8-2 -> QV8-3 -> QV8-4 -> QV8-5 -> QV8-m -> QV8-6. One at a time
+(each touches js*.rs); QV8-4 may overlap QV8-5 if the coordinator wants.
+
+- [ ] QV8-0 [M] READY (P0, Opus measure + Sonnet harness; FIRST) Performance baseline on
+      QuickJS, committed as a repeatable tool so QV8-m can run the exact same thing.
+      Harness (permanent, NOT temporary timing code; this item is the AGENTS.md exception):
+      - `scratchy --perf-report [--socket S] [--budget-ms N] [--seconds T] <url|file>`, headless
+        like `--js-report`, prints ONE JSON object: engine name+version, commit, per callback
+        kind (classic script, module, timer, promise job, event, observer delivery): count,
+        CPU total, max, p50, p95 in "budget clock" (thread CPU minus forced layout, the R37
+        definition) and raw CPU; budget kills; forced-layout count/total/max; time to
+        DOMContentLoaded and load (wall + CPU); total script parse/compile CPU; JS heap and
+        process RSS at the end; JS error count. `--budget-ms` (default today's 500) also
+        becomes a permanent debug flag so killed work can be measured to completion.
+      - `tools/perf-suite.sh` runs the suite twice: once at `--budget-ms 20000` (true cost)
+        and once at the default (what the user sees), and writes `perf/<engine>-<hash>.json`
+        (perf/ is gitignored; the summary goes into PERF.md, below).
+      - Suite, live pages through the user's normal wire (no own UA override): YouTube
+        /results?search_query=rust, YouTube home, en.wikipedia article (Rust_(programming_
+        language)), social.loupax.com/discover, github.com/Loupax/vibe-it, old.reddit.com,
+        bbc.com/news. NOT DuckDuckGo (bot challenge, QY55: user only). 3 runs each, report the
+        median. Live pages drift, so the same run also does the offline part:
+      - Offline engine corpus (engine cost alone, no DOM): the Q33-0 corpus (moment, d3,
+        lodash, three.min.js; jquery/react-dom with the DOM prelude) downloaded at measurement
+        time into the scratchpad through wire, never committed (AGENTS.md: no vendoring);
+        the script pins exact versions + sha256 so QV8-m uses identical bytes. Report parse,
+        first run, and a fixed CPU loop (fib25, 200k object sort, JSON round trip).
+      - Optional reference: the same live pages in Chrome normal and `--js-flags=--jitless`
+        (CPU of the busiest task from a trace), so "how much of this is the interpreter"
+        has a number. Skip if Chrome is not available; say so.
+      Output: new file `PERF.md` with a "Baseline (QuickJS, <drained hash>, <date>)" table per
+      page (load works? kills at 500 ms, max/p95 budget clock, forced layout total, time to
+      load, RSS) and the corpus table, plus exact commands. Tests: the JSON shape and the
+      budget flag (fixture page with a known 50 ms busy loop shows up as one timer >= 50 ms).
+- [ ] QV8-1 [M] (P0, after QV8-0, Opus spike) Prove V8 fits scratchy before porting. Behind a
+      cargo feature `engine-v8` (off), no change to default builds:
+      - Build: the `v8` crate's build script downloads a prebuilt static library from GitHub
+        at BUILD time (user OK 2026-11-18; this is not scratchy reaching the internet at run
+        time, so the AGENTS.md network rule is unaffected). Record download size, clean build
+        time, stripped binary size vs today (Q33-0 numbers: 11.1 MB stripped). Make CI cache it.
+      - Runtime under QNET1: seccomp filter installed, V8 JIT runs (no socket use; check that
+        V8's platform threads start), libmpv still works next to it.
+      - One isolate on the JS thread; eval + `console.log` + 5 `__d_*` natives; the corpus
+        from QV8-0 on both engines. CPU budget: a watchdog that calls
+        `IsolateHandle::terminate_execution()` on thread-CPU (not wall) budget, then
+        `cancel_terminate_execution()`; prove a killed callback leaves the isolate usable.
+        Stack limit (QY47a equivalent). Promise jobs one at a time (MicrotasksPolicy::kExplicit
+        + per-job budget like QY46, or document why that is impossible and the replacement).
+      STOP and report (do not continue to QV8-2) if: it does not build reproducibly, the JIT
+      fails under seccomp, or the corpus is not clearly faster. Output: R39 in REGRESSIONS.md.
+- [ ] QV8-2 [L] (after QV8-1) Engine seam, no behaviour change. One module (`js_engine.rs`)
+      owns everything engine-specific: value conversion for the types natives use (i32, f64,
+      bool, String, Vec<f64>, Vec<String>, Option), native registration (the `native!` macro
+      in js_dom.rs/js_media.rs and friends become one macro over the seam), eval/modules,
+      timers/job draining, budget, error+stack formatting. QuickJS stays the only backend.
+      Every test passes unchanged; clippy count not above baseline. Pure refactor PR.
+- [ ] QV8-3 [L] (after QV8-2) V8 backend behind `engine-v8`: all `__d_*` natives (js_dom,
+      js_media, js_net, js_ws, js_modules), classic + module scripts, importmap, dynamic
+      import(), timers, promise jobs, events, MutationObserver/IO/RO delivery, fetch/XHR/
+      WebSocket callbacks, `--js-report`, `--perf-report`. Log line formats stay identical
+      (`js: ...`, `Uncaught ...` with name: message) so tests and REGRESSIONS recipes keep
+      working; where V8 text differs (error messages, stack frames), normalise in the seam
+      or adapt the test with a comment. CI: a second scratchy job with `--features engine-v8`;
+      ALL tests green on both engines; WPT subset no new failures under V8.
+      Split into QV8-3a/b/c... when filing if it is bigger than one PR (coordinator's call).
+- [ ] QV8-4 [M] (after QV8-3) Startup snapshot: the JS preludes (DOM, fetch, globals, intl,
+      url, cssom, media, ws) baked into a V8 snapshot at build time; measure page-start CPU
+      before/after with `--perf-report`. Drop it if the gain is < 10 ms per page.
+- [ ] QV8-5 [S] (after QV8-3) Make V8 the default engine: `engine-v8` on by default, QuickJS
+      behind `engine-quickjs` for one round as a fallback; CI default job on V8. Nested-dwl
+      check of YouTube results, Wikipedia, social.loupax.com (grim screenshots).
+- [ ] QV8-m [M] (after QV8-5, Opus measure) AFTER numbers: run `tools/perf-suite.sh` exactly as
+      QV8-0 did (same pages, same corpus bytes by sha256, same flags) on V8 at the merged
+      hash, and the QuickJS fallback build at the same hash. PERF.md gets a "QuickJS vs V8"
+      table per page and for the corpus (both budgets), with the deltas, plus what is still
+      slow and why (forced layout, natives: R37's QY53 list), and a recommendation for
+      QY49-D with the new numbers. Update R36/R37/R38 headings with what V8 changed. Then the
+      coordinator lifts the freeze (unpause the queue) and asks the user QY49-D again.
+- [ ] QV8-6 [S] (after QV8-m, when the user agrees) Remove QuickJS (`engine-quickjs`, rquickjs
+      dependency, the seam's QuickJS backend).
+
+--- CURRENT STATUS (2026-11-16, docs audit; read after the V8 block above) -------------
 
 AUDIT 2026-11-17 (review of main @ e4993c3; READ BEFORE THE LISTS BELOW, which are
 older and were only partly corrected in place):
@@ -8915,6 +9021,9 @@ last, per the user's own call.
       this project; V8/`deno_core` was ruled out outright — its speed/
       conformance edge solves a problem scratchy doesn't have, at far
       higher embedding and build complexity.
+
+      **SUPERSEDED (user, 2026-11-18): the engine moves to V8; see the
+      "TOP PRIORITY ... V8" block at the top of the QUEUE (QV8-0..QV8-6).**
 
       **DECISION (user, 2026-11-15, "Go with rquickjs"): the engine is
       rquickjs 0.14.0 (QuickJS), NOT boa. Landed in Q33a. The boa
