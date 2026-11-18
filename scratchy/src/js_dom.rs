@@ -3753,12 +3753,14 @@ const DOM_PRELUDE: &str = r#"
     var list = moPending;
     moPending = [];
     list.sort(function (a, b) { return a.id - b.id; });
+    if (g.__perf_b) g.__perf_b();
     for (var i = 0; i < list.length; i++) {
       var st = list[i], recs = st.q;
       st.pending = false; st.q = [];
       moClearTrans(st);
       if (recs.length) { try { st.cb.call(st.obs, recs, st.obs); } catch (e) { moErr(e); } }
     }
+    if (g.__perf_e) g.__perf_e();
   };
   var MO = g.MutationObserver = function MutationObserver(callback) {
     if (!new.target) throw new TypeError("Failed to construct 'MutationObserver': Please use the 'new' operator, this DOM object constructor cannot be called as a function.");
@@ -4273,6 +4275,7 @@ const DOM_PRELUDE: &str = r#"
     obsQueued = false;
     var list = obsPending; obsPending = [];
     list.sort(function (a, b) { return a.id - b.id; });
+    if (g.__perf_b) g.__perf_b();
     for (var i = 0; i < list.length; i++) {
       var st = list[i];
       st.pending = false;
@@ -4280,6 +4283,7 @@ const DOM_PRELUDE: &str = r#"
       var recs = st.q; st.q = [];
       if (recs.length) { try { st.cb.call(st.obs, recs, st.obs); } catch (e) { obsErr(st.name, e); } }
     }
+    if (g.__perf_e) g.__perf_e();
   };
   var obsSchedule = function (st) {
     if (!st.pending) { st.pending = true; obsPending.push(st); }

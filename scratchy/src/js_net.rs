@@ -1116,7 +1116,9 @@ impl JsEngine {
         // QF13: a preflight that passed released the actual request.
         self.reqs.borrow_mut().net.extend(released);
         let Some(c) = c else { return };
-        self.arm_budget(CALLBACK_BUDGET);
+        let budget = crate::perf::callback_budget();
+        self.arm_budget(budget);
+        let span = crate::perf::begin(Some(crate::perf::Kind::NetCallback));
         self.ctx.with(|ctx| {
             let f: Option<Function> = ctx.globals().get("__net_complete").ok();
             let Some(f) = f else { return };
@@ -1124,12 +1126,13 @@ impl JsEngine {
             if let Err(e) = res {
                 let msg = describe_error(&ctx, e);
                 if self.tripped.load(Ordering::Relaxed) {
-                    self.log_interrupted("net", "callback", CALLBACK_BUDGET, 0);
+                    self.log_interrupted("net", "callback", budget, 0);
                 } else {
                     (self.log)("error", &format!("net: {msg}"));
                 }
             }
         });
+        crate::perf::end(span, self.tripped.load(Ordering::Relaxed));
         self.drain_after_task();
     }
 

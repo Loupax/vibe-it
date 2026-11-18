@@ -90,6 +90,7 @@ mod js_media;
 mod media_mpv;
 mod app;
 mod js;
+mod perf;
 mod js_modules;
 mod js_dom;
 mod js_net;
@@ -131,6 +132,13 @@ pub fn run() {
     let raw_args: Vec<String> = env::args().skip(1).collect();
     // QY39b: `--user-agent <string>` / SCRATCHY_USER_AGENT, validated before anything runs.
     init_from_process(&raw_args);
+    perf::init_from_process(&raw_args);
+    if raw_args.first().map(String::as_str) == Some("--perf-report") {
+        std::process::exit(perf::perf_report_main(&raw_args[1..]));
+    }
+    if raw_args.first().map(String::as_str) == Some("--perf-corpus") {
+        std::process::exit(perf::perf_corpus_main(&raw_args[1..]));
+    }
     if raw_args.first().map(String::as_str) == Some("--wpt") {
         std::process::exit(wpt::main(&raw_args[1..]));
     }

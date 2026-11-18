@@ -778,15 +778,12 @@ const FIRE_LOAD: &str = "document.readyState='complete';__scratchy_dispatch(wind
 /// Sink for console output and script errors: `(level, text)`.
 pub(crate) type LogFn = Rc<dyn Fn(&str, &str)>;
 
-const SCRIPT_BUDGET: Duration = Duration::from_secs(5);
-/// QB3: budget for one timer or event callback. The page-load run keeps
-/// `SCRIPT_BUDGET`; a callback runs on the main thread while input is
-/// flowing, and the compositor drops a client that doesn't read its
-/// socket for long enough (R8), so it gets a tenth of that.
-pub(crate) const CALLBACK_BUDGET: Duration = Duration::from_millis(500);
-/// QY46: one promise-job drain stops starting new jobs after this much CPU
-/// (4 x `CALLBACK_BUDGET`); the rest stay queued for the next turn.
-pub(crate) const DRAIN_CAP: Duration = Duration::from_millis(2000);
+pub(crate) const SCRIPT_BUDGET: Duration = Duration::from_secs(5);
+// QB3: budget for one timer or event callback. The page-load run keeps
+// `SCRIPT_BUDGET`; a callback runs on the main thread while input is
+// flowing, and the compositor drops a client that doesn't read its
+// socket for long enough (R8), so it gets a tenth of that. The callback
+// budget is `perf::callback_budget()` (500 ms, `--budget-ms` overrides it).
 
 // QY22 test seam: `(now, step)` replaces the thread CPU clock; every read
 // returns `now` and then advances it by `step` ns.
@@ -837,6 +834,7 @@ pub(crate) fn script_clock_nanos() -> u64 {
 pub(crate) fn pause_budget_since(start: u64) {
     let d = thread_cpu_nanos().saturating_sub(start);
     PAUSED_NANOS.with(|p| p.set(p.get() + d));
+    perf::forced_layout(d);
 }
 
 /// QSD1b: `n` bytes from the kernel CSPRNG (`getrandom(2)`, via the `libc` crate that
@@ -977,6 +975,16 @@ fn url_set_native(href: String, key: String, value: String) -> Option<Vec<String
     Some(url_parts(&u))
 }
 
+/// What `eval_value_as` records: the span kind and "this result means nothing ran".
+pub(crate) type Recorded<T> = (perf::Kind, fn(&Option<T>) -> bool);
+
+/// The engine's name and version for the perf report (a V8 backend fills the same pair).
+pub(crate) fn engine_info() -> (&'static str, String) {
+    // SAFETY: JS_GetVersion returns a pointer to a static NUL-terminated string.
+    let v = unsafe { std::ffi::CStr::from_ptr(rquickjs::qjs::JS_GetVersion()) }.to_string_lossy().into_owned();
+    ("QuickJS", format!("{v} (rquickjs 0.14.0)"))
+}
+
 pub(crate) fn describe_error(ctx: &Ctx<'_>, err: JsError) -> String {
     if matches!(err, JsError::Exception) {
         let value = ctx.catch();
@@ -1008,7 +1016,7 @@ pub(crate) fn drain_jobs(ctx: &Context, rt: &Runtime, log: &dyn Fn(&str, &str), 
     // `tripped` stays sticky across jobs on purpose: a module entry's trip is
     // caught into a rejection and reported by the caller after the drain.
     let arm = || {
-        deadline.store(script_clock_nanos() + CALLBACK_BUDGET.as_nanos() as u64, Ordering::Relaxed);
+        deadline.store(script_clock_nanos() + perf::callback_budget().as_nanos() as u64, Ordering::Relaxed);
     };
     // QY22/QY44a: a job killed by the budget is uncatchable (skips `finally`),
     // so once one trips we STOP: later jobs must not start on an expired
@@ -1017,11 +1025,14 @@ pub(crate) fn drain_jobs(ctx: &Context, rt: &Runtime, log: &dyn Fn(&str, &str), 
     let mut killed = 0usize;
     'drain: loop {
         while rt.is_job_pending() {
-            if script_clock_nanos().saturating_sub(drain_start) >= DRAIN_CAP.as_nanos() as u64 {
+            if script_clock_nanos().saturating_sub(drain_start) >= perf::drain_cap().as_nanos() as u64 {
                 break 'drain;
             }
             arm();
-            if let Err(job) = rt.execute_pending_job() {
+            let span = perf::begin(Some(perf::job_kind()));
+            let res = rt.execute_pending_job();
+            perf::end(span, res.is_err() && tripped.load(Ordering::Relaxed));
+            if let Err(job) = res {
                 job.0.with(|c| {
                     let msg = describe_error(&c, JsError::Exception);
                     if tripped.load(Ordering::Relaxed) {
@@ -1053,7 +1064,7 @@ pub(crate) fn drain_jobs(ctx: &Context, rt: &Runtime, log: &dyn Fn(&str, &str), 
     }
     if killed > 0 {
         let deferred = if rt.is_job_pending() { ", remaining jobs deferred to the next turn" } else { "" };
-        log("error", &format!("js: promise jobs stopped: exceeded the {} ms CPU-time callback budget ({killed} job killed{deferred})", CALLBACK_BUDGET.as_millis()));
+        log("error", &format!("js: promise jobs stopped: exceeded the {} ms CPU-time callback budget ({killed} job killed{deferred})", perf::callback_budget().as_millis()));
     }
 }
 
@@ -1139,25 +1150,34 @@ impl JsEngine {
     /// fresh `CALLBACK_BUDGET` of their own (an expired task deadline must
     /// not kill every queued job at once).
     pub(crate) fn drain_after_task(&self) {
-        self.arm_budget(CALLBACK_BUDGET);
+        self.arm_budget(perf::callback_budget());
         drain_jobs(&self.ctx, &self.rt, &*self.log, &self.tripped, &self.deadline);
     }
 
     pub(crate) fn eval(&self, name: &str, code: &str) {
+        self.eval_as(None, name, code);
+    }
+
+    /// `eval` that records the run as `kind` (a page script or a lifecycle
+    /// event) and returns `(compile_cpu_ns, run_cpu_ns, ok)`; the CPU numbers
+    /// are only read from the clock when the perf recorder is on.
+    pub(crate) fn eval_as(&self, kind: Option<perf::Kind>, name: &str, code: &str) -> (u64, u64, bool) {
+        let timing = Cell::new((0u64, 0u64, true));
         if code.len() > MAX_SCRIPT_BYTES {
             (self.log)("error", &format!("js: {name} not compiled: {} MB of source exceeds the {} MB cap", code.len().div_ceil(1 << 20), MAX_SCRIPT_BYTES >> 20));
-            return;
+            return (0, 0, false);
         }
         // QY22: the page-load budget is armed AFTER compiling (compile time
         // follows source size, not page behaviour). The first arm only keeps
         // a runaway compile finite.
-        self.arm_budget(SCRIPT_BUDGET);
+        self.arm_budget(perf::script_budget());
         let t0 = thread_cpu_nanos();
         self.ctx.with(|ctx| {
             use rquickjs::qjs;
             // HTML classic scripts are sloppy (R5): global code, not strict.
             let (Ok(src), Ok(file)) = (std::ffi::CString::new(code), std::ffi::CString::new(name)) else {
                 (self.log)("error", &format!("{name}: source contains a NUL byte"));
+                timing.set((0, 0, false));
                 return;
             };
             let raw = ctx.as_raw().as_ptr();
@@ -1172,7 +1192,7 @@ impl JsEngine {
                         "error",
                         &format!(
                             "js: {name} stopped: exceeded the {} s CPU-time page-load budget ({} KB of source; compiled in {}, ran {})",
-                            SCRIPT_BUDGET.as_secs(),
+                            perf::script_budget().as_secs(),
                             code.len().div_ceil(1024),
                             ms(compile),
                             ms(run)
@@ -1187,6 +1207,7 @@ impl JsEngine {
                 let msg = describe_error(&ctx, JsError::Exception);
                 let now = thread_cpu_nanos();
                 failed(msg, now.saturating_sub(t0), 0);
+                timing.set((now.saturating_sub(t0), 0, false));
                 return;
             }
             #[cfg(test)]
@@ -1194,18 +1215,27 @@ impl JsEngine {
                 f();
             }
             let t1 = thread_cpu_nanos();
-            self.arm_budget(SCRIPT_BUDGET);
+            if kind.is_some() {
+                perf::add_compile(t1.saturating_sub(t0));
+            }
+            self.arm_budget(perf::script_budget());
+            let span = perf::begin(kind);
             // SAFETY: consumes `func`; the result is wrapped so it is freed.
             let res = unsafe { qjs::JS_EvalFunction(raw, func) };
-            if unsafe { qjs::JS_IsException(res) } {
+            let failed_run = unsafe { qjs::JS_IsException(res) };
+            perf::end(span, failed_run && self.tripped.load(Ordering::Relaxed));
+            let run = thread_cpu_nanos().saturating_sub(t1);
+            timing.set((t1.saturating_sub(t0), run, !failed_run));
+            if failed_run {
                 let msg = describe_error(&ctx, JsError::Exception);
-                failed(msg, t1.saturating_sub(t0), thread_cpu_nanos().saturating_sub(t1));
+                failed(msg, t1.saturating_sub(t0), run);
             } else {
                 // SAFETY: `res` is an owned value.
                 drop(unsafe { rquickjs::Value::from_raw(ctx.clone(), res) });
             }
         });
         drain_jobs(&self.ctx, &self.rt, &*self.log, &self.tripped, &self.deadline);
+        timing.get()
     }
 
     /// QY15: runs the entry module registered under `name` (its source is
@@ -1219,14 +1249,16 @@ impl JsEngine {
             "(function(p){{var r=globalThis.__scratchy_modr={{s:0}};p.then(function(){{r.s=1;}},function(e){{r.s=2;r.m=(e&&e.name?e.name+': '+e.message:'Uncaught '+String(e))+(e&&e.stack?'\\n'+e.stack:'');}});}})(import({}))",
             js_string_literal(name)
         );
-        self.eval(&format!("{name} (import)"), &code);
+        perf::set_job_kind(Some(perf::Kind::ModuleScript));
+        self.eval_as(Some(perf::Kind::ModuleScript), &format!("{name} (import)"), &code);
+        perf::set_job_kind(None);
         let failed: Option<String> = self.ctx.with(|ctx| {
             let r: rquickjs::Object = ctx.globals().get("__scratchy_modr").ok()?;
             (r.get::<_, i32>("s").ok()? == 2).then(|| r.get::<_, String>("m").unwrap_or_default())
         });
         if let Some(msg) = failed {
             if self.tripped.load(Ordering::Relaxed) {
-                self.log_interrupted(name, "page-load", SCRIPT_BUDGET, size);
+                self.log_interrupted(name, "page-load", perf::script_budget(), size);
             } else {
                 (self.log)("error", &format!("{name}: {msg}"));
             }
@@ -1234,7 +1266,15 @@ impl JsEngine {
     }
 
     pub(crate) fn eval_value<T: for<'js> FromJs<'js>>(&self, label: &str, code: &str) -> Option<T> {
-        self.arm_budget(CALLBACK_BUDGET);
+        self.eval_value_as(None, label, code)
+    }
+
+    /// `eval_value` that records the call as `rec.0`; `rec.1` says the result
+    /// means "nothing ran" (an idle timer poll), which is then not counted.
+    pub(crate) fn eval_value_as<T: for<'js> FromJs<'js>>(&self, rec: Option<Recorded<T>>, label: &str, code: &str) -> Option<T> {
+        let budget = perf::callback_budget();
+        self.arm_budget(budget);
+        let span = perf::begin(rec.map(|r| r.0));
         let v = self.ctx.with(|ctx| {
             let mut opts = EvalOptions::default();
             opts.strict = false;
@@ -1244,7 +1284,7 @@ impl JsEngine {
                 Err(e) => {
                     let msg = describe_error(&ctx, e);
                     if self.tripped.load(Ordering::Relaxed) {
-                        self.log_interrupted(label, "callback", CALLBACK_BUDGET, 0);
+                        self.log_interrupted(label, "callback", budget, 0);
                     } else {
                         (self.log)("error", &format!("{label}: {msg}"));
                     }
@@ -1252,6 +1292,10 @@ impl JsEngine {
                 }
             }
         });
+        match rec {
+            Some((_, idle)) if idle(&v) => perf::discard(span),
+            _ => perf::end(span, v.is_none() && self.tripped.load(Ordering::Relaxed)),
+        }
         self.drain_after_task();
         v
     }
@@ -1352,7 +1396,7 @@ impl JsEngine {
         }
         obj.push('}');
         let code = format!("__scratchy_dn({id},{},{obj})", js_string_literal(kind));
-        self.eval_value::<bool>(&format!("event:{kind}"), &code).unwrap_or(true)
+        self.eval_value_as::<bool>(Some((perf::Kind::Event, |_| false)), &format!("event:{kind}"), &code).unwrap_or(true)
     }
 
     /// When the earliest pending timer is due, `None` if there are none
@@ -1389,7 +1433,7 @@ impl JsEngine {
         let mut n = 0;
         let jobs_waiting = self.rt.is_job_pending();
         for _ in 0..MAX_TIMERS_PER_TURN {
-            if self.eval_value::<bool>("timer", "__scratchy_timers_run_one()") == Some(false) {
+            if self.eval_value_as::<bool>(Some((perf::Kind::Timer, |r| *r == Some(false))), "timer", "__scratchy_timers_run_one()") == Some(false) {
                 break;
             }
             n += 1;
@@ -1403,7 +1447,7 @@ impl JsEngine {
 
     pub(crate) fn run_due(&self) {
         for _ in 0..MAX_TIMERS_PER_TURN {
-            if self.eval_value::<bool>("timer", "__scratchy_timers_run_one()") != Some(true) {
+            if self.eval_value_as::<bool>(Some((perf::Kind::Timer, |r| *r == Some(false))), "timer", "__scratchy_timers_run_one()") != Some(true) {
                 break;
             }
         }
@@ -1468,6 +1512,7 @@ pub(crate) fn start_scripts_clocked(
     log: LogFn,
     clock: Option<Rc<std::cell::Cell<f64>>>,
 ) -> Option<JsEngine> {
+    perf::mark("engine_start");
     let Ok(rt) = Runtime::new() else {
         log("error", "could not create the JS runtime");
         return None;
@@ -1510,6 +1555,15 @@ pub(crate) fn start_scripts_clocked(
             let _ = ctx.globals().set("__test_burn", f);
         }
         let _ = install_env(&ctx);
+        if perf::enabled() {
+            // QV8-0: observer deliveries report their own spans (see perf.rs).
+            if let Ok(f) = Function::new(ctx.clone(), perf::observer_begin) {
+                let _ = ctx.globals().set("__perf_b", f);
+            }
+            if let Ok(f) = Function::new(ctx.clone(), perf::observer_end) {
+                let _ = ctx.globals().set("__perf_e", f);
+            }
+        }
         if let Ok(f) = Function::new(ctx.clone(), url_parse_native) {
             let _ = ctx.globals().set("__url_parse", f);
         }
@@ -1564,6 +1618,7 @@ pub(crate) fn start_scripts_clocked(
         engine.media = Some(host);
         engine.eval("media", js_media::MEDIA_PRELUDE);
     }
+    perf::mark("engine_ready");
     let mut script_els = Vec::new();
     collect_script_elements(document, &mut script_els);
     for s in scripts.iter().filter(|s| s.kind == ScriptKind::Classic) {
@@ -1572,7 +1627,7 @@ pub(crate) fn start_scripts_clocked(
             None => -1,
         };
         engine.eval_value::<()>("script", &format!("__scratchy_cs({id})"));
-        engine.eval(&s.name, &s.code);
+        engine.eval_as(Some(perf::Kind::ClassicScript), &s.name, &s.code);
         engine.eval_value::<()>("script", "__scratchy_cs(-1)");
     }
     // QY15: module scripts are deferred: after parsing (and the classic
@@ -1584,9 +1639,11 @@ pub(crate) fn start_scripts_clocked(
             engine.eval_module(&s.name, s.code.len());
         }
     }
-    engine.eval("DOMContentLoaded", FIRE_DOM_CONTENT_LOADED);
+    engine.eval_as(Some(perf::Kind::Event), "DOMContentLoaded", FIRE_DOM_CONTENT_LOADED);
+    perf::mark("dom_content_loaded");
     engine.eval("img-sweep", "__scratchy_img_sweep()");
-    engine.eval("load", FIRE_LOAD);
+    engine.eval_as(Some(perf::Kind::Event), "load", FIRE_LOAD);
+    perf::mark("load");
     Some(engine)
 }
 
@@ -1624,7 +1681,7 @@ fn install_script_natives<'js>(
         };
         let t0 = thread_cpu_nanos();
         if top {
-            arm(SCRIPT_BUDGET);
+            arm(perf::script_budget());
         }
         let raw = ctx.as_raw().as_ptr();
         // SAFETY: `raw` is this live context; the source is NUL-terminated and
@@ -1642,13 +1699,13 @@ fn install_script_natives<'js>(
                     "error",
                     &format!(
                         "js: {name} stopped: exceeded the {} s CPU-time page-load budget ({} KB of source; compiled in {}, ran {})",
-                        SCRIPT_BUDGET.as_secs(),
+                        perf::script_budget().as_secs(),
                         code.len().div_ceil(1024),
                         ms(t1.saturating_sub(t0)),
                         ms(thread_cpu_nanos().saturating_sub(t1))
                     ),
                 );
-                arm(CALLBACK_BUDGET);
+                arm(perf::callback_budget());
             } else {
                 let msg = describe_error(ctx, JsError::Exception);
                 log("error", &format!("{name}: {msg}"));
@@ -1661,11 +1718,15 @@ fn install_script_natives<'js>(
         }
         let t1 = thread_cpu_nanos();
         if top {
-            arm(SCRIPT_BUDGET);
+            arm(perf::script_budget());
+            perf::add_compile(t1.saturating_sub(t0));
         }
+        let span = perf::begin(top.then_some(perf::Kind::ClassicScript));
         // SAFETY: consumes `func`; the result is wrapped so it is freed.
         let res = unsafe { qjs::JS_EvalFunction(raw, func) };
-        if unsafe { qjs::JS_IsException(res) } {
+        let failed_run = unsafe { qjs::JS_IsException(res) };
+        perf::end(span, failed_run && tripped.load(Ordering::Relaxed));
+        if failed_run {
             return fail(&ctx, t1);
         }
         drop(unsafe { rquickjs::Value::from_raw(ctx.clone(), res) });
@@ -1981,8 +2042,8 @@ pub(crate) fn js_report_main(args: &[String]) -> i32 {
     while let Some(a) = it.next() {
         if a == "--socket" {
             socket = it.next().map(std::path::PathBuf::from);
-        } else if a == "--user-agent" {
-            it.next(); // installed by `run` (QY39b)
+        } else if a == "--user-agent" || a == "--budget-ms" {
+            it.next(); // installed by `run` (QY39b, QV8-0)
         } else if a == "--run-timers" {
             run_timers = it.next().and_then(|v| v.parse::<u64>().ok());
         } else {
@@ -1990,7 +2051,7 @@ pub(crate) fn js_report_main(args: &[String]) -> i32 {
         }
     }
     let Some(file) = file else {
-        diag!("usage: scratchy --js-report [--socket <path>] [--user-agent <string>] [--run-timers <ms>] <file>");
+        diag!("usage: scratchy --js-report [--socket <path>] [--user-agent <string>] [--run-timers <ms>] [--budget-ms <ms>] <file>");
         return 2;
     };
     let bytes = match fs::read(&file) {

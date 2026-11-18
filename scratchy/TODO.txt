@@ -75,6 +75,11 @@ Order: (drain) -> QT1 -> QV8-0 -> QV8-1 -> QV8-2 -> QV8-3 -> QV8-4 -> QV8-5 -> Q
       page (load works? kills at 500 ms, max/p95 budget clock, forced layout total, time to
       load, RSS) and the corpus table, plus exact commands. Tests: the JSON shape and the
       budget flag (fixture page with a known 50 ms busy loop shows up as one timer >= 50 ms).
+      >>> harness code DONE 93faf68 (--perf-report, --perf-corpus, --budget-ms, tools/perf-suite.sh,
+          tools/perf-corpus.sh, PERF.md skeleton; tests qv8_0_* are appended at the end of src/tests.rs:
+          QT1 must move them with the rest); BASELINE numbers still to be taken at the drained hash
+          (Opus step). Corpus pins: moment 2.31.0, d3 7.9.2, lodash 4.18.1, three 0.159.0, jquery 4.1.0,
+          react+react-dom 18.3.1 (sha256 in tools/perf-corpus.sh). QV8-0 itself NOT ticked.
 - [ ] QV8-1 [M] (P0, after QV8-0, Opus spike) Prove V8 fits scratchy before porting. Behind a
       cargo feature `engine-v8` (off), no change to default builds:
       - Build: the `v8` crate's build script downloads a prebuilt static library from GitHub
