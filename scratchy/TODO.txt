@@ -124,16 +124,39 @@ Order: (drain) -> QT1 -> QV8-0 -> QV8-1 -> QV8-2 -> QV8-3 -> QV8-4 -> QV8-5 -> Q
       own the 14 raw `rquickjs::qjs` calls (js.rs 9, perf.rs 4, js_dom.rs 1). Native closures
       live in a per-engine arena (V8 needs that; R39). The spike's FromArg/IntoRet + `native!`
       (src/v8_spike.rs on the spike branch) is a working model of the V8 side.
-- [ ] QV8-3 [L] (after QV8-2) V8 backend behind `engine-v8`: all `__d_*` natives (js_dom,
+- [ ] QV8-3 [L] SPLIT 2026-11-18 into QV8-3a/3b/3c/3d below (the original text is kept in them; tick QV8-3 when
+      all four are ticked). Overall: V8 backend behind `engine-v8`: all `__d_*` natives (js_dom,
       js_media, js_net, js_ws, js_modules), classic + module scripts, importmap, dynamic
       import(), timers, promise jobs, events, MutationObserver/IO/RO delivery, fetch/XHR/
       WebSocket callbacks, `--js-report`, `--perf-report`. Log line formats stay identical
       (`js: ...`, `Uncaught ...` with name: message) so tests and REGRESSIONS recipes keep
       working; where V8 text differs (error messages, stack frames), normalise in the seam
-      or adapt the test with a comment. CI: a second scratchy job with `--features engine-v8`;
-      ALL tests green on both engines; WPT subset no new failures under V8.
-      Split into QV8-3a/b/c... when filing if it is bigger than one PR (coordinator's call).
-      R39 CONDITIONS (all required; designs measured in the spike, branch scratchy/qv8-1-v8-spike):
+      or adapt the test with a comment. ALL tests green on both engines; WPT subset no new
+      failures under V8. R39 conditions C1-C6 are repeated verbatim in 3b (C1-C4), 3d (C5), 3a (C6).
+- [x] QV8-3a [L] DONE 2026-11-18 (commit HASH; src/js_engine_v8.rs; engine-v8: 1008/1030 tests pass, default build unchanged) (after QV8-2) V8 backend core behind the cargo feature `engine-v8` (v8 =152.2.0, optional,
+      off by default; src/js_engine_v8.rs replaces src/js_engine.rs when the feature is on):
+      Ctx/JsResult/JsError, `native!`/register with a per-isolate closure arena, call_global,
+      Bytes/BytesRef, JsObject, classic-script eval (Source/Compiled/eval_sloppy), console, all
+      `__d_*` natives (js_dom, js_media, js_net, js_ws), error and `Uncaught name: message` formats
+      identical to QuickJS. Budget/jobs/stack/OOM (3b) and modules (3c) are minimal stubs.
+      The default (QuickJS) build is unchanged; every test passes there.
+      C6 (tell the user in the PR): stripped binary ~14.8 -> ~63 MB with V8, ~2 ms more isolate startup.
+      Failing under `--features engine-v8` after 3a (22 tests), by area:
+        modules -> QV8-3c (15): js_core_tests::qy15_* (14: bare_specifier, dynamic_import x2, external_module,
+          failed_fetch, graph_prefetch, importmap, inline_import_meta_url, inline_module_imports, literal_dynamic_import,
+          module_is_strict, module_runaway_loop, module_scripts_run_in_document_order, module_syntax_error_and_throw,
+          nomodule_scripts), js_geometry_tests::qy34_module_script_inline_and_src_with_import.
+        per-job promise budget / job queue -> QV8-3b (5): qy46_runaway_job_is_still_killed,
+          qy46_ten_300ms_jobs_stop_at_the_cap_and_resume_without_kills, qy22_tripped_job_drain_logs_one_line_with_a_count,
+          qy44a_tripped_job_does_not_kill_later_jobs, js_engine_tests::qv8_2_source_rejects_nul_and_jobs_drain
+          (`Engine::is_job_pending` is always false on V8: needs a counter fed by the PromiseHook).
+        IsHTMLDDA -> QV8-3a2: paint_tests::qy40_document_all_is_htmldda (V8 can only mark an object undetectable
+          through an ObjectTemplate; build `document.all` from one).
+      Known QuickJS/V8 differences handled in the seam: `Intl` is deleted so intl_prelude.js's en-US shim runs
+      (a real V8 Intl is a later decision), atob/btoa shimmed in JS, V8 `stack` header stripped to QuickJS' frames.
+- [ ] QV8-3a2 [S] (after QV8-3a) `document.all` IsHTMLDDA on V8 (undetectable object via ObjectTemplate) and any
+      engine-v8 test not covered by 3b/3c; the watchdog granularity vs the fake-clock budget tests.
+- [ ] QV8-3b [M] (after QV8-3a) Budget watchdog + promise jobs + stack + OOM (R39 C1-C4):
       C1 budget = a watchdog thread that, while a callback is armed, calls
          `IsolateHandle::request_interrupt` every 2 ms; the interrupt (on the JS thread) reads
          `script_clock_nanos()` and calls `terminate_execution()`; the caller then
@@ -147,12 +170,13 @@ Order: (drain) -> QT1 -> QV8-0 -> QV8-1 -> QV8-2 -> QV8-3 -> QV8-4 -> QV8-5 -> Q
       C3 stack: `CreateParams::set_stack_limit(sp - min(4 MB, half the thread stack))`.
       C4 OOM: near-heap-limit callback that terminates the script instead of the process abort;
          a test with a runaway allocation.
-      C5 CI: the engine-v8 job caches the V8 archive (actions/cache) and pins it with
-         RUSTY_V8_ARCHIVE + RUSTY_V8_ARCHIVE_SHA256 (sha in R39).
-      C6 tell the user in the PR: stripped binary ~14.8 -> ~63 MB, ~2 ms more isolate startup.
-      Suggested split (coordinator's call): QV8-3a eval/console/natives/errors [L, Sonnet];
-      QV8-3b budget watchdog + jobs + stack + OOM (C1-C4) [M, Sonnet]; QV8-3c modules, import(),
-      importmap via the resolve callback [M, Sonnet]; QV8-3d CI job (C5) [S, Sonnet/Haiku].
+      (The unhandled-rejection tracker (QY14: `__scratchy_rej_push` from
+      `set_promise_reject_callback`) already landed in 3a.)
+- [ ] QV8-3c [M] (after QV8-3a) Modules, dynamic import(), importmap via V8's resolve callback and
+      `HostImportModuleDynamically` (js_modules.rs's ModuleStore/resolve_specifier), `import.meta.url`.
+- [ ] QV8-3d [S] (after QV8-3b/3c) CI job (R39 C5): a fourth scratchy job with `--features engine-v8`;
+      it caches the V8 archive (actions/cache) and pins it with RUSTY_V8_ARCHIVE +
+      RUSTY_V8_ARCHIVE_SHA256 (sha in R39). The three existing jobs must not need the V8 download.
 - [ ] QV8-4 [M] (after QV8-3) Startup snapshot: the JS preludes (DOM, fetch, globals, intl,
       url, cssom, media, ws) baked into a V8 snapshot at build time; measure page-start CPU
       before/after with `--perf-report`. Drop it if the gain is < 10 ms per page.

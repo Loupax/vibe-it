@@ -89,6 +89,11 @@ mod js_media;
 #[cfg(feature = "media")]
 mod media_mpv;
 mod app;
+#[cfg(not(feature = "engine-v8"))]
+mod js_engine;
+// QV8-3a: the V8 backend of the same seam (same public surface as js_engine.rs).
+#[cfg(feature = "engine-v8")]
+#[path = "js_engine_v8.rs"]
 mod js_engine;
 mod js;
 mod perf;
