@@ -1022,7 +1022,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       R34 probe string from the "What YouTube asked" list with its expected answer, valid and
       invalid twins, the disabled codecs false, canPlayType unchanged for the progressive
       table except the invalid params.
-- [x] QM1k1a [M] DONE 2026-11-19 (commit HASH; src/mse_store.rs, tests qm1k1a_* in src/tests/mse_tests.rs) (Sonnet) `src/mse_store.rs`: the fMP4 byte-stream reader
+- [x] QM1k1a [M] DONE 2026-11-19 (commit 0132cce; src/mse_store.rs, tests qm1k1a_* in src/tests/mse_tests.rs) (Sonnet) `src/mse_store.rs`: the fMP4 byte-stream reader
       and the per-SourceBuffer segment store of the QM1k-PLAN (no JS, no mpv). Includes:
       boxes split across appends (pending input buffer), init vs media segment, timing from
       mdhd timescale + tfdt + trun/tfhd/trex durations (container headers only, never sample
