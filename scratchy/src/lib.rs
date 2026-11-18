@@ -85,6 +85,8 @@ mod media_net;
 #[allow(dead_code)]
 mod media_el;
 mod media_video;
+#[allow(dead_code)] // QM1k1a: the pure MSE store; QM1k1b+ (feed, element, JS) are the first callers
+mod mse_store;
 mod js_media;
 #[cfg(feature = "media")]
 mod media_mpv;
