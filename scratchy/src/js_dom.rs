@@ -432,6 +432,15 @@ fn clone_node(h: &Handle, deep: bool) -> Handle {
     n
 }
 
+/// QY48: a change of the page's own URL that is not a navigation.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) enum UrlEv {
+    /// `history.pushState` (`replace` false) / `replaceState` (true) to this absolute URL.
+    Set(String, bool),
+    /// `history.back/forward/go` moved the JS-side entry by this many steps.
+    Move(isize),
+}
+
 /// Installs the `__d_*` natives for `document` and the JS wrappers on top.
 /// QB5: requests page script made of the App (which owns focus and the
 /// scroll offset); drained by `App::js_sync` through `take_requests`.
@@ -448,6 +457,9 @@ pub(crate) struct JsRequests {
     pub(crate) nav_replace: bool,
     /// QF11: `location.reload()`.
     pub(crate) reload: bool,
+    /// QY48: pushState/replaceState/history.go URL changes, in order, for the
+    /// App's URL and history (no fetch).
+    pub(crate) url_events: Vec<UrlEv>,
     /// Q30e: `form.submit()` / an uncancelled `requestSubmit()`: (form, submitter).
     pub(crate) submit: Option<(Handle, Option<Handle>)>,
     /// QF7: validated page-network requests for the App's scheduler.
@@ -1212,6 +1224,14 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         let mut r = r.borrow_mut();
         r.nav = Some(href);
         r.nav_replace = true;
+    });
+    let r = reqs.clone();
+    native!("__d_url_update", move |href: String, replace: bool| {
+        r.borrow_mut().url_events.push(UrlEv::Set(href, replace));
+    });
+    let r = reqs.clone();
+    native!("__d_url_move", move |delta: i32| {
+        r.borrow_mut().url_events.push(UrlEv::Move(delta as isize));
     });
     let r = reqs.clone();
     native!("__d_reload", move || {

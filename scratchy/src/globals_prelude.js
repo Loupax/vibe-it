@@ -221,12 +221,14 @@
     entries.length = idx + 1;
     entries.push({ state: s, href: href }); idx++;
     apply(href);
+    if (g.__d_url_update) g.__d_url_update(href, false); // QY48: the App's URL/history
   });
   def(H, 'replaceState', function (state, title, url) {
     if (arguments.length < 1) throw new TypeError("Failed to execute 'replaceState' on 'History': 2 arguments required, but only 0 present.");
     var href = target(url);
     entries[idx] = { state: clone(state), href: href };
     apply(href);
+    if (g.__d_url_update) g.__d_url_update(href, true);
   });
   // QF11: a script's fragment-only navigation (location.hash = ..., assign('#x')):
   // a new (or replaced) entry, the URL mirror, and an async `hashchange`.
@@ -237,21 +239,28 @@
     apply(href);
     if (old !== href) tm(function () { g.dispatchEvent(new g.HashChangeEvent('hashchange', { oldURL: old, newURL: href })); });
   } });
-  def(H, 'go', function (n) {
-    n = Number(n) || 0;
+  // `notify`: tell the App the entry moved (page-initiated go/back/forward);
+  // false when the App itself drove the traversal (__hist_to).
+  function go(n, notify, href) {
     var to = idx + n;
-    if (n === 0 || to < 0 || to >= entries.length) return;
+    if (n === 0 || to < 0 || to >= entries.length) return false;
+    if (href !== undefined && entries[to].href !== href) return false;
     tm(function () {
-      var old = entries[idx].href;
+      var old = entries[idx].href, from = idx;
       idx = to;
       var e = entries[idx];
       apply(e.href);
+      if (notify && g.__d_url_move) g.__d_url_move(to - from);
       g.dispatchEvent(new g.PopStateEvent('popstate', { state: e.state }));
       if (old !== e.href && old.split('#')[0] === e.href.split('#')[0]) {
         g.dispatchEvent(new g.HashChangeEvent('hashchange', { oldURL: old, newURL: e.href }));
       }
     });
-  });
+    return true;
+  }
+  def(H, 'go', function (n) { go(Number(n) || 0, true); });
+  // QY48: the App stepped to a same-document entry: fire popstate with its state.
+  Object.defineProperty(g, '__hist_to', { value: function (n, href) { return go(n, false, href); } });
   def(H, 'back', function () { this.go(-1); });
   def(H, 'forward', function () { this.go(1); });
   def(g, 'history', new History(STOK));

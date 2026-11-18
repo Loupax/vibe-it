@@ -21628,3 +21628,107 @@ fn qf11_javascript_urls_invalid_urls_and_file_targets() {
     assert!(r.nav.is_none());
     assert!(l[0].contains("refused: file:"), "{l:?}");
 }
+
+// ---------- QY48: pushState/replaceState reach the App URL and history ----------
+
+fn qy48_app(script: &str) -> Option<(App, Handle)> {
+    use winit::platform::wayland::EventLoopBuilderExtWayland;
+    let event_loop = EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build().ok()?;
+    let doc = parse_html("<html><body><p id=p>x</p></body></html>");
+    let mut app = App::new_static(doc.clone(), event_loop.create_proxy(), None);
+    app.base_url = Some(Url::parse("https://e.org/start").unwrap());
+    set_page_url(app.base_url.as_ref());
+    app.js = run_page_scripts(&doc, &[src(script)], app.base_url.as_ref());
+    Some((app, doc))
+}
+
+const QY48_POP: &str = "window.L=[]; addEventListener('popstate',function(e){L.push('pop:'+JSON.stringify(e.state)+':'+location.pathname);});";
+
+fn qy48_eval(app: &mut App, code: &str) {
+    app.js.as_ref().unwrap().eval_value::<bool>("t", &format!("{code};true"));
+    app.js_sync();
+}
+
+fn qy48_run_timers(app: &mut App) {
+    std::thread::sleep(std::time::Duration::from_millis(10));
+    app.js.as_ref().unwrap().run_due();
+    app.js_sync();
+}
+
+#[test]
+fn qy48_pushstate_updates_app_url_and_adds_entry_without_navigating() {
+    let Some((mut app, _doc)) = qy48_app(QY48_POP) else { return };
+    app.js_sync();
+    qy48_eval(&mut app, "history.pushState({n:1},'','/results?q=rust')");
+    assert_eq!(app.history.iter().map(Url::as_str).collect::<Vec<_>>(), ["https://e.org/start", "https://e.org/results?q=rust"]);
+    assert_eq!(app.history_index, 1);
+    assert_eq!(app.base_url.as_ref().map(Url::as_str), Some("https://e.org/results?q=rust"));
+    assert_eq!(app.nav_generation, 0, "no fetch");
+    qy48_eval(&mut app, "history.replaceState({n:2},'','/results?q=rust&p=2')");
+    assert_eq!(app.history.len(), 2, "replaceState adds no entry");
+    assert_eq!(app.history[1].as_str(), "https://e.org/results?q=rust&p=2");
+    assert_eq!(app.nav_generation, 0);
+    // pushState to the very same URL still adds an entry.
+    qy48_eval(&mut app, "history.pushState({n:3},'','/results?q=rust&p=2')");
+    assert_eq!(app.history.len(), 3);
+}
+
+#[test]
+fn qy48_back_forward_between_same_document_entries_fire_popstate_without_reload() {
+    let Some((mut app, _doc)) = qy48_app(QY48_POP) else { return };
+    qy48_eval(&mut app, "history.pushState({n:1},'','/a'); history.pushState({n:2},'','/b')");
+    assert_eq!(app.history.len(), 3);
+    app.navigate_history(-1);
+    assert_eq!(app.nav_generation, 0, "no reload");
+    assert_eq!(app.history_index, 1);
+    assert_eq!(app.base_url.as_ref().map(Url::as_str), Some("https://e.org/a"));
+    qy48_run_timers(&mut app);
+    assert_eq!(q30e_log(&app), "pop:{\"n\":1}:/a");
+    app.navigate_history(-1);
+    qy48_run_timers(&mut app);
+    assert_eq!(q30e_log(&app), "pop:{\"n\":1}:/a|pop:null:/start");
+    assert_eq!(app.nav_generation, 0);
+    app.navigate_history(1);
+    app.navigate_history(1);
+    qy48_run_timers(&mut app);
+    assert!(q30e_log(&app).ends_with("pop:{\"n\":2}:/b"), "{}", q30e_log(&app));
+    assert_eq!(app.history_index, 2);
+    assert_eq!(app.nav_generation, 0);
+}
+
+#[test]
+fn qy48_cross_document_entry_still_reloads() {
+    let Some((mut app, _doc)) = qy48_app("window.L=[];") else { return };
+    // Entry 0 belongs to an earlier document: back to it must fetch.
+    app.history = vec![Url::parse("https://e.org/old").unwrap(), Url::parse("https://e.org/start").unwrap()];
+    app.history_doc = vec![7, app.doc_gen];
+    app.history_index = 1;
+    qy48_eval(&mut app, "history.pushState({}, '', '/p')");
+    assert_eq!(app.history.len(), 3);
+    app.navigate_history(-1);
+    assert_eq!(app.nav_generation, 0, "same-document step");
+    app.navigate_history(-1);
+    assert_eq!(app.nav_generation, 1, "crossing into another document fetches");
+    assert_eq!(app.history_index, 0);
+}
+
+#[test]
+fn qy48_fragment_after_pushstate_stays_in_document() {
+    let Some((mut app, _doc)) = qy48_app("window.L=[];") else { return };
+    qy48_eval(&mut app, "history.pushState({}, '', '/spa'); location.hash = 'sec'");
+    assert_eq!(app.nav_generation, 0, "no fetch for a fragment change after pushState");
+    assert_eq!(app.history.last().map(Url::as_str), Some("https://e.org/spa#sec"));
+    assert_eq!(app.history.len(), 3);
+    assert_eq!(app.base_url.as_ref().map(Url::as_str), Some("https://e.org/spa"));
+}
+
+#[test]
+fn qy48_page_initiated_back_moves_app_index() {
+    let Some((mut app, _doc)) = qy48_app("window.L=[];") else { return };
+    qy48_eval(&mut app, "history.pushState({}, '', '/a'); history.pushState({}, '', '/b')");
+    qy48_eval(&mut app, "history.back()");
+    qy48_run_timers(&mut app);
+    assert_eq!(app.history_index, 1);
+    assert_eq!(app.base_url.as_ref().map(Url::as_str), Some("https://e.org/a"));
+    assert_eq!(app.nav_generation, 0);
+}

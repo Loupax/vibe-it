@@ -256,6 +256,9 @@ pub(crate) fn key_insertion_text(key: &Key) -> Option<&str> {
 /// truth for what a command actually does: a name landing here with no
 /// matching `dispatch_command` arm would complete to something that
 /// then reports itself unknown, not silently do nothing.
+/// QY48: `history_doc` value of an entry whose document is not loaded.
+pub(crate) const NO_DOC: u64 = u64::MAX;
+
 pub(crate) const COMMAND_NAMES: &[&str] = &["go", "help", "historyBack", "historyFront", "q", "quit", "refresh", "set"];
 
 /// `:set`'s own one valid argument, completed the same way `COMMAND_
@@ -788,6 +791,14 @@ pub(crate) struct App {
     /// navigation has happened); `push_history` and `navigate_history`
     /// are the only two places that ever change it.
     pub(crate) history_index: usize,
+    /// QY48: per `history` entry, the `doc_gen` of the document it belongs to
+    /// (`NO_DOC` = not loaded yet). Entries that share the current document's
+    /// id are same-document (pushState / fragment): back/forward to them
+    /// fires `popstate` in the page instead of reloading. May be shorter than
+    /// `history` (missing = `NO_DOC`).
+    pub(crate) history_doc: Vec<u64>,
+    /// QY48: the `nav_generation` that loaded the document on screen.
+    pub(crate) doc_gen: u64,
     /// Incremented every time `start_navigation` fires — tags the
     /// `AppEvent::NavResult` its spawned thread will eventually send
     /// back, so a result from a navigation the user has since moved on
@@ -1038,6 +1049,8 @@ impl App {
             pending_post: None,
             history: Vec::new(),
             history_index: 0,
+            history_doc: Vec::new(),
+            doc_gen: 0,
             nav_generation: 0,
             layout_generation: 0,
             js: None,
@@ -1121,6 +1134,8 @@ impl App {
             pending_post: None,
             history: Vec::new(),
             history_index: 0,
+            history_doc: Vec::new(),
+            doc_gen: 0,
             nav_generation: 0,
             layout_generation: 0,
             js: None,
@@ -1745,6 +1760,9 @@ impl App {
             {
                 w.request_redraw();
             }
+            for ev in std::mem::take(&mut reqs.url_events) {
+                self.apply_url_event(ev);
+            }
             if let Some(href) = reqs.nav {
                 self.navigate_to(&href, true, reqs.nav_replace);
             } else if reqs.reload {
@@ -2002,6 +2020,11 @@ impl App {
                 if let Some((0, target)) = &meta {
                     self.follow_meta_refresh(target.clone());
                     return;
+                }
+                self.doc_gen = generation;
+                self.history_doc.resize(self.history.len(), NO_DOC);
+                if let Some(slot) = self.history_doc.get_mut(self.history_index) {
+                    *slot = generation;
                 }
                 self.replace_document(dom.document, extra_css);
                 // QA6: only now is the document the one the fragment names.
@@ -2703,15 +2726,109 @@ impl App {
     /// seeded here, once, the first time there's nothing else in
     /// `history` yet to truncate against.
     pub(crate) fn push_history(&mut self, url: Url) {
+        let mut seeded = false;
         if self.history.is_empty() {
             if let Some(current) = self.base_url.clone().filter(|b| *b != url) {
                 self.history.push(current);
+                seeded = true;
             }
         } else {
             self.history.truncate(self.history_index + 1);
         }
+        self.history_doc.resize(self.history.len(), NO_DOC);
+        if seeded && let Some(slot) = self.history_doc.last_mut() {
+            *slot = self.doc_gen;
+        }
         self.history.push(url);
+        self.history_doc.push(NO_DOC);
         self.history_index = self.history.len() - 1;
+    }
+
+    /// QY48: the history entry at `i` belongs to the document on screen.
+    fn same_doc_entry(&self, i: usize) -> bool {
+        self.history_doc.get(i).copied().unwrap_or(NO_DOC) == self.doc_gen
+    }
+
+    /// QY48: the page's URL changed without a navigation (`old` -> `new`):
+    /// `base_url` follows unless the page set its own `<base href>` (then
+    /// `base_url` was not the page URL to begin with).
+    fn retarget_base(&mut self, old: Option<&Url>, new: &Url) {
+        let strip = |u: &Url| {
+            let mut u = u.clone();
+            u.set_fragment(None);
+            u
+        };
+        let cur = old.or(self.base_url.as_ref()).map(strip);
+        if self.base_url.as_ref().map(strip) == cur {
+            self.base_url = Some(strip(new));
+        }
+    }
+
+    /// QY48: `history.pushState/replaceState/go` made by the page: update the
+    /// App's URL and history without a fetch.
+    fn apply_url_event(&mut self, ev: crate::js_dom::UrlEv) {
+        use crate::js_dom::UrlEv;
+        match ev {
+            UrlEv::Set(href, replace) => {
+                let Ok(url) = Url::parse(&href) else { return };
+                let old = self.history.get(self.history_index).cloned();
+                if replace {
+                    if let Some(slot) = self.history.get_mut(self.history_index) {
+                        *slot = url.clone();
+                    }
+                } else {
+                    // pushState to the very same URL still adds an entry: seed the
+                    // current page first so it stays reachable.
+                    if self.history.is_empty()
+                        && let Some(cur) = self.base_url.clone()
+                    {
+                        self.history.push(cur);
+                        self.history_doc.push(self.doc_gen);
+                        self.history_index = 0;
+                    }
+                    self.push_history(url.clone());
+                    if let Some(slot) = self.history_doc.get_mut(self.history_index) {
+                        *slot = self.doc_gen;
+                    }
+                }
+                self.retarget_base(old.as_ref(), &url);
+            }
+            UrlEv::Move(delta) => {
+                let Some(i) = self.history_index.checked_add_signed(delta).filter(|&i| i < self.history.len()) else { return };
+                if !self.same_doc_entry(i) {
+                    return;
+                }
+                let old = self.history.get(self.history_index).cloned();
+                self.history_index = i;
+                let url = self.history[i].clone();
+                self.retarget_base(old.as_ref(), &url);
+            }
+        }
+    }
+
+    /// QY48: back/forward to a same-document entry: the page's own state is
+    /// restored (`popstate`), nothing is fetched. False = not applicable.
+    fn traverse_same_document(&mut self, new_index: usize) -> bool {
+        if self.js.is_none() || !self.same_doc_entry(new_index) || !self.same_doc_entry(self.history_index) {
+            return false;
+        }
+        let delta = new_index as isize - self.history_index as isize;
+        let url = self.history[new_index].clone();
+        let Some(js) = &self.js else { return false };
+        if !js.history_traverse(delta, url.as_str()) {
+            return false;
+        }
+        let old = self.history.get(self.history_index).cloned();
+        self.history_index = new_index;
+        self.retarget_base(old.as_ref(), &url);
+        if let Some(frag) = url.fragment() {
+            let frag = frag.to_string();
+            self.apply_fragment(&frag);
+        }
+        if let Some(w) = &self.window {
+            w.request_redraw();
+        }
+        true
     }
 
     /// `:historyBack`/`:historyFront` (`delta` of `-1`/`1`, bound to
@@ -2729,6 +2846,9 @@ impl App {
         let Some(new_index) = self.history_index.checked_add_signed(delta).filter(|&i| i < self.history.len()) else {
             return;
         };
+        if self.traverse_same_document(new_index) {
+            return;
+        }
         self.history_index = new_index;
         self.meta_chain = 0;
         let url = self.history[new_index].clone();
@@ -2782,6 +2902,10 @@ impl App {
             if strip(base) == strip(&url) {
                 let frag = frag.to_string();
                 self.nav_initiator = None;
+                // QY48: the entry for this fragment lives in the current document.
+                if let Some(slot) = self.history_doc.get_mut(self.history_index) {
+                    *slot = self.doc_gen;
+                }
                 self.apply_fragment(&frag);
                 return;
             }
