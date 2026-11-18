@@ -672,11 +672,59 @@ const PRELUDE: &str = r#"
   Object.defineProperty(vv, 'pageLeft', { get: function () { return Number(g.scrollX) || 0; }, configurable: true, enumerable: true });
   Object.defineProperty(vv, 'pageTop', { get: function () { return Number(g.scrollY) || 0; }, configurable: true, enumerable: true });
   Object.defineProperty(g, 'visualViewport', { value: vv, writable: true, configurable: true, enumerable: true });
-  var loc = { href: env.href, protocol: env.protocol, host: env.host, hostname: env.hostname,
+  // QF11: `location` is a plain object whose fields are accessors over a
+  // private store. The PUBLIC setters (page code) navigate; history.pushState
+  // and friends mirror the URL through `__loc_set`, which only writes the store.
+  var locSt = { href: env.href, protocol: env.protocol, host: env.host, hostname: env.hostname,
     port: env.port, pathname: env.pathname, search: env.search, hash: env.hash, origin: env.origin };
+  var loc = {};
+  var noFrag = function (h) { var i = String(h).indexOf('#'); return i < 0 ? String(h) : String(h).slice(0, i); };
+  // Resolves `v` against the document base and navigates (replace = no new
+  // history entry). A fragment-only change stays in the document.
+  var locNav = function (v, replace) {
+    var s = String(v), base = (g.document && g.document.baseURI) || locSt.href, href = s;
+    if (/^\s*javascript:/i.test(s)) {
+      __scratchy_err('scratchy: js: not implemented: javascript: URL navigation ' + JSON.stringify(s.slice(0, 120)));
+      return;
+    }
+    if (base) {
+      var u;
+      try { u = new g.URL(s, base); } catch (e) { throw new g.DOMException("Failed to parse URL from '" + s + "'", 'SyntaxError'); }
+      href = u.href;
+      if (u.protocol === 'file:' && locSt.protocol !== 'file:' && locSt.protocol !== '') {
+        __scratchy_err('scratchy: js: navigation to ' + JSON.stringify(href.slice(0, 120)) + ' refused: file: from ' + locSt.protocol);
+        return;
+      }
+      if (u.href.indexOf('#') >= 0 && noFrag(u.href) === noFrag(locSt.href) && g.__hist_frag) {
+        g.__hist_frag(u.href, !!replace);
+        if (replace) g.__d_nav_replace(u.href); else g.__d_navigate(u.href);
+        return;
+      }
+    }
+    if (replace) g.__d_nav_replace(href); else g.__d_navigate(href);
+  };
+  Object.defineProperty(g, '__loc_set', { value: function (u) {
+    ['href', 'protocol', 'host', 'hostname', 'port', 'pathname', 'search', 'hash', 'origin'].forEach(function (k) { locSt[k] = u[k]; });
+  } });
+  Object.defineProperty(g, '__loc_nav', { value: locNav });
+  Object.keys(locSt).forEach(function (k) {
+    Object.defineProperty(loc, k, {
+      get: function () { return locSt[k]; },
+      set: k === 'origin' ? undefined : function (v) {
+        if (k === 'href') { locNav(v, false); return; }
+        var u;
+        try { u = new g.URL(locSt.href); } catch (e) { return; }
+        u[k] = String(v);
+        locNav(u.href, false);
+      },
+      configurable: true, enumerable: true });
+  });
   loc.toString = function () { return this.href; };
-  loc.assign = loc.replace = loc.reload = function () {};
-  g.location = loc;
+  loc.assign = function assign(u) { locNav(u, false); };
+  loc.replace = function replace(u) { locNav(u, true); };
+  loc.reload = function reload() { g.__d_reload(); };
+  Object.defineProperty(g, 'location', { get: function () { return loc; }, set: function (v) { locNav(v, false); },
+    configurable: true, enumerable: true });
   var doc = ({ readyState: 'loading', title: env.title || '', URL: env.href, documentURI: env.href,
     baseURI: env.href, referrer: '', characterSet: 'UTF-8', contentType: 'text/html', compatMode: 'CSS1Compat',
     nodeType: 9, nodeName: '#document' });
@@ -690,7 +738,7 @@ const PRELUDE: &str = r#"
     get: function () { return (this === g.document && g.__cookie_get) ? String(g.__cookie_get()) : ''; },
     set: function (v) { if (this === g.document && g.__cookie_set) g.__cookie_set(String(v)); },
     configurable: true, enumerable: true });
-  Object.defineProperty(doc, 'location', { get: function () { return g.location; }, configurable: true });
+  Object.defineProperty(doc, 'location', { get: function () { return g.location; }, set: function (v) { g.__loc_nav(v, false); }, configurable: true });
   // QY2: page visibility (the window is always shown).
   Object.defineProperty(doc, 'visibilityState', { get: function () { return 'visible'; }, configurable: true, enumerable: true });
   Object.defineProperty(doc, 'hidden', { get: function () { return false; }, configurable: true, enumerable: true });

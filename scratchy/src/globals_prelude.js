@@ -197,8 +197,7 @@
   function apply(href) {
     if (!href) return; // no page URL (fixtures): nothing to mirror
     var u = new g.URL(href);
-    loc.href = u.href; loc.protocol = u.protocol; loc.host = u.host; loc.hostname = u.hostname;
-    loc.port = u.port; loc.pathname = u.pathname; loc.search = u.search; loc.hash = u.hash; loc.origin = u.origin;
+    g.__loc_set(u); // QF11: the private path (the public `location` setters navigate)
     try { doc.URL = u.href; doc.documentURI = u.href; } catch (e) {}
   }
   function target(url) {
@@ -229,6 +228,15 @@
     entries[idx] = { state: clone(state), href: href };
     apply(href);
   });
+  // QF11: a script's fragment-only navigation (location.hash = ..., assign('#x')):
+  // a new (or replaced) entry, the URL mirror, and an async `hashchange`.
+  Object.defineProperty(g, '__hist_frag', { value: function (href, replace) {
+    var old = loc.href;
+    if (replace) entries[idx] = { state: entries[idx].state, href: href };
+    else { entries.length = idx + 1; entries.push({ state: null, href: href }); idx++; }
+    apply(href);
+    if (old !== href) tm(function () { g.dispatchEvent(new g.HashChangeEvent('hashchange', { oldURL: old, newURL: href })); });
+  } });
   def(H, 'go', function (n) {
     n = Number(n) || 0;
     var to = idx + n;
