@@ -21494,3 +21494,63 @@ fn qan1d0_reduced_motion_default_and_set_motion_flip() {
     set_reduced_motion(true);
     assert_eq!(qan1d0_match("(prefers-reduced-motion: reduce)"), "log:true");
 }
+
+// ---------- QY52: getComputedStyle reuses styles across unrelated writes ----------
+
+#[test]
+fn qy52_get_computed_style_reflects_every_kind_of_write() {
+    let (_e, _d, log) = events_engine(
+        "<html><head><style>.big{font-size:30px} .red{color:rgb(255,0,0)} .a + .b{margin-left:9px} \
+         .box::before{content:'x';color:rgb(0,0,255)} p:empty{padding-left:4px} .anc .kid{display:block}</style></head>\
+         <body><div id=anc><span id=kid class=kid>k</span></div><div id=s1 class=a></div><div id=s2 class=b></div>\
+         <div class=box id=box></div><p id=e>t</p><div id=par><i id=ch>c</i></div></body></html>",
+        "var ch=document.getElementById('ch'); var g=function(id,p){return getComputedStyle(document.getElementById(id)).getPropertyValue(p)};\
+         var o=[];\
+         o.push(g('kid','display'));\
+         document.getElementById('anc').className='anc'; o.push(g('kid','display'));\
+         document.getElementById('anc').className=''; o.push(g('kid','display'));\
+         document.getElementById('kid').style.color='rgb(1,2,3)'; o.push(g('kid','color'));\
+         document.getElementById('par').className='red'; o.push(g('ch','color'));\
+         document.getElementById('par').className='big'; o.push(g('ch','font-size'));\
+         o.push(g('s2','margin-left'));\
+         document.getElementById('s1').className='x'; o.push(g('s2','margin-left'));\
+         document.getElementById('s1').className='a'; o.push(g('s2','margin-left'));\
+         document.getElementById('s2').parentNode.insertBefore(document.createElement('div'), document.getElementById('s2')); o.push(g('s2','margin-left'));\
+         o.push(getComputedStyle(document.getElementById('box'),'::before').color);\
+         var st=document.createElement('style'); st.textContent='.box::before{color:rgb(0,128,0)} .big{font-size:11px}'; document.head.appendChild(st);\
+         o.push(getComputedStyle(document.getElementById('box'),'::before').color); o.push(g('ch','font-size'));\
+         st.sheet.insertRule('#ch{font-size:22px}', st.sheet.cssRules.length); o.push(g('ch','font-size'));\
+         o.push(g('e','padding-left')); document.getElementById('e').textContent=''; o.push(g('e','padding-left'));\
+         document.body.removeChild(document.getElementById('par')); o.push(JSON.stringify(getComputedStyle(ch).getPropertyValue('font-size')));\
+         console.log(o.join('|'));",
+    );
+    let got = log.borrow().join("\n");
+    assert!(
+        got.contains("inline|block|inline|rgb(1, 2, 3)|rgb(255, 0, 0)|30px|9px|0px|9px|0px|rgb(0, 0, 255)|rgb(0, 128, 0)|11px|22px|0px|4px|\"\""),
+        "{got}"
+    );
+}
+
+#[test]
+fn qy52_unrelated_writes_keep_cached_styles_and_stylesheets_invalidate() {
+    let (e, _d, _log) = events_engine(
+        "<html><head><style>.t{color:rgb(9,9,9)}</style></head><body><p id=u>x</p><div><div><div class=t id=t>y</div></div></div></body></html>",
+        "var t=document.getElementById('t'), u=document.getElementById('u'); window.rd=function(){return getComputedStyle(t).color};",
+    );
+    let ev = |code: &str| -> String { e.eval_value("q", code).expect("eval") };
+    assert_eq!(ev("rd()"), "rgb(9, 9, 9)");
+    let (c0, p0) = (crate::js_style::cascade_count(), crate::js_style::parse_count());
+    // Attribute and text writes elsewhere: every read is answered from the cache.
+    assert_eq!(ev("var r; for (var i=0;i<5;i++){ u.setAttribute('data-x',''+i); u.textContent='n'+i; r=rd(); } r"), "rgb(9, 9, 9)");
+    assert_eq!(crate::js_style::cascade_count(), c0, "unrelated writes must not re-cascade");
+    assert_eq!(crate::js_style::parse_count(), p0, "unrelated writes must not re-parse");
+    // A write on the element itself re-cascades just that element.
+    assert_eq!(ev("t.className=''; rd()"), "rgb(0, 0, 0)");
+    let c1 = crate::js_style::cascade_count();
+    assert!(c1 > c0 && c1 - c0 <= 2, "{c0} -> {c1}");
+    // A new stylesheet invalidates everything and is re-parsed (only the new piece).
+    assert_eq!(ev("var st=document.createElement('style'); st.textContent='.t{color:rgb(1,1,1)}'; document.head.appendChild(st); t.className='t'; rd()"), "rgb(1, 1, 1)");
+    assert_eq!(crate::js_style::parse_count() - p0, 1, "only the new <style> is parsed");
+    assert_eq!(ev("st.textContent='.t{color:rgb(2,2,2)}'; rd()"), "rgb(2, 2, 2)");
+    assert_eq!(crate::js_style::parse_count() - p0, 2);
+}

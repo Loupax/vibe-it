@@ -2105,6 +2105,22 @@ pub(crate) fn clear_style_overrides() {
     STYLE_OVERRIDES.with(|m| m.borrow_mut().clear());
 }
 
+/// QY52: like `collect_style_css`, but one entry per `<style>` element (document
+/// order), so `getComputedStyle` can re-parse only the sheets that changed.
+pub(crate) fn collect_style_pieces(handle: &Handle, out: &mut Vec<String>) {
+    if let NodeData::Element { name, .. } = &handle.data
+        && name.local.as_ref() == "style"
+    {
+        let mut s = String::new();
+        collect_style_css(handle, &mut s);
+        out.push(s);
+        return;
+    }
+    for child in handle.children.borrow().iter() {
+        collect_style_pieces(child, out);
+    }
+}
+
 pub(crate) fn collect_style_css(handle: &Handle, out: &mut String) {
     if let NodeData::Element { name, .. } = &handle.data {
         if name.local.as_ref() == "style" {

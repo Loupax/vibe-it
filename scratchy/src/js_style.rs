@@ -9,6 +9,12 @@
 use super::*;
 
 thread_local! {
+    /// QY52: bumped when the external / adopted CSS text changes, so the
+    /// style cache can tell "unchanged" without comparing megabytes.
+    static CSS_VER: std::cell::Cell<(u64, u64)> = const { std::cell::Cell::new((0, 0)) };
+    /// QY52 test seams: cascades run / stylesheet pieces parsed by `StyleCache`.
+    static CASCADES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    static PARSES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
     static EXTRA_CSS: RefCell<String> = const { RefCell::new(String::new()) };
 }
 
@@ -19,6 +25,7 @@ pub(crate) fn set_js_extra_css(css: &str) {
         let mut c = c.borrow_mut();
         if *c != css {
             *c = css.to_string();
+            CSS_VER.with(|v| v.set((v.get().0 + 1, v.get().1)));
         }
     });
 }
@@ -29,7 +36,13 @@ thread_local! {
 
 /// QSD4: the document's adopted stylesheets (cascade after the page CSS).
 pub(crate) fn set_js_adopted_css(css: &str) {
-    ADOPTED_CSS.with(|c| *c.borrow_mut() = css.to_string());
+    ADOPTED_CSS.with(|c| {
+        let mut c = c.borrow_mut();
+        if *c != css {
+            *c = css.to_string();
+            CSS_VER.with(|v| v.set((v.get().0, v.get().1 + 1)));
+        }
+    });
 }
 
 /// The page's external plus adopted CSS (what the layout build receives as
@@ -46,17 +59,165 @@ pub(crate) fn page_css() -> String {
     s
 }
 
+/// What one author stylesheet piece of the cascade came from (QY52).
+#[derive(Clone, PartialEq)]
+enum PieceKey {
+    /// One `<style>` element's effective text.
+    Dom(String),
+    /// The external stylesheets, by `CSS_VER.0`.
+    Extra(u64),
+    /// The adopted stylesheets, by `CSS_VER.1`.
+    Adopted(u64),
+}
+
+struct Piece {
+    key: PieceKey,
+    /// How many rules this piece contributed to `StyleCache::rules`.
+    count: usize,
+    layer: bool,
+    has: bool,
+    /// Some selector reads earlier siblings' attributes (`+`, `~`, `:nth-child(of)`).
+    sib: bool,
+}
+
+struct Entry {
+    fp: u64,
+    /// Set for styles that depend on the clock (animations): valid for this generation only.
+    wgen: Option<u64>,
+    style: ComputedStyle,
+}
+
 #[derive(Default)]
 pub(crate) struct StyleCache {
     wgen: u64,
-    valid: bool,
-    css_source: String,
+    css_ver: (u64, u64),
+    flags: String,
+    pieces: Vec<Piece>,
+    ua_count: usize,
+    /// `@layer` rank numbering spans sheets, so such pages are parsed as one text.
+    concat: bool,
+    /// Some rule uses `:has(`, which reads descendants: no per-element reuse across writes.
+    has_rules: bool,
+    sib_rules: bool,
+    ua_flags: (bool, bool),
     rules: Option<Rc<Vec<StyleRule>>>,
     index: Option<RuleIndex>,
-    map: HashMap<(usize, u8), ComputedStyle>,
-    root_inherited: Option<InheritedStyle>,
+    map: HashMap<(usize, u8), Entry>,
+    root_inherited: Option<(u64, InheritedStyle)>,
     /// QA18c: the document the cached rules/styles belong to.
     root_ptr: usize,
+}
+
+fn mix(h: u64, v: u64) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut s = std::collections::hash_map::DefaultHasher::new();
+    h.hash(&mut s);
+    v.hash(&mut s);
+    s.finish()
+}
+
+/// Hashes what a selector can read of an element (tag, attributes, whether it
+/// is `:empty`); returns whether it is a form control (live state outside the attributes).
+fn hash_el(n: &Handle, h: &mut std::collections::hash_map::DefaultHasher, full: bool) -> bool {
+    use std::hash::Hash;
+    let NodeData::Element { name, attrs, .. } = &n.data else { return false };
+    name.local.as_ref().hash(h);
+    if full {
+        for a in attrs.borrow().iter() {
+            a.name.local.as_ref().hash(h);
+            let v: &str = &a.value;
+            v.hash(h);
+        }
+        n.children
+            .borrow()
+            .iter()
+            .any(|c| match &c.data {
+                NodeData::Element { .. } => true,
+                NodeData::Text { contents } => !contents.borrow().is_empty(),
+                _ => false,
+            })
+            .hash(h);
+    }
+    matches!(name.local.as_ref(), "input" | "option" | "select" | "fieldset" | "optgroup" | "textarea" | "button")
+}
+
+/// A fingerprint of what selector matching of `n` can read besides its
+/// ancestors: its attributes and `:empty`-ness, its siblings (tags of all,
+/// attributes of the earlier ones). The second value says "form control around".
+fn ctx_hash(n: &Handle, sib: bool) -> (u64, bool) {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    let mut formish = hash_el(n, &mut h, true);
+    if let Some(p) = parent_handle(n) {
+        let mut before = true;
+        for c in p.children.borrow().iter() {
+            if Rc::ptr_eq(c, n) {
+                before = false;
+                1u8.hash(&mut h);
+            } else if matches!(c.data, NodeData::Element { .. }) {
+                formish |= hash_el(c, &mut h, before && sib);
+            }
+        }
+    }
+    (h.finish(), formish)
+}
+
+fn interaction_hash() -> u64 {
+    INTERACTION.with(|i| {
+        let i = i.borrow();
+        let mut acc = 0u64;
+        for set in [&i.hover, &i.active, &i.focus_within] {
+            let x = set.iter().fold(0u64, |a, v| a.wrapping_add((*v as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)));
+            acc = mix(acc, x);
+        }
+        acc = mix(acc, i.focus.map_or(0, |f| f as u64 + 1));
+        acc = mix(acc, i.target.map_or(0, |f| f as u64 + 1));
+        mix(acc, i.focus_visible as u64)
+    })
+}
+
+/// Cascades run by `getComputedStyle` so far on this thread (test seam, QY52).
+#[cfg(test)]
+pub(crate) fn cascade_count() -> u64 {
+    CASCADES.with(|c| c.get())
+}
+
+/// Stylesheet pieces parsed so far on this thread (test seam, QY52).
+#[cfg(test)]
+pub(crate) fn parse_count() -> u64 {
+    PARSES.with(|c| c.get())
+}
+
+/// Whether a selector reads descendants (`:has`) or earlier siblings' attributes.
+fn sel_flags(sel: &selectors::parser::Selector<OurSelectorImpl>, has: &mut bool, sib: &mut bool) {
+    use selectors::parser::{Combinator, Component};
+    for c in sel.iter_raw_match_order() {
+        match c {
+            Component::Combinator(Combinator::NextSibling | Combinator::LaterSibling) | Component::NthOf(_) => *sib = true,
+            Component::Has(_) => *has = true,
+            Component::Negation(l) | Component::Is(l) | Component::Where(l) => {
+                l.slice().iter().for_each(|s| sel_flags(s, has, sib));
+            }
+            _ => {}
+        }
+    }
+}
+
+fn parse_piece(key: &PieceKey) -> (Vec<StyleRule>, bool, bool, bool) {
+    PARSES.with(|c| c.set(c.get() + 1));
+    let run = |text: &str| {
+        let rules = parse_stylesheet(text);
+        let (mut has, mut sib) = (false, false);
+        for r in &rules {
+            r.selectors.slice().iter().for_each(|s| sel_flags(s, &mut has, &mut sib));
+        }
+        (rules, text.contains("@layer"), has, sib)
+    };
+    match key {
+        PieceKey::Dom(t) => run(t),
+        PieceKey::Extra(_) => EXTRA_CSS.with(|c| run(&c.borrow())),
+        PieceKey::Adopted(_) => ADOPTED_CSS.with(|c| run(&c.borrow())),
+    }
 }
 
 /// Properties reported by `length`/`item(i)`; every other name returns `''`.
@@ -280,46 +441,139 @@ pub(crate) fn serialize(s: &ComputedStyle, prop: &str) -> String {
     }
 }
 
+
+type Parsed = Vec<(PieceKey, Vec<StyleRule>, bool, bool, bool)>;
+
+fn parse_all(keys: &[PieceKey]) -> Parsed {
+    keys.iter()
+        .map(|k| {
+            let (r, layer, has, sib) = parse_piece(k);
+            (k.clone(), r, layer, has, sib)
+        })
+        .collect()
+}
+
 impl StyleCache {
-    /// Brings the rule set up to date for DOM generation `wgen`.
+    /// Brings the rule set up to date for DOM generation `wgen`: only the
+    /// stylesheet pieces that changed are re-parsed (QY52).
     fn refresh(&mut self, root: &Handle, wgen: u64, page: bool) {
         let rp = Rc::as_ptr(root) as usize;
-        if self.valid && self.wgen == wgen && self.root_ptr == rp {
+        let ver = CSS_VER.with(|v| v.get());
+        if self.rules.is_some() && self.wgen == wgen && self.root_ptr == rp && self.css_ver == ver {
             return;
         }
-        self.root_ptr = rp;
-        self.wgen = wgen;
-        self.valid = true;
-        self.map.clear();
-        self.root_inherited = None;
-        let mut src = String::new();
-        collect_style_css(root, &mut src);
-        src.push('\n');
-        // The fetched stylesheets belong to the page, not to a second document.
-        if page {
-            EXTRA_CSS.with(|c| src.push_str(&c.borrow()));
-            src.push('\n');
-            ADOPTED_CSS.with(|c| src.push_str(&c.borrow()));
+        if self.root_ptr != rp {
+            self.root_ptr = rp;
+            self.map.clear();
+            self.root_inherited = None;
         }
+        self.wgen = wgen;
+        self.css_ver = ver;
+        let mut doms = Vec::new();
+        collect_style_pieces(root, &mut doms);
+        let mut keys: Vec<PieceKey> = doms.into_iter().map(PieceKey::Dom).collect();
+        if page {
+            keys.push(PieceKey::Extra(ver.0));
+            keys.push(PieceKey::Adopted(ver.1));
+        }
+        let mut flags = String::new();
         if !js_enabled() {
-            src.push_str("\n/* nojs */");
+            flags.push_str("nojs;");
         }
         if crate::media_video::boxes_enabled() {
-            src.push_str("\n/* video-box */");
+            flags.push_str("video-box;");
         }
-        if self.rules.is_none() || self.css_source != src {
-            let mut rules = parse_ua_stylesheet(DEFAULT_CSS);
-            if js_enabled() {
-                rules.extend(parse_ua_stylesheet("noscript { display: none; }"));
-            }
-            if crate::media_video::boxes_enabled() {
-                rules.extend(parse_ua_stylesheet("video { display: inline-block; object-fit: contain; }"));
+        let same = self.pieces.len() == keys.len() && self.pieces.iter().zip(&keys).all(|(p, k)| p.key == *k);
+        if self.rules.is_some() && self.flags == flags && same {
+            return;
+        }
+        if self.rules.is_none() || self.flags != flags || !self.splice(&keys) {
+            self.rebuild(keys, flags);
+        }
+        self.map.clear();
+        self.root_inherited = None;
+        self.has_rules = self.ua_flags.0 || self.pieces.iter().any(|p| p.has);
+        self.sib_rules = self.ua_flags.1 || self.pieces.iter().any(|p| p.sib);
+    }
+
+    /// Replaces only the changed middle of the rule list; false when it cannot be done safely.
+    fn splice(&mut self, keys: &[PieceKey]) -> bool {
+        if self.concat {
+            return false;
+        }
+        let (old, new) = (self.pieces.len(), keys.len());
+        let mut p = 0;
+        while p < old && p < new && self.pieces[p].key == keys[p] {
+            p += 1;
+        }
+        let mut sfx = 0;
+        while sfx < old - p && sfx < new - p && self.pieces[old - 1 - sfx].key == keys[new - 1 - sfx] {
+            sfx += 1;
+        }
+        if self.pieces[p..old - sfx].iter().any(|x| x.layer) {
+            return false;
+        }
+        let parsed = parse_all(&keys[p..new - sfx]);
+        if parsed.iter().any(|x| x.2) {
+            return false;
+        }
+        let Some(v) = self.rules.as_mut().and_then(Rc::get_mut) else { return false };
+        let start = self.ua_count + self.pieces[..p].iter().map(|x| x.count).sum::<usize>();
+        let rem = self.pieces[p..old - sfx].iter().map(|x| x.count).sum::<usize>();
+        let mut pieces = Vec::new();
+        let mut rules = Vec::new();
+        for (k, r, layer, has, sib) in parsed {
+            pieces.push(Piece { key: k, count: r.len(), layer, has, sib });
+            rules.extend(r);
+        }
+        v.splice(start..start + rem, rules);
+        let tail = self.pieces.split_off(old - sfx);
+        self.pieces.truncate(p);
+        self.pieces.extend(pieces);
+        self.pieces.extend(tail);
+        self.index = Some(RuleIndex::build(v));
+        true
+    }
+
+    fn rebuild(&mut self, keys: Vec<PieceKey>, flags: String) {
+        let mut rules = parse_ua_stylesheet(DEFAULT_CSS);
+        if js_enabled() {
+            rules.extend(parse_ua_stylesheet("noscript { display: none; }"));
+        }
+        if crate::media_video::boxes_enabled() {
+            rules.extend(parse_ua_stylesheet("video { display: inline-block; object-fit: contain; }"));
+        }
+        self.ua_count = rules.len();
+        let (mut ua_has, mut ua_sib) = (false, false);
+        for r in &rules {
+            r.selectors.slice().iter().for_each(|s| sel_flags(s, &mut ua_has, &mut ua_sib));
+        }
+        self.ua_flags = (ua_has, ua_sib);
+        let parsed = parse_all(&keys);
+        self.concat = parsed.iter().any(|x| x.2);
+        self.pieces.clear();
+        if self.concat {
+            // Layer ranks are numbered across sheets: parse the joined text as one.
+            let mut src = String::new();
+            for (k, _, _, has, sib) in &parsed {
+                match k {
+                    PieceKey::Dom(t) => src.push_str(t),
+                    PieceKey::Extra(_) => EXTRA_CSS.with(|c| src.push_str(&c.borrow())),
+                    PieceKey::Adopted(_) => ADOPTED_CSS.with(|c| src.push_str(&c.borrow())),
+                }
+                src.push('\n');
+                self.pieces.push(Piece { key: k.clone(), count: 0, layer: true, has: *has, sib: *sib });
             }
             rules.extend(parse_stylesheet(&src));
-            self.index = Some(RuleIndex::build(&rules));
-            self.rules = Some(Rc::new(rules));
-            self.css_source = src;
+        } else {
+            for (k, r, layer, has, sib) in parsed {
+                self.pieces.push(Piece { key: k, count: r.len(), layer, has, sib });
+                rules.extend(r);
+            }
         }
+        self.flags = flags;
+        self.index = Some(RuleIndex::build(&rules));
+        self.rules = Some(Rc::new(rules));
     }
 
     /// Style of `h` (optionally its `::before`/`::after`), or `None` if it
@@ -344,6 +598,14 @@ impl StyleCache {
         }
         chain.reverse();
         let vw = current_viewport().0;
+        if self.map.len() > 50_000 {
+            self.map.clear();
+        }
+        // QY52: a cached style is reused while the fingerprint of everything its
+        // cascade can read is unchanged, so a write elsewhere does not invalidate it.
+        let html = find_html_element(root);
+        let root_key = mix(html.as_ref().map_or(0, |h| ctx_hash(h, false).0), vw.to_bits() as u64);
+        let mut acc = mix(root_key, interaction_hash());
         // Make the cascade's selector index apply to our rule slice, then
         // restore whatever the layout build had registered.
         let prev = RULE_INDEX.with(|ri| ri.borrow_mut().take());
@@ -351,25 +613,37 @@ impl StyleCache {
             RULE_INDEX.with(|ri| *ri.borrow_mut() = Some((rules.as_ptr() as usize, rules.len(), idx)));
         }
         let mut inh = match self.root_inherited {
-            Some(r) => r,
-            None => {
-                let rfs = find_html_element(root)
-                    .map(|html| resolve_style(&html, &rules, ROOT_STYLE, vw).font_size)
+            Some((k, r)) if k == root_key => r,
+            _ => {
+                let rfs = html
+                    .as_ref()
+                    .map(|html| {
+                        CASCADES.with(|c| c.set(c.get() + 1));
+                        resolve_style(html, &rules, ROOT_STYLE, vw).font_size
+                    })
                     .unwrap_or(ROOT_STYLE.font_size);
                 let r = InheritedStyle { root_font_size: rfs, ..ROOT_STYLE };
-                self.root_inherited = Some(r);
+                self.root_inherited = Some((root_key, r));
                 r
             }
         };
         let mut out = None;
         let last = chain.len().saturating_sub(1);
         for (i, n) in chain.iter().enumerate() {
+            let (cx, formish) = ctx_hash(n, self.sib_rules);
+            acc = mix(acc, cx);
+            if self.has_rules || formish {
+                acc = mix(acc, wgen);
+            }
+            let fp = acc;
             let key = (Rc::as_ptr(n) as usize, 0u8);
-            let st = match self.map.get(&key).copied() {
-                Some(s) => s,
-                None => {
+            let st = match self.map.get(&key) {
+                Some(e) if e.fp == fp && e.wgen.is_none_or(|w| w == wgen) => e.style,
+                _ => {
+                    CASCADES.with(|c| c.set(c.get() + 1));
                     let s = resolve_style_for(n, &rules, inh, vw, None);
-                    self.map.insert(key, s);
+                    let w = s.animations.is_some().then_some(wgen);
+                    self.map.insert(key, Entry { fp, wgen: w, style: s });
                     s
                 }
             };
@@ -377,11 +651,13 @@ impl StyleCache {
                 out = Some(match pseudo {
                     Some(p) => {
                         let pk = (key.0, if p == "before" { 1u8 } else { 2 });
-                        match self.map.get(&pk).copied() {
-                            Some(s) => s,
-                            None => {
+                        match self.map.get(&pk) {
+                            Some(e) if e.fp == fp && e.wgen.is_none_or(|w| w == wgen) => e.style,
+                            _ => {
+                                CASCADES.with(|c| c.set(c.get() + 1));
                                 let s = resolve_style_for(n, &rules, st.inherited(), vw, Some(p));
-                                self.map.insert(pk, s);
+                                let w = s.animations.is_some().then_some(wgen);
+                                self.map.insert(pk, Entry { fp, wgen: w, style: s });
                                 s
                             }
                         }
