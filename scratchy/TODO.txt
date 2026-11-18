@@ -14,7 +14,7 @@ these.
 QUEUE — ranked work order (reviewed 2026-11-12, re-planned 2026-11-14)
 ========================================================================
 
---- TOP PRIORITY (user, 2026-11-18): SWITCH THE JS ENGINE TO V8; DRAIN, THEN FREEZE ---
+--- TOP PRIORITY (user, 2026-11-18): SWITCH THE JS ENGINE TO V8; DRAIN, THEN FREEZE [DONE; FREEZE LIFTED 2026-11-18 after QV8-m; only QV8-6 (remove QuickJS, needs user OK) remains] ---
 --- READ THIS BEFORE EVERYTHING ELSE IN THIS FILE, INCLUDING CURRENT STATUS BELOW. ---
 
 DECISION (user, 2026-11-18): scratchy moves from QuickJS (rquickjs 0.14) to V8 (the `v8`

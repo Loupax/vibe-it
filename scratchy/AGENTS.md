@@ -1,12 +1,10 @@
 # scratchy — agent instructions
 
 ## Before starting
-- **FREEZE IN FORCE (user, 2026-11-18): V8 migration first.** Read the "TOP PRIORITY ... V8"
-  block at the top of `TODO.txt` QUEUE. Finish and merge work already in flight. Start nothing
-  new except the QV8 items (QT1, the src/tests.rs split, is done) (in
-  order), a fix for red CI or a crash/regression on main, or a
-  docs-only tracking fix. Everything else waits until QV8-m is ticked and the coordinator lifts
-  the freeze.
+- **FREEZE LIFTED (coordinator, 2026-11-18, after QV8-m at 92dd513/0c25634).** V8 is the default
+  engine (QuickJS only behind `engine-quickjs` until QV8-6, which needs the user's OK). Work
+  the TODO.txt queue again in order (READY items). QV8-5b (clippy in media_mpv.rs) comes first;
+  the MSE build (QM1k4 onward, plan in TODO.txt QM1k-PLAN) is allowed now.
 - Read `TODO.txt` (QUEUE section first), `NOTES.md`, `REGRESSIONS.md`.
 - Take the first unchecked QUEUE item (during the freeze: QT1, then the first unchecked QV8 item).
   Don't reorder or merge items.
