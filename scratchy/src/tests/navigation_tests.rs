@@ -121,7 +121,6 @@ fn qy17_layer_statement_fixes_order_and_blocks_reopen() {
 
 #[test]
 fn qy17_important_reverses_layer_order() {
-    let red = TextColor::rgb(255, 0, 0);
     let green = TextColor::rgb(0, 128, 0);
     let h = "<p>x</p>";
     // Earlier layer's important beats a later layer's important.

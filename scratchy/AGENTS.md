@@ -3,7 +3,7 @@
 ## Before starting
 - **FREEZE LIFTED (coordinator, 2026-11-18, after QV8-m at 92dd513/0c25634).** V8 is the default
   engine (QuickJS only behind `engine-quickjs` until QV8-6, which needs the user's OK). Work
-  the TODO.txt queue again in order (READY items). QV8-5b (clippy in media_mpv.rs) comes first;
+  the TODO.txt queue again in order (READY items). QV8-5b (clippy in media_mpv.rs) is done;
   the MSE build (QM1k4 onward, plan in TODO.txt QM1k-PLAN) is allowed now.
 - Read `TODO.txt` (QUEUE section first), `NOTES.md`, `REGRESSIONS.md`.
 - Take the first unchecked QUEUE item (during the freeze: QT1, then the first unchecked QV8 item).
@@ -28,9 +28,8 @@
    one-line change; the list of warnings goes to `outfile`, diff it against
    main's to find new ones). CI (`.github/workflows/ci.yml`: `scratchy` = the DEFAULT build, V8 + media, V8 archive cached and
    sha256-pinned; `wire`, `snag`: build + test; `scratchy-quickjs` = the QuickJS fallback,
-   `--no-default-features --features engine-quickjs,media`, until QV8-6 removes it; it also
-   runs the clippy count with `CLIPPY_FLAGS="--no-default-features --features engine-quickjs"`,
-   the config baseline 78 was measured on; media_mpv.rs adds 12 uncounted warnings, QV8-5b) must be
+   `--no-default-features --features engine-quickjs,media`, until QV8-6 removes it; the clippy
+   count runs in the `scratchy` job on the DEFAULT config, baseline 74, QV8-5b) must be
    green on the PR before merge. Check all four in `statusCheckRollup`. All tests must pass on
    BOTH configs (run the second with its own target dir:
    `CARGO_TARGET_DIR=... cargo test --release --no-default-features --features engine-quickjs,media`).

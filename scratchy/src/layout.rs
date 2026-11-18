@@ -676,7 +676,7 @@ fn last_line_extent(laid: &Laid, cache: &ShapeCache) -> Option<(f32, f32)> {
                     MixedPositioned::Word { id, x, y, w, h } => {
                         // A collapsible-space word takes no room on the line.
                         let blank = cache.get(id).and_then(|c| c.lock().ok()).is_some_and(|sh| {
-                            sh.0.lines.iter().all(|l| trim_css_ws(&l.text()).is_empty())
+                            sh.0.lines.iter().all(|l| trim_css_ws(l.text()).is_empty())
                         });
                         if blank {
                             continue;

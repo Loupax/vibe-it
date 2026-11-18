@@ -5,6 +5,7 @@ use super::*;
 /// A parsed RFC 2397 / Fetch `data:` URL.
 pub(crate) struct DataUrl {
     /// Lower-cased `type/subtype` (default `text/plain`).
+    #[allow(dead_code)] // read by tests only
     pub(crate) mime: String,
     /// The `charset` parameter, if any.
     pub(crate) charset: Option<String>,
@@ -39,7 +40,7 @@ pub(crate) fn percent_decode_bytes(s: &[u8]) -> Vec<u8> {
 fn forgiving_base64(input: &[u8]) -> Option<Vec<u8>> {
     use base64::Engine;
     let mut v: Vec<u8> = input.iter().copied().filter(|b| !matches!(b, b' ' | b'\t' | b'\n' | 0x0C | b'\r')).collect();
-    if v.len() % 4 == 0 {
+    if v.len().is_multiple_of(4) {
         for _ in 0..2 {
             if v.last() == Some(&b'=') {
                 v.pop();
