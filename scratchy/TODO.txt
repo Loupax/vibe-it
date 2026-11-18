@@ -201,6 +201,14 @@ Order: (drain) -> QT1 -> QV8-0 -> QV8-1 -> QV8-2 -> QV8-3 -> QV8-4 -> QV8-5 -> Q
 - [ ] QV8-3d [S] (after QV8-3b/3c) CI job (R39 C5): a fourth scratchy job with `--features engine-v8`;
       it caches the V8 archive (actions/cache) and pins it with RUSTY_V8_ARCHIVE +
       RUSTY_V8_ARCHIVE_SHA256 (sha in R39). The three existing jobs must not need the V8 download.
+- [ ] QM1n [S] BUG (user 2026-11-18, reported with screenshots): https://justinwhitney.com/HTML5Example/
+      (plain `<video width=640 height=360 preload controls>` with `<source>` children: H264 .mov typed
+      video/mp4, .ogv, .webm). Firefox shows four 640x360 players; scratchy shows NO video box at all
+      (the elements take no space; even the inert placeholder is missing). Reddit's `<video src>` was
+      measured to play (R30), so find out why: which build (V8 `engine-v8,media` or QuickJS)? is it
+      `<source>` children only, `preload`, self-closing `<source />`, or layout of an empty replaced
+      box? Repro: plain GET through wire. Needs an investigator first (Opus, docs only), then a fix.
+      PAUSED by the V8 freeze unless the user asks for it earlier.
 - [ ] QV8-4 [M] (after QV8-3) Startup snapshot: the JS preludes (DOM, fetch, globals, intl,
       url, cssom, media, ws) baked into a V8 snapshot at build time; measure page-start CPU
       before/after with `--perf-report`. Drop it if the gain is < 10 ms per page.
