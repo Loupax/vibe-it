@@ -18,7 +18,7 @@
 //! with no double counting.
 use super::*;
 use std::cell::{Cell, RefCell};
-use rquickjs::{Context, Ctx, Error as JsError, Runtime};
+use crate::js_engine::{self, engine_info, Ctx, Engine, EngineOpts};
 use std::time::{Duration, Instant};
 
 /// The default per-callback CPU budget (the old `CALLBACK_BUDGET`).
@@ -509,7 +509,7 @@ pub(crate) fn perf_report(opts: &ReportOpts) -> String {
             }
             js_net::drive_report_net(engine, &mut sched, &*exec);
         }
-        heap = engine.rt.memory_usage().memory_used_size;
+        heap = engine.eng.memory_used();
     }
     let challenge = looks_like_challenge(&html);
     let outcome = if challenge { "challenge" } else { "ok" };
@@ -561,31 +561,25 @@ pub(crate) fn perf_report_main(args: &[String]) -> i32 {
 
 /// A bare QuickJS context (no DOM prelude): `(compile_cpu_ns, run_cpu_ns, error)`.
 fn bare_eval(code: &str, preamble: &[&str]) -> (u64, u64, Option<String>) {
-    use rquickjs::qjs;
-    let Ok(rt) = Runtime::new() else { return (0, 0, Some("no runtime".into())) };
-    rt.set_memory_limit(1 << 30);
-    rt.set_max_stack_size(js_stack_limit());
-    let Ok(ctx) = Context::full(&rt) else { return (0, 0, Some("no context".into())) };
+    let eng = match Engine::new(EngineOpts { memory_limit: 1 << 30, stack_limit: js_stack_limit(), page: None }) {
+        Ok(e) => e,
+        Err(m) => return (0, 0, Some(m.replace("could not create the JS runtime", "no runtime").replace("could not create the JS context", "no context"))),
+    };
     let eval = |ctx: &Ctx<'_>, src: &str| -> (u64, u64, Option<String>) {
-        let (Ok(s), Ok(f)) = (std::ffi::CString::new(src), std::ffi::CString::new("corpus")) else { return (0, 0, Some("NUL in source".into())) };
-        let raw = ctx.as_raw().as_ptr();
+        let Some(source) = js_engine::Source::new(src, "corpus") else { return (0, 0, Some("NUL in source".into())) };
         let t0 = thread_cpu_nanos();
-        // SAFETY: `raw` is this live context; the source is NUL-terminated with `len` excluding the
-        // terminator; the compiled function is consumed by JS_EvalFunction, whose result we free.
-        let func = unsafe { qjs::JS_Eval(raw, s.as_ptr(), src.len() as _, f.as_ptr(), (qjs::JS_EVAL_TYPE_GLOBAL | qjs::JS_EVAL_FLAG_COMPILE_ONLY) as i32) };
-        if unsafe { qjs::JS_IsException(func) } {
-            return (thread_cpu_nanos().saturating_sub(t0), 0, Some(describe_error(ctx, JsError::Exception)));
-        }
+        let Ok(func) = source.compile(ctx) else {
+            return (thread_cpu_nanos().saturating_sub(t0), 0, Some(js_engine::describe_exception(ctx)));
+        };
         let t1 = thread_cpu_nanos();
-        let res = unsafe { qjs::JS_EvalFunction(raw, func) };
+        let res = func.run(ctx);
         let t2 = thread_cpu_nanos();
-        if unsafe { qjs::JS_IsException(res) } {
-            return (t1.saturating_sub(t0), t2.saturating_sub(t1), Some(describe_error(ctx, JsError::Exception)));
+        if res.is_err() {
+            return (t1.saturating_sub(t0), t2.saturating_sub(t1), Some(js_engine::describe_exception(ctx)));
         }
-        drop(unsafe { rquickjs::Value::from_raw(ctx.clone(), res) });
         (t1.saturating_sub(t0), t2.saturating_sub(t1), None)
     };
-    let r = ctx.with(|ctx| {
+    let r = eng.with(|ctx| {
         for p in preamble {
             let r = eval(&ctx, p);
             if r.2.is_some() {
@@ -596,9 +590,7 @@ fn bare_eval(code: &str, preamble: &[&str]) -> (u64, u64, Option<String>) {
     });
     // Run the queued promise jobs of the script too (counted as run time).
     let t = thread_cpu_nanos();
-    while rt.is_job_pending() {
-        let _ = rt.execute_pending_job();
-    }
+    eng.run_all_jobs();
     (r.0, r.1 + thread_cpu_nanos().saturating_sub(t), r.2)
 }
 

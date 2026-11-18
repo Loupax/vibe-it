@@ -12,6 +12,7 @@ mod images_tests;
 mod interaction_tests;
 mod js_core_tests;
 mod js_dom_tests;
+mod js_engine_tests;
 mod js_geometry_tests;
 mod js_observers_tests;
 mod media_tests;

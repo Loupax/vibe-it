@@ -9,8 +9,6 @@
 //! error (runtime fetching is QY15a).
 use super::*;
 use crate::js::{ScriptKind, ScriptSource};
-use rquickjs::loader::{Loader, Resolver};
-use rquickjs::{Ctx, Error as JsError, Module};
 
 /// Graph caps: modules, total source bytes, import depth.
 pub(crate) const MAX_MODULES: usize = 200;
@@ -549,35 +547,5 @@ impl ModuleStore {
             }
         }
         ModuleStore { sources: std::cell::RefCell::new(sources), map: map.unwrap_or_default(), doc_base }
-    }
-}
-
-pub(crate) struct PageResolver(pub(crate) Rc<ModuleStore>);
-pub(crate) struct PageLoader(pub(crate) Rc<ModuleStore>);
-
-impl Resolver for PageResolver {
-    fn resolve<'js>(&mut self, _ctx: &Ctx<'js>, base: &str, name: &str, _attrs: Option<rquickjs::loader::ImportAttributes<'js>>) -> rquickjs::Result<String> {
-        resolve_specifier(name, base, &self.0.map, &self.0.doc_base).map_err(|m| JsError::new_resolving_message(base, name, m))
-    }
-}
-
-impl Loader for PageLoader {
-    fn load<'js>(&mut self, ctx: &Ctx<'js>, name: &str, _attrs: Option<rquickjs::loader::ImportAttributes<'js>>) -> rquickjs::Result<Module<'js, rquickjs::module::Declared>> {
-        let known = self.0.sources.borrow().get(name).cloned();
-        let src = match known {
-            Some(s) => s,
-            None if is_data_url(name) => decode_data_uri_text(name).ok_or_else(|| JsError::new_loading_message(name, "malformed data: URL"))?,
-            None => {
-                return Err(JsError::new_loading_message(name, "module was not pre-fetched (the fetch failed, or it is a run-time import of an unlisted URL: QY15a)"));
-            }
-        };
-        let m = Module::declare(ctx.clone(), name, src)?;
-        // `import.meta.url`: an inline module's name carries a `#inline-module-N` tag.
-        let url = match name.rsplit_once("#inline-module-") {
-            Some((u, _)) => u,
-            None => name,
-        };
-        m.meta()?.set("url", url)?;
-        Ok(m)
     }
 }

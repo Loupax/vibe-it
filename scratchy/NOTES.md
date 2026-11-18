@@ -17,6 +17,7 @@ explained in its own section near the end of this file.
   hooks, custom elements, MutationObserver, IO/RO, template.content,
   second documents and iframes).
 - `src/js_style.rs`: `getComputedStyle` (QA16), cascade-only, no layout.
+- `src/js_engine.rs`: the engine seam (QV8-2). The only file that names `rquickjs`: natives (`native!`), values (`Bytes`, `JsObject`), compile/run, `Engine` (budget, job drain, module loader), error formatting.
 - `src/js_modules.rs`: ES module graph pre-fetch and import maps (QY15).
 - `src/js_net.rs`: page-JS network queue `NetState`, `__net_send`,
   CORS/preflight handling, cookie control natives (QF7, QF13, QF14b).

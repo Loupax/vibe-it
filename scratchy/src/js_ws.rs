@@ -21,7 +21,7 @@
 use super::*;
 use crate::net_policy::*;
 use crate::ws_frames::*;
-use rquickjs::{Ctx, Function, TypedArray};
+use crate::js_engine::{self, native, Bytes, BytesRef, Ctx, JsResult};
 use std::collections::VecDeque;
 use std::net::Shutdown;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -559,37 +559,24 @@ fn run_writer(mut stream: UnixStream, rx: mpsc::Receiver<Cmd>, ctl: Arc<Ctl>, sh
 /// Installs `__ws_open`, `__ws_send_text`, `__ws_send_bin`, `__ws_close`,
 /// `__ws_abort` (the JS class in `ws_prelude.js` captures them).
 pub(crate) fn install_ws<'js>(ctx: &Ctx<'js>, state: Rc<RefCell<WsState>>) {
-    let g = ctx.globals();
     let st = state.clone();
-    if let Ok(f) = Function::new(ctx.clone(), move |url: String, protocols: Vec<String>| -> u32 { st.borrow_mut().open(&url, protocols) as u32 }) {
-        let _ = g.set("__ws_open", f);
-    }
+    native!(ctx, "__ws_open", move |url: String, protocols: Vec<String>| -> u32 { st.borrow_mut().open(&url, protocols) as u32 });
     let st = state.clone();
-    if let Ok(f) = Function::new(ctx.clone(), move |id: u32, text: String| {
+    native!(ctx, "__ws_send_text", move |id: u32, text: String| {
         st.borrow_mut().send(id as u64, OP_TEXT, text.into_bytes());
-    }) {
-        let _ = g.set("__ws_send_text", f);
-    }
+    });
     let st = state.clone();
-    if let Ok(f) = Function::new(ctx.clone(), move |id: u32, data: TypedArray<'js, u8>| {
-        // SAFETY: copied at once on the JS thread; no JS runs while the slice is alive.
-        let bytes: Vec<u8> = unsafe { data.as_bytes() }.map(<[u8]>::to_vec).unwrap_or_default();
-        st.borrow_mut().send(id as u64, OP_BINARY, bytes);
-    }) {
-        let _ = g.set("__ws_send_bin", f);
-    }
+    native!(ctx, "__ws_send_bin", move |id: u32, data: Bytes| {
+        st.borrow_mut().send(id as u64, OP_BINARY, data.0);
+    });
     let st = state.clone();
-    if let Ok(f) = Function::new(ctx.clone(), move |id: u32, code: i32, reason: String| {
+    native!(ctx, "__ws_close", move |id: u32, code: i32, reason: String| {
         st.borrow_mut().close(id as u64, (code >= 0).then_some(code as u16), reason);
-    }) {
-        let _ = g.set("__ws_close", f);
-    }
+    });
     let st = state;
-    if let Ok(f) = Function::new(ctx.clone(), move |id: u32| {
+    native!(ctx, "__ws_abort", move |id: u32| {
         st.borrow_mut().abort(id as u64);
-    }) {
-        let _ = g.set("__ws_abort", f);
-    }
+    });
 }
 
 impl JsEngine {
@@ -629,38 +616,32 @@ impl JsEngine {
         let budget = crate::perf::callback_budget();
         self.arm_budget(budget);
         let span = crate::perf::begin(Some(crate::perf::Kind::NetCallback));
-        self.ctx.with(|ctx| {
-            let res = (|| -> rquickjs::Result<()> {
-                let g = ctx.globals();
-                let id = id as u32;
-                match ev {
-                    WsEvent::Binary(b) => {
-                        let f: Function = g.get("__ws_ev_bin")?;
-                        f.call::<_, ()>((id, TypedArray::<u8>::new_copy(ctx.clone(), &b)?))
-                    }
-                    other => {
-                        let (s, n, b) = match other {
-                            WsEvent::Open(p) => (p, 0.0, false),
-                            WsEvent::Text(t) => (t, 0.0, false),
-                            WsEvent::Close { code, reason, clean } => (reason, code as f64, clean),
-                            WsEvent::Flushed(n) => (String::new(), n as f64, false),
-                            _ => (String::new(), 0.0, false),
-                        };
-                        let f: Function = g.get("__ws_ev")?;
-                        f.call::<_, ()>((id, kind, s, n, b))
-                    }
+        self.eng.with(|ctx| {
+            let id = id as u32;
+            let res: JsResult<()> = match ev {
+                WsEvent::Binary(b) => js_engine::call_global::<_, ()>(&ctx, "__ws_ev_bin", (id, BytesRef(&b))),
+                other => {
+                    let (s, n, b) = match other {
+                        WsEvent::Open(p) => (p, 0.0, false),
+                        WsEvent::Text(t) => (t, 0.0, false),
+                        WsEvent::Close { code, reason, clean } => (reason, code as f64, clean),
+                        WsEvent::Flushed(n) => (String::new(), n as f64, false),
+                        _ => (String::new(), 0.0, false),
+                    };
+                    js_engine::call_global::<_, ()>(&ctx, "__ws_ev", (id, kind, s, n, b))
                 }
-            })();
+            }
+            .unwrap_or_else(|| Err(js_engine::not_a_function()));
             if let Err(e) = res {
-                let msg = describe_error(&ctx, e);
-                if self.tripped.load(Ordering::Relaxed) {
+                let msg = js_engine::describe_error(&ctx, e);
+                if self.tripped() {
                     self.log_interrupted("websocket", "callback", budget, 0);
                 } else {
                     (self.log)("error", &format!("websocket: {msg}"));
                 }
             }
         });
-        crate::perf::end(span, self.tripped.load(Ordering::Relaxed));
+        crate::perf::end(span, self.tripped());
         self.drain_after_task();
     }
 

@@ -4,7 +4,7 @@
 //! holds) turns them into `Element`-like objects. Document id is 0.
 use super::*;
 use markup5ever_rcdom::Node;
-use rquickjs::{Ctx, Function};
+use crate::js_engine::{self, native, Ctx};
 
 #[derive(Default)]
 pub(crate) struct DomTable {
@@ -547,18 +547,10 @@ fn active_element() -> Option<Handle> {
 pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>>, reqs: Rc<RefCell<JsRequests>>) -> Rc<RefCell<DomTable>> {
     let table = Rc::new(RefCell::new(DomTable::default()));
     table.borrow_mut().intern(document);
-    let globals = ctx.globals();
     // QA16: DOM write generation (invalidates the getComputedStyle cache).
     let wgen: Rc<Cell<u64>> = Rc::new(Cell::new(0));
-    macro_rules! native {
-        ($name:expr, $f:expr) => {
-            if let Ok(f) = Function::new(ctx.clone(), $f) {
-                let _ = globals.set($name, f);
-            }
-        };
-    }
     let t = table.clone();
-    native!("__d_byid", move |id: String, doc: i32| -> i32 {
+    native!(ctx, "__d_byid", move |id: String, doc: i32| -> i32 {
         let mut t = t.borrow_mut();
         let Some(root) = t.get(doc) else { return -1 };
         let mut all = Vec::new();
@@ -570,7 +562,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     });
     // `None` (-> JS SyntaxError) for an invalid selector.
     let t = table.clone();
-    native!("__d_query", move |root: i32, sel: String, first: bool| -> Option<Vec<i32>> {
+    native!(ctx, "__d_query", move |root: i32, sel: String, first: bool| -> Option<Vec<i32>> {
         let list = parse_selector(&sel)?;
         let mut t = t.borrow_mut();
         let root = t.get(root)?;
@@ -590,12 +582,12 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     // ONCE and returns, in tree order, the elements whose local name is a
     // defined name, or that carry `is` and whose local name is an extended tag.
     let t = table.clone();
-    native!("__d_ce_add", move |name: String, ext: String| {
+    native!(ctx, "__d_ce_add", move |name: String, ext: String| {
         let mut t = t.borrow_mut();
         if ext.is_empty() { t.ce_names.insert(name); } else { t.ce_exts.insert(ext); }
     });
     let t = table.clone();
-    native!("__d_ce_candidates", move |root: i32| -> Vec<i32> {
+    native!(ctx, "__d_ce_candidates", move |root: i32| -> Vec<i32> {
         let mut t = t.borrow_mut();
         let Some(root) = t.get(root) else { return Vec::new() };
         let mut all = Vec::new();
@@ -611,25 +603,25 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         out
     });
     let t = table.clone();
-    native!("__d_matches", move |id: i32, sel: String| -> Option<bool> {
+    native!(ctx, "__d_matches", move |id: i32, sel: String| -> Option<bool> {
         let list = parse_selector(&sel)?;
         let h = t.borrow().get(id)?;
         Some(is_element(&h) && matches_list(&list, &h))
     });
     let t = table.clone();
-    native!("__d_kind", move |id: i32| -> i32 {
+    native!(ctx, "__d_kind", move |id: i32| -> i32 {
         let t = t.borrow();
         t.get(id).map_or(0, |h| if t.is_frag(id, &h) { 11 } else { node_type(&h) })
     });
     let t = table.clone();
-    native!("__d_ns", move |id: i32| -> String {
+    native!(ctx, "__d_ns", move |id: i32| -> String {
         match t.borrow().get(id).as_deref().map(|h| &h.data) {
             Some(NodeData::Element { name, .. }) => name.ns.as_ref().to_string(),
             _ => String::new(),
         }
     });
     let t = table.clone();
-    native!("__d_tag", move |id: i32| -> String {
+    native!(ctx, "__d_tag", move |id: i32| -> String {
         let Some(h) = t.borrow().get(id) else { return String::new() };
         match &h.data {
             NodeData::Element { name, .. } => {
@@ -648,13 +640,13 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         }
     });
     let t = table.clone();
-    native!("__d_attr", move |id: i32, name: String| -> Option<String> {
+    native!(ctx, "__d_attr", move |id: i32, name: String| -> Option<String> {
         let h = t.borrow().get(id)?;
         element_attr(&h, &name.to_ascii_lowercase()).map(|v| v.to_string())
     });
     // QY11: attribute names in stored order (for `attributes`, `dataset`).
     let t = table.clone();
-    native!("__d_attr_names", move |id: i32| -> Vec<String> {
+    native!(ctx, "__d_attr_names", move |id: i32| -> Vec<String> {
         let Some(h) = t.borrow().get(id) else { return Vec::new() };
         match &h.data {
             NodeData::Element { attrs, .. } => attrs.borrow().iter().map(|a| a.name.local.as_ref().to_string()).collect(),
@@ -662,7 +654,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         }
     });
     let t = table.clone();
-    native!("__d_text", move |id: i32| -> String {
+    native!(ctx, "__d_text", move |id: i32| -> String {
         let mut s = String::new();
         if let Some(h) = t.borrow().get(id) {
             match &h.data {
@@ -673,7 +665,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         s
     });
     let t = table.clone();
-    native!("__d_children", move |id: i32, elements_only: bool| -> Vec<i32> {
+    native!(ctx, "__d_children", move |id: i32, elements_only: bool| -> Vec<i32> {
         let mut t = t.borrow_mut();
         let Some(h) = t.get(id) else { return Vec::new() };
         let kids: Vec<Handle> = h.children.borrow().iter().cloned().collect();
@@ -685,7 +677,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     let hints: Rc<RefCell<HashMap<i32, usize>>> = Rc::new(RefCell::new(HashMap::new()));
     let t = table.clone();
     let hs = hints.clone();
-    native!("__d_sibling", move |id: i32, dir: i32, elements_only: bool| -> i32 {
+    native!(ctx, "__d_sibling", move |id: i32, dir: i32, elements_only: bool| -> i32 {
         let mut t = t.borrow_mut();
         let Some(h) = t.get(id) else { return -1 };
         let Some(p) = parent_handle(&h) else { return -1 };
@@ -705,7 +697,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         }
     });
     let t = table.clone();
-    native!("__d_edge_child", move |id: i32, last: bool, elements_only: bool| -> i32 {
+    native!(ctx, "__d_edge_child", move |id: i32, last: bool, elements_only: bool| -> i32 {
         let mut t = t.borrow_mut();
         let Some(h) = t.get(id) else { return -1 };
         let kids = h.children.borrow();
@@ -716,7 +708,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         }
     });
     let t = table.clone();
-    native!("__d_parent", move |id: i32| -> i32 {
+    native!(ctx, "__d_parent", move |id: i32| -> i32 {
         let mut t = t.borrow_mut();
         match t.get(id).and_then(|h| parent_handle(&h)) {
             Some(p) => t.intern(&p),
@@ -725,7 +717,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     });
     // 0 = documentElement, 1 = head, 2 = body, of document `doc`.
     let t = table.clone();
-    native!("__d_special", move |which: i32, doc: i32| -> i32 {
+    native!(ctx, "__d_special", move |which: i32, doc: i32| -> i32 {
         let mut t = t.borrow_mut();
         let Some(root) = t.get(doc) else { return -1 };
         // QY51: no whole-tree walk. The document element is the first element
@@ -754,7 +746,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     });
     // QJ8: id of the focused element when it is inside document `doc`, else -1.
     let t = table.clone();
-    native!("__d_active", move |doc: i32| -> i32 {
+    native!(ctx, "__d_active", move |doc: i32| -> i32 {
         let mut t = t.borrow_mut();
         let (Some(root), Some(a)) = (t.get(doc), active_element()) else { return -1 };
         let mut top = a.clone();
@@ -766,7 +758,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     // QA16: serialised computed value of `prop` (dashed) for element `id`.
     let (t, gn) = (table.clone(), wgen.clone());
     let cache = Rc::new(RefCell::new(js_style::StyleCache::default()));
-    native!("__d_cs", move |id: i32, pseudo: String, prop: String| -> String {
+    native!(ctx, "__d_cs", move |id: i32, pseudo: String, prop: String| -> String {
         let (page, h) = {
             let t = t.borrow();
             (t.get(0).unwrap(), t.get(id))
@@ -799,7 +791,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     let (t, gn) = (table.clone(), wgen.clone());
     let geom = Rc::new(RefCell::new(crate::js_geom::GeomCache::default()));
     let geom2 = geom.clone();
-    native!("__d_rect", move |id: i32, vw: f64, vh: f64| -> Vec<f64> {
+    native!(ctx, "__d_rect", move |id: i32, vw: f64, vh: f64| -> Vec<f64> {
         let (page, h) = {
             let t = t.borrow();
             (t.get(0), t.get(id))
@@ -810,7 +802,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     // QJ7: per-UTF-16-unit glyph rects of text node `id` (js_geom::text_rects),
     // plus the write generation so script can cache them between DOM writes.
     let (t, gn) = (table.clone(), wgen.clone());
-    native!("__d_textrects", move |id: i32, vw: f64, vh: f64| -> Vec<f64> {
+    native!(ctx, "__d_textrects", move |id: i32, vw: f64, vh: f64| -> Vec<f64> {
         let (page, h) = {
             let t = t.borrow();
             (t.get(0), t.get(id))
@@ -819,12 +811,12 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         geom2.borrow_mut().text_rects(&page, gn.get(), &h, vw as f32, vh as f32)
     });
     let gn = wgen.clone();
-    native!("__d_wgen", move || -> f64 { gn.get() as f64 });
-    native!("__d_csprops", move || -> Vec<String> { js_style::PROPS.iter().map(|s| s.to_string()).collect() });
+    native!(ctx, "__d_wgen", move || -> f64 { gn.get() as f64 });
+    native!(ctx, "__d_csprops", move || -> Vec<String> { js_style::PROPS.iter().map(|s| s.to_string()).collect() });
     // ---- Q33c mutation. Every write marks the page dirty; the event
     // loop rebuilds layout once per turn, not once per call.
     let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
-    native!("__d_setattr", move |id: i32, name: String, val: String| {
+    native!(ctx, "__d_setattr", move |id: i32, name: String, val: String| {
         if let Some(h) = t.borrow().get(id) {
             set_attr(&h, &name.to_ascii_lowercase(), &val);
             d.set(true);
@@ -832,7 +824,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         }
     });
     let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
-    native!("__d_rmattr", move |id: i32, name: String| {
+    native!(ctx, "__d_rmattr", move |id: i32, name: String| {
         if let Some(h) = t.borrow().get(id) {
             remove_attr(&h, &name.to_ascii_lowercase());
             d.set(true);
@@ -842,7 +834,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     // QY45: qualified-name / namespaced attribute access over the stored
     // QualName {prefix, ns, local}. Namespace "" = no namespace.
     let t = table.clone();
-    native!("__d_attr_list", move |id: i32| -> Vec<String> {
+    native!(ctx, "__d_attr_list", move |id: i32| -> Vec<String> {
         let Some(h) = t.borrow().get(id) else { return Vec::new() };
         match &h.data {
             NodeData::Element { attrs, .. } => attrs
@@ -861,18 +853,18 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         }
     });
     let t = table.clone();
-    native!("__d_getq", move |id: i32, name: String| -> Option<String> {
+    native!(ctx, "__d_getq", move |id: i32, name: String| -> Option<String> {
         let h = t.borrow().get(id)?;
         let n = attr_lookup_name(&h, &name);
         attr_find(&h, |a| attr_qname_eq(a, &n))
     });
     let t = table.clone();
-    native!("__d_getns", move |id: i32, ns: String, local: String| -> Option<String> {
+    native!(ctx, "__d_getns", move |id: i32, ns: String, local: String| -> Option<String> {
         let h = t.borrow().get(id)?;
         attr_find(&h, |a| a.name.ns.as_ref() == ns && a.name.local.as_ref() == local)
     });
     let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
-    native!("__d_setq", move |id: i32, name: String, val: String| {
+    native!(ctx, "__d_setq", move |id: i32, name: String, val: String| {
         if let Some(h) = t.borrow().get(id) {
             let n = attr_lookup_name(&h, &name);
             if let NodeData::Element { attrs, .. } = &h.data {
@@ -889,7 +881,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         }
     });
     let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
-    native!("__d_rmq", move |id: i32, name: String| {
+    native!(ctx, "__d_rmq", move |id: i32, name: String| {
         if let Some(h) = t.borrow().get(id) {
             let n = attr_lookup_name(&h, &name);
             if let NodeData::Element { attrs, .. } = &h.data {
@@ -900,7 +892,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         }
     });
     let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
-    native!("__d_setns", move |id: i32, ns: String, prefix: String, local: String, val: String| {
+    native!(ctx, "__d_setns", move |id: i32, ns: String, prefix: String, local: String, val: String| {
         if let Some(h) = t.borrow().get(id) {
             if let NodeData::Element { attrs, .. } = &h.data {
                 let mut attrs = attrs.borrow_mut();
@@ -920,7 +912,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         }
     });
     let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
-    native!("__d_rmns", move |id: i32, ns: String, local: String| {
+    native!(ctx, "__d_rmns", move |id: i32, ns: String, local: String| {
         if let Some(h) = t.borrow().get(id) {
             if let NodeData::Element { attrs, .. } = &h.data {
                 attrs.borrow_mut().retain(|a| !(a.name.ns.as_ref() == ns && a.name.local.as_ref() == local));
@@ -930,7 +922,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         }
     });
     let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
-    native!("__d_settext", move |id: i32, text: String| {
+    native!(ctx, "__d_settext", move |id: i32, text: String| {
         if let Some(h) = t.borrow().get(id) {
             match &h.data {
                 NodeData::Text { contents } => *contents.borrow_mut() = text.as_str().into(),
@@ -942,7 +934,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         }
     });
     let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
-    native!("__d_sethtml", move |id: i32, html: String| {
+    native!(ctx, "__d_sethtml", move |id: i32, html: String| {
         if let Some(h) = t.borrow().get(id) {
             set_inner_html(&h, &html);
             d.set(true);
@@ -951,7 +943,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     });
     // QA13: returns the id of the last inserted node, or -1.
     let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
-    native!("__d_write", move |after: i32, html: String| -> i32 {
+    native!(ctx, "__d_write", move |after: i32, html: String| -> i32 {
         let mut t = t.borrow_mut();
         let Some(a) = t.get(after) else { return -1 };
         let last = write_after(&a, &html);
@@ -960,12 +952,12 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         t.intern(&last)
     });
     let t = table.clone();
-    native!("__d_gethtml", move |id: i32, outer: bool| -> String {
+    native!(ctx, "__d_gethtml", move |id: i32, outer: bool| -> String {
         t.borrow().get(id).map(|h| serialize_node(&h, outer)).unwrap_or_default()
     });
     // kind: 1 element (`s` = tag), 3 text, 8 comment, 11 fragment.
     let t = table.clone();
-    native!("__d_create", move |kind: i32, s: String| -> i32 {
+    native!(ctx, "__d_create", move |kind: i32, s: String| -> i32 {
         let data = match kind {
             1 => NodeData::Element {
                 name: html_name(&s.to_ascii_lowercase()),
@@ -981,7 +973,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     });
     // QY6f: id of a template's content fragment (-1 when not a template).
     let t = table.clone();
-    native!("__d_template_content", move |id: i32| -> i32 {
+    native!(ctx, "__d_template_content", move |id: i32| -> i32 {
         let mut t = t.borrow_mut();
         let content = t.get(id).as_ref().and_then(template_content);
         match content {
@@ -992,19 +984,19 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     // QSD3: shadow-root side table. `__d_shadow_set(host, root)` registers,
     // `__d_shadow_of(host)` -> root id or -1, `__d_shadow_host(root)` -> host id or -1.
     let t = table.clone();
-    native!("__d_shadow_set", move |host: i32, root: i32| {
+    native!(ctx, "__d_shadow_set", move |host: i32, root: i32| {
         let mut t = t.borrow_mut();
         t.shadow_of.insert(host, root);
         t.shadow_host.insert(root, host);
     });
     let t = table.clone();
-    native!("__d_shadow_of", move |host: i32| -> i32 { t.borrow().shadow_of.get(&host).copied().unwrap_or(-1) });
+    native!(ctx, "__d_shadow_of", move |host: i32| -> i32 { t.borrow().shadow_of.get(&host).copied().unwrap_or(-1) });
     let t = table.clone();
-    native!("__d_shadow_host", move |root: i32| -> i32 { t.borrow().shadow_host.get(&root).copied().unwrap_or(-1) });
+    native!(ctx, "__d_shadow_host", move |root: i32| -> i32 { t.borrow().shadow_host.get(&root).copied().unwrap_or(-1) });
     // QA18a: a new detached Document root (its id is registered as a
     // document, not a fragment); a doctype node (name, public, system).
     let t = table.clone();
-    native!("__d_newdoc", move || -> i32 {
+    native!(ctx, "__d_newdoc", move || -> i32 {
         let mut t = t.borrow_mut();
         let id = t.intern(&Node::new(NodeData::Document));
         t.docs.insert(id);
@@ -1014,7 +1006,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     // the iframe's src was not pre-fetched); `__d_load_html` parses a full
     // document into a second document's root.
     let t = table.clone();
-    native!("__d_iframe_page", move |id: i32| -> Vec<String> {
+    native!(ctx, "__d_iframe_page", move |id: i32| -> Vec<String> {
         let t = t.borrow();
         let (Some(h), Some(root)) = (t.get(id), t.get(0)) else { return Vec::new() };
         let Some(src) = element_attr(&h, "src") else { return Vec::new() };
@@ -1026,7 +1018,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         }
     });
     let t = table.clone();
-    native!("__d_load_html", move |id: i32, html: String| {
+    native!(ctx, "__d_load_html", move |id: i32, html: String| {
         let Some(doc) = t.borrow().get(id) else { return };
         let Ok(dom) = new_parser().read_from(&mut html.as_bytes()) else { return };
         clear_children(&doc);
@@ -1040,7 +1032,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     // `<noscript>` content is real elements). Scripts made here are never
     // marked eligible to run.
     let t = table.clone();
-    native!("__d_parse_html", move |id: i32, html: String| {
+    native!(ctx, "__d_parse_html", move |id: i32, html: String| {
         let Some(doc) = t.borrow().get(id) else { return };
         let mut opts = ParseOpts::default();
         opts.tree_builder.scripting_enabled = false;
@@ -1055,7 +1047,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     // QF9a: DOMParser / XHR XML: a well-formedness-checking parse (roxmltree)
     // into the document's root. Returns "" on success, else "message\nline\ncol".
     let t = table.clone();
-    native!("__d_load_xml", move |id: i32, text: String| -> String {
+    native!(ctx, "__d_load_xml", move |id: i32, text: String| -> String {
         let Some(doc) = t.borrow().get(id) else { return String::new() };
         let opts = roxmltree::ParsingOptions { allow_dtd: true, ..Default::default() };
         match roxmltree::Document::parse_with_options(&text, opts) {
@@ -1076,12 +1068,12 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         }
     });
     let t = table.clone();
-    native!("__d_create_doctype", move |name: String, public_id: String, system_id: String| -> i32 {
+    native!(ctx, "__d_create_doctype", move |name: String, public_id: String, system_id: String| -> i32 {
         let data = NodeData::Doctype { name: name.as_str().into(), public_id: public_id.as_str().into(), system_id: system_id.as_str().into() };
         t.borrow_mut().intern(&Node::new(data))
     });
     let t = table.clone();
-    native!("__d_doctype", move |id: i32| -> Vec<String> {
+    native!(ctx, "__d_doctype", move |id: i32| -> Vec<String> {
         match t.borrow().get(id).as_deref().map(|h| &h.data) {
             Some(NodeData::Doctype { name, public_id, system_id }) => vec![name.to_string(), public_id.to_string(), system_id.to_string()],
             _ => Vec::new(),
@@ -1089,7 +1081,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     });
     // QA14: createElementNS keeps the qualified name's case outside XHTML.
     let t = table.clone();
-    native!("__d_create_ns", move |ns: String, name: String| -> i32 {
+    native!(ctx, "__d_create_ns", move |ns: String, name: String| -> i32 {
         let local = if ns.is_empty() || ns == "http://www.w3.org/1999/xhtml" { name.to_ascii_lowercase() } else { name };
         let ns = if ns.is_empty() { html5ever::ns!(html) } else { html5ever::Namespace::from(ns.as_str()) };
         let data = NodeData::Element {
@@ -1101,7 +1093,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         t.borrow_mut().intern(&Node::new(data))
     });
     let t = table.clone();
-    native!("__d_clone", move |id: i32, deep: bool| -> i32 {
+    native!(ctx, "__d_clone", move |id: i32, deep: bool| -> i32 {
         let mut t = t.borrow_mut();
         match t.get(id) {
             Some(h) => t.intern(&clone_node(&h, deep)),
@@ -1110,7 +1102,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     });
     // `before` < 0 appends. `false` = HierarchyRequestError.
     let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
-    native!("__d_insert", move |parent: i32, child: i32, before: i32| -> bool {
+    native!(ctx, "__d_insert", move |parent: i32, child: i32, before: i32| -> bool {
         let t = t.borrow();
         let (Some(p), Some(c)) = (t.get(parent), t.get(child)) else { return false };
         if !matches!(p.data, NodeData::Element { .. } | NodeData::Document) {
@@ -1122,7 +1114,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         ok
     });
     let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
-    native!("__d_remove", move |id: i32| {
+    native!(ctx, "__d_remove", move |id: i32| {
         if let Some(h) = t.borrow().get(id) {
             detach(&h);
             d.set(true);
@@ -1137,8 +1129,8 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     let (t_rf, r_rf, gn_rf) = (table.clone(), reqs.clone(), wgen.clone());
     // Q30c: live checkbox/radio state (forms.rs CHECK_LIVE). Writes only ask the
     // App for a repaint/restyle (`check_changed`), never a DOM-dirty rebuild.
-    native!("__d_checked", move |id: i32| -> bool { ct.borrow().get(id).is_some_and(|h| crate::live_checked(&h)) });
-    native!("__d_setchecked", move |id: i32, v: bool| {
+    native!(ctx, "__d_checked", move |id: i32| -> bool { ct.borrow().get(id).is_some_and(|h| crate::live_checked(&h)) });
+    native!(ctx, "__d_setchecked", move |id: i32, v: bool| {
         if let Some(h) = t_sc.borrow().get(id)
             && crate::set_checked(&h, v)
         {
@@ -1146,8 +1138,8 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             gn_sc.set(gn_sc.get() + 1);
         }
     });
-    native!("__d_indet", move |id: i32| -> bool { t_i.borrow().get(id).is_some_and(|h| crate::live_indeterminate(&h)) });
-    native!("__d_setindet", move |id: i32, v: bool| {
+    native!(ctx, "__d_indet", move |id: i32| -> bool { t_i.borrow().get(id).is_some_and(|h| crate::live_indeterminate(&h)) });
+    native!(ctx, "__d_setindet", move |id: i32, v: bool| {
         if let Some(h) = t_si.borrow().get(id) {
             crate::set_indeterminate(&h, v);
             r_si.borrow_mut().check_changed = true;
@@ -1155,14 +1147,14 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         }
     });
     // The other checked radio of `id`'s group, or -1.
-    native!("__d_radiopeer", move |id: i32| -> i32 {
+    native!(ctx, "__d_radiopeer", move |id: i32| -> i32 {
         let h = t_rp.borrow().get(id);
         match h.and_then(|h| crate::checked_radio_peer(&h)) {
             Some(p) => t_rp.borrow_mut().intern(&p),
             None => -1,
         }
     });
-    native!("__d_resetform", move |id: i32| {
+    native!(ctx, "__d_resetform", move |id: i32| {
         if let Some(h) = t_rf.borrow().get(id)
             && crate::reset_form_state(&h)
         {
@@ -1172,9 +1164,9 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     });
     // Q30g: live select state (forms_select.rs).
     let t_si2 = table.clone();
-    native!("__d_selidx", move |id: i32| -> i32 { t_si2.borrow().get(id).map_or(-1, |h| crate::selected_index(&h)) });
+    native!(ctx, "__d_selidx", move |id: i32| -> i32 { t_si2.borrow().get(id).map_or(-1, |h| crate::selected_index(&h)) });
     let (t_ssi, r_ssi, gn_ssi) = (table.clone(), reqs.clone(), wgen.clone());
-    native!("__d_setselidx", move |id: i32, v: i32| {
+    native!(ctx, "__d_setselidx", move |id: i32, v: i32| {
         if let Some(h) = t_ssi.borrow().get(id) {
             let idx: Vec<usize> = if v >= 0 { vec![v as usize] } else { Vec::new() };
             crate::set_selected_indices(&h, &idx);
@@ -1183,9 +1175,9 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         }
     });
     let t_os = table.clone();
-    native!("__d_optsel", move |id: i32| -> bool { t_os.borrow().get(id).is_some_and(|h| crate::option_is_selected(&h)) });
+    native!(ctx, "__d_optsel", move |id: i32| -> bool { t_os.borrow().get(id).is_some_and(|h| crate::option_is_selected(&h)) });
     let (t_sos, r_sos, gn_sos) = (table.clone(), reqs.clone(), wgen.clone());
-    native!("__d_setoptsel", move |id: i32, v: bool| {
+    native!(ctx, "__d_setoptsel", move |id: i32, v: bool| {
         if let Some(h) = t_sos.borrow().get(id) {
             crate::set_option_selected(&h, v);
             r_sos.borrow_mut().check_changed = true;
@@ -1194,9 +1186,9 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     });
     // Q30d: live text value / selection of input and textarea (forms_text.rs).
     let t_tv = table.clone();
-    native!("__d_tvalue", move |id: i32| -> String { t_tv.borrow().get(id).map(|h| crate::text_value(&h)).unwrap_or_default() });
+    native!(ctx, "__d_tvalue", move |id: i32| -> String { t_tv.borrow().get(id).map(|h| crate::text_value(&h)).unwrap_or_default() });
     let (t_stv, r_stv, gn_stv) = (table.clone(), reqs.clone(), wgen.clone());
-    native!("__d_settvalue", move |id: i32, v: String| {
+    native!(ctx, "__d_settvalue", move |id: i32, v: String| {
         if let Some(h) = t_stv.borrow().get(id) {
             crate::set_text_value(&h, &v);
             r_stv.borrow_mut().text_changed = true;
@@ -1204,11 +1196,11 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         }
     });
     let t_sg = table.clone();
-    native!("__d_selget", move |id: i32, end: bool| -> i32 {
+    native!(ctx, "__d_selget", move |id: i32, end: bool| -> i32 {
         t_sg.borrow().get(id).map_or(0, |h| crate::text_selection(&h, end) as i32)
     });
     let (t_ss, r_ss, gn_ss) = (table.clone(), reqs.clone(), wgen.clone());
-    native!("__d_selset", move |id: i32, a: i32, b: i32| {
+    native!(ctx, "__d_selset", move |id: i32, a: i32, b: i32| {
         if let Some(h) = t_ss.borrow().get(id) {
             crate::set_text_selection(&h, a.max(0) as usize, b.max(0) as usize);
             r_ss.borrow_mut().text_changed = true;
@@ -1217,7 +1209,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     });
     // QB5: focus()/blur() only record a request; the App applies it.
     let (t, r) = (table.clone(), reqs.clone());
-    native!("__d_focus", move |id: i32, focus: bool| {
+    native!(ctx, "__d_focus", move |id: i32, focus: bool| {
         if let Some(h) = t.borrow().get(id) {
             if focus && js_focusable(&h) {
                 set_active_element(Some(&h));
@@ -1231,55 +1223,55 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         }
     });
     let (r, d, gn) = (reqs.clone(), dirty.clone(), wgen.clone());
-    native!("__d_adopted", move |css: String| {
+    native!(ctx, "__d_adopted", move |css: String| {
         crate::js_style::set_js_adopted_css(&css);
         r.borrow_mut().adopted_css = Some(css);
         d.set(true);
         gn.set(gn.get() + 1);
     });
     let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
-    native!("__d_sheet_text", move |id: i32, orig: String, css: String| {
+    native!(ctx, "__d_sheet_text", move |id: i32, orig: String, css: String| {
         if let Some(h) = t.borrow().get(id) {
             crate::images::set_style_override(std::rc::Rc::as_ptr(&h) as usize, orig, css);
             d.set(true);
             gn.set(gn.get() + 1);
         }
     });
-    native!("__d_img_state", move |src: String| -> String { image_state_text(&src) });
+    native!(ctx, "__d_img_state", move |src: String| -> String { image_state_text(&src) });
     let r = reqs.clone();
-    native!("__d_img_req", move |src: String| {
+    native!(ctx, "__d_img_req", move |src: String| {
         r.borrow_mut().imgs.push(src);
     });
     let r = reqs.clone();
-    native!("__d_navigate", move |href: String| {
+    native!(ctx, "__d_navigate", move |href: String| {
         r.borrow_mut().nav = Some(href);
     });
     let r = reqs.clone();
-    native!("__d_nav_replace", move |href: String| {
+    native!(ctx, "__d_nav_replace", move |href: String| {
         let mut r = r.borrow_mut();
         r.nav = Some(href);
         r.nav_replace = true;
     });
     let r = reqs.clone();
-    native!("__d_url_update", move |href: String, replace: bool| {
+    native!(ctx, "__d_url_update", move |href: String, replace: bool| {
         r.borrow_mut().url_events.push(UrlEv::Set(href, replace));
     });
     let r = reqs.clone();
-    native!("__d_url_move", move |delta: i32| {
+    native!(ctx, "__d_url_move", move |delta: i32| {
         r.borrow_mut().url_events.push(UrlEv::Move(delta as isize));
     });
     let r = reqs.clone();
-    native!("__d_reload", move || {
+    native!(ctx, "__d_reload", move || {
         r.borrow_mut().reload = true;
     });
     let t_fd = table.clone();
-    native!("__d_formdata", move |form: i32, submitter: i32| -> String {
+    native!(ctx, "__d_formdata", move |form: i32, submitter: i32| -> String {
         let f = t_fd.borrow().get(form);
         let s = if submitter >= 0 { t_fd.borrow().get(submitter) } else { None };
         f.map(|f| crate::encode_urlencoded(&crate::form_data_set(&f, s.as_ref()))).unwrap_or_default()
     });
     let (t, r) = (table.clone(), reqs.clone());
-    native!("__d_submit", move |form: i32, submitter: i32| {
+    native!(ctx, "__d_submit", move |form: i32, submitter: i32| {
         let f = t.borrow().get(form);
         let s = if submitter >= 0 { t.borrow().get(submitter) } else { None };
         if let Some(f) = f {
@@ -1287,28 +1279,26 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         }
     });
     let r = reqs.clone();
-    native!("__d_scroll", move |x: f64, y: f64, relative: bool| {
+    native!(ctx, "__d_scroll", move |x: f64, y: f64, relative: bool| {
         let f = |v: f64| if v.is_finite() { Some(v) } else { None };
         r.borrow_mut().scroll = Some(ScrollReq { x: f(x), y: f(y), relative });
     });
     // QJ6: element scrolling. `__d_nid` is the layout/App node id of a JS
     // wrapper id (what the App keys its per-box scroll offsets by).
     let t = table.clone();
-    native!("__d_nid", move |id: i32| -> f64 { t.borrow().get(id).map_or(0.0, |h| node_id(&h) as f64) });
+    native!(ctx, "__d_nid", move |id: i32| -> f64 { t.borrow().get(id).map_or(0.0, |h| node_id(&h) as f64) });
     let (t, r) = (table.clone(), reqs.clone());
-    native!("__d_scrollel", move |id: i32, y: f64| {
+    native!(ctx, "__d_scrollel", move |id: i32, y: f64| {
         if let Some(h) = t.borrow().get(id) {
             let mut r = r.borrow_mut();
             r.el_scroll.retain(|(e, _)| !Rc::ptr_eq(e, &h));
             r.el_scroll.push((h, y));
         }
     });
-    let _ = ctx.eval::<(), _>(DOM_PRELUDE);
+    js_engine::eval_quiet(ctx, DOM_PRELUDE);
     // QY40: give `document.all` the [[IsHTMLDDA]] slot (falsy, typeof 'undefined').
-    if let Ok(v) = ctx.globals().get::<_, rquickjs::Value>("__d_all") {
-        unsafe { rquickjs::qjs::JS_SetIsHTMLDDA(ctx.as_raw().as_ptr(), v.as_raw()) };
-    }
-    let _ = ctx.globals().remove("__d_all");
+    js_engine::mark_htmldda(ctx, "__d_all");
+    js_engine::remove_global(ctx, "__d_all");
     table
 }
 
