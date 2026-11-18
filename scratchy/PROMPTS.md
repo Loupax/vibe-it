@@ -7451,3 +7451,9 @@ Done: R38. The `true` is `<img alt="true">` (YouTube calls `setAttribute('alt', 
 **Prompt:** Implement QV8-3c on the `engine-v8` backend: static imports, dynamic import(), import.meta.url, import maps through scratchy's own resolver/loader, module scripts in document order, identical error log formats, strict mode, the runaway-module budget kill, nomodule. Goal: all tests pass on engine-v8; then `--js-report --run-timers 5000` on github.com and old.reddit.com on both builds, filing (not chasing) page errors.
 
 **What changed:** src/js_engine_v8.rs: module section (resolve callback, `HostImportModuleDynamically`, `import.meta` callback, a module cache and the ModuleStore in the engine state, ReferenceError for resolve/load failures as QuickJS); new test qv8_3c_shared_cyclic_and_tla_module_graphs in src/tests/js_core_tests.rs; TODO.txt QV8-3c ticked, QV8-3c1 filed.
+
+## QV8-3d CI job for the V8 engine (scratchy/qv8-3d-ci-v8)
+
+**Prompt:** Implement QV8-3d: a second scratchy CI job building and testing with `--features engine-v8`, V8 archive cached with actions/cache and pinned with RUSTY_V8_ARCHIVE + RUSTY_V8_ARCHIVE_SHA256 (verified against the real download), existing jobs unchanged, decide on an engine-v8 clippy variant, update AGENTS.md checklist step 3.
+
+**What changed:** .github/workflows/ci.yml (job `scratchy-v8`), AGENTS.md checklist step 3, TODO.txt (QV8-3d ticked, clippy-variant note).

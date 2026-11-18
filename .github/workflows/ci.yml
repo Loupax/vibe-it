@@ -71,3 +71,62 @@ jobs:
           base="$(tr -d '[:space:]' < tools/clippy-baseline.txt)"
           echo "clippy total=$total baseline=$base"
           test -n "$total" && [ "$total" -le "$base" ]
+
+  # QV8-3d (R39 C5): scratchy built and tested with the V8 engine backend. A separate job so the
+  # three jobs above never need the V8 download. The ~40 MB V8 static library archive is cached
+  # with actions/cache (keyed on the v8 crate version) and pinned by sha256 (supply-chain pin;
+  # the v8 build script refuses any other archive). No clippy count here: see TODO.txt QV8-3d note.
+  scratchy-v8:
+    name: scratchy-v8
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      V8_VERSION: "152.2.0"
+      V8_ARCHIVE_NAME: librusty_v8_release_x86_64-unknown-linux-gnu.a.gz
+      RUSTY_V8_ARCHIVE_SHA256: b6683e9afcb77fbd8cb2c3acf45d34d52029ab216b332522c95179c12f0fed3c
+    defaults:
+      run:
+        working-directory: scratchy
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: System packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            pkg-config clang libfontconfig1-dev libfreetype-dev \
+            libxkbcommon-dev libwayland-dev libx11-dev libxcb1-dev \
+            fonts-liberation
+      - name: Rust toolchain (pinned)
+        run: |
+          rustup toolchain install 1.96.1 --profile minimal --component clippy
+          rustup default 1.96.1
+          rustc --version
+      - name: V8 archive cache
+        id: v8cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/v8-archive
+          key: v8-archive-${{ env.V8_VERSION }}-${{ env.RUSTY_V8_ARCHIVE_SHA256 }}
+      - name: V8 archive (download on cache miss, verify the pin always)
+        run: |
+          d="$RUNNER_TEMP/v8-archive"
+          mkdir -p "$d"
+          f="$d/$V8_ARCHIVE_NAME"
+          if [ ! -f "$f" ]; then
+            curl -fsSL --retry 5 -o "$f" \
+              "https://github.com/denoland/rusty_v8/releases/download/v${V8_VERSION}/${V8_ARCHIVE_NAME}"
+          fi
+          echo "$RUSTY_V8_ARCHIVE_SHA256  $f" | sha256sum -c -
+          echo "RUSTY_V8_ARCHIVE=$f" >> "$GITHUB_ENV"
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: scratchy
+          key: engine-v8
+      - name: Build (engine-v8)
+        run: cargo build --release --locked --all-targets --features engine-v8
+      - name: Test (engine-v8, only the Liberation fonts visible)
+        run: |
+          export FONTCONFIG_FILE="$(tools/ci-fontconfig.sh /usr/share/fonts/truetype/liberation "$RUNNER_TEMP/fc")"
+          fc-match sans-serif
+          fc-match monospace
+          cargo test --release --locked --features engine-v8

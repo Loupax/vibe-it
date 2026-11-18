@@ -198,9 +198,14 @@ Order: (drain) -> QT1 -> QV8-0 -> QV8-1 -> QV8-2 -> QV8-3 -> QV8-4 -> QV8-5 -> Q
       `Hero video failed to load` (media, libmpv absent); old.reddit.com `assignedElements`/`assignedNodes is
       not a function` (HTMLSlotElement), `createRange().createContextualFragment is not a function`. Same on
       QuickJS only after its budget would allow. Triage each (Opus) before fixing.
-- [ ] QV8-3d [S] (after QV8-3b/3c) CI job (R39 C5): a fourth scratchy job with `--features engine-v8`;
+- [x] QV8-3d [S] (after QV8-3b/3c) CI job (R39 C5): a fourth scratchy job with `--features engine-v8`;
       it caches the V8 archive (actions/cache) and pins it with RUSTY_V8_ARCHIVE +
       RUSTY_V8_ARCHIVE_SHA256 (sha in R39). The three existing jobs must not need the V8 download.
+      DONE: job `scratchy-v8` (689cffc). Clippy count has NO engine-v8 variant: it would lint
+      js_engine_v8.rs plus the v8 crate graph (a second cold lint run) against a baseline
+      (tools/clippy-baseline.txt, 78, default build) that does not model it; a v8 variant needs its
+      own baseline file + a script flag, not trivial. Revisit if js_engine_v8.rs accrues warnings:
+      then run `tools/clippy-count.sh` with `--features engine-v8` against a separate baseline.
 - [ ] QM1n [S] BUG (user 2026-11-18, reported with screenshots): https://justinwhitney.com/HTML5Example/
       (plain `<video width=640 height=360 preload controls>` with `<source>` children: H264 .mov typed
       video/mp4, .ogv, .webm). Firefox shows four 640x360 players; scratchy shows NO video box at all
