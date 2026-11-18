@@ -112,7 +112,7 @@ Order: (drain) -> QT1 -> QV8-0 -> QV8-1 -> QV8-2 -> QV8-3 -> QV8-4 -> QV8-5 -> Q
         + per-job budget like QY46, or document why that is impossible and the replacement).
       STOP and report (do not continue to QV8-2) if: it does not build reproducibly, the JIT
       fails under seccomp, or the corpus is not clearly faster. Output: R39 in REGRESSIONS.md.
-- [x] QV8-2 [L] DONE 2026-11-18 (commit HASH_QV82; src/js_engine.rs; no rquickjs outside it) (after QV8-1) Engine seam, no behaviour change. One module (`js_engine.rs`)
+- [x] QV8-2 [L] DONE 2026-11-18 (commit 2e88add; src/js_engine.rs; no rquickjs outside it) (after QV8-1) Engine seam, no behaviour change. One module (`js_engine.rs`)
       owns everything engine-specific: value conversion for the types natives use (i32, f64,
       bool, String, Vec<f64>, Vec<String>, Option), native registration (the `native!` macro
       in js_dom.rs/js_media.rs and friends become one macro over the seam), eval/modules,
