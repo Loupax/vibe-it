@@ -87,7 +87,16 @@ Order: (drain) -> QT1 -> QV8-0 -> QV8-1 -> QV8-2 -> QV8-3 -> QV8-4 -> QV8-5 -> Q
           tools/perf-corpus.sh, PERF.md skeleton; tests qv8_0_* live in src/tests/perf_tests.rs after QT1); BASELINE numbers still to be taken at the drained hash
           (Opus step). Corpus pins: moment 2.31.0, d3 7.9.2, lodash 4.18.1, three 0.159.0, jquery 4.1.0,
           react+react-dom 18.3.1 (sha256 in tools/perf-corpus.sh). QV8-0 itself NOT ticked.
-- [ ] QV8-1 [M] (P0, after QV8-0, Opus spike) Prove V8 fits scratchy before porting. Behind a
+- [x] QV8-1 [M] DONE 2026-11-18: GO WITH CONDITIONS (REGRESSIONS.md R39; spike on branch
+      scratchy/qv8-1-v8-spike @ bb90047, pushed, NOT merged: coordinator decides what to keep).
+      >>> v8 =152.2.0 (V8 15.2.124.1); prebuilt lib 39.8 MB gz; clean build ~12 min at nice -j2
+          (QuickJS-only 10.5 min); stripped binary 14.8 -> 62.8 MB; two clean builds: same archive
+          + lib sha256. JIT (Sparkplug/Maglev/Turbofan) + 7 worker threads under QNET1 with NO
+          filter change; libmpv plays next to V8. CPU loops 6.1-14.8x faster, corpus compile+first
+          run 2.23x, natives 2.5-5x cheaper. Watchdog budget, pause, stack limit, modules/import()
+          work. V8 DROPS the rest of the microtask queue when a job is terminated (QY44a defer is
+          impossible). No gate tripped. Conditions C1-C6 in R39, folded into QV8-2/QV8-3 below.
+      (P0, after QV8-0, Opus spike) Prove V8 fits scratchy before porting. Behind a
       cargo feature `engine-v8` (off), no change to default builds:
       - Build: the `v8` crate's build script downloads a prebuilt static library from GitHub
         at BUILD time (user OK 2026-11-18; this is not scratchy reaching the internet at run
@@ -109,6 +118,12 @@ Order: (drain) -> QT1 -> QV8-0 -> QV8-1 -> QV8-2 -> QV8-3 -> QV8-4 -> QV8-5 -> Q
       in js_dom.rs/js_media.rs and friends become one macro over the seam), eval/modules,
       timers/job draining, budget, error+stack formatting. QuickJS stays the only backend.
       Every test passes unchanged; clippy count not above baseline. Pure refactor PR.
+      R39 additions: the seam also needs a JS-object reader/builder (js_net's `Object<'js>`
+      request descriptor and completions), a bytes type (8 `TypedArray` sites in js_net/js_ws),
+      a "run nested code from a native" call (js.rs run-script native takes `Ctx`), and must
+      own the 14 raw `rquickjs::qjs` calls (js.rs 9, perf.rs 4, js_dom.rs 1). Native closures
+      live in a per-engine arena (V8 needs that; R39). The spike's FromArg/IntoRet + `native!`
+      (src/v8_spike.rs on the spike branch) is a working model of the V8 side.
 - [ ] QV8-3 [L] (after QV8-2) V8 backend behind `engine-v8`: all `__d_*` natives (js_dom,
       js_media, js_net, js_ws, js_modules), classic + module scripts, importmap, dynamic
       import(), timers, promise jobs, events, MutationObserver/IO/RO delivery, fetch/XHR/
@@ -118,9 +133,31 @@ Order: (drain) -> QT1 -> QV8-0 -> QV8-1 -> QV8-2 -> QV8-3 -> QV8-4 -> QV8-5 -> Q
       or adapt the test with a comment. CI: a second scratchy job with `--features engine-v8`;
       ALL tests green on both engines; WPT subset no new failures under V8.
       Split into QV8-3a/b/c... when filing if it is bigger than one PR (coordinator's call).
+      R39 CONDITIONS (all required; designs measured in the spike, branch scratchy/qv8-1-v8-spike):
+      C1 budget = a watchdog thread that, while a callback is armed, calls
+         `IsolateHandle::request_interrupt` every 2 ms; the interrupt (on the JS thread) reads
+         `script_clock_nanos()` and calls `terminate_execution()`; the caller then
+         `cancel_terminate_execution()`. Budget clock unchanged (thread CPU minus forced layout).
+      C2 promise jobs: `MicrotasksPolicy::Explicit`; per-job budget via a COUNTER-ONLY PromiseHook
+         (`Before` bumps a counter; the watchdog interrupt re-arms the deadline; never read the
+         clock in the hook: 9x slower); `queueMicrotask` implemented in JS over a promise
+         reaction (a native EnqueueMicrotask is invisible to the hook). V8 drops the remaining
+         queue when a job is terminated or the drain cap trips: adapt the QY44a/QY46 tests with
+         a comment, log "remaining jobs dropped" instead of "deferred".
+      C3 stack: `CreateParams::set_stack_limit(sp - min(4 MB, half the thread stack))`.
+      C4 OOM: near-heap-limit callback that terminates the script instead of the process abort;
+         a test with a runaway allocation.
+      C5 CI: the engine-v8 job caches the V8 archive (actions/cache) and pins it with
+         RUSTY_V8_ARCHIVE + RUSTY_V8_ARCHIVE_SHA256 (sha in R39).
+      C6 tell the user in the PR: stripped binary ~14.8 -> ~63 MB, ~2 ms more isolate startup.
+      Suggested split (coordinator's call): QV8-3a eval/console/natives/errors [L, Sonnet];
+      QV8-3b budget watchdog + jobs + stack + OOM (C1-C4) [M, Sonnet]; QV8-3c modules, import(),
+      importmap via the resolve callback [M, Sonnet]; QV8-3d CI job (C5) [S, Sonnet/Haiku].
 - [ ] QV8-4 [M] (after QV8-3) Startup snapshot: the JS preludes (DOM, fetch, globals, intl,
       url, cssom, media, ws) baked into a V8 snapshot at build time; measure page-start CPU
       before/after with `--perf-report`. Drop it if the gain is < 10 ms per page.
+      (R39: empty isolate+context 2.3-2.6 ms CPU vs QuickJS 0.4-0.6 ms; a TRIVIAL snapshot
+      gained nothing; the ~198 KB of prelude JS is the real test.)
 - [ ] QV8-5 [S] (after QV8-3) Make V8 the default engine: `engine-v8` on by default, QuickJS
       behind `engine-quickjs` for one round as a fallback; CI default job on V8. Nested-dwl
       check of YouTube results, Wikipedia, social.loupax.com (grim screenshots).

@@ -1,5 +1,266 @@
 # scratchy — regressions
 
+## R39: V8 fits scratchy: QV8-1 spike (v8 =152.2.0, V8 15.2.124.1) behind `engine-v8`: builds reproducibly, JIT runs under the QNET1 filter with NO filter change, CPU loops 6-15x faster, corpus load 2.2x; budget/stack/modules all workable; promise-job semantics change (Opus investigator QV8-1, 2026-11-18) — VERDICT: GO WITH CONDITIONS (QV8-2/QV8-3 text adjusted; conditions C1-C6 below)
+
+**Status: investigation only.** Spike code on branch `scratchy/qv8-1-v8-spike` (commit bb90047,
+pushed, NOT merged; the coordinator decides what to keep). Default builds unchanged: the
+`v8` dependency is `optional`, the feature `engine-v8` is off, and without it `src/v8_spike.rs`
+is not compiled. The spike adds `scratchy --v8-spike <mode>` (seccomp, corpus, corpus-qjs,
+natives, budget, stack, jobs, modules, startup, memory) and one test
+(`v8_spike_libmpv_plays_next_to_v8_under_netlock`, `--features media,engine-v8`). Machine as in
+PERF.md's baseline (Ryzen 5 PRO 2500U, 4 cores/8 threads, 14 GB, rustc 1.96.1); measurements
+un-niced with nothing else building (load ~1.0, top idle). All numbers are thread CPU
+(`CLOCK_THREAD_CPUTIME_ID`) unless marked wall. Corpus bytes = the QV8-0 pinned files
+(tools/perf-corpus.sh, sha256 verified).
+
+### Gates (QV8-1 STOP conditions): none tripped
+| gate | threshold | result |
+|---|---|---|
+| builds reproducibly | two clean builds in two target dirs, same V8 version and lib checksum, both binaries work | PASS: archive sha256 `b6683e9a...0fed3c` and `librusty_v8.a` sha256 `8b4ff8c1...8cc225` identical in both; both report V8 15.2.124.1-rusty; both pass `--v8-spike seccomp` and `natives` (11/11) |
+| JIT under seccomp | Turbofan/Maglev/Sparkplug reachable, platform threads start, process not killed | PASS: all tiers reached under the filter; 7 `V8 DefaultWorker` threads, every thread `Seccomp: 2`; zero filter changes |
+| clearly faster | >= 2x on the CPU loops AND >= 2x on the corpus (compile + first run, summed) | PASS: loops 6.1-14.8x; corpus 2.23x (145.6 -> 65.3 ms). Per script 1.2-3.1x (lodash 1.19x and moment/d3/react 1.7-1.85x are under 2x on their own) |
+
+### 1. Build
+| item | value |
+|---|---|
+| crate | `v8 = "=152.2.0"` (rusty_v8; newest on crates.io on 2026-11-18 per `cargo info v8`; builds with our pinned rustc 1.96.1, no nightly). V8 15.2.124.1. Default features (`use_custom_libcxx`: V8's own namespaced libc++, no clash with the system one); no pointer compression/sandbox |
+| download | `librusty_v8_release_x86_64-unknown-linux-gnu.a.gz` from `github.com/denoland/rusty_v8/releases/download/v152.2.0/`: **39.8 MB** (39784686 B) gz, 198 MB unpacked `.a`. The build script fetches with deno, else python, else curl (build A used deno, build B python; both installed here) |
+| pinning | Cargo.lock + `=152.2.0`; the build script also honours `RUSTY_V8_ARCHIVE` (local file/URL) + `RUSTY_V8_ARCHIVE_SHA256` (refuses any other archive) |
+| clean build, `nice -n 19 -j2` (build A) | 10 min 45 s wall for all deps incl. v8, + ~1.5 min for the scratchy lib (it failed once on a spike type error and was rebuilt incrementally) = **~12 min 20 s**. The QuickJS-only default build at the same settings: 10 min 31 s. So V8 adds **~2 min** at -j2 (the C++ is prebuilt) |
+| clean build, normal priority, default -j8 (build B, `--locked`, fresh copy of bb90047) | **21 min 51 s wall** (user 49 min). SLOWER than -j2 here: 4-core laptop with SMT, thermals, 14 GB RAM; do not read it as a per-core cost. CI runners will differ |
+| incremental rebuild after a spike edit (-j2, nice) | 1 min 31-36 s (lib compile + link against the 198 MB archive) |
+| binary, unstripped | QuickJS-only 17.7 MB -> with V8 82.3 MB |
+| **binary, stripped** | QuickJS-only **14.8 MB** today (Q33-0 said 11.1 MB; the code grew) -> with V8 **62.8 MB (+48 MB, 4.2x)**; `size` text 14.05 -> 61.40 MB |
+| target dir | +~400 MB per profile (`gn_out/obj/librusty_v8.a` 198 MB + `libv8-*.rlib` 205 MB) |
+
+What CI would need (NOT changed): a clean job downloads 39.8 MB from GitHub releases per build
+unless cached. `Swatinem/rust-cache` would cache the target dir including the ~400 MB of V8
+artefacts (fits the 10 GB repo cache, slow to restore). Cleaner: `actions/cache` of the `.a.gz`
+keyed on the crate version, plus `RUSTY_V8_ARCHIVE=<cached file>` and
+`RUSTY_V8_ARCHIVE_SHA256=b6683e9afcb77fbd8cb2c3acf45d34d52029ab216b332522c95179c12f0fed3c`
+(also a supply-chain pin). Runner disk (~14 GB free on ubuntu-latest) is enough; python3 and curl
+exist on the runner (no deno needed). Extra CI time should be minutes (V8 is prebuilt), NOT
+measured on a runner.
+
+### 2. Runtime under QNET1 (seccomp)
+`scratchy --v8-spike seccomp` (main() installs the filter first, as always):
+- The default platform starts **7 `V8 DefaultWorker` threads** (nproc - 1), all `Seccomp: 2`
+  (filter inherited). Process not killed, nothing logged.
+- JIT: with `--allow-natives-syntax`, `%GetOptimizationStatus` of the hot function = 41
+  (`Optimized | TurboFanned`); a fresh function walked through every tier: cold `Interpreted`
+  (Ignition) -> `%CompileBaseline` = `Baseline` (Sparkplug) -> `Optimized|Maglevved` (Maglev) ->
+  `Optimized|TurboFanned`. Concurrent Turbofan compiles on the worker threads, so they work
+  under the filter.
+- Hot loop `hot(1e5)` x200: JIT 1.72 ms/call steady (sum 337-349 ms) vs `--jitless` 3.53 ms/call
+  (sum 699 ms). (Modulo-heavy loop; the CPU loops below show bigger JIT gains.)
+- **Seccomp changes needed: NONE.** The filter is a deny-list for `socket`/`socketpair`
+  (non-AF_UNIX) and `io_uring_setup`; V8 needs mmap/mprotect (W^X code pages), futex, clone,
+  madvise, all allowed. Nothing V8 did failed or was refused.
+- After V8 ran, on the main thread AND on a new thread: `socket(AF_INET/TCP)`,
+  `socket(AF_INET6/UDP)`, `socket(AF_NETLINK)` = -1 EAFNOSUPPORT; `socket(AF_UNIX)` = ok; DNS for
+  `example.com` fails ("Temporary failure in name resolution").
+- **libmpv next to V8**: test `v8_spike_libmpv_plays_next_to_v8_under_netlock`
+  (`cargo test --release --features media,engine-v8 v8_spike`): filter installed on the test
+  thread first, a V8 isolate runs fib(30) (9.3 ms), then libmpv (dlopen `libmpv.so.2`) loads,
+  plays, seeks and ends a 2 s H.264 clip through the fake-wire channel; V8 still runs after it;
+  AF_INET still refused. Threads at the end: 7 V8 workers + mpv core/demux/vo/9 x av:h264/lua, in
+  one process. PASS.
+- RSS of a process that only started V8 and ran the hot loop: 31 MB.
+
+### 3. One isolate on the JS thread: natives and corpus
+**Natives.** A typed conversion layer (`FromArg` for i32/f64/bool/String/Vec<T>/Option<T>,
+`IntoRet` for those and `()`), a `native!` macro with the SAME closure shape as js_dom.rs
+(`|id: i32, name: String| -> Option<String> {...}`), and one trampoline `FunctionCallback` that
+calls a boxed closure stored in the function's `External` data. Wired: `__scratchy_log`
+(console.log), `__d_tag` (string getter), `__d_nid` (numeric), `__d_rect` (Vec<f64> out, a
+forced layout that pauses the budget) + `__d_set_classes` (Vec<String> in), `__d_attr`
+(Option<String>, None -> null) and `__d_run_script` (compiles and runs JS from inside a native,
+as js.rs `install_script_natives` does). 11/11 checks pass, incl. a nested script calling natives
+and a wrong argument type becoming a TypeError. Call cost, same closures via rquickjs in the same
+binary:
+
+| loop | V8 | QuickJS | ratio |
+|---|---|---|---|
+| 1M `__d_nid` (i32 -> f64) | 45.1 ms | 232.5 ms | 5.2x |
+| 1M `__d_tag` (i32 -> String) | 92.3 ms | 294.6 ms | 3.2x |
+| 100k `__d_attr` (i32, String -> Option<String>) | 18.5 ms | 46.1 ms | 2.5x |
+
+**Corpus.** `--v8-spike corpus` (V8, each script in a fresh isolate, no code cache) vs
+`--v8-spike corpus-qjs` (QuickJS `perf::bare_eval`, same binary), 3 alternating runs, medians,
+ms CPU. Both engines run ALL scripts **bare** (PREAMBLE only; react-dom after react, not
+measured), so jquery throws "jQuery requires a window with a document" on both (the spike has no
+DOM prelude). PERF.md's baseline ran jquery/react-dom with the DOM prelude, so for those two only
+the compile column compares with PERF.md. The QuickJS numbers match PERF.md (three 60.5 vs 59.5,
+d3 35.8 vs 37.6 ms compile).
+
+| script | bytes | QuickJS compile | QuickJS first run | V8 compile | V8 first run | QuickJS total | V8 total | speedup |
+|---|---|---|---|---|---|---|---|---|
+| d3 7.9.2 | 280622 | 35.81 | 3.28 | 11.40 | 10.46 | 39.78 | 21.82 | 1.82x |
+| jquery 4.1.0 (bare, throws) | 78965 | 8.72 | 0.28 | 2.23 | 0.98 | 9.00 | 3.22 | 2.80x |
+| lodash 4.18.1 | 73234 | 9.30 | 1.60 | 2.61 | 6.56 | 10.90 | 9.16 | 1.19x |
+| moment 2.31.0 | 60887 | 5.62 | 0.52 | 1.57 | 2.05 | 6.13 | 3.62 | 1.69x |
+| react 18.3.1 | 10751 | 1.19 | 0.05 | 0.35 | 0.33 | 1.24 | 0.67 | 1.85x |
+| react-dom 18.3.1 (bare) | 131835 | 13.17 | 1.24 | 3.35 | 2.90 | 14.38 | 6.25 | 2.30x |
+| three 0.159.0 | 668024 | 60.45 | 3.68 | 14.52 | 5.99 | 64.12 | 20.51 | 3.13x |
+| **sum** | | | | | | **145.55** | **65.25** | **2.23x** |
+
+Read with care: V8 compiles LAZILY (top level + preparse; inner functions compile on first
+call), so part of its compile moves into "first run": V8's first-run column is HIGHER than
+QuickJS's for every script. Only compile + first run compares; that is the gate number.
+
+| CPU loop (QV8-0 text) | QuickJS first | QuickJS steady | V8 first | V8 steady | speedup first | speedup steady |
+|---|---|---|---|---|---|---|
+| fib(25) | 21.54 | 21.48 | 1.57 | 1.45 | 13.7x | 14.8x |
+| sort 200k objects | 619.6 | 621.6 | 101.4 | 91.7 | 6.1x | 6.8x |
+| JSON round trip | 332.6 | 276.2 | 46.0 | 39.0 | 7.2x | 7.1x |
+
+(first = run 1; steady = median of runs 6-10 of the same compiled script in the same context.
+PERF.md baseline 21.4 / 613 / 328: this binary's QuickJS matches.) V8's sort/JSON runs vary
+82-106 / 38-56 ms between runs (GC); QuickJS's are flat.
+
+**Memory.** One context with moment+d3+lodash+three+react loaded, after a GC:
+
+| | JS heap | process RSS before -> after |
+|---|---|---|
+| V8 | 4.6 MB used (5.3-5.8 MB total) | 9.8 -> 36.7 MB (peak 41 MB) |
+| QuickJS | 5.6 MB used | 9.8 -> 22.4 MB |
+
+V8's heap for the same code is slightly smaller, but each process pays ~15-20 MB more fixed RSS
+(code space, platform, worker stacks). The whole-corpus processes: V8 peak 166 MB (10 isolates
+made and dropped), QuickJS 78 MB. YouTube-size heaps (77-99 MB on QuickJS) not measured.
+
+### 4. Budget, stack, promise jobs
+**Budget watchdog (works).** A `js-watchdog` thread wakes every 2 ms; while a callback is armed
+(deadline in BUDGET-CLOCK ns, an AtomicU64) it calls `IsolateHandle::request_interrupt`. The
+interrupt callback runs ON the JS thread, so it reads the same `script_clock_nanos()` (thread CPU
+minus `pause_budget_since` time) that the QuickJS interrupt handler reads, and calls
+`terminate_execution()` past the deadline. The caller then calls `cancel_terminate_execution()`.
+`--v8-spike budget`, 500 ms budget:
+
+| callback | result | budget clock ms | raw CPU ms |
+|---|---|---|---|
+| `for(;;){}` | killed | 501.9 | 501.9 |
+| next callback | runs | 0.09 | 0.09 |
+| `for(;;){ try{for(;;){}} catch{caught=1} finally{fin=1} }` | killed; `caught`/`fin` stay undefined (termination is uncatchable and skips finally, as QuickJS's kill does, QY22) | 500.6 | 500.6 |
+| runaway recursion that catches its RangeError and recurses again | killed | 501.8 | 501.8 |
+| next callback (globals from before intact) | runs | 0.12 | 0.12 |
+| 20 x `__d_rect` with 40 ms forced layout each + 100 ms of script | **not killed** (pause excluded the layout) | 99.9 | 899.9 |
+| 900 ms of plain script | killed | 500.5 | 500.5 |
+| after the kills: a promise + microtask | runs | 0.15 | 0.16 |
+
+Kill latency with the 2 ms tick: budgets 5/20/50/100 ms stopped at 5.98/20.66/51.72/101.44 ms.
+Overhead: fib(30) 9.18 ms disarmed vs 9.16 ms armed (5 interrupts): none measurable.
+
+**Stack limit (QY47a equivalent, works).** `CreateParams::set_stack_limit(addr)`, addr = current
+stack position - min(4 MB, half of the thread's real stack) (the `js_stack_limit` formula):
+
+| | main thread (8 MB) | 2 MB thread |
+|---|---|---|
+| f(1500), f(10000) | ok, ok | ok, ok |
+| nested constructors (C extends B extends A, `new C(n-1)` inside, 300 deep) | ok | ok |
+| runaway `h(){h()}` | catchable `RangeError: Maximum call stack size exceeded` at depth **13591** | at 13137 |
+| 8 locals per frame | RangeError at depth 8667 | 8853 |
+| uncaught runaway | RangeError reported, isolate keeps working | same |
+| QuickJS, same runaway test, `js_stack_limit()` | depth 2381 | 595 |
+
+V8 frames are ~6-20x smaller than QuickJS's; R36's "YouTube's RangeError swallowed" class goes
+away. No crash in any case.
+
+**Promise jobs one at a time: partly possible; the semantics change.**
+- `MicrotasksPolicy::Explicit` works: nothing runs until `perform_microtask_checkpoint()`.
+- There is NO public V8 API to run ONE microtask: a checkpoint drains all. A per-job budget is
+  still possible with `Isolate::set_promise_hook`: `Before` fires before every promise reaction
+  job (also every `await` resumption: 2 awaits = 2 Before). Cheap form: the hook only bumps a
+  thread-local job counter; the 2 ms watchdog interrupt sees a new value and re-arms the deadline
+  (per-job budget at 2 ms granularity). Measured: 6 jobs x 60 ms under a 100 ms per-job budget
+  all run (drain 359 ms); a runaway job between two good ones is killed at 100.3 ms.
+- **On termination V8 DROPS THE REST OF THE QUEUE.** Measured (A, runaway, C): C never runs, not
+  in the next checkpoint either. Source: v8/src/execution/microtask-queue.cc
+  `MicrotaskQueue::RunMicrotasks`: `if (isolate->is_execution_terminating()) { delete[]
+  ring_buffer_; ... size_ = 0; ... return -1; }`. QuickJS today defers the remaining jobs to the
+  next turn (QY44a). The drain cap (QY46) can only be enforced by terminating, so it drops them
+  too: 20 x 50 ms jobs under a 400 ms cap -> 9 ran, the other 11 are gone.
+- `queueMicrotask` is not in V8 (embedder API). A native over `Isolate::EnqueueMicrotask` is NOT
+  seen by the hook (all such jobs share one budget: 80 ms + 80 ms + runaway were killed as a group
+  at 101 ms and the second 80 ms job was lost). A JS `queueMicrotask(cb)` over
+  `Promise.resolve().then(...)` IS seen (2 Before for 2 jobs).
+- Cost, 200k chained `.then` in one checkpoint: no hook 6.7 ms; hook installed (counter form)
+  17.7 ms; hook reading the CPU clock per job 155-158 ms (`CLOCK_THREAD_CPUTIME_ID` is a real
+  syscall, ~0.7 us: never read the clock in the hook); QuickJS (`execute_pending_job` loop)
+  68-69 ms. Even with the hook V8 is ~4x faster than today.
+
+### 5. Startup, modules, architecture
+**Isolate startup** (CPU, create + context + drop): empty isolate 2.3-2.6 ms; from a trivial
+snapshot (427 KB blob, 200 functions) 2.5-2.9 ms; the same script without snapshot 2.5-2.6 ms;
+QuickJS runtime+context+same script 0.43-0.59 ms. A trivial snapshot gains nothing; V8 costs ~2
+ms more per page than QuickJS before any prelude. The real case (~198 KB of scratchy prelude
+JS: `src/*_prelude.js` plus the JS in js.rs/js_dom.rs) is QV8-4's.
+
+**ES modules / import() / import maps: fit.** `--v8-spike modules`: a static graph through
+`instantiate_module(resolve_cb)` (relative and bare specifiers, the bare one mapped by the
+embedder), `import.meta.url` via `set_host_initialize_import_meta_object_callback`, dynamic
+`import()` from a CLASSIC script (base = the script's resource name) via
+`set_host_import_module_dynamically_callback`, top-level await (evaluate returns a promise), and a
+missing module rejecting with a TypeError: all work. V8 has no import-map support of its own;
+scratchy already resolves specifiers itself (js_modules::PageResolver), which maps 1:1 onto the
+resolve callback. Module records need a URL <-> `v8::Global<Module>` table (identity hash ->
+URL) instead of rquickjs's loader traits. The spike's dynamic import is synchronous; scratchy's
+fetch-then-evaluate must resolve the promise later (QV8-3 detail).
+
+**What makes QV8-2/QV8-3 hard (counted at 24343dc):**
+- ~121 native registrations: js_dom.rs 80 (`native!`), js_media.rs 16, js.rs 14
+  (`Function::new`), js_net.rs 6, js_ws.rs 5; 130 distinct `__*` global names in src. Nearly all
+  take plain Rust types: the spike's FromArg/IntoRet covers them mechanically.
+- Engine values inside natives: js_net.rs takes an `Object<'js>` request descriptor and returns
+  `Object<'js>` completions; 8 `TypedArray` sites (js_net, js_ws: bodies/frames); js.rs's run-script
+  native takes `Ctx` and evals nested code. The seam needs an object reader/builder and a bytes
+  type. No `Persistent` is held across calls anywhere (nothing long-lived to port).
+- 14 raw `rquickjs::qjs` calls (js.rs 9: compile-only eval, `JS_EvalFunction`, exceptions;
+  perf.rs 4; js_dom.rs 1).
+- rusty_v8's pinned-scope API (`v8::scope!`, `PinScope<'s,'i>`, new since 137) is strict about
+  lifetimes; pin the exact version (`=`), upgrades are work.
+- Error/stack text differs (QuickJS `describe_error` appends a stack; V8's `toString` has none
+  and its frames are `at f (url:line:col)`): ~350 tests in the JS area files (js_*, fetch, xhr,
+  perf) need the seam to normalise (QV8-3 already says so).
+- Out of memory: QuickJS has `set_memory_limit` (a catchable error); V8 ABORTS THE PROCESS on heap
+  OOM unless a near-heap-limit callback terminates the script. NOT tested in the spike.
+- Native closures: rquickjs owns them; with V8 the boxes must live in a per-isolate arena dropped
+  with the isolate (the spike leaks them).
+- Process-wide init: `V8::initialize_platform` once per process, flags only before it. Tests
+  (many threads) can each make isolates; fine, but flags like `--jitless` are global.
+
+### Verdict: GO WITH CONDITIONS
+V8 builds reproducibly with a pinned crate and archive hash, runs its full JIT under the QNET1
+filter without any filter change, runs next to libmpv, and the budget/stack/module machinery
+scratchy relies on has working V8 equivalents. Script EXECUTION (what kills YouTube and bbc, R36/
+R37) is 6-15x faster; script LOADING ~2.2x (lazy compile); natives 2.5-5x cheaper to call.
+Conditions (written into QV8-3's TODO text):
+- **C1** Budget = watchdog thread + `request_interrupt` + `terminate_execution` /
+  `cancel_terminate_execution` on the existing budget clock (design above), not wall time.
+- **C2** Promise jobs: Explicit policy; per-job budget by a COUNTER-ONLY PromiseHook re-armed in
+  the watchdog interrupt; `queueMicrotask` in JS over a promise reaction. ACCEPT that a killed job
+  (or a drain-cap trip) drops the rest of the queue (not avoidable with V8's public API); adapt
+  the QY44a/QY46 tests with a comment and log "remaining jobs dropped" instead of "deferred".
+- **C3** Stack limit from the real thread stack via `CreateParams::set_stack_limit` (formula
+  above).
+- **C4** OOM: `add_near_heap_limit_callback` that terminates the script (and raises the limit a
+  little so V8 can unwind), so a heap blow-up is a logged kill, not a process abort; prove it with
+  a test.
+- **C5** CI: a second job with `--features engine-v8`, the V8 archive cached and pinned by
+  `RUSTY_V8_ARCHIVE_SHA256`.
+- **C6** The user accepts the binary growing from 14.8 MB to ~63 MB stripped and ~2 ms more
+  isolate startup per page (QV8-4 may win some back). Informational, not a blocker.
+
+### Not verified
+- Real pages: nothing in the spike runs the DOM prelude or a live page on V8; the page-level win
+  is QV8-m's measurement.
+- OOM behaviour (C4), GC pauses on YouTube-size heaps, heap limits.
+- CI time and disk on a GitHub runner (reasoned from local numbers only).
+- Bit-identical binaries (not attempted; Rust embeds paths). Reproducible here = same pinned
+  archive and lib checksum, same V8 version, both binaries working.
+- The normal-priority build timing is one run, slower than -j2 (laptop thermals/SMT).
+- aarch64 (the filter supports it; a V8 prebuilt exists; not built).
+
 ## R38: YouTube results: every thumbnail shows `true` = an `<img>` whose src is never set (IntersectionObserver reports a 0x0 intersectionRect) and, once set, never fetched (script-set `img.src` is not loaded at all); the grey masthead circles are YouTube's own loading skeleton, shown until a slow main thread gets to stamp the buttons (Opus investigator QY47c, 2026-11-18) — OPEN: QY56, QY57, QY58, QY59, QY60
 
 **Status: investigation only, docs only.** Main 3ba1d8e (QY47a, QY50, QY51, QY52 merged), release
