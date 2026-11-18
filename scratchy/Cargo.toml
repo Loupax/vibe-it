@@ -18,7 +18,8 @@ markup5ever_rcdom = "0.39.0"
 precomputed-hash = "0.1.1"
 resvg = { version = "0.50.0", default-features = false }
 roxmltree = "0.21"
-rquickjs = { version = "=0.14.0", features = ["loader"] }
+# QV8-5: QuickJS is the opt-in fallback engine (feature `engine-quickjs`) until QV8-6 removes it.
+rquickjs = { version = "=0.14.0", features = ["loader"], optional = true }
 selectors = "0.41.0"
 signal-hook = "0.3.17"
 softbuffer = "0.4.8"
@@ -26,16 +27,21 @@ sys-locale = "0.3.2"
 url = "2"
 winit = "0.30.13"
 libloading = { version = "0.8", optional = true }
-# QV8-3a: V8 (rusty_v8). Off by default; its build script downloads a prebuilt static library at
+# QV8-3a: V8 (rusty_v8), the default engine since QV8-5; its build script downloads a prebuilt static library at
 # BUILD time (user OK 2026-11-18); V8 never opens a socket at run time.
 v8 = { version = "=152.2.0", optional = true }
 
 [features]
-# QM1f: the real media backend (libmpv by dlopen). Off by default: without it
-# <video>/<audio> keep the inert placeholder.
+# QV8-5: a plain `cargo build --release` / `cargo install --path .` gives V8 + video.
+default = ["engine-v8", "media"]
+# QM1f: the real media backend (libmpv by dlopen, no build-time dependency). Without libmpv
+# installed at run time <video>/<audio> keep the inert placeholder.
 media = ["dep:libloading"]
-# QV8-3a: the V8 engine backend (src/js_engine_v8.rs) instead of QuickJS (src/js_engine.rs).
+# QV8-3a: the V8 engine backend (src/js_engine_v8.rs), the default.
 engine-v8 = ["dep:v8"]
+# QV8-5: the QuickJS backend (src/js_engine.rs), fallback until QV8-6. Use
+# `--no-default-features --features engine-quickjs[,media]`. Exactly one engine feature must be on.
+engine-quickjs = ["dep:rquickjs"]
 
 [dev-dependencies]
 criterion = "0.5"

@@ -3553,8 +3553,8 @@ feature `media`, libloading dlopen of `libmpv.so.2`): the QM1b options, `vo=null
 `ao=null` (env SCRATCHY_MEDIA_AO), `stream_cb` protocol `scratchy-media://` backed
 by `media_net::MediaStream` (mpv never opens a URL itself), `eof-reached`/
 `playback-restart`/`file-loaded`/`time-pos` mapped to `BackendEvent`s, seeks
-`absolute+exact`. First real load logs `media: mpv`. Default builds have no libmpv
-code and no libloading dependency. `--js-report --run-timers` sets
+`absolute+exact`. First real load logs `media: mpv`. QV8-5: `media` is a DEFAULT feature (libmpv is dlopen'd, so no build-time dependency; without
+libmpv at run time the inert placeholder stays); `--no-default-features` drops it. `--js-report --run-timers` sets
 `__media_wait=20` so the simulated clock still lets a real player advance.
 
 ## QNET1: scratchy cannot reach the internet (seccomp network lock)
@@ -3604,3 +3604,13 @@ built from ../wire into target/wire-for-tests with a local echo server; they ski
 be built; `SCRATCHY_TEST_WIRE=/path/to/wire` overrides). Known limits: no extensions
 (`extensions` is always ''), `on*` handlers run after the `addEventListener` ones, a message is
 delivered whole (no streaming), sending is unbounded (no limit on queued outgoing bytes).
+
+## QV8-5: V8 + media are the default build
+
+`Cargo.toml` `default = ["engine-v8", "media"]`: a plain `cargo build --release` /
+`cargo install --path .` gives V8 (`src/js_engine_v8.rs`) and libmpv video. QuickJS
+(`src/js_engine.rs`, `rquickjs` now an optional dependency) is the opt-in fallback until QV8-6:
+`--no-default-features --features engine-quickjs[,media]`. The two engine features are mutually
+exclusive; `lib.rs` has a `compile_error!` for both or neither. CI: `scratchy` (default, V8
+archive cached + sha256-pinned), `wire`, `snag`, `scratchy-quickjs` (fallback config + clippy
+count via `CLIPPY_FLAGS`). Release binary ~63 MB stripped; first clean build ~15 min.

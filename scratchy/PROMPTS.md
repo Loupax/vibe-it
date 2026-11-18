@@ -7457,3 +7457,9 @@ Done: R38. The `true` is `<img alt="true">` (YouTube calls `setAttribute('alt', 
 **Prompt:** Implement QV8-3d: a second scratchy CI job building and testing with `--features engine-v8`, V8 archive cached with actions/cache and pinned with RUSTY_V8_ARCHIVE + RUSTY_V8_ARCHIVE_SHA256 (verified against the real download), existing jobs unchanged, decide on an engine-v8 clippy variant, update AGENTS.md checklist step 3.
 
 **What changed:** .github/workflows/ci.yml (job `scratchy-v8`), AGENTS.md checklist step 3, TODO.txt (QV8-3d ticked, clippy-variant note).
+
+## QV8-5 V8 + media become the default build (scratchy/qv8-5-v8-default)
+
+**Prompt:** Implement QV8-5: `default = ["engine-v8", "media"]` so a plain `cargo install --path .` gives V8 and video; QuickJS stays behind `engine-quickjs` for one more round (mutually exclusive features with a compile_error!); CI `scratchy` job builds/tests the default (V8 archive cache carried over), a `scratchy-quickjs` job keeps the fallback green; clippy count not raised; update AGENTS.md, NOTES.md, README; all tests on both configs, WPT on V8 with no pass->fail, js-report 0 errors, nested-dwl screenshots.
+
+**What changed:** Cargo.toml (default features, optional rquickjs, `engine-quickjs`), src/lib.rs (engine selection + compile_error!), .github/workflows/ci.yml (V8 cache in the matrix job, new `scratchy-quickjs` job with the clippy count), tools/clippy-count.sh (`CLIPPY_FLAGS`), AGENTS.md, NOTES.md, ../README.md, TODO.txt (QV8-5 ticked, QV8-5b filed: media_mpv.rs adds 12 clippy warnings now that media is default), wpt-expected.txt (css-sizing replaced-element-026, a `<video poster>` test, now PASS with media on).
