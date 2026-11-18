@@ -233,10 +233,18 @@ Order: (drain) -> QT1 -> QV8-0 -> QV8-1 -> QV8-2 -> QV8-3 -> QV8-4 -> QV8-5 -> Q
       install commands (drop `--features media`). QuickJS stays behind a flag until QV8-6.
       behind `engine-quickjs` for one round as a fallback; CI default job on V8. Nested-dwl
       check of YouTube results, Wikipedia, social.loupax.com (grim screenshots).
-- [ ] QV8-5b [S] (Sonnet) media is now a default feature, so `src/media_mpv.rs` is compiled by default and
+- [x] QV8-5b [S] DONE 2026-11-18 (HASH) (Sonnet) media is now a default feature, so `src/media_mpv.rs` is compiled by default and
       clippy reports 12 warnings there (11x E0133 unsafe op in unsafe fn, 1x missing_transmute_annotations;
       measured QV8-5: no-media 78, media 90). Fix them, then move the clippy count job to the default
       config and re-measure the baseline.
+      >>> RESULT: media_mpv.rs warning-free (every st_* callback body in an `unsafe {}` block; the
+          symbol cast is `cast_sym` = transmute_copy, inferred from the field type; no behaviour
+          change). Default config (V8 + media) before: 94; after the media_mpv fixes: 83; after fixing
+          the trivial rest (2 dead_code, unused var, unreachable pattern, needless_borrow,
+          map_clone, unnecessary_map_or, manual_is_multiple_of; removed the unused test-only
+          `js_report_for_scripts`): 74 = new tools/clippy-baseline.txt (was 78 on QuickJS without
+          media). The clippy job moved from scratchy-quickjs to the `scratchy` (default) job. The
+          QuickJS config's own count was not re-measured (job no longer gates it).
 - [x] QV8-m [M] DONE 2026-11-18 (measured at 8dfe2f9, docs commit 92dd513; PERF.md "QV8-m")
       >>> RESULT (V8 vs QuickJS, same hash, interleaved, 7 pages x 3 x 2 budgets): default-budget kills
           2 pages -> 1 (bbc timer still needs 520-536 ms, was 1335-1353; YouTube results worst job

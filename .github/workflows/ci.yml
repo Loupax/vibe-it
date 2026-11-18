@@ -88,10 +88,18 @@ jobs:
       - name: Test
         if: matrix.crate != 'scratchy'
         run: cargo test --release --locked
+      - name: Clippy warning count vs baseline (default config, V8 + media)
+        if: matrix.crate == 'scratchy'
+        run: |
+          out="$(tools/clippy-count.sh)"
+          echo "$out"
+          total="$(echo "$out" | awk '/^TOTAL/ {print $2}')"
+          base="$(tr -d '[:space:]' < tools/clippy-baseline.txt)"
+          echo "clippy total=$total baseline=$base"
+          test -n "$total" && [ "$total" -le "$base" ]
   # QV8-5: the QuickJS fallback config (until QV8-6 removes it): scratchy built and tested with
-  # `--no-default-features --features engine-quickjs,media`. The clippy count (baseline 78) was
-  # measured on QuickJS WITHOUT media (the pre-QV8-5 default); media_mpv.rs adds 12 more warnings
-  # (11x E0133, 1x missing_transmute_annotations) that the count does not cover, see TODO QV8-5b.
+  # `--no-default-features --features engine-quickjs,media`. The clippy count now runs in the
+  # `scratchy` job on the default config (QV8-5b).
   scratchy-quickjs:
     name: scratchy-quickjs
     runs-on: ubuntu-latest
@@ -125,13 +133,3 @@ jobs:
           fc-match sans-serif
           fc-match monospace
           cargo test --release --locked --no-default-features --features engine-quickjs,media
-      - name: Clippy warning count vs baseline (QuickJS config)
-        env:
-          CLIPPY_FLAGS: --no-default-features --features engine-quickjs
-        run: |
-          out="$(tools/clippy-count.sh)"
-          echo "$out"
-          total="$(echo "$out" | awk '/^TOTAL/ {print $2}')"
-          base="$(tr -d '[:space:]' < tools/clippy-baseline.txt)"
-          echo "clippy total=$total baseline=$base"
-          test -n "$total" && [ "$total" -le "$base" ]

@@ -357,7 +357,6 @@ fn q19d_content_url_renders_an_image() {
                 })
                 .sum(),
             BoxContent::Blocks(c) | BoxContent::TableRow(c) => c.iter().map(count_images).sum(),
-            _ => 0,
         }
     }
     let uri = tiny_png_data_uri(7, 5);

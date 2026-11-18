@@ -5819,7 +5819,7 @@ pub(crate) fn parse_supports_in_parens<'i>(input: &mut CssParser<'i>) -> Result<
         Token::ParenthesisBlock => input.parse_nested_block(|i| {
             let state = i.state();
             // `(prop: value)` first; otherwise a nested condition.
-            if let Ok(name) = i.expect_ident().map(|n| n.clone()) {
+            if let Ok(name) = i.expect_ident().cloned() {
                 if i.expect_colon().is_ok() {
                     let mut scratch = Declarations::default();
                     DeclParser { decls: &mut scratch, important: &mut Declarations::default() }

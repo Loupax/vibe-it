@@ -545,7 +545,7 @@ pub(crate) fn cascade_property<T: Clone>(
     let mut best: Option<(u64, T)> = None;
     for &(specificity, decls) in matches {
         if let Some(v) = get(decls) {
-            if best.as_ref().map_or(true, |(s, _)| specificity >= *s) {
+            if best.as_ref().is_none_or(|(s, _)| specificity >= *s) {
                 best = Some((specificity, v));
             }
         }

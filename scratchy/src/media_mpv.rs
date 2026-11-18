@@ -118,12 +118,21 @@ struct Lib {
     rc_free: unsafe extern "C" fn(*mut c_void),
 }
 
+/// Reinterpret a resolved symbol as the typed fn pointer the target field expects (same as
+/// `transmute`, which clippy wants fully annotated; here `T` is inferred from the field).
+///
+/// # Safety
+/// `T` must be the `unsafe extern "C" fn` type matching the symbol's real C signature.
+unsafe fn cast_sym<T: Copy>(f: unsafe extern "C" fn()) -> T {
+    unsafe { std::mem::transmute_copy(&f) }
+}
+
 fn load_lib() -> Option<Lib> {
     unsafe {
         let lib = libloading::Library::new("libmpv.so.2").ok()?;
         macro_rules! sym {
             ($n:literal) => {
-                std::mem::transmute(*lib.get::<unsafe extern "C" fn()>(concat!($n, "\0").as_bytes()).ok()?)
+                cast_sym(*lib.get::<unsafe extern "C" fn()>(concat!($n, "\0").as_bytes()).ok()?)
             };
         }
         Some(Lib {
@@ -174,70 +183,82 @@ struct Cookie {
 }
 
 unsafe extern "C" fn st_open(ud: *mut c_void, uri: *mut c_char, info: *mut StreamCbInfo) -> c_int {
-    let reg = &*(ud as *const Reg);
-    let uri = CStr::from_ptr(uri).to_string_lossy();
-    if !uri.starts_with("scratchy-media://") {
-        return MPV_LOADING_FAILED; // D4: mpv never opens anything else through us
-    }
-    let src = reg.src.lock().unwrap().clone();
-    let (Some(src), Some(socket)) = (src, reg.socket.clone()) else { return MPV_LOADING_FAILED };
-    match MediaStream::open(socket, src, reg.policy.clone()) {
-        Ok(s) => {
-            let cancel = s.cancel_handle();
-            *reg.cancel.lock().unwrap() = Some(cancel.clone());
-            reg.opened.store(true, Ordering::SeqCst);
-            let ck = Box::new(Cookie { stream: s, cancel, reg: reg as *const Reg });
-            *info = StreamCbInfo {
-                cookie: Box::into_raw(ck) as *mut c_void,
-                read_fn: Some(st_read),
-                seek_fn: Some(st_seek),
-                size_fn: Some(st_size),
-                close_fn: Some(st_close),
-                cancel_fn: Some(st_cancel),
-            };
-            0
+    unsafe {
+        let reg = &*(ud as *const Reg);
+        let uri = CStr::from_ptr(uri).to_string_lossy();
+        if !uri.starts_with("scratchy-media://") {
+            return MPV_LOADING_FAILED; // D4: mpv never opens anything else through us
         }
-        Err(e) => {
-            *reg.err.lock().unwrap() = Some(e);
-            MPV_LOADING_FAILED
+        let src = reg.src.lock().unwrap().clone();
+        let (Some(src), Some(socket)) = (src, reg.socket.clone()) else { return MPV_LOADING_FAILED };
+        match MediaStream::open(socket, src, reg.policy.clone()) {
+            Ok(s) => {
+                let cancel = s.cancel_handle();
+                *reg.cancel.lock().unwrap() = Some(cancel.clone());
+                reg.opened.store(true, Ordering::SeqCst);
+                let ck = Box::new(Cookie { stream: s, cancel, reg: reg as *const Reg });
+                *info = StreamCbInfo {
+                    cookie: Box::into_raw(ck) as *mut c_void,
+                    read_fn: Some(st_read),
+                    seek_fn: Some(st_seek),
+                    size_fn: Some(st_size),
+                    close_fn: Some(st_close),
+                    cancel_fn: Some(st_cancel),
+                };
+                0
+            }
+            Err(e) => {
+                *reg.err.lock().unwrap() = Some(e);
+                MPV_LOADING_FAILED
+            }
         }
     }
 }
 unsafe extern "C" fn st_read(c: *mut c_void, buf: *mut c_char, n: u64) -> i64 {
-    let ck = &mut *(c as *mut Cookie);
-    let out = std::slice::from_raw_parts_mut(buf as *mut u8, n as usize);
-    match ck.stream.read(out) {
-        Ok(k) => k as i64,
-        Err(e) => {
-            if e != MediaNetError::Cancelled {
-                *(*ck.reg).err.lock().unwrap() = Some(e);
+    unsafe {
+        let ck = &mut *(c as *mut Cookie);
+        let out = std::slice::from_raw_parts_mut(buf as *mut u8, n as usize);
+        match ck.stream.read(out) {
+            Ok(k) => k as i64,
+            Err(e) => {
+                if e != MediaNetError::Cancelled {
+                    *(*ck.reg).err.lock().unwrap() = Some(e);
+                }
+                -1
             }
-            -1
         }
     }
 }
 unsafe extern "C" fn st_seek(c: *mut c_void, off: i64) -> i64 {
-    let ck = &mut *(c as *mut Cookie);
-    if off < 0 {
-        return MPV_UNSUPPORTED as i64;
-    }
-    match ck.stream.seek(off as u64) {
-        Ok(p) => p as i64,
-        Err(_) => -1,
+    unsafe {
+        let ck = &mut *(c as *mut Cookie);
+        if off < 0 {
+            return MPV_UNSUPPORTED as i64;
+        }
+        match ck.stream.seek(off as u64) {
+            Ok(p) => p as i64,
+            Err(_) => -1,
+        }
     }
 }
 unsafe extern "C" fn st_size(c: *mut c_void) -> i64 {
-    match (*(c as *mut Cookie)).stream.size() {
-        Some(s) => s as i64,
-        None => MPV_UNSUPPORTED as i64,
+    unsafe {
+        match (*(c as *mut Cookie)).stream.size() {
+            Some(s) => s as i64,
+            None => MPV_UNSUPPORTED as i64,
+        }
     }
 }
 unsafe extern "C" fn st_close(c: *mut c_void) {
-    drop(Box::from_raw(c as *mut Cookie));
+    unsafe {
+        drop(Box::from_raw(c as *mut Cookie));
+    }
 }
 unsafe extern "C" fn st_cancel(c: *mut c_void) {
-    // Only the `cancel` field: the reader thread holds the `stream` field.
-    (*std::ptr::addr_of!((*(c as *mut Cookie)).cancel)).cancel();
+    unsafe {
+        // Only the `cancel` field: the reader thread holds the `stream` field.
+        (*std::ptr::addr_of!((*(c as *mut Cookie)).cancel)).cancel();
+    }
 }
 
 pub(crate) struct MpvBackend {

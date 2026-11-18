@@ -1801,14 +1801,6 @@ pub(crate) fn run_page_scripts(document: &Handle, scripts: &[ScriptSource], page
 /// QY14: bounds for the `--run-timers` pump.
 const REPORT_MAX_TIMER_CALLBACKS: usize = 5000;
 
-/// QJ3: runs `scripts` with a collecting log and returns the report
-/// text: every error line, then a summary (scripts run, errors total,
-/// errors grouped by first line with counts, most frequent first).
-#[cfg(test)]
-pub(crate) fn js_report_for_scripts(document: &Handle, scripts: &[ScriptSource]) -> String {
-    js_report_for_scripts_timers(document, scripts, None)
-}
-
 /// QY14: `run_timers = Some(ms)` also pumps the page's timer queue after
 /// the scripts ran, on a manual clock (simulated time, no sleeping): jump
 /// to each next due time up to `ms`, run the due callbacks (each under the
