@@ -835,6 +835,28 @@ fn qy15_module_syntax_error_and_throw_are_logged_with_url() {
     assert!(log[1].starts_with("error:https://example.test/dir/thrower.js: ") && log[1].contains("boom"), "{log:?}");
 }
 
+/// QV8-3c: a shared dependency runs once, an import cycle links, a dependency with top-level
+/// await finishes before its importer runs, and a failed instantiation rejects `import()`.
+#[test]
+fn qv8_3c_shared_cyclic_and_tla_module_graphs() {
+    let log = run_module_page(
+        "<script type=module src=a.js></script><script type=module src=b.js></script>\
+         <script type=module>try { await import('./nope.js'); } catch (e) { console.log('rejected'); }</script>",
+        &[
+            ("https://example.test/dir/a.js", "import './shared.js'; import { c } from './cyc.js'; import { t } from './tla.js'; console.log('a ' + c() + t);"),
+            ("https://example.test/dir/b.js", "import './shared.js'; console.log('b');"),
+            ("https://example.test/dir/shared.js", "console.log('shared');"),
+            ("https://example.test/dir/cyc.js", "import { d } from './cyc2.js'; export function c() { return 'c' + d(); }"),
+            ("https://example.test/dir/cyc2.js", "import { c } from './cyc.js'; export function d() { return typeof c; }"),
+            ("https://example.test/dir/tla.js", "await Promise.resolve(); export const t = 'T';"),
+        ],
+    );
+    assert_eq!(log[0], "log:shared", "{log:?}");
+    assert!(log.contains(&"log:a cfunctionT".to_string()), "{log:?}");
+    assert_eq!(log.iter().filter(|l| *l == "log:shared").count(), 1, "{log:?}");
+    assert!(log.contains(&"log:b".to_string()) && log.contains(&"log:rejected".to_string()), "{log:?}");
+}
+
 #[test]
 fn qy15_module_runaway_loop_hits_the_cpu_budget() {
     let log = run_module_page("<script type=module>for(;;){}</script><script type=module>console.log('after');</script>", &[]);
