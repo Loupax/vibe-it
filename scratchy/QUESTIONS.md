@@ -34,17 +34,19 @@ duck", the grid empty). You earlier said it did not show the challenge for you.
 If you get results, I will have an agent profile the tripping timer in a session you run (no
 more automated searches, never solving the challenge).
 
-## Q4. MSE for video (QM1k; R34 "Open product questions"; needs a session with you, so answer
-what you can now and I will not build anything before you say so)
-1. YouTube needs a PoToken after about 60 s. Accept "YouTube plays about 60 s" as a first
-   milestone (my default), or research attestation first (QM1k2)?
-2. Codecs in `isTypeSupported`: mp4 only (avc1/mp4a, both tracks fragmented mp4, simplest; my
-   default) or also WebM/Opus/VP9/AV1?
-3. Audio into mpv: a second stream (`audio-files`) (my default) or remux both tracks into one
-   container in scratchy?
-4. Memory cap for appended media data: 64 MB per player (my default)?
-5. Native HLS (BBC is the only measured case): later, not now (my default)?
-6. Workers/WebAssembly for Twitch: out of scope for media (my default)?
+## Q4. MSE for video (QM1k) - ANSWERED 2026-11-18 (user), except item 3
+1. ~60 s of YouTube playback is OK as the first milestone (PoToken research later).
+2. Start with mp4 (avc1/mp4a), but PLAN to enable the others (WebM/Opus/VP9/AV1) later: keep the
+   design codec-agnostic (mpv does the demuxing).
+3. Audio into mpv: PENDING (user asked for an explanation). Coordinator recommends (A) a second
+   input stream (`audio-files`) because mpv does all container work and new codecs cost nothing;
+   (B) remuxing in scratchy is the fallback if A has sync/seek problems; the plan must include an
+   early test that decides it.
+4. 64 MB per player to start; revisit after testing.
+5. Native HLS: later.
+6. Workers/WebAssembly (Twitch): INCLUDE, at lower priority than the MSE work.
+Timing: the V8 freeze still applies; the QM1k plan (Opus, docs only) starts after QV8-m unless the
+user says to run it earlier.
 
 ## Q5. WPT in CI (QCI2)
 Run the WPT subset in GitHub Actions: sparse-checkout only the directories `wpt-subset.txt`
