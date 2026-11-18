@@ -87,7 +87,7 @@ Order: (drain) -> QT1 -> QV8-0 -> QV8-1 -> QV8-2 -> QV8-3 -> QV8-4 -> QV8-5 -> Q
           tools/perf-corpus.sh, PERF.md skeleton; tests qv8_0_* live in src/tests/perf_tests.rs after QT1); BASELINE numbers still to be taken at the drained hash
           (Opus step). Corpus pins: moment 2.31.0, d3 7.9.2, lodash 4.18.1, three 0.159.0, jquery 4.1.0,
           react+react-dom 18.3.1 (sha256 in tools/perf-corpus.sh). QV8-0 itself NOT ticked.
-- [x] QV8-1 [M] DONE 2026-11-18: GO WITH CONDITIONS (REGRESSIONS.md R39; spike on branch
+- [x] QV8-1 [M] DONE 2026-11-18: GO WITH CONDITIONS (REGRESSIONS.md R39, docs 02106f8; spike on branch
       scratchy/qv8-1-v8-spike @ bb90047, pushed, NOT merged: coordinator decides what to keep).
       >>> v8 =152.2.0 (V8 15.2.124.1); prebuilt lib 39.8 MB gz; clean build ~12 min at nice -j2
           (QuickJS-only 10.5 min); stripped binary 14.8 -> 62.8 MB; two clean builds: same archive
