@@ -8,8 +8,7 @@
 //! the page. The engine is created per page load and dropped afterwards
 //! (Q33t keeps it alive in `App` for timers; see `JsEngine`.)
 use super::*;
-use rquickjs::context::EvalOptions;
-use rquickjs::{Context, FromJs, Ctx, Error as JsError, Exception, Function, Runtime};
+use crate::js_engine::{self, native, Bytes, Ctx, Engine, EngineOpts, FromJsRet, JsObject, JsResult};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
@@ -862,8 +861,8 @@ const MEMORY_LIMIT: usize = 256 * 1024 * 1024;
 
 /// Defines `__scratchy_env` (plain strings) for the prelude to build
 /// `location`, `navigator`, `document.URL` from.
-fn install_env(ctx: &Ctx<'_>) -> rquickjs::Result<()> {
-    let env = rquickjs::Object::new(ctx.clone())?;
+fn install_env(ctx: &Ctx<'_>) -> JsResult<()> {
+    let env = JsObject::new(ctx)?;
     let url = PAGE_URL.with(|u| u.borrow().clone()).unwrap_or_else(|| Url::parse("about:blank").unwrap());
     let origin = match url.scheme() {
         "http" | "https" | "ftp" | "ws" | "wss" => url.origin().ascii_serialization(),
@@ -886,7 +885,7 @@ fn install_env(ctx: &Ctx<'_>) -> rquickjs::Result<()> {
     env.set("appVersion", navigator_app_version())?;
     env.set("innerWidth", DEFAULT_VIEWPORT.0)?;
     env.set("innerHeight", DEFAULT_VIEWPORT.1)?;
-    ctx.globals().set("__scratchy_env", env)
+    js_engine::set_global(ctx, "__scratchy_env", env)
 }
 
 /// QY9: the eleven URL components the JS `URL` class caches, in order:
@@ -978,112 +977,19 @@ fn url_set_native(href: String, key: String, value: String) -> Option<Vec<String
 /// What `eval_value_as` records: the span kind and "this result means nothing ran".
 pub(crate) type Recorded<T> = (perf::Kind, fn(&Option<T>) -> bool);
 
-/// The engine's name and version for the perf report (a V8 backend fills the same pair).
-pub(crate) fn engine_info() -> (&'static str, String) {
-    // SAFETY: JS_GetVersion returns a pointer to a static NUL-terminated string.
-    let v = unsafe { std::ffi::CStr::from_ptr(rquickjs::qjs::JS_GetVersion()) }.to_string_lossy().into_owned();
-    ("QuickJS", format!("{v} (rquickjs 0.14.0)"))
-}
-
-pub(crate) fn describe_error(ctx: &Ctx<'_>, err: JsError) -> String {
-    if matches!(err, JsError::Exception) {
-        let value = ctx.catch();
-        if let Some(ex) = value.as_object().and_then(|o| Exception::from_object(o.clone())) {
-            let msg = ex.message().unwrap_or_default();
-            let name = value.as_object().and_then(|o| o.get::<_, String>("name").ok()).unwrap_or_default();
-            let msg = if name.is_empty() { msg } else { format!("{name}: {msg}") };
-            return match ex.stack() {
-                Some(stack) if !stack.is_empty() => format!("{msg}\n{stack}"),
-                _ => msg,
-            };
-        }
-        let text = rquickjs::Coerced::<String>::from_js(ctx, value.clone())
-            .map(|c| c.0)
-            .unwrap_or_else(|_| "<unprintable value>".into());
-        return format!("Uncaught {text}");
-    }
-    err.to_string()
-}
-
-/// Runs pending promise jobs, logging the message of any job that throws
-/// (QY14), then reports rejections that stayed unhandled via the prelude's
-/// `__scratchy_rej_flush` (which may queue more jobs: loop until quiet).
-pub(crate) fn drain_jobs(ctx: &Context, rt: &Runtime, log: &dyn Fn(&str, &str), tripped: &std::sync::atomic::AtomicBool, deadline: &std::sync::atomic::AtomicU64) {
-    // QY46: every job gets its own `CALLBACK_BUDGET` (a runaway job is still
-    // killed at 500 ms) and the whole drain stops starting jobs at `DRAIN_CAP`;
-    // the rest stay queued and `next_deadline` reports them as due.
-    let drain_start = script_clock_nanos();
-    // `tripped` stays sticky across jobs on purpose: a module entry's trip is
-    // caught into a rejection and reported by the caller after the drain.
-    let arm = || {
-        deadline.store(script_clock_nanos() + perf::callback_budget().as_nanos() as u64, Ordering::Relaxed);
-    };
-    // QY22/QY44a: a job killed by the budget is uncatchable (skips `finally`),
-    // so once one trips we STOP: later jobs must not start on an expired
-    // deadline (they would be killed part-way and leave library state stale).
-    // They stay queued in QuickJS and run in the next turn's fresh budget.
-    let mut killed = 0usize;
-    'drain: loop {
-        while rt.is_job_pending() {
-            if script_clock_nanos().saturating_sub(drain_start) >= perf::drain_cap().as_nanos() as u64 {
-                break 'drain;
-            }
-            arm();
-            let span = perf::begin(Some(perf::job_kind()));
-            let res = rt.execute_pending_job();
-            perf::end(span, res.is_err() && tripped.load(Ordering::Relaxed));
-            if let Err(job) = res {
-                job.0.with(|c| {
-                    let msg = describe_error(&c, JsError::Exception);
-                    if tripped.load(Ordering::Relaxed) {
-                        killed += 1;
-                    } else {
-                        log("error", &format!("Uncaught (in promise job) {msg}"));
-                    }
-                });
-                if killed > 0 {
-                    break 'drain;
-                }
-            }
-        }
-        arm();
-        let more = ctx.with(|c| {
-            let f: Option<Function> = c.globals().get("__scratchy_rej_flush").ok();
-            let Some(f) = f else { return false };
-            match f.call::<_, bool>(()) {
-                Ok(b) => b,
-                Err(e) => {
-                    log("error", &describe_error(&c, e));
-                    false
-                }
-            }
-        });
-        if !more && !rt.is_job_pending() {
-            break;
-        }
-    }
-    if killed > 0 {
-        let deferred = if rt.is_job_pending() { ", remaining jobs deferred to the next turn" } else { "" };
-        log("error", &format!("js: promise jobs stopped: exceeded the {} ms CPU-time callback budget ({killed} job killed{deferred})", perf::callback_budget().as_millis()));
-    }
-}
-
 /// Q33t: a page's live QuickJS runtime. Kept in `App` for the page's
 /// lifetime so timers can fire after load; dropping it (navigation)
 /// discards every pending timer. Field order matters: the context must
 /// drop before the runtime.
 pub(crate) struct JsEngine {
-    pub(crate) ctx: Context,
-    pub(crate) rt: Runtime,
+    /// The engine seam (js_engine.rs). Its `budget` is the interrupt deadline
+    /// in thread-CPU nanoseconds (QY5), reset before every top-level evaluation
+    /// so each timer callback gets its own budget rather than sharing the
+    /// page-load one, and the `tripped` flag the interrupt sets when it stops a
+    /// script (so the caller can log a clear message).
+    pub(crate) eng: Engine,
     pub(crate) log: LogFn,
     base: Instant,
-    /// Interrupt deadline in thread-CPU nanoseconds (QY5); reset before
-    /// every top-level evaluation so each timer callback gets its own
-    /// `SCRIPT_BUDGET` rather than sharing the page-load one.
-    deadline: Arc<std::sync::atomic::AtomicU64>,
-    /// QY5: set by the interrupt handler when it stops a script, so the
-    /// caller can log a clear message instead of `InternalError: interrupted`.
-    pub(crate) tripped: Arc<std::sync::atomic::AtomicBool>,
     /// QM1f: the page's media elements (kept alive with the engine).
     #[allow(dead_code)]
     media: Option<Rc<std::cell::RefCell<media_el::MediaHost>>>,
@@ -1135,8 +1041,11 @@ const MAX_TIMERS_PER_TURN: usize = 100;
 
 impl JsEngine {
     pub(crate) fn arm_budget(&self, budget: Duration) {
-        self.tripped.store(false, Ordering::Relaxed);
-        self.deadline.store(script_clock_nanos() + budget.as_nanos() as u64, Ordering::Relaxed);
+        self.eng.budget.arm(budget);
+    }
+
+    pub(crate) fn tripped(&self) -> bool {
+        self.eng.budget.tripped()
     }
 
     /// QY5: the one log line for a script stopped by the interrupt budget.
@@ -1151,7 +1060,7 @@ impl JsEngine {
     /// not kill every queued job at once).
     pub(crate) fn drain_after_task(&self) {
         self.arm_budget(perf::callback_budget());
-        drain_jobs(&self.ctx, &self.rt, &*self.log, &self.tripped, &self.deadline);
+        self.eng.drain_jobs(&*self.log);
     }
 
     pub(crate) fn eval(&self, name: &str, code: &str) {
@@ -1172,21 +1081,16 @@ impl JsEngine {
         // a runaway compile finite.
         self.arm_budget(perf::script_budget());
         let t0 = thread_cpu_nanos();
-        self.ctx.with(|ctx| {
-            use rquickjs::qjs;
+        self.eng.with(|ctx| {
             // HTML classic scripts are sloppy (R5): global code, not strict.
-            let (Ok(src), Ok(file)) = (std::ffi::CString::new(code), std::ffi::CString::new(name)) else {
+            let Some(source) = js_engine::Source::new(code, name) else {
                 (self.log)("error", &format!("{name}: source contains a NUL byte"));
                 timing.set((0, 0, false));
                 return;
             };
-            let raw = ctx.as_raw().as_ptr();
-            // SAFETY: `raw` is this live context; the source is NUL-terminated
-            // and `len` excludes the terminator; the compiled function value
-            // is consumed by `JS_EvalFunction`, whose result we own and free.
-            let func = unsafe { qjs::JS_Eval(raw, src.as_ptr(), code.len() as _, file.as_ptr(), (qjs::JS_EVAL_TYPE_GLOBAL | qjs::JS_EVAL_FLAG_COMPILE_ONLY) as i32) };
+            let compiled = source.compile(&ctx);
             let failed = |msg: String, compile: u64, run: u64| {
-                if self.tripped.load(Ordering::Relaxed) {
+                if self.tripped() {
                     let ms = |n: u64| format!("{:.1} s", n as f64 / 1e9);
                     (self.log)(
                         "error",
@@ -1202,14 +1106,13 @@ impl JsEngine {
                     (self.log)("error", &format!("{name}: {msg}"));
                 }
             };
-            // SAFETY: `func` is a value returned by JS_Eval above.
-            if unsafe { qjs::JS_IsException(func) } {
-                let msg = describe_error(&ctx, JsError::Exception);
+            let Ok(compiled) = compiled else {
+                let msg = js_engine::describe_exception(&ctx);
                 let now = thread_cpu_nanos();
                 failed(msg, now.saturating_sub(t0), 0);
                 timing.set((now.saturating_sub(t0), 0, false));
                 return;
-            }
+            };
             #[cfg(test)]
             if let Some(f) = AFTER_COMPILE.with(|c| c.get()) {
                 f();
@@ -1220,21 +1123,17 @@ impl JsEngine {
             }
             self.arm_budget(perf::script_budget());
             let span = perf::begin(kind);
-            // SAFETY: consumes `func`; the result is wrapped so it is freed.
-            let res = unsafe { qjs::JS_EvalFunction(raw, func) };
-            let failed_run = unsafe { qjs::JS_IsException(res) };
-            perf::end(span, failed_run && self.tripped.load(Ordering::Relaxed));
+            let res = compiled.run(&ctx);
+            let failed_run = res.is_err();
+            perf::end(span, failed_run && self.tripped());
             let run = thread_cpu_nanos().saturating_sub(t1);
             timing.set((t1.saturating_sub(t0), run, !failed_run));
             if failed_run {
-                let msg = describe_error(&ctx, JsError::Exception);
+                let msg = js_engine::describe_exception(&ctx);
                 failed(msg, t1.saturating_sub(t0), run);
-            } else {
-                // SAFETY: `res` is an owned value.
-                drop(unsafe { rquickjs::Value::from_raw(ctx.clone(), res) });
             }
         });
-        drain_jobs(&self.ctx, &self.rt, &*self.log, &self.tripped, &self.deadline);
+        self.eng.drain_jobs(&*self.log);
         timing.get()
     }
 
@@ -1252,12 +1151,12 @@ impl JsEngine {
         perf::set_job_kind(Some(perf::Kind::ModuleScript));
         self.eval_as(Some(perf::Kind::ModuleScript), &format!("{name} (import)"), &code);
         perf::set_job_kind(None);
-        let failed: Option<String> = self.ctx.with(|ctx| {
-            let r: rquickjs::Object = ctx.globals().get("__scratchy_modr").ok()?;
-            (r.get::<_, i32>("s").ok()? == 2).then(|| r.get::<_, String>("m").unwrap_or_default())
+        let failed: Option<String> = self.eng.with(|ctx| {
+            let r = js_engine::global_object(&ctx, "__scratchy_modr")?;
+            (r.get::<i32>("s")? == 2).then(|| r.get::<String>("m").unwrap_or_default())
         });
         if let Some(msg) = failed {
-            if self.tripped.load(Ordering::Relaxed) {
+            if self.tripped() {
                 self.log_interrupted(name, "page-load", perf::script_budget(), size);
             } else {
                 (self.log)("error", &format!("{name}: {msg}"));
@@ -1265,25 +1164,22 @@ impl JsEngine {
         }
     }
 
-    pub(crate) fn eval_value<T: for<'js> FromJs<'js>>(&self, label: &str, code: &str) -> Option<T> {
+    pub(crate) fn eval_value<T: FromJsRet>(&self, label: &str, code: &str) -> Option<T> {
         self.eval_value_as(None, label, code)
     }
 
     /// `eval_value` that records the call as `rec.0`; `rec.1` says the result
     /// means "nothing ran" (an idle timer poll), which is then not counted.
-    pub(crate) fn eval_value_as<T: for<'js> FromJs<'js>>(&self, rec: Option<Recorded<T>>, label: &str, code: &str) -> Option<T> {
+    pub(crate) fn eval_value_as<T: FromJsRet>(&self, rec: Option<Recorded<T>>, label: &str, code: &str) -> Option<T> {
         let budget = perf::callback_budget();
         self.arm_budget(budget);
         let span = perf::begin(rec.map(|r| r.0));
-        let v = self.ctx.with(|ctx| {
-            let mut opts = EvalOptions::default();
-            opts.strict = false;
-            opts.filename = Some(label.to_string());
-            match ctx.eval_with_options::<T, _>(code, opts) {
+        let v = self.eng.with(|ctx| {
+            match js_engine::eval_sloppy::<T>(&ctx, label, code) {
                 Ok(v) => Some(v),
                 Err(e) => {
-                    let msg = describe_error(&ctx, e);
-                    if self.tripped.load(Ordering::Relaxed) {
+                    let msg = js_engine::describe_error(&ctx, e);
+                    if self.tripped() {
                         self.log_interrupted(label, "callback", budget, 0);
                     } else {
                         (self.log)("error", &format!("{label}: {msg}"));
@@ -1294,7 +1190,7 @@ impl JsEngine {
         });
         match rec {
             Some((_, idle)) if idle(&v) => perf::discard(span),
-            _ => perf::end(span, v.is_none() && self.tripped.load(Ordering::Relaxed)),
+            _ => perf::end(span, v.is_none() && self.tripped()),
         }
         self.drain_after_task();
         v
@@ -1402,11 +1298,11 @@ impl JsEngine {
     /// When the earliest pending timer is due, `None` if there are none
     /// (the event loop then sleeps with no wake-up at all).
     pub(crate) fn next_deadline(&self) -> Option<Instant> {
-        if self.rt.is_job_pending() {
+        if self.eng.is_job_pending() {
             return Some(Instant::now());
         }
         let ms: f64 = self.eval_value("timer", "__scratchy_timers_next()")?;
-        if self.rt.is_job_pending() {
+        if self.eng.is_job_pending() {
             return Some(Instant::now());
         }
         (ms >= 0.0).then(|| self.base + Duration::from_secs_f64(ms / 1000.0))
@@ -1417,7 +1313,7 @@ impl JsEngine {
     pub(crate) fn next_due_ms(&self) -> Option<f64> {
         let ms: Option<f64> = self.eval_value("timer", "__scratchy_timers_next()");
         // QY44a: jobs deferred by a budget trip are due right now.
-        if self.rt.is_job_pending() {
+        if self.eng.is_job_pending() {
             return Some(0.0);
         }
         ms.filter(|m| *m >= 0.0)
@@ -1431,7 +1327,7 @@ impl JsEngine {
     /// or rescheduled before it ran, so the caller keeps pumping.
     pub(crate) fn run_due_counted(&self) -> usize {
         let mut n = 0;
-        let jobs_waiting = self.rt.is_job_pending();
+        let jobs_waiting = self.eng.is_job_pending();
         for _ in 0..MAX_TIMERS_PER_TURN {
             if self.eval_value_as::<bool>(Some((perf::Kind::Timer, |r| *r == Some(false))), "timer", "__scratchy_timers_run_one()") == Some(false) {
                 break;
@@ -1513,93 +1409,51 @@ pub(crate) fn start_scripts_clocked(
     clock: Option<Rc<std::cell::Cell<f64>>>,
 ) -> Option<JsEngine> {
     perf::mark("engine_start");
-    let Ok(rt) = Runtime::new() else {
-        log("error", "could not create the JS runtime");
-        return None;
-    };
-    rt.set_memory_limit(MEMORY_LIMIT);
-    rt.set_max_stack_size(js_stack_limit()); // QY47a
-    // QY14: forward every rejection event to the prelude's queue.
-    rt.set_host_promise_rejection_tracker(Some(Box::new(|ctx, promise, reason, handled| {
-        let f: Option<Function> = ctx.globals().get("__scratchy_rej_push").ok();
-        if f.is_some_and(|f| f.call::<_, ()>((promise, reason, handled)).is_err()) {
-            let _ = ctx.catch();
-        }
-    })));
     let net_clock = clock.clone();
     let base = Instant::now();
-    let deadline = Arc::new(std::sync::atomic::AtomicU64::new(script_clock_nanos() + SCRIPT_BUDGET.as_nanos() as u64));
-    let tripped = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let (dl, tr) = (deadline.clone(), tripped.clone());
-    rt.set_interrupt_handler(Some(Box::new(move || {
-        let over = script_clock_nanos() > dl.load(Ordering::Relaxed);
-        if over {
-            tr.store(true, Ordering::Relaxed);
-        }
-        over
-    })));
     let store = Rc::new(js_modules::ModuleStore::from_scripts(scripts, &*log));
-    rt.set_loader(js_modules::PageResolver(store.clone()), js_modules::PageLoader(store.clone()));
-    let Ok(ctx) = Context::full(&rt) else {
-        log("error", "could not create the JS context");
-        return None;
+    let eng = match Engine::new(EngineOpts { memory_limit: MEMORY_LIMIT, stack_limit: js_stack_limit(), page: Some(store.clone()) }) {
+        Ok(e) => e,
+        Err(msg) => {
+            log("error", msg);
+            return None;
+        }
     };
-    ctx.with(|ctx| {
+    eng.with(|ctx| {
         let l = log.clone();
-        let native = Function::new(ctx.clone(), move |level: String, text: String| l(&level, &text));
-        if let Ok(native) = native {
-            let _ = ctx.globals().set("__scratchy_log", native);
-        }
+        native!(&ctx, "__scratchy_log", move |level: String, text: String| l(&level, &text));
         #[cfg(test)]
-        if let Ok(f) = Function::new(ctx.clone(), |ms: u64| FAKE_CLOCK.with(|c| c.set(c.get().map(|(n, st)| (n + ms * 1_000_000, st))))) {
-            let _ = ctx.globals().set("__test_burn", f);
-        }
+        native!(&ctx, "__test_burn", |ms: u64| FAKE_CLOCK.with(|c| c.set(c.get().map(|(n, st)| (n + ms * 1_000_000, st)))));
         let _ = install_env(&ctx);
         if perf::enabled() {
             // QV8-0: observer deliveries report their own spans (see perf.rs).
-            if let Ok(f) = Function::new(ctx.clone(), perf::observer_begin) {
-                let _ = ctx.globals().set("__perf_b", f);
-            }
-            if let Ok(f) = Function::new(ctx.clone(), perf::observer_end) {
-                let _ = ctx.globals().set("__perf_e", f);
-            }
+            native!(&ctx, "__perf_b", perf::observer_begin);
+            native!(&ctx, "__perf_e", perf::observer_end);
         }
-        if let Ok(f) = Function::new(ctx.clone(), url_parse_native) {
-            let _ = ctx.globals().set("__url_parse", f);
-        }
-        if let Ok(f) = Function::new(ctx.clone(), url_set_native) {
-            let _ = ctx.globals().set("__url_set", f);
-        }
+        native!(&ctx, "__url_parse", url_parse_native);
+        native!(&ctx, "__url_set", url_set_native);
         // QY10: `matchMedia` evaluates through the CSS media-query code.
-        let mm = Function::new(ctx.clone(), |q: String| -> Vec<String> {
+        native!(&ctx, "__scratchy_media", |q: String| -> Vec<String> {
             let (m, media) = css::media_query_string_matches(&q, DEFAULT_VIEWPORT.0 as f32, DEFAULT_VIEWPORT.1 as f32);
             vec![if m { "1".into() } else { String::new() }, media]
         });
-        if let Ok(mm) = mm {
-            let _ = ctx.globals().set("__scratchy_media", mm);
-        }
         // QSD1b: OS CSPRNG for `crypto.getRandomValues`/`randomUUID` (<= 65536 bytes per call).
-        if let Ok(f) = Function::new(ctx.clone(), |n: i32| -> Vec<u8> { os_random_bytes(n.clamp(0, 65536) as usize) }) {
-            let _ = ctx.globals().set("__scratchy_random", f);
-        }
-        let now = Function::new(ctx.clone(), move || match &clock {
+        native!(&ctx, "__scratchy_random", |n: i32| -> Vec<u8> { os_random_bytes(n.clamp(0, 65536) as usize) });
+        native!(&ctx, "__scratchy_now", move || match &clock {
             Some(c) => c.get(),
             None => base.elapsed().as_secs_f64() * 1000.0,
         });
-        if let Ok(now) = now {
-            let _ = ctx.globals().set("__scratchy_now", now);
-        }
     });
     let dirty = Rc::new(std::cell::Cell::new(false));
     let reqs: Rc<std::cell::RefCell<js_dom::JsRequests>> = Default::default();
     let net = Rc::new(std::cell::RefCell::new(js_net::NetState::new(log.clone()).with_clock(net_clock)));
-    ctx.with(|c| js_net::install_net(&c, net.clone(), reqs.clone()));
+    eng.with(|c| js_net::install_net(&c, net.clone(), reqs.clone()));
     let ws = Rc::new(std::cell::RefCell::new(js_ws::WsState::new(net.clone(), log.clone())));
-    ctx.with(|c| js_ws::install_ws(&c, ws.clone()));
-    let mut engine = JsEngine { ctx, rt, log, base, deadline, tripped, media: None, dirty: dirty.clone(), table: Default::default(), reqs: reqs.clone(), net, ws };
+    eng.with(|c| js_ws::install_ws(&c, ws.clone()));
+    let mut engine = JsEngine { eng, log, base, media: None, dirty: dirty.clone(), table: Default::default(), reqs: reqs.clone(), net, ws };
     {
-        let (dl, tr, lg) = (engine.deadline.clone(), engine.tripped.clone(), engine.log.clone());
-        engine.ctx.with(|c| install_script_natives(&c, dl, tr, lg, store));
+        let (budget, lg) = (engine.eng.budget.clone(), engine.log.clone());
+        engine.eng.with(|c| install_script_natives(&c, budget, lg, store));
     }
     engine.eval("prelude", PRELUDE);
     engine.eval("timers", TIMERS_PRELUDE);
@@ -1608,13 +1462,13 @@ pub(crate) fn start_scripts_clocked(
     engine.eval("intl", INTL_PRELUDE);
     engine.eval("fetch", FETCH_PRELUDE);
     engine.eval("websocket", WS_PRELUDE);
-    engine.table = engine.ctx.with(|ctx| js_dom::install_dom(&ctx, document, dirty.clone(), reqs.clone()));
+    engine.table = engine.eng.with(|ctx| js_dom::install_dom(&ctx, document, dirty.clone(), reqs.clone()));
     engine.eval("cssom", CSSOM_PRELUDE);
     {
         // QM1f: the media element layer (state machine in media_el.rs).
         let ctxb = media_el::BackendCtx { socket: js_net::net_executor().socket(), policy: engine.net.borrow().policy.clone() };
         let lg = engine.log.clone();
-        let host = engine.ctx.with(|c| js_media::install_media(&c, ctxb, Rc::new(move |l, t| lg(l, t))));
+        let host = engine.eng.with(|c| js_media::install_media(&c, ctxb, Rc::new(move |l, t| lg(l, t))));
         engine.media = Some(host);
         engine.eval("media", js_media::MEDIA_PRELUDE);
     }
@@ -1657,43 +1511,27 @@ pub(crate) fn start_scripts_clocked(
 /// `__scratchy_utf8(bytes)` decodes a response body; `__mod_*` feed the
 /// module loader's source map (the inserted module's graph is fetched by
 /// the page-side code through the request queue before `import()`).
-fn install_script_natives<'js>(
-    ctx: &Ctx<'js>,
-    deadline: Arc<std::sync::atomic::AtomicU64>,
-    tripped: Arc<AtomicBool>,
-    log: LogFn,
-    store: Rc<js_modules::ModuleStore>,
-) {
-    let g = ctx.globals();
-    let run = Function::new(ctx.clone(), move |ctx: Ctx<'js>, code: String, name: String, top: bool| -> rquickjs::Result<bool> {
-        use rquickjs::qjs;
+fn install_script_natives<'js>(ctx: &Ctx<'js>, budget: js_engine::Budget, log: LogFn, store: Rc<js_modules::ModuleStore>) {
+    native!(ctx, "__scratchy_run_global", move |ctx: Ctx<'js>, code: String, name: String, top: bool| -> JsResult<bool> {
         if code.len() > MAX_SCRIPT_BYTES {
             log("error", &format!("js: {name} not compiled: {} MB of source exceeds the {} MB cap", code.len().div_ceil(1 << 20), MAX_SCRIPT_BYTES >> 20));
             return Ok(false);
         }
-        let arm = |b: Duration| {
-            tripped.store(false, Ordering::Relaxed);
-            deadline.store(script_clock_nanos() + b.as_nanos() as u64, Ordering::Relaxed);
-        };
-        let (Ok(src), Ok(file)) = (std::ffi::CString::new(code.as_str()), std::ffi::CString::new(name.as_str())) else {
+        let Some(source) = js_engine::Source::new(&code, &name) else {
             log("error", &format!("{name}: source contains a NUL byte"));
             return Ok(false);
         };
         let t0 = thread_cpu_nanos();
         if top {
-            arm(perf::script_budget());
+            budget.arm(perf::script_budget());
         }
-        let raw = ctx.as_raw().as_ptr();
-        // SAFETY: `raw` is this live context; the source is NUL-terminated and
-        // `len` excludes the terminator; the compiled function is consumed by
-        // JS_EvalFunction below, whose result we own and free.
-        let func = unsafe { qjs::JS_Eval(raw, src.as_ptr(), code.len() as _, file.as_ptr(), (qjs::JS_EVAL_TYPE_GLOBAL | qjs::JS_EVAL_FLAG_COMPILE_ONLY) as i32) };
-        let fail = |ctx: &Ctx<'js>, t1: u64| -> rquickjs::Result<bool> {
-            if tripped.load(Ordering::Relaxed) {
+        let compiled = source.compile(&ctx);
+        let fail = |ctx: &Ctx<'js>, t1: u64| -> JsResult<bool> {
+            if budget.tripped() {
                 if !top {
-                    return Err(JsError::Exception);
+                    return Err(js_engine::pending_exception());
                 }
-                let _ = ctx.catch();
+                js_engine::discard_exception(ctx);
                 let ms = |n: u64| format!("{:.1} s", n as f64 / 1e9);
                 log(
                     "error",
@@ -1705,58 +1543,43 @@ fn install_script_natives<'js>(
                         ms(thread_cpu_nanos().saturating_sub(t1))
                     ),
                 );
-                arm(perf::callback_budget());
+                budget.arm(perf::callback_budget());
             } else {
-                let msg = describe_error(ctx, JsError::Exception);
+                let msg = js_engine::describe_exception(ctx);
                 log("error", &format!("{name}: {msg}"));
             }
             Ok(false)
         };
-        // SAFETY: `func` came from JS_Eval above.
-        if unsafe { qjs::JS_IsException(func) } {
+        let Ok(compiled) = compiled else {
             return fail(&ctx, thread_cpu_nanos());
-        }
+        };
         let t1 = thread_cpu_nanos();
         if top {
-            arm(perf::script_budget());
+            budget.arm(perf::script_budget());
             perf::add_compile(t1.saturating_sub(t0));
         }
         let span = perf::begin(top.then_some(perf::Kind::ClassicScript));
-        // SAFETY: consumes `func`; the result is wrapped so it is freed.
-        let res = unsafe { qjs::JS_EvalFunction(raw, func) };
-        let failed_run = unsafe { qjs::JS_IsException(res) };
-        perf::end(span, failed_run && tripped.load(Ordering::Relaxed));
-        if failed_run {
+        let res = compiled.run(&ctx);
+        perf::end(span, res.is_err() && budget.tripped());
+        if res.is_err() {
             return fail(&ctx, t1);
         }
-        drop(unsafe { rquickjs::Value::from_raw(ctx.clone(), res) });
         Ok(true)
     });
-    if let Ok(f) = run {
-        let _ = g.set("__scratchy_run_global", f);
-    }
-    if let Ok(f) = Function::new(ctx.clone(), |ta: rquickjs::TypedArray<'js, u8>| -> String {
-        // SAFETY: the slice is copied out before any JS can run again.
-        let b = unsafe { ta.as_bytes() }.unwrap_or(&[]);
-        let b = b.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(b);
+    native!(ctx, "__scratchy_utf8", |bytes: Bytes| -> String {
+        let b = bytes.0.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(&bytes.0);
         String::from_utf8_lossy(b).into_owned()
-    }) {
-        let _ = g.set("__scratchy_utf8", f);
-    }
+    });
     let st = store.clone();
-    if let Ok(f) = Function::new(ctx.clone(), move |name: String| -> bool { st.sources.borrow().contains_key(&name) }) {
-        let _ = g.set("__mod_has", f);
-    }
+    native!(ctx, "__mod_has", move |name: String| -> bool { st.sources.borrow().contains_key(&name) });
     let st = store.clone();
-    if let Ok(f) = Function::new(ctx.clone(), move |name: String, code: String| {
+    native!(ctx, "__mod_register", move |name: String, code: String| {
         st.sources.borrow_mut().entry(name).or_insert(code);
-    }) {
-        let _ = g.set("__mod_register", f);
-    }
+    });
     // The module specifiers of `code` (as module `name`) that are not in the
     // store yet, resolved to URLs (the graph the page-side code still fetches).
     let st = store;
-    if let Ok(f) = Function::new(ctx.clone(), move |name: String, code: String| -> Vec<String> {
+    native!(ctx, "__mod_deps", move |name: String, code: String| -> Vec<String> {
         let mut out: Vec<String> = Vec::new();
         for (spec, _) in js_modules::scan_imports(&code) {
             if let Ok(u) = js_modules::resolve_specifier(&spec, &name, &st.map, &st.doc_base)
@@ -1768,9 +1591,7 @@ fn install_script_natives<'js>(
             }
         }
         out
-    }) {
-        let _ = g.set("__mod_deps", f);
-    }
+    });
 }
 
 /// QY9: `URL` and `URLSearchParams`; parsing and setters are Rust natives

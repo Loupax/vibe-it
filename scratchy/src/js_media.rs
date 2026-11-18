@@ -8,7 +8,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
 
-use rquickjs::{Ctx, Function};
+use crate::js_engine::{native, Ctx};
 
 use crate::media_el::{BackendCtx, Candidate, MediaHost, Out};
 use crate::media_net::MediaMode;
@@ -30,14 +30,6 @@ fn fmt_out(id: i32, o: Out) -> Option<String> {
 pub(crate) fn install_media<'js>(ctx: &Ctx<'js>, ctxb: BackendCtx, log: crate::media_el::MediaLog) -> Rc<RefCell<MediaHost>> {
     let host = Rc::new(RefCell::new(MediaHost::new(ctxb, log)));
     let queue: Queue = Default::default();
-    let g = ctx.globals();
-    macro_rules! native {
-        ($name:expr, $f:expr) => {
-            if let Ok(f) = Function::new(ctx.clone(), $f) {
-                let _ = g.set($name, f);
-            }
-        };
-    }
     // Runs `f` on the core, queues the page-visible outs.
     macro_rules! ctl {
         ($h:expr, $q:expr, $id:expr, $f:expr) => {{
@@ -47,7 +39,7 @@ pub(crate) fn install_media<'js>(ctx: &Ctx<'js>, ctxb: BackendCtx, log: crate::m
         }};
     }
     let (h, q) = (host.clone(), queue.clone());
-    native!("__media_load", move |id: i32, cands: Vec<String>, from_attr: bool, mode: String, page: String| {
+    native!(ctx, "__media_load", move |id: i32, cands: Vec<String>, from_attr: bool, mode: String, page: String| {
         let cs: Vec<Candidate> = cands.chunks(2).map(|c| Candidate { url: c[0].clone(), mime: c.get(1).cloned().unwrap_or_default() }).collect();
         let mode = match mode.as_str() {
             "anonymous" => MediaMode::Anonymous,
@@ -57,31 +49,31 @@ pub(crate) fn install_media<'js>(ctx: &Ctx<'js>, ctxb: BackendCtx, log: crate::m
         ctl!(h, q, id, |c| c.load(cs, from_attr, mode, page));
     });
     let (h, q) = (host.clone(), queue.clone());
-    native!("__media_play", move |id: i32, tok: u32| {
+    native!(ctx, "__media_play", move |id: i32, tok: u32| {
         ctl!(h, q, id, |c| c.play(tok));
     });
     let (h, q) = (host.clone(), queue.clone());
-    native!("__media_pause", move |id: i32| {
+    native!(ctx, "__media_pause", move |id: i32| {
         ctl!(h, q, id, |c| c.pause());
     });
     let (h, q) = (host.clone(), queue.clone());
-    native!("__media_seek", move |id: i32, t: f64| {
+    native!(ctx, "__media_seek", move |id: i32, t: f64| {
         ctl!(h, q, id, |c| c.set_current_time(t));
     });
     let (h, q) = (host.clone(), queue.clone());
-    native!("__media_setvol", move |id: i32, v: f64| -> String { ctl!(h, q, id, |c| c.set_volume(v)).err().unwrap_or("").to_string() });
+    native!(ctx, "__media_setvol", move |id: i32, v: f64| -> String { ctl!(h, q, id, |c| c.set_volume(v)).err().unwrap_or("").to_string() });
     let (h, q) = (host.clone(), queue.clone());
-    native!("__media_setmuted", move |id: i32, m: bool| {
+    native!(ctx, "__media_setmuted", move |id: i32, m: bool| {
         ctl!(h, q, id, |c| c.set_muted(m));
     });
     let (h, q) = (host.clone(), queue.clone());
-    native!("__media_setrate", move |id: i32, v: f64| -> String { ctl!(h, q, id, |c| c.set_rate(v)).err().unwrap_or("").to_string() });
+    native!(ctx, "__media_setrate", move |id: i32, v: f64| -> String { ctl!(h, q, id, |c| c.set_rate(v)).err().unwrap_or("").to_string() });
     let (h, q) = (host.clone(), queue.clone());
-    native!("__media_setdefrate", move |id: i32, v: f64| {
+    native!(ctx, "__media_setdefrate", move |id: i32, v: f64| {
         ctl!(h, q, id, |c| c.set_default_rate(v));
     });
     let h = host.clone();
-    native!("__media_setflag", move |id: i32, which: String, on: bool| {
+    native!(ctx, "__media_setflag", move |id: i32, which: String, on: bool| {
         let mut h = h.borrow_mut();
         let c = h.core(id);
         match which.as_str() {
@@ -91,7 +83,7 @@ pub(crate) fn install_media<'js>(ctx: &Ctx<'js>, ctxb: BackendCtx, log: crate::m
         }
     });
     let h = host.clone();
-    native!("__media_num", move |id: i32, key: i32| -> f64 {
+    native!(ctx, "__media_num", move |id: i32, key: i32| -> f64 {
         let mut h = h.borrow_mut();
         let c = h.core(id);
         match key {
@@ -114,32 +106,32 @@ pub(crate) fn install_media<'js>(ctx: &Ctx<'js>, ctxb: BackendCtx, log: crate::m
         }
     });
     let h = host.clone();
-    native!("__media_ranges", move |id: i32, kind: i32| -> Vec<f64> {
+    native!(ctx, "__media_ranges", move |id: i32, kind: i32| -> Vec<f64> {
         let mut h = h.borrow_mut();
         let c = h.core(id);
         let v = if kind == 0 { c.buffered() } else { c.seekable() };
         v.into_iter().flat_map(|(a, b)| [a, b]).collect()
     });
     let h = host.clone();
-    native!("__media_text", move |id: i32, key: i32| -> String {
+    native!(ctx, "__media_text", move |id: i32, key: i32| -> String {
         let mut h = h.borrow_mut();
         let c = h.core(id);
         if key == 0 { c.error.as_ref().map(|e| e.1.clone()).unwrap_or_default() } else { c.current_src.clone() }
     });
     let h = host.clone();
-    native!("__media_activate", move || {
+    native!(ctx, "__media_activate", move || {
         h.borrow_mut().activated = true;
     });
     let h = host.clone();
-    native!("__media_can_play", move |t: String| -> String {
+    native!(ctx, "__media_can_play", move |t: String| -> String {
         if h.borrow_mut().backend_available() { crate::media_el::can_play_type(&t).to_string() } else { String::new() }
     });
     let h = host.clone();
-    native!("__media_drop", move |id: i32| {
+    native!(ctx, "__media_drop", move |id: i32| {
         h.borrow_mut().remove(id);
     });
     let (h, q) = (host.clone(), queue);
-    native!("__media_pump", move |now: f64, wait: f64| -> Vec<String> {
+    native!(ctx, "__media_pump", move |now: f64, wait: f64| -> Vec<String> {
         let outs = h.borrow_mut().pump(now, Duration::from_millis(wait.clamp(0.0, 200.0) as u64));
         let mut q = q.borrow_mut();
         q.extend(outs.into_iter().filter_map(|(i, o)| fmt_out(i, o)));

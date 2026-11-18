@@ -21,9 +21,8 @@
 //! thread with `sync_xhr_timeout_ms`.
 use super::*;
 use crate::net_policy::*;
-use rquickjs::{Ctx, Function, Object, TypedArray};
+use crate::js_engine::{self, native, BytesRef, Ctx, JsObject, JsResult};
 use std::collections::VecDeque;
-use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
 /// One validated request ready for a thread: the serialised wire request
@@ -1023,14 +1022,14 @@ impl NetState {
 
 // ------------------------------------------------------------ JS bindings
 
-fn completion_to_js<'js>(ctx: &Ctx<'js>, c: &Completion) -> rquickjs::Result<Object<'js>> {
-    let o = Object::new(ctx.clone())?;
+fn completion_to_js<'js>(ctx: &Ctx<'js>, c: &Completion) -> JsResult<JsObject<'js>> {
+    let o = JsObject::new(ctx)?;
     o.set("id", c.id as u32)?;
     o.set("status", c.status as u32)?;
     o.set("statusText", c.status_text.as_str())?;
     let pairs: Vec<Vec<String>> = c.headers.iter().map(|(n, v)| vec![n.clone(), v.clone()]).collect();
     o.set("headers", pairs)?;
-    o.set("body", TypedArray::<u8>::new_copy(ctx.clone(), &c.body)?)?;
+    o.set("body", BytesRef(&c.body))?;
     o.set("finalUrl", c.final_url.as_str())?;
     o.set("redirected", c.redirected)?;
     o.set("error", c.error.unwrap_or(""))?;
@@ -1038,12 +1037,10 @@ fn completion_to_js<'js>(ctx: &Ctx<'js>, c: &Completion) -> rquickjs::Result<Obj
     Ok(o)
 }
 
-fn parse_desc(o: &Object<'_>) -> SendDesc {
-    let s = |k: &str| o.get::<_, Option<String>>(k).ok().flatten().unwrap_or_default();
+fn parse_desc(o: &JsObject<'_>) -> SendDesc {
+    let s = |k: &str| o.get::<String>(k).unwrap_or_default();
     let headers = o
-        .get::<_, Option<Vec<Vec<String>>>>("headers")
-        .ok()
-        .flatten()
+        .get::<Vec<Vec<String>>>("headers")
         .unwrap_or_default()
         .into_iter()
         .filter_map(|p| (p.len() == 2).then(|| (p[0].clone(), p[1].clone())))
@@ -1057,9 +1054,9 @@ fn parse_desc(o: &Object<'_>) -> SendDesc {
         body,
         mode: s("mode"),
         credentials: s("credentials"),
-        keepalive: o.get::<_, Option<bool>>("keepalive").ok().flatten().unwrap_or(false),
+        keepalive: o.get::<bool>("keepalive").unwrap_or(false),
         api: s("api"),
-        sync: o.get::<_, Option<bool>>("sync").ok().flatten().unwrap_or(false),
+        sync: o.get::<bool>("sync").unwrap_or(false),
     }
 }
 
@@ -1067,41 +1064,28 @@ fn parse_desc(o: &Object<'_>) -> SendDesc {
 /// `__net_sync_result(id) -> completion` (what `__net_complete` would get,
 /// for a `sync` request that already ran).
 pub(crate) fn install_net<'js>(ctx: &Ctx<'js>, state: Rc<RefCell<NetState>>, reqs: Rc<RefCell<js_dom::JsRequests>>) {
-    let g = ctx.globals();
     let (st, rq) = (state.clone(), reqs.clone());
-    if let Ok(f) = Function::new(ctx.clone(), move |desc: Object<'js>| -> u32 {
+    native!(ctx, "__net_send", move |desc: JsObject<'js>| -> u32 {
         let d = parse_desc(&desc);
         st.borrow_mut().send(d, &mut rq.borrow_mut()) as u32
-    }) {
-        let _ = g.set("__net_send", f);
-    }
+    });
     let (st, rq) = (state.clone(), reqs);
-    if let Ok(f) = Function::new(ctx.clone(), move |id: u32| {
+    native!(ctx, "__net_abort", move |id: u32| {
         st.borrow_mut().abort(id as u64, &mut rq.borrow_mut());
-    }) {
-        let _ = g.set("__net_abort", f);
-    }
+    });
     let st = state.clone();
-    if let Ok(f) = Function::new(ctx.clone(), move || -> u32 { st.borrow().policy.beacon_queue_bytes as u32 }) {
-        let _ = g.set("__net_beacon_limit", f);
-    }
+    native!(ctx, "__net_beacon_limit", move || -> u32 { st.borrow().policy.beacon_queue_bytes as u32 });
     let st = state.clone();
-    if let Ok(f) = Function::new(ctx.clone(), move || -> String { st.borrow_mut().cookie_op("get", "") }) {
-        let _ = g.set("__cookie_get", f);
-    }
+    native!(ctx, "__cookie_get", move || -> String { st.borrow_mut().cookie_op("get", "") });
     let st = state.clone();
-    if let Ok(f) = Function::new(ctx.clone(), move |v: String| {
+    native!(ctx, "__cookie_set", move |v: String| {
         st.borrow_mut().cookie_op("set", &v);
-    }) {
-        let _ = g.set("__cookie_set", f);
-    }
+    });
     let st = state;
-    if let Ok(f) = Function::new(ctx.clone(), move |ctx: Ctx<'js>, id: u32| -> rquickjs::Result<Option<Object<'js>>> {
+    native!(ctx, "__net_sync_result", move |ctx: Ctx<'js>, id: u32| -> JsResult<Option<JsObject<'js>>> {
         let c = st.borrow_mut().sync_results.remove(&(id as u64));
         c.map(|c| completion_to_js(&ctx, &c)).transpose()
-    }) {
-        let _ = g.set("__net_sync_result", f);
-    }
+    });
 }
 
 impl JsEngine {
@@ -1119,20 +1103,18 @@ impl JsEngine {
         let budget = crate::perf::callback_budget();
         self.arm_budget(budget);
         let span = crate::perf::begin(Some(crate::perf::Kind::NetCallback));
-        self.ctx.with(|ctx| {
-            let f: Option<Function> = ctx.globals().get("__net_complete").ok();
-            let Some(f) = f else { return };
-            let res = completion_to_js(&ctx, &c).and_then(|o| f.call::<_, ()>((o,)));
-            if let Err(e) = res {
-                let msg = describe_error(&ctx, e);
-                if self.tripped.load(Ordering::Relaxed) {
+        self.eng.with(|ctx| {
+            let res = js_engine::call_global_with::<_, ()>(&ctx, "__net_complete", || completion_to_js(&ctx, &c).map(|o| (o,)));
+            if let Some(Err(e)) = res {
+                let msg = js_engine::describe_error(&ctx, e);
+                if self.tripped() {
                     self.log_interrupted("net", "callback", budget, 0);
                 } else {
                     (self.log)("error", &format!("net: {msg}"));
                 }
             }
         });
-        crate::perf::end(span, self.tripped.load(Ordering::Relaxed));
+        crate::perf::end(span, self.tripped());
         self.drain_after_task();
     }
 

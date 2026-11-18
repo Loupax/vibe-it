@@ -89,6 +89,7 @@ mod js_media;
 #[cfg(feature = "media")]
 mod media_mpv;
 mod app;
+mod js_engine;
 mod js;
 mod perf;
 mod js_modules;
