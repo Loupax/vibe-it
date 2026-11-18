@@ -1669,7 +1669,7 @@ Ranked: QY50 (P1) -> QY51 (P1) -> QY49-D (user decision, can be asked now) -> QY
       a script appended later shows up. Accept: YouTube /results?search_query=rust with
       a 20 s local budget renders results (R37 screenshot state); with the default budget
       expect the R37 1659 ms job kill until QY49-D is decided.
-- [x] QY51 [S] DONE (810feed) (P1, R37, Sonnet) `document.body`/`head` walk the whole tree on every
+- [x] QY51 [S] DONE (44e46c3) (P1, R37, Sonnet) `document.body`/`head` walk the whole tree on every
       read: js_dom.rs `__d_special` calls `descendants(&root, &mut all)` for every call
       (0.4-1.6 ms per call on YouTube; 69 calls = 102 ms of a 525 ms rAF callback, 158
       calls = 255 ms of a job). Find `html` as the first element child of the document,
