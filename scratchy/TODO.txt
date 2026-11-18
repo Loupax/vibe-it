@@ -207,6 +207,12 @@ Order: (drain) -> QT1 -> QV8-0 -> QV8-1 -> QV8-2 -> QV8-3 -> QV8-4 -> QV8-5 -> Q
       (the elements take no space; even the inert placeholder is missing). Reddit's `<video src>` was
       measured to play (R30), so find out why: which build (V8 `engine-v8,media` or QuickJS)? is it
       `<source>` children only, `preload`, self-closing `<source />`, or layout of an empty replaced
+      USER ANSWER (2026-11-18): the installed QuickJS+media scratchy shows the FIRST FRAME of the
+      H.264 and Ogg videos (so media works) but NO controls UI and no way to start playback
+      (expected: QM1g2 (d) `controls` are not painted yet; D6 says scratchy paints a bar). The
+      `~/v8-target` build (engine-v8; media flag unconfirmed) shows NO video box at all: so there are
+      TWO findings: (1) controls bar not painted (QM1g2 d, product gap), (2) engine-v8 build: video
+      elements take no space (V8 media/layout bug or build without `media`; to be investigated).
       box? Repro: plain GET through wire. Needs an investigator first (Opus, docs only), then a fix.
       PAUSED by the V8 freeze unless the user asks for it earlier.
 - [ ] QV8-4 [M] (after QV8-3) Startup snapshot: the JS preludes (DOM, fetch, globals, intl,
