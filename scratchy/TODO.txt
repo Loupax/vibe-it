@@ -237,7 +237,7 @@ Order: (drain) -> QT1 -> QV8-0 -> QV8-1 -> QV8-2 -> QV8-3 -> QV8-4 -> QV8-5 -> Q
       clippy reports 12 warnings there (11x E0133 unsafe op in unsafe fn, 1x missing_transmute_annotations;
       measured QV8-5: no-media 78, media 90). Fix them, then move the clippy count job to the default
       config and re-measure the baseline.
-- [x] QV8-m [M] DONE 2026-11-18 (measured at 8dfe2f9, docs commit HASH_PENDING; PERF.md "QV8-m")
+- [x] QV8-m [M] DONE 2026-11-18 (measured at 8dfe2f9, docs commit 92dd513; PERF.md "QV8-m")
       >>> RESULT (V8 vs QuickJS, same hash, interleaved, 7 pages x 3 x 2 budgets): default-budget kills
           2 pages -> 1 (bbc timer still needs 520-536 ms, was 1335-1353; YouTube results worst job
           446-460 ms, was 623-655 killed); load CPU 0.55-0.95x; compile 0.26-0.43x; startup 32-65 ->
