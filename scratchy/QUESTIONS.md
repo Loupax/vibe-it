@@ -56,10 +56,11 @@ different windows use separate jars, or skip it for now? (my default: skip)
 
 ## What I do while you are away (no answer needed)
 **Changed 2026-11-18 (user): V8 migration first.** Finish and merge what is already running,
-then start nothing else from the old queue. Next: QV8-0 (QuickJS baseline with a permanent
+then start nothing else from the old queue. Next: QT1 (split src/tests.rs, pure move, in
+the quiet window right after the drain; user 2026-11-18), then QV8-0 (QuickJS baseline with a permanent
 `--perf-report` harness), QV8-1 (V8 spike, stop-and-report gates), QV8-2 (engine seam),
 QV8-3 (V8 backend), QV8-4 (snapshot), QV8-5 (V8 default), QV8-m (same measurements on V8,
 before/after table in PERF.md), then lift the freeze. Details: TODO.txt top block.
 Paused until then (kept READY): QY53, QY54, QY57-QY61, QAN1e, QM1k5, QY15a, QY33, Q30e2/Q30d2/
-Q30d3/Q30g2/Q30a2, QM1f1/QM1g2, QY44d/e, QSD5, QC2/QT1. Q3-Q6 above still stand.
+Q30d3/Q30g2/Q30a2, QM1f1/QM1g2, QY44d/e, QSD5, QC2. Q3-Q6 above still stand.
 Reinstall scratchy after merges; I will not restart your wire.

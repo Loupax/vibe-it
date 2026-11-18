@@ -3,11 +3,12 @@
 ## Before starting
 - **FREEZE IN FORCE (user, 2026-11-18): V8 migration first.** Read the "TOP PRIORITY ... V8"
   block at the top of `TODO.txt` QUEUE. Finish and merge work already in flight. Start nothing
-  new except the QV8 items (in order), a fix for red CI or a crash/regression on main, or a
+  new except QT1 (split src/tests.rs, right after the drain) and then the QV8 items (in
+  order), a fix for red CI or a crash/regression on main, or a
   docs-only tracking fix. Everything else waits until QV8-m is ticked and the coordinator lifts
   the freeze.
 - Read `TODO.txt` (QUEUE section first), `NOTES.md`, `REGRESSIONS.md`.
-- Take the first unchecked QUEUE item (during the freeze: the first unchecked QV8 item).
+- Take the first unchecked QUEUE item (during the freeze: QT1, then the first unchecked QV8 item).
   Don't reorder or merge items.
 - If an item is wrong or much bigger than its size, stop and report. Don't guess.
 - Find code by function/type name (`grep -rn 'fn <name>' src/`). Never trust line numbers.
