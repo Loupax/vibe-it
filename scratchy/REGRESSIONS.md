@@ -195,6 +195,8 @@ snapshot (427 KB blob, 200 functions) 2.5-2.9 ms; the same script without snapsh
 QuickJS runtime+context+same script 0.43-0.59 ms. A trivial snapshot gains nothing; V8 costs ~2
 ms more per page than QuickJS before any prelude. The real case (~198 KB of scratchy prelude
 JS: `src/*_prelude.js` plus the JS in js.rs/js_dom.rs) is QV8-4's.
+QV8-4 (2026-11-18, PERF.md "QV8-4"): measured and KEPT: startup CPU 30-53 ms -> 8-13 ms per page start with an
+in-process snapshot of the real startup (natives baked with their arena index, closures re-attached per page).
 
 **ES modules / import() / import maps: fit.** `--v8-spike modules`: a static graph through
 `instantiate_module(resolve_cb)` (relative and bare specifiers, the bare one mapped by the

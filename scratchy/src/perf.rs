@@ -552,6 +552,7 @@ pub(crate) fn perf_report_main(args: &[String]) -> i32 {
         return 2;
     };
     set_js_enabled(true);
+    js_engine::ensure_snapshot(); // QV8-4: the startup snapshot is built BEFORE the page, on its own thread
     let json = perf_report(&ReportOpts { socket, seconds, target });
     write_raw_stdout(format_args!("{json}\n"));
     0

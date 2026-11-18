@@ -292,3 +292,37 @@ QuickJS in brackets): d3 13.1 / 10.4 (37.6 / 3.22), jquery 2.2 / 5.6 (8.71 / 0.9
 (V8 compiles lazily, so first run of big libraries costs more than QuickJS' 0.5-3.7 ms), as in R39.
 Single run per row for the corpus numbers here (the suite's median of 3). Not measured: the standalone
 corpus run, Chrome reference, drawn output.
+
+### QV8-4: V8 startup snapshot (V8 15.2.124.1 behind `engine-v8`, 2026-11-18)
+
+What: a page engine's context is no longer built by running the ~198 KB of prelude JS (PRELUDE, timers,
+url, globals, intl, fetch, websocket, DOM, cssom, media) after registering ~180 natives; it is
+deserialized from a startup snapshot built IN-PROCESS by the same startup code over an empty
+document (`js::bake_engine`, `js_engine_v8.rs` `Snapshot`), on a background thread
+(`js_engine::warm_up`, started at app start; an engine made before it is ready starts the old way).
+Nothing is stored on disk, so the snapshot cannot go stale (it is built from the very sources of the
+running binary). The default (QuickJS) build is unchanged (no-op stubs in js_engine.rs).
+
+Measured with `--perf-report --seconds 0 --socket wire.sock <local copy with <base>>`, the
+`engine_startup_cpu_ms` field (engine_start -> engine_ready: isolate, context, natives, all preludes;
+thread CPU), 5 runs per page, before and after interleaved in one loop, same machine, load average
+1.2-1.5 at the start and end (nothing else of mine running; the machine bounces between a fast and a slow
+CPU state, so the runs are bimodal: both modes are shown). ms:
+
+| page | before (runs; median) | after (runs; median) |
+|---|---|---|
+| wikipedia.org | 30.3 31.8 47.5 52.7 52.7; 47.5 | 7.6 7.7 13.3 14.0 14.5; 13.3 |
+| en.wikipedia Main_Page | 29.8 30.3 53.5 53.7 55.0; 53.5 | 8.9 12.6 13.0 13.0 13.3; 13.0 |
+| news.ycombinator.com | 30.0 54.0 58.1 58.9 59.0; 58.1 | 13.3 13.4 13.6 13.8 13.8; 13.6 |
+
+Gain: 22 ms (fast CPU state, 30 -> 8) to 40 ms (slow state, 53 -> 13) per page start. The whole page
+`load_cpu_ms` median went 79 / 79 / 63 -> 64 / 52 / 21 (it includes the page's own scripts, so it is noisier).
+Before, split (fast state, en.wikipedia): isolate+context+BASE64 5.3, PRELUDE 4.4, timers 0.2, url 0.6,
+globals 1.4, intl 3.1, fetch 2.9, ws 0.4, DOM natives+DOM prelude 9.1, cssom 0.9, media 1.0.
+Upper bound from a standalone experiment (stub natives, same preludes): 20.6 ms without snapshot,
+4.9 ms from a 1.5 MB snapshot (empty isolate: 2.3). Costs: the snapshot is built once per PROCESS,
+~60 ms of CPU on its own thread (`--js-report` of a one-line page: 104 ms wall with it, 45 ms with
+`SCRATCHY_V8_SNAPSHOT=0`; the one-shot report modes build it first, so they pay it); the blob lives in
+memory only. Decision: KEPT (>= 10 ms per page start).
+Not measured: RSS (a snapshot-made isolate shares nothing with the next one), page load on slow disks
+(there is no disk), many tabs.

@@ -235,7 +235,13 @@
     if (l === 'video' || l === 'audio') observe();
     return ce.apply(this, arguments);
   };
-  var first = document.querySelectorAll('video,audio');
-  if (first.length) observe();
-  for (var i = 0; i < first.length; i++) touched(first[i]);
+  // QV8-4: the initial sweep over the page's elements is a function the V8 startup snapshot's
+  // page engines call again once their real document is attached.
+  var sweep = function () {
+    var first = document.querySelectorAll('video,audio');
+    if (first.length) observe();
+    for (var i = 0; i < first.length; i++) touched(first[i]);
+  };
+  sweep();
+  Object.defineProperty(globalThis, '__media_sweep', { value: sweep, configurable: true });
 })(globalThis);

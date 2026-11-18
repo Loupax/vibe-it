@@ -53,6 +53,10 @@ thread_local! {
     static JOBS: Cell<u64> = const { Cell::new(0) };
     /// A promise was created or resolved since the last drain (a job may be queued).
     static PENDING: Cell<bool> = const { Cell::new(false) };
+    /// QV8-4: this thread is building the startup snapshot (`Engine::new` makes a snapshot creator).
+    static BAKING: Cell<bool> = const { Cell::new(false) };
+    /// QV8-4 test seam: engines made on this thread skip the startup snapshot.
+    static NO_SNAPSHOT: Cell<bool> = const { Cell::new(false) };
     /// The near-heap-limit callback fired and terminated the script.
     static OOM: Cell<bool> = const { Cell::new(false) };
     /// The page engine's watchdog state, for the synchronous budget polls (tests).
@@ -330,7 +334,15 @@ impl<'js> IntoJs<'js> for JsObject<'js> {
 
 /// What the isolate slot holds: the closure arena and the pending exception.
 struct State {
-    arena: Vec<Box<NativeFn>>,
+    /// The natives, by the index their function carries as data. A slot is `None` only for a
+    /// native the startup snapshot baked in and this engine never registered.
+    arena: Vec<Option<Box<Box<NativeFn>>>>,
+    /// QV8-4: the engine was made from the startup snapshot (the preludes already ran) and the
+    /// name -> arena index map of the natives the snapshot baked.
+    attached: bool,
+    names: Option<&'static std::collections::HashMap<String, usize>>,
+    /// QV8-4: while baking, every registered native's name -> arena index.
+    recorded: Option<std::collections::HashMap<String, usize>>,
     pending: Option<v8::Global<v8::Value>>,
     /// The script was stopped by `terminate_execution` (no JS exception exists then).
     terminated: bool,
@@ -428,10 +440,16 @@ fn throw_msg(scope: &mut v8::PinScope<'_, '_>, m: &str, type_error: bool) {
 }
 
 fn trampoline<'s>(scope: &mut v8::PinScope<'s, '_>, args: v8::FunctionCallbackArguments<'s>, mut rv: v8::ReturnValue<'s, v8::Value>) {
-    let Ok(ext) = v8::Local::<v8::External>::try_from(args.data()) else { return };
-    // SAFETY: `data` is the External made by `register`, pointing into the arena's heap box.
-    let f = unsafe { &*(ext.value() as *const Box<NativeFn>) };
+    let Ok(idx) = v8::Local::<v8::Integer>::try_from(args.data()) else { return };
     let ctx = Ctx::<'static>::new(scope);
+    let slot = state(&ctx).arena.get(idx.value() as usize).and_then(|b| b.as_deref().map(|b| b as *const Box<NativeFn>));
+    let Some(slot) = slot else {
+        throw_msg(scope, "native function is not installed", false);
+        return;
+    };
+    // SAFETY: the box lives in the arena (never removed) until the isolate is dropped; the Vec may
+    // grow during the call but each closure sits in its own heap box.
+    let f = unsafe { &*slot };
     // SAFETY: lifetimes only.
     let args_s = unsafe { std::mem::transmute::<&v8::FunctionCallbackArguments<'s>, &v8::FunctionCallbackArguments<'static>>(&args) };
     match f(&ctx, args_s) {
@@ -454,12 +472,23 @@ where
     F: IntoNative<'js, P> + 'js,
 {
     let boxed: Box<Box<NativeFn>> = Box::new(f.into_native());
-    let ptr = &*boxed as *const Box<NativeFn> as *mut c_void;
-    state(ctx).arena.push(boxed);
-    // The arena `Vec` may grow, but each closure sits in its own heap box: `ptr` stays valid.
+    let st_ = state(ctx);
+    // QV8-4: a native the startup snapshot baked in already has its function (and every prelude
+    // that captured it): only the closure is attached.
+    if let Some(&i) = st_.names.and_then(|n| n.get(name))
+        && st_.arena.get(i).is_some_and(Option::is_none)
+    {
+        st_.arena[i] = Some(boxed);
+        return;
+    }
+    let idx = st_.arena.len();
+    st_.arena.push(Some(boxed));
+    if let Some(r) = st_.recorded.as_mut() {
+        r.insert(name.to_string(), idx);
+    }
     let sc = ctx.sc();
-    let ext = v8::External::new(sc, ptr);
-    let Some(func) = v8::Function::builder(trampoline).data(ext.into()).build(sc) else { return };
+    let data = v8::Integer::new(sc, idx as i32);
+    let Some(func) = v8::Function::builder(trampoline).data(data.into()).build(sc) else { return };
     if let Some(k) = name.into_js(ctx).ok() {
         ctx.global().set(sc, k, func.into());
     }
@@ -1180,6 +1209,92 @@ pub(crate) struct Engine {
     pub(crate) budget: Budget,
     /// Nesting depth of `with` (the outermost one ends a termination).
     depth: Cell<u32>,
+    /// QV8-4: made from the startup snapshot (see `Snapshot`).
+    attached: bool,
+}
+
+/// QV8-4: the startup snapshot. A page engine's context is the state after scratchy's own startup
+/// (natives registered, all the JS preludes run) over an EMPTY document, built in this process by
+/// the very same startup code (`js::bake_engine`), so it cannot go stale: nothing is stored on disk.
+/// Natives are baked as functions whose data is their arena index; `names` maps a native's name to
+/// that index, so a new engine only attaches its closures (`register`). Per-page state (the URL,
+/// user agent, viewport, `performance.timeOrigin`, the document's own natives) is applied after
+/// attaching (`__scratchy_apply_env`, `__media_sweep`).
+pub(crate) struct Snapshot {
+    data: &'static [u8],
+    names: std::collections::HashMap<String, usize>,
+    /// The arena length at bake time.
+    count: usize,
+}
+
+static SNAPSHOT: std::sync::OnceLock<Option<Snapshot>> = std::sync::OnceLock::new();
+
+/// The only external reference the snapshot needs: the native-call trampoline.
+fn external_refs() -> std::borrow::Cow<'static, [v8::ExternalReference]> {
+    std::borrow::Cow::Owned(vec![v8::ExternalReference { function: v8::MapFnTo::map_fn_to(trampoline) }])
+}
+
+/// Builds the snapshot on a thread of its own (big stack, thread-local state of its own).
+fn build_snapshot() -> Option<Snapshot> {
+    if std::env::var("SCRATCHY_V8_SNAPSHOT").is_ok_and(|v| v == "0") {
+        return None;
+    }
+    std::thread::Builder::new()
+        .name("v8-snapshot".into())
+        .stack_size(16 << 20)
+        .spawn(|| {
+            init_v8();
+            BAKING.with(|b| b.set(true));
+            let eng = crate::js::bake_engine();
+            BAKING.with(|b| b.set(false));
+            eng.and_then(Engine::finish_bake)
+        })
+        .ok()?
+        .join()
+        .ok()?
+}
+
+/// Builds the startup snapshot now if nobody has (blocks until it exists). Tests and the one-shot
+/// report modes call it so every page engine they make uses it; the browser calls `warm_up`.
+pub(crate) fn ensure_snapshot() {
+    SNAPSHOT.get_or_init(build_snapshot);
+}
+
+/// Starts building the startup snapshot on a background thread: page engines made before it is
+/// ready start the slow way (the same result, ~20 ms more CPU), later ones use it.
+pub(crate) fn warm_up() {
+    if SNAPSHOT.get().is_none() {
+        let _ = std::thread::Builder::new().name("v8-warm".into()).spawn(ensure_snapshot);
+    }
+}
+
+fn snapshot_for_engine() -> Option<&'static Snapshot> {
+    if NO_SNAPSHOT.with(Cell::get) {
+        return None;
+    }
+    if cfg!(test) {
+        ensure_snapshot();
+    }
+    SNAPSHOT.get().and_then(Option::as_ref)
+}
+
+/// Runs `f` with this thread's page engines made WITHOUT the startup snapshot (tests compare).
+#[cfg(test)]
+pub(crate) fn without_snapshot<R>(f: impl FnOnce() -> R) -> R {
+    NO_SNAPSHOT.with(|n| n.set(true));
+    let r = f();
+    NO_SNAPSHOT.with(|n| n.set(false));
+    r
+}
+
+/// True when the page engine this context belongs to was made from the startup snapshot, so the
+/// preludes must not run again.
+pub(crate) fn baking() -> bool {
+    BAKING.with(Cell::get)
+}
+
+pub(crate) fn prebuilt(ctx: &Ctx<'_>) -> bool {
+    state(ctx).attached
 }
 
 impl Drop for Engine {
@@ -1200,23 +1315,31 @@ impl Engine {
         let probe = 0u8;
         let sp = &probe as *const u8 as usize;
         let limit = sp.saturating_sub(opts.stack_limit.max(64 * 1024));
-        let params = v8::CreateParams::default().heap_limits(0, opts.memory_limit);
+        let baking = BAKING.with(Cell::get);
+        let snap = if baking || opts.page.is_none() { None } else { snapshot_for_engine() };
+        let mut params = v8::CreateParams::default().heap_limits(0, opts.memory_limit);
+        if let Some(s) = snap {
+            params = params.snapshot_blob(v8::StartupData::from(std::borrow::Cow::Borrowed(s.data))).external_references(external_refs());
+        }
         // SAFETY: the address is inside this thread's stack and the isolate is only used here.
         let params = unsafe { params.set_stack_limit(limit as *mut u32) };
-        let mut isolate = v8::Isolate::new(params);
+        let mut isolate = if baking { v8::Isolate::snapshot_creator(Some(external_refs()), Some(params)) } else { v8::Isolate::new(params) };
         isolate.set_microtasks_policy(v8::MicrotasksPolicy::Explicit);
         isolate.set_host_import_module_dynamically_callback(dyn_import_cb);
         isolate.set_host_initialize_import_meta_object_callback(import_meta_cb);
-        isolate.set_slot(State { arena: Vec::new(), pending: None, terminated: false, oom: false, modules: opts.page.clone(), mod_cache: Default::default(), mod_names: Default::default() });
+        let arena = snap.map(|s| (0..s.count).map(|_| None).collect()).unwrap_or_default();
+        isolate.set_slot(State { arena, attached: snap.is_some(), names: snap.map(|s| &s.names), recorded: baking.then(Default::default), pending: None, terminated: false, oom: false, modules: opts.page.clone(), mod_cache: Default::default(), mod_names: Default::default() });
         JOBS.with(|j| j.set(0));
         PENDING.with(|p| p.set(false));
         OOM.with(|o| o.set(false));
-        isolate.set_promise_hook(promise_hook);
         let oom_handle = Box::new(isolate.thread_safe_handle());
-        isolate.add_near_heap_limit_callback(near_heap_limit, &*oom_handle as *const v8::IsolateHandle as *mut c_void);
+        if !baking {
+            isolate.set_promise_hook(promise_hook);
+            isolate.add_near_heap_limit_callback(near_heap_limit, &*oom_handle as *const v8::IsolateHandle as *mut c_void);
+        }
         let budget = Budget::new(SCRIPT_BUDGET);
         let mut watchdog = None;
-        if opts.page.is_some() {
+        if opts.page.is_some() && !baking {
             isolate.set_promise_reject_callback(reject_callback);
             let w = Arc::new(Watch { budget: budget.clone(), stop: AtomicBool::new(false), handle: isolate.thread_safe_handle() });
             let h = start_watchdog(w.clone());
@@ -1228,14 +1351,44 @@ impl Engine {
             let c = v8::Context::new(hs, Default::default());
             v8::Global::new(hs, c)
         };
-        let eng = Engine { watchdog, context, isolate: UnsafeCell::new(isolate), _oom_handle: oom_handle, budget, depth: Cell::new(0) };
+        let eng = Engine { watchdog, context, isolate: UnsafeCell::new(isolate), _oom_handle: oom_handle, budget, depth: Cell::new(0), attached: snap.is_some() };
         // QuickJS ships atob/btoa and no `Intl`; V8 is the other way round. Match QuickJS:
         // the page's own en-US `Intl` shim (intl_prelude.js) only installs when `Intl` is absent.
-        eng.with(|ctx| {
-            eval_quiet(&ctx, "delete globalThis.Intl; delete globalThis.queueMicrotask;");
-            eval_quiet(&ctx, BASE64_JS);
-        });
+        // (A context from the startup snapshot already has all of this.)
+        if !eng.attached {
+            eng.with(|ctx| {
+                eval_quiet(&ctx, "delete globalThis.Intl; delete globalThis.queueMicrotask;");
+                eval_quiet(&ctx, BASE64_JS);
+            });
+        }
         Ok(eng)
+    }
+
+    /// QV8-4: made from the startup snapshot: the JS preludes already ran.
+    pub(crate) fn prebuilt(&self) -> bool {
+        self.attached
+    }
+
+    /// QV8-4: ends a baking engine: makes its context the snapshot's default context and
+    /// serializes the isolate. `None` if V8 refused.
+    fn finish_bake(self) -> Option<Snapshot> {
+        let this = std::mem::ManuallyDrop::new(self);
+        // SAFETY: `this` is never used or dropped again; each field is moved out exactly once.
+        let (mut isolate, context, oom_handle) = unsafe { (std::ptr::read(&this.isolate).into_inner(), std::ptr::read(&this.context), std::ptr::read(&this._oom_handle)) };
+        drop(oom_handle);
+        {
+            v8::scope!(let hs, &mut isolate);
+            let c = v8::Local::new(hs, &context);
+            hs.set_default_context(c);
+        }
+        drop(context);
+        let state = isolate.remove_slot::<State>()?;
+        let names = state.recorded.clone()?;
+        let count = state.arena.len();
+        drop(state);
+        let blob = isolate.create_blob(v8::FunctionCodeHandling::Keep)?;
+        let data: &'static [u8] = Box::leak(blob.to_vec().into_boxed_slice());
+        Some(Snapshot { data, names, count })
     }
 
     #[allow(clippy::mut_from_ref)]

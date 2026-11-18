@@ -50,6 +50,7 @@ fn qj2_error_lines_carry_name_message_and_script_number() {
 
 #[test]
 fn qj2_inline_scripts_are_numbered_by_document_position() {
+    let _g = JS_FLAG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let doc = parse_html("<script src=a.js></script><script>1</script><script>2</script>");
     let names: Vec<_> = inline_scripts(&doc).into_iter().map(|s| s.name).collect();
     assert_eq!(names, ["inline script #2", "inline script #3"]);
@@ -123,6 +124,7 @@ fn q33a_noscript_content_hidden_only_when_js_is_on() {
 
 #[test]
 fn qj3_js_report_counts_scripts_and_errors() {
+    let _g = JS_FLAG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let html = "<html><body><script>console.log('ok');</script><script>throw new Error('boom');</script></body></html>";
     let report = js::js_report_for_html(html, None, "none.html");
     assert!(report.contains("scripts run: 2\n"), "{report}");
