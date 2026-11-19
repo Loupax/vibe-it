@@ -104,8 +104,8 @@
 - If a wait loop is truly unavoidable, wait on a PID you own (`kill -0 $PID`)
   or use `pgrep -x`, and always wrap it in `timeout`.
 - NEVER kill by name or pattern at all (no `pkill`, `killall`, `pgrep ... | xargs kill`) (user rule 2026-11-19:
-  a name kill for `wire` also matched `pipewire`/`pipewire-pulse`/`wireplumber` and took down the user's audio,
-  scratchy and wire). Record the PID when YOU start a process (`$!`), check `ps -o pid,cmd -p <pid>` shows your
+  `pkill wire` also matches `pipewire`/`pipewire-pulse`/`wireplumber`, the desktop's audio stack; seen on this
+  machine when the user restarted their own wire). Record the PID when YOU start a process (`$!`), check `ps -o pid,cmd -p <pid>` shows your
   own binary path, then kill that PID. The user's own scratchy and wire (socket /run/user/1000/wire.sock) and
   every desktop/audio process are never yours.
 - Never `pkill -f` with a pattern that also appears in your own command line;
