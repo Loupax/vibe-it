@@ -1,5 +1,99 @@
 # scratchy — regressions
 
+## R50: QYTC1: why YouTube's visible player controls cost ~10 forced layouts/s. About 2/3 of them (and of their ms) come after nothing but YouTube's progress-bar `style` writes (`transform: translateX(..)` on the scrubber, `transform: scalex(..)` on the play progress, `left: Npx` on the absolutely positioned hover progress), ~5 times a second, each followed by a geometry read (`uib`, then `getPlayerSize`). Each read is a whole-document layout (436 boxes, 27-58 ms here). 12-13 % change no box at all; ~20 % follow `class` toggles (`ytp-autohide*`, suggested-action badges) (Opus, 2026-11-19, measure only) — OPEN: proposed QYTC1a-QYTC1c (below). The fix needs a hook in js_dom.rs's attribute-write bump, which QY53o1 is changing now (question in the draft PR)
+
+**Status: measurement only. No product change; the trace counters were reverted.** Branch from main
+d7984e5 (includes QCUR1 6b3520e), release build (V8 + media), own worktree, own wire on a scratchpad
+socket, nested dwl (tools/nest.sh) + tools/inject, `SCRATCHY_MEDIA_AO=null`, `SCRATCHY_FRAME_STATS`.
+URL https://www.youtube.com/watch?v=G1AeBgalFZk. Load average 10-28 during the runs (other agents were
+building), so absolute ms are high; the ratios are what matter. Every measured run under the perf flock.
+
+### Recipe
+R46 recipe, one phase: after 16 s `inject 960 1006 move:346,261 click wait:10000` (play), then a
+60 Hz circle INSIDE the picture for ~10 s (`move:x,y wait:16` x 600, centre 346,200, radius 60x40:
+keeps the controls visible), then park at (10,990) for 8 s (controls hide). Numbers below are the
+seconds with >= 40 pointer moves (9 per run). Throwaway trace (env var, never committed): per forced
+layout in `GeomCache::refresh` the V8 caller frame, CPU ms, whether any rect changed and which
+elements' rects changed; per `geom_bump` the write that caused it (attribute, element, old -> new).
+
+### Main today (two untraced runs, then the two traced runs)
+| run | forced/s (median) | ms per layout | forced ms/s | video painted/s | lat_p95 ms | js_ms/s |
+|---|---|---|---|---|---|---|
+| base1 | 10.5 | 40.5 | 461 | 22.1 | 95 | 657 |
+| base2 | 11.1 | 42.3 | 480 | 22.8 | 82 | 647 |
+| trace1 | 10.0 | 43.3 | 563 | 20.3 | 79 | 733 |
+| trace2 | 8.7 | 58.0 | 526 | 11.9 | 131 | 711 |
+
+Idle seconds after the controls hide: 0 forced layouts, video 30/30, js ~25-30 ms/s. So the whole
+cost is the controls' update loop, as the item says; the pointer only keeps the controls shown.
+
+### Who reads (callers; trace1 / trace2, controls phase)
+| caller | layouts | CPU ms |
+|---|---|---|
+| `uib` player base.js:7776:162 | 51 / 41 | 2060 / 2343 |
+| `g.k.getPlayerSize` player base.js:15507:316 | 51 / 36 | 2002 / 2056 |
+| scratchy's IntersectionObserver recheck (`io`) | 13 / 11 | 539 / 636 |
+
+Headless `--perf-report --seconds 15` of the same URL (load only, no controls): 76 forced layouts,
+2 254 ms; `getPlayerSize` 46 (1 141 ms), `uib` 10; 34 of 76 changed no rect.
+
+### What dirties the geometry between two reads
+The progress-bar update runs ~5x/s and is always the same pair:
+1. `div.ytp-scrubber-container` `style="transform: translateX(42.19px)"` -> `translateX(42.45px)` and
+   `div.ytp-play-progress` `style="left: 0px; transform: scalex(0.0685); background-size: ..."` ->
+   `scalex(0.0689)`; then `uib` reads -> layout. Rects that changed: the scrubber container and its 7
+   descendants only (scratchy applies a translate as an offset of the box subtree, QY18; `scalex` is
+   ignored by layout).
+2. `div.ytp-hover-progress` `style="left: 42.19px; transform: scalex(0)"` -> `left: 42.45px; ...`; then
+   `getPlayerSize` reads -> layout. Rects that changed: the hover progress and the ink extents of its 9
+   ancestors (`#player-wrap` .. `.ytp-progress-list`); no other box moved.
+
+Classified by the writes between two layouts (controls phase):
+| what came before the layout | trace1 | trace2 |
+|---|---|---|
+| ONLY progress-bar `style` writes (scrubber / play / hover / load progress) | 81 layouts, 3 183 ms (70 %) | 57, 3 260 ms (65 %) |
+| something else, and no rect changed (no-op) | 13, 509 ms (11 %) | 11, 625 ms (12 %) |
+| something else (`class` toggles), rects changed | 21, 909 ms (19 %) | 20, 1 151 ms (23 %) |
+
+The "something else" writes: `#movie_player` class `ytp-autohide-active` added AND removed again
+before the next read (11+11 in trace2: a net no-op), `ytp-autohide`, `playing-mode`,
+`buffering-mode`, the suggested-action badges' `ytp-suggested-action-badge-with-controls` /
+`-expanded` and their `style="display: none" -> "display: none; width: 40px"`, plus a few
+`removeChild`/`insertBefore`/`removeAttribute` inside the player.
+
+### What one layout costs
+Each forced layout is a whole-document build + measure on the JS thread (`GeomCache::refresh`), 436
+element boxes. Headless phases over the 76 load-time layouts: build_children 43 %, precompute_generated
+33 % (the ::before/::after match pass over every element), css_collect + rule_index 18 %,
+measure_document 5 %, walks < 1 %. So a real browser's "~1 ms" is not reachable by making the full
+layout faster; the reads must stop needing one.
+
+### Proposed fix (not implemented: needs QY53o1's code, see the question)
+- **QYTC1a [M] (P1)** Contained inline-style writes. A `style` attribute write whose parsed declarations
+  (`css::parse_declarations_split`, normal and `!important` parts) differ from the old ones ONLY in
+  (i) paint-only fields (`opacity`, `background_color/_position/_size`, ...), (ii) `transform` (only a
+  translate moves boxes: shift the element's laid subtree by the px delta, `frac * w` for `%`), or
+  (iii) `left`/`top` in px on a box that was `absolute`/`fixed` with a definite `width` (`right` auto)
+  / `top` with `bottom` auto: shift its laid subtree by the delta. Conditions: no selector reads the
+  `style` attribute and no `attr(style)`; no rule declares `!important` `transform`/`left`/`top`
+  (checked once per rule list); the element has one box; nothing laid elsewhere belongs to its DOM
+  subtree (a `fixed` descendant). Then update the cached rects in place instead of bumping the
+  geometry generation: `GeomCache` keeps a flat pre-order skeleton of the laid tree (node, rect,
+  extent, subtree end) so the subtree shift and the ancestors' ink extents are exact; glyph rects of
+  the subtree are marked stale (a `text_rects` read lays out). Anything else falls back to the full
+  layout. Expected on this recipe: the 65-70 % "progress-only" layouts disappear (forced ~10/s ->
+  ~3-4/s). The hook must sit where `__d_setattr` decides to bump (`geom_bump_attr`): it needs the
+  attribute name and the old value, and must replace the bump, not follow it. A DOM-snapshot diff
+  inside js_geom.rs alone is not sound (form state, `sheet_text`, adopted sheets bump without a DOM
+  attribute change). Tests: fixture with an abs `left` write and a translate write -> 0 extra forced
+  layouts and the same rects as a fresh layout; `[style*=x]` rule / `!important` / `width: auto` /
+  `display` change -> full layout.
+- **QYTC1b [S] (P2, after QYTC1a)** A write that puts an attribute back to its value at the last
+  forced layout cancels its own bump (`ytp-autohide-active` added and removed between two reads: the
+  11-13 % no-op layouts). Needs the same hook (old value at layout time per written attribute).
+- **QYTC1c [S] (P3, measure)** css_collect + rule_index are 18 % of every forced layout on the JS
+  thread (~5 ms each here): check whether `RULE_DERIVED`'s index is rebuilt per layout there.
+
 ## R49: QAN1h: GitHub restyle re-measured. R31's 15-18 s restyle is gone: a page of that size (github.com repo page, 1 809 elements, 16 220 rules) now builds in 126 ms headless and 210-250 ms in a window. But today's github.com HOME is a bigger page (~3 200 elements, 29 342 rules), and a full build of it still takes 0.65 s headless and 1.1-1.55 s in a window. That is the cost of every hover and every JS restyle (input-to-frame 1.3-1.6 s). About half of the build is selector matching (534 candidate rules per match call, 1 344 rules in the universal bucket, 2.3 % of full matches succeed). About a fifth is `var()` re-expansion: each element re-substitutes and re-parses each matched `var()` rule, 19 272 times per build for 694 distinct declaration blocks (Opus, 2026-11-19, measure only, docs only) — OPEN: proposed QAN1h1-QAN1h3 (below)
 
 **Status: measurement only. No product change; the temporary counters were reverted.** Main **a116be4**,
