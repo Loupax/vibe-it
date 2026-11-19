@@ -6102,6 +6102,30 @@ pub(crate) fn intern_custom_props(map: CustomProps) -> &'static CustomProps {
     })
 }
 
+/// QY53i: one memoised `compute_custom_props` result. The inputs are the
+/// parent table's address (interned tables are leaked, so an address is
+/// never reused for another table) and the element's own winning
+/// `(name, raw value)` pairs, sorted by name; together they fully determine
+/// the result, so a hit skips the parent clone, the `var()` resolution and
+/// the SipHash of the whole combined table that `intern_custom_props` needs.
+struct CustomPropsMemoEntry {
+    parent: usize,
+    own: Box<[(Box<str>, Box<str>)]>,
+    result: &'static CustomProps,
+}
+
+thread_local! {
+    /// Keyed by a hash of (parent address, own pairs); a bucket holds the
+    /// entries with that hash (collisions are compared in full).
+    static CUSTOM_PROPS_MEMO: RefCell<HashMap<u64, Vec<CustomPropsMemoEntry>>> = RefCell::new(HashMap::new());
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Test-only: how many `compute_custom_props` calls the memo answered.
+    pub(crate) static CUSTOM_PROPS_MEMO_HITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 /// Computes an element's custom properties: the parent's table overlaid
 /// with this element's own `--name` declarations (highest specificity,
 /// later rule on ties, inline last), each own value `var()`-substituted
@@ -6128,6 +6152,45 @@ pub(crate) fn compute_custom_props(
     if own.is_empty() {
         return parent;
     }
+    let parent_addr = parent.map_or(0, |p| p as *const CustomProps as usize);
+    let mut pairs: Vec<(&str, &str)> = own.iter().map(|(n, (_, v))| (*n, *v)).collect();
+    pairs.sort_unstable_by(|a, b| a.0.cmp(b.0));
+    let key = {
+        use std::hash::{Hash, Hasher};
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        parent_addr.hash(&mut h);
+        pairs.hash(&mut h);
+        h.finish()
+    };
+    let same = |e: &CustomPropsMemoEntry| {
+        e.parent == parent_addr
+            && e.own.len() == pairs.len()
+            && e.own.iter().zip(&pairs).all(|((n, v), (pn, pv))| &**n == *pn && &**v == *pv)
+    };
+    let hit = CUSTOM_PROPS_MEMO.with(|m| m.borrow().get(&key).and_then(|b| b.iter().find(|e| same(e)).map(|e| e.result)));
+    if let Some(r) = hit {
+        #[cfg(test)]
+        CUSTOM_PROPS_MEMO_HITS.with(|c| c.set(c.get() + 1));
+        return Some(r);
+    }
+    let result = compute_custom_props_uncached(&own, parent);
+    CUSTOM_PROPS_MEMO.with(|m| {
+        m.borrow_mut().entry(key).or_default().push(CustomPropsMemoEntry {
+            parent: parent_addr,
+            own: pairs.iter().map(|(n, v)| (Box::from(*n), Box::from(*v))).collect(),
+            result,
+        })
+    });
+    Some(result)
+}
+
+/// The memo-miss half of `compute_custom_props`: resolves the element's own
+/// values and returns the interned combined table (`parent` itself when
+/// nothing changed).
+fn compute_custom_props_uncached(
+    own: &HashMap<&str, (u64, &str)>,
+    parent: Option<&'static CustomProps>,
+) -> &'static CustomProps {
     // `visiting` is the current resolution stack; every name on it when a
     // cycle is hit goes into `invalid` (the whole cycle is invalid).
     let visiting: RefCell<(Vec<String>, HashSet<String>)> = RefCell::new((Vec::new(), HashSet::new()));
@@ -6162,7 +6225,7 @@ pub(crate) fn compute_custom_props(
     }
     let mut map = parent.cloned().unwrap_or_default();
     for name in own.keys() {
-        match lookup(name, &own, parent, &visiting) {
+        match lookup(name, own, parent, &visiting) {
             Some(v) => {
                 map.insert(name.to_string(), v);
             }
@@ -6171,10 +6234,10 @@ pub(crate) fn compute_custom_props(
             }
         }
     }
-    if Some(&map) == parent {
-        return parent;
+    match parent {
+        Some(p) if *p == map => p,
+        _ => intern_custom_props(map),
     }
-    Some(intern_custom_props(map))
 }
 
 /// Q57d: after a single-token value, only an optional `!important` may remain

@@ -874,6 +874,46 @@ fn inline_style_custom_prop_and_var() {
     assert_eq!(c, TextColor::rgb(5, 5, 5));
 }
 
+// ---------- QY53i: custom-property memo (parent table address + own pairs) ----------
+
+#[test]
+fn qy53i_siblings_with_same_own_custom_prop_share_one_map() {
+    let css = ":root{--a:1px} .s{--x:2px}";
+    let doc = parse_html(r#"<html><body><p class="s" id="a">a</p><p class="s" id="b">b</p></body></html>"#);
+    let rules = parse_stylesheet(css);
+    let html = find_html_element(&doc).unwrap();
+    let hs = resolve_style(&html, &rules, ROOT_STYLE, 800.0);
+    let inherited = InheritedStyle { custom_props: hs.custom_props, ..ROOT_STYLE };
+    let a = resolve_style(&by_id(&doc, "a"), &rules, inherited, 800.0);
+    let hits = crate::css::CUSTOM_PROPS_MEMO_HITS.with(|c| c.get());
+    let b = resolve_style(&by_id(&doc, "b"), &rules, inherited, 800.0);
+    let (pa, pb) = (a.custom_props.expect("a table"), b.custom_props.expect("b table"));
+    assert!(std::ptr::eq(pa, pb), "siblings with the same own --x share one interned table");
+    assert_eq!(crate::css::CUSTOM_PROPS_MEMO_HITS.with(|c| c.get()), hits + 1, "the second sibling is a memo hit");
+    assert_eq!(pa.get("--x").map(String::as_str), Some("2px"));
+    assert_eq!(pa.get("--a").map(String::as_str), Some("1px"));
+}
+
+#[test]
+fn qy53i_same_own_raw_value_under_different_parents_resolves_per_parent() {
+    // Same own declaration (`--y: var(--x)`) under two parents with
+    // different `--x`: the memo key includes the parent table, so each
+    // child resolves against its own parent.
+    let html = r#"<html><head><style>.k{--y:var(--x)} .k p{color:var(--y)}</style></head><body>
+        <div style="--x:#010101"><div class="k"><p>one</p></div></div>
+        <div style="--x:#020202"><div class="k"><p>two</p></div></div>
+        <div style="--x:#010101"><div class="k"><p>three</p></div></div></body></html>"#;
+    let doc = parse_html(html);
+    let tree = build_layout_tree(&doc, 1920.0);
+    let mut colors = Vec::new();
+    find_all_span_colors(&tree, &mut colors);
+    assert_eq!(
+        colors,
+        vec![TextColor::rgb(1, 1, 1), TextColor::rgb(2, 2, 2), TextColor::rgb(1, 1, 1)],
+        "each var(--y) resolves against its own parent's --x"
+    );
+}
+
 // ---------- v49: `%` lengths, and confirming unitless-non-zero stays rejected ----------
 
 #[test]
