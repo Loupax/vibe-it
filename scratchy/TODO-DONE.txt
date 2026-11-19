@@ -6369,3 +6369,16 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       (3.8 MB on YouTube): 0.77 s per 60 s (0.8 %). Key the cache on the CSS version counters
       (`CSS_VER`) and only build the string on a miss. Test: a hit does not call `page_css`
       (test-only counter); a stylesheet change still invalidates. Accept: tests.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QP4 DONE 4fae30f [S] (P2, R44 section 2, Sonnet/Haiku) `layout::memo_key` builds its hash from
+      `format!("{align:?}")` and `format!("{span:?}")` for every text item (Debug string of the whole
+      `SpanStyle`, floats formatted through `flt2dec`, then SipHash): 5.5 % of all Wikipedia Rust CPU
+      (most of the 6.8 % in `core::fmt`), 0.4 % on YouTube. Hash the fields directly (a manual `Hash`
+      impl or a `hash_into(&mut H)` on `SpanStyle`, f32 via `to_bits()`; every field that affects
+      shaping or measuring must be included, so a later field added to `SpanStyle` must not be silently
+      left out: put a comment and a test that two spans differing in ANY single field give different
+      keys), and consider `FxHasher`-style hashing only if measured faster. Tests: equal spans -> equal
+      key; each field changed alone -> different key; memo hits on a re-layout unchanged (existing QP2
+      tests). Accept: Wikipedia Rust `--perf-report --seconds 30` forced_layout.total_ms median of 3
+      lower than main, and QOBS1's summary shows `memo_key` < 1 %.
