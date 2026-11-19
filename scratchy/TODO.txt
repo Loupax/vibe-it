@@ -53,8 +53,8 @@ PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; sea
    6 DONE 4fae30f QP4 [S]    shape-memo key via Debug strings (layout.rs; pairs with 5)          | QOBS block
    7 [WIP] QY53i [M]  custom-property interning clone/hash/leak (css.rs)                  | QOBS block
  Step 3, see what is still slow and name it:
-   8 [WIP] QOBS4 [S]  name the slowest callbacks (YT: a 5.5 s timer, a 2.8 s promise job) | QOBS block
-   9 QOBS3 [M]  forced-layout phases / callers / no-op rate in --perf-report         | QOBS block
+   8 DONE f9a8c27 QOBS4 [S]  name the slowest callbacks (YT: a 5.5 s timer, a 2.8 s promise job) | QOBS block
+   9 [WIP] QOBS3 [M]  forced-layout phases / callers / no-op rate in --perf-report         | QOBS block
   10 [WIP] QOBS5 [M]  window frame stats (redraw, paint, input latency, video frames)    | QOBS block
  Step 4, the main thread in the live window (YouTube playback, scrolling, mouse):
   11 QOBS6 [S]  network delivery delay (tool for 12)                                | QOBS block
@@ -1265,11 +1265,20 @@ Shared rules for this block:
       lazy-load observer firing late -> more continuation loads -> more layouts). Measure 5+5 interleaved runs of c5098fa
       vs its parent with QOBS3's by_reason/by_caller; if the branch really is worse, find why and fix or file. Also check
       that YouTube's visible content (thumbnails, comments) loads as before (nested-dwl screenshot at 30 s).
+- [ ] QOBS4b [S] (P2, coordinator 2026-11-19, from QOBS4 f9a8c27; Sonnet) `longest[].source` names scratchy's WRAPPERS,
+      not the page function: YT watch #4 `run media:108:22` (1360 ms, 15 forced layouts = the media pump in
+      media_prelude.js, which dispatches `timeupdate` etc. synchronously, so YouTube's listeners run inside it) and #5
+      `(anonymous) globals:151:35` (940 ms = the requestIdleCallback shim in globals_prelude.js calling the page's cb);
+      promise jobs (#2, 1535 ms) and net callbacks have no source at all. (a) Attribute through the shims: rIC/rAF/
+      queueMicrotask-style wrappers and prelude-dispatched events report the page function (or `event:<type> <listener
+      fn url:line:col>` for the slowest listener); (b) promise jobs: name the reaction handler if V8 exposes it cheaply;
+      (c) measure the media pump's OWN cost (excluding listeners) on YT watch: if it forces layouts itself, file a fix.
+      Tests: a rIC callback named `slowIdle` shows up as `slowIdle <url>`; a slow `timeupdate` listener is named.
 - [ ] QOBS1b [XS] (coordinator 2026-11-19, from QOBS2 aadd319; Sonnet/Haiku, tools only) `tools/profile.sh` still sets
       `SCRATCHY_V8_SNAPSHOT=0` (the QOBS1 workaround "until QOBS2 is merged"). QOBS2 made scratchy skip the snapshot itself
       whenever `SCRATCHY_V8_FLAGS` is set, so drop the env var from profile.sh and the PERF.md "Profiling (perf)" note.
       Smoke: profile.sh on a local fixture still resolves JS frames. Can pair with any item (tools/PERF.md only).
-- [ ] QOBS3 [M] (P1, R44 section 4.2, Sonnet) Forced-layout breakdown in `--perf-report` (the permanent
+- [ ] [WIP] QOBS3 [M] (P1, R44 section 4.2, Sonnet) Forced-layout breakdown in `--perf-report` (the permanent
       version of R43's throwaway lines). Add to `forced_layout`: `phases` {css_collect, rule_index
       (RuleIndex + HoverKeys), precompute_generated, build_children, measure_document, glyph_walk,
       rect_walk} each `total_ms` (thread CPU; phases must add up to within 5 % of `total_ms`);
@@ -1284,14 +1293,6 @@ Shared rules for this block:
       `by_caller[0]` names `readIt`, count 5; a write of the same value then a read -> `no_change`
       counted; phases sum within 5 %. Accept: tests; overhead rule above; Wikipedia Rust and YT watch
       JSON pasted in the PR.
-- [ ] [WIP] QOBS4 [S] (P1, R44 section 3, Sonnet) Name the slow callbacks. `--perf-report` gets `longest`: the
-      20 longest callbacks of the run (raw CPU), each {kind, raw_ms, budget_ms, forced_layouts, forced_ms,
-      at_ms (since start), source: "function url:line:col" of the callback's function or script
-      (V8: `Function::get_script_origin`/`get_script_line_number`/`get_script_column_number`, or the script
-      URL for classic/module scripts; QuickJS may give the URL only)}. Kept in a bounded min-heap, no
-      per-callback allocation beyond it. YouTube today has a 5 519 ms timer and a 2 823 ms promise job
-      that nothing identifies. Tests: fixture with a named 60 ms timer function and a 5 ms one ->
-      `longest[0].source` names the 60 ms function. Accept: test; YT watch `longest[0..5]` pasted.
 - [ ] [WIP] QY53i [M] (P2, R44 section 3, Sonnet, measure first) Custom-property interning:
       `compute_custom_props` -> `intern_custom_props` (css.rs) clones the parent's whole
       `BTreeMap<String,String>`, adds the element's own `--*` values, SipHashes the complete map to look

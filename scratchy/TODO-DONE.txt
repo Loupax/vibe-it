@@ -6486,3 +6486,13 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       user sends (checked 2026-11-19: their process has no override; HTTP UA = wire's `wire/0.1 ...`, navigator.userAgent =
       `Mozilla/5.0 (X11; Linux x86_64) scratchy/<ver>`). If the stop is the PoToken/BotGuard attestation (QM1k2, parked),
       report that and stop: the user decides whether QM1k2 is unparked. Never forge, replay or borrow tokens.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QOBS4 DONE f9a8c27 [S] (P1, R44 section 3, Sonnet) Name the slow callbacks. `--perf-report` gets `longest`: the
+      20 longest callbacks of the run (raw CPU), each {kind, raw_ms, budget_ms, forced_layouts, forced_ms,
+      at_ms (since start), source: "function url:line:col" of the callback's function or script
+      (V8: `Function::get_script_origin`/`get_script_line_number`/`get_script_column_number`, or the script
+      URL for classic/module scripts; QuickJS may give the URL only)}. Kept in a bounded min-heap, no
+      per-callback allocation beyond it. YouTube today has a 5 519 ms timer and a 2 823 ms promise job
+      that nothing identifies. Tests: fixture with a named 60 ms timer function and a 5 ms one ->
+      `longest[0].source` names the 60 ms function. Accept: test; YT watch `longest[0..5]` pasted.
