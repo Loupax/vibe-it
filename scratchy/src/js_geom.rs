@@ -47,6 +47,8 @@ pub(crate) struct GeomCache {
     page: (f32, f32),
     forced: u32,
     forced_ms: u128,
+    /// QY53e1: thread CPU ms of the most recent forced layout (0 before the first).
+    last_cpu_ms: f64,
     logged: bool,
     /// QJ7: every laid-out glyph by the DOM text node it came from, in
     /// layout order: `(char, x, y, w, h)`, document space, `y`/`h` of the line.
@@ -136,6 +138,16 @@ fn walk(l: &Laid, fixed: bool, out: &mut HashMap<usize, GeomRect>) -> (f32, f32)
 const SHAPE_MEMO_CAP: usize = 4096;
 
 impl GeomCache {
+    /// QY53e1: would a read at this viewport be served without a layout? Cheap: no layout, no CSS string.
+    pub(crate) fn is_fresh(&self, wgen: u64, vw: f32, vh: f32) -> bool {
+        self.key == Some((wgen, vw as u32, vh as u32, crate::js_style::css_ver()))
+    }
+
+    /// QY53e1: CPU ms the last forced layout took.
+    pub(crate) fn last_cost_ms(&self) -> f64 {
+        self.last_cpu_ms
+    }
+
     /// Lays the page out again unless nothing changed since the last read.
     fn refresh(&mut self, page: &Handle, wgen: u64, vw: f32, vh: f32) {
         // QY53h: keyed on the CSS version counters; the CSS string is only built on a miss.
@@ -192,6 +204,7 @@ impl GeomCache {
         set_viewport(prev_vp.0, prev_vp.1);
         // The layout is the browser's work, not the script's: don't charge it
         // to the script's CPU budget (it would trip it on a big page).
+        self.last_cpu_ms = crate::js::thread_cpu_nanos().saturating_sub(cpu0) as f64 / 1e6;
         crate::js::pause_budget_since(cpu0);
         self.rects.clear();
         self.page = (0.0, 0.0);

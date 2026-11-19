@@ -838,6 +838,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     let t = table.clone();
     let geom = Rc::new(RefCell::new(crate::js_geom::GeomCache::default()));
     let geom2 = geom.clone();
+    let (geom3, geom4) = (geom.clone(), geom.clone());
     native!(ctx, "__d_rect", move |id: i32, vw: f64, vh: f64| -> Vec<f64> {
         let (page, h) = {
             let t = t.borrow();
@@ -857,6 +858,9 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         let (Some(page), Some(h)) = (page, h) else { return Vec::new() };
         geom2.borrow_mut().text_rects(&page, geom_gen(), &h, vw as f32, vh as f32)
     });
+    // QY53e1: is the geometry cache current for this viewport (no layout), and what the last layout cost.
+    native!(ctx, "__d_geom_fresh", move |vw: f64, vh: f64| -> bool { geom3.borrow().is_fresh(geom_gen(), vw as f32, vh as f32) });
+    native!(ctx, "__d_geom_cost", move || -> f64 { geom4.borrow().last_cost_ms() });
     let gn = wgen.clone();
     native!(ctx, "__d_wgen", move || -> f64 { gn.get() as f64 });
     native!(ctx, "__d_ggen", move || -> f64 { geom_gen() as f64 });
@@ -4445,11 +4449,16 @@ const DOM_PRELUDE: &str = r#"
   };
   // QY57: observers with targets, re-checked when the page scrolls, writes
   // the DOM or resizes (cheap signature compare, only while one exists).
-  var ioActive = new Set(), ioSig = '', ioTickQ = false;
-  var ioSigOf = function () { return __d_ggen() + ':' + g.innerWidth + 'x' + g.innerHeight + ':' + g.scrollX + ',' + g.scrollY + ':' + gScrollGen; };
+  // QY53e1: a recheck caused ONLY by a geometry-generation change is deferred: free when the
+  // geometry is already fresh (a script read laid it out), else evaluated at the first of the end
+  // of a task after which it is fresh, or `ioDue` (one timer; later writes do not move it).
+  // Scroll, viewport and element scroll keep the immediate path.
+  var ioActive = new Set(), ioSig = '', ioGen = -1, ioTickQ = false, ioDueT = null;
+  var ioHardSig = function () { return g.innerWidth + 'x' + g.innerHeight + ':' + g.scrollX + ',' + g.scrollY + ':' + gScrollGen; };
   var ioRecheck = function () {
     ioTickQ = false;
-    ioSig = ioSigOf();
+    if (ioDueT !== null) { g.clearTimeout(ioDueT); ioDueT = null; }
+    ioSig = ioHardSig(); ioGen = __d_ggen();
     ioActive.forEach(function (st) { st.need = true; obsSchedule(st); });
   };
   var ioNudge = function () {
@@ -4458,7 +4467,17 @@ const DOM_PRELUDE: &str = r#"
     sTimeout.call(g, ioRecheck, 0);
   };
   g.__scratchy_ioNudge = ioNudge;
-  g.__scratchy_ioTick = function () { if (ioActive.size && !ioTickQ && ioSigOf() !== ioSig) ioNudge(); };
+  g.__scratchy_ioTick = function () {
+    if (!ioActive.size || ioTickQ) return;
+    if (ioHardSig() !== ioSig) { ioNudge(); return; }
+    var gen = __d_ggen();
+    if (gen === ioGen) return;
+    if (__d_geom_fresh(Number(g.innerWidth) || 0, Number(g.innerHeight) || 0)) { ioNudge(); return; }
+    if (ioDueT === null) {
+      var d = Math.min(2000, Math.max(100, 4 * __d_geom_cost()));
+      ioDueT = sTimeout.call(g, function () { ioDueT = null; ioNudge(); }, d);
+    }
+  };
   var ioPx = function (v, size) { var n = parseFloat(v) || 0; return v.slice(-1) === '%' ? size * n / 100 : n; };
   // [l, t, r, b] viewport-space padding box of an overflow ancestor / root.
   var ioPad = function (el) {
