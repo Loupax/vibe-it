@@ -238,7 +238,6 @@ Side note: `seeking` is queued (`Out::Fire`) and can be dispatched after `playba
   frozen frame + YouTube's spinner, then YouTube's own error card after its 10 retries, instead of the wrong
   part of the video playing. QM1k1n5 (late fetch results) sets how long a successful out-of-buffer seek waits.
 
-
 ## R50: QYTC1: why YouTube's visible player controls cost ~10 forced layouts/s. About 2/3 of them (and of their ms) come after nothing but YouTube's progress-bar `style` writes (`transform: translateX(..)` on the scrubber, `transform: scalex(..)` on the play progress, `left: Npx` on the absolutely positioned hover progress), ~5 times a second, each followed by a geometry read (`uib`, then `getPlayerSize`). Each read is a whole-document layout (436 boxes, 27-58 ms here). 12-13 % change no box at all; ~20 % follow `class` toggles (`ytp-autohide*`, suggested-action badges) (Opus, 2026-11-19, measure only) — OPEN: proposed QYTC1a-QYTC1c (below). The fix needs a hook in js_dom.rs's attribute-write bump, which QY53o1 is changing now (question in the draft PR)
 
 **Status: measurement only. No product change; the trace counters were reverted.** Branch from main

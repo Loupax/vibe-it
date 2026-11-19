@@ -7921,3 +7921,9 @@ Done: R38. The `true` is `<img alt="true">` (YouTube calls `setAttribute('alt', 
 > Do TODO.txt item QOBS5c: SCRATCHY_FRAME_STATS per-second lines get forced.by_caller top 3 and the longest callback source per second (reuse the --perf-report data path; follow QOBS6).
 
 **What changed:** perf.rs window mode keeps the forced-caller map and the longest callback of the second (`win_longest`, same source naming as `longest`), read and reset by `take_window_callers`; `External` (now Clone, not Copy) carries them; the line gets `forced.by_caller` (top 3) and `longest`. Tests: `qobs5c_callers_and_longest_in_line` (frame_stats_tests.rs), `qobs5c_window_callers_and_longest` (perf_tests.rs).
+
+## QM1k2: PoToken / BotGuard research (Opus, research only)
+
+> Item QM1k2: find which YouTube BotGuard / attestation probes run in scratchy, which fail, throw or look odd, and why scratchy gets no valid PoToken; compare with a normal browser. Output a REGRESSIONS.md entry with a sized fix list. Honest only: earn the token by running YouTube's own script faithfully; never forge, replay, borrow or fetch tokens, never disguise scratchy.
+
+**What changed:** docs only (REGRESSIONS.md R52). Root cause: BotGuard reads `iframe.contentWindow.String` for clean built-ins; scratchy's iframe window is a bare null-prototype object, so BotGuard sends an early-exit answer and GenerateIT returns a `null` integrity token. A throwaway stand-in (main-window globals on the iframe window) gave a real token, an 87-byte PoToken and SABR status 1 for 119 s. Proposed QPT1 (real iframe realm, L) plus QPT2-QPT8 (fingerprint gaps).
