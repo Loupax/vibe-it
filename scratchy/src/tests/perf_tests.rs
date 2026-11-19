@@ -611,6 +611,7 @@ fn qobs5c_window_callers_and_longest() {
     let (_, kind, src) = longest.expect("a callback ran");
     assert_eq!((kind, src.as_str()), ("timer", "tick x.js:1:1"));
     assert_eq!(crate::perf::take_window_callers(3), (vec![], None));
+}
 
 /// QMEM3b: the DOM and the harness's own page text are named in `memory.caches`, and the
 /// getComputedStyle CSS text is sized by capacity.
