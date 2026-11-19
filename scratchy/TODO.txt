@@ -23,27 +23,6 @@ tracking fixes. Work already in flight is finished normally. Both agent slots (m
 this list; pair items that touch different files (noted per step). Evidence: R43, R44 (REGRESSIONS.md).
 A perf item that turns out to be wrong or bigger than its size: stop and report, as always.
 
-- [ ] [WIP] QM1k-stop [S, Opus investigate first, then fix] (user report 2026-11-19, ALLOWED AHEAD of the perf queue as a
-      regression on main; next free agent slot) The YouTube player stops ("crashes") after playing for a few seconds
-      (HANDOFF said the first minute played). The scratchy process does NOT die: the user's installed build (~/.cargo/bin,
-      13:58, main 167c9c0+) was still running on https://www.youtube.com/watch?v=G1AeBgalFZk and coredumpctl has no core
-      from it. Find what stops playback, measured, not guessed: YouTube player error overlay / `error` event / MediaError code,
-      SABR fetches aborted by YouTube's own timeout (QM1k1n5: results reach JS 1-19 s late), SourceBuffer starved / buffered
-      gap, mpv end-of-file or decoder error, the PoToken stop (QM1k2, expected only after ~60 s), or redraw starvation
-      (QM1k1n6: video frozen while page JS runs). Recipe: own wire, live window (nested dwl), the URL above, a click to
-      play, 90 s, logs of media events + SABR request timings + mpv log. Output: cause in REGRESSIONS.md (new R section),
-      then a fix PR if small, else items. Possibly fixed by QM1k1n5/QM1k1n6 (perf queue): if so, say which and stop.
-      USER SCREENSHOT 2026-11-19 15:07: YouTube's OWN player error overlay (German UI: "Ein Fehler ist aufgetreten.
-      Aktualisiere die Seite oder versuche es später noch einmal." = generic "An error occurred"), play button visible,
-      comments still skeletons. So the player gave up (not a frozen frame, not a scratchy crash). Start from what YouTube
-      saw: the `error` event / `video.error.code` (MediaError 3 DECODE / 4 SRC_NOT_SUPPORTED), a rejected `play()`, a
-      thrown exception in appendBuffer/SourceBuffer (QuotaExceeded, InvalidState), SABR/videoplayback HTTP errors or
-      aborts, and YouTube's own error report beacon (`/api/stats/qoe` or `/error_204` request: its query has the error
-      code, e.g. `ec=`/`errorcode=`; log it from wire).
-      RUN WITH THE DEFAULT USER AGENT (no `--user-agent`), as the user does: the R43 recipe's Chrome 131 UA is NOT what the
-      user sends (checked 2026-11-19: their process has no override; HTTP UA = wire's `wire/0.1 ...`, navigator.userAgent =
-      `Mozilla/5.0 (X11; Linux x86_64) scratchy/<ver>`). If the stop is the PoToken/BotGuard attestation (QM1k2, parked),
-      report that and stop: the user decides whether QM1k2 is unparked. Never forge, replay or borrow tokens.
 - [ ] QUA1 [S] (P3, coordinator 2026-11-19, Sonnet) The default HTTP `User-Agent` (wire's `wire/0.1 (+https://github.com/
       Loupax/vibe-it) scratchy's real-networking daemon`) differs from the default `navigator.userAgent` (`Mozilla/5.0 (X11;
       Linux x86_64) scratchy/<ver>`, user_agent.rs `navigator_user_agent_for`). Real browsers send the same string in both;
@@ -85,7 +64,7 @@ PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; sea
   15 QY53e2 [M]  IO uses the App's own layout                                       | QY53 block
   16 QM1g2 (a) [M] render mpv frames off the main thread (33-39 ms per frame today); split (a) out
                  as its own item QM1g2a when taken, (b)-(d) stay where they are     | QM1g block
-  17 QY53f [L, Opus design first] incremental style between forced layouts (80 % change nothing) | QY53 block
+  17 [WIP] QY53f [L, Opus design first] incremental style between forced layouts (80 % change nothing) | QY53 block
  Step 5, memory, regression guards, re-measure:
   18 QOBS7 [S]  memory breakdown (YT: 714 MB RSS vs 124 MB JS heap)                 | QOBS block
   19 QOBS8 [S]  perf-diff tool       20 QOBS10 [S] offline forced-layout benchmark  | QOBS block
@@ -748,6 +727,9 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       frame can be composited without a relayout. Likely the same cause as QM1k-mouse. Measure
       redraws/s and frames shown per second on the R42 URL before/after. QY53d/e/g/f reduce the
       work itself and remain needed.
+      MORE EVIDENCE 2026-11-19 (QM1k-stop, R45 run 7, real audio): mpv decoded the first video frame 0.22 s after
+      unpause but scratchy did not paint for ~6 s (29 mpv "render not being called" warnings), so sound led the
+      picture by ~6 s at every start. User-visible on every YouTube play.
 - [ ] QM1k1n7 [S] (P3, R42 section 6, Sonnet, measure first) One SABR POST to googlevideo was
       answered `411 Length Required` (1 564 B). Find which request (empty body? streamed
       `ReadableStream` body? `Content-Length` missing on the wire request) and compare with what
@@ -1244,7 +1226,7 @@ divs with 3 classes each, a script that does 50 x (write one attribute, read `of
       skips for `GEOM_GEN`; code reading 2026-11-19, not measured). Recipe: the throwaway lines of
       R43 section 7 (one stderr line per forced layout / App build / complete ShapeResult with
       `geom_gen()`). Output: numbers in R43 + items if A or B is large.
-- [ ] QY53f [L] (P2, R43, Opus design first) Incremental style between forced layouts: 80 % of
+- [ ] [WIP] QY53f [L] (P2, R43, Opus design first) Incremental style between forced layouts: 80 % of
       YouTube forced layouts change no box (81 s of 101 s per 60 s) and 61 of 215 follow a single
       write, while cascade + matching + precompute are 70-85 % of each layout. DESIGN (Opus, docs):
       keep the previous build's `ComputedStyle` (and box subtree?) per element and recompute only
