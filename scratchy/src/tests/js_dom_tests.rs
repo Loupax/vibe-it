@@ -870,8 +870,8 @@ fn qpt1a_realm_unhandled_rejection_is_logged_and_nested_realms_work() {
          var g=w.document.createElement('iframe'); w.document.body.appendChild(g); var w2=g.contentWindow;\
          console.log(w2!==null, w2!==w, w2.parent===w, w2.top===window, w2.String!==w.String, w2.frameElement===g);\
          w2.setTimeout(function(){ console.log('nested timeout', this===w2); }, 1);\
-         var dd=document.createElement('iframe'); dd.src='data:text/html,hi'; document.body.appendChild(dd);\
-         console.log(typeof dd.contentWindow.String, dd.contentDocument.nodeType, f.srcdoc, (f.srcdoc='<b>x</b>', f.getAttribute('srcdoc')));",
+         var sf=document.createElement('iframe'); document.body.appendChild(sf); /* QPT1b: a src/srcdoc change drops that frame's realm */ var dd=document.createElement('iframe'); dd.src='data:text/html,hi'; document.body.appendChild(dd);\
+         console.log(typeof dd.contentWindow.String, dd.contentDocument.nodeType, sf.srcdoc, (sf.srcdoc='<b>x</b>', sf.getAttribute('srcdoc')));",
     );
     assert!(log.iter().any(|l| l.starts_with("error:Uncaught (in promise) TypeError: realm boom")), "{log:?}");
     assert!(log.contains(&"log:true true true true true true".to_string()), "{log:?}");
@@ -1325,4 +1325,110 @@ fn qan1h3_js_class_writes_are_seen_by_matches() {
          e.removeAttribute('class');r.push(e.matches('.x'));console.log(r.join());",
     );
     assert_eq!(log, ["log:false,true,false,true,true,false,true,false"], "{log:?}");
+}
+
+// ---------- QPT1b: realm lifetime (R53 D6) ----------
+
+#[test]
+fn qpt1b_removal_drops_the_realm_and_cancels_its_timers() {
+    let log = run_with_timers(
+        "var f=document.createElement('iframe'); document.body.appendChild(f); var w=f.contentWindow, S=w.String;\
+         w.setTimeout(function(){ console.log('FIRED timeout'); }, 10);\
+         w.setInterval(function(){ console.log('FIRED interval'); }, 10);\
+         w.requestAnimationFrame(function(){ console.log('FIRED raf'); });\
+         w.requestIdleCallback(function(){ console.log('FIRED idle'); });\
+         setTimeout(function(){ console.log('page timer ok'); }, 10);\
+         console.log('live', __scratchy_realm_count(), f.contentWindow===w);\
+         f.remove();\
+         console.log('removed', __scratchy_realm_count(), f.contentWindow, f.contentDocument);\
+         document.body.appendChild(f); var w2=f.contentWindow;\
+         console.log('again', __scratchy_realm_count(), w2!==null, w2!==w, w2.String!==S, w2.String!==String, w2.parent===window);\
+         var box=document.createElement('div'); var g=document.createElement('iframe'); box.appendChild(g); document.body.appendChild(box);\
+         var w3=g.contentWindow; w3.setTimeout(function(){ console.log('FIRED nested-in-div'); }, 10);\
+         var w4=w3.document.createElement('iframe'); w3.document.body.appendChild(w4); w4.contentWindow.setTimeout(function(){ console.log('FIRED deep'); }, 10);\
+         console.log('before', __scratchy_realm_count());\
+         box.innerHTML='';\
+         console.log('after', __scratchy_realm_count(), g.contentWindow);",
+    );
+    assert!(!log.iter().any(|l| l.contains("FIRED")), "{log:?}");
+    for want in ["log:live 1 true", "log:removed 0 null null", "log:again 1 true true true true true", "log:before 3", "log:after 1 null", "log:page timer ok"] {
+        assert!(log.contains(&want.to_string()), "missing {want:?} in {log:?}");
+    }
+}
+
+#[test]
+fn qpt1b_src_change_makes_a_new_realm() {
+    let log = run_with_timers(
+        "var f=document.createElement('iframe'); document.body.appendChild(f); var w=f.contentWindow, S=w.String;\
+         w.setTimeout(function(){ console.log('FIRED old'); }, 5);\
+         f.setAttribute('src', 'about:blank');\
+         var n=f.contentWindow;\
+         console.log(n!==w, n.String!==S, __scratchy_realm_count());\
+         f.src='about:blank#x'; var m=f.contentWindow; console.log(m!==n, __scratchy_realm_count());\
+         f.removeAttribute('src'); console.log(f.contentWindow!==m, __scratchy_realm_count());",
+    );
+    assert!(!log.iter().any(|l| l.contains("FIRED")), "{log:?}");
+    for want in ["log:true true 1", "log:true 1", "log:true 1"] {
+        assert!(log.contains(&want.to_string()), "missing {want:?} in {log:?}");
+    }
+}
+
+#[test]
+fn qpt1b_cap_of_64_realms_logs_once_and_falls_back_to_the_stand_in() {
+    let log = run_with_timers(
+        "var ws=[];\
+         for (var i=0;i<70;i++){ var f=document.createElement('iframe'); document.body.appendChild(f); ws.push(f.contentWindow); }\
+         console.log('count', __scratchy_realm_count(), typeof ws[0].String, typeof ws[63].String, typeof ws[64].String, ws[69].document!==null);\
+         var fs=document.getElementsByTagName('iframe'); fs[0].remove();\
+         var h=document.createElement('iframe'); document.body.appendChild(h); var hs=typeof h.contentWindow.String; console.log('after remove', __scratchy_realm_count(), hs);",
+    );
+    assert!(log.contains(&"log:count 64 function function undefined true".to_string()), "{log:?}");
+    assert!(log.contains(&"log:after remove 64 function".to_string()), "{log:?}");
+    assert_eq!(log.iter().filter(|l| l.contains("too many iframe windows")).count(), 1, "{log:?}");
+}
+
+#[test]
+fn qpt1b_fifty_create_remove_cycles_return_to_baseline() {
+    let log = run_with_timers(
+        "function cycle(){ var f=document.createElement('iframe'); document.body.appendChild(f); var w=f.contentWindow;\
+           w.setTimeout(function(){}, 1000); w.eval('var a=[]; for(var i=0;i<1000;i++) a.push({i:i});');\
+           var g=w.document.createElement('iframe'); w.document.body.appendChild(g); g.contentWindow.setInterval(function(){}, 50);\
+           f.remove(); }\
+         for (var i=0;i<3;i++) cycle();\
+         var h0=__scratchy_heap_gc(), r0=__scratchy_realm_count();\
+         for (var i=0;i<50;i++) cycle();\
+         var h1=__scratchy_heap_gc(), r1=__scratchy_realm_count();\
+         console.log('realms', r0, r1, 'heapdelta', h1-h0);",
+    );
+    let l = log.iter().find(|l| l.starts_with("log:realms")).unwrap_or_else(|| panic!("{log:?}"));
+    let p: Vec<&str> = l.split(' ').collect();
+    assert_eq!((p[1], p[2]), ("0", "0"), "{log:?}");
+    let delta: f64 = p[4].parse().unwrap();
+    assert!(delta < 1_048_576.0, "heap grew by {delta} bytes over 50 cycles (0.65 MB per leaked realm): {log:?}");
+}
+
+#[test]
+fn qpt1b_removal_cancels_pending_network_callbacks() {
+    let fake = QfFake::new(vec![("/a", qf7_ok("A", &[]))]);
+    let log = qf8_run(
+        "https://page.test/dir/page.html",
+        &fake,
+        "var f=document.createElement('iframe'); document.body.appendChild(f); var w=f.contentWindow;\
+         w.fetch('/a').then(function(){ console.log('FIRED fetch'); }, function(){ console.log('FIRED fetch-err'); });\
+         f.remove(); console.log('removed', __scratchy_realm_count());",
+    );
+    assert!(!log.iter().any(|l| l.contains("FIRED")), "{log:?}");
+    assert!(log.contains(&"log:removed 0".to_string()), "{log:?}");
+}
+
+#[test]
+fn qpt1b_navigation_drops_all_realms() {
+    // A page navigation drops its engine; the isolate (and so every realm in it) goes with it.
+    let r = run_with_timers(
+        "for (var i=0;i<5;i++){ var f=document.createElement('iframe'); document.body.appendChild(f); f.contentWindow; }\
+         console.log('live', __scratchy_realm_count());",
+    );
+    assert!(r.contains(&"log:live 5".to_string()), "{r:?}");
+    let r2 = run_with_timers("console.log('next page', __scratchy_realm_count());");
+    assert!(r2.contains(&"log:next page 0".to_string()), "{r2:?}");
 }
