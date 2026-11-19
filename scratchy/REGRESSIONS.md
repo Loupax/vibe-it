@@ -771,7 +771,7 @@ never freed, for the life of the process, across navigations. YouTube defines hu
    `benches/layout.rs` covers tree build + shaping of a synthetic page) (QOBS10).
 7. **The baseline is from the old machine** (QOBS9).
 
-## R43: Where forced layout goes (QY53): on the YouTube watch page 88 % of it is the player's `getPlayerSize` reading `#movie_player.clientWidth`, 80 % of those layouts change no box at all, and 99.5 % of each one is STYLE and BOX BUILD (layout proper 0.4 %); half of that is one O(elements x rules) scan for `::first-line`/`::first-letter` rules. On Wikipedia it is scratchy's OWN IntersectionObserver evaluation (Opus investigator QY53, 2026-11-19) — OPEN: QY53a-QY53h (a-d DONE; QY53e designed in section 7, PARTIAL, split into QY53e1-e3); QY53l PARTIAL (section 10: getPlayerSize layouts -28 %, proposed QY53l2/l3); QY53e3 measured in section 11
+## R43: Where forced layout goes (QY53): on the YouTube watch page 88 % of it is the player's `getPlayerSize` reading `#movie_player.clientWidth`, 80 % of those layouts change no box at all, and 99.5 % of each one is STYLE and BOX BUILD (layout proper 0.4 %); half of that is one O(elements x rules) scan for `::first-line`/`::first-letter` rules. On Wikipedia it is scratchy's OWN IntersectionObserver evaluation (Opus investigator QY53, 2026-11-19) — OPEN: QY53a-QY53h (a-d DONE; QY53e designed in section 7, PARTIAL, split into QY53e1-e3); QY53l PARTIAL (section 10: getPlayerSize layouts -28 %, proposed QY53l2/l3); QY53e3 measured in section 11; QY53l2 PARTIAL (section 13: getPlayerSize layouts a further -8 %, the safe rule's ceiling; the rest are writes to VISIBLE elements)
 
 **Status: investigation only, docs only.** Main b8d865f, own worktree release build (V8 + media,
 RUSTY_V8_ARCHIVE = existing librusty_v8.a, `nice -n 19 -j2`). Own wire on a scratchpad socket.
@@ -1309,6 +1309,46 @@ Left: the cold parse is still ~130 ms (cssparser + selector building, 4.4 MB), a
 `js_style::StyleCache` has the same `rules.extend(parse_stylesheet(..))` move (js_style.rs:584). Proposed items: QY53f1c
 (`StyleRule` 4 KB: box the cold fields / shrink `Declarations`, which would also cut rules_cache's 96 MB), QY53f1d (parse
 the big external sheet lazily or off-thread).
+
+### 13. QY53l2: skip the geometry bump for writes inside `display: none` subtrees (2026-11-19, merged, gate NOT met)
+**Mechanism.** Every `GeomCache` forced layout records the elements the box build skipped because their
+own `display` is `none` (images.rs `DISPLAY_NONE_ROOTS`, filled only during that build) and keeps them
+as the "hidden roots" snapshot, with the geometry generation and CSS version it ran at
+(js_geom.rs `HiddenSnap`). A DOM write skips `geom_bump` only while that snapshot is current (no bump
+and no CSS change since the layout) and: an attribute write targets an element STRICTLY inside a
+hidden root (never the root, never an ancestor; `style`/`link`/`meta`/`base`/`slot` elements never);
+a child-list change (insert, remove, `textContent`, `innerHTML`, text-node data) has its parent at or
+inside a hidden root, for a move BOTH ends (so moving a node out of, or a hidden node into, a visible
+place still bumps), no moved node or HTML string carries a `style`/`link`/`meta`/`base`/`slot`, and,
+when the parent IS the root and some rule uses `:empty`, the root's `:empty`-ness is unchanged. Roots
+under `select`/`datalist`/`option`/`svg`/`math`/replaced elements/`template`/`slot`/`col`/
+`textarea`/`noscript` are not trusted (their content is read outside the box build). Any `:has()`
+rule disables the whole thing (scratchy's selector parser does not accept `:has()` yet, so this is
+defensive). Reads of hidden nodes are unchanged (`ioShown` checks computed style, which keys on the
+DOM write generation, not the geometry one).
+
+**Result, YT watch, default UA, own wire.** Round 2 (the merge base), 5+5 interleaved, main b8d9761 /
+branch dff4eca:
+| | main | branch | change (median) |
+|---|---|---|---|
+| getPlayerSize layouts | 49 / 52 / 49 / 49 / 49 | 44 / 45 / (103) / 45 / 45 | 49 -> 45, **-8 %** |
+| all forced layouts | 101 / 102 / 101 / 101 / 101 | 95 / 96 / (187) / 96 / 93 | 101 -> 95.5, -5 % |
+| `no_change` | 40 / 42 / 40 / 40 / 40 | 34 / 35 / (87) / 35 / 34 | 40 -> 34.5, -14 % |
+(branch run 3 got a different YouTube page variant, 1.88 MB HTML instead of 1.34 MB, with every count
+doubled; excluded.) Round 1, 3+3, against main 7bf6875 (before QY53f1b 9415fb2): getPlayerSize
+54 / 49 / 56 vs 50 / 44 / 45 (-17 %), `no_change` 45 / 40 / 44 vs 39 / 34 / 34; main itself dropped
+to 49 with QY53f1b, so round 2 is the number that counts. 4 of 4 comparable pairs: 4-7 fewer
+getPlayerSize layouts and 5-6 fewer no-change layouts per 60 s.
+Gate (getPlayerSize -20 %) NOT met; merged as a safe net win. **What is left** (throwaway instrumentation, reverted: the writes
+logged before each layout, run on the branch): of 71 no-change layouts, 44 follow only writes to
+VISIBLE elements (`.ytp-chapter-hover-container`, `.ytp-load-progress` `transform: scalex()`,
+`#movie_player` state classes, `video` attributes), 8 follow only writes inside an inline `<svg>` (7 more mix those with visible writes)
+(`circle.ytp-timed-pie-countdown__inner`, icon `path`s: the svg is a replaced box sized by its own
+attributes/CSS), the rest are writes on a hidden root itself (`class`/`style` that keep it hidden) or
+inside a hidden subtree after an earlier real bump. Further cuts need QY53l3 (paint-only style
+declarations) and possibly "attribute writes strictly inside an inline `<svg>` (not on the svg, no
+`<style>`/`<foreignObject>`) keep its box" (needs a check that the svg's decoded intrinsic
+size only reads the root's attributes; it alone would save at most 8 of 71).
 
 ## R42: YouTube through the MSE stack (QM1k-m2): the player script runs, picks avc1 + mp4a, attaches, appends and plays ~60 s of AUDIO, but NO PICTURE because YouTube adds the AUDIO SourceBuffer first and scratchy always makes SourceBuffer 0 the main (video) stream; with that swapped (throwaway patch) 640x360 video plays to the PoToken stop at ~60 s, then YouTube's own error card. The main thread is busy 100% of the time (294 forced layouts = 116 s of CPU in 60 s), so everything arrives 10-45 s late (Opus investigator QM1k-m2, 2026-11-19) — OPEN: QM1k1k (P1), QM1k1l, QM1k1m, QM1k-u, QY53 (now also blocks YouTube playback; measured in R43, fix items QY53a-QY53h); QM1k1n DONE 2026-11-19 (section 5: YouTube parks the `<video>` at `top:-360px` until `playing`, page design, not a CSS gap): QM1k1n1 DONE, QM1k1n3; QM1k1n2 DONE 2026-11-19 (section 6: start 3-6x faster after QY53a-c, but playback freezes at YouTube's first quality switch, a second init segment reloads into an empty generation): QM1k1n4 (P1), QM1k1n5 (P1, fetch results reach JS 1-19 s late), QM1k1n6, QM1k1n7
 

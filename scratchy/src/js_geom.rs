@@ -35,6 +35,165 @@ thread_local! {
     #[cfg(test)]
     pub(crate) static GEOM_LAYOUTS: Cell<usize> = const { Cell::new(0) };
     static FONTS: RefCell<Option<FontSystem>> = const { RefCell::new(None) };
+    /// QY53l2: the `display: none` subtrees of the last forced layout on this thread.
+    static HIDDEN: RefCell<Option<HiddenSnap>> = const { RefCell::new(None) };
+}
+
+/// QY53l2: which subtrees had no box at all in the last `GeomCache` layout
+/// because their root's own `display` was `none`. A DOM write that lands
+/// entirely inside one of them and cannot change that root's or anything
+/// else's style changes no box, so it need not move the geometry generation
+/// (`js_dom::geom_bump`). Valid only while nothing moved the geometry
+/// generation or the CSS since that layout; replaced by every layout.
+struct HiddenSnap {
+    /// Geometry generation and CSS version the layout ran at.
+    ggen: u64,
+    css: (u64, u64),
+    /// Hidden roots by node id (the `Weak` guards against a reused address).
+    roots: HashMap<usize, WeakHandle>,
+    /// Some selector uses `:has()`: a descendant write can change an ancestor's match.
+    has_sel: bool,
+    /// Some selector uses `:empty`: a child-list change of the root itself can change its match.
+    empty_sel: bool,
+}
+
+/// QY53l2: a hidden root under one of these (or being one) is not trusted:
+/// their content is read by something other than the box build (options for
+/// a `<select>`'s width, SVG/MathML/replaced content, table columns), or it
+/// is not rendered through the normal tree at all.
+const OPAQUE_CONTAINERS: &[&str] = &[
+    "select", "datalist", "optgroup", "option", "svg", "math", "object", "embed", "video", "audio", "canvas", "iframe",
+    "picture", "template", "slot", "col", "colgroup", "textarea", "noscript",
+];
+
+/// QY53l2: elements whose presence, attributes or content change the page's
+/// style (or document-level state) wherever they are, `display: none` or not.
+const STYLE_SENSITIVE: &[&str] = &["style", "link", "meta", "base", "slot"];
+
+fn tag_in(h: &Handle, list: &[&str]) -> bool {
+    let t = element_tag(h);
+    !t.is_empty() && list.iter().any(|x| t.eq_ignore_ascii_case(x))
+}
+
+/// Does `h` or a node below it have a `STYLE_SENSITIVE` tag?
+fn subtree_sensitive(h: &Handle) -> bool {
+    let mut stack = vec![h.clone()];
+    while let Some(n) = stack.pop() {
+        if tag_in(&n, STYLE_SENSITIVE) {
+            return true;
+        }
+        stack.extend(n.children.borrow().iter().cloned());
+    }
+    false
+}
+
+/// `:empty` in the selector sense: no element child and no non-empty text.
+fn sel_empty(h: &Handle) -> bool {
+    !h.children.borrow().iter().any(|c| match &c.data {
+        NodeData::Element { .. } => true,
+        NodeData::Text { contents } => !contents.borrow().is_empty(),
+        _ => false,
+    })
+}
+
+/// Builds the snapshot from the roots the box build recorded.
+fn hidden_snapshot(page: &Handle, ggen: u64, css: (u64, u64), found: Vec<Handle>, deps: Option<(bool, bool)>) -> Option<HiddenSnap> {
+    let (has_sel, empty_sel) = deps?;
+    if has_sel {
+        return None;
+    }
+    let mut roots = HashMap::new();
+    'roots: for r in found {
+        let mut cur = Some(r.clone());
+        let mut top = r.clone();
+        while let Some(n) = cur {
+            if tag_in(&n, OPAQUE_CONTAINERS) {
+                continue 'roots;
+            }
+            cur = parent_handle(&n);
+            top = n;
+        }
+        if Rc::ptr_eq(&top, page) {
+            roots.insert(node_id(&r), Rc::downgrade(&r));
+        }
+    }
+    Some(HiddenSnap { ggen, css, roots, has_sel, empty_sel })
+}
+
+/// The hidden root that is `n` or an ancestor of it, if the snapshot is current.
+fn hidden_root_of(snap: &HiddenSnap, n: &Handle) -> Option<Handle> {
+    let mut cur = Some(n.clone());
+    while let Some(a) = cur {
+        if let Some(w) = snap.roots.get(&node_id(&a))
+            && w.upgrade().is_some_and(|r| Rc::ptr_eq(&r, &a))
+        {
+            return Some(a);
+        }
+        cur = parent_handle(&a);
+    }
+    None
+}
+
+fn with_current_snap<R>(f: impl FnOnce(&HiddenSnap) -> Option<R>) -> Option<R> {
+    HIDDEN.with(|s| {
+        let s = s.borrow();
+        let snap = s.as_ref()?;
+        if snap.has_sel || snap.roots.is_empty() || snap.ggen != crate::js_dom::geom_gen() || snap.css != crate::js_style::css_ver() {
+            return None;
+        }
+        f(snap)
+    })
+}
+
+/// QY53l2: may an attribute write on element `x` skip the geometry bump?
+/// Only when `x` lies strictly inside a hidden subtree (never the hidden root
+/// itself or an ancestor: its own `class`/`style`/`hidden`/... decide its
+/// `display`) and `x` is not a style-bearing element.
+pub(crate) fn attr_write_hidden(x: &Handle) -> bool {
+    if !matches!(x.data, NodeData::Element { .. }) || tag_in(x, STYLE_SENSITIVE) {
+        return false;
+    }
+    let Some(p) = parent_handle(x) else { return false };
+    with_current_snap(|snap| hidden_root_of(snap, &p).map(|_| ())).is_some()
+}
+
+/// QY53l2: what `children_write_pre` saw; `children_write_post` decides.
+pub(crate) struct HiddenChildren {
+    /// `:empty`-ness of the hidden root before the write, when the write
+    /// changes the root's own children and some rule uses `:empty`.
+    root_empty: Option<bool>,
+}
+
+/// QY53l2, before a change to `p`'s child list (insert, remove, text or HTML
+/// replace; `moved` = the nodes that leave or enter it): `Some` when `p` is a
+/// hidden root or lies inside one, and no moved node carries style.
+pub(crate) fn children_write_pre(p: &Handle, moved: &[Handle]) -> Option<HiddenChildren> {
+    if !matches!(p.data, NodeData::Element { .. }) || tag_in(p, STYLE_SENSITIVE) {
+        return None;
+    }
+    with_current_snap(|snap| {
+        let r = hidden_root_of(snap, p)?;
+        if moved.iter().any(subtree_sensitive) {
+            return None;
+        }
+        let root_empty = (snap.empty_sel && Rc::ptr_eq(&r, p)).then(|| sel_empty(p));
+        Some(HiddenChildren { root_empty })
+    })
+}
+
+/// QY53l2, after the change: may it skip the geometry bump?
+pub(crate) fn children_write_post(p: &Handle, pre: Option<HiddenChildren>) -> bool {
+    match pre {
+        None => false,
+        Some(HiddenChildren { root_empty: None }) => true,
+        Some(HiddenChildren { root_empty: Some(e) }) => sel_empty(p) == e,
+    }
+}
+
+/// QY53l2: whether an HTML string may create a style-bearing element.
+pub(crate) fn html_sensitive(html: &str) -> bool {
+    let l = html.to_ascii_lowercase();
+    STYLE_SENSITIVE.iter().any(|t| l.contains(&format!("<{t}")))
 }
 
 #[derive(Default)]
@@ -186,10 +345,14 @@ impl GeomCache {
         let recording = crate::perf::begin_forced();
         let cpu0 = crate::js::thread_cpu_nanos();
         let prev_vp = current_viewport();
+        // QY53l2: a layout replaces the hidden-subtree snapshot; collect the new one.
+        HIDDEN.with(|h| *h.borrow_mut() = None);
+        crate::images::DISPLAY_NONE_ROOTS.with(|r| *r.borrow_mut() = Some(Vec::new()));
         // A layout bug must not take the whole browser down with a page
         // script: on a panic the page simply has no geometry (all zeros).
         let done = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let tree = build_layout_tree_with_resources(page, vw, Some(vh), &css, &HashMap::new());
+            let deps = crate::style::rule_child_deps();
             let t_phase = crate::perf::phase(crate::perf::Phase::MeasureDocument);
             let mut cache = ShapeCache::new();
             let mut laid = None;
@@ -217,20 +380,23 @@ impl GeomCache {
             }
             drop(cache);
             drop(t_phase);
-            (laid, glyphs)
+            (laid, glyphs, deps)
         }));
         set_viewport(prev_vp.0, prev_vp.1);
+        let found = crate::images::DISPLAY_NONE_ROOTS.with(|r| r.borrow_mut().take()).unwrap_or_default();
         let t_phase = crate::perf::phase(crate::perf::Phase::RectWalk);
         let prev = std::mem::take(&mut self.rects);
         self.page = (0.0, 0.0);
         self.glyphs.clear();
         match done {
-            Ok((Some(l), glyphs)) => {
+            Ok((Some(l), glyphs, deps)) => {
                 self.page = (l.w, l.h);
                 walk(&l, false, &mut self.rects);
                 self.glyphs = glyphs;
+                let snap = hidden_snapshot(page, wgen, key.3, found, deps);
+                HIDDEN.with(|h| *h.borrow_mut() = snap);
             }
-            Ok((None, _)) => {}
+            Ok((None, ..)) => {}
             Err(_) => diag!("scratchy: js: layout panicked while reading geometry; element rects read as zero"),
         }
         // QOBS3: did this layout change any box? (only compared while recording)

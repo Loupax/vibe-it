@@ -1410,3 +1410,113 @@ fn qy53l_style_property_write_that_changes_a_value_still_relayouts() {
     // w1, w2, w4: the same-value write before w3 forces none.
     assert_eq!(n, 3, "{log:?}");
 }
+
+// ---------- QY53l2: writes inside a `display: none` subtree force no layout ----------
+
+const QY53L2_PAGE: &str = "<html><head><style>.off{display:none} .e:empty{display:none}</style></head>\
+<body style='margin:0'><div id=a style='width:100px;height:20px'>a</div>\
+<div id=wrap><div id=h class=off><div id=in><span id=s>x</span></div></div></div>\
+<div id=e class=e></div><div id=b style='height:30px'>b</div></body></html>";
+
+#[test]
+fn qy53l2_writes_inside_a_hidden_subtree_force_no_layout() {
+    let (log, n) = qy53c_run(
+        QY53L2_PAGE,
+        "var a = document.getElementById('a'), h = document.getElementById('h'), inn = document.getElementById('in'),
+             s = document.getElementById('s'), b = document.getElementById('b');
+         var y0 = b.getBoundingClientRect().top;
+         inn.setAttribute('class', 'q'); a.offsetWidth;
+         s.style.width = '50px'; s.className = 'k'; s.id = 's2'; a.offsetWidth;
+         s.textContent = 'longer text'; s.firstChild.data = 'more'; a.offsetWidth;
+         var p = document.createElement('p'); p.textContent = 'new'; inn.appendChild(p); a.offsetWidth;
+         inn.insertBefore(document.createElement('svg'), p); inn.removeChild(p); a.offsetWidth;
+         inn.innerHTML = '<i>z</i><b>w</b>'; a.offsetWidth;
+         var q = document.createElement('div'); h.appendChild(q); h.removeChild(q); a.offsetWidth;
+         var j = document.createElement('script'); j.type = 'application/json'; document.head.appendChild(j); a.offsetWidth;
+         console.log('a', a.offsetWidth, 'same', b.getBoundingClientRect().top === y0);
+         console.log('hidden', s.offsetWidth, inn.offsetHeight, inn.offsetParent, inn.getBoundingClientRect().width, h.clientWidth);",
+    );
+    assert!(log.contains(&"log:a 100 same true".to_string()), "{log:?}");
+    assert!(log.contains(&"log:hidden 0 0 null 0 0".to_string()), "{log:?}");
+    assert_eq!(n, 1, "only the first read lays out: {log:?}");
+}
+
+#[test]
+fn qy53l2_unhiding_the_root_by_class_or_style_relayouts() {
+    for unhide in ["h.className = ''", "h.style.display = 'block'", "h.removeAttribute('class')"] {
+        let (log, n) = qy53c_run(
+            QY53L2_PAGE,
+            &format!(
+                "var h = document.getElementById('h'), inn = document.getElementById('in'), b = document.getElementById('b');
+                 var y0 = b.getBoundingClientRect().top;
+                 inn.firstChild.textContent = 'shown'; b.offsetWidth;
+                 {unhide};
+                 var y1 = b.getBoundingClientRect().top;
+                 console.log('moved', y1 > y0, 'w', inn.offsetWidth > 0, inn.firstChild.offsetWidth > 0, inn.getBoundingClientRect().top === y0);"
+            ),
+        );
+        assert!(log.contains(&"log:moved true w true true true".to_string()), "{unhide}: {log:?}");
+        assert_eq!(n, 2, "{unhide}: {log:?}");
+    }
+}
+
+#[test]
+fn qy53l2_moving_a_node_out_of_the_hidden_subtree_relayouts() {
+    let (log, n) = qy53c_run(
+        QY53L2_PAGE,
+        "var s = document.getElementById('s'), b = document.getElementById('b');
+         var y0 = b.getBoundingClientRect().top;
+         var d = document.createElement('div'); d.style.height = '15px'; document.getElementById('in').appendChild(d);
+         console.log('still', b.getBoundingClientRect().top === y0);
+         document.body.insertBefore(d, b);
+         console.log('dy', b.getBoundingClientRect().top - y0, 'dh', d.offsetHeight);
+         document.body.appendChild(s);
+         console.log('sw', s.offsetWidth > 0);",
+    );
+    for l in ["log:still true", "log:dy 15 dh 15", "log:sw true"] {
+        assert!(log.contains(&l.to_string()), "{l} in {log:?}");
+    }
+    assert_eq!(n, 3, "{log:?}");
+}
+
+#[test]
+fn qy53l2_write_on_an_ancestor_of_the_hidden_root_relayouts() {
+    let (log, n) = qy53c_run(
+        "<html><head><style>.off{display:none} .shown .off{display:block}</style></head><body style='margin:0'>\
+         <div id=wrap><div id=h class=off><div id=in style='height:12px'>x</div></div></div><div id=b>b</div></body></html>",
+        "var w = document.getElementById('wrap'), b = document.getElementById('b'), inn = document.getElementById('in');
+         var y0 = b.getBoundingClientRect().top;
+         w.setAttribute('data-k', '1'); b.offsetWidth;
+         w.className = 'shown';
+         console.log('dy', b.getBoundingClientRect().top - y0, 'h', inn.offsetHeight);",
+    );
+    assert!(log.contains(&"log:dy 12 h 12".to_string()), "{log:?}");
+    assert_eq!(n, 3, "{log:?}");
+}
+
+#[test]
+fn qy53l2_empty_root_style_and_select_options_stay_conservative() {
+    // `.e:empty{display:none}`: a child for the hidden root itself un-hides it.
+    let (log, n) = qy53c_run(
+        QY53L2_PAGE,
+        "var e = document.getElementById('e'), b = document.getElementById('b'), a = document.getElementById('a');
+         var y0 = b.getBoundingClientRect().top;
+         var c = document.createElement('div'); c.style.height = '9px'; e.appendChild(c);
+         console.log('dy', b.getBoundingClientRect().top - y0);
+         var st = document.createElement('style'); st.textContent = '#a{width:77px !important}'; document.getElementById('in').appendChild(st);
+         console.log('a', a.offsetWidth);",
+    );
+    assert!(log.contains(&"log:dy 9".to_string()) && log.contains(&"log:a 77".to_string()), "{log:?}");
+    assert_eq!(n, 3, "{log:?}");
+    // A hidden `<option>`'s text is still read by its `<select>` (not through the box
+    // build): writes there keep forcing a layout. (`:has()` rules would disable the skip
+    // entirely, but scratchy's selector parser does not accept `:has()` yet.)
+    let (log, n) = qy53c_run(
+        "<html><body style='margin:0'><select id=sel><option>a</option><option id=o hidden><b>b</b></option></select></body></html>",
+        "var sel = document.getElementById('sel'), o = document.getElementById('o');
+         sel.offsetWidth; o.textContent = 'a much longer option label'; sel.offsetWidth;
+         o.setAttribute('label', 'x'); console.log('w', sel.offsetWidth > 0);",
+    );
+    assert!(log.contains(&"log:w true".to_string()), "{log:?}");
+    assert_eq!(n, 3, "{log:?}");
+}
