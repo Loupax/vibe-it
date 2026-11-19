@@ -94,6 +94,15 @@
   (specific PIDs only; never the user's scratchy/compositor).
 - Don't spawn subagents from inside an agent task.
 
+## Clean up after your PR merges (user rule 2026-11-19)
+After your PR is MERGED, free the disk you used (a full disk once stopped all agents):
+- Delete your worktree's build output: `rm -rf <worktree>/scratchy/target` (and any
+  `CARGO_TARGET_DIR` you created for the QuickJS config, and scratch dirs you made).
+- Do not delete your worktree or branch yourself if the harness has locked it; just remove
+  the build directories. Never delete anything you did not create, and never another agent's files.
+- If your PR is NOT merged (blocker), keep the worktree and its target so the work can resume.
+- Say in your final report what you deleted.
+
 ## Off limits until the user says so (design first)
 Do NOT implement the real behaviour of these until the user has explicitly
 asked and the design has been agreed. The user wants to understand how they

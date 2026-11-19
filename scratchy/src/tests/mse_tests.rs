@@ -539,6 +539,7 @@ mod qm1k1c;
 mod qm1k1d;
 mod qm1k1e;
 mod qm1k1g;
+mod qm1k1i;
 mod qm1k1k;
 mod qm1k1l;
 mod qm1k1n1;

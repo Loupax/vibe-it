@@ -1424,6 +1424,66 @@ impl HoverKeys {
     }
 }
 
+/// QY53a: whether some rule targets `::first-line` / `::first-letter`, worked
+/// out once per parsed rule list (the `Rc` from `RULES_CACHE`) instead of once
+/// per element.
+pub(crate) struct RuleDerived {
+    /// Held so the pointer used as the key cannot be reused by another list.
+    pub(crate) rules: Rc<Vec<StyleRule>>,
+    pub(crate) first_line: bool,
+    pub(crate) first_letter: bool,
+    /// QY53b: the selector index; moved into `RULE_INDEX` for the duration of a
+    /// build and back afterwards (`None` while a build is running).
+    pub(crate) index: Option<RuleIndex>,
+}
+
+fn scan_pseudo(rules: &[StyleRule], name: &str) -> bool {
+    #[cfg(test)]
+    PSEUDO_SCANS.with(|c| c.set(c.get() + 1));
+    rules
+        .iter()
+        .any(|r| r.selectors.slice().iter().any(|s| matches!(s.pseudo_element(), Some(OurPseudoElement::Named(n)) if *n == name)))
+}
+
+impl RuleDerived {
+    pub(crate) fn new(rules: &Rc<Vec<StyleRule>>) -> Self {
+        #[cfg(test)]
+        DERIVED_BUILDS.with(|c| c.set(c.get() + 1));
+        RuleDerived {
+            rules: rules.clone(),
+            first_line: scan_pseudo(rules, "first-line"),
+            first_letter: scan_pseudo(rules, "first-letter"),
+            index: Some(RuleIndex::build(rules)),
+        }
+    }
+}
+
+thread_local! {
+    /// Derived data of the rule list used by the latest build.
+    pub(crate) static RULE_DERIVED: RefCell<Option<RuleDerived>> = const { RefCell::new(None) };
+    /// `(rules.as_ptr(), len, first-line rule exists, first-letter rule exists)`
+    /// for the build in progress; callers with another slice scan the rules.
+    pub(crate) static PSEUDO_FLAGS: std::cell::Cell<Option<(usize, usize, bool, bool)>> = const { std::cell::Cell::new(None) };
+    /// Test-only: how many times the derived data (index, hover keys, flags) was built.
+    #[cfg(test)]
+    pub(crate) static DERIVED_BUILDS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// Test-only: how many full rule scans for a pseudo-element rule ran.
+    #[cfg(test)]
+    pub(crate) static PSEUDO_SCANS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Whether some rule targets `::<name>` (`first-line` or `first-letter`):
+/// read from the build's precomputed flags, else scanned.
+pub(crate) fn rules_have_pseudo(rules: &[StyleRule], name: &str) -> bool {
+    if let Some((ptr, len, fl, flt)) = PSEUDO_FLAGS.with(|f| f.get())
+        && ptr == rules.as_ptr() as usize
+        && len == rules.len()
+    {
+        return if name == "first-line" { fl } else { flt };
+    }
+    scan_pseudo(rules, name)
+}
+
 thread_local! {
     /// `HoverKeys` of the most recent `build_layout_tree_with_resources`.
     pub(crate) static HOVER_KEYS: RefCell<HoverKeys> = RefCell::new(HoverKeys::default());
