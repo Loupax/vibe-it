@@ -55,7 +55,8 @@ PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; sea
   14a3 QM1k1n6c [S] video damage-present while layout is dirty (no full redraw + tree build) | R46
   14a4 QOBS5c [S] forced.by_caller top 3 + longest callback source in each frame-stats line | R46
   14b Q33b2 [S] real innerWidth/innerHeight + forced-layout viewport = window size (QY53e3: prerequisite of QY53e2) | Tier 7
-  14c [WIP] QY53n [M, Opus design] hover restyle without a whole App tree build (130-170 ms per hover)
+  14c DONE 140bef3 QY53n (design, R47) -> QY53n1-5 below; hover builds are NOT the YouTube freeze (6 of 55 builds)
+  14e [WIP] QY53o [S, Opus measure] who forces Wikipedia's 35 layouts (15 s/run) while hovering links | R47
   14d QY53m [S] App::js_sync skips the restyle after no-op write batches (after QM1k1n6: same code)
   15 QY53e2 [M]  IO uses the App's own layout                                       | QY53 block
   16 QM1g2 (a) [M] render mpv frames off the main thread (33-39 ms per frame today); split (a) out
@@ -1265,13 +1266,6 @@ Shared rules for this block:
       cursor), when no stylesheet rule tests `[style]`. ~5-8 of 51 getPlayerSize layouts. Revisit when transforms reach
       getBoundingClientRect (then scale DOES change rects). Tests: a color-only style write forces no layout; a width
       write still does; a `[style*=..]` rule present disables the skip.
-- [ ] [WIP] QY53n [M] (P1 for the mouse freeze, from QY53e3 ad764fa, R43 section 11; Opus design first) Every hover
-      restyle is a whole App tree build: 130-170 ms of main thread per hover on Wikipedia (2.6-3.8 s per 60 s), and on
-      YouTube hover/pointer handling coincides with the video freezes (user's frame stats). Design a hover restyle that
-      does not rebuild the whole tree (restyle only elements whose :hover state changed + descendants/siblings that rules
-      can see; reuse boxes when the change is paint-only, e.g. color/background/text-decoration/opacity; relayout only
-      if a layout-affecting property changed). Gate (frame stats): builds.ms per hover_restyle <= 20 % of today's with
-      pointer moves only over Wikipedia links; input.lat_p95_ms reported. Coordinate with QM1k1n6 (pointer coalescing).
 - [ ] QY53m [S] (P2, from QY53e3; Sonnet; AFTER QM1k1n6, same code in app.rs) `App::js_sync` skips the restyle when no
       write in the batch changed a value and neither css_ver nor the media size moved. Use its own "value changed"
       generation, NOT geom_gen (QY53l2/l3 stop bumping geom_gen for writes that still need a repaint). Wikipedia/YT in a
@@ -1316,6 +1310,28 @@ Shared rules for this block:
 - [ ] QOBS5c [S] (P2, from QM1k1n6, R46; Sonnet; app.rs/perf.rs: not alongside QM1k1n6a-c) frame-stats lines get
       `forced.by_caller` top 3 and the longest callback's source per second (window mode today has neither). Gate: present
       on the R46 recipe; overhead <= 2 %.
+- [ ] [WIP] QY53o [S] (P1, from QY53n 140bef3, R47; Opus measure) Wikipedia Rust with JS on, pointer over links: 35 forced
+      layouts per run (14.5-16.8 s) that nobody has attributed. Find the callers (QOBS3 by_caller via a headless replay of
+      the hover JS, or temporary window instrumentation) and why each forces a layout; file sized fix items.
+- [ ] QY53m2 [S] (P2, from QY53n, R47; Sonnet; AFTER QY53m; js_dom.rs, not alongside QY53l2) A value-changing write to an
+      attribute no selector reads (e.g. `title`; check RuleIndex/HoverKeys attribute keys) does not trigger an App restyle.
+      Wikipedia's mouseover JS writes `li style="display: none;"` (same value) 154-165x and toggles `title` per run ->
+      33-38 builds that change no style (6.6-7.9 s). Gate: Wikipedia JS on, builds that change no style <= 2 per run.
+- [ ] QY53n1 [S] (P2, from QY53n, R47; Sonnet; AFTER QM1k1n6a, same apply_hover code) Exact hover affected-set: HoverKeys
+      records what follows each :hover compound; keep the last build's MATCH_MEMO, re-match only affected elements, skip
+      the build when no matched set changed. Gate: YT watch pointer over the player: frame stats hover.skipped > 0 and
+      builds per hover_restyle drop by that count; Wikipedia hovered-link screenshot unchanged.
+- [ ] QY53n2 [M] (P2, from QY53n, R47; Sonnet; after QY53n1) Paint-only hover patch: per-rule effect class (PAINT/OFFSET/
+      LAYOUT) in RuleDerived; PAINT -> re-resolve affected elements, patch the installed Laid tree + affected paragraphs'
+      span attrs (span->element vector in ShapedParagraph), repaint; no build, no shaping. Gate: Wikipedia --no-js, links
+      only, median of 3: builds.ms / hover_restyles <= 36 ms (today 174-180), hover.patched >= 80 %; patched pixels equal
+      a full rebuild's; hovered-link screenshot equals main's.
+- [ ] QY53n3 [S] (P3, from QY53n; after QY53n2) Offset hover patch (translate/top) via shift_laid_tree. Gate: YT hover builds
+      that are only PAINT/OFFSET -> 0 (today 36 of 58).
+- [ ] QY53n4 [M] (P4, later, from QY53n) Subtree re-box for layout-changing hovers + re-applying patches after an in-flight
+      build (16 of 58 YT hover builds, 0 on Wikipedia).
+- [ ] QY53n5 [S] (P3, from QY53n; after QM1k1n6a and QY53n2) Patched hovers skip the R2.3/QB3 coalescing delay; frame stats
+      `hover` {patched, skipped, built} + hover_patch_ms. Gate: Wikipedia --no-js lat_p95 median <= 50 ms.
 - [ ] QMEM1 [S] (P2 memory, from QOBS7 67b6f0d; Sonnet, measure first; touches js_style.rs StyleCache: not alongside
       QY53f1 if that touches page_css/StyleCache) YT watch 60 s: `style_cache` = 861 entries, ~183.5 MB (~213 KB per entry)
       of 732 MB RSS. Find what one entry holds (a whole ComputedStyle per element? the full page CSS string or rule list
