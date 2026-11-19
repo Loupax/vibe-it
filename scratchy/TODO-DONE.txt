@@ -7750,3 +7750,8 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
   14a3b [WIP] QCUR1 [S] cursor vanishes over the YouTube video: confirm cursor:none (ytp-autohide) + dispatch coalesced mousemove/pointermove (Q33d2) | user 2026-11-19
   14a4 QOBS5c [S] forced.by_caller top 3 + longest callback source in each frame-stats line | R46
   14f QY53o1 [S] value-changing attribute write no selector/attr() can read -> no geometry bump (after QY53l2 merges) | R47
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QY53i3 DONE 92cfc34 #378 animation longhands in a per-thread arena, cleared on navigation [S] (P3 memory, from QY53i2; Sonnet) `animation.rs` still `Box::leak`s interned `&'static AnimLonghands` (same
+      pattern QY53i2 removed for custom props). Give it the same per-thread arena + Copy handle, cleared on navigation.
+      Gate: a multi-page --perf-report run (QY53i2 harness) shows no growth across navigations; animation tests unchanged.

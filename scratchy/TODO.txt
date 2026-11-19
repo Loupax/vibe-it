@@ -1071,9 +1071,6 @@ Shared rules for this block:
 - [ ] QY53f1d [M] (P3, from QY53f1b; Opus design) The cold parse of YouTube's 4.4 MB sheet still costs ~130 ms on the first
       forced layout. Options: parse external sheets as they arrive (off the forced-layout path, on the JS thread's idle
       time or a worker), or lazily per rule block. Measure first (R43 section 12); design + items.
-- [ ] [WIP] QY53i3 [S] (P3 memory, from QY53i2; Sonnet) `animation.rs` still `Box::leak`s interned `&'static AnimLonghands` (same
-      pattern QY53i2 removed for custom props). Give it the same per-thread arena + Copy handle, cleared on navigation.
-      Gate: a multi-page --perf-report run (QY53i2 harness) shows no growth across navigations; animation tests unchanged.
 - [ ] QAN1h2b [S] (P3, from QAN1h2 #372; Sonnet; css area) Per-selector candidates: a rule whose selector list mixes keyed
       and unkeyed selectors (e.g. `.k, :not(.q)`) is indexed by its keyed selectors, with a per-candidate selector mask so
       the unkeyed ones are tested only via the universal list. Remaining 289 universal rules on github.com home are mostly
