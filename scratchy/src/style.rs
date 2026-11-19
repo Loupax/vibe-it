@@ -1620,6 +1620,10 @@ pub(crate) struct RuleDerived {
     pub(crate) rules: Rc<Vec<StyleRule>>,
     pub(crate) first_line: bool,
     pub(crate) first_letter: bool,
+    /// QY53l2: some selector uses `:has()` (an element's match reads its descendants).
+    pub(crate) has_sel: bool,
+    /// QY53l2: some selector uses `:empty` (an element's match reads whether it has children).
+    pub(crate) empty_sel: bool,
     /// QY53b: the selector index; moved into `RULE_INDEX` for the duration of a
     /// build and back afterwards (`None` while a build is running).
     pub(crate) index: Option<RuleIndex>,
@@ -1633,14 +1637,35 @@ fn scan_pseudo(rules: &[StyleRule], name: &str) -> bool {
         .any(|r| r.selectors.slice().iter().any(|s| matches!(s.pseudo_element(), Some(OurPseudoElement::Named(n)) if *n == name)))
 }
 
+/// QY53l2: does `sel` (or a selector nested in it) use `:has()` / `:empty`?
+fn scan_child_deps(sel: &selectors::parser::Selector<OurSelectorImpl>, has: &mut bool, empty: &mut bool) {
+    for c in sel.iter_raw_match_order() {
+        match c {
+            Component::Has(_) => *has = true,
+            Component::Empty => *empty = true,
+            Component::Negation(l) | Component::Is(l) | Component::Where(l) => {
+                l.slice().iter().for_each(|s| scan_child_deps(s, has, empty));
+            }
+            Component::NthOf(d) => d.selectors().iter().for_each(|s| scan_child_deps(s, has, empty)),
+            _ => {}
+        }
+    }
+}
+
 impl RuleDerived {
     pub(crate) fn new(rules: &Rc<Vec<StyleRule>>) -> Self {
         #[cfg(test)]
         DERIVED_BUILDS.with(|c| c.set(c.get() + 1));
+        let (mut has_sel, mut empty_sel) = (false, false);
+        for r in rules.iter() {
+            r.selectors.slice().iter().for_each(|s| scan_child_deps(s, &mut has_sel, &mut empty_sel));
+        }
         RuleDerived {
             rules: rules.clone(),
             first_line: scan_pseudo(rules, "first-line"),
             first_letter: scan_pseudo(rules, "first-letter"),
+            has_sel,
+            empty_sel,
             index: Some(RuleIndex::build(rules)),
         }
     }
@@ -1658,6 +1683,12 @@ thread_local! {
     /// Test-only: how many full rule scans for a pseudo-element rule ran.
     #[cfg(test)]
     pub(crate) static PSEUDO_SCANS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// QY53l2: `(uses :has, uses :empty)` of the rule list of the latest build on
+/// this thread; `None` when there is none.
+pub(crate) fn rule_child_deps() -> Option<(bool, bool)> {
+    RULE_DERIVED.with(|d| d.borrow().as_ref().map(|x| (x.has_sel, x.empty_sel)))
 }
 
 /// Whether some rule targets `::<name>` (`first-line` or `first-letter`):

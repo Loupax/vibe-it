@@ -692,7 +692,7 @@ pub(crate) fn build_table_nodes(
             flush_cells(&mut anon_cells, &mut result);
         }
         match style.display {
-            Display::None => {}
+            Display::None => note_display_none(child),
             Display::TableRow => {
                 let cells =
                     build_table_row_cells(child, rules, style.inherited(), child_decoration, href, viewport_width, image_cache);
@@ -927,6 +927,7 @@ pub(crate) fn build_flex_children(
         }
         let style = resolve_style(child, rules, inherited, viewport_width);
         if style.display == Display::None {
+            note_display_none(child);
             continue;
         }
         flush(&mut pending, &mut result);
@@ -1764,6 +1765,7 @@ pub(crate) fn collect_real_nodes(
                 }
                 let style = resolve_style(child, rules, inherited, viewport_width);
                 if style.display == Display::None {
+                    note_display_none(child);
                     continue;
                 }
                 // Not a CSS property at all — a plain HTML-attribute
@@ -2005,6 +2007,21 @@ pub(crate) fn with_adopted_css<'a>(extra_css: &'a str, adopted: &str) -> std::bo
     } else {
         std::borrow::Cow::Owned(format!("{extra_css}\n{adopted}"))
     }
+}
+
+thread_local! {
+    /// QY53l2: while `Some` (a `GeomCache` forced layout), every element the
+    /// box build skipped because its own `display` is `none` (so it and its
+    /// whole subtree got no box).
+    pub(crate) static DISPLAY_NONE_ROOTS: RefCell<Option<Vec<Handle>>> = const { RefCell::new(None) };
+}
+
+fn note_display_none(h: &Handle) {
+    DISPLAY_NONE_ROOTS.with(|r| {
+        if let Some(v) = r.borrow_mut().as_mut() {
+            v.push(h.clone());
+        }
+    });
 }
 
 /// Same as `build_layout_tree`, but also takes CSS fetched (via `wire`)
