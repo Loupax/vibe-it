@@ -79,15 +79,16 @@
     v = String(v);
     if (v !== 'segments' && v !== 'sequence') return;   // invalid enum values are ignored
     sbFail("set the 'mode' property", s);
-    if (v === 'sequence') g.__scratchy_err("scratchy: js: not implemented: SourceBuffer.mode = 'sequence' (stored; appends still use 'segments' timing)");
     s.mode = v;
+    g.__mse_sb_cfg(ms_.get(s.ms).feed, s.bi, 0, v === 'sequence' ? 1 : 0);
     reopen(s);
   });
-  sbProp('timestampOffset', function (s) { return s.tso; }, function (s, v) {
+  sbProp('timestampOffset', function (s) { return s.removed ? s.tso : g.__mse_sb_tso(ms_.get(s.ms).feed, s.bi); }, function (s, v) {
     v = Number(v);
     if (v !== v || v === Infinity || v === -Infinity) throw new TypeError("Failed to set the 'timestampOffset' property on 'SourceBuffer': The provided double value is non-finite.");
     sbFail("set the 'timestampOffset' property", s);
     s.tso = v;
+    g.__mse_sb_cfg(ms_.get(s.ms).feed, s.bi, 1, v);
     reopen(s);
   });
   sbProp('appendWindowStart', function (s) { return s.aws; }, function (s, v) {
@@ -96,6 +97,7 @@
     sbFail("set the 'appendWindowStart' property", s);
     if (v < 0 || v >= s.awe) throw new TypeError("Failed to set the 'appendWindowStart' property on 'SourceBuffer': The provided value (" + v + ') is outside the range [0, ' + s.awe + ').');
     s.aws = v;
+    g.__mse_sb_cfg(ms_.get(s.ms).feed, s.bi, 2, v);
   });
   sbProp('appendWindowEnd', function (s) { return s.awe; }, function (s, v) {
     v = Number(v);
@@ -103,6 +105,7 @@
     sbFail("set the 'appendWindowEnd' property", s);
     if (v <= s.aws) throw new TypeError("Failed to set the 'appendWindowEnd' property on 'SourceBuffer': The provided value (" + v + ') is less than or equal to the appendWindowStart (' + s.aws + ').');
     s.awe = v;
+    g.__mse_sb_cfg(ms_.get(s.ms).feed, s.bi, 3, v);
   });
   // The tail of an operation: update + updateend from a task.
   var finish = function (sb, s, tok) {
@@ -136,6 +139,7 @@
     reopen(s);
     var r = g.__mse_append(m.feed, s.bi, u8, g.__scratchy_now());
     if (r === 1) throw dom("Failed to execute 'appendBuffer' on 'SourceBuffer': The SourceBuffer is full, and cannot free space to append additional buffers.", 'QuotaExceededError');
+    if (r === 3) g.__scratchy_err("scratchy: js: not implemented: SourceBuffer.timestampOffset could not be written into this segment's timing headers (stored and played unshifted)");
     var self = this;
     begin(self, s, function (tok) {
       if (r === 2 || r < 0) {
