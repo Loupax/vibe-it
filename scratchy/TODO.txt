@@ -232,7 +232,7 @@ Order: (drain) -> QT1 -> QV8-0 -> QV8-1 -> QV8-2 -> QV8-3 -> QV8-4 -> QV8-5 -> Q
       starts a script-less `controls` video (QM1n2 interim, QM1g2d bar, QM1g2e fullscreen).
       FOUND ON THE WAY, BLOCKER: main crashes on fast (local) page loads, 8/10 runs on this page,
       0/10 with SCRATCHY_V8_SNAPSHOT=0: QV8-4a. Close QM1n when QV8-4a, QM1n1, QM1n2 are done.
-- [x] QV8-4a [S] DONE (63bf2a8), BLOCKER (found by QM1n, R40 section 3; regression from QV8-4 f62d0b0)
+- [x] QV8-4a [S] DONE (ba72dff), BLOCKER (found by QM1n, R40 section 3; regression from QV8-4 f62d0b0)
       The V8 startup-snapshot bake runs on a background thread (`js_engine_v8.rs` `warm_up` ->
       `build_snapshot`, a `v8::Isolate::snapshot_creator`) while the main thread may already make a
       page engine with `v8::Isolate::new` (`Engine::new`: "made before it is ready starts the slow
