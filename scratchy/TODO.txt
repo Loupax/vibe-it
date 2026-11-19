@@ -1285,10 +1285,6 @@ Shared rules for this block:
 - [ ] QY53i3 [S] (P3 memory, from QY53i2; Sonnet) `animation.rs` still `Box::leak`s interned `&'static AnimLonghands` (same
       pattern QY53i2 removed for custom props). Give it the same per-thread arena + Copy handle, cleared on navigation.
       Gate: a multi-page --perf-report run (QY53i2 harness) shows no growth across navigations; animation tests unchanged.
-- [ ] [WIP] QAN1h1 [S] (P2, from QAN1h, R49; Sonnet) Memoize `var()` expansion during each build, keyed on (declaration
-      block identity, the element's custom-property table handle (QY53i2)): github.com home does 19 272 expansions per build
-      over only 694 distinct declaration blocks (17 % of a build). Gate (R49 recipe, home page headless forced restyles,
-      median of 3): build_children -30 %, forced_layout total -12 %; var() tests unchanged.
 - [ ] QAN1h2 [M] (P2, from QAN1h, R49; Sonnet) Fewer universal candidates in RuleIndex: an attribute-name bucket, keys found
       inside `:is()`/`:where()`, index each selector of a selector list separately. github.com home: 534 candidates per match
       call, 1 344 rules in the universal bucket, 1.28 M full matches per build (2.3 % match). Gate: candidates per build -40 %,

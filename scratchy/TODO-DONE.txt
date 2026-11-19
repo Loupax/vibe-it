@@ -6846,3 +6846,9 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 === from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
 - [x] QMEM3c DONE 06cd98a (heap counts honest; peak=VmHWM; malloc in_use/free_kept; walk 5.5 ms) [S] (P3, from QMEM3; Sonnet) Honest `memory` estimates: rule caches count their real heap (real ~40 MB vs 18
       estimated), shape_memo counts cosmic-text buffers, peak_rss_bytes matches VmHWM (it read below it in every run).
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QAN1h1 DONE ee58c06 (var() memo per build: github.com home build_children -44 %, forced layout -20 %) [S] (P2, from QAN1h, R49; Sonnet) Memoize `var()` expansion during each build, keyed on (declaration
+      block identity, the element's custom-property table handle (QY53i2)): github.com home does 19 272 expansions per build
+      over only 694 distinct declaration blocks (17 % of a build). Gate (R49 recipe, home page headless forced restyles,
+      median of 3): build_children -30 %, forced_layout total -12 %; var() tests unchanged.
