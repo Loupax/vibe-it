@@ -1230,6 +1230,14 @@ impl JsEngine {
         m.borrow_mut().set_targets(&map);
     }
 
+    /// QM1k1n1: the video nodes that have a laid-out box (visible or not).
+    pub(crate) fn media_set_laid(&self, nodes: &[usize]) {
+        let Some(m) = &self.media else { return };
+        let t = self.table.borrow();
+        let set: std::collections::HashSet<i32> = nodes.iter().filter_map(|n| t.id_of_ptr(*n)).collect();
+        m.borrow_mut().set_laid(&set);
+    }
+
     /// QM1g: renders waiting frames; the node ids that got a new one.
     pub(crate) fn media_render(&self) -> Vec<usize> {
         let Some(m) = &self.media else { return Vec::new() };

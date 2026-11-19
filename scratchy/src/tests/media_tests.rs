@@ -333,6 +333,44 @@ mod qm1f {
     }
 
     /// A muted element loaded and playing, past canplaythrough.
+    /// QM1k1n1: a PLAYING element whose box is laid out but shows nothing keeps the video
+    /// track decoding; a paused one, or one with no box at all, does not.
+    #[test]
+    fn qm1k1n1_playing_laid_hidden_box_keeps_decoding_paused_or_boxless_does_not() {
+        let (mut c, f) = playing();
+        // no box yet: nothing is kept
+        assert!(!f.borrow().keep);
+        // laid out, clipped away (no target): playing -> keep
+        c.set_target(None);
+        c.set_laid(true);
+        assert!(f.borrow().keep, "{:?}", f.borrow().calls);
+        // the box comes into view: a target; keep stays (harmless), the picture is wanted
+        c.set_target(Some(crate::media_video::VideoTarget { w: 640, h: 360, fit: crate::css::ObjectFit::Contain }));
+        assert!(f.borrow().target.is_some());
+        // paused while hidden: keep drops (vid=no again)
+        c.set_target(None);
+        c.pause();
+        assert!(!f.borrow().keep, "paused: no keep");
+        // playing again: keep returns
+        c.play(2);
+        assert!(f.borrow().keep);
+        // the box is gone (display:none / disconnected): no keep
+        c.set_laid(false);
+        assert!(!f.borrow().keep);
+        assert!(f.borrow().target.is_none());
+    }
+
+    #[test]
+    fn qm1k1n1_a_paused_element_with_a_laid_box_never_keeps() {
+        let (mut c, f) = core();
+        load(&mut c, "https://cdn.test/v.mp4");
+        f.meta(10.0, 640, 360);
+        drain(&mut c, 0.0);
+        c.set_laid(true);
+        assert!(!f.borrow().keep);
+        assert!(!f.borrow().calls.iter().any(|s| s == "keep true"));
+    }
+
     fn playing() -> (MediaCore, FakeHandle) {
         let (mut c, f) = core();
         c.muted = true;

@@ -262,6 +262,9 @@ pub(crate) trait MediaBackend {
     /// QM1g: what to render (the visible video box's size), or None when the
     /// video is not on screen (stop rendering, and decoding where possible).
     fn set_video_target(&mut self, _t: Option<VideoTarget>) {}
+    /// QM1k1n1: with no target, keep the video track decoding (not rendering) because the
+    /// element is playing and its box is laid out, merely clipped or off-screen.
+    fn set_video_keep(&mut self, _keep: bool) {}
     /// QM1g: true when a new frame is waiting (set from another thread).
     fn frame_pending(&self) -> bool {
         false
@@ -410,6 +413,9 @@ pub(crate) struct MediaCore {
     /// QM1g: the newest rendered frame and the size the backend was asked for.
     pub last_frame: Option<Arc<VideoFrame>>,
     pub target: Option<VideoTarget>,
+    /// QM1k1n1: the element's box is laid out (visible or not), and what the backend was told.
+    laid: bool,
+    keep_sent: bool,
     mse: Option<MseAttach>,
     loadeddata_fired: bool,
 }
@@ -450,6 +456,8 @@ impl MediaCore {
             activated: false,
             last_frame: None,
             target: None,
+            laid: false,
+            keep_sent: false,
             mse: None,
             loadeddata_fired: false,
         }
@@ -460,6 +468,22 @@ impl MediaCore {
         if self.target != t {
             self.target = t;
             self.backend.set_video_target(t);
+        }
+    }
+    /// QM1k1n1: whether the element has a laid-out box (clipped or off-screen counts).
+    pub(crate) fn set_laid(&mut self, laid: bool) {
+        self.laid = laid;
+        self.sync_keep();
+    }
+    /// QM1k1n1: decoding stays on for a PLAYING element whose box exists but shows nothing.
+    pub(crate) fn keep_decoding(&self) -> bool {
+        self.laid && !self.paused
+    }
+    fn sync_keep(&mut self) {
+        let k = self.keep_decoding();
+        if k != self.keep_sent {
+            self.keep_sent = k;
+            self.backend.set_video_keep(k);
         }
     }
     /// QM1g: a frame is waiting in the backend.
@@ -874,6 +898,7 @@ impl MediaCore {
     fn start_playing(&mut self) {
         self.paused = false;
         self.backend.set_paused(false);
+        self.sync_keep();
         self.fire("play");
         if self.ready_state <= HAVE_CURRENT_DATA {
             self.fire("waiting");
@@ -897,6 +922,7 @@ impl MediaCore {
         self.paused = true;
         self.playing_fired = false;
         self.backend.set_paused(true);
+        self.sync_keep();
         self.fire("timeupdate");
         self.fire("pause");
         self.reject_pending("AbortError");
@@ -1107,6 +1133,8 @@ pub(crate) struct FakeState {
     pub auto_restart: bool,
     /// QM1g: the last target given, a pending frame flag and the frames rendered.
     pub target: Option<VideoTarget>,
+    /// QM1k1n1: the last `set_video_keep` value.
+    pub keep: bool,
     pub pending_frame: bool,
     pub renders: u32,
 }
@@ -1229,6 +1257,11 @@ impl MediaBackend for FakeBackend {
         let mut s = self.0.borrow_mut();
         s.calls.push(format!("target {:?}", t.map(|t| (t.w, t.h))));
         s.target = t;
+    }
+    fn set_video_keep(&mut self, keep: bool) {
+        let mut s = self.0.borrow_mut();
+        s.calls.push(format!("keep {keep}"));
+        s.keep = keep;
     }
     fn frame_pending(&self) -> bool {
         self.0.borrow().pending_frame
@@ -1403,6 +1436,13 @@ impl MediaHost {
     pub(crate) fn set_targets(&mut self, t: &HashMap<i32, VideoTarget>) {
         for (id, (c, _)) in self.els.iter_mut() {
             c.set_target(t.get(id).copied());
+        }
+    }
+
+    /// QM1k1n1: which elements have a laid-out box (visible or not); others have none.
+    pub(crate) fn set_laid(&mut self, laid: &std::collections::HashSet<i32>) {
+        for (id, (c, _)) in self.els.iter_mut() {
+            c.set_laid(laid.contains(id));
         }
     }
 

@@ -323,6 +323,8 @@ Items: QM1k1n1 (keep the video track decoding while a playing element's box is l
 away), QM1k1n2 (re-measure this timeline after QY53a-c), QM1k1n3 (YouTube's pre-click `play()` +
 reloads vs Chrome). The rest is QY53.
 
+**QM1k1n1 (2026-11-19, fixed): a PLAYING element whose box is laid out keeps decoding.** `paint_box` now records a laid box with nothing visible; `App::redraw` passes those nodes to the media host (`media_set_laid`); `MediaCore::keep_decoding` = laid && !paused; the mpv backend then leaves `vid=auto` (frames are consumed with `skip-rendering`, nothing is painted). Paused elements and elements with no box (display:none, disconnected) still get `vid=no`. Measured with real mpv (320x240, 25 fps, test fixture, 3 s hidden, process CPU incl. the test pump): keep 0.48 s (about 16 % of one core), `vid=no` 0.03 s. Box brought into view to first rendered frame: 0.040 s with keep, 0.086-0.106 s with `vid=no` (the refresh seek; on YouTube run 1 it was ~1.1 s with data buffered). Not measured: mpv's `render not being called` warnings (the backend does not read mpv's log; frames are consumed each poll), a 640x360 H.264 cost, the R42 URL itself (needs QY53 to get the main thread free: QM1k1n2). Nested-dwl screenshots of a local page (video `top:-360px` in a 640x360 `overflow:hidden` box, moved to `top:0` 6 s after `playing`): at 6 s only the orange container; 8 s later the picture with the burnt-in clock at 12.76 s (current, not stale).
+
 Not established: what Chrome does with an off-screen, clipped, playing `<video>` (keeps decoding or
 not; reasoning only); the cost in mpv CPU of decoding while off-screen (QM1k1n1 measures it); why
 `playing` waits 19.5 s after `play` in detail (which page tasks run in between: not profiled, QY53's
