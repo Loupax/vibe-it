@@ -1,5 +1,155 @@
 # scratchy — regressions
 
+## R49: QAN1h: GitHub restyle re-measured. R31's 15-18 s restyle is gone: a page of that size (github.com repo page, 1 809 elements, 16 220 rules) now builds in 126 ms headless and 210-250 ms in a window. But today's github.com HOME is a bigger page (~3 200 elements, 29 342 rules), and a full build of it still takes 0.65 s headless and 1.1-1.55 s in a window. That is the cost of every hover and every JS restyle (input-to-frame 1.3-1.6 s). About half of the build is selector matching (534 candidate rules per match call, 1 344 rules in the universal bucket, 2.3 % of full matches succeed). About a fifth is `var()` re-expansion: each element re-substitutes and re-parses each matched `var()` rule, 19 272 times per build for 694 distinct declaration blocks (Opus, 2026-11-19, measure only, docs only) — OPEN: proposed QAN1h1-QAN1h3 (below)
+
+**Status: measurement only. No product change; the temporary counters were reverted.** Main **a116be4**,
+release build (V8 + media) in the item's worktree, own wire on a `/tmp` socket, DEFAULT user agent, logged
+out. Machine load average 11-17 during every run, because other agents were building. The absolute ms are
+inflated, so compare the pages with each other and use the shares.
+
+### Pages and recipe
+- HTML fetched through the own wire at ~19:25: `github.com/` (537 KB, 37 stylesheet links) and
+  `github.com/Loupax/vibe-it` (213 KB, 33 stylesheet links). Static copies were made with `<base href>`
+  pointing at the live site, every `<script>` removed, and one inline driver script added. The
+  stylesheets load live through wire.
+- **Headless:** the driver toggles a class on `<body>` and reads `body.offsetWidth` 30 times. That gives
+  30 forced full restyles, run as `scratchy --perf-report --budget-ms 20000 --seconds 10 page.html`, and
+  the schema-2 `forced_layout.phases` are reported. The live URLs were also run with page JS on, 15 s.
+- **Window:** nested dwl (`tools/nest.sh`; the output was 960x316 on this desktop) with
+  `SCRATCHY_FRAME_STATS`. For hover, `tools/inject` moved the pointer between 6 targets and back to
+  blank space every 2.5 s (12 hover changes). For a JS restyle, a second static copy toggles a class on
+  `<body>` every 2 s, 8 times, and reads no geometry.
+- **Profile:** `tools/profile.sh` with its own `PROF_TARGET` on the headless home driver page (33 007
+  samples).
+- **Counters:** a separate throwaway build (reverted with `git checkout`). It recorded per build: match
+  calls, `RuleIndex` candidates, candidates that pass the media check, candidates that pass the ancestor
+  bloom filter (that is, fully matched), and matches. It also recorded `expand_var_decls` calls and time,
+  distinct `Declarations` with `var()`, plus bucket sizes and a 400-rule sample of the universal bucket.
+
+### Numbers
+| | github.com home | repo page | R31 copy (2026-11-17) |
+|---|---|---|---|
+| elements per build (style resolves / builds) | ~3 215 | ~1 809 | 2 077 |
+| rules (with `var()`) | 29 342 (16 845) | 16 220 (9 191) | 16 192 |
+| headless forced restyle, mean / max (30 runs) | **647 / 1 655 ms** | **126 / 326 ms** | 14 745-17 863 ms |
+| per layout: css_collect + rule_index | 5 ms | 3 ms | |
+| per layout: `precompute_generated` | 354 ms | 66 ms | |
+| per layout: `build_children` | 270 ms | 44 ms | |
+| per layout: `measure_document` | 16 ms | 12 ms | 53-55 ms |
+| whole build (counter build, 3 builds) | 789-1 361 ms | 204-219 ms | |
+| window: hover build (12 `hover_restyles`, 1 build each) | 1 135-1 442 ms, median ~1 330; input-to-present 1.29-1.59 s | not run | |
+| window: JS restyle build (8 class toggles) | 1 118-1 552 ms, median 1 348 | 210-253 ms, median 233 | |
+| live URL, page JS on, headless 15 s | 23 forced layouts = 25.0 s (mean 1 089, max 2 029 ms) | 0 forced layouts | |
+
+On the live home page, the forced layouts come from two places. One is GitHub's `r`
+`85486-d8bd5f8aaf4e9c5d.js:2:314766` (16 layouts, 18.3 s). The other is `C`
+`landing-pages-901fb96639d41b66.js:426:64866` (7 layouts, 6.7 s). In two live-window runs of the home
+page, the builds took 765-1 457 ms and one forced layout took 956 ms. One of those two runs drew no
+frame between 5 s and 42 s, and pointer moves in that time were not counted. The second run painted
+by 8 s. That stall was seen once and is not explained here.
+
+**Match counters per build (home / repo):**
+
+| | home | repo |
+|---|---|---|
+| match calls | 5 777 | 3 438 |
+| candidates | 3 087 080 (534 per call) | 849 936 (247 per call) |
+| pass the media check | 2 257 059 | 654 562 |
+| pass the bloom filter (fully matched) | 1 275 933 | 264 694 |
+| matched | 29 851 (2.3 %) | 6 457 (2.4 %) |
+
+**Universal bucket (home / repo):** 1 344 / 604 normal rules and 61 / 45 pseudo rules. In the
+400-rule home sample:
+- 175 have an attribute-only rightmost compound (`[data-color-mode=auto][data-dark-theme*=light]`,
+  `.x [data-component=SkeletonText]`, `[hidden]:not(...)`).
+- 41 are `:root` theme blocks.
+- 34 are `*` (`.y > *`).
+- 26 have a `:is()`/`:where()` rightmost compound whose class is hidden inside it
+  (`:where(.prc-Label-Label-qG-Zu):where([data-variant=success])`).
+- 26 are other pseudo-classes and 14 are `:not(...)`.
+- About 93 are rules where one unkeyed selector in a selector list pulls the WHOLE rule into
+  `universal`, although its other selectors have class keys (`RuleIndex::build` sets
+  `universal = true` for the rule).
+
+**`var()` (home / repo):** per build, 19 272 / 2 841 `expand_var_decls` entries with `var()` run over
+only 694 / 237 distinct `Declarations` blocks. The time is 156-272 ms / 34-39 ms per build (~20 % / ~17 %).
+Every element substitutes every matched `var()` declaration again, then does `format!` and
+`parse_declarations_split` again.
+
+**Profile, home driver page:** 89.5 % of samples are in `GeomCache::refresh`. Inclusive shares of all
+samples:
+- `matching_indices_for` **49.1 %**. Inside it: `matches_complex_selector` 31.9 %,
+  `class_list_contains` 8.2 % (plus `element_attr` 4.7 %), `RuleIndex::candidates` 5.3 %,
+  `media_list_matches` 2.8 %, `selector_may_match` 1.8 %.
+- `precompute_generated` **50.2 %**. This is mostly the first match of every element.
+  `precompute_generated` matches each element for `display`/counters/`content`, and
+  `build_children` then hits the QY53d memo, so the phase name hides that it is the matching phase.
+- `build_children` 36.2 %. Inside it: `resolve_style_core` 29.3 %, of which `expand_var_decls`
+  **17.2 %**, `cascade_css` 8.2 %, `compute_custom_props` 4.5 %, `Declarations::clone` 2.7 %.
+- `measure_document` 1.7 %.
+- malloc/free/memmove 10.5 %, spread over all of the above.
+
+### Verdict
+R31's case is fixed. The 15-18 s were a page of the repo page's size, which now builds in 126 ms headless
+and ~230 ms in a window, about 70-100x faster. That is in line with Wikipedia (174-180 ms hover builds,
+R47). Close R31's open question.
+
+The github.com HOME page is NOT in line: 0.65 s headless and 1.1-1.55 s per window build, so every hover
+and every JS restyle on it is a second-class stall. Its cost is style, not layout: 97 % of a forced
+layout. The cost is spread as follows:
+- matching: ~half;
+- `var()` re-expansion: ~a fifth;
+- the rest of the cascade: ~a tenth;
+- allocation: spread over all of these.
+
+QY53n1-QY53n5 (R47: hover without a tree build) remain the structural fix for hover. The items below cut
+the cost of every build, including JS restyles and forced layouts, which QY53n does not cover.
+
+### Proposed items (the coordinator files them)
+- **QAN1h1 [S] (P2) Memoize `var()` expansion per build.**
+  - What: key on (the `Declarations` pointer, the element's custom-properties handle, `CustomPropsRef`
+    since QY53i2) and reuse the expanded `(Declarations, Declarations)` groups.
+  - Where: `expand_var_decls`, style.rs; both call sites.
+  - Lifetime: the memo lives only while a build runs, like `MATCH_MEMO`.
+  - Correctness: equal handles mean equal variable tables. Check that `var()` fallbacks and
+    `inherit`-dependent values do not read anything besides the lookup.
+  - Expected: 19 272 -> ~700-2 000 expansions per home build, -15-20 % of a build.
+  - Gate (home driver page, median of 3, interleaved with main): `forced_layout.phases.build_children`
+    -30 %, `total_ms` -12 %.
+  - Tests: siblings with different custom props, fallbacks, `!important` var groups (Q52b segments).
+- **QAN1h2 [M] (P2) Fewer universal candidates in `RuleIndex`.** Three steps:
+  - (a) Bucket an attribute-only rightmost compound by attribute local name. An element looks up its
+    own attribute names, the way Stylo's selector map does.
+  - (b) Look through a single-selector `:is()`/`:where()` in the rightmost compound for an id, class
+    or tag key.
+  - (c) Index each selector of a rule separately instead of moving the whole rule to `universal` when
+    one of them is unkeyed. A rule may sit in several buckets; `candidates` already sorts and dedups.
+
+  The bloom filter's `ancestor_hashes` stay per selector. Expected: universal 1 344 -> a few hundred,
+  candidates per call 534 -> ~250 (estimated from the 400-rule sample, NOT measured).
+  - Gate (home driver page, median of 3, interleaved with main): candidates per build -40 % (temporary
+    counter) and `phases.precompute_generated` -25 %.
+  - Tests: attribute-bucket matching incl. case-insensitive attribute values, `:where()` specificity
+    unchanged, cascade order unchanged for a split rule.
+- **QAN1h3 [S] (P3) Class lookup without re-splitting the attribute.**
+  - Measured: `El::has_class` -> `element_attr` + `class_list_contains` is ~13 % of the home build.
+    It splits the `class` string on every check, about 1.28 M full matches per build.
+  - Fix: during a build, cache each element's class atoms or hashes, for example next to the
+    `AncestorBloom` stack entry or in a per-build `HashMap<node ptr, SmallVec<Atom>>`.
+  - Gate: `class_list_contains` + `element_attr` under 4 % of `GeomCache::refresh` samples in
+    `tools/profile.sh` on the home driver page.
+- Not proposed:
+  - Re-checking the live window's 37 s no-frame stall on the live home page. It was seen once in two
+    runs at load ~15. File it only if it repeats; recipe above.
+  - Renaming the `precompute_generated` phase. Documenting it here is enough; QPROF1 should read it as
+    "first matching".
+
+### Not established
+- Numbers on a quiet machine: load was 11-17.
+- Logged-in GitHub pages: never logged in.
+- The window at a full-size viewport: the nested output was 960x316, a narrow layout.
+- The gains of QAN1h1/QAN1h2: estimates from the counters, no throwaway fix was measured.
+
 ## R48: QMEM3: where the YouTube watch RSS goes after QY53f1c. At ~488 MB at the end of a 60 s headless run (568-581 MB in a live window), the QOBS7 `memory` block explains only 149 MB (caches 32 + JS heap 117). Most of the rest is: V8's own overhead beyond `used` and its code range (~18 MB), glibc keeping ~85-94 MB of freed memory in 42 per-thread arenas, libmpv (-112 MB RSS when it is not loaded: 70 MB mapped libraries + ~42 MB in its threads), the scratchy binary (34 MB), and ~65 MB of main-thread malloc that no probe names. The rule caches are ~2.5x their estimates but now small (~40 MB both). No leak in the headless minute; the live window grows ~0.2 MB/s (Opus, measure only, 2026-11-19) — OPEN: proposed QMEM3a-QMEM3e (in the PR); related QY53i2, QMEM1
 
 **Status: measurement only, docs only, no product change.** Base **b276712** (QY53f1c, StyleRule 4040 -> 72
@@ -3147,7 +3297,9 @@ Conclusions:
   `present_with_damage`), never rebuild (QAN1d). Layout-affecting animations
   get at most a throttled rebuild, or jump straight to their end state on slow
   pages.
-- GitHub's 15-18 s restyle with cached rules is itself a problem (hover,
+- (QAN1h, 2026-11-19: re-measured in R49. A page of this size now restyles in 126 ms headless and ~230 ms
+  in a window. Today's bigger github.com home page takes 0.65-1.5 s; items QAN1h1-QAN1h3.)
+  GitHub's 15-18 s restyle with cached rules is itself a problem (hover,
   JS writes, any restyle) and is not explained here (QAN1h measures it).
 - Not measured here: the live app's JS-built DOMs (bigger than these copies);
   for the live redraw/present cost see QM1c in R30.
