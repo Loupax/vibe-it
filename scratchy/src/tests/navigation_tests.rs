@@ -370,3 +370,31 @@ fn qy48_page_initiated_back_moves_app_index() {
     assert_eq!(app.base_url.as_ref().map(Url::as_str), Some("https://e.org/a"));
     assert_eq!(app.nav_generation, 0);
 }
+
+#[test]
+fn qy53i2_a_navigation_frees_the_custom_props_arena() {
+    use winit::platform::wayland::EventLoopBuilderExtWayland;
+    let event_loop = match EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build() {
+        Ok(l) => l,
+        Err(_) => return, // no display available (headless CI)
+    };
+    let mut app = App::new_static(parse_html("<html></html>"), event_loop.create_proxy(), None);
+    crate::css::reset_custom_props_arena();
+    let mut t = crate::css::CustomProps::new();
+    t.insert("--qy53i2-nav".into(), "1px".into());
+    let old = crate::css::intern_custom_props(t);
+    let freed = crate::css::CUSTOM_PROPS_FREED.with(|c| c.get());
+    app.history = vec![Url::parse("http://127.0.0.1:9/next").unwrap()];
+    app.history_index = 0;
+    app.fetch_url(app.history[0].clone());
+    let generation = app.nav_generation;
+    let page = FetchedPage {
+        html: b"<html><body>next</body></html>".to_vec(),
+        extra_css: String::new(),
+        scripts: Vec::new(),
+        url: Url::parse("http://127.0.0.1:9/next").unwrap(),
+    };
+    app.handle_nav_result(generation, Ok(page));
+    assert!(crate::css::CUSTOM_PROPS_FREED.with(|c| c.get()) > freed, "the old document's tables were freed");
+    assert_eq!(old.get("--qy53i2-nav"), None);
+}

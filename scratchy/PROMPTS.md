@@ -7839,3 +7839,9 @@ Done: R38. The `true` is `<img alt="true">` (YouTube calls `setAttribute('alt', 
 **Prompt:** `video_tick` fell back to a full redraw + 55-60 ms tree build whenever a relayout was pending (R46 YouTube freeze). Present the newest video frame into the kept page's video rect even while `layout_dirty`.
 
 **What changed:** `video_tick` no longer checks `layout_dirty` (gate extracted to `video_damage_ok`); test in `media_video` tests (fetch_tests.rs).
+
+## QY53i2: free the interned custom-property tables on navigation (scratchy/qy53i2-custom-props-arena, Opus)
+
+**Prompt:** Measure how much the `Box::leak`ed custom-property interner leaks now (YT watch + 3 navigations in one process), design a small `Copy` handle into a per-document / generation-tagged arena vs `Rc` (where it lives, when it is cleared, QY53i's memo key, QY53f3's note), and implement it if M: tables freed on navigation, memo keyed by handle; tests for the freeing, var() semantics, shared sibling tables. Gate: `memory.caches.custom_props_interner` does not grow across navigations, forced_layout.total_ms not worse.
+
+**What changed:** `CustomPropsRef` (8-byte `Copy` handle `{generation, index}`) into a per-thread arena of `Rc<CustomProps>` (one copy per table; was two, one leaked), `reset_custom_props_arena()` in `App::replace_document` and per `--perf-report` page, QY53i memo keyed by the parent handle and cleared with the arena; stale/foreign-thread handles read empty. `--perf-report` takes several targets (one process, one JSON line each). css.rs, style.rs, js_style.rs, app.rs, perf.rs, three `qy53i2_*` tests (cascade_tests.rs, navigation_tests.rs), NOTES.md, PERF.md. YT watch -> Wikipedia -> YT home -> BBC in one process: interner entries 100/104/124/124 (29.3 -> 35.3 MB estimate) before, 96/4/31/0 (14.1 MB on YT watch, 0 on BBC) after. TODO files untouched.

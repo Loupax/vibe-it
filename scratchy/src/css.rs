@@ -6223,39 +6223,118 @@ pub(crate) fn parse_ua_stylesheet(css: &str) -> Vec<StyleRule> {
 /// A resolved custom-property table (Q13).
 pub(crate) type CustomProps = std::collections::BTreeMap<String, String>;
 
-thread_local! {
-    pub(crate) static CUSTOM_PROPS_INTERNER: RefCell<HashMap<CustomProps, &'static CustomProps>> =
-        RefCell::new(HashMap::new());
+/// QY53i2: a `Copy` handle to one interned custom-property table in this
+/// thread's arena (`CUSTOM_PROPS_ARENA`), so `ComputedStyle` /
+/// `InheritedStyle` stay `Copy` while the tables can be freed. `generation`
+/// names the arena the handle came from: `reset_custom_props_arena` (a
+/// navigation) starts a new one, and a handle of an older generation (a style
+/// that outlived its document) reads as an empty table instead of another
+/// table's values. Generations come from one process-wide counter, so a
+/// handle read on another thread never matches that thread's arena either.
+/// Two handles of one generation are equal iff their tables are equal.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub(crate) struct CustomPropsRef {
+    generation: std::num::NonZeroU32,
+    index: u32,
 }
 
-/// Leaks one copy of each distinct table so `ComputedStyle` can stay
-/// `Copy` while carrying it; bounded by the number of distinct tables.
-pub(crate) fn intern_custom_props(map: CustomProps) -> &'static CustomProps {
-    CUSTOM_PROPS_INTERNER.with(|i| {
-        let mut i = i.borrow_mut();
-        if let Some(r) = i.get(&map) {
-            return *r;
+impl CustomPropsRef {
+    /// The value of custom property `name` (`--x`), if set.
+    pub(crate) fn get(self, name: &str) -> Option<String> {
+        CUSTOM_PROPS_ARENA.with(|a| a.borrow().table(self).and_then(|t| t.get(name).cloned()))
+    }
+
+    /// The whole table (an `Rc` clone, so the arena is not borrowed while the
+    /// caller works with it). `None` for a handle of another generation.
+    pub(crate) fn table(self) -> Option<Rc<CustomProps>> {
+        CUSTOM_PROPS_ARENA.with(|a| a.borrow().table(self).cloned())
+    }
+}
+
+/// QY53i2: this thread's interned custom-property tables, each stored once
+/// (the `Rc` is shared by `tables` and `index`). Lives until the next
+/// `reset_custom_props_arena` (`App::replace_document`, each `--perf-report`
+/// page). Within one document it only grows (bounded by the distinct tables).
+struct CustomPropsArena {
+    generation: std::num::NonZeroU32,
+    tables: Vec<Rc<CustomProps>>,
+    index: HashMap<Rc<CustomProps>, u32>,
+}
+
+/// QY53i2: generation of the next arena; process-wide (see `CustomPropsRef`).
+static CUSTOM_PROPS_GENERATION: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(1);
+
+impl CustomPropsArena {
+    fn new() -> Self {
+        let g = CUSTOM_PROPS_GENERATION.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        // Wrapping after 4 billion navigations skips 0 (a stale handle could
+        // then alias again, which is harmless next to that uptime).
+        let generation = std::num::NonZeroU32::new(g).unwrap_or(std::num::NonZeroU32::MIN);
+        CustomPropsArena { generation, tables: Vec::new(), index: HashMap::new() }
+    }
+
+    fn table(&self, r: CustomPropsRef) -> Option<&Rc<CustomProps>> {
+        if r.generation != self.generation {
+            return None;
         }
-        let leaked: &'static CustomProps = Box::leak(Box::new(map.clone()));
-        i.insert(map, leaked);
-        leaked
+        self.tables.get(r.index as usize)
+    }
+}
+
+thread_local! {
+    static CUSTOM_PROPS_ARENA: RefCell<CustomPropsArena> = RefCell::new(CustomPropsArena::new());
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Test-only: how many tables `reset_custom_props_arena` has freed on this thread.
+    pub(crate) static CUSTOM_PROPS_FREED: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// QY53i2: frees every interned custom-property table of this thread (and the
+/// QY53i memo, whose keys and results are handles into them) and starts a new
+/// generation. Called when a document is replaced (a navigation): styles of the
+/// old document that are still around read their custom properties as empty.
+/// A future cross-build `ComputedStyle` cache (QY53f3) must be cleared here too.
+pub(crate) fn reset_custom_props_arena() {
+    let old = CUSTOM_PROPS_ARENA.with(|a| std::mem::replace(&mut *a.borrow_mut(), CustomPropsArena::new()));
+    CUSTOM_PROPS_MEMO.with(|m| m.borrow_mut().clear());
+    #[cfg(test)]
+    CUSTOM_PROPS_FREED.with(|c| c.set(c.get() + old.tables.len()));
+    drop(old);
+}
+
+/// Interns `map` in this thread's arena: one stored copy per distinct table,
+/// so equal tables get equal handles.
+pub(crate) fn intern_custom_props(map: CustomProps) -> CustomPropsRef {
+    CUSTOM_PROPS_ARENA.with(|a| {
+        let mut a = a.borrow_mut();
+        let generation = a.generation;
+        if let Some(&index) = a.index.get(&map) {
+            return CustomPropsRef { generation, index };
+        }
+        let index = u32::try_from(a.tables.len()).expect("fewer than 2^32 custom-property tables");
+        let rc = Rc::new(map);
+        a.tables.push(rc.clone());
+        a.index.insert(rc, index);
+        CustomPropsRef { generation, index }
     })
 }
 
 /// QY53i: one memoised `compute_custom_props` result. The inputs are the
-/// parent table's address (interned tables are leaked, so an address is
-/// never reused for another table) and the element's own winning
+/// parent table's handle (QY53i2: interned, so equal handles = equal tables;
+/// the memo is cleared together with the arena) and the element's own winning
 /// `(name, raw value)` pairs, sorted by name; together they fully determine
 /// the result, so a hit skips the parent clone, the `var()` resolution and
 /// the SipHash of the whole combined table that `intern_custom_props` needs.
 struct CustomPropsMemoEntry {
-    parent: usize,
+    parent: Option<CustomPropsRef>,
     own: Box<[(Box<str>, Box<str>)]>,
-    result: &'static CustomProps,
+    result: CustomPropsRef,
 }
 
 thread_local! {
-    /// Keyed by a hash of (parent address, own pairs); a bucket holds the
+    /// Keyed by a hash of (parent handle, own pairs); a bucket holds the
     /// entries with that hash (collisions are compared in full).
     static CUSTOM_PROPS_MEMO: RefCell<HashMap<u64, Vec<CustomPropsMemoEntry>>> = RefCell::new(HashMap::new());
 }
@@ -6266,16 +6345,17 @@ thread_local! {
     pub(crate) static CUSTOM_PROPS_MEMO_HITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
-/// QOBS7: `(entries, approx bytes)` of the interner (each distinct table is held twice: the
-/// map key and the leaked copy) and of the QY53i memo. Estimates: string capacities plus a
-/// fixed per-entry overhead; never exact.
+/// QOBS7: `(entries, approx bytes)` of the interner arena (QY53i2: each
+/// distinct table stored once, plus its index entry) and of the QY53i memo.
+/// Estimates: string capacities plus a fixed per-entry overhead; never exact.
 pub(crate) fn custom_props_mem() -> ((usize, usize), (usize, usize)) {
     fn table(m: &CustomProps) -> usize {
         m.iter().map(|(k, v)| k.capacity() + v.capacity() + 2 * 24 + 16).sum::<usize>() + 24
     }
-    let interner = CUSTOM_PROPS_INTERNER.with(|i| {
-        let i = i.borrow();
-        (i.len(), i.keys().map(|k| 2 * table(k) + 8 + 24).sum())
+    let interner = CUSTOM_PROPS_ARENA.with(|a| {
+        let a = a.borrow();
+        // Rc header (16) + the Vec slot (8) + the index entry (8 + 4 + 8).
+        (a.tables.len(), a.tables.iter().map(|t| table(t) + 16 + 8 + 20).sum())
     });
     let memo = CUSTOM_PROPS_MEMO.with(|m| {
         let m = m.borrow();
@@ -6299,8 +6379,8 @@ pub(crate) fn custom_props_mem() -> ((usize, usize), (usize, usize)) {
 pub(crate) fn compute_custom_props(
     matches: &[(u64, &Declarations)],
     inline: Option<&Declarations>,
-    parent: Option<&'static CustomProps>,
-) -> Option<&'static CustomProps> {
+    parent: Option<CustomPropsRef>,
+) -> Option<CustomPropsRef> {
     let mut own: HashMap<&str, (u64, &str)> = HashMap::new();
     for &(spec, decls) in matches {
         for (name, value) in &decls.custom_props {
@@ -6317,18 +6397,17 @@ pub(crate) fn compute_custom_props(
     if own.is_empty() {
         return parent;
     }
-    let parent_addr = parent.map_or(0, |p| p as *const CustomProps as usize);
     let mut pairs: Vec<(&str, &str)> = own.iter().map(|(n, (_, v))| (*n, *v)).collect();
     pairs.sort_unstable_by(|a, b| a.0.cmp(b.0));
     let key = {
         use std::hash::{Hash, Hasher};
         let mut h = std::collections::hash_map::DefaultHasher::new();
-        parent_addr.hash(&mut h);
+        parent.hash(&mut h);
         pairs.hash(&mut h);
         h.finish()
     };
     let same = |e: &CustomPropsMemoEntry| {
-        e.parent == parent_addr
+        e.parent == parent
             && e.own.len() == pairs.len()
             && e.own.iter().zip(&pairs).all(|((n, v), (pn, pv))| &**n == *pn && &**v == *pv)
     };
@@ -6341,7 +6420,7 @@ pub(crate) fn compute_custom_props(
     let result = compute_custom_props_uncached(&own, parent);
     CUSTOM_PROPS_MEMO.with(|m| {
         m.borrow_mut().entry(key).or_default().push(CustomPropsMemoEntry {
-            parent: parent_addr,
+            parent,
             own: pairs.iter().map(|(n, v)| (Box::from(*n), Box::from(*v))).collect(),
             result,
         })
@@ -6352,17 +6431,14 @@ pub(crate) fn compute_custom_props(
 /// The memo-miss half of `compute_custom_props`: resolves the element's own
 /// values and returns the interned combined table (`parent` itself when
 /// nothing changed).
-fn compute_custom_props_uncached(
-    own: &HashMap<&str, (u64, &str)>,
-    parent: Option<&'static CustomProps>,
-) -> &'static CustomProps {
+fn compute_custom_props_uncached(own: &HashMap<&str, (u64, &str)>, parent: Option<CustomPropsRef>) -> CustomPropsRef {
     // `visiting` is the current resolution stack; every name on it when a
     // cycle is hit goes into `invalid` (the whole cycle is invalid).
     let visiting: RefCell<(Vec<String>, HashSet<String>)> = RefCell::new((Vec::new(), HashSet::new()));
     fn lookup(
         name: &str,
         own: &HashMap<&str, (u64, &str)>,
-        parent: Option<&'static CustomProps>,
+        parent: Option<&CustomProps>,
         visiting: &RefCell<(Vec<String>, HashSet<String>)>,
     ) -> Option<String> {
         if let Some((_, raw)) = own.get(name) {
@@ -6388,9 +6464,11 @@ fn compute_custom_props_uncached(
         }
         parent.and_then(|p| p.get(name).cloned())
     }
-    let mut map = parent.cloned().unwrap_or_default();
+    let parent_table = parent.and_then(CustomPropsRef::table);
+    let parent_ref = parent_table.as_deref();
+    let mut map = parent_ref.cloned().unwrap_or_default();
     for name in own.keys() {
-        match lookup(name, own, parent, &visiting) {
+        match lookup(name, own, parent_ref, &visiting) {
             Some(v) => {
                 map.insert(name.to_string(), v);
             }
@@ -6399,8 +6477,8 @@ fn compute_custom_props_uncached(
             }
         }
     }
-    match parent {
-        Some(p) if *p == map => p,
+    match (parent, parent_ref) {
+        (Some(p), Some(t)) if *t == map => p,
         _ => intern_custom_props(map),
     }
 }

@@ -2012,6 +2012,8 @@ impl App {
         js_style::set_js_extra_css(&extra_css);
         js_style::set_js_adopted_css("");
         crate::images::clear_style_overrides();
+        // QY53i2: the old document's custom-property tables (and the QY53i memo) go with it.
+        crate::css::reset_custom_props_arena();
         self.adopted_css.clear();
         self.extra_css = extra_css;
         self.layout_dirty = true;

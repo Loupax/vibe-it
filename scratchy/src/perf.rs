@@ -820,6 +820,8 @@ fn failed_report(opts: &ReportOpts, outcome: &str, why: &str) -> String {
 /// and returns the JSON report.
 pub(crate) fn perf_report(opts: &ReportOpts) -> String {
     start();
+    // QY53i2: each page is a navigation, as `App::replace_document` does.
+    crate::css::reset_custom_props_arena();
     let target = opts.target.clone();
     let (html, page_url, mut scripts, mut css) = match classify_input(&target) {
         Input::Url(url) => {
@@ -923,7 +925,7 @@ pub(crate) fn perf_report(opts: &ReportOpts) -> String {
 pub(crate) fn perf_report_main(args: &[String]) -> i32 {
     let mut socket = None;
     let mut seconds = DEFAULT_SECONDS;
-    let mut target = None;
+    let mut targets = Vec::new();
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
@@ -938,17 +940,21 @@ pub(crate) fn perf_report_main(args: &[String]) -> i32 {
                     return 2;
                 }
             },
-            _ => target = Some(a.clone()),
+            _ => targets.push(a.clone()),
         }
     }
-    let Some(target) = target else {
-        diag!("usage: scratchy --perf-report [--socket <path>] [--budget-ms <ms>] [--seconds <s>] <url|file>");
+    if targets.is_empty() {
+        diag!("usage: scratchy --perf-report [--socket <path>] [--budget-ms <ms>] [--seconds <s>] <url|file>...");
         return 2;
-    };
+    }
     set_js_enabled(true);
     js_engine::ensure_snapshot(); // QV8-4: the startup snapshot is built BEFORE the page, on its own thread
-    let json = perf_report(&ReportOpts { socket, seconds, target });
-    write_raw_stdout(format_args!("{json}\n"));
+    // QY53i2: several targets = several navigations in ONE process, one JSON line each (cross-page
+    // memory: the `memory` object of page N includes whatever pages 1..N-1 left behind).
+    for target in targets {
+        let json = perf_report(&ReportOpts { socket: socket.clone(), seconds, target });
+        write_raw_stdout(format_args!("{json}\n"));
+    }
     0
 }
 

@@ -510,7 +510,7 @@ fn qobs7_an_interned_table_shows_up_in_the_interner_count() {
     t.insert("--qobs7-probe".into(), "a-value-of-some-length".into());
     let a = crate::css::intern_custom_props(t.clone());
     let b = crate::css::intern_custom_props(t);
-    assert!(std::ptr::eq(a, b));
+    assert!(a == b);
     let after = crate::css::custom_props_mem().0;
     assert_eq!(after.0, before.0 + 1);
     assert!(after.1 > before.1);
