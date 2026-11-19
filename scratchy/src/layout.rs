@@ -1645,6 +1645,32 @@ fn measure_inner<'a>(
     cache: &mut ShapeCache,
     deadline: std::time::Instant,
     incomplete: &mut bool,
+    pending: &mut Vec<PendingPositioned<'a>>,
+    floats: &Floats,
+    auto_margin_box_override: Option<f32>,
+    forced_border_w: Option<f32>,
+) -> Laid {
+    crate::stack::grow(|| {
+        measure_inner_body(
+            b, font_system, x, y, width, containing_height, next_id, cache, deadline, incomplete, pending, floats,
+            auto_margin_box_override, forced_border_w,
+        )
+    })
+}
+
+/// QSTK1: the body of `measure_inner`, run through `crate::stack::grow`.
+#[allow(clippy::too_many_arguments)]
+fn measure_inner_body<'a>(
+    b: &'a LayoutBox,
+    font_system: &mut FontSystem,
+    x: f32,
+    y: f32,
+    width: f32,
+    containing_height: Option<f32>,
+    next_id: &mut usize,
+    cache: &mut ShapeCache,
+    deadline: std::time::Instant,
+    incomplete: &mut bool,
     // `position: absolute`/`fixed` descendants that bubbled all the way
     // up out of this box's own subtree without finding a positioned
     // ancestor to resolve against (see `PendingPositioned`'s own docs) —
@@ -5578,6 +5604,11 @@ fn collect_negative_z(owner: &mut Laid) {
 /// Visits the children (in-flow and out-of-flow) of `l`. `is_owner` is
 /// true for the boundary box itself.
 fn walk_negative_z(l: &mut Laid, bag: &mut Vec<Laid>, is_owner: bool) {
+    crate::stack::grow(|| walk_negative_z_body(l, bag, is_owner))
+}
+
+/// QSTK1: the body of `walk_negative_z`, run through `crate::stack::grow`.
+fn walk_negative_z_body(l: &mut Laid, bag: &mut Vec<Laid>, is_owner: bool) {
     if !is_owner && l.style.position != Position::Static {
         // A positioned, non-boundary box: its z-indexed out-of-flow
         // children escape to the owner.

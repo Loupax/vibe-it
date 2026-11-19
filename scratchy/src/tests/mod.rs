@@ -29,6 +29,7 @@ mod qwu1_tests;
 mod tables_tests;
 mod wpt_tests;
 mod js_snapshot_tests;
+mod deep_nesting_tests;
 mod xhr_tests;
 
 // ---------- v37: `:link`/`:visited` pseudo-classes ----------
