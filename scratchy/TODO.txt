@@ -1251,10 +1251,6 @@ Shared rules for this block:
       (`--perf-report`, QOBS3 phases/by_caller once merged); make the ancestor checks one walk (or cached per layout
       generation). Gate: one read at 5 000 deep < 100 ms; tests: IO visibility semantics unchanged (display:none /
       visibility:hidden ancestor still hides the target).
-- [ ] [WIP] QOBS5b [S] (P3, from QOBS5 bf9aea1; Sonnet, measure first) With the window idle (no input, nothing animating),
-      Wikipedia and YouTube both show a steady ~125-135 ms of page JS per wall second and zero redraws. Find out whether
-      that is a real timer/rAF/poll (which one: QOBS4b's named `longest` sources) or an accounting artifact of the window
-      mode recorder (idle-poll time counted as JS). If real and ours (prelude polling), make it event-driven.
 - [ ] [WIP] QY53l2 [M] (P2, from QY53l 4608cd4, R43 section 10; Opus) Skip the geometry-generation bump for DOM writes
       (attribute/style/class/tree insert-remove) whose target lies entirely inside a `display:none` subtree as recorded by
       the last GeomCache layout (the subtree has no boxes, so no rect can change), EXCEPT writes that can change whether
@@ -1332,7 +1328,7 @@ Shared rules for this block:
       `<style>`s) and what a parsed rule costs (selector + declaration storage; QOBS7 says the estimate undercounts selector
       heap); compact or dedupe. Gate: YT watch rules_cache bytes >= 50 % lower, no forced-layout regression.
       ABSORBED 2026-11-19 into QY53f1c (the 4 KB StyleRule is the cause; QY53f1b 9415fb2).
-- [ ] QMEM3 [S] (P3 memory, from QOBS7; Opus measure only) ~280 MB (38 %) of YT watch RSS is unexplained by caches + JS
+- [ ] [WIP] QMEM3 [S] (P3 memory, from QOBS7; Opus measure only) ~280 MB (38 %) of YT watch RSS is unexplained by caches + JS
       heap (peak 839 MB). One measured pass: /proc/self/smaps_rollup + malloc_info at end of run, V8 heap space stats
       (code/large-object/zone), mpv buffers for the 2 players, DOM/box trees; name the top 3 and file items.
 - [ ] QOBS6 [S] (P2, R44 section 4.4, Sonnet; after QOBS5) Network delivery delay. Stamp an `Instant`

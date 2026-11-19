@@ -6693,3 +6693,9 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       ~30 frames/s rendered+painted, 0 full redraws; pointer MOVING -> rendered/painted 1-5/s, full redraws 1-5/s, page JS
       1.0-1.8 s per wall second, 12-36 forced layouts/s, input->present 0.4-1.6 s with up to 30 moves pending; paint 2-14
       ms, present ~0. Cause: page mouse-move JS + App tree builds (60-250 ms) starve the main thread; paint is not it.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QOBS5b DONE be7c460 (event-loop spin from pump_net proxy drop, fixed in 8383e9d; regression test + PERF.md note) [S] (P3, from QOBS5 bf9aea1; Sonnet, measure first) With the window idle (no input, nothing animating),
+      Wikipedia and YouTube both show a steady ~125-135 ms of page JS per wall second and zero redraws. Find out whether
+      that is a real timer/rAF/poll (which one: QOBS4b's named `longest` sources) or an accounting artifact of the window
+      mode recorder (idle-poll time counted as JS). If real and ours (prelude polling), make it event-driven.
