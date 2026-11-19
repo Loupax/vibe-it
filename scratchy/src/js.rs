@@ -1147,6 +1147,9 @@ impl JsEngine {
             }
             self.arm_budget(perf::script_budget());
             let span = perf::begin(kind);
+            if let Some(k) = kind {
+                perf::set_source(k, || name.to_string());
+            }
             let res = compiled.run(&ctx);
             let failed_run = res.is_err();
             perf::end(span, failed_run && self.tripped());
@@ -1198,6 +1201,12 @@ impl JsEngine {
         let budget = perf::callback_budget();
         self.arm_budget(budget);
         let span = perf::begin(rec.map(|r| r.0));
+        // QOBS4: a timer names its function itself (`__perf_src`); the others carry their label.
+        if let Some((k, _)) = rec
+            && k != perf::Kind::Timer
+        {
+            perf::set_source(k, || label.to_string());
+        }
         let v = self.eng.with(|ctx| {
             match js_engine::eval_sloppy::<T>(&ctx, label, code) {
                 Ok(v) => Some(v),
@@ -1521,6 +1530,7 @@ fn startup_engine(document: &Handle, store: Rc<js_modules::ModuleStore>, log: Lo
             // QV8-0: observer deliveries report their own spans (see perf.rs).
             native!(&ctx, "__perf_b", perf::observer_begin);
             native!(&ctx, "__perf_e", perf::observer_end);
+            native!(&ctx, "__perf_src", |f: JsObject<'_>| perf::set_source(perf::Kind::Timer, || f.function_source()));
         }
         native!(&ctx, "__url_parse", url_parse_native);
         native!(&ctx, "__url_set", url_set_native);
@@ -1784,6 +1794,7 @@ const TIMERS_PRELUDE: &str = r#"
     if (t.rep >= 0) t.due = now + t.rep; else timers.splice(best, 1);
     var saved = level;
     level = t.lvl;
+    if (g.__perf_src) g.__perf_src(t.fn);
     try { t.fn.apply(g, t.raf ? [now] : t.args); }
     catch (e) { __scratchy_err('Uncaught ' + String(e) + (e && e.stack ? '\n' + e.stack : '')); }
     level = saved;

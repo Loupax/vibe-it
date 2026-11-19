@@ -167,6 +167,15 @@ impl<'js> JsObject<'js> {
         self.0.set(key, v)
     }
 
+    /// QOBS4: the function's name (QuickJS gives no script URL through rquickjs); empty when not a function.
+    pub(crate) fn function_source(&self) -> String {
+        if !self.0.is_function() {
+            return String::new();
+        }
+        let name: String = self.0.get("name").unwrap_or_default();
+        if name.is_empty() { "(anonymous)".to_string() } else { name }
+    }
+
     /// The property converted to `T`; `None` when it is missing or not a `T`.
     pub(crate) fn get<T: FromJs<'js>>(&self, key: &str) -> Option<T> {
         self.0.get::<_, T>(key).ok()

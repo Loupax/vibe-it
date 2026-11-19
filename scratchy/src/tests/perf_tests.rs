@@ -320,3 +320,55 @@ fn qv8_0_perf_corpus_json_shape_on_a_tiny_script() {
     }
     pj_all_numbers_non_negative(&j, "$");
 }
+
+// ---- QOBS4: the longest callbacks, named
+
+fn pj_arr(v: &PJ) -> &Vec<PJ> {
+    let PJ::Arr(a) = v else { panic!("not an array: {v:?}") };
+    a
+}
+
+#[test]
+fn qobs4_longest_names_the_60ms_timer_function() {
+    let _g = PerfGuard;
+    let j = qv8_report(
+        "qobs4",
+        "<script>function fiveMsTick(){__test_burn(5);} function sixtyMsTick(){__test_burn(60);}\
+         setTimeout(fiveMsTick,0);setTimeout(sixtyMsTick,0);</script>",
+    );
+    assert_eq!(j.get("schema").num(), 2.0);
+    let longest = pj_arr(j.get("longest"));
+    assert!(longest.len() >= 3, "{longest:?}");
+    assert_eq!(longest[0].get("kind"), &PJ::Str("timer".into()));
+    assert_eq!(longest[0].get("raw_ms").num(), 60.0);
+    for f in ["budget_ms", "forced_layouts", "forced_ms", "at_ms"] {
+        longest[0].get(f);
+    }
+    let PJ::Str(src) = longest[0].get("source") else { panic!() };
+    assert!(src.contains("sixtyMsTick") && !src.contains("fiveMsTick"), "{src}");
+    let timers: Vec<&PJ> = longest.iter().filter(|l| l.get("kind") == &PJ::Str("timer".into())).collect();
+    let PJ::Str(src1) = timers[1].get("source") else { panic!() };
+    assert!(src1.contains("fiveMsTick"), "{src1}");
+    // Sorted by raw time, longest first.
+    let raw: Vec<f64> = longest.iter().map(|l| l.get("raw_ms").num()).collect();
+    assert!(raw.windows(2).all(|w| w[0] >= w[1]), "{raw:?}");
+}
+
+#[test]
+fn qobs4_longest_is_bounded_and_keeps_the_largest() {
+    let _g = PerfGuard;
+    crate::js::FAKE_CLOCK.with(|f| f.set(Some((1_000_000_000, 0))));
+    crate::perf::start();
+    for i in 1..=50u64 {
+        let span = crate::perf::begin(Some(crate::perf::Kind::Event));
+        crate::perf::set_source(crate::perf::Kind::Event, || format!("event:{i}"));
+        crate::js::FAKE_CLOCK.with(|f| f.set(f.get().map(|(n, s)| (n + i * 1_000_000, s))));
+        crate::perf::end(span, false);
+    }
+    let j = pj_parse(&format!("{{{}}}", crate::perf::body_json()));
+    let l = pj_arr(j.get("longest"));
+    assert_eq!(l.len(), crate::perf::LONGEST_N);
+    assert_eq!(l[0].get("raw_ms").num(), 50.0);
+    assert_eq!(l[0].get("source"), &PJ::Str("event:50".into()));
+    assert_eq!(l[crate::perf::LONGEST_N - 1].get("raw_ms").num(), 31.0);
+}

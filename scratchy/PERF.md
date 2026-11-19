@@ -109,7 +109,7 @@ with each other, not with unprofiled timings.
 
 | field | meaning |
 |---|---|
-| `schema` | JSON layout version (1) |
+| `schema` | JSON layout version of `--perf-report`: **2** since QOBS4 (it adds `longest`, keeps every schema-1 field). QOBS3 and QOBS7 add THEIR fields to schema 2 (no further bump). `--perf-corpus` keeps its own `schema` 1 |
 | `engine`, `engine_version` | JS engine name and version (QuickJS now; a V8 backend fills the same two fields) |
 | `commit` | git commit the binary was built from (`-dirty` suffix for uncommitted changes), `unknown` outside a checkout |
 | `target`, `title`, `page_bytes` | what was loaded; document title; HTML size |
@@ -120,6 +120,8 @@ with each other, not with unprofiled timings.
 | `callbacks.<kind>.count` | callbacks run (an idle timer poll is not counted) |
 | `callbacks.<kind>.kills` | callbacks stopped by the budget |
 | `callbacks.<kind>.budget_clock`, `.raw_cpu` | `total_ms`, `max_ms`, `p50_ms`, `p95_ms` (nearest rank) in the budget clock and in raw CPU |
+| `longest` | (schema 2) the 20 longest callbacks of the run by raw CPU, longest first (a bounded min-heap in the recorder). Each: `kind` (as `callbacks.<kind>`), `raw_ms` (exclusive raw CPU), `budget_ms` (exclusive budget clock), `forced_layouts` / `forced_ms` (forced layouts that ran directly in that callback, not in nested spans), `at_ms` (wall ms since the report started, when the callback ENDED), `source` |
+| `longest[].source` | timers: `function-name url:line:col` of the callback's function (V8: `get_script_origin` and line/col, 1-based; `(anonymous)` for unnamed; QuickJS gives the function name only); scripts: the script name/URL; events: `event:<type>` / `DOMContentLoaded` / `load`; `promise_job` and `net_callback`: empty (a promise job has no single function to name) |
 | `budget_kills` | sum of all `kills` |
 | `forced_layout` | `count`, `total_ms`, `max_ms` of forced layouts (raw CPU, the part removed from the budget clock) |
 | `compile_cpu_ms` | CPU spent compiling page scripts (a module's compile is inside its `module_script` run) |
