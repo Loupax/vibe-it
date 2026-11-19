@@ -1,5 +1,107 @@
 # scratchy — regressions
 
+## R45: QM1k-stop: YouTube's "Ein Fehler ist aufgetreten" overlay a few seconds into playback is the SABR attestation stop (`ump.spsrejectfailure` / `HTML5_SPS_UMP_STATUS_REJECTED`): after ~60-64 s of media has been served with STREAM_PROTECTION_STATUS 2 (pending), every SABR answer is status 3 (attestation required, 10 retries), and after the 10th YouTube calls `stopVideo()` and shows the error, with 27-40 s of media still buffered. Same with the default UA, the R43 Chrome UA and a second video; no MediaError, no SourceBuffer exception, no scratchy crash (Opus investigator QM1k-stop, 2026-11-19) — OPEN: QM1k2 (PARKED, user decides); no scratchy fix
+
+**Status: investigation only, docs only.** Release build of main 42a5ef5 (V8 + media, libmpv 0.41),
+own worktree, `RUSTY_V8_ARCHIVE` = local librusty_v8 152.2.0. Own wire on a scratchpad socket
+(`WIRE_TIMING=1`, every line wall-clock stamped), never the user's. Nested dwl (tools/nest.sh; the
+window was 960x489 or 960x1006, the inject size must match the screenshot), grim, tools/inject.
+**DEFAULT user agent** (no `--user-agent`, as the user runs) except run 3. `SCRATCHY_MEDIA_AO=null`
+except runs 4 and 7 (`pulse`, approved by the user, who listened). `SCRATCHY_MPV_LOG_FILE`,
+`SCRATCHY_TIMING=1`. URL https://www.youtube.com/watch?v=G1AeBgalFZk (logged out, DE), and
+Xa90OVJkBos (a still-image music video, the second video the user saw fail).
+**Throwaway probe (appended to `mse_prelude.js`, reverted, never committed; runs 2-7 with
+`SCRATCHY_V8_SNAPSHOT=0`):** media events on `document` (capture) with currentTime/readyState/
+networkState/`video.error`/buffered; wrappers on every SourceBuffer/MediaSource method and setter
+(logs any throw); `play`/`pause`/`load` with a JS stack; googlevideo `fetch`es: method, time to
+resolve/reject, body size, UMP part counts and part 35/58 payloads (via `Response.clone()`); qoe/
+stats beacons (`fetch`, `sendBeacon`, XHR); a 2 s tick with `movie_player.getPlayerState()`; when
+`.ytp-error` appears, `movie_player.getDebugText(true)` (holds `debug_error`) and
+`getStatsForNerds()`.
+
+### Runs
+| run | setup | click -> page `play()` | first status 3 | error overlay | `ct` at error | buffered at error |
+|---|---|---|---|---|---|---|
+| 1 | main binary, no probe, snapshot on | (not instrumented) | 107-B answers from player time 57 s (qoe `bwm`) | 52-67 s after the click (screenshots) | 16.27 (paused, see below) | 47.7 s ahead (qoe `bh`) |
+| 2 | probe | 1.3 s | +14.4 s after the click | +43.2 s after the click | 36.8 | [0-64] |
+| 3 | probe, R43 Chrome UA | (a pre-roll AD played first) | +46.7 s | +80.8 s | ~52 | [0-64] |
+| 4 | probe, `ao=pulse` | CONTAMINATED: the user clicked once in the window (time unknown) | | | | |
+| 5 | probe, Xa90OVJkBos | CONTAMINATED (same click), not used | | | | |
+| 6 | probe, Xa90OVJkBos, clean | 3.8 s | +30.7 s | +57.0 s | ~47 | [0-105] |
+| 7 | probe, `ao=pulse`, clean, the user listened | 1.2 s | +8.3 s | +30.3 s (15:38:19.5) | ~25 | [0-64] |
+
+Every probed run ends with the SAME `debug_error`:
+`{"errorCode":"ump.spsrejectfailure", ..., "HTML5_SPS_UMP_STATUS_REJECTED", "rn.18;rt.33;lb.107;
+stall.0; ... req.sabr;rc.200"}` (run 2; runs 3, 6, 7 identical apart from counters). `video.error`
+stayed `null` in every tick and event, no `error` event fired, no SourceBuffer/MediaSource call threw
+(0 `THROW` lines), no `waiting`/`stalled`. The element ends by YouTube's own `stopVideo()` ->
+`video.load()` (JS stack `g.k.stopVideo -> iHa -> g.k.load`) -> `abort` + `emptied`, and the overlay
+is shown in the same task.
+
+### What the SABR stream says (UMP part 58 = STREAM_PROTECTION_STATUS)
+- Media answers carry `08 02` (status 2, attestation pending): run 2 four answers (2.44, 1.71, 3.57,
+  1.54 MB), run 7 five (plus one 129-B answer). YouTube keeps playing on them.
+- The first request after the buffer reaches **64.00 s** (G1AeBgalFZk, runs 2, 3, 7; Xa90OVJkBos run 6:
+  60.06 s) is answered with **107 B, parts {35, 47, 58}, part 58 = `08 03 10 0a`** (status 3,
+  attestation required, max retries 10). YouTube re-requests every ~2 s (`stp` in qoe `ctmp`), gets
+  status 3 ten times (run 2: #116-#128, 10 answers in 24 s; run 7: 10 in 18.5 s), then gives up.
+- Playback stays smooth on the buffer the whole time (run 2 ticks: ct 5.9 -> 35.9 at real speed,
+  `state=1`), so the stop comes while 27-40 s of media are still buffered: nothing ran dry.
+- The qoe beacons carry no `ec=`/`errorcode=`; the last one before the overlay has `vps=<t>:ER`,
+  `bh=<t>:0.000` and `bwm=<t>:107:...` (each 107-byte answer is logged as a bandwidth sample). The
+  error code is only in the player's own `debug_error` (above). No `/error_204` request was made.
+- This is the PoToken/BotGuard attestation stop of R34/R42 (QM1k2, PARKED). R42 saw it at +92-196 s
+  after the start; here it comes earlier because the page now starts faster (QY53a-h), so the
+  ~64 s of unattested media is fetched sooner. Playback before the stop: 25-52 s of the video.
+
+### Everything else seen (not the cause)
+- **Chrome UA (run 3)** changes only what is served: a pre-roll ad played first (not with the
+  default UA), one answer before the click had status `08 01` (OK), then the content stream went
+  2 -> 3 -> the same error. So the UA does not avoid the stop.
+- **SABR aborts (QM1k1n5)**: 1-5 per run (`AbortError` 7-15 s after the request). **`TypeError:
+  Failed to fetch` (QM1k1n7)**: 2-7 per run = the `411 Length Required` POSTs (no ACAO header, so the
+  CORS check fails; wire log runs 2-7: 6 x 411) plus `502` answers to `videoplayback` GETs on other
+  googlevideo hosts (18 in runs 2-7; YouTube also sends GETs to a fake `rr5---sn-q4flrnez` URL with
+  `expire=6159848608`, answered 403; which request each failure was: not checked). Neither ends playback: the error follows status 3 in every run, whatever the abort count.
+- **Run 1 and run 4 pauses** (ct stuck at 13.5-13.6 for 30-50 s before the error, qoe `vps=PA`):
+  YouTube's own `pauseVideo()` 2.3 s after a click that landed on an ALREADY-PLAYING video (in run 4
+  the video had been started by the user's click, so the injected click paused it; in run 1 the
+  window size changed between screenshot and click). Test-procedure artefact. With the pause, the
+  status-3 retries still ran and the error came at the same point in the request sequence.
+- **Picture late at the start / short freeze before the overlay (user's account of run 7)**:
+  mpv decoded the first frame 0.22 s after `pause=no` (15:37:50.6), but logged `mpv_render_context_
+  render() not being called or stuck` 29 times in the next 6 s and 12 times in the 4 s before the
+  stop: scratchy's redraw did not run (R42 section 5 `top:-360px` parking until `playing` plus the
+  QM1k1n6 redraw starvation), so audio led the picture by a few seconds. The "half-second hang"
+  is YouTube's `stopVideo()` -> `load()` (15:38:18.48) -> `emptied` + overlay (15:38:19.51), i.e.
+  the stop itself; mpv `stop` / `EOF code 4` at the same moment. No underrun, no `paused-for-cache`.
+  (Runs 2 and 4 also logged one `Audio/Video desynchronisation detected!` right after the unpause.)
+- **Run 4 (contaminated, real audio)**: the user heard sound with a still picture, then the sound
+  froze, then the error: matches the log (user's click 15:29:08 -> `play`; injected click 15:29:20
+  -> YouTube `pauseVideo()` 15:29:22 = "sound froze"; status 3 from 15:29:24; overlay 15:29:55).
+- The user's own scratchy on Xa90OVJkBos failed the same way (coordinator report); run 6 reproduces
+  it in a clean window with `ump.spsrejectfailure`.
+
+### Answers
+| question | answer |
+|---|---|
+| what stops playback | YouTube's player, on SABR STREAM_PROTECTION_STATUS 3 x10 (`ump.spsrejectfailure`): the PoToken/BotGuard attestation (QM1k2) |
+| MediaError / `error` event | none (`video.error` null throughout) |
+| SourceBuffer/MediaSource exception | none |
+| SABR fetch aborts / late delivery (QM1k1n5) | present (1-5 aborts per run) but not the cause |
+| buffer starvation | no: 27-40 s still buffered at the stop |
+| mpv decode error / EOF | no; mpv `stop` only when the page unloads the element |
+| redraw starvation (QM1k1n6) | present (late first picture, render stalls), not the cause |
+| scratchy crash | no |
+| default vs Chrome UA | same stop; the Chrome UA additionally gets a pre-roll ad |
+| error beacon code | not in any query string; `debug_error.errorCode = ump.spsrejectfailure` |
+
+### Not established
+Whether status ever reaches 1 for the content stream (it did once for an ad answer in run 3 and,
+in the contaminated run 5, during a long pause on Xa90OVJkBos: not reproduced cleanly, so not
+claimed); what BotGuard/`GenerateIT` produce in scratchy and why the token is not accepted (that is
+QM1k2's investigation, parked); the qoe POST bodies (wire logs only URLs).
+
 ## R44: Performance VISIBILITY audit: a sampling profiler (`perf` + V8's JIT map) attributes CPU to Rust functions AND page JS functions in one run, with no throwaway code. Profiles of main 8d7d692 confirm the QY53 picture, add three hotspots nobody had filed (`El::has_class` is 28-32 % of ALL CPU on both pages; custom-property interning 5.3 % on YouTube; shape-memo keys built with `format!("{:?}")` 5.5 % on Wikipedia), and show what the harness cannot see: the window (no frame/paint/input timing at all), WHICH callback was slow, and ~590 MB of native memory (Opus investigator, 2026-11-19) — OPEN: QOBS1-QOBS10, QP4, QY53i (TODO.txt block "PERFORMANCE VISIBILITY (QOBS)")
 
 **Status: investigation only, docs only. No source change.** The user asked for more visibility on
