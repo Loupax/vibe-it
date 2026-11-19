@@ -58,7 +58,7 @@ Order: (drain) -> QT1 -> QV8-0 -> QV8-1 -> QV8-2 -> QV8-3 -> QV8-4 -> QV8-5 -> Q
           budget; no Chrome on this machine, so no jitless reference. See PERF.md.
       (P0, Opus measure + Sonnet harness; FIRST) Performance baseline on
       QuickJS, committed as a repeatable tool so QV8-m can run the exact same thing.
-      COORDINATOR 2026-11-18: drain finished and QT1 merged. BASELINE HASH = 2437284
+      COORDINATOR 2026-11-18: drain finished and QT1 merged. BASELINE 97c9c77 = 2437284
       (main after PR #295; main-after-QT1 is the hash the baseline numbers are taken at).
       Harness is merged (93faf68, PR #294); the remaining step is the Opus baseline run.
       Harness (permanent, NOT temporary timing code; this item is the AGENTS.md exception):
@@ -452,7 +452,7 @@ older and were only partly corrected in place):
   QM1 block): after the V8 freeze and QV8-5b, build in order QM1k4 -> QM1k1a -> QM1k1b ->
   QM1k-AB (decides audio option A vs B) -> QM1k1c -> QM1k1d -> QM1k1e -> QM1k-m2 (YouTube
   first minute) -> QM1k1f..j; then the lower-priority Workers/WebAssembly chain QWK0-QWK-m.
-  QM1k-m2 DONE 2026-11-19 (R42): picture blocked by track order (QM1k1k, P1, do next), main
+  QM1k-m2 DONE 2026-11-19 (R42): picture blocked by track order (QM1k1k DONE, 97c9c77), main
   thread starved by forced layout on the watch page (QY53, now also a YouTube PLAYBACK blocker);
   QM1k1l/QM1k1m/QM1k-u small; QM1k-r with the user.
   QM1k2 (PoToken) and QM1k3 (native HLS) PARKED by the user. Open: QUESTIONS.md Q7.
@@ -1175,7 +1175,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       no regression), the QM1k1e local page in the live window. Record in an R34 addendum; file
       each gap as an item (expected small ones: `getVideoPlaybackQuality`, `played`,
       `stalled`/`suspend`, `webkitDecodedFrameCount`, MSE-in-Worker probes) into QM1k1f.
-- [ ] QM1k1k [S] READY (P1, R42 section 2, Sonnet) MSE track roles by TYPE, not by order.
+- [x] QM1k1k [S] DONE 2026-11-19 (97c9c77) (P1, R42 section 2, Sonnet) MSE track roles by TYPE, not by order.
       `MpvBackend::load_mse` (media_mpv.rs) loads `scratchy-mse://F/G/0` as the file and
       `.../1` as the external audio file. YouTube calls addSourceBuffer(audio) FIRST, then
       (video), so mpv gets audio as the main file and rejects the video as "external audio"

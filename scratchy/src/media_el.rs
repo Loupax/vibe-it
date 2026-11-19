@@ -1182,7 +1182,8 @@ impl MediaBackend for FakeBackend {
             return Err(e);
         }
         let gid = feed.start_generation(start);
-        s.loaded = Some(LoadReq { url: format!("scratchy-mse://{}/{gid}/0", feed.id), page: String::new(), mode: MediaMode::NoCors });
+        let (main, _) = feed.track_roles();
+        s.loaded = Some(LoadReq { url: format!("scratchy-mse://{}/{gid}/{main}", feed.id), page: String::new(), mode: MediaMode::NoCors });
         s.position = start;
         s.playing = false;
         Ok(())

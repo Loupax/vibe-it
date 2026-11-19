@@ -584,11 +584,13 @@ impl MediaBackend for MpvBackend {
         // list split on ':' (the URL has one), so it is cleared and then APPENDED as one
         // element (`change-list ... append` does not split).
         self.cmd(&["change-list", "audio-files", "clr", ""]);
-        if tracks == 2 {
-            self.cmd(&["change-list", "audio-files", "append", &format!("scratchy-mse://{}/{gid}/1", feed.id)]);
+        // QM1k1k: the main stream is the video SourceBuffer, whatever its index.
+        let (main, ext) = feed.track_roles();
+        if let Some(e) = ext {
+            self.cmd(&["change-list", "audio-files", "append", &format!("scratchy-mse://{}/{gid}/{e}", feed.id)]);
         }
         let opts = format!("start={start:.3},rebase-start-time=no,demuxer-max-bytes=16MiB,demuxer-max-back-bytes=8MiB,demuxer-lavf-o=fflags=+ignidx");
-        self.cmd(&["loadfile", &format!("scratchy-mse://{}/{gid}/0", feed.id), "replace", "-1", &opts]);
+        self.cmd(&["loadfile", &format!("scratchy-mse://{}/{gid}/{main}", feed.id), "replace", "-1", &opts]);
         Ok(())
     }
     fn unload(&mut self) {

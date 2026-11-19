@@ -29,7 +29,7 @@ function get(u, cb) {
 }
 var ms = new MediaSource();
 v.src = URL.createObjectURL(ms);
-v.addEventListener('ended', function () { say('ENDED at ' + v.currentTime.toFixed(2) + ' of ' + v.duration.toFixed(2)); });
+v.addEventListener('ended', function () { say('ENDED at ' + v.currentTime.toFixed(2) + ' of ' + v.duration.toFixed(2) + ' w=' + v.videoWidth); });
 v.addEventListener('error', function () { say('ERROR ' + (v.error && v.error.code)); });
 ms.addEventListener('sourceopen', function () {
   var vb = ms.addSourceBuffer('video/mp4; codecs="avc1.640015"');

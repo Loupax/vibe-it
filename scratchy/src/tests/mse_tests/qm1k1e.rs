@@ -213,18 +213,19 @@ fn page_parts() -> (String, String) {
     (format!("{a}{b}"), code.to_string())
 }
 
+/// Plays the local page against real mpv and returns its console log (None: tools missing).
+/// `audio_first` swaps the two addSourceBuffer lines (QM1k1k: YouTube's order).
 #[cfg(feature = "media")]
-#[test]
-fn qm1k1e_local_page_plays_real_mp4_through_media_source_to_ended() {
+fn run_local_page(audio_first: bool) -> Option<Vec<String>> {
     use super::super::mse_mpv_tests::real::{have_tools, make_fixture, Track};
 
     if !have_tools() {
-        return;
+        return None;
     }
-    let dir = std::env::temp_dir().join(format!("qm1k1e-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("qm1k1e-{}-{}", std::process::id(), audio_first));
     let Some((v, a)) = make_fixture(&dir, 3, 0.0, 1, 1) else {
         eprintln!("SKIP: ffmpeg could not make the fixture");
-        return;
+        return None;
     };
     let join = |t: &Track| {
         let mut b = t.init.clone();
@@ -238,26 +239,47 @@ fn qm1k1e_local_page_plays_real_mp4_through_media_source_to_ended() {
     let fake = QfFake::new(vec![("/v.mp4", ok(join(&v))), ("/a.mp4", ok(join(&a)))]);
     set_page_url(Some(&Url::parse("https://page.test/").unwrap()));
     crate::js_net::set_net_executor(fake.clone());
-    let (html, code) = page_parts();
+    let (html, mut code) = page_parts();
+    if audio_first {
+        let vl = "  var vb = ms.addSourceBuffer('video/mp4; codecs=\"avc1.640015\"');\n";
+        let al = "  var ab = ms.addSourceBuffer('audio/mp4; codecs=\"mp4a.40.2\"');\n";
+        assert!(code.contains(&format!("{vl}{al}")));
+        code = code.replace(&format!("{vl}{al}"), &format!("{al}{vl}"));
+    }
     let log = Rc::new(RefCell::new(Vec::<String>::new()));
     let l = log.clone();
     let engine = crate::js::start_scripts(&parse_html(&html), &[src(&code)], Rc::new(move |lv, t| l.borrow_mut().push(format!("{lv}:{t}")))).unwrap();
     let mut sched = NetScheduler::new(&engine.net_policy());
     let t0 = std::time::Instant::now();
-    let mut ended = false;
     while t0.elapsed() < std::time::Duration::from_secs(40) {
         crate::js_net::drive_report_net(&engine, &mut sched, &*fake);
         engine.run_due();
         if log.borrow().iter().any(|x| x.starts_with("log:ENDED") || x.starts_with("log:ERROR")) {
-            ended = log.borrow().iter().any(|x| x.starts_with("log:ENDED"));
             break;
         }
         std::thread::sleep(std::time::Duration::from_millis(5));
     }
     let _ = std::fs::remove_dir_all(&dir);
     let l = log.borrow().clone();
-    assert!(ended, "the page did not reach ended: {l:?}");
-    let last = l.iter().find(|x| x.starts_with("log:ENDED")).unwrap();
+    Some(l)
+}
+
+#[cfg(feature = "media")]
+#[test]
+fn qm1k1e_local_page_plays_real_mp4_through_media_source_to_ended() {
+    let Some(l) = run_local_page(false) else { return };
+    let last = l.iter().find(|x| x.starts_with("log:ENDED")).unwrap_or_else(|| panic!("the page did not reach ended: {l:?}"));
     assert!(last.contains("of 3.0"), "{last}");
+    assert!(last.contains("w=320"), "{last}");
     assert!(l.contains(&"log:all appended, playing".to_string()), "{l:?}");
+}
+
+/// QM1k1k: the audio SourceBuffer added FIRST (YouTube's order) still plays the picture.
+#[cfg(feature = "media")]
+#[test]
+fn qm1k1k_local_page_audio_first_still_has_video() {
+    let Some(l) = run_local_page(true) else { return };
+    let last = l.iter().find(|x| x.starts_with("log:ENDED")).unwrap_or_else(|| panic!("the page did not reach ended: {l:?}"));
+    assert!(last.contains("of 3.0"), "{last}");
+    assert!(last.contains("w=320"), "videoWidth must be 320 with audio first: {last}");
 }
