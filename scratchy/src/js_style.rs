@@ -45,9 +45,23 @@ pub(crate) fn set_js_adopted_css(css: &str) {
     });
 }
 
+/// QY53h: the version of the external + adopted CSS; changes whenever
+/// `page_css()` would return different text. Cheap (no string is built).
+pub(crate) fn css_ver() -> (u64, u64) {
+    CSS_VER.with(|v| v.get())
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Test seam: how many times `page_css()` built the string.
+    pub(crate) static PAGE_CSS_BUILDS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
 /// The page's external plus adopted CSS (what the layout build receives as
 /// `extra_css`).
 pub(crate) fn page_css() -> String {
+    #[cfg(test)]
+    PAGE_CSS_BUILDS.with(|c| c.set(c.get() + 1));
     let mut s = EXTRA_CSS.with(|c| c.borrow().clone());
     ADOPTED_CSS.with(|c| {
         let c = c.borrow();

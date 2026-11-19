@@ -39,7 +39,7 @@ thread_local! {
 
 #[derive(Default)]
 pub(crate) struct GeomCache {
-    key: Option<(u64, u32, u32, usize)>,
+    key: Option<(u64, u32, u32, (u64, u64))>,
     /// QP2: viewport of the previous refresh; a change clears the shape memo.
     last_vp: Option<(u32, u32)>,
     rects: HashMap<usize, GeomRect>,
@@ -138,11 +138,12 @@ const SHAPE_MEMO_CAP: usize = 4096;
 impl GeomCache {
     /// Lays the page out again unless nothing changed since the last read.
     fn refresh(&mut self, page: &Handle, wgen: u64, vw: f32, vh: f32) {
-        let css = crate::js_style::page_css();
-        let key = (wgen, vw as u32, vh as u32, css.len());
+        // QY53h: keyed on the CSS version counters; the CSS string is only built on a miss.
+        let key = (wgen, vw as u32, vh as u32, crate::js_style::css_ver());
         if self.key == Some(key) {
             return;
         }
+        let css = crate::js_style::page_css();
         #[cfg(test)]
         GEOM_LAYOUTS.with(|c| c.set(c.get() + 1));
         // One-off cost (system font scan), kept out of the forced-layout stats.
