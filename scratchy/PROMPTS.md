@@ -7767,6 +7767,7 @@ Done: R38. The `true` is `<img alt="true">` (YouTube calls `setAttribute('alt', 
 **Prompt:** (coordinator) main CI failed on 4608cd4: `q33a_classic_script_types_and_collection_order` saw `inline_scripts(&doc).len() == 0` instead of 3.
 
 **What changed:** `JS_ENABLED` is process-wide; `qy19_noscript_meta_only_with_js_off` flipped it without `JS_FLAG_LOCK`, and two readers (`q33a_classic_script_types_and_collection_order`, `qf14b_every_loader_sends_the_jar_headers_with_the_pages_top_site`) read it without the lock, so a parallel test run could see JS off. All three now hold `JS_FLAG_LOCK`. Test-only; no product change.
+
 ## QY53e3: App layout vs forced layout in a live window (scratchy/qy53e3-live-window-layouts, Opus, measure only)
 
 **Prompt:** Measure in a live nested-dwl window (own wire, default UA, `SCRATCHY_MEDIA_AO=null`, QOBS5 frame stats, tools/inject scroll + hover) on Wikipedia Rust and YouTube watch G1AeBgalFZk (60 s): (A) App tree builds at a geometry generation GeomCache already laid out, (B) forced layouts at a generation an App build already built, (C) delay from an IO recheck to the next complete App layout, (D) complete App layouts still current at completion, and App rebuilds after only no-op writes; temporary stderr lines (removed before commit); decide whether QY53e2 is still worth doing as specified. Do not change app.rs (QM1k1n6 is designing there).
@@ -7778,3 +7779,9 @@ Done: R38. The `true` is `<img alt="true">` (YouTube calls `setAttribute('alt', 
 **Prompt:** Measure the phases of the 5 slowest forced layouts on YouTube watch and which rules_cache path each took; name the cause; fix if small. Gate: YT max_ms median of 3 >= 30 % lower than main.
 
 **What changed:** cause was not an @layer/shared fallback but the one cold full parse, whose rule list (22k x 4 KB StyleRule) was memcpy'd into the final Vec (55-75 ms). css.rs `parse_stylesheet_into`, rules_cache.rs parses pieces straight into the target Vec + shrink_to_fit, one cascade test, R43 section 12. TODO files untouched.
+
+## QM1k1n6: redraw starvation / frame budget, design + live measurement (scratchy/qm1k1n6-frame-budget-design)
+
+**Prompt:** Opus design item QM1k1n6 (and QM1k-mouse): measure in a live nested-dwl window where each second with the pointer moving over the YouTube watch page goes (pointer dispatches and JS per event, hover restyles, tree builds, forced layouts, event-loop order of input / page tasks / redraw / video frames), design pointer coalescing, a frame budget, video compositing without a relayout, and whatever dominates; REGRESSIONS.md section with recipe, numbers and design; Sonnet items with QOBS5 gates; implement a piece only if clearly S and safe.
+
+**What changed:** REGRESSIONS.md R46 (recipe, per-second breakdown, the user's session, design (a)-(d)). Two S fixes found on the way: src/app.rs `pump_net` borrows the `EventLoopProxy` instead of cloning it every turn (a dropped clone pings calloop: 20-40k idle turns/s, one core at 100 % on any JS page); src/media_mpv.rs `sw_render_params` passes `MPV_RENDER_PARAM_BLOCK_FOR_TARGET_TIME = 0` (mpv slept ~31 ms per frame on the main thread, 93-100 % of each playing second; now 0.6 ms). Tests in src/tests/frame_budget_tests.rs. Throwaway instrumentation reverted.

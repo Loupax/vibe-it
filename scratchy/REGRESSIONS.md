@@ -1,5 +1,102 @@
 # scratchy — regressions
 
+## R46: QM1k1n6 / QM1k-mouse: where a "pointer moving over YouTube" second goes. Moving the pointer is NOT what freezes the video; YouTube's player-controls JS does, when the pointer crosses its controls: each `mouseover`/`mouseout` on a `ytp-*` control costs 40-180 ms of page JS (~2 forced layouts of ~60 ms), the timers it schedules then run back to back in ONE `run_due` turn (up to 100 timers, no time limit: 1.2-2.5 s), and every queued `CursorMoved` is processed one by one. Two main-thread stalls under everything were scratchy's own and are FIXED here: the event loop spun at 20-40k turns/s on any page with JS (an `EventLoopProxy` clone dropped every turn wakes the loop), and mpv's software render SLEPT on the main thread until each frame's display time (~31 ms per frame = 93-100 % of every playing second) (Opus, 2026-11-19) — OPEN: QM1k1n6a-c, QOBS5c (proposed in the PR); FIXED: the spin and the render block (this PR)
+
+**Status: measured live, two S fixes implemented (app.rs `pump_net`, media_mpv.rs `sw_render_params`),
+design + items for the rest.** Release builds of main 7bf6875-era code (V8 + media), own worktree, own
+wire on a scratchpad socket, nested dwl (tools/nest.sh, window 960x1006), tools/inject, DEFAULT user
+agent, `SCRATCHY_MEDIA_AO=null`, `SCRATCHY_FRAME_STATS` (QOBS5). URL
+https://www.youtube.com/watch?v=G1AeBgalFZk. Throwaway instrumentation (never committed): per-second
+tallies of every `window_event`/`user_event` kind with wall ms, `js_dispatch` by event type (+ the
+target's tag/class when >= 20 ms), `run_due` calls and ms, `video_tick` split (mpv render / buffer /
+present) and why it fell back to a full redraw, which source requested a restyle, `StartCause` of
+each turn and which `ControlFlow` deadline was chosen.
+
+### Recipe
+1. `tools/nest.sh <dir>`; own `wire --socket <dir>/wire.sock` (`$!`).
+2. `SCRATCHY_FRAME_STATS=<dir>/frames.jsonl SCRATCHY_MEDIA_AO=null scratchy --socket <dir>/wire.sock <URL>`.
+3. After 16 s: `inject 960 1006 move:346,261 click` (the big play button), wait 10 s (playback
+   starts), then phases of `move:x,y wait:16` (60 Hz) for 8-10 s each: **video** = a circle inside the
+   picture; **page** = a zig-zag over the whole window (player, title, buttons, recommendations);
+   **bar** = back and forth along the controls bar (y 380-400: progress bar, play, volume, size
+   buttons). Park the pointer at (10,990) between phases. YouTube stops ~30 s after the click
+   (R45 attestation stop), so at most ~20 s of playing time per run.
+4. Watch `grim` with a timeout: once (17:15-17:19) the nested dwl stopped presenting (grim hung,
+   0 redraws); restarting the nested dwl fixed it, that run was redone.
+
+### The user's own session (coordinator, real window, main ~17:10 incl. QY53f1, real mouse)
+Smooth seconds (t 21-24, 30, 38): js 47-260 ms, forced 0-3, video 28-34 painted/s, even with
+99-127 pointer moves/s. Freeze seconds: t 18.2 js 1901 ms, forced 25/1561 ms, video 1/1, 32 moves
+pending; t 35.0 (dt 3343 ms) js 3244, forced 45/2896, video 1/1, lat_max 2775 ms, 133 moves; t 37.4
+(dt 2407) js 2302, forced 32/2095, video 1/2, lat_max 2019 ms, 266 moves. Builds 57-60 ms (up to 12/s),
+paint <= 14 ms. The same shape as the nested runs below.
+
+### Where the second goes (main before this PR; instrumented runs r0, r1)
+| situation | what the main thread did per wall second |
+|---|---|
+| page loaded, video not started (or stopped) | **30-37k event-loop turns/s**, each `run_due` = one V8 eval (~15 us): 545 ms CPU/s, frame stats `js_ms` 130-142; StartCause `WaitCancelled` 20-37k/s with NO event delivered; a 1-line page with one `setInterval`: 10 s CPU in 10 s. Cause: `App::pump_net` (called from `js_sync` every turn) did `self.proxy.clone()`; dropping a calloop channel `Sender` pings the loop (calloop 0.13 `impl Drop for Sender`), so every turn scheduled the next one |
+| playing, pointer still | `u:video` 30/s = **970-1000 ms**: `mpv_render_context_render` took **31 ms per frame** (r1 t 29.1: 977 ms for 31 frames); buffer + present 1 ms. mpv's `MPV_RENDER_PARAM_BLOCK_FOR_TARGET_TIME` defaults to 1 = sleep until the frame's display time, on the main thread. Video 30 rendered/30 painted, but every other task (page JS, input, net results, redraws) waited behind the sleeps |
+| playing, pointer over the PICTURE (r0 move phase) | 62 `CursorMoved`/s cost 0.3-0.5 ms in total, 0-1 hit-node changes/s, 0-1 hover restyles; js 15-30 ms; video 30/30. **No freeze.** |
+| playing, pointer over the page (r1 page phase) | 5-24 hit-node changes/s; most `mouseover`/`mouseout` < 1 ms, but those on player controls 100-480 ms per second; video 14-31 painted/s; lat_p95 33-473 ms |
+| playing, pointer along the CONTROLS BAR (r1 bar phase) | 18 hit-node changes in one second = `mouseover` **2507 ms** (+ `mouseout` 4.5 ms), forced 39 / 2461 ms, video 1/1, 26 moves pending; then NO event-loop turn at all for ~10 s (the frame-stats roll stopped: the queued moves were still being processed one by one): the user's freeze |
+| click -> first frame (start phase) | **one turn per second**: a single `run_due` ran 1.0-2.6 s of timers (forced 13-50/s, ~60-65 ms each), video painted 1-2/s; first frame 9.6 s (r0) and 11.8 s (r1) after the click (R45: "picture ~6 s late") |
+
+Slow pointer events by target (r5, >= 20 ms, page and bar phases): `mouseover`/`mouseout` on
+`div.ytp-progress-bar-padding` (in `ytp-chapter-hover-container`) 96-134 ms, `button.ytp-size-button`
+176 ms, `button.ytp-play-button` 85 ms, `button.ytp-volume-icon` 43 ms, `div.ytp-volume-slider-handle`
+43 ms, `div.ytp-progress-linear-live-buffer` 96 ms. Each is ~2 forced layouts of ~60 ms; the follow-up
+timers (r5 t 31.1: 4 turns, `run_due` 1182 ms, forced 27/1060 ms with only 9 moves) carry most of a
+burst. Which JS function forces them is NOT measured in the window (`by_caller`/`longest` exist only in
+`--perf-report`, which runs headless); R43 found 88 % of YouTube's forced layouts in `getPlayerSize`,
+and QY53l (4608cd4, merged during this run) cut those by 28 %.
+
+Other facts: scratchy dispatches NO `mousemove`/`pointermove` to pages at all (Q33d2 open): pages
+only see `mouseover`/`mouseout` on a change of the hit node. Each `CursorMoved` runs synchronously
+in `window_event` (hit test, `controls_pointer`, `select_popup_hover`, `update_hover` -> JS, cursor
+icon); winit delivers ALL queued motions before the turn's redraw and `about_to_wait`. `:hover`
+restyles are already debounced (R2.3/QB3): 0-7/s, 30-60 ms builds each. `video_tick` falls back to a
+full redraw (and its 55-60 ms tree build) whenever `layout_dirty` is set (`vt_fail_dirty` 1-9/s in
+burst seconds). winit order per turn: user events (VideoFrame, JsNet, ShapeResult...) -> window events
+(all queued moves) -> RedrawRequested (if the frame callback came) -> AboutToWait (`run_due`).
+
+### Fixed in this PR (before = main binary, after = this branch; same recipe, same session)
+- `pump_net` borrows the proxy (no clone per turn). Trivial page: 10 s CPU in 10 s -> 0 s. YouTube
+  loaded, idle: frame stats `js_ms` 132-142 -> 8-12 per second; turns/s 30-37k -> 2 (idle) / 160-300
+  (playing, 30 video wakes + timers).
+- `sw_render_params` passes `BLOCK_FOR_TARGET_TIME = 0`: `u:video` 970-1000 -> 17-22 ms per second
+  for the same 30 frames (0.6 ms per frame); rendered 30.0/s and painted 37/s (with full redraws)
+  before and after, so mpv's pacing is unchanged. Whole run CPU 31 s -> 25 s (57 s wall).
+- First frame after the click: 4.4 s before / 2.2 s after in the same session (r6: 4.8 s); earlier
+  main runs 9.6 and 11.8 s. Too few runs and too much YouTube variance to claim a number; not a gate.
+- Pointer bursts are NOT fixed by this: after the fix (r6) the page phase still had seconds with js
+  1890 ms (`run_due` 1522 ms, `mouseover`/`mouseout` 382 ms) and video 9 painted; the bar phase 12
+  painted/s in its worst second. In the clean before/after pair YouTube produced almost no hover work
+  (hit-node changes 0-1/s in both), so they show no pointer difference either way: the bursts depend
+  on the player's state (controls shown or not), which the recipe does not control.
+
+### Design for the rest (QM1k1n6a-c; numbers above)
+(a) **Pointer motion: one processing per turn.** `CursorMoved` only stores the newest position (and
+the stats input stamp); the hit test, hover/`mouseover`/`mouseout`, controls drag and cursor icon run
+once per turn in `about_to_wait` (before `run_due`), and are flushed first by any button, wheel or key
+event, so those still see the right target. Browsers do the same (one hit test per frame). Saves: r1
+bar second 26 queued moves -> 18 dispatches = 2.5 s; with coalescing at most one hit-node change per
+turn, and the video frame (a user event) is handled at the start of every turn, so video gets a frame
+between two controls dispatches instead of after all of them. A `mousemove` dispatch (Q33d2) must use
+the same once-per-turn point when it is added.
+(b) **Frame budget for timers.** `run_due` stops after a time slice (16 ms while a `<video>` is
+playing or input is pending, 50 ms otherwise; at least one timer per turn) and sets `ControlFlow` to
+"now" if more are due, so a redraw/video frame/input gets a turn at least every slice + one callback.
+Saves: start phase 1 turn/s -> >= 15 turns/s; the post-hover timer bursts (1.2-2.5 s in one turn) are
+split into ~60 ms pieces (one forced layout each), so video can be painted ~10-15/s through a burst
+instead of 1/s. It does not shorten one long callback (a 180 ms `mouseover`): that is QY53 work.
+(c) **Composite video without a relayout.** `video_tick` may present into the kept page while
+`layout_dirty` is set, as long as the kept page matches the window size (the screen still shows that
+page: R2.1 `hold_old_frame` keeps it until the new layout is shaped). Saves the 55-60 ms build per
+fallback (`vt_fail_dirty` 1-9/s in bursts) and keeps frames flowing during restyles.
+(d) **Attribution in the window** (QOBS5c): the per-second line names the top forced-layout callers
+(`forced.by_caller`, top 3, ms) and the longest callback's source, so the next burst can be blamed on
+a function without headless reruns.
+
 ## R45: QM1k-stop: YouTube's "Ein Fehler ist aufgetreten" overlay a few seconds into playback is the SABR attestation stop (`ump.spsrejectfailure` / `HTML5_SPS_UMP_STATUS_REJECTED`): after ~60-64 s of media has been served with STREAM_PROTECTION_STATUS 2 (pending), every SABR answer is status 3 (attestation required, 10 retries), and after the 10th YouTube calls `stopVideo()` and shows the error, with 27-40 s of media still buffered. Same with the default UA, the R43 Chrome UA and a second video; no MediaError, no SourceBuffer exception, no scratchy crash (Opus investigator QM1k-stop, 2026-11-19) — OPEN: QM1k2 (PARKED, user decides); no scratchy fix
 
 **Status: investigation only, docs only.** Release build of main 42a5ef5 (V8 + media, libmpv 0.41),
