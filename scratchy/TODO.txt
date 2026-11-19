@@ -329,7 +329,7 @@ Order: (drain) -> QT1 -> QV8-0 -> QV8-1 -> QV8-2 -> QV8-3 -> QV8-4 -> QV8-5 -> Q
       `v.click()` from script -> no toggle. Acceptance: nested dwl + inject click on the R40 page
       (after QV8-4a): two grims 1 s apart differ inside the clicked box (it plays), a second click
       stops it.
-- [x] QM1g2d [M] DONE (1ea5a83) (D6 decided 2026-11-17; from QM1g2 (d); after QM1n2) scratchy's own controls
+- [x] QM1g2d [M] DONE (4a2eb36) (D6 decided 2026-11-17; from QM1g2 (d); after QM1n2) scratchy's own controls
       bar for `<video controls>` (and `<audio controls>`, which gets a bar-only box 300x32 by
       default, like Firefox's 300x40-ish): painted by scratchy, mpv's OSC stays off.
       LOOK: a 32 px (CSS px, times the scale) bar along the bottom edge INSIDE the video's content
