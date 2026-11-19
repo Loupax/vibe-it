@@ -7713,3 +7713,9 @@ Done: R38. The `true` is `<img alt="true">` (YouTube calls `setAttribute('alt', 
 **Prompt:** Add the QY53 big-css fixture (generated in code) to `benches/layout.rs`, measuring one `build_layout_tree_with_resources` + `measure_document` after a single attribute write, plus variants with 200 custom properties (QY53i), long text paragraphs (QP4) and a small `<style>` appended before the build (for QY53f1). Run on a 256 MB-stack thread until QSTK1 merges. Report numbers in PERF.md "Offline benchmarks".
 
 **What changed:** `benches/layout.rs` (four `forced_layout/*` benches, custom `main` that runs on a big-stack thread; uses the existing pub `build_layout_tree_sized` and `measure_document`, no src changes), PERF.md "Offline benchmarks". CI unchanged (`--all-targets` already compiles benches).
+
+## QY53k: StyleCache::style_of and SipHash cost (scratchy/qy53k-stylecache-hash, docs only)
+
+**Prompt:** Implement QY53k: profile big-css and YT watch, find which maps hash with SipHash on the hot path, try an Fx-style hasher or cheaper key and measure; HashDoS note; accept big-css forced_layout.total_ms lower than main (median of 3 interleaved).
+
+**What changed:** REGRESSIONS.md R43 section 9 only. SipHash is 3.4 % of big-css samples (MATCH_MEMO about half); an in-crate FxHasher on StyleCache::map, MATCH_MEMO and the ctx_hash fingerprints measured 1151 ms vs main 1141 ms (median of 5 interleaved), i.e. no gain, so the code change was not merged. Coordinator override: TODO files untouched. The live YT profile was blocked by the permission classifier.
