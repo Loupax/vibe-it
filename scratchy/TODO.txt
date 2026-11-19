@@ -1277,6 +1277,8 @@ Shared rules for this block:
       both on current main AND on 8383e9d (before QM1k1n6a's coalescing, 5642cbb): if coalescing changed which mouseover/
       mouseout/mouseenter the player gets, fix that too. Gate adds: moving over the playing video shows the controls bar
       (screenshot) within 200 ms. User runs for reference: scratchpad user-runs/fs3-user-yt.jsonl (18:48 build).
+      USER 2026-11-19 ~20:25 (main 20:17 build): the YouTube progress bar disappears the moment the mouse hovers over it
+      and never appears again. Same likely cause (no mousemove). Gate adds: hovering the progress bar keeps it visible.
 - [ ] QY53i3 [S] (P3 memory, from QY53i2; Sonnet) `animation.rs` still `Box::leak`s interned `&'static AnimLonghands` (same
       pattern QY53i2 removed for custom props). Give it the same per-thread arena + Copy handle, cleared on navigation.
       Gate: a multi-page --perf-report run (QY53i2 harness) shows no growth across navigations; animation tests unchanged.
