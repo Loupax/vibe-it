@@ -4491,6 +4491,13 @@ const DOM_PRELUDE: &str = r#"
   ElementProto.scrollBy = function () { gElScrollTo(this, arguments, true); };
   // The App scrolled boxes itself (wheel): `{nodeId: y}` replaces what script
   // reads back (no scroll event for these yet: QJ6b).
+  // Q33b2: the window size changed (once per frame from the App); fires `resize` when it did.
+  g.__scratchy_setvp = function (w, h) {
+    if (g.innerWidth === w && g.innerHeight === h) return false;
+    g.innerWidth = w; g.innerHeight = h; g.outerWidth = w; g.outerHeight = h;
+    g.dispatchEvent(new g.Event('resize'));
+    return true;
+  };
   g.__scratchy_elscroll = function (m) {
     gElScroll.clear();
     gScrollGen++;

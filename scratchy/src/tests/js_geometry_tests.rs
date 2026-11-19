@@ -1777,3 +1777,39 @@ fn qytc1a_style_writes_between_reads_force_no_layout() {
     );
     assert_eq!(n, 2);
 }
+
+// ---------- Q33b2: the real window size ----------
+
+fn q33b2_engine(html: &str, code: &str) -> (JsEngine, Rc<RefCell<Vec<String>>>) {
+    let doc = parse_html(html);
+    let out = Rc::new(RefCell::new(Vec::new()));
+    let o = out.clone();
+    let eng = start_scripts(&doc, &[src(code)], Rc::new(move |level, text| o.borrow_mut().push(format!("{level}:{text}")))).unwrap();
+    (eng, out)
+}
+
+#[test]
+fn q33b2_viewport_follows_window_size_and_forced_layout_matches() {
+    // Headless: no window size published -> the default.
+    crate::js::set_window_viewport(0, 0);
+    let page = "<html><head><style>body{margin:0}#p{width:50%;height:10px}</style></head><body><div id=p></div></body></html>";
+    let code = "var n = 0; addEventListener('resize', function () { n++; });\
+                globalThis.snap = function () { var r = document.getElementById('p').getBoundingClientRect();\
+                  console.log('s', innerWidth, innerHeight, document.documentElement.clientWidth, document.documentElement.clientHeight, visualViewport.width, r.width, n); };\
+                snap();";
+    let (eng, out) = q33b2_engine(page, code);
+    assert!(out.borrow().iter().any(|l| l == "log:s 1024 768 1024 768 1024 512 0"), "{:?}", out.borrow());
+    // A resize: the values follow, the %-width box is laid out at the new width, one event.
+    eng.set_viewport(500, 400);
+    eng.set_viewport(500, 400);
+    eng.eval("t", "snap();");
+    assert!(out.borrow().iter().any(|l| l == "log:s 500 400 500 400 500 250 1"), "{:?}", out.borrow());
+    eng.set_viewport(800, 400);
+    eng.eval("t", "snap();");
+    assert!(out.borrow().iter().any(|l| l == "log:s 800 400 800 400 800 400 2"), "{:?}", out.borrow());
+    // A new engine starts at the published window size, with no event.
+    crate::js::set_window_viewport(640, 480);
+    let (_e2, out2) = q33b2_engine(page, code);
+    assert!(out2.borrow().iter().any(|l| l == "log:s 640 480 640 480 640 320 0"), "{:?}", out2.borrow());
+    crate::js::set_window_viewport(0, 0);
+}

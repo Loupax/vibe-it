@@ -725,6 +725,8 @@ pub(crate) struct App {
     /// QB2: JS wrote the DOM while a restyle was in flight; rebuild once
     /// that restyle's complete `ShapeResult` lands.
     pub(crate) js_restyle_pending: bool,
+    /// Q33b2: the window size last pushed into the page's engine.
+    pub(crate) js_viewport: Option<(u32, u32)>,
     /// QB2: a shaping pass is queued or running and its complete result
     /// has not landed. JS writes in this window are coalesced into
     /// `js_restyle_pending` instead of making the pass stale (an early
@@ -1226,6 +1228,7 @@ impl App {
             restyle_requested: false,
             hold_old_frame: false,
             js_restyle_pending: false,
+            js_viewport: None,
             layout_in_flight: false,
             reads_viewport_h: true,
             hover_keys: HoverKeys { any: true, ..Default::default() },
@@ -1323,6 +1326,7 @@ impl App {
             restyle_requested: false,
             hold_old_frame: false,
             js_restyle_pending: false,
+            js_viewport: None,
             layout_in_flight: false,
             reads_viewport_h: true,
             hover_keys: HoverKeys { any: true, ..Default::default() },
@@ -2503,6 +2507,7 @@ impl App {
                 self.replace_document(dom.document, extra_css);
                 // QA6: only now is the document the one the fragment names.
                 self.pending_fragment = self.nav_fragment.take();
+                self.js_viewport = None;
                 self.js = run_page_scripts(&self.document, &scripts, self.base_url.as_ref());
                 self.js_sync();
                 if let Some((delay, target)) = meta {
@@ -2690,6 +2695,7 @@ impl App {
         self.scroll_offsets = saved.scroll_offsets;
         self.scroll_offset = saved.scroll_offset;
         self.js = saved.js;
+        self.js_viewport = None;
         // QM1g: mpv's frame callback fires once until a frame is taken; frames that
         // arrived while the page was parked were dropped, so ask for one again.
         crate::media_video::wake();
@@ -3921,7 +3927,13 @@ impl ApplicationHandler<AppEvent> for App {
         self.flush_pointer_move();
         let trail_at = self.flush_move_trailing();
         let els = self.sync_node_scroll();
+        // Q33b2: the page sees the real window size; one `resize` per changed frame.
+        crate::js::set_window_viewport(self.surface_size.0, self.surface_size.1);
         if let Some(js) = &self.js {
+            if self.surface_size.0 > 0 && self.js_viewport != Some(self.surface_size) {
+                self.js_viewport = Some(self.surface_size);
+                js.set_viewport(self.surface_size.0, self.surface_size.1);
+            }
             js.set_scroll(self.scroll_offset, els);
             js.run_due_slice(Some(timer_slice(self.input_recent(), !self.video.boxes.is_empty())));
         }
