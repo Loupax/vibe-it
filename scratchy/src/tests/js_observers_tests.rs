@@ -1589,7 +1589,7 @@ fn qy22_tripped_job_drain_logs_one_line_with_a_count() {
     // wall clock, which flaked under load (R41).
     let log = super::js_core_tests::qy46_run(
         // QY46: each job has its own 500 ms budget now, so each must overrun it by itself.
-        "setTimeout(()=>{for(var i=0;i<4;i++)Promise.resolve().then(()=>{__test_burn(700)});},0);",
+        "setTimeout(()=>{for(var i=0;i<4;i++)Promise.resolve().then(()=>{__test_burn(700);for(var k=0;k<3e6;k++){}});},0);",
         0,
         10_000,
     );
