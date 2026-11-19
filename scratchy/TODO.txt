@@ -1097,7 +1097,9 @@ Shared rules for this block:
 - [ ] QFLK1 [S] (P3, coordinator 2026-11-19, from the QM1k1n5 agent; Sonnet) Load-sensitive test flakes in a full parallel
       default-config run on a busy machine: qy14_js_report_run_timers_finds_timer_and_channel_errors,
       qy14_js_report_run_timers_is_bounded, qobs7_memory_fields_are_present (pass when re-run alone; "shared global state"
-      suspected). Find the shared state or timing assumption and make them deterministic.
+      suspected). Seen by 6 agents on 2026-11-19 (qy14 pair every time at load 20-40). Also
+      perf_tests::qmem3c_explained_bytes_is_the_sum_of_its_parts failed once after QMEM3b #380: its sum list may lack the new
+      js_extra_css/dom/report_* probes (check it is not a real bug first). Find the shared state or timing assumption and make them deterministic.
 - [ ] QYTC1c [S] (P3, from R50; measure) css_collect + rule_index are 18 % of every forced layout on the JS thread
       (~5 ms each): is RULE_DERIVED's index rebuilt per layout there? (css area: not alongside QAN1h2/QAN1h3)
 - [ ] QY53o2 [M] (P3, from QY53o; Opus design first; ONLY if QY53o1 leaves > ~3 s per run) Writes inside an abs/fixed
