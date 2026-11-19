@@ -8,7 +8,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::time::Duration;
 
-use crate::js_engine::{native, Ctx};
+use crate::js_engine::{native, Bytes, Ctx};
 
 use crate::media_el::{BackendCtx, Candidate, MediaHost, Out};
 use crate::media_net::MediaMode;
@@ -206,6 +206,61 @@ fn install_mse<'js>(ctx: &Ctx<'js>, host: &Rc<RefCell<MediaHost>>, queue: &Queue
     native!(ctx, "__mse_buffered_end", move |feed: f64| -> f64 {
         let Some(f) = h.borrow().mse.get(feed as u64) else { return 0.0 };
         f.with_store(|st| st.buffers.iter().filter_map(|b| b.buffered().last().map(|r| r.1)).fold(0.0, f64::max))
+    });
+    // QM1k1e: SourceBuffer natives. Result of append: 0 stored, 1 quota (nothing stored), 2 parse
+    // error (what parsed before it is kept), -1 no such feed.
+    let (h, q) = (host.clone(), queue.clone());
+    native!(ctx, "__mse_append", move |feed: f64, bi: i32, data: Bytes, now: f64| -> i32 {
+        let Some(f) = h.borrow().mse.get(feed as u64) else { return -1 };
+        let t = h.borrow().mse_current_time(feed as u64);
+        match f.append(bi as usize, &data.0, t) {
+            Ok(o) => {
+                let r = h.borrow_mut().with_mse(feed as u64, |c| c.mse_data_changed(now, o.new_generation));
+                if let Some((_, outs)) = r {
+                    queue_outs(&h, &q, outs);
+                }
+                0
+            }
+            Err(crate::mse_store::MseError::QuotaExceeded) => 1,
+            Err(crate::mse_store::MseError::Parse(_)) => {
+                let r = h.borrow_mut().with_mse(feed as u64, |c| c.mse_data_changed(now, false));
+                if let Some((_, outs)) = r {
+                    queue_outs(&h, &q, outs);
+                }
+                2
+            }
+        }
+    });
+    let h = host.clone();
+    native!(ctx, "__mse_abort", move |feed: f64, bi: i32| {
+        let Some(f) = h.borrow().mse.get(feed as u64) else { return };
+        f.with_store(|st| {
+            if let Some(b) = st.buffers.get_mut(bi as usize) {
+                b.abort();
+            }
+        });
+    });
+    let (h, q) = (host.clone(), queue.clone());
+    native!(ctx, "__mse_remove", move |feed: f64, bi: i32, a: f64, b: f64, now: f64| {
+        let Some(f) = h.borrow().mse.get(feed as u64) else { return };
+        f.with_store(|st| st.buffers.get_mut(bi as usize).map(|s| s.remove(a, b)));
+        let r = h.borrow_mut().with_mse(feed as u64, |c| c.mse_data_changed(now, false));
+        if let Some((_, outs)) = r {
+            queue_outs(&h, &q, outs);
+        }
+    });
+    let h = host.clone();
+    native!(ctx, "__mse_buffered", move |feed: f64, bi: i32| -> Vec<f64> {
+        let Some(f) = h.borrow().mse.get(feed as u64) else { return Vec::new() };
+        let v = f.with_store(|st| st.buffers.get(bi as usize).map(|b| b.buffered()).unwrap_or_default());
+        v.into_iter().flat_map(|(a, b)| [a, b]).collect()
+    });
+    let (h, q) = (host.clone(), queue.clone());
+    native!(ctx, "__mse_reopen", move |feed: f64| {
+        let r = h.borrow_mut().with_mse(feed as u64, |c| c.mse_reopen());
+        if let Some((_, outs)) = r {
+            queue_outs(&h, &q, outs);
+        }
     });
     // kind: 0 = no error, 1 = 'network', 2 = 'decode'. Returns the element's duration after.
     let (h, q) = (host.clone(), queue.clone());

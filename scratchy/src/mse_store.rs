@@ -725,6 +725,11 @@ impl MseStore {
         self.max_bytes
     }
 
+    /// Lower or raise the cap (tests; the env knob covers a whole process).
+    pub fn set_max_bytes(&mut self, n: usize) {
+        self.max_bytes = n;
+    }
+
     pub fn add_buffer(&mut self, b: SourceBufferStore) -> usize {
         self.buffers.push(b);
         self.buffers.len() - 1
@@ -862,6 +867,12 @@ impl MseFeed {
     /// `endOfStream()`: readers that run out of bytes now see EOF.
     pub fn end_of_stream(&self) {
         self.lock().ended = true;
+        self.cv.notify_all();
+    }
+
+    /// The MediaSource went `ended` -> `open` again (an append after `endOfStream`).
+    pub fn reopen(&self) {
+        self.lock().ended = false;
         self.cv.notify_all();
     }
 

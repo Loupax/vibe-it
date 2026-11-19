@@ -692,6 +692,15 @@ impl MediaCore {
         self.fatal_error(code, if code == MEDIA_ERR_DECODE { "MediaSource decode error" } else { "MediaSource network error" });
     }
 
+    /// An append / remove / changeType on an ended MediaSource reopens it (the feed reports
+    /// no EOF until the next `endOfStream`).
+    pub(crate) fn mse_reopen(&mut self) {
+        if let Some(m) = self.mse.as_mut() {
+            m.ended = false;
+            m.feed.reopen();
+        }
+    }
+
     /// The element goes away (removed from the page): backend unloaded, MediaSource closed.
     pub(crate) fn detach(&mut self) {
         self.backend.unload();
@@ -1313,6 +1322,11 @@ impl MseHost {
     pub(crate) fn len(&self) -> usize {
         self.feeds.len()
     }
+    /// The only feed of a page that made one (tests).
+    #[cfg(test)]
+    pub(crate) fn only(&self) -> Option<Arc<MseFeed>> {
+        self.feeds.values().next().cloned()
+    }
     /// The MediaSource was collected: stop its readers and forget it.
     pub(crate) fn drop_feed(&mut self, id: u64) {
         if let Some(f) = self.feeds.remove(&id) {
@@ -1357,6 +1371,11 @@ impl MediaHost {
     pub(crate) fn with_mse<R>(&mut self, feed: u64, f: impl FnOnce(&mut MediaCore) -> R) -> Option<(R, Vec<HostOut>)> {
         let id = self.els.iter().find(|(_, (c, _))| c.mse_feed_id() == Some(feed)).map(|(i, _)| *i)?;
         Some(self.with(id, f))
+    }
+
+    /// `currentTime` of the element the feed is attached to (0 when none): the eviction anchor.
+    pub(crate) fn mse_current_time(&self, feed: u64) -> f64 {
+        self.els.values().find(|(c, _)| c.mse_feed_id() == Some(feed)).map_or(0.0, |(c, _)| c.current_time)
     }
 
     pub(crate) fn peek(&self, id: i32) -> Option<&MediaCore> {

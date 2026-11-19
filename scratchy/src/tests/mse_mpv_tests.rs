@@ -59,7 +59,7 @@ fn qm1k1b_feed_blocks_then_eof_after_end_of_stream_and_cancel_returns() {
 }
 
 #[cfg(feature = "media")]
-mod real {
+pub(crate) mod real {
     use super::*;
     use crate::media_el::{BackendCtx, BackendEvent};
     use crate::media_mpv::MpvBackend;
@@ -159,7 +159,7 @@ mod real {
         Some((track_of(&vp, offset)?, track_of(&ap, offset)?))
     }
 
-    fn have_tools() -> bool {
+    pub fn have_tools() -> bool {
         if !crate::media_mpv::libmpv_available() {
             eprintln!("SKIP: libmpv.so.2 not available");
             return false;

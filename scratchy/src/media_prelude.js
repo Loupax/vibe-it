@@ -35,6 +35,7 @@
     Object.defineProperty(r, '__r', { value: flat });
     return r;
   };
+  Object.defineProperty(g, '__mk_ranges', { value: mkRanges, configurable: true });
   var chk = function (r, i) {
     i = i >>> 0;
     if (i * 2 >= r.__r.length) throw new DOMException('The index provided (' + i + ') is greater than or equal to the maximum bound (' + (r.__r.length / 2) + ').', 'IndexSizeError');

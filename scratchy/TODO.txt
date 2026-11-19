@@ -1142,7 +1142,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       engines): sourceopen order, readyState transitions, errors thrown by each method in the
       wrong state, revoke before attach = load error, revoke after attach keeps playing, a page
       with no MediaSource use pays nothing (no MSE state created).
-- [ ] QM1k1e [M] READY after QM1k1d (Sonnet) JS `SourceBuffer`: `appendBuffer(BufferSource)`
+- [x] QM1k1e [M] DONE 2026-11-19 (commit 4912561; SourceBuffer in src/mse_prelude.js + __mse_append/abort/remove/buffered/reopen natives in src/js_media.rs, tests qm1k1e_* in src/tests/mse_tests/qm1k1e.rs incl. the real-mpv local page src/tests/mse_tests/qm1k1e_page.html: plays 3 s of mp4 through MediaSource to ended; appendBuffer copies bytes + quota check at call time, so abort() of an in-flight append keeps its bytes) (Sonnet) JS `SourceBuffer`: `appendBuffer(BufferSource)`
       (normalised to Uint8Array, copied to Rust at once), the `updating` state machine (sync:
       InvalidStateError if updating or removed, ended -> open + sourceopen, eviction ->
       QuotaExceededError; async: updatestart, then update + updateend from a task; parse error

@@ -1,0 +1,60 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>MSE test page</title>
+<style>
+  body { margin: 16px; font: 16px sans-serif; background: #fff; color: #000; }
+  video { display: block; width: 320px; height: 240px; background: #333; }
+  #st { margin-top: 12px; font-weight: bold; }
+  #log { margin-top: 8px; font: 13px monospace; white-space: pre; }
+</style>
+</head>
+<body>
+<h1>MediaSource + SourceBuffer</h1>
+<video id="v" muted></video>
+<div id="st">starting</div>
+<div id="log"></div>
+<script>
+var v = document.getElementById('v'), st = document.getElementById('st'), lg = document.getElementById('log');
+var events = [];
+function say(t) { st.textContent = t; console.log(t); }
+function note(t) { events.push(t); lg.textContent = events.slice(-8).join('\n'); }
+function get(u, cb) {
+  var x = new XMLHttpRequest();
+  x.open('GET', u);
+  x.responseType = 'arraybuffer';
+  x.onload = function () { cb(new Uint8Array(x.response)); };
+  x.send();
+}
+var ms = new MediaSource();
+v.src = URL.createObjectURL(ms);
+v.addEventListener('ended', function () { say('ENDED at ' + v.currentTime.toFixed(2) + ' of ' + v.duration.toFixed(2)); });
+v.addEventListener('error', function () { say('ERROR ' + (v.error && v.error.code)); });
+ms.addEventListener('sourceopen', function () {
+  var vb = ms.addSourceBuffer('video/mp4; codecs="avc1.640015"');
+  var ab = ms.addSourceBuffer('audio/mp4; codecs="mp4a.40.2"');
+  var left = 2;
+  function feed(sb, name, data) {
+    var off = 0, CH = 32768, n = 0;
+    sb.addEventListener('updateend', function () { n++; step(); });
+    function step() {
+      if (off >= data.length) { if (--left === 0) done(); return; }
+      var end = Math.min(off + CH, data.length);
+      sb.appendBuffer(data.subarray(off, end));
+      off = end;
+      note(name + ' append -> ' + off + '/' + data.length);
+    }
+    step();
+  }
+  function done() {
+    ms.endOfStream();
+    note('buffered v=' + vb.buffered.start(0).toFixed(2) + '-' + vb.buffered.end(0).toFixed(2) + ' a=' + ab.buffered.start(0).toFixed(2) + '-' + ab.buffered.end(0).toFixed(2));
+    say('all appended, playing');
+    v.play();
+  }
+  get('/v.mp4', function (d) { get('/a.mp4', function (e) { feed(vb, 'video', d); feed(ab, 'audio', e); }); });
+});
+</script>
+</body>
+</html>
