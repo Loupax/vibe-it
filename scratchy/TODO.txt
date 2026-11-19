@@ -190,7 +190,7 @@ Order: (drain) -> QT1 -> QV8-0 -> QV8-1 -> QV8-2 -> QV8-3 -> QV8-4 -> QV8-5 -> Q
 - [x] QV8-5 [S] DONE 2026-11-18 (commit 21f8b6c) (after QV8-3) Make V8 the default engine: `engine-v8` on b... [archived: TODO-DONE.txt]
 - [x] QV8-5b [S] DONE 2026-11-18 (abf61e7) (Sonnet) media is now a default feature, so `src/media_mpv.rs` i... [archived: TODO-DONE.txt]
 - [x] QV8-m [M] DONE 2026-11-18 (measured at 8dfe2f9, docs commit 92dd513; PERF.md "QV8-m") [archived: TODO-DONE.txt]
-- [ ] QV8-6 [S] (after QV8-m, when the user agrees) Remove QuickJS (`engine-quickjs`, rquickjs
+- [ ] QV8-6 [S] USER 2026-11-19 ~22:20: "Remove QuickJS, we can add it again later if we decide." GO NOW (next free slot, alone in js_engine*.rs/Cargo.toml/ci.yml). (after QV8-m, when the user agrees) Remove QuickJS (`engine-quickjs`, rquickjs
       USER ANSWER 2026-11-19: YES, remove QuickJS (also drop the `scratchy-quickjs` CI job and the second test config from AGENTS.md). READY, after the ready perf items are assigned; touches js_engine*.rs, Cargo.toml, ci.yml: run it alone in that area.
       dependency, the seam's QuickJS backend).
 
