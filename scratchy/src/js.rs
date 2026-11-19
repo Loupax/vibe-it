@@ -1416,6 +1416,7 @@ impl JsEngine {
         n
     }
 
+    #[cfg(test)]
     pub(crate) fn run_due(&self) {
         self.run_due_slice(None);
     }
