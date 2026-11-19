@@ -7835,3 +7835,12 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 - [x] QAN1h3 DONE b44e855 #390 per-build class token cache; has_class 34 % -> 17 % of refresh (gate 4 % not met -> QAN1h3b) [S] (P3, from QAN1h, R49; Sonnet) Class lookup without re-scanning the class attribute string per check (cache a
       per-element class atom set, invalidated on class writes). Gate: has_class < 4 % of GeomCache::refresh samples on the
       R49 home recipe.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QSTK1b DONE f0cd96d #391 ioShown/offsetParent one cascade walk; deep-page reads linear [S] (P2, from QSTK1 ae9204f; Sonnet, measure first; touches the js_dom.rs IO prelude: not alongside QOBS3)
+      Geometry reads are O(depth^2) on deep pages: one `offsetWidth`/`getBoundingClientRect` costs ~0.1 s at 1 000 deep and
+      ~4 s at 5 000 deep. Cause seen by QSTK1: the IO prelude's `ioShown` calls `getComputedStyle` for every ancestor of
+      every observed target (and maybe the offset* path walks ancestors per read). Measure with a generated deep document
+      (`--perf-report`, QOBS3 phases/by_caller once merged); make the ancestor checks one walk (or cached per layout
+      generation). Gate: one read at 5 000 deep < 100 ms; tests: IO visibility semantics unchanged (display:none /
+      visibility:hidden ancestor still hides the target).

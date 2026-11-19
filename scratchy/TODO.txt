@@ -1046,13 +1046,6 @@ Shared rules for this block:
       invalidation by hover, form state, sibling combinator, viewport change.
 - [ ] QY53f3 [M] (P4, deferred, from QY53f; after QY53f2 and a fresh measurement) ComputedStyle reuse across builds (R43
       section 8 design step 3); must be cleared together with QY53i2's arena if that lands.
-- [ ] [WIP] QSTK1b [S] (P2, from QSTK1 ae9204f; Sonnet, measure first; touches the js_dom.rs IO prelude: not alongside QOBS3)
-      Geometry reads are O(depth^2) on deep pages: one `offsetWidth`/`getBoundingClientRect` costs ~0.1 s at 1 000 deep and
-      ~4 s at 5 000 deep. Cause seen by QSTK1: the IO prelude's `ioShown` calls `getComputedStyle` for every ancestor of
-      every observed target (and maybe the offset* path walks ancestors per read). Measure with a generated deep document
-      (`--perf-report`, QOBS3 phases/by_caller once merged); make the ancestor checks one walk (or cached per layout
-      generation). Gate: one read at 5 000 deep < 100 ms; tests: IO visibility semantics unchanged (display:none /
-      visibility:hidden ancestor still hides the target).
 - [ ] QY53l3 [S] (P3, optional, from QY53l, R43 section 10; Sonnet) Skip the bump for `style` writes that only change
       properties that cannot move any box in scratchy's layout (today: e.g. `transform: scalex()`, colors, opacity,
       cursor), when no stylesheet rule tests `[style]`. ~5-8 of 51 getPlayerSize layouts. Revisit when transforms reach
