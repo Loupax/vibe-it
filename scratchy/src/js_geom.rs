@@ -31,6 +31,9 @@ pub(crate) struct GeomRect {
 }
 
 thread_local! {
+    /// Test-only: how many forced layouts (cache misses) ran on this thread.
+    #[cfg(test)]
+    pub(crate) static GEOM_LAYOUTS: Cell<usize> = const { Cell::new(0) };
     static FONTS: RefCell<Option<FontSystem>> = const { RefCell::new(None) };
 }
 
@@ -140,6 +143,8 @@ impl GeomCache {
         if self.key == Some(key) {
             return;
         }
+        #[cfg(test)]
+        GEOM_LAYOUTS.with(|c| c.set(c.get() + 1));
         // One-off cost (system font scan), kept out of the forced-layout stats.
         FONTS.with(|f| {
             f.borrow_mut().get_or_insert_with(new_font_system);

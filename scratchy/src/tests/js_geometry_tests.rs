@@ -1216,3 +1216,107 @@ fn qy52_unrelated_writes_keep_cached_styles_and_stylesheets_invalidate() {
     assert_eq!(ev("st.textContent='.t{color:rgb(2,2,2)}'; rd()"), "rgb(2, 2, 2)");
     assert_eq!(crate::js_style::parse_count() - p0, 2);
 }
+
+// ---------- QY53c: only connected, value-changing writes invalidate geometry ----------
+
+/// Runs `code` and returns (the log, how many forced layouts it caused).
+fn qy53c_run(html: &str, code: &str) -> (Vec<String>, usize) {
+    crate::js_geom::GEOM_LAYOUTS.with(|c| c.set(0));
+    let log = run_in_html(html, code);
+    (log, crate::js_geom::GEOM_LAYOUTS.with(|c| c.get()))
+}
+
+const QY53C_PAGE: &str = "<html><body style='margin:0'><div id=a style='width:100px;height:20px'>hello</div></body></html>";
+
+#[test]
+fn qy53c_same_value_attribute_write_does_not_force_a_new_layout() {
+    let (log, n) = qy53c_run(
+        QY53C_PAGE,
+        "var a = document.getElementById('a'); a.offsetWidth;
+         a.setAttribute('data-x', '1'); a.offsetWidth;
+         for (var i = 0; i < 5; i++) { a.setAttribute('data-x', '1'); a.offsetWidth; }
+         a.setAttribute('style', 'width:100px;height:20px'); a.offsetWidth;
+         console.log('w', a.offsetWidth);",
+    );
+    assert!(log.contains(&"log:w 100".to_string()), "{log:?}");
+    // 1: first read; 2: after the new attribute. Nothing after the no-op writes.
+    assert_eq!(n, 2, "{log:?}");
+}
+
+#[test]
+fn qy53c_real_change_on_a_connected_node_still_relayouts() {
+    let (log, n) = qy53c_run(
+        QY53C_PAGE,
+        "var a = document.getElementById('a'); console.log('w1', a.offsetWidth);
+         a.setAttribute('style', 'width:150px;height:20px'); console.log('w2', a.offsetWidth);
+         a.removeAttribute('style'); console.log('w3', a.offsetWidth > 150);
+         a.style.width = '60px'; console.log('w4', a.offsetWidth);",
+    );
+    for l in ["log:w1 100", "log:w2 150", "log:w3 true", "log:w4 60"] {
+        assert!(log.contains(&l.to_string()), "{l} in {log:?}");
+    }
+    assert_eq!(n, 4, "{log:?}");
+}
+
+#[test]
+fn qy53c_writes_to_a_detached_subtree_do_not_relayout_until_it_is_attached() {
+    let (log, n) = qy53c_run(
+        QY53C_PAGE,
+        "var a = document.getElementById('a'); a.offsetWidth;
+         var d = document.createElement('div'); d.setAttribute('style', 'width:40px;height:30px');
+         var s = document.createElement('span'); s.textContent = 'x'; d.appendChild(s); d.innerHTML = '<b>y</b>';
+         d.className = 'k'; d.removeAttribute('class');
+         a.offsetWidth;
+         document.body.appendChild(d);
+         console.log('h', d.offsetHeight, 'w', d.offsetWidth);",
+    );
+    assert!(log.contains(&"log:h 30 w 40".to_string()), "attached box has its size: {log:?}");
+    // 1: first read, 2: after the append. The detached writes caused none.
+    assert_eq!(n, 2, "{log:?}");
+}
+
+#[test]
+fn qy53c_removing_a_connected_node_relayouts_and_detached_removal_does_not() {
+    let (log, n) = qy53c_run(
+        "<html><body style='margin:0'><div id=a style='height:20px'>a</div><div id=b style='height:30px'>b</div></body></html>",
+        "var a = document.getElementById('a'), b = document.getElementById('b');
+         console.log('y1', b.getBoundingClientRect().top);
+         var x = document.createElement('i'); var y = document.createElement('i'); x.appendChild(y); x.removeChild(y);
+         console.log('y2', b.getBoundingClientRect().top);
+         a.parentNode.removeChild(a);
+         console.log('y3', b.getBoundingClientRect().top);",
+    );
+    for l in ["log:y1 20", "log:y2 20", "log:y3 0"] {
+        assert!(log.contains(&l.to_string()), "{l} in {log:?}");
+    }
+    assert_eq!(n, 2, "{log:?}");
+}
+
+#[test]
+fn qy53c_text_node_write_of_the_same_text_does_not_relayout() {
+    let (log, n) = qy53c_run(
+        "<html><body style='margin:0'><span id=s style='font-size:20px;display:inline-block'>hello</span></body></html>",
+        "var s = document.getElementById('s'), t = s.firstChild; var w = s.offsetWidth;
+         t.data = 'hello'; s.offsetWidth; s.textContent = 'hello'; s.offsetWidth;
+         console.log('same', s.offsetWidth === w);
+         s.firstChild.data = 'hello hello'; console.log('wider', s.offsetWidth > w);",
+    );
+    assert!(log.contains(&"log:same true".to_string()) && log.contains(&"log:wider true".to_string()), "{log:?}");
+    assert_eq!(n, 2, "{log:?}");
+}
+
+#[test]
+fn qy53c_stylesheet_change_and_class_change_relayout() {
+    let (log, n) = qy53c_run(
+        "<html><head><style>.w { width: 50px } .v { width: 70px }</style></head><body style='margin:0'><div id=a class=w style='height:10px'></div></body></html>",
+        "var a = document.getElementById('a'); console.log('w1', a.offsetWidth);
+         a.className = 'v'; console.log('w2', a.offsetWidth);
+         var st = document.createElement('style'); st.textContent = '.v { width: 90px }'; document.head.appendChild(st);
+         console.log('w3', a.offsetWidth);
+         st.textContent = '.v { width: 95px }'; console.log('w4', a.offsetWidth);",
+    );
+    for l in ["log:w1 50", "log:w2 70", "log:w3 90", "log:w4 95"] {
+        assert!(log.contains(&l.to_string()), "{l} in {log:?}");
+    }
+    assert_eq!(n, 4, "{log:?}");
+}
