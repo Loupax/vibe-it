@@ -6424,3 +6424,20 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       (child-process pattern like `SCRATCHY_QV8_4A_CHILD`, V8 flags are process-global): a child with
       both flags runs a page that defines and calls a few hundred functions and exits 0. Accept: test;
       the R44 command 5/5 ok without `SCRATCHY_V8_SNAPSHOT=0`.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, QY53: what forced layouts cost and who forces them; R43) ---
+- [x] QY53g DONE a86d821 [M] (P2, R43, Sonnet, measure first) Faster selector matching. After QY53a+b the
+      YouTube profile is `matching_declarations_for` 25 %, `str::SplitWhitespace` 24 % (`El::has_class`
+      in dom.rs splits the class attribute with Unicode `split_whitespace` on EVERY check, also for
+      every ancestor in descendant selectors), libc 16 %, `selectors` 11 %; YouTube tests 418
+      candidate rules per element (Wikipedia 83). Steps: (1) log the size of `RuleIndex`'s universal
+      bucket and the by-class hits on YouTube's CSS and fix the index if the universal bucket is
+      large for a fixable reason (e.g. selectors whose rightmost compound is only a pseudo-class or
+      attribute); (2) allocation-free ASCII-whitespace class check; (3) an ancestor bloom filter for
+      descendant/child combinators if (1)-(2) leave matching on top. Tests: selector-matching tests
+      unchanged; class matching with tabs/newlines/form feed (ASCII whitespace only, per HTML).
+      Accept: big-css fixture forced_layout.total_ms >= 30 % lower than after QY53d.
+      R44 (2026-11-19, perf profile of main 8d7d692): step (2) alone is the biggest single target found:
+      `El::has_class` -> `SplitWhitespace::next` = 29.3 % of ALL YouTube watch CPU and 31.7 % of ALL
+      Wikipedia Rust CPU (inclusive, all threads); `matching_declarations_for` 53-63 %. Verify with
+      QOBS1's `tools/profile.sh` if it has landed (has_class should drop below ~3 %).

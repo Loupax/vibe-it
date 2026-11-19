@@ -51,12 +51,24 @@ A perf item that turns out to be wrong or bigger than its size: stop and report,
       when there is no override, so both agree; both stay honest (no browser preset, QY39b rule). Test: without an override
       the request builders carry the navigator string; with an override both carry the override.
 
+- [ ] [WIP] QSTK1 [S, Opus] CRASH on main (found by QY53g, a86d821; ALLOWED AHEAD of the perf queue) A document of
+      ~1 000 nested elements (the QY53 big-css fixture: 1 000 nested divs) overflows the default 8 MB main-thread stack
+      (SIGABRT, Rust stack overflow) in style/layout recursion, on main and on branches alike; QY53g measured with
+      `ulimit -s 262144`. Real pages nest 30-100 deep, but generated/hostile pages nest thousands, and a stack overflow
+      kills the whole browser. Find the recursive walks that overflow (gdb on the core: which frames repeat), measure the
+      depth at which each build (headless, window, JS forced layout on the JS thread) dies today, and fix: either make
+      the hot recursions iterative, or run style+layout on a thread with a large explicit stack (std::thread::Builder
+      ::stack_size) if that is where they run, or both; a depth cap with graceful degradation (like browsers' ~512 box
+      nesting limit for layout) is acceptable if documented. Test: a 5 000-deep generated document lays out (headless
+      and forced layout) without crashing in the default test thread stack. Note: the two SIGABRT cores at 15:29
+      (QY53i's main and branch builds) are probably this.
+
 PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; search the name):
  Step 1, measurement that every later step uses (small, do first):
    1 DONE aadd319 QOBS2 [S]  V8 profiling flags crash with the snapshot (js_engine_v8.rs)       | QOBS block
    2 DONE ba3322e QOBS1 [S]  tools/profile.sh + [profile.profiling] (tools/docs only; can pair with 1) | QOBS block
  Step 2, the biggest measured wins (R44: matching is 53-63 % of ALL CPU on YouTube/Wikipedia):
-   3 [WIP] QY53g [M]  selector matching; do its step (2) has_class FIRST (29-32 % of all CPU) | QY53 block
+   3 DONE a86d821 QY53g [M]  selector matching; do its step (2) has_class FIRST (29-32 % of all CPU) | QY53 block
    4 DONE 4749910 QY53h [S]  page_css clone on every geometry read (js_geom.rs; pairs with 3)    | QY53 block
    5 [WIP] QY53e1 [S] deferred IO rechecks (92 % of Wikipedia CPU is IO-driven layout)    | QY53 block
    6 DONE 4fae30f QP4 [S]    shape-memo key via Debug strings (layout.rs; pairs with 5)          | QOBS block
@@ -1243,21 +1255,6 @@ divs with 3 classes each, a script that does 50 x (write one attribute, read `of
       skips for `GEOM_GEN`; code reading 2026-11-19, not measured). Recipe: the throwaway lines of
       R43 section 7 (one stderr line per forced layout / App build / complete ShapeResult with
       `geom_gen()`). Output: numbers in R43 + items if A or B is large.
-- [ ] [WIP] QY53g [M] (P2, R43, Sonnet, measure first) Faster selector matching. After QY53a+b the
-      YouTube profile is `matching_declarations_for` 25 %, `str::SplitWhitespace` 24 % (`El::has_class`
-      in dom.rs splits the class attribute with Unicode `split_whitespace` on EVERY check, also for
-      every ancestor in descendant selectors), libc 16 %, `selectors` 11 %; YouTube tests 418
-      candidate rules per element (Wikipedia 83). Steps: (1) log the size of `RuleIndex`'s universal
-      bucket and the by-class hits on YouTube's CSS and fix the index if the universal bucket is
-      large for a fixable reason (e.g. selectors whose rightmost compound is only a pseudo-class or
-      attribute); (2) allocation-free ASCII-whitespace class check; (3) an ancestor bloom filter for
-      descendant/child combinators if (1)-(2) leave matching on top. Tests: selector-matching tests
-      unchanged; class matching with tabs/newlines/form feed (ASCII whitespace only, per HTML).
-      Accept: big-css fixture forced_layout.total_ms >= 30 % lower than after QY53d.
-      R44 (2026-11-19, perf profile of main 8d7d692): step (2) alone is the biggest single target found:
-      `El::has_class` -> `SplitWhitespace::next` = 29.3 % of ALL YouTube watch CPU and 31.7 % of ALL
-      Wikipedia Rust CPU (inclusive, all threads); `matching_declarations_for` 53-63 %. Verify with
-      QOBS1's `tools/profile.sh` if it has landed (has_class should drop below ~3 %).
 - [ ] QY53f [L] (P2, R43, Opus design first) Incremental style between forced layouts: 80 % of
       YouTube forced layouts change no box (81 s of 101 s per 60 s) and 61 of 215 follow a single
       write, while cascade + matching + precompute are 70-85 % of each layout. DESIGN (Opus, docs):
@@ -1286,6 +1283,10 @@ Shared rules for this block:
 - Local tools only. Nothing here may upload a profile anywhere (no profiler.firefox.com, no
   ui.perfetto.dev links in tools output), and scratchy itself still opens no socket.
 
+- [ ] QY53k [S] (P2, found by QY53g a86d821, Sonnet, measure first) After QY53g, the top remaining costs on the big-css
+      fixture are `js_style::StyleCache::style_of` and SipHash hashing. Profile with tools/profile.sh (big-css and YT
+      watch); if StyleCache lookups hash large keys with SipHash, try a cheaper key/hasher (FxHash-style) and measure;
+      file what is left. Accept: big-css forced_layout.total_ms lower than main, median of 3.
 - [ ] QOBS1b [XS] (coordinator 2026-11-19, from QOBS2 aadd319; Sonnet/Haiku, tools only) `tools/profile.sh` still sets
       `SCRATCHY_V8_SNAPSHOT=0` (the QOBS1 workaround "until QOBS2 is merged"). QOBS2 made scratchy skip the snapshot itself
       whenever `SCRATCHY_V8_FLAGS` is set, so drop the env var from profile.sh and the PERF.md "Profiling (perf)" note.
