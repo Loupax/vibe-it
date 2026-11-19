@@ -76,3 +76,9 @@
 > Do TODO.txt item QMEM3c: rule caches report their real heap (selectors, boxes, Vec capacities), shape_memo counts cosmic-text buffers, peak_rss_bytes from VmHWM (never below rss_bytes), plus explained_bytes and a malloc {in_use, free_kept} block. Tests, PERF.md glossary, YouTube memory JSON before/after.
 
 **What changed:** css.rs `StyleRule::heap_bytes` (selector components + media Vec), style.rs `rules_cache_mem` (index also read from `RULE_DERIVED`), layout.rs `shape_memo_mem` (per-char glyph estimate), perf.rs `peak_rss_bytes` (VmHWM), `malloc_stats` (mallinfo2), `walk_us`, perf_tests.rs `qmem3c_*`, PERF.md glossary.
+
+## QM1k1n5: page network results reach JS late (Sonnet)
+
+> Do TODO.txt item QM1k1n5: measure first where AppEvent::JsNet waits (60-90 s YouTube watch, nested dwl, own wire, QOBS6 `net` field); fix if it reproduces, else write up with numbers.
+
+**What changed:** did not reproduce on 1b83534: 124 results, median ~41 ms, max 494 ms (startup). No code change; REGRESSIONS.md section 6a addendum; test `qm1k1n5_response_arriving_during_a_busy_timer_chain_is_delivered_between_slices` in fetch_tests.rs.
