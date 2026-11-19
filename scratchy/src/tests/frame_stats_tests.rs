@@ -37,14 +37,14 @@ fn qobs5_rollup_counts_and_resets() {
     fs.video_rendered(5);
     fs.video_painted(5);
     fs.damage_present();
-    let ext = External { js_ns: 12_000_000, forced_n: 2, forced_ns: 3_000_000, worker_ns: 4_000_000, net: (3, 1_000_000, 5_000_000, 7_000_000) };
+    let ext = External { js_ns: 12_000_000, forced_n: 2, forced_ns: 3_000_000, worker_ns: 4_000_000, net: (3, 1_000_000, 5_000_000, 7_000_000), ..Default::default() };
     let line = fs.roll(t0 + ms(1000), ext).expect("a line after 1 s");
     assert!(line.contains("\"redraws\":3"), "{line}");
     assert!(line.contains("\"gap_max_ms\":350.0"), "{line}");
     assert!(line.contains("\"builds\":{\"n\":1,\"ms\":7.00}"), "{line}");
     assert!(line.contains("\"shape\":{\"complete\":1,\"incomplete\":1,\"worker_ms\":4.00}"), "{line}");
     assert!(line.contains("\"js_ms\":12.00"), "{line}");
-    assert!(line.contains("\"forced\":{\"n\":2,\"ms\":3.00}"), "{line}");
+    assert!(line.contains("\"forced\":{\"n\":2,\"ms\":3.00,\"by_caller\":[]},\"longest\":null"), "{line}");
     assert!(line.contains("\"hover_restyles\":1"), "{line}");
     assert!(line.contains("{\"node\":5,\"rendered\":2,\"painted\":1}"), "{line}");
     assert!(line.contains("\"damage_presents\":1"), "{line}");
@@ -70,4 +70,24 @@ fn qobs5_input_latency_max_and_p95() {
     assert!(line.contains("\"lat_max_ms\":20.00"), "{line}");
     assert!(line.contains("\"lat_p95_ms\":19.00"), "{line}");
     assert!(line.contains("\"pending\":1,\"oldest_pending_ms\":500.0"), "{line}");
+}
+
+#[test]
+fn qobs5c_callers_and_longest_in_line() {
+    let t0 = Instant::now();
+    let mut fs = FrameStats::for_test(t0);
+    let ext = External {
+        forced_n: 3,
+        forced_ns: 9_000_000,
+        callers: vec![("a x.js:1:2".into(), 1, 5_000_000), ("b \"q\".js:3:4".into(), 2, 4_000_000)],
+        longest: Some((12_000_000, "timer", "tick y.js:9:9".into())),
+        ..Default::default()
+    };
+    let line = fs.roll(t0 + ms(1000), ext).unwrap();
+    let a = line.find("{\"caller\":\"a x.js:1:2\",\"n\":1,\"ms\":5.00}").expect(&line);
+    let b = line.find("{\"caller\":\"b \\\"q\\\".js:3:4\",\"n\":2,\"ms\":4.00}").expect(&line);
+    assert!(a < b, "{line}");
+    assert!(line.contains("\"longest\":{\"ms\":12.00,\"kind\":\"timer\",\"source\":\"tick y.js:9:9\"}"), "{line}");
+    let line2 = fs.roll(t0 + ms(2000), External::default()).unwrap();
+    assert!(line2.contains("\"by_caller\":[]") && line2.contains("\"longest\":null"), "{line2}");
 }

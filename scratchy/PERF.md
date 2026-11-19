@@ -618,6 +618,7 @@ Fields (all counts and ms are for that second; `dt_ms` is the real length of the
   waiting for the compositor).
 - `js_ms` page JS CPU ms (exclusive span time of scripts, timers, jobs, events, observers, net callbacks);
   `forced` {n, ms} forced layouts inside that JS.
+- `forced.by_caller` (QOBS5c): the top 3 forced-layout callers of the second, `{caller, n, ms}`, slowest CPU first (same `function url:line:col` names as `--perf-report` `by_caller`); `[]` when there were none. `longest` {ms, kind, source} or `null`: the callback (script, timer, job, event, observer, net) with the most exclusive CPU that second and its source (same naming as `--perf-report` `longest`).
 - `hover_restyles` hover changes that caused a rebuild.
 - `net` {n, p50_ms, p95_ms, max_ms} (QOBS6): page network results delivered to JS this second and how long each waited between its transport finishing (the thread that ran the request sends `AppEvent::JsNet`, stamped then) and `deliver_net` running it on the main thread. Large values = the result sat in the event queue behind other main-thread work (QM1k1n5).
 - `input` {move, button, key, wheel}: events received; `lat_max_ms` / `lat_p95_ms`: input event to the next
