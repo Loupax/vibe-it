@@ -3614,3 +3614,15 @@ delivered whole (no streaming), sending is unbounded (no limit on queued outgoin
 exclusive; `lib.rs` has a `compile_error!` for both or neither. CI: `scratchy` (default, V8
 archive cached + sha256-pinned), `wire`, `snag`, `scratchy-quickjs` (fallback config + clippy
 count via `CLIPPY_FLAGS`). Release binary ~63 MB stripped; first clean build ~15 min.
+
+## QM1g2d: the controls bar (src/media_controls.rs)
+
+`<video controls>` / `<audio controls>` get a 32 px bar painted by scratchy as ordinary pixels over the
+video picture, through the box's overlay mask, AFTER `media_video::finish` (not in `paint_box`: the bar is
+semi-transparent over the frame, so the frame must be composited first). State comes from the element
+core (`JsEngine::media_controls_state`), actions go back through the element's JS API
+(`__scratchy_media_ui`, a user gesture). `App::controls_refresh` (run from `about_to_wait`) repaints only
+the bar rect when the quantised state (250 ms) or visibility changed (`recomposite` puts the picture back
+under it), and returns the next deadline (hide after 2 s, 250 ms refresh while playing). Bar presses are
+UA chrome: the page gets no mouse events for them; keys (D6) only act on the focused element, after the
+page's keydown.

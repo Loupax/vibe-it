@@ -492,13 +492,18 @@ pub(crate) fn is_focusable(h: &Handle) -> bool {
     if let Some(n) = element_attr(h, "tabindex").and_then(|t| t.trim().parse::<i32>().ok()) {
         return n >= 0;
     }
-    matches!(element_tag(h), "a" | "area") && element_attr(h, "href").is_some()
+    is_media_controls(h) || (matches!(element_tag(h), "a" | "area") && element_attr(h, "href").is_some())
+}
+
+/// QM1g2d: a `<video controls>` / `<audio controls>` (scratchy paints its bar; focusable for D6 keys).
+pub(crate) fn is_media_controls(h: &Handle) -> bool {
+    matches!(element_tag(h), "video" | "audio") && element_attr(h, "controls").is_some()
 }
 
 /// Q30b: whether a mouse click or `focus()` can focus `h` (Tab-focusable, or
 /// an enabled control with `tabindex=-1`).
 pub(crate) fn is_click_focusable(h: &Handle) -> bool {
-    is_focusable(h) || (is_focusable_control_tag(h) && !is_disabled_control(h))
+    is_focusable(h) || is_media_controls(h) || (is_focusable_control_tag(h) && !is_disabled_control(h))
 }
 
 /// Q30b: the control a `<label>` forwards clicks to: its `for` target, else

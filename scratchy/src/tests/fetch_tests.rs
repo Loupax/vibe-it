@@ -1382,6 +1382,30 @@ mod qm1g_video {
         assert!(gone.is_empty(), "scrolled out of view: no box, so no rendering");
     }
 
+    /// QM1g2d: the bar is ordinary pixels in the video's bottom 32 px, over the picture.
+    #[test]
+    fn qm1g2d_bar_paints_in_the_bottom_32px_and_the_damage_is_the_bar_only() {
+        use crate::media_controls::{paint, ControlsState};
+        let html = "<html><head><style>body{margin:0}video{display:block}</style></head><body><video width=100 height=50></video></body></html>";
+        let (mut px, infos) = paint_video_page(html, 0.0, true);
+        let i = &infos[0];
+        assert_eq!(i.rect, (0, 0, 100, 50));
+        let before = px.clone();
+        let st = ControlsState { duration: 20.0, ..Default::default() };
+        paint(&mut px, 200, i, &st, false);
+        assert_eq!(px, before, "a hidden bar changes nothing (no big button in a 50 px box)");
+        paint(&mut px, 200, i, &st, true);
+        assert_ne!(px_at(&px, 200, 5, 45), 0x00AB_CDEF, "a visible bar darkens the bottom rows");
+        assert_eq!(px_at(&px, 200, 5, 10), 0x00AB_CDEF, "the picture above the bar is untouched");
+        // the bar-only redraw puts the picture back inside the bar rect and nowhere else
+        set_frames([(i.node, frame(100, 50, 0x00AB_CDEF))].into_iter().collect());
+        let r = recomposite(i, (0, 18, 100, 32), &mut px, 200).unwrap();
+        assert_eq!(r, (0, 18, 100, 32));
+        assert_eq!(px, before, "recompositing the bar rect restores exactly the frame");
+        assert_eq!(recomposite(i, (150, 0, 10, 10), &mut px, 200), None);
+        set_frames(Default::default());
+    }
+
     /// QM1n1: with video boxes off (no `media` feature / no libmpv) `<video>` is still an
     /// inert replaced box; returns its (width, height) in the laid-out tree.
     fn inert_video_size(html: &str) -> Option<(f32, f32)> {

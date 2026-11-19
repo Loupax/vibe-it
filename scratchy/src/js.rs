@@ -1256,6 +1256,30 @@ impl JsEngine {
         (frames, sizes)
     }
 
+    /// QM1g2d: what the controls bar shows, read from the element cores (not from JS).
+    pub(crate) fn media_controls_state(&self, nodes: &[usize]) -> std::collections::HashMap<usize, crate::media_controls::ControlsState> {
+        let mut out = std::collections::HashMap::new();
+        let Some(m) = &self.media else { return out };
+        let t = self.table.borrow();
+        let host = m.borrow();
+        for &n in nodes {
+            let Some(id) = t.id_of_ptr(n) else { continue };
+            let st = match host.peek(id) {
+                Some(c) => crate::media_controls::ControlsState { paused: c.paused, current: c.current_time, duration: c.duration, buffered: c.buffered(), volume: c.volume, muted: c.muted, ended: c.ended() },
+                None => Default::default(),
+            };
+            out.insert(n, st);
+        }
+        out
+    }
+
+    /// QM1g2d: runs one controls action on a media element (user gesture).
+    pub(crate) fn media_ui(&self, node: usize, op: crate::media_controls::UiOp) -> bool {
+        let Some(id) = self.table.borrow().id_of_ptr(node) else { return false };
+        let (name, arg) = op.js();
+        self.eval_value::<bool>("media-ui", &format!("__scratchy_media_ui({id},'{name}',{arg})")).unwrap_or(false)
+    }
+
     /// QM1g: true once when a video's size became known/changed (relayout).
     pub(crate) fn media_size_changed(&self) -> bool {
         self.media.as_ref().is_some_and(|m| m.borrow_mut().take_size_changed())
