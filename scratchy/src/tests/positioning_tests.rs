@@ -771,3 +771,24 @@ fn qp4_memo_key_equal_spans_equal_key_and_each_field_changes_it() {
     SHAPE_MEMO_ENABLED.with(|m| m.set(false));
     assert_ne!(a, b);
 }
+
+#[test]
+fn qy53o3b_memo_key_text_matches_item_key_without_string_copy() {
+    SHAPE_MEMO_ENABLED.with(|m| m.set(true));
+    let base = SpanStyle::from(ROOT_STYLE);
+    for kind in [1u8, 2u8] {
+        let via_items = memo_key(kind, &[InlineItem::Text("hello world".into(), base)], 1000.0, true, None);
+        assert!(via_items.is_some());
+        assert_eq!(via_items, memo_key_text(kind, "hello world", &base, 1000.0), "borrowed-parts key equals the item key");
+        assert_ne!(via_items, memo_key_text(kind, "hello worle", &base, 1000.0), "text change misses");
+        let mut s = base;
+        s.node = 5;
+        assert_ne!(via_items, memo_key_text(kind, "hello world", &s, 1000.0), "span change misses");
+    }
+    // Short/odd-length texts must not collide.
+    let a = memo_key_text(1, "ab", &base, 10.0);
+    let b = memo_key_text(1, "ab\0", &base, 10.0);
+    let c = memo_key_text(1, "a", &base, 10.0);
+    assert!(a != b && a != c && b != c);
+    SHAPE_MEMO_ENABLED.with(|m| m.set(false));
+}
