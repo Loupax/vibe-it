@@ -4,15 +4,15 @@ use crate::media_el::*;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
-struct Js {
-    engine: JsEngine,
-    clock: Rc<Cell<f64>>,
-    log: Rc<RefCell<Vec<String>>>,
-    fakes: Rc<RefCell<Vec<FakeHandle>>>,
+pub(super) struct Js {
+    pub(super) engine: JsEngine,
+    pub(super) clock: Rc<Cell<f64>>,
+    pub(super) log: Rc<RefCell<Vec<String>>>,
+    pub(super) fakes: Rc<RefCell<Vec<FakeHandle>>>,
 }
 
 impl Js {
-    fn new(html: &str, code: &str) -> Js {
+    pub(super) fn new(html: &str, code: &str) -> Js {
         let fakes: Rc<RefCell<Vec<FakeHandle>>> = Default::default();
         let m = fakes.clone();
         set_backend_factory(Some(Rc::new(move |_| {
@@ -29,7 +29,7 @@ impl Js {
         Js { engine, clock, log, fakes }
     }
 
-    fn step(&self, ms: f64) {
+    pub(super) fn step(&self, ms: f64) {
         let end = self.clock.get() + ms;
         for _ in 0..2000 {
             match self.engine.next_due_ms() {
@@ -43,32 +43,32 @@ impl Js {
         self.clock.set(end);
     }
 
-    fn run(&self, code: &str) {
+    pub(super) fn run(&self, code: &str) {
         self.engine.eval("t", code);
         self.step(50.0);
     }
 
-    fn val(&self, code: &str) -> String {
+    pub(super) fn val(&self, code: &str) -> String {
         self.engine.eval_value::<String>("t", &format!("String({code})")).unwrap()
     }
 
-    fn lines(&self) -> Vec<String> {
+    pub(super) fn lines(&self) -> Vec<String> {
         self.log.borrow().clone()
     }
 
-    fn feeds(&self) -> usize {
+    pub(super) fn feeds(&self) -> usize {
         self.engine.media.as_ref().unwrap().borrow().mse.len()
     }
 }
 
-const HTML: &str = "<video id=v muted></video>";
+pub(super) const HTML: &str = "<video id=v muted></video>";
 const SETUP: &str = "var v = document.getElementById('v'); var ms = new MediaSource(); var ev = function (t, n) { t.addEventListener(n, function () { console.log(n); }); };\
     ['sourceopen', 'sourceended', 'sourceclose'].forEach(function (n) { ev(ms, n); });\
     ['loadstart', 'durationchange', 'error', 'emptied'].forEach(function (n) { ev(v, n); });\
     var errName = function (f) { try { f(); return 'ok'; } catch (e) { return e.name; } };\
     var url = URL.createObjectURL(ms); v.src = url;";
 
-fn attached() -> Js {
+pub(super) fn attached() -> Js {
     let js = Js::new(HTML, SETUP);
     js.step(100.0);
     js

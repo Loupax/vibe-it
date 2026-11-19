@@ -4,7 +4,9 @@
 // routes the events the natives queue ('o' sourceopen, 'n' sourceended, 'c' sourceclose, see
 // media_prelude.js `run`). Nothing is created until a page does `new MediaSource()`; the Rust
 // feed is made when the MediaSource is attached. Every event is dispatched from a timer task.
-// SourceBuffer is a shell here: appendBuffer/remove/abort come with QM1k1e.
+// QM1k1e: SourceBuffer (appendBuffer, abort, remove, buffered, mode, timestampOffset,
+// appendWindow*, changeType). appendBuffer copies the bytes to Rust at once; the events follow
+// from timer tasks.
 (function (g) {
   if (!g.__mse_new || !g.__media_kick || !g.EventTarget) return;
   var ET = g.EventTarget;
@@ -14,6 +16,7 @@
   var srcObj = new WeakMap();   // media element -> MediaSource set as srcObject
   var byFeed = {};
   var MAX_BUFFERS = 2;
+  var tokN = 0;
 
   var illegal = function (n) { return function () { throw new TypeError('Illegal constructor'); }; };
   var report = function (e) { g.__scratchy_err('Uncaught ' + String(e)); };
@@ -47,17 +50,155 @@
     if (!s) throw new TypeError('Illegal invocation');
     return s;
   };
-  Object.defineProperty(SourceBuffer.prototype, 'updating', { get: function () { return sbOf(this).updating; }, enumerable: true, configurable: true });
-  ['appendBuffer', 'abort', 'remove'].forEach(function (m) {
-    SourceBuffer.prototype[m] = function () {
-      sbOf(this);
-      g.__scratchy_err('scratchy: js: not implemented: SourceBuffer.' + m);
-      throw dom('SourceBuffer.' + m + ' is not implemented yet.', 'NotSupportedError');
-    };
+  var sbProp = function (name, get, set) {
+    Object.defineProperty(SourceBuffer.prototype, name, {
+      get: function () { return get(sbOf(this), this); },
+      set: set ? function (v) { set(sbOf(this), v, this); } : undefined,
+      enumerable: true, configurable: true,
+    });
+  };
+  var sbFail = function (what, s, upd) {
+    if (s.removed) throw dom('Failed to ' + what + " on 'SourceBuffer': This SourceBuffer has been removed from the parent media source.", 'InvalidStateError');
+    if (upd !== false && s.updating) throw dom('Failed to ' + what + " on 'SourceBuffer': This SourceBuffer is still processing an 'appendBuffer' or 'remove' operation.", 'InvalidStateError');
+  };
+  // An append / remove / mode change on an ended MediaSource reopens it (sourceopen).
+  var reopen = function (s) {
+    var m = ms_.get(s.ms);
+    if (m && m.rs === 'ended') {
+      m.rs = 'open';
+      g.__mse_reopen(m.feed);
+      fireTask(s.ms, 'sourceopen');
+    }
+  };
+  sbProp('updating', function (s) { return s.updating; });
+  sbProp('buffered', function (s) {
+    sbFail("read the 'buffered' property", s, false);
+    return g.__mk_ranges(g.__mse_buffered(ms_.get(s.ms).feed, s.bi));
   });
+  sbProp('mode', function (s) { return s.mode; }, function (s, v) {
+    v = String(v);
+    if (v !== 'segments' && v !== 'sequence') return;   // invalid enum values are ignored
+    sbFail("set the 'mode' property", s);
+    if (v === 'sequence') g.__scratchy_err("scratchy: js: not implemented: SourceBuffer.mode = 'sequence' (stored; appends still use 'segments' timing)");
+    s.mode = v;
+    reopen(s);
+  });
+  sbProp('timestampOffset', function (s) { return s.tso; }, function (s, v) {
+    v = Number(v);
+    if (v !== v || v === Infinity || v === -Infinity) throw new TypeError("Failed to set the 'timestampOffset' property on 'SourceBuffer': The provided double value is non-finite.");
+    sbFail("set the 'timestampOffset' property", s);
+    s.tso = v;
+    reopen(s);
+  });
+  sbProp('appendWindowStart', function (s) { return s.aws; }, function (s, v) {
+    v = Number(v);
+    if (v !== v) throw new TypeError("Failed to set the 'appendWindowStart' property on 'SourceBuffer': The provided double value is non-finite.");
+    sbFail("set the 'appendWindowStart' property", s);
+    if (v < 0 || v >= s.awe) throw new TypeError("Failed to set the 'appendWindowStart' property on 'SourceBuffer': The provided value (" + v + ') is outside the range [0, ' + s.awe + ').');
+    s.aws = v;
+  });
+  sbProp('appendWindowEnd', function (s) { return s.awe; }, function (s, v) {
+    v = Number(v);
+    if (v !== v) throw new TypeError("Failed to set the 'appendWindowEnd' property on 'SourceBuffer': The provided double value is NaN.");
+    sbFail("set the 'appendWindowEnd' property", s);
+    if (v <= s.aws) throw new TypeError("Failed to set the 'appendWindowEnd' property on 'SourceBuffer': The provided value (" + v + ') is less than or equal to the appendWindowStart (' + s.aws + ').');
+    s.awe = v;
+  });
+  // The tail of an operation: update + updateend from a task.
+  var finish = function (sb, s, tok) {
+    setTimeout(function () {
+      if (s.tok !== tok) return;   // aborted or the buffer is gone
+      s.updating = false;
+      s.tok = 0;
+      fireNow(sb, 'update');
+      fireNow(sb, 'updateend');
+    }, 0);
+  };
+  var begin = function (sb, s, tail) {
+    s.updating = true;
+    var tok = s.tok = ++tokN;
+    setTimeout(function () {
+      if (s.tok !== tok) return;
+      fireNow(sb, 'updatestart');
+      if (s.tok !== tok) return;
+      tail(tok);
+    }, 0);
+  };
+  SourceBuffer.prototype.appendBuffer = function appendBuffer(data) {
+    var s = sbOf(this);
+    if (arguments.length < 1) throw new TypeError("Failed to execute 'appendBuffer' on 'SourceBuffer': 1 argument required, but only 0 present.");
+    var u8;
+    if (data instanceof ArrayBuffer) u8 = new Uint8Array(data);
+    else if (ArrayBuffer.isView(data)) u8 = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+    else throw new TypeError("Failed to execute 'appendBuffer' on 'SourceBuffer': The provided value is not of type '(ArrayBuffer or ArrayBufferView)'.");
+    sbFail("execute 'appendBuffer'", s);
+    var m = ms_.get(s.ms);
+    reopen(s);
+    var r = g.__mse_append(m.feed, s.bi, u8, g.__scratchy_now());
+    if (r === 1) throw dom("Failed to execute 'appendBuffer' on 'SourceBuffer': The SourceBuffer is full, and cannot free space to append additional buffers.", 'QuotaExceededError');
+    var self = this;
+    begin(self, s, function (tok) {
+      if (r === 2 || r < 0) {
+        s.updating = false;
+        s.tok = 0;
+        fireNow(self, 'error');
+        fireNow(self, 'updateend');
+        if (m.rs === 'open') {   // the append error algorithm: endOfStream('decode')
+          m.rs = 'ended';
+          g.__mse_eos(m.feed, 2);
+          g.__media_kick();
+        }
+      } else finish(self, s, tok);
+    });
+    g.__media_kick();
+  };
+  SourceBuffer.prototype.abort = function abort() {
+    var s = sbOf(this);
+    if (s.removed) throw dom("Failed to execute 'abort' on 'SourceBuffer': This SourceBuffer has been removed from the parent media source.", 'InvalidStateError');
+    var m = ms_.get(s.ms);
+    if (m.rs !== 'open') throw dom("Failed to execute 'abort' on 'SourceBuffer': The MediaSource's readyState is not 'open'.", 'InvalidStateError');
+    var self = this;
+    if (s.updating) {
+      s.updating = false;
+      s.tok = 0;
+      setTimeout(function () {
+        fireNow(self, 'abort');
+        fireNow(self, 'updateend');
+      }, 0);
+    }
+    g.__mse_abort(m.feed, s.bi);
+    s.aws = 0;
+    s.awe = Infinity;
+  };
+  SourceBuffer.prototype.remove = function remove(start, end) {
+    var s = sbOf(this);
+    if (arguments.length < 2) throw new TypeError("Failed to execute 'remove' on 'SourceBuffer': 2 arguments required, but only " + arguments.length + ' present.');
+    start = Number(start); end = Number(end);
+    sbFail("execute 'remove'", s);
+    var m = ms_.get(s.ms);
+    if (m.dur !== m.dur || m.rs === 'closed') throw new TypeError("Failed to execute 'remove' on 'SourceBuffer': The duration is NaN.");
+    if (start !== start || start < 0 || start > m.dur) throw new TypeError("Failed to execute 'remove' on 'SourceBuffer': The start value provided (" + start + ') is not in the range [0, ' + m.dur + '].');
+    if (end !== end || end <= start) throw new TypeError("Failed to execute 'remove' on 'SourceBuffer': The end value provided (" + end + ') is less than or equal to the start value (' + start + ').');
+    reopen(s);
+    var self = this;
+    begin(self, s, function (tok) {
+      g.__mse_remove(m.feed, s.bi, start, end, g.__scratchy_now());
+      finish(self, s, tok);
+    });
+  };
+  SourceBuffer.prototype.changeType = function changeType(type) {
+    var s = sbOf(this);
+    if (arguments.length < 1) throw new TypeError("Failed to execute 'changeType' on 'SourceBuffer': 1 argument required, but only 0 present.");
+    type = String(type);
+    if (type === '') throw new TypeError("Failed to execute 'changeType' on 'SourceBuffer': The type provided ('') is empty.");
+    sbFail("execute 'changeType'", s);
+    if (!g.__mse_supported(type)) throw dom("Failed to execute 'changeType' on 'SourceBuffer': The type provided ('" + type + "') is not supported.", 'NotSupportedError');
+    s.type = type;   // the next init segment starts a new generation in the store
+    reopen(s);
+  };
   var mkSB = function (ms, st, type, bi) {
     var sb = Object.create(SourceBuffer.prototype);
-    sb_.set(sb, { ms: ms, st: st, type: type, bi: bi, updating: false, removed: false });
+    sb_.set(sb, { ms: ms, st: st, type: type, bi: bi, updating: false, removed: false, tok: 0, mode: 'segments', tso: 0, aws: 0, awe: Infinity });
     return sb;
   };
 
@@ -155,6 +296,8 @@
     if (i < 0) throw dom("Failed to execute 'removeSourceBuffer' on 'MediaSource': The SourceBuffer provided is not contained in this MediaSource.", 'NotFoundError');
     s.buffers.splice(i, 1);
     sb_.get(sb).removed = true;
+    sb_.get(sb).updating = false;
+    sb_.get(sb).tok = 0;
     for (var j = i; j < s.buffers.length; j++) sb_.get(s.buffers[j]).bi--;
     g.__mse_remove_buffer(s.feed, i, g.__scratchy_now());
     listDel(s.active, sb);
@@ -242,7 +385,7 @@
         s.lsr = null;
         var gone = s.buffers;
         s.buffers = [];
-        gone.forEach(function (b) { sb_.get(b).removed = true; });
+        gone.forEach(function (b) { var x = sb_.get(b); x.removed = true; x.updating = false; x.tok = 0; });
         if (s.list && gone.length) {
           gone.forEach(function (b) { listDel(s.active, b); listDel(s.list, b); });
           fireNow(s.active, 'removesourcebuffer');
