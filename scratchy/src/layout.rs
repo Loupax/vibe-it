@@ -1218,18 +1218,18 @@ thread_local! {
     /// instead every shaped result is also remembered under a hash of
     /// everything that determined it (text, span styles, width, flags),
     /// and an identical request later is served from here.
-    pub(crate) static SHAPE_MEMO: RefCell<HashMap<u64, Arc<Mutex<ShapedParagraph>>>> = RefCell::new(HashMap::new());
+    pub(crate) static SHAPE_MEMO: RefCell<HashMap<u64, Arc<Mutex<ShapedParagraph>>, MemoBuild>> = RefCell::new(HashMap::default());
     pub(crate) static SHAPE_MEMO_ENABLED: Cell<bool> = const { Cell::new(false) };
     /// QY53o3a: keys the current JS-thread layout used (hit or stored); `None` = not tracking
     /// (the shaping worker keeps its own policy). `memo_sweep` drops every other entry.
-    static SHAPE_MEMO_USED: RefCell<Option<std::collections::HashSet<u64>>> = const { RefCell::new(None) };
+    static SHAPE_MEMO_USED: RefCell<Option<std::collections::HashSet<u64, MemoBuild>>> = const { RefCell::new(None) };
     #[cfg(test)]
     pub(crate) static SHAPE_MEMO_PUTS: Cell<usize> = const { Cell::new(0) };
 }
 
 /// QY53o3a: start recording which memo entries this layout uses.
 pub(crate) fn memo_track_begin() {
-    SHAPE_MEMO_USED.with(|u| *u.borrow_mut() = Some(std::collections::HashSet::new()));
+    SHAPE_MEMO_USED.with(|u| *u.borrow_mut() = Some(std::collections::HashSet::default()));
 }
 
 /// QY53o3a: end the layout: drop the entries it did not use, then (only afterwards, so one big
@@ -1245,12 +1245,91 @@ pub(crate) fn memo_sweep(cap: usize) {
     });
 }
 
-pub(crate) fn memo_key(kind: u8, items: &[InlineItem], width: f32, pre: bool, align: Option<CosmicAlign>) -> Option<u64> {
-    use std::hash::{Hash, Hasher};
-    if !SHAPE_MEMO_ENABLED.with(|m| m.get()) {
-        return None;
+/// QY53o3b: fast non-cryptographic hasher for memo keys (replaces SipHash, ~21 % of a warm
+/// `measure_document`). Multiply-fold per 8-byte word (wyhash style) plus an avalanche finish.
+/// HashDoS is not a concern: the memo is keyed by hashes of our own derived data and a collision
+/// can only mis-reuse a glyph layout, never reach another origin's data. The key stays 64 bits,
+/// the same collision exposure the SipHash-64 key had (~1e-12 per layout at 7.5k entries).
+#[derive(Default, Clone, Copy)]
+pub(crate) struct MemoHasher(u64);
+
+impl MemoHasher {
+    #[inline]
+    fn add(&mut self, w: u64) {
+        let m = u128::from(self.0 ^ w).wrapping_mul(0x2545_F491_4F6C_DD1D_9E37_79B9_7F4A_7C15_u128 | 1);
+        self.0 = (m as u64) ^ ((m >> 64) as u64);
     }
-    let mut h = std::collections::hash_map::DefaultHasher::new();
+}
+
+impl std::hash::Hasher for MemoHasher {
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        let mut rest = bytes;
+        while let Some((head, tail)) = rest.split_first_chunk::<8>() {
+            self.add(u64::from_le_bytes(*head));
+            rest = tail;
+        }
+        if !rest.is_empty() {
+            let mut buf = [0u8; 8];
+            buf[..rest.len()].copy_from_slice(rest);
+            self.add(u64::from_le_bytes(buf) ^ ((rest.len() as u64) << 56));
+        }
+    }
+    #[inline]
+    fn write_u8(&mut self, i: u8) {
+        self.add(u64::from(i) | 1 << 40);
+    }
+    #[inline]
+    fn write_u16(&mut self, i: u16) {
+        self.add(u64::from(i) | 2 << 40);
+    }
+    #[inline]
+    fn write_u32(&mut self, i: u32) {
+        self.add(u64::from(i) | 4 << 40);
+    }
+    #[inline]
+    fn write_u64(&mut self, i: u64) {
+        self.add(i);
+    }
+    #[inline]
+    fn write_usize(&mut self, i: usize) {
+        self.add(i as u64);
+    }
+    #[inline]
+    fn finish(&self) -> u64 {
+        let mut x = self.0;
+        x ^= x >> 32;
+        x = x.wrapping_mul(0xD6E8_FEB8_6659_FD93);
+        x ^= x >> 32;
+        x
+    }
+}
+
+/// Identity hasher for the memo map: its keys are already `MemoHasher::finish` output.
+#[derive(Default, Clone, Copy)]
+pub(crate) struct MemoIdHasher(u64);
+
+impl std::hash::Hasher for MemoIdHasher {
+    fn write(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.0 = (self.0 << 8) | u64::from(b);
+        }
+    }
+    #[inline]
+    fn write_u64(&mut self, i: u64) {
+        self.0 = i;
+    }
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.0
+    }
+}
+
+pub(crate) type MemoBuild = std::hash::BuildHasherDefault<MemoIdHasher>;
+
+fn memo_header(kind: u8, width: f32, pre: bool, align: Option<CosmicAlign>) -> MemoHasher {
+    use std::hash::Hash;
+    let mut h = MemoHasher::default();
     kind.hash(&mut h);
     width.to_bits().hash(&mut h);
     pre.hash(&mut h);
@@ -1258,6 +1337,15 @@ pub(crate) fn memo_key(kind: u8, items: &[InlineItem], width: f32, pre: bool, al
     if let Some(a) = align {
         std::mem::discriminant(&a).hash(&mut h);
     }
+    h
+}
+
+pub(crate) fn memo_key(kind: u8, items: &[InlineItem], width: f32, pre: bool, align: Option<CosmicAlign>) -> Option<u64> {
+    use std::hash::{Hash, Hasher};
+    if !SHAPE_MEMO_ENABLED.with(|m| m.get()) {
+        return None;
+    }
+    let mut h = memo_header(kind, width, pre, align);
     for item in items {
         match item {
             InlineItem::Text(t, span) => {
@@ -1267,6 +1355,19 @@ pub(crate) fn memo_key(kind: u8, items: &[InlineItem], width: f32, pre: bool, al
             _ => return None,
         }
     }
+    Some(h.finish())
+}
+
+/// QY53o3b: the key `memo_key(kind, &[InlineItem::Text(text.to_string(), *span)], width, true, None)`
+/// would give, from the borrowed parts (no `String` copy; equal by construction, tested).
+pub(crate) fn memo_key_text(kind: u8, text: &str, span: &SpanStyle, width: f32) -> Option<u64> {
+    use std::hash::{Hash, Hasher};
+    if !SHAPE_MEMO_ENABLED.with(|m| m.get()) {
+        return None;
+    }
+    let mut h = memo_header(kind, width, true, None);
+    text.hash(&mut h);
+    span.hash_into(&mut h);
     Some(h.finish())
 }
 
@@ -2640,15 +2741,14 @@ pub(crate) fn shape_or_resume_word(
     word: &str,
     span: SpanStyle,
     width: f32,
-    deadline: std::time::Instant,
+    in_time: bool,
     incomplete: &mut bool,
 ) -> (f32, f32) {
     if let Some(entry) = cache.get(&id) {
         let guard = entry.lock().unwrap();
         (guard.0.layout_runs().next().map(|r| r.line_w).unwrap_or(0.0), guard.1)
-    } else if std::time::Instant::now() < deadline {
-        let synth = [InlineItem::Text(word.to_string(), span)];
-        let mkey = memo_key(1, &synth, width, true, None);
+    } else if in_time {
+        let mkey = memo_key_text(1, word, &span, width);
         if let Some(hit) = memo_get(mkey) {
             let (w, h) = {
                 let g = hit.lock().unwrap();
@@ -2657,6 +2757,7 @@ pub(crate) fn shape_or_resume_word(
             cache.insert(id, hit);
             return (w, h);
         }
+        let synth = [InlineItem::Text(word.to_string(), span)];
         let (buffer, h, backgrounds, valigns, hidden, cursors, decoration_styles, hrefs) =
             shape_spans(font_system, &synth, width, true, None);
         let w = buffer.layout_runs().next().map(|r| r.line_w).unwrap_or(0.0);
@@ -2795,6 +2896,8 @@ pub(crate) fn measure_mixed_inline<'a>(
     // internally by cosmic-text regardless of this value; only used as
     // the buffer's nominal width.
     const WORD_MEASURE_WIDTH: f32 = 1_000_000.0;
+    // QY53o3b: the layout deadline is checked once per paragraph, not once per word/chunk.
+    let in_time = std::time::Instant::now() < deadline;
 
     /// Where a word's measured width/height came from — see this
     /// function's own docs for why most words share one buffer per
@@ -2861,7 +2964,7 @@ pub(crate) fn measure_mixed_inline<'a>(
                 // the line height of the surrounding text. One id always.
                 let id = *next_id;
                 *next_id += 1;
-                let (_, height) = shape_or_resume_word(font_system, cache, id, " ", *span, WORD_MEASURE_WIDTH, deadline, incomplete);
+                let (_, height) = shape_or_resume_word(font_system, cache, id, " ", *span, WORD_MEASURE_WIDTH, in_time, incomplete);
                 measured.push(Measured::Break { height });
             }
             InlineItem::Text(text, span) => {
@@ -2883,7 +2986,7 @@ pub(crate) fn measure_mixed_inline<'a>(
                     if seg_idx > 0 {
                         let id = *next_id;
                         *next_id += 1;
-                        let (_, height) = shape_or_resume_word(font_system, cache, id, " ", *span, WORD_MEASURE_WIDTH, deadline, incomplete);
+                        let (_, height) = shape_or_resume_word(font_system, cache, id, " ", *span, WORD_MEASURE_WIDTH, in_time, incomplete);
                         measured.push(Measured::Break { height });
                     }
                     if text.is_empty() {
@@ -2899,7 +3002,7 @@ pub(crate) fn measure_mixed_inline<'a>(
                             }
                             let id = *next_id;
                             *next_id += 1;
-                            let (width, height) = shape_or_resume_word(font_system, cache, id, word, *span, WORD_MEASURE_WIDTH, deadline, incomplete);
+                            let (width, height) = shape_or_resume_word(font_system, cache, id, word, *span, WORD_MEASURE_WIDTH, in_time, incomplete);
                             // Real CSS adds extra space after each word-
                             // separator space character, so only a token
                             // that actually carries its own trailing space
@@ -2929,9 +3032,8 @@ pub(crate) fn measure_mixed_inline<'a>(
                     let (widths, height) = if let Some(entry) = cache.get(&chunk_id) {
                         let guard = entry.lock().unwrap();
                         (word_widths_from_buffer(&guard.0, &ranges), guard.1)
-                    } else if std::time::Instant::now() < deadline {
-                        let synth = [InlineItem::Text(text.to_string(), *span)];
-                        let mkey = memo_key(2, &synth, WORD_MEASURE_WIDTH, true, None);
+                    } else if in_time {
+                        let mkey = memo_key_text(2, text, span, WORD_MEASURE_WIDTH);
                         if let Some(hit) = memo_get(mkey) {
                             let r = {
                                 let g = hit.lock().unwrap();
@@ -2940,6 +3042,7 @@ pub(crate) fn measure_mixed_inline<'a>(
                             cache.insert(chunk_id, hit);
                             r
                         } else {
+                            let synth = [InlineItem::Text(text.to_string(), *span)];
                             let (buffer, height, backgrounds, valigns, hidden, cursors, decoration_styles, hrefs) =
                                 shape_spans(font_system, &synth, WORD_MEASURE_WIDTH, true, None);
                             let widths = word_widths_from_buffer(&buffer, &ranges);
@@ -3304,7 +3407,7 @@ pub(crate) fn measure_mixed_inline<'a>(
                     let &(text, span) = chunk_text.get(chunk_id).expect("chunk_text missing an entry its own chunk_id was inserted under");
                     let word = &text[range.clone()];
                     let id = *word_id;
-                    let (w, h) = shape_or_resume_word(font_system, cache, id, word, span, WORD_MEASURE_WIDTH, deadline, incomplete);
+                    let (w, h) = shape_or_resume_word(font_system, cache, id, word, span, WORD_MEASURE_WIDTH, in_time, incomplete);
                     positioned.push(MixedPositioned::Word { id, x: final_x, y: content_y + cursor_y, w, h });
                     idx += 1;
                 }
