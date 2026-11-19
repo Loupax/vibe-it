@@ -6881,3 +6881,15 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       synchronous; say so in PERF.md); QOBS5 lines: the same per second. QM1k1n5 ("results 1-19 s late,
       measure first") uses this instead of temporary stamps. Test: a fetch whose result arrives while a
       busy timer chain runs records a delay >= the timer's duration (test clock or a known busy loop).
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QYTC1 DONE ec0b3a2 #371 R50 measurement; fix filed as QYTC1a/b/c [M] (P1, user decision 2026-11-19 ~20:50 when merging QCUR1 #365; Opus measure first, then Sonnet) With QCUR1
+      (mousemove/pointermove dispatch) YouTube's player controls now show like in a real browser, and while they are visible
+      YouTube does 10-15 forced layouts per second at ~80-100 ms each REGARDLESS of the mousemove rate (QCUR1 forced the
+      dispatch gap to 1 s and 5 s: still painted ~9-10/s, js_ms ~800-930/s). Video drops from ~30-37 to ~3-15 painted/s
+      while the controls are visible (they auto-hide after a few idle seconds). Real browsers do these layouts in ~1 ms.
+      Find which reads force them (QOBS3 by_caller headless, QOBS5c if landed; likely the progress bar / chapter / time
+      display updates and getPlayerSize) and what dirties geometry between them (QY53l/l2/l3 territory: progress transform,
+      chapter hover container, state classes), then make them cheap: skip no-op invalidations, or a scoped re-layout of the
+      controls subtree instead of the whole document. Gate (R46 recipe on the post-QCUR1 build, controls visible, pointer
+      moving): video painted median >= 25/s, lat_p95 <= 100 ms, forced layouts per second while visible <= 3 or <= 15 ms each.

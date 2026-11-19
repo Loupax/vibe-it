@@ -1300,16 +1300,6 @@ Shared rules for this block:
       and a mask but not has/sib) and the layer-concat decision.
 - [ ] QMEM3f [S] (P4, from QMEM3; Opus measure) 10-minute live-window RSS sample on YT watch: the window grows ~0.22 MB/s
       in the first minute; leak or warm-up?
-- [ ] [WIP] QYTC1 [M] (P1, user decision 2026-11-19 ~20:50 when merging QCUR1 #365; Opus measure first, then Sonnet) With QCUR1
-      (mousemove/pointermove dispatch) YouTube's player controls now show like in a real browser, and while they are visible
-      YouTube does 10-15 forced layouts per second at ~80-100 ms each REGARDLESS of the mousemove rate (QCUR1 forced the
-      dispatch gap to 1 s and 5 s: still painted ~9-10/s, js_ms ~800-930/s). Video drops from ~30-37 to ~3-15 painted/s
-      while the controls are visible (they auto-hide after a few idle seconds). Real browsers do these layouts in ~1 ms.
-      Find which reads force them (QOBS3 by_caller headless, QOBS5c if landed; likely the progress bar / chapter / time
-      display updates and getPlayerSize) and what dirties geometry between them (QY53l/l2/l3 territory: progress transform,
-      chapter hover container, state classes), then make them cheap: skip no-op invalidations, or a scoped re-layout of the
-      controls subtree instead of the whole document. Gate (R46 recipe on the post-QCUR1 build, controls visible, pointer
-      moving): video painted median >= 25/s, lat_p95 <= 100 ms, forced layouts per second while visible <= 3 or <= 15 ms each.
 - [ ] QYTC1a [M] (P1, from QYTC1 R50; Sonnet; AFTER QY53o1 merges: same `__d_setattr` -> `geom_bump_attr` hook in js_dom.rs)
       Contained inline-style writes: a `style` write whose parsed declarations differ only in paint-only fields, a translate,
       or px `left`/`top` on an abs/fixed box with definite width shifts the cached rects in place (GeomCache flat skeleton)
