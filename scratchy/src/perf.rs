@@ -216,6 +216,34 @@ fn malloc_stats() -> Option<(u64, u64)> {
     None
 }
 
+/// QMEM3b: `(nodes, approximate bytes)` of a parsed DOM: per node the rcdom `Node` plus its
+/// children Vec slot, per element the attribute Vec with each name/value string, per text its
+/// capacity. Counts template contents; ignores allocator rounding and the interned atoms.
+pub(crate) fn dom_mem(root: &markup5ever_rcdom::Handle) -> (usize, usize) {
+    use markup5ever_rcdom::NodeData;
+    let (mut nodes, mut bytes) = (0usize, 0usize);
+    let mut stack = vec![root.clone()];
+    while let Some(n) = stack.pop() {
+        nodes += 1;
+        bytes += std::mem::size_of::<markup5ever_rcdom::Node>() + std::mem::size_of::<markup5ever_rcdom::Handle>();
+        match &n.data {
+            NodeData::Element { attrs, template_contents, .. } => {
+                for a in attrs.borrow().iter() {
+                    bytes += std::mem::size_of::<html5ever::Attribute>() + a.value.len();
+                }
+                if let Some(t) = template_contents.borrow().as_ref() {
+                    stack.push(t.clone());
+                }
+            }
+            NodeData::Text { contents } => bytes += contents.borrow().len(),
+            NodeData::Comment { contents } => bytes += contents.len(),
+            _ => {}
+        }
+        stack.extend(n.children.borrow().iter().cloned());
+    }
+    (nodes, bytes)
+}
+
 /// QOBS7: the `memory` member of the report, taken once at the end of the run. Byte figures of
 /// caches are ESTIMATES (string and Vec capacities plus fixed per-entry overheads), not allocator
 /// truth; `engine` is the page's engine (None when the page had no scripts).
@@ -237,9 +265,11 @@ pub(crate) fn memory_json(engine: Option<&crate::js::JsEngine>) -> String {
     add("rules_cache", rules);
     add("rule_index_hover_keys", index);
     add("svg_sized_cache", crate::images::svg_sized_cache_mem());
+    // QMEM3b: the page's CSS text kept for getComputedStyle (EXTRA_CSS), by capacity.
+    add("js_extra_css", crate::js_style::extra_css_mem());
     // The perf run has no App, so there is no image cache to size.
     add("image_cache", (0, 0));
-    for n in ["style_cache", "mse_store", "geom_rects", "geom_glyphs", "media_elements"] {
+    for n in ["style_cache", "mse_store", "geom_rects", "geom_glyphs", "media_elements", "dom", "report_html", "report_scripts", "report_css"] {
         add(n, (0, 0));
     }
     PROBES.with(|p| {
@@ -261,8 +291,9 @@ pub(crate) fn memory_json(engine: Option<&crate::js::JsEngine>) -> String {
     let (seg, seg_bytes) = crate::stack::spare_segments();
     let malloc = malloc_stats();
     format!(
-        "\"memory\":{{\"rss_bytes\":{},\"peak_rss_bytes\":{},\"js_heap\":{},\"caches\":{{{}}},\"caches_bytes\":{},\"explained_bytes\":{},\"walk_us\":{},\"malloc\":{},\"stack_segments\":{{\"kept\":{},\"mapped_bytes\":{}}},\"media_players\":{}}}",
+        "\"memory\":{{\"rss_bytes\":{},\"rss_anon_bytes\":{},\"peak_rss_bytes\":{},\"js_heap\":{},\"caches\":{{{}}},\"caches_bytes\":{},\"explained_bytes\":{},\"walk_us\":{},\"malloc\":{},\"stack_segments\":{{\"kept\":{},\"mapped_bytes\":{}}},\"media_players\":{}}}",
         rss_bytes(),
+        rss_anon_bytes(),
         peak_rss_bytes(),
         js,
         body.join(","),
@@ -831,6 +862,16 @@ pub(crate) fn rss_bytes() -> u64 {
         .unwrap_or(0)
 }
 
+/// QMEM3b: anonymous resident bytes (`RssAnon` of /proc/self/status: heaps, stacks, V8 pages, no
+/// mapped files); 0 when unreadable. `rss_anon_bytes - malloc.free_kept` is the live anonymous
+/// memory `explained_bytes` is compared with.
+pub(crate) fn rss_anon_bytes() -> u64 {
+    std::fs::read_to_string("/proc/self/status")
+        .ok()
+        .and_then(|s| s.lines().find_map(|l| l.strip_prefix("RssAnon:").map(|v| v.trim().trim_end_matches("kB").trim().parse::<u64>().unwrap_or(0) * 1024)))
+        .unwrap_or(0)
+}
+
 /// Commit the binary was built from (build.rs), "unknown" outside a git checkout.
 pub(crate) fn commit() -> &'static str {
     option_env!("SCRATCHY_GIT_COMMIT").filter(|c| !c.is_empty()).unwrap_or("unknown")
@@ -971,6 +1012,19 @@ pub(crate) fn perf_report(opts: &ReportOpts) -> String {
         }
     });
     mark("scripts_ready");
+    // QMEM3b: what this harness itself keeps alive to the end of the run (a window drops the
+    // fetched script and page text once the page started; the DOM lives on in both).
+    {
+        let doc = dom.document.clone();
+        register_probe("dom", move || dom_mem(&doc));
+        let n = html.capacity();
+        register_probe("report_html", move || (1, n));
+        let n: usize = scripts.iter().map(|s| s.code.capacity() + s.name.capacity()).sum();
+        let c = scripts.len();
+        register_probe("report_scripts", move || (c, n));
+        let n = css.capacity();
+        register_probe("report_css", move || (1, n));
+    }
     let engine = start_scripts(&dom.document, &scripts, log);
     let mut heap = 0i64;
     if let Some(engine) = &engine {

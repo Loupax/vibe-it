@@ -1397,6 +1397,9 @@ pub(crate) fn fetch_stylesheets(path: &std::path::Path, base: &Url, top: &Url, h
             extra_css.push('\n');
         }
     }
+    // QMEM3b: push_str doubling leaves up to 2x capacity (4.4 MB of text held 8.8 MB on YouTube),
+    // and this string lives as long as the page (the App keeps it, `EXTRA_CSS` copies it).
+    extra_css.shrink_to_fit();
     extra_css
 }
 
