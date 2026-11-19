@@ -1160,6 +1160,9 @@ pub(crate) fn drive_report_net(engine: &JsEngine, sched: &mut NetScheduler, exec
             sched.enqueue(job);
         }
         for (id, r) in reqs.net_done {
+            // QOBS6: the harness network is synchronous, so the stamped delay is ~0.
+            let done = std::time::Instant::now();
+            crate::perf::net_delivery(done.elapsed().as_nanos() as u64);
             engine.deliver_net(id, r);
         }
         let mut started = Vec::new();
@@ -1178,7 +1181,9 @@ pub(crate) fn drive_report_net(engine: &JsEngine, sched: &mut NetScheduler, exec
         }
         for job in started {
             let r = exec.execute(&job);
+            let done = std::time::Instant::now();
             sched.done(job.id);
+            crate::perf::net_delivery(done.elapsed().as_nanos() as u64);
             engine.deliver_net(job.id, r);
         }
     }

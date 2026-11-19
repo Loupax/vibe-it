@@ -45,6 +45,8 @@ pub(crate) struct External {
     pub(crate) forced_n: u64,
     pub(crate) forced_ns: u64,
     pub(crate) worker_ns: u64,
+    /// QOBS6: page network deliveries of the second: count, p50, p95, max (ns of delay).
+    pub(crate) net: (u64, u64, u64, u64),
 }
 
 #[derive(Clone, Copy, Default)]
@@ -258,7 +260,7 @@ impl FrameStats {
 \"builds\":{{\"n\":{},\"ms\":{:.2}}},\"shape\":{{\"complete\":{},\"incomplete\":{},\"worker_ms\":{:.2}}},\
 \"paint_ms\":{:.2},\"present_ms\":{:.2},\"js_ms\":{:.2},\"forced\":{{\"n\":{},\"ms\":{:.2}}},\"hover_restyles\":{},\
 \"input\":{{\"move\":{},\"button\":{},\"key\":{},\"wheel\":{},\"lat_max_ms\":{:.2},\"lat_p95_ms\":{:.2},\"pending\":{},\"oldest_pending_ms\":{:.1}}},\
-\"video\":{{\"wakes\":{},\"v\":[{}]}}}}",
+\"net\":{{\"n\":{},\"p50_ms\":{:.2},\"p95_ms\":{:.2},\"max_ms\":{:.2}}},\"video\":{{\"wakes\":{},\"v\":[{}]}}}}",
             now.saturating_duration_since(self.t0).as_secs_f64(),
             dt.as_secs_f64() * 1000.0,
             self.redraws,
@@ -283,6 +285,10 @@ impl FrameStats {
             p95 as f64 / 1000.0,
             self.npending,
             oldest.as_secs_f64() * 1000.0,
+            ext.net.0,
+            ms(ext.net.1),
+            ms(ext.net.2),
+            ms(ext.net.3),
             self.video_wakes,
             v,
         );
@@ -317,7 +323,7 @@ impl FrameStats {
     /// For the App: gathers `External` from the perf recorder and the worker.
     pub(crate) fn take_external() -> External {
         let (js_ns, forced_n, forced_ns) = crate::perf::take_window();
-        External { js_ns, forced_n, forced_ns, worker_ns: WORKER_NS.swap(0, Ordering::Relaxed) }
+        External { js_ns, forced_n, forced_ns, worker_ns: WORKER_NS.swap(0, Ordering::Relaxed), net: crate::perf::take_window_net() }
     }
 
     /// Test sink: stats that write nowhere.
