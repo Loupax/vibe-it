@@ -806,6 +806,111 @@ fn qa18b1_iframe_src_document_is_loaded_and_styled() {
     );
 }
 
+// ---------- QPT1a: a same-origin iframe gets its own V8 realm (R53) ----------
+
+#[test]
+fn qpt1a_iframe_window_is_its_own_realm() {
+    crate::js::set_page_url(Url::parse("https://qpt1a.test/dir/page.html").ok().as_ref());
+    let log = run_with_timers(
+        "var f=document.createElement('iframe'); document.body.appendChild(f);\
+         var w=f.contentWindow, d=f.contentDocument;\
+         console.log(typeof w.String, w.String!==String, w.String('x')==='x', [] instanceof w.Array, w.Array.isArray([]),\
+           w.eval('[]') instanceof w.Array, w.Object.getOwnPropertyDescriptor(w, 'String').writable);\
+         console.log(typeof w.HTMLElement, typeof w.Navigator, typeof w.SubtleCrypto, typeof w.Object, typeof w.navigator.userAgent,\
+           w.HTMLElement!==HTMLElement, String(w), Object.prototype.toString.call(w));\
+         console.log(w.document===d, d.defaultView===w, w.document.body instanceof w.HTMLElement, w.document.body instanceof HTMLElement,\
+           f.contentWindow===w, f.contentDocument===d, w.window===w, w.self===w, w.frames===w);\
+         console.log(w.parent===window, w.top===window, w.frameElement===f, w.opener, w.location.href, w.location.origin,\
+           w.document.URL, w.document.readyState, w.document.baseURI, w.isSecureContext);\
+         var p=w.document.createElement('p'); p.id='rp'; w.document.body.appendChild(p);\
+         console.log(w.document.getElementById('rp')===p, document.getElementById('rp'), document.getElementsByTagName('p').length,\
+           w.document.getElementsByTagName('p').length, p.ownerDocument===w.document, p instanceof w.HTMLElement);\
+         w.eval(\"document.body.appendChild(document.createElement('section'))\");\
+         console.log(document.getElementsByTagName('section').length, d.getElementsByTagName('section').length, w.document.documentElement.outerHTML);\
+         console.log(w.eval('typeof __qx'), w.__scratchy_run_global('var __qx = 5;', 'realm-script', false), w.__qx, typeof __qx);\
+         var cs=w.getComputedStyle(p); console.log(typeof cs.getPropertyValue('display'), w.document.all.length > 0, typeof w.document.all);\
+         var thisOk; w.setTimeout(function(){ thisOk = this === w; console.log('realm timeout', thisOk, w.document === document); }, 5);\
+         w.setTimeout('console.log(\"string timer\", document.body.tagName, window.parent === parent)', 1);\
+         var c=w.setTimeout(function(){ console.log('cleared ran'); }, 2); w.clearTimeout(c);\
+         w.requestIdleCallback(function(){ console.log('realm idle'); });\
+         w.requestAnimationFrame(function(t){ console.log('realm raf', typeof t); });\
+         w.addEventListener('unhandledrejection', function(e){ console.log('realm unhandledrejection', e.reason.message); e.preventDefault(); });\
+         w.eval(\"Promise.reject(new Error('in realm'))\");\
+         w.eval(\"Promise.reject(new Error('logged'))\");\
+         console.log('sync-end');",
+    );
+    let rest: Vec<&String> = log.iter().filter(|l| !l.starts_with("log:")).collect();
+    let logs: Vec<&str> = log.iter().filter_map(|l| l.strip_prefix("log:")).collect();
+    assert_eq!(logs[0], "function true true false true true true", "{log:?}");
+    assert_eq!(logs[1], "function function function function string true [object Object] [object Object]", "{log:?}");
+    assert_eq!(logs[2], "true true true false true true true true true", "{log:?}");
+    assert_eq!(
+        logs[3],
+        "true true true null about:blank https://qpt1a.test about:blank complete https://qpt1a.test/dir/page.html true",
+        "{log:?}"
+    );
+    assert_eq!(logs[4], "true null 0 1 true true", "{log:?}");
+    assert_eq!(logs[5], "0 1 <html><head></head><body><p id=\"rp\"></p><section></section></body></html>", "{log:?}");
+    assert_eq!(logs[6], "undefined true 5 undefined", "{log:?}");
+    assert_eq!(logs[7], "string true undefined", "{log:?}");
+    assert_eq!(logs[8], "sync-end", "{log:?}");
+    let after: Vec<&str> = logs[9..].to_vec();
+    for want in ["realm timeout true false", "string timer BODY true", "realm idle", "realm raf number", "realm unhandledrejection in realm", "realm unhandledrejection logged"] {
+        assert!(after.contains(&want), "missing {want:?} in {log:?}");
+    }
+    assert!(!after.contains(&"cleared ran"), "{log:?}");
+    assert!(rest.is_empty(), "{log:?}");
+}
+
+#[test]
+fn qpt1a_realm_unhandled_rejection_is_logged_and_nested_realms_work() {
+    let log = run_with_timers(
+        "var f=document.createElement('iframe'); document.body.appendChild(f); var w=f.contentWindow;\
+         w.eval(\"Promise.reject(new TypeError('realm boom'))\");\
+         var g=w.document.createElement('iframe'); w.document.body.appendChild(g); var w2=g.contentWindow;\
+         console.log(w2!==null, w2!==w, w2.parent===w, w2.top===window, w2.String!==w.String, w2.frameElement===g);\
+         w2.setTimeout(function(){ console.log('nested timeout', this===w2); }, 1);\
+         var dd=document.createElement('iframe'); dd.src='data:text/html,hi'; document.body.appendChild(dd);\
+         console.log(typeof dd.contentWindow.String, dd.contentDocument.nodeType, f.srcdoc, (f.srcdoc='<b>x</b>', f.getAttribute('srcdoc')));",
+    );
+    assert!(log.iter().any(|l| l.starts_with("error:Uncaught (in promise) TypeError: realm boom")), "{log:?}");
+    assert!(log.contains(&"log:true true true true true true".to_string()), "{log:?}");
+    assert!(log.contains(&"log:undefined 9  <b>x</b>".to_string()), "data: iframes keep the stand-in (R53 D4): {log:?}");
+    assert!(log.contains(&"log:nested timeout true".to_string()), "{log:?}");
+}
+
+#[test]
+fn qpt1a_without_the_snapshot_the_iframe_window_stays_a_stand_in() {
+    let log = crate::js_engine::without_snapshot(|| {
+        run_with_timers(
+            "var f=document.createElement('iframe'); document.body.appendChild(f); var w=f.contentWindow;\
+             console.log(typeof w.String, w.document===f.contentDocument, w.parent===window); f.contentWindow;",
+        )
+    });
+    assert_eq!(
+        log,
+        ["warn:scratchy: iframe window is a stand-in object: this engine has no V8 startup snapshot (QPT1e)", "log:undefined true true"],
+        "{log:?}"
+    );
+}
+
+#[test]
+fn qpt1a_realm_fetch_and_xhr_go_through_the_page_queue() {
+    let fake = QfFake::new(vec![("/a", qf7_ok("A", &[("content-type", "text/plain")])), ("/b", qf7_ok("B", &[]))]);
+    let log = qf8_run(
+        "https://page.test/dir/page.html",
+        &fake,
+        "var f=document.createElement('iframe'); document.body.appendChild(f); var w=f.contentWindow;\
+         w.fetch('/a').then(function(r){ console.log('fetch', r instanceof w.Response, r instanceof Response, r.status); return r.text(); })\
+           .then(function(t){ console.log('body', t); });\
+         var x=new w.XMLHttpRequest(); x.open('GET', 'b'); x.onload=function(){ console.log('xhr', x.status, x.responseText, this===x); }; x.send();",
+    );
+    assert_eq!(fake.urls(), vec!["https://page.test/a", "https://page.test/dir/b"], "{log:?}");
+    for want in ["log:fetch true false 200", "log:body A", "log:xhr 200 B true"] {
+        assert!(log.contains(&want.to_string()), "missing {want:?} in {log:?}");
+    }
+}
+
 // ---------- QY8: O(1) sibling access ----------
 
 #[test]

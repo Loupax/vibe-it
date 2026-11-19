@@ -2745,7 +2745,24 @@ const DOM_PRELUDE: &str = r#"
   var ARP = mkProto('HTMLAreaElement', ['area']);
   ['alt', 'coords', 'shape', 'href', 'target', 'rel'].forEach(function (p) { rStr(ARP, p, p); });
   cache[0] = doc;
-  Object.defineProperty(doc, '__id', { value: 0 });
+  // `configurable` only so that an iframe realm can rebind it once (`__d_bind_doc`).
+  Object.defineProperty(doc, '__id', { value: 0, configurable: true });
+  // QPT1a (R53 D2): an iframe realm (a context from the startup snapshot, whose `document` is id 0
+  // here) binds its `document` to the iframe's second document `id`; `base` = the creator's base URL
+  // (an about:blank document's fallback base). Builds <html><head><body> in an empty document.
+  var baseFallback = null;
+  Object.defineProperty(g, '__d_bind_doc', { value: function (id, base) {
+    delete g.__d_bind_doc;
+    delete cache[doc.__id];
+    cache[id] = doc;
+    Object.defineProperty(doc, '__id', { value: id, configurable: false });
+    baseFallback = base || null;
+    Object.defineProperty(doc, 'title', titleDesc);
+    if (!__d_children(id, false).length) {
+      var html = doc.createElement('html'); doc.appendChild(html);
+      html.appendChild(doc.createElement('head')); html.appendChild(doc.createElement('body'));
+    }
+  }, configurable: true });
   Object.defineProperty(doc, 'nodeType', { value: 9 });
   Object.defineProperty(doc, 'nodeName', { value: '#document' });
   queries(doc);
@@ -2873,21 +2890,23 @@ const DOM_PRELUDE: &str = r#"
       return null;
     });
     d.getElementsByName = function (n) { return wrapAll(q(this.__id, '[name="' + String(n).replace(/["\\]/g, '\\$&') + '"]', false)); };
-    Object.defineProperty(d, 'title', { configurable: true, enumerable: true,
-      get: function () {
-        var t = this.getElementsByTagName('title')[0];
-        return t ? t.textContent.replace(/[ \t\n\f\r]+/g, ' ').replace(/^ | $/g, '') : '';
-      },
-      set: function (v) {
-        var t = this.getElementsByTagName('title')[0];
-        if (!t) {
-          var h = this.head; if (!h) return;
-          t = this.createElement('title'); h.appendChild(t);
-        }
-        t.textContent = String(v);
-      } });
+    Object.defineProperty(d, 'title', titleDesc);
     return d;
   };
+  // A second document's `title` reads its <title> (also an iframe realm's document: `__d_bind_doc`).
+  var titleDesc = { configurable: true, enumerable: true,
+    get: function () {
+      var t = this.getElementsByTagName('title')[0];
+      return t ? t.textContent.replace(/[ \t\n\f\r]+/g, ' ').replace(/^ | $/g, '') : '';
+    },
+    set: function (v) {
+      var t = this.getElementsByTagName('title')[0];
+      if (!t) {
+        var h = this.head; if (!h) return;
+        t = this.createElement('title'); h.appendChild(t);
+      }
+      t.textContent = String(v);
+    } };
   var impl = Object.create(DOMImpl.prototype);
   DOMImpl.prototype.createDocumentType = function (name, pub, sys) {
     if (arguments.length < 3) throw new TypeError("Failed to execute 'createDocumentType' on 'DOMImplementation': 3 arguments required, but only " + arguments.length + " present.");
@@ -2955,17 +2974,39 @@ const DOM_PRELUDE: &str = r#"
   // asynchronous `load` event after insertion. Network iframes give null.
   var IFP = mkProto('HTMLIFrameElement', ['iframe']);
   var frames = {};
-  var inPage = function (n) { for (; n && n.parentNode; n = n.parentNode); return !!n && n.__id === 0; };
+  // (QPT1a: "in this realm's document", which is the page in the page realm.)
+  var inPage = function (n) { for (; n && n.parentNode; n = n.parentNode); return !!n && n.__id === doc.__id; };
+  var frameSrc = function (el) { return (__d_attr(el.__id, 'src') || '').replace(/^\s+|\s+$/g, ''); };
   var frameSrcOk = function (el) {
-    var s = (__d_attr(el.__id, 'src') || '').replace(/^\s+|\s+$/g, '');
+    var s = frameSrc(el);
     return s === '' || /^about:blank/i.test(s) || /^data:/i.test(s) || __d_iframe_page(el.__id).length > 0;
   };
+  // QPT1a (R53 D1-D4): an iframe with an empty or about:blank src, or a pre-fetched same-origin
+  // one (QA18b1), gets a real window: its own V8 realm, made from the startup snapshot, whose
+  // `document` is the iframe's second document. `data:` iframes (D4), and every iframe when the
+  // engine has no snapshot (QPT1e), keep the stand-in object below.
+  var standInNoted = false;
   var frameOf = function (el) {
     if (!inPage(el) || !frameSrcOk(el)) return null;
     var f = frames[el.__id];
     if (f) return f;
-    var d = makeDoc(true, 'text/html');
     var pg = __d_iframe_page(el.__id), href = 'about:blank';
+    if (!/^data:/i.test(frameSrc(el))) {
+      var w = g.__scratchy_realm_new();
+      if (w) {
+        var did = __d_newdoc();
+        if (pg.length) { __d_load_html(did, pg[1]); href = pg[0]; }
+        var dim = function (a, dflt) { var v = parseInt(__d_attr(el.__id, a) || '', 10); return v >= 0 ? v : dflt; };
+        w.__scratchy_realm_init({ docId: did, href: href, base: pg.length ? null : doc.baseURI, parent: g, top: g.top,
+          frameElement: el, name: __d_attr(el.__id, 'name') || '', width: dim('width', 300), height: dim('height', 150) });
+        return (frames[el.__id] = { doc: w.document, win: w });
+      }
+      if (!standInNoted) {
+        standInNoted = true;
+        __scratchy_log('warn', 'scratchy: iframe window is a stand-in object: this engine has no V8 startup snapshot (QPT1e)');
+      }
+    }
+    var d = makeDoc(true, 'text/html');
     if (pg.length) {
       // QA18b1: pre-fetched same-origin document; scripts in it never run.
       __d_load_html(d.__id, pg[1]); href = pg[0];
@@ -2985,7 +3026,7 @@ const DOM_PRELUDE: &str = r#"
   def(IFP, 'contentDocument', function () { var f = frameOf(this); return f ? f.doc : null; });
   def(IFP, 'contentWindow', function () { var f = frameOf(this); return f ? f.win : null; });
   IFP.getSVGDocument = function () { return this.contentDocument; };
-  rStr(IFP, 'src', 'src'); rStr(IFP, 'name', 'name'); rStr(IFP, 'width', 'width'); rStr(IFP, 'height', 'height');
+  rStr(IFP, 'src', 'src'); rStr(IFP, 'srcdoc', 'srcdoc'); rStr(IFP, 'name', 'name'); rStr(IFP, 'width', 'width'); rStr(IFP, 'height', 'height');
   afterIns = function (c) {
     if (c.nodeType !== 1 || __d_tag(c.__id).toLowerCase() !== 'iframe' || !inPage(c)) return;
     g.setTimeout(function () { if (inPage(c) && frameSrcOk(c)) c.dispatchEvent(new Event('load')); }, 0);
@@ -2995,7 +3036,8 @@ const DOM_PRELUDE: &str = r#"
   // attributes, getAttributeNames, iterable classList. Pure JS over the
   // attribute natives; the base is `document.baseURI` (honours <base href>).
   var docBase = function () {
-    var b = doc.querySelector('base[href]'), loc = g.location.href;
+    // QPT1a: an about:blank iframe document's fallback base is its creator's base URL (HTML spec).
+    var b = doc.querySelector('base[href]'), loc = baseFallback && g.location.href === 'about:blank' ? baseFallback : g.location.href;
     if (b) { try { return new URL(__d_attr(b.__id, 'href'), loc).href; } catch (e) {} }
     return loc;
   };

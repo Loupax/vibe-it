@@ -367,6 +367,8 @@ struct State {
     /// QV8-3c: compiled modules by URL, and URL by module identity hash.
     mod_cache: std::collections::HashMap<String, v8::Global<v8::Module>>,
     mod_names: std::collections::HashMap<i32, String>,
+    /// QPT1a (R53 D1): the iframe realms made by `__scratchy_realm_new` (QPT1b drops them).
+    realms: Vec<Option<v8::Global<v8::Context>>>,
 }
 
 fn state<'a>(ctx: &Ctx<'_>) -> &'a mut State {
@@ -700,6 +702,39 @@ pub(crate) fn mark_htmldda(ctx: &Ctx<'_>, name: &str) {
              Object.defineProperty(document, 'all', { get: function () { return w; }, configurable: true, enumerable: true }); })();",
         );
     }
+}
+
+/// QPT1a (R53 D1): `__scratchy_realm_new()` makes a same-origin iframe realm the way Chrome does:
+/// a second context in the page's isolate, deserialised from the startup snapshot's page context 0
+/// (every native and prelude already in it, so it has its own built-ins: `w.String !== String`),
+/// with the security token of the calling context (all realms of a page share the page's token, so
+/// their global proxies may reach each other; a context's default token is its own global). Each
+/// realm gets its own `document.all` (QY40). Returns the realm's global proxy, or `undefined` when
+/// this engine was not made from the snapshot (the caller keeps its stand-in; QPT1e). The caller
+/// binds the realm to its frame (`__scratchy_realm_init`). A native called from the realm runs in
+/// the realm's context (V8 enters a function's creation context) with the page's closures and
+/// `DomTable`, so the realm drives its iframe document by node id as the page does.
+pub(crate) fn install_realm_native(ctx: &Ctx<'_>) {
+    register(ctx, "__scratchy_realm_new", |ctx: Ctx<'_>| -> JsResult<RawValue> {
+        let sc = ctx.sc();
+        if !state(&ctx).attached {
+            return Ok(RawValue(st(v8::undefined(sc).into())));
+        }
+        let token = sc.get_current_context().get_security_token(sc);
+        let Some(c) = v8::Context::from_snapshot(sc, 0, Default::default()) else {
+            return Err(JsError::Msg("iframe realm: the startup snapshot has no page context".into()));
+        };
+        c.set_security_token(token);
+        {
+            let cs = &mut v8::ContextScope::new(sc, c);
+            let rctx = Ctx::new(cs);
+            mark_htmldda(&rctx, "__d_all");
+            remove_global(&rctx, "__d_all");
+        }
+        let g = v8::Global::new(sc, c);
+        state(&ctx).realms.push(Some(g));
+        Ok(RawValue(st(c.global(sc).into())))
+    });
 }
 
 // ---------------------------------------------------------------- errors
@@ -1382,7 +1417,7 @@ impl Engine {
         isolate.set_host_import_module_dynamically_callback(dyn_import_cb);
         isolate.set_host_initialize_import_meta_object_callback(import_meta_cb);
         let arena = snap.map(|s| (0..s.count).map(|_| None).collect()).unwrap_or_default();
-        isolate.set_slot(State { arena, attached: snap.is_some(), names: snap.map(|s| &s.names), recorded: baking.then(Default::default), pending: None, terminated: false, oom: false, modules: opts.page.clone(), mod_cache: Default::default(), mod_names: Default::default() });
+        isolate.set_slot(State { arena, attached: snap.is_some(), names: snap.map(|s| &s.names), recorded: baking.then(Default::default), pending: None, terminated: false, oom: false, modules: opts.page.clone(), mod_cache: Default::default(), mod_names: Default::default(), realms: Vec::new() });
         JOBS.with(|j| j.set(0));
         PENDING.with(|p| p.set(false));
         OOM.with(|o| o.set(false));

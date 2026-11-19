@@ -1030,13 +1030,16 @@
     if (res.error === 'timeout') return domErr('TimeoutError', 'The request timed out.');
     return new TypeError('Failed to fetch');
   }
-  def(g, '__net_request', function (init) {
+  // `mk` (QPT1a): an iframe realm's own response builder, so its fetch/XHR answers are its own
+  // `Response` objects although the request goes through the page's queue (`__net_fwd`).
+  def(g, '__net_request', function (init, mk) {
     var signal = init.signal;
+    mk = mk || build;
     if (init.sync) {
       var sid = g.__net_send(descOf(init));
       var sres = g.__net_sync_result(sid);
       if (!sres || sres.error) throw domErr('NetworkError', "Failed to execute 'send' on 'XMLHttpRequest': Failed to load '" + init.url + "'.");
-      return { id: sid, response: build(sres) };
+      return { id: sid, response: mk(sres) };
     }
     if (signal && signal.aborted) {
       return { id: 0, promise: Promise.reject(signal.reason), abort: function () {} };
@@ -1044,7 +1047,7 @@
     var h = { id: 0 };
     h.promise = new Promise(function (resolve, reject) {
       var onabort = null;
-      var entry = { raw: !!init.raw, resolve: resolve, reject: reject, cleanup: function () { if (signal && onabort) signal.removeEventListener('abort', onabort); } };
+      var entry = { raw: !!init.raw, mk: mk, resolve: resolve, reject: reject, cleanup: function () { if (signal && onabort) signal.removeEventListener('abort', onabort); } };
       h.id = g.__net_send(descOf(init));
       pending[h.id] = entry;
       h.abort = function (reason) {
@@ -1067,7 +1070,14 @@
     delete pending[res.id];
     p.cleanup();
     if (res.error) p.reject(failure(res));
-    else p.resolve(p.raw ? res : build(res));
+    else p.resolve(p.raw ? res : p.mk(res));
+  });
+  // QPT1a (R53 D5): an iframe realm sends through its parent's request table (Rust completes requests
+  // in the page context only), building the answers with its own classes.
+  def(g, '__net_fwd', function (p) {
+    var pr = p.__net_request;
+    def(g, '__net_request', function (init) { return pr(init, build); });
+    delete g.__net_fwd;
   });
 })(globalThis);
 
