@@ -1215,6 +1215,8 @@ fn qy52_unrelated_writes_keep_cached_styles_and_stylesheets_invalidate() {
     assert_eq!(crate::rules_cache::PIECES_PARSED.with(|c| c.get() as u64) - p0, 1, "only the new <style> is parsed");
     assert_eq!(ev("st.textContent='.t{color:rgb(2,2,2)}'; rd()"), "rgb(2, 2, 2)");
     assert_eq!(crate::rules_cache::PIECES_PARSED.with(|c| c.get() as u64) - p0, 2);
+    // QMEM3e: the page's rules are the layout cache's, StyleCache parses nothing of its own.
+    assert_eq!(crate::js_style::parse_count(), 0, "StyleCache must not parse the page's CSS itself");
 }
 
 // ---------- QY53c: only connected, value-changing writes invalidate geometry ----------

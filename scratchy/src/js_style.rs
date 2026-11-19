@@ -501,16 +501,7 @@ impl StyleCache {
         if page {
             // QMEM3e: the layout build's parsed rules (each piece is parsed once for both).
             let _ = crate::rules_cache::cached_rules_for(root, crate::rules_cache::Extra::Ver(ver));
-            let Some((rules, generation, has, sib)) = crate::rules_cache::current() else { return };
-            if self.shared_gen == Some(generation) {
-                return;
-            }
-            self.shared_gen = Some(generation);
-            self.index = Some(RuleIndex::build(&rules));
-            self.map.clear();
-            self.root_inherited = None;
-            self.has_rules = has;
-            self.sib_rules = sib;
+            self.adopt_shared();
             return;
         }
         let mut keys: Vec<PieceKey> = Vec::new();
@@ -530,6 +521,22 @@ impl StyleCache {
         self.root_inherited = None;
         self.has_rules = self.ua_flags.0 || self.pieces.iter().any(|p| p.has);
         self.sib_rules = self.ua_flags.1 || self.pieces.iter().any(|p| p.sib);
+    }
+
+    /// QMEM3e: the layout cache's current rule list. The layout build (a forced layout, the App) can
+    /// replace it between two reads without a DOM write this cache saw, so the generation is checked
+    /// on every use: a different one drops the index and every cached style.
+    fn adopt_shared(&mut self) -> Option<Rc<Vec<StyleRule>>> {
+        let (rules, generation, has, sib) = crate::rules_cache::current()?;
+        if self.shared_gen != Some(generation) {
+            self.shared_gen = Some(generation);
+            self.index = Some(RuleIndex::build(&rules));
+            self.map.clear();
+            self.root_inherited = None;
+            self.has_rules = has;
+            self.sib_rules = sib;
+        }
+        Some(rules)
     }
 
     /// Replaces only the changed middle of the rule list; false when it cannot be done safely.
@@ -610,7 +617,7 @@ impl StyleCache {
     /// is not an element connected to `root` (CSSOM: all-empty values).
     pub(crate) fn style_of(&mut self, root: &Handle, wgen: u64, h: &Handle, pseudo: Option<&str>, page: bool) -> Option<ComputedStyle> {
         self.refresh(root, wgen, page);
-        let rules = if self.shared { crate::rules_cache::current()?.0 } else { self.rules.clone()? };
+        let rules = if self.shared { self.adopt_shared()? } else { self.rules.clone()? };
         // Ancestor chain, outermost first; must end at the document.
         let mut chain = Vec::new();
         let mut cur = h.clone();
