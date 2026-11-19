@@ -460,7 +460,7 @@ older and were only partly corrected in place):
   QM1k1l/QM1k1m/QM1k-u small; QM1k-r with the user. QM1k1n DONE 2026-11-19 (R42 section 5:
   YouTube parks the `<video>` at `top:-360px` until `playing`, page design; the 40-60 s picture
   gap is QY53 + the `vid=no` round trip): QM1k1n1 DONE (93b7bc0), QM1k1n2 DONE 2026-11-19
-  (R42 section 6: start 3-6x faster; NEXT YouTube blockers in order: QM1k1n4 [P1, second init
+  (2163172, R42 section 6: start 3-6x faster; NEXT YouTube blockers in order: QM1k1n4 [P1, second init
   segment freezes playback], QM1k1n5 [P1, fetch results 1-19 s late -> SABR aborts], then
   QY53d -> QY53e -> QY53g -> QY53f and QM1k1n6 [redraw starvation, Opus design], QM1k1n7 [P3]),
   QM1k1n3 (P3).
@@ -1261,7 +1261,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       the box in view composites a decoded frame (not black/poster). Acceptance: on the R42 URL
       no `vid="no"` in the mpv log after the click, first picture within one redraw of the box
       appearing; mpv CPU while off-screen reported in the PR.
-- [x] QM1k1n2 [S] DONE 2026-11-19 (REGRESSIONS.md R42 section 6; docs only. click -> `playing`
+- [x] QM1k1n2 [S] DONE 2026-11-19 (2163172, REGRESSIONS.md R42 section 6; docs only. click -> `playing`
       6.9 s (was 37.8), box 3.1 s after the style write (was 23.4), page painted by ~28 s (was
       45-50); but at most 18.5 s of video: next blockers QM1k1n4, QM1k1n5, QM1k1n6, QM1k1n7 below,
       then QY53d/e/g/f) (P2, R42 section 5, Opus measure, after QY53a+QY53b+QY53c) Re-measure the

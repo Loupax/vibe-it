@@ -331,7 +331,7 @@ not; reasoning only); the cost in mpv CPU of decoding while off-screen (QM1k1n1 
 domain); which of `lX`'s conditions flips first (player state only seen through `#movie_player`'s
 classes, `unstarted-mode` / `paused-mode` / `playing-mode`); audio/A-V sync (ao=null).
 
-### 6. QM1k1n2 (Opus investigator, 2026-11-19): the timeline re-measured after QY53a+b+c and QM1k1n1
+### 6. QM1k1n2 (Opus investigator, 2026-11-19, commit 2163172): the timeline re-measured after QY53a+b+c and QM1k1n1
 **Answer: everything up to `playing` is now 3-6x faster (click -> `playing` 6.9 s instead of 37.8 s
 when data is buffered; box on screen 3.1 s after the style write instead of 23.4 s; page painted by
 ~28 s instead of 45-50 s), but no run played more than 18.5 s of video. The NEXT blocker is a
