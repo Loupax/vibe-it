@@ -45,6 +45,21 @@ fn queue_outs(host: &Rc<RefCell<MediaHost>>, q: &Queue, outs: Vec<crate::media_e
 
 pub(crate) fn install_media<'js>(ctx: &Ctx<'js>, ctxb: BackendCtx, log: crate::media_el::MediaLog) -> Rc<RefCell<MediaHost>> {
     let host = Rc::new(RefCell::new(MediaHost::new(ctxb, log)));
+    {
+        let w = Rc::downgrade(&host);
+        let w2 = w.clone();
+        crate::perf::register_probe("media_elements", move || w2.upgrade().and_then(|h| h.try_borrow().ok().map(|h| (h.mem_stats().0, 0))).unwrap_or((0, 0)));
+        crate::perf::register_probe("mse_store", move || {
+            w.upgrade()
+                .and_then(|h| {
+                    h.try_borrow().ok().map(|h| {
+                        let m = h.mem_stats();
+                        (m.1, m.2)
+                    })
+                })
+                .unwrap_or((0, 0))
+        });
+    }
     let queue: Queue = Default::default();
     // Runs `f` on the core, queues the page-visible outs.
     macro_rules! ctl {

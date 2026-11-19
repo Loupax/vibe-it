@@ -81,6 +81,13 @@ impl Drop for Segment {
     }
 }
 
+/// QOBS7: spare segments this thread keeps mapped, and the virtual bytes they span
+/// (`MAP_NORESERVE`: only the pages a deep walk touched are resident).
+pub(crate) fn spare_segments() -> (usize, usize) {
+    let n = SPARE.with(|s| s.borrow().len());
+    (n, n * SEGMENT)
+}
+
 /// Runs `f`, on another stack segment if the current stack has less than `RED_ZONE` left.
 #[inline(always)]
 pub(crate) fn grow<R>(f: impl FnOnce() -> R) -> R {

@@ -1426,6 +1426,11 @@ impl MediaHost {
         }
     }
 
+    /// QOBS7: `(media elements with a core, MediaSource feeds, bytes stored in the feeds)`.
+    pub(crate) fn mem_stats(&self) -> (usize, usize, usize) {
+        (self.els.len(), self.mse.feeds.len(), self.mse.feeds.values().map(|f| f.stored_bytes()).sum())
+    }
+
     pub(crate) fn backend_available(&mut self) -> bool {
         if self.avail.is_none() {
             self.avail = Some((self.factory)(&self.ctx).available());

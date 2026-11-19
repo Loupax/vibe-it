@@ -437,3 +437,50 @@ fn qobs3_phases_add_up_to_the_forced_layout_total() {
     assert!(fl.get("style_resolves").num() >= 1500.0 * 3.0);
     assert!(fl.get("elements").num() >= 1500.0 * 3.0);
 }
+
+#[test]
+fn qobs7_memory_fields_are_present() {
+    let _g = PerfGuard;
+    let j = qobs3_report("mem", "<p id=a>x</p><script>document.getElementById('a').offsetWidth;</script>");
+    let m = j.get("memory");
+    assert!(m.get("rss_bytes").num() > 0.0);
+    assert!(m.get("peak_rss_bytes").num() >= m.get("rss_bytes").num() * 0.5);
+    assert!(m.get("js_heap").get("used").num() > 0.0);
+    m.get("js_heap").get("total");
+    m.get("js_heap").get("external");
+    let c = m.get("caches");
+    for name in [
+        "custom_props_interner",
+        "custom_props_memo",
+        "shape_memo",
+        "rules_cache",
+        "rule_index_hover_keys",
+        "svg_sized_cache",
+        "image_cache",
+        "style_cache",
+        "mse_store",
+        "geom_rects",
+        "geom_glyphs",
+    ] {
+        c.get(name).get("entries").num();
+        c.get(name).get("bytes").num();
+    }
+    m.get("stack_segments").get("kept").num();
+    m.get("media_players").num();
+    // The forced layout above filled the per-engine geometry cache.
+    assert!(c.get("geom_rects").get("entries").num() > 0.0, "{c:?}");
+    assert!(m.get("caches_bytes").num() > 0.0);
+}
+
+#[test]
+fn qobs7_an_interned_table_shows_up_in_the_interner_count() {
+    let before = crate::css::custom_props_mem().0;
+    let mut t = crate::css::CustomProps::new();
+    t.insert("--qobs7-probe".into(), "a-value-of-some-length".into());
+    let a = crate::css::intern_custom_props(t.clone());
+    let b = crate::css::intern_custom_props(t);
+    assert!(std::ptr::eq(a, b));
+    let after = crate::css::custom_props_mem().0;
+    assert_eq!(after.0, before.0 + 1);
+    assert!(after.1 > before.1);
+}

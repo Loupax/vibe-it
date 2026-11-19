@@ -5706,3 +5706,20 @@ pub(crate) fn in_flow_bottom(l: &Laid) -> f32 {
 pub(crate) fn shrink_to_fit(min_mb: f32, max_mb: f32, avail: f32) -> f32 {
     avail.max(min_mb).min(max_mb)
 }
+
+/// QOBS7: `(entries, approx bytes)` of this thread's `SHAPE_MEMO` (the shaping worker's
+/// own copy is not reachable). Each paragraph is estimated at ~32 bytes per source character
+/// of shaped text plus the fixed tuple; cosmic-text's buffers are opaque, so this is rough.
+pub(crate) fn shape_memo_mem() -> (usize, usize) {
+    SHAPE_MEMO.with(|m| {
+        let m = m.borrow();
+        let b = m
+            .values()
+            .map(|p| {
+                std::mem::size_of::<ShapedParagraph>()
+                    + p.try_lock().map_or(0, |g| g.0.lines.iter().map(|l| l.text().len() * 32).sum::<usize>())
+            })
+            .sum();
+        (m.len(), b)
+    })
+}

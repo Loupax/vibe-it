@@ -157,6 +157,86 @@ thread_local! {
     static IO_FLAG: Cell<bool> = const { Cell::new(false) };
     /// QOBS3: the page caller of the layout about to run (set by the native, taken by `refresh`).
     static CALLER: RefCell<Option<String>> = const { RefCell::new(None) };
+    /// QOBS7: memory probes registered by per-engine caches (`name -> () -> (entries, approx bytes)`).
+    static PROBES: RefCell<Vec<(&'static str, Probe)>> = const { RefCell::new(Vec::new()) };
+}
+
+type Probe = Box<dyn Fn() -> (usize, usize)>;
+
+/// QOBS7: registers a cache that lives in a per-engine `Rc` (not a thread-local) so the report
+/// can size it at the end of the run. A no-op unless the recorder is on, so a normal run pays nothing.
+pub(crate) fn register_probe(name: &'static str, f: impl Fn() -> (usize, usize) + 'static) {
+    if enabled() {
+        PROBES.with(|p| p.borrow_mut().push((name, Box::new(f))));
+    }
+}
+
+/// Peak resident set size in bytes (`getrusage` ru_maxrss, kilobytes on Linux; 0 on failure).
+pub(crate) fn peak_rss_bytes() -> u64 {
+    // SAFETY: getrusage fills the zeroed struct we pass.
+    unsafe {
+        let mut u: libc::rusage = std::mem::zeroed();
+        if libc::getrusage(libc::RUSAGE_SELF, &mut u) != 0 {
+            return 0;
+        }
+        u64::try_from(u.ru_maxrss).unwrap_or(0) * 1024
+    }
+}
+
+/// QOBS7: the `memory` member of the report, taken once at the end of the run. Byte figures of
+/// caches are ESTIMATES (string and Vec capacities plus fixed per-entry overheads), not allocator
+/// truth; `engine` is the page's engine (None when the page had no scripts).
+pub(crate) fn memory_json(engine: Option<&crate::js::JsEngine>) -> String {
+    let mut caches: Vec<(&'static str, (usize, usize))> = Vec::new();
+    let mut add = |name: &'static str, v: (usize, usize)| match caches.iter_mut().find(|c| c.0 == name) {
+        Some(c) => {
+            c.1.0 += v.0;
+            c.1.1 += v.1;
+        }
+        None => caches.push((name, v)),
+    };
+    let (interner, memo) = crate::css::custom_props_mem();
+    add("custom_props_interner", interner);
+    add("custom_props_memo", memo);
+    add("shape_memo", crate::layout::shape_memo_mem());
+    let (rules, index) = crate::style::rules_cache_mem();
+    add("rules_cache", rules);
+    add("rule_index_hover_keys", index);
+    add("svg_sized_cache", crate::images::svg_sized_cache_mem());
+    // The perf run has no App, so there is no image cache to size.
+    add("image_cache", (0, 0));
+    for n in ["style_cache", "mse_store", "geom_rects", "geom_glyphs", "media_elements"] {
+        add(n, (0, 0));
+    }
+    PROBES.with(|p| {
+        for (name, f) in p.borrow().iter() {
+            add(name, f());
+        }
+    });
+    let players = caches.iter().find(|c| c.0 == "media_elements").map_or(0, |c| c.1.0);
+    caches.retain(|c| c.0 != "media_elements");
+    let total: usize = caches.iter().map(|c| c.1.1).sum();
+    let body: Vec<String> = caches.iter().map(|(n, (e, b))| format!("\"{n}\":{{\"entries\":{e},\"bytes\":{b}}}")).collect();
+    let (heap, js) = match engine {
+        Some(e) => {
+            let (u, t, x) = e.eng.heap_stats();
+            (u.max(0), format!("{{\"used\":{},\"total\":{},\"external\":{}}}", u.max(0), t.max(0), x.map_or("null".to_string(), |x| x.max(0).to_string())))
+        }
+        None => (0, "{\"used\":null,\"total\":null,\"external\":null}".to_string()),
+    };
+    let (seg, seg_bytes) = crate::stack::spare_segments();
+    format!(
+        "\"memory\":{{\"rss_bytes\":{},\"peak_rss_bytes\":{},\"js_heap\":{},\"caches\":{{{}}},\"caches_bytes\":{},\"explained_bytes\":{},\"stack_segments\":{{\"kept\":{},\"mapped_bytes\":{}}},\"media_players\":{}}}",
+        rss_bytes(),
+        peak_rss_bytes(),
+        js,
+        body.join(","),
+        total,
+        total as i64 + heap,
+        seg,
+        seg_bytes,
+        players
+    )
 }
 
 /// QOBS3: a phase timer; adds its thread CPU to the phase when dropped. `None` (free) unless a forced layout is recorded.
@@ -241,6 +321,7 @@ pub(crate) fn start() {
     REC.with(|r| {
         *r.borrow_mut() = Rec { start: Some((Instant::now(), thread_cpu_nanos())), ..Default::default() };
     });
+    PROBES.with(|p| p.borrow_mut().clear());
     ON.with(|o| o.set(true));
 }
 
@@ -748,11 +829,13 @@ pub(crate) fn perf_report(opts: &ReportOpts) -> String {
     }
     let challenge = looks_like_challenge(&html);
     let outcome = if challenge { "challenge" } else { "ok" };
+    let memory = memory_json(engine.as_ref());
     stop();
     format!(
-        "{{{},{},\"js_heap_bytes\":{},\"rss_bytes\":{},\"js_errors\":{},\"console_errors\":{}}}",
+        "{{{},{},{},\"js_heap_bytes\":{},\"rss_bytes\":{},\"js_errors\":{},\"console_errors\":{}}}",
         envelope(opts, outcome, challenge, html.len(), &page_title(&html)),
         body_json(),
+        memory,
         heap.max(0),
         rss_bytes(),
         errors.get(),

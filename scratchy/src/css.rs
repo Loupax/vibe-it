@@ -6126,6 +6126,31 @@ thread_local! {
     pub(crate) static CUSTOM_PROPS_MEMO_HITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
+/// QOBS7: `(entries, approx bytes)` of the interner (each distinct table is held twice: the
+/// map key and the leaked copy) and of the QY53i memo. Estimates: string capacities plus a
+/// fixed per-entry overhead; never exact.
+pub(crate) fn custom_props_mem() -> ((usize, usize), (usize, usize)) {
+    fn table(m: &CustomProps) -> usize {
+        m.iter().map(|(k, v)| k.capacity() + v.capacity() + 2 * 24 + 16).sum::<usize>() + 24
+    }
+    let interner = CUSTOM_PROPS_INTERNER.with(|i| {
+        let i = i.borrow();
+        (i.len(), i.keys().map(|k| 2 * table(k) + 8 + 24).sum())
+    });
+    let memo = CUSTOM_PROPS_MEMO.with(|m| {
+        let m = m.borrow();
+        let n: usize = m.values().map(Vec::len).sum();
+        let b = m
+            .values()
+            .flatten()
+            .map(|e| std::mem::size_of::<CustomPropsMemoEntry>() + e.own.iter().map(|(k, v)| k.len() + v.len() + 32).sum::<usize>())
+            .sum::<usize>()
+            + m.len() * 40;
+        (n, b)
+    });
+    (interner, memo)
+}
+
 /// Computes an element's custom properties: the parent's table overlaid
 /// with this element's own `--name` declarations (highest specificity,
 /// later rule on ties, inline last), each own value `var()`-substituted

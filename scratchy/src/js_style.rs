@@ -468,6 +468,14 @@ fn parse_all(keys: &[PieceKey]) -> Parsed {
 }
 
 impl StyleCache {
+    /// QOBS7: `(entries, approx bytes)`: the per-element style map by capacity, the parsed
+    /// rules (selector heap not counted) and the rule index (counted by entry only).
+    pub(crate) fn mem_estimate(&self) -> (usize, usize) {
+        let map = self.map.capacity() * (std::mem::size_of::<((usize, u8), Entry)>() + 1);
+        let rules = self.rules.as_ref().map_or(0, |r| r.capacity() * std::mem::size_of::<StyleRule>());
+        (self.map.len(), map + rules + self.pieces.capacity() * std::mem::size_of::<Piece>() + self.flags.capacity())
+    }
+
     /// Brings the rule set up to date for DOM generation `wgen`: only the
     /// stylesheet pieces that changed are re-parsed (QY52).
     fn refresh(&mut self, root: &Handle, wgen: u64, page: bool) {

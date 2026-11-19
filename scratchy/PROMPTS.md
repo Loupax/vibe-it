@@ -7724,3 +7724,10 @@ Done: R38. The `true` is `<img alt="true">` (YouTube calls `setAttribute('alt', 
 **Prompt:** Implement QP3: measure the first-paint cost of font-match cache misses (FontMatchKey::new, fontdb with_face_data mmap) on Wikipedia Rust and YouTube watch with tools/profile.sh; if > 20 ms per page call make_shared_face_data in new_font_system_with and measure RSS, else close as not worth it with the numbers.
 
 **What changed:** REGRESSIONS.md R32 QP3 addendum only (no code). Miss path measured <= ~10 ms per page (Wikipedia: with_face_data 4 ms, get_font_matches 8 ms; YouTube: 1 and 2 ms), so the shared-face-data change was not made.
+
+
+## QOBS7: memory breakdown in --perf-report (scratchy/qobs7-memory-breakdown, Sonnet)
+
+**Prompt:** Add `memory` to the schema-2 `--perf-report`: rss and peak rss, JS heap used/total/external, entries and approximate bytes of the long-lived caches (custom-props interner and memo, shape memo, rules cache + rule index/hover keys, SVG sized cache, image cache, style cache, MSE store, geometry rects/glyphs), QSTK1 stack segments, media players alive; take it once at the end; paste the YouTube numbers and the share of RSS explained.
+
+**What changed:** src/perf.rs (`memory_json`, `peak_rss_bytes`, `register_probe`: per-engine Rc caches register weak probes only while the recorder is on), small `mem_estimate`/`*_mem` accessors in css.rs, style.rs, layout.rs, images.rs, js_style.rs, js_geom.rs, media_el.rs, mse_store.rs, stack.rs, `heap_stats` on both JS engines, PERF.md glossary, tests in perf_tests.rs.

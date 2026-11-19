@@ -805,6 +805,10 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     // QA16: serialised computed value of `prop` (dashed) for element `id`.
     let (t, gn) = (table.clone(), wgen.clone());
     let cache = Rc::new(RefCell::new(js_style::StyleCache::default()));
+    {
+        let w = Rc::downgrade(&cache);
+        crate::perf::register_probe("style_cache", move || w.upgrade().and_then(|c| c.try_borrow().ok().map(|c| c.mem_estimate())).unwrap_or((0, 0)));
+    }
     native!(ctx, "__d_cs", move |id: i32, pseudo: String, prop: String| -> String {
         let (page, h) = {
             let t = t.borrow();
@@ -838,6 +842,20 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     let t = table.clone();
     let geom = Rc::new(RefCell::new(crate::js_geom::GeomCache::default()));
     let geom2 = geom.clone();
+    for glyphs in [false, true] {
+        let w = Rc::downgrade(&geom);
+        let name = if glyphs { "geom_glyphs" } else { "geom_rects" };
+        crate::perf::register_probe(name, move || {
+            w.upgrade()
+                .and_then(|g| {
+                    g.try_borrow().ok().map(|g| {
+                        let (r, gl) = g.mem_estimate();
+                        if glyphs { gl } else { r }
+                    })
+                })
+                .unwrap_or((0, 0))
+        });
+    }
     let (geom3, geom4) = (geom.clone(), geom.clone());
     let geom5 = geom.clone();
     native!(ctx, "__d_rect", move |c: Ctx<'_>, id: i32, vw: f64, vh: f64| -> Vec<f64> {
