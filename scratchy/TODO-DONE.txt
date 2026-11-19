@@ -6893,3 +6893,20 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       chapter hover container, state classes), then make them cheap: skip no-op invalidations, or a scoped re-layout of the
       controls subtree instead of the whole document. Gate (R46 recipe on the post-QCUR1 build, controls visible, pointer
       moving): video painted median >= 25/s, lat_p95 <= 100 ms, forced layouts per second while visible <= 3 or <= 15 ms each.
+
+=== from TODO.txt: --- Rust `__*` native wrapped in a JS timer); none of it was committed. -------
+- [x] QM1k1n5 DONE 7b50455 #374 not reproduced on main (median ~41 ms); guard test + R42 6a [S] READY (P1, R42 section 6, Sonnet, measure first) Page network results reach JS
+      1-19 s after wire finished them (run 3: wire done after 0.01-0.95 s, delivered after
+      1.1-19.1 s, median ~5 s), so YouTube's own timeout aborts most SABR fetches first (run 2: 18
+      of the first 22; run 3: 7 of 17; 1.1-3.6 MB downloads thrown away) and playback starts late
+      (run 3: first media 16.4 s after the click). Measure first where `AppEvent::JsNet` waits
+      (winit user-event queue vs scratchy's timer/task pump draining several page tasks per turn;
+      temporary `Instant` stamps on send, on receipt in `user_event`, on `deliver_net`). Then make
+      a finished request be delivered before any timer or task that became due after it arrived
+      (one fair queue, or check the net results between page tasks). Test: a fetch whose response
+      arrives while a chain of busy timers runs is delivered before the next timer callback;
+      `AbortSignal.timeout(…)`-style abort does not win against a response that arrived earlier.
+      USER RUN 2026-11-19 18:54 (QM1k1n6b 60925e7 build; scratchpad user-runs/fs4-user-yt-n6b.jsonl): main-thread stalls
+      are gone at startup (gaps > 1 s: 2), but for ~5 s after play mpv renders 0 new frames (painted 7-12/s = repaints);
+      >= 20 fps only 8 s after the first frame. The slow start is now media data arriving late: measure this first
+      (QOBS6's per-request delivery delay, or temporary stamps), it is the next user-visible startup cost.
