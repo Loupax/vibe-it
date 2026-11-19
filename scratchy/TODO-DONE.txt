@@ -6938,3 +6938,24 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 - [x] QOBS5c DONE f21cdb6 #379 frame-stats by_caller top 3 + longest callback [S] (P2, from QM1k1n6, R46; Sonnet; app.rs/perf.rs: not alongside QM1k1n6a-c) frame-stats lines get
       `forced.by_caller` top 3 and the longest callback's source per second (window mode today has neither). Gate: present
       on the R46 recipe; overhead <= 2 %.
+
+=== from TODO.txt: --- Rust `__*` native wrapped in a JS timer); none of it was committed. -------
+- [x] QM1k2 DONE 636d2a1 #376 R52 research: iframe realm -> no PoToken; fixes QPT1-7 await the user [M, Opus, investigate only] BYPASSES THE QUEUE (user 2026-11-19 ~20:30: start the RESEARCH at the top of the next
+      session in one agent slot, alongside the perf queue; its fix list then gets sized and the user decides which fixes go
+      ahead of the remaining perf items; was PARKED 2026-11-18, Q4.1: ~60 s is the first
+      UNPARKED 2026-11-19 (user): "work on it once we are satisfied with the performance". Runs right AFTER the
+      performance queue (after QPROF1 and the items it files), BEFORE the rest of the backlog. Evidence that it is THE
+      stop today (QM1k-stop, 15:37 run): SABR answered STREAM_PROTECTION_STATUS 3 (attestation required) 10x from ~7 s
+      after play, then `ump.spsrejectfailure` -> the player's own stopVideo() and error overlay at ~30 s, with a full
+      64 s buffer. Scope: Opus research only: which BotGuard probes run in scratchy, which fail/throw/look odd, why no
+      valid PoToken results; output a sized fix list. Honest only: scratchy must EARN the token by running YouTube's own
+      script faithfully. Never forge, replay, borrow or fetch tokens from elsewhere; never disguise scratchy as
+      another browser.
+      milestone; PoToken research LATER, after QM1k-m2) YouTube
+      attestation: with the R34 stub YouTube served 0-60 s, then UMP
+      STREAM_PROTECTION_STATUS 2 -> 3 (attestation required, max retries 10) and only
+      ~123-byte responses. BotGuard ran (`www.google.com/js/th/*.js` 200, POST
+      `/api/jnn/v1/GenerateIT` 200, 128 B, body 2443 B) under `--run-timers`' simulated
+      clock. Find out in a LIVE window (real clock) whether status reaches 1/OK, and if not,
+      which JS gap breaks the token (no login, no hand-made tokens, no third-party
+      PoToken services).
