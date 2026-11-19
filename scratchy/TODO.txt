@@ -1073,7 +1073,7 @@ Shared rules for this block:
       id table); add `memory` probes. Gate: explained bytes >= 60 % of (anonymous RSS - malloc free bytes).
 - [ ] QMEM3g [M] (P3, from QMEM3b #380 R48; Sonnet) Feature-gated counting `#[global_allocator]` (sampling, live-pointer
       table, backtrace) + a resolve script, so the next heap breakdown needs no throwaway patch (QMEM3b's prototype:
-      session scratchpad mp/memprof.rs.txt + hooks.diff; copy it into the PR before the scratchpad is gone).
+      /home/loupax/src/vibe-it/.coordinator/artifacts/qmem3b/memprof.rs.txt + hooks.diff, not in git).
 - [ ] QMEM3h [S] (P3, from QMEM3b; Sonnet) Probes for V8 off-heap memory (`malloced_memory`, ArrayBuffer backing stores) and
       per-library mapped RSS, to name the ~20-25 MB of C++ malloc (V8, libmpv).
 - [ ] QMEM3j [S] (P2, from QMEM3b; same family as QY53o3c; Opus measure then Sonnet) SHAPE_MEMO holds ~60 MB of cosmic-text
