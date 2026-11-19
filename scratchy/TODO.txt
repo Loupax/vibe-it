@@ -34,7 +34,6 @@ A perf item that turns out to be wrong or bigger than its size: stop and report,
 PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; search the name; steps 1-3 are done, see TODO-DONE.txt):
  Ahead of this list by user decision (2026-11-19): QPT1 [WIP design] (iframe realm, YouTube PoToken).
  Step 4, the main thread in the live window (YouTube playback, scrolling, mouse):
-  14a5 QYTC1a [WIP] [M, P1] contained style writes (YouTube controls-visible forced layouts, R50); then QYTC1b, QYTC1c
   14b Q33b2 [S] real innerWidth/innerHeight + forced-layout viewport = window size (QY53e3: prerequisite of QY53e2) | Tier 7
   14d [WIP] QY53m [S] App::js_sync skips the restyle after no-op write batches (after QM1k1n6: same code)
   15 QY53e2 [M]  IO uses the App's own layout                                       | QY53 block
@@ -45,7 +44,7 @@ PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; sea
   24 QY33 [M] YouTube post-load timer callbacks over budget: re-measure first (numbers are QuickJS-era)
   26 QY47b [S] fewer JS frames per createElement
   27 QOBS9 [S, Opus] re-baseline PERF.md on the new machine (after 9, 18, 20)
-  28 QM1k-mouse: user re-tested 2026-11-19 22:21: still slow while the controls show (= QYTC1 cause); re-test after QYTC1a
+  28 QM1k-mouse: user re-tested 2026-11-19 22:21: still slow while the controls show (= QYTC1 cause); QYTC1a merged 9219065 -> ASK THE USER TO RE-TEST (quiet machine)
  Step 6, re-profile before leaving performance (user 2026-11-19):
   29 QPROF1 [M, Opus, measure only] LAST performance item: runs when every item above is done, blocked or
      waiting for the user. The backlog does NOT start until it is done and any items it files are worked off.
@@ -1077,11 +1076,6 @@ Shared rules for this block:
       DATA (QMEM3c): with the arena cap (QMEM3a), YT watch after 60 s still has malloc free_kept = 111 MB (in_use 133 MB) of ~496 MB RSS.
 - [ ] QMEM3f [S] (P4, from QMEM3; Opus measure) 10-minute live-window RSS sample on YT watch: the window grows ~0.22 MB/s
       in the first minute; leak or warm-up?
-- [ ] [WIP] QYTC1a [M] (P1, from QYTC1 R50; Sonnet; AFTER QY53o1 merges: same `__d_setattr` -> `geom_bump_attr` hook in js_dom.rs)
-      Contained inline-style writes: a `style` write whose parsed declarations differ only in paint-only fields, a translate,
-      or px `left`/`top` on an abs/fixed box with definite width shifts the cached rects in place (GeomCache flat skeleton)
-      instead of bumping the geometry generation. Full text, bail-outs and tests: REGRESSIONS.md R50 "QYTC1a". Expected
-      (estimate): YT controls-visible forced layouts ~10/s -> ~3-4/s.
 - [ ] QYTC1a2 [S] (P3, from QYTC1a #381; Sonnet) In-flow translate / relative `left`/`top` writes shift in place too
       (today only abs/fixed boxes move in place; in-flow boxes only take the nothing-moves path). Needs `self.page` and the
       root `in_flow_bottom` redone, because an in-flow translate can change the root height. YouTube does not need it.

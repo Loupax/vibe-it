@@ -7788,3 +7788,11 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 - [x] QYSK1b DONE 11de9c7 #383 ignore stale mpv time-pos for 500 ms after a seek's Restart [S] (P2, from R51; Sonnet; after QYSK1a, same file) After an in-buffer seek mpv sometimes sends a stale
       `time-pos` right after `playback-restart` (2 of 6 runs): `seeking`/`seeked` read the pre-seek time. Ignore `Time`
       events > 1 s from the target for up to 500 ms after Restart. Gate: FakeBackend queue [Restart, Time(2.0), Time(12.04)].
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QYTC1a DONE 9219065 #381 contained style writes shift cached rects; YT controls forced layouts ~11-17/s -> ~1/s [M] (P1, from QYTC1 R50; Sonnet; AFTER QY53o1 merges: same `__d_setattr` -> `geom_bump_attr` hook in js_dom.rs)
+      Contained inline-style writes: a `style` write whose parsed declarations differ only in paint-only fields, a translate,
+      or px `left`/`top` on an abs/fixed box with definite width shifts the cached rects in place (GeomCache flat skeleton)
+      instead of bumping the geometry generation. Full text, bail-outs and tests: REGRESSIONS.md R50 "QYTC1a". Expected
+      (estimate): YT controls-visible forced layouts ~10/s -> ~3-4/s.
+  (queue line) 14a5 QYTC1a [WIP] [M, P1] contained style writes (YouTube controls-visible forced layouts, R50); then QYTC1b, QYTC1c
