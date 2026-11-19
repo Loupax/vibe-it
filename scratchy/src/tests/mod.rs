@@ -8,6 +8,7 @@ mod cascade_tests;
 mod fetch_tests;
 mod flex_grid_tests;
 mod forms_tests;
+mod frame_stats_tests;
 mod images_tests;
 mod interaction_tests;
 mod js_core_tests;
