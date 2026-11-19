@@ -32,7 +32,7 @@ A perf item that turns out to be wrong or bigger than its size: stop and report,
 
 
 PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; search the name; steps 1-3 are done, see TODO-DONE.txt):
- Ahead of this list by user decision (2026-11-19): QYSK1a [WIP] (YouTube seek), QV8-6 [WIP] (remove QuickJS), then QPT1
+ Ahead of this list by user decision (2026-11-19): QYSK1b [WIP] (YouTube seek, part 2), QV8-6 [WIP] (remove QuickJS), then QPT1
  (iframe realm, YouTube PoToken; after QV8-6).
  Step 4, the main thread in the live window (YouTube playback, scrolling, mouse):
   14a5 QYTC1a [WIP] [M, P1] contained style writes (YouTube controls-visible forced layouts, R50); then QYTC1b, QYTC1c
@@ -552,15 +552,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       really decode here, or the player fails after the first append. (g) segment-granular
       remove/overlap (not frame-exact) can leave `buffered` slightly larger than Chrome's.
 
-- [ ] [WIP] QYSK1a [S/M] (P1, from QYSK1 R51 #375; Sonnet; user OK to go ahead of the perf queue; media_el.rs) While an
-      out-of-buffer MSE seek waits for data, hold the backend: a `hold` flag on `MseAttach` + `backend.set_paused(true)`;
-      while held, play/pause do not touch the backend and the old generation's Time/Eof/Buffering events are ignored;
-      `mse_resolve` clears it after the in-buffer seek or the new-generation load. Today mpv keeps playing the OLD
-      generation (YouTube's play() unpauses it) while JS says `seeking` at the target. Tests (R51 section 4): FakeBackend
-      test next to `qm1k1c_seek_outside_the_buffer_waits_then_reloads_at_t`, real-mpv
-      `qysk1a_out_of_buffer_seek_holds_old_generation_then_resumes_at_target`. NOTE: seeks past ~64 s of media on YouTube
-      still get no data until QM1k2 (SABR status 3 without attestation); with this fix they wait instead of playing on.
-- [ ] QYSK1b [S] (P2, from R51; Sonnet; after QYSK1a, same file) After an in-buffer seek mpv sometimes sends a stale
+- [ ] [WIP] QYSK1b [S] (P2, from R51; Sonnet; after QYSK1a, same file) After an in-buffer seek mpv sometimes sends a stale
       `time-pos` right after `playback-restart` (2 of 6 runs): `seeking`/`seeked` read the pre-seek time. Ignore `Time`
       events > 1 s from the target for up to 500 ms after Restart. Gate: FakeBackend queue [Restart, Time(2.0), Time(12.04)].
 - [ ] QPT1 [L] (P1 for YouTube past ~60 s; from QM1k2 R52 #376) USER 2026-11-19 ~22:40: GO, "do what Chrome does" (same-origin

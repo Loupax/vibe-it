@@ -7755,3 +7755,13 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 - [x] QY53i3 DONE 92cfc34 #378 animation longhands in a per-thread arena, cleared on navigation [S] (P3 memory, from QY53i2; Sonnet) `animation.rs` still `Box::leak`s interned `&'static AnimLonghands` (same
       pattern QY53i2 removed for custom props). Give it the same per-thread arena + Copy handle, cleared on navigation.
       Gate: a multi-page --perf-report run (QY53i2 harness) shows no growth across navigations; animation tests unchanged.
+
+=== from TODO.txt: --- Rust `__*` native wrapped in a JS timer); none of it was committed. -------
+- [x] QYSK1a DONE a6327df #377 hold the old MSE generation while an out-of-buffer seek waits [S/M] (P1, from QYSK1 R51 #375; Sonnet; user OK to go ahead of the perf queue; media_el.rs) While an
+      out-of-buffer MSE seek waits for data, hold the backend: a `hold` flag on `MseAttach` + `backend.set_paused(true)`;
+      while held, play/pause do not touch the backend and the old generation's Time/Eof/Buffering events are ignored;
+      `mse_resolve` clears it after the in-buffer seek or the new-generation load. Today mpv keeps playing the OLD
+      generation (YouTube's play() unpauses it) while JS says `seeking` at the target. Tests (R51 section 4): FakeBackend
+      test next to `qm1k1c_seek_outside_the_buffer_waits_then_reloads_at_t`, real-mpv
+      `qysk1a_out_of_buffer_seek_holds_old_generation_then_resumes_at_target`. NOTE: seeks past ~64 s of media on YouTube
+      still get no data until QM1k2 (SABR status 3 without attestation); with this fix they wait instead of playing on.
