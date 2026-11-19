@@ -1007,6 +1007,88 @@ pub(crate) fn class_list_contains(value: &str, name: &str, case_sensitivity: Cas
     false
 }
 
+/// QAN1h3: the class tokens of every element matched during one layout build,
+/// split once. Installed by `images.rs` next to `MATCH_MEMO` and cleared with
+/// it; the DOM does not change while a build runs (JS runs before or after),
+/// so there is no per-write invalidation, and outside a build the cache is
+/// `None` and `has_class` reads the attribute (so JS `matches()` after a class
+/// write always sees the new value). Keyed by node address.
+#[derive(Default)]
+pub(crate) struct ClassCache {
+    /// node address -> (offset, length) of its tokens in `arena`.
+    map: std::collections::HashMap<usize, (u32, u32), std::hash::BuildHasherDefault<PtrHasher>>,
+    /// Every element's tokens back to back, each as a little-endian u32 length and its bytes.
+    arena: Vec<u8>,
+    /// The element asked about last (the candidate loop asks the same one many times).
+    last: Option<(usize, u32, u32)>,
+}
+
+/// Multiplicative hasher for node addresses (SipHash showed up in profiles).
+#[derive(Default)]
+pub(crate) struct PtrHasher(u64);
+impl std::hash::Hasher for PtrHasher {
+    fn finish(&self) -> u64 {
+        self.0 ^ (self.0 >> 32)
+    }
+    fn write(&mut self, bytes: &[u8]) {
+        for b in bytes {
+            self.0 = (self.0.rotate_left(5) ^ *b as u64).wrapping_mul(0x517c_c1b7_2722_0a95);
+        }
+    }
+    fn write_usize(&mut self, n: usize) {
+        self.0 = (n as u64 >> 4).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    }
+}
+
+thread_local! {
+    pub(crate) static CLASS_CACHE: RefCell<Option<ClassCache>> = const { RefCell::new(None) };
+}
+
+/// `Some(answer)` when a build's class cache is installed, else `None`.
+fn class_cache_has(h: &Handle, name: &str, cs: CaseSensitivity) -> Option<bool> {
+    CLASS_CACHE.with(|c| {
+        let mut g = c.try_borrow_mut().ok()?;
+        let cache = g.as_mut()?;
+        let key = Rc::as_ptr(h) as usize;
+        let (off, len) = match cache.last {
+            Some((k, o, l)) if k == key => (o, l),
+            _ => {
+                let (o, l) = match cache.map.get(&key) {
+                    Some(&ol) => ol,
+                    None => {
+                        let o = cache.arena.len() as u32;
+                        if let Some(v) = element_attr(h, "class") {
+                            for t in v.split([' ', '\t', '\n', '\x0C', '\r']).filter(|t| !t.is_empty()) {
+                                cache.arena.extend_from_slice(&(t.len() as u32).to_le_bytes());
+                                cache.arena.extend_from_slice(t.as_bytes());
+                            }
+                        }
+                        let ol = (o, cache.arena.len() as u32 - o);
+                        cache.map.insert(key, ol);
+                        ol
+                    }
+                };
+                cache.last = Some((key, o, l));
+                (o, l)
+            }
+        };
+        if name.is_empty() {
+            return Some(false);
+        }
+        let mut rest = &cache.arena[off as usize..(off + len) as usize];
+        let n = name.as_bytes();
+        while let Some((head, tail)) = rest.split_first_chunk::<4>() {
+            let tl = u32::from_le_bytes(*head) as usize;
+            let (tok, after) = tail.split_at(tl);
+            if tl == n.len() && cs.eq(tok, n) {
+                return Some(true);
+            }
+            rest = after;
+        }
+        Some(false)
+    })
+}
+
 /// Leaks an owned copy of `s` into a `&'static str` — the same tradeoff
 /// `font-family`'s own named fallback lists already made (see
 /// `FontFamily`'s own docs/`TODO.txt`): bounded by how many distinct
@@ -1189,6 +1271,10 @@ impl SelectorsElement for El {
     }
 
     fn has_class(&self, name: &Atom, case_sensitivity: CaseSensitivity) -> bool {
+        // QAN1h3: inside a layout build the class tokens are split once per element.
+        if let Some(hit) = class_cache_has(&self.0, &name.0, case_sensitivity) {
+            return hit;
+        }
         match element_attr(&self.0, "class") {
             Some(value) => class_list_contains(&value, &name.0, case_sensitivity),
             None => false,

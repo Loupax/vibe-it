@@ -2066,6 +2066,7 @@ pub(crate) fn build_layout_tree_with_resources(
     MATCH_MEMO.with(|m| *m.borrow_mut() = Some(Default::default()));
     VAR_EXPAND_MEMO.with(|m| *m.borrow_mut() = Some(Default::default()));
     ANCESTOR_BLOOM.with(|b| *b.borrow_mut() = Some(Default::default()));
+    crate::dom::CLASS_CACHE.with(|c| *c.borrow_mut() = Some(Default::default()));
     drop(t_phase);
     let t_phase = crate::perf::phase(crate::perf::Phase::PrecomputeGenerated);
     precompute_generated(document, &rules, viewport_width);
@@ -2113,6 +2114,7 @@ pub(crate) fn build_layout_tree_with_resources(
     MATCH_MEMO.with(|m| *m.borrow_mut() = None);
     VAR_EXPAND_MEMO.with(|m| *m.borrow_mut() = None);
     ANCESTOR_BLOOM.with(|b| *b.borrow_mut() = None);
+    crate::dom::CLASS_CACHE.with(|c| *c.borrow_mut() = None);
     let mut tree = tree;
     finish_animation_pass();
     propagate_canvas_background(&mut tree);

@@ -1207,3 +1207,17 @@ fn qf14b_app_initiator(proxy: &winit::event_loop::EventLoopProxy<AppEvent>) {
     assert!(qf14b_has(typed, "X-Wire-Nav: 1") && !typed.contains("Initiator"), "{typed}");
     let _ = std::fs::remove_file(&path);
 }
+
+#[test]
+fn qan1h3_js_class_writes_are_seen_by_matches() {
+    let (log, _body) = mutate(
+        "<html><body><p id=p class=x>t</p></body></html>",
+        "var e=document.getElementById('p'),r=[e.matches('.on')];\
+         e.classList.toggle('on');r.push(e.matches('.on'));\
+         e.classList.replace('on','off');r.push(e.matches('.on'),e.matches('.off'));\
+         e.className='on';r.push(e.matches('.on'));\
+         e.setAttribute('class','  x  ');r.push(e.matches('.on'),e.matches('.x'));\
+         e.removeAttribute('class');r.push(e.matches('.x'));console.log(r.join());",
+    );
+    assert_eq!(log, ["log:false,true,false,true,true,false,true,false"], "{log:?}");
+}

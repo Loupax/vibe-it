@@ -3261,3 +3261,61 @@ fn qan1h2_report_candidates_per_element() {
     assert_eq!(full, indexed);
     println!("QAN1H2 verified {} sampled elements, {} matches", sample.len(), full.iter().flatten().map(Vec::len).sum::<usize>());
 }
+
+fn qan1h3_set_class(p: &Handle, value: Option<&str>) {
+    if let NodeData::Element { attrs, .. } = &p.data {
+        let mut a = attrs.borrow_mut();
+        a.retain(|x| &*x.name.local != "class");
+        if let Some(v) = value {
+            a.push(html5ever::Attribute {
+                name: html5ever::QualName::new(None, html5ever::ns!(), html5ever::LocalName::from("class")),
+                value: v.into(),
+            });
+        }
+    }
+}
+
+#[test]
+fn qan1h3_class_matching_follows_every_kind_of_class_write() {
+    // Builds run with the per-build class cache; every write must be seen by the next build.
+    let doc = parse_html(
+        "<html><head><style>p{margin:0} .a { color: #ff0000 } .a.b { color: #00ff00 } div.w p { color: #0000ff } .Up { color: #ffff00 }</style></head>\
+         <body><div id=\"d\"><p id=\"p\" class=\"a\">alpha</p></div></body></html>",
+    );
+    let p = find_by_tag(&doc, "p").unwrap();
+    let d = find_by_tag(&doc, "div").unwrap();
+    let red = TextColor::rgb(0xff, 0, 0);
+    let green = TextColor::rgb(0, 0xff, 0);
+    let blue = TextColor::rgb(0, 0, 0xff);
+    let yellow = TextColor::rgb(0xff, 0xff, 0);
+    let color = |doc: &Handle| qy53_colors(doc)[0];
+    assert_eq!(color(&doc), red);
+    qan1h3_set_class(&p, Some("a b"));
+    assert_eq!(color(&doc), green, "added class");
+    qan1h3_set_class(&p, Some("b"));
+    assert_ne!(color(&doc), green, "removed class");
+    assert_ne!(color(&doc), red);
+    qan1h3_set_class(&p, Some("\t a \n\x0C b\r "));
+    assert_eq!(color(&doc), green, "whitespace variants");
+    qan1h3_set_class(&p, Some("a\u{00A0}b"));
+    assert_ne!(color(&doc), green, "U+00A0 does not split");
+    qan1h3_set_class(&p, None);
+    assert_ne!(color(&doc), red, "removeAttribute('class')");
+    qan1h3_set_class(&p, Some(""));
+    assert_ne!(color(&doc), red);
+    qan1h3_set_class(&p, Some("a"));
+    assert_eq!(color(&doc), red, "restored");
+    // Class selectors are case sensitive here: `.Up` matches `Up`, not `up`.
+    qan1h3_set_class(&p, Some("up"));
+    assert_ne!(color(&doc), yellow);
+    qan1h3_set_class(&p, Some("Up"));
+    assert_eq!(color(&doc), yellow);
+    // A write on an ancestor changes a descendant selector's result.
+    qan1h3_set_class(&p, Some("zz"));
+    assert_ne!(color(&doc), blue);
+    qan1h3_set_class(&d, Some("w"));
+    assert_eq!(color(&doc), blue, "ancestor class write");
+    qan1h3_set_class(&d, Some("w2"));
+    assert_ne!(color(&doc), blue);
+    assert!(crate::dom::CLASS_CACHE.with(|c| c.borrow().is_none()), "cache is dropped after the build");
+}
