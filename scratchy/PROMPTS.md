@@ -7589,6 +7589,14 @@ Done: R38. The `true` is `<img alt="true">` (YouTube calls `setAttribute('alt', 
 **What changed:** src/media_video.rs (`paint_box` records a laid box whose clip leaves nothing visible, `vis: None`; `finish` still lists only visible boxes), src/app.rs (`redraw` reports the laid nodes with `media_set_laid`; `show_help` clears them), src/js.rs (`media_set_laid`), src/media_el.rs (`MediaBackend::set_video_keep`, `MediaCore::set_laid` / `keep_decoding` = laid && !paused, synced on play/pause/laid; FakeBackend records it), src/media_mpv.rs (`keep_video`: with no target and keep on, `vid` stays `auto`; frames are still consumed without rendering). Tests: media_tests.rs (2 FakeBackend), fetch_tests.rs (paint reports the clipped box, display:none has none), mse_tests/qm1k1n1.rs (real mpv, skips without libmpv/ffmpeg). Measured (320x240 25 fps fixture, 3 s hidden): keep = 0.48 s process CPU (about 16 % of one core), vid=no = 0.03 s; box in view to first rendered frame 0.040 s with keep vs 0.086-0.106 s with `vid=no`.
 
 **Verified:** see the PR / final report.
+
+## QM1k1g: blob media sources (scratchy/qm1k1g-blob-media)
+
+**Prompt:** Implementer: do QM1k1g. `video.src = URL.createObjectURL(blob)` for a real Blob is served from memory (one generation, size known, seekable) with no wire request; test a Blob of a real mp4 playing to `ended`.
+
+**What changed:** src/media_prelude.js (a blob: src naming a real Blob goes to `__media_load_blob`), src/js_media.rs (that native), src/media_el.rs (`LoadReq.blob`, `MediaCore::load_blob`), src/media_mpv.rs (stream_cb Cookie reads from an in-memory buffer when the load has bytes), src/tests/mse_tests/qm1k1g.rs (3 tests: bytes reach the backend, revoked blob errors, real mp4 plays to ended with no socket).
+
+**Verified:** cargo test both configs (1143 default, 1133 quickjs, 0 failed), clippy total 74 (baseline 74), WPT no change, --js-report --run-timers 5000 on wikipedia.org, en.wikipedia Main_Page, news.ycombinator.com: 0 errors. No screenshot (paint unchanged).
 ## QY53a: first-line/first-letter rule presence once per rule list (scratchy/qy53abc-forced-layout)
 
 **Prompt:** Do QY53a: `apply_first_line`/`apply_first_letter` must not scan every rule for every element; compute both flags once per parsed rule list; tests that the scan runs once per build and that a later-added ::first-line rule is seen; measure on a generated big-css fixture with --perf-report.

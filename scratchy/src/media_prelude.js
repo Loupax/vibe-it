@@ -86,6 +86,11 @@
     sync(el);
     // QM1k1d: a MediaSource (srcObject, or a blob: URL made by createObjectURL(ms)) attaches instead
     if (g.__mse_try && g.__mse_try(el, c.attr ? c.list : [])) { kick(0); return; }
+    // QM1k1g: a blob: URL naming a real Blob plays from memory
+    if (c.attr && c.list.length === 2 && c.list[0].slice(0, 5) === 'blob:' && g.__blob_lookup) {
+      var bb = g.__blob_lookup(c.list[0]), by = bb && g.__blob_bytes(bb);
+      if (by) { g.__media_load_blob(el.__id, c.list[0], by, String(g.location.href)); kick(0); return; }
+    }
     g.__media_load(el.__id, c.list, c.attr, el.getAttribute('crossorigin') === null ? '' : (el.getAttribute('crossorigin') === 'use-credentials' ? 'use-credentials' : 'anonymous'), String(g.location.href));
     kick(0);
   };
