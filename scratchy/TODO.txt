@@ -1386,6 +1386,14 @@ Shared rules for this block:
       REGRESSIONS.md section and, for every hotspot >= 5 % of CPU or every user-visible stall >= 100 ms with a
       nameable cause, a sized perf item added to the PERFORMANCE QUEUE (as Step 7) by the coordinator. If nothing
       qualifies, say so; then the backlog starts.
+      PART B, WITH THE USER (user 2026-11-19: "we should also do testing together"; percentages matter less than what the
+      user feels, e.g. video freezing when the mouse touches the window): the user drives their real window on the
+      pages they use (YouTube playback with the mouse moving, scrolling, hover), scratchy started with
+      `SCRATCHY_FRAME_STATS` (QOBS5) and, if the user agrees, under `perf record`; the user says when something feels
+      slow and the coordinator notes the wall time. EVERY stall the user notices becomes an item (a 5 % threshold does
+      not apply to these), sized after a look at the frame stats/profile around that moment.
+      ALSO: as soon as QOBS5 is merged, the coordinator offers the user a first joint session for QM1k-mouse (video
+      freezes while the mouse moves), not waiting for QPROF1.
 
 social.loupax.com/discover (the user's own site; source read at
 /home/loupax/src/social, internal/web/js/vim.js): vim.js is NOT in the
