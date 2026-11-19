@@ -277,9 +277,16 @@
   // line unless a listener called preventDefault) and fires
   // `rejectionhandled` when a reported promise later gets a handler.
   var rejQ = [], rejReported = [];
+  // QPT1a (R53 D5): iframe realms keep their own queue (V8 reports a rejection to the realm it
+  // happened in, so `unhandledrejection` fires on the iframe's window); the page's flush, which Rust
+  // calls, flushes theirs first.
+  var rejSubs = [];
+  def(g, '__scratchy_rej_sub', function (f) { rejSubs.push(f); });
   def(g, '__scratchy_rej_push', function (p, reason, handled) { rejQ.push([p, reason, handled]); });
   def(g, '__scratchy_rej_flush', function () {
-    if (!rejQ.length) return false;
+    var subMore = false;
+    for (var s = 0; s < rejSubs.length; s++) { try { if (rejSubs[s]()) subMore = true; } catch (e) { report(e); } }
+    if (!rejQ.length) return subMore;
     var q = rejQ; rejQ = [];
     var fresh = [], handledLater = [], i, j;
     for (i = 0; i < q.length; i++) {

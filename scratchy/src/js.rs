@@ -838,6 +838,35 @@ const PRELUDE: &str = r#"
     perf.timeOrigin = t0;
     envHooks.forEach(function (h) { h(); });
   }, configurable: true });
+  // QPT1a (R53 D2/D5): binds a fresh iframe realm (made by `__scratchy_realm_new` from the startup
+  // snapshot, so this hook is baked and must read page state only through `o`) to its frame. The
+  // parent calls `w.__scratchy_realm_init({ docId, href, base, parent, top, frameElement, name, width,
+  // height })`: the env is about:blank (or the pre-fetched URL) with the PARENT's origin, the
+  // document is the iframe's second document, and the realm's timers, network requests, WebSocket
+  // and unhandled-rejection reports go through the parent's queues (Rust pumps only the page).
+  Object.defineProperty(g, '__scratchy_realm_init', { value: function (o) {
+    delete g.__scratchy_realm_init;
+    var p = o.parent, u;
+    try { u = new g.URL(o.href); } catch (e) { u = new g.URL('about:blank'); }
+    g.__scratchy_apply_env({ userAgent: p.navigator.userAgent, appVersion: p.navigator.appVersion,
+      innerWidth: o.width, innerHeight: o.height, title: '', href: u.href, protocol: u.protocol, host: u.host,
+      hostname: u.hostname, port: u.port, pathname: u.pathname, search: u.search, hash: u.hash, origin: p.location.origin });
+    Object.defineProperty(g, 'isSecureContext', { value: !!p.isSecureContext, writable: true, configurable: true, enumerable: true });
+    g.__d_bind_doc(o.docId, o.base);
+    doc.readyState = 'complete';
+    [['parent', p], ['top', o.top], ['frameElement', o.frameElement], ['name', String(o.name || '')], ['opener', null], ['frames', g]].forEach(function (kv) {
+      Object.defineProperty(g, kv[0], { value: kv[1], writable: true, configurable: true, enumerable: true });
+    });
+    g.__scratchy_timers_fwd(p);
+    g.__net_fwd(p);
+    g.WebSocket = p.WebSocket;
+    p.__scratchy_rej_sub(g.__scratchy_rej_flush);
+    // Navigation, history and scrolling of an iframe are not implemented (they would act on the
+    // PAGE through the shared natives): they log and do nothing.
+    ['__d_navigate', '__d_nav_replace', '__d_reload', '__d_url_update', '__d_url_move', '__d_scroll'].forEach(function (k) {
+      g[k] = function () { if (k !== '__d_scroll') __scratchy_err('scratchy: js: not implemented: navigation of an iframe window (' + k + ')'); };
+    });
+  }, configurable: true });
 })(globalThis);
 "#;
 
@@ -1618,6 +1647,8 @@ fn startup_engine(document: &Handle, store: Rc<js_modules::ModuleStore>, log: Lo
             native!(&ctx, "__perf_lis", |ty: String, f: JsObject<'_>, ms: f64| perf::note_listener(&ty, ms, || f.function_source()));
             native!(&ctx, "__perf_src", |f: JsObject<'_>| perf::set_source(perf::Kind::Timer, || f.function_source()));
         }
+        // QPT1a: same-origin iframe realms (R53 D1; the DOM prelude's `frameOf` calls it).
+        js_engine::install_realm_native(&ctx);
         native!(&ctx, "__url_parse", url_parse_native);
         native!(&ctx, "__url_set", url_set_native);
         // QY10: `matchMedia` evaluates through the CSS media-query code.
@@ -1828,15 +1859,19 @@ const WS_PRELUDE: &str = include_str!("ws_prelude.js");
 const TIMERS_PRELUDE: &str = r#"
 (function (g) {
   var timers = [], nextId = 1, level = 0, FRAME = 1000 / 60;
-  var add = function (fn, delay, args, repeat, raf) {
-    var id = nextId++;
-    delay = Number(delay);
-    if (!(delay > 0)) delay = 0;
+  // QPT1a (R53 D5): an iframe realm queues its timers on its parent's table (`fwd`), so the one pump
+  // Rust drives runs them; a callback still runs in its own realm, with that realm's window as `this`.
+  var fwd = null, fwdClear = null;
+  var add = function (fn, delay, args, repeat, raf, recv) {
     if (typeof fn !== 'function') {
       var code = String(fn);
       fn = function () { (0, eval)(code); };
       args = [];
     }
+    if (fwd) return fwd(fn, delay, args, repeat, raf, recv || g);
+    var id = nextId++;
+    delay = Number(delay);
+    if (!(delay > 0)) delay = 0;
     if (repeat || level > 5) delay = Math.max(delay, 4);
     var t = __scratchy_now();
     var due = t + delay;
@@ -1846,12 +1881,19 @@ const TIMERS_PRELUDE: &str = r#"
       due = (Math.floor(t / FRAME) + 1) * FRAME;
       while (due <= t) due += FRAME;
     }
-    timers.push({ id: id, fn: fn, args: args, due: due, rep: repeat ? delay : -1, lvl: level + 1, raf: raf });
+    timers.push({ id: id, fn: fn, args: args, due: due, rep: repeat ? delay : -1, lvl: level + 1, raf: raf, recv: recv });
     return id;
   };
   var clear = function (id) {
+    if (fwdClear) return fwdClear(id);
     for (var i = 0; i < timers.length; i++) if (timers[i].id === id) { timers.splice(i, 1); return; }
   };
+  Object.defineProperty(g, '__scratchy_timers_add', { value: add });
+  Object.defineProperty(g, '__scratchy_timers_clear', { value: clear });
+  Object.defineProperty(g, '__scratchy_timers_fwd', { value: function (p) {
+    fwd = p.__scratchy_timers_add; fwdClear = p.__scratchy_timers_clear;
+    delete g.__scratchy_timers_fwd;
+  }, configurable: true });
   var def = function (name, fn) {
     Object.defineProperty(g, name, { value: fn, writable: true, configurable: true, enumerable: true });
   };
@@ -1881,7 +1923,7 @@ const TIMERS_PRELUDE: &str = r#"
     var saved = level;
     level = t.lvl;
     if (g.__perf_src) g.__perf_src(t.fn);
-    try { t.fn.apply(g, t.raf ? [now] : t.args); }
+    try { t.fn.apply(t.recv || g, t.raf ? [now] : t.args); }
     catch (e) { __scratchy_err('Uncaught ' + String(e) + (e && e.stack ? '\n' + e.stack : '')); }
     level = saved;
     if (g.__scratchy_ioTick) g.__scratchy_ioTick();
