@@ -1,5 +1,240 @@
 # scratchy — regressions
 
+## R53: QPT1 design: a same-origin iframe gets its own V8 realm (a second `v8::Context` in the page's isolate, made from the startup snapshot), the way Chrome does it. This fixes R52: BotGuard reads real built-ins from `iframe.contentWindow`. Split into QPT1a-QPT1f (Opus, 2026-11-19, design only, docs only) — OPEN: QPT1a is the BotGuard slice
+
+**Status: design only. No product change.** The user approved it on 2026-11-19 ("ok, lets do what Chrome does then"). This
+was written from the source at b717000 (QV8-6, V8 is the only engine) plus one throwaway spike that was NOT committed:
+two natives in `js_engine_v8.rs` (`__spike_ctx(mode)` makes a context and returns its global, `__spike_heap()` runs
+`low_memory_notification` and then reads `used_heap_size`) and one `js_dom_tests.rs` test that drove them. Both were reverted
+with `git checkout`. Debug test build (the Rust side is unoptimised, the V8 library is the prebuilt release one). Load average
+23-37 (other agents building), so the times below are rough.
+
+### 1. What exists today (b717000)
+- **One isolate, one context per page.** `Engine` (`js_engine_v8.rs`) holds `context: v8::Global<v8::Context>`, and
+  `Engine::with` always enters it. The startup snapshot (QV8-4) holds two contexts. The default context is EMPTY. Context
+  **0** is the page context, baked by `js::bake_engine`: every native is registered and every prelude has run (PRELUDE, timers,
+  url, globals, intl, fetch, websocket, DOM, cssom, media, mse), over an empty `about:blank` document. A page engine does
+  `Context::from_snapshot(0)`, re-attaches the native closures by name (`register`: a baked native is a function whose data is
+  its arena index, and the arena is per ISOLATE), and then applies the page state with `__scratchy_apply_env(env)`.
+- **Natives are per isolate, not per context.** A native's closure captures the page's `DomTable`, `JsRequests`, net and
+  ws state. A context deserialised from snapshot 0 gets its OWN function objects for every native, and those objects point at
+  the SAME closures. The DOM natives take node ids (`__d_tag(id)`), and every document of the page lives in one `DomTable`
+  (the page is id 0, and second documents come from `__d_newdoc`). So a second realm can drive the iframe document through the
+  natives it already has.
+- **The DOM prelude binds its realm to id 0.** `cache[0] = doc; Object.defineProperty(doc, '__id', { value: 0 })` is
+  non-configurable. `inPage` tests `n.__id === 0`. `owners[..] || doc` falls back to the realm's document.
+- **Event-loop hooks go into the page context only.** Rust calls `__scratchy_timers_next`/`__scratchy_timers_run_one`
+  (timers), `__net_complete` (fetch/XHR), `__ws_ev*` (WebSocket) and `__scratchy_rej_flush` through `Engine::with`, which
+  means the page context. `reject_callback` calls `__scratchy_rej_push` in the CURRENT context.
+- **The iframe "window" (QA18b, `js_dom.rs` `frameOf`)** is `Object.create(null)` with ten own properties. Its `document` is
+  `makeDoc()`, a parent-realm `Object.create(doc)` over a `__d_newdoc()` id. It is made lazily on the first
+  `contentDocument`/`contentWindow` read, and only while the iframe is connected and its src is empty, `about:blank*`, `data:`
+  or pre-fetched (QA18b1). Network iframes give `null`. Iframe content is never rendered, and no script inside an iframe runs.
+
+### 2. Spike results (second context in the page's isolate)
+| check | result |
+|---|---|
+| `Context::from_snapshot(0)` a 2nd..6th time in the page isolate | works, **~1.2-1.5 ms** each (`Context::new`, empty: 0.36 ms) |
+| V8 heap per realm (used, after a full GC) | **~0.65 MB** (667 128 B for the first, 666 190 B each for the next four). The page context is 2.0 MB at the same point |
+| drop every JS reference to 4 realms, then GC | heap −2.66 MB: all 4 freed. No Rust-side state was kept, so a realm dies like any object |
+| no shared security token | `w.String` → **`TypeError: no access`**. V8's global proxy is access-checked, and with no access-check callback `MayAccess` passes only when the tokens match |
+| same token (`c.set_security_token(page.get_security_token())`) | `typeof w.String` `function`, `w.String !== String`, `[] instanceof w.Array` **false**, `w.Array.isArray([])` true, a function made by `w.eval` returns `w.Array`s |
+| interfaces in the realm (from the snapshot) | `HTMLElement`, `Navigator`, `SubtleCrypto`, `SVGRectElement`, `HTMLIFrameElement`, `navigator.userAgent`, and `w.Object.getOwnPropertyDescriptor` all present. `WebKitCSSMatrix` is undefined, in the page as well |
+| `Object.prototype.toString.call(w)` / `String(w)` | `[object Object]`. It does not throw any more (today: TypeError). `Window` has no `Symbol.toStringTag`: QPT3 |
+| the realm's `document` | **`__id` 0 = the PAGE document.** `w.eval('document.body.appendChild(...)')` showed up in the page. A second wrapper for the same node (`w.document.body !== document.body`) |
+| the realm's `location`, `parent` | `about:blank` (the baked env), `w.parent === w` |
+| `w.setTimeout(f, 0)` | **never fires.** The realm's timer list is never pumped. The page's own timer fired |
+| promise job queued from the realm | runs: one microtask queue per isolate, as in a browser |
+| `Promise.reject` in the realm | **never reported**: it went to the realm's own `__scratchy_rej_push` queue |
+| internal names | the realm has 510 own global names, the page 519 (all `__d_*` etc., the QPT5 gap) |
+
+So a context from snapshot 0 already gives BotGuard everything R52 section 2 lists (`String`, `Object`, the interface
+constructors, `getOwnPropertyDescriptor` through the realm's `Object`). What it needs on top of that is a token, a document
+binding, a frame binding and the event-loop forwarding below.
+
+### 3. What Chrome/Blink does (the model)
+- Every frame on a renderer's main thread shares ONE isolate. Each `LocalDOMWindow` has one `v8::Context` per world (main
+  world here), made from Blink's V8 context snapshot (`V8ContextSnapshot`, `Context::FromSnapshot`). That is what
+  `from_snapshot(0)` is here. The context's global proxy is the `WindowProxy`, and `contentWindow`, `defaultView`, `frames[i]`
+  and `parent` all return it.
+- Same-origin access goes through the fast path: Blink sets the same security token on same-origin contexts (derived from the
+  origin, `SecurityOrigin::ToTokenForFastCheck`) and installs access-check callbacks on the `Window` global template for the
+  cross-origin case. Scratchy only makes realms for same-origin frames, so one shared token is enough, with no access-check
+  callback.
+- An iframe gets its browsing context and an initial `about:blank` document (origin inherited from the parent) SYNCHRONOUSLY
+  when it is inserted, so `contentWindow` is non-null right after `appendChild`. Removing the iframe detaches the frame
+  (`WindowProxy::DisposeContext` / `DetachGlobal`): `contentWindow` becomes `null`, the window's timers are cancelled, and
+  an old reference sees a closed window. Re-inserting the iframe makes a NEW browsing context.
+- Microtasks: same-origin frames of one agent share a microtask queue. Timers belong to the window (its `ExecutionContext`)
+  but run on the same event loop. A callback always runs in the realm of the function, because V8 enters the function's
+  creation context.
+- A DOM node has ONE wrapper per world. It is created in the realm of the node's document (its creation context), so
+  `iframe.contentDocument.body instanceof w.HTMLElement` is true and `instanceof HTMLElement` (the parent's) is false.
+- `data:` iframes have an OPAQUE origin in Chrome: `contentDocument` is `null` and `contentWindow` is a cross-origin proxy.
+  `srcdoc` and `about:blank` inherit the parent's origin. **Scratchy differs:** QA18b gives `data:` iframes a same-origin
+  document. QPT1 does NOT give them a realm (see decision D4).
+
+### 4. Design
+**D1. A realm is a second context in the page isolate, made from snapshot context 0.** New native
+`__scratchy_realm_new()` (js_engine_v8.rs). It does `Context::from_snapshot(sc, 0)`, then
+`c.set_security_token(page_token)`. The page token is a fixed value set on the page context in `Engine::new` (a string such
+as the page origin, or the page's global). The native keeps a `v8::Global<Context>` in `State.realms: Vec<Option<..>>` (index =
+realm id), enters the new context (`ContextScope`) to run `mark_htmldda`/`remove_global("__d_all")` there (each realm needs
+its own `document.all`), and returns the realm's global proxy. No snapshot (SCRATCHY_V8_SNAPSHOT=0, SCRATCHY_V8_FLAGS, the
+`without_snapshot` tests): it returns `undefined`, and `frameOf` keeps today's stand-in object (one log line). QPT1e then adds
+the slow path. Cost: ~1.3 ms and ~0.65 MB V8 heap per realm (section 2). YouTube makes 2-3 iframes, so about 2 MB.
+
+**D2. The realm is bound to its frame by a hidden hook baked into the preludes** (the QV8-4 rule: preludes read page
+state only through hooks). The parent calls `w.__scratchy_realm_init(o)` with
+`{ docId, env, parent, top, frameElement, name }`:
+- `__scratchy_apply_env(env)` with the parent's env, but `href: 'about:blank'` (or the QA18b1 URL) and **`origin` = the
+  parent's origin** (inherited, as in Chrome; `locSt.origin` is already a separate field). Viewport = the iframe's size
+  (default 300x150).
+- The DOM prelude gets `__d_bind_doc(id)`: `delete cache[doc.__id]; cache[id] = doc`, and `__id` redefined to `id`. To allow
+  that, the baked `__id` becomes `configurable: true` until bound. It then rebuilds `<html><head><body>` when the document is
+  empty, and sets `readyState` to `complete`. `inPage` compares with `doc.__id` instead of `0`.
+- `parent`, `top`, `frameElement` (the parent-realm wrapper of the `<iframe>`), `name`, `opener: null` and `frames = self`
+  become own data properties. The global's prototype stays the realm's own `Window.prototype`.
+- Host forwarding (D5) is installed. Afterwards the hook deletes itself.
+
+`frameOf(el)` then becomes: `d = __d_newdoc()`, optionally `__d_load_html(d, page)` (QA18b1),
+`w = __scratchy_realm_new()`, `w.__scratchy_realm_init({...})`, and `frames[el.__id] = { doc: w.document, win: w }`. So
+`contentDocument === contentWindow.document`, and `d.defaultView === w` is the realm document's own getter.
+
+**D3. Which iframes get a realm:** connected iframes whose src is empty or `about:blank*`, and those with a pre-fetched
+same-origin src (QA18b1; its scripts still do not run until QPT1f). Later also `srcdoc` (QPT1f). Network iframes stay `null`
+(QA18b2). A realm is still made lazily on the first `contentWindow`/`contentDocument` read, so pages that never look pay
+nothing. The only observable difference from Chrome's synchronous creation is `window.length`/`frames[i]`, which QPT1d
+counts from the connected iframes themselves.
+
+**D4. `data:` iframes keep today's QA18b stand-in (no realm).** Chrome gives them an opaque origin. That makes
+`contentDocument` null, which is a behaviour change some pages may notice, so it needs the user's choice (question Q below).
+BotGuard uses a src-less iframe (R52: `createElement('iframe')`, then `contentWindow.String`), so this does not block it.
+
+**D5. One event loop. The realm's host queues forward to the parent's.** Rust only pumps the page context (timers, net,
+ws, rejection flush). Instead of N pumps, `__scratchy_realm_init` points the realm's `setTimeout`/`setInterval`/
+`clearTimeout`/`clearInterval`/`requestAnimationFrame`/`cancelAnimationFrame`/`requestIdleCallback`/`cancelIdleCallback`
+at small wrappers over the PARENT's functions. The wrappers record the ids per realm, so that D6 can cancel them. They do
+the same for `fetch`, `XMLHttpRequest`, `WebSocket` and `EventSource` (the parent's constructors, so `instanceof w.Response` is
+false: a documented deviation). They also point the realm's `__scratchy_rej_push` at the parent's queue (or Rust's
+`reject_callback` calls the page context's function, via a page-context `Global` kept in `State`). Callbacks still run in their
+own realm, because V8 enters a function's creation context, which is also what Chrome does. Microtasks need nothing: the
+queue is per isolate. Proper per-realm host queues (a `Realm` list in `JsEngine`, completions routed by realm id) stay a
+backlog item (QPT1g). They are needed only if a page shows the forwarding to be wrong.
+
+**D6. Lifetime.** A realm lives while its iframe is connected and keeps its src, and no longer. On removal (`afterRem`
+hook next to `afterIns`), on a src/srcdoc change, and on navigation of the page, the parent:
+1. cancels the realm's recorded timers/idle/rAF ids,
+2. deletes `frames[el.__id]`,
+3. calls `__scratchy_realm_drop(id)`, which drops the `Global<Context>`. Optionally the native also calls
+   `Context::DetachGlobal` (not bound by the `v8` crate: an `extern "C"` on `_ZN2v87Context12DetachGlobalEv`, like
+   `MarkAsUndetectable`), so an old `w` reference stops reaching the window, as in Chrome.
+
+V8 frees the context once no JS reference is left (the spike freed 4 of 4). `contentWindow` is `null` while the iframe is
+disconnected. Re-inserting the iframe makes a new realm. The engine drop frees everything. A soft cap of 64 live realms per
+page logs once and makes the extra frames fall back to `null`, so a pathological page cannot use unbounded memory (Chrome
+has no such cap, but it has process limits).
+
+**D7. Cross-realm identity (QPT1c).** One wrapper per node across all realms of the page, created by the realm that owns
+the node's document (Chrome's rule). The DOM prelude's `cache` becomes a page-wide object: the parent passes its own in
+`realm_init`, and a realm table maps docId to that realm's `wrap`. `wrap(id)` returns the cached wrapper. If there is none, it
+asks a native for the id's tree root (a document id, or the `owners` entry for detached trees) and delegates to that realm's
+`wrap`. `instanceof` across realms then behaves as in Chrome. Built-ins are distinct per realm (`w.Array !== Array`) by
+construction. `adoptNode`/`appendChild` of an iframe node into the page keeps its wrapper and its realm's prototype (Blink
+keeps the wrapper too).
+
+**D8. WindowProxy surface (QPT1d).**
+- `window.frames === window`.
+- `window.length` = the number of connected iframes in the document that have a window.
+- `window[i]` and `window[name]` = their `contentWindow`. These are getters kept in sync on insert/remove: V8 has no global
+  named/indexed interceptor here, because there is no global template.
+- `w.postMessage(msg, targetOrigin)` is called on the TARGET realm's function. It clones with the target realm's
+  `structuredClone` (so `e.data` is built from the target's intrinsics) and queues a task on the parent's timer queue. The
+  task dispatches a `MessageEvent` on `w` with `source` = the calling realm's window (the incoming realm of the call, passed
+  explicitly by a wrapper) and `origin` = the sender's origin.
+- `w.closed` is true after D6. `w.name` reflects the iframe's `name` attribute. `srcdoc` is reflected on
+  `HTMLIFrameElement.prototype`: BotGuard reads `getOwnPropertyDescriptor(iframe, 'srcdoc')`, R52 section 2.
+
+**D9. Scripts inside the iframe (QPT1f).** Same-origin only: srcdoc, about:blank written by `document.open/write/close`, and
+the pre-fetched QA18b1 document. The realm's own copy of `__scratchy_run_global` already compiles in the realm, because a
+native runs in its function's creation context. The work is to:
+- parse srcdoc into the realm's document,
+- run its classic scripts in order through `w.__scratchy_run_global`, and external ones through the QY34 fetch path,
+- fire the realm's DOMContentLoaded/load, then `load` on the `<iframe>`,
+- support `document.open/write/close` on an iframe document, rebuilding the tree.
+
+Network iframes stay QA18b2. Rendering iframe content is not part of QPT1.
+
+### 5. Risks
+- **Natives that assume the page context.** A native called from a realm runs with `ctx.global()` = that realm's global.
+  The current natives use `ctx` only for values. `register` is only called at startup, and the Rust-to-JS calls go through
+  `Engine::with`, which means the page. The QPT1a tests must cover `__scratchy_run_global` and `getComputedStyle` from a realm.
+- **Page-only Rust checks.** `page_connected` (`t.get(0)`) ignores iframe documents for geometry bumps, which is right
+  because they are not rendered. `__d_iframe_page` resolves against the page's base URL.
+- **A missed host hook** (D5): a realm API that queues work with Rust and is not forwarded hangs silently. Grep every
+  `call_global`/`eval_value` hook name in js.rs, js_net.rs, js_ws.rs, js_media.rs, and make the QPT1a test list exercise
+  each forwarded API from a realm. Media elements in iframe documents are out of scope (media_el keys elements by page id).
+- **Fingerprint.** The realm is the page's own snapshot, so it carries the same gaps as the page (`__*` globals,
+  non-native `toString`: QPT2-QPT5). R52 showed that these do not stop the token today.
+- **Snapshot coupling.** `__scratchy_realm_init` and `__d_bind_doc` must be baked. A prelude that reads page state at top
+  level would bake the bake-time values into every realm. This is the QV8-4 rule again, now with two users of it.
+- **Memory:** about 0.65 MB V8 heap per live realm, freed on drop. The D6 cap bounds the worst case.
+- **The YouTube result is the real gate.** R52's stand-in got a token in 3 of 4 runs. The cause of the 1 failed run is not
+  known.
+
+### 6. Split (the coordinator files these; order = dependency order)
+- **QPT1a [M] (P1) BotGuard slice: a real realm for src-less/about:blank (and pre-fetched same-origin) iframes.** D1, D2,
+  D5, and the `frameOf` change. No snapshot: today's stand-in.
+  - Files: js_engine_v8.rs (`__scratchy_realm_new`, `State.realms`, page token, htmldda per realm), js.rs (PRELUDE
+    `__scratchy_realm_init` + the forwarding wrappers, register the native in `startup_engine`), js_dom.rs (DOM prelude
+    `__d_bind_doc`, `inPage`, `frameOf`, `srcdoc` reflection).
+  - Tests (js_dom_tests.rs): `typeof w.String`, `w.String !== String`, `w.String('x') === 'x'`, `[] instanceof w.Array`
+    false, `w.Object.getOwnPropertyDescriptor` works, `typeof w.HTMLElement/Navigator/SubtleCrypto` function,
+    `w.document === f.contentDocument`, `w.document.defaultView === w`, `w.document.body instanceof w.HTMLElement`, a node
+    appended in the realm is NOT in the page, `w.parent === window`, `w.top === window`, `w.frameElement === f`,
+    `w.location.href === 'about:blank'` with the parent's `origin`, `w.setTimeout` fires, `w.fetch` goes out through the
+    page queue, an unhandled rejection in the realm is logged, `String(w)` does not throw.
+  - The existing qa18b/qa18b1 tests keep passing unchanged.
+  - LIVE gate (the R52 recipe, logged out, default UA): GenerateIT returns an integrity token in at least 2 of 3 runs, the
+    87-byte PoToken appears, and SABR answers stay at status 1 past 64 s.
+- **QPT1b [S] Realm lifetime.** D6: drop on removal, src change and page navigation. Cancel the realm's timers, a
+  `__scratchy_realm_drop` native, `DetachGlobal`, the 64-realm cap, `contentWindow` null when disconnected, a new realm on
+  re-insert.
+  - Files: js_engine_v8.rs, js_dom.rs.
+  - Tests: a timer set in a removed realm never fires. Create/remove 50 iframes, then a test-seam GC: the heap is back within
+    1 MB of where it started (the spike: 0.65 MB per realm, all freed). `f.contentWindow === null` after `remove()`, and a new
+    `w` after re-append.
+- **QPT1c [M] Cross-realm wrapper identity.** D7: a page-wide wrapper cache plus delegation to the owner realm.
+  - Files: js_dom.rs (DOM prelude `wrap`, `owners`), one native for the tree-root document id.
+  - Tests: `f.contentDocument.body` read from the page `=== w.document.body`, and it is `instanceof w.HTMLElement` and not
+    `instanceof HTMLElement`. Adopting/appending an iframe node into the page keeps its wrapper. `ownerDocument` across realms.
+    A MutationObserver in the page sees the same wrapper as the realm.
+- **QPT1d [S] WindowProxy surface.** D8: `frames`, `length`, `window[i]`, `window[name]`, cross-realm `postMessage`
+  (`source`, `origin`, data from the target's intrinsics), `w.closed`, `w.name`.
+  - Files: js_dom.rs, globals_prelude.js.
+  - Tests: `window.length` counts 2 iframes, `window[0] === f.contentWindow`, `w.postMessage({a:1}, '*')` gives a
+    `message` on `w` with `e.source === window` and `e.data instanceof w.Object`, and parent-to-child plus child-to-parent
+    both work.
+- **QPT1e [S] Realms without the startup snapshot.** Keep a native name -> arena index map in `State` always (today only
+  while baking or attached). A realm made by `Context::new` gets new function objects for every native (same arena
+  indexes), then runs the prelude list in that context. Split `startup_engine`'s prelude list into one function used by
+  both.
+  - Files: js_engine_v8.rs, js.rs.
+  - Tests: the QPT1a tests again under `without_snapshot`. Measure the slow realm cost (expected ~30-50 ms, the QV8-4
+    slow-start numbers).
+- **QPT1f [M] Scripts in same-origin iframes.** D9: srcdoc parse and scripts, `document.open/write/close` on an iframe
+  document, DOMContentLoaded/load in the realm, and then `load` on the element.
+  - Files: js_dom.rs, js.rs.
+  - Tests: a srcdoc script sees its own `document`/`window` and `parent.x`. A `document.write('<script>...')` into an
+    about:blank iframe runs in the realm. The event order is: DCL in the realm, then load in the realm, then `load` on the
+    `<iframe>`.
+- **QPT1g [M] backlog, only if needed: per-realm host queues** (replaces D5's forwarding). `JsEngine` keeps a realm list,
+  the timer pump asks each realm, and net/ws completions and rejection flushes are routed by realm id.
+
+**Question for the user (D4, not blocking QPT1a):** Chrome gives `data:` iframes an opaque origin, so their
+`contentDocument` is `null` and the parent cannot reach into them. Scratchy (QA18b) gives them a readable same-origin
+document. Keep scratchy's behaviour, or match Chrome (then they get no realm and `contentDocument` becomes `null`)?
+
 ## R52: QM1k2: why scratchy gets no PoToken. BotGuard makes an `<iframe>` and reads `iframe.contentWindow.String` to get clean built-ins from a fresh realm. scratchy's iframe window (QA18b) is a null-prototype object with ten own properties, so `String` is `undefined`. BotGuard then skips its whole fingerprint pass and sends an early-exit answer (~2.9 KB). `GenerateIT` answers `[null,43200,null,"<fallback>"]`: NO integrity token, so no PoToken is minted, SABR stays at status 2 and then goes to 3 (R45). A throwaway stand-in that only gives that object the page's globals turns the answer into a real integrity token. YouTube then mints an 87-byte PoToken, and every SABR answer is status **1** (OK) for the whole 119 s run, past the old ~64 s stop (Opus investigator QM1k2, 2026-11-19, research only, docs only) — OPEN: proposed QPT1 (the fix, L) and QPT2-QPT8 (fingerprint gaps, not blocking today)
 
 **Status: research only, docs only. No product change.** A temporary 6-line loader in `js.rs` (`QPROBE_JS=<file>` evaluated
