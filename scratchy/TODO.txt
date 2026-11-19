@@ -1301,7 +1301,7 @@ Shared rules for this block:
       and a mask but not has/sib) and the layer-concat decision.
 - [ ] QMEM3f [S] (P4, from QMEM3; Opus measure) 10-minute live-window RSS sample on YT watch: the window grows ~0.22 MB/s
       in the first minute; leak or warm-up?
-- [ ] QYTC1a [M] (P1, from QYTC1 R50; Sonnet; AFTER QY53o1 merges: same `__d_setattr` -> `geom_bump_attr` hook in js_dom.rs)
+- [ ] [WIP] QYTC1a [M] (P1, from QYTC1 R50; Sonnet; AFTER QY53o1 merges: same `__d_setattr` -> `geom_bump_attr` hook in js_dom.rs)
       Contained inline-style writes: a `style` write whose parsed declarations differ only in paint-only fields, a translate,
       or px `left`/`top` on an abs/fixed box with definite width shifts the cached rects in place (GeomCache flat skeleton)
       instead of bumping the geometry generation. Full text, bail-outs and tests: REGRESSIONS.md R50 "QYTC1a". Expected
@@ -1317,14 +1317,6 @@ Shared rules for this block:
 - [ ] [WIP] QOBS5c [S] (P2, from QM1k1n6, R46; Sonnet; app.rs/perf.rs: not alongside QM1k1n6a-c) frame-stats lines get
       `forced.by_caller` top 3 and the longest callback's source per second (window mode today has neither). Gate: present
       on the R46 recipe; overhead <= 2 %.
-- [ ] [WIP] QY53o1 [S] (P1, from QY53o 732438c, R47 addendum; Sonnet; AFTER QY53l2 #351 merges, same js_dom.rs write paths; share
-      the check with QY53m2) An attribute write that changes a value but that no selector or `attr()` can read on that
-      element must not bump the geometry generation (`geom_bump_if` in js_dom.rs). Wikipedia Page Previews sets `title=""`
-      on every hovered link (no `[title]` selector matches `<a>`; only `abbr[title]`), forcing a full 10.6k-element layout
-      (250-330 ms) on the next read: 63-86 % of hover forced-layout ms. Gate (R47 addendum recipe: nested dwl, Wikipedia
-      Rust, inject hovering 8 body links 29 s, frame stats pointer phase, median of 3): forced.n <= 22 and forced.ms <=
-      6 500 (today 52 / 16 485). Tests: title write on <a> with no [title] rule -> no layout; with `a[title]` rule -> layout;
-      `attr(title)` in a ::before -> layout.
 - [ ] QY53o2 [M] (P3, from QY53o; Opus design first; ONLY if QY53o1 leaves > ~3 s per run) Writes inside an abs/fixed
       positioned subtree do not invalidate rects outside it (Page Previews' popup: 7-21 layouts per run). Gate: forced.n <= 5
       after QY53o1.
