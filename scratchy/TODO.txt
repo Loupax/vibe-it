@@ -48,7 +48,7 @@ PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; sea
  Step 4, the main thread in the live window (YouTube playback, scrolling, mouse):
   11 QOBS6 [S]  network delivery delay (tool for 12)                                | QOBS block
   12 QM1k1n5 [S] page network results reach JS 1-19 s late                          | QM1k block
-  13 QY53e3 [S, Opus measure] App layout vs forced layout, live window (uses QOBS5)  | QY53 block
+  13 [WIP] QY53e3 [S, Opus measure] App layout vs forced layout, live window (uses QOBS5)  | QY53 block
   14 [WIP] QM1k1n6 [M, Opus design then Sonnet] redraw starvation / frame budget (uses QOBS5) | QM1k block
   15 QY53e2 [M]  IO uses the App's own layout                                       | QY53 block
   16 QM1g2 (a) [M] render mpv frames off the main thread (33-39 ms per frame today); split (a) out
@@ -1197,7 +1197,7 @@ divs with 3 classes each, a script that does 50 x (write one attribute, read `of
       pending; navigation clears it. Accept: tests; live window (nested dwl, own wire) Wikipedia
       Rust 30 s: forced layouts from `obsFlush` <= 1 (the initial one before the first App layout);
       screenshot unchanged; YT watch live run reported.
-- [ ] QY53e3 [S] (P2, R43 section 7, Opus measure, docs only) The part of the QY53e design the drain
+- [ ] [WIP] QY53e3 [S] (P2, R43 section 7, Opus measure, docs only) The part of the QY53e design the drain
       cut off: in a live window (nested dwl, own wire, Wikipedia Rust and YT watch 60 s) measure
       (A) App tree builds at a geometry generation GeomCache already laid out (App could reuse the
       JS side's `LayoutBox` tree), (B) forced layouts at a generation an App build already built
@@ -1297,12 +1297,6 @@ Shared rules for this block:
 - [ ] QMEM3 [S] (P3 memory, from QOBS7; Opus measure only) ~280 MB (38 %) of YT watch RSS is unexplained by caches + JS
       heap (peak 839 MB). One measured pass: /proc/self/smaps_rollup + malloc_info at end of run, V8 heap space stats
       (code/large-object/zone), mpv buffers for the 2 players, DOM/box trees; name the top 3 and file items.
-- [ ] [WIP] QOBS1b [XS] (coordinator 2026-11-19, from QOBS2 aadd319; Sonnet/Haiku, tools only) `tools/profile.sh` still sets
-      `SCRATCHY_V8_SNAPSHOT=0` (the QOBS1 workaround "until QOBS2 is merged"). QOBS2 made scratchy skip the snapshot itself
-      whenever `SCRATCHY_V8_FLAGS` is set, so drop the env var from profile.sh and the PERF.md "Profiling (perf)" note.
-      Smoke: profile.sh on a local fixture still resolves JS frames. Can pair with any item (tools/PERF.md only).
-      ALSO (from QOBS10 352ad4f): benches/layout.rs runs every bench on a 256 MB-stack thread (custom `main`) because
-      big-css overflowed before QSTK1 (ae9204f); drop that thread now and check `cargo bench --no-run` + one bench run.
 - [ ] QOBS6 [S] (P2, R44 section 4.4, Sonnet; after QOBS5) Network delivery delay. Stamp an `Instant`
       when a page request's result is complete (where the `AppEvent::JsNet` / headless equivalent is
       created) and again when `deliver_net` runs it; record the delay per request. `--perf-report`:

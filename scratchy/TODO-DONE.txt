@@ -6626,3 +6626,11 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       4.4 MB string on every layout. Gate: big-css fixture + a script appending a small `<style>` and reading offsetWidth
       10x: forced_layout.total_ms >= 50 % lower and max_ms lower, median of 3. Tests: cascade order equals a full parse
       after insert/change/remove in the middle; `@layer` fallback. Report YT watch max_ms (default UA).
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QOBS1b DONE 15a3222 [XS] (coordinator 2026-11-19, from QOBS2 aadd319; Sonnet/Haiku, tools only) `tools/profile.sh` still sets
+      `SCRATCHY_V8_SNAPSHOT=0` (the QOBS1 workaround "until QOBS2 is merged"). QOBS2 made scratchy skip the snapshot itself
+      whenever `SCRATCHY_V8_FLAGS` is set, so drop the env var from profile.sh and the PERF.md "Profiling (perf)" note.
+      Smoke: profile.sh on a local fixture still resolves JS frames. Can pair with any item (tools/PERF.md only).
+      ALSO (from QOBS10 352ad4f): benches/layout.rs runs every bench on a 256 MB-stack thread (custom `main`) because
+      big-css overflowed before QSTK1 (ae9204f); drop that thread now and check `cargo bench --no-run` + one bench run.
