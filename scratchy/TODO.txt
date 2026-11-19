@@ -1263,10 +1263,6 @@ Shared rules for this block:
 - [ ] [WIP] QY53i3 [S] (P3 memory, from QY53i2; Sonnet) `animation.rs` still `Box::leak`s interned `&'static AnimLonghands` (same
       pattern QY53i2 removed for custom props). Give it the same per-thread arena + Copy handle, cleared on navigation.
       Gate: a multi-page --perf-report run (QY53i2 harness) shows no growth across navigations; animation tests unchanged.
-- [ ] [WIP] QAN1h2 [M] (P2, from QAN1h, R49; Sonnet) Fewer universal candidates in RuleIndex: an attribute-name bucket, keys found
-      inside `:is()`/`:where()`, index each selector of a selector list separately. github.com home: 534 candidates per match
-      call, 1 344 rules in the universal bucket, 1.28 M full matches per build (2.3 % match). Gate: candidates per build -40 %,
-      precompute_generated -25 %; selector tests unchanged.
 - [ ] QAN1h2b [S] (P3, from QAN1h2 #372; Sonnet; css area) Per-selector candidates: a rule whose selector list mixes keyed
       and unkeyed selectors (e.g. `.k, :not(.q)`) is indexed by its keyed selectors, with a per-candidate selector mask so
       the unkeyed ones are tested only via the universal list. Remaining 289 universal rules on github.com home are mostly
@@ -4464,7 +4460,12 @@ last, per the user's own call.
 
 - [x] (66bdc60) **Parse `:focus`/`:hover`/`:active`/`:focus-visible`/`:focus- [archived: TODO-DONE.txt]
 
-- [ ] QM1k-mouse [?] (P2, user report 2026-11-19) WATCHING YouTube video in the real window: the video
+- [ ] QM1k-mouse [?] USER RE-TEST 2026-11-19 22:21 (installed main incl. QCUR1/QM1k1n6a-c/QY53o1; file
+      .coordinator/user-runs/fs5-user-yt-mouse.jsonl, 3 appended runs; machine load ~23 from agent builds): STILL SLOW while
+      the pointer moves over the player: video rendered 3-11 fps, 10-19 forced layouts/s x ~50 ms (500-890 ms/s), page JS
+      0.7-1.3 s per wall second, input p95 up to 720 ms; callers fca / qib / g.k.getPlayerSize (player progress-bar loop =
+      R50). Pointer still and controls hidden (t=30-33): 28-30 fps, 0 forced layouts. => same cause as QYTC1: re-test after
+      QYTC1a (in flight) instead of a separate investigation. (P2, user report 2026-11-19) WATCHING YouTube video in the real window: the video
       FREEZES while the mouse cursor moves over the page, and the page is still slow to start.
       DEFERRED by the user: finish the QY53 performance items first (QY53d, QY53h, e, g, f), then
       re-check whether it still happens; only if it does, an Opus agent investigates the pointer

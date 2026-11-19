@@ -6959,3 +6959,9 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       clock. Find out in a LIVE window (real clock) whether status reaches 1/OK, and if not,
       which JS gap breaks the token (no login, no hand-made tokens, no third-party
       PoToken services).
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QAN1h2 DONE 10a9d6e #372 RuleIndex attr/:root/:is keys; github.com candidates -68 % [M] (P2, from QAN1h, R49; Sonnet) Fewer universal candidates in RuleIndex: an attribute-name bucket, keys found
+      inside `:is()`/`:where()`, index each selector of a selector list separately. github.com home: 534 candidates per match
+      call, 1 344 rules in the universal bucket, 1.28 M full matches per build (2.3 % match). Gate: candidates per build -40 %,
+      precompute_generated -25 %; selector tests unchanged.
