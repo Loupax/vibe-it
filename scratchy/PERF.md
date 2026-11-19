@@ -128,6 +128,7 @@ such as `longest` are skipped (see `--help`). Diff main against main first to se
 
 | field | meaning |
 |---|---|
+| `net_delivery` | QOBS6: `{count, p50_ms, p95_ms, max_ms}` of the delay between a page request result being complete and `deliver_net` delivering it. In the headless harness (`--perf-report`) the network is synchronous (result executed and delivered in the same loop turn), so the delay is ~0 (microseconds) there; the numbers are meaningful in the window (`SCRATCHY_FRAME_STATS` `net`) |
 | `schema` | JSON layout version of `--perf-report`: **2** since QOBS4 (it adds `longest`, keeps every schema-1 field). QOBS3 and QOBS7 add THEIR fields to schema 2 (no further bump). `--perf-corpus` keeps its own `schema` 1 |
 | `engine`, `engine_version` | JS engine name and version (QuickJS now; a V8 backend fills the same two fields) |
 | `commit` | git commit the binary was built from (`-dirty` suffix for uncommitted changes), `unknown` outside a checkout |
@@ -618,6 +619,7 @@ Fields (all counts and ms are for that second; `dt_ms` is the real length of the
 - `js_ms` page JS CPU ms (exclusive span time of scripts, timers, jobs, events, observers, net callbacks);
   `forced` {n, ms} forced layouts inside that JS.
 - `hover_restyles` hover changes that caused a rebuild.
+- `net` {n, p50_ms, p95_ms, max_ms} (QOBS6): page network results delivered to JS this second and how long each waited between its transport finishing (the thread that ran the request sends `AppEvent::JsNet`, stamped then) and `deliver_net` running it on the main thread. Large values = the result sat in the event queue behind other main-thread work (QM1k1n5).
 - `input` {move, button, key, wheel}: events received; `lat_max_ms` / `lat_p95_ms`: input event to the next
   present (any present); `pending` / `oldest_pending_ms`: inputs still without a present at the roll-up (an
   event that causes no redraw stays pending, so a large number is "no frame came", the freeze signature).

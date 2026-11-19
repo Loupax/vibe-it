@@ -560,3 +560,24 @@ fn qmem3c_rules_cache_bytes_scale_with_rule_count() {
     assert!(r.get("entries").num() >= N as f64, "{r:?}");
     assert!(r.get("bytes").num() >= (N * std::mem::size_of::<crate::css::StyleRule>()) as f64, "{r:?}");
 }
+
+/// QOBS6: per-request delivery delay is reported as `net_delivery` (zeros with no requests).
+#[test]
+fn qobs6_net_delivery_report_fields() {
+    let _g = PerfGuard;
+    crate::perf::start();
+    let j = pj_parse(&format!("{{{}}}", crate::perf::body_json()));
+    assert_eq!(j.get("net_delivery").get("count").num(), 0.0);
+    for ms in [1u64, 2, 3, 4, 100] {
+        crate::perf::net_delivery(ms * 1_000_000);
+    }
+    let j = pj_parse(&format!("{{{}}}", crate::perf::body_json()));
+    let n = j.get("net_delivery");
+    assert_eq!(n.get("count").num(), 5.0);
+    assert_eq!(n.get("p50_ms").num(), 3.0);
+    assert_eq!(n.get("p95_ms").num(), 100.0);
+    assert_eq!(n.get("max_ms").num(), 100.0);
+    // Window mode reads and resets the same samples.
+    assert_eq!(crate::perf::take_window_net(), (5, 3_000_000, 100_000_000, 100_000_000));
+    assert_eq!(crate::perf::take_window_net().0, 0);
+}

@@ -52,7 +52,8 @@ pub(crate) enum AppEvent {
     NavResult(u64, Result<FetchedPage, String>),
     /// QF7: a page-JS network request finished (or was refused at once):
     /// `(nav_generation, request id, result)`. Stale generations are dropped.
-    JsNet(u64, u64, Result<WireResponse, NetError>),
+    /// `(nav generation, request id, result, when the result was complete)`; QOBS6 stamps the time.
+    JsNet(u64, u64, Result<WireResponse, NetError>, std::time::Instant),
     /// QF19w2: WebSocket events are queued for the current page's engine.
     JsWs,
     /// One non-`data:` `<img src>` reference's own fetch finishing (v67)
@@ -2232,7 +2233,7 @@ impl App {
                 self.net.abort(id);
             }
             for (id, result) in reqs.net_done {
-                let _ = self.proxy.send_event(AppEvent::JsNet(self.nav_generation, id, result));
+                let _ = self.proxy.send_event(AppEvent::JsNet(self.nav_generation, id, result, std::time::Instant::now()));
             }
             self.pump_net();
             let imgs = std::mem::take(&mut reqs.imgs);
@@ -2285,20 +2286,22 @@ impl App {
             let (proxy, exec) = (proxy.clone(), exec.clone());
             thread::spawn(move || {
                 let result = exec.execute(&job);
-                let _ = proxy.send_event(AppEvent::JsNet(generation, job.id, result));
+                let _ = proxy.send_event(AppEvent::JsNet(generation, job.id, result, std::time::Instant::now()));
             });
         });
     }
 
     /// QF7: `AppEvent::JsNet` handler. A result of a superseded page is
     /// dropped; while `:help` parks the engine it is kept for `restore_saved_page`.
-    pub(crate) fn handle_js_net(&mut self, generation: u64, id: u64, result: Result<WireResponse, NetError>) {
+    pub(crate) fn handle_js_net(&mut self, generation: u64, id: u64, result: Result<WireResponse, NetError>, completed: std::time::Instant) {
         if generation != self.nav_generation {
             return;
         }
         self.net.done(id);
         self.pump_net();
         if let Some(js) = &self.js {
+            // QOBS6: how long the finished result waited for the main thread.
+            crate::perf::net_delivery(completed.elapsed().as_nanos() as u64);
             js.deliver_net(id, result);
             self.js_sync();
         } else if self.pre_help_page.as_ref().is_some_and(|p| p.js.is_some()) {
@@ -3991,7 +3994,7 @@ impl ApplicationHandler<AppEvent> for App {
                 self.js_sync();
             }
             AppEvent::NavResult(generation, result) => self.handle_nav_result(generation, result),
-            AppEvent::JsNet(generation, id, result) => self.handle_js_net(generation, id, result),
+            AppEvent::JsNet(generation, id, result, completed) => self.handle_js_net(generation, id, result, completed),
             AppEvent::JsWs => self.handle_js_ws(),
             AppEvent::ImageFetched(generation, src, image) => self.handle_image_fetched(generation, src, image),
             AppEvent::ShapeResult(generation, laid, shape_cache, incomplete) => self.handle_shape_result(generation, laid, shape_cache, incomplete),

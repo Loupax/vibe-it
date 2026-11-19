@@ -37,7 +37,7 @@ fn qobs5_rollup_counts_and_resets() {
     fs.video_rendered(5);
     fs.video_painted(5);
     fs.damage_present();
-    let ext = External { js_ns: 12_000_000, forced_n: 2, forced_ns: 3_000_000, worker_ns: 4_000_000 };
+    let ext = External { js_ns: 12_000_000, forced_n: 2, forced_ns: 3_000_000, worker_ns: 4_000_000, net: (3, 1_000_000, 5_000_000, 7_000_000) };
     let line = fs.roll(t0 + ms(1000), ext).expect("a line after 1 s");
     assert!(line.contains("\"redraws\":3"), "{line}");
     assert!(line.contains("\"gap_max_ms\":350.0"), "{line}");
@@ -48,6 +48,7 @@ fn qobs5_rollup_counts_and_resets() {
     assert!(line.contains("\"hover_restyles\":1"), "{line}");
     assert!(line.contains("{\"node\":5,\"rendered\":2,\"painted\":1}"), "{line}");
     assert!(line.contains("\"damage_presents\":1"), "{line}");
+    assert!(line.contains("\"net\":{\"n\":3,\"p50_ms\":1.00,\"p95_ms\":5.00,\"max_ms\":7.00}"), "{line}");
     let line2 = fs.roll(t0 + ms(2000), External::default()).unwrap();
     assert!(line2.contains("\"redraws\":0") && line2.contains("\"v\":[]"), "{line2}");
 }

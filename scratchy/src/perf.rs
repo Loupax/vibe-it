@@ -122,6 +122,8 @@ struct Rec {
     win_js_ns: u64,
     win_forced_n: u64,
     win_forced_ns: u64,
+    /// QOBS6: delay (ns) between a page network result being complete and `deliver_net` running it.
+    net: Vec<u64>,
 }
 
 /// QOBS3: the phases of a forced layout, in report order.
@@ -373,6 +375,34 @@ pub(crate) fn take_window() -> (u64, u64, u64) {
         r.win_js_ns = 0;
         r.win_forced_n = 0;
         r.win_forced_ns = 0;
+        out
+    })
+}
+
+/// QOBS6: one page network result was delivered `delay_ns` after it was complete (the
+/// `AppEvent::JsNet` was sent). Window mode keeps the samples of the current second only.
+pub(crate) fn net_delivery(delay_ns: u64) {
+    if enabled() {
+        REC.with(|r| {
+            let mut r = r.borrow_mut();
+            if r.net.len() < NET_CAP {
+                r.net.push(delay_ns);
+            }
+        });
+    }
+}
+
+/// Cap on stored delivery samples (a window second, or a whole report run).
+const NET_CAP: usize = 100_000;
+
+/// QOBS6 (window mode): `(count, p50 ns, p95 ns, max ns)` of the deliveries since the last call.
+pub(crate) fn take_window_net() -> (u64, u64, u64, u64) {
+    REC.with(|r| {
+        let mut v = std::mem::take(&mut r.borrow_mut().net);
+        v.sort_unstable();
+        let out = (v.len() as u64, pct(&v, 0.5), pct(&v, 0.95), v.last().copied().unwrap_or(0));
+        v.clear();
+        r.borrow_mut().net = v;
         out
     })
 }
@@ -736,9 +766,14 @@ pub(crate) fn body_json() -> String {
         let (lw, lc) = mark("load");
         let (_, es) = mark("engine_start");
         let (_, ee) = mark("engine_ready");
+        let net = {
+            let mut v = r.net.clone();
+            v.sort_unstable();
+            format!("{{\"count\":{},\"p50_ms\":{},\"p95_ms\":{},\"max_ms\":{}}}", v.len(), ms(pct(&v, 0.5)), ms(pct(&v, 0.95)), ms(v.last().copied().unwrap_or(0)))
+        };
         format!(
             "\"callbacks\":{{{}}},\"longest\":[{}],\"budget_kills\":{},\"forced_layout\":{{\"count\":{},\"total_ms\":{},\"max_ms\":{},{}}},\
-             \"compile_cpu_ms\":{},\"engine_startup_cpu_ms\":{},\
+             \"net_delivery\":{},\"compile_cpu_ms\":{},\"engine_startup_cpu_ms\":{},\
              \"load\":{{\"fetch_wall_ms\":{},\"fetch_cpu_ms\":{},\"dom_content_loaded_wall_ms\":{},\"dom_content_loaded_cpu_ms\":{},\"load_wall_ms\":{},\"load_cpu_ms\":{}}}",
             kinds.join(","),
             longest.join(","),
@@ -747,6 +782,7 @@ pub(crate) fn body_json() -> String {
             ms(ftotal),
             ms(fmax),
             forced_extra,
+            net,
             ms(r.compile_ns),
             ms(ee.saturating_sub(es)),
             wall(fw),

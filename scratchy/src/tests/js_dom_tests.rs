@@ -1152,9 +1152,15 @@ fn qf7_app_net(proxy: &winit::event_loop::EventLoopProxy<AppEvent>) {
     let done = |app: &App| app.js.as_ref().unwrap().eval_value::<String>("t", "String(window.__done)");
     let id = app.js.as_ref().unwrap().eval_value::<f64>("t", "h.id").unwrap() as u64;
     // A stale generation is dropped: the promise stays pending.
-    app.handle_js_net(app.nav_generation + 1, id, qf7_ok("STALE", &[]));
+    app.handle_js_net(app.nav_generation + 1, id, qf7_ok("STALE", &[]), std::time::Instant::now());
     assert_eq!(done(&app).as_deref(), Some("undefined"));
-    app.handle_js_net(app.nav_generation, id, qf7_ok("AAA", &[]));
+    crate::perf::start();
+    let stamped = std::time::Instant::now() - std::time::Duration::from_millis(250);
+    app.handle_js_net(app.nav_generation, id, qf7_ok("AAA", &[]), stamped);
+    let (n, _, _, max) = crate::perf::take_window_net();
+    crate::perf::stop();
+    assert_eq!(n, 1, "QOBS6: one delivery recorded (the stale one is not)");
+    assert!(max >= 250_000_000, "QOBS6: a result stamped 250 ms ago waited >= 250 ms, got {max} ns");
     assert_eq!(done(&app).as_deref(), Some("AAA"));
 }
 
