@@ -1220,6 +1220,29 @@ thread_local! {
     /// and an identical request later is served from here.
     pub(crate) static SHAPE_MEMO: RefCell<HashMap<u64, Arc<Mutex<ShapedParagraph>>>> = RefCell::new(HashMap::new());
     pub(crate) static SHAPE_MEMO_ENABLED: Cell<bool> = const { Cell::new(false) };
+    /// QY53o3a: keys the current JS-thread layout used (hit or stored); `None` = not tracking
+    /// (the shaping worker keeps its own policy). `memo_sweep` drops every other entry.
+    static SHAPE_MEMO_USED: RefCell<Option<std::collections::HashSet<u64>>> = const { RefCell::new(None) };
+    #[cfg(test)]
+    pub(crate) static SHAPE_MEMO_PUTS: Cell<usize> = const { Cell::new(0) };
+}
+
+/// QY53o3a: start recording which memo entries this layout uses.
+pub(crate) fn memo_track_begin() {
+    SHAPE_MEMO_USED.with(|u| *u.borrow_mut() = Some(std::collections::HashSet::new()));
+}
+
+/// QY53o3a: end the layout: drop the entries it did not use, then (only afterwards, so one big
+/// layout never loses its own entries) clear the memo if it still exceeds `cap`.
+pub(crate) fn memo_sweep(cap: usize) {
+    let Some(used) = SHAPE_MEMO_USED.with(|u| u.borrow_mut().take()) else { return };
+    SHAPE_MEMO.with(|m| {
+        let mut m = m.borrow_mut();
+        m.retain(|k, _| used.contains(k));
+        if m.len() > cap {
+            m.clear();
+        }
+    });
 }
 
 pub(crate) fn memo_key(kind: u8, items: &[InlineItem], width: f32, pre: bool, align: Option<CosmicAlign>) -> Option<u64> {
@@ -1248,11 +1271,28 @@ pub(crate) fn memo_key(kind: u8, items: &[InlineItem], width: f32, pre: bool, al
 }
 
 pub(crate) fn memo_get(key: Option<u64>) -> Option<Arc<Mutex<ShapedParagraph>>> {
-    SHAPE_MEMO.with(|m| m.borrow().get(&key?).cloned())
+    let hit = SHAPE_MEMO.with(|m| m.borrow().get(&key?).cloned());
+    if hit.is_some() {
+        memo_mark_used(key);
+    }
+    hit
+}
+
+fn memo_mark_used(key: Option<u64>) {
+    if let Some(k) = key {
+        SHAPE_MEMO_USED.with(|u| {
+            if let Some(set) = u.borrow_mut().as_mut() {
+                set.insert(k);
+            }
+        });
+    }
 }
 
 pub(crate) fn memo_put(key: Option<u64>, entry: &Arc<Mutex<ShapedParagraph>>) {
     if let Some(k) = key {
+        #[cfg(test)]
+        SHAPE_MEMO_PUTS.with(|c| c.set(c.get() + 1));
+        memo_mark_used(key);
         SHAPE_MEMO.with(|m| m.borrow_mut().insert(k, entry.clone()));
     }
 }

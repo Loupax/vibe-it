@@ -1520,3 +1520,30 @@ fn qy53l2_empty_root_style_and_select_options_stay_conservative() {
     assert!(log.contains(&"log:w true".to_string()), "{log:?}");
     assert_eq!(n, 3, "{log:?}");
 }
+
+// ---------- QY53o3a: the JS-thread shape memo is swept per layout, not cleared at a cap ----------
+
+#[test]
+fn qy53o3a_big_layout_keeps_its_memo_across_forced_layouts() {
+    let mut html = String::from("<html><body style='margin:0'><a id=t href='#'>link</a>");
+    for i in 0..4200 {
+        html.push_str(&format!("<p style='margin:0'>run number {i}</p>"));
+    }
+    html.push_str("</body></html>");
+    let doc = parse_html(&html);
+    let t = by_id(&doc, "t");
+    crate::layout::SHAPE_MEMO.with(|m| m.borrow_mut().clear());
+    let puts = || crate::layout::SHAPE_MEMO_PUTS.with(|c| c.get());
+    let len = || crate::layout::SHAPE_MEMO.with(|m| m.borrow().len());
+    let mut g = crate::js_geom::GeomCache::default();
+    g.rect_of(&doc, 1, &t, 800.0, 600.0);
+    assert!(len() > 4096, "one layout stores more than the old cap: {}", len());
+    let p0 = puts();
+    g.rect_of(&doc, 2, &t, 800.0, 600.0);
+    g.rect_of(&doc, 3, &t, 800.0, 600.0);
+    assert_eq!(puts(), p0, "refreshes after a write shape nothing");
+    assert!(len() > 4096, "{}", len());
+    // A viewport change clears the memo (old widths) and the layout refills it.
+    g.rect_of(&doc, 4, &t, 500.0, 600.0);
+    assert!(puts() > p0, "a resize reshapes");
+}

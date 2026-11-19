@@ -293,8 +293,9 @@ fn walk(l: &Laid, fixed: bool, out: &mut HashMap<usize, GeomRect>) -> (f32, f32)
     ext
 }
 
-/// QP2: most shaped paragraphs the JS thread's memo keeps (checked per refresh).
-const SHAPE_MEMO_CAP: usize = 4096;
+/// QP2/QY53o3a: safety cap on the paragraphs the JS thread's memo keeps AFTER a layout's sweep
+/// dropped what it did not use (a layout's own entries are never capped: 7.5k on Wikipedia).
+const SHAPE_MEMO_CAP: usize = 32768;
 
 impl GeomCache {
     /// QOBS7: `((rect entries, bytes), (glyph entries = text nodes, bytes))`, by capacity.
@@ -336,10 +337,11 @@ impl GeomCache {
         // stale shape; a resize drops them (old widths), and the size is capped.
         crate::layout::SHAPE_MEMO_ENABLED.with(|m| m.set(true));
         let vp = (vw as u32, vh as u32);
-        if self.last_vp != Some(vp) || crate::layout::SHAPE_MEMO.with(|m| m.borrow().len() > SHAPE_MEMO_CAP) {
+        if self.last_vp != Some(vp) {
             crate::layout::SHAPE_MEMO.with(|m| m.borrow_mut().clear());
         }
         self.last_vp = Some(vp);
+        crate::layout::memo_track_begin();
         let t0 = std::time::Instant::now();
         // QOBS3: the phase timers and counters run only while the recorder is on.
         let recording = crate::perf::begin_forced();
@@ -383,6 +385,7 @@ impl GeomCache {
             (laid, glyphs, deps)
         }));
         set_viewport(prev_vp.0, prev_vp.1);
+        crate::layout::memo_sweep(SHAPE_MEMO_CAP);
         let found = crate::images::DISPLAY_NONE_ROOTS.with(|r| r.borrow_mut().take()).unwrap_or_default();
         let t_phase = crate::perf::phase(crate::perf::Phase::RectWalk);
         let prev = std::mem::take(&mut self.rects);
