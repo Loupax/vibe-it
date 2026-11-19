@@ -54,7 +54,7 @@ PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; sea
   16 QM1g2 (a) [M] render mpv frames off the main thread (33-39 ms per frame today); split (a) out
                  as its own item QM1g2a when taken, (b)-(d) stay where they are     | QM1g block
   17 DONE 9fb583a QY53f [L, Opus design first] incremental style between forced layouts (80 % change nothing) | QY53 block
-  17a QY53f1 [S/M] incremental stylesheet parse (YT max_ms = full 4.4 MB re-parse); after QOBS3 | QY53 block
+  17a [WIP] QY53f1 [S/M] incremental stylesheet parse (YT max_ms = full 4.4 MB re-parse); after QOBS3 | QY53 block
  Step 5, memory, regression guards, re-measure:
   18 [WIP] QOBS7 [S]  memory breakdown (YT: 714 MB RSS vs 124 MB JS heap)                 | QOBS block
   19 DONE 4123b55 QOBS8 [S]  perf-diff tool       20 DONE 352ad4f QOBS10 [S] offline forced-layout benchmark  | QOBS block
@@ -1235,10 +1235,6 @@ Shared rules for this block:
 - Local tools only. Nothing here may upload a profile anywhere (no profiler.firefox.com, no
   ui.perfetto.dev links in tools output), and scratchy itself still opens no socket.
 
-- [ ] [WIP] QY53k [S] (P2, found by QY53g a86d821, Sonnet, measure first) After QY53g, the top remaining costs on the big-css
-      fixture are `js_style::StyleCache::style_of` and SipHash hashing. Profile with tools/profile.sh (big-css and YT
-      watch); if StyleCache lookups hash large keys with SipHash, try a cheaper key/hasher (FxHash-style) and measure;
-      file what is left. Accept: big-css forced_layout.total_ms lower than main, median of 3.
 - [ ] QY53e1b [S] (P2, coordinator 2026-11-19, from QY53e1 c5098fa; Sonnet, measure first; AFTER QOBS3 so `by_reason`
       io/script is available) QY53e1 cut Wikipedia Rust forced layouts 8 -> 4 and total_ms -64 %, but its YT watch sample
       (2+2 runs, loaded machine) was WORSE on the branch: 272/284 layouts, 63.1/48.4 s vs main 144/223, 26.7/31.7 s.
@@ -1264,7 +1260,7 @@ Shared rules for this block:
       small Copy handle into a per-document arena cleared on navigation. Design: handle type vs Rc, cost of losing
       `Copy`, where the arena lives (one per document; the JS thread's GeomCache builds too), then Sonnet items. Test: a
       navigation frees the arena (test-only counter); var() tests unchanged. Use QOBS7's memory numbers when available.
-- [ ] QY53f1 [S/M] (P2, from QY53f design 9fb583a, R43 section 8; Sonnet; AFTER QOBS3 merges: same build step) Incremental
+- [ ] [WIP] QY53f1 [S/M] (P2, from QY53f design 9fb583a, R43 section 8; Sonnet; AFTER QOBS3 merges: same build step) Incremental
       stylesheet parse in the layout build. The 4 slowest YouTube forced layouts (249-293 ms = every max_ms) are a full
       re-parse of the 4.4 MB stylesheet after YouTube inserts a `<style>` (1.0-1.7 s per 60 s). Key `RULES_CACHE` per piece
       (each `<style>` element's effective text; `css_ver()` for external/adopted CSS), like StyleCache's refresh/splice;

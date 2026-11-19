@@ -6570,3 +6570,9 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       bench needs through the existing pub API or a `#[doc(hidden)] pub fn`. Report the criterion numbers
       in PERF.md "Offline benchmarks". No network, so it gives the same numbers run to run. Do not wire it
       into CI timing (CI machines are noisy); `cargo bench --no-run` in CI only if cheap.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QY53k DONE 85169e8 (CLOSED not worth it: Fx hasher +0.9 % = noise; R43 section 9) [S] (P2, found by QY53g a86d821, Sonnet, measure first) After QY53g, the top remaining costs on the big-css
+      fixture are `js_style::StyleCache::style_of` and SipHash hashing. Profile with tools/profile.sh (big-css and YT
+      watch); if StyleCache lookups hash large keys with SipHash, try a cheaper key/hasher (FxHash-style) and measure;
+      file what is left. Accept: big-css forced_layout.total_ms lower than main, median of 3.
