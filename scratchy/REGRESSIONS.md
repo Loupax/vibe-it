@@ -2151,6 +2151,17 @@ note. Both need re-measuring after QP1.
 
 ---
 
+### QP3 addendum (2026-11-19): cost of a font-match cache miss: measured, closed as not worth it
+
+`tools/profile.sh` (perf, 999 Hz so 1 sample ~ 1 ms CPU, all threads and all 3 FontSystems summed, DEFAULT user agent, own wire) on main e518ed0, inclusive samples of the miss path:
+
+| page | `with_face_data` | `FontMatchKey::new` | `get_font_matches` | `shape_spans` (all shaping) |
+|---|---|---|---|---|
+| Wikipedia Rust (25 s run, 3117 samples) | 4 ms | 9 ms | 8 ms | 401 ms |
+| YouTube watch G1AeBgalFZk (10240 samples) | 1 ms | 3 ms | 2 ms | 31 ms |
+
+The whole miss path is <= ~10 ms per page (threshold was 20 ms), and the mmap part (`with_face_data`) is 1-4 ms. `make_shared_face_data` for every face in `new_font_system_with` would keep every system font mapped in all 3 FontSystems (RSS and startup cost) to save at most ~4 ms, so it was NOT done. No code change. Reopen only if a page with hundreds of distinct font attrs shows `get_font_matches` above 20 ms in a profile.
+
 ## R31: CSS animations, transitions, Web Animations and `@font-face` do not exist; survey and design evidence (Opus investigator QAN1, 2026-11-17) — PARTLY BUILT (QAN1-0, QAN1a-c done); QAN1d0, QAN1d-i, QFF1a-c open in TODO.txt
 
 **Status (audit 2026-11-17, main @ e4993c3):** QAN1-0, QAN1a (parse), QAN1b (f965c9a, evaluate; 9 more WPT passes, the PR #232 body test passes again) and QAN1c (4c45340, start/end restyles + events, settle-first, no frames) are DONE. QAN1-D DECIDED 2026-11-17 (reduce motion by default via new QAN1d0, infinite animations freeze after 5 s, 30 fps, none while hidden). Open: QAN1d0, QAN1d-QAN1i, QFF1a-QFF1c; perf follow-up parked as QAN1p. The "nothing built" status below is the original one.
