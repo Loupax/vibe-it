@@ -357,6 +357,98 @@ rule_index 0 / 0, precompute_generated 59 / 75 (23 %), build_children 72 / 91 (2
 - The IO rechecks (16-18 per run, 5.1 s) are QY53e2's case (IO on the App's own layout, after Q33b2);
   QY53o1 alone removes 14-16 of them. The same-value footer-li writes are QY53m's case (App builds only).
 
+### QY53o3 addendum: why `measure_document` costs ~125 ms per forced layout with unchanged text (Opus, 2026-11-19, docs only)
+
+**Status: measured headless, docs only (the instrumentation was reverted). Root cause found: the JS
+thread's shape memo is NOT warm. `js_geom.rs` `SHAPE_MEMO_CAP = 4096` (QP2, d5fe517) is checked at the
+START of every `GeomCache::refresh`, and ONE Wikipedia Rust layout puts 7 508 entries in it, so the memo
+is cleared before every forced layout and every layout reshapes the whole page (0 % cross-layout hits).**
+
+**Recipe (headless, reproducible without a window):** profiling build of main 732438c
+(`cargo build --profile profiling`, `-C force-frame-pointers=yes`, own `CARGO_TARGET_DIR`), own `wire`
+on a scratchpad socket (`$!`). Page: a saved copy of https://en.wikipedia.org/wiki/Rust_(programming_language)
+(1.06 MB) with its `<script>`s removed, `client-nojs` -> `client-js`, a `<base href>` to the live URL
+(so the two `load.php` stylesheets come through wire) and one inline script at the end of `<body>`:
+`t = document.querySelectorAll('#mw-content-text a[href][title]')[5]` then 12 times
+`t.setAttribute('title', i % 2 ? '' : 'Memory safety'); t.getBoundingClientRect()`. Run:
+`scratchy --perf-report --socket <own wire> --budget-ms 20000 --seconds 1 rust-loop.html`. Result: 12
+forced layouts (`no_change` 11 of 12), 1024x768, ~9.7k elements; schema-2 `forced_layout.phases` per layout:
+precompute_generated ~48, build_children ~54, **measure_document 130-136** (median of 3: 132.3), glyph_walk
+~6, rect_walk ~1 ms, i.e. the live QY53o numbers (116-144) on a load average of 3-7. Throwaway
+instrumentation (never committed): per refresh, the memo size before the cap check, `memo_get`
+hits/misses, `shape_spans` calls/ms/bytes, `memo_key` calls per kind and ms, measure loop ms, `drop(tree)`
+ms; plus an env override of the cap to test the fix. `perf record -e cycles:u -F 1999 -g` on a 40-layout
+variant of the same page.
+
+**Per forced layout (instrumented, recipe as above):**
+| | baseline (cap 4096) | cap raised (1 000 000) |
+|---|---|---|
+| memo size before the cap check | 7 508 -> **cleared** | 7 508, kept |
+| `memo_get` hits / misses | 5 741 / 7 508 (hits are only repeats WITHIN the layout: intrinsic-size trials + the real pass) | **13 249 / 0** |
+| `shape_spans` calls / ms / text bytes | 7 508 / 128-174 / 98 637 | 0 / 0 / 0 |
+| `memo_key` calls (kind 0 paragraph / 1 word / 2 mixed-inline chunk) | 960 / 3 432 / 9 337 | 480 / 3 432 / 9 337 |
+| measure loop, warm layouts, median of 3 runs | **124-128 ms** | **19.0-19.7 ms** |
+| `phases.measure_document` per layout (total / 12, includes the cold first) | 129.8 / 132.3 / 135.6 | 34.8 / 35.2 / 36.8 |
+| whole forced layout, warm, median | 262-270 ms | 160-161 ms |
+| `forced_layout.total_ms` / count (incl. the cold first) | 267 / 272 / 285 | 176 / 176 / 179 |
+| `memory.caches.shape_memo` after the run | 7 508 entries, ~5.1 MB | the same (the baseline refills it every layout) |
+| RSS | 233-243 MB | 236-237 MB |
+The keys are stable across layouts: with the cap raised every lookup after the first layout hits (the
+`title` toggle and layout repetition change no `SpanStyle`, width, `node`/`tnode` or text). The
+first (cold) layout is unchanged (~200 ms measure). `drop(tree)` inside the measure phase is ~1 ms.
+
+**perf, baseline (8 419 samples under `measure_document`):** 83 % inside `shape_spans` (cosmic-text
+`ShapeLine::build` 69 %, harfrust shaping 20 %, font fallback iteration 17 %, `Buffer::new` 8 %); by call
+site 42 % mixed-inline chunk shaping (memo kind 2), 31 % plain paragraphs (kind 0), 16 % per-word
+fallback `shape_or_resume_word` (kind 1), 7 % mixed-inline trials inside `natural_width_impl`
+(tables, floats, flex intrinsic sizes); `natural_width_impl` 15 % and `table_column_extents` 6 % inclusive.
+
+**perf, cap raised (the ~19 ms that remain per warm layout; stacks without `shape_spans`):**
+`measure_mixed_inline` 77 % inclusive (it is where most text is), `natural_width_impl` 36 % (intrinsic
+min/max trial passes re-run every chunk lookup), **`memo_key` 21 %** (SipHash `DefaultHasher` over every
+text and `SpanStyle`, ~3.5 ms per layout for 13 249 keys), `__memmove` 14 % (mostly the
+`InlineItem::Text(text.to_string(), *span)` synth item built only to compute a kind-1/kind-2 key, and
+`Measured` vec growth), `SHAPE_MEMO`/`ShapeCache` hash lookups and `Arc` clones ~15 %,
+`word_widths_from_buffer` 9 %, `Instant::now()` deadline checks per chunk 5 %, `hoist_negative_z` 3 %,
+`in_flow_bottom` <1 %. No float/table/grid pass dominates on its own; the per-box walk itself is small.
+
+**What this means for the forced-layout budget:** with the memo kept, a warm Wikipedia forced layout is
+~160 ms, of which `precompute_generated` + `build_children` (the App-side style/box work R47 described)
+are ~85 %; `measure_document` drops from the largest phase to ~12 %. Combined with QY53o1 (fewer layouts)
+the remaining layouts each cost ~105 ms less.
+
+**Not established:** the App's shaping worker memo (app.rs `spawn_shaping_worker`) has no size cap at
+all (cleared only when `reuse_shaping` is false); whether it grows without bound on a long-lived page
+that keeps changing text (e.g. YouTube comments, live counters) was not measured. Sharing the worker's
+memo with the JS thread would not help the first forced layout: the JS thread lays out at 1024x768
+(R43 Finding 0) while the window is another width, so the keys differ.
+
+**Proposed items (coordinator files them):**
+- **QY53o3a [S]** (P1 within the QY53 block; js_geom.rs `refresh` + layout.rs `SHAPE_MEMO`; not alongside
+  QY53l2 if it touches js_geom.rs) keep the JS thread's shape memo across forced layouts by replacing the
+  fixed 4 096-entry clear-at-start with a per-layout sweep: tag each memo entry with the refresh
+  generation of its last `memo_get`/`memo_put` and, AFTER each refresh, drop the entries the layout did
+  not use (the memo then holds exactly one layout's working set; a viewport change still clears it). Keep
+  a byte/entry safety cap that is only applied after the sweep (e.g. > 64k entries -> clear). Test (in
+  `js_geom`/layout tests): a document with more than 4 096 distinct text runs, two refreshes after a
+  `title` write -> the second shapes nothing (test counter of `shape_spans` calls) and the memo size is
+  equal after both; a removed paragraph's entry is gone after the next refresh.
+  **Gate (this recipe, `--perf-report`, median of 3): `forced_layout.phases.measure_document` / count
+  <= 45 ms (today 130-136); warm-layout measure <= 25 ms; `memory.caches.shape_memo` bytes not above
+  today's ~5.1 MB; `forced_layout.total_ms` / count at least 80 ms below main's, measured interleaved
+  (instrumented runs here: 267-285 -> 176-179 ms).** Live check:
+  the QY53o recipe's forced.ms per run drops by ~100 ms x forced.n.
+- **QY53o3b [S]** (P3; layout.rs, after QY53o3a) cheaper memo keys on the hit path: a fast non-SipHash
+  hasher (FxHash-style, already-present dependency or a 20-line local one) for `memo_key`, compute kind
+  1/2 keys from `(&str, &SpanStyle)` directly instead of allocating `InlineItem::Text(text.to_string(), ..)`
+  per chunk/word, and one `Instant::now()` deadline check per paragraph rather than per chunk. Test: equal
+  keys for equal inputs, different for a changed `SpanStyle` field/width/text (existing memo tests keep
+  passing). **Gate (same recipe, median of 3): warm-layout `measure_document` <= 14 ms after QY53o3a
+  (~19 ms with QY53o3a alone).**
+- (Optional, M, only if QY53o3a+b leave measure > 15 ms) cache `natural_width_impl` min/max results per
+  box per layout generation keyed like the memo, so intrinsic trials (36 % of the warm remainder) are not
+  redone for unchanged subtrees.
+
 ## R46: QM1k1n6 / QM1k-mouse: where a "pointer moving over YouTube" second goes. Moving the pointer is NOT what freezes the video; YouTube's player-controls JS does, when the pointer crosses its controls: each `mouseover`/`mouseout` on a `ytp-*` control costs 40-180 ms of page JS (~2 forced layouts of ~60 ms), the timers it schedules then run back to back in ONE `run_due` turn (up to 100 timers, no time limit: 1.2-2.5 s), and every queued `CursorMoved` is processed one by one. Two main-thread stalls under everything were scratchy's own and are FIXED here: the event loop spun at 20-40k turns/s on any page with JS (an `EventLoopProxy` clone dropped every turn wakes the loop), and mpv's software render SLEPT on the main thread until each frame's display time (~31 ms per frame = 93-100 % of every playing second) (Opus, 2026-11-19) — OPEN: QM1k1n6a-c, QOBS5c (proposed in the PR); FIXED: the spin and the render block (this PR)
 
 **Status: measured live, two S fixes implemented (app.rs `pump_net`, media_mpv.rs `sw_render_params`),
