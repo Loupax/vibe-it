@@ -46,6 +46,12 @@ engine-quickjs = ["dep:rquickjs"]
 [dev-dependencies]
 criterion = "0.5"
 
+# QOBS1: `tools/profile.sh` builds this (release + line tables, strip stays off).
+[profile.profiling]
+inherits = "release"
+debug = "line-tables-only"
+strip = "none"
+
 [[bench]]
 name = "layout"
 harness = false

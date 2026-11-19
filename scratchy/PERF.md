@@ -53,6 +53,48 @@ layouts run against the real CSS) and scripts through wire, run the scripts, fir
 DOMContentLoaded and load, then keep running timers, promise jobs and network callbacks
 for `--seconds` of real time (default 5; the suite uses 10). Images are not fetched.
 
+## Profiling (perf)
+
+A sampling profiler that attributes CPU to Rust functions AND page JS functions in one run
+(QOBS1; background in REGRESSIONS.md R44). Local only: nothing is uploaded anywhere.
+
+```
+tools/profile.sh [--seconds N] [--ua UA] <url|file>     # default 30 s
+tools/profile.sh 'https://en.wikipedia.org/wiki/Rust_(programming_language)'
+```
+
+What it does: builds the `profiling` cargo profile (release + line tables, no strip) with
+`-C force-frame-pointers=yes` into `${PROF_TARGET:-$HOME/.cache/scratchy-prof-target}` (never
+the repo's `target/`; reuses `RUSTY_V8_ARCHIVE` or the local `gn_out` archive), then runs
+`perf record -e cycles:u -F 999 -g` on `--perf-report --budget-ms 20000` with
+`SCRATCHY_V8_FLAGS='--perf-basic-prof --interpreted-frames-native-stack'` (and
+`SCRATCHY_V8_SNAPSHOT=0` until QOBS2 lands). The wire socket is `$WIRE_SOCKET` or
+`/run/user/$UID/wire.sock`. Output goes to `perf/profile-<commit>-<slug>/` (gitignored):
+`perf.data`, `report.json` (the `--perf-report` JSON), `folded.txt`, `summary.txt`,
+`flame.svg` (only if `inferno-flamegraph` is on PATH). The JIT maps (`/tmp/perf-<pid>.map`) and
+the `isolate-*-v8.log` files the V8 flags write are removed afterwards.
+
+Reading `summary.txt`: per-thread share of samples; top 30 SELF (where the CPU is); top 40
+INCLUSIVE (a function plus everything it calls; a stack counts once); and the nearest PAGE JS
+frames above `GeomCache::refresh` (frames starting `JS:` that are not scratchy's own
+`eval:`/`timers:` prelude), i.e. which page function forces layouts. `[unknown]` callers mean the
+binary lacked frame pointers (use profile.sh's binary, not `target/release`). Frames are
+`JS:^name url:line:col` (optimized) or `JS:~name ...` (interpreted).
+
+Querying a profile later (stdlib Python, run isolated; regexes are `re.search` on frame names,
+which are `<scratchy::js_geom::GeomCache>::refresh` style, hence `GeomCache>?::refresh`):
+```
+python3 -I tools/perf-fold.py incl      perf/profile-.../folded.txt 'has_class' 'GeomCache>?::refresh'
+python3 -I tools/perf-fold.py callers   perf/profile-.../folded.txt 'El::has_class' 8
+python3 -I tools/perf-fold.py jscallers perf/profile-.../folded.txt 'GeomCache>?::refresh'
+```
+
+Needs `perf` (`dnf install perf`; the script exits 2 with that message if missing) and
+`/proc/sys/kernel/perf_event_paranoid` <= 1, because `-g` call graphs fail at 2. The one-line
+fix is not persistent (reset at reboot): `echo 1 | sudo tee /proc/sys/kernel/perf_event_paranoid`;
+the script never runs sudo. A `-F 999` run costs roughly 5-10 % wall time, so compare profiles
+with each other, not with unprofiled timings.
+
 ## Clocks
 
 - **raw CPU**: CPU time of the JS thread (`CLOCK_THREAD_CPUTIME_ID`).
