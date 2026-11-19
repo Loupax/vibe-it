@@ -7533,3 +7533,9 @@ Done: R38. The `true` is `<img alt="true">` (YouTube calls `setAttribute('alt', 
 **What changed:** src/mse_prelude.js (SourceBuffer), src/js_media.rs (`__mse_append/abort/remove/buffered/reopen`), src/media_el.rs (`mse_reopen`, `mse_current_time`, test-only `MseHost::only`), src/mse_store.rs (`MseFeed::reopen`, `MseStore::set_max_bytes`), src/media_prelude.js (`__mk_ranges`), src/tests/mse_tests/qm1k1e.rs + qm1k1e_page.html (13 tests; qm1k1d.rs helpers made pub(super); mse_mpv_tests `real` made pub(crate)). 'sequence' mode and appendWindow/timestampOffset are stored only (QM1k1i).
 
 **Verified:** full cargo test (default; QY22t flake once under load, passes alone), clippy TOTAL 74, WPT no change, --js-report --run-timers 5000 on wikipedia.org, en Main_Page, HN: 0 errors, nested-dwl grim of the local page playing an mp4 via MSE.
+
+## QV8-4b + QY22t: one V8 snapshot per process, qy22 on fake CPU (scratchy/qv8-4b-one-snapshot)
+
+**Prompt:** Do QV8-4b (every non-baking isolate is made from the startup snapshot: empty default context in the bake, page context added with add_context, page engines use Context::from_snapshot(0), bare/without_snapshot engines use Context::new from the same blob) with a child-process regression test, then QY22t (burn fake CPU instead of wall clock).
+
+**What changed:** src/js_engine_v8.rs (Engine::new, finish_bake, snapshot_for_engine, slow_start_requested), src/tests/js_snapshot_tests.rs (qv8_4b_*: child process, bare + slow-start + snapshot engines in one process, 10 runs; it aborts with the libc++ vector[] assertion on 8819d4e and passes now), src/tests/js_observers_tests.rs + js_core_tests.rs (qy22 uses qy46_run and __test_burn(700)), TODO.txt. Verified: 20 consecutive full default test runs, 0 aborts; engine_startup_cpu_ms unchanged within noise (10-15 ms before and after); --js-report 0 errors on 3 pages.
