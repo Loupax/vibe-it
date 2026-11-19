@@ -225,7 +225,7 @@ never freed, for the life of the process, across navigations. YouTube defines hu
    `benches/layout.rs` covers tree build + shaping of a synthetic page) (QOBS10).
 7. **The baseline is from the old machine** (QOBS9).
 
-## R43: Where forced layout goes (QY53): on the YouTube watch page 88 % of it is the player's `getPlayerSize` reading `#movie_player.clientWidth`, 80 % of those layouts change no box at all, and 99.5 % of each one is STYLE and BOX BUILD (layout proper 0.4 %); half of that is one O(elements x rules) scan for `::first-line`/`::first-letter` rules. On Wikipedia it is scratchy's OWN IntersectionObserver evaluation (Opus investigator QY53, 2026-11-19) — OPEN: QY53a-QY53h (a-d DONE; QY53e designed in section 7, PARTIAL, split into QY53e1-e3)
+## R43: Where forced layout goes (QY53): on the YouTube watch page 88 % of it is the player's `getPlayerSize` reading `#movie_player.clientWidth`, 80 % of those layouts change no box at all, and 99.5 % of each one is STYLE and BOX BUILD (layout proper 0.4 %); half of that is one O(elements x rules) scan for `::first-line`/`::first-letter` rules. On Wikipedia it is scratchy's OWN IntersectionObserver evaluation (Opus investigator QY53, 2026-11-19) — OPEN: QY53a-QY53h (a-d DONE; QY53e designed in section 7, PARTIAL, split into QY53e1-e3); QY53l PARTIAL (section 10: getPlayerSize layouts -28 %, proposed QY53l2/l3)
 
 **Status: investigation only, docs only.** Main b8d865f, own worktree release build (V8 + media,
 RUSTY_V8_ARCHIVE = existing librusty_v8.a, `nice -n 19 -j2`). Own wire on a scratchpad socket.
@@ -550,7 +550,7 @@ measured); the live-window effect on R42's playback timeline (no nested-dwl run)
 and home pages (R37/R38 numbers not re-taken); why YouTube's rule index yields 418 candidates (the
 size of the universal bucket was not logged); whether `getPlayerSize`'s preceding writes are the
 page's own or our prelude's (e.g. `styleSet` rewriting the whole `style` attribute with the same
-text); correctness of FIX4 beyond the measured runs (no tests); whether QY52's StyleCache could be
+text; ANSWERED in section 10: mostly our `styleSet` reordering); correctness of FIX4 beyond the measured runs (no tests); whether QY52's StyleCache could be
 reused by the box build (item 7).
 
 ### 9. QY53k: SipHash and `StyleCache::style_of` re-measured: hashing is 3.4 % of big-css, an Fx hasher gains nothing measurable (Sonnet, 2026-11-19, docs only)
@@ -577,6 +577,60 @@ denied by the permission classifier in this session).
 What is left: nothing in hashing. The remaining big-css cost is the per-level cascade
 (`resolve_style_core`, 26 % inclusive) and `ComputedStyle` copies (`memmove` 20 %, much of it rule-vector extends
 in `parse_stylesheet_with_keyframes` on the first build and `Vec<StyleRule>` moves in `StyleCache::rebuild`).
+
+### 10. QY53l: what dirties geometry between `getPlayerSize` reads (2026-11-19, measured + partial fix)
+**Setup.** Main 68501e8, own worktree release build (V8 + media), own wire on a scratchpad socket, DEFAULT
+UA, `--perf-report --budget-ms 20000 --seconds 60` on watch?v=G1AeBgalFZk, `SCRATCHY_MEDIA_AO=null`; load
+average 8-20 (other agents' builds), so ms numbers are noisy and COUNTS are the metric. **Throwaway
+instrumentation (reverted, never committed):** every `GEOM_GEN` bump recorded the write (native, element
+`tag#id.class`, attribute, old and new value, top JS frame and first page frame via `caller_frame`); every
+`GeomCache::refresh` miss printed which key part moved (geometry generation / viewport / CSS version), the
+QOBS3 caller, whether the rect map changed, and the writes since the previous miss.
+
+**What it reads.** `g.k.getPlayerSize` (player base.js:15474) reads `#movie_player.clientWidth` (R43
+section 2), from the player's event pipeline after almost every state change; 66 of 67 of its layouts
+were keyed by a geometry-generation bump (never viewport or CSS).
+
+**What dirtied it (main, 67 getPlayerSize layouts, 46 no-change).** 24 of the 46 no-change layouts
+followed ONLY `style` attribute writes, and nearly all of those were scratchy's own `styleSet` (the
+`el.style.x = v` / `setProperty` path in js_dom.rs): it removed the property and APPENDED it again, so
+setting a value the element already had rotated the declaration order (`left: 0px; transform:
+scalex(0);` -> `transform: scalex(0); left: 0px;`), the `style` string changed, QY53c's same-value check
+did not fire and the geometry generation moved. Writers: the progress bars (`.ytp-load-progress`,
+`.ytp-play-progress`, `.ytp-hover-progress`: `left` and `transform` written in turn by base.js `Wba`/`nZ`
+on every tick) and `#movie_player`'s custom properties (`--yt-delhi-*`, `--ytp-grid-*`, base.js `kZa`).
+Not our media prelude (no QM1k1n1 parking write appeared), not `aria-*`/`data-*` (1 layout).
+
+**Fix (QY53l).** `styleSet` updates an existing declaration in place (CSSOM: only a new property is
+appended), so a same-value write produces the byte-identical attribute and QY53c skips the bump. No new
+skip rule was needed; tests `qy53l_*` (js_geometry_tests.rs).
+
+**Result, 3 interleaved runs each (main 68501e8 / branch):**
+| | main | branch | change (median) |
+|---|---|---|---|
+| getPlayerSize layouts | 67 / 76 / 71 | 52 / 51 / 51 | 71 -> 51, **-28 %** |
+| all forced layouts | 128 / 134 / 132 | 104 / 103 / 105 | 132 -> 104, -21 % |
+| `no_change` | 70 / 76 / 73 | 45 / 44 / 47 | 73 -> 45, -38 % |
+The item's gate (getPlayerSize halved) is NOT met: what is left is not a no-op write.
+
+**What is left (instrumented branch run: 52 getPlayerSize layouts, 30 no-change), by the kinds of write
+before each no-change layout:** tree inserts/removes only 9 (player chrome built piecewise: popups,
+overlays, `svg` icon swaps, `<script>` into `<head>`; the new nodes get no box, i.e. they are in or are
+`display:none` subtrees); `style` only 8 (5 are `.ytp-load-progress` `transform: scalex(..)`, a scale
+transform that scratchy's layout ignores (only translate moves boxes), others `max-width`/`width` of hidden
+chapter containers and `#movie_player` custom properties); class only 3 (`#movie_player` state classes,
+which DO change rule matching); the rest mixes (attr+tree 2, attr+class+tree 2, class+style 2,
+attr+style 2, attr 1, class+tree 1). Skipping all style/attr-only ones would leave ~41 (-42 %);
+reaching half also needs the tree writes, i.e. knowing a write lands in a `display:none` subtree.
+Proposed (coordinator files): **QY53l2 [M]** skip the geometry bump for writes whose target (insert:
+the parent; remove: the old parent; attribute: the element) has a `display:none` ancestor-or-self
+in the CURRENT GeomCache style (cheap: GeomCache keeps the set of node ids that had no box because of
+`display:none` at the last layout; the write must not change `display` on that node itself and
+`class`/`style`/`id` writes on the `display:none` element itself still bump); upper bound 9-13 of 51
+getPlayerSize layouts. **QY53l3 [S, optional]** a `style` write whose changed declarations are only
+properties that cannot move a box in scratchy (scale/rotate-only `transform`, `opacity`, colors,
+`background-*`), and no selector tests the `style` attribute (RuleIndex): skip the bump; ~5-8 of 51,
+must be revisited when scale transforms reach getBoundingClientRect.
 
 ## R42: YouTube through the MSE stack (QM1k-m2): the player script runs, picks avc1 + mp4a, attaches, appends and plays ~60 s of AUDIO, but NO PICTURE because YouTube adds the AUDIO SourceBuffer first and scratchy always makes SourceBuffer 0 the main (video) stream; with that swapped (throwaway patch) 640x360 video plays to the PoToken stop at ~60 s, then YouTube's own error card. The main thread is busy 100% of the time (294 forced layouts = 116 s of CPU in 60 s), so everything arrives 10-45 s late (Opus investigator QM1k-m2, 2026-11-19) — OPEN: QM1k1k (P1), QM1k1l, QM1k1m, QM1k-u, QY53 (now also blocks YouTube playback; measured in R43, fix items QY53a-QY53h); QM1k1n DONE 2026-11-19 (section 5: YouTube parks the `<video>` at `top:-360px` until `playing`, page design, not a CSS gap): QM1k1n1 DONE, QM1k1n3; QM1k1n2 DONE 2026-11-19 (section 6: start 3-6x faster after QY53a-c, but playback freezes at YouTube's first quality switch, a second init segment reloads into an empty generation): QM1k1n4 (P1), QM1k1n5 (P1, fetch results reach JS 1-19 s late), QM1k1n6, QM1k1n7
 
