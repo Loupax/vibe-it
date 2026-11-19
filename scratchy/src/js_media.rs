@@ -23,7 +23,8 @@ fn fmt_out(id: i32, o: Out) -> Option<String> {
         Out::SourceError(i) => format!("{id} s {i}"),
         Out::Resolve(t) => format!("{id} r {t}"),
         Out::Reject(t, n) => format!("{id} j {t} {n}"),
-        Out::Unavailable | Out::BackendStarted => return None,
+        // QM1k1d wires the MediaSource events
+        Out::Unavailable | Out::BackendStarted | Out::MseOpen(_) | Out::MseEnded(_) | Out::MseClose(_) => return None,
     })
 }
 
@@ -128,7 +129,7 @@ pub(crate) fn install_media<'js>(ctx: &Ctx<'js>, ctxb: BackendCtx, log: crate::m
     });
     let h = host.clone();
     native!(ctx, "__media_drop", move |id: i32| {
-        h.borrow_mut().remove(id);
+        let _ = h.borrow_mut().remove(id);
     });
     let (h, q) = (host.clone(), queue);
     native!(ctx, "__media_pump", move |now: f64, wait: f64| -> Vec<String> {

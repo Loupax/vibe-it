@@ -534,3 +534,5 @@ fn qm1k1a_ffmpeg_fragmented_mp4_matches_ffprobe_duration() {
     let g = b.generation_bytes().unwrap();
     assert!(data.starts_with(&g), "init + fragments are the file's leading boxes");
 }
+
+mod qm1k1c;

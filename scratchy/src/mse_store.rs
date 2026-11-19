@@ -734,6 +734,16 @@ impl MseStore {
         self.buffers.iter().map(|b| b.bytes()).sum()
     }
 
+    /// Every buffer has buffered data around `t` (within `slack` of a range edge).
+    pub fn covers(&self, t: f64, slack: f64) -> bool {
+        !self.buffers.is_empty() && self.buffers.iter().all(|b| b.buffered().iter().any(|&(s, e)| s <= t + slack && e > t))
+    }
+
+    /// `t` lies inside the live generation of every buffer (an mpv seek can reach it).
+    pub fn in_generation(&self, t: f64) -> bool {
+        !self.buffers.is_empty() && self.buffers.iter().all(|b| b.generation().is_some_and(|g| g.start <= t + 0.1) && b.run_end().is_some_and(|e| e > t))
+    }
+
     /// Start a new generation at `t` on every buffer; returns its id.
     pub fn start_generation(&mut self, t: f64) -> u64 {
         let id = self.next_gen;

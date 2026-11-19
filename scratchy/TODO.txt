@@ -1078,7 +1078,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       WebM->fMP4 remux) before QM1k1h; seeks need slice alignment. Tests: the QM1k1b fixtures
       through the remuxer (ffprobe sees 2 streams, durations match), `mse_ab_drift_60s` with
       B passes QM1k-AB's criteria.
-- [ ] QM1k1c [M] READY after QM1k-AB (Sonnet) MSE in the element core (media_el.rs): the
+- [x] QM1k1c [M] DONE 2026-11-19 (commit 398e611; MediaCore MSE attachment + MseHost in src/media_el.rs, tests qm1k1c_* in src/tests/mse_tests/qm1k1c.rs; QM1k-AB not a blocker, option A kept) (Sonnet) MSE in the element core (media_el.rs): the
       MSE attachment of the QM1k-PLAN "Element" paragraph (duration, buffered intersection,
       seekable, `progress`, ended after endOfStream, in/out-of-generation seeks with `waiting`,
       a `MseHost` per page that owns the feeds, attach/detach -> sourceopen/sourceended/
