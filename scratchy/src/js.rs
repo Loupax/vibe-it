@@ -517,6 +517,7 @@ const PRELUDE: &str = r#"
       if (path[path.length - 1] === g.document) path.push(g);
     }
     ev._path = path;
+    var pl = g.__perf_lis; // QOBS4b: only present while --perf-report is recording
     // capFilter: true = capture listeners only, false = non-capture only.
     var invoke = function (node, phase, capFilter) {
       ev.currentTarget = node; ev.eventPhase = phase;
@@ -528,10 +529,15 @@ const PRELUDE: &str = r#"
           if (e.removed || e.capture !== capFilter) continue;
           if (e.once) node.removeEventListener(ev.type, e.fn, e.capture);
           ev._passive = e.passive;
+          var t0 = pl ? g.__perf_cpu() : 0;
           try {
             if (typeof e.fn === 'function') e.fn.call(node, ev);
             else if (e.fn && typeof e.fn.handleEvent === 'function') e.fn.handleEvent(ev);
           } catch (x) { oops(x); }
+          if (pl) {
+            var lf = typeof e.fn === 'function' ? e.fn : e.fn && e.fn.handleEvent;
+            if (typeof lf === 'function') pl(ev.type, lf, g.__perf_cpu() - t0);
+          }
           ev._passive = false;
           if (ev._stopNow) return;
         }
@@ -1534,6 +1540,8 @@ fn startup_engine(document: &Handle, store: Rc<js_modules::ModuleStore>, log: Lo
             // QV8-0: observer deliveries report their own spans (see perf.rs).
             native!(&ctx, "__perf_b", perf::observer_begin);
             native!(&ctx, "__perf_e", perf::observer_end);
+            native!(&ctx, "__perf_cpu", perf::thread_cpu_ms);
+            native!(&ctx, "__perf_lis", |ty: String, f: JsObject<'_>, ms: f64| perf::note_listener(&ty, ms, || f.function_source()));
             native!(&ctx, "__perf_src", |f: JsObject<'_>| perf::set_source(perf::Kind::Timer, || f.function_source()));
         }
         native!(&ctx, "__url_parse", url_parse_native);

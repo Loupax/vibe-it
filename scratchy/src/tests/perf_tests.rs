@@ -355,6 +355,37 @@ fn qobs4_longest_names_the_60ms_timer_function() {
 }
 
 #[test]
+fn qobs4b_idle_callback_names_the_page_function_not_the_shim() {
+    let _g = PerfGuard;
+    let j = qv8_report(
+        "qobs4b-idle",
+        "<script>function slowIdle(){__test_burn(60);} requestIdleCallback(slowIdle);</script>",
+    );
+    let longest = pj_arr(j.get("longest"));
+    assert_eq!(longest[0].get("kind"), &PJ::Str("timer".into()));
+    let PJ::Str(src) = longest[0].get("source") else { panic!() };
+    assert!(src.starts_with("slowIdle"), "{src}");
+    #[cfg(feature = "engine-v8")]
+    assert!(src.contains(":1:") && !src.contains("globals"), "{src}");
+}
+
+#[cfg(feature = "engine-v8")]
+#[test]
+fn qobs4b_prelude_dispatched_event_names_the_slowest_listener() {
+    let _g = PerfGuard;
+    // postMessage dispatches `message` from a globals-prelude timer wrapper.
+    let j = qv8_report(
+        "qobs4b-event",
+        "<script>function fastMsg(){__test_burn(2);} function slowMsg(){__test_burn(60);}\
+         addEventListener('message',fastMsg);addEventListener('message',slowMsg);postMessage('x','*');</script>",
+    );
+    let longest = pj_arr(j.get("longest"));
+    assert_eq!(longest[0].get("kind"), &PJ::Str("timer".into()));
+    let PJ::Str(src) = longest[0].get("source") else { panic!() };
+    assert!(src.starts_with("event:message slowMsg "), "{src}");
+}
+
+#[test]
 fn qobs4_longest_is_bounded_and_keeps_the_largest() {
     let _g = PerfGuard;
     crate::js::FAKE_CLOCK.with(|f| f.set(Some((1_000_000_000, 0))));

@@ -148,11 +148,14 @@
   def(g, 'requestIdleCallback', function (cb, opts) {
     if (typeof cb !== 'function') throw new TypeError("Failed to execute 'requestIdleCallback' on 'Window': The callback provided as parameter 1 is not a function.");
     var id = idleSeq++, start = g.__scratchy_now(), to = opts && Number(opts.timeout) > 0 ? Number(opts.timeout) : 0;
-    var t = g.setTimeout(function () {
+    var w = function () {
       idle.delete(id);
       var now = g.__scratchy_now(), dt = to > 0 && now - start >= to;
       cb({ didTimeout: dt, timeRemaining: function () { return dt ? 0 : Math.max(0, 50 - (g.__scratchy_now() - now)); } });
-    }, 1);
+    };
+    // QOBS4b: --perf-report names the page's callback, not this shim (only while recording).
+    if (g.__perf_src) Object.defineProperty(w, '__scratchy_cb', { value: cb });
+    var t = g.setTimeout(w, 1);
     idle.set(id, t);
     return id;
   });
