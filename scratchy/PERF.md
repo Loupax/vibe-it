@@ -619,3 +619,13 @@ Fields (all counts and ms are for that second; `dt_ms` is the real length of the
   be the same one: painted can exceed rendered).
 
 Overhead: see the QOBS5 PR (measured with and without the variable).
+
+Idle floor (QOBS5b; fixed by QM1k1n6, #347, found independently here): an idle window must show `js_ms` ~0 and ~0 % CPU. It used to show ~125 ms `js_ms` per
+second and ~98 % of a core on any page with a pending JS timer (Wikipedia, YouTube). Not a page timer and not a
+recorder artifact: `App::pump_net` cloned the winit `EventLoopProxy` on every `about_to_wait` and dropped it, and the
+drop pings the loop, so with `ControlFlow::WaitUntil` (a timer pending) the loop woke ~11 000 times a second; each wake
+ran `run_due` / `next_deadline` evals that drain (empty) promise jobs, which the window recorder counted as ~2 us
+`PromiseJob` spans (~125 ms/s of "JS"). Pages without timers use `ControlFlow::Wait`, which winit filters, so they
+never showed it. Diagnose a future one with `SCRATCHY_FRAME_STATS` (`js_ms` steady at ~120 with zero redraws =
+spinning loop, check CPU in `/proc/<pid>/stat`). After the fix: Wikipedia Rust idle `js_ms` 0.01 per second, CPU 3
+ticks per 10 s (was ~980).

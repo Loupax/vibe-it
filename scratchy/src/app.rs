@@ -2139,7 +2139,7 @@ impl App {
 
     /// QF7: starts queued page requests, one thread each (like image
     /// fetches), as far as the policy's parallelism and byte caps allow.
-    fn pump_net(&mut self) {
+    pub(crate) fn pump_net(&mut self) {
         // QM1k1n6: borrow, never clone, the proxy here. Dropping an `EventLoopProxy`
         // pings the event loop (calloop `Sender::drop`), and this runs every turn
         // (`about_to_wait` -> `js_sync`), so a clone per call woke the loop at once,

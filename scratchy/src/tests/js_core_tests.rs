@@ -289,6 +289,50 @@ fn r7_image_fetched_before_nav_result_survives_document_swap() {
     assert!(!app.image_cache.contains_key("old"), "stale-generation image must be dropped");
 }
 
+/// QOBS5b: with a far `WaitUntil` (a pending JS timer) the loop must sleep. `pump_net` used to clone
+/// a winit `EventLoopProxy` on every call and drop it again; the drop pings the loop, so
+/// about_to_wait -> js_sync -> pump_net woke the loop at ~10 kHz (100 % CPU on an idle page).
+#[test]
+fn qobs5b_idle_pump_net_does_not_wake_the_loop() {
+    use winit::application::ApplicationHandler;
+    use winit::event::WindowEvent;
+    use winit::event_loop::ControlFlow;
+    use winit::platform::pump_events::EventLoopExtPumpEvents;
+    use winit::platform::wayland::EventLoopBuilderExtWayland;
+    use winit::window::WindowId;
+    struct Probe {
+        app: App,
+        waits: usize,
+    }
+    impl ApplicationHandler<AppEvent> for Probe {
+        fn resumed(&mut self, _: &ActiveEventLoop) {}
+        fn window_event(&mut self, _: &ActiveEventLoop, _: WindowId, _: WindowEvent) {}
+        fn about_to_wait(&mut self, el: &ActiveEventLoop) {
+            self.waits += 1;
+            self.app.pump_net();
+            el.set_control_flow(ControlFlow::WaitUntil(std::time::Instant::now() + std::time::Duration::from_secs(30)));
+        }
+    }
+    let mut event_loop = match EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build() {
+        Ok(l) => l,
+        Err(_) => return, // no display available (headless CI)
+    };
+    let app = App::new_static(parse_html("<html></html>"), event_loop.create_proxy(), None);
+    let mut probe = Probe { app, waits: 0 };
+    // Let the init wakeups settle, then count the loop turns over 400 ms of wall time
+    // (each call runs one turn at most, so keep calling).
+    let spin = |event_loop: &mut EventLoop<AppEvent>, probe: &mut Probe, ms: u64| {
+        let end = std::time::Instant::now() + std::time::Duration::from_millis(ms);
+        while std::time::Instant::now() < end {
+            event_loop.pump_app_events(Some(std::time::Duration::from_millis(20)), probe);
+        }
+    };
+    spin(&mut event_loop, &mut probe, 100);
+    probe.waits = 0;
+    spin(&mut event_loop, &mut probe, 400);
+    assert!(probe.waits < 60, "an idle WaitUntil loop woke {} times in 400 ms", probe.waits);
+}
+
 #[test]
 fn qb8_current_script_is_the_executing_element_then_null() {
     let (_engine, out) = qb8_start(
