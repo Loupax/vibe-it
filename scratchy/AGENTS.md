@@ -103,6 +103,11 @@
   exit notification. Don't build a polling loop around them.
 - If a wait loop is truly unavoidable, wait on a PID you own (`kill -0 $PID`)
   or use `pgrep -x`, and always wrap it in `timeout`.
+- NEVER kill by name or pattern at all (no `pkill`, `killall`, `pgrep ... | xargs kill`) (user rule 2026-11-19:
+  a name kill for `wire` also matched `pipewire`/`pipewire-pulse`/`wireplumber` and took down the user's audio,
+  scratchy and wire). Record the PID when YOU start a process (`$!`), check `ps -o pid,cmd -p <pid>` shows your
+  own binary path, then kill that PID. The user's own scratchy and wire (socket /run/user/1000/wire.sock) and
+  every desktop/audio process are never yours.
 - Never `pkill -f` with a pattern that also appears in your own command line;
   it can kill your own shell. Kill specific PIDs.
 - Before you finish, check for background shells you started and kill them
