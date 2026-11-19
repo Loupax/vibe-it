@@ -2474,7 +2474,7 @@ Ranked: QY50 (P1) -> QY51 (P1) -> QY49-D (user decision, can be asked now) -> QY
       invalidation (style-relevant writes only: attribute/class/style/insert/remove under
       the element's ancestors, not text writes) or a cascade of the element + ancestors
       only. Accept: the R37 probe shows `__d_cs` < 5 ms per call on that page.
-- [x] QY53 DONE 2026-11-19 (investigation, R43; fix items QY53a-QY53h in the "NEW 2026-11-19
+- [x] QY53 DONE 2026-11-19 (investigation, R43, commit 792ee1f; fix items QY53a-QY53h in the "NEW 2026-11-19
       (Opus, QY53)" block below QY61) >>> RESULT: YouTube watch: 88 % of forced layout is the
       player's `getPlayerSize` reading `#movie_player.clientWidth`; 80 % of the layouts change no
       box; 34 % follow only no-op or detached writes; 99.5 % of each layout is style + box build
