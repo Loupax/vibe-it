@@ -680,6 +680,24 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
 - [ ] QYSK1b [S] (P2, from R51; Sonnet; after QYSK1a, same file) After an in-buffer seek mpv sometimes sends a stale
       `time-pos` right after `playback-restart` (2 of 6 runs): `seeking`/`seeked` read the pre-seek time. Ignore `Time`
       events > 1 s from the target for up to 500 ms after Restart. Gate: FakeBackend queue [Restart, Time(2.0), Time(12.04)].
+- [ ] QPT1 [L] (P1 for YouTube past ~60 s; from QM1k2 R52 #376; WAITING FOR USER: which QPT items go ahead of perf) A real V8
+      realm for same-origin about:blank/srcdoc/data: iframes (new v8::Context, same isolate + security token, preludes or
+      snapshot); `contentWindow`/`defaultView` return that context's global, its `document` is the existing second
+      document. BotGuard reads `iframe.contentWindow.String`; today `frameOf` is a bare Object.create(null) -> early-exit
+      answer -> no integrity token -> no PoToken -> SABR status 3 at ~64 s (11/11 runs). A stand-in proved it: token in 3/4
+      runs, SABR status 1 through +119 s. Files: js_engine_v8.rs, js.rs, js_dom.rs frameOf, js_net.rs. Split into
+      sub-items when taken. QuickJS keeps the old object until QV8-6.
+- [ ] QPT2 [S] (R52; waiting for user) `navigator` in WebIDL shape (Navigator.prototype accessors, Illegal invocation on
+      wrong receiver) + truthful values: webdriver false, cookieEnabled, hardwareConcurrency, empty PluginArray/MimeTypeArray,
+      pdfViewerEnabled false.
+- [ ] QPT3 [S] (R52; waiting for user) Symbol.toStringTag + prototypes for window, document, performance, screen, history,
+      location; a real Performance with a navigation entry.
+- [ ] QPT4 [M] (R52; waiting for user) Prelude-defined built-ins print `function name() { [native code] }` with WebIDL
+      name/length (BotGuard checks it, e.g. the hrefTranslate getter).
+- [ ] QPT5 [M] (R52; waiting for user) Hide the ~65 internal `__scratchy_*`/`__d_*`/`__mse_*` globals from
+      Object.getOwnPropertyNames(window).
+- [ ] QPT6 [S] (R52; waiting for user) Intl default time zone = the system zone (Intl says UTC, Date says Europe/Berlin).
+- [ ] QPT7 [S] (R52; waiting for user) Coarsen performance.now() to 100 us.
 - [ ] QM1k-AB [M, Opus, measure only] READY after QM1k1b. THE EARLY TEST THAT DECIDES A vs B
       USER ANSWER 2026-11-19: A/V seems to sync well for now, but the page is too slow to test properly: DEFERRED until after the performance queue. Good test video (it visualises the sound): https://www.youtube.com/watch?v=G1AeBgalFZk
       (user Q4.3). Run `mse_ab_drift_60s` 3 times on the user's machine (quiet machine, release
