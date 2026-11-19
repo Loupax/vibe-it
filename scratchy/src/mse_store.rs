@@ -456,11 +456,26 @@ pub struct SourceBufferStore {
     segments: Vec<Segment>, // sorted by start
     live: Option<Generation>,
     next_seg_id: u64,
+    /// QM1k1k: `Some(true)` for a `video/*` SourceBuffer, `Some(false)` for `audio/*`.
+    video: Option<bool>,
 }
 
 impl SourceBufferStore {
     pub fn new(fmt: Box<dyn ByteStreamFormat>) -> Self {
-        SourceBufferStore { fmt, init: None, init_id: 0, segments: Vec::new(), live: None, next_seg_id: 1 }
+        SourceBufferStore { fmt, init: None, init_id: 0, segments: Vec::new(), live: None, next_seg_id: 1, video: None }
+    }
+
+    /// Record the kind from the `addSourceBuffer` type (`video/mp4; codecs=...`).
+    pub fn with_type(mut self, mime: &str) -> Self {
+        let t = mime.trim().to_ascii_lowercase();
+        self.video = if t.starts_with("video/") {
+            Some(true)
+        } else if t.starts_with("audio/") {
+            Some(false)
+        } else {
+            None
+        };
+        self
     }
 
     pub fn fmp4() -> Self {
@@ -874,6 +889,24 @@ impl MseFeed {
     pub fn reopen(&self) {
         self.lock().ended = false;
         self.cv.notify_all();
+    }
+
+    /// QM1k1k: which SourceBuffer is the main (picture) stream and which the external
+    /// audio track: `(main, external)`. The `video/*` buffer is main; with two buffers of
+    /// the same or unknown kind the index order decides.
+    pub fn track_roles(&self) -> (usize, Option<usize>) {
+        let g = self.lock();
+        let b = &g.store.buffers;
+        match b.len() {
+            0 | 1 => (0, None),
+            _ => {
+                if b[0].video == Some(false) && b[1].video == Some(true) {
+                    (1, Some(0))
+                } else {
+                    (0, Some(1))
+                }
+            }
+        }
     }
 
     pub fn track_count(&self) -> usize {

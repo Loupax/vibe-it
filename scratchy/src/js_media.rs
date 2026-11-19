@@ -182,9 +182,9 @@ fn install_mse<'js>(ctx: &Ctx<'js>, host: &Rc<RefCell<MediaHost>>, queue: &Queue
         queue_outs(&h, &q, outs);
     });
     let h = host.clone();
-    native!(ctx, "__mse_add_buffer", move |feed: f64, _ty: String| -> i32 {
+    native!(ctx, "__mse_add_buffer", move |feed: f64, ty: String| -> i32 {
         let Some(f) = h.borrow().mse.get(feed as u64) else { return -1 };
-        f.with_store(|st| st.add_buffer(crate::mse_store::SourceBufferStore::fmp4())) as i32
+        f.with_store(|st| st.add_buffer(crate::mse_store::SourceBufferStore::fmp4().with_type(&ty))) as i32
     });
     let (h, q) = (host.clone(), queue.clone());
     native!(ctx, "__mse_remove_buffer", move |feed: f64, bi: i32, now: f64| {
