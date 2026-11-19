@@ -1699,6 +1699,7 @@ pub(crate) fn resolve_style_for(
     viewport_width: f32,
     pseudo: Option<&str>,
 ) -> ComputedStyle {
+    crate::perf::count_style_resolve(pseudo.is_none());
     let base = resolve_style_core(handle, rules, inherited, viewport_width, pseudo, &[]);
     // QAN1b: no `animation` declared (the overwhelmingly common case) costs
     // exactly this one test.

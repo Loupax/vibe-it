@@ -372,3 +372,68 @@ fn qobs4_longest_is_bounded_and_keeps_the_largest() {
     assert_eq!(l[0].get("source"), &PJ::Str("event:50".into()));
     assert_eq!(l[crate::perf::LONGEST_N - 1].get("raw_ms").num(), 31.0);
 }
+
+/// QOBS3: a report on the real CPU clock (the breakdown needs real time to add up).
+fn qobs3_report(name: &str, body: &str) -> PJ {
+    let path = std::env::temp_dir().join(format!("scratchy-qobs3-{}-{name}.html", std::process::id()));
+    std::fs::write(&path, format!("<html><head><title>qobs3</title><style>p{{margin:2px;color:#123}}</style></head><body>{body}</body></html>")).unwrap();
+    let target = path.to_string_lossy().into_owned();
+    let json = crate::perf::perf_report(&crate::perf::ReportOpts { socket: None, seconds: 0.5, target });
+    let _ = std::fs::remove_file(path);
+    pj_parse(&json)
+}
+
+#[cfg(feature = "engine-v8")]
+#[test]
+fn qobs3_by_caller_names_the_page_function_and_counts_its_layouts() {
+    let _g = PerfGuard;
+    let j = qobs3_report(
+        "caller",
+        "<div id=a style='width:10px'>x</div><script>function E(){return document.getElementById('a');}var n=0;function readIt(){E().style.width=(10+(n++))+'px';return E().offsetWidth;}for(var i=0;i<5;i++)readIt();</script>",
+    );
+    let fl = j.get("forced_layout");
+    let callers = pj_arr(fl.get("by_caller"));
+    let PJ::Str(c) = callers[0].get("caller") else { panic!() };
+    assert!(c.starts_with("readIt "), "{c}");
+    assert_eq!(callers[0].get("count").num(), 5.0, "{callers:?}");
+    assert!(callers.len() <= 10);
+    assert_eq!(fl.get("by_reason").get("script").get("count").num(), 5.0);
+    assert_eq!(fl.get("by_reason").get("io").get("count").num(), 0.0);
+    assert_eq!(fl.get("no_change").num(), 0.0);
+}
+
+#[test]
+fn qobs3_a_write_that_changes_no_box_counts_as_no_change() {
+    let _g = PerfGuard;
+    // The first layout has no predecessor; the two after it repaint but move nothing.
+    let j = qobs3_report(
+        "nochange",
+        "<div id=a style='width:10px'>x</div><script>function E(){return document.getElementById('a');}E().offsetWidth;E().style.color='red';E().offsetWidth;E().style.color='blue';E().offsetWidth;</script>",
+    );
+    let fl = j.get("forced_layout");
+    assert_eq!(fl.get("count").num(), 3.0);
+    assert_eq!(fl.get("no_change").num(), 2.0);
+}
+
+#[test]
+fn qobs3_phases_add_up_to_the_forced_layout_total() {
+    let _g = PerfGuard;
+    let mut body = String::new();
+    for i in 0..1500 {
+        body.push_str(&format!("<p>paragraph number {i} with some words in it</p>"));
+    }
+    body.push_str("<div id=a>x</div><script>function E(){return document.getElementById('a');}for(var i=0;i<3;i++){E().style.width=(10+i)+'px';E().offsetWidth;}</script>");
+    let j = qobs3_report("phases", &body);
+    let fl = j.get("forced_layout");
+    assert_eq!(fl.get("count").num(), 3.0);
+    let total = fl.get("total_ms").num();
+    let ph = fl.get("phases");
+    let mut sum = 0.0;
+    for p in ["css_collect", "rule_index", "precompute_generated", "build_children", "measure_document", "glyph_walk", "rect_walk"] {
+        sum += ph.get(p).get("total_ms").num();
+    }
+    assert!(total > 5.0, "layout too small to compare: {total}");
+    assert!((sum - total).abs() <= 0.05 * total, "phases {sum} ms vs total {total} ms: {fl:?}");
+    assert!(fl.get("style_resolves").num() >= 1500.0 * 3.0);
+    assert!(fl.get("elements").num() >= 1500.0 * 3.0);
+}

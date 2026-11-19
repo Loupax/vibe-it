@@ -839,28 +839,39 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     let geom = Rc::new(RefCell::new(crate::js_geom::GeomCache::default()));
     let geom2 = geom.clone();
     let (geom3, geom4) = (geom.clone(), geom.clone());
-    native!(ctx, "__d_rect", move |id: i32, vw: f64, vh: f64| -> Vec<f64> {
+    let geom5 = geom.clone();
+    native!(ctx, "__d_rect", move |c: Ctx<'_>, id: i32, vw: f64, vh: f64| -> Vec<f64> {
         let (page, h) = {
             let t = t.borrow();
             (t.get(0), t.get(id))
         };
         let (Some(page), Some(h)) = (page, h) else { return Vec::new() };
+        // QOBS3: the page caller is only looked up when a layout is about to run under --perf-report.
+        if crate::perf::enabled() && !crate::perf::in_io() && !geom5.borrow().is_fresh(geom_gen(), vw as f32, vh as f32) {
+            crate::perf::set_caller(crate::js_engine::caller_frame(&c, crate::js::PRELUDE_SCRIPTS));
+        }
         geom.borrow_mut().rect_of(&page, geom_gen(), &h, vw as f32, vh as f32)
     });
     // QJ7: per-UTF-16-unit glyph rects of text node `id` (js_geom::text_rects),
     // plus the write generation so script can cache them between DOM writes.
     let t = table.clone();
-    native!(ctx, "__d_textrects", move |id: i32, vw: f64, vh: f64| -> Vec<f64> {
+    let geom6 = geom2.clone();
+    native!(ctx, "__d_textrects", move |c: Ctx<'_>, id: i32, vw: f64, vh: f64| -> Vec<f64> {
         let (page, h) = {
             let t = t.borrow();
             (t.get(0), t.get(id))
         };
         let (Some(page), Some(h)) = (page, h) else { return Vec::new() };
+        if crate::perf::enabled() && !crate::perf::in_io() && !geom6.borrow().is_fresh(geom_gen(), vw as f32, vh as f32) {
+            crate::perf::set_caller(crate::js_engine::caller_frame(&c, crate::js::PRELUDE_SCRIPTS));
+        }
         geom2.borrow_mut().text_rects(&page, geom_gen(), &h, vw as f32, vh as f32)
     });
     // QY53e1: is the geometry cache current for this viewport (no layout), and what the last layout cost.
     native!(ctx, "__d_geom_fresh", move |vw: f64, vh: f64| -> bool { geom3.borrow().is_fresh(geom_gen(), vw as f32, vh as f32) });
     native!(ctx, "__d_geom_cost", move || -> f64 { geom4.borrow().last_cost_ms() });
+    // QOBS3: scratchy's IntersectionObserver evaluation is running (a forced layout it causes is `io`).
+    native!(ctx, "__d_io", |on: bool| crate::perf::set_io(on));
     let gn = wgen.clone();
     native!(ctx, "__d_wgen", move || -> f64 { gn.get() as f64 });
     native!(ctx, "__d_ggen", move || -> f64 { geom_gen() as f64 });
@@ -4490,7 +4501,7 @@ const DOM_PRELUDE: &str = r#"
     for (var i = 0; i < th.length; i++) if (th[i] > ratio) return i;
     return th.length;
   };
-  var ioEval = function (st) {
+  var ioEval0 = function (st) {
     st.need = false;
     var rootEl = st.root && st.root.nodeType === 1 && !gRoot(st.root) ? st.root : null;
     var base = rootEl ? ioPad(rootEl) : [0, 0, Number(g.innerWidth) || 0, Number(g.innerHeight) || 0];
@@ -4536,7 +4547,9 @@ const DOM_PRELUDE: &str = r#"
       st.q.push(e);
     }
   };
-  IO.prototype.observe = function (target) {
+  // QOBS3: geometry reads made while this runs are the `io` reason of a forced layout (--perf-report).
+  var ioEval = function (st) { __d_io(true); try { ioEval0(st); } finally { __d_io(false); } };
+  IO.prototype.observe =function (target) {
     var st = ioSt(this, 'observe');
     if (arguments.length < 1) throw new TypeError("Failed to execute 'observe' on 'IntersectionObserver': 1 argument required, but only 0 present.");
     ioTarget('observe', target);
