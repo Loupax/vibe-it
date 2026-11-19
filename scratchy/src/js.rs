@@ -801,6 +801,9 @@ const FIRE_LOAD: &str = "document.readyState='complete';__scratchy_dispatch(wind
 /// Sink for console output and script errors: `(level, text)`.
 pub(crate) type LogFn = Rc<dyn Fn(&str, &str)>;
 
+/// QOBS3: the names scratchy's own preludes are compiled under (`by_caller` skips their frames).
+pub(crate) const PRELUDE_SCRIPTS: &[&str] = &["prelude", "timers", "url", "globals", "intl", "fetch", "websocket", "cssom", "media", "mse", "env", "img-sweep", "prereq", "media-wait", "eval"];
+
 pub(crate) const SCRIPT_BUDGET: Duration = Duration::from_secs(5);
 // QB3: budget for one timer or event callback. The page-load run keeps
 // `SCRIPT_BUDGET`; a callback runs on the main thread while input is
@@ -854,10 +857,11 @@ pub(crate) fn script_clock_nanos() -> u64 {
 
 /// QJ4: excludes `start..now` (thread CPU nanoseconds from `thread_cpu_nanos`)
 /// from the running script's budget.
-pub(crate) fn pause_budget_since(start: u64) {
+pub(crate) fn pause_budget_since(start: u64) -> u64 {
     let d = thread_cpu_nanos().saturating_sub(start);
     PAUSED_NANOS.with(|p| p.set(p.get() + d));
     perf::forced_layout(d);
+    d
 }
 
 /// QSD1b: `n` bytes from the kernel CSPRNG (`getrandom(2)`, via the `libc` crate that

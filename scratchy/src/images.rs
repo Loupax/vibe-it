@@ -2021,6 +2021,8 @@ pub(crate) fn build_layout_tree_with_resources(
     image_cache: &HashMap<String, Arc<DecodedImage>>,
 ) -> LayoutBox {
     set_viewport(viewport_width, viewport_height.unwrap_or(1080.0));
+    // QOBS3: phase timers sit at these boundaries (free unless a forced layout is recorded).
+    let t_phase = crate::perf::phase(crate::perf::Phase::CssCollect);
     let mut css_source = String::new();
     collect_style_css(document, &mut css_source);
     css_source.push('\n');
@@ -2056,6 +2058,8 @@ pub(crate) fn build_layout_tree_with_resources(
         *c.borrow_mut() = Some((css_source.clone(), rules.clone(), state_rules_mask(), kf));
         rules
     });
+    drop(t_phase);
+    let t_phase = crate::perf::phase(crate::perf::Phase::RuleIndex);
     // QY53b: index, hover keys and the flags depend only on the rule list, so
     // they are rebuilt only when the cached `Rc` is a different one.
     let (index, first_line, first_letter) = RULE_DERIVED.with(|d| {
@@ -2071,7 +2075,11 @@ pub(crate) fn build_layout_tree_with_resources(
     PSEUDO_FLAGS.with(|f| f.set(Some((rules.as_ptr() as usize, rules.len(), first_line, first_letter))));
     MATCH_MEMO.with(|m| *m.borrow_mut() = Some(Default::default()));
     ANCESTOR_BLOOM.with(|b| *b.borrow_mut() = Some(Default::default()));
+    drop(t_phase);
+    let t_phase = crate::perf::phase(crate::perf::Phase::PrecomputeGenerated);
     precompute_generated(document, &rules, viewport_width);
+    drop(t_phase);
+    let _t_phase = crate::perf::phase(crate::perf::Phase::BuildChildren);
     // `var()` is resolved per element in `resolve_style` (Q13).
     // `rem` lengths resolve against `<html>`'s own cascaded font-size, not
     // necessarily `ROOT_STYLE.font_size` — resolve it once up front (pure,

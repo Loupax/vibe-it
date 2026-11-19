@@ -113,12 +113,122 @@ struct Rec {
     /// QOBS4: min-heap (smallest on top) of the `LONGEST_N` longest callbacks; one allocation, never grows.
     longest: std::collections::BinaryHeap<std::cmp::Reverse<Longest>>,
     seq: u64,
+    /// QOBS3: what the forced layouts were made of.
+    fl: ForcedAgg,
 }
+
+/// QOBS3: the phases of a forced layout, in report order.
+#[derive(Clone, Copy)]
+pub(crate) enum Phase {
+    CssCollect,
+    RuleIndex,
+    PrecomputeGenerated,
+    BuildChildren,
+    MeasureDocument,
+    GlyphWalk,
+    RectWalk,
+}
+
+const PHASE_NAMES: [&str; 7] = ["css_collect", "rule_index", "precompute_generated", "build_children", "measure_document", "glyph_walk", "rect_walk"];
+
+/// QOBS3: totals over every forced layout of the run.
+#[derive(Default)]
+struct ForcedAgg {
+    phase_ns: [u64; 7],
+    style_resolves: u64,
+    elements: u64,
+    no_change: u64,
+    /// `[io, script]` (count, thread CPU ns).
+    reason: [(u64, u64); 2],
+    /// `"function url:line:col"` -> (count, thread CPU ns).
+    callers: std::collections::HashMap<String, (u64, u64)>,
+}
+
+/// QOBS3: how many callers `by_caller` lists.
+const CALLERS_N: usize = 10;
 
 thread_local! {
     static ON: Cell<bool> = const { Cell::new(false) };
     static BUDGET_MS: Cell<u64> = const { Cell::new(DEFAULT_BUDGET_MS) };
     static REC: RefCell<Rec> = RefCell::new(Rec::default());
+    /// QOBS3: a forced layout is running under the recorder (gates the phase timers and counters).
+    static FL_ACTIVE: Cell<bool> = const { Cell::new(false) };
+    /// QOBS3: scratchy's IntersectionObserver evaluation is running (a geometry read now is `io`).
+    static IO_FLAG: Cell<bool> = const { Cell::new(false) };
+    /// QOBS3: the page caller of the layout about to run (set by the native, taken by `refresh`).
+    static CALLER: RefCell<Option<String>> = const { RefCell::new(None) };
+}
+
+/// QOBS3: a phase timer; adds its thread CPU to the phase when dropped. `None` (free) unless a forced layout is recorded.
+pub(crate) struct PhaseTimer(Option<(Phase, u64)>);
+
+impl Drop for PhaseTimer {
+    fn drop(&mut self) {
+        if let Some((p, c0)) = self.0 {
+            let d = thread_cpu_nanos().saturating_sub(c0);
+            REC.with(|r| r.borrow_mut().fl.phase_ns[p as usize] += d);
+        }
+    }
+}
+
+#[inline]
+pub(crate) fn phase(p: Phase) -> PhaseTimer {
+    PhaseTimer(if FL_ACTIVE.with(Cell::get) { Some((p, thread_cpu_nanos())) } else { None })
+}
+
+/// QOBS3: one `resolve_style_for` call (`element`: not a pseudo-element).
+#[inline]
+pub(crate) fn count_style_resolve(element: bool) {
+    if FL_ACTIVE.with(Cell::get) {
+        REC.with(|r| {
+            let mut r = r.borrow_mut();
+            r.fl.style_resolves += 1;
+            r.fl.elements += element as u64;
+        });
+    }
+}
+
+/// QOBS3: brackets one forced layout. `begin_forced` is true when the recorder wants the breakdown.
+pub(crate) fn begin_forced() -> bool {
+    let on = enabled();
+    FL_ACTIVE.with(|a| a.set(on));
+    on
+}
+
+pub(crate) fn end_forced() {
+    FL_ACTIVE.with(|a| a.set(false));
+}
+
+/// QOBS3: the IO prelude's evaluation brackets its geometry reads with this.
+pub(crate) fn set_io(on: bool) {
+    IO_FLAG.with(|f| f.set(on));
+}
+
+pub(crate) fn in_io() -> bool {
+    IO_FLAG.with(Cell::get)
+}
+
+pub(crate) fn set_caller(c: Option<String>) {
+    CALLER.with(|x| *x.borrow_mut() = c);
+}
+
+/// QOBS3: one finished forced layout: reason, caller and whether its rects equalled the previous layout's.
+pub(crate) fn forced_detail(cpu_ns: u64, no_change: bool) {
+    let caller = CALLER.with(|x| x.borrow_mut().take());
+    let io = IO_FLAG.with(Cell::get);
+    REC.with(|r| {
+        let mut r = r.borrow_mut();
+        let f = &mut r.fl;
+        f.no_change += no_change as u64;
+        let e = &mut f.reason[if io { 0 } else { 1 }];
+        e.0 += 1;
+        e.1 += cpu_ns;
+        if let Some(c) = caller {
+            let e = f.callers.entry(c).or_default();
+            e.0 += 1;
+            e.1 += cpu_ns;
+        }
+    });
 }
 
 #[inline]
@@ -414,6 +524,26 @@ pub(crate) fn body_json() -> String {
                 )
             })
             .collect();
+        let fl = &r.fl;
+        let phases: Vec<String> = PHASE_NAMES.iter().zip(fl.phase_ns).map(|(n, ns)| format!("\"{n}\":{{\"total_ms\":{}}}", ms(ns))).collect();
+        let reason = |i: usize| format!("{{\"count\":{},\"total_ms\":{}}}", fl.reason[i].0, ms(fl.reason[i].1));
+        let mut callers: Vec<(&String, &(u64, u64))> = fl.callers.iter().collect();
+        callers.sort_by(|a, b| b.1.1.cmp(&a.1.1).then(b.1.0.cmp(&a.1.0)).then(a.0.cmp(b.0)));
+        let by_caller: Vec<String> = callers
+            .iter()
+            .take(CALLERS_N)
+            .map(|(k, v)| format!("{{\"caller\":{},\"count\":{},\"total_ms\":{}}}", json_str(k), v.0, ms(v.1)))
+            .collect();
+        let forced_extra = format!(
+            "\"phases\":{{{}}},\"style_resolves\":{},\"elements\":{},\"no_change\":{},\"by_reason\":{{\"io\":{},\"script\":{}}},\"by_caller\":[{}]",
+            phases.join(","),
+            fl.style_resolves,
+            fl.elements,
+            fl.no_change,
+            reason(0),
+            reason(1),
+            by_caller.join(",")
+        );
         let ftotal: u64 = r.forced.iter().sum();
         let fmax = r.forced.iter().copied().max().unwrap_or(0);
         let mark = |name: &str| r.marks.iter().find(|m| m.0 == name).map(|m| (m.1, m.2)).unwrap_or((0.0, 0));
@@ -424,7 +554,7 @@ pub(crate) fn body_json() -> String {
         let (_, es) = mark("engine_start");
         let (_, ee) = mark("engine_ready");
         format!(
-            "\"callbacks\":{{{}}},\"longest\":[{}],\"budget_kills\":{},\"forced_layout\":{{\"count\":{},\"total_ms\":{},\"max_ms\":{}}},\
+            "\"callbacks\":{{{}}},\"longest\":[{}],\"budget_kills\":{},\"forced_layout\":{{\"count\":{},\"total_ms\":{},\"max_ms\":{},{}}},\
              \"compile_cpu_ms\":{},\"engine_startup_cpu_ms\":{},\
              \"load\":{{\"fetch_wall_ms\":{},\"fetch_cpu_ms\":{},\"dom_content_loaded_wall_ms\":{},\"dom_content_loaded_cpu_ms\":{},\"load_wall_ms\":{},\"load_cpu_ms\":{}}}",
             kinds.join(","),
@@ -433,6 +563,7 @@ pub(crate) fn body_json() -> String {
             r.forced.len(),
             ms(ftotal),
             ms(fmax),
+            forced_extra,
             ms(r.compile_ns),
             ms(ee.saturating_sub(es)),
             wall(fw),

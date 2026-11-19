@@ -61,6 +61,11 @@ pub(crate) fn prebuilt(_ctx: &Ctx<'_>) -> bool {
 
 /// QV8-4: no-ops here (V8 builds its startup snapshot in the background).
 pub(crate) fn warm_up() {}
+
+/// QOBS3: the QuickJS backend gives no script URLs through rquickjs, so `by_caller` stays empty.
+pub(crate) fn caller_frame(_ctx: &Ctx<'_>, _skip: &[&str]) -> Option<String> {
+    None
+}
 pub(crate) fn baking() -> bool {
     false
 }

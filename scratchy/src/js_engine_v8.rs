@@ -477,6 +477,24 @@ fn trampoline<'s>(scope: &mut v8::PinScope<'s, '_>, args: v8::FunctionCallbackAr
     }
 }
 
+/// QOBS3: `name url:line:col` of the innermost JS frame whose script is not one of scratchy's
+/// own preludes (`skip`); `None` when there is none. A stack walk: call it only when needed.
+pub(crate) fn caller_frame(ctx: &Ctx<'_>, skip: &[&str]) -> Option<String> {
+    let sc = ctx.sc();
+    let tr = v8::StackTrace::current_stack_trace(sc, 24)?;
+    for i in 0..tr.get_frame_count() {
+        let Some(f) = tr.get_frame(sc, i) else { continue };
+        let url = f.get_script_name(sc).map(|s| s.to_rust_string_lossy(sc)).unwrap_or_default();
+        if skip.contains(&url.as_str()) {
+            continue;
+        }
+        let name = f.get_function_name(sc).map(|s| s.to_rust_string_lossy(sc)).unwrap_or_default();
+        let name = if name.is_empty() { "(anonymous)" } else { &name };
+        return Some(format!("{name} {url}:{}:{}", f.get_line_number(), f.get_column()));
+    }
+    None
+}
+
 /// Installs `f` as the global function `name`.
 pub(crate) fn register<'js, P, F>(ctx: &Ctx<'js>, name: &str, f: F)
 where

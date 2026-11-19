@@ -17,7 +17,7 @@
 use super::*;
 
 /// One element's box in document space.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub(crate) struct GeomRect {
     pub(crate) x: f32,
     pub(crate) y: f32,
@@ -172,12 +172,15 @@ impl GeomCache {
         }
         self.last_vp = Some(vp);
         let t0 = std::time::Instant::now();
+        // QOBS3: the phase timers and counters run only while the recorder is on.
+        let recording = crate::perf::begin_forced();
         let cpu0 = crate::js::thread_cpu_nanos();
         let prev_vp = current_viewport();
         // A layout bug must not take the whole browser down with a page
         // script: on a panic the page simply has no geometry (all zeros).
         let done = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let tree = build_layout_tree_with_resources(page, vw, Some(vh), &css, &HashMap::new());
+            let t_phase = crate::perf::phase(crate::perf::Phase::MeasureDocument);
             let mut cache = ShapeCache::new();
             let mut laid = None;
             // Shaping is progressive (a deadline per pass); keep going until
@@ -195,18 +198,20 @@ impl GeomCache {
                     }
                 }
             });
+            drop(tree);
+            drop(t_phase);
+            let t_phase = crate::perf::phase(crate::perf::Phase::GlyphWalk);
             let mut glyphs = HashMap::new();
             if let Some(l) = &laid {
                 walk_glyphs(l, &cache, &mut glyphs);
             }
+            drop(cache);
+            drop(t_phase);
             (laid, glyphs)
         }));
         set_viewport(prev_vp.0, prev_vp.1);
-        // The layout is the browser's work, not the script's: don't charge it
-        // to the script's CPU budget (it would trip it on a big page).
-        self.last_cpu_ms = crate::js::thread_cpu_nanos().saturating_sub(cpu0) as f64 / 1e6;
-        crate::js::pause_budget_since(cpu0);
-        self.rects.clear();
+        let t_phase = crate::perf::phase(crate::perf::Phase::RectWalk);
+        let prev = std::mem::take(&mut self.rects);
         self.page = (0.0, 0.0);
         self.glyphs.clear();
         match done {
@@ -217,6 +222,18 @@ impl GeomCache {
             }
             Ok((None, _)) => {}
             Err(_) => diag!("scratchy: js: layout panicked while reading geometry; element rects read as zero"),
+        }
+        // QOBS3: did this layout change any box? (only compared while recording)
+        let no_change = recording && self.key.is_some() && prev.len() == self.rects.len() && prev.iter().all(|(k, v)| self.rects.get(k) == Some(v));
+        drop(prev);
+        drop(t_phase);
+        // The layout is the browser's work, not the script's: don't charge it
+        // to the script's CPU budget (it would trip it on a big page).
+        self.last_cpu_ms = crate::js::thread_cpu_nanos().saturating_sub(cpu0) as f64 / 1e6;
+        let d = crate::js::pause_budget_since(cpu0);
+        if recording {
+            crate::perf::end_forced();
+            crate::perf::forced_detail(d, no_change);
         }
         self.key = Some(key);
         self.forced += 1;
