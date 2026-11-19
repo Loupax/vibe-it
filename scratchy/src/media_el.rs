@@ -207,6 +207,8 @@ pub(crate) struct LoadReq {
     pub url: String,
     pub page: String,
     pub mode: MediaMode,
+    /// QM1k1g: the bytes of a real `Blob` behind a `blob:` URL; served from memory (no wire).
+    pub blob: Option<Arc<Vec<u8>>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -379,6 +381,8 @@ const MSE_PROGRESS_MS: f64 = 350.0;
 
 pub(crate) struct MediaCore {
     backend: Box<dyn MediaBackend>,
+    /// QM1k1g: the in-memory bytes of the current `blob:` src (None for a network src).
+    blob: Option<Arc<Vec<u8>>>,
     outs: Vec<Out>,
     pub network_state: u8,
     pub ready_state: u8,
@@ -459,6 +463,7 @@ impl MediaCore {
             laid: false,
             keep_sent: false,
             mse: None,
+            blob: None,
             loadeddata_fired: false,
         }
     }
@@ -561,6 +566,18 @@ impl MediaCore {
     /// element); otherwise `<source>` children (failure = `error` on the
     /// source, next candidate, no MediaError).
     pub(crate) fn load(&mut self, cands: Vec<Candidate>, from_attr: bool, mode: MediaMode, page: String) {
+        self.blob = None;
+        self.load_inner(cands, from_attr, mode, page);
+    }
+
+    /// QM1k1g: `el.src = URL.createObjectURL(blob)` for a real Blob: the src attribute is the
+    /// one candidate and the backend plays the bytes from memory (no network request).
+    pub(crate) fn load_blob(&mut self, url: String, bytes: Arc<Vec<u8>>, page: String) {
+        self.blob = Some(bytes);
+        self.load_inner(vec![Candidate { url, mime: String::new() }], true, MediaMode::NoCors, page);
+    }
+
+    fn load_inner(&mut self, cands: Vec<Candidate>, from_attr: bool, mode: MediaMode, page: String) {
         self.reset_for_load();
         self.begin(cands, from_attr, mode, page);
         if self.cands.is_empty() {
@@ -621,7 +638,7 @@ impl MediaCore {
                 self.idx += 1;
                 continue;
             }
-            let req = LoadReq { url: c.url.clone(), page: self.page.clone(), mode: self.mode };
+            let req = LoadReq { url: c.url.clone(), page: self.page.clone(), mode: self.mode, blob: self.blob.clone() };
             match self.backend.load(&req) {
                 Ok(()) => {
                     self.current_src = c.url;
@@ -1211,7 +1228,7 @@ impl MediaBackend for FakeBackend {
         }
         let gid = feed.start_generation(start);
         let (main, _) = feed.track_roles();
-        s.loaded = Some(LoadReq { url: format!("scratchy-mse://{}/{gid}/{main}", feed.id), page: String::new(), mode: MediaMode::NoCors });
+        s.loaded = Some(LoadReq { url: format!("scratchy-mse://{}/{gid}/{main}", feed.id), page: String::new(), mode: MediaMode::NoCors, blob: None });
         s.position = start;
         s.playing = false;
         Ok(())

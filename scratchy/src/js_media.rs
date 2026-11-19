@@ -65,6 +65,12 @@ pub(crate) fn install_media<'js>(ctx: &Ctx<'js>, ctxb: BackendCtx, log: crate::m
         ctl!(h, q, id, |c| c.load(cs, from_attr, mode, page));
     });
     let (h, q) = (host.clone(), queue.clone());
+    // QM1k1g: a blob: src naming a real Blob; its bytes are played from memory.
+    native!(ctx, "__media_load_blob", move |id: i32, url: String, data: Bytes, page: String| {
+        let bytes = std::sync::Arc::new(data.0);
+        ctl!(h, q, id, |c| c.load_blob(url, bytes, page));
+    });
+    let (h, q) = (host.clone(), queue.clone());
     native!(ctx, "__media_play", move |id: i32, tok: u32| {
         ctl!(h, q, id, |c| c.play(tok));
     });
