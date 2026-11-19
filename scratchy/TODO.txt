@@ -43,7 +43,7 @@ PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; sea
    7 DONE 4946d83 QY53i [M]  custom-property interning clone/hash/leak (css.rs)                  | QOBS block
  Step 3, see what is still slow and name it:
    8 DONE f9a8c27 QOBS4 [S]  name the slowest callbacks (YT: a 5.5 s timer, a 2.8 s promise job) | QOBS block
-   9 [WIP] QOBS3 [M]  forced-layout phases / callers / no-op rate in --perf-report         | QOBS block
+   9 DONE 319f933 QOBS3 [M]  forced-layout phases / callers / no-op rate in --perf-report         | QOBS block
   10 [WIP] QOBS5 [M]  window frame stats (redraw, paint, input latency, video frames)    | QOBS block
  Step 4, the main thread in the live window (YouTube playback, scrolling, mouse):
   11 QOBS6 [S]  network delivery delay (tool for 12)                                | QOBS block
@@ -56,7 +56,7 @@ PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; sea
   17 DONE 9fb583a QY53f [L, Opus design first] incremental style between forced layouts (80 % change nothing) | QY53 block
   17a QY53f1 [S/M] incremental stylesheet parse (YT max_ms = full 4.4 MB re-parse); after QOBS3 | QY53 block
  Step 5, memory, regression guards, re-measure:
-  18 QOBS7 [S]  memory breakdown (YT: 714 MB RSS vs 124 MB JS heap)                 | QOBS block
+  18 [WIP] QOBS7 [S]  memory breakdown (YT: 714 MB RSS vs 124 MB JS heap)                 | QOBS block
   19 DONE 4123b55 QOBS8 [S]  perf-diff tool       20 [WIP] QOBS10 [S] offline forced-layout benchmark  | QOBS block
   21 QY60 [S, Opus measure] main-thread throughput on YouTube results (re-measure after steps 2-4)
   22 QY54 [S, Opus measure] compositor disconnect under stalls (re-run after steps 2-4)
@@ -1246,6 +1246,8 @@ Shared rules for this block:
       lazy-load observer firing late -> more continuation loads -> more layouts). Measure 5+5 interleaved runs of c5098fa
       vs its parent with QOBS3's by_reason/by_caller; if the branch really is worse, find why and fix or file. Also check
       that YouTube's visible content (thumbnails, comments) loads as before (nested-dwl screenshot at 30 s).
+      QOBS3 (319f933) YT watch sample, 60 s, loaded machine: 135 forced layouts / 7.3 s, no_change 73 (54 %), by_reason
+      io 21 / 2.1 s, script 114 / 5.2 s; top caller `g.k.getPlayerSize` (player base.js:15474) 74 layouts / 2.3 s.
 - [ ] QOBS4b [S] (P2, coordinator 2026-11-19, from QOBS4 f9a8c27; Sonnet) `longest[].source` names scratchy's WRAPPERS,
       not the page function: YT watch #4 `run media:108:22` (1360 ms, 15 forced layouts = the media pump in
       media_prelude.js, which dispatches `timeupdate` etc. synchronously, so YouTube's listeners run inside it) and #5
@@ -1284,25 +1286,17 @@ Shared rules for this block:
       (`--perf-report`, QOBS3 phases/by_caller once merged); make the ancestor checks one walk (or cached per layout
       generation). Gate: one read at 5 000 deep < 100 ms; tests: IO visibility semantics unchanged (display:none /
       visibility:hidden ancestor still hides the target).
+- [ ] QY53l [S] (P2, from QOBS3 319f933; Opus measure then Sonnet) YouTube's `g.k.getPlayerSize` (player base.js:15474)
+      forces 74 of 135 forced layouts per 60 s (2.3 s), and 54 % of all forced layouts change no box. Find what it reads
+      (offsetWidth/clientWidth/getBoundingClientRect of the player?) and what write dirties geometry between its calls
+      (a style/attribute write that changes nothing? our own media prelude, e.g. QM1k1n1's off-screen parking `top`?).
+      If the dirtying write is a no-op for layout (same value, or a property that cannot move boxes), skip the GEOM_GEN
+      bump for it (QY53c did this for some writes). Gate: YT watch getPlayerSize layouts / 60 s at least halved,
+      median of 3, default UA; tests for the skipped write kind.
 - [ ] QOBS1b [XS] (coordinator 2026-11-19, from QOBS2 aadd319; Sonnet/Haiku, tools only) `tools/profile.sh` still sets
       `SCRATCHY_V8_SNAPSHOT=0` (the QOBS1 workaround "until QOBS2 is merged"). QOBS2 made scratchy skip the snapshot itself
       whenever `SCRATCHY_V8_FLAGS` is set, so drop the env var from profile.sh and the PERF.md "Profiling (perf)" note.
       Smoke: profile.sh on a local fixture still resolves JS frames. Can pair with any item (tools/PERF.md only).
-- [ ] [WIP] QOBS3 [M] (P1, R44 section 4.2, Sonnet) Forced-layout breakdown in `--perf-report` (the permanent
-      version of R43's throwaway lines). Add to `forced_layout`: `phases` {css_collect, rule_index
-      (RuleIndex + HoverKeys), precompute_generated, build_children, measure_document, glyph_walk,
-      rect_walk} each `total_ms` (thread CPU; phases must add up to within 5 % of `total_ms`);
-      `style_resolves` and `elements` (sums); `no_change` = layouts whose rect map equals the previous
-      one (compare `self.rects` before/after in `GeomCache::refresh`; R43: 80 % on YouTube);
-      `by_reason` {io (the read came from scratchy's IO evaluation), script (a page read)} counts and ms
-      (set a flag around the IO prelude's native calls, do not inspect JS stacks for this);
-      `by_caller`: top 10 page JS callers as `"function url:line:col"` with count and ms, from
-      `v8::StackTrace::current_stack_trace` taken ONLY when a layout actually runs (first frame whose
-      script URL is not scratchy's prelude). The QuickJS backend may report `by_caller: []`.
-      Tests (perf_tests.rs): fixture whose function `readIt` writes then reads `offsetWidth` 5 times ->
-      `by_caller[0]` names `readIt`, count 5; a write of the same value then a read -> `no_change`
-      counted; phases sum within 5 %. Accept: tests; overhead rule above; Wikipedia Rust and YT watch
-      JSON pasted in the PR.
 - [ ] [WIP] QOBS5 [M] (P1 for the media items, R44 section 4.4, Sonnet) Window frame stats.
       `SCRATCHY_FRAME_STATS=<path>` (or `=1` for stderr): the live App appends one JSON line per second
       of wall time: redraws; App tree builds (count, ms: today only `last_build_time`); shape-worker
@@ -1323,7 +1317,7 @@ Shared rules for this block:
       synchronous; say so in PERF.md); QOBS5 lines: the same per second. QM1k1n5 ("results 1-19 s late,
       measure first") uses this instead of temporary stamps. Test: a fetch whose result arrives while a
       busy timer chain runs records a delay >= the timer's duration (test clock or a known busy loop).
-- [ ] QOBS7 [S] (P2, R44 section 4.5, Sonnet) Memory breakdown in `--perf-report`: `memory` {rss_bytes,
+- [ ] [WIP] QOBS7 [S] (P2, R44 section 4.5, Sonnet) Memory breakdown in `--perf-report`: `memory` {rss_bytes,
       peak_rss_bytes (`getrusage` ru_maxrss), js_heap {used, total, external} (V8 `get_heap_statistics`),
       caches: entries and approximate bytes of `CUSTOM_PROPS_INTERNER` (leaked forever), `SHAPE_MEMO`,
       `RULES_CACHE` + the RuleIndex/HoverKeys cache, `SVG_SIZED_CACHE`, the image cache, `StyleCache`,
