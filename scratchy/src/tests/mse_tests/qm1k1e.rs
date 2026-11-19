@@ -177,10 +177,10 @@ fn qm1k1e_attributes_and_their_validation() {
     // abort resets the append window
     js.run("sb.abort();");
     assert_eq!(js.val("[sb.appendWindowStart, sb.appendWindowEnd].join()"), "0,Infinity");
-    // 'sequence' is stored and logged as not implemented
+    // 'sequence' is real since QM1k1i (no `not implemented` line)
     js.run("sb.mode = 'sequence';");
     assert_eq!(js.val("sb.mode"), "sequence");
-    assert!(js.lines().iter().any(|l| l.contains("not implemented") && l.contains("sequence")), "{:?}", js.lines());
+    assert!(!js.lines().iter().any(|l| l.contains("not implemented")), "{:?}", js.lines());
     js.run("sb.mode = 'bogus';");
     assert_eq!(js.val("sb.mode"), "sequence");
 }

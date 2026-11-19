@@ -219,7 +219,7 @@ fn install_mse<'js>(ctx: &Ctx<'js>, host: &Rc<RefCell<MediaHost>>, queue: &Queue
                 if let Some((_, outs)) = r {
                     queue_outs(&h, &q, outs);
                 }
-                0
+                if o.unshifted > 0 { 3 } else { 0 }
             }
             Err(crate::mse_store::MseError::QuotaExceeded) => 1,
             Err(crate::mse_store::MseError::Parse(_)) => {
@@ -230,6 +230,27 @@ fn install_mse<'js>(ctx: &Ctx<'js>, host: &Rc<RefCell<MediaHost>>, queue: &Queue
                 2
             }
         }
+    });
+    // QM1k1i: op 0 mode (v = 1 sequence), 1 timestampOffset, 2 appendWindowStart, 3 appendWindowEnd.
+    let h = host.clone();
+    native!(ctx, "__mse_sb_cfg", move |feed: f64, bi: i32, op: i32, v: f64| {
+        let Some(f) = h.borrow().mse.get(feed as u64) else { return };
+        f.with_store(|st| {
+            if let Some(b) = st.buffers.get_mut(bi as usize) {
+                let (ws, we) = b.append_window();
+                match op {
+                    0 => b.set_sequence(v == 1.0),
+                    1 => b.set_timestamp_offset(v),
+                    2 => b.set_append_window(v, we),
+                    _ => b.set_append_window(ws, v),
+                }
+            }
+        });
+    });
+    let h = host.clone();
+    native!(ctx, "__mse_sb_tso", move |feed: f64, bi: i32| -> f64 {
+        let Some(f) = h.borrow().mse.get(feed as u64) else { return 0.0 };
+        f.with_store(|st| st.buffers.get(bi as usize).map_or(0.0, |b| b.timestamp_offset()))
     });
     let h = host.clone();
     native!(ctx, "__mse_abort", move |feed: f64, bi: i32| {

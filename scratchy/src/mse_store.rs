@@ -64,6 +64,11 @@ pub trait ByteStreamFormat: Send {
     /// `SourceBuffer.abort()`: drop partial input and the error state; keeps the
     /// track table of the last init segment.
     fn reset(&mut self);
+    /// QM1k1i: move a media segment `delta` seconds in time by rewriting the container
+    /// timing headers in place (the bytes mpv reads). False when this format cannot.
+    fn shift(&self, _seg: &mut [u8], _delta: f64) -> bool {
+        false
+    }
 }
 
 // ---------- fMP4 reader ----------
@@ -361,6 +366,57 @@ impl Fmp4Reader {
 }
 
 impl ByteStreamFormat for Fmp4Reader {
+    /// Adds `delta` to every `tfdt` (base media decode time) of the segment; all or nothing.
+    fn shift(&self, seg: &mut [u8], delta: f64) -> bool {
+        // (offset of the tfdt value, is 64-bit, timescale)
+        let mut edits: Vec<(usize, bool, u32)> = Vec::new();
+        let base = seg.as_ptr() as usize;
+        let Ok(top) = child_boxes(seg) else { return false };
+        for (ty, moof) in top {
+            if &ty != b"moof" {
+                continue;
+            }
+            let Ok(trafs) = child_boxes(moof) else { return false };
+            for (t, traf) in trafs {
+                if &t != b"traf" {
+                    continue;
+                }
+                let Ok(kids) = child_boxes(traf) else { return false };
+                let (Some(tfhd), Some(tfdt)) = (find(&kids, b"tfhd"), find(&kids, b"tfdt")) else { return false };
+                let Ok(id) = rd32(tfhd, 4) else { return false };
+                let Some(info) = self.tracks.get(&id) else { return false };
+                let wide = tfdt.first() == Some(&1);
+                if tfdt.len() < if wide { 12 } else { 8 } {
+                    return false;
+                }
+                edits.push((tfdt.as_ptr() as usize - base + 4, wide, info.timescale));
+            }
+        }
+        if edits.is_empty() {
+            return false;
+        }
+        let mut writes: Vec<(usize, Vec<u8>)> = Vec::new();
+        for (at, wide, ts) in edits {
+            let cur = if wide { rd64(seg, at) } else { rd32(seg, at).map(u64::from) };
+            let Ok(cur) = cur else { return false };
+            let v = cur as i128 + (delta * f64::from(ts)).round() as i128;
+            if v < 0 {
+                return false;
+            }
+            if wide {
+                writes.push((at, (v as u64).to_be_bytes().to_vec()));
+            } else if v <= i128::from(u32::MAX) {
+                writes.push((at, (v as u32).to_be_bytes().to_vec()));
+            } else {
+                return false;
+            }
+        }
+        for (at, b) in writes {
+            seg[at..at + b.len()].copy_from_slice(&b);
+        }
+        true
+    }
+
     fn feed(&mut self, data: &[u8]) -> Vec<Parsed> {
         if let Some(e) = &self.failed {
             return vec![Parsed::Error(e.clone())];
@@ -447,6 +503,11 @@ pub struct AppendOutcome {
     pub new_generation: bool,
     /// Media segments stored by this append.
     pub segments: usize,
+    /// QM1k1i: segments dropped because they lie wholly outside the append window.
+    pub dropped: usize,
+    /// QM1k1i: segments whose timestampOffset could not be written into the bytes (stored
+    /// unshifted so the store and mpv agree).
+    pub unshifted: usize,
 }
 
 pub struct SourceBufferStore {
@@ -458,11 +519,64 @@ pub struct SourceBufferStore {
     next_seg_id: u64,
     /// QM1k1k: `Some(true)` for a `video/*` SourceBuffer, `Some(false)` for `audio/*`.
     video: Option<bool>,
+    /// QM1k1i: `mode == 'sequence'`.
+    sequence: bool,
+    tso: f64,
+    aws: f64,
+    awe: f64,
+    /// Sequence mode: where the next coded frame group starts (None once its first segment
+    /// has been placed).
+    group_start: Option<f64>,
+    group_end: f64,
 }
 
 impl SourceBufferStore {
     pub fn new(fmt: Box<dyn ByteStreamFormat>) -> Self {
-        SourceBufferStore { fmt, init: None, init_id: 0, segments: Vec::new(), live: None, next_seg_id: 1, video: None }
+        SourceBufferStore {
+            fmt,
+            init: None,
+            init_id: 0,
+            segments: Vec::new(),
+            live: None,
+            next_seg_id: 1,
+            video: None,
+            sequence: false,
+            tso: 0.0,
+            aws: 0.0,
+            awe: f64::INFINITY,
+            group_start: None,
+            group_end: 0.0,
+        }
+    }
+
+    /// `mode = 'sequence' | 'segments'` (the group start becomes the current group end).
+    pub fn set_sequence(&mut self, on: bool) {
+        self.sequence = on;
+        if on {
+            self.group_start = Some(self.group_end);
+        }
+    }
+
+    /// `timestampOffset = v` (in sequence mode it also places the next group).
+    pub fn set_timestamp_offset(&mut self, v: f64) {
+        self.tso = v;
+        if self.sequence {
+            self.group_start = Some(v);
+        }
+    }
+
+    /// The effective offset (in sequence mode it moves as groups are placed).
+    pub fn timestamp_offset(&self) -> f64 {
+        self.tso
+    }
+
+    pub fn append_window(&self) -> (f64, f64) {
+        (self.aws, self.awe)
+    }
+
+    pub fn set_append_window(&mut self, start: f64, end: f64) {
+        self.aws = start;
+        self.awe = end;
     }
 
     /// Record the kind from the `addSourceBuffer` type (`video/mp4; codecs=...`).
@@ -502,6 +616,11 @@ impl SourceBufferStore {
     /// `SourceBuffer.abort()` parser reset.
     pub fn abort(&mut self) {
         self.fmt.reset();
+        self.aws = 0.0;
+        self.awe = f64::INFINITY;
+        if self.sequence {
+            self.group_start = Some(self.group_end);
+        }
     }
 
     /// Merged ranges `(start, end)`; neighbours within [`MSE_GAP_TOLERANCE`] merge.
@@ -542,7 +661,7 @@ impl SourceBufferStore {
 
     /// Feed bytes. Parsed segments are stored before an error is reported.
     pub fn append(&mut self, data: &[u8]) -> Result<AppendOutcome, MseError> {
-        let mut outcome = AppendOutcome { new_generation: false, segments: 0 };
+        let mut outcome = AppendOutcome { new_generation: false, segments: 0, dropped: 0, unshifted: 0 };
         for p in self.fmt.feed(data) {
             match p {
                 Parsed::Init(bytes) => {
@@ -553,7 +672,28 @@ impl SourceBufferStore {
                     self.init_id += 1;
                     self.live = None; // the caller starts a new generation
                 }
-                Parsed::Media { bytes, start, end } => {
+                Parsed::Media { mut bytes, mut start, mut end } => {
+                    // QM1k1i: sequence mode places the first segment of a group at the group
+                    // start; the offset then shifts the whole segment (segment granularity).
+                    if self.sequence
+                        && let Some(gs) = self.group_start.take()
+                    {
+                        self.tso = gs - start;
+                    }
+                    let (s, e) = (start + self.tso, end + self.tso);
+                    if e <= self.aws + EPS || s >= self.awe - EPS {
+                        outcome.dropped += 1;
+                        continue;
+                    }
+                    if self.tso != 0.0 {
+                        if self.fmt.shift(&mut bytes, self.tso) {
+                            start = s;
+                            end = e;
+                        } else {
+                            outcome.unshifted += 1;
+                        }
+                    }
+                    self.group_end = self.group_end.max(end);
                     self.insert(start, end, bytes);
                     outcome.segments += 1;
                 }

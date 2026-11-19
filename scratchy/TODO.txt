@@ -1301,7 +1301,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       Cluster/Cues) = one media segment, end = last SimpleBlock/BlockGroup time (+ its
       BlockDuration if present); still header-only. Tests: synthetic EBML, split appends, a
       ffmpeg-made WebM (skip without ffmpeg) with buffered within one frame. No table flip here.
-- [ ] QM1k1i [S] READY after QM1k1e (Sonnet) `mode = 'sequence'`, `timestampOffset`,
+- [x] QM1k1i [S] DONE 2026-11-19 (commit fd1af2d; real mpv plays an offset stream at the shifted media time, tfdt rewritten in the stored bytes; segment granularity: partial append-window overlaps kept whole; tests src/tests/mse_tests/qm1k1i.rs) (Sonnet) `mode = 'sequence'`, `timestampOffset`,
       `appendWindowStart/End` with spec semantics at segment granularity (sequence mode moves a
       segment to the group end; the offset shifts store times AND the generation needs mpv to
       see the shifted times: if mpv cannot, restrict to segments mode + log, decided by a test
