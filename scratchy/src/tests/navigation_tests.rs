@@ -36,6 +36,8 @@ fn qy19_find_meta_refresh_and_chain_cap() {
 
 #[test]
 fn qy19_noscript_meta_only_with_js_off() {
+    // JS_ENABLED is process-wide; tests that read or flip it hold this lock (main CI flake 4608cd4).
+    let _g = JS_FLAG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let html = r#"<html><head><noscript><meta http-equiv="refresh" content="0; url=/h"></noscript></head><body></body></html>"#;
     let was = js_enabled();
     set_js_enabled(false);

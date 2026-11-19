@@ -517,6 +517,8 @@ fn qf14b_cookie_headers_are_built_in_one_place() {
 
 #[test]
 fn qf14b_every_loader_sends_the_jar_headers_with_the_pages_top_site() {
+    // JS_ENABLED is process-wide; tests that read or flip it hold this lock (main CI flake 4608cd4).
+    let _g = JS_FLAG_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     set_js_enabled(true);
     let path = unique_test_socket_path("qf14b-loaders");
     let seen = qf14b_fake_wire(&path);
