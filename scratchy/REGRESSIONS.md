@@ -553,6 +553,31 @@ page's own or our prelude's (e.g. `styleSet` rewriting the whole `style` attribu
 text); correctness of FIX4 beyond the measured runs (no tests); whether QY52's StyleCache could be
 reused by the box build (item 7).
 
+### 9. QY53k: SipHash and `StyleCache::style_of` re-measured: hashing is 3.4 % of big-css, an Fx hasher gains nothing measurable (Sonnet, 2026-11-19, docs only)
+
+Fixture: the R43 big-css shape rebuilt as a standalone page (20 000 `.c<i> .d<i>` rules, 200 `::before`, 1 000
+nested divs with a leaf `span.d1`, 50 x `setAttribute` on the outermost div + `getComputedStyle(leaf).color` +
+`offsetWidth`), `--perf-report --budget-ms 20000 --seconds 3`, profiling-profile binary of main 0d5f402, perf
+`cycles:u -F 999 -g`. Share of all samples (1 677): SipHash (any `hash::sip` frame) **3.4 %**: MATCH_MEMO
+lookups/inserts (key `(usize, u8, usize, usize, u32)`) about half, the rest is `StyleCache::map`
+(`(usize, u8)`), `RuleIndex::candidates` (page-keyed `String`s), `AncestorBloom`/`atom_hash`, layout's
+`memo_key`, and `ctx_hash` itself (0.4 %: it only hashes the chain's attributes, and attribute values are short).
+`StyleCache::style_of` inclusive 15.7 %, of which the first-call stylesheet parse/rebuild is ~7 % and the rest is
+the 1 000-level cascade (`resolve_style_core`, inherent: the `setAttribute` on the outermost div changes every
+descendant's chained fingerprint, so each `getComputedStyle` re-cascades the whole chain by design).
+
+Tried: an in-crate `FxHasher` (rotate/xor/multiply, 8 bytes a step) for `StyleCache::map`, `MATCH_MEMO` and
+`ctx_hash`/`hash_el`/`mix`. big-css `forced_layout.total_ms`, 5 interleaved runs (load ~6), main 1235 / 1115 /
+1141 / 1180 / 1131 (median 1141), Fx 1188 / 1109 / 1138 / 1151 / 1157 (median 1151): no change (+0.9 %, inside
+the 11 % run-to-run spread). Not merged: a non-DoS-resistant hasher for fingerprints would have been justifiable
+(the fingerprint only decides reuse of a page's own cached style) but buys nothing here. (Note `ahash` is
+already a dependency if a hasher is wanted later.) The YT watch profile was not taken (the live-page run was
+denied by the permission classifier in this session).
+
+What is left: nothing in hashing. The remaining big-css cost is the per-level cascade
+(`resolve_style_core`, 26 % inclusive) and `ComputedStyle` copies (`memmove` 20 %, much of it rule-vector extends
+in `parse_stylesheet_with_keyframes` on the first build and `Vec<StyleRule>` moves in `StyleCache::rebuild`).
+
 ## R42: YouTube through the MSE stack (QM1k-m2): the player script runs, picks avc1 + mp4a, attaches, appends and plays ~60 s of AUDIO, but NO PICTURE because YouTube adds the AUDIO SourceBuffer first and scratchy always makes SourceBuffer 0 the main (video) stream; with that swapped (throwaway patch) 640x360 video plays to the PoToken stop at ~60 s, then YouTube's own error card. The main thread is busy 100% of the time (294 forced layouts = 116 s of CPU in 60 s), so everything arrives 10-45 s late (Opus investigator QM1k-m2, 2026-11-19) — OPEN: QM1k1k (P1), QM1k1l, QM1k1m, QM1k-u, QY53 (now also blocks YouTube playback; measured in R43, fix items QY53a-QY53h); QM1k1n DONE 2026-11-19 (section 5: YouTube parks the `<video>` at `top:-360px` until `playing`, page design, not a CSS gap): QM1k1n1 DONE, QM1k1n3; QM1k1n2 DONE 2026-11-19 (section 6: start 3-6x faster after QY53a-c, but playback freezes at YouTube's first quality switch, a second init segment reloads into an empty generation): QM1k1n4 (P1), QM1k1n5 (P1, fetch results reach JS 1-19 s late), QM1k1n6, QM1k1n7
 
 **Status: investigation only, docs only.** Main 5bf4e03 (QM1k1e merged), own worktree release build
