@@ -6561,3 +6561,12 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       `by_caller[0]` names `readIt`, count 5; a write of the same value then a read -> `no_change`
       counted; phases sum within 5 %. Accept: tests; overhead rule above; Wikipedia Rust and YT watch
       JSON pasted in the PR.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QOBS10 DONE 352ad4f [S] (P2, Sonnet) Offline, deterministic forced-layout benchmark: add the QY53 "big-css"
+      fixture (generated in code, never vendored) to `benches/layout.rs` (criterion), measuring one
+      `build_layout_tree_with_resources` + `measure_document` after a single attribute write, plus a
+      variant with 200 custom properties (QY53i) and one with long text paragraphs (QP4). Expose what the
+      bench needs through the existing pub API or a `#[doc(hidden)] pub fn`. Report the criterion numbers
+      in PERF.md "Offline benchmarks". No network, so it gives the same numbers run to run. Do not wire it
+      into CI timing (CI machines are noisy); `cargo bench --no-run` in CI only if cheap.
