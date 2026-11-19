@@ -153,6 +153,8 @@ such as `longest` are skipped (see `--help`). Diff main against main first to se
 | `js_errors` | errors logged at level `error` (uncaught exceptions, killed callbacks, failed script loads) |
 | `console_errors` | `console.error` calls |
 
+QMEM3a (glibc arena cap): `main()` calls `mallopt(M_ARENA_MAX, 2)` before any thread exists (glibc Linux only, `src/malloc_arenas.rs`). On YT watch (headless, 60 s, 3 runs each) median `memory.rss_bytes` 508 MB -> 441 MB (-67 MB); 4 arenas gave 455 MB (-53 MB). `SCRATCHY_MALLOC_ARENAS=<n>` overrides the cap; `0` leaves glibc's default (use it to measure the old behaviour with the same binary).
+
 A `module_script` span covers the `import()` entry and its drain: the promise jobs that load
 and run the module graph are counted under it, not under `promise_job`.
 

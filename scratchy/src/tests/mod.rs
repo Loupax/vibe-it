@@ -33,6 +33,7 @@ mod wpt_tests;
 mod js_snapshot_tests;
 mod deep_nesting_tests;
 mod xhr_tests;
+mod qmem3a_tests;
 
 // ---------- v37: `:link`/`:visited` pseudo-classes ----------
 
