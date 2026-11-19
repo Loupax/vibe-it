@@ -906,6 +906,67 @@ mod qm1f {
         assert!(js.lines().contains(&"log:ok".to_string()), "{:?}", js.lines());
     }
 
+    /// QM1n2: a trusted click (the `__scratchy_dn` entry the App uses) on a video.
+    fn qm1n2_page(attrs: &str, extra: &str) -> Js {
+        let js = Js::new(
+            &format!("<video id=v src='/a.mp4' {attrs}></video>"),
+            &format!("var v = document.getElementById('v');\
+              v.addEventListener('play', function () {{ console.log('play'); }});\
+              v.addEventListener('pause', function () {{ console.log('pause'); }}); {extra}"),
+            false,
+        );
+        js.step(50.0);
+        let f = js.fakes.borrow()[0].clone();
+        f.meta(8.0, 0, 0);
+        f.first_frame();
+        js.step(50.0);
+        js
+    }
+
+    fn qm1n2_click(js: &Js) {
+        js.engine.eval("t", "__scratchy_dn(document.getElementById('v').__id, 'click', {bubbles:true,cancelable:true});");
+        js.step(50.0);
+    }
+
+    fn qm1n2_count(js: &Js, what: &str) -> usize {
+        js.lines().iter().filter(|l| *l == &format!("log:{what}")).count()
+    }
+
+    #[test]
+    fn qm1n2_trusted_click_on_controls_video_toggles_play_pause() {
+        let js = qm1n2_page("controls", "");
+        qm1n2_click(&js);
+        assert_eq!(qm1n2_count(&js, "play"), 1, "{:?}", js.lines());
+        assert_eq!(js.engine.eval_value::<bool>("t", "document.getElementById('v').paused"), Some(false));
+        qm1n2_click(&js);
+        assert_eq!(qm1n2_count(&js, "pause"), 1, "{:?}", js.lines());
+        assert_eq!(js.engine.eval_value::<bool>("t", "document.getElementById('v').paused"), Some(true));
+    }
+
+    #[test]
+    fn qm1n2_prevent_default_blocks_the_toggle() {
+        let js = qm1n2_page("controls", "v.addEventListener('click', function (e) { e.preventDefault(); });");
+        qm1n2_click(&js);
+        assert_eq!(qm1n2_count(&js, "play"), 0, "{:?}", js.lines());
+        assert_eq!(js.engine.eval_value::<bool>("t", "document.getElementById('v').paused"), Some(true));
+    }
+
+    #[test]
+    fn qm1n2_no_controls_attribute_no_toggle() {
+        let js = qm1n2_page("", "");
+        qm1n2_click(&js);
+        assert_eq!(qm1n2_count(&js, "play"), 0, "{:?}", js.lines());
+    }
+
+    #[test]
+    fn qm1n2_script_click_does_not_toggle() {
+        let js = qm1n2_page("controls", "");
+        js.engine.eval("t", "document.getElementById('v').click();");
+        js.step(50.0);
+        assert_eq!(qm1n2_count(&js, "play"), 0, "{:?}", js.lines());
+        assert_eq!(js.engine.eval_value::<bool>("t", "document.getElementById('v').paused"), Some(true));
+    }
+
     #[test]
     fn js_placeholder_path() {
         let js = Js::new(

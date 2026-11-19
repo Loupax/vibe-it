@@ -501,7 +501,7 @@ pub(crate) fn build_box_for_element(
     if element_tag(handle) == "img" {
         return build_img_box(handle, style, background_image, image_cache);
     }
-    if element_tag(handle) == "video" && crate::media_video::boxes_enabled() {
+    if element_tag(handle) == "video" {
         return build_video_box(handle, style, background_image, image_cache);
     }
     if is_form_control_tag(element_tag(handle))
@@ -2009,9 +2009,6 @@ pub(crate) fn build_layout_tree_with_resources(
     if !js_enabled() {
         css_source.push_str("\n/* nojs */");
     }
-    if crate::media_video::boxes_enabled() {
-        css_source.push_str("\n/* video-box */");
-    }
     let html_handle = find_html_element(document);
     STATE_RULES.with(|m| m.set(0));
     VIEWPORT_H_READ.with(|m| m.set(false));
@@ -2030,9 +2027,8 @@ pub(crate) fn build_layout_tree_with_resources(
         if js_enabled() {
             rules.extend(parse_ua_stylesheet("noscript { display: none; }"));
         }
-        if crate::media_video::boxes_enabled() {
-            rules.extend(parse_ua_stylesheet("video { display: inline-block; object-fit: contain; }"));
-        }
+        // QM1n1: always a replaced box (inert placeholder without media/libmpv).
+        rules.extend(parse_ua_stylesheet("video { display: inline-block; object-fit: contain; }"));
         let (author, kf) = parse_stylesheet_with_keyframes(&css_source);
         rules.extend(author);
         let rules = Rc::new(rules);

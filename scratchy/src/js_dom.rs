@@ -2110,7 +2110,13 @@ const DOM_PRELUDE: &str = r#"
     if (g.__media_activate && (type === 'click' || type === 'keydown' || type === 'mousedown' || type === 'mouseup' || type === 'keyup')) g.__media_activate();
     var ev = new C(type, init);
     ev.isTrusted = true;
-    return __scratchy_dispatch(t, ev);
+    var ok = __scratchy_dispatch(t, ev);
+    // QM1n2: default action of a trusted click on `<video controls>`: toggle playback
+    // (not a page-visible listener; `el.click()` goes through HTMLElement.prototype.click).
+    if (ok && type === 'click' && t.localName === 'video' && t.hasAttribute('controls')) {
+      if (t.paused) { var pr = t.play(); if (pr && pr.catch) pr.catch(function () {}); } else t.pause();
+    }
+    return ok;
   } });
   // Q33d1: `el.click()`: a synthetic (untrusted) click, then the activation
   // behavior unless a handler cancelled it. Checkbox/radio use the live state

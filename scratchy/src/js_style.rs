@@ -480,9 +480,6 @@ impl StyleCache {
         if !js_enabled() {
             flags.push_str("nojs;");
         }
-        if crate::media_video::boxes_enabled() {
-            flags.push_str("video-box;");
-        }
         let same = self.pieces.len() == keys.len() && self.pieces.iter().zip(&keys).all(|(p, k)| p.key == *k);
         if self.rules.is_some() && self.flags == flags && same {
             return;
@@ -540,9 +537,7 @@ impl StyleCache {
         if js_enabled() {
             rules.extend(parse_ua_stylesheet("noscript { display: none; }"));
         }
-        if crate::media_video::boxes_enabled() {
-            rules.extend(parse_ua_stylesheet("video { display: inline-block; object-fit: contain; }"));
-        }
+        rules.extend(parse_ua_stylesheet("video { display: inline-block; object-fit: contain; }"));
         self.ua_count = rules.len();
         let (mut ua_has, mut ua_sib) = (false, false);
         for r in &rules {
