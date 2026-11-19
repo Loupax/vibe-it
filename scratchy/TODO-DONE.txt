@@ -7783,3 +7783,8 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 - [x] QMEM3b DONE 4f58672 #380 named the 65 MB (text/DOM, probe undercounts, ~25 MB C++); new probes; follow-ups QMEM3g/h/j [S] (P2 memory, from QMEM3, R48; Sonnet, measure first) Name the ~65 MB of main-thread malloc no probe explains
       (candidates: fetched script sources/HTML kept until report_page ends, FontSystem/fontdb on main + shaping worker, JS DOM
       id table); add `memory` probes. Gate: explained bytes >= 60 % of (anonymous RSS - malloc free bytes).
+
+=== from TODO.txt: --- Rust `__*` native wrapped in a JS timer); none of it was committed. -------
+- [x] QYSK1b DONE 11de9c7 #383 ignore stale mpv time-pos for 500 ms after a seek's Restart [S] (P2, from R51; Sonnet; after QYSK1a, same file) After an in-buffer seek mpv sometimes sends a stale
+      `time-pos` right after `playback-restart` (2 of 6 runs): `seeking`/`seeked` read the pre-seek time. Ignore `Time`
+      events > 1 s from the target for up to 500 ms after Restart. Gate: FakeBackend queue [Restart, Time(2.0), Time(12.04)].

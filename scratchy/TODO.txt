@@ -32,8 +32,7 @@ A perf item that turns out to be wrong or bigger than its size: stop and report,
 
 
 PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; search the name; steps 1-3 are done, see TODO-DONE.txt):
- Ahead of this list by user decision (2026-11-19): QYSK1b [WIP] (YouTube seek, part 2), QV8-6 [WIP] (remove QuickJS), then QPT1 [WIP design]
- (iframe realm, YouTube PoToken; after QV8-6).
+ Ahead of this list by user decision (2026-11-19): QPT1 [WIP design] (iframe realm, YouTube PoToken).
  Step 4, the main thread in the live window (YouTube playback, scrolling, mouse):
   14a5 QYTC1a [WIP] [M, P1] contained style writes (YouTube controls-visible forced layouts, R50); then QYTC1b, QYTC1c
   14b Q33b2 [S] real innerWidth/innerHeight + forced-layout viewport = window size (QY53e3: prerequisite of QY53e2) | Tier 7
@@ -548,9 +547,6 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       really decode here, or the player fails after the first append. (g) segment-granular
       remove/overlap (not frame-exact) can leave `buffered` slightly larger than Chrome's.
 
-- [ ] [WIP] QYSK1b [S] (P2, from R51; Sonnet; after QYSK1a, same file) After an in-buffer seek mpv sometimes sends a stale
-      `time-pos` right after `playback-restart` (2 of 6 runs): `seeking`/`seeked` read the pre-seek time. Ignore `Time`
-      events > 1 s from the target for up to 500 ms after Restart. Gate: FakeBackend queue [Restart, Time(2.0), Time(12.04)].
 - [ ] [WIP] QPT1 [L] (P1 for YouTube past ~60 s; from QM1k2 R52 #376) USER 2026-11-19 ~22:40: GO, "do what Chrome does" (same-origin
       iframe = new V8 context in the same isolate/thread with its own built-ins). Goes ahead of the perf queue, AFTER QV8-6 merges
       (same js_engine*.rs/js.rs files). Opus designs + splits into QPT1a.. first (docs PR), then implementation.
