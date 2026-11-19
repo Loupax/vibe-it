@@ -1662,6 +1662,8 @@ pub(crate) struct RuleDerived {
     pub(crate) has_sel: bool,
     /// QY53l2: some selector uses `:empty` (an element's match reads whether it has children).
     pub(crate) empty_sel: bool,
+    /// QY53o1: which attributes some selector or `attr()` reads.
+    pub(crate) attr_readers: Rc<AttrReaders>,
     /// QY53b: the selector index; moved into `RULE_INDEX` for the duration of a
     /// build and back afterwards (`None` while a build is running).
     pub(crate) index: Option<RuleIndex>,
@@ -1690,6 +1692,128 @@ fn scan_child_deps(sel: &selectors::parser::Selector<OurSelectorImpl>, has: &mut
     }
 }
 
+/// QY53o1: the attribute names a rule list can read: attribute selectors (also inside
+/// `:is`/`:not`/`:where`/`:has`/`:nth-child(of)`) and `content: attr()`. Shared by the
+/// geometry-bump gate (js_dom) and, later, QY53m2's restyle gate.
+#[derive(Default)]
+pub(crate) struct AttrReaders {
+    /// Some reader cannot be pinned to names (`attr()` behind `var()`): every attribute is read.
+    all: bool,
+    /// Lowercase names read on elements of any tag.
+    any_tag: std::collections::HashSet<String>,
+    /// `(lowercase name, lowercase tag)`: a top-level compound `tag[name]` reads `name` only on `tag`.
+    by_tag: std::collections::HashSet<(String, String)>,
+}
+
+impl AttrReaders {
+    pub(crate) fn build(rules: &[StyleRule]) -> Self {
+        let mut r = AttrReaders::default();
+        for rule in rules {
+            for sel in rule.selectors.slice() {
+                let mut it = sel.iter();
+                loop {
+                    let comps: Vec<_> = it.by_ref().collect();
+                    let tag = comps.iter().find_map(|c| match c {
+                        Component::LocalName(n) => Some(n.lower_name.0.to_ascii_lowercase()),
+                        _ => None,
+                    });
+                    for c in &comps {
+                        match c {
+                            Component::AttributeInNoNamespaceExists { local_name, local_name_lower } => {
+                                r.add(&local_name.0, &local_name_lower.0, tag.as_deref());
+                            }
+                            Component::AttributeInNoNamespace { local_name, .. } => r.add(&local_name.0, &local_name.0, tag.as_deref()),
+                            Component::AttributeOther(a) => r.add(&a.local_name.0, &a.local_name_lower.0, tag.as_deref()),
+                            Component::Negation(l) | Component::Is(l) | Component::Where(l) => {
+                                l.slice().iter().for_each(|s| r.add_nested(s));
+                            }
+                            Component::Has(_) | Component::NthOf(_) => r.add_nested_component(c),
+                            _ => {}
+                        }
+                    }
+                    if it.next_sequence().is_none() {
+                        break;
+                    }
+                }
+            }
+            if rule.may_declare_generated() {
+                r.scan_decls(rule.decls());
+                r.scan_decls(rule.important());
+            }
+        }
+        r
+    }
+
+    fn add(&mut self, name: &str, lower: &str, tag: Option<&str>) {
+        for n in [name, lower] {
+            let n = n.to_ascii_lowercase();
+            match tag {
+                Some(t) => {
+                    self.by_tag.insert((n, t.to_string()));
+                }
+                None => {
+                    self.any_tag.insert(n);
+                }
+            }
+        }
+    }
+
+    /// An attribute selector below a nested selector list: any tag (the outer compound's type is not used).
+    fn add_nested(&mut self, sel: &selectors::parser::Selector<OurSelectorImpl>) {
+        for c in sel.iter_raw_match_order() {
+            self.add_nested_component(c);
+        }
+    }
+
+    fn add_nested_component(&mut self, c: &Component<OurSelectorImpl>) {
+        match c {
+            Component::AttributeInNoNamespaceExists { local_name, local_name_lower } => self.add(&local_name.0, &local_name_lower.0, None),
+            Component::AttributeInNoNamespace { local_name, .. } => self.add(&local_name.0, &local_name.0, None),
+            Component::AttributeOther(a) => self.add(&a.local_name.0, &a.local_name_lower.0, None),
+            Component::Negation(l) | Component::Is(l) | Component::Where(l) => l.slice().iter().for_each(|s| self.add_nested(s)),
+            Component::NthOf(d) => d.selectors().iter().for_each(|s| self.add_nested(s)),
+            Component::Has(l) => l.iter().for_each(|h| self.add_nested(&h.selector)),
+            _ => {}
+        }
+    }
+
+    fn scan_decls(&mut self, d: &Declarations) {
+        match &d.content {
+            Some(ContentDecl::Parts(parts)) => {
+                for p in parts {
+                    if let ContentPart::Attr(n) = p {
+                        self.any_tag.insert(n.to_ascii_lowercase());
+                    }
+                }
+            }
+            // `content` with `var()`: an `attr()` written in the value itself is not pinned to a
+            // name here, so it reads everything. (An `attr()` that only arrives through a custom
+            // property declared in another rule is not seen; `attr()` in a custom property is rare.)
+            _ => {
+                if d.var_decls.iter().any(|(n, v)| n.eq_ignore_ascii_case("content") && v.to_ascii_lowercase().contains("attr(")) {
+                    self.all = true;
+                }
+            }
+        }
+        d.late.iter().for_each(|l| self.scan_decls(l));
+    }
+
+    /// Can a selector or `attr()` of the rule list read attribute `name` of an element with tag `tag`?
+    pub(crate) fn reads(&self, name: &str, tag: &str) -> bool {
+        if self.all {
+            return true;
+        }
+        let name = name.to_ascii_lowercase();
+        self.any_tag.contains(&name) || (!self.by_tag.is_empty() && self.by_tag.contains(&(name, tag.to_ascii_lowercase())))
+    }
+}
+
+/// QY53o1: the attribute readers of the rule list of the latest build on this thread
+/// (`None` before any build).
+pub(crate) fn rule_attr_readers() -> Option<Rc<AttrReaders>> {
+    RULE_DERIVED.with(|d| d.borrow().as_ref().map(|x| x.attr_readers.clone()))
+}
+
 impl RuleDerived {
     pub(crate) fn new(rules: &Rc<Vec<StyleRule>>) -> Self {
         #[cfg(test)]
@@ -1704,6 +1828,7 @@ impl RuleDerived {
             first_letter: scan_pseudo(rules, "first-letter"),
             has_sel,
             empty_sel,
+            attr_readers: Rc::new(AttrReaders::build(rules)),
             index: Some(RuleIndex::build(rules)),
         }
     }

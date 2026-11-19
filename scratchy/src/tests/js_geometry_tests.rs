@@ -1233,8 +1233,8 @@ fn qy53c_same_value_attribute_write_does_not_force_a_new_layout() {
     let (log, n) = qy53c_run(
         QY53C_PAGE,
         "var a = document.getElementById('a'); a.offsetWidth;
-         a.setAttribute('data-x', '1'); a.offsetWidth;
-         for (var i = 0; i < 5; i++) { a.setAttribute('data-x', '1'); a.offsetWidth; }
+         a.setAttribute('lang', '1'); a.offsetWidth;
+         for (var i = 0; i < 5; i++) { a.setAttribute('lang', '1'); a.offsetWidth; }
          a.setAttribute('style', 'width:100px;height:20px'); a.offsetWidth;
          console.log('w', a.offsetWidth);",
     );
@@ -1486,7 +1486,7 @@ fn qy53l2_write_on_an_ancestor_of_the_hidden_root_relayouts() {
          <div id=wrap><div id=h class=off><div id=in style='height:12px'>x</div></div></div><div id=b>b</div></body></html>",
         "var w = document.getElementById('wrap'), b = document.getElementById('b'), inn = document.getElementById('in');
          var y0 = b.getBoundingClientRect().top;
-         w.setAttribute('data-k', '1'); b.offsetWidth;
+         w.setAttribute('lang', '1'); b.offsetWidth;
          w.className = 'shown';
          console.log('dy', b.getBoundingClientRect().top - y0, 'h', inn.offsetHeight);",
     );
@@ -1546,4 +1546,76 @@ fn qy53o3a_big_layout_keeps_its_memo_across_forced_layouts() {
     // A viewport change clears the memo (old widths) and the layout refills it.
     g.rect_of(&doc, 4, &t, 500.0, 600.0);
     assert!(puts() > p0, "a resize reshapes");
+}
+
+// ---------- QY53o1: writes of attributes nothing reads force no layout ----------
+
+fn qy53o1_page(css: &str) -> String {
+    format!(
+        "<html><head><style>{css}</style></head><body style='margin:0'>\
+<a id=a href='#x'>link</a><abbr id=ab>ab</abbr><div id=d style='width:100px;height:20px'>d</div></body></html>"
+    )
+}
+
+/// Reads geometry, runs `writes`, reads again; returns the number of layouts.
+fn qy53o1_layouts(css: &str, writes: &str) -> usize {
+    let (log, n) = qy53c_run(
+        &qy53o1_page(css),
+        &format!(
+            "var a = document.getElementById('a'), ab = document.getElementById('ab'), d = document.getElementById('d');
+             d.offsetWidth; {writes}; console.log('w', d.offsetWidth);"
+        ),
+    );
+    assert!(log.contains(&"log:w 100".to_string()), "{log:?}");
+    n
+}
+
+#[test]
+fn qy53o1_write_to_an_unread_attribute_forces_no_layout() {
+    // `abbr[title]` only reads title on <abbr>, so a <a title> write is inert.
+    let css = "abbr[title]{padding:5px} a:hover{color:red}";
+    assert_eq!(qy53o1_layouts(css, "a.setAttribute('title', 'x'); a.title = ''; a.removeAttribute('title'); a.setAttribute('data-k', '1')"), 1);
+}
+
+#[test]
+fn qy53o1_attribute_selectors_make_the_write_relevant() {
+    let w = "a.setAttribute('title', 'x')";
+    assert_eq!(qy53o1_layouts("a[title]{padding:5px}", w), 2, "[attr] on the same tag");
+    assert_eq!(qy53o1_layouts("[title]{padding:5px}", w), 2, "bare [attr]");
+    assert_eq!(qy53o1_layouts("a:is([title]){padding:5px}", w), 2, "[attr] in :is");
+    assert_eq!(qy53o1_layouts("a:not([title]){padding:5px}", w), 2, "[attr] in :not");
+    assert_eq!(qy53o1_layouts("div [TITLE=x] span{padding:5px}", w), 2, "attr in an ancestor compound");
+    assert_eq!(qy53o1_layouts("abbr[title]{padding:5px}", "ab.setAttribute('title', 'x')"), 2, "on abbr itself");
+}
+
+#[test]
+fn qy53o1_attr_function_makes_the_write_relevant() {
+    let css = "a::before{content: attr(title)}";
+    assert_eq!(qy53o1_layouts(css, "a.setAttribute('title', 'x')"), 2);
+    assert_eq!(qy53o1_layouts(css, "a.setAttribute('data-q', 'x')"), 1);
+    // `content` with var(): an attr() inside it is unpinned (everything relevant); a plain one is not.
+    let css = "a::before{--s:'-'; content: attr(href) var(--s) attr(title)}";
+    assert_eq!(qy53o1_layouts(css, "a.setAttribute('title', 'x')"), 2);
+    let css = "a::before{--s:'-'; content: counter(c) var(--s)}";
+    assert_eq!(qy53o1_layouts(css, "a.setAttribute('title', 'x')"), 1);
+}
+
+#[test]
+fn qy53o1_layout_relevant_attributes_still_relayout() {
+    assert_eq!(qy53o1_layouts("p{color:red}", "d.setAttribute('width', '50')"), 2);
+    assert_eq!(qy53o1_layouts("p{color:red}", "d.className = 'k'"), 2);
+}
+
+#[test]
+fn qy53o1_a_new_rule_list_invalidates_the_inert_verdict() {
+    let (log, n) = qy53c_run(
+        &qy53o1_page("abbr[title]{padding:5px}"),
+        "var a = document.getElementById('a'), d = document.getElementById('d');
+         d.offsetWidth;
+         var s = document.createElement('style'); s.textContent = 'a[title]{display:block;height:40px}'; document.head.appendChild(s);
+         a.setAttribute('title', 'x');
+         console.log('h', a.offsetHeight);",
+    );
+    assert!(log.contains(&"log:h 40".to_string()), "{log:?}");
+    assert_eq!(n, 2, "{log:?}");
 }

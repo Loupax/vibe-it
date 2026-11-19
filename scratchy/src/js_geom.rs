@@ -37,6 +37,34 @@ thread_local! {
     static FONTS: RefCell<Option<FontSystem>> = const { RefCell::new(None) };
     /// QY53l2: the `display: none` subtrees of the last forced layout on this thread.
     static HIDDEN: RefCell<Option<HiddenSnap>> = const { RefCell::new(None) };
+    /// QY53o1: the attribute readers of the last forced layout's rule list, with the
+    /// geometry generation and CSS version it ran at.
+    static ATTR_SNAP: RefCell<Option<AttrSnap>> = const { RefCell::new(None) };
+}
+
+/// QY53o1: `((geometry generation, CSS version), readers)` of the last forced layout.
+type AttrSnap = ((u64, (u64, u64)), std::rc::Rc<crate::style::AttrReaders>);
+
+/// QY53o1: attributes no selector, `attr()` or box build reads (tooltips, scripting hooks).
+fn attr_never_read_by_layout(name: &str) -> bool {
+    let n = name.to_ascii_lowercase();
+    n == "title" || n == "role" || n == "draggable" || n == "spellcheck" || n == "tabindex" || n.starts_with("data-") || n.starts_with("aria-")
+}
+
+/// QY53o1: may a write of attribute `name` on `x` skip the geometry bump? Only while the last
+/// forced layout is current (no geometry bump or CSS change since) and its rule list has no
+/// selector or `attr()` that reads `name` on an element of this tag.
+pub(crate) fn attr_write_unread(x: &Handle, name: &str) -> bool {
+    if !matches!(x.data, NodeData::Element { .. }) || !attr_never_read_by_layout(name) {
+        return false;
+    }
+    ATTR_SNAP.with(|s| {
+        let s = s.borrow();
+        let Some(((g, css), readers)) = s.as_ref() else {
+            return false;
+        };
+        *g == crate::js_dom::geom_gen() && *css == crate::js_style::css_ver() && !readers.reads(name, element_tag(x))
+    })
 }
 
 /// QY53l2: which subtrees had no box at all in the last `GeomCache` layout
@@ -349,6 +377,7 @@ impl GeomCache {
         let prev_vp = current_viewport();
         // QY53l2: a layout replaces the hidden-subtree snapshot; collect the new one.
         HIDDEN.with(|h| *h.borrow_mut() = None);
+        ATTR_SNAP.with(|h| *h.borrow_mut() = None);
         crate::images::DISPLAY_NONE_ROOTS.with(|r| *r.borrow_mut() = Some(Vec::new()));
         // A layout bug must not take the whole browser down with a page
         // script: on a panic the page simply has no geometry (all zeros).
@@ -398,6 +427,9 @@ impl GeomCache {
                 self.glyphs = glyphs;
                 let snap = hidden_snapshot(page, wgen, key.3, found, deps);
                 HIDDEN.with(|h| *h.borrow_mut() = snap);
+                if let Some(r) = crate::style::rule_attr_readers() {
+                    ATTR_SNAP.with(|a| *a.borrow_mut() = Some(((wgen, key.3), r)));
+                }
             }
             Ok((None, ..)) => {}
             Err(_) => diag!("scratchy: js: layout panicked while reading geometry; element rects read as zero"),

@@ -575,8 +575,8 @@ fn geom_bump_if(t: &DomTable, h: &Handle, changed: bool) {
 /// QY53l2: an attribute write bumps the geometry generation unless it changed
 /// nothing, missed the page, or landed strictly inside a `display: none`
 /// subtree of the last forced layout (js_geom::attr_write_hidden).
-fn geom_bump_attr(t: &DomTable, h: &Handle, changed: bool) {
-    if changed && page_connected(t, h) && !crate::js_geom::attr_write_hidden(h) {
+fn geom_bump_attr(t: &DomTable, h: &Handle, changed: bool, name: &str) {
+    if changed && page_connected(t, h) && !crate::js_geom::attr_write_hidden(h) && !crate::js_geom::attr_write_unread(h, name) {
         geom_bump();
     }
 }
@@ -921,7 +921,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             set_attr(&h, &name, &val);
             d.set(true);
             gn.set(gn.get() + 1);
-            geom_bump_attr(&t.borrow(), &h, changed);
+            geom_bump_attr(&t.borrow(), &h, changed, &name);
         }
     });
     let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
@@ -932,7 +932,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             remove_attr(&h, &name);
             d.set(true);
             gn.set(gn.get() + 1);
-            geom_bump_attr(&t.borrow(), &h, changed);
+            geom_bump_attr(&t.borrow(), &h, changed, &name);
         }
     });
     // QY45: qualified-name / namespaced attribute access over the stored
@@ -985,7 +985,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             }
             d.set(true);
             gn.set(gn.get() + 1);
-            geom_bump_attr(&t.borrow(), &h, changed);
+            geom_bump_attr(&t.borrow(), &h, changed, &n);
         }
     });
     let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
@@ -1001,7 +1001,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             }
             d.set(true);
             gn.set(gn.get() + 1);
-            geom_bump_attr(&t.borrow(), &h, changed);
+            geom_bump_attr(&t.borrow(), &h, changed, &n);
         }
     });
     let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
@@ -1025,7 +1025,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             }
             d.set(true);
             gn.set(gn.get() + 1);
-            geom_bump_attr(&t.borrow(), &h, changed);
+            geom_bump_attr(&t.borrow(), &h, changed, "");
         }
     });
     let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
@@ -1040,7 +1040,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             }
             d.set(true);
             gn.set(gn.get() + 1);
-            geom_bump_attr(&t.borrow(), &h, changed);
+            geom_bump_attr(&t.borrow(), &h, changed, "");
         }
     });
     let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());

@@ -601,6 +601,16 @@ rule_index 0 / 0, precompute_generated 59 / 75 (23 %), build_children 72 / 91 (2
 - The IO rechecks (16-18 per run, 5.1 s) are QY53e2's case (IO on the App's own layout, after Q33b2);
   QY53o1 alone removes 14-16 of them. The same-value footer-li writes are QY53m's case (App builds only).
 
+**QY53o1 result (Sonnet, 2026-11-19, release build of this branch, own wire, nested dwl 960x316; inject size
+must be the window size 960 316, not 960x1006; positions: 5 lead-paragraph links + 3 more, 6 rounds, wait:600;
+machine load 8-14 because other agents were building, so absolute ms are high).** Pointer phase (t >= 12 s),
+before (same code with the check disabled, one run) forced 52 / 10 125 ms; after, 3 runs: 30 / 5 616, 20 / 3 008,
+0 / 0 (Page Previews did not engage in that run; builds 25), median **20 / 3 008 ms: gate (n <= 22, ms <= 6 500)
+met**. What made it fail first: Wikipedia's `content: counter(...) var(--cite-...)` made the first version treat
+every attribute as read; only an `attr(` inside a `var()` content now does. The only `title` readers on the page
+are `abbr[title]` / `acronym[title]` (type-pinned), so a `title` write on `<a>` is inert. Remaining layouts are
+the popup's real DOM changes (QY53o2).
+
 ### QY53o3 addendum: why `measure_document` costs ~125 ms per forced layout with unchanged text (Opus, 2026-11-19, docs only)
 
 **Status: measured headless, docs only (the instrumentation was reverted). Root cause found: the JS
