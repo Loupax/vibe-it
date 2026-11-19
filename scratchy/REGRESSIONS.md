@@ -1349,6 +1349,7 @@ inside a hidden subtree after an earlier real bump. Further cuts need QY53l3 (pa
 declarations) and possibly "attribute writes strictly inside an inline `<svg>` (not on the svg, no
 `<style>`/`<foreignObject>`) keep its box" (needs a check that the svg's decoded intrinsic
 size only reads the root's attributes; it alone would save at most 8 of 71).
+
 ### 14. QY53e1b: QY53e1's deferred IntersectionObserver recheck does NOT make YouTube worse (Sonnet, 2026-11-19, docs only)
 
 Question: QY53e1 (c5098fa) cut Wikipedia's forced layouts 8 -> 4, but its YT watch sample (2+2 runs, loaded machine) was worse
