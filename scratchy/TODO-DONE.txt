@@ -6441,3 +6441,25 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       `El::has_class` -> `SplitWhitespace::next` = 29.3 % of ALL YouTube watch CPU and 31.7 % of ALL
       Wikipedia Rust CPU (inclusive, all threads); `matching_declarations_for` 53-63 %. Verify with
       QOBS1's `tools/profile.sh` if it has landed (has_class should drop below ~3 %).
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, QY53: what forced layouts cost and who forces them; R43) ---
+- [x] QY53e1 DONE c5098fa [S] (P2, R43 section 7, Sonnet) READY after QY53h. Deferred, rate-limited IO rechecks
+      (works headless and in the window). A recheck caused ONLY by a geometry-generation change
+      (`ioSigOf` moved but scroll/viewport/`gScrollGen` did not; not `observe()`, not `takeRecords()`)
+      must not force a layout: new native `__d_geom_fresh(vw, vh)` (GeomCache key == current key,
+      no layout, no `page_css()` clone: needs QY53h's CSS version key). Fresh -> evaluate now (free).
+      Stale -> keep `st.need`, remember `ioDue = now + max(100 ms, 4 x last forced-layout CPU ms,
+      capped at 2000 ms)` (new native or a perf getter for the last forced-layout cost) and evaluate at
+      the first of: (a) the end of any task after which the geometry is fresh (a script read forced
+      it: free), checked in `__scratchy_ioTick`; (b) `ioDue` passed (one timer at `ioDue`, NOT one
+      per write; later writes do not move `ioDue`). Scroll, resize, element scroll and `observe()`
+      keep today's immediate path (user-visible / initial entries). Bound: IO forced layouts use at
+      most ~20 % of the main thread. Tests (js_dom_tests.rs, test-only GEOM_LAYOUTS counter + a
+      test clock if the timer queue has one): observe -> initial entry with one layout; 10 writes
+      100 ms apart that move nothing -> at most ceil(1000 / ioDue) layouts, entries still correct
+      after a write that moves the target out of view (delivered by `ioDue`); a script read after
+      a write -> IO re-evaluates on that layout without a second one; scroll -> immediate entry.
+      Accept: tests; Wikipedia Rust headless `--perf-report --seconds 30`, median of 3: forced
+      layouts from IO <= 3 (today 7) and forced_layout.total_ms >= 40 % lower; YT watch check
+      reported. Risk: lazy-load/infinite-scroll observers fire up to `ioDue` late after a DOM-only
+      change (spec gives IO no timing guarantee; browsers deliver at the next frame).
