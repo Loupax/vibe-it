@@ -2747,7 +2747,7 @@ divs with 3 classes each, a script that does 50 x (write one attribute, read `of
       read: no new layout; then append it: a new layout with the new box; text node same-text write:
       none. Accept: those tests; YT watch check reported with the forced-layout count per 60 s
       (R43 upper bound: 34 % fewer layouts, 35 s of 101 s).
-- [ ] QY53d [M] (P2, R43, Sonnet, measure first) One selector match per (element, pseudo) per
+- [x] QY53d [M] DONE 02518df (big-css forced_layout 10.05 s -> 5.48 s median of 3 = -45 %; Wikipedia Rust mean per forced layout 1962 -> 1120 ms = -43 %; tests qy53d_*) (P2, R43, Sonnet, measure first) One selector match per (element, pseudo) per
       build. `precompute_generated` runs a second full matching pass over the tree (plus
       `::before`/`::after`) for counters/quotes/`content` (31.7 % of a Wikipedia forced layout,
       750 ms; 39-50 % of a YouTube one after QY53a+b), and `resolve_background_image` a third

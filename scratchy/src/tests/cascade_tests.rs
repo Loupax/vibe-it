@@ -2585,3 +2585,49 @@ fn qy53b_class_change_with_cached_index_matches_the_new_class() {
     assert_eq!(qy53_derived_builds(), builds, "rules unchanged: index reused");
     assert!(second.contains(&TextColor::rgb(0, 0xaa, 0)) && !second.contains(&TextColor::rgb(0xff, 0, 0)), "{second:?}");
 }
+
+// ---------- QY53d: one selector match per (element, pseudo) per build ----------
+
+fn qy53d_count_elements(h: &Handle) -> usize {
+    let own = usize::from(matches!(h.data, NodeData::Element { .. }));
+    own + h.children.borrow().iter().map(qy53d_count_elements).sum::<usize>()
+}
+
+#[test]
+fn qy53d_each_element_and_pseudo_is_matched_at_most_once_per_build() {
+    let css = "body { counter-reset: n } p { counter-increment: n } p::before { content: counter(n) \". \" } \
+               p::after { content: \" <\" attr(class) \">\" } .k1 { background-image: none }";
+    let doc = parse_html(&qy53_page(css, 30));
+    let elements = qy53d_count_elements(&doc);
+    crate::style::MATCH_RUNS.with(|c| c.set(0));
+    let tree = build_layout_tree(&doc, 800.0);
+    let runs = crate::style::MATCH_RUNS.with(|c| c.get());
+    // element, ::before, ::after, ::first-line, ::first-letter, ::marker at most.
+    assert!(runs <= elements * 6, "{runs} matching passes for {elements} elements");
+    // The counter/content pass still produced its text.
+    let mut text = String::new();
+    collect_all_text(&tree, &mut text);
+    assert!(text.contains("1. alpha") && text.contains("30. alpha"), "{text}");
+    assert!(text.contains("<k3>"), "{text}");
+    // A second build starts with a fresh memo and does the same work.
+    crate::style::MATCH_RUNS.with(|c| c.set(0));
+    let _ = build_layout_tree(&doc, 800.0);
+    assert_eq!(crate::style::MATCH_RUNS.with(|c| c.get()), runs, "memo is per build");
+}
+
+#[test]
+fn qy53d_memo_is_dropped_after_the_build_so_a_changed_dom_is_matched_again() {
+    let doc = parse_html(&qy53_page(".k0 { color: #ff0000 } .z { color: #0000ff }", 2));
+    let before = qy53_colors(&doc);
+    let p = find_by_tag(&doc, "p").unwrap();
+    if let NodeData::Element { attrs, .. } = &p.data {
+        for a in attrs.borrow_mut().iter_mut() {
+            if &*a.name.local == "class" {
+                a.value = "z".into();
+            }
+        }
+    }
+    let after = qy53_colors(&doc);
+    assert_ne!(before, after, "attribute change must restyle");
+    assert!(crate::style::MATCH_MEMO.with(|m| m.borrow().is_none()));
+}
