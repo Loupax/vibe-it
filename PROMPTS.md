@@ -64,3 +64,9 @@
 > Do TODO.txt item QOBS3: add to `forced_layout` in `--perf-report` the phases (css_collect, rule_index, precompute_generated, build_children, measure_document, glyph_walk, rect_walk; summing to total_ms within 5 %), style_resolves, elements, no_change (rect map equal to the previous layout), by_reason {io, script} and by_caller (top 10 page JS callers via the V8 stack, taken only when a layout runs). Zero cost when off; overhead <= 2 % when on.
 
 **What changed:** perf.rs `Phase` timers (`phase()`, free unless a forced layout is being recorded), counters, `forced_detail`, JSON members; images.rs `build_layout_tree_with_resources` phase boundaries; style.rs `resolve_style_for` counter; js_geom.rs `refresh` (rect compare, tree/cache drops inside the phases, `rect_walk` now inside the paused/forced total); `pause_budget_since` returns the ns; js_dom.rs natives `__d_rect`/`__d_textrects` look up the caller, `__d_io` brackets `ioEval`; `js_engine::caller_frame` (V8 stack walk, QuickJS: None). Tests `qobs3_*` in perf_tests.rs. PERF.md glossary.
+
+## QM1k1n6a: pointer-motion coalescing (Sonnet)
+
+> Do TODO.txt item QM1k1n6a: keep only the newest CursorMoved position per event-loop turn; process it once in about_to_wait; flush a pending move first when a button, wheel or key event arrives. Tests, frame-stats gate (R46 recipe).
+
+**What changed:** app.rs `queue_pointer_move` / `flush_pointer_move` / `process_pointer_move` (the old CursorMoved body), `event_flushes_pointer`, fields `pending_pointer_move`, `pointer_moves_processed`; tests in frame_budget_tests.rs.
