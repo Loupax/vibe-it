@@ -1036,7 +1036,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       `src/tests/mse_tests.rs` + `mod mse_tests;`; real-mpv tests skip without libmpv/ffmpeg
       like `qm1f_real`): QM1k4 [S] -> QM1k1a [M] -> QM1k1b [M] -> QM1k-AB [M, Opus: DECIDES A
       vs B] -> (QM1k-B [L] only if A fails) -> QM1k1c [M] -> QM1k1d [M] -> QM1k1e [M] ->
-      QM1k-m2 [M, Opus: YouTube first minute, live] -> QM1k1f [S] -> QM1k1g [S, DONE HASH] -> QM1k1h [M]
+      QM1k-m2 [M, Opus: YouTube first minute, live] -> QM1k1f [S] -> QM1k1g [S, DONE 035f759] -> QM1k1h [M]
       -> QM1k1i [S] -> QM1k1j [S]. Then, LOWER priority: QWK0 [M, Opus] -> QWK1 [S] -> QWK2 [S]
       -> QWK3 [L] -> QWK4 [M] -> QWK5 [M] -> QWK-m [M, Opus: Twitch]. Total MSE to the first
       YouTube minute: 1 S + 5 M + 2 Opus M (~6 PRs); +1 L if B is needed.
@@ -1291,7 +1291,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       -> droppedVideoFrames, frames shown -> totalVideoFrames; creationTime =
       performance.now()); `played` always empty; no `progress`/`stalled`/`suspend` events for
       progressive media either. Tests per gap.
-- [x] QM1k1g [S] DONE 2026-11-19 (HASH) Blob media: `video.src = URL.createObjectURL(
+- [x] QM1k1g [S] DONE 2026-11-19 (035f759) Blob media: `video.src = URL.createObjectURL(
       blob)` for a real Blob (players that fetch a whole clip into a Blob) served from memory by
       the same in-memory stream_cb (one generation, size known, seekable). Test: a Blob of the
       make_clip mp4 plays to `ended` without any wire request.
