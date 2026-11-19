@@ -1382,23 +1382,58 @@ mod qm1g_video {
         assert!(gone.is_empty(), "scrolled out of view: no box, so no rendering");
     }
 
-    #[test]
-    fn without_the_feature_video_is_not_a_box() {
-        // The default build never enables video boxes: fallback content stays inline.
+    /// QM1n1: with video boxes off (no `media` feature / no libmpv) `<video>` is still an
+    /// inert replaced box; returns its (width, height) in the laid-out tree.
+    fn inert_video_size(html: &str) -> Option<(f32, f32)> {
         set_boxes_enabled(Some(false));
-        let doc = parse_html("<video width=100 height=50>fallback text</video>");
-        let tree = build_layout_tree_sized(&doc, 200.0, 200.0);
-        fn has_image(b: &LayoutBox) -> bool {
-            match &b.content {
-                BoxContent::Image(_) => true,
-                BoxContent::Blocks(c) | BoxContent::TableRow(c) => c.iter().any(has_image),
-                BoxContent::Inline(items) => items.iter().any(|i| matches!(i, InlineItem::Embedded(b) if has_image(b))),
+        let doc = parse_html(html);
+        let tree = build_layout_tree_sized(&doc, 800.0, 600.0);
+        let mut font_system = new_font_system();
+        let mut cache = ShapeCache::new();
+        let mut next_id = 0usize;
+        let mut incomplete = false;
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        let laid = measure_document(&tree, &mut font_system, 800.0, 600.0, &mut next_id, &mut cache, deadline, &mut incomplete);
+        set_boxes_enabled(None);
+        fn find(l: &Laid) -> Option<(f32, f32)> {
+            if matches!(l.content, LaidContent::Image(_)) {
+                return Some((l.w, l.h));
+            }
+            match &l.content {
+                LaidContent::Blocks(c) => c.iter().find_map(find),
+                LaidContent::MixedInline(items) => items.iter().find_map(|i| match i {
+                    MixedPositioned::Embedded(b) => find(b),
+                    _ => None,
+                }),
+                _ => None,
             }
         }
-        assert!(!has_image(&tree));
-        set_boxes_enabled(None);
-        #[cfg(not(feature = "media"))]
-        assert!(!boxes_enabled());
+        find(&laid)
+    }
+
+    #[test]
+    fn qm1n1_inert_video_box_with_attributes() {
+        let sz = inert_video_size("<body style='margin:0'><video width=640 height=360><source src=a.mp4></video></body>");
+        assert_eq!(sz, Some((640.0, 360.0)));
+    }
+
+    #[test]
+    fn qm1n1_inert_video_default_300x150() {
+        assert_eq!(inert_video_size("<body style='margin:0'><video></video></body>"), Some((300.0, 150.0)));
+    }
+
+    #[test]
+    fn qm1n1_inert_video_fallback_text_not_laid_out() {
+        let with = inert_video_size("<body style='margin:0'><video width=100 height=50>fallback text that is long</video></body>");
+        assert_eq!(with, Some((100.0, 50.0)));
+    }
+
+    #[test]
+    fn qm1n1_inert_video_poster_sizes_the_box() {
+        // 1x1 PNG poster as a data: URI (decoded at build time)
+        let png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
+        let sz = inert_video_size(&format!("<body style='margin:0'><video poster=\"{png}\"></video></body>"));
+        assert_eq!(sz, Some((1.0, 1.0)));
     }
 
     #[test]
