@@ -555,6 +555,8 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       per R53 + live gate: YouTube token >= 2 of 3 runs and SABR status 1 past 64 s.
 - [ ] QPT1b [S] (after QPT1a) Realm lifetime (R53 D6): drop on removal / src change / navigation, cancel its timers, detach
       the global, cap 64 realms per page, new realm on re-insert. Test: heap back to baseline after 50 create/remove cycles.
+      FROM QPT1a #392: `State.realms` keeps every realm alive until the page ends; the parent's timer entries carry `recv`
+      (the realm's window), so a drop can cancel that realm's timers by receiver.
 - [ ] QPT1c [M] (after QPT1a) Cross-realm wrapper identity (R53 D7): one wrapper per node across realms, created by the
       realm owning the node's document (Chrome's rule).
 - [ ] QPT1d [S] (after QPT1a) WindowProxy surface (R53 D8): frames, length, window[i], window[name], cross-realm postMessage,
@@ -562,6 +564,9 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
 - [ ] QPT1e [S] (after QPT1a) No-snapshot path (R53): Context::new, natives re-bound by name, preludes replayed.
 - [ ] QPT1f [M] (after QPT1a/c) Scripts in same-origin iframes (R53 D9): srcdoc, document.open/write/close,
       DOMContentLoaded/load.
+      FROM QPT1a #392: the script sweep, custom-element upgrade (`__d_query(0, ...)`) and `ceIsConn` treat document 0 as
+      the only connected document (scripts inserted into an iframe document do not run, CEs there are not upgraded);
+      `DomTable.ce_names` is page-wide. WebSocket in a realm is the parent's class (R53 D5 deviation).
 - [ ] QPT1g [M] (backlog, only if a page shows the forwarding is wrong) Per-realm event-loop queues (R53).
 - [ ] QPT1-D [?] WAITING FOR USER (R53 end): `data:` iframes: Chrome gives them an opaque origin (contentDocument null);
       scratchy (QA18b) gives a readable same-origin document. Keep scratchy's behaviour or match Chrome? Not blocking QPT1a
