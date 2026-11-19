@@ -685,6 +685,15 @@ pub(crate) struct App {
     /// see `is_click`'s own docs). Cleared back to `None` on release
     /// regardless of outcome.
     pub(crate) mouse_down_pos: Option<(f32, f32)>,
+    /// QCUR1: position of the last `mousemove` handed to the page (for `movementX/Y`).
+    pub(crate) last_move_dispatched: Option<(f32, f32)>,
+    pub(crate) last_move_dispatch_at: Option<std::time::Instant>,
+    pub(crate) move_dispatch_gap: std::time::Duration,
+    /// QCUR1: when the pointer last moved (any move), a throttled move's position
+    /// waiting for its trailing dispatch, and when a video frame was last presented.
+    pub(crate) last_move_seen: Option<std::time::Instant>,
+    pub(crate) move_trailing: Option<(f32, f32)>,
+    pub(crate) last_video_frame: Option<std::time::Instant>,
     /// Q31: live `:hover`/`:active`/`:focus*` state (also mirrored into the
     /// `INTERACTION` thread-local style matching reads).
     pub(crate) interaction: InteractionState,
@@ -1071,6 +1080,22 @@ pub(crate) struct SavedPage {
     pub(crate) js: Option<JsEngine>,
 }
 
+/// QCUR1: minimum gap between `mousemove`/`pointermove` dispatches to the page (no button down).
+pub(crate) const MOVE_DISPATCH_INTERVAL: std::time::Duration = std::time::Duration::from_millis(50);
+
+/// QCUR1: minimum gap between motion dispatches while a video plays (user decision).
+pub(crate) const MOVE_GAP_PLAYING: std::time::Duration = std::time::Duration::from_millis(150);
+
+/// QCUR1: a move after this long without any move is dispatched immediately.
+pub(crate) const MOVE_IDLE: std::time::Duration = std::time::Duration::from_secs(1);
+
+/// QCUR1: upper bound of the adaptive gap (3x the last dispatch's handler time).
+pub(crate) const MOVE_DISPATCH_MAX_GAP: std::time::Duration = std::time::Duration::from_millis(500);
+
+/// QCUR1: bit order of `JsEngine::pointer_listener_mask` (js.rs `PTR_TYPES`).
+const PTR_BITS: [&str; 8] =
+    ["mousemove", "pointermove", "mouseenter", "mouseleave", "pointerover", "pointerout", "pointerenter", "pointerleave"];
+
 impl App {
     /// QM1k1n6a: remember the newest pointer position; the hit test, hover
     /// and `mouseover`/`mouseout` work happens once in `flush_pointer_move`.
@@ -1116,6 +1141,15 @@ impl App {
         }
         let hovered = self.element_at(position);
         self.update_hover(hovered);
+        self.js_pointer_move(position, hovered);
+        self.refresh_cursor();
+    }
+
+    /// The window cursor for the element under the last pointer position. Also run
+    /// after each layout install (QCUR1): the page reacts to `mousemove` by clearing
+    /// `cursor: none` (YouTube's `ytp-autohide`), which only the NEXT layout shows.
+    pub(crate) fn refresh_cursor(&mut self) {
+        let Some(position) = self.last_mouse_pos else { return };
         if let (Some(laid), Some(window)) = (&self.cached, &self.window) {
             let doc_x = position.0;
             let doc_y = position.1 + self.scroll_offset;
@@ -1175,6 +1209,12 @@ impl App {
             last_input: None,
             pointer_moves_processed: 0,
             mouse_down_pos: None,
+            last_move_dispatched: None,
+            last_move_dispatch_at: None,
+            move_dispatch_gap: MOVE_DISPATCH_INTERVAL,
+            last_move_seen: None,
+            move_trailing: None,
+            last_video_frame: None,
             interaction: InteractionState::default(),
             state_rules: 0,
             hover_node: 0,
@@ -1266,6 +1306,12 @@ impl App {
             last_input: None,
             pointer_moves_processed: 0,
             mouse_down_pos: None,
+            last_move_dispatched: None,
+            last_move_dispatch_at: None,
+            move_dispatch_gap: MOVE_DISPATCH_INTERVAL,
+            last_move_seen: None,
+            move_trailing: None,
+            last_video_frame: None,
             interaction: InteractionState::default(),
             state_rules: 0,
             hover_node: 0,
@@ -2098,6 +2144,7 @@ impl App {
         self.shape_cache = shape_cache;
         self.cached = Some(*laid);
         self.restore_node_scroll();
+        self.refresh_cursor();
         // Q31b: a fragment from a cross-page navigation waits for
         // the first layout that contains its target.
         // QA6: a target that does not exist yet (page still shaping) keeps
@@ -2736,32 +2783,158 @@ impl App {
             return;
         }
         let pos = self.last_mouse_pos.unwrap_or((0.0, 0.0));
-        let m = &self.modifiers;
+        let mask = self.js.as_ref().map_or(0, |j| j.pointer_listener_mask());
         let hold = |n: usize| (n != 0).then(|| find_node_by_id(&self.document, n)).flatten();
         let (old_h, new_h) = (hold(old), hold(new));
-        let mk = |related: &Option<Handle>| {
-            let mut v = vec![
-                ("bubbles", EventField::Bool(true)),
-                ("cancelable", EventField::Bool(true)),
-                ("clientX", EventField::Num(pos.0 as f64)),
-                ("clientY", EventField::Num(pos.1 as f64)),
-                ("ctrlKey", EventField::Bool(m.control_key())),
-                ("shiftKey", EventField::Bool(m.shift_key())),
-                ("altKey", EventField::Bool(m.alt_key())),
-                ("metaKey", EventField::Bool(m.super_key())),
-            ];
-            if let Some(r) = related {
-                v.push(("relatedTargetId", EventField::Node(r.clone())));
-            }
-            v
+        // Elements the pointer left / entered (innermost first / outermost first).
+        let chain = |h: &Option<Handle>| h.as_ref().map(ancestor_ids).unwrap_or_default();
+        let (old_chain, new_chain) = (chain(&old_h), chain(&new_h));
+        let left: Vec<Handle> =
+            old_chain.iter().filter(|i| !new_chain.contains(i)).filter_map(|&i| find_node_by_id(&self.document, i)).collect();
+        let entered: Vec<Handle> =
+            new_chain.iter().rev().filter(|i| !old_chain.contains(i)).filter_map(|&i| find_node_by_id(&self.document, i)).collect();
+        let want = |kind: &str| mask & PTR_BITS.iter().position(|t| *t == kind).map_or(0, |i| 1 << i) != 0;
+        let go = |app: &mut Self, h: &Handle, kind: &str, bubbles: bool, related: &Option<Handle>| {
+            let init = app.pointer_init(pos, related, bubbles, kind.starts_with("pointer"));
+            app.js_dispatch(Some(h), kind, &init);
         };
-        let (out_init, over_init) = (mk(&new_h), mk(&old_h));
         if let Some(h) = &old_h {
-            self.js_dispatch(Some(h), "mouseout", &out_init);
+            if want("pointerout") {
+                go(self, h, "pointerout", true, &new_h);
+            }
+            if want("pointerleave") {
+                for l in &left {
+                    go(self, l, "pointerleave", false, &new_h);
+                }
+            }
+            go(self, h, "mouseout", true, &new_h);
+            if want("mouseleave") {
+                for l in &left {
+                    go(self, l, "mouseleave", false, &new_h);
+                }
+            }
         }
         if let Some(h) = &new_h {
-            self.js_dispatch(Some(h), "mouseover", &over_init);
+            if want("pointerover") {
+                go(self, h, "pointerover", true, &old_h);
+            }
+            if want("pointerenter") {
+                for e in &entered {
+                    go(self, e, "pointerenter", false, &old_h);
+                }
+            }
+            go(self, h, "mouseover", true, &old_h);
+            if want("mouseenter") {
+                for e in &entered {
+                    go(self, e, "mouseenter", false, &old_h);
+                }
+            }
         }
+    }
+
+    /// Init dict shared by the pointer-motion events (QCUR1): client/page/screen
+    /// coordinates, modifiers, `buttons`, and for `pointer*` types the PointerEvent fields.
+    fn pointer_init(&self, pos: (f32, f32), related: &Option<Handle>, bubbles: bool, pointer: bool) -> Vec<(&'static str, EventField)> {
+        let m = &self.modifiers;
+        let buttons = if self.mouse_down_pos.is_some() { 1.0 } else { 0.0 };
+        let mut v = vec![
+            ("bubbles", EventField::Bool(bubbles)),
+            ("cancelable", EventField::Bool(bubbles)),
+            ("clientX", EventField::Num(f64::from(pos.0))),
+            ("clientY", EventField::Num(f64::from(pos.1))),
+            ("screenX", EventField::Num(f64::from(pos.0))),
+            ("screenY", EventField::Num(f64::from(pos.1))),
+            ("pageX", EventField::Num(f64::from(pos.0))),
+            ("pageY", EventField::Num(f64::from(pos.1 + self.scroll_offset))),
+            ("buttons", EventField::Num(buttons)),
+            ("ctrlKey", EventField::Bool(m.control_key())),
+            ("shiftKey", EventField::Bool(m.shift_key())),
+            ("altKey", EventField::Bool(m.alt_key())),
+            ("metaKey", EventField::Bool(m.super_key())),
+        ];
+        if pointer {
+            v.push(("pointerId", EventField::Num(1.0)));
+            v.push(("pointerType", EventField::Str("mouse".into())));
+            v.push(("isPrimary", EventField::Bool(true)));
+            v.push(("pressure", EventField::Num(buttons * 0.5)));
+        }
+        if let Some(r) = related {
+            v.push(("relatedTargetId", EventField::Node(r.clone())));
+        }
+        v
+    }
+
+    /// QCUR1 (Q33d2): `pointermove` then `mousemove` on the element under the pointer,
+    /// bubbling, at most once per event-loop turn (called from `process_pointer_move`)
+    /// with the latest position; skipped when the page has no such listener. YouTube
+    /// un-hides its controls and the cursor (`ytp-autohide`) from these.
+    fn js_pointer_move(&mut self, pos: (f32, f32), node: usize) {
+        if self.js.is_none() {
+            return;
+        }
+        // Page handlers for motion events are costly on heavy pages (YouTube: forced
+        // layouts), so without a button held they are spaced out: at least the adaptive
+        // gap, and `MOVE_GAP_PLAYING` while a video plays. The first move after a second
+        // without one always goes straight through (YouTube un-hides at once), and a
+        // throttled move leaves a trailing dispatch (`flush_move_trailing`) so the final
+        // position is not lost. A drag (button down) gets every turn's latest position.
+        let now = std::time::Instant::now();
+        let idle = self.last_move_seen.is_none_or(|t| now.duration_since(t) >= MOVE_IDLE);
+        self.last_move_seen = Some(now);
+        if self.mouse_down_pos.is_none() && !idle && self.last_move_dispatch_at.is_some_and(|t| t.elapsed() < self.move_gap()) {
+            self.move_trailing = Some(pos);
+            return;
+        }
+        self.move_trailing = None;
+        self.dispatch_pointer_move(pos, node);
+    }
+
+    /// The minimum spacing between two `mousemove` dispatches right now.
+    fn move_gap(&self) -> std::time::Duration {
+        if self.video_playing() { self.move_dispatch_gap.max(MOVE_GAP_PLAYING) } else { self.move_dispatch_gap }
+    }
+
+    /// A video frame was presented within the last 500 ms.
+    pub(crate) fn video_playing(&self) -> bool {
+        self.last_video_frame.is_some_and(|t| t.elapsed() < std::time::Duration::from_millis(500))
+    }
+
+    /// The trailing `mousemove` of a throttled burst, once its gap has passed. Returns
+    /// when to be called again (`None` = nothing pending). Called from `about_to_wait`.
+    pub(crate) fn flush_move_trailing(&mut self) -> Option<std::time::Instant> {
+        let pos = self.move_trailing?;
+        let due = self.last_move_dispatch_at.map_or_else(std::time::Instant::now, |t| t + self.move_gap());
+        if std::time::Instant::now() < due {
+            return Some(due);
+        }
+        self.move_trailing = None;
+        let node = self.element_at(pos);
+        self.dispatch_pointer_move(pos, node);
+        None
+    }
+
+    fn dispatch_pointer_move(&mut self, pos: (f32, f32), node: usize) {
+        let Some(js) = &self.js else { return };
+        let mask = js.pointer_listener_mask();
+        let (want_p, want_m) = (mask & 2 != 0, mask & 1 != 0);
+        if !want_p && !want_m {
+            return;
+        }
+        let target = (node != 0).then(|| find_node_by_id(&self.document, node)).flatten();
+        let prev = self.last_move_dispatched.replace(pos).unwrap_or(pos);
+        let (mx, my) = (f64::from(pos.0 - prev.0), f64::from(pos.1 - prev.1));
+        let started = std::time::Instant::now();
+        for (kind, pointer, want) in [("pointermove", true, want_p), ("mousemove", false, want_m)] {
+            if want {
+                let mut init = self.pointer_init(pos, &None, true, pointer);
+                init.push(("movementX", EventField::Num(mx)));
+                init.push(("movementY", EventField::Num(my)));
+                self.js_dispatch(target.as_ref(), kind, &init);
+            }
+        }
+        // Adaptive: leave the main thread at least 3x as long as the handlers took.
+        self.move_dispatch_gap = (started.elapsed() * 3).clamp(MOVE_DISPATCH_INTERVAL, MOVE_DISPATCH_MAX_GAP);
+        self.last_move_dispatch_at = Some(std::time::Instant::now());
     }
 
     pub(crate) fn update_hover(&mut self, node: usize) {
@@ -3730,6 +3903,7 @@ impl ApplicationHandler<AppEvent> for App {
     /// wake up on their own).
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         self.flush_pointer_move();
+        let trail_at = self.flush_move_trailing();
         let els = self.sync_node_scroll();
         if let Some(js) = &self.js {
             js.set_scroll(self.scroll_offset, els);
@@ -3753,7 +3927,7 @@ impl ApplicationHandler<AppEvent> for App {
             }
             None => None,
         };
-        let flow = match [js_at, anim_at, ctl_at, stats_at].into_iter().flatten().min() {
+        let flow = match [js_at, anim_at, ctl_at, stats_at, trail_at].into_iter().flatten().min() {
             Some(t) => ControlFlow::WaitUntil(t),
             None => ControlFlow::Wait,
         };
@@ -3764,6 +3938,7 @@ impl ApplicationHandler<AppEvent> for App {
         match event {
             AppEvent::VideoFrame => {
                 crate::media_video::wake_handled();
+                self.last_video_frame = Some(std::time::Instant::now());
                 if let Some(fs) = &mut self.frame_stats {
                     fs.video_wake();
                 }
