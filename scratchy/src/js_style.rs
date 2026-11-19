@@ -345,7 +345,7 @@ pub(crate) fn serialize(s: &ComputedStyle, prop: &str) -> String {
         _ => 3,
     };
     if prop.starts_with("--") {
-        return s.custom_props.and_then(|m| m.get(prop)).cloned().unwrap_or_default();
+        return s.custom_props.and_then(|m| m.get(prop)).unwrap_or_default();
     }
     match prop {
         "display" => display(s).into(),

@@ -888,10 +888,10 @@ fn qy53i_siblings_with_same_own_custom_prop_share_one_map() {
     let hits = crate::css::CUSTOM_PROPS_MEMO_HITS.with(|c| c.get());
     let b = resolve_style(&by_id(&doc, "b"), &rules, inherited, 800.0);
     let (pa, pb) = (a.custom_props.expect("a table"), b.custom_props.expect("b table"));
-    assert!(std::ptr::eq(pa, pb), "siblings with the same own --x share one interned table");
+    assert!(pa == pb, "siblings with the same own --x share one interned table");
     assert_eq!(crate::css::CUSTOM_PROPS_MEMO_HITS.with(|c| c.get()), hits + 1, "the second sibling is a memo hit");
-    assert_eq!(pa.get("--x").map(String::as_str), Some("2px"));
-    assert_eq!(pa.get("--a").map(String::as_str), Some("1px"));
+    assert_eq!(pa.get("--x").as_deref(), Some("2px"));
+    assert_eq!(pa.get("--a").as_deref(), Some("1px"));
 }
 
 #[test]
@@ -912,6 +912,54 @@ fn qy53i_same_own_raw_value_under_different_parents_resolves_per_parent() {
         vec![TextColor::rgb(1, 1, 1), TextColor::rgb(2, 2, 2), TextColor::rgb(1, 1, 1)],
         "each var(--y) resolves against its own parent's --x"
     );
+}
+
+// ---------- QY53i2: the custom-property arena is freed on navigation ----------
+
+#[test]
+fn qy53i2_reset_frees_the_arena_and_old_handles_read_empty() {
+    use crate::css::{CUSTOM_PROPS_FREED, custom_props_mem, intern_custom_props, reset_custom_props_arena};
+    reset_custom_props_arena();
+    let mut t = crate::css::CustomProps::new();
+    t.insert("--qy53i2".into(), "1px".into());
+    let old = intern_custom_props(t.clone());
+    let mut u = t.clone();
+    u.insert("--other".into(), "2px".into());
+    intern_custom_props(u);
+    assert_eq!(custom_props_mem().0.0, 2);
+    assert_eq!(old.get("--qy53i2").as_deref(), Some("1px"));
+    let freed = CUSTOM_PROPS_FREED.with(|c| c.get());
+    reset_custom_props_arena();
+    assert_eq!(CUSTOM_PROPS_FREED.with(|c| c.get()), freed + 2, "both tables freed");
+    assert_eq!(custom_props_mem(), ((0, 0), (0, 0)), "arena and memo are empty");
+    // A style that outlived its document reads no custom properties, never a new table's.
+    let new = intern_custom_props(t);
+    assert_ne!(old, new, "a new generation");
+    assert_eq!(old.get("--qy53i2"), None);
+    assert!(old.table().is_none());
+    assert_eq!(new.get("--qy53i2").as_deref(), Some("1px"));
+}
+
+#[test]
+fn qy53i2_var_inheritance_override_and_cycle_survive_a_reset() {
+    let html = r#"<html><head><style>:root{--c:#030303} .o{--c:#040404} .i,.o p{color:var(--c)}
+        .cy{--a:var(--b);--b:var(--a);color:var(--a,#050505)}</style></head><body>
+        <p class="i">inherit</p><div class="o"><p>override</p></div><div class="cy"><p>cycle</p></div></body></html>"#;
+    let doc = parse_html(html);
+    let colors = |doc: &Handle| {
+        let tree = build_layout_tree(doc, 1920.0);
+        let mut c = Vec::new();
+        find_all_span_colors(&tree, &mut c);
+        c
+    };
+    let before = colors(&doc);
+    crate::css::reset_custom_props_arena();
+    let after = colors(&doc);
+    assert_eq!(before, after);
+    assert_eq!(after.len(), 3, "{after:?}");
+    assert_eq!(after[0], TextColor::rgb(3, 3, 3), "inherited from :root");
+    assert_eq!(after[1], TextColor::rgb(4, 4, 4), "override");
+    assert_eq!(after[2], TextColor::rgb(5, 5, 5), "a cycle falls back");
 }
 
 // ---------- v49: `%` lengths, and confirming unitless-non-zero stays rejected ----------

@@ -3672,3 +3672,22 @@ ever parsed; `precompute_generated` asks `may_declare_generated()` first so it d
 `SCRATCHY_CSS_DEBUG` / the test capture parse eagerly (they report ignored declarations at parse time).
 `size_of::<StyleRule>()` is 72 bytes (was 4040: two inline `Declarations`); `heap_bytes()` feeds the
 `rules_cache` / `style_cache` memory estimates.
+
+## QY53i2: custom-property tables live in a per-thread arena freed on navigation (src/css.rs)
+
+`ComputedStyle::custom_props` / `InheritedStyle::custom_props` are `Option<CustomPropsRef>`: a `Copy`
+8-byte handle `{generation, index}` into this thread's `CUSTOM_PROPS_ARENA` (each distinct table stored
+once as an `Rc<CustomProps>`, shared by the `tables` Vec and the dedupe `index` map), so the styles stay
+`Copy`. Was a `Box::leak`ed `&'static CustomProps` per distinct table plus a second copy as the
+interner's map key, never freed. Read with `handle.get("--x")` (a cloned `String`) or `handle.table()`
+(an `Rc` clone; use it when the caller may intern meanwhile, the arena is a `RefCell`).
+`reset_custom_props_arena()` drops every table and the QY53i memo (keyed by the parent HANDLE now;
+equal handles of one generation = equal tables) and starts a new generation; it runs in
+`App::replace_document` (every navigation, the help page, the loading/error message page) and at the
+start of each `--perf-report` page (`--perf-report` takes several targets = several navigations in one
+process). A handle of an older generation (a style that outlived its document, e.g. in the old engine's
+GeomCache) reads as empty, never as another table. Generations come from one process-wide atomic, so a
+handle read on another thread (the shaping worker gets styled trees but reads no custom properties) also
+reads empty instead of aliasing. Within one document the arena only grows (bounded by the distinct
+tables; an SPA that keeps one document forever keeps its tables). A cross-build `ComputedStyle` cache
+(QY53f3) must be cleared in `reset_custom_props_arena` too.

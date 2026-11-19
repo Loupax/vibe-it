@@ -24,6 +24,11 @@ target/release/scratchy --perf-report --socket /run/user/$UID/wire.sock \
 # a local file instead of a URL
 target/release/scratchy --perf-report some-page.html
 
+# QY53i2: several pages = several navigations in ONE process, one JSON line each
+# (cross-navigation memory: does a cache grow from page to page?)
+target/release/scratchy --perf-report --socket /run/user/$UID/wire.sock --seconds 30 \
+    'https://www.youtube.com/watch?v=G1AeBgalFZk' 'https://en.wikipedia.org/wiki/Rust_(programming_language)'
+
 # the whole suite: 7 live pages x 3 runs x 2 budgets, plus the corpus; writes
 # perf/<engine>-<commit>.json (perf/ is gitignored); slow, run it when nothing else is busy
 tools/perf-suite.sh
@@ -144,7 +149,7 @@ such as `longest` are skipped (see `--help`). Diff main against main first to se
 | `load.dom_content_loaded_wall_ms`, `_cpu_ms`, `load.load_wall_ms`, `_cpu_ms` | start to the DOMContentLoaded / load event having run (start = before the HTML request) |
 | `js_heap_bytes` | engine heap in use at the end (QuickJS `memory_used_size`) |
 | `rss_bytes` | process resident set size at the end |
-| `memory` | (schema 2, QOBS7) Taken ONCE at the end of the run, not per event. `rss_bytes`, `peak_rss_bytes` (`getrusage` ru_maxrss). `js_heap` {`used`, `total`, `external`} (V8 `get_heap_statistics`; QuickJS: `used` = memory_used_size, `total` = malloc_size, `external` null). `caches` = per cache `{entries, bytes}` for `custom_props_interner` (leaked forever), `custom_props_memo` (QY53i), `shape_memo` (this thread's; the shaping worker's copy is not reachable), `rules_cache`, `rule_index_hover_keys`, `svg_sized_cache`, `image_cache` (always 0: a perf run has no App), `style_cache`, `mse_store` (media bytes in the MediaSource feeds), `geom_rects`, `geom_glyphs`. **`bytes` are ESTIMATES**: sums of String/Vec/HashMap capacities plus a fixed per-entry overhead, not allocator truth; selector/parse-tree heap inside parsed rules and cosmic-text buffer internals are not counted (so `rules_cache` and `shape_memo` undercount). `caches_bytes` = sum of the cache estimates; `explained_bytes` = `caches_bytes` + `js_heap.used`; compare it with `rss_bytes` for the share of RSS the listed parts explain. `stack_segments` {`kept` spare QSTK1 segments on this thread, `mapped_bytes` virtual size, MAP_NORESERVE: only touched pages are resident}. `media_players` = media elements with a core. Per-engine caches register a probe only when the recorder is on (zero cost otherwise). |
+| `memory` | (schema 2, QOBS7) Taken ONCE at the end of the run, not per event. `rss_bytes`, `peak_rss_bytes` (`getrusage` ru_maxrss). `js_heap` {`used`, `total`, `external`} (V8 `get_heap_statistics`; QuickJS: `used` = memory_used_size, `total` = malloc_size, `external` null). `caches` = per cache `{entries, bytes}` for `custom_props_interner` (QY53i2: this thread's arena, one copy per distinct table, freed on navigation and at the start of each `--perf-report` page), `custom_props_memo` (QY53i), `shape_memo` (this thread's; the shaping worker's copy is not reachable), `rules_cache`, `rule_index_hover_keys`, `svg_sized_cache`, `image_cache` (always 0: a perf run has no App), `style_cache`, `mse_store` (media bytes in the MediaSource feeds), `geom_rects`, `geom_glyphs`. **`bytes` are ESTIMATES**: sums of String/Vec/HashMap capacities plus a fixed per-entry overhead, not allocator truth; selector/parse-tree heap inside parsed rules and cosmic-text buffer internals are not counted (so `rules_cache` and `shape_memo` undercount). `caches_bytes` = sum of the cache estimates; `explained_bytes` = `caches_bytes` + `js_heap.used`; compare it with `rss_bytes` for the share of RSS the listed parts explain. `stack_segments` {`kept` spare QSTK1 segments on this thread, `mapped_bytes` virtual size, MAP_NORESERVE: only touched pages are resident}. `media_players` = media elements with a core. Per-engine caches register a probe only when the recorder is on (zero cost otherwise). |
 | `js_errors` | errors logged at level `error` (uncaught exceptions, killed callbacks, failed script loads) |
 | `console_errors` | `console.error` calls |
 

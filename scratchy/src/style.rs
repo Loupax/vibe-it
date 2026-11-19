@@ -53,7 +53,7 @@ pub(crate) struct InheritedStyle {
     /// `None` at the root.
     pub(crate) parent: Option<ComputedStyle>,
     /// The parent's resolved custom properties (Q13), inherited.
-    pub(crate) custom_props: Option<&'static CustomProps>,
+    pub(crate) custom_props: Option<CustomPropsRef>,
 }
 
 pub(crate) const ROOT_STYLE: InheritedStyle = InheritedStyle {
@@ -148,7 +148,7 @@ pub(crate) struct ComputedStyle {
     /// This element's resolved custom properties (Q13): inherited from
     /// the parent, overlaid with its own `--name` declarations, every
     /// value already `var()`-substituted. Interned, see `intern_custom_props`.
-    pub(crate) custom_props: Option<&'static CustomProps>,
+    pub(crate) custom_props: Option<CustomPropsRef>,
     pub(crate) color: TextColor,
     pub(crate) background_color: Option<TextColor>,
     pub(crate) display: Display,
@@ -1233,11 +1233,11 @@ pub(crate) fn resolve_background_image(
     handle: &Handle,
     rules: &[StyleRule],
     viewport_width: f32,
-    custom_props: Option<&'static CustomProps>,
+    custom_props: Option<CustomPropsRef>,
     image_cache: &HashMap<String, Arc<DecodedImage>>,
 ) -> Option<Arc<DecodedImage>> {
     let base_matches = matching_declarations(handle, rules, viewport_width);
-    let var_lookup = |n: &str| custom_props.and_then(|p| p.get(n).cloned());
+    let var_lookup = |n: &str| custom_props.and_then(|p| p.get(n));
     let synth = expand_var_decls(&base_matches, &var_lookup);
     let mut matches = merge_var_matches(&base_matches, &synth);
     let inline_src = element_attr(handle, "style").map(|s| substitute_css_vars(&s, &var_lookup).unwrap_or_default());
@@ -1763,7 +1763,7 @@ pub(crate) fn resolve_style_core<'a>(
     } else {
         inherited.custom_props
     };
-    let var_lookup = |n: &str| custom_props.and_then(|p| p.get(n).cloned());
+    let var_lookup = |n: &str| custom_props.and_then(|p| p.get(n));
     let synth = if rule_has_vars { expand_var_decls(&base_matches, &var_lookup) } else { Vec::new() };
     let mut matches = merge_var_matches(&base_matches, &synth);
     if inline_has_vars {
