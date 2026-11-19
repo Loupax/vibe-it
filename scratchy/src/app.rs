@@ -1551,7 +1551,10 @@ impl App {
         }
         let (frames, _) = js.media_video_state();
         let (w, h) = self.surface_size;
-        let ok = !self.layout_dirty && self.video.size == (w, h) && self.video.page_buf.len() == w as usize * h as usize;
+        // QM1k1n6c: a pending relayout does not matter here. `page_buf` and `boxes`
+        // are what the last full redraw painted and what is on screen; the frame goes
+        // into that rect and the relayout's own redraw moves/resizes it afterwards.
+        let ok = video_damage_ok(self.video.size, self.video.page_buf.len(), (w, h));
         crate::media_video::set_frames(frames.clone());
         let (Some(window), Some(surface)) = (&self.window, &mut self.surface) else { return true };
         if !ok || window.inner_size().width != w || window.inner_size().height != h {
@@ -4348,4 +4351,10 @@ pub(crate) fn key_codes(logical: &Key, physical: Option<PhysicalKey>, keypress: 
         return KeyCodes { code, key_code: ch, char_code: ch, location };
     }
     KeyCodes { code, key_code, char_code: 0, location }
+}
+
+/// QM1k1n6c: whether a video frame may be damage-presented into the kept page. Only the
+/// kept page's size must match the surface; `layout_dirty` is deliberately not an input.
+pub(crate) fn video_damage_ok(kept: (u32, u32), kept_len: usize, surface: (u32, u32)) -> bool {
+    kept == surface && kept_len == surface.0 as usize * surface.1 as usize
 }

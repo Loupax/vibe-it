@@ -1289,6 +1289,33 @@ mod qm1g_video {
         set_frames(Default::default());
     }
 
+    /// QM1k1n6c: the kept page's boxes carry the rect that is on screen; a frame goes there
+    /// (not at a rect a pending relayout/scroll will produce), and a dirty layout does not
+    /// refuse the damage present.
+    #[test]
+    fn dirty_layout_frame_lands_at_the_painted_rect() {
+        assert!(crate::app::video_damage_ok((20, 10), 200, (20, 10)));
+        assert!(!crate::app::video_damage_ok((20, 10), 200, (30, 10)));
+        assert!(!crate::app::video_damage_ok((20, 10), 0, (20, 10)));
+        let mut px = vec![0x00FF_FFFFu32; 20 * 20];
+        let at = |y: i32| PaintedBox { node: 7, rect: (4, y, 10, 6), vis: Some((4, y, 10, 6)), layered: false, fit: ObjectFit::Contain, pos: ((0.5, 0.0), (0.5, 0.0)), poster: None };
+        set_frames([(7usize, frame(10, 6, 0x0012_3456))].into_iter().collect());
+        fill(&mut px, 20, (4, 2, 10, 6), SENTINEL);
+        let infos = finish(vec![at(2)], &mut px, 20);
+        let d = update_box(&infos[0], &frame(10, 6, 0x0065_4321), &mut px, 20);
+        assert_eq!(d, Some((4, 2, 10, 6)));
+        assert_eq!(px[2 * 20 + 4], 0x0065_4321);
+        // after a scroll the full redraw repaints and the new boxes carry the scrolled rect
+        let mut px2 = vec![0x00FF_FFFFu32; 20 * 20];
+        fill(&mut px2, 20, (4, 9, 10, 6), SENTINEL);
+        let infos2 = finish(vec![at(9)], &mut px2, 20);
+        let d2 = update_box(&infos2[0], &frame(10, 6, 0x0011_1111), &mut px2, 20);
+        assert_eq!(d2, Some((4, 9, 10, 6)));
+        assert_eq!(px2[9 * 20 + 4], 0x0011_1111);
+        assert_eq!(px2[2 * 20 + 4], 0x00FF_FFFF, "nothing at the old position");
+        set_frames(Default::default());
+    }
+
     #[test]
     fn no_frame_paints_black_and_obstruction_shrinks_the_damage() {
         set_frames(Default::default());
