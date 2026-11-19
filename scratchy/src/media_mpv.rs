@@ -602,6 +602,11 @@ impl MediaBackend for MpvBackend {
         self.cmd(&["stop"]);
         self.loaded_file = false;
         self.meta_sent = false;
+        // QM1k1l: nothing is buffered once unloaded (a late cache event of the stopped file
+        // is ignored in `poll` while no file is loaded).
+        self.cache_end = 0.0;
+        self.seekable = false;
+        self.duration = f64::NAN;
     }
     fn set_paused(&mut self, p: bool) {
         self.set("pause", if p { "yes" } else { "no" });
@@ -669,8 +674,8 @@ impl MediaBackend for MpvBackend {
                             self.duration = f;
                             out.push(BackendEvent::DurationChanged(f));
                         }
-                        P_CACHE if p.format == FMT_DOUBLE => self.cache_end = f,
-                        P_SEEKABLE if p.format == FMT_FLAG => self.seekable = flag,
+                        P_CACHE if p.format == FMT_DOUBLE => self.cache_end = if self.loaded_file { f } else { 0.0 },
+                        P_SEEKABLE if p.format == FMT_FLAG => self.seekable = flag && self.loaded_file,
                         P_EOF if p.format == FMT_FLAG && flag && self.meta_sent => out.push(BackendEvent::Eof),
                         P_BUFFERING if p.format == FMT_FLAG && self.meta_sent => out.push(BackendEvent::Buffering(flag)),
                         _ => {}

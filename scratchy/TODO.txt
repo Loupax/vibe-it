@@ -1191,7 +1191,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       with the QM1k1e page variant whose two addSourceBuffer lines are swapped (audio first) plays
       to `ended` with `videoWidth` 320 (R42 "local B" reproduces the bug today). Live accept: the
       R42 YouTube URL shows video pixels after play (grim).
-- [ ] QM1k1l [S] READY (P2, R42 section 4, Sonnet/Haiku) `buffered` after an MSE detach. Run 2
+- [x] QM1k1l [S] DONE (HASH) (P2, R42 section 4, Sonnet/Haiku) `buffered` after an MSE detach. Run 2
       of R42: after `emptied` (ct 0, readyState 0, MediaSource gone) `video.buffered` stayed
       `[0, 61.8]`: `MediaCore::buffered` falls back to `MpvBackend::buffered` (`cache_end`), which
       still holds the unloaded MSE file's demuxer cache time (or a late cache property event set it
@@ -1199,7 +1199,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       then fix (reset on unload/detach and ignore cache events of a stopped file). Test: FakeBackend
       and real mpv: attach, append, detach (`removeAttribute('src'); load()`), `buffered.length`
       is 0.
-- [ ] QM1k1m [S] READY (P2, R42 section 4, Sonnet, measure first) The video track was switched off
+- [x] QM1k1m [S] MEASURED, not fixed (HASH; cause is page-side and needs a DOM probe, see QM1k1n) (P2, R42 section 4, Sonnet, measure first) The video track was switched off
       (`vid=no`, QM1g "no visible box target") 8 s after the MSE load and only re-enabled ~41 s
       after playback started, although YouTube's player box was on screen. Log
       `set_video_target` changes and the `<video>` box (size, visibility, which layout produced
@@ -1207,6 +1207,26 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       under the starved main thread? display/visibility toggled by the page? the box replaced?).
       Then fix or file. Test: a fixture whose `<video>` gets its size by script after load keeps
       (or regains at once) its video target.
+      MEASUREMENT 2026-11-19 (own build with temporary logging of every redraw's video boxes and
+      of `apply_target`, reverted; R42 URL, nested dwl, own wire): the `<video>` box was painted
+      ONCE (+26.1 s after start: 24,80 550x309, visible 166625 of 169950 px, not layered) and
+      `set_video_target(Some)`; at the next redraw (+29.4 s) the paint reported ZERO video boxes
+      and `set_video_target(None)` came, and from there every redraw (30 more, to +129 s) had
+      zero boxes. mpv: `vid="no"` once `meta_sent` (the 'no visible box target' path in
+      `apply_target`, working as designed). A COVERED box is still listed (visible_pixels may be
+      0), so zero boxes means the `<video>` produced no painted box at all (display:none,
+      visibility, a zero-size or clipped box, or a replaced element), while the screenshot showed
+      YouTube's picture (a thumbnail or the page's own overlay, not mpv). Not determined: which of
+      those, because a running scratchy cannot show the element's computed style. Filed QM1k1n.
+- [ ] QM1k1n [S] READY (P2, QM1k1m follow-up, Sonnet, measure first) Why does the YouTube
+      `<video>` have no painted box after +29 s? Add a throwaway probe (log in `paint` for a
+      `<video>` node: computed display, visibility, opacity, used size, clip; or in the page
+      `getComputedStyle`/`getBoundingClientRect` of `video.html5-main-video` through a
+      `--run-timers` fixture of the saved watch page) and read which rule hides it. Then fix the
+      box (a CSS gap) or, if YouTube hides the video until it sees a first frame (chicken and egg
+      with `vid=no`), keep the video track on until the first frame has been delivered or the
+      element has ever had a box. Test: a page that hides its `<video>` (display:none) until
+      `playing` still gets its first frame.
 - [ ] QM1k-u [S] READY (P3, R42 section 4, Sonnet, measure first) On the YouTube watch page a
       `GET https://youtube.com/` is CORS-checked against page origin `"null"` and blocked. Find
       which context makes it (an iframe with an opaque origin? `Request` with
