@@ -37,7 +37,7 @@ PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; sea
  Step 4, the main thread in the live window (YouTube playback, scrolling, mouse):
   14a5 QYTC1a [WIP] [M, P1] contained style writes (YouTube controls-visible forced layouts, R50); then QYTC1b, QYTC1c
   14b Q33b2 [S] real innerWidth/innerHeight + forced-layout viewport = window size (QY53e3: prerequisite of QY53e2) | Tier 7
-  14d QY53m [S] App::js_sync skips the restyle after no-op write batches (after QM1k1n6: same code)
+  14d [WIP] QY53m [S] App::js_sync skips the restyle after no-op write batches (after QM1k1n6: same code)
   15 QY53e2 [M]  IO uses the App's own layout                                       | QY53 block
   16 QM1g2 (a) [M] render mpv frames off the main thread (33-39 ms per frame today); split (a) out
                  as its own item QM1g2a when taken, (b)-(d) stay where they are     | QM1g block
@@ -1054,7 +1054,7 @@ Shared rules for this block:
       QY53l2 (b493ad2, R43 section 13): of 71 remaining YT no-change layouts, 44 follow writes to VISIBLE elements only
       (.ytp-chapter-hover-container, .ytp-load-progress scale transform, #movie_player state classes, video attributes) and
       8 follow writes inside an inline <svg> only: consider a rule for svg-internal writes that cannot change the svg box.
-- [ ] QY53m [S] (P2, from QY53e3; Sonnet; AFTER QM1k1n6, same code in app.rs) `App::js_sync` skips the restyle when no
+- [ ] [WIP] QY53m [S] (P2, from QY53e3; Sonnet; AFTER QM1k1n6, same code in app.rs) `App::js_sync` skips the restyle when no
       write in the batch changed a value and neither css_ver nor the media size moved. Use its own "value changed"
       generation, NOT geom_gen (QY53l2/l3 stop bumping geom_gen for writes that still need a repaint). Wikipedia/YT in a
       window: App rebuilds after only no-op writes 2-18 / 0-23 per run (up to 2.3 s). Gate: Wikipedia Rust live window
