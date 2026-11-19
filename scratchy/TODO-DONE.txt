@@ -7830,3 +7830,8 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       PROMOTED 2026-11-19 into the PERFORMANCE QUEUE (step 14b, QY53e3 ad764fa): prerequisite of QY53e2. Gate: in a
       window a forced layout's viewport equals the window size; headless `--perf-report` unchanged; resize updates it.
   (queue line) 14b [WIP] Q33b2 [S] real innerWidth/innerHeight + forced-layout viewport = window size (QY53e3: prerequisite of QY53e2) | Tier 7
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QAN1h3 DONE b44e855 #390 per-build class token cache; has_class 34 % -> 17 % of refresh (gate 4 % not met -> QAN1h3b) [S] (P3, from QAN1h, R49; Sonnet) Class lookup without re-scanning the class attribute string per check (cache a
+      per-element class atom set, invalidated on class writes). Gate: has_class < 4 % of GeomCache::refresh samples on the
+      R49 home recipe.

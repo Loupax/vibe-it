@@ -1068,9 +1068,6 @@ Shared rules for this block:
       home (was 34 %; gate < 4 %): ~1.3 M checks per build, cost = hash probe + TLS + RefCell per check. Options in order:
       per-element class-hash bitmask checked before has_class; ancestor class sets cached in the AncestorBloom stack entries;
       selector class atoms pre-resolved to ids at RuleIndex build vs a per-element sorted id list.
-- [ ] [WIP] QAN1h3 [S] (P3, from QAN1h, R49; Sonnet) Class lookup without re-scanning the class attribute string per check (cache a
-      per-element class atom set, invalidated on class writes). Gate: has_class < 4 % of GeomCache::refresh samples on the
-      R49 home recipe.
 - [ ] QMEM3g [M] (P3, from QMEM3b #380 R48; Sonnet) Feature-gated counting `#[global_allocator]` (sampling, live-pointer
       table, backtrace) + a resolve script, so the next heap breakdown needs no throwaway patch (QMEM3b's prototype:
       /home/loupax/src/vibe-it/.coordinator/artifacts/qmem3b/memprof.rs.txt + hooks.diff, not in git).
