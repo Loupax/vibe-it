@@ -673,6 +673,8 @@ pub(crate) struct App {
     pub(crate) last_mouse_pos: Option<(f32, f32)>,
     /// QM1k1n6a: newest not-yet-processed `CursorMoved` position.
     pub(crate) pending_pointer_move: Option<(f32, f32)>,
+    /// QM1k1n6b: when the last input event arrived (sizes the timer slice).
+    pub(crate) last_input: Option<std::time::Instant>,
     /// QM1k1n6a: pointer moves actually processed (test counter).
     pub(crate) pointer_moves_processed: u64,
     /// Document-space position at the most recent `MouseInput`
@@ -1074,6 +1076,12 @@ impl App {
     /// and `mouseover`/`mouseout` work happens once in `flush_pointer_move`.
     pub(crate) fn queue_pointer_move(&mut self, pos: (f32, f32)) {
         self.pending_pointer_move = Some(pos);
+        self.last_input = Some(std::time::Instant::now());
+    }
+
+    /// QM1k1n6b: input arrived within the last 100 ms.
+    pub(crate) fn input_recent(&self) -> bool {
+        self.pending_pointer_move.is_some() || self.last_input.is_some_and(|t| t.elapsed() < std::time::Duration::from_millis(100))
     }
 
     /// QM1k1n6a: process the queued pointer move, if any (one hit test no
@@ -1164,6 +1172,7 @@ impl App {
             node_scroll_dirty: false,
             last_mouse_pos: None,
             pending_pointer_move: None,
+            last_input: None,
             pointer_moves_processed: 0,
             mouse_down_pos: None,
             interaction: InteractionState::default(),
@@ -1254,6 +1263,7 @@ impl App {
             node_scroll_dirty: false,
             last_mouse_pos: None,
             pending_pointer_move: None,
+            last_input: None,
             pointer_moves_processed: 0,
             mouse_down_pos: None,
             interaction: InteractionState::default(),
@@ -3687,6 +3697,12 @@ impl App {
     }
 }
 
+/// QM1k1n6b: how long `run_due` may run timers in one event-loop turn: 16 ms
+/// while a video is on screen or input is fresh, 50 ms otherwise.
+pub(crate) fn timer_slice(input_recent: bool, video: bool) -> std::time::Duration {
+    std::time::Duration::from_millis(if input_recent || video { 16 } else { 50 })
+}
+
 impl ApplicationHandler<AppEvent> for App {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         if self.window.is_some() {
@@ -3712,7 +3728,7 @@ impl ApplicationHandler<AppEvent> for App {
         let els = self.sync_node_scroll();
         if let Some(js) = &self.js {
             js.set_scroll(self.scroll_offset, els);
-            js.run_due();
+            js.run_due_slice(Some(timer_slice(self.input_recent(), !self.video.boxes.is_empty())));
         }
         self.js_sync();
         let now_ms = app_clock_ms();
@@ -3835,6 +3851,7 @@ impl ApplicationHandler<AppEvent> for App {
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         if event_flushes_pointer(&event) {
+            self.last_input = Some(std::time::Instant::now());
             self.flush_pointer_move();
         }
         match event {

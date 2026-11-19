@@ -85,3 +85,72 @@ fn qm1k1n6a_click_after_moves_hits_latest_position() {
     assert_eq!(pos, (5.0, 5.0));
     assert_eq!(app.element_at(pos), app.element_at((5.0, 5.0)));
 }
+
+// QM1k1n6b: `run_due` time slice.
+
+fn qm1k1n6b_log(out: &Rc<RefCell<Vec<String>>>) -> Vec<String> {
+    out.borrow().iter().filter_map(|l| l.strip_prefix("log:").map(str::to_string)).collect()
+}
+
+/// A slice ends the turn once its wall time is used; the rest runs on the next turns, in order.
+#[test]
+fn qm1k1n6b_order_preserved_across_slices() {
+    let (engine, out) = qb8_start(
+        "<body><script>window.__spin = function(ms){ var e = Date.now() + ms; while (Date.now() < e); };
+        for (var i = 0; i < 6; i++) (function(i){ setTimeout(function(){ __spin(8); console.log('t' + i); }, 0); })(i);</script></body>",
+    );
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    let slice = Some(std::time::Duration::from_millis(16));
+    let mut turns = 0;
+    while engine.run_due_slice(slice) {
+        turns += 1;
+        assert!(turns < 20);
+    }
+    assert!(turns >= 2, "6 x 8 ms must not fit one 16 ms slice (turns {turns})");
+    assert_eq!(qm1k1n6b_log(&out), ["t0", "t1", "t2", "t3", "t4", "t5"]);
+}
+
+/// After a sliced turn work is still due, so the loop's next deadline is already in the past
+/// (it wakes again at once); with nothing due there is no wake-up at all.
+#[test]
+fn qm1k1n6b_leftover_work_wakes_the_loop_and_idle_does_not() {
+    let (engine, _out) = qb8_start(
+        "<body><script>for (var i = 0; i < 4; i++) setTimeout(function(){ var e = Date.now() + 10; while (Date.now() < e); }, 0);</script></body>",
+    );
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    assert!(engine.run_due_slice(Some(std::time::Duration::from_millis(5))));
+    assert!(engine.next_deadline().is_some_and(|t| t <= std::time::Instant::now()), "work remains: wake now");
+    while engine.run_due_slice(Some(std::time::Duration::from_millis(5))) {}
+    assert_eq!(engine.next_deadline(), None, "nothing pending: the loop sleeps");
+    assert!(!engine.run_due_slice(Some(std::time::Duration::from_millis(5))));
+}
+
+/// One callback longer than the slice cannot be split: it runs whole and ends the slice.
+#[test]
+fn qm1k1n6b_long_single_callback_still_runs() {
+    let (engine, out) = qb8_start(
+        "<body><script>setTimeout(function(){ var e = Date.now() + 40; while (Date.now() < e); console.log('long'); }, 0);
+        setTimeout(function(){ console.log('next'); }, 0);</script></body>",
+    );
+    std::thread::sleep(std::time::Duration::from_millis(20));
+    assert!(engine.run_due_slice(Some(std::time::Duration::from_millis(16))), "slice used up, one timer left");
+    assert_eq!(qm1k1n6b_log(&out), ["long"]);
+    assert!(!engine.run_due_slice(Some(std::time::Duration::from_millis(16))));
+    assert_eq!(qm1k1n6b_log(&out), ["long", "next"]);
+}
+
+/// 16 ms while a video is on screen or input is fresh, 50 ms otherwise.
+#[test]
+fn qm1k1n6b_slice_length_follows_video_and_input() {
+    let ms = |i, v| timer_slice(i, v).as_millis();
+    assert_eq!((ms(false, false), ms(true, false), ms(false, true), ms(true, true)), (50, 16, 16, 16));
+}
+
+/// A queued pointer move shortens the slice, so the pending input gets its turn sooner.
+#[test]
+fn qm1k1n6b_pending_input_counts_as_recent() {
+    let Some(mut app) = qm1k1n6a_app("<p>hello</p>") else { return };
+    assert!(!app.input_recent());
+    app.queue_pointer_move((1.0, 1.0));
+    assert!(app.input_recent());
+}
