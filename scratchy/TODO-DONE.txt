@@ -6496,3 +6496,20 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       per-callback allocation beyond it. YouTube today has a 5 519 ms timer and a 2 823 ms promise job
       that nothing identifies. Tests: fixture with a named 60 ms timer function and a 5 ms one ->
       `longest[0].source` names the 60 ms function. Accept: test; YT watch `longest[0..5]` pasted.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QY53i DONE 4946d83 (hit-path memo; arena left out -> QY53i2) [M] (P2, R44 section 3, Sonnet, measure first) Custom-property interning:
+      `compute_custom_props` -> `intern_custom_props` (css.rs) clones the parent's whole
+      `BTreeMap<String,String>`, adds the element's own `--*` values, SipHashes the complete map to look
+      it up and `Box::leak`s every new map (never freed, across navigations): 5.3 % of YouTube watch CPU
+      (BTreeMap clone 3.4 %, drop 2.2 %, hashing ~1.6 %). Step 1 (measure): log once per build the number
+      of `intern_custom_props` calls, hits, distinct maps and their total bytes (QOBS7 exposes the last
+      two permanently). Step 2: avoid the clone+hash on a hit, e.g. memo keyed by (parent map pointer,
+      hash of the element's OWN resolved `--*` pairs) -> interned pointer, and replace `Box::leak` by
+      `Rc`-owned maps held in a per-document arena cleared on navigation (check every
+      `&'static CustomProps` user; if the lifetime change is larger than M, stop and report). Tests:
+      `var()` inheritance, overrides, cycles unchanged (existing tests); two siblings with the same own
+      `--x` share one map (pointer equality); a navigation frees the arena (test-only counter).
+      Accept: YT watch QOBS1 summary `intern_custom_props` <= 1.5 %; big-css fixture with 200 `--v<i>`
+      custom properties on `:root` and an override on every 10th div: forced_layout.total_ms lower than
+      main, median of 3.

@@ -51,7 +51,7 @@ PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; sea
    4 DONE 4749910 QY53h [S]  page_css clone on every geometry read (js_geom.rs; pairs with 3)    | QY53 block
    5 DONE c5098fa QY53e1 [S] deferred IO rechecks (92 % of Wikipedia CPU is IO-driven layout)    | QY53 block
    6 DONE 4fae30f QP4 [S]    shape-memo key via Debug strings (layout.rs; pairs with 5)          | QOBS block
-   7 [WIP] QY53i [M]  custom-property interning clone/hash/leak (css.rs)                  | QOBS block
+   7 DONE 4946d83 QY53i [M]  custom-property interning clone/hash/leak (css.rs)                  | QOBS block
  Step 3, see what is still slow and name it:
    8 DONE f9a8c27 QOBS4 [S]  name the slowest callbacks (YT: a 5.5 s timer, a 2.8 s promise job) | QOBS block
    9 [WIP] QOBS3 [M]  forced-layout phases / callers / no-op rate in --perf-report         | QOBS block
@@ -67,7 +67,7 @@ PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; sea
   17 [WIP] QY53f [L, Opus design first] incremental style between forced layouts (80 % change nothing) | QY53 block
  Step 5, memory, regression guards, re-measure:
   18 QOBS7 [S]  memory breakdown (YT: 714 MB RSS vs 124 MB JS heap)                 | QOBS block
-  19 QOBS8 [S]  perf-diff tool       20 QOBS10 [S] offline forced-layout benchmark  | QOBS block
+  19 [WIP] QOBS8 [S]  perf-diff tool       20 QOBS10 [S] offline forced-layout benchmark  | QOBS block
   21 QY60 [S, Opus measure] main-thread throughput on YouTube results (re-measure after steps 2-4)
   22 QY54 [S, Opus measure] compositor disconnect under stalls (re-run after steps 2-4)
   23 QAN1h [S, Opus] GitHub restyle 15-18 s: re-measure with QOBS1 first (likely changed by QY53a-d)
@@ -1274,6 +1274,13 @@ Shared rules for this block:
       fn url:line:col>` for the slowest listener); (b) promise jobs: name the reaction handler if V8 exposes it cheaply;
       (c) measure the media pump's OWN cost (excluding listeners) on YT watch: if it forces layouts itself, file a fix.
       Tests: a rIC callback named `slowIdle` shows up as `slowIdle <url>`; a slow `timeupdate` listener is named.
+- [ ] QY53i2 [L] (P2 memory, coordinator 2026-11-19, from QY53i 4946d83; Opus design first, then Sonnet) Interned
+      custom-property tables are `Box::leak`ed and never freed: ~97 tables x ~125 KB = ~12 MB leaked per YouTube watch
+      load, across navigations (and QY53i's `CUSTOM_PROPS_MEMO` also lives as long as the thread). Freeing them needs
+      `ComputedStyle`/`InheritedStyle` (both `Copy`, ~120 sites carry `&'static CustomProps`) to hold a non-Copy Rc or a
+      small Copy handle into a per-document arena cleared on navigation. Design: handle type vs Rc, cost of losing
+      `Copy`, where the arena lives (one per document; the JS thread's GeomCache builds too), then Sonnet items. Test: a
+      navigation frees the arena (test-only counter); var() tests unchanged. Use QOBS7's memory numbers when available.
 - [ ] QOBS1b [XS] (coordinator 2026-11-19, from QOBS2 aadd319; Sonnet/Haiku, tools only) `tools/profile.sh` still sets
       `SCRATCHY_V8_SNAPSHOT=0` (the QOBS1 workaround "until QOBS2 is merged"). QOBS2 made scratchy skip the snapshot itself
       whenever `SCRATCHY_V8_FLAGS` is set, so drop the env var from profile.sh and the PERF.md "Profiling (perf)" note.
@@ -1293,21 +1300,6 @@ Shared rules for this block:
       `by_caller[0]` names `readIt`, count 5; a write of the same value then a read -> `no_change`
       counted; phases sum within 5 %. Accept: tests; overhead rule above; Wikipedia Rust and YT watch
       JSON pasted in the PR.
-- [ ] [WIP] QY53i [M] (P2, R44 section 3, Sonnet, measure first) Custom-property interning:
-      `compute_custom_props` -> `intern_custom_props` (css.rs) clones the parent's whole
-      `BTreeMap<String,String>`, adds the element's own `--*` values, SipHashes the complete map to look
-      it up and `Box::leak`s every new map (never freed, across navigations): 5.3 % of YouTube watch CPU
-      (BTreeMap clone 3.4 %, drop 2.2 %, hashing ~1.6 %). Step 1 (measure): log once per build the number
-      of `intern_custom_props` calls, hits, distinct maps and their total bytes (QOBS7 exposes the last
-      two permanently). Step 2: avoid the clone+hash on a hit, e.g. memo keyed by (parent map pointer,
-      hash of the element's OWN resolved `--*` pairs) -> interned pointer, and replace `Box::leak` by
-      `Rc`-owned maps held in a per-document arena cleared on navigation (check every
-      `&'static CustomProps` user; if the lifetime change is larger than M, stop and report). Tests:
-      `var()` inheritance, overrides, cycles unchanged (existing tests); two siblings with the same own
-      `--x` share one map (pointer equality); a navigation frees the arena (test-only counter).
-      Accept: YT watch QOBS1 summary `intern_custom_props` <= 1.5 %; big-css fixture with 200 `--v<i>`
-      custom properties on `:root` and an override on every 10th div: forced_layout.total_ms lower than
-      main, median of 3.
 - [ ] [WIP] QOBS5 [M] (P1 for the media items, R44 section 4.4, Sonnet) Window frame stats.
       `SCRATCHY_FRAME_STATS=<path>` (or `=1` for stderr): the live App appends one JSON line per second
       of wall time: redraws; App tree builds (count, ms: today only `last_build_time`); shape-worker
@@ -1336,7 +1328,7 @@ Shared rules for this block:
       (sum of string/vec capacities), documented as such. YouTube today: 714 MB RSS vs 124 MB JS heap,
       ~590 MB unexplained. Tests: fields present; an interned map shows up in the interner count.
       Accept: tests; YT watch JSON pasted with the share of RSS the listed caches explain.
-- [ ] QOBS8 [S] (P2, Haiku/Sonnet; tools only) `tools/perf-diff.py old.json new.json [--threshold 5]`:
+- [ ] [WIP] QOBS8 [S] (P2, Haiku/Sonnet; tools only) `tools/perf-diff.py old.json new.json [--threshold 5]`:
       reads two `--perf-report` objects OR two `perf-suite.sh` outputs (per-page medians) and prints a
       table of numeric fields whose change is above the threshold (%), sorted by size, with the page,
       field, old, new and %. stdlib only, `python3 -I`. PERF.md: "every perf PR pastes perf-diff of
