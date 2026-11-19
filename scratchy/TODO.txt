@@ -23,7 +23,7 @@ tracking fixes. Work already in flight is finished normally. Both agent slots (m
 this list; pair items that touch different files (noted per step). Evidence: R43, R44 (REGRESSIONS.md).
 A perf item that turns out to be wrong or bigger than its size: stop and report, as always.
 
-- [ ] QM1k-stop [S, Opus investigate first, then fix] (user report 2026-11-19, ALLOWED AHEAD of the perf queue as a
+- [ ] [WIP] QM1k-stop [S, Opus investigate first, then fix] (user report 2026-11-19, ALLOWED AHEAD of the perf queue as a
       regression on main; next free agent slot) The YouTube player stops ("crashes") after playing for a few seconds
       (HANDOFF said the first minute played). The scratchy process does NOT die: the user's installed build (~/.cargo/bin,
       13:58, main 167c9c0+) was still running on https://www.youtube.com/watch?v=G1AeBgalFZk and coredumpctl has no core
