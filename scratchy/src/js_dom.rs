@@ -1842,10 +1842,17 @@ const DOM_PRELUDE: &str = r#"
     var d = readStyle(el).filter(function (x) { return x[0] === p; });
     return d.length ? d[d.length - 1][1] : '';
   };
+  // QY53l: CSSOM setProperty updates an existing declaration IN PLACE (only a new property is
+  // appended), so writing the value a property already has leaves the `style` attribute
+  // byte-identical: the write is a no-op (no geometry generation bump, no forced layout).
   var styleSet = function (el, p, v) {
-    var d = readStyle(el).filter(function (x) { return x[0] !== p; });
+    var d = [], at = -1;
     v = v == null ? '' : String(v).trim();
-    if (v) d.push([p, v]);
+    readStyle(el).forEach(function (x) {
+      if (x[0] !== p) d.push(x);
+      else if (at < 0 && v) { at = d.length; d.push([p, v]); }
+    });
+    if (v && at < 0) d.push([p, v]);
     writeStyle(el, d);
   };
   var styles = {};

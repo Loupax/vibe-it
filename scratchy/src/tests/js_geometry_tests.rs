@@ -1350,3 +1350,63 @@ fn qy53h_geometry_hit_does_not_build_page_css_and_stylesheet_changes_invalidate(
     crate::js_style::set_js_extra_css("");
     crate::js_style::set_js_adopted_css("");
 }
+
+// ---------- QY53l: style.<prop> = <same value> is a no-op (CSSOM updates in place) ----------
+
+#[test]
+fn qy53l_style_property_rewrite_keeps_declaration_order() {
+    // YouTube's progress bars set `left` and `transform` in turn every tick: the old
+    // remove-and-append setter rotated the declarations on every write.
+    let log = run_in_html(
+        QY53C_PAGE,
+        "var a = document.getElementById('a');
+         a.setAttribute('style', 'left: 0px; transform: scaleX(0);');
+         a.style.left = '0px'; console.log('1', a.getAttribute('style'));
+         a.style.transform = 'scaleX(0)'; console.log('2', a.getAttribute('style'));
+         a.style.left = '5px'; console.log('3', a.getAttribute('style'));
+         a.style.setProperty('--k', '1'); console.log('4', a.getAttribute('style'));
+         a.style.left = ''; console.log('5', a.getAttribute('style'));
+         a.style.removeProperty('transform'); a.style.removeProperty('--k'); console.log('6', a.getAttribute('style'));",
+    );
+    for l in [
+        "log:1 left: 0px; transform: scaleX(0);",
+        "log:2 left: 0px; transform: scaleX(0);",
+        "log:3 left: 5px; transform: scaleX(0);",
+        "log:4 left: 5px; transform: scaleX(0); --k: 1;",
+        "log:5 transform: scaleX(0); --k: 1;",
+        "log:6 null",
+    ] {
+        assert!(log.contains(&l.to_string()), "{l} in {log:?}");
+    }
+}
+
+#[test]
+fn qy53l_same_value_style_property_write_does_not_force_a_layout() {
+    let (log, n) = qy53c_run(
+        QY53C_PAGE,
+        "var a = document.getElementById('a'); a.style.left = '0px'; a.style.transform = 'scaleX(0)';
+         a.offsetWidth;
+         for (var i = 0; i < 5; i++) { a.style.left = '0px'; a.offsetWidth; a.style.transform = 'scaleX(0)'; a.offsetWidth;
+           a.style.setProperty('width', '100px'); a.clientWidth; }
+         console.log('w', a.offsetWidth);",
+    );
+    assert!(log.contains(&"log:w 100".to_string()), "{log:?}");
+    // Only the first read lays out: every later write sets a value already there.
+    assert_eq!(n, 1, "{log:?}");
+}
+
+#[test]
+fn qy53l_style_property_write_that_changes_a_value_still_relayouts() {
+    let (log, n) = qy53c_run(
+        QY53C_PAGE,
+        "var a = document.getElementById('a'); a.style.left = '0px'; console.log('w1', a.offsetWidth);
+         a.style.width = '70px'; console.log('w2', a.offsetWidth);
+         a.style.width = '70px'; console.log('w3', a.offsetWidth);
+         a.style.width = '80px'; console.log('w4', a.offsetWidth);",
+    );
+    for l in ["log:w1 100", "log:w2 70", "log:w3 70", "log:w4 80"] {
+        assert!(log.contains(&l.to_string()), "{l} in {log:?}");
+    }
+    // w1, w2, w4: the same-value write before w3 forces none.
+    assert_eq!(n, 3, "{log:?}");
+}
