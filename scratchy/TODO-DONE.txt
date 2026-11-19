@@ -7844,3 +7844,9 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       (`--perf-report`, QOBS3 phases/by_caller once merged); make the ancestor checks one walk (or cached per layout
       generation). Gate: one read at 5 000 deep < 100 ms; tests: IO visibility semantics unchanged (display:none /
       visibility:hidden ancestor still hides the target).
+
+=== from TODO.txt: --- Rust `__*` native wrapped in a JS timer); none of it was committed. -------
+- [x] QPT1a DONE bb0d258 #392 same-origin iframe = own V8 realm; YouTube token 2/3 runs, SABR status 1 through ~115 s [M] (P1; Opus) BotGuard slice (R53 section 6 "QPT1a"): `__scratchy_realm_new` + baked `__scratchy_realm_init`
+      (iframe document id, parent/top/frameElement, about:blank env with the parent's origin), realm timers/fetch/XHR/WS/ES/
+      rejection reporting forwarded to the parent's, `frameOf` returns the realm. js_engine_v8.rs, js.rs, js_dom.rs. Unit tests
+      per R53 + live gate: YouTube token >= 2 of 3 runs and SABR status 1 past 64 s.
