@@ -2040,6 +2040,20 @@ impl StyleRule {
         }
     }
 
+    /// QYTC1a: whether the block may declare something `!important` (false means it certainly
+    /// does not; an unparsed block is only scanned for a `!`, not parsed).
+    pub(crate) fn may_declare_important(&self) -> bool {
+        match self.parsed.get() {
+            Some(p) => p.important.is_some(),
+            None => {
+                let b = self.block.take();
+                let r = b.contains('!');
+                self.block.set(b);
+                r
+            }
+        }
+    }
+
     /// Whether the block may declare `content`, a counter property or
     /// `quotes` (false means it certainly does not; no parse needed).
     pub(crate) fn may_declare_generated(&self) -> bool {
