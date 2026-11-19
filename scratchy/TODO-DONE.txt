@@ -6763,3 +6763,8 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 - [x] QMEM3 DONE 5700e35 (R48: libmpv ~112 MB, glibc arena retention 85-94 MB, ~65 MB unnamed malloc; items QMEM3a-f) [S] (P3 memory, from QOBS7; Opus measure only) ~280 MB (38 %) of YT watch RSS is unexplained by caches + JS
       heap (peak 839 MB). One measured pass: /proc/self/smaps_rollup + malloc_info at end of run, V8 heap space stats
       (code/large-object/zone), mpv buffers for the 2 players, DOM/box trees; name the top 3 and file items.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QY53o3 DONE 573ab64 (JS-thread SHAPE_MEMO cap 4096 < 7 508 entries per Wikipedia layout -> cleared every layout; items QY53o3a/b) [S] (P2, from QY53o, R47 addendum; Opus measure only) In each Wikipedia forced layout measure_document takes
+      116-144 ms (45 %) although no text changed and the shape cache is warm. Find where (memo misses? per-box work that
+      does not depend on text? float/table passes?) with tools/profile.sh / temporary timing; file sized fix items.

@@ -59,7 +59,8 @@ PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; sea
   14c DONE 140bef3 QY53n (design, R47) -> QY53n1-5 below; hover builds are NOT the YouTube freeze (6 of 55 builds)
   14e DONE 732438c QY53o -> QY53o1 (P1) / QY53o3 / QY53o2 below
   14f QY53o1 [S] value-changing attribute write no selector/attr() can read -> no geometry bump (after QY53l2 merges) | R47
-  14g [WIP] QY53o3 [S, Opus measure] measure_document 116-144 ms per forced layout with unchanged text | R47
+  14g DONE 573ab64 QY53o3 -> QY53o3a (P1) below
+  14h QY53o3a [S] JS-thread shape memo: per-layout sweep instead of clear-at-start cap (measure 130 -> ~35 ms/layout) after QY53l2 | R47
   14d QY53m [S] App::js_sync skips the restyle after no-op write batches (after QM1k1n6: same code)
   15 QY53e2 [M]  IO uses the App's own layout                                       | QY53 block
   16 QM1g2 (a) [M] render mpv frames off the main thread (33-39 ms per frame today); split (a) out
@@ -1229,7 +1230,7 @@ Shared rules for this block:
 - Local tools only. Nothing here may upload a profile anywhere (no profiler.firefox.com, no
   ui.perfetto.dev links in tools output), and scratchy itself still opens no socket.
 
-- [ ] QY53e1b [S] (P2, coordinator 2026-11-19, from QY53e1 c5098fa; Sonnet, measure first; AFTER QOBS3 so `by_reason`
+- [ ] [WIP] QY53e1b [S] (P2, coordinator 2026-11-19, from QY53e1 c5098fa; Sonnet, measure first; AFTER QOBS3 so `by_reason`
       io/script is available) QY53e1 cut Wikipedia Rust forced layouts 8 -> 4 and total_ms -64 %, but its YT watch sample
       (2+2 runs, loaded machine) was WORSE on the branch: 272/284 layouts, 63.1/48.4 s vs main 144/223, 26.7/31.7 s.
       Could be YouTube's 170-313 run-to-run spread, or the deferred IO evaluation changing what YouTube does (e.g. a
@@ -1333,12 +1334,22 @@ Shared rules for this block:
       Rust, inject hovering 8 body links 29 s, frame stats pointer phase, median of 3): forced.n <= 22 and forced.ms <=
       6 500 (today 52 / 16 485). Tests: title write on <a> with no [title] rule -> no layout; with `a[title]` rule -> layout;
       `attr(title)` in a ::before -> layout.
-- [ ] [WIP] QY53o3 [S] (P2, from QY53o, R47 addendum; Opus measure only) In each Wikipedia forced layout measure_document takes
-      116-144 ms (45 %) although no text changed and the shape cache is warm. Find where (memo misses? per-box work that
-      does not depend on text? float/table passes?) with tools/profile.sh / temporary timing; file sized fix items.
 - [ ] QY53o2 [M] (P3, from QY53o; Opus design first; ONLY if QY53o1 leaves > ~3 s per run) Writes inside an abs/fixed
       positioned subtree do not invalidate rects outside it (Page Previews' popup: 7-21 layouts per run). Gate: forced.n <= 5
       after QY53o1.
+- [ ] QY53o3a [S] (P1, from QY53o3 573ab64, R47 QY53o3 addendum; Sonnet; AFTER QY53l2 #351 merges: js_geom.rs) The JS thread's
+      shape memo is cleared before EVERY forced layout: `SHAPE_MEMO_CAP = 4096` is checked at the start of
+      `GeomCache::refresh` and one Wikipedia Rust layout stores 7 508 entries, so every layout reshapes the page (7 508
+      shape_spans, 128-174 ms; 0 cross-layout hits). Replace the clear-at-start cap with a per-layout sweep: tag entries with
+      the refresh generation that last used them, after each refresh drop entries that layout did not use; keep a safety
+      cap applied only after the sweep; a viewport change still clears. Test: a document with > 4 096 text runs, two
+      refreshes after a `title` write -> the second shapes nothing. Gate (addendum recipe, headless --perf-report, median
+      of 3): phases.measure_document / count <= 45 ms (today 130-136), warm measure <= 25 ms, shape_memo bytes <= ~5.1 MB,
+      forced_layout.total_ms / count >= 80 ms below main (interleaved).
+- [ ] QY53o3b [S] (P3, from QY53o3; Sonnet; after QY53o3a) Cheaper memo keys: non-SipHash hasher, build word/chunk keys from
+      (&str, &SpanStyle) without `to_string` copies, deadline check once per paragraph. Gate: warm measure_document <= 14 ms.
+- [ ] QY53o3c [S] (P4, from QY53o3; Opus measure) The App's shaping-worker memo has no size cap (cleared only when
+      reuse_shaping is false): does it grow without bound on a long-lived page? Measure 10 min on YT/Wikipedia; cap/sweep if so.
 - [ ] QY53m2 [S] (P2, from QY53n, R47; Sonnet; AFTER QY53m; js_dom.rs, not alongside QY53l2) A value-changing write to an
       attribute no selector reads (e.g. `title`; check RuleIndex/HoverKeys attribute keys) does not trigger an App restyle.
       Wikipedia's mouseover JS writes `li style="display: none;"` (same value) 154-165x and toggles `title` per run ->
