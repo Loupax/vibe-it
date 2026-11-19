@@ -475,6 +475,7 @@ fn qobs7_memory_fields_are_present() {
     let j = qobs3_report("mem", "<p id=a>x</p><script>document.getElementById('a').offsetWidth;</script>");
     let m = j.get("memory");
     assert!(m.get("rss_bytes").num() > 0.0);
+    assert!(m.get("rss_anon_bytes").num() > 0.0 && m.get("rss_anon_bytes").num() <= m.get("rss_bytes").num());
     assert!(m.get("peak_rss_bytes").num() >= m.get("rss_bytes").num());
     assert!(m.get("js_heap").get("used").num() > 0.0);
     m.get("js_heap").get("total");
@@ -492,6 +493,11 @@ fn qobs7_memory_fields_are_present() {
         "mse_store",
         "geom_rects",
         "geom_glyphs",
+        "js_extra_css",
+        "dom",
+        "report_html",
+        "report_scripts",
+        "report_css",
     ] {
         c.get(name).get("entries").num();
         c.get(name).get("bytes").num();
@@ -536,6 +542,11 @@ fn qmem3c_explained_bytes_is_the_sum_of_its_parts() {
         "mse_store",
         "geom_rects",
         "geom_glyphs",
+        "js_extra_css",
+        "dom",
+        "report_html",
+        "report_scripts",
+        "report_css",
     ] {
         sum += c.get(name).get("bytes").num();
     }
@@ -600,4 +611,38 @@ fn qobs5c_window_callers_and_longest() {
     let (_, kind, src) = longest.expect("a callback ran");
     assert_eq!((kind, src.as_str()), ("timer", "tick x.js:1:1"));
     assert_eq!(crate::perf::take_window_callers(3), (vec![], None));
+
+/// QMEM3b: the DOM and the harness's own page text are named in `memory.caches`, and the
+/// getComputedStyle CSS text is sized by capacity.
+#[test]
+fn qmem3b_dom_and_report_text_probes_are_nonzero() {
+    let _g = PerfGuard;
+    let j = qobs3_report("mem3b", "<p id=a>some text here</p><div class=x data-k=vvvv>y</div><script>document.getElementById('a').offsetWidth;</script>");
+    let c = j.get("memory").get("caches");
+    assert!(c.get("dom").get("entries").num() >= 8.0, "{c:?}");
+    assert!(c.get("dom").get("bytes").num() >= 8.0 * std::mem::size_of::<markup5ever_rcdom::Node>() as f64, "{c:?}");
+    assert!(c.get("report_html").get("bytes").num() >= 100.0, "{c:?}");
+    // A file page has no fetched scripts or CSS: those probes exist and are zero or more.
+    c.get("report_scripts").get("bytes").num();
+    c.get("report_css").get("bytes").num();
+}
+
+#[test]
+fn qmem3b_extra_css_mem_counts_capacity() {
+    crate::js_style::set_js_extra_css("p{color:red}");
+    let (n, bytes) = crate::js_style::extra_css_mem();
+    assert_eq!(n, 1);
+    assert!(bytes >= "p{color:red}".len());
+    crate::js_style::set_js_extra_css("");
+}
+
+/// QMEM3b: the joined stylesheet text carries no growth slack (it lives as long as the page).
+#[test]
+fn qmem3b_fetched_css_has_no_spare_capacity() {
+    let nowhere = std::path::Path::new("/nonexistent/qmem3b.sock");
+    let base = url::Url::parse("https://example.test/").unwrap();
+    let hrefs: Vec<String> = (0..37).map(|i| format!("data:text/css,.c{i}%7Bcolor:red%7D")).collect();
+    let css = crate::net::fetch_stylesheets(nowhere, &base, &base, &hrefs);
+    assert!(css.len() > 300);
+    assert_eq!(css.capacity(), css.len());
 }

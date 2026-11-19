@@ -549,6 +549,67 @@ Live nested-dwl window (b276712, same page): VmRSS 568 MB at 5 s, 581 MB at 60 s
    estimates (40 MB real vs 18 MB estimated).
 V8's slack (~18 MB beyond `used`) and the 34 MB binary are the remaining smaller items.
 
+### QMEM3b: naming the ~65 MB of main-thread malloc (Sonnet, 2026-11-19, c. 98e32bd + probes)
+Method: a TEMPORARY sampling heap profiler (never committed: a `#[global_allocator]` over `System` that
+samples every ~8 KB of allocation, keeps a live-pointer table with a libc `backtrace()` per sample, dumps the
+live samples at the end of `report_page`, resolved with `addr2line`; saved only in the agent's scratchpad),
+profiling build (release + line tables), own wire, YouTube watch G1AeBgalFZk, `--budget-ms 20000 --seconds 60`,
+`SCRATCHY_MEDIA_AO=null`, under the perf flock, load average 16-30 (other agents compiling). No heaptrack or
+valgrind on this machine. A Rust allocator sees ONLY Rust allocations; V8 and libmpv call malloc directly.
+
+At the end of the run (profiled run): glibc `in_use` 131 MB = **106 MB Rust** + **~25 MB C++** (V8 off-heap
+malloc, libmpv/ffmpeg, ICU). The 106 MB of Rust, by owner (sampled, +-2 MB):
+
+| Owner | Live MB | Was probed? |
+|---|---:|---|
+| `rules_cache` + `RuleIndex` + parsed blocks + keyframes (selector parse 15, rule parse 5, index 4.6, piece text 4.4, `ParsedBlock` 3, keyframes 2.3) | 23.2 | yes, est 15.6 + 1.9 (1.3x low) |
+| custom-property interner (`compute_custom_props`) | 17.4 | yes, est 15.5 |
+| `StyleCache` (getComputedStyle; its own parse of the same CSS, 4.4 MB of it `EXTRA_CSS`) | 15.7 | yes, est 12.7 |
+| **fetched script sources** (`fetch_script_via_wire` 14.2 + inline `script_ref` 1.3) | 15.5 | NO, new `report_scripts` |
+| **fetched stylesheet text, joined** (`fetch_stylesheets`: 4.4 MB of CSS in an 8.8 MB capacity) | 8.8 | NO, new `report_css` |
+| **page HTML + DOM text** (`perf_report` string 5.8 incl. 4.4 capacity slack of the lossy UTF-8 copy; DOM nodes via html5ever/`js_dom` 7.1) | ~8 + 7 | NO, new `report_html`, `dom` |
+| MSE store (fMP4 reader) | 4.4 | yes, est 3.2 |
+| shaping (cosmic-text buffers, this thread) | 3.8 | partly (`shape_memo` 1.3) |
+| V8 startup snapshot (`finish_bake`) | 1.7 | no (small; left) |
+
+So the "~65 MB no probe names" is, of the 106 MB Rust: **~39 MB of source text and DOM nobody probed** (scripts
+15.5, CSS 8.8 + the `EXTRA_CSS` copy, HTML ~6, DOM ~7) plus **~16 MB of probe underestimates** (rules 1.3x,
+style cache 1.2x, interner 1.1x, MSE 1.4x, shaping 2.9x) plus **~25 MB that is not Rust** (V8's own malloc,
+libmpv; `malloced_memory` of V8 was 1 MB zones + backing stores, the rest is libmpv/ffmpeg threads).
+
+Which of the 39 MB is a live-window cost? The fetched **scripts and the page HTML are held only by
+`perf_report`'s locals** until the report ends. A window moves them into `AppEvent::StreamCss` and drops them
+once `run_page_scripts` returns (only module sources stay, in `ModuleStore`; YouTube is classic scripts). So
+they are a harness artefact: ~23 MB of the 65 in a headless run, ~0 in a window. The CSS text (4.4 MB) and
+the DOM (~3.3 MB by the new probe; rcdom is 120 B/node) live in both. The window's real remaining weight is
+unprobed C++ (V8 + libmpv) and glibc retention (QMEM3a/3d).
+
+**Simple bug found and fixed (smallest fix):** `fetch_stylesheets` joins the sheets with `push_str`, whose
+doubling left 8.8 MB capacity for 4.4 MB of text (YouTube). `shrink_to_fit()` at the end: `report_css` 8.8 ->
+4.4 MB, malloc `in_use` -4 MB (137 -> 133 MB, 2 runs each). VmRSS did not move beyond noise (430-433 -> 429; the
+freed block goes to glibc's free list: `free_kept` +7 MB), so this is an allocator-level saving only until
+QMEM3d trims. The window keeps this string for the page's life (`App.extra_css`), so it is the same 4.4 MB there.
+
+**New probes** (`memory.caches`): `js_extra_css` (EXTRA_CSS capacity), `dom` (nodes + attribute/text bytes),
+`report_html`, `report_scripts`, `report_css` (the harness's own held text; zero outside `--perf-report`);
+`memory.rss_anon_bytes` (`RssAnon`). With them, YouTube watch: explained_bytes 209-214 MB of VmRSS 430-433 MB.
+Gate "explained >= 60 % of (anonymous RSS - malloc free)" (RssAnon 346 - free 46 = 300 MB on YouTube): 212 / 300 = 71 %.
+
+**Smaller page (Wikipedia Rust, `--seconds 30`, profiled run, load 15):** malloc in_use 106 MB = 86 MB Rust + ~20 MB C++.
+Of the 86 MB, **~62 MB is cosmic-text** (`shape_fallback` 17.6, `layout_to_buffer` 12.6, attrs `RangeMap` 12.2,
+`Buffer::set_text` 9.9, `ShapeLine::build` 6.3, `ShapeSpan` 1.8) allocated from `layout::measure_mixed_inline` /
+`shape_or_resume_word`, i.e. the main thread's `SHAPE_MEMO` (7 694 paragraphs, ~8 KB each); the QOBS7 estimate
+was 23.8 MB (2.6x low; YouTube 2.9x). `shape_memo_mem` is now scaled by 2.7 (calibrated, not exact). Before the
+scale, explained was 58 MB / (RssAnon 181 - free 34 = 147) = 39 %, after it ~94 / 147 = 64 %. The rest of the page: DOM
+4.4 MB (19 636 nodes), style/rule caches ~4.5 MB, the Utf8 lossy decoder + tendrils ~3 MB, `walk_glyphs` 2.4 MB.
+Open question (not S): is a 8 KB-per-paragraph memo worth its hit rate on a 7.7k-paragraph page (QMEM3j [S] measure
+`SHAPE_MEMO` hits vs bytes and cap it, same as QY53o3c).
+
+Proposed (not done, > S): QMEM3g [M] a counting `#[global_allocator]` behind a cargo feature (`memprof`) plus
+`tools/memprof-resolve.py`, so the next breakdown does not need a throwaway patch; QMEM3h [S] V8 off-heap
+(`malloced_memory`, ArrayBuffer backing stores) and per-library mapped RSS as probes (names the ~25 MB C++);
+QMEM3i [M] drop `StyleCache`'s second parse (already QMEM3e) and measure the 1.2-1.3x probe undercounts.
+
 ### First pass on be7c460 (before QY53f1c), for the record
 Same recipe, 5 headless runs + a live window: 673-677 MB headless, 731 MB live. The page's 22.6k rules were
 held TWICE at 4040 B per `StyleRule`: StyleCache's `Vec` as one 173.8 MiB mmapped chunk with 86.9 MiB

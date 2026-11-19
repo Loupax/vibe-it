@@ -7957,3 +7957,10 @@ Done: R38. The `true` is `<img alt="true">` (YouTube calls `setAttribute('alt', 
 > Item QV8-6: remove QuickJS (user 2026-11-19: "Remove QuickJS, we can add it again later if we decide."): the `engine-quickjs` feature, rquickjs, the QuickJS seam backend, the scratchy-quickjs CI job and the second test config.
 
 **What changed:** deleted src/js_engine.rs, Cargo.toml feature and dependency, lib.rs engine cfgs (V8 backend is now mounted unconditionally as `js_engine`; compile_error if `engine-v8` is off), QuickJS-only test branches, the CI job, docs. Bring it back with `git revert <commit>`.
+
+
+## QMEM3b: name the unexplained main-thread malloc (Sonnet)
+
+> Do TODO.txt item QMEM3b: name the ~65 MB of main-thread malloc that no probe explains (fetched script sources, FontSystem, ...). Use heap profiling or a temporary counting allocator on YouTube watch and a smaller page, measured under the perf flock. Output new --perf-report memory probes with tests, or the smallest fix with a test and before/after RSS; otherwise a sized proposal in REGRESSIONS.md.
+
+**What changed:** REGRESSIONS.md R48 "QMEM3b" (breakdown from a temporary sampling allocator: 106 MB Rust + ~25 MB C++ of 131 MB in use; ~39 MB is unprobed script/CSS/HTML/DOM text, ~23 MB of it held only by the harness). New `memory` probes `js_extra_css`, `dom`, `report_html`, `report_scripts`, `report_css` and `rss_anon_bytes` (perf.rs, js_style.rs, PERF.md, tests in perf_tests.rs). Fix: `fetch_stylesheets` shrinks its joined CSS (8.8 -> 4.4 MB capacity on YouTube).

@@ -5869,7 +5869,10 @@ pub(crate) fn shape_memo_mem() -> (usize, usize) {
                         spans + g.0.lines.iter().map(|l| l.text().len() + l.text().chars().count() * PER_CHAR + PER_LINE).sum::<usize>()
                     })
             })
-            .sum();
-        (m.len(), b)
+            .sum::<usize>();
+        // QMEM3b: calibrated against a heap profile (live cosmic-text allocations: Wikipedia 62 MB
+        // for 7 694 paragraphs vs 23.8 MB estimated, YouTube 3.8 vs 1.3 MB): the opaque per-run
+        // buffers, attribute range maps and fallback shaping are ~2.7x what the struct sizes say.
+        (m.len(), b / 10 * 27)
     })
 }

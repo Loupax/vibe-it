@@ -20,6 +20,15 @@ thread_local! {
 
 /// The external stylesheets of the current page (same text the layout
 /// build receives as `extra_css`).
+/// QMEM3b: `(1, capacity bytes)` of the page's extra CSS text kept for `getComputedStyle` (the
+/// capacity, not the length: slack counts as resident).
+pub(crate) fn extra_css_mem() -> (usize, usize) {
+    EXTRA_CSS.with(|c| {
+        let c = c.borrow();
+        (usize::from(!c.is_empty()), c.capacity())
+    })
+}
+
 pub(crate) fn set_js_extra_css(css: &str) {
     EXTRA_CSS.with(|c| {
         let mut c = c.borrow_mut();
