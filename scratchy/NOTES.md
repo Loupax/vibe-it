@@ -17,7 +17,7 @@ explained in its own section near the end of this file.
   hooks, custom elements, MutationObserver, IO/RO, template.content,
   second documents and iframes).
 - `src/js_style.rs`: `getComputedStyle` (QA16), cascade-only, no layout.
-- `src/js_engine.rs`: the engine seam (QV8-2). The only file that names `rquickjs`: natives (`native!`), values (`Bytes`, `JsObject`), compile/run, `Engine` (budget, job drain, module loader), error formatting.
+- `src/js_engine_v8.rs` (mounted as `js_engine`): the engine seam (QV8-2, V8 since QV8-6). The only file that names `v8`: natives (`native!`), values (`Bytes`, `JsObject`), compile/run, `Engine` (budget, job drain, module loader), error formatting.
 - V8 startup snapshot (QV8-4, `js_engine_v8.rs` `Snapshot`, `js::bake_engine`, `js::startup_engine`): page engines are deserialized from a snapshot of scratchy's own startup over an empty document, built in-process on a background thread (`warm_up`; blocking `ensure_snapshot` in tests and the one-shot report modes; `SCRATCHY_V8_SNAPSHOT=0` disables; a non-empty `SCRATCHY_V8_FLAGS` also skips it with one stderr line, QOBS2: `--perf-basic-prof --interpreted-frames-native-stack` + snapshot jumped to a stale code address from `Builtins_LoadIC_NoFeedback`, SIGSEGV). Natives are baked as functions whose data is their arena index (`register` re-attaches the closure by name); per-page state is applied by `__scratchy_apply_env` (+ `__scratchy_env_hooks`, `__media_sweep`) after attaching. A prelude must NOT read page state (env, document, clock) at top level except through those hooks.
 - `src/js_modules.rs`: ES module graph pre-fetch and import maps (QY15).
 - `src/stack.rs` (QSTK1): `stack::grow(|| ...)` runs a recursive walk on a further stack segment
@@ -3629,12 +3629,11 @@ delivered whole (no streaming), sending is unbounded (no limit on queued outgoin
 ## QV8-5: V8 + media are the default build
 
 `Cargo.toml` `default = ["engine-v8", "media"]`: a plain `cargo build --release` /
-`cargo install --path .` gives V8 (`src/js_engine_v8.rs`) and libmpv video. QuickJS
-(`src/js_engine.rs`, `rquickjs` now an optional dependency) is the opt-in fallback until QV8-6:
-`--no-default-features --features engine-quickjs[,media]`. The two engine features are mutually
-exclusive; `lib.rs` has a `compile_error!` for both or neither. CI: `scratchy` (default, V8
-archive cached + sha256-pinned), `wire`, `snag`, `scratchy-quickjs` (fallback config + clippy
-count via `CLIPPY_FLAGS`). Release binary ~63 MB stripped; first clean build ~15 min.
+`cargo install --path .` gives V8 (`src/js_engine_v8.rs`, mounted as `js_engine`) and libmpv
+video. QV8-6 (user 2026-11-19) removed QuickJS (`engine-quickjs`, `rquickjs`, the old
+`src/js_engine.rs` backend, the `scratchy-quickjs` CI job); `git revert` of that commit brings
+it back. `lib.rs` has a `compile_error!` if `engine-v8` is off. CI: `scratchy` (default, V8
+archive cached + sha256-pinned, clippy count), `wire`, `snag`. Release binary ~63 MB stripped; first clean build ~15 min.
 
 ## QM1g2d: the controls bar (src/media_controls.rs)
 

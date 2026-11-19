@@ -18,8 +18,6 @@ markup5ever_rcdom = "0.39.0"
 precomputed-hash = "0.1.1"
 resvg = { version = "0.50.0", default-features = false }
 roxmltree = "0.21"
-# QV8-5: QuickJS is the opt-in fallback engine (feature `engine-quickjs`) until QV8-6 removes it.
-rquickjs = { version = "=0.14.0", features = ["loader"], optional = true }
 selectors = "0.41.0"
 signal-hook = "0.3.17"
 softbuffer = "0.4.8"
@@ -41,9 +39,6 @@ default = ["engine-v8", "media"]
 media = ["dep:libloading"]
 # QV8-3a: the V8 engine backend (src/js_engine_v8.rs), the default.
 engine-v8 = ["dep:v8"]
-# QV8-5: the QuickJS backend (src/js_engine.rs), fallback until QV8-6. Use
-# `--no-default-features --features engine-quickjs[,media]`. Exactly one engine feature must be on.
-engine-quickjs = ["dep:rquickjs"]
 
 [dev-dependencies]
 criterion = "0.5"

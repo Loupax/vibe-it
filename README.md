@@ -15,7 +15,6 @@ verbatim in that project's `PROMPTS.md`, in order.
   modules, and `fetch`/XHR/`sendBeacon`. Video/audio play through libmpv when it is installed.
   A plain `cargo build --release` / `cargo install --path .` gives V8 + media (first clean build
   ~15 min, ~63 MB stripped binary; V8 downloads a pinned prebuilt library at build time).
-  `--no-default-features --features engine-quickjs[,media]` builds the QuickJS fallback.
 - [`snag/`](snag/) — fetches a page and inlines everything it links to
   (stylesheets, `@import`s, images) into one self-contained HTML file, a
   one-shot way to get a first page for `scratchy`.

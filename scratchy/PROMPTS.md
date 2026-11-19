@@ -7951,3 +7951,9 @@ Done: R38. The `true` is `<img alt="true">` (YouTube calls `setAttribute('alt', 
 > Do TODO.txt item QMEM3e: StyleCache (getComputedStyle) reuses rules_cache's per-piece parsed rule list instead of parsing the same CSS again (R48, ~15-20 MB on YT watch). Add per-piece has/sib flags to rules_cache if needed, keep the @layer concat behaviour, test that each piece is parsed once across both caches, measure YT watch RSS and forced layout main vs branch.
 
 **What changed:** `rules_cache.rs` (`Extra::Ver` so the page CSS string is only built when the version moved, per-piece `has`/`sib`, a generation counter, `current()`), `js_style.rs` (the page path reads `rules_cache` and builds only its own index; other documents keep the old own parse). The StyleCache keeps a generation, not an `Rc`, so layout-side splices stay in place. Tests in `js_geometry_tests.rs`.
+
+## QV8-6: remove QuickJS
+
+> Item QV8-6: remove QuickJS (user 2026-11-19: "Remove QuickJS, we can add it again later if we decide."): the `engine-quickjs` feature, rquickjs, the QuickJS seam backend, the scratchy-quickjs CI job and the second test config.
+
+**What changed:** deleted src/js_engine.rs, Cargo.toml feature and dependency, lib.rs engine cfgs (V8 backend is now mounted unconditionally as `js_engine`; compile_error if `engine-v8` is off), QuickJS-only test branches, the CI job, docs. Bring it back with `git revert <commit>`.

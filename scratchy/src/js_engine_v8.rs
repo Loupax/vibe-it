@@ -1,18 +1,17 @@
-//! QV8-3a: the V8 backend of the JS engine seam (the `v8` crate, rusty_v8). Compiled
-//! instead of `js_engine.rs` when the cargo feature `engine-v8` is on; it has the same
-//! public surface (see the module docs of `js_engine.rs` for what each item is for), so
-//! no other file knows which engine it talks to.
+//! QV8-3a: the JS engine seam, backed by V8 (the `v8` crate, rusty_v8). Mounted as
+//! `crate::js_engine` (lib.rs); no other file names `v8`. QV8-6 removed the QuickJS backend
+//! (`git revert` of that commit brings it back); the seam keeps its QuickJS-shaped API.
 //!
-//! How the V8 types are hidden behind the seam's QuickJS-shaped API:
+//! How the V8 types are hidden behind the seam's API:
 //!
 //! - [`Ctx`] is a copyable handle to the live `v8::PinScope` (a raw pointer; the scope is
 //!   owned by `Engine::with` or by the V8 callback that is running). Every V8 value is a
 //!   `Local<'static, _>`: the `'js` lifetime of the seam is a marker only, and a value must
-//!   not outlive the `with`/native call that made it (the same rule as rquickjs).
+//!   not outlive the `with`/native call that made it (the rule the seam inherited from rquickjs).
 //! - natives: [`register`] wraps a Rust closure in a `v8::Function` whose data is an
 //!   `External` pointing at the closure. The closures live in a per-engine arena (a slot of
 //!   the isolate), dropped with the isolate.
-//! - a "pending exception" (what rquickjs keeps in the context) is a `Global` in the same
+//! - a "pending exception" (what rquickjs used to keep in the context) is a `Global` in the same
 //!   slot: `Source::compile`/`Compiled::run`/`call_global` store the exception they caught
 //!   there, `describe_exception` reads and clears it, a native that returns
 //!   `Err(pending_exception())` rethrows it.

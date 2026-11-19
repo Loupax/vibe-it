@@ -94,14 +94,9 @@ mod js_media;
 #[cfg(feature = "media")]
 mod media_mpv;
 mod app;
-#[cfg(all(feature = "engine-v8", feature = "engine-quickjs"))]
-compile_error!("features `engine-v8` and `engine-quickjs` are mutually exclusive: pass `--no-default-features --features engine-quickjs` for the QuickJS fallback");
-#[cfg(not(any(feature = "engine-v8", feature = "engine-quickjs")))]
-compile_error!("no JS engine selected: enable exactly one of `engine-v8` (default) or `engine-quickjs`");
-#[cfg(all(feature = "engine-quickjs", not(feature = "engine-v8")))]
-mod js_engine;
-// QV8-3a: the V8 backend of the same seam (same public surface as js_engine.rs).
-#[cfg(all(feature = "engine-v8", not(feature = "engine-quickjs")))]
+#[cfg(not(feature = "engine-v8"))]
+compile_error!("no JS engine selected: enable the `engine-v8` feature (default); QuickJS was removed in QV8-6 (git revert to bring it back)");
+// QV8-6: V8 is the only engine behind the seam (src/js_engine_v8.rs).
 #[path = "js_engine_v8.rs"]
 mod js_engine;
 mod js;

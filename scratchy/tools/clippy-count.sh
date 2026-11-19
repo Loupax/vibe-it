@@ -6,7 +6,7 @@
 # is reported once per target (lib/bin/test) is counted once, and the
 # "N warnings emitted" summary lines are ignored. Prints a per-lint breakdown
 # and a final "TOTAL <n>". The list itself goes to $1 (default: stdout skipped).
-# CLIPPY_FLAGS (e.g. "--no-default-features --features engine-quickjs,media") selects another
+# CLIPPY_FLAGS (e.g. "--no-default-features --features engine-v8") selects another
 # config; the baseline (QV8-5b) is measured on the DEFAULT config (V8 + media), CLIPPY_FLAGS unset.
 out="${1:-/dev/null}"
 cargo clippy --release --all-targets $CLIPPY_FLAGS --message-format=json 2>/dev/null | python3 -c '

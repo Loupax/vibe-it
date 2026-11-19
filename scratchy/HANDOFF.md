@@ -21,7 +21,7 @@ QUEUE, in its order, with both agent slots, before any other item. It supersedes
 ## Process (unchanged, user rules)
 - Max TWO agents at a time. Keep assigning without asking until the user says pause or only user-input items remain.
 - Agents: worktree isolation, background, branch scratchy/<item>-<slug>, PR, CI green on ALL four jobs
-  (scratchy, wire, snag, scratchy-quickjs; "no checks" is not green), merge themselves with
+  (scratchy, wire, snag; "no checks" is not green), merge themselves with
   `gh pr merge <n> --merge`. On a classifier denial: leave the PR open and surface it to the user (do not merge for
   the agent). Opus investigates/measures only (docs commits to main); Sonnet implements.
 - Per-item checklist: AGENTS.md (clippy <= tools/clippy-baseline.txt = 74, full cargo test on BOTH configs, WPT no

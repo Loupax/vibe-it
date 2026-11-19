@@ -40,7 +40,7 @@ jobs:
         if: matrix.crate == 'scratchy'
         # Headless runner. Dev packages for winit/softbuffer/arboard (X11 and
         # Wayland client libs, xkbcommon), fontconfig/freetype, clang and
-        # pkg-config for C builds (rquickjs, QuickJS job). The ONE pinned font set is
+        # pkg-config for C builds. The ONE pinned font set is
         # fonts-liberation (see scratchy/tools/README).
         run: |
           sudo apt-get update
@@ -97,39 +97,3 @@ jobs:
           base="$(tr -d '[:space:]' < tools/clippy-baseline.txt)"
           echo "clippy total=$total baseline=$base"
           test -n "$total" && [ "$total" -le "$base" ]
-  # QV8-5: the QuickJS fallback config (until QV8-6 removes it): scratchy built and tested with
-  # `--no-default-features --features engine-quickjs,media`. The clippy count now runs in the
-  # `scratchy` job on the default config (QV8-5b).
-  scratchy-quickjs:
-    name: scratchy-quickjs
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    defaults:
-      run:
-        working-directory: scratchy
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: System packages
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            pkg-config clang libfontconfig1-dev libfreetype-dev \
-            libxkbcommon-dev libwayland-dev libx11-dev libxcb1-dev \
-            fonts-liberation
-      - name: Rust toolchain (pinned)
-        run: |
-          rustup toolchain install 1.96.1 --profile minimal --component clippy
-          rustup default 1.96.1
-          rustc --version
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          workspaces: scratchy
-          key: engine-quickjs
-      - name: Build (engine-quickjs)
-        run: cargo build --release --locked --all-targets --no-default-features --features engine-quickjs,media
-      - name: Test (engine-quickjs, only the Liberation fonts visible)
-        run: |
-          export FONTCONFIG_FILE="$(tools/ci-fontconfig.sh /usr/share/fonts/truetype/liberation "$RUNNER_TEMP/fc")"
-          fc-match sans-serif
-          fc-match monospace
-          cargo test --release --locked --no-default-features --features engine-quickjs,media
