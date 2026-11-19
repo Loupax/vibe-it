@@ -769,7 +769,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       through the MSE path (fixture made by ffmpeg; skip if the local ffmpeg cannot encode it)
       and a QM1k-AB-style drift check for WebM audio + mp4 video (YouTube's default pair).
       Then re-run QM1k-m2 without the mp4-only answers.
-- [ ] QM1k2 [M, Opus, investigate only] BYPASSES THE QUEUE (user 2026-11-19 ~20:30: start the RESEARCH at the top of the next
+- [ ] [WIP] QM1k2 [M, Opus, investigate only] BYPASSES THE QUEUE (user 2026-11-19 ~20:30: start the RESEARCH at the top of the next
       session in one agent slot, alongside the perf queue; its fix list then gets sized and the user decides which fixes go
       ahead of the remaining perf items; was PARKED 2026-11-18, Q4.1: ~60 s is the first
       UNPARKED 2026-11-19 (user): "work on it once we are satisfied with the performance". Runs right AFTER the
@@ -1268,7 +1268,7 @@ Shared rules for this block:
 - [ ] QY53i3 [S] (P3 memory, from QY53i2; Sonnet) `animation.rs` still `Box::leak`s interned `&'static AnimLonghands` (same
       pattern QY53i2 removed for custom props). Give it the same per-thread arena + Copy handle, cleared on navigation.
       Gate: a multi-page --perf-report run (QY53i2 harness) shows no growth across navigations; animation tests unchanged.
-- [ ] QAN1h2 [M] (P2, from QAN1h, R49; Sonnet) Fewer universal candidates in RuleIndex: an attribute-name bucket, keys found
+- [ ] [WIP] QAN1h2 [M] (P2, from QAN1h, R49; Sonnet) Fewer universal candidates in RuleIndex: an attribute-name bucket, keys found
       inside `:is()`/`:where()`, index each selector of a selector list separately. github.com home: 534 candidates per match
       call, 1 344 rules in the universal bucket, 1.28 M full matches per build (2.3 % match). Gate: candidates per build -40 %,
       precompute_generated -25 %; selector tests unchanged.
@@ -1289,7 +1289,7 @@ Shared rules for this block:
       and a mask but not has/sib) and the layer-concat decision.
 - [ ] QMEM3f [S] (P4, from QMEM3; Opus measure) 10-minute live-window RSS sample on YT watch: the window grows ~0.22 MB/s
       in the first minute; leak or warm-up?
-- [ ] QYTC1 [M] (P1, user decision 2026-11-19 ~20:50 when merging QCUR1 #365; Opus measure first, then Sonnet) With QCUR1
+- [ ] [WIP] QYTC1 [M] (P1, user decision 2026-11-19 ~20:50 when merging QCUR1 #365; Opus measure first, then Sonnet) With QCUR1
       (mousemove/pointermove dispatch) YouTube's player controls now show like in a real browser, and while they are visible
       YouTube does 10-15 forced layouts per second at ~80-100 ms each REGARDLESS of the mousemove rate (QCUR1 forced the
       dispatch gap to 1 s and 5 s: still painted ~9-10/s, js_ms ~800-930/s). Video drops from ~30-37 to ~3-15 painted/s
@@ -1302,7 +1302,7 @@ Shared rules for this block:
 - [ ] QOBS5c [S] (P2, from QM1k1n6, R46; Sonnet; app.rs/perf.rs: not alongside QM1k1n6a-c) frame-stats lines get
       `forced.by_caller` top 3 and the longest callback's source per second (window mode today has neither). Gate: present
       on the R46 recipe; overhead <= 2 %.
-- [ ] QY53o1 [S] (P1, from QY53o 732438c, R47 addendum; Sonnet; AFTER QY53l2 #351 merges, same js_dom.rs write paths; share
+- [ ] [WIP] QY53o1 [S] (P1, from QY53o 732438c, R47 addendum; Sonnet; AFTER QY53l2 #351 merges, same js_dom.rs write paths; share
       the check with QY53m2) An attribute write that changes a value but that no selector or `attr()` can read on that
       element must not bump the geometry generation (`geom_bump_if` in js_dom.rs). Wikipedia Page Previews sets `title=""`
       on every hovered link (no `[title]` selector matches `<a>`; only `abbr[title]`), forcing a full 10.6k-element layout
@@ -1334,7 +1334,7 @@ Shared rules for this block:
       build (16 of 58 YT hover builds, 0 on Wikipedia).
 - [ ] QY53n5 [S] (P3, from QY53n; after QM1k1n6a and QY53n2) Patched hovers skip the R2.3/QB3 coalescing delay; frame stats
       `hover` {patched, skipped, built} + hover_patch_ms. Gate: Wikipedia --no-js lat_p95 median <= 50 ms.
-- [ ] QOBS6 [S] (P2, R44 section 4.4, Sonnet; after QOBS5) Network delivery delay. Stamp an `Instant`
+- [ ] [WIP] QOBS6 [S] (P2, R44 section 4.4, Sonnet; after QOBS5) Network delivery delay. Stamp an `Instant`
       when a page request's result is complete (where the `AppEvent::JsNet` / headless equivalent is
       created) and again when `deliver_net` runs it; record the delay per request. `--perf-report`:
       `net_delivery` {count, p50_ms, p95_ms, max_ms} (headless delivery may be ~0: the harness network is
