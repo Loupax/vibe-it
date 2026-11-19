@@ -767,6 +767,7 @@ mod qm1f {
         clock: Rc<std::cell::Cell<f64>>,
         log: Rc<RefCell<Vec<String>>>,
         fakes: Rc<RefCell<Vec<FakeHandle>>>,
+        doc: Handle,
     }
 
     impl Js {
@@ -786,9 +787,10 @@ mod qm1f {
             let log = Rc::new(RefCell::new(Vec::new()));
             let l = log.clone();
             let clock = Rc::new(std::cell::Cell::new(0.0));
-            let engine = crate::js::start_scripts_clocked(&parse_html(html), &[src(code)], Rc::new(move |lv, t| l.borrow_mut().push(format!("{lv}:{t}"))), Some(clock.clone())).unwrap();
+            let doc = parse_html(html);
+            let engine = crate::js::start_scripts_clocked(&doc, &[src(code)], Rc::new(move |lv, t| l.borrow_mut().push(format!("{lv}:{t}"))), Some(clock.clone())).unwrap();
             set_backend_factory(None);
-            Js { engine, clock, log, fakes }
+            Js { engine, clock, log, fakes, doc }
         }
 
         /// Advances the page clock by `ms`, running due timers on the way.
@@ -966,6 +968,170 @@ mod qm1f {
         js.step(50.0);
         assert_eq!(qm1n2_count(&js, "play"), 0, "{:?}", js.lines());
         assert_eq!(js.engine.eval_value::<bool>("t", "document.getElementById('v').paused"), Some(true));
+    }
+
+
+    // ---- QM1g2d: scratchy's controls bar ----
+
+    fn ctl_node(js: &Js, id: &str) -> usize {
+        node_id(&q30c_by(&js.doc, id))
+    }
+
+    fn ctl_page(attrs: &str) -> Js {
+        let js = Js::new(&format!("<video id=v src='/a.mp4' width=640 height=360 {attrs}></video><video id=w src='/b.mp4'></video>"), "", false);
+        js.step(50.0);
+        let f = js.fakes.borrow()[0].clone();
+        f.meta(20.0, 640, 360);
+        f.first_frame();
+        js.step(50.0);
+        js
+    }
+
+    #[test]
+    fn qm1g2d_time_text_formats() {
+        use crate::media_controls::format_time;
+        assert_eq!(format_time(0.0), "0:00");
+        assert_eq!(format_time(59.9), "0:59");
+        assert_eq!(format_time(61.0), "1:01");
+        assert_eq!(format_time(3600.0), "1:00:00");
+        assert_eq!(format_time(3725.4), "1:02:05");
+        assert_eq!(format_time(f64::NAN), "--:--");
+        assert_eq!(format_time(f64::INFINITY), "--:--");
+        let s = crate::media_controls::ControlsState { current: 5.0, ..Default::default() };
+        assert_eq!(crate::media_controls::time_text(&s), "0:05 / --:--");
+    }
+
+    #[test]
+    fn qm1g2d_bar_hit_testing_and_ops() {
+        use crate::media_controls::*;
+        let rect: crate::media_video::IRect = (10, 100, 640, 360);
+        let st = ControlsState { duration: 20.0, volume: 0.8, ..Default::default() };
+        let l = layout(rect, time_text(&st).chars().count()).unwrap();
+        assert_eq!(l.bar, (10, 100 + 360 - 32, 640, 32), "32 px along the bottom edge");
+        let cy = l.bar.1 + 16;
+        // outside the bar (the picture) is not the bar's
+        assert_eq!(hit(&l, 100, l.bar.1 - 1), None);
+        assert_eq!(hit(&l, l.play.0 + 16, cy), Some(Hit::Play));
+        assert_eq!(op_for_hit(Hit::Play, &st), Some(UiOp::Toggle));
+        let seek = l.seek.expect("a 640 px box has a seek track");
+        let x75 = seek.0 + (seek.2 as i32 * 3) / 4;
+        let Some(Hit::Seek(f)) = hit(&l, x75, cy) else { panic!("seek") };
+        assert!((f - 0.75).abs() < 0.01, "{f}");
+        let Some(UiOp::Seek(t)) = op_for_hit(Hit::Seek(0.75), &st) else { panic!() };
+        assert!((t - 15.0).abs() < 1e-9, "fake duration 20 s -> 15 s");
+        assert_eq!(op_for_hit(Hit::Seek(0.5), &ControlsState::default()), None, "no seeking while the duration is NaN");
+        let m = l.mute.unwrap();
+        assert_eq!(hit(&l, m.0 + 10, cy), Some(Hit::Mute));
+        assert_eq!(op_for_hit(Hit::Mute, &st), Some(UiOp::Mute(true)));
+        assert_eq!(op_for_hit(Hit::Mute, &ControlsState { muted: true, ..st.clone() }), Some(UiOp::Mute(false)));
+        let v = l.vol.unwrap();
+        let Some(Hit::Volume(f)) = hit(&l, v.0 + 30, cy) else { panic!("volume") };
+        assert!((f - 0.5).abs() < 0.02, "{f}");
+        assert_eq!(op_for_hit(Hit::Volume(0.5), &st), Some(UiOp::Volume(0.5)));
+        // a narrow box drops the volume track, a tiny one has no bar
+        assert!(layout((0, 0, 300, 150), 11).unwrap().vol.is_none());
+        assert!(layout((0, 0, 30, 150), 11).is_none());
+    }
+
+    #[test]
+    fn qm1g2d_key_mapping() {
+        use crate::media_controls::*;
+        let st = ControlsState { current: 10.0, duration: 12.0, volume: 0.5, paused: false, ..Default::default() };
+        assert_eq!(key_op(&Key::Named(NamedKey::Space), &st), Some(UiOp::Toggle));
+        assert_eq!(key_op(&Key::Named(NamedKey::ArrowLeft), &st), Some(UiOp::Seek(5.0)));
+        assert_eq!(key_op(&Key::Named(NamedKey::ArrowRight), &st), Some(UiOp::Seek(12.0)), "clamped to the duration");
+        assert_eq!(key_op(&Key::Named(NamedKey::ArrowUp), &st), Some(UiOp::Volume(0.6)));
+        assert_eq!(key_op(&Key::Named(NamedKey::ArrowDown), &st), Some(UiOp::Volume(0.4)));
+        assert_eq!(key_op(&Key::Named(NamedKey::ArrowDown), &ControlsState { volume: 0.05, ..st.clone() }), Some(UiOp::Volume(0.0)));
+        assert_eq!(key_op(&Key::Character("j".into()), &st), None, "vim keys are not ours");
+        assert_eq!(key_op(&Key::Named(NamedKey::Tab), &st), None);
+    }
+
+    #[test]
+    fn qm1g2d_ops_go_through_the_element_api() {
+        use crate::media_controls::*;
+        let js = ctl_page("controls");
+        let n = ctl_node(&js, "v");
+        js.engine.eval("t", "var v = document.getElementById('v'); v.addEventListener('play', function () { console.log('play'); });");
+        let ev = |code: &str| js.engine.eval_value::<f64>("t", code).unwrap();
+        assert!(js.engine.media_ui(n, UiOp::Toggle));
+        js.step(50.0);
+        assert_eq!(ev("v.paused ? 1 : 0"), 0.0);
+        assert!(js.lines().contains(&"log:play".to_string()), "{:?}", js.lines());
+        js.engine.media_ui(n, UiOp::Seek(15.0));
+        js.step(50.0);
+        assert_eq!(ev("v.currentTime"), 15.0);
+        js.engine.media_ui(n, UiOp::Volume(0.5));
+        js.engine.media_ui(n, UiOp::Mute(true));
+        assert_eq!(ev("v.volume"), 0.5);
+        assert_eq!(ev("v.muted ? 1 : 0"), 1.0);
+        let st = js.engine.media_controls_state(&[n]).remove(&n).unwrap();
+        assert!(!st.paused && st.muted && (st.volume - 0.5).abs() < 1e-9 && (st.duration - 20.0).abs() < 1e-9 && (st.current - 15.0).abs() < 0.5, "{st:?}");
+        // dragging the volume track up unmutes, like Firefox
+        js.engine.media_ui(n, UiOp::Volume(0.9));
+        assert_eq!(ev("v.muted ? 1 : 0"), 0.0);
+        js.engine.media_ui(n, UiOp::Toggle);
+        js.step(50.0);
+        assert_eq!(ev("v.paused ? 1 : 0"), 1.0);
+    }
+
+    #[test]
+    fn qm1g2d_only_controls_videos_get_a_bar_and_focus() {
+        let js = ctl_page("controls");
+        let (v, w) = (ctl_node(&js, "v"), ctl_node(&js, "w"));
+        let mut av = crate::app::AppVideo::default();
+        let states = av.states(&js.doc, Some(&js.engine), &[v, w]);
+        assert!(states.contains_key(&v) && !states.contains_key(&w), "a video without `controls` has no bar");
+        assert!(states[&v].1, "paused: the bar is shown");
+        assert!(is_focusable(&q30c_by(&js.doc, "v")) && !is_focusable(&q30c_by(&js.doc, "w")));
+        assert!(focusable_in_tab_order(&js.doc).iter().any(|h| node_id(h) == v));
+    }
+
+    #[test]
+    fn qm1g2d_draw_key_changes_at_the_timeupdate_rate() {
+        use crate::media_controls::ControlsState;
+        let a = ControlsState { current: 1.0, duration: 20.0, paused: false, ..Default::default() };
+        let b = ControlsState { current: 1.1, ..a.clone() };
+        let c = ControlsState { current: 1.3, ..a.clone() };
+        assert_eq!(a.key(true), b.key(true), "within one 250 ms step: no repaint");
+        assert_ne!(a.key(true), c.key(true));
+        assert_ne!(a.key(true), a.key(false), "hiding repaints");
+        assert!(ControlsState::default().big_button());
+        assert!(!ControlsState { current: 3.0, ..Default::default() }.big_button());
+    }
+
+    #[test]
+    fn qm1g2d_space_acts_only_on_a_focused_controls_video() {
+        use winit::platform::wayland::EventLoopBuilderExtWayland;
+        let event_loop = match EventLoop::<AppEvent>::with_user_event().with_any_thread(true).build() {
+            Ok(l) => l,
+            Err(_) => return,
+        };
+        set_backend_factory(Some(Rc::new(move |_| Box::new(FakeBackend(fake_new())))));
+        let doc = parse_html("<html><body><video id=v src='/a.mp4' controls></video><input id=i></body></html>");
+        let mut app = App::new_static(doc.clone(), event_loop.create_proxy(), None);
+        app.js = run_page_scripts(&doc, &[src("document.addEventListener('keydown', function (e) { if (window.block) e.preventDefault(); });")], None);
+        set_backend_factory(None);
+        let space = Key::Named(NamedKey::Space);
+        let paused = |app: &App| app.js.as_ref().unwrap().eval_value::<bool>("t", "document.getElementById('v').paused").unwrap();
+        assert!(paused(&app));
+        // focus elsewhere: the key is not ours
+        app.set_focus_element(Some(&q30c_by(&doc, "i")), true);
+        assert!(!app.media_key(&space, false));
+        assert!(paused(&app));
+        // focused video: space toggles
+        app.set_focus_element(Some(&q30c_by(&doc, "v")), true);
+        assert!(app.media_key(&space, false));
+        assert!(!paused(&app));
+        assert!(app.media_key(&space, true), "an auto-repeat is consumed but does not toggle again");
+        assert!(!paused(&app));
+        assert!(app.media_key(&space, false));
+        assert!(paused(&app));
+        // the App runs the page's keydown first and stops when it cancels (QJ11 rule)
+        app.js.as_ref().unwrap().eval_value::<bool>("t", "window.block = true; true");
+        assert!(!app.js_key_for("keydown", &space, false), "a cancelled key never reaches media_key");
+        // other keys are not ours even when focused
+        assert!(!app.media_key(&Key::Character("j".into()), false));
     }
 
     #[test]

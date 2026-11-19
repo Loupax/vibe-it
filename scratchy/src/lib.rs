@@ -84,6 +84,7 @@ mod media_net;
 // Parts are only used by the `media` feature (media_mpv) and tests.
 #[allow(dead_code)]
 mod media_el;
+mod media_controls;
 mod media_video;
 #[allow(dead_code)] // QM1k1a: the pure MSE store; QM1k1b+ (feed, element, JS) are the first callers
 mod mse_store;

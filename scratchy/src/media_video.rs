@@ -367,6 +367,9 @@ pub(crate) struct VideoBoxInfo {
     pub bbox: Option<IRect>,
     pub layered: bool,
     pub fit: ObjectFit,
+    /// Kept so a bar-only redraw (QM1g2d) can put the picture back under the bar.
+    pub poster: Option<Arc<DecodedImage>>,
+    pub pos: ((f32, f32), (f32, f32)),
 }
 
 impl VideoBoxInfo {
@@ -386,14 +389,14 @@ pub(crate) fn finish(boxes: Vec<PaintedBox>, pixels: &mut [u32], win_w: u32) -> 
     for b in boxes {
         let Some(vis) = b.vis else { continue };
         if b.layered {
-            out.push(VideoBoxInfo { node: b.node, rect: b.rect, vis, mask: Vec::new(), bbox: Some(vis), layered: true, fit: b.fit });
+            out.push(VideoBoxInfo { node: b.node, rect: b.rect, vis, mask: Vec::new(), bbox: Some(vis), layered: true, fit: b.fit, poster: b.poster, pos: b.pos });
             continue;
         }
         let mask = overlay_mask(pixels, win_w, vis);
         let src = pick_src(frame_of(b.node), b.poster.as_deref(), b.fit, b.pos, b.rect);
         composite(&src, b.rect, vis, Some(&mask), pixels, win_w);
         let bbox = mask_bbox(&mask, vis);
-        out.push(VideoBoxInfo { node: b.node, rect: b.rect, vis, mask, bbox, layered: false, fit: b.fit });
+        out.push(VideoBoxInfo { node: b.node, rect: b.rect, vis, mask, bbox, layered: false, fit: b.fit, poster: b.poster, pos: b.pos });
     }
     out
 }
@@ -408,4 +411,28 @@ pub(crate) fn update_box(info: &VideoBoxInfo, frame: &Arc<VideoFrame>, dst: &mut
     let bbox = info.bbox?;
     composite(&Src::Frame(frame.clone()), info.rect, info.vis, Some(&info.mask), dst, win_w);
     Some(bbox)
+}
+
+/// QM1g2d: puts the picture (newest frame, else poster, else black) back into the part of
+/// the box inside `sub` (through the overlay mask), e.g. under a bar that is going away or
+/// being repainted. Returns the rect touched.
+pub(crate) fn recomposite(info: &VideoBoxInfo, sub: IRect, dst: &mut [u32], win_w: u32) -> Option<IRect> {
+    if info.layered || info.mask.is_empty() {
+        return None;
+    }
+    let (x0, y0) = (sub.0.max(info.vis.0), sub.1.max(info.vis.1));
+    let x1 = (sub.0 + sub.2 as i32).min(info.vis.0 + info.vis.2 as i32);
+    let y1 = (sub.1 + sub.3 as i32).min(info.vis.1 + info.vis.3 as i32);
+    if x1 <= x0 || y1 <= y0 {
+        return None;
+    }
+    let v: IRect = (x0, y0, (x1 - x0) as u32, (y1 - y0) as u32);
+    let mut m = Vec::with_capacity(v.2 as usize * v.3 as usize);
+    for y in y0..y1 {
+        let o = (y - info.vis.1) as usize * info.vis.2 as usize + (x0 - info.vis.0) as usize;
+        m.extend_from_slice(&info.mask[o..o + v.2 as usize]);
+    }
+    let src = pick_src(frame_of(info.node), info.poster.as_deref(), info.fit, info.pos, info.rect);
+    composite(&src, info.rect, v, Some(&m), dst, win_w);
+    Some(v)
 }

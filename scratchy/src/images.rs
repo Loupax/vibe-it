@@ -453,9 +453,15 @@ pub(crate) fn build_video_box(
         Some(bytes) => decode_image_bytes(&bytes).map(Arc::new),
         None => image_cache.get(&*src).cloned(),
     });
-    let (w, h) = crate::media_video::intrinsic(node_id(handle))
-        .or_else(|| poster.as_ref().map(|p| (p.width, p.height)))
-        .unwrap_or((crate::media_video::DEFAULT_W, crate::media_video::DEFAULT_H));
+    // QM1g2d: `<audio controls>` is a bar-only box, 300x32 unless CSS/attributes say more.
+    let audio = element_tag(handle) == "audio";
+    let (w, h) = if audio {
+        (crate::media_video::DEFAULT_W, 32)
+    } else {
+        crate::media_video::intrinsic(node_id(handle))
+            .or_else(|| poster.as_ref().map(|p| (p.width, p.height)))
+            .unwrap_or((crate::media_video::DEFAULT_W, crate::media_video::DEFAULT_H))
+    };
     let placeholder = Arc::new(DecodedImage { width: w.max(1), height: h.max(1), pixels: Vec::new(), svg: None, mask: poster });
     LayoutBox { style, background_image, content: BoxContent::Image(placeholder) }
 }
@@ -501,7 +507,7 @@ pub(crate) fn build_box_for_element(
     if element_tag(handle) == "img" {
         return build_img_box(handle, style, background_image, image_cache);
     }
-    if element_tag(handle) == "video" {
+    if element_tag(handle) == "video" || (element_tag(handle) == "audio" && element_attr(handle, "controls").is_some()) {
         return build_video_box(handle, style, background_image, image_cache);
     }
     if is_form_control_tag(element_tag(handle))
@@ -2028,7 +2034,7 @@ pub(crate) fn build_layout_tree_with_resources(
             rules.extend(parse_ua_stylesheet("noscript { display: none; }"));
         }
         // QM1n1: always a replaced box (inert placeholder without media/libmpv).
-        rules.extend(parse_ua_stylesheet("video { display: inline-block; object-fit: contain; }"));
+        rules.extend(parse_ua_stylesheet("video { display: inline-block; object-fit: contain; } audio[controls] { display: inline-block; }"));
         let (author, kf) = parse_stylesheet_with_keyframes(&css_source);
         rules.extend(author);
         let rules = Rc::new(rules);

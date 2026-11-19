@@ -2118,6 +2118,18 @@ const DOM_PRELUDE: &str = r#"
     }
     return ok;
   } });
+  // QM1g2d: actions of scratchy's own controls bar / keys, through the element's public API
+  // (so page listeners see play/pause/seeked/volumechange); a user gesture (D5).
+  Object.defineProperty(g, '__scratchy_media_ui', { value: function (id, op, arg) {
+    var v = wrap(id);
+    if (!v || (v.localName !== 'video' && v.localName !== 'audio')) return false;
+    if (g.__media_activate) g.__media_activate();
+    if (op === 'toggle') { if (v.paused) { var pr = v.play(); if (pr && pr.catch) pr.catch(function () {}); } else v.pause(); }
+    else if (op === 'seek') v.currentTime = arg;
+    else if (op === 'mute') v.muted = !!arg;
+    else if (op === 'volume') { v.volume = Math.max(0, Math.min(1, arg)); if (arg > 0 && v.muted) v.muted = false; }
+    return true;
+  } });
   // Q33d1: `el.click()`: a synthetic (untrusted) click, then the activation
   // behavior unless a handler cancelled it. Checkbox/radio use the live state
   // (Q30c), toggled before dispatch and reverted on cancel (legacy

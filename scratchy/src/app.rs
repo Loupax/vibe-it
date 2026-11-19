@@ -958,6 +958,66 @@ pub(crate) struct AppVideo {
     /// The last presented page (video included); only kept while a video box is visible.
     pub(crate) page_buf: Vec<u32>,
     pub(crate) size: (u32, u32),
+    /// QM1g2d: per controls video, when its bar was last shown by the pointer/keys and
+    /// what the bar last drew.
+    pub(crate) controls: std::collections::HashMap<usize, CtlRt>,
+    /// Does node N carry `controls`? Cleared when the layout is rebuilt.
+    pub(crate) ctl_attr: std::collections::HashMap<usize, bool>,
+    /// A press-and-drag on the seek or volume track.
+    pub(crate) drag: Option<CtlDrag>,
+}
+
+#[derive(Default)]
+pub(crate) struct CtlRt {
+    pub(crate) shown_until: Option<std::time::Instant>,
+    pub(crate) drawn: Option<crate::media_controls::DrawKey>,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct CtlDrag {
+    pub(crate) node: usize,
+    pub(crate) volume: bool,
+    pub(crate) last: std::time::Instant,
+}
+
+/// State plus "is the bar shown" for a controls element.
+pub(crate) type CtlView = (crate::media_controls::ControlsState, bool);
+
+impl AppVideo {
+    fn has_controls(&mut self, doc: &Handle, node: usize) -> bool {
+        *self.ctl_attr.entry(node).or_insert_with(|| find_node_by_id(doc, node).is_some_and(|h| is_media_controls(&h)))
+    }
+
+    /// The controls elements among `nodes` with their state and bar visibility
+    /// (always shown while paused; while playing for 2 s after the pointer/keys).
+    pub(crate) fn states(&mut self, doc: &Handle, js: Option<&JsEngine>, nodes: &[usize]) -> std::collections::HashMap<usize, CtlView> {
+        let with: Vec<usize> = nodes.iter().copied().filter(|n| self.has_controls(doc, *n)).collect();
+        let Some(js) = js else { return Default::default() };
+        if with.is_empty() {
+            return Default::default();
+        }
+        let now = std::time::Instant::now();
+        js.media_controls_state(&with)
+            .into_iter()
+            .map(|(n, s)| {
+                let shown = self.controls.get(&n).and_then(|r| r.shown_until).is_some_and(|t| t > now);
+                let vis = s.paused || shown;
+                (n, (s, vis))
+            })
+            .collect()
+    }
+
+    /// The topmost controls box whose visible, unobstructed pixel is `pos`.
+    fn box_at(&self, pos: (f32, f32), need_mask: bool) -> Option<usize> {
+        let (x, y) = (pos.0.floor() as i32, pos.1.floor() as i32);
+        self.boxes.iter().rev().find_map(|b| {
+            if b.layered || b.mask.is_empty() || x < b.vis.0 || y < b.vis.1 || x >= b.vis.0 + b.vis.2 as i32 || y >= b.vis.1 + b.vis.3 as i32 {
+                return None;
+            }
+            let mi = (y - b.vis.1) as usize * b.vis.2 as usize + (x - b.vis.0) as usize;
+            (!need_mask || b.mask[mi]).then_some(b.node)
+        })
+    }
 }
 
 /// Installs the thread-safe "video frame ready" poster for this event loop.
@@ -1239,6 +1299,7 @@ impl App {
                 self.scroll_offsets.clear();
             }
             self.keep_scroll_on_rebuild = false;
+            self.video.ctl_attr.clear();
             self.state_rules = state_rules_mask();
             self.reads_viewport_h = viewport_height_read();
             self.hover_keys = HOVER_KEYS.with(|k| k.borrow().clone());
@@ -1330,6 +1391,17 @@ impl App {
         // was painted above them; the finished page is kept for QM1g1.
         let painted = if video_on { crate::media_video::end_paint() } else { Vec::new() };
         let boxes = crate::media_video::finish(painted, &mut pixels, width);
+        // QM1g2d: the controls bars go over the finished picture (same overlay mask).
+        {
+            let nodes: Vec<usize> = boxes.iter().map(|b| b.node).collect();
+            let states = self.video.states(&self.document, self.js.as_ref(), &nodes);
+            for b in &boxes {
+                if let Some((st, vis)) = states.get(&b.node) {
+                    crate::media_controls::paint(&mut pixels, width, b, st, *vis);
+                    self.video.controls.entry(b.node).or_default().drawn = Some(st.key(*vis));
+                }
+            }
+        }
         self.video.page_buf.clear();
         if !boxes.is_empty() {
             self.video.page_buf.extend_from_slice(&pixels);
@@ -1366,12 +1438,19 @@ impl App {
             return false;
         }
         let mut damage = Vec::new();
+        let ctl = self.video.states(&self.document, self.js.as_ref(), &changed);
         for node in &changed {
             let (Some(info), Some(frame)) = (self.video.boxes.iter().find(|b| b.node == *node), frames.get(node)) else { continue };
             match crate::media_video::update_box(info, frame, &mut self.video.page_buf, w) {
                 Some(r) => damage.push(r),
                 None => return false,
             }
+            if let Some((st, vis)) = ctl.get(node) {
+                crate::media_controls::paint(&mut self.video.page_buf, w, info, st, *vis);
+            }
+        }
+        for (n, (st, vis)) in &ctl {
+            self.video.controls.entry(*n).or_default().drawn = Some(st.key(*vis));
         }
         if damage.is_empty() {
             return true;
@@ -1381,6 +1460,9 @@ impl App {
             for node in &changed {
                 if let (Some(info), Some(frame)) = (self.video.boxes.iter().find(|b| b.node == *node), frames.get(node)) {
                     crate::media_video::update_box(info, frame, &mut buf, w);
+                    if let Some((st, vis)) = ctl.get(node) {
+                        crate::media_controls::paint(&mut buf, w, info, st, *vis);
+                    }
                 }
             }
         } else {
@@ -1395,6 +1477,169 @@ impl App {
         // waiting for a callback that the compositor delays.
         if let Err(e) = buf.present_with_damage(&rects) {
             log_redraw_error_once("present the video damage", &e);
+        }
+        true
+    }
+
+    /// QM1g2d: repaints the bars whose state or visibility changed since they were drawn
+    /// (4 Hz while playing, show/hide, play/pause). Bar rect only: no page redraw. Returns
+    /// when the next refresh is due.
+    pub(crate) fn controls_refresh(&mut self) -> Option<std::time::Instant> {
+        if self.video.boxes.is_empty() {
+            return None;
+        }
+        let nodes: Vec<usize> = self.video.boxes.iter().map(|b| b.node).collect();
+        let states = self.video.states(&self.document, self.js.as_ref(), &nodes);
+        if states.is_empty() {
+            return None;
+        }
+        let now = std::time::Instant::now();
+        let mut stale = Vec::new();
+        let mut deadline: Option<std::time::Instant> = None;
+        for (n, (s, vis)) in &states {
+            let rt = self.video.controls.entry(*n).or_default();
+            let key = s.key(*vis);
+            if rt.drawn.as_ref() != Some(&key) {
+                stale.push((*n, s.big_button() || rt.drawn.as_ref().is_none_or(|d| d.big)));
+            }
+            if !s.paused {
+                let mut cands = Vec::new();
+                if let Some(t) = rt.shown_until.filter(|t| *t > now) {
+                    cands.push(t);
+                }
+                if *vis {
+                    cands.push(now + std::time::Duration::from_millis(crate::media_controls::REFRESH_MS));
+                }
+                for t in cands {
+                    deadline = Some(deadline.map_or(t, |d| d.min(t)));
+                }
+            }
+        }
+        if !stale.is_empty()
+            && !self.redraw_bars(&stale, &states)
+            && let Some(w) = &self.window
+        {
+            w.request_redraw();
+        }
+        deadline
+    }
+
+    /// Repaints the bars of `stale` (node, whole box?) into the kept page and presents just
+    /// those rects. False = a full redraw is needed instead.
+    fn redraw_bars(&mut self, stale: &[(usize, bool)], states: &std::collections::HashMap<usize, CtlView>) -> bool {
+        let (w, h) = self.surface_size;
+        if self.layout_dirty || self.video.size != (w, h) || self.video.page_buf.len() != w as usize * h as usize {
+            return false;
+        }
+        let mut damage = Vec::new();
+        for &(n, full) in stale {
+            let (Some(info), Some((st, vis))) = (self.video.boxes.iter().find(|b| b.node == n), states.get(&n)) else { continue };
+            let sub = if full { info.vis } else { crate::media_controls::layout(info.rect, crate::media_controls::time_text(st).chars().count()).map_or(info.vis, |l| l.bar) };
+            if let Some(r) = crate::media_video::recomposite(info, sub, &mut self.video.page_buf, w) {
+                damage.push(r);
+            }
+            crate::media_controls::paint(&mut self.video.page_buf, w, info, st, *vis);
+            self.video.controls.entry(n).or_default().drawn = Some(st.key(*vis));
+        }
+        let (Some(_), Some(surface)) = (&self.window, &mut self.surface) else { return true };
+        let Ok(mut buf) = surface.buffer_mut() else { return false };
+        if buf.len() != self.video.page_buf.len() {
+            return false;
+        }
+        buf.copy_from_slice(&self.video.page_buf);
+        let rects: Vec<softbuffer::Rect> = damage
+            .iter()
+            .filter_map(|r| Some(softbuffer::Rect { x: r.0 as u32, y: r.1 as u32, width: NonZeroU32::new(r.2)?, height: NonZeroU32::new(r.3)? }))
+            .collect();
+        if let Err(e) = buf.present_with_damage(&rects) {
+            log_redraw_error_once("present the controls damage", &e);
+        }
+        true
+    }
+
+    fn controls_run(&mut self, node: usize, op: crate::media_controls::UiOp) {
+        if let Some(js) = &self.js {
+            js.media_ui(node, op);
+        }
+        self.js_sync();
+        self.video.controls.entry(node).or_default().shown_until = Some(std::time::Instant::now() + std::time::Duration::from_millis(crate::media_controls::HIDE_AFTER_MS));
+        self.controls_refresh();
+    }
+
+    /// The bar element under `pos`: (node, its state, the hit).
+    fn controls_hit_at(&mut self, pos: (f32, f32)) -> Option<(usize, crate::media_controls::ControlsState, crate::media_controls::Hit)> {
+        let node = self.video.box_at(pos, true)?;
+        let (st, vis) = self.video.states(&self.document, self.js.as_ref(), &[node]).remove(&node)?;
+        if !vis {
+            return None;
+        }
+        let rect = self.video.boxes.iter().find(|b| b.node == node)?.rect;
+        let l = crate::media_controls::layout(rect, crate::media_controls::time_text(&st).chars().count())?;
+        let hit = crate::media_controls::hit(&l, pos.0.floor() as i32, pos.1.floor() as i32)?;
+        Some((node, st, hit))
+    }
+
+    /// A left press at `pos`: true when it landed on a visible controls bar (UA chrome: the
+    /// page gets no mouse events for it).
+    pub(crate) fn controls_press(&mut self, pos: (f32, f32)) -> bool {
+        let Some((node, st, hit)) = self.controls_hit_at(pos) else { return false };
+        self.press_state(pos);
+        if let Some(op) = crate::media_controls::op_for_hit(hit, &st) {
+            self.controls_run(node, op);
+        }
+        let dragging = match hit {
+            crate::media_controls::Hit::Seek(_) => Some(false),
+            crate::media_controls::Hit::Volume(_) => Some(true),
+            _ => None,
+        };
+        self.video.drag = dragging.map(|volume| CtlDrag { node, volume, last: std::time::Instant::now() });
+        true
+    }
+
+    /// Pointer motion while dragging a track (seeks at most every 80 ms; the release applies the last).
+    pub(crate) fn controls_drag_move(&mut self, pos: (f32, f32), force: bool) {
+        let Some(d) = self.video.drag else { return };
+        if !force && d.last.elapsed() < std::time::Duration::from_millis(80) {
+            return;
+        }
+        let Some((st, _)) = self.video.states(&self.document, self.js.as_ref(), &[d.node]).remove(&d.node) else { return };
+        let Some(rect) = self.video.boxes.iter().find(|b| b.node == d.node).map(|b| b.rect) else { return };
+        let Some(l) = crate::media_controls::layout(rect, crate::media_controls::time_text(&st).chars().count()) else { return };
+        let x = pos.0.floor() as i32;
+        let op = if d.volume {
+            l.vol.map(|t| crate::media_controls::UiOp::Volume(crate::media_controls::track_frac(t, x)))
+        } else {
+            l.seek.filter(|_| st.duration.is_finite() && st.duration > 0.0).map(|t| crate::media_controls::UiOp::Seek(crate::media_controls::track_frac(t, x) * st.duration))
+        };
+        if let Some(op) = op {
+            if let Some(dd) = &mut self.video.drag {
+                dd.last = std::time::Instant::now();
+            }
+            self.controls_run(d.node, op);
+        }
+    }
+
+    /// The pointer is over a controls video: show its bar for 2 s.
+    pub(crate) fn controls_pointer(&mut self, pos: (f32, f32)) {
+        let Some(node) = self.video.box_at(pos, false) else { return };
+        if !self.video.has_controls(&self.document, node) {
+            return;
+        }
+        let until = std::time::Instant::now() + std::time::Duration::from_millis(crate::media_controls::HIDE_AFTER_MS);
+        self.video.controls.entry(node).or_default().shown_until = Some(until);
+        self.controls_refresh();
+    }
+
+    /// D6: keys act on a FOCUSED controls video only (the page saw the keydown first).
+    pub(crate) fn media_key(&mut self, key: &Key, repeat: bool) -> bool {
+        let Some(f) = self.interaction.focus else { return false };
+        if self.modifiers.control_key() || self.modifiers.alt_key() || !find_node_by_id(&self.document, f).is_some_and(|h| is_media_controls(&h)) {
+            return false;
+        }
+        let Some(st) = self.js.as_ref().and_then(|j| j.media_controls_state(&[f]).remove(&f)) else { return false };
+        let Some(op) = crate::media_controls::key_op(key, &st) else { return false };
+        if !(repeat && op == crate::media_controls::UiOp::Toggle) {
+            self.controls_run(f, op);
         }
         true
     }
@@ -3333,10 +3578,10 @@ impl ApplicationHandler<AppEvent> for App {
         let now_ms = app_clock_ms();
         let anim_at = self.anim_tick(now_ms).map(|ms| std::time::Instant::now() + std::time::Duration::from_secs_f64(((ms - now_ms).max(0.0) + 1.0) / 1000.0));
         let js_at = self.js.as_ref().and_then(|js| js.next_deadline());
-        let flow = match (js_at, anim_at) {
-            (Some(a), Some(b)) => ControlFlow::WaitUntil(a.min(b)),
-            (Some(a), None) | (None, Some(a)) => ControlFlow::WaitUntil(a),
-            (None, None) => ControlFlow::Wait,
+        let ctl_at = self.controls_refresh();
+        let flow = match [js_at, anim_at, ctl_at].into_iter().flatten().min() {
+            Some(t) => ControlFlow::WaitUntil(t),
+            None => ControlFlow::Wait,
         };
         event_loop.set_control_flow(flow);
     }
@@ -3485,6 +3730,9 @@ impl ApplicationHandler<AppEvent> for App {
                     {
                         return;
                     }
+                    if self.vim_mode != VimMode::Command && self.media_key(&event.logical_key, event.repeat) {
+                        return;
+                    }
                     if self.vim_mode != VimMode::Command {
                         match event.logical_key {
                             Key::Named(NamedKey::Tab) => {
@@ -3546,6 +3794,11 @@ impl ApplicationHandler<AppEvent> for App {
                 // so the same `+ scroll_offset` adjustment `paint` itself
                 // makes (in reverse) is needed here too.
                 self.text_mouse_drag((position.x as f32, position.y as f32));
+                if self.video.drag.is_some() {
+                    self.controls_drag_move((position.x as f32, position.y as f32), false);
+                    return;
+                }
+                self.controls_pointer((position.x as f32, position.y as f32));
                 if self.select_popup_hover((position.x as f32, position.y as f32)) {
                     return;
                 }
@@ -3598,6 +3851,12 @@ impl ApplicationHandler<AppEvent> for App {
                             self.mouse_down_pos = None;
                             return;
                         }
+                        if let Some(pos) = self.last_mouse_pos
+                            && self.controls_press(pos)
+                        {
+                            self.mouse_down_pos = None;
+                            return;
+                        }
                         self.mouse_down_pos = self.last_mouse_pos;
                         if let Some(pos) = self.last_mouse_pos {
                             self.js_mouse_at("mousedown", pos);
@@ -3606,6 +3865,15 @@ impl ApplicationHandler<AppEvent> for App {
                         }
                     }
                     ElementState::Released => {
+                        if self.video.drag.is_some() {
+                            if let Some(pos) = self.last_mouse_pos {
+                                self.controls_drag_move(pos, true);
+                            }
+                            self.video.drag = None;
+                            self.release_state();
+                            self.mouse_down_pos = None;
+                            return;
+                        }
                         if std::mem::take(&mut self.swallow_release) {
                             self.mouse_down_pos = None;
                             return;
