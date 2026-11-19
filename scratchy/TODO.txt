@@ -32,7 +32,7 @@ A perf item that turns out to be wrong or bigger than its size: stop and report,
 
 
 PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; search the name; steps 1-3 are done, see TODO-DONE.txt):
- Ahead of this list by user decision (2026-11-19): QYSK1b [WIP] (YouTube seek, part 2), QV8-6 [WIP] (remove QuickJS), then QPT1
+ Ahead of this list by user decision (2026-11-19): QYSK1b [WIP] (YouTube seek, part 2), QV8-6 [WIP] (remove QuickJS), then QPT1 [WIP design]
  (iframe realm, YouTube PoToken; after QV8-6).
  Step 4, the main thread in the live window (YouTube playback, scrolling, mouse):
   14a5 QYTC1a [WIP] [M, P1] contained style writes (YouTube controls-visible forced layouts, R50); then QYTC1b, QYTC1c
@@ -552,7 +552,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
 - [ ] [WIP] QYSK1b [S] (P2, from R51; Sonnet; after QYSK1a, same file) After an in-buffer seek mpv sometimes sends a stale
       `time-pos` right after `playback-restart` (2 of 6 runs): `seeking`/`seeked` read the pre-seek time. Ignore `Time`
       events > 1 s from the target for up to 500 ms after Restart. Gate: FakeBackend queue [Restart, Time(2.0), Time(12.04)].
-- [ ] QPT1 [L] (P1 for YouTube past ~60 s; from QM1k2 R52 #376) USER 2026-11-19 ~22:40: GO, "do what Chrome does" (same-origin
+- [ ] [WIP] QPT1 [L] (P1 for YouTube past ~60 s; from QM1k2 R52 #376) USER 2026-11-19 ~22:40: GO, "do what Chrome does" (same-origin
       iframe = new V8 context in the same isolate/thread with its own built-ins). Goes ahead of the perf queue, AFTER QV8-6 merges
       (same js_engine*.rs/js.rs files). Opus designs + splits into QPT1a.. first (docs PR), then implementation.
       A real V8
@@ -1071,6 +1071,13 @@ Shared rules for this block:
 - [ ] [WIP] QMEM3b [S] (P2 memory, from QMEM3, R48; Sonnet, measure first) Name the ~65 MB of main-thread malloc no probe explains
       (candidates: fetched script sources/HTML kept until report_page ends, FontSystem/fontdb on main + shaping worker, JS DOM
       id table); add `memory` probes. Gate: explained bytes >= 60 % of (anonymous RSS - malloc free bytes).
+- [ ] QMEM3g [M] (P3, from QMEM3b #380 R48; Sonnet) Feature-gated counting `#[global_allocator]` (sampling, live-pointer
+      table, backtrace) + a resolve script, so the next heap breakdown needs no throwaway patch (QMEM3b's prototype:
+      session scratchpad mp/memprof.rs.txt + hooks.diff; copy it into the PR before the scratchpad is gone).
+- [ ] QMEM3h [S] (P3, from QMEM3b; Sonnet) Probes for V8 off-heap memory (`malloced_memory`, ArrayBuffer backing stores) and
+      per-library mapped RSS, to name the ~20-25 MB of C++ malloc (V8, libmpv).
+- [ ] QMEM3j [S] (P2, from QMEM3b; same family as QY53o3c; Opus measure then Sonnet) SHAPE_MEMO holds ~60 MB of cosmic-text
+      shaped buffers on a 7.7k-paragraph page (Wikipedia; 2.6x the old estimate): measure its hit rate vs bytes and cap/sweep it.
 - [ ] QMEM3d [S] (P3, from QMEM3; Sonnet; after QMEM3a) `malloc_trim(0)` after a navigation and once when the window goes
       idle. Gate: RSS after leaving YouTube for a small page >= 25 MB lower.
       DATA (QMEM3c): with the arena cap (QMEM3a), YT watch after 60 s still has malloc free_kept = 111 MB (in_use 133 MB) of ~496 MB RSS.
