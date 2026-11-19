@@ -822,6 +822,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     // QA16: serialised computed value of `prop` (dashed) for element `id`.
     let (t, gn) = (table.clone(), wgen.clone());
     let cache = Rc::new(RefCell::new(js_style::StyleCache::default()));
+    let (cache2, cache3) = (cache.clone(), cache.clone());
     {
         let w = Rc::downgrade(&cache);
         crate::perf::register_probe("style_cache", move || w.upgrade().and_then(|c| c.try_borrow().ok().map(|c| c.mem_estimate())).unwrap_or((0, 0)));
@@ -853,6 +854,38 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         match cache.borrow_mut().style_of(&root, gn.get(), &h, p, is_page) {
             Some(s) => js_style::serialize(&s, &prop),
             None => String::new(),
+        }
+    });
+    // QSTK1b: 1 when `display:none` is on element `id` or any ancestor (one cascade walk, not one per ancestor).
+    let (t, gn) = (table.clone(), wgen.clone());
+    native!(ctx, "__d_cs_hidden", move |id: i32| -> bool {
+        let (page, h) = {
+            let t = t.borrow();
+            (t.get(0).unwrap(), t.get(id))
+        };
+        let Some(h) = h else { return false };
+        let mut top = h.clone();
+        while let Some(p) = parent_handle(&top) {
+            top = p;
+        }
+        if !Rc::ptr_eq(&top, &page) {
+            return false;
+        }
+        cache2.borrow_mut().display_none_in_chain(&page, gn.get(), &h, true)
+    });
+    // QSTK1b: id of `offsetParent`'s answer (nearest body/table/td/th/positioned element ancestor),
+    // -1 when unresolvable (the caller falls back to the body), in one cascade walk, not one per ancestor.
+    let (t, gn) = (table.clone(), wgen.clone());
+    native!(ctx, "__d_offset_parent", move |id: i32| -> i32 {
+        let (page, h) = {
+            let t = t.borrow();
+            (t.get(0).unwrap(), t.get(id))
+        };
+        let Some(h) = h else { return -1 };
+        let found = cache3.borrow_mut().offset_parent_in_chain(&page, gn.get(), &h, true);
+        match found {
+            Some(n) => t.borrow_mut().intern(&n),
+            None => -1,
         }
     });
     // QJ4: layout rect of element `id` (document space), see js_geom.rs.
@@ -4101,7 +4134,7 @@ const DOM_PRELUDE: &str = r#"
     var id = el.__id;
     if (!ceIsConn(id)) return false;
     try {
-      for (var n = id; n >= 0 && __d_kind(n) === 1; n = __d_parent(n)) if (__d_cs(n, '', 'display') === 'none') return false;
+      if (__d_cs_hidden(id)) return false;
     } catch (e) { /* no style info: assume shown */ }
     return true;
   };
@@ -4407,12 +4440,8 @@ const DOM_PRELUDE: &str = r#"
   var gOffParent = function (el) {
     var r = gRect(el);
     if (!r || r[4] || gRoot(el) || el === document.body) return null;
-    for (var n = el.parentNode; n && n.nodeType === 1; n = n.parentNode) {
-      if (n === document.body) return n;
-      var t = n.localName;
-      if (t === 'td' || t === 'th' || t === 'table' || __d_cs(n.__id, '', 'position') !== 'static') return n;
-    }
-    return document.body;
+    var pid = __d_offset_parent(el.__id);
+    return pid >= 0 ? wrap(pid) : document.body;
   };
   var gOffset = function (el, axis) {
     var r = gRect(el);

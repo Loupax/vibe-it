@@ -70,3 +70,52 @@ fn qstk1_5000_deep_document_forced_layout_from_js() {
         format!("true,true,true,{QSTK1_DEPTH},{QSTK1_DEPTH},true,true,{QSTK1_DEPTH},true")
     );
 }
+
+// ---------- QSTK1b: geometry reads on a deep document are linear, not O(depth^2) ----------
+
+/// Boots `qstk1_deep_html(depth)`; returns the leaf's rect + offsets after one write and the
+/// ancestor-chain steps the computed-style walks took for that one read.
+fn qstk1b_run(depth: usize) -> (String, u64) {
+    let doc = parse_html(&qstk1_deep_html(depth));
+    let code = "Object.defineProperty(window, 'innerWidth', { value: 800, configurable: true });
+         Object.defineProperty(window, 'innerHeight', { value: 600, configurable: true });
+         globalThis.read = function () {
+           var leaf = document.getElementById('leaf'); leaf.setAttribute('data-x', '1');
+           var r = leaf.getBoundingClientRect();
+           globalThis.out = [r.x, r.y, leaf.offsetLeft].join();
+         };";
+    let engine = start_scripts(&doc, &[src(code)], Rc::new(|_, _| {})).unwrap();
+    let before = crate::js_style::chain_steps();
+    engine.eval("t", "read()");
+    let out = engine.eval_value::<String>("t", "out").expect("no out");
+    (out, crate::js_style::chain_steps() - before)
+}
+
+#[test]
+fn qstk1b_deep_geometry_read_same_rect_and_linear_chain_work() {
+    let (small, steps_small) = qstk1b_run(1000);
+    let (big, steps_big) = qstk1b_run(4000);
+    // The leaf sits `depth` px right of the body (1px of margin per level).
+    assert!(small.starts_with("1000,"), "{small}");
+    assert!(big.starts_with("4000,"), "{big}");
+    // One read visits each ancestor a small constant number of times. Quadratic code needs
+    // ~depth^2 steps (16 000 000 at 4000 deep); the bounds leave room for a few walks only.
+    assert!(steps_small <= 20 * 1000, "1000 deep: {steps_small} chain steps");
+    assert!(steps_big <= 20 * 4000, "4000 deep: {steps_big} chain steps");
+}
+
+#[test]
+fn qstk1b_display_none_ancestor_still_hides_the_target_deep() {
+    let code = "Object.defineProperty(window, 'innerWidth', { value: 800, configurable: true });
+         var leaf = document.getElementById('leaf'), mid = document.querySelectorAll('div')[2000], r = [];
+         r.push(leaf.getBoundingClientRect().x);
+         mid.style.display = 'none';
+         var b = leaf.getBoundingClientRect();
+         r.push(b.x + '|' + b.width + '|' + leaf.offsetLeft);
+         mid.style.display = '';
+         r.push(leaf.getBoundingClientRect().x);
+         globalThis.out = r.join(';');";
+    let doc = parse_html(&qstk1_deep_html(3000));
+    let engine = start_scripts(&doc, &[src(code)], Rc::new(|_, _| {})).unwrap();
+    assert_eq!(engine.eval_value::<String>("t", "out").unwrap(), "3000;0|0|0;3000");
+}
