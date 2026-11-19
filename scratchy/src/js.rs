@@ -27,9 +27,23 @@ pub(crate) fn page_url() -> Option<Url> {
     PAGE_URL.with(|u| u.borrow().clone())
 }
 
-/// Viewport reported as `window.innerWidth/innerHeight` until the real
-/// size is plumbed through (new item Q33b2).
+/// Viewport reported as `window.innerWidth/innerHeight` when there is no window (headless).
 const DEFAULT_VIEWPORT: (u32, u32) = (1024, 768);
+
+thread_local! {
+    /// Q33b2: the real window size (the App's layout width/height); (0, 0) = no window.
+    static WINDOW_VIEWPORT: std::cell::Cell<(u32, u32)> = const { std::cell::Cell::new((0, 0)) };
+}
+
+/// Q33b2: the App publishes the window size; new engines start with it.
+pub(crate) fn set_window_viewport(w: u32, h: u32) {
+    WINDOW_VIEWPORT.with(|v| v.set((w, h)));
+}
+
+fn env_viewport() -> (u32, u32) {
+    let v = WINDOW_VIEWPORT.with(|v| v.get());
+    if v.0 == 0 || v.1 == 0 { DEFAULT_VIEWPORT } else { v }
+}
 
 #[cfg(not(test))]
 static JS_ENABLED: AtomicBool = AtomicBool::new(true);
@@ -946,8 +960,8 @@ fn install_env(ctx: &Ctx<'_>) -> JsResult<()> {
     env.set("origin", origin)?;
     env.set("userAgent", navigator_user_agent())?;
     env.set("appVersion", navigator_app_version())?;
-    env.set("innerWidth", DEFAULT_VIEWPORT.0)?;
-    env.set("innerHeight", DEFAULT_VIEWPORT.1)?;
+    env.set("innerWidth", env_viewport().0)?;
+    env.set("innerHeight", env_viewport().1)?;
     js_engine::set_global(ctx, "__scratchy_env", env)
 }
 
@@ -1357,6 +1371,14 @@ impl JsEngine {
         });
         let code = format!("{m}if(globalThis.scrollY!=={y}){{globalThis.scrollY=globalThis.pageYOffset={y};}}true");
         let _ = self.eval_value::<bool>("scroll-sync", &code);
+    }
+
+    /// Q33b2: the window is `w` x `h` now. Updates `innerWidth/innerHeight` (and everything derived:
+    /// `visualViewport`, `screen`, `documentElement.clientWidth`, the forced layout's viewport) and
+    /// fires one `resize` at the window when the size changed. The caller runs once per frame, so
+    /// bursts of resizes coalesce.
+    pub(crate) fn set_viewport(&self, w: u32, h: u32) {
+        let _ = self.eval_value::<bool>("viewport-sync", &format!("globalThis.__scratchy_setvp({w},{h})"));
     }
 
     /// QB5: drains pending focus/blur/scroll requests.
