@@ -1068,7 +1068,7 @@ Shared rules for this block:
       the unkeyed ones are tested only via the universal list. Remaining 289 universal rules on github.com home are mostly
       `*`, `:not()`, `:is(..., *)` and bare pseudo-classes. Gate: universal bucket < 150 on that page (fixture recipe in the
       QAN1h2 PR #372 body).
-- [ ] QAN1h3 [S] (P3, from QAN1h, R49; Sonnet) Class lookup without re-scanning the class attribute string per check (cache a
+- [ ] [WIP] QAN1h3 [S] (P3, from QAN1h, R49; Sonnet) Class lookup without re-scanning the class attribute string per check (cache a
       per-element class atom set, invalidated on class writes). Gate: has_class < 4 % of GeomCache::refresh samples on the
       R49 home recipe.
 - [ ] [WIP] QMEM3b [S] (P2 memory, from QMEM3, R48; Sonnet, measure first) Name the ~65 MB of main-thread malloc no probe explains
@@ -1090,6 +1090,9 @@ Shared rules for this block:
       or px `left`/`top` on an abs/fixed box with definite width shifts the cached rects in place (GeomCache flat skeleton)
       instead of bumping the geometry generation. Full text, bail-outs and tests: REGRESSIONS.md R50 "QYTC1a". Expected
       (estimate): YT controls-visible forced layouts ~10/s -> ~3-4/s.
+- [ ] QYTC1a2 [S] (P3, from QYTC1a #381; Sonnet) In-flow translate / relative `left`/`top` writes shift in place too
+      (today only abs/fixed boxes move in place; in-flow boxes only take the nothing-moves path). Needs `self.page` and the
+      root `in_flow_bottom` redone, because an in-flow translate can change the root height. YouTube does not need it.
 - [ ] QYTC1b [S] (P2, from R50; Sonnet; after QYTC1a, same hook) A write restoring an attribute's value at the last forced
       layout cancels its own bump (`ytp-autohide-active` toggled between two reads: the 11-13 % no-op layouts).
 - [ ] QBBC1 [M, Opus, investigate first] (P3, user screenshot 2026-11-19 ~22:50, installed main 10a9d6e, window ~958 px wide;
