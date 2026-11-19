@@ -44,12 +44,12 @@ PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; sea
  Step 3, see what is still slow and name it:
    8 DONE f9a8c27 QOBS4 [S]  name the slowest callbacks (YT: a 5.5 s timer, a 2.8 s promise job) | QOBS block
    9 DONE 319f933 QOBS3 [M]  forced-layout phases / callers / no-op rate in --perf-report         | QOBS block
-  10 [WIP] QOBS5 [M]  window frame stats (redraw, paint, input latency, video frames)    | QOBS block
+  10 DONE bf9aea1 QOBS5 [M]  window frame stats (redraw, paint, input latency, video frames)    | QOBS block
  Step 4, the main thread in the live window (YouTube playback, scrolling, mouse):
   11 QOBS6 [S]  network delivery delay (tool for 12)                                | QOBS block
   12 QM1k1n5 [S] page network results reach JS 1-19 s late                          | QM1k block
   13 QY53e3 [S, Opus measure] App layout vs forced layout, live window (uses QOBS5)  | QY53 block
-  14 QM1k1n6 [M, Opus design then Sonnet] redraw starvation / frame budget (uses QOBS5) | QM1k block
+  14 [WIP] QM1k1n6 [M, Opus design then Sonnet] redraw starvation / frame budget (uses QOBS5) | QM1k block
   15 QY53e2 [M]  IO uses the App's own layout                                       | QY53 block
   16 QM1g2 (a) [M] render mpv frames off the main thread (33-39 ms per frame today); split (a) out
                  as its own item QM1g2a when taken, (b)-(d) stay where they are     | QM1g block
@@ -695,7 +695,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       (one fair queue, or check the net results between page tasks). Test: a fetch whose response
       arrives while a chain of busy timers runs is delivered before the next timer callback;
       `AbortSignal.timeout(…)`-style abort does not win against a response that arrived earlier.
-- [ ] QM1k1n6 [M] (P2, R42 section 6, Opus design first, then Sonnet) The App cannot redraw while
+- [ ] [WIP] QM1k1n6 [M] (P2, R42 section 6, Opus design first, then Sonnet) The App cannot redraw while
       page tasks run back to back: during playback (run 3) 3 redraws in 16 s, forced layouts every
       ~0.33 s (~300 ms each), App tree builds ~300-650 ms; the `top: 0px` write reached the screen
       11.3 s later and only ONE video frame was rendered in the whole run (frames are rendered in
@@ -707,6 +707,10 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       MORE EVIDENCE 2026-11-19 (QM1k-stop, R45 run 7, real audio): mpv decoded the first video frame 0.22 s after
       unpause but scratchy did not paint for ~6 s (29 mpv "render not being called" warnings), so sound led the
       picture by ~6 s at every start. User-visible on every YouTube play.
+      MEASURED 2026-11-19 by QOBS5 (bf9aea1, SCRATCHY_FRAME_STATS, nested dwl, YT watch, default UA): pointer IDLE -> video
+      ~30 frames/s rendered+painted, 0 full redraws; pointer MOVING -> rendered/painted 1-5/s, full redraws 1-5/s, page JS
+      1.0-1.8 s per wall second, 12-36 forced layouts/s, input->present 0.4-1.6 s with up to 30 moves pending; paint 2-14
+      ms, present ~0. Cause: page mouse-move JS + App tree builds (60-250 ms) starve the main thread; paint is not it.
 - [ ] QM1k1n7 [S] (P3, R42 section 6, Sonnet, measure first) One SABR POST to googlevideo was
       answered `411 Length Required` (1 564 B). Find which request (empty body? streamed
       `ReadableStream` body? `Content-Length` missing on the wire request) and compare with what
@@ -1276,6 +1280,10 @@ Shared rules for this block:
       If the dirtying write is a no-op for layout (same value, or a property that cannot move boxes), skip the GEOM_GEN
       bump for it (QY53c did this for some writes). Gate: YT watch getPlayerSize layouts / 60 s at least halved,
       median of 3, default UA; tests for the skipped write kind.
+- [ ] QOBS5b [S] (P3, from QOBS5 bf9aea1; Sonnet, measure first) With the window idle (no input, nothing animating),
+      Wikipedia and YouTube both show a steady ~125-135 ms of page JS per wall second and zero redraws. Find out whether
+      that is a real timer/rAF/poll (which one: QOBS4b's named `longest` sources) or an accounting artifact of the window
+      mode recorder (idle-poll time counted as JS). If real and ours (prelude polling), make it event-driven.
 - [ ] QMEM1 [S] (P2 memory, from QOBS7 67b6f0d; Sonnet, measure first; touches js_style.rs StyleCache: not alongside
       QY53f1 if that touches page_css/StyleCache) YT watch 60 s: `style_cache` = 861 entries, ~183.5 MB (~213 KB per entry)
       of 732 MB RSS. Find what one entry holds (a whole ComputedStyle per element? the full page CSS string or rule list
@@ -1296,19 +1304,6 @@ Shared rules for this block:
       Smoke: profile.sh on a local fixture still resolves JS frames. Can pair with any item (tools/PERF.md only).
       ALSO (from QOBS10 352ad4f): benches/layout.rs runs every bench on a 256 MB-stack thread (custom `main`) because
       big-css overflowed before QSTK1 (ae9204f); drop that thread now and check `cargo bench --no-run` + one bench run.
-- [ ] [WIP] QOBS5 [M] (P1 for the media items, R44 section 4.4, Sonnet) Window frame stats.
-      `SCRATCHY_FRAME_STATS=<path>` (or `=1` for stderr): the live App appends one JSON line per second
-      of wall time: redraws; App tree builds (count, ms: today only `last_build_time`); shape-worker
-      results (complete / incomplete, worker ms); paint ms; present (`surface.present`/buffer) ms; the
-      longest gap between two redraws; page JS ms in that second (the perf recorder's spans also run in
-      window mode while this is on); forced layouts (count, ms); hover restyles; input events received
-      (pointer move, button, key, wheel) and the max/p95 latency from an input event to the next
-      present; video: frames received from mpv and frames painted per `<video>`. Aggregate in a small
-      struct (`FrameStats`) on the App; no allocation per event. Tests (app or new `frame_stats_tests.rs`):
-      the aggregator's per-second roll-up and p95 from fed timestamps; off -> no file written.
-      Accept: tests; a nested-dwl run (`tools/nest.sh`, own wire) on Wikipedia Rust 30 s and on the R42 YT
-      watch URL with `tools/inject` moving the pointer for 10 s: paste 5 lines of each. This is the tool
-      QM1k1n6, QM1k-mouse and QY53e3 need; their items stay as they are.
 - [ ] QOBS6 [S] (P2, R44 section 4.4, Sonnet; after QOBS5) Network delivery delay. Stamp an `Instant`
       when a page request's result is complete (where the `AppEvent::JsNet` / headless equivalent is
       created) and again when `deliver_net` runs it; record the delay per request. `--perf-report`:
@@ -4465,3 +4460,7 @@ last, per the user's own call.
       re-check whether it still happens; only if it does, an Opus agent investigates the pointer
       path (hover recompute, hit test, JS mouse events, relayout/repaint, media pump starvation).
       No existing item covers it (R1-R4 hover storms were a different, fixed cause).
+      MEASURED 2026-11-19 by QOBS5 (bf9aea1, SCRATCHY_FRAME_STATS, nested dwl, YT watch, default UA): pointer IDLE -> video
+      ~30 frames/s rendered+painted, 0 full redraws; pointer MOVING -> rendered/painted 1-5/s, full redraws 1-5/s, page JS
+      1.0-1.8 s per wall second, 12-36 forced layouts/s, input->present 0.4-1.6 s with up to 30 moves pending; paint 2-14
+      ms, present ~0. Cause: page mouse-move JS + App tree builds (60-250 ms) starve the main thread; paint is not it.
