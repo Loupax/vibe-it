@@ -8,7 +8,10 @@
 - **PERFORMANCE FIRST (user, 2026-11-19):** the "PERFORMANCE QUEUE" at the top of TODO.txt's QUEUE
   outranks every other item. Take the first unassigned item from it; start nothing else while one of
   its items is READY and unassigned (except crash/regression/red-CI fixes on main).
-- Read `TODO.txt` (QUEUE section first), `NOTES.md`, `REGRESSIONS.md`.
+- Read `TODO.txt` (QUEUE section first), `NOTES.md`, `REGRESSIONS.md`. Finished items live in
+  `TODO-DONE.txt` and fixed regression sections in `REGRESSIONS-FIXED.md` (archived 2026-11-19 to
+  keep the working files small); open them only to follow a reference (a `[archived: TODO-DONE.txt]`
+  stub or an "(Archived ...)" R-section), by grepping the item name or R number.
 - Take the first unchecked QUEUE item (during the freeze: QT1, then the first unchecked QV8 item).
   Don't reorder or merge items.
 - If an item is wrong or much bigger than its size, stop and report. Don't guess.
@@ -54,7 +57,15 @@
    Recipe background is in `REGRESSIONS.md` "How this was tested".
 7. Add a `PROMPTS.md` entry. Update `NOTES.md` if architecture changed.
 8. Tick the item in `TODO.txt` (QUEUE and its Detail entry). Add a new
-   narrower `[ ]` item for anything deliberately left out.
+   narrower `[ ]` item for anything deliberately left out. Then ARCHIVE it in the same commit:
+   append the ticked item's full text, unchanged, to the end of `TODO-DONE.txt` under a line
+   `=== from TODO.txt: <its block header>`, and replace it in `TODO.txt` by its first line
+   (cut to ~107 chars + `...` if longer) followed by ` [archived: TODO-DONE.txt]`. Exceptions
+   that stay in TODO.txt in full: an item that records a user decision, answer, plan or design
+   (other items follow its text), and an item that still contains an open `- [ ]` sub-item.
+   A REGRESSIONS.md section whose every item is fixed moves the same way to the end of
+   `REGRESSIONS-FIXED.md`, leaving its `## R..` heading and `(Archived: full text in
+   REGRESSIONS-FIXED.md.)` in place.
 9. Commit, then a separate "fill in the hash" commit. Never amend.
 
 ## Rules
