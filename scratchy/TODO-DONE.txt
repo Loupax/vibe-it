@@ -7773,3 +7773,8 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       separate from rules_cache's Piece list, so every <style> is parsed twice. Both are text-keyed per piece, so sharing
       rules_cache's parsed list is feasible; StyleCache also needs per-piece `has`/`sib` flags (rules_cache tracks `layer`
       and a mask but not has/sib) and the layer-concat decision.
+
+=== from TODO.txt: --- TOP PRIORITY (user, 2026-11-19): PERFORMANCE FIRST. READ THIS BEFORE EVERYTHING ELSE IN THIS FILE. ---
+- [x] QV8-6 DONE b717000 #382 QuickJS removed, V8 only (revert 6fe95da's squash b717000 to bring it back) [S] USER 2026-11-19 ~22:20: "Remove QuickJS, we can add it again later if we decide." GO NOW (next free slot, alone in js_engine*.rs/Cargo.toml/ci.yml). (after QV8-m, when the user agrees) Remove QuickJS (`engine-quickjs`, rquickjs
+      USER ANSWER 2026-11-19: YES, remove QuickJS (also drop the `scratchy-quickjs` CI job and the second test config from AGENTS.md). READY, after the ready perf items are assigned; touches js_engine*.rs, Cargo.toml, ci.yml: run it alone in that area.
+      dependency, the seam's QuickJS backend).
