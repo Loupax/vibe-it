@@ -33,6 +33,13 @@ A perf item that turns out to be wrong or bigger than its size: stop and report,
       (QM1k1n6: video frozen while page JS runs). Recipe: own wire, live window (nested dwl), the URL above, a click to
       play, 90 s, logs of media events + SABR request timings + mpv log. Output: cause in REGRESSIONS.md (new R section),
       then a fix PR if small, else items. Possibly fixed by QM1k1n5/QM1k1n6 (perf queue): if so, say which and stop.
+      USER SCREENSHOT 2026-11-19 15:07: YouTube's OWN player error overlay (German UI: "Ein Fehler ist aufgetreten.
+      Aktualisiere die Seite oder versuche es später noch einmal." = generic "An error occurred"), play button visible,
+      comments still skeletons. So the player gave up (not a frozen frame, not a scratchy crash). Start from what YouTube
+      saw: the `error` event / `video.error.code` (MediaError 3 DECODE / 4 SRC_NOT_SUPPORTED), a rejected `play()`, a
+      thrown exception in appendBuffer/SourceBuffer (QuotaExceeded, InvalidState), SABR/videoplayback HTTP errors or
+      aborts, and YouTube's own error report beacon (`/api/stats/qoe` or `/error_204` request: its query has the error
+      code, e.g. `ec=`/`errorcode=`; log it from wire).
 
 PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; search the name):
  Step 1, measurement that every later step uses (small, do first):
