@@ -1,5 +1,139 @@
 # scratchy — regressions
 
+## R42: YouTube through the MSE stack (QM1k-m2): the player script runs, picks avc1 + mp4a, attaches, appends and plays ~60 s of AUDIO, but NO PICTURE because YouTube adds the AUDIO SourceBuffer first and scratchy always makes SourceBuffer 0 the main (video) stream; with that swapped (throwaway patch) 640x360 video plays to the PoToken stop at ~60 s, then YouTube's own error card. The main thread is busy 100% of the time (294 forced layouts = 116 s of CPU in 60 s), so everything arrives 10-45 s late (Opus investigator QM1k-m2, 2026-11-19) — OPEN: QM1k1k (P1), QM1k1l, QM1k1m, QM1k-u, QY53 (now also blocks YouTube playback)
+
+**Status: investigation only, docs only.** Main 5bf4e03 (QM1k1e merged), own worktree release build
+(`nice -n 19 cargo build --release -j2`, RUSTY_V8_ARCHIVE = the existing local librusty_v8.a, 15 min),
+V8 + media, libmpv 0.41 / ffmpeg 8.1.2. Own wire instance (`wire --socket <scratchpad>/wire.sock`,
+`WIRE_TIMING=1`), never the user's. Nested dwl (tools/nest.sh, 1052x1050), grim, tools/inject.
+`--user-agent 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko)
+Chrome/131.0.0.0 Safari/537.36'` (user-approved for this test), `SCRATCHY_MEDIA_AO=null` (nothing
+audible; audio is decoded, see below), `SCRATCHY_MPV_LOG_FILE`, `SCRATCHY_TIMING=1`. URL:
+https://www.youtube.com/watch?v=G1AeBgalFZk (C64 "RoboCop 3" oscilloscope view, 3:59, logged out, DE).
+**Instrumented binaries (throwaway, reverted, never committed):** (1) a logging wrapper appended to
+`mse_prelude.js` (lines `MSELOG +<s since prelude>`: every `isTypeSupported` + answer,
+`addSourceBuffer`, `appendBuffer` count/size/first box, `remove`/`abort`/`changeType`/
+`endOfStream`/duration/`timestampOffset`/`mode` sets, element events, a 2 s TICK with currentTime/
+readyState/paused/buffered/videoWidth, and for googlevideo `fetch`es: status, bytes, and a UMP part
+count + STREAM_PROTECTION_STATUS (part 58) payload); (2) for run 2 also a 3-line change in
+`MpvBackend::load_mse` that, when `QM2_SWAP` is set, loads SourceBuffer 1 as the main file and
+SourceBuffer 0 as the external audio file. Nothing else differs from main.
+
+### Runs
+| run | binary | what happened |
+|---|---|---|
+| 1 | main + logging | audio-only playback 0-30 s, black/thumbnail picture, then `waiting` forever (stall, see 2) |
+| 2 | main + logging + `QM2_SWAP=1` | 640x360 h264 video + AAC played 0-~64 s, PoToken stop, YouTube error card |
+| headless | main + logging, `--perf-report --seconds 60` (same UA, own wire) | outcome ok, 0 kills, 0 JS errors; forced layout 294x, 115 922 ms total, max 1254 ms; raw CPU in callbacks 121 s (classic 24 s, timers 61 s, promise jobs 36 s) in 60 s simulated |
+| local A | main + logging | the QM1k1e page (`src/tests/mse_tests/qm1k1e_page.html`, video SourceBuffer first) with a 10 s testsrc2+sine fixture from 127.0.0.1 (python http.server): plays, picture updates (screenshots show the burnt-in clock 4.64 s at 5 s), `ended` at 10.02. No regression of QM1k1e in a live window |
+| local B | main + logging | the same page with the two `addSourceBuffer` lines swapped (audio first): mpv `No audio streams in file scratchy-mse://1/1/1` / `Can not open external file`, black 320x240 box, `videoWidth 0`, audio plays to `ended` 10.02. SAME BUG as YouTube, reproduced locally |
+| local B + swap | `QM2_SWAP=1` | picture plays (clock 5.76 at 6 s), `vw=320x240`, mpv `Video --vid=1 (h264 320x240)` + `Audio '0' [external]` |
+| Reddit | main + logging | r/oddlysatisfying: `?js_challenge=1&jsc_token=...` redirect, then "You've been blocked by network security." HARD STOP: not retried, nothing measured (R34 had the feed playing on 2026-11-17 through the user's wire) |
+
+### 1. The MSE calls YouTube made (run 1 and 2 the same; full list in the logs)
+- `isTypeSupported`: ~60 calls. Answered **true**: `video/mp4; codecs="avc1.42001E"` (+`decode-to-
+  texture=true`), `avc1.4d401e` with each VALID probe (`width=640`, `height=360`, `framerate=30`,
+  `bitrate=300000`, `eotf=bt709`, `cryptoblockformat=subsample`, `decode-to-texture=false`,
+  `experimental=allowed`, `tunnelmode=true|false`), `avc1.4D401F; width=1280; height=720;
+  framerate=30; bitrate=2317914`, `audio/mp4; codecs="mp4a.40.2"` (+`channels=2`). **false**: every
+  INVALID twin (`width=99999`, `height=99999`, `framerate=9999`, `bitrate=2000000000`,
+  `eotf=catavision`, `channels=99`, `cryptoblockformat=invalidformat`, `decode-to-texture=nope`,
+  `experimental=invalid`), every `video/webm vp9`, `vp09.02.51...`, `av01.*`, `audio/webm opus`.
+  So QM1k4's answers steer YouTube exactly as planned.
+- `addSourceBuffer("audio/mp4; codecs=\"mp4a.40.2\"")` FIRST, then `addSourceBuffer("video/mp4;
+  codecs=\"avc1.4D401E\"")`; `duration = 239`, later `238.9797732426304`. Never called in either run:
+  `remove`, `abort`, `changeType`, `endOfStream`, `timestampOffset`/`mode`/`appendWindow*` sets.
+- Appends (run 2): init 723 B (audio) / 741 B (video), both `ftyp`; then `moof` segments: video
+  ~190-720 KB each (5.33 s), audio ~161 KB each (10 s); video #13 = 4.39 MB total, audio #8 = 1.13 MB
+  total, `buffered` grew to `[0.00-64.00]`. No append threw; no `error` event on a SourceBuffer.
+- SABR (run 2): POST `rrN---sn-....googlevideo.com/videoplayback`, `application/vnd.yt-ump`, 200.
+  Media responses 1 498 125 B, 2 174 150 B, 1 851 251 B with part 58 payload `08 02` (status 2 =
+  attestation pending); then from +195.8 s every response is 109 B, parts {35, 47, 58}, part 58 =
+  `08 03 10 0a` (status 3 = attestation required, max retries 10), 10 such responses ~2 s apart, then
+  the page emptied the element (`emptied`, ct 0) and showed **"Ein Fehler ist aufgetreten.
+  Aktualisiere die Seite oder versuche es später noch einmal."** (screenshot). Same PoToken stop as R34
+  (QM1k2, parked). No crash; scratchy kept running.
+- 11 of the first 16 SABR fetches were rejected `AbortError` by the page (YouTube's own abort) 10-25 s
+  after they were issued (one more, #5, got 105 B with parts {35, 57, 67} and no media); wire answered their headers in 0.5-1.2 s (`WIRE_TIMING`). One POST was
+  `TypeError: Failed to fetch` with `js net: ... CORS: no Access-Control-Allow-Origin header` (an
+  answer without ACAO; body not inspected). Most likely the aborts are the page timing out because its
+  callbacks run late (section 3); not proven.
+
+### 2. Blocker 1 (P1): the main mpv file is always SourceBuffer 0 (QM1k1k)
+`MpvBackend::load_mse` loads `scratchy-mse://F/G/0` as the file and appends `.../1` to
+`audio-files`. YouTube's order is audio, video, so mpv gets an audio-only main file and the VIDEO as
+an "external audio file": mpv log run 1: `No audio streams in file scratchy-mse://1/1/1.` /
+`Can not open external file scratchy-mse://1/1/1.`, only `Audio --aid=1 (aac 2ch 44100 Hz)`,
+`video=eof`. JS saw `videoWidth 0x0` with readyState 4. The box showed YouTube's thumbnail, later
+black with a pause button. Audio played 0 -> 29.95 s, then `waiting` forever (rs 2) because
+`currentTime` ran past the intersected `buffered` end (21.33) while the video track was never read:
+the audio-only mpv file kept going until its own data ended, and the video SourceBuffer stopped being
+refilled (no further SABR media after +108 s). Swapping the two (run 2, local B + swap) fixes it.
+Fix: choose the main stream by the SourceBuffer TYPE (`video/*` main, `audio/*` external), not by
+index.
+
+### 3. Blocker 2 (P1 for YouTube): the main thread is busy all the time (QY53)
+- `ps`: scratchy at 98-101 % CPU on its main thread for the whole run (top -H: only the main thread
+  busy; V8 workers, mpv threads idle). The 2 s TICK interval fired every 2-11 s, with gaps of 22-26 s.
+- Headless `--perf-report` on the same URL (own wire, same UA, 60 s): forced layout **294 times,
+  115.9 s total, max 1.25 s**; budget clock (forced layout excluded) only 2.7 s classic + 1.5 s timers
+  + 1.6 s promise jobs. So ~96 % of the callback CPU is forced layout, as on YouTube results (R37/R38,
+  QY53), but heavier here. `load` (DOMContentLoaded) 26 s wall / 24.6 s CPU.
+- Effects measured live (run 2, seconds after the prelude started): MediaSource attached +5.2 s, but
+  `addSourceBuffer` only at +16 s; first media append +118.7 s; `canplay` +128.9 s; click on the big
+  play button at +139.5 s -> `play` event +159.2 s (20 s), `playing` +180.3 s (41 s). Run 1: click
+  -> `play` 25-30 s. Screen white for the first ~45-50 s of both runs (window mapped, nothing painted).
+- During playback (run 2) mpv logged `mpv_render_context_render() not being called or stuck` 19 times
+  (~3.8 s, near the end) and once `Audio/Video desynchronisation detected!`: the frame is rendered on
+  the main thread (QM1g), so a long callback freezes the picture while audio goes on. That is the only
+  A/V drift symptom observed; `avsync` itself was not sampled (`ao=null`, QM1k1b finding 5).
+- One CPU-budget kill in run 2: `js error: js: timer stopped: exceeded the 500 ms CPU-time callback
+  budget` (which timer: not determined). None in run 1, none headless.
+
+### 4. Other gaps seen
+- **Video track off for the first ~41 s of playback (QM1k1m).** Run 2 mpv log: `vid="no"` 8.4 s after
+  the load (before play), `vid="auto"` again only at mpv 77.1 s (= ~41 s after unpause at 36.0 s), then
+  `VO: [libmpv] 640x360`, `first video frame after restart shown`. scratchy switches the video off
+  when the element has no visible box target (QM1g, `set_video_target(None)`), although YouTube's player
+  box was on screen the whole time (screenshots). Whether the `<video>` had a zero/hidden box until a
+  late relayout, or the target was lost for another reason, is not determined. First real video pixels
+  in a screenshot: 06:02:51, ~200 s after start (q06; a different oscilloscope frame from the
+  thumbnail; frames differ between later screenshots).
+- **`buffered` after the element is emptied (QM1k1l).** Run 2, after `emptied` (ct 0, rs 0, the MSE
+  detached): `buffered` = `[0.00-61.80]` on every TICK. With `self.mse` gone, `MediaCore::buffered`
+  falls back to `MpvBackend::buffered`, i.e. `cache_end` (mpv demuxer-cache-time); a value left from the
+  unloaded MSE file is the likely source (not verified in code paths beyond reading them).
+- **Autoplay**: YouTube's unmuted autoplay did not start (expected: D-rules allow only muted or after a
+  gesture); one click on the play button started it.
+- **JS errors (both runs, same):** `lottie-light.js: TypeError: Cannot set properties of null (setting
+  'fillStyle')` (canvas `getContext` returns null, known, QWK chain note) and `ReferenceError: lottie is
+  not defined`; `js net: GET https://youtube.com/: CORS: Access-Control-Allow-Origin
+  "https://www.youtube.com" does not match the page origin "null"` (a request whose origin is `null`;
+  item QM1k-u); `tpc.googlesyndication.com/sodar/...js` connection refused (wire, harmless).
+- No crash in any run (the R40/R41 snapshot crashes did not show).
+
+### Answers to the item's questions
+| question | answer |
+|---|---|
+| player script runs? | yes (base.js, SABR, BotGuard `/js/th/...` + `GenerateIT` as in R34) |
+| avc1 + mp4a with our isTypeSupported answers? | yes (`avc1.4D401E` 360p + `mp4a.40.2`) |
+| attach, append? | yes, both init + media segments, no append error |
+| picture? | NO on main (track order, QM1k1k); YES with the swap, 640x360, after QM1k1m's ~41 s gap |
+| 0-60 s? | audio: yes with the swap (mpv played 0 -> ~64 s = buffer end); on main only 0-30 s then stall |
+| A/V sync | not measured (ao=null); one mpv desync warning during a 3.8 s render stall |
+| PoToken stop | status 2 for 3 media responses, then status 3 x10, YouTube error card; clean, no crash, no `waiting` hang |
+| CPU budget kills | 1 timer kill (run 2) |
+| Reddit feed | NOT RE-MEASURED: js_challenge + "blocked by network security" (hard stop) |
+| QM1k1e page live | plays to `ended` with picture (video-first order) |
+
+### Not established
+Audio audibility and real A/V sync (ao=null throughout; ao=pulse needs the user present); the
+`avsync`/drop counters; which callbacks cause the 294 forced layouts on the watch page (QY53's job);
+whether the AbortErrors are caused by late callbacks; why `vid=no` was set; whether YouTube calls
+`getVideoPlaybackQuality`/`played`/`webkitDecodedFrameCount` (not instrumented; QM1k1f stays as filed);
+anything after a valid PoToken; seeks and quality switches (not tried, the page was too slow to drive);
+Reddit (blocked); the user's own network/UA conditions (own wire, Chrome UA).
+
 ## R41: after QV8-4a the default `cargo test --release` still aborts in ~23% of runs: `vector.h:415: libc++ Hardening assertion __n < size() failed` in `Isolate::New` of a snapshot engine made while a DEFAULT-snapshot isolate (`page: None` / `without_snapshot`) is alive; plus a CPU-vs-wall-clock flake in `qy22_tripped_job_drain_logs_one_line_with_a_count` (Opus investigator, 2026-11-19) — OPEN: QV8-4b, QY22t
 
 ### What reproduces, and how often

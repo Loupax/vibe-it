@@ -452,6 +452,9 @@ older and were only partly corrected in place):
   QM1 block): after the V8 freeze and QV8-5b, build in order QM1k4 -> QM1k1a -> QM1k1b ->
   QM1k-AB (decides audio option A vs B) -> QM1k1c -> QM1k1d -> QM1k1e -> QM1k-m2 (YouTube
   first minute) -> QM1k1f..j; then the lower-priority Workers/WebAssembly chain QWK0-QWK-m.
+  QM1k-m2 DONE 2026-11-19 (R42): picture blocked by track order (QM1k1k, P1, do next), main
+  thread starved by forced layout on the watch page (QY53, now also a YouTube PLAYBACK blocker);
+  QM1k1l/QM1k1m/QM1k-u small; QM1k-r with the user.
   QM1k2 (PoToken) and QM1k3 (native HLS) PARKED by the user. Open: QUESTIONS.md Q7.
 - Still WAITING FOR USER: QCI2 (WPT in CI), QF14b2 (d) `--profile` (later),
   Q32 remainder (parked), QAN1p/QTB2 (parked).
@@ -1158,7 +1161,13 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       a LOCAL TEST PAGE (fixture html + the QM1k1b fMP4 files served by the test fake wire) whose
       own JS fetches and appends segments and plays to `ended` with the real mpv (skip without
       libmpv), the end-to-end proof before YouTube.
-- [ ] QM1k-m2 [M, Opus, measure only] READY after QM1k1e. YouTube FIRST MINUTE, live window on
+- [x] QM1k-m2 [M, Opus, measure only] DONE 2026-11-19 (R42; docs only): YouTube runs its player, picks avc1 +
+      mp4a, attaches and appends, but plays AUDIO ONLY: it adds the audio SourceBuffer first and
+      load_mse always makes SourceBuffer 0 the main file (QM1k1k); with that swapped (throwaway
+      patch) 640x360 video plays ~64 s to the PoToken stop (status 3 x10, YouTube error card, no
+      crash). Main thread 100% busy: 294 forced layouts = 116 s CPU per 60 s (QY53), so load, play
+      and appends are 10-45 s late. Reddit: js_challenge + block page (hard stop, not measured).
+      Items QM1k1k, QM1k1l, QM1k1m, QM1k-u, QM1k-r. Original text: YouTube FIRST MINUTE, live window on
       the user's machine (nested dwl, real clock, `--user-agent` if needed; R34's watch page):
       does the player choose avc1 + mp4a with our isTypeSupported answers, attach, append, and
       play 0-60 s with picture (grim screenshots) and A/V in sync; then what happens at the
@@ -1166,6 +1175,45 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       no regression), the QM1k1e local page in the live window. Record in an R34 addendum; file
       each gap as an item (expected small ones: `getVideoPlaybackQuality`, `played`,
       `stalled`/`suspend`, `webkitDecodedFrameCount`, MSE-in-Worker probes) into QM1k1f.
+- [ ] QM1k1k [S] READY (P1, R42 section 2, Sonnet) MSE track roles by TYPE, not by order.
+      `MpvBackend::load_mse` (media_mpv.rs) loads `scratchy-mse://F/G/0` as the file and
+      `.../1` as the external audio file. YouTube calls addSourceBuffer(audio) FIRST, then
+      (video), so mpv gets audio as the main file and rejects the video as "external audio"
+      (`No audio streams in file scratchy-mse://1/1/1`): no picture, videoWidth 0. Pick the main
+      stream = the SourceBuffer whose type is `video/*` (one SourceBuffer: itself; two of the same
+      kind: keep index order), the other = the external track; keep the stream URLs pointing at
+      the right store buffer. Check every other place that assumes index 0 = video (media_el.rs
+      `LoadReq url .../0`, generations, MseHost). Tests (mse_tests): the FakeBackend records which
+      buffer is main for audio-first and video-first; a real-mpv test (skip without libmpv/ffmpeg)
+      with the QM1k1e page variant whose two addSourceBuffer lines are swapped (audio first) plays
+      to `ended` with `videoWidth` 320 (R42 "local B" reproduces the bug today). Live accept: the
+      R42 YouTube URL shows video pixels after play (grim).
+- [ ] QM1k1l [S] READY (P2, R42 section 4, Sonnet/Haiku) `buffered` after an MSE detach. Run 2
+      of R42: after `emptied` (ct 0, readyState 0, MediaSource gone) `video.buffered` stayed
+      `[0, 61.8]`: `MediaCore::buffered` falls back to `MpvBackend::buffered` (`cache_end`), which
+      still holds the unloaded MSE file's demuxer cache time (or a late cache property event set it
+      again after `unload`). Expected: empty until the new load reports. Confirm the path first,
+      then fix (reset on unload/detach and ignore cache events of a stopped file). Test: FakeBackend
+      and real mpv: attach, append, detach (`removeAttribute('src'); load()`), `buffered.length`
+      is 0.
+- [ ] QM1k1m [S] READY (P2, R42 section 4, Sonnet, measure first) The video track was switched off
+      (`vid=no`, QM1g "no visible box target") 8 s after the MSE load and only re-enabled ~41 s
+      after playback started, although YouTube's player box was on screen. Log
+      `set_video_target` changes and the `<video>` box (size, visibility, which layout produced
+      it) on the R42 page with QM1k1k merged; find why the target was None (no box laid out yet
+      under the starved main thread? display/visibility toggled by the page? the box replaced?).
+      Then fix or file. Test: a fixture whose `<video>` gets its size by script after load keeps
+      (or regains at once) its video target.
+- [ ] QM1k-u [S] READY (P3, R42 section 4, Sonnet, measure first) On the YouTube watch page a
+      `GET https://youtube.com/` is CORS-checked against page origin `"null"` and blocked. Find
+      which context makes it (an iframe with an opaque origin? `Request` with
+      `referrerPolicy`/`mode`? a sandboxed srcdoc?) and whether `null` is right there (Chrome's
+      DevTools on the same page is the reference; do not guess). Test for the fixed case.
+- [ ] QM1k-r [S] WITH THE USER (R42 Reddit row) Reddit `r/oddlysatisfying` through an agent's own
+      wire on 2026-11-19 answered `?js_challenge=1&jsc_token=...` and then "You've been blocked by
+      network security." (it played on 2026-11-17, R34). Never solve or evade it. Ask the user
+      whether their own scratchy session sees the block too; if not, re-check the QM1k1f-era
+      progressive playback in their session only.
 - [ ] QM1k1f [S] READY after QM1k-m2 (Sonnet) the YouTube gaps QM1k-m2 files. Known now from
       source: `HTMLVideoElement.getVideoPlaybackQuality()` does not exist (grep: nothing) and
       players use it for dropped-frame ABR (mpv `frame-drop-count` + `decoder-frame-drop-count`
@@ -2423,7 +2471,9 @@ Ranked: QY50 (P1) -> QY51 (P1) -> QY49-D (user decision, can be asked now) -> QY
       invalidation (style-relevant writes only: attribute/class/style/insert/remove under
       the element's ancestors, not text writes) or a cascade of the element + ancestors
       only. Accept: the R37 probe shows `__d_cs` < 5 ms per call on that page.
-- [ ] QY53 [M] (P2, R37, Opus investigate) Forced layout (excluded from the budget, QJ4)
+- [ ] QY53 [M] (P2, R37, Opus investigate; R42 2026-11-19: ALSO BLOCKS YOUTUBE PLAYBACK, the watch
+      page has 294 forced layouts = 115.9 s CPU per 60 s, max 1.25 s, ~96% of callback CPU; play
+      click -> `play` 20-30 s, first media append ~2 min; recommend P1) Forced layout (excluded from the budget, QJ4)
       stalls the main thread for up to 2.5 s in one timer (our own `obsFlush` observer
       delivery, where the page's IntersectionObserver/ResizeObserver callbacks read
       geometry) and 3.9 s in one promise job (`__d_rect` 3 calls); 31 s of forced layout
