@@ -1354,8 +1354,10 @@ pub(crate) fn format_counter(n: i32, style: &str) -> String {
 pub(crate) fn precompute_generated(document: &Handle, rules: &[StyleRule], viewport_width: f32) {
     GENERATED_TEXT.with(|g| g.borrow_mut().clear());
     ELEMENT_CONTENT.with(|g| g.borrow_mut().clear());
-    let wanted = rules.iter().any(|r| {
-        [&r.decls, &r.important].iter().any(|d| {
+    // QY53f1c: `may_declare_generated` first, so unparsed blocks stay unparsed.
+    let gen_rules = || rules.iter().filter(|r| r.may_declare_generated());
+    let wanted = gen_rules().any(|r| {
+        [r.decls(), r.important()].iter().any(|d| {
             matches!(d.content, Some(ContentDecl::Parts(_)))
                 || d.counter_reset.is_some()
                 || d.counter_increment.is_some()
@@ -1365,9 +1367,9 @@ pub(crate) fn precompute_generated(document: &Handle, rules: &[StyleRule], viewp
     });
     // A `content` on a selector with no pseudo-element targets the
     // element itself (Q19f).
-    let wants_element_content = rules.iter().any(|r| {
-        (r.decls.content.is_some() || r.important.content.is_some())
-            && r.selectors.slice().iter().any(|s| s.pseudo_element().is_none())
+    let wants_element_content = gen_rules().any(|r| {
+        r.selectors.slice().iter().any(|s| s.pseudo_element().is_none())
+            && (r.decls().content.is_some() || r.important().content.is_some())
     });
     if !wanted && !wants_element_content {
         return;

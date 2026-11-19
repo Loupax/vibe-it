@@ -44,11 +44,12 @@ thread_local! {
 }
 
 impl RulesCache {
-    /// QOBS7: `(entries, approx bytes)`: the live pieces' text plus the rule list. Only pieces
-    /// that exist now are held (replaced or removed ones are dropped by the splice).
+    /// QOBS7: `(entries, approx bytes)`: the live pieces' text plus the rule list (QY53f1c: plus each
+    /// rule's block text or parsed declarations). Only pieces that exist now are held.
     pub(crate) fn mem(&self) -> (usize, usize) {
         let text: usize = self.pieces.iter().map(|p| p.text.capacity()).sum();
-        (self.rules.len(), text + self.rules.capacity() * std::mem::size_of::<StyleRule>())
+        let heap: usize = self.rules.iter().map(StyleRule::heap_bytes).sum();
+        (self.rules.len(), text + self.rules.capacity() * std::mem::size_of::<StyleRule>() + heap)
     }
 
     #[cfg(test)]

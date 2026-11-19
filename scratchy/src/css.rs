@@ -1945,13 +1945,20 @@ impl FontFamily {
     }
 }
 
+/// QY53f1c: a style rule. The declaration block is kept as its source text
+/// and parsed on first use (`decls`/`important`): a parsed `Declarations` is
+/// ~2 KB (about 100 `Option` fields), and a big sheet (YouTube: 22k rules,
+/// 4.4 MB) matches only a fraction of its rules, so the old inline pair made
+/// `StyleRule` 4040 bytes and the rule list ~90 MB. Selector matching never
+/// touches the block, so the hot matching data stays inline and small.
 pub(crate) struct StyleRule {
     pub(crate) selectors: SelectorList<OurSelectorImpl>,
-    pub(crate) decls: Declarations,
-    /// The `!important` declarations of this rule, kept apart from
-    /// `decls` so the cascade can put them in their own, stronger tier
-    /// (see `IMPORTANT_TIER` and `cascade_property`).
-    pub(crate) important: Declarations,
+    /// The unparsed block text; emptied when `parsed` is filled.
+    block: Cell<Box<str>>,
+    parsed: std::cell::OnceCell<ParsedBlock>,
+    /// The block may declare `content`, `counter-*` or `quotes` (a token
+    /// scan; superset): `precompute_generated` expands only these rules.
+    gen_hint: bool,
     /// Zero or more comma-separated `@media` conditions this rule is
     /// wrapped in (comma = OR between entries; `and` is folded into one
     /// entry's own fields, real Media Queries list grammar). An empty
@@ -1964,6 +1971,112 @@ pub(crate) struct StyleRule {
     /// `n - 2` (first-mention order, nested layers inside their parent,
     /// CSS Cascade 5 §6.4). See `style::normal_key` / `important_key`.
     pub(crate) layer: u32,
+}
+
+/// A rule's parsed declaration block: the normal declarations, and the
+/// `!important` ones (kept apart so the cascade can put them in their own,
+/// stronger tier, see `IMPORTANT_TIER`; `None` when there are none).
+struct ParsedBlock {
+    decls: Box<Declarations>,
+    important: Option<Box<Declarations>>,
+}
+
+impl ParsedBlock {
+    fn new(decls: Declarations, important: Declarations) -> Self {
+        let important = (important != Declarations::default()).then(|| Box::new(important));
+        ParsedBlock { decls: Box::new(decls), important }
+    }
+}
+
+thread_local! {
+    static EMPTY_DECLS: &'static Declarations = Box::leak(Box::default());
+}
+
+impl StyleRule {
+    /// A rule whose block is already parsed.
+    pub(crate) fn new(selectors: SelectorList<OurSelectorImpl>, decls: Declarations, important: Declarations) -> Self {
+        let gen_hint = [&decls, &important].iter().any(|d| d.declares_generated());
+        StyleRule {
+            selectors,
+            block: Cell::new(Box::default()),
+            parsed: std::cell::OnceCell::from(ParsedBlock::new(decls, important)),
+            gen_hint,
+            media: Vec::new(),
+            layer: 0,
+        }
+    }
+
+    /// A rule whose block `text` is parsed on first use.
+    fn lazy(selectors: SelectorList<OurSelectorImpl>, text: &str, gen_hint: bool) -> Self {
+        StyleRule {
+            selectors,
+            block: Cell::new(text.into()),
+            parsed: std::cell::OnceCell::new(),
+            gen_hint,
+            media: Vec::new(),
+            layer: 0,
+        }
+    }
+
+    fn parsed(&self) -> &ParsedBlock {
+        self.parsed.get_or_init(|| {
+            #[cfg(test)]
+            BLOCKS_EXPANDED.with(|c| c.set(c.get() + 1));
+            let (d, i) = parse_declarations_split(&self.block.take());
+            ParsedBlock::new(d, i)
+        })
+    }
+
+    /// The rule's normal (not `!important`) declarations.
+    pub(crate) fn decls(&self) -> &Declarations {
+        &self.parsed().decls
+    }
+
+    /// The rule's `!important` declarations (empty when it has none).
+    pub(crate) fn important(&self) -> &Declarations {
+        match &self.parsed().important {
+            Some(d) => d,
+            None => EMPTY_DECLS.with(|e| *e),
+        }
+    }
+
+    /// Whether the block may declare `content`, a counter property or
+    /// `quotes` (false means it certainly does not; no parse needed).
+    pub(crate) fn may_declare_generated(&self) -> bool {
+        self.gen_hint
+    }
+
+    /// QOBS7/QY53f1c: approximate heap bytes owned by this rule beyond
+    /// `size_of::<StyleRule>()`: the unparsed block text, or the parsed
+    /// declaration boxes (selector and media heap are not counted).
+    pub(crate) fn heap_bytes(&self) -> usize {
+        match self.parsed.get() {
+            Some(p) => std::mem::size_of::<Declarations>() * (1 + usize::from(p.important.is_some())),
+            None => {
+                let b = self.block.take();
+                let n = b.len();
+                self.block.set(b);
+                n
+            }
+        }
+    }
+
+    /// Whether the block has been parsed yet.
+    #[cfg(test)]
+    pub(crate) fn is_parsed(&self) -> bool {
+        self.parsed.get().is_some()
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Test seam: lazily parsed rule blocks so far (QY53f1c).
+    pub(crate) static BLOCKS_EXPANDED: Cell<usize> = const { Cell::new(0) };
+}
+
+/// Property names that make `precompute_generated` look at a rule.
+fn is_generated_prop(name: &str) -> bool {
+    ["content", "counter-reset", "counter-increment", "counter-set", "quotes"].iter().any(|p| name.eq_ignore_ascii_case(p))
 }
 
 /// A real media type keyword this engine can evaluate. `screen` and
@@ -4709,6 +4822,15 @@ impl Declarations {
         }
     }
 
+    /// Whether this block declares anything `precompute_generated` evaluates.
+    pub(crate) fn declares_generated(&self) -> bool {
+        self.content.is_some()
+            || self.counter_reset.is_some()
+            || self.counter_increment.is_some()
+            || self.counter_set.is_some()
+            || self.quotes.is_some()
+    }
+
     pub(crate) fn clear_wide(&mut self, key: &str) {
         self.wide.retain(|(k, _)| *k != key);
     }
@@ -6026,20 +6148,30 @@ impl<'i> QualifiedRuleParser<'i> for TopLevelParser {
         _start: &ParserState,
         input: &mut CssParser<'i>,
     ) -> Result<Self::QualifiedRule, ParseError<Self::Error>> {
-        let mut decls = Declarations::default();
-        let mut important = Declarations::default();
-        {
-            let mut decl_parser = DeclParser { decls: &mut decls, important: &mut important };
-            let mut iter = RuleBodyParser::new(input, &mut decl_parser);
-            while iter.next().is_some() {}
+        if css_debug_enabled() {
+            // `--css-debug` reports ignored declarations while parsing: parse now.
+            let mut decls = Declarations::default();
+            let mut important = Declarations::default();
+            {
+                let mut decl_parser = DeclParser { decls: &mut decls, important: &mut important };
+                let mut iter = RuleBodyParser::new(input, &mut decl_parser);
+                while iter.next().is_some() {}
+            }
+            return Ok(vec![StyleRule::new(prelude, decls, important)]);
         }
-        Ok(vec![StyleRule {
-            selectors: prelude,
-            decls,
-            important,
-            media: Vec::new(),
-            layer: 0,
-        }])
+        // QY53f1c: keep the block text and parse it on first use; only
+        // tokenize it here, noting idents that `precompute_generated` needs.
+        let start = input.position();
+        let mut gen_hint = false;
+        while let Ok(t) = input.next() {
+            if let Token::Ident(n) = t
+                && !gen_hint
+                && is_generated_prop(n)
+            {
+                gen_hint = true;
+            }
+        }
+        Ok(vec![StyleRule::lazy(prelude, input.slice_from(start), gen_hint)])
     }
 }
 
@@ -6054,7 +6186,7 @@ pub(crate) fn parse_stylesheet_with_keyframes(css: &str) -> (Vec<StyleRule>, Key
     (rules, kf)
 }
 
-/// QY53f1b: `parse_stylesheet_with_keyframes` appending to `rules` (a `StyleRule` is ~4 KB, so
+/// QY53f1b: `parse_stylesheet_with_keyframes` appending to `rules` (a `StyleRule` was ~4 KB before QY53f1c, so
 /// moving a 22k-rule list into another Vec costs 60+ ms of memcpy and page faults).
 pub(crate) fn parse_stylesheet_into(css: &str, rules: &mut Vec<StyleRule>) -> KeyframesRegistry {
     let start = rules.len();
