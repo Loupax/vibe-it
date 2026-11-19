@@ -544,6 +544,53 @@ fn active_element() -> Option<Handle> {
     ACTIVE_ELEMENT.with(|a| a.borrow().as_ref().and_then(|w| w.upgrade()))
 }
 
+thread_local! {
+    /// QY53c: the GEOMETRY generation. Bumped only by a DOM write that changed a
+    /// value of a node connected to the page (or by a write of unknown effect),
+    /// so no-op writes and writes to detached subtrees do not make `GeomCache`
+    /// and the IntersectionObserver signature redo a forced layout.
+    static GEOM_GEN: Cell<u64> = const { Cell::new(0) };
+}
+
+pub(crate) fn geom_gen() -> u64 {
+    GEOM_GEN.with(Cell::get)
+}
+
+fn geom_bump() {
+    GEOM_GEN.with(|g| g.set(g.get() + 1));
+}
+
+/// Is `h` part of the page document `t.get(0)`?
+fn page_connected(t: &DomTable, h: &Handle) -> bool {
+    t.get(0).is_some_and(|root| is_ancestor_or_self(&root, h.clone()))
+}
+
+/// Bumps the geometry generation when a change happened to a connected node.
+fn geom_bump_if(t: &DomTable, h: &Handle, changed: bool) {
+    if changed && page_connected(t, h) {
+        geom_bump();
+    }
+}
+
+/// Does a text-content write of `text` change `h`'s children?
+fn text_write_changes(h: &Handle, text: &str) -> bool {
+    match &h.data {
+        NodeData::Text { contents } => &*contents.borrow() != text,
+        NodeData::Comment { .. } => false,
+        _ => {
+            let kids = h.children.borrow();
+            match kids.as_slice() {
+                [] => !text.is_empty(),
+                [k] => match &k.data {
+                    NodeData::Text { contents } => &*contents.borrow() != text,
+                    _ => true,
+                },
+                _ => true,
+            }
+        }
+    }
+}
+
 pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>>, reqs: Rc<RefCell<JsRequests>>) -> Rc<RefCell<DomTable>> {
     let table = Rc::new(RefCell::new(DomTable::default()));
     table.borrow_mut().intern(document);
@@ -788,7 +835,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         }
     });
     // QJ4: layout rect of element `id` (document space), see js_geom.rs.
-    let (t, gn) = (table.clone(), wgen.clone());
+    let t = table.clone();
     let geom = Rc::new(RefCell::new(crate::js_geom::GeomCache::default()));
     let geom2 = geom.clone();
     native!(ctx, "__d_rect", move |id: i32, vw: f64, vh: f64| -> Vec<f64> {
@@ -797,38 +844,45 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             (t.get(0), t.get(id))
         };
         let (Some(page), Some(h)) = (page, h) else { return Vec::new() };
-        geom.borrow_mut().rect_of(&page, gn.get(), &h, vw as f32, vh as f32)
+        geom.borrow_mut().rect_of(&page, geom_gen(), &h, vw as f32, vh as f32)
     });
     // QJ7: per-UTF-16-unit glyph rects of text node `id` (js_geom::text_rects),
     // plus the write generation so script can cache them between DOM writes.
-    let (t, gn) = (table.clone(), wgen.clone());
+    let t = table.clone();
     native!(ctx, "__d_textrects", move |id: i32, vw: f64, vh: f64| -> Vec<f64> {
         let (page, h) = {
             let t = t.borrow();
             (t.get(0), t.get(id))
         };
         let (Some(page), Some(h)) = (page, h) else { return Vec::new() };
-        geom2.borrow_mut().text_rects(&page, gn.get(), &h, vw as f32, vh as f32)
+        geom2.borrow_mut().text_rects(&page, geom_gen(), &h, vw as f32, vh as f32)
     });
     let gn = wgen.clone();
     native!(ctx, "__d_wgen", move || -> f64 { gn.get() as f64 });
+    native!(ctx, "__d_ggen", move || -> f64 { geom_gen() as f64 });
     native!(ctx, "__d_csprops", move || -> Vec<String> { js_style::PROPS.iter().map(|s| s.to_string()).collect() });
     // ---- Q33c mutation. Every write marks the page dirty; the event
     // loop rebuilds layout once per turn, not once per call.
     let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
     native!(ctx, "__d_setattr", move |id: i32, name: String, val: String| {
         if let Some(h) = t.borrow().get(id) {
-            set_attr(&h, &name.to_ascii_lowercase(), &val);
+            let name = name.to_ascii_lowercase();
+            let changed = element_attr(&h, &name).as_deref() != Some(val.as_str());
+            set_attr(&h, &name, &val);
             d.set(true);
             gn.set(gn.get() + 1);
+            geom_bump_if(&t.borrow(), &h, changed);
         }
     });
     let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
     native!(ctx, "__d_rmattr", move |id: i32, name: String| {
         if let Some(h) = t.borrow().get(id) {
-            remove_attr(&h, &name.to_ascii_lowercase());
+            let name = name.to_ascii_lowercase();
+            let changed = element_attr(&h, &name).is_some();
+            remove_attr(&h, &name);
             d.set(true);
             gn.set(gn.get() + 1);
+            geom_bump_if(&t.borrow(), &h, changed);
         }
     });
     // QY45: qualified-name / namespaced attribute access over the stored
@@ -867,38 +921,50 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
     native!(ctx, "__d_setq", move |id: i32, name: String, val: String| {
         if let Some(h) = t.borrow().get(id) {
             let n = attr_lookup_name(&h, &name);
+            let mut changed = false;
             if let NodeData::Element { attrs, .. } = &h.data {
                 let mut attrs = attrs.borrow_mut();
                 if let Some(a) = attrs.iter_mut().find(|a| attr_qname_eq(a, &n)) {
+                    changed = &*a.value != val.as_str();
                     a.value = val.as_str().into();
                 } else {
+                    changed = true;
                     let qn = html5ever::QualName::new(None, html5ever::ns!(), html5ever::LocalName::from(n.as_str()));
                     attrs.push(html5ever::Attribute { name: qn, value: val.as_str().into() });
                 }
             }
             d.set(true);
             gn.set(gn.get() + 1);
+            geom_bump_if(&t.borrow(), &h, changed);
         }
     });
     let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
     native!(ctx, "__d_rmq", move |id: i32, name: String| {
         if let Some(h) = t.borrow().get(id) {
             let n = attr_lookup_name(&h, &name);
+            let mut changed = false;
             if let NodeData::Element { attrs, .. } = &h.data {
-                attrs.borrow_mut().retain(|a| !attr_qname_eq(a, &n));
+                let mut attrs = attrs.borrow_mut();
+                let before = attrs.len();
+                attrs.retain(|a| !attr_qname_eq(a, &n));
+                changed = attrs.len() != before;
             }
             d.set(true);
             gn.set(gn.get() + 1);
+            geom_bump_if(&t.borrow(), &h, changed);
         }
     });
     let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
     native!(ctx, "__d_setns", move |id: i32, ns: String, prefix: String, local: String, val: String| {
         if let Some(h) = t.borrow().get(id) {
+            let mut changed = false;
             if let NodeData::Element { attrs, .. } = &h.data {
                 let mut attrs = attrs.borrow_mut();
                 if let Some(a) = attrs.iter_mut().find(|a| a.name.ns.as_ref() == ns && a.name.local.as_ref() == local) {
+                    changed = &*a.value != val.as_str();
                     a.value = val.as_str().into();
                 } else {
+                    changed = true;
                     let qn = html5ever::QualName::new(
                         if prefix.is_empty() { None } else { Some(html5ever::Prefix::from(prefix.as_str())) },
                         html5ever::Namespace::from(ns.as_str()),
@@ -909,21 +975,28 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             }
             d.set(true);
             gn.set(gn.get() + 1);
+            geom_bump_if(&t.borrow(), &h, changed);
         }
     });
     let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
     native!(ctx, "__d_rmns", move |id: i32, ns: String, local: String| {
         if let Some(h) = t.borrow().get(id) {
+            let mut changed = false;
             if let NodeData::Element { attrs, .. } = &h.data {
-                attrs.borrow_mut().retain(|a| !(a.name.ns.as_ref() == ns && a.name.local.as_ref() == local));
+                let mut attrs = attrs.borrow_mut();
+                let before = attrs.len();
+                attrs.retain(|a| !(a.name.ns.as_ref() == ns && a.name.local.as_ref() == local));
+                changed = attrs.len() != before;
             }
             d.set(true);
             gn.set(gn.get() + 1);
+            geom_bump_if(&t.borrow(), &h, changed);
         }
     });
     let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
     native!(ctx, "__d_settext", move |id: i32, text: String| {
         if let Some(h) = t.borrow().get(id) {
+            let changed = text_write_changes(&h, &text);
             match &h.data {
                 NodeData::Text { contents } => *contents.borrow_mut() = text.as_str().into(),
                 NodeData::Comment { .. } => {}
@@ -931,6 +1004,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             }
             d.set(true);
             gn.set(gn.get() + 1);
+            geom_bump_if(&t.borrow(), &h, changed);
         }
     });
     let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
@@ -939,6 +1013,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             set_inner_html(&h, &html);
             d.set(true);
             gn.set(gn.get() + 1);
+            geom_bump_if(&t.borrow(), &h, true);
         }
     });
     // QA13: returns the id of the last inserted node, or -1.
@@ -949,6 +1024,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         let last = write_after(&a, &html);
         d.set(true);
         gn.set(gn.get() + 1);
+        geom_bump_if(&t, &a, true);
         t.intern(&last)
     });
     let t = table.clone();
@@ -1108,17 +1184,26 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         if !matches!(p.data, NodeData::Element { .. } | NodeData::Document) {
             return false;
         }
-        let ok = insert_child(&p, &c, t.get(before).as_ref(), t.is_frag(child, &c));
+        let frag = t.is_frag(child, &c);
+        let old_parent = if frag { None } else { parent_handle(&c) };
+        let ok = insert_child(&p, &c, t.get(before).as_ref(), frag);
         d.set(true);
         gn.set(gn.get() + 1);
+        if ok && (page_connected(&t, &p) || old_parent.is_some_and(|o| page_connected(&t, &o))) {
+            geom_bump();
+        }
         ok
     });
     let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
     native!(ctx, "__d_remove", move |id: i32| {
         if let Some(h) = t.borrow().get(id) {
+            let old_parent = parent_handle(&h);
             detach(&h);
             d.set(true);
             gn.set(gn.get() + 1);
+            if old_parent.is_some_and(|o| page_connected(&t.borrow(), &o)) {
+                geom_bump();
+            }
         }
     });
     let ct = table.clone();
@@ -1136,6 +1221,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         {
             r_sc.borrow_mut().check_changed = true;
             gn_sc.set(gn_sc.get() + 1);
+            geom_bump();
         }
     });
     native!(ctx, "__d_indet", move |id: i32| -> bool { t_i.borrow().get(id).is_some_and(|h| crate::live_indeterminate(&h)) });
@@ -1144,6 +1230,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             crate::set_indeterminate(&h, v);
             r_si.borrow_mut().check_changed = true;
             gn_si.set(gn_si.get() + 1);
+            geom_bump();
         }
     });
     // The other checked radio of `id`'s group, or -1.
@@ -1160,6 +1247,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         {
             r_rf.borrow_mut().check_changed = true;
             gn_rf.set(gn_rf.get() + 1);
+            geom_bump();
         }
     });
     // Q30g: live select state (forms_select.rs).
@@ -1172,6 +1260,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             crate::set_selected_indices(&h, &idx);
             r_ssi.borrow_mut().check_changed = true;
             gn_ssi.set(gn_ssi.get() + 1);
+            geom_bump();
         }
     });
     let t_os = table.clone();
@@ -1182,6 +1271,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             crate::set_option_selected(&h, v);
             r_sos.borrow_mut().check_changed = true;
             gn_sos.set(gn_sos.get() + 1);
+            geom_bump();
         }
     });
     // Q30d: live text value / selection of input and textarea (forms_text.rs).
@@ -1193,6 +1283,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             crate::set_text_value(&h, &v);
             r_stv.borrow_mut().text_changed = true;
             gn_stv.set(gn_stv.get() + 1);
+            geom_bump();
         }
     });
     let t_sg = table.clone();
@@ -1205,6 +1296,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             crate::set_text_selection(&h, a.max(0) as usize, b.max(0) as usize);
             r_ss.borrow_mut().text_changed = true;
             gn_ss.set(gn_ss.get() + 1);
+            geom_bump();
         }
     });
     // QB5: focus()/blur() only record a request; the App applies it.
@@ -1228,6 +1320,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
         r.borrow_mut().adopted_css = Some(css);
         d.set(true);
         gn.set(gn.get() + 1);
+        geom_bump();
     });
     let (t, d, gn) = (table.clone(), dirty.clone(), wgen.clone());
     native!(ctx, "__d_sheet_text", move |id: i32, orig: String, css: String| {
@@ -1235,6 +1328,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             crate::images::set_style_override(std::rc::Rc::as_ptr(&h) as usize, orig, css);
             d.set(true);
             gn.set(gn.get() + 1);
+            geom_bump();
         }
     });
     native!(ctx, "__d_img_state", move |src: String| -> String { image_state_text(&src) });
@@ -4149,7 +4243,7 @@ const DOM_PRELUDE: &str = r#"
     var cacheGen = -1, cacheKey = '', tcache = Object.create(null);
     var glyphs = function (n) {
       var vw = Number(g.innerWidth) || 0, vh = Number(g.innerHeight) || 0;
-      var gen = __d_wgen(), key = vw + 'x' + vh;
+      var gen = __d_ggen(), key = vw + 'x' + vh;
       if (gen !== cacheGen || key !== cacheKey) { cacheGen = gen; cacheKey = key; tcache = Object.create(null); }
       var e = tcache[n.__id];
       if (!e) e = tcache[n.__id] = __d_textrects(n.__id, vw, vh);
@@ -4352,7 +4446,7 @@ const DOM_PRELUDE: &str = r#"
   // QY57: observers with targets, re-checked when the page scrolls, writes
   // the DOM or resizes (cheap signature compare, only while one exists).
   var ioActive = new Set(), ioSig = '', ioTickQ = false;
-  var ioSigOf = function () { return __d_wgen() + ':' + g.innerWidth + 'x' + g.innerHeight + ':' + g.scrollX + ',' + g.scrollY + ':' + gScrollGen; };
+  var ioSigOf = function () { return __d_ggen() + ':' + g.innerWidth + 'x' + g.innerHeight + ':' + g.scrollX + ',' + g.scrollY + ':' + gScrollGen; };
   var ioRecheck = function () {
     ioTickQ = false;
     ioSig = ioSigOf();

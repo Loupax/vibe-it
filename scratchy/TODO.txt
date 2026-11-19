@@ -2662,7 +2662,7 @@ challenge/consent wall. Fixture "big-css" (generate in the test, never vendor): 
 (`.c<i> .d<i> { margin-left: 1px }`, plus 200 `::before { content: "x" }` rules), 1 000 nested
 divs with 3 classes each, a script that does 50 x (write one attribute, read `offsetWidth`).
 
-- [ ] QY53a [S] (P1, R43, Sonnet) READY. `apply_first_line` / `apply_first_letter` (images.rs) scan
+- [x] QY53a [S] DONE a3fc15e (P1, R43, Sonnet) (big-css fixture forced_layout.total_ms 44.6 s -> 6.9 s median of 3 = -84 %; 50 layouts both). `apply_first_line` / `apply_first_letter` (images.rs) scan
       every selector of every rule (`rules.iter().any(...)`) for EVERY element to learn whether
       any `::first-line` / `::first-letter` rule exists: O(elements x rules), 44 % of all samples
       inside YouTube forced layouts (R43 section 4). Compute both flags once per rule list (with
@@ -2673,7 +2673,7 @@ divs with 3 classes each, a script that does 50 x (write one attribute, read `of
       shows the rule scan runs once per build, not per element. Accept: big-css fixture
       `--perf-report` forced_layout.total_ms >= 35 % lower than main (median of 3); YT watch check
       reported (R43 throwaway: -44 % per styled element).
-- [ ] QY53b [S] (P1, R43, Sonnet) READY. `RuleIndex::build` and `HoverKeys::build` run on every
+- [x] QY53b [S] DONE 12646d2 (P1, R43, Sonnet) (big-css forced_layout.total_ms 6.9 s -> 5.6 s median of 3 = -19 % vs after QY53a). `RuleIndex::build` and `HoverKeys::build` run on every
       `build_layout_tree_with_resources` although `RULES_CACHE` returned the same `Rc<Vec<StyleRule>>`
       (40 ms per YouTube forced layout, 8.5-13 %). Cache both next to the parsed rules (keyed by the
       `Rc` pointer + len, holding an `Rc` clone so the pointer cannot be reused) and rebuild only
@@ -2682,7 +2682,7 @@ divs with 3 classes each, a script that does 50 x (write one attribute, read `of
       the index once (test-only counter); a CSS change rebuilds it; matching results unchanged.
       Accept: big-css fixture forced_layout.total_ms >= 10 % lower than after QY53a; YT watch check
       reported (R43 throwaway with QY53a: -55-58 % per styled element vs main).
-- [ ] QY53c [S] (P1, R43, Sonnet) READY. Only real changes invalidate geometry. Today every write
+- [x] QY53c [S] DONE d9d2343 (P1, R43, Sonnet) (YouTube 3+3: median forced-layout ms per layout 419 -> 292, -30 %; tests qy53c_*). Only real changes invalidate geometry. Today every write
       native bumps the write generation (`gn`), so `GeomCache` (js_geom.rs) and the IO signature
       (`ioSigOf`, which uses `__d_wgen()`) re-run a full forced layout after a write that changed
       nothing: 34 % of YouTube forced layouts follow only no-op writes (`setAttribute`/`style`

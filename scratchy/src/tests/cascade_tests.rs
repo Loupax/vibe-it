@@ -2473,3 +2473,115 @@ fn qa14_dom_methods_throw_domexception() {
         "{log:?}"
     );
 }
+
+// ---------- QY53a: first-line / first-letter rule presence is computed once per rule list ----------
+
+fn qy53_any_first_line(b: &LayoutBox) -> bool {
+    b.style.first_line.is_some()
+        || match &b.content {
+            BoxContent::Blocks(c) => c.iter().any(qy53_any_first_line),
+            _ => false,
+        }
+}
+
+fn qy53_page(extra_css: &str, paragraphs: usize) -> String {
+    let mut body = String::new();
+    for i in 0..paragraphs {
+        body.push_str(&format!("<p class=\"k{i}\">alpha beta gamma delta {i}</p>"));
+    }
+    format!("<html><head><style>p {{ margin: 0 }} {extra_css}</style></head><body>{body}</body></html>")
+}
+
+#[test]
+fn qy53a_pseudo_rule_scan_runs_once_per_rule_list_not_per_element() {
+    let doc = parse_html(&qy53_page("", 60));
+    crate::style::PSEUDO_SCANS.with(|c| c.set(0));
+    let tree = build_layout_tree(&doc, 800.0);
+    let first = crate::style::PSEUDO_SCANS.with(|c| c.get());
+    assert_eq!(first, 2, "one first-line and one first-letter scan for the whole build");
+    assert!(!qy53_any_first_line(&tree));
+    // Same CSS again: the parsed rules (and their flags) are reused, no scan at all.
+    let _ = build_layout_tree(&doc, 800.0);
+    assert_eq!(crate::style::PSEUDO_SCANS.with(|c| c.get()), first);
+}
+
+#[test]
+fn qy53a_a_first_line_rule_added_later_is_seen() {
+    let doc = parse_html(&qy53_page("", 3));
+    assert!(!qy53_any_first_line(&build_layout_tree(&doc, 800.0)));
+    // A script adds a stylesheet with a ::first-line rule: new CSS text, new rule list, flags recomputed.
+    let head = find_by_tag(&doc, "head").unwrap();
+    let style = markup5ever_rcdom::Node::new(NodeData::Element {
+        name: html5ever::QualName::new(None, html5ever::ns!(html), html5ever::LocalName::from("style")),
+        attrs: std::cell::RefCell::new(Vec::new()),
+        template_contents: std::cell::RefCell::new(None),
+        mathml_annotation_xml_integration_point: false,
+    });
+    let text = markup5ever_rcdom::Node::new(NodeData::Text { contents: std::cell::RefCell::new("p::first-line { color: #f00 }".into()) });
+    text.parent.set(Some(std::rc::Rc::downgrade(&style)));
+    style.children.borrow_mut().push(text);
+    style.parent.set(Some(std::rc::Rc::downgrade(&head)));
+    head.children.borrow_mut().push(style);
+    assert!(qy53_any_first_line(&build_layout_tree(&doc, 800.0)), "::first-line applied after the rule appeared");
+}
+
+#[test]
+fn qy53a_style_text_change_drops_the_flag() {
+    let with = parse_html(&qy53_page("p::first-line { color: #f00 }", 2));
+    assert!(qy53_any_first_line(&build_layout_tree(&with, 800.0)));
+    let without = parse_html(&qy53_page("", 2));
+    assert!(!qy53_any_first_line(&build_layout_tree(&without, 800.0)));
+    assert!(qy53_any_first_line(&build_layout_tree(&with, 800.0)), "flipping back works too");
+}
+
+// ---------- QY53b: RuleIndex / HoverKeys are kept while the rule list is unchanged ----------
+
+fn qy53_derived_builds() -> usize {
+    crate::style::DERIVED_BUILDS.with(|c| c.get())
+}
+
+fn qy53_colors(doc: &Handle) -> Vec<TextColor> {
+    let tree = build_layout_tree(doc, 800.0);
+    let mut out = Vec::new();
+    find_all_span_colors(&tree, &mut out);
+    out
+}
+
+#[test]
+fn qy53b_index_is_built_once_for_unchanged_rules_and_rebuilt_on_css_change() {
+    let html = qy53_page(".k0 { color: #ff0000 } .k1 { color: #0000ff } p:hover { color: #00ff00 }", 4);
+    let doc = parse_html(&html);
+    let before = qy53_derived_builds();
+    let c1 = qy53_colors(&doc);
+    assert_eq!(qy53_derived_builds(), before + 1);
+    let c2 = qy53_colors(&doc);
+    let c3 = qy53_colors(&doc);
+    assert_eq!(qy53_derived_builds(), before + 1, "same CSS: no rebuild");
+    assert_eq!(c1, c2);
+    assert_eq!(c1, c3);
+    assert!(c1.contains(&TextColor::rgb(0xff, 0, 0)) && c1.contains(&TextColor::rgb(0, 0, 0xff)), "{c1:?}");
+    // The hover keys survive with the cached rules too.
+    let hk = crate::style::HOVER_KEYS.with(|k| k.borrow().clone());
+    let doc2 = parse_html(&qy53_page(".k0 { color: #ff0000 } .k1 { color: #0000ff } p:hover { color: #00ff00 }", 4));
+    let _ = build_layout_tree(&doc2, 800.0);
+    assert_eq!(crate::style::HOVER_KEYS.with(|k| k.borrow().clone()).tags, hk.tags);
+    // Changed CSS: rebuilt, and the new rules apply.
+    let doc3 = parse_html(&qy53_page(".k0 { color: #00ffff } .k1 { color: #0000ff }", 4));
+    let c4 = qy53_colors(&doc3);
+    assert_eq!(qy53_derived_builds(), before + 2);
+    assert!(c4.contains(&TextColor::rgb(0, 0xff, 0xff)) && !c4.contains(&TextColor::rgb(0xff, 0, 0)), "{c4:?}");
+}
+
+#[test]
+fn qy53b_class_change_with_cached_index_matches_the_new_class() {
+    let doc = parse_html(&qy53_page(".k0 { color: #ff0000 } .k1 { color: #0000ff } .z { color: #00aa00 }", 2));
+    let first = qy53_colors(&doc);
+    assert!(first.contains(&TextColor::rgb(0xff, 0, 0)), "{first:?}");
+    let builds = qy53_derived_builds();
+    // A script changes the class of the first <p>: same rules, cached index.
+    let p = find_by_tag(&doc, "p").unwrap();
+    crate::js_dom::set_attr(&p, "class", "z");
+    let second = qy53_colors(&doc);
+    assert_eq!(qy53_derived_builds(), builds, "rules unchanged: index reused");
+    assert!(second.contains(&TextColor::rgb(0, 0xaa, 0)) && !second.contains(&TextColor::rgb(0xff, 0, 0)), "{second:?}");
+}

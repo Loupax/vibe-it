@@ -7589,3 +7589,20 @@ Done: R38. The `true` is `<img alt="true">` (YouTube calls `setAttribute('alt', 
 **What changed:** src/media_video.rs (`paint_box` records a laid box whose clip leaves nothing visible, `vis: None`; `finish` still lists only visible boxes), src/app.rs (`redraw` reports the laid nodes with `media_set_laid`; `show_help` clears them), src/js.rs (`media_set_laid`), src/media_el.rs (`MediaBackend::set_video_keep`, `MediaCore::set_laid` / `keep_decoding` = laid && !paused, synced on play/pause/laid; FakeBackend records it), src/media_mpv.rs (`keep_video`: with no target and keep on, `vid` stays `auto`; frames are still consumed without rendering). Tests: media_tests.rs (2 FakeBackend), fetch_tests.rs (paint reports the clipped box, display:none has none), mse_tests/qm1k1n1.rs (real mpv, skips without libmpv/ffmpeg). Measured (320x240 25 fps fixture, 3 s hidden): keep = 0.48 s process CPU (about 16 % of one core), vid=no = 0.03 s; box in view to first rendered frame 0.040 s with keep vs 0.086-0.106 s with `vid=no`.
 
 **Verified:** see the PR / final report.
+## QY53a: first-line/first-letter rule presence once per rule list (scratchy/qy53abc-forced-layout)
+
+**Prompt:** Do QY53a: `apply_first_line`/`apply_first_letter` must not scan every rule for every element; compute both flags once per parsed rule list; tests that the scan runs once per build and that a later-added ::first-line rule is seen; measure on a generated big-css fixture with --perf-report.
+
+**What changed:** src/style.rs (`RuleDerived`, `rules_have_pseudo`, `PSEUDO_FLAGS`, test-only `PSEUDO_SCANS`), src/images.rs (flags set per build, read by the two functions), src/tests/cascade_tests.rs (qy53a_*), TODO.txt. Measured (--perf-report --budget-ms 20000, generated 20 000-rule fixture, 50 write+offsetWidth pairs, median of 3): forced_layout total 44.6 s -> 6.9 s. WPT: no change.
+
+## QY53b: RuleIndex/HoverKeys kept while the rule list is unchanged (scratchy/qy53abc-forced-layout)
+
+**Prompt:** Do QY53b: build `RuleIndex` and `HoverKeys` once per parsed rule list (keyed by the RULES_CACHE `Rc`, holding a clone) instead of on every `build_layout_tree_with_resources`; tests: built once for unchanged CSS, rebuilt on CSS change, matching unchanged after a class change.
+
+**What changed:** src/style.rs (`RuleDerived.index`, test-only `DERIVED_BUILDS`), src/images.rs (index moved into RULE_INDEX for the build and back; HoverKeys built on a miss; RULE_INDEX still None outside a build), src/tests/cascade_tests.rs (qy53b_*), TODO.txt. Measured (same fixture, median of 3): 6.9 s -> 5.6 s (-19 percent); total vs main 44.6 s -> 5.6 s. WPT: no change.
+
+## QY53c: only connected, value-changing DOM writes invalidate geometry (scratchy/qy53abc-forced-layout)
+
+**Prompt:** Do QY53c: a second (geometry) generation bumped only when a write changes a value of a node connected to the page; key GeomCache and the IntersectionObserver signature on it; keep the write generation for StyleCache. Tests for same-value setAttribute, detached writes then append, same-text node writes, stylesheet/class changes.
+
+**What changed:** src/js_dom.rs (thread-local GEOM_GEN, geom_gen/geom_bump/page_connected helpers, `__d_ggen`, conditional bumps in setattr/rmattr/setq/rmq/setns/rmns/settext/sethtml/write/insert/remove, unconditional bumps for form state, adopted sheets and sheet text; `ioSigOf` and the text-rect cache use `__d_ggen`), src/js_geom.rs (GeomCache keyed on it; test-only GEOM_LAYOUTS counter), src/tests/js_geometry_tests.rs (qy53c_*), TODO.txt. Measured: YouTube watch 3+3 runs (own wire, Chrome UA, 60 s): forced-layout ms per layout main 419/257/448 (median 419), branch 268/334/292 (median 292) = -30 percent per layout; counts and totals are not comparable (the page gets further when faster). Wikipedia Rust 10 s: main ~10.4-11.0 s, branch ~9.8-10.1 s; Main_Page 0 forced layouts both. WPT: no change. js-report 0 errors on wikipedia.org, en Main_Page, HN.
