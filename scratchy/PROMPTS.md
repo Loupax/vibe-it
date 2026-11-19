@@ -7525,3 +7525,11 @@ Done: R38. The `true` is `<img alt="true">` (YouTube calls `setAttribute('alt', 
 **What changed:** src/mse_prelude.js (new), src/js_media.rs (`__mse_*` natives, `queue_outs` drops a closed MediaSource's feed, event routing `o/n/c`), src/media_el.rs (`mse_feed_id`, `mse_end_of_stream_error`, `fail_src`, `MediaHost::with_mse`, `MseHost::len`), src/mse_store.rs (`remove_buffer`), src/media_prelude.js (`__mse_try` hook in doLoad, event routing, `__media_kick`/`__media_reload`), src/fetch_prelude.js (createObjectURL accepts a MediaSource; fetch of one rejects), src/js.rs (eval order, `media` field pub(crate)), tests in src/tests/mse_tests/qm1k1d.rs. SourceBuffer is a shell (appendBuffer/abort/remove log `not implemented` and throw NotSupportedError) until QM1k1e. The Rust feed is created at attach (a never-attached MediaSource costs nothing); isTypeSupported is false without a backend.
 
 **Verified:** full cargo test on default (1107) and engine-quickjs,media (1099); clippy TOTAL 74; WPT no change; --js-report --run-timers 5000 on wikipedia.org, en Main_Page, HN: 0 errors.
+
+## QM1k1e JS SourceBuffer (scratchy/qm1k1e-js-sourcebuffer)
+
+**Prompt:** Implement QM1k1e: JS `SourceBuffer` (appendBuffer(BufferSource), updating + updatestart/update/updateend, abort, remove, buffered, mode, timestampOffset, appendWindowStart/End, changeType), natives through the engine seam, tests on both engines, a local test page that plays real mp4 through MediaSource with real mpv (skip without libmpv/ffmpeg), real nested-dwl screenshot.
+
+**What changed:** src/mse_prelude.js (SourceBuffer), src/js_media.rs (`__mse_append/abort/remove/buffered/reopen`), src/media_el.rs (`mse_reopen`, `mse_current_time`, test-only `MseHost::only`), src/mse_store.rs (`MseFeed::reopen`, `MseStore::set_max_bytes`), src/media_prelude.js (`__mk_ranges`), src/tests/mse_tests/qm1k1e.rs + qm1k1e_page.html (13 tests; qm1k1d.rs helpers made pub(super); mse_mpv_tests `real` made pub(crate)). 'sequence' mode and appendWindow/timestampOffset are stored only (QM1k1i).
+
+**Verified:** full cargo test (default; QY22t flake once under load, passes alone), clippy TOTAL 74, WPT no change, --js-report --run-timers 5000 on wikipedia.org, en Main_Page, HN: 0 errors, nested-dwl grim of the local page playing an mp4 via MSE.
