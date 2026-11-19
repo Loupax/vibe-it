@@ -1238,7 +1238,7 @@ pub(crate) fn resolve_background_image(
 ) -> Option<Arc<DecodedImage>> {
     let base_matches = matching_declarations(handle, rules, viewport_width);
     let var_lookup = |n: &str| custom_props.and_then(|p| p.get(n));
-    let synth = expand_var_decls(&base_matches, &var_lookup);
+    let synth = expand_var_decls(&base_matches, custom_props);
     let mut matches = merge_var_matches(&base_matches, &synth);
     let inline_src = element_attr(handle, "style").map(|s| substitute_css_vars(&s, &var_lookup).unwrap_or_default());
     let inline_split = inline_src.map(|s| parse_declarations_split(&s));
@@ -1339,17 +1339,30 @@ pub(crate) fn whiten_mask(mut img: DecodedImage) -> DecodedImage {
 /// `lookup`'s custom properties substituted (Q13); one slot per match.
 pub(crate) fn expand_var_decls(
     base: &[(u64, &Declarations)],
-    lookup: &dyn Fn(&str) -> Option<String>,
-) -> Vec<Option<Vec<(Declarations, Declarations)>>> {
+    custom_props: Option<CustomPropsRef>,
+) -> Vec<Option<VarGroups>> {
+    let lookup = |n: &str| custom_props.and_then(|p| p.get(n));
     base.iter()
         .map(|(_, d)| {
             if d.var_decls.is_empty() {
                 return None;
             }
+            // QAN1h1: identical declaration blocks under the same custom-property
+            // table expand identically; memoised for the duration of one build.
+            let key = (std::ptr::from_ref::<Declarations>(d) as usize, custom_props);
+            let hit = VAR_EXPAND_MEMO.with(|m| m.borrow().as_ref().and_then(|m| m.get(&key).cloned()));
+            if let Some(h) = hit {
+                #[cfg(test)]
+                VAR_EXPAND_HITS.with(|c| c.set(c.get() + 1));
+                return Some(h);
+            }
+            #[cfg(test)]
+            VAR_EXPANSIONS.with(|c| c.set(c.get() + 1));
+            let lookup: &dyn Fn(&str) -> Option<String> = &lookup;
             // One group per source-order segment (Q52b): the `var()`
             // declarations between two runs of plain ones.
             let groups = d.var_seg.iter().copied().max().map_or(1, |m| m + 1);
-            Some(
+            let out: VarGroups = Rc::new(
                 (0..groups)
                     .map(|k| {
                         let mut src = String::new();
@@ -1372,9 +1385,34 @@ pub(crate) fn expand_var_decls(
                         parse_declarations_split(&src)
                     })
                     .collect(),
-            )
+            );
+            VAR_EXPAND_MEMO.with(|m| {
+                if let Some(m) = m.borrow_mut().as_mut() {
+                    m.insert(key, out.clone());
+                }
+            });
+            Some(out)
         })
         .collect()
+}
+
+/// One rule block's `var()` groups, expanded (see `expand_var_decls`).
+pub(crate) type VarGroups = Rc<Vec<(Declarations, Declarations)>>;
+type VarMemo = HashMap<(usize, Option<CustomPropsRef>), VarGroups>;
+
+thread_local! {
+    /// QAN1h1: `(declaration block address, custom-property table)` -> its expanded
+    /// groups. `Some` only while `build_layout_tree_with_resources` runs (the rules
+    /// slice, so the addresses, is fixed then); `None` everywhere else, so a
+    /// `getComputedStyle` between builds never sees a stale entry.
+    pub(crate) static VAR_EXPAND_MEMO: RefCell<Option<VarMemo>> = const { RefCell::new(None) };
+}
+
+#[cfg(test)]
+thread_local! {
+    /// Test-only counters: real expansions / memo answers on this thread.
+    pub(crate) static VAR_EXPANSIONS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    pub(crate) static VAR_EXPAND_HITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
 /// Slots each `expand_var_decls` result right after its rule's own
@@ -1382,7 +1420,7 @@ pub(crate) fn expand_var_decls(
 /// declarations written after a `var()` group follow it (`late`).
 pub(crate) fn merge_var_matches<'a>(
     base: &[(u64, &'a Declarations)],
-    synth: &'a [Option<Vec<(Declarations, Declarations)>>],
+    synth: &'a [Option<VarGroups>],
 ) -> Vec<(u64, &'a Declarations)> {
     let mut matches = Vec::with_capacity(base.len() + 2);
     for (idx, &(spec, d)) in base.iter().enumerate() {
@@ -1764,7 +1802,7 @@ pub(crate) fn resolve_style_core<'a>(
         inherited.custom_props
     };
     let var_lookup = |n: &str| custom_props.and_then(|p| p.get(n));
-    let synth = if rule_has_vars { expand_var_decls(&base_matches, &var_lookup) } else { Vec::new() };
+    let synth = if rule_has_vars { expand_var_decls(&base_matches, custom_props) } else { Vec::new() };
     let mut matches = merge_var_matches(&base_matches, &synth);
     if inline_has_vars {
         let src = inline_src.as_ref().map(|s| s.to_string()).unwrap_or_default();
