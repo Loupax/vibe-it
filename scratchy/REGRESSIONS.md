@@ -1,5 +1,128 @@
 # scratchy — regressions
 
+## R44: Performance VISIBILITY audit: a sampling profiler (`perf` + V8's JIT map) attributes CPU to Rust functions AND page JS functions in one run, with no throwaway code. Profiles of main 8d7d692 confirm the QY53 picture, add three hotspots nobody had filed (`El::has_class` is 28-32 % of ALL CPU on both pages; custom-property interning 5.3 % on YouTube; shape-memo keys built with `format!("{:?}")` 5.5 % on Wikipedia), and show what the harness cannot see: the window (no frame/paint/input timing at all), WHICH callback was slow, and ~590 MB of native memory (Opus investigator, 2026-11-19) — OPEN: QOBS1-QOBS10, QP4, QY53i (TODO.txt block "PERFORMANCE VISIBILITY (QOBS)")
+
+**Status: investigation only, docs only. No source change.** The user asked for more visibility on
+performance bottlenecks so targeted action items can be filed, with local-only tools.
+
+### 0. Setup (NEW machine; numbers are NOT comparable with PERF.md's tables)
+- AMD Ryzen 7 5700X (8 cores / 16 threads), 31 GB RAM, Fedora 44, kernel 7.2.11, rustc 1.100.0.
+  PERF.md's QV8-0 / QV8-m tables were taken on a Ryzen 5 PRO 2500U laptop (Gentoo). QOBS9 re-baselines.
+- Binary 1 = `target/release/scratchy` of main 8d7d692 (normal release: symbols, no debuginfo, no frame
+  pointers). Binary 2 = the SAME commit built for profiling into a target dir OUTSIDE the repo:
+  ```
+  RUSTY_V8_ARCHIVE=$HOME/.cache/librusty_v8-152.2.0.a CARGO_TARGET_DIR=$HOME/.cache/scratchy-prof-target \
+  RUSTFLAGS="-C force-frame-pointers=yes" CARGO_PROFILE_RELEASE_DEBUG=line-tables-only cargo build --release
+  ```
+  (archive copied from `target/release/build/gn_out/obj/librusty_v8.a`; the build took 70 s on this machine.)
+- Tools: `perf` 7.3.4 (Fedora package, installed by the user), `samply` 0.13.1 (`cargo install`, not used in
+  the end: it needs `perf_event_paranoid <= 1` like perf's call graphs). The user set
+  `/proc/sys/kernel/perf_event_paranoid` to 1 (was 2; NOT persistent, back to 2 on reboot). At 2, `perf record
+  -e cycles:u` works but WITHOUT call graphs (`-g`, `--call-graph dwarf|lbr` all fail to open the event).
+- Wire: the user's normal daemon (`/run/user/$UID/wire.sock`), headless `--perf-report --budget-ms 20000`.
+  YouTube with the R43 Chrome 131 UA (user-approved there), `watch?v=G1AeBgalFZk`, 60 s; no challenge, no
+  consent wall. Wikipedia `Rust_(programming_language)`, 30 s.
+
+### 1. Recipe that worked (the core of QOBS1)
+```
+SCRATCHY_V8_SNAPSHOT=0 SCRATCHY_V8_FLAGS='--perf-basic-prof --interpreted-frames-native-stack' \
+  perf record -e cycles:u -F 999 -g -o out.data -- $PROF_BIN --perf-report --socket ... --budget-ms 20000 --seconds 30 URL
+perf script -i out.data | python3 fold.py out.folded   # folded stacks, per-thread totals
+```
+- `-g` = frame-pointer unwinding. With binary 1 (no frame pointers) `--call-graph dwarf` unwinds V8 frames but
+  stops at the first Rust frame (every Rust leaf shows `[unknown]` as its caller): flat profiles only.
+- `--perf-basic-prof` makes V8 write `/tmp/perf-<pid>.map`, so JIT frames appear as `JS:^getPlayerSize
+  https://www.youtube.com/s/player/983e9c18/...` and scratchy's prelude as `JS:^gRect eval:2585:24`.
+  `--interpreted-frames-native-stack` adds the interpreted (`~`) frames. Together they gave, in ONE run, the
+  same "who forces the layout" table R43 needed a throwaway `new Error().stack` patch for (section 3).
+- **CRASH (QOBS2):** both flags together WITH the default V8 startup snapshot segfault on Wikipedia 3/3
+  (exit 139, `--seconds 3`); each flag alone 1/1 ok; both flags with `SCRATCHY_V8_SNAPSHOT=0` 3/3 ok; a tiny
+  local page ok in every combination. Not investigated further (flags changed after the snapshot was baked
+  is the obvious suspect; do not guess, QOBS2 measures).
+- The fold / inclusive / caller scripts used are throwaway (scratchpad); QOBS1 makes them permanent.
+
+### 2. Wikipedia Rust (30 s)
+| run | binary | forced layouts | forced-layout total | max | observer_delivery raw CPU | RSS / JS heap |
+|---|---|---|---|---|---|---|
+| A, load avg 5 (a cargo build was running) | 1 | 8 | 10 381 ms | 1 718 ms | 10 667 ms | 305 / 21 MB |
+| B, quiet, under perf | 2 | 8 | 4 306 ms | 593 ms | - | 312 / 25 MB |
+(The 2.4x difference between A and B is the load, not the build flags: one-off, not a measurement of either.)
+
+Profile B, inclusive share of ALL samples (all threads; the main thread is 99.2 %):
+| frame | % |
+|---|---|
+| `obsFlush` (scratchy's IO prelude) | 91.7 |
+| `GeomCache::refresh` (forced layout) | 91.2 |
+| `build_layout_tree_with_resources` | 65.2 |
+| `precompute_generated` (since QY53d it does the matching the box build then reuses) | 53.7 |
+| `matching_declarations_for` | 53.3 |
+| **`El::has_class` -> `str::SplitWhitespace::next`** | **31.7** (28.6 in `SplitWhitespace` itself) |
+| `measure_document` (shaping + layout) | 22.8 |
+| `build_children` | 10.1 |
+| malloc/free/realloc | 7.8 |
+| `core::fmt::*` | 6.8 |
+| **`layout::memo_key`** (callers: `measure_mixed_inline`, `measure_inner`, `shape_or_resume_word`) | **5.5** |
+| harfrust / cosmic-text shaping | 5.5 |
+| V8 compile/parse | 3.9 |
+| `do_lookup_x` (dynamic linker, from `dlopen` of libmpv mid-run: the article's video creates a player; mpv threads `lua/*`, `vo`, `av:vp9` sampled) | 1.4 |
+`memo_key` (layout.rs) hashes `format!("{align:?}")` and `format!("{span:?}")` for EVERY text item of every
+paragraph it looks up: a Debug string of the whole `SpanStyle` (colors, floats via `flt2dec`, enums), then
+SipHash over it. That is most of the `fmt::` share. -> QP4.
+Process start is not a factor: 60 ms wall, `engine_startup_cpu_ms` 27, 1 565 relocations.
+
+### 3. YouTube watch (60 s)
+`--perf-report`: ok, no challenge. 285 forced layouts, 32 300 ms, max 270 ms. Callbacks (raw CPU total / max):
+timer 1 347 x, 24 198 / **5 519 ms**; promise_job 2 105 x, 5 283 / **2 823 ms**; observer_delivery 142 x,
+5 335 / 291; classic_script 58 x, 1 818 / 1 553. RSS **714 MB**, JS heap 124 MB. js_errors 2.
+The JSON names no callback: which timer took 5.5 s is not knowable from the harness (-> QOBS4).
+
+Inclusive share of all samples (main thread 96.8 %, V8 worker threads 3.1 %):
+| frame | % |
+|---|---|
+| `GeomCache::refresh` / `rect_of` | 87.3 |
+| `build_layout_tree_with_resources` | 83.9 |
+| `precompute_generated` | 63.8 |
+| `matching_declarations_for` | 62.6 |
+| **`El::has_class`** | **29.3** |
+| `build_children` / `resolve_style_*` | 18.0 / 17.6 |
+| obsFlush (IO) | 13.8 |
+| malloc/free/realloc | 6.6 |
+| **`css::intern_custom_props`** (from `compute_custom_props`) | **5.3** (BTreeMap clone 3.4, drop 2.2, SipHash of every key+value string ~1.6) |
+| `js_style` computed style | 4.8 |
+| V8 compile/parse | 4.6 |
+| `RuleIndex`/`HoverKeys` (the `RULE_INDEX` thread-local borrow inside `matching_indices_for`) | 3.1 |
+| `js_style::page_css` (QY53h) | 1.5 |
+| `measure_document` | 1.6 |
+| `Declarations::clone` | 1.0 |
+Who forces the layouts (nearest page JS frames above `GeomCache::refresh`): `getPlayerSize` (via `Gl`,
+`Va`) 43 %, `cV` > `b6a` (`offsetX` via `gOffset`) 13.6 %, scratchy's IO (`ioEval` > `gViewRect`) 10.6 %,
+`numberOfGhostCommentsChanged` 2.3 %: the same ranking as R43 section 2, from one perf run.
+`intern_custom_props` clones the parent's whole custom-property `BTreeMap<String,String>` plus the element's own
+declarations, hashes the complete map to look it up, and `Box::leak`s every distinct map: memory that is
+never freed, for the life of the process, across navigations. YouTube defines hundreds of `--yt-*` properties.
+
+### 4. What the existing tools cannot show (the visibility gaps)
+1. **No profiler recipe** in the repo: R43 wrote a SIGPROF sampler and reverted it; every investigator has to
+   rebuild that. Section 1 does more with no code (QOBS1). The V8 flag crash (QOBS2) blocks the obvious
+   recipe.
+2. **Forced layouts are a count and a total** in `--perf-report` (`GeomCache::refresh` keeps `forced`,
+   `forced_ms`). The per-phase split, the no-op rate (80 % on YouTube, R43) and the JS caller all needed
+   throwaway code in R43 (QOBS3).
+3. **Callbacks are aggregated per kind.** A 5.5 s timer and a 2.8 s promise job on YouTube have no name,
+   script or line (QOBS4).
+4. **The window is not measured at all.** `App::redraw` records only `last_build_time`; there is no count or
+   time for redraws, shape-worker results, paint, present, video frames shown, or input-to-paint latency.
+   QM1k1n6 (redraw starvation), QM1k-mouse (video freezes while the mouse moves), QY53e2/QY53e3 (App layout
+   vs forced layout) and QM1k1n5 (network results 1-19 s late) each prescribe "temporary `Instant` stamps"
+   (QOBS5, QOBS6).
+5. **Memory:** `rss_bytes` at the end and the JS heap only. YouTube: 714 MB RSS vs 124 MB heap; ~590 MB native
+   with no breakdown (layout trees, glyph maps, `CUSTOM_PROPS_INTERNER` leaks, `SHAPE_MEMO`, image/SVG caches,
+   MSE store, libmpv). No peak RSS (QOBS7).
+6. **Comparing runs is manual.** `perf/<engine>-<hash>.json` exists but nothing diffs two of them (QOBS8);
+   no offline, deterministic forced-layout benchmark exists (the big-css fixture lives only inside tests;
+   `benches/layout.rs` covers tree build + shaping of a synthetic page) (QOBS10).
+7. **The baseline is from the old machine** (QOBS9).
+
 ## R43: Where forced layout goes (QY53): on the YouTube watch page 88 % of it is the player's `getPlayerSize` reading `#movie_player.clientWidth`, 80 % of those layouts change no box at all, and 99.5 % of each one is STYLE and BOX BUILD (layout proper 0.4 %); half of that is one O(elements x rules) scan for `::first-line`/`::first-letter` rules. On Wikipedia it is scratchy's OWN IntersectionObserver evaluation (Opus investigator QY53, 2026-11-19) — OPEN: QY53a-QY53h (a-d DONE; QY53e designed in section 7, PARTIAL, split into QY53e1-e3)
 
 **Status: investigation only, docs only.** Main b8d865f, own worktree release build (V8 + media,

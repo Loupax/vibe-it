@@ -1,7 +1,10 @@
 # Coordinator hand-off (2026-11-19, workload moving to another machine)
 
-Read scratchy/AGENTS.md, scratchy/TODO.txt (QUEUE), REGRESSIONS.md R42/R43, QUESTIONS.md, and the memory
+Read scratchy/AGENTS.md, scratchy/TODO.txt (QUEUE), REGRESSIONS.md R42/R43/R44, QUESTIONS.md, and the memory
 index first. Newer than NEXT_PROMPT.md (which is stale: it says one agent, baseline 78, QuickJS).
+
+**USER RULE 2026-11-19: PERFORMANCE FIRST.** Assign from the "PERFORMANCE QUEUE" at the top of TODO.txt's
+QUEUE, in its order, with both agent slots, before any other item. It supersedes the blocker order below.
 
 ## State
 - main at 167c9c0 or later. V8 + media are the default build (`cargo install --path . --force`, add

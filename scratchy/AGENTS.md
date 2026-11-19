@@ -5,6 +5,9 @@
   engine (QuickJS only behind `engine-quickjs` until QV8-6, which needs the user's OK). Work
   the TODO.txt queue again in order (READY items). QV8-5b (clippy in media_mpv.rs) is done;
   the MSE build (QM1k4 onward, plan in TODO.txt QM1k-PLAN) is allowed now.
+- **PERFORMANCE FIRST (user, 2026-11-19):** the "PERFORMANCE QUEUE" at the top of TODO.txt's QUEUE
+  outranks every other item. Take the first unassigned item from it; start nothing else while one of
+  its items is READY and unassigned (except crash/regression/red-CI fixes on main).
 - Read `TODO.txt` (QUEUE section first), `NOTES.md`, `REGRESSIONS.md`.
 - Take the first unchecked QUEUE item (during the freeze: QT1, then the first unchecked QV8 item).
   Don't reorder or merge items.
