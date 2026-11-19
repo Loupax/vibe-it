@@ -1307,9 +1307,13 @@ Shared rules for this block:
       (estimate): YT controls-visible forced layouts ~10/s -> ~3-4/s.
 - [ ] QYTC1b [S] (P2, from R50; Sonnet; after QYTC1a, same hook) A write restoring an attribute's value at the last forced
       layout cancels its own bump (`ytp-autohide-active` toggled between two reads: the 11-13 % no-op layouts).
+- [ ] QFLK1 [S] (P3, coordinator 2026-11-19, from the QM1k1n5 agent; Sonnet) Load-sensitive test flakes in a full parallel
+      default-config run on a busy machine: qy14_js_report_run_timers_finds_timer_and_channel_errors,
+      qy14_js_report_run_timers_is_bounded, qobs7_memory_fields_are_present (pass when re-run alone; "shared global state"
+      suspected). Find the shared state or timing assumption and make them deterministic.
 - [ ] QYTC1c [S] (P3, from R50; measure) css_collect + rule_index are 18 % of every forced layout on the JS thread
       (~5 ms each): is RULE_DERIVED's index rebuilt per layout there? (css area: not alongside QAN1h2/QAN1h3)
-- [ ] QOBS5c [S] (P2, from QM1k1n6, R46; Sonnet; app.rs/perf.rs: not alongside QM1k1n6a-c) frame-stats lines get
+- [ ] [WIP] QOBS5c [S] (P2, from QM1k1n6, R46; Sonnet; app.rs/perf.rs: not alongside QM1k1n6a-c) frame-stats lines get
       `forced.by_caller` top 3 and the longest callback's source per second (window mode today has neither). Gate: present
       on the R46 recipe; overhead <= 2 %.
 - [ ] [WIP] QY53o1 [S] (P1, from QY53o 732438c, R47 addendum; Sonnet; AFTER QY53l2 #351 merges, same js_dom.rs write paths; share
