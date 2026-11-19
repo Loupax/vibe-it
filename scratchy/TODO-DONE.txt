@@ -6970,3 +6970,11 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 - [x] QM1h DONE - DROPPED by the user 2026-11-19 ~22:45: D2 = libmpv in-process; re-file if isolation is ever wanted [L] (only if D2 = separate process) media helper process: owns libmpv,
       renders frames into a memfd shared with scratchy, talks the same commands
       over a socket, crash kills only the helper.
+
+=== from TODO.txt: --- (Opus investigator, 2026-11-16) — D0 gate CLOSED 2026-11-16 ---------
+      - [x] QY20b DONE - CLOSED 2026-11-19 ~22:50: user checked bbc.com/news live, no tick glyphs (screenshot .coordinator/user-runs/bbc-news-2026-11-19.png) [S] bbc.com/news after QY20: the grey strip and its
+        track/thumb are gone, but small dark tick glyphs remain at the
+        same x≈318 (every ~45px down the page, next to the nav). They
+        are not the scrollbar (no track fill). Not root-caused: check
+        which hidden or clipped box paints them (the nav drawer's
+        content or an icon), then fix or file it.
