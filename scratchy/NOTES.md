@@ -2948,6 +2948,18 @@ declarations (resolve_style runs several times per element), which is
 fine at current page sizes but the first thing to cache if profiling
 points here.
 
+QY53i: `compute_custom_props` is memoised (`CUSTOM_PROPS_MEMO`, thread
+local) on (parent table address, the element's own winning `--x` raw
+pairs sorted by name). Because interned tables are leaked, an address is
+never reused, so the pair fully determines the result and a hit returns
+the interned pointer without cloning the parent table, re-resolving
+`var()` or SipHashing the whole combined table (YouTube watch tables are
+~125 KB each; 98 % of calls are hits). The leak itself
+is unchanged: freeing tables on navigation needs `ComputedStyle` /
+`InheritedStyle` to stop being `Copy` (an `Rc`/handle instead of
+`&'static`), which is a larger change than QY53i; the memo, like the
+interner, lives as long as the thread.
+
 ## Q14 — viewport units and the initial containing block
 
 Two separate roles used to share the root `Laid`'s `h`: the basis for
