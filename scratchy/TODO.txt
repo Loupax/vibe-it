@@ -1321,9 +1321,6 @@ Shared rules for this block:
       suspected). Find the shared state or timing assumption and make them deterministic.
 - [ ] QYTC1c [S] (P3, from R50; measure) css_collect + rule_index are 18 % of every forced layout on the JS thread
       (~5 ms each): is RULE_DERIVED's index rebuilt per layout there? (css area: not alongside QAN1h2/QAN1h3)
-- [ ] [WIP] QOBS5c [S] (P2, from QM1k1n6, R46; Sonnet; app.rs/perf.rs: not alongside QM1k1n6a-c) frame-stats lines get
-      `forced.by_caller` top 3 and the longest callback's source per second (window mode today has neither). Gate: present
-      on the R46 recipe; overhead <= 2 %.
 - [ ] QY53o2 [M] (P3, from QY53o; Opus design first; ONLY if QY53o1 leaves > ~3 s per run) Writes inside an abs/fixed
       positioned subtree do not invalidate rects outside it (Page Previews' popup: 7-21 layouts per run). Gate: forced.n <= 5
       after QY53o1.
