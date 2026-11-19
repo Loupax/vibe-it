@@ -958,9 +958,68 @@ pub(crate) fn matching_declarations_for<'a>(
     viewport_width: f32,
     pseudo: Option<&str>,
 ) -> Vec<(u64, &'a Declarations)> {
+    // QY53d: inside one layout build every (element, pseudo) is matched once;
+    // the later passes (counters, background image, the cascade itself) reuse
+    // the result. The memo holds rule indices, so it never outlives the rules.
+    let memo_key = pseudo_slot(pseudo).map(|s| (Rc::as_ptr(handle) as usize, s, rules.as_ptr() as usize, rules.len(), viewport_width.to_bits()));
+    let resolve = |found: &[(u64, u32, bool)]| -> Vec<(u64, &'a Declarations)> {
+        found
+            .iter()
+            .map(|&(key, i, imp)| (key, if imp { &rules[i as usize].important } else { &rules[i as usize].decls }))
+            .collect()
+    };
+    if let Some(k) = memo_key
+        && let Some(hit) = MATCH_MEMO.with(|m| m.borrow().as_ref().and_then(|m| m.get(&k).cloned()))
+    {
+        return resolve(&hit);
+    }
+    #[cfg(test)]
+    MATCH_RUNS.with(|c| c.set(c.get() + 1));
+    let found = matching_indices_for(handle, rules, viewport_width, pseudo);
+    let out = resolve(&found);
+    if let Some(k) = memo_key {
+        MATCH_MEMO.with(|m| {
+            if let Some(m) = m.borrow_mut().as_mut() {
+                m.insert(k, Rc::new(found));
+            }
+        });
+    }
+    out
+}
+
+/// Memo slot of the pseudo-elements the build matches; `None` = never memoized.
+fn pseudo_slot(pseudo: Option<&str>) -> Option<u8> {
+    match pseudo {
+        None => Some(0),
+        Some("before") => Some(1),
+        Some("after") => Some(2),
+        Some("first-line") => Some(3),
+        Some("first-letter") => Some(4),
+        Some("marker") => Some(5),
+        Some(_) => None,
+    }
+}
+
+type MatchMemo = HashMap<(usize, u8, usize, usize, u32), Rc<Vec<(u64, u32, bool)>>>;
+
+thread_local! {
+    /// QY53d: `Some` only while `build_layout_tree_with_resources` runs.
+    pub(crate) static MATCH_MEMO: RefCell<Option<MatchMemo>> = const { RefCell::new(None) };
+    /// Test-only: how many real selector-matching passes ran.
+    #[cfg(test)]
+    pub(crate) static MATCH_RUNS: Cell<usize> = const { Cell::new(0) };
+}
+
+/// The real matching work: `(key, rule index, is the important half)`.
+fn matching_indices_for(
+    handle: &Handle,
+    rules: &[StyleRule],
+    viewport_width: f32,
+    pseudo: Option<&str>,
+) -> Vec<(u64, u32, bool)> {
     let element = El(handle.clone());
     let mut caches = SelectorCaches::default();
-    let mut matches: Vec<(u64, &Declarations)> = Vec::new();
+    let mut matches: Vec<(u64, u32, bool)> = Vec::new();
     // R3.3: when an index was registered for exactly this rule slice,
     // only test the rules whose rightmost compound could match this
     // element (ascending rule order preserved, so cascade ties are
@@ -970,15 +1029,13 @@ pub(crate) fn matching_declarations_for<'a>(
         let (ptr, len, idx) = ri.as_ref()?;
         (*ptr == rules.as_ptr() as usize && *len == rules.len()).then(|| idx.candidates(handle, pseudo.is_some()))
     });
-    let all: Vec<usize>;
-    let order: &mut dyn Iterator<Item = &'a StyleRule> = &mut match &candidates {
-        Some(c) => {
-            all = c.clone();
-            Box::new(all.into_iter().map(|i| &rules[i])) as Box<dyn Iterator<Item = &'a StyleRule>>
-        }
-        None => Box::new(rules.iter()),
+    let order: Vec<usize> = match candidates {
+        Some(c) => c,
+        None => (0..rules.len()).collect(),
     };
-    for rule in order {
+    for ri in order {
+        let rule = &rules[ri];
+        let ri = ri as u32;
         // The one choke point every cascade/matching call in this file
         // goes through — a media-conditioned rule is only ever a
         // cascade candidate when its own condition currently holds for
@@ -1008,8 +1065,8 @@ pub(crate) fn matching_declarations_for<'a>(
                 }
             }
             if let Some(specificity) = best {
-                matches.push((normal_key(specificity, rule.layer), &rule.decls));
-                matches.push((important_key(specificity, rule.layer), &rule.important));
+                matches.push((normal_key(specificity, rule.layer), ri, false));
+                matches.push((important_key(specificity, rule.layer), ri, true));
             }
             continue;
         }
@@ -1030,8 +1087,8 @@ pub(crate) fn matching_declarations_for<'a>(
                 .map(|s| s.specificity())
                 .max()
                 .unwrap_or(0);
-            matches.push((normal_key(specificity, rule.layer), &rule.decls));
-            matches.push((important_key(specificity, rule.layer), &rule.important));
+            matches.push((normal_key(specificity, rule.layer), ri, false));
+            matches.push((important_key(specificity, rule.layer), ri, true));
         }
     }
     matches
