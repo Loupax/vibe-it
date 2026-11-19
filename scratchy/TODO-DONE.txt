@@ -6749,3 +6749,12 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
 - [x] QY53o DONE 732438c (R47 addendum: Page Previews title toggles + IO rechecks force full layouts; items QY53o1-3) [S] (P1, from QY53n 140bef3, R47; Opus measure) Wikipedia Rust with JS on, pointer over links: 35 forced
       layouts per run (14.5-16.8 s) that nobody has attributed. Find the callers (QOBS3 by_caller via a headless replay of
       the hover JS, or temporary window instrumentation) and why each forces a layout; file sized fix items.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QM1k1n6b DONE 60925e7 (click->first frame ~3 s -> ~1 s; js>=1000 gate met; gap<=100 not met: single ~60 ms layouts / 55 ms builds remain) [M] (P1 mouse freeze, from QM1k1n6, R46; Sonnet; AFTER QM1k1n6a, same code) `run_due` time slice: today one
+      turn runs up to 100 due timers with no time limit (1.2-2.5 s after a hover on YouTube's controls). Run timers until
+      16 ms of CPU while video plays or input is pending (50 ms otherwise), then yield; the rest run next turn in order.
+      Gate: gap_max_ms <= 100 in >= 90 % of seconds from click to first frame; video painted >= 10 in any second with
+      js_ms >= 1000 (user file today: 1). Tests: timer order preserved across slices; a slice yields to a pending redraw.
+      Recipe (R46): nested dwl, YT watch G1AeBgalFZk, default UA, own wire, SCRATCHY_FRAME_STATS, tools/inject moving the
+      pointer at 60 Hz along the player controls bar for 8-10 s; baseline = the user's file (R46).
