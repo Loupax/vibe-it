@@ -3691,3 +3691,7 @@ handle read on another thread (the shaping worker gets styled trees but reads no
 reads empty instead of aliasing. Within one document the arena only grows (bounded by the distinct
 tables; an SPA that keeps one document forever keeps its tables). A cross-build `ComputedStyle` cache
 (QY53f3) must be cleared in `reset_custom_props_arena` too.
+
+## QY53i3: animation list sets in a per-thread arena (src/animation.rs)
+
+Same scheme as QY53i2: `AnimRef` handle into `ANIM_ARENA`, one `Rc<AnimLonghands>` per distinct list set, a new generation (and the old tables freed) on `reset_anim_arena()`, which `reset_custom_props_arena()` calls. Any future cross-build style cache must be cleared there too.

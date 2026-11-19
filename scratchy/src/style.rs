@@ -374,7 +374,7 @@ pub(crate) struct ComputedStyle {
     /// an `Ellipsis` onto the anonymous inline runs of a clipping box.
     pub(crate) text_overflow: TextOverflow,
     /// QAN1a: the interned animation lists (parse only, not evaluated yet).
-    pub(crate) animations: Option<&'static AnimLonghands>,
+    pub(crate) animations: Option<AnimRef>,
     /// `appearance: none` (Q30a): form controls keep their text but get no
     /// widget decorations (check mark, select arrow, bar fill). Not inherited.
     pub(crate) appearance_none: bool,
@@ -1981,7 +1981,10 @@ pub(crate) fn resolve_style_for(
     // exactly this one test.
     match base.animations {
         None => base,
-        Some(a) => evaluate(base, a, handle, rules, inherited, viewport_width, pseudo),
+        Some(a) => match a.table() {
+            Some(lists) => evaluate(base, &lists, handle, rules, inherited, viewport_width, pseudo),
+            None => base, // QY53i3: a handle of a freed arena
+        },
     }
 }
 
