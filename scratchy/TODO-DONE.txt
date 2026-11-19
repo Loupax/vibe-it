@@ -6666,3 +6666,12 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       skips for `GEOM_GEN`; code reading 2026-11-19, not measured). Recipe: the throwaway lines of
       R43 section 7 (one stderr line per forced layout / App build / complete ShapeResult with
       `geom_gen()`). Output: numbers in R43 + items if A or B is large.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QY53f1b DONE 9415fb2 (cold first build; parse straight into the Vec: YT max_ms -41 %; R43 section 12) [S] (P2, from QY53f1 01d20dd; Sonnet, measure first; area rules_cache.rs) QY53f1 made the big-css +
+      appended-<style> case -69 %, but YT watch max_ms is still 250-305 ms (130-135 layouts, total 2.5-3.0 s per 60 s).
+      Find what the slowest YT forced layouts are now (QOBS3 phases per layout: temporary per-layout log of phases for
+      the top 5 by ms, removed before commit): does YouTube hit QY53f1's full-parse fallbacks (`@layer` anywhere -> joined
+      text parsed; `js_enabled()` change; rule list still shared elsewhere), or is it another phase (build_children,
+      rule_index)? If it is the `@layer` fallback, make layered pieces splice too (keep layer ranks per piece) or cache
+      per layer. Gate: YT watch max_ms median of 3 lower than main by >= 30 %, default UA, own wire; tests if code changes.

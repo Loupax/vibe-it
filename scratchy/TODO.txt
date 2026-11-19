@@ -1267,13 +1267,6 @@ Shared rules for this block:
       Wikipedia and YouTube both show a steady ~125-135 ms of page JS per wall second and zero redraws. Find out whether
       that is a real timer/rAF/poll (which one: QOBS4b's named `longest` sources) or an accounting artifact of the window
       mode recorder (idle-poll time counted as JS). If real and ours (prelude polling), make it event-driven.
-- [ ] [WIP] QY53f1b [S] (P2, from QY53f1 01d20dd; Sonnet, measure first; area rules_cache.rs) QY53f1 made the big-css +
-      appended-<style> case -69 %, but YT watch max_ms is still 250-305 ms (130-135 layouts, total 2.5-3.0 s per 60 s).
-      Find what the slowest YT forced layouts are now (QOBS3 phases per layout: temporary per-layout log of phases for
-      the top 5 by ms, removed before commit): does YouTube hit QY53f1's full-parse fallbacks (`@layer` anywhere -> joined
-      text parsed; `js_enabled()` change; rule list still shared elsewhere), or is it another phase (build_children,
-      rule_index)? If it is the `@layer` fallback, make layered pieces splice too (keep layer ranks per piece) or cache
-      per layer. Gate: YT watch max_ms median of 3 lower than main by >= 30 %, default UA, own wire; tests if code changes.
 - [ ] [WIP] QY53l2 [M] (P2, from QY53l 4608cd4, R43 section 10; Opus) Skip the geometry-generation bump for DOM writes
       (attribute/style/class/tree insert-remove) whose target lies entirely inside a `display:none` subtree as recorded by
       the last GeomCache layout (the subtree has no boxes, so no rect can change), EXCEPT writes that can change whether
@@ -1301,6 +1294,20 @@ Shared rules for this block:
       window: App rebuilds after only no-op writes 2-18 / 0-23 per run (up to 2.3 s). Gate: Wikipedia Rust live window
       60 s same input, median of 3: builds.n and builds.ms drop by the no-op count; screenshot unchanged; unit test: a
       same-value setAttribute leaves layout_dirty false.
+- [ ] [WIP] QY53f1c [M] (P2 speed+memory, from QY53f1b 9415fb2, R43 section 12; Opus; ABSORBS QMEM2) `StyleRule` is 4040
+      bytes: YouTube's 22 343 rules = ~90 MB, moved/copied on every cold parse (55-75 ms of memcpy + page faults in the
+      226 ms cold build) and held by rules_cache (~95.6 MB, QOBS7). Shrink it: box or side-table the rarely-used parts
+      (the declaration block is probably a large inline struct of Option<..> fields), share immutable declaration blocks
+      (Rc/Arc) between identical rules, keep the hot matching data (selector, specificity, order, index keys) compact.
+      Gate: size_of::<StyleRule>() <= 512 bytes (test asserts it), YT watch memory.caches.rules_cache bytes >= 50 % lower,
+      cold first forced layout (max_ms) lower, no forced_layout.total_ms regression (perf-diff), cascade tests unchanged,
+      WPT no change. If the honest shrink is L, ship a first slice and file the rest.
+- [ ] QY53f1d [M] (P3, from QY53f1b; Opus design) The cold parse of YouTube's 4.4 MB sheet still costs ~130 ms on the first
+      forced layout. Options: parse external sheets as they arrive (off the forced-layout path, on the JS thread's idle
+      time or a worker), or lazily per rule block. Measure first (R43 section 12); design + items.
+- [ ] QY53f1e [XS] (P3, from QY53f1b; Sonnet) `js_style.rs` (~line 584, getComputedStyle path) still does
+      `rules.extend(parse_stylesheet(..))` (parse to a temp Vec, then move 4 KB rules); use `css::parse_stylesheet_into`
+      like rules_cache does. Test: results equal; measure one getComputedStyle-heavy page before/after.
 - [ ] QMEM1 [S] (P2 memory, from QOBS7 67b6f0d; Sonnet, measure first; touches js_style.rs StyleCache: not alongside
       QY53f1 if that touches page_css/StyleCache) YT watch 60 s: `style_cache` = 861 entries, ~183.5 MB (~213 KB per entry)
       of 732 MB RSS. Find what one entry holds (a whole ComputedStyle per element? the full page CSS string or rule list
@@ -1312,6 +1319,7 @@ Shared rules for this block:
       = 22 564 entries, ~95.6 MB (~4 KB per rule). Check after QY53f1 whether old versions are kept (YouTube inserts many
       `<style>`s) and what a parsed rule costs (selector + declaration storage; QOBS7 says the estimate undercounts selector
       heap); compact or dedupe. Gate: YT watch rules_cache bytes >= 50 % lower, no forced-layout regression.
+      ABSORBED 2026-11-19 into QY53f1c (the 4 KB StyleRule is the cause; QY53f1b 9415fb2).
 - [ ] QMEM3 [S] (P3 memory, from QOBS7; Opus measure only) ~280 MB (38 %) of YT watch RSS is unexplained by caches + JS
       heap (peak 839 MB). One measured pass: /proc/self/smaps_rollup + malloc_info at end of run, V8 heap space stats
       (code/large-object/zone), mpv buffers for the 2 players, DOM/box trees; name the top 3 and file items.
