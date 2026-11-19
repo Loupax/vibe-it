@@ -222,11 +222,18 @@ impl AsRef<str> for Atom {
 
 impl PrecomputedHash for Atom {
     fn precomputed_hash(&self) -> u32 {
-        use std::hash::{Hash, Hasher};
-        let mut h = std::collections::hash_map::DefaultHasher::new();
-        self.0.hash(&mut h);
-        h.finish() as u32
+        atom_hash(&self.0)
     }
+}
+
+/// The hash `Atom::precomputed_hash` gives the string `s`: what the
+/// selectors crate puts in a selector's `AncestorHashes`, so the ancestor
+/// bloom filter (QY53g, `style::AncestorBloom`) must insert exactly this.
+pub(crate) fn atom_hash(s: &str) -> u32 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    s.hash(&mut h);
+    h.finish() as u32
 }
 
 impl cssparser::ToCss for Atom {
@@ -972,6 +979,34 @@ pub(crate) fn element_attr<'a>(handle: &'a Handle, name: &str) -> Option<std::ce
     None
 }
 
+/// Whether the `class` attribute value `value` contains the class `name`
+/// (QY53g). Splits on HTML's ASCII whitespace only (tab, LF, FF, CR,
+/// space; not U+000B and not Unicode spaces like U+00A0), byte-wise and
+/// without allocating: the selector matcher calls this for every class
+/// compound of every candidate rule and every ancestor it walks, and the
+/// old Unicode `split_whitespace` was ~30 % of all CPU on big pages (R44).
+pub(crate) fn class_list_contains(value: &str, name: &str, case_sensitivity: CaseSensitivity) -> bool {
+    let (v, n) = (value.as_bytes(), name.as_bytes());
+    if n.is_empty() || v.len() < n.len() {
+        return false;
+    }
+    let is_ws = |b: u8| matches!(b, b' ' | b'\t' | b'\n' | b'\x0C' | b'\r');
+    let mut i = 0;
+    while i < v.len() {
+        while i < v.len() && is_ws(v[i]) {
+            i += 1;
+        }
+        let start = i;
+        while i < v.len() && !is_ws(v[i]) {
+            i += 1;
+        }
+        if i - start == n.len() && case_sensitivity.eq(&v[start..i], n) {
+            return true;
+        }
+    }
+    false
+}
+
 /// Leaks an owned copy of `s` into a `&'static str` — the same tradeoff
 /// `font-family`'s own named fallback lists already made (see
 /// `FontFamily`'s own docs/`TODO.txt`): bounded by how many distinct
@@ -1155,9 +1190,7 @@ impl SelectorsElement for El {
 
     fn has_class(&self, name: &Atom, case_sensitivity: CaseSensitivity) -> bool {
         match element_attr(&self.0, "class") {
-            Some(value) => value
-                .split_whitespace()
-                .any(|c| case_sensitivity.eq(c.as_bytes(), name.0.as_bytes())),
+            Some(value) => class_list_contains(&value, &name.0, case_sensitivity),
             None => false,
         }
     }

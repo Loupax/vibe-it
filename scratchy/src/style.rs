@@ -1005,6 +1005,8 @@ type MatchMemo = HashMap<(usize, u8, usize, usize, u32), Rc<Vec<(u64, u32, bool)
 thread_local! {
     /// QY53d: `Some` only while `build_layout_tree_with_resources` runs.
     pub(crate) static MATCH_MEMO: RefCell<Option<MatchMemo>> = const { RefCell::new(None) };
+    /// QY53g: `Some` only while `build_layout_tree_with_resources` runs.
+    pub(crate) static ANCESTOR_BLOOM: RefCell<Option<AncestorBloom>> = const { RefCell::new(None) };
     /// Test-only: how many real selector-matching passes ran.
     #[cfg(test)]
     pub(crate) static MATCH_RUNS: Cell<usize> = const { Cell::new(0) };
@@ -1027,71 +1029,177 @@ fn matching_indices_for(
     let candidates = RULE_INDEX.with(|ri| {
         let ri = ri.borrow();
         let (ptr, len, idx) = ri.as_ref()?;
-        (*ptr == rules.as_ptr() as usize && *len == rules.len()).then(|| idx.candidates(handle, pseudo.is_some()))
+        (*ptr == rules.as_ptr() as usize && *len == rules.len())
+            .then(|| (idx.candidates(handle, pseudo.is_some()), idx.ancestor_hashes.clone()))
     });
-    let order: Vec<usize> = match candidates {
-        Some(c) => c,
-        None => (0..rules.len()).collect(),
+    let (order, hashes): (Vec<usize>, _) = match candidates {
+        Some((c, h)) => (c, Some(h)),
+        None => ((0..rules.len()).collect(), None),
     };
-    for ri in order {
-        let rule = &rules[ri];
-        let ri = ri as u32;
-        // The one choke point every cascade/matching call in this file
-        // goes through — a media-conditioned rule is only ever a
-        // cascade candidate when its own condition currently holds for
-        // `viewport_width`. See `MediaQuery`'s own docs for exactly
-        // what's evaluated. Checked before the (more expensive) real
-        // selector match, same short-circuit order `collect_root_
-        // custom_props` also uses.
-        if !media_list_matches(&rule.media, viewport_width) {
-            continue;
-        }
-        if let Some(name) = pseudo {
-            let mut best: Option<u32> = None;
-            for sel in rule.selectors.slice() {
-                if !matches!(sel.pseudo_element(), Some(OurPseudoElement::Named(n)) if *n == name) {
-                    continue;
-                }
-                let mut ctx = MatchingContext::new(
-                    MatchingMode::ForStatelessPseudoElement,
-                    None,
-                    &mut caches,
-                    QuirksMode::NoQuirks,
-                    NeedsSelectorFlags::No,
-                    MatchingForInvalidation::No,
-                );
-                if matches_selector(sel, 0, None, &element, &mut ctx) {
-                    best = best.max(Some(sel.specificity()));
-                }
+    // QY53g: the ancestor bloom filter (only inside a layout build, where
+    // the index is registered too): a selector whose ancestor hashes are not
+    // all in the filter cannot match, so it is skipped without walking the
+    // ancestor chain. A shared borrow for the whole loop; a nested match
+    // (none today) would find it busy and match unfiltered.
+    if hashes.is_some() {
+        ANCESTOR_BLOOM.with(|b| {
+            if let Ok(mut b) = b.try_borrow_mut()
+                && let Some(b) = b.as_mut()
+            {
+                b.sync_to(handle);
             }
-            if let Some(specificity) = best {
-                matches.push((normal_key(specificity, rule.layer), ri, false));
-                matches.push((important_key(specificity, rule.layer), ri, true));
+        });
+    }
+    ANCESTOR_BLOOM.with(|cell| {
+        let guard = if hashes.is_some() { cell.try_borrow().ok() } else { None };
+        let filter: Option<&BloomFilter> = guard.as_deref().and_then(Option::as_ref).map(|b| &*b.filter);
+        let may_match = |ri: usize, k: usize| -> bool {
+            match (filter, &hashes) {
+                (Some(f), Some(h)) => h[ri].get(k).is_none_or(|ah| selectors::matching::selector_may_match(ah, f)),
+                _ => true,
             }
-            continue;
+        };
+        for ri in order {
+            let rule = &rules[ri];
+            // The one choke point every cascade/matching call in this file
+            // goes through — a media-conditioned rule is only ever a
+            // cascade candidate when its own condition currently holds for
+            // `viewport_width`. See `MediaQuery`'s own docs for exactly
+            // what's evaluated. Checked before the (more expensive) real
+            // selector match, same short-circuit order `collect_root_
+            // custom_props` also uses.
+            if !media_list_matches(&rule.media, viewport_width) {
+                continue;
+            }
+            if let Some(name) = pseudo {
+                let mut best: Option<u32> = None;
+                for (k, sel) in rule.selectors.slice().iter().enumerate() {
+                    if !matches!(sel.pseudo_element(), Some(OurPseudoElement::Named(n)) if *n == name) {
+                        continue;
+                    }
+                    if !may_match(ri, k) {
+                        continue;
+                    }
+                    let mut ctx = MatchingContext::new(
+                        MatchingMode::ForStatelessPseudoElement,
+                        None,
+                        &mut caches,
+                        QuirksMode::NoQuirks,
+                        NeedsSelectorFlags::No,
+                        MatchingForInvalidation::No,
+                    );
+                    if matches_selector(sel, 0, None, &element, &mut ctx) {
+                        best = best.max(Some(sel.specificity()));
+                    }
+                }
+                if let Some(specificity) = best {
+                    matches.push((normal_key(specificity, rule.layer), ri as u32, false));
+                    matches.push((important_key(specificity, rule.layer), ri as u32, true));
+                }
+                continue;
+            }
+            if !(0..rule.selectors.slice().len()).any(|k| may_match(ri, k)) {
+                continue;
+            }
+            let mut ctx = MatchingContext::new(
+                MatchingMode::Normal,
+                None,
+                &mut caches,
+                QuirksMode::NoQuirks,
+                NeedsSelectorFlags::No,
+                MatchingForInvalidation::No,
+            );
+            if matches_selector_list(&rule.selectors, &element, &mut ctx) {
+                let specificity = rule
+                    .selectors
+                    .slice()
+                    .iter()
+                    .filter(|s| !s.has_pseudo_element())
+                    .map(|s| s.specificity())
+                    .max()
+                    .unwrap_or(0);
+                matches.push((normal_key(specificity, rule.layer), ri as u32, false));
+                matches.push((important_key(specificity, rule.layer), ri as u32, true));
+            }
         }
-        let mut ctx = MatchingContext::new(
-            MatchingMode::Normal,
-            None,
-            &mut caches,
-            QuirksMode::NoQuirks,
-            NeedsSelectorFlags::No,
-            MatchingForInvalidation::No,
-        );
-        if matches_selector_list(&rule.selectors, &element, &mut ctx) {
-            let specificity = rule
-                .selectors
-                .slice()
-                .iter()
-                .filter(|s| !s.has_pseudo_element())
-                .map(|s| s.specificity())
-                .max()
-                .unwrap_or(0);
-            matches.push((normal_key(specificity, rule.layer), ri, false));
-            matches.push((important_key(specificity, rule.layer), ri, true));
+    });
+    matches
+}
+
+/// QY53g step 3: a counting bloom filter of the tag, namespace, id and
+/// classes of the ancestor elements of the element being matched, kept in
+/// step with the layout build's (mostly depth-first) matching order: the
+/// filter holds the chain `stack` (root element first, each entry the
+/// parent of the next), and moving to another element only pops and pushes
+/// the part of the chain that differs. Lives only while a build runs
+/// (`images.rs` sets and clears it with `MATCH_MEMO`; the DOM does not
+/// change during a build), so node pointers in `stack` never outlive their
+/// nodes.
+pub(crate) struct AncestorBloom {
+    filter: Box<BloomFilter>,
+    stack: Vec<(usize, Vec<u32>)>,
+}
+
+impl Default for AncestorBloom {
+    fn default() -> Self {
+        AncestorBloom { filter: Box::new(BloomFilter::new()), stack: Vec::new() }
+    }
+}
+
+impl AncestorBloom {
+    /// The hashes a selector's `AncestorHashes` can ask about for `h`
+    /// (same hash as `Atom::precomputed_hash`).
+    fn element_hashes(h: &Handle) -> Vec<u32> {
+        let mut out = Vec::new();
+        if let NodeData::Element { name, .. } = &h.data {
+            out.push(crate::dom::atom_hash(name.local.as_ref()));
+            out.push(crate::dom::atom_hash(name.ns.as_ref()));
+        }
+        if let Some(id) = element_attr(h, "id") {
+            out.push(crate::dom::atom_hash(&id));
+        }
+        if let Some(classes) = element_attr(h, "class") {
+            for c in classes.split_ascii_whitespace() {
+                out.push(crate::dom::atom_hash(c));
+            }
+        }
+        out
+    }
+
+    /// Make the filter hold exactly the ancestor elements of `handle`.
+    pub(crate) fn sync_to(&mut self, handle: &Handle) {
+        let mut missing: Vec<Handle> = Vec::new();
+        let mut cur = El(handle.clone()).parent_element();
+        let keep = loop {
+            let Some(p) = cur else { break 0 };
+            let ptr = Rc::as_ptr(&p.0) as usize;
+            if let Some(pos) = self.stack.iter().rposition(|(q, _)| *q == ptr) {
+                break pos + 1;
+            }
+            cur = p.parent_element();
+            missing.push(p.0);
+        };
+        while self.stack.len() > keep {
+            let (_, hs) = self.stack.pop().expect("len > keep");
+            for h in hs {
+                self.filter.remove_hash(h);
+            }
+        }
+        for p in missing.into_iter().rev() {
+            let hs = Self::element_hashes(&p);
+            for &h in &hs {
+                self.filter.insert_hash(h);
+            }
+            self.stack.push((Rc::as_ptr(&p) as usize, hs));
         }
     }
-    matches
+
+    /// Test-only: the filter, synced to the ancestors of `handle`.
+    #[cfg(test)]
+    pub(crate) fn filter_for(&mut self, handle: &Handle) -> &BloomFilter {
+        self.sync_to(handle);
+        &self.filter
+    }
 }
 
 /// `background-image`'s own declared value, as stored in `Declarations`
@@ -1310,11 +1418,24 @@ pub(crate) struct RuleBuckets {
 pub(crate) struct RuleIndex {
     pub(crate) normal: RuleBuckets,
     pub(crate) pseudo: RuleBuckets,
+    /// QY53g: per rule, per selector (in `rule.selectors.slice()` order),
+    /// the tag/id/class hashes its ANCESTOR compounds require, for the
+    /// ancestor bloom filter (`AncestorBloom`) to reject a rule without
+    /// walking the ancestor chain.
+    pub(crate) ancestor_hashes: Rc<Vec<Box<[selectors::parser::AncestorHashes]>>>,
 }
 
 impl RuleIndex {
     pub(crate) fn build(rules: &[StyleRule]) -> Self {
-        let mut ix = RuleIndex::default();
+        let mut ix = RuleIndex {
+            ancestor_hashes: Rc::new(
+                rules
+                    .iter()
+                    .map(|r| r.selectors.slice().iter().map(|s| selectors::parser::AncestorHashes::new(s, QuirksMode::NoQuirks)).collect())
+                    .collect(),
+            ),
+            ..Default::default()
+        };
         for (i, rule) in rules.iter().enumerate() {
             for (with_pseudo, buckets) in [(false, &mut ix.normal), (true, &mut ix.pseudo)] {
                 let mut placed: Vec<(u8, String)> = Vec::new();
@@ -1326,12 +1447,24 @@ impl RuleIndex {
                     }
                     any = true;
                     let (mut id, mut class, mut tag) = (None, None, None);
-                    for c in sel.iter() {
-                        match c {
-                            Component::ID(a) => id = Some(a.0.clone()),
-                            Component::Class(a) => class = class.or_else(|| Some(a.0.clone())),
-                            Component::LocalName(n) => tag = Some(n.lower_name.0.clone()),
-                            _ => {}
+                    // QY53g: a pseudo-element selector (`.a::before`) stores
+                    // `::before` as its own rightmost compound behind a
+                    // pseudo-element combinator; the keys live in the
+                    // originating element's compound left of it. Without
+                    // this every pseudo rule landed in `universal` (673 on
+                    // YouTube, tested for every element and pseudo slot).
+                    let mut it = sel.iter();
+                    loop {
+                        for c in it.by_ref() {
+                            match c {
+                                Component::ID(a) => id = Some(a.0.clone()),
+                                Component::Class(a) => class = class.or_else(|| Some(a.0.clone())),
+                                Component::LocalName(n) => tag = Some(n.lower_name.0.clone()),
+                                _ => {}
+                            }
+                        }
+                        if it.next_sequence() != Some(selectors::parser::Combinator::PseudoElement) {
+                            break;
                         }
                     }
                     let key = match (id, class, tag) {

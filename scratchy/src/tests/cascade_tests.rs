@@ -2631,3 +2631,144 @@ fn qy53d_memo_is_dropped_after_the_build_so_a_changed_dom_is_matched_again() {
     assert_ne!(before, after, "attribute change must restyle");
     assert!(crate::style::MATCH_MEMO.with(|m| m.borrow().is_none()));
 }
+
+#[test]
+fn qy53g_class_list_contains_splits_on_ascii_whitespace_only() {
+    use crate::dom::class_list_contains;
+    use selectors::attr::CaseSensitivity::{AsciiCaseInsensitive, CaseSensitive};
+    let cs = CaseSensitive;
+    // HTML's ASCII whitespace: space, tab, LF, FF, CR.
+    for sep in [" ", "\t", "\n", "\x0C", "\r", " \t\n\x0C\r "] {
+        let v = format!("{sep}aa{sep}b{sep}ccc{sep}");
+        for name in ["aa", "b", "ccc"] {
+            assert!(class_list_contains(&v, name, cs), "{name:?} in {v:?}");
+        }
+        assert!(!class_list_contains(&v, "a", cs), "prefix of a class is not a class: {v:?}");
+        assert!(!class_list_contains(&v, "cc", cs));
+        assert!(!class_list_contains(&v, "aab", cs));
+    }
+    // Not separators: U+000B (vertical tab) and Unicode spaces.
+    assert!(!class_list_contains("a\x0Bb", "a", cs));
+    assert!(class_list_contains("a\x0Bb", "a\x0Bb", cs));
+    assert!(!class_list_contains("a\u{00A0}b", "a", cs));
+    assert!(!class_list_contains("a\u{3000}b", "b", cs));
+    assert!(class_list_contains("x a\u{00A0}b", "a\u{00A0}b", cs));
+    // Empty and degenerate inputs.
+    assert!(!class_list_contains("", "a", cs));
+    assert!(!class_list_contains("a b", "", cs));
+    assert!(!class_list_contains("   ", "a", cs));
+    // Case sensitivity is the caller's (quirks mode); default is sensitive.
+    assert!(!class_list_contains("Foo", "foo", cs));
+    assert!(class_list_contains("x\tFoo", "foo", AsciiCaseInsensitive));
+    // Non-ASCII class names compare byte-exactly.
+    assert!(class_list_contains("é\tü", "ü", cs));
+}
+
+#[test]
+fn qy53g_class_selectors_match_with_tab_newline_and_form_feed_separators() {
+    // Tab, LF and FF between classes, also on the ancestor a descendant
+    // selector walks; U+00A0 must not split.
+    let html = "<html><head><style>\
+        .a .b { color: #ff0000; } \
+        .nb { color: #00ff00; } \
+        </style></head><body>\
+        <div class=\"x\ta\ny\"><p class=\"q\x0Cb\">one</p></div>\
+        <div class=\"zz\"><p class=\"b\">two</p></div>\
+        <p class=\"m\u{00A0}nb\">three</p>\
+        </body></html>";
+    let doc = parse_html(html);
+    let tree = build_layout_tree(&doc, 1920.0);
+    let mut colors = Vec::new();
+    find_all_span_colors(&tree, &mut colors);
+    assert_eq!(colors.len(), 3, "three paragraphs of spans");
+    assert_eq!(colors[0], TextColor::rgb(0xff, 0, 0), "tab/LF on the ancestor and FF on the element split classes");
+    assert_ne!(colors[1], TextColor::rgb(0xff, 0, 0), "no .a ancestor");
+    assert_ne!(colors[2], TextColor::rgb(0, 0xff, 0), "U+00A0 is not ASCII whitespace, so there is no class nb");
+}
+
+#[test]
+fn qy53g_pseudo_element_rules_are_indexed_by_their_originating_compound() {
+    let rules = parse_stylesheet(
+        ".a::before{content:'x'} p::after{content:'y'} #x::marker{color:red} .q .b.c::first-line{color:red} \
+         ::before{content:'z'} :hover::after{content:'w'}",
+    );
+    let ix = RuleIndex::build(&rules);
+    assert_eq!(ix.pseudo.universal, vec![4, 5], "only the pseudo rules with no id/class/tag stay universal");
+    assert_eq!(ix.pseudo.by_class.get("a"), Some(&vec![0]));
+    assert_eq!(ix.pseudo.by_tag.get("p"), Some(&vec![1]));
+    assert_eq!(ix.pseudo.by_id.get("x"), Some(&vec![2]));
+    assert_eq!(ix.pseudo.by_class.get("b"), Some(&vec![3]), "rightmost compound of the originating element");
+    assert!(ix.normal.universal.is_empty() && ix.normal.by_class.is_empty());
+}
+
+fn qy53g_elements(h: &Handle, out: &mut Vec<Handle>) {
+    if matches!(h.data, NodeData::Element { .. }) {
+        out.push(h.clone());
+    }
+    for c in h.children.borrow().iter() {
+        qy53g_elements(c, out);
+    }
+}
+
+#[test]
+fn qy53g_index_and_ancestor_bloom_give_the_same_matches_as_a_full_scan() {
+    let css = ".a .b{color:red} .a > .b{margin:0} #root .c{padding:0} div div p{color:blue} \
+               .x .y .z{color:green} .nope .b{color:pink} ul > li + li{color:red} .a ~ .b{margin:1px} \
+               :is(.a) .c{color:red} :where(.k, .a) p{color:red} :not(.zz) .b{margin:2px} section .b{color:red} \
+               .a .b::before{content:'x'} .nope p::after{content:'y'} div::after{content:'z'} \
+               .x li::marker{color:red} .a p::first-line{color:red} *{padding:1px} [title] .b{color:red}";
+    let doc = parse_html(
+        "<html><body id=root><div class='a'><div class=\"x\tb\"><p class=\"b\nc y\">t<span class=z>s</span></p>\
+         <ul><li>1<li class=b>2<li title=t><span class='b c'>3</span></ul></div><p class=b>q</p></div>\
+         <section><div class=k><p class=c>r</p></div></section><div title=t><b class=b>w</b></div></body></html>",
+    );
+    let rules = parse_stylesheet(css);
+    let mut elements = Vec::new();
+    qy53g_elements(&doc, &mut elements);
+    let pseudos = [None, Some("before"), Some("after"), Some("marker"), Some("first-line")];
+    let summarize = |h: &Handle| -> Vec<Vec<u64>> {
+        pseudos
+            .iter()
+            .map(|p| matching_declarations_for(h, &rules, 800.0, *p).iter().map(|(sp, _)| *sp).collect())
+            .collect()
+    };
+    let full: Vec<_> = elements.iter().map(summarize).collect();
+    RULE_INDEX.with(|ri| *ri.borrow_mut() = Some((rules.as_ptr() as usize, rules.len(), RuleIndex::build(&rules))));
+    ANCESTOR_BLOOM.with(|b| *b.borrow_mut() = Some(Default::default()));
+    // Document order, then reverse order (the filter must pop and re-push).
+    let forward: Vec<_> = elements.iter().map(summarize).collect();
+    let mut backward: Vec<_> = elements.iter().rev().map(summarize).collect();
+    backward.reverse();
+    ANCESTOR_BLOOM.with(|b| *b.borrow_mut() = None);
+    RULE_INDEX.with(|ri| *ri.borrow_mut() = None);
+    assert_eq!(full, forward);
+    assert_eq!(full, backward);
+    assert!(full.iter().filter(|m| !m[0].is_empty()).count() > 5);
+    assert!(full.iter().any(|m| !m[1].is_empty()), "some ::before rule matches");
+}
+
+#[test]
+fn qy53g_ancestor_bloom_holds_exactly_the_ancestor_chain() {
+    use crate::dom::atom_hash;
+    let doc = parse_html(
+        "<html><body><div id=d class=\"a\tb\"><p class=p1><span class=s1>x</span></p></div>\
+         <section class=other><em class=e>y</em></section></body></html>",
+    );
+    let span = find_by_tag(&doc, "span").unwrap();
+    let em = find_by_tag(&doc, "em").unwrap();
+    let mut bloom = AncestorBloom::default();
+    let f = bloom.filter_for(&span);
+    for k in ["html", "body", "div", "p", "d", "a", "b", "p1"] {
+        assert!(f.might_contain_hash(atom_hash(k)), "{k} is on span's ancestor chain");
+    }
+    for k in ["s1", "section", "other", "e"] {
+        assert!(!f.might_contain_hash(atom_hash(k)), "{k} is not an ancestor of span");
+    }
+    let f = bloom.filter_for(&em);
+    for k in ["section", "other", "body"] {
+        assert!(f.might_contain_hash(atom_hash(k)), "{k} is on em's ancestor chain");
+    }
+    for k in ["div", "a", "b", "p1", "d", "e"] {
+        assert!(!f.might_contain_hash(atom_hash(k)), "{k} was popped when moving to em");
+    }
+}
