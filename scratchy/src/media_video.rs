@@ -339,6 +339,13 @@ pub(crate) fn paint_box(
     let poster = placeholder.mask.clone();
     let main = PAINT.with(|p| p.borrow().as_ref().is_some_and(|c| c.ptr == pixels.as_ptr() as usize && c.len == pixels.len())) && opacity_one;
     let Some(v) = vis else {
+        // QM1k1n1: laid out but clipped away or off-screen. Recorded so the backend keeps
+        // decoding a playing element (YouTube parks it at top:-360px until `playing`).
+        PAINT.with(|p| {
+            if let Some(c) = p.borrow_mut().as_mut() {
+                c.boxes.push(PaintedBox { node, rect, vis: None, layered: false, fit, pos, poster });
+            }
+        });
         return;
     };
     if main {

@@ -1382,6 +1382,48 @@ mod qm1g_video {
         assert!(gone.is_empty(), "scrolled out of view: no box, so no rendering");
     }
 
+    /// QM1k1n1: YouTube parks the video at `top:-360px` inside an `overflow:hidden` player: the
+    /// box is laid and reached by paint, but nothing of it is visible. It must still be reported
+    /// as laid (so a playing element keeps decoding); display:none has no box at all.
+    #[test]
+    fn qm1k1n1_paint_reports_a_laid_box_that_the_clip_hides() {
+        fn painted(html: &str) -> Vec<PaintedBox> {
+            let doc = parse_html(html);
+            set_boxes_enabled(Some(true));
+            let tree = build_layout_tree_sized(&doc, 700.0, 500.0);
+            let mut font_system = new_font_system();
+            let mut cache = ShapeCache::new();
+            let mut next_id = 0usize;
+            let mut incomplete = false;
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+            let laid = measure_document(&tree, &mut font_system, 700.0, 500.0, &mut next_id, &mut cache, deadline, &mut incomplete);
+            let mut swash = SwashCache::new();
+            let mut pixels = vec![0x00FF_FFFFu32; 700 * 500];
+            begin_paint(&pixels);
+            paint(&laid, &mut font_system, &mut swash, &mut cache, &HashMap::new(), &mut pixels, 700, 500, 0.0, None);
+            let out = end_paint();
+            set_boxes_enabled(None);
+            out
+        }
+        let page = |top: &str, extra: &str| {
+            format!("<html><head><style>body{{margin:0}}#p{{position:relative;overflow:hidden;width:640px;height:360px;margin:80px 24px}}\
+                video{{position:absolute;left:0;{extra}}}</style></head><body><div id=p><video style='width:640px;height:360px;top:{top}'></video></div></body></html>")
+        };
+        let hidden = painted(&page("-360px", ""));
+        assert_eq!(hidden.len(), 1, "a laid but clipped video is still reported");
+        assert!(hidden[0].vis.is_none(), "{:?}", hidden[0].vis);
+        assert_eq!(hidden[0].rect.3, 360);
+        // in view: the same element, visible
+        let shown = painted(&page("0px", ""));
+        assert_eq!(shown.len(), 1);
+        assert!(shown[0].vis.is_some());
+        // no box: display:none
+        assert!(painted(&page("0px", "display:none")).is_empty(), "display:none has no box");
+        // finish() lists only visible boxes for rendering
+        let mut px = vec![0u32; 700 * 500];
+        assert!(finish(hidden, &mut px, 700).is_empty());
+    }
+
     /// QM1g2d: the bar is ordinary pixels in the video's bottom 32 px, over the picture.
     #[test]
     fn qm1g2d_bar_paints_in_the_bottom_32px_and_the_damage_is_the_bar_only() {

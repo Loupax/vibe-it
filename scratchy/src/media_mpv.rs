@@ -350,13 +350,15 @@ pub(crate) struct MpvBackend {
     shared: *const Shared,
     target: Option<VideoTarget>,
     vid_off: bool,
+    /// QM1k1n1: no target, but keep the video track decoding (playing, box laid but invisible).
+    keep_video: bool,
     /// QM1k1b: the MSE feed of the current load (stopped on unload/reload).
     feed: Option<Arc<MseFeed>>,
 }
 
 impl MpvBackend {
     pub(crate) fn new(ctx: BackendCtx) -> Self {
-        MpvBackend { ctx, h: std::ptr::null_mut(), reg: std::ptr::null_mut(), loaded_file: false, meta_sent: false, cache_end: 0.0, seekable: false, duration: f64::NAN, rc: std::ptr::null_mut(), shared: std::ptr::null(), target: None, vid_off: false, feed: None }
+        MpvBackend { ctx, h: std::ptr::null_mut(), reg: std::ptr::null_mut(), loaded_file: false, meta_sent: false, cache_end: 0.0, seekable: false, duration: f64::NAN, rc: std::ptr::null_mut(), shared: std::ptr::null(), target: None, vid_off: false, keep_video: false, feed: None }
     }
 
     fn cs(s: &str) -> CString {
@@ -480,6 +482,12 @@ impl MpvBackend {
                 self.set("keepaspect", keep);
                 self.set("panscan", pan);
                 self.set("video-unscaled", unscaled);
+                if self.vid_off {
+                    self.set("vid", "auto");
+                    self.vid_off = false;
+                }
+            }
+            None if self.keep_video => {
                 if self.vid_off {
                     self.set("vid", "auto");
                     self.vid_off = false;
@@ -689,6 +697,12 @@ impl MediaBackend for MpvBackend {
     fn set_video_target(&mut self, t: Option<VideoTarget>) {
         self.target = t;
         self.apply_target();
+    }
+    fn set_video_keep(&mut self, keep: bool) {
+        self.keep_video = keep;
+        if self.target.is_none() {
+            self.apply_target();
+        }
     }
     fn frame_pending(&self) -> bool {
         !self.shared.is_null() && unsafe { (*self.shared).ready.load(Ordering::SeqCst) }

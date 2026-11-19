@@ -1390,6 +1390,7 @@ impl App {
         // QM1g: video pixels go in last, through the overlay mask of whatever
         // was painted above them; the finished page is kept for QM1g1.
         let painted = if video_on { crate::media_video::end_paint() } else { Vec::new() };
+        let laid: Vec<usize> = painted.iter().map(|b| b.node).collect();
         let boxes = crate::media_video::finish(painted, &mut pixels, width);
         // QM1g2d: the controls bars go over the finished picture (same overlay mask).
         {
@@ -1416,6 +1417,7 @@ impl App {
         }
         if video_on && let Some(js) = &self.js {
             js.media_set_targets(&targets);
+            js.media_set_laid(&laid);
         }
     }
 
@@ -2446,6 +2448,7 @@ impl App {
             // QM1g: the parked page is hidden: its videos stop rendering.
             if let Some(js) = self.pre_help_page.as_ref().and_then(|p| p.js.as_ref()) {
                 js.media_set_targets(&[]);
+                js.media_set_laid(&[]);
             }
         }
         // QB6: help has no JS; a page's engine is parked in `pre_help_page`
