@@ -1128,7 +1128,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       buffered intersection of two tracks with different ends, a seek outside the buffer waits
       then reloads at t, `ended` only after endOfStream, a quality switch (new MediaSource on
       the same element: sourceclose on the old one, a fresh load), duration change events.
-- [ ] QM1k1d [M] READY after QM1k1c (Sonnet) JS `MediaSource` + `SourceBufferList` +
+- [x] QM1k1d [M] DONE 2026-11-19 (commit f20c422; src/mse_prelude.js + __mse_* natives in src/js_media.rs, tests qm1k1d_* in src/tests/mse_tests/qm1k1d.rs; SourceBuffer is a shell until QM1k1e) (Sonnet) JS `MediaSource` + `SourceBufferList` +
       attachment (`mse_prelude.js`, natives via `js_engine::native!`): constructor,
       `readyState` closed/open/ended, `duration` get/set (InvalidStateError while any
       SourceBuffer is updating; NaN until set), `sourceBuffers`/`activeSourceBuffers`,

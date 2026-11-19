@@ -83,6 +83,8 @@
     if (!force && s.key === key) return;
     s.key = key;
     sync(el);
+    // QM1k1d: a MediaSource (srcObject, or a blob: URL made by createObjectURL(ms)) attaches instead
+    if (g.__mse_try && g.__mse_try(el, c.attr ? c.list : [])) { kick(0); return; }
     g.__media_load(el.__id, c.list, c.attr, el.getAttribute('crossorigin') === null ? '' : (el.getAttribute('crossorigin') === 'use-credentials' ? 'use-credentials' : 'anonymous'), String(g.location.href));
     kick(0);
   };
@@ -103,6 +105,7 @@
     for (var i = 0; i < out.length; i++) {
       var p = out[i].split(' '), id = +p[0], el = els[id];
       if (p[1] === 'b') { busy = p[2] === '1'; continue; }
+      if (p[1] === 'o' || p[1] === 'n' || p[1] === 'c') { if (g.__mse_event) g.__mse_event(p[1], +p[2]); continue; }
       var s = S[id];
       if (!el || !s) continue;
       if (p[1] === 'e') fire(el, p[2]);
@@ -163,6 +166,9 @@
   def('seekable', function () { st(this); return mkRanges(g.__media_ranges(this.__id, 1)); });
   def('played', function () { return mkRanges([]); });
   def('srcObject', function () { return null; }, function () {});
+  // QM1k1d: what mse_prelude.js needs (the element layer's kick and a forced reload task)
+  Object.defineProperty(g, '__media_kick', { value: function () { kick(0); }, configurable: true });
+  Object.defineProperty(g, '__media_reload', { value: function (el) { setTimeout(function () { doLoad(el, true); }, 0); }, configurable: true });
   MEP.load = function () { doLoad(this, true); };
   MEP.play = function () {
     var el = this, s = st(el);

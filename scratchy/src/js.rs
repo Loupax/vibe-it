@@ -1016,7 +1016,7 @@ pub(crate) struct JsEngine {
     base: Instant,
     /// QM1f: the page's media elements (kept alive with the engine).
     #[allow(dead_code)]
-    media: Option<Rc<std::cell::RefCell<media_el::MediaHost>>>,
+    pub(crate) media: Option<Rc<std::cell::RefCell<media_el::MediaHost>>>,
     /// Q33c: set by every DOM write; the app drains it with `take_dirty`.
     dirty: Rc<std::cell::Cell<bool>>,
     /// Q33d: handle <-> JS id table, to address events at nodes.
@@ -1537,6 +1537,7 @@ fn startup_engine(document: &Handle, store: Rc<js_modules::ModuleStore>, log: Lo
         engine.media = Some(host);
         if !prebuilt {
             engine.eval("media", js_media::MEDIA_PRELUDE);
+            engine.eval("mse", js_media::MSE_PRELUDE);
         }
     }
     if prebuilt {

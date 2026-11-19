@@ -730,6 +730,15 @@ impl MseStore {
         self.buffers.len() - 1
     }
 
+    /// `removeSourceBuffer`: later indices shift down by one (the JS side renumbers alike).
+    pub fn remove_buffer(&mut self, bi: usize) -> bool {
+        if bi >= self.buffers.len() {
+            return false;
+        }
+        self.buffers.remove(bi);
+        true
+    }
+
     pub fn total_bytes(&self) -> usize {
         self.buffers.iter().map(|b| b.bytes()).sum()
     }
