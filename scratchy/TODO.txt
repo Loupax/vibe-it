@@ -1065,6 +1065,10 @@ Shared rules for this block:
       the unkeyed ones are tested only via the universal list. Remaining 289 universal rules on github.com home are mostly
       `*`, `:not()`, `:is(..., *)` and bare pseudo-classes. Gate: universal bucket < 150 on that page (fixture recipe in the
       QAN1h2 PR #372 body).
+- [ ] QAN1h3b [M] (P3, from QAN1h3 #390; Sonnet; css area) has_class still 17 % of GeomCache::refresh samples on github.com
+      home (was 34 %; gate < 4 %): ~1.3 M checks per build, cost = hash probe + TLS + RefCell per check. Options in order:
+      per-element class-hash bitmask checked before has_class; ancestor class sets cached in the AncestorBloom stack entries;
+      selector class atoms pre-resolved to ids at RuleIndex build vs a per-element sorted id list.
 - [ ] [WIP] QAN1h3 [S] (P3, from QAN1h, R49; Sonnet) Class lookup without re-scanning the class attribute string per check (cache a
       per-element class atom set, invalidated on class writes). Gate: has_class < 4 % of GeomCache::refresh samples on the
       R49 home recipe.
