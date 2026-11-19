@@ -260,7 +260,7 @@ Order: (drain) -> QT1 -> QV8-0 -> QV8-1 -> QV8-2 -> QV8-3 -> QV8-4 -> QV8-5 -> Q
       scenario) so it really starts from an unbaked state; (b) the existing QV8-4 snapshot tests
       stay green. ACCEPTANCE: nested dwl, the R40 local copy 20 runs (`timeout 5`) with 0 crashes,
       plus a grim of one run showing the four boxes.
-- [x] QM1n1 [S] DONE (HASH) (found by QM1n, R40 section 2) Inert `<video>` placeholder when media is
+- [x] QM1n1 [S] DONE (0672f31) (found by QM1n, R40 section 2) Inert `<video>` placeholder when media is
       unavailable: with the `media` feature OFF or libmpv not loadable,
       `media_video::boxes_enabled()` is false and `<video width=640 height=360>` lays out as an
       inline element with only whitespace/`<source>` children = NO space (what the user saw in the
@@ -275,7 +275,7 @@ Order: (drain) -> QT1 -> QV8-0 -> QV8-1 -> QV8-2 -> QV8-3 -> QV8-4 -> QV8-5 -> Q
       poster=p.png>` without size takes the poster's size; (c) `<video>` alone = 300x150; (d) the
       fallback text inside `<video>` is not laid out. Screenshot: the R40 page with
       `--no-default-features --features engine-v8` (no media) shows four 640x360 boxes.
-- [x] QM1n2 [S] DONE (HASH) (found by QM1n, R40 section 4; D5/D6 allow it; interim before QM1g2d and KEPT
+- [x] QM1n2 [S] DONE (0672f31) (found by QM1n, R40 section 4; D5/D6 allow it; interim before QM1g2d and KEPT
       by it) Click toggles a `controls` video: a trusted `click` whose target is a `<video>` with
       the `controls` attribute, and that no handler cancelled, toggles it: paused -> `play()`
       (allowed: the click is a user gesture, D5; `__media_activate` already runs first in
