@@ -1349,6 +1349,45 @@ inside a hidden subtree after an earlier real bump. Further cuts need QY53l3 (pa
 declarations) and possibly "attribute writes strictly inside an inline `<svg>` (not on the svg, no
 `<style>`/`<foreignObject>`) keep its box" (needs a check that the svg's decoded intrinsic
 size only reads the root's attributes; it alone would save at most 8 of 71).
+### 14. QY53e1b: QY53e1's deferred IntersectionObserver recheck does NOT make YouTube worse (Sonnet, 2026-11-19, docs only)
+
+Question: QY53e1 (c5098fa) cut Wikipedia's forced layouts 8 -> 4, but its YT watch sample (2+2 runs, loaded machine) was worse
+(272/284 layouts vs 144/223). Is the deferral (`__d_geom_fresh` / `ioDue`) making YouTube worse (lazy-load observers firing late ->
+more continuation loads -> more layouts), or was that noise?
+
+Method: current main (573ab64, after QY53g/h/i/l, QY53f1/b/c, QM1k1n6/a/b), one release binary; the OLD immediate path was
+restored by a scratch-only env switch (`SCRATCHY_IO_IMMEDIATE`: `__d_geom_fresh` returns true, so every geometry-generation change
+nudges the recheck at once; never committed). 5+5 interleaved headless runs, `--perf-report --budget-ms 20000 --seconds 60`,
+own wire, default UA, `SCRATCHY_MEDIA_AO=null`, https://www.youtube.com/watch?v=G1AeBgalFZk, machine load 6-8 on 16 cores.
+The report has no request counter; "network callbacks" below = all non-script/timer/promise/event callbacks, the closest proxy
+for fetch/XHR continuations.
+
+| run (def = deferred, main; imm = old immediate path) | layouts | total_ms | no_change | io n / ms | script n / ms | net callbacks |
+|---|---|---|---|---|---|---|
+| def 1 | 100 | 4033 | 40 | 22 / 1706 | 78 / 2327 | 235 |
+| def 2 | 100 | 2443 | 39 | 23 / 872 | 77 / 1570 | 234 |
+| def 3 | 103 | 4796 | 42 | 21 / 2011 | 82 / 2786 | 236 |
+| def 4 | 200 | 15779 | 106 | 25 / 2836 | 175 / 12943 | 284 |
+| def 5 | 102 | 2836 | 42 | 24 / 1482 | 78 / 1354 | 240 |
+| imm 1 | 105 | 2275 | 41 | 28 / 989 | 77 / 1286 | 245 |
+| imm 2 | 104 | 2825 | 41 | 28 / 1113 | 76 / 1712 | 243 |
+| imm 3 | 156 | 11750 | 74 | 21 / 1909 | 135 / 9840 | 268 |
+| imm 4 | 105 | 3847 | 42 | 24 / 1407 | 81 / 2440 | 241 |
+| imm 5 | 95 | 1765 | 42 | 17 / 572 | 78 / 1192 | 223 |
+
+Medians: deferred 102 layouts / 4033 ms / no_change 42 / io 23 (1706 ms) / script 78 (2327 ms) / 236 net callbacks; immediate
+105 / 2825 ms / 42 / io 24 (1113 ms) / script 78 (1712 ms) / 243. Layout COUNT, io count, script count, no_change and network
+callbacks are the same within one or two units. The top caller is `g.k.getPlayerSize` (49-52 layouts) in 9 of 10 runs, both modes.
+The total_ms medians differ by 1.2 s but the run-to-run spread within one mode is 2.4-15.8 s (deferred) and 1.8-11.8 s
+(immediate), and the two long tails are one run in each mode (def 4: 200 layouts, `getPlayerSize` 137; imm 3: 156 layouts,
+`getPlayerSize` 92) with `script` layouts, not `io`, doing the extra work: YouTube's own spread (the TODO's 170-313), not the IO
+path. The `io` layouts are 21-25 deferred vs 17-28 immediate; the deferral does not shift lazy loading into more requests.
+
+Visible content: nested-dwl screenshots at 30 s of both builds are BYTE-IDENTICAL (`cmp`): player, title, channel row, description
+box and comment skeletons; the comments are still skeletons at 30 s in both (an existing state, not a deferral effect).
+
+Verdict: noise; QY53e1 is not making YouTube worse. No code change. The deferral stays.
+
 
 ## R42: YouTube through the MSE stack (QM1k-m2): the player script runs, picks avc1 + mp4a, attaches, appends and plays ~60 s of AUDIO, but NO PICTURE because YouTube adds the AUDIO SourceBuffer first and scratchy always makes SourceBuffer 0 the main (video) stream; with that swapped (throwaway patch) 640x360 video plays to the PoToken stop at ~60 s, then YouTube's own error card. The main thread is busy 100% of the time (294 forced layouts = 116 s of CPU in 60 s), so everything arrives 10-45 s late (Opus investigator QM1k-m2, 2026-11-19) — OPEN: QM1k1k (P1), QM1k1l, QM1k1m, QM1k-u, QY53 (now also blocks YouTube playback; measured in R43, fix items QY53a-QY53h); QM1k1n DONE 2026-11-19 (section 5: YouTube parks the `<video>` at `top:-360px` until `playing`, page design, not a CSS gap): QM1k1n1 DONE, QM1k1n3; QM1k1n2 DONE 2026-11-19 (section 6: start 3-6x faster after QY53a-c, but playback freezes at YouTube's first quality switch, a second init segment reloads into an empty generation): QM1k1n4 (P1), QM1k1n5 (P1, fetch results reach JS 1-19 s late), QM1k1n6, QM1k1n7
 
