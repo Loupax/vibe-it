@@ -514,6 +514,8 @@ pub struct SourceBufferStore {
     fmt: Box<dyn ByteStreamFormat>,
     init: Option<Arc<Vec<u8>>>,
     init_id: u64,
+    /// QM1k1n4: every init still referenced by a stored segment (or the newest), by `init_id`.
+    inits: Vec<(u64, Arc<Vec<u8>>)>,
     segments: Vec<Segment>, // sorted by start
     live: Option<Generation>,
     next_seg_id: u64,
@@ -536,6 +538,7 @@ impl SourceBufferStore {
             fmt,
             init: None,
             init_id: 0,
+            inits: Vec::new(),
             segments: Vec::new(),
             live: None,
             next_seg_id: 1,
@@ -668,8 +671,12 @@ impl SourceBufferStore {
                     if self.init.is_some() {
                         outcome.new_generation = true;
                     }
-                    self.init = Some(Arc::new(bytes));
+                    let arc = Arc::new(bytes);
+                    self.init = Some(arc.clone());
                     self.init_id += 1;
+                    self.inits.push((self.init_id, arc));
+                    let (newest, segs) = (self.init_id, &self.segments);
+                    self.inits.retain(|(id, _)| *id == newest || segs.iter().any(|s| s.init_id == *id));
                     self.live = None; // the caller starts a new generation
                 }
                 Parsed::Media { mut bytes, mut start, mut end } => {
@@ -712,16 +719,27 @@ impl SourceBufferStore {
     /// Begin generation `id` at time `t`: the run starts at the stored segment
     /// covering `t` and continues through contiguous segments. Needs an init segment.
     pub fn start_generation(&mut self, id: u64, t: f64) -> bool {
-        let Some(init) = self.init.clone() else {
+        if self.init.is_none() {
             self.live = None;
             return false;
-        };
+        }
+        // QM1k1n4: the init of the segment that covers `t` (a quality switch leaves older media
+        // under the older init), else of the first segment after `t`, else the newest init.
+        let covering = self
+            .segments
+            .iter()
+            .filter(|s| s.start <= t + MSE_GAP_TOLERANCE + EPS && s.end > t)
+            .min_by(|a, b| a.start.total_cmp(&b.start))
+            .or_else(|| self.segments.iter().find(|s| s.start >= t - EPS))
+            .map(|s| s.init_id);
+        let init_id = covering.filter(|id| self.inits.iter().any(|(i, _)| i == id)).unwrap_or(self.init_id);
+        let init = self.inits.iter().find(|(i, _)| *i == init_id).map(|(_, b)| b.clone()).or_else(|| self.init.clone()).unwrap();
         let len = init.len() as u64;
         self.live = Some(Generation {
             id,
             start: t,
             init,
-            init_id: self.init_id,
+            init_id,
             run: VecDeque::new(),
             base: len,
             next_off: len,
@@ -739,6 +757,18 @@ impl SourceBufferStore {
     /// End time of the live run (None when it is empty or there is no generation).
     pub fn run_end(&self) -> Option<f64> {
         self.live.as_ref().and_then(|g| g.run.back().map(|r| r.end))
+    }
+
+    /// QM1k1n4: where the live run ends at an init change: the start of the next stored segment
+    /// (of another init) that continues the run. The element loads the next generation there.
+    pub fn switch_point(&self) -> Option<f64> {
+        let g = self.live.as_ref()?;
+        let end = g.run.back()?.end;
+        self.segments
+            .iter()
+            .filter(|s| s.init_id != g.init_id && s.start >= end - MSE_GAP_TOLERANCE - EPS && s.start <= end + MSE_GAP_TOLERANCE + EPS)
+            .map(|s| s.start)
+            .min_by(f64::total_cmp)
     }
 
     /// Virtual size so far: init + all run bytes ever put in the run (the "file" length).
@@ -839,7 +869,7 @@ impl SourceBufferStore {
                     let t = g.start;
                     self.segments
                         .iter()
-                        .filter(|s| s.init_id == g.init_id && s.start <= t + EPS && s.end > t)
+                        .filter(|s| s.init_id == g.init_id && s.start <= t + MSE_GAP_TOLERANCE + EPS && s.end > t)
                         .min_by(|a, b| a.start.total_cmp(&b.start))
                 }
             };
@@ -911,6 +941,12 @@ impl MseStore {
     /// `t` lies inside the live generation of every buffer (an mpv seek can reach it).
     pub fn in_generation(&self, t: f64) -> bool {
         !self.buffers.is_empty() && self.buffers.iter().all(|b| b.generation().is_some_and(|g| g.start <= t + 0.1) && b.run_end().is_some_and(|e| e > t))
+    }
+
+    /// QM1k1n4: the earliest init-change boundary of any live run (see
+    /// [`SourceBufferStore::switch_point`]).
+    pub fn switch_point(&self) -> Option<f64> {
+        self.buffers.iter().filter_map(|b| b.switch_point()).min_by(f64::total_cmp)
     }
 
     /// Start a new generation at `t` on every buffer; returns its id.

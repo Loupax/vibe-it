@@ -296,9 +296,12 @@ fn qm1k1a_second_init_flags_a_new_generation_and_old_media_stays_out_of_the_run(
     let o = b.append(&init2).unwrap();
     assert!(o.new_generation);
     assert!(b.generation().is_none(), "the live generation ended; the caller starts a new one");
-    // old-init media is still buffered, but a generation on the new init cannot use it
+    // old-init media is still buffered; QM1k1n4: a generation at 0 s uses the OLD init (the
+    // one of the segment covering 0 s), a generation after it (nothing there yet) the new one
     assert_eq!(ranges(&b), vec![(0, 4000)]);
     assert!(b.start_generation(2, 0.0));
+    assert_eq!(b.generation_bytes().unwrap().len(), init_seg(1, TS, 3600).len() + b.segments()[0].data.len());
+    assert!(b.start_generation(2, 4.0));
     assert_eq!(b.generation_bytes().unwrap(), init2);
     b.append(&frag(1, 4 * 48_000, Dur::Explicit(10, 4800), 20, false)).unwrap();
     // start 4 s: the run needs the segment covering 4 s, so wait: start the generation at 4
@@ -543,3 +546,4 @@ mod qm1k1i;
 mod qm1k1k;
 mod qm1k1l;
 mod qm1k1n1;
+mod qm1k1n4;
