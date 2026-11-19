@@ -2583,8 +2583,9 @@ pub(crate) fn normalize_whitespace(s: &str) -> String {
     s.split(is_css_ws).filter(|w| !w.is_empty()).collect::<Vec<_>>().join(" ")
 }
 
-/// QOBS7: `(entries, approx bytes)` of `RULES_CACHE` (source text + parsed rules; a rule's
-/// selector heap is not counted, so this undercounts) and of `RULE_INDEX` + `HOVER_KEYS`.
+/// QOBS7/QMEM3c: `(entries, approx bytes)` of `RULES_CACHE` (source text + parsed rules incl.
+/// selector components) and of the rule index (`RULE_INDEX` while a build holds it, else
+/// `RULE_DERIVED.index`) + `HOVER_KEYS`. The rule list shared by `RULE_DERIVED` is the cache's.
 pub(crate) fn rules_cache_mem() -> ((usize, usize), (usize, usize)) {
     let rules = RULES_CACHE.with(|c| match &*c.borrow() {
         Some(rc) => rc.mem(),
@@ -2599,15 +2600,14 @@ pub(crate) fn rules_cache_mem() -> ((usize, usize), (usize, usize)) {
         let (d, b3) = m(&b.by_tag);
         (a + c + d, b1 + b2 + b3 + b.universal.capacity() * 8)
     };
-    let index = RULE_INDEX.with(|c| match &*c.borrow() {
-        Some((_, _, ix)) => {
-            let (n1, b1) = buckets(&ix.normal);
-            let (n2, b2) = buckets(&ix.pseudo);
-            let anc: usize = ix.ancestor_hashes.iter().map(|s| 16 + s.len() * std::mem::size_of::<selectors::parser::AncestorHashes>()).sum();
-            (n1 + n2 + ix.ancestor_hashes.len(), b1 + b2 + anc)
-        }
-        None => (0, 0),
-    });
+    let size_index = |ix: &RuleIndex| -> (usize, usize) {
+        let (n1, b1) = buckets(&ix.normal);
+        let (n2, b2) = buckets(&ix.pseudo);
+        let anc: usize = ix.ancestor_hashes.iter().map(|s| 16 + s.len() * std::mem::size_of::<selectors::parser::AncestorHashes>()).sum();
+        (n1 + n2 + ix.ancestor_hashes.len(), b1 + b2 + anc)
+    };
+    let held = RULE_INDEX.with(|c| c.borrow().as_ref().map(|(_, _, ix)| size_index(ix)));
+    let index = held.unwrap_or_else(|| RULE_DERIVED.with(|d| d.borrow().as_ref().and_then(|d| d.index.as_ref()).map_or((0, 0), size_index)));
     let hover = HOVER_KEYS.with(|h| {
         let h = h.borrow();
         let set = |s: &std::collections::HashSet<String>| s.iter().map(|k| k.capacity() + 24).sum::<usize>();

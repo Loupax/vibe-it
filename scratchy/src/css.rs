@@ -2046,11 +2046,12 @@ impl StyleRule {
         self.gen_hint
     }
 
-    /// QOBS7/QY53f1c: approximate heap bytes owned by this rule beyond
-    /// `size_of::<StyleRule>()`: the unparsed block text, or the parsed
-    /// declaration boxes (selector and media heap are not counted).
+    /// QOBS7/QY53f1c/QMEM3c: approximate heap bytes owned by this rule beyond
+    /// `size_of::<StyleRule>()`: the unparsed block text or the parsed declaration
+    /// boxes, the selector list's components (interned names are not counted) and
+    /// the `@media` condition Vec.
     pub(crate) fn heap_bytes(&self) -> usize {
-        match self.parsed.get() {
+        let block = match self.parsed.get() {
             Some(p) => std::mem::size_of::<Declarations>() * (1 + usize::from(p.important.is_some())),
             None => {
                 let b = self.block.take();
@@ -2058,7 +2059,14 @@ impl StyleRule {
                 self.block.set(b);
                 n
             }
-        }
+        };
+        let sels = self.selectors.slice();
+        let comps: usize = sels.iter().map(|s| s.len()).sum();
+        // ThinArc header (refcount + length) per selector data, plus the list's own array when it has several.
+        let selector = comps * std::mem::size_of::<selectors::parser::Component<crate::dom::OurSelectorImpl>>()
+            + sels.len() * 16
+            + if sels.len() > 1 { 16 + std::mem::size_of_val(sels) } else { 0 };
+        block + selector + self.media.capacity() * std::mem::size_of::<MediaQuery>()
     }
 
     /// Whether the block has been parsed yet.

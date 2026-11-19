@@ -70,3 +70,9 @@
 > Do TODO.txt item QM1k1n6a: keep only the newest CursorMoved position per event-loop turn; process it once in about_to_wait; flush a pending move first when a button, wheel or key event arrives. Tests, frame-stats gate (R46 recipe).
 
 **What changed:** app.rs `queue_pointer_move` / `flush_pointer_move` / `process_pointer_move` (the old CursorMoved body), `event_flushes_pointer`, fields `pending_pointer_move`, `pointer_moves_processed`; tests in frame_budget_tests.rs.
+
+## QMEM3c: honest memory estimates in --perf-report (Sonnet)
+
+> Do TODO.txt item QMEM3c: rule caches report their real heap (selectors, boxes, Vec capacities), shape_memo counts cosmic-text buffers, peak_rss_bytes from VmHWM (never below rss_bytes), plus explained_bytes and a malloc {in_use, free_kept} block. Tests, PERF.md glossary, YouTube memory JSON before/after.
+
+**What changed:** css.rs `StyleRule::heap_bytes` (selector components + media Vec), style.rs `rules_cache_mem` (index also read from `RULE_DERIVED`), layout.rs `shape_memo_mem` (per-char glyph estimate), perf.rs `peak_rss_bytes` (VmHWM), `malloc_stats` (mallinfo2), `walk_us`, perf_tests.rs `qmem3c_*`, PERF.md glossary.
