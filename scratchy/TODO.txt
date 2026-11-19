@@ -457,7 +457,10 @@ older and were only partly corrected in place):
   thread starved by forced layout on the watch page (QY53, now also a YouTube PLAYBACK blocker;
   QY53 investigated 2026-11-19, R43: QY53a/b/c READY, S each, measured -55-58 % per styled
   element for a+b and up to 34 % fewer layouts for c; then QY53d, e, g, f, h);
-  QM1k1l/QM1k1m/QM1k-u small; QM1k-r with the user.
+  QM1k1l/QM1k1m/QM1k-u small; QM1k-r with the user. QM1k1n DONE 2026-11-19 (R42 section 5:
+  YouTube parks the `<video>` at `top:-360px` until `playing`, page design; the 40-60 s picture
+  gap is QY53 + the `vid=no` round trip): QM1k1n1 READY (S, Sonnet), QM1k1n2 after QY53a-c
+  (Opus re-measure), QM1k1n3 (P3).
   QM1k2 (PoToken) and QM1k3 (native HLS) PARKED by the user. Open: QUESTIONS.md Q7.
 - Still WAITING FOR USER: QCI2 (WPT in CI), QF14b2 (d) `--profile` (later),
   Q32 remainder (parked), QAN1p/QTB2 (parked).
@@ -1218,7 +1221,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       visibility, a zero-size or clipped box, or a replaced element), while the screenshot showed
       YouTube's picture (a thumbnail or the page's own overlay, not mpv). Not determined: which of
       those, because a running scratchy cannot show the element's computed style. Filed QM1k1n.
-- [ ] QM1k1n [S] READY (P2, QM1k1m follow-up, Sonnet, measure first) Why does the YouTube
+- [x] QM1k1n [S] MEASURED 2026-11-19 (Opus investigator, R42 section 5; no code change) (P2, QM1k1m follow-up, Sonnet, measure first) Why does the YouTube
       `<video>` have no painted box after +29 s? Add a throwaway probe (log in `paint` for a
       `<video>` node: computed display, visibility, opacity, used size, clip; or in the page
       `getComputedStyle`/`getBoundingClientRect` of `video.html5-main-video` through a
@@ -1227,6 +1230,51 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       with `vid=no`), keep the video track on until the first frame has been delivered or the
       element has ever had a box. Test: a page that hides its `<video>` (display:none) until
       `playing` still gets its first frame.
+      RESULT: no CSS gap and no chicken-and-egg. YouTube's player (`base.js` `q9a`/`lX`) writes
+      inline `top: -360px` (minus the player height) on the `<video>` while the player is
+      unstarted/cued and `top: 0px` in its `playing` handler (same ms); the box is laid and painted
+      but entirely outside `#movie_player`'s `overflow:hidden` clip, so `clip_rect` = None -> no
+      listed box -> `vid=no` (QM1g, as designed). Chrome gets the same style. scratchy fires
+      `playing` without video frames, so the picture comes back, just late: run 2 click -> `play()`
+      12.6 s -> `playing` 37.8 s -> box laid at top 0 61.3 s (no redraw for 36 s) -> `vid=auto` ->
+      first frame +1.1 s when data is buffered (run 1). The delay is QY53 (main thread) plus the
+      `vid=no` round trip. Follow-ups QM1k1n1, QM1k1n2, QM1k1n3; `getComputedStyle` "1%" seen
+      again (QY58).
+- [ ] QM1k1n1 [S] READY (P2, R42 section 5, Sonnet, measure first) Keep the video track decoding
+      while a PLAYING element's box is laid but clipped away or off-screen, so a page that parks
+      its `<video>` outside the clip until `playing` (YouTube: inline `top:-360px` in an
+      `overflow:hidden` player) shows a current frame on the first redraw that brings the box in,
+      without the `vid=no` -> `vid=auto` refresh seek (~1 s plus a seek, R42 run 1). Today
+      `paint_box` drops a box whose clipped rect is empty and `apply_target` sets `vid=no`. Idea
+      (measure first, choose one): report laid-but-invisible boxes to the backend as "keep
+      decoding, do not render" while `!paused`, and keep `vid=no` only for paused elements or
+      elements with no laid box (display:none, disconnected). Measure before and after with real
+      mpv on a fixture: mpv CPU (top -H, mpv threads) while playing off-screen, whether
+      `mpv_render_context_render() not being called` warnings or A/V desync appear while frames
+      are not rendered, and time from the box entering the clip to the first painted real frame.
+      Tests: FakeBackend: a playing element whose box is laid at top:-360 inside an
+      overflow:hidden 640x360 parent never gets `vid=no`; a paused one does. Real mpv (the
+      `mse_mpv_tests::real` style): script moves the box in on `playing`, the first redraw with
+      the box in view composites a decoded frame (not black/poster). Acceptance: on the R42 URL
+      no `vid="no"` in the mpv log after the click, first picture within one redraw of the box
+      appearing; mpv CPU while off-screen reported in the PR.
+- [ ] QM1k1n2 [S] (P2, R42 section 5, Opus measure, after QY53a+QY53b+QY53c) Re-measure the
+      YouTube start timeline of R42 section 5 on the R42 URL (own wire, nested dwl, same probes:
+      wall-clock stamps on click, `play()` call, `play`/`playing` events, the `top` style writes,
+      redraws, `set_video_target`, mpv `vid`/first frame). Baseline (run 2): `play()` +12.6 s,
+      `playing` +37.8 s, box +61.3 s, no redraw for 36 s. Report each gap and file fix items for
+      what is still slow (e.g. an App redraw/relayout that cannot run while page tasks queue up;
+      media events waiting behind other tasks). Target to aim for: `playing` <= 2 s after
+      `play()`, box <= 1 redraw after the style write.
+- [ ] QM1k1n3 [S] (P3, R42 section 5, Sonnet, measure first) In R42 section 5 run 2 YouTube
+      called `play()` twice before any click (+54.6 s, +94.3 s; scratchy rejects unmuted autoplay
+      with NotAllowedError, D5) and each time set `top: 0px`, parked the video again 10-13 s later
+      and reloaded the source (`emptied` + `loadstart`); `canplay` came at +156 s instead of +65 s
+      (run 1 showed no such reload). Compare with Chrome on a fresh profile (DevTools: media
+      events of `video.html5-main-video` with blocked autoplay; do not guess): does YouTube reload
+      there too? If not, find what differs in scratchy's rejection (timing of the rejection, the
+      `play`/`pause` events around it, `paused`/`readyState` values) and fix it. Test for the
+      fixed case.
 - [ ] QM1k-u [S] READY (P3, R42 section 4, Sonnet, measure first) On the YouTube watch page a
       `GET https://youtube.com/` is CORS-checked against page origin `"null"` and blocked. Find
       which context makes it (an iframe with an opaque origin? `Request` with

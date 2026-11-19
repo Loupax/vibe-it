@@ -132,7 +132,7 @@ page's own or our prelude's (e.g. `styleSet` rewriting the whole `style` attribu
 text); correctness of FIX4 beyond the measured runs (no tests); whether QY52's StyleCache could be
 reused by the box build (item 7).
 
-## R42: YouTube through the MSE stack (QM1k-m2): the player script runs, picks avc1 + mp4a, attaches, appends and plays ~60 s of AUDIO, but NO PICTURE because YouTube adds the AUDIO SourceBuffer first and scratchy always makes SourceBuffer 0 the main (video) stream; with that swapped (throwaway patch) 640x360 video plays to the PoToken stop at ~60 s, then YouTube's own error card. The main thread is busy 100% of the time (294 forced layouts = 116 s of CPU in 60 s), so everything arrives 10-45 s late (Opus investigator QM1k-m2, 2026-11-19) — OPEN: QM1k1k (P1), QM1k1l, QM1k1m, QM1k-u, QY53 (now also blocks YouTube playback; measured in R43, fix items QY53a-QY53h)
+## R42: YouTube through the MSE stack (QM1k-m2): the player script runs, picks avc1 + mp4a, attaches, appends and plays ~60 s of AUDIO, but NO PICTURE because YouTube adds the AUDIO SourceBuffer first and scratchy always makes SourceBuffer 0 the main (video) stream; with that swapped (throwaway patch) 640x360 video plays to the PoToken stop at ~60 s, then YouTube's own error card. The main thread is busy 100% of the time (294 forced layouts = 116 s of CPU in 60 s), so everything arrives 10-45 s late (Opus investigator QM1k-m2, 2026-11-19) — OPEN: QM1k1k (P1), QM1k1l, QM1k1m, QM1k-u, QY53 (now also blocks YouTube playback; measured in R43, fix items QY53a-QY53h); QM1k1n DONE 2026-11-19 (section 5: YouTube parks the `<video>` at `top:-360px` until `playing`, page design, not a CSS gap): QM1k1n1, QM1k1n2, QM1k1n3
 
 **Status: investigation only, docs only.** Main 5bf4e03 (QM1k1e merged), own worktree release build
 (`nice -n 19 cargo build --release -j2`, RUSTY_V8_ARCHIVE = the existing local librusty_v8.a, 15 min),
@@ -231,7 +231,7 @@ index.
   late relayout, or the target was lost for another reason, is not determined. First real video pixels
   in a screenshot: 06:02:51, ~200 s after start (q06; a different oscilloscope frame from the
   thumbnail; frames differ between later screenshots).
-- **QM1k1m measurement (2026-11-19, temporary logging, reverted):** the `<video>` was painted as a box only once (+26.1 s, 550x309, 166625 of 169950 px visible), then every later redraw reported ZERO video boxes (not "covered": covered boxes are listed), so `set_video_target(None)` and `vid=no` (as designed). The element has no painted box (display/visibility/size/clip) although YouTube's picture is on screen; cause not determined, item QM1k1n. QM1k1l: fixed (the mpv backend forgot nothing on `unload`; cache/seekable events of a stopped file are ignored).
+- **QM1k1m measurement (2026-11-19, temporary logging, reverted):** the `<video>` was painted as a box only once (+26.1 s, 550x309, 166625 of 169950 px visible), then every later redraw reported ZERO video boxes (not "covered": covered boxes are listed), so `set_video_target(None)` and `vid=no` (as designed). The element has no painted box (display/visibility/size/clip) although YouTube's picture is on screen; cause not determined, item QM1k1n. EXPLAINED in section 5: the box exists but YouTube's inline `top: -360px` puts it entirely outside `#movie_player`'s `overflow:hidden` clip until the `playing` event. QM1k1l: fixed (the mpv backend forgot nothing on `unload`; cache/seekable events of a stopped file are ignored).
 - **`buffered` after the element is emptied (QM1k1l).** Run 2, after `emptied` (ct 0, rs 0, the MSE
   detached): `buffered` = `[0.00-61.80]` on every TICK. With `self.mse` gone, `MediaCore::buffered`
   falls back to `MpvBackend::buffered`, i.e. `cache_end` (mpv demuxer-cache-time); a value left from the
@@ -244,6 +244,90 @@ index.
   "https://www.youtube.com" does not match the page origin "null"` (a request whose origin is `null`;
   item QM1k-u); `tpc.googlesyndication.com/sodar/...js` connection refused (wire, harmless).
 - No crash in any run (the R40/R41 snapshot crashes did not show).
+
+### 5. QM1k1n (Opus investigator, 2026-11-19): why the `<video>` has no painted box until `playing`
+**Answer: no CSS or layout gap in scratchy. YouTube's own player script parks the `<video>` above the
+player (inline `top: -360px` = minus the player height) while the player is unstarted, cued or
+paused-before-start, and moves it to `top: 0px` in its `playing` handler. Chrome gets the same
+inline style; the difference is only TIMING (all three steps below are slow in scratchy) plus the
+`vid=no` that QM1g applies to an off-screen box.** Not a chicken-and-egg: YouTube waits for the
+`playing` EVENT, not for a frame, and scratchy fires `playing` with the video track off.
+
+Setup: main 31acf1c, own worktree release build (V8 + media, RUSTY_V8_ARCHIVE = a local copy of the
+existing librusty_v8.a), own wire (`--socket <scratchpad>/qm1k1n/wire.sock`), nested dwl 1052x1050,
+grim, tools/inject, Chrome `--user-agent` (as R42), `SCRATCHY_MEDIA_AO=null`, `SCRATCHY_V8_SNAPSHOT=0`
+(the JS probe sits in a prelude). Two runs of the R42 URL. **Throwaway probes (reverted, never
+committed):** (1) appended to `mse_prelude.js`: every 3 s `getComputedStyle` (display, visibility,
+opacity, position, width, height, left, top, overflow, transform, z-index) + `getBoundingClientRect` +
+inline style of every `<video>` and all its ancestors; a MutationObserver on the video's `style` and on
+`#movie_player`'s `class`; the media events; a wrapper logging each `HTMLMediaElement.play()` call; all
+with wall-clock stamps. (2) Rust: `paint_inner` logged every video-placeholder box it reached
+(position, clip), `media_video::paint_box` its clipped rect (`vis`), `App::redraw` walked the laid tree
+for the video box and its ancestors (display, position, visibility, opacity, overflow, rect, ink,
+cull), and `MpvBackend::set_video_target` logged Some/None changes, all with wall-clock stamps.
+
+What the probes showed (run 1 and 2 the same):
+- The `<video>` is ALWAYS in the laid tree and `paint` ALWAYS reaches it: `display:block`,
+  `visibility:visible`, `opacity:1`, `position:absolute`, 640x360, no transform. Its inline style is
+  `width: 640px; height: 360px; left: 0px; top: -360px;`, so the box is at y = 80 - 360 = -280 and
+  `.html5-video-container` (`position:relative`, height 0) sits inside `#player-api` / `#movie_player`
+  (`overflow:hidden`, 640x360 at 24,80). `paint_box` gets clip (24,80,640,360) and rect
+  (24,-280,640,360): `clip_rect` = None, so the box is not listed (a fully clipped box is not
+  "covered", it has no visible rect at all) -> `set_video_target(None)` -> `vid=no`. Exactly R42's
+  "zero boxes".
+- The one painted box QM1k1m saw (+26 s, 24,80 550x309) is the layout from BEFORE YouTube's first
+  inline style landed (the CSS alone: `.html5-main-video{position:absolute;top:0;left:0;width:100%;
+  height:100%}` in the 550 px wide `#player-wrap`). Run 2: target Some once ~32 s after the prelude
+  started, None 0.29 s later (layout with the inline style). Later Some/None pairs only follow
+  YouTube's own `top` writes, each one redraw-plus-relayout late (e.g. `top: 0px` written at +94.3 s,
+  back to `-360px` at +107.6 s; the box target was Some from +109.1 s to +114.8 s, i.e. AFTER the
+  page had parked it again).
+- The code (YouTube `base.js`, player 983e9c18, `q9a`): `if (lX(a)) { ...centre the video... } else {
+  p = -b.height; ...; p = new He(0, p, b.width, b.height) }` then `g.Se(video, left, top)`; `lX`
+  returns false while `getAppState()===1`, the player has no video data, the player state is cued, or
+  state flag 1024 is set. The page sets the same style in Chrome; it is the page's design, not a
+  scratchy gap.
+- YouTube moved the video to `top: 0px` in the SAME millisecond as the `playing` event (run 2:
+  `playing` 1795075329.22, VSTYLE `top: 0px` 329.23). Run 1: `top: -360px` at the `play` event, `top:
+  0px` at the first probe after `playing`. Run 2 also: YouTube's two early `play()` calls (before any
+  click; scratchy rejects unmuted autoplay, D5) each set `top: 0px` and back to `-360px` 10-13 s later,
+  followed by `emptied` + `loadstart` (the source was reloaded twice); `canplay` came at +156 s
+  instead of +65 s in run 1. Whether Chrome with a fresh profile does the same: not checked (QM1k1n3).
+
+Timeline of run 2 (wall seconds after the click on the big play button; mpv clock anchored at the
+`set_video_target(Some)` = `vid="auto"` moment):
+| step | at | gap |
+|---|---|---|
+| click (tools/inject) | 0 | |
+| page `play()` called (click handler ran) | +12.6 | 12.6 s: main thread busy |
+| mpv `pause="no"` | +12.6 | same moment |
+| `play` event in JS | +18.4 | 5.8 s |
+| `playing` event in JS, `top: 0px` written | +37.8 | 19.5 s after `play`, although media_el.rs fires `play` and `playing` in the same call (`start_playing` + `maybe_playing`); the page's other tasks run in between |
+| next redraw (still the OLD laid tree, box at -280) | +51.1 | no redraw at all between +15.3 and +51.1 (36 s) |
+| redraw with the new layout: box at 24,80, `set_video_target(Some)`, mpv `vid="auto"`, refresh seek to 29.95 | +61.3 | 23.4 s after the style write |
+| mpv `first video frame after restart shown` | +76.9 | 15.6 s: NOT the re-enable cost; audio had run dry at media 29.95 (`Audio device underrun`, SABR not refilled) and mpv waited for data until EOF |
+Run 1 (same shape, no wall clock on all steps): mpv `pause="no"` -> `vid="auto"` 49.6 s (media position
+49.56 when the track came back), `vid="auto"` -> first frame **1.1 s** (data was there). So the
+re-enable itself costs ~1 s and a refresh seek; the 40-60 s are the main thread (QY53 forced layouts:
+the `playing` task waits behind the page's other tasks, and no redraw/relayout runs for tens of
+seconds) plus the second layout pass needed after the style write.
+
+Also seen: `getComputedStyle` reports `width=1%` / `height=1%` for `#movie_player` (`width:100%`) and
+`#player` (QY58, already filed; YouTube sizes the player from `clientWidth`/`clientHeight`, so no
+effect here). Run 2 ended in YouTube's error card ("Ein Fehler ist aufgetreten...", screenshot), the
+known PoToken stop (QM1k2, parked). Screenshots: run 1 34 s after the click still the thumbnail with
+the big red play button (audio playing, video parked off-screen); 77 s after the click the
+oscilloscope picture with the pause button and the progress dot moved.
+
+Items: QM1k1n1 (keep the video track decoding while a playing element's box is laid but clipped
+away), QM1k1n2 (re-measure this timeline after QY53a-c), QM1k1n3 (YouTube's pre-click `play()` +
+reloads vs Chrome). The rest is QY53.
+
+Not established: what Chrome does with an off-screen, clipped, playing `<video>` (keeps decoding or
+not; reasoning only); the cost in mpv CPU of decoding while off-screen (QM1k1n1 measures it); why
+`playing` waits 19.5 s after `play` in detail (which page tasks run in between: not profiled, QY53's
+domain); which of `lX`'s conditions flips first (player state only seen through `#movie_player`'s
+classes, `unstarted-mode` / `paused-mode` / `playing-mode`); audio/A-V sync (ao=null).
 
 ### Answers to the item's questions
 | question | answer |

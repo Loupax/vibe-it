@@ -7573,3 +7573,11 @@ Done: R38. The `true` is `<img alt="true">` (YouTube calls `setAttribute('alt', 
 **What changed:** src/media_mpv.rs (`unload` resets cache_end/seekable/duration; cache and seekable events are ignored while no file is loaded), src/media_el.rs (FakeBackend `unload` clears buffered/seekable), src/tests/mse_tests/qm1k1l.rs (fake JS test + real-mpv test, skips without libmpv/ffmpeg), REGRESSIONS.md (R42 section 4), TODO.txt (QM1k1l ticked, QM1k1m measured, QM1k1n filed). QM1k1m: measurement only (temporary redraw/apply_target logging, reverted): the `<video>` produced no painted box after +29 s.
 
 **Verified:** see the PR / final report.
+
+## QM1k1n: why the YouTube `<video>` has no painted box until `playing` (investigation, docs only)
+
+**Prompt:** Investigator (measure and document only): do QM1k1n. On the YouTube watch page (G1AeBgalFZk) the `<video>` was painted once (+26 s) and then never, so mpv got `vid=no` and the picture was missing for ~41 s. Probe (temporary, never committed) the video's and its ancestors' computed style and geometry at each redraw, find which CSS or layout condition removes its box and whether YouTube hides the video until a first frame / `playing`; compare with what a normal browser does. Own worktree release build, own wire, nested dwl, Chrome `--user-agent`; account for QY53's forced-layout slowness. Write findings into REGRESSIONS.md and file narrower TODO items.
+
+**What changed:** REGRESSIONS.md (R42 section 5; R42 heading and section 4 point to it), TODO.txt (QM1k1n ticked as measured; QM1k1n1, QM1k1n2, QM1k1n3 filed; CURRENT STATUS note). Throwaway, reverted probes: a JS prelude logger (computed style + rects of the video and ancestors, style/class MutationObservers, media events, `play()` calls, wall-clock stamps) and Rust logging in `paint_inner`, `media_video::paint_box`, `App::redraw` (laid-tree walk) and `MpvBackend::set_video_target`. Result: YouTube's player parks the video at inline `top:-360px` (outside `#movie_player`'s `overflow:hidden`) until its `playing` handler; no scratchy CSS gap. The 40-60 s gap is main-thread starvation (QY53) plus the `vid=no` round trip.
+
+**Verified:** two live runs of the R42 URL in nested dwl with screenshots (thumbnail with play button 34 s after the click, oscilloscope picture 77 s after it; run 2 ended in YouTube's PoToken error card).
