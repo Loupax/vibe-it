@@ -3511,18 +3511,27 @@ update: the app falls back to a full redraw for it).
 
 Frames: `vo=libmpv` + `mpv_render_context` type `sw`, format `bgr0` (= 0RGB), size =
 the box's content size in device pixels (mpv letterboxes: `keepaspect`, `panscan`,
-`video-unscaled` per `object-fit`). The render-update callback runs on an mpv thread:
-it sets `Shared.ready` and calls `media_video::wake()`, a coalesced
-`AppEvent::VideoFrame` posted through the winit proxy; `MpvBackend::take_frame` runs
-on the MAIN thread (`update`, then `render`), producing an `Arc<VideoFrame>`. With no
+`video-unscaled` per `object-fit`). QM1g2a: the render context lives on a render
+worker thread (`media_render::RenderWorker`, thread `scratchy-video`, one per backend;
+it creates, updates, renders with and frees the context, which is not thread-safe).
+mpv's render-update callback (an mpv thread) only calls `Signal::notify`; the worker then
+runs `update` and `render` into a fresh buffer, puts the `Arc<VideoFrame>` into a ONE-frame
+slot (an unread older frame is replaced, never queued) and calls `media_video::wake()`, a
+coalesced `AppEvent::VideoFrame` posted through the winit proxy; `MpvBackend::take_frame`
+on the main thread only takes the slot. Staleness: a target change, seek, load or unload
+bumps an epoch and empties the slot; a frame finished for an older epoch or target is
+dropped, not published. A target change while a picture exists re-renders the current
+frame at once (`redraw`; not after a hide, where `vid=no` may have dropped the picture).
+`MpvBackend::drop` drops the worker first (it joins the thread, which frees the context)
+and only then destroys the core. With no
 visible box (`MediaHost::set_targets` gets only boxes with unobstructed pixels, empty
-while `:help` parks the page) frames are consumed with SKIP_RENDERING (vo=libmpv
+while `:help` parks the page) the worker consumes frames with SKIP_RENDERING (vo=libmpv
 stalls playback if they pile up) and, once metadata is known and the file has an audio
 track, `vid=no` stops decoding (a video-only file keeps decoding: `vid=no` ends it at
 once). Audio: `ao=null` in tests, else `SCRATCHY_MEDIA_AO` or `pulse,null`; mpv only
 opens the device while an element plays (D5 still blocks unmuted autoplay).
 
-QM1g1 (`App::video_tick`): on `VideoFrame` it renders the waiting frames; when the
+QM1g1 (`App::video_tick`): on `VideoFrame` it takes the waiting frames; when the
 page is unchanged (no `layout_dirty`, same surface size, `AppVideo.page_buf` = a copy of
 the last presented page, kept only while a video box is visible) it copies the frame
 through each box's mask into `page_buf` and, when `buffer.age() == 1`, also into the
@@ -3532,9 +3541,8 @@ box, dirty layout) returns false and the normal full redraw runs. NO `pre_presen
 on this path: it arms winit's frame-callback gate, and a damage present every ~33 ms
 starved the next full redraw (a scroll waited ~9 s in the nested dwl).
 
-Limits (TODO QM1g2): rendering is on the main thread (a 720p source into 640x360 costs
-33-39 ms per frame on the loaded machine, load average 14-20, so scroll shares the
-thread with it); a `<video>` inside a mask-image/opacity layer paints black; no
+Limits (TODO QM1g2): (rendering left the main thread in QM1g2a; the main thread still
+copies each frame into `page_buf` and the softbuffer buffer and presents it); a `<video>` inside a mask-image/opacity layer paints black; no
 rounded-corner clip; `controls` are not drawn (QM1h-ish); paused elements keep their
 libmpv handle (QM1f1 a); `webm`/`vp9` could not be tested (no encoder here).
 

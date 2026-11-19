@@ -90,6 +90,9 @@ pub(crate) struct FrameStats {
     /// Latency samples (microseconds) of the current second.
     lat: Vec<u32>,
     video_wakes: u32,
+    /// QM1g2a: main-thread time in `App::video_tick` (all of it, and the frame-fetch part).
+    video_tick_ns: u64,
+    video_fetch_ns: u64,
     videos: [VideoCount; MAX_VIDEOS],
     nvideos: usize,
 }
@@ -134,6 +137,8 @@ impl FrameStats {
             npending: 0,
             lat: Vec::with_capacity(MAX_INPUT),
             video_wakes: 0,
+            video_tick_ns: 0,
+            video_fetch_ns: 0,
             videos: [VideoCount::default(); MAX_VIDEOS],
             nvideos: 0,
         }
@@ -214,6 +219,13 @@ impl FrameStats {
         self.video_wakes += 1;
     }
 
+    /// QM1g2a: one `video_tick` took `total` on the main thread, `fetch` of it getting the
+    /// new frames from the backends (the mpv render itself before QM1g2a).
+    pub(crate) fn video_tick(&mut self, total: Duration, fetch: Duration) {
+        self.video_tick_ns += total.as_nanos() as u64;
+        self.video_fetch_ns += fetch.as_nanos() as u64;
+    }
+
     fn video_slot(&mut self, node: usize) -> Option<&mut VideoCount> {
         let n = self.nvideos;
         if let Some(i) = self.videos[..n].iter().position(|v| v.node == node) {
@@ -277,7 +289,7 @@ impl FrameStats {
 \"builds\":{{\"n\":{},\"ms\":{:.2}}},\"shape\":{{\"complete\":{},\"incomplete\":{},\"worker_ms\":{:.2}}},\
 \"paint_ms\":{:.2},\"present_ms\":{:.2},\"js_ms\":{:.2},\"forced\":{{\"n\":{},\"ms\":{:.2},\"by_caller\":[{}]}},\"longest\":{},\"hover_restyles\":{},\
 \"input\":{{\"move\":{},\"button\":{},\"key\":{},\"wheel\":{},\"lat_max_ms\":{:.2},\"lat_p95_ms\":{:.2},\"pending\":{},\"oldest_pending_ms\":{:.1}}},\
-\"net\":{{\"n\":{},\"p50_ms\":{:.2},\"p95_ms\":{:.2},\"max_ms\":{:.2}}},\"video\":{{\"wakes\":{},\"v\":[{}]}}}}",
+\"net\":{{\"n\":{},\"p50_ms\":{:.2},\"p95_ms\":{:.2},\"max_ms\":{:.2}}},\"video\":{{\"wakes\":{},\"tick_ms\":{:.2},\"fetch_ms\":{:.2},\"v\":[{}]}}}}",
             now.saturating_duration_since(self.t0).as_secs_f64(),
             dt.as_secs_f64() * 1000.0,
             self.redraws,
@@ -309,6 +321,8 @@ impl FrameStats {
             ms(ext.net.2),
             ms(ext.net.3),
             self.video_wakes,
+            ms(self.video_tick_ns),
+            ms(self.video_fetch_ns),
             v,
         );
         self.window_start = now;
@@ -325,6 +339,8 @@ impl FrameStats {
         self.inputs = [0; 4];
         self.lat.clear();
         self.video_wakes = 0;
+        self.video_tick_ns = 0;
+        self.video_fetch_ns = 0;
         self.nvideos = 0;
         Some(line)
     }

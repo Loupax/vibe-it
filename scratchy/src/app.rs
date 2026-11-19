@@ -1586,8 +1586,21 @@ impl App {
     /// overlay mask, so content above it stays) and presents just that damage.
     /// False = a full redraw is needed (the caller requests it).
     fn video_tick(&mut self) -> bool {
+        let t0 = std::time::Instant::now();
+        let r = self.video_tick_inner();
+        if let Some(fs) = &mut self.frame_stats {
+            fs.video_tick(t0.elapsed(), std::time::Duration::ZERO);
+        }
+        r
+    }
+
+    fn video_tick_inner(&mut self) -> bool {
         let Some(js) = &self.js else { return true };
+        let t0 = std::time::Instant::now();
         let changed = js.media_render();
+        if let Some(fs) = &mut self.frame_stats {
+            fs.video_tick(std::time::Duration::ZERO, t0.elapsed());
+        }
         if changed.is_empty() {
             return true;
         }
