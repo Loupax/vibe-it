@@ -6513,3 +6513,14 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       Accept: YT watch QOBS1 summary `intern_custom_props` <= 1.5 %; big-css fixture with 200 `--v<i>`
       custom properties on `:root` and an override on every 10th div: forced_layout.total_ms lower than
       main, median of 3.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, QY53: what forced layouts cost and who forces them; R43) ---
+- [x] QY53f DONE 9fb583a (DESIGNED, R43 section 8: incremental style not worth L now; items QY53f1-3) [L] (P2, R43, Opus design first) Incremental style between forced layouts: 80 % of
+      YouTube forced layouts change no box (81 s of 101 s per 60 s) and 61 of 215 follow a single
+      write, while cascade + matching + precompute are 70-85 % of each layout. DESIGN (Opus, docs):
+      keep the previous build's `ComputedStyle` (and box subtree?) per element and recompute only
+      elements whose own attributes/children changed, plus their descendants (inheritance) and the
+      siblings sibling-combinator rules can see; how QY52's `StyleCache` fingerprints fit; what to
+      do about `:hover`/animations/viewport units. Not incremental LAYOUT: `measure_document` is
+      0.4 % of a YouTube forced layout (13 % on Wikipedia). Output: design + Sonnet items with
+      fixture gates.

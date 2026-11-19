@@ -64,10 +64,10 @@ PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; sea
   15 QY53e2 [M]  IO uses the App's own layout                                       | QY53 block
   16 QM1g2 (a) [M] render mpv frames off the main thread (33-39 ms per frame today); split (a) out
                  as its own item QM1g2a when taken, (b)-(d) stay where they are     | QM1g block
-  17 [WIP] QY53f [L, Opus design first] incremental style between forced layouts (80 % change nothing) | QY53 block
+  17 DONE 9fb583a QY53f [L, Opus design first] incremental style between forced layouts (80 % change nothing) | QY53 block
  Step 5, memory, regression guards, re-measure:
   18 QOBS7 [S]  memory breakdown (YT: 714 MB RSS vs 124 MB JS heap)                 | QOBS block
-  19 [WIP] QOBS8 [S]  perf-diff tool       20 QOBS10 [S] offline forced-layout benchmark  | QOBS block
+  19 [WIP] QOBS8 [S]  perf-diff tool       20 [WIP] QOBS10 [S] offline forced-layout benchmark  | QOBS block
   21 QY60 [S, Opus measure] main-thread throughput on YouTube results (re-measure after steps 2-4)
   22 QY54 [S, Opus measure] compositor disconnect under stalls (re-run after steps 2-4)
   23 QAN1h [S, Opus] GitHub restyle 15-18 s: re-measure with QOBS1 first (likely changed by QY53a-d)
@@ -1226,15 +1226,6 @@ divs with 3 classes each, a script that does 50 x (write one attribute, read `of
       skips for `GEOM_GEN`; code reading 2026-11-19, not measured). Recipe: the throwaway lines of
       R43 section 7 (one stderr line per forced layout / App build / complete ShapeResult with
       `geom_gen()`). Output: numbers in R43 + items if A or B is large.
-- [ ] [WIP] QY53f [L] (P2, R43, Opus design first) Incremental style between forced layouts: 80 % of
-      YouTube forced layouts change no box (81 s of 101 s per 60 s) and 61 of 215 follow a single
-      write, while cascade + matching + precompute are 70-85 % of each layout. DESIGN (Opus, docs):
-      keep the previous build's `ComputedStyle` (and box subtree?) per element and recompute only
-      elements whose own attributes/children changed, plus their descendants (inheritance) and the
-      siblings sibling-combinator rules can see; how QY52's `StyleCache` fingerprints fit; what to
-      do about `:hover`/animations/viewport units. Not incremental LAYOUT: `measure_document` is
-      0.4 % of a YouTube forced layout (13 % on Wikipedia). Output: design + Sonnet items with
-      fixture gates.
 
 --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
 Why: every perf investigation so far (R37, R42, R43) needed throwaway instrumentation that was then
@@ -1333,7 +1324,7 @@ Shared rules for this block:
       table of numeric fields whose change is above the threshold (%), sorted by size, with the page,
       field, old, new and %. stdlib only, `python3 -I`. PERF.md: "every perf PR pastes perf-diff of
       main vs branch". Smoke: diff two runs of the same commit (expect only noise) and paste.
-- [ ] QOBS10 [S] (P2, Sonnet) Offline, deterministic forced-layout benchmark: add the QY53 "big-css"
+- [ ] [WIP] QOBS10 [S] (P2, Sonnet) Offline, deterministic forced-layout benchmark: add the QY53 "big-css"
       fixture (generated in code, never vendored) to `benches/layout.rs` (criterion), measuring one
       `build_layout_tree_with_resources` + `measure_document` after a single attribute write, plus a
       variant with 200 custom properties (QY53i) and one with long text paragraphs (QP4). Expose what the
