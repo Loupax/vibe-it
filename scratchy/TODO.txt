@@ -1077,12 +1077,6 @@ Shared rules for this block:
 - [ ] QMEM3d [S] (P3, from QMEM3; Sonnet; after QMEM3a) `malloc_trim(0)` after a navigation and once when the window goes
       idle. Gate: RSS after leaving YouTube for a small page >= 25 MB lower.
       DATA (QMEM3c): with the arena cap (QMEM3a), YT watch after 60 s still has malloc free_kept = 111 MB (in_use 133 MB) of ~496 MB RSS.
-- [ ] [WIP] QMEM3e [M] (P3, from QMEM3; Sonnet) StyleCache (getComputedStyle) reuses rules_cache's parsed rule list instead of
-      parsing the same CSS again (~15-20 MB). Gate: that RSS saving; getComputedStyle tests unchanged.
-      FINDING (QY53f1e): StyleCache in js_style.rs keeps its own per-piece parse cache (`parse_piece` -> parse_stylesheet),
-      separate from rules_cache's Piece list, so every <style> is parsed twice. Both are text-keyed per piece, so sharing
-      rules_cache's parsed list is feasible; StyleCache also needs per-piece `has`/`sib` flags (rules_cache tracks `layer`
-      and a mask but not has/sib) and the layer-concat decision.
 - [ ] QMEM3f [S] (P4, from QMEM3; Opus measure) 10-minute live-window RSS sample on YT watch: the window grows ~0.22 MB/s
       in the first minute; leak or warm-up?
 - [ ] [WIP] QYTC1a [M] (P1, from QYTC1 R50; Sonnet; AFTER QY53o1 merges: same `__d_setattr` -> `geom_bump_attr` hook in js_dom.rs)

@@ -7765,3 +7765,11 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       test next to `qm1k1c_seek_outside_the_buffer_waits_then_reloads_at_t`, real-mpv
       `qysk1a_out_of_buffer_seek_holds_old_generation_then_resumes_at_target`. NOTE: seeks past ~64 s of media on YouTube
       still get no data until QM1k2 (SABR status 3 without attestation); with this fix they wait instead of playing on.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QMEM3e DONE 1e22bba #369 getComputedStyle shares rules_cache's parsed rules (~10-15 MB less RSS) [M] (P3, from QMEM3; Sonnet) StyleCache (getComputedStyle) reuses rules_cache's parsed rule list instead of
+      parsing the same CSS again (~15-20 MB). Gate: that RSS saving; getComputedStyle tests unchanged.
+      FINDING (QY53f1e): StyleCache in js_style.rs keeps its own per-piece parse cache (`parse_piece` -> parse_stylesheet),
+      separate from rules_cache's Piece list, so every <style> is parsed twice. Both are text-keyed per piece, so sharing
+      rules_cache's parsed list is feasible; StyleCache also needs per-piece `has`/`sib` flags (rules_cache tracks `layer`
+      and a mask but not has/sib) and the layer-concat decision.
