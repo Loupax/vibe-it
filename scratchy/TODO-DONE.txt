@@ -6838,3 +6838,7 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       precompute_generated, matching, var() expansion) with temporary Instant timing;
       file fix items. Every hover/JS restyle on these pages pays it today, and
       layout-affecting animations/transitions (QAN1d/QAN1e) depend on it.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QY53o3b DONE b4e12ab (fast memo hasher, no String copies; warm measure ~-13 %; 64-bit key without verify-on-hit, same exposure as before) [S] (P3, from QY53o3; Sonnet; after QY53o3a) Cheaper memo keys: non-SipHash hasher, build word/chunk keys from
+      (&str, &SpanStyle) without `to_string` copies, deadline check once per paragraph. Gate: warm measure_document <= 14 ms.
