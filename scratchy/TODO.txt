@@ -1094,7 +1094,7 @@ Shared rules for this block:
       sits right of centre; (5) a tall grey band under the header (empty ad slot? may be correct). Compare with a normal
       browser at the same width, find the cause of each (CSS feature, layout bug, image loading), write a sized fix list in
       REGRESSIONS.md. Not a perf item: backlog order unless the user raises it.
-- [ ] QFLK1 [S] (P3, coordinator 2026-11-19, from the QM1k1n5 agent; Sonnet) Load-sensitive test flakes in a full parallel
+- [ ] [WIP] QFLK1 [S] (P3, coordinator 2026-11-19, from the QM1k1n5 agent; Sonnet) Load-sensitive test flakes in a full parallel
       default-config run on a busy machine: qy14_js_report_run_timers_finds_timer_and_channel_errors,
       qy14_js_report_run_timers_is_bounded, qobs7_memory_fields_are_present (pass when re-run alone; "shared global state"
       suspected). Seen by 6 agents on 2026-11-19 (qy14 pair every time at load 20-40). Also
