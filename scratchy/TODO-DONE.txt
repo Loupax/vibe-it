@@ -6362,3 +6362,10 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       reason to stop rejecting these). Note: `clip:` is not supported,
       but `width/height:1px` + `overflow:hidden` + `position:absolute`
       should already hide the text in practice. Verify by rendering.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, QY53: what forced layouts cost and who forces them; R43) ---
+- [x] QY53h DONE 4749910 [S] (P2 since 2026-11-19: prerequisite of QY53e1's cheap freshness check; R43, Sonnet/Haiku) READY. `GeomCache::refresh` calls `js_style::page_css()`
+      on every geometry read, cache hit or not, which clones the whole external + adopted CSS
+      (3.8 MB on YouTube): 0.77 s per 60 s (0.8 %). Key the cache on the CSS version counters
+      (`CSS_VER`) and only build the string on a miss. Test: a hit does not call `page_css`
+      (test-only counter); a stylesheet change still invalidates. Accept: tests.

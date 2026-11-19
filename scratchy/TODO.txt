@@ -57,7 +57,7 @@ PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; sea
    2 [WIP] QOBS1 [S]  tools/profile.sh + [profile.profiling] (tools/docs only; can pair with 1) | QOBS block
  Step 2, the biggest measured wins (R44: matching is 53-63 % of ALL CPU on YouTube/Wikipedia):
    3 [WIP] QY53g [M]  selector matching; do its step (2) has_class FIRST (29-32 % of all CPU) | QY53 block
-   4 [WIP] QY53h [S]  page_css clone on every geometry read (js_geom.rs; pairs with 3)    | QY53 block
+   4 DONE 4749910 QY53h [S]  page_css clone on every geometry read (js_geom.rs; pairs with 3)    | QY53 block
    5 QY53e1 [S] deferred IO rechecks (92 % of Wikipedia CPU is IO-driven layout)    | QY53 block
    6 [WIP] QP4 [S]    shape-memo key via Debug strings (layout.rs; pairs with 5)          | QOBS block
    7 QY53i [M]  custom-property interning clone/hash/leak (css.rs)                  | QOBS block
@@ -1263,11 +1263,6 @@ divs with 3 classes each, a script that does 50 x (write one attribute, read `of
       do about `:hover`/animations/viewport units. Not incremental LAYOUT: `measure_document` is
       0.4 % of a YouTube forced layout (13 % on Wikipedia). Output: design + Sonnet items with
       fixture gates.
-- [ ] [WIP] QY53h [S] (P2 since 2026-11-19: prerequisite of QY53e1's cheap freshness check; R43, Sonnet/Haiku) READY. `GeomCache::refresh` calls `js_style::page_css()`
-      on every geometry read, cache hit or not, which clones the whole external + adopted CSS
-      (3.8 MB on YouTube): 0.77 s per 60 s (0.8 %). Key the cache on the CSS version counters
-      (`CSS_VER`) and only build the string on a miss. Test: a hit does not call `page_css`
-      (test-only counter); a stylesheet change still invalidates. Accept: tests.
 
 --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
 Why: every perf investigation so far (R37, R42, R43) needed throwaway instrumentation that was then
