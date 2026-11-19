@@ -105,6 +105,7 @@ mod js_engine;
 mod js;
 mod perf;
 mod stack;
+mod frame_stats;
 mod js_modules;
 mod js_dom;
 mod js_net;

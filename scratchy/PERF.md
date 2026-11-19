@@ -593,3 +593,30 @@ measurement), while other agents were building (load average ~11.5, so spread is
 
 Caveat: the appended-style variant is not measurably slower than plain big_css here (the fixture's CSS is ~0.6 MB,
 much smaller than YouTube's 4.4 MB, and the run was noisy); re-take the table on an idle machine (QOBS9).
+## Frame stats (QOBS5): what the live window does each second
+
+`SCRATCHY_FRAME_STATS=<path>` (or `=1` for stderr) makes the window App append one JSON line per second of
+wall time. Unset, empty or `0` = off: no file, no timing, no perf recorder (zero cost). On, the perf recorder
+also runs in a window mode that keeps only running totals (no per-span samples).
+
+    SCRATCHY_FRAME_STATS=/tmp/frames.jsonl scratchy --socket "$(wire --print-socket)" https://example.com/
+    tail -f /tmp/frames.jsonl
+
+Fields (all counts and ms are for that second; `dt_ms` is the real length of the interval):
+- `t` seconds since start; `redraws` full redraws; `damage_presents` video-rect-only presents;
+  `gap_max_ms` the longest gap between two redraw starts (carries across seconds).
+- `builds` {n, ms}: App tree builds (DOM walk + cascade, main thread). `shape` {complete, incomplete, worker_ms}:
+  shape-worker results received and the worker's wall time spent shaping.
+- `paint_ms` fill + paint up to the present; `present_ms` `present()` / `present_with_damage()` (may include
+  waiting for the compositor).
+- `js_ms` page JS CPU ms (exclusive span time of scripts, timers, jobs, events, observers, net callbacks);
+  `forced` {n, ms} forced layouts inside that JS.
+- `hover_restyles` hover changes that caused a rebuild.
+- `input` {move, button, key, wheel}: events received; `lat_max_ms` / `lat_p95_ms`: input event to the next
+  present (any present); `pending` / `oldest_pending_ms`: inputs still without a present at the roll-up (an
+  event that causes no redraw stays pending, so a large number is "no frame came", the freeze signature).
+- `video` {wakes, v:[{node, rendered, painted}]}: `wakes` = mpv "frame ready" wakeups; per `<video>`: new frames
+  rendered from mpv and presents that included the video (a full redraw repaints the newest frame, which may
+  be the same one: painted can exceed rendered).
+
+Overhead: see the QOBS5 PR (measured with and without the variable).

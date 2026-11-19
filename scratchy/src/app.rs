@@ -949,6 +949,8 @@ pub(crate) struct App {
     pub(crate) pre_help_page: Option<SavedPage>,
     /// QM1g/QM1g1: `<video>` boxes of the last full redraw and the kept page pixels.
     pub(crate) video: AppVideo,
+    /// QOBS5: `SCRATCHY_FRAME_STATS` aggregator; `None` (the default) costs one test per hook.
+    pub(crate) frame_stats: Option<crate::frame_stats::FrameStats>,
 }
 
 /// QM1g1: what the video-rect-only redraw keeps between full redraws.
@@ -1018,6 +1020,13 @@ impl AppVideo {
             (!need_mask || b.mask[mi]).then_some(b.node)
         })
     }
+}
+
+/// QOBS5: reads `SCRATCHY_FRAME_STATS`; when on, the perf recorder runs in window mode.
+fn new_frame_stats() -> Option<crate::frame_stats::FrameStats> {
+    let fs = crate::frame_stats::FrameStats::from_env()?;
+    crate::perf::start_window();
+    Some(fs)
 }
 
 /// Installs the thread-safe "video frame ready" poster for this event loop.
@@ -1140,6 +1149,7 @@ impl App {
             select_ahead: TypeAhead::default(),
             pre_help_page: None,
             video: AppVideo::default(),
+            frame_stats: new_frame_stats(),
         }
     }
 
@@ -1227,6 +1237,7 @@ impl App {
             select_ahead: TypeAhead::default(),
             pre_help_page: None,
             video: AppVideo::default(),
+            frame_stats: new_frame_stats(),
         }
     }
 
@@ -1237,6 +1248,9 @@ impl App {
         let size = window.inner_size();
         let width = size.width.max(1);
         let height = size.height.max(1);
+        if let Some(fs) = &mut self.frame_stats {
+            fs.redraw_start(std::time::Instant::now());
+        }
 
         if self.surface_size != (width, height) {
             let (Some(w), Some(h)) = (NonZeroU32::new(width), NonZeroU32::new(height)) else {
@@ -1285,6 +1299,9 @@ impl App {
             let build_started = std::time::Instant::now();
             let tree = build_layout_tree_with_resources(&self.document, width as f32, Some(height as f32), &crate::images::with_adopted_css(&self.extra_css, &self.adopted_css), &self.image_cache);
             self.last_build_time = Some(build_started.elapsed());
+            if let Some(fs) = &mut self.frame_stats {
+                fs.build(build_started.elapsed());
+            }
             self.anim.after_build(self.nav_generation, take_animation_report(), document_clock_ms());
             fetch_wanted_css_images(&self.proxy, self.socket_path.as_deref(), self.base_url.as_ref(), &mut self.css_images_requested, self.nav_generation);
             let late = crate::images::take_wanted_img_srcs();
@@ -1326,6 +1343,7 @@ impl App {
                 return;
             }
         };
+        let paint_started = self.frame_stats.is_some().then(std::time::Instant::now);
         for pixel in pixels.iter_mut() {
             *pixel = 0x00FFFFFF;
         }
@@ -1411,9 +1429,21 @@ impl App {
         let targets: Vec<_> = boxes.iter().filter(|b| crate::media_video::wants_render(b.visible_pixels(), b.layered, false)).map(|b| (b.node, b.target())).collect();
         self.video.boxes = boxes;
 
+        let present_started = std::time::Instant::now();
+        if let (Some(fs), Some(t)) = (&mut self.frame_stats, paint_started) {
+            fs.paint(present_started.saturating_duration_since(t));
+        }
         window.pre_present_notify();
         if let Err(e) = pixels.present() {
             log_redraw_error_once("present the frame", &e);
+        }
+        if let Some(fs) = &mut self.frame_stats {
+            let now = std::time::Instant::now();
+            fs.present(now.saturating_duration_since(present_started));
+            fs.presented(now);
+            for &n in &laid {
+                fs.video_painted(n);
+            }
         }
         if video_on && let Some(js) = &self.js {
             js.media_set_targets(&targets);
@@ -1430,6 +1460,11 @@ impl App {
         let changed = js.media_render();
         if changed.is_empty() {
             return true;
+        }
+        if let Some(fs) = &mut self.frame_stats {
+            for &n in &changed {
+                fs.video_rendered(n);
+            }
         }
         let (frames, _) = js.media_video_state();
         let (w, h) = self.surface_size;
@@ -1477,8 +1512,18 @@ impl App {
         // No `pre_present_notify` here: it arms winit's frame-callback gate, and a
         // damage present every ~33 ms would keep the next full redraw (a scroll)
         // waiting for a callback that the compositor delays.
+        let present_started = std::time::Instant::now();
         if let Err(e) = buf.present_with_damage(&rects) {
             log_redraw_error_once("present the video damage", &e);
+        }
+        if let Some(fs) = &mut self.frame_stats {
+            let now = std::time::Instant::now();
+            fs.present(now.saturating_duration_since(present_started));
+            fs.damage_present();
+            fs.presented(now);
+            for &n in &changed {
+                fs.video_painted(n);
+            }
         }
         true
     }
@@ -1779,6 +1824,7 @@ impl App {
                     // far more disruptive for what should be a rare
                     // event; `shape_cache` is this request's own local
                     // value regardless, already discarded either way.
+                    let worker_t0 = crate::frame_stats::worker_timing().then(std::time::Instant::now);
                     let measured = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                         measure_document(
                             &tree,
@@ -1799,6 +1845,9 @@ impl App {
                             &mut incomplete,
                         )
                     }));
+                    if let Some(t) = worker_t0 {
+                        crate::frame_stats::add_worker_ns(t.elapsed().as_nanos() as u64);
+                    }
                     let laid = match measured {
                         Ok(laid) => laid,
                         Err(payload) => {
@@ -1931,6 +1980,9 @@ impl App {
         // started a newer one must never clobber content that's
         // already further along. See `AppEvent::ShapeResult`'s
         // own docs.
+        if let Some(fs) = &mut self.frame_stats {
+            fs.shape_result(incomplete);
+        }
         if generation != self.layout_generation {
             return;
         }
@@ -2687,6 +2739,9 @@ impl App {
             find_node_by_id(&self.document, id).is_none_or(|h| self.hover_keys.may_match(&h))
         });
         if relevant {
+            if let Some(fs) = &mut self.frame_stats {
+                fs.hover_restyle();
+            }
             self.last_hover_restyle = Some(std::time::Instant::now());
             self.set_interaction_state(st);
         } else {
@@ -3586,7 +3641,20 @@ impl ApplicationHandler<AppEvent> for App {
         let anim_at = self.anim_tick(now_ms).map(|ms| std::time::Instant::now() + std::time::Duration::from_secs_f64(((ms - now_ms).max(0.0) + 1.0) / 1000.0));
         let js_at = self.js.as_ref().and_then(|js| js.next_deadline());
         let ctl_at = self.controls_refresh();
-        let flow = match [js_at, anim_at, ctl_at].into_iter().flatten().min() {
+        let stats_at = match &mut self.frame_stats {
+            Some(fs) => {
+                let now = std::time::Instant::now();
+                if now >= fs.next_due() {
+                    let ext = crate::frame_stats::FrameStats::take_external();
+                    if let Some(line) = fs.roll(now, ext) {
+                        fs.emit(&line);
+                    }
+                }
+                Some(fs.next_due())
+            }
+            None => None,
+        };
+        let flow = match [js_at, anim_at, ctl_at, stats_at].into_iter().flatten().min() {
             Some(t) => ControlFlow::WaitUntil(t),
             None => ControlFlow::Wait,
         };
@@ -3597,6 +3665,9 @@ impl ApplicationHandler<AppEvent> for App {
         match event {
             AppEvent::VideoFrame => {
                 crate::media_video::wake_handled();
+                if let Some(fs) = &mut self.frame_stats {
+                    fs.video_wake();
+                }
                 if self.video_tick() {
                     return;
                 }
@@ -3697,6 +3768,9 @@ impl ApplicationHandler<AppEvent> for App {
                 self.modifiers = mods.state();
             }
             WindowEvent::KeyboardInput { event, .. } => {
+                if let Some(fs) = &mut self.frame_stats {
+                    fs.input(crate::frame_stats::InputKind::Key, std::time::Instant::now());
+                }
                 // Release events never reach `handle_key_event` at all —
                 // nothing here is driven by a key actually being *held*
                 // (as opposed to repeatedly *pressed*, which winit's own
@@ -3790,6 +3864,9 @@ impl ApplicationHandler<AppEvent> for App {
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
+                if let Some(fs) = &mut self.frame_stats {
+                    fs.input(crate::frame_stats::InputKind::Move, std::time::Instant::now());
+                }
                 // Remembered in window/screen space, same form this event
                 // itself reports — `MouseWheel` (just below) needs it to
                 // pick the right scroll region, since that event carries
@@ -3838,6 +3915,9 @@ impl ApplicationHandler<AppEvent> for App {
                 }
             }
             WindowEvent::MouseInput { state, button, .. } => {
+                if let Some(fs) = &mut self.frame_stats {
+                    fs.input(crate::frame_stats::InputKind::Button, std::time::Instant::now());
+                }
                 // Scratchy has no text selection yet (see `is_click`'s
                 // own docs), but binding navigation to mouse-down alone
                 // would still be wrong on its own terms — a drag that
@@ -3949,6 +4029,9 @@ impl ApplicationHandler<AppEvent> for App {
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {
+                if let Some(fs) = &mut self.frame_stats {
+                    fs.input(crate::frame_stats::InputKind::Wheel, std::time::Instant::now());
+                }
                 self.last_wheel = Some(std::time::Instant::now());
                 let dy = match delta {
                     MouseScrollDelta::LineDelta(_, y) => y * 40.0,

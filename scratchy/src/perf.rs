@@ -115,6 +115,11 @@ struct Rec {
     seq: u64,
     /// QOBS3: what the forced layouts were made of.
     fl: ForcedAgg,
+    /// QOBS5 window mode: no per-span samples, only these running totals.
+    window: bool,
+    win_js_ns: u64,
+    win_forced_n: u64,
+    win_forced_ns: u64,
 }
 
 /// QOBS3: the phases of a forced layout, in report order.
@@ -325,6 +330,25 @@ pub(crate) fn start() {
     ON.with(|o| o.set(true));
 }
 
+/// QOBS5: the live window's frame stats turn the recorder on in window mode:
+/// spans keep only running totals (page JS, forced layouts), read by `take_window`.
+pub(crate) fn start_window() {
+    REC.with(|r| *r.borrow_mut() = Rec { window: true, ..Default::default() });
+    ON.with(|o| o.set(true));
+}
+
+/// `(page js ns, forced layouts, forced ns)` since the last call (window mode).
+pub(crate) fn take_window() -> (u64, u64, u64) {
+    REC.with(|r| {
+        let mut r = r.borrow_mut();
+        let out = (r.win_js_ns, r.win_forced_n, r.win_forced_ns);
+        r.win_js_ns = 0;
+        r.win_forced_n = 0;
+        r.win_forced_ns = 0;
+        out
+    })
+}
+
 /// Turns the recorder off (tests, and the end of a report).
 pub(crate) fn stop() {
     ON.with(|o| o.set(false));
@@ -413,6 +437,14 @@ pub(crate) fn end(span: Span, killed: bool) {
         let Some(o) = r.stack.pop() else { return };
         let cpu = thread_cpu_nanos().saturating_sub(o.cpu0);
         let bud = script_clock_nanos().saturating_sub(o.bud0);
+        if r.window {
+            r.win_js_ns += cpu.saturating_sub(o.child_cpu);
+            if let Some(p) = r.stack.last_mut() {
+                p.child_cpu += cpu;
+                p.child_bud += bud;
+            }
+            return;
+        }
         let idx = KINDS.iter().position(|(k, _)| *k == o.kind).unwrap_or(0);
         let (b, c) = (bud.saturating_sub(o.child_bud), cpu.saturating_sub(o.child_cpu));
         r.kinds[idx].samples.push((b, c));
@@ -498,7 +530,12 @@ pub(crate) fn forced_layout(cpu_ns: u64) {
     if enabled() {
         REC.with(|r| {
             let mut r = r.borrow_mut();
-            r.forced.push(cpu_ns);
+            if r.window {
+                r.win_forced_n += 1;
+                r.win_forced_ns += cpu_ns;
+            } else {
+                r.forced.push(cpu_ns);
+            }
             if let Some(o) = r.stack.last_mut() {
                 o.forced_n += 1;
                 o.forced_ns += cpu_ns;
