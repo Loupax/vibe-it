@@ -1221,7 +1221,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       visibility, a zero-size or clipped box, or a replaced element), while the screenshot showed
       YouTube's picture (a thumbnail or the page's own overlay, not mpv). Not determined: which of
       those, because a running scratchy cannot show the element's computed style. Filed QM1k1n.
-- [x] QM1k1n [S] MEASURED 2026-11-19 (Opus investigator, R42 section 5; no code change) (P2, QM1k1m follow-up, Sonnet, measure first) Why does the YouTube
+- [x] QM1k1n [S] MEASURED 2026-11-19 (3296eba; Opus investigator, R42 section 5; no code change) (P2, QM1k1m follow-up, Sonnet, measure first) Why does the YouTube
       `<video>` have no painted box after +29 s? Add a throwaway probe (log in `paint` for a
       `<video>` node: computed display, visibility, opacity, used size, clip; or in the page
       `getComputedStyle`/`getBoundingClientRect` of `video.html5-main-video` through a
