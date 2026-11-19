@@ -7658,3 +7658,9 @@ Done: R38. The `true` is `<img alt="true">` (YouTube calls `setAttribute('alt', 
 **Prompt:** Implement QOBS1: `[profile.profiling]`, `tools/profile.sh`, `tools/perf-fold.py`, preflight checks, `isolate-*-v8.log` in .gitignore, PERF.md "Profiling (perf)", one tools/README line; smoke-run on a fixture and Wikipedia Rust.
 
 **What changed:** Cargo.toml `[profile.profiling]`; tools/profile.sh; tools/perf-fold.py (fold, incl, callers, jscallers, plus an internal summary); .gitignore; PERF.md; tools/README. No cargo test (tools only). profile.sh sets `SCRATCHY_V8_SNAPSHOT=0` until QOBS2 merges.
+
+## QOBS2: V8 profiling flags crash with the startup snapshot (Sonnet)
+
+**Prompt:** Implement QOBS2: `SCRATCHY_V8_FLAGS='--perf-basic-prof --interpreted-frames-native-stack'` with the default snapshot segfaults on Wikipedia Rust. Find the cause with gdb first, fix it (bake with the same flags or skip the snapshot), child-process test, R44 command 5/5 ok without `SCRATCHY_V8_SNAPSHOT=0`.
+
+**What changed:** `js_engine_v8.rs` `build_snapshot` skips the snapshot (one stderr line) when `SCRATCHY_V8_FLAGS` is non-empty. Cause (gdb, local fixture with 300 functions reproduces 3/3): SIGSEGV on thread 1 jumping to an address outside any builtin (`#0 0x7fffbc016a80 in ?? ()`) called from `Builtins_LoadIC_NoFeedback`, i.e. a stale/non-executable code pointer from the snapshot-deserialized heap under the profiling flags (not fixed by baking with the same flags: the bake already runs after the flags are set). Test `qobs2_profiling_flags_with_default_snapshot_do_not_crash` (child process, 3 runs, 300-function page); it fails (exit 139) with the fix disabled. R44 command on Wikipedia Rust `--seconds 3`: 5/5 exit 0, outcome ok.

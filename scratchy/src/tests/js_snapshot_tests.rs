@@ -202,3 +202,43 @@ fn qv8_4b_bare_slow_and_snapshot_engines_share_one_process() {
         assert!(out.status.success(), "run {n} died ({:?}): {}", out.status, String::from_utf8_lossy(&out.stderr));
     }
 }
+
+// ---- QOBS2 (R44): profiling flags + the startup snapshot used to segfault ----
+
+fn qobs2_scenario() {
+    crate::js_engine::ensure_snapshot();
+    let mut src = String::from("<script>");
+    for i in 0..300 {
+        src.push_str(&format!("function f{i}(a){{return a+{i}}}\n"));
+    }
+    src.push_str("var s=0;for(let k=0;k<5;k++){");
+    for i in 0..300 {
+        src.push_str(&format!("s+=f{i}(k);"));
+    }
+    src.push_str("}console.log(s, typeof document.body)</script>");
+    let (_e, out) = qb8_start(&src);
+    // sum over k=0..4 of (300k + 44850) = 3000 + 224250
+    assert_eq!(*out.borrow(), ["log:227250 object"]);
+}
+
+/// Not a test of its own when run normally: the parent test below selects it with the env var.
+#[test]
+fn qobs2_child_scenario() {
+    if std::env::var("SCRATCHY_QOBS2_CHILD").is_ok() {
+        qobs2_scenario();
+    }
+}
+
+#[test]
+fn qobs2_profiling_flags_with_default_snapshot_do_not_crash() {
+    let exe = std::env::current_exe().unwrap();
+    for n in 0..3 {
+        let out = std::process::Command::new(&exe)
+            .args(["--exact", "tests::js_snapshot_tests::qobs2_child_scenario", "--nocapture", "--test-threads=1"])
+            .env("SCRATCHY_QOBS2_CHILD", "1")
+            .env("SCRATCHY_V8_FLAGS", "--perf-basic-prof --interpreted-frames-native-stack")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "run {n} died ({:?}): {}", out.status, String::from_utf8_lossy(&out.stderr));
+    }
+}
