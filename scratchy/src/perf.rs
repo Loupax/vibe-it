@@ -124,6 +124,8 @@ struct Rec {
     win_forced_ns: u64,
     /// QOBS6: delay (ns) between a page network result being complete and `deliver_net` running it.
     net: Vec<u64>,
+    /// QOBS5c window mode: the longest callback of the current second (self CPU ns, kind, source).
+    win_longest: Option<(u64, Kind, String)>,
 }
 
 /// QOBS3: the phases of a forced layout, in report order.
@@ -379,6 +381,24 @@ pub(crate) fn take_window() -> (u64, u64, u64) {
     })
 }
 
+/// QOBS5c: `(caller, count, ns)`.
+pub(crate) type Caller = (String, u64, u64);
+/// QOBS5c: `(self CPU ns, kind name, source)`.
+pub(crate) type LongestCb = (u64, &'static str, String);
+
+/// QOBS5c (window mode): the top `n` forced-layout callers of the second as `(caller, count, ns)`
+/// (slowest first) and the longest callback `(ns, kind name, source)`; both reset.
+pub(crate) fn take_window_callers(n: usize) -> (Vec<Caller>, Option<LongestCb>) {
+    REC.with(|r| {
+        let mut r = r.borrow_mut();
+        let mut v: Vec<Caller> = std::mem::take(&mut r.fl.callers).into_iter().map(|(k, (c, ns))| (k, c, ns)).collect();
+        v.sort_by(|a, b| b.2.cmp(&a.2).then(b.1.cmp(&a.1)).then(a.0.cmp(&b.0)));
+        v.truncate(n);
+        let longest = r.win_longest.take().map(|(ns, k, s)| (ns, KINDS.iter().find(|(x, _)| *x == k).map_or("", |x| x.1), s));
+        (v, longest)
+    })
+}
+
 /// QOBS6: one page network result was delivered `delay_ns` after it was complete (the
 /// `AppEvent::JsNet` was sent). Window mode keeps the samples of the current second only.
 pub(crate) fn net_delivery(delay_ns: u64) {
@@ -496,7 +516,15 @@ pub(crate) fn end(span: Span, killed: bool) {
         let cpu = thread_cpu_nanos().saturating_sub(o.cpu0);
         let bud = script_clock_nanos().saturating_sub(o.bud0);
         if r.window {
-            r.win_js_ns += cpu.saturating_sub(o.child_cpu);
+            let c = cpu.saturating_sub(o.child_cpu);
+            r.win_js_ns += c;
+            if r.win_longest.as_ref().is_none_or(|l| c > l.0) {
+                let source = match (o.source, o.listener) {
+                    (s, Some((_, l))) if s.as_deref().is_none_or(is_prelude_source) => l,
+                    (s, _) => s.unwrap_or_default(),
+                };
+                r.win_longest = Some((c, o.kind, source));
+            }
             if let Some(p) = r.stack.last_mut() {
                 p.child_cpu += cpu;
                 p.child_bud += bud;

@@ -39,7 +39,7 @@ pub(crate) enum InputKind {
 
 /// What other threads and the perf recorder counted in the second (the caller
 /// gathers it, so `FrameStats::roll` stays a pure function of its inputs).
-#[derive(Clone, Copy, Default, Debug)]
+#[derive(Clone, Default, Debug)]
 pub(crate) struct External {
     pub(crate) js_ns: u64,
     pub(crate) forced_n: u64,
@@ -47,7 +47,14 @@ pub(crate) struct External {
     pub(crate) worker_ns: u64,
     /// QOBS6: page network deliveries of the second: count, p50, p95, max (ns of delay).
     pub(crate) net: (u64, u64, u64, u64),
+    /// QOBS5c: the top forced-layout callers of the second: `(caller, count, ns)`, slowest first.
+    pub(crate) callers: Vec<crate::perf::Caller>,
+    /// QOBS5c: the longest callback of the second: `(self CPU ns, kind, source)`.
+    pub(crate) longest: Option<crate::perf::LongestCb>,
 }
+
+/// QOBS5c: how many forced-layout callers a frame-stats line lists.
+pub(crate) const CALLERS_N: usize = 3;
 
 #[derive(Clone, Copy, Default)]
 struct VideoCount {
@@ -255,10 +262,20 @@ impl FrameStats {
             }
             v.push_str(&format!("{{\"node\":{},\"rendered\":{},\"painted\":{}}}", c.node, c.rendered, c.painted));
         }
+        let by_caller = ext
+            .callers
+            .iter()
+            .map(|(c, n, ns)| format!("{{\"caller\":{},\"n\":{},\"ms\":{:.2}}}", crate::perf::json_str(c), n, ms(*ns)))
+            .collect::<Vec<_>>()
+            .join(",");
+        let longest = match &ext.longest {
+            Some((ns, kind, src)) => format!("{{\"ms\":{:.2},\"kind\":{},\"source\":{}}}", ms(*ns), crate::perf::json_str(kind), crate::perf::json_str(src)),
+            None => "null".to_string(),
+        };
         let line = format!(
             "{{\"t\":{:.1},\"dt_ms\":{:.0},\"redraws\":{},\"damage_presents\":{},\"gap_max_ms\":{:.1},\
 \"builds\":{{\"n\":{},\"ms\":{:.2}}},\"shape\":{{\"complete\":{},\"incomplete\":{},\"worker_ms\":{:.2}}},\
-\"paint_ms\":{:.2},\"present_ms\":{:.2},\"js_ms\":{:.2},\"forced\":{{\"n\":{},\"ms\":{:.2}}},\"hover_restyles\":{},\
+\"paint_ms\":{:.2},\"present_ms\":{:.2},\"js_ms\":{:.2},\"forced\":{{\"n\":{},\"ms\":{:.2},\"by_caller\":[{}]}},\"longest\":{},\"hover_restyles\":{},\
 \"input\":{{\"move\":{},\"button\":{},\"key\":{},\"wheel\":{},\"lat_max_ms\":{:.2},\"lat_p95_ms\":{:.2},\"pending\":{},\"oldest_pending_ms\":{:.1}}},\
 \"net\":{{\"n\":{},\"p50_ms\":{:.2},\"p95_ms\":{:.2},\"max_ms\":{:.2}}},\"video\":{{\"wakes\":{},\"v\":[{}]}}}}",
             now.saturating_duration_since(self.t0).as_secs_f64(),
@@ -276,6 +293,8 @@ impl FrameStats {
             ms(ext.js_ns),
             ext.forced_n,
             ms(ext.forced_ns),
+            by_caller,
+            longest,
             self.hover_restyles,
             self.inputs[0],
             self.inputs[1],
@@ -323,7 +342,8 @@ impl FrameStats {
     /// For the App: gathers `External` from the perf recorder and the worker.
     pub(crate) fn take_external() -> External {
         let (js_ns, forced_n, forced_ns) = crate::perf::take_window();
-        External { js_ns, forced_n, forced_ns, worker_ns: WORKER_NS.swap(0, Ordering::Relaxed), net: crate::perf::take_window_net() }
+        let (callers, longest) = crate::perf::take_window_callers(CALLERS_N);
+        External { js_ns, forced_n, forced_ns, worker_ns: WORKER_NS.swap(0, Ordering::Relaxed), net: crate::perf::take_window_net(), callers, longest }
     }
 
     /// Test sink: stats that write nowhere.

@@ -581,3 +581,23 @@ fn qobs6_net_delivery_report_fields() {
     assert_eq!(crate::perf::take_window_net(), (5, 3_000_000, 100_000_000, 100_000_000));
     assert_eq!(crate::perf::take_window_net().0, 0);
 }
+
+/// QOBS5c: window mode keeps the per-second top callers (slowest first, capped) and the longest callback, then resets.
+#[test]
+fn qobs5c_window_callers_and_longest() {
+    let _g = PerfGuard;
+    crate::perf::start_window();
+    assert_eq!(crate::perf::take_window_callers(3), (vec![], None));
+    for (c, ns) in [("a", 1_000_000u64), ("b", 5_000_000), ("c", 3_000_000), ("d", 2_000_000), ("b", 1_000_000)] {
+        crate::perf::set_caller(Some(c.to_string()));
+        crate::perf::forced_detail(ns, false);
+    }
+    let sp = crate::perf::begin(Some(crate::perf::Kind::Timer));
+    crate::perf::set_source(crate::perf::Kind::Timer, || "tick x.js:1:1".to_string());
+    crate::perf::end(sp, false);
+    let (callers, longest) = crate::perf::take_window_callers(3);
+    assert_eq!(callers, vec![("b".to_string(), 2, 6_000_000), ("c".to_string(), 1, 3_000_000), ("d".to_string(), 1, 2_000_000)]);
+    let (_, kind, src) = longest.expect("a callback ran");
+    assert_eq!((kind, src.as_str()), ("timer", "tick x.js:1:1"));
+    assert_eq!(crate::perf::take_window_callers(3), (vec![], None));
+}

@@ -7915,3 +7915,9 @@ Done: R38. The `true` is `<img alt="true">` (YouTube calls `setAttribute('alt', 
 > Find where the seek is lost (click reaching the bar, YouTube setting currentTime, MediaCore/MseHost/mpv in-generation vs new generation, seeking/seeked, appends at the target), also check a plain `<video controls>`; temporary logging only, own wire, nested compositor/headless; output a REGRESSIONS.md entry with a sized fix and its test; no code fix.
 
 **What changed:** REGRESSIONS.md R51 only. The click, YouTube's `seekTo` and scratchy's MSE seek all work: a real window click and headless runs seek or reload at the target when data comes. The bug: while an out-of-buffer seek waits for data, `MediaCore::mse_seek` leaves mpv's old generation loaded, and YouTube's `play()` after its scrub-pause unpauses it, so the old position plays on (local fixture: 4.02 -> 15.12 while `seeking` at 40). SABR often sends no data for the target (status 3 past ~64 s, QM1k2). Proposed QYSK1a (hold the old generation, S/M, P1) and QYSK1b (drop a stale time-pos after `playback-restart`, S, P2), with tests. Throwaway instrumentation reverted.
+
+## QOBS5c: frame-stats forced.by_caller and longest callback (Sonnet)
+
+> Do TODO.txt item QOBS5c: SCRATCHY_FRAME_STATS per-second lines get forced.by_caller top 3 and the longest callback source per second (reuse the --perf-report data path; follow QOBS6).
+
+**What changed:** perf.rs window mode keeps the forced-caller map and the longest callback of the second (`win_longest`, same source naming as `longest`), read and reset by `take_window_callers`; `External` (now Clone, not Copy) carries them; the line gets `forced.by_caller` (top 3) and `longest`. Tests: `qobs5c_callers_and_longest_in_line` (frame_stats_tests.rs), `qobs5c_window_callers_and_longest` (perf_tests.rs).
