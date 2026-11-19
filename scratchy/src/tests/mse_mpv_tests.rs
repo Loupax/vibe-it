@@ -571,11 +571,11 @@ pub(crate) mod real {
         app(&mut c, 0, &v.init);
         app(&mut c, 1, &a.init);
         // 0-16 s of video, 0-20 s of audio
-        for i in 0..4 {
-            app(&mut c, 0, &v.segs[i].2);
+        for s in &v.segs[0..4] {
+            app(&mut c, 0, &s.2);
         }
-        for i in 0..2 {
-            app(&mut c, 1, &a.segs[i].2);
+        for s in &a.segs[0..2] {
+            app(&mut c, 1, &s.2);
         }
         c.play(1);
         while c.current_time < 3.0 && t0.elapsed().as_secs_f64() < 30.0 {
@@ -597,11 +597,11 @@ pub(crate) mod real {
         let leaked = times.borrow().iter().cloned().fold(f64::MIN, f64::max);
         assert!(leaked <= old + 0.5, "the old generation kept playing: time-pos reached {leaked} (was {old})");
         // data for 40 arrives: 36-56 s of video, 30-50 s of audio
-        for i in 9..14 {
-            app(&mut c, 0, &v.segs[i].2);
+        for s in &v.segs[9..14] {
+            app(&mut c, 0, &s.2);
         }
-        for i in 3..5 {
-            app(&mut c, 1, &a.segs[i].2);
+        for s in &a.segs[3..5] {
+            app(&mut c, 1, &s.2);
         }
         let t2 = Instant::now();
         while c.current_time < 40.5 && t2.elapsed().as_secs_f64() < 10.0 {
