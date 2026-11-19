@@ -1532,6 +1532,8 @@ fn qy53o3a_big_layout_keeps_its_memo_across_forced_layouts() {
         html.push_str(&format!("<p style='margin:0'>run number {i}</p>"));
     }
     html.push_str("</body></html>");
+    // QFLK1: the layout is time-boxed (500 ms passes, 10 s cap); on a loaded machine it stopped half way.
+    crate::js_geom::TEST_NO_LAYOUT_LIMITS.with(|c| c.set(true));
     let doc = parse_html(&html);
     let t = by_id(&doc, "t");
     crate::layout::SHAPE_MEMO.with(|m| m.borrow_mut().clear());

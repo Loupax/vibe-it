@@ -9,6 +9,7 @@
 //! (Q33t keeps it alive in `App` for timers; see `JsEngine`.)
 use super::*;
 use crate::js_engine::{self, native, Bytes, Ctx, Engine, EngineOpts, FromJsRet, JsObject, JsResult};
+#[cfg(not(test))]
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
@@ -30,15 +31,26 @@ pub(crate) fn page_url() -> Option<Url> {
 /// size is plumbed through (new item Q33b2).
 const DEFAULT_VIEWPORT: (u32, u32) = (1024, 768);
 
+#[cfg(not(test))]
 static JS_ENABLED: AtomicBool = AtomicBool::new(true);
+// QFLK1: under `cargo test` every test runs on its own thread, so the flag is per thread; a test that
+// flips it (q33a, qy19) cannot make a parallel test see "scripts run: 0" (load-sensitive flake).
+#[cfg(test)]
+thread_local! { static JS_ENABLED_T: std::cell::Cell<bool> = const { std::cell::Cell::new(true) }; }
 
 /// Whether scripts run (and `<noscript>` is hidden). `--no-js` / `:set
 /// nojs` turn it off; a `:set` change applies from the next page load.
 pub(crate) fn js_enabled() -> bool {
+    #[cfg(test)]
+    return JS_ENABLED_T.with(|c| c.get());
+    #[cfg(not(test))]
     JS_ENABLED.load(Ordering::Relaxed)
 }
 
 pub(crate) fn set_js_enabled(on: bool) {
+    #[cfg(test)]
+    JS_ENABLED_T.with(|c| c.set(on));
+    #[cfg(not(test))]
     JS_ENABLED.store(on, Ordering::Relaxed);
 }
 

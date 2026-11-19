@@ -600,15 +600,22 @@ impl GeomCache {
             let mut laid = None;
             // Shaping is progressive (a deadline per pass); keep going until
             // it completes or a hard cap, resuming from the same shape cache.
+            #[allow(unused_mut)]
+            let (mut pass_ms, mut cap_s) = (500u64, 10u64);
+            // QFLK1: tests that need the whole layout (not a time-boxed part of it) lift the wall-clock limits.
+            #[cfg(test)]
+            if TEST_NO_LAYOUT_LIMITS.with(|c| c.get()) {
+                (pass_ms, cap_s) = (600_000, 600);
+            }
             FONTS.with(|f| {
                 let mut f = f.borrow_mut();
                 let fs = f.get_or_insert_with(new_font_system);
                 loop {
                     let mut incomplete = false;
                     let mut next_id = 0usize;
-                    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(500);
+                    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(pass_ms);
                     laid = Some(measure_document(&tree, fs, vw, vh, &mut next_id, &mut cache, deadline, &mut incomplete));
-                    if !incomplete || t0.elapsed() > std::time::Duration::from_secs(10) {
+                    if !incomplete || t0.elapsed() > std::time::Duration::from_secs(cap_s) {
                         break;
                     }
                 }
@@ -931,3 +938,6 @@ impl GeomCache {
         }
     }
 }
+
+#[cfg(test)]
+thread_local! { pub(crate) static TEST_NO_LAYOUT_LIMITS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) }; }
