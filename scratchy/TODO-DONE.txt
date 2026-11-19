@@ -7813,3 +7813,10 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       suspected). Seen by 6 agents on 2026-11-19 (qy14 pair every time at load 20-40). Also
       perf_tests::qmem3c_explained_bytes_is_the_sum_of_its_parts failed once after QMEM3b #380: its sum list may lack the new
       js_extra_css/dom/report_* probes (check it is not a real bug first). Find the shared state or timing assumption and make them deterministic.
+
+=== from TODO.txt: --- Rust `__*` native wrapped in a JS timer); none of it was committed. -------
+- [x] QM1g2a DONE a50bce1 #388 mpv render worker thread; main-thread ms/frame ~5->1 local, ~9->2.3 YouTube [M] (P2 perf, split out of QM1g2 (a) 2026-11-19; Opus) mpv frames are rendered on the MAIN thread
+      (33-39 ms per 720p->640x360 frame at load average 14-20); a worker thread owning the render context would keep
+      scroll/hover/JS responsive. Gate: main-thread time per video frame ~0 in frame stats while video plays; video fps not
+      worse; no tearing/stale frames (tests + a nested-window run).
+  (queue line) 16 [WIP] QM1g2a [M] render mpv frames off the main thread (33-39 ms per frame today)
