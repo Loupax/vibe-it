@@ -311,6 +311,10 @@ impl<'js> JsObject<'js> {
 
     /// QOBS4: `name url:line:col` of this object when it is a function (empty otherwise).
     pub(crate) fn function_source(&self) -> String {
+        // QOBS4b: a scratchy shim names the page function it wraps (`__scratchy_cb`).
+        if let Some(inner) = self.get::<JsObject<'js>>("__scratchy_cb") {
+            return inner.function_source();
+        }
         let Ok(f) = v8::Local::<v8::Function>::try_from(self.o) else { return String::new() };
         let sc = self.ctx.sc();
         let name = f.get_name(sc).to_rust_string_lossy(sc);

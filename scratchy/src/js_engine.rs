@@ -177,6 +177,9 @@ impl<'js> JsObject<'js> {
         if !self.0.is_function() {
             return String::new();
         }
+        if let Some(inner) = self.get::<JsObject<'js>>("__scratchy_cb") {
+            return inner.function_source();
+        }
         let name: String = self.0.get("name").unwrap_or_default();
         if name.is_empty() { "(anonymous)".to_string() } else { name }
     }

@@ -58,6 +58,8 @@ struct Open {
     forced_ns: u64,
     /// QOBS4: the callback's function (`name url:line:col`) or script/event label.
     source: Option<String>,
+    /// QOBS4b: the slowest event listener that ran directly in this span (ms, `event:<type> <fn>`).
+    listener: Option<(f64, String)>,
 }
 
 /// QOBS4: how many callbacks `longest` keeps.
@@ -420,7 +422,7 @@ pub(crate) fn begin(kind: Option<Kind>) -> Span {
     }
     REC.with(|r| {
         let mut r = r.borrow_mut();
-        r.stack.push(Open { kind, cpu0: thread_cpu_nanos(), bud0: script_clock_nanos(), child_cpu: 0, child_bud: 0, forced_n: 0, forced_ns: 0, source: None });
+        r.stack.push(Open { kind, cpu0: thread_cpu_nanos(), bud0: script_clock_nanos(), child_cpu: 0, child_bud: 0, forced_n: 0, forced_ns: 0, source: None, listener: None });
         Span(Some(r.stack.len() - 1))
     })
 }
@@ -468,7 +470,14 @@ pub(crate) fn end(span: Span, killed: bool) {
                 forced_n: o.forced_n,
                 forced_ns: o.forced_ns,
                 at_ms,
-                source: o.source.unwrap_or_default(),
+                source: match (o.source, o.listener) {
+                    // QOBS4b: a scratchy wrapper (media pump, rIC shim, ...) or nothing: name the slowest listener.
+                    (s, Some((_, l))) if s.as_deref().is_none_or(is_prelude_source) => {
+                        let _ = s;
+                        l
+                    }
+                    (s, _) => s.unwrap_or_default(),
+                },
                 seq,
             }));
         }
@@ -510,6 +519,36 @@ pub(crate) fn set_source(kind: Kind, source: impl FnOnce() -> String) {
             && o.source.is_none()
         {
             o.source = Some(source());
+        }
+    });
+}
+
+/// QOBS4b: true when `source` (`name url:line:col`) points into one of scratchy's own prelude
+/// scripts, i.e. it names a wrapper and not the page's function.
+fn is_prelude_source(source: &str) -> bool {
+    let Some(loc) = source.rsplit(' ').next() else { return false };
+    let mut it = loc.rsplitn(3, ':');
+    let (_c, _l, url) = (it.next(), it.next(), it.next());
+    url.is_some_and(|u| crate::js::PRELUDE_SCRIPTS.contains(&u))
+}
+
+/// QOBS4b: this thread's CPU clock in ms (the recorder's own clock, fake-clock aware).
+pub(crate) fn thread_cpu_ms() -> f64 {
+    thread_cpu_nanos() as f64 / 1e6
+}
+
+/// QOBS4b: an event listener took `ms`; remembered on the innermost open callback span when it is the
+/// slowest so far (`source` is only built then). `__perf_lis` is installed only while the recorder is on.
+pub(crate) fn note_listener(event_type: &str, ms: f64, source: impl FnOnce() -> String) {
+    if !enabled() {
+        return;
+    }
+    REC.with(|r| {
+        let mut r = r.borrow_mut();
+        if let Some(o) = r.stack.iter_mut().rev().find(|o| o.kind != Kind::Observer)
+            && o.listener.as_ref().is_none_or(|(m, _)| ms > *m)
+        {
+            o.listener = Some((ms, format!("event:{event_type} {}", source())));
         }
     });
 }
