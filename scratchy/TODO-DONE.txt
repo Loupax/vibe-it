@@ -6591,3 +6591,13 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       `new_font_system_with` (the faces stay mmapped, so `with_face_data` stops
       touching the disk) and measure memory (RSS) before/after. Else close as
       not worth it, with the numbers.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QOBS7 DONE 67b6f0d [S] (P2, R44 section 4.5, Sonnet) Memory breakdown in `--perf-report`: `memory` {rss_bytes,
+      peak_rss_bytes (`getrusage` ru_maxrss), js_heap {used, total, external} (V8 `get_heap_statistics`),
+      caches: entries and approximate bytes of `CUSTOM_PROPS_INTERNER` (leaked forever), `SHAPE_MEMO`,
+      `RULES_CACHE` + the RuleIndex/HoverKeys cache, `SVG_SIZED_CACHE`, the image cache, `StyleCache`,
+      the MSE store, GeomCache rects/glyphs; media players alive}. Approximate bytes = a cheap estimate
+      (sum of string/vec capacities), documented as such. YouTube today: 714 MB RSS vs 124 MB JS heap,
+      ~590 MB unexplained. Tests: fields present; an interned map shows up in the interner count.
+      Accept: tests; YT watch JSON pasted with the share of RSS the listed caches explain.

@@ -56,7 +56,7 @@ PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; sea
   17 DONE 9fb583a QY53f [L, Opus design first] incremental style between forced layouts (80 % change nothing) | QY53 block
   17a [WIP] QY53f1 [S/M] incremental stylesheet parse (YT max_ms = full 4.4 MB re-parse); after QOBS3 | QY53 block
  Step 5, memory, regression guards, re-measure:
-  18 [WIP] QOBS7 [S]  memory breakdown (YT: 714 MB RSS vs 124 MB JS heap)                 | QOBS block
+  18 DONE 67b6f0d QOBS7 [S]  memory breakdown (YT: 714 MB RSS vs 124 MB JS heap)                 | QOBS block
   19 DONE 4123b55 QOBS8 [S]  perf-diff tool       20 DONE 352ad4f QOBS10 [S] offline forced-layout benchmark  | QOBS block
   21 QY60 [S, Opus measure] main-thread throughput on YouTube results (re-measure after steps 2-4)
   22 QY54 [S, Opus measure] compositor disconnect under stalls (re-run after steps 2-4)
@@ -1231,7 +1231,7 @@ Shared rules for this block:
       that YouTube's visible content (thumbnails, comments) loads as before (nested-dwl screenshot at 30 s).
       QOBS3 (319f933) YT watch sample, 60 s, loaded machine: 135 forced layouts / 7.3 s, no_change 73 (54 %), by_reason
       io 21 / 2.1 s, script 114 / 5.2 s; top caller `g.k.getPlayerSize` (player base.js:15474) 74 layouts / 2.3 s.
-- [ ] QOBS4b [S] (P2, coordinator 2026-11-19, from QOBS4 f9a8c27; Sonnet) `longest[].source` names scratchy's WRAPPERS,
+- [ ] [WIP] QOBS4b [S] (P2, coordinator 2026-11-19, from QOBS4 f9a8c27; Sonnet) `longest[].source` names scratchy's WRAPPERS,
       not the page function: YT watch #4 `run media:108:22` (1360 ms, 15 forced layouts = the media pump in
       media_prelude.js, which dispatches `timeupdate` etc. synchronously, so YouTube's listeners run inside it) and #5
       `(anonymous) globals:151:35` (940 ms = the requestIdleCallback shim in globals_prelude.js calling the page's cb);
@@ -1276,6 +1276,20 @@ Shared rules for this block:
       If the dirtying write is a no-op for layout (same value, or a property that cannot move boxes), skip the GEOM_GEN
       bump for it (QY53c did this for some writes). Gate: YT watch getPlayerSize layouts / 60 s at least halved,
       median of 3, default UA; tests for the skipped write kind.
+- [ ] QMEM1 [S] (P2 memory, from QOBS7 67b6f0d; Sonnet, measure first; touches js_style.rs StyleCache: not alongside
+      QY53f1 if that touches page_css/StyleCache) YT watch 60 s: `style_cache` = 861 entries, ~183.5 MB (~213 KB per entry)
+      of 732 MB RSS. Find what one entry holds (a whole ComputedStyle per element? the full page CSS string or rule list
+      per entry? per-generation copies never evicted?) and bound it: evict entries of elements no longer in the document /
+      older generations, share immutable parts (Rc/Arc), or store a compact form. Gate: YT watch memory.caches.style_cache
+      bytes >= 70 % lower and RSS lower, median of 3; forced_layout.total_ms not worse (perf-diff). Tests: entry count
+      bounded after N relayouts of a page whose elements are replaced; cached styles still correct.
+- [ ] QMEM2 [S] (P2 memory, from QOBS7; Sonnet; AFTER QY53f1, which reworks RULES_CACHE per piece) YT watch: `rules_cache`
+      = 22 564 entries, ~95.6 MB (~4 KB per rule). Check after QY53f1 whether old versions are kept (YouTube inserts many
+      `<style>`s) and what a parsed rule costs (selector + declaration storage; QOBS7 says the estimate undercounts selector
+      heap); compact or dedupe. Gate: YT watch rules_cache bytes >= 50 % lower, no forced-layout regression.
+- [ ] QMEM3 [S] (P3 memory, from QOBS7; Opus measure only) ~280 MB (38 %) of YT watch RSS is unexplained by caches + JS
+      heap (peak 839 MB). One measured pass: /proc/self/smaps_rollup + malloc_info at end of run, V8 heap space stats
+      (code/large-object/zone), mpv buffers for the 2 players, DOM/box trees; name the top 3 and file items.
 - [ ] [WIP] QOBS1b [XS] (coordinator 2026-11-19, from QOBS2 aadd319; Sonnet/Haiku, tools only) `tools/profile.sh` still sets
       `SCRATCHY_V8_SNAPSHOT=0` (the QOBS1 workaround "until QOBS2 is merged"). QOBS2 made scratchy skip the snapshot itself
       whenever `SCRATCHY_V8_FLAGS` is set, so drop the env var from profile.sh and the PERF.md "Profiling (perf)" note.
@@ -1302,14 +1316,6 @@ Shared rules for this block:
       synchronous; say so in PERF.md); QOBS5 lines: the same per second. QM1k1n5 ("results 1-19 s late,
       measure first") uses this instead of temporary stamps. Test: a fetch whose result arrives while a
       busy timer chain runs records a delay >= the timer's duration (test clock or a known busy loop).
-- [ ] [WIP] QOBS7 [S] (P2, R44 section 4.5, Sonnet) Memory breakdown in `--perf-report`: `memory` {rss_bytes,
-      peak_rss_bytes (`getrusage` ru_maxrss), js_heap {used, total, external} (V8 `get_heap_statistics`),
-      caches: entries and approximate bytes of `CUSTOM_PROPS_INTERNER` (leaked forever), `SHAPE_MEMO`,
-      `RULES_CACHE` + the RuleIndex/HoverKeys cache, `SVG_SIZED_CACHE`, the image cache, `StyleCache`,
-      the MSE store, GeomCache rects/glyphs; media players alive}. Approximate bytes = a cheap estimate
-      (sum of string/vec capacities), documented as such. YouTube today: 714 MB RSS vs 124 MB JS heap,
-      ~590 MB unexplained. Tests: fields present; an interned map shows up in the interner count.
-      Accept: tests; YT watch JSON pasted with the share of RSS the listed caches explain.
 - [ ] QOBS9 [S] (P2, R44 section 0, Opus measure, docs only; LAST in this block) Re-baseline PERF.md on
       the new machine (AMD Ryzen 7 5700X, 16 threads, Fedora 44): the QV8-0/QV8-m tables were taken on a
       Ryzen 5 PRO 2500U laptop and cannot be compared with anything measured now. `tools/perf-suite.sh`
