@@ -1272,7 +1272,7 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       what is still slow (e.g. an App redraw/relayout that cannot run while page tasks queue up;
       media events waiting behind other tasks). Target to aim for: `playing` <= 2 s after
       `play()`, box <= 1 redraw after the style write.
-- [x] QM1k1n4 [S] DONE (HASH_QM1k1n4: start_generation takes the init of the segment covering t, switch_point + mse_check_switch reload at the init boundary; tests qm1k1n4_*) (P1, R42 section 6, Sonnet, reproduce locally first) THE NEXT YOUTUBE
+- [x] QM1k1n4 [S] DONE (6f4ad31: start_generation takes the init of the segment covering t, switch_point + mse_check_switch reload at the init boundary; tests qm1k1n4_*) (P1, R42 section 6, Sonnet, reproduce locally first) THE NEXT YOUTUBE
       BLOCKER: a second init segment freezes MSE playback. YouTube's ABR appends a new init
       segment (741 B `ftyp`, quality switch) while playing; `MediaCore::mse_data_changed`
       (`new_init`) sets `want = current_time` and `mse_resolve` reloads mpv because `feed.covers(t)`
