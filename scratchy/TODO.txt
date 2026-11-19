@@ -1235,15 +1235,6 @@ Shared rules for this block:
       that YouTube's visible content (thumbnails, comments) loads as before (nested-dwl screenshot at 30 s).
       QOBS3 (319f933) YT watch sample, 60 s, loaded machine: 135 forced layouts / 7.3 s, no_change 73 (54 %), by_reason
       io 21 / 2.1 s, script 114 / 5.2 s; top caller `g.k.getPlayerSize` (player base.js:15474) 74 layouts / 2.3 s.
-- [ ] [WIP] QOBS4b [S] (P2, coordinator 2026-11-19, from QOBS4 f9a8c27; Sonnet) `longest[].source` names scratchy's WRAPPERS,
-      not the page function: YT watch #4 `run media:108:22` (1360 ms, 15 forced layouts = the media pump in
-      media_prelude.js, which dispatches `timeupdate` etc. synchronously, so YouTube's listeners run inside it) and #5
-      `(anonymous) globals:151:35` (940 ms = the requestIdleCallback shim in globals_prelude.js calling the page's cb);
-      promise jobs (#2, 1535 ms) and net callbacks have no source at all. (a) Attribute through the shims: rIC/rAF/
-      queueMicrotask-style wrappers and prelude-dispatched events report the page function (or `event:<type> <listener
-      fn url:line:col>` for the slowest listener); (b) promise jobs: name the reaction handler if V8 exposes it cheaply;
-      (c) measure the media pump's OWN cost (excluding listeners) on YT watch: if it forces layouts itself, file a fix.
-      Tests: a rIC callback named `slowIdle` shows up as `slowIdle <url>`; a slow `timeupdate` listener is named.
 - [ ] QY53i2 [L] (P2 memory, coordinator 2026-11-19, from QY53i 4946d83; Opus design first, then Sonnet) Interned
       custom-property tables are `Box::leak`ed and never freed: ~97 tables x ~125 KB = ~12 MB leaked per YouTube watch
       load, across navigations (and QY53i's `CUSTOM_PROPS_MEMO` also lives as long as the thread). Freeing them needs
@@ -1265,7 +1256,7 @@ Shared rules for this block:
       (`--perf-report`, QOBS3 phases/by_caller once merged); make the ancestor checks one walk (or cached per layout
       generation). Gate: one read at 5 000 deep < 100 ms; tests: IO visibility semantics unchanged (display:none /
       visibility:hidden ancestor still hides the target).
-- [ ] QOBS5b [S] (P3, from QOBS5 bf9aea1; Sonnet, measure first) With the window idle (no input, nothing animating),
+- [ ] [WIP] QOBS5b [S] (P3, from QOBS5 bf9aea1; Sonnet, measure first) With the window idle (no input, nothing animating),
       Wikipedia and YouTube both show a steady ~125-135 ms of page JS per wall second and zero redraws. Find out whether
       that is a real timer/rAF/poll (which one: QOBS4b's named `longest` sources) or an accounting artifact of the window
       mode recorder (idle-poll time counted as JS). If real and ours (prelude polling), make it event-driven.

@@ -6643,3 +6643,14 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       If the dirtying write is a no-op for layout (same value, or a property that cannot move boxes), skip the GEOM_GEN
       bump for it (QY53c did this for some writes). Gate: YT watch getPlayerSize layouts / 60 s at least halved,
       median of 3, default UA; tests for the skipped write kind.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QOBS4b DONE 7bf6875 (media pump own cost 0.03-5 ms, 0 own forced layouts; promise jobs stay unnamed) [S] (P2, coordinator 2026-11-19, from QOBS4 f9a8c27; Sonnet) `longest[].source` names scratchy's WRAPPERS,
+      not the page function: YT watch #4 `run media:108:22` (1360 ms, 15 forced layouts = the media pump in
+      media_prelude.js, which dispatches `timeupdate` etc. synchronously, so YouTube's listeners run inside it) and #5
+      `(anonymous) globals:151:35` (940 ms = the requestIdleCallback shim in globals_prelude.js calling the page's cb);
+      promise jobs (#2, 1535 ms) and net callbacks have no source at all. (a) Attribute through the shims: rIC/rAF/
+      queueMicrotask-style wrappers and prelude-dispatched events report the page function (or `event:<type> <listener
+      fn url:line:col>` for the slowest listener); (b) promise jobs: name the reaction handler if V8 exposes it cheaply;
+      (c) measure the media pump's OWN cost (excluding listeners) on YT watch: if it forces layouts itself, file a fix.
+      Tests: a rIC callback named `slowIdle` shows up as `slowIdle <url>`; a slow `timeupdate` listener is named.
