@@ -1417,11 +1417,26 @@ impl JsEngine {
     }
 
     pub(crate) fn run_due(&self) {
+        self.run_due_slice(None);
+    }
+
+    /// QM1k1n6b: like `run_due` but stops once `slice` of wall time is used
+    /// (checked after each callback, so one long callback just ends the
+    /// slice). Timers run strictly in `__scratchy_timers_run_one` order, so
+    /// what a slice leaves is picked up by the next turn in the same order.
+    /// Returns true when the slice ended with work possibly left over (the
+    /// caller must wake again at once: `next_deadline` is then already due).
+    pub(crate) fn run_due_slice(&self, slice: Option<Duration>) -> bool {
+        let start = Instant::now();
         for _ in 0..MAX_TIMERS_PER_TURN {
             if self.eval_value_as::<bool>(Some((perf::Kind::Timer, |r| *r == Some(false))), "timer", "__scratchy_timers_run_one()") != Some(true) {
-                break;
+                return false;
+            }
+            if slice.is_some_and(|s| start.elapsed() >= s) {
+                return true;
             }
         }
+        true
     }
 }
 
