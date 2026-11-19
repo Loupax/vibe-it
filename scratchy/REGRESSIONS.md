@@ -1,5 +1,118 @@
 # scratchy — regressions
 
+## R51: QYSK1: a click on YouTube's progress bar "pauses, then continues from where it was". The click, YouTube's seek and scratchy's MSE seek all WORK; what fails is what happens while an out-of-buffer seek waits for data: MediaCore leaves mpv's OLD generation loaded and unpaused, so YouTube's `play()` after its scrub-pause resumes the old position's picture and sound while the element reports `seeking` at the target. The target's data often never comes (SABR attestation status 3 past ~64 s media time, QM1k2) or comes late (QM1k1n5). Plus a smaller bug: after an in-generation seek mpv sometimes delivers a stale `time-pos` right after `playback-restart`, so `seeking`/`seeked` report the pre-seek time (Opus investigator, 2026-11-19, docs only) — OPEN: proposed QYSK1a (P1, hold the old generation while an MSE seek waits) and QYSK1b (P2, drop the stale time-pos), section 4
+
+**Status: investigation only, docs only; the instrumentation was reverted.** Main d7984e5 (QCUR1 6b3520e
+included), own worktree release build (V8 + media, libmpv 0.41 / ffmpeg 8.1.3), own wire on a scratchpad
+socket (never the user's), `SCRATCHY_MEDIA_AO=null`, `SCRATCHY_V8_SNAPSHOT=0`, default UA, URL
+https://www.youtube.com/watch?v=G1AeBgalFZk (logged out, DE). Headless: `scratchy --perf-report --budget-ms
+20000 --seconds 45..90`. Window: tools/nest.sh (nested dwl, 960x316) + tools/inject + grim. No timing claims
+(no flock); `uptime` at the end: load 23 (other agents building), which slows but does not change results.
+
+**Throwaway instrumentation (reverted, never committed):** (1) appended to `mse_prelude.js`, logging via
+`__scratchy_err` so it also shows headless: wrapped `currentTime` setter (value, old value, buffered, 5-frame
+stack), `play()`/`pause()` with stacks, media events (currentTime/readyState/seeking/buffered), `mousedown`/
+`mouseup`/`click`/`pointer*` on `document` (capture, target, clientX/Y), `addEventListener` registrations on
+`.ytp-progress*`, `appendBuffer` (size, top-level boxes, each moof's `tfdt` in seconds via the init's `mdhd`
+timescale) + `buffered` after each append, `remove`/`abort`/`timestampOffset`, googlevideo `fetch`es with UMP
+part counts and the part-58 payload, a 2 s TICK with `movie_player.getPlayerState()/getCurrentTime()`, and
+for headless a scripted seek after `playing` (`&sk=<t>_<delay>[_ct|_click]`): `movie_player.seekTo(t)`,
+`video.currentTime = t`, or a synthetic `mousedown`/`mouseup`/`click` on `.ytp-progress-bar` at the clicked x
+with exactly the fields `App::js_mouse` sets. (2) Rust `eprintln!` in `MediaCore::set_current_time`,
+`mse_seek` (in_generation, covers, live generations, run ends, per-track buffered), `mse_resolve` (backend
+seek vs new generation), `handle` (every backend event; `Time` only while seeking or on a jump > 1.5 s), and
+`MpvBackend::load_mse`/`seek`. (3) Local fixtures (scratchpad only): a 60 s testsrc2 h264 + 440 Hz AAC pair,
+fragmented (`frag_keyframe+empty_moov+default_base_moof`, 2 s fragments); a page that appends 0-15 s, plays
+and, on an out-of-buffer `seeking`, appends from the target on like YouTube (`?seek=T&at=S`; `noappend` =
+the target's data never comes, i.e. a SABR refusal; it mimics YouTube's click: `pause()`, 700 ms,
+`currentTime = T; play()`); a plain `<video controls src=plain.mp4>` page.
+
+### 1. The click reaches YouTube and YouTube seeks (no input or hit-test bug)
+- `.ytp-progress-bar` registers `mousedown`, `mouseover`, `touchstart`, `focus`, `blur` (no `pointerdown`);
+  scratchy dispatches `mousedown`/`mouseup`/`click`, so YouTube's listener is reached.
+- **Real click, nested window**, playing at ~17 s, click at x = 45 s: `mousedown` target
+  `DIV.ytp-timed-markers-container` -> YouTube `pauseVideo` (stack `g.k.Zx < g.k.seekTo`: YouTube pauses while
+  scrubbing = the user's "pauses briefly") -> `mouseup` -> `currentTime = 44.994` (`setCurrentTime < seekTo`)
+  -> `play()`. Inside the live generation: `mse_resolve -> backend.seek`, `playback-restart` 0.65 s later,
+  `seeked`, TICKs 45.1, 47.0. **Worked.**
+- Headless synthetic click at 45 s (ct 10.8, buffered [0-32]): same calls; outside the buffer, so a NEW
+  generation loaded when the SABR answer came (1.25 s, part 58 `08 02`, appends 42.67-64.00), `seeked` 45.04,
+  `playing`. **Worked.**
+- Headless `seekTo`: 30 (ct 8.3) and 55 (ct 1.3) reload at the target and play on (30.6 -> 40.5; 55.05 ->
+  64.9). 150 in one run: SABR status `08 01` (OK) that time, appends 149.33-170.67, `seeked` 150.00. **Worked.**
+- Plain `<video controls>` (scratchy's QM1g2d bar, window): click on the seek track at 75 % -> mpv seek ->
+  `seeking`/`seeked` ct 45.03 -> 45.93, 46.93. **Works** (the release re-applies the drag position, so one
+  click fires `seeking`/`seeked` twice: harmless, a QM1g2d1 note). So this is not a general seek bug.
+- Local MSE fixture headless: out-of-buffer 5.9 -> 40 (data appended on `seeking`) reloads at 40 and plays
+  40.84 ... 52.86; in-generation 2.4 -> 12 and 7.8 -> 1 are mpv seeks and play on.
+
+### 2. Root cause (P1): while an MSE seek waits for data, mpv keeps playing the OLD generation
+`MediaCore::mse_seek` (src/media_el.rs) sets `seeking`, `current_time = t`, readyState HAVE_METADATA, fires
+`seeking`/`waiting`, stores `want = t`; when `t` is neither in the live generation nor covered,
+`mse_resolve` returns to wait for appends. **Nothing tells the backend.** mpv still has the old generation
+(its run goes to the old buffered end):
+- while playing it just keeps playing;
+- YouTube pauses on `mousedown` and calls `play()` after the seek: `start_playing` ->
+  `backend.set_paused(false)` RESUMES THE OLD GENERATION at the old position.
+`BackendEvent::Time` is ignored while `seeking`, so JS and YouTube's UI show the target while the window
+shows and plays the old position: the user's report.
+
+Evidence:
+- Local fixture `noappend` with YouTube's pause/seek/play sequence: TICKs say `ct=40.00 rs=1 seeking=true`
+  for 11 s while mpv's `time-pos` runs **4.02 -> 15.12** (old generation, to its end at 16).
+- Headless YouTube run 1, `seekTo(150)` at ct 10.48 (buffered [0-42.67]): no media after the seek (10 small
+  SABR answers ~2 s apart, then YouTube's `stopVideo` -> `abort`/`emptied` = the R45 stop); for those 20 s
+  mpv played **10.68 -> 32.15** while JS said `seeking` at 150.
+- Window, real click at 150 s at ct 61.2: SABR `08 03 10 0a` (status 3), no media; after YouTube's `play()`
+  mpv played the old generation 61.2 -> 63.4 until the old run ran dry at 64 (`Buffering(true)`). Earlier in
+  the video the old run has 20-50 s left, which is what the user saw.
+- When the target's data DOES come, the old generation still fills the gap until the new one loads (1.2-5.7 s
+  headless; in a live window fetch results reach JS 1-19 s late, QM1k1n5), so even a successful seek first
+  "continues from where it was".
+
+Why the data often never comes is not scratchy's: SABR serves unattested media only up to ~64 s of MEDIA
+time (status 2), then status 3 (QM1k2, R45, PARKED): seeks to 30 or 55 got data up to 64.00 then status 3;
+150 got none (run 1, window) or status 1 (one run, played fine). ~73 % of this 3:59 video's bar lies past 64 s.
+
+### 3. Second bug (P2): a stale `time-pos` after `playback-restart` (in-generation seeks)
+Local fixture, in-generation seek 2.38 -> 12, 6 runs: in 2 mpv sent `PLAYBACK_RESTART` and then, in the
+same poll batch, `time-pos` **2.000**. `handle(Restart)` already cleared `seeking`, so `Time(2.0)` sets
+`current_time = 2.0` and the page's `seeking` and `seeked` handlers both read `currentTime 2.00` (target
+12); the next `time-pos` (12.04) corrects it ~60 ms later. A page that checks `currentTime` in `seeked`
+sees the seek land at the old position. Not the cause of this report (the window click landed cleanly).
+Side note: `seeking` is queued (`Out::Fire`) and can be dispatched after `playback-restart` already cleared
+`seeking`, so its handler reads `video.seeking == false`; the spec queues it as a task too, noted only.
+
+### 4. Proposed fixes (not implemented, per the item)
+- **QYSK1a [S/M, P1] Hold the old generation while an MSE seek waits.** In `mse_seek`, when the target is
+  not playable now (`issued && !in_generation(t)`), set `hold` on `MseAttach` and call
+  `backend.set_paused(true)` (last frame stays on screen, like Chrome's frozen frame; no sound). While
+  `hold`: `start_playing`/`pause`/autoplay change `self.paused` but do not call `backend.set_paused`;
+  `handle` ignores the old generation's `Time`, `Eof` and `Buffering`. `mse_resolve` clears `hold` on both
+  paths: in-generation (`backend.seek(t)` then `set_paused(self.paused)`, for when a contiguous append
+  extends the run over `t`) and new generation (already calls `set_paused(self.paused)` after `load_mse`);
+  a new load / detach clears it. Alternative: `unload` the old generation at once and set `issued = false`
+  (simpler, but the picture disappears during the wait; not recommended). ~30-40 lines in media_el.rs; no
+  mpv, wire or JS change.
+  **Tests:** (1) FakeBackend, beside `qm1k1c_seek_outside_the_buffer_waits_then_reloads_at_t`
+  (src/tests/mse_tests/qm1k1c.rs): play, `set_current_time(20)` outside the buffer -> last backend call
+  `paused true`; `pause()` + `play()` (YouTube's sequence) -> no `paused false`; queued `Time(5.0)`, `Eof`,
+  `Buffering(true)` leave `current_time` 20, `seeking` and readyState unchanged and fire no `waiting`;
+  appending both tracks at 20 -> `load_mse .. 20` then `paused false`. (2) Real mpv in
+  src/tests/mse_mpv_tests.rs (skips without libmpv/ffmpeg like the qm1k1b tests),
+  `qysk1a_out_of_buffer_seek_holds_old_generation_then_resumes_at_target`: MediaCore + MpvBackend over the
+  2-track fixture, append 0-16 s, play to ~3 s, seek to 40 with nothing appended for 2 s -> no `Time` >
+  old + 0.5 reaches the core; then append 38-56 -> `Time` >= 40.5 within 3 s. (Before the fix the same
+  scenario gives 4.02 -> 15.12, section 2.)
+- **QYSK1b [S, P2] Drop the stale `time-pos` after a seek.** `handle(Restart)` keeps the target (e.g.
+  `settle: Option<(f64, Instant)>`); while set, `Time(p)` with `|p - target| > 1.0` is ignored, for at most
+  500 ms or until a `Time` near the target arrives. ~10 lines. **Test:** FakeBackend in-generation seek to
+  12 with queue `[Restart, Time(2.0), Time(12.04)]` -> `seeked` dispatched with `current_time == 12.0`, and
+  `current_time` never 2.0 (the real-mpv repro is racy, 2 of 6, so the fake test is the gate).
+- Not scratchy's: the SABR refusal past ~64 s (QM1k2, user decision). With QYSK1a a refused seek shows a
+  frozen frame + YouTube's spinner, then YouTube's own error card after its 10 retries, instead of the wrong
+  part of the video playing. QM1k1n5 (late fetch results) sets how long a successful out-of-buffer seek waits.
+
 ## R50: QYTC1: why YouTube's visible player controls cost ~10 forced layouts/s. About 2/3 of them (and of their ms) come after nothing but YouTube's progress-bar `style` writes (`transform: translateX(..)` on the scrubber, `transform: scalex(..)` on the play progress, `left: Npx` on the absolutely positioned hover progress), ~5 times a second, each followed by a geometry read (`uib`, then `getPlayerSize`). Each read is a whole-document layout (436 boxes, 27-58 ms here). 12-13 % change no box at all; ~20 % follow `class` toggles (`ytp-autohide*`, suggested-action badges) (Opus, 2026-11-19, measure only) — OPEN: proposed QYTC1a-QYTC1c (below). The fix needs a hook in js_dom.rs's attribute-write bump, which QY53o1 is changing now (question in the draft PR)
 
 **Status: measurement only. No product change; the trace counters were reverted.** Branch from main
