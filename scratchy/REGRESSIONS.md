@@ -1,5 +1,193 @@
 # scratchy — regressions
 
+## R47: QY53n: what one `:hover` restyle costs and how to make it cheap. On Wikipedia every hover change over a link is a whole App tree build (174-180 ms on a quiet machine) that changes the matched rules of 1-2 of 10 650 elements, and the change is ALWAYS paint-only (`a:hover` colour/underline; 37 of 37 hover builds). With page JS on, pointer moves over links cost far more elsewhere: 33-38 JS-triggered builds per run that change NO style (same-value `li style="display: none;"` writes, `title` toggles; 6.6-7.9 s) and 35 forced layouts (14.5-16.8 s). On YouTube hover builds are a minority (25-33 of 95-108 builds per run), and in the user's frozen session 6 of 55 (Opus, 2026-11-19, docs only) — OPEN: QY53n1-QY53n5, QY53m2, QY53o (proposed below)
+
+**Status: measured live, design + items, docs only (no code change; the instrumentation was reverted).**
+Release build of main ad764fa (V8 + media), own worktree, own wire on a scratchpad socket (`$!`), nested
+dwl (tools/nest.sh), DEFAULT user agent, `SCRATCHY_MEDIA_AO=null`, `SCRATCHY_FRAME_STATS` (QOBS5). The host
+gave the nested window **956x312** in every run (re-tiling, not ours; inject size 960x316). **Machine load:**
+other agents were compiling; load average 11-13 during the instrumented runs, 4.6-6.4 during the baseline
+runs, so the absolute ms of the instrumented runs are ~1.3-2x high. Use the ratios and the baseline rows.
+**Input (tools/inject, from t = 10-13 s):** 6 rounds of `move:` over 8 positions with `wait:600`, ~29 s.
+Wikipedia Rust: links only (5 links in the lead paragraph, Talk, Edit, View history). YouTube watch
+G1AeBgalFZk: a click on the big play button first, then 5 points inside the picture (the player shows its
+controls) and the masthead's search button, menu and avatar buttons.
+**Throwaway instrumentation (env `QY53N_DIAG`, never committed):** one line per App tree build in
+`App::redraw` with its cause (a relevant `apply_hover` / a `request_js_restyle` since the last build), the
+phase split of `build_layout_tree_with_resources` (css collect, rule index, `precompute_generated`,
+`build_children`), the time inside `resolve_style_for` and inside real selector matching
+(`matching_indices_for` on a `MATCH_MEMO` miss), element and pseudo resolve counts, and a DIFF of the
+build's `MATCH_MEMO` against the previous build's (key = node pointer + pseudo slot): entries whose matched
+rule set changed, new/gone entries, element descendants of the changed elements, and every rule in a
+changed set's symmetric difference classified as PAINT-only or not by its `Declarations` (paint = color,
+background-*, text-decoration-*, opacity, outline-*, box-shadow, border-*-color, border-radius, visibility,
+cursor, also by name in `wide`/`var_decls`; custom properties count as not paint). Also one line per
+`ShapeResult` handling and per JS DOM write (`__d_setattr` etc.: tag, attribute, same value or not).
+
+### Runs (instrumented unless "base"; 50-66 s each)
+| run | JS | builds n / ms | hover builds n / ms (median) | JS builds that changed NO style: n / ms | JS builds that changed styles or the DOM: n / ms | forced layouts n / ms | lat_p95 median / max ms |
+|---|---|---|---|---|---|---|---|
+| wp2 | on | 52 / 11 244 | 6 / 1 210 (213) | 38 / 7 851 | 2 / 448 | 35 / 15 730 | 485 / 1 306 |
+| wp3 | on | 55 / 12 849 | 11 / 2 176 (183) | 38 / 7 875 | 0 | 35 / 16 757 | 547 / 2 082 |
+| wp4 | on | 53 / 10 893 | 8 / 1 581 (213) | 33 / 6 645 | 7 / 1 262 | 35 / 14 492 | 427 / 1 703 |
+| wpn1 | `--no-js` | 20 / 8 247 | 18 / 6 860 (406) | - | - | 0 | 551 / 1 366 |
+| bn1 base | `--no-js` | 22 / 3 138 | 18 hover restyles: **174 ms of builds per hover_restyle** | - | - | 0 | 296 / 2 109 |
+| bn2 base | `--no-js` | 21 / 3 235 | 18: **180 ms per hover_restyle** | - | - | 0 | 153 / 2 138 |
+| yt1 | on | 95 / 6 963 | 25 / 2 261 (65) | 29 / 1 158 | 37 / 3 175 | 187 / 7 427 | 58 / 1 026 |
+| yt2 | on | 108 / 5 258 | 33 / 1 534 (45) | 32 / 1 630 | 40 / 1 848 | 206 / 8 053 | 50 / 240 |
+
+The rows do not add up to "builds": stylesheet-changing builds during load (2-4 per run) are left out.
+wp1, the first run, had only 1 hover build: the page's mouseover JS kept a build in flight, so the
+R2.3/QB3 coalescing deferred every hover; it is left out. "JS builds that changed NO style" = no element's
+matched rule set changed and no element appeared or went: the rebuilt tree equals the previous one.
+The user's session (fs-user-yt-1715.jsonl, 38 s, real mouse, 1 582 moves): 55 builds = 2 855 ms, **6**
+hover restyles, js 23 807 ms, **382 forced layouts = 18 200 ms**, paint 639 ms.
+
+### 1. Where one hover restyle's time goes (Wikipedia, 10 652 elements + 799 pseudo resolves per build)
+All of it is the main-thread tree build: nothing is skipped for a hover. Medians of the wp3 hover builds
+(183 ms there; 174-180 ms on the quiet machine):
+- css collect + rule index (cached `Rc`): **~1 %**.
+- `precompute_generated`: **45 %** (82 ms): a selector-match pass over EVERY element (counters, generated
+  content, markers), which fills `MATCH_MEMO`. Selector matching itself (`matching_indices_for`, timed
+  separately) is **36 %** of the build (67 ms) and happens mostly here.
+- `build_children`: **55 %** (100 ms): `resolve_style_for` for every element and pseudo-element (cascade on
+  the memoised matches, `var()`, values) is **43 %** of the build (79 ms, incl. a few memo misses); the DOM
+  walk and box construction are the remaining **~12 %**.
+- Shaping is NOT on the main thread: the worker re-runs `measure_document` (content-keyed `SHAPE_MEMO`, so
+  only the hovered paragraph is re-shaped) in 100-200 ms of worker wall time, and R2.1 (`hold_old_frame`)
+  keeps the old frame until that is complete, so the visible hover latency is build + worker (lat_p95
+  median 153-551 ms). `handle_shape_result` costs 0.2-1.2 ms on the main thread; paint 2-5 ms per redraw
+  at this window size.
+YouTube watch (1 100-3 160 elements): hover builds 45-81 ms with the same split (precompute 33-46 %,
+build_children 54-64 %).
+
+### 2. How many elements change, and which properties
+| page | hover builds | elements whose matched set changed | their element descendants | paint-only | offset-only (translate, `top`) | layout (border-width/style) | nothing changed |
+|---|---|---|---|---|---|---|---|
+| Wikipedia (wp3, wp4, wpn1) | 37 | 1-2 (of 10 650-11 130) | 1-6 | **37 (100 %)** | 0 | 0 | 0 |
+| YouTube (yt1, yt2) | 58 | 0-6 (of 1 100-3 160) | up to 27 | 21 (36 %) | 15 (26 %, `.ytp-*` player rules) | 16 (28 %, `.ytSearchboxComponentSearchButton:hover`; 5 of them also offset) | 6 (10 %: HoverKeys let them through, the cascade did not change) |
+
+Wikipedia's are `a:where(:not([role=button])):hover` (colour + underline) and, on the Talk/Edit/View history
+tabs, `.vector-menu-tabs ... a:hover` plus their `::after` pseudo-element (3 of 11 and 5 of 8 hover builds
+in wp3/wp4 changed a pseudo slot; 0 of 18 in the content-link run wpn1). YouTube's player rules are
+descendant rules (`.ytp-progress-bar-container:hover .ytp-timed-markers-container`), so the affected set
+includes descendants of the hovered element.
+
+### 3. Hover builds are not the main cost of pointer moves with page JS on
+- **Wikipedia:** while the pointer moves over links, the page's mouseover JS writes `style="display: none;"`
+  to an `<li>` (no id/class) with the SAME value 154-165 times per run and toggles `title` on the hovered
+  link (30 per run, value-changing; presumably Page Previews, not checked). Every batch sets the JS dirty
+  flag, so 33-38 App builds per run (6.6-7.9 s) rebuild a tree equal to the previous one: **4x the hover
+  builds**. Same-value writes are QY53m's case; `title` changes a value no selector reads (QY53m2 below).
+  Bigger still: **35 forced layouts per run, 14.5-16.8 s** (~450 ms each, at 1024x768: R43 section 11
+  Finding 0), all inside the pointer phase (none before or after it). Who reads is not established
+  (QOBS5c's window attribution will tell).
+- **YouTube:** hover builds 1.5-2.3 s per run vs JS builds 3.5-4.3 s, forced layouts 7.4-8.1 s, page JS
+  15.1-15.2 s. The user's frozen session: 6 hover restyles, 55 builds (2.9 s), forced 18.2 s. **Making
+  hover restyles cheap will not fix the YouTube freeze**; R46 (QM1k1n6a-c) and the forced-layout work
+  (QY53) do. It does fix Wikipedia's hover feedback (174-180 ms build + worker per link), and it would
+  patch 36 of 58 YouTube hover builds (paint/offset) and skip 6.
+
+### 4. Design: a hover restyle without a tree build
+Today: `apply_hover` -> `set_interaction_state` -> `layout_dirty` + `restyle_requested` -> full build ->
+worker -> held old frame. New path, tried first in `apply_hover` (its fallback = today's path, unchanged):
+1. **Affected set (QY53n1).** HoverKeys also records, per `:hover` compound, what follows it to the right:
+   nothing (the subject), a descendant/child combinator, or a sibling combinator. Affected = the elements
+   entering/leaving the chain that `may_match` (as today), plus their element descendants when a hover
+   compound with that key is followed by a descendant/child combinator, plus following siblings (and their
+   descendants) for sibling combinators. `any` (`:hover` nested in `:is()/:not()/:has()`) or an affected
+   set above a cap (e.g. 2 000 elements) -> fallback.
+2. **Exact check (QY53n1).** The App keeps the last build's per-element match result (the `MATCH_MEMO` the
+   build already makes: node pointer + pseudo slot -> rule indices; moved out of the build instead of
+   dropped; invalid when the rule-list `Rc`, the viewport or the DOM generation changes). Re-match only the
+   affected elements and their before/after/marker slots under the new interaction state (memo off, ~10 us
+   each). No set changed -> store the new chain: no build, no repaint (YouTube's 6 of 58).
+3. **Classify once per rule list (QY53n2).** `RuleDerived` gets an effect class per rule: PAINT (the property
+   list in the instrumentation paragraph above, by `Declarations` field and by name in `wide`/`var_decls`),
+   OFFSET (translate-only `transform`; `top/left/right/bottom` of a `position: relative` box), else LAYOUT
+   (anything else, custom properties, `content`, `anim`, `late` layers that are not paint-only). A hover
+   change takes the highest class among the rules in the symmetric differences.
+4. **PAINT: patch, no build, no shaping (QY53n2).** Conditions: no pseudo slot changed, no affected element
+   has `animations`/transitions, no layout in flight (`!layout_in_flight && !layout_dirty && !hold_old_frame`;
+   else fallback, see 6). Recompute the ComputedStyle of each affected element and its element descendants
+   with `resolve_style` (the parent's InheritedStyle comes from resolving the ancestor chain root-down, depth
+   ~10-20 resolves, so nothing new is stored per element). Patch the installed `Laid` tree: boxes whose
+   `style.node` is in the set get the paint fields (colour, background colour, border colours, opacity,
+   outline, box-shadow, visibility, cursor). Inline text: an `<a>` has no `Laid` box, its style lives in the
+   paragraph's spans, so the shaping worker records per paragraph which element each span's text belongs
+   to (a `Vec<usize>` beside the existing per-span vectors of `ShapedParagraph`); the App rewrites those
+   spans' attrs (colour, decoration line and colour) in that paragraph's `Buffer`, re-runs cosmic-text's
+   layout for that paragraph only at its existing width (colour and underline do not change advances), and
+   updates the per-span vectors (backgrounds, hidden, cursors, decoration styles). Then `request_redraw`.
+   Main-thread cost: the affected re-match + a handful of resolves + 1-2 paragraphs + one paint (2-5 ms
+   here). The next real build recomputes everything from the DOM + interaction state, so an error in a
+   patch never outlives the next build.
+5. **OFFSET: patch (QY53n3).** As 4, plus `shift_laid_tree` of the affected boxes by the change of
+   `apply_transform_offset` / the relative offset. Hit testing follows (it reads `Laid`).
+6. **LAYOUT, pseudo slots, or a build in flight: today's path.** Later (QY53n4) a subtree re-box: keep the
+   last `LayoutBox` tree on the main thread, rebuild only the affected element's box subtree with
+   `build_children`, splice it in and send the tree to the worker with `reuse` (the main thread pays the
+   subtree, not 10 650 resolves). A patch made while a build is in flight would be overwritten by the older
+   ShapeResult, so QY53n4 also keeps a "patches since generation N" list and re-applies it on install.
+7. **Gating (QY53n5).** R2.3's `HOVER_RESTYLE_INTERVAL` and QB3's `hover_idle_wait` (keyed on
+   `last_build_time > 50 ms`) exist because each hover was a 130-170 ms build. A hover that takes the patch
+   path skips them; a fallback keeps them. **Frame stats:** `hover_restyles` stays the count of relevant
+   hover changes; new `hover` {patched, skipped, built} and `hover_patch_ms`, so the gates below can be read
+   from frame stats.
+
+**Interaction with QM1k1n6 (R46).** QM1k1n6a moves the hit test + `update_hover` to once per turn in
+`about_to_wait`: that limits HOW OFTEN `apply_hover` runs; this design changes what one `apply_hover` costs.
+They meet at `apply_hover`/`hover_restyle_delay` only, so QY53n1/n5 go after QM1k1n6a (same code). A patched
+hover is a normal redraw for QM1k1n6b's frame budget (not JS). QM1k1n6c (composite video while
+`layout_dirty`) and this design both avoid builds; a patched hover never sets `layout_dirty`, so
+`video_tick` keeps its fast path during hovers.
+**Interaction with QY53m.** QY53m skips builds after same-value write batches; Wikipedia's same-value
+`li style` writes are exactly its case (33-38 builds, 6.6-7.9 s per run here, 4x the hover builds), so with
+JS on it is worth more than QY53n on Wikipedia, and it removes the in-flight builds that would otherwise
+push hovers to the fallback (point 4). Order: QY53m, then QY53n1/n2.
+
+### Proposed items (coordinator files them)
+- **QY53n1 [S]** (style.rs HoverKeys + app.rs `apply_hover`; after QM1k1n6a) affected set + exact re-match
+  against the kept match memo; no build when no matched set changed. Tests: a `:hover` rule that HoverKeys
+  admits but whose other compounds do not match -> `layout_dirty` stays false; a descendant rule
+  (`.a:hover .b{color:red}`) puts `.b` in the affected set. Gate: YouTube watch, pointer over the player,
+  60 s: frame stats `hover.skipped` > 0 and builds per hover_restyle drop by that count; Wikipedia
+  screenshot of a hovered link unchanged.
+- **QY53n2 [M]** (style.rs RuleDerived effect classes; layout.rs span->element vector; app.rs patch) the
+  paint-only patch, design points 3-4. Tests: `a:hover{color:red;text-decoration:underline}` -> the patched
+  frame's pixels equal a full rebuild's (fixture, `paint` into a buffer both ways); `a:hover{padding:5px}`
+  -> fallback; `.x:hover::after{color:red}` -> fallback; an element with a transition -> fallback.
+  **Gate:** Wikipedia Rust `--no-js`, 50 s, pointer moves only over links (this section's recipe), median
+  of 3: frame stats `builds.ms / hover_restyles` **<= 20 % of today's 174-180 ms (<= 36 ms)**,
+  `hover.patched` >= 80 % of hover_restyles, `input.lat_p95_ms` reported (today median 153-296 ms); the
+  same run with JS on reported (after QY53m); nested-dwl screenshot of a hovered link identical to main's.
+- **QY53n3 [S]** (after n2) offset-only patch (translate, relative offsets). Gate: YouTube watch, played,
+  pointer over the picture and controls: hover builds whose differing rules are all PAINT/OFFSET -> 0
+  (today 36 of 58), `hover.patched` reported.
+- **QY53n4 [M, later]** subtree re-box for LAYOUT hovers + patch re-application after an in-flight build;
+  only if n2/n3 leave hover builds that matter (here 16 of 58 YouTube hover builds, 0 on Wikipedia).
+- **QY53n5 [S]** (app.rs `hover_restyle_delay`, frame_stats.rs, PERF.md; after QM1k1n6a and QY53n2)
+  patched hovers skip the R2.3/QB3 coalescing; frame stats `hover` {patched, skipped, built} +
+  `hover_patch_ms`. Gate: Wikipedia `--no-js`, pointer over links: `input.lat_p95_ms` median <= 50 ms.
+- **QY53m2 [S]** (js_dom.rs write paths, coordinate with QY53l2; after QY53m) a value-changing write to an
+  attribute no selector can read does not set the restyle dirty flag: the rule list exposes the attribute
+  names its selectors test (`[attr]`), plus class/id/style and the attributes the cascade and box build read
+  (width, height, hidden, bgcolor, align, dir, lang, type, value, checked, disabled, open, colspan/rowspan,
+  src/alt/srcset for replaced content, ...); a write of any other attribute (`title`, `aria-*`/`data-*`
+  unless a selector names it) does not restyle. Tests: a `title` write leaves `layout_dirty` false; with
+  `[title]{...}` in the sheet it sets it. Gate: Wikipedia JS on, pointer over links: JS builds that change no
+  style <= 2 per run (today 33-38, with QY53m's same-value ones).
+- **QY53o [S, Opus measure]** Wikipedia with JS on: 35 forced layouts per run (14.5-16.8 s, ~450 ms each)
+  only while the pointer moves over links; name the reader (QOBS5c window attribution, or `--perf-report`
+  with a synthetic mouseover) and file the fix (likely Page Previews' geometry reads; R43 Finding 0 makes
+  each one a 1024x768 layout).
+
+### Not established
+Who writes `li style="display: none;"` and the `title` toggles (inferred: Wikipedia's mouseover
+extensions); who forces the 35 Wikipedia layouts (QY53o); the split of `resolve_style_for` into cascade vs
+`var()`/value computation; whether `top` in YouTube's player hover rules is on relative boxes (QY53n3 must
+check at patch time); numbers at a full-size window (the host gave 956x312).
+
 ## R46: QM1k1n6 / QM1k-mouse: where a "pointer moving over YouTube" second goes. Moving the pointer is NOT what freezes the video; YouTube's player-controls JS does, when the pointer crosses its controls: each `mouseover`/`mouseout` on a `ytp-*` control costs 40-180 ms of page JS (~2 forced layouts of ~60 ms), the timers it schedules then run back to back in ONE `run_due` turn (up to 100 timers, no time limit: 1.2-2.5 s), and every queued `CursorMoved` is processed one by one. Two main-thread stalls under everything were scratchy's own and are FIXED here: the event loop spun at 20-40k turns/s on any page with JS (an `EventLoopProxy` clone dropped every turn wakes the loop), and mpv's software render SLEPT on the main thread until each frame's display time (~31 ms per frame = 93-100 % of every playing second) (Opus, 2026-11-19) — OPEN: QM1k1n6a-c, QOBS5c (proposed in the PR); FIXED: the spin and the render block (this PR)
 
 **Status: measured live, two S fixes implemented (app.rs `pump_net`, media_mpv.rs `sw_render_params`),
