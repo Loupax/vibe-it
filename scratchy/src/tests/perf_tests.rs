@@ -475,7 +475,7 @@ fn qobs7_memory_fields_are_present() {
     let j = qobs3_report("mem", "<p id=a>x</p><script>document.getElementById('a').offsetWidth;</script>");
     let m = j.get("memory");
     assert!(m.get("rss_bytes").num() > 0.0);
-    assert!(m.get("peak_rss_bytes").num() >= m.get("rss_bytes").num() * 0.5);
+    assert!(m.get("peak_rss_bytes").num() >= m.get("rss_bytes").num());
     assert!(m.get("js_heap").get("used").num() > 0.0);
     m.get("js_heap").get("total");
     m.get("js_heap").get("external");
@@ -514,4 +514,49 @@ fn qobs7_an_interned_table_shows_up_in_the_interner_count() {
     let after = crate::css::custom_props_mem().0;
     assert_eq!(after.0, before.0 + 1);
     assert!(after.1 > before.1);
+}
+
+/// QMEM3c: `explained_bytes` is the sum of the listed caches and the JS heap.
+#[test]
+fn qmem3c_explained_bytes_is_the_sum_of_its_parts() {
+    let _g = PerfGuard;
+    let j = qobs3_report("mem3c", "<p id=a>x</p><script>document.getElementById('a').offsetWidth;</script>");
+    let m = j.get("memory");
+    let c = m.get("caches");
+    let mut sum = 0.0;
+    for name in [
+        "custom_props_interner",
+        "custom_props_memo",
+        "shape_memo",
+        "rules_cache",
+        "rule_index_hover_keys",
+        "svg_sized_cache",
+        "image_cache",
+        "style_cache",
+        "mse_store",
+        "geom_rects",
+        "geom_glyphs",
+    ] {
+        sum += c.get(name).get("bytes").num();
+    }
+    assert_eq!(m.get("caches_bytes").num(), sum);
+    assert_eq!(m.get("explained_bytes").num(), sum + m.get("js_heap").get("used").num());
+    assert!(m.get("peak_rss_bytes").num() >= m.get("rss_bytes").num());
+    m.get("walk_us").num();
+}
+
+/// QMEM3c: a page with N style rules reports at least N * size_of::<StyleRule>() in rules_cache.
+#[test]
+fn qmem3c_rules_cache_bytes_scale_with_rule_count() {
+    let _g = PerfGuard;
+    const N: usize = 300;
+    let mut css = String::new();
+    for i in 0..N {
+        css.push_str(&format!(".c{i} > span.d{i}, #i{i} {{ color: red; margin: {i}px }}\n"));
+    }
+    let body = format!("<style>{css}</style><p id=a class=c1>x</p><script>document.getElementById('a').offsetWidth;</script>");
+    let j = qobs3_report("mem3c-rules", &body);
+    let r = j.get("memory").get("caches").get("rules_cache");
+    assert!(r.get("entries").num() >= N as f64, "{r:?}");
+    assert!(r.get("bytes").num() >= (N * std::mem::size_of::<crate::css::StyleRule>()) as f64, "{r:?}");
 }

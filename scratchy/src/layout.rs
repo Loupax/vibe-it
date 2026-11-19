@@ -5854,13 +5854,20 @@ pub(crate) fn shrink_to_fit(min_mb: f32, max_mb: f32, avail: f32) -> f32 {
 /// own copy is not reachable). Each paragraph is estimated at ~32 bytes per source character
 /// of shaped text plus the fixed tuple; cosmic-text's buffers are opaque, so this is rough.
 pub(crate) fn shape_memo_mem() -> (usize, usize) {
+    // QMEM3c: cosmic-text keeps its shaped/laid-out lines in private fields, so per line this
+    // estimates one `ShapeGlyph` + one `LayoutGlyph` per char, the line struct and its attrs.
+    const PER_CHAR: usize = std::mem::size_of::<cosmic_text::ShapeGlyph>() + std::mem::size_of::<cosmic_text::LayoutGlyph>();
+    const PER_LINE: usize = 256;
     SHAPE_MEMO.with(|m| {
         let m = m.borrow();
         let b = m
             .values()
             .map(|p| {
                 std::mem::size_of::<ShapedParagraph>()
-                    + p.try_lock().map_or(0, |g| g.0.lines.iter().map(|l| l.text().len() * 32).sum::<usize>())
+                    + p.try_lock().map_or(0, |g| {
+                        let spans = (g.2.capacity() + g.3.capacity() + g.4.capacity() + g.5.capacity() + g.6.capacity() + g.7.capacity()) * 24;
+                        spans + g.0.lines.iter().map(|l| l.text().len() + l.text().chars().count() * PER_CHAR + PER_LINE).sum::<usize>()
+                    })
             })
             .sum();
         (m.len(), b)

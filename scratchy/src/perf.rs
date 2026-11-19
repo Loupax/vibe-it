@@ -178,22 +178,45 @@ pub(crate) fn register_probe(name: &'static str, f: impl Fn() -> (usize, usize) 
     }
 }
 
-/// Peak resident set size in bytes (`getrusage` ru_maxrss, kilobytes on Linux; 0 on failure).
+/// Peak resident set size in bytes: `VmHWM` of `/proc/self/status` (kB; the process high-water
+/// mark, whole process), never below the current `VmRSS`. Falls back to `getrusage` ru_maxrss
+/// (kilobytes on Linux) when /proc is unreadable; 0 on failure.
 pub(crate) fn peak_rss_bytes() -> u64 {
-    // SAFETY: getrusage fills the zeroed struct we pass.
-    unsafe {
-        let mut u: libc::rusage = std::mem::zeroed();
-        if libc::getrusage(libc::RUSAGE_SELF, &mut u) != 0 {
-            return 0;
+    let kb = |key: &str| -> Option<u64> {
+        let s = std::fs::read_to_string("/proc/self/status").ok()?;
+        s.lines().find_map(|l| l.strip_prefix(key).and_then(|v| v.trim().trim_end_matches("kB").trim().parse::<u64>().ok())).map(|k| k * 1024)
+    };
+    let hwm = kb("VmHWM:").unwrap_or_else(|| {
+        // SAFETY: getrusage fills the zeroed struct we pass.
+        unsafe {
+            let mut u: libc::rusage = std::mem::zeroed();
+            if libc::getrusage(libc::RUSAGE_SELF, &mut u) != 0 {
+                return 0;
+            }
+            u64::try_from(u.ru_maxrss).unwrap_or(0) * 1024
         }
-        u64::try_from(u.ru_maxrss).unwrap_or(0) * 1024
-    }
+    });
+    hwm.max(rss_bytes())
+}
+
+/// QMEM3c: glibc allocator totals `(in_use, free_kept)` in bytes (`mallinfo2`: arena + mmapped
+/// chunks in use, and free bytes the allocator holds but has not returned); `None` off glibc.
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+fn malloc_stats() -> Option<(u64, u64)> {
+    // SAFETY: mallinfo2 only reads allocator state and returns a plain struct.
+    let m = unsafe { libc::mallinfo2() };
+    Some(((m.uordblks + m.hblkhd) as u64, m.fordblks as u64))
+}
+#[cfg(not(all(target_os = "linux", target_env = "gnu")))]
+fn malloc_stats() -> Option<(u64, u64)> {
+    None
 }
 
 /// QOBS7: the `memory` member of the report, taken once at the end of the run. Byte figures of
 /// caches are ESTIMATES (string and Vec capacities plus fixed per-entry overheads), not allocator
 /// truth; `engine` is the page's engine (None when the page had no scripts).
 pub(crate) fn memory_json(engine: Option<&crate::js::JsEngine>) -> String {
+    let t0 = std::time::Instant::now();
     let mut caches: Vec<(&'static str, (usize, usize))> = Vec::new();
     let mut add = |name: &'static str, v: (usize, usize)| match caches.iter_mut().find(|c| c.0 == name) {
         Some(c) => {
@@ -232,14 +255,17 @@ pub(crate) fn memory_json(engine: Option<&crate::js::JsEngine>) -> String {
         None => (0, "{\"used\":null,\"total\":null,\"external\":null}".to_string()),
     };
     let (seg, seg_bytes) = crate::stack::spare_segments();
+    let malloc = malloc_stats();
     format!(
-        "\"memory\":{{\"rss_bytes\":{},\"peak_rss_bytes\":{},\"js_heap\":{},\"caches\":{{{}}},\"caches_bytes\":{},\"explained_bytes\":{},\"stack_segments\":{{\"kept\":{},\"mapped_bytes\":{}}},\"media_players\":{}}}",
+        "\"memory\":{{\"rss_bytes\":{},\"peak_rss_bytes\":{},\"js_heap\":{},\"caches\":{{{}}},\"caches_bytes\":{},\"explained_bytes\":{},\"walk_us\":{},\"malloc\":{},\"stack_segments\":{{\"kept\":{},\"mapped_bytes\":{}}},\"media_players\":{}}}",
         rss_bytes(),
         peak_rss_bytes(),
         js,
         body.join(","),
         total,
         total as i64 + heap,
+        t0.elapsed().as_micros(),
+        malloc.map_or("null".to_string(), |(u, f)| format!("{{\"in_use\":{u},\"free_kept\":{f}}}")),
         seg,
         seg_bytes,
         players
