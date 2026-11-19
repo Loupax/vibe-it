@@ -7517,3 +7517,11 @@ Done: R38. The `true` is `<img alt="true">` (YouTube calls `setAttribute('alt', 
 **Prompt:** Implement QM1k1c: the MSE attachment in media_el.rs (duration = MediaSource duration, buffered = intersection, seekable, progress, ended only after endOfStream, in/out-of-generation seeks with `waiting`, a per-page `MseHost` owning the feeds, attach/detach -> sourceopen/sourceended/sourceclose outs). Audio option A, codec-agnostic. FakeBackend records `load_mse`. No JS (QM1k1d/e). QM1k-AB is not a blocker.
 
 **What changed:** src/media_el.rs (`MediaCore::attach_mse/detach/mse_set_duration/mse_end_of_stream/mse_data_changed`, `Out::MseOpen/MseEnded/MseClose`, `MseHost`, `MediaHost::remove` returns outs), src/mse_store.rs (`MseStore::covers/in_generation`), src/js_media.rs (arms for the new outs, ignored until QM1k1d), src/tests/mse_tests/qm1k1c.rs (11 tests) + `mod qm1k1c;`.
+
+## QM1k1d JS MediaSource + SourceBufferList + attachment (scratchy/qm1k1d-js-mediasource)
+
+**Prompt:** Implement QM1k1d: JS `MediaSource` + `SourceBufferList` (mse_prelude.js, natives via `js_engine::native!`), readyState, duration rules, addSourceBuffer/removeSourceBuffer/endOfStream/live seekable range, isTypeSupported, createObjectURL(ms), `video.src = blobUrl` and `srcObject = ms`, events from timer tasks; SourceBuffer methods (QM1k1e) stay out.
+
+**What changed:** src/mse_prelude.js (new), src/js_media.rs (`__mse_*` natives, `queue_outs` drops a closed MediaSource's feed, event routing `o/n/c`), src/media_el.rs (`mse_feed_id`, `mse_end_of_stream_error`, `fail_src`, `MediaHost::with_mse`, `MseHost::len`), src/mse_store.rs (`remove_buffer`), src/media_prelude.js (`__mse_try` hook in doLoad, event routing, `__media_kick`/`__media_reload`), src/fetch_prelude.js (createObjectURL accepts a MediaSource; fetch of one rejects), src/js.rs (eval order, `media` field pub(crate)), tests in src/tests/mse_tests/qm1k1d.rs. SourceBuffer is a shell (appendBuffer/abort/remove log `not implemented` and throw NotSupportedError) until QM1k1e. The Rust feed is created at attach (a never-attached MediaSource costs nothing); isTypeSupported is false without a backend.
+
+**Verified:** full cargo test on default (1107) and engine-quickjs,media (1099); clippy TOTAL 74; WPT no change; --js-report --run-timers 5000 on wikipedia.org, en Main_Page, HN: 0 errors.
