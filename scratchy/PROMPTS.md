@@ -7719,3 +7719,8 @@ Done: R38. The `true` is `<img alt="true">` (YouTube calls `setAttribute('alt', 
 **Prompt:** Implement QY53k: profile big-css and YT watch, find which maps hash with SipHash on the hot path, try an Fx-style hasher or cheaper key and measure; HashDoS note; accept big-css forced_layout.total_ms lower than main (median of 3 interleaved).
 
 **What changed:** REGRESSIONS.md R43 section 9 only. SipHash is 3.4 % of big-css samples (MATCH_MEMO about half); an in-crate FxHasher on StyleCache::map, MATCH_MEMO and the ctx_hash fingerprints measured 1151 ms vs main 1141 ms (median of 5 interleaved), i.e. no gain, so the code change was not merged. Coordinator override: TODO files untouched. The live YT profile was blocked by the permission classifier.
+## QP3: font-match cache miss cost (Sonnet, measure only, docs only)
+
+**Prompt:** Implement QP3: measure the first-paint cost of font-match cache misses (FontMatchKey::new, fontdb with_face_data mmap) on Wikipedia Rust and YouTube watch with tools/profile.sh; if > 20 ms per page call make_shared_face_data in new_font_system_with and measure RSS, else close as not worth it with the numbers.
+
+**What changed:** REGRESSIONS.md R32 QP3 addendum only (no code). Miss path measured <= ~10 ms per page (Wikipedia: with_face_data 4 ms, get_font_matches 8 ms; YouTube: 1 and 2 ms), so the shared-face-data change was not made.
