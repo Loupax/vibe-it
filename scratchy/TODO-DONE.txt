@@ -6818,3 +6818,9 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       refreshes after a `title` write -> the second shapes nothing. Gate (addendum recipe, headless --perf-report, median
       of 3): phases.measure_document / count <= 45 ms (today 130-136), warm measure <= 25 ms, shape_memo bytes <= ~5.1 MB,
       forced_layout.total_ms / count >= 80 ms below main (interleaved).
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
+- [x] QMEM3a DONE dbfb175 (M_ARENA_MAX=2: YT RSS -67 MB headless; live 3+3 no difference; SCRATCHY_MALLOC_ARENAS override) [S] (P2 memory, from QMEM3 5700e35, R48; Sonnet) Cap glibc malloc arenas at startup (`mallopt(M_ARENA_MAX,
+      2..4)` before threads start; measure 2 vs 4): YT watch has 42 arenas holding 85-94 MB freed-but-kept; MALLOC_ARENA_MAX=2
+      gave -63 MB RSS in one run. Gate: YT watch memory.rss_bytes >= 40 MB lower, median of 3; forced_layout.total_ms and JS
+      time not worse over 3+3 interleaved runs (perf-diff); live-window frame stats not worse (R46 recipe).

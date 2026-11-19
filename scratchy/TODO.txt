@@ -1280,17 +1280,13 @@ Shared rules for this block:
       both on current main AND on 8383e9d (before QM1k1n6a's coalescing, 5642cbb): if coalescing changed which mouseover/
       mouseout/mouseenter the player gets, fix that too. Gate adds: moving over the playing video shows the controls bar
       (screenshot) within 200 ms. User runs for reference: scratchpad user-runs/fs3-user-yt.jsonl (18:48 build).
-- [ ] [WIP] QMEM3a [S] (P2 memory, from QMEM3 5700e35, R48; Sonnet) Cap glibc malloc arenas at startup (`mallopt(M_ARENA_MAX,
-      2..4)` before threads start; measure 2 vs 4): YT watch has 42 arenas holding 85-94 MB freed-but-kept; MALLOC_ARENA_MAX=2
-      gave -63 MB RSS in one run. Gate: YT watch memory.rss_bytes >= 40 MB lower, median of 3; forced_layout.total_ms and JS
-      time not worse over 3+3 interleaved runs (perf-diff); live-window frame stats not worse (R46 recipe).
 - [ ] QY53i3 [S] (P3 memory, from QY53i2; Sonnet) `animation.rs` still `Box::leak`s interned `&'static AnimLonghands` (same
       pattern QY53i2 removed for custom props). Give it the same per-thread arena + Copy handle, cleared on navigation.
       Gate: a multi-page --perf-report run (QY53i2 harness) shows no growth across navigations; animation tests unchanged.
 - [ ] QMEM3b [S] (P2 memory, from QMEM3, R48; Sonnet, measure first) Name the ~65 MB of main-thread malloc no probe explains
       (candidates: fetched script sources/HTML kept until report_page ends, FontSystem/fontdb on main + shaping worker, JS DOM
       id table); add `memory` probes. Gate: explained bytes >= 60 % of (anonymous RSS - malloc free bytes).
-- [ ] QMEM3c [S] (P3, from QMEM3; Sonnet) Honest `memory` estimates: rule caches count their real heap (real ~40 MB vs 18
+- [ ] [WIP] QMEM3c [S] (P3, from QMEM3; Sonnet) Honest `memory` estimates: rule caches count their real heap (real ~40 MB vs 18
       estimated), shape_memo counts cosmic-text buffers, peak_rss_bytes matches VmHWM (it read below it in every run).
 - [ ] QMEM3d [S] (P3, from QMEM3; Sonnet; after QMEM3a) `malloc_trim(0)` after a navigation and once when the window goes
       idle. Gate: RSS after leaving YouTube for a small page >= 25 MB lower.
