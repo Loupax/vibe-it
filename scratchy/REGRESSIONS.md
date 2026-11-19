@@ -1,6 +1,138 @@
 # scratchy — regressions
 
-## R42: YouTube through the MSE stack (QM1k-m2): the player script runs, picks avc1 + mp4a, attaches, appends and plays ~60 s of AUDIO, but NO PICTURE because YouTube adds the AUDIO SourceBuffer first and scratchy always makes SourceBuffer 0 the main (video) stream; with that swapped (throwaway patch) 640x360 video plays to the PoToken stop at ~60 s, then YouTube's own error card. The main thread is busy 100% of the time (294 forced layouts = 116 s of CPU in 60 s), so everything arrives 10-45 s late (Opus investigator QM1k-m2, 2026-11-19) — OPEN: QM1k1k (P1), QM1k1l, QM1k1m, QM1k-u, QY53 (now also blocks YouTube playback)
+## R43: Where forced layout goes (QY53): on the YouTube watch page 88 % of it is the player's `getPlayerSize` reading `#movie_player.clientWidth`, 80 % of those layouts change no box at all, and 99.5 % of each one is STYLE and BOX BUILD (layout proper 0.4 %); half of that is one O(elements x rules) scan for `::first-line`/`::first-letter` rules. On Wikipedia it is scratchy's OWN IntersectionObserver evaluation (Opus investigator QY53, 2026-11-19) — OPEN: QY53a-QY53h
+
+**Status: investigation only, docs only.** Main b8d865f, own worktree release build (V8 + media,
+RUSTY_V8_ARCHIVE = existing librusty_v8.a, `nice -n 19 -j2`). Own wire on a scratchpad socket.
+Headless `scratchy --perf-report --budget-ms 20000 --seconds 60|30` (the permanent harness,
+"true cost" mode). YouTube with `--user-agent 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36
+(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'` (user-approved), Wikipedia with the default UA
+and with that UA (no difference). No challenge or consent wall on any run.
+**Temporary instrumentation (never committed, reverted with `git checkout`):** one stderr line per
+forced layout from `GeomCache::refresh`: wall time split into CSS collect, `RuleIndex`/`HoverKeys`
+build, `precompute_generated`, box build (`build_children`) with the cascade (`resolve_style_for`),
+`resolve_background_image` and inline-SVG rasterizing inside it, `measure_document`, glyph walk;
+number of style resolves and DOM elements; selector-matching calls and time per pseudo and phase and
+the mean number of candidate rules per call; per-tag exclusive box-build time; the rects compared with
+the previous forced layout (changed / added / removed); every DOM write since the previous layout by
+kind, whether the target was connected to the page, whether it was a no-op (same value); the perf
+span kind; and the JS stack of the read that forced it (`new Error().stack`, 14 frames, captured in
+`gRect` when `__d_wgen()` moved). Plus a leaf-IP sampling profiler (SIGPROF every 0.5 ms CPU,
+recording only while a forced layout runs; symbolized with `nm`), and env toggles for three
+throwaway fixes (FIX1/FIX2/FIX4 below) so the same binary measured before and after.
+Caveat: YouTube runs differ run to run (170-313 forced layouts per 60 s): when the main thread gets
+faster the page gets further (more DOM, more layouts). So fixes are compared PER STYLED ELEMENT
+(cost of a forced layout divided by the number of style resolves in it), not by totals.
+
+### 1. Totals
+| page (60 s unless noted) | forced layouts | forced-layout CPU | of raw callback CPU | max | mean |
+|---|---|---|---|---|---|
+| YouTube watch G1AeBgalFZk, 5 baseline runs | 170 / 249 / 313 / 215 / 203 (30 s) | 68.7 / 74.9 / 120.8 / 100.4 / 55.7 s | 95 % (100.4 of 106.0 s, run A) | 0.70-1.42 s | 274-467 ms |
+| en.wikipedia Rust_(programming_language), 30 s | 8 | 18.8-19.3 s | (R37/QV8-m: 93-94 %) | 2.65-2.70 s | 2.36-2.42 s |
+| en.wikipedia Main_Page, 30 s, both UAs | **0** | 0 | 0 | - | - |
+The "Wikipedia 93-94 %" of PERF.md is the Rust article (the perf-suite page); Main_Page never
+forces a layout. Every forced layout was preceded by at least one DOM write (no viewport or CSS
+change triggered one, except the first). Reads DO reuse one layout until the next write: 5.4
+geometry reads per forced layout on YouTube (1164 reads, 215 layouts), 8.5 on Wikipedia.
+
+### 2. Who forces them (JS stack of the read)
+YouTube run A (215 layouts, 101 s):
+| read | page caller | n | wall |
+|---|---|---|---|
+| `#movie_player.clientWidth` (`gRect<gClient<clientWidth`) | `Rtb.getPlayerSize` (player base.js), under the player's `publish`/`cueVideoByPlayerVars`/`Ctb.init` event pipeline | 187 | 87.1 s (86 %) |
+| `div.offsetLeft` | `b6a` (base.js) | 10 | 2.8 s |
+| `IntersectionObserver` targets | scratchy's own `obsFlush` -> `ioEval` -> `gViewRect` | 7 | 3.8 s |
+| masthead/menu `clientWidth`, `offsetWidth`, `scrollHeight` | ytmainappweb `onStamperFinished`, `isOverflowing`, `updatePrimaryMenuWidth`, a ResizeObserver callback, `yt-desktop-body-width.js` | 11 | 7.3 s |
+By perf span: timers 95, classic scripts 64, promise jobs 46, observer deliveries 10. Other runs:
+same shape (`getPlayerSize` 118/170, 206/249, 238/301 layouts).
+Wikipedia Rust: 7 of 8 forced layouts (16.9 of 18.9 s) are scratchy's own IntersectionObserver
+evaluation (`obsFlush` timer -> `ioEval` -> `gViewRect` of `h1#firstHeading` / `#mw-content-text`,
+Vector's sticky-header observer), re-run because a timer wrote 1-3 attributes (`ioSigOf` contains
+`__d_wgen()`); 1 is `scrollToActiveSection` reading `a.offsetParent` (2.0 s).
+DOM reads that force: `clientWidth` 193, `offsetLeft` 10, `getBoundingClientRect` via IO 7-12,
+`offsetWidth` 3, `offsetParent` 1, `scrollHeight` 1. `getComputedStyle` never forces a layout
+(it is style only, QY52) and `scrollTop` reads a cached value.
+
+### 3. Dirty state before each forced layout
+| | YouTube A (215) | Wikipedia (8) |
+|---|---|---|
+| writes since the previous layout: 1 / 2-4 / >= 5 | 61 / 26 / 128 | 2 / 3 / 3 |
+| layouts after which NO element box moved, appeared or vanished | **171 (81.1 s, 80 %)** | 3 (7.3 s) |
+| ... at most 5 boxes differ | 189 (88.9 s) | 5 (12.0 s) |
+| would be a cache hit if only CONNECTED, VALUE-CHANGING writes invalidated | **73 (35.3 s, 34 %)**; other runs 88/301, 106/313 | 0 |
+| ... plus ignoring attributes no selector mentions | 74 (35.7 s): no extra gain | 0 |
+Most common YouTube trigger: ONE `setAttribute`/style write of the value the attribute already had
+(46 of the redundant `getPlayerSize` layouts), then 7 `style` writes that changed no box (11), then
+writes into detached subtrees (insert/setAttribute on a fragment before it is attached).
+
+### 4. What one forced layout costs (it is style, not layout)
+Per forced layout, share of wall time:
+| segment | YouTube A | Wikipedia Rust |
+|---|---|---|
+| collect `<style>` CSS + rules cache check | 1.9 % | 0.8 % |
+| `RuleIndex::build` + `HoverKeys::build` (rebuilt every time, same rules) | 8.5 % (40 ms) | 0.2 % |
+| `precompute_generated` (a SECOND full selector-matching pass over the tree, for counters/quotes/`content`) | 17.5 % | 31.7 % (750 ms) |
+| box build (`build_children`) | 71.2 % | 53.7 % |
+| - of which cascade (`resolve_style_for`, incl. matching) | 14.2 % | 33.0 % |
+| - of which `resolve_background_image` (a third matching per element) | 2.6 % | 3.6 % |
+| - of which inline SVG rasterizing (5-7 per layout) | 0.3 % | 0 |
+| `measure_document` (layout proper + shaping) | **0.4 %** | 13.0 % (300 ms) |
+| glyph walk (QJ7) | 0 | 0.5 % |
+Sampling profile (YouTube A, 28 768 samples inside forced layouts): 44 % in
+`build_children_with_prefix` itself = the inlined `apply_first_line` / `apply_first_letter`, which
+EACH scan EVERY selector of EVERY rule (`rules.iter().any(...)`) for EVERY element to learn whether
+any `::first-line`/`::first-letter` rule exists: O(elements x rules) with YouTube's 3.8 MB of CSS;
+14 % `matching_declarations_for`, 10 % `str::SplitWhitespace` (`El::has_class` splits the class
+attribute on every check), 11 % libc (memcpy/alloc), 5 % `selectors` matching.
+Matching: YouTube tests **418 candidate rules per element** on average (the rule index narrows
+little), Wikipedia 83; ~50 µs per matching call. Wikipedia per layout: 11 413 style resolves for
+9 947 elements; matching 634 ms in the box build + 452 ms duplicated in `precompute_generated` +
+~460 ms for `::before`/`::after` (8.7k calls each, done in BOTH passes).
+`page_css()` clones the 3.8 MB external CSS on every geometry read, hit or miss: 0.77 s per 60 s
+on YouTube (0.8 %).
+
+### 5. Throwaway fixes, measured (env toggles in the instrumented binary; reverted)
+Cost per forced layout divided by style resolves in it (µs per styled element), YouTube 60 s:
+| build | runs | total | idx | pre | box build | cascade |
+|---|---|---|---|---|---|---|
+| main (baseline) | yt2, yt3, A | **830-868** | 74-111 | 152-190 | 535-619 | 107-124 |
+| FIX1: first-line/first-letter presence computed once per build | B | **490 (-44 %)** | 102 | 183 | 179 | 106 |
+| FIX1 + FIX2: `RuleIndex`/`HoverKeys` kept while the rules `Rc` is the same | C, E | **366-399 (-55-58 %)** | 3-7 | 144-201 | 167-206 | 104-119 |
+| FIX1 + FIX2 + FIX4: geometry key = connected value-changing writes only | D | 376 | 2 | 141 | 221 | 123 |
+Wikipedia Rust (8 layouts, 11.4k resolves): main 212 µs/element (2.42 s per layout); FIX1+FIX2 198
+(-7 %, 2.26 s); +FIX4 191 (7 layouts instead of 8, 2.18 s). FIX4 cannot be compared by count on
+YouTube (the faster runs reach a bigger page); its counterfactual in section 3 (34 % of layouts
+would be hits) is the number to use. With FIX1+FIX2 the profile is: matching 25 %, `has_class`
+whitespace split 24 %, libc 16 %, `selectors` 11 %; `precompute_generated` is 39-50 % of what is left.
+
+### 6. Ranked plan (measured upper bounds; YouTube watch = 101 s of forced layout per 60 s, run A)
+| # | change | item | measured gain | effort |
+|---|---|---|---|---|
+| 1 | know once per build whether `::first-line`/`::first-letter` rules exist | QY53a | YouTube -44 % per element (measured, FIX1); Wikipedia ~-5 %; also every normal App relayout on big-CSS pages | S |
+| 2 | keep `RuleIndex` + `HoverKeys` while the rule list is the same `Rc` | QY53b | YouTube a further -25 % (-55-58 % with 1, measured); ~0 on Wikipedia | S |
+| 3 | geometry generation bumps only on connected, value-changing writes (no-op attribute/text/style writes, writes inside detached nodes skipped); IO signature uses it too | QY53c | upper bound 34 % of YouTube forced layouts (35 s of 101 s); 0-1 of 8 on Wikipedia | S |
+| 4 | one matching per (element, pseudo) per build: `precompute_generated` and `resolve_background_image` reuse the box build's matches | QY53d | upper bound: Wikipedia 31.7 % + 3.6 %; YouTube 39-50 % of what is left after 1+2 | M |
+| 5 | IntersectionObserver evaluation without its own forced layout | QY53e | Wikipedia up to 90 % (16.9 of 18.9 s); YouTube 4-9 % | M (Opus design first) |
+| 6 | faster matching: allocation-free ASCII class check, per-build class/id cache, ancestor bloom filter, why 418 candidates on YouTube | QY53g | upper bound: matching + `has_class` ~50 % of what is left after 1+2 (profile) | M |
+| 7 | incremental style: reuse `ComputedStyle`s of clean elements between forced layouts | QY53f | upper bound: 80 % of YouTube layouts changed no box (81 s); cascade+matching+pre are 70-85 % of a layout | L (Opus design) |
+| 8 | `page_css()` without cloning 3.8 MB per read | QY53h | 0.8 % on YouTube | S |
+Not worth doing first: incremental LAYOUT / dirty-subtree measure: layout proper is 0.4 % of a
+YouTube forced layout and 13 % on Wikipedia; nothing to win until style is cheap.
+Rough projection for YouTube (multiplying measured or upper-bound factors, NOT measured together):
+1+2 (-57 %), 3 (-34 % of layouts), 4 (up to -40 % of the rest): 101 s -> ~17 s of forced layout per
+60 s. That would still leave ~30 % of the main thread busy; 7 is what removes the rest.
+
+### Not established
+Whether the App's own (main-thread, per-turn) relayout could serve geometry reads or IO directly
+(headless `--perf-report` has no App layout, so the duplication with the window's layout was not
+measured); the live-window effect on R42's playback timeline (no nested-dwl run); YouTube results
+and home pages (R37/R38 numbers not re-taken); why YouTube's rule index yields 418 candidates (the
+size of the universal bucket was not logged); whether `getPlayerSize`'s preceding writes are the
+page's own or our prelude's (e.g. `styleSet` rewriting the whole `style` attribute with the same
+text); correctness of FIX4 beyond the measured runs (no tests); whether QY52's StyleCache could be
+reused by the box build (item 7).
+
+## R42: YouTube through the MSE stack (QM1k-m2): the player script runs, picks avc1 + mp4a, attaches, appends and plays ~60 s of AUDIO, but NO PICTURE because YouTube adds the AUDIO SourceBuffer first and scratchy always makes SourceBuffer 0 the main (video) stream; with that swapped (throwaway patch) 640x360 video plays to the PoToken stop at ~60 s, then YouTube's own error card. The main thread is busy 100% of the time (294 forced layouts = 116 s of CPU in 60 s), so everything arrives 10-45 s late (Opus investigator QM1k-m2, 2026-11-19) — OPEN: QM1k1k (P1), QM1k1l, QM1k1m, QM1k-u, QY53 (now also blocks YouTube playback; measured in R43, fix items QY53a-QY53h)
 
 **Status: investigation only, docs only.** Main 5bf4e03 (QM1k1e merged), own worktree release build
 (`nice -n 19 cargo build --release -j2`, RUSTY_V8_ARCHIVE = the existing local librusty_v8.a, 15 min),
