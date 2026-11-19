@@ -23,6 +23,17 @@ tracking fixes. Work already in flight is finished normally. Both agent slots (m
 this list; pair items that touch different files (noted per step). Evidence: R43, R44 (REGRESSIONS.md).
 A perf item that turns out to be wrong or bigger than its size: stop and report, as always.
 
+- [ ] QM1k-stop [S, Opus investigate first, then fix] (user report 2026-11-19, ALLOWED AHEAD of the perf queue as a
+      regression on main; next free agent slot) The YouTube player stops ("crashes") after playing for a few seconds
+      (HANDOFF said the first minute played). The scratchy process does NOT die: the user's installed build (~/.cargo/bin,
+      13:58, main 167c9c0+) was still running on https://www.youtube.com/watch?v=G1AeBgalFZk and coredumpctl has no core
+      from it. Find what stops playback, measured, not guessed: YouTube player error overlay / `error` event / MediaError code,
+      SABR fetches aborted by YouTube's own timeout (QM1k1n5: results reach JS 1-19 s late), SourceBuffer starved / buffered
+      gap, mpv end-of-file or decoder error, the PoToken stop (QM1k2, expected only after ~60 s), or redraw starvation
+      (QM1k1n6: video frozen while page JS runs). Recipe: own wire, live window (nested dwl), the URL above, a click to
+      play, 90 s, logs of media events + SABR request timings + mpv log. Output: cause in REGRESSIONS.md (new R section),
+      then a fix PR if small, else items. Possibly fixed by QM1k1n5/QM1k1n6 (perf queue): if so, say which and stop.
+
 PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; search the name):
  Step 1, measurement that every later step uses (small, do first):
    1 [WIP] QOBS2 [S]  V8 profiling flags crash with the snapshot (js_engine_v8.rs)       | QOBS block
