@@ -30,17 +30,6 @@ A perf item that turns out to be wrong or bigger than its size: stop and report,
       when there is no override, so both agree; both stay honest (no browser preset, QY39b rule). Test: without an override
       the request builders carry the navigator string; with an override both carry the override.
 
-- [ ] [WIP] QSTK1 [S, Opus] CRASH on main (found by QY53g, a86d821; ALLOWED AHEAD of the perf queue) A document of
-      ~1 000 nested elements (the QY53 big-css fixture: 1 000 nested divs) overflows the default 8 MB main-thread stack
-      (SIGABRT, Rust stack overflow) in style/layout recursion, on main and on branches alike; QY53g measured with
-      `ulimit -s 262144`. Real pages nest 30-100 deep, but generated/hostile pages nest thousands, and a stack overflow
-      kills the whole browser. Find the recursive walks that overflow (gdb on the core: which frames repeat), measure the
-      depth at which each build (headless, window, JS forced layout on the JS thread) dies today, and fix: either make
-      the hot recursions iterative, or run style+layout on a thread with a large explicit stack (std::thread::Builder
-      ::stack_size) if that is where they run, or both; a depth cap with graceful degradation (like browsers' ~512 box
-      nesting limit for layout) is acceptable if documented. Test: a 5 000-deep generated document lays out (headless
-      and forced layout) without crashing in the default test thread stack. Note: the two SIGABRT cores at 15:29
-      (QY53i's main and branch builds) are probably this.
 
 PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; search the name):
  Step 1, measurement that every later step uses (small, do first):
@@ -1246,7 +1235,7 @@ Shared rules for this block:
 - Local tools only. Nothing here may upload a profile anywhere (no profiler.firefox.com, no
   ui.perfetto.dev links in tools output), and scratchy itself still opens no socket.
 
-- [ ] QY53k [S] (P2, found by QY53g a86d821, Sonnet, measure first) After QY53g, the top remaining costs on the big-css
+- [ ] [WIP] QY53k [S] (P2, found by QY53g a86d821, Sonnet, measure first) After QY53g, the top remaining costs on the big-css
       fixture are `js_style::StyleCache::style_of` and SipHash hashing. Profile with tools/profile.sh (big-css and YT
       watch); if StyleCache lookups hash large keys with SipHash, try a cheaper key/hasher (FxHash-style) and measure;
       file what is left. Accept: big-css forced_layout.total_ms lower than main, median of 3.
@@ -1288,6 +1277,13 @@ Shared rules for this block:
       invalidation by hover, form state, sibling combinator, viewport change.
 - [ ] QY53f3 [M] (P4, deferred, from QY53f; after QY53f2 and a fresh measurement) ComputedStyle reuse across builds (R43
       section 8 design step 3); must be cleared together with QY53i2's arena if that lands.
+- [ ] QSTK1b [S] (P2, from QSTK1 ae9204f; Sonnet, measure first; touches the js_dom.rs IO prelude: not alongside QOBS3)
+      Geometry reads are O(depth^2) on deep pages: one `offsetWidth`/`getBoundingClientRect` costs ~0.1 s at 1 000 deep and
+      ~4 s at 5 000 deep. Cause seen by QSTK1: the IO prelude's `ioShown` calls `getComputedStyle` for every ancestor of
+      every observed target (and maybe the offset* path walks ancestors per read). Measure with a generated deep document
+      (`--perf-report`, QOBS3 phases/by_caller once merged); make the ancestor checks one walk (or cached per layout
+      generation). Gate: one read at 5 000 deep < 100 ms; tests: IO visibility semantics unchanged (display:none /
+      visibility:hidden ancestor still hides the target).
 - [ ] QOBS1b [XS] (coordinator 2026-11-19, from QOBS2 aadd319; Sonnet/Haiku, tools only) `tools/profile.sh` still sets
       `SCRATCHY_V8_SNAPSHOT=0` (the QOBS1 workaround "until QOBS2 is merged"). QOBS2 made scratchy skip the snapshot itself
       whenever `SCRATCHY_V8_FLAGS` is set, so drop the env var from profile.sh and the PERF.md "Profiling (perf)" note.

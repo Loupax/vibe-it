@@ -6531,3 +6531,16 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       table of numeric fields whose change is above the threshold (%), sorted by size, with the page,
       field, old, new and %. stdlib only, `python3 -I`. PERF.md: "every perf PR pastes perf-diff of
       main vs branch". Smoke: diff two runs of the same commit (expect only noise) and paste.
+
+=== from TODO.txt: --- TOP PRIORITY (user, 2026-11-19): PERFORMANCE FIRST. READ THIS BEFORE EVERYTHING ELSE IN THIS FILE. ---
+- [x] QSTK1 DONE ae9204f (stack::grow segments + 32 MB shaping worker; 5 000 deep ok, no cap) [S, Opus] CRASH on main (found by QY53g, a86d821; ALLOWED AHEAD of the perf queue) A document of
+      ~1 000 nested elements (the QY53 big-css fixture: 1 000 nested divs) overflows the default 8 MB main-thread stack
+      (SIGABRT, Rust stack overflow) in style/layout recursion, on main and on branches alike; QY53g measured with
+      `ulimit -s 262144`. Real pages nest 30-100 deep, but generated/hostile pages nest thousands, and a stack overflow
+      kills the whole browser. Find the recursive walks that overflow (gdb on the core: which frames repeat), measure the
+      depth at which each build (headless, window, JS forced layout on the JS thread) dies today, and fix: either make
+      the hot recursions iterative, or run style+layout on a thread with a large explicit stack (std::thread::Builder
+      ::stack_size) if that is where they run, or both; a depth cap with graceful degradation (like browsers' ~512 box
+      nesting limit for layout) is acceptable if documented. Test: a 5 000-deep generated document lays out (headless
+      and forced layout) without crashing in the default test thread stack. Note: the two SIGABRT cores at 15:29
+      (QY53i's main and branch builds) are probably this.
