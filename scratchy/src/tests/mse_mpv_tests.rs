@@ -489,4 +489,127 @@ pub(crate) mod real {
         let _ = std::fs::remove_dir_all(&dir);
         assert!(linear, "the linear 60 s scenario did not play to the end");
     }
+
+    /// Delegates to mpv and records every raw `Time` the backend reports (before the core
+    /// filters them), so the test can see what the OLD generation does while a seek waits.
+    struct Spy(MpvBackend, std::rc::Rc<std::cell::RefCell<Vec<f64>>>);
+
+    impl MediaBackend for Spy {
+        fn name(&self) -> &'static str {
+            self.0.name()
+        }
+        fn available(&self) -> bool {
+            self.0.available()
+        }
+        fn load(&mut self, r: &crate::media_el::LoadReq) -> Result<(), LoadError> {
+            self.0.load(r)
+        }
+        fn load_mse(&mut self, f: std::sync::Arc<MseFeed>, s: f64) -> Result<(), LoadError> {
+            self.0.load_mse(f, s)
+        }
+        fn unload(&mut self) {
+            self.0.unload()
+        }
+        fn set_paused(&mut self, p: bool) {
+            self.0.set_paused(p)
+        }
+        fn seek(&mut self, t: f64) {
+            self.0.seek(t)
+        }
+        fn set_volume(&mut self, v: f64) {
+            self.0.set_volume(v)
+        }
+        fn set_muted(&mut self, m: bool) {
+            self.0.set_muted(m)
+        }
+        fn set_rate(&mut self, r: f64) {
+            self.0.set_rate(r)
+        }
+        fn poll(&mut self, wait: Duration) -> Vec<BackendEvent> {
+            let evs = self.0.poll(wait);
+            for e in &evs {
+                if let BackendEvent::Time(t) = e {
+                    self.1.borrow_mut().push(*t);
+                }
+            }
+            evs
+        }
+        fn buffered(&self) -> Vec<(f64, f64)> {
+            self.0.buffered()
+        }
+        fn seekable(&self) -> Vec<(f64, f64)> {
+            self.0.seekable()
+        }
+        fn active(&self) -> bool {
+            self.0.active()
+        }
+    }
+
+    /// QYSK1a: an out-of-buffer seek must not leave the old generation playing (R51).
+    #[test]
+    fn qysk1a_out_of_buffer_seek_holds_old_generation_then_resumes_at_target() {
+        if !have_tools() {
+            return;
+        }
+        let dir = tmp("hold");
+        let Some((v, a)) = make_fixture(&dir, 60, 0.0, 4, 10) else {
+            eprintln!("SKIP: ffmpeg could not make the fixture");
+            return;
+        };
+        let times = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let feed = MseFeed::with_fmp4_tracks(2);
+        let mut c = crate::media_el::MediaCore::new(Box::new(Spy(backend(), times.clone())));
+        c.attach_mse(feed.clone(), f64::NAN, "https://page.test/".into());
+        c.set_muted(true);
+        c.mse_set_duration(60.0);
+        let t0 = Instant::now();
+        let ms = |t0: &Instant| t0.elapsed().as_secs_f64() * 1000.0;
+        let app = |c: &mut crate::media_el::MediaCore, bi: usize, bytes: &[u8]| {
+            let o = feed.append(bi, bytes, 0.0).unwrap();
+            c.mse_data_changed(t0.elapsed().as_secs_f64() * 1000.0, o.new_generation);
+        };
+        app(&mut c, 0, &v.init);
+        app(&mut c, 1, &a.init);
+        // 0-16 s of video, 0-20 s of audio
+        for s in &v.segs[0..4] {
+            app(&mut c, 0, &s.2);
+        }
+        for s in &a.segs[0..2] {
+            app(&mut c, 1, &s.2);
+        }
+        c.play(1);
+        while c.current_time < 3.0 && t0.elapsed().as_secs_f64() < 30.0 {
+            c.pump(ms(&t0), Duration::from_millis(20));
+            c.take_outs();
+        }
+        assert!(c.current_time >= 3.0, "plays from 0: {}", c.current_time);
+        let old = c.current_time;
+        c.set_current_time(40.0);
+        c.pause(); // YouTube's scrub-pause, then its play()
+        c.play(2);
+        times.borrow_mut().clear();
+        let t1 = Instant::now();
+        while t1.elapsed() < Duration::from_secs(2) {
+            c.pump(ms(&t0), Duration::from_millis(20));
+            c.take_outs();
+        }
+        assert!(c.seeking && c.current_time == 40.0, "still waiting at the target: {} {}", c.seeking, c.current_time);
+        let leaked = times.borrow().iter().cloned().fold(f64::MIN, f64::max);
+        assert!(leaked <= old + 0.5, "the old generation kept playing: time-pos reached {leaked} (was {old})");
+        // data for 40 arrives: 36-56 s of video, 30-50 s of audio
+        for s in &v.segs[9..14] {
+            app(&mut c, 0, &s.2);
+        }
+        for s in &a.segs[3..5] {
+            app(&mut c, 1, &s.2);
+        }
+        let t2 = Instant::now();
+        while c.current_time < 40.5 && t2.elapsed().as_secs_f64() < 10.0 {
+            c.pump(ms(&t0), Duration::from_millis(20));
+            c.take_outs();
+        }
+        assert!(!c.seeking && c.current_time >= 40.5, "resumed at the target: seeking {} t {}", c.seeking, c.current_time);
+        drop(c);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
