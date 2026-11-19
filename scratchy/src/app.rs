@@ -689,6 +689,11 @@ pub(crate) struct App {
     pub(crate) last_move_dispatched: Option<(f32, f32)>,
     pub(crate) last_move_dispatch_at: Option<std::time::Instant>,
     pub(crate) move_dispatch_gap: std::time::Duration,
+    /// QCUR1: when the pointer last moved (any move), a throttled move's position
+    /// waiting for its trailing dispatch, and when a video frame was last presented.
+    pub(crate) last_move_seen: Option<std::time::Instant>,
+    pub(crate) move_trailing: Option<(f32, f32)>,
+    pub(crate) last_video_frame: Option<std::time::Instant>,
     /// Q31: live `:hover`/`:active`/`:focus*` state (also mirrored into the
     /// `INTERACTION` thread-local style matching reads).
     pub(crate) interaction: InteractionState,
@@ -1078,6 +1083,12 @@ pub(crate) struct SavedPage {
 /// QCUR1: minimum gap between `mousemove`/`pointermove` dispatches to the page (no button down).
 pub(crate) const MOVE_DISPATCH_INTERVAL: std::time::Duration = std::time::Duration::from_millis(50);
 
+/// QCUR1: minimum gap between motion dispatches while a video plays (user decision).
+pub(crate) const MOVE_GAP_PLAYING: std::time::Duration = std::time::Duration::from_millis(150);
+
+/// QCUR1: a move after this long without any move is dispatched immediately.
+pub(crate) const MOVE_IDLE: std::time::Duration = std::time::Duration::from_secs(1);
+
 /// QCUR1: upper bound of the adaptive gap (3x the last dispatch's handler time).
 pub(crate) const MOVE_DISPATCH_MAX_GAP: std::time::Duration = std::time::Duration::from_millis(500);
 
@@ -1201,6 +1212,9 @@ impl App {
             last_move_dispatched: None,
             last_move_dispatch_at: None,
             move_dispatch_gap: MOVE_DISPATCH_INTERVAL,
+            last_move_seen: None,
+            move_trailing: None,
+            last_video_frame: None,
             interaction: InteractionState::default(),
             state_rules: 0,
             hover_node: 0,
@@ -1295,6 +1309,9 @@ impl App {
             last_move_dispatched: None,
             last_move_dispatch_at: None,
             move_dispatch_gap: MOVE_DISPATCH_INTERVAL,
+            last_move_seen: None,
+            move_trailing: None,
+            last_video_frame: None,
             interaction: InteractionState::default(),
             state_rules: 0,
             hover_node: 0,
@@ -2852,15 +2869,52 @@ impl App {
     /// with the latest position; skipped when the page has no such listener. YouTube
     /// un-hides its controls and the cursor (`ytp-autohide`) from these.
     fn js_pointer_move(&mut self, pos: (f32, f32), node: usize) {
-        let Some(js) = &self.js else { return };
-        // Page handlers for motion events are costly on heavy pages (YouTube: forced
-        // layouts), so without a button held they get a gap of MOVE_DISPATCH_INTERVAL or more
-        // between them; a drag (button down) gets every turn's latest position.
-        if self.mouse_down_pos.is_none()
-            && self.last_move_dispatch_at.is_some_and(|t| t.elapsed() < self.move_dispatch_gap)
-        {
+        if self.js.is_none() {
             return;
         }
+        // Page handlers for motion events are costly on heavy pages (YouTube: forced
+        // layouts), so without a button held they are spaced out: at least the adaptive
+        // gap, and `MOVE_GAP_PLAYING` while a video plays. The first move after a second
+        // without one always goes straight through (YouTube un-hides at once), and a
+        // throttled move leaves a trailing dispatch (`flush_move_trailing`) so the final
+        // position is not lost. A drag (button down) gets every turn's latest position.
+        let now = std::time::Instant::now();
+        let idle = self.last_move_seen.is_none_or(|t| now.duration_since(t) >= MOVE_IDLE);
+        self.last_move_seen = Some(now);
+        if self.mouse_down_pos.is_none() && !idle && self.last_move_dispatch_at.is_some_and(|t| t.elapsed() < self.move_gap()) {
+            self.move_trailing = Some(pos);
+            return;
+        }
+        self.move_trailing = None;
+        self.dispatch_pointer_move(pos, node);
+    }
+
+    /// The minimum spacing between two `mousemove` dispatches right now.
+    fn move_gap(&self) -> std::time::Duration {
+        if self.video_playing() { self.move_dispatch_gap.max(MOVE_GAP_PLAYING) } else { self.move_dispatch_gap }
+    }
+
+    /// A video frame was presented within the last 500 ms.
+    pub(crate) fn video_playing(&self) -> bool {
+        self.last_video_frame.is_some_and(|t| t.elapsed() < std::time::Duration::from_millis(500))
+    }
+
+    /// The trailing `mousemove` of a throttled burst, once its gap has passed. Returns
+    /// when to be called again (`None` = nothing pending). Called from `about_to_wait`.
+    pub(crate) fn flush_move_trailing(&mut self) -> Option<std::time::Instant> {
+        let pos = self.move_trailing?;
+        let due = self.last_move_dispatch_at.map_or_else(std::time::Instant::now, |t| t + self.move_gap());
+        if std::time::Instant::now() < due {
+            return Some(due);
+        }
+        self.move_trailing = None;
+        let node = self.element_at(pos);
+        self.dispatch_pointer_move(pos, node);
+        None
+    }
+
+    fn dispatch_pointer_move(&mut self, pos: (f32, f32), node: usize) {
+        let Some(js) = &self.js else { return };
         let mask = js.pointer_listener_mask();
         let (want_p, want_m) = (mask & 2 != 0, mask & 1 != 0);
         if !want_p && !want_m {
@@ -3849,6 +3903,7 @@ impl ApplicationHandler<AppEvent> for App {
     /// wake up on their own).
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         self.flush_pointer_move();
+        let trail_at = self.flush_move_trailing();
         let els = self.sync_node_scroll();
         if let Some(js) = &self.js {
             js.set_scroll(self.scroll_offset, els);
@@ -3872,7 +3927,7 @@ impl ApplicationHandler<AppEvent> for App {
             }
             None => None,
         };
-        let flow = match [js_at, anim_at, ctl_at, stats_at].into_iter().flatten().min() {
+        let flow = match [js_at, anim_at, ctl_at, stats_at, trail_at].into_iter().flatten().min() {
             Some(t) => ControlFlow::WaitUntil(t),
             None => ControlFlow::Wait,
         };
@@ -3883,6 +3938,7 @@ impl ApplicationHandler<AppEvent> for App {
         match event {
             AppEvent::VideoFrame => {
                 crate::media_video::wake_handled();
+                self.last_video_frame = Some(std::time::Instant::now());
                 if let Some(fs) = &mut self.frame_stats {
                     fs.video_wake();
                 }

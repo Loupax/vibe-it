@@ -199,7 +199,7 @@ fn qcur1_mousemove_once_per_turn_with_latest_coordinates() {
     app.flush_pointer_move();
     let l = qcur1_log(&app);
     assert!(l.ends_with("|p1mousetrue52|m52,6,3,p,0,true"), "{l}");
-    assert_eq!(l.matches("|m").count(), 1, "one more mousemove, not one per queued move: {l}");
+    assert_eq!(l.matches("|m").count(), 2, "one more mousemove (two in all), not one per queued move: {l}");
 }
 
 #[test]
@@ -240,4 +240,56 @@ fn qcur1_entering_an_element_fires_over_enter_move_in_order() {
     assert!(pos("pointerover:p") < pos("pointerenter:o") && pos("pointerenter:o") < pos("mouseover:p"), "{l}");
     assert!(pos("mouseover:p") < pos("mouseenter:o") && pos("mouseenter:o") < pos("pm:p"), "{l}");
     assert!(pos("pm:p") < pos("mm"), "{l}");
+}
+
+const QCUR1_MM: &str = "window.L=[]; document.addEventListener('mousemove', function(e){ L.push(String(e.clientX)); });";
+
+fn qcur1_move(app: &mut App, x: f32) {
+    app.queue_pointer_move((x, 5.0));
+    app.flush_pointer_move();
+}
+
+#[test]
+fn qcur1_playing_video_spaces_dispatches_150ms_and_first_move_after_idle_is_immediate() {
+    let Some(mut app) = qcur1_app(QCUR1_HTML, QCUR1_MM) else { return };
+    app.last_video_frame = Some(std::time::Instant::now());
+    qcur1_move(&mut app, 1.0);
+    std::thread::sleep(std::time::Duration::from_millis(80));
+    app.last_video_frame = Some(std::time::Instant::now());
+    qcur1_move(&mut app, 2.0);
+    assert_eq!(qcur1_log(&app), "1", "80 ms after the last dispatch: still inside the 150 ms gap");
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    app.last_video_frame = Some(std::time::Instant::now());
+    qcur1_move(&mut app, 3.0);
+    assert_eq!(qcur1_log(&app), "1|3");
+    // A move after >= 1 s without one is dispatched at once, however recent the last dispatch.
+    app.last_move_seen = Some(std::time::Instant::now() - MOVE_IDLE * 2);
+    qcur1_move(&mut app, 4.0);
+    assert_eq!(qcur1_log(&app), "1|3|4");
+}
+
+#[test]
+fn qcur1_throttled_move_gets_a_trailing_dispatch_of_the_last_position() {
+    let Some(mut app) = qcur1_app(QCUR1_HTML, QCUR1_MM) else { return };
+    qcur1_move(&mut app, 1.0);
+    qcur1_move(&mut app, 2.0);
+    qcur1_move(&mut app, 3.0);
+    assert_eq!(qcur1_log(&app), "1");
+    let due = app.flush_move_trailing().expect("a trailing dispatch is pending");
+    assert_eq!(qcur1_log(&app), "1", "not before the gap has passed");
+    std::thread::sleep(due.saturating_duration_since(std::time::Instant::now()) + std::time::Duration::from_millis(5));
+    assert_eq!(app.flush_move_trailing(), None);
+    assert_eq!(qcur1_log(&app), "1|3", "the final position, not 2");
+    assert_eq!(app.flush_move_trailing(), None, "nothing left");
+}
+
+#[test]
+fn qcur1_drag_dispatches_every_turn() {
+    let Some(mut app) = qcur1_app(QCUR1_HTML, QCUR1_MM) else { return };
+    app.last_video_frame = Some(std::time::Instant::now());
+    app.mouse_down_pos = Some((0.0, 0.0));
+    for x in [1.0, 2.0, 3.0] {
+        qcur1_move(&mut app, x);
+    }
+    assert_eq!(qcur1_log(&app), "1|2|3");
 }
