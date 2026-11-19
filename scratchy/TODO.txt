@@ -732,6 +732,9 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       (33-39 ms per 720p->640x360 frame at load average 14-20); a worker thread owning the render context would keep
       scroll/hover/JS responsive. Gate: main-thread time per video frame ~0 in frame stats while video plays; video fps not
       worse; no tearing/stale frames (tests + a nested-window run).
+- [ ] QM1g2a1 [S] (P3, from QM1g2a #388; Sonnet, measure first) Reuse video frame buffers: the render worker allocates a
+      new ~0.9 MB buffer per frame and the main thread copies twice (page buffer + present buffer); a small pool or presenting
+      straight from the worker's buffer. Remaining main-thread cost ~1-2.4 ms/frame (R46 "QM1g2a").
 - [ ] QM1g2 [M] (from QM1g) Leftovers ((a) split out as QM1g2a): (b) a `<video>` inside a mask-image or opacity
       layer paints black (no frame substitution) and forces a full redraw per frame;
       (c) no rounded-corner clipping (`border-radius`) of the video; (d) `controls` are not
@@ -1075,7 +1078,7 @@ Shared rules for this block:
       /home/loupax/src/vibe-it/.coordinator/artifacts/qmem3b/memprof.rs.txt + hooks.diff, not in git).
 - [ ] QMEM3h [S] (P3, from QMEM3b; Sonnet) Probes for V8 off-heap memory (`malloced_memory`, ArrayBuffer backing stores) and
       per-library mapped RSS, to name the ~20-25 MB of C++ malloc (V8, libmpv).
-- [ ] QMEM3j [S] (P2, from QMEM3b; same family as QY53o3c; Opus measure then Sonnet) SHAPE_MEMO holds ~60 MB of cosmic-text
+- [ ] [WIP] QMEM3j [S] (P2, from QMEM3b; same family as QY53o3c; Opus measure then Sonnet) SHAPE_MEMO holds ~60 MB of cosmic-text
       shaped buffers on a 7.7k-paragraph page (Wikipedia; 2.6x the old estimate): measure its hit rate vs bytes and cap/sweep it.
 - [ ] QMEM3d [S] (P3, from QMEM3; Sonnet; after QMEM3a) `malloc_trim(0)` after a navigation and once when the window goes
       idle. Gate: RSS after leaving YouTube for a small page >= 25 MB lower.
