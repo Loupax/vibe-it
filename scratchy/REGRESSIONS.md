@@ -231,6 +231,7 @@ index.
   late relayout, or the target was lost for another reason, is not determined. First real video pixels
   in a screenshot: 06:02:51, ~200 s after start (q06; a different oscilloscope frame from the
   thumbnail; frames differ between later screenshots).
+- **QM1k1m measurement (2026-11-19, temporary logging, reverted):** the `<video>` was painted as a box only once (+26.1 s, 550x309, 166625 of 169950 px visible), then every later redraw reported ZERO video boxes (not "covered": covered boxes are listed), so `set_video_target(None)` and `vid=no` (as designed). The element has no painted box (display/visibility/size/clip) although YouTube's picture is on screen; cause not determined, item QM1k1n. QM1k1l: fixed (the mpv backend forgot nothing on `unload`; cache/seekable events of a stopped file are ignored).
 - **`buffered` after the element is emptied (QM1k1l).** Run 2, after `emptied` (ct 0, rs 0, the MSE
   detached): `buffered` = `[0.00-61.80]` on every TICK. With `self.mse` gone, `MediaCore::buffered`
   falls back to `MpvBackend::buffered`, i.e. `cache_end` (mpv demuxer-cache-time); a value left from the

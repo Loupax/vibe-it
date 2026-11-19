@@ -1194,6 +1194,9 @@ impl MediaBackend for FakeBackend {
         s.loaded = None;
         s.playing = false;
         s.queue.clear();
+        // QM1k1l: like mpv, an unloaded backend buffers nothing.
+        s.buffered.clear();
+        s.seekable.clear();
     }
     fn set_paused(&mut self, p: bool) {
         let mut s = self.0.borrow_mut();
