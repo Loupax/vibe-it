@@ -7856,3 +7856,10 @@ Done: R38. The `true` is `<img alt="true">` (YouTube calls `setAttribute('alt', 
 **Prompt:** Implement QY53o3a: the JS thread's shape memo (`SHAPE_MEMO_CAP = 4096`, cleared at the start of every `GeomCache::refresh`) is wiped before every forced layout on a big page (Wikipedia Rust: 7 508 entries). Track which entries each layout uses, drop the rest after the layout, apply a safety cap only after the sweep, keep the viewport-change clear.
 
 **What changed:** layout.rs `memo_track_begin`/`memo_sweep` (a per-layout used-key set filled by `memo_get` hits and `memo_put`; test-only `SHAPE_MEMO_PUTS`); js_geom.rs refresh clears only on a viewport change, sweeps after the layout, cap 32768 applied post-sweep. Test `qy53o3a_big_layout_keeps_its_memo_across_forced_layouts` (4 200 paragraphs, later refreshes shape nothing, a resize reshapes). Measured on a loaded machine (load 15-20 on 16 cores): Wikipedia loop measure_document per layout main 189-322 -> branch 47-93 ms.
+
+
+## QMEM3a: cap glibc malloc arenas at startup (Sonnet)
+
+> Do TODO.txt item QMEM3a: call mallopt(M_ARENA_MAX, N) as early as possible in main() (before any thread), glibc Linux only, env override SCRATCHY_MALLOC_ARENAS (0 = glibc default). Measure N=2 and N=4 against main on YT watch (3+3 interleaved, rss, forced layout, JS CPU) plus a live nested-dwl run with SCRATCHY_FRAME_STATS; pick the N that meets the gate. Test the hook is callable and respects the 0 override.
+
+**What changed:** new `src/malloc_arenas.rs` (`install()`, `arenas_from()`), called first in `src/main.rs`; tests in `src/tests/qmem3a_tests.rs`; PERF.md memory note. N = 2 (see the PR for numbers). glibc's own behaviour cannot be unit-tested.
