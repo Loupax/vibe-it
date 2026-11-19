@@ -174,7 +174,7 @@ Order: (drain) -> QT1 -> QV8-0 -> QV8-1 -> QV8-2 -> QV8-3 -> QV8-4 -> QV8-5 -> Q
 - [x] QM1n1 [S] DONE (b84f0af) (found by QM1n, R40 section 2) Inert `<video>` placeholder when media is [archived: TODO-DONE.txt]
 - [x] QM1n2 [S] DONE (b84f0af) (found by QM1n, R40 section 4; D5/D6 allow it; interim before QM1g2d and KEPT [archived: TODO-DONE.txt]
 - [x] QM1g2d [M] DONE (4a2eb36) (D6 decided 2026-11-17; from QM1g2 (d); after QM1n2) scratchy's own controls [archived: TODO-DONE.txt]
-- [ ] QM1g2d1 [S] (left out of QM1g2d) tools/inject has no separate press/move/release, so drag on the seek/volume tracks (CtlDrag, throttled 80 ms) is only code-reviewed, not driven in a real window: add `press`/`release` to inject and check a drag. Also: no controlsList, no rate/captions menu.
+- [ ] QM1g2d1 [S] (left out of QM1g2d) tools/inject has no separate press/move/release, so drag on the seek/volume tracks (CtlDrag, throttled 80 ms) is only code-reviewed, not driven in a real window: add `press`/`release` to inject and check a drag. (QYSK1 R51: one click on scratchy's own seek track fires seeking/seeked TWICE, the release re-applies the drag position.) Also: no controlsList, no rate/captions menu.
 - [ ] QM1g2e [S] ANSWERED 2026-11-19 (was: waiting for user) Fullscreen for
       USER ANSWER 2026-11-19: fullscreen = the scratchy WINDOW goes fullscreen (winit borderless), as proposed. Page JS `requestFullscreen()` (with user activation) maps onto the same state, as proposed (the user did not object). READY after the perf queue.
       `<video controls>`: a fullscreen button at the right end of the QM1g2d bar, `f` key and
@@ -680,6 +680,17 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       too (QM1g2d seek, QM1g2d1 says drag was never driven in a real window). Fix with a test (MSE fixture: seek outside
       the buffer -> playback resumes at the target). USER 2026-11-19 ~21:05: may go ahead of the perf queue, but an Opus INVESTIGATION (docs only, findings + sized fix
       in REGRESSIONS.md) comes first; implementation is a separate step after that.
+- [ ] QYSK1a [S/M] (P1, from QYSK1 R51 #375; Sonnet; user OK to go ahead of the perf queue; media_el.rs) While an
+      out-of-buffer MSE seek waits for data, hold the backend: a `hold` flag on `MseAttach` + `backend.set_paused(true)`;
+      while held, play/pause do not touch the backend and the old generation's Time/Eof/Buffering events are ignored;
+      `mse_resolve` clears it after the in-buffer seek or the new-generation load. Today mpv keeps playing the OLD
+      generation (YouTube's play() unpauses it) while JS says `seeking` at the target. Tests (R51 section 4): FakeBackend
+      test next to `qm1k1c_seek_outside_the_buffer_waits_then_reloads_at_t`, real-mpv
+      `qysk1a_out_of_buffer_seek_holds_old_generation_then_resumes_at_target`. NOTE: seeks past ~64 s of media on YouTube
+      still get no data until QM1k2 (SABR status 3 without attestation); with this fix they wait instead of playing on.
+- [ ] QYSK1b [S] (P2, from R51; Sonnet; after QYSK1a, same file) After an in-buffer seek mpv sometimes sends a stale
+      `time-pos` right after `playback-restart` (2 of 6 runs): `seeking`/`seeked` read the pre-seek time. Ignore `Time`
+      events > 1 s from the target for up to 500 ms after Restart. Gate: FakeBackend queue [Restart, Time(2.0), Time(12.04)].
 - [ ] QM1k-AB [M, Opus, measure only] READY after QM1k1b. THE EARLY TEST THAT DECIDES A vs B
       USER ANSWER 2026-11-19: A/V seems to sync well for now, but the page is too slow to test properly: DEFERRED until after the performance queue. Good test video (it visualises the sound): https://www.youtube.com/watch?v=G1AeBgalFZk
       (user Q4.3). Run `mse_ab_drift_60s` 3 times on the user's machine (quiet machine, release
