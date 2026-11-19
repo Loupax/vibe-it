@@ -7863,3 +7863,9 @@ Done: R38. The `true` is `<img alt="true">` (YouTube calls `setAttribute('alt', 
 > Do TODO.txt item QMEM3a: call mallopt(M_ARENA_MAX, N) as early as possible in main() (before any thread), glibc Linux only, env override SCRATCHY_MALLOC_ARENAS (0 = glibc default). Measure N=2 and N=4 against main on YT watch (3+3 interleaved, rss, forced layout, JS CPU) plus a live nested-dwl run with SCRATCHY_FRAME_STATS; pick the N that meets the gate. Test the hook is callable and respects the 0 override.
 
 **What changed:** new `src/malloc_arenas.rs` (`install()`, `arenas_from()`), called first in `src/main.rs`; tests in `src/tests/qmem3a_tests.rs`; PERF.md memory note. N = 2 (see the PR for numbers). glibc's own behaviour cannot be unit-tested.
+
+## QY53f1e: getComputedStyle StyleCache parses layered sheets straight into the target Vec (scratchy/qy53f1e-gcs-parse-into, Sonnet)
+
+**Prompt:** `js_style.rs` StyleCache still did `rules.extend(parse_stylesheet(..))`; use `parse_stylesheet_into` like rules_cache does, measure, note whether StyleCache could reuse rules_cache's list (QMEM3e).
+
+**What changed:** the concatenated (`@layer`) path in `StyleCache::refresh` calls `parse_stylesheet_into(&src, &mut rules)` (identical result, no temp Vec). The non-layer path already moves per-piece cached Vecs (a memcpy of 72-byte StyleRules, no parse). Test `qy53f1e_get_computed_style_layered_multi_style`. Gain is below noise (72 B x N memcpy once per rule change); kept as a one-line simplification.
