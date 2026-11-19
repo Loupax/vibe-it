@@ -472,7 +472,7 @@ impl StyleCache {
     /// rules (selector heap not counted) and the rule index (counted by entry only).
     pub(crate) fn mem_estimate(&self) -> (usize, usize) {
         let map = self.map.capacity() * (std::mem::size_of::<((usize, u8), Entry)>() + 1);
-        let rules = self.rules.as_ref().map_or(0, |r| r.capacity() * std::mem::size_of::<StyleRule>());
+        let rules = self.rules.as_ref().map_or(0, |r| r.capacity() * std::mem::size_of::<StyleRule>() + r.iter().map(StyleRule::heap_bytes).sum::<usize>());
         (self.map.len(), map + rules + self.pieces.capacity() * std::mem::size_of::<Piece>() + self.flags.capacity())
     }
 

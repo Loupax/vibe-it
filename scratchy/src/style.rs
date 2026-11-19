@@ -965,7 +965,7 @@ pub(crate) fn matching_declarations_for<'a>(
     let resolve = |found: &[(u64, u32, bool)]| -> Vec<(u64, &'a Declarations)> {
         found
             .iter()
-            .map(|&(key, i, imp)| (key, if imp { &rules[i as usize].important } else { &rules[i as usize].decls }))
+            .map(|&(key, i, imp)| (key, if imp { rules[i as usize].important() } else { rules[i as usize].decls() }))
             .collect()
     };
     if let Some(k) = memo_key

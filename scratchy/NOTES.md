@@ -3660,3 +3660,15 @@ synced to each element's parent chain, cheap in document order); a selector whos
 must equal `Atom::precomputed_hash` (`dom::atom_hash`). `El::has_class` splits on HTML ASCII whitespace
 only, byte-wise (`dom::class_list_contains`). Outside a build (no index registered) every rule is
 tested with no filter.
+
+## QY53f1c: a style rule's declaration block is parsed on first use (src/css.rs)
+
+`StyleRule` holds the selectors, `media`, `layer`, and the declaration block as its source text
+(`TopLevelParser::parse_block` only tokenizes it, to find its end and to note whether it may declare
+`content` / `counter-*` / `quotes`). `StyleRule::decls()` / `important()` parse it on the first call
+(`parse_declarations_split`) into a boxed `Declarations` (~2 KB; the `!important` half is `None`, read as
+an empty set, when the block has none) and drop the text. Only rules whose selector matched something are
+ever parsed; `precompute_generated` asks `may_declare_generated()` first so it does not parse every block.
+`SCRATCHY_CSS_DEBUG` / the test capture parse eagerly (they report ignored declarations at parse time).
+`size_of::<StyleRule>()` is 72 bytes (was 4040: two inline `Declarations`); `heap_bytes()` feeds the
+`rules_cache` / `style_cache` memory estimates.

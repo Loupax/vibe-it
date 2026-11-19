@@ -1957,9 +1957,9 @@ fn declarations_partial_eq_detects_a_real_difference_and_matches_when_unchanged(
 fn parse_stylesheet_leaves_an_unsupported_declaration_with_no_effect() {
     let rules = parse_stylesheet("div { color: red; grid-area: 1 / 2 / 3 / 4 / 5; }");
     assert_eq!(rules.len(), 1);
-    assert!(rules[0].decls.color.is_some(), "the supported declaration in the same rule should still apply");
+    assert!(rules[0].decls().color.is_some(), "the supported declaration in the same rule should still apply");
     assert!(
-        rules[0].decls.grid_area.is_none(),
+        rules[0].decls().grid_area.is_none(),
         "an invalid grid-area form (five lines) should leave the field unset, not guess at a value"
     );
 }
@@ -2000,7 +2000,7 @@ fn q10_supports_conditions_gate_blocks() {
     assert_eq!(n("@supports garbage{p{color:red}}p{color:blue}"), 1);
     // Applies through the cascade.
     let r = parse_stylesheet("@supports (display:grid){p{color:red}}");
-    assert!(r[0].decls.color.is_some());
+    assert!(r[0].decls().color.is_some());
 }
 
 #[test]
@@ -2996,4 +2996,59 @@ fn qy53f1b_parse_stylesheet_into_appends_and_matches_the_returning_form() {
     }
     assert!(into[..n].iter().all(|r| r.layer == 0), "the head keeps its unlayered rank");
     assert!(into[n..].iter().any(|r| r.layer >= 2), "the tail got layer ranks");
+}
+
+/// QY53f1c: `StyleRule` was 4040 bytes (two inline `Declarations` of ~2 KB each); the block is
+/// now kept as text and parsed on first use, so the rule list of a big sheet stays small.
+#[test]
+fn qy53f1c_style_rule_is_small() {
+    let n = std::mem::size_of::<StyleRule>();
+    assert!(n <= 512, "size_of::<StyleRule>() = {n}");
+}
+
+/// QY53f1c: parsing a sheet parses no declaration block; the cascade parses only the blocks
+/// of rules that match, and the lazily parsed values equal the eagerly parsed ones.
+#[test]
+fn qy53f1c_declaration_blocks_parse_lazily_and_match_the_eager_parse() {
+    let css = "p { color: red; margin: 1px 2px !important } .never { color: blue } div { width: 5px }";
+    let doc = parse_html("<html><body><p id=p>x</p><div>y</div></body></html>");
+    let start = crate::css::BLOCKS_EXPANDED.with(|c| c.get());
+    let rules = parse_stylesheet(css);
+    assert_eq!(rules.len(), 3);
+    assert!(rules.iter().all(|r| !r.is_parsed()), "no block parsed by the sheet parse");
+    let p = find_element_by_tag(&doc, "p").expect("p");
+    let st = resolve_style(&p, &rules, ROOT_STYLE, 800.0);
+    assert!(rules[0].is_parsed(), "the matching rule was parsed");
+    assert!(!rules[1].is_parsed() && !rules[2].is_parsed(), "non-matching rules stay unparsed");
+    assert_eq!(crate::css::BLOCKS_EXPANDED.with(|c| c.get()) - start, 1);
+    assert!(st.color != ROOT_STYLE.color, "the matched block applied");
+    assert!(rules[0].important().margin_top.is_some() && rules[0].decls().margin_top.is_none());
+    // The eager parse (the `--css-debug` path) gives the same declarations.
+    crate::css::CSS_DEBUG_CAPTURE.with(|c| *c.borrow_mut() = Some(Vec::new()));
+    let eager = parse_stylesheet(css);
+    crate::css::CSS_DEBUG_CAPTURE.with(|c| *c.borrow_mut() = None);
+    assert!(eager.iter().all(|r| r.is_parsed()));
+    for (a, b) in rules.iter().zip(eager.iter()) {
+        assert!(a.decls() == b.decls() && a.important() == b.important());
+    }
+    assert!(rules[1].important() == &Declarations::default(), "no !important: the empty set");
+}
+
+/// QY53f1c: the generated-content pre-pass only parses blocks that may declare
+/// `content`/counters/`quotes`, and still finds them.
+#[test]
+fn qy53f1c_precompute_generated_parses_only_candidate_blocks() {
+    let css = "p { color: red } li::before { content: counter(c) } ol { counter-reset: c } li { counter-increment: c }";
+    let doc = parse_html("<html><body><ol><li>a</li><li>b</li></ol><p>x</p></body></html>");
+    // Without any candidate block the pass parses nothing (it returns before the walk).
+    let plain = parse_stylesheet("p { color: red }");
+    precompute_generated(&doc, &plain, 800.0);
+    assert!(!plain[0].is_parsed(), "a block without generated-content properties stays unparsed");
+    // With candidates, the walk parses the matched blocks only (`p` is not in the document).
+    let doc = parse_html("<html><body><ol><li>a</li><li>b</li></ol></body></html>");
+    let rules = parse_stylesheet(css);
+    precompute_generated(&doc, &rules, 800.0);
+    assert!(!rules[0].is_parsed(), "an unmatched non-candidate block stays unparsed");
+    assert!(rules[1].is_parsed() && rules[2].is_parsed() && rules[3].is_parsed());
+    assert!(!rules[0].may_declare_generated() && rules[1].may_declare_generated());
 }
