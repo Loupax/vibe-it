@@ -1283,10 +1283,15 @@ Shared rules for this block:
       inside `:is()`/`:where()`, index each selector of a selector list separately. github.com home: 534 candidates per match
       call, 1 344 rules in the universal bucket, 1.28 M full matches per build (2.3 % match). Gate: candidates per build -40 %,
       precompute_generated -25 %; selector tests unchanged.
+- [ ] QAN1h2b [S] (P3, from QAN1h2 #372; Sonnet; css area) Per-selector candidates: a rule whose selector list mixes keyed
+      and unkeyed selectors (e.g. `.k, :not(.q)`) is indexed by its keyed selectors, with a per-candidate selector mask so
+      the unkeyed ones are tested only via the universal list. Remaining 289 universal rules on github.com home are mostly
+      `*`, `:not()`, `:is(..., *)` and bare pseudo-classes. Gate: universal bucket < 150 on that page (fixture recipe in the
+      QAN1h2 PR #372 body).
 - [ ] QAN1h3 [S] (P3, from QAN1h, R49; Sonnet) Class lookup without re-scanning the class attribute string per check (cache a
       per-element class atom set, invalidated on class writes). Gate: has_class < 4 % of GeomCache::refresh samples on the
       R49 home recipe.
-- [ ] QMEM3b [S] (P2 memory, from QMEM3, R48; Sonnet, measure first) Name the ~65 MB of main-thread malloc no probe explains
+- [ ] [WIP] QMEM3b [S] (P2 memory, from QMEM3, R48; Sonnet, measure first) Name the ~65 MB of main-thread malloc no probe explains
       (candidates: fetched script sources/HTML kept until report_page ends, FontSystem/fontdb on main + shaping worker, JS DOM
       id table); add `memory` probes. Gate: explained bytes >= 60 % of (anonymous RSS - malloc free bytes).
 - [ ] QMEM3d [S] (P3, from QMEM3; Sonnet; after QMEM3a) `malloc_trim(0)` after a navigation and once when the window goes
