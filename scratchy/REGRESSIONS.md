@@ -132,7 +132,7 @@ page's own or our prelude's (e.g. `styleSet` rewriting the whole `style` attribu
 text); correctness of FIX4 beyond the measured runs (no tests); whether QY52's StyleCache could be
 reused by the box build (item 7).
 
-## R42: YouTube through the MSE stack (QM1k-m2): the player script runs, picks avc1 + mp4a, attaches, appends and plays ~60 s of AUDIO, but NO PICTURE because YouTube adds the AUDIO SourceBuffer first and scratchy always makes SourceBuffer 0 the main (video) stream; with that swapped (throwaway patch) 640x360 video plays to the PoToken stop at ~60 s, then YouTube's own error card. The main thread is busy 100% of the time (294 forced layouts = 116 s of CPU in 60 s), so everything arrives 10-45 s late (Opus investigator QM1k-m2, 2026-11-19) — OPEN: QM1k1k (P1), QM1k1l, QM1k1m, QM1k-u, QY53 (now also blocks YouTube playback; measured in R43, fix items QY53a-QY53h); QM1k1n DONE 2026-11-19 (section 5: YouTube parks the `<video>` at `top:-360px` until `playing`, page design, not a CSS gap): QM1k1n1, QM1k1n2, QM1k1n3
+## R42: YouTube through the MSE stack (QM1k-m2): the player script runs, picks avc1 + mp4a, attaches, appends and plays ~60 s of AUDIO, but NO PICTURE because YouTube adds the AUDIO SourceBuffer first and scratchy always makes SourceBuffer 0 the main (video) stream; with that swapped (throwaway patch) 640x360 video plays to the PoToken stop at ~60 s, then YouTube's own error card. The main thread is busy 100% of the time (294 forced layouts = 116 s of CPU in 60 s), so everything arrives 10-45 s late (Opus investigator QM1k-m2, 2026-11-19) — OPEN: QM1k1k (P1), QM1k1l, QM1k1m, QM1k-u, QY53 (now also blocks YouTube playback; measured in R43, fix items QY53a-QY53h); QM1k1n DONE 2026-11-19 (section 5: YouTube parks the `<video>` at `top:-360px` until `playing`, page design, not a CSS gap): QM1k1n1 DONE, QM1k1n3; QM1k1n2 DONE 2026-11-19 (section 6: start 3-6x faster after QY53a-c, but playback freezes at YouTube's first quality switch, a second init segment reloads into an empty generation): QM1k1n4 (P1), QM1k1n5 (P1, fetch results reach JS 1-19 s late), QM1k1n6, QM1k1n7
 
 **Status: investigation only, docs only.** Main 5bf4e03 (QM1k1e merged), own worktree release build
 (`nice -n 19 cargo build --release -j2`, RUSTY_V8_ARCHIVE = the existing local librusty_v8.a, 15 min),
@@ -330,6 +330,112 @@ not; reasoning only); the cost in mpv CPU of decoding while off-screen (QM1k1n1 
 `playing` waits 19.5 s after `play` in detail (which page tasks run in between: not profiled, QY53's
 domain); which of `lX`'s conditions flips first (player state only seen through `#movie_player`'s
 classes, `unstarted-mode` / `paused-mode` / `playing-mode`); audio/A-V sync (ao=null).
+
+### 6. QM1k1n2 (Opus investigator, 2026-11-19): the timeline re-measured after QY53a+b+c and QM1k1n1
+**Answer: everything up to `playing` is now 3-6x faster (click -> `playing` 6.9 s instead of 37.8 s
+when data is buffered; box on screen 3.1 s after the style write instead of 23.4 s; page painted by
+~28 s instead of 45-50 s), but no run played more than 18.5 s of video. The NEXT blocker is a
+scratchy MSE bug: when YouTube appends a SECOND init segment (its ABR quality switch), the element
+reloads mpv at `currentTime` with a generation that contains no segment (QM1k1n4, P1): mpv's demuxer
+open waits forever and the picture freezes (run 3 at 18.47 s, run 2 before the click). Second:
+page network results reach JS 2-19 s after wire finished them, so YouTube aborts most SABR fetches and
+throws away 1-3.6 MB downloads (QM1k1n5, P1). Third: the main thread is still 65-98 % busy with forced
+layouts (~300 ms each, ~3 per second) and the App redraws only every ~5 s during playback, so the
+video can show at most a frame per redraw (QM1k1n6; QY53d/e/g/f).** The PoToken stop (QM1k2, parked)
+still ends every run (status 3 at +92 s / +136 s after the start, earlier than R42's +196 s).
+
+Setup: main b236dc1 (QY53a+b+c PR #317, QM1k1n1 93b7bc0, QM1k1k 97c9c77, QM1k1i), own worktree release
+build (V8 + media, RUSTY_V8_ARCHIVE = local librusty_v8 copy, `nice -n 19 -j2`), own wire on a
+scratchpad socket (`WIRE_TIMING=1`), nested dwl (tools/nest.sh, 1052x1050) + grim + tools/inject,
+Chrome `--user-agent` (as R42), `SCRATCHY_MEDIA_AO=null`, `SCRATCHY_V8_SNAPSHOT=0`,
+`SCRATCHY_MPV_LOG_FILE`. Same URL. No challenge or consent wall. **Throwaway probes (reverted, never
+committed), all with wall-clock stamps:** JS (appended to `mse_prelude.js`): `play()` calls, media
+events, `style` mutations of the `<video>`, `addSourceBuffer`, `appendBuffer` (#1-3 and every 10th),
+a 2 s tick (currentTime, readyState, paused, `top`, videoWidth), and for googlevideo `fetch`es the
+status, size, UMP part counts and part 58 (STREAM_PROTECTION_STATUS) payload. Rust: one line per
+forced layout (`pause_budget_since`, CPU ms), per `App::redraw` (rebuild or not), per App tree build
+(ms), per shaped layout installed, `set_video_target` Some/None, `set_video_keep`, mpv `vid`/`pause`
+sets, each rendered video frame, and for page requests enqueue / start / wire done (status, bytes) /
+abort / delivery to JS.
+Runs: headless `--perf-report --budget-ms 20000 --seconds 60` x2 (R43 mode); live run 1 and 2: click
+on the big play button after `canplay` (as R42 section 5); live run 3: click on the small play button
+as soon as the player showed (+35.6 s, before any media data), to get playback before the PoToken stop.
+
+**Before / after**
+| measure | before (R42 sections 3+5, R43) | after (this run) |
+|---|---|---|
+| page painted (screenshot) | white for the first 45-50 s | painted at 28 s (run 1), 29 s (run 3); not bracketed tighter |
+| headless DOMContentLoaded | 26 s wall / 24.6 s CPU | 8.0 / 8.3 s wall, 5.9 / 6.1 s CPU |
+| headless forced layouts per 60 s | 294, 115.9 s, max 1.25 s (R42); 170-313, 55.7-120.8 s, mean 274-467 ms (R43) | 143, 43.9 s, mean 307 ms, median 136 ms, max 1.29 s; 241, 70.5 s, mean 293, median 395, max 0.83 s |
+| live forced layouts, first 60 s | not measured | 179 / 38.3 s (mean 214 ms), 158 / 44.6 s (282 ms), 182 / 37.4 s (205 ms); while playing ~300 ms each, ~3 per second back to back |
+| main thread busy with forced layout (share of each 10 s window) | ~100 % (ps, whole run) | 40-102 %, mostly 65-98 % |
+| App's own tree build per relayout (`build_layout_tree_with_resources`, main thread) | not measured | mean 371-657 ms per run (37-44 builds per run) |
+| `addSourceBuffer` after the start | +16 s | +8.9 s (run 1) |
+| `canplay` after the start (no click) | +65 s (run 1) / +156 s (run 2) | +52.6 s (run 1), +129.8 s (run 2: reload, as QM1k1n3) |
+| click -> page `play()` | 12.6 s | 2.0 s (run 2), 4.7 s (run 3), none in run 1 (see below) |
+| click -> `play` event | 18.4 s | 3.2 s (run 2), 5.3 s (run 3) |
+| `play` -> `playing` (+ `top: 0px` in the same ms) | 19.5 s | 3.8 s (run 2, data buffered); run 3 25.1 s, but it waited for DATA: `waiting` +7.2 s, first SABR answer delivered +16.4 s, `canplay` +25.2 s |
+| style write -> box laid and on screen (`set_video_target(Some)`) | 23.4 s (no redraw for 36 s) | 3.1 s (run 2), 11.3 s (run 3: two redraws in between, each behind ~20 forced layouts) |
+| box on screen -> first rendered frame | 15.6 s (data ran dry) | 4.0 s (run 3), then frozen; run 2 none (mpv had no file open) |
+| longest time without a redraw | 36 s | 19.1-27.5 s |
+| redraws while playing (run 3, +30 to +46 s) | not measured | 3 in 16 s; 1 rendered video frame in the whole run |
+| SABR fetches aborted by the page | 11 of the first 16 | run 2: 18 of the first 22 issued were aborted before resolving; run 3: 7 of 17 |
+| wire done -> result delivered to JS (run 3, 16 SABR POSTs) | headers 0.5-1.2 s (wire) | wire done after 0.01-0.95 s; delivered 1.1-19.1 s after the request (median ~5 s) |
+| PoToken stop (part 58 `08 03 10 0a`) | +195.8 s after the start | +136.5 s (run 2, before any click), +92.5 s (run 3, 57 s after the click) |
+| video played | ~64 s (R42 run 2) | 18.5 s (run 3), 0 (runs 1, 2) |
+
+**What each run showed**
+- Run 1 (click 89 s after the start, after `canplay`): 21 forced layouts back to back (410-830 ms each)
+  for 7.5 s after the click, no `play()` call at all, then `top: 0px` + `emptied` and YouTube's error
+  card ("Ein Fehler ist aufgetreten...", screenshot). The UMP probe was not in run 1's binary; run 2
+  shows the same card follows the attestation-required status, so most likely the PoToken stop had
+  already come before the click (not proven for run 1).
+- Run 2: no click until +154.7 s. Statuses: two media answers with `08 02` (pending), then from
+  +136.5 s every answer `08 03 10 0a` (required, 109 B). At +136.5 s (while the appends of the last
+  media answer, 3.25 MB, were going on; the init-segment appends were not all logged, the probe
+  logged #1-3 and every 10th) mpv `EOF code 4` + `loadfile scratchy-mse://3/2/1 start=0.000`: a
+  reload, the same shape as run 3's new-init reload; the new file's demuxer probe ("Trying demuxers for level=normal") never
+  finished (36 s, until the page emptied the element). Click at +154.7 s: `play()` +2.0 s, `play`
+  +3.2 s, `playing` + `top: 0px` +6.9 s, box on screen +10.0 s; `currentTime` stayed 0.00, no frame;
+  `emptied` + error card at +19.7 s.
+- Run 3: click at +35.6 s. `play()` +4.7 s (mpv `pause=no`, QM1k1n1 `keep true` at once), `play`
+  +5.3, `waiting` +7.2, first media answer delivered +16.4 (1.14 MB; earlier ones aborted),
+  `loadedmetadata` +21.9, `canplay` +25.2 (ct 2.23: playing from the buffer before `playing`),
+  `playing` + `top: 0px` +30.4, box laid +41.7, first rendered frame +45.7 (screenshot: the
+  oscilloscope picture with the pause button, progress dot at ~18 s; the picture never changed
+  after). At +46.0 s `appendBuffer` #10 = 741 B (a new INIT segment, `ftyp`; mpv: the video had been
+  `Reinit context to 432x240` earlier, i.e. YouTube had switched quality), mpv `pause=yes/no`,
+  `loadfile scratchy-mse://2/2/1 start=18.467` and again the demuxer probe never finished; ct stayed
+  18.47 for the rest of the run (tick every 2-3 s) although appends went on. Status 3 from +57.0 s.
+
+**Why the reload hangs (code reading, not instrumented):** `MediaCore::mse_data_changed` with
+`new_init` sets `want = current_time`; `mse_resolve` reloads when `feed.covers(t)` is true, and
+`covers` looks at ALL stored segments. But `SourceBufferStore::start_generation` takes the NEWEST
+init and `extend_run` only uses segments with that init's `init_id` that cover `t`. The new init's
+segments start later than `t` (or are not there yet), so the run is empty, `read_at` answers `Wait`
+for every byte after the init, and mpv's lavf probe blocks. Chrome keeps playing the old quality until
+the first segment of the new one. A local reproduction with two inits was not run.
+
+**Why fetches are aborted (measured, run 3):** wire returns the full body in 0.01-0.95 s, but the
+`AppEvent::JsNet` result waits on the main thread 1-18 s; in 5 of 16 cases the page's own abort ran
+in the same turn just before the delivery (the abort timer fired first), throwing away 105 B-3.6 MB
+(1.71, 2.44, 3.58 MB among them). Which queue the event waits in (winit user events vs scratchy's
+timer and task pump in the same turn) was not instrumented. One SABR POST was answered `411 Length
+Required` (1 564 B; which request, body empty or not: not checked).
+
+**Main-thread picture during playback (run 3, +30 to +46 s after the click):** a forced layout every
+~0.33 s (282-343 ms CPU each), 3 App redraws in 16 s, each followed by an App tree build of ~300 ms.
+The `top: 0px` write at +30.4 s reached the screen at +41.7 s. Frames are rendered only inside
+`App::redraw` (QM1g), so with this cadence a playing video can show about one frame per 5 s even
+when mpv decodes; the QM1k-mouse report (video freezes on pointer moves) is the same starvation seen
+from the user side (assumption, not measured).
+
+Not measured: who forces the layouts during playback (no JS stacks this time; R43 says `getPlayerSize`
+on `#movie_player.clientWidth`); A/V sync (ao=null); mpv CPU for the off-screen keep (QM1k1n1) at
+640x360; Chrome's behaviour on the second init; whether the aborted downloads use up YouTube's
+pre-attestation allowance sooner (the PoToken stop came earlier than in R42, cause not known).
+Items: QM1k1n4 (P1), QM1k1n5 (P1), QM1k1n6 (P2), QM1k1n7 (P3); QY53d/e/g/f/h unchanged and still
+needed (forced layout is still 65-98 % of the main thread).
 
 ### Answers to the item's questions
 | question | answer |
