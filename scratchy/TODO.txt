@@ -34,7 +34,7 @@ A perf item that turns out to be wrong or bigger than its size: stop and report,
 PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; search the name; steps 1-3 are done, see TODO-DONE.txt):
  Ahead of this list by user decision (2026-11-19): QPT1a [WIP] then QPT1b-f (iframe realm, YouTube PoToken; R53).
  Step 4, the main thread in the live window (YouTube playback, scrolling, mouse):
-  14b Q33b2 [S] real innerWidth/innerHeight + forced-layout viewport = window size (QY53e3: prerequisite of QY53e2) | Tier 7
+  14b [WIP] Q33b2 [S] real innerWidth/innerHeight + forced-layout viewport = window size (QY53e3: prerequisite of QY53e2) | Tier 7
   15 QY53e2 [M]  IO uses the App's own layout                                       | QY53 block
   16 [WIP] QM1g2a [M] render mpv frames off the main thread (33-39 ms per frame today)
  Step 5, memory, regression guards, re-measure:
@@ -1097,6 +1097,9 @@ Shared rules for this block:
 - [ ] QY53m-m [S] (P3, from QY53m #386; Opus measure, quiet machine) Re-measure QY53m's gate: Wikipedia + YouTube live
       window, same input, count js_sync rebuilds that follow only no-op writes (throwaway counter) and builds.n/ms, main vs
       #386's parent; screenshots compared. The agent's runs at load 9-26 were noise (builds.n median 20 -> 19).
+- [ ] QSTK1x [S] (P3, from QFLK1 #387; Sonnet; after QSTK1b) tests::deep_nesting_tests::qstk1_5000_deep_* overflow the stack
+      in the DEBUG test profile (SIGABRT; CI runs --release). Give them a bigger test-thread stack (spawn with
+      stack_size) so `cargo test` in debug passes without RUST_MIN_STACK.
 - [ ] [WIP] QFLK1 [S] (P3, coordinator 2026-11-19, from the QM1k1n5 agent; Sonnet) Load-sensitive test flakes in a full parallel
       default-config run on a busy machine: qy14_js_report_run_timers_finds_timer_and_channel_errors,
       qy14_js_report_run_timers_is_bounded, qobs7_memory_fields_are_present (pass when re-run alone; "shared global state"
@@ -2612,7 +2615,7 @@ as the JS measurement corpus (same role the four CSS pages played).
       `doc` from `env.title`, which nothing sets); second documents already
       read their `<title>`. Getter/setter from the `<title>` element as
       `makeDoc` documents do. Test: `<title> a  b </title>` -> 'a b'.
-- [ ] Q33b2 [S] (filed inline under Q33b1) real `innerWidth/innerHeight`
+- [ ] [WIP] Q33b2 [S] (filed inline under Q33b1) real `innerWidth/innerHeight`
       from the window (fixed 1024x768 now); the old note "`location` from
       the page URL, not `<base href>`" was not re-checked by the audit:
       verify before fixing. Same plumbing as QY10a. Element geometry is
