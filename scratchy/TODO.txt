@@ -65,6 +65,7 @@ PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; sea
   16 QM1g2 (a) [M] render mpv frames off the main thread (33-39 ms per frame today); split (a) out
                  as its own item QM1g2a when taken, (b)-(d) stay where they are     | QM1g block
   17 DONE 9fb583a QY53f [L, Opus design first] incremental style between forced layouts (80 % change nothing) | QY53 block
+  17a QY53f1 [S/M] incremental stylesheet parse (YT max_ms = full 4.4 MB re-parse); after QOBS3 | QY53 block
  Step 5, memory, regression guards, re-measure:
   18 QOBS7 [S]  memory breakdown (YT: 714 MB RSS vs 124 MB JS heap)                 | QOBS block
   19 [WIP] QOBS8 [S]  perf-diff tool       20 [WIP] QOBS10 [S] offline forced-layout benchmark  | QOBS block
@@ -1272,6 +1273,21 @@ Shared rules for this block:
       small Copy handle into a per-document arena cleared on navigation. Design: handle type vs Rc, cost of losing
       `Copy`, where the arena lives (one per document; the JS thread's GeomCache builds too), then Sonnet items. Test: a
       navigation frees the arena (test-only counter); var() tests unchanged. Use QOBS7's memory numbers when available.
+- [ ] QY53f1 [S/M] (P2, from QY53f design 9fb583a, R43 section 8; Sonnet; AFTER QOBS3 merges: same build step) Incremental
+      stylesheet parse in the layout build. The 4 slowest YouTube forced layouts (249-293 ms = every max_ms) are a full
+      re-parse of the 4.4 MB stylesheet after YouTube inserts a `<style>` (1.0-1.7 s per 60 s). Key `RULES_CACHE` per piece
+      (each `<style>` element's effective text; `css_ver()` for external/adopted CSS), like StyleCache's refresh/splice;
+      parse only the changed piece and splice it in; full parse fallback for `@layer`. Also stops building/comparing the
+      4.4 MB string on every layout. Gate: big-css fixture + a script appending a small `<style>` and reading offsetWidth
+      10x: forced_layout.total_ms >= 50 % lower and max_ms lower, median of 3. Tests: cascade order equals a full parse
+      after insert/change/remove in the middle; `@layer` fallback. Report YT watch max_ms (default UA).
+- [ ] QY53f2 [M] (P3, optional, from QY53f; ONLY if QPROF1 still shows selector matching on top) Cross-build match memo
+      (R43 section 8 design steps 1-2): keep MATCH_MEMO across builds, validated by a top-down selector-context
+      fingerprint (hover/focus, form state, `:has` re-test, shadow parents, viewport width). Gate: nested big-css
+      forced_layout.total_ms >= 15 % lower; tests: one-leaf write re-matches only that element (test-only MATCH_RUNS),
+      invalidation by hover, form state, sibling combinator, viewport change.
+- [ ] QY53f3 [M] (P4, deferred, from QY53f; after QY53f2 and a fresh measurement) ComputedStyle reuse across builds (R43
+      section 8 design step 3); must be cleared together with QY53i2's arena if that lands.
 - [ ] QOBS1b [XS] (coordinator 2026-11-19, from QOBS2 aadd319; Sonnet/Haiku, tools only) `tools/profile.sh` still sets
       `SCRATCHY_V8_SNAPSHOT=0` (the QOBS1 workaround "until QOBS2 is merged"). QOBS2 made scratchy skip the snapshot itself
       whenever `SCRATCHY_V8_FLAGS` is set, so drop the env var from profile.sh and the PERF.md "Profiling (perf)" note.
