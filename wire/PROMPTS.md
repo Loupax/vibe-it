@@ -233,3 +233,11 @@ Result: `resolve_user_agent`, `write_bad_ua_response`, `WIRE_FEATURES` in `src/m
 > QF19w1 (wire; design DECIDED 2026-11-17: wire is a pipe): a request with `X-Wire-Upgrade: websocket` goes through the same checks as any request (public-only W-POOL1-safe fresh connection, class headers, jar, UA, Origin/Sec-WebSocket-* passed), wire connects (TLS for wss), sends the handshake; on 101 returns the head and copies bytes both ways until either side closes; any other status is a buffered response, no redirects; not pooled; timeout covers the handshake only, no idle limit; `X-Wire-Features: ua,ws`. Tests over a std-only echo server; real check with a python3 client on my own socket; no cargo install.
 
 Result: `src/ws.rs`, `src/ws_tests.rs`, NOTES.md "The WebSocket pipe". Direct deps `rustls`/`webpki-roots` (already locked). Not done: scratchy side (QF19w2).
+
+## W-PERSIST1 filed — `--cookie-file` (scratchy design session QSTASH-D, docs only)
+
+> do it in a PR so I can review it first
+
+(The full design session's prompts are in scratchy/PROMPTS.md, "QSTASH-D".)
+
+Result: wire/TODO.txt W-PERSIST1 (`--cookie-file PATH`, `X-Wire-Cookie-Op: clear-site`); design in scratchy/STASH.md "Cookies (wire)". No code.

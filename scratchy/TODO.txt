@@ -58,6 +58,9 @@ fixes not yet chosen by the user, then the rest of the queue as before (QM1k1n7,
 Unblocked by user answers 2026-11-19 (after the ready perf items are all assigned): QY49-D option (c), QV8-6
 (remove QuickJS; alone in js_engine*.rs/Cargo.toml/ci.yml), QCFG1 -> QTB1, QCI2, QM1g2e (window fullscreen), QM1a.
 Deferred until after the perf queue: QM1k-AB (test video G1AeBgalFZk), QY55 (profile in the user's session). Dropped: QM1k-r.
+Persistent storage (user 2026-11-19, design in STASH.md, decision QSTASH-D): QSTASH1-QSTASH5 are feature work, so they
+wait for the perf queue like everything else. READY once the PR that adds STASH.md is merged. Order: QSTASH1 -> QSTASH2;
+QSTASH4 and QSTASH5 (wire) any time, in parallel; QSTASH3 last (needs 1 and 5).
 
 (History: 2026-11-18 TOP PRIORITY "switch the JS engine to V8, drain, then freeze" is DONE, freeze
 lifted after QV8-m; QV8-6 (remove QuickJS) still needs the user's OK. The 2026-11-19 blockers QV8-4a
@@ -1735,7 +1738,8 @@ coordinator recorded them from the user's message):
   blocked except for loopback), CORS per QF-D1 for reading cross-origin
   responses, and wire's resolved-IP check (QF6) must report the class so the
   warning can be logged. Redirects re-run the policy at every hop.
-- QF-D7 Persistence: NOTHING persisted yet. Mock persistence IN MEMORY (cookie
+- QF-D7 [SUPERSEDED by QSTASH-D (STASH.md) for localStorage, sessionStorage and the
+  cookie jar once its PR merges; still applies to any cache] Persistence: NOTHING persisted yet. Mock persistence IN MEMORY (cookie
   jar, localStorage/sessionStorage, any cache) until the user decides how
   persistence works. DECIDED. QF15 is not needed now; keep every store behind
   one small interface so a persistent backend can replace it later.
@@ -2711,6 +2715,68 @@ Not scratchy's: `snag https://forums.gentoo.org/` times out ("timed out
 reading response") right after inlining
 `styles/gentoo-20xx/theme/en/stylesheet.css` and emits a truncated page.
 It reproduced twice on 2026-11-12. Belongs in `snag/TODO.txt`.
+
+
+========================================================================
+QSTASH — persistent web storage (user design session 2026-11-19; full design in STASH.md)
+========================================================================
+
+- QSTASH-D DESIGN (user, 2026-11-19; PROPOSED, DECIDED when the PR adding STASH.md
+  merges; the items below follow STASH.md, not this summary): NO stash daemon. The
+  filesystem is the backend interface: `--state-dir DIR` (default
+  $XDG_STATE_HOME/scratchy, mode 0700; tmpfs = in-memory across scratchy restarts).
+  localStorage = one FILE PER KEY under storage/<site>/<origin>/ (site schemeful as
+  net_policy::site_of, `://` -> `!`; origin `scheme!host!port`); value = WTF-8 + one
+  `\n`, reading strips one trailing `\n`; dotfiles and `*~` ignored; hand edits
+  supported. Load once before the first script, no IO while JS runs, ops batched per
+  task to a writer thread (temp file + fsync + rename / unlink). flock per site on
+  storage/.locks/<site> (outside the data, never deleted; holds a generation number
+  bumped by forget-site). No storage mutex, no cross-window storage events (same as
+  browsers). sessionStorage never on disk. wire keeps the jar, gains --cookie-file.
+  History: not now (waits for a reader). Supersedes QF-D7 for these stores.
+
+- [ ] QSTASH1 [M] (P2, after the perf queue) `src/stash.rs`: the state directory and
+      its rules, no JS wiring. Layout, key<->filename encoding (percent-encode `/`, `%`,
+      NUL, a leading `.`, a trailing `~`; empty key `%`; >200 bytes -> `%h<sha256>` with
+      the key on the first line), WTF-8 values with the one-`\n` rule, `load(site,
+      origin) -> sorted pairs`, `commit(site, origin, generation, ops)` on a writer
+      thread, `clear`, `forget(site)`, the per-site flock and generation number exactly
+      as STASH.md "Locking", the 5 MB per-origin check under the lock, and the
+      unusable-directory fallback (one log line). Tests (new `src/tests/stash_tests.rs`,
+      temp directories): encoding round-trips incl. lone surrogates and every escaped
+      case; a file written by hand without/with a final newline; dotfiles and `*~`
+      ignored; two `File` handles contend on the lock (flock is per open file
+      description, so this works inside one test process); a commit after forget with
+      a stale generation is dropped; forget while a commit waits does not resurrect.
+
+- [ ] QSTASH2 [M] (P2, after QSTASH1) localStorage over stash. `--state-dir`
+      flag (+ `SCRATCHY_STATE_DIR`). At page start (`startup_engine`/`run_page`, before
+      the first script) load the origin's pairs into the prelude's Storage Map; opaque
+      origins (file:, data:, about:) keep today's in-memory Storage. setItem/removeItem/
+      clear record ops; the App hands them to the stash writer thread at the end of each
+      task; QuotaExceededError over 5 MB. Keys and values cross from V8 as UTF-16 code
+      units, encoded to WTF-8 by stash: never `to_rust_string_lossy` or another UTF-8
+      conversion, which turns lone surrogates into U+FFFD. Tests: a value set on one page is there on the
+      next page load and after a new App with the same --state-dir; file: pages do not
+      persist; quota throws; ops from one task land together; a value with a lone
+      surrogate (`"a\uD83D"`) reads back identical after a reload. Real check: social.loupax.com
+      `:set novim` survives a restart (user's vim.js case, TODO "social.loupax.com").
+
+- [ ] QSTASH3 [S] (P3, after QSTASH1 and QSTASH5) `scratchy --forget-site <site or
+      URL>`: stash forget (lock, `rm -r`, generation bump) plus wire `X-Wire-Cookie-Op:
+      clear-site`; if wire is unreachable the stash part still runs and the log says the
+      cookies were not cleared. A key binding is a later item. Test: forget removes the
+      directory, bumps the generation, and an open page's later commit is dropped.
+
+- [ ] QSTASH4 [S] (P3, any time after the perf queue) sessionStorage lives per window
+      across navigations: kept in Rust per origin for the life of the scratchy process,
+      copied into each new page realm at start and written back from the page's ops.
+      Never on disk. Today each page gets a new realm (`startup_engine`), so it is lost
+      on every navigation. Test: set on page A, navigate to page B of the same origin,
+      the value is there; a different origin does not see it.
+
+- [ ] QSTASH5 [S] (P2, wire; any time after the perf queue) `wire --cookie-file PATH`
+      and `X-Wire-Cookie-Op: clear-site`. See wire/TODO.txt W-PERSIST1.
 
 ========================================================================
 HISTORY AND DETAIL (everything below is the original log)

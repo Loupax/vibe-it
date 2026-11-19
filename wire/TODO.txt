@@ -61,6 +61,18 @@ the commit it came up during.
       startup dependency between the two). Firefox has no equivalent: its jar
       sits behind a private IPC channel. Do this only if the user asks.
 
+- [ ] **W-PERSIST1: `--cookie-file PATH`** (scratchy QSTASH5; design in
+      ../scratchy/STASH.md "Cookies (wire)", user 2026-11-19). Load the jar at
+      start; save it (temp file + rename, mode 0600) at most once a second while
+      it has changes, and on SIGTERM. Cookies with no expiry date are not saved.
+      Format is wire's own (one cookie per line). Plus a control op
+      `X-Wire-Cookie-Op: clear-site` with `X-Wire-Top-Site`, for scratchy's
+      forget-site, advertised in `X-Wire-Features` (e.g. `jarfile`). Without the
+      flag: today's in-memory jar. Tests: round trip through a temp file,
+      session cookies dropped, expired cookies dropped on load, clear-site
+      removes only that partition. With cookies on disk the missing control
+      token (item above) matters more: ask the user before shipping.
+
 - [x] (DONE 2026-11-17, QY39a, hash 27ce684: X-Wire-User-Agent / own User-Agent, X-Wire-Features: ua) **User-Agent override from scratchy** (user decision 2026-11-17; scratchy/TODO.txt
       QY39a/QY39b). wire sends a fixed honest UA
       (`wire/0.1 (+https://github.com/Loupax/vibe-it ...)`), which YouTube classifies as a
