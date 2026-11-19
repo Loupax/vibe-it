@@ -6920,3 +6920,16 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       Rust, inject hovering 8 body links 29 s, frame stats pointer phase, median of 3): forced.n <= 22 and forced.ms <=
       6 500 (today 52 / 16 485). Tests: title write on <a> with no [title] rule -> no layout; with `a[title]` rule -> layout;
       `attr(title)` in a ::before -> layout.
+
+=== from TODO.txt: --- Rust `__*` native wrapped in a JS timer); none of it was committed. -------
+- [x] QYSK1 DONE e017cd0 #375 R51 investigation; fixes QYSK1a/QYSK1b [S/M] (P1 bug, user report 2026-11-19 ~21:00, real window, installed main 6b3520e incl. QCUR1; Opus
+      investigate first, then Sonnet) Seeking on YouTube does not work: clicking somewhere on the player's progress bar
+      pauses the video for a moment, then it continues from where it was, not from the clicked position. Find where the
+      seek is lost: does the click reach YouTube's progress bar (QCUR1 pointer events, hit-test)? Does YouTube set
+      `video.currentTime`? Does MediaCore/MseHost turn it into an in-generation mpv seek or a new generation (QM1k1b/c
+      design: an out-of-buffer seek = YouTube's new SABR request + appends at the new time)? Does `seeking`/`seeked` fire
+      with the right currentTime, and does `buffered` cover the target? Or does the old generation keep playing because the
+      new appends never reach mpv? Repro on G1AeBgalFZk; check scratchy's own controls bar on a plain `<video controls>`
+      too (QM1g2d seek, QM1g2d1 says drag was never driven in a real window). Fix with a test (MSE fixture: seek outside
+      the buffer -> playback resumes at the target). USER 2026-11-19 ~21:05: may go ahead of the perf queue, but an Opus INVESTIGATION (docs only, findings + sized fix
+      in REGRESSIONS.md) comes first; implementation is a separate step after that.
