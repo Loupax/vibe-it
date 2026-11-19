@@ -42,7 +42,8 @@
    A plain `cargo build --release` / `cargo install --path .` gives V8 + media (libmpv is loaded
    by dlopen; without it installed the inert placeholder stays). Exactly one of `engine-v8` /
    `engine-quickjs` must be on (compile_error! otherwise). The first clean V8 build takes ~15 min.
-4. WPT subset (once Q40a lands): `scratchy --wpt /home/loupax/src/wpt` (run from `scratchy/`; reads
+4. WPT subset (checkout: /home/loupax/src/wpt, sparse: css html/rendering fonts resources images,
+   at WPT ac78b567f5404b6f2dc0418ea380af3946a47fca; main matched wpt-expected.txt there on 2026-11-19, 322 pass / 292 fail): `scratchy --wpt /home/loupax/src/wpt` (run from `scratchy/`; reads
    `wpt-subset.txt`, compares with `wpt-expected.txt`, exits 1 on any change;
    `--update` rewrites expectations; `--out DIR` saves failing PNGs). A new failure is a
    regression and blocks the commit. A newly passing test: update the
