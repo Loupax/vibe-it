@@ -882,9 +882,6 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       toggle, QM1g2d controls bar, QM1g2e fullscreen (waiting for user)]; (e) QM1f1 (a) paused elements still
       hold a libmpv handle; (f) webm/vp9 was not tested (no encoder on this machine);
       (g) `vid=no` is only used for files with an audio track.
-- [ ] QM1h [L] (only if D2 = separate process) media helper process: owns libmpv,
-      renders frames into a memfd shared with scratchy, talks the same commands
-      over a socket, crash kills only the helper.
 - [x] QM1i DROPPED 2026-11-17 (user): a standalone mpv fetches by itself, which breaks [archived: TODO-DONE.txt]
 - [x] QM1j SUPERSEDED 2026-11-17 by QM1k/QM1k-m (MSE is now a goal). Original: (not planned; D8) MediaSourc... [archived: TODO-DONE.txt]
 - [x] QY21 [S] (959cd39) (P2, YouTube load wall) QY6e `define()` is quadratic. Root [archived: TODO-DONE.txt]

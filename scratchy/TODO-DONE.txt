@@ -6965,3 +6965,8 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       inside `:is()`/`:where()`, index each selector of a selector list separately. github.com home: 534 candidates per match
       call, 1 344 rules in the universal bucket, 1.28 M full matches per build (2.3 % match). Gate: candidates per build -40 %,
       precompute_generated -25 %; selector tests unchanged.
+
+=== from TODO.txt: --- Rust `__*` native wrapped in a JS timer); none of it was committed. -------
+- [x] QM1h DONE - DROPPED by the user 2026-11-19 ~22:45: D2 = libmpv in-process; re-file if isolation is ever wanted [L] (only if D2 = separate process) media helper process: owns libmpv,
+      renders frames into a memfd shared with scratchy, talks the same commands
+      over a socket, crash kills only the helper.
