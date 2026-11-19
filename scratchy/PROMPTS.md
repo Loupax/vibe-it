@@ -8000,3 +8000,9 @@ The prompts of the design session, in order:
 > do it in a PR so I can review it first
 
 **What changed:** docs only. New `STASH.md` (no daemon; `--state-dir` with one file per localStorage key, WTF-8 values with a one-trailing-newline rule, per-site flock with a generation number, sessionStorage never on disk, wire keeps the jar with `--cookie-file`, history deferred). TODO.txt: decision QSTASH-D, items QSTASH1-QSTASH5, a queue note (after the perf queue), QF-D7 marked superseded for these stores. wire/TODO.txt: W-PERSIST1.
+
+## QY53m: js_sync skips the restyle after no-op write batches (Sonnet)
+
+> Do TODO.txt item QY53m (R43 section 11): `App::js_sync` rebuilds after write batches where no write changed a value (Wikipedia 2-18 per run, up to 2.3 s). Use its own "value changed" signal, not `geom_gen`.
+
+**What changed:** js_dom.rs: the six attribute writers (`__d_setattr/rmattr/setq/rmq/setns/rmns`) and `__d_settext` set the engine `dirty` flag (what `take_dirty` drains in `js_sync`) only when the write changed a value (`d.set(d.get() | changed)`), reusing the `changed` each already computes for `geom_bump_attr`. `wgen` (getComputedStyle cache) and every other writer (insert/remove/innerHTML, style, ...) are unchanged. A same-value `<style>` text write is a no-op; a different one still restyles. Test: `qy53m_noop_write_no_restyle` (in `qb2_js_dom_writes_use_restyle_path`, needs a display).

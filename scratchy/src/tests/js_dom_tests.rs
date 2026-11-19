@@ -312,6 +312,7 @@ fn qb2_js_dom_writes_use_restyle_path() {
     let proxy = event_loop.create_proxy();
     qb2_restyle_and_keep_old_frame(qb2_app(&proxy));
     qb2_coalesce_into_one_rebuild(qb2_app(&proxy));
+qy53m_noop_write_no_restyle(&proxy);
     qb2_first_layout_not_made_stale(qb2_app(&proxy));
     qb5_app_applies_requests(&proxy);
     qb6_help_suspends_js(&proxy);
@@ -358,6 +359,31 @@ fn qb6_help_suspends_js(proxy: &winit::event_loop::EventLoopProxy<AppEvent>) {
     // show_message also drops the engine.
     app.show_message("oops");
     assert!(app.js.is_none());
+}
+
+/// QY53m: a write batch that changed no value leaves `layout_dirty` false; a
+/// value-changing write (attribute or stylesheet text) still sets it.
+fn qy53m_noop_write_no_restyle(proxy: &winit::event_loop::EventLoopProxy<AppEvent>) {
+    let doc = parse_html("<html><head><style id=s>p{color:red}</style></head><body id=b class=x><p>hello</p></body></html>");
+    let mut app = App::new_static(doc.clone(), proxy.clone(), None);
+    app.js = run_page_scripts(&doc, &[src("window.__noop = function(){ var b = document.body; b.setAttribute('class','x'); b.removeAttribute('nope'); document.getElementById('s').textContent = 'p{color:red}'; }; window.__chg = function(){ document.body.setAttribute('class','y'); }; window.__css = function(){ document.getElementById('s').textContent = 'p{color:blue}'; };")], None);
+    app.cached = Some(measure_fixture("<p>hello</p>", 400.0));
+    let reset = |app: &mut App| {
+        app.js.as_ref().unwrap().take_dirty();
+        app.layout_dirty = false;
+        app.restyle_requested = false;
+    };
+    reset(&mut app);
+    app.js.as_ref().unwrap().eval_value::<bool>("t", "(window.__noop(), true)").unwrap();
+    app.js_sync();
+    assert!(!app.layout_dirty && !app.restyle_requested, "same-value writes queue no restyle");
+    app.js.as_ref().unwrap().eval_value::<bool>("t", "(window.__chg(), true)").unwrap();
+    app.js_sync();
+    assert!(app.layout_dirty, "a changed attribute restyles");
+    reset(&mut app);
+    app.js.as_ref().unwrap().eval_value::<bool>("t", "(window.__css(), true)").unwrap();
+    app.js_sync();
+    assert!(app.layout_dirty, "a stylesheet change restyles");
 }
 
 fn qb2_restyle_and_keep_old_frame(mut app: App) {

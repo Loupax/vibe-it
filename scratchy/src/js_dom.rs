@@ -923,7 +923,8 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             let old = element_attr(&h, &name).map(|s| s.to_string());
             let changed = old.as_deref() != Some(val.as_str());
             set_attr(&h, &name, &val);
-            d.set(true);
+            // QY53m: a write that changed no value does not wake the App's restyle.
+            d.set(d.get() | changed);
             gn.set(gn.get() + 1);
             // QYTC1a: a contained `style` write moves the cached boxes in place instead.
             let in_place = changed
@@ -941,7 +942,8 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
             let name = name.to_ascii_lowercase();
             let changed = element_attr(&h, &name).is_some();
             remove_attr(&h, &name);
-            d.set(true);
+            // QY53m: a write that changed no value does not wake the App's restyle.
+            d.set(d.get() | changed);
             gn.set(gn.get() + 1);
             geom_bump_attr(&t.borrow(), &h, changed, &name);
         }
@@ -994,7 +996,8 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
                     attrs.push(html5ever::Attribute { name: qn, value: val.as_str().into() });
                 }
             }
-            d.set(true);
+            // QY53m: a write that changed no value does not wake the App's restyle.
+            d.set(d.get() | changed);
             gn.set(gn.get() + 1);
             geom_bump_attr(&t.borrow(), &h, changed, &n);
         }
@@ -1010,7 +1013,8 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
                 attrs.retain(|a| !attr_qname_eq(a, &n));
                 changed = attrs.len() != before;
             }
-            d.set(true);
+            // QY53m: a write that changed no value does not wake the App's restyle.
+            d.set(d.get() | changed);
             gn.set(gn.get() + 1);
             geom_bump_attr(&t.borrow(), &h, changed, &n);
         }
@@ -1034,7 +1038,8 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
                     attrs.push(html5ever::Attribute { name: qn, value: val.as_str().into() });
                 }
             }
-            d.set(true);
+            // QY53m: a write that changed no value does not wake the App's restyle.
+            d.set(d.get() | changed);
             gn.set(gn.get() + 1);
             geom_bump_attr(&t.borrow(), &h, changed, "");
         }
@@ -1049,7 +1054,8 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
                 attrs.retain(|a| !(a.name.ns.as_ref() == ns && a.name.local.as_ref() == local));
                 changed = attrs.len() != before;
             }
-            d.set(true);
+            // QY53m: a write that changed no value does not wake the App's restyle.
+            d.set(d.get() | changed);
             gn.set(gn.get() + 1);
             geom_bump_attr(&t.borrow(), &h, changed, "");
         }
@@ -1076,7 +1082,7 @@ pub(crate) fn install_dom(ctx: &Ctx<'_>, document: &Handle, dirty: Rc<Cell<bool>
                 NodeData::Comment { .. } => {}
                 _ => set_children_text(&h, &text),
             }
-            d.set(true);
+            d.set(d.get() | changed);
             gn.set(gn.get() + 1);
             if conn {
                 match &owner {
