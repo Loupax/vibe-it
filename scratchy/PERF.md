@@ -105,6 +105,20 @@ with each other, not with unprofiled timings.
   callback). Each span records its EXCLUSIVE time, so the totals add up with no double
   counting; a timer that only ran an observer delivery still counts as one timer with ~0.
 
+## Comparing two runs (`tools/perf-diff.py`)
+
+**Every perf PR pastes `perf-diff` of main vs branch** (same machine, same pages, quiet box).
+
+```
+python3 -I tools/perf-diff.py old.json new.json [--threshold 5]
+```
+
+Takes two `--perf-report` objects or two `tools/perf-suite.sh` outputs and prints the numeric
+fields that changed by more than the threshold (percent of old), largest first: page, field, old,
+new, change. It walks the JSON generically (every numeric leaf by dotted path, so QOBS3/QOBS7
+fields appear without changes); arrays of objects with a `name` are keyed by it, other arrays
+such as `longest` are skipped (see `--help`). Diff main against main first to see the noise floor.
+
 ## JSON field glossary (`--perf-report`)
 
 | field | meaning |
