@@ -6654,3 +6654,15 @@ New finished items are appended at the end by whoever ticks them (AGENTS.md).
       fn url:line:col>` for the slowest listener); (b) promise jobs: name the reaction handler if V8 exposes it cheaply;
       (c) measure the media pump's OWN cost (excluding listeners) on YT watch: if it forces layouts itself, file a fix.
       Tests: a rIC callback named `slowIdle` shows up as `slowIdle <url>`; a slow `timeupdate` listener is named.
+
+=== from TODO.txt: --- NEW 2026-11-19 (Opus, QY53: what forced layouts cost and who forces them; R43) ---
+- [x] QY53e3 DONE ad764fa (R43 section 11: forced layouts run at 1024x768 -> Q33b2 before QY53e2; QY53m, QY53n) [S] (P2, R43 section 7, Opus measure, docs only) The part of the QY53e design the drain
+      cut off: in a live window (nested dwl, own wire, Wikipedia Rust and YT watch 60 s) measure
+      (A) App tree builds at a geometry generation GeomCache already laid out (App could reuse the
+      JS side's `LayoutBox` tree), (B) forced layouts at a generation an App build already built
+      (script reads could be served by the App's layout), (C) delay from an IO recheck to the next
+      complete App layout (QY53e2's latency), (D) complete App layouts still current at completion,
+      and App rebuilds after only no-op writes (`dirty` is set on EVERY write, also those QY53c
+      skips for `GEOM_GEN`; code reading 2026-11-19, not measured). Recipe: the throwaway lines of
+      R43 section 7 (one stderr line per forced layout / App build / complete ShapeResult with
+      `geom_gen()`). Output: numbers in R43 + items if A or B is large.

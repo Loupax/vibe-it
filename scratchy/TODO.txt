@@ -48,8 +48,11 @@ PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; sea
  Step 4, the main thread in the live window (YouTube playback, scrolling, mouse):
   11 QOBS6 [S]  network delivery delay (tool for 12)                                | QOBS block
   12 QM1k1n5 [S] page network results reach JS 1-19 s late                          | QM1k block
-  13 [WIP] QY53e3 [S, Opus measure] App layout vs forced layout, live window (uses QOBS5)  | QY53 block
+  13 DONE ad764fa QY53e3 [S, Opus measure] App layout vs forced layout, live window (uses QOBS5)  | QY53 block
   14 [WIP] QM1k1n6 [M, Opus design then Sonnet] redraw starvation / frame budget (uses QOBS5) | QM1k block
+  14b Q33b2 [S] real innerWidth/innerHeight + forced-layout viewport = window size (QY53e3: prerequisite of QY53e2) | Tier 7
+  14c [WIP] QY53n [M, Opus design] hover restyle without a whole App tree build (130-170 ms per hover)
+  14d QY53m [S] App::js_sync skips the restyle after no-op write batches (after QM1k1n6: same code)
   15 QY53e2 [M]  IO uses the App's own layout                                       | QY53 block
   16 QM1g2 (a) [M] render mpv frames off the main thread (33-39 ms per frame today); split (a) out
                  as its own item QM1g2a when taken, (b)-(d) stay where they are     | QM1g block
@@ -1208,16 +1211,9 @@ divs with 3 classes each, a script that does 50 x (write one attribute, read `of
       pending; navigation clears it. Accept: tests; live window (nested dwl, own wire) Wikipedia
       Rust 30 s: forced layouts from `obsFlush` <= 1 (the initial one before the first App layout);
       screenshot unchanged; YT watch live run reported.
-- [ ] [WIP] QY53e3 [S] (P2, R43 section 7, Opus measure, docs only) The part of the QY53e design the drain
-      cut off: in a live window (nested dwl, own wire, Wikipedia Rust and YT watch 60 s) measure
-      (A) App tree builds at a geometry generation GeomCache already laid out (App could reuse the
-      JS side's `LayoutBox` tree), (B) forced layouts at a generation an App build already built
-      (script reads could be served by the App's layout), (C) delay from an IO recheck to the next
-      complete App layout (QY53e2's latency), (D) complete App layouts still current at completion,
-      and App rebuilds after only no-op writes (`dirty` is set on EVERY write, also those QY53c
-      skips for `GEOM_GEN`; code reading 2026-11-19, not measured). Recipe: the throwaway lines of
-      R43 section 7 (one stderr line per forced layout / App build / complete ShapeResult with
-      `geom_gen()`). Output: numbers in R43 + items if A or B is large.
+      QY53e3 (ad764fa, R43 section 11): every forced layout runs at DEFAULT_VIEWPORT 1024x768 while the App lays out at
+      the window size, so as specified this would check App rects against a 1024x768 IO root. Do Q33b2 FIRST (or take the
+      IO root from the App viewport). Expected gain after that: 2.5-4.1 s per 60 s on Wikipedia, ~0.8 s on YouTube.
 
 --- NEW 2026-11-19 (Opus, R44): PERFORMANCE VISIBILITY (QOBS) + three new hotspots ---
 Why: every perf investigation so far (R37, R42, R43) needed throwaway instrumentation that was then
@@ -1292,6 +1288,19 @@ Shared rules for this block:
       cursor), when no stylesheet rule tests `[style]`. ~5-8 of 51 getPlayerSize layouts. Revisit when transforms reach
       getBoundingClientRect (then scale DOES change rects). Tests: a color-only style write forces no layout; a width
       write still does; a `[style*=..]` rule present disables the skip.
+- [ ] [WIP] QY53n [M] (P1 for the mouse freeze, from QY53e3 ad764fa, R43 section 11; Opus design first) Every hover
+      restyle is a whole App tree build: 130-170 ms of main thread per hover on Wikipedia (2.6-3.8 s per 60 s), and on
+      YouTube hover/pointer handling coincides with the video freezes (user's frame stats). Design a hover restyle that
+      does not rebuild the whole tree (restyle only elements whose :hover state changed + descendants/siblings that rules
+      can see; reuse boxes when the change is paint-only, e.g. color/background/text-decoration/opacity; relayout only
+      if a layout-affecting property changed). Gate (frame stats): builds.ms per hover_restyle <= 20 % of today's with
+      pointer moves only over Wikipedia links; input.lat_p95_ms reported. Coordinate with QM1k1n6 (pointer coalescing).
+- [ ] QY53m [S] (P2, from QY53e3; Sonnet; AFTER QM1k1n6, same code in app.rs) `App::js_sync` skips the restyle when no
+      write in the batch changed a value and neither css_ver nor the media size moved. Use its own "value changed"
+      generation, NOT geom_gen (QY53l2/l3 stop bumping geom_gen for writes that still need a repaint). Wikipedia/YT in a
+      window: App rebuilds after only no-op writes 2-18 / 0-23 per run (up to 2.3 s). Gate: Wikipedia Rust live window
+      60 s same input, median of 3: builds.n and builds.ms drop by the no-op count; screenshot unchanged; unit test: a
+      same-value setAttribute leaves layout_dirty false.
 - [ ] QMEM1 [S] (P2 memory, from QOBS7 67b6f0d; Sonnet, measure first; touches js_style.rs StyleCache: not alongside
       QY53f1 if that touches page_css/StyleCache) YT watch 60 s: `style_cache` = 861 entries, ~183.5 MB (~213 KB per entry)
       of 732 MB RSS. Find what one entry holds (a whole ComputedStyle per element? the full page CSS string or rule list
@@ -3296,6 +3305,8 @@ as the JS measurement corpus (same role the four CSS pages played).
       the page URL, not `<base href>`" was not re-checked by the audit:
       verify before fixing. Same plumbing as QY10a. Element geometry is
       QY-IO-GEOMETRY.
+      PROMOTED 2026-11-19 into the PERFORMANCE QUEUE (step 14b, QY53e3 ad764fa): prerequisite of QY53e2. Gate: in a
+      window a forced layout's viewport equals the window size; headless `--perf-report` unchanged; resize updates it.
 - [x] Q33c2 [S] (1b02dd5) A `<dialog>` without `open` must be `display:none` (UA [archived: TODO-DONE.txt]
 - [x] Q33c3 [S] (5bd6b26) `select{color:transparent}` still paints the option [archived: TODO-DONE.txt]
 - [x] Q33d [M] (46dfc45) Events: `addEventListener/removeEventListener/ [archived: TODO-DONE.txt]
