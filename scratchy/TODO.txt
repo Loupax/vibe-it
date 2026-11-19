@@ -39,8 +39,7 @@ PERFORMANCE QUEUE, in order (items keep their Detail entries where they are; sea
   14b Q33b2 [S] real innerWidth/innerHeight + forced-layout viewport = window size (QY53e3: prerequisite of QY53e2) | Tier 7
   14d [WIP] QY53m [S] App::js_sync skips the restyle after no-op write batches (after QM1k1n6: same code)
   15 QY53e2 [M]  IO uses the App's own layout                                       | QY53 block
-  16 QM1g2 (a) [M] render mpv frames off the main thread (33-39 ms per frame today); split (a) out
-                 as its own item QM1g2a when taken, (b)-(d) stay where they are     | QM1g block
+  16 [WIP] QM1g2a [M] render mpv frames off the main thread (33-39 ms per frame today)
  Step 5, memory, regression guards, re-measure:
   21 QY60 [S, Opus measure] main-thread throughput on YouTube results (re-measure after steps 2-4)
   22 QY54 [S, Opus measure] compositor disconnect under stalls (re-run after steps 2-4)
@@ -722,9 +721,11 @@ no geometry). So: not the engine, not our hooks in general, ONE hook.
       `played` ranges are always empty, `srcObject`/`captureStream` stubs, no TextTracks;
       (e) audio is `ao=null` unless SCRATCHY_MEDIA_AO is set: QM1g chooses the real default;
       (f) user activation is "sticky" (any trusted click/key/mouse press once per page).
-- [ ] QM1g2 [M] (from QM1g) Leftovers: (a) mpv frames are rendered on the MAIN thread (33-39 ms per
-      720p->640x360 frame at load average 14-20; a worker thread owning the render context
-      would keep scroll/hover responsive); (b) a `<video>` inside a mask-image or opacity
+- [ ] [WIP] QM1g2a [M] (P2 perf, split out of QM1g2 (a) 2026-11-19; Opus) mpv frames are rendered on the MAIN thread
+      (33-39 ms per 720p->640x360 frame at load average 14-20); a worker thread owning the render context would keep
+      scroll/hover/JS responsive. Gate: main-thread time per video frame ~0 in frame stats while video plays; video fps not
+      worse; no tearing/stale frames (tests + a nested-window run).
+- [ ] QM1g2 [M] (from QM1g) Leftovers ((a) split out as QM1g2a): (b) a `<video>` inside a mask-image or opacity
       layer paints black (no frame substitution) and forces a full redraw per frame;
       (c) no rounded-corner clipping (`border-radius`) of the video; (d) `controls` are not
       drawn (QM1h-ish item) and there is no fullscreen [filed 2026-11-19 by QM1n: QM1n2 click
